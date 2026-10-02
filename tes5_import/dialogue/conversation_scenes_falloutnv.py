@@ -25,6 +25,7 @@ from ..packages.converter import SPEED_WALK, build_pkdt, build_target, sit_input
 from ..packages.scripts_falloutnv import package_flags
 from ..packages.templates import TRAVEL, Inputs
 from ..packages.types_falloutnv import FNV_DIALOGUE, dialogue_topic
+from ..record_types.settings_falloutnv import setting
 from script_convert.conversation_sequence import equality_gate
 from .arrest import info_records, shared_copy
 from .converter import SCENE_TOPIC
@@ -47,9 +48,6 @@ _ALL_INTERRUPTS = 0xFFFF
 
 #: PLDT type Near Reference: the package's place is a placed reference.
 _NEAR_REFERENCE = 0
-
-#: Activate distance when PTDT.Count is unset: the GECK's iActivatePickLength.
-_DEFAULT_REACH = 150
 
 #: TES5 IsInList, the talking-as gate beside a GetIsID.
 _FUNC_IS_IN_LIST = 372
@@ -220,7 +218,7 @@ def _plan_one(rec: dict, index: dict, plan, writer):
         return 'no chain'
     place = get_formid(rec, 'PLDT.Location') if get_int(rec, 'PLDT.Type', -1) == _NEAR_REFERENCE else 0
     return Conversation(rec['FormID'].upper(), get_str(rec, 'EditorID'), quest, speaker, target,
-                        get_int(rec, 'PTDT.Count', 0) or _DEFAULT_REACH,
+                        get_int(rec, 'PTDT.Count', 0) or int(setting('iActivatePickLength')),
                         writer.derive_formid('CONV_SCENE', rec['FormID'].upper()), talking, steps,
                         place, index['base'].get(place) in index['seats'])
 

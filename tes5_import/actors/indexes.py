@@ -10,6 +10,7 @@ Extracted from import_plugin, which is over the size the code rules allow.
 See: docs/commentary/tes5_import_falloutnv_actors.md
 """
 
+from ..record_types.settings_falloutnv import load_fallout_settings
 from output_layout import assets_for
 
 from ..base.master_export import values_of
@@ -52,6 +53,7 @@ def build_actor_indexes(by_type: dict, writer, export_dir: str, ctx,
     _load_sound_identity(by_type, master_export)
     reset_emitted_regions()
     register_fallout_source(by_type)
+    load_fallout_settings(by_type, master_export, export_dir)
     n_child = register_child_wear(by_type)
     if n_child:
         print(f'  FO3/FNV children: {n_child} carried item(s) fit the child races')
