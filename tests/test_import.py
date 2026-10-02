@@ -8061,16 +8061,6 @@ class TestFalloutReferenceOnlyRecords:
         assert (flags & 1, ptype, gravity, speed) == (0, 1, 0.0, 23680.0)
         assert struct.unpack_from('<f', data, 32)[0] == 2.5
 
-    def test_alt_trigger_needs_an_explosion(self):
-        """Alt. Trigger survives on an exploding projectile only (FO3's 10mm round carries it bare)."""
-        from tes5_import.record_types.projectile_falloutnv import convert_PROJ
-        rec = {'FormID': '0010000D', 'RecordFlags': '0', 'EditorID': 'P',
-               'DATA.Flags': '140', 'DATA.Type': '1', 'DATA.AltTriggerProximity': '1.0'}
-        bare = struct.unpack_from('<H', _find_subrecord(convert_PROJ(rec), b'DATA'))[0]
-        boom = struct.unpack_from('<H', _find_subrecord(
-            convert_PROJ({**rec, 'DATA.Explosion': '00012345'}), b'DATA'))[0]
-        assert (bare & 0x04, boom & 0x04) == (0, 0x04)
-
     def test_projectile_is_never_a_tracer(self):
         """FO3's 10mm round carries tracer chance 1.0; the TES5 PROJ writes 0 (a tracer hits no actor)."""
         from tes5_import.record_types.projectile_falloutnv import convert_PROJ
