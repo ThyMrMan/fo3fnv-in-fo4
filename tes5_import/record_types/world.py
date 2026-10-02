@@ -21,7 +21,7 @@ from .world_morrowind import is_tes3_source, lock_is_exit_only, tes3_refr_flags
 from .vendor_stock_morrowind import stock_owner
 from .items import get_base_origin_shift
 from ..actors.starts_dead import STARTS_DEAD_FLAG, starts_dead
-from ..packages.patrol_falloutnv import patrol_subrecords, patrol_vmad
+from ..packages.patrol_falloutnv import patrol_subrecords
 from .two_state_falloutnv import open_by_default_vmad
 from ..base.text_reader import remap_formid
 from .common import (
@@ -982,7 +982,7 @@ def _refr_head(rec: dict) -> bytes:
     edid = get_str(rec, 'EditorID')
     if edid:
         subs += pack_string_subrecord('EDID', edid)
-    subs += patrol_vmad(rec) or open_by_default_vmad(rec)
+    subs += open_by_default_vmad(rec)
     name_raw = int(rec.get('NAME', '0') or '0', 16)
     name_fid = _refr_base_formid(rec, name_raw)
     if name_raw == 0x10 and get_str(rec, 'MapMarker') != '1':
