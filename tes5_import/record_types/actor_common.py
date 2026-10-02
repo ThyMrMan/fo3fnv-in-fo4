@@ -23,6 +23,7 @@ from ..base.conditions import FUNC_GET_IN_FACTION, build_or_chain, needs_origin_
 from ..base.text_reader import get_formid_index_offset
 from ..dialogue.morrowind_sidecar import is_tes3_export
 from .actors_falloutnv import aggro_radius, aidt_tiers, assistance
+from .crime_falloutnv import load_tracking_factions, tracks_crime
 from .common import (
     get_float,
     get_formid,
@@ -156,8 +157,9 @@ def in_evil_faction(rec: dict) -> bool:
 def load_faction_player_reactions(by_type: dict, master_export: dict = None) -> None:
     """Index each FACT's disposition modifier toward the player faction.
 
-    Also indexes the prey and Evil factions and, via `_load_crime_factions`,
-    the factions this plugin's scripts treat as crime factions.
+    Also indexes the prey, Evil and FO3/FNV Track Crime factions and, via
+    `_load_crime_factions`, the factions this plugin's scripts treat as crime
+    factions.
 
     See: docs/commentary/tes5_import_actors.md#faction-player-disposition
     """
@@ -165,6 +167,7 @@ def load_faction_player_reactions(by_type: dict, master_export: dict = None) -> 
     _PREY_FACTIONS.clear()
     _load_crime_factions(by_type)
     _load_evil_factions(by_type, master_export)
+    load_tracking_factions(by_type, master_export)
     for rec in by_type.get('FACT', []):
         fid = get_formid(rec, 'FormID') & 0xFFFFFF
         edid = (get_str(rec, 'EditorID') or '').lower()
@@ -844,10 +847,12 @@ def convert_FACT(rec: dict) -> bytes:
     """FACT -> FACT: relations as XNAM, flags remapped, CNAM as CRVA.
 
     Crime amounts follow the vanilla census of the 14 real Skyrim crime
-    factions; a faction only gets them when the scripts test it.
+    factions; a faction only gets them when the scripts test it or FO3/FNV
+    flags it Track Crime, and an FO3/FNV one neither arrests nor attacks on sight.
 
     See: docs/commentary/tes5_import_actors.md#faction-relations
     See: docs/commentary/tes5_import_actors.md#crva-layout
+    See: docs/commentary/tes5_import_actors.md#fallout-crime-factions
     """
     subs = b''
     edid = get_str(rec, 'EditorID')
@@ -870,13 +875,14 @@ def convert_FACT(rec: dict) -> bytes:
         tes5_flags |= _T5F_HIDDEN_FROM_NPC
     if tes4_flags & _T4F_SPECIAL_COMBAT:
         tes5_flags |= _T5F_SPECIAL_COMBAT
-    if (edid or '').lower() in TES4_CRIME_FACTIONS:
+    if (edid or '').lower() in TES4_CRIME_FACTIONS or tracks_crime(rec):
         tes5_flags |= _T5F_TRACK_CRIME
     subs += pack_subrecord('DATA', struct.pack('<I', tes5_flags))
 
     crime_gold = get_float(rec, 'CNAM.CrimeGold', 1.0)
+    jails = 0 if tracks_crime(rec) else 1
     if tes5_flags & _T5F_TRACK_CRIME:
-        crva = struct.pack('<BBHHHHHfHH', 1, 1, 1000, 40, 5, 25, 0,
+        crva = struct.pack('<BBHHHHHfHH', jails, jails, 1000, 40, 5, 25, 0,
                            crime_gold, 100, 0)
     else:
         crva = struct.pack('<BBHHHHHfHH', 1, 1, 0, 0, 0, 0, 0,

@@ -20,7 +20,7 @@ from tools.release.character_rules_falloutnv import (CRIME_EVENT_NODE, EVENT_POO
                                                      KILL_EVENT_NODE, LOCK_EVENT_NODE, SPECIAL,
                                                      build_fallout_plugin, settings_table)
 from tools.release.character_rules_standings import amount_table
-from tools.release.character_rules_records import SHARES_EVENT
+from tes5_import.base.story_nodes import SHARES_EVENT
 from tools.release.make_game_select_esp import PLAYER_ATTRIBUTE_GLOBALS
 
 MASTERS = ['Skyrim.esm', 'FalloutNV.esm']

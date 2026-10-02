@@ -26,6 +26,8 @@ Nothing here converts anything; it only answers questions about names.
 
 from __future__ import annotations
 
+import os
+
 from script_convert.tes4 import nodes as N
 
 from dataclasses import dataclass, field
@@ -40,16 +42,18 @@ from script_convert.command_rows import (
     OBJREF_SHARED_FUNCTIONS,
 )
 
-# Names a generated script may use without declaring them: Papyrus globals,
-# script-scope keywords, and the event parameters fragments are handed.
-# `pipeline._comment_dangling` imports this one; it does not keep a copy.
-IMPLICIT_NAMES = frozenset({
+#: The static_scripts/ classes every converted game ships, lowercase.
+STATIC_SCRIPT_CLASSES = frozenset(name[:-4].lower() for name in os.listdir(
+    os.path.join(os.path.dirname(__file__), 'static_scripts')) if name.endswith('.psc'))
+
+#: Names a script may use undeclared: Papyrus globals, keywords, event parameters, the static scripts.
+IMPLICIT_NAMES = STATIC_SCRIPT_CLASSES | frozenset({
     'game', 'debug', 'utility', 'self', 'parent', 'math', 'input',
     # `weather` is the CLASS in `Weather.ReleaseOverride()`, not a variable.
     'weather',
     'akspeakerref', 'akactionref', 'aktarget', 'akcaster', 'akaggressor',
     'akkiller', 'akactor', 'akitem', 'aksource', 'akrefself',
-    'tes4polyfill', 'tes4_twostateactivator', 'form', 'true', 'false', 'none',
+    'form', 'true', 'false', 'none',
 })
 
 
