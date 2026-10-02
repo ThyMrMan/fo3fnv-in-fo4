@@ -386,14 +386,28 @@ origin, pitch, heading, desired target) next to the camera's and the
 player's position and angles, and where each round stopped, polling its
 reference every 16 ms. Lines start with `shot`.
 
-<a id="one-shot-per-pull"></a>**One shot per pull: one press per click.** The
+<a id="one-shot-per-pull"></a>**One shot per pull: a handled press reports itself performed.** The
 2026-10-01 tests fired most FO3 10mm pulls twice, the second round about 178 ms
-after the first. The [shot trace](#shot-trace) showed the cause: one click
-reached `PerformAction` as `ActionRightAttack` twice in the same millisecond,
-each press sent `TES4GunFire`, and the second was taken as a re-attack once
-the first attack's window opened. A second attack press from the same actor
-within 50 ms is now dropped (`press dropped: the same click again` in the
-trace).
+after the first. The [shot trace](#shot-trace) showed one click reaching
+`PerformAction` as `ActionRightAttack` twice in the same millisecond, and each
+press sent `TES4GunFire`. The second was taken as a re-attack once the first
+attack's window opened.
+
+The cause is in the caller. Both call sites of `Actor::PerformAction`
+(0x6cf1b0, id 39002, in 1.6.1170) sit in one wrapper, 0x6cd0d0 (id 38949).
+TESActionData's slot 5 and ActorMediator's slot 1 reach it. The wrapper
+treats PerformAction's result as "performed":
+- on success it marks a queued action done (`[action+0x58] = 2`);
+- on failure it queues an unqueued action for another try (`0x6cf760` at
+  0x6cd2be).
+
+The hook handled the press but returned 0, so the engine retried the same
+action and the gun fired again. A handled press or release now returns 1,
+as a performed attack would. The dropped actions (interrupt, off-hand, power
+attacks) still return 0.
+
+An earlier fix dropped a second press within 50 ms. It hid the retry, and
+would also have eaten a genuine fast second click.
 
 Three earlier guesses were wrong: a 20 ms same-frame window on the shot
 event, dropping a copy from the other camera's graph, and the pitch blend's

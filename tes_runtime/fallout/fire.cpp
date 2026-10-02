@@ -46,7 +46,7 @@ constexpr std::size_t kActorFlags = 0xc8;         // ActorState flags; attack st
 constexpr int kDefaultZoomKey = 0x02;             // VK_RBUTTON
 constexpr std::size_t kRefAngleX = 0x48;          // OBJ_REFR angle.x: the look pitch, radians
 constexpr float kDegreesPerRadian = 57.29578f;
-constexpr unsigned long long kSamePressMs = 50;   // one click reached PerformAction twice in the same ms
+constexpr std::int64_t kPerformed = 1;            // PerformAction's result: the action was performed
 constexpr std::size_t kCameraRoot = 0x20;         // TESCamera::cameraRoot (NiNode*)
 constexpr std::size_t kCameraState = 0x28;        // TESCamera::currentState
 constexpr std::size_t kFirstPersonState = 0xb8;   // the state 0x766130 compares it with
@@ -89,7 +89,6 @@ FiringNodeFn   g_origFiringNode = nullptr;
 void**         g_playerCamera = nullptr;
 AimAnglesFn    g_origPlayerAim = nullptr;
 void*          g_shooter = nullptr;                 // the actor inside our Fire call
-std::unordered_map<void*, unsigned long long> g_lastPress;
 ProcessEventFn g_origProcessEvent[2] = {nullptr, nullptr};
 void**         g_player = nullptr;
 std::unique_ptr<FixedString> g_shotTag, g_drawTag, g_equipTag, g_soundPlay, g_reloadEvent,
@@ -224,17 +223,6 @@ void Press(void* actor, const Gun& gun) {
     if (IsPlayer(actor)) ZoomNoteFiring(true);
 }
 
-// True for a second attack press from `actor` within kSamePressMs: one click
-// can reach PerformAction twice in the same millisecond, and each press
-// queued its own attack, so the gun fired again 178 ms later.
-bool RepeatedPress(void* actor) {
-    const unsigned long long now = GetTickCount64();
-    auto it = g_lastPress.find(actor);
-    const bool repeat = it != g_lastPress.end() && now - it->second < kSamePressMs;
-    if (!repeat) g_lastPress[actor] = now;
-    return repeat;
-}
-
 int AttackState(void* actor) {
     return static_cast<int>(At<std::uint32_t>(actor, kActorFlags) >> 28);
 }
@@ -243,7 +231,11 @@ int AttackState(void* actor) {
 // graph's TES4GunFire (or the dry fire), the release its
 // TES4GunFireRelease; the interrupt, the off-hand (bash/block) and the
 // power attacks are dropped. None of them reaches the engine, so no
-// attack state is ever written for a gun.
+// attack state is ever written for a gun. A handled press or release
+// reports itself performed: the caller (0x6cd0d0, id 38949) queues an
+// action that failed for another try (0x6cf760), and that retry was the
+// second shot of one click.
+// See docs/commentary/tes_runtime_guns.md#one-shot-per-pull
 std::int64_t ActionHook(void* a, void* action, std::int64_t c, std::int64_t d) {
     void* actor = action ? At<void*>(action, kActionActor) : nullptr;
     void* form = actor ? At<void*>(action, kActionForm) : nullptr;
@@ -257,17 +249,13 @@ std::int64_t ActionHook(void* a, void* action, std::int64_t c, std::int64_t d) {
         TraceStep(actor, step);
     }
     if (std::strcmp(name, kFireAction) == 0) {
-        if (RepeatedPress(actor)) {
-            TraceStep(actor, "press dropped: the same click again");
-            return 0;
-        }
         Press(actor, *gun);
-        return 0;
+        return kPerformed;
     }
     if (std::strcmp(name, kFireReleaseAction) == 0) {
         TraceStep(actor, "release: TES4GunFireRelease sent");
         SendToGraph(actor, *g_fireRelease);
-        return 0;
+        return kPerformed;
     }
     for (const char* dropped : kDroppedActions) {
         if (std::strcmp(name, dropped) == 0) return 0;
