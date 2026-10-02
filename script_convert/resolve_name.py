@@ -89,7 +89,7 @@ BARE_INERT = frozenset({
     'getcrimeknown', 'getstartingpos', 'getisplayerbirthsign',
     'hasbeenpickedup', 'getgameloaded', 'hasvariable', 'getownership',
     'isonguard', 'isindangerouswater', 'getarmorrating', 'isspelltarget',
-    'isswimming', 'isactor', 'getspellcount', 'getrestrained',
+    'isswimming', 'getspellcount', 'getrestrained',
     'getpcfactionattack', 'getpcfactionsteal', 'getpcfactionmurder',
 })
 
@@ -97,7 +97,8 @@ BARE_INERT = frozenset({
 #: argument-bearing path.  Without routing, each survives into the output as an
 #: undefined identifier -- a hard compile error that fails the whole script.
 BARE_COMMANDS = frozenset({
-    'isanimplaying', 'getiscreature', 'iscreature', 'hasvampirefed',
+    'isanimplaying', 'getiscreature', 'iscreature', 'hasvampirefed', 'isactor',
+    'isplayable', 'isplayable2', 'isactorsaioff',
     'isspelltarget', 'isguard', 'getnextref', 'isowner', 'getbaseobject',
     'isonground', 'isthirdperson', 'isplayerinjail', 'getpcinfamy',
     'getrestrained', 'ispcamurderer', 'getcrimegold', 'getpcfame',

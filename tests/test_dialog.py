@@ -1334,6 +1334,31 @@ class TestFalloutConditions:
             assert struct.unpack_from('<I', convert_ctda(raw, offset=1), 12)[0] == tes5_av
         assert convert_ctda(_tes4_ctda(func=14, p1=23) + b'\0' * 4, offset=1) is None
 
+    def test_permanent_actor_value_is_translated(self):
+        """GetPermanentActorValue (FNV 495, Skyrim 494) carries an actor value."""
+        out = convert_ctda(_tes4_ctda(func=495, p1=43) + b'\0' * 4, offset=1)
+        assert struct.unpack_from('<HxxI', out, 8) == (494, 17)
+
+    @pytest.mark.parametrize('size', [20, 24])
+    def test_short_ctda_from_a_fallout_source_is_fallouts(self, size, monkeypatch):
+        """FO3/FNV masters also store 20- and 24-byte CTDAs; the source decides."""
+        monkeypatch.setattr(world_falloutnv, '_IS_FALLOUT_SOURCE', [True])
+        voice = convert_ctda(_tes4_ctda(func=427)[:size], offset=1)
+        assert struct.unpack_from('<H', voice, 8)[0] == 426
+        speech = convert_ctda(_tes4_ctda(func=14, p1=43)[:size], offset=1)
+        assert struct.unpack_from('<I', speech, 12)[0] == 17
+
+    def test_short_fallout_ctda_is_not_split_as_tes4_blade(self, monkeypatch):
+        """FNV 14 is Critical Chance, not TES4 Blade: one CTDA, no Two-Handed twin."""
+        monkeypatch.setattr(world_falloutnv, '_IS_FALLOUT_SOURCE', [True])
+        rec = {'Condition[0].Raw': _tes4_ctda(type_byte=0x60, func=14, p1=14).hex()}
+        out = convert_ctda_list_with_strings(rec, offset=1)
+        assert [struct.unpack_from('<I', c, 12)[0] for c, _ in out] == [33]
+
+    def test_short_ctda_stays_tes4_for_a_tes4_source(self):
+        """Without a Fallout source a 24-byte CTDA is TES4's: 43 is no actor value there."""
+        assert convert_ctda(_tes4_ctda(func=14, p1=43), offset=1) is None
+
 
 def _av_ctda(func: int, av: int, size: int = 28) -> bytes:
     """A GetActorValue-family CTDA (Subject, `>= 50`) naming actor value `av`."""

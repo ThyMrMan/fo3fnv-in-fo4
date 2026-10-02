@@ -125,6 +125,16 @@ def talked_to_pc(raw: bytes, func_idx: int) -> 'tuple | None':
     return _GET_IN_FACTION, (TALKED_FACTION[0], 0)
 
 
+def fallout_ctda(raw: bytes) -> bytes:
+    """`raw`, zero-padded to 28 bytes when the source is FO3/FNV.
+
+    See: docs/commentary/tes5_import_conditions.md#fallout-short-ctda
+    """
+    if len(raw) < FALLOUT_CTDA_SIZE and is_fallout_source():
+        return raw.ljust(FALLOUT_CTDA_SIZE, b'\0')
+    return raw
+
+
 def fallout_function(func_idx: int) -> 'int | None':
     """The Skyrim index for a Fallout condition function, or None if it has none."""
     if func_idx in FNV_FUNC_ABSENT and func_idx != _GET_DISPOSITION:

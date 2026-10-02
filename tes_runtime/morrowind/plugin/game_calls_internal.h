@@ -107,6 +107,9 @@ void WatchSanctuary(std::uint32_t actorId);
 // summed Sanctuary. game_calls_sanctuary.cpp.
 void TickSanctuary(void* player);
 void InstallSanctuaryCalls();
+// `PlayGroup` / `LoopGroup`: the object animation queue on the mesh's own
+// sequences, and the tick that advances it. game_calls_anim.cpp.
+void InstallAnimCalls(GameHooks& hooks);
 // The seven player-control switches and Game.ShowRaceMenu.
 // See: docs/commentary/morrowind_runtime.md#the-control-switches
 void InstallControlCalls(GameHooks& hooks);

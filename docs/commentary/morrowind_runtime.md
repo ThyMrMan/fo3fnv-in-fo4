@@ -933,6 +933,34 @@ every player, and Ordinators set fight 100 and attacked on sight. A `set`
 cannot repair it either: the compiler's `getGlobalType` returns `' '` for an
 unknown global, so `OrdinatorUniform` fails to compile.
 
+### <a id="master-placements"></a>🛑 A placement belongs to the plugin that PLACES it
+
+**Code:** `master_scripted`, `rebased_formid`, `runtime_masters` in
+`tes5_import/dialogue/morrowind_placements.py`; `_scripted_bases`,
+`_script_tables` in `morrowind_sidecar.py`.
+
+A master stages its own script *bodies*, but not the references other plugins
+make to its objects. `SCPT_instances` used to list only references whose base
+the plugin itself defines, so a Tamriel Rebuilt cell holding a Tamriel_Data
+or patch banner ran no script: the runtime never knew the reference was
+there. Each plugin now also stages its own placements of the scripted bases
+its MWScript masters define. TR gained 10,232 instance rows (15,546 → 25,778:
+5,467 on compat-patch bases, 4,380 on Tamriel_Data bases, 385 on TR's own) and
+385 `SCPT_objects` rows; Tamriel_Data gained 39; nothing was removed.
+
+None of them is on a `Morrowind_ob.esm` base. A Morroblivion master's scripts
+are Oblivion script, converted to Papyrus, so `runtime_masters` skips it;
+staging its objects here would run a second script on them. The patch's
+object scripts are authored MWScript (its export ships no Papyrus for them),
+and Tamriel_Data and TR have no script stage, so every new row gives an
+object the only script it has.
+
+The same pass fixed a name collision in `_script_tables`. The first export to
+declare a script name claimed it, even when this plugin could not spell that
+export's FormID. The authored `Morrowind.esm` export claimed `OutsideBanner`,
+so the patch's copy (the one the banners name) was never mapped. A dir now
+claims a name only when its FormID rebases into this plugin's master list.
+
 ### <a id="short-globals-truncate"></a>🛑 A `short`/`long` global TRUNCATES its FLTV
 
 TES3 stores every global's value as a float whatever its FNAM type, and
@@ -3563,6 +3591,50 @@ entirely, so the audit reported 487 commands rather than 508 and could not
 report the family either way. Fixed by widening `_ARRAY` to the
 `inline constexpr` form, threading the header in beside `extensions0.cpp`, and
 letting a loop name carry an inline prefix and a trailing suffix.
+
+## <a id="object-animation"></a>`PlayGroup`, `LoopGroup` and `SkipAnim` on objects
+
+**Code:** `plugin/script_ops_anim.cpp`, `plugin/game_calls_anim.cpp`,
+`common/gamebryo_sequence.*`; the sequences come from
+`asset_convert/nif/object_anim_morrowind.py`
+([asset_convert_animation.md](asset_convert_animation.md#morrowind-object-animation)).
+
+The queue is OpenMW's `CharacterController::playGroup`/`updateAnimQueue` for a
+non-actor: one group plays and one waits. Mode 0 queues behind the current
+group and modes 1/2 start at once; `PlayGroup` loops forever and `LoopGroup n`
+plays n+1 cycles. A queued group lets a looping one finish the cycle it is in.
+The same looping group asked for again keeps playing, which is how a banner
+script calls `PlayGroup Idle2` every frame. A one-shot holds its last pose,
+and `Idle` is the mesh's `AutoPlay`/`AutoLoop` pair. A looping group plays
+`<Group> Intro` once, then its loop, then `<Group> Outro` once.
+
+🛑 **Starting a sequence is not enough: the manager must be flagged active.**
+`ObjectReference.PlayGamebryoAnimation` (1.6.1170 `0xa2ead0`) does three
+things after `NiControllerSequence::Activate`:
+
+- `manager.flags |= 0x8` (NiTimeController active, +0x10);
+- `MarkChanged(0x10000000)`, the reference's animation change flag (vtable +0x50);
+- `TESForm` slot 0x24 with `true`, which sets form flag 0x2 (vtable +0x120).
+
+Only the first matters while playing. The engine clears the active bit on
+load: the banners shipped flags `0x4C` and read `0x0044` in game before a play,
+`0x004C` after. Without the flag, every sequence started `active` and the
+banners stood still with nothing logged. Setting it is what made them blow
+(confirmed in game, Bal Foyen). The manager is the 3D root's first controller
+(+0x18), as the native reads it.
+
+`SkipAnim` holds the ambient pair still for each tick a script calls it, and
+never a scripted group (OpenMW's `isScriptedAnimPlaying`). It stops the
+sequences, which leaves the pose where it was, and resumes them with
+`Activate` without start-over. The sequence's time is `time + offset` (+0x6c)
+fed through ComputeScaledTime (`0xd93be0`, last time +0x50, weighted time
++0x54). Deactivate folds the time played into the offset, so a resume
+subtracts the time spent held, or the animation jumps ahead. The object tick
+runs at 30 Hz against a faster frame rate, so nudging the offset every tick
+would jitter. Only TR's Necrom undercroft fan uses it on an object.
+
+NPCs and creatures are not handled: they are Skyrim actors with Skyrim
+behavior graphs, not Morrowind animation groups.
 
 ## <a id="crime-is-the-engines"></a>Crime is the engine's: bounty, fines, jail, arrest
 

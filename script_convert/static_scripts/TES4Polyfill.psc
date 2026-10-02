@@ -965,6 +965,19 @@ Bool Function GetIsCreature(Actor akActor) Global
   Return !akActor.HasKeyword(npcKeyword)
 EndFunction
 
+; OBSE IsPlayable / IsPlayable2: the base form's playable flag (SKSE
+; Form.IsPlayable).  TES4 accepted a placed reference too; it answers for its base.
+Bool Function IsPlayable(Form akForm) Global
+  ObjectReference placed = akForm as ObjectReference
+  If placed != None
+    Return placed.GetBaseObject().IsPlayable()
+  EndIf
+  If akForm == None
+    Return False
+  EndIf
+  Return akForm.IsPlayable()
+EndFunction
+
 ; TES4 HasVampireFed: Skyrim's PlayerVampireQuest (Skyrim.esm 0x000EAFD5)
 ; tracks feeding — VampireStatus is 1 exactly while a vampire has recently fed
 ; (it climbs to 2..4 as the player goes hungry).

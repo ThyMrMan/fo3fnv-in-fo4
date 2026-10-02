@@ -132,6 +132,18 @@ COMMAND_ROWS = {
     #: IsActorUsingATorch: equipped-item type 11 is the torch slot.
     'isactorusingatorch': Cmd('({ref}.GetEquippedItemType(0) == 11)', ACTOR, flags='cmp_bool'),
 
+    #: A runtime type test on any reference: a non-actor casts to None.
+    'isactor': Cmd('(({ref} as Actor) != None)', OBJREF,
+                   flags='bare_bool cmp_bool zero_arg'),
+
+    #: The engine's AI-enabled flag; vanilla EnableAI writes it, SKSE IsAIEnabled reads it.
+    'setactorsai': Cmd('{ref}.EnableAI({b0})', ACTOR, defaults={0: '1'},
+                       flags='actor_only'),
+    'toggleactorsai': Cmd('{ref}.EnableAI(!{ref}.IsAIEnabled())', ACTOR,
+                          flags='actor_only zero_arg'),
+    'isactorsaioff': Cmd('(!{ref}.IsAIEnabled())', ACTOR,
+                         flags='actor_only bare_bool cmp_bool zero_arg'),
+
     #: Unlock takes no argument in TES4; Skyrim's Lock(false) is the unlock.
     'unlock': Cmd('{ref}.Lock(false)', OBJREF),
 
@@ -387,8 +399,6 @@ COMMAND_ROWS = {
     'iskeypressed2': Cmd(note='{f} has no Papyrus equivalent (read as 0)'),
     'iskeypressed3': Cmd(note='{f} has no Papyrus equivalent (read as 0)'),
     'isonguard': Cmd(note='{f}'),
-    'isplayable': Cmd(note='{f} has no Papyrus equivalent (read as 0)'),
-    'isplayable2': Cmd(note='{f} has no Papyrus equivalent (read as 0)'),
     'isplayermovingintonewspace': Cmd(note='{f} has no Papyrus equivalent (read as 0)'),
     'isplayerslastriddenhorse': Cmd(note='{f} has no Skyrim equivalent', flags='bare_bool zero_arg'),
     #: IsSwimming → no vanilla equivalent, approximate with submerged check
@@ -409,8 +419,6 @@ COMMAND_ROWS = {
     'sendtrespassalarm': Cmd(note='{f}'),
     #: SetActorFullName → no-op (SKSE required for SetDisplayName)
     'setactorfullname': Cmd(note='SetActorFullName'),
-    #: SetActorsAI → no-op
-    'setactorsai': Cmd(note='SetActorsAI'),
     'setallreachable': Cmd(note='{f}'),
     'setallvisible': Cmd(note='{f}'),
     #: SetCellFullName no-op
@@ -1031,9 +1039,10 @@ HANDLED_COMMANDS = frozenset((
     'getpcfactionmurder', 'getpcfactionsteal', 'getpcfactionsteal',
     'getpcisclass', 'getpcismurderer', 'getpcisrace', 'getpcissex',
     'getsecondspassed', 'getself', 'getspellcount',
-    'holdkey', 'isactionref', 'isactivator', 'isactor', 'isarmor', 'isbook',
+    'holdkey', 'isactionref', 'isactivator', 'isarmor', 'isbook',
     'isclothing', 'iscontainer', 'isdoor', 'isingredient', 'iskey', 'islight',
     'ismisc', 'isowner', 'ispcamurderer', 'ispcanmurderer', 'ispcrace',
+    'isplayable', 'isplayable2',
     'isplayersleeping', 'ispotion', 'israining', 'isspelltarget', 'isweapon',
     'lookismile', 'modamountsoldstolen', 'moddisposition', 'pathtoref',
     'pickidle', 'playback', 'playbackalt', 'playgroup', 'playidle',
@@ -1194,7 +1203,7 @@ ACTOR_VALUE_READ_FUNCTIONS = _flagged('av_read')
 
 #: Boolean (0/1) and usable as a bare check.
 BARE_BOOL_FUNCTIONS = _flagged('bare_bool') | frozenset({
-    'is3dloaded',
+    'is3dloaded', 'isplayable', 'isplayable2',
 })
 
 BARE_NO_EQUIV_COMMANDS = _flagged('bare_no_equiv') | frozenset({
@@ -1215,7 +1224,7 @@ BRANCH_ONLY_COMMANDS = _flagged('branch_only') | frozenset({
 COMPARISON_BOOL_FUNCTIONS = _flagged('cmp_bool') | frozenset({
     'getincell', 'getisclass', 'getiscurrentpackage', 'getisid',
     'getpcisclass', 'gettalkedtopcparam', 'isactionref',
-    'isinfaction', 'isowner',
+    'isinfaction', 'isowner', 'isplayable', 'isplayable2',
 })
 
 OBJREF_IMPLICIT_SELF_FUNCTIONS = _flagged('objref_self') | frozenset({
@@ -1229,7 +1238,7 @@ OBJREF_SHARED_FUNCTIONS = _flagged('objref_shared') | frozenset({
 })
 
 #: Comma-written receivers. See: docs/commentary/script_convert.md#commands-that-must-not-promote
-ZERO_ARG_REF_FUNCTIONS = _flagged('zero_arg') | frozenset({'isactor'})
+ZERO_ARG_REF_FUNCTIONS = _flagged('zero_arg')
 
 #: What `emit/expr.py` reads: every name either list above calls boolean.
 BOOL_VALUED_FUNCTIONS = BARE_BOOL_FUNCTIONS | COMPARISON_BOOL_FUNCTIONS

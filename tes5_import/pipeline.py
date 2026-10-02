@@ -837,7 +837,8 @@ def _prescan_furniture_and_actors(by_type: dict, ctx, writer, export_dir: str, _
     See: docs/commentary/tes5_import_pipeline.md#phase-0-stale-bounds-cache
     """
     from .record_types.items import load_furniture_models
-    load_furniture_models(str(assets_for(export_dir) / 'meshes'), by_type, ctx)
+    load_furniture_models(str(assets_for(export_dir) / 'meshes'), by_type, ctx,
+                          record_dir=export_dir)
     _step_done('furniture seats')
 
     from .dialogue.objective_text import load_objective_text

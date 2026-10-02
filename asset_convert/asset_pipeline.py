@@ -24,6 +24,7 @@ from asset_convert.game_paths import (namespace_for, owns_namespace,
                                        set_namespace)
 from asset_convert.sources import bsa_extract
 from asset_convert.nif import grass_profile
+from asset_convert.nif import morroblivion_textures
 from asset_convert.character import hair_pipeline
 from asset_convert.texture import landscape_normals
 from asset_convert.texture import image_transcode
@@ -38,6 +39,7 @@ from asset_convert.collision import clutter_plan
 from asset_convert.collision import resting_items_plan
 from asset_convert.nif import door_plan
 from asset_convert.nif import fixture_plan
+from asset_convert.nif import furniture_travel
 
 
 # Shared-folder resolution lives in output_layout (one module, three
@@ -126,10 +128,14 @@ def _write_parallax_notice(plugin_dir):
 def _activate_namespace(rec_dir) -> str:
     """Install this plugin's asset namespace before any path is rewritten.
 
+    The Morroblivion texture map is armed here too: it rewrites the same paths,
+    and like the namespace it must reach every spawned worker.
     See: docs/commentary/asset_convert_texture.md#per-game-asset-namespace
+    See: docs/commentary/asset_convert_texture.md#morroblivion-texture-substitution
     """
     ns = namespace_for(rec_dir)
     set_namespace(ns)
+    morroblivion_textures.activate(rec_dir)
     return ns
 
 
@@ -177,10 +183,16 @@ def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
     print(f"  Dynamic clutter plan: {len(masses)} item models")
     doors = door_plan.build_door_models(rec_dir)
     plan[door_plan.DOOR_KEY] = doors
-    print(f"  Door animation plan: {len(doors)} door models")
+    plan[door_plan.REACH_KEY] = door_plan.places_morrowind_doors(rec_dir)
+    print(f"  Door animation plan: {len(doors)} door models"
+          f"{', Morrowind-placed' if plan[door_plan.REACH_KEY] else ''}")
     fixtures = fixture_plan.build_fixture_models(rec_dir)
     plan[fixture_plan.FIXTURE_KEY] = fixtures
+    plan[fixture_plan.ANIMATED_KEY] = fixture_plan.build_animated_models(rec_dir)
     print(f"  Placed fixture plan: {len(fixtures)} scenery models")
+    plan[furniture_travel.SIT_TRAVEL_KEY] = furniture_travel.sit_travels(rec_dir)
+    print(f"  Sit travel plan: {len(plan[furniture_travel.SIT_TRAVEL_KEY])} "
+          f"marker ids with an authored enter animation")
     resting, stocked = resting_items_plan.write_index(export_root, plugin)
     plan[resting_items_plan.RESTING_KEY] = resting
     print(f"  Resting items plan: {stocked} fixture models share a cell "

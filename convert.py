@@ -570,12 +570,16 @@ def _use_plugin_namespace(file_name: str) -> str:
 
     Every phase runs in its own process, and only the ones calling into
     asset_pipeline set this, so the rest wrote the default namespace whatever
-    plugin they were handed.
+    plugin they were handed. The Morroblivion texture map rides along, since
+    it rewrites the same texture paths.
     See: docs/commentary/asset_convert_texture.md#per-game-asset-namespace
     """
     from asset_convert.game_paths import namespace_for, set_namespace
-    ns = namespace_for(record_dir(str(SCRIPT_DIR / "export"), file_name))
+    from asset_convert.nif import morroblivion_textures
+    rec_dir = record_dir(str(SCRIPT_DIR / "export"), file_name)
+    ns = namespace_for(rec_dir)
     set_namespace(ns)
+    morroblivion_textures.activate(rec_dir)
     return ns
 
 

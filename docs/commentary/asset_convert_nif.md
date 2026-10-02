@@ -1414,6 +1414,19 @@ flags with `NIF_FLAGS` (visible), so the marker would show in game as an
 untextured black shape. Vanilla Skyrim NIFs carry no editor markers in these
 objects.
 
+**Morrowind's `Tri EditorMarker*`, only under an `MRK` root.** Morrowind
+spells its marker shapes `Tri EditorMarker*`, which the Oblivion prefix above
+never matches, so they shipped visible (Tamriel Data's `tr_note_pin.nif`, the
+developer notes pinned around TR dungeons, rendered as white slabs). The engine
+hides them only when the root carries an `MRK` string extra
+(`openmw/components/nifosg/nifloader.cpp`, `mHasMarkers`); without it the shape
+renders and collides. `is_marker_shape` (`nif_converter_morrowind.py`) is that
+one rule, read from the latched source-root flags, and both the render walk and
+the collision walker call it. Of the 100 Tamriel Data NIFs with a
+`Tri EditorMarker` shape, 99 carry `MRK`; the one that doesn't,
+`tr_f_ushukur_mummy_uni.nif`, uses the shape as its `RootCollisionNode` box —
+stripping it unconditionally deleted the mummy's collision.
+
 **Every `NiDynamicEffect` subtype.** `NiTextureEffect` (projected-texture
 environment mapping) has a completely different rendering path in Skyrim, and
 `Ni*Light` blocks — Ambient, Directional, Point, Spot — are 3ds Max export
@@ -2494,6 +2507,73 @@ teleport swing, as are 16 teleport-only and 18 mixed bases, with durations from
 1.43s to 5.67s, multi-node drives, overshoot and settle, and double doors
 turning opposite ways (`CDoor03`: −86.7 and +91.9 degrees).
 
+<a id="a-load-door-needs-reach"></a>
+
+### A load door needs reach, because Skyrim's pick is less forgiving
+
+**Code:** `door_anim_morrowind.py:widen_load_door` / `give_door_reach`,
+`door_plan.py:places_morrowind_doors`
+
+Morrowind content sets its non-swinging exterior load doors at hand-placed depths
+behind the building around them, and a Morrowind building's collision is one
+flat wall across the whole facade with **no doorway cutout**: house base
+`T_Rga_SetReach_X_HouseBase_02` is 13 triangles, its front wall one plane over
+y 41640…41916 with the door at y 41656…41750. Morrowind activates the door
+anyway; Skyrim's activation ray stops on the wall. The door still blocks the
+player, so it reads as solid; noclipping past the wall puts the ray origin in
+front of the panel and it answers at once. Disabling the building fixes the
+door in game (`211693` frees `B0AA0C`, `DF7D4B` frees `496D72`).
+
+Measured with converted collision (`collision_extract`) placed the navmesh's
+way, casting 49 rays from 70 units out on the door's arrival-marker side at eye
+height across the panel. Every reported verdict reproduces. The smallest gap
+between the door's hit and the nearest other hit, at the authored collision:
+
+| Verdict | Doors | Smallest gap |
+|---|---|---|
+| works | TR `ABBA81 D380A2 87CFC2 752640 75BF94` | 4.7, 4.9, 9.3, 9.4, 11.2 |
+| half (metal works, wood does not) | TR `837B0C B3F2A4 4F2666` | 0.8, 1.1, 2.0 |
+| broken | TR `290BBF C92CCA 8A58A3 762C6B 496D72` | −1.7 … −16.2 |
+| broken | Sky_Main `E7E108 E4B069 4FC23E 8180DD B0AA0C` | −6.4 … −12.0 |
+| works | Sky_Main `BC1085`, `757038` (centre) | 6.6, edges only behind the frame |
+
+Being in front is not enough: a door under ~2 units clear only answers where its
+latch box sticks out, so the target is at least 5 units clear. Collision depth
+needed for that: Sky_Main up to 12.0 (`B0AA0C`), TR up to **16.5** (`496D72`).
+`LOAD_DOOR_REACH = 18` leaves every example at least 6.5 clear. A 5-unit reach
+fixes only the three shallowest Sky_Main doors and leaves `B0AA0C`/`8180DD`
+broken, which an earlier build shipped.
+
+The rule is one contract wherever collision enters: the door's collision is at
+least `2 * LOAD_DOOR_REACH` deep along its thinnest axis. Width and height never
+change.
+
+- A Morroblivion door with authored `bhk` boxes: `widen_load_door` grows the
+  broadest box's thin half-extent (the panel, not the latch and handle boxes).
+- A Morroblivion door with triangle collision, already a compressed mesh:
+  decoded with `decode_cms_materials`, swept by `give_door_reach`, rebuilt by
+  `build_cms_collision` with every triangle's material kept. Five Morrowind_ob
+  doors are this shape, `exumhupalaceugate` a flat sheet among them.
+- A true Morrowind door has only `RootCollisionNode` triangles, often one flat
+  sheet (`sky_ex_red_door_01`: four vertices at y = −2.2); `give_door_reach`
+  sweeps them in `attach_morrowind_collision`, before the compressed mesh is
+  built.
+
+Scope, each from an authored source:
+
+- **Never swings.** A door with a `NiControllerManager` anywhere, or whose source
+  has a hinge (`source_had_hinge`), keeps its collision. A slab on a swinging
+  panel would narrow every opened doorway.
+- **Morrowind-placed.** `places_morrowind_doors`: a TES3 export, or the
+  Morroblivion plugin (`MORROBLIVION_PREFIX`, the same test the TES3 exporter
+  picks Morroblivion's master with). Neither hinge nor shape separates them from
+  Oblivion's own static load doors: Oblivion has 46 such door meshes thinner than
+  the reach (34 centred, 12 hinged, the Bruma city gate among them), and they are
+  left as authored.
+- A dependent's DOOR record that names a master's mesh which the master itself
+  does not use as a door (TR: 13, Sky_Main: 2) is not covered; every one measured
+  is a non-panel teleport trigger (steps, bookshelf, skull, platform).
+
 
 ## Morrowind surface materials
 <a id="morrowind-surface-materials"></a>
@@ -2569,6 +2649,33 @@ glossiness 0.0, specular (0,0,0), no `NiSpecularProperty`. So every
 `BSLightingShaderProperty` on a 4.0.0.2 source gets `SLSF1_Specular` cleared;
 glossiness and strength keep the vanilla defaults, exactly as vanilla's own
 non-specular shapes do.
+
+
+## Morrowind material alpha
+<a id="morrowind-material-alpha"></a>
+
+**Code:** `asset_convert/nif/nif_converter_morrowind.py::opaque_unblended_shapes`,
+called from `_convert_roots` beside `disable_specular`; 4.0.0.2 sources only.
+
+Tamriel Data's Hlaalu ledge/wall set (`tr_in_hla_ldgwall_side.nif` and
+relatives) vanished in game: every shape carries `NiMaterialProperty` alpha
+0.0 and no `NiAlphaProperty`. Morrowind draws these solid -- OpenMW only puts
+material alpha into the diffuse color
+(`references/openmw/components/nifosg/nifloader.cpp:2765`), and without an
+alpha property nothing blends. Skyrim's `BSLightingShaderProperty` alpha (and
+`BSEffectShaderProperty` emissive alpha) fades the shape regardless, so the
+straight copy in `shaders.py::_harvest_material` made them invisible.
+
+The pass raises shader alpha to 1.0 on every converted shape with no alpha
+property; a shape that has one keeps its authored alpha. Oblivion and later
+meshes never reach it -- there the copy is unchanged.
+
+Measured: 180 of 38,637 converted Tamriel Data meshes had a faded unblended
+shape (41 in `tr/i`, 31 `tr/f`, 27 `pc/f`, 16 `sky/m`, rest scattered); 0
+after the rebuild. Vanilla Morrowind (1,330 meshes): every low-alpha shape
+carries its own `NiAlphaProperty`, so none change. No sampled 4.0.0.2 shape
+(2,681 TR + 1,330 vanilla) inherits its alpha property from a parent node,
+which this pass would otherwise make opaque.
 
 
 ## Morrowind triangle flag
@@ -2701,6 +2808,17 @@ form leaves that ref unwritten, and there are **0** `NiLODData` blocks in
 vanilla Skyrim, so the ref can never be satisfied. The authored children are
 the LOD levels — `tr_flora_sh_bush_06.nif` carries `blend` over 0–500 and
 `test` over 500–∞ — so keeping child 0 keeps the level that renders nearest.
+
+"Lossless" includes the extras, which a 4.0.0.2 file chains through the single
+`Extra Data` ref (`until="4.2.2.0"`), not `Extra Data List` (`since="10.0.1.0"`).
+The rewrite once copied only the list, so every rewritten node lost its extras:
+788 of 39,049 Tamriel Data + Morrowind source NIFs. On a root that erased the
+flags the converter reads — `MRK` on 3 (`pi_cont_fschool_*`, whose
+`Tri EditorMarker` then rendered) and `NC`/`NCO` on 23 (waterfalls, lava, a
+geyser, which then collided) — and 2 roots' text keys. The rest were 3ds Max
+leftovers (`sgoKeep`, `Clamp =`) on inner nodes; carried now, they reach the
+header string table as unreferenced strings, the state ordinary nodes already
+ship in (`tr_dremora.nif`).
 
 ### The `RootCollisionNode` strip missed nested nodes
 

@@ -804,6 +804,14 @@ def is_spell_target(ctx, call) -> str:
     return _effect_family_test(ctx, call, code)
 
 
+@command('isplayable', 'isplayable2')
+def is_playable(ctx, call) -> str:
+    """OBSE IsPlayable [object]: the argument's playable flag, else the receiver's."""
+    target = (call.arg(0) if len(call)
+              else ctx._resolve_objref_ref(call.ref, call.extends))
+    return f'TES4Polyfill.IsPlayable({target})'
+
+
 @command('hasmagiceffect')
 def has_magic_effect(ctx, call) -> str:
     """HasMagicEffect X -- the family test of MGEF X; declines for anything else."""

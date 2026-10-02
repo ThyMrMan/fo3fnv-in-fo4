@@ -13,6 +13,8 @@ Parameter remapping and the crash rule are in
 
 - [Actor-value indices diverge from the BOOK skill table](#actor-value-vs-book-skill-table)
 - [Fallout actor values use Fallout's own table](#fallout-actor-values)
+- [Short Fallout CTDAs: the source decides, not the length](#fallout-short-ctda)
+- [Which functions carry an actor value](#av-param-funcs)
 - [Chargen-identity conditions become menu-choice globals](#chargen-identity-to-menu-globals)
 - [Speak-as topics drop the actor-interrogating conditions](#non-actor-speaker-drop)
 - [GetInCell names a prefix family, not a cell](#getincell-prefix-family)

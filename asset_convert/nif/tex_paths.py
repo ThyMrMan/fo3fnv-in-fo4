@@ -32,21 +32,30 @@ def bs_pp_texture_slots(prop):
 IMAGE_EXTS = ('tga', 'bmp')
 
 
-def rewrite_tex_path(raw_bytes):
-    """Prepend the game's namespace to an AUTHORED texture path, always.
+def texture_rel_path(raw) -> str:
+    """An authored texture path below `textures\\`, separators normalized FIRST.
 
-    Separators are normalized FIRST; a leading 'data\\' is dropped and a
-    .tga/.bmp name becomes .dds. A 'lowres\\' segment is KEPT; see
-    `full_res_twin` for when it falls back.
-    See: docs/commentary/asset_convert_shader.md#rewrite-tex-path
+    A leading 'data\\' and then 'textures\\' are dropped; every other segment
+    is kept, 'lowres\\' included (`full_res_twin` decides its fallback).
     See: docs/commentary/asset_convert_texture.md#per-game-asset-namespace
     """
-    path = raw_bytes.decode('utf-8', errors='replace').replace('/', '\\')
+    path = raw.decode('utf-8', errors='replace') \
+        if isinstance(raw, bytes) else str(raw)
+    path = path.replace('/', '\\')
     if path.lower().startswith('data\\'):
         path = path[len('data\\'):]
     if path.lower().startswith('textures\\'):
         path = path[len('textures\\'):]
-    return 'Textures\\' + current_namespace() + '\\' + as_dds(path)
+    return path
+
+
+def rewrite_tex_path(raw_bytes):
+    """The namespaced Skyrim path for an AUTHORED texture path; .tga/.bmp -> .dds.
+
+    See: docs/commentary/asset_convert_shader.md#rewrite-tex-path
+    """
+    return ('Textures\\' + current_namespace() + '\\'
+            + as_dds(texture_rel_path(raw_bytes)))
 
 
 def full_res_twin(tex):

@@ -358,7 +358,19 @@ struct GameHooks {
                          const std::string& creature) = nullptr;
     void (*takeSoulGem)(const std::string& actor, const std::string& creature,
                         bool drop) = nullptr;
+    // `PlayGroup` / `LoopGroup`: queues `group` on the object's own animation,
+    // OpenMW's playGroup. `mode` is TES3's 0..2; `loops` is how many times a
+    // looping group repeats, kLoopForever for PlayGroup.
+    void (*playGroup)(const std::string& ref, const std::string& group, int mode,
+                      std::uint32_t loops) = nullptr;
+    // `SkipAnim`: holds the object's ambient animation still this tick.
+    void (*skipAnim)(const std::string& ref) = nullptr;
+    // Once a tick of unpaused play: advances every queue `playGroup` filled.
+    void (*animTick)() = nullptr;
 };
+
+// The loop count `PlayGroup` passes: a looping group repeats until replaced.
+constexpr std::uint32_t kLoopForever = 0xffffffffu;
 
 GameHooks& Hooks();
 

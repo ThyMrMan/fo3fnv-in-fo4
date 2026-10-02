@@ -6729,3 +6729,47 @@ the player switched it on (2026-10-01 play-test). The variable was renamed
 (`TES4State` to `TES4SetState`), so a value an older build stored is dropped
 on load (fix built, untested in game).
 
+
+## <a id="pr54-obse-commands"></a>Knockout, actor AI, IsActor and IsPlayable
+
+**Code:** `blocks.BLOCK_MAP`, `command_rows` (`isactor`, `setactorsai`,
+`toggleactorsai`, `isactorsaioff`), `commands.is_playable`,
+`TES4Polyfill.IsPlayable`, `emit/expr._plain_binop`,
+`converter._record_property_type`, `tes5_import/base/object_scripts._TES4_REFERENCE_EVENTS`.
+Ported from Murray2k6's PR #54 and re-derived against master.
+
+- **OnKnockout → `OnEnterBleedout()`.** Before, the block had no BLOCK_MAP
+  entry and was dropped whole: 28 Nehrim blocks, 2 in Morrowind_ob. The
+  Erothin beggar's (`STAFFErothinBettlerTorBettlerScript`) is the only thing
+  that sets `Next to 1`, so his scene could never continue. OnEnterBleedout
+  is an Actor event, so `onknockout` is a reference-only event: that script
+  had only GameMode + OnKnockout and stayed on the base NPC_, which never
+  receives it. There is no TES4 `OnMurder` mapping: neither the vanilla nor the
+  SKSE `Actor.psc` declares an OnMurder event, so an `Event OnMurder` would
+  compile and never fire.
+- **SetActorsAI → `EnableAI`** (vanilla); ToggleActorsAI / IsActorsAIOff read
+  SKSE `IsAIEnabled`. SetActorsAI was a `;NE:` no-op: 62 Nehrim calls, 2
+  Oblivion (SE13 allies, SE14 Voice of Sheogorath).
+- **IsActor → `((ref as Actor) != None)`.** It read as 0, which made Oblivion's
+  Sanguine Rose, Hermaeus Mora soul spell and Skull of Corruption conditions
+  `0 == 1`: their effect never fired.
+- **IsPlayable / IsPlayable2 → `TES4Polyfill.IsPlayable`**, SKSE
+  `Form.IsPlayable` on the base form (TES4 also accepted a placed reference).
+  No header overlay is needed: the compiler searches the LAST `-h` first, so
+  SKSE's `Form.psc` shadows vanilla's (see [vanilla headers](#vanilla-headers)).
+- **Bool arithmetic.** Measured with the compiler: `Int + Bool`, `Bool - 1` and
+  `Bool * 2.5` compile; `Bool + Bool` ("infix operator `+` not support type
+  Bool") and `x += Bool` do not. Only two Bool operands are cast, so no
+  compiling output changed.
+- **Effect subjects.** In an ActiveMagicEffect, `Self` is the effect:
+  `SetDestroyed` (now `OBJREF`) and bare `PlayGroup` act on `GetTargetActor()`.
+  Both emitted `Self` and failed to compile.
+- **Leading-digit owners.** `FlightQuest.X` for record `1FlightQuest` resolved
+  the property's script class by the stripped name and missed, typing it
+  `Quest`; `_owning_scripts`, `_dangling_cross_script_target` and the property
+  type now resolve through `resolve_property_formid`/the canonical EditorID.
+
+Blast radius on the rebuild: Oblivion 6 scripts (the three artifact spells,
+SE13Ally, SE13KnightOfOrder, SE14VoiceofSheogorathSpell), no CharacterGen or
+MQ script; Nehrim's arena fighters, the beggar and the IsPlayable2 line in
+AAGeneralUpdateQuest; Morrowind_ob 2 OnKnockout scripts. Everything compiles.

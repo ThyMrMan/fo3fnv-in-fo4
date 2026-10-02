@@ -706,6 +706,18 @@ def test_place_name_collapses_the_comma_convention():
     assert place_name('Nchuleft') == 'Nchuleft'
 
 
+def test_place_name_collapses_the_colon_convention():
+    """Tamriel Rebuilt separates a ship's rooms with a colon, not a comma.
+
+    See: docs/commentary/tes4_export_morrowind.md#map-markers
+    """
+    assert place_name('TEM Princess Morgiah: Hold') == 'TEM Princess Morgiah'
+    assert place_name('TEM Princess Morgiah: Cabin') == 'TEM Princess Morgiah'
+    assert place_name('Andresian Dreugh: Lower Deck') == 'Andresian Dreugh'
+    assert place_name('Dreugh: ') == 'Dreugh'
+    assert place_name(': Hold') == ': Hold'
+
+
 def test_size_outranks_kind_when_classifying():
     """A city holding an egg mine is a city; kind-first made it a mine."""
     assert classify('Gnisis', ['Gnisis, Madach Egg Mine'], 40) == 3

@@ -873,6 +873,13 @@ in `export/Morrowind.esm`, plus 308 only in Bloodmoon.
 `_extract_assets` therefore writes every `textures\` entry of the vanilla
 BSAs, with no reference to what any record or mesh names.
 
+The same pass keeps the bytes of every vanilla mesh Morroblivion replaced
+through its records, from which the Export step proves the
+[Morroblivion texture map](asset_convert_texture.md#morroblivion-texture-substitution).
+The map does not let the patch ship fewer textures: it swaps only mesh diffuse
+slots, while records (landscape textures, inventory icons) and the other slots
+still name the vanilla files.
+
 ### <a id="the-patch-builds-its-own-plugin"></a>The build produces the PLUGIN, not just its export
 
 **Code:** `export_patch` / `run_patch_export` / `stage_pair_scripts` in
@@ -880,8 +887,9 @@ BSAs, with no reference to what any record or mesh names.
 `PATCH_STEPS` in `convert_cli.py`.
 
 The patch is an ordinary `-f` target. Only its Export step is its own
-(`export_patch`: gap records, BSA assets, gap sounds, split pairs, barks, and
-the split pairs' child scripts saved to `export/<patch>/pair_scripts/`). Every
+(`export_patch`: gap records, BSA assets, gap sounds, split pairs, barks, the
+Morroblivion texture map, and the split pairs' child scripts saved to
+`export/<patch>/pair_scripts/`). Every
 later step is the normal stage: Meshes, Creatures, Import, Sounds (the gap
 SOUNs' files and the barks' recordings, which the Export step only copied raw)
 and Scripts (which copies the saved child scripts to `scripts/source` and
@@ -1585,6 +1593,13 @@ Morrowind's `Place, Sub` convention collapses the group: the ~40 interiors of
 `Balmora, ...` become one Balmora marker. On Morrowind.esm this yields 402
 markers against Morroblivion's 483, **351 of them name-matching (73%)**, and
 95% of generated places correspond to a real Morroblivion marker.
+
+`place_name` splits on **comma or colon**. Tamriel Rebuilt separates a ship's
+rooms with a colon (`TEM Princess Morgiah: Hold`, `: Cabin`), which a
+comma-only split leaves whole, so every room became its own place: 47 such
+cells in TR_Mainland cover 21 real places, 16 of them multi-room (five
+`Grand Hlaalu Ancestral Tomb` rooms, and the boardable galleons). The symptom
+is one map marker and one LCTN per cabin instead of one per ship.
 
 ### Classification
 

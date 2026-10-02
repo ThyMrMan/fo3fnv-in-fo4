@@ -122,6 +122,10 @@ void InstallStatOps(OpcodeInstaller& into);
 // See: docs/commentary/morrowind_runtime.md#spell-commands
 void InstallSpellOps(OpcodeInstaller& into);
 
+// `PlayGroup`, `LoopGroup` and `SkipAnim` on the object's own animation
+// groups. script_ops_anim.cpp.
+void InstallAnimOps(OpcodeInstaller& into);
+
 // The seven player-control switches -- enable, disable and getdisabled for
 // each -- and EnableRaceMenu. script_ops_control.cpp.
 // See: docs/commentary/morrowind_runtime.md#the-control-switches

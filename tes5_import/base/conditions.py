@@ -750,7 +750,7 @@ def convert_ctda_list_with_strings(rec: dict, script_vars: dict = None,
         if not raw_hex:
             continue
         try:
-            raw = bytes.fromhex(raw_hex)
+            raw = fallout_ctda(bytes.fromhex(raw_hex))
         except ValueError:
             continue
 

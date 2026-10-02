@@ -630,6 +630,14 @@ class TestFalloutActorValueNames:
         assert result == 'Game.GetPlayer().GetActorValue("CarryWeight") > 200'
 
 
+def test_negative_comparand_folds_an_inert_read(converter):
+    """`-250` is unary minus over a literal, and still a number.
+
+    See: docs/commentary/script_convert.md#negative-comparand
+    """
+    assert conv_expr(converter, 'GetPCMiscStat 99 >= -250', 'Quest') == 'false'
+
+
 # ===========================================================================
 # Standalone script conversion tests
 # ===========================================================================

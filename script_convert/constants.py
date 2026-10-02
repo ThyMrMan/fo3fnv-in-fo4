@@ -36,7 +36,7 @@ TES4_MISC_STAT_NAMES = (
 )
 
 #: TES4 skills Skyrim split in two; a read takes the higher. See: docs/plans/character_sheet.md#bug-blade-blunt
-SPLIT_SKILLS = {'blade': ('OneHanded', 'TwoHanded'), 'blunt': ('OneHanded', 'TwoHanded')}
+SPLIT_SKILLS = {name: ('OneHanded', 'TwoHanded') for name in ('blade', 'blunt', 'meleeweapons')}
 
 #: Misc stats Oblivion content writes; its engine keeps the rest. See: docs/commentary/script_convert.md#pc-misc-stat-names
 TES4_SCRIPT_OWNED_MISC_STATS = frozenset({14, 15, 16, 19, 27})
@@ -181,6 +181,7 @@ PAPYRUS_BOOL_FUNCTIONS = {
     'issprinting', 'isonmount', 'isalerted', 'isequipped', 'ismounted',
     'istrespassing', 'isavrecoverydisabled', 'isfurnitureinuse',
     'isflightblocked', 'isinterior', 'islocked',
+    'isactor', 'isactorsaioff', 'isplayable', 'isplayable2',
     'getdead', 'getdisabled', 'getlocked', 'getghost', 'getisalerted',
     'getincombat', 'getnobleedoutrecovery', 'getisplayablerace',
     'getcurrentweatherpercent', 'getiscurrentpackage',
