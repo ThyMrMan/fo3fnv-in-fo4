@@ -147,6 +147,13 @@ These protect things that are hard or impossible to get back.
   always a real problem to find.
 - **Look for the authored indicator.** Everything in the original plugin works for
   a reason; needing a heuristic usually means the approach is wrong.
+  - 🛑 **No heuristics in an upstream PR.** Every value must come from a record
+    field, mesh data or an engine table. A measured offset, a shape rule or a
+    rule that only fits the tested cases does not qualify. A fix shared across
+    games is checked on Oblivion and Morrowind data too. Upstream closed
+    [PR #71](https://github.com/bryantmh/tes4skyrim/pull/71) over a fixed stool
+    offset and shape-rule floor flips that would break `seisland` meshes. A
+    heuristic fix stays fork-only; split the clean fixes into their own PR.
 - **Census vanilla before calling something wrong.** If Skyrim.esm or the DLCs do
   the same thing at scale, it is legal — several docs record "verified
   vanilla-legal, don't fix this". Conversely, "all 3,740 vanilla records write 0
