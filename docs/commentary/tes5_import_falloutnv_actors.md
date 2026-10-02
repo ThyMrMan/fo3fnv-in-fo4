@@ -158,7 +158,9 @@ attacks on entry as the source did.
 
 FO3/FNV computes an NPC's hit points from its Base Health, Endurance and
 level: `Base Health + Endurance x fAVDNPCHealthEnduranceMult + (Level - 1) x
-fAVDNPCHealthLevelMult`, both settings 5.0 in FO3 and FNV. The player's
+fAVDNPCHealthLevelMult`. Both settings are read through
+[game settings](#game-settings): 5.0 in Fallout3.esm and FalloutNV.esm, whose
+GMSTs override the exes' 5.0 and 20.0. The player's
 version uses the same shape with 20 and 10 (the wiki's `90 + Endurance x 20
 + Level x 10`, base 100); the NPC level term starting at level 1 follows
 that shape and is not read from the exe. A PC Level Mult NPC takes no level
@@ -166,6 +168,27 @@ term, since Skyrim adds its own. The result goes through the same offset
 solver as TES4's `DATA.Health`
 ([health offset](tes5_import_actors.md#health-offset)), and a template's
 Stats category passes `DATA.BaseHealth` along with the rest.
+
+## <a id="game-settings"></a>Game settings are the game's, not constants (built 2026-10-02)
+
+**Code:** `record_types/settings_falloutnv.py` (`load_fallout_settings`,
+`setting`), loaded once per run as the actor indexes register the source, before any package is planned.
+
+A setting the conversion needs is read as the game reads it:
+1. each exe's own default (`tes4_export/<game>_engine_settings.json`, read
+   out of Fallout3.exe and FalloutNV.exe; the game is picked from the
+   header's version);
+2. then the masters' GMSTs;
+3. then the plugin's own, through `combat_style.game_settings`.
+
+It used to be a constant matching the shipped value, which ignored any mod
+that changed it. Readers:
+
+- **NPC health:** `fAVDNPCHealthEnduranceMult` and `fAVDNPCHealthLevelMult`.
+  The exes say 5 and 20; both plugins set the level one to 5.
+- **Conversation reach:** a conversation package whose PTDT count is unset
+  reaches as far as `iActivatePickLength` (150 in both exes, set by neither
+  plugin).
 
 ## <a id="assistance"></a>Assistance is already a tier (built 2026-10-01, untested in game)
 

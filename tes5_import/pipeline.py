@@ -74,6 +74,8 @@ from .base.conditions import set_whole_day_global
 from .base.formid_claims import claim_existing
 from .base.objectives_falloutnv import create_objective_globals
 from .record_types.equipment_falloutnv import create_weapon_anim_lists
+from .dialogue.dialogue_pause_falloutnv import create_talked_faction
+from .record_types.crime_falloutnv import create_crime_list
 from .record_types.note_falloutnv import index_note_speakers
 from .record_types.reputation_falloutnv import create_reputation_records
 from .base.owned_records import (
@@ -465,6 +467,7 @@ def _prescan_menu_records(by_type: dict, writer, _SC, _step_done,
                             menu['fid_to_index'])}, merge=True)
     WELL_KNOWN_PROPERTIES.update(create_force_combat_factions(writer, master_index))
     WELL_KNOWN_PROPERTIES.update(create_destroyed_formlist(writer, master_index))
+    WELL_KNOWN_PROPERTIES.update(create_talked_faction(writer))
     WELL_KNOWN_PROPERTIES.update(create_weapon_anim_lists(by_type, writer))
     index_note_speakers(by_type)
     WELL_KNOWN_PROPERTIES.update(create_reputation_records(by_type, writer))
@@ -948,6 +951,7 @@ def _prescan_outfits_hair_skin(by_type: dict, ctx, export_dir: str, writer):
 
     from .record_types.actor_common import load_faction_player_reactions
     load_faction_player_reactions(by_type, ctx.master_export if ctx else None)
+    WELL_KNOWN_PROPERTIES.update(create_crime_list(writer))
 
     try:
         from .actors import hair_variants
@@ -1220,10 +1224,10 @@ def _run_prescans(st: ImportState, all_records: list, num_new_masters: int,
     st.pack_plan, st.pack_ctx, st._script_vars = _prescan_package_plan(
         by_type, ctx, writer, st.fid_to_edid, _step_done)
     st.pack_ctx.xref = st.xref
-    from .packages.patrol_falloutnv import build_patrol_vmads
-    n_patrol = build_patrol_vmads(by_type, st.pack_ctx.pack_runner_refs, st.xref)
+    from .packages.patrol_falloutnv import plan_patrol_topics
+    n_patrol = plan_patrol_topics(by_type, st.xref, writer)
     if n_patrol:
-        print(f"  Patrol markers: {n_patrol} scripted marker(s) bound to their patrols")
+        print(f"  Patrol markers: {n_patrol} scripted marker(s) run their script from an arrival topic")
     from .record_types.two_state_falloutnv import attach_two_state_activators
     n_two = attach_two_state_activators(by_type, export_dir)
     if n_two:

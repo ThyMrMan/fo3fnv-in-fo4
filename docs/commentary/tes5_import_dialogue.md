@@ -763,6 +763,19 @@ GBYE. When such a topic would otherwise be `drop`, it becomes `('target', None)`
 Topics already retargeted (`ref`) are unchanged: GREETING, HELLO and Assault
 point at PlayerRef, which is correct for both callers.
 
+**An engine topic every script call names a target for keeps its identity
+tests too** (`ENGINE_KEEP`, built 2026-10-01, untested in game). The identity
+drop exists for a bare `Say`, which has no target. FO3 never `Say`s HELLO; five
+scripts `SayTo` it at named targets (the player, Gob, Bumble), mixed, so it was
+`drop` and then `target`, and every FO3 HELLO line lost its listener test.
+Lucas Simms' "Hey there, Andy." (`00004143`, `GetIsID(Andy)[Target]`) then
+played to the player the moment his force greet began, spending his first
+meeting ([talked to the player](#talked-to-pc)). Such a topic now keeps every
+RunOn=Target test: the engine's barks have their real listener, and a scripted
+SayTo (converted to a targetless Say) falls to a line with no listener test.
+Oblivion's `Attack`, `Hit` and `GOODBYE` have bare `Say` calls and are
+unchanged.
+
 Measured on Oblivion.esm: 3 topics switch (`Attack`, `Hit`, `GOODBYE`). 157
 INFOs gain conditions and none lose any: GetInFaction 114, GetIsRace 22,
 GetIsSex 14, IsGuard 11, GetIsCreature 6, other 6. No CharacterGen-owned INFO
@@ -2430,6 +2443,39 @@ either names none) now wins as it did:
   moved Goodbye needs this too, or it would beat the Hello lines above it.
 A plain line that is Say Once or Random, or whose conditions hold an OR, has
 no testable negation and is counted as left unordered.
+
+### <a id="talked-to-pc"></a>FO3/FNV GetTalkedToPC counts talks, not barks (built 2026-10-01, untested in game)
+
+**Code:** `conditions_falloutnv.talked_to_pc`, `dialogue_pause_falloutnv.create_talked_faction`,
+`static_scripts/TES4_DialoguePause.psc`.
+
+Skyrim's GetTalkedToPC is 1 once the NPC "has ever spoken to the player", and
+a Hello bark counts. A converted force greet barks before its menu opens (its
+Blocking lines are menu-only, [above](#greeting-choices-block)), so Lucas
+Simms' first-meeting greetings (`GetTalkedToPC == 0`, "Name's Lucas Simms")
+had already failed when the menu opened, and it fell to his plain greeting
+(2026-10-01 play-test); talking to him first, with no bark, had played them.
+FO3 opened the talk with no bark, and its intro still played after his
+`SayTo` line, so FO3 counted the talk. A FO3/FNV GetTalkedToPC condition now
+reads `GetInFaction(TES4TalkedToPC)` with the same comparison and run-on, and
+TES4_DialoguePause adds the speaker to that faction once the menu opens (the
+greeting is already chosen), whether or not the world pause is on. Adding it
+as the menu closed looped the first talk: Lucas's reply "I'm glad we
+understand each other" has no link, so Skyrim went back to his Blocking
+greeting, where another intro copy ("Name's Lucas Simms", the neutral-karma
+one) was still valid (2026-10-01 play-test). Moving the add to the menu's
+opening changed nothing in game, because the speaker was never found: the
+script scanned only the player's own cell, and Lucas stood in the next
+exterior cell of Megaton. Outdoors that also left the world pause unapplied.
+It now falls back to random actors within 512 units of the player
+(`FindRandomActorFromRef`, 12 tries; `FindClosestActorFromRef` returns the
+player itself) and takes the one `IsInDialogueWithPlayer`. Of the 252 FO3 INFOs testing it,
+203 are GREETING and 26 HELLO; 12 player topics hold the rest. The faction takes a fixed id
+(`chargen_fid_base + 0x45`), since conditions convert before the pause quest
+is written. Fallout3.esm has 314 such conditions (252 INFO, 57 PACK, 5 QUST),
+FalloutNV.esm 117. Script calls (9 and 8) still read 0, as before. A save
+from an older build starts with an empty faction, so an actor met before may
+greet as a stranger once.
 
 ### <a id="force-greet-menu-stage"></a>A force greet's line sets its package's stage only in the menu (built 2026-09-30, untested in game)
 

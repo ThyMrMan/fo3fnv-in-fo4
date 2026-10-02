@@ -335,8 +335,22 @@ The cast is None for any speaker without that script, which is the
 "on the speaker's own script" rule. The call comes after `LineEnded` so a
 follow-up `SayTo` in the block does not wait on the finished line. A SayToDone
 topic also counts as script-driven (`scan_say_topics`), so its lines always
-have an End fragment. The one block with no topic (`L38Alarmwoman`) runs after
-any line, so it is hooked to every topic its script names.
+have an End fragment. A block with no topic runs after any `SayTo` its actor
+finishes, whichever script started it, so it is hooked to every topic its
+script names and every topic anything says with `SayTo` (`said_to_topics`:
+scripts, package section scripts, INFO results, patrol markers). Either way
+the engine's own topics are left out (`engine_topics`, FormID below 0x800, 68
+in each game: `GREETING`, `HELLO`, `Attack`, `Hit`, `Flee`): the engine barks
+them too, so their line ending says nothing about a SayTo. Hooking every
+topic a script's text merely names had already put a SayToDone call in 4,563
+of Fallout3.esm's INFO fragments (a comment saying "attack" was enough), and
+adding the SayTo topics raised it to 8,084; 5,796 of those lines are the five
+topics above. Fallout3.esm has 9 topic-less scripts, FalloutNV.esm 1
+(`L38Alarmwoman`). Hooking only the topics its own script named missed Lucas Simms: his
+greeting is `MS11LucasSayHelloTravel`'s `sayTo player
+MS11LucasSimmsSayToPlayer`, so his `SayToDone` never cleared `talking` and
+`MS11LucasForceGreet` (`talking <= 0`) never ran; he said the line and went to
+patrol (2026-10-01 play-test; fix built, untested in game).
 
 FalloutNV.esm has 133 blocks in 41 scripts, on 122 topics. 107 of those topics
 already had fragments. 14 have no INFO at all (Fallout 3 leftovers such as
@@ -6703,6 +6717,15 @@ but a FO3/FNV reference can be placed open (`ONAM` Open By Default: 36
 activator references in Fallout3.esm, 48 in FalloutNV.esm). Moriarty's
 saloon radio is one, and Gob's radio scene waits for `GetOpenState == 1` on
 it, so it never ran (2026-10-01 play-test). Such a reference now carries its
-own `TES4_TwoStateActivator` entry setting `TES4OpenByDefault`, which the
-script reads the first time its state is asked for.
+own `TES4_TwoStateActivator` entry setting `TES4OpenByDefault`.
+
+The state is stored only when something sets it (activation or a converted
+`SetOpenState`); until then `GetOpenState` answers from the flag, and `OnLoad`
+plays `Open` on an open one, as vanilla `default2StateActivator.SetDefaultState`
+plays its start-open animation. The first build stored the state the first
+time it was read: Gob's script polls the radio, so a save from the build
+before had it stored closed, and the radio was off and the scene waited until
+the player switched it on (2026-10-01 play-test). The variable was renamed
+(`TES4State` to `TES4SetState`), so a value an older build stored is dropped
+on load (fix built, untested in game).
 

@@ -40,9 +40,11 @@ from .base.object_scripts import write_udf_host_quests
 from .overrides.manifest import write_manifest
 from .overrides.nested import (build_nested_overrides)
 from .dialogue.arrest import morrowind_arrest_topic
+from .packages.patrol_falloutnv import build_patrol_topics
 from .packages.actor_wiring import package_speakers
 from .dialogue.groups import build_dialog_groups
 from .runtime_sidecars import sweep_stale_sidecars
+from .record_types.crime_falloutnv import build_crime_events
 from .base.owned_records import (
     WELL_KNOWN_PROPERTIES,
 )
@@ -183,6 +185,9 @@ def _patch_late_bindings(st, export_dir: str) -> None:
     from .dialogue.dialogue_pause_falloutnv import build_dialogue_pause
     if build_dialogue_pause(st.writer):
         print("  Dialogue pause: TES4DialoguePauseQuest freezes other actors while the player talks")
+    n_crime = build_crime_events(st.writer)
+    if n_crime:
+        print(f"  Crime events: {n_crime} kill/assault quests make a victim's Track Crime factions enemies")
 
 
 def _patch_creature_chains(st, export_dir: str) -> None:
@@ -241,8 +246,9 @@ def run_finalize_phases(st, export_dir: str, phase_done,
     is read by an earlier phase.
     """
     voice_map = {}
+    master_index = st.ctx.master_index if st.ctx else None
     st.sge_quest_fids |= _build_dialogue(st, voice_map) | morrowind_arrest_topic(
-        st.by_type, st.writer, st.ctx.master_index if st.ctx else None)
+        st.by_type, st.writer, master_index) | build_patrol_topics(st.writer, master_index)
 
     _patch_late_bindings(st, export_dir)
 

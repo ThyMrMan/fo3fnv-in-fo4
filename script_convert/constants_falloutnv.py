@@ -63,6 +63,9 @@ FALLOUT_UNMAPPED_ACTOR_VALUES = frozenset({
 #: FO3/FNV spellings of shared handlers: alias -> the handler's TES4 name.
 FALLOUT_COMMAND_ALIASES = {'cios': 'cast', 'castimmediateonself': 'cast'}
 
+#: The FormList of factions whose player-enemy flag converted scripts set (TES4_FalloutCrime keeps it).
+_ENEMIES = ('TES4PlayerEnemyFactions', 'FormList')
+
 #: FO3/FNV commands as COMMAND_ROWS specs (Cmd keyword arguments); 'MAP'/'ACTOR' name constants.MAP/ACTOR.
 FALLOUT_COMMAND_ROWS = {
     'setenemy': dict(emit='{p0}.SetEnemy({p1}, {b2}, {b3})',
@@ -115,9 +118,19 @@ FALLOUT_COMMAND_ROWS = {
     'getweaponhealthperc': dict(
         emit='0', note='{f} - Skyrim has no weapon condition (read as 0)',
         flags='zero_arg'),
+    #: Fallout's per-faction "player is an enemy" crime flag: Skyrim's, kept readable by TES4_FalloutCrime.
     'getactorfactionplayerenemy': dict(
-        emit='0', note='{f} - no Papyrus faction-enemy read (read as 0)',
-        flags='zero_arg'),
+        emit='TES4_FalloutCrime.TES4AnyEnemy({ref}, TES4PlayerEnemyFactions)', subj='ACTOR',
+        flags='actor_only zero_arg cmp_bool', self_type=_ENEMIES),
+    'clearactorsfactionsplayerenemyflag': dict(
+        emit='TES4_FalloutCrime.TES4ClearActor({ref}, TES4PlayerEnemyFactions)', subj='ACTOR',
+        flags='actor_only zero_arg', self_type=_ENEMIES),
+    'setpcenemyoffaction': dict(emit='TES4_FalloutCrime.TES4SetEnemy({p0}, {i1} != 0, TES4PlayerEnemyFactions)',
+                                types={0: 'Faction'}, self_type=_ENEMIES),
+    'clearfactionplayerenemyflag': dict(emit='TES4_FalloutCrime.TES4SetEnemy({p0}, False, TES4PlayerEnemyFactions)',
+                                        types={0: 'Faction'}, self_type=_ENEMIES),
+    'getpcenemyoffaction': dict(emit='TES4_FalloutCrime.TES4IsEnemy({p0}, TES4PlayerEnemyFactions)',
+                                types={0: 'Faction'}, flags='cmp_bool', self_type=_ENEMIES),
     'getanimaction': dict(
         emit='0', note='{f} - Skyrim has no anim-action read (read as 0)',
         flags='zero_arg'),

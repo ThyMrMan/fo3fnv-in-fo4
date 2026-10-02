@@ -735,7 +735,7 @@ class TestFalloutPackageTypes:
 
 
 class TestFalloutPatrolPoints:
-    """FO3/FNV patrol points: Skyrim's patrol data, and a PM_ script for the embedded one.
+    """FO3/FNV patrol points: Skyrim's patrol data, and an arrival topic for the embedded script.
 
     See docs/commentary/tes5_import_package.md#patrol-points.
     """
@@ -760,21 +760,30 @@ class TestFalloutPatrolPoints:
         assert struct.unpack_from('<II', blob, 32)[1] & 0xFFFFFF == 0x107470
         assert patrol_subrecords({'FormID': '1'}) == b''
 
-    def test_every_marker_on_the_chain_knows_its_patrol(self):
-        """The walk follows XLKR from the start marker and stops at the loop."""
-        from tes5_import.packages.patrol_falloutnv import patrol_routes
-        routes = patrol_routes(self._by_type(), {})
-        assert routes == {'0000A001': ['00001000'], '0000A002': ['00001000']}
+    def test_a_scripted_marker_names_its_own_arrival_topic(self):
+        """The planned topic replaces the marker's PDTO; an unscripted marker keeps its own."""
+        from tes5_import.packages import patrol_falloutnv as pf
+        from tes5_import.base.writer import PluginWriter
+        from script_convert.cross_ref import CrossRefGraph
+        writer = PluginWriter(masters=['Skyrim.esm'])
+        assert pf.plan_patrol_topics(self._by_type(), CrossRefGraph(), writer) == 1
+        topic = pf._PATROL_TOPICS['0000A002'][0]
+        blob = pf.patrol_subrecords(self._by_type()['REFR'][1])
+        assert struct.unpack_from('<II', blob, 32)[1] == topic
+        assert pf.patrol_subrecords(self._by_type()['REFR'][0])[-4:] == bytes(4)
+        pf._PATROL_TOPICS.clear()
 
-    def test_the_marker_script_runs_the_body_on_the_arriving_actor(self):
-        """The watch, the package check, and the body acting on akSpeakerRef."""
+    def test_the_marker_fragment_runs_the_body_then_says_its_topic(self):
+        """A TopicInfo fragment: the body on akSpeakerRef as the line ends, then the marker's own topic."""
         from script_convert.cross_ref import CrossRefGraph
         from script_convert.patrol_scripts import patrol_psc
-        psc = patrol_psc(self._by_type()['REFR'][1], CrossRefGraph())
-        assert 'extends ObjectReference' in psc and 'Event OnCellAttach()' in psc
-        assert 'TES4PatrolPackages.Find(a.GetCurrentPackage()) >= 0' in psc
-        body = psc.split('Function TES4PatrolArrived(Actor akActor)', 1)[1]
-        assert 'akSpeakerRef.MoveTo(' in body.split('EndFunction')[0]
+        xref = CrossRefGraph()
+        xref.formid_to_edid['00107470'] = 'VFreeformNellisPeteMural01'
+        psc = patrol_psc(self._by_type()['REFR'][1], xref)
+        assert 'extends TopicInfo' in psc and 'OnCellAttach' not in psc
+        end = psc.split('Function Fragment_0(ObjectReference akSpeakerRef)', 1)[1].split('EndFunction')[0]
+        assert 'akSpeakerRef.MoveTo(' in end
+        assert end.index('MoveTo(') < end.index('Say(')
 
     def test_a_form_array_property_packs_every_formid(self):
         """VMAD property type 11: a count, then one object entry per FormID."""
@@ -791,10 +800,3 @@ class TestFalloutPatrolPoints:
                                                'EditorID': 'VFreeformNellisPeteMural01'}])
         assert 'vfreeformnellispetemural01' in scan_say_topics(by_type)
 
-    def test_a_travel_to_a_marker_runs_its_patrol_script_too(self):
-        """FO3/FNV runs a patrol point's script for any package arriving there."""
-        from tes5_import.packages.patrol_falloutnv import patrol_routes
-        by_type = self._by_type()
-        by_type['PACK'].append({'FormID': '00002000', 'PKDT.Type': '6', 'PLDT.Type': '0',
-                                'PLDT.Location': '0000A002'})
-        assert patrol_routes(by_type, {})['0000A002'] == ['00001000', '00002000']

@@ -42,6 +42,7 @@ from .common import (
     prefix_path,
 )
 from .crime import IS_GUARD_FACTION, crime_faction, is_guard_class
+from .crime_falloutnv import authored_crime_faction
 from .spell_tomes import tome_items
 from .actors_falloutnv import npc_health
 from .npc_morrowind import TES5_RACE_BASE_HEALTH
@@ -193,19 +194,22 @@ def _npc_snams(rec: dict, vendor_fids: list, trainer_clas_fid: int) -> bytes:
 def _crime_faction_of(rec: dict) -> int:
     """The crime faction this NPC reports to; 0 for one that hunts the player or is Evil.
 
+    An FO3/FNV NPC reports to its own Track Crime faction, not the realm's.
     See: docs/commentary/tes5_import_actors.md#evil-factions
+    See: docs/commentary/tes5_import_actors.md#fallout-crime-factions
     """
     if (attacks_player_on_sight(rec) or in_evil_faction(rec)) and \
             not is_guard_class(get_formid(rec, 'CNAM.Class')):
         return 0
-    return crime_faction(get_formid(rec, 'FormID'))
+    own = authored_crime_faction(rec)
+    return crime_faction(get_formid(rec, 'FormID')) if own is None else own
 
 
 def _crime_snams(rec: dict) -> bytes:
-    """Membership in the NPC's crime faction, and IsGuardFaction for a guard."""
+    """Membership in the NPC's realm crime faction, and IsGuardFaction for a guard."""
     subs = b''
     crime = _crime_faction_of(rec)
-    if crime:
+    if crime and authored_crime_faction(rec) is None:
         subs += _pack_snam(crime)
     if is_guard_class(get_formid(rec, 'CNAM.Class')):
         subs += _pack_snam(IS_GUARD_FACTION)

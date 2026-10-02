@@ -14,6 +14,7 @@ from convert import load_config
 from core.subprocess_flags import windows_cmd
 from papyrus_compile import find_skse_source_scripts, find_skyrim_source_scripts
 from tes5_import.base.conditions import build_ctda
+from tes5_import.base.story_nodes import story_node, story_quest
 from tes5_import.base.writer import (pack_formid_subrecord, pack_record, pack_string_subrecord,
                                      pack_subrecord, pack_uint32_subrecord)
 from tes5_import.pipeline_finalize import write_seq_file
@@ -24,8 +25,6 @@ SELECTOR_SOURCE_DIR = os.path.join(ROOT, 'TESGameSelect', 'scripts', 'source')
 #: The scripts every converted game ships, which the rules call into (TES4_Reputation).
 STATIC_SOURCE_DIR = os.path.join(ROOT, 'script_convert', 'static_scripts')
 
-#: SMQN DNAM: Shares event, so the vanilla quests on the same event still run.
-SHARES_EVENT = 0x00020000
 
 #: QUST DNAM flags: Start Game Enabled and Starts Enabled; the player alias's FNAM.
 SGE_FLAGS, PLAYER_ALIAS_FLAGS, PLAYER_REF = 0x0011, 0x00000292, 0x00000014
@@ -166,24 +165,14 @@ def build_main_quest(fid: int, edid: str, script: bytes, player_script: str) -> 
 
 
 def build_event_quest(fid: int, edid: str, event: bytes, script: str, main_fid: int) -> bytes:
-    """A quest the Story Manager starts on `event`, whose `script` hands it to the rules quest."""
-    subs = pack_string_subrecord('EDID', edid)
-    subs += pack_subrecord('VMAD', pack_quest_vmad(pack_script(script, {'Rules': Obj(main_fid)}), fid))
-    subs += pack_subrecord('DNAM', struct.pack('<HBBII', 0, 0, 0, 0, 0))
-    subs += pack_subrecord('ENAM', event) + pack_subrecord('NEXT', b'')
-    return pack_record('QUST', fid, 0, subs + pack_uint32_subrecord('ANAM', 0))
+    """An `event` quest whose `script` hands the event to the rules quest."""
+    vmad = pack_quest_vmad(pack_script(script, {'Rules': Obj(main_fid)}), fid)
+    return story_quest(fid, edid, event, vmad)
 
 
 def build_node(fid: int, edid: str, place: tuple, quests: list, active_fid: int) -> bytes:
-    """A Story Manager quest node at `place` (parent event node, previous sibling or 0), sharing
-    the event and starting the first of `quests` not already running, while the rules are on."""
-    subs = pack_string_subrecord('EDID', edid)
-    subs += pack_formid_subrecord('PNAM', place[0]) + pack_formid_subrecord('SNAM', place[1])
-    subs += pack_uint32_subrecord('CITC', 1) + global_is(active_fid, 1.0)
-    subs += pack_uint32_subrecord('DNAM', SHARES_EVENT) + pack_uint32_subrecord('XNAM', 0)
-    subs += pack_uint32_subrecord('QNAM', len(quests))
-    subs += b''.join(pack_formid_subrecord('NNAM', quest) for quest in quests)
-    return pack_record('SMQN', fid, 0, subs)
+    """A quest node starting the first free of `quests` while the rules are on."""
+    return story_node(fid, edid, place, quests, (global_is(active_fid, 1.0),))
 
 
 # ---------------------------------------------------------------------------

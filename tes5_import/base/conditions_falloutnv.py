@@ -72,6 +72,12 @@ FORK_FALLOUT_AV = {av: tes5 for av, tes5 in FALLOUT_AV_TO_TES5.items() if av not
 _RUN_ON_TARGET = 1
 _RUN_ON_REFERENCE = 2
 
+#: GetTalkedToPC and GetInFaction: the same index in FO3/FNV and Skyrim.
+_GET_TALKED_TO_PC, _GET_IN_FACTION = 50, 71
+
+#: [the TES4TalkedToPC faction's FormID] for a FO3/FNV import, else empty; set by create_talked_faction.
+TALKED_FACTION: list = []
+
 #: FO3/FNV GetObjectiveCompleted / GetObjectiveDisplayed -> the objective state each reads.
 OBJECTIVE_FUNCS = {420: 'Done', 421: 'Shown'}
 
@@ -106,6 +112,17 @@ def fallout_ctda(raw: bytes) -> bytes:
     if len(raw) < FALLOUT_CTDA_SIZE and is_fallout_source():
         return raw.ljust(FALLOUT_CTDA_SIZE, b'\0')
     return raw
+
+
+def talked_to_pc(raw: bytes, func_idx: int) -> 'tuple | None':
+    """(GetInFaction, (TES4TalkedToPC, 0)) for a FO3/FNV GetTalkedToPC, else None.
+
+    Skyrim's GetTalkedToPC also counts barks, and a force greet barks before its menu opens.
+    See: docs/commentary/tes5_import_dialogue.md#talked-to-pc
+    """
+    if func_idx != _GET_TALKED_TO_PC or len(raw) < FALLOUT_CTDA_SIZE or not TALKED_FACTION:
+        return None
+    return _GET_IN_FACTION, (TALKED_FACTION[0], 0)
 
 
 def fallout_function(func_idx: int) -> 'int | None':

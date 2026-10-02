@@ -90,6 +90,78 @@ These are the GUILD factions a script asks about. The bounty guards act on is
 a separate crime faction per realm, which every NPC reports to through `CRIF`;
 see [tes_runtime_crime.md](tes_runtime_crime.md#bounty-realms).
 
+### <a id="fallout-crime-factions"></a>FO3/FNV major crimes make the victim's Track Crime factions enemies (built 2026-10-02, untested in game)
+
+**Code:** `record_types/crime_falloutnv.py`, `convert_FACT`, `npc._crime_faction_of`,
+`static_scripts/TES4_FalloutCrime.psc`, `base/story_nodes.py`.
+
+FO3 and FNV keep no bounty. The GECK's Category:Crime states the rule:
+
+- **Major crimes** (assault, murder) make the victim *and every faction of
+  the victim flagged Track Crime* enemies of the player. That flag is FACT
+  `DATA.Flags2` bit 0, set on 112 of Fallout3.esm's factions and 188 of
+  FalloutNV.esm's.
+- **Minor crimes** (theft, pickpocketing, trespass) make only the victim one.
+- The faction's "player is an enemy" flag clears when the crimes behind it
+  expire. Scripts set and clear it with `SetPCEnemyOfFaction`,
+  `ClearFactionPlayerEnemyFlag` and `ClearActorsFactionsPlayerEnemyFlag`, and
+  read it with `GetPCEnemyOfFaction` and `GetActorFactionPlayerEnemy`.
+
+Skyrim has the same per-faction flag (`Faction.SetPlayerEnemy`, and the
+condition `GetPCEnemyofFaction`). It only notices a crime against an actor
+that has a crime faction, though: `OnStoryKillActor`'s crime status is "0 = No
+crime Faction for target". So the conversion has two halves.
+
+**Detection.** An FO3/FNV NPC's `CRIF` is the first listed of its own Track
+Crime factions; an NPC in none gets no `CRIF`. A Track Crime FACT converts
+with Skyrim's Track Crime flag and the vanilla crime amounts, but Arrest and
+Attack On Sight are off. No FO3/FNV class carries the Guard flag (0 of each
+game's CLAS records), so the bounty Skyrim keeps on that faction moves no one.
+Which of an NPC's tracking factions holds it therefore changes nothing, though
+it matters a lot how many NPCs have the choice to make: 425 of FO3's 781
+tracked actors are in two or more Track Crime factions, and 1,476 of FNV's
+2,690.
+
+**Consequence.** `TES4_FalloutCrime` does what Fallout's crime list did. Four
+quests sit under each of Skyrim.esm's kill event (`0x13010`, after its last
+child `WIKillEventsBranchNode`) and its assault event (`0x2C494`, after
+`WIAssautRememberNode`), on Shares Event nodes. A reported murder (crime
+status 2) or an assault crime by the player sets every Track Crime faction
+the victim is in, from the `TES4TrackCrimeFactions` list, as the player's
+enemy. Two nodes sharing a previous sibling is vanilla-legal:
+`WIAssaultNode` and `WIAssautRememberNode` both follow `DBSuspensionAssault`,
+and the rules plugin's kill node follows `WIKillEventsBranchNode` too.
+
+**The script commands.** Papyrus can set the flag but has no read for it, so
+every converted set goes through `TES4_FalloutCrime.TES4SetEnemy`. That also
+keeps `TES4PlayerEnemyFactions`, a FormList the save carries, in step. The
+converted reads test that list:
+
+| Source command | Uses (FO3 / FNV) | Converted to |
+|---|---|---|
+| `SetPCEnemyOfFaction F n` | 0 / 11 scripts, 8 INFOs | `TES4SetEnemy(F, n != 0, list)` |
+| `ClearFactionPlayerEnemyFlag F` | 2 / 2, 1 INFO | `TES4SetEnemy(F, False, list)` |
+| `GetPCEnemyOfFaction F` | 0 / 5 scripts | `TES4IsEnemy(F, list)`; dialogue conditions keep the native function |
+| `ref.ClearActorsFactionsPlayerEnemyFlag` | 1 QUST / 0 | `TES4ClearActor(ref, list)` |
+| `ref.GetActorFactionPlayerEnemy` | 0 / 3 | `TES4AnyEnemy(ref, list)` |
+
+Before this, all of them converted to `;NE:` markers or a constant 0.
+
+**Open: expiry.** FO3 clears a faction's flag once its crimes expire. No game
+setting holds that time (the GECK's examples assume 3 days), and the Fallout
+wiki only reports that towns forget. Until the duration is read out of
+Fallout3.exe, a flag set by a crime stays until a script clears it.
+
+TES4 has no `Flags2`, so Oblivion keeps the realm faction.
+
+Superseded designs:
+- **One Track Crime faction per realm, Attack On Sight.** It put all of FO3
+  in `TES4CrimeFaction_Fallout3`. Killing Ellen DeLoria in Vault 101 turned
+  Megaton hostile (2026-10-01 play-test).
+- **The largest of the NPC's own tracking factions as `CRIF`, with Attack On
+  Sight.** It kept a town on one faction, but member count is no FO3 rule. It
+  still reported a crime to one faction instead of all of them.
+
 ### <a id="evil-factions"></a>Members of an Evil faction are no crime victims
 
 TES4, FO3 and FNV FACT `DATA.Flags` bit 1 is Evil (xEdit `wbDefinitionsTES4`,

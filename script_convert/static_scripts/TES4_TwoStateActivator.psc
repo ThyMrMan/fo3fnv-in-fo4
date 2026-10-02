@@ -9,7 +9,13 @@ activation opens its menu.
 See: docs/commentary/script_convert.md#two-state-activators}
 
 Bool Property TES4OpenByDefault = False Auto  ; the placement's Open By Default flag
-Int TES4State                            ; GetOpenState numbering: 1 open, 3 closed; 0 not read yet
+Int TES4SetState                         ; GetOpenState numbering: 1 open, 3 closed; 0 never set, the placement's flag holds
+
+Event OnLoad()
+  If TES4OpenState() == 1
+    PlayAnimation("Open")
+  EndIf
+EndEvent
 
 Event OnActivate(ObjectReference akActionRef)
   If !IsActivationBlocked()
@@ -18,22 +24,21 @@ Event OnActivate(ObjectReference akActionRef)
 EndEvent
 
 Int Function TES4OpenState()
-  If TES4State == 0
-    TES4State = 3
-    If TES4OpenByDefault
-      TES4State = 1
-    EndIf
+  If TES4SetState
+    Return TES4SetState
+  ElseIf TES4OpenByDefault
+    Return 1
   EndIf
-  Return TES4State
+  Return 3
 EndFunction
 
 Function TES4SetOpen(Bool abOpen)
-  TES4OpenState()
-  If abOpen && TES4State != 1
-    TES4State = 1
+  Int was = TES4OpenState()
+  If abOpen && was != 1
+    TES4SetState = 1
     PlayAnimation("Open")
-  ElseIf !abOpen && TES4State != 3
-    TES4State = 3
+  ElseIf !abOpen && was != 3
+    TES4SetState = 3
     PlayAnimation("Close")
   EndIf
 EndFunction

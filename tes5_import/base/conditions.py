@@ -26,7 +26,7 @@ from .ctda_bool import bool_outcomes
 from .equivalents import TES4_ITEM_FORMID_TO_SKYRIM
 from .conditions_falloutnv import (FALLOUT_CTDA_SIZE, FORK_FALLOUT_AV,
                                    fallout_ctda, fallout_function,
-                                   fallout_run_on, mirrored_ctda, PLAYER_REF)
+                                   fallout_run_on, mirrored_ctda, PLAYER_REF, talked_to_pc)
 from ..generated.ctda_param_types import CTDA_FORMID_PARAMS
 from .owned_records import FALLOUT_VTYP_BY_SOURCE, MGEF_FAMILY_KEYWORDS, WELL_KNOWN_PROPERTIES
 from .race_factions import race_faction
@@ -672,6 +672,7 @@ def convert_ctda(raw: bytes, offset: 'int | None' = None,
         params = _convert_params(func_idx, param1, param2, offset, av_table)
         fields = _run_on_fields(type_byte, func_idx, run_on, reference,
                                 run_on_target_ref, drop_run_on_target)
+        func_idx, params = talked_to_pc(raw, func_idx) or (func_idx, params)
     if params is None or fields is None:
         return None
     func_idx, param1 = (_authored_race_faction(func_idx, param1, offset)

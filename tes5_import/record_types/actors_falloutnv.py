@@ -12,6 +12,7 @@ See: docs/commentary/tes5_import_falloutnv_actors.md
 """
 
 from ..base.text_reader import get_formid, get_int, get_str
+from .settings_falloutnv import setting
 
 #: Template Flags bits, and the field each hides (wbDefinitionsFNV.pas:6830).
 _USE_TRAITS = 1 << 0
@@ -105,22 +106,19 @@ def aggro_radius(rec: dict) -> tuple:
     return 1, max(get_int(rec, 'AIDT.AggroRadius'), 0)
 
 
-#: FO3/FNV fAVDNPCHealthEnduranceMult and fAVDNPCHealthLevelMult (both games: 5.0).
-_HEALTH_PER_ENDURANCE = 5
-_HEALTH_PER_LEVEL = 5
-
 #: ACBS PC Level Mult: Level is then a multiplier of the player's.
 _PC_LEVEL_MULT = 0x80
 
 
 def npc_health(rec: dict) -> int:
-    """A FO3/FNV NPC's hit points: Base Health + Endurance x 5 + (Level - 1) x 5.
+    """A FO3/FNV NPC's hit points: Base Health + Endurance and level times the game's two health settings.
 
     See: docs/commentary/tes5_import_falloutnv_actors.md#npc-health
     """
     level = 1 if get_int(rec, 'ACBS.Flags') & _PC_LEVEL_MULT else get_int(rec, 'ACBS.Level', 1)
-    return (get_int(rec, 'DATA.BaseHealth', 50) + get_int(rec, 'DATA.Endurance') * _HEALTH_PER_ENDURANCE
-            + max(level - 1, 0) * _HEALTH_PER_LEVEL)
+    return int(get_int(rec, 'DATA.BaseHealth', 50)
+               + get_int(rec, 'DATA.Endurance') * setting('fAVDNPCHealthEnduranceMult')
+               + max(level - 1, 0) * setting('fAVDNPCHealthLevelMult'))
 
 
 #: Types a TPLT chain can pass through. FO3/FNV has LVLN as well as LVLC.

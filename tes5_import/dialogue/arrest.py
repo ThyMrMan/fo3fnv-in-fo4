@@ -131,14 +131,14 @@ def _is_guard_ctda() -> bytes:
                                               _FUNC_IS_GUARD, 0, 0, 0, 0, 0, -1))
 
 
-def _blank_info(fid: int) -> bytes:
-    """One silent, text-less line a guard may open dialogue with."""
-    subs = pack_subrecord('ENAM', struct.pack('<HH', 0, 0))
+def blank_info(fid: int, ctdas: bytes = b'', vmad: bytes = b'') -> bytes:
+    """One silent, text-less line, with its packed VMAD and CTDA subrecords."""
+    subs = vmad + pack_subrecord('ENAM', struct.pack('<HH', 0, 0))
     subs += pack_subrecord('CNAM', struct.pack('<B', 0))
     subs += pack_subrecord('TRDT', struct.pack('<IiI B3x I B3x', 0, 50, 0, 1, 0, 1))
     subs += pack_string_subrecord('NAM2', '')
     subs += pack_string_subrecord('NAM3', '')
-    subs += _is_guard_ctda()
+    subs += ctdas
     return pack_record('INFO', fid, 0, subs)
 
 
@@ -164,6 +164,6 @@ def morrowind_arrest_topic(by_type: dict, writer, master_index=None) -> set:
                         quest_fid=quest, category=_PFGT_CATEGORY, subtype=0,
                         snam=_PFGT, edid_override='TES4MorrowindForceGreet',
                         formid_override=dial_fid)
-    info = _blank_info(writer.derive_formid('ARREST_INFO', _MORROWIND_ARREST_QUEST))
+    info = blank_info(writer.derive_formid('ARREST_INFO', _MORROWIND_ARREST_QUEST), _is_guard_ctda())
     writer.add_raw_group('DIAL', dial + pack_group(7, struct.pack('<I', dial_fid), info))
     return {quest}

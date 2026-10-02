@@ -32,6 +32,9 @@ SAY_TOPIC_DISPOSITIONS: dict = {}
 #: Disposition of a script-spoken topic the engine also fires: only identity RunOn=Target tests drop.
 ENGINE_TARGET = ('target', None)
 
+#: Disposition of an engine-fired topic every script call names a target for: its RunOn=Target tests all stay.
+ENGINE_KEEP = ('keep', None)
+
 #: build_force_greet_slots' answer for the plugin being imported.
 FORCE_GREET_SLOTS: dict = {}
 
@@ -53,7 +56,8 @@ def build_say_topic_dispositions(by_type: dict,
     retargeted onto that reference; mixed or unresolvable targets drop them,
     as does a Morrowind `Say` topic, which has no target at all.  A dropping
     topic in `engine_fired` (raw24 fids of engine barks) drops only identity
-    tests: the engine supplies its real target for the rest.
+    tests, the engine supplying its real target for the rest; one whose every
+    call is a SayTo naming a target keeps those too.
     See: docs/commentary/tes5_import_dialogue.md#engine-fired-say-topics
     """
     votes = _scan_say_votes(collect_script_texts(by_type),
@@ -64,7 +68,7 @@ def build_say_topic_dispositions(by_type: dict,
         out[dfid] = ('ref', next(iter(real))) if len(real) == 1 else ('drop', None)
     for dfid in engine_fired & out.keys():
         if out[dfid][0] == 'drop':
-            out[dfid] = ENGINE_TARGET
+            out[dfid] = ENGINE_TARGET if None in votes.get(dfid, {None}) else ENGINE_KEEP
     return out
 
 

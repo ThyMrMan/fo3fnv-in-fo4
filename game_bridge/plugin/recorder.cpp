@@ -548,6 +548,9 @@ ULONGLONG     g_windowStart = 0;
 int           g_windowCount = 0;
 std::uint64_t g_windowDropped = 0;
 
+// The Papyrus line prefix of a play-test mark; the rest of the line is the event's text.
+constexpr char kMarkPrefix[] = "TES4MARK ";
+
 // A VM error storm (one bad OnUpdate every frame) must not drown the events.
 constexpr int kPapyrusPerSecond = 100;
 constexpr int kFramesPerError = 40;
@@ -628,6 +631,20 @@ void RecorderMessage(const char* kind, const char* saveName) {
 
 void RecorderPapyrus(const char* text) {
     if (!g_installed || !g_enabled || !text || !*text) return;
+    // A play-test mark (TES4DebugMark.esp) is asked for, a burst of a few dozen
+    // lines: it is kept whole, outside the error budget. Matched near the start,
+    // not only at it, in case the logger hands over a stamped line.
+    const char* mark = std::strstr(text, kMarkPrefix);
+    if (mark && mark - text < 48) {
+        char buf[2048];
+        Out o{buf, buf + sizeof(buf), nullptr, 0, false, false};
+        buf[0] = '\0';
+        Put(o, ",\"text\":\"");
+        PutEscaped(o, mark + sizeof(kMarkPrefix) - 1);
+        Put(o, "\"");
+        WriteLine("mark", buf);
+        return;
+    }
     std::uint64_t dropped = 0;
     const bool admit = AdmitPapyrus(text, &dropped);
     if (dropped) {
