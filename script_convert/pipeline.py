@@ -306,7 +306,8 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
                 quest_objective_indices(by_type),
                 build_script_chain_map(by_type),
                 build_force_greet_slots(by_type),
-                export_is_fallout(export_dir), say_to_done_hooks(by_type),
+                export_is_fallout(export_dir),
+                say_to_done_hooks(by_type, said_to_topics(by_type)),
                 objective_script_globals(by_type) if export_is_fallout(export_dir) else {},
                 build_force_flee_slots(by_type), menu_only_infos(by_type))
     stats['written'] = _drain_written()
@@ -1010,12 +1011,28 @@ def scan_say_topics(by_type: dict) -> set:
     first.  Read: SCTX, ResultScript, ResultScriptEnd, ScriptText, and every
     FO3/FNV package section's script and topic.
     """
-    dial_edids = {(r.get('EditorID') or '').strip().lower()
-                  for r in by_type.get('DIAL', [])}
-    dial_edids.discard('')
+    hits = _say_hits(by_type)
+    said_to = {topic for topic, is_to in hits if is_to}
+    return ({topic for topic, _ in hits}
+            | say_to_done_topics(by_type.get('SCPT', []), by_type.get('DIAL', []), said_to))
+
+
+def said_to_topics(by_type: dict) -> set:
+    """Topic EditorIDs (lowercase) some script, package or INFO says with SayTo."""
+    return {topic for topic, is_to in _say_hits(by_type) if is_to}
+
+
+def _dial_edids(by_type: dict) -> set:
+    """Every DIAL EditorID, lowercase."""
+    return {(r.get('EditorID') or '').strip().lower()
+            for r in by_type.get('DIAL', [])} - {''}
+
+
+def _say_hits(by_type: dict) -> set:
+    """(topic EditorID lowercase, is SayTo) for each Say/SayTo naming a real DIAL."""
+    dial_edids = _dial_edids(by_type)
     if not dial_edids:
         return set()
-
     texts = [rec.get(field) or '' for kind in ('SCPT', 'INFO', 'QUST')
              for rec in by_type.get(kind, [])
              for field in ('SCTX', 'ResultScript', 'ResultScriptEnd', 'ScriptText')]
@@ -1023,7 +1040,7 @@ def scan_say_topics(by_type: dict) -> set:
     texts += [package_source(rec, edid_by_fid) for rec in by_type.get('PACK', [])]
     texts += [patrol_scan_source(rec, edid_by_fid) for rec in by_type.get('REFR', [])
               if is_patrol_point(rec)]
-    topics = set()
+    hits = set()
     for raw in (line for text in texts for line in text.splitlines()):
         line = raw.split(';', 1)[0]
         for m in _TES4_SAY_RE.finditer(line):
@@ -1031,9 +1048,9 @@ def scan_say_topics(by_type: dict) -> set:
             first, second = m.group(2), m.group(3)
             for cand in ((second, first) if is_to else (first,)):
                 if cand and cand.lower() in dial_edids:
-                    topics.add(cand.lower())
+                    hits.add((cand.lower(), is_to))
                     break
-    return topics | say_to_done_topics(by_type.get('SCPT', []), dial_edids)
+    return hits
 
 
 def info_needs_fragment(rec: dict, info_reveals: dict = None,

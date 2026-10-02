@@ -8,10 +8,14 @@ greet, which must stay free to open its own talk. The speaker itself is held in
 place (restrained, which still lets it talk; converted scripts restrain with
 SetDontMove, so none of ours is restrained already) so a package change cannot
 walk it off mid-line. TES4DialoguePause (1 = on)
-switches it per game.
-See: docs/commentary/tes5_import_dialogue.md#fallout-dialogue-pause}
+switches it per game. Whatever the switch, the speaker joins TES4TalkedToPC once
+its greeting has been chosen: FO3/FNV GetTalkedToPC counted talks, not barks,
+and a first-meeting greeting must not come back when the talk returns to it.
+See: docs/commentary/tes5_import_dialogue.md#fallout-dialogue-pause
+See: docs/commentary/tes5_import_dialogue.md#talked-to-pc}
 
 GlobalVariable Property TES4DialoguePause Auto
+Faction Property TES4TalkedToPC Auto
 
 Actor[] TES4Frozen
 Int TES4FrozenCount
@@ -28,7 +32,7 @@ EndEvent
 
 Event OnMenuOpen(String asMenuName)
   Int tries = 0
-  While TES4DialoguePause.GetValue() > 0 && tries < 3 && !TES4Freeze()
+  While tries < 3 && !TES4Freeze()
     Utility.Wait(0.1)
     tries += 1
   EndWhile
@@ -49,7 +53,21 @@ Bool Function TES4Greeting(Actor akActor)
   Return current && current.GetTemplate() == Game.GetForm(0x0003C1C4)
 EndFunction
 
-; Freeze the others once the speaker is known; False while no actor in the cell is talking yet.
+; The actor within talking reach of the player that is in dialogue with it, or None. An exterior speaker
+; can stand in the next cell, out of the cell scan; FindClosestActorFromRef would return the player itself.
+Actor Function TES4NearbySpeaker(Actor akPlayer)
+  Int tries = 0
+  While tries < 12
+    Actor someone = Game.FindRandomActorFromRef(akPlayer, 512.0)
+    If someone && someone != akPlayer && someone.IsInDialogueWithPlayer()
+      Return someone
+    EndIf
+    tries += 1
+  EndWhile
+  Return None
+EndFunction
+
+; Note the speaker and, with the switch on, freeze the others; False while no actor nearby is talking yet.
 Bool Function TES4Freeze()
   Actor player = Game.GetPlayer()
   Cell here = player.GetParentCell()
@@ -74,8 +92,17 @@ Bool Function TES4Freeze()
     i += 1
   EndWhile
   If !speaker
+    speaker = TES4NearbySpeaker(player)
+  EndIf
+  If !speaker
     Return false
   ElseIf !(TES4Ours(speaker) || TES4Ours(speaker.GetActorBase()))
+    Return true
+  EndIf
+  If TES4TalkedToPC
+    speaker.AddToFaction(TES4TalkedToPC)
+  EndIf
+  If TES4DialoguePause.GetValue() <= 0
     Return true
   EndIf
   speaker.SetRestrained(true)
