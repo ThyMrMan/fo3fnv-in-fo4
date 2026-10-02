@@ -9,12 +9,30 @@ _BASE = {'OBND.X1': '-78', 'OBND.Y1': '-8', 'OBND.Z1': '0', 'OBND.X2': '91', 'OB
 _REF = {'PosX': '10752', 'PosY': '4480', 'PosZ': '2816', 'RotZ': '3.1416'}
 
 
-def test_a_door_covers_the_triangles_of_its_doorway_whichever_way_it_turns():
-    """The triangles under the exit door (22 and 27 units off) are covered; one 118 units away is not."""
-    for rot in ('3.1416', '0.0'):
-        door = Door(dict(_REF, RotZ=rot), _BASE)
-        assert door.covers((10773.0, 4486.0, 2816.0)) and door.covers((10731.0, 4463.0, 2821.0))
-        assert not door.covers((10714.0, 4368.0, 2821.0))
+def _tri(x: float, y: float, z: float) -> list:
+    """A 20-unit triangle centred near (x, y) at height z."""
+    return [(x - 10, y - 10, z), (x + 10, y - 10, z), (x, y + 10, z)]
+
+
+def test_a_door_is_over_the_triangles_its_turned_bounds_reach():
+    """Turned half a circle, the exit door's bounds span x 10661-10830, y 4434-4488: not the far side's."""
+    door = Door(_REF, _BASE)
+    assert door.under(_tri(10773.0, 4486.0, 2816.0)) and door.under(_tri(10731.0, 4463.0, 2821.0))
+    assert not door.under(_tri(10714.0, 4368.0, 2821.0))
+    unturned = Door(dict(_REF, RotZ='0.0'), _BASE)
+    assert door.under(_tri(10760.0, 4430.0, 2816.0)) and not unturned.under(_tri(10760.0, 4430.0, 2816.0))
+
+
+def test_a_door_takes_the_floor_it_stands_on_not_the_storey_below():
+    """Of two floors under the door, the one at its bottom is the door's; the cellar beneath stays open."""
+    door = Door(_REF, _BASE)
+    mesh = CellNavmesh([], {})
+    for i, z in enumerate((2816.0, 2818.0, 2600.0)):
+        mesh.points[(1, i)] = _tri(10760.0 + i, 4470.0, z)
+        mesh.centre[(1, i)] = (10760.0 + i, 4470.0, z)
+    mesh.next[(1, 0)].append((1, 1))
+    mesh.next[(1, 1)].append((1, 0))
+    assert mesh._floor_under(door) == {(1, 0), (1, 1)}
 
 
 def _corridor(side_room: bool) -> CellNavmesh:

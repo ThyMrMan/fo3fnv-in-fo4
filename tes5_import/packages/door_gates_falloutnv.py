@@ -12,13 +12,13 @@ door is unlocked. The table is filled before PACK converts.
 See: docs/commentary/tes5_import_package.md#locked-door-gates
 """
 
-import math
 import struct
 from collections import defaultdict, deque
 
 from ..base.text_reader import get_formid, get_hex_bytes, get_int
 from ..base.writer import pack_subrecord
 from ..record_types.navm_falloutnv import parse_door_links, parse_edge_links, parse_triangles, parse_vertices
+from ..navmesh.world import rot_matrix
 from ..record_types.world_falloutnv import is_fallout_source
 
 #: Output PACK FormID -> output FormIDs of the doors that must be unlocked before it runs.
@@ -30,31 +30,44 @@ _FUNC_GET_LOCKED, _RUN_ON_REFERENCE = 5, 2
 #: PLDT type Near Reference: the package's destination is a placed reference.
 _NEAR_REFERENCE = 0
 
-#: Units a door's footprint is widened by, so the triangles of its doorway fall inside.
-_DOOR_MARGIN = 32.0
-
-
 def _position(rec: dict) -> tuple:
     """A placed reference's (x, y, z)."""
     return tuple(float(rec.get(k) or 0) for k in ('PosX', 'PosY', 'PosZ'))
 
 
+def plan_overlaps(tri: list, half: tuple) -> bool:
+    """Whether a triangle (three (x, y) points about the rectangle's centre) meets the rectangle of half extents.
+
+    The separating-axis test: the rectangle's two axes and the triangle's
+    three edge normals; touching counts as meeting.
+    """
+    axes = [(1.0, 0.0), (0.0, 1.0)] + [(a[1] - b[1], b[0] - a[0]) for a, b in zip(tri, tri[1:] + tri[:1])]
+    for ax, ay in axes:
+        reach = abs(ax) * half[0] + abs(ay) * half[1]
+        spans = [ax * x + ay * y for x, y in tri]
+        if min(spans) > reach or max(spans) < -reach:
+            return False
+    return True
+
+
 class Door:
-    """A placed door's footprint: its bounds turned by its Z rotation about its position."""
+    """A placed door's authored bounds (the base's OBND), placed by the reference's position and rotation."""
 
     def __init__(self, ref: dict, base: dict):
-        """Read the reference's position and rotation and the base's OBND."""
-        self.pos, angle = _position(ref), float(ref.get('RotZ') or 0)
-        self.cos, self.sin = math.cos(angle), math.sin(angle)
-        self.half = tuple(max(abs(get_int(base, f'OBND.{a}1')), abs(get_int(base, f'OBND.{a}2'))) + _DOOR_MARGIN
-                          for a in 'XY')
-        self.top = get_int(base, 'OBND.Z2') + _DOOR_MARGIN
+        """Read the reference's placement and the base's OBND corners."""
+        self.pos = _position(ref)
+        self.rot = rot_matrix(*(float(ref.get(k) or 0) for k in ('RotX', 'RotY', 'RotZ')))
+        low = [get_int(base, f'OBND.{a}1') for a in 'XYZ']
+        high = [get_int(base, f'OBND.{a}2') for a in 'XYZ']
+        self.centre = tuple((lo + hi) / 2.0 for lo, hi in zip(low, high))
+        self.half = tuple((hi - lo) / 2.0 for lo, hi in zip(low, high))
+        self.bottom, self.top = self.pos[2] + low[2], self.pos[2] + high[2]
 
-    def covers(self, point: tuple) -> bool:
-        """Whether `point` lies inside the door's widened footprint."""
-        dx, dy, dz = (p - q for p, q in zip(point, self.pos))
-        local = (dx * self.cos + dy * self.sin, -dx * self.sin + dy * self.cos)
-        return abs(local[0]) <= self.half[0] and abs(local[1]) <= self.half[1] and -_DOOR_MARGIN <= dz <= self.top
+    def under(self, tri: list) -> bool:
+        """Whether a triangle (three world points) is under the door, seen from above."""
+        local = [self.rot.T @ [p[k] - self.pos[k] for k in range(3)] for p in tri]
+        return plan_overlaps([(float(v[0]) - self.centre[0], float(v[1]) - self.centre[1]) for v in local],
+                             self.half)
 
 
 class CellNavmesh:
@@ -63,14 +76,35 @@ class CellNavmesh:
     def __init__(self, navms: list, doors: dict):
         """Join every NAVM of the cell through its edge links; `doors` is {door FormID: Door}.
 
-        A door's triangles are its NVDP links plus those under its footprint:
+        A door's triangles are its NVDP links plus the floor under its bounds:
         an in-cell door has no link, and its navmesh runs straight under it.
         """
-        self.centre, self.next, self.door = {}, defaultdict(list), defaultdict(set)
+        self.centre, self.points, self.next, self.door = {}, {}, defaultdict(list), defaultdict(set)
         for rec in navms:
             self._add(get_formid(rec, 'FormID'), rec)
         for fid, door in doors.items():
-            self.door[fid] |= {node for node, point in self.centre.items() if door.covers(point)}
+            self.door[fid] |= self._floor_under(door)
+
+    def _floor_under(self, door: Door) -> set:
+        """The triangles of the floor the door stands on, under its bounds.
+
+        Of the triangles under the door seen from above, the one nearest the
+        door's bottom and not above its top seeds the floor, which then grows
+        through neighbours that are also under the door, so a storey above or
+        below never joins.
+        """
+        under = {node for node, tri in self.points.items() if door.under(tri)}
+        floor = [n for n in under if self.centre[n][2] <= door.top]
+        if not floor:
+            return set()
+        seed = min(floor, key=lambda n: abs(self.centre[n][2] - door.bottom))
+        found, todo = {seed}, [seed]
+        while todo:
+            for other in self.next[todo.pop()]:
+                if other in under and other not in found:
+                    found.add(other)
+                    todo.append(other)
+        return found
 
     def _add(self, navm: int, rec: dict) -> None:
         """Add one navmesh's triangles, neighbours, cross-navmesh links and linked doors."""
@@ -80,6 +114,8 @@ class CellNavmesh:
         for i, tri in enumerate(tris):
             pts = [verts[v] for v in tri if v < len(verts)]
             self.centre[(navm, i)] = tuple(sum(p[k] for p in pts) / max(len(pts), 1) for k in range(3))
+            if len(pts) == 3:
+                self.points[(navm, i)] = pts
             self.next[(navm, i)] += [(navm, e) for e in adj[i] if e >= 0]
         for tri, _slot, index in links:
             if 0 <= index < len(targets):

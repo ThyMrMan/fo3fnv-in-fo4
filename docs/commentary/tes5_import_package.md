@@ -1083,21 +1083,36 @@ idle 0 (a FO3/FNV IDLE names no Skyrim animation) and the topic as a Topic
 Ref `PDTO`. Patrol topics and scripts feed the say-topic scans, so a topic
 only a marker says is kept.
 
-The script has no Skyrim home: Skyrim's REFR keeps only unused leftovers of
-the embedded script, and no Papyrus event reports a patroller's arrival. A
-marker with a script therefore gets `<NS>_PM__<FormID> extends
-ObjectReference`. While its cell is attached it polls every 0.5 s. The
-closest actor within 128 units, not the player, whose current package is one
-of `TES4PatrolPackages`, runs the converted body once (`akSpeakerRef` is that
-actor, as in a package fragment). It can arrive again after moving 256 units
-away. `TES4PatrolPackages` (a Form-array VMAD property) is every package that
-brings an actor to the marker. A Patrol walks the XLKR chain from the marker
-its PLDT names, else from each of its actors' own linked reference; any other
-package arrives at the marker its PLDT names. FO3/FNV runs the script for
-those too: VMS21's Joana escaping, the Legion snipers and the Strip
-securitrons are Travel packages to scripted markers, and two Legion tent
-guards are Guard packages. A marker nothing is known to reach gets no VMAD,
-so it never runs for a passer-by.
+The script runs from the arrival topic. Skyrim's patrol data names "a dialogue
+topic to say when they arrive" (CK wiki, Reference > Patrol Data), and a line
+that is said runs its INFO's fragment with `akSpeakerRef` as the speaker.
+FO3/FNV ran the script on that same actor. So a marker with a script gets a
+silent topic of its own (`TES4PatrolTopic_<FormID>`, a CUST topic under the
+start-game quest `TES4PatrolTopics`) and names it in `PDTO`. The topic's one
+INFO is a blank line (no text, no voice), and its VMAD runs
+`<NS>_PM__<FormID> extends TopicInfo`:
+
+- the converted body runs in the End fragment, so a `Say` inside it is not
+  lost while the silent line is still playing;
+- a marker that also had its own topic says it afterwards (`Say <topic>`
+  appended to the source). Two FalloutNV.esm markers have both.
+
+The engine decides when the actor has arrived, so no radius is involved, and
+any patroller reaching the marker runs the script without a package-route
+map. FalloutNV.esm has 101 scripted markers; Fallout3.esm has none.
+
+Only patrollers say patrol topics. The GECK names patrol data as a Patrol
+package's ("Data on patrol points"; Idle Markers: "used in Patrol Packages,
+Sandbox Packages, and UseItemAt Packages"). So the 13 markers that only Travel
+packages reach, and the 2 that only Guard packages reach, no longer run their
+script. VMS21's Joana, the Legion snipers and the Strip securitrons were
+assumed to need it, but nothing authoritative says FO3/FNV ran it for them;
+check them in play.
+
+Superseded: a `<NS>_PM__<FormID> extends ObjectReference` watch. It polled
+every 0.5 s while its cell was attached, and took the closest actor within
+128 units running one of the marker's routed packages, re-arming past 256
+units. Those radii were invented, not FO3's.
 
 ## Every placed copy gets its quest package
 <a id="every-placed-copy-gets-its-quest-package"></a>
@@ -1209,28 +1224,48 @@ hold:
 While the door is locked, the actor runs its next package; once a script
 unlocks the door, it goes.
 
-**Finding a door's triangles.** A load door has an NVDP door link, and
-Door-flagged triangles (`0x400`) exist only for linked doors. An in-cell door
-like `Vault101ExitDoor` has neither: the navmesh runs straight under it (its
-cell's only Door-flagged triangles are the 3 linked doors'). So a door also
-covers every triangle whose centroid lies inside its footprint. The footprint
-is the base's OBND, turned by the reference's Z rotation and widened by
-32 units, and taken symmetrically so the rotation's sign doesn't matter. For
-the exit door that's triangles 58 and 102. Shutting them leaves the guards no
-route, and opening them gives a 20-triangle route.
+**Finding a door's triangles.** Neither game's data marks the triangles under
+an in-cell door:
+- A load door has an NVDP door link. In FO3, all 1,113 linked doors are
+  teleport doors, and none of its 184 locked in-cell doors is linked.
+- The triangle flag Door (`0x400`, 1,108 triangles in FO3) belongs to those
+  linked doors.
+- Skyrim's own door triangles name only teleport doors (1,703 of 1,703;
+  `tools/navmesh/check.py`). So Skyrim's planner cannot see an in-cell
+  door either.
+
+FO3's AI simply stops at the closed door at runtime, and Skyrim's failsafe
+warp, which has no game setting, does not.
+
+So a door's triangles are read from its authored bounds. The base's OBND is
+placed by the reference's full rotation, with the same `rot_matrix` the
+navmesh builder uses for collision. A triangle is under the door when it
+overlaps that box seen from above: an exact separating-axis test, so
+touching counts. Of those triangles, the one nearest the door's bottom and
+not above its top seeds the floor the door stands on. The floor then grows
+only through neighbours that are also under the door, so a storey above or
+below never joins. There is no tolerance anywhere.
+
+This replaced a footprint widened by an invented 32 units and mirrored to dodge
+the rotation's sign. That one gated Moriarty's sleep package behind his
+rent-room door, though his route to the bed runs along the hallway beside it
+(it took triangle 79 under a footprint that reached 32 units past the door),
+and it missed CG04's guards leaving by the exit door.
 
 The routes are breadth-first over the cell's NAVMs, joined by their edge links.
 An actor's start is its placed position; the triangle used is the one whose
 centroid is nearest the point.
 
-Gated packages, FO3 (16):
+Gated packages, FO3 (20 since the exact bounds; FNV 10):
 - CG04's three guard packages (`CG04GuardsToEntrance`, `CG04PatrolEntrance`,
   `CG04GuardEntrance`) and Tom Holden's death run;
 - CG02's five target-range packages for Dad and Jonas. The door is unlocked by
   a CG02 stage (`CG02TargetRangeDoorNEW.unlock`), as Fallout ordered it;
 - MQ08's guards and Sid;
 - MS09's Robert;
-- Moriarty's sleep package.
+- CG04's guards leaving by the exit door, and CG02's guards waiting for the
+  Overseer;
+- Brotch in his MS16 cell.
 
 Not judged:
 - packages whose holders start in another cell;
