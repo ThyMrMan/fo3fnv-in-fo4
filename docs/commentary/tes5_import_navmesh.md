@@ -234,15 +234,28 @@ or 2 is set holds an NVEX index in that edge, not a neighbour triangle (xEdit
 `wbNVTREdgeToStr`). The exporter dropped NVEX and the parser ignored the flag,
 so a linked edge either vanished or, when its index was below the triangle
 count, joined an unrelated triangle; the geometric seam pass then linked only
-241 of 2,727 exterior meshes (9%), though FalloutNV.esm authors links on
-2,105 navmeshes. NPCs could not cross an exterior cell border: Sunny
+241 of the 2,727 exterior cells it counted (9%), though FalloutNV.esm authors
+94,467 links on 4,105 navmeshes (4,095 exterior). NPCs could not cross an
+exterior cell border: Sunny
 Smiles's `VCG02SunnyTravelToWell1` started and she never moved. Each authored
 link is now written after the mesh is packed, through `NavMeshView.add_link`
 with the source link type, to the target's output FormID
 (`derive_formid('NAVM', (cell, source FormID))`, mapped for every navmesh
 before any is converted). `build_edge_links` only fills border edges that
-carry no link, so it adds to them and never duplicates one. This lives in
-`record_types/`, outside the shared navmesh cache's tag.
+carry no link, so it adds to them and never duplicates one.
+
+<a id="every-mesh-in-a-cell"></a>**The seam pass keys every exterior mesh, not
+every cell** (`edge_links._exterior_views`, `_stitch_seams`). It used to index
+meshes by `(worldspace, grid)`, so a cell holding several kept only the last
+one, and `_prune_dead_links` then stripped every link into the dropped ones.
+That was invisible while every source had one exterior mesh per cell
+(Oblivion's splitter cuts interiors only, after this pass), but FalloutNV.esm
+has 990 exterior cells with 2 to 8 navmeshes (2,523 meshes, 59% of the
+exterior). With the authored links carried in, the pass deleted 14,485 of the
+94,467 across 1,466 meshes. Keyed per mesh, with each seam matched across
+every mesh on both sides at once, it loses none, and 4,097 of 4,260 exterior
+meshes end up linked (96%). With one mesh per cell the output is
+byte-identical to the old pass (3,238 FNV meshes, one per cell, compared).
 
 <a id="fallout-door-links-renumbered"></a>**FO3/FNV door links are renumbered
 like every other reference** (`navm_falloutnv.parse_door_links`). An authored
@@ -1310,12 +1323,20 @@ neighbouring cell. `convert_PGRD` built edges only from `Point.Edge` and ignored
 PGRI, so no ribbon ever crossed a boundary.
 
 **Fix (two parts):**
-1. **Export bug — PGRI is 16 bytes, not 14, and LocalNode is U32, not U16**
-   (UESP TES4 PGRD ref: `Local node number (long)`, then float X/Y/Z of the
-   FOREIGN node). The old 14-byte/U16 reading misaligned every entry after the
-   first into uninitialised CS memory (denormal floats ~1e-41, node indices like
-   17306). Fixed in `tes4_export/record_types/world.py::export_PGRD`. This is a
-   pure-dump correctness fix — it belongs in the export, per CLAUDE.md.
+1. **Export bug — PGRI is 16 bytes, not 14:** U16 local node, **2 unused
+   bytes**, then float X/Y/Z of the FOREIGN node (xEdit
+   `wbDefinitionsTES4.pas`: `wbInteger('Point', itU16), wbUnused(2)`). The old
+   14-byte reading misaligned every entry after the first into uninitialised CS
+   memory (denormal floats ~1e-41, node indices like 17306). Fixed in
+   `tes4_export/record_types/world.py::_pgri_lines`. This is a pure-dump
+   correctness fix — it belongs in the export, per CLAUDE.md.
+   - **The unused bytes are NOT zero.** UESP's `long` reading made the node a
+     U32, which pulled CS garbage into the high half (`794951681` =
+     `0x2F620001` = node 1). `_collect_intercell` then dropped it as out of
+     range, so the ribbon never reached the seam — Nehrim grid (-16,-9)/(-15,-9)
+     had no link at y≈-35000. Measured on the U32 export: 26,323 of 82,121
+     Nehrim entries and 31,751 of 290,661 Oblivion entries had the high half
+     set; every one is in range once read as U16 (0 remain out of range).
 2. **Import — build a cross-seam ribbon per valid PGRI link.**
    `pgrd_to_navm._collect_intercell` parses PGRI, drops residual garbage
    (LocalNode out of range, `(0,0,~0)` padding, non-finite / far-away exits),
@@ -4079,8 +4100,24 @@ them at all. A link joins two triangles that do NOT share an edge, so the only
 way to see one is to draw it centroid-to-centroid (orange).
 
 Links are **directional** — Ledge Up is not Ledge Down — so `l` takes the upper
-triangle first. `replay` drops a link whose triangle was deleted and remaps the
-survivors, the same tombstone-then-compact rule the door flags follow.
+triangle first, and chevrons along the line point down the drop. `replay` drops
+a link whose triangle was deleted and remaps the survivors, the same
+tombstone-then-compact rule the door flags follow. `l` refuses a triangle with
+no open edge, and a link that cannot be written draws red; see
+[pinned drop links](#pinned-drop-links).
+
+### <a id="cellview-layer-cut"></a>Cellview: the layer cut and page preferences
+
+The cut slider clips collision outside a height band with two three.js clipping
+planes, so one storey can be edited without the floors above and below in the
+way. The raycaster ignores clipping, so surface picking filters hits outside
+the band itself. **solid** draws collision opaque with a polygon offset, so the
+navmesh lying ON the floor still draws over it.
+
+The plugin and the Layers checkboxes are remembered in
+`export/cellview_prefs.json` (`server.save_prefs`), not browser storage: the
+GUI serves the page on a free port each launch, and browser storage is per
+origin, so it came back empty every time.
 
 Measured: `ImperialDungeon01` has one (triangle 567 → 276, a 192-unit drop);
 the Bruma corpus interiors have none, being single-storey.
@@ -4683,6 +4720,31 @@ Patch corners snap onto the generated vertex they already are (0.5u in plan,
 on SchattenrufMinePart05: 1,092 triangles, none extra or missing against the
 saved result, and the same edge counts (1,324 shared, 628 open).
 
+<a id="frozen-corner-takes-the-vertex"></a>**A frozen corner takes over the
+generated vertex under it** (`_VertexPool.frozen_corner`). Past the 1u snap, a
+corner still claims the nearest generated vertex within 0.5u in plan and
+`STOREY_BAND` in height, and moves that vertex onto the pinned position. The pin
+wins, and the kept floor that shares the vertex stays joined to the patch.
+Before this, the corner got a vertex of its own. On ImperialDungeon01
+(Oblivion.esm), cellview built door 00085288's threshold corners at z 511.45,
+and the pin recorded them there. The import's generator built them at 518.66
+and 519.09. So the door triangle shared no vertex with the frozen triangles
+around it, `split_disconnected_interiors` moved it into a one-triangle NAVM of
+its own, and no actor could reach the door.
+
+The drift itself came from cellview: its index (`tools/navmesh/audit._parse_tables`)
+built its own base-model table from STAT/CONT/FURN/ACTI/TREE/DOOR. The import's
+`pool.build_base_model_index` uses STAT/CONT/FURN/ACTI/TREE/FLOR, so cellview
+carved door meshes the import never carves and skipped flora the import does
+carve. ImperialDungeon01 had 11 door refs that differed; cellview built 877
+triangles where the import built 902. Cellview and `probe.py` now call
+`build_base_model_index`. A stored index whose `bases` meta is older than
+`cell_index.BASES` gets that one table rewritten from the six base record types
+alone (`audit._ensure_store`), in about 2s. A `SCHEMA` bump would have worked
+too, but it throws away the whole 2 GB index and re-parses every cell, reference
+and LAND record inside the cellview process. That filled the user's RAM on the
+first open.
+
 **Where the new floor's edge crosses a frozen edge, the frozen edge is split**
 (`_stitch`). The refill cuts the patch out of the removed floor, so it leaves a
 vertex part-way along the frozen edge: a T-junction the engine will not link
@@ -4711,7 +4773,50 @@ whose open edge lies nearest the other side, which is the same rule
 `_open_edge_towards` uses to pick the edge. So extending or re-cutting a lip
 triangle keeps its drop-down. A lip on a triangle deleted with nothing frozen
 over it has no heir, and its link is dropped. Not yet carried: door flags, and
-ledge links added or removed in the editor (the pin file stores no links).
+a generator ledge REMOVED in the editor (`del_link` is not pinned).
+
+### <a id="pinned-drop-links"></a>Pinned drop links
+
+**Code:** `navmesh_pins.links_for` / `save(links=)`, `navmesh_frozen._carry_ledges`,
+`bake.frozen_patch`.
+
+A link added in the editor is pinned as its two triangles by WORLD position
+(the `links` section, 18 floats: upper triangle, then lower), since the
+generator renumbers triangles on every build. Pinning a link also freezes and
+voids BOTH its triangles, so they come back verbatim. After the frozen patches
+go in, each stored triangle resolves to its heir by the same `_heir` rule as a
+carried generator ledge. Unpinning a patch drops every link with an end on it,
+and each link enters `digest()`, so pinning one restages only that cell.
+
+**A pin REPLACES the cell's links with the ones on screen** (`bake.pinned_links`):
+every link after the session's ops whose two triangles lie in the merged frozen
+patch. The first version appended, so a link the page no longer showed stayed
+pinned. On SchattenrufMinePart02, five earlier links whose triangles a later
+edit replaced all moved to their heir, one new triangle, which shipped as three
+ledges from it where the page had shown one.
+
+**A pin with no ops is refused**, and the Pin button is disabled without one.
+Pinning reloads the cell and clears the ops, and an empty list used to freeze
+EVERY triangle, so Pin, To ESM, Pin took over the whole cell.
+
+**An abandoned build ring drops its new corners** (`dropRing`). A bare-floor
+corner joins the page's vertex list on click but reaches the ops only when its
+triangle completes, so an `Esc` or `b` mid-ring left an orphan, and every later
+`add_vert` was numbered one higher on the page than in the server's replay:
+the pinned triangle got a different corner than the one placed.
+
+**Both ends need an open edge, or the link cannot be written.** A carrier
+edge's neighbour slot holds the Edge Link index instead of a neighbour
+(xEdit `wbEdgeToStr`), so an edge cannot be both. Vanilla census, Skyrim.esm
+(15,966 navmeshes): 2,027 Ledge Down and 2,027 Ledge Up, every one on an edge no
+other triangle shares. On the 1,705 reciprocal same-mesh pairs, the two lips'
+midpoints are 51u apart in plan at the median (90th percentile 96u, max 322u),
+with a drop of 89u (90th percentile 240u). So the landing is the LOWER FLOOR'S
+OWN EDGE near the ledge, usually against the wall below it. The first pinned
+links (SchattenrufMinePart02) all failed this way: each lower triangle lay
+mid-floor under a walkway, so `_heir` found it but it had no lip, and
+`_resolve_ledge_links` would have refused it anyway. Cellview now refuses such a
+link at `l` and draws any existing one red.
 
 ### <a id="pin-ab-toggle"></a>The pinned-edits toggle is a RE-BAKE
 

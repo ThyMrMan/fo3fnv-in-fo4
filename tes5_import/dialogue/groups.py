@@ -44,11 +44,12 @@ from ..base.conditions import (
 )
 
 from .converter import (DIAL_TYPE_CONVERSATION, SERVICE_MENU_SCRIPTS,
-    SERVICE_MENU_TOPICS, CONV_KEEP_EDIDS,
+    CONV_KEEP_EDIDS,
     is_npc_to_npc_conversation, make_conversation_quest,
     make_generic_quest, register_conversation_chains,
     SCENE_TOPIC, classify_topic, collect_tclt_target_fids,
-    convert_DIAL, convert_INFO, make_dlbr, make_dlvw, service_menu_kind,
+    convert_DIAL, convert_INFO, make_dlbr, make_dlvw, service_menu_entry,
+    service_menu_kind,
     should_skip_dial, voice_file_prefix,
     GREET_TOPIC_BY_QUEST, EMPTY_DIAL_FIDS, lip_texts, startable_quests)
 from .say_topics import (FORCE_GREET_SLOTS, SAY_TOPIC_DISPOSITIONS,
@@ -836,13 +837,13 @@ def _build_one_topic(dial_rec, info_by_dial, writer, offset,
     (dial_group_bytes, dlbr_bytes, owner_quest_fid, dial_fid, dlbr_fid)."""
     dial_fid = get_formid(dial_rec, 'FormID')
     edid = get_str(dial_rec, 'EditorID', '')
-    service_kind = service_menu_kind(dial_rec)
+    service_kind, service_prompt = service_menu_entry(dial_rec)
     service_gate_bytes = b''
     if service_kind:
         service_gate_bytes = _service_gate(service_kind)
         if not service_gate_bytes:
             return b'', b'', 0, 0, 0
-        dial_rec['FULL'] = SERVICE_MENU_TOPICS[edid][1]
+        dial_rec['FULL'] = service_prompt
 
     child_infos = sorted(
         info_by_dial.get(dial_fid, []),

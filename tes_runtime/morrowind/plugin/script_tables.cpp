@@ -138,6 +138,12 @@ LayeredTable<FormRef> g_factionForms;
 std::vector<StateRow> g_states;
 LayeredTable<FormRef> g_realmCrime{false};
 
+// The conversion-owned records runtime effects act through, by name: today
+// only `sanctuary`, the faction Sanctuary's perk reads the rank of.
+// See: docs/commentary/morrowind_runtime.md#levitate-and-slowfall
+constexpr const char* kFileEffectForms = "effects_formid.txt";
+LayeredTable<FormRef> g_effectForms{false};
+
 // The one key the realm crime table holds.
 constexpr const char* kCrimeRow = "crime";
 
@@ -460,6 +466,7 @@ void ClearScriptTables() {
     g_factionForms.clear();
     g_states.clear();
     g_realmCrime.clear();
+    g_effectForms.clear();
     g_gmsts.clear();
     g_skills.clear();
 }
@@ -648,7 +655,9 @@ void LoadWorldRows(int layer, const std::string& pluginDir) {
                });
     ForEachRow(pluginDir + kFileFactions,
                [layer](const std::string& faction, const std::string& value) {
-                   g_factions.Add(layer, Lower(faction), ParseFaction(value));
+                   FactionDef def = ParseFaction(value);
+                   def.id = faction;
+                   g_factions.Add(layer, Lower(faction), std::move(def));
                });
     ForEachRow(pluginDir + kFileFactionForms,
                [layer](const std::string& faction, const std::string& value) {
@@ -662,6 +671,10 @@ void LoadWorldRows(int layer, const std::string& pluginDir) {
     ForEachRow(pluginDir + kFileCrime,
                [layer](const std::string&, const std::string& value) {
                    g_realmCrime.Add(layer, kCrimeRow, ParseFormRef(value));
+               });
+    ForEachRow(pluginDir + kFileEffectForms,
+               [layer](const std::string& name, const std::string& value) {
+                   g_effectForms.Add(layer, Lower(name), ParseFormRef(value));
                });
     ForEachRow(pluginDir + kFileGmsts,
                [layer](const std::string& name, const std::string& value) {
@@ -696,6 +709,10 @@ const FormRef* FindFactionForm(const std::string& faction) {
 const std::vector<StateRow>& StateRows() { return g_states; }
 
 const FormRef* RealmCrimeFaction() { return g_realmCrime.Find(kCrimeRow); }
+
+const FormRef* EffectForm(const std::string& name) {
+    return g_effectForms.Find(Lower(name));
+}
 
 const GmstDef* FindGmst(const std::string& name) {
     return g_gmsts.Find(Lower(name));

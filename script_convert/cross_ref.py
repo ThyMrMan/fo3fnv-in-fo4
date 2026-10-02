@@ -3,7 +3,6 @@
 import mmap
 import os
 import re
-from pathlib import Path
 
 from script_convert.constants import (
     PLACED_REF_SIGS, PLAYER_ALIAS_EXTENDS, SCHOOL_ENCHANT_SHADER, TYPE_MAP,
@@ -16,6 +15,7 @@ from tes5_import.base.mesh_bounds import get_mesh_physics_flags
 from tes5_import.base.text_reader import parse_export_file
 from tes5_import.record_types.world_falloutnv import FALLOUT_ONLY_SIGS
 from asset_convert.game_paths import current_namespace
+from core.plugin_masters import master_chain, master_dir
 from core.worker_budget import worker_count
 from core.worldspace_names import converted_worldspace_edid, renames_for
 
@@ -32,22 +32,6 @@ _SCAN_SKIP_SIGS = {'LAND', 'PGRD', 'ROAD'}
 _SCAN_CHUNK_BYTES = 16 * 1024 * 1024
 
 
-def master_names(export_dir) -> list:
-    """The TES4 master file names listed in an export's _HEADER.txt."""
-    header = Path(export_dir) / '_HEADER.txt'
-    if not header.is_file():
-        return []
-    names = []
-    for line in header.read_text(encoding='utf-8',
-                                 errors='replace').splitlines():
-        if line.startswith('Master['):
-            _, _, val = line.partition('=')
-            val = val.strip()
-            if val:
-                names.append(val)
-    return names
-
-
 def _scan_chain(export_dir: str) -> tuple:
     """(`_export_dirs_with_masters`, the worldspace renames that chain applies)."""
     dirs = _export_dirs_with_masters(export_dir)
@@ -58,25 +42,18 @@ def _export_dirs_with_masters(export_dir: str) -> list:
     """`export_dir` preceded by its masters' export dirs, deepest first.
 
     Masters come FIRST so the last-wins merge lets an overriding plugin's own
-    version of a record win.  The walk is transitive (a plugin's master may
-    itself have masters) and cycle-safe; masters with no export directory are
-    skipped silently, which degrades to the old single-directory behaviour.
+    version of a record win. A master with no export is reported, not skipped silently.
+    See: docs/reference/pipeline.md#master-resolution
     """
-    root = Path(export_dir)
-    ordered: list = []
-    seen: set = set()
-
-    def visit(d: Path):
-        key = str(d).lower()
-        if key in seen or not d.is_dir():
-            return
-        seen.add(key)
-        for name in master_names(d):
-            visit(d.parent / name)
-        ordered.append(str(d))
-
-    visit(root)
-    return ordered
+    dirs = []
+    for name in master_chain(export_dir):
+        d = master_dir(export_dir, name)
+        if os.path.isdir(d):
+            dirs.append(d)
+        else:
+            print(f"    WARNING: master export not found ({d}); "
+                  f"script references to {name}'s records will not resolve")
+    return dirs + [str(export_dir)]
 
 
 def _new_scan_out() -> dict:

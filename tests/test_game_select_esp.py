@@ -470,6 +470,19 @@ def test_nehrim_main_quest_is_held_only_after_another_game_is_chosen():
     assert 'GAME_NEHRIM' in hold_for and 'HoldSelfStartingOpenings()' in hold_for
 
 
+def test_prompt_waits_while_the_openings_are_held_every_tick():
+    """Held once up front, Nehrim's later-starting Charactergen moved the player before the prompt.
+
+    See: docs/commentary/tesgameselect.md#opening-hold
+    """
+    text = _psc(MQ101_SCRIPT_NAME)
+    takeover = _function_body(text, 'RunTakeover')
+    assert takeover.index('ParkPlayer(') < takeover.index('RunSelection()')
+    loop = _function_body(text, 'ParkPlayer').split('While ', 1)[1]
+    assert 'Selector.HoldOpeningMovers()' in loop
+    assert 'player.MoveTo(HoldingCellMarker)' in loop
+
+
 def test_scroll_reads_the_way_vanilla_elder_scrolls_do():
     """OnEquipped, first person, the hand scroll and idle; third person never played it.
 
@@ -482,6 +495,17 @@ def test_scroll_reads_the_way_vanilla_elder_scrolls_do():
              'BlindImod.Apply', '.Show()', 'PlayIdle(StopIdle)', 'BlindOut.Play']
     positions = [read.index(step) for step in order]
     assert positions == sorted(positions)
+
+
+def test_scroll_works_when_no_game_is_current():
+    """A console coc start never runs the takeover, so CurrentGame stays -1.
+
+    See: docs/commentary/tesgameselect.md#travel-scroll
+    """
+    text = _psc(TRAVEL_SCRIPT_NAME)
+    assert 'CurrentGame < 0' not in _function_body(text, 'CanTravel')
+    keep = _function_body(text, 'KeepReturnPoint')
+    assert keep.index('CurrentGame < 0') < keep.index('returnPoints[CurrentGame]')
 
 
 def test_no_two_records_share_a_formid(built):

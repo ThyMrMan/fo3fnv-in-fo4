@@ -21,8 +21,8 @@ import os
 
 from core.navmesh_options import navmesh_pins_dir
 from tes5_import.base.navmesh_frozen import (
-    FROZEN_VERSION, SNAP_TOL, STOREY_BAND, apply_frozen, drop_unused_verts,
-    plane_z,
+    FROZEN_VERSION, SNAP_TOL, STOREY_BAND, apply_frozen, centroid,
+    drop_unused_verts, plane_z,
 )
 
 #: Shipped, committable pin files, one per source plugin; a user folder reads over them.
@@ -30,10 +30,13 @@ PINS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), 'navmesh_pins')
 
 #: Every section of a pin file, each `{cell key: [row, ...]}`.
-PARTS = ('cuts', 'frozen', 'voids')
+PARTS = ('cuts', 'frozen', 'voids', 'links')
 
 #: Floats per `frozen` / `voids` row: three corners of (x, y, z).
 TRI_WIDTH = 9
+
+#: Floats per `links` row: the upper triangle's three corners, then the lower's.
+LINK_WIDTH = 2 * TRI_WIDTH
 
 #: Parsed pin files, keyed by plugin; a missing file caches as {}.
 _CACHE = {}
@@ -161,20 +164,34 @@ def cuts_for(plugin, key):
     return out
 
 
+def _tri(row):
+    """The first three (x, y, z) corners of a flat row."""
+    return tuple(tuple(float(c) for c in row[k:k + 3]) for k in (0, 3, 6))
+
+
 def tris_for(plugin, part, key):
     """`[((x,y,z), (x,y,z), (x,y,z)), ...]` of one cell's `frozen` or `voids` rows.
 
     See: docs/commentary/tes5_import_navmesh.md#frozen-navmesh-patches
     """
-    return [tuple(tuple(float(c) for c in r[k:k + 3]) for k in (0, 3, 6))
-            for r in _section(plugin, part, key) if len(r) >= TRI_WIDTH]
+    return [_tri(r) for r in _section(plugin, part, key) if len(r) >= TRI_WIDTH]
+
+
+def links_for(plugin, key):
+    """`[(upper triangle, lower triangle), ...]` of one cell's pinned drop links.
+
+    See: docs/commentary/tes5_import_navmesh.md#pinned-drop-links
+    """
+    return [(_tri(r), _tri(r[TRI_WIDTH:]))
+            for r in _section(plugin, 'links', key) if len(r) >= LINK_WIDTH]
 
 
 def hand_edits_for(plugin, key):
     """Every correction a human committed for one cell, by section name."""
     return {'cuts': cuts_for(plugin, key),
             'frozen': tris_for(plugin, 'frozen', key),
-            'voids': tris_for(plugin, 'voids', key)}
+            'voids': tris_for(plugin, 'voids', key),
+            'links': links_for(plugin, key)}
 
 
 def apply_hand_edits(verts, tris, ledges, edits):
@@ -185,7 +202,7 @@ def apply_hand_edits(verts, tris, ledges, edits):
     edits = edits or {}
     verts, tris, ledges = apply_cuts(verts, tris, ledges, edits.get('cuts'))
     return apply_frozen(verts, tris, ledges, edits.get('frozen') or [],
-                        edits.get('voids') or [])
+                        edits.get('voids') or [], edits.get('links') or [])
 
 
 def _inside(x, y, poly):
@@ -235,6 +252,8 @@ def digest(plugin, key):
     for part in ('frozen', 'voids'):
         parts += [part[0].upper() + ';'.join('%.2f,%.2f,%.2f' % p for p in t)
                   for t in tris_for(plugin, part, key)]
+    parts += ['L' + ';'.join('%.2f,%.2f,%.2f' % p for p in up + down)
+              for up, down in links_for(plugin, key)]
     if any(tris_for(plugin, part, key) for part in ('frozen', 'voids')):
         parts.append('V%d' % FROZEN_VERSION)
     return '|'.join(parts)
@@ -265,22 +284,25 @@ def _write(plugin, doc, folder):
     return path
 
 
-def save(plugin, key, frozen=None, voids=None):
-    """Replace one cell's frozen patch in the save folder's file.
+def save(plugin, key, frozen=None, voids=None, links=None):
+    """Replace one cell's frozen patch and pinned links in the save folder's file.
 
     A section passed as None is left alone; an empty one clears the cell from
     it (kept as an empty override where a shipped pin exists).  `frozen` and
-    `voids` are triangles of three points.  Values round to 0.01u so float
-    noise never churns the diff.
+    `voids` are triangles of three points; `links` are (upper, lower) pairs
+    of them.  Values round to 0.01u so float noise never churns the diff.
     Returns `(path, {section: rows now in effect})`.
     """
     folder = save_dir()
     doc = _read_file(pins_path(plugin, folder))
     shipped = _read_file(pins_path(plugin)) if folder != PINS else None
-    for part, rows in (('frozen', frozen), ('voids', voids)):
+    flat_links = None if links is None else [tuple(u) + tuple(d) for u, d in links]
+    for part, rows, width in (('frozen', frozen, TRI_WIDTH),
+                              ('voids', voids, TRI_WIDTH),
+                              ('links', flat_links, LINK_WIDTH)):
         if rows is None:
             continue
-        got = _rounded([_flat(t) for t in rows], TRI_WIDTH)
+        got = _rounded([_flat(t) for t in rows], width)
         if got or (shipped is not None and key in shipped[part]):
             doc[part][key] = got
         else:
@@ -339,6 +361,7 @@ def patch_at(rows, point):
 def remove_patch(plugin, key, point=None):
     """Unpin the frozen patch holding `point`, or every patch in the cell when None.
 
+    A pinned link with either triangle on a removed patch goes with it.
     Returns `(path, frozen rows removed, void rows removed)`.
     See: docs/commentary/tes5_import_navmesh.md#frozen-navmesh-patches
     """
@@ -349,5 +372,8 @@ def remove_patch(plugin, key, point=None):
             else patch_at(frozen + voids, point))
     keep_f = [t for i, t in enumerate(frozen) if i not in gone]
     keep_v = [t for i, t in enumerate(voids) if i + nf not in gone]
-    path, _n = save(plugin, key, frozen=keep_f, voids=keep_v)
+    lost = [t for i, t in enumerate(frozen) if i in gone]
+    keep_l = [pair for pair in links_for(plugin, key)
+              if not any(_holds(t, centroid(end)) for t in lost for end in pair)]
+    path, _n = save(plugin, key, frozen=keep_f, voids=keep_v, links=keep_l)
     return path, nf - len(keep_f), len(voids) - len(keep_v)

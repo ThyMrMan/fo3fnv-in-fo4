@@ -17,7 +17,9 @@ from asset_convert.ui import morrowind_font as mwfont
 from asset_convert.ui.morrowind_menu_art import (BORDER, BOX_BORDER,
                                                  HEAD_HEIGHT, compose_bar,
                                                  compose_box, compose_button,
-                                                 compose_frame, compose_head)
+                                                 compose_frame, compose_head,
+                                                 compose_stat_bar)
+from tools.generators import gen_morrowind_stats_swf as stats_swf
 from tools.release import package_runtime_dll as pkg
 
 #: Where the pipeline keeps its exports, and so the source registry.
@@ -30,6 +32,11 @@ _W, _H = 240, 120
 _SHIPPED = 'tes_runtime/morrowind/interface'
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+# ---------------------------------------------------------------------------
+# The repo carries the layout, never the art
+# ---------------------------------------------------------------------------
 
 
 def _have_install() -> bool:
@@ -78,11 +85,11 @@ def test_the_built_menu_is_never_tracked():
         f'player\'s own install when TESRuntime.zip is packaged')
 
 
-def test_the_build_folder_holds_only_the_movie():
-    """The generator writes the movie and nothing else there."""
+def test_the_build_folder_holds_only_the_movies():
+    """The generators write their movies and nothing else there."""
     if not os.path.isdir(_SHIPPED):
         pytest.skip('menu not built yet')
-    assert set(os.listdir(_SHIPPED)) <= {'morrowind_dialogue.swf'}
+    assert set(os.listdir(_SHIPPED)) <= {arc.name for arc, _build in pkg.MENUS}
 
 
 # ---------------------------------------------------------------------------
@@ -97,20 +104,41 @@ def _packaged(tmp_path) -> list:
         return zf.namelist()
 
 
-def test_packaging_skips_the_menu_without_an_install(tmp_path):
+def test_packaging_skips_the_menus_without_an_install(tmp_path):
     """No registered Morrowind install: everything else still packages."""
     names = _packaged(tmp_path)
     assert 'SKSE/Plugins/TESRuntime.dll' in names
-    assert pkg.MENU_ARC.as_posix() not in names
+    assert not any(arc.as_posix() in names for arc, _build in pkg.MENUS)
 
 
-def test_packaging_adds_the_composed_menu(tmp_path, monkeypatch):
-    """With an install, the movie goes straight into the archive."""
-    monkeypatch.setattr(pkg, 'morrowind_menu', lambda _root: b'FWS-menu')
+def test_packaging_adds_every_composed_menu(tmp_path, monkeypatch):
+    """With an install, the dialogue, stats and level-up movies go straight in."""
+    fake = [(arc, arc.name.encode()) for arc, _build in pkg.MENUS]
+    monkeypatch.setattr(pkg, 'morrowind_menus', lambda _root: fake)
     names = _packaged(tmp_path)
-    assert pkg.MENU_ARC.as_posix() in names
     with zipfile.ZipFile(tmp_path / 'Finished Mods' / 'TESRuntime.zip') as zf:
-        assert zf.read(pkg.MENU_ARC.as_posix()) == b'FWS-menu'
+        for arc, data in fake:
+            assert arc.as_posix() in names and zf.read(arc.as_posix()) == data
+
+
+def test_the_character_sheet_ships_turned_off(tmp_path):
+    """TESRuntime.zip carries MorrowindRuntime.ini, the character sheet off and on K."""
+    arc = 'SKSE/Plugins/MorrowindRuntime/MorrowindRuntime.ini'
+    assert arc in _packaged(tmp_path)
+    with zipfile.ZipFile(tmp_path / 'Finished Mods' / 'TESRuntime.zip') as zf:
+        lines = zf.read(arc).decode('ascii').splitlines()
+    assert '[CharacterSheet]' in lines and 'Enabled=0' in lines and 'Hotkey=75' in lines
+
+
+def test_stats_layout_header_is_the_generators():
+    """The committed header is what the generator writes, so plugin and movie agree."""
+    committed = (ROOT / stats_swf.HEADER_PATH).read_text(encoding='ascii')
+    assert committed == stats_swf.layout_header()
+
+
+def test_every_class_image_is_named_once():
+    """The level-up dialog can show every image getLevelupClassImage names."""
+    assert len(set(stats_swf.CLASSES)) == len(stats_swf.CLASSES) == 21
 
 
 @needs_install
@@ -169,6 +197,21 @@ def test_empty_and_full_bars_do_not_crash():
     assert compose_bar(EXPORT_ROOT, 200, 18, 0.0).getpixel((40, 9))[:3] == (0, 0, 0)
     full = compose_bar(EXPORT_ROOT, 200, 18, 1.0)
     assert full.getpixel((170, 9))[2] > full.getpixel((170, 9))[0]
+
+
+@needs_install
+def test_stat_bars_take_the_ini_tints():
+    """Health reads red, magicka blue, fatigue green, inside a dark box border."""
+    red, blue, green = (compose_stat_bar(EXPORT_ROOT, 130, 18, rgb).getpixel((60, 9))
+                        for rgb in stats_swf.BAR_COLORS)
+    assert red[0] > red[2] and blue[2] > blue[0] and green[1] > green[0]
+
+
+@needs_install
+def test_stats_and_levelup_movies_build(tmp_path):
+    """Both movies compose from the install and parse as SWF."""
+    for path in stats_swf.write_movies(EXPORT_ROOT, str(tmp_path)):
+        assert Path(path).read_bytes()[:3] == b'CWS'
 
 
 @needs_install

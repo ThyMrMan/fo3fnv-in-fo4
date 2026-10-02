@@ -19,9 +19,10 @@ Int Head = 0
 Int Count = 0
 Bool Draining = False
 
-; Attacker (alias 2n) and target (alias 2n+1) of pair n.
+; Attacker (alias 2n) and target (alias 2n+1) of pair n, and the real time it was last started.
 Actor[] HeldAttackers
 Actor[] HeldTargets
+Float[] HeldAt
 
 ; Queue a StartCombat (akTarget set) or a StopCombat (akTarget None); False when the queue is full.
 Bool Function Push(Actor akAttacker, Actor akTarget, Faction akAttackers, Faction akVictims)
@@ -79,8 +80,14 @@ Event OnUpdate()
     Head = (Head + 1) % 128
     Count -= 1
     If target
-      If TES4Polyfill.ForceCombatNow(attacker, target, attackerFaction, victimFaction)
-        Hold(attacker, target)
+      Bool adds = AddsTarget(attacker, target)
+      If TES4Polyfill.ForceCombatNow(attacker, target, attackerFaction, victimFaction, adds)
+        If adds
+          Release(attacker)
+          attacker.EvaluatePackage()
+        Else
+          Hold(attacker, target)
+        EndIf
       EndIf
     Else
       Release(attacker)
@@ -90,9 +97,23 @@ Event OnUpdate()
   Draining = False
 EndEvent
 
+; True when this StartCombat follows, within a second, one this queue made on another live target:
+; TES4 calls in one frame ADD targets (Oblivion.exe 0x514660), so it joins that fight rather than
+; standing the attacker down. A pair aims at one target, so a fight with several is left to
+; Skyrim's own combat. See docs/commentary/script_convert.md#startcombat-approaches-an-undetected-target
+Bool Function AddsTarget(Actor akAttacker, Actor akTarget)
+  LoadPairs()
+  Int n = HeldAttackers.Find(akAttacker)
+  If n < 0 || HeldTargets[n] == akTarget || !HeldTargets[n] || HeldTargets[n].IsDead()
+    Return False
+  EndIf
+  Return Utility.GetCurrentRealTime() - HeldAt[n] < 1.0
+EndFunction
+
 ; Put the pair in the attacker's pair, else an empty one or one whose actors are dead, else pair 0.
 Function Hold(Actor akAttacker, Actor akTarget)
   Int n = PairOf(akAttacker)
+  HeldAt[n] = Utility.GetCurrentRealTime()
   If HeldAttackers[n] == akAttacker && HeldTargets[n] == akTarget
     Return
   EndIf
@@ -140,6 +161,9 @@ EndFunction
 
 ; Read the aliases once per save, for pairs filled before this script kept track.
 Function LoadPairs()
+  If !HeldAt
+    HeldAt = new Float[32]
+  EndIf
   If HeldAttackers
     Return
   EndIf

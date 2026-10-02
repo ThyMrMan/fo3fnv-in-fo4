@@ -19,6 +19,7 @@ import os
 import shutil
 from pathlib import Path
 
+from core.plugin_masters import masters_from_export_header
 from asset_convert.game_paths import (namespace_for, owns_namespace,
                                        set_namespace)
 from asset_convert.sources import bsa_extract
@@ -244,8 +245,11 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     if mesh_subdirs:
         return stats
 
+    if not textures_only:
+        _profile_hair_and_grass(
+            rec_dir, plugin_dir, stats, skip_hair or not mesh_src.exists(),
+            _master_meshes(rec_dir, output_dir, extract_dir))
     if mesh_src.exists() and not textures_only:
-        _profile_hair_and_grass(rec_dir, plugin_dir, stats, skip_hair)
         _split_magic_art(rec_dir, mesh_src, plugin_dir / 'meshes' / ns, stats)
 
     # -----------------------------------------------------------------------
@@ -264,12 +268,22 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     return stats
 
 
-def _profile_hair_and_grass(rec_dir, plugin_dir, stats, skip_hair):
-    """Run the hair (unless `skip_hair`) and grass post-passes over the converted mesh tree."""
+def _master_meshes(rec_dir, output_dir, extract_dir) -> list:
+    """Each direct master's converted meshes root, in header order."""
+    return [_out_root(output_dir, name, extract_dir) / 'meshes'
+            for name in masters_from_export_header(str(rec_dir))]
+
+
+def _profile_hair_and_grass(rec_dir, plugin_dir, stats, skip_hair,
+                            master_meshes=()):
+    """Run the hair (unless `skip_hair`) and grass post-passes over the converted mesh tree.
+
+    A grass model may be a master's converted mesh, found under `master_meshes`.
+    """
     if not skip_hair:
         stats['hair'] = hair_pipeline.run(rec_dir, plugin_dir / 'meshes')
     processed, modified, missing = grass_profile.run(
-        rec_dir, plugin_dir / 'meshes')
+        rec_dir, plugin_dir / 'meshes', master_meshes)
     stats['grass_profile'] = {
         'processed': processed, 'modified': modified, 'missing': missing}
     print(f"  Grass models: {processed} placed under landscape\\grass"
@@ -360,19 +374,11 @@ def convert_speedtrees(source_file, extract_dir='export', output_dir='output',
 
     spt_stats = {'spt_conversion': {'ok': 0, 'fail': 0, 'skip': 0}}
     spt_src = _asset_root(extract_dir, source_name) / 'trees'
-    # A dependent plugin authors TREE records for art its MASTER ships, so the
-    # masters' trees/ dirs are searched for any .spt this export lacks. Read
-    # from the export header rather than a fixed list -- the chain differs per
-    # plugin (Valenwood: Oblivion, Tamriel, Anequina).
-    master_tree_dirs = []
-    header = record_dir(extract_dir, source_name) / '_HEADER.txt'
-    if header.is_file():
-        for line in open(header, encoding='utf-8', errors='replace'):
-            if line.startswith('Master['):
-                name = line.partition('=')[2].strip()
-                d = _asset_root(extract_dir, name) / 'trees'
-                if d.is_dir():
-                    master_tree_dirs.append(d)
+    master_tree_dirs = [
+        d for d in (_asset_root(extract_dir, name) / 'trees'
+                    for name in masters_from_export_header(
+                        str(record_dir(extract_dir, source_name))))
+        if d.is_dir()]
     if spt_src.exists():
         ns = _activate_namespace(record_dir(extract_dir, source_name))
         spt_dst = plugin_dir / 'meshes' / ns / 'speedtrees'

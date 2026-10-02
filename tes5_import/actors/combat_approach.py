@@ -49,20 +49,27 @@ _ALIAS_REF, _PTDA_ALIAS = 8, 4
 #: Condition functions: GetDistance, GetDead, GetEquippedItemType (0 left hand, 1 right).
 _GET_DISTANCE, _GET_DEAD, _GET_EQUIPPED_ITEM_TYPE = 1, 46, 597
 
-#: CTDA type bits: compare greater-than, parameters name quest aliases (vanilla: 230 GetDistance uses).
-_GREATER, _USE_ALIASES = 0x40, 0x02
+#: CTDA type bits: compare greater-than / less-than, parameters name quest aliases (vanilla: 230 GetDistance uses).
+_GREATER, _LESS, _USE_ALIASES = 0x40, 0x80, 0x02
 
 #: GetEquippedItemType values Oblivion fights at range with: bow, staff, spell, crossbow.
 _RANGED_ITEMS = (7, 8, 9, 12)
 
-#: CTDA run-on 5: the quest alias named in parameter 3.
-_RUN_ON_ALIAS = 5
+#: CTDA run-on 3: the subject's current combat target (Actor+0x104); 5: the quest alias in parameter 3.
+_RUN_ON_COMBAT_TARGET, _RUN_ON_ALIAS = 3, 5
 
 
 def _conditions(target_alias: int, ranged: bool) -> bytes:
-    """Target alias alive and out of reach and, for the ranged package, a ranged item in either hand."""
+    """Target alias alive, the attacker's current combat target, and out of reach; and, for
+    the ranged package, a ranged item in either hand.
+
+    See: docs/commentary/script_convert.md#startcombat-approaches-an-undetected-target
+    """
     out = pack_subrecord('CTDA', build_ctda(_GET_DEAD, comp_value=0.0,
                                             run_on=_RUN_ON_ALIAS, param3=target_alias))
+    out += pack_subrecord('CTDA', build_ctda(_GET_DISTANCE, target_alias, comp_value=1.0,
+                                             operator=_LESS | _USE_ALIASES,
+                                             run_on=_RUN_ON_COMBAT_TARGET))
     out += pack_subrecord('CTDA', build_ctda(_GET_DISTANCE, target_alias, comp_value=_REACH[ranged],
                                              operator=_GREATER | _USE_ALIASES))
     if ranged:

@@ -151,6 +151,7 @@ A dated sweep over a corpus, with counts. Frozen once written; a re-audit is a N
 | [morrowind_opcode_testplan_morrowind.md](audits/morrowind_opcode_testplan_morrowind.md) | The same opcode test plan over Morrowind.esm's journal quests |
 | [morrowind_opcode_testplan_merged.md](audits/morrowind_opcode_testplan_merged.md) | One opcode test plan over Morrowind.esm and TR_Mainland.esm's quests together |
 | [mwscript_opcodes.md](audits/mwscript_opcodes.md) | Which of MWScript's 298 commands MorrowindRuntime implements, by call-site cost |
+| [oblivion_native_script_runtime.md](audits/oblivion_native_script_runtime.md) | TES4 commands a native script runtime would need beyond MorrowindRuntime, by call-site cost |
 | [package_conversion.md](audits/package_conversion.md) | PACK Conversion Audit — 2026-08-17 |
 | [quest.md](audits/quest.md) | Quest Completability Audit — Oblivion.esm conversion |
 | [quest_script_conversion.md](audits/quest_script_conversion.md) | Quest Script Conversion Audit |

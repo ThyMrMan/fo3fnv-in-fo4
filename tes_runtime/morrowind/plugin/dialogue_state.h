@@ -163,6 +163,12 @@ struct GameHooks {
     int   (*playerLevel)() = nullptr;
     float (*actorValue)(const std::string& actor, const char* name) = nullptr;
     float (*statPercent)(const std::string& actor, const char* name) = nullptr;
+    // The BASE of that value, which a skill increase, a trainer or a book
+    // moves and a fortify never does.
+    float (*baseActorValue)(const std::string& actor, const char* name) = nullptr;
+    // The actor's race form, only ever compared: a change of race moves the
+    // skills for a reason that is not an increase.
+    const void* (*race)(const std::string& actor) = nullptr;
     void  (*advanceSkill)(const char* skill, float amount) = nullptr;
     void  (*showBarterMenu)(const std::string& actor) = nullptr;
     void  (*showTrainingMenu)(const std::string& actor) = nullptr;
@@ -309,6 +315,9 @@ struct GameHooks {
     // closes it and opens the Morrowind conversation; once the engine has
     // jailed the player for GoToJail, serves the sentence.
     void (*crimeTick)() = nullptr;
+    // Once a tick of unpaused play: re-reads the runtime-carried duration
+    // effects -- Levitate, SlowFall for the physics hook, Sanctuary's ranks.
+    void (*effectTick)() = nullptr;
     // The spell commands. `spell` is a TES3 SPEL id, resolved through SPEL.txt
     // to the SPEL the import minted. AddSpell/RemoveSpell put it on the actor's
     // spell list; HasSpell is what `GetSpell` answers.
@@ -401,6 +410,10 @@ public:
 
     // --- the player's factions ---------------------------------------------
     const Membership& Faction(const std::string& faction) const;
+    // Every faction the player has a row for, member or not, by its id.
+    const std::map<std::string, Membership>& Factions() const {
+        return mFactions;
+    }
     // PCJoinFaction: rank 0 unless already a member.
     void JoinFaction(const std::string& faction);
     // PCRaiseRank joins at rank 0 first; PCLowerRank leaves below rank 0.
@@ -444,6 +457,15 @@ public:
     // `DisableTeleporting` / `EnableTeleporting`: gates Mark, Recall and both
     // Interventions, as OpenMW's isTeleportingEnabled does.
     bool teleporting = true;
+    // `DisableLevitation` / `EnableLevitation`: gates Levitate, as OpenMW's
+    // isLevitationEnabled does.
+    bool levitation = true;
+    // Runtime FormIDs of the actors a Sanctuary has landed on whose faction
+    // rank the tick still keeps; each leaves once its Sanctuary is gone.
+    std::set<std::uint32_t> sanctuaryHolders;
+    // The rank last set per actor since this state was loaded; not saved, so
+    // a load always sets every rank once.
+    std::map<std::uint32_t, int> sanctuaryRanks;
 
     // --- reputation, crime, faction reactions, running scripts -------------
     int   reputation = 0;

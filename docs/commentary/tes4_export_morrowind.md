@@ -359,6 +359,44 @@ is byte-identical. Measured: TXST diffuse files missing on disk went from
 `tx_lavacrust00`) are in no Morrowind BSA at all and are referenced by zero
 terrain layers — dead LTEX records Bethesda shipped without assets.
 
+### <a id="land-texture-fold"></a>A re-declared master texture is the master's record
+
+A TES3 LAND names its textures by index into **its own plugin's** LTEX list
+(OpenMW `esmterrain/storage.cpp`: `{ tex, land->getPlugin() }`), so a landmass
+has to re-declare every texture it paints with, master-owned or not.
+Sky_Main.esm re-declares 105 of Tamriel_Data's textures under the same id (103
+with the same image); TR_Mainland re-declares 162, all with the same image.
+Skyrim's LAND names an LTEX by FormID, from any master, so the copy is a
+format artifact, not authored identity.
+
+`_land_texture_id` therefore resolves an LTEX to the master's FormID when a
+master has one with the same id AND the same ICON, and the record is not
+written again. A same-id record over a different image stays the plugin's own,
+because it is a different texture. LTEX is not in the master index
+(`BASE_TYPES`): a texture id can equal a base object's, so the fold reads the
+masters' LTEX dumps directly.
+
+The fold is what lets a groundcover plugin bind grass at all: its LTEX
+override must name a record from a file its header lists. Sky_Main_Grass.esp
+lists Tamriel_Data.esm but not Sky_Main.esm; after the fold, 99.0% of its
+146,546 on-land clumps sit on Tamriel_Data's textures.
+
+For the same reason `_plugin_context` adds a master's master to the list when
+it owns the texture under any grass clump: Aesthesia's TR grass names only
+TR_Mainland.esm, and 62 of its bound textures fold onto Tamriel_Data's. The
+test is the ground under a clump, not whether the pairing survives binding:
+binding turns on tuning constants (`MIN_PAIR_SUPPORT`, the 3-grass cap,
+density rounding), and a master list that moved with them would renumber the
+plugin on every retune. Any ancestor qualifies, Oblivion.esm included; one
+under no clump is never added. The ancestor is listed but not indexed
+(`load_context(declared=...)`), so its EditorIDs cannot capture a Morrowind
+id. Textures are keyed `<file>|<low 24 bits>` (`_texture_key`) until emit,
+since the plugin's own slot numbers are not final while the ground is sampled.
+
+Cost: one-off FormID drift. The folded LTEX records leave Sky_Main.esm and
+TR_Mainland, and Aesthesia gains a master. Approved 2026-09-30; Sky_Main's
+grass confirmed growing in game.
+
 ## <a id="pathgrids"></a>Pathgrids become PGRD, then navmesh
 
 **Code:** `tes4_export/morrowind_pathgrid.py`
@@ -569,7 +607,7 @@ Morrowind source in the GUI): `vanilla` borrows from the declared masters;
 three vanilla ESMs from the list, so a mod shares Morroblivion's objects
 instead of shipping a second copy of every static. Choosing Morroblivion in
 the GUI builds the [gap patch](#morroblivion-gap-patch) when it is missing,
-and choosing it again while selected rebuilds it; the mode refuses every
+and asks whether to rebuild it when it exists; the mode refuses every
 conversion without the patch, so the two are one choice. Morroblivion's cells and
 worldspace use its own EditorIDs, so in that mode doors into vanilla interiors
 link only where the escaped name matches, and exteriors do not link at all.
@@ -597,7 +635,8 @@ Morroblivion ships no Morrowind skeleton, so the registered install is the only
 source of `base_anim.nif`. A user who built the patch (CLI
 `--build-morrowind-patch <dir>` or the GUI folder picker) but never registered
 that folder got `base_anim.nif not found; N worn meshes skipped` on Tamriel
-Rebuilt. `build_patch` now registers the Data Files folder it was given.
+Rebuilt. `--build-morrowind-patch` now registers the Data Files folder it was
+given (`register_source`), and the patch's Export step reads it back from there.
 
 ### <a id="who-owns-a-mesh"></a>Ownership is asked of the SOURCE, not the extracted tree
 
@@ -836,14 +875,32 @@ BSAs, with no reference to what any record or mesh names.
 
 ### <a id="the-patch-builds-its-own-plugin"></a>The build produces the PLUGIN, not just its export
 
-**Code:** `_import_records` in `tes4_export/morrowind_patch.py`.
+**Code:** `export_patch` / `run_patch_export` / `stage_pair_scripts` in
+`tes4_export/morrowind_patch.py`; the `PATCH_NAME` branches in `convert.py`;
+`PATCH_STEPS` in `convert_cli.py`.
 
-Building the patch is one user action, so it runs the whole chain: export
-records, extract assets, convert assets, and **import the records into the
-plugin itself**. The last step was missing, and its absence was invisible from
+The patch is an ordinary `-f` target. Only its Export step is its own
+(`export_patch`: gap records, BSA assets, gap sounds, split pairs, barks, and
+the split pairs' child scripts saved to `export/<patch>/pair_scripts/`). Every
+later step is the normal stage: Meshes, Creatures, Import, Sounds (the gap
+SOUNs' files and the barks' recordings, which the Export step only copied raw)
+and Scripts (which copies the saved child scripts to `scripts/source` and
+compiles them). Extract
+does nothing for the patch, because its Export step already pulled what it ships.
+`--build-morrowind-patch <dir>` registers `<dir>` and runs `PATCH_STEPS` in
+order, and each step also runs alone:
+
+```bash
+python convert.py -f Morrowind-Morroblivion-Compatibility.esp --import-only
+python convert.py -f Morrowind-Morroblivion-Compatibility.esp --meshes-only
+```
+
+The GUI menu runs `--build-morrowind-patch` as a run in the main log pane.
+
+The import step was once missing entirely, and its absence was invisible from
 every angle the user could check.
 
-`build_patch` wrote `export/<patch>/` and an asset tree under
+The build then wrote `export/<patch>/` and an asset tree under
 `output/<patch>/`, then reported `records` and `assets` and declared the patch
 "a master of every Morroblivion-mode conversion". No plugin file was ever
 written, because nothing called the import stage for it -- `PATCH_NAME` reached
@@ -855,20 +912,19 @@ Three things hid it:
   on `_HEADER.txt` in the export dir, which `_write_records` does create, so
   Morroblivion-mode exports stopped reporting the patch missing and the build
   looked finished.
-- **`output/<patch>/` existed and was full.** `_convert_assets` populated it
+- **`output/<patch>/` existed and was full.** Mesh conversion populated it
   with meshes and textures, so the folder the user would check was there --
   just with no plugin in it.
 - **The record count was real.** It counts what was written to text.
 
-So `ok` now means the plugin FILE exists: a build that wrote records and assets
-but no plugin reports failure and says the records survived in `export/`. The
-patch declares the converted Morroblivion plugins as its masters
+Import is now its own pipeline step, and a failed Import reports as that step
+failing. The patch declares the converted Morroblivion plugins as its masters
 ([why](#the-patch-masters-morroblivion)), so `_reconcile_masters` builds its
 list from the export header like any other dependent's.
 
 The build has two doors, because the refusal that sends a user to it fires on
 the command line too: the GUI menu, and `convert.py --build-morrowind-patch
-"<Morrowind>/Data Files"`. Both run `build_patch`, so neither can drift.
+"<Morrowind>/Data Files"`. The GUI runs that same command, so neither can drift.
 
 It is written **ESM-flagged**, keeping its `.esp` extension -- the one converted
 plugin that does not wait for `tools/esm/make_master.py`. Every Morroblivion-mode
@@ -901,6 +957,7 @@ Morrowind enum translated to the TES4 one where they differ:
 | WPDT type 0-13 | `DATA.Type` | short/long blade 1H -> 0, long blade 2H and spear -> 1, blunt 1H and axe 1H -> 2, blunt 2H and axe 2H -> 3, bow/crossbow -> 5, thrown -> 0; arrow/bolt become **AMMO** |
 | WPDT chop/slash/thrust max | `DATA.Damage` | the largest of the three |
 | WPDT enchant | `ANAM` | Morrowind stores points x10 |
+| WEAP/ARMO/CLOT/BOOK `ENAM` (enchantment id) | `ENAM` | the ENCH FormID. It was written as `EITM` (TES5's name) from the first pass, so every Morrowind-format item lost its enchantment and no enchanted book became a scroll. Fixed, the build gives Tamriel_Data 523 enchanted weapons and 351 armor, TR_Mainland 308 and 431, and turns 131 and 33 of their books into SCRL under the same FormIDs |
 | LHDT color u32 | `DATA.Color.R/G/B` | little-endian RGBA bytes |
 | LHDT flags | `DATA.Flags` | identical bits; 0x10 (Fire) is masked by the importer |
 | CNDT weight, FLAG | `DATA.Weight`, `DATA.Flags` | Respawn 0x02 -> TES4 0x01 |
@@ -1970,13 +2027,30 @@ same land textures at the same coarseness, which is the most a procedural
 scatter can preserve. Deliberately mowed patterns are the part that is lost,
 because Skyrim has no way to express them.
 
-### The terrain belongs to the master
+### The terrain is never the plugin's own
 
 A groundcover plugin ships CELL and STAT records only — the TR grass ESP has
-**no LAND and no LTEX at all** — so the texture grid comes from the master's
-export dump, not the plugin. Reading only the plugin leaves every sample empty
-and silently emits no grass, the master-blindness failure this project keeps
-hitting.
+**no LAND and no LTEX at all** — so the texture grid comes from other exports,
+not the plugin. Reading only the plugin leaves every sample empty and silently
+emits no grass, the master-blindness failure this project keeps hitting.
+
+Its grass statics may be a master's too: Sky_Main_Grass.esp defines no STAT,
+and all 146,726 clumps name Tamriel_Data's `Grass\` statics. A placed id
+resolves to the master's static first, as `ctx.resolve` does.
+
+The land is not always a master's either. Morrowind identifies an exterior cell
+by its grid alone, so a groundcover plugin attaches to whatever landmass owns
+the grid without naming it: Sky_Main_Grass.esp's masters are Morrowind,
+Tribunal, Bloodmoon and Tamriel_Data, while Sky_Main.esm owns land under 1,172
+of its 1,210 grids (Morrowind_ob 4, Tamriel_Data none). `groundcover_grid`
+reads a master's land wherever a master has any, and elsewhere any other
+converted Morrowind ESM's whose cells overlap the plugin's. Only textures the
+plugin's masters own can be bound, which the
+[texture fold](#land-texture-fold) makes the common case; two ESMs naming
+different textures on one grid leave it unknown.
+
+A clump over no known ground stays the authored static; it used to be
+dropped. Interior cells never feed the tally.
 
 The master's LAND is already split into Oblivion quadrants, so sampling reads
 `BTXT` (the quadrant's base texture) and `ATXT`/`VTXTCount` (an alpha layer,
@@ -2004,33 +2078,37 @@ that are skipped outright; nothing renormalises the kept densities.
 their own model before reattribution (2 kept 55%, 7 would keep 89%; the
 author places a median 16 distinct models per texture).
 
-**The planter multiplies density by the layer's blend weight, so the area a
-texture is solved over is its weight summed across quads, not a quad count.**
-Binding every clump to the quad's dominant texture and dividing by the number
-of quads it dominates assumed weight 1.0; on TR's 41,164 quads the dominant
-texture's mean weight is 0.685 (median 0.665, p10 0.43), because the export
-paints alpha ramps at every patch boundary and a quad averages 2.2 alpha
-layers, so roughly a third of the intended clumps never planted.
-`_quadrant_weights` gives each ALPHA layer its mean opacity and the BASE what
-they leave uncovered, `GrassTally.area` sums those per texture, and the grid
-is `floor(2048 / PositionRange)` per side as the planter lays it (14 at the
-140 clamp, not 14.6).
+**Skyrim plants a quad as 8x8 blocks of 256 units, not as one 2048 grid**
+(SkyrimSE.exe 1.6.1170, disassembled). The block side is `2 x 128`
+(`0x201318`: a static 1 shifted by 7, so two LAND vertex spacings). The
+generator (`0x203810`) lays `min(floor(256/PositionRange),
+floor(256/iMinGrassSize))` candidates per block side and keeps each when
+`rand(0x7fff) < weight x 32768`, the weight bilinear over the block's 3x3
+vertices. So a quad gets `64 x floor(256/PositionRange)^2` candidates: at the
+old PositionRange 140 that is 64, where the export assumed
+`floor(2048/140)^2 = 196`. Measured on the shipped records, the engine
+planted 0.37x of the authored clumps for Sky_Main_Grass and 0.58x for
+Aesthesia, against 0.92x for Oblivion and 0.91x for Morrowind_ob (both at
+PositionRange 80, 3 per block). `POSITION_RANGE` is now 85: 3 per block side,
+576 per quad. Exactly 256/3 truncates to 2 in the engine's float32 divide,
+and `convert_GRAS` floors PositionRange at 80.
+
+**The vertex weight is full Density wherever the texture shows at all, not
+Density x blend.** The weight builder (`0x2a9f90`) gives each of the 9
+vertices `Density x 0.01` when the texture's opacity there is above
+`fTexturePctThreshold` (default 0.0), else 0; the BASE's opacity is
+`1 - sum(alpha bytes)/255` (`0x2a5590`). So the area a texture is solved over
+is the vertices it is visible on, each weighed by its share of the bilinear
+blocks (1/4 interior, 1/8 edge, 1/16 corner; `_vertex_share`). The blend
+share still decides which texture a clump stands on. With both corrections
+the engine plants 0.99x (Sky_Main_Grass) and 0.96x (Aesthesia) of the
+authored clumps; confirmed much denser in game.
 
 **A pairing whose density rounds to 0 is dropped, not planted at 1.** The
-Density byte cannot express less than 1% of 196 candidates per quad, so the
 old `max(1, ...)` floor planted 36 sparse pairings at 2-28x their authored
-count (one texture at 28.8x). Those 36 carry 0.49% of all clumps; dropping
-them costs that and nothing else. Re-measured with the planter's own formula
-(`area x floor(n)^2 x Density/100` summed over a texture's grasses, against
-its authored clumps): median 1.00 across 172 textures, range 0.58-1.60 from
-integer rounding on the sparsest pairings. 494 GRAS records. NOT yet
-in-game verified.
-
-The planter is the one measured in
-[grass placement parity](asset_convert_terrain.md#grass-placement-parity): per
-LAND quad it lays `n = min(2048/PositionRange, 2048/iMinGrassSize)` candidates
-per side and keeps each with probability `Density%`. Skyrim's iMinGrassSize is
-20.
+count. At 576 candidates a pairing needs about 3 clumps per quad to survive:
+Sky_Main_Grass keeps 31 GRAS over 17 textures (from 50 over 19), Aesthesia
+401 over 147 (from 497 over 173), with the totals above.
 
 Vanilla fixes PositionRange at 29-55 and varies Density over 3-23, because each
 of its 27 GRAS records carpets a texture on its own. A groundcover set does not
@@ -2057,15 +2135,18 @@ texture's whole clump count in proportion, and every kept pairing gets ITS
 OWN GRAS (356 records for 180 textures; FormID keyed on the static id plus
 the LTEX FormID, both authored), so each texture carries the density its
 author gave it rather than a mean over the model's textures. PositionRange is
-solved per pairing for a mid-vanilla density and clamped to 80-140; Density
-then follows the authored count. The floor is `convert_GRAS`'s Oblivion-parity
-rule (`PositionRange = max(80)`, Density x 80/PositionRange), which is not
-count-preserving: a record solved at 65 came out 20% under authored on the
-densest textures, so the exporter never goes below 80 and raises Density
-instead (up to 31 at 200 clumps per quad). Re-measured with the harness in
-`temp/`-style form (per texture: authored clumps per quad vs
-`(2048/PositionRange)^2 * Density/100` summed over its grasses): identical on
-all 180 textures, median 50 per quad. NOT yet in-game verified.
+fixed (above) and Density follows the authored count. The floor of 80 is
+`convert_GRAS`'s Oblivion-parity rule (`PositionRange = max(80)`, Density x
+80/PositionRange), which is not count-preserving, so the exporter never goes
+below it.
+
+**HeightRange is the authored spread relative to the mean.** The planter
+scales an instance by `1 + HeightRange x rand(-1..1)`, so the old `max - min`
+of the authored scales (up to 1.49) drew scales from below zero to 2.5x, in
+game "overly large and small grass". `height_range` now returns
+`sqrt(3) x std / mean`, capped at 0.9: 0.15-0.30 for Sky_Main_Grass, about
+0.47 for Aesthesia. The authored MEAN scale (1.31 for Sky_Main_Grass, 0.76
+for Aesthesia) is still not carried: a GRAS record has no base scale.
 
 The rest of DATA comes from the vanilla census (27 records in
 `references/Skyrim.esm/GRAS.txt`, DATA stored as hex): MaxSlope 45 (vanilla
@@ -2400,7 +2481,11 @@ original's effects, keeping Morroblivion's FormID and EditorID, when four
 conditions hold:
 
 1. The record pairs to vanilla by escaped id and type (`mark` ↔ `0mark`).
-2. It carries a script effect.
+2. It carries a script effect, OR its vanilla original carries an effect only
+   MorrowindRuntime can do. Neither Oblivion nor Skyrim has such an effect, so
+   whatever Morroblivion authored is a stand-in, scripted or not: Buoyancy
+   and Swimmer's Blessing fake SwiftSwim with Water Breathing plus Feather or
+   Fortify Athletics.
 3. Every vanilla effect converts (`mw_converts`). That means a Skyrim archetype,
    with an actor value where one is needed, or an effect the runtime carries.
 4. Each dropped script EITHER does nothing, OR the runtime carries every
@@ -2412,17 +2497,30 @@ conditions hold:
    nowhere else or written somewhere else too. A read counts by name in any
    script or result script, and by FormID in a raw `CTDA`.
 
+   A function script that only dropped scripts `Call` is dropped with them,
+   and its own writes are checked the same way. `JDLevitate` reads the
+   `JDLevitationData` factors the Levitate stand-ins write, and nothing else
+   calls it.
+
 Measured over Morrowind_ob: 52 vanilla records pair to a Morroblivion record
 with a script effect, and **21 are restored**. They are the Mark, Recall and
 Intervention spells, scrolls and potions, plus records whose script effect had
 no script (`rilm's gift`, `corprus`, `panacea`) or a placeholder
 (`mwElothEffectPlaceholderScript`).
 
+Once SwiftSwim, Levitate and SlowFall became runtime-carried, 18 SPEL, 11 ALCH
+and 8 ENCH more flipped: every Levitate spell (Vampire Fly included),
+Slowfall, Buoyancy, Swimmer's Blessing and the Swift Swim and Levitate
+potions and enchantments
+([how](morrowind_runtime.md#adding-a-runtime-effect)).
+
+🛑 **A restored enchantment on a BOOK does not reach its scroll.** The patch
+overrides `0scUreynosfinsUen` with Swift Swim 50, but the SCRL the player
+reads is built from the book when Morrowind_ob.esm converts, and it keeps
+Morroblivion's magnitude-1 effect. Unfixed.
+
 Kept as Morroblivion's, and why:
 
-- **Levitation and Slowfall:** the runtime does not carry them yet. Adding an
-  index to `MW_RUNTIME_EFFECTS` flips them with no patch code
-  ([how](morrowind_runtime.md#adding-a-runtime-effect)).
 - **The blight cures:** `mwSpellBlightCure` stages `fbmwILGnisisBlight`.
 - **The blight resistances:** they write `mwPlayerBlightResistance`, which the
   blight scripts read and nothing else writes.

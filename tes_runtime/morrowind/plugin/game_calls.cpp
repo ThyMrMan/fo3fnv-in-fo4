@@ -81,6 +81,7 @@ using EquipItemFn = void (*)(void* vm, std::uint32_t stack, void* actor,
 // GLOBAL Game.AdvanceSkill, whose self is a tag and whose float rides fifth.
 using ActorCallFn = void (*)(void* vm, std::uint32_t stack, void* actor);
 using ActorIntFn = std::int32_t (*)(void* vm, std::uint32_t stack, void* actor);
+using GetRaceFn = void* (*)(void* vm, std::uint32_t stack, void* actor);
 using AdvanceSkillFn = void (*)(void* vm, std::uint32_t stack, void* tag,
                                 void* name, float amount);
 // Game.ShowTrainingMenu(Actor), global: the trainer rides after the tag.
@@ -190,6 +191,8 @@ ActorCallFn    g_showBarterMenu = nullptr;
 ShowTrainingMenuFn g_showTrainingMenu = nullptr;
 ActorIntFn     g_getLevel = nullptr;
 GetValueFn     g_getValuePercent = nullptr;
+GetValueFn     g_getBaseValue = nullptr;
+GetRaceFn      g_getRace = nullptr;
 AdvanceSkillFn g_advanceSkill = nullptr;
 MessageBoxFn   g_messageBox = nullptr;
 PlaceAtMeFn    g_placeAtMe = nullptr;
@@ -620,6 +623,18 @@ float ActorValue(const std::string& actor, const char* valueName) {
     return g_getValue(PapyrusVm(), 0, ref, &name);
 }
 
+float BaseActorValue(const std::string& actor, const char* valueName) {
+    void* ref = OwnerRef(actor);
+    void* name = nullptr;
+    if (!ref || !g_getBaseValue || !FixedString(&name, valueName)) return 0.0f;
+    return g_getBaseValue(PapyrusVm(), 0, ref, &name);
+}
+
+const void* RaceOf(const std::string& actor) {
+    void* ref = OwnerRef(actor);
+    return ref && g_getRace ? g_getRace(PapyrusVm(), 0, ref) : nullptr;
+}
+
 // Writes a Skyrim actor value by name, for the stat commands.
 void SetActorValueOf(const std::string& actor, const char* valueName,
                      float value) {
@@ -983,6 +998,9 @@ void InstallGameCalls() {
     g_getLevel = Native<ActorIntFn>("Actor.GetLevel", ids::kActorGetLevel);
     g_getValuePercent = Native<GetValueFn>("Actor.GetActorValuePercentage",
                                            ids::kActorGetValuePercent);
+    g_getBaseValue = Native<GetValueFn>("Actor.GetBaseActorValue",
+                                        ids::kActorGetBaseValue);
+    g_getRace = Native<GetRaceFn>("Actor.GetRace", ids::kActorGetRace);
     g_messageBox = Native<MessageBoxFn>("Debug.MessageBox",
                                         ids::kDebugMessageBox);
     g_refSay = Native<RefSayFn>("ObjectReference.Say", ids::kRefSay);
@@ -1003,6 +1021,8 @@ void InstallGameCalls() {
     hooks.setActorValue = SetActorValueOf;
     hooks.level = LevelOf;
     hooks.statPercent = StatPercent;
+    hooks.baseActorValue = BaseActorValue;
+    hooks.race = RaceOf;
     hooks.advanceSkill = AdvanceSkill;
     hooks.showBarterMenu = ShowBarterMenu;
     hooks.showTrainingMenu = ShowTrainingMenu;
@@ -1049,6 +1069,7 @@ void InstallGameCalls() {
     InstallCrimeCalls(hooks);
     InstallMessageCalls();
     InstallTeleportCalls();
+    InstallFlightCalls(hooks);
     Log("game: %zu spell(s) and %zu magic effect(s) resolvable by id",
         SpellCount(), EffectCount());
     Log("game: %zu named cell(s) for PositionCell", CellCount());

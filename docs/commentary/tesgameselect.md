@@ -83,11 +83,16 @@ wait for `CharGenState`.
 The hold comes in two parts, because stopping a quest already in the journal
 shows it failing:
 
-- **`HoldOpeningMovers`**, before anything else: what would move the player.
-  `Reset()` then `Stop()` on `Charactergen` (`Reset` does nothing on a stopped
-  quest), and `Stop()` on the player-script quest below.
-- **`HoldOpeningsFor(game)`**, once the prompt closes: the movers again (a quest
-  the engine started after MQ101 was not yet running the first time), plus
+- **`HoldOpeningMovers`**, every 0.1 s until the prompt shows: what would move
+  the player. `Reset()` then `Stop()` on `Charactergen` (`Reset` does nothing
+  on a stopped quest), and `Stop()` on the player-script quest below.
+  `ParkPlayer` runs it on each tick, moves the player back if they left the
+  holding cell, and lets the prompt show only after 10 ticks in a row loaded
+  there. A single hold at the top of the takeover lost in game: Start Game
+  Enabled quests start AFTER MQ101's stage 0, so Nehrim's `Charactergen` was
+  not running yet, then moved the player 0.5 s later while the takeover waited
+  for the load, and the prompt appeared in Nehrim.
+- **`HoldOpeningsFor(game)`**, once the prompt closes: the movers again, plus
   `MQ00` only when the choice is not Nehrim. Holding `MQ00` before the choice
   made "Schatten und Licht" start, fail and start again when Nehrim was picked.
 
@@ -161,6 +166,11 @@ starts on a save made before the scroll existed. Its alias `Scroll` creates the
 book in alias `Player`'s inventory with the Quest Object flag (`FNAM 0x04`,
 `ALCA 0x80000000 | alias`, as vanilla quest items are), so it cannot be dropped
 or sold and survives `RemoveAllItems`.
+
+A game begun with the console `coc` never runs the MQ101 takeover, so
+`CurrentGame` stays -1 and no game counts as started. The scroll still opens:
+every installed game reads "Begin", the spot the player leaves is not kept
+(there is no current game to return to), and the pick becomes the current game.
 
 Travel is Morrowind's Mark and Recall
 ([morrowind_runtime.md](morrowind_runtime.md#teleport-effects)) in plain

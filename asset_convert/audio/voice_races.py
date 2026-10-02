@@ -38,6 +38,8 @@ See: docs/commentary/asset_convert_audio.md#race-identity-spans-the-masters
 
 from pathlib import Path
 
+from core.plugin_masters import master_dirs
+
 __all__ = ['voice_key', 'vtyp_edid', 'load_race_voices', 'RaceVoices',
            'master_race_dirs']
 
@@ -99,22 +101,9 @@ def iter_records(txt: Path):
 
 
 def master_race_dirs(export_dir: Path) -> list:
-    """Sibling export directories of each master named in `_HEADER.txt`.
-
-    Mirrors how the importer resolves masters, so both halves of the voice
-    pipeline read the same RACE.txt and cannot disagree on a voice type.
-    """
-    header = export_dir / '_HEADER.txt'
-    if not header.is_file():
-        return []
-    try:
-        lines = header.read_text(encoding='utf-8', errors='replace').splitlines()
-    except OSError:
-        return []
-    names = [ln.partition('=')[2].strip() for ln in lines
-             if ln.startswith('Master[')]
-    dirs = [export_dir.parent / n for n in names]
-    return [d for d in dirs if d.is_dir() and d != export_dir]
+    """Each exported master's folder, resolved as the importer resolves it."""
+    return [Path(d) for d in master_dirs(export_dir)
+            if Path(d) != Path(export_dir)]
 
 
 def _iter_race_records(export_dir: Path):

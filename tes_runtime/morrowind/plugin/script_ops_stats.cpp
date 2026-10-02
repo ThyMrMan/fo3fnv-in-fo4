@@ -216,6 +216,11 @@ float ActorAttribute(const std::string& actor, int tes3Index) {
                        tes3Index);
 }
 
+void SetActorAttribute(const std::string& actor, int tes3Index, float value) {
+    if (tes3Index < 0 || tes3Index >= Compiler::Stats::numberOfAttributes) return;
+    WriteStat(actor, kAttributes[tes3Index], value);
+}
+
 void InstallStatOps(OpcodeInstaller& into) {
     namespace S = Compiler::Stats;
     InstallFamily(into, kAttributes, S::numberOfAttributes, Family::Attribute,

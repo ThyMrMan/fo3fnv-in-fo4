@@ -20,4 +20,8 @@ namespace tesruntime::mw {
 float ActorSkill(const std::string& actor, int tes3Index);
 float ActorAttribute(const std::string& actor, int tes3Index);
 
+// Writes an attribute through the same store `SetStrength` and its kin write,
+// so every reader above sees it. An index outside 0..7 does nothing.
+void SetActorAttribute(const std::string& actor, int tes3Index, float value);
+
 }  // namespace tesruntime::mw

@@ -11,6 +11,7 @@ them does.
 - [ACBS flags: the same bit means three different things](#acbs-flag-collision)
 - [NAM5 and NAM8: widths taken from the binary](#nam5-nam8-widths)
 - [Crime factions are derived from the scripts](#crime-factions-derived)
+  - [Members of an Evil faction are no crime victims](#evil-factions)
 - [Faction reactions and player disposition](#faction-player-disposition)
 - [Aggression and confidence are TIERS, not scalars](#aggression-tiers)
 - [Confidence: only Cowardly or Foolhardy, plus an own-health threshold](#confidence-tiers)
@@ -88,6 +89,28 @@ and its first argument, so no unescaping is needed.
 These are the GUILD factions a script asks about. The bounty guards act on is
 a separate crime faction per realm, which every NPC reports to through `CRIF`;
 see [tes_runtime_crime.md](tes_runtime_crime.md#bounty-realms).
+
+### <a id="evil-factions"></a>Members of an Evil faction are no crime victims
+
+TES4, FO3 and FNV FACT `DATA.Flags` bit 1 is Evil (xEdit `wbDefinitionsTES4`,
+`wbDefinitionsFO3`): any crime against a member carries no bounty (UESP
+Oblivion talk:Factions). Skyrim has no such flag; an actor is a crime victim
+exactly when it has a crime faction. So an NPC whose factions, this plugin's
+or a master's, are ALL Evil gets no `CRIF` and no crime-faction membership,
+the same treatment as one that attacks on sight. Guard classes keep theirs.
+
+🛑 **One non-Evil faction makes the actor a victim again** (same UESP page:
+"as soon as they are in a single non-evil faction they cause a bounty").
+Morroblivion puts nearly every actor in `0factMorrowind` (Hidden + Evil) beside
+its town or guild faction. Testing ANY Evil faction stripped crime status from
+3,120 of Morrowind_ob's 3,146 NPCs; only 749 are in Evil factions alone. In
+Oblivion.esm the two readings give 886 and 770, and in Nehrim.esm 325 and 269.
+All of `AbtruennigeMagier`'s members are in that faction alone.
+
+Aggression alone cannot catch this: Nehrim's `AbtruennigeMagier` mages in
+`NQ00Karick` have Aggression 5, so they were written as crime victims and the
+player got a bounty for the hit the quest asks for. Census: 117 Evil factions
+in Oblivion.esm, 25 in Nehrim.esm, 44 in FalloutNV.esm, none in Morrowind.esm.
 
 ## <a id="faction-player-disposition"></a>Faction reactions and player disposition
 
@@ -386,6 +409,45 @@ power-attack direction chances, standoff and switch distances, range mults,
 rushing attacks, yield and Do Not Acquire. FO3/FNV and Morrowind sources keep
 the old vanilla fallback.
 
+### <a id="combat-style-stance"></a>Defensive is capped at Offensive (2026-09-29, confirmed in game: Nehrim trolls)
+
+**Symptom:** Nehrim's trolls backed away as the player closed in, before they
+could swing.
+
+**Cause:** Skyrim reads Defensive − Offensive (TESCombatStyle +0x24 − +0x20) as
+a stance. Defensive is read only through the getter 0x8dc050, which has 14
+callers in SkyrimSE 1.6.1170:
+- **On its own** it sets block chance (0x8dce60), block start/stop distance,
+  block time, bash chance and cover search distance.
+- **The stance** sets the advance radii (0x8dc190), cover wait/attack time,
+  `fCombatMaximumOptimalRange*` and `fCombatInventoryDesiredRangeScoreMult*`.
+  Above 0, the inner advance radius grows to `fCombatAdvanceInnerRadiusMax`
+  (512).
+- **The back-up:** 0x870260 walks the actor backward, still facing its target,
+  whenever the target is closer than `fCombatBackoffMinDistanceMult` (0.75) ×
+  (base + inner radius). The flat `fCombatBackoffChance` 0.25 is just a getter
+  (0x8dc580).
+
+Mapping Oblivion's block chance onto Defensive therefore invented a keep-away
+distance Oblivion never had. `TrollStyle` (attack 50 → 0.474, block 30 × 2.0 →
+0.600) stood 65 units off. With Nehrim's troll reach of 32 edge to edge, that
+put the troll outside its own swing.
+
+**Fix:** Defensive = min(Offensive, block) for a style that attacks, so the
+stance is never positive. Attack chance is exact, and block only drops where it
+exceeded attack. A style with Offensive 0 keeps its full Defensive, as vanilla's
+trainers do (`MG01TolfdirWard`, `csHumanMelee_AllD`: 0 / 1.0). Without that,
+Oblivion's `HelviusCeciaTraining` block partner lost all blocking.
+- **Vanilla:** 19 of 145 styles run Defensive > Offensive: tanks, bosses,
+  horses, wisps and the all-defensive ones. `csTroll` is 0.88 / 0.0.
+- **Blast radius:** 26 of 127 Oblivion.esm styles and 10 of 44 Nehrim styles
+  change. The no-style default drops 0.60 → 0.37 and `TrollStyle` 0.60 → 0.47.
+  The largest drops are `CombatKim` 0.80 → 0.37 and `CombatMage` 0.50 → 0.16.
+  An actor without a shield blocks at only `fCombatBlockChanceWeaponMult`
+  (0.25) of that anyway (0x8dce98).
+- **Tests:** `TestCombatStyleConversion::test_defensive_never_exceeds_offensive`,
+  `test_never_attacking_style_keeps_its_block`.
+
 ## <a id="vendor-factions"></a>Vendor factions
 
 TES4 `AIDT.Services` is a bitmask on the actor; Skyrim expresses the same idea
@@ -539,6 +601,17 @@ vanilla Skyrim's. Dependents' actors used to join nothing: measured on
 TR_Mainland, 0 of 9,264 NPCs carried the compatibility patch's origin faction
 while 4,322 of the patch's 4,647 voiced barks were gated on it, so nearly every
 vanilla Morrowind bark was silent on every Tamriel Rebuilt actor.
+
+🛑 **Only the masters the plugin's own header lists count, never the inherited
+ones.** A plugin also indexes its masters' masters so it can adopt their support
+records (see [phase 0](tes5_import_pipeline.md#phase-0-dependent-skips-support-records)).
+Those inherited masters sit below the header's first slot (`get_formid_index_offset`),
+and `reset_origin_faction` skips their factions. When they were joined, every
+Tamriel_Data, TR_Mainland and Sky_Main NPC (633, 9,243 and 950) became a member
+of Oblivion.esm's faction. Oblivion's greetings then passed for them, since they
+share Oblivion's voice types. Those greetings sit in quests up to priority 90 and
+the Morrowind barks in `TES4GenericHELO` at 0, so the Oblivion line won and the
+Morrowind ones went unheard.
 
 Dependents used to stay ungated, so a DLC could hand the master's NPCs new
 generic lines. Measured on the Morroblivion build before the change: 95 new

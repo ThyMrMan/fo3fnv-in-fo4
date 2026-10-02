@@ -34,6 +34,7 @@ from asset_convert.havok.behavior_vocabulary import movement_type_names
 import os
 import struct
 
+from ..base.master_export import records_of, values_of
 from ..base.writer import (pack_record, pack_subrecord, pack_string_subrecord,
                      pack_formid_subrecord, pack_obnd)
 from ..base.text_reader import get_float, get_formid, get_int, get_str
@@ -712,9 +713,8 @@ def load_creature_item_index(by_type: dict, master_export: dict = None) -> None:
         else:
             _LVLI_REC[fid] = rec
 
-    if master_export:
-        for rec in master_export.values():
-            _add(rec)
+    for rec in values_of(master_export, 'WEAP', 'ARMO', 'LVLI', 'SPEL', 'LVSP'):
+        _add(rec)
     # This plugin's own records are indexed LAST so an override wins.
     for sig in ('WEAP', 'ARMO', 'LVLI', 'SPEL', 'LVSP'):
         for rec in by_type.get(sig, []):
@@ -1104,13 +1104,12 @@ def _build_skin(writer, folder: str, bodies: list, race_fid: int,
 
 
 def _shared_creatures(by_type: dict, master_export: dict) -> list:
-    """Every CREA a generated race is shared with: the masters' (as overridden here), then ours.
+    """Every CREA a generated race serves: the masters' (as overridden), then ours.
 
     See: docs/commentary/tes5_import_override.md#generated-records-reuse-the-masters
     """
     own = {(rec.get('FormID') or '').upper(): rec for rec in by_type.get('CREA', [])}
-    shared = [own.pop(fid.upper(), rec) for fid, rec in (master_export or {}).items()
-              if rec.get('Signature') == 'CREA']
+    shared = [own.pop(fid.upper(), rec) for fid, rec in records_of(master_export, 'CREA')]
     return shared + list(own.values())
 
 

@@ -16,23 +16,15 @@ Two carriers, because a mod declares its base in two different ways:
 """
 import os
 
+from core.plugin_masters import masters_from_export_header
+
 FILE_NAME = '.base_plugins'
 
 
 def names_for(own_dir):
     """Base plugin names for the export tree at `own_dir`, nearest first."""
     own_dir = str(own_dir)
-    names = []
-
-    header = os.path.join(own_dir, '_HEADER.txt')
-    if os.path.isfile(header):
-        with open(header, encoding='utf-8', errors='replace') as fh:
-            for line in fh:
-                if line.startswith('Master['):
-                    n = line.partition('=')[2].strip()
-                    if n and n not in names:
-                        names.append(n)
-
+    names = list(dict.fromkeys(masters_from_export_header(own_dir)))
     recorded = os.path.join(own_dir, '_source', FILE_NAME)
     if os.path.isfile(recorded):
         with open(recorded, encoding='utf-8', errors='replace') as fh:

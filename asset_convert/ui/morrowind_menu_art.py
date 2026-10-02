@@ -18,8 +18,9 @@ BORDER = 4
 #: MW_Box's thin border is 2 px, not 4.
 BOX_BORDER = 2
 
-#: Stored-path prefix for every UI texture.
-_TEX = 'textures' + chr(92)
+#: The folders UI art is stored under: frames and bars, and item icons such as the gold coin.
+TEXTURES = 'textures'
+ICONS = 'icons'
 
 #: The 9-slice window frame, keyed by the corner or edge each texture fills.
 FRAME = {
@@ -78,9 +79,9 @@ class MissingArtError(RuntimeError):
     """The Morrowind install has no such texture, or is not registered."""
 
 
-def load(export_root, name: str):
-    """One UI texture as a Pillow RGBA image, by bare name (no dir, no ext)."""
-    path = find_archived_file(export_root, _TEX + name + '.dds')
+def load(export_root, name: str, folder: str = TEXTURES):
+    """One UI texture as a Pillow RGBA image, by its name under `folder` (no ext)."""
+    path = find_archived_file(export_root, folder + chr(92) + name + '.dds')
     if path is None:
         raise MissingArtError(
             f'{name}.dds not found -- register a Morrowind install, or the '
@@ -212,6 +213,23 @@ def compose_line(export_root, width: int):
 def compose_cap(export_root, side: str, height: int = HEAD_HEIGHT):
     """One 2 px end cap of HB_ALL; `side` is 'left' or 'right'."""
     return _edge(load(export_root, HEAD[side]), HEAD_BORDER, height)
+
+
+def compose_stat_bar(export_root, width: int, height: int, rgb: tuple):
+    """MW_Progress_Red/Blue/Green, full: `menu_bar_gray` tinted `rgb` inside a box.
+
+    OpenMW's track skins color the gray bar with the ini's `color_health`,
+    `color_magic` and `color_fatigue`; the value is drawn over it.
+    """
+    from PIL import Image, ImageChops
+
+    panel = Image.new('RGBA', (width, height), (0, 0, 0, 255))
+    inner = (width - 2 * BOX_BORDER, height - 2 * BOX_BORDER)
+    gray = _edge(load(export_root, 'menu_bar_gray').convert('RGBA'), *inner)
+    tint = Image.new('RGBA', inner, (*rgb, 255))
+    panel.paste(ImageChops.multiply(gray, tint), (BOX_BORDER, BOX_BORDER))
+    panel.alpha_composite(compose_box(export_root, width, height))
+    return panel
 
 
 def compose_bar(export_root, width: int, height: int, fraction: float):

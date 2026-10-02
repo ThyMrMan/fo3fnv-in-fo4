@@ -46,9 +46,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from core.plugin_masters import masters_from_export_header
 from core.subprocess_flags import POPEN_FLAGS, windows_cmd, to_wine_path
+from output_layout import record_dir
 from tes5_import.base.writer import pack_tes4_header
 from asset_convert import paths
+from asset_convert.sources import source_registry
 from asset_convert.texture import texture_prune
 
 # ---------------------------------------------------------------------------
@@ -350,205 +353,196 @@ def pack_bsas(
     export_dir: str = None,
     export_root: str = None,
 ) -> dict:
-    """Pack converted assets into Skyrim SE BSA archives.
+    """Pack a plugin's converted assets into Skyrim SE BSA archives.
 
-    Produces, inside ``output_dir/<source_name>/``:
-      * ``Oblivion.bsa``          from meshes/ + remaining sub-directories
-      * ``<stem> - Textures.bsa`` from textures/
-
-    Content that would push an archive past the 2 GiB BSA limit spills into
-    additional archives, each paired with a generated dummy ESL loader plugin
-    (``<stem>_loader.esl``, ``<stem>_loader_1.esl``, …) so Skyrim mounts it.
-
-    Texture categories Skyrim cannot load are left OUT of the textures archive
-    (see ``texture_prune.is_excluded``).  This is a pack-time filter, not a
-    delete: ``output/<plugin>/textures/`` keeps the full tree, so loose-file
-    testing is unaffected and re-packing is idempotent.
-
-    The source folder structure is NOT modified; original folders are left intact.
-
-    Args:
-        source_file:        Plugin filename (e.g. 'Oblivion.esm').
-        output_dir:         Root output directory (default: 'output').
-        bsarch_path:        Optional explicit path to BSArch.exe.
-        compress_textures:  Compress the textures BSA (-z flag). Default False.
-        size_limit:         Max payload bytes per archive (default ~2 GiB minus
-                            BSA metadata overhead).
-        export_dir:         This plugin's RECORD dir (e.g.
-                            'export/Oblivion.esm', or
-                            'export/<Mod>/<plugin>' for an imported mod).
-                            Enables the texture keep-set; omit to pack every
-                            texture on disk.
-        export_root:        The export ROOT ('export/'), used only to resolve
-                            which output folder this plugin converts into.
-                            Distinct from `export_dir` on purpose: they are
-                            the same folder for a game-Data plugin and two
-                            different ones for an imported mod, and passing
-                            the record dir here is what made the pack abort.
-
-    Returns:
-        dict with keys: packed (list of BSA paths), skipped (list),
-        errors (list), loaders (list of generated .esl paths).
+    Writes `<stem>.bsa` (meshes + misc folders) and `<stem> - Textures.bsa` into
+    the plugin's output folder, `<stem>` from `archive_stem`; overflow past
+    `size_limit` spills into `<stem>_loader[_N]` archives, each mounted by a
+    generated ESL. `export_root` is the export ROOT the output folder resolves
+    from. Returns {'packed', 'skipped', 'errors', 'loaders'}.
+    See: docs/commentary/asset_convert_bsa.md#pack-layout
     """
+    results: dict = {'packed': [], 'skipped': [], 'errors': [], 'loaders': []}
     bsarch = bsarch_path or str(paths.BSARCH)
-    if not Path(bsarch).is_file():
-        msg = (
-            "BSArch.exe not found.  Place BSArch.exe in external/bsarch/BSArch.exe "
-            "under the project root, or set bsarchPath in conversion_config.json, or "
-            "add BSArch.exe to the system PATH."
-        )
-        print(f"  ERROR: {msg}")
-        return {'packed': [], 'skipped': [], 'errors': [msg], 'loaders': []}
-
+    root = export_root or _DEFAULT_EXPORT
+    source_name = Path(source_file).name
+    plugin_dir = _out_root(Path(output_dir).resolve(), source_name, root)
+    problem = _pack_problem(bsarch, plugin_dir)
+    if problem:
+        print(f"  ERROR: {problem}")
+        results['errors'].append(problem)
+        return results
     print(f"  BSArch: {bsarch}")
 
-    source_name = Path(source_file).name
-    # An imported mod's plugins all convert into their MOD's folder, so this
-    # must be resolved rather than assumed -- the plain join names a folder
-    # that does not exist and packing aborts with "output directory not found".
-    # Resolved from the export ROOT: `export_dir` is a RECORD dir and holds no
-    # sources.json, so the registry reads as empty and the resolver falls back
-    # to the pre-group path. Fall back to the repo's own export/ so a caller
-    # that passes neither still resolves an imported mod correctly.
-    plugin_dir = _out_root(Path(output_dir).resolve(), source_name,
-                           export_root or _DEFAULT_EXPORT)
+    stem = archive_stem(source_name, root)
+    loaders = 0
+    for spec in _pack_specs(plugin_dir, compress_textures):
+        loaders = max(loaders, _pack_spec(bsarch, plugin_dir, stem, spec,
+                                          size_limit, results))
+    _write_loaders(plugin_dir, stem, loaders, source_name, results)
+    _sweep_stale(plugin_dir, stem, _stale_stems(source_name, root, stem),
+                 results)
+    if loaders:
+        print(f"\n  NOTE: {loaders} loader plugin(s) generated. "
+              f"They must be enabled in the load order (after {source_name}) "
+              f"for the overflow BSAs to be mounted.")
+    return results
+
+
+def archive_stem(plugin: str, export_root) -> str:
+    """The stem a plugin's archives are named for: the mod member it builds on.
+
+    Follows the plugin's masters while they belong to its own imported mod; the
+    member reached masters no other member, so it is loaded whenever any of
+    them is. A plugin that masters no member is its own stem.
+    See: docs/commentary/asset_convert_bsa.md#one-archive-set-per-mod
+    """
+    members = {m.lower(): m for m in
+               source_registry.group_members(export_root, plugin)}
+    cur, seen = plugin, set()
+    while cur.lower() not in seen:
+        seen.add(cur.lower())
+        up = [members[m.lower()] for m in masters_from_export_header(
+            str(record_dir(export_root, cur))) if m.lower() in members]
+        if not up:
+            break
+        cur = up[0]
+    return Path(cur).stem
+
+
+def _stale_stems(plugin: str, export_root, stem: str) -> list:
+    """Stems of the mod's other plugins whose archives `stem`'s set now replaces."""
+    return sorted({Path(m).stem for m in source_registry.group_members(
+        export_root, plugin) if archive_stem(m, export_root) == stem} - {stem})
+
+
+def _pack_problem(bsarch: str, plugin_dir: Path):
+    """Why packing cannot start, or None."""
+    if not Path(bsarch).is_file():
+        return ("BSArch.exe not found.  Place BSArch.exe in "
+                "external/bsarch/BSArch.exe under the project root, or set "
+                "bsarchPath in conversion_config.json, or add BSArch.exe to "
+                "the system PATH.")
     if not plugin_dir.is_dir():
-        msg = f"Plugin output directory not found: {plugin_dir}"
-        print(f"  ERROR: {msg}")
-        return {'packed': [], 'skipped': [], 'errors': [msg], 'loaders': []}
+        return f"Plugin output directory not found: {plugin_dir}"
+    return None
 
-    stem = Path(source_name).stem   # 'Oblivion'
 
-    # Build the misc spec: any non-empty dirs not covered by the known specs
-    misc_dirs = sorted(
-        d.name for d in plugin_dir.iterdir()
-        if d.is_dir()
-        and d.name.lower() not in _KNOWN_DIRS
-        and not d.name.startswith('_bsa_staging_')
-        and any(d.rglob('*'))  # non-empty
-    )
+def _archive_name(stem: str, suffix: str) -> str:
+    """`<stem> - <suffix>.bsa`, or `<stem>.bsa` for the main archive."""
+    return f"{stem} - {suffix}.bsa" if suffix else f"{stem}.bsa"
 
-    specs = list(_BSA_SPECS)
-    # Override compress for textures if requested
-    if compress_textures:
-        specs = [
-            (dirs, suffix, True if suffix == 'Textures' else compress)
-            for dirs, suffix, compress in specs
-        ]
 
-    # Combine meshes + misc into a single BSA named 'Oblivion.bsa'
-    specs.append((['meshes'] + misc_dirs, '', False))
+def _pack_specs(plugin_dir: Path, compress_textures: bool) -> list:
+    """(folders, suffix, compress) per archive: textures, then meshes plus every other folder.
 
-    results: dict = {'packed': [], 'skipped': [], 'errors': [], 'loaders': []}
+    See: docs/commentary/asset_convert_bsa.md#pack-layout
+    """
+    misc = sorted(d.name for d in plugin_dir.iterdir()
+                  if d.is_dir() and d.name.lower() not in _KNOWN_DIRS
+                  and not d.name.startswith('_bsa_staging_')
+                  and any(d.rglob('*')))
+    specs = [(dirs, suffix, compress or (compress_textures
+                                         and suffix == 'Textures'))
+             for dirs, suffix, compress in _BSA_SPECS]
+    return specs + [(['meshes'] + misc, '', False)]
 
-    # Overflow archives are mounted by generated loader ESLs.  A loader plugin
-    # mounts both '<stem>.bsa' and '<stem> - Textures.bsa', so each spec keeps
-    # its own overflow counter and they share the loader plugins by index.
-    loaders_needed = 0
 
-    for subdir_names, bsa_suffix, compress in specs:
-        base_name = f"{stem} - {bsa_suffix}.bsa" if bsa_suffix else f"{stem}.bsa"
+def _pack_spec(bsarch: str, plugin_dir: Path, stem: str, spec: tuple,
+               size_limit: int, results: dict) -> int:
+    """Pack one spec into its archive plus overflow; returns the loader slots used.
 
-        files = _collect_files(plugin_dir, subdir_names)
-        if not files:
-            print(f"  SKIP  {base_name} (no source content)")
-            results['skipped'].append(base_name)
-            continue
+    See: docs/commentary/asset_convert_bsa.md#pack-layout
+    """
+    subdirs, suffix, compress = spec
+    base_name = _archive_name(stem, suffix)
+    files = _collect_files(plugin_dir, subdirs)
+    if not files:
+        print(f"  SKIP  {base_name} (no source content)")
+        results['skipped'].append(base_name)
+        return 0
+    bins = bin_files(files, size_limit)
+    if len(bins) > 1:
+        print(f"  SPLIT {base_name}: "
+              f"{sum(f[2] for f in files) / 1_048_576:.1f} MB of "
+              f"{', '.join(subdirs)} exceeds the "
+              f"{size_limit / 1_048_576:.0f} MB per-archive budget "
+              f"-> {len(bins)} archives")
+    for bin_idx, entries in enumerate(bins):
+        name = (base_name if bin_idx == 0 else
+                _archive_name(loader_stem(stem, bin_idx - 1), suffix))
+        tag = f"{(suffix or 'main').lower()}_{bin_idx}"
+        _pack_bin(bsarch, plugin_dir, plugin_dir / name, entries,
+                  (tag, compress, ', '.join(subdirs)), size_limit, results)
+    return len(bins) - 1
 
-        bins = bin_files(files, size_limit)
-        total = sum(f[2] for f in files)
 
-        if len(bins) > 1:
-            print(f"  SPLIT {base_name}: {total / 1_048_576:.1f} MB of "
-                  f"{', '.join(subdir_names)} exceeds the "
-                  f"{size_limit / 1_048_576:.0f} MB per-archive budget "
-                  f"-> {len(bins)} archives")
+def _pack_bin(bsarch: str, plugin_dir: Path, bsa_path: Path, entries: list,
+              job: tuple, size_limit: int, results: dict) -> None:
+    """Stage one bin's files and run BSArch on them; `job` is (tag, compress, label)."""
+    tag, compress, label = job
+    bin_size = sum(e[2] for e in entries)
+    if bin_size > size_limit and len(entries) == 1:
+        print(f"  WARN  {entries[0][1]} is {bin_size / 1_048_576:.1f} MB, "
+              f"larger than a whole BSA — it cannot be split")
+    stage_root = plugin_dir / f"_bsa_staging_{tag}"
+    if stage_root.exists():
+        shutil.rmtree(long_path(stage_root))
+    stage_root.mkdir(parents=True)
+    try:
+        n_files = _stage_bin(entries, stage_root)
+        print(f"  PACK  {bsa_path.name}  ({n_files} files, "
+              f"{bin_size / 1_048_576:.1f} MB from {label})")
+        _run_bsarch(bsarch, stage_root, bsa_path, compress, results)
+    except Exception as exc:
+        print(f"  ERROR {bsa_path.name}: {exc}")
+        results['errors'].append(f"{bsa_path.name}: {exc}")
+    finally:
+        if stage_root.exists():
+            shutil.rmtree(long_path(stage_root), ignore_errors=True)
 
-        for bin_idx, entries in enumerate(bins):
-            bin_size = sum(e[2] for e in entries)
 
-            # Warn on a single file that cannot possibly fit.
-            if bin_size > size_limit and len(entries) == 1:
-                print(f"  WARN  {entries[0][1]} is {bin_size / 1_048_576:.1f} MB, "
-                      f"larger than a whole BSA — it cannot be split")
-
-            if bin_idx == 0:
-                # First bin keeps the name the real plugin auto-mounts.
-                bsa_path = plugin_dir / base_name
-            else:
-                # Overflow: mounted by <stem>_loader[_N].esl
-                loader_idx = bin_idx - 1
-                lstem = loader_stem(stem, loader_idx)
-                loaders_needed = max(loaders_needed, loader_idx + 1)
-                bsa_path = plugin_dir / (
-                    f"{lstem} - {bsa_suffix}.bsa" if bsa_suffix else f"{lstem}.bsa"
-                )
-
-            stage_root = plugin_dir / (
-                f"_bsa_staging_{(bsa_suffix or 'main').lower()}_{bin_idx}"
-            )
-            if stage_root.exists():
-                shutil.rmtree(long_path(stage_root))
-            stage_root.mkdir(parents=True)
-
-            try:
-                n_files = _stage_bin(entries, stage_root)
-                print(f"  PACK  {bsa_path.name}  ({n_files} files, "
-                      f"{bin_size / 1_048_576:.1f} MB "
-                      f"from {', '.join(subdir_names)})")
-                _run_bsarch(bsarch, stage_root, bsa_path, compress, results)
-            except Exception as exc:
-                err_msg = f"{bsa_path.name}: {exc}"
-                print(f"  ERROR {err_msg}")
-                results['errors'].append(err_msg)
-            finally:
-                if stage_root.exists():
-                    shutil.rmtree(long_path(stage_root), ignore_errors=True)
-
-    # Generate one dummy ESL per overflow slot so the game mounts those BSAs.
-    for i in range(loaders_needed):
+def _write_loaders(plugin_dir: Path, stem: str, count: int, source_name: str,
+                   results: dict) -> None:
+    """Write one dummy ESL per overflow slot so the game mounts those archives."""
+    for i in range(count):
         esl_path = plugin_dir / f"{loader_stem(stem, i)}.esl"
         try:
-            write_loader_esl(esl_path, description=f"BSA loader for {source_name}")
+            write_loader_esl(esl_path,
+                             description=f"BSA loader for {source_name}")
             print(f"  OK    {esl_path.name}  (BSA loader plugin)")
             results['loaders'].append(str(esl_path))
         except Exception as exc:
-            err_msg = f"{esl_path.name}: {exc}"
-            print(f"  ERROR {err_msg}")
-            results['errors'].append(err_msg)
+            print(f"  ERROR {esl_path.name}: {exc}")
+            results['errors'].append(f"{esl_path.name}: {exc}")
 
-    # Remove stale overflow archives and loaders left by a previous, larger run.
-    # This matters beyond tidiness: a later run that needs the loader slot again
-    # would otherwise re-create <stem>_loader.esl on top of a stale
-    # <stem>_loader.bsa, silently serving assets from the old conversion.
-    # 'oblivion_loader*' is swept too: loaders used to be named that regardless
-    # of the plugin, so an output folder built before the rename still holds
-    # them and nothing else would ever clear them.
-    # glob.escape: a plugin stem is arbitrary text and may hold '[' or '?',
-    # which would make the pattern match nothing and silently strand the very
-    # files this sweep exists to remove.
+
+def _stale_candidates(plugin_dir: Path, stem: str, other_stems: list) -> list:
+    """Archives and loaders in `plugin_dir` this run may have left stale."""
+    found = set(plugin_dir.glob(f'{_glob.escape(stem)}_loader*'))
+    found |= set(plugin_dir.glob('oblivion_loader*'))
+    for other in other_stems:
+        found |= set(plugin_dir.glob(f'{_glob.escape(other)}_loader*'))
+        found |= {plugin_dir / _archive_name(other, suffix)
+                  for suffix in [''] + [s for _d, s, _c in _BSA_SPECS]}
+    return sorted(p for p in found if p.is_file())
+
+
+def _sweep_stale(plugin_dir: Path, stem: str, other_stems: list,
+                 results: dict) -> None:
+    """Delete archives and loaders this run did not write.
+
+    See: docs/commentary/asset_convert_bsa.md#pack-layout
+    """
     written = {Path(p).name.lower() for p in results['packed']}
-    stale_candidates = sorted(
-        set(plugin_dir.glob(f'{_glob.escape(stem)}_loader*'))
-        | set(plugin_dir.glob('oblivion_loader*'))
-    )
-    for stale in stale_candidates:
-        if stale.suffix.lower() not in ('.bsa', '.esl'):
+    loaders = {Path(p).name.lower() for p in results['loaders']}
+    for stale in _stale_candidates(plugin_dir, stem, other_stems):
+        kind = stale.suffix.lower()
+        if kind not in ('.bsa', '.esl'):
             continue
-        if stale.suffix.lower() == '.esl':
-            keep = stale.name in {Path(p).name for p in results['loaders']}
-        else:
-            keep = stale.name.lower() in written
-        if not keep:
+        if stale.name.lower() not in (loaders if kind == '.esl' else written):
             stale.unlink()
             print(f"  CLEAN {stale.name}  (no longer needed)")
-
-    if loaders_needed:
-        print(f"\n  NOTE: {loaders_needed} loader plugin(s) generated. "
-              f"They must be enabled in the load order (after {source_name}) "
-              f"for the overflow BSAs to be mounted.")
-
-    return results
 
 
 # ---------------------------------------------------------------------------

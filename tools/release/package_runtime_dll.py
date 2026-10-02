@@ -12,10 +12,11 @@ The archive mirrors what `convert.py --pack-zip-only` produces -- output/
 Finished Mods/<name>.zip, contents rooted as a Data folder -- so a user
 installs it exactly like any converted plugin.
 
-MorrowindRuntime's dialogue menu is composed here, from the Morrowind install
-registered on this machine, and goes straight into the archive: its art is
-Bethesda's, so the repo never holds a built copy. Without a registered install
-the menu is skipped and the rest still packages.
+MorrowindRuntime's menus -- the dialogue window, the stats window and the
+level-up dialog -- are composed here, from the Morrowind install registered on
+this machine, and go straight into the archive: their art is Bethesda's, so
+the repo never holds a built copy. Without a registered install the menus are
+skipped and the rest still packages.
 
 Usage:
   python tools/release/package_runtime_dll.py   # -> output/Finished Mods/TESRuntime.zip
@@ -34,6 +35,10 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from asset_convert.ui.morrowind_menu_art import MissingArtError
 from output_layout import finished_dir, write_mod_zip
 from tools.generators.gen_morrowind_menu_swf import dialogue_window
+from tools.generators.gen_morrowind_stats_swf import (LEVELUP_MOVIE,
+                                                      STATS_MOVIE,
+                                                      levelup_dialog,
+                                                      stats_window)
 
 MOD_NAME = "TESRuntime"
 
@@ -42,8 +47,10 @@ SRC_DIR = SCRIPT_DIR / "tes_runtime"
 #: Where the pipeline's exports and the source registry live.
 EXPORT_ROOT = SCRIPT_DIR / "export"
 
-#: MorrowindRuntime's dialogue menu, as the game loads it.
-MENU_ARC = Path("Interface") / "morrowind_dialogue.swf"
+#: MorrowindRuntime's menus as the game loads them, each with the function that composes it.
+MENUS = ((Path("Interface") / "morrowind_dialogue.swf", dialogue_window),
+         (Path("Interface") / STATS_MOVIE, stats_window),
+         (Path("Interface") / LEVELUP_MOVIE, levelup_dialog))
 
 #: Where tes_runtime/build.bat puts every finished DLL.
 DIST_DIR = SRC_DIR / "dist"
@@ -65,22 +72,26 @@ MODS = {
         (*CREATURE_RUNTIME,
          (DIST_DIR / "FalloutRuntime.dll", PLUGINS / "FalloutRuntime.dll"),
          *HAVOK_WORLD_SIZE,
-         (DIST_DIR / "MorrowindRuntime.dll", PLUGINS / "MorrowindRuntime.dll")),
+         (DIST_DIR / "MorrowindRuntime.dll", PLUGINS / "MorrowindRuntime.dll"),
+         (SRC_DIR / "morrowind" / "MorrowindRuntime.ini",
+          PLUGINS / "MorrowindRuntime" / "MorrowindRuntime.ini")),
     ),
     "CreatureRuntime": (CREATURE_RUNTIME, ()),
     "HavokWorldSize": (HAVOK_WORLD_SIZE, ()),
 }
 
 
-def morrowind_menu(export_root: Path) -> "bytes | None":
-    """The dialogue menu movie, composed from the registered Morrowind install.
+def morrowind_menus(export_root: Path) -> "list | None":
+    """Every Morrowind menu movie as `(archive path, bytes)`, composed from the
+    registered Morrowind install.
 
     None when no install is registered (or it lacks the menu art), so the
-    caller skips the menu instead of failing.
+    caller skips the menus instead of failing.
     See: docs/commentary/morrowind_runtime.md#the-real-menu
     """
     try:
-        return dialogue_window(str(export_root)).serialize(compress=True)
+        return [(arc, build(str(export_root)).serialize(compress=True))
+                for arc, build in MENUS]
     except MissingArtError:
         return None
 
@@ -118,11 +129,11 @@ def package(out_root: Path, mod_name: str = MOD_NAME,
         else:
             print(f"  - {arc} (not built, skipped)")
     if mod_name == MOD_NAME:
-        menu = morrowind_menu(export_root)
-        if menu is None:
-            print(f"  - {MENU_ARC} (no Morrowind install registered, skipped)")
+        menus = morrowind_menus(export_root)
+        if menus is None:
+            print("  - Morrowind menus (no Morrowind install registered, skipped)")
         else:
-            members.append((str(MENU_ARC), menu))
+            members += [(str(arc), data) for arc, data in menus]
     write_mod_zip(zip_path, members, lambda _i, arc: print(f"  + {arc}"))
 
     size = zip_path.stat().st_size

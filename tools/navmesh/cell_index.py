@@ -18,15 +18,16 @@ import pickle
 import sqlite3
 import threading
 
-from tes5_import.overrides.nested import (
-    export_master_names, export_root, master_export_dir,
-)
+from core.plugin_masters import master_dir, masters_from_export_header
 
 #: Tables small enough to load whole; the rest is per cell.
 SHARED = ('base_model', 'door_fids', 'cells')
 
 #: Schema marker; a mismatch rebuilds rather than serving stale shapes.
 SCHEMA = 5
+
+#: Version of the stored `base_model` table; a mismatch rewrites that row alone.
+BASES = 2
 
 
 def db_path(export):
@@ -59,7 +60,8 @@ def write(export, tables):
     con.execute('CREATE TABLE cell (fid TEXT PRIMARY KEY, blob BLOB, '
                 'has_pgrd INTEGER)')
     con.execute('CREATE TABLE shared (k TEXT PRIMARY KEY, blob BLOB)')
-    con.execute('INSERT INTO meta VALUES (?, ?)', ('schema', SCHEMA))
+    con.executemany('INSERT INTO meta VALUES (?, ?)',
+                    (('schema', SCHEMA), ('bases', BASES)))
     fids = set(refr) | set(pgrd) | set(land)
     con.executemany('INSERT INTO cell VALUES (?, ?, ?)', (
         (f, pickle.dumps((refr.get(f, []), pgrd.get(f), land.get(f)),
@@ -76,18 +78,41 @@ def write(export, tables):
     return path
 
 
-def is_current(export):
-    """True when a per-cell index exists at the current schema."""
+def _meta(export, key):
+    """One `meta` value of `export`'s index, or None when absent or unreadable."""
     path = db_path(export)
     if not os.path.isfile(path):
-        return False
+        return None
     try:
         con = _connect(path)
-        row = con.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
+        row = con.execute('SELECT v FROM meta WHERE k=?', (key,)).fetchone()
         con.close()
-        return bool(row) and row[0] == SCHEMA
     except sqlite3.DatabaseError:
-        return False
+        return None
+    return row[0] if row else None
+
+
+def is_current(export):
+    """True when a per-cell index exists at the current schema."""
+    return _meta(export, 'schema') == SCHEMA
+
+
+def bases_current(export):
+    """True when the stored `base_model` table is at the current `BASES` version."""
+    return _meta(export, 'bases') == BASES
+
+
+def write_base_model(export, base_model):
+    """Replace only the stored `base_model` table, leaving every cell row as it is.
+
+    See: docs/commentary/tes5_import_navmesh.md#frozen-corner-takes-the-vertex
+    """
+    con = _connect(db_path(export))
+    con.execute('UPDATE shared SET blob=? WHERE k=?',
+                (pickle.dumps(base_model, pickle.HIGHEST_PROTOCOL), 'base_model'))
+    con.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', ('bases', BASES))
+    con.commit()
+    con.close()
 
 
 class _Store(object):
@@ -157,12 +182,11 @@ def index_map(child, master):
 
     See: docs/commentary/tes5_import_navmesh.md#cellview-master-numbering
     """
-    root = export_root(child)
-    slots = {_dir_key(master_export_dir(root, n)): i
-             for i, n in enumerate(export_master_names(child))}
-    names = export_master_names(master)
+    slots = {_dir_key(master_dir(child, n)): i
+             for i, n in enumerate(masters_from_export_header(child))}
+    names = masters_from_export_header(master)
     out = {}
-    for i, d in enumerate([master_export_dir(root, n) for n in names] + [master]):
+    for i, d in enumerate([master_dir(child, n) for n in names] + [master]):
         if _dir_key(d) in slots:
             out[i] = slots[_dir_key(d)]
     return out

@@ -232,7 +232,7 @@ BODY_HEIGHT_TWIPS = FONT_PX * TWIP
 TEXT_GUTTER = 2
 
 #: DefineEditText layout block alignments: 0 left, 1 right, 2 center.
-_ALIGN_LEFT, _ALIGN_CENTER = 0, 2
+ALIGN_LEFT, ALIGN_RIGHT, ALIGN_CENTER = 0, 1, 2
 
 #: Where the plugin's copy of the layout is written.
 HEADER_PATH = 'tes_runtime/morrowind/plugin/menu_layout.h'
@@ -246,7 +246,7 @@ def _layout(align: int) -> bytes:
 def define_edit_text(character_id: int, x: int, y: int, w: int, h: int,
                      var_name: str, initial: str, font_id: int = CHAR_FONT,
                      rgb: tuple = TEXT_RGB, height: int = TEXT_HEIGHT_TWIPS,
-                     align: int = _ALIGN_CENTER, html: bool = False) -> Tag:
+                     align: int = ALIGN_CENTER, html: bool = False) -> Tag:
     """A dynamic text field, optionally bound to `var_name`.
 
     UseOutlines is always set: the glyphs come from the font character named
@@ -429,7 +429,7 @@ def compose_modal(export_root):
 
 
 def _modal_field(character_id: int, rect: tuple, color: str = 'normal',
-                 align: int = _ALIGN_LEFT) -> Tag:
+                 align: int = ALIGN_LEFT) -> Tag:
     """A field at a MODAL-space rect, in the embedded face."""
     return define_edit_text(character_id, *modal_stage_rect(rect), '', '',
                             font_id=CHAR_MW_FONT, rgb=FONT_COLORS[color],
@@ -439,7 +439,7 @@ def _modal_field(character_id: int, rect: tuple, color: str = 'normal',
 def _modal_fields() -> list:
     """The modal's dynamic text fields as `(tag, instance_name)`."""
     out = [(_modal_field(CHAR_MODAL_TITLE, centered_field(MODAL_TITLE),
-                         color='header', align=_ALIGN_CENTER),
+                         color='header', align=ALIGN_CENTER),
             FIELD_MODAL_TITLE)]
     for row in range(MODAL_ROWS):
         out.append((_modal_field(CHAR_MODAL_ROW_FIRST + row,
@@ -448,7 +448,7 @@ def _modal_fields() -> list:
     out.append((_modal_field(CHAR_MODAL_GOLD, centered_field(MODAL_GOLD)),
                 FIELD_MODAL_GOLD))
     out.append((_modal_field(CHAR_MODAL_CANCEL, modal_cancel_text_rect(),
-                             align=_ALIGN_CENTER), FIELD_MODAL_CANCEL))
+                             align=ALIGN_CENTER), FIELD_MODAL_CANCEL))
     return out
 
 
@@ -499,7 +499,7 @@ def compose_window(export_root):
 
 
 def _body_field(character_id: int, rect: tuple, initial: str = '',
-                color: str = 'normal', align: int = _ALIGN_LEFT,
+                color: str = 'normal', align: int = ALIGN_LEFT,
                 html: bool = False) -> Tag:
     """A field in the embedded face at the body size, in one of the ini
     colors, placed at a WINDOW-space rect."""
@@ -512,12 +512,12 @@ def _fields() -> list:
     """Every dynamic text field as `(tag, instance_name)`."""
     out = [
         (_body_field(CHAR_NAME, centered_field(CAPTION), color='header',
-                     align=_ALIGN_CENTER), FIELD_NAME),
+                     align=ALIGN_CENTER), FIELD_NAME),
         (_body_field(CHAR_HISTORY, history_text_rect(), html=True),
          FIELD_HISTORY),
         (_body_field(CHAR_DISPOSITION, centered_field(client_rect(DISPOSITION)),
-                     align=_ALIGN_CENTER), FIELD_DISPOSITION),
-        (_body_field(CHAR_BYE, bye_text_rect(), GOODBYE, align=_ALIGN_CENTER),
+                     align=ALIGN_CENTER), FIELD_DISPOSITION),
+        (_body_field(CHAR_BYE, bye_text_rect(), GOODBYE, align=ALIGN_CENTER),
          FIELD_BYE),
     ]
     for row in range(TOPIC_FIELDS):

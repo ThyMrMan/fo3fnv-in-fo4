@@ -2921,6 +2921,61 @@ with the CTDA "use aliases" flag (0x02) is vanilla's (230 uses, 13 in PACK);
 context (0x336880) that only the procedure tree sets. Tests:
 `tests/test_import.py::TestCombatApproachPool`, `tests/test_script_converter.py::TestStartCombatIsForced`.
 
+## StartCombat calls in one burst add targets; the pool leaves such a fight to Skyrim (2026-09-29, confirmed in game: Nehrim elevator room)
+<a id="startcombat-adds-targets"></a>
+
+**Code:** `TES4_CombatQueue.AddsTarget`, `TES4Polyfill.ForceCombatNow(abAdd)`,
+`tes5_import/actors/combat_approach.py` `_conditions`.
+
+**Symptom:** after the queue landed, Nehrim's elevator-room troll
+(`StartCelleAufzugRaumTroll01Ref`) never attacked. It stood still, unable to
+reach Celebro past the player.
+
+**Authored intent:** `StartCelleAufzugRaumTrigZoneScript` calls
+`troll.StartCombat Player` and then `troll.StartCombat CelebroRef` in the same
+frame. Oblivion's `StartCombat` (Oblivion.exe 0x514660) is immediate. On an actor
+already in combat it ADDS the target (process vtable +0x228 at 0x514826),
+re-sorts the target list (0x5b27a0, comparator 0x614190) and makes the new
+target current (+0x22c). The troll is hostile to both, fighting whichever is
+nearer.
+
+**Cause, in three parts (SkyrimSE 1.6.1170):**
+- Papyrus `StartCombat` (0x9eae60) only queues the start on the task queue
+  (0x6564c0). The queue ran the two calls back to back, so the second saw
+  `IsInCombat()` false, skipped the stand-down and added Celebro (task
+  0x657e1f → 0x6e2970). The pair was still re-aimed at Celebro.
+- The pair's combat override then drove the troll toward Celebro. A combat
+  override replaces fighting, so with the player in the way it stood still.
+- No condition can see "the target actually fought". `IsCombatTarget` (0x803df0)
+  and `GetCombatTargetHasKeyword` (0x339410) both scan the whole combat-group
+  target list. Only run-on 3, **Combat Target**, reads the current one: case
+  0x4a0683 reads `Actor+0x104`, as Papyrus `GetCombatTarget` (0x9e84f0) does.
+  0x662be0 mirrors it from the controller (+0x2c) while in combat and clears it
+  only when combat ends (0x662c44, 0x6b723c), so it stays set while searching or
+  hiding.
+
+**Fix:**
+- A StartCombat within a second of one the queue made on another LIVE target of
+  the same attacker is an add (`AddsTarget`). `ForceCombatNow(..., abAdd)` then
+  skips the stand-down, and the pair is released so Skyrim's own multi-target
+  combat fights.
+- A later StartCombat, or one after the earlier target died, still retargets
+  and re-pairs, so SE02's Gatekeeper is unchanged.
+- Each approach package also requires `GetDistance(target alias) < 1` run on the
+  Combat Target, so an attacker Skyrim has turned on someone else is never
+  pulled away.
+- Reverted: waiting for the first start to land before the second call. It made
+  the second call a retarget, which dropped the player and pinned the troll on
+  Celebro.
+
+**Scope:** about a dozen scripts give one attacker two live targets in a row.
+Nehrim: the intro guards-vs-trolls trigger, `MQ01TateScript`, `CalistoScn`,
+`NQ01TheophilScript`. Oblivion: `Dark18MotherScript`, `MS91MazogaScript`. The
+mine-exit finale gives each troll one target (the player) and Merzul one (troll
+A05), so it keeps its pull. Tests:
+`TestStartCombatIsForced::test_same_burst_startcombat_adds_a_target_and_unpairs`,
+`TestCombatApproachPool::test_override_pulls_only_toward_the_current_combat_target`.
+
 ## A SetStage that starts a quest keeps its variables (2026-09-25, unconfirmed in game)
 <a id="setstage-start-keeps-variables"></a>
 
@@ -6373,6 +6428,26 @@ anything present IS something this run produced. Both source and compiled
 output are cleared: a stale `.pex` is worse than a stale `.psc`, because the VM
 loads it whether or not the source is still there.
 
+**A shared folder is cleared per plugin.** An imported mod's plugins all
+convert into one `output/<Mod>/scripts/`, so the whole-folder wipe let each
+plugin's run delete every sibling's `.psc`/`.pex`: converting Morrowind_ob.esp
+after Morrowind_ob.esm left only the ESP's scripts, and its pack shipped them
+alone. Each run now writes `scripts/<plugin>.owned.txt`, the names `write_psc`
+and the static-script deploy wrote (workers return theirs in `stats['written']`).
+When another plugin's list is present, a rebuild removes only the names on its
+own list that no sibling also claims, the static-script purge skips a copy a
+sibling owns, and `papyrus_compile` compiles only the plugin's own list. With no
+sibling list the folder is wiped whole, as before, which also clears an older
+build's leftovers once. A name two plugins both write is reported; the one
+converted last wins, as `Data\Scripts` would resolve it.
+(`script_convert/ownership.py`)
+
+A directory another process holds open (an Explorer window or a shell sitting
+in `scripts/source`) empties but cannot be removed: Windows refuses the final
+`rmdir` with WinError 32. The wipe keeps that empty directory rather than
+aborting the stage, because the guarantee is about files, and every file in it
+is already gone. Any other failure still raises.
+
 ### <a id="bounds-cache-schema"></a>The mesh-bounds cache must be current
 
 A cache from before the HELD bit existed loads fine and answers 0 for every
@@ -6440,6 +6515,16 @@ aliases never fill (FGC01Rats: QuillWeave, an NPC_ base, was typed as the
 Actor script `TES4_FGC01QuillweaveScript`). The same rule holds in
 `scro_refs._add_scro_ref`: an `ActorBase` typing already set is never
 overwritten by the SCRO's record type.
+
+`PlaceAtMe` is the same kind of base-semantics call: its argument is always a
+base form, so the handler types it `ActorBase` for an NPC_/CREA and the record's
+own base type otherwise (`Form` where the map only has the `ObjectReference`
+fallback). Nehrim's rat-hole spawners (`NQ00RattenSpawn01-03`) had
+`NEHRIM_NQ00Ratte0NScript Property NQRatte0N` — the SCRO gave the CREA its
+attached Actor script's type — so every spawn logged "cannot be bound" and
+`Cannot place a None object`. A spawned actor also needs the script on its
+BASE record; see
+[tes5_import_quest.md](tes5_import_quest.md#actor-script-relocation).
 
 ### <a id="unlock-globals-declared-once"></a>Unlock globals are declared once
 

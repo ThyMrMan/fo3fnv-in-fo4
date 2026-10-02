@@ -9,7 +9,6 @@ See: docs/commentary/script_convert.md#two-state-activators
 
 import os
 
-from ..base.object_scripts import get_object_vmad, set_object_vmad
 from ..base.text_reader import get_formid
 from ..base.writer import pack_subrecord
 from .world_falloutnv import is_fallout_source
@@ -41,9 +40,11 @@ def attach_two_state_activators(by_type: dict, export_dir: str) -> int:
     """Append TES4_TwoStateActivator to every FO3/FNV ACTI whose model opens and closes; returns how many.
 
     script_convert.pipeline is imported here: it imports the importer's
-    dialogue package, a cycle at load.
+    dialogue package, a cycle at load. So is object_scripts: it imports the
+    registry, which imports record_types.world, which imports this module.
     """
     from script_convert.pipeline import append_vmad_object_script
+    from ..base.object_scripts import get_object_vmad, set_object_vmad
     _TWO_STATE_BASES.clear()
     if not is_fallout_source():
         return 0

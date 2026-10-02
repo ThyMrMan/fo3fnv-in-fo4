@@ -134,12 +134,20 @@ def _probabilities(v: dict) -> dict:
 
 
 def _csty_subrecords(v: dict) -> bytes:
-    """CSGD CSME CSCR CSLR CSFL DATA for one style's Oblivion values."""
+    """CSGD CSME CSCR CSLR CSFL DATA for one style's Oblivion values.
+
+    Defensive is capped at Offensive for a style that attacks: Skyrim reads
+    Defensive - Offensive as a stance that keeps melee actors out of their own
+    reach, and Oblivion has none. A never-attacking style keeps its full block.
+    See: docs/commentary/tes5_import_actors.md#combat-style-stance
+    """
     p = _probabilities(v)
     equip = _EQUIP_RANGED if v['Flags'] & _PREFERS_RANGED else _EQUIP_NEUTRAL
     circle = _mult(p['circle'], _CIRCLE_CHANCE)
+    offensive = max(0.0, _mult(p['attack'], _ATTACK_CHANCE))
+    defensive = _mult(p['block'], _BLOCK_CHANCE)
     subs = pack_subrecord('CSGD', struct.pack(
-        '<10f', max(0.0, _mult(p['attack'], _ATTACK_CHANCE)), _mult(p['block'], _BLOCK_CHANCE),
+        '<10f', offensive, min(offensive, defensive) if offensive else defensive,
         _GROUP_OFFENSIVE, *equip, _AVOID_THREAT))
     subs += pack_subrecord('CSME', struct.pack(
         '<8f', p['staggered'], p['power_staggered'], _POWER_ATTACK_BLOCKING,

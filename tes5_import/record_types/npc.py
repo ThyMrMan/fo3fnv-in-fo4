@@ -10,6 +10,7 @@ import struct
 from asset_convert.character.hair_plan import (mesh_name_family, output_model_path,
                                                output_tri_path, variant_edid,
                                                variant_tag)
+from ..base.master_export import values_of
 from ..actors import hair_variants
 from ..actors.combat_style import actor_combat_style
 from ..actors.confidence import flee_memberships, flee_spells
@@ -22,7 +23,7 @@ from ..packages.actor_wiring import (CSTY_DEFAULT, DPLT_NPC_LIST, authored_packa
 from ..base.equivalents import map_hair_color
 from ..base.race_factions import race_faction
 from .actor_common import (GOLD001_FID, NAM5_UNKNOWN, SOUND_LEVEL_NORMAL,
-                           attacks_player_on_sight,
+                           attacks_player_on_sight, in_evil_faction,
                            build_aidt, build_outfit, origin_memberships,
                            get_trainer_class_fid, get_trainer_faction_fid,
                            get_vendor_faction_fids_for_actor, read_items,
@@ -190,11 +191,11 @@ def _npc_snams(rec: dict, vendor_fids: list, trainer_clas_fid: int) -> bytes:
 
 
 def _crime_faction_of(rec: dict) -> int:
-    """The crime faction this NPC reports to, or 0 for one that hunts the player.
+    """The crime faction this NPC reports to; 0 for one that hunts the player or is Evil.
 
-    See: docs/commentary/tes5_import_actors.md#crime-factions-derived
+    See: docs/commentary/tes5_import_actors.md#evil-factions
     """
-    if attacks_player_on_sight(rec) and \
+    if (attacks_player_on_sight(rec) or in_evil_faction(rec)) and \
             not is_guard_class(get_formid(rec, 'CNAM.Class')):
         return 0
     return crime_faction(get_formid(rec, 'FormID'))
@@ -518,7 +519,7 @@ def emit_hair_variants(rec: dict, e: dict, writer) -> int:
 def emit_master_hair_variants(writer, master_export) -> int:
     """Emit the HDPTs this plugin adds to its masters' hairs; returns how many."""
     recs = {get_formid(r, 'FormID') & 0x00FFFFFF: r
-            for r in (master_export or {}).values() if r.get('Signature') == 'HAIR'}
+            for r in values_of(master_export, 'HAIR')}
     return sum(emit_hair_variants(recs[fid], e, writer)
                for fid, e in hair_variants.master_extras().items() if fid in recs)
 

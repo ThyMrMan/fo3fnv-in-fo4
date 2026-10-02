@@ -2167,7 +2167,11 @@ class TestServiceConversion:
                   'EditorID': 'Barter', 'DATA.Type': '5'}
         refusal = {'Signature': 'DIAL', 'FormID': '0000010E',
                    'EditorID': 'ServiceRefusal', 'DATA.Type': '5'}
+        renamed = dict(barter, EditorID='BarterStart')
+        plugin_own = dict(barter, FormID='0100010F')
         assert service_menu_kind(barter) == 'barter'
+        assert service_menu_kind(renamed) == 'barter'
+        assert service_menu_kind(plugin_own) == ''
         assert not should_skip_dial(barter)
         assert service_menu_kind(refusal) == ''
         assert should_skip_dial(refusal)
@@ -7003,6 +7007,25 @@ class TestCombatStyleConversion:
         csgd = _find_subrecord(convert_CSTY(self._style()), b'CSGD')
         assert abs(struct.unpack_from('<f', csgd)[0] - 0.45 / 0.95) < 1e-5
 
+    def test_defensive_never_exceeds_offensive(self):
+        """TrollStyle blocks 30% x 2.0 = 0.6 but attacks 0.474: Defensive capped, so no keep-away stance.
+
+        See: docs/commentary/tes5_import_actors.md#combat-style-stance
+        """
+        from tes5_import.actors.combat_style import convert_CSTY
+        self._styles()
+        style = dict(self._style(), **{'CSTD.BlockChance': '30'})
+        offensive, defensive = struct.unpack_from('<2f', _find_subrecord(convert_CSTY(style), b'CSGD'))
+        assert abs(offensive - 0.45 / 0.95) < 1e-5 and defensive == offensive
+
+    def test_never_attacking_style_keeps_its_block(self):
+        """Attack 0% (Blades block trainer): Offensive 0, Defensive the full block, like vanilla MG01TolfdirWard."""
+        from tes5_import.actors.combat_style import convert_CSTY
+        self._styles()
+        style = dict(self._style(), **{'CSTD.AttackChance': '0', 'CSTD.BlockChance': '50'})
+        offensive, defensive = struct.unpack_from('<2f', _find_subrecord(convert_CSTY(style), b'CSGD'))
+        assert offensive == 0.0 and abs(defensive - 1.0) < 1e-5
+
     def test_fleeing_disabled_style_never_flees(self):
         """An actor on a Fleeing Disabled style reads the flag through its own style."""
         from tes5_import.actors.combat_style import actor_combat_style, fleeing_disabled
@@ -7074,9 +7097,20 @@ class TestCombatApproachPool:
             single, ctdas = packs[edid]
             assert struct.unpack_from('<I', single[b'PKCU'], 4)[0] == template
             assert struct.unpack_from('<I', single[b'PKDT'])[0] & 0x00800000, 'weapon drawn'
-            gate = [c for c in ctdas if struct.unpack_from('<H', c, 8)[0] == 1]
+            gate = [c for c in ctdas if struct.unpack_from('<HxxIII', c, 8)[::3] == (1, 0)]
             assert len(gate) == 1 and gate[0][0] == 0x42, 'GetDistance > , alias parameter'
             assert struct.unpack_from('<fHHI', gate[0], 4) == (reach, 1, 0, 1)
+
+    def test_override_pulls_only_toward_the_current_combat_target(self):
+        """GetDistance(target alias) < 1 run on the Combat Target (3): an attacker fighting someone else is not pulled.
+
+        See: docs/commentary/script_convert.md#startcombat-adds-targets
+        """
+        for _fid, subs in self._records()['PACK']:
+            current = [d for t, d in subs if t == b'CTDA' and struct.unpack_from('<HxxIII', d, 8)[::3] == (1, 3)]
+            assert len(current) == 1 and current[0][0] == 0x82, 'GetDistance < , alias parameter'
+            value, target_alias = struct.unpack_from('<fxxxxI', current[0], 4)
+            assert value == 1.0 and target_alias % 2 == 1
 
 
 class TestAggressionTierTargeting:
@@ -7143,6 +7177,44 @@ class TestAggressionTierTargeting:
 
     def test_frenzied_still_maps(self):
         assert self._aggr(106, 50) == 3
+
+
+class TestEvilFactions:
+    """A TES4 Evil faction's members are no crime victims (DATA.Flags bit 1).
+
+    See: docs/commentary/tes5_import_actors.md#evil-factions
+    """
+
+    @staticmethod
+    def _member(fid):
+        """An NPC_ export record in the one faction `fid`."""
+        return {'FactionCount': '1', 'Faction[0].FormID': fid}
+
+    def test_own_and_master_evil_factions(self):
+        """Nehrim's AbtruennigeMagier (flags 3) and a master's Evil faction both count."""
+        from tes5_import.record_types.actor_common import (
+            in_evil_faction, load_faction_player_reactions)
+        load_faction_player_reactions(
+            {'FACT': [{'FormID': '001A23B7', 'DATA.Flags': '3'},
+                      {'FormID': '001A23B8', 'DATA.Flags': '1'}]},
+            {'0000AAAA': {'Signature': 'FACT', 'DATA.Flags': '2'},
+             '0000BBBB': {'Signature': 'NPC_', 'DATA.Flags': '2'}})
+        assert in_evil_faction(self._member('001A23B7'))
+        assert in_evil_faction(self._member('0000AAAA'))
+        assert not in_evil_faction(self._member('001A23B8'))
+        assert not in_evil_faction(self._member('0000BBBB'))
+        assert not in_evil_faction({'FactionCount': '0'})
+
+    def test_one_non_evil_faction_makes_a_victim(self):
+        """Morroblivion's Evil `0factMorrowind` plus a town faction: still a crime victim."""
+        from tes5_import.record_types.actor_common import (
+            in_evil_faction, load_faction_player_reactions)
+        load_faction_player_reactions(
+            {'FACT': [{'FormID': '0122001B', 'DATA.Flags': '3'},
+                      {'FormID': '01220020', 'DATA.Flags': '0'}]})
+        assert not in_evil_faction({'FactionCount': '2',
+                                    'Faction[0].FormID': '0122001B',
+                                    'Faction[1].FormID': '01220020'})
 
 
 class TestFactionRelationReaction:
@@ -7929,7 +8001,8 @@ class TestFalloutReferenceOnlyRecords:
         from tes5_import.record_types.reference_falloutnv import (
             convert_FLST, index_convertible_records)
         by_type = {'WEAP': [{'FormID': '0000000A'}],
-                   'ARMA': [{'FormID': '0000000B'}]}
+                   'ARMA': [{'FormID': '0000000B'}],
+                   'FLST': [{'FormID': '00100009'}]}
         index_convertible_records(by_type, {'WEAP': object()}, set())
         rec = {'FormID': '00100009', 'RecordFlags': '0', 'EditorID': 'L',
                'LNAM[0]': '0000000A', 'LNAM[1]': '0000000B'}
@@ -7942,7 +8015,8 @@ class TestFalloutReferenceOnlyRecords:
         from tes5_import.record_types.impact_falloutnv import convert_EXPL
         from tes5_import.record_types.reference_falloutnv import (
             index_convertible_records)
-        index_convertible_records({'IPDS': [{'FormID': '0000000C'}]},
+        index_convertible_records({'IPDS': [{'FormID': '0000000C'}],
+                                   'EXPL': [{'FormID': '0010000A'}]},
                                   {'IPDS': object()}, set())
         rec = {'FormID': '0010000A', 'RecordFlags': '0', 'EditorID': 'X',
                'MNAM': '0000000D', 'DATA.ImpactDataSet': '0000000C',

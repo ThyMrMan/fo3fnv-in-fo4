@@ -143,6 +143,8 @@ struct RankReq {
 // the faction judges by, a threshold row per rank, and the authored rank
 // names `%PCRank` prints. FACT.txt.
 struct FactionDef {
+    // The id as the plugin authors it ("Thieves Guild"), for display.
+    std::string id;
     // TES3 attribute indices, 0..7.
     int attribute[2] = {0, 0};
     // TES3 skill indices, 0..26; -1 for an unused slot.
@@ -374,6 +376,10 @@ const FormRef* FindFactionForm(const std::string& faction);
 // Level reads when no speaker's own crime faction answers. Null when none.
 // See: docs/commentary/morrowind_runtime.md#crime-is-the-engines
 const FormRef* RealmCrimeFaction();
+
+// A conversion-owned record a runtime effect acts through, by its
+// effects_formid.txt name (`sanctuary`). Null when no sidecar staged one.
+const FormRef* EffectForm(const std::string& name);
 
 // One GLOB the export minted for a bark to test: `key` is `journal:<id>`,
 // `cell:<prefix>`, `reputation` or `weather`, and the runtime writes that

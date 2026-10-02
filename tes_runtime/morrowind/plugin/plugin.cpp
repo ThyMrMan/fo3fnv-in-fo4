@@ -21,6 +21,7 @@
 #include "object_tick.h"
 #include "paths.h"
 #include "skse_abi.h"
+#include "stats_sheet.h"
 #include "store.h"
 
 namespace tesruntime::mw {
@@ -60,6 +61,8 @@ void OnSKSEMessage(SKSEMessagingInterface::Message* msg) {
     InstallConversation();
     InstallGameCalls();
     InstallActivation();
+    // Only a game with Morrowind content has attributes to show or raise.
+    if (stats.files) InstallCharacterSheet();
     StartObjectTick();
 }
 

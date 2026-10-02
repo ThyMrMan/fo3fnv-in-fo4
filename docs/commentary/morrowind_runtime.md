@@ -172,7 +172,7 @@ backwards:
 
 | Rule | Behaviour |
 |---|---|
-| order | **First match wins**, never best match. `Ordinal` is precedence. |
+| order | **First match wins**, never best match. OpenMW's `InfoOrder` over PNAM is precedence. |
 | creature | Answers only topics naming it directly; a generic topic is rejected. |
 | gender | `mGender` is `0` male / `1` female and the test is for the **opposite**. |
 | cell | Matches as a **prefix**: `Balmora` catches `Balmora, Guild of Fighters`. |
@@ -946,31 +946,21 @@ and clamps NaN or anything outside int32 to int32's lowest. `_global_value`
 matches that, so the sidecar writes `WearingOrdinatorUni=s,0`. Writing the raw
 float instead would leave the global nonzero at load.
 
-### <a id="sidecar-root"></a>🛑 The root comes from the GAME, not from this DLL
+### 🛑 The root comes from the GAME EXE, not this module
 
-`PluginsDir()` (`common/paths.cpp`) is the game's folder plus
-`Data\SKSE\Plugins\`, and `SidecarDir()` appends the runtime's own name
-(`MorrowindRuntime\`, `TESRuntime\`). Every runtime DLL and the Address Library
-loader share it.
+`PluginsDir()` (`tes_runtime/common/paths.cpp`) is the game exe's folder plus
+`Data\SKSE\Plugins\`; `SidecarDir()` appends the runtime's own name. Every
+runtime DLL and the Address Library lookup share it.
 
-It used to come from the DLL's own path, on the theory that an SKSE plugin is
-always loaded from the folder holding the sidecars. Under Mod Organizer 2 that
-is false: MO2 merges every mod into `Data\` only for paths opened through the
-game's folder, and a DLL's own path is its real mod folder. Measured in
-`CreatureRuntime.log`: `compose: 0 fragment(s) under
-C:\Modlists\...\mods\TESRuntime\SKSE\Plugins\CreatureRuntime\animation`, while
-`Oblivion.json` sat in the Oblivion mod. `TESRuntime.log` said `no character
-data staged` and `jails NOT installed` for the same reason. Every sidecar
-feature was silently off for every MO2 user, whose converted plugins are never
-in the same mod as the DLLs.
-
-The game's folder is right by construction: SKSE itself loads plugins only from
-`<game>\Data\SKSE\Plugins\` (its log prints that `plugin directory`), and the
-Address Library file, which always ships as a mod of its own, loaded from it
-under MO2 all along.
-
-When the root is wrong the failure is silent: `0 sidecar(s)`, no dialogue, and
-every activation falling through to vanilla.
+Asking the DLL for its own path (`GetModuleHandleEx(FROM_ADDRESS)`) breaks
+under Mod Organizer 2: the DLL's real path is `MO2\mods\<its mod>\SKSE\Plugins\`,
+and MO2 merges mods only under the game's `Data` folder. A search of the mod's
+real folder sees only that one mod's files, so sidecars shipped with the
+converted plugin's mod are invisible. The runtime split shipped that way, and
+CreatureRuntime logged `compose: 0 fragment(s) under
+...\MO2\mods\TESRuntime\SKSE\Plugins\CreatureRuntime\animation` with
+`Oblivion.json` installed in another mod. The failure is silent:
+`0 sidecar(s)`, no dialogue, no converted creature animations.
 
 The loader logs the resolved root and a per-file result, so a miss names the
 path it looked in rather than only its own disappointment.
@@ -1135,12 +1125,12 @@ Reach of the commands the content calls most: `AddItem` 4,492, `RemoveItem`
 
 ### 🛑 Dialogue is cumulative, and the filter compares NAMES
 
-`tes5_import/dialogue/morrowind_sidecar_source.py` builds the sidecar's
-dialogue and actor table from the TES3 BINARIES of the plugin and every master
-it can find, merged as OpenMW's `InfoOrder` merges them (replace in place, else
-after `PNAM`, else before `NNAM`, else first when it names no predecessor).
+`tes5_import/dialogue/morrowind_sidecar_source.py` builds each sidecar's
+dialogue and actor table from the plugin's own TES3 BINARY; the runtime merges
+every loaded plugin's responses with the vendored OpenMW `InfoOrder`
+([per-owner staging](../plans/morrowind_object_scripts.md#cumulative-gather-must-go)).
 Measured on TR_Mainland: 69,270 responses alone, **106,958** merged over
-Morrowind, Tribunal, Bloodmoon and Tamriel_Data, in 15 s. "join the Fighters
+Morrowind, Tribunal, Bloodmoon and Tamriel_Data. "join the Fighters
 Guild" went from 2 responses to 29 — and still needed the speaker's faction,
 which the text export holds only as a minted FormID. `NPC_.txt` carries each
 NPC's race, class, faction, rank, base disposition, gender and name as authored.
@@ -2419,6 +2409,11 @@ Vanilla does this at scale — measured over `references/Skyrim.esm`: **365 of
 1,811 quests carry alias packages, 4,125 `ALPC` entries in total**, and **585
 of 6,838 `PLDT` locations are alias-typed** (type 8).
 
+A plugin authoring no SCPT, DIAL, INFO, NPC_ or CREA (a grass or landscape
+plugin) mints no pool and deletes any `ai_aliases.txt` an older build left: no
+script of its layer can call an AI command, and in the merged view its pool,
+being the deepest, would otherwise shadow the one a real master owns.
+
 So the import mints one quest per plugin, with two aliases per package kind
 (the actor running it, and what it aims at) and one `PACK` instance per kind
 hung off the actor's alias. Every package's location and target are
@@ -2719,8 +2714,10 @@ spawned body running through exactly that lookup.
 Each TES3 Journal topic becomes one QUST: a stage per journal index, the page
 as the stage's log entry, the `QuestStatus=Name` page as FULL, `Finished` as
 the completes-quest bit, and an objective per page (see
-[objectives-must-be-displayed](#objectives-must-be-displayed)). `quests_formid.txt` maps the authored id to
-`Plugin|FormID`; `Journal` and `SetJournalIndex` call the
+[objectives-must-be-displayed](#objectives-must-be-displayed)). The QUST is the originating plugin's; a
+dependent that adds pages overrides it with the chain's pages
+([per-owner staging](../plans/morrowind_object_scripts.md#cumulative-gather-must-go)).
+The owner's `quests_formid.txt` maps the authored id to `Plugin|FormID`; `Journal` and `SetJournalIndex` call the
 `Quest.SetCurrentStageID` native. `AddJournalEntry` stages the ENTRY's index
 even when the quest's own index does not rise — a lower page added late is
 still a new page.
@@ -3334,21 +3331,20 @@ nothing, as in vanilla.
 ### <a id="adding-a-runtime-effect"></a>Adding a runtime effect (the remaining missing ones)
 
 Still inert: the `NATIVE_NONE` entries of `MW_EFFECT_ARCHETYPES`. Those are
-SwiftSwim 1, Levitate 10, SlowFall 11, Disintegrate Weapon/Armor 37/38,
-Sanctuary 42, Detect Enchantment/Key 65/66 and ExtraSpell 126. Each converts
-as an inert Value Modifier (the teleports as a script-less Script effect), and
-every effect record it lands as already reaches the runtime's apply sink.
-Adding one takes these steps, in this order:
+Disintegrate Weapon/Armor 37/38, Detect Enchantment/Key 65/66 and ExtraSpell
+126. Each converts as an inert Value Modifier (the teleports as a script-less
+Script effect), and every effect record it lands as already reaches the
+runtime's apply sink. Adding one takes these steps, in this order:
 
-1. **Runtime.** Handle the index in `game_calls_teleport.cpp:OnTeleportEffect`,
-   following OpenMW's `spelleffects.cpp` for that effect. It runs on the game
-   thread, posted from the `OnMagicEffectApply` sink, for an effect landing on
-   the PLAYER only; widen the `target == PlayerRef()` test if OpenMW applies it
-   to actors too. 🛑 The sink fires when the effect STARTS. A duration effect
-   (Levitate, SlowFall, SwiftSwim, Sanctuary) also needs its end, and no end
-   signal has been found yet. Find one, e.g. the active-effect list or the
-   effect's finish event, in the exe before building on a poll: a poll cannot
-   see the four NoDuration teleports either.
+1. **Runtime.** An instant effect is handled by index in
+   `game_calls_teleport.cpp:OnTeleportEffect`, following OpenMW's
+   `spelleffects.cpp` for that effect. It runs on the game thread, posted from
+   the `OnMagicEffectApply` sink, for an effect landing on the PLAYER only;
+   widen the `target == PlayerRef()` test if OpenMW applies it to actors too.
+   🛑 The sink fires only when the effect STARTS. A duration effect doesn't
+   use it: the tick reads its magnitude off the active-effect list, the way
+   [Levitate and SlowFall](#levitate-and-slowfall) do, and never needs an end
+   signal.
 2. **Import.** Add the index to `MW_RUNTIME_EFFECTS` in
    `tes5_import/record_types/magic_morrowind.py`. That one set drives
    everything downstream:
@@ -3356,27 +3352,131 @@ Adding one takes these steps, in this order:
      delivery clone, so the runtime recognizes it. The file keeps its old name.
    - `mw_converts` now counts the effect as working, so a record carrying it
      can be restored.
-3. **Morroblivion mode needs no new code.** `morroblivion_magic.restored_magic`
-   overrides each Morroblivion record whose vanilla effects the runtime now
-   carries, as long as its stand-in script passes the dependency check.
-   Candidates from the census:
-   - for Levitate, 6 SPEL and 5 ALCH on `JDLevitation*Script`;
-   - for SlowFall, `slowfall` on `mwSpellSlowfallEffectScript`;
-   - the Drain Attribute + SlowFall potions and the three Levitate
-     enchantments whose script effect has no script. These flip as soon as
-     their effects convert.
+3. **Morroblivion mode needs no new code, but it needs the patch rebuilt.**
+   `morroblivion_magic.restored_magic` overrides each Morroblivion record
+   whose vanilla effects the runtime now carries: a scripted stand-in that
+   passes the dependency check, or Oblivion effects approximating the
+   runtime-only one (Buoyancy and Swimmer's Blessing fake SwiftSwim with
+   Water Breathing + Feather or Fortify Athletics). Adding SwiftSwim and
+   Levitate flipped 18 SPEL, 11 ALCH and 8 ENCH, among them all six
+   `JDLevitation*Script` spells: their helper `JDLevitate` is `Call`ed only
+   by them, so it is dropped with them.
 
-   Rebuild in this order: `--build-morrowind-patch`, then `--import-only` for
-   Morrowind_ob.esm, TR_Mainland.esm and Morrowind.esm.
+   🛑 Rebuild in this order, or nothing flips:
+   `--build-morrowind-patch "<Morrowind>/Data Files"` (or, once built,
+   `-f Morrowind-Morroblivion-Compatibility.esp --export-only --import-only`), then `--import-only` for Tamriel_Data.esm and TR_Mainland.esm, and
+   Morrowind.esm for the authored path. The patch now writes the delivery
+   copies its new overrides need, so the dependents adopt them: that moved 23
+   of Tamriel_Data's copies and 1 of TR_Mainland's, which a save only feels
+   as a running effect on one of them dropping.
 4. **Check what flipped.** `restored_magic` returns only the records it
    overrides, so compare that list with the census in
    [restored magic](tes4_export_morrowind.md#restored-magic). If a record you
    expected stays, read its script before loosening the check: a stand-in that
    advances a quest, or keeps a global other scripts read, must stay.
 
-A refusal the effect needs (Levitation in Mournhold and Sotha Sil) is already
-authored: `TribunalMain` calls `DisableLevitation`, which today runs as a
-logged no-op stub. Port that opcode with the effect.
+### <a id="levitate-and-slowfall"></a>Levitate and SlowFall
+
+**Code:** `plugin/game_calls_flight.cpp`, `plugin/ids.h`, `OpSetLevitation` in `plugin/script_ops_control.cpp`
+
+Levitate and SlowFall are confirmed in game. 🛑 **SwiftSwim is NOT: re-check
+it** (the open lead is at the end of this section).
+
+SwiftSwim, Levitate and SlowFall are script-less Script effects, runtime-carried like the
+teleports, so `teleports_formid.txt` lists every copy of them
+([what the records carry](tes5_import_magic.md#runtime-effects-read-the-active-effect-list)).
+No vanilla actor value is borrowed: a first build that parked them on the limb
+conditions broke the player's jump.
+
+The object tick (`Hooks().effectTick`, 30 Hz, unpaused play only) sums each
+one's magnitude off the player's active-effect list (`ActiveMagnitude`).
+That's the walk `Actor.HasMagicEffect` does: MagicTarget at `actor+0xA0`,
+list from its vtable slot 7, the MGEF at `[[effect+0x48]+0x10]`, magnitude
+`+0x78`, and flag `0x8000` at `+0x7C` for an effect its conditions switched
+off. The tick also:
+
+- reads the player's character controller;
+- computes OpenMW's fly speed: `fMinFlySpeed + 0.01 × (Speed + magnitude) ×
+  (fMaxFlySpeed − fMinFlySpeed)`, reduced by `fEncumberedMoveEffect × load`,
+  and 0 when overloaded.
+
+All of it goes into atomics.
+
+The physics runs through Bethesda's character states. Each state's vtable
+slot 8 is `simulate(state, controller)`:
+
+- InAir's (`0xf01f40` on 1.6.1170) adds gravity to the controller's velocity
+  at `+0x90`, scaled by the step's seconds at `+0x88`. It also raises the
+  fall start at `+0x240` to the highest z reached, which is what landing
+  charges damage from.
+- Flying's is an empty `ret`.
+
+The runtime swaps InAir's and OnGround's slot 8 for a wrapper. The wrapper
+calls the original, then, for the player's controller only:
+
+- **Levitate** replaces the velocity with the one OpenMW's flight moves at:
+  the move keys (PlayerControls `+0x24` strafe, `+0x28` forward), turned by
+  the player's yaw, with forward following the pitch. No key means hover. On
+  the ground it acts only when the velocity points up, which is liftoff;
+  level movement there is the ground state's walk. While levitation is
+  disabled the player drops, and `sLevitateDisabled` shows once, as in
+  OpenMW's `shouldRemoveEffect`.
+- **SlowFall** is OpenMW's `movementsolver.cpp` recurrence. After gravity, a
+  falling z and the x/y drift each keep `(1 − 0.005 × magnitude)` per
+  60 Hz step. The runtime raises that to the step's length, so the frame
+  rate doesn't change it.
+- Both reset the fall start to the current height each step. OpenMW calls
+  `land()` every step while flying or slow-falling, so a fall only counts
+  from where the effect ended.
+
+How each address was found, and that 1.7.104 reads the same offsets, is in
+the comments in `ids.h`. PlayerControls' data block sits at `+0x24` because
+its input sink zeroes that block, then hands `this+0x24` to every handler.
+MovementHandler writes strafe at `+0` and forward at `+4` of it.
+
+**SwiftSwim** wraps the Swimming state's slot 8 (`0xf02b30`, id 80110; vtable
+id 240836). That simulate rotates the stroke at controller `+0x70` into the
+velocity at `+0x90` (via `0xf3d670`), then adds buoyancy. For the player the
+wrapper scales the stroke by OpenMW's `1 + 0.01 × magnitude` for the
+original's read and restores it after, so buoyancy is untouched and nothing
+compounds. The log shows `flight: SwiftSwim now N`, then one
+`flight: swim stroke (…) ×S -> velocity (…)` on the next moving stroke.
+
+🛑 **Open: SwiftSwim feels no faster.** In game, 60 points logged
+`SwiftSwim now 60` and a ×1.60 stroke, yet swimming felt unchanged. Every
+logged stroke is a UNIT vector (`(0.852, 0.523, 0)`), and `0xf3d670` opens
+with a cross product and its squared length, which looks like building a
+direction frame. If it keeps only the stroke's direction, scaling it cannot
+change the speed, and the speed comes from another controller field. Unproven:
+compare the logged velocity's length with and without the effect, then find
+the field the speed comes from.
+
+Limits: the player only (OpenMW flies and swims any actor with the effect),
+and the player keeps Skyrim's falling animation while levitating.
+
+`DisableLevitation` / `EnableLevitation` set `State().levitation`, which is
+saved in the co-save as a `V` line. `TribunalMain` disables levitation in
+Mournhold and Sotha Sil.
+
+### <a id="sanctuary"></a>Sanctuary
+
+**Code:** `plugin/game_calls_sanctuary.cpp`, `ApplyHook` in `plugin/game_calls_teleport.cpp`
+
+Untested in game.
+
+The dodge itself is a native perk: `MWSanctuaryPerk`'s entry `k` zeroes a
+weapon hit `k`% of the time on an actor ranked `k` in `MWSanctuaryFaction`
+([the records](tes5_import_magic.md#runtime-effects-read-the-active-effect-list)).
+The runtime keeps the rank: each tick it sets every holder's rank to its
+summed Sanctuary, rounded and capped at 100, calling `Actor.SetFactionRank`
+only when the rank changes.
+
+The holders are the player, every tick, and every actor the apply sink has
+seen a Sanctuary land on. An actor leaves the list when its Sanctuary is gone,
+at rank 0. The list is saved in the co-save as `Y` lines, so a holder loaded
+from a save is still ranked. An id that no longer names an actor (form type
+`0x3E`) is never read. `effects_formid.txt` (`sanctuary=plugin|FormID`) names
+the faction; a dependent plugin names its master's.
 
 🛑 **Every TES3 plugin stages its whole loaded chain's markers and anchors.**
 Morrowind_ob.esm is a TES4 plugin and stages no Morrowind sidecar, so its
@@ -3544,3 +3644,104 @@ The boundary runs one way only. MorrowindRuntime compiles the MIT sources in
 every other runtime: MIT code may be distributed inside a GPL binary, and those
 files stay MIT in the source tree. What must never happen is the reverse, a
 `common/` file including anything under `external/openmw/`.
+
+## <a id="character-sheet"></a>The character sheet: stats window and level-up dialog (2026-09-29, unconfirmed in game)
+
+**Code:** `plugin/stats_sheet.cpp`, `plugin/levelup_menu.cpp`,
+`plugin/leveling.cpp`, `plugin/menu.cpp` (`CustomMenu`),
+`plugin/menu_widgets.cpp`; the movies and `plugin/stats_layout.h` from
+`tools/generators/gen_morrowind_stats_swf.py`. The Morrowind-only first step of
+[the character sheet plan](../plans/character_sheet.md).
+
+Two more windows, built and registered exactly as the dialogue window is:
+
+| Menu name | Movie | Layout |
+|---|---|---|
+| `MorrowindStatsMenu` | `Interface/morrowind_stats.swf` | `openmw_stats_window.layout`, 500 x 342 |
+| `MorrowindLevelUpMenu` | `Interface/morrowind_levelup.swf` | `openmw_levelup_dialog.layout`, 440 x 496 |
+
+**More than one menu.** `menu.cpp` now keeps each window's state in a
+`CustomMenu` (up to four). MenuManager calls a creator with no argument, so each
+slot has its own creator function; every window's engine object carries one
+vtable, and the object keeps a pointer to its window at `+0x40`, past the base
+`IMenu` (0x30) in the part of the 0xa8 allocation only a MessageBoxMenu's own
+code would touch. The dialogue window's free functions (`OpenMenu`,
+`SetMenuText`, ...) are its `CustomMenu`'s, unchanged.
+
+**Only with Morrowind content.** `plugin.cpp` installs the sheet only when the
+store loaded a sidecar, so an Oblivion or Fallout game never sees the key or
+the level-up step.
+
+**Off by default.** Both windows, and the skill sampling behind the level-up
+step, stay unregistered unless `[CharacterSheet] Enabled=1` in
+`SKSE\Plugins\MorrowindRuntime\MorrowindRuntime.ini`. The ini ships in
+`TESRuntime.zip` with `Enabled=0` (source `tes_runtime/morrowind/MorrowindRuntime.ini`,
+packaged by `package_runtime_dll.py` as `HavokWorldSize.ini` is); a missing ini
+or key also means off. `Hotkey` is a decimal virtual-key code, as
+`FalloutRuntime.ini`'s keys are, 75 (K) when absent.
+
+**The default hotkey is K.** A census of Skyrim's own `interface/controls/pc/controlmap.txt`
+(read through `skyrim_assets.get_asset_bytes`): the letters it binds to nothing
+are G, H, K, U, Y, B and N (1-8 are the favorites hotkeys, which the file does
+not list). The key is read with `GetAsyncKeyState` on the shared fixed tick
+(`main_tick`, every 33 ms, paused or not): only while this process owns the
+foreground window, no menu pauses the game and no conversation is open; K again
+or Escape closes the window. Unverified in game: whether Skyrim's DirectInput
+keyboard leaves the async key state alone.
+
+**What the stats window shows.** Health, Magicka and Fatigue (Skyrim's Stamina)
+as `current/maximum`, the maximum being the current value over
+`GetActorValuePercentage`, drawn as `menu_bar_gray` tinted with
+`Morrowind.ini`'s `color_health`, `color_magic` and `color_fatigue` and covered
+past the value as the disposition bar is. Then Level, Reputation and Bounty; the
+eight attributes and 27 skills from the stat store (`ActorAttribute`,
+`ActorSkill`), so what the window shows is what persuasion, the filter and
+scripts read; the skills under their specialization, by name; and the player's
+factions with the rank name. Every label is a GMST (`sHealth`, `sSkillLongblade`,
+`sSpecializationCombat`, ...).
+
+**Rows are fields the plugin places.** A list's rows are single-line fields at
+18 px, OpenMW's row, moved by `_y` as the dialogue window's topic list is. The
+embedded face's own line pitch is 16-17.4 px, so a multi-line field would drift
+from the layout.
+
+**The level-up dialog** is OpenMW's `LevelupDialog`: the class image for the
+level's combat/magic/stealth increases (`getLevelupClassImage`, all 21
+`textures\levelup` images in the movie, one shown), `sLevelUpMenu1` with the
+level, `sLevelUpMenu2`, three gold coins (`icons\tx_goldicon.dds`), and the eight
+attributes in two columns with `xN` beside any that would rise by more than 1.
+A click spends a coin (the last one moves once all are spent), the value shows
+the result, and OK stays disabled until the coins are spent. It has no cancel,
+as Morrowind's own has none.
+
+### <a id="leveling"></a>Leveling: Skyrim levels, Morrowind raises the attributes
+
+Skyrim keeps its skills and decides when the player levels (the skills menu,
++10 Health/Magicka/Stamina, a perk). The runtime adds Morrowind's step:
+
+- **Skill increases.** Every ~330 ms out in the world, `SampleLeveling` reads
+  the BASE of Skyrim's 18 skills (`Actor.GetBaseActorValue`, id 54678). A rise
+  is credited to the governing attribute and specialization of the skill's
+  namesake Morrowind skill, read from the SKIL table: One- and Two-Handed are
+  Long Blade (Strength), Archery Marksman, Pickpocket and Sneak Sneak
+  (Agility), Speech Speechcraft (Personality), Smithing Armorer, and so on
+  (`kTracked` in `leveling.cpp`). A fortify never moves a base, so it is never
+  counted.
+- **What is not an increase.** The first read of a game only records. A change
+  of race (`Actor.GetRace`, id 54930, compared by pointer) re-records without
+  crediting, because the race menu's skill bonuses move bases. A skill that
+  drops (Legendary) is followed from its new value.
+- **Level-ups.** A level gained is a pending step. Once the skills menu and
+  everything else is closed, the dialog opens for the oldest pending level.
+- **Gains.** `iLevelUpNNMult` for the attribute's increases, at most 10
+  counted (Morrowind.esm: 2, 2, 2, 2, 3, 3, 3, 4, 4, 5), 1 with none, never
+  past 100: OpenMW's `getLevelupAttributeMultiplier` and `onOkButtonClicked`.
+  Luck governs nothing, so it always rises by 1. Taking the step resets the
+  credits, as `NpcStats::levelUp` clears `mSkillIncreases`.
+- **Storage.** DialogueState variables under `leveling|player`, so the progress
+  rides the co-save; the attributes are the stat store's, which `SetStrength`
+  and its kin already write.
+
+Not yet decided or known: a trainer, a skill book or a script's
+`SetLongBlade` in Skyrim moves a base too, so it counts as an increase; and the
+player's attributes start at the `player` record's, whatever race was chosen.

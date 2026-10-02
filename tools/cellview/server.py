@@ -45,10 +45,35 @@ DEFAULT_PLUGIN = 'Oblivion.esm'
 #: What this run of the server offers the page; set once from the command line.
 FEATURES = {'transplant': False}
 
+#: Page preferences; server-side because the GUI's port, and so browser storage, changes each launch.
+PREFS_FILE = os.path.join(plugins.ROOT, plugins.EXPORT_ROOT, 'cellview_prefs.json')
+
 
 def features():
-    """What the page may show: the transplant panel, and where pins are saved."""
-    return {'transplant': FEATURES['transplant'], 'pins_dir': save_dir()}
+    """What the page may show and start on: panels, pin folder, saved preferences."""
+    return {'transplant': FEATURES['transplant'], 'pins_dir': save_dir(),
+            'prefs': prefs()}
+
+
+def prefs():
+    """Saved page preferences (`plugin`, `layers`), or {} when none are recorded."""
+    try:
+        with open(PREFS_FILE, encoding='utf-8') as fh:
+            got = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def save_prefs(update):
+    """Merge `update` into the saved preferences; a failed write is ignored."""
+    merged = dict(prefs(), **{k: v for k, v in update.items() if v})
+    try:
+        with open(PREFS_FILE, 'w', encoding='utf-8') as fh:
+            json.dump(merged, fh, indent=1, sort_keys=True)
+    except OSError:
+        pass
+    return {'ok': True}
 
 
 def collision_job(params):
@@ -105,6 +130,7 @@ def mesh_job(params):
     job = params.get('job', '')
     progress.start(job, 'mesh')
     error = ''
+    save_prefs({'plugin': params.get('plugin', '')})
     try:
         out = mesh_bake(params.get('plugin', DEFAULT_PLUGIN),
                         params.get('cell', ''), job=job,
@@ -189,6 +215,7 @@ def _routes():
                                              pinned_of(q)),
         '/esm_patch': lambda q, p: esm_patch_job(q, p),
         '/pin_save': lambda q, p: pin_job(q, p),
+        '/prefs': lambda q, p: save_prefs(p),
         '/pin_remove': lambda q, p: mesh_unpin(q.get('plugin', DEFAULT_PLUGIN),
                                                q.get('cell', ''), p),
     }

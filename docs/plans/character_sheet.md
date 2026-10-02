@@ -13,6 +13,14 @@ crafting thresholds, level-up multipliers) and example character values.
 
 Work order: [bugs first](#bugs), then the [MVP](#mvp).
 
+**Built first, Morrowind only (unconfirmed in game):** the stats window (K), the
+level-up dialog after Skyrim's own level-up, and skill increases credited to
+the governing attribute, all inside `MorrowindRuntime.dll` over the stat store
+it already keeps. It uses Morrowind's own governing attributes (each Skyrim skill
+through its namesake Morrowind skill), not the [one table](#governing) below,
+which is for the multi-game sheet. See
+[morrowind_runtime.md](../commentary/morrowind_runtime.md#character-sheet).
+
 ## <a id="decisions"></a>Settled decisions
 
 | Question | Decision |

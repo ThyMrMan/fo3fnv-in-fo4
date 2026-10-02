@@ -489,8 +489,9 @@ Function ForceCombatApproach(Actor akAttacker, Actor akTarget, Faction akAttacke
   EndIf
 EndFunction
 
-; The forced StartCombat itself; False when either actor is missing or dead.
-Bool Function ForceCombatNow(Actor akAttacker, Actor akTarget, Faction akAttackers, Faction akVictims) Global
+; The forced StartCombat itself; False when either actor is missing or dead. abAdd joins
+; akTarget to the attacker's fight instead of standing it down first (TES4's same-frame calls).
+Bool Function ForceCombatNow(Actor akAttacker, Actor akTarget, Faction akAttackers, Faction akVictims, Bool abAdd = False) Global
   If akAttacker == None || akTarget == None || akAttacker.IsDead() || akTarget.IsDead()
     Return False
   EndIf
@@ -513,7 +514,7 @@ Bool Function ForceCombatNow(Actor akAttacker, Actor akTarget, Faction akAttacke
   If akAttacker.GetActorValue("Aggression") < 1.0
     akAttacker.SetActorValue("Aggression", 1)
   EndIf
-  If akAttacker.IsInCombat() && akAttacker.GetCombatTarget() != akTarget
+  If !abAdd && akAttacker.IsInCombat() && akAttacker.GetCombatTarget() != akTarget
     StandDown(akAttacker)
   EndIf
   akAttacker.StartCombat(akTarget)

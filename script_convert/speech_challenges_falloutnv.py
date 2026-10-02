@@ -7,11 +7,9 @@ by the game's own settings baked in at conversion.
 See: docs/commentary/tes5_import_dialogue.md#fallout-speech-challenges
 """
 
-import os
-
+from core.plugin_masters import master_dirs
 from script_convert.constants import script_prefix
 from script_convert.context_setup import load_records
-from script_convert.cross_ref import master_names
 from tes5_import.dialogue.speech_chance_falloutnv import (NEED_GLOBALS, auto_point, chance_settings,
                                                           difficulties, rerolls)
 from tes5_import.record_types.world_falloutnv import export_is_fallout
@@ -56,7 +54,6 @@ def speech_helper(export_dir: str, infos: list) -> 'tuple | None':
     fallout = export_is_fallout(export_dir)
     if not any(rerolls(r, fallout) for r in infos):
         return None
-    parent = os.path.dirname(os.path.normpath(export_dir))
-    gmsts = [load_records(os.path.join(parent, m), ('GMST',))['GMST'] for m in master_names(export_dir)]
+    gmsts = [load_records(d, ('GMST',))['GMST'] for d in master_dirs(export_dir)]
     gmsts.append(load_records(export_dir, ('GMST',))['GMST'])
     return speech_script_name(), speech_helper_psc(chance_settings(*gmsts))

@@ -3,8 +3,6 @@ Major Issues for V1:
 
 	2 - Havok feels off. Items don't move like they should. Specifically, there seems to be too much inertia on small items, like I'm dragging a heavy object when it is something as small as a cup, Animated signs will get stuck in a position after swinging a bit, defying gravicty
 	
-	4 - All-in-one installer that people can just click and expect to work
-
 	5 - Weather particle conversion (snow, rain) SPGD
 
 	6 - AutoUpdater
@@ -52,13 +50,9 @@ Minor Issues:
 
 	7 - Flame atronach animated section not properly converted
 	
-	16 - Log trap doesn't visibly roll
-
 	19 - Leaving a force-greet conversation can soft-lock
 
 	21 - FaceGen: Oblivion.exe statically links the FaceGen SDK (matrixVT.hpp, BSFaceGenModelMap, EGM/EGT basis load+apply). Use it like the SpeedTree engine harness to turn FGGS/FGGA coefficients into real vertex deltas
-
-	22 - OblivionBloodFountain01: geyser (SpecialIdle) never plays as the default state
 
 Guns (FalloutNV):
 	G1 - HUD magazine readout: the counter text field path is a guess and the hook is disabled (hud.cpp, InstallHud not called); find the field in the loaded HUD movie and re-enable
