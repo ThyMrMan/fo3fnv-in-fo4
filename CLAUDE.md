@@ -18,7 +18,9 @@
 > `references\` recursively follows them and deletes the real files. First
 > `os.rmdir()` each junction (or `cmd /c rmdir <link>`, never `/s`), then
 > delete. Real folders here (FO4 only): the FO4 CK wiki, `FO4Edit 4.1.5f`,
-> `LevelUpMenuEx`.
+> `LevelUpMenuEx`. **`export\` is also a junction**, into
+> `C:\Coding\tes4skyrim\tes4skyrim_standalone\export` (the FO3/FNV exports the
+> converter reads); same rule.
 
 Convert TES4 (Oblivion) master/plugin files to TES5 (Skyrim) format.
 

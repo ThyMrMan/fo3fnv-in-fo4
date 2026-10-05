@@ -29,6 +29,7 @@ from script_convert.command_rows import (
     ACTOR_VALUE_READ_FUNCTIONS, Cmd, param_types
 )
 from script_convert.emit.commands import emit_row
+from script_convert.target import anim_event_call, av_call, controls_call
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
@@ -481,7 +482,7 @@ def play_group(ctx, call) -> str:
         # property to Actor would leave the VM unable to bind a REFR.
         event = ANIM_GROUP_EVENTS.get(anim.lower(), anim)
         ref = ctx._resolve_objref_ref(call.ref, call.extends)
-        return f'Debug.SendAnimationEvent({ref}, "{event}")'
+        return anim_event_call(ref, event)
 
     # NiControllerSequence names in Oblivion NIFs are capitalized.
     obj = (ctx._resolve_objref_ref(call.ref, call.extends) if call.ref
@@ -1585,16 +1586,17 @@ def actor_value(ctx, call) -> str:
     av = _av_name(raw, call)
     if av.lower() == 'confidence' and call.name in _AV_PAPYRUS:
         return _confidence(ctx, call)
-    args = [f'"{av}"']
+    value = ()
     if len(call) > 1:
         scaled = (ctx._scale_enum_av(av, call.source(1))
                   if call.name in _AV_SET else None)
-        args.append(scaled if scaled is not None else call.arg(1))
+        value = (scaled if scaled is not None else call.arg(1),)
     papyrus = _av_papyrus(call)
     if papyrus == 'ForceActorValue' and av.lower() in _AV_SET_ONLY:
         papyrus = 'SetActorValue'
     subject = _av_actor(ctx, call)
-    expr = f'{papyrus}({", ".join(args)})'
+    expr, props = av_call(papyrus, av, value)
+    ctx.sc.property_refs.update(props)
     return expr if subject == 'Self' else f'{subject}.{expr}'
 
 
@@ -1713,7 +1715,9 @@ def get_game_setting(ctx, call) -> str:
     av = GMST_TO_ACTOR_VALUE.get(setting.lower())
     if av:
         target = ctx._actor_target_for_gamesetting(call.extends)
-        return f'{target}.GetActorValue("{av}")'
+        read, props = av_call('GetActorValue', av)
+        ctx.sc.property_refs.update(props)
+        return f'{target}.{read}'
     if setting.startswith('i'):
         return f'Game.GetGameSettingInt("{setting}")'
     if setting.startswith('s'):
@@ -1784,11 +1788,12 @@ def player_controls(ctx, call) -> str:
     disabling = call.name == 'disableplayercontrols'
     verb = 'Disable' if disabling else 'Enable'
     args = _flagged_controls(call) if len(call) else ''
+    toggle, props = controls_call(verb, args)
+    ctx.sc.property_refs.update(props)
     if args and not args.startswith('true'):
-        return f'Game.{verb}PlayerControls({args})'
+        return toggle
     ctx.sc.property_refs['TES4ControlsDisabled'] = 'GlobalVariable'
-    return (f'Game.{verb}PlayerControls({args})\n'
-            f'TES4ControlsDisabled.SetValue({1 if disabling else 0})')
+    return f'{toggle}\nTES4ControlsDisabled.SetValue({1 if disabling else 0})'
 
 #: FO3/FNV spellings of shared handlers, bound once every handler is registered.
 REGISTRY.update({alias: REGISTRY[name]

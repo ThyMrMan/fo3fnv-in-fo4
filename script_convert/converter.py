@@ -25,7 +25,8 @@ from script_convert import resolve_name as _resolve_name
 from script_convert import assemble as _assemble
 from script_convert import commands as _commands
 from script_convert.context import ScriptContext
-from script_convert.poll_interval import update_interval
+from script_convert.poll_interval import quest_delay_arm, update_interval
+from script_convert.target import av_call
 from script_convert.emit import dispatch as _dispatch
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.tes4.parser import (
@@ -838,7 +839,7 @@ class ScriptConverter:
             todo = '  ;TODO' + value.split(';TODO', 1)[1] if ';TODO' in value else ''
             return f'{target}.SetValue({clean}){todo}'
         if target.endswith('.fQuestDelayTime'):
-            return _quest_delay(target.rsplit('.', 1)[0], value.strip())
+            return quest_delay_arm(target.rsplit('.', 1)[0], value.strip())
         return None
 
     def _todo_assign(self, target: str, value: str) -> str:
@@ -1361,7 +1362,9 @@ class ScriptConverter:
         # outright, and a script that writes the same setting on every update
         # would otherwise stack the modifier without bound.
         target = self._actor_target_for_gamesetting(extends)
-        return f'{target}.ForceActorValue("{av}", {value})'
+        write, props = av_call('ForceActorValue', av, (value,))
+        self.sc.property_refs.update(props)
+        return f'{target}.{write}'
 
     def _actor_target_for_gamesetting(self, extends: str) -> str:
         """The actor a runtime game-setting write should apply to.
@@ -2483,21 +2486,6 @@ def _self_value(value: str, extends: str) -> str:
     if value == 'Self' and extends in ('ActiveMagicEffect', 'TopicInfo'):
         return 'GetTargetActor()' if extends == 'ActiveMagicEffect' else '(akSpeakerRef as Actor)'
     return value
-
-
-def _quest_delay(quest_ref: str, value: str) -> str:
-    """`set Q.fQuestDelayTime to N`: one update of the quest's poll after N seconds, 5 for 0 or less.
-
-    Never RegisterForUpdate: it repeats every frame until unregistered, and
-    shipped in 45 scripts. The converted OnUpdate re-arms itself.
-    """
-    try:
-        fval = float(value)
-    except ValueError:
-        return f'{quest_ref}.RegisterForSingleUpdate({value})  ;fQuestDelayTime'
-    if fval <= 0:
-        return f'{quest_ref}.RegisterForSingleUpdate(5.0)  ;fQuestDelayTime = 0 (TES4 default cadence)'
-    return f'{quest_ref}.RegisterForSingleUpdate({fval:g})  ;fQuestDelayTime'
 
 
 def _perk_rank_after(target: str, add_call: str) -> str:

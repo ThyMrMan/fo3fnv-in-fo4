@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT))
 
 from asset_convert.game_paths import namespace_for, set_namespace
 from tes5_import.base.text_reader import parse_export_file
-from script_convert import pipeline
+from script_convert import pipeline, target
 
 
 def _quest_records(export_dir: str, quest_edid: str, by_type: dict):
@@ -102,7 +102,8 @@ def _select(args, export_dir: str, scpt_work, info_work, qust_work):
     return scpt, info, qust
 
 
-def main(argv=None) -> int:
+def _parse_args(argv):
+    """The command line, with the Papyrus target already set."""
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('-f', '--plugin', default='Oblivion.esm')
@@ -112,8 +113,16 @@ def main(argv=None) -> int:
     ap.add_argument('--quest', help='expand to the whole quest (scripts+INFOs+QUST)')
     ap.add_argument('--out', default=None)
     ap.add_argument('--compile', action='store_true')
+    ap.add_argument('--target', choices=(target.SKYRIM, target.FALLOUT4), default=target.SKYRIM,
+                    help='game to emit Papyrus for')
     args = ap.parse_args(argv)
+    target.set_target(args.target)
+    return args
 
+
+def main(argv=None) -> int:
+    """Convert the named records' scripts, as the pipeline would."""
+    args = _parse_args(argv)
     export_dir = str(ROOT / 'export' / args.plugin)
     out = args.out or str(ROOT / 'temp' / 'subset_scripts' / args.plugin)
     os.makedirs(out, exist_ok=True)

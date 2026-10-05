@@ -6,6 +6,8 @@ follows what the script's body does with time.
 See: docs/commentary/script_convert.md#poll-interval
 """
 
+from script_convert.target import arm_update
+
 #: Fastest Papyrus poll the converter emits; an authored delay never goes below it.
 MIN_INTERVAL = 0.1
 
@@ -21,6 +23,21 @@ def update_interval(sc) -> str:
     if sc.uses_timer:
         return '0.25'
     return '0.5'
+
+
+def quest_delay_arm(quest_ref: str, value: str) -> str:
+    """`set Q.fQuestDelayTime to N`: one update of the quest's poll after N seconds, 5 for 0 or less.
+
+    Never RegisterForUpdate: it repeats every frame until unregistered, and
+    shipped in 45 scripts. The converted OnUpdate re-arms itself.
+    """
+    try:
+        fval = float(value)
+    except ValueError:
+        return f'{arm_update(value, quest_ref + ".")}  ;fQuestDelayTime'
+    if fval <= 0:
+        return f'{arm_update("5.0", quest_ref + ".")}  ;fQuestDelayTime = 0 (TES4 default cadence)'
+    return f'{arm_update(f"{fval:g}", quest_ref + ".")}  ;fQuestDelayTime'
 
 
 def float_literal(value: float) -> str:

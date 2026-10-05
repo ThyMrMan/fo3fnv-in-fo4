@@ -12,6 +12,7 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 
 from script_convert.constants import safe_property_name, typed_already
 from script_convert.message_menus import authored_site
+from script_convert.target import arm_update
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
 
@@ -113,6 +114,8 @@ def quest_native(ctx, call):
     if not typed_already(ctx.sc.property_refs, prop):
         ctx.sc.property_refs[prop] = 'Quest'
     args = ', '.join(call.arg(i) for i in range(1, len(parts)))
+    if native == 'RegisterForSingleUpdate':
+        return arm_update(args, f'{prop}.')
     return f'{prop}.{native}({args})' + _objective_mirror(ctx, call, quest_edid, parts)
 
 

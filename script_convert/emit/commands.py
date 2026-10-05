@@ -53,6 +53,8 @@ from script_convert.command_rows import (
 )
 
 from script_convert.tes4 import lexer as L
+from script_convert.target import is_fallout4
+from script_convert.command_rows_fallout4 import FALLOUT4_ROWS
 
 #: A placeholder is one atom: `{a0} == {a1}` compares, `Foo({a0})` does not.
 _PLACEHOLDER_RE = re.compile(r'\{[^}]*\}')
@@ -190,7 +192,9 @@ class _Args(dict):
 
 
 def emit_row(conv, row, ref_name, func_name, args_str, extends):
-    """Render one `Cmd` row.  Returns the Papyrus text."""
+    """Render one `Cmd` row, or its Fallout 4 row when that is the target.  Returns the Papyrus text."""
+    if is_fallout4():
+        row = FALLOUT4_ROWS.get(row, row)
     if row.note:
         # `{f}` is the command AS WRITTEN, receiver included: a note that
         # quotes the source has to quote the whole call or it names the wrong

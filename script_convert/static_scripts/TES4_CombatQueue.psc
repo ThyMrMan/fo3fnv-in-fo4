@@ -167,14 +167,14 @@ Function LoadPairs()
   If HeldAttackers
     Return
   EndIf
-  Actor[] attackers = new Actor[32]
-  Actor[] targets = new Actor[32]
+  Actor[] aliasAttackers = new Actor[32]
+  Actor[] aliasTargets = new Actor[32]
   Int n = 0
   While n < Pairs
-    attackers[n] = (GetAlias(2 * n) as ReferenceAlias).GetActorReference()
-    targets[n] = (GetAlias(2 * n + 1) as ReferenceAlias).GetActorReference()
+    aliasAttackers[n] = (GetAlias(2 * n) as ReferenceAlias).GetActorReference()
+    aliasTargets[n] = (GetAlias(2 * n + 1) as ReferenceAlias).GetActorReference()
     n += 1
   EndWhile
-  HeldTargets = targets
-  HeldAttackers = attackers
+  HeldTargets = aliasTargets
+  HeldAttackers = aliasAttackers
 EndFunction

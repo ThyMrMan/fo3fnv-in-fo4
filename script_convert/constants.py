@@ -710,6 +710,21 @@ FAME_GLOBALS = {
     'getinfame': ('TES4Infamy', 'TES4Infamy.GetValueInt()'),
 }
 
+#: Skyrim event opener -> Fallout 4's, for events whose signature differs (see `target.event_opener`).
+FALLOUT4_EVENTS = {
+    'Event OnUpdate()': 'Event OnTimer(int aiTimerID)',
+    'Event OnHit(ObjectReference akAggressor, Form akSource, Projectile akProjectile, bool abPowerAttack, '
+    'bool abSneakAttack, bool abBashAttack, bool abHitBlocked)':
+        'Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource, Projectile akProjectile, '
+        'bool abPowerAttack, bool abSneakAttack, bool abBashAttack, bool abHitBlocked, string apMaterial)',
+}
+#: Skyrim actor-value native -> Fallout 4's, which is on ObjectReference and takes an ActorValue form.
+FALLOUT4_AV_NATIVES = {
+    'GetActorValue': 'GetValue', 'SetActorValue': 'SetValue', 'ForceActorValue': 'SetValue',
+    'ModActorValue': 'ModValue', 'RestoreActorValue': 'RestoreValue', 'DamageActorValue': 'DamageValue',
+    'GetBaseActorValue': 'GetBaseValue', 'GetActorValuePercentage': 'GetValuePercentage',
+}
+
 
 def typed_already(property_refs: dict, prop: str) -> bool:
     """Does this property already carry a type, under any casing of its name?

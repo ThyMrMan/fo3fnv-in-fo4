@@ -25,6 +25,8 @@ from script_convert.command_rows import (
 )
 from script_convert import symbols as _symbols
 from script_convert.poll_motion import relative_sets
+from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
+                                   is_hit_event, run_update_now)
 from script_convert.emit import script as _script
 from script_convert.tes4 import nodes as N
 
@@ -571,7 +573,7 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
         if opener == BLOCK_MAP['ontrigger'][0]:
             out += _one_trigger_at_a_time(opener, closer, merged[header])
         else:
-            out += [opener] + merged[header] + [closer, '']
+            out += [event_opener(opener)] + _rearm_hit(opener) + merged[header] + [closer, '']
         # TES4's `begin OnTrigger` runs EVERY FRAME an object is inside the
         # volume.  Skyrim splits that: OnTriggerEnter is the entry frame and
         # OnTrigger the repeat, so a converted OnTrigger body alone never runs
@@ -589,6 +591,11 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
                     'EndEvent',
                     '']
     return out
+
+
+def _rearm_hit(opener: str) -> list:
+    """Fallout 4's OnHit re-registers first: each RegisterForHitEvent delivers one hit."""
+    return [f'  {HIT_REGISTRATION}'] if is_fallout4() and is_hit_event(opener) else []
 
 
 def _one_trigger_at_a_time(opener: str, closer: str, body: list) -> list:
@@ -690,7 +697,7 @@ def _carried_read(conv, tree, extends: str, merged: dict, order: list) -> list:
     held, after = [], []
     if _carried(conv):
         held = [f'    {_HOLDER_VAR} = Game.GetPlayer()']
-        after = ['    Utility.Wait(0.001)', '    OnUpdate()']
+        after = ['    Utility.Wait(0.001)', f'    {run_update_now()}']
     merged[_ON_READ] = ([f'  If {_READ_BY_ACTIVATE_VAR}',
                          f'    {_READ_BY_ACTIVATE_VAR} = False', '  Else']
                         + held
@@ -790,7 +797,7 @@ def poll(conv, tree, extends: str) -> list:
         # not appear in the VMAD.
         out += [f'Float TES4_SecondsPassed = {interval}',
                 'Float TES4_LastTick = 0.0', '']
-    out.append('Event OnUpdate()')
+    out.append(event_opener('Event OnUpdate()'))
 
     # Arm the poll TWICE: an insurance arm at the TOP and the real re-arm at
     # the BOTTOM.
@@ -909,9 +916,9 @@ def _gate(conv) -> str:
 def _arm(conv, secs: str, load_gated: bool, indent: str = '  ') -> list:
     """Re-arm the poll, gated on the script's reference being live."""
     if not load_gated:
-        return [f'{indent}RegisterForSingleUpdate({secs})']
+        return [f'{indent}{arm_update(secs)}']
     return [f'{indent}If ({_gate(conv)})',
-            f'{indent}  RegisterForSingleUpdate({secs})',
+            f'{indent}  {arm_update(secs)}',
             f'{indent}EndIf']
 
 
@@ -987,12 +994,14 @@ def lifecycle(conv, tree, extends: str) -> list:
     menus = sorted({menu_name(b) for b in (tree.blocks if tree else ())
                     if b.btype.lower() == 'menumode'
                     and _menumode_kind(b) == 'menu' and menu_name(b)})
-    if not (sc.has_gamemode or sc.has_scripteffectupdate or sleeps or menus):
+    declared = {b.btype.lower() for b in (tree.blocks if tree else ())}
+    hits = is_fallout4() and bool(declared & {'onhit', 'onhitwith'})
+    if not (sc.has_gamemode or sc.has_scripteffectupdate or sleeps or menus or hits):
         return []
     interval = conv._get_update_interval()
-    declared = {b.btype.lower() for b in (tree.blocks if tree else ())}
-    start = ([f'  RegisterForSingleUpdate({interval})']
+    start = ([f'  {arm_update(interval)}']
              if (sc.has_gamemode or sc.has_scripteffectupdate) else [])
+    start += [f'  {HIT_REGISTRATION}'] if hits else []
     if sleeps:
         start.append('  RegisterForSleep()')
     start += ['  RegisterForMenu("%s")' % m for m in menus]

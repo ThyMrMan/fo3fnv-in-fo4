@@ -313,9 +313,51 @@ where Skyrim has a file name; vanilla FO4 INFOs attach no other scripts.
 Fragment scripts are namespaced (`Fragments:TopicInfos:TIF_<quest>_<id>`).
 Five builders in `script_convert/pipeline.py` change.
 
-Not yet done: emitting FO4 Papyrus for one script (Doc Mitchell's
-`GSDocMitchellScript`, which hits the update loop, actor values, player
-controls, `SendAnimationEvent` and `OnHit`) and compiling it.
+### <a id="spike-3-target"></a>The target switch (in progress)
+
+`script_convert/target.py` picks the game a run emits Papyrus for (Skyrim by
+default, Fallout 4 with `convert_scripts_subset.py --target fallout4`),
+through the environment so worker processes inherit it. The converter keeps
+Skyrim's spelling internally, because event headers double as merge keys and
+comparison values. Where FO4 differs, the converter builds the target's form
+directly; nothing rewrites emitted text:
+
+| Construct | How |
+|---|---|
+| Update loop | `event_opener` (`OnUpdate` → `OnTimer(int)`), `arm_update` (`RegisterForSingleUpdate` → `StartTimer`), `run_update_now` |
+| `OnHit` | FO4 opener; `RegisterForHitEvent(Self)` at start (`lifecycle`) and first in the event, since one registration delivers one hit |
+| Actor values | `av_call`: `GetValue(TES4AV_<name>)` etc. with an `ActorValue` property per name |
+| Row templates | `command_rows_fallout4.FALLOUT4_ROWS`, keyed by the Skyrim `Cmd`, picked by `emit_row` (9 rows so far) |
+| Animation events | `anim_event_call`: `PlayAnimation` |
+| Player controls | `controls_call`: the FO4-only helper `static_scripts/fallout4/TES4_PlayerControls` holds the one shared `InputEnableLayer` |
+| Tables | `FALLOUT4_EVENTS`, `FALLOUT4_AV_NATIVES` in `constants.py` |
+
+Skyrim output is byte-identical (Doc's script against the pipeline's; 579
+converter tests pass). `arch_fitness` matches `HEAD` except +8 branch points
+and +93 code lines.
+
+**Doc Mitchell's `GSDocMitchellScript` compiles with FO4's compiler**
+(2026-10-05), emitted by the converter with no hand edits. It needed the
+update loop, `OnHit`, actor values, player controls and an animation event,
+plus one shared-helper fix (`TES4_CombatQueue` locals renamed: FO4's compiler
+rejects a local that shadows a script variable).
+
+**Helpers:** FO4's compiler checks only the declarations of the scripts a
+script uses, so Doc compiles while helper bodies still fail. Compiled alone,
+11 of 18 helpers pass. The 7 left:
+
+| Helper | FO4 rejects |
+|---|---|
+| `TES4Polyfill` | about 75 actor-value calls by name, many with the name in a variable (needs a name → ActorValue lookup); SKSE `SendModEvent`, `GetModByName`; Skyrim's vampire quest; `IsPlayable` |
+| `TES4_DialoguePause` | SKSE menu events and cell reference walking |
+| `TES4_CombatQueue`, `TES4_DayClock` | the update loop (`OnUpdate`, `OnUpdateGameTime`) |
+| `TES4_StagePackageAlias` | SKSE mod events |
+| `TES4_BoundItemEffect` | SKSE `GetEquippedArmorInSlot` |
+| `TES4_Terminal` | one actor-value read |
+
+Not yet done: the 7 helpers, the pipeline (FO4 static-script set, FO4 VMAD,
+filling `TES4AV_*` and `TES4PlayerControls`), and re-running the 199-script
+sample under the FO4 target.
 
 ## <a id="spike-2"></a>Spike 2: one interior cell
 
