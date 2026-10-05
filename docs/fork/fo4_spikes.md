@@ -123,7 +123,17 @@ greeting opens the menu, and all of Doc's options show. Also confirmed:
 - Goodbye ends the conversation.
 
 A "Hi" before the greeting is the player character's own greeting line. FNV's
-player is silent, so it needs suppressing (open).
+player is silent, so it needs suppressing (open). Looked at 2026-10-05, left
+until it causes a problem:
+- FO4 has no player-greeting subtype. The line is most likely
+  `DialogueGenericPlayer` (`000179EF`)'s Hello topic (`00018184`, HELO, 52
+  INFOs);
+- 49 of the 52 have no conditions, and the other 3 only test combat, dying
+  and keywords, so there is no global or setting to switch them off;
+- likely fix: a player HELO line in our own quest (priority 90 against
+  vanilla's) that wins for our speakers and says nothing. Untested: whether
+  FO4 accepts an INFO with no response or shows a "..." subtitle. No
+  vanilla edit.
 
 ### <a id="spike-1b"></a>1b: one scene for many speakers
 
