@@ -1,56 +1,28 @@
 > [!NOTE]
-> **This is a fork.** [ThyMrMan/tes4skyrim](https://github.com/ThyMrMan/tes4skyrim)
-> is a personal fork of [bryantmh/tes4skyrim](https://github.com/bryantmh/tes4skyrim),
-> the original TES Auto-Convert. The converter itself is upstream's work. This
-> note describes the fork; everything below it is upstream's README.
+> **fo3fnv-in-fo4** converts **Fallout 3** and **Fallout: New Vegas** to run in
+> **Fallout 4**. It is derived from
+> [bryantmh/tes4skyrim](https://github.com/bryantmh/tes4skyrim) (TES Auto-Convert),
+> by way of the [ThyMrMan/tes4skyrim](https://github.com/ThyMrMan/tes4skyrim)
+> fork. The converter it starts from is upstream's work.
 >
-> **Where the fork is going.** Upstream converts other games' worlds into
-> Skyrim, played with Skyrim's own character and leveling. This fork aims to
-> play each converted world **on its own terms**:
-> - **The source game's character rules.** Oblivion's attributes, skills and
->   skill-use leveling; Fallout's S.P.E.C.I.A.L., XP, perks, traits, karma,
->   reputation and speech checks. They come from each game's own records and
->   executable, in an optional plugin generated per game. Morrowind follows.
-> - **One world at a time, without hand setup.** A Mod Organizer 2 profile per
->   world (or one with every world), made and filled by the converter, then a
->   launcher.
-> - **Stability and performance.** Play-testing every system, preflight audits
->   that catch stuck quests and lost dialogue before play, and cutting the
->   Papyrus cost of converted scripts.
-> - **Focus:** Morrowind, Oblivion, Fallout 3 and New Vegas. Nehrim is
->   deprioritized.
+> **Why Fallout 4.** Converting the Fallout games into Skyrim means rebuilding
+> guns, VATS, crippled limbs, radiation, terminals, the Pip-Boy and radio by
+> hand. Fallout 4 has them natively. Morrowind and Oblivion stay with the
+> Skyrim converter in ThyMrMan/tes4skyrim.
 >
-> **Where it stands (2026-09-29, upstream 0.673 merged):**
-> - **Fallout 3 and New Vegas** are being play-tested, and the fixes from each
->   round are in. Fallout 3 is a world choice at game start ("Capital Wasteland").
-> - **Character rules:** Oblivion's leveling and New Vegas's XP leveling have
->   been played. Fallout perk and trait menus, karma, reputation, the Fallout 3
->   rules plugin and Fallout 3's speech challenges are written but not played
->   yet. The stats menu, Morrowind's rules and item condition are not started.
-> - **Preflight audits** are built: `python -m tools.validate.preflight`.
-> - **Profiles and launcher:** not started; the fork's profiles are made by hand.
+> **Where it stands (2026-10-05): investigation.** Nothing converts to
+> Fallout 4 yet. Everything below this note, and the code, is still the Skyrim
+> converter it was copied from. The findings and the proposed first steps are in
+> [docs/fork/research/fo4_target.md](docs/fork/research/fo4_target.md).
 >
-> **How it differs from upstream where both touch the same thing:**
-> - The player levels by the source game's rules, not by Skyrim's level-up.
->   Upstream's [character sheet plan](docs/plans/character_sheet.md) is not
->   followed.
-> - Skills Skyrim folds together (Blade and Blunt, the Fallout weapon skills)
->   are kept apart, not read as the higher of the two.
-> - A Fallout condition on a skill Skyrim folds, or on Medicine, fails open
->   until the rules keep that skill.
->
-> The plans, what's built and what's next are in the
-> [fork roadmap](docs/fork/ROADMAP.md).
->
-> **Branches and releases:**
-> - `standalone` (the default) is upstream plus this fork's work, with upstream
->   merged in regularly. `master` is an unchanged copy of upstream, and may
->   lag behind it.
-> - General fixes go back upstream as
->   [pull requests](https://github.com/bryantmh/tes4skyrim/pulls?q=author%3AThyMrMan);
->   work that only suits this fork stays here.
-> - This fork has no releases. For releases, support and bug reports about the
->   converter itself, use [upstream](https://github.com/bryantmh/tes4skyrim).
+> **Planned requirements:**
+> - Fallout 4 1.11.240 with F4SE 0.7.9.
+> - Fallout 3 and/or New Vegas.
+> - The Fallout 4 Creation Kit (precombines, FaceGen, lip files).
+> - [Extended Dialogue Interface](https://www.nexusmods.com/fallout4/mods/27216),
+>   bundled.
+> - Possibly [LevelUpMenuEx](https://www.nexusmods.com/fallout4/mods/28822).
+> - No Skyrim.
 
 <p align="center">
   <img src="docs/assets/banner.svg" alt="TES Auto-Convert — Gamebryo to Skyrim Conversion" width="720">

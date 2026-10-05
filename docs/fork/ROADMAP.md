@@ -15,7 +15,7 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | [performance.md](performance.md) | Rules for new systems, Papyrus runtime cost, FO3/FNV occlusion |
 | [kill_cams.md](kill_cams.md) | Kill cams and killmoves on converted weapons, per game |
 | [bink_movies.md](bink_movies.md) | Source-game Bink 1 movies (parked) |
-| [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md) |
+| [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md), [Fallout 4 as the target](research/fo4_target.md) |
 | [done/](done/) | Plans that are built, kept as their design record: [preflight audits](done/preflight_audits.md) |
 
 ## <a id="phases"></a>Phases

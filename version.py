@@ -89,8 +89,8 @@ DEV_VERSION = "0.0-dev"
 # Where releases are published.  A source drop has no git remote to derive this
 # from, so it is a constant.
 REPO = "bryantmh/tes4skyrim"
-#: This fork's own repo: About link, downloads page and update check. REPO stays upstream for the step checklists.
-RELEASE_REPO = "ThyMrMan/tes4skyrim"
+#: This repo: About link, downloads page and update check. REPO stays upstream for the step checklists.
+RELEASE_REPO = "ThyMrMan/fo3fnv-in-fo4"
 REPO_URL = f"https://github.com/{RELEASE_REPO}"
 RELEASES_URL = f"{REPO_URL}/releases"
 _TAGS_API = f"https://api.github.com/repos/{RELEASE_REPO}/tags?per_page=100"

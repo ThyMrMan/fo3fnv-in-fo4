@@ -1,5 +1,16 @@
 # TES4-to-TES5 Conversion Project — AI Context
 
+> **This repo is fo3fnv-in-fo4** (`ThyMrMan/fo3fnv-in-fo4`). Its target is
+> **Fallout 4**, for Fallout 3 and New Vegas only. Everything below is
+> inherited from the Skyrim converter it was copied from
+> (`ThyMrMan/tes4skyrim`, branch `standalone`). Until the FO4 path exists,
+> those rules describe the inherited code, not the goal. Direction and
+> findings: [docs/fork/research/fo4_target.md](docs/fork/research/fo4_target.md).
+> Add FO4 code beside the Skyrim code (e.g. `fo4_import/`); don't delete
+> inherited files while `standalone` is still merged in, because each
+> deletion conflicts on every merge. Remotes: `origin` (this repo),
+> `tes4skyrim` (the Skyrim fork), `upstream` (bryantmh).
+
 Convert TES4 (Oblivion) master/plugin files to TES5 (Skyrim) format.
 
 | Stage | Package | Responsibility |
