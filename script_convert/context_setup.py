@@ -17,6 +17,7 @@ from script_convert.cross_ref import CrossRefGraph
 from script_convert.message_menus import build_chargen_menus
 from script_convert.ownership import read_owned, sibling_owned
 from script_convert.target import is_fallout4
+from script_convert.helpers_fallout4 import fallout4_helper, is_unused
 from tes5_import.base.mesh_bounds import load_mesh_bounds
 from tes5_import.base.text_reader import parse_export_file
 from tes5_import.dialogue.converter import service_menu_kind
@@ -87,7 +88,18 @@ def _static_scripts() -> dict:
     """{name: path} of static .psc for the target; fallout4/ overrides on FO4."""
     dirs = [_STATIC_DIR] + ([os.path.join(_STATIC_DIR, 'fallout4')] if is_fallout4() else [])
     return {n: os.path.join(d, n) for d in dirs if os.path.isdir(d)
-            for n in os.listdir(d) if n.endswith('.psc')}
+            for n in os.listdir(d) if n.endswith('.psc') and not (is_fallout4() and is_unused(n[:-4]))}
+
+
+def _deploy_static(path: str, dest: str) -> None:
+    """Copy one static script; on Fallout 4 a shared one becomes its Fallout 4 version."""
+    if not is_fallout4() or os.path.dirname(path) != _STATIC_DIR:
+        shutil.copy2(path, dest)
+        return
+    with open(path, encoding='utf-8') as src:
+        text = fallout4_helper(os.path.basename(path)[:-4], src.read())
+    with open(dest, 'w', encoding='utf-8', newline='\n') as out:
+        out.write(text)
 
 
 def deploy_static_scripts(export_dir: str, output_dir: str,
@@ -102,7 +114,7 @@ def deploy_static_scripts(export_dir: str, output_dir: str,
     names = list(sources)
     if not masters_from_export_header(export_dir):
         for name, path in sources.items():
-            shutil.copy2(path, os.path.join(output_dir, name))
+            _deploy_static(path, os.path.join(output_dir, name))
         return [name[:-4] for name in names]
     print('  Static scripts: skipped (owned by this plugin\'s master)')
     for name in (n for n in names if n[:-4] not in shared):

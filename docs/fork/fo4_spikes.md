@@ -355,8 +355,44 @@ script uses, so Doc compiles while helper bodies still fail. Compiled alone,
 | `TES4_BoundItemEffect` | SKSE `GetEquippedArmorInSlot` |
 | `TES4_Terminal` | one actor-value read |
 
-Not yet done: the 7 helpers, the pipeline (FO4 VMAD, filling `TES4AV_*` and
-`TES4PlayerControls`).
+Not yet done: the pipeline's FO4 VMAD, filling `TES4AV_*`,
+`TES4PlayerControls` and `TES4CharacterEvents`.
+
+### <a id="spike-3-helpers"></a>The Fallout 4 helper set
+
+**All 16 Fallout 4 helpers compile (2026-10-05)**; corpus 98.5% (17,429 of
+17,695), every remaining failure in a converted script's own code.
+Overrides so far: `TES4Polyfill` (new `AV`; `HasVampireFed`, `IsPlayable`,
+`PlayerAttributeGlobal`, `StageSet`, `GlideAxis`, `SpinAxis`) and
+`TES4_StagePackageAlias` (`OnInit` and the stage event: the quest's native
+`OnStageSet` as a remote event). Two shared fixes, harmless for Skyrim: a
+local that FO4's compiler rejects as a type name (`actorBase` in
+`SetTalkingActivatorActor`), as in `TES4_CombatQueue`. `TES4_Terminal` only
+compiles: FO4 terminals are TERM records with their own fragments, which is
+records-side work.
+
+`script_convert/helpers_fallout4.py`, applied when the pipeline deploys the
+static scripts for Fallout 4:
+
+- **Left out** (`FALLOUT4_UNUSED_HELPERS`): `TES4_DialoguePause` (FO4 talks
+  stay unpaused, [R5](research/fo4_target.md#no-pause)), `TES4_DayClock`
+  (FO4's `GameDaysPassed` carries the day's fraction, as FNV's did),
+  `TES4_BoundItemEffect` (FO3/FNV have no bound items).
+- **The converter's FO4 rules on the shared source**: actor-value calls
+  become `GetValue(TES4Polyfill.AV("Name"))` etc.; `OnUpdate` → `OnTimer`,
+  `RegisterForSingleUpdate` → `StartTimer`; menu names (`Dialogue Menu` →
+  `DialogueMenu`). Every rule keeps line counts, so overrides still find
+  their blocks.
+- **Overrides**: `static_scripts/fallout4/overrides/<Script>.psc` holds only
+  the functions or events whose FO4 body differs. Each sits under
+  `; fallout4: replaces <Name> <sha1 of the shared block>` (or
+  `; fallout4: new`); when the shared block changes, the conversion stops
+  with the new hash instead of shipping a stale copy.
+- `TES4Polyfill.AV(name)`: FO4 global functions cannot hold form properties,
+  so the actor value is looked up in `Fallout4.esm`. `Variable01`–`10`
+  (`0x301`–`0x30A`), `Aggression` (`0x2BC`), `Confidence` (`0x2BD`) and the
+  other AI values are engine-made forms, not records in the esm; their ids
+  come from xEdit's `Core/Hardcoded/Fallout4.esp`.
 
 ### <a id="spike-3-gate"></a>The corpus compile gate
 

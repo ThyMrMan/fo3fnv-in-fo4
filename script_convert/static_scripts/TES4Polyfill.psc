@@ -1803,9 +1803,9 @@ Function SetTalkingActivatorActor(ObjectReference akTalker, Actor akActor, FormL
     Return
   EndIf
   Form talker = akTalker.GetBaseObject()
-  Form actorBase = None
+  Form speakerBase = None
   If akActor
-    actorBase = akActor.GetActorBase()
+    speakerBase = akActor.GetActorBase()
   EndIf
   Int i = akLists.GetSize()
   While i > 0
@@ -1813,7 +1813,7 @@ Function SetTalkingActivatorActor(ObjectReference akTalker, Actor akActor, FormL
     FormList speaking = akLists.GetAt(i) as FormList
     If speaking
       speaking.RemoveAddedForm(talker)
-      If actorBase && speaking.HasForm(actorBase)
+      If speakerBase && speaking.HasForm(speakerBase)
         speaking.AddForm(talker)
       EndIf
     EndIf
