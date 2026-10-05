@@ -135,6 +135,7 @@ F4NV and Cascadia do with LevelUpMenuEx, or our own build.
 | Skills, tag skills, traits | [Be Exceptional](https://www.nexusmods.com/fallout4/mods/28222) (Rcollpc) | 0.97d, unsupported since 2018 | Modify with credit; assets need permission | **Reference only.** Its approach is the one to follow: 16 skills as actor values, points on level-up, skills tuned by globals and form lists, SPECIAL feeding skills |
 | Level-up menu | [LevelUpMenuEx](https://www.nexusmods.com/fallout4/mods/28822) (Neanka) | F4SE plugin, kept current: updated for 1.11.240 on 2026-09-06, every runtime since 1.10 | None stated | **Dependency.** It adds perks, skills, traits and tag-skill menus, including FNV's skill-point formula. This is the menu the character plan's pieces G1/G2 would otherwise build |
 | Dialogue | [Extended Dialogue Interface](https://www.nexusmods.com/fallout4/mods/27216) (reg2k, Neanka) | Updated for 1.11.240 on 2026-09-01; about 1.3M users, used by 124 mods. F4SE plugin + `DialogueMenu.swf`; source on GitHub ([reg2k/xdi](https://github.com/reg2k/xdi), C++; [Neanka/DialogueMenu](https://github.com/Neanka/DialogueMenu), AS3), but with no license and nothing pushed since 2020 | Free to use. Link to the Nexus page, but **total conversions that need a new game may bundle it**, stating the version | **Dependency, and bundling is allowed.** Details below the table |
+| Script and setup framework | [Hydra](https://www.nexusmods.com/fallout4/mods/104159) (SoleVaultBoy) | 1.0.2, released 2026-04-26, updated 2026-05-03; about 46k users; F4SE plugin, needs the Address Library; old-gen, next-gen and Anniversary | Nexus: no re-upload, changes need permission; source under GPL-3.0 with modding exceptions | **Development tool now; decide when the runtime is built.** Details below the table |
 | Weapon and armor condition | [Armor and Weapon Condition](https://www.nexusmods.com/fallout4/mods/96830) (MarkReal) | 2.0.2, 2025-11; about 1.9k users; needs NV Ammo Crafting and Papyrus Common Library | Changes and asset use need permission | **Build our own.** Its notes confirm the method: FO4 WEAP has no health field, so the mod drives condition from keyword multipliers in Papyrus. We have FNV's per-weapon health and damage scaling in the export, and can carry them exactly |
 
 **How XDI works** (its modders' guide, Nexus article 552):
@@ -162,6 +163,25 @@ For the converter, that means:
     conditions pass, while FO4 scenes are built around quest aliases;
   - Add Topic and the greeting that opens a talk;
   - looping back to the topic list after an answer.
+
+**What Hydra offers** (its Nexus page, read 2026-10-05):
+
+| Feature | Use to us |
+|---|---|
+| Editor IDs kept at runtime | Now: console and scripts can find plugin forms by name during play-tests |
+| Papyrus linkage logging | Now: catches scripts and structs with broken links (spike 3) |
+| Requirements Runner: a JSON file declares game version, F4SE version, plugins and DLLs; a mismatch warns on the main menu | Setup: names a missing or wrong-version dependency (XDI, LevelUpMenuEx) instead of failing silently |
+| About 2,800 Papyrus functions: hash maps and sets, strings and regex, files and JSON, 64-bit numbers, form and engine accessors | Later: much of what converted FO3/FNV scripts and NVSE/JIP commands need, which vanilla Papyrus lacks |
+| Script Object Runner: binds a script to a form at load, no dummy quest | Later: a home for the karma, reputation and item-condition logic |
+| Menus and Misc Stats runners: load custom SWF menus; add Pip-Boy stats | Later: our own menus; Karma, Fame/Infamy and FNV's statistics on the stats page |
+| Translations runner | Later: FO3/FNV text in other languages without editing STRINGS files |
+| Engine patches: preload scripts; speed up native calls (experimental, off by default) | Neither needed. 1.0.2 already pulled part of the speed-up for changing script behavior |
+
+**Against requiring it now:** it is one author's project, two weeks old at
+1.0.2, and the speed-up patch has already changed behavior once. It keeps its
+place in the `Spike` profile for logging, and disabling it is the first step
+when a test result looks odd. Decided when the runtime is built (policy:
+behind our API, with a fallback).
 
 ### <a id="dependency-policy"></a>Dependency or our own build
 
@@ -227,6 +247,7 @@ Library are for Skyrim. The question is how many more to add.
 | KARMA | Our own, borrowing its design | Papyrus-only, cheap to reproduce; its API would add a manual install for little gain |
 | REPUTATION | Our own | Closed to new factions |
 | Armor and Weapon Condition | Our own | Restrictive permissions; FNV's own per-weapon health is better data |
+| Hydra | Development tool; decide when the runtime is built | Large Papyrus library and setup checks, but brand new with one maintainer ([above](#mods)) |
 
 ### <a id="levelupmenuex"></a>LevelUpMenuEx, read
 
@@ -318,11 +339,20 @@ the same.
 - The rest still needs a runtime, as F4SE code reading FO4's exe:
   - the R1 chooser redirect;
   - R3 not restarting an unchanged package;
-  - the R5 pause;
   - the R8 crime drop;
   - the R14 warp refusal.
 
   That's phase B, with every Address Library ID found again for FO4.
+- <a id="no-pause"></a>**R5 is kept as FO4 has it (decided 2026-10-05):** talks
+  stay unpaused, with no DLL to freeze the world. What FNV's pause guarded is
+  handled with records where it matters:
+  - leaving: FNV's Tab becomes a `[Leave]` option (XDI's menu takes every key
+    press, so Tab never reaches the game), and walking away ends the scene
+    ([1b](../fo4_spikes.md#spike-1b));
+  - combat breaking into a talk: FO4's normal behavior, accepted;
+  - game time and script timers running during a talk: checked per script
+    in spike 3, fixed with conditions or an "in dialogue" test where content
+    counts time across a conversation.
 - The phase A record work keeps its design, because the engine rules it
   works around are the same:
   - package order;

@@ -24,7 +24,7 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | Piece | Status |
 |---|---|
 | [Step 0: groundwork](fo4_spikes.md#step-0) | **Built 2026-10-05:** FO4 writer + tests, `Fallout4.esm` dump, script sources, compiler checked. Not yet loaded in FO4Edit or the CK |
-| [Spike 1: dialogue](fo4_spikes.md#spike-1) | Next |
+| [Spike 1: dialogue](fo4_spikes.md#spike-1) | **1a text-only played 2026-10-05:** greeting opens the menu with all of Doc's options; added topics, Say Once variants, skill checks, sub-menu returns and Goodbye confirmed ([design](fo4_spikes.md#spike-1-design)). **1b played 2026-10-05, passed** ([1b](fo4_spikes.md#spike-1b)): three speakers share one forced-alias scene, each seeing only their own options; `[Leave]` replaces Tab, walking away ends the talk, Random piles vary. The gate is passed: 1b needs no hand work. Open: the player's "Hi", voice |
 | [Spike 3: one script](fo4_spikes.md#spike-3) | Not started |
 | [Spike 2: one interior cell](fo4_spikes.md#spike-2) | Waits on spike 1 |
 

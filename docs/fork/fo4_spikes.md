@@ -63,6 +63,136 @@ Generated from the FNV export by code, not built by hand in the CK.
 - **Gate:** if 1b can't be generated without hand work, stop and rethink
   before any asset work.
 
+### <a id="spike-1-design"></a>1a as built (text only)
+
+Generator: `py -3.14 -m fo4_import.spike.dialogue --export <FNV export> --out <esp>`
+(`fo4_import/spike/`). Source view: `tools/dialog/tes4_ctda_dump.py --names fnv --npc DocMitchell`.
+
+**Source.** Doc's menu conversation is the `VFreeformGoodSpringsDocMitchell*`
+topics plus the shared doctor services. His very first lines (waking up) are
+scripted `SayTo` chains (`VCG01Intro`), not the menu, and are not part of 1a.
+
+**How XDI decides** (its source, `reg2k/xdi` `src/DialogueEx.cpp`, and the
+`Neanka/DialogueMenu` AS3):
+
+- Every non-empty player INFO in the action's four player topics is an option.
+- Options whose conditions fail are hidden, as are options with empty response
+  text.
+- Player INFOs are tested with the player as Subject and the NPC as Target.
+- NPC response INFOs pair with player INFOs by position. Empty player INFOs are
+  padding, and the response is the first passing NPC INFO in the option's range.
+- Say Once player and NPC INFOs drop out once said.
+
+**Mapping.**
+
+| FNV | FO4 |
+|---|---|
+| Topic list (GREETING with no choices) | One XDI scene per menu, one phase `Menu`, one Player Dialogue action; PTOP holds the options, NPOT the responses, NTOP/NETO/QTOP empty (XDI reads all four) |
+| A topic's INFOs, consecutive ones with the same prompt | One option; its INFOs become the NPC responses behind padding, so the first passing one answers (FNV's rule) |
+| INFOs with different prompts (skill-check variants) | One option each. Each later option also gets "no earlier option could be chosen": the earlier INFO's negated conditions as one OR-group, plus "it has been said" for a Say Once one |
+| Prompt (`RNAM`), else topic name | Player INFO response text and `RNAM` |
+| Choices | Their own scene; the NPC INFO's `TSCE` points there |
+| Goodbye | No `TSCE`, and End Running Scene (XDI's door icon) |
+| Any other line | `TSCE` back to the menu scene, phase `Menu` |
+| Top-level topic | Always offered |
+| AddTopic | INFO `TIQS` on end sets a quest stage; the added topic's option needs `GetStageDone` |
+| "Has been said" (no FO4 condition for it) | INFO `TIQS` on begin sets a stage |
+| Line of a stopped quest | Left out (FNV only speaks lines of running quests) |
+| Conditions | Function by name (`GetActorValue` → `GetValue`); actor values by name (limb conditions, Rads); FNV skills → plugin actor values `FNV_<Skill>`. Player-line conditions swap Subject and Target. Anything unconvertible drops the line, and the report names it |
+| GREETING lines | An FO4 greeting topic (`GREE`); each line starts the menu scene |
+
+**Assumed state** (quests not converted here): just after character creation.
+VCG01 is finished, and Doc's script variable 4 is 0. VMS16 and VMS16b are not
+started, so the bandit-shootout and injured-man topics are absent.
+
+**Built (2026-10-05):** 87 records. The main menu has 15 options, including the
+four Medicine/Speech variants, the two added topics, the doctor services and
+their pay/decline sub-menus. One line is left out (an unconverted quest
+variable), and result scripts are not converted (8 lines: items, healing).
+
+**Played (2026-10-05).** First build: the greeting opened a pay sub-menu, and
+sub-menu answers looped to themselves. Both went to "the first scene built"
+instead of the main menu; the main menu now has a fixed id. Second build: the
+greeting opens the menu, and all of Doc's options show. Also confirmed:
+- an added topic appears after its AddTopic line, and a Say Once prompt gives
+  way to the next variant ("…one more time?");
+- the Medicine/Speech variants follow FNV's first-passing rule as the skills
+  change;
+- a doctor service answers by condition (full health: "nothing wrong") and
+  returns to the main list;
+- Goodbye ends the conversation.
+
+A "Hi" before the greeting is the player character's own greeting line. FNV's
+player is silent, so it needs suppressing (open).
+
+### <a id="spike-1b"></a>1b: one scene for many speakers
+
+Generator: `fo4_import/spike/dialogue.py` (replaces `doc_dialogue.py`; 1a's
+behavior is kept).
+
+**How vanilla FO4 does it.** `DialogueGenericDoctors` (`0005F76B`) has one
+alias, `Doctor`, that is optional and has no fill rule (`FNAM=2`). Its greeting
+lines carry `ALFA=0` (Forced Alias) and a scene to start (`TSCE`). Whoever is
+greeted is pushed into the alias, and the scene runs with them. All 122
+vanilla INFOs with `ALFA` also carry `TSCE`.
+
+**What FNV's menu topics are like.** Almost all lines are per-NPC (GetIsID).
+Only a handful of top-level menu topics have lines that name no NPC:
+- Lucky 38's robots (`HD00*`) and casino cashiers, by faction;
+- followers, by voice type;
+- the water beggar;
+- Goodbye.
+
+A shared topic like `DoctorMedical` still keys each line to one doctor.
+
+**Mapping added for 1b:**
+
+| FNV | FO4 |
+|---|---|
+| Several speakers | One quest with one optional, empty alias. Every greeting line has `ALFA=0` and starts the menu scene; the options are tested against the speaker |
+| Quest dialogue conditions (the line picker checks them first) | ANDed onto every line of the quest; `GenericKids`' child-only Goodbyes no longer reach adults |
+| Same prompt anywhere in a topic | One option (FNV shows a topic once) |
+| An option with several variants | Gated by an OR of the variants' speaker tests (GetIsID, GetInFaction); ungated only if a variant has none |
+| Random piles | `GetRandomPercent < 100/remaining` chained down the pile, and FO4's Random flag left off. XDI answers with the first passing line and has a "TODO: handle Random"; with the flag on, the robot butler's jokes never played |
+| Tab (leave at any time) | A last `[Leave]` option on every menu: a silent `...` with End Running Scene. XDI's `DialogueMenu.as` `ProcessUserEvent` takes every key press while the list is up, so Tab never reaches the game. On a main menu it is hidden while a GOODBYE-topic option shows (the Goodbye options' conditions, negated) |
+| Walking away (FNV has no equivalent; a talk always starts fresh) | The `Menu` phase completes on `GetDistance(Player) > 500` run on the alias, the same 500 as the scene's dialogue distance (`ACTV`). Without it the scene waited, and the menu reopened when the player came back. 127 vanilla phases end on a `GetDistance` this way |
+| `GetPCIsSex` | `GetIsSex` run on the player reference |
+| A speaker with no FNV greeting | A silent `...` greeting, last in the topic (FNV opens the topic list without one) |
+| A condition settled by the test world | A speaker test naming no test speaker is false; a null form parameter is false (FNV's `GetInCell(NULL)` makes Doctor Barrows' `DoctorMedical` lines unplayable in FNV itself) |
+
+**Test world.** Doc Mitchell → Doc Weathers; Doctor Barrows → Doctor Amari
+(`0009A680`); a Lucky 38 robot butler → `WorkshopVendorBar01` (`00192356`),
+with `HD00RoboButler` mapped to his `REMerchantBarVendorFaction`. All three
+stand in `QASmoke`. Two stand-in traps:
+- a unique NPC whose packages point elsewhere leaves the cell. Doctor Duff's
+  all point to Diamond City, and she was gone on arrival; pick a base with no
+  packages or only `DefaultSandboxInteriorUnlockDoors`;
+- a faction listed at rank -1 (`FF`) is not membership. The vendor's
+  `WorkshopVendorFactionBar` is -1 until a settlement assigns him, so
+  `GetInFaction` failed and his vanilla greeting played.
+
+**Played (2026-10-05), passed:**
+- each speaker sees only their own options, all from one scene;
+- Amari leaves through `[Leave]`;
+- the vendor's time-of-day greeting, drink, haircut and Goodbye work, and his
+  jokes play and vary;
+- walking away ends the talk, and coming back does not reopen it.
+
+Also fixed on the way: `tools/generators/gen_ctda_param_types.py` missed 108
+of FO4's parameter types, because xEdit's FO4 file spells `Paramtype` in 100
+entries. The match is now case-insensitive; the TES5, FNV, FO3 and TES4 tables
+come out identical.
+
+**Follow-up: one place for the way out.** Today Goodbye sits where its topic
+falls (first on the main menu) and `[Leave]` is always last, so the exit moves
+between menus. Put Goodbye and `[Leave]` in the same fixed slot on every menu,
+top or bottom (check where FNV's topic list puts GOODBYE before choosing). Later,
+give both the same name; they keep different names while testing, so a
+play-test shows which one appeared.
+
+Not covered yet: voice, the player's own "Hi" before a greeting, and the force
+greet (Doc's menu conversation has none).
+
 ## <a id="spike-3"></a>Spike 3: one script
 
 Convert one FNV terminal or object script, emit FO4 Papyrus, and compile it

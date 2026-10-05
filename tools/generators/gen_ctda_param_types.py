@@ -58,7 +58,7 @@ _FUNCS_RE = re.compile(
     re.S)
 _FUNC_RE = re.compile(
     r"\(\s*Index:\s*(\d+)\s*;\s*Name:\s*'([^']*)'([^)]*)\)")
-_PARAM_RE = re.compile(r'ParamType(\d):\s*(pt\w+)')
+_PARAM_RE = re.compile(r'ParamType(\d):\s*(pt\w+)', re.I)
 
 
 def parse_enum(text):
