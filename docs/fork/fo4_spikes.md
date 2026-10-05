@@ -390,6 +390,17 @@ errors (none only through a helper), by file:
 
 Baseline: `tools/script/fo4_compile_baseline.json`.
 
+**`SendModEvent` (2026-10-05): 98.5%** (17,425 of 17,698). It came from
+FNV's `RewardXP` (903 uses) and the character menus (6). Where FO4 has
+FNV's own feature the FO4 row uses it: `RewardXP` → the native
+`Game.RewardPlayerXP`, FO4's own XP and notification. The menus (SPECIAL with
+a point total, tag skills, traits) have no full FO4 native (`ShowSPECIALMenu`
+takes no total), so they become one custom event,
+`TES4_CharacterEvents.CharacterMenu(kind, value)`, for the FO4 character
+rules to answer; the FO4-only helper `static_scripts/fallout4/TES4_CharacterEvents`
+sends it, since only the declaring script may. The one `SendModEvent` left is
+in `TES4Polyfill` (helper port).
+
 ## <a id="spike-2"></a>Spike 2: one interior cell
 
 Doc Mitchell's house:

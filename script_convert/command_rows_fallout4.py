@@ -3,7 +3,10 @@
 Keyed by the Skyrim `Cmd` itself, so every spelling that shares a row takes
 the Fallout 4 row too; `emit_row` picks it when Fallout 4 is the target.
 Actor values are ActorValue form properties (`target.av_property`) declared
-through `self_type`; behavior-graph events go through PlayAnimation.
+through `self_type`; behavior-graph events go through PlayAnimation. Where
+Fallout 4 has FO3/FNV's own feature the row uses it (RewardXP is the native
+RewardPlayerXP); the character menus, which Skyrim sends as SKSE mod events,
+become one custom event from the TES4_CharacterEvents helper.
 
 See: docs/fork/fo4_spikes.md#spike-3-target
 """
@@ -15,6 +18,15 @@ from script_convert.target import av_property
 def _av(name: str) -> tuple:
     """`self_type` declaring the ActorValue property for actor value `name`."""
     return av_property(name), 'ActorValue'
+
+
+#: The FO4 helper quest sending FO3/FNV's character menus as a custom event.
+_CHARACTER = ('TES4CharacterEvents', 'TES4_CharacterEvents')
+
+
+def _menu(kind: str, value: str = '{f0}', **row) -> Cmd:
+    """A character-menu command as TES4_CharacterEvents.Menu(kind, value)."""
+    return Cmd(f'{_CHARACTER[0]}.Menu("{kind}", {value})', self_type=_CHARACTER, **row)
 
 
 #: TES4 command -> its Fallout 4 row, then keyed by the Skyrim row it replaces.
@@ -34,4 +46,12 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
                                       self_type=_av('Health'), flags='zero_arg'),
     'pickidle': Cmd('{ref}.PlayAnimation("{s0}")', ACTOR, defaults={0: 'IdleForceDefaultState'}, flags='zero_arg'),
     'playidle': Cmd('{ref}.PlayAnimation("{s0}")', ACTOR, defaults={0: 'IdleForceDefaultState'}),
+    'rewardxp': Cmd('Game.RewardPlayerXP({i0})'),
+    'setspecialpoints': _menu('special'),
+    'showlovetestermenuparams': _menu('special'),
+    'showspecialbookmenu': _menu('special', defaults={0: '40'}),
+    'ssbmp': _menu('special', defaults={0: '40'}),
+    'settagskills': _menu('tags'),
+    'showtraitmenu': _menu('traits', '0.0', flags='zero_arg'),
+    'showtraitselectmenu': _menu('traits', '0.0', flags='zero_arg'),
 }.items()}
