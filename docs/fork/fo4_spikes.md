@@ -133,7 +133,14 @@ until it causes a problem:
 - likely fix: a player HELO line in our own quest (priority 90 against
   vanilla's) that wins for our speakers and says nothing. Untested: whether
   FO4 accepts an INFO with no response or shows a "..." subtitle. No
-  vanilla edit.
+  vanilla edit;
+- alternative (outside research): silent voice files over the player's
+  Hello lines, as [mod 5702](https://www.nexusmods.com/fallout4/mods/5702)
+  does for other player voices. Loose
+  `Sound\Voice\Fallout4.esm\PlayerVoice{Male,Female}01\<INFO>_1.fuz` files
+  for topic `00018184`'s 52 INFOs; no record changes. Open: whether the
+  line's subtitle still shows, and it silences those hellos everywhere
+  (fine for a game where the player is silent).
 
 ### <a id="spike-1b"></a>1b: one scene for many speakers
 
@@ -260,6 +267,55 @@ greet (Doc's menu conversation has none).
 Convert one FNV terminal or object script, emit FO4 Papyrus, and compile it
 with FO4's compiler. Hydra (in the MO2 instance) logs broken script linkage
 in game. Answers: the size of the FO4 command-row table and of VMAD for FO4.
+
+### <a id="spike-3-measured"></a>Measured (2026-10-05)
+
+Corpus: the Skyrim pipeline's 17,703 converted FNV scripts
+(`tes4skyrim_standalone/output/FalloutNV.esm/scripts/source`; 14,155 are
+dialogue fragments `TIF__*`), compiled unchanged with FO4's
+`PapyrusCompiler.exe` (imports F4SE, Base, the corpus and our 17
+`static_scripts`). The compiler scans its working directory and fails on a
+path over 260 characters, so run it from a short folder.
+
+**A random 199 (149 object/quest scripts, 50 fragments):**
+
+| Result | Scripts |
+|---|---|
+| Compile unchanged | 81 (all object/quest) |
+| Fail only through a helper script (`TES4Polyfill` pulls in helpers that do not compile) | 54 (47 fragments) |
+| Fail on their own code | 64 (3 fragments) |
+
+**What fails, by kind** (errors in the sample; every one has an FO4 native
+except `SetDontMove`):
+
+| Skyrim (as we emit it) | Errors / scripts | FO4 |
+|---|---|---|
+| `RegisterForSingleUpdate` + `Event OnUpdate` (our GameMode loop) | 155 / 28+ | `StartTimer` + `Event OnTimer(int)`; `StartTimerGameTime` for `OnUpdateGameTime` |
+| `Get`/`Set`/`Restore`/`Damage`/`Mod`/`ForceActorValue("Name")` | 52+ | `GetValue`/`SetValue`/`RestoreValue`/`DamageValue`/`ModValue(ActorValue)` on ObjectReference: an `ActorValue` property per name. Helpers that take the name as a string need a name → form lookup |
+| `SendModEvent` (SKSE) | 10 | `CustomEvent` + `SendCustomEvent` |
+| `Game.Disable`/`EnablePlayerControls` | 3 | `InputEnableLayer` (create, disable, delete) |
+| `Debug.SendAnimationEvent` | 3 | `PlayIdle` (Actor) / `PlayAnimation` (ObjectReference) |
+| `Event OnHit` parameters | 5 | FO4 adds `akTarget` first and needs `RegisterForHitEvent`, renewed after each hit |
+| `Event OnTrigger`, menu and sleep events | 6 | no `OnTrigger`; `RegisterForMenuOpenCloseEvent`, `RegisterForPlayerSleep` |
+| `SetDontMove` | 4 | none; `SetRestrained` is the nearest |
+| A function variable shadowing a script variable (`TES4_CombatQueue`) | 2 | FO4's compiler rejects it; rename |
+
+**The command-row table:** 20 of the 554 rows emit a call FO4 lacks (8 of
+them `SendModEvent`, the rest actor values, `Debug.SendAnimationEvent`,
+`Game.EnableFastTravel`, `SetDontMove`). The rest of the Skyrim API is
+written by about 10 other converter files (handlers, event assembly, blocks),
+so an FO4 target is a target-API layer across those, not a row swap.
+
+**VMAD:** small. FO4 is version 6 (Skyrim 5), the same object format and
+property layout plus struct types (7, 17). A fragment block starts with bind
+data version 3 (Skyrim 2) and embeds a full script entry with its properties
+where Skyrim has a file name; vanilla FO4 INFOs attach no other scripts.
+Fragment scripts are namespaced (`Fragments:TopicInfos:TIF_<quest>_<id>`).
+Five builders in `script_convert/pipeline.py` change.
+
+Not yet done: emitting FO4 Papyrus for one script (Doc Mitchell's
+`GSDocMitchellScript`, which hits the update loop, actor values, player
+controls, `SendAnimationEvent` and `OnHit`) and compiling it.
 
 ## <a id="spike-2"></a>Spike 2: one interior cell
 
