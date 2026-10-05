@@ -370,7 +370,7 @@ Stages run `tes4_export` → `tes5_import` → `asset_convert` → `script_conve
 | Collision, Havok | Rewrite: hknp physics, Havok 2014. Elric can finish collision. `external/pynifly_hkx/anim_fo4.py` already reads and writes FO4 animations |
 | Textures | Re-encode normal maps to BC5. FO4's `_s` is BC5 (R specular, G gloss); FNV keeps specular in the normal-map alpha |
 | Archives | `BSArch -fo4` / `-fo4dds`, or Archive2 |
-| Scripts | Keep the front end. Needs:<ul><li>a new emitter and row table</li><li>actor values passed as forms</li><li>VMAD for FO4</li><li>the FO4 compiler with Base.zip headers</li></ul>Unverified: whether the vendored `papyrus.exe` targets FO4 |
+| Scripts | Keep the front end. Needs:<ul><li>a new emitter and row table</li><li>actor values passed as forms</li><li>VMAD for FO4</li><li>the FO4 compiler with Base.zip headers</li></ul>Compiler: FO4's own `PapyrusCompiler.exe`; the vendored `papyrus.exe` is Skyrim-only (fails on `Struct`), checked 2026-10-05 |
 | FaceGen | Precomputed per NPC: run CK `-ExportFaceGenData` after the plugin is written |
 | Precombines, previs | CK `-GeneratePreCombined`, `-GeneratePreVisData`, `-CompressPSG`, `-BuildCDX`. The first build can skip them and take the performance hit |
 | LOD | New BTR/BTO output; FNV's prebuilt LOD can be renamed (see fnv-to-fo4) |

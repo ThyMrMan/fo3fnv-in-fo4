@@ -17,6 +17,16 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | [bink_movies.md](bink_movies.md) | Source-game Bink 1 movies (parked) |
 | [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md), [Fallout 4 as the target](research/fo4_target.md) |
 | [done/](done/) | Plans that are built, kept as their design record: [preflight audits](done/preflight_audits.md) |
+| [fo4_spikes.md](fo4_spikes.md) | **This repo's current work:** the spikes that decide whether FO3/FNV on Fallout 4 is buildable |
+
+## <a id="fo4"></a>Fallout 4 spikes
+
+| Piece | Status |
+|---|---|
+| [Step 0: groundwork](fo4_spikes.md#step-0) | **Built 2026-10-05:** FO4 writer + tests, `Fallout4.esm` dump, script sources, compiler checked. Not yet loaded in FO4Edit or the CK |
+| [Spike 1: dialogue](fo4_spikes.md#spike-1) | Next |
+| [Spike 3: one script](fo4_spikes.md#spike-3) | Not started |
+| [Spike 2: one interior cell](fo4_spikes.md#spike-2) | Waits on spike 1 |
 
 ## <a id="phases"></a>Phases
 

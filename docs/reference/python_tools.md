@@ -175,7 +175,7 @@ navmesh tools) and `quest_walkthrough_tes5.py` (the TES5 half of
 `quest_walkthrough.py`).
 
 ### Plugin / record inspection
-- **TES5 ESM reader**: `python tools/esm/tes5_esm_reader.py <esm> [--outdir dir] [--types TYPE ...]` — TES5 binary to per-type KEY=VALUE text, same format as the TES4 export. The record/GRUP layer is `tes5_import/base/tes5_reader.py`; this file owns only the per-type decoders.
+- **TES5 ESM reader**: `python tools/esm/tes5_esm_reader.py <esm> [--outdir dir] [--types TYPE ...] [--generic]` — TES5 binary to per-type KEY=VALUE text, same format as the TES4 export. `--generic` skips the Skyrim field layouts and condition names, for another game's plugin: `references/Fallout4.esm/` is `--generic` output. The record/GRUP layer is `tes5_import/base/tes5_reader.py`; this file owns only the per-type decoders.
 
 <a id="tes5-record-parent-fields"></a>
   **`TES5Record.parent_wrld` / `parent_cell` / `parent_dial` come from the enclosing GRUP's LABEL, never from a running variable.** A record that LABELS a group sits outside it and correctly reports 0 — a CELL has no `parent_cell`, a WRLD no `parent_wrld`. The earlier implementation propagated a running value downward and never cleared it on the way out, so a record inherited the PREVIOUS record's parent: measured on `output/Oblivion.esm`, **34,470 of 35,265 CELLs carried the preceding cell's FormID**. Rebuilding the same fallback on top of the shared reader leaked the other way (17,341 INFO and 84 WRLD records reporting a `parent_cell` they are not inside), so the fallback was deleted rather than repaired. Any tool grouping records by parent was silently over-counting.

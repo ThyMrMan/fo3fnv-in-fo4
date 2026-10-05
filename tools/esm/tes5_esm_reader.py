@@ -1196,99 +1196,89 @@ _TYPED_DECODERS: dict = {
 # Generic subrecord decoder
 # ---------------------------------------------------------------------------
 
-def decode_subrecord(rec_type: str, sub: Sub, is_localized: bool,
-                     context: dict) -> list:
-    """
-    Return a list of KEY=VALUE strings for a single subrecord.
-    context is a mutable dict used to pass info between consecutive subrecords
-    (e.g. KSIZ before KWDA).
-    """
-    sig  = sub.type
-    data = sub.data
-
-    # 1. Per-(rec_type, sub) typed decoder
+def _decode_typed(rec_type: str, sig: str, data: bytes):
+    """Skyrim-layout decoders: the per-(type, sub) table, then CTDA. None if neither applies."""
     fn = _TYPED_DECODERS.get((rec_type, sig))
     if fn:
         return fn(data)
-
-    # 1b. CTDA — universal condition decoder (applies to all record types)
     if sig == 'CTDA':
         return _dec_ctda(data)
+    return None
 
-    # 2. OBND (universal)
+
+def _decode_structural(sig: str, data: bytes, context: dict):
+    """Layouts every game shares: OBND, KSIZ/KWDA, COCT, empty. None if not one of them."""
     if sig == 'OBND':
         return _dec_obnd(data)
-
-    # 3. KSIZ — keyword count
     if sig == 'KSIZ' and len(data) == 4:
-        n = struct.unpack_from('<I', data, 0)[0]
-        context['KSIZ'] = n
-        return [f'KSIZ={n}']
-
-    # 4. KWDA — keyword array (uses KSIZ from context)
+        context['KSIZ'] = struct.unpack_from('<I', data, 0)[0]
+        return [f'KSIZ={context["KSIZ"]}']
     if sig == 'KWDA':
         return _dec_kwda(data, context.get('KSIZ', 0))
-
-    # 5. COCT — count (item containers)
     if sig == 'COCT' and len(data) == 4:
         return [f'COCT={struct.unpack_from("<I", data, 0)[0]}']
-
-    # 6. Empty subrecords
     if not data:
         return [f'{sig}=[empty]']
+    return None
 
-    # 7. Known string subrecords
-    if sig == 'EDID':
+
+def _decode_text(rec_type: str, sig: str, data: bytes, is_localized: bool):
+    """Editor ids, model paths, (localized) names and the file header's masters. None otherwise."""
+    is_path = sig == 'EDID' or sig.startswith('MOD') or sig in ('ICON', 'ICO2', 'MICO')
+    if is_path and (sig == 'EDID' or _is_zstring(data)):
         return [f'{sig}={_escape(_zstring(data))}']
-    if sig == 'MODL' or sig.startswith('MOD') or sig in ('ICON', 'ICO2', 'MICO'):
-        if _is_zstring(data):
-            return [f'{sig}={_escape(_zstring(data))}']
-
-    # 8. FULL / DESC — may be LStrings
-    if sig in ('FULL', 'DESC', 'NNAM') and is_localized and len(data) == 4:
-        idx = struct.unpack_from('<I', data, 0)[0]
-        return [f'{sig}=LSTRING:{idx:08X}']
     if sig in ('FULL', 'DESC', 'NNAM'):
+        if is_localized and len(data) == 4:
+            return [f'{sig}=LSTRING:{struct.unpack_from("<I", data, 0)[0]:08X}']
         if _is_zstring(data):
             return [f'{sig}={_escape(_zstring(data))}']
+    if rec_type == 'TES4' and sig == 'MAST':
+        return [f'MAST={_escape(_zstring(data))}']
+    if rec_type == 'TES4' and sig == 'DATA' and len(data) == 8:
+        return [f'DATA.MasterSize={struct.unpack_from("<Q", data, 0)[0]}']
+    return None
 
-    # 9. MAST / DATA in file header
-    if rec_type == 'TES4':
-        if sig == 'MAST':
-            return [f'MAST={_escape(_zstring(data))}']
-        if sig == 'DATA' and len(data) == 8:
-            sz = struct.unpack_from('<Q', data, 0)[0]
-            return [f'DATA.MasterSize={sz}']
 
-    # 10. Exact 4-byte data — try FormID / uint / float interpretation
+def _decode_value(sig: str, data: bytes, generic: bool) -> list:
+    """Anything left: a 4-byte FormID/uint/float, a small int, a string, else a hex dump.
+
+    Generic mode drops the Skyrim list of FormID-only subrecords, so every
+    4-byte value shows all three readings.
+    """
     if len(data) == 4:
-        uint_val  = struct.unpack_from('<I', data, 0)[0]
+        uint_val = struct.unpack_from('<I', data, 0)[0]
         float_val = struct.unpack_from('<f', data, 0)[0]
-        fid_str   = f'{uint_val:08X}'
-        # Known FormID-only subs: suppress float interpretation noise
-        if sig in _FORMID4_SUBS:
-            return [f'{sig}={fid_str}']
-        # Heuristic: if it looks like a FormID (float value nonsensical)
-        if abs(float_val) > 1e7 or float_val != float_val:  # big or NaN
-            return [f'{sig}={fid_str}  (uint={uint_val})']
-        return [f'{sig}={fid_str}  (uint={uint_val}  float={float_val:.5g})']
-
-    # 11. Small primitives
-    if len(data) == 2:
-        val = struct.unpack_from('<H', data, 0)[0]
-        return [f'{sig}={val}']
-    if len(data) == 1:
-        return [f'{sig}={data[0]}']
-
-    # 12. Try as string if heuristic passes
+        if sig in _FORMID4_SUBS and not generic:
+            return [f'{sig}={uint_val:08X}']
+        if abs(float_val) > 1e7 or float_val != float_val:
+            return [f'{sig}={uint_val:08X}  (uint={uint_val})']
+        return [f'{sig}={uint_val:08X}  (uint={uint_val}  float={float_val:.5g})']
+    if len(data) in (1, 2):
+        return [f'{sig}={int.from_bytes(data, "little")}']
     if _is_zstring(data):
         return [f'{sig}={_escape(_zstring(data))}']
-
-    # 13. Fallback: hex dump (first 96 bytes)
     hex_str = data.hex().upper()
     if len(data) > 96:
         hex_str = hex_str[:192] + f'... ({len(data)} bytes total)'
     return [f'{sig}.size={len(data)}', f'{sig}.hex={hex_str}']
+
+
+def decode_subrecord(rec_type: str, sub: Sub, is_localized: bool,
+                     context: dict) -> list:
+    """Return the KEY=VALUE lines for one subrecord.
+
+    context carries state between consecutive subrecords (KSIZ before KWDA)
+    and the 'generic' switch, which skips every Skyrim-specific layout so the
+    reader can dump another game's plugin (Fallout 4) without mislabelled fields.
+    """
+    sig, data = sub.type, sub.data
+    generic = context.get('generic', False)
+    out = None if generic else _decode_typed(rec_type, sig, data)
+    if out is None:
+        out = _decode_structural(sig, data, context)
+    if out is None:
+        out = _decode_text(rec_type, sig, data, is_localized)
+    return out if out is not None else _decode_value(sig, data, generic)
 
 
 # ---------------------------------------------------------------------------
@@ -1397,69 +1387,61 @@ _CONTAINER_TYPES = frozenset({'CONT'})
 # Record formatter
 # ---------------------------------------------------------------------------
 
-def format_record(rec: TES5Record, is_localized: bool) -> str:
-    lines = ['---RECORD_BEGIN---']
-    lines.append(f'Signature={rec.type}')
-    lines.append(f'FormID={rec.form_id:08X}')
-
+def _header_lines(rec: TES5Record) -> list:
+    """The record's identity lines: signature, FormID, editor id, flags, form version, parents."""
+    lines = ['---RECORD_BEGIN---', f'Signature={rec.type}', f'FormID={rec.form_id:08X}']
     edid_sub = _get(rec, 'EDID')
     if edid_sub:
         lines.append(f'EditorID={_escape(_zstring(edid_sub.data))}')
+    lines += [f'RecordFlags={rec.flags}', f'FormVersion={rec.form_version}']
+    for label, parent in (('WRLD', rec.parent_wrld), ('CELL', rec.parent_cell),
+                          ('DIAL', rec.parent_dial)):
+        if parent:
+            lines.append(f'Parent{label}={parent:08X}')
+    return lines
 
-    lines.append(f'RecordFlags={rec.flags}')
-    lines.append(f'FormVersion={rec.form_version}')
 
-    if rec.parent_wrld:
-        lines.append(f'ParentWRLD={rec.parent_wrld:08X}')
-    if rec.parent_cell:
-        lines.append(f'ParentCELL={rec.parent_cell:08X}')
-    if rec.parent_dial:
-        lines.append(f'ParentDIAL={rec.parent_dial:08X}')
+def _array_lines(rec: TES5Record, skip_sigs: set) -> tuple:
+    """Skyrim-layout arrays decoded whole: (lines placed before the subrecords, lines after).
 
-    # Collect subs we'll skip (handled elsewhere)
-    skip_sigs: set = {'EDID'}
-
-    # Pre-decode arrays so we can skip those subs in the main loop
-    extra_lines: list = []
-
+    Adds every subrecord they consume to skip_sigs.
+    """
+    before, after = [], []
     if rec.type in _NPC_ONLY_ARRAY_PNAM:
-        extra_lines += _decode_pnam_array(rec)
+        after += _decode_pnam_array(rec)
         skip_sigs.add('PNAM')
-
     if rec.type in _EFFECT_TYPES:
-        extra_lines += _decode_effects(rec)
+        after += _decode_effects(rec)
         skip_sigs.update(('EFID', 'EFIT'))
-
     if rec.type in _LVLLIST_TYPES:
         data_sub = _get(rec, 'DATA')
         if data_sub and data_sub.data:
-            lines.append(f'DATA.Flags={data_sub.data[0]}')
-            lines.append(f'DATA.LvlChance={data_sub.data[1] if len(data_sub.data) > 1 else 0}')
+            chance = data_sub.data[1] if len(data_sub.data) > 1 else 0
+            before += [f'DATA.Flags={data_sub.data[0]}', f'DATA.LvlChance={chance}']
             skip_sigs.add('DATA')
-        extra_lines += _decode_lvlo_array(rec)
+        after += _decode_lvlo_array(rec)
         skip_sigs.add('LVLO')
-
     if rec.type in _CONTAINER_TYPES:
-        extra_lines += _decode_cnto_array(rec)
+        after += _decode_cnto_array(rec)
         skip_sigs.add('CNTO')
+    return before, after
 
-    context: dict = {}
-    prev_ksiz: int = 0
 
+def format_record(rec: TES5Record, is_localized: bool, generic: bool = False) -> str:
+    """One record as a ---RECORD_BEGIN--- block.
+
+    generic skips every Skyrim-specific layout (arrays, typed fields, CTDA
+    names), for plugins of another game such as Fallout4.esm.
+    """
+    lines = _header_lines(rec)
+    skip_sigs = {'EDID'}
+    before, after = ([], []) if generic else _array_lines(rec, skip_sigs)
+    lines += before
+    context = {'generic': generic}
     for sub in rec.subrecords:
-        if sub.type in skip_sigs:
-            continue
-        if sub.type == 'KSIZ':
-            # Track KSIZ for next KWDA — pass through generic decoder which sets context
-            decoded = decode_subrecord(rec.type, sub, is_localized, context)
-            lines.extend(decoded)
-            continue
-        if sub.type == 'KWDA':
-            lines.extend(_dec_kwda(sub.data, context.get('KSIZ', 0)))
-            continue
-        lines.extend(decode_subrecord(rec.type, sub, is_localized, context))
-
-    lines.extend(extra_lines)
+        if sub.type not in skip_sigs:
+            lines.extend(decode_subrecord(rec.type, sub, is_localized, context))
+    lines += after
     lines.append('---RECORD_END---')
     return '\n'.join(lines)
 
@@ -1469,7 +1451,8 @@ def format_record(rec: TES5Record, is_localized: bool) -> str:
 # ---------------------------------------------------------------------------
 
 def export_all(all_records: list, output_dir: str, is_localized: bool,
-               type_filter: set = None):
+               type_filter: set = None, generic: bool = False):
+    """Write one <SIG>.txt per record type into output_dir (generic: see format_record)."""
     by_type = defaultdict(list)
     for rec in all_records:
         if type_filter and rec.type not in type_filter:
@@ -1486,7 +1469,7 @@ def export_all(all_records: list, output_dir: str, is_localized: bool,
 
     for sig in sorted(by_type):
         records = by_type[sig]
-        blocks = [format_record(r, is_localized) for r in records]
+        blocks = [format_record(r, is_localized, generic) for r in records]
         text = '\n\n'.join(blocks) + '\n'
         out_path = os.path.join(output_dir, f'{sig}.txt')
         with open(out_path, 'w', encoding='utf-8') as f:
@@ -1515,7 +1498,8 @@ def export_header_file(header: TES5Record, output_dir: str, is_localized: bool):
 # CLI
 # ---------------------------------------------------------------------------
 
-def main():
+def _parse_args():
+    """The command line."""
     parser = argparse.ArgumentParser(
         description='Read a TES5 ESM/ESP and dump to KEY=VALUE text (one file per record type).')
     parser.add_argument('esm', nargs='?', default=DEFAULT_ESM,
@@ -1529,16 +1513,44 @@ def main():
     parser.add_argument('--formid', nargs='+', metavar='FID',
                         help='Print the record(s) with these FormIDs (hex, load-order '
                              'index ignored) to stdout and exit')
-    args = parser.parse_args()
+    parser.add_argument('--generic', action='store_true',
+                        help='Skip Skyrim-specific field layouts and condition names; '
+                             'for another game\'s plugin (e.g. Fallout4.esm)')
+    return parser.parse_args()
 
+
+def _print_formids(all_records: list, formids: list, is_localized: bool, generic: bool):
+    """Print the records matching formids (low 24 bits, so crash-log ids paste directly)."""
+    wanted = {int(f, 16) & 0x00FFFFFF for f in formids}
+    found = 0
+    for rec in all_records:
+        if rec.form_id & 0x00FFFFFF in wanted:
+            print(format_record(rec, is_localized, generic))
+            print()
+            found += 1
+    if not found:
+        print('No records matched.')
+
+
+def _print_type_counts(all_records: list):
+    """Print each record type with its count."""
+    by_type: dict = defaultdict(int)
+    for r in all_records:
+        by_type[r.type] += 1
+    print(f'\n{"Type":6s}  {"Count":>8s}')
+    print('-' * 18)
+    for sig in sorted(by_type):
+        print(f'{sig:6s}  {by_type[sig]:>8,}')
+
+
+def main():
+    """Dump a plugin to per-type text files, or print selected records or type counts."""
+    args = _parse_args()
     esm_path = args.esm
     if not os.path.isfile(esm_path):
         print(f'ERROR: File not found: {esm_path}', file=sys.stderr)
         sys.exit(1)
-
-    basename    = os.path.basename(esm_path)
-    output_dir  = args.outdir or os.path.join('references', basename)
-    type_filter = set(args.types) if args.types else None
+    output_dir = args.outdir or os.path.join('references', os.path.basename(esm_path))
 
     print(f'Reading {esm_path} ...')
     t0 = time.time()
@@ -1547,32 +1559,15 @@ def main():
     print(f'  Localized strings: {is_localized}')
 
     if args.formid:
-        # Match on the low 24 bits so crash-log FormIDs (load-order prefixed)
-        # can be pasted directly.
-        wanted = {int(f, 16) & 0x00FFFFFF for f in args.formid}
-        found = 0
-        for rec in all_records:
-            if rec.form_id & 0x00FFFFFF in wanted:
-                print(format_record(rec, is_localized))
-                print()
-                found += 1
-        if not found:
-            print('No records matched.')
+        _print_formids(all_records, args.formid, is_localized, args.generic)
         return
-
     if args.list_types:
-        by_type: dict = defaultdict(int)
-        for r in all_records:
-            by_type[r.type] += 1
-        print(f'\n{"Type":6s}  {"Count":>8s}')
-        print('-' * 18)
-        for sig in sorted(by_type):
-            print(f'{sig:6s}  {by_type[sig]:>8,}')
+        _print_type_counts(all_records)
         return
-
     print(f'Output directory: {output_dir}')
     export_header_file(header, output_dir, is_localized)
-    export_all(all_records, output_dir, is_localized, type_filter)
+    export_all(all_records, output_dir, is_localized,
+               set(args.types) if args.types else None, args.generic)
     print('Done.')
 
 

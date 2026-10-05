@@ -1083,15 +1083,7 @@ class PluginWriter:
         total_count = sum(count_records_and_groups(b) for b in group_blobs)
         overridden = self._collect_overridden_temporary(group_blobs)
 
-        header = pack_tes4_header(
-            self.masters,
-            num_records=total_count,
-            next_object_id=self._high_water_id(),
-            author=self.author,
-            description=self.description,
-            is_esm=self.is_esm,
-            overridden_forms=overridden,
-        )
+        header = self._pack_header(total_count, overridden, group_blobs)
 
         # LCTN's reference arrays are derived from the CELL/WRLD bytes, so they
         # are built here rather than in locations.py (which runs before any ref
@@ -1125,6 +1117,18 @@ class PluginWriter:
                 f"Cannot write to '{filepath}': file is locked (is it open in xEdit or Skyrim?). "
                 f"Original error: {e}"
             ) from e
+
+    def _pack_header(self, total_count: int, overridden: list, group_blobs: list) -> bytes:
+        """The file header record; a writer for another game overrides this."""
+        return pack_tes4_header(
+            self.masters,
+            num_records=total_count,
+            next_object_id=self._high_water_id(),
+            author=self.author,
+            description=self.description,
+            is_esm=self.is_esm,
+            overridden_forms=overridden,
+        )
 
     def _group_order(self) -> list:
         """Canonical top-level group ordering for TES5.
