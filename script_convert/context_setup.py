@@ -16,6 +16,7 @@ from output_layout import assets_for
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.message_menus import build_chargen_menus
 from script_convert.ownership import read_owned, sibling_owned
+from script_convert.target import is_fallout4
 from tes5_import.base.mesh_bounds import load_mesh_bounds
 from tes5_import.base.text_reader import parse_export_file
 from tes5_import.dialogue.converter import service_menu_kind
@@ -82,11 +83,11 @@ def load_bounds_cache(export_dir: str) -> str:
     return cache
 
 
-def _static_script_names() -> list:
-    """The .psc files shipped in static_scripts/."""
-    if not os.path.isdir(_STATIC_DIR):
-        return []
-    return [n for n in os.listdir(_STATIC_DIR) if n.endswith('.psc')]
+def _static_scripts() -> dict:
+    """{name: path} of static .psc for the target; fallout4/ overrides on FO4."""
+    dirs = [_STATIC_DIR] + ([os.path.join(_STATIC_DIR, 'fallout4')] if is_fallout4() else [])
+    return {n: os.path.join(d, n) for d in dirs if os.path.isdir(d)
+            for n in os.listdir(d) if n.endswith('.psc')}
 
 
 def deploy_static_scripts(export_dir: str, output_dir: str,
@@ -97,11 +98,11 @@ def deploy_static_scripts(export_dir: str, output_dir: str,
     (`shared`) is never purged.
     See: docs/commentary/script_convert.md#static-scripts-ownership
     """
-    names = _static_script_names()
+    sources = _static_scripts()
+    names = list(sources)
     if not masters_from_export_header(export_dir):
-        for name in names:
-            shutil.copy2(os.path.join(_STATIC_DIR, name),
-                         os.path.join(output_dir, name))
+        for name, path in sources.items():
+            shutil.copy2(path, os.path.join(output_dir, name))
         return [name[:-4] for name in names]
     print('  Static scripts: skipped (owned by this plugin\'s master)')
     for name in (n for n in names if n[:-4] not in shared):

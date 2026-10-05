@@ -29,6 +29,7 @@ from script_convert.context_setup import (
     load_records, prepare_output_dir, quest_edids_by_fid,
     service_menu_topics, topic_unlock_globals)
 from script_convert.ownership import owner_key, write_owned
+from script_convert import target
 from script_convert.message_menus import build_message_plan
 from script_convert.commands_falloutnv import (quest_objective_indices,
                                                set_quest_objectives)
@@ -1261,7 +1262,10 @@ def main():
     parser.add_argument('-o', '--output', default=None,
                         help='Output dir for .psc files (default: output/oblivion.esm/scripts/source)')
     parser.add_argument('--workers', type=int, default=None, help='Worker threads')
+    parser.add_argument('--target', choices=(target.SKYRIM, target.FALLOUT4), default=target.SKYRIM,
+                        help='game to emit Papyrus for')
     args = parser.parse_args()
+    target.set_target(args.target)
 
     output_dir = args.output
     if output_dir is None:

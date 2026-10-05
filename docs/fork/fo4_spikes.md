@@ -355,9 +355,40 @@ script uses, so Doc compiles while helper bodies still fail. Compiled alone,
 | `TES4_BoundItemEffect` | SKSE `GetEquippedArmorInSlot` |
 | `TES4_Terminal` | one actor-value read |
 
-Not yet done: the 7 helpers, the pipeline (FO4 static-script set, FO4 VMAD,
-filling `TES4AV_*` and `TES4PlayerControls`), and re-running the 199-script
-sample under the FO4 target.
+Not yet done: the 7 helpers, the pipeline (FO4 VMAD, filling `TES4AV_*` and
+`TES4PlayerControls`).
+
+### <a id="spike-3-gate"></a>The corpus compile gate
+
+```bash
+py -3.14 -m script_convert.pipeline export/FalloutNV.esm -o temp/fo4_scripts/FalloutNV.esm --target fallout4
+py -3.14 tools/script/compile_papyrus.py --game fallout4 --src temp/fo4_scripts/FalloutNV.esm --out temp/fo4_pex --baseline tools/script/fo4_compile_baseline.json
+```
+
+The pipeline converts every FNV script for Fallout 4 (the FO4 helper set:
+`static_scripts/fallout4/` adds to and replaces `static_scripts/`). The
+compile uses FO4's own compiler, one `-all` batch per worker, and splits
+failures into files with their own errors and files that fail only through a
+script they use. Error kinds fold converted script names to `<script>` and
+keep native names, so a missed Skyrim call shows up by name. Against the
+baseline it exits 1 when more files fail or an error kind grows or is new;
+`--write-baseline` records an improvement.
+
+**First full run (2026-10-05):** 19,552 scripts converted with 0 errors
+(17,697 files); **16,640 compile (94.0%)**. All 1,057 failures are their own
+errors (none only through a helper), by file:
+
+| Files | Error | Cause |
+|---|---|---|
+| 804 | `SendModEvent` | SKSE mod events (8 command rows) |
+| 90 | `OnTrigger` | FO4 has no such event |
+| 86 | `SetDontMove` | no FO4 native |
+| 49 | `EnableFastTravel` | on `InputEnableLayer` in FO4, not `Game` |
+| 11 | `OnDeath` on a script FO4 cannot give it | to read |
+| ~15 | singles: a fragment parse error, `HasLOS`, `OnMagicEffectApply` parameters, a modulus of floats, an enchantment cast | to read |
+| 7 | the 7 helpers above | listed |
+
+Baseline: `tools/script/fo4_compile_baseline.json`.
 
 ## <a id="spike-2"></a>Spike 2: one interior cell
 

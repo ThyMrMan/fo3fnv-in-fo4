@@ -1,40 +1,60 @@
 #!/usr/bin/env python3
-"""
-Compile Papyrus .psc scripts and report categorized error statistics.
+"""Compile converted Papyrus .psc scripts and report categorized error statistics.
 
 Usage:
     python tools/script/compile_papyrus.py [--src DIR] [--out DIR] [--headers DIR]
-    python tools/script/compile_papyrus.py --errors-detail  # Show first failing file per error category
+    python tools/script/compile_papyrus.py --errors-detail  # first failing file per error category
+
+    # Fallout 4 (the corpus from `script_convert.pipeline --target fallout4`):
+    python tools/script/compile_papyrus.py --game fallout4 --src temp/fo4_scripts/FalloutNV.esm \\
+        --out temp/fo4_pex --baseline tools/script/fo4_compile_baseline.json
+
+Fallout 4 compiles with the game's own PapyrusCompiler.exe against F4SE then
+Base, in one `-all` batch per worker over chunk folders, and reports each
+failing file's own errors apart from files that fail only through a script
+they use. `--baseline` makes it a gate: more failing files, or any error kind
+that grows or is new, exits 1; `--write-baseline` records the current run.
+
+See: docs/fork/fo4_spikes.md#spike-3-gate
 """
 import argparse
 import collections
 import concurrent.futures
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
-from core.subprocess_flags import windows_cmd
+from core.subprocess_flags import POPEN_FLAGS, windows_cmd
+
+FO4_COMPILER = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Papyrus Compiler\PapyrusCompiler.exe')
+FO4_HEADERS = _PROJECT_ROOT / 'references' / 'fo4_scripts'
+#: One FO4 compiler diagnostic: `<path>\<Script>.psc(line,col): message`.
+_FO4_LINE = re.compile(r'[\\/](\w+)\.psc\(\d+,\d+\): (.+)')
+#: Converted script names, folded so one missed construct is one error kind.
+_CONVERTED_NAME = re.compile(r'\b(?:falloutnv|fallout3|tes4)_\w+', re.I)
+
 
 def find_compiler():
+    """The vendored Skyrim papyrus.exe."""
     p = _PROJECT_ROOT / 'external' / 'papyrus-compiler' / 'papyrus.exe'
     if p.exists():
         return str(p)
     raise FileNotFoundError('papyrus.exe not found')
 
+
 def find_skyrim_headers():
     """The vanilla .psc headers, via the pipeline's own lookup.
 
     Shared with the compile phase so this tool cannot disagree with a real
-    build about where the headers are -- it also covers the Data/Scripts/Source
-    layout and unpacks Data/Scripts.zip on CK builds that ship the sources only
-    as that archive.  Off Windows, where winreg does not exist, that lookup
-    resolves the install from conversion_config.json's tes5DataPath instead.
+    build about where the headers are; off Windows it resolves the install
+    from conversion_config.json's tes5DataPath.
     """
-    sys.path.insert(0, str(_PROJECT_ROOT))
     from convert import load_config
     from papyrus_compile import find_skyrim_source_scripts
     try:
@@ -44,81 +64,179 @@ def find_skyrim_headers():
     headers = find_skyrim_source_scripts(cfg)
     if headers:
         return headers
-    # Fallback for a non-registry (manually copied) install.
     p = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\Source\Scripts')
     if (p / 'Debug.psc').exists():
         return str(p)
     raise FileNotFoundError('Cannot find Skyrim papyrus headers')
 
+
 def compile_one(args):
+    """('ok'|'err', error key, raw error, file name) for one file with the Skyrim compiler."""
     f, compiler, out_dir, headers, polyfill_dir = args
     cmd = [compiler, 'compile', '-i', str(f), '-o', str(out_dir), '-h', headers]
     for extra in (polyfill_dir or '').split(';'):
         if extra:
             cmd.extend(['-h', extra])
     r = subprocess.run(windows_cmd(cmd), capture_output=True, text=True, timeout=15)
-    if r.returncode != 0:
-        combined = r.stdout + '\n' + r.stderr
-        for line in combined.split('\n'):
-            m = re.search(r'error:\s*(.+)', line)
-            if m:
-                raw = m.group(1).strip()
-                key = re.sub(r'\d+', 'N', raw)
-                key = re.sub(r"'[^']*'", 'X', key)
-                return ('err', key, raw, f.name)
-        return ('err', 'UNKNOWN', combined[:200], f.name)
-    return ('ok', None, None, f.name)
+    if r.returncode == 0:
+        return ('ok', None, None, f.name)
+    combined = r.stdout + '\n' + r.stderr
+    for line in combined.split('\n'):
+        m = re.search(r'error:\s*(.+)', line)
+        if m:
+            raw = m.group(1).strip()
+            key = re.sub(r"'[^']*'", 'X', re.sub(r'\d+', 'N', raw))
+            return ('err', key, raw, f.name)
+    return ('err', 'UNKNOWN', combined[:200], f.name)
 
-def main():
-    parser = argparse.ArgumentParser(description='Compile Papyrus scripts')
-    parser.add_argument('--src', default=str(_PROJECT_ROOT / 'output' / 'oblivion.esm' / 'scripts' / 'source'))
-    parser.add_argument('--out', default=str(_PROJECT_ROOT / 'temp' / 'pex'))
-    parser.add_argument('--headers', default=None)
-    parser.add_argument('--extra-headers', default=None,
-                        help='additional header dir (e.g. output/<plugin>/scripts/source '
-                             'when compiling a subset that names other converted types)')
-    parser.add_argument('--errors-detail', action='store_true', help='Show sample file per error category')
-    parser.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 4) - 1))
-    args = parser.parse_args()
 
+def compile_skyrim(args) -> tuple:
+    """(ok count, total, Counter of error keys, {key: (raw, file)}) for the Skyrim compiler."""
     compiler = find_compiler()
     headers = args.headers or find_skyrim_headers()
     src_dir = Path(args.src)
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # Use polyfill dir so scripts can import TES4Polyfill
     polyfill_dir = str(src_dir) if (src_dir / 'TES4Polyfill.psc').exists() else None
     if args.extra_headers:
         polyfill_dir = f'{polyfill_dir};{args.extra_headers}' if polyfill_dir else args.extra_headers
-
     files = sorted(src_dir.glob('*.psc'))
     print(f'Compiling {len(files)} files with {args.workers} workers...')
-
-    errors = collections.Counter()
-    error_samples = {}  # key -> (raw_error, filename)
-    ok = 0
-    work = [(f, compiler, str(out_dir), headers, polyfill_dir) for f in files]
-
+    errors, samples, ok = collections.Counter(), {}, 0
+    work = [(f, compiler, str(args.out), headers, polyfill_dir) for f in files]
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
         for status, key, raw, fname in ex.map(compile_one, work):
             if status == 'ok':
                 ok += 1
             else:
                 errors[key] += 1
-                if key not in error_samples:
-                    error_samples[key] = (raw, fname)
+                samples.setdefault(key, (raw, fname))
+    return ok, len(files), errors, samples
 
-    total = len(files)
-    print(f'\nOK: {ok}/{total} ({ok*100/total:.1f}%)')
-    print(f'Failed: {total - ok}')
-    print()
 
-    for key, count in errors.most_common(40):
+def fo4_key(message: str) -> str:
+    """An FO4 diagnostic as an error kind: converted script names and numbers folded."""
+    return re.sub(r'\d+', 'N', _CONVERTED_NAME.sub('<script>', message))
+
+
+def _fo4_batch(chunk: Path, out_dir: Path, imports: str) -> str:
+    """Compile every .psc in `chunk` with FO4's compiler; its combined output."""
+    r = subprocess.run([str(FO4_COMPILER), str(chunk), '-all', '-q', f'-i={imports}', f'-o={out_dir}',
+                        '-f=Institute_Papyrus_Flags.flg'],
+                       capture_output=True, text=True, cwd=str(out_dir), **POPEN_FLAGS)
+    return r.stdout + r.stderr
+
+
+def _fo4_chunks(files: list, out_dir: Path, workers: int) -> list:
+    """Copy `files` round-robin into `workers` chunk folders under out_dir; the folders."""
+    root = out_dir / '_chunks'
+    if root.exists():
+        shutil.rmtree(root)
+    chunks = [root / str(n) for n in range(min(workers, len(files)))]
+    for i, f in enumerate(files):
+        chunks[i % len(chunks)].mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, chunks[i % len(chunks)] / f.name)
+    return chunks
+
+
+def compile_fallout4(args) -> tuple:
+    """(compiled names, {file: [own error messages]}, source names) with FO4's compiler."""
+    src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
+    headers = args.headers or f'{FO4_HEADERS / "F4SE"};{FO4_HEADERS / "Base"}'
+    files = sorted(src_dir.glob('*.psc'))
+    chunks = _fo4_chunks(files, out_dir, args.workers)
+    print(f'Compiling {len(files)} files with FO4\'s compiler in {len(chunks)} batches...')
+    imports = f'{headers};{src_dir}'
+    own = collections.defaultdict(list)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(chunks)) as ex:
+        for text in ex.map(lambda c: _fo4_batch(c, out_dir, imports), chunks):
+            for m in _FO4_LINE.finditer(text):
+                if m.group(2) not in own[m.group(1)]:
+                    own[m.group(1)].append(m.group(2))
+    shutil.rmtree(out_dir / '_chunks')
+    compiled = {p.stem.lower() for p in out_dir.glob('*.pex')}
+    return compiled, dict(own), [f.stem for f in files]
+
+
+def fo4_summary(compiled: set, own: dict, names: list) -> dict:
+    """{'files', 'compiled', 'own_errors', 'dependency_only', 'kinds': {kind: files}, 'samples'}."""
+    sources = {n.lower() for n in names}
+    failing = {n for n in names if n.lower() not in compiled}
+    kinds, samples = collections.Counter(), {}
+    for name, messages in own.items():
+        if name.lower() not in sources:
+            continue
+        for kind in {fo4_key(m) for m in messages}:
+            kinds[kind] += 1
+            samples.setdefault(kind, f'{name}: {next(m for m in messages if fo4_key(m) == kind)}')
+    with_errors = {n for n in failing if own.get(n)}
+    return {'files': len(names), 'compiled': len(names) - len(failing), 'own_errors': len(with_errors),
+            'dependency_only': len(failing - with_errors), 'kinds': dict(kinds.most_common()), 'samples': samples}
+
+
+def gate(summary: dict, baseline_path: Path) -> list:
+    """What got worse than the baseline: more failing files, or an error kind that grew or is new."""
+    base = json.loads(baseline_path.read_text(encoding='utf-8'))
+    worse = []
+    if summary['files'] - summary['compiled'] > base['files'] - base['compiled']:
+        worse.append(f"failing files {base['files'] - base['compiled']} -> {summary['files'] - summary['compiled']}")
+    for kind, n in summary['kinds'].items():
+        if n > base['kinds'].get(kind, 0):
+            worse.append(f"{base['kinds'].get(kind, 0)} -> {n}  {kind}")
+    return worse
+
+
+def report_fallout4(args) -> int:
+    """Compile with FO4's compiler, print the summary, apply the baseline gate; the exit code."""
+    summary = fo4_summary(*compile_fallout4(args))
+    print(f"\nOK: {summary['compiled']}/{summary['files']} "
+          f"({summary['compiled'] * 100 / max(summary['files'], 1):.1f}%)")
+    print(f"Failing on their own code: {summary['own_errors']}; only through a script they use: "
+          f"{summary['dependency_only']}\n")
+    for kind, n in list(summary['kinds'].items())[:args.top]:
+        print(f'{n:6d}  {kind}')
+        if args.errors_detail:
+            print(f"        -> {summary['samples'][kind]}")
+    if args.write_baseline:
+        Path(args.write_baseline).write_text(
+            json.dumps({k: v for k, v in summary.items() if k != 'samples'}, indent=1) + '\n', encoding='utf-8')
+        print(f'\nbaseline written: {args.write_baseline}')
+    worse = gate(summary, Path(args.baseline)) if args.baseline else []
+    for line in worse:
+        print(f'WORSE  {line}')
+    return 1 if worse else 0
+
+
+def report_skyrim(args) -> int:
+    """Compile with the vendored Skyrim compiler and print the summary; 0."""
+    ok, total, errors, samples = compile_skyrim(args)
+    print(f'\nOK: {ok}/{total} ({ok * 100 / max(total, 1):.1f}%)')
+    print(f'Failed: {total - ok}\n')
+    for key, count in errors.most_common(args.top):
         print(f'{count:5d}  {key}')
-        if args.errors_detail and key in error_samples:
-            raw, fname = error_samples[key]
+        if args.errors_detail:
+            raw, fname = samples[key]
             print(f'       -> {fname}: {raw}')
+    return 0
+
+
+def main():
+    """Parse the command line and run the compile for the chosen game."""
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument('--game', choices=('skyrim', 'fallout4'), default='skyrim')
+    parser.add_argument('--src', default=str(_PROJECT_ROOT / 'output' / 'oblivion.esm' / 'scripts' / 'source'))
+    parser.add_argument('--out', default=str(_PROJECT_ROOT / 'temp' / 'pex'))
+    parser.add_argument('--headers', default=None, help='header dirs (Fallout 4: F4SE;Base by default)')
+    parser.add_argument('--extra-headers', default=None,
+                        help='Skyrim: additional header dir (e.g. output/<plugin>/scripts/source '
+                             'when compiling a subset that names other converted types)')
+    parser.add_argument('--errors-detail', action='store_true', help='Show sample file per error category')
+    parser.add_argument('--top', type=int, default=40, help='error kinds to print')
+    parser.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 4) - 1))
+    parser.add_argument('--baseline', help='Fallout 4: fail when worse than this baseline JSON')
+    parser.add_argument('--write-baseline', help='Fallout 4: record this run as the baseline JSON')
+    args = parser.parse_args()
+    Path(args.out).mkdir(parents=True, exist_ok=True)
+    sys.exit(report_fallout4(args) if args.game == 'fallout4' else report_skyrim(args))
+
 
 if __name__ == '__main__':
     main()
