@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from fo4_import.spike import dialogue as D
 from fo4_import.spike import records as R
+from fo4_import.spike import voice as V
 
 
 def _flags(value: int) -> dict:
@@ -40,3 +41,15 @@ def test_menu_scene_ends_when_the_speaker_is_out_of_dialogue_range():
     op, value, func, p1, _, run_on, _, alias = struct.unpack('<B3xfH2xIIIIi', ctda)
     assert (op, value, func, p1, run_on, alias) == (R.OP_GREATER, R.DIALOGUE_DISTANCE, R.FUNC_GET_DISTANCE,
                                                     R.PLAYER, R.RUN_QUEST_ALIAS, 0)
+
+
+def test_voice_job_names_the_fuz_by_plugin_voice_type_and_info(tmp_path):
+    """An FNV recording of a line goes to Sound/Voice/<plugin>/<voice type>/<INFO id 00xxxxxx>_<n>.fuz."""
+    folder = tmp_path / 'maleuniquedocmitchell'
+    folder.mkdir()
+    (folder / 'vfreeformg_vfreeformgoodsp_00107495_1.ogg').write_bytes(b'')
+    rec = {'FormID': '00107495', 'ResponseCount': '1', 'Response[0].ResponseNumber': '1',
+           'Response[0].ResponseText': '[SUCCEEDED] Of course.'}
+    jobs = V.jobs([(0x02000869, rec)], [(folder, 'NPCMDocWeathers')], tmp_path / 'Data', 'Spike.esp')
+    assert [(j[1].relative_to(tmp_path).as_posix(), j[2]) for j in jobs] == [
+        ('Data/Sound/Voice/Spike.esp/NPCMDocWeathers/00000869_1.fuz', ' Of course.')]

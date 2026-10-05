@@ -158,6 +158,7 @@ A shared topic like `DoctorMedical` still keys each line to one doctor.
 | Walking away (FNV has no equivalent; a talk always starts fresh) | The `Menu` phase completes on `GetDistance(Player) > 500` run on the alias, the same 500 as the scene's dialogue distance (`ACTV`). Without it the scene waited, and the menu reopened when the player came back. 127 vanilla phases end on a `GetDistance` this way |
 | `GetPCIsSex` | `GetIsSex` run on the player reference |
 | A speaker with no FNV greeting | A silent `...` greeting, last in the topic (FNV opens the topic list without one) |
+| Only the player opens a talk (FNV NPCs do it only by force greet) | Every greeting line needs `GetPlayerActivated == 1` on the speaker, as 71 vanilla scene greetings have. Without it an NPC idling near the player said the greeting unasked, and it started the menu. A converted force greet will need a greeting without it |
 | A condition settled by the test world | A speaker test naming no test speaker is false; a null form parameter is false (FNV's `GetInCell(NULL)` makes Doctor Barrows' `DoctorMedical` lines unplayable in FNV itself) |
 
 **Test world.** Doc Mitchell → Doc Weathers; Doctor Barrows → Doctor Amari
@@ -169,7 +170,11 @@ stand in `QASmoke`. Two stand-in traps:
   packages or only `DefaultSandboxInteriorUnlockDoors`;
 - a faction listed at rank -1 (`FF`) is not membership. The vendor's
   `WorkshopVendorFactionBar` is -1 until a settlement assigns him, so
-  `GetInFaction` failed and his vanilla greeting played.
+  `GetInFaction` failed and his vanilla greeting played;
+- a stand-in keeps its own vanilla dialogue. Once ours needs the player to
+  start the talk, Doc Weathers greets unasked with `DialogueGenericDoctors`'
+  scene greetings, which have no activation check. Converted NPCs have no
+  vanilla dialogue, so this is test-only.
 
 **Played (2026-10-05), passed:**
 - each speaker sees only their own options, all from one scene;
@@ -182,6 +187,53 @@ Also fixed on the way: `tools/generators/gen_ctda_param_types.py` missed 108
 of FO4's parameter types, because xEdit's FO4 file spells `Paramtype` in 100
 entries. The match is now case-insensitive; the TES5, FNV, FO3 and TES4 tables
 come out identical.
+
+### <a id="spike-1-voice"></a>Voice
+
+`--data <Data folder>` also writes the lines' voice (`fo4_import/spike/voice.py`).
+
+- **Path:** FO4 finds a line at
+  `Sound\Voice\<plugin>\<speaker's voice type>\<INFO FormID, load-order byte 00>_<n>.fuz`
+  (the vanilla `Fallout4 - Voices.ba2` names its files the same way).
+- **Source:** FNV files are `<quest>_<topic>_<INFO id>_<n>.ogg` in the
+  speaker's voice-type folder. Each speaker maps that folder to the stand-in's
+  FO4 voice type (`VOICES`), and a line gets a file wherever FNV recorded it.
+- **Conversion:** the shared `convert_file_to_xwm` with the FO4 CK's own
+  `Tools\LipGen\LipGenerator\` `LipGenerator.exe` and `xWMAEncode.exe` (same
+  command line as Skyrim's). The `.fuz` is the same `FUZE` v1 container, and
+  the lip header matches vanilla's.
+- **Transcript:** response text with bracketed tags (`[SUCCEEDED]`) removed;
+  the subtitles keep them, as FNV's do.
+
+Built 2026-10-05: 41 files, 40 on Doc's lines and 1 on Barrows'. FNV has no
+recordings for `HD00`'s robot butler lines. **Played:** Doc speaks in Doc
+Mitchell's voice with moving lips.
+
+### <a id="spike-1-force-greet"></a>Force greet (designed, not built)
+
+FO3/FNV force greets play the same GREETING lines the player gets by
+talking. FO3's Amata: `CG04AmataForceGreet` is a Dialogue package targeting
+the player (`00000014`, 150 units) with type Conversation and no topic, so it
+opens with her stage-conditioned greetings (`MS16AmataGreetPlayer` and
+`CG02AmataGreetPlayerBeginning` look like the same kind by name).
+
+Every generated greeting needs `GetPlayerActivated == 1`, which would leave a
+converted force greet with nothing to say. Plan:
+
+- the greeting check becomes `GetPlayerActivated == 1` **OR**
+  `GetIsCurrentPackage(<FO4 copy of one of the speaker's force-greet packages>)`
+  on the speaker, taken from the package records. Unprompted NPCs stay
+  blocked; only authored grabs open a talk;
+- the FO3/FNV Dialogue package becomes an FO4 force-greet package
+  (`BGSProcedureForceGreet` exists);
+- records only, no DLL.
+
+Open, for a play-test (a FO3 force greet like Amata's is the natural spike-1
+force-greet test):
+- [R10](research/fo4_target.md#ai-rules): FO4's greet probably lasts until the
+  talk ends, as FO3's does, so the package would still be current when the
+  greeting is picked. Unconfirmed;
+- whether `GetIsCurrentPackage` holds at that moment.
 
 **Follow-up: one place for the way out.** Today Goodbye sits where its topic
 falls (first on the main menu) and `[Leave]` is always last, so the exit moves

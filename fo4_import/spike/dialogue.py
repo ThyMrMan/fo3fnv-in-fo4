@@ -1,6 +1,6 @@
 """Spike 1: FNV conversations as XDI scenes in an FO4 plugin, for any number of speakers.
 
-    py -3.14 -m fo4_import.spike.dialogue --export <FalloutNV.esm export> --out <plugin.esp>
+    py -3.14 -m fo4_import.spike.dialogue --export <FalloutNV.esm export> --out <plugin.esp> [--data <Data>]
 
 One quest with one optional, empty alias; every greeting line forces its
 speaker into it (INFO ALFA, as vanilla DialogueGenericDoctors does) and starts
@@ -20,6 +20,7 @@ from pathlib import Path
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest, pack_topic
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from fo4_import.spike import voice
 from tes5_import.base.tes5_reader import walk
 from tes5_import.base.text_reader import parse_export_file
 
@@ -29,6 +30,10 @@ SPEAKERS = (
     ('DoctorBarrows', 0x0156F0, 0x09A680, (-1827.0, -1591.0, 0.0), (0.0, 0.0, 0.79)),
     ('RoboButler', None, 0x192356, (-2037.0, -1377.0, 0.0), (0.0, 0.0, 0.79)),
 )
+#: Speaker -> (FNV voice folder, stand-in's FO4 voice type). HD00's robot butler lines have no FNV recordings.
+VOICES = {'DocMitchell': ('maleuniquedocmitchell', 'NPCMDocWeathers'),
+          'DoctorBarrows': ('malegenericghoul', 'NPCFDoctorAmari'),
+          'RoboButler': ('robotmisterhandy', 'MaleEvenToned')}
 #: FNV faction -> FO4 faction the stand-in is in at rank >= 0 (HD00RoboButler -> REMerchantBarVendorFaction).
 FACTIONS = {0x7F47B: 0x1B2C19}
 #: The last option of every menu, standing in for FNV's Tab exit (XDI's menu swallows Tab).
@@ -163,6 +168,7 @@ class Spike:
         self.fo4_avs = {r.get('EditorID'): int(r['FormID'], 16) for r in parse_export_file(str(FO4_AVIF_DUMP))}
         self.form_map = {**{s[1]: s[2] for s in SPEAKERS if s[1]}, **FACTIONS, **{f: f for f in SAME_IN_FO4}}
         self.scenes, self.topics, self.choice_scenes, self.scene_records = [], [], {}, []
+        self.voiced = []
 
     def stage(self, key) -> int:
         """The quest stage for key (added topic or said line); made on first use."""
@@ -274,7 +280,9 @@ class Spike:
             self.report.append(f"INFO {rec['FormID']}: result script not converted")
         lines = [rec[f'Response[{i}].ResponseText'] for i in range(_int(rec, 'ResponseCount'))]
         enam = (R.INFO_SAY_ONCE if flags & SAY_ONCE else 0) | (R.INFO_END_SCENE if flags & GOODBYE else 0)
-        return R.pack_info(self.ids.take(), enam, tuple(lines) or ('...',),
+        fid = self.ids.take()
+        self.voiced.append((fid, rec))
+        return R.pack_info(fid, enam, tuple(lines) or ('...',),
                            C.convert(kept, self.form_map, self.av, False),
                            scene=scene, phase='Menu' if scene else '', stages=(begin, end),
                            notes=f"FNV {rec['FormID']}", forced_alias=0 if forced_alias else None)
@@ -359,17 +367,20 @@ class Spike:
 
         A speaker with no FNV greeting gets a silent one last ('...'): FNV
         opens the topic list without a greeting, FO4 needs a line to start it.
+        Every line needs GetPlayerActivated, as 71 vanilla scene greetings do,
+        or a speaker idling near the player opens the talk unasked.
         """
         infos, greeted = [], set()
+        activated = [[_cond('GetPlayerActivated', 0, 1.0)]]
         for rec in self.infos.get(GREETING, []):
             kept = self.kept(rec)
             if kept is not None:
-                infos.append(self.npc_info(rec, kept, self.main, forced_alias=True))
+                infos.append(self.npc_info(rec, kept + activated, self.main, forced_alias=True))
                 greeted |= {c['p1'] for g in kept for c in g if c['func'] == 'GetIsID'}
         for label, npc, base, _, _ in SPEAKERS:
             if npc and npc not in greeted:
                 self.report.append(f'{label}: no FNV greeting; silent fallback greeting added')
-                conds = C.convert([[_cond('GetIsID', 0, 1.0, npc)]], self.form_map, self.av, False)
+                conds = C.convert([[_cond('GetIsID', 0, 1.0, npc)]] + activated, self.form_map, self.av, False)
                 infos.append(R.pack_info(self.ids.take(), 0, ('...',), conds, scene=self.main,
                                          phase='Menu', forced_alias=0))
         fid = self.ids.take()
@@ -412,8 +423,15 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
     ap.add_argument('--out', required=True, help='Plugin to write')
+    ap.add_argument('--data', help='Also write the voice files (.fuz) under this Data folder')
     args = ap.parse_args()
     spike = build(Path(args.export), Path(args.out))
+    if args.data:
+        folders = Path(args.export) / 'sound' / 'voice' / 'falloutnv.esm'
+        voices = [(folders / fnv, fo4) for fnv, fo4 in VOICES.values()]
+        todo = voice.jobs(spike.voiced, voices, Path(args.data), Path(args.out).name)
+        written = voice.convert(todo, Path(FALLOUT4_ESM).parents[1] / 'Tools' / 'LipGen' / 'LipGenerator')
+        print(f'voice: {written} of {len(todo)} recordings written as .fuz')
     for fid, edid, variants, prompts in spike.scenes:
         print(f'{edid} ({fid:08X}): {len(prompts)} options')
         for text, n in zip(prompts, variants):
