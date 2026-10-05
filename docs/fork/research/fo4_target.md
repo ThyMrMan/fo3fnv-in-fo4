@@ -79,7 +79,7 @@ Paths are relative to `C:\Program Files (x86)\Steam\steamapps\common\Fallout 4`.
 | DLC | All six, plus the HD texture pack and nine Creation Club `.esl` files |
 | Tools | Archive2 1.1.0.5, Elric (`Tools\Elric\Elrich.exe`), LipGen + LIPFuzer, xWMAEncode, MaterialEditor, the 3ds Max NIF exporter, Papyrus compiler 2.8.0.4 |
 | Script sources | Zipped: `Data\Scripts\Source\Base\Base.zip` (7,874 entries, with `Institute_Papyrus_Flags.flg`) plus a DLC zip each. The F4SE `.psc` files sit loose in `Data\Scripts\Source\`, outside the CK's import paths |
-| References | FO4 CK wiki and xEdit's `wbDefinitionsFO4.pas`, both in `tes4skyrim_main\references` |
+| References | In `references\` (gitignored). Held here: the FO4 CK wiki, FO4Edit 4.1.5f, LevelUpMenuEx. Junctions to the shared Fallout references in `tes4skyrim_main\references` ([CLAUDE.md](../../../CLAUDE.md)). xEdit's `wbDefinitionsFO4.pas` is in `references\xEdit\Core`; NifSkope 2.0.dev11, with its FO4 `nif.xml`, is in `references\NifSkope` |
 
 The runtime is very new (August 2026). Mods and CommonLibF4 lag behind new
 runtimes, so a downgrade may be needed later, as Skyrim was taken back to
@@ -231,7 +231,7 @@ Library are for Skyrim. The question is how many more to add.
 ### <a id="levelupmenuex"></a>LevelUpMenuEx, read
 
 Read 2026-10-05 from the copy in
-`tes4skyrim_main\references\LevelUpMenuEx` (`PRKF.dll`, built
+`references\LevelUpMenuEx` (`PRKF.dll`, built
 2026-09-06, the 1.11.240 release), from its Papyrus source
 `Scripts\Source\User\PRKF\PRKF.psc`, its INI and MCM files, and the DLL's
 strings and INI loader. It finds the game's functions by signature scan, not

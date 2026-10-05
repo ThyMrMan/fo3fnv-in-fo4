@@ -10,6 +10,15 @@
 > inherited files while `standalone` is still merged in, because each
 > deletion conflicts on every merge. Remotes: `origin` (this repo),
 > `tes4skyrim` (the Skyrim fork), `upstream` (bryantmh).
+>
+> 🛑 **`references\` holds junctions.** Ten entries are junctions into
+> `C:\Coding\tes4skyrim\tes4skyrim_main\references`, shared with the Skyrim
+> fork: `FalloutWiki`, `GECKWiki_110829`, `FO3_Guide`, `FNV_Guide`, `xNVSE`,
+> `JIP-LN-NVSE`, `FOSE`, `xEdit`, `UESP`, `NifSkope`. Deleting this clone or
+> `references\` recursively follows them and deletes the real files. First
+> `os.rmdir()` each junction (or `cmd /c rmdir <link>`, never `/s`), then
+> delete. Real folders here (FO4 only): the FO4 CK wiki, `FO4Edit 4.1.5f`,
+> `LevelUpMenuEx`.
 
 Convert TES4 (Oblivion) master/plugin files to TES5 (Skyrim) format.
 
