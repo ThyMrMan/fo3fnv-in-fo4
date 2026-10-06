@@ -142,6 +142,18 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') ->
     return pack_fo4_record('ACHR', fid, 0x400, subs + pack_subrecord('DATA', data))
 
 
+def pack_refr(fid: int, base: int, pos: tuple, rot: tuple) -> bytes:
+    """A persistent placed object: base, position, rotation."""
+    data = pack_subrecord('DATA', struct.pack('<6f', *pos, *rot))
+    return pack_fo4_record('REFR', fid, 0x400, _u32('NAME', base) + data)
+
+
+def pack_stat(fid: int, edid: str, model: str, bounds: tuple) -> bytes:
+    """A static: bounds, model under Meshes, ClutterGenShelfA's DNAM."""
+    subs = _zstr('EDID', edid) + pack_subrecord('OBND', struct.pack('<6h', *bounds)) + _zstr('MODL', model)
+    return pack_fo4_record('STAT', fid, 0, subs + pack_subrecord('DNAM', struct.pack('<fIff', 90.0, 0, 1.0, 1.0)))
+
+
 def pack_interior_cell(cell_record: bytes, cell_fid: int, block: int, sub_block: int,
                        persistent: bytes) -> bytes:
     """An interior CELL override with its persistent children, inside its block/sub-block groups."""

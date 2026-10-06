@@ -409,7 +409,7 @@ class Spike:
         return pack_topic(R.pack_dial(fid, 'FNVSpike_Greeting', self.quest, R.TOPIC_GREETING, len(infos)), fid, infos)
 
 
-def _vanilla_cell() -> tuple:
+def vanilla_cell() -> tuple:
     """(QASmoke's record body, flags, block, sub-block) read from Fallout4.esm."""
     raw = Path(FALLOUT4_ESM).read_bytes()
     for rec, stack in walk(raw, b'CELL'):
@@ -455,7 +455,7 @@ def build(export_dir: Path, out: Path, scripts: Path = None, trace: bool = False
         spike.trace = script_spike.trace_source(out.name, [(e, f) for f, e, *_ in spike.scenes], spike.actor_ids)
     if scripts:
         _add_converted_quests(w, spike, scripts, forms)
-    body, flags, block, sub = _vanilla_cell()
+    body, flags, block, sub = vanilla_cell()
     cell_record = pack_fo4_record('CELL', CELL_FO4, flags, body)
     w.add_raw_group('CELL', R.pack_interior_cell(cell_record, CELL_FO4, block, sub, actors))
     qust = R.pack_qust(spike.quest, 'FNVSpike_Conversation', 'FNV Spike: conversations', 90,

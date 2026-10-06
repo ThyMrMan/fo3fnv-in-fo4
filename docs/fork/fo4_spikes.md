@@ -721,6 +721,102 @@ fnv-to-fo4's format facts serve as a checklist
 ([research](research/fo4_target.md#fnv-to-fo4)), with NifSkope 2.0.dev11's
 `nif.xml` as the layout reference.
 
+Order, by risk: one FNV static rendering in FO4 (mesh, material, textures,
+placed in QASmoke, no collision); then Doc's house cell (208 statics, 134
+misc items, 25 lights, 14 furniture, 11 containers, 11 activators, 2 doors
+in `GSDocMitchellHouse` 00103DF9); then collision; then FaceGen.
+
+### <a id="spike-2-nif"></a>The FO4 NIF reader and writer
+
+`fo4_import/nif/` reads and writes 20.2.0.7 files at BS stream 130:
+`file.py` the header (export strings kept), block list, string table and
+roots; `blocks.py` the blocks a static mesh uses, as dicts: NiNode and
+BSFadeNode, BSXFlags, BSTriShape (unskinned; half or full precision
+positions, UV, normal, tangent, colour), BSLightingShaderProperty (default
+and environment-map types), BSShaderTextureSet, NiAlphaProperty. Other block
+types are kept as raw bytes.
+
+**Checked against vanilla (2026-10-06):** all 32,397 of `Fallout4 -
+Meshes.ba2`'s 34,995 meshes that hold only supported shader types and no
+skinned shapes rebuild byte for byte (75,173 BSTriShape, 79,925 lighting
+shaders, 97,312 nodes). A shape with no vertex data (particles) keeps its
+stored counts. The 2,598 refused use skin, face, hair or eye shaders or
+skinned shapes, none of which a static needs. Vanilla meshes and materials
+are unpacked to `references/fo4_assets/` (BSArch) for this.
+
+### <a id="spike-2-bgsm"></a>BGSM materials
+
+`fo4_import/nif/bgsm.py` reads and writes the binary `.bgsm` a lighting
+shader names: the Material Editor's BaseMaterialFile fields (tiling, UV,
+alpha blend and test, z-buffer, refraction, environment mapping), nine
+texture paths, the BGSM lighting fields (rim and back light, subsurface,
+specular, smoothness, fresnel, wetness), the root material, emittance (its
+colour only when on) and the flags after it. Strings are u32-length and keep
+their null. NifSkope's `BSMaterialDataBGSM` is its in-memory view, not this
+file layout.
+
+**Checked against vanilla (2026-10-06):** every `.bgsm` in `Fallout 4 -
+Materials.ba2` is version 2, and all 6,616 rebuild byte for byte.
+
+### <a id="spike-2-static"></a>An FNV static as an FO4 mesh (played 2026-10-06)
+
+`fo4_import/nif/convert_static.py` reads the FNV mesh with pyffi and writes:
+
+- one BSTriShape per visible NiTriShape/NiTriStrips, its transform to the
+  root baked in, triangles from pyffi's strip reader (degenerates dropped),
+  under a root NiNode; collision is left out (vanilla ClutterGenShelfA has
+  none either, nor a BSXFlags);
+- the vertex layout of vanilla statics (`0x1B00000430205`: half position,
+  UV, normal, tangent; `0x3B00005430206` with vertex colours);
+- **a tangent frame computed from positions and UVs.** FO4 stores dP/dv in
+  the field nif.xml calls *Tangent* and dP/du as the *Bitangent* (measured on
+  15,013 vanilla SetDressing triangles: 0.94 and 0.96 agreement, ~0 the
+  other way);
+- a lighting shader naming `materials\fnv\<diffuse path>.bgsm` (shader
+  values and a 10-slot texture set from vanilla ClutterGenShelfA), and an
+  NiAlphaProperty when FNV had one;
+- the material: every field the most common value over the 6,616 vanilla
+  BGSMs, FNV's diffuse and normal map, its alpha blend and test (same
+  blend-function enum in both). Shapes with the same textures and alpha
+  share it.
+
+Textures keep their FNV paths under `textures\fnv\`.
+
+**Specular.** First played (2026-10-06): the shelf looked right, the wall
+corner shiny. Vanilla: 6,236 of 6,616 BGSMs have a specular map; of the 380
+without, 271 turn specular off. The first build had no map and specular on
+at full smoothness. FNV keeps specular in the normal map's alpha, so a shape
+whose normal map carries a mask (`asset_convert/texture/spec_mask`, the rule
+the Skyrim side uses; the mesh's material colour, black on every test shape,
+is ignored) gets an `_s.dds` beside it: BC5 (`dds_codec.write_normal_dds`),
+R the alpha, G the smoothness from FNV's glossiness by the Blinn-Phong to GGX
+relation `1 - sqrt(2 / (power + 2))`. No mask, or a non-square map: specular
+off. In the test set the wall corner's wall and floor have none.
+
+### <a id="spike-2-bgem"></a>Glass: effect shaders and BGEM
+
+Second play: the rack's glass did not show. FNV's glass is an alpha-blended
+lit shape (diffuse alpha a flat 132, a cube map in texture slot 4). In
+vanilla FO4 only 340 of 6,616 BGSMs blend, almost all hair, beards and lashes;
+glass is effect-shader material: 283 `.bgem`, 81 named glass. So an FNV
+shape that alpha-blends and is not a decal becomes a BSEffectShaderProperty
+naming `materials\fnv\<diffuse>_effect.bgem` (fnv-to-fo4 does the same),
+with FNV's diffuse, normal and cube map and its blend.
+
+The template is vanilla's own small glass prop, `ChemistrySetBeaker01`
+(its BGEM and its mesh's shader block): a near-black base colour
+(0.18–0.20, scale 0.2), edge falloff (opacity 0.5 facing, 0.9 at the
+edge), lighting influence 0.95, environment map scale 2, two-sided. The
+first build used the most common value over all 81 glass BGEMs instead,
+mostly windows (white base, scale 1, no falloff), and FNV's mid-grey glass
+texture (RGB ~150, alpha 132) came out as white tinted glass (third play,
+2026-10-06).
+
+`fo4_import/nif/bgem.py` reads and writes version 2 (the only version
+vanilla ships): BaseMaterialFile, five textures, the effect fields. **Checked
+against vanilla (2026-10-06):** all 283 `.bgem` rebuild byte for byte, and
+all 10,787 BSEffectShaderProperty blocks in the 32,397 readable meshes.
+
 ## <a id="decision"></a>Decision point
 
 After spikes 1–3: the architecture plan (the `fo4_import` package, the asset
