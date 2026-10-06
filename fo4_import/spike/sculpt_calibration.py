@@ -63,7 +63,8 @@ def calibrate_tints(data_dir: Path) -> Path:
                if r.form_id in (HUMAN_RACE, TEMPLATE)}
     template = records[TEMPLATE]
     body = b''.join(pack_subrecord(t.decode(), d) for t, d in subrecords(template.body) if t not in sculpt.FACE_SHAPE)
-    options, tone = tint.race_options(records[HUMAN_RACE].body, female=False)
+    complexion, brows, tone = tint.race_options(records[HUMAN_RACE].body, female=False)
+    options = complexion + brows
     names = tint.calibration_plugin(data_dir / TINT_PLUGIN, body, template.flags, options, tone)
     try:
         clear(TINT_PLUGIN, data_dir)
@@ -75,7 +76,7 @@ def calibrate_tints(data_dir: Path) -> Path:
         out = tint.basis_path()
         out.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(out, effects=effects.astype(np.float16), options=np.array(options, np.uint32),
-                            baseline=baseline)
+                            baseline=baseline, brows=np.array(brows, np.uint32))
     finally:
         (data_dir / TINT_PLUGIN).unlink(missing_ok=True)
         clear(TINT_PLUGIN, data_dir)

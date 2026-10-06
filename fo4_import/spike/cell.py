@@ -18,12 +18,15 @@ import math
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.ba2 import Archives
+from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
-from fo4_import.face import tint
+from fo4_import.face import hair, tint
 from fo4_import.face.sculpt import FACE_SHAPE
+from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
+from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS
@@ -48,8 +51,8 @@ ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
 #: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).
 STAND_INS = {fnv: fo4 for _, fnv, fo4, *_ in SPEAKERS if fnv}
-#: Face variants per actor, all with fitted sculpt regions: stand-in tints, fitted tints, FNV colour (T1) baked.
-FACE_VARIANTS, FACE_SPACING = ('S', 'ST', 'ST1'), 50.0
+#: Face variants per actor, both with fitted sculpt regions and tints: the stand-in's head parts, FNV's matched.
+FACE_VARIANTS, FACE_SPACING = ('ST', 'STH'), 50.0
 #: The bit every vanilla FO4 omni light carries.
 LIGHT_BASE = 0x1
 
@@ -231,20 +234,47 @@ def _tint_edit(builder: CellBuilder, export_dir: Path, edid: str, tone_options: 
     def edit(subs: bytes) -> bytes:
         """The clone with the fitted tint layers and its skin tone scaled."""
         rest, kept = tint.without_tints(subs, tone_options)
-        rest = tint.with_tints(rest, tint.pack_layers(cached[1], values, kept))
+        rest = tint.with_tints(rest, tint.pack_layers(cached[1], values, kept, cached[3]))
         return tint.with_tone(rest, tone, tone_options)
     return edit
+
+
+def _head_edit(builder: CellBuilder, export_dir: Path, edid: str, assets: hair.Fo4Assets):
+    """A clone edit giving FNV NPC `edid`'s matched hair, facial hair, eyes and hair colour; None uncalibrated."""
+    if sculpt_basis() is None:
+        builder.counts['head parts skipped (no calibration)'] += 1
+        return None
+    choice = choose(export_dir, edid, assets, sculpt_basis()[2])
+    picked = [assets.edid(p) for p in (choice.hair, choice.facial_hair, choice.eyes) if p is not None]
+    builder.counts[f'head parts ({edid}): ' + ', '.join(picked)] += 1
+    builder.counts[f'hair colour ({edid}): ' + assets.colours[choice.colour][b'EDID'][0].rstrip(b'\0').decode()] += 1
+    for name in choice.unmapped:
+        builder.counts[f'head part without an FO4 kind ({edid}): {name}'] += 1
+    return head_parts_edit(choice, assets)
+
+
+def _composed(*edits):
+    """One clone edit applying `edits` (None skipped) in order."""
+    present = [e for e in edits if e is not None]
+
+    def edit(subs: bytes) -> bytes:
+        """The subrecords after every edit."""
+        for step in present:
+            subs = step(subs)
+        return subs
+    return edit if present else None
 
 
 def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict) -> bytes:
     """Persistent ACHRs for the cell's FNV actors that have a stand-in, each base a clone of it.
 
     One clone per FACE_VARIANTS entry, side by side along the actor's right:
-    the stand-in's head parts, tints, body and inventory without its face
-    shape (FO4's default face), under the FNV NPC's EditorID and name plus
-    the variant; face.bake shapes the C variants after the CK's export.
+    the stand-in's body and inventory with FNV's face fitted (sculpt regions,
+    tints), under the FNV NPC's EditorID and name plus the variant; STH also
+    takes FNV's matched hair, facial hair, eyes and hair colour.
     """
     npcs = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'NPC_.txt'))}
+    assets = hair.Fo4Assets(FALLOUT4_ESM.read_bytes(), Archives(FALLOUT4_DIR / 'Data'))
     out = b''
     for ref in parse_export_file(str(export_dir / 'ACHR.txt')):
         fnv = int(ref['NAME'], 16)
@@ -254,11 +284,12 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
         pos, rot = _place(ref)
         morphs = _sculpt_morphs(builder, export_dir, npc['EditorID'])
         tinted = _tint_edit(builder, export_dir, npc['EditorID'], skin_tone_layers())
+        edits = {'ST': tinted, 'STH': _composed(tinted, _head_edit(builder, export_dir, npc['EditorID'], assets))}
         for i, variant in enumerate(FACE_VARIANTS):
             base = builder.new_id()
             builder.writer.add_record('NPC_', R.clone_npc(
                 base, stand_in.body, stand_in.flags, f'FNV_{npc["EditorID"]}_{variant}',
-                f'{npc.get("FULL", "")} ({variant})', FACE_SHAPE, morphs, tinted if variant == 'ST' else None))
+                f'{npc.get("FULL", "")} ({variant})', FACE_SHAPE, morphs, edits[variant]))
             spot = (pos[0] + i * FACE_SPACING * math.cos(rot[2]), pos[1] - i * FACE_SPACING * math.sin(rot[2]), pos[2])
             out += R.pack_achr(builder.new_id(), base, spot, rot)
             builder.counts['NPC_'] += 1

@@ -27,7 +27,8 @@ from fo4_import.face.bake import bake, face_shape
 from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.face.texture import face_texture, write_dds
 from fo4_import.face.tint import load_basis as tint_basis, scaled_tone
-from fo4_import.spike.face_fit import fnv_face, npc_subrecords, refine_sculpt, refine_tint, variant_npcs
+from fo4_import.spike.face_fit import npc_subrecords, refine_sculpt, refine_tint, variant_npcs
+from fo4_import.spike.fnv_npc import fnv_face
 from tes5_import.base.tes5_reader import subrecords, walk
 
 MO2 = Path(r'C:\Modlists\fo3fnv-in-fo4')
@@ -42,10 +43,9 @@ CK_TIMEOUT, CK_POLL = 900, 5
 #: Fallout4.esm HumanRace, and the tint slot (xEdit's TETI enum) of its Skin Tone options.
 HUMAN_RACE, SKIN_TONE_SLOT = 0x13746, 12
 #: Face variants with fitted sculpt regions, with fitted tint layers, and how many CK rounds refine them.
-SCULPTED, TINTED, REFINE_ROUNDS = frozenset({'S', 'ST', 'ST1'}), frozenset({'ST'}), 2
+SCULPTED, TINTED, REFINE_ROUNDS = frozenset({'ST', 'STH'}), frozenset({'ST', 'STH'}), 2
 #: Face variant -> (head shape bake.bake makes or None, face texture texture.face_texture makes or None).
-BAKED_VARIANTS = {'C1': ('C1', None), 'C2': ('C2', None), 'T1': ('C1', 'T1'), 'T2': ('C1', 'T2'),
-                  'ST1': (None, 'T1')}
+BAKED_VARIANTS = {'C1': ('C1', None), 'C2': ('C2', None), 'T1': ('C1', 'T1'), 'T2': ('C1', 'T2')}
 
 
 def run_ck(plugin: str) -> None:

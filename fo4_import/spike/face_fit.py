@@ -14,35 +14,12 @@ from pathlib import Path
 
 import numpy as np
 
-from fo4_import.face import sculpt, tint
+from fo4_import.face import hair, sculpt, tint
 from fo4_import.face.bake import face_moves, face_shape
-from fo4_import.face.fnv_head import coefficients, head
-from fo4_import.face.texture import face_texture, fnv_texture
+from fo4_import.face.texture import face_texture
+from fo4_import.spike import fnv_npc
+from fo4_import.spike.fnv_npc import fnv_face, npc_head
 from tes5_import.base.tes5_reader import REC_HDR, SUB_HDR, first_sub, walk
-from tes5_import.base.text_reader import parse_export_file
-
-
-def _first(value):
-    """An export value that may repeat: its first."""
-    return value[0] if isinstance(value, list) else value
-
-
-def npc_head(export_dir: Path, edid: str) -> tuple:
-    """(FNV head, NPC record, race record, race head part key) of FNV NPC `edid`."""
-    npc = next(r for r in parse_export_file(str(export_dir / 'NPC_.txt')) if r.get('EditorID') == edid)
-    race = next(r for r in parse_export_file(str(export_dir / 'RACE.txt')) if r['FormID'] == npc['RNAM.Race'])
-    part = 'FemalePart[0]' if int(npc.get('ACBS.Flags', 0)) & 1 else 'MalePart[0]'
-    model = _first(race[part + '.Model'])
-    return head(export_dir / 'meshes', model, npc.get('FGGS', ''), npc.get('FGGA', '')), npc, race, part
-
-
-def fnv_face(export_dir: Path, edid: str) -> tuple:
-    """(FNV head, (race head texture, colour offset)) of FNV NPC `edid`, from its race's head part and FaceGen."""
-    fnv, npc, race, part = npc_head(export_dir, edid)
-    model = _first(race[part + '.Model'])
-    egt = (export_dir / 'meshes' / model.replace(chr(92), '/').lower()).with_suffix('.egt')
-    texture = export_dir / 'textures' / _first(race[part + '.Texture']).replace(chr(92), '/').lower()
-    return fnv, fnv_texture(texture, egt, coefficients(npc.get('FGTS', ''), 50))
 
 
 def npc_subrecords(raw: bytearray, form_id: int) -> list:
@@ -92,13 +69,32 @@ def refine_sculpt(plugin_path: Path, form_id: int, edid: str, nif: Path, export_
     return captured
 
 
+def brow_overlay(export_dir: Path, edid: str, face: tuple) -> np.ndarray:
+    """[WORK_SIZE, WORK_SIZE, 4] RGBA of FNV NPC `edid`'s brows as FNV draws them, on the FO4 face's texels."""
+    at = fnv_npc.frame(export_dir, edid, face[0])
+    out = np.zeros((tint.WORK_SIZE, tint.WORK_SIZE, 4))
+    for mesh in fnv_npc.sorted_parts(export_dir, at)[1]:
+        points, tris, uv, _ = hair.fnv_shape(mesh)
+        spread, spread_uv = hair.samples(at.to_fo4(points), tris, uv)
+        drawn = hair.texels(fnv_npc.hair_rgb(fnv_npc.mesh_texture(export_dir, mesh), at.npc), spread_uv)
+        layer = hair.onto_face(face, tint.WORK_SIZE, spread, drawn)
+        out = np.where(layer[..., 3:] > out[..., 3:], layer, out)
+    return out
+
+
 def tint_target(export_dir: Path, edid: str) -> tuple:
-    """(target change of the reduced face texture, face mask, skin tone scale) for FNV NPC `edid` (T1's colour)."""
+    """(target change of the reduced face texture, face mask, skin tone scale) for FNV NPC `edid`.
+
+    The target is T1's colour with the NPC's brows drawn over it.
+    """
     face = face_shape(sculpt.load_basis()[2])
     base = tint.load_basis()[2]
     fnv, pieces = fnv_face(export_dir, edid)
     rgba, tone = face_texture(base, face, fnv, pieces, 'T1')
-    return tint.reduced(rgba) - tint.reduced(base), tint.face_mask(face), tone
+    brows = brow_overlay(export_dir, edid, face)
+    alpha = brows[..., 3:] / 255
+    target = tint.reduced(rgba) * (1 - alpha) + brows[..., :3] * alpha
+    return target - tint.reduced(base), tint.face_mask(face), tone
 
 
 def tint_fit(export_dir: Path, edid: str) -> tuple:
@@ -107,13 +103,13 @@ def tint_fit(export_dir: Path, edid: str) -> tuple:
     if cached is None or sculpt.load_basis() is None:
         return None
     target, mask, tone = tint_target(export_dir, edid)
-    values, captured = tint.fit(cached[0], target, mask)
+    values, captured = tint.fit_with_brow(cached[0], target, mask, [cached[1].index(b) for b in cached[3]])
     return values, tone, captured
 
 
 def refine_tint(plugin_path: Path, form_id: int, edid: str, diffuse: Path, export_dir: Path, apply: bool) -> float:
     """Measure NPC `form_id`'s exported face texture and, with `apply`, refine its tint layers; captured."""
-    effects, options, baseline = tint.load_basis()
+    effects, options, baseline, brows = tint.load_basis()
     target, mask, _ = tint_target(export_dir, edid)
     raw = bytearray(plugin_path.read_bytes())
     slots, index = {}, None
@@ -122,11 +118,12 @@ def refine_tint(plugin_path: Path, form_id: int, edid: str, diffuse: Path, expor
             index = struct.unpack_from('<HH', raw, data)[1]
         elif tag == b'TEND' and index in options:
             slots[index] = data
-    values = np.array([raw[slots[o]] / 100 for o in options])
+    values = np.array([raw[slots[o]] / 100 if o in slots else 0.0 for o in options])
+    free = [i for i, o in enumerate(options) if o not in brows]
     actual = tint.reduced(diffuse) - tint.reduced(baseline)
-    values, captured = tint.refine(effects, values, target, actual, mask)
+    values, captured = tint.refine(effects, values, target, actual, mask, free)
     if apply:
-        for option, value in zip(options, values):
-            raw[slots[option]] = int(round(value * 100))
+        for i in free:
+            raw[slots[options[i]]] = int(round(values[i] * 100))
         plugin_path.write_bytes(bytes(raw))
     return captured

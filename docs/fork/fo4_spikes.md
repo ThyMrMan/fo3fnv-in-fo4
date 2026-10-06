@@ -1112,8 +1112,13 @@ now checks):
   NPC layers are type 2 with a 1-byte TEND (6,169) or type 1 with a 7-byte
   TEND (2,449), none on options 0x0493-0x0499.
 
-So the fit uses the 59 value-only face detail options (TETI slot 22, no
-TTEC). Per option the calibration plugin has one NPC at full value; the CK's
+So the fit uses value-only options (no TTEC) from the race's tint groups
+(TTGP names them from the string table; TTGE closes each with its index):
+Markings and Blemishes (44 male options: blemishes, moles, freckles,
+creases, sunken cheeks, dark eye sockets, sunburn, red nose) and Brows (17,
+see [hair](#spike-2-hair)). TETI slot 22 is not a complexion: it also holds
+the Face Tattoos group, and a fit over the whole slot put a faint forehead
+tattoo and a neck eagle on Doc (one at full value). Per option the calibration plugin has one NPC at full value; the CK's
 face textures, reduced to 256x256, minus the baseline's are that option's
 effect, taken as linear in its value (calibration about 1 min). The target is
 T1's texture with its mean moved into the skin tone, fitted by bounded
@@ -1121,13 +1126,71 @@ least squares over the face UVs and refined with the CK's exports. The
 refinement step is bounded to each value's remaining 0..1 range; a step
 fitted in ±1 and clipped afterwards made each round worse (10% → 3% → 2%).
 
-**Measured (Doc, 2026-10-06):** the linear fit captures 12% of the spatial
-colour variation; the CK's export 10% → 11% → 11%. Face details are fixed
+**Measured (Doc, 2026-10-06):** over slot 22 the linear fit captured 12% of
+the spatial colour variation and the CK's export 10% → 11% → 11%; over the
+complexion groups with a brow choice, 11% and 11% → 11% → 11%. Face details are fixed
 patterns (freckles, wrinkles, blemishes), so they carry little of FNV's
 FaceGen colour; the skin tone carries the rest.
 
 **Played:** of S (stand-in tints), ST (fitted tints and skin tone) and ST1
 (FNV colour baked), ST was chosen.
+
+### <a id="spike-2-hair"></a>Hair, facial hair, eyes and brows (played 2026-10-06)
+
+FO4 has no FNV hair, so `fo4_import/face/hair.py` picks FO4's nearest by
+what each game draws. FO4 head parts sit in the FaceGen head's space (Hair33
+from the archive matches the FaceGen NIF's copy vertex for vertex); FNV's are
+moved there by the face alignment. `fo4_import/base/ba2.py` reads the game's
+BA2s (GNRL, and DX10 as a one-mip DDS), so no reference copy is read.
+
+- **Hair, facial hair:** surface samples with their texture's opacity, drawn
+  from front, back, both sides and top over the FO4 skull (face and head
+  rear parts), which hides what is behind it; 1.0 unit of slack, since FNV's
+  skull differs. Opacity is pooled to 4-pixel blocks, and the part whose
+  coverage differs least overall wins. Per-pixel or per-view scoring picked
+  full caps for Doc's balding hair: strand noise and small views dominated.
+  Facial hair is compared without its `_Hairline` extra part, a stubble
+  decal that FNV carries in the face texture; with it every beard scored
+  about 0.95.
+- **Eyes:** the mean Lab colour of the iris ring, 12-28° off each eyeball's
+  forward axis, with a sphere fitted to the eye mesh (FO4's eye mesh is only
+  the front cap), sampled from each game's texture. The layouts differ, so
+  no fixed texture region works.
+- **Hair colour:** FNV's hair pixel shader (`SM3002` in
+  `shaderpackage019.sdp`, disassembled with `d3dcompiler_47`) draws
+  `lerp(base, _hl, _hl.a) x (1 + green x (2 HairTint - 1))`, so 2 x HCLR at
+  full vertex green. FO4 hair is a greyscale diffuse looked up in
+  `haircolor_lgrad_d.dds` (64 x 512, 32 bands of 16 rows): the CLFM's CNAM is
+  the row, the grey x `grayscale_scale` the column. Hair colours are CLFMs
+  with FNAM playable and remap-index bits; no vanilla NPC has a separate
+  facial hair colour, HCLF covers both.
+- **Brows:** FO4 brows are 17 value-only tint options (the Brows group), so
+  they join the tint fit. FNV draws a brow mesh (in hair colour) over a head
+  texture that already has brows; the mesh is drawn onto the target's face
+  texels (each texel takes the nearest brow sample within 0.5 units). The CK
+  draws a brow near full strength at any value: fitted linearly, six brows
+  at 0.03-0.13 dropped the CK's capture to 3-6% against 13% predicted. So
+  one brow, or none, is chosen at full value (each tried, the complexion
+  fitted to the rest). FO4's base face texture has brows painted in, as
+  FNV's does, and FO4's brow options are all dark: for Doc (silver brows
+  over dark painted ones) none is chosen.
+- **FNV head parts** have no type: centred below the eye mesh they are facial
+  hair, above it brows, otherwise reported. The FNV export has no NPC PNAM
+  and dumps HDPT as sizes, so both are read from FalloutNV.esm. `export\` is
+  shared with the Skyrim fork, whose exporter has moved on, so the export is
+  not redone from this repo.
+
+An NPC record lists every head part, extras included (vanilla Doc Weathers:
+eyes plus lashes, AO and wet layer). The clone drops the stand-in's eye,
+hair and facial hair parts with their extras and adds the chosen ones with
+theirs.
+
+**Doc (2026-10-06):** HairMale08 (balding, 0.42), BigBeard20 (a mustache,
+0.46), MaleEyesHumanBlue, HairColor04Silver; EyebrowM goes to the tint fit.
+
+**Played:** STH (matched parts) beside ST (the stand-in's): face and hair
+look right. What still reads as unlike FNV is the cell's overall colour and
+tone (QASmoke's imagespace).
 
 ## <a id="decision"></a>Decision point
 
