@@ -42,6 +42,8 @@ MATERIALS = {
 #: FO4 stairs materials for FNV's stairs variants (index & 64); the others keep their base material.
 STAIRS = {0: 2519395573, 2: 1340314491, 3: 2534329404, 4: 2926148967, 5: 3236651581, 9: 1879074862,
           10: 2519395573, 19: 1439425931}
+#: FNV motion systems in Havok 2014's numbering, which Elric reads (no stabilized types; fixed 7 -> 5, keyframed 6 -> 4).
+MOTIONS = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 4, 7: 5, 8: 6, 9: 7}
 #: An empty hkWorldObjectCinfo::Property (data, size, capacity and flags).
 EMPTY_PROPERTY = struct.pack('<3I', 0, 0, 0x80000000)
 
@@ -201,7 +203,7 @@ def _rigid_body(blocks: _Blocks, body, node) -> 'int | None':
     info += struct.pack('<12f', *(t * SCALE * SCALE for t in tensor)) + struct.pack('<4f', *_vec(body.center))
     info += struct.pack('<9f', body.mass, body.linear_damping, body.angular_damping, 1.0, body.friction, 0.0,
                         body.restitution, body.max_linear_velocity, body.max_angular_velocity)
-    info += struct.pack('<4Bff4xBBHBBBBB3x', body.motion_system, body.deactivator_type, body.solver_deactivation, 0,
+    info += struct.pack('<4Bff4xBBHBBBBB3x', MOTIONS[body.motion_system], body.deactivator_type, body.solver_deactivation, 0,
                         body.penetration_depth * SCALE, 1.0, body.collision_response, 0,
                         body.process_contact_callback_delay, body.quality_type, 0, 0, 3, 0)
     return blocks.add(type(body).__name__, head + info + struct.pack('<IH', 0, 0))

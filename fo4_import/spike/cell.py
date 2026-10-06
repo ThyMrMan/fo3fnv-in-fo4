@@ -2,12 +2,11 @@
 
     py -3.14 -m fo4_import.spike.cell --export <FalloutNV.esm export> --out <plugin.esp> --data <Data> <cell EDID>
 
-The cell keeps FNV's lighting, every placed object with a mesh (a static for
-now, whatever its FNV type), its lights and its doors. A door that led out
-of the cell leads to a stand-in door in QASmoke, and back. Engine markers
-FO4 shares keep their base. Meshes get FNV's collision through Elric.
-Actors, sounds and what objects do (containers, furniture, items) are
-later steps.
+The cell keeps FNV's lighting, every placed object with a mesh, its lights,
+doors, misc items, containers and furniture (other types are statics for
+now). A door that led out of the cell leads to a stand-in door in QASmoke,
+and back. Engine objects FO4 shares keep their base. Meshes get FNV's
+collision through Elric. Sounds and activators are later steps.
 
 See: docs/fork/fo4_spikes.md#spike-2-cell
 """
@@ -28,22 +27,21 @@ from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, base_hdr, pack_imgs, write_lut
+from fo4_import.spike.furniture import furniture, markers
+from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS
 from fo4_import.spike.statics import write_assets
-from tes5_import.base.tes5_reader import sub_map, walk
+from tes5_import.base.tes5_reader import first_sub, sub_map, walk
 from tes5_import.base.text_reader import parse_export_file
 
 MASTERS = ['Fallout4.esm']
 FIRST_ID = 0x800
 #: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
-AS_STATIC = ('STAT', 'MISC', 'FURN', 'CONT', 'ACTI', 'MSTT', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE',
-             'AMMO', 'TERM', 'IDLM')
-#: FNV's engine objects sit below this id; its statics there are all editor markers.
-ENGINE_IDS = 0x800
-#: FNV engine markers with the same FormID and EditorID in Fallout4.esm: COCMarkerHeading, XMarkerHeading, XMarker.
-SHARED_MARKERS = frozenset({0x32, 0x34, 0x3B})
+AS_STATIC = ('STAT', 'ACTI', 'MSTT', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
+#: FNV base types converted as themselves (spike.items), and the types whose engine objects FO4 may share.
+ITEM_BASES, SHARED_TYPES = ('MISC', 'CONT'), ('STAT', 'MISC')
 #: Stand-in doors in QASmoke: the first one's position and the spacing along X.
 DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
 #: Where a stand-in door puts the player: offset from the door, facing +X, away from it.
@@ -113,7 +111,10 @@ class CellBuilder:
         self.export_dir, self.data_dir, self.bases = export_dir, data_dir, bases
         self.writer = FO4PluginWriter(masters=MASTERS, is_esm=False, description='FNV cell spike')
         self.next_id = len(MASTERS) << 24 | FIRST_ID
-        self.made, self.meshes = {}, {}
+        self.made, self.meshes, self.items = {}, {}, None
+        self.fo4 = FALLOUT4_ESM.read_bytes()
+        self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
+                         for r, _ in walk(self.fo4, b'KYWD')}
         self.counts = collections.Counter()
 
     def new_id(self) -> int:
@@ -129,9 +130,11 @@ class CellBuilder:
 
     def base(self, fnv_fid: int) -> 'int | None':
         """The FO4 base for an FNV base FormID, made on first use; None when it is not converted."""
+        if fnv_fid < ENGINE_IDS:
+            return self.items.shared.get(fnv_fid)
+        if self.items.records.get(fnv_fid, ('',))[0] in ITEM_BASES:
+            return self.items.item(fnv_fid)
         sig, rec = self.bases.get(fnv_fid, (None, None))
-        if sig == 'STAT' and fnv_fid < ENGINE_IDS:
-            return fnv_fid if fnv_fid in SHARED_MARKERS else None
         if fnv_fid not in self.made:
             self.made[fnv_fid] = self._make(sig, rec) if sig == 'LIGH' or (sig and _model(rec)) else None
         return self.made[fnv_fid]
@@ -144,6 +147,9 @@ class CellBuilder:
             light = (int(rec['DATA.Radius']), tuple(int(rec[f'DATA.Color.{c}']) for c in 'RGB'),
                      light_flags(int(rec['DATA.Flags'])))
             record = R.pack_ligh(fid, edid, _bounds(rec), model, light, float(rec.get('FNAM.Fade', 1.0)))
+        elif sig == 'FURN':
+            marks = markers(str(self.export_dir / 'meshes' / _model(rec).replace('/', '\\').lower()))
+            record = furniture(fid, rec, model, bounds, marks, self.keywords)
         elif sig == 'DOOR':
             record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)))
         else:
@@ -164,7 +170,7 @@ def _find_cell(export_dir: Path, edid: str) -> dict:
 def _bases(export_dir: Path, used: set) -> dict:
     """{FNV FormID: (type, record)} of the used bases this spike converts."""
     out = {}
-    for sig in AS_STATIC + ('LIGH', 'DOOR'):
+    for sig in AS_STATIC + ('LIGH', 'DOOR', 'FURN'):
         for rec in parse_export_file(str(export_dir / f'{sig}.txt')):
             fid = int(rec['FormID'], 16)
             if fid in used:
@@ -207,9 +213,9 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
     return persistent, temporary
 
 
-def _vanilla(fids: set) -> dict:
+def _vanilla(fo4: bytes, fids: set) -> dict:
     """{FormID: Record} of the Fallout4.esm records `fids` (CELL, IMGS, NPC_)."""
-    return {rec.form_id: rec for rec, _ in walk(FALLOUT4_ESM.read_bytes(), b'CELL', b'IMGS', b'NPC_')
+    return {rec.form_id: rec for rec, _ in walk(fo4, b'CELL', b'IMGS', b'NPC_')
             if rec.form_id in fids}
 
 
@@ -276,7 +282,7 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
     takes FNV's matched hair, facial hair, eyes and hair colour.
     """
     npcs = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'NPC_.txt'))}
-    assets = hair.Fo4Assets(FALLOUT4_ESM.read_bytes(), Archives(FALLOUT4_DIR / 'Data'))
+    assets = hair.Fo4Assets(builder.fo4, Archives(FALLOUT4_DIR / 'Data'))
     out = b''
     for ref in parse_export_file(str(export_dir / 'ACHR.txt')):
         fnv = int(ref['NAME'], 16)
@@ -318,11 +324,14 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collec
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     builder = CellBuilder(export_dir, data_dir, _bases(export_dir, {int(r['NAME'], 16) for r in refs}))
+    records = index(export_dir, ITEM_TYPES)
+    builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
+                                                              SHARED_TYPES))
     cell_fid = builder.new_id()
     ids = {r['FormID']: builder.new_id() for r in refs}
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
     persistent, temporary = _placed(builder, refs, ids, teleports)
-    vanilla = _vanilla({CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
+    vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
     persistent += _actors(builder, export_dir, cell['FormID'], vanilla)
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
     template = sub_map(vanilla[CELL_FO4].body)

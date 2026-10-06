@@ -927,6 +927,17 @@ Doc's house: all 172 meshes with collision convert (165 with one body, 7
 with two), with no Elric crash, in one 17-second build. Clutter (MISC,
 ALCH...) keeps FNV's dynamic body while it is placed as a static.
 
+Animated containers (fridge, oven, gun cabinet, cabinet door) hold
+keyframed bodies (motion system 6, layer ANIMSTATIC, collision object flags
+SET_LOCAL and USE_VEL) that their open/close animation moves. The converter
+drops that animation, and in game the fridge, oven and gun cabinet have no
+collision. Making those bodies fixed (motion 7, quality 1, layer STATIC,
+those two flags cleared) did not help in play: Elric read FNV's fixed as a
+moving body (see [furniture](#spike-2-furniture)), so the fridge's fixed
+main body moved too. Left
+for the animated-object work (keep the controller and keyframed bodies as
+vanilla's animated containers do).
+
 ### <a id="spike-2-transparency"></a>Blended lit surfaces (played 2026-10-06)
 
 FO4 does not draw an alpha-blended lighting-shader surface unless it is a
@@ -952,7 +963,12 @@ cloth at 81%), the middle mostly FNV hair and graffiti.
 
 `convert_static._material` therefore maps a blended lit FNV shape by kind:
 
-- environment-mapped (glass): vanilla's beaker BGEM, as before;
+- environment-mapped (glass): vanilla's beaker BGEM when its texture is
+  mostly see-through; else a cut-out whose see-through triangles split off
+  to the beaker BGEM. The mutagen tank (`ms04mutagentank01.nif`, 88% of its
+  texels solid) drew as dark glass whole; now 508 of its 556 triangles are
+  lit and 48 glass. In Doc's house 9 more of the 18 glass meshes now draw
+  their solid parts lit (camera, clock, pressure cooker, window frames);
 - decal (`sf_decal_single_pass` or dynamic): a blended BGSM with `decal` and
   the shader's Decal and Dynamic_Decal flags (vanilla's blended decals);
 - a texture at least 50% partly transparent: vanilla BloatflyWing's BGEM
@@ -973,6 +989,89 @@ unlit shape flagged for vertex alpha with some vertex alpha below 1 and no
 alpha property now blends (src alpha, inverse src alpha). Of FNV's 197
 unlit vertex-alpha shapes without an alpha property, 119 are editor markers
 (already dropped); 61 have vertex alpha below 1 (shadow planes, smoke, fog).
+
+### <a id="spike-2-items"></a>Items and containers (played 2026-10-06)
+
+Doc's house places 434 references: 208 statics, 134 misc items (books,
+clipboards, pencils, cookware, 11 bottle caps), 16 consumables, 14
+furniture, 11 containers, 11 activators, 8 movable statics, 2 doors, a
+knife, a hat and reading glasses. All but lights and doors were statics.
+
+`fo4_import/spike/items.py` converts misc items (name, model, value,
+weight), leveled items (chance none, flags, the entries whose items
+convert: FO4's LVLO is level, item, count, chance none in 12 bytes) and
+containers (model, contents, the Respawns flag). An item type not converted
+yet is skipped and counted. FNV engine objects that Fallout4.esm has under
+the same FormID, type and EditorID are FO4's own: the bottle cap
+(`Caps001`, 0x0F) and the COC/X markers, computed rather than listed.
+
+First play: items pick up and containers open, but the Pip-Boy showed no
+item preview. 1,128 of Fallout4.esm's misc items name `MiscMod01`
+(0x248769) as their preview transform (PTRN), and those without one are
+mostly not inventory items (no name); every converted misc item now does.
+The fridge and oven are containers in FNV too (food).
+
+### <a id="spike-2-furniture"></a>Furniture (built 2026-10-06, not yet played)
+
+FNV marks each way into a seat or bed in the mesh: a `BSFurnitureMarker`
+position has an offset, a heading in thousandths of a radian pointing at the
+furniture, and an animation slot (1/2 sleep entered from the right/left,
+11/12 sit entered from the left/right, 14 sit from the front). The FURN's
+MNAM low bits pick which of them are active (`Chair01F` front only,
+`SubDiningChairDirtyL`/`R` one side; Doc's couch has 3 front markers and
+activates one); its high bits are FO4's own, 0x40000000 sit and 0x80000000
+sleep.
+
+FO4 furniture meshes have no marker blocks (vanilla chairs, couches and beds
+read: root NiNode, BSXFlags, physics, shapes). The markers are the record's
+SNAM: offset, heading the actor faces, a keyword, and an entry byte whose
+low bits are the sides (front 1, rear 2, right 4, left 8, other 16; vanilla
+sets the unused high bits too: chairs 0xF0 | sides, beds 0xE0 | side). The
+left-exit vault chair has only Left. Animations come from keywords:
+`AnimFurnChairSitAnims` + `FurnitureClassRelaxation` on chairs and couches,
+`IsSleepFurniture` + `AnimFurnBedAnims` on beds, which also carry MNAM Must
+Exit to Talk, record flag Must Exit To Talk and XMRK `Markers\SleepBed.nif`.
+
+`fo4_import/spike/furniture.py` writes one SNAM per seat or sleeper:
+
+- **Seats.** FNV's front markers stand outside the chair, 31-36 units in
+  front of the converted mesh's front edge (Chair01F: edge 21, marker 54.6).
+  Over 129 vanilla sit markers the seat marker sits a median 18 units behind
+  the front edge (quartiles 16 and 21), at floor height, facing out. A seat
+  is FNV's front marker turned by π and moved to 18 behind the front edge,
+  keeping its sideways position and height; each active marker adds its
+  side.
+- **Beds.** FO4 and FNV beds both lie along Y with the headboard at +Y
+  (tallest end, 5 vanilla beds and both FNV beds). Vanilla bed markers face
+  +X (heading π/2) across the bed, at the middle of their lane: 0.5 of the
+  width for one sleeper, 0.26 and 0.74 for two, the +X lane entered from
+  the Right. FNV's slot-1 marker stands at +X facing −X, slot 2 at −X facing
+  +X; both become heading π/2 in their lane, slot 1 Right and slot 2 Left.
+
+Doc's house: 7 furniture bases (14 references) convert: 4 chairs, the couch
+(one seat), 2 dining chairs, a twin and a queen bed.
+
+First play: the furniture had no collision, one chair could be sat in and
+lost its collision after, and a chair ended up on top of the easel. Their
+FNV bodies are fixed STATIC ones, as when they were statics and collided;
+the difference is BSXFlags. The converter kept FNV's 0x2 (Havok only). Of
+vanilla's FURN, STAT and MISC meshes with Havok, all 2,352 without Complex
+(0x8) also set Articulated (0x80): statics 0x82, clutter 0xC2, so a mesh
+with Havok and not Complex now gets Articulated too. That put the chair
+back on the floor but the furniture still lost its collision and tipped
+over once touched or looked away from.
+
+The cause was the motion type. Vanilla fixed furniture's
+`hknpPhysicsSystemData` has no motion (0 motion properties, 0 motion
+cinfos); a drinking glass has one. Every body we sent through Elric came
+out with one, the bathtub and every chair and bed included: moving bodies
+that a STAT reference never simulates but a FURN or CONT reference does.
+Elric reads the input body's motion system in Havok 2014's numbering
+(hkpMotion, which dropped the stabilized types), not FNV's: run on the
+chair with that byte set to each value, 5 comes out fixed (no motion), 4
+keyframed (motion cinfo, no properties), 1, 6 and 7 moving. FNV's fixed
+(7) is 2014's character. `collision.MOTIONS` maps FNV's numbers to
+2014's: fixed 7 → 5, keyframed 6 → 4, box inertia 4/5 → 3, sphere 2/3 → 2.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 

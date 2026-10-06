@@ -31,6 +31,8 @@ RUN_QUEST_ALIAS = 5
 OP_GREATER = 0x40
 FUNC_GET_DISTANCE = 1
 PLAYER = 0x14
+#: Fallout4.esm's MiscMod01 TRNS: the Pip-Boy preview transform (PTRN) of 1,128 vanilla misc items.
+MISC_PREVIEW = 0x248769
 
 
 def _u32(sig: str, value: int) -> bytes:
@@ -174,6 +176,45 @@ def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: 
     """A door: bounds, name, model, FNAM flags (Automatic, Hidden, Sliding...)."""
     subs = _bounded(edid, bounds) + _zstr('FULL', name) + _zstr('MODL', model)
     return pack_fo4_record('DOOR', fid, 0, subs + pack_subrecord('FNAM', bytes([flags])))
+
+
+def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float) -> bytes:
+    """A misc item: bounds, Pip-Boy preview, name, model, DATA value and weight."""
+    subs = _bounded(edid, bounds) + _u32('PTRN', MISC_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
+    return pack_fo4_record('MISC', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
+
+
+def pack_furn(fid: int, edid: str, name: str, model: str, bounds: tuple, keywords: list, record_flags: int,
+              active: int, marker_model: str, markers: list) -> bytes:
+    """A furniture: bounds, name, model, keywords, MNAM `active` markers and flags, SNAM `markers`.
+
+    Each marker is (x, y, z, heading, entry byte); PNAM, FNAM and WBDT are
+    vanilla's most common (zero).
+    """
+    subs = _bounded(edid, bounds) + _zstr('FULL', name) + _zstr('MODL', model) + _u32('KSIZ', len(keywords))
+    subs += pack_subrecord('KWDA', struct.pack(f'<{len(keywords)}I', *keywords)) + pack_subrecord('PNAM', bytes(4))
+    subs += pack_subrecord('FNAM', bytes(2)) + _u32('MNAM', active) + pack_subrecord('WBDT', bytes(1))
+    subs += _zstr('XMRK', marker_model) if marker_model else b''
+    subs += pack_subrecord('SNAM', b''.join(struct.pack('<4fIB3x', *m[:4], 0, m[4]) for m in markers))
+    return pack_fo4_record('FURN', fid, record_flags, subs)
+
+
+def pack_lvli(fid: int, edid: str, chance_none: int, flags: int, entries: list) -> bytes:
+    """A leveled item: chance none, flags, entries [(level, item FormID, count)] (LVLO, 12 bytes each)."""
+    subs = _bounded(edid, (0,) * 6) + pack_subrecord('LVLD', bytes([chance_none])) + pack_subrecord(
+        'LVLM', b'\0') + pack_subrecord('LVLF', bytes([flags])) + pack_subrecord('LLCT', bytes([len(entries)]))
+    subs += b''.join(pack_subrecord('LVLO', struct.pack('<HHIHBB', level, 0, item, count, 0, 0))
+                     for level, item, count in entries)
+    return pack_fo4_record('LVLI', fid, 0, subs)
+
+
+def pack_cont(fid: int, edid: str, name: str, model: str, bounds: tuple, items: list, flags: int,
+              weight: float) -> bytes:
+    """A container: bounds, name, model, items [(FormID, count)] (COCT, CNTO), DATA flags and weight."""
+    subs = _bounded(edid, bounds) + _zstr('FULL', name) + _zstr('MODL', model)
+    subs += _u32('COCT', len(items)) + b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count))
+                                                 for item, count in items)
+    return pack_fo4_record('CONT', fid, 0, subs + pack_subrecord('DATA', struct.pack('<Bf', flags, weight)))
 
 
 def pack_ligh(fid: int, edid: str, bounds: tuple, model: str, light: tuple, fade: float) -> bytes:

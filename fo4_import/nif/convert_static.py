@@ -43,6 +43,8 @@ TEXTURE_SLOTS, SLOT_SPECULAR = 10, 7
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 #: FNV BSXFlags bits kept (same meaning in FO4): Havok, Complex, Dynamic, Articulated; vanilla statics carry 0x82.
 BSX_KEPT = 0x2 | 0x8 | 0x40 | 0x80
+#: BSXFlags Havok, Complex, Articulated: all 2,352 vanilla FURN/STAT/MISC meshes with Havok, not Complex, set Articulated.
+BSX_HAVOK, BSX_COMPLEX, BSX_ARTICULATED = 0x2, 0x8, 0x80
 BGSM_TEXTURES = ('diffuse', 'normal', 'smooth_spec', 'greyscale', 'envmap', 'glow', 'inner_layer', 'wrinkles',
                  'displacement')
 #: Vanilla ChemistrySetBeaker01's effect shader: flags, lighting influence, falloff, base colour, env map scale.
@@ -365,12 +367,12 @@ def _fades(geom) -> bool:
 def _material(geom, texture_root=None) -> ShapeMaterial:
     """The FO4 material of an FNV shape.
 
-    Unlit shapes (BSShaderNoLightingProperty) get an inline effect shader;
-    alpha-blended environment-mapped ones (FNV glass) vanilla's beaker BGEM;
-    blended ones with a mostly see-through texture vanilla's insect-wing BGEM;
-    the rest a BGSM (blended decals as FO4 decals, other blends as cut-outs,
-    whose see-through triangles split off: `split`). FO4 draws no blended lit
-    surface but a decal. A NiStencilProperty makes it two-sided.
+    Unlit shapes get an inline effect shader. A blended one with a mostly
+    see-through texture gets vanilla's beaker BGEM when environment-mapped
+    (FNV glass), else its insect-wing BGEM; the rest a BGSM (blended decals as
+    FO4 decals, other blends as cut-outs whose see-through triangles split off
+    to that BGEM: `split`). FO4 draws no blended lit surface but a decal. A
+    NiStencilProperty makes it two-sided.
 
     See: docs/fork/fo4_spikes.md#spike-2-transparency
     """
@@ -381,17 +383,17 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     shader = props.get('BSShaderPPLightingProperty')
     fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else ['']
     blended = alpha is not None and alpha.flags & 1 and shader
-    if blended and shader.shader_flags.sf_environment_mapping:
-        return _effect(fnv, alpha)
+    glass = bool(blended and shader.shader_flags.sf_environment_mapping)
     flags = shader.shader_flags if shader else None
     decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass))
     texture = Path(texture_root) / fnv[0].replace('\\', '/').lower() if texture_root and fnv[0] else None
     cut_from_blend = bool(blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
-    if cut_from_blend and translucent(texture):
-        return _translucent(fnv, alpha, two_sided)
+    clear = _effect(fnv, alpha) if glass else _translucent(fnv, alpha, two_sided) if cut_from_blend else None
+    if glass and not cut_from_blend or cut_from_blend and translucent(texture):
+        return clear
     mat = _bgsm(fnv, props, alpha, two_sided, decal, texture_root)
     if cut_from_blend:
-        mat.split = (_translucent(fnv, alpha, two_sided), texture)
+        mat.split = (clear, texture)
     return mat
 
 
@@ -507,6 +509,7 @@ def convert(path: str, texture_root=None) -> Converted:
     nif.blocks.append(('NiNode', node))
     node['children'] = [i for g in _visible_shapes(root) for i in _shape_blocks(nif, g, root, out, texture_root)]
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
+    bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK else 0
     if bsx:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))
         node['extra'].append(len(nif.blocks) - 1)
