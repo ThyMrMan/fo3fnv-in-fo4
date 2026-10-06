@@ -177,6 +177,14 @@ F4NV and Cascadia do with LevelUpMenuEx, or our own build.
 | Dialogue | [Extended Dialogue Interface](https://www.nexusmods.com/fallout4/mods/27216) (reg2k, Neanka) | Updated for 1.11.240 on 2026-09-01; about 1.3M users, used by 124 mods. F4SE plugin + `DialogueMenu.swf`; source on GitHub ([reg2k/xdi](https://github.com/reg2k/xdi), C++; [Neanka/DialogueMenu](https://github.com/Neanka/DialogueMenu), AS3), but with no license and nothing pushed since 2020 | Free to use. Link to the Nexus page, but **total conversions that need a new game may bundle it**, stating the version | **Dependency, and bundling is allowed.** Details below the table |
 | Script and setup framework | [Hydra](https://www.nexusmods.com/fallout4/mods/104159) (SoleVaultBoy) | 1.0.2, released 2026-04-26, updated 2026-05-03; about 46k users; F4SE plugin, needs the Address Library; old-gen, next-gen and Anniversary | Nexus: no re-upload, changes need permission; source under GPL-3.0 with modding exceptions | **Development tool now; decide when the runtime is built.** Details below the table |
 | Weapon and armor condition | [Armor and Weapon Condition](https://www.nexusmods.com/fallout4/mods/96830) (MarkReal) | 2.0.2, 2025-11; about 1.9k users; needs NV Ammo Crafting and Papyrus Common Library | Changes and asset use need permission | **Build our own.** Its notes confirm the method: FO4 WEAP has no health field, so the mod drives condition from keyword multipliers in Papyrus. We have FNV's per-weapon health and damage scaling in the export, and can carry them exactly |
+| Challenges | [CHALLENGES – F4NV](https://www.nexusmods.com/fallout4/mods/76347) (bp42s) | 3.0.5, 2025-07; about 193k users; nearly every FNV challenge and most challenge perks, rewards as XP and perks, a Pip-Boy DATA tab; the author says the engine does most of the condition checks. Hard requirements: PipboyTabs, Baka Framework, Garden of Eden | No re-upload, no conversion. Author notes: "all of the scripts and records are fair game", except re-uploading an edited standalone version with different challenges; the `.swf` art needs its artists' permission | **Reference, not a dependency** (three extra F4SE plugins). Build our own from FNV's CHAL records in the export, borrowing its design and, with credit, its scripts and records |
+| Pip-Boy pages | [PipboyTabs](https://www.nexusmods.com/fallout4/mods/29568) (Neanka) | Updated for 1.11.240 on 2026-09-06; F4SE plugin; custom Pip-Boy pages tracking any actor value or global. LevelUpMenuEx fills a skills tab in it automatically; KARMA lists it as a soft requirement | None stated | **Candidate dependency, behind our API with a fallback**: one UI for skills, karma, fame/infamy and challenges. Same single maintainer as LevelUpMenuEx |
+| Papyrus extras | [Baka Framework](https://www.nexusmods.com/fallout4/mods/43627) (shad0wshayd3) | 5.0.0, 2026-09-22; small: editor IDs at runtime, `StringUtil`, Pip-Boy light and radiation events, a crafting Story Manager fix | Upload, modify and convert with credit; source GPLv3 | **Only if a piece is needed**; mostly overlaps Hydra. Liberal enough to bundle |
+| Papyrus extras | [Garden of Eden PSE](https://www.nexusmods.com/fallout4/mods/74160) (LarannKiar) | 23.6, 2026-09-06; 1,150+ native functions | No re-upload; modifying needs permission; no conversion (legacy ≤19.7 is MIT) | **Avoid**: overlaps Hydra (about 2,800 functions) with the most restrictive terms of the set |
+
+F4NV, the "Fallout 4: New Vegas" project CHALLENGES is part of, brings FNV
+into FO4 by hand. Its challenge, karma and reputation choices are tested
+answers to the same problems, worth checking before designing ours.
 
 **How XDI works** (its modders' guide, Nexus article 552):
 
@@ -288,6 +296,10 @@ Library are for Skyrim. The question is how many more to add.
 | REPUTATION | Our own | Closed to new factions |
 | Armor and Weapon Condition | Our own | Restrictive permissions; FNV's own per-weapon health is better data |
 | Hydra | Development tool; decide when the runtime is built | Large Papyrus library and setup checks, but brand new with one maintainer ([above](#mods)) |
+| CHALLENGES | Our own, from FNV's CHAL records, borrowing its design | Three extra F4SE plugins as hard requirements; its author allows reusing its scripts and records |
+| PipboyTabs | Behind our API, with a fallback | One Pip-Boy UI for skills, karma, fame/infamy and challenges; LevelUpMenuEx already feeds it |
+| Baka Framework | Only if one of its pieces is needed | Small and liberally licensed, but mostly covered by Hydra |
+| Garden of Eden PSE | No | Overlaps Hydra; restrictive terms |
 
 ### <a id="levelupmenuex"></a>LevelUpMenuEx, read
 
