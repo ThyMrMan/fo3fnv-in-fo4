@@ -1192,6 +1192,41 @@ theirs.
 look right. What still reads as unlike FNV is the cell's overall colour and
 tone (QASmoke's imagespace).
 
+### <a id="spike-2-imagespace"></a>Imagespace: FNV's colour grading (built 2026-10-06, not yet played)
+
+The cell used QASmoke's imagespace, so its colour and tone were FO4's.
+`fo4_import/spike/imagespace.py` makes one FO4 imagespace per FNV one.
+
+**FNV** (`ISHDRBLENDINSHADERCIN` in `shaderpackage019.sdp`) scales the scene
+by an exposure, adds bloom and grades in display space: with Y =
+dot(c, 0.299/0.587/0.114), c = lerp(Y, c, saturation), then lerp(c, Y x tint
+colour, tint amount), then (c x brightness - pivot) x contrast + pivot. IMGS
+DNAM's cinematic block (offset 96 in the 11 132-byte records, 100 in the
+others) ends with a flags word: saturation 1, contrast 2, tint 4,
+brightness 8. Across all 67 records it is 0, 2, 7 or 15, and records with it
+0 hold values that cannot be in use (saturation 0.0, brightness 0.0 in
+RCDefaultImageSpace): an unset value is not applied. Doc's ShackInterior01
+(flags 7): saturation 0.9, contrast 1.2 about 0.14, a 50% tint toward
+(0.69, 0.56, 0.30) x Y; brightness 1.1 unset.
+
+**FO4** (DXBC blobs in `shaders011.fxp`, reflection stripped, found by what
+they do): exposure clamped to the auto-exposure range, a Hable filmic curve,
+its own cinematic (Rec. 709 luminance, pivot the adapted luminance), then a
+pass that gamma-encodes (1/2.2) and samples up to four 16^3 LUTs blended by
+weight, writing the result. A LUT is a 256 x 16 uncompressed 24-bit DDS, 16
+slices of 16 x 16 (red across, green down, blue by slice); `colorlut.dds` is
+the identity. Vanilla interiors grade only in the LUT: 180 of the 317
+Fallout4.esm interior cells with an imagespace use DefaultImageSpaceF4LUT
+(cinematic neutral, `ColorLUT_BaseInteriorAdjusted.dds`).
+
+**Port:** DefaultImageSpaceF4LUT's HDR, exposure and depth of field, its
+cinematic neutral, and a LUT holding FNV's grading of the identity (written
+to `Textures\Effects\LUTs\FNV\<FNV EditorID>.dds`); the generated identity
+matches `colorlut.dds` byte for byte. FNV grades the colours its renderer
+leaves on screen, so the LUT grades FO4's display colours; FO4's exposure and
+tone curve stay. FNV's curve is a linear exposure and a clamp, not a filmic
+curve; porting that too is a separate change.
+
 ## <a id="decision"></a>Decision point
 
 After spikes 1–3: the architecture plan (the `fo4_import` package, the asset

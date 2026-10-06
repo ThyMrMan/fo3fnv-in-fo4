@@ -27,6 +27,7 @@ from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
+from fo4_import.spike.imagespace import BASE_IMAGESPACE, pack_imgs, write_lut
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS
@@ -207,8 +208,9 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
 
 
 def _vanilla(fids: set) -> dict:
-    """{FormID: Record} of the CELL and NPC_ records `fids` in Fallout4.esm, read once."""
-    return {rec.form_id: rec for rec, _ in walk(FALLOUT4_ESM.read_bytes(), b'CELL', b'NPC_') if rec.form_id in fids}
+    """{FormID: Record} of the Fallout4.esm records `fids` (CELL, IMGS, NPC_)."""
+    return {rec.form_id: rec for rec, _ in walk(FALLOUT4_ESM.read_bytes(), b'CELL', b'IMGS', b'NPC_')
+            if rec.form_id in fids}
 
 
 def _sculpt_morphs(builder: CellBuilder, export_dir: Path, edid: str) -> bytes:
@@ -296,6 +298,19 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
     return out
 
 
+def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: bytes):
+    """The FO4 imagespace made from the FNV cell's (FNV's grading in a LUT); None if the cell names none."""
+    if 'XCIM.Imagespace' not in cell:
+        builder.counts['cell without an FNV imagespace'] += 1
+        return None
+    fnv = next(r for r in parse_export_file(str(export_dir / 'IMGS.txt')) if r['FormID'] == cell['XCIM.Imagespace'])
+    lut = write_lut(bytes.fromhex(fnv['DNAM']), fnv['EditorID'], builder.data_dir)
+    fid = builder.new_id()
+    builder.writer.add_record('IMGS', pack_imgs(fid, f'FNV_{fnv["EditorID"]}', base_body, lut))
+    builder.counts[f'imagespace: {fnv["EditorID"]}'] += 1
+    return fid
+
+
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collections.Counter:
     """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made."""
     cell = _find_cell(export_dir, cell_edid)
@@ -307,13 +322,14 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collec
     ids = {r['FormID']: builder.new_id() for r in refs}
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
     persistent, temporary = _placed(builder, refs, ids, teleports)
-    vanilla = _vanilla({CELL_FO4} | set(STAND_INS.values()))
+    vanilla = _vanilla({CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
     persistent += _actors(builder, export_dir, cell['FormID'], vanilla)
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
     template = sub_map(vanilla[CELL_FO4].body)
+    imagespace = _imagespace(builder, export_dir, cell, vanilla[BASE_IMAGESPACE].body)
     record = R.pack_cell(cell_fid, f'FNV_{cell_edid}', cell.get('FULL', cell_edid), int(cell['DATA.Flags']) & 0xFF,
-                         lighting(cell, template[b'XCLL']), *(struct.unpack('<I', template[k])[0]
-                                                              for k in (b'LTMP', b'XCIM')))
+                         lighting(cell, template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
+                         imagespace or struct.unpack('<I', template[b'XCIM'])[0])
     builder.writer.add_raw_group('CELL', R.pack_interior_cells([(record, cell_fid, persistent, temporary),
                                                                 (qa_record, CELL_FO4, qa_refs, b'')]))
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
