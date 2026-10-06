@@ -498,6 +498,43 @@ controls off at 43.62 s and on at 51.68 s of real time, 8.06 s for FNV's 8.
 - Timers stop while a menu is open (here the console); the loop's clamp
   turns that gap into one 0.1 s step, as in Skyrim.
 
+### <a id="spike-3-helper-plugin"></a>The shared helper plugin (played 2026-10-05)
+
+```bash
+py -3.14 -m fo4_import.helpers_plugin --out <Data>/TES4Helpers.esl
+```
+
+`TES4Helpers.esl` (ESM + ESL flags, master `Fallout4.esm`) holds what every
+converted FO3/FNV plugin needs and no source plugin has, once for all games,
+since it is player or actor state:
+
+| Object ids | Records |
+|---|---|
+| `0x800`–`0x809` | AVIF `TES4Variable01`–`10` (FO4 has no Variable actor values) |
+| `0x810`–`0x81E` | AVIF per FO3/FNV skill (`TES4Barter` … `TES4Unarmed`; FO4 has no skills) |
+| `0x900`, `0x901` | start-game quests running `TES4_PlayerControls` and `TES4_CharacterEvents` |
+| `0xA00` | GLOB `TES4ControlsDisabled` |
+
+The ids live in `script_convert/constants.py` (`FALLOUT4_HELPER_*`) and are
+a save contract: append only. Converted plugins list the helper plugin as a
+master; `helpers_plugin.actor_value_form` and `helper_forms` give the FormIDs
+a plugin writes for them, by its master index.
+
+- `TES4Polyfill.AV(name)` is generated from `target.fallout4_actor_values()`:
+  Fallout4.esm's ids read from `Fallout4.esm`, the rest from the helper
+  plugin. Names match in any case (Papyrus string compare), and the Skyrim
+  skill names the shared helpers still use (`Lockpicking`, `Speechcraft`,
+  `Smithing`) read the FO3/FNV skill.
+- On the Fallout 4 target an FO3/FNV skill or variable keeps its own name
+  (`TES4AV_EnergyWeapons`) instead of Skyrim's folding (Barter and Speech
+  into `Speechcraft`) or dropping (Guns, Medicine, Science…).
+- The FO3/FNV values FO4 has under another name (resistances, `SpeedMult`,
+  `ActionPoints`) are character-systems work and not mapped here.
+- The spike masters the helper plugin (`Fallout4.esm`, `XDI.esm`,
+  `TES4Helpers.esl`) instead of making its own actor values and controls
+  quest; each skill's first use still takes the FormID its spike record had,
+  so no line moved.
+
 ### <a id="spike-3-fragments"></a>Dialogue fragments (played 2026-10-05)
 
 `script.Fragments` gives every spike INFO whose FNV INFO has a converted

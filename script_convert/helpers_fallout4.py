@@ -15,8 +15,9 @@ import hashlib
 import os
 import re
 
-from script_convert.constants import (FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS,
-                                      FALLOUT4_HELPER_NATIVES, FALLOUT4_MENU_NAMES, FALLOUT4_UNUSED_HELPERS)
+from script_convert.constants import (FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS, FALLOUT4_HELPER_NATIVES,
+                                      FALLOUT4_HELPER_PLUGIN, FALLOUT4_MENU_NAMES, FALLOUT4_UNUSED_HELPERS)
+from script_convert.target import fallout4_actor_values
 
 OVERRIDES_DIR = os.path.join(os.path.dirname(__file__), 'static_scripts', 'fallout4', 'overrides')
 #: A Skyrim actor-value call and its first argument: a string, a one-argument call, or a name.
@@ -79,15 +80,18 @@ def overrides(script: str) -> list:
 
 
 def av_function() -> list:
-    """TES4Polyfill.AV(name): the Fallout 4 actor value named `name`, generated from FALLOUT4_ACTOR_VALUE_IDS."""
+    """TES4Polyfill.AV(name): the actor value named `name`, generated from target.fallout4_actor_values()."""
     out = ['ActorValue Function AV(String asName) Global',
-           '  {The Fallout 4 actor value named asName; None for one this does not know.}', '  Int id = 0']
-    for i, (name, fid) in enumerate(FALLOUT4_ACTOR_VALUE_IDS.items()):
-        out += [f'  {"If" if i == 0 else "ElseIf"} asName == "{name}"', f'    id = 0x{fid:X}']
+           '  {The Fallout 4 actor value named asName; None for one this does not know.}',
+           '  Int id = 0', f'  String file = "{FALLOUT4_HELPER_PLUGIN}"']
+    for i, (low, (_, plugin, fid)) in enumerate(fallout4_actor_values().items()):
+        out += [f'  {"If" if i == 0 else "ElseIf"} asName == "{low}"', f'    id = 0x{fid:X}']
+        if plugin != FALLOUT4_HELPER_PLUGIN:
+            out.append(f'    file = "{plugin}"')
     return out + ['  EndIf', '  If id == 0',
                   '    Debug.Trace("TES4Polyfill.AV: no Fallout 4 actor value named " + asName)',
                   '    Return None', '  EndIf',
-                  '  Return Game.GetFormFromFile(id, "Fallout4.esm") as ActorValue', 'EndFunction']
+                  '  Return Game.GetFormFromFile(id, file) as ActorValue', 'EndFunction']
 
 
 def fallout4_helper(script: str, text: str) -> str:

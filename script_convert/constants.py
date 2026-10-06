@@ -737,6 +737,21 @@ FALLOUT4_ACTOR_VALUE_IDS = {
     'Strength': 0x2C2, 'Perception': 0x2C3, 'Endurance': 0x2C4, 'Charisma': 0x2C5, 'Intelligence': 0x2C6,
     'Agility': 0x2C7, 'Luck': 0x2C8, 'Experience': 0x2C9,
 }
+#: The plugin every converted FO3/FNV plugin masters for the records no source plugin has.
+FALLOUT4_HELPER_PLUGIN = 'TES4Helpers.esl'
+#: Actor values FO4 lacks -> object id in FALLOUT4_HELPER_PLUGIN; ids are a save contract, append only.
+FALLOUT4_HELPER_AVS = {
+    **{f'Variable{n:02d}': 0x800 + n - 1 for n in range(1, 11)},
+    'Barter': 0x810, 'BigGuns': 0x811, 'EnergyWeapons': 0x812, 'Explosives': 0x813, 'Lockpick': 0x814,
+    'Medicine': 0x815, 'MeleeWeapons': 0x816, 'Repair': 0x817, 'Science': 0x818, 'Guns': 0x819,
+    'SmallGuns': 0x81A, 'Sneak': 0x81B, 'Speech': 0x81C, 'Survival': 0x81D, 'Unarmed': 0x81E,
+}
+#: Skyrim skill names the shared helpers use -> the FO3/FNV skill they read on Fallout 4.
+FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair'}
+#: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.
+FALLOUT4_HELPER_QUESTS = {'TES4_PlayerControls': 0x900, 'TES4_CharacterEvents': 0x901}
+#: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
+FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00}
 #: Skyrim actor-value native -> Fallout 4's, which is on ObjectReference and takes an ActorValue form.
 FALLOUT4_AV_NATIVES = {
     'GetActorValue': 'GetValue', 'SetActorValue': 'SetValue', 'ForceActorValue': 'SetValue',

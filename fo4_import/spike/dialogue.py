@@ -18,10 +18,12 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest, pack_topic
+from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike import script as script_spike
 from fo4_import.spike import voice
+from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from tes5_import.base.tes5_reader import walk
 from tes5_import.base.text_reader import parse_export_file
 
@@ -65,6 +67,8 @@ AV_RENAMED = {'Rad Level': 'Rads'}
 #: FNV skills: FO4 has none, so each becomes a plugin actor value.
 FNV_SKILLS = range(32, 46)
 FNV_VARIABLES = range(62, 72)
+MASTERS = ['Fallout4.esm', 'XDI.esm', FALLOUT4_HELPER_PLUGIN]
+HELPER_INDEX = MASTERS.index(FALLOUT4_HELPER_PLUGIN)
 FO4_AVIF_DUMP = Path(__file__).resolve().parents[2] / 'references' / 'Fallout4.esm' / 'AVIF.txt'
 TOP_LEVEL = 0x02
 #: Conditions that pick the speaker; one naming nobody in the test world is false.
@@ -77,11 +81,11 @@ _OP_LESS = 0x80
 
 
 class Ids:
-    """Sequential FormIDs in the plugin's own index (masters: Fallout4, XDI)."""
+    """Sequential FormIDs in the plugin's own index (after MASTERS)."""
 
     def __init__(self):
         """Start at object id 0x800."""
-        self.next = 0x02000800
+        self.next = len(MASTERS) << 24 | 0x800
 
     def take(self) -> int:
         """The next FormID."""
@@ -186,18 +190,19 @@ class Spike:
         return self.stages[key]
 
     def av(self, index: int):
-        """The FO4 actor value for an FNV actor value index: same-named vanilla, a plugin skill or variable, or None."""
+        """The FO4 actor value for an FNV actor value index: same-named vanilla, a helper plugin one, or None.
+
+        A skill or variable's first use still takes the FormID the spike's own
+        record for it once had, so the lines after it keep theirs.
+        """
         name = C.FNV_AV_NAMES[index] if index < len(C.FNV_AV_NAMES) else ''
         fo4 = self.fo4_avs.get(AV_RENAMED.get(name, name.replace(' ', '')))
         if fo4 is not None or (index not in FNV_SKILLS and index not in FNV_VARIABLES):
             return fo4
         if index not in self.avs:
-            self.avs[index] = (self.ids.take(), 'FNV_' + name.replace(' ', ''), name)
-        return self.avs[index][0]
-
-    def av_named(self, name: str):
-        """The FO4 actor value for an FNV actor value name (as `av`), or None."""
-        return self.av(C.FNV_AV_NAMES.index(name)) if name in C.FNV_AV_NAMES else self.fo4_avs.get(name)
+            self.ids.take()
+            self.avs[index] = actor_value_form(name.replace(' ', ''), HELPER_INDEX)
+        return self.avs[index]
 
     def unconvertible(self, cond: dict) -> bool:
         """True when a condition has no FO4 function, actor value or form to become."""
@@ -411,49 +416,30 @@ def _vanilla_cell() -> tuple:
     raise SystemExit('QASmoke not found')
 
 
-def _assemble(export_dir: Path, scripts: Path, fragments) -> tuple:
-    """(spike, greeting topic, placed actors, helper quests): every FormID handed out, fragments' actor values last.
-
-    The placed actors' FormIDs are left on `spike.actor_ids` as [(label, FormID)].
-    """
-    spike = Spike(export_dir)
-    spike.fragments = fragments
-    spike.build_menu('FNVSpike_Menu', spike.menu_topics(), True, spike.main)
-    greeting = spike.greeting()
-    actor_ids = [spike.ids.take() for _ in SPEAKERS]
-    doc_vmad, helpers = script_spike.attach(scripts, spike.ids, spike.av_named) if scripts else (b'', [])
-    actors = b''.join(R.pack_achr(fid, base, pos, rot, doc_vmad if label == 'DocMitchell' else b'')
-                      for fid, (label, _, base, pos, rot) in zip(actor_ids, SPEAKERS))
-    spike.actor_ids = [(label, fid) for fid, (label, *_) in zip(actor_ids, SPEAKERS)]
-    for name in fragments.needed if fragments else ():
-        spike.av_named(name)
-    return spike, greeting, actors, helpers
-
-
 def build(export_dir: Path, out: Path, scripts: Path = None, trace: bool = False) -> Spike:
     """Generate the spike plugin and return the Spike (report and menus).
 
     `scripts`, a folder of Fallout 4 converted scripts, also puts Doc's own
-    script on his stand-in and the lines' fragments on their INFOs (spike 3).
-    `trace` adds a debug quest logging the dialogue state; its source is
-    left on `spike.trace` for compiling.
+    script on his stand-in and the lines' fragments on their INFOs (spike 3),
+    their properties filled from Fallout4.esm and the helper plugin. `trace`
+    adds a debug quest logging the dialogue state; its source is left on
+    `spike.trace` for compiling.
     """
-    fragments = None
-    if scripts:
-        forms = script_spike.fo4_forms()
-        first = _assemble(export_dir, scripts, script_spike.Fragments(scripts, forms))[0]
-        avs = {name: first.av_named(name) for name in first.fragments.needed}
-        fragments = script_spike.Fragments(scripts, forms, avs, first.fragments.needed)
-    spike, greeting, actors, helpers = _assemble(export_dir, scripts, fragments)
-    w = FO4PluginWriter(masters=['Fallout4.esm', 'XDI.esm'], is_esm=False, description='FNV dialogue spike')
+    spike = Spike(export_dir)
+    forms = script_spike.spike_forms(HELPER_INDEX) if scripts else {}
+    spike.fragments = script_spike.Fragments(scripts, forms, HELPER_INDEX) if scripts else None
+    spike.build_menu('FNVSpike_Menu', spike.menu_topics(), True, spike.main)
+    greeting = spike.greeting()
+    actor_ids = [spike.ids.take() for _ in SPEAKERS]
+    doc_vmad = script_spike.attach(scripts, forms, HELPER_INDEX) if scripts else b''
+    actors = b''.join(R.pack_achr(fid, base, pos, rot, doc_vmad if label == 'DocMitchell' else b'')
+                      for fid, (label, _, base, pos, rot) in zip(actor_ids, SPEAKERS))
+    spike.actor_ids = [(label, fid) for fid, (label, *_) in zip(actor_ids, SPEAKERS)]
+    w = FO4PluginWriter(masters=MASTERS, is_esm=False, description='FNV dialogue spike')
     if trace:
         fid = spike.ids.take()
-        helpers.append((fid, script_spike.trace_quest(fid, spike.quest)))
+        w.add_record('QUST', pack_quest(script_spike.trace_quest(fid, spike.quest), fid, (), [], []))
         spike.trace = script_spike.trace_source(out.name, [(e, f) for f, e, *_ in spike.scenes], spike.actor_ids)
-    for fid, record in helpers:
-        w.add_record('QUST', pack_quest(record, fid, (), [], []))
-    for fid, edid, name in spike.avs.values():
-        w.add_record('AVIF', R.pack_avif(fid, edid, name))
     body, flags, block, sub = _vanilla_cell()
     cell_record = pack_fo4_record('CELL', CELL_FO4, flags, body)
     w.add_raw_group('CELL', R.pack_interior_cell(cell_record, CELL_FO4, block, sub, actors))

@@ -1,11 +1,9 @@
 """Spike 3 end to end: Doc Mitchell's converted script on his Fallout 4 stand-in.
 
-`dialogue.build(..., scripts=<converted folder>)` calls `attach`: a helper
-quest carrying TES4_PlayerControls, and the VMAD putting GSDocMitchellScript
-on Doc's stand-in with its properties filled where the spike world has the
-form (TES4AV_<name> from the spike's actor values, which are plugin ones where
-Fallout 4 has none; TES4PlayerControls from the helper quest; the rest stay
-unfilled). `Fragments` gives each spike line whose FNV INFO has a converted
+`dialogue.build(..., scripts=<converted folder>)` calls `attach`: the VMAD
+putting GSDocMitchellScript on Doc's stand-in with its properties filled where
+the spike world has the form (actor values, helper quests and globals from
+Fallout4.esm and TES4Helpers.esl; the rest stay unfilled). `Fragments` gives each spike line whose FNV INFO has a converted
 fragment script its INFO VMAD. `compile_into` compiles the scripts and the
 Fallout 4 helpers with Fallout 4's compiler into <Data>/Scripts.
 
@@ -18,10 +16,11 @@ import tempfile
 from pathlib import Path
 
 from fo4_import.base.papyrus import compile_folder, header_dirs
+from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import info_fragments, object_scripts
-from fo4_import.spike import records as R
+from fo4_import.helpers_plugin import actor_value_form, helper_forms
+from script_convert.target import AV_PROPERTY_PREFIX
 from tes5_import.base.text_reader import parse_export_file
-from script_convert.target import AV_PROPERTY_PREFIX, CONTROLS_SCRIPT
 
 DOC_SCRIPT = 'FALLOUTNV_GSDocMitchellScript'
 FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
@@ -45,64 +44,52 @@ def fo4_forms() -> dict:
                     if r.get('EditorID')} for ptype, sig in FORM_DUMPS.items()}
 
 
-def fill(declared: list, helpers: dict, av, forms: dict = None) -> dict:
+def fill(declared: list, forms: dict, helper_index: int) -> dict:
     """{property: FormID} for the properties this spike can fill.
 
-    `helpers` is {script type: quest}, `av` maps an actor value name to its
-    FormID, `forms` is fo4_forms(): a property named after a Fallout 4
-    record of its type gets that record.
+    TES4AV_<name> from Fallout4.esm or the helper plugin (master number
+    `helper_index`); `forms` is {Papyrus type: {property name, or '*' for
+    any: FormID}}: helper quests and globals, and Fallout4.esm records named
+    as the property.
     """
     out = {}
     for ptype, name in declared:
-        fid = None
         if ptype == 'ActorValue' and name.startswith(AV_PROPERTY_PREFIX):
-            fid = av(name[len(AV_PROPERTY_PREFIX):])
-        elif ptype in helpers:
-            fid = helpers[ptype]
-        elif forms:
-            fid = forms.get(ptype, {}).get(name)
+            fid = actor_value_form(name[len(AV_PROPERTY_PREFIX):], helper_index)
+        else:
+            by_name = forms.get(ptype, {})
+            fid = by_name.get('*', by_name.get(name))
         if fid is not None:
             out[name] = fid
     return out
 
 
+def spike_forms(helper_index: int) -> dict:
+    """fill()'s `forms`: helper quests and globals, Fallout4.esm records."""
+    return {**fo4_forms(), **helper_forms(helper_index)}
+
+
 class Fragments:
-    """The spike lines' converted INFO fragments.
+    """The spike lines' converted INFO fragments; `used` lists the scripts given out."""
 
-    Built twice: a first pass with no `avs` lists the actor values the
-    fragments need (`needed`) and packs nothing, so the spike can give the
-    plugin's own ones their FormIDs after every line has its own; the second
-    pass packs each VMAD with those FormIDs (`avs`, name -> FormID).
-    """
-
-    def __init__(self, scripts_dir: Path, forms: dict, avs: dict = None, needed: list = ()):
-        self.dir, self.forms, self.avs = scripts_dir, forms, avs
-        self.needed, self.used = list(needed), []
+    def __init__(self, scripts_dir: Path, forms: dict, helper_index: int):
+        self.dir, self.forms, self.helper_index, self.used = scripts_dir, forms, helper_index, []
 
     def vmad(self, fnv_info: str) -> bytes:
-        """The INFO VMAD for FNV INFO `fnv_info` (hex FormID); b'' with no fragment script, or on the first pass."""
+        """The INFO VMAD for FNV INFO `fnv_info` (hex FormID); b'' with no fragment script."""
         name = f'{FRAGMENT_PREFIX}{fnv_info}'
         path = self.dir / f'{name}.psc'
         if not path.exists():
             return b''
-        declared = declared_properties(path.read_text(encoding='utf-8'))
-        if self.avs is None:
-            self.needed += [n[len(AV_PROPERTY_PREFIX):] for t, n in declared
-                            if t == 'ActorValue' and n.startswith(AV_PROPERTY_PREFIX)
-                            and n[len(AV_PROPERTY_PREFIX):] not in self.needed]
-            return b''
         self.used.append(name)
-        props = fill(declared, {}, self.avs.get, self.forms)
+        props = fill(declared_properties(path.read_text(encoding='utf-8')), self.forms, self.helper_index)
         return info_fragments(name, props, begin='Fragment_1', end='Fragment_0')
 
 
-def attach(scripts_dir: Path, ids, av) -> tuple:
-    """(VMAD for Doc's stand-in, [helper quest records]); the quest's FormID from `ids`, actor values from `av`."""
-    quest = ids.take()
-    record = R.pack_script_quest(quest, 'FNVSpike_PlayerControls', object_scripts([(CONTROLS_SCRIPT, {}, {})]))
+def attach(scripts_dir: Path, forms: dict, helper_index: int) -> bytes:
+    """The VMAD putting Doc's converted script on his stand-in, filled."""
     psc = (scripts_dir / f'{DOC_SCRIPT}.psc').read_text(encoding='utf-8')
-    props = fill(declared_properties(psc), {CONTROLS_SCRIPT: quest}, av)
-    return object_scripts([(DOC_SCRIPT, props, {})]), [(quest, record)]
+    return object_scripts([(DOC_SCRIPT, fill(declared_properties(psc), forms, helper_index), {})])
 
 
 def with_types(scripts_dir: Path, names) -> set:
@@ -158,7 +145,7 @@ def trace_source(plugin: str, scenes: list, actors: list) -> str:
 
 def trace_quest(fid: int, conversation: int) -> bytes:
     """The debug quest record carrying the trace script."""
-    return R.pack_script_quest(fid, TRACE_SCRIPT, object_scripts([(TRACE_SCRIPT, {'Conversation': conversation}, {})]))
+    return pack_script_quest(fid, TRACE_SCRIPT, object_scripts([(TRACE_SCRIPT, {'Conversation': conversation}, {})]))
 
 
 def compile_source(name: str, text: str, data_dir: Path) -> str:

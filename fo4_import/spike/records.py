@@ -53,13 +53,6 @@ def pack_ctda(op_flags: int, value: float, func: int, p1: int = 0, p2: int = 0,
     return pack_subrecord('CTDA', data)
 
 
-def pack_avif(fid: int, edid: str, name: str) -> bytes:
-    """A plugin actor value, shaped like vanilla CA_Affinity 000A1B80 (default 0)."""
-    subs = _zstr('EDID', edid) + _zstr('FULL', name) + _zstr('DESC', '')
-    subs += pack_subrecord('NAM0', struct.pack('<f', 0.0)) + _u32('AVFL', 0x400) + _u32('NAM1', 8)
-    return pack_fo4_record('AVIF', fid, 0, subs)
-
-
 def pack_dial(fid: int, edid: str, quest: int, kind: tuple, info_count: int) -> bytes:
     """A topic: priority 50, its quest, DATA and subtype code from `kind`, and its INFO count."""
     data, code = kind
@@ -147,13 +140,6 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') ->
     data = struct.pack('<6f', *pos, *rot)
     subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + _u32('NAME', base)
     return pack_fo4_record('ACHR', fid, 0x400, subs + pack_subrecord('DATA', data))
-
-
-def pack_script_quest(fid: int, edid: str, vmad: bytes) -> bytes:
-    """A start-game-enabled quest carrying only scripts (a helper quest)."""
-    subs = _zstr('EDID', edid) + pack_subrecord('VMAD', vmad)
-    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0x0011, 0, 0.0, 0)) + pack_subrecord('NEXT', b'')
-    return pack_fo4_record('QUST', fid, 0, subs + _u32('ANAM', 0))
 
 
 def pack_interior_cell(cell_record: bytes, cell_fid: int, block: int, sub_block: int,

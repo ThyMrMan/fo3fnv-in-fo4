@@ -10,7 +10,9 @@ See: docs/fork/fo4_spikes.md#spike-3-target
 
 import os
 
-from script_convert.constants import FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS, FALLOUT4_MENU_NAMES
+from script_convert.constants import (FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS,
+                                      FALLOUT4_HELPER_AV_ALIASES, FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_PLUGIN,
+                                      FALLOUT4_MENU_NAMES)
 
 SKYRIM, FALLOUT4 = 'skyrim', 'fallout4'
 TARGET_ENV = 'TES4SKYRIM_PAPYRUS_TARGET'
@@ -49,6 +51,26 @@ def arm_update(secs: str, receiver: str = '') -> str:
     """Schedule the next poll pass: RegisterForSingleUpdate, or Fallout 4's StartTimer."""
     native = 'StartTimer' if is_fallout4() else 'RegisterForSingleUpdate'
     return f'{receiver}{native}({secs})'
+
+
+def fallout4_actor_values() -> dict:
+    """{lower-case name: (canonical name, plugin, object id)} of every actor value a Fallout 4 script can name.
+
+    Fallout4.esm's, then the helper plugin's (FO3/FNV skills and Variable01-10)
+    under their own names and the Skyrim skill names the shared helpers use.
+    """
+    out = {n.lower(): (n, 'Fallout4.esm', fid) for n, fid in FALLOUT4_ACTOR_VALUE_IDS.items()}
+    out.update({n.lower(): (n, FALLOUT4_HELPER_PLUGIN, fid) for n, fid in FALLOUT4_HELPER_AVS.items()})
+    out.update({a.lower(): out[n.lower()] for a, n in FALLOUT4_HELPER_AV_ALIASES.items()})
+    return out
+
+
+def helper_av_name(name: str) -> 'str | None':
+    """On Fallout 4, the helper plugin's name for actor value `name` (any case); else None."""
+    if not is_fallout4():
+        return None
+    entry = fallout4_actor_values().get(name.lower())
+    return entry[0] if entry and entry[1] == FALLOUT4_HELPER_PLUGIN else None
 
 
 def av_property(av: str) -> str:

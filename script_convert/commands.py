@@ -29,7 +29,7 @@ from script_convert.command_rows import (
     ACTOR_VALUE_READ_FUNCTIONS, Cmd, param_types
 )
 from script_convert.emit.commands import emit_row
-from script_convert.target import anim_event_call, av_call, controls_call, self_as_actor
+from script_convert.target import anim_event_call, av_call, controls_call, helper_av_name, self_as_actor
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
@@ -1597,7 +1597,7 @@ def _special_actor_value(ctx, call, raw: str) -> 'str | None':
     if low in PRIMARY_STATS:
         speed = _speed_access(ctx, call) if low == 'speed' else None
         return speed or _attribute_call(ctx, call, raw)
-    if low in FALLOUT_UNMAPPED_ACTOR_VALUES:
+    if low in FALLOUT_UNMAPPED_ACTOR_VALUES and not helper_av_name(raw):
         return _unmapped_actor_value(ctx, call, raw)
     if low == 'karma':
         return _karma_call(ctx, call)
@@ -1605,13 +1605,13 @@ def _special_actor_value(ctx, call, raw: str) -> 'str | None':
 
 
 def _av_name(raw: str, call) -> str:
-    """The Skyrim AV a TES4 name means; a read of Encumbrance is InventoryWeight.
+    """The target's AV for a source name; an Encumbrance read is InventoryWeight.
 
     See: docs/commentary/script_convert.md#encumbrance-is-two-values
     """
     if raw.lower() == 'encumbrance' and call.name in _AV_READ:
         return 'InventoryWeight'
-    return AV_ARGUMENT_NAMES.get(raw.lower(), raw)
+    return helper_av_name(raw) or AV_ARGUMENT_NAMES.get(raw.lower(), raw)
 
 
 def _av_papyrus(call) -> str:
