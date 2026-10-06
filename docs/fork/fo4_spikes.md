@@ -1141,6 +1141,37 @@ and model:
   (3), and no WATR XNAM; the spike reads WNAM and XNAM from FalloutNV.esm
   (`install.FALLOUTNV_ESM`). Sounds are not converted yet.
 
+### <a id="spike-2-navmesh"></a>Navmesh (played 2026-10-06)
+
+FNV's navmesh is authored, so `fo4_import/spike/navmesh.py` repacks it as
+the Skyrim side does (`navm_falloutnv`), into FO4's layout. Measured over
+Fallout4.esm's 781 interior navmeshes:
+
+- **NVNM version 15**, pathing-cell CRC `0xA5E9A03C`, as Skyrim. A
+  triangle is 21 bytes: Skyrim's 16 plus a float after the edges and a byte
+  (0 in 55,573 of 56,119 sampled). The float is not the floor height (it
+  differs from the vertices' mean z by −2,848 to +2,500); vanilla writes
+  FLT_MAX in some, so it reads as the clearance above the triangle, and the
+  spike writes FLT_MAX (unbounded). Edge links gain an edge-index byte (11
+  bytes); door links are triangle, `PathingDoor` CRC, door.
+- **Cover and waypoints are optional:** 92 of the 781 have no cover array
+  and 428 no waypoints; the spike writes neither. The lookup grid is the
+  Skyrim one (`lookup_grid.build_navmesh_grid`, `choose_divisor`).
+- **Triangle flags** are the same bits in FNV and FO4 (xEdit's shared
+  `wbNavmeshTriangleFlags`: edge links, Door 0x400, Found 0x800, Water,
+  Preferred), so FNV's flags and cover flags carry over. Edge links to
+  other cells' navmeshes are dropped and their edges left open.
+- **The record** is NVNM and an empty MNAM (pre-cut map; empty in 7,723 of
+  7,799). It is a temporary child of the cell.
+- **NAVI.** Vanilla registers every navmesh in the singleton `0x00000FF1`
+  (NVER 15, 7,799 NVMI, a 26,840-byte NVPP of precomputed paths), whose
+  NVMI layout is Skyrim's. The plugin overrides it with its own NVMI and a
+  copy of vanilla's NVPP, as `tes5_import/navmesh/navi.py` does for Skyrim.
+
+Doc's house: one navmesh, 118 vertices and 123 triangles, its door link on
+triangle 77 to the interior door (`GSDocMitchellHouseIntDoorREF`, flags
+Door + Found), no edge links.
+
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 
 The CK exports FaceGen from the command line: `CreationKit.exe

@@ -30,6 +30,7 @@ from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
 from fo4_import.spike.furniture import furniture, markers
+from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
@@ -322,6 +323,16 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
     return fid
 
 
+def _navmesh(builder: CellBuilder, export_dir: Path, fnv_cell: str, cell_fid: int, ids: dict) -> bytes:
+    """The cell's FNV navmeshes as FO4 NAVM records, registered in the plugin's NAVI override."""
+    recs = [r for r in parse_export_file(str(export_dir / 'NAVM.txt')) if r.get('DATA.Cell') == fnv_cell]
+    records, infos = navmeshes(recs, cell_fid, ids, builder.new_id)
+    if infos:
+        builder.writer.add_record('NAVI', navi(builder.fo4, infos))
+        builder.counts['NAVM'] += len(recs)
+    return records
+
+
 def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None') -> None:
     """Give `builder` its item and activator makers."""
     records = index(export_dir, ITEM_TYPES)
@@ -348,6 +359,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     persistent, temporary = _placed(builder, refs, ids, teleports)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
     persistent += _actors(builder, export_dir, cell['FormID'], vanilla)
+    temporary += _navmesh(builder, export_dir, cell['FormID'], cell_fid, ids)
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
     template = sub_map(vanilla[CELL_FO4].body)
     imagespace = _imagespace(builder, export_dir, cell, vanilla[BASE_IMAGESPACE].body)
