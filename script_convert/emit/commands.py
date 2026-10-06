@@ -53,7 +53,7 @@ from script_convert.command_rows import (
 )
 
 from script_convert.tes4 import lexer as L
-from script_convert.target import is_fallout4
+from script_convert.target import is_fallout4, self_as_actor
 from script_convert.command_rows_fallout4 import FALLOUT4_ROWS
 
 #: A placeholder is one atom: `{a0} == {a1}` compares, `Foo({a0})` does not.
@@ -117,7 +117,7 @@ def _ref(conv, row, ref_name, extends):
     # The promotion 10 branches spelled out inline: an actor-only call on a
     # script whose Self is not an Actor needs the cast, or it fails to compile.
     if row.subj == ACTOR and ref == 'Self' and extends != 'Actor':
-        ref = '(Self as Actor)'
+        ref = self_as_actor()
     return ref
 
 
@@ -191,10 +191,14 @@ class _Args(dict):
             return self._c._cast(self._c.arg_expr(n, self._e, default), 'Bool')
 
 
+def target_row(row):
+    """`row`, or its Fallout 4 row on that target (None stays None)."""
+    return FALLOUT4_ROWS.get(row, row) if is_fallout4() and row is not None else row
+
+
 def emit_row(conv, row, ref_name, func_name, args_str, extends):
     """Render one `Cmd` row, or its Fallout 4 row when that is the target.  Returns the Papyrus text."""
-    if is_fallout4():
-        row = FALLOUT4_ROWS.get(row, row)
+    row = target_row(row)
     if row.note:
         # `{f}` is the command AS WRITTEN, receiver included: a note that
         # quotes the source has to quote the whole call or it names the wrong

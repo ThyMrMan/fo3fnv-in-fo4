@@ -26,7 +26,7 @@ from script_convert import assemble as _assemble
 from script_convert import commands as _commands
 from script_convert.context import ScriptContext
 from script_convert.poll_interval import quest_delay_arm, update_interval
-from script_convert.target import av_call
+from script_convert.target import av_call, self_as_actor
 from script_convert.emit import dispatch as _dispatch
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.tes4.parser import (
@@ -989,7 +989,7 @@ class ScriptConverter:
         cand = comparand.strip().strip('()').strip()
         actor = self._resolve_self_ref(recv, extends, actor_func=True)
         if actor == 'Self' and extends not in ('Actor',):
-            actor = '(Self as Actor)'
+            actor = self_as_actor()
 
         # A PACK EditorID compares exactly: vanilla Papyrus has
         # Actor.GetCurrentPackage(), so the test converts one-for-one.
@@ -1484,7 +1484,7 @@ class ScriptConverter:
         if (re.search(rf'\bas\s+{ptype}\s*$', text, re.IGNORECASE)
                 and not _needs_parens(text)):
             return text
-        if _needs_parens(text):
+        if _needs_parens(text) or re.search(r'\bas\s+\w+\s*$', text, re.IGNORECASE):
             return f'({text}) as {ptype}'
         return f'{text} as {ptype}'
 

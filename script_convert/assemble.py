@@ -25,8 +25,10 @@ from script_convert.command_rows import (
 )
 from script_convert import symbols as _symbols
 from script_convert.poll_motion import relative_sets
+from script_convert.poll_interval import MIN_INTERVAL
 from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
-                                   is_hit_event, run_update_now)
+                                   is_hit_event, menu_close_guard, menu_registration, run_update_now,
+                                   sleep_registration, target_menu_name)
 from script_convert.emit import script as _script
 from script_convert.tes4 import nodes as N
 
@@ -408,9 +410,9 @@ def quest_restart(conv, tree, extends: str, name: str) -> list:
             '  If !akQuest.IsRunning()',
             '    TES4Start(akQuest)',
             '  EndIf',
-            '  Bool done = akQuest.SetStage(aiStage)',
+            '  Bool TES4_StageSet = akQuest.SetStage(aiStage)',
             '  TES4Polyfill.StageSet(akQuest)',
-            '  Return done']
+            '  Return TES4_StageSet']
     return out + ['EndFunction']
 
 
@@ -567,11 +569,12 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
 
     out = (_carried_read(conv, tree, extends, merged, order)
            + _record_last_activator(conv, merged, order)
-           + _track_holder(conv, tree, merged, order))
+           + _track_holder(conv, tree, merged, order)
+           + _trigger_repeat(merged, order))
     for header in order:
         opener, closer = header
         if opener == BLOCK_MAP['ontrigger'][0]:
-            out += _one_trigger_at_a_time(opener, closer, merged[header])
+            out += _one_trigger_at_a_time(*(_TRIGGER_FUNCTION if is_fallout4() else header), merged[header])
         else:
             out += [event_opener(opener)] + _rearm_hit(opener) + merged[header] + [closer, '']
         # TES4's `begin OnTrigger` runs EVERY FRAME an object is inside the
@@ -591,6 +594,36 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
                     'EndEvent',
                     '']
     return out
+
+
+#: Fallout 4 has no repeating OnTrigger: the per-frame body becomes this function.
+_TRIGGER_FUNCTION = ('Function TES4_OnTrigger(ObjectReference akActionRef)', 'EndFunction')
+#: The references inside the trigger, for Fallout 4's repeat loop.
+_TRIGGER_INSIDE = 'TES4_TriggerInside'
+
+
+def _trigger_repeat(merged: dict, order: list) -> list:
+    """Fallout 4: OnTriggerEnter repeats TES4_OnTrigger while the reference stays inside; OnTriggerLeave ends it.
+
+    TES4's OnTrigger ran every frame something was inside; Fallout 4 only
+    sends enter and leave. The lines join any authored enter and leave blocks.
+    See: docs/fork/fo4_spikes.md#spike-3-trigger
+    """
+    if not is_fallout4() or BLOCK_MAP['ontrigger'] not in merged:
+        return []
+    for block in ('ontriggerenter', 'ontriggerleave'):
+        if BLOCK_MAP[block] not in merged:
+            merged[BLOCK_MAP[block]] = []
+            order.append(BLOCK_MAP[block])
+    merged[BLOCK_MAP['ontriggerenter']] += [
+        f'  If !{_TRIGGER_INSIDE}', f'    {_TRIGGER_INSIDE} = new ObjectReference[0]', '  EndIf',
+        f'  If {_TRIGGER_INSIDE}.Find(akActionRef) < 0', f'    {_TRIGGER_INSIDE}.Add(akActionRef)', '  EndIf',
+        f'  While {_TRIGGER_INSIDE}.Find(akActionRef) >= 0 && Is3DLoaded()',
+        '    TES4_OnTrigger(akActionRef)', f'    Utility.Wait({MIN_INTERVAL})', '  EndWhile']
+    merged[BLOCK_MAP['ontriggerleave']] += [
+        f'  If {_TRIGGER_INSIDE} && {_TRIGGER_INSIDE}.Find(akActionRef) >= 0',
+        f'    {_TRIGGER_INSIDE}.Remove({_TRIGGER_INSIDE}.Find(akActionRef))', '  EndIf']
+    return [f'ObjectReference[] {_TRIGGER_INSIDE}', '']
 
 
 def _rearm_hit(opener: str) -> list:
@@ -1003,8 +1036,8 @@ def lifecycle(conv, tree, extends: str) -> list:
              if (sc.has_gamemode or sc.has_scripteffectupdate) else [])
     start += [f'  {HIT_REGISTRATION}'] if hits else []
     if sleeps:
-        start.append('  RegisterForSleep()')
-    start += ['  RegisterForMenu("%s")' % m for m in menus]
+        start.append(f'  {sleep_registration(True)}')
+    start += [f'  {menu_registration(m)}' for m in menus]
 
     if extends not in ('ObjectReference', 'Actor'):
         return [] if 'oninit' in declared else (
@@ -1012,7 +1045,7 @@ def lifecycle(conv, tree, extends: str) -> list:
 
     out = ['Event OnCellAttach()'] + start + ['EndEvent', '']
     if sleeps:
-        out += ['Event OnCellDetach()', '  UnregisterForSleep()',
+        out += ['Event OnCellDetach()', f'  {sleep_registration(False)}',
                 'EndEvent', '']
     if 'onload' not in declared:
         out += ['Event OnLoad()'] + start + ['EndEvent', '']
@@ -1287,13 +1320,12 @@ def sleep_listener(conv, tree, extends: str) -> list:
     if extends == 'Quest':
         out += ['  If (!IsRunning())', '    Return', '  EndIf']
     out += body + ['EndFunction', '']
-    out += ['Event OnSleepStart(float afSleepStartTime, '
-            'float afDesiredSleepEndTime)',
+    out += [event_opener('Event OnSleepStart(float afSleepStartTime, float afDesiredSleepEndTime)'),
             '  TES4_PCSleeping = 1',
             '  TES4_MenuModeSleepBody()',
             'EndEvent',
             '',
-            'Event OnSleepStop(bool abInterrupted)',
+            event_opener('Event OnSleepStop(bool abInterrupted)'),
             '  TES4_MenuModeSleepBody()',
             '  TES4_PCSleeping = 0',
             'EndEvent',
@@ -1336,10 +1368,10 @@ def menu_blocks(conv, tree, extends: str) -> list:
             continue
         out.append('; --- TES4 `begin %s` - runs when %s closes ---'
                    % (label, menu))
-        out.append('Event OnMenuClose(String TES4_MenuName)')
+        out += [event_opener('Event OnMenuClose(String TES4_MenuName)')] + menu_close_guard()
         if extends == 'Quest':
             out += ['  If (!IsRunning())', '    Return', '  EndIf']
-        out += ['  If TES4_MenuName != "%s"' % menu, '    Return', '  EndIf']
+        out += [f'  If TES4_MenuName != "{target_menu_name(menu)}"', '    Return', '  EndIf']
         out += body + ['EndEvent', '']
     return out
 

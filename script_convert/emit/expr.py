@@ -27,6 +27,8 @@ from script_convert.emit.commands import (
     BOOL_TEMPLATE_COMMANDS, COMPARISON_COMMANDS, INERT_COMMANDS,
 )
 from script_convert import resolve_name as _resolve
+from script_convert import symbols as _symbols
+from script_convert.target import self_as_actor
 from script_convert.tes4 import lexer as L, nodes as N
 
 # Papyrus binds `as` tighter than the arithmetic operators, so a cast applied
@@ -409,7 +411,7 @@ def _self_cast(conv, a, b, node, extends):
     if otype != 'Actor' and not (isinstance(b, N.Member)
                                  and is_generated_script_type(otype)):
         return None
-    return '(Self as Actor)', emit(conv, b, extends)
+    return self_as_actor(), emit(conv, b, extends)
 
 
 def _bool_as_int(conv, a, b, node, extends):
@@ -590,11 +592,14 @@ def _binop(conv, node: N.BinOp, extends: str) -> str:
 
 
 def _plain_binop(conv, left, right, op: str, node: N.BinOp, extends: str) -> str:
-    """`left op right`; two Bool operands of arithmetic are cast, as Papyrus rejects `Bool + Bool`."""
+    """`left op right`; Bool arithmetic and a Float `%` operand are cast to Int, as Papyrus rejects both."""
     lhs = _operand(conv, left, node, extends)
     rhs = _operand(conv, right, node, extends, right=True)
     if op in _ARITH and _is_bool_valued(conv, left) and _is_bool_valued(conv, right):
         return f'({lhs} as Int) {op} ({rhs} as Int)'
+    if op == '%':
+        lhs, rhs = (f'({text} as Int)' if _symbols.type_of_expr(side, conv.type_of) == 'Float' else text
+                    for side, text in ((left, lhs), (right, rhs)))
     return f'{lhs} {op} {rhs}'
 
 

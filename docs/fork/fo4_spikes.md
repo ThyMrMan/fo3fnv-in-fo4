@@ -394,6 +394,76 @@ static scripts for Fallout 4:
   other AI values are engine-made forms, not records in the esm; their ids
   come from xEdit's `Core/Hardcoded/Fallout4.esp`.
 
+### <a id="spike-3-trigger"></a>OnTrigger on Fallout 4
+
+TES4's `OnTrigger` ran every frame something was inside the volume. Skyrim
+sends a repeating `OnTrigger`; Fallout 4 sends only `OnTriggerEnter` and
+`OnTriggerLeave`. So the per-frame body becomes the function
+`TES4_OnTrigger` (still one at a time), `OnTriggerEnter` records the
+reference and calls it every 0.1 s (`MIN_INTERVAL`) while the reference is
+inside and the trigger loaded, and `OnTriggerLeave` removes it. The lines
+join any authored enter and leave blocks (`assemble._trigger_repeat`).
+
+### <a id="spike-3-singles"></a>The remaining failures (2026-10-05)
+
+**99.9%** (17,672 of 17,695) after these, each the FO4 native closest to FNV:
+
+| FNV | FO4 |
+|---|---|
+| `SetRestrained` (Skyrim: `SetDontMove`) | `Actor.SetRestrained` |
+| `EnableFastTravel`, `SetCanFastTravelFromWorld` | `TES4_PlayerControls.FastTravel` (an `InputEnableLayer` setting) |
+| `GetLOS` | `HasDetectionLOS` |
+| `RemoveAllItems` | at most 2 arguments |
+| `OnMagicEffectApply` | FO4's opener (adds `akTarget`) |
+| sleep MenuMode | `RegisterForPlayerSleep`, `OnPlayerSleepStart`/`Stop` |
+| menu-ID MenuMode (`RaceSex Menu`, VCG01's chargen) | `RegisterForMenuOpenCloseEvent("LooksMenu")`, `OnMenuOpenCloseEvent` returning on open |
+| `OnTrigger` | [the enter loop](#spike-3-trigger) |
+| `(Self as Actor)` | `((Self as ObjectReference) as Actor)`: FO4 casts a script type only to a relative (`target.self_as_actor`, now the one spelling for 12 sites) |
+
+Shared fixes (Skyrim output changes, still valid Papyrus): a Float operand
+of `%` is cast to Int; a cast of an expression already ending in a cast is
+parenthesised (`(X as Int) as Float`); the generated `TES4SetStage` local is
+`TES4_StageSet`, which no script variable shadows. `emit.commands.target_row`
+is now the one place a row is swapped for its FO4 one; `emit_row`,
+`_emit_mapped` (MAP rows) and `_convert_args` all ask it.
+
+**Left (23):**
+- 18 in scripts nothing in FNV attaches (dead): actor events (`OnDeath`,
+  `OnCombatStateChanged`, `OnPackageEnd`, `OnEffectStart`) and casts in
+  scripts the converter types `ObjectReference` for lack of an attaching
+  record. Never bound, so never run.
+- `QF_VDoctors`, `QF_Doctors`: bare `RemoveSpell Withdrawal*` in a quest
+  stage result script ("heal the player of addictions"). The GECK/CS wiki
+  says only object and dialogue result scripts have an implicit reference;
+  the converter casts the quest to an actor, which is None in Skyrim too.
+  **Open:** what FNV runs it on (play Doc's addiction cure).
+- Singles: `VES01VictorGSMyBodyguard` (a void read as Bool), `VMS03Quest`
+  (`AddItem`'s result assigned), `50MGIncendiary` (an Enchantment cast to
+  Spell).
+
+### <a id="spike-3-names"></a>Script names
+
+Two scripts sharing a name is a bug only a play-test shows: the later write
+replaces the earlier, and the compile gate sees just the survivor.
+Measured 2026-10-05:
+
+- **Within one game's run:** 17,679 names, each written once. Since then
+  `pipeline.refuse_duplicate_names` stops the run on a name written twice
+  with different text (the same text twice is harmless), naming each source.
+- **Against Fallout 4's own scripts:** 0 of our names among its 10,260 (Base
+  and F4SE).
+- **FO3 and FNV in one Data folder:** the games share many EditorIDs, so
+  each game's scripts carry its prefix (`FALLOUTNV_`, `FALLOUT3_`), as in the
+  Skyrim fork. `script_convert.pipeline`'s command line now sets it as
+  `convert.py` does (it used the generic `TES4_`), so the gate compiles the
+  names that ship. Once FO3 is converted, compiling both corpora into one
+  folder checks the two games against each other.
+- The shared helpers ship once; every game's build must carry the same
+  version.
+
+FO4's script namespaces (`FalloutNV:Name`) could replace the prefix and the
+hashed short names (`..._CB26`); decided with VMAD, which records the names.
+
 ### <a id="spike-3-gate"></a>The corpus compile gate
 
 ```bash

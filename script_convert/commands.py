@@ -29,7 +29,7 @@ from script_convert.command_rows import (
     ACTOR_VALUE_READ_FUNCTIONS, Cmd, param_types
 )
 from script_convert.emit.commands import emit_row
-from script_convert.target import anim_event_call, av_call, controls_call
+from script_convert.target import anim_event_call, av_call, controls_call, self_as_actor
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
@@ -384,7 +384,7 @@ def _actor_arg(ctx, call) -> str:
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     if ref != 'Self' or call.extends == 'Actor':
         return ref
-    return '(Self as Actor)'
+    return self_as_actor()
 
 
 @command('forceflee', 'flee')
@@ -610,18 +610,11 @@ def position_world(ctx, call) -> str:
 
 @command('startcombat')
 def start_combat(ctx, call) -> str:
-    """StartCombat -- TES4's call FORCES the fight.
+    """StartCombat -- TES4's call FORCES the fight, through TES4Polyfill.ForceCombat.
 
-    Aggression, disposition and faction relations are all ignored (UESP
-    Oblivion:StartCombat; CharacterGen stage 74 has the final assassin, base
-    aggression 0 and a faction the Emperor's faction Friends at +50, cut the
-    Emperor down purely on the strength of this call).  Skyrim's
-    Actor.StartCombat is only a nudge the combat AI immediately re-evaluates:
-    an Aggression-0 actor exits combat at once -- vanilla's own turn-hostile
-    fragment (MS08) pairs SetEnemy with SetAV Aggression 1 for exactly this
-    reason -- and a target the actor has no hostile reaction to is dropped as
-    invalid.  TES4Polyfill.ForceCombat supplies both preconditions before the
-    native.  A player-driven attack needs no forcing.
+    The player's own StartCombat needs no forcing; Self in a script not
+    attached to an actor is cast to Actor (None on a non-actor: a no-op).
+    See: docs/commentary/script_convert.md#startcombat-forces
     """
     if not len(call):
         return None
@@ -630,12 +623,7 @@ def start_combat(ctx, call) -> str:
     if (call.ref or '').lower() in ('player', 'playerref'):
         return f'{ref}.StartCombat({target})'
     if ref == 'Self' and call.extends == 'ObjectReference':
-        # A bare StartCombat in a script NOT attached to an actor (Nehrim's
-        # unused MQ33Sarantha02Script: `StartCombat, Player`).  ForceCombat's
-        # parameter is Actor-typed and Papyrus will not pass an
-        # ObjectReference there; on a non-actor the cast is None and the call
-        # is a logged no-op -- what Oblivion did with it too.
-        ref = '(Self as Actor)'
+        ref = self_as_actor()
     return ctx._force_combat_call(ref, target)
 
 
@@ -647,7 +635,7 @@ def stop_combat(ctx, call) -> str:
     """
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     if ref == 'Self' and call.extends == 'ObjectReference':
-        ref = '(Self as Actor)'
+        ref = self_as_actor()
     return ctx._end_combat_call(ref)
 
 
@@ -725,7 +713,7 @@ def set_faction_rank(ctx, call) -> str:
         return None
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     if ref == 'Self' and call.extends != 'Actor':
-        ref = '(Self as Actor)'
+        ref = self_as_actor()
     faction = call.arg(0)
     try:
         if float(call.source(1).strip()) < 0:
@@ -832,7 +820,7 @@ def get_is_current_package(ctx, call) -> str:
         return ctx.note(call.written())
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     if ref == 'Self' and call.extends != 'Actor':
-        ref = '(Self as Actor)'
+        ref = self_as_actor()
     safe = safe_property_name(arg)
     ctx.sc.property_refs[safe] = 'Package'
     return f'({ref}.GetCurrentPackage() == {safe})'
@@ -1035,7 +1023,7 @@ def is_in_faction(ctx, call) -> str:
     ctx.sc.property_refs[safe_property_name(call.source(0).strip())] = 'Faction'
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     if ref == 'Self' and call.extends != 'Actor':
-        ref = '(Self as Actor)'
+        ref = self_as_actor()
     return f'{ref}.IsInFaction({call.arg(0)})'
 
 
@@ -1541,7 +1529,7 @@ def _actor_subject(ref: str, extends: str) -> str:
     """The subject as an Actor expression: `ref`, `Self`, or `(Self as Actor)`."""
     if ref != 'Self' or extends == 'Actor':
         return ref
-    return '(Self as Actor)'
+    return self_as_actor()
 
 
 def _unmapped_actor_value(ctx, call, raw: str) -> str:
@@ -1671,7 +1659,7 @@ def _speed_access(ctx, call):
         base = ATTRIBUTE_STUB_VALUE
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     if ref == 'Self' and call.extends == 'ObjectReference':
-        ref = '(Self as Actor)'
+        ref = self_as_actor()
     if reading:
         return f'TES4Polyfill.GetTES4Speed({ref}, {base}, {low}, {high})'
     return f'TES4Polyfill.SetTES4Speed({ref}, {call.arg(1)}, {base}, {low}, {high})'

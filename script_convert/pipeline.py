@@ -1,6 +1,8 @@
 """Pipeline orchestration — convert all scripts, VMAD helpers, CLI."""
 
 import argparse
+import collections
+import hashlib
 import json
 import os
 import re
@@ -8,7 +10,7 @@ import struct
 
 from core.worker_budget import worker_count
 
-from asset_convert.game_paths import (current_namespace,
+from asset_convert.game_paths import (current_namespace, namespace_for,
                                       set_namespace)
 from script_convert.constants import (sanitize_name, papyrus_script_name,
                                      SERVICE_MENU_CALL, UDF_WIDE_TYPES,
@@ -83,7 +85,7 @@ _WORKER_CTX: dict = {}
 
 def _new_stats() -> dict:
     return {
-        'written': [],
+        'written': [], 'origins': [],
         'scpt_total': 0, 'scpt_ok': 0, 'scpt_err': 0,
         'info_total': 0, 'info_ok': 0, 'info_err': 0,
         'qust_total': 0, 'qust_ok': 0, 'qust_err': 0,
@@ -228,6 +230,7 @@ def _script_worker_run(job):
     }[kind]
     batch(records, ctx['output_dir'], ctx['xref'], stats, *extra)
     stats['written'] = _drain_written()
+    stats['origins'] = _drain_origins()
     return stats
 
 
@@ -381,8 +384,18 @@ def convert_all_scripts(export_dir: str, output_dir: str, workers: int = None) -
 
     _fix_udf_call_arg_types(output_dir, stats['udf_sigs'],
                             stats['udf_callers'])
+    refuse_duplicate_names(stats['written'], stats['origins'] + _drain_origins())
     _record_ownership(output_dir, ctx, stats['written'])
+    _print_summary(stats, ctx)
+    return stats
 
+
+def _print_summary(stats: dict, ctx: dict) -> None:
+    """Counts per record kind, then one line per DISTINCT failure with a count and an example.
+
+    2,393 identical messages say no more than one does, and hiding them made
+    a total conversion failure a number nobody could act on.
+    """
     total = sum(stats[k] for k in ('scpt_ok', 'info_ok', 'qust_ok', 'pack_ok', 'patrol_ok', 'term_ok'))
     errs = sum(stats[k] for k in ('scpt_err', 'info_err', 'qust_err', 'pack_err', 'patrol_err', 'term_err'))
     print('\n  Script conversion complete:')
@@ -393,18 +406,11 @@ def convert_all_scripts(export_dir: str, output_dir: str, workers: int = None) -
     print(f'    Patrol markers: {stats["patrol_ok"]}/{len(ctx["patrol_work"])} scripts')
     print(f'    Terminals: {stats["term_ok"]}/{len(ctx["term_work"])} scripts')
     print(f'    Total: {total} converted, {errs} errors, {stats["todo_count"]} TODOs')
-    if stats['errors']:
-        # One line per DISTINCT failure, with a count and an example: 2,393
-        # identical messages say no more than one does, and hiding them
-        # entirely (as this did) turned a total conversion failure into a
-        # number nobody could act on.
-        buckets = {}
-        for msg in stats['errors']:
-            buckets.setdefault(msg.split(': ', 1)[-1], []).append(msg)
-        for text, msgs in sorted(buckets.items(), key=lambda kv: -len(kv[1]))[:8]:
-            print(f'      [{len(msgs):5d}] {text}   e.g. {msgs[0].split(":")[0]}')
-
-    return stats
+    buckets = {}
+    for msg in stats['errors']:
+        buckets.setdefault(msg.split(': ', 1)[-1], []).append(msg)
+    for text, msgs in sorted(buckets.items(), key=lambda kv: -len(kv[1]))[:8]:
+        print(f'      [{len(msgs):5d}] {text}   e.g. {msgs[0].split(":")[0]}')
 
 
 def _record_ownership(output_dir: str, ctx: dict, written: list) -> None:
@@ -432,22 +438,58 @@ def _drain_written() -> list:
 
 
 def write_psc(output_dir: str, script_name: str, text: str) -> None:
-    """Write one generated script, commenting out its dangling references.
+    """Write one generated script with its dangling references commented out, noting its origin.
 
-    Morroblivion's scripts contain references the mod itself never defines --
-    `fbmwMQHlaaluSuccess.hortvotes`, `fbmwMVRichTrader.follownow` -- pointing
-    at records that exist in no plugin, master included.  Oblivion ignored the
-    dangling name silently; Papyrus rejects the whole file, and a fragment
-    that fails to compile takes its quest stage with it.
-
-    This ran as a second sweep of the output tree, re-reading
-    every `.psc` the converter had just written.  It needs nothing but the
-    file's own lines, so it belongs at the write.
+    See: docs/commentary/script_convert.md#dangling-cross-script-read
     """
     path = os.path.join(output_dir, script_name + '.psc')
     with open(path, 'w', encoding='utf-8') as fh:
         fh.write(_comment_dangling(text))
     _WRITTEN.append(script_name)
+    _ORIGINS.append((script_name, _origin(text), hashlib.sha1(text.encode('utf-8')).hexdigest()))
+
+
+#: (script name, origin, text SHA-1) per `write_psc` in this process since the last `_drain_origins`.
+_ORIGINS: list = []
+_CONVERTED_FROM = re.compile(r'\{Converted from [^:}]*:\s*([^}\n]+)')
+
+
+def _origin(text: str) -> str:
+    """What a generated script was converted from, for error messages."""
+    m = _CONVERTED_FROM.search(text)
+    return m.group(1).strip() if m else text.split('\n', 1)[0][:80]
+
+
+def _drain_origins() -> list:
+    """The `_ORIGINS` entries of this process since the last call, clearing them."""
+    out = list(_ORIGINS)
+    _ORIGINS.clear()
+    return out
+
+
+class DuplicateScriptName(RuntimeError):
+    """Two writes in one run gave different scripts the same name; the second replaced the first."""
+
+
+def refuse_duplicate_names(written: list, origins: list) -> None:
+    """Stop the run when a script name was written twice with different text.
+
+    The later write silently replaced the earlier, which only a play-test
+    would show. The same text written twice is harmless; a name with no
+    recorded origin (a static helper) counts as different.
+    See: docs/fork/fo4_spikes.md#spike-3-names
+    """
+    seen = {}
+    for name, origin, digest in origins:
+        seen.setdefault(name.lower(), []).append((origin, digest))
+    counts = collections.Counter(name.lower() for name in written)
+    clashes = {name: seen.get(name, []) for name, n in counts.items()
+               if n > 1 and (len(seen.get(name, [])) < n
+                             or len({digest for _, digest in seen[name]}) > 1)}
+    if clashes:
+        sample = '; '.join(f'{name}: {" / ".join(o for o, _ in found) or "static helper"}'
+                           for name, found in sorted(clashes.items())[:5])
+        raise DuplicateScriptName(f'{len(clashes)} script name(s) written twice with different text: {sample}')
 
 
 def _comment_dangling(text: str) -> str:
@@ -1266,6 +1308,7 @@ def main():
                         help='game to emit Papyrus for')
     args = parser.parse_args()
     target.set_target(args.target)
+    set_namespace(namespace_for(args.export_dir))
 
     output_dir = args.output
     if output_dir is None:

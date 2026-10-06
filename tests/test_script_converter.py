@@ -5049,7 +5049,7 @@ class TestQuestStartDoesNotClobberSeededWrites:
             'ArenaScript', 'scn ArenaScript\nshort n\nbegin gamemode\nend', 'Quest', 'ArenaScript')
         body = out[out.index('Bool Function TES4SetStage('):].split('EndFunction')[0]
         assert body.index('akQuest.SetStage(aiStage)') < body.index('TES4Polyfill.StageSet(akQuest)') \
-            < body.index('Return done')
+            < body.index('Return TES4_StageSet')
 
     def test_alias_recheck_waits_out_an_open_conversation(self):
         """The stage re-check holds while any dialogue menu is open, then evaluates.

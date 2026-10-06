@@ -11,8 +11,8 @@ become one custom event from the TES4_CharacterEvents helper.
 See: docs/fork/fo4_spikes.md#spike-3-target
 """
 
-from script_convert.command_rows import ACTOR, AV, COMMAND_ROWS, RAW, Cmd
-from script_convert.target import av_property
+from script_convert.command_rows import ACTOR, AV, COMMAND_ROWS, MAP, RAW, Cmd
+from script_convert.target import CONTROLS_PROPERTY, CONTROLS_SCRIPT, av_property
 
 
 def _av(name: str) -> tuple:
@@ -22,6 +22,8 @@ def _av(name: str) -> tuple:
 
 #: The FO4 helper quest sending FO3/FNV's character menus as a custom event.
 _CHARACTER = ('TES4CharacterEvents', 'TES4_CharacterEvents')
+#: The FO4 helper quest holding the shared InputEnableLayer (controls, fast travel).
+_CONTROLS = (CONTROLS_PROPERTY, CONTROLS_SCRIPT)
 
 
 def _menu(kind: str, value: str = '{f0}', **row) -> Cmd:
@@ -47,6 +49,12 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'pickidle': Cmd('{ref}.PlayAnimation("{s0}")', ACTOR, defaults={0: 'IdleForceDefaultState'}, flags='zero_arg'),
     'playidle': Cmd('{ref}.PlayAnimation("{s0}")', ACTOR, defaults={0: 'IdleForceDefaultState'}),
     'rewardxp': Cmd('Game.RewardPlayerXP({i0})'),
+    'setrestrained': Cmd('{ref}.SetRestrained({b0})', ACTOR, defaults={0: '0'}),
+    'getlos': Cmd('HasDetectionLOS', MAP, flags='actor_only'),
+    'removeallitems': Cmd('RemoveAllItems', MAP, flags='actor_only objref_shared', max_args=2),
+    'enablefasttravel': Cmd(f'{CONTROLS_PROPERTY}.FastTravel({{b0}})', self_type=_CONTROLS, defaults={0: '1'}),
+    'setcanfasttravelfromworld': Cmd(f'{CONTROLS_PROPERTY}.FastTravel({{b1}})', self_type=_CONTROLS,
+                                     defaults={1: '1'}),
     'setspecialpoints': _menu('special'),
     'showlovetestermenuparams': _menu('special'),
     'showspecialbookmenu': _menu('special', defaults={0: '40'}),

@@ -2807,6 +2807,25 @@ REPEATING registration and `RegisterForUpdate(0)` shipped in 45 scripts as an
 every-frame storm, ended only by the engine stop that the reverted design
 removed. Measured on the shipped build: 0 repeating registrations.
 
+## StartCombat forces the fight
+<a id="startcombat-forces"></a>
+
+TES4's StartCombat ignores aggression, disposition and faction relations
+(UESP Oblivion:StartCombat; CharacterGen stage 74 has the final assassin,
+base aggression 0 and a faction the Emperor's faction Friends at +50, cut the
+Emperor down purely on the strength of this call). Skyrim's
+`Actor.StartCombat` is only a nudge the combat AI re-evaluates at once: an
+Aggression-0 actor leaves combat immediately (vanilla's own turn-hostile
+fragment, MS08, pairs SetEnemy with SetAV Aggression 1 for this reason), and a
+target the actor has no hostile reaction to is dropped. `TES4Polyfill.ForceCombat`
+supplies both preconditions before the native; a player-driven attack needs
+no forcing.
+
+A bare StartCombat in a script not attached to an actor (Nehrim's unused
+`MQ33Sarantha02Script`: `StartCombat, Player`) casts Self to Actor, since
+ForceCombat's parameter is an Actor; on a non-actor the cast is None and the
+call a logged no-op, which is what Oblivion did with it too.
+
 ## StartCombat retargets an actor already in combat (2026-09-25, confirmed in game)
 <a id="startcombat-retargets"></a>
 

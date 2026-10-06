@@ -717,13 +717,19 @@ FALLOUT4_EVENTS = {
     'bool abSneakAttack, bool abBashAttack, bool abHitBlocked)':
         'Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource, Projectile akProjectile, '
         'bool abPowerAttack, bool abSneakAttack, bool abBashAttack, bool abHitBlocked, string apMaterial)',
+    'Event OnMagicEffectApply(ObjectReference akCaster, MagicEffect akEffect)':
+        'Event OnMagicEffectApply(ObjectReference akTarget, ObjectReference akCaster, MagicEffect akEffect)',
+    'Event OnSleepStart(float afSleepStartTime, float afDesiredSleepEndTime)':
+        'Event OnPlayerSleepStart(float afSleepStartTime, float afDesiredSleepEndTime, ObjectReference akBed)',
+    'Event OnSleepStop(bool abInterrupted)': 'Event OnPlayerSleepStop(bool abInterrupted, ObjectReference akBed)',
+    'Event OnMenuClose(String TES4_MenuName)': 'Event OnMenuOpenCloseEvent(string TES4_MenuName, bool abOpening)',
 }
 #: Static helpers FO3/FNV on Fallout 4 never use. See: docs/fork/fo4_spikes.md#spike-3-helpers
 FALLOUT4_UNUSED_HELPERS = frozenset({'TES4_DialoguePause', 'TES4_DayClock', 'TES4_BoundItemEffect'})
 #: The helpers' own Skyrim natives -> Fallout 4's (their update loop).
 FALLOUT4_HELPER_NATIVES = {'RegisterForSingleUpdate(': 'StartTimer(', 'UnregisterForUpdate()': 'CancelTimer()'}
 #: Skyrim menu name -> Fallout 4's (UI.IsMenuOpen comes from F4SE there).
-FALLOUT4_MENU_NAMES = {'Dialogue Menu': 'DialogueMenu', 'Book Menu': 'BookMenu'}
+FALLOUT4_MENU_NAMES = {'Dialogue Menu': 'DialogueMenu', 'Book Menu': 'BookMenu', 'RaceSex Menu': 'LooksMenu'}
 #: Skyrim actor-value native -> Fallout 4's, which is on ObjectReference and takes an ActorValue form.
 FALLOUT4_AV_NATIVES = {
     'GetActorValue': 'GetValue', 'SetActorValue': 'SetValue', 'ForceActorValue': 'SetValue',

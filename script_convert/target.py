@@ -10,7 +10,7 @@ See: docs/fork/fo4_spikes.md#spike-3-target
 
 import os
 
-from script_convert.constants import FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS
+from script_convert.constants import FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS, FALLOUT4_MENU_NAMES
 
 SKYRIM, FALLOUT4 = 'skyrim', 'fallout4'
 TARGET_ENV = 'TES4SKYRIM_PAPYRUS_TARGET'
@@ -81,6 +81,34 @@ def controls_call(verb: str, args: str) -> tuple:
     if not is_fallout4():
         return f'Game.{verb}PlayerControls({args})', {}
     return f'{CONTROLS_PROPERTY}.{verb}({args})', {CONTROLS_PROPERTY: CONTROLS_SCRIPT}
+
+
+def menu_registration(menu: str) -> str:
+    """Listen for menu `menu` (Skyrim's name); FO4: its open/close event."""
+    if is_fallout4():
+        return f'RegisterForMenuOpenCloseEvent("{FALLOUT4_MENU_NAMES.get(menu, menu)}")'
+    return f'RegisterForMenu("{menu}")'
+
+
+def target_menu_name(menu: str) -> str:
+    """The target's name for menu `menu` (Skyrim's name)."""
+    return FALLOUT4_MENU_NAMES.get(menu, menu) if is_fallout4() else menu
+
+
+def menu_close_guard() -> list:
+    """Lines opening a menu-close body: Fallout 4's one event also fires on opening."""
+    return ['  If abOpening', '    Return', '  EndIf'] if is_fallout4() else []
+
+
+def sleep_registration(register: bool) -> str:
+    """Start or stop the sleep events (FO4: RegisterForPlayerSleep)."""
+    verb = 'Register' if register else 'Unregister'
+    return f'{verb}ForPlayerSleep()' if is_fallout4() else f'{verb}ForSleep()'
+
+
+def self_as_actor() -> str:
+    """The script's own reference as an Actor (FO4 casts through ObjectReference)."""
+    return '((Self as ObjectReference) as Actor)' if is_fallout4() else '(Self as Actor)'
 
 
 def run_update_now() -> str:

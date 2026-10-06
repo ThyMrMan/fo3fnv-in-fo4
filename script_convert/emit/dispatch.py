@@ -24,7 +24,8 @@ from script_convert.command_rows import (
     HANDLED_COMMANDS, ACTOR_ONLY_FUNCTIONS, OBJREF_IMPLICIT_SELF_FUNCTIONS,
     OBJREF_SHARED_FUNCTIONS, ZERO_ARG_REF_FUNCTIONS, command_prefix_row
 )
-from script_convert.emit.commands import emit_row
+from script_convert.emit.commands import emit_row, target_row
+from script_convert.target import self_as_actor
 from script_convert.tes4 import nodes as N
 
 #: A mapped name that is already a GLOBAL call has nowhere to put a receiver.
@@ -63,7 +64,7 @@ def _emit_command(conv, ref_name, func_name: str, extends: str, args=()) -> str:
     if result is not None:
         return result
 
-    row = COMMAND_ROWS.get(call.name)
+    row = target_row(COMMAND_ROWS.get(call.name))
     if row is None and call.name not in HANDLED_COMMANDS:
         # A prefix family says "any name starting with this is inert", so it
         # must never shadow a command that HAS a handler: `sv_Construct` is the
@@ -123,7 +124,7 @@ def _convert_args(conv, call) -> str:
     if call.name in DROP_ARGS_FUNCS:
         return ''
     n = len(call)
-    row = COMMAND_ROWS.get(call.name)
+    row = target_row(COMMAND_ROWS.get(call.name))
     cap = getattr(row, 'max_args', None)
     if cap is not None:
         n = min(n, cap)
@@ -140,7 +141,7 @@ def _emit_mapped(conv, call, ref_name, func_name: str, extends: str) -> str:
     receiver arm never applied the TES4_-script cast, and its bare arm omitted
     the event-actor subject.
     """
-    row = COMMAND_ROWS.get(call.name)
+    row = target_row(COMMAND_ROWS.get(call.name))
     if row is not None and row.subj == MAP:
         papyrus_func, needs_self, note = row.emit, not row.bare, row.note
     else:
@@ -235,7 +236,7 @@ def _bare(conv, call, papyrus_func: str, args: str, needs_self: bool,
             # was silently lost.
             return f'{event_actor}.{papyrus_func}({args})'
         if extends != 'Actor':
-            return f'(Self as Actor).{papyrus_func}({args})'
+            return f'{self_as_actor()}.{papyrus_func}({args})'
         return f'{papyrus_func}({args})'
 
     if (needs_self
