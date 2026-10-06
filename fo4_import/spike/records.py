@@ -9,6 +9,7 @@ See: docs/fork/fo4_spikes.md#spike-1
 import struct
 
 from fo4_import.base.writer import pack_fo4_record
+from fo4_import.face.sculpt import with_face_morphs
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_group, pack_string_subrecord, pack_subrecord
 
@@ -189,8 +190,12 @@ def pack_ligh(fid: int, edid: str, bounds: tuple, model: str, light: tuple, fade
         'FNAM', struct.pack('<f', fade)))
 
 
-def clone_npc(fid: int, body: bytes, flags: int, edid: str, name: str, drop: frozenset = frozenset()) -> bytes:
-    """A vanilla NPC_ body as a new NPC: EDID and FULL replaced (FULL a plain string), `drop` tags left out."""
+def clone_npc(fid: int, body: bytes, flags: int, edid: str, name: str, drop: frozenset = frozenset(),
+              morphs: bytes = b'', edit=None) -> bytes:
+    """A vanilla NPC_ body as a new NPC: EDID, FULL (plain) replaced, `drop` left out, face `morphs` added.
+
+    `edit`, if given, maps the finished subrecords to the ones written.
+    """
     subs = b''
     for tag, data in subrecords(body):
         if tag in drop:
@@ -201,7 +206,8 @@ def clone_npc(fid: int, body: bytes, flags: int, edid: str, name: str, drop: fro
             subs += _zstr('FULL', name)
         else:
             subs += pack_subrecord(tag.decode(), data)
-    return pack_fo4_record('NPC_', fid, flags, subs)
+    subs = with_face_morphs(subs, morphs) if morphs else subs
+    return pack_fo4_record('NPC_', fid, flags, edit(subs) if edit else subs)
 
 
 def pack_cell(fid: int, edid: str, name: str, flags: int, lighting: bytes, template: int, imagespace: int) -> bytes:

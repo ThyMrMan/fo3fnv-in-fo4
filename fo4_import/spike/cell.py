@@ -20,6 +20,10 @@ from pathlib import Path
 
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
+from fo4_import.face import tint
+from fo4_import.face.sculpt import FACE_SHAPE
+from fo4_import.spike.face_fit import sculpt_fit, tint_fit
+from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS
@@ -44,10 +48,8 @@ ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
 #: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).
 STAND_INS = {fnv: fo4 for _, fnv, fo4, *_ in SPEAKERS if fnv}
-#: Face variants placed per actor for comparison: FNV's shape alone, and with FNV's colour (spike.facegen).
-FACE_VARIANTS, FACE_SPACING = ('C1', 'T1', 'T2'), 50.0
-#: NPC_ face shape subrecords (morph keys and values, face region sculpts) left off the clones.
-FACE_SHAPE = frozenset({b'MSDK', b'MSDV', b'FMRI', b'FMRS'})
+#: Face variants per actor, all with fitted sculpt regions: stand-in tints, fitted tints, FNV colour (T1) baked.
+FACE_VARIANTS, FACE_SPACING = ('S', 'ST', 'ST1'), 50.0
 #: The bit every vanilla FO4 omni light carries.
 LIGHT_BASE = 0x1
 
@@ -206,6 +208,34 @@ def _vanilla(fids: set) -> dict:
     return {rec.form_id: rec for rec, _ in walk(FALLOUT4_ESM.read_bytes(), b'CELL', b'NPC_') if rec.form_id in fids}
 
 
+def _sculpt_morphs(builder: CellBuilder, export_dir: Path, edid: str) -> bytes:
+    """FO4 sculpt regions fitted to FNV NPC `edid`'s face; b'' before calibration."""
+    fitted = sculpt_fit(export_dir, edid)
+    if fitted is None:
+        builder.counts['sculpt fit skipped (no calibration)'] += 1
+        return b''
+    builder.counts[f'sculpt fit captures % ({edid})'] = round(100 * fitted[1])
+    return fitted[0]
+
+
+def _tint_edit(builder: CellBuilder, export_dir: Path, edid: str, tone_options: frozenset):
+    """A clone edit giving FNV NPC `edid`'s fitted tint layers and skin tone; None before calibration."""
+    fitted = tint_fit(export_dir, edid)
+    cached = tint.load_basis()
+    if fitted is None:
+        builder.counts['tint fit skipped (no calibration)'] += 1
+        return None
+    values, tone, captured = fitted
+    builder.counts[f'tint fit captures % ({edid})'] = round(100 * captured)
+
+    def edit(subs: bytes) -> bytes:
+        """The clone with the fitted tint layers and its skin tone scaled."""
+        rest, kept = tint.without_tints(subs, tone_options)
+        rest = tint.with_tints(rest, tint.pack_layers(cached[1], values, kept))
+        return tint.with_tone(rest, tone, tone_options)
+    return edit
+
+
 def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict) -> bytes:
     """Persistent ACHRs for the cell's FNV actors that have a stand-in, each base a clone of it.
 
@@ -222,11 +252,13 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
             continue
         stand_in, npc = vanilla[STAND_INS[fnv]], npcs[fnv]
         pos, rot = _place(ref)
+        morphs = _sculpt_morphs(builder, export_dir, npc['EditorID'])
+        tinted = _tint_edit(builder, export_dir, npc['EditorID'], skin_tone_layers())
         for i, variant in enumerate(FACE_VARIANTS):
             base = builder.new_id()
             builder.writer.add_record('NPC_', R.clone_npc(
                 base, stand_in.body, stand_in.flags, f'FNV_{npc["EditorID"]}_{variant}',
-                f'{npc.get("FULL", "")} ({variant})', FACE_SHAPE))
+                f'{npc.get("FULL", "")} ({variant})', FACE_SHAPE, morphs, tinted if variant == 'ST' else None))
             spot = (pos[0] + i * FACE_SPACING * math.cos(rot[2]), pos[1] - i * FACE_SPACING * math.sin(rot[2]), pos[2])
             out += R.pack_achr(builder.new_id(), base, spot, rot)
             builder.counts['NPC_'] += 1

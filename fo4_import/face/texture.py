@@ -79,7 +79,7 @@ def _sample(image: np.ndarray, uv: np.ndarray) -> np.ndarray:
     return top * (1 - fy) + bottom * fy
 
 
-def _texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:
+def texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:
     """(texel rows, columns, 3D points) of every texel centre inside a triangle in UV space."""
     rows, cols, where = [], [], []
     for tri in tris:
@@ -105,7 +105,7 @@ def remap(fo4: tuple, fnv: FnvHead, image: np.ndarray, size: int) -> tuple:
     points, uv, tris = fo4
     fnv_surface = surface(fnv.mean, fnv.triangles)
     s, r, t = align(points, fnv.mean, fnv_surface)
-    rows, cols, where = _texel_points(points, uv, tris, size)
+    rows, cols, where = texel_points(points, uv, tris, size)
     _, idx = cKDTree(fnv_surface[0]).query(s * where @ r.T + t)
     _, owner, bary = fnv_surface
     fnv_uv = (bary[idx][:, :, None] * fnv.uvs[fnv.triangles[owner[idx]]]).sum(1)

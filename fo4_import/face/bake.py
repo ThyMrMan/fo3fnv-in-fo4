@@ -190,14 +190,28 @@ def face_shape(nif_bytes: bytes) -> tuple:
     return positions(raw), uvs(raw), triangles(raw)
 
 
+def _seam(nif, shapes: list, face: int) -> cKDTree:
+    """A tree over the FaceGeom NIF's body seam points."""
+    borders = {i: outer_border(positions(nif.blocks[i][1]), triangles(nif.blocks[i][1])) for i in shapes}
+    return cKDTree(body_seam(borders[face], [b for i, b in borders.items() if i != face]))
+
+
+def face_moves(nif_bytes: bytes, fnv: FnvHead, variant: str) -> tuple:
+    """(face vertex positions, their moves for `variant`: smoothed, faded to zero at the body seam)."""
+    nif = nif_file.read(nif_bytes)
+    shapes, face = _shapes(nif)
+    head = positions(nif.blocks[face][1])
+    moves = _smoothed(head, head_displacement(head, fnv, variant))
+    return head, moves * np.clip(_seam(nif, shapes, face).query(head)[0] / NECK_BLEND, 0.0, 1.0)[:, None]
+
+
 def bake(nif_bytes: bytes, fnv: FnvHead, variant: str) -> bytes:
     """The FaceGeom NIF `nif_bytes` with its face and every head part moved to `variant`'s shape."""
     nif = nif_file.read(nif_bytes)
     shapes, face = _shapes(nif)
     head = positions(nif.blocks[face][1])
     moves = _smoothed(head, head_displacement(head, fnv, variant))
-    borders = {i: outer_border(positions(nif.blocks[i][1]), triangles(nif.blocks[i][1])) for i in shapes}
-    seam = cKDTree(body_seam(borders[face], [b for i, b in borders.items() if i != face]))
+    seam = _seam(nif, shapes, face)
     tree = cKDTree(head)
     for i in shapes:
         points = positions(nif.blocks[i][1])

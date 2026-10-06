@@ -1050,6 +1050,85 @@ T2's more. Moving FNV's texture across leaves a seam with FO4's own skin
 parts; the next route recreates the face in FO4's own systems (sculpt
 regions, tint layers).
 
+### <a id="spike-2-sculpt"></a>Sculpt region fit (played 2026-10-06)
+
+FO4's own face shaping: HumanRace has 32 male sculpt regions (FMRI
+0x0-0xA, 0x36EF34BA-0x36EF34C7, 0x19-0x1B, 0x3C-0x3F) and 32 female ones.
+Each has seven controls in FMRS: position x/y/z, rotation x/y/z, scale,
+then 8 unknown bytes; 0 is no change, and the stand-in uses about ±1.
+They drive 59 face bones.
+
+The effect of each control is measured through the CK, not decoded.
+`fo4_import/face/sculpt.py` writes a calibration plugin: a baseline NPC (the
+stand-in without its face shape), then per region and control one NPC at
++0.5 and one at -0.5, 449 in all. The CK exports their heads, and the
+central difference per face vertex is that control's effect. The basis
+depends only on race and sex, so it is cached under `output/fo4_cache/`
+(Bethesda geometry, never committed). A face is the bounded (±1)
+least-squares fit to the target moves, written as FMRI/FMRS before FMIN.
+
+**Measured (male HumanRace, 2026-10-06; calibration 5 min):**
+
+- Of the 224 controls, 103 move the face. By kind: position x/y/z 21/28/30,
+  rotation 5/1/2, scale 16. A control moves a vertex up to 0.81 at ±1 (p90
+  0.37).
+- Doc's target is the C1 moves (0.129 mean). The linear fit captures 77% of
+  it: 144 controls used, 4 at the bound.
+
+The controls are not linear over their range. The basis is measured at ±0.5
+but the fit uses up to ±1, and the CK's actual export captures 56%. So
+`spike.facegen` refines with the CK in the loop. It measures the exported
+head, fits the miss with the same basis, adds the step to the values
+(patched in place: an S NPC lists all 32 regions, so the record keeps its
+size), and exports again. Doc: 56% → 69% → 70%. The residual is the shape
+FO4's regions cannot make.
+
+For comparison: FO4's morph presets alone capture 2.3%, and the direct bake
+(C1) 100% by construction.
+
+### <a id="spike-2-tints"></a>Tint layer fit (played 2026-10-06)
+
+FO4's own complexion: HumanRace has 143 male tint options. There are 7
+region masks (forehead, eyes, nose, ears, cheeks, mouth, neck), 59 face
+detail patterns (most soft light), 5 dirt, 17 brows, 21 scars, 33 paint and
+the skin tone. Brows are a style choice, and scars and paint are not
+complexion. Skin tone (QNAM and the Skin Tone layer) takes the overall colour
+shift, which the game applies at runtime to face, hairline and body.
+
+An NPC layer is TETI (data type 1 value and colour, or 2 value only; the
+option index) and TEND (value 0-100; for a colour layer RGBA and a template
+colour index).
+
+**What the CK accepts.** Two calibration attempts crashed it (CKPE writes the
+zipped log to `Fallout 4\Logs\CKPE\Crashes`, which `spike.facegen.run_ck`
+now checks):
+
+- A colour layer with template index -1, in
+  `BGSCharacterTint::Template::TextureSet`. A colour layer must name one of
+  its option's TTEC template colours.
+- A region mask as a value-only layer, in
+  `BGSCharacterTint::Template::Mask` (null read). The masks have a mask
+  texture but no TTEC, and no Fallout4.esm NPC uses them: all 8,618 vanilla
+  NPC layers are type 2 with a 1-byte TEND (6,169) or type 1 with a 7-byte
+  TEND (2,449), none on options 0x0493-0x0499.
+
+So the fit uses the 59 value-only face detail options (TETI slot 22, no
+TTEC). Per option the calibration plugin has one NPC at full value; the CK's
+face textures, reduced to 256x256, minus the baseline's are that option's
+effect, taken as linear in its value (calibration about 1 min). The target is
+T1's texture with its mean moved into the skin tone, fitted by bounded
+least squares over the face UVs and refined with the CK's exports. The
+refinement step is bounded to each value's remaining 0..1 range; a step
+fitted in ±1 and clipped afterwards made each round worse (10% → 3% → 2%).
+
+**Measured (Doc, 2026-10-06):** the linear fit captures 12% of the spatial
+colour variation; the CK's export 10% → 11% → 11%. Face details are fixed
+patterns (freckles, wrinkles, blemishes), so they carry little of FNV's
+FaceGen colour; the skin tone carries the rest.
+
+**Played:** of S (stand-in tints), ST (fitted tints and skin tone) and ST1
+(FNV colour baked), ST was chosen.
+
 ## <a id="decision"></a>Decision point
 
 After spikes 1–3: the architecture plan (the `fo4_import` package, the asset
