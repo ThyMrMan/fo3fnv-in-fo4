@@ -484,6 +484,20 @@ as FNV's `onActivate: if IsTalking == 0, Activate`); `setav FNV_Variable01 1` on
 him runs his medical sequence: the player's controls off for 8 seconds, then
 back on.
 
+### <a id="spike-3-timing"></a>Update loop timing on Fallout 4
+
+Measured 2026-10-05 with a traced copy of Doc's script (`Debug.TraceUser`
+on each tick; the converter unchanged): `setav FNV_Variable01 1` turned
+controls off at 43.62 s and on at 51.68 s of real time, 8.06 s for FNV's 8.
+
+- One timer chain: `OnInit`, `OnCellAttach` and `OnLoad` each start the
+  timer, and FO4's `StartTimer` on the same id replaces the pending one.
+- A `StartTimer(0.1)` fires every 0.175–0.188 s. The converted loop
+  subtracts measured real time, so its counts hold; anything counting ticks
+  instead would run about 1.76 times slow.
+- Timers stop while a menu is open (here the console); the loop's clamp
+  turns that gap into one 0.1 s step, as in Skyrim.
+
 ### <a id="spike-3-names"></a>Script names
 
 Two scripts sharing a name is a bug only a play-test shows: the later write
