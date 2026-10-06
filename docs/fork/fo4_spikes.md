@@ -1072,6 +1072,15 @@ chair with that byte set to each value, 5 comes out fixed (no motion), 4
 keyframed (motion cinfo, no properties), 1, 6 and 7 moving. FNV's fixed
 (7) is 2014's character. `collision.MOTIONS` maps FNV's numbers to
 2014's: fixed 7 → 5, keyframed 6 → 4, box inertia 4/5 → 3, sphere 2/3 → 2.
+Played: the furniture keeps its collision and its sit and sleep options,
+and the fridge, oven and gun cabinet collide too.
+
+Standing up from two dining chairs put the player inside the table. Seats
+had Other (0x10) on every entry byte; over vanilla's SNAMs, the one-sided
+seats are plain Left 0xe8 (21) and Right 0xe4 (22), and Left with Other
+(0xf8) appears once, while Other comes with Front (0xf1 25, 0xfd 22, 0xf5
+and 0xf9 19 each). Other is now set only on a seat entered from the front,
+so `SubDiningChairDirtyL`/`R` are 0xe8/0xe4.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 

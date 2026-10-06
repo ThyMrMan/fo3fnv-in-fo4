@@ -21,8 +21,8 @@ from fo4_import.spike import records as R
 SLEEP_RIGHT, SLEEP_LEFT, SIT_LEFT, SIT_RIGHT, SIT_FRONT = 1, 2, 11, 12, 14
 #: FO4 SNAM entry sides.
 FRONT, RIGHT, LEFT = 0x1, 0x4, 0x8
-#: SNAM entry byte bits vanilla sets beside the sides: seats (Other and the unused bits), beds (the unused bits).
-SEAT_ENTRY, BED_ENTRY = 0xF0, 0xE0
+#: SNAM entry byte: the unused bits vanilla sets beside the sides, and Other, which it adds to seats with Front.
+UNUSED_ENTRY, OTHER = 0xE0, 0x10
 #: MNAM bits: FNV's and FO4's sit and sleep furniture flags (same bits), and FO4 Must Exit to Talk on beds.
 SIT, SLEEP, MUST_EXIT_TO_TALK = 0x40000000, 0x80000000, 0x08000000
 #: Record flag vanilla beds carry: Must Exit To Talk.
@@ -67,8 +67,13 @@ def seats(marks: list, active: int, bounds: tuple) -> list:
         x, y, _, heading, _ = fronts[k]
         right = _right(heading + math.pi)
         sides[k] |= FRONT if slot == SIT_FRONT else RIGHT if (mx - x) * right[0] + (my - y) * right[1] > 0 else LEFT
-    return [_moved((x, y), (h + math.pi) % math.tau, max(_corners(bounds, (h + math.pi))) - SEAT_DEPTH)
-            + (z, (h + math.pi) % math.tau, SEAT_ENTRY | s) for (x, y, z, h, _), s in zip(fronts, sides) if s]
+    out = []
+    for (x, y, z, heading, _), side in zip(fronts, sides):
+        facing = (heading + math.pi) % math.tau
+        if side:
+            out.append(_moved((x, y), facing, max(_corners(bounds, facing)) - SEAT_DEPTH)
+                       + (z, facing, UNUSED_ENTRY | (OTHER if side & FRONT else 0) | side))
+    return out
 
 
 def _corners(bounds: tuple, facing: float) -> list:
@@ -93,7 +98,7 @@ def sleepers(marks: list, active: int, bounds: tuple) -> list:
             continue
         corners = _corners(bounds, facing)
         across = min(corners) + (max(corners) - min(corners)) * (lane + 0.5) / len(sleep)
-        out.append(_moved((x, y), facing, across) + (z, facing, BED_ENTRY | (RIGHT if slot == SLEEP_RIGHT else LEFT)))
+        out.append(_moved((x, y), facing, across) + (z, facing, UNUSED_ENTRY | (RIGHT if slot == SLEEP_RIGHT else LEFT)))
     return out
 
 
