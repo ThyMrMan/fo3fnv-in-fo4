@@ -1192,7 +1192,7 @@ theirs.
 look right. What still reads as unlike FNV is the cell's overall colour and
 tone (QASmoke's imagespace).
 
-### <a id="spike-2-imagespace"></a>Imagespace: FNV's colour grading (built 2026-10-06, not yet played)
+### <a id="spike-2-imagespace"></a>Imagespace: FNV's colour grading and tone (played 2026-10-06)
 
 The cell used QASmoke's imagespace, so its colour and tone were FO4's.
 `fo4_import/spike/imagespace.py` makes one FO4 imagespace per FNV one.
@@ -1223,9 +1223,22 @@ Fallout4.esm interior cells with an imagespace use DefaultImageSpaceF4LUT
 cinematic neutral, and a LUT holding FNV's grading of the identity (written
 to `Textures\Effects\LUTs\FNV\<FNV EditorID>.dds`); the generated identity
 matches `colorlut.dds` byte for byte. FNV grades the colours its renderer
-leaves on screen, so the LUT grades FO4's display colours; FO4's exposure and
-tone curve stay. FNV's curve is a linear exposure and a clamp, not a filmic
-curve; porting that too is a separate change.
+leaves on screen, so the LUT grades FO4's display colours.
+
+**Tone curve.** FNV has none: every pass of its HDR chain (`ISHDRDOWN*`,
+`ISHDRLUMCLAMP`, `ISHDRADAPT`, `ISHDRBRIGHT`, `ISHDRBLUR`) writes a constant
+alpha, so the final blend's `HDRParam.x / max(alpha, HDRParam.x)` is a slowly
+adapting scale, plus bloom; the result is clamped. FNV also lights in gamma
+space (sRGB textures times light), so against FO4's exposed linear colour c
+it shows c^(1/2.2), clipped. FO4 shows (Hable(2c) / Hable(11.2))^(1/2.2)
+(E = Tonemap E, 0.02 in the base). The LUT inverts FO4's curve and applies
+FNV's straight one anchored where FO4 shows middle grey (0.18 shows at
+0.393), so FO4's exposure, which adapts to middle grey, keeps the average
+where it was. Below middle grey the curves nearly agree (FO4 0.1 / 0.3 ->
+FNV 0.097 / 0.294); above it FNV is brighter (0.5 -> 0.518, 0.7 -> 0.811) and
+clips at FO4 0.8 (8x middle grey), where FO4's shoulder rolls off to 5.6x
+more. Anchoring at middle grey assumes FNV's adaptation targets the same
+average; FNV's HDRParam is filled by the engine, not read here.
 
 ## <a id="decision"></a>Decision point
 

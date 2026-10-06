@@ -351,11 +351,11 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
 
 
 def _shader(nif: NifFile, material: str, texture_set: int) -> dict:
-    """A lighting shader naming `material`, with vanilla ClutterGenShelfA's other values."""
+    """A lighting shader naming `material` (root material ''), with vanilla ClutterGenShelfA's other values."""
     return {'shader_type': 0, 'name': nif.string(material), 'extra': [], 'controller': NONE,
             'flags1': SHADER_FLAGS[0], 'flags2': SHADER_FLAGS[1], 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0),
             'texture_set': texture_set, 'emissive_color': (0.0, 0.0, 0.0), 'emissive_multiple': 1.0,
-            'root_material': NONE, 'clamp': 3, 'alpha': 1.0, 'refraction': 0.0, 'smoothness': 1.0,
+            'root_material': nif.empty_string(), 'clamp': 3, 'alpha': 1.0, 'refraction': 0.0, 'smoothness': 1.0,
             'specular_color': (1.0, 1.0, 1.0), 'specular_strength': 1.0, 'subsurface_rolloff': 0.0,
             'rimlight_power': 3.4028234663852886e38, 'backlight_power': 0.0, 'grayscale_scale': 0.501960813999176,
             'fresnel_power': 5.0, 'wetness': (-1.0,) * 6}

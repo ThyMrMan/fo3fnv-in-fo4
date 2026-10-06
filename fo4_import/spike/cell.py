@@ -27,7 +27,7 @@ from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
-from fo4_import.spike.imagespace import BASE_IMAGESPACE, pack_imgs, write_lut
+from fo4_import.spike.imagespace import BASE_IMAGESPACE, base_hdr, pack_imgs, write_lut
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS
@@ -304,7 +304,7 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
         builder.counts['cell without an FNV imagespace'] += 1
         return None
     fnv = next(r for r in parse_export_file(str(export_dir / 'IMGS.txt')) if r['FormID'] == cell['XCIM.Imagespace'])
-    lut = write_lut(bytes.fromhex(fnv['DNAM']), fnv['EditorID'], builder.data_dir)
+    lut = write_lut(bytes.fromhex(fnv['DNAM']), fnv['EditorID'], builder.data_dir, base_hdr(base_body))
     fid = builder.new_id()
     builder.writer.add_record('IMGS', pack_imgs(fid, f'FNV_{fnv["EditorID"]}', base_body, lut))
     builder.counts[f'imagespace: {fnv["EditorID"]}'] += 1

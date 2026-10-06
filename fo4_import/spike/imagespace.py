@@ -9,7 +9,13 @@ applied. FO4 tonemaps (Hable curve), applies its own cinematic, then looks
 the gamma-encoded colour up in a 16^3 LUT (TX00, 16 slices across a 256 x 16
 texture) and writes the result. The FO4 imagespace is BASE_IMAGESPACE (the
 common vanilla interior one) with its cinematic left neutral and its LUT
-replaced by FNV's grading over the identity.
+holding FNV's tone and grading over the identity.
+
+FNV lights in gamma space and shows the exposed colour clamped, so against
+FO4's linear exposed colour c it shows c^(1/2.2), clipped; FO4 shows
+(Hable(2c) / Hable(FO4_WHITE))^(1/2.2). The LUT undoes FO4's curve and
+applies FNV's straight one anchored where FO4 shows middle grey, keeping
+FO4's exposure (adaptation to the base imagespace's middle grey).
 
 See: docs/fork/fo4_spikes.md#spike-2-imagespace
 """
@@ -34,6 +40,10 @@ SATURATION, CONTRAST, TINT, BRIGHTNESS = 1, 2, 4, 8
 OLD_DNAM, OLD_CINEMATIC, CINEMATIC = 132, 96, 100
 #: Where generated LUTs go, under Textures (TX00 is relative to Textures).
 LUT_FOLDER = 'Effects\\LUTs\\FNV'
+#: FO4's tonemap: Hable's curve of twice the exposed colour, normalised at this white, then gamma 1/2.2.
+FO4_WHITE, DISPLAY_GAMMA = 11.2, 2.2
+#: Samples of FO4's curve inverted by interpolation.
+CURVE_SAMPLES = 20001
 
 
 @dataclass
@@ -64,6 +74,30 @@ def grade(rgb: np.ndarray, c: Cinematic) -> np.ndarray:
     return np.clip(out, 0.0, 1.0)
 
 
+def hable(x: np.ndarray, e: float) -> np.ndarray:
+    """Hable's filmic curve as FO4's shader has it; `e` is IMGS Tonemap E."""
+    return (x * (0.15 * x + 0.05) + 0.2 * e) / (x * (0.15 * x + 0.5) + 0.06) - e / 0.3
+
+
+def fo4_display(c: np.ndarray, e: float) -> np.ndarray:
+    """The display colour FO4 shows for exposed linear colour `c`."""
+    return np.clip(hable(2 * c, e) / hable(FO4_WHITE, e), 0.0, 1.0) ** (1 / DISPLAY_GAMMA)
+
+
+def fnv_tone(display: np.ndarray, tonemap_e: float, middle_grey: float) -> np.ndarray:
+    """FO4 display colours re-toned with FNV's straight curve, anchored where FO4 shows `middle_grey`."""
+    scene = np.linspace(0.0, FO4_WHITE / 2, CURVE_SAMPLES)
+    exposed = np.interp(display, fo4_display(scene, tonemap_e), scene)
+    anchor = fo4_display(np.array(middle_grey), tonemap_e)
+    return np.clip(anchor * (exposed / middle_grey) ** (1 / DISPLAY_GAMMA), 0.0, 1.0)
+
+
+def base_hdr(base_body: bytes) -> tuple:
+    """(Tonemap E, Middle Gray) of an FO4 IMGS's HNAM."""
+    hdr = struct.unpack('<9f', dict(subrecords(base_body))[b'HNAM'][:36])
+    return hdr[1], hdr[8]
+
+
 def identity() -> np.ndarray:
     """The identity LUT's colours: red across a slice, green down, blue by slice."""
     steps = np.arange(LUT_SIZE) / (LUT_SIZE - 1)
@@ -81,12 +115,12 @@ def lut_dds(rgb: np.ndarray) -> bytes:
     return header + pixels.tobytes()
 
 
-def write_lut(dnam: bytes, edid: str, data_dir: Path) -> str:
-    """Write FNV imagespace `edid`'s grading LUT into the data folder; its TX00 path."""
+def write_lut(dnam: bytes, edid: str, data_dir: Path, hdr: tuple) -> str:
+    """Write FNV imagespace `edid`'s LUT (FNV's tone over FO4's `hdr`, from base_hdr; its grading); TX00 path."""
     rel = f'{LUT_FOLDER}\\{edid}.dds'
     path = data_dir / 'Textures' / rel.replace(chr(92), '/')
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(lut_dds(grade(identity(), cinematic(dnam))))
+    path.write_bytes(lut_dds(grade(fnv_tone(identity(), *hdr), cinematic(dnam))))
     return rel
 
 

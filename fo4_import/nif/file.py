@@ -35,6 +35,12 @@ class NifFile:
             self.strings.append(text)
         return self.strings.index(text)
 
+    def empty_string(self) -> int:
+        """The string table index of '' itself (added when new), where -1 will not do."""
+        if '' not in self.strings:
+            self.strings.append('')
+        return self.strings.index('')
+
 
 def _short(data: bytes, pos: int) -> tuple:
     """(a u8-length export string with its terminator, next position)."""
