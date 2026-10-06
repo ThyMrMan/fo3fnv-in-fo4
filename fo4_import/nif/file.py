@@ -74,13 +74,23 @@ def _read_header(data: bytes) -> tuple:
     return nif, [(types[i & 0x7FFF], s) for i, s in zip(index, sizes)], pos + 4 + 4 * n_groups
 
 
+def _parsed(kind: str, raw: bytes):
+    """A block's dict, or its raw bytes when its type or variant has no reader."""
+    reader = BLOCKS.get(kind, (None, None))[0]
+    if reader is None:
+        return raw
+    try:
+        return reader(Reader(raw))
+    except ValueError:
+        return raw
+
+
 def read(data: bytes) -> NifFile:
-    """A NifFile from bytes; block types this module does not know stay raw bytes."""
+    """A NifFile from bytes; block types (and variants, such as skinned shapes) this module does not know stay raw."""
     nif, entries, pos = _read_header(data)
     for kind, size in entries:
         raw = data[pos:pos + size]
-        reader = BLOCKS.get(kind, (None, None))[0]
-        nif.blocks.append((kind, reader(Reader(raw)) if reader else raw))
+        nif.blocks.append((kind, _parsed(kind, raw)))
         pos += size
     n_roots = struct.unpack_from('<I', data, pos)[0]
     nif.roots = list(struct.unpack_from(f'<{n_roots}i', data, pos + 4))

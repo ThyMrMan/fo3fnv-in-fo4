@@ -18,12 +18,13 @@ import math
 import struct
 from pathlib import Path
 
-from fo4_import.base.writer import FO4PluginWriter
+from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
-from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
+from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS
 from fo4_import.spike.statics import write_assets
-from tes5_import.base.tes5_reader import sub_map
+from tes5_import.base.tes5_reader import sub_map, walk
 from tes5_import.base.text_reader import parse_export_file
 
 MASTERS = ['Fallout4.esm']
@@ -41,6 +42,12 @@ DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
 ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
 #: FNV LIGH flag bits as FO4 ones: carried, flicker (and slow), off by default, pulse (and slow), spot, spot shadow.
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
+#: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).
+STAND_INS = {fnv: fo4 for _, fnv, fo4, *_ in SPEAKERS if fnv}
+#: Face variants placed per actor for comparison: A the FO4 default face, C1/C2 baked from FNV's (face.bake).
+FACE_VARIANTS, FACE_SPACING = ('A', 'C1', 'C2'), 50.0
+#: NPC_ face shape subrecords (morph keys and values, face region sculpts) left off the clones.
+FACE_SHAPE = frozenset({b'MSDK', b'MSDV', b'FMRI', b'FMRS'})
 #: The bit every vanilla FO4 omni light carries.
 LIGHT_BASE = 0x1
 
@@ -194,6 +201,38 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
     return persistent, temporary
 
 
+def _vanilla(fids: set) -> dict:
+    """{FormID: Record} of the CELL and NPC_ records `fids` in Fallout4.esm, read once."""
+    return {rec.form_id: rec for rec, _ in walk(FALLOUT4_ESM.read_bytes(), b'CELL', b'NPC_') if rec.form_id in fids}
+
+
+def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict) -> bytes:
+    """Persistent ACHRs for the cell's FNV actors that have a stand-in, each base a clone of it.
+
+    One clone per FACE_VARIANTS entry, side by side along the actor's right:
+    the stand-in's head parts, tints, body and inventory without its face
+    shape (FO4's default face), under the FNV NPC's EditorID and name plus
+    the variant; face.bake shapes the C variants after the CK's export.
+    """
+    npcs = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'NPC_.txt'))}
+    out = b''
+    for ref in parse_export_file(str(export_dir / 'ACHR.txt')):
+        fnv = int(ref['NAME'], 16)
+        if ref.get('ParentCELL') != cell_fid or fnv not in STAND_INS:
+            continue
+        stand_in, npc = vanilla[STAND_INS[fnv]], npcs[fnv]
+        pos, rot = _place(ref)
+        for i, variant in enumerate(FACE_VARIANTS):
+            base = builder.new_id()
+            builder.writer.add_record('NPC_', R.clone_npc(
+                base, stand_in.body, stand_in.flags, f'FNV_{npc["EditorID"]}_{variant}',
+                f'{npc.get("FULL", "")} ({variant})', FACE_SHAPE))
+            spot = (pos[0] + i * FACE_SPACING * math.cos(rot[2]), pos[1] - i * FACE_SPACING * math.sin(rot[2]), pos[2])
+            out += R.pack_achr(builder.new_id(), base, spot, rot)
+            builder.counts['NPC_'] += 1
+    return out
+
+
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collections.Counter:
     """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made."""
     cell = _find_cell(export_dir, cell_edid)
@@ -205,8 +244,10 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collec
     ids = {r['FormID']: builder.new_id() for r in refs}
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
     persistent, temporary = _placed(builder, refs, ids, teleports)
-    qa_record, qa_body = vanilla_cell()
-    template = sub_map(qa_body)
+    vanilla = _vanilla({CELL_FO4} | set(STAND_INS.values()))
+    persistent += _actors(builder, export_dir, cell['FormID'], vanilla)
+    qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
+    template = sub_map(vanilla[CELL_FO4].body)
     record = R.pack_cell(cell_fid, f'FNV_{cell_edid}', cell.get('FULL', cell_edid), int(cell['DATA.Flags']) & 0xFF,
                          lighting(cell, template[b'XCLL']), *(struct.unpack('<I', template[k])[0]
                                                               for k in (b'LTMP', b'XCIM')))

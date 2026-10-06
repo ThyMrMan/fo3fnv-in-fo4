@@ -9,6 +9,7 @@ See: docs/fork/fo4_spikes.md#spike-1
 import struct
 
 from fo4_import.base.writer import pack_fo4_record
+from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_group, pack_string_subrecord, pack_subrecord
 
 NO_STAGE = 0xFFFF
@@ -186,6 +187,21 @@ def pack_ligh(fid: int, edid: str, bounds: tuple, model: str, light: tuple, fade
     subs = _bounded(edid, bounds) + (_zstr('MODL', model) if model else b'')
     return pack_fo4_record('LIGH', fid, 0, subs + pack_subrecord('DATA', data) + pack_subrecord(
         'FNAM', struct.pack('<f', fade)))
+
+
+def clone_npc(fid: int, body: bytes, flags: int, edid: str, name: str, drop: frozenset = frozenset()) -> bytes:
+    """A vanilla NPC_ body as a new NPC: EDID and FULL replaced (FULL a plain string), `drop` tags left out."""
+    subs = b''
+    for tag, data in subrecords(body):
+        if tag in drop:
+            continue
+        if tag == b'EDID':
+            subs += _zstr('EDID', edid)
+        elif tag == b'FULL':
+            subs += _zstr('FULL', name)
+        else:
+            subs += pack_subrecord(tag.decode(), data)
+    return pack_fo4_record('NPC_', fid, flags, subs)
 
 
 def pack_cell(fid: int, edid: str, name: str, flags: int, lighting: bytes, template: int, imagespace: int) -> bytes:

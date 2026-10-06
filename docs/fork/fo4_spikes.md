@@ -927,6 +927,70 @@ Doc's house: all 172 meshes with collision convert (165 with one body, 7
 with two), with no Elric crash, in one 17-second build. Clutter (MISC,
 ALCH...) keeps FNV's dynamic body while it is placed as a static.
 
+### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
+
+The CK exports FaceGen from the command line: `CreationKit.exe
+-ExportFaceGenData:<plugin> W32`. It writes
+`Meshes\Actors\Character\FaceGenData\FaceGeom\<plugin>\<id>.NIF` (every head
+part as a skinned BSSubIndexTriShape in one head-local frame) and the face
+tint textures (`_d`, `_msn`, `_s`). Run through MO2 (`ModOrganizer.exe run -e
+"Creation Kit" -a ...`), it loads the profile's plugins and writes into
+MO2's overwrite (35 s for Doc). CKPE (loaded through `winhttp.dll`) needs
+its address library for the CK version in `CKPEBins\`, or it stops the CK.
+
+**Doc's face, three ways, side by side.** Each is a clone of the dialogue
+spike's stand-in (DocWeathers 0012FCCB) without its face shape
+(MSDK/MSDV/FMRI/FMRS), so all three share head parts, tints and body:
+
+- **A**: FO4's default male face.
+- **C1**: FO4's default face moved by Doc's FNV FaceGen offset from FNV's
+  mean face.
+- **C2**: FO4's head moved onto Doc's FNV head surface itself.
+
+FNV's head is the race's head part (`headhuman.nif`) plus its `.egm`: 50
+symmetric and 30 asymmetric modes, a float scale times int16 x/y/z, over the
+FaceGen vertex list (the mesh's 1,211 vertices, then the `.tri`'s 238
+modifier vertices: 1,449). Doc is the mean plus FGGS (and FGGA, zero)
+times the modes. His offset from the mean is small: 0.135 units mean, 0.66
+max.
+
+**Why not FO4's own face sliders.** HumanRace's male morph presets name
+about 35 distinct morphs in `BaseMaleHeadCharGen.tri` (eyes, nose, ears,
+lips) plus 5 two-way sliders. A bounded least-squares fit of them to Doc's
+offset, carried onto FO4's head, captures 2.3% of it: they are local
+features, and Doc differs in overall shape. FO4's overall shaping is the 32
+region sculpts (FMRI/FMRS), which move 59 `skin_bone_*` face bones through a
+per-vertex remap table in `BaseMaleHead_faceBones.nif`
+(`CustomizationRemapData`, 12 bytes per vertex). That route is not built.
+Instead `fo4_import/face/bake.py` moves the CK's exported head directly:
+
+1. FNV's mean head is aligned to the exported FO4 head by a similarity fit
+   over the front of the face: scale 1.008, mean residual 0.165.
+2. Each FO4 head vertex gets C1's or C2's displacement from its nearest
+   point on FNV's surface.
+3. The displacement is smoothed, and fades to zero within 3 units of the
+   body seam, so the seam does not move. The seam is read from topology. The
+   face and each part sharing border with it (the rear head) have an outer
+   open boundary loop, welded within 0.01, just over half-float precision.
+   Its stretches shared between parts join head parts; the unshared rest is
+   where the body joins. That is a 22-point ring from z -12.1 at the front
+   of the neck to -5.7 at the back. A tighter weld (0.001) also pinned two
+   forehead points 0.002 from the rear head's border.
+4. Every part (eyes, mouth, hair, beard) moves with its nearest head
+   vertices.
+
+Positions are rewritten in the raw blocks. Vertex order, which FO4's
+expression and lip morphs index, is kept, and so are skinning and normals.
+Doc's face moves 0.13 mean and 0.46 max in C1, 0.11 and 0.45 in C2. C2 also
+moves the skull and hair, about 0.2 to 0.4: FNV's skull shape differs from FO4's.
+
+`fo4_import/spike/facegen.py` runs the CK, moves its files into the mod
+folder, and bakes the C variants.
+
+Played: all three render with FaceGen and look very alike; C1 looks right.
+The shape offset is small. FNV's face texture (FGTS) is what is left to
+carry (next).
+
 ## <a id="decision"></a>Decision point
 
 After spikes 1–3: the architecture plan (the `fo4_import` package, the asset
