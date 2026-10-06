@@ -3,10 +3,11 @@
     py -3.14 -m fo4_import.spike.cell --export <FalloutNV.esm export> --out <plugin.esp> --data <Data> <cell EDID>
 
 The cell keeps FNV's lighting, every placed object with a mesh, its lights,
-doors, misc items, containers and furniture (other types are statics for
-now). A door that led out of the cell leads to a stand-in door in QASmoke,
-and back. Engine objects FO4 shares keep their base. Meshes get FNV's
-collision through Elric. Sounds and activators are later steps.
+doors, misc items, containers, furniture and activators with their
+converted scripts (other types are statics for now). A door that led out of
+the cell leads to a stand-in door in QASmoke, and back. Engine objects FO4
+shares keep their base. Meshes get FNV's collision through Elric. Sounds are
+a later step.
 
 See: docs/fork/fo4_spikes.md#spike-2-cell
 """
@@ -27,11 +28,13 @@ from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, base_hdr, pack_imgs, write_lut
+from fo4_import.spike.activators import Activators
 from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS
+from fo4_import.spike.script import compile_into
 from fo4_import.spike.statics import write_assets
 from tes5_import.base.tes5_reader import first_sub, sub_map, walk
 from tes5_import.base.text_reader import parse_export_file
@@ -39,7 +42,7 @@ from tes5_import.base.text_reader import parse_export_file
 MASTERS = ['Fallout4.esm']
 FIRST_ID = 0x800
 #: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
-AS_STATIC = ('STAT', 'ACTI', 'MSTT', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
+AS_STATIC = ('STAT', 'MSTT', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
 #: FNV base types converted as themselves (spike.items), and the types whose engine objects FO4 may share.
 ITEM_BASES, SHARED_TYPES = ('MISC', 'CONT'), ('STAT', 'MISC')
 #: Stand-in doors in QASmoke: the first one's position and the spacing along X.
@@ -111,7 +114,7 @@ class CellBuilder:
         self.export_dir, self.data_dir, self.bases = export_dir, data_dir, bases
         self.writer = FO4PluginWriter(masters=MASTERS, is_esm=False, description='FNV cell spike')
         self.next_id = len(MASTERS) << 24 | FIRST_ID
-        self.made, self.meshes, self.items = {}, {}, None
+        self.made, self.meshes, self.items, self.activators = {}, {}, None, None
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -136,7 +139,7 @@ class CellBuilder:
             return self.items.item(fnv_fid)
         sig, rec = self.bases.get(fnv_fid, (None, None))
         if fnv_fid not in self.made:
-            self.made[fnv_fid] = self._make(sig, rec) if sig == 'LIGH' or (sig and _model(rec)) else None
+            self.made[fnv_fid] = self._make(sig, rec) if sig in ('LIGH', 'ACTI') or (sig and _model(rec)) else None
         return self.made[fnv_fid]
 
     def _make(self, sig: str, rec: dict) -> int:
@@ -150,6 +153,8 @@ class CellBuilder:
         elif sig == 'FURN':
             marks = markers(str(self.export_dir / 'meshes' / _model(rec).replace('/', '\\').lower()))
             record = furniture(fid, rec, model, bounds, marks, self.keywords)
+        elif sig == 'ACTI':
+            record = self.activators.record(fid, rec, model, bounds)
         elif sig == 'DOOR':
             record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)))
         else:
@@ -170,7 +175,7 @@ def _find_cell(export_dir: Path, edid: str) -> dict:
 def _bases(export_dir: Path, used: set) -> dict:
     """{FNV FormID: (type, record)} of the used bases this spike converts."""
     out = {}
-    for sig in AS_STATIC + ('LIGH', 'DOOR', 'FURN'):
+    for sig in AS_STATIC + ('LIGH', 'DOOR', 'FURN', 'ACTI'):
         for rec in parse_export_file(str(export_dir / f'{sig}.txt')):
             fid = int(rec['FormID'], 16)
             if fid in used:
@@ -207,7 +212,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
-                             teleports.get(ref['FormID']), keep)
+                             teleports.get(ref['FormID']), keep, bytes.fromhex(ref.get('XPRM.Raw', '')))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
     builder.counts['placed'] = len(refs) - sum(v for k, v in builder.counts.items() if k.startswith('skipped'))
     return persistent, temporary
@@ -317,16 +322,26 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
     return fid
 
 
-def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collections.Counter:
-    """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made."""
+def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None') -> None:
+    """Give `builder` its item and activator makers."""
+    records = index(export_dir, ITEM_TYPES)
+    builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
+                                                              SHARED_TYPES))
+    builder.activators = Activators(builder, export_dir, scripts_dir)
+
+
+def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
+          scripts_dir: 'Path | None' = None) -> collections.Counter:
+    """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made.
+
+    `scripts_dir` holds the converted scripts; the activators' are attached and compiled into <data_dir>/Scripts.
+    """
     cell = _find_cell(export_dir, cell_edid)
     all_refs = parse_export_file(str(export_dir / 'REFR.txt'))
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     builder = CellBuilder(export_dir, data_dir, _bases(export_dir, {int(r['NAME'], 16) for r in refs}))
-    records = index(export_dir, ITEM_TYPES)
-    builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
-                                                              SHARED_TYPES))
+    _object_makers(builder, export_dir, scripts_dir)
     cell_fid = builder.new_id()
     ids = {r['FormID']: builder.new_id() for r in refs}
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
@@ -343,6 +358,8 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collec
                                                                 (qa_record, CELL_FO4, qa_refs, b'')]))
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
+    if builder.activators.used:
+        print(compile_into(scripts_dir, data_dir, builder.activators.used))
     builder.writer.next_object_id = builder.next_id & 0xFFFFFF
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))
@@ -355,9 +372,11 @@ def main():
     ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
     ap.add_argument('--out', required=True, help='Plugin to write')
     ap.add_argument('--data', required=True, help='Data folder for meshes, materials and textures')
+    ap.add_argument('--scripts', type=Path, help='Converted FNV scripts (script_convert.pipeline --target fallout4)')
     ap.add_argument('cell', help='FNV interior cell editor ID')
     args = ap.parse_args()
-    for key, count in sorted(build(Path(args.export), Path(args.out), Path(args.data), args.cell).items()):
+    for key, count in sorted(build(Path(args.export), Path(args.out), Path(args.data), args.cell,
+                                   args.scripts).items()):
         print(f'{key}: {count}')
 
 

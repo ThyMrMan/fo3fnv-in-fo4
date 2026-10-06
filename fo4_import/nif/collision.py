@@ -42,8 +42,8 @@ MATERIALS = {
 #: FO4 stairs materials for FNV's stairs variants (index & 64); the others keep their base material.
 STAIRS = {0: 2519395573, 2: 1340314491, 3: 2534329404, 4: 2926148967, 5: 3236651581, 9: 1879074862,
           10: 2519395573, 19: 1439425931}
-#: FNV motion systems in Havok 2014's numbering, which Elric reads (no stabilized types; fixed 7 -> 5, keyframed 6 -> 4).
-MOTIONS = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 4, 7: 5, 8: 6, 9: 7}
+#: FNV motion systems as Havok 2014's, which Elric reads; keyframed is fixed, as its animation is dropped.
+MOTIONS = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 5, 7: 5, 8: 6, 9: 7}
 #: An empty hkWorldObjectCinfo::Property (data, size, capacity and flags).
 EMPTY_PROPERTY = struct.pack('<3I', 0, 0, 0x80000000)
 
@@ -219,10 +219,13 @@ def collision_object(nif: NifFile, co, target: int, node) -> int:
 
 
 def node_transform(node, root) -> tuple:
-    """(translation, row-major rotation, scale) of an FNV node in root space."""
+    """(translation, rotation as Elric reads it, scale) of an FNV node in root space.
+
+    See: docs/fork/fo4_spikes.md#spike-2-collision
+    """
     scale, rot, trans = node.get_transform(root).get_scale_rotation_translation()
-    rows = (rot.m_11, rot.m_12, rot.m_13, rot.m_21, rot.m_22, rot.m_23, rot.m_31, rot.m_32, rot.m_33)
-    return (trans.x, trans.y, trans.z), tuple(float(r) for r in rows), float(scale)
+    cells = (rot.m_11, rot.m_21, rot.m_31, rot.m_12, rot.m_22, rot.m_32, rot.m_13, rot.m_23, rot.m_33)
+    return (trans.x, trans.y, trans.z), tuple(float(r) for r in cells), float(scale)
 
 
 def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int) -> None:

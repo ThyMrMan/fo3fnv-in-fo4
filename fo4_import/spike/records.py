@@ -33,6 +33,8 @@ FUNC_GET_DISTANCE = 1
 PLAYER = 0x14
 #: Fallout4.esm's MiscMod01 TRNS: the Pip-Boy preview transform (PTRN) of 1,128 vanilla misc items.
 MISC_PREVIEW = 0x248769
+#: PNAM of nearly every vanilla activator (its editor marker colour), and a notification's default seconds (TNAM).
+MARKER_COLOR, MESSAGE_TIME = bytes.fromhex('cc4c3300'), 2
 
 
 def _u32(sig: str, value: int) -> bytes:
@@ -147,9 +149,9 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') ->
 
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
-              teleport: tuple = None, persistent: bool = True) -> bytes:
-    """A placed object: base, light radius offset (XRDS), teleport (door ref, position, rotation), scale."""
-    subs = _u32('NAME', base)
+              teleport: tuple = None, persistent: bool = True, primitive: bytes = b'') -> bytes:
+    """A placed object: base, trigger primitive (XPRM), light radius (XRDS), teleport (door, position, rotation), scale."""
+    subs = _u32('NAME', base) + (pack_subrecord('XPRM', primitive) if primitive else b'')
     if radius is not None:
         subs += pack_subrecord('XRDS', struct.pack('<f', radius))
     if teleport:
@@ -182,6 +184,22 @@ def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: 
     """A misc item: bounds, Pip-Boy preview, name, model, DATA value and weight."""
     subs = _bounded(edid, bounds) + _u32('PTRN', MISC_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
     return pack_fo4_record('MISC', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
+
+
+def pack_acti(fid: int, edid: str, name: str, model: str, bounds: tuple, vmad: bytes, prompt: str) -> bytes:
+    """An activator: scripts, bounds, name, model (none for a trigger), vanilla's marker colour, activate prompt."""
+    subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
+    subs += pack_subrecord('OBND', struct.pack('<6h', *bounds)) + (_zstr('FULL', name) if name else b'')
+    subs += (_zstr('MODL', model) if model else b'') + pack_subrecord('PNAM', MARKER_COLOR)
+    subs += (_zstr('ATTX', prompt) if prompt else b'') + pack_subrecord('FNAM', bytes(2))
+    return pack_fo4_record('ACTI', fid, 0, subs)
+
+
+def pack_mesg(fid: int, edid: str, title: str, text: str, flags: int, buttons: list) -> bytes:
+    """A message: text, title, DNAM flags (1: message box), button texts."""
+    subs = _zstr('EDID', edid) + _zstr('DESC', text) + _zstr('FULL', title) + _u32('INAM', 0) + _u32('DNAM', flags)
+    subs += b'' if flags & 1 else _u32('TNAM', MESSAGE_TIME)
+    return pack_fo4_record('MESG', fid, 0, subs + b''.join(_zstr('ITXT', b) for b in buttons))
 
 
 def pack_furn(fid: int, edid: str, name: str, model: str, bounds: tuple, keywords: list, record_flags: int,

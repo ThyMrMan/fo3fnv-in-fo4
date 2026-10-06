@@ -923,6 +923,18 @@ they are FNV's (wood 38, stone 10, hollow metal 8, metal 6, glass 5, chain 5,
 cloth 4). The Skyrim converter still has that stone default and reads FNV
 material numbers with Oblivion's meanings (FNV 14 bottlecap → snow).
 
+**Rotated nodes.** An invisible low wall stood in front of the oven. FNV
+has no collision there; it was the shack cabinet's door boxes
+(`dlc04shackcabinet01door.nif`, a `bhkRigidBodyT` offset 16 units along
+its node, whose parent turns 90°). Reading Elric's output (each
+`hknpBodyCinfo`'s position at +48 and orientation at +64 of its 96 bytes),
+the boxes sat at x ±51 where the doors are at ±19: Elric reads a NiNode
+rotation as the transpose of pyffi's matrix, so a child node's turn went the
+other way. `collision.node_transform` now writes the transpose and the boxes
+land at ±19.3, on the doors. In Doc's house 11 of 25 child-node bodies sit
+on a rotated node (globe, teddy bear bones, cabinet doors, deathclaw belt);
+render shapes are baked into root space, so only collision was affected.
+
 Doc's house: all 172 meshes with collision convert (165 with one body, 7
 with two), with no Elric crash, in one 17-second build. Clutter (MISC,
 ALCH...) keeps FNV's dynamic body while it is placed as a static.
@@ -1071,7 +1083,10 @@ Elric reads the input body's motion system in Havok 2014's numbering
 chair with that byte set to each value, 5 comes out fixed (no motion), 4
 keyframed (motion cinfo, no properties), 1, 6 and 7 moving. FNV's fixed
 (7) is 2014's character. `collision.MOTIONS` maps FNV's numbers to
-2014's: fixed 7 → 5, keyframed 6 → 4, box inertia 4/5 → 3, sphere 2/3 → 2.
+2014's: fixed 7 → 5, box inertia 4/5 → 3, sphere 2/3 → 2. Keyframed (6)
+is fixed (5) too while the converter drops the animation that moves it
+(fridge door, oven, gun cabinet, shack cabinet doors); Elric then writes
+them with no motion, as vanilla's fixed bodies.
 Played: the furniture keeps its collision and its sit and sleep options,
 and the fridge, oven and gun cabinet collide too.
 
@@ -1081,6 +1096,50 @@ seats are plain Left 0xe8 (21) and Right 0xe4 (22), and Left with Other
 (0xf8) appears once, while Other comes with Front (0xf1 25, 0xfd 22, 0xf5
 and 0xf9 19 each). Other is now set only on a seat entered from the front,
 so `SubDiningChairDirtyL`/`R` are 0xe8/0xe4.
+
+### <a id="spike-2-activators"></a>Activators (built 2026-10-06, not yet played)
+
+```bash
+py -3.14 -m fo4_import.spike.cell ... --scripts temp/fo4_scripts/FalloutNV.esm GSDocMitchellHouse
+```
+
+Doc's house has 11 activators: the sink and toilet (purified water), the
+chemistry set, broken SMG, Vit-o-matic, brahmin skull and game-mode note
+(scripted), and four triggers with no model (couch, chair, vigor tester,
+exit). `fo4_import/spike/activators.py` writes each as an ACTI with its name
+and model:
+
+- **Scripts.** The FNV script's conversion (`papyrus_script_name`, so
+  hashed long names match) is attached by VMAD and compiled into
+  `<Data>/Scripts` with the helpers (`script.compile_into`); all 9 compile.
+  Properties are filled from Fallout4.esm records with the property's name
+  (Stimpak, Psycho, Buffout, Mentats) and from the spike's converted
+  messages. Left unfilled: `VCG01` (Doc's intro quest), `CGTutorial`,
+  `DocMitchellREF`, FNV-only items (Steady, Rebound, the 9mm SMG) and
+  `TES4DestroyedRefs` (`TES4Polyfill.SetDestroyed` skips a missing list).
+  So the chemistry set, SMG and game-mode note work; the quest-driven ones
+  bind and do nothing until VCG01 is converted.
+- **Messages.** A script's `Message` property makes the FNV MESG it names:
+  title, text, buttons, and the Message Box flag (FNV's bit 1 is Auto
+  Display, FO4's Delay Initial Display, so it is dropped); a notification
+  gets vanilla's default 2 seconds. The export has no button conditions
+  (the chemistry set's "Science 25"), so every button shows.
+- **Triggers.** FO4 trigger references are NAME, XPRM, DATA (8,832
+  vanilla), their bases plain ACTIs (EDID, VMAD, OBND, PNAM, FNAM:
+  `DefaultSetStageTrigger` and the like). XPRM is the same 32 bytes in both
+  games (half-extents, colour, a float, shape 1 = box), so FNV's is copied.
+- **Water.** FO4 never uses ACTI WNAM for sinks: its 5 drinkable sinks and
+  fountains run `drinkFromFountainScript` (drinking idle, sounds,
+  `spellOnDrink`) with a "Drink" prompt. A drinkable FNV activator takes
+  `PlayerHouse_Ruin_KitchenSink01Activator`'s script, its spell
+  `WaterRadiationDrinking` when the FNV water type's actor effect (WATR
+  XNAM) has `DamageRadiationLevel`, else `WaterFountainCleanDrinking`.
+  Purified water (`WaterHeal1Purified`) has none; average, good and
+  terrible water do.
+- **Export gaps.** The shared export has no ACTI VNAM (activation sound, 100
+  activators), WNAM (water, 31), XATO (prompt, 59), RNAM (radio, 24) or INAM
+  (3), and no WATR XNAM; the spike reads WNAM and XNAM from FalloutNV.esm
+  (`install.FALLOUTNV_ESM`). Sounds are not converted yet.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 
