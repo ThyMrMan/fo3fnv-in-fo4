@@ -198,7 +198,8 @@ def compile_fallout4(args) -> tuple:
                for n in hashes}
     (out_dir / _STATE_FILE).write_text(json.dumps({'imports': imports, 'scripts': scripts}), encoding='utf-8')
     compiled = {n for n, s in scripts.items() if s['ok']}
-    return compiled, {n: s['own'] for n, s in scripts.items() if s['own']}, [f.stem for f in files]
+    own = {f.stem: scripts[f.stem.lower()]['own'] for f in files if scripts[f.stem.lower()]['own']}
+    return compiled, own, [f.stem for f in files]
 
 
 def fo4_summary(compiled: set, own: dict, names: list) -> dict:

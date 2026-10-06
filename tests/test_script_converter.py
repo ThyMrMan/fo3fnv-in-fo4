@@ -6227,3 +6227,38 @@ class TestFalloutQuestStageSubject:
         converter.xref._is_fallout = True
         out = conv_lines(converter, 'player.RestoreAV RadiationRads 1000', 'Quest')
         assert 'RestoreValue(TES4AV_Rads, 1000)' in out
+
+
+class TestFalloutElseText:
+    """FO3/FNV compile text after `else` to nothing; TES4 reads it as an elseif.
+
+    See: docs/fork/fo4_spikes.md#spike-3-else-text
+    """
+
+    SOURCE = 'begin GameMode\nif a\n  set x to 1\nelse if b\n  set x to 2\nendif\nend\n'
+
+    def _if(self, else_takes_condition: bool):
+        """The If node of SOURCE, parsed with the given else rule."""
+        block = parse(self.SOURCE, Mode.SCRIPT, else_takes_condition).blocks[0]
+        return next(st for st in block.body if isinstance(st, N.If))
+
+    def test_fallout_else_drops_its_text_and_keeps_its_body(self):
+        """`else if b` in FNV is a plain else: b is never tested."""
+        node = self._if(False)
+        assert not node.elifs and node.orelse and node.else_dropped == 'if b'
+
+    def test_tes4_else_with_text_stays_an_elseif(self):
+        """Oblivion's reading is unchanged."""
+        node = self._if(True)
+        assert len(node.elifs) == 1 and not node.orelse
+
+
+class TestVoidAssign:
+    """`set x to <call that returns nothing>` makes the call, then stores the empty value."""
+
+    def test_additem_result_is_the_call_then_none(self, converter):
+        """VMS03's `set rCharge to player.additem ...`: the item is given, rCharge is cleared."""
+        converter.sc.property_refs['rCharge'] = 'ObjectReference'
+        out = conv_lines(converter, 'set rCharge to player.additem AmmoNVArchimedesII 1')
+        assert out.splitlines()[0].endswith('.AddItem(AmmoNVArchimedesII, 1)')
+        assert out.splitlines()[1] == 'rCharge = None'

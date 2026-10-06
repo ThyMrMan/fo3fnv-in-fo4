@@ -1,16 +1,14 @@
 {
  "files": 17695,
- "compiled": 17674,
- "own_errors": 0,
- "dependency_only": 21,
+ "compiled": 17676,
+ "own_errors": 19,
+ "dependency_only": 0,
  "kinds": {
   "new event ondeath cannot be defined because the script is not flagged as native": 11,
   "new event oncombatstatechanged cannot be defined because the script is not flagged as native": 4,
   "cannot cast a <script> to a actor, types are incompatible": 3,
   "cannot cast a enchantment to a spell, types are incompatible": 1,
   "new event onpackageend cannot be defined because the script is not flagged as native": 1,
-  "new event oneffectstart cannot be defined because the script is not flagged as native": 1,
-  "cannot cast a void to a bool to perform a condition check": 1,
-  "type mismatch while assigning to a objectreference (cast missing or types unrelated)": 1
+  "new event oneffectstart cannot be defined because the script is not flagged as native": 1
  }
 }

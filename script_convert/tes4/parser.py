@@ -111,10 +111,12 @@ _NEGATIVE_FIRST_ARG = frozenset({
 
 
 class Parser:
-    def __init__(self, tokens: list[Token]):
+    def __init__(self, tokens: list[Token], else_takes_condition: bool = True):
+        """`else_takes_condition`: `else <cond>` is an elseif (TES4), else the text is dropped (FO3/FNV)."""
         self.toks = tokens
         self.i = 0
         self.saw_leading_comma = False
+        self.else_takes_condition = else_takes_condition
 
     # -- token helpers -----------------------------------------------------
 
@@ -151,6 +153,14 @@ class Parser:
         while self.cur.kind not in (T.NEWLINE, T.EOF):
             out.append(self.advance())
         return out
+
+    def _line_text(self) -> str:
+        """The tokens left on this line before any comment, space-joined, not consumed."""
+        out, j = [], self.i
+        while self.toks[j].kind not in (T.NEWLINE, T.EOF, T.COMMENT):
+            out.append(self.toks[j].text)
+            j += 1
+        return ' '.join(out)
 
     def take_line_end(self) -> str:
         """Consume to end of line, returning a trailing comment if present.
@@ -573,8 +583,10 @@ class Parser:
     def _parse_if(self, line: int) -> Stmt:
         """`if <cond> ... [elseif ...] [else ...] endif`.
 
-        `else <cond>` (TES4) and `else if <cond>` (FO3/FNV) are both an
-        elseif; the node keeps the source shape in `else_is_elseif`.
+        `else <cond>` is an elseif where the source compiler reads one (TES4;
+        the node keeps the shape in `else_is_elseif`). FO3/FNV compile any text
+        after `else` to nothing, `else if` included: it goes to `else_dropped`.
+        See: docs/fork/fo4_spikes.md#spike-3-else-text
         """
         self.advance()  # 'if' / 'elseif'
         cond = self.parse_expression()
@@ -591,7 +603,11 @@ class Parser:
             node.elifs.append((econd, ebody, elif_line))
         if self.cur.is_ident('else'):
             self.advance()
-            if self.cur.kind not in (T.NEWLINE, T.EOF, T.COMMENT):
+            if self.cur.kind not in (T.NEWLINE, T.EOF, T.COMMENT) and not self.else_takes_condition:
+                node.else_dropped = self._line_text()
+                self.take_line_end()
+                node.orelse = self._parse_body(_IF_TERMINATORS)
+            elif self.cur.kind not in (T.NEWLINE, T.EOF, T.COMMENT):
                 if self.cur.is_ident('if'):
                     self.advance()
                 econd = self.parse_expression()
@@ -773,14 +789,14 @@ def split_param_names(block_filter: str) -> list[str]:
     return [t.text for t in tokenize(block_filter) if t.kind is T.IDENT]
 
 
-def parse(source: str, mode: Mode = Mode.SCRIPT) -> Script:
+def parse(source: str, mode: Mode = Mode.SCRIPT, else_takes_condition: bool = True) -> Script:
     """Parse a script body (SCRIPT) or a result-script fragment (FRAGMENT).
 
     Never raises on bad input: an unparseable line becomes a Raw statement so
     one odd line cannot fail the whole script (and, through the property-type
-    graph, every script that names it).
+    graph, every script that names it). `else_takes_condition` as Parser's.
     """
-    p = Parser(tokenize(source))
+    p = Parser(tokenize(source), else_takes_condition)
     script = Script()
     seen_vars: set[str] = set()
     in_body = False

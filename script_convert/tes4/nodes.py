@@ -188,6 +188,8 @@ class If(Stmt):
     # Source spelling of each closer, so emission can round-trip `else <cond>`
     # (TES4 accepts it as an `elseif`) without inventing text.
     else_is_elseif: bool = False
+    #: Text after `else` the source game's compiler drops (FO3/FNV), kept for a note.
+    else_dropped: str = ''
 
 
 @dataclass

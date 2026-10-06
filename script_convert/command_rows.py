@@ -532,7 +532,7 @@ COMMAND_ROWS = {
     'getbaseav': Cmd('GetBaseActorValue', MAP, flags='actor_only av av_read'),
 
     #: --- Items / Inventory ---
-    'additem': Cmd('AddItem', MAP, flags='actor_only objref_shared'),
+    'additem': Cmd('AddItem', MAP, flags='actor_only objref_shared void'),
     'removeitem': Cmd('RemoveItem', MAP, flags='actor_only objref_shared'),
     'getitemcount': Cmd('GetItemCount', MAP, flags='actor_only objref_self objref_shared'),
     'equipitem': Cmd('EquipItem', MAP, flags='actor_only'),
@@ -1167,6 +1167,17 @@ def _flagged(flag):
     """Every command whose COMMAND_ROWS row carries `flag`; rowless ones cannot."""
     return frozenset(name for name, row in COMMAND_ROWS.items()
                      if flag in row.flags)
+
+
+#: Commands whose Papyrus call returns nothing, though the source game read 0 from them.
+VOID_FUNCTIONS = _flagged('void')
+#: Papyrus type -> the value a variable holds after `set` from a call that returns nothing.
+EMPTY_VALUES = {'Int': '0', 'Float': '0.0', 'Bool': 'False', 'String': '""'}
+
+
+def void_assign(call: str, target: str, papyrus_type: str) -> str:
+    """`set T to <no-value call>`: the call, then T's empty value."""
+    return f'{call}\n  {target} = {EMPTY_VALUES.get(papyrus_type, "None")}'
 
 
 #: Commands whose Papyrus equivalent takes fewer arguments; drop the extras.

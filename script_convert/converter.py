@@ -19,7 +19,7 @@ from script_convert.command_rows import (
     ACTORBASE_ARG_FUNCTIONS, ACTOR_ONLY_FUNCTIONS, BARE_BOOL_FUNCTIONS,
     BARE_NO_EQUIV_COMMANDS, BOOL_VALUED_FUNCTIONS, BRANCH_ONLY_COMMANDS,
     COMPARISON_BOOL_FUNCTIONS, OBJREF_SHARED_FUNCTIONS, PAPYRUS_VALUE_TYPES,
-    ZERO_ARG_REF_FUNCTIONS
+    VOID_FUNCTIONS, ZERO_ARG_REF_FUNCTIONS, void_assign
 )
 from script_convert import resolve_name as _resolve_name
 from script_convert import assemble as _assemble
@@ -576,7 +576,7 @@ class ScriptConverter:
         # unlike a script body where they are hoisted to properties: a
         # fragment is one function, so there is nowhere else for them to live.
         try:
-            tree = parse(source, Mode.FRAGMENT)
+            tree = parse(source, Mode.FRAGMENT, not (self.xref and self.xref.is_fallout()))
         except Exception:
             return []
         for var in tree.variables:
@@ -835,6 +835,8 @@ class ScriptConverter:
             return self._emit_say_line(target, say, delay)
         if _call_name(stmt.value) == 'addperk':
             return _perk_rank_after(target, value)
+        if _call_name(stmt.value) in VOID_FUNCTIONS:
+            return void_assign(value, target, self.type_of(target))
         if self._is_global_target(target):
             clean = value.split(';TODO')[0].rstrip() if ';TODO' in value else value
             todo = '  ;TODO' + value.split(';TODO', 1)[1] if ';TODO' in value else ''
@@ -1317,7 +1319,7 @@ class ScriptConverter:
         """
         from script_convert.tes4.parser import Mode, parse
         try:
-            tree = parse(source, Mode.SCRIPT)
+            tree = parse(source, Mode.SCRIPT, not (self.xref and self.xref.is_fallout()))
         except Exception:
             self._tree = None
             return [], []

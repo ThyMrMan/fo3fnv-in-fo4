@@ -444,7 +444,29 @@ is now the one place a row is swapped for its FO4 one; `emit_row`,
   **Open:** what FNV runs it on (play Doc's addiction cure).
 - Singles: `VES01VictorGSMyBodyguard` (a void read as Bool), `VMS03Quest`
   (`AddItem`'s result assigned), `50MGIncendiary` (an Enchantment cast to
-  Spell).
+  Spell). Settled in [the singles](#spike-3-else-text).
+
+### <a id="spike-3-else-text"></a>The three singles (2026-10-06)
+
+- **Text after `else` is dropped by FO3/FNV's compiler.** VES01's
+  `else GSVictorRef.AddScriptPackage …` became `ElseIf <void call>`. FNV's
+  bytecode (`SCDA` read from `FalloutNV.esm`) has every one of the 18
+  `else <text>` lines in 13 scripts as a bare 2-byte `else`, the next
+  statement being the else body: the text, `else if <cond>` included, never
+  ran. The converter had made all 18 `ElseIf <text>`, adding a test FNV never
+  made to 12 scripts that compiled. The parser now takes
+  `else_takes_condition`; the converter turns it off for FO3/FNV, the text
+  goes to `If.else_dropped` and a note on the `Else`. TES4 keeps reading
+  `else <cond>` as an elseif (not checked against Oblivion's bytecode).
+- **`set x to <call returning nothing>`.** FNV's `AddItem` returned 0, so
+  VMS03's `set rCharge to player.additem …` gave the item and cleared
+  `rCharge`; Papyrus's `AddItem` returns nothing. A row flagged `void`
+  (`AddItem` so far) is emitted as the call, then the variable's empty value
+  (`command_rows.void_assign`).
+- **`50MGIncendiaryScript` is dead.** It casts the enchantment
+  `EnchFlamerEffect`, which Papyrus cannot, but no record in FNV names the
+  script, so it joins the unattached ones. A live case would need a record
+  side spell made from the enchantment's effects.
 
 ### <a id="spike-3-vmad"></a>FO4 VMAD
 

@@ -119,7 +119,8 @@ def _if(conv, st: N.If, extends: str, depth: int) -> list[str]:
         out.append(pad + 'ElseIf ' + S.emit_condition(conv, cond, extends))
         out += emit_body(conv, body, extends, depth + 1)
     if st.orelse:
-        out.append(pad + 'Else')
+        dropped = f'  ;NE: the source compiler drops text after else: {st.else_dropped}' if st.else_dropped else ''
+        out.append(pad + 'Else' + dropped)
         out += emit_body(conv, st.orelse, extends, depth + 1)
     out.append(pad + 'EndIf')
     return out
