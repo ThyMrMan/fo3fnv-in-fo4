@@ -10,6 +10,7 @@ under `textures\\fnv\\`.
 See: docs/fork/fo4_spikes.md#spike-2-static
 """
 
+import functools
 import io
 import math
 import struct
@@ -66,6 +67,21 @@ GLASS_EFFECT = {
     'falloff_stop_opacity': 0.8999999761581421, 'lighting_influence': 0.949999988079071, 'env_min_lod': 0,
     'soft_depth': 100.0,
 }
+#: Vanilla BloatflyWing.BGEM, textures aside: FO4's lit translucent surface (no falloff, full scene lighting).
+TRANSLUCENT_EFFECT = dict(GLASS_EFFECT, alpha=1.0, two_sided=False, env_mapping=False, falloff=False,
+                          base_color=(1.0, 1.0, 1.0), base_color_scale=1.0, falloff_start_angle=1.0,
+                          falloff_stop_angle=1.0, falloff_start_opacity=0.0, falloff_stop_opacity=0.0,
+                          lighting_influence=1.0)
+#: Vanilla bloatfly.nif's wing effect shader values, and its flags (z-test, effect lighting; skinned bit dropped).
+WING_SHADER = {'lighting_influence': 255, 'falloff': (1.0, 1.0, 0.0, 0.0), 'base_color': (1.0, 1.0, 1.0, 1.0),
+               'base_color_scale': 1.0, 'env_map_scale': 1.0}
+WING_FLAGS, EFFECT_ENV_MAP = (0xA0000000, 0x40000000), 0x80
+#: Alpha from which a texel is seen, and solid; the seen share in between that keeps a blend (else a cut-out).
+SEEN_ALPHA, SOLID_ALPHA, TRANSLUCENT_SHARE = 8, 247, 0.5
+#: The alpha test of a cut-out made from a blend: vanilla's most common threshold, test on, blend off.
+CUTOUT_REF, ALPHA_TEST_BIT = 128, 0x200
+#: Lighting shader flags1 of a decal (Decal, Dynamic_Decal), as vanilla's blended decals carry them.
+DECAL_FLAGS = 0x0C000000
 #: The most common value of every field over Fallout4.esm's 6,616 BGSMs, textures and root material aside.
 MATERIAL = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 1.0,
@@ -213,7 +229,9 @@ class ShapeMaterial:
     """A shape's material, its path and dict, FNV textures, alpha, spec map.
 
     kind 'lit' is a BGSM, 'effect' a BGEM, 'unlit' an effect shader with no
-    material file (path ''; data holds its texture and vertex alpha).
+    material file (path ''; data holds its texture and vertex alpha). An
+    effect's `shader` is its NIF shader's values and flags (vanilla beaker
+    glass when None); `flags1` is added to a lit shader's flags1.
     """
     kind: str
     path: str
@@ -221,13 +239,19 @@ class ShapeMaterial:
     textures: list
     alpha: 'tuple | None'
     spec: 'tuple | None'
+    shader: 'tuple | None' = None
+    flags1: int = 0
+
+
+def _alpha_fields_of(flags: int, threshold: int) -> dict:
+    """The material fields of NiAlphaProperty flags and threshold (same blend enum)."""
+    return {'alpha_blend': bool(flags & 1), 'src_blend': (flags >> 1) & 0xF, 'dst_blend': (flags >> 5) & 0xF,
+            'alpha_test': bool(flags & ALPHA_TEST_BIT), 'alpha_test_ref': threshold}
 
 
 def _alpha_fields(alpha) -> dict:
-    """The material fields an FNV NiAlphaProperty sets (same blend enum)."""
-    flags = alpha.flags
-    return {'alpha_blend': bool(flags & 1), 'src_blend': (flags >> 1) & 0xF, 'dst_blend': (flags >> 5) & 0xF,
-            'alpha_test': bool(flags & 0x200), 'alpha_test_ref': alpha.threshold}
+    """The material fields an FNV NiAlphaProperty sets."""
+    return _alpha_fields_of(alpha.flags, alpha.threshold)
 
 
 def _alpha_part(alpha) -> 'tuple | None':
@@ -253,12 +277,46 @@ def _effect(fnv: list, alpha) -> ShapeMaterial:
                          [t for i, t in enumerate(fnv[:5]) if t and i in (0, 1, 4)], _alpha_part(alpha), None)
 
 
+@functools.cache
+def translucent(texture: Path) -> bool:
+    """True when at least TRANSLUCENT_SHARE of a texture's seen texels are partly transparent."""
+    try:
+        alpha = np.asarray(Image.open(texture).convert('RGBA'))[:, :, 3]
+    except (OSError, ValueError):
+        return False
+    seen = alpha >= SEEN_ALPHA
+    return bool(((alpha < SOLID_ALPHA) & seen).sum() >= TRANSLUCENT_SHARE * max(int(seen.sum()), 1))
+
+
+def _translucent(fnv: list, alpha, two_sided: bool) -> ShapeMaterial:
+    """A blended FNV surface whose texture is mostly see-through, as vanilla's lit insect-wing BGEM."""
+    tex = [fo4_texture(t).replace('\\', '/') if t else '' for t in fnv + [''] * 6]
+    data = dict(TRANSLUCENT_EFFECT, **_alpha_fields(alpha), two_sided=two_sided,
+                textures={'base': tex[0], 'grayscale': '', 'envmap': '', 'normal': tex[1], 'env_mask': ''})
+    stem = tex[0].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
+    flags = (WING_FLAGS[0], WING_FLAGS[1] | (DOUBLE_SIDED if two_sided else 0))
+    return ShapeMaterial('effect', f'materials\\{stem}{"_2s" if two_sided else ""}_translucent.bgem', data,
+                         [t for t in fnv[:2] if t], _alpha_part(alpha), None, (WING_SHADER, flags))
+
+
+def _lit_alpha(alpha, decal: bool) -> 'tuple | None':
+    """A lit shape's FNV alpha as FO4 draws it: decals keep their blend; other blends become a cut-out."""
+    if alpha is None or not alpha.flags & 1 or decal:
+        return _alpha_part(alpha)
+    threshold = alpha.threshold if alpha.flags & ALPHA_TEST_BIT else CUTOUT_REF
+    return (alpha.flags & ~1) | ALPHA_TEST_BIT, threshold
+
+
 def _material(geom, texture_root=None) -> ShapeMaterial:
     """The FO4 material of an FNV shape.
 
     Unlit shapes (BSShaderNoLightingProperty) get an inline effect shader;
     alpha-blended environment-mapped ones (FNV glass) vanilla's beaker BGEM;
-    the rest a BGSM. A NiStencilProperty makes it two-sided.
+    blended ones with a mostly see-through texture vanilla's insect-wing BGEM;
+    the rest a BGSM (blended decals as FO4 decals, other blends as cut-outs:
+    FO4 draws no blended lit surface but a decal). A NiStencilProperty makes it two-sided.
+
+    See: docs/fork/fo4_spikes.md#spike-2-transparency
     """
     props = {type(p).__name__: p for p in geom.get_properties()}
     alpha, two_sided = props.get('NiAlphaProperty'), 'NiStencilProperty' in props
@@ -266,19 +324,27 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
         return _unlit(props['BSShaderNoLightingProperty'], alpha, two_sided)
     shader = props.get('BSShaderPPLightingProperty')
     fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else ['']
-    if alpha is not None and alpha.flags & 1 and shader and shader.shader_flags.sf_environment_mapping:
+    blended = alpha is not None and alpha.flags & 1 and shader
+    if blended and shader.shader_flags.sf_environment_mapping:
         return _effect(fnv, alpha)
-    mat = dict(MATERIAL, root_material='', two_sided=two_sided, textures={**dict.fromkeys(BGSM_TEXTURES, '')})
+    flags = shader.shader_flags if shader else None
+    decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass))
+    if blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture_root and fnv[0] and translucent(
+            Path(texture_root) / fnv[0].replace('\\', '/').lower()):
+        return _translucent(fnv, alpha, two_sided)
+    mat = dict(MATERIAL, root_material='', two_sided=two_sided, decal=decal,
+               textures={**dict.fromkeys(BGSM_TEXTURES, '')})
     mat['textures']['diffuse'] = fo4_texture(fnv[0]).replace('\\', '/')
     mat['textures']['normal'] = fo4_texture(fnv[1] if len(fnv) > 1 else '').replace('\\', '/')
     spec = _specular(mat, fnv[1] if len(fnv) > 1 else '', props, texture_root)
+    part = _lit_alpha(alpha, decal)
     suffix = '_2s' if two_sided else ''
-    if alpha is not None:
-        mat.update(_alpha_fields(alpha))
-        suffix += f'_a{alpha.flags:x}_{alpha.threshold}'
+    if part is not None:
+        mat.update(_alpha_fields_of(*part))
+        suffix += f'_a{part[0]:x}_{part[1]}'
     stem = mat['textures']['diffuse'].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
     return ShapeMaterial('lit', f'materials\\{stem}{suffix}.bgsm', mat, [t for t in fnv[:2] if t],
-                         _alpha_part(alpha), spec)
+                         part, spec, flags1=DECAL_FLAGS if decal else 0)
 
 
 def _visible_shapes(root) -> list:
@@ -311,7 +377,7 @@ def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> int
     elif mat.kind == 'unlit':
         nif.blocks.append(('BSEffectShaderProperty', _unlit_shader(nif, mat, colors is not None)))
     else:
-        nif.blocks.append(('BSLightingShaderProperty', _shader(nif, mat.path, index + 2)))
+        nif.blocks.append(('BSLightingShaderProperty', _shader(nif, mat.path, index + 2, mat.flags1)))
         slots = [f'textures\\{fo4_texture(t)}' for t in mat.textures] + [''] * TEXTURE_SLOTS
         if mat.spec:
             slots[SLOT_SPECULAR] = f'textures\\{mat.spec[0]}'
@@ -323,13 +389,14 @@ def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> int
 
 
 def _effect_shader(nif: NifFile, mat: ShapeMaterial) -> dict:
-    """An effect shader naming the BGEM `mat`: vanilla beaker values, its textures."""
+    """An effect shader naming the BGEM `mat`: its values and flags (vanilla beaker glass's by default), textures."""
+    values, flags = mat.shader or (BEAKER_SHADER, EFFECT_FLAGS)
     tex = mat.data['textures']
     full = {k: f'textures\\{v}'.replace('/', '\\') if v else '' for k, v in tex.items()}
-    return {'name': nif.string(mat.path), 'extra': [], 'controller': NONE, 'flags1': EFFECT_FLAGS[0],
-            'flags2': EFFECT_FLAGS[1], 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0),
+    return {'name': nif.string(mat.path), 'extra': [], 'controller': NONE, 'flags1': flags[0],
+            'flags2': flags[1], 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0),
             'source_texture': full['base'], 'clamp': 3, 'env_min_lod': 0, 'unused': 0, 'soft_depth': 100.0,
-            'greyscale': '', 'env_map': full['envmap'], 'normal': full['normal'], 'env_mask': '', **BEAKER_SHADER}
+            'greyscale': '', 'env_map': full['envmap'], 'normal': full['normal'], 'env_mask': '', **values}
 
 
 def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
@@ -350,10 +417,11 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
             'env_map': '', 'normal': '', 'env_mask': '', 'env_map_scale': 1.0}
 
 
-def _shader(nif: NifFile, material: str, texture_set: int) -> dict:
-    """A lighting shader naming `material` (root material ''), with vanilla ClutterGenShelfA's other values."""
+def _shader(nif: NifFile, material: str, texture_set: int, flags1: int) -> dict:
+    """A lighting shader naming `material` (root material ''; `flags1` added), vanilla ClutterGenShelfA's values."""
     return {'shader_type': 0, 'name': nif.string(material), 'extra': [], 'controller': NONE,
-            'flags1': SHADER_FLAGS[0], 'flags2': SHADER_FLAGS[1], 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0),
+            'flags1': SHADER_FLAGS[0] | flags1, 'flags2': SHADER_FLAGS[1],
+            'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0),
             'texture_set': texture_set, 'emissive_color': (0.0, 0.0, 0.0), 'emissive_multiple': 1.0,
             'root_material': nif.empty_string(), 'clamp': 3, 'alpha': 1.0, 'refraction': 0.0, 'smoothness': 1.0,
             'specular_color': (1.0, 1.0, 1.0), 'specular_strength': 1.0, 'subsurface_rolloff': 0.0,

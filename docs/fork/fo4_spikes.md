@@ -927,6 +927,39 @@ Doc's house: all 172 meshes with collision convert (165 with one body, 7
 with two), with no Elric crash, in one 17-second build. Clutter (MISC,
 ALCH...) keeps FNV's dynamic body while it is placed as a static.
 
+### <a id="spike-2-transparency"></a>Blended lit surfaces (played 2026-10-06)
+
+FO4 does not draw an alpha-blended lighting-shader surface unless it is a
+decal. Doc's hospital screen cloth and ceiling fan (blended BGSMs) were
+invisible; in-game splits in Doc's house and QASmoke ruled out the cell,
+our BGSMs, textures, file structure, normals, winding, the alpha property,
+Double_Sided, root material and vertex colours. Vanilla's own blood pack
+tabs (`Props\BloodPack.nif`, blended non-decal BGSM) are invisible too, from
+an unmodded Steam launch; the BloodPack Mesh Fix mod (Nexus 25800) makes
+them an opaque environment-mapped lit shader. Of Fallout4.esm's 340 blended
+BGSMs, 253 are decals; the 87 others are LOD, placeholders, the blood pack,
+the mobster glasses and an unused Diamond City TV. FO4's own translucency is
+the effect shader (glass, insect wings), alpha test (cloth, foliage, hair)
+or a decal.
+
+FO3/FNV use blended lit surfaces widely: of 14,909 FNV meshes, 2,159 have a
+blended non-decal lit shape and 366 a blended decal (FO3: 1,431 and 262 of
+10,989). Over the 241 textures of FNV/FO3 blended, non-decal,
+non-environment-mapped lit shapes (1,013 shape uses), the share of seen
+texels (alpha 8 and up) that are partly transparent (below 247) is bimodal:
+546 uses below 20%, 337 at 50% and up (glass panes, neon tubing, Doc's
+cloth at 81%), the middle mostly FNV hair and graffiti.
+
+`convert_static._material` therefore maps a blended lit FNV shape by kind:
+
+- environment-mapped (glass): vanilla's beaker BGEM, as before;
+- decal (`sf_decal_single_pass` or dynamic): a blended BGSM with `decal` and
+  the shader's Decal and Dynamic_Decal flags (vanilla's blended decals);
+- a texture at least 50% partly transparent: vanilla BloatflyWing's BGEM
+  (lit, blended, no falloff) and its mesh shader values;
+- otherwise a cut-out: alpha test at FNV's threshold when it had one, else
+  vanilla's commonest 128, blend off (Doc's fan texture is 240-255).
+
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 
 The CK exports FaceGen from the command line: `CreationKit.exe
