@@ -817,6 +817,53 @@ vanilla ships): BaseMaterialFile, five textures, the effect fields. **Checked
 against vanilla (2026-10-06):** all 283 `.bgem` rebuild byte for byte, and
 all 10,787 BSEffectShaderProperty blocks in the 32,397 readable meshes.
 
+### <a id="spike-2-cell"></a>Doc Mitchell's house as an FO4 cell (played 2026-10-06)
+
+`fo4_import/spike/cell.py` rebuilds one FNV interior cell, by EditorID, in
+its own plugin: `coc FNV_GSDocMitchellHouse`. Of the house's 434
+references, 427 are placed:
+
+- **Lighting:** FNV's XCLL colours, fog, directional light and fog power,
+  inheriting nothing from the lighting template. FNV's ambient colour also
+  fills FO4's six directional ambient colours. The fields FNV lacks, and the
+  template and imagespace, are QASmoke's.
+- **Objects:** every base with a mesh becomes a static of that mesh (204),
+  whatever its FNV type (STAT, MISC, FURN, CONT, ACTI, MSTT, items).
+  Containers, furniture and pick-ups come later.
+- **Markers:** FNV's engine statics below 0x800 are editor markers. The
+  three Fallout4.esm shares by FormID and EditorID (COCMarkerHeading,
+  XMarkerHeading, XMarker) keep their base, and the rest are dropped
+  (AudioMarker). Engine-range items, such as caps, are converted.
+- **Lights:** FO4 LIGH with FNV's radius, colour, fade and flags. The rest of
+  DATA is the most common vanilla omni light (604 of 801: falloff exponent
+  1, FOV 90, near clip 7.217, attenuation 0/1/2). XRDS on a light reference
+  is an offset to the base radius in both games: across 6,802 FNV light
+  references, base plus XRDS is always positive, including 2,259 negative
+  offsets, and xEdit's `wbREFRRadiusToStr` adds the base. It is copied
+  unchanged.
+- **Doors:** a door with a teleport leads to a stand-in copy in QASmoke at
+  (-1700, -1184, 0). The copy leads back to where its FNV partner door led
+  in.
+- **Skipped:** 4 trigger activators with no mesh, 2 sounds and Doc himself.
+
+Played: the house looks right. Its fog and colour cannot be judged yet, because its imagespace and FO4-only lighting fields are QASmoke's, which shows the same haze.
+
+The house's 206 models brought two shading cases the first statics did not
+have:
+
+- **Unlit shapes.** The house has 39 FNV `BSShaderNoLightingProperty`
+  shapes: painting and furniture shading layers, window panes, light rays and
+  liquids. Most have no texture and are drawn with vertex colours and alpha.
+  They become effect shaders with no material file: vanilla writes 1,104
+  untextured ones, plus 323 with vertex colours. These draw without scene
+  lighting, use FNV's texture, vertex colours and vertex alpha, write depth
+  unless they blend, and are two-sided under a `NiStencilProperty`.
+- **Glass is blending plus an environment map.** Every blended lit shape
+  used to be glass. In the house, the 22 blended shapes with an environment
+  map are glass or clear plastic (windows, beakers, blood packs, a clock
+  face). The 7 without one (fan blades, stains, a screen, a gourd) stay lit
+  BGSMs with their blend. A `NiStencilProperty` also makes a BGSM two-sided.
+
 ## <a id="decision"></a>Decision point
 
 After spikes 1–3: the architecture plan (the `fo4_import` package, the asset

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
+from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import file as nif_file
 from asset_convert.texture.dds_codec import write_normal_dds
@@ -75,9 +75,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, edids: list) -> list:
         refs += R.pack_refr(fid + 1, fid, pos, (0.0, 0.0, 0.0))
         made.append((edid, model))
         fid += 2
-    body, flags, block, sub = vanilla_cell()
-    w.add_raw_group('CELL', R.pack_interior_cell(pack_fo4_record('CELL', CELL_FO4, flags, body), CELL_FO4,
-                                                 block, sub, refs))
+    w.add_raw_group('CELL', R.pack_interior_cells([(vanilla_cell()[0], CELL_FO4, refs, b'')]))
     w.next_object_id = fid & 0xFFFFFF
     out.parent.mkdir(parents=True, exist_ok=True)
     w.write(str(out))

@@ -14,7 +14,6 @@ See: docs/fork/fo4_spikes.md#spike-1
 """
 
 import argparse
-import struct
 from pathlib import Path
 
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest, pack_topic
@@ -410,12 +409,11 @@ class Spike:
 
 
 def vanilla_cell() -> tuple:
-    """(QASmoke's record body, flags, block, sub-block) read from Fallout4.esm."""
+    """(QASmoke's CELL record to override, its body) read from Fallout4.esm."""
     raw = Path(FALLOUT4_ESM).read_bytes()
-    for rec, stack in walk(raw, b'CELL'):
+    for rec, _ in walk(raw, b'CELL'):
         if rec.form_id == CELL_FO4:
-            labels = {g.type: struct.unpack('<i', g.label)[0] for g in stack.groups}
-            return rec.body, rec.flags, labels[2], labels[3]
+            return pack_fo4_record('CELL', CELL_FO4, rec.flags, rec.body), rec.body
     raise SystemExit('QASmoke not found')
 
 
@@ -455,9 +453,7 @@ def build(export_dir: Path, out: Path, scripts: Path = None, trace: bool = False
         spike.trace = script_spike.trace_source(out.name, [(e, f) for f, e, *_ in spike.scenes], spike.actor_ids)
     if scripts:
         _add_converted_quests(w, spike, scripts, forms)
-    body, flags, block, sub = vanilla_cell()
-    cell_record = pack_fo4_record('CELL', CELL_FO4, flags, body)
-    w.add_raw_group('CELL', R.pack_interior_cell(cell_record, CELL_FO4, block, sub, actors))
+    w.add_raw_group('CELL', R.pack_interior_cells([(vanilla_cell()[0], CELL_FO4, actors, b'')]))
     qust = R.pack_qust(spike.quest, 'FNVSpike_Conversation', 'FNV Spike: conversations', 90,
                        list(spike.stages.values()), 'Speaker', None)
     w.add_record('QUST', pack_quest(qust, spike.quest, (), [greeting] + spike.topics, spike.scene_records))

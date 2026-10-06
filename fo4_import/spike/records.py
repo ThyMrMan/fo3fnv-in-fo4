@@ -48,7 +48,7 @@ def _zstr(sig: str, text: str) -> bytes:
 
 def pack_ctda(op_flags: int, value: float, func: int, p1: int = 0, p2: int = 0,
               run_on: int = RUN_SUBJECT, ref: int = 0, param3: int = -1) -> bytes:
-    """One FO4 condition (32 bytes; u16 function; param3 is the alias id when run on a quest alias)."""
+    """One FO4 condition (32 bytes); param3 is the alias id run on a quest alias."""
     data = struct.pack('<B3xfH2xIIIIi', op_flags, value, func, p1, p2, run_on, ref, param3)
     return pack_subrecord('CTDA', data)
 
@@ -142,21 +142,73 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') ->
     return pack_fo4_record('ACHR', fid, 0x400, subs + pack_subrecord('DATA', data))
 
 
-def pack_refr(fid: int, base: int, pos: tuple, rot: tuple) -> bytes:
-    """A persistent placed object: base, position, rotation."""
-    data = pack_subrecord('DATA', struct.pack('<6f', *pos, *rot))
-    return pack_fo4_record('REFR', fid, 0x400, _u32('NAME', base) + data)
+def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
+              teleport: tuple = None, persistent: bool = True) -> bytes:
+    """A placed object: base, light radius offset (XRDS), teleport (door ref, position, rotation), scale."""
+    subs = _u32('NAME', base)
+    if radius is not None:
+        subs += pack_subrecord('XRDS', struct.pack('<f', radius))
+    if teleport:
+        door, to_pos, to_rot = teleport
+        subs += pack_subrecord('XTEL', struct.pack('<I6fII', door, *to_pos, *to_rot, 0, 0))
+    if scale != 1.0:
+        subs += pack_subrecord('XSCL', struct.pack('<f', scale))
+    subs += pack_subrecord('DATA', struct.pack('<6f', *pos, *rot))
+    return pack_fo4_record('REFR', fid, 0x400 if persistent else 0, subs)
+
+
+def _bounded(edid: str, bounds: tuple) -> bytes:
+    """EDID and OBND, the start of every placeable base record."""
+    return _zstr('EDID', edid) + pack_subrecord('OBND', struct.pack('<6h', *bounds))
 
 
 def pack_stat(fid: int, edid: str, model: str, bounds: tuple) -> bytes:
     """A static: bounds, model under Meshes, ClutterGenShelfA's DNAM."""
-    subs = _zstr('EDID', edid) + pack_subrecord('OBND', struct.pack('<6h', *bounds)) + _zstr('MODL', model)
+    subs = _bounded(edid, bounds) + _zstr('MODL', model)
     return pack_fo4_record('STAT', fid, 0, subs + pack_subrecord('DNAM', struct.pack('<fIff', 90.0, 0, 1.0, 1.0)))
 
 
-def pack_interior_cell(cell_record: bytes, cell_fid: int, block: int, sub_block: int,
-                       persistent: bytes) -> bytes:
-    """An interior CELL override with its persistent children, inside its block/sub-block groups."""
-    children = pack_group(6, struct.pack('<I', cell_fid), pack_group(8, struct.pack('<I', cell_fid), persistent))
-    sub = pack_group(3, struct.pack('<i', sub_block), cell_record + children)
-    return pack_group(2, struct.pack('<i', block), sub)
+def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: int) -> bytes:
+    """A door: bounds, name, model, FNAM flags (Automatic, Hidden, Sliding...)."""
+    subs = _bounded(edid, bounds) + _zstr('FULL', name) + _zstr('MODL', model)
+    return pack_fo4_record('DOOR', fid, 0, subs + pack_subrecord('FNAM', bytes([flags])))
+
+
+def pack_ligh(fid: int, edid: str, bounds: tuple, model: str, light: tuple, fade: float) -> bytes:
+    """A light; `light` is (radius, (r, g, b), flags), the rest of DATA vanilla's most common omni light.
+
+    That light (604 of 801 in Fallout4.esm): falloff exponent 1, FOV 90,
+    near clip 7.217, flicker period 1, constant 0, scalar 1, exponent 2.
+    """
+    radius, color, flags = light
+    data = struct.pack('<iI4BI12f', -1, radius, *color, 0, flags, 1.0, 90.0, 7.217, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0,
+                       0.0, 0.0, 0.0)
+    subs = _bounded(edid, bounds) + (_zstr('MODL', model) if model else b'')
+    return pack_fo4_record('LIGH', fid, 0, subs + pack_subrecord('DATA', data) + pack_subrecord(
+        'FNAM', struct.pack('<f', fade)))
+
+
+def pack_cell(fid: int, edid: str, name: str, flags: int, lighting: bytes, template: int, imagespace: int) -> bytes:
+    """An interior cell: name, DATA flags, XCLL lighting, lighting template, water height 0, imagespace."""
+    subs = _zstr('EDID', edid) + _zstr('FULL', name) + pack_subrecord('DATA', struct.pack('<H', flags))
+    subs += pack_subrecord('XCLL', lighting) + _u32('LTMP', template)
+    subs += pack_subrecord('XCLW', struct.pack('<f', 0.0)) + _u32('XCIM', imagespace)
+    return pack_fo4_record('CELL', fid, 0, subs)
+
+
+def pack_interior_cells(cells: list) -> bytes:
+    """Interior cells in their block and sub-block groups (object id mod 10, then tens digit).
+
+    cells: (CELL record, its FormID, persistent children, temporary children).
+    """
+    blocks = {}
+    for record, fid, persistent, temporary in sorted(cells, key=lambda c: c[1]):
+        label = struct.pack('<I', fid)
+        kids = (pack_group(8, label, persistent) if persistent else b'') + (
+            pack_group(9, label, temporary) if temporary else b'')
+        object_id = fid & 0xFFFFFF
+        subs = blocks.setdefault(object_id % 10, {})
+        subs[object_id // 10 % 10] = subs.get(object_id // 10 % 10, b'') + record + pack_group(6, label, kids)
+    return b''.join(pack_group(2, struct.pack('<i', b), b''.join(pack_group(3, struct.pack('<i', s), body)
+                                                                 for s, body in sorted(subs.items())))
+                    for b, subs in sorted(blocks.items()))

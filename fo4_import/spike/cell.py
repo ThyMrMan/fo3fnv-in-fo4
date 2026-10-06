@@ -1,0 +1,232 @@
+"""Spike 2 step 2: an FNV interior cell rebuilt in Fallout 4.
+
+    py -3.14 -m fo4_import.spike.cell --export <FalloutNV.esm export> --out <plugin.esp> --data <Data> <cell EDID>
+
+The cell keeps FNV's lighting, every placed object with a mesh (a static for
+now, whatever its FNV type), its lights and its doors. A door that led out
+of the cell leads to a stand-in door in QASmoke, and back. Engine markers
+FO4 shares keep their base. Collision, actors, sounds and what objects do
+(containers, furniture, items) are later steps.
+
+See: docs/fork/fo4_spikes.md#spike-2-cell
+"""
+
+import argparse
+import collections
+import math
+import struct
+from pathlib import Path
+
+from fo4_import.base.writer import FO4PluginWriter
+from fo4_import.spike import records as R
+from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
+from fo4_import.spike.statics import write_assets
+from tes5_import.base.tes5_reader import sub_map
+from tes5_import.base.text_reader import parse_export_file
+
+MASTERS = ['Fallout4.esm']
+FIRST_ID = 0x800
+#: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
+AS_STATIC = ('STAT', 'MISC', 'FURN', 'CONT', 'ACTI', 'MSTT', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE',
+             'AMMO', 'TERM', 'IDLM')
+#: FNV's engine objects sit below this id; its statics there are all editor markers.
+ENGINE_IDS = 0x800
+#: FNV engine markers with the same FormID and EditorID in Fallout4.esm: COCMarkerHeading, XMarkerHeading, XMarker.
+SHARED_MARKERS = frozenset({0x32, 0x34, 0x3B})
+#: Stand-in doors in QASmoke: the first one's position and the spacing along X.
+DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
+#: Where a stand-in door puts the player: offset from the door, facing +X, away from it.
+ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
+#: FNV LIGH flag bits as FO4 ones: carried, flicker (and slow), off by default, pulse (and slow), spot, spot shadow.
+LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
+#: The bit every vanilla FO4 omni light carries.
+LIGHT_BASE = 0x1
+
+
+def _model(rec: dict) -> str:
+    """An FNV base record's world model ('' for none)."""
+    return rec.get('Model.MODL') or rec.get('Male.WorldModel.MODL') or ''
+
+
+def _bounds(rec: dict) -> tuple:
+    """An FNV record's OBND."""
+    return tuple(int(rec.get(f'OBND.{k}', 0)) for k in ('X1', 'Y1', 'Z1', 'X2', 'Y2', 'Z2'))
+
+
+def _floats(rec: dict, prefix: str, keys: tuple) -> tuple:
+    """`rec[prefix + key]` for each key, as floats."""
+    return tuple(float(rec[prefix + k]) for k in keys)
+
+
+def _place(rec: dict, prefix: str = '') -> tuple:
+    """(position, rotation) of a reference, or of its teleport with prefix 'XTEL.'."""
+    return _floats(rec, prefix, ('PosX', 'PosY', 'PosZ')), _floats(rec, prefix, ('RotX', 'RotY', 'RotZ'))
+
+
+def _color(cell: dict, key: str) -> bytes:
+    """An FNV XCLL colour as FO4 byte colours (RGB, 0)."""
+    return bytes(int(cell[f'XCLL.{key}{c}']) for c in 'RGB') + b'\0'
+
+
+def lighting(cell: dict, template: bytes) -> bytes:
+    """FO4 XCLL: FNV's colours, fog, directional light and fog power over `template`, inheriting nothing.
+
+    FNV's ambient colour also fills FO4's six directional ambient colours and
+    its fog colour the far fog colour; the FO4-only fields keep `template`'s.
+    """
+    out = bytearray(template)
+    out[0:12] = _color(cell, 'Ambient') + _color(cell, 'Directional') + _color(cell, 'Fog')
+    out[12:40] = struct.pack('<2f2i3f', *_floats(cell, 'XCLL.', ('FogNear', 'FogFar')),
+                             int(cell['XCLL.DirectionalRotXY']), int(cell['XCLL.DirectionalRotZ']),
+                             *_floats(cell, 'XCLL.', ('DirectionalFade', 'FogClipDist', 'FogPower')))
+    out[40:64] = _color(cell, 'Ambient') * 6
+    out[72:76] = _color(cell, 'Fog')
+    out[88:92] = bytes(4)
+    return bytes(out)
+
+
+def light_flags(fnv: int) -> int:
+    """FNV LIGH flags as FO4 ones (Negative and Dynamic have none)."""
+    return LIGHT_BASE | sum({v for k, v in LIGHT_FLAGS.items() if fnv & k})
+
+
+class CellBuilder:
+    """FO4 base records for one FNV cell's references, each base and mesh converted once."""
+
+    def __init__(self, export_dir: Path, data_dir: Path, bases: dict):
+        """A builder writing assets into `data_dir`; `bases` is {FNV FormID: (type, record)}."""
+        self.export_dir, self.data_dir, self.bases = export_dir, data_dir, bases
+        self.writer = FO4PluginWriter(masters=MASTERS, is_esm=False, description='FNV cell spike')
+        self.next_id = len(MASTERS) << 24 | FIRST_ID
+        self.made, self.meshes = {}, {}
+        self.counts = collections.Counter()
+
+    def new_id(self) -> int:
+        """The next plugin FormID."""
+        self.next_id += 1
+        return self.next_id - 1
+
+    def mesh(self, model: str) -> tuple:
+        """(FO4 model path, bounds) of an FNV model, converted into the data folder once."""
+        if model not in self.meshes:
+            self.meshes[model] = write_assets(self.export_dir, model, self.data_dir)
+        return self.meshes[model]
+
+    def base(self, fnv_fid: int) -> 'int | None':
+        """The FO4 base for an FNV base FormID, made on first use; None when it is not converted."""
+        sig, rec = self.bases.get(fnv_fid, (None, None))
+        if sig == 'STAT' and fnv_fid < ENGINE_IDS:
+            return fnv_fid if fnv_fid in SHARED_MARKERS else None
+        if fnv_fid not in self.made:
+            self.made[fnv_fid] = self._make(sig, rec) if sig == 'LIGH' or (sig and _model(rec)) else None
+        return self.made[fnv_fid]
+
+    def _make(self, sig: str, rec: dict) -> int:
+        """Write the FO4 record for FNV base `rec` of type `sig`; its FormID."""
+        fid, edid = self.new_id(), f'FNV_{rec["EditorID"]}'
+        model, bounds = self.mesh(_model(rec)) if _model(rec) else ('', _bounds(rec))
+        if sig == 'LIGH':
+            light = (int(rec['DATA.Radius']), tuple(int(rec[f'DATA.Color.{c}']) for c in 'RGB'),
+                     light_flags(int(rec['DATA.Flags'])))
+            record = R.pack_ligh(fid, edid, _bounds(rec), model, light, float(rec.get('FNAM.Fade', 1.0)))
+        elif sig == 'DOOR':
+            record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)))
+        else:
+            sig, record = 'STAT', R.pack_stat(fid, edid, model, bounds)
+        self.writer.add_record(sig, record)
+        self.counts[sig] += 1
+        return fid
+
+
+def _find_cell(export_dir: Path, edid: str) -> dict:
+    """The FNV interior CELL record with EditorID `edid`."""
+    for rec in parse_export_file(str(export_dir / 'CELL.txt')):
+        if rec.get('EditorID') == edid:
+            return rec
+    raise SystemExit(f'no CELL {edid}')
+
+
+def _bases(export_dir: Path, used: set) -> dict:
+    """{FNV FormID: (type, record)} of the used bases this spike converts."""
+    out = {}
+    for sig in AS_STATIC + ('LIGH', 'DOOR'):
+        for rec in parse_export_file(str(export_dir / f'{sig}.txt')):
+            fid = int(rec['FormID'], 16)
+            if fid in used:
+                out[fid] = (sig, rec)
+    return out
+
+
+def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tuple:
+    """Stand-in doors in QASmoke for the cell's teleport doors: (their REFRs, {door ref: its teleport}).
+
+    Each stand-in leads to where the FNV door's partner led into the cell
+    (the cell door's own position when the partner is not in the export).
+    """
+    qa_refs, teleports = b'', {}
+    for i, ref in enumerate(door_refs):
+        pos = (DOOR_START[0] + i * DOOR_SPACING, DOOR_START[1], DOOR_START[2])
+        stand_in, partner = builder.new_id(), links.get(ref['XTEL.Door'], ref)
+        inside = _place(partner, 'XTEL.') if partner is not ref else _place(ref)
+        qa_refs += R.pack_refr(stand_in, builder.base(int(ref['NAME'], 16)), pos, (0.0, 0.0, 0.0),
+                               teleport=(ids[ref['FormID']], *inside))
+        teleports[ref['FormID']] = (stand_in, tuple(p + a for p, a in zip(pos, ARRIVAL)), ARRIVAL_ROT)
+    return qa_refs, teleports
+
+
+def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tuple:
+    """(persistent, temporary) REFRs of the cell's converted references."""
+    persistent, temporary = b'', b''
+    for ref in refs:
+        base = builder.base(int(ref['NAME'], 16))
+        if base is None:
+            builder.counts['skipped ' + builder.bases.get(int(ref['NAME'], 16), ('other',))[0]] += 1
+            continue
+        keep = bool(int(ref['RecordFlags']) & 0x400) or ref['FormID'] in teleports
+        radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
+            int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
+        record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
+                             teleports.get(ref['FormID']), keep)
+        persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
+    builder.counts['placed'] = len(refs) - sum(v for k, v in builder.counts.items() if k.startswith('skipped'))
+    return persistent, temporary
+
+
+def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collections.Counter:
+    """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made."""
+    cell = _find_cell(export_dir, cell_edid)
+    all_refs = parse_export_file(str(export_dir / 'REFR.txt'))
+    refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
+    links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
+    builder = CellBuilder(export_dir, data_dir, _bases(export_dir, {int(r['NAME'], 16) for r in refs}))
+    cell_fid = builder.new_id()
+    ids = {r['FormID']: builder.new_id() for r in refs}
+    qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
+    persistent, temporary = _placed(builder, refs, ids, teleports)
+    qa_record, qa_body = vanilla_cell()
+    template = sub_map(qa_body)
+    record = R.pack_cell(cell_fid, f'FNV_{cell_edid}', cell.get('FULL', cell_edid), int(cell['DATA.Flags']) & 0xFF,
+                         lighting(cell, template[b'XCLL']), *(struct.unpack('<I', template[k])[0]
+                                                              for k in (b'LTMP', b'XCIM')))
+    builder.writer.add_raw_group('CELL', R.pack_interior_cells([(record, cell_fid, persistent, temporary),
+                                                                (qa_record, CELL_FO4, qa_refs, b'')]))
+    builder.writer.next_object_id = builder.next_id & 0xFFFFFF
+    out.parent.mkdir(parents=True, exist_ok=True)
+    builder.writer.write(str(out))
+    return builder.counts
+
+
+def main():
+    """Build the plugin and assets, and print the counts."""
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
+    ap.add_argument('--out', required=True, help='Plugin to write')
+    ap.add_argument('--data', required=True, help='Data folder for meshes, materials and textures')
+    ap.add_argument('cell', help='FNV interior cell editor ID')
+    args = ap.parse_args()
+    for key, count in sorted(build(Path(args.export), Path(args.out), Path(args.data), args.cell).items()):
+        print(f'{key}: {count}')
+
+
+if __name__ == '__main__':
+    main()
