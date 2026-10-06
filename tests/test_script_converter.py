@@ -6201,3 +6201,29 @@ def test_dispel_of_an_ingestible_is_neutralised():
     out = ScriptConverter(x).convert_standalone('T', src, 'Quest', 'T')
     assert 'DispelSpell' not in out
     assert 'names an ingestible' in out
+
+
+class TestFalloutQuestStageSubject:
+    """FO3/FNV run a quest stage's result script on the player.
+
+    See: docs/fork/fo4_spikes.md#spike-3-vdoctors
+    """
+
+    def test_bare_call_in_a_fallout_stage_acts_on_the_player(self, converter):
+        """VDoctors stage 20's bare RemoveSpell cures the player's addiction."""
+        converter.xref._is_fallout = True
+        converter._current_event = 'Fragment'
+        out = conv_lines(converter, 'RemoveSpell WithdrawalJet', 'Quest')
+        assert out.startswith('Game.GetPlayer().RemoveSpell(')
+
+    def test_oblivion_stage_keeps_its_old_subject(self, converter):
+        """Only FO3/FNV were shown to run stage scripts on the player."""
+        converter._current_event = 'Fragment'
+        assert 'Game.GetPlayer()' not in conv_lines(converter, 'RemoveSpell WithdrawalJet', 'Quest')
+
+    def test_radiation_rads_is_fallout4_rads(self, converter, monkeypatch):
+        """On Fallout 4, RestoreAV RadiationRads heals FO4's Rads, as vanilla doctors do."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        converter.xref._is_fallout = True
+        out = conv_lines(converter, 'player.RestoreAV RadiationRads 1000', 'Quest')
+        assert 'RestoreValue(TES4AV_Rads, 1000)' in out

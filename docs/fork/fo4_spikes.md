@@ -535,6 +535,41 @@ a plugin writes for them, by its master index.
   quest; each skill's first use still takes the FormID its spike record had,
   so no line moved.
 
+### <a id="spike-3-vdoctors"></a>A converted quest: VDoctors (played 2026-10-05)
+
+FNV's doctors do their work in the shared `VDoctors` quest: stage 10 heals
+(`Player.ResetHealth`), 20 cures addiction (`RemoveSpell Withdrawal…` ×13 and
+a message), 30 clears radiation (`player.RestoreAV RadiationRads 1000`), 40
+has no script. Doc's script sets stage 10 when his treatment ends; his
+100-cap line sets 30.
+
+- **A quest stage's result script runs on the player.** FNV's per-entry stage
+  runner (`0x60FB60` in the GOG `FalloutNV.exe`) calls `Script::Execute`
+  (`0x5AC1E0`, as JIP names it) with the player singleton (`0x11DEA3C`) as
+  `thisObj`, after checking the entry's conditions against the player too.
+  So stage 20's bare `RemoveSpell` acts on the player, which is how the
+  doctors cure addiction. The converter emitted `(Self as Actor)` on a
+  Quest, which FO4's compiler rejects (the `QF_VDoctors` and `QF_Doctors`
+  open question in [the remaining failures](#spike-3-singles)); a call with
+  no receiver in an FO3/FNV quest stage fragment is now `Game.GetPlayer()`
+  (`script_convert/implicit_subject.py`). FO3 is assumed to share the
+  runner; only FNV was disassembled.
+- **`RadiationRads` is FO4's `Rads`.** Vanilla FO4 scripts heal radiation
+  with `RestoreValue(Rads, n)` (doctor and RadAway scripts), so on Fallout 4
+  the name maps through `constants.FALLOUT4_FALLOUT_AV_RENAMES` instead of
+  being dropped as a value Skyrim lacks.
+- **In the spike**, `VDoctors` is a start-game quest with FNV's four stages,
+  each with one log entry, and `FALLOUTNV_QF_VDoctors` attached by quest
+  VMAD (`Fragment_Stage_0010_Item_0` …). Doc's script and the 100-cap line
+  fill their `VDoctors` property with it. Its object id is fixed (`0x1000`,
+  `script.QUESTS`), outside the spike's sequential ids, because the lines
+  naming it are packed before the sequence reaches the end. The withdrawal
+  spells, `AddictionRemovalMsg` and `Generic` stay unfilled: FO4's addictions
+  are its own effects, and the message and the generic quest are not
+  converted.
+- **Played:** paid treatment restores health and the 100-cap line clears
+  rads; `sqs VDoctors` shows stages 10 and 30 done.
+
 ### <a id="spike-3-fragments"></a>Dialogue fragments (played 2026-10-05)
 
 `script.Fragments` gives every spike INFO whose FNV INFO has a converted
@@ -612,6 +647,16 @@ script they use. Error kinds fold converted script names to `<script>` and
 keep native names, so a missed Skyrim call shows up by name. Against the
 baseline it exits 1 when more files fail or an error kind grows or is new;
 `--write-baseline` records an improvement.
+
+**Only what changed is compiled.** `<out>/compile_state.json` keeps each
+script's source SHA-1 and result; a run compiles the scripts whose source
+changed plus every script naming one of them, transitively (a script can fail
+through one it uses), and takes the rest from the state. No state, other
+include folders, or `--full` compiles everything. A narrow converter fix
+recompiles tens to hundreds of files; a change to a helper every script
+names (`TES4Polyfill`) is still a full run. Each compiled script's old
+`.pex` is deleted first: before, a script that stopped compiling still
+counted as compiled through the `.pex` an earlier run left.
 
 **First full run (2026-10-05):** 19,552 scripts converted with 0 errors
 (17,697 files); **16,640 compile (94.0%)**. All 1,057 failures are their own

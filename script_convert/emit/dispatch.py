@@ -25,6 +25,7 @@ from script_convert.command_rows import (
     OBJREF_SHARED_FUNCTIONS, ZERO_ARG_REF_FUNCTIONS, command_prefix_row
 )
 from script_convert.emit.commands import emit_row, target_row
+from script_convert.implicit_subject import stage_subject as implicit_stage_subject
 from script_convert.target import self_as_actor
 from script_convert.tes4 import nodes as N
 
@@ -216,6 +217,9 @@ def _bare(conv, call, papyrus_func: str, args: str, needs_self: bool,
     read 0 -> `0 < 1000` was always true, so the gate hammered
     `OblivionStormTamriel.ForceActive()` every 0.1s.
     """
+    stage_subject = implicit_stage_subject(conv.xref, conv._current_event, extends)
+    if needs_self and stage_subject:
+        return f'{stage_subject}.{papyrus_func}({args})'
     if (needs_self and call.name in ACTOR_ONLY_FUNCTIONS
             and call.name not in OBJREF_SHARED_FUNCTIONS):
         if extends == 'TopicInfo':

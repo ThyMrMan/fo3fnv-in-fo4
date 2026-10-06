@@ -746,6 +746,8 @@ FALLOUT4_HELPER_AVS = {
     'Medicine': 0x815, 'MeleeWeapons': 0x816, 'Repair': 0x817, 'Science': 0x818, 'Guns': 0x819,
     'SmallGuns': 0x81A, 'Sneak': 0x81B, 'Speech': 0x81C, 'Survival': 0x81D, 'Unarmed': 0x81E,
 }
+#: FO3/FNV actor value -> Fallout 4's of the same meaning, each checked against vanilla FO4 scripts.
+FALLOUT4_FALLOUT_AV_RENAMES = {'RadiationRads': 'Rads'}
 #: Skyrim skill names the shared helpers use -> the FO3/FNV skill they read on Fallout 4.
 FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair'}
 #: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.

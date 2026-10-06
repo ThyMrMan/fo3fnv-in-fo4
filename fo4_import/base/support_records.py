@@ -19,10 +19,12 @@ def pack_avif(fid: int, edid: str, name: str) -> bytes:
     return pack_fo4_record('AVIF', fid, 0, subs)
 
 
-def pack_script_quest(fid: int, edid: str, vmad: bytes) -> bytes:
-    """A start-game-enabled quest carrying only scripts (a helper quest)."""
+def pack_script_quest(fid: int, edid: str, vmad: bytes, stages: tuple = ()) -> bytes:
+    """A start-game-enabled quest carrying scripts, with `stages` each holding one log entry for its fragment."""
     subs = pack_string_subrecord('EDID', edid) + pack_subrecord('VMAD', vmad)
     subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0x0011, 0, 0.0, 0)) + pack_subrecord('NEXT', b'')
+    for stage in sorted(stages):
+        subs += pack_subrecord('INDX', struct.pack('<HBB', stage, 0, 0)) + pack_subrecord('QSDT', b'\x00')
     return pack_fo4_record('QUST', fid, 0, subs + pack_subrecord('ANAM', struct.pack('<I', 0)))
 
 

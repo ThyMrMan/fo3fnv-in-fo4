@@ -25,6 +25,7 @@ from script_convert import resolve_name as _resolve_name
 from script_convert import assemble as _assemble
 from script_convert import commands as _commands
 from script_convert.context import ScriptContext
+from script_convert.implicit_subject import stage_subject as implicit_stage_subject
 from script_convert.poll_interval import quest_delay_arm, update_interval
 from script_convert.target import av_call, self_as_actor
 from script_convert.emit import dispatch as _dispatch
@@ -2067,7 +2068,7 @@ class ScriptConverter:
                 return 'GetTargetActor()'
             if extends == 'TopicInfo':
                 return '(akSpeakerRef as Actor)'
-        return 'Self'
+        return implicit_stage_subject(self.xref, self._current_event, extends) or 'Self'
 
     # `(Self as Actor)` / `Self as Actor` inside a PlayerAlias script.  Matches
     # the parenthesised and bare forms; a bare `Self` on its own is left alone

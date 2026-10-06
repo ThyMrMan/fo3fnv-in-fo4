@@ -43,10 +43,10 @@ def test_actor_values_resolve_in_any_case_and_by_skyrim_alias():
 def test_fallout4_target_keeps_fallout_skill_names(monkeypatch):
     """Only on Fallout 4, an FO3/FNV skill resolves to the helper plugin's own name."""
     monkeypatch.setenv(target.TARGET_ENV, target.FALLOUT4)
-    assert target.helper_av_name('energyweapons') == 'EnergyWeapons'
-    assert target.helper_av_name('Health') is None
+    assert target.fallout4_av_name('energyweapons') == 'EnergyWeapons'
+    assert target.fallout4_av_name('Health') is None
     monkeypatch.setenv(target.TARGET_ENV, target.SKYRIM)
-    assert target.helper_av_name('energyweapons') is None
+    assert target.fallout4_av_name('energyweapons') is None
 
 
 def test_av_function_reads_helper_values_from_the_helper_plugin():

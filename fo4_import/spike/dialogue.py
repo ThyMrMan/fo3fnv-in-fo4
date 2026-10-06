@@ -171,7 +171,10 @@ class Spike:
     def __init__(self, export_dir: Path):
         """Index the speakers' INFOs by topic and every DIAL by FormID."""
         self.dials = {int(d['FormID'], 16): d for d in parse_export_file(str(export_dir / 'DIAL.txt'))}
-        self.quest_conds = {int(q['FormID'], 16): _conds(q) for q in parse_export_file(str(export_dir / 'QUST.txt'))}
+        quests = parse_export_file(str(export_dir / 'QUST.txt'))
+        self.quest_conds = {int(q['FormID'], 16): _conds(q) for q in quests}
+        self.quest_stages = {q['EditorID']: [_int(q, f'Stage[{i}].Index') for i in range(_int(q, 'StageCount'))]
+                             for q in quests if q.get('EditorID')}
         self.infos = {}
         for rec in parse_export_file(str(export_dir / 'INFO.txt')):
             if _relevant(rec):
@@ -416,17 +419,27 @@ def _vanilla_cell() -> tuple:
     raise SystemExit('QASmoke not found')
 
 
+def _add_converted_quests(w: FO4PluginWriter, spike: Spike, scripts: Path, forms: dict) -> None:
+    """Write each script_spike.QUESTS quest; its stage script joins `spike.fragments.used` for compiling."""
+    for edid in script_spike.QUESTS:
+        fid = forms['Quest'][edid]
+        record, script = script_spike.quest_record(scripts, edid, fid, spike.quest_stages[edid], forms, HELPER_INDEX)
+        w.add_record('QUST', pack_quest(record, fid, (), [], []))
+        spike.fragments.used.append(script)
+
+
 def build(export_dir: Path, out: Path, scripts: Path = None, trace: bool = False) -> Spike:
     """Generate the spike plugin and return the Spike (report and menus).
 
     `scripts`, a folder of Fallout 4 converted scripts, also puts Doc's own
-    script on his stand-in and the lines' fragments on their INFOs (spike 3),
-    their properties filled from Fallout4.esm and the helper plugin. `trace`
+    script on his stand-in, the lines' fragments on their INFOs and the
+    converted quests their scripts name (spike 3), their properties filled
+    from Fallout4.esm, the helper plugin and those quests. `trace`
     adds a debug quest logging the dialogue state; its source is left on
     `spike.trace` for compiling.
     """
     spike = Spike(export_dir)
-    forms = script_spike.spike_forms(HELPER_INDEX) if scripts else {}
+    forms = script_spike.spike_forms(HELPER_INDEX, len(MASTERS)) if scripts else {}
     spike.fragments = script_spike.Fragments(scripts, forms, HELPER_INDEX) if scripts else None
     spike.build_menu('FNVSpike_Menu', spike.menu_topics(), True, spike.main)
     greeting = spike.greeting()
@@ -440,13 +453,15 @@ def build(export_dir: Path, out: Path, scripts: Path = None, trace: bool = False
         fid = spike.ids.take()
         w.add_record('QUST', pack_quest(script_spike.trace_quest(fid, spike.quest), fid, (), [], []))
         spike.trace = script_spike.trace_source(out.name, [(e, f) for f, e, *_ in spike.scenes], spike.actor_ids)
+    if scripts:
+        _add_converted_quests(w, spike, scripts, forms)
     body, flags, block, sub = _vanilla_cell()
     cell_record = pack_fo4_record('CELL', CELL_FO4, flags, body)
     w.add_raw_group('CELL', R.pack_interior_cell(cell_record, CELL_FO4, block, sub, actors))
     qust = R.pack_qust(spike.quest, 'FNVSpike_Conversation', 'FNV Spike: conversations', 90,
                        list(spike.stages.values()), 'Speaker', None)
     w.add_record('QUST', pack_quest(qust, spike.quest, (), [greeting] + spike.topics, spike.scene_records))
-    w.next_object_id = spike.ids.next & 0x00FFFFFF
+    w.next_object_id = max([spike.ids.next & 0x00FFFFFF, *(oid + 1 for oid in script_spike.QUESTS.values())])
     out.parent.mkdir(parents=True, exist_ok=True)
     w.write(str(out))
     return spike

@@ -34,3 +34,19 @@ def test_gate_fails_on_more_failures_or_a_grown_or_new_kind(tmp_path):
     assert CP.gate(dict(base), path) == []
     assert CP.gate(dict(base, compiled=7, kinds={'K': 3, 'New': 1}), path) == [
         'failing files 2 -> 3', '2 -> 3  K', '0 -> 1  New']
+
+
+def test_only_changed_scripts_and_their_users_recompile(tmp_path):
+    """A changed helper pulls in the script naming it, and whoever names that; the rest keep their result."""
+    sources = {'Helper': 'ScriptName Helper', 'Mid': 'ScriptName Mid\nHelper Property H Auto',
+               'Top': 'ScriptName Top\nMid Property M Auto', 'Alone': 'ScriptName Alone'}
+    files = []
+    for name, text in sources.items():
+        (tmp_path / f'{name}.psc').write_text(text, encoding='utf-8')
+        files.append(tmp_path / f'{name}.psc')
+    hashes = CP.source_hashes(files)
+    state = {n: {'sha': sha} for n, sha in hashes.items()}
+    assert CP.needs_compile(files, hashes, state) == set()
+    state['helper']['sha'] = 'old'
+    assert CP.needs_compile(files, hashes, state) == {'helper', 'mid', 'top'}
+    assert CP.needs_compile(files, hashes, {}) == set(hashes)

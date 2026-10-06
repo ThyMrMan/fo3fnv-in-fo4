@@ -11,8 +11,8 @@ See: docs/fork/fo4_spikes.md#spike-3-target
 import os
 
 from script_convert.constants import (FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS,
-                                      FALLOUT4_HELPER_AV_ALIASES, FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_PLUGIN,
-                                      FALLOUT4_MENU_NAMES)
+                                      FALLOUT4_FALLOUT_AV_RENAMES, FALLOUT4_HELPER_AV_ALIASES,
+                                      FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_PLUGIN, FALLOUT4_MENU_NAMES)
 
 SKYRIM, FALLOUT4 = 'skyrim', 'fallout4'
 TARGET_ENV = 'TES4SKYRIM_PAPYRUS_TARGET'
@@ -61,16 +61,19 @@ def fallout4_actor_values() -> dict:
     """
     out = {n.lower(): (n, 'Fallout4.esm', fid) for n, fid in FALLOUT4_ACTOR_VALUE_IDS.items()}
     out.update({n.lower(): (n, FALLOUT4_HELPER_PLUGIN, fid) for n, fid in FALLOUT4_HELPER_AVS.items()})
-    out.update({a.lower(): out[n.lower()] for a, n in FALLOUT4_HELPER_AV_ALIASES.items()})
+    aliases = {**FALLOUT4_HELPER_AV_ALIASES, **FALLOUT4_FALLOUT_AV_RENAMES}
+    out.update({a.lower(): out[n.lower()] for a, n in aliases.items()})
     return out
 
 
-def helper_av_name(name: str) -> 'str | None':
-    """On Fallout 4, the helper plugin's name for actor value `name` (any case); else None."""
+def fallout4_av_name(name: str) -> 'str | None':
+    """On Fallout 4, the name of FO3/FNV actor value `name` (any case) where Skyrim's table would lose it."""
     if not is_fallout4():
         return None
     entry = fallout4_actor_values().get(name.lower())
-    return entry[0] if entry and entry[1] == FALLOUT4_HELPER_PLUGIN else None
+    if entry is None or (entry[1] != FALLOUT4_HELPER_PLUGIN and name.lower() == entry[0].lower()):
+        return None
+    return entry[0]
 
 
 def av_property(av: str) -> str:

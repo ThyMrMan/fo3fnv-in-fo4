@@ -20,6 +20,7 @@ See: docs/fork/fo4_spikes.md#spike-3-gate
 import argparse
 import collections
 import concurrent.futures
+import hashlib
 import json
 import os
 import re
@@ -37,6 +38,9 @@ from fo4_import.base.papyrus import compile_folder, header_dirs
 _FO4_LINE = re.compile(r'[\\/](\w+)\.psc\(\d+,\d+\): (.+)')
 #: Converted script names, folded so one missed construct is one error kind.
 _CONVERTED_NAME = re.compile(r'\b(?:falloutnv|fallout3|tes4)_\w+', re.I)
+_WORD = re.compile(r'\w+')
+#: Per-script results of the last Fallout 4 run, in --out, so the next run compiles only what changed.
+_STATE_FILE = 'compile_state.json'
 
 
 def find_compiler():
@@ -128,14 +132,39 @@ def _fo4_chunks(files: list, out_dir: Path, workers: int) -> list:
     return chunks
 
 
-def compile_fallout4(args) -> tuple:
-    """(compiled names, {file: [own error messages]}, source names) with FO4's compiler."""
-    src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
-    headers = args.headers or header_dirs()
-    files = sorted(src_dir.glob('*.psc'))
-    chunks = _fo4_chunks(files, out_dir, args.workers)
+def source_hashes(files: list) -> dict:
+    """{lower-case script name: SHA-1 of its source}."""
+    return {f.stem.lower(): hashlib.sha1(f.read_bytes()).hexdigest() for f in files}
+
+
+def needs_compile(files: list, hashes: dict, state: dict) -> set:
+    """Lower-case names whose source changed since `state`, plus every script naming one, transitively."""
+    todo = {n for n, sha in hashes.items() if state.get(n, {}).get('sha') != sha}
+    users = collections.defaultdict(set)
+    for f in files:
+        for word in set(_WORD.findall(f.read_text(encoding='utf-8', errors='replace').lower())) & hashes.keys():
+            users[word].add(f.stem.lower())
+    queue = list(todo)
+    while queue:
+        for user in users[queue.pop()] - todo:
+            todo.add(user)
+            queue.append(user)
+    return todo
+
+
+def _load_state(out_dir: Path, imports: str) -> dict:
+    """The last run's per-script results, {} when absent or made against other headers."""
+    path = out_dir / _STATE_FILE
+    state = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    return state.get('scripts', {}) if state.get('imports') == imports else {}
+
+
+def _compile_chunks(files: list, out_dir: Path, imports: str, workers: int) -> dict:
+    """{script: [error messages]} from compiling `files` in parallel chunk folders."""
+    if not files:
+        return {}
+    chunks = _fo4_chunks(files, out_dir, workers)
     print(f'Compiling {len(files)} files with FO4\'s compiler in {len(chunks)} batches...')
-    imports = f'{headers};{src_dir}'
     own = collections.defaultdict(list)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(chunks)) as ex:
         for text in ex.map(lambda c: compile_folder(c, out_dir, imports), chunks):
@@ -143,8 +172,33 @@ def compile_fallout4(args) -> tuple:
                 if m.group(2) not in own[m.group(1)]:
                     own[m.group(1)].append(m.group(2))
     shutil.rmtree(out_dir / '_chunks')
-    compiled = {p.stem.lower() for p in out_dir.glob('*.pex')}
-    return compiled, dict(own), [f.stem for f in files]
+    return {name.lower(): messages for name, messages in own.items()}
+
+
+def compile_fallout4(args) -> tuple:
+    """(compiled names, {file: [own error messages]}, source names) with FO4's compiler.
+
+    Only scripts whose source changed since the last run, and the scripts
+    naming them, are compiled; the rest keep their saved result. `--full`
+    compiles everything. A script's old .pex is deleted first, so a script
+    that stops compiling cannot pass on a stale one.
+    """
+    src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
+    imports = f'{args.headers or header_dirs()};{src_dir}'
+    files = sorted(src_dir.glob('*.psc'))
+    hashes = source_hashes(files)
+    state = {} if args.full else _load_state(out_dir, imports)
+    todo = needs_compile(files, hashes, state)
+    print(f'{len(todo)} of {len(files)} scripts changed or use one that did')
+    for name in todo:
+        (out_dir / f'{name}.pex').unlink(missing_ok=True)
+    own = _compile_chunks([f for f in files if f.stem.lower() in todo], out_dir, imports, args.workers)
+    pex = {p.stem.lower() for p in out_dir.glob('*.pex')}
+    scripts = {n: state[n] if n not in todo else {'sha': hashes[n], 'ok': n in pex, 'own': own.get(n, [])}
+               for n in hashes}
+    (out_dir / _STATE_FILE).write_text(json.dumps({'imports': imports, 'scripts': scripts}), encoding='utf-8')
+    compiled = {n for n, s in scripts.items() if s['ok']}
+    return compiled, {n: s['own'] for n, s in scripts.items() if s['own']}, [f.stem for f in files]
 
 
 def fo4_summary(compiled: set, own: dict, names: list) -> dict:
@@ -224,6 +278,8 @@ def main():
     parser.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 4) - 1))
     parser.add_argument('--baseline', help='Fallout 4: fail when worse than this baseline JSON')
     parser.add_argument('--write-baseline', help='Fallout 4: record this run as the baseline JSON')
+    parser.add_argument('--full', action='store_true',
+                        help='Fallout 4: compile every script, not only those changed since the last run')
     args = parser.parse_args()
     Path(args.out).mkdir(parents=True, exist_ok=True)
     sys.exit(report_fallout4(args) if args.game == 'fallout4' else report_skyrim(args))

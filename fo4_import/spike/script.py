@@ -17,13 +17,17 @@ from pathlib import Path
 
 from fo4_import.base.papyrus import compile_folder, header_dirs
 from fo4_import.base.support_records import pack_script_quest
-from fo4_import.base.vmad import info_fragments, object_scripts
+from fo4_import.base.vmad import info_fragments, object_scripts, quest_fragments
 from fo4_import.helpers_plugin import actor_value_form, helper_forms
 from script_convert.target import AV_PROPERTY_PREFIX
 from tes5_import.base.text_reader import parse_export_file
 
 DOC_SCRIPT = 'FALLOUTNV_GSDocMitchellScript'
 FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
+QUEST_PREFIX = 'FALLOUTNV_QF_'
+#: FNV quests the spike converts -> their object id, outside the spike's sequential ids so no line moves.
+QUESTS = {'VDoctors': 0x1000}
+_STAGE_FRAGMENT = re.compile(r'^Function (Fragment_Stage_(\d+)_Item_(\d+))\(', re.I | re.M)
 #: Papyrus property type -> the Fallout4.esm dump whose same-named records fill it.
 FORM_DUMPS = {'MiscObject': 'MISC', 'Potion': 'ALCH'}
 FO4_DUMP = Path(__file__).resolve().parents[2] / 'references' / 'Fallout4.esm'
@@ -64,9 +68,19 @@ def fill(declared: list, forms: dict, helper_index: int) -> dict:
     return out
 
 
-def spike_forms(helper_index: int) -> dict:
-    """fill()'s `forms`: helper quests and globals, Fallout4.esm records."""
-    return {**fo4_forms(), **helper_forms(helper_index)}
+def spike_forms(helper_index: int, own_index: int) -> dict:
+    """fill()'s `forms`: helper quests, globals, FO4 records, QUESTS."""
+    quests = {'Quest': {edid: own_index << 24 | oid for edid, oid in QUESTS.items()}}
+    return {**fo4_forms(), **helper_forms(helper_index), **quests}
+
+
+def quest_record(scripts_dir: Path, edid: str, fid: int, stages: list, forms: dict, helper_index: int) -> tuple:
+    """(QUST record, stage script name): FNV quest `edid` with its stages and its converted stage fragments."""
+    script = f'{QUEST_PREFIX}{edid}'
+    psc = (scripts_dir / f'{script}.psc').read_text(encoding='utf-8')
+    fragments = [(int(stage), int(item), name) for name, stage, item in _STAGE_FRAGMENT.findall(psc)]
+    vmad = quest_fragments(script, fragments, fill(declared_properties(psc), forms, helper_index))
+    return pack_script_quest(fid, edid, vmad, stages), script
 
 
 class Fragments:
