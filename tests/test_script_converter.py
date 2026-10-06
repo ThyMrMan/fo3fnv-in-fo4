@@ -58,7 +58,7 @@ from script_convert.objective_completion import (
 )
 from script_convert.pipeline import (
     sanitize_name,
-    _pack_wstring,
+    pack_wstring,
     build_vmad_quest_fragments,
     build_vmad_info_fragment,
     convert_all_scripts,
@@ -1094,11 +1094,11 @@ class TestConvertFragment:
 
 class TestVMADBuilders:
     def test_pack_wstring(self):
-        result = _pack_wstring('Hello')
+        result = pack_wstring('Hello')
         assert result == struct.pack('<H', 5) + b'Hello'
 
     def test_pack_wstring_empty(self):
-        result = _pack_wstring('')
+        result = pack_wstring('')
         assert result == struct.pack('<H', 0)
 
     def test_vmad_quest_fragments_header(self):

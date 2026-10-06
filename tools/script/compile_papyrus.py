@@ -30,10 +30,9 @@ from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
-from core.subprocess_flags import POPEN_FLAGS, windows_cmd
+from core.subprocess_flags import windows_cmd
+from fo4_import.base.papyrus import compile_folder, header_dirs
 
-FO4_COMPILER = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Papyrus Compiler\PapyrusCompiler.exe')
-FO4_HEADERS = _PROJECT_ROOT / 'references' / 'fo4_scripts'
 #: One FO4 compiler diagnostic: `<path>\<Script>.psc(line,col): message`.
 _FO4_LINE = re.compile(r'[\\/](\w+)\.psc\(\d+,\d+\): (.+)')
 #: Converted script names, folded so one missed construct is one error kind.
@@ -117,14 +116,6 @@ def fo4_key(message: str) -> str:
     return re.sub(r'\d+', 'N', _CONVERTED_NAME.sub('<script>', message))
 
 
-def _fo4_batch(chunk: Path, out_dir: Path, imports: str) -> str:
-    """Compile every .psc in `chunk` with FO4's compiler; its combined output."""
-    r = subprocess.run([str(FO4_COMPILER), str(chunk), '-all', '-q', f'-i={imports}', f'-o={out_dir}',
-                        '-f=Institute_Papyrus_Flags.flg'],
-                       capture_output=True, text=True, cwd=str(out_dir), **POPEN_FLAGS)
-    return r.stdout + r.stderr
-
-
 def _fo4_chunks(files: list, out_dir: Path, workers: int) -> list:
     """Copy `files` round-robin into `workers` chunk folders under out_dir; the folders."""
     root = out_dir / '_chunks'
@@ -140,14 +131,14 @@ def _fo4_chunks(files: list, out_dir: Path, workers: int) -> list:
 def compile_fallout4(args) -> tuple:
     """(compiled names, {file: [own error messages]}, source names) with FO4's compiler."""
     src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
-    headers = args.headers or f'{FO4_HEADERS / "F4SE"};{FO4_HEADERS / "Base"}'
+    headers = args.headers or header_dirs()
     files = sorted(src_dir.glob('*.psc'))
     chunks = _fo4_chunks(files, out_dir, args.workers)
     print(f'Compiling {len(files)} files with FO4\'s compiler in {len(chunks)} batches...')
     imports = f'{headers};{src_dir}'
     own = collections.defaultdict(list)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(chunks)) as ex:
-        for text in ex.map(lambda c: _fo4_batch(c, out_dir, imports), chunks):
+        for text in ex.map(lambda c: compile_folder(c, out_dir, imports), chunks):
             for m in _FO4_LINE.finditer(text):
                 if m.group(2) not in own[m.group(1)]:
                     own[m.group(1)].append(m.group(2))

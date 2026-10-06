@@ -141,10 +141,18 @@ def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
     return pack_fo4_record('QUST', fid, 0, subs)
 
 
-def pack_achr(fid: int, base: int, pos: tuple, rot: tuple) -> bytes:
-    """A persistent placed actor: base and position/rotation (radians)."""
+def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') -> bytes:
+    """A persistent placed actor: scripts (VMAD), base, position, rotation."""
     data = struct.pack('<6f', *pos, *rot)
-    return pack_fo4_record('ACHR', fid, 0x400, _u32('NAME', base) + pack_subrecord('DATA', data))
+    subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + _u32('NAME', base)
+    return pack_fo4_record('ACHR', fid, 0x400, subs + pack_subrecord('DATA', data))
+
+
+def pack_script_quest(fid: int, edid: str, vmad: bytes) -> bytes:
+    """A start-game-enabled quest carrying only scripts (a helper quest)."""
+    subs = _zstr('EDID', edid) + pack_subrecord('VMAD', vmad)
+    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0x0011, 0, 0.0, 0)) + pack_subrecord('NEXT', b'')
+    return pack_fo4_record('QUST', fid, 0, subs + _u32('ANAM', 0))
 
 
 def pack_interior_cell(cell_record: bytes, cell_fid: int, block: int, sub_block: int,

@@ -730,6 +730,13 @@ FALLOUT4_UNUSED_HELPERS = frozenset({'TES4_DialoguePause', 'TES4_DayClock', 'TES
 FALLOUT4_HELPER_NATIVES = {'RegisterForSingleUpdate(': 'StartTimer(', 'UnregisterForUpdate()': 'CancelTimer()'}
 #: Skyrim menu name -> Fallout 4's (UI.IsMenuOpen comes from F4SE there).
 FALLOUT4_MENU_NAMES = {'Dialogue Menu': 'DialogueMenu', 'Book Menu': 'BookMenu', 'RaceSex Menu': 'LooksMenu'}
+#: Actor value name -> its Fallout 4 FormID; FO4 has no Variable01-10. See: docs/fork/fo4_spikes.md#spike-3-helpers
+FALLOUT4_ACTOR_VALUE_IDS = {
+    'Confidence': 0x2BD, 'Aggression': 0x2BC, 'Morality': 0x2BF, 'Assistance': 0x2C1,
+    'Health': 0x2D4, 'SpeedMult': 0x2DA, 'CarryWeight': 0x2DC, 'DamageResist': 0x2E3, 'Rads': 0x2E1,
+    'Strength': 0x2C2, 'Perception': 0x2C3, 'Endurance': 0x2C4, 'Charisma': 0x2C5, 'Intelligence': 0x2C6,
+    'Agility': 0x2C7, 'Luck': 0x2C8, 'Experience': 0x2C9,
+}
 #: Skyrim actor-value native -> Fallout 4's, which is on ObjectReference and takes an ActorValue form.
 FALLOUT4_AV_NATIVES = {
     'GetActorValue': 'GetValue', 'SetActorValue': 'SetValue', 'ForceActorValue': 'SetValue',

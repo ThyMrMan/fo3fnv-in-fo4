@@ -389,10 +389,15 @@ static scripts for Fallout 4:
   `; fallout4: new`); when the shared block changes, the conversion stops
   with the new hash instead of shipping a stale copy.
 - `TES4Polyfill.AV(name)`: FO4 global functions cannot hold form properties,
-  so the actor value is looked up in `Fallout4.esm`. `Variable01`–`10`
-  (`0x301`–`0x30A`), `Aggression` (`0x2BC`), `Confidence` (`0x2BD`) and the
-  other AI values are engine-made forms, not records in the esm; their ids
-  come from xEdit's `Core/Hardcoded/Fallout4.esp`.
+  so the actor value is looked up in `Fallout4.esm`. `Aggression` (`0x2BC`),
+  `Confidence` (`0x2BD`) and the other AI values are engine-made forms, not
+  records in the esm. **FO4 has no `Variable01`–`10`**: the play-test's
+  `setav variable01 1` answered "item not found", and no vanilla record or
+  script uses them; vanilla scripts make their own actor value instead
+  (`REAssaultRole` `000ABEA0`). The converted plugin has to carry
+  `FNV_Variable01`–`10` as its own AVIF records, as the spike does, and
+  `AV()` has to find them there: open for the corpus, and the helpers' own
+  bookkeeping in `Variable03`–`09` depends on it.
 
 ### <a id="spike-3-trigger"></a>OnTrigger on Fallout 4
 
@@ -440,6 +445,44 @@ is now the one place a row is swapped for its FO4 one; `emit_row`,
 - Singles: `VES01VictorGSMyBodyguard` (a void read as Bool), `VMS03Quest`
   (`AddItem`'s result assigned), `50MGIncendiary` (an Enchantment cast to
   Spell).
+
+### <a id="spike-3-vmad"></a>FO4 VMAD
+
+`fo4_import/base/vmad.py`: `object_scripts`, `info_fragments`,
+`quest_fragments` (stage fragments and alias scripts), and `read_entry`. It
+reuses the shared script entry packer (`script_convert.pipeline.script_entry`,
+`pack_wstring`), since FO4's entries and properties are laid out as Skyrim's.
+Against `Fallout4.esm` (measured 2026-10-05):
+
+| Kind | Re-packed identically |
+|---|---|
+| INFO fragments | 520 of 521 (1 uses a property type the packer does not write) |
+| Quest fragments with form-bound properties | 169 decodable; all 20 sampled identical. 125 more bind properties to quest aliases, which converted scripts do not |
+| Object scripts | 673 of 1,018; 218 more differ only in property order (vanilla sorts by name; the packer writes objects, then values; properties bind by name); 127 use strings, structs or alias-bound objects |
+
+Tests: `tests/test_fo4_vmad.py` (three vanilla records, byte for byte).
+
+### <a id="spike-3-end-to-end"></a>End to end: Doc's script on his stand-in (built, not played)
+
+```bash
+py -3.14 -m fo4_import.spike.dialogue --export export/FalloutNV.esm --out <esp> --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm
+```
+
+`fo4_import/spike/script.py` puts the converted `GSDocMitchellScript` on the
+Doc Weathers stand-in (ACHR VMAD) and compiles it and the FO4 helper set with
+FO4's compiler into `<Data>/Scripts`. Properties filled: `TES4AV_Variable01`
+and `TES4AV_Health` (the spike's actor values: FO4's `Health`, and the
+plugin's own `FNV_Variable01` record, made the way the spike makes FNV
+skills, since FO4 has no `Variable01`), `TES4PlayerControls` (a
+start-game-enabled helper quest carrying `TES4_PlayerControls`). Left unfilled:
+`VCG01`, `VDoctors`, `TES4CombatApproaches`, `TES4ControlsDisabled`,
+`TES4ForceCombatAttackers`, `Sawbones`, `FadeToBlackISFX` (not converted).
+
+What to see: the script binds (no binding errors in the Papyrus log); talking
+to Doc still opens his menu (the script blocks activation and passes it on,
+as FNV's `onActivate: if IsTalking == 0, Activate`); `setav FNV_Variable01 1` on
+him runs his medical sequence: the player's controls off for 8 seconds, then
+back on.
 
 ### <a id="spike-3-names"></a>Script names
 

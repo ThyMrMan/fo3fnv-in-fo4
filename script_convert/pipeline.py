@@ -963,11 +963,11 @@ def build_vmad_quest_fragments(quest_edid: str, stage_fragments: list[tuple[int,
 
     buf += struct.pack('<H', len(scripts))
     for sname, props in scripts:
-        buf += _pack_wstring(sname)
+        buf += pack_wstring(sname)
         buf += struct.pack('<B', 0)   # flags=0
         buf += struct.pack('<H', len(props))
         for pname, fid in props.items():
-            buf += _pack_wstring(pname)
+            buf += pack_wstring(pname)
             buf += struct.pack('<BB', 1, 1)       # type=Object, status=Edited
             buf += struct.pack('<HhI', 0, -1, fid) # unused=0, alias=-1, FormID
 
@@ -977,15 +977,15 @@ def build_vmad_quest_fragments(quest_edid: str, stage_fragments: list[tuple[int,
     #   LenString(U16) FileName
     buf += struct.pack('<b', 2)                  # Extra bind data version = 2
     buf += struct.pack('<H', len(stage_fragments))  # FragmentCount
-    buf += _pack_wstring(script_name if stage_fragments else '')  # FileName
+    buf += pack_wstring(script_name if stage_fragments else '')
     for stage_idx, log_idx in stage_fragments:
         frag_name = f'Fragment_Stage_{stage_idx:04d}_Item_{log_idx}'
         buf += struct.pack('<H', stage_idx)   # Quest Stage (U16)
         buf += struct.pack('<h', 0)           # Unknown (S16)
         buf += struct.pack('<i', log_idx)     # Quest Stage Index = log entry index (S32)
         buf += struct.pack('<b', 1)           # Unknown (S8) — vanilla always 1
-        buf += _pack_wstring(script_name)
-        buf += _pack_wstring(frag_name)
+        buf += pack_wstring(script_name)
+        buf += pack_wstring(frag_name)
 
     # Alias-script array (wbVMADFragmentedQUST: Version, ObjectFormat, Scripts,
     # ScriptFragmentsQuest, **Aliases**) — an S16 count followed by that many
@@ -1011,7 +1011,7 @@ def build_vmad_quest_fragments(quest_edid: str, stage_fragments: list[tuple[int,
         buf += struct.pack('<hh', 5, 2)          # version=5, objectFormat=2
         buf += struct.pack('<h', len(scripts))
         for sname, props in scripts:
-            buf += _script_entry(sname, {k: v for k, v in props.items() if isinstance(v, int)},
+            buf += script_entry(sname, {k: v for k, v in props.items() if isinstance(v, int)},
                                  {k: v for k, v in props.items() if not isinstance(v, int)})
 
     return bytes(buf)
@@ -1162,13 +1162,13 @@ def build_vmad_info_fragment(info_formid: str, property_values: dict = None,
 
     # Attached scripts: 1 script with properties
     buf += struct.pack('<H', 1)       # 1 attached script
-    buf += _pack_wstring(script_name)
+    buf += pack_wstring(script_name)
     buf += struct.pack('<B', 0)       # flags=0
     # Properties
     if property_values:
         buf += struct.pack('<H', len(property_values))
         for pname, fid in property_values.items():
-            buf += _pack_wstring(pname)
+            buf += pack_wstring(pname)
             buf += struct.pack('<BB', 1, 1)       # type=Object, status=Edited
             buf += struct.pack('<HhI', 0, -1, fid) # unused=0, alias=-1, FormID
     else:
@@ -1191,17 +1191,17 @@ def build_vmad_info_fragment(info_formid: str, property_values: dict = None,
     # round runs the End body when the line starts and vice versa.
     buf += struct.pack('<b', 2)        # Extra bind data version = 2
     buf += struct.pack('<B', 0x03)     # bit0=OnBegin, bit1=OnEnd
-    buf += _pack_wstring(script_name)  # FileName
+    buf += pack_wstring(script_name)
 
     # OnBegin entry FIRST (bit0) — reports the line's start and length.
     buf += struct.pack('<B', 1)
-    buf += _pack_wstring(script_name)
-    buf += _pack_wstring('Fragment_1')
+    buf += pack_wstring(script_name)
+    buf += pack_wstring('Fragment_1')
 
     # OnEnd entry (bit1) — the result script, then the line-over hook.
     buf += struct.pack('<B', 1)        # Unknown (always 1 in vanilla Skyrim.esm)
-    buf += _pack_wstring(script_name)  # ScriptName
-    buf += _pack_wstring('Fragment_0') # FragmentName
+    buf += pack_wstring(script_name)
+    buf += pack_wstring('Fragment_0')
 
     return bytes(buf)
 
@@ -1216,10 +1216,10 @@ def build_vmad_package_fragment(script_name: str, value_props: dict = None,
     bit in that order. The default is the one OnEnd fragment.
     """
     buf = build_vmad_object_script(script_name, object_props, value_props)
-    buf += struct.pack('<bB', 2, flags) + _pack_wstring(script_name)
+    buf += struct.pack('<bB', 2, flags) + pack_wstring(script_name)
     for i in range(bin(flags).count('1')):
-        buf += (struct.pack('<B', 1) + _pack_wstring(script_name)
-                + _pack_wstring(f'Fragment_{i}'))
+        buf += (struct.pack('<B', 1) + pack_wstring(script_name)
+                + pack_wstring(f'Fragment_{i}'))
     return buf
 
 
@@ -1243,7 +1243,7 @@ def build_vmad_object_script(script_name: str,
     'float', 'bool' or 'objects' (a list of FormIDs, a Papyrus Form array).
     Returns VMAD binary data (version 5, objectFormat 2).
     """
-    return struct.pack('<HHH', 5, 2, 1) + _script_entry(script_name, object_props, value_props)
+    return struct.pack('<HHH', 5, 2, 1) + script_entry(script_name, object_props, value_props)
 
 
 def append_vmad_object_script(existing: bytes, script_name: str,
@@ -1260,19 +1260,19 @@ def append_vmad_object_script(existing: bytes, script_name: str,
         return build_vmad_object_script(script_name, object_props, value_props)
     version, obj_format, count = struct.unpack_from('<HHH', existing, 0)
     return (struct.pack('<HHH', version, obj_format, count + 1) + existing[6:]
-            + _script_entry(script_name, object_props, value_props))
+            + script_entry(script_name, object_props, value_props))
 
 
-def _script_entry(script_name: str, object_props: dict = None,
+def script_entry(script_name: str, object_props: dict = None,
                   value_props: dict = None) -> bytes:
     """One attached script: its name, flags 0, then its properties (status Edited)."""
     object_props = object_props or {}
     value_props = value_props or {}
-    out = _pack_wstring(script_name) + struct.pack('<BH', 0, len(object_props) + len(value_props))
+    out = pack_wstring(script_name) + struct.pack('<BH', 0, len(object_props) + len(value_props))
     for pname, fid in object_props.items():
-        out += _pack_wstring(pname) + struct.pack('<BBHhI', _VMAD_PROP_OBJECT, 1, 0, -1, fid)
+        out += pack_wstring(pname) + struct.pack('<BBHhI', _VMAD_PROP_OBJECT, 1, 0, -1, fid)
     for pname, (kind, value) in value_props.items():
-        out += _pack_wstring(pname) + _property_value(kind, value)
+        out += pack_wstring(pname) + _property_value(kind, value)
     return out
 
 
@@ -1288,7 +1288,7 @@ def _property_value(kind: str, value) -> bytes:
     return struct.pack('<BBi', _VMAD_PROP_INT, 1, int(value))
 
 
-def _pack_wstring(s: str) -> bytes:
+def pack_wstring(s: str) -> bytes:
     """Pack a VMAD wstring: U16 length + UTF-8 bytes."""
     encoded = s.encode('utf-8')
     return struct.pack('<H', len(encoded)) + encoded

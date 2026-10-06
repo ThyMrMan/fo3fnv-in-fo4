@@ -20,6 +20,7 @@ from pathlib import Path
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest, pack_topic
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from fo4_import.spike import script as script_spike
 from fo4_import.spike import voice
 from tes5_import.base.tes5_reader import walk
 from tes5_import.base.text_reader import parse_export_file
@@ -63,6 +64,7 @@ SAME_IN_FO4 = (0x14, 0x0F)
 AV_RENAMED = {'Rad Level': 'Rads'}
 #: FNV skills: FO4 has none, so each becomes a plugin actor value.
 FNV_SKILLS = range(32, 46)
+FNV_VARIABLES = range(62, 72)
 FO4_AVIF_DUMP = Path(__file__).resolve().parents[2] / 'references' / 'Fallout4.esm' / 'AVIF.txt'
 TOP_LEVEL = 0x02
 #: Conditions that pick the speaker; one naming nobody in the test world is false.
@@ -177,14 +179,18 @@ class Spike:
         return self.stages[key]
 
     def av(self, index: int):
-        """The FO4 actor value for an FNV actor value index: same-named vanilla, a plugin skill, or None."""
+        """The FO4 actor value for an FNV actor value index: same-named vanilla, a plugin skill or variable, or None."""
         name = C.FNV_AV_NAMES[index] if index < len(C.FNV_AV_NAMES) else ''
         fo4 = self.fo4_avs.get(AV_RENAMED.get(name, name.replace(' ', '')))
-        if fo4 is not None or index not in FNV_SKILLS:
+        if fo4 is not None or (index not in FNV_SKILLS and index not in FNV_VARIABLES):
             return fo4
         if index not in self.avs:
             self.avs[index] = (self.ids.take(), 'FNV_' + name.replace(' ', ''), name)
         return self.avs[index][0]
+
+    def av_named(self, name: str):
+        """The FO4 actor value for an FNV actor value name (as `av`), or None."""
+        return self.av(C.FNV_AV_NAMES.index(name)) if name in C.FNV_AV_NAMES else self.fo4_avs.get(name)
 
     def unconvertible(self, cond: dict) -> bool:
         """True when a condition has no FO4 function, actor value or form to become."""
@@ -397,13 +403,22 @@ def _vanilla_cell() -> tuple:
     raise SystemExit('QASmoke not found')
 
 
-def build(export_dir: Path, out: Path) -> Spike:
-    """Generate the spike plugin and return the Spike (report and menus)."""
+def build(export_dir: Path, out: Path, scripts: Path = None) -> Spike:
+    """Generate the spike plugin and return the Spike (report and menus).
+
+    `scripts`, a folder of Fallout 4 converted scripts, also puts Doc's own
+    script on his stand-in (spike 3).
+    """
     spike = Spike(export_dir)
     spike.build_menu('FNVSpike_Menu', spike.menu_topics(), True, spike.main)
     greeting = spike.greeting()
-    actors = b''.join(R.pack_achr(spike.ids.take(), base, pos, rot) for _, _, base, pos, rot in SPEAKERS)
+    actor_ids = [spike.ids.take() for _ in SPEAKERS]
+    doc_vmad, helpers = script_spike.attach(scripts, spike.ids, spike.av_named) if scripts else (b'', [])
+    actors = b''.join(R.pack_achr(fid, base, pos, rot, doc_vmad if label == 'DocMitchell' else b'')
+                      for fid, (label, _, base, pos, rot) in zip(actor_ids, SPEAKERS))
     w = FO4PluginWriter(masters=['Fallout4.esm', 'XDI.esm'], is_esm=False, description='FNV dialogue spike')
+    for fid, record in helpers:
+        w.add_record('QUST', pack_quest(record, fid, (), [], []))
     for fid, edid, name in spike.avs.values():
         w.add_record('AVIF', R.pack_avif(fid, edid, name))
     body, flags, block, sub = _vanilla_cell()
@@ -424,8 +439,13 @@ def main():
     ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
     ap.add_argument('--out', required=True, help='Plugin to write')
     ap.add_argument('--data', help='Also write the voice files (.fuz) under this Data folder')
+    ap.add_argument('--scripts', help="Fallout 4 converted scripts: put Doc's script on his stand-in "
+                                      '(compiled into --data/Scripts)')
     args = ap.parse_args()
-    spike = build(Path(args.export), Path(args.out))
+    scripts = Path(args.scripts) if args.scripts else None
+    spike = build(Path(args.export), Path(args.out), scripts)
+    if scripts and args.data:
+        print(script_spike.compile_into(scripts, Path(args.data)))
     if args.data:
         folders = Path(args.export) / 'sound' / 'voice' / 'falloutnv.esm'
         voices = [(folders / fnv, fo4) for fnv, fo4 in VOICES.values()]

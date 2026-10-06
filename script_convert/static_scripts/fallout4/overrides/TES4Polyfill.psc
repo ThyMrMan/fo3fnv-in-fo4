@@ -1,68 +1,7 @@
 ; Fallout 4 overrides for TES4Polyfill.psc: only the functions whose Fallout 4 body differs.
 ; Each sits under "; fallout4: replaces <Name> <sha1 of the shared block>" or "; fallout4: new".
+; AV(), the actor value lookup, is generated from constants.FALLOUT4_ACTOR_VALUE_IDS.
 ; See docs/fork/fo4_spikes.md#spike-3-helpers
-
-; fallout4: new
-ActorValue Function AV(String asName) Global
-  {The Fallout 4 actor value named asName, for the helpers' actor-value calls; None for one this
-  does not know. Variable01-10 and the AI values are engine-made forms (ids from xEdit's
-  Core/Hardcoded/Fallout4.esp); the rest are Fallout4.esm records.}
-  Int id = 0
-  If asName == "Variable09"
-    id = 0x309
-  ElseIf asName == "Variable07"
-    id = 0x307
-  ElseIf asName == "Variable06"
-    id = 0x306
-  ElseIf asName == "Variable04"
-    id = 0x304
-  ElseIf asName == "Variable05"
-    id = 0x305
-  ElseIf asName == "Variable01"
-    id = 0x301
-  ElseIf asName == "Variable02"
-    id = 0x302
-  ElseIf asName == "Variable03"
-    id = 0x303
-  ElseIf asName == "Variable08"
-    id = 0x308
-  ElseIf asName == "Variable10"
-    id = 0x30A
-  ElseIf asName == "Confidence"
-    id = 0x2BD
-  ElseIf asName == "Aggression"
-    id = 0x2BC
-  ElseIf asName == "Morality"
-    id = 0x2BF
-  ElseIf asName == "Assistance"
-    id = 0x2C1
-  ElseIf asName == "Health"
-    id = 0x2D4
-  ElseIf asName == "SpeedMult"
-    id = 0x2DA
-  ElseIf asName == "CarryWeight"
-    id = 0x2DC
-  ElseIf asName == "Strength"
-    id = 0x2C2
-  ElseIf asName == "Perception"
-    id = 0x2C3
-  ElseIf asName == "Endurance"
-    id = 0x2C4
-  ElseIf asName == "Charisma"
-    id = 0x2C5
-  ElseIf asName == "Intelligence"
-    id = 0x2C6
-  ElseIf asName == "Agility"
-    id = 0x2C7
-  ElseIf asName == "Luck"
-    id = 0x2C8
-  EndIf
-  If id == 0
-    Debug.Trace("TES4Polyfill.AV: no Fallout 4 actor value named " + asName)
-    Return None
-  EndIf
-  Return Game.GetFormFromFile(id, "Fallout4.esm") as ActorValue
-EndFunction
 
 ; fallout4: replaces HasVampireFed af5b2d65dc74ba2be98c146ce8c122f63b07248a
 Bool Function HasVampireFed() Global

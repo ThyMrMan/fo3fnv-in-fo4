@@ -15,8 +15,8 @@ import hashlib
 import os
 import re
 
-from script_convert.constants import (FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS, FALLOUT4_HELPER_NATIVES,
-                                      FALLOUT4_MENU_NAMES, FALLOUT4_UNUSED_HELPERS)
+from script_convert.constants import (FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS,
+                                      FALLOUT4_HELPER_NATIVES, FALLOUT4_MENU_NAMES, FALLOUT4_UNUSED_HELPERS)
 
 OVERRIDES_DIR = os.path.join(os.path.dirname(__file__), 'static_scripts', 'fallout4', 'overrides')
 #: A Skyrim actor-value call and its first argument: a string, a one-argument call, or a name.
@@ -78,6 +78,18 @@ def overrides(script: str) -> list:
     return out
 
 
+def av_function() -> list:
+    """TES4Polyfill.AV(name): the Fallout 4 actor value named `name`, generated from FALLOUT4_ACTOR_VALUE_IDS."""
+    out = ['ActorValue Function AV(String asName) Global',
+           '  {The Fallout 4 actor value named asName; None for one this does not know.}', '  Int id = 0']
+    for i, (name, fid) in enumerate(FALLOUT4_ACTOR_VALUE_IDS.items()):
+        out += [f'  {"If" if i == 0 else "ElseIf"} asName == "{name}"', f'    id = 0x{fid:X}']
+    return out + ['  EndIf', '  If id == 0',
+                  '    Debug.Trace("TES4Polyfill.AV: no Fallout 4 actor value named " + asName)',
+                  '    Return None', '  EndIf',
+                  '  Return Game.GetFormFromFile(id, "Fallout4.esm") as ActorValue', 'EndFunction']
+
+
 def fallout4_helper(script: str, text: str) -> str:
     """A shared helper's source as its Fallout 4 version: the rules, then the overrides."""
     base = text.splitlines()
@@ -96,4 +108,6 @@ def fallout4_helper(script: str, text: str) -> str:
         swaps.append((span, block))
     for span, block in sorted(swaps, reverse=True):
         lines[span[0]:span[1] + 1] = block
+    if script == 'TES4Polyfill':
+        added += av_function() + ['']
     return '\n'.join(lines + [''] + added)
