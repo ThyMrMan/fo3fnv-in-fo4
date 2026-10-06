@@ -576,9 +576,11 @@ def _rebuild_mesh_collision(rb, target_node):
     return 'drop'
 
 
-def repaired_mesh_soup(rb, target_node):
-    """(tris, Skyrim materials) of `rb`'s mesh collision in Skyrim Havok units, winding repaired.
+def repaired_mesh_soup(rb, target_node, materials_of=None):
+    """(tris, materials) of `rb`'s mesh collision in Skyrim Havok units, winding repaired.
 
+    Materials are Skyrim CRCs, or `materials_of(shape, n)`'s n values (one
+    per non-degenerate triangle, in soup order) carried through the repair.
     A bhkRigidBodyT's transform is baked in (the body becomes an identity
     bhkRigidBody; its translation must already be in Skyrim Havok units).
     None when the shape is not a mesh, 'drop' for a sub-viable hull.
@@ -586,7 +588,7 @@ def repaired_mesh_soup(rb, target_node):
     """
     shape = rb.shape
     inner = shape.shape if isinstance(shape, NifFormat.bhkMoppBvTreeShape) else shape
-    soup = _finite_soup(inner)
+    soup = _finite_soup(inner, materials_of)
     if soup is None:
         return None
     tris, materials, groups, authored_normals = soup
@@ -606,15 +608,18 @@ def repaired_mesh_soup(rb, target_node):
     return tris, materials
 
 
-def _finite_soup(inner):
+def _finite_soup(inner, materials_of=None):
     """(tris, materials, groups, authored_normals) of mesh shape `inner` with
     every non-finite triangle removed and the parallel lists cut to match;
     None when it is not a mesh shape or nothing finite is left.  `groups`
-    and `authored_normals` are [] / None when they do not line up with the soup."""
+    and `authored_normals` are [] / None when they do not line up with the soup.
+    `materials_of(inner, n)` replaces the Skyrim materials (see repaired_mesh_soup)."""
     soup = _shape_tri_soup(inner)
     if soup is None:
         return None
     tris, materials = soup
+    if materials_of is not None:
+        materials = materials_of(inner, len(tris))
     groups = shape_tri_groups(inner)
     authored_normals = _shape_tri_normals(inner)
     if authored_normals is not None and len(authored_normals) != len(tris):

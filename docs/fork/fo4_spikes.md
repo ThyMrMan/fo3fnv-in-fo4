@@ -914,6 +914,15 @@ a reversed copy; [winding](../commentary/asset_convert_collision.md#inverted-col
 the same code the Skyrim converter runs. 1,076 triangles flipped. Second
 play: the floors hold.
 
+Materials ride through the repair per triangle (`repaired_mesh_soup`'s
+`materials_of`): each mesh triangle takes its FNV packed sub-shape's
+material (those sit on the data block at 20.2.0.7), mapped straight to FO4.
+The repair's own list is Skyrim CRCs built from `shape.sub_shapes`, empty
+for FNV, so through it all 64 of the house's mesh collisions were stone; now
+they are FNV's (wood 38, stone 10, hollow metal 8, metal 6, glass 5, chain 5,
+cloth 4). The Skyrim converter still has that stone default and reads FNV
+material numbers with Oblivion's meanings (FNV 14 bottlecap → snow).
+
 Doc's house: all 172 meshes with collision convert (165 with one body, 7
 with two), with no Elric crash, in one 17-second build. Clutter (MISC,
 ALCH...) keeps FNV's dynamic body while it is placed as a static.

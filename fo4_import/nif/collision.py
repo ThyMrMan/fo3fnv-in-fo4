@@ -10,6 +10,8 @@ See: docs/fork/fo4_spikes.md#spike-2-collision
 """
 
 import struct
+from bisect import bisect_right
+from itertools import accumulate
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from fo4_import.nif.blocks import NONE
@@ -17,7 +19,6 @@ from fo4_import.nif.file import NifFile
 
 apply_patches()
 from asset_convert.collision.collision import repaired_mesh_soup
-from asset_convert.collision.collision_material import OB_TO_SK_MATERIAL
 
 SCALE = 0.1
 #: Game units per FO4 Havok unit: NiTriStripsData collision geometry is stored in game units.
@@ -51,11 +52,19 @@ def material(fnv: int) -> int:
     return STAIRS.get(base, MATERIALS[base]) if fnv & 64 else MATERIALS[base]
 
 
-def fo4_material(skyrim: int) -> int:
-    """An FO4 material CRC for a Skyrim CRC of an FNV material, or a raw FNV index."""
-    if skyrim < 128:
-        return material(skyrim)
-    return next((MATERIALS[i] for i in range(32) if OB_TO_SK_MATERIAL.get(i) == skyrim), MATERIALS[0])
+def triangle_materials(shape, n: int) -> list:
+    """FO4 material of each of an FNV mesh shape's `n` non-degenerate triangles, in the repair's soup order.
+
+    A packed shape's triangle belongs to the sub-shape (on its data at
+    20.2.0.7) whose vertex range holds its first vertex.
+    """
+    parts = list(shape.data.sub_shapes) if type(shape).__name__ == 'bhkPackedNiTriStripsShape' else []
+    if not parts:
+        return [material(shape.material.material if hasattr(shape, 'material') else 0)] * n
+    ends = list(accumulate(p.num_vertices for p in parts))
+    owners = [min(bisect_right(ends, t.triangle.v_1), len(parts) - 1) for t in shape.data.triangles
+              if len({t.triangle.v_1, t.triangle.v_2, t.triangle.v_3}) == 3]
+    return [material(parts[o].material.material) for o in owners]
 
 
 def havok_filter(f) -> bytes:
@@ -130,8 +139,8 @@ class _Blocks:
     def mesh(self, tris: list, materials: list, filt: bytes) -> int:
         """A repaired triangle soup (FO4 Havok units) as a bhkNiTriStripsShape: one NiTriStripsData per material."""
         groups = {}
-        for tri, sky in zip(tris, materials):
-            groups.setdefault(fo4_material(sky), []).append(tri)
+        for tri, crc in zip(tris, materials):
+            groups.setdefault(crc, []).append(tri)
         strips = []
         for crc, group in groups.items():
             index = {}
@@ -168,7 +177,7 @@ def _body_shape(blocks: _Blocks, body, node) -> 'int | None':
     if type(body).__name__ == 'bhkRigidBodyT':
         t = body.translation
         t.x, t.y, t.z = t.x * SCALE, t.y * SCALE, t.z * SCALE
-    soup = repaired_mesh_soup(body, node)
+    soup = repaired_mesh_soup(body, node, triangle_materials)
     if soup is None or soup == 'drop':
         return None
     return blocks.mesh(*soup, filt)
