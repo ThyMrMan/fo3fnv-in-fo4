@@ -11,6 +11,7 @@ any plan come later, and status goes in [ROADMAP.md](../ROADMAP.md).
 - [Summary](#summary)
 - [What is installed](#installed)
 - [What FO4 gives natively](#native)
+  - [Asset overlap](#asset-overlap)
 - [What FO4 still lacks](#gaps)
 - [What the move throws away](#lost)
 - [Existing FO4 mods for the gaps](#mods)
@@ -145,6 +146,37 @@ Most of these are field translations in `fo4_import`, not runtime work.
   ours; borrow FO4's challenge coloring at most.
 - **Criticals**: see VATS above.
 - **Implants, traits**: plain perks; the menu is LevelUpMenuEx.
+
+### <a id="asset-overlap"></a>Asset overlap: FO4 models in place of converted ones
+
+Measured 2026-10-05: FNV's distinct display names (export) against
+Fallout4.esm's editor IDs (base game only; the dump's display names are
+string ids). Matched by hand, so the counts are approximate.
+
+| Category | FNV | Direct FO4 counterpart | Near (same role, other look) | Notes |
+|---|---|---|---|---|
+| Weapons | 203 names, about 150 real player weapons | ~43 (~30%): 10mm, .44, laser and plasma pistol/rifle, Gatling laser, minigun, Fat Man, missile launcher, flamer, Gauss rifle, alien blaster, hunting rifle, SMG, power fist, Ripper, Shishkebab, super sledge, sledgehammer, machete, switchblade, bat, lead pipe, pool cue, tire iron, rolling pin, boxing gloves, knuckles, nail board, cane, fire-hydrant bat, frag/plasma/pulse grenades and mines, bottlecap mine | ~6–8: combat/riot shotgun, double-barrel for the caravan/single/sawed-off, combat or assault rifle for the service rifle/assault carbine, lever-action (Far Harbor) | FNV-only: 9mm, 12.7mm, .357, varmint, cowboy repeater, trail carbine, brush gun, anti-materiel, sniper rifle, grenade launchers, Laser RCW, rechargers, Plasma Defender, Multiplas, Tesla cannon, most uniques |
+| Creatures | ~33 families | ~19: radscorpion, bloatfly, brahmin, deathclaw, dogs, feral and glowing ghouls, mirelurk and king, mole rat, radroach, eyebot, Mr. Handy/Gutsy, protectron, robobrain (Automatron), sentry bot, turrets, super mutant, behemoth, yao guai, alien; Nightkin as super mutants | — | Missing: gecko, cazador, nightstalker, ants, mantis, giant rat, bighorner, coyote, Securitron, spore carrier, centaur, floater, trog |
+| Consumables | 188 | ~65, ~80 with the "Irradiated" variants that share a model: the chems, Stimpak, RadAway, Rad-X, Stealth Boy, blood packs, Nuka-Cola and Quantum, the pre-war foods, liquors, most creature meats | — | Missing: FNV's desert plants and its own creatures' meat |
+| Armor, clothing | 356 | ~30–40 (~10%): combat, leather and metal armor and helmets, T-45d and T-51b, vault jumpsuits, radiation suit (hazmat), gas mask, glasses, tuxedo and hat, baseball cap, hard hat, Pip-Boy | ~30: pre-war outfits, lab coats, hats, merc and wastelander outfits | None for faction gear (NCR, Legion, Khans, Boomers, Powder Gang, Kings, Remnants). FO4 armor is pieces worn over clothing, FNV's whole suits, so a swap changes the item's structure |
+| Architecture, landscape | — | Low: FO4's ruin and vault kits suit FO3's DC more than the Mojave | — | Adobe, desert rock and the Strip are FNV's own |
+| Textures alone | — | None: FO4 textures belong to FO4 meshes and BGSM materials | — | — |
+
+**Plan: a substitution table**, FNV form → the FO4 vanilla asset it uses,
+with FNV's stats kept and FO4's model (and, for guns, animations) taken.
+FO4 assets are referenced by path, never redistributed.
+
+- **Weapons first**: an FO4 gun mesh brings its first- and third-person
+  animations, reloads and OMOD attach points, the hardest assets to convert;
+  FNV's three mod slots map onto that gun's OMODs.
+- **Creatures and power armor next**: skeletons and behaviors come free.
+- **Consumables and clutter**: a cheap win but optional; converting them is
+  easy anyway.
+- **Not** landscape, architecture, faction gear, faces or uniques.
+- It shrinks the conversion, it does not remove it: about 60% of the weapons
+  and most of the world are FNV-only.
+- FO4's 10mm or laser rifle does not look like FNV's: make it a per-category
+  choice (FO4 look or FNV look), not fixed.
 
 ## <a id="gaps"></a>What FO4 still lacks
 
