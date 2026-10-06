@@ -80,6 +80,10 @@ WING_FLAGS, EFFECT_ENV_MAP = (0xA0000000, 0x40000000), 0x80
 SEEN_ALPHA, SOLID_ALPHA, TRANSLUCENT_SHARE = 8, 247, 0.5
 #: The alpha test of a cut-out made from a blend: vanilla's most common threshold, test on, blend off.
 CUTOUT_REF, ALPHA_TEST_BIT = 128, 0x200
+#: The blend (src alpha, inverse src alpha) FNV gives an unlit shape fading by vertex alpha without an alpha property.
+VERTEX_ALPHA_BLEND = (0x10ED, 0)
+#: Barycentric points sampled per triangle when judging its texels: corners, edge midpoints, centre.
+TRIANGLE_SAMPLES = np.array([(1, 0, 0), (0, 1, 0), (0, 0, 1), (.5, .5, 0), (0, .5, .5), (.5, 0, .5), (1 / 3,) * 3])
 #: Lighting shader flags1 of a decal (Decal, Dynamic_Decal), as vanilla's blended decals carry them.
 DECAL_FLAGS = 0x0C000000
 #: The most common value of every field over Fallout4.esm's 6,616 BGSMs, textures and root material aside.
@@ -231,7 +235,8 @@ class ShapeMaterial:
     kind 'lit' is a BGSM, 'effect' a BGEM, 'unlit' an effect shader with no
     material file (path ''; data holds its texture and vertex alpha). An
     effect's `shader` is its NIF shader's values and flags (vanilla beaker
-    glass when None); `flags1` is added to a lit shader's flags1.
+    glass when None); `flags1` is added to a lit shader's flags1; `split` is
+    (translucent material, texture) for a cut-out's see-through triangles.
     """
     kind: str
     path: str
@@ -241,6 +246,7 @@ class ShapeMaterial:
     spec: 'tuple | None'
     shader: 'tuple | None' = None
     flags1: int = 0
+    split: 'tuple | None' = None
 
 
 def _alpha_fields_of(flags: int, threshold: int) -> dict:
@@ -259,12 +265,17 @@ def _alpha_part(alpha) -> 'tuple | None':
     return (alpha.flags, alpha.threshold) if alpha is not None else None
 
 
-def _unlit(shader, alpha, two_sided: bool) -> ShapeMaterial:
-    """An FNV BSShaderNoLightingProperty shape: its texture, vertex alpha, blend and sidedness."""
+def _unlit(shader, alpha, two_sided: bool, fades: bool) -> ShapeMaterial:
+    """An FNV BSShaderNoLightingProperty shape: its texture, vertex alpha, blend and sidedness.
+
+    One that fades by vertex alpha (`fades`: some vertex alpha below 1, sf_vertex_alpha) blends with no
+    NiAlphaProperty, as FNV's baked soft shadows do.
+    """
     fnv = shader.file_name.decode('cp1252')
-    data = {'texture': fo4_texture(fnv), 'vertex_alpha': bool(shader.shader_flags.sf_vertex_alpha),
-            'two_sided': two_sided}
-    return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], _alpha_part(alpha), None)
+    vertex_alpha = bool(shader.shader_flags.sf_vertex_alpha)
+    data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided}
+    part = _alpha_part(alpha) or (VERTEX_ALPHA_BLEND if vertex_alpha and fades else None)
+    return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], part, None)
 
 
 def _effect(fnv: list, alpha) -> ShapeMaterial:
@@ -278,14 +289,36 @@ def _effect(fnv: list, alpha) -> ShapeMaterial:
 
 
 @functools.cache
-def translucent(texture: Path) -> bool:
-    """True when at least TRANSLUCENT_SHARE of a texture's seen texels are partly transparent."""
+def texture_alpha(texture: Path) -> 'np.ndarray | None':
+    """A texture's alpha channel, read once per run; None when it cannot be read."""
     try:
-        alpha = np.asarray(Image.open(texture).convert('RGBA'))[:, :, 3]
+        return np.asarray(Image.open(texture).convert('RGBA'))[:, :, 3]
     except (OSError, ValueError):
-        return False
+        return None
+
+
+def _mostly_partial(alpha: np.ndarray, axis=None) -> np.ndarray:
+    """Whether most seen alpha values (along `axis`) are partly transparent."""
     seen = alpha >= SEEN_ALPHA
-    return bool(((alpha < SOLID_ALPHA) & seen).sum() >= TRANSLUCENT_SHARE * max(int(seen.sum()), 1))
+    partial = (seen & (alpha < SOLID_ALPHA)).sum(axis)
+    return (partial >= TRANSLUCENT_SHARE * np.maximum(seen.sum(axis), 1)) & seen.any(axis)
+
+
+def translucent(texture: Path) -> bool:
+    """True when most of a texture's seen texels are partly transparent."""
+    alpha = texture_alpha(texture)
+    return alpha is not None and bool(_mostly_partial(alpha))
+
+
+def translucent_triangles(texture: Path, uv: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    """Per triangle, whether its texels (TRIANGLE_SAMPLES) are mostly partly transparent."""
+    alpha = texture_alpha(texture)
+    if alpha is None or not len(tris):
+        return np.zeros(len(tris), bool)
+    h, w = alpha.shape
+    points = np.einsum('sk,tkd->tsd', TRIANGLE_SAMPLES, uv[tris])
+    texels = alpha[(points[..., 1] * h).astype(int) % h, (points[..., 0] * w).astype(int) % w]
+    return _mostly_partial(texels, axis=1)
 
 
 def _translucent(fnv: list, alpha, two_sided: bool) -> ShapeMaterial:
@@ -307,31 +340,8 @@ def _lit_alpha(alpha, decal: bool) -> 'tuple | None':
     return (alpha.flags & ~1) | ALPHA_TEST_BIT, threshold
 
 
-def _material(geom, texture_root=None) -> ShapeMaterial:
-    """The FO4 material of an FNV shape.
-
-    Unlit shapes (BSShaderNoLightingProperty) get an inline effect shader;
-    alpha-blended environment-mapped ones (FNV glass) vanilla's beaker BGEM;
-    blended ones with a mostly see-through texture vanilla's insect-wing BGEM;
-    the rest a BGSM (blended decals as FO4 decals, other blends as cut-outs:
-    FO4 draws no blended lit surface but a decal). A NiStencilProperty makes it two-sided.
-
-    See: docs/fork/fo4_spikes.md#spike-2-transparency
-    """
-    props = {type(p).__name__: p for p in geom.get_properties()}
-    alpha, two_sided = props.get('NiAlphaProperty'), 'NiStencilProperty' in props
-    if 'BSShaderNoLightingProperty' in props:
-        return _unlit(props['BSShaderNoLightingProperty'], alpha, two_sided)
-    shader = props.get('BSShaderPPLightingProperty')
-    fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else ['']
-    blended = alpha is not None and alpha.flags & 1 and shader
-    if blended and shader.shader_flags.sf_environment_mapping:
-        return _effect(fnv, alpha)
-    flags = shader.shader_flags if shader else None
-    decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass))
-    if blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture_root and fnv[0] and translucent(
-            Path(texture_root) / fnv[0].replace('\\', '/').lower()):
-        return _translucent(fnv, alpha, two_sided)
+def _bgsm(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, texture_root) -> ShapeMaterial:
+    """A lit FNV shape's BGSM: its textures, spec map, sidedness and alpha as FO4 draws it (_lit_alpha)."""
     mat = dict(MATERIAL, root_material='', two_sided=two_sided, decal=decal,
                textures={**dict.fromkeys(BGSM_TEXTURES, '')})
     mat['textures']['diffuse'] = fo4_texture(fnv[0]).replace('\\', '/')
@@ -347,16 +357,56 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
                          part, spec, flags1=DECAL_FLAGS if decal else 0)
 
 
+def _fades(geom) -> bool:
+    """Whether an FNV shape has a vertex alpha below 1."""
+    return bool(geom.data.has_vertex_colors and any(c.a < 1 for c in geom.data.vertex_colors))
+
+
+def _material(geom, texture_root=None) -> ShapeMaterial:
+    """The FO4 material of an FNV shape.
+
+    Unlit shapes (BSShaderNoLightingProperty) get an inline effect shader;
+    alpha-blended environment-mapped ones (FNV glass) vanilla's beaker BGEM;
+    blended ones with a mostly see-through texture vanilla's insect-wing BGEM;
+    the rest a BGSM (blended decals as FO4 decals, other blends as cut-outs,
+    whose see-through triangles split off: `split`). FO4 draws no blended lit
+    surface but a decal. A NiStencilProperty makes it two-sided.
+
+    See: docs/fork/fo4_spikes.md#spike-2-transparency
+    """
+    props = {type(p).__name__: p for p in geom.get_properties()}
+    alpha, two_sided = props.get('NiAlphaProperty'), 'NiStencilProperty' in props
+    if 'BSShaderNoLightingProperty' in props:
+        return _unlit(props['BSShaderNoLightingProperty'], alpha, two_sided, _fades(geom))
+    shader = props.get('BSShaderPPLightingProperty')
+    fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else ['']
+    blended = alpha is not None and alpha.flags & 1 and shader
+    if blended and shader.shader_flags.sf_environment_mapping:
+        return _effect(fnv, alpha)
+    flags = shader.shader_flags if shader else None
+    decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass))
+    texture = Path(texture_root) / fnv[0].replace('\\', '/').lower() if texture_root and fnv[0] else None
+    cut_from_blend = bool(blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
+    if cut_from_blend and translucent(texture):
+        return _translucent(fnv, alpha, two_sided)
+    mat = _bgsm(fnv, props, alpha, two_sided, decal, texture_root)
+    if cut_from_blend:
+        mat.split = (_translucent(fnv, alpha, two_sided), texture)
+    return mat
+
+
 def _visible_shapes(root) -> list:
     """The FNV shapes that render: triangle geometry, not hidden, not an editor marker."""
     return [g for g in root.tree() if isinstance(g, NifFormat.NiTriBasedGeom) and not g.flags & 1
             and not g.name.lower().startswith(b'editormarker') and g.data is not None]
 
 
-def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> int:
-    """Append one shape's blocks to `nif`: shape, its shader (and texture set), its alpha; the shape's index."""
-    pos, uv, nrm, colors, tris = _geometry(geom, root)
-    mat = _material(geom, texture_root)
+def _emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeMaterial, out: Converted) -> int:
+    """Append one FO4 shape (`tris` of `geometry`, its used vertices only) with `mat`'s blocks; its index."""
+    pos, uv, nrm, colors, _ = geometry
+    used, local = np.unique(tris, return_inverse=True)
+    pos, uv, nrm = pos[used], uv[used], nrm[used]
+    colors, tris = (colors[used] if colors is not None else None), local.reshape(-1, 3)
     if mat.kind != 'unlit':
         (out.effects if mat.kind == 'effect' else out.materials)[mat.path] = mat.data
     out.textures |= set(mat.textures)
@@ -365,7 +415,7 @@ def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> int
     index = len(nif.blocks)
     after_shader = index + (3 if mat.kind == 'lit' else 2)
     center = (pos.min(axis=0) + pos.max(axis=0)) / 2
-    shape = {'name': nif.string(geom.name.decode('cp1252')), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
+    shape = {'name': nif.string(name), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
              'translation': (0.0, 0.0, 0.0), 'rotation': IDENTITY, 'scale': 1.0, 'collision': NONE,
              'bound': (*map(float, center), float(np.linalg.norm(pos - center, axis=1).max())),
              'skin': NONE, 'shader': index + 1, 'alpha_property': after_shader if mat.alpha else NONE,
@@ -386,6 +436,20 @@ def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> int
         nif.blocks.append(('NiAlphaProperty', {'name': NONE, 'extra': [], 'controller': NONE,
                                                'alpha_flags': mat.alpha[0], 'threshold': mat.alpha[1]}))
     return index
+
+
+def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> list:
+    """Append one FNV shape as FO4 shapes: one, or a cut-out plus its see-through triangles; their indices."""
+    geometry = _geometry(geom, root)
+    tris, mat, name = geometry[4], _material(geom, texture_root), geom.name.decode('cp1252')
+    if mat.split:
+        see_through = translucent_triangles(mat.split[1], geometry[1], tris)
+        if see_through.all():
+            mat = mat.split[0]
+        elif see_through.any():
+            return [_emit(nif, name, geometry, tris[~see_through], mat, out),
+                    _emit(nif, name, geometry, tris[see_through], mat.split[0], out)]
+    return [_emit(nif, name, geometry, tris, mat, out)]
 
 
 def _effect_shader(nif: NifFile, mat: ShapeMaterial) -> dict:
@@ -441,7 +505,7 @@ def convert(path: str, texture_root=None) -> Converted:
     node = {'name': nif.string(root.name.decode('cp1252')), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
             'translation': (0.0, 0.0, 0.0), 'rotation': IDENTITY, 'scale': 1.0, 'collision': NONE, 'children': []}
     nif.blocks.append(('NiNode', node))
-    node['children'] = [_shape_blocks(nif, g, root, out, texture_root) for g in _visible_shapes(root)]
+    node['children'] = [i for g in _visible_shapes(root) for i in _shape_blocks(nif, g, root, out, texture_root)]
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
     if bsx:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))

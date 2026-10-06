@@ -958,7 +958,21 @@ cloth at 81%), the middle mostly FNV hair and graffiti.
 - a texture at least 50% partly transparent: vanilla BloatflyWing's BGEM
   (lit, blended, no falloff) and its mesh shader values;
 - otherwise a cut-out: alpha test at FNV's threshold when it had one, else
-  vanilla's commonest 128, blend off (Doc's fan texture is 240-255).
+  vanilla's commonest 128, blend off (Doc's fan texture is 240-255). The
+  cut-out's triangles whose texels are mostly partly transparent (7 samples
+  each, the same rule) split into a second shape with the insect-wing BGEM:
+  Doc's fan mount bakes a soft shadow ring (black, alpha 8-184) into the
+  same texture, which as a cut-out drew as a hard black ring (36 of its 774
+  triangles split).
+
+FNV's baked soft shadows also come as unlit planes: `Gurney01:2` is an
+untextured BSShaderNoLightingProperty decal with black vertex colours, alpha
+0 to 0.6, flagged `sf_vertex_alpha`, and no NiAlphaProperty; FNV blends it,
+and with no alpha property our effect shader drew it as a black quad. An
+unlit shape flagged for vertex alpha with some vertex alpha below 1 and no
+alpha property now blends (src alpha, inverse src alpha). Of FNV's 197
+unlit vertex-alpha shapes without an alpha property, 119 are editor markers
+(already dropped); 61 have vertex alpha below 1 (shadow planes, smoke, fog).
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 
