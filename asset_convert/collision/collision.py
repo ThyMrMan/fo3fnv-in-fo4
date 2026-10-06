@@ -563,11 +563,32 @@ def _rebuild_mesh_collision(rb, target_node):
     packed-shape fallback crashes Skyrim on load.
     See: docs/commentary/asset_convert_nif.md#bhkpackednitristripsshape-reaching-output-2-gb
     """
+    soup = repaired_mesh_soup(rb, target_node)
+    if soup is None or soup == 'drop':
+        return False if soup is None else soup
+    tris, materials = soup
+    mopp = build_cms_collision(tris, materials, NifFormat)
+    if mopp is not None:
+        mopp.shape.target = target_node
+        rb.shape = mopp
+        return True
+    _DEGENERATE_HULLS_DROPPED[0] += 1
+    return 'drop'
+
+
+def repaired_mesh_soup(rb, target_node):
+    """(tris, Skyrim materials) of `rb`'s mesh collision in Skyrim Havok units, winding repaired.
+
+    A bhkRigidBodyT's transform is baked in (the body becomes an identity
+    bhkRigidBody; its translation must already be in Skyrim Havok units).
+    None when the shape is not a mesh, 'drop' for a sub-viable hull.
+    See: docs/commentary/asset_convert_collision.md#inverted-collision-winding-i-fall
+    """
     shape = rb.shape
     inner = shape.shape if isinstance(shape, NifFormat.bhkMoppBvTreeShape) else shape
     soup = _finite_soup(inner)
     if soup is None:
-        return False
+        return None
     tris, materials, groups, authored_normals = soup
     lo = [min(v[i] for t in tris for v in t) for i in range(3)]
     hi = [max(v[i] for t in tris for v in t) for i in range(3)]
@@ -582,13 +603,7 @@ def _rebuild_mesh_collision(rb, target_node):
         tris, materials = two_sided_floors(tris, materials, visual)
     if n_flipped:
         INVERTED_FLOOR_FLIPS[0] += n_flipped
-    mopp = build_cms_collision(tris, materials, NifFormat)
-    if mopp is not None:
-        mopp.shape.target = target_node
-        rb.shape = mopp
-        return True
-    _DEGENERATE_HULLS_DROPPED[0] += 1
-    return 'drop'
+    return tris, materials
 
 
 def _finite_soup(inner):

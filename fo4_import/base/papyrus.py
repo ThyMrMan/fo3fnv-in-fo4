@@ -10,8 +10,9 @@ import subprocess
 from pathlib import Path
 
 from core.subprocess_flags import POPEN_FLAGS
+from fo4_import.base.install import FALLOUT4_DIR
 
-FO4_COMPILER = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Papyrus Compiler\PapyrusCompiler.exe')
+FO4_COMPILER = FALLOUT4_DIR / 'Papyrus Compiler' / 'PapyrusCompiler.exe'
 FO4_HEADERS = Path(__file__).resolve().parents[2] / 'references' / 'fo4_scripts'
 
 

@@ -21,6 +21,7 @@ from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import file as nif_file
 from asset_convert.texture.dds_codec import write_normal_dds
 from fo4_import.nif.convert_static import PREFIX, convert, fo4_texture, spec_image
+from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
 from tes5_import.base.text_reader import parse_export_file
@@ -76,6 +77,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, edids: list) -> list:
         made.append((edid, model))
         fid += 2
     w.add_raw_group('CELL', R.pack_interior_cells([(vanilla_cell()[0], CELL_FO4, refs, b'')]))
+    finish([data_dir / 'Meshes' / model for _, model in made])
     w.next_object_id = fid & 0xFFFFFF
     out.parent.mkdir(parents=True, exist_ok=True)
     w.write(str(out))

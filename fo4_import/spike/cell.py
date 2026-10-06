@@ -5,8 +5,9 @@
 The cell keeps FNV's lighting, every placed object with a mesh (a static for
 now, whatever its FNV type), its lights and its doors. A door that led out
 of the cell leads to a stand-in door in QASmoke, and back. Engine markers
-FO4 shares keep their base. Collision, actors, sounds and what objects do
-(containers, furniture, items) are later steps.
+FO4 shares keep their base. Meshes get FNV's collision through Elric.
+Actors, sounds and what objects do (containers, furniture, items) are
+later steps.
 
 See: docs/fork/fo4_spikes.md#spike-2-cell
 """
@@ -18,6 +19,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.writer import FO4PluginWriter
+from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
 from fo4_import.spike.statics import write_assets
@@ -210,6 +212,8 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str) -> collec
                                                               for k in (b'LTMP', b'XCIM')))
     builder.writer.add_raw_group('CELL', R.pack_interior_cells([(record, cell_fid, persistent, temporary),
                                                                 (qa_record, CELL_FO4, qa_refs, b'')]))
+    failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
+    builder.counts['meshes without collision (Elric failed)'] = len(failed)
     builder.writer.next_object_id = builder.next_id & 0xFFFFFF
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))

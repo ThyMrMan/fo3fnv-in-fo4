@@ -864,6 +864,60 @@ have:
   face). The 7 without one (fan blades, stains, a screen, a gourd) stay lit
   BGSMs with their blend. A `NiStencilProperty` also makes a BGSM two-sided.
 
+### <a id="spike-2-collision"></a>Collision through Elric (played 2026-10-06)
+
+Vanilla FO4 meshes hold only Elric's output: `bhkNPCollisionObject` (14
+bytes: target, flags, system, body id) and a `bhkPhysicsSystem`, a Havok
+2014 (`hk_2014.1.0-r1`) packfile of hknp data. Of the old blocks there are
+none: 26,992 and 22,426 of those two and nothing else, across the readable
+meshes. So nothing writes hknp; FNV's collision goes in as the old blocks
+and the CK's Elric (`Tools\Elric\Elrich.exe Settings\PCMeshes.esf
+-ElricOptions.ConvertTarget=... -ElricOptions.OutputDirectory=...`) builds
+the physics, as fnv-to-fo4 does.
+
+`fo4_import/nif/collision.py` writes FNV's blocks in nif.xml's stream-130
+layout. FNV Havok units are game units / 7 and FO4's game units / 69.99
+(NifSkope's Havok scale is FO3's × 10 from Skyrim on), so lengths × 0.1 and
+inertia × 0.01. Layers 0-28 keep their numbers (the names match) and the rest
+map by name. FNV's 32 materials and their stairs variants map to FO4 material
+CRCs. A body on a child node gets its own NiNode with that node's transform.
+The root's BSXFlags are FNV's, keeping Havok, Complex, Dynamic and
+Articulated. Every vanilla mesh with root collision has a BSXFlags: statics
+mostly 0x82, clutter 0xC2. FNV writes 0x2 and 0x42.
+
+What Elric accepts (2026-10-06, measured by running it on minimal files):
+
+- **Block order.** Every block must come after the blocks it references:
+  shape, body, then collision object. A box shape converts in that order and
+  crashes Elric (access violation) in every other.
+- **Mesh shapes.** FNV's `bhkMoppBvTreeShape` → `bhkPackedNiTriStripsShape`
+  crashes it, with or without the MOPP tree (scaled origin and quantisation).
+  It converts as `bhkNiTriStripsShape` with one `NiTriStripsData` per FNV
+  sub-shape: game-unit positions, each a 3-point strip, the material CRC in
+  the data, the filter in the shape. This is what NifSkope's OBJ-as-collision
+  import and fnv-to-fo4 write. Elric builds the tree itself.
+- **Coordinates.** Elric keeps them: the telephone's convex hull comes out
+  with FNV's vertices × 0.1 (-0.1545, 0.1498, 0.2002) and radius 0.01.
+- **Render blocks.** Elric changes them too: it sets the vertex-colours bit
+  in a lighting shader's flags2 (0x11 → 0x31). So `fo4_import/nif/elric.py`
+  keeps our blocks and grafts in only its two physics blocks per body,
+  matched by node name.
+
+**Winding.** First play: the floor held in some places and dropped the player
+in others. FNV collides with both sides of a triangle and FO4, like Skyrim,
+with one, and FNV's mesh collision has many triangles wound downwards: in the
+house 57 models, about half the triangles of most Craftsman room pieces. The
+mesh path now takes its triangles from asset_convert's winding repair
+(`repaired_mesh_soup`: each collision face takes the facing of its render
+twin, else of its coplanar neighbour, and FNV floors met only from below get
+a reversed copy; [winding](../commentary/asset_convert_collision.md#inverted-collision-winding-i-fall)),
+the same code the Skyrim converter runs. 1,076 triangles flipped. Second
+play: the floors hold.
+
+Doc's house: all 172 meshes with collision convert (165 with one body, 7
+with two), with no Elric crash, in one 17-second build. Clutter (MISC,
+ALCH...) keeps FNV's dynamic body while it is placed as a static.
+
 ## <a id="decision"></a>Decision point
 
 After spikes 1–3: the architecture plan (the `fo4_import` package, the asset

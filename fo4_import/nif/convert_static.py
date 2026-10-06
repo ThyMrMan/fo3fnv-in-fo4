@@ -3,7 +3,8 @@
 Every visible NiTriShape/NiTriStrips becomes one BSTriShape under the root
 NiNode, its transform baked in; its textures and alpha become a material
 `materials\\fnv\\<diffuse path>.bgsm`, shared by every shape with the same
-textures and alpha. Collision is left out. Textures keep their FNV paths
+textures and alpha. Collision becomes pre-Elric Havok blocks at the end
+(collision.py; elric.finish makes them FO4 physics). Textures keep their FNV paths
 under `textures\\fnv\\`.
 
 See: docs/fork/fo4_spikes.md#spike-2-static
@@ -26,6 +27,9 @@ from fo4_import.nif.file import NifFile
 apply_patches()
 from pyffi.formats.nif import NifFormat
 
+from asset_convert.collision.collision_falloutnv import latch_source
+from fo4_import.nif.collision import collision_nodes
+
 PREFIX = 'fnv'
 #: BSVertexDesc of a vanilla static shape (ClutterGen, SetDressing): half positions, UV, normal, tangent.
 DESC_PLAIN = 0x1B00000430205
@@ -36,6 +40,8 @@ NODE_FLAGS, SHADER_FLAGS = 0xE, (0x80400201, 0x11)
 #: Texture set slots a lighting shader fills (vanilla: 10, specular at 7).
 TEXTURE_SLOTS, SLOT_SPECULAR = 10, 7
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+#: FNV BSXFlags bits kept (same meaning in FO4): Havok, Complex, Dynamic, Articulated; vanilla statics carry 0x82.
+BSX_KEPT = 0x2 | 0x8 | 0x40 | 0x80
 BGSM_TEXTURES = ('diffuse', 'normal', 'smooth_spec', 'greyscale', 'envmap', 'glow', 'inner_layer', 'wrinkles',
                  'displacement')
 #: Vanilla ChemistrySetBeaker01's effect shader: flags, lighting influence, falloff, base colour, env map scale.
@@ -360,6 +366,7 @@ def convert(path: str, texture_root=None) -> Converted:
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
+    latch_source(data)
     root = data.roots[0]
     nif = NifFile()
     out = Converted(nif)
@@ -367,4 +374,9 @@ def convert(path: str, texture_root=None) -> Converted:
             'translation': (0.0, 0.0, 0.0), 'rotation': IDENTITY, 'scale': 1.0, 'collision': NONE, 'children': []}
     nif.blocks.append(('NiNode', node))
     node['children'] = [_shape_blocks(nif, g, root, out, texture_root) for g in _visible_shapes(root)]
+    bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
+    if bsx:
+        nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))
+        node['extra'].append(len(nif.blocks) - 1)
+    collision_nodes(nif, root, 0, NODE_FLAGS)
     return out

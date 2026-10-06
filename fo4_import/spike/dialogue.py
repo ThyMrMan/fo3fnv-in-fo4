@@ -16,6 +16,7 @@ See: docs/fork/fo4_spikes.md#spike-1
 import argparse
 from pathlib import Path
 
+from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest, pack_topic
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike import conditions as C
@@ -47,7 +48,6 @@ GREETING = 0xC8
 #: Fallout4.esm QASmoke, a test cell with no precombines.
 CELL_FO4 = 0x0001F7A9
 XDI_KEYWORD = 0x01000800
-FALLOUT4_ESM = r'C:/Program Files (x86)/Steam/steamapps/common/Fallout 4/Data/Fallout4.esm'
 #: State just after character creation, for quests the spike does not convert.
 ASSUME = {
     ('GetQuestCompleted', 0x104C1C, 0): 1, ('GetQuestVariable', 0x104C1C, 13): 1,
@@ -410,7 +410,7 @@ class Spike:
 
 def vanilla_cell() -> tuple:
     """(QASmoke's CELL record to override, its body) read from Fallout4.esm."""
-    raw = Path(FALLOUT4_ESM).read_bytes()
+    raw = FALLOUT4_ESM.read_bytes()
     for rec, _ in walk(raw, b'CELL'):
         if rec.form_id == CELL_FO4:
             return pack_fo4_record('CELL', CELL_FO4, rec.flags, rec.body), rec.body
@@ -484,7 +484,7 @@ def main():
         folders = Path(args.export) / 'sound' / 'voice' / 'falloutnv.esm'
         voices = [(folders / fnv, fo4) for fnv, fo4 in VOICES.values()]
         todo = voice.jobs(spike.voiced, voices, Path(args.data), Path(args.out).name)
-        written = voice.convert(todo, Path(FALLOUT4_ESM).parents[1] / 'Tools' / 'LipGen' / 'LipGenerator')
+        written = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
         print(f'voice: {written} of {len(todo)} recordings written as .fuz')
     for fid, edid, variants, prompts in spike.scenes:
         print(f'{edid} ({fid:08X}): {len(prompts)} options')
