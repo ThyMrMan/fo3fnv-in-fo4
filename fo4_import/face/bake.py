@@ -56,6 +56,13 @@ def positions(raw: bytes) -> np.ndarray:
     return np.array([struct.unpack_from(fmt, raw, start + i * stride) for i in range(count)], float)
 
 
+def uvs(raw: bytes) -> np.ndarray:
+    """A shape block's vertex UVs (after the position and its bitangent x)."""
+    start, stride, count, full = _vertex_layout(raw)
+    skip = 16 if full else 8
+    return np.array([struct.unpack_from('<2e', raw, start + i * stride + skip) for i in range(count)], float)
+
+
 def with_positions(raw: bytes, points: np.ndarray) -> bytes:
     """`raw` with its vertex positions replaced by `points`."""
     start, stride, count, full = _vertex_layout(raw)
@@ -65,7 +72,7 @@ def with_positions(raw: bytes, points: np.ndarray) -> bytes:
     return bytes(out)
 
 
-def _surface(vertices: np.ndarray, triangles: np.ndarray) -> tuple:
+def surface(vertices: np.ndarray, triangles: np.ndarray) -> tuple:
     """Points spread over the triangles and, per point, (triangle, barycentric weights)."""
     steps = np.linspace(0, 1, SURFACE_DENSITY)
     grid = np.array([(a, b, 1 - a - b) for a in steps for b in steps if a + b <= 1 + 1e-9])
@@ -106,14 +113,14 @@ def _interpolate(values: np.ndarray, triangles: np.ndarray, surface: tuple, idx:
 
 def head_displacement(fo4_head: np.ndarray, fnv: FnvHead, variant: str) -> np.ndarray:
     """Per FO4 head vertex, its move for `variant` in the FO4 frame."""
-    mean_surface = _surface(fnv.mean, fnv.triangles)
+    mean_surface = surface(fnv.mean, fnv.triangles)
     s, r, t = align(fo4_head, fnv.mean, mean_surface)
     placed = s * fo4_head @ r.T + t
     if variant == 'C1':
         _, idx = cKDTree(mean_surface[0]).query(placed)
         moved = _interpolate(fnv.npc - fnv.mean, fnv.triangles, mean_surface, idx)
     elif variant == 'C2':
-        npc_surface = _surface(fnv.npc, fnv.triangles)
+        npc_surface = surface(fnv.npc, fnv.triangles)
         _, idx = cKDTree(npc_surface[0]).query(placed)
         moved = npc_surface[0][idx] - placed
     else:
@@ -169,12 +176,24 @@ def _smoothed(points: np.ndarray, moves: np.ndarray) -> np.ndarray:
     return moves
 
 
+def _shapes(nif) -> tuple:
+    """(indices of a FaceGeom NIF's head part shapes, the face's index)."""
+    shapes = [i for i, (kind, _) in enumerate(nif.blocks) if kind == 'BSSubIndexTriShape']
+    face = next(i for i in shapes if nif.strings[struct.unpack_from('<i', nif.blocks[i][1], 0)[0]] in FACE_PARTS)
+    return shapes, face
+
+
+def face_shape(nif_bytes: bytes) -> tuple:
+    """(positions, UVs, triangles) of a FaceGeom NIF's face part."""
+    nif = nif_file.read(nif_bytes)
+    raw = nif.blocks[_shapes(nif)[1]][1]
+    return positions(raw), uvs(raw), triangles(raw)
+
+
 def bake(nif_bytes: bytes, fnv: FnvHead, variant: str) -> bytes:
     """The FaceGeom NIF `nif_bytes` with its face and every head part moved to `variant`'s shape."""
     nif = nif_file.read(nif_bytes)
-    shapes = [i for i, (kind, _) in enumerate(nif.blocks) if kind == 'BSSubIndexTriShape']
-    name = {i: nif.strings[struct.unpack_from('<i', nif.blocks[i][1], 0)[0]] for i in shapes}
-    face = next(i for i in shapes if name[i] in FACE_PARTS)
+    shapes, face = _shapes(nif)
     head = positions(nif.blocks[face][1])
     moves = _smoothed(head, head_displacement(head, fnv, variant))
     borders = {i: outer_border(positions(nif.blocks[i][1]), triangles(nif.blocks[i][1])) for i in shapes}

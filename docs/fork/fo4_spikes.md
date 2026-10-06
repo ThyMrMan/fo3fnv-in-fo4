@@ -991,6 +991,65 @@ Played: all three render with FaceGen and look very alike; C1 looks right.
 The shape offset is small. FNV's face texture (FGTS) is what is left to
 carry (next).
 
+### <a id="spike-2-face-texture"></a>FNV face texture (played 2026-10-06)
+
+FNV draws a face with the race's head texture plus the NPC's FaceGen colour
+offset. The `.egt` next to the head mesh (`FREGT003`, 256x256) holds 50
+modes. Each is a **float scale** (falling from 0.22 for mode 0 to 0.02 for
+mode 49) and then signed-byte R, G and B planes. The offset is FGTS × scale ×
+plane, summed. The rows are stored **bottom-up**: the sum drawn top-down
+smears features, and flipped it lands on the race texture's eyes, brows and
+mouth.
+
+Doc's offset is large: (-12, -24, -36) mean per channel and up to 98, a
+warmer, darker, weathered face with shadowed eye sockets. FGTS carries much
+of an FNV face's look.
+
+The Skyrim converter's `facegen_egt` reads those 4 bytes as "unknown, flags"
+and uses one scale (0.25, calibrated on one Oblivion race). That is mode 0's
+own scale, but up to 12x too much for the later modes.
+
+`fo4_import/face/texture.py` carries the colour onto FO4's face texture (the
+CK's `_d`, 2048 DXT5) by geometry:
+
+1. Each FO4 face texel is a point on FO4's head, found from its triangle in
+   UV space.
+2. `bake.align` places that point on FNV's head; FNV's UV there gives the
+   FNV colour.
+3. The new colour is padded 8 texels past each UV island, so filtering and
+   compression do not bleed FO4's colour in.
+4. texconv (the CK's, in `Tools\Elric`) writes the result as DXT5, keeping
+   FO4's alpha.
+
+Two variants, both with C1's shape:
+
+- **T1**: FO4's face texture plus Doc's FNV offset.
+- **T2**: FNV's face texture (race texture plus offset).
+
+In both the eyes, brows, nose, mouth and ears land on FO4's. FO4's body tone
+comes from the NPC's skin tone layer, still the stand-in's. In FNV the same
+FGTS also colours the body (the race's `UpperBodyHumanMale.egt`), so the
+neck seam may show a tone step.
+
+**Skin tone is applied at runtime.** Four clones that differed only in their
+Skin Tone layer colour (233,218,216; 128 grey; 255 white; 200,150,100) got
+identical CK face textures, and FaceGeom NIFs that differ only in texture
+paths. The game tints the face, hairline, rear head and body alike, by the
+NPC's QNAM texture lighting (the stand-in's QNAM is its Skin Tone colour
+/ 255). HumanRace's Skin Tone options are the TETI slot 12 ones (male
+0x0484).
+
+First play showed a skin step at the hairline. So each variant's overall
+colour shift now goes into the tone: the face texture is scaled back, per
+channel, to FO4's median over the face, and QNAM and the Skin Tone layer are
+multiplied by the same ratio (T1 0.84/0.65/0.51, T2 0.93/0.76/0.61, patched
+in place in the plugin).
+
+Second play: T1 looks better than T2, but the hairline still shows in both.
+T2's more. Moving FNV's texture across leaves a seam with FO4's own skin
+parts; the next route recreates the face in FO4's own systems (sculpt
+regions, tint layers).
+
 ## <a id="decision"></a>Decision point
 
 After spikes 1–3: the architecture plan (the `fo4_import` package, the asset

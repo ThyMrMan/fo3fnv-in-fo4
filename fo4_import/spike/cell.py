@@ -44,8 +44,8 @@ ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
 #: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).
 STAND_INS = {fnv: fo4 for _, fnv, fo4, *_ in SPEAKERS if fnv}
-#: Face variants placed per actor for comparison: A the FO4 default face, C1/C2 baked from FNV's (face.bake).
-FACE_VARIANTS, FACE_SPACING = ('A', 'C1', 'C2'), 50.0
+#: Face variants placed per actor for comparison: FNV's shape alone, and with FNV's colour (spike.facegen).
+FACE_VARIANTS, FACE_SPACING = ('C1', 'T1', 'T2'), 50.0
 #: NPC_ face shape subrecords (morph keys and values, face region sculpts) left off the clones.
 FACE_SHAPE = frozenset({b'MSDK', b'MSDV', b'FMRI', b'FMRS'})
 #: The bit every vanilla FO4 omni light carries.

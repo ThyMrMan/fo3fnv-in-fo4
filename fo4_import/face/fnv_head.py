@@ -27,10 +27,11 @@ EGM_HEADER = 64
 
 @dataclass
 class FnvHead:
-    """A head mesh: mean vertices, triangles, and the NPC's vertices."""
+    """A head mesh: mean vertices, triangles, the NPC's vertices, and the vertex UVs."""
     mean: np.ndarray
     triangles: np.ndarray
     npc: np.ndarray
+    uvs: np.ndarray
 
 
 def read_egm(data: bytes, n_vertices: int) -> tuple:
@@ -64,4 +65,5 @@ def head(meshes: Path, model: str, fggs: str, fgga: str) -> FnvHead:
     sym, asym = read_egm(path.with_suffix('.egm').read_bytes(), len(mean))
     npc = mean + np.tensordot(coefficients(fggs, len(sym)), sym, 1)
     npc += np.tensordot(coefficients(fgga, len(asym)), asym, 1)
-    return FnvHead(mean, np.array(shape.data.get_triangles()), npc)
+    uv = np.array([(c.u, c.v) for c in shape.data.uv_sets[0]])
+    return FnvHead(mean, np.array(shape.data.get_triangles()), npc, uv)
