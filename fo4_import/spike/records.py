@@ -71,14 +71,15 @@ def pack_dial(fid: int, edid: str, quest: int, kind: tuple, info_count: int) -> 
 
 def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b'',
               prompt: str = '', scene: int = 0, phase: str = '',
-              stages: tuple = (NO_STAGE, NO_STAGE), notes: str = '', forced_alias: int = None) -> bytes:
+              stages: tuple = (NO_STAGE, NO_STAGE), notes: str = '', forced_alias: int = None,
+              vmad: bytes = b'') -> bytes:
     """An INFO in vanilla's field order (DialogueDiamondCity 00199516).
 
     lines are response texts (none: an empty padding INFO); stages are the
     quest stages set on begin and on end (TIQS); scene/phase start a scene;
-    forced_alias (ALFA) puts the speaker into that alias.
+    forced_alias (ALFA) puts the speaker into that alias; vmad is its fragments.
     """
-    subs = pack_subrecord('ENAM', struct.pack('<HH', flags, 0))
+    subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_subrecord('ENAM', struct.pack('<HH', flags, 0))
     for number, text in enumerate(lines, 1):
         subs += pack_subrecord('TRDA', struct.pack('<iBIBHii', -1, number, 0, 1, 0, -1, -1))
         subs += _zstr('NAM1', text) + _zstr('NAM2', notes) + _zstr('NAM3', '') + _zstr('NAM4', '')

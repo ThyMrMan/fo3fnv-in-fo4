@@ -139,7 +139,10 @@ def random_chain(members: list) -> list:
     """Extra OR-groups per member: piles of Random INFOs get GetRandomPercent < 100/remaining.
 
     Evaluated in order, the first n-1 of a pile pass with 1/n, 1/(n-1)...
-    so each is equally likely, as FNV picks one of a pile at random.
+    so each is equally likely, as FNV picks one of a pile at random. A pile
+    is chained per set of members with the same conditions (sir and madame
+    variants), so each set keeps a last member with no roll that always answers.
+    See: docs/fork/fo4_spikes.md#spike-3-fragments
     """
     extra, run = [[] for _ in members], []
     for i, (rec, _) in enumerate(members + [(None, None)]):
@@ -148,8 +151,12 @@ def random_chain(members: list) -> list:
             run.append(i)
             if not flags & RANDOM_END:
                 continue
-        for k, index in enumerate(run[:-1]):
-            extra[index] = [[_cond('GetRandomPercent', _OP_LESS, 100.0 / (len(run) - k))]]
+        sets = {}
+        for index in run:
+            sets.setdefault(repr(members[index][1]), []).append(index)
+        for same in sets.values():
+            for k, index in enumerate(same[:-1]):
+                extra[index] = [[_cond('GetRandomPercent', _OP_LESS, 100.0 / (len(same) - k))]]
         run = []
     return extra
 
@@ -170,7 +177,7 @@ class Spike:
         self.fo4_avs = {r.get('EditorID'): int(r['FormID'], 16) for r in parse_export_file(str(FO4_AVIF_DUMP))}
         self.form_map = {**{s[1]: s[2] for s in SPEAKERS if s[1]}, **FACTIONS, **{f: f for f in SAME_IN_FO4}}
         self.scenes, self.topics, self.choice_scenes, self.scene_records = [], [], {}, []
-        self.voiced = []
+        self.voiced, self.fragments, self.actor_ids, self.trace = [], None, [], ''
 
     def stage(self, key) -> int:
         """The quest stage for key (added topic or said line); made on first use."""
@@ -282,7 +289,8 @@ class Spike:
         said = ('said', rec['FormID'])
         begin = self.stages[said] if said in self.stages else R.NO_STAGE
         end = self.stage(('topic', added[0])) if added else R.NO_STAGE
-        if rec.get('ResultScript') or rec.get('ResultScriptEnd'):
+        vmad = self.fragments.vmad(rec['FormID']) if self.fragments else b''
+        if (rec.get('ResultScript') or rec.get('ResultScriptEnd')) and not vmad:
             self.report.append(f"INFO {rec['FormID']}: result script not converted")
         lines = [rec[f'Response[{i}].ResponseText'] for i in range(_int(rec, 'ResponseCount'))]
         enam = (R.INFO_SAY_ONCE if flags & SAY_ONCE else 0) | (R.INFO_END_SCENE if flags & GOODBYE else 0)
@@ -291,7 +299,7 @@ class Spike:
         return R.pack_info(fid, enam, tuple(lines) or ('...',),
                            C.convert(kept, self.form_map, self.av, False),
                            scene=scene, phase='Menu' if scene else '', stages=(begin, end),
-                           notes=f"FNV {rec['FormID']}", forced_alias=0 if forced_alias else None)
+                           notes=f"FNV {rec['FormID']}", forced_alias=0 if forced_alias else None, vmad=vmad)
 
     def plan_options(self, dial_fids: list, gated: bool, where: str) -> list:
         """[(prompt, members, player condition groups)] for a menu, in topic order."""
@@ -403,20 +411,45 @@ def _vanilla_cell() -> tuple:
     raise SystemExit('QASmoke not found')
 
 
-def build(export_dir: Path, out: Path, scripts: Path = None) -> Spike:
-    """Generate the spike plugin and return the Spike (report and menus).
+def _assemble(export_dir: Path, scripts: Path, fragments) -> tuple:
+    """(spike, greeting topic, placed actors, helper quests): every FormID handed out, fragments' actor values last.
 
-    `scripts`, a folder of Fallout 4 converted scripts, also puts Doc's own
-    script on his stand-in (spike 3).
+    The placed actors' FormIDs are left on `spike.actor_ids` as [(label, FormID)].
     """
     spike = Spike(export_dir)
+    spike.fragments = fragments
     spike.build_menu('FNVSpike_Menu', spike.menu_topics(), True, spike.main)
     greeting = spike.greeting()
     actor_ids = [spike.ids.take() for _ in SPEAKERS]
     doc_vmad, helpers = script_spike.attach(scripts, spike.ids, spike.av_named) if scripts else (b'', [])
     actors = b''.join(R.pack_achr(fid, base, pos, rot, doc_vmad if label == 'DocMitchell' else b'')
                       for fid, (label, _, base, pos, rot) in zip(actor_ids, SPEAKERS))
+    spike.actor_ids = [(label, fid) for fid, (label, *_) in zip(actor_ids, SPEAKERS)]
+    for name in fragments.needed if fragments else ():
+        spike.av_named(name)
+    return spike, greeting, actors, helpers
+
+
+def build(export_dir: Path, out: Path, scripts: Path = None, trace: bool = False) -> Spike:
+    """Generate the spike plugin and return the Spike (report and menus).
+
+    `scripts`, a folder of Fallout 4 converted scripts, also puts Doc's own
+    script on his stand-in and the lines' fragments on their INFOs (spike 3).
+    `trace` adds a debug quest logging the dialogue state; its source is
+    left on `spike.trace` for compiling.
+    """
+    fragments = None
+    if scripts:
+        forms = script_spike.fo4_forms()
+        first = _assemble(export_dir, scripts, script_spike.Fragments(scripts, forms))[0]
+        avs = {name: first.av_named(name) for name in first.fragments.needed}
+        fragments = script_spike.Fragments(scripts, forms, avs, first.fragments.needed)
+    spike, greeting, actors, helpers = _assemble(export_dir, scripts, fragments)
     w = FO4PluginWriter(masters=['Fallout4.esm', 'XDI.esm'], is_esm=False, description='FNV dialogue spike')
+    if trace:
+        fid = spike.ids.take()
+        helpers.append((fid, script_spike.trace_quest(fid, spike.quest)))
+        spike.trace = script_spike.trace_source(out.name, [(e, f) for f, e, *_ in spike.scenes], spike.actor_ids)
     for fid, record in helpers:
         w.add_record('QUST', pack_quest(record, fid, (), [], []))
     for fid, edid, name in spike.avs.values():
@@ -439,13 +472,17 @@ def main():
     ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
     ap.add_argument('--out', required=True, help='Plugin to write')
     ap.add_argument('--data', help='Also write the voice files (.fuz) under this Data folder')
+    ap.add_argument('--trace', action='store_true', help='Add a debug quest logging the dialogue state '
+                                                         '(compiled into --data/Scripts)')
     ap.add_argument('--scripts', help="Fallout 4 converted scripts: put Doc's script on his stand-in "
                                       '(compiled into --data/Scripts)')
     args = ap.parse_args()
     scripts = Path(args.scripts) if args.scripts else None
-    spike = build(Path(args.export), Path(args.out), scripts)
+    spike = build(Path(args.export), Path(args.out), scripts, args.trace)
+    if args.trace and args.data:
+        print(script_spike.compile_source(script_spike.TRACE_SCRIPT, spike.trace, Path(args.data)))
     if scripts and args.data:
-        print(script_spike.compile_into(scripts, Path(args.data)))
+        print(script_spike.compile_into(scripts, Path(args.data), spike.fragments.used))
     if args.data:
         folders = Path(args.export) / 'sound' / 'voice' / 'falloutnv.esm'
         voices = [(folders / fnv, fo4) for fnv, fo4 in VOICES.values()]

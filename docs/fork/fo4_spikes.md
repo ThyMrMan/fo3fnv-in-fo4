@@ -462,7 +462,7 @@ Against `Fallout4.esm` (measured 2026-10-05):
 
 Tests: `tests/test_fo4_vmad.py` (three vanilla records, byte for byte).
 
-### <a id="spike-3-end-to-end"></a>End to end: Doc's script on his stand-in (built, not played)
+### <a id="spike-3-end-to-end"></a>End to end: Doc's script on his stand-in (played)
 
 ```bash
 py -3.14 -m fo4_import.spike.dialogue --export export/FalloutNV.esm --out <esp> --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm
@@ -497,6 +497,45 @@ controls off at 43.62 s and on at 51.68 s of real time, 8.06 s for FNV's 8.
   instead would run about 1.76 times slow.
 - Timers stop while a menu is open (here the console); the loop's clamp
   turns that gap into one 0.1 s step, as in Skyrim.
+
+### <a id="spike-3-fragments"></a>Dialogue fragments (played 2026-10-05)
+
+`script.Fragments` gives every spike INFO whose FNV INFO has a converted
+`FALLOUTNV_TIF__<id>` script its INFO VMAD (`Fragment_1` on begin,
+`Fragment_0` on end): 29 of the spike's INFOs. Properties are filled from
+the spike's actor values and from Fallout4.esm records of the property's type
+with the same editor ID (`Caps001` `0000000F`, `Stimpak` `00023736`,
+`WaterPurified` `000366C0`). Played: Doc's paid treatment takes the caps and
+runs his 8-second sequence from his own line; the stimpak and water lines give
+their items; barter opens.
+
+- **No FormID drift.** The spike packs INFOs as it hands out ids, so a
+  fragment needing a new plugin actor value would shift every later line (and
+  its voice file name). The build runs twice: the first pass lists the actor
+  values fragments need and gives them ids last, the second packs with them.
+- **A fragment links only when every script type it names exists.** The water
+  line names `FALLOUTNV_HD00RobotQuestScript` (an unfilled property) and was
+  skipped whole ("Unable to link type of property") until that script was
+  compiled too; `script.with_types` compiles the converted scripts a fragment
+  names, transitively.
+- **Random piles chain per condition set.** Ron's goodbye pile is three "sir"
+  and three "madame" lines; one chain over all six left a male player with no
+  passing reply about one time in three, stuck in the menu. Each set of
+  same-condition members now gets its own chain and its own unconditioned last
+  member.
+- **The helpers' line bookkeeping is silent, not broken.** `LineBegan` and
+  `LineEnded` read `Variable03`–`09` through `TES4Polyfill.AV`, which returns
+  None on FO4; `GetValue(None)` reads 0 without a log line. It still needs
+  the shared actor values ([helpers](#spike-3-helpers)).
+- **The stand-ins' own FO4 dialogue competes with ours.** A `--trace` build
+  (a debug quest logging scene, alias and per-actor state to
+  `FNVSpikeTrace.0.log`) showed Doc in vanilla `DoctorGreetScene` (`0005FD39`,
+  the doctors quest's greeting, some lines `GetIsID` Doc Weathers) and Ron in
+  `WorkshopVendorBarUniqueScene` (`0019235F`) when they greet the player
+  unprompted; ours needs `GetPlayerActivated`, so theirs wins then. Converted
+  NPCs are new records without those ties, so this stays a stand-in artifact.
+- Doc's barter line keeps the scene running (FNV returns to the conversation
+  after barter), so the menu box stays under the barter menu.
 
 ### <a id="spike-3-names"></a>Script names
 

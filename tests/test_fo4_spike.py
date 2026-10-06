@@ -24,6 +24,16 @@ def test_random_pile_gets_an_even_chain():
     assert extra[2] == []
 
 
+def test_random_pile_chains_each_condition_set_alone():
+    """Sir/madame lines alternate in one pile; each set keeps a last line with no roll."""
+    sir, madame = [[{'func': 'GetIsSex', 'p1': 0}]], [[{'func': 'GetIsSex', 'p1': 1}]]
+    pile = [(_flags(D.RANDOM), sir), (_flags(D.RANDOM), madame), (_flags(D.RANDOM), sir),
+            (_flags(D.RANDOM | D.RANDOM_END), madame)]
+    extra = D.random_chain(pile)
+    assert [g[0][0]['value'] for g in extra[:2]] == [50.0, 50.0]
+    assert extra[2:] == [[], []]
+
+
 def test_negate_or_group_becomes_and_of_negations():
     """NOT(a OR b) is NOT a AND NOT b; NOT(a AND b) is NOT a OR NOT b."""
     a = {'op_flags': 0x00, 'value': 1.0, 'func': 'GetIsID', 'p1': 1, 'p2': 0, 'run_on': 0, 'ref': 0}
