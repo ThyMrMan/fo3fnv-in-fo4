@@ -106,6 +106,46 @@ actually needed.
 | Combat styles | Exported empty | Skyrim-lineage CSTY records |
 | Creatures | Converted skeletons and behaviors | Vanilla equivalents can be reused instead of converted |
 
+### <a id="native-records"></a>More native features, mostly record mapping
+
+Most of these are field translations in `fo4_import`, not runtime work.
+"Checked" means read in `wbDefinitionsFO4.pas` or the vanilla dump
+(2026-10-05); the rest is general knowledge, still to confirm.
+
+**Use outright:**
+
+| FO3/FNV | FO4 | Checked |
+|---|---|---|
+| Lock difficulty 0–100 | REFR `XLOC` levels on the same scale: Novice 1/25, Advanced 50, Expert 75, Master 100, plus Requires Key, Requires Terminal, Barred, Chained. The lockpick minigame is FO3's | Levels ✔ |
+| Terminal hacking difficulty | The same tiers on the placed terminal, with the FO3/FNV word-guess minigame | Tiers ✔; that hacking reads the terminal ref's `XLOC` is likely, not confirmed |
+| FO3 skill books (+skill) | BOOK `DNAM` flag Advance Actor Value, pointing at our skill AVIFs | ✔ |
+| FNV skill magazines (timed buff) | BOOK `DNAM` Add Spell (or Add Perk); a timed spell gives the buff | ✔ |
+| Chems, addiction, withdrawal | ALCH Addiction + Addiction Chance; vanilla `AddictionOdds*` effects | ✔ |
+| Hardcore food, water, sleep (FNV) | Survival keywords: `HC_EffectType_Hunger/Thirst/Sleep/Disease`, `HC_SustenanceType_*`, `HC_IngestedRads`, disease-risk keywords. Tag FNV consumables and let the Survival manager run them | Keywords ✔; that the manager accepts tagged FNV items needs a test |
+| Rads in food, water, weather | Rads on consumables, radioactive water, radiation storms | — |
+| Workbench, reloading bench, campfire | FURN `WBDT` bench types (Weapons, Armor, Alchemy for chemistry and cooking, Power Armor, Robot) + COBJ keyed to bench keywords (`WorkbenchChemlab`, `WorkbenchCooking`); FNV recipe categories map onto them | ✔ |
+| Weapon mods (FNV's 3 slots) | OMOD + attach points, a superset | ✔ (above) |
+| Grenades, mines, thrown weapons | Native weapon types and the grenade hotkey | — |
+| Damage types (energy, fire, poison…) | DMGT records | ✔ |
+| Leveled lists, "use all", encounter zones | Same record lineage (LVLI/LVLN Use All) | ✔ |
+| FO3 bobbleheads | `BobbleheadKeyword` + pickup perk | Keyword ✔ |
+| Quest objectives and markers | QUST objectives with alias targets, Pip-Boy log, compass | — |
+| Vendors, caps, barter | Vendor factions, merchant chests, caps | — |
+| Projectiles, explosions, impacts, body parts | Same lineage | — |
+| Weapon and creature animations | FO4's gun animation sets by weapon type; map FNV animation types onto them rather than convert | — |
+
+**Use with adjustment:**
+
+- **Damage Threshold vs Damage Resistance**: FNV subtracts flat DT; FO4
+  uses a DR curve with physical, energy and radiation values. No exact
+  match: convert DT to DR by formula, or adjust damage through perk entry
+  points. A balance decision, not a port.
+- **Speech and skill checks**: FO4's speech challenge is Charisma-based and
+  random; FNV's are deterministic conditions, which we already convert. Keep
+  ours; borrow FO4's challenge coloring at most.
+- **Criticals**: see VATS above.
+- **Implants, traits**: plain perks; the menu is LevelUpMenuEx.
+
 ## <a id="gaps"></a>What FO4 still lacks
 
 These need emulation on FO4 too. Unlike Skyrim, FO4 lets a plugin define its
