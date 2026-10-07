@@ -14,6 +14,8 @@ from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_group, pack_string_subrecord, pack_subrecord
 
 NO_STAGE = 0xFFFF
+#: Record flag Initially Disabled, the same bit in FO3/FNV and FO4.
+INITIALLY_DISABLED = 0x800
 #: FO4 CTDA Run On values.
 RUN_SUBJECT, RUN_TARGET, RUN_REFERENCE = 0, 1, 2
 #: INFO ENAM flag bits (wbDefinitionsFO4.pas INFO 'Response flags'). Random is never written: see dialogue.random_chain.
@@ -41,8 +43,8 @@ FUNC_GET_DISTANCE = 1
 PLAYER = 0x14
 #: Fallout4.esm's MiscMod01 TRNS: the Pip-Boy preview transform (PTRN) of 1,128 vanilla misc items.
 MISC_PREVIEW = 0x248769
-#: PNAM of nearly every vanilla activator (its editor marker colour), and a notification's default seconds (TNAM).
-MARKER_COLOR, MESSAGE_TIME = bytes.fromhex('cc4c3300'), 2
+#: PNAM of nearly every vanilla activator (its editor marker colour).
+MARKER_COLOR = bytes.fromhex('cc4c3300')
 
 
 def _u32(sig: str, value: int) -> bytes:
@@ -185,8 +187,11 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') ->
 
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
-              teleport: tuple = None, persistent: bool = True, primitive: bytes = b'') -> bytes:
-    """A placed object: base, trigger primitive (XPRM), light radius (XRDS), teleport (door, position, rotation), scale."""
+              teleport: tuple = None, persistent: bool = True, primitive: bytes = b'', disabled: bool = False) -> bytes:
+    """A placed object: base, trigger primitive (XPRM), light radius (XRDS), teleport (door, position, rotation), scale.
+
+    `disabled` sets Initially Disabled (0x800), as FO3/FNV's flag.
+    """
     subs = _u32('NAME', base) + (pack_subrecord('XPRM', primitive) if primitive else b'')
     if radius is not None:
         subs += pack_subrecord('XRDS', struct.pack('<f', radius))
@@ -196,7 +201,7 @@ def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, r
     if scale != 1.0:
         subs += pack_subrecord('XSCL', struct.pack('<f', scale))
     subs += pack_subrecord('DATA', struct.pack('<6f', *pos, *rot))
-    return pack_fo4_record('REFR', fid, 0x400 if persistent else 0, subs)
+    return pack_fo4_record('REFR', fid, (0x400 if persistent else 0) | (INITIALLY_DISABLED if disabled else 0), subs)
 
 
 def _bounded(edid: str, bounds: tuple) -> bytes:
@@ -252,13 +257,6 @@ def pack_acti(fid: int, edid: str, name: str, model: str, bounds: tuple, vmad: b
     return pack_fo4_record('ACTI', fid, 0, subs)
 
 
-def pack_mesg(fid: int, edid: str, title: str, text: str, flags: int, buttons: list) -> bytes:
-    """A message: text, title, DNAM flags (1: message box), button texts."""
-    subs = _zstr('EDID', edid) + _zstr('DESC', text) + _zstr('FULL', title) + _u32('INAM', 0) + _u32('DNAM', flags)
-    subs += b'' if flags & 1 else _u32('TNAM', MESSAGE_TIME)
-    return pack_fo4_record('MESG', fid, 0, subs + b''.join(_zstr('ITXT', b) for b in buttons))
-
-
 def pack_furn(fid: int, edid: str, name: str, model: str, bounds: tuple, keywords: list, record_flags: int,
               active: int, marker_model: str, markers: list) -> bytes:
     """A furniture: bounds, name, model, keywords, MNAM `active` markers and flags, SNAM `markers`.
@@ -272,6 +270,23 @@ def pack_furn(fid: int, edid: str, name: str, model: str, bounds: tuple, keyword
     subs += _zstr('XMRK', marker_model) if marker_model else b''
     subs += pack_subrecord('SNAM', b''.join(struct.pack('<4fIB3x', *m[:4], 0, m[4]) for m in markers))
     return pack_fo4_record('FURN', fid, record_flags, subs)
+
+
+def pack_mswp(fid: int, edid: str, pairs: list) -> bytes:
+    """A material swap of [(original, replacement)] (paths under Materials\\)."""
+    subs = b''.join(_zstr('BNAM', original) + _zstr('SNAM', replacement) for original, replacement in pairs)
+    return pack_fo4_record('MSWP', fid, 0, _zstr('EDID', edid) + subs)
+
+
+def pack_flst(fid: int, edid: str, forms: list) -> bytes:
+    """A form list: `forms` in order (LNAM each)."""
+    return pack_fo4_record('FLST', fid, 0, _zstr('EDID', edid) + b''.join(_u32('LNAM', f) for f in forms))
+
+
+def pack_perk(fid: int, edid: str, name: str, desc: str, trait: bool) -> bytes:
+    """A playable one-rank perk without effects (a trait when `trait`)."""
+    subs = _zstr('EDID', edid) + _zstr('FULL', name) + _zstr('DESC', desc)
+    return pack_fo4_record('PERK', fid, 0, subs + pack_subrecord('DATA', bytes([int(trait), 0, 1, 1, 0])))
 
 
 def pack_lvli(fid: int, edid: str, chance_none: int, flags: int, entries: list) -> bytes:

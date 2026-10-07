@@ -178,6 +178,8 @@ FALLOUT_COMMAND_ROWS = {
     'showtraitselectmenu': dict(emit='Game.GetPlayer().SendModEvent("TESCharacterMenu", "traits", 0.0)',
                                 flags='zero_arg'),
     'getplayername': dict(note="{f} - Skyrim's race menu names the character"),
+    'sexchange': dict(note='{f} {a} - Skyrim Papyrus cannot change sex', subj='ACTOR'),
+    'swaptexture': dict(note='{f} {a} - Skyrim Papyrus cannot swap a texture'),
     'addnote': dict(emit='Game.GetPlayer().AddItem({p0}, 1, False)', types={0: 'Book'}),
     'removenote': dict(emit='Game.GetPlayer().RemoveItem({p0}, 1, True)', types={0: 'Book'}),
     #: A REPU is a FormList of its globals; see TES4_Reputation.psc.

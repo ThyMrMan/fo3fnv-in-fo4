@@ -581,6 +581,17 @@ reviewed through the GitHub API, without cloning.
    from a level-up script adding the difference. Drift: skills show in
    LevelUpMenuEx's menu, not a Pip-Boy page; the Pip-Boy keeps FO4's
    SPECIAL and perk pages.
+7. **Garden of Eden.** Decided 2026-10-07: a dependency (F4SE plugin,
+   about 1,160 Papyrus natives; headers copied into
+   `references\GardenOfEden` for compiling). First use: FO3/FNV
+   `SexChange` as the console's `sexchange` (`ExecuteConsoleCommandSilent`),
+   which FO4 Papyrus cannot do. Taken where it removes a recorded drift or
+   a polling loop, not by default: `RegisterForOnPerkPointIncrease` (a
+   real level-up hook for the character rules), the native events
+   (`OnActorValueChanged`, container changes, object loads, cell attach,
+   hits) in place of 0.1 s GameMode polls, VATS critical charge and count
+   for FNV's crit chance, current-topic and dialogue pause/stop for
+   scripted lines, per-item instance data for later item conditions.
 
 ## <a id="spikes"></a>Proposed spikes
 

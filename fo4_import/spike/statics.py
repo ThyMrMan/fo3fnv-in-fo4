@@ -11,6 +11,7 @@ See: docs/fork/fo4_spikes.md#spike-2-static
 """
 
 import argparse
+import copy
 import shutil
 from pathlib import Path
 
@@ -61,6 +62,33 @@ def write_assets(export_dir: Path, model: str, data_dir: Path) -> tuple:
         normal = (export_dir / fnv_normal.replace('\\', '/').lower()).read_bytes()
         write_normal_dds(spec_image(normal, smooth), data_dir / 'Textures' / spec_path)
     return f'{PREFIX}\\{rel}', _bounds(converted.nif)
+
+
+def swap_material(export_dir: Path, model: str, node: str, texture: str, data_dir: Path) -> 'tuple | None':
+    """(material of FNV `model`'s shape `node`, one showing FNV `texture` instead); None without such a shape.
+
+    The swap material is the shape's BGSM with only the diffuse texture
+    replaced; it and the texture are written into `data_dir`.
+    """
+    converted = convert(str(export_dir / 'meshes' / model.replace('/', '\\').lower()), export_dir)
+    nif = converted.nif
+    shaders = [b['shader'] for kind, b in nif.blocks
+               if kind == 'BSTriShape' and nif.strings[b['name']].lower() == node.lower() and b['shader'] >= 0]
+    path = nif.strings[nif.blocks[shaders[0]][1]['name']] if shaders else ''
+    if path not in converted.materials:
+        return None
+    source = f'textures\\{texture.replace("/", chr(92)).lower()}.dds'
+    material = copy.deepcopy(converted.materials[path])
+    old = material['textures']['diffuse'].rsplit('.', 1)[0].replace('/', '\\')
+    material['textures']['diffuse'] = fo4_texture(source).replace('\\', '/')
+    new = path.replace(old, fo4_texture(source).rsplit('.', 1)[0], 1)
+    out = data_dir / new.replace('materials\\', 'Materials\\', 1)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(bgsm.write(material))
+    target = data_dir / 'Textures' / fo4_texture(source)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(export_dir / source.replace('\\', '/'), target)
+    return path, new
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, edids: list) -> list:

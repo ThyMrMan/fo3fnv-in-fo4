@@ -29,11 +29,13 @@ from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
+from fo4_import.spike import character
 from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import Conversations
 from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.packages import Packages
+from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
@@ -137,6 +139,7 @@ class CellBuilder:
         self.next_id = len(MASTERS) << 24 | FIRST_ID
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
+        self.swaps = None
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -235,7 +238,8 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
-                             teleports.get(ref['FormID']), keep, bytes.fromhex(ref.get('XPRM.Raw', '')))
+                             teleports.get(ref['FormID']), keep, bytes.fromhex(ref.get('XPRM.Raw', '')),
+                             bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
     builder.counts['placed'] = len(refs) - sum(v for k, v in builder.counts.items() if k.startswith('skipped'))
     return persistent, temporary
@@ -434,6 +438,8 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.activators = Activators(builder, export_dir)
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in refs
                                                       if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN'})
+    builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): _model(builder.bases[int(r['NAME'], 16)][1])
+                                                for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
@@ -460,6 +466,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     persistent, temporary = _placed(builder, refs, ids, teleports)
     persistent += actors
     _quests(builder, export_dir, quest_recs, quests, {**ids, **builder.actor_ids})
+    character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
     temporary += _navmesh(builder, export_dir, cell['FormID'], cell_fid, ids)
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
     template = sub_map(vanilla[CELL_FO4].body)

@@ -11,6 +11,12 @@ here, so a later patch can close the gap. Content is never dropped.
 |---|---|---|---|
 | Scripted conversations | Each line's result says the next; the first line whose conditions pass plays | One scene per run of steps, a phase per step; lines picked by scene order. Pacing between lines is FO4's | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Topic menus | Any number of topics; Tab leaves | XDI menus; a `[Leave]` option stands in for Tab | [spike 1](fo4_spikes.md#spike-1-design) |
+| Vit-o-matic (SPECIAL) | FNV's menu, 40 points | FO4's SPECIAL menu and point budget | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Choosing sex | The Reflectron's race menu | A Male/Female box before the Reflectron opens FO4's appearance editor | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Naming the character | The Reflectron's name entry | FO4's SPECIAL menu name field, at the Vit-o-matic | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Skills page | Pip-Boy Skills tab | LevelUpMenuEx's menu; the Pip-Boy shows FO4's SPECIAL and perks | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Traits | Effects on pick | Picked through LevelUpMenuEx; no effects until perks are converted | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Skill points per level | Granted at the level-up | Added when LevelUpMenuEx's menu next opens | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Walking away mid-conversation | The talk ends | A one-menu scene ends; a multi-phase scene waits in its phase until the player returns | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Opening a talk | `StartConversation`, force greets and clicking all open the GREETING | A silent `...` greeting line starts the GREETING scene (its subtitle shows briefly) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Force greets | Dialogue package: walk up and talk | FO4 ForceGreet (its approach distance, dialogue camera) | [vcg01](fo4_spikes.md#spike-2-vcg01) |

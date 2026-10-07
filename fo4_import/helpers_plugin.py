@@ -14,14 +14,17 @@ import argparse
 import re
 from pathlib import Path
 
-from fo4_import.base.support_records import pack_avif, pack_global, pack_script_quest
+from fo4_import.base.support_records import pack_avif, pack_global, pack_mesg, pack_script_quest
 from fo4_import.base.vmad import object_scripts
 from fo4_import.base.writer import FO4PluginWriter
-from script_convert.constants import (FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_PLUGIN,
+from script_convert.constants import (FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_MESSAGES,
+                                      FALLOUT4_HELPER_PLUGIN, FALLOUT4_HELPER_QUEST_MESSAGES,
                                       FALLOUT4_HELPER_QUESTS)
 from script_convert.target import fallout4_actor_values
 
 MASTERS = ['Fallout4.esm']
+#: MESG DNAM flag Message Box.
+MESSAGE_BOX = 0x1
 #: Editor ID prefix of the plugin's actor values (TES4Variable01), as the converter's TES4* globals.
 EDID_PREFIX = 'TES4'
 
@@ -56,10 +59,18 @@ def records() -> list:
     """[(signature, record)] of everything the helper plugin holds, in object id order."""
     out = [('AVIF', pack_avif(own_id(oid), EDID_PREFIX + name, re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name)))
            for name, oid in FALLOUT4_HELPER_AVS.items()]
-    out += [('QUST', pack_script_quest(own_id(oid), script, object_scripts([(script, {}, {})])))
+    out += [('QUST', pack_script_quest(own_id(oid), script, object_scripts([(script, _messages(script), {})])))
             for script, oid in FALLOUT4_HELPER_QUESTS.items()]
     out += [('GLOB', pack_global(own_id(oid), edid)) for edid, oid in FALLOUT4_HELPER_GLOBALS.items()]
+    out += [('MESG', pack_mesg(own_id(oid), edid, text, text, MESSAGE_BOX, list(buttons)))
+            for edid, (oid, text, buttons) in FALLOUT4_HELPER_MESSAGES.items()]
     return out
+
+
+def _messages(script: str) -> dict:
+    """{property: helper message FormID} a helper quest script is given."""
+    return {prop: own_id(FALLOUT4_HELPER_MESSAGES[edid][0])
+            for prop, edid in FALLOUT4_HELPER_QUEST_MESSAGES.get(script, {}).items()}
 
 
 def build(out: Path) -> int:
@@ -68,7 +79,8 @@ def build(out: Path) -> int:
     made = records()
     for sig, record in made:
         w.add_record(sig, record)
-    ids = [*FALLOUT4_HELPER_AVS.values(), *FALLOUT4_HELPER_QUESTS.values(), *FALLOUT4_HELPER_GLOBALS.values()]
+    ids = [*FALLOUT4_HELPER_AVS.values(), *FALLOUT4_HELPER_QUESTS.values(), *FALLOUT4_HELPER_GLOBALS.values(),
+           *(oid for oid, _, _ in FALLOUT4_HELPER_MESSAGES.values())]
     w.next_object_id = own_id(max(ids) + 1)
     out.parent.mkdir(parents=True, exist_ok=True)
     w.write(str(out))

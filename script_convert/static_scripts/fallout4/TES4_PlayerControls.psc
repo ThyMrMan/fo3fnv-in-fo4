@@ -15,11 +15,17 @@ Function Disable(bool abMovement = true, bool abFighting = true, bool abCamSwitc
 EndFunction
 
 Bool CamSwitchLifted
+Message Property ChooseSex Auto
+{Male or Female, asked before the appearance edit: FO4's remake menu cannot change sex, FO3/FNV's race menu could.}
 
 Function ShowRaceMenu()
-  {FO3/FNV ShowRaceMenu: FO4's full appearance edit as the vault exit elevator opens it (chargen skeleton,
-  neutral face, third person, the player turned to the camera, LooksMenu mode 1). The menu needs third person,
-  so a camera switch this layer disabled is enabled until the menu closes; then first person again.}
+  {FO3/FNV ShowRaceMenu: the sex (ChooseSex, set through TES4Polyfill.SetSex), then FO4's full appearance edit
+  as the vault exit elevator opens it (chargen skeleton, neutral face, third person, the player turned to the
+  camera, LooksMenu mode 1). The menu needs third person, so a camera switch this layer disabled is enabled
+  until the menu closes; then first person again.}
+  If ChooseSex
+    TES4Polyfill.SetSex(Game.GetPlayer(), ChooseSex.Show() as String)
+  EndIf
   CamSwitchLifted = Layer && !Layer.IsCamSwitchEnabled()
   If CamSwitchLifted
     Layer.EnableCamSwitch(true)

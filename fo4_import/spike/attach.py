@@ -13,11 +13,11 @@ See: docs/fork/fo4_spikes.md#spike-2-vcg01
 
 from pathlib import Path
 
+from fo4_import.base.support_records import pack_mesg
 from fo4_import.base.vmad import object_scripts
 from fo4_import.helpers_plugin import helper_forms
-from fo4_import.spike import records as R
 from fo4_import.spike.script import declared_properties, fill, fo4_forms
-from script_convert.constants import FALLOUT4_TALK_PREFIX, papyrus_script_name
+from script_convert.constants import FALLOUT4_SWAP_PREFIX, FALLOUT4_TALK_PREFIX, papyrus_script_name
 from tes5_import.base.text_reader import parse_export_file
 
 SCRIPT_PREFIX = 'FALLOUTNV_'
@@ -46,13 +46,17 @@ class ObjectScripts:
     def properties(self, script: str) -> dict:
         """{property: FormID} of converted `script`'s properties the spike can fill.
 
-        A `TES4Talk_<topic>` scene gets its FormID here, kept in `talks` for the conversation builder.
+        A `TES4Talk_<topic>` scene gets its FormID here, kept in `talks` for the conversation builder;
+        a `TES4Swap_` MatSwap its material swap (builder.swaps).
         """
         declared = declared_properties((self.dir / f'{script}.psc').read_text(encoding='utf-8'))
         messages = {prop: self.message(prop) for kind, prop in declared if kind == 'Message' and prop in self.messages}
         props = fill(declared, {**self.forms, 'Message': messages}, self.helper_index)
         talks = {prop: self.talk(prop) for kind, prop in declared if kind == 'Scene' and prop.startswith(FALLOUT4_TALK_PREFIX)}
-        return {**props, **talks, **{prop: self.named[prop] for _, prop in declared if prop in self.named}}
+        swaps = {prop: self.builder.swaps.swap(prop) for kind, prop in declared
+                 if kind == 'MatSwap' and prop.startswith(FALLOUT4_SWAP_PREFIX)}
+        return {**props, **talks, **{p: f for p, f in swaps.items() if f},
+                **{prop: self.named[prop] for _, prop in declared if prop in self.named}}
 
     def talk(self, prop: str) -> int:
         """The FormID of the scene a `TES4Talk_<topic>` property starts, reserved once."""
@@ -70,16 +74,16 @@ class ObjectScripts:
         return object_scripts([(name, self.properties(name), {})])
 
     def message(self, edid: str) -> int:
-        """The FO4 MESG for FNV message `edid`, made once."""
+        """The FO4 MESG for FNV message `edid`, made once; with no text it shows its title (FO4 shows only DESC)."""
         if edid not in self.made_messages:
             rec, fid = self.messages[edid], self.builder.new_id()
             buttons, i = [], 0
             while f'Button[{i}].Text' in rec:
                 buttons.append(rec[f'Button[{i}].Text'])
                 i += 1
-            self.builder.writer.add_record('MESG', R.pack_mesg(
-                fid, f'FNV_{edid}', rec.get('FULL', ''), rec.get('DESC', ''), int(rec.get('DNAM', 0)) & MESSAGE_BOX,
-                buttons))
+            self.builder.writer.add_record('MESG', pack_mesg(
+                fid, f'FNV_{edid}', rec.get('FULL', ''), rec.get('DESC') or rec.get('FULL', ''),
+                int(rec.get('DNAM', 0)) & MESSAGE_BOX, buttons))
             self.builder.counts['MESG'] += 1
             self.made_messages[edid] = fid
         return self.made_messages[edid]

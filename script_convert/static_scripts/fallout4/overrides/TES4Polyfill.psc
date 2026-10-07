@@ -9,6 +9,12 @@ Bool Function HasVampireFed() Global
   Return False
 EndFunction
 
+; fallout4: replaces IsTES4Attribute ca2195a4604fdb894dc6d6258d91bd9412d08914
+Bool Function IsTES4Attribute(String avName) Global
+  {Oblivion's attributes: FO3/FNV have none; their S.P.E.C.I.A.L. are Fallout 4's own actor values.}
+  Return False
+EndFunction
+
 ; fallout4: replaces IsPlayable aa142250f27c93fe7472da673997a6b6553f5cc1
 Bool Function IsPlayable(Form akForm) Global
   {OBSE IsPlayable, which no FO3/FNV script calls; Fallout 4 has no playable flag to read.}
@@ -97,6 +103,37 @@ Function SayWhenFree(ObjectReference akSpeaker, Topic akTopic, ObjectReference a
     waited += 0.05
   EndWhile
   akSpeaker.Say(akTopic, None, False, akTarget)
+EndFunction
+
+; fallout4: new
+Function SwapMaterial(ObjectReference akRef, MatSwap akSwap) Global
+  {FNV SwapTexture: akSwap becomes the reference's persistent material swap (F4SE), which the game applies whenever its 3D loads; a shown reference is reloaded at once. F4SE's ApplyMaterialSwap changed the material without redrawing it.}
+  If !akRef || !akSwap
+    Return
+  EndIf
+  akRef.SetMaterialSwap(akSwap)
+  If !akRef.IsDisabled()
+    akRef.Disable()
+    akRef.Enable()
+  EndIf
+EndFunction
+
+; fallout4: new
+Function SetSex(ObjectReference akActor, String asSex) Global
+  {FO3/FNV SexChange [0/1]: FO4 Papyrus has no sex setter, so Garden of Eden runs the console's sexchange, which toggles; only when the sex differs. male/0, female/1, else toggle.}
+  Actor a = akActor as Actor
+  If !a
+    Return
+  EndIf
+  Int target = -1
+  If asSex == "male" || asSex == "0"
+    target = 0
+  ElseIf asSex == "female" || asSex == "1"
+    target = 1
+  EndIf
+  If target < 0 || a.GetLeveledActorBase().GetSex() != target
+    GardenOfEden3.ExecuteConsoleCommandSilent("sexchange", a)
+  EndIf
 EndFunction
 
 ; fallout4: new

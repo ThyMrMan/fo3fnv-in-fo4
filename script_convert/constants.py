@@ -754,8 +754,21 @@ FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech'
 FALLOUT4_HELPER_QUESTS = {'TES4_PlayerControls': 0x900, 'TES4_CharacterEvents': 0x901}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
 FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00}
+#: Message boxes -> (object id in FALLOUT4_HELPER_PLUGIN, title and text, buttons); ids append only.
+FALLOUT4_HELPER_MESSAGES = {'TES4ChooseSexMessage': (0xB00, 'Choose Sex', ('Male', 'Female'))}
+#: Helper quest script -> {property: helper message} it is given.
+FALLOUT4_HELPER_QUEST_MESSAGES = {'TES4_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'}}
 #: Prefix of the Scene property `StartConversation Player [topic]` starts on Fallout 4 (topic, else GREETING).
 FALLOUT4_TALK_PREFIX = 'TES4Talk_'
+#: Prefix of the MatSwap property a Fallout 4 `SwapTexture` applies (fallout4_swap_property).
+FALLOUT4_SWAP_PREFIX = 'TES4Swap_'
+
+
+def fallout4_swap_property(node: str, texture: str) -> str:
+    """The MatSwap property `SwapTexture <ref> "<node>" "<texture>"` applies."""
+    return FALLOUT4_SWAP_PREFIX + re.sub(r'\W', '_', f'{node}_{texture.replace("/", chr(92)).rsplit(chr(92), 1)[-1]}')
+
+
 #: Skyrim actor-value native -> Fallout 4's, which is on ObjectReference and takes an ActorValue form.
 FALLOUT4_AV_NATIVES = {
     'GetActorValue': 'GetValue', 'SetActorValue': 'SetValue', 'ForceActorValue': 'SetValue',

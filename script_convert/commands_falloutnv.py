@@ -2,7 +2,8 @@
 
 A row in `FALLOUT_COMMAND_ROWS` renders one template for every call site. A
 handler belongs here only where FO3/FNV spell one command against two different
-receiver types, which a single template cannot express.
+receiver types, or where its output names a property built from its arguments,
+which a single template cannot express.
 
 Exported as a plain table rather than through `commands.command`, so this module
 imports nothing from `commands` and the two cannot form a cycle.
@@ -10,9 +11,9 @@ imports nothing from `commands` and the two cannot form a cycle.
 See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
-from script_convert.constants import safe_property_name, typed_already
+from script_convert.constants import fallout4_swap_property, safe_property_name, typed_already
 from script_convert.message_menus import authored_site
-from script_convert.target import arm_update
+from script_convert.target import arm_update, is_fallout4
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
 
@@ -205,9 +206,25 @@ def set_open_state(ctx, call):
     return f'TES4_TwoStateActivator.SetOpenState({_open_state_target(ctx, call)}, {state})'
 
 
+def swap_texture(ctx, call):
+    """FNV `SwapTexture <ref> "<node>" "<texture>"` on Fallout 4: TES4Polyfill.SwapMaterial (F4SE) with its MatSwap.
+
+    The importer writes each MatSwap from the property's name (fallout4_swap_property); declines elsewhere.
+    See: docs/fork/fo4_spikes.md#spike-2-vcg01
+    """
+    if not is_fallout4() or len(call) < (2 if call.ref else 3):
+        return None
+    first = 0 if call.ref else 1
+    ref = _open_state_target(ctx, call) if call.ref else call.arg(0)
+    prop = fallout4_swap_property(call.source(first).strip('"'), call.source(first + 1).strip('"'))
+    ctx.sc.property_refs[prop] = 'MatSwap'
+    return f'TES4Polyfill.SwapMaterial({ref}, {prop})'
+
+
 FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'getopenstate': get_open_state,
                     'setopenstate': set_open_state,
                     'getweaponanimtype': weapon_anim_type,
                     'showmessage': show_message,
+                    'swaptexture': swap_texture,
                     **{name: quest_native for name in _QUEST_NATIVES}}

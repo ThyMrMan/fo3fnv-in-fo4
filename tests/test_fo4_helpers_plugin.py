@@ -7,7 +7,8 @@ import struct
 
 from fo4_import import helpers_plugin as H
 from script_convert import target
-from script_convert.constants import FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_QUESTS
+from script_convert.constants import (FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_MESSAGES,
+                                      FALLOUT4_HELPER_QUESTS)
 from script_convert.helpers_fallout4 import av_function
 from tes5_import.base.tes5_reader import walk
 
@@ -29,7 +30,9 @@ def test_plugin_is_a_light_master_with_every_record(tmp_path):
     assert (b'AVIF', FALLOUT4_HELPER_AVS['Variable01']) in got
     assert (b'QUST', FALLOUT4_HELPER_QUESTS['TES4_PlayerControls']) in got
     assert (b'GLOB', FALLOUT4_HELPER_GLOBALS['TES4ControlsDisabled']) in got
-    assert len(got) == len(FALLOUT4_HELPER_AVS) + len(FALLOUT4_HELPER_QUESTS) + len(FALLOUT4_HELPER_GLOBALS)
+    assert (b'MESG', FALLOUT4_HELPER_MESSAGES['TES4ChooseSexMessage'][0]) in got
+    assert len(got) == (len(FALLOUT4_HELPER_AVS) + len(FALLOUT4_HELPER_QUESTS) + len(FALLOUT4_HELPER_GLOBALS)
+                        + len(FALLOUT4_HELPER_MESSAGES))
 
 
 def test_actor_values_resolve_in_any_case_and_by_skyrim_alias():

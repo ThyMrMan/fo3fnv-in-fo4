@@ -880,6 +880,7 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
         # resumes once the quest is started.
         out += ['  If (!IsRunning())', '    Return', '  EndIf']
 
+    out += _menu_hold(conv, tree)
     out += _dialogue_gate(conv, extends, load_gated)
     out += _elapsed_prologue(conv, interval)
     out += _glide_prologue(sc)
@@ -898,6 +899,20 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
         quest = var[len('TES4_LastStage_'):]
         out.append(f'  {var} = {quest}.GetStage()')
     return out
+
+
+def _menu_hold(conv, tree) -> list:
+    """Fallout 4: a pass while a pausing menu is open re-arms and does nothing, as FO3/FNV's GameMode.
+
+    A script whose MenuMode blocks poll (run every frame in a menu) keeps
+    its passes; one that only answers a menu closing does not.
+    See: docs/fork/fo4_spikes.md#spike-2-vcg01
+    """
+    if not is_fallout4() or any(b.btype.lower() == 'menumode' and _menumode_kind(b) == 'poll'
+                                for b in (tree.blocks if tree else ())):
+        return []
+    arm = [f'    {line.strip()}' for line in conv.sc.poll_return_prefix.splitlines() if line.strip()]
+    return ['  If Utility.IsInMenuMode()'] + arm + ['    Return', '  EndIf']
 
 
 #: The poll body as a function, for a script whose MenuMode must run in-event; see `_menu_passes`.

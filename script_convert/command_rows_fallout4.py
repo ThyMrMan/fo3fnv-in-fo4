@@ -62,5 +62,6 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'settagskills': _menu('tags'),
     'showtraitmenu': _menu('traits', '0.0', flags='zero_arg'),
     'showracemenu': Cmd(f'{CONTROLS_PROPERTY}.ShowRaceMenu()', self_type=_CONTROLS, flags='zero_arg'),
+    'sexchange': Cmd('TES4Polyfill.SetSex({ref}, "{s0}")', ACTOR, defaults={0: '-1'}, flags='actor_only zero_arg'),
     'showtraitselectmenu': _menu('traits', '0.0', flags='zero_arg'),
 }.items()}

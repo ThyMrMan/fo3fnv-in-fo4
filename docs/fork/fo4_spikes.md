@@ -1411,6 +1411,101 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
   Pip-Boy, the vault suit; items are a later step) and `VGenericTimer`,
   which the farewell starts.
 
+**Step 4, the character menus** (`fo4_import/spike/character.py`,
+`TES4_CharacterRules.psc`; played 2026-10-07). FNV's
+character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions)).
+
+- LevelUpMenuEx reads `Data\PRKF\*.ini`; its list keys name a FormList as
+  `Plugin.esp|<hex id>` (the DLL splits at `|`, `mov r8b, 0x7C` before
+  the find in its parser at RVA `0xa190`) and check the entries are perks
+  or actor values. The cell writes `PRKF\FNVCellSpike.ini`: `FNV_Skills`
+  and an empty `FNV_Perks` (perks are a later step), FO4's perk chart off,
+  0 points per level (the rules add them).
+- The 13 FNV skills are the helper plugin's actor values, overridden with
+  FNV's AVIF names and descriptions. The 10 FNV traits are trait perks
+  with name and description only; their effects come with the perks.
+- `TES4_CharacterRules` (a start-game quest) answers the converted
+  scripts' `CharacterMenu` events: `special` opens FO4's
+  `Game.ShowSPECIALMenu()`, `tags` LevelUpMenuEx's tag menu (3, +15,
+  `fAVDTagSkillBonus`), `traits` its trait menu (up to 2,
+  `iTraitMenuMaxNumTraits`). When the SPECIAL menu closes it sets each
+  skill to 2 + 2 × governing stat + Luck ÷ 2 rounded up (`fAVDSkill*Base`;
+  governing stats from the wiki). FO4 has no plain level-up event (only the
+  Story Manager's), so when LevelUpMenuEx's `LevelUpMenu` opens it adds the
+  points for the levels since the last time: 10 + Intelligence ÷ 2 skill
+  points (FO3: 10 + Intelligence; a fraction carries over) and a perk
+  point every 2 levels (FO3: every level), minus whatever arrived
+  meanwhile. FNV's `iLevelUpSkillPointsBase` is 11, but the wiki's 10 +
+  half Intelligence is what the game gives.
+- **Sex and name (research 2026-10-07).** The Reflectron's `ShowRaceMenu`
+  runs mode 1 (the vault exit elevator's remake), which edits only the
+  player and cannot change sex (Papyrus reference). Mode 0 is the MQ101
+  mirror's: `SF_MQ101_001_MirrorScene` passes both spouse aliases
+  (`akMenuSpouseFemale`, `akMenuSpouseMale`), and sex is picked between
+  them. The name is not in the race menu: vanilla names the player in the
+  SPECIAL menu (the Vault-Tec rep scene and the exit elevator's
+  `ShowCharacterMenus` call `Game.ShowSPECIALMenu()`). FNV asks the sex in
+  VCG01's own message box and runs `player.SexChange` (converted as a
+  note); FO4 Papyrus has no sex setter, but Garden of Eden's
+  `ExecuteConsoleCommand` can run `sexchange`, which swaps the body, not
+  the player's voice (FNV's player is silent). Alternate-start mods (Start
+  Me Up) keep FO4's mirror chargen and SPECIAL form, then skip ahead.
+  Taken: FNV's way. VCG01's own message box picks the sex and
+  `SexChange` becomes `TES4Polyfill.SetSex`, running `sexchange` through
+  Garden of Eden when the sex differs; the Reflectron stays mode 1 for the
+  face; the name is the SPECIAL menu's (the Vit-o-matic).
+- **The ink blots** (`fo4_import/spike/swaps.py`; played 2026-10-07). FNV's `SwapTexture <ref> "<node>" "<texture>"` (242 sites,
+  all FNV: 198 on `OnScreenSlideRef`, 41 on the psych test's card, 3 on
+  the Pip-Boy screen) retextures one shape. FO4 swaps materials, and only
+  F4SE applies one at runtime (`ObjectReference.ApplyMaterialSwap`). The
+  converter emits `ref.ApplyMaterialSwap(TES4Swap_<node>_<texture>)`; the
+  cell finds each SwapTexture in the game's scripts and line results and
+  writes the property's MSWP: the shape's converted BGSM copied with the
+  new diffuse, and every material that shape can wear (its own and the
+  other swaps' on the same reference and node) mapped to it, since F4SE's
+  matching against the material on it is unconfirmed. The card: 8 swaps
+  (three ink blots, five card faces).
+- **Played:** SPECIAL, traits and the test's results work. The sex box
+  never showed: FNV's `VCG01ChooseSexMessage` has no text (`DESC`), only
+  a title ("Choose Sex") and two buttons, and FO4's message box shows
+  only the text, so `Show()` returned the first button at once. A message
+  without text now shows its title. The ink blots all changed at the end
+  of the test instead of with their questions. F4SE's `ApplyMaterialSwap`
+  (f4se `PapyrusObjectReference.cpp`) normalizes the shape's material name
+  to the part after `materials\`, looks it up in the swap and loads the
+  new material onto the live shape, so the swaps should match; the
+  converter now calls `TES4Polyfill.SwapMaterial`, which traces each
+  swap's time, count of swapped materials, 3D and disabled state, for the
+  next play. Also: the card and both `TempRorschachTest` statics are
+  Initially Disabled in FNV (the test enables and disables the card); the
+  cell's references now keep that flag (`R.INITIALLY_DISABLED`).
+- **Played again:** still no sex box; the Vit-o-matic reaction always the
+  same; the card kept its first face and showed the last after the test.
+  - Nothing sets VCG01 stage 17 in FNV (the line after the name goes to
+    stage 25): the "Choose Sex" box is dead content, and FNV picks the sex
+    in the Reflectron's own race menu. FO4's remake menu cannot, so
+    `TES4_PlayerControls.ShowRaceMenu` first shows the helper plugin's
+    `TES4ChooseSexMessage` (Male, Female; object id `0xB00`) and sets it
+    through `TES4Polyfill.SetSex`. Drift: a box before the editor.
+  - Doc's reaction reads SPECIAL through `GetTES4ActorValue`, which took
+    Intelligence and Luck for Oblivion attributes and returned a fixed
+    stub on FO4. FO3/FNV have no Oblivion attributes: on Fallout 4
+    `IsTES4Attribute` is false and SPECIAL reads FO4's actor values. Also,
+    FO4's Papyrus timers run while a menu is open and FNV's GameMode does
+    not, so a converted poll pass now returns while `Utility.IsInMenuMode()`
+    (676 scripts; not those whose MenuMode blocks poll); Doc's reaction
+    waits for the SPECIAL menu to close.
+  - The swap trace: every swap ran with its line and reported one material
+    swapped, but the card did not redraw. `TES4Polyfill.SwapMaterial` now
+    sets the persistent swap (`SetMaterialSwap`), which the game applies
+    whenever the 3D loads, and reloads a shown reference
+    (`Disable()`/`Enable()`).
+  - Played: the sex box before the Reflectron, Doc's stat reaction and the
+    ink blots in step with the questions all work.
+- To learn in play: the SPECIAL menu's point budget on an existing save,
+  and whether LevelUpMenuEx's `AddPP` takes a negative count (FO4's own
+  perk point each level would otherwise stay).
+
 **Played (2b, 3):** Doc walks to his chair and sits, the word association
 starts, and the whole test runs through to its end and Doc's walk to the
 door; the outro there is next.
