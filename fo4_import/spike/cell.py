@@ -34,6 +34,7 @@ from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import Conversations
 from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.navmesh import navi, navmeshes
+from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.packages import Packages
 from fo4_import.spike.poses import Poses
@@ -62,12 +63,12 @@ STAND_IN_TIES = frozenset({b'SNAM', b'CRIF'})
 #: The player's reference, the same FormID in both games.
 PLAYER = 0x14
 #: FNV quests the cell's scripts run, converted with it.
-CELL_QUESTS = ('VCG01', 'VCG01Test')
+CELL_QUESTS = ('VCG01', 'VCG01Test', 'VGenericTimer')
 #: Quests the spike starts by hand (setstage), not with the game: VCG01's stage 0 takes a loaded save's Pip-Boy.
 HAND_STARTED = frozenset({'VCG01'})
 FIRST_ID = 0x800
 #: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
-AS_STATIC = ('STAT', 'MSTT', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
+AS_STATIC = ('STAT', 'MSTT', 'SCOL', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
 #: FNV base types converted as themselves (spike.items), and the types whose engine objects FO4 may share.
 ITEM_BASES, SHARED_TYPES = ('MISC', 'CONT'), ('STAT', 'MISC')
 #: Stand-in doors in QASmoke: the first one's position and the spacing along X.
@@ -172,7 +173,8 @@ class CellBuilder:
     def _make(self, sig: str, rec: dict) -> int:
         """Write the FO4 record for FNV base `rec` of type `sig`; its FormID."""
         fid, edid = self.new_id(), f'FNV_{rec["EditorID"]}'
-        model, bounds = self.mesh(_model(rec)) if _model(rec) else ('', _bounds(rec))
+        model, bounds = self.mesh(_model(rec)) if _model(rec) else ('', None)
+        bounds = bounds or _bounds(rec)
         if sig == 'LIGH':
             light = (int(rec['DATA.Radius']), tuple(int(rec[f'DATA.Color.{c}']) for c in 'RGB'),
                      light_flags(int(rec['DATA.Flags'])))
@@ -211,14 +213,20 @@ def _bases(export_dir: Path, used: set) -> dict:
     return out
 
 
+def _linked(door_refs: list, ids: dict) -> dict:
+    """{door ref: its teleport} of doors whose partner is in `ids`."""
+    return {r['FormID']: (ids[r['XTEL.Door']], *_place(r, 'XTEL.')) for r in door_refs if r['XTEL.Door'] in ids}
+
+
 def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tuple:
     """Stand-in doors in QASmoke for the cell's teleport doors: (their REFRs, {door ref: its teleport}).
 
-    Each stand-in leads to where the FNV door's partner led into the cell
-    (the cell door's own position when the partner is not in the export).
+    A door whose partner is converted leads to it; for another, a stand-in
+    leads to where the FNV door's partner led into the cell (the cell door's
+    own position when the partner is not in the export).
     """
-    qa_refs, teleports = b'', {}
-    for i, ref in enumerate(door_refs):
+    qa_refs, teleports = b'', _linked(door_refs, ids)
+    for i, ref in enumerate(r for r in door_refs if r['FormID'] not in teleports):
         pos = (DOOR_START[0] + i * DOOR_SPACING, DOOR_START[1], DOOR_START[2])
         stand_in, partner = builder.new_id(), links.get(ref['XTEL.Door'], ref)
         inside = _place(partner, 'XTEL.') if partner is not ref else _place(ref)
@@ -243,7 +251,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
                              teleports.get(ref['FormID']), keep, bytes.fromhex(ref.get('XPRM.Raw', '')),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
-    builder.counts['placed'] = len(refs) - sum(v for k, v in builder.counts.items() if k.startswith('skipped'))
+        builder.counts['placed'] += 1
     return persistent, temporary
 
 
@@ -449,39 +457,59 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
-          scripts_dir: 'Path | None' = None) -> collections.Counter:
+          scripts_dir: 'Path | None' = None, exterior: tuple = None) -> collections.Counter:
     """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made.
 
     `scripts_dir` holds the converted scripts; the activators' are attached and compiled into <data_dir>/Scripts.
+    `exterior` is (worldspace, (grid x, y), radius): that block of the worldspace too (exterior.Exterior).
     """
     cell = _find_cell(export_dir, cell_edid)
     all_refs = parse_export_file(str(export_dir / 'REFR.txt'))
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
-    builder = CellBuilder(export_dir, data_dir, _bases(export_dir, {int(r['NAME'], 16) for r in refs}))
+    world = Exterior(export_dir, all_refs, *exterior) if exterior else None
+    outside = world.refs if world else []
+    builder = CellBuilder(export_dir, data_dir, _bases(export_dir, {int(r['NAME'], 16) for r in refs + outside}))
     _object_makers(builder, export_dir, scripts_dir, refs)
     cell_fid = builder.new_id()
     ids = {r['FormID']: builder.new_id() for r in refs}
+    ext_ids = world.ids(len(MASTERS)) if world else {}
     quests = {edid: builder.new_id() for edid in CELL_QUESTS}
     quest_recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in quests]
     builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
     builder.objectives = objective_globals(builder, quest_recs)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
     actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(builder, ids, quest_recs, quests))
-    qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
+    qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, {**ids, **ext_ids})
+    teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
     persistent, temporary = _placed(builder, refs, ids, teleports)
     persistent += actors
     _quests(builder, export_dir, quest_recs, quests, {**ids, **builder.actor_ids})
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
     temporary += _navmesh(builder, export_dir, cell['FormID'], cell_fid, ids)
+    _cell_group(builder, export_dir, cell, cell_fid, vanilla, (persistent + builder.poses.placed, temporary, qa_refs))
+    if world:
+        builder.writer.add_raw_group('WRLD', world.group(builder, lambda r: _placed(builder, r, ext_ids, teleports),
+                                                         data_dir))
+    return _finish(builder, export_dir, data_dir, out, scripts_dir)
+
+
+def _cell_group(builder: CellBuilder, export_dir: Path, cell: dict, cell_fid: int, vanilla: dict, children: tuple):
+    """Add the CELL group: the FNV cell with `children` (persistent, temporary) and QASmoke with its stand-in doors."""
+    persistent, temporary, qa_refs = children
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
     template = sub_map(vanilla[CELL_FO4].body)
     imagespace = _imagespace(builder, export_dir, cell, vanilla[BASE_IMAGESPACE].body)
-    record = R.pack_cell(cell_fid, f'FNV_{cell_edid}', cell.get('FULL', cell_edid), int(cell['DATA.Flags']) & 0xFF,
+    edid = cell['EditorID']
+    record = R.pack_cell(cell_fid, f'FNV_{edid}', cell.get('FULL', edid), int(cell['DATA.Flags']) & 0xFF,
                          lighting(cell, template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
                          imagespace or struct.unpack('<I', template[b'XCIM'])[0])
-    builder.writer.add_raw_group('CELL', R.pack_interior_cells([(record, cell_fid, persistent + builder.poses.placed, temporary),
+    builder.writer.add_raw_group('CELL', R.pack_interior_cells([(record, cell_fid, persistent, temporary),
                                                                 (qa_record, CELL_FO4, qa_refs, b'')]))
+
+
+def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
+    """Collision for the meshes, voice files and scripts, then the plugin itself; the counts."""
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
     _voice(builder, export_dir, data_dir, out.name)
@@ -500,10 +528,14 @@ def main():
     ap.add_argument('--out', required=True, help='Plugin to write')
     ap.add_argument('--data', required=True, help='Data folder for meshes, materials and textures')
     ap.add_argument('--scripts', type=Path, help='Converted FNV scripts (script_convert.pipeline --target fallout4)')
+    ap.add_argument('--world', help='FNV worldspace editor ID to add a block of (with --around)')
+    ap.add_argument('--around', type=int, nargs=2, default=(0, 0), metavar=('X', 'Y'), help='The block\'s center cell')
+    ap.add_argument('--radius', type=int, default=1, help='Cells around the center (1: a 3x3 block)')
     ap.add_argument('cell', help='FNV interior cell editor ID')
     args = ap.parse_args()
+    exterior = (args.world, tuple(args.around), args.radius) if args.world else None
     for key, count in sorted(build(Path(args.export), Path(args.out), Path(args.data), args.cell,
-                                   args.scripts).items()):
+                                   args.scripts, exterior).items()):
         print(f'{key}: {count}')
 
 

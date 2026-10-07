@@ -32,9 +32,11 @@ MASTERS = ['Fallout4.esm']
 START, SPACING = (-1700.0, -1484.0, 0.0), 300.0
 
 
-def _bounds(nif) -> tuple:
-    """OBND: the integer box around every shape's vertices."""
+def _bounds(nif) -> 'tuple | None':
+    """OBND: the integer box around every shape's vertices; None for a mesh with none."""
     pts = np.array([v['position'] for kind, b in nif.blocks if kind == 'BSTriShape' for v in b['vertices']])
+    if not len(pts):
+        return None
     lo, hi = np.floor(pts.min(axis=0)).astype(int), np.ceil(pts.max(axis=0)).astype(int)
     return (*lo.tolist(), *hi.tolist())
 

@@ -2,10 +2,12 @@
 
 A misc item keeps its name, model, value and weight; a leveled item its
 chance none, flags and the entries whose items convert; a container its
-model, flags, weight and the contents that convert. FNV's engine objects
-(FormID below ENGINE_IDS) that Fallout4.esm has under the same FormID,
-type and EditorID are FO4's own (the bottle cap, COC and X markers). Item
-types not converted yet are skipped and counted.
+model, flags, weight and the contents that convert; a text note becomes a
+paper note (BOOK). FNV's engine objects (FormID below ENGINE_IDS) that
+Fallout4.esm has under the same FormID, type and EditorID are FO4's own
+(the bottle cap, COC and X markers), and an item STAND_INS names is the
+Fallout4.esm item itself, with FO4's name and stats. Item types not
+converted yet are skipped and counted.
 
 See: docs/fork/fo4_spikes.md#spike-2-items
 """
@@ -22,6 +24,24 @@ ENGINE_IDS = 0x800
 ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT')
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
 CONTAINER_FLAGS = 0x2
+#: FNV NOTE DATA type of a text note (0 sound, 2 image, 3 voice).
+TEXT_NOTE = 1
+#: FNV item EditorID -> the Fallout4.esm item (EditorID) used in its place: the same item, else the nearest one.
+STAND_INS = {
+    'Stimpak': 'Stimpak', 'Morphine': 'MedX', 'RadX': 'RadX', 'BloodPack': 'Bloodpack', 'Cram': 'Cram',
+    'PorkNBeans': 'PorknBeans', 'SugarBombs01': 'SugarBombs', 'Lockpick': 'BobbyPin',
+    'WeapNV9mmPistol': '10mm', 'Ammo9mm': 'Ammo10mm', 'WeapLaserPistol': 'LaserGun',
+    'AmmoSmallEnergyCell': 'AmmoFusionCell', 'WeapNVDynamite': 'fragGrenade', 'WeapNVStraightRazor': 'Switchblade',
+    'WeapNVBoxingGloves': 'BoxingGlove', 'WeapKnife': 'Knife', 'PipBoy': 'Pipboy',
+    'VaultSuit21': 'Armor_Vault111_Underwear',
+}
+#: The record types STAND_INS draws on.
+STAND_IN_TYPES = (b'ALCH', b'MISC', b'WEAP', b'AMMO', b'ARMO')
+
+
+def _edid(rec) -> str:
+    """A plugin record's EditorID."""
+    return (first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode('cp1252')
 
 
 def shared_engine_ids(fo4_esm: bytes, fnv: dict, types: tuple) -> dict:
@@ -34,7 +54,7 @@ def shared_engine_ids(fo4_esm: bytes, fnv: dict, types: tuple) -> dict:
         if rec.form_id >= ENGINE_IDS or rec.form_id not in fnv:
             continue
         sig, fnv_rec = fnv[rec.form_id]
-        edid = (first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode('cp1252')
+        edid = _edid(rec)
         if sig == rec.sig.decode() and edid == fnv_rec.get('EditorID'):
             out[rec.form_id] = rec.form_id
     return out
@@ -47,6 +67,17 @@ def index(export_dir: Path, types: tuple) -> dict:
         path = export_dir / f'{sig}.txt'
         if path.exists():
             out.update({int(r['FormID'], 16): (sig, r) for r in parse_export_file(str(path))})
+    return out
+
+
+def stand_ins(fo4_esm: bytes) -> dict:
+    """{FNV EditorID: Fallout4.esm FormID} of STAND_INS."""
+    wanted = {fo4: fnv for fnv, fo4 in STAND_INS.items()}
+    out = {}
+    for rec, _ in walk(fo4_esm, *STAND_IN_TYPES):
+        edid = _edid(rec)
+        if edid in wanted:
+            out[wanted[edid]] = rec.form_id
     return out
 
 
@@ -68,8 +99,16 @@ class Items:
     """FO4 records for FNV items and containers, each made once, written through a cell builder."""
 
     def __init__(self, builder, records: dict, shared: dict):
-        """Items made through `builder`, from index() `records`, sharing `shared`."""
-        self.builder, self.records, self.shared, self.made = builder, records, shared, {}
+        """Items made through `builder`, from index() `records`, sharing `shared` and the stand-ins."""
+        self.builder, self.records, self.made = builder, records, {}
+        named = {rec.get('EditorID'): fid for fid, (_, rec) in records.items()}
+        self.names = {name.lower(): fid for name, fid in named.items() if name}
+        self.shared = {**shared, **{named[e]: fid for e, fid in stand_ins(builder.fo4).items() if e in named}}
+
+    def by_name(self, edid: str) -> 'int | None':
+        """item() of the FNV record named `edid` (any case), or None."""
+        fid = self.names.get(edid.lower())
+        return self.item(fid) if fid is not None else None
 
     def item(self, fnv_fid: int) -> 'int | None':
         """The FO4 record for an FNV item, leveled item or container; None when its type is not converted."""
@@ -82,7 +121,7 @@ class Items:
 
     def _make(self, sig: str, rec: dict) -> 'int | None':
         """Write the FO4 record of a convertible FNV record; its FormID, or None (counted as skipped)."""
-        maker = {'MISC': self._misc, 'LVLI': self._leveled, 'CONT': self._container}.get(sig)
+        maker = {'MISC': self._misc, 'LVLI': self._leveled, 'CONT': self._container, 'NOTE': self._note}.get(sig)
         if maker is None:
             self.builder.counts[f'item skipped ({sig or "not exported"})'] += 1
             return None
@@ -101,7 +140,7 @@ class Items:
             return None
         model, bounds = self.builder.mesh(rec['Model.MODL'])
         return self._write('MISC', lambda fid: R.pack_misc(
-            fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds, int(rec.get('DATA.Value', 0)),
+            fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), int(rec.get('DATA.Value', 0)),
             float(rec.get('DATA.Weight', 0.0))))
 
     def _leveled(self, rec: dict) -> 'int | None':
@@ -124,3 +163,10 @@ class Items:
         return self._write('CONT', lambda fid: R.pack_cont(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), contents,
             int(rec.get('DATA.Flags', 0)) & CONTAINER_FLAGS, float(rec.get('DATA.Weight', 0.0))))
+
+    def _note(self, rec: dict) -> 'int | None':
+        """A text note as a paper note; None for sound, image and voice notes."""
+        if int(rec.get('DATA.Type', -1)) != TEXT_NOTE:
+            return None
+        text = rec.get('TNAM.Text', '').replace(chr(13) + chr(10), chr(10))
+        return self._write('BOOK', lambda fid: R.pack_book(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), text))

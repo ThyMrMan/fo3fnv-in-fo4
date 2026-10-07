@@ -13,7 +13,8 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 
 from script_convert.constants import FALLOUT4_POSE_PREFIX, fallout4_swap_property, safe_property_name, typed_already
 from script_convert.message_menus import authored_site
-from script_convert.target import CONTROLS_PROPERTY, CONTROLS_SCRIPT, arm_update, is_fallout4
+from script_convert.target import (CONTROLS_PROPERTY, CONTROLS_SCRIPT, arm_update, av_property, fallout4_av_name,
+                                   is_fallout4)
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
 
@@ -238,7 +239,22 @@ def player_package(ctx, call):
     return f'{CONTROLS_PROPERTY}.HoldPlayer({prop})'
 
 
+def tag_skill(ctx, call):
+    """FNV `IsPlayerTagSkill <skill>` on Fallout 4: LevelUpMenuEx's IsTagSkillAV on the skill's ActorValue.
+
+    The tag menu is LevelUpMenuEx's (TES4_CharacterRules); declines elsewhere.
+    See: docs/fork/fo4_spikes.md#spike-2-vcg01
+    """
+    if not is_fallout4() or not len(call):
+        return None
+    raw = call.source(0).strip('"')
+    prop = av_property(fallout4_av_name(raw) or raw)
+    ctx.sc.property_refs[prop] = 'ActorValue'
+    return f'PRKF:PRKF.IsTagSkillAV({prop})'
+
+
 FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
+                    'isplayertagskill': tag_skill,
                     'addscriptpackage': player_package,
                     'removescriptpackage': player_package,
                     'getopenstate': get_open_state,

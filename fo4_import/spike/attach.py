@@ -3,10 +3,11 @@
 A record's FNV script (its SCRI) becomes its conversion (`papyrus_script_name`)
 by VMAD. A property is filled when the spike has the form: a reference,
 actor or quest of the cell named as the property (FNV EditorIDs), the
-player, a helper quest or global (TES4Helpers.esl), a Fallout4.esm misc
-item or potion of the same name, or the FNV message it names (converted
-once). Same-named Fallout4.esm forms are not used otherwise: FNV's `PipBoy`
-is not FO4's Pip-Boy.
+player, a helper quest or global (TES4Helpers.esl), the FNV item it names
+through the cell's item converter (its conversion or FO4 stand-in), else a
+Fallout4.esm misc item or potion of the same name, or the FNV message it
+names (converted once). Same-named Fallout4.esm forms are not used
+otherwise.
 
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
@@ -26,6 +27,8 @@ SCRIPT_PREFIX = 'FALLOUTNV_'
 PLAYER = ('Player', 0x14)
 #: MESG DNAM Message Box, the one flag FNV and FO4 share (FNV bit 1 is Auto Display, FO4's Delay Initial Display).
 MESSAGE_BOX = 0x1
+#: Papyrus types of the item properties the cell's item converter fills by FNV name.
+ITEM_TYPES = frozenset({'Potion', 'MiscObject', 'LeveledItem', 'Weapon', 'Armor', 'Ammo', 'Book', 'Key'})
 
 
 class ObjectScripts:
@@ -59,14 +62,14 @@ class ObjectScripts:
                 **{prop: self.named[prop] for _, prop in declared if prop in self.named}}
 
     def _made(self, kind: str, prop: str) -> 'int | None':
-        """A property's form the spike converts on demand: material swaps, imagespace modifiers, poses."""
+        """A property's form the spike converts on demand: material swaps, imagespace modifiers, poses, items."""
         if kind == 'MatSwap' and prop.startswith(FALLOUT4_SWAP_PREFIX):
             return self.builder.swaps.swap(prop)
         if kind == 'ImageSpaceModifier':
             return self.builder.imods.modifier(prop)
         if kind == 'ObjectReference' and prop.startswith(FALLOUT4_POSE_PREFIX):
             return self.builder.poses.pose(prop)
-        return None
+        return self.builder.items.by_name(prop) if kind in ITEM_TYPES else None
 
     def talk(self, prop: str) -> int:
         """The FormID of the scene a `TES4Talk_<topic>` property starts, reserved once."""

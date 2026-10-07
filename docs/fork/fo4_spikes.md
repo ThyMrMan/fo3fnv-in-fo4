@@ -1407,9 +1407,35 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
   are named by INFO FormID, ids move between builds, and an earlier build's
   file for that id was still on disk. The cell build now deletes the
   plugin's `.fuz` files it did not write (250 stale ones, 155 kept).
-- Not converted: the outro's handouts (Stimpaks, caps, guns, ammo, the
-  Pip-Boy, the vault suit; items are a later step) and `VGenericTimer`,
-  which the farewell starts.
+- **The handouts** (played 2026-10-07). "Here. These are yours" gives
+  Stimpaks, caps, lockpicks and a weapon by tag skill, then the Pip-Boy and
+  the vault suit, all through FNV leveled lists (each gun listed once per
+  condition, FO4 has no item condition) and `IsPlayerTagSkill`, which was a
+  TODO. On Fallout 4 it is LevelUpMenuEx's `PRKF:PRKF.IsTagSkillAV` on the
+  skill's actor value. An FNV item with an FO4 counterpart is that
+  Fallout4.esm item (`items.STAND_INS`, with FO4's name and stats): Stimpak,
+  Med-X, Rad-X, blood pack, Cram, Pork N' Beans, Sugar Bombs, the bobby pin;
+  the 9mm pistol and ammo as the 10mm, the laser pistol and energy cells as
+  the laser gun and fusion cells, dynamite as the frag grenade, the straight
+  razor as the switchblade, boxing gloves, knife, the Pip-Boy (one piece: the
+  glove has none) and the vault suit as Vault 111's. Copies carrying FNV's
+  names need FO4's string tables (Fallout4.esm is localized, and each weapon's
+  object templates name themselves). FNV text notes become paper notes
+  (BOOK, vanilla `BoS302BIngramBackupNote`'s fields). Item properties of the
+  converted scripts are filled through the item converter by FNV name.
+  `VGenericTimer` is converted with the cell: its event 3 completes VCG01
+  (stage 200) and starts VCG02 (not converted).
+- **A line's result runs once.** Fallout 4 runs a line's Begin fragment for
+  each response: "Here. These are yours" (2 responses) gave its items twice
+  and the Pip-Boy line (3) three times, 4 to 6 s apart. Vanilla has 58
+  multi-response lines with a Begin fragment, all repeat-safe (a spotlight,
+  a flag). On Fallout 4 a converted line with several responses counts them
+  (`script_convert/info_responses_fallout4.py`, 2,421 FNV lines): its FNV
+  Begin result runs on the first, its End result, service menu and done
+  calls once the last has begun (right whether the End fragment runs after
+  each response or once), and a pause over 30 s starts a new play.
+- The Pip-Boy stays disabled until the farewell's last line ends (FNV's
+  stage 55 disables it, the farewell's End enables it), as in FNV.
 
 **Step 4, the character menus** (`fo4_import/spike/character.py`,
 `TES4_CharacterRules.psc`; played 2026-10-07). FNV's
@@ -1588,6 +1614,30 @@ starts, and the whole test runs through to its end and Doc's walk to the
 door; the outro there is next.
 
 **Played (step 1):** from the start marker beside the bed (player.moveto, as the hallway the vigor tester trigger covers lies between the coc door and the bed), stage 55 shows the walk objective, the trigger sets 60 and completes it, and with objective 30 shown by hand the Vit-o-matic sets 65. The trigger fires on any entry and starts the quest if it is not running, as in FNV, where the player cannot reach it before 55.
+
+### <a id="spike-4-exterior"></a>Goodsprings exterior (built 2026-10-07, not yet played)
+
+The cell spike can add a block of an FNV worldspace
+(`fo4_import/spike/exterior.py`, `--world WastelandNV --around -18 0
+--radius 1`): Doc's front door stands in WastelandNV's persistent cell at
+(-73,350, 1,297), grid cell (-18, 0) "Goodsprings". The 3×3 block holds
+1,049 references (851 statics, 45 activators, 43 trees, 28 containers, 24
+moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
+6 doors, 3 furniture), 4 creatures and 9 LAND records of 24 to 28 layers.
+
+- FO4's LAND is FNV's: DATA, VNML, VHGT, VCLR, and BTXT/ATXT/VTXT per
+  quadrant (vanilla `0000F540` has 9 alpha layers in a quadrant, so no cap
+  like Skyrim's 6). FNV's LTEX names a texture (`ICON`, under
+  `Textures\Landscape\`); FO4's names a texture set (TNAM), whose landscape
+  sets are diffuse (TX00), normal (TX01) and specular (TX07).
+- The worldspace record takes the Commonwealth's climate, water, map and
+  water-environment settings (`0000003C`); its persistent cell and grid
+  cells follow vanilla's (DATA `0x02`, XCLC, LTMP, no water). Exterior
+  groups are labelled (y, x) in int16s: block = coordinate ÷ 32, sub-block
+  ÷ 8 (vanilla cell (-89, 7) is block (0, -3), sub-block (0, -12)).
+- Static collections carry their merged mesh (`SCOL\…`), placed as
+  statics. Trees are SpeedTree (`.spt`): not converted. No grass, LOD or
+  exterior navmesh yet.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 

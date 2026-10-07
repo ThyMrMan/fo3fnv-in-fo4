@@ -6248,6 +6248,12 @@ class TestFallout4PlayerPackage:
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
         assert 'EvaluatePackage' in conv_lines(converter, 'DocREF.addscriptpackage DocSitPackage', 'Quest')
 
+    def test_tag_skill_reads_levelupmenuex(self, converter, monkeypatch):
+        """VCG01's handouts branch on the player's tag skills, which LevelUpMenuEx's tag menu set."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        out = conv_lines(converter, 'if IsPlayerTagSkill Guns\nset x to 1\nendif', 'Quest')
+        assert 'PRKF:PRKF.IsTagSkillAV(TES4AV_Guns)' in out and 'TODO' not in out
+
     def test_playidle_plays_an_idle_property(self, converter, monkeypatch):
         """Fallout 4's PlayIdle takes the Idle form the importer fills with a stand-in."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')

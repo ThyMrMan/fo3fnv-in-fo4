@@ -24,6 +24,8 @@ here, so a later patch can close the gap. Content is never dropped.
 | Player script packages (wake-ups, knock-downs, deaths) | Special idles with an animated camera | VCG01's bed wake-up seats the player on the bed's edge from the start; the player stands by moving; other player packages play nothing | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Idles played by script | FO3/FNV special idles (`.kf`) | No animation: FO4's give is a talk idle; set as the speaker idle of Doc's next line ("How'd I do?") it did not show. Others play nothing | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Imagespace modifiers | FNV's HDR (skin dimmer, target luminance, bloom alphas), cinematic contrast average, intro/outro sounds | Dropped; blur, double vision, tint, fade, radial blur, depth of field, eye adapt, bloom radius, saturation, contrast and brightness kept | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Items with an FO4 counterpart | FNV's own items, names and stats | The Fallout4.esm item: its name, stats and model (the 9mm pistol is the 10mm, energy cells are fusion cells, dynamite is the frag grenade, the Vault 21 suit is Vault 111's) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Item condition | Leveled lists give an item at a condition | No condition: the item | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Quest objectives in conditions | Engine condition functions | Mirror globals the converted scripts set | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Race menu (Reflectron) | FNV's race/face menu | FO4's full LooksMenu, as the vault exit elevator | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Faces | FaceGen shape and texture | FO4 sculpt regions fitted to FNV (about 70% of the shape), matched hair and eyes | [sculpt](fo4_spikes.md#spike-2-sculpt) |
