@@ -86,3 +86,15 @@ Function GlideAxis(ObjectReference akRef, Int aiAxis, Float afValue, ObjectRefer
   EndIf
   akRef.TranslateTo(x, y, z, NearAngle(afGoals[b + 9], afGoals[b + 3]), NearAngle(afGoals[b + 10], afGoals[b + 4]), NearAngle(afGoals[b + 11], afGoals[b + 5]), distance / afSeconds, 0.0)
 EndFunction
+
+; fallout4: new
+Function SayWhenFree(ObjectReference akSpeaker, Topic akTopic, ObjectReference akTarget) Global
+  {FO3/FNV Say/SayTo: says once the speaker's current line is over, waiting at most 3 s. FO4 drops a line said while one plays (a SayTo in a line's end result), FNV queued it.}
+  Actor a = akSpeaker as Actor
+  Float waited = 0.0
+  While a && a.IsTalking() && waited < 3.0
+    Utility.Wait(0.05)
+    waited += 0.05
+  EndWhile
+  akSpeaker.Say(akTopic, None, False, akTarget)
+EndFunction

@@ -14,6 +14,38 @@ Function Disable(bool abMovement = true, bool abFighting = true, bool abCamSwitc
   Layer.DisablePlayerControls(abMovement, abFighting, abCamSwitch, abLooking, abSneaking, abMenu, abActivate, abJournalTabs)
 EndFunction
 
+Bool CamSwitchLifted
+
+Function ShowRaceMenu()
+  {FO3/FNV ShowRaceMenu: FO4's full appearance edit as the vault exit elevator opens it (chargen skeleton,
+  neutral face, third person, the player turned to the camera, LooksMenu mode 1). The menu needs third person,
+  so a camera switch this layer disabled is enabled until the menu closes; then first person again.}
+  CamSwitchLifted = Layer && !Layer.IsCamSwitchEnabled()
+  If CamSwitchLifted
+    Layer.EnableCamSwitch(true)
+  EndIf
+  Actor player = Game.GetPlayer()
+  player.SetHasCharGenSkeleton()
+  player.ChangeAnimFaceArchetype(None)
+  Game.ForceThirdPerson()
+  Utility.Wait(1.0)
+  player.PlayIdle(Game.GetFormFromFile(0x1A9EE, "Fallout4.esm") as Idle)
+  Utility.Wait(1.0)
+  RegisterForMenuOpenCloseEvent("LooksMenu")
+  Game.ShowRaceMenu(uiMode = 1)
+EndFunction
+
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+  If asMenuName == "LooksMenu" && !abOpening
+    UnregisterForMenuOpenCloseEvent("LooksMenu")
+    Game.ForceFirstPerson()
+    If CamSwitchLifted
+      Layer.EnableCamSwitch(false)
+      CamSwitchLifted = false
+    EndIf
+  EndIf
+EndEvent
+
 Function FastTravel(bool abEnable)
   {FO3/FNV EnableFastTravel; Fallout 4 sets it on an input layer.}
   If !Layer

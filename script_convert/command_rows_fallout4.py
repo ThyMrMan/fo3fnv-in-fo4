@@ -61,5 +61,6 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'ssbmp': _menu('special', defaults={0: '40'}),
     'settagskills': _menu('tags'),
     'showtraitmenu': _menu('traits', '0.0', flags='zero_arg'),
+    'showracemenu': Cmd(f'{CONTROLS_PROPERTY}.ShowRaceMenu()', self_type=_CONTROLS, flags='zero_arg'),
     'showtraitselectmenu': _menu('traits', '0.0', flags='zero_arg'),
 }.items()}

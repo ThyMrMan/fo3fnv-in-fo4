@@ -169,7 +169,7 @@ class ScriptConverter:
         self._line_comments.append(f';NE: {text}')
         return value
 
-    _SAY_TOPIC_RE = re.compile(r'\.?Say\(\s*([A-Za-z_]\w*)')
+    _SAY_TOPIC_RE = re.compile(r'(?:\.?Say\(|SayWhenFree\([^,]+,)\s*([A-Za-z_]\w*)')
 
     def _say_fallback_seconds(self, say_expr: str) -> float:
         """Fallback length for a converted `set T to Say topic` (see SAY_LINE_SECONDS).
@@ -185,7 +185,8 @@ class ScriptConverter:
                 topic = ms.group('topic').strip().lower()
         return float((self.say_durations or {}).get(topic) or SAY_LINE_SECONDS)
 
-    _SAY_CALL_RE = re.compile(r'^\s*(?P<recv>.+?)\.Say\((?P<topic>[^()]*)\)\s*$')
+    _SAY_CALL_RE = re.compile(r'^\s*(?:(?P<recv>.+?)\.Say\((?P<topic>[^()]*)\)'
+                              r'|TES4Polyfill\.SayWhenFree\((?P<free_recv>[^,]+),\s*(?P<free_topic>[^,]+),.*\))\s*$')
     # The speak-as shape emitted by the Say handler (see _say_speak_as).
     _SPEAK_AS_CALL_RE = re.compile(
         r'^\s*TES4Polyfill\.SpeakAs\((?P<topic>[^,()]+),(?P<scene>[^,()]+)(?:,[^,()]+)?\)\s*$')
@@ -242,8 +243,8 @@ class ScriptConverter:
                         f'  {target} = Math.Ceiling({call}){delay}')
             return (f'{target} = {pre:g}  ; TES4 Say: closed until the line is under way\n'
                     f'  {target} = {call}{delay}')
-        speaker = m.group('recv').strip()
-        topic = m.group('topic').strip()
+        speaker = (m.group('recv') or m.group('free_recv')).strip()
+        topic = (m.group('topic') or m.group('free_topic')).strip()
         # The pre-charge closes this poll's own `T <= 0` guard for as long as
         # SayLine can still be BLOCKED, so a second tick cannot re-enter.
         #

@@ -88,7 +88,7 @@ def _fo4_params(cond: dict, form_map: dict, av) -> tuple:
     return form_map.get(cond['p1'], cond['p1']), form_map.get(cond['p2'], cond['p2'])
 
 
-def _run_on(cond: dict, swap: bool, form_map: dict) -> tuple:
+def run_on_of(cond: dict, swap: bool, form_map: dict) -> tuple:
     """(Run On, reference): player tests run on the player; swap flips Subject and Target."""
     if cond['func'] in ON_PLAYER:
         return RUN_REFERENCE, PLAYER_REF
@@ -104,7 +104,7 @@ def convert(kept: list, form_map: dict, av, swap: bool) -> bytes:
     for group in kept:
         for i, cond in enumerate(group):
             func = FO4.index(RENAMED.get(cond['func'], cond['func']))
-            run_on, ref = _run_on(cond, swap, form_map)
+            run_on, ref = run_on_of(cond, swap, form_map)
             or_flag = 0x01 if i < len(group) - 1 else 0
             p1, p2 = _fo4_params(cond, form_map, av)
             out += pack_ctda((cond['op_flags'] & 0xE0) | or_flag, cond['value'], func, p1, p2, run_on, ref)

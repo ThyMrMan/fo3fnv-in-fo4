@@ -1212,7 +1212,83 @@ idles and imagespace modifiers.
 Without Doc's lines the quest stops at stage 3 (stage 5 is set by his
 line's result).
 
-**Played:** from the start marker beside the bed (player.moveto, as the hallway the vigor tester trigger covers lies between the coc door and the bed), stage 55 shows the walk objective, the trigger sets 60 and completes it, and with objective 30 shown by hand the Vit-o-matic sets 65. The trigger fires on any entry and starts the quest if it is not running, as in FNV, where the player cannot reach it before 55.
+**Step 2a, Doc's scripted lines** (`fo4_import/spike/say_topics.py`;
+built 2026-10-06, not yet played). VCG01's 128 INFOs are 39 lines in five
+Conversation-type topics the quest Says (`VCG01Intro` 15,
+`VCG01DocReactions` 16, `VCG01DocPsychIntro` 3, `VCG01DocTraitIntro` 3,
+`VCG01DocFarewellTransition` 2), the psych test's greeting and 77 answer
+topics (step 2b), the outro and two epilogue lines.
+
+- FNV's SayTo plays a topic's first passing line; the `VCG01Intro` lines
+  all test only `GetIsID DocMitchell` and are Say Once, and each one's
+  result says the topic again or sets the next stage, so the chain steps
+  line by line.
+- FO4's Say takes a Custom topic (DATA 0, SNAM `CUST`), and vanilla's sit
+  in a branch of their quest: all 1,243 Custom topics have a BNAM, as
+  `MS09LorenzoWeakenedTopic` in `MS09Branch` (DLBR: Player, Top-Level, a
+  starting topic). The quest gets a branch and the five topics, with each
+  line's responses, Say Once flag, conditions and converted fragment.
+- Conditions: forms through the cell (Doc's NPC to his clone, the quest,
+  references, the player). FNV's `GetQuestVariable VCG01 5` becomes FO4's
+  `GetVMQuestVariable` (function 629): parameter 1 the quest, the variable
+  named in a CIS2 after the CTDA as `::<property>_var`, as vanilla's 8,906
+  uses (`::var_VaultLife_var`); the index comes from the quest script's
+  variable list (5 is `nDocReaction`).
+- **SayTo's target.** Four reaction lines test the player's sex on the
+  Target ("Sorry, son" / "little lady"). The converter wrote SayTo as a
+  bare `Say(topic)` (Skyrim's Say has no target); FO4's
+  `Say(Topic, Actor, bool, ObjectReference akTarget)` does, so on Fallout 4
+  `SayTo <target> <topic>` now passes it. Corpus: 2,947 scripts recompiled,
+  still 17,676 of 17,695.
+- Voice: the 39 lines' FNV recordings as `.fuz` under the clone's stand-in
+  voice type (`NPCMDocWeathers`), as the dialogue spike does.
+- **First play:** moving to the bed opened FO4's generic doctor dialogue on
+  Doc, and the quest jumped several stages. The clone kept Doc Weathers'
+  factions: `DialogueDoctorsFaction` (vanilla's doctor greeting and menu,
+  the stand-in artifact [fragments](#spike-3-fragments) noted),
+  `CaravanFaction`, `CaravanLeaderFaction`,
+  `CaravanVendorDocWeathersFaction`, two companion-chat factions, and his
+  crime faction. The cell's clones now leave out the stand-in's factions
+  (SNAM) and crime faction (CRIF).
+- **A line said from a line's end is dropped.** The doctor box gone, the
+  quest still ran from stage 8 to 36 in 0.4 s after Doc's second line. A
+  diagnostic polyfill (`SAY_TRACE` on, real-time stamps on LineBegan,
+  LineEnded and every stage set) showed lines 1 and 2 playing normally
+  (BEGIN 21.29 → END 23.94, BEGIN 27.55 → END 32.93), then about eight END
+  fragments with no BEGIN between 32.95 and 33.10: line 2's end result
+  says `VCG01Intro` again, FO4 drops a Say to an actor still in its line
+  and runs the dropped line's End fragment at once, whose result says the
+  next, and so on. FNV queued such a line (its chained SayTo results are
+  how Doc's intro steps). Vanilla FO4 never Says from a fragment (0 of its
+  fragments); it chains lines in scenes. On Fallout 4 the converter now
+  emits Say/SayTo as `TES4Polyfill.SayWhenFree(speaker, topic, target)`,
+  which waits while the speaker `IsTalking()` (at most 3 s), then Says.
+  Played: every line in order through to the couch.
+- **The Reflectron.** `ShowRaceMenu` became a bare `Game.ShowRaceMenu()`:
+  the menu opened with the camera in first person and no body to edit.
+  Vanilla never calls it bare. Mode 0 is MQ101's mirror (with the spouse
+  refs), 2 the barber, 3 the surgeon, 1 the vault exit elevator's full
+  edit, which first sets the chargen skeleton and a neutral face, forces
+  third person and plays `ElevatorFaceCamera` (`0001A9EE`) to turn the
+  player to the camera. On Fallout 4 `showracemenu` is now
+  `TES4Polyfill.ShowRaceMenu()`, doing that, opening mode 1, and going back
+  to first person once it closes, as the elevator's `MenusDone` does.
+  Played: the camera swung out, then the menu came up in first person
+  again. Stage 0's `DisablePlayerControls` reaches FO4's shared input
+  layer with the camera switch disabled (`TES4_PlayerControls.Disable`'s
+  third flag), which pins first person; FNV's Reflectron did not depend on
+  it. Lifting it alone changed nothing: the helper's
+  `Utility.Wait(0.5)` then `ForceFirstPerson()` ran half a second after
+  the menu opened, since `ShowRaceMenu` returns at once and FO4's LooksMenu
+  does not pause the game (no Papyrus errors in the log). Vanilla restores
+  the view in `OnMenuOpenCloseEvent("LooksMenu")` (`SurgeonScript`,
+  `WorkshopSurgeryChairScript`), which needs a script instance, so the
+  edit moved onto the controls quest: `showracemenu` emits
+  `TES4PlayerControls.ShowRaceMenu()`, which enables the camera switch on
+  its layer if it disabled it, sets up and opens mode 1, and on the
+  menu's close goes back to first person and disables the switch again.
+
+**Played (step 1):** from the start marker beside the bed (player.moveto, as the hallway the vigor tester trigger covers lies between the coc door and the bed), stage 55 shows the walk objective, the trigger sets 60 and completes it, and with objective 30 shown by hand the Vit-o-matic sets 65. The trigger fires on any entry and starts the quest if it is not running, as in FNV, where the player cannot reach it before 55.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 

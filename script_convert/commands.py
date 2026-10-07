@@ -29,7 +29,7 @@ from script_convert.command_rows import (
     ACTOR_VALUE_READ_FUNCTIONS, Cmd, param_types
 )
 from script_convert.emit.commands import emit_row
-from script_convert.target import anim_event_call, av_call, controls_call, fallout4_av_name, self_as_actor
+from script_convert.target import anim_event_call, av_call, controls_call, fallout4_av_name, is_fallout4, self_as_actor
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
@@ -295,11 +295,12 @@ def udf_call(ctx, call) -> str:
 def say(ctx, call) -> str:
     """Say / SayTo -- speak a topic.  SayTo names the TARGET first, the topic second.
 
-    Say is declared on ObjectReference, so its receiver is never promoted to
-    Actor.  A speak-as site (`Say <topic> <flag> <NPC> <flag>`) speaks through
-    the importer's voiced TACT and its one-action scene; the topic rides along
-    for the length fallback unless a script local shadows its name.
+    The receiver stays an ObjectReference. A speak-as site (`Say <topic>
+    <flag> <NPC> <flag>`) speaks through the importer's voiced TACT and its
+    scene. On Fallout 4, TES4Polyfill.SayWhenFree says once the speaker's
+    line is over and passes SayTo's target.
     See: docs/commentary/tes5_import_dialogue.md#speaker-activator-construction
+    See: docs/fork/fo4_spikes.md#spike-2-vcg01
     """
     parts = ctx.arg_srcs()
     n = 1 if (call.name == 'sayto' and len(parts) >= 2) else 0
@@ -311,6 +312,8 @@ def say(ctx, call) -> str:
     ref = ctx._resolve_objref_ref(call.ref, call.extends)
     scene = ctx._say_speak_as(call.ref, parts, call.name)
     if not scene:
+        if is_fallout4():
+            return f'TES4Polyfill.SayWhenFree({ref}, {topic}, {call.arg(0) if n else "None"})'
         return f'{ref}.Say({topic})'
     name = parts[n].strip().split()[0] if len(parts) > n else ''
     if name and ctx.sc.var_types.get(name.lower()):

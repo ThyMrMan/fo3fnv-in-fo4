@@ -21,6 +21,10 @@ INFO_SAY_ONCE, INFO_END_SCENE = 0x0004, 0x0040
 #: DIAL DATA + SNAM. Scene topics: DialogueDiamondCity 001994FB; greetings: 000A7D2D.
 TOPIC_SCENE = (bytes([0, 2, 0x10, 0]), b'SCEN')
 TOPIC_GREETING = (bytes([0, 7, 0x74, 0]), b'GREE')
+#: A Custom topic a script Says (MS09LorenzoWeakenedTopic 001A8938: DATA 0, SNAM CUST, in its quest's branch).
+TOPIC_CUSTOM = (bytes(4), b'CUST')
+#: DLBR DNAM of 128 of vanilla's 132 branches: Top-Level.
+BRANCH_FLAGS = 1
 #: Player Dialogue action FNAM from CookeGreetScene 0003A63D: face target, headtrack, camera on speaker.
 PLAYER_DIALOGUE_FLAGS = 0x228800
 #: SCEN FNAM from CookeGreetScene: show all text, has player dialogue, no follower chatter.
@@ -59,13 +63,24 @@ def pack_ctda(op_flags: int, value: float, func: int, p1: int = 0, p2: int = 0,
     return pack_subrecord('CTDA', data)
 
 
-def pack_dial(fid: int, edid: str, quest: int, kind: tuple, info_count: int) -> bytes:
-    """A topic: priority 50, its quest, DATA and subtype code from `kind`, and its INFO count."""
+def pack_dial(fid: int, edid: str, quest: int, kind: tuple, info_count: int, branch: int = 0) -> bytes:
+    """A topic: priority 50, its branch, its quest, DATA and subtype code from `kind`, and its INFO count."""
     data, code = kind
     subs = _zstr('EDID', edid) + pack_subrecord('PNAM', struct.pack('<f', 50.0))
-    subs += _u32('QNAM', quest) + pack_subrecord('DATA', data) + pack_subrecord('SNAM', code)
-    subs += _u32('TIFC', info_count)
+    subs += (_u32('BNAM', branch) if branch else b'') + _u32('QNAM', quest)
+    subs += pack_subrecord('DATA', data) + pack_subrecord('SNAM', code) + _u32('TIFC', info_count)
     return pack_fo4_record('DIAL', fid, 0, subs)
+
+
+def pack_dlbr(fid: int, edid: str, quest: int, start_topic: int) -> bytes:
+    """A dialogue branch: its quest, category Player, BRANCH_FLAGS, its starting topic."""
+    subs = _zstr('EDID', edid) + _u32('QNAM', quest) + _u32('TNAM', 0) + _u32('DNAM', BRANCH_FLAGS)
+    return pack_fo4_record('DLBR', fid, 0, subs + _u32('SNAM', start_topic))
+
+
+def pack_cis2(text: str) -> bytes:
+    """A condition's string parameter (CIS2), written after its CTDA."""
+    return _zstr('CIS2', text)
 
 
 def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b'',
