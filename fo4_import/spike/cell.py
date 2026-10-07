@@ -29,6 +29,7 @@ from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
+from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
@@ -36,11 +37,17 @@ from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS
 from fo4_import.spike.script import compile_into
+from fo4_import.spike.quest import quest_record
 from fo4_import.spike.statics import write_assets
+from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from tes5_import.base.tes5_reader import first_sub, sub_map, walk
 from tes5_import.base.text_reader import parse_export_file
 
-MASTERS = ['Fallout4.esm']
+MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN]
+#: Master index of the helper plugin (TES4Helpers.esl).
+HELPER_INDEX = 1
+#: FNV quests the cell's scripts run, converted with it.
+CELL_QUESTS = ('VCG01',)
 FIRST_ID = 0x800
 #: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
 AS_STATIC = ('STAT', 'MSTT', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
@@ -54,8 +61,8 @@ ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
 #: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).
 STAND_INS = {fnv: fo4 for _, fnv, fo4, *_ in SPEAKERS if fnv}
-#: Face variants per actor, both with fitted sculpt regions and tints: the stand-in's head parts, FNV's matched.
-FACE_VARIANTS, FACE_SPACING = ('ST', 'STH'), 50.0
+#: Face variants per actor (fitted sculpt regions and tints, FNV's head parts matched); the last plays the FNV ref.
+FACE_VARIANTS, FACE_SPACING = ('STH',), 50.0
 #: The bit every vanilla FO4 omni light carries.
 LIGHT_BASE = 0x1
 
@@ -115,7 +122,8 @@ class CellBuilder:
         self.export_dir, self.data_dir, self.bases = export_dir, data_dir, bases
         self.writer = FO4PluginWriter(masters=MASTERS, is_esm=False, description='FNV cell spike')
         self.next_id = len(MASTERS) << 24 | FIRST_ID
-        self.made, self.meshes, self.items, self.activators = {}, {}, None, None
+        self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
+        self.actor_ids = {}
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -157,7 +165,8 @@ class CellBuilder:
         elif sig == 'ACTI':
             record = self.activators.record(fid, rec, model, bounds)
         elif sig == 'DOOR':
-            record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)))
+            vmad = self.scripts.vmad(int(rec['SCRI'], 16)) if 'SCRI' in rec else b''
+            record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)), vmad)
         else:
             sig, record = 'STAT', R.pack_stat(fid, edid, model, bounds)
         self.writer.add_record(sig, record)
@@ -305,7 +314,10 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
                 base, stand_in.body, stand_in.flags, f'FNV_{npc["EditorID"]}_{variant}',
                 f'{npc.get("FULL", "")} ({variant})', FACE_SHAPE, morphs, edits[variant]))
             spot = (pos[0] + i * FACE_SPACING * math.cos(rot[2]), pos[1] - i * FACE_SPACING * math.sin(rot[2]), pos[2])
-            out += R.pack_achr(builder.new_id(), base, spot, rot)
+            achr = builder.new_id()
+            builder.actor_ids[ref['FormID']] = builder.scripts.named[ref.get('EditorID', '')] = achr
+            vmad = builder.scripts.vmad(int(npc['SCRI'], 16)) if 'SCRI' in npc else b''
+            out += R.pack_achr(achr, base, spot, rot, vmad)
             builder.counts['NPC_'] += 1
     return out
 
@@ -333,12 +345,21 @@ def _navmesh(builder: CellBuilder, export_dir: Path, fnv_cell: str, cell_fid: in
     return records
 
 
+def _quests(builder: CellBuilder, export_dir: Path, quests: dict, ref_ids: dict) -> None:
+    """Write the FNV quests `quests` ({EditorID: FormID}); `ref_ids` maps FNV references to the cell's."""
+    for rec in parse_export_file(str(export_dir / 'QUST.txt')):
+        if rec.get('EditorID') in quests:
+            builder.writer.add_record('QUST', quest_record(quests[rec['EditorID']], rec, builder.scripts, ref_ids))
+            builder.counts['QUST'] += 1
+
+
 def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None') -> None:
     """Give `builder` its item and activator makers."""
     records = index(export_dir, ITEM_TYPES)
     builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
                                                               SHARED_TYPES))
-    builder.activators = Activators(builder, export_dir, scripts_dir)
+    builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
+    builder.activators = Activators(builder, export_dir)
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
@@ -355,10 +376,14 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     _object_makers(builder, export_dir, scripts_dir)
     cell_fid = builder.new_id()
     ids = {r['FormID']: builder.new_id() for r in refs}
+    quests = {edid: builder.new_id() for edid in CELL_QUESTS}
+    builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
+    vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
+    actors = _actors(builder, export_dir, cell['FormID'], vanilla)
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
     persistent, temporary = _placed(builder, refs, ids, teleports)
-    vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
-    persistent += _actors(builder, export_dir, cell['FormID'], vanilla)
+    persistent += actors
+    _quests(builder, export_dir, quests, {**ids, **builder.actor_ids})
     temporary += _navmesh(builder, export_dir, cell['FormID'], cell_fid, ids)
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
     template = sub_map(vanilla[CELL_FO4].body)
@@ -370,8 +395,8 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
                                                                 (qa_record, CELL_FO4, qa_refs, b'')]))
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
-    if builder.activators.used:
-        print(compile_into(scripts_dir, data_dir, builder.activators.used))
+    if builder.scripts.used:
+        print(compile_into(scripts_dir, data_dir, builder.scripts.used))
     builder.writer.next_object_id = builder.next_id & 0xFFFFFF
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))

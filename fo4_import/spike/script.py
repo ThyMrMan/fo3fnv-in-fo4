@@ -37,6 +37,11 @@ TRACE_SCRIPT = 'FNVSpike_SceneTrace'
 TRACE_LOG = 'FNVSpikeTrace'
 
 
+def stage_fragments(psc: str) -> list:
+    """[(stage, log index, function)] of a converted quest stage script."""
+    return [(int(stage), int(item), name) for name, stage, item in _STAGE_FRAGMENT.findall(psc)]
+
+
 def declared_properties(psc: str) -> list:
     """[(type, name)] of a script's properties, in declaration order."""
     return _PROPERTY.findall(psc)
@@ -78,8 +83,7 @@ def quest_record(scripts_dir: Path, edid: str, fid: int, stages: list, forms: di
     """(QUST record, stage script name): FNV quest `edid` with its stages and its converted stage fragments."""
     script = f'{QUEST_PREFIX}{edid}'
     psc = (scripts_dir / f'{script}.psc').read_text(encoding='utf-8')
-    fragments = [(int(stage), int(item), name) for name, stage, item in _STAGE_FRAGMENT.findall(psc)]
-    vmad = quest_fragments(script, fragments, fill(declared_properties(psc), forms, helper_index))
+    vmad = quest_fragments(script, stage_fragments(psc), fill(declared_properties(psc), forms, helper_index))
     return pack_script_quest(fid, edid, vmad, stages), script
 
 

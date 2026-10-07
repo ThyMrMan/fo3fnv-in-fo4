@@ -42,13 +42,15 @@ def info_fragments(script: str, object_props: dict = None, value_props: dict = N
 
 
 def quest_fragments(script: str, stages: list, object_props: dict = None, value_props: dict = None,
-                    aliases: list = ()) -> bytes:
-    """A QUST's VMAD: stage fragments, then alias scripts.
+                    aliases: list = (), scripts: list = ()) -> bytes:
+    """A QUST's VMAD: plainly attached `scripts`, stage fragments, then alias scripts.
 
     `stages` is [(stage, log index, fragment function)] of `script` ('' when
-    none); `aliases` is [(alias id, quest FormID, [(script, object props, value props)])].
+    none); `aliases` is [(alias id, quest FormID, [(script, object props, value props)])];
+    `scripts` is [(script, object props, value props)].
     """
-    out = _header() + struct.pack('<bH', BIND_DATA, len(stages))
+    out = _header(len(scripts)) + b''.join(script_entry(*s) for s in scripts)
+    out += struct.pack('<bH', BIND_DATA, len(stages))
     out += script_entry(script, object_props, value_props) if script else pack_wstring('')
     for stage, index, fragment in stages:
         out += struct.pack('<IIB', stage, index, 1) + pack_wstring(script) + pack_wstring(fragment)

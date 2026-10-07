@@ -1172,6 +1172,48 @@ Doc's house: one navmesh, 118 vertices and 123 triangles, its door link on
 triangle 77 to the interior door (`GSDocMitchellHouseIntDoorREF`, flags
 Door + Found), no edge links.
 
+### <a id="spike-2-vcg01"></a>Doc's intro quest, VCG01 (step 1 played 2026-10-06)
+
+VCG01 ("Ain't That a Kick in the Head") is FNV's character creation in
+Doc's house: 38 stages run by the quest script's timers (`DATA.Delay` 0.01,
+so the converted poll re-arms at the 0.1 s minimum) and by Doc's lines;
+name, sex, Reflectron (race menu), the Vit-o-matic (SPECIAL), the
+questionnaire (tag skills) and traits; 4 objectives; the triggers and
+activators of the [activators](#spike-2-activators) step. Steps: (1) the
+quest and its scripts on the cell's forms; (2) Doc's intro lines (five
+`SayTo` topics and the questionnaire) in the cell plugin; (3) Doc's AI
+packages; (4) the character menus on FO4; (5) the player's bed package,
+idles and imagespace modifiers.
+
+**Step 1** (`fo4_import/spike/quest.py`, `attach.py`):
+
+- The QUST keeps name, priority and stages (one log entry each, FNV's
+  complete flag); it is not start-game enabled (`setstage FNV_VCG01 0`
+  starts it). Its VMAD attaches `FALLOUTNV_VCG01SCRIPT` plainly and
+  `FALLOUTNV_QF_VCG01`'s 38 stage fragments (`vmad.quest_fragments` gained
+  plainly attached scripts).
+- FO4 objectives target aliases, not references: each distinct FNV target
+  becomes a forced-reference alias (the Vit-o-matic, the couch, the exit
+  marker) and its QSTA names it.
+- `attach.ObjectScripts` attaches every record's converted script (doors,
+  activators, Doc's ACHR, the quest) and fills a property from the cell's
+  own forms by FNV name (references, actors, the quest), `Player`, the
+  helper quests and globals (the plugin now masters `TES4Helpers.esl`),
+  Fallout4.esm misc items and potions, and the messages it names. Other
+  same-named Fallout4.esm forms are not used: stage 0's
+  `RemoveItem PipBoy` would take FO4's Pip-Boy.
+- A property typed as a script (`DocMitchellREF` as
+  `FALLOUTNV_GSDocMitchellScript`) needs the reference to carry it, so Doc
+  carries his FNV script and doors theirs. Doc is one clone now (STH).
+- Unfilled: `VCG00`, `VMQ01`, `VCG04`, `CGTutorial`, `VictorREF`, the
+  topics (step 2), packages (step 3), imagespace modifiers, `PipBoy`,
+  `GameHour`, `TES4DestroyedRefs`.
+
+Without Doc's lines the quest stops at stage 3 (stage 5 is set by his
+line's result).
+
+**Played:** from the start marker beside the bed (player.moveto, as the hallway the vigor tester trigger covers lies between the coc door and the bed), stage 55 shows the walk objective, the trigger sets 60 and completes it, and with objective 30 shown by hand the Vit-o-matic sets 65. The trigger fires on any entry and starts the quest if it is not running, as in FNV, where the player cannot reach it before 55.
+
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 
 The CK exports FaceGen from the command line: `CreationKit.exe

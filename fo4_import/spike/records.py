@@ -174,10 +174,32 @@ def pack_stat(fid: int, edid: str, model: str, bounds: tuple) -> bytes:
     return pack_fo4_record('STAT', fid, 0, subs + pack_subrecord('DNAM', struct.pack('<fIff', 90.0, 0, 1.0, 1.0)))
 
 
-def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: int) -> bytes:
-    """A door: bounds, name, model, FNAM flags (Automatic, Hidden, Sliding...)."""
-    subs = _bounded(edid, bounds) + _zstr('FULL', name) + _zstr('MODL', model)
+def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: int, vmad: bytes = b'') -> bytes:
+    """A door: scripts, bounds, name, model, FNAM flags (Automatic, Hidden...)."""
+    subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
+    subs += pack_subrecord('OBND', struct.pack('<6h', *bounds)) + _zstr('FULL', name) + _zstr('MODL', model)
     return pack_fo4_record('DOOR', fid, 0, subs + pack_subrecord('FNAM', bytes([flags])))
+
+
+def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, stages: list, objectives: list,
+                   aliases: list) -> bytes:
+    """A quest: scripts, stages [(index, log flags)], objectives [(index, text, [alias ids])], aliases.
+
+    Aliases are forced references [(alias id, name, reference)], as an
+    objective targets an alias in FO4, not a reference.
+    """
+    subs = _zstr('EDID', edid) + pack_subrecord('VMAD', vmad) + _zstr('FULL', name)
+    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0, priority, 0.0, 0)) + pack_subrecord('NEXT', b'')
+    for index, log_flags in sorted(stages):
+        subs += pack_subrecord('INDX', struct.pack('<HBB', index, 0, 0)) + pack_subrecord('QSDT', bytes([log_flags]))
+    for index, text, targets in objectives:
+        subs += pack_subrecord('QOBJ', struct.pack('<H', index)) + _u32('FNAM', 0) + _zstr('NNAM', text)
+        subs += b''.join(pack_subrecord('QSTA', struct.pack('<iII', alias, 0, 0)) for alias in targets)
+    subs += _u32('ANAM', len(aliases))
+    for alias, alias_name, ref in aliases:
+        subs += _u32('ALST', alias) + _zstr('ALID', alias_name) + _u32('FNAM', 0) + _u32('ALFR', ref)
+        subs += pack_subrecord('ALED', b'')
+    return pack_fo4_record('QUST', fid, 0, subs)
 
 
 def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float) -> bytes:
