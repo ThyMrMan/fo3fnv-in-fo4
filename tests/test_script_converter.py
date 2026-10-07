@@ -6229,6 +6229,31 @@ class TestFalloutQuestStageSubject:
         assert 'RestoreValue(TES4AV_Rads, 1000)' in out
 
 
+class TestFallout4PlayerPackage:
+    """FO4 runs no package on the player: its script packages hold the player through the controls helper.
+
+    See: docs/fork/fo4_spikes.md#spike-2-vcg01
+    """
+
+    def test_player_package_seats_through_a_pose_property(self, converter, monkeypatch):
+        """VCG01 stage 0: the package names the Furniture the importer fills."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        out = conv_lines(converter, 'player.addscriptpackage VCG01PlayerSection0', 'Quest')
+        assert out == 'TES4PlayerControls.HoldPlayer(TES4Pose_VCG01PlayerSection0)'
+        assert conv_lines(converter, 'player.removescriptpackage', 'Quest') == 'TES4PlayerControls.ReleasePlayer()'
+
+    def test_npc_package_and_skyrim_keep_the_row(self, converter, monkeypatch):
+        """Another actor's package, and the Skyrim target, still re-evaluate packages."""
+        assert 'HoldPlayer' not in conv_lines(converter, 'player.addscriptpackage VCG01PlayerSection0', 'Quest')
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        assert 'EvaluatePackage' in conv_lines(converter, 'DocREF.addscriptpackage DocSitPackage', 'Quest')
+
+    def test_playidle_plays_an_idle_property(self, converter, monkeypatch):
+        """Fallout 4's PlayIdle takes the Idle form the importer fills with a stand-in."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        assert '.PlayIdle(VCG01DocGiveMirror)' in conv_lines(converter, 'DocREF.PlayIdle VCG01DocGiveMirror', 'Quest')
+
+
 class TestFalloutElseText:
     """FO3/FNV compile text after `else` to nothing; TES4 reads it as an elseif.
 

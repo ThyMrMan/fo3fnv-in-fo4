@@ -47,7 +47,7 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'player.gethealthpercentage': Cmd(f'Game.GetPlayer().GetValuePercentage({av_property("Health")})',
                                       self_type=_av('Health'), flags='zero_arg'),
     'pickidle': Cmd('{ref}.PlayAnimation("{s0}")', ACTOR, defaults={0: 'IdleForceDefaultState'}, flags='zero_arg'),
-    'playidle': Cmd('{ref}.PlayAnimation("{s0}")', ACTOR, defaults={0: 'IdleForceDefaultState'}),
+    'playidle': Cmd('{ref}.PlayIdle({p0})', ACTOR, types={0: 'Idle'}),
     'rewardxp': Cmd('Game.RewardPlayerXP({i0})'),
     'setrestrained': Cmd('{ref}.SetRestrained({b0})', ACTOR, defaults={0: '0'}),
     'getlos': Cmd('HasDetectionLOS', MAP, flags='actor_only'),

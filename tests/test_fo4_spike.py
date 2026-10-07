@@ -4,11 +4,18 @@ See: docs/fork/fo4_spikes.md#spike-1b
 """
 
 import struct
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from fo4_import.spike import dialogue as D
+from fo4_import.spike import imods as I
+from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
 from fo4_import.spike import voice as V
+from tes5_import.base.tes5_reader import subrecords
+from tes5_import.base.writer import pack_subrecord
 
 
 def _flags(value: int) -> dict:
@@ -63,3 +70,28 @@ def test_voice_job_names_the_fuz_by_plugin_voice_type_and_info(tmp_path):
     jobs = V.jobs([(0x02000869, rec)], [(folder, 'NPCMDocWeathers')], tmp_path / 'Data', 'Spike.esp')
     assert [(j[1].relative_to(tmp_path).as_posix(), j[2]) for j in jobs] == [
         ('Data/Sound/Voice/Spike.esp/NPCMDocWeathers/00000869_1.fuz', ' Of course.')]
+
+
+def test_imad_moves_fnv_contrast_to_fo4_and_resets_hdr_slots():
+    """FNV contrast (pair 18) is FO4's pair 19 with its key count; FNV's skin dimmer (pair 2) becomes FO4's identity."""
+    keys = struct.pack('<6f', 0.0, 1.0, 0.5, 2.0, 1.0, 1.0)
+    counts = [2] * 42
+    counts[18 * 2] = counts[2 * 2] = 3
+    dnam = struct.pack('<If42I', 1, 3.0, *counts) + bytes(244 - 176)
+    body = pack_subrecord('EDID', b'T\0') + pack_subrecord('DNAM', dnam)
+    body += pack_subrecord('\x12IAD', keys) + pack_subrecord('\x02IAD', keys)
+    subs = dict(subrecords(I.convert(body)))
+    ints = struct.unpack('<63I', subs[b'DNAM'])
+    assert subs[b'\x13IAD'] == keys and ints[2 + 19 * 2] == 3
+    assert subs[b'\x02IAD'] == I.MULT_KEYS and ints[2 + 2 * 2] == 2
+    assert ints[61:] == (2, 2) and subs[b'NAM5'] == I.ZERO_KEYS
+
+
+def test_seat_moves_from_the_start_marker_onto_docs_bed():
+    """VCG01's start marker stands 13 units outside the twin bed; the seat goes 18 inside its mesh edge, facing out."""
+    bed = Path('export/FalloutNV.esm/meshes/furniture/nv_bedtwin01.nif')
+    if not bed.exists():
+        pytest.skip('needs the FalloutNV.esm export')
+    marker = ((2257.0427, 2318.2153, 7360.0), (0.0, 0.0, 3.1415987))
+    (x, y, z), rot = P.seat_place(marker, [(((2281.6326, 2377.5889, 7392.0), (0.0, 0.0, 1.685404)), str(bed))])
+    assert (round(x), round(y), z, rot) == (2257, 2352, 7360.0, marker[1])

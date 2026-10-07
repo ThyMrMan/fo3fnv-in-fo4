@@ -21,6 +21,9 @@ here, so a later patch can close the gap. Content is never dropped.
 | Opening a talk | `StartConversation`, force greets and clicking all open the GREETING | A silent `...` greeting line starts the GREETING scene (its subtitle shows briefly) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Force greets | Dialogue package: walk up and talk | FO4 ForceGreet (its approach distance, dialogue camera) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | AI packages | FNV package types and flags | Copies of vanilla FO4 template instances; flags the games share; Travel to a chair is a Sit | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Player script packages (wake-ups, knock-downs, deaths) | Special idles with an animated camera | VCG01's bed wake-up seats the player on the bed's edge from the start; the player stands by moving; other player packages play nothing | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Idles played by script | FO3/FNV special idles (`.kf`) | No animation: FO4's give is a talk idle; set as the speaker idle of Doc's next line ("How'd I do?") it did not show. Others play nothing | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Imagespace modifiers | FNV's HDR (skin dimmer, target luminance, bloom alphas), cinematic contrast average, intro/outro sounds | Dropped; blur, double vision, tint, fade, radial blur, depth of field, eye adapt, bloom radius, saturation, contrast and brightness kept | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Quest objectives in conditions | Engine condition functions | Mirror globals the converted scripts set | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Race menu (Reflectron) | FNV's race/face menu | FO4's full LooksMenu, as the vault exit elevator | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Faces | FaceGen shape and texture | FO4 sculpt regions fitted to FNV (about 70% of the shape), matched hair and eyes | [sculpt](fo4_spikes.md#spike-2-sculpt) |

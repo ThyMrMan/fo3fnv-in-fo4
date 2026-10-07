@@ -22,7 +22,7 @@ Function ShowRaceMenu()
   {FO3/FNV ShowRaceMenu: the sex (ChooseSex, set through TES4Polyfill.SetSex), then FO4's full appearance edit
   as the vault exit elevator opens it (chargen skeleton, neutral face, third person, the player turned to the
   camera, LooksMenu mode 1). The menu needs third person, so a camera switch this layer disabled is enabled
-  until the menu closes; then first person again.}
+  until the menu closes; then first person again. A held player stands for it and sits again after.}
   If ChooseSex
     TES4Polyfill.SetSex(Game.GetPlayer(), ChooseSex.Show() as String)
   EndIf
@@ -31,6 +31,10 @@ Function ShowRaceMenu()
     Layer.EnableCamSwitch(true)
   EndIf
   Actor player = Game.GetPlayer()
+  Resit = Seated()
+  If Resit
+    Stand()
+  EndIf
   player.SetHasCharGenSkeleton()
   player.ChangeAnimFaceArchetype(None)
   Game.ForceThirdPerson()
@@ -49,6 +53,96 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
       Layer.EnableCamSwitch(false)
       CamSwitchLifted = false
     EndIf
+    If Resit
+      Resit = false
+      Sit()
+    EndIf
+  EndIf
+EndEvent
+
+ObjectReference Seat
+Bool Resit
+Bool Released
+
+Function HoldPlayer(ObjectReference akSeat)
+  {FO3/FNV AddScriptPackage on the player, whose special idles Fallout 4 cannot play. With a seat (the importer
+  places one, disabled, at the marker the player starts on) the player sits in it, as MQ101 activates the cryopod;
+  without one the script's disabled controls hold them. A seat already sat in stays.}
+  If !akSeat || (akSeat == Seat && Seated())
+    Return
+  EndIf
+  Seat = akSeat
+  Released = false
+  Sit()
+EndFunction
+
+Function Sit()
+  {Enables Seat and has the player activate it once its 3D is loaded, movement and activation lifted on this layer
+  until they sit (3 s at most); then SnapIntoInteraction. Logs the outcome.}
+  Actor player = Game.GetPlayer()
+  Seat.Enable()
+  RegisterForRemoteEvent(Seat, "OnExitFurniture")
+  Bool moving = !Layer || Layer.IsMovementEnabled()
+  Bool activating = !Layer || Layer.IsActivateEnabled()
+  If Layer
+    Layer.EnableMovement(true)
+    Layer.EnableActivate(true)
+  EndIf
+  Seat.WaitFor3DLoad()
+  Seat.Activate(player)
+  String how = "activated"
+  If !SeatTaken()
+    how = "snapped"
+    player.SnapIntoInteraction(Seat)
+    SeatTaken()
+  EndIf
+  If Layer
+    Layer.EnableMovement(moving)
+    Layer.EnableActivate(activating)
+  EndIf
+  Debug.Trace("TES4_PlayerControls.Sit " + Seat + ": " + how + ", seated " + Seated() + ", in " + player.GetFurnitureReference())
+EndFunction
+
+Bool Function SeatTaken()
+  {Waits up to 3 s for the player to sit in Seat; whether they did.}
+  Float waited = 0.0
+  While Seat && !Seated() && waited < 3.0
+    Utility.Wait(0.1)
+    waited += 0.1
+  EndWhile
+  Return Seated()
+EndFunction
+
+Bool Function Seated()
+  {Whether the player sits in Seat: the furniture says it is in use, or the player is in it (F4SE).}
+  Return Seat && (Seat.IsFurnitureInUse() || Game.GetPlayer().GetFurnitureReference() == Seat)
+EndFunction
+
+Function Stand()
+  {Takes the seat away (disabled), which stands the player; a MoveTo in place if they are still in it.}
+  Actor player = Game.GetPlayer()
+  Seat.Disable()
+  If player.GetFurnitureReference() == Seat
+    player.MoveTo(player)
+  EndIf
+  Debug.Trace("TES4_PlayerControls.Stand " + Seat + ": in " + player.GetFurnitureReference())
+EndFunction
+
+Function ReleasePlayer()
+  {FO3/FNV RemoveScriptPackage on the player. Papyrus cannot stand the player up gently, so a seat in use stays
+  until the player leaves it (moving, once the controls allow) and is disabled then.}
+  Released = true
+  If Seat && !Seated()
+    Seat.Disable()
+    Seat = None
+  EndIf
+EndFunction
+
+Event ObjectReference.OnExitFurniture(ObjectReference akSender, ObjectReference akActionRef)
+  If akSender == Seat && Released
+    UnregisterForRemoteEvent(Seat, "OnExitFurniture")
+    Seat.Disable()
+    Seat = None
   EndIf
 EndEvent
 

@@ -34,7 +34,9 @@ from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import Conversations
 from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.navmesh import navi, navmeshes
+from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.packages import Packages
+from fo4_import.spike.poses import Poses
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif.elric import finish
@@ -139,7 +141,7 @@ class CellBuilder:
         self.next_id = len(MASTERS) << 24 | FIRST_ID
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
-        self.swaps = None
+        self.swaps, self.imods, self.poses = None, None, None
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -440,6 +442,10 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
                                                       if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN'})
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): _model(builder.bases[int(r['NAME'], 16)][1])
                                                 for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
+    builder.imods = ImageSpaces(builder)
+    furniture = [(_place(r), str(export_dir / 'meshes' / _model(builder.bases[int(r['NAME'], 16)][1]).lower()))
+                 for r in refs if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
+    builder.poses = Poses(builder, {r['EditorID']: _place(r) for r in refs if r.get('EditorID')}, furniture)
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
@@ -474,7 +480,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     record = R.pack_cell(cell_fid, f'FNV_{cell_edid}', cell.get('FULL', cell_edid), int(cell['DATA.Flags']) & 0xFF,
                          lighting(cell, template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
                          imagespace or struct.unpack('<I', template[b'XCIM'])[0])
-    builder.writer.add_raw_group('CELL', R.pack_interior_cells([(record, cell_fid, persistent, temporary),
+    builder.writer.add_raw_group('CELL', R.pack_interior_cells([(record, cell_fid, persistent + builder.poses.placed, temporary),
                                                                 (qa_record, CELL_FO4, qa_refs, b'')]))
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)

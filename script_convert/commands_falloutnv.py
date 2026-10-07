@@ -11,9 +11,9 @@ imports nothing from `commands` and the two cannot form a cycle.
 See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
-from script_convert.constants import fallout4_swap_property, safe_property_name, typed_already
+from script_convert.constants import FALLOUT4_POSE_PREFIX, fallout4_swap_property, safe_property_name, typed_already
 from script_convert.message_menus import authored_site
-from script_convert.target import arm_update, is_fallout4
+from script_convert.target import CONTROLS_PROPERTY, CONTROLS_SCRIPT, arm_update, is_fallout4
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
 
@@ -221,7 +221,26 @@ def swap_texture(ctx, call):
     return f'TES4Polyfill.SwapMaterial({ref}, {prop})'
 
 
+def player_package(ctx, call):
+    """FO3/FNV `player.AddScriptPackage <package>` / `RemoveScriptPackage` on Fallout 4: HoldPlayer / ReleasePlayer.
+
+    FO4 runs no package on the player; the importer fills the `TES4Pose_<package>` ObjectReference property with
+    the seat that package becomes, or leaves it empty. Declines for other receivers and targets.
+    See: docs/fork/fo4_spikes.md#spike-2-vcg01
+    """
+    if not is_fallout4() or (call.ref or '').lower() not in ('player', 'playerref'):
+        return None
+    ctx.sc.property_refs[CONTROLS_PROPERTY] = CONTROLS_SCRIPT
+    if call.name == 'removescriptpackage' or not len(call):
+        return f'{CONTROLS_PROPERTY}.ReleasePlayer()'
+    prop = FALLOUT4_POSE_PREFIX + safe_property_name(call.source(0).strip('"'))
+    ctx.sc.property_refs[prop] = 'ObjectReference'
+    return f'{CONTROLS_PROPERTY}.HoldPlayer({prop})'
+
+
 FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
+                    'addscriptpackage': player_package,
+                    'removescriptpackage': player_package,
                     'getopenstate': get_open_state,
                     'setopenstate': set_open_state,
                     'getweaponanimtype': weapon_anim_type,

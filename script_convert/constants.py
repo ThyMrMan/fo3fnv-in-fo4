@@ -762,6 +762,8 @@ FALLOUT4_HELPER_QUEST_MESSAGES = {'TES4_PlayerControls': {'ChooseSex': 'TES4Choo
 FALLOUT4_TALK_PREFIX = 'TES4Talk_'
 #: Prefix of the MatSwap property a Fallout 4 `SwapTexture` applies (fallout4_swap_property).
 FALLOUT4_SWAP_PREFIX = 'TES4Swap_'
+#: Prefix of the seat (ObjectReference) the player's Fallout 4 `AddScriptPackage <package>` seats them in.
+FALLOUT4_POSE_PREFIX = 'TES4Pose_'
 
 
 def fallout4_swap_property(node: str, texture: str) -> str:

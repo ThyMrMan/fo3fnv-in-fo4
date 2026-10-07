@@ -18,6 +18,7 @@ from fo4_import.base.vmad import info_fragments
 from fo4_import.base.writer import pack_topic
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from fo4_import.spike.poses import line_idle
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 from tes5_import.base.text_reader import parse_export_file
 
@@ -96,7 +97,7 @@ class SayTopics:
         self.voiced.append((fid, rec))
         self.builder.counts['INFO'] += 1
         return R.pack_info(fid, flags, tuple(lines) or ('...',), conditions, scene=scene[0], phase=scene[1],
-                           notes=f'FNV {rec["FormID"]}', vmad=vmad)
+                           notes=f'FNV {rec["FormID"]}', vmad=vmad, idle=line_idle(rec['FormID']) or 0)
 
 
 def _unmapped(cond: dict, form_map: dict) -> bool:

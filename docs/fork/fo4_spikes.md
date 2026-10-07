@@ -1506,6 +1506,83 @@ character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions))
   and whether LevelUpMenuEx's `AddPP` takes a negative count (FO4's own
   perk point each level would otherwise stay).
 
+**Step 5, the bed, idles and imagespace modifiers** (`fo4_import/spike/imods.py`,
+`poses.py`; played 2026-10-07). FNV wakes the player on
+Doc's bed with script packages on the player: stage 0
+`player.AddScriptPackage VCG01PlayerSection0` (lying, `LooseVCG01PlayerWakeup`,
+an animated camera), stages 5 and 7 `VCG01PlayerSection1` (sit up, then the
+`LooseVCG01PlayerBedsit` loop on the bed's edge as its OnChange idle),
+stage 50 `RemoveScriptPackage` (the camera frees, then stage 55 enables
+walking). Each is a type 6 package whose only content is a special idle
+(`.kf`). Stage 0 also removes `WhiteISFX` and applies
+`VCG01FadeInFromBlackISFX` (a fade from white), stage 5
+`VCG01PlayerStrainISFX`, and stage 30 has Doc `PlayIdle VCG01DocGiveMirror`.
+
+- **The player.** FO4 runs no package on the player and cannot play FNV's
+  `.kf` idles. All of FO3/FNV's player script packages (25: VCG00/VCG01,
+  CG00, CG04, MQ08, MQ11) are such cinematics. Vanilla puts the player in
+  furniture by activation (MQ101's cryopod `Activate(Game.GetPlayer())`),
+  and a bed opens the sleep menu. On Fallout 4,
+  `player.AddScriptPackage <package>` becomes
+  `TES4PlayerControls.HoldPlayer(TES4Pose_<package>)` and
+  `RemoveScriptPackage` `ReleasePlayer()`. For the packages
+  `poses.SEATED_PACKAGES` names (VCG01's two, with the marker VCG00 moves the
+  player to, `VCG01PlayerStartMarkerREF`) the cell places a seat reference,
+  initially disabled, of `TES4PlayerSeat`: an invisible one-seat furniture
+  (`AnimFurnChairSitAnims`, and `FurnitureAllowEnter/ExitThroughGeometry` as
+  `NpcChairVaultSitThruGeom03` has, since the seat lies inside the bed).
+  FNV's marker stands outside the bed: the twin bed's mesh reaches 49 units
+  from its center, the marker 62 (13 outside its edge), and FNV's idle moves
+  the player onto it. The seat moves back along the marker's facing to 18
+  units (`SEAT_DEPTH`, a converted chair seat's depth) inside the mesh edge of
+  the nearest furniture, measured within 24 units to either side
+  (`seat_place`): 33.7 units for Doc's bed. `HoldPlayer` enables it and has
+  the player activate it once its 3D is loaded, with movement and activation
+  lifted on the controls layer until they sit (stage 0 disables both
+  first). Papyrus cannot stand the player up gently: after `ReleasePlayer`
+  the seat stays until the player leaves it (moving, once stage 55 enables
+  it) and is disabled on `OnExitFurniture`. The Reflectron stands a seated
+  player for the editor (the seat disabled) and seats them again when it
+  closes. Other player packages leave the player standing where the
+  disabled controls hold them.
+- **Imagespace modifiers.** FO4's IMAD keeps FNV's layout (xEdit
+  `wbDefinitionsFNV/FO4.pas`): the DNAM key counts, the keyed blur, double
+  vision, tint, fade, radial blur, depth of field and motion blur arrays, and
+  21 mult/add pairs. Past the first the pairs differ: FNV's HDR pairs 1-13
+  (blur radius, skin dimmer, target luminance and so on) and bloom alphas
+  have no FO4 counterpart; FNV's bloom blur radius (14) is FO4's 1; FNV's
+  cinematic saturation, contrast, contrast average, brightness (17-20) are
+  FO4's 17, 19, none, 18. A pair FO4 lacks gets identity keys. Form version
+  131 adds vignette radius and strength (DNAM 252, NAM5/NAM6), vanilla's
+  zero. All 215 FNV IMADs convert with every count matching its keys; the 10
+  with an intro or outro sound (RDSD) lose it. The cell converts each
+  `ImageSpaceModifier` property's FNV modifier by name.
+- **Idles a script plays.** `PlayIdle <idle>` was `PlayAnimation("<idle>")`,
+  a behavior event FO4 does not know; it is now `PlayIdle(<Idle property>)`
+  (86 converted scripts), an FO4 Idle form. FO4's human give,
+  `DialogueGiveItem` (`000CEA8D`, event `dyn_talkGeneric`), is a talk idle:
+  vanilla plays it only as a line's speaker idle (INFO `SNAM`, `00142444`),
+  and `PlayIdle` on Doc at stage 30 played nothing. FNV's hand-over sits
+  between "needlework" (its end sets 30) and "How'd I do?" (stage 35), so
+  `poses.LINE_IDLES` gives "How'd I do?" (`00104BF8`) that speaker idle;
+  `VCG01DocGiveMirror` stays unfilled.
+- **Played:** the blur and fade work; the player sits on the bed's edge,
+  out of Doc's way, through the Reflectron and until they walk off.
+  Getting there:
+  - Placed where the player stood and activated right after stage 0, the
+    seat was refused (logged `3D True, seated False` with movement and
+    activation lifted and its 3D loaded). Vanilla's chairs whose seat lies in
+    geometry carry the through-geometry keywords; with them the activation
+    seats the player.
+  - The seat beside the bed blocked Doc's walk to the Vit-o-matic (his
+    first marker is 74 units in front of the start marker): `player.moveto`
+    the start marker and the seat on it are both outside the bed, hence
+    `seat_place`.
+  - Opened while seated, the editor did not show the character, and its
+    close stood the player up; hence the stand and re-seat around it.
+  - The hand-over (`DialogueGiveItem` as the speaker idle of "How'd I do?")
+    did not show; accepted as drift.
+
 **Played (2b, 3):** Doc walks to his chair and sits, the word association
 starts, and the whole test runs through to its end and Doc's walk to the
 door; the outro there is next.

@@ -71,21 +71,21 @@ def seats(marks: list, active: int, bounds: tuple) -> list:
     for (x, y, z, heading, _), side in zip(fronts, sides):
         facing = (heading + math.pi) % math.tau
         if side:
-            out.append(_moved((x, y), facing, max(_corners(bounds, facing)) - SEAT_DEPTH)
+            out.append(moved((x, y), facing, max(_corners(bounds, facing)) - SEAT_DEPTH)
                        + (z, facing, UNUSED_ENTRY | (OTHER if side & FRONT else 0) | side))
     return out
 
 
 def _corners(bounds: tuple, facing: float) -> list:
     """How far each corner of `bounds` lies along `facing`."""
-    return [_across((bx, by), facing) for bx in (bounds[0], bounds[3]) for by in (bounds[1], bounds[4])]
+    return [across((bx, by), facing) for bx in (bounds[0], bounds[3]) for by in (bounds[1], bounds[4])]
 
 
-def _moved(point: tuple, facing: float, across: float) -> tuple:
-    """`point` moved along `facing` to `across`, keeping its sideways position."""
+def moved(point: tuple, facing: float, depth: float) -> tuple:
+    """`point` moved along `facing` to `across` value `depth`, sideways kept."""
     ax, ay = math.sin(facing), math.cos(facing)
     along = point[0] * ay - point[1] * ax
-    return across * ax + along * ay, across * ay - along * ax
+    return depth * ax + along * ay, depth * ay - along * ax
 
 
 def sleepers(marks: list, active: int, bounds: tuple) -> list:
@@ -93,16 +93,16 @@ def sleepers(marks: list, active: int, bounds: tuple) -> list:
     sleep = [(m, (m[3] + math.pi if m[4] == SLEEP_RIGHT else m[3]) % math.tau, i)
              for i, m in enumerate(marks) if m[4] in (SLEEP_RIGHT, SLEEP_LEFT)]
     out = []
-    for lane, ((x, y, z, _, slot), facing, i) in enumerate(sorted(sleep, key=lambda s: _across(s[0], s[1]))):
+    for lane, ((x, y, z, _, slot), facing, i) in enumerate(sorted(sleep, key=lambda s: across(s[0], s[1]))):
         if not active >> i & 1:
             continue
         corners = _corners(bounds, facing)
-        across = min(corners) + (max(corners) - min(corners)) * (lane + 0.5) / len(sleep)
-        out.append(_moved((x, y), facing, across) + (z, facing, UNUSED_ENTRY | (RIGHT if slot == SLEEP_RIGHT else LEFT)))
+        depth = min(corners) + (max(corners) - min(corners)) * (lane + 0.5) / len(sleep)
+        out.append(moved((x, y), facing, depth) + (z, facing, UNUSED_ENTRY | (RIGHT if slot == SLEEP_RIGHT else LEFT)))
     return out
 
 
-def _across(point: tuple, facing: float) -> float:
+def across(point: tuple, facing: float) -> float:
     """How far `point` lies along `facing`."""
     return point[0] * math.sin(facing) + point[1] * math.cos(facing)
 
