@@ -19,7 +19,7 @@ argument text -- so those are properties of the CALL and live on it.
 from script_convert import resolve_name as _resolve_name
 from script_convert.constants import (
     ANIM_GROUP_EVENTS, ATTRIBUTE_POLYFILL, ATTRIBUTE_STUB_VALUE, AV_ARGUMENT_NAMES, CASTABLE,
-    FORCE_FLEE_QUEST, FORCE_GREET_QUEST, PLACED_REF_SIGS, PRIMARY_STATS,
+    FALLOUT4_TALK_PREFIX, FORCE_FLEE_QUEST, FORCE_GREET_QUEST, PLACED_REF_SIGS, PRIMARY_STATS,
     TES4_ASSAULT_BOUNTY, TES4_MISC_STAT_NAMES, TES4_MURDER_BOUNTY, TES4_SCRIPT_OWNED_MISC_STATS,
     TES4_STEAL_BOUNTY, is_generated_script_type, mgef_family_keyword_name,
     record_type_to_papyrus, safe_property_name, papyrus_script_name
@@ -368,11 +368,17 @@ def _force_greet(ctx, ref: str, parts: list) -> str:
 
     Papyrus cannot open dialogue, so the actor joins a ForceGreet package that
     walks over and opens the topic; '' when the target is not the player or
-    the importer planned no pool for this topic.
+    the importer planned no pool for this topic. On Fallout 4 the speaker
+    starts the topic's scene (`TES4Talk_<topic>`), whose line opens the menu.
+    See: docs/fork/fo4_spikes.md#spike-2-vcg01
     """
     if not parts or parts[0].strip().lower() not in PLAYER_TOKENS:
         return ''
     named = len(parts) >= 2 and parts[1].strip()
+    if is_fallout4():
+        scene = FALLOUT4_TALK_PREFIX + (parts[1].strip().split()[0] if named else 'GREETING')
+        ctx.sc.property_refs[scene] = 'Scene'
+        return f'TES4Polyfill.StartConversation({scene}, {ref})'
     topic = parts[1].strip().split()[0].lower() if named else ''
     slot = ctx.force_greet_slots.get(topic)
     if not slot:

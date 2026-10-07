@@ -66,15 +66,18 @@ class SayTopics:
         branch, blobs = self.builder.new_id(), []
         for dial, fid in topic_ids.items():
             lines = [rec for rec in self.infos[quest['FormID'].upper()] if rec['ParentDIAL'] == dial]
-            infos = [i for i in (self._info(rec, form_map, quest_vars) for rec in lines) if i]
+            infos = [i for i in (self.info(rec, form_map, quest_vars) for rec in lines) if i]
             record = R.pack_dial(fid, f'FNV_{self.dials[dial]["EditorID"]}', quest_fid, R.TOPIC_CUSTOM, len(infos),
                                  branch)
             blobs.append(pack_topic(record, fid, infos))
         dlbr = R.pack_dlbr(branch, f'FNV_{quest["EditorID"]}Branch', quest_fid, next(iter(topic_ids.values())))
         return dlbr, blobs
 
-    def _info(self, rec: dict, form_map: dict, quest_vars: dict) -> bytes:
-        """One FNV line as an FO4 INFO; b'' when a condition cannot convert."""
+    def info(self, rec: dict, form_map: dict, quest_vars: dict, scene: tuple = (0, ''), flags: int = 0) -> bytes:
+        """One FNV line as an FO4 INFO; b'' when a condition cannot convert.
+
+        `scene` is (scene, phase) the line starts; `flags` are ENAM flags added to its Say Once.
+        """
         conditions = conditions_of(rec, form_map, quest_vars)
         if conditions is None:
             self.builder.counts['line left out (condition)'] += 1
@@ -86,10 +89,11 @@ class SayTopics:
             vmad = info_fragments(name, scripts.properties(name), begin='Fragment_1', end='Fragment_0')
             scripts.used.append(name)
         lines = [rec[f'Response[{i}].ResponseText'] for i in range(int(rec.get('ResponseCount', 0) or 0))]
-        flags = R.INFO_SAY_ONCE if int(rec.get('DATA.Flags', 0)) & SAY_ONCE else 0
+        flags |= R.INFO_SAY_ONCE if int(rec.get('DATA.Flags', 0)) & SAY_ONCE else 0
         self.voiced.append((fid, rec))
         self.builder.counts['INFO'] += 1
-        return R.pack_info(fid, flags, tuple(lines) or ('...',), conditions, notes=f'FNV {rec["FormID"]}', vmad=vmad)
+        return R.pack_info(fid, flags, tuple(lines) or ('...',), conditions, scene=scene[0], phase=scene[1],
+                           notes=f'FNV {rec["FormID"]}', vmad=vmad)
 
 
 def _unmapped(cond: dict, form_map: dict) -> bool:
@@ -99,11 +103,12 @@ def _unmapped(cond: dict, form_map: dict) -> bool:
         s in slots and p not in form_map for s, p in ((1, cond['p1']), (2, cond['p2'])))
 
 
-def conditions_of(rec: dict, form_map: dict, quest_vars: dict) -> 'bytes | None':
+def conditions_of(rec: dict, form_map: dict, quest_vars: dict, swap: bool = False) -> 'bytes | None':
     """An FNV record's conditions as FO4 CTDAs (and CIS2s); None when one cannot convert.
 
     GetQuestVariable becomes GetVMQuestVariable on `quest_vars`' name for its
-    index (`::<name>_var`, the converted property's backing variable).
+    index (`::<name>_var`, the converted property's backing variable). `swap`
+    flips Subject and Target, for a player line.
     """
     out, i = b'', 0
     while f'Condition[{i}].Raw' in rec:
@@ -115,7 +120,7 @@ def conditions_of(rec: dict, form_map: dict, quest_vars: dict) -> 'bytes | None'
         if func < 0 or (cond['func'] == QUEST_VARIABLE and variable is None) or _unmapped(
                 dict(cond, p2=0) if variable else cond, form_map):
             return None
-        run_on, ref = C.run_on_of(cond, False, form_map)
+        run_on, ref = C.run_on_of(cond, swap, form_map)
         p2 = 0 if variable else form_map.get(cond['p2'], cond['p2'])
         out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR), cond['value'], func, form_map.get(cond['p1'], cond['p1']),
                            p2, run_on, ref) + (R.pack_cis2(f'::{variable}_var') if variable else b'')

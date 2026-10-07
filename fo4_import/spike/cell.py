@@ -30,8 +30,10 @@ from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
 from fo4_import.spike.attach import ObjectScripts
+from fo4_import.spike.conversation import Conversations
 from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.navmesh import navi, navmeshes
+from fo4_import.spike.packages import Packages
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
@@ -42,18 +44,23 @@ from fo4_import.spike.script import compile_into
 from fo4_import.spike.quest import quest_record
 from fo4_import.spike.statics import write_assets
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
-from tes5_import.base.tes5_reader import first_sub, sub_map, walk
+from tes5_import.base.tes5_reader import first_sub, sub_map, subrecords, walk
+from tes5_import.base.writer import pack_subrecord
 from tes5_import.base.text_reader import parse_export_file
 
-MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN]
+MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN, 'XDI.esm']
 #: Master index of the helper plugin (TES4Helpers.esl).
 HELPER_INDEX = 1
+#: XDI's menu keyword (conversation menus show more than four options).
+XDI_KEYWORD = MASTERS.index('XDI.esm') << 24 | R.XDI_KEYWORD
 #: Stand-in subrecords a clone leaves out: its factions (vanilla doctor dialogue, caravans) and crime faction.
 STAND_IN_TIES = frozenset({b'SNAM', b'CRIF'})
 #: The player's reference, the same FormID in both games.
 PLAYER = 0x14
 #: FNV quests the cell's scripts run, converted with it.
-CELL_QUESTS = ('VCG01',)
+CELL_QUESTS = ('VCG01', 'VCG01Test')
+#: Quests the spike starts by hand (setstage), not with the game: VCG01's stage 0 takes a loaded save's Pip-Boy.
+HAND_STARTED = frozenset({'VCG01'})
 FIRST_ID = 0x800
 #: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
 AS_STATIC = ('STAT', 'MSTT', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
@@ -129,7 +136,7 @@ class CellBuilder:
         self.writer = FO4PluginWriter(masters=MASTERS, is_esm=False, description='FNV cell spike')
         self.next_id = len(MASTERS) << 24 | FIRST_ID
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
-        self.actor_ids, self.npc_ids, self.say = {}, {}, None
+        self.actor_ids, self.npc_ids, self.say, self.packages = {}, {}, None, None
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -294,13 +301,29 @@ def _composed(*edits):
     return edit if present else None
 
 
-def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict) -> bytes:
+def _packages_edit(packages: list):
+    """A clone edit putting FO4 `packages` (PKID) in place of the stand-in's."""
+    def edit(subs: bytes) -> bytes:
+        """The subrecords with the stand-in's PKIDs replaced."""
+        ours = b''.join(pack_subrecord('PKID', struct.pack('<I', p)) for p in packages)
+        out, placed = b'', False
+        for tag, data in subrecords(subs):
+            if tag == b'PKID':
+                out, placed = out + (b'' if placed else ours), True
+                continue
+            out += pack_subrecord(tag.decode(), data)
+        return out if placed else out + ours
+    return edit
+
+
+def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict, form_map: dict) -> bytes:
     """Persistent ACHRs for the cell's FNV actors that have a stand-in, each base a clone of it.
 
     One clone per FACE_VARIANTS entry, side by side along the actor's right:
     the stand-in's body and inventory with FNV's face fitted (sculpt regions,
-    tints), under the FNV NPC's EditorID and name plus the variant; STH also
-    takes FNV's matched hair, facial hair, eyes and hair colour.
+    tints) and the FNV NPC's packages, under its EditorID and name plus the
+    variant; STH also takes FNV's matched hair, facial hair, eyes and hair
+    colour. `form_map` maps the FNV forms packages name.
     """
     npcs = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'NPC_.txt'))}
     assets = hair.Fo4Assets(builder.fo4, Archives(FALLOUT4_DIR / 'Data'))
@@ -313,7 +336,9 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
         pos, rot = _place(ref)
         morphs = _sculpt_morphs(builder, export_dir, npc['EditorID'])
         tinted = _tint_edit(builder, export_dir, npc['EditorID'], skin_tone_layers())
-        edits = {'ST': tinted, 'STH': _composed(tinted, _head_edit(builder, export_dir, npc['EditorID'], assets))}
+        packages = _packages_edit(builder.packages.for_npc(npc, form_map))
+        edits = {'ST': _composed(tinted, packages),
+                 'STH': _composed(tinted, _head_edit(builder, export_dir, npc['EditorID'], assets), packages)}
         for i, variant in enumerate(FACE_VARIANTS):
             base = builder.new_id()
             builder.writer.add_record('NPC_', R.clone_npc(
@@ -352,23 +377,40 @@ def _navmesh(builder: CellBuilder, export_dir: Path, fnv_cell: str, cell_fid: in
     return records
 
 
-def _quests(builder: CellBuilder, export_dir: Path, quests: dict, ref_ids: dict) -> None:
-    """Write the FNV quests `quests` ({EditorID: FormID}) with their scripted lines; `ref_ids` maps FNV references.
+def _form_map(ref_ids: dict, recs: list, quests: dict) -> dict:
+    """FNV to FO4 FormIDs of the cell's references, quests `recs` and the player."""
+    return {**{int(k, 16): v for k, v in ref_ids.items()}, PLAYER: PLAYER,
+            **{int(r['FormID'], 16): quests[r['EditorID']] for r in recs}}
 
-    A line's conditions see the cell's references, actors' bases, these quests and the player.
+
+def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, ref_ids: dict) -> None:
+    """Write FNV quests `recs` (FO4 ids in `quests`) with their lines; `ref_ids` maps FNV references.
+
+    A line's conditions see the cell's references, actors' bases, these
+    quests and the player. Conversations are built once every script's
+    `TES4Talk_<topic>` scene is known.
     """
     say = builder.say = SayTopics(builder, export_dir)
-    recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in quests]
-    form_map = {**{int(k, 16): v for k, v in ref_ids.items()}, **builder.npc_ids, PLAYER: PLAYER,
-                **{int(r['FormID'], 16): quests[r['EditorID']] for r in recs}}
+    form_map = {**_form_map(ref_ids, recs, quests), **builder.npc_ids}
+    done = []
     for rec in recs:
         fid = quests[rec['EditorID']]
         topics = {dial: builder.new_id() for dial in say.topics(rec)}
         builder.scripts.named.update({say.dials[d]['EditorID']: t for d, t in topics.items()})
         branch, blobs = say.build(rec, fid, topics, form_map) if topics else (None, [])
-        record = quest_record(fid, rec, builder.scripts, ref_ids)
-        builder.writer.add_record('QUST', pack_quest(record, fid, [branch] if branch else [], blobs, []))
+        talks = Conversations(say, rec, fid, form_map, XDI_KEYWORD)
+        record = quest_record(fid, rec, builder.scripts, ref_ids, talks.has_lines(),
+                              rec['EditorID'] not in HAND_STARTED)
+        done.append((fid, record, [branch] if branch else [], blobs, talks))
+    built = set()
+    for fid, record, branches, blobs, talks in done:
+        built |= {prop for prop, scene in list(builder.scripts.talks.items())
+                  if prop not in built and talks.talk(prop, scene)}
+        builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics, talks.scenes))
         builder.counts['QUST'] += 1
+        builder.counts['SCEN'] += len(talks.scenes)
+    for prop in set(builder.scripts.talks) - built:
+        builder.counts[f'{prop}: no lines in the cell quests'] += 1
 
 
 def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) -> None:
@@ -380,13 +422,15 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
     builder.counts['voice files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
 
 
-def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None') -> None:
-    """Give `builder` its item and activator makers."""
+def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list) -> None:
+    """Give `builder` its item, activator and package makers; `refs` are the cell's FNV references."""
     records = index(export_dir, ITEM_TYPES)
     builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
                                                               SHARED_TYPES))
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.activators = Activators(builder, export_dir)
+    builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in refs
+                                                      if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN'})
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
@@ -400,17 +444,18 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     builder = CellBuilder(export_dir, data_dir, _bases(export_dir, {int(r['NAME'], 16) for r in refs}))
-    _object_makers(builder, export_dir, scripts_dir)
+    _object_makers(builder, export_dir, scripts_dir, refs)
     cell_fid = builder.new_id()
     ids = {r['FormID']: builder.new_id() for r in refs}
     quests = {edid: builder.new_id() for edid in CELL_QUESTS}
+    quest_recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in quests]
     builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
-    actors = _actors(builder, export_dir, cell['FormID'], vanilla)
+    actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(ids, quest_recs, quests))
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
     persistent, temporary = _placed(builder, refs, ids, teleports)
     persistent += actors
-    _quests(builder, export_dir, quests, {**ids, **builder.actor_ids})
+    _quests(builder, export_dir, quest_recs, quests, {**ids, **builder.actor_ids})
     temporary += _navmesh(builder, export_dir, cell['FormID'], cell_fid, ids)
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
     template = sub_map(vanilla[CELL_FO4].body)

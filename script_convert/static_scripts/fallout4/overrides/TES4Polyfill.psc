@@ -98,3 +98,13 @@ Function SayWhenFree(ObjectReference akSpeaker, Topic akTopic, ObjectReference a
   EndWhile
   akSpeaker.Say(akTopic, None, False, akTarget)
 EndFunction
+
+; fallout4: new
+Function StartConversation(Scene akScene, ObjectReference akSpeaker) Global
+  {FO3/FNV StartConversation with the player: the speaker fills alias 0 of the scene's quest and the scene starts; its line starts the menu scene. Nothing while it plays.}
+  If !akScene || !akSpeaker || akScene.IsPlaying()
+    Return
+  EndIf
+  (akScene.GetOwningQuest().GetAlias(0) as ReferenceAlias).ForceRefTo(akSpeaker)
+  akScene.Start()
+EndFunction

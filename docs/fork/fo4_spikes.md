@@ -1288,6 +1288,68 @@ topics (step 2b), the outro and two epilogue lines.
   its layer if it disabled it, sets up and opens mode 1, and on the
   menu's close goes back to first person and disables the switch again.
 
+**Step 2b, the psych test** (`fo4_import/spike/conversation.py`; played
+2026-10-06). Once the player sits, the couch trigger sets
+`bGiveTest` and calls `DocMitchellREF.StartConversation Player` every 2 s
+until the greeting's result sets `bBeganTest`. The test is FNV menu
+dialogue: the GREETING line "I'm gonna say a word" has six Choices, and
+each answer's line has the next question's Choices (5 or 6 answers, past
+FO4's four, so XDI menus as in [spike 1](#spike-1-design)). Follow Ups
+(TCFU, INFOs the speaker says next with no choice) chain "Human shield"
+into the statements and the outro's lines.
+
+- **Starting a talk.** Vanilla FO4 opens a scripted talk with a scene,
+  or with a ForceGreet package whose topic's line starts one (Danse's
+  `BoSM01DanseOverrides_DanseStage148Forcegreet`). On Fallout 4,
+  `StartConversation Player [topic]` becomes
+  `TES4Polyfill.StartConversation(TES4Talk_<topic or GREETING>, speaker)`:
+  the speaker fills alias 0 (`Speaker`, optional and empty) of the scene's
+  quest and the scene starts; nothing while it plays. 66 converted scripts
+  call it. The cell gives each `TES4Talk_` property its scene's FormID.
+- **Scenes.** A line scene is one Dialogue action (PastorGreetScene's
+  flags) saying a topic of lines, first passing. Each line starts what
+  follows it by TSCE, as 382 vanilla Dialogue-action lines do
+  (`PastorGreetScene`, `005_CodsworthPostWarSpeechChallenge`): Follow Ups
+  a line scene, Choices an XDI menu scene (one option per topic, its lines
+  the answers behind padding, `[Leave]`). A Goodbye line, or one followed
+  by nothing, ends the talk. Built: 21 scenes, 92 more lines and their
+  voice files. The plugin now masters `XDI.esm`.
+- `VCG01Test` (the answers' tallies, read at stage 85) is converted with
+  the cell and keeps FNV's start game enabled flag; VCG01 still starts by
+  hand.
+- Left out: two topics no FNV line answers ("Double-tap.", "What do I do
+  now?"; FNV hides them too), and the two greetings Doc gives when clicked
+  mid-quest ("We can chat later", "have a seat"): FO4 has no condition
+  function for quest objectives (`GetObjectiveDisplayed`,
+  `GetObjectiveCompleted`), and talking to Doc by activation (a GREE
+  topic) is not built.
+
+First play of 2b: the word association never started. The couch script
+starts its talk timer only once Doc sits in his chair (the chair trigger
+sees him seated, `bDocInChair`), and Doc reaches the chair by his stage 80
+package; without packages he never sat. So step 3 came next.
+
+**Step 3, Doc's AI packages** (`fo4_import/spike/packages.py`; played
+2026-10-06). FO4 packages are template instances like
+Skyrim's (`tes5_import/packages/templates.py`); FO4's roots are Travel
+`00002CB0`, Sandbox `00002CB1`, Sit `00003896`, ForceGreet `00017BAB`
+(`tools/esm/pack_template_dump.py --pack references/Fallout4.esm/PACK.txt`).
+Each FNV package becomes a copy of a vanilla instance with no conditions,
+scripts or quest and a reference as first input (Travel
+`MS09Mission3ParsonsJackToMarkerB02Scene`, Sit
+`ChildrenOfAtomCraterPrayPackage7`, Sandbox
+`MinutemenRadioOperatorSandboxDefault`), with its EditorID, conditions
+(after PSDT) and first input replaced. A Travel to furniture becomes a Sit
+on it (FNV seats an actor who travels to a chair). Doc's clone gets them in
+FNV's order in place of the stand-in's PKIDs: 7 of 9; left out are
+`GoodspringsMilitiaTravelPackage` (another quest's variable) and
+`VCG01DocMitchellFarewellDialogueStart` (a Dialogue package, the outro's
+force greet).
+
+**Played (2b, 3):** Doc walks to his chair and sits, the word association
+starts, and the whole test runs through to its end and Doc's walk to the
+door; the outro there is next.
+
 **Played (step 1):** from the start marker beside the bed (player.moveto, as the hallway the vigor tester trigger covers lies between the coc door and the bed), stage 55 shows the walk objective, the trigger sets 60 and completes it, and with objective 30 shown by hand the Vit-o-matic sets 65. The trigger fires on any entry and starts the quest if it is not running, as in FNV, where the player cannot reach it before 55.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)

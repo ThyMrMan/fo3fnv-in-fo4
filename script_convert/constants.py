@@ -754,6 +754,8 @@ FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech'
 FALLOUT4_HELPER_QUESTS = {'TES4_PlayerControls': 0x900, 'TES4_CharacterEvents': 0x901}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
 FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00}
+#: Prefix of the Scene property `StartConversation Player [topic]` starts on Fallout 4 (topic, else GREETING).
+FALLOUT4_TALK_PREFIX = 'TES4Talk_'
 #: Skyrim actor-value native -> Fallout 4's, which is on ObjectReference and takes an ActorValue form.
 FALLOUT4_AV_NATIVES = {
     'GetActorValue': 'GetValue', 'SetActorValue': 'SetValue', 'ForceActorValue': 'SetValue',

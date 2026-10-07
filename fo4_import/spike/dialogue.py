@@ -47,7 +47,7 @@ GENERIC_TOPICS = {GOODBYE_TOPIC, 0x7F463}
 GREETING = 0xC8
 #: Fallout4.esm QASmoke, a test cell with no precombines.
 CELL_FO4 = 0x0001F7A9
-XDI_KEYWORD = 0x01000800
+XDI_KEYWORD = 0x01000000 | R.XDI_KEYWORD
 #: State just after character creation, for quests the spike does not convert.
 ASSUME = {
     ('GetQuestCompleted', 0x104C1C, 0): 1, ('GetQuestVariable', 0x104C1C, 13): 1,
@@ -162,6 +162,21 @@ def random_chain(members: list) -> list:
                 extra[index] = [[_cond('GetRandomPercent', _OP_LESS, 100.0 / (len(same) - k))]]
         run = []
     return extra
+
+
+def menu_records(take, scene: tuple, player: list, npc: list, keyword: int) -> tuple:
+    """([topic blobs], SCEN) of an XDI menu scene: four player topics, the first holding `player`, and one NPC topic.
+
+    `scene` is (FormID, EditorID, quest, speaker alias); `take` gives FormIDs.
+    """
+    fid, edid, quest, alias = scene
+    p_ids, n_id, topics = [take() for _ in range(4)], take(), []
+    for i, pid in enumerate(p_ids):
+        infos = player if i == 0 else []
+        topics.append(pack_topic(R.pack_dial(pid, f'{edid}_P{i}', quest, R.TOPIC_SCENE, len(infos)), pid, infos))
+    topics.append(pack_topic(R.pack_dial(n_id, f'{edid}_N', quest, R.TOPIC_SCENE, len(npc)), n_id, npc))
+    action = R.pack_player_dialogue(1, alias, tuple(p_ids), (n_id,))
+    return topics, R.pack_scen(fid, edid, quest, alias, action, keyword)
 
 
 class Spike:
@@ -357,14 +372,9 @@ class Spike:
         player.append(exit_player)
         npc.append(exit_npc)
         self.scenes.append((fid, edid, [len(m) for _, m, _ in options], [t for t, _, _ in options]))
-        p_ids = [self.ids.take() for _ in range(4)]
-        n_id = self.ids.take()
-        for i, pid in enumerate(p_ids):
-            infos = player if i == 0 else []
-            self.topics.append(pack_topic(R.pack_dial(pid, f'{edid}_P{i}', self.quest, R.TOPIC_SCENE, len(infos)), pid, infos))
-        self.topics.append(pack_topic(R.pack_dial(n_id, f'{edid}_N', self.quest, R.TOPIC_SCENE, len(npc)), n_id, npc))
-        action = R.pack_player_dialogue(1, 0, tuple(p_ids), (n_id,))
-        self.scene_records.append(R.pack_scen(fid, edid, self.quest, 0, action, XDI_KEYWORD))
+        topics, scene = menu_records(self.ids.take, (fid, edid, self.quest, 0), player, npc, XDI_KEYWORD)
+        self.topics += topics
+        self.scene_records.append(scene)
 
     def choice_scene(self, choices: list) -> int:
         """The scene listing one INFO's Choices, built on first use."""

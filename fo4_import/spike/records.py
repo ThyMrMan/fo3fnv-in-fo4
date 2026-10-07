@@ -27,8 +27,12 @@ TOPIC_CUSTOM = (bytes(4), b'CUST')
 BRANCH_FLAGS = 1
 #: Player Dialogue action FNAM from CookeGreetScene 0003A63D: face target, headtrack, camera on speaker.
 PLAYER_DIALOGUE_FLAGS = 0x228800
+#: Dialogue action FNAM of PastorGreetScene 0001F74A's line that starts another scene (its INFO's TSCE).
+DIALOGUE_ACTION_FLAGS = 0x28000
 #: SCEN FNAM from CookeGreetScene: show all text, has player dialogue, no follower chatter.
 SCENE_FLAGS = 0x1024
+#: Object id in XDI.esm of the keyword that marks a scene's menu for XDI.
+XDI_KEYWORD = 0x800
 #: SCEN ACTV (Dialogue Distance Override); the menu scene also ends past it, as 127 vanilla phases end on GetDistance.
 DIALOGUE_DISTANCE = 500.0
 RUN_QUEST_ALIAS = 5
@@ -121,20 +125,28 @@ def pack_player_dialogue(index: int, alias: int, player_topics: tuple, npc_topic
     return subs + _s32('DTGT', alias) + pack_subrecord('ANAM', b'')
 
 
-def pack_scen(fid: int, edid: str, quest: int, alias: int, action: bytes, keyword: int) -> bytes:
-    """A one-phase scene ('Menu') with one actor and one action, tagged with the XDI keyword.
+def pack_dialogue_action(index: int, alias: int, topic: int) -> bytes:
+    """A Dialogue scene action in phase 0: `alias` says `topic` (PastorGreetScene's flags and distances)."""
+    subs = pack_subrecord('ANAM', struct.pack('<H', 0)) + _zstr('NAM0', '') + _s32('ALID', alias)
+    subs += _u32('INAM', index) + _u32('FNAM', DIALOGUE_ACTION_FLAGS) + _u32('SNAM', 0) + _u32('ENAM', 0)
+    subs += _u32('DATA', topic) + pack_subrecord('DMAX', struct.pack('<f', 10.0))
+    return subs + pack_subrecord('DMIN', struct.pack('<f', 1.0)) + pack_subrecord('ANAM', b'')
+
+
+def pack_scen(fid: int, edid: str, quest: int, alias: int, action: bytes, keyword: int, phase: str = 'Menu') -> bytes:
+    """A one-phase scene (`phase`) with one actor and one action, tagged with `keyword` (0: none).
 
     The phase completes, ending the scene, once the alias is farther than DIALOGUE_DISTANCE from the player.
     """
     walked_off = pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
                            run_on=RUN_QUEST_ALIAS, param3=alias)
     subs = _zstr('EDID', edid) + _u32('FNAM', SCENE_FLAGS)
-    subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', 'Menu') + pack_subrecord('NEXT', b'') + walked_off
+    subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'') + walked_off
     subs += pack_subrecord('NEXT', b'') + _u32('WNAM', 350) + pack_subrecord('HNAM', b'')
     subs += _s32('ALID', alias) + _u32('LNAM', 4) + _u32('DNAM', 10)
     subs += action + _u32('PNAM', quest) + _u32('INAM', 1)
     subs += pack_subrecord('VNAM', struct.pack('<4I', 3, 3, 3, 3)) + pack_subrecord('ACTV', struct.pack('<f', DIALOGUE_DISTANCE))
-    subs += _u32('KSIZ', 1) + _u32('KWDA', keyword) + _u32('XNAM', 0)
+    subs += (_u32('KSIZ', 1) + _u32('KWDA', keyword) if keyword else b'') + _u32('XNAM', 0)
     return pack_fo4_record('SCEN', fid, 0, subs)
 
 
@@ -150,10 +162,14 @@ def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
     subs += pack_subrecord('NEXT', b'')
     for stage in sorted(stages):
         subs += pack_subrecord('INDX', struct.pack('<HBB', stage, 0, 0)) + pack_subrecord('QSDT', b'\x00')
-    subs += _u32('ANAM', 1) + _u32('ALST', 0) + _zstr('ALID', alias_name)
-    subs += _u32('FNAM', 2) if alias_ref is None else _u32('FNAM', 0) + _u32('ALFR', alias_ref)
-    subs += pack_subrecord('ALED', b'')
-    return pack_fo4_record('QUST', fid, 0, subs)
+    return pack_fo4_record('QUST', fid, 0, subs + _u32('ANAM', 1) + _alias(0, alias_name, alias_ref))
+
+
+def _alias(alias: int, name: str, ref) -> bytes:
+    """A reference alias forced to `ref`, or optional and empty when None."""
+    subs = _u32('ALST', alias) + _zstr('ALID', name)
+    subs += _u32('FNAM', 2) if ref is None else _u32('FNAM', 0) + _u32('ALFR', ref)
+    return subs + pack_subrecord('ALED', b'')
 
 
 def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') -> bytes:
@@ -197,23 +213,22 @@ def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: 
 
 
 def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, stages: list, objectives: list,
-                   aliases: list) -> bytes:
+                   aliases: list, start: bool = False) -> bytes:
     """A quest: scripts, stages [(index, log flags)], objectives [(index, text, [alias ids])], aliases.
 
-    Aliases are forced references [(alias id, name, reference)], as an
-    objective targets an alias in FO4, not a reference.
+    Aliases are [(alias id, name, reference or None)] (see _alias), as an
+    objective targets an alias in FO4, not a reference. `start`: start game
+    enabled, with pack_qust's flags.
     """
     subs = _zstr('EDID', edid) + pack_subrecord('VMAD', vmad) + _zstr('FULL', name)
-    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0, priority, 0.0, 0)) + pack_subrecord('NEXT', b'')
+    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0x0011 if start else 0, priority, 0.0, 0))
+    subs += pack_subrecord('NEXT', b'')
     for index, log_flags in sorted(stages):
         subs += pack_subrecord('INDX', struct.pack('<HBB', index, 0, 0)) + pack_subrecord('QSDT', bytes([log_flags]))
     for index, text, targets in objectives:
         subs += pack_subrecord('QOBJ', struct.pack('<H', index)) + _u32('FNAM', 0) + _zstr('NNAM', text)
         subs += b''.join(pack_subrecord('QSTA', struct.pack('<iII', alias, 0, 0)) for alias in targets)
-    subs += _u32('ANAM', len(aliases))
-    for alias, alias_name, ref in aliases:
-        subs += _u32('ALST', alias) + _zstr('ALID', alias_name) + _u32('FNAM', 0) + _u32('ALFR', ref)
-        subs += pack_subrecord('ALED', b'')
+    subs += _u32('ANAM', len(aliases)) + b''.join(_alias(*alias) for alias in aliases)
     return pack_fo4_record('QUST', fid, 0, subs)
 
 
