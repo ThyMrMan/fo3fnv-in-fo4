@@ -49,6 +49,18 @@ def jobs(lines: list, voices: list, data_dir: Path, plugin: str) -> list:
     return out
 
 
+def remove_stale(job_list: list, folders: list) -> int:
+    """Delete the .fuz files in `folders` no job writes; how many.
+
+    INFO FormIDs move between builds, so a stale file would play under another line.
+    """
+    keep = {job[1] for job in job_list}
+    stale = [p for folder in folders if folder.is_dir() for p in folder.glob('*.fuz') if p not in keep]
+    for path in stale:
+        path.unlink()
+    return len(stale)
+
+
 def _convert_one(job: tuple, tools: tuple) -> bool:
     """One recording to .fuz; False when it fails or decodes to silence."""
     try:

@@ -566,7 +566,21 @@ reviewed through the GitHub API, without cloning.
    [Dependency or our own build](#dependency-policy).
 5. **Fidelity defaults.** Defaults to pick: power armor (FO4 frame vs worn),
    crits (charge vs chance), FNV's perk pacing, a voiced-player wheel vs a
-   silent list UI.
+   silent list UI. Decided 2026-10-07: drift toward FO4's mechanism is
+   accepted and recorded ([fo4_drift.md](../fo4_drift.md)); topic dialogue
+   is XDI's silent list.
+6. **Character system.** Decided 2026-10-07: FNV's (and FO3's) own
+   character system on LevelUpMenuEx (`PRKF`, installed with F4SE
+   1.11.240), not FO4's perk chart. FNV's 13 skills stay plugin actor
+   values, so the 956 FNV and 94 FO3 dialogue skill checks keep their
+   meaning. LevelUpMenuEx reads `Data\PRKF\*.ini`: `SkillsList` and
+   `PerksList` (form lists), `PPPerLevel`/`SPPerLevel` (whole numbers),
+   `disableVanillaPerks`; its Papyrus (`PRKF:PRKF`) has `AddSP`/`AddPP`,
+   `OpenTagSkillsMenu(3, 15, …)` and `OpenTraitsMenuFL(list, 2, …)`.
+   FNV's 10 + Intelligence ÷ 2 skill points and a perk every 2 levels come
+   from a level-up script adding the difference. Drift: skills show in
+   LevelUpMenuEx's menu, not a Pip-Boy page; the Pip-Boy keeps FO4's
+   SPECIAL and perk pages.
 
 ## <a id="spikes"></a>Proposed spikes
 

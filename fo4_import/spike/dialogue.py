@@ -164,19 +164,18 @@ def random_chain(members: list) -> list:
     return extra
 
 
-def menu_records(take, scene: tuple, player: list, npc: list, keyword: int) -> tuple:
-    """([topic blobs], SCEN) of an XDI menu scene: four player topics, the first holding `player`, and one NPC topic.
+def menu_action(take, scene: tuple, player: list, npc: list, place: tuple = (1, 0)) -> tuple:
+    """([topic blobs], Player Dialogue action) of an XDI menu: four player topics, the first holding `player`, one NPC.
 
-    `scene` is (FormID, EditorID, quest, speaker alias); `take` gives FormIDs.
+    `scene` is (EditorID, quest, speaker alias); `place` the action's (index, phase); `take` gives FormIDs.
     """
-    fid, edid, quest, alias = scene
+    edid, quest, alias = scene
     p_ids, n_id, topics = [take() for _ in range(4)], take(), []
     for i, pid in enumerate(p_ids):
         infos = player if i == 0 else []
         topics.append(pack_topic(R.pack_dial(pid, f'{edid}_P{i}', quest, R.TOPIC_SCENE, len(infos)), pid, infos))
     topics.append(pack_topic(R.pack_dial(n_id, f'{edid}_N', quest, R.TOPIC_SCENE, len(npc)), n_id, npc))
-    action = R.pack_player_dialogue(1, alias, tuple(p_ids), (n_id,))
-    return topics, R.pack_scen(fid, edid, quest, alias, action, keyword)
+    return topics, R.pack_player_dialogue(place[0], alias, tuple(p_ids), (n_id,), place[1])
 
 
 class Spike:
@@ -372,9 +371,9 @@ class Spike:
         player.append(exit_player)
         npc.append(exit_npc)
         self.scenes.append((fid, edid, [len(m) for _, m, _ in options], [t for t, _, _ in options]))
-        topics, scene = menu_records(self.ids.take, (fid, edid, self.quest, 0), player, npc, XDI_KEYWORD)
+        topics, action = menu_action(self.ids.take, (edid, self.quest, 0), player, npc)
         self.topics += topics
-        self.scene_records.append(scene)
+        self.scene_records.append(R.pack_scen(fid, edid, self.quest, 0, [action], XDI_KEYWORD))
 
     def choice_scene(self, choices: list) -> int:
         """The scene listing one INFO's Choices, built on first use."""

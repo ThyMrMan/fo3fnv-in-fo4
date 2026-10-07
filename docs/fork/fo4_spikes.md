@@ -10,6 +10,7 @@ plan are in [research/fo4_target.md](research/fo4_target.md).
 - [Spike 1: dialogue](#spike-1)
 - [Spike 3: one script](#spike-3)
 - [Spike 2: one interior cell](#spike-2)
+- [Scripted sequences as FO4 scenes](#scene-census)
 - [Decision point](#decision)
 - [Test setup](#test-setup)
 
@@ -1346,6 +1347,70 @@ FNV's order in place of the stand-in's PKIDs: 7 of 9; left out are
 `VCG01DocMitchellFarewellDialogueStart` (a Dialogue package, the outro's
 force greet).
 
+**The outro** (built 2026-10-07, not yet played). At stage 115 Doc's
+`VCG01DocMitchellFarewellDialogueStart`, a Dialogue package on the player
+with no topic (FNV: the GREETING), force-greets at the exit marker.
+
+- It becomes a copy of `MS04KendraStaysAtHomePackage`, a ForceGreet
+  `00017BAB` instance on the Greeting subtype (108 of vanilla's 217 force
+  greets; 106 more use Hello), its NPC wait location FNV's.
+- The GREETING lines stay in the talk scene `StartConversation` starts, so
+  each Say Once line exists once (FO4 has no condition that sees another
+  line was said; a second copy in a Greeting topic would replay "I'm gonna
+  say a word"). The quest's Greeting topic has one silent `...` line: it
+  needs GetPlayerActivated or a converted force greet running (the
+  [force greet](#spike-1-force-greet) plan) and a speaker the GREETING
+  lines name, puts the speaker in the Speaker alias (ALFA) and starts that
+  scene. "Here. These are yours" then runs its Follow Ups (the Pip-Boy,
+  the vault suit by sex) into the two answers and the farewell.
+- **Objective conditions.** FO4 has no objective condition function, as
+  Skyrim's are script-only; the Skyrim build mirrors each state in a
+  global (`TES4ObjDone_<quest>_<n>`, `TES4ObjShown_<quest>_<n>`,
+  `tes5_import/base/objectives_falloutnv.py`) that converted
+  `SetObjective*` calls set. The cell writes them for its quests (8 for
+  VCG01 and VCG01Test), fills the scripts' properties (the couch script's
+  were None), and `GetObjectiveDisplayed`/`GetObjectiveCompleted` become
+  `GetGlobalValue` on them. The two clicked greetings ("We can chat
+  later", "have a seat") now convert, so clicking Doc mid-quest no longer
+  reaches the outro's line.
+- **First play:** at the door Doc drew his gun on the player, then
+  force-greeted. The copied vanilla instance's PKDT general flags came
+  along, and Kendra's force greet has `0x00800000`, Weapon Drawn. FNV and
+  FO4 share the flag layout (xEdit's common `wbPackageFlags`), so each copy
+  now takes FNV's flags where both games define the bit alike; all of Doc's
+  VCG01 packages carry Weapons Unequipped (`0x200000`). The "We can chat
+  later" line before the force greet needs stage < 115 with the new
+  objective globals at 0, which a save from the previous build at stage
+  110 gives (this build added the globals ahead of the packages, so ids
+  moved): test from a save made outside the house.
+- **As one scene** (2026-10-07, not yet played). Each step (a set of
+  lines, or a Choices menu) is a phase; while every line of a step leads
+  to the same next step the scene runs on into it, and lines that lead
+  apart start their own scene by TSCE (by phase name when the step is
+  already placed). The outro after "Here. These are yours" is one scene
+  of four phases (the Pip-Boy, the vault suit by sex, the two answers,
+  the farewell); the psych test's menus join into scenes of 3, 3 and 8
+  phases where FNV's answers converge. 21 scenes became 7.
+  First play: stuck at the psych test's second question. Every phase
+  carried the walk-away check (`GetDistance > 500`) as a completion
+  condition, and a completion condition holds a phase until it is true, so
+  phase 0 never ended. Vanilla phases have none (`ArturoGreetScene`,
+  `NatMQ103Scene`; 140 vanilla scenes have menus in consecutive phases);
+  only one-phase scenes keep it now. Played: the psych test and the outro
+  run through; the opener's `...` subtitle shows before the outro. No
+  vanilla greeting that starts a scene lacks a response (2,663 have their
+  own, 285 share one by DNAM; the 400 without any start nothing). Tried
+  without a response: played, the force greet stalled and nothing was
+  said, so a line without a response does not start its scene. The `...`
+  opener stays, recorded in [drift](fo4_drift.md#recorded).
+  The `...` also played "Didn't have much choice, I'm afraid": voice files
+  are named by INFO FormID, ids move between builds, and an earlier build's
+  file for that id was still on disk. The cell build now deletes the
+  plugin's `.fuz` files it did not write (250 stale ones, 155 kept).
+- Not converted: the outro's handouts (Stimpaks, caps, guns, ammo, the
+  Pip-Boy, the vault suit; items are a later step) and `VGenericTimer`,
+  which the farewell starts.
+
 **Played (2b, 3):** Doc walks to his chair and sits, the word association
 starts, and the whole test runs through to its end and Doc's walk to the
 door; the outro there is next.
@@ -1664,6 +1729,44 @@ FNV 0.097 / 0.294); above it FNV is brighter (0.5 -> 0.518, 0.7 -> 0.811) and
 clips at FO4 0.8 (8x middle grey), where FO4's shoulder rolls off to 5.6x
 more. Anchoring at middle grey assumes FNV's adaptation targets the same
 average; FNV's HDRParam is filled by the engine, not read here.
+
+## <a id="scene-census"></a>Scripted sequences as FO4 scenes (census 2026-10-07)
+
+**Drift policy.** Emulating an FO3/FNV mechanism exactly on FO4 costs
+play-test rounds (VCG01: dropped lines said from a line's end, the
+Reflectron view, Say Once across two copies of a greeting, a copied
+package's Weapon Drawn flag). FO4's own systems already change combat,
+movement and characters, so a sequence may play the FO4 way when that is
+simpler: prefer the FO4-native mechanism, record each change from FO3/FNV
+behavior in [fo4_drift.md](fo4_drift.md), and leave exact parity to a
+later patch. No content is dropped.
+
+**Census** (`temp/scene_census.py`, FNV / FO3 exports):
+
+| Pattern | FNV | FO3 | FO4-native target |
+|---|---|---|---|
+| Line results that `Say`/`SayTo` the next line (chains) | 282 | 36 | One scene, a Dialogue action per line; results become fragments. Drops `SayWhenFree` and FNV's first-passing stepping |
+| Topics object/quest scripts `Say` (1 line / 2–5 / 6+) | 88 (47/28/13) | 116 (35/47/33) | 1-line and pool topics stay Papyrus `Say` barks; multi-line ones are chains |
+| Scripts that talk inside a GameMode timer (timed beats) | 80 | 76 | Scene phases with Timer actions where the script is a straight sequence; the rest stay converted Papyrus |
+| `StartConversation` with the player (scripts + results) | 76 | 3 | Stage-started scene, or a ForceGreet whose greeting starts it |
+| Dialogue packages on the player (GREETING / named topic) | 67 / 226 | 132 / 50 | FO4 ForceGreet (vanilla: 108 on Greeting, 106 on Hello); the line starts the scene |
+| NPC↔NPC talk (Dialogue packages on others + `StartConversation` NPC) | 39 + 16 | 204 + 7 | Two-actor scenes, as FO4's ambient conversations |
+| Quest-gated packages (scripted walks, positions) | 1,454 | 1,399 | Stay FO4 packages (built); a package that is a beat inside a sequence becomes a scene package action |
+| Menu dialogue (lines with Choices / Follow Ups) | 6,348 / 1,107 | 7,717 / – | XDI scenes ([spike 1](#spike-1-design), [2b](#spike-2-vcg01)) |
+
+Quests with scripted talk: 69 in FNV (66 also move NPCs with quest-gated
+packages; VMS49, VMS29a, VFreeformMcCarran2, VMS18, VCG00, VCG01 lead), 42
+in FO3 (CG02, the tutorial: 24 Dialogue packages and 56 gated packages; MQ05,
+MQ07, MS06, CG03).
+
+**Expected outcome.** Chains, force greets and NPC↔NPC talk (706 FNV and 432
+FO3 sites) map onto scenes mechanically: the order is the scene's,
+not a race between packages, the GREETING picker and Say Once. Drift:
+pacing between lines, how an NPC approaches or stands up, and lines picked
+by scene order rather than FO3/FNV's first-passing rule. Timed beats need a
+per-script pattern match, so only straight sequences convert. Packages stay
+packages. First comparison: VCG01's outro as one stage-started scene against
+the force-greet build.
 
 ## <a id="decision"></a>Decision point
 

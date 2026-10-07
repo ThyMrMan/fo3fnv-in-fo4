@@ -18,6 +18,7 @@ from fo4_import.base.vmad import info_fragments
 from fo4_import.base.writer import pack_topic
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 from tes5_import.base.text_reader import parse_export_file
 
 #: FNV DIAL type of the topics scripts Say: Conversation.
@@ -29,6 +30,8 @@ FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
 COMPARE, OR, USE_GLOBAL = 0xE0, 0x01, 0x04
 #: FNV GetQuestVariable and FO4's GetVMQuestVariable, which names the Papyrus property in its CIS2.
 QUEST_VARIABLE, VM_QUEST_VARIABLE = 'GetQuestVariable', 'GetVMQuestVariable'
+#: FO4 has no objective condition; an objective test reads its mirror global (objectives_falloutnv).
+GLOBAL_VALUE = 'GetGlobalValue'
 
 
 class SayTopics:
@@ -103,6 +106,29 @@ def _unmapped(cond: dict, form_map: dict) -> bool:
         s in slots and p not in form_map for s, p in ((1, cond['p1']), (2, cond['p2'])))
 
 
+def _fo4_condition(cond: dict, form_map: dict, quest_vars: dict) -> 'tuple | None':
+    """(FO4 function, param 1, param 2, CIS2 text) of an FNV condition; None when it cannot convert.
+
+    GetQuestVariable reads the converted property (GetVMQuestVariable); an
+    objective test reads its mirror global, `form_map[(quest, index, state)]`.
+    """
+    func, state = cond['func'], OBJECTIVE_FUNCS.get(C.FNV.index(cond['func']))
+    if cond['op_flags'] & USE_GLOBAL:
+        return None
+    if func == QUEST_VARIABLE:
+        variable = quest_vars.get(cond['p2'])
+        if variable is None or _unmapped(dict(cond, p2=0), form_map):
+            return None
+        return C.FO4.index(VM_QUEST_VARIABLE), form_map[cond['p1']], 0, f'::{variable}_var'
+    if state:
+        glob = form_map.get((cond['p1'], cond['p2'], state))
+        return (C.FO4.index(GLOBAL_VALUE), glob, 0, '') if glob else None
+    index = C.FO4.index(C.RENAMED.get(func, func))
+    if index < 0 or _unmapped(cond, form_map):
+        return None
+    return index, form_map.get(cond['p1'], cond['p1']), form_map.get(cond['p2'], cond['p2']), ''
+
+
 def conditions_of(rec: dict, form_map: dict, quest_vars: dict, swap: bool = False) -> 'bytes | None':
     """An FNV record's conditions as FO4 CTDAs (and CIS2s); None when one cannot convert.
 
@@ -114,14 +140,11 @@ def conditions_of(rec: dict, form_map: dict, quest_vars: dict, swap: bool = Fals
     while f'Condition[{i}].Raw' in rec:
         cond = C.parse(rec[f'Condition[{i}].Raw'])
         i += 1
-        variable = quest_vars.get(cond['p2']) if cond['func'] == QUEST_VARIABLE else None
-        name = VM_QUEST_VARIABLE if cond['func'] == QUEST_VARIABLE else C.RENAMED.get(cond['func'], cond['func'])
-        func = C.FO4.index(name)
-        if func < 0 or (cond['func'] == QUEST_VARIABLE and variable is None) or _unmapped(
-                dict(cond, p2=0) if variable else cond, form_map):
+        fo4 = _fo4_condition(cond, form_map, quest_vars)
+        if fo4 is None:
             return None
+        func, p1, p2, cis2 = fo4
         run_on, ref = C.run_on_of(cond, swap, form_map)
-        p2 = 0 if variable else form_map.get(cond['p2'], cond['p2'])
-        out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR), cond['value'], func, form_map.get(cond['p1'], cond['p1']),
-                           p2, run_on, ref) + (R.pack_cis2(f'::{variable}_var') if variable else b'')
+        out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR), cond['value'], func, p1, p2, run_on, ref)
+        out += R.pack_cis2(cis2) if cis2 else b''
     return out

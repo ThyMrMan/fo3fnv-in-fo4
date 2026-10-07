@@ -1,0 +1,58 @@
+# FO3/FNV on Fallout 4: where play differs
+
+The FO4 target prefers Fallout 4's own mechanism over an exact emulation of
+FO3/FNV behavior when the emulation costs repeated play-test rounds
+([drift policy](fo4_spikes.md#scene-census)). Every such change is listed
+here, so a later patch can close the gap. Content is never dropped.
+
+## <a id="recorded"></a>Recorded drift
+
+| Area | FO3/FNV | On Fallout 4 | Where |
+|---|---|---|---|
+| Scripted conversations | Each line's result says the next; the first line whose conditions pass plays | One scene per run of steps, a phase per step; lines picked by scene order. Pacing between lines is FO4's | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Topic menus | Any number of topics; Tab leaves | XDI menus; a `[Leave]` option stands in for Tab | [spike 1](fo4_spikes.md#spike-1-design) |
+| Walking away mid-conversation | The talk ends | A one-menu scene ends; a multi-phase scene waits in its phase until the player returns | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Opening a talk | `StartConversation`, force greets and clicking all open the GREETING | A silent `...` greeting line starts the GREETING scene (its subtitle shows briefly) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Force greets | Dialogue package: walk up and talk | FO4 ForceGreet (its approach distance, dialogue camera) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| AI packages | FNV package types and flags | Copies of vanilla FO4 template instances; flags the games share; Travel to a chair is a Sit | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Quest objectives in conditions | Engine condition functions | Mirror globals the converted scripts set | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Race menu (Reflectron) | FNV's race/face menu | FO4's full LooksMenu, as the vault exit elevator | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Faces | FaceGen shape and texture | FO4 sculpt regions fitted to FNV (about 70% of the shape), matched hair and eyes | [sculpt](fo4_spikes.md#spike-2-sculpt) |
+| Cell grading | Imagespace values | One LUT baked from FNV's grading | [imagespace](fo4_spikes.md#spike-2-imagespace) |
+| Glass and blended surfaces | Alpha-blended lit surfaces | Decals, effect materials or cut-outs | [transparency](fo4_spikes.md#spike-2-transparency) |
+| Collision | FNV Havok | Rebuilt through the CK's Elric | [collision](fo4_spikes.md#spike-2-collision) |
+| Script timing | Per-frame GameMode blocks | Papyrus timers (0.1 s at the fastest) | [timing](fo4_spikes.md#spike-3-timing) |
+
+## <a id="candidates"></a>Systems where FO4's own version is the likely answer
+
+Not built yet. Each names the FO4 mechanism to take and the drift to note.
+
+- **SPECIAL, skills, traits, perks.** Decided: FNV's system on
+  LevelUpMenuEx ([decision](research/fo4_target.md#decisions)). Drift:
+  skills appear in LevelUpMenuEx's menu rather than a Pip-Boy page; FO4's
+  perk chart is turned off.
+- **Speech checks and skill-gated lines.** FNV shows `[Speech 50]`; FO4
+  colors persuasion by Charisma. Keep FNV's checks as conditions, shown
+  through XDI.
+- **Karma and faction reputation.** FO4 has neither; globals or actor
+  values with a status display (FO4 affinity is per companion only).
+- **Companions.** FNV's companion wheel versus FO4's command mode and
+  affinity: use FO4's follower system and note the lost wheel options.
+- **VATS.** FO4's slowed time versus FNV's pause.
+- **Weapons and armor.** FNV mods and item condition versus FO4's object
+  mods (no condition or repair): mods become OMODs; condition is dropped
+  or kept as a script value.
+- **Hardcore mode.** Thirst, hunger and sleep onto FO4 Survival's needs.
+- **Crafting.** Workbenches, campfires and reloading benches as FO4
+  crafting stations (COBJ recipes).
+- **Pip-Boy, map and fast travel.** FO4's Pip-Boy and world map;
+  FNV-specific pages (reputation, radio list) need a place.
+- **Lockpicking and hacking.** FO4's minigames; FNV's skill gates become
+  perk or skill-value checks.
+- **The player's voice.** FO4's voiced player says "Hi" before a greeting
+  ([spike 1](fo4_spikes.md#spike-1-design)); silence it or accept it.
+- **Ambient NPC conversations and barks.** FO3's 204 NPC-to-NPC Dialogue
+  packages as FO4 two-actor scenes ([census](fo4_spikes.md#scene-census)).
+- **Disguises and faction armor.** FO4 has no disguise system.
+- **Radio.** Stations as FO4 radio scenes.
+- **Level scaling.** Leveled lists and encounter zones under FO4's rules.

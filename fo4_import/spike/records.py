@@ -114,10 +114,10 @@ def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b
     return pack_fo4_record('INFO', fid, 0, subs)
 
 
-def pack_player_dialogue(index: int, alias: int, player_topics: tuple, npc_topics: tuple) -> bytes:
-    """A Player Dialogue scene action in phase 0 (CookeGreetScene's flags), ending with ANAM."""
+def pack_player_dialogue(index: int, alias: int, player_topics: tuple, npc_topics: tuple, phase: int = 0) -> bytes:
+    """A Player Dialogue scene action in `phase` (CookeGreetScene's flags), ending with ANAM."""
     subs = pack_subrecord('ANAM', struct.pack('<H', 3)) + _zstr('NAM0', '') + _s32('ALID', alias)
-    subs += _u32('INAM', index) + _u32('FNAM', PLAYER_DIALOGUE_FLAGS) + _u32('SNAM', 0) + _u32('ENAM', 0)
+    subs += _u32('INAM', index) + _u32('FNAM', PLAYER_DIALOGUE_FLAGS) + _u32('SNAM', phase) + _u32('ENAM', phase)
     for sig, fid in zip(('PTOP', 'NTOP', 'NETO', 'QTOP'), player_topics):
         subs += _u32(sig, fid)
     for sig, fid in zip(('NPOT', 'NNGT', 'NNUT', 'NQUT'), npc_topics):
@@ -125,26 +125,31 @@ def pack_player_dialogue(index: int, alias: int, player_topics: tuple, npc_topic
     return subs + _s32('DTGT', alias) + pack_subrecord('ANAM', b'')
 
 
-def pack_dialogue_action(index: int, alias: int, topic: int) -> bytes:
-    """A Dialogue scene action in phase 0: `alias` says `topic` (PastorGreetScene's flags and distances)."""
+def pack_dialogue_action(index: int, alias: int, topic: int, phase: int = 0) -> bytes:
+    """A Dialogue scene action in `phase`: `alias` says `topic` (PastorGreetScene's flags and distances)."""
     subs = pack_subrecord('ANAM', struct.pack('<H', 0)) + _zstr('NAM0', '') + _s32('ALID', alias)
-    subs += _u32('INAM', index) + _u32('FNAM', DIALOGUE_ACTION_FLAGS) + _u32('SNAM', 0) + _u32('ENAM', 0)
+    subs += _u32('INAM', index) + _u32('FNAM', DIALOGUE_ACTION_FLAGS) + _u32('SNAM', phase) + _u32('ENAM', phase)
     subs += _u32('DATA', topic) + pack_subrecord('DMAX', struct.pack('<f', 10.0))
     return subs + pack_subrecord('DMIN', struct.pack('<f', 1.0)) + pack_subrecord('ANAM', b'')
 
 
-def pack_scen(fid: int, edid: str, quest: int, alias: int, action: bytes, keyword: int, phase: str = 'Menu') -> bytes:
-    """A one-phase scene (`phase`) with one actor and one action, tagged with `keyword` (0: none).
+def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keyword: int,
+              phases: tuple = ('Menu',)) -> bytes:
+    """A scene of named `phases` in order with one actor and `actions` (indices 1..n), tagged with `keyword` (0: none).
 
-    The phase completes, ending the scene, once the alias is farther than DIALOGUE_DISTANCE from the player.
+    A one-phase scene also completes once the alias is farther than
+    DIALOGUE_DISTANCE from the player; with several phases each completes
+    on its actions, as vanilla's do (a completion condition holds the phase
+    until it is true).
     """
-    walked_off = pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
-                           run_on=RUN_QUEST_ALIAS, param3=alias)
+    walked_off = b'' if len(phases) > 1 else pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
+                                                       run_on=RUN_QUEST_ALIAS, param3=alias)
     subs = _zstr('EDID', edid) + _u32('FNAM', SCENE_FLAGS)
-    subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'') + walked_off
-    subs += pack_subrecord('NEXT', b'') + _u32('WNAM', 350) + pack_subrecord('HNAM', b'')
+    for phase in phases:
+        subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'') + walked_off
+        subs += pack_subrecord('NEXT', b'') + _u32('WNAM', 350) + pack_subrecord('HNAM', b'')
     subs += _s32('ALID', alias) + _u32('LNAM', 4) + _u32('DNAM', 10)
-    subs += action + _u32('PNAM', quest) + _u32('INAM', 1)
+    subs += b''.join(actions) + _u32('PNAM', quest) + _u32('INAM', len(actions))
     subs += pack_subrecord('VNAM', struct.pack('<4I', 3, 3, 3, 3)) + pack_subrecord('ACTV', struct.pack('<f', DIALOGUE_DISTANCE))
     subs += (_u32('KSIZ', 1) + _u32('KWDA', keyword) if keyword else b'') + _u32('XNAM', 0)
     return pack_fo4_record('SCEN', fid, 0, subs)

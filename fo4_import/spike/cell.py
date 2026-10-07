@@ -41,7 +41,7 @@ from fo4_import.spike import voice
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS, VOICES
 from fo4_import.spike.say_topics import SayTopics
 from fo4_import.spike.script import compile_into
-from fo4_import.spike.quest import quest_record
+from fo4_import.spike.quest import objective_globals, quest_record
 from fo4_import.spike.statics import write_assets
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from tes5_import.base.tes5_reader import first_sub, sub_map, subrecords, walk
@@ -136,7 +136,7 @@ class CellBuilder:
         self.writer = FO4PluginWriter(masters=MASTERS, is_esm=False, description='FNV cell spike')
         self.next_id = len(MASTERS) << 24 | FIRST_ID
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
-        self.actor_ids, self.npc_ids, self.say, self.packages = {}, {}, None, None
+        self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -377,9 +377,9 @@ def _navmesh(builder: CellBuilder, export_dir: Path, fnv_cell: str, cell_fid: in
     return records
 
 
-def _form_map(ref_ids: dict, recs: list, quests: dict) -> dict:
-    """FNV to FO4 FormIDs of the cell's references, quests `recs` and the player."""
-    return {**{int(k, 16): v for k, v in ref_ids.items()}, PLAYER: PLAYER,
+def _form_map(builder: CellBuilder, ref_ids: dict, recs: list, quests: dict) -> dict:
+    """FNV to FO4 forms: the cell's references, quests, player, objective states."""
+    return {**{int(k, 16): v for k, v in ref_ids.items()}, PLAYER: PLAYER, **builder.objectives,
             **{int(r['FormID'], 16): quests[r['EditorID']] for r in recs}}
 
 
@@ -391,7 +391,7 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     `TES4Talk_<topic>` scene is known.
     """
     say = builder.say = SayTopics(builder, export_dir)
-    form_map = {**_form_map(ref_ids, recs, quests), **builder.npc_ids}
+    form_map = {**_form_map(builder, ref_ids, recs, quests), **builder.npc_ids}
     done = []
     for rec in recs:
         fid = quests[rec['EditorID']]
@@ -406,6 +406,7 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     for fid, record, branches, blobs, talks in done:
         built |= {prop for prop, scene in list(builder.scripts.talks.items())
                   if prop not in built and talks.talk(prop, scene)}
+        talks.greeting(builder.packages.greets)
         builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics, talks.scenes))
         builder.counts['QUST'] += 1
         builder.counts['SCEN'] += len(talks.scenes)
@@ -419,6 +420,8 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
     voices = [(folders / VOICES[label][0], VOICES[label][1]) for label, fnv, *_ in SPEAKERS
               if fnv in builder.npc_ids and label in VOICES]
     todo = voice.jobs(builder.say.voiced, voices, data_dir, plugin)
+    folders = [data_dir / 'Sound' / 'Voice' / plugin / fo4 for _, fo4 in voices]
+    builder.counts['stale voice files removed'] = voice.remove_stale(todo, folders)
     builder.counts['voice files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
 
 
@@ -450,8 +453,9 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     quests = {edid: builder.new_id() for edid in CELL_QUESTS}
     quest_recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in quests]
     builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
+    builder.objectives = objective_globals(builder, quest_recs)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
-    actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(ids, quest_recs, quests))
+    actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(builder, ids, quest_recs, quests))
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, ids)
     persistent, temporary = _placed(builder, refs, ids, teleports)
     persistent += actors
