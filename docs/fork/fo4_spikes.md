@@ -790,8 +790,10 @@ at full smoothness. FNV keeps specular in the normal map's alpha, so a shape
 whose normal map carries a mask (`asset_convert/texture/spec_mask`, the rule
 the Skyrim side uses; the mesh's material colour, black on every test shape,
 is ignored) gets an `_s.dds` beside it: BC5 (`dds_codec.write_normal_dds`),
-R the alpha, G the smoothness from FNV's glossiness by the Blinn-Phong to GGX
-relation `1 - sqrt(2 / (power + 2))`. No mask, or a non-square map: specular
+R the alpha, G the smoothness from FNV's glossiness: `1 - (2 / (power +
+2)) ** 0.25` (Walter's Beckmann alpha `sqrt(2 / (power + 2))` is GGX roughness
+squared; the first build used it as roughness, see
+[exterior](#spike-4-exterior)). No mask, or a non-square map: specular
 off. In the test set the wall corner's wall and floor have none.
 
 ### <a id="spike-2-bgem"></a>Glass: effect shaders and BGEM
@@ -1638,6 +1640,161 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
 - Static collections carry their merged mesh (`SCOL\…`), placed as
   statics. Trees are SpeedTree (`.spt`): not converted. No grass, LOD or
   exterior navmesh yet.
+- **First play:** invisible walls (one across a road at -69,091, 5,594),
+  purple ruins and flagpole, blurry ground.
+  - Collision placed twice. Static collections keep each part's collision
+    on a child node (`Havok0`… of `SCOLGoodpringsFenceA01`, up to 2,000
+    units from the origin). FNV's placement (node once) matches the
+    visible fence (x -2,045 to 503 against -2,047 to 501); applied twice
+    it reaches (-3,517, -3,870), covering the road spot, and is the only
+    placement that does. Elric keeps the node transform on its output and
+    bakes it into the physics too, so `elric.graft` resets a collision-only
+    node to identity.
+  - A `bhkRigidBodyT` with a convex shape (163 placements: crates, the
+    floor mattress, maize groups) now carries its transform in a
+    `bhkConvexTransformShape` under an identity body, as a mesh shape
+    already carries it baked.
+  - Some FNV meshes name textures from `Data\Textures\…`
+    (`SCOLgsRuinHouse*`), which was not stripped: purple.
+    `convert_static.texture_source` normalizes every FNV texture path.
+  - The Nevada flag keeps 11 bone helper boxes (`TTail3:0`…, 24 vertices,
+    a material colour, no shader): FNV draws no shape without a shader
+    property, the conversion gave them `untextured.bgsm`. Unshaded shapes are
+    left out (in the block: only those 11).
+  - FNV's ground normal maps are DXT1 (no alpha): the specular map took
+    alpha 1 as full specular. A DXT1 normal now gets Skyrim's dim mask
+    (`landscape_normals.SPECULAR_ALPHA`, 32).
+  - FNV's ground textures are 512² DXT1; FO4's vanilla ground diffuse maps
+    are 2048² (BC1/BC3), so FO4's tiling likely stretches FNV's 4× (not
+    yet changed).
+- **Second play:** black triangles on the ground by houses; FNV objects
+  (the motorcycle, houses, the gas station sign) blurrier and glossier than
+  the Skyrim conversion of the same files (`motorcycle01.dds` is FNV's
+  1024² DXT1 in both; `iTexMipMapSkip` is 0).
+  - The black triangles are FNV's baked soft shadows under buildings
+    (`NV_NoSo_RanchHouse03:1`, `SCOLgsHouse03`'s `NVRanchHouse03002`):
+    unlit, untextured, black vertex colours with alpha 0 to 1, an
+    NiAlphaProperty blend, but no `sf_vertex_alpha`, so the effect shader
+    ignored vertex alpha. Untextured, the vertex alpha is all FNV can fade
+    by: an untextured unlit shape that fades now uses it.
+  - Smoothness was far above vanilla's: our specular maps' G quartiles
+    151/186/209 against 59/78/130 over 150 vanilla `_s` maps (R 45
+    against 63). The Blinn-Phong to GGX relation was used with Walter's
+    alpha as roughness; GGX alpha is roughness squared, so smoothness is
+    `1 - (2 / (power + 2)) ** 0.25` (quartiles about 92/122/147).
+- **Third play:** textures better; black triangles on bare hills; an
+  invisible wall on the road at (-72,122, 729); the saloon's step needs a
+  jump; the Poseidon sign now and then shows a lower-quality texture.
+  - The hill triangles are terrain (no mesh there; the layer data is clean:
+    sorted, in range, at most 6 alpha layers per quadrant against
+    vanilla's 9, at most 6 per square against vanilla's 7). Vanilla writes
+    a BTXT's layer as -1 (every one of 2,000+ sampled); ours wrote 0, an
+    alpha layer's index. Now -1; not yet confirmed as the cause.
+  - The wall is `VCG01TumbleweedHolderREF`, a CollisionMarker plane (FO4
+    shares its id 0x21). FNV's `DefaultDisableLinkTrigger` around it
+    disables its linked reference on entry; references kept no link, so the
+    plane stayed. FNV's XLKR becomes FO4's (no keyword) when the target is
+    converted (9 in the block).
+  - The saloon's collision has no stairs material (FNV materials 0, 9, 17,
+    3; stairs set bit 64): FNV's character steps up it, FO4's does not.
+  - The sign is one shape (diffuse, normal, environment mask), no LOD
+    node: the lower texture is FO4 streaming mips in.
+- **Fourth play:** the road wall is gone. The black hill triangles stay
+  with layer -1; the F4SE mod Black Landscape Fix clears them (an engine
+  bug, not our data). Blurry textures vary between launches (sign one
+  launch, sign and bike another); a wall in front of Doc's house; an
+  uneven wall at the water tank and a ruined house you can slip into.
+  - The sign's DDS is full size (512², 10 mips, as FNV's). FO4 streams
+    mips from a BA2's chunks; loose files are known to stay blurry. The
+    build now moves loose textures to `_ba2\Textures` and packs them as
+    `<plugin> - Textures.ba2` (fo4_import/base/ba2_pack.py, Archive2).
+    Archive2 skips the generated LUTs (uncompressed 24-bit, one mip;
+    vanilla's sit in the general `Fallout4 - Misc.ba2`), so they stay loose.
+    It writes names with forward slashes even given a root (vanilla's
+    archives use backslashes); the game finds files by hash.
+  - Elric ignores a collision node's scale (scale 0.62, 1.0 and 2.0 give
+    the same physics but for run-to-run noise), and the graft sets the node
+    to 1.0, so a scaled part's collision came out at full size. SCOLs scale
+    parts: `scolgsdochouse02` 0.49, `scolgsruinhouse11` 0.62, the
+    Goodsprings fence 1.19, parking lots 0.77–1.99, corn 0.89–1.43. The
+    node now gets 1.0 and the shapes the scale.
+- **Fifth play:** the Poseidon sign is sharp close up and blurry a few
+  steps further out, every time; more invisible walls (in front of Doc's
+  house, by the barrels west of the saloon, by `scolgsruinhouse06`).
+  - The sign switch is FO4's texture degrade (`iTextureDegradeDistance0/1`,
+    `iTextureUpgradeDistance0/1`): past the distance the game drops a
+    texture's top BA2 chunk. Our chunking matched vanilla's (a 512 texture:
+    mip 0, then the rest), so FNV's 512 textures fell to 256, which shows
+    on logos drawn small. The gas station is one SCOL whose origin is about
+    2,500 units from the sign. Textures now pack as one chunk each
+    (`-maxChunkCount=1`; vanilla has 125 such 512 textures in Textures1–2).
+  - `tools/nif/fo4_collision_audit.py` compares each collision part's box
+    in FNV (pyffi), in our pre-Elric blocks and in the shipped mesh
+    (`fo4_import/nif/hknp.py` reads Elric's hk_2014 packfile: body infos,
+    convex polytope vertices, compressed mesh vertices). All 383 placed
+    models match within 4 units at every stage (6 small ones use sphere,
+    capsule or compound shapes the reader does not decode).
+  - None of a placed mesh's collision reaches the Doc's-house wall. The
+    barrels and tumbleweeds are FNV MSTTs (movable statics) whose bodies
+    are dynamic, and they were placed as FO4 STATs; a wall sits 56–121
+    units from three barrels. They are now FO4 MSTTs (EDID, OBND, MODL,
+    DATA 0, as 506 vanilla ones), whose 3D follows the body. Not yet
+    confirmed as the walls' cause.
+- **Sixth play:** textures fixed; barrels now move when walked into; walls
+  remain, one more at (-70,613, -3,128).
+  - Triangles, not just boxes: at the rubble wall by `scolgsruinhouse06`
+    the mound's collision is wound at random (Havok9: 42 faces up, 38 down,
+    no authored normals), identical in FNV and ours. FNV collides both
+    sides; FO4 does not. The shared winding repair
+    (`repair_inverted_floors`, `two_sided_floors`) takes its render oracle
+    from the collision node's own subtree, and a SCOL's Havok nodes have
+    none, so no SCOL part was ever repaired. A collision-only node now
+    gets the whole mesh's render triangles in its own frame
+    (`collision.visual_tri_soup_in`); Havok9 comes out all faces up, with
+    the floor rule's reversed copies (80 → 148). Over the block's placed
+    models it changes 17 SCOLs (houses, ruins, gas station, fences,
+    parking lots, roads): 2,777 faces turned and 2,713 reversed copies
+    added. Road surfaces were nearly all face down (90 of 94, 172 of 190).
+    The shipped audit still matches FNV everywhere.
+  - At the Doc's-house wall and the new one nothing with collision is in
+    reach, in FNV's REFRs or ours: the nearest is a fence line or house
+    part 170–270 units away, and no primitive, actor, tilted reference,
+    water or terrain slope (7–21°) explains them.
+- **Seventh play:** walls remain. Console clicks in front of house06 pick
+  only `0B1003EE` (the house) or "Picked Non Ref AV Object".
+  - Decoding Elric's faces (compressed mesh primitives: four u8 corner
+    indices, a quad when the last two differ; a section's u32 at 0x4C is
+    shared-index offset << 8 | packed count, at 0x50 primitive offset << 8
+    | count, bytes 0x58/0x59 packed and shared counts) shows no face of
+    house06 over the clicked spot, nor any of FNV's or our pre-Elric
+    triangles. The pick likely passed through to the house behind.
+  - Vanilla multi-body meshes share one bhkPhysicsSystem among their
+    collision objects (177 of 177 sampled architecture/setdressing NIFs);
+    the graft gave each object its own copy of the whole system (house06:
+    18 objects, 18 copies of 18 bodies). Every SCOL, and only SCOLs here,
+    has several. The graft now shares one system, as vanilla does.
+  - FNV's placement rotation is Rx(-x)·Ry(-y)·Rz(-z) (11 of 12 tilted SCOL
+    parts land exactly on the GECK's merged SCOL mesh).
+- **Eighth play:** walls remain with the shared system, and they are not in
+  the Skyrim conversion of the same block, so they come from the FO4 path.
+  - SCOLs are now placed as their parts (`fo4_import/spike/scol.py`): each
+    SCOL's ONAM/DATA read from FalloutNV.esm (the export drops them), every
+    placement composed with the reference's (position, rotation, scale) as
+    a reference of its own. The block's 22 SCOL references become 355 part
+    references; parts land exactly on the merged mesh (median gap 0) except
+    the three parking-lot chunks (median 2–3 units, p95 13–18).
+  - FormIDs: part references, and bases first made for a part only used
+    in SCOLs (20), take ids from 0x180000; the exterior's bases are made up
+    front in placement order (`Exterior.placement_order`), so no existing
+    record moves (2,231 compared, 0 moved; 22 SCOL references gone). The
+    SCOL bases themselves are still written, unused, to keep later ids.
+- **Ninth play:** the split fixed the walls. Cause not pinned down: every
+  file-side check of the merged meshes matched FNV (boxes, vertices,
+  decoded faces), so the difference is in how FO4 loads a mesh with many
+  bodies on our collision-only nodes (Elric-baked bodies, nodes reset to
+  identity), which a part mesh (one body on the root) never uses. Cost: the
+  22 SCOLs drew 99 shapes merged and 422 as parts (the block's other
+  references 1,349), about +22% shapes for the block.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 

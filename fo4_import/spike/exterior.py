@@ -18,6 +18,7 @@ import struct
 from pathlib import Path
 
 from asset_convert.texture.dds_codec import write_normal_dds
+from asset_convert.texture.landscape_normals import SPECULAR_ALPHA
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_image
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -30,6 +31,8 @@ CELL_UNITS = 4096.0
 #: Fallout4.esm's Commonwealth, whose climate, water and map settings the worldspace takes.
 WORLD_TEMPLATE = 0x3C
 WORLD_COPIED = (b'CNAM', b'NAM2', b'NAM3', b'NAM4', b'DNAM', b'MNAM', b'ONAM', b'NAMA', b'DATA', b'XWEM')
+#: BTXT layer of a base texture: vanilla's -1 (every one of the 2,000+ sampled), never an alpha layer's index.
+BASE_LAYER = -1
 #: Material type of vanilla landscape textures (FO4 MATT), and the CELL DATA flag Has Water vanilla sets.
 LAND_MATERIAL, CELL_DATA = 0x12F35, 0x02
 #: Record flags of a persistent cell, and the persistent flag of a reference.
@@ -71,6 +74,10 @@ class Exterior:
     def ids(self, plugin_index: int) -> dict:
         """{FNV reference FormID: FO4 FormID} of every reference in the block."""
         return {r['FormID']: self.new_id(plugin_index) for r in self.refs}
+
+    def placement_order(self) -> list:
+        """Every reference in group()'s order: the persistent cell's, then each cell's."""
+        return self.persistent + [r for grid in sorted(self.cells) for r in self.by_cell[grid]]
 
     def group(self, builder, place, data_dir: Path) -> bytes:
         """The WRLD group's body: worldspace, persistent cell, grid cells; `place(refs)` packs (persistent, temporary).
@@ -119,7 +126,8 @@ class Exterior:
             else:
                 alpha.setdefault(int(rec[f'{key}.ATXT.Quadrant']), []).append((int(rec[f'{key}.ATXT.Layer']), key))
         for quad in sorted(set(base) | set(alpha)):
-            subs += pack_subrecord('BTXT', struct.pack('<IBBxx', self._ltex(builder, base.get(quad), data_dir), quad, 0))
+            subs += pack_subrecord('BTXT', struct.pack('<IBBh', self._ltex(builder, base.get(quad), data_dir), quad, 0,
+                                                       BASE_LAYER))
             for layer, (_, key) in enumerate(sorted(alpha.get(quad, []))):
                 subs += pack_subrecord('ATXT', struct.pack('<IBBH', self._ltex(builder, rec[f'{key}.ATXT.Texture'],
                                                                                data_dir), quad, 0, layer))
@@ -164,7 +172,10 @@ class Exterior:
 
 
 def _landscape_textures(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
-    """(diffuse, normal, specular) texture paths of an FNV LTEX under FO4's Textures; '' where FNV has none."""
+    """(diffuse, normal, specular) texture paths of an FNV LTEX under FO4's Textures; '' where FNV has none.
+
+    A DXT1 normal map has no specular alpha (all FNV ground's): the dim mask Skyrim's conversion gives it.
+    """
     rel = 'textures\\landscape\\' + rec['ICON'].replace('/', '\\').lower()
     normal_rel = rel[:-4] + '_n.dds'
     out = []
@@ -178,8 +189,10 @@ def _landscape_textures(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
     specular = ''
     if out[1]:
         specular = out[1][:-6] + '_s.dds'
-        image = spec_image((export_dir / normal_rel.replace('\\', '/')).read_bytes(),
-                           smoothness(float(rec.get('SNAM.Specular', 30))))
+        normal = (export_dir / normal_rel.replace('\\', '/')).read_bytes()
+        image = spec_image(normal, smoothness(float(rec.get('SNAM.Specular', 30))))
+        if normal[84:88] == b'DXT1':
+            image[:, :, 0] = SPECULAR_ALPHA
         write_normal_dds(image, data_dir / 'Textures' / specular)
     return out[0], out[1], specular
 

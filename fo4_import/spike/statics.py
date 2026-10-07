@@ -21,7 +21,7 @@ from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import file as nif_file
 from asset_convert.texture.dds_codec import write_normal_dds
-from fo4_import.nif.convert_static import PREFIX, convert, fo4_texture, spec_image
+from fo4_import.nif.convert_static import PREFIX, convert, fo4_texture, spec_image, texture_source
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
@@ -55,13 +55,13 @@ def write_assets(export_dir: Path, model: str, data_dir: Path) -> tuple:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(raw)
     for texture in converted.textures:
-        source = export_dir / texture.replace('\\', '/').lower()
+        source = export_dir / texture_source(texture).replace('\\', '/')
         target = data_dir / 'Textures' / fo4_texture(texture)
         target.parent.mkdir(parents=True, exist_ok=True)
         if source.exists():
             shutil.copyfile(source, target)
     for spec_path, (fnv_normal, smooth) in converted.spec_maps.items():
-        normal = (export_dir / fnv_normal.replace('\\', '/').lower()).read_bytes()
+        normal = (export_dir / texture_source(fnv_normal).replace('\\', '/')).read_bytes()
         write_normal_dds(spec_image(normal, smooth), data_dir / 'Textures' / spec_path)
     return f'{PREFIX}\\{rel}', _bounds(converted.nif)
 

@@ -25,9 +25,9 @@ def test_tangent_frame_is_du_then_dv():
 
 
 def test_glossiness_maps_to_ggx_smoothness():
-    """Power 0 is rough; 60 (the FNV shelf) is about 0.82."""
+    """Power 0 is rough; 60 (the FNV shelf) is about 0.58."""
     assert C.smoothness(0.0) == 0.0
-    assert C.smoothness(60.0) == pytest.approx(0.8204, abs=1e-3)
+    assert C.smoothness(60.0) == pytest.approx(0.5762, abs=1e-3)
 
 
 def test_spec_map_sits_beside_the_normal_map():

@@ -126,9 +126,15 @@ class Converted:
 
 def fo4_texture(fnv_path: str) -> str:
     """An FNV texture path as the path under FO4's textures folder; '' for none."""
-    rel = fnv_path.replace('/', '\\').lower()
-    rel = rel[len('textures\\'):] if rel.startswith('textures\\') else rel
+    rel = texture_source(fnv_path)[len('textures\\'):]
     return f'{PREFIX}\\{rel}' if rel else ''
+
+
+def texture_source(fnv_path: str) -> str:
+    """An FNV texture path as `textures\\...`, lowercase."""
+    rel = fnv_path.replace('/', '\\').lower()
+    rel = rel[len('data\\'):] if rel.startswith('data\\') else rel
+    return rel if rel.startswith('textures\\') else 'textures\\' + rel
 
 
 def _unit(v: np.ndarray) -> np.ndarray:
@@ -190,8 +196,11 @@ def _geometry(geom, root) -> tuple:
 
 
 def smoothness(glossiness: float) -> float:
-    """Blinn-Phong glossiness as smoothness: 1 - sqrt(2 / (power + 2))."""
-    return 1.0 - math.sqrt(2.0 / (max(glossiness, 0.0) + 2.0))
+    """Blinn-Phong glossiness as smoothness: 1 - (2 / (power + 2)) ** 0.25.
+
+    See: docs/fork/fo4_spikes.md#spike-4-exterior
+    """
+    return 1.0 - (2.0 / (max(glossiness, 0.0) + 2.0)) ** 0.25
 
 
 def _square(dds: bytes) -> bool:
@@ -211,7 +220,7 @@ def _specular(mat: dict, fnv_normal: str, props: dict, texture_root) -> 'tuple |
     Specular is off when the alpha carries no mask (spec_mask's rule, which
     ignores the mesh's material colour) or the map is not square.
     """
-    source = Path(texture_root) / fnv_normal.replace('\\', '/').lower() if texture_root and fnv_normal else None
+    source = Path(texture_root) / texture_source(fnv_normal).replace('\\', '/') if texture_root and fnv_normal else None
     data = source.read_bytes() if source and source.exists() else b''
     if not spec_mask.has_mask(data) or not _square(data):
         mat['specular'] = False
@@ -271,10 +280,11 @@ def _unlit(shader, alpha, two_sided: bool, fades: bool) -> ShapeMaterial:
     """An FNV BSShaderNoLightingProperty shape: its texture, vertex alpha, blend and sidedness.
 
     One that fades by vertex alpha (`fades`: some vertex alpha below 1, sf_vertex_alpha) blends with no
-    NiAlphaProperty, as FNV's baked soft shadows do.
+    NiAlphaProperty, as FNV's baked soft shadows do; an untextured one that fades has only its vertex
+    alpha to blend by, flagged or not (NV_NoSo_RanchHouse03:1).
     """
     fnv = shader.file_name.decode('cp1252')
-    vertex_alpha = bool(shader.shader_flags.sf_vertex_alpha)
+    vertex_alpha = bool(shader.shader_flags.sf_vertex_alpha) or (not fnv and fades)
     data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided}
     part = _alpha_part(alpha) or (VERTEX_ALPHA_BLEND if vertex_alpha and fades else None)
     return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], part, None)
@@ -386,7 +396,7 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     glass = bool(blended and shader.shader_flags.sf_environment_mapping)
     flags = shader.shader_flags if shader else None
     decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass))
-    texture = Path(texture_root) / fnv[0].replace('\\', '/').lower() if texture_root and fnv[0] else None
+    texture = Path(texture_root) / texture_source(fnv[0]).replace('\\', '/') if texture_root and fnv[0] else None
     cut_from_blend = bool(blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
     clear = _effect(fnv, alpha) if glass else _translucent(fnv, alpha, two_sided) if cut_from_blend else None
     if glass and not cut_from_blend or cut_from_blend and translucent(texture):
@@ -398,9 +408,17 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
 
 
 def _visible_shapes(root) -> list:
-    """The FNV shapes that render: triangle geometry, not hidden, not an editor marker."""
+    """FNV shapes that render: shaded triangles, not hidden or editor markers.
+
+    See: docs/fork/fo4_spikes.md#spike-4-exterior
+    """
     return [g for g in root.tree() if isinstance(g, NifFormat.NiTriBasedGeom) and not g.flags & 1
-            and not g.name.lower().startswith(b'editormarker') and g.data is not None]
+            and not g.name.lower().startswith(b'editormarker') and g.data is not None and _shaded(g)]
+
+
+def _shaded(geom) -> bool:
+    """Whether an FNV shape has a shader (or old texturing) property."""
+    return any(isinstance(p, (NifFormat.BSShaderProperty, NifFormat.NiTexturingProperty)) for p in geom.get_properties())
 
 
 def _emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeMaterial, out: Converted) -> int:

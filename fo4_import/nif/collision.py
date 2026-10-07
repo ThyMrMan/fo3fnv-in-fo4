@@ -18,7 +18,8 @@ from fo4_import.nif.blocks import NONE
 from fo4_import.nif.file import NifFile
 
 apply_patches()
-from asset_convert.collision.collision import repaired_mesh_soup
+from asset_convert.collision.collision import repaired_mesh_soup, visual_tri_soup_in
+from pyffi.formats.nif import NifFormat
 
 SCALE = 0.1
 #: Game units per FO4 Havok unit: NiTriStripsData collision geometry is stored in game units.
@@ -27,6 +28,8 @@ GAME_PER_HAVOK = 7.0 / SCALE
 MESH_RADIUS = 0.01
 #: FNV mesh collision shapes, which go through asset_convert's winding repair.
 MESH_SHAPES = frozenset({'bhkMoppBvTreeShape', 'bhkPackedNiTriStripsShape', 'bhkNiTriStripsShape'})
+#: Convex FNV shapes a bhkRigidBodyT's transform is moved onto, as a bhkConvexTransformShape.
+CONVEX_SHAPES = frozenset({'bhkBoxShape', 'bhkSphereShape', 'bhkCapsuleShape', 'bhkConvexVerticesShape'})
 #: bhkNiCollisionObject flags every post-FO3 game adds: SYNC_ON_UPDATE.
 SYNC_ON_UPDATE = 0x80
 #: FNV collision layers past 28 whose FO4 number differs (same names; 0-28 match).
@@ -83,8 +86,11 @@ def _vec(v, n: int = 4, scale: float = SCALE) -> tuple:
 class _Blocks:
     """Appends collision blocks to a NifFile, each as (type, bytes)."""
 
-    def __init__(self, nif: NifFile):
+    def __init__(self, nif: NifFile, scale: float = 1.0, root=None):
+        """Write into `nif`; lengths grown by `scale`; `root` is the FNV mesh root."""
         self.nif = nif
+        self.unit = SCALE * scale
+        self.root = root
 
     def add(self, kind: str, body: bytes) -> int:
         """Append one block; its index."""
@@ -101,35 +107,45 @@ class _Blocks:
 
     def _bhkConvexVerticesShape(self, s) -> int:
         """Vertices and plane normals (their distance in w scaled)."""
-        verts = b''.join(struct.pack('<4f', *_vec(v)) for v in s.vertices)
-        normals = b''.join(struct.pack('<4f', n.x, n.y, n.z, n.w * SCALE) for n in s.normals)
-        body = struct.pack('<If', material(s.material.material), s.radius * SCALE) + EMPTY_PROPERTY * 2
+        verts = b''.join(struct.pack('<4f', *_vec(v, 4, self.unit)) for v in s.vertices)
+        normals = b''.join(struct.pack('<4f', n.x, n.y, n.z, n.w * self.unit) for n in s.normals)
+        body = struct.pack('<If', material(s.material.material), s.radius * self.unit) + EMPTY_PROPERTY * 2
         body += struct.pack('<I', len(s.vertices)) + verts + struct.pack('<I', len(s.normals)) + normals
         return self.add('bhkConvexVerticesShape', body)
 
     def _bhkBoxShape(self, s) -> int:
         """Half extents."""
-        return self.add('bhkBoxShape', struct.pack('<If8x3ff', material(s.material.material), s.radius * SCALE,
-                                                   *_vec(s.dimensions, 3), 0.0))
+        return self.add('bhkBoxShape', struct.pack('<If8x3ff', material(s.material.material), s.radius * self.unit,
+                                                   *_vec(s.dimensions, 3, self.unit), 0.0))
 
     def _bhkSphereShape(self, s) -> int:
         """A radius."""
-        return self.add('bhkSphereShape', struct.pack('<If', material(s.material.material), s.radius * SCALE))
+        return self.add('bhkSphereShape', struct.pack('<If', material(s.material.material), s.radius * self.unit))
 
     def _bhkCapsuleShape(self, s) -> int:
         """Two points and their radii."""
         return self.add('bhkCapsuleShape', struct.pack(
-            '<If8x3ff3ff', material(s.material.material), s.radius * SCALE, *_vec(s.first_point, 3),
-            s.radius_1 * SCALE, *_vec(s.second_point, 3), s.radius_2 * SCALE))
+            '<If8x3ff3ff', material(s.material.material), s.radius * self.unit, *_vec(s.first_point, 3, self.unit),
+            s.radius_1 * self.unit, *_vec(s.second_point, 3, self.unit), s.radius_2 * self.unit))
 
     def _bhkConvexTransformShape(self, s) -> int:
         """A convex shape under a transform (column-major, translation at 12-14 scaled)."""
         child = self.shape(s.shape)
         m = s.transform
         cells = [m.m_11, m.m_21, m.m_31, m.m_41, m.m_12, m.m_22, m.m_32, m.m_42,
-                 m.m_13, m.m_23, m.m_33, m.m_43, m.m_14 * SCALE, m.m_24 * SCALE, m.m_34 * SCALE, m.m_44]
+                 m.m_13, m.m_23, m.m_33, m.m_43, m.m_14 * self.unit, m.m_24 * self.unit, m.m_34 * self.unit, m.m_44]
         return self.add('bhkConvexTransformShape', struct.pack('<iIf8x16f', child, material(s.material.material),
-                                                               s.unknown_float_1 * SCALE, *cells))
+                                                               s.unknown_float_1 * self.unit, *cells))
+
+    def transformed(self, child: int, s, body) -> int:
+        """`child` (FNV shape `s`) under bhkRigidBodyT `body`'s rotation and translation: a bhkConvexTransformShape."""
+        q, (tx, ty, tz) = body.rotation, _vec(body.translation, 3, self.unit)
+        x, y, z, w = q.x, q.y, q.z, q.w
+        cells = [1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w), 0.0,
+                 2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w), 0.0,
+                 2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y), 0.0, tx, ty, tz, 1.0]
+        return self.add('bhkConvexTransformShape', struct.pack('<iIf8x16f', child, material(s.material.material),
+                                                               s.radius * self.unit, *cells))
 
     def _bhkListShape(self, s) -> int:
         """Sub-shapes, zeroed filters."""
@@ -170,23 +186,49 @@ def tri_strips_data(verts: list, tris: list, crc: int) -> bytes:
 def _body_shape(blocks: _Blocks, body, node) -> 'int | None':
     """The FO4 shape of `body` on FNV `node`; a mesh goes through the winding repair. None: drop it.
 
-    The repair bakes a bhkRigidBodyT's transform into the mesh (the body
-    becomes an identity one), so its translation is scaled to FO4 units first.
+    A bhkRigidBodyT's transform moves into the shape (the body becomes an
+    identity one, see _baked): the repair bakes it into a mesh, its
+    translation scaled to FO4 units first; a convex shape goes under a
+    bhkConvexTransformShape.
     """
     filt = havok_filter(body.havok_col_filter)
-    if type(body.shape).__name__ not in MESH_SHAPES:
-        return blocks.shape(body.shape)
+    kind = type(body.shape).__name__
+    if kind not in MESH_SHAPES:
+        shape = blocks.shape(body.shape)
+        return blocks.transformed(shape, body.shape, body) if _baked(body) and kind in CONVEX_SHAPES else shape
     if type(body).__name__ == 'bhkRigidBodyT':
         t = body.translation
         t.x, t.y, t.z = t.x * SCALE, t.y * SCALE, t.z * SCALE
-    soup = repaired_mesh_soup(body, node, triangle_materials)
+    soup = repaired_mesh_soup(body, node, triangle_materials, _visual(blocks.root, node))
     if soup is None or soup == 'drop':
         return None
-    return blocks.mesh(*soup, filt)
+    tris, materials = soup
+    grow = blocks.unit / SCALE
+    return blocks.mesh([tuple(tuple(c * grow for c in v) for v in tri) for tri in tris], materials, filt)
+
+
+def _visual(root, node) -> 'list | None':
+    """A collision-only node's repair oracle: the mesh's render triangles, or None.
+
+    See: docs/fork/fo4_spikes.md#spike-4-exterior
+    """
+    if root is None or node is root or any(isinstance(b, NifFormat.NiTriBasedGeom) for b in node.tree()):
+        return None
+    return visual_tri_soup_in(root, node)
+
+
+def _baked(body) -> bool:
+    """Whether bhkRigidBodyT `body`'s transform moves into its shape."""
+    kind = type(body.shape).__name__
+    return type(body).__name__ == 'bhkRigidBodyT' and (kind in MESH_SHAPES or kind in CONVEX_SHAPES)
 
 
 def _rigid_body(blocks: _Blocks, body, node) -> 'int | None':
-    """FNV's bhkRigidBody(T) with the 2014 body info; lengths scaled, inertia by the square. None: no shape."""
+    """FNV's bhkRigidBody(T) with the 2014 body info; lengths scaled, inertia by the square. None: no shape.
+
+    A body whose transform its shape carries is written as an identity bhkRigidBody.
+    """
+    baked = _baked(body)
     shape = _body_shape(blocks, body, node)
     if shape is None:
         return None
@@ -197,8 +239,10 @@ def _rigid_body(blocks: _Blocks, body, node) -> 'int | None':
     tensor = [inertia.m_11, inertia.m_12, inertia.m_13, inertia.m_14, inertia.m_21, inertia.m_22, inertia.m_23,
               inertia.m_24, inertia.m_31, inertia.m_32, inertia.m_33, inertia.m_34]
     rot = body.rotation
-    info = struct.pack('<4x', ) + filt + bytes(12) + struct.pack('<4f', *_vec(body.translation))
-    info += struct.pack('<4f', rot.x, rot.y, rot.z, rot.w) + struct.pack('<4f', *_vec(body.linear_velocity))
+    place = (0.0,) * 4 + (0.0, 0.0, 0.0, 1.0) if baked else (*_vec(body.translation, 4, blocks.unit), rot.x, rot.y,
+                                                              rot.z, rot.w)
+    info = struct.pack('<4x', ) + filt + bytes(12) + struct.pack('<8f', *place)
+    info += struct.pack('<4f', *_vec(body.linear_velocity))
     info += struct.pack('<4f', body.angular_velocity.x, body.angular_velocity.y, body.angular_velocity.z, 0.0)
     info += struct.pack('<12f', *(t * SCALE * SCALE for t in tensor)) + struct.pack('<4f', *_vec(body.center))
     info += struct.pack('<9f', body.mass, body.linear_damping, body.angular_damping, 1.0, body.friction, 0.0,
@@ -206,12 +250,15 @@ def _rigid_body(blocks: _Blocks, body, node) -> 'int | None':
     info += struct.pack('<4Bff4xBBHBBBBB3x', MOTIONS[body.motion_system], body.deactivator_type, body.solver_deactivation, 0,
                         body.penetration_depth * SCALE, 1.0, body.collision_response, 0,
                         body.process_contact_callback_delay, body.quality_type, 0, 0, 3, 0)
-    return blocks.add(type(body).__name__, head + info + struct.pack('<IH', 0, 0))
+    return blocks.add('bhkRigidBody' if baked else type(body).__name__, head + info + struct.pack('<IH', 0, 0))
 
 
-def collision_object(nif: NifFile, co, target: int, node) -> int:
-    """Write `co` of FNV `node` for block `target`, children first as Elric needs; its index (NONE: dropped)."""
-    blocks = _Blocks(nif)
+def collision_object(nif: NifFile, co, target: int, node, scale: float = 1.0, root=None) -> int:
+    """Write `co` of FNV `node` for block `target`, its shapes grown by `scale`, children first as Elric needs.
+
+    Its index (NONE: dropped).
+    """
+    blocks = _Blocks(nif, scale, root)
     body = _rigid_body(blocks, co.body, node)
     if body is None:
         return NONE
@@ -233,21 +280,23 @@ def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int) ->
 
     The NiNodes come first and every Havok block after them, so the Havok
     blocks are the file's tail (elric.graft swaps that tail for FO4's).
+    Elric ignores a node's scale, so the node gets 1.0 and its shapes the scale.
+    See: docs/fork/fo4_spikes.md#spike-4-exterior
     """
     owners = []
     for node in fnv_root.tree():
         co = getattr(node, 'collision_object', None)
         if co is None or co.body is None:
             continue
-        index = root_index
+        index, scale = root_index, 1.0
         if node is not fnv_root:
             translation, rotation, scale = node_transform(node, fnv_root)
             index = len(nif.blocks)
             nif.blocks.append(('NiNode', {
                 'name': nif.string(node.name.decode('cp1252')), 'extra': [], 'controller': NONE,
-                'flags': node_flags, 'translation': translation, 'rotation': rotation, 'scale': scale,
+                'flags': node_flags, 'translation': translation, 'rotation': rotation, 'scale': 1.0,
                 'collision': NONE, 'children': []}))
             nif.blocks[root_index][1]['children'].append(index)
-        owners.append((index, co, node))
-    for index, co, node in owners:
-        nif.blocks[index][1]['collision'] = collision_object(nif, co, index, node)
+        owners.append((index, co, node, scale))
+    for index, co, node, scale in owners:
+        nif.blocks[index][1]['collision'] = collision_object(nif, co, index, node, scale, fnv_root)

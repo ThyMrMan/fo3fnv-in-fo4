@@ -192,10 +192,11 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') ->
 
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
-              teleport: tuple = None, persistent: bool = True, primitive: bytes = b'', disabled: bool = False) -> bytes:
+              teleport: tuple = None, persistent: bool = True, primitive: bytes = b'', disabled: bool = False,
+              linked: int = 0) -> bytes:
     """A placed object: base, trigger primitive (XPRM), light radius (XRDS), teleport (door, position, rotation), scale.
 
-    `disabled` sets Initially Disabled (0x800), as FO3/FNV's flag.
+    `disabled` sets Initially Disabled (0x800), as FO3/FNV's flag; `linked` is its linked reference (XLKR, no keyword).
     """
     subs = _u32('NAME', base) + (pack_subrecord('XPRM', primitive) if primitive else b'')
     if radius is not None:
@@ -203,6 +204,8 @@ def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, r
     if teleport:
         door, to_pos, to_rot = teleport
         subs += pack_subrecord('XTEL', struct.pack('<I6fII', door, *to_pos, *to_rot, 0, 0))
+    if linked:
+        subs += pack_subrecord('XLKR', struct.pack('<II', 0, linked))
     if scale != 1.0:
         subs += pack_subrecord('XSCL', struct.pack('<f', scale))
     subs += pack_subrecord('DATA', struct.pack('<6f', *pos, *rot))
@@ -218,6 +221,11 @@ def pack_stat(fid: int, edid: str, model: str, bounds: tuple) -> bytes:
     """A static: bounds, model under Meshes, ClutterGenShelfA's DNAM."""
     subs = _bounded(edid, bounds) + _zstr('MODL', model)
     return pack_fo4_record('STAT', fid, 0, subs + pack_subrecord('DNAM', struct.pack('<fIff', 90.0, 0, 1.0, 1.0)))
+
+
+def pack_mstt(fid: int, edid: str, model: str, bounds: tuple) -> bytes:
+    """A movable static (3D follows its Havok body): bounds, model, no flags."""
+    return pack_fo4_record('MSTT', fid, 0, _bounded(edid, bounds) + _zstr('MODL', model) + pack_subrecord('DATA', b'\0'))
 
 
 def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: int, vmad: bytes = b'') -> bytes:

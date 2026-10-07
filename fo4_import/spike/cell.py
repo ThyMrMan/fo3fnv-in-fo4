@@ -19,6 +19,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.ba2 import Archives
+from fo4_import.base.ba2_pack import pack_textures
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest
 from fo4_import.face import hair, tint
@@ -27,7 +28,8 @@ from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
-from fo4_import.spike.imagespace import BASE_IMAGESPACE, base_hdr, pack_imgs, write_lut
+from fo4_import.spike.scol import Parts, compose
+from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
 from fo4_import.spike import character
 from fo4_import.spike.attach import ObjectScripts
@@ -142,7 +144,7 @@ class CellBuilder:
         self.next_id = len(MASTERS) << 24 | FIRST_ID
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
-        self.swaps, self.imods, self.poses = None, None, None
+        self.swaps, self.imods, self.poses, self.parts = None, None, None, None
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -159,20 +161,21 @@ class CellBuilder:
             self.meshes[model] = write_assets(self.export_dir, model, self.data_dir)
         return self.meshes[model]
 
-    def base(self, fnv_fid: int) -> 'int | None':
-        """The FO4 base for an FNV base FormID, made on first use; None when it is not converted."""
+    def base(self, fnv_fid: int, new_id=None) -> 'int | None':
+        """The FO4 base for an FNV base FormID, made on first use (id from `new_id`); None: not converted."""
         if fnv_fid < ENGINE_IDS:
             return self.items.shared.get(fnv_fid)
         if self.items.records.get(fnv_fid, ('',))[0] in ITEM_BASES:
             return self.items.item(fnv_fid)
         sig, rec = self.bases.get(fnv_fid, (None, None))
         if fnv_fid not in self.made:
-            self.made[fnv_fid] = self._make(sig, rec) if sig in ('LIGH', 'ACTI') or (sig and _model(rec)) else None
+            made = sig in ('LIGH', 'ACTI') or (sig and _model(rec))
+            self.made[fnv_fid] = self._make(sig, rec, new_id or self.new_id) if made else None
         return self.made[fnv_fid]
 
-    def _make(self, sig: str, rec: dict) -> int:
-        """Write the FO4 record for FNV base `rec` of type `sig`; its FormID."""
-        fid, edid = self.new_id(), f'FNV_{rec["EditorID"]}'
+    def _make(self, sig: str, rec: dict, new_id) -> int:
+        """Write the FO4 record for FNV base `rec` of type `sig` on FormID `new_id()`; its FormID."""
+        fid, edid = new_id(), f'FNV_{rec["EditorID"]}'
         model, bounds = self.mesh(_model(rec)) if _model(rec) else ('', None)
         bounds = bounds or _bounds(rec)
         if sig == 'LIGH':
@@ -188,10 +191,17 @@ class CellBuilder:
             vmad = self.scripts.vmad(int(rec['SCRI'], 16)) if 'SCRI' in rec else b''
             record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)), vmad)
         else:
-            sig, record = 'STAT', R.pack_stat(fid, edid, model, bounds)
+            sig, record = _static(sig, fid, edid, model, bounds)
         self.writer.add_record(sig, record)
         self.counts[sig] += 1
         return fid
+
+
+def _static(sig: str, fid: int, edid: str, model: str, bounds: tuple) -> tuple:
+    """(FO4 type, record): an FNV MSTT as a movable static, anything else as a static."""
+    if sig == 'MSTT':
+        return 'MSTT', R.pack_mstt(fid, edid, model, bounds)
+    return 'STAT', R.pack_stat(fid, edid, model, bounds)
 
 
 def _find_cell(export_dir: Path, edid: str) -> dict:
@@ -241,6 +251,9 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
     persistent, temporary = b'', b''
     for ref in refs:
         base = builder.base(int(ref['NAME'], 16))
+        if int(ref['NAME'], 16) in builder.parts.parts:
+            temporary += _part_refs(builder, ref)
+            continue
         if base is None:
             builder.counts['skipped ' + builder.bases.get(int(ref['NAME'], 16), ('other',))[0]] += 1
             continue
@@ -249,10 +262,27 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
                              teleports.get(ref['FormID']), keep, bytes.fromhex(ref.get('XPRM.Raw', '')),
-                             bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED))
+                             bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
     return persistent, temporary
+
+
+def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
+    """The REFRs of FNV SCOL reference `ref`'s parts, on part FormIDs (scol.Parts)."""
+    position, angle = _place(ref)
+    scale, out = float(ref.get('XSCL.Scale', 1.0)), b''
+    disabled = bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED)
+    for part, placement in builder.parts.parts[int(ref['NAME'], 16)]:
+        base = builder.base(part, builder.parts.new_id)
+        if base is None:
+            builder.counts['SCOL part skipped'] += 1
+            continue
+        at, turn, size = compose(position, angle, scale, placement)
+        out += R.pack_refr(builder.parts.new_id(), base, at, turn, size, persistent=False, disabled=disabled)
+        builder.counts['SCOL parts placed'] += 1
+    builder.counts['SCOL references split'] += 1
+    return out
 
 
 def _vanilla(fo4: bytes, fids: set) -> dict:
@@ -469,7 +499,10 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     world = Exterior(export_dir, all_refs, *exterior) if exterior else None
     outside = world.refs if world else []
-    builder = CellBuilder(export_dir, data_dir, _bases(export_dir, {int(r['NAME'], 16) for r in refs + outside}))
+    used = {int(r['NAME'], 16) for r in refs + outside}
+    parts = Parts(used, len(MASTERS))
+    builder = CellBuilder(export_dir, data_dir, _bases(export_dir, used | parts.fids()))
+    builder.parts = parts
     _object_makers(builder, export_dir, scripts_dir, refs)
     cell_fid = builder.new_id()
     ids = {r['FormID']: builder.new_id() for r in refs}
@@ -489,6 +522,8 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     temporary += _navmesh(builder, export_dir, cell['FormID'], cell_fid, ids)
     _cell_group(builder, export_dir, cell, cell_fid, vanilla, (persistent + builder.poses.placed, temporary, qa_refs))
     if world:
+        for ref in world.placement_order():
+            builder.base(int(ref['NAME'], 16))
         builder.writer.add_raw_group('WRLD', world.group(builder, lambda r: _placed(builder, r, ext_ids, teleports),
                                                          data_dir))
     return _finish(builder, export_dir, data_dir, out, scripts_dir)
@@ -509,10 +544,11 @@ def _cell_group(builder: CellBuilder, export_dir: Path, cell: dict, cell_fid: in
 
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
-    """Collision for the meshes, voice files and scripts, then the plugin itself; the counts."""
+    """Collision, voice files, the texture BA2 and scripts, then the plugin itself; the counts."""
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
     _voice(builder, export_dir, data_dir, out.name)
+    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))
     builder.writer.next_object_id = builder.next_id & 0xFFFFFF

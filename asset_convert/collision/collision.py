@@ -492,6 +492,20 @@ def _visual_tri_soup(root, max_tris=20000):
     return out
 
 
+def visual_tri_soup_in(root, frame):
+    """Render triangles under `root`, as _visual_tri_soup gives them, in node `frame`'s space."""
+    inv = frame.get_transform(root).get_inverse()
+    k = _HAVOK_SCALE / 7.0
+    rows = [(inv.m_11, inv.m_12, inv.m_13), (inv.m_21, inv.m_22, inv.m_23), (inv.m_31, inv.m_32, inv.m_33)]
+    move = (inv.m_41 * k, inv.m_42 * k, inv.m_43 * k)
+
+    def placed(v):
+        """One vertex in the frame."""
+        return tuple(sum(v[i] * rows[i][j] for i in range(3)) + move[j] for j in range(3))
+
+    return [tuple(placed(v) for v in t) for t in _visual_tri_soup(root)]
+
+
 def _bake_body_transform_into_tris(rb, tris):
     """Fold a bhkRigidBodyT transform into the triangle soup (Skyrim hu).
 
@@ -576,11 +590,11 @@ def _rebuild_mesh_collision(rb, target_node):
     return 'drop'
 
 
-def repaired_mesh_soup(rb, target_node, materials_of=None):
+def repaired_mesh_soup(rb, target_node, materials_of=None, visual=None):
     """(tris, materials) of `rb`'s mesh collision in Skyrim Havok units, winding repaired.
 
-    Materials are Skyrim CRCs, or `materials_of(shape, n)`'s n values (one
-    per non-degenerate triangle, in soup order) carried through the repair.
+    Materials are Skyrim CRCs, or `materials_of(shape, n)`'s values carried
+    through the repair. `visual` replaces target_node's render triangles.
     A bhkRigidBodyT's transform is baked in (the body becomes an identity
     bhkRigidBody; its translation must already be in Skyrim Havok units).
     None when the shape is not a mesh, 'drop' for a sub-viable hull.
@@ -599,7 +613,7 @@ def repaired_mesh_soup(rb, target_node, materials_of=None):
         return 'drop'
     authored_normals = _normals_in_body_frame(rb, authored_normals)
     tris = _bake_body_transform_into_tris(rb, tris)
-    visual = _visual_tri_soup(target_node)
+    visual = _visual_tri_soup(target_node) if visual is None else visual
     tris, n_flipped = repair_inverted_floors(tris, visual, groups, authored_normals)
     if is_fallout_source():
         tris, materials = two_sided_floors(tris, materials, visual)
