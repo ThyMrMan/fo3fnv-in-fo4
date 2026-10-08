@@ -1783,9 +1783,12 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     a reference of its own. The block's 22 SCOL references become 355 part
     references; parts land exactly on the merged mesh (median gap 0) except
     the three parking-lot chunks (median 2–3 units, p95 13–18).
-  - FormIDs: part references, and bases first made for a part only used
-    in SCOLs (20), take ids from 0x180000; the exterior's bases are made up
-    front in placement order (`Exterior.placement_order`), so no existing
+  - FormIDs: a part reference's is hashed (`derive_formid`, the writer's
+    0x400000–0xFFF000 region) from its SCOL reference's FNV FormID and its
+    index in the SCOL's part list; a base first made for a part only used in
+    SCOLs (20) from the part's FNV FormID. Both keys are authored, so a part
+    keeps its id however many cells are built. The exterior's bases are made
+    up front in placement order (`Exterior.placement_order`), so no existing
     record moves (2,231 compared, 0 moved; 22 SCOL references gone). The
     SCOL bases themselves are still written, unused, to keep later ids.
 - **Ninth play:** the split fixed the walls. Cause not pinned down: every

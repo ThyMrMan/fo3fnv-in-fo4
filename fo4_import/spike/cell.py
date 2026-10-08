@@ -28,7 +28,7 @@ from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
-from fo4_import.spike.scol import Parts, compose
+from fo4_import.spike.scol import BASE_SITE, PART_SITE, Parts, compose
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
 from fo4_import.spike import character
@@ -269,17 +269,19 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
 
 
 def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
-    """The REFRs of FNV SCOL reference `ref`'s parts, on part FormIDs (scol.Parts)."""
+    """The REFRs of FNV SCOL reference `ref`'s parts, on hashed FormIDs (scol.PART_SITE)."""
     position, angle = _place(ref)
     scale, out = float(ref.get('XSCL.Scale', 1.0)), b''
     disabled = bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED)
-    for part, placement in builder.parts.parts[int(ref['NAME'], 16)]:
-        base = builder.base(part, builder.parts.new_id)
+    derive = builder.writer.derive_formid
+    for index, (part, placement) in enumerate(builder.parts.parts[int(ref['NAME'], 16)]):
+        base = builder.base(part, lambda: derive(BASE_SITE, part))
         if base is None:
             builder.counts['SCOL part skipped'] += 1
             continue
         at, turn, size = compose(position, angle, scale, placement)
-        out += R.pack_refr(builder.parts.new_id(), base, at, turn, size, persistent=False, disabled=disabled)
+        fid = derive(PART_SITE, (ref['FormID'], index))
+        out += R.pack_refr(fid, base, at, turn, size, persistent=False, disabled=disabled)
         builder.counts['SCOL parts placed'] += 1
     builder.counts['SCOL references split'] += 1
     return out
@@ -500,7 +502,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     world = Exterior(export_dir, all_refs, *exterior) if exterior else None
     outside = world.refs if world else []
     used = {int(r['NAME'], 16) for r in refs + outside}
-    parts = Parts(used, len(MASTERS))
+    parts = Parts(used)
     builder = CellBuilder(export_dir, data_dir, _bases(export_dir, used | parts.fids()))
     builder.parts = parts
     _object_makers(builder, export_dir, scripts_dir, refs)

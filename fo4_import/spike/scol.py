@@ -4,9 +4,10 @@ FNV's SCOL mesh is the GECK's merge of its parts, collision included; in
 FO4 that merged collision walled off open ground. A SCOL record lists each
 part (ONAM, a STAT) and its placements (DATA: position, rotation, scale; 28
 bytes each). The export drops them, so they are read from FalloutNV.esm.
-A placement rotates as a reference does, Rx(-x)·Ry(-y)·Rz(-z). Part
-references and any base first made for a part take FormIDs from PARTS_FIRST
-on, so no other record's id moves.
+A placement rotates as a reference does, Rx(-x)·Ry(-y)·Rz(-z). A part
+reference's FormID is hashed from its SCOL reference's FNV FormID and its
+index in the SCOL's list (PART_SITE), and a base first made for a part from
+the part's FNV FormID (BASE_SITE), so no other record's id moves.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
@@ -19,8 +20,8 @@ import numpy as np
 from fo4_import.base.install import FALLOUTNV_ESM
 from tes5_import.base.tes5_reader import subrecords, walk
 
-#: First FormID (within the plugin) of a part reference or a base made for a part.
-PARTS_FIRST = 0x180000
+#: derive_formid sites: a part reference (key: SCOL reference FormID, part index) and a part's base.
+PART_SITE, BASE_SITE = 'FNV SCOL part', 'FNV SCOL part base'
 PLACEMENT = struct.Struct('<7f')
 
 
@@ -63,17 +64,11 @@ def compose(position: tuple, angle: tuple, scale: float, placement: tuple) -> tu
 
 
 class Parts:
-    """The SCOLs' parts and the FormIDs their references and bases take."""
+    """The SCOLs' parts."""
 
-    def __init__(self, scols: set, plugin_index: int):
-        """Read the parts of the SCOLs in `scols`; ids in plugin `plugin_index`."""
+    def __init__(self, scols: set):
+        """Read the parts of the SCOLs in `scols`."""
         self.parts = read_parts(scols) if scols else {}
-        self.next = plugin_index << 24 | PARTS_FIRST
-
-    def new_id(self) -> int:
-        """The next part FormID."""
-        self.next += 1
-        return self.next - 1
 
     def fids(self) -> set:
         """Every part's FNV FormID."""
