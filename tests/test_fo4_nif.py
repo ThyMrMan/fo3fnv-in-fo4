@@ -13,6 +13,7 @@ from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import convert_static as C
 from fo4_import.face import bake as B
 from fo4_import.nif import file as F
+from fo4_import.nif import gun as G
 from fo4_import.nif import headgear as H
 from fo4_import.nif import weapon as W
 
@@ -154,3 +155,53 @@ def test_cleared_keeps_fnvs_clearance_from_fo4s_head():
     fnv, placed = np.array([(0.0, -6.0, 0.0), (0.0, 0.0, 6.0)]), np.array([(0.0, -6.0, 0.0), (0.0, 0.0, 9.0)])
     out = fit.cleared(fnv, placed)
     assert np.linalg.norm(out[0]) == pytest.approx(8.0, abs=0.1) and np.allclose(out[1], placed[1])
+
+
+def _node(nif, name: str, translation=(0.0, 0.0, 0.0), children=()) -> dict:
+    """A NiNode dict named `name`."""
+    return {'name': nif.string(name), 'extra': [], 'controller': -1, 'flags': 14, 'translation': translation,
+            'rotation': C.IDENTITY, 'scale': 1.0, 'collision': -1, 'children': list(children)}
+
+
+def _box_shape(nif, name: str, lo, hi, shader: int) -> dict:
+    """A two-triangle BSTriShape dict spanning `lo` to `hi`."""
+    pos = np.array([lo, (hi[0], lo[1], lo[2]), hi, (lo[0], hi[1], hi[2])], float)
+    uv = np.array([(0, 0), (1, 0), (1, 1), (0, 1)], float)
+    tris = np.array([(0, 1, 2), (0, 2, 3)])
+    return {'name': nif.string(name), 'extra': [], 'controller': -1, 'flags': 14, 'translation': (0.0,) * 3,
+            'rotation': C.IDENTITY, 'scale': 1.0, 'collision': -1, 'bound': (0.0, 0.0, 0.0, 1.0), 'skin': -1,
+            'shader': shader, 'alpha_property': -1, 'vertex_desc': C.DESC_PLAIN,
+            'vertices': C.vertices(pos, uv, np.tile((0.0, 0.0, 1.0), (4, 1)), None, tris),
+            'triangles': [tuple(t) for t in tris.tolist()]}
+
+
+def test_fnv_gun_hangs_on_the_receivers_bones_turned_and_trigger_aligned():
+    """FNV (+X long, +Y up) turns to FO4's (+Y long, +Z up); trigger tops meet; the clip hangs from WeaponMagazine;
+    the receiver's own shapes stay shapes with no geometry; the muzzle moves to FNV's."""
+    rec = F.NifFile()
+    rec.blocks = [('NiNode', _node(rec, 'WEAPON', children=[1, 2, 4, 5])),
+                  ('NiNode', _node(rec, 'WeaponMagazine', (0.0, 20.0, 0.0))),
+                  ('NiNode', _node(rec, 'WeaponTrigger', (0.0, 10.0, 0.0), [3])),
+                  ('BSTriShape', _box_shape(rec, 'OldTrigger:0', (0, 0, -2), (0.2, 0.5, 0), 6)),
+                  ('NiNode', _node(rec, 'Body', children=[7, 8])),
+                  ('NiNode', _node(rec, 'WeaponBolt', (0.0, 15.0, 1.0))),
+                  ('BSLightingShaderProperty', C.lighting_shader(rec, 'materials\\old.bgsm', -1, 0)),
+                  ('NiNode', _node(rec, 'ProjectileNode', (0.0, 30.0, 1.0))),
+                  ('BSTriShape', _box_shape(rec, 'OldBody:0', (-1, 0, -1), (1, 30, 1), 6))]
+    src = F.NifFile()
+    src.blocks = [('NiNode', _node(src, 'Gun', children=[1, 2, 3])),
+                  ('BSTriShape', _box_shape(src, '##Trigger:0', (2, -2, 0), (2.5, 0, 0.2), 4)),
+                  ('BSTriShape', _box_shape(src, '##Clip:1', (8, -6, 0), (10, 0, 0.5), 4)),
+                  ('BSTriShape', _box_shape(src, 'Gun:0', (-5, 0, -1), (20, 3, 1), 4)),
+                  ('BSLightingShaderProperty', C.lighting_shader(src, 'materials\\fnv\\gun.bgsm', -1, 0))]
+    out = F.read(G.gun(F.write(src), {'ProjectileNode': np.array([22.0, 1.5, 0.0])}, F.write(rec)))
+    worlds = G._worlds(out)
+    names = {out.strings[b['name']]: i for i, (k, b) in enumerate(out.blocks) if isinstance(b, dict) and 'name' in b}
+    for old in ('OldTrigger:0', 'OldBody:0'):
+        assert out.blocks[names[old]][0] == 'BSTriShape' and out.blocks[names[old]][1]['vertices'] == []
+    placed = {n: G._moved(np.array([v['position'] for v in out.blocks[names[n]][1]['vertices']], float),
+                          worlds[names[n]]) for n in ('##Trigger:0', '##Clip:1', 'Gun:0')}
+    assert np.allclose(G._trigger_top(placed["##Trigger:0"]), (0.1, 10.25, 0.0), atol=0.01)
+    assert names['##Clip:1'] in out.blocks[names['WeaponMagazine']][1]['children']
+    assert np.ptp(placed['Gun:0'][:, 1]) == pytest.approx(25.0, abs=0.01)
+    assert np.allclose(worlds[names["ProjectileNode"]][3, :3], (0.0, 30.0, 1.5), atol=0.01)

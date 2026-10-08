@@ -7,6 +7,7 @@ import struct
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from fo4_import.base.ba2 import Archives
@@ -15,6 +16,8 @@ from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.nif import file as nf
 from fo4_import.spike import dialogue as D
 from fo4_import.spike import equipment as E
+from fo4_import.spike import gun_choice as GC
+from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
 from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
@@ -135,6 +138,7 @@ def test_weapon_copy_takes_fnv_stats_and_resolves_template_strings():
         derive_formid=lambda site, key: 0x01ABCDEF, add_record=lambda sig, rec: written.append(rec)))
     eq = E.Equipment.__new__(E.Equipment)
     eq.builder, eq.fnv, eq.vanilla = builder, {}, {'BaseballBat': template}
+    eq.table = {'WeapBaseballBat': RP.Replacement('Fallout4.esm', 'BaseballBat', 'stats')}
     eq.strings = {1: b'Baseball Bat', 2: b'Swing it', 3: b'Default'}
     rec = {'EditorID': 'WeapBaseballBat', 'FULL': 'Bat', 'DATA.Weight': '3.0', 'DATA.Value': '250', 'DATA.Damage': '22'}
     assert eq.weap(0x1234, rec) == 0x01ABCDEF
@@ -160,8 +164,61 @@ def test_melee_weapon_on_fnv_mesh_drops_template_model_and_mods():
     eq = E.Equipment.__new__(E.Equipment)
     eq.builder, eq.fnv, eq.vanilla, eq.strings = builder, {}, {'RollingPin': template}, {1: b'Rolling Pin'}
     eq.poses = {}
+    eq.table = {'WeapRollingPin': RP.Replacement('Fallout4.esm', 'RollingPin', 'fnv')}
     eq.weap(1, {'EditorID': 'WeapRollingPin', 'FULL': 'Rolling Pin', 'Model.MODL': 'Weapons/RollingPin.NIF'})
     subs = list(subrecords(written[0][24:]))
     assert [s for s, _ in subs] == [b'EDID', b'OBND', b'FULL', b'MODL', b'MOD4', b'DNAM']
     assert dict(subs)[b'MODL'] == dict(subs)[b'MOD4'] == b'fnv/weapons/rollingpin.nif\0'
     assert struct.unpack('<6h', dict(subs)[b'OBND']) == ours[1]
+
+
+def test_fnv_gun_wants_stance_mode_and_spread_from_its_record():
+    """FNV's 9mm SMG (type 3, Flags1 2): a one-handed automatic; a two-handed rifle; a shotgun by its pellets."""
+    assert GC.fnv_wants({'DNAM.FalloutAnimType': '3', 'DNAM.Flags1': '2', 'DNAM.ProjectileCount': '1'}) == (
+        'pistol', True, False)
+    assert GC.fnv_wants({'DNAM.FalloutAnimType': '5', 'DNAM.Flags1': '0', 'DNAM.ProjectileCount': '7'}) == (
+        'rifle', False, True)
+    assert GC.fnv_wants({'DNAM.FalloutAnimType': '8'})[0] is None
+
+
+def test_omod_properties_end_its_data_and_obts_includes_follow_its_keywords():
+    """Two 24-byte properties after an include; an OBTS with one keyword, its includes after two level bytes."""
+    prop = struct.pack('<B3xB3xH2x4s4sf', 2, 0, GC.PROP_AUTOMATIC, struct.pack('<I', 1), bytes(4), 0.0)
+    data = struct.pack('<II', 1, 2) + bytes(12) + struct.pack('<III', 0, 0, 0) + bytes(7) + prop + prop
+    assert GC.properties(data) == [(2, 0, GC.PROP_AUTOMATIC, struct.pack('<I', 1))] * 2
+    obts = struct.pack('<IIBBBBhBB', 2, 0, 0, 0, 0, 0, -1, 1, 1) + struct.pack('<I', 77) + bytes(2)
+    obts += struct.pack('<IBBB', 0x10, 0, 0, 0) + struct.pack('<IBBB', 0x20, 0, 0, 0)
+    assert GC.includes(obts) == [0x10, 0x20]
+
+
+def test_layout_distance_prefers_the_nearer_magazine_and_muzzle():
+    """Offsets count from each gun's trigger; the muzzle weighs MUZZLE_WEIGHT; a missing magazine counts 0."""
+    ours = {'trigger': np.array([0.0, 2.0, 2.0]), 'mag': np.array([0.0, 15.0, 5.0]), 'muzzle': np.array([0.0, 24.0, 6.0])}
+    near = {'trigger': np.array([0.0, 1.0, -2.0]), 'mag': np.array([0.0, 14.0, 1.0]), 'muzzle': np.array([0.0, 25.0, 2.0])}
+    far = {'trigger': np.array([0.0, 17.0, 0.0]), 'mag': np.array([0.0, 21.0, 0.0]), 'muzzle': np.array([0.0, 43.0, 3.0])}
+    assert GC._distance(ours, near) == pytest.approx(0.0 + GC.MUZZLE_WEIGHT * 4.0)
+    assert GC._distance(ours, far) > GC._distance(ours, near)
+    assert GC._distance(dict(ours, mag=None), far) == pytest.approx(GC.MUZZLE_WEIGHT * (4.0 ** 2 + 1.0 ** 2))
+
+
+def test_replacement_table_lays_a_user_file_over_the_defaults(tmp_path):
+    """A user entry replaces the default one; another plugin becomes a master and may only be an item."""
+    user = tmp_path / 'mine.json'
+    user.write_text('{"WeapBBGun": {"use": "BBGunMod.esp|BBGun", "as": "item"}}', encoding='utf-8')
+    table = RP.load(user)
+    assert table['WeapBBGun'] == RP.Replacement('BBGunMod.esp', 'BBGun', 'item')
+    assert table['WeapBaseballBat'].mode == 'fnv' and table['VaultSuit21'].mode == 'item'
+    assert RP.extra_masters(table) == ['BBGunMod.esp']
+    user.write_text('{"WeapBBGun": {"use": "BBGunMod.esp|BBGun", "as": "stats"}}', encoding='utf-8')
+    with pytest.raises(ValueError):
+        RP.load(user)
+
+
+def test_another_plugins_formid_is_renumbered_to_our_masters():
+    """Its own record takes its place in our masters; its override of a Fallout4.esm record stays index 0."""
+    ours = ['Fallout4.esm', 'TES4Helpers.esl', 'XDI.esm', 'BBGunMod.esp']
+    assert RP._ours(0x01000F99, ['Fallout4.esm'], 'BBGunMod.esp', ours) == 0x03000F99
+    assert RP._ours(0x00004822, ['Fallout4.esm'], 'BBGunMod.esp', ours) == 0x00004822
+    with pytest.raises(ValueError):
+        RP._ours(0x01000F99, ['Fallout4.esm', 'Other.esm'], 'BBGunMod.esp', ours)
+

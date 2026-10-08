@@ -1,16 +1,22 @@
 """FNV weapons (WEAP) and armor (ARMO) as FO4 records, for the cell spike.
 
-Each converted piece is a copy of the Fallout4.esm record SUBSTITUTES names
-for it, so it keeps that record's models, animations, sounds, keywords and
-mod templates, with FNV's name, value and weight over them. A weapon also
-takes FNV's base damage, and a gun FNV's magazine size and ammunition (when
-it converts). A melee weapon shows FNV's own mesh instead (nif.weapon), on
-the template's animations, without its mods; so does headgear FNV draws in
+Each converted piece the replacement table (spike.replacements) gives a
+Fallout4.esm `stats` or `fnv` target is a copy of that record, so it keeps
+its models, animations, sounds, keywords and mod templates, with FNV's
+name, value and weight over them (`item` targets are the records
+themselves, spike.items). A weapon also takes FNV's base damage, and a gun
+FNV's magazine size and ammunition (when it converts); the entry's `mods`
+replace its default parts. In `fnv` mode a melee weapon shows FNV's own
+mesh (nif.weapon), on the template's animations, without its mods; a gun
+is written on the FO4 gun held, fired and laid out most like it
+(spike.gun_choice; the target when none matches) and shows its mesh on that
+gun's receiver skeleton, through copies of its default mods (spike.guns,
+experimental); so does headgear FNV draws in
 its head's frame (nif.headgear), through its own armor addon (ARMA) with
 FNV's slots and the template addon's races. Armor takes the protection FNV
 gives it as its armor rating, unscaled: DT (all FNV armor), else DR (FO3's),
 and drops the template's resistances. Condition and the template's scripts
-are dropped. An FNV piece SUBSTITUTES does not name is skipped and counted.
+are dropped. An FNV piece the table does not name is skipped and counted.
 FormIDs are hashed from FNV's (SITES), so no other record's id moves.
 
 See: docs/fork/fo4_spikes.md#spike-4-equipment
@@ -24,23 +30,12 @@ from fo4_import.base import strings
 from fo4_import.base.install import FALLOUTNV_ESM
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, weapon
+from fo4_import.spike.gun_choice import GUN_TYPES
+from fo4_import.spike.guns import Guns
 from fo4_import.spike.statics import write_assets
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
-#: FNV EditorID -> the Fallout4.esm record (EditorID) it is written on: the same item, else the nearest one.
-SUBSTITUTES = {
-    'WeapBaseballBat': 'BaseballBat', 'WeapRollingPin': 'RollingPin', 'WeapSwitchBlade': 'Switchblade',
-    'WeapTireIron': 'TireIron', 'WeapNV9mmSubmachineGun': 'SubmachineGun', 'WeapBBGun': 'PipeBoltAction',
-    'OutfitPrewarBusinesswearDirty': 'ClothesSuitDirty_Grey',
-    'OutfitPrewarBusinesswearDirtyDARK': 'ClothesSuitDirty_Black',
-    'OutfitPrewarCasualwear': 'ClothesPrewarSweaterVest', 'OutfitPrewarCasualwearDirty': 'ClothesPrewarSweaterVest',
-    'OutfitPrewarCasualwear2': 'ClothesPrewarShortSleeves', 'OutfitPrewarCasualwear2Dirty': 'ClothesPrewarShortSleeves',
-    'OutfitPrewarSpring': 'ClothesPrewarWomensCasual', 'OutfitPrewarSpringDirty': 'ClothesPrewarWomensCasual',
-    'OutfitPrewarSpring2': 'ClothesPreWarDress', 'OutfitPrewarSpring2Dirty': 'ClothesPreWarDress',
-    'OutfitPrewarNegligee': 'ClothesBathrobe', 'HelmetHockeyMask': 'Clothes_Raider_SurgicalMask',
-    'HatPrewarHat': 'ClothesMobsterhat', 'GlassesReading': 'ClothesEyeGlasses',
-}
 #: derive_formid sites (key: FNV FormID).
 SITES = {'WEAP': 'FNV WEAP', 'ARMO': 'FNV ARMO', 'ARMA': 'FNV ARMA'}
 #: FO4 WEAP DNAM offsets: ammo, capacity, animation type, weight, value, base damage.
@@ -94,10 +89,11 @@ class Equipment:
     """FO4 weapons and armor, each written once through a cell builder (its items convert the ammunition)."""
 
     def __init__(self, builder):
-        """Index the Fallout4.esm templates SUBSTITUTES names, their strings and FNV's dropped fields."""
-        self.builder, self.fnv, self.strings = builder, _fnv_fields(), strings.load()
+        """Index the Fallout4.esm templates the table names, their strings and FNV's dropped fields."""
+        self.builder, self.fnv, self.strings, self.table = builder, _fnv_fields(), strings.load(), builder.table
         self.fits, self.statics, self.poses = {}, {}, {}
-        wanted = set(SUBSTITUTES.values())
+        self.guns = Guns(builder, self.strings)
+        wanted = {r.edid for r in self.table.values() if r.base and r.mode != 'item'}
         self.vanilla, self.addons = {}, {}
         for rec, _ in walk(builder.fo4, b'WEAP', b'ARMO', b'ARMA'):
             subs = list(subrecords(rec.body))
@@ -106,27 +102,32 @@ class Equipment:
             elif _edid(subs) in wanted:
                 self.vanilla[_edid(subs)] = subs
 
+    def _entry(self, rec: dict):
+        """FNV `rec`'s entry when it is a Fallout4.esm copy (stats, fnv), else None."""
+        entry = self.table.get(rec.get('EditorID'))
+        return entry if entry and entry.base and entry.mode != 'item' and entry.edid in self.vanilla else None
+
     def _template(self, rec: dict) -> 'dict | None':
         """{sig: body} of the Fallout4.esm record FNV `rec` is written on, or None."""
-        template = self.vanilla.get(SUBSTITUTES.get(rec.get('EditorID'), ''))
-        return dict(template) if template else None
+        entry = self._entry(rec)
+        return dict(self.vanilla[entry.edid]) if entry else None
 
-    def _copy(self, rec: dict, data: dict, own_model: bool = False) -> list:
-        """The template's subrecords for FNV `rec`: EDID, the first FULL and `data` {sig: bytes} replaced, the
-        other localized strings as their text; with `own_model`, no model data or mod templates, and each
-        replaced subrecord once."""
-        named, templates, used, out = False, False, set(), []
-        for sig, body in self.vanilla[SUBSTITUTES[rec['EditorID']]]:
-            if own_model and sig in TEMPLATES:
-                templates = sig == TEMPLATES[0]
+    def _copy(self, rec: dict, data: dict, templates: 'list | None' = None, drop: tuple = (),
+              source: 'list | None' = None) -> list:
+        """The template's subrecords (`source`, else its entry's) for FNV `rec`: EDID, the first FULL and
+        `data` {sig: bytes} replaced (each once), the other localized strings as their text, `drop` left out;
+        `templates` (subrecords) replaces its mod templates (OBTE ... STOP) when given."""
+        named, skipping, used, out = False, False, set(), []
+        for sig, body in source or self.vanilla[self._entry(rec).edid]:
+            if templates is not None and sig in TEMPLATES:
+                out += templates if sig == TEMPLATES[0] else []
+                skipping = sig == TEMPLATES[0]
                 continue
-            if sig in DROPPED or (own_model and (templates or sig in used)):
+            if skipping or sig in DROPPED or sig in used or (sig in drop and sig not in data):
                 continue
             if sig in data:
                 used.add(sig)
                 out.append((sig, data[sig]))
-                continue
-            if own_model and sig in OWN_MODEL_DROPPED:
                 continue
             if sig == b'EDID':
                 body = f'FNV_{rec["EditorID"]}\0'.encode()
@@ -138,10 +139,15 @@ class Equipment:
         return out
 
     def weap(self, fnv: int, rec: dict) -> 'int | None':
-        """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`); None without a substitute."""
-        template = self._template(rec)
-        if template is None:
+        """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`) on its table entry's target (an `fnv` gun on the
+        FO4 gun spike.gun_choice picks, when one matches); None without an entry."""
+        entry = self._entry(rec)
+        if entry is None:
             return None
+        chosen = self.guns.choose(rec) if entry.mode == 'fnv' and int(rec.get('DNAM.FalloutAnimType', -1)) in (
+            GUN_TYPES) and 'Model.MODL' in rec else None
+        source = chosen[1] if chosen else self.vanilla[entry.edid]
+        template = dict(source)
         dnam = bytearray(template[b'DNAM'])
         struct.pack_into('<f', dnam, DNAM_WEIGHT, float(rec.get('DATA.Weight', 0.0)))
         struct.pack_into('<I', dnam, DNAM_VALUE, int(rec.get('DATA.Value', 0)))
@@ -152,10 +158,13 @@ class Equipment:
             made = self.builder.items.item(ammo) if ammo else None
             if made is not None:
                 struct.pack_into('<I', dnam, DNAM_AMMO, made)
-        data, own = {b'DNAM': bytes(dnam)}, dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec
-        if own:
+        data = {b'DNAM': bytes(dnam)}
+        if entry.mode == 'fnv' and dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec:
             data.update(self._own_model(rec['Model.MODL'], int(rec.get('DNAM.FalloutAnimType', -1))))
-        return self._write('WEAP', fnv, self._copy(rec, data, own))
+            return self._write('WEAP', fnv, self._copy(rec, data, [], OWN_MODEL_DROPPED))
+        templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2]) if chosen
+                     else self.guns.with_mods(source, entry.mods) if entry.mods else None)
+        return self._write('WEAP', fnv, self._copy(rec, data, templates, source=source))
 
     def _own_model(self, model: str, anim_type: int) -> dict:
         """{sig: body} pointing a weapon's world and first-person models (FNV uses one mesh) at FNV `model`,
@@ -177,9 +186,9 @@ class Equipment:
         fnam = bytearray(template[b'FNAM'])
         struct.pack_into('<H', fnam, 0, round(fields['rating']))
         subs = {b'DATA': data, b'FNAM': bytes(fnam)}
-        own = self._headgear(fnv, rec, template)
+        own = self._headgear(fnv, rec, template) if self._entry(rec).mode == 'fnv' else None
         subs.update(own or {})
-        return self._write('ARMO', fnv, self._copy(rec, subs, bool(own)))
+        return self._write('ARMO', fnv, self._copy(rec, subs, [] if own else None, OWN_MODEL_DROPPED if own else ()))
 
     def _headgear(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
         """{sig: body} putting FNV headgear `rec` on its own meshes and armor addon; None when it is not
@@ -220,11 +229,12 @@ class Equipment:
         return self._write('ARMA', fnv, subs)
 
     def test_items(self, rounds: int) -> list:
-        """[(FO4 FormID, count)]: every SUBSTITUTES piece in the export, made now, and `rounds` of each gun's ammo."""
+        """[(FO4 FormID, count)]: every weapon and armor the table names, made now, and `rounds` of each gun's ammo."""
         out, items = [], self.builder.items
-        for edid in SUBSTITUTES:
+        for edid in self.table:
             fnv = items.names.get(edid.lower())
-            made = items.item(fnv) if fnv is not None else None
+            kind = items.records.get(fnv, ('',))[0] if fnv is not None else ''
+            made = items.item(fnv) if kind in ('WEAP', 'ARMO') else None
             if made is None:
                 continue
             ammo = self.fnv.get(fnv, {}).get('ammo')

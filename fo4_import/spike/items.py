@@ -5,8 +5,8 @@ chance none, flags and the entries whose items convert; a container its
 model, flags, weight and the contents that convert; a text note becomes a
 paper note (BOOK). FNV's engine objects (FormID below ENGINE_IDS) that
 Fallout4.esm has under the same FormID, type and EditorID are FO4's own
-(the bottle cap, COC and X markers), and an item STAND_INS names is the
-Fallout4.esm item itself, with FO4's name and stats. Consumables and
+(the bottle cap, COC and X markers), and an item the replacement table
+names as an `item` is that record itself (spike.replacements). Consumables and
 ammunition are made by consumables.Consumables, weapons and armor by
 equipment.Equipment; any other type is skipped and counted.
 
@@ -29,17 +29,6 @@ HASHED_SITE = 'FNV LVLI'
 CONTAINER_FLAGS = 0x2
 #: FNV NOTE DATA type of a text note (0 sound, 2 image, 3 voice).
 TEXT_NOTE = 1
-#: FNV item EditorID -> the Fallout4.esm item (EditorID) used in its place: the same item, else the nearest one.
-STAND_INS = {
-    'Stimpak': 'Stimpak', 'Morphine': 'MedX', 'RadX': 'RadX', 'BloodPack': 'Bloodpack', 'Cram': 'Cram',
-    'PorkNBeans': 'PorknBeans', 'SugarBombs01': 'SugarBombs', 'Lockpick': 'BobbyPin',
-    'WeapNV9mmPistol': '10mm', 'Ammo9mm': 'Ammo10mm', 'WeapLaserPistol': 'LaserGun',
-    'AmmoSmallEnergyCell': 'AmmoFusionCell', 'WeapNVDynamite': 'fragGrenade', 'WeapNVStraightRazor': 'Switchblade',
-    'WeapNVBoxingGloves': 'BoxingGlove', 'WeapKnife': 'Knife', 'PipBoy': 'Pipboy',
-    'VaultSuit21': 'Armor_Vault111_Underwear',
-}
-#: The record types STAND_INS draws on.
-STAND_IN_TYPES = (b'ALCH', b'MISC', b'WEAP', b'AMMO', b'ARMO')
 
 
 def _edid(rec) -> str:
@@ -73,17 +62,6 @@ def index(export_dir: Path, types: tuple) -> dict:
     return out
 
 
-def stand_ins(fo4_esm: bytes) -> dict:
-    """{FNV EditorID: Fallout4.esm FormID} of STAND_INS."""
-    wanted = {fo4: fnv for fnv, fo4 in STAND_INS.items()}
-    out = {}
-    for rec, _ in walk(fo4_esm, *STAND_IN_TYPES):
-        edid = _edid(rec)
-        if edid in wanted:
-            out[wanted[edid]] = rec.form_id
-    return out
-
-
 def _bounds(rec: dict) -> tuple:
     """An export record's OBND."""
     return tuple(int(rec.get(f'OBND.{k}', 0)) for k in ('X1', 'Y1', 'Z1', 'X2', 'Y2', 'Z2'))
@@ -101,8 +79,10 @@ def _list(rec: dict, prefix: str, fields: tuple) -> list:
 class Items:
     """FO4 records for FNV items and containers, each made once, written through a cell builder."""
 
-    def __init__(self, builder, records: dict, shared: dict, makers: 'dict | None' = None):
-        """Items made through `builder`, from index() `records`, sharing `shared` and the stand-ins.
+    def __init__(self, builder, records: dict, shared: dict, makers: 'dict | None' = None,
+                 stand_ins: 'dict | None' = None):
+        """Items made through `builder`, from index() `records`, sharing `shared` and `stand_ins` {FNV EditorID:
+        FormID} (replacements.items).
 
         `makers` is {type: maker(FNV FormID, record) -> FormID or None} for the types made elsewhere
         (consumables, equipment); a type with no maker here or there is skipped.
@@ -111,7 +91,7 @@ class Items:
         self.numbered = set()
         named = {rec.get('EditorID'): fid for fid, (_, rec) in records.items()}
         self.names = {name.lower(): fid for name, fid in named.items() if name}
-        self.shared = {**shared, **{named[e]: fid for e, fid in stand_ins(builder.fo4).items() if e in named}}
+        self.shared = {**shared, **{named[e]: fid for e, fid in (stand_ins or {}).items() if e in named}}
 
     def by_name(self, edid: str) -> 'int | None':
         """item() of the FNV record named `edid` (any case), or None."""

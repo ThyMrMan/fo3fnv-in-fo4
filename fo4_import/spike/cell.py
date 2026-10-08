@@ -33,7 +33,7 @@ from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.scol import BASE_SITE, PART_SITE, Parts, compose
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
-from fo4_import.spike import character, skeleton
+from fo4_import.spike import character, replacements, skeleton
 from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import Conversations
 from fo4_import.spike.furniture import furniture, markers
@@ -144,11 +144,15 @@ def light_flags(fnv: int) -> int:
 class CellBuilder:
     """FO4 base records for one FNV cell's references, each base and mesh converted once."""
 
-    def __init__(self, export_dir: Path, data_dir: Path, bases: dict):
-        """A builder writing assets into `data_dir`; `bases` is {FNV FormID: (type, record)}."""
+    def __init__(self, export_dir: Path, data_dir: Path, bases: dict, table: 'dict | None' = None,
+                 plugin_dirs: tuple = ()):
+        """A builder writing assets into `data_dir`; `bases` is {FNV FormID: (type, record)}; `table` the
+        replacement table (spike.replacements; its other plugins become masters, found in `plugin_dirs`)."""
         self.export_dir, self.data_dir, self.bases = export_dir, data_dir, bases
-        self.writer = FO4PluginWriter(masters=MASTERS, is_esm=False, description='FNV cell spike')
-        self.next_id = len(MASTERS) << 24 | FIRST_ID
+        self.table, self.plugin_dirs = table if table is not None else replacements.load(), plugin_dirs
+        self.masters = MASTERS + replacements.extra_masters(self.table)
+        self.writer = FO4PluginWriter(masters=self.masters, is_esm=False, description='FNV cell spike')
+        self.next_id = len(self.masters) << 24 | FIRST_ID
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
@@ -514,8 +518,9 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
     equipment = builder.equipment
     makers = {'ALCH': consumables.alch, 'AMMO': consumables.ammo, 'WEAP': equipment.weap, 'ARMO': equipment.armo}
+    stand_ins = replacements.items(builder.table, builder.fo4, builder.masters, builder.plugin_dirs)
     builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
-                                                              SHARED_TYPES), makers)
+                                                              SHARED_TYPES), makers, stand_ins)
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.activators = Activators(builder, export_dir)
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in refs
@@ -529,11 +534,13 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
-          scripts_dir: 'Path | None' = None, exterior: tuple = None) -> collections.Counter:
+          scripts_dir: 'Path | None' = None, exterior: tuple = None, table: 'dict | None' = None,
+          plugin_dirs: tuple = ()) -> collections.Counter:
     """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made.
 
     `scripts_dir` holds the converted scripts; the activators' are attached and compiled into <data_dir>/Scripts.
     `exterior` is (worldspace, (grid x, y), radius): that block of the worldspace too (exterior.Exterior).
+    `table` is the replacement table (spike.replacements), its other plugins found in `plugin_dirs`.
     """
     cell = _find_cell(export_dir, cell_edid)
     all_refs = parse_export_file(str(export_dir / 'REFR.txt'))
@@ -543,12 +550,12 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     outside = world.refs if world else []
     used = {int(r['NAME'], 16) for r in refs + outside}
     parts = Parts(used)
-    builder = CellBuilder(export_dir, data_dir, _bases(export_dir, used | parts.fids()))
+    builder = CellBuilder(export_dir, data_dir, _bases(export_dir, used | parts.fids()), table, plugin_dirs)
     builder.parts = parts
     _object_makers(builder, export_dir, scripts_dir, refs)
     cell_fid = builder.new_id()
     ids = {r['FormID']: builder.new_id() for r in refs}
-    ext_ids = world.ids(len(MASTERS)) if world else {}
+    ext_ids = world.ids(len(builder.masters)) if world else {}
     quests = {edid: builder.new_id() for edid in CELL_QUESTS}
     quest_recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in quests]
     builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
@@ -614,11 +621,14 @@ def main():
     ap.add_argument('--world', help='FNV worldspace editor ID to add a block of (with --around)')
     ap.add_argument('--around', type=int, nargs=2, default=(0, 0), metavar=('X', 'Y'), help='The block\'s center cell')
     ap.add_argument('--radius', type=int, default=1, help='Cells around the center (1: a 3x3 block)')
+    ap.add_argument('--replacements', type=Path, help='A replacement table laid over the defaults (JSON)')
+    ap.add_argument('--plugin-dirs', nargs='*', default=(), help='Folders holding plugins the table names')
     ap.add_argument('cell', help='FNV interior cell editor ID')
     args = ap.parse_args()
     exterior = (args.world, tuple(args.around), args.radius) if args.world else None
+    table = replacements.load(args.replacements)
     for key, count in sorted(build(Path(args.export), Path(args.out), Path(args.data), args.cell,
-                                   args.scripts, exterior).items()):
+                                   args.scripts, exterior, table, tuple(args.plugin_dirs)).items()):
         print(f'{key}: {count}')
 
 

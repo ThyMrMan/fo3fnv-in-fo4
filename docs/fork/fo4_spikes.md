@@ -2074,6 +2074,88 @@ The hockey mask, pre-war hat and reading glasses use FNV's meshes
   races, and male and female models (`<mesh>.nif`, `<mesh>_female.nif`).
   The ARMO points at it, and its world model is FNV's ground model.
 
+### <a id="spike-4-guns"></a>Guns on FNV's own meshes (built 2026-10-08, not yet played)
+
+The 9mm SMG and BB gun show FNV's meshes on their templates' animations
+(`fo4_import/nif/gun.py`, `fo4_import/spike/guns.py`).
+
+- **FO4's guns are parts.** The record's model is a dummy receiver; its
+  default object template combination (OBTS with Default set; its
+  keyword count is one byte at form version 131) attaches object mods at
+  attach points. SubmachineGun: `TGunReceiver.nif` (ap_gun_receiver),
+  grip, barrel, drum magazine, iron sights, null muzzle; PipeBoltAction:
+  `PipeRifleBoltAction.nif`, grip, barrel, sights, a range offset; 10mm:
+  `10MMPistol.nif` and parts. The animation set comes from keywords
+  (`AnimsSubmachineGun`, `AnimsRecieverHandmadePipe`, `AnimsFP10mm`).
+- **A receiver mesh is the gun's skeleton:** root `WEAPON` with the bones
+  the animations move (WeaponBolt, WeaponMagazine and its children,
+  WeaponTrigger, WeaponExtra1–3, their `*Trans` twins, WeaponOptics1–2),
+  the receiver geometry under its own node with `ProjectileNode`, and
+  on some `ScopeCameraDelta` and `WeaponIKTargetL` (the left hand). The
+  trigger is not at the origin: y 17.1 on the tommy gun, 4.7 on the 10mm,
+  1.0 on the pipe rifle.
+- **FNV's guns** lie along +X with +Y up (FO4: +Y, +Z up) and name their
+  moving parts: 9mm SMG `##Clip`, `##Trigger`, `##Bar`, `##Lever`,
+  `##Shells`, nodes `ProjectileNode`, `ShellCasingNode`,
+  `##SightingNode`; BB gun `##BBLever`, `##BBTrigger`, `##BBCarton`.
+- **The mesh:** the template's default receiver, read from the user's
+  BA2, with its own shapes' geometry emptied (played: turning them into
+  empty nodes crashed the game opening a container holding the BB gun,
+  whose railway rifle receiver drives its shapes' shaders from controller
+  sequences; no block index moves; its
+  bones, controllers and collision stay). The converted FNV gun is turned
+  to FO4's axes, moved so its trigger's top sits on the receiver's, and
+  each part goes under the bone its name ends with (trigger, clip or
+  magazine, bolt, slide, lever or bar, hammer), the rest under the
+  receiver's node; `ProjectileNode` moves to FNV's muzzle.
+- **The record:** its other combinations go; the default one includes
+  copies of its mods (`FNV_<mod>_<EditorID>`, hashed FormIDs): the
+  receiver's copy shows the FNV gun, the other parts with a model keep
+  their properties and lose the model (FNV's mesh has them), and a mod
+  without a model stays vanilla's. Their properties (automatic, bolt
+  action, capacity, accuracy) stay; vanilla's mods are untouched.
+- **First pass, played:** on the substitution table's guns (SMG on the
+  tommy gun, BB gun on the pipe bolt-action) the SMG reloaded from the
+  wrong spot and was held in the wrong place, its sights near; the BB gun
+  was held like a pistol. The tommy gun's magazine is 4.7 ahead of its
+  trigger, FNV's SMG's 12.7; the pipe bolt-action's default grip
+  (`HandMadePistolGrip.nif`) adds AnimsGripPistol, its stocks
+  AnimsGripRifleStraight.
+- **Second pass, the template is chosen** (`fo4_import/spike/gun_choice.py`):
+  every playable FO4 gun (Gun animation, not non-playable or embedded,
+  with a default combination), in its default combination and with each
+  receiver and grip its other combinations use swapped in. It must be held
+  as FNV's gun is (FNV animation types 3–4 one-handed, 5–7 two-handed
+  against the AnimsGrip keywords, else WeaponType, the record and parts
+  give), fire alike (parts' IsAutomatic, else DNAM's Automatic; FNV's
+  Flags1 Is Automatic) and spread alike (projectile count over 1: parts'
+  NumProjectiles, else FNAM; FNV's ProjectileCount). The nearest layout
+  wins: magazine mouth (the receiver's `P-Mag` connect point; FNV's clip
+  top) and muzzle offsets from the trigger, the muzzle weighted 0.25.
+  OMOD DATA counts are all u32 (2,409 of 2,409 parse exactly); its
+  properties are its last 24-byte entries. Chosen: 9mm SMG (one-handed,
+  automatic) on PipeGun with its automatic receiver and pistol grip; BB gun
+  (two-handed, single shot, no magazine) on RailwayRifle with its full
+  stock (the double-barrel shotgun was nearer before shotguns were kept
+  to shotguns).
+- **Sights:** the receiver copy adds ZoomDataCameraOffsetZ (property 72,
+  ADD; vanilla zoom records use this offset too, ZM_HuntingRifle −0.25,
+  ZM_InstituteLaserGun 1.87): FNV's `##SightingNode` height over its
+  trigger less the template's sights (its `P-Scope` point plus the top of
+  the sights mod's mesh) over its trigger. SMG +1.14, BB gun −5.70 (the
+  railway rifle's sights sit 9.7 over its trigger). Measuring the
+  template's whole top instead gave the BB gun −8.6, off its tall gauge.
+- **Second pass, played:** the SMG held and aimed right on the pipe gun,
+  but its reload was the pipe gun's side-magazine one; the BB gun's left
+  hand hovered over the barrel, it kept the railway rifle's sound and
+  steam, and fired once without reloading. Each is the chosen gun's own
+  animation or effect: automatic choice fits only as far as a FO4 gun's
+  layout and action match FNV's.
+- **Parked:** guns default to FO4's guns again (`stats` in the
+  [replacement table](fo4_replacements.md)); this path stays as the `fnv`
+  mode, experimental. FNV-looking guns need per-gun tuning, new
+  animations, or an existing port named in the table.
+
 ### <a id="step-map"></a>Step test map (played 2026-10-08)
 
 `fo4_import.spike.step_map` builds `StepTest.esp`: one interior (`coc
