@@ -1880,6 +1880,37 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     mesh's lowest point (within 2) to a tread 8–24 above it is now a step
     from the ground, marked with its tread (shelf base boards qualify too).
     63 of the block's 179 mesh-collision models get stairs faces.
+- **Items** (`fo4_import/spike/consumables.py`): consumables (ALCH) and
+  ammunition (AMMO) were skipped wherever they appeared, and placed ones
+  stood as static stand-ins. In this block: a Speech magazine and a 5.56
+  box on the ground; in containers 13 skill magazines, Nuka-Cola, Sunset
+  Sarsaparilla, five plant foods and a hockey mask (armor, still skipped).
+  - A consumable keeps name, model, value, weight and kind (FNV ENIT flags:
+    food 0x2 kept, medicine 0x4 to FO4's 0x10000), with Nuka-Cola's or the
+    Stimpak's sounds and category keyword. Effects: RestoreHealth →
+    RestoreHealthFood, DamageRadiationLevel → DamageRadiationChem,
+    NukaColaAddCap → NukaColaBottlecapAdder, IncreaseSkill* → a copy of
+    Rad-X's timed boost (FortifyResistRadsRadX, archetype 5; actor value
+    at DATA 0x44, per xEdit) on the helper plugin's skill actor value. An
+    effect gated on HasPerk is read as without the perk (magazines keep
+    their +10 for 60 s). Dropped: Hardcore needs, chem stats, limbs,
+    scripted effects (counted per effect in the build).
+  - Ammunition: FNV's name, model, value and weight over FO4's Ammo556
+    (projectile, keyword, sounds).
+  - FormIDs: consumables, ammunition and skill boosts are hashed from FNV's;
+    a leveled list first made non-empty by them is hashed too, and a
+    placed consumable's old static base keeps its numbered id unused, so
+    no existing record moves (2,591 compared, 0 moved; the 23 static
+    stand-ins are gone, their references now on the items).
+  - Played: items work; harvested foods made a bottle sound and showed no
+    Pip-Boy preview. Every FNV food item had taken Nuka-Cola's sounds. A
+    consumable's category now comes from FNV's ETYP (10 chem, 11 stimpak,
+    12 food, 13 alcohol) and its ENIT consume sound (NPCHumanEatingFood*,
+    NPCHumanDrinking*, NPCHumanUsingComic...), both dropped by the export
+    and read from FalloutNV.esm; it takes that vanilla item's PTRN, YNAM,
+    ZNAM, CUSD and consume sound and a plain category keyword (Mutfruit,
+    NukaCola, Stimpak, Mentats, BeerGwinnettStout_Cold; magazines a perk
+    magazine's preview).
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 

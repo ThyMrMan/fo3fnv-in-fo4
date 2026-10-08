@@ -28,6 +28,7 @@ from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
+from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.scol import BASE_SITE, PART_SITE, Parts, compose
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
@@ -73,6 +74,8 @@ FIRST_ID = 0x800
 AS_STATIC = ('STAT', 'MSTT', 'SCOL', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
 #: FNV base types converted as themselves (spike.items), and the types whose engine objects FO4 may share.
 ITEM_BASES, SHARED_TYPES = ('MISC', 'CONT'), ('STAT', 'MISC')
+#: Item types placed as FO4 items; each still takes its old static's numbered FormID (unused), so no id moves.
+PICKUPS = ('ALCH', 'AMMO')
 #: Stand-in doors in QASmoke: the first one's position and the spacing along X.
 DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
 #: Where a stand-in door puts the player: offset from the door, facing +X, away from it.
@@ -168,6 +171,10 @@ class CellBuilder:
         if self.items.records.get(fnv_fid, ('',))[0] in ITEM_BASES:
             return self.items.item(fnv_fid)
         sig, rec = self.bases.get(fnv_fid, (None, None))
+        if sig in PICKUPS:
+            if fnv_fid not in self.made and _model(rec):
+                self.made[fnv_fid] = self.new_id()
+            return self.items.item(fnv_fid)
         if fnv_fid not in self.made:
             made = sig in ('LIGH', 'ACTI') or (sig and _model(rec))
             self.made[fnv_fid] = self._make(sig, rec, new_id or self.new_id) if made else None
@@ -475,7 +482,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     """Give `builder` its item, activator and package makers; `refs` are the cell's FNV references."""
     records = index(export_dir, ITEM_TYPES)
     builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
-                                                              SHARED_TYPES))
+                                                              SHARED_TYPES), Consumables(builder, HELPER_INDEX))
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.activators = Activators(builder, export_dir)
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in refs
