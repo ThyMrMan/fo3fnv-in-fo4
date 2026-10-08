@@ -6,7 +6,8 @@ persistent references standing in the block (doors) go in the worldspace's
 persistent cell. The worldspace takes the Commonwealth's climate, water and
 map settings. Landscape textures become LTEX records with FO4 texture sets:
 FNV's diffuse and normal map, and a specular map from the normal map's
-alpha. Grass, trees (SpeedTree) and LOD are not converted. Records made here
+alpha, and the grasses FNV grows on them (grass.py). Trees (SpeedTree) and LOD
+are not converted. Records made here
 take ids from EXTERIOR_FIRST on, so the interior's ids do not move.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
@@ -20,6 +21,7 @@ from pathlib import Path
 from asset_convert.texture.dds_codec import write_normal_dds
 from asset_convert.texture.landscape_normals import SPECULAR_ALPHA
 from fo4_import.base.writer import pack_fo4_record
+from fo4_import.spike.grass import Grasses
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_image
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.text_reader import parse_export_file
@@ -65,6 +67,7 @@ class Exterior:
         self.refs = self.persistent + [r for refs in self.by_cell.values() for r in refs]
         self.land = {r['ParentCELL']: r for r in parse_export_file(str(export_dir / 'LAND.txt')) if r['ParentCELL'] in own}
         self.textures, self.made = {}, {}
+        self.grasses = Grasses(export_dir)
 
     def new_id(self, plugin_index: int) -> int:
         """The next exterior FormID in plugin `plugin_index`."""
@@ -166,9 +169,16 @@ class Exterior:
         subs += pack_subrecord('MNAM', struct.pack('<I', LAND_MATERIAL))
         subs += pack_subrecord('HNAM', bytes([int(rec.get('HNAM.Friction', 30)), int(rec.get('HNAM.Restitution', 30))]))
         subs += pack_subrecord('SNAM', bytes([int(rec.get('SNAM.Specular', 30))]))
+        grown = (self.grasses.grass(builder, int(rec[f'Grass[{i}]'], 16)) for i in range(_grass_count(rec)))
+        subs += b''.join(pack_subrecord('GNAM', struct.pack('<I', g)) for g in grown if g)
         builder.writer.add_record('LTEX', pack_fo4_record('LTEX', ltex, 0, subs))
         builder.counts['LTEX'] += 1
         return ltex
+
+
+def _grass_count(rec: dict) -> int:
+    """How many grasses FNV LTEX `rec` lists (Grass[0]...)."""
+    return sum(1 for k in rec if k.startswith('Grass['))
 
 
 def _landscape_textures(export_dir: Path, rec: dict, data_dir: Path) -> tuple:

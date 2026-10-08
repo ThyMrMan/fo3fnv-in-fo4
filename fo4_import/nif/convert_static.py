@@ -390,8 +390,9 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     alpha, two_sided = props.get('NiAlphaProperty'), 'NiStencilProperty' in props
     if 'BSShaderNoLightingProperty' in props:
         return _unlit(props['BSShaderNoLightingProperty'], alpha, two_sided, _fades(geom))
-    shader = props.get('BSShaderPPLightingProperty')
-    fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else ['']
+    shader, grass = props.get('BSShaderPPLightingProperty'), props.get('TallGrassShaderProperty')
+    fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else \
+        [grass.file_name.decode('cp1252')] if grass else ['']
     blended = alpha is not None and alpha.flags & 1 and shader
     glass = bool(blended and shader.shader_flags.sf_environment_mapping)
     flags = shader.shader_flags if shader else None

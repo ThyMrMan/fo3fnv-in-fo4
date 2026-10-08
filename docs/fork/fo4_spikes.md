@@ -1798,6 +1798,25 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   identity), which a part mesh (one body on the root) never uses. Cost: the
   22 SCOLs drew 99 shapes merged and 422 as parts (the block's other
   references 1,349), about +22% shapes for the block.
+- **Grass** (`fo4_import/spike/grass.py`): both games scatter grass at
+  runtime from each LTEX's grass list (GNAM) over ground painted with it,
+  so nothing is regenerated. FNV's 24 GRAS become FO4 GRAS (FormID hashed
+  from FNV's; DATA copied, FO4's 32-byte layout is FNV's: vanilla
+  densities 1–96 against FNV's 4–100), and each converted LTEX lists its
+  FNV grasses (52 links over FNV's 89 LTEX). FNV grass draws with a
+  TallGrassShaderProperty whose file name is the texture; the converter
+  now reads it (it gave an untextured material). The 17 grass meshes come
+  out alpha-tested and two-sided with no normal map; FNV's grass sway is
+  not carried.
+  - First play: no grass. Records, links, LAND flags (0x1F, as vanilla's
+    textured LAND) and coverage (the block's grass LTEX: 43 layers) were
+    right, and FNV's "above water by 0" is vanilla's too (46 GRAS, with
+    36,320 Commonwealth cells at the no-water height). Every vanilla FO4
+    GRAS model (71) sits directly in Landscape\\Grass, the contract Skyrim's
+    grass renderer has (`asset_convert/nif/grass_profile.py`); ours were
+    in fnv\\landscape\\grass. The converted mesh is now copied to
+    Landscape\\Grass\\FNV_<name>.nif. Vanilla grass shader flags vary
+    (flags1 0x80400201 in 44 of 71, flags2 0x31 in 29), so they were left.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 
