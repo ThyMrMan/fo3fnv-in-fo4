@@ -16,6 +16,7 @@ any plan come later, and status goes in [ROADMAP.md](../ROADMAP.md).
 - [What the move throws away](#lost)
 - [Existing FO4 mods for the gaps](#mods)
 - [AI rules in Fallout4.exe](#ai-rules)
+- [Player collision in Fallout4.exe](#player-collision)
 - [How the pipeline would split](#pipeline)
 - [Target formats](#formats)
 - [fnv-to-fo4](#fnv-to-fo4)
@@ -450,6 +451,73 @@ the same.
   - the Must Complete test in `0xcf6620`;
   - the periodic check's code;
   - what `abResetAI` resets beyond the AI state.
+
+## <a id="player-collision"></a>Player collision in Fallout4.exe
+
+Read 2026-10-08 from `Fallout4.exe.unpacked.exe` (1.11.240; RVAs), to find
+why FO4's player needs 141–145 units of headroom where FNV's fitted 139
+([step map](../fo4_spikes.md#step-map)).
+
+- **Who builds it.** The actor's controller setup (`0xc5f6b4`) gives the
+  player a `bhkCharProxyController` (setup `bhkCharProxyControllerCinfo`,
+  constructor `0x18b38e0`) and NPCs a `bhkCharRigidBodyController`. Both
+  setups are filled by `0xcbfdb0(actor, setup, bUseCustomCCShapes)`.
+- **Where the shape comes from.** `0x1892de0` walks the actor's loaded 3D
+  (`0x189c560`): a node whose collision is on layer 30 (`0x1e`, the
+  character controller layer) and is a capsule becomes the controller's
+  shape (`bUseCustomCCShapes:Havok`, default 1). Vanilla `skeleton.nif`,
+  `skeleton_facebones.nif` and `skeleton_female_facebones.nif` each have one:
+  `CharacterBumper`'s `hknpCapsuleShape`, radius 0.1893, axis z
+  0.1932–1.5785 Havok units, top 123.7 game units. Without one, the
+  controller is sized from the 3D's `BSBound` (centre `+0x18`, half extents
+  `+0x24`) or three constants, times the actor's scale.
+- **Scaling.** The capsule is copied at the actor's scale (`0x188db20`) only
+  when the actor has `ScaleCustomCharController_DO`'s keyword (`00249F53`;
+  "Actors with this keyword will scale their custom character controller
+  shape"); the scale is `0x4ff850`, the reference scale times the base's
+  height. On `HumanRace` it does nothing for the player (played).
+- **The headroom gap.** The capsule tops out at 123.7, the measured need is
+  141–145: the controller needs about 17–21 more than its shape (step-up or
+  contact margin; not read).
+- **What it should mean.** The movement capsule is data: the skeleton's
+  `CharacterBumper` capsule, shared by the player and every human NPC.
+- **Played:** the three human skeletons with that capsule's top lowered 10
+  units (123.7 to 113.7; loose files in an enabled mod, archive
+  invalidation on, nothing in `overwrite`) still block the player at H130
+  to H140. The skeleton's `BSBound` tops out at 128 (centre z 64, half
+  extents 22, 14, 64). So either the capsule does not set the headroom, or
+  the edited skeleton is not the one used. The capsule 60 shorter and 80
+  taller changed nothing either: the player's controller does not use it.
+- **The fallback.** Without a usable layer-30 capsule (the collector also
+  needs the collision object's virtual `0xc8` to return something), the
+  controller is a compound of three capsules (`0x189ee10` three times)
+  built from the 3D's `BSBound` half extents times the actor's scale, or
+  from the constants 23, 17.5, 64 (`0x25698f0`, `0x26b20b8`, `0x2929548`)
+  without one, offset ±8 front and back (`0x26b20c0`, `0x29294cc`) and 1 down
+  (`0x2929750`). The 3D is the actor's third-person 3D (`0x50dcc0`). The
+  scale is pinned to 1.0 when the actor has default object 202's keyword
+  (default object table `0x30e78e0`, entry `+0x670`) and its virtual
+  `0x3f0` is false.
+- **Played: the box sets the player's height.** The three human skeletons
+  with only `BSBound` lowered 30 (centre z and half height 64 to 49, top 128
+  to 98; two bytes per file) let the player through H130 and out of the
+  mobile home in the step map and in Goodsprings. So the player's controller
+  is the fallback compound, sized from the skeleton's `BSBound`, and FO4
+  needs about 13–17 units of headroom over the box (128 + 13–17 = the
+  measured 141–145).
+- **FNV's box.** FNV's and FO3's `_male\skeleton.nif` `BBX`: centre z 66.22,
+  half extents 23.10, 17.64, 66.22, top 132.44, taller than FO4's. FNV's
+  player passes the home's 139 over the lip, so FNV's controller needs at
+  most 6.6 over its box. A FO4 box topping out at 115 or less makes FO4's
+  need (115 + 13–17 = 128–132) no more than FNV's box, so every opening
+  FNV's player fits through fits FO4's.
+- **Played: the box at 115** (centre z and half height 57.5) lets the
+  player through H130 and out of the mobile homes. The cell spike writes
+  it (`fo4_import/spike/skeleton.py`): the three skeletons read from the
+  user's own `Fallout4 - Meshes.ba2`, only the box changed, so no Bethesda
+  file ships. It applies to every human, FO4's own NPCs too. A runtime
+  version is parked as its own mod idea:
+  [dynamic collision](fo4_dynamic_collision.md).
 
 ## <a id="lost"></a>What the move throws away
 

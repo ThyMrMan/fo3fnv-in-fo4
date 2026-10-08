@@ -448,7 +448,7 @@ def _emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: Shape
     elif mat.kind == 'unlit':
         nif.blocks.append(('BSEffectShaderProperty', _unlit_shader(nif, mat, colors is not None)))
     else:
-        nif.blocks.append(('BSLightingShaderProperty', _shader(nif, mat.path, index + 2, mat.flags1)))
+        nif.blocks.append(('BSLightingShaderProperty', lighting_shader(nif, mat.path, index + 2, mat.flags1)))
         slots = [f'textures\\{fo4_texture(t)}' for t in mat.textures] + [''] * TEXTURE_SLOTS
         if mat.spec:
             slots[SLOT_SPECULAR] = f'textures\\{mat.spec[0]}'
@@ -502,7 +502,7 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
             'env_map': '', 'normal': '', 'env_mask': '', 'env_map_scale': 1.0}
 
 
-def _shader(nif: NifFile, material: str, texture_set: int, flags1: int) -> dict:
+def lighting_shader(nif: NifFile, material: str, texture_set: int, flags1: int) -> dict:
     """A lighting shader naming `material` (root material ''; `flags1` added), vanilla ClutterGenShelfA's values."""
     return {'shader_type': 0, 'name': nif.string(material), 'extra': [], 'controller': NONE,
             'flags1': SHADER_FLAGS[0] | flags1, 'flags2': SHADER_FLAGS[1],

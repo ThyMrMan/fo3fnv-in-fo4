@@ -32,7 +32,7 @@ MASTERS = ['Fallout4.esm']
 START, SPACING = (-1700.0, -1484.0, 0.0), 300.0
 
 
-def _bounds(nif) -> 'tuple | None':
+def mesh_bounds(nif) -> 'tuple | None':
     """OBND: the integer box around every shape's vertices; None for a mesh with none."""
     pts = np.array([v['position'] for kind, b in nif.blocks if kind == 'BSTriShape' for v in b['vertices']])
     if not len(pts):
@@ -63,7 +63,7 @@ def write_assets(export_dir: Path, model: str, data_dir: Path) -> tuple:
     for spec_path, (fnv_normal, smooth) in converted.spec_maps.items():
         normal = (export_dir / texture_source(fnv_normal).replace('\\', '/')).read_bytes()
         write_normal_dds(spec_image(normal, smooth), data_dir / 'Textures' / spec_path)
-    return f'{PREFIX}\\{rel}', _bounds(converted.nif)
+    return f'{PREFIX}\\{rel}', mesh_bounds(converted.nif)
 
 
 def swap_material(export_dir: Path, model: str, node: str, texture: str, data_dir: Path) -> 'tuple | None':

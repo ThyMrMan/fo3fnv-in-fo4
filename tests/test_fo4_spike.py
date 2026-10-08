@@ -9,10 +9,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from fo4_import.base.ba2 import Archives
+from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.nif import file as nf
 from fo4_import.spike import dialogue as D
 from fo4_import.spike import imods as I
 from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
+from fo4_import.spike import skeleton as S
 from fo4_import.spike import voice as V
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
@@ -95,3 +99,16 @@ def test_seat_moves_from_the_start_marker_onto_docs_bed():
     marker = ((2257.0427, 2318.2153, 7360.0), (0.0, 0.0, 3.1415987))
     (x, y, z), rot = P.seat_place(marker, [(((2281.6326, 2377.5889, 7392.0), (0.0, 0.0, 1.685404)), str(bed))])
     assert (round(x), round(y), z, rot) == (2257, 2352, 7360.0, marker[1])
+
+
+def test_skeleton_box_top_lowered_and_bottom_kept():
+    """Vanilla skeleton.nif's BSBound (top 128) goes to a top of 115 with z 0 still its bottom; nothing else moves."""
+    if not (FALLOUT4_DIR / 'Data' / 'Fallout4 - Meshes.ba2').exists():
+        pytest.skip('needs Fallout 4')
+    source = chr(92).join(p.lower() for p in S.FOLDER + ('skeleton.nif',))
+    raw = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2').read(source)
+    out = S.lowered(raw, S.BOX_TOP)
+    block = next(b for kind, b in nf.read(out).blocks if kind == 'BSBound')
+    cz, hz = struct.unpack_from('<6f', block, len(block) - S.BOX_SIZE)[2::3]
+    assert (round(cz + hz, 3), round(cz - hz, 3)) == (S.BOX_TOP, 0.0)
+    assert len(out) == len(raw) and sum(a != b for a, b in zip(out, raw)) <= 8

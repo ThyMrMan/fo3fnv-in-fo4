@@ -1911,6 +1911,85 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     ZNAM, CUSD and consume sound and a plain category keyword (Mutfruit,
     NukaCola, Stimpak, Mentats, BeerGwinnettStout_Cold; magazines a perk
     magazine's preview).
+- **Mobile home threshold (fixed: the player was too tall, see the
+  [step map](#step-map)).** Enter, can't leave, behind the saloon
+  (0x10638D); the same model east of town (0x1070C1) left fine. No
+  collision difference between the two was found (same mesh, nothing
+  placed at either door, terrain 6 units lower at the saloon one). Its
+  only opening is at x −344..−248, y+ side: the floor (47) ends in a
+  10-unit lip with no top, a 15–22 unit hole, then the skirt's top edge at
+  56–62; the render mesh's threshold sits 14 units further out. Tried and
+  reverted: 30° ramps onto treads under REACH / 2 deep (they landed on the
+  two 10-deep sills at x 13–107, which are closed doors), and a
+  stairs-marked tread bridging the hole at the lip's top (both homes then
+  trapped the player, who bounced up and down at the door). Played: the
+  same home leaves only with the doorway raised: X tilt 0 and 0.2138 trap,
+  0.3038 is 50/50, 0.4938 and up leave, door south; the same tilt with the
+  door north traps (the tilt is about the world axis, after the heading).
+
+### <a id="step-map"></a>Step test map (played 2026-10-08)
+
+`fo4_import.spike.step_map` builds `StepTest.esp`: one interior (`coc
+StepTest`) of labeled stations, to measure what Fallout 4's player climbs
+instead of guessing from converted meshes. Each station's visible mesh is
+its collision, sent through Elric as is (no winding repair, no stairs
+pass). Click a station in the console: its reference is `Step<code>`.
+
+| Codes | Station |
+|---|---|
+| A06–A20 | plain step, 6 to 20 tall, 128 deep |
+| S12, S16, S20, S24 | the same on a stairs material |
+| R20–R50 | ramp at 20–50° up to 46.9 |
+| C000–C052, CN052 | the mobile home's doorway (floor 46.9, a bare 10.3 lip with no top, a 22.4 gap, the skirt's slanted face topping 0.9 below the lip), left going south, at the played X tilts (CN052: −0.5238) |
+| E06–E14 | that doorway with another lip height |
+| GNO, G08–G30 | no skirt (open drop), or another gap |
+| FM4, F00, FP1 | skirt top 4 below, level with, 1 above the lip |
+| K10 | a 1-thick solid lip (with a top) |
+| D000, D052 | the home's own doorway collision cut out (lip notch, jambs, lintel at 196), its pivot kept, X tilt 0 / 0.5238 |
+| DNF000, DNF052 | the same cut below 70: the lip notch without the frame |
+| H130–H160 | a free-standing doorframe 94 wide, lintel 130–160 above the floor, walked through going north |
+| HS130–HS160 | the same on a 10 step starting at the frame, lintel 130–160 above the step |
+| StepCaravanTilt / Flat | the converted home itself, door south, X 0.5238 / none |
+
+Every doorway station is entered by its back ramp (20°) and walled on both
+sides, so the only way off is over the lip.
+
+Played: every A, S, C, E, G, F and K station lets the player off, and every
+ramp up to 45° (R50 does not); StepCaravanTilt lets the player out and
+StepCaravanFlat traps them, as in Goodsprings. So the flat 96-wide lip with
+an open top is not the mobile home's doorway. What the C stations leave out:
+the lip is flat at 57.2 only across its middle 51 units (59.9 by ±35, 68 at
+the jambs), the door has a frame (lintel at 196, 139 above the lip), and the
+home pivots 90 units behind its door, so its tilt raises the doorway (a C
+station pivots at its lip). The D stations add all three.
+
+Played: D000 and D052 trap the player; DNF000 and DNF052 let them off, so
+the frame does it, not the lip. No collision crosses the opening between
+the lip and the frame's top corners (184–198); the opening is 149 above
+the floor and 139 above the lip, against 153 (metal shack prefab doorway),
+164 (Prydwen and subway room doorways) and 168 (airport room doorway) in
+vanilla FO4's walk-through doorways. Jumping hits the frame too, and
+`setscale 0.8` does not help. The H stations measure the headroom FO4's
+player needs.
+
+Played: H130–H140 and HS130–HS140 block the player; H145–H160 and
+HS145–HS160 let them through. FO4's player needs 141–145 units of headroom
+over what it stands on, stepping up or not; `setscale` does not change its
+collision. The mobile home's door gives 149 over its floor but 139 over
+its lip, so the player is stopped as it steps onto the lip. FNV's player
+fitted 139. The player's height comes from the human skeleton's `BSBound`
+box ([player collision](research/fo4_target.md#player-collision)): with it
+30 shorter, H130 and both mobile homes let the player out (played). The
+cell spike now writes the skeletons with the box's top at 115 (played:
+H130, both mobile homes and the Goodsprings saloon one let the player out).
+
+Played: Fallout4.esm's unused ScaleCustomCharacterController keyword
+(00249F53, "a race with this keyword ... character controller to be
+scalable as the character scales") added to HumanRace does not shrink the
+player's collision (setscale 0.9, after a reload too). The skeleton's one
+Havok capsule is CharacterBumper's (radius ~13, top ~124), not the movement
+capsule, and no GMST sizes it (only fCharControllerCheckHeightOffset and
+fCharControllerWarpDistSqr exist): the 141–145 comes from the executable.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 

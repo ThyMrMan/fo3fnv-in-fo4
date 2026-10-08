@@ -32,7 +32,7 @@ from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.scol import BASE_SITE, PART_SITE, Parts, compose
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
-from fo4_import.spike import character
+from fo4_import.spike import character, skeleton
 from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import Conversations
 from fo4_import.spike.furniture import furniture, markers
@@ -553,9 +553,10 @@ def _cell_group(builder: CellBuilder, export_dir: Path, cell: dict, cell_fid: in
 
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
-    """Collision, voice files, the texture BA2 and scripts, then the plugin itself; the counts."""
+    """Collision, lowered skeletons, voices, the texture BA2 and scripts, then the plugin; the counts."""
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
+    builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
     _voice(builder, export_dir, data_dir, out.name)
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
     if builder.scripts.used:

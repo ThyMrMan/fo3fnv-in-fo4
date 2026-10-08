@@ -199,20 +199,35 @@ def _body_shape(blocks: _Blocks, body, node) -> 'int | None':
     translation scaled to FO4 units first; a convex shape goes under a
     bhkConvexTransformShape. A mesh's steps take stairs materials and risers (stairs.py).
     """
-    filt = havok_filter(body.havok_col_filter)
     kind = type(body.shape).__name__
     if kind not in MESH_SHAPES:
         shape = blocks.shape(body.shape)
         return blocks.transformed(shape, body.shape, body) if _baked(body) and kind in CONVEX_SHAPES else shape
+    soup = _mesh_soup(body, node, blocks.root, blocks.unit / SCALE)
+    return None if soup is None else blocks.mesh(*soup, havok_filter(body.havok_col_filter))
+
+
+def _mesh_soup(body, node, root, grow: float) -> 'tuple | None':
+    """(triangles in FO4 Havok units, materials) of FNV mesh `body` on `node`: repaired, grown by `grow`, through
+    the stairs pass. None: drop it. A bhkRigidBodyT's translation is scaled in place first (call once per body)."""
     if type(body).__name__ == 'bhkRigidBodyT':
         t = body.translation
         t.x, t.y, t.z = t.x * SCALE, t.y * SCALE, t.z * SCALE
-    soup = repaired_mesh_soup(body, node, triangle_materials, _visual(blocks.root, node))
+    soup = repaired_mesh_soup(body, node, triangle_materials, _visual(root, node))
     if soup is None or soup == 'drop':
         return None
-    grow = blocks.unit / SCALE
     tris = [tuple(tuple(c * grow for c in v) for v in tri) for tri in soup[0]]
-    return blocks.mesh(*stairs(tris, soup[1], GAME_PER_HAVOK, stairs_material), filt)
+    return stairs(tris, soup[1], GAME_PER_HAVOK, stairs_material)
+
+
+def mesh_triangles(path: str) -> tuple:
+    """(triangles in game units, FO4 materials) of the FNV NIF at `path`'s root mesh collision, as converted."""
+    data = NifFormat.Data()
+    with open(path, 'rb') as f:
+        data.read(f)
+    root = data.roots[0]
+    tris, materials = _mesh_soup(root.collision_object.body, root, root, 1.0)
+    return [tuple(tuple(c * GAME_PER_HAVOK for c in v) for v in tri) for tri in tris], materials
 
 
 def _visual(root, node) -> 'list | None':
@@ -232,14 +247,17 @@ def _baked(body) -> bool:
 
 
 def _rigid_body(blocks: _Blocks, body, node) -> 'int | None':
-    """FNV's bhkRigidBody(T) with the 2014 body info; lengths scaled, inertia by the square. None: no shape.
-
-    A body whose transform its shape carries is written as an identity bhkRigidBody.
-    """
+    """FNV's bhkRigidBody(T) with its converted shape (_body_block); None: no shape."""
     baked = _baked(body)
     shape = _body_shape(blocks, body, node)
-    if shape is None:
-        return None
+    return None if shape is None else _body_block(blocks, shape, body, baked)
+
+
+def _body_block(blocks: _Blocks, shape: int, body, baked: bool) -> int:
+    """FNV `body` around block `shape` with the 2014 body info; lengths scaled, inertia by the square.
+
+    A body whose transform its shape carries (`baked`) is written as an identity bhkRigidBody.
+    """
     filt = havok_filter(body.havok_col_filter)
     head = struct.pack('<i', shape) + filt + struct.pack('<4xB3x', 1) + EMPTY_PROPERTY
     head += struct.pack('<BBH', body.collision_response, 0, body.process_contact_callback_delay)
@@ -271,6 +289,16 @@ def collision_object(nif: NifFile, co, target: int, node, scale: float = 1.0, ro
     if body is None:
         return NONE
     return blocks.add('bhkCollisionObject', struct.pack('<iHi', target, co.flags | SYNC_ON_UPDATE, body))
+
+
+def mesh_collision(nif: NifFile, target: int, tris: list, materials: list, template) -> int:
+    """A collision object for block `target`: triangles `tris` (game units, wound outward) with FO4 material CRCs
+    `materials`, as is (no repair, no stairs pass), on FNV collision object `template`'s body settings; its index."""
+    blocks = _Blocks(nif)
+    soup = [tuple(tuple(c / GAME_PER_HAVOK for c in v) for v in tri) for tri in tris]
+    shape = blocks.mesh(soup, materials, havok_filter(template.body.havok_col_filter))
+    body = _body_block(blocks, shape, template.body, True)
+    return blocks.add('bhkCollisionObject', struct.pack('<iHi', target, template.flags | SYNC_ON_UPDATE, body))
 
 
 def node_transform(node, root) -> tuple:
