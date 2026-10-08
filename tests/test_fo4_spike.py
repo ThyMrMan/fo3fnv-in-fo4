@@ -10,9 +10,11 @@ from types import SimpleNamespace
 import pytest
 
 from fo4_import.base.ba2 import Archives
+from fo4_import.base import strings as ST
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.nif import file as nf
 from fo4_import.spike import dialogue as D
+from fo4_import.spike import equipment as E
 from fo4_import.spike import imods as I
 from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
@@ -112,3 +114,54 @@ def test_skeleton_box_top_lowered_and_bottom_kept():
     cz, hz = struct.unpack_from('<6f', block, len(block) - S.BOX_SIZE)[2::3]
     assert (round(cz + hz, 3), round(cz - hz, 3)) == (S.BOX_TOP, 0.0)
     assert len(out) == len(raw) and sum(a != b for a, b in zip(out, raw)) <= 8
+
+
+def test_strings_parse_reads_zero_terminated_and_sized_entries():
+    """A .STRINGS entry ends at its zero; a .DLSTRINGS one starts with its length."""
+    plain = struct.pack('<II', 2, 8) + struct.pack('<IIII', 7, 0, 9, 4) + b'Bat\0Pin\0'
+    sized = struct.pack('<II', 1, 8) + struct.pack('<II', 3, 0) + struct.pack('<I', 4) + b'Old\0'
+    assert ST.parse(plain, False) == {7: b'Bat', 9: b'Pin'}
+    assert ST.parse(sized, True) == {3: b'Old'}
+
+
+def test_weapon_copy_takes_fnv_stats_and_resolves_template_strings():
+    """FNV's name, weight, value and damage go on the FO4 template; its other FULLs and DESC become their text."""
+    dnam = bytearray(100)
+    dnam[E.DNAM_ANIM] = 1
+    template = [(b'EDID', b'BaseballBat\0'), (b'VMAD', b'x'), (b'FULL', struct.pack('<I', 1)),
+                (b'DESC', struct.pack('<I', 2)), (b'OBTE', b''), (b'FULL', struct.pack('<I', 3)), (b'DNAM', bytes(dnam))]
+    written = []
+    builder = SimpleNamespace(counts={'WEAP': 0}, writer=SimpleNamespace(
+        derive_formid=lambda site, key: 0x01ABCDEF, add_record=lambda sig, rec: written.append(rec)))
+    eq = E.Equipment.__new__(E.Equipment)
+    eq.builder, eq.fnv, eq.vanilla = builder, {}, {'BaseballBat': template}
+    eq.strings = {1: b'Baseball Bat', 2: b'Swing it', 3: b'Default'}
+    rec = {'EditorID': 'WeapBaseballBat', 'FULL': 'Bat', 'DATA.Weight': '3.0', 'DATA.Value': '250', 'DATA.Damage': '22'}
+    assert eq.weap(0x1234, rec) == 0x01ABCDEF
+    subs = list(subrecords(written[0][24:]))
+    assert [s for s, _ in subs] == [b'EDID', b'FULL', b'DESC', b'OBTE', b'FULL', b'DNAM']
+    assert [b for s, b in subs if s in (b'EDID', b'FULL', b'DESC')] == [b'FNV_WeapBaseballBat\0', b'Bat\0',
+                                                                         b'Swing it\0', b'Default\0']
+    assert struct.unpack_from('<fIH', subs[-1][1], E.DNAM_WEIGHT) == (3.0, 250, 22)
+
+
+def test_melee_weapon_on_fnv_mesh_drops_template_model_and_mods():
+    """A melee copy points MODL and MOD4 at FNV's mesh with its bounds; FO4's model data and OBTE...STOP go."""
+    dnam = bytearray(100)
+    dnam[E.DNAM_ANIM] = 1
+    template = [(b'EDID', b'RollingPin\0'), (b'OBND', bytes(12)), (b'FULL', struct.pack('<I', 1)),
+                (b'MODL', b'Weapons/RollingPin/RollingPin01.nif\0'), (b'MODT', b'x'), (b'OBTE', bytes(4)),
+                (b'OBTF', b''), (b'FULL', struct.pack('<I', 2)), (b'OBTS', b'y'), (b'STOP', b''),
+                (b'MOD4', b'Weapons/RollingPin/RollingPin01_1.nif\0'), (b'MO4T', b'z'), (b'DNAM', bytes(dnam))]
+    written, ours = [], ('fnv/weapons/rollingpin.nif', (-2, -5, -2, 2, 39, 2))
+    builder = SimpleNamespace(counts={"WEAP": 0}, weapon_mesh=lambda model, pose: ours, export_dir=Path("."),
+                              writer=SimpleNamespace(derive_formid=lambda site, key: 7,
+                                                     add_record=lambda sig, rec: written.append(rec)))
+    eq = E.Equipment.__new__(E.Equipment)
+    eq.builder, eq.fnv, eq.vanilla, eq.strings = builder, {}, {'RollingPin': template}, {1: b'Rolling Pin'}
+    eq.poses = {}
+    eq.weap(1, {'EditorID': 'WeapRollingPin', 'FULL': 'Rolling Pin', 'Model.MODL': 'Weapons/RollingPin.NIF'})
+    subs = list(subrecords(written[0][24:]))
+    assert [s for s, _ in subs] == [b'EDID', b'OBND', b'FULL', b'MODL', b'MOD4', b'DNAM']
+    assert dict(subs)[b'MODL'] == dict(subs)[b'MOD4'] == b'fnv/weapons/rollingpin.nif\0'
+    assert struct.unpack('<6h', dict(subs)[b'OBND']) == ours[1]

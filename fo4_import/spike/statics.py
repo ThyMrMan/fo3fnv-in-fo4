@@ -41,10 +41,11 @@ def mesh_bounds(nif) -> 'tuple | None':
     return (*lo.tolist(), *hi.tolist())
 
 
-def write_assets(export_dir: Path, model: str, data_dir: Path) -> tuple:
-    """Convert one FNV model into <data_dir>; (FO4 model path under Meshes, OBND)."""
+def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None) -> tuple:
+    """Convert one FNV model (its nodes moved to `pose`, convert_static.posed) into <data_dir>; (FO4 model
+    path under Meshes, OBND)."""
     rel = model.replace('/', '\\').lower()
-    converted = convert(str(export_dir / 'meshes' / rel), export_dir)
+    converted = convert(str(export_dir / 'meshes' / rel), export_dir, pose)
     out = data_dir / 'Meshes' / PREFIX / rel
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(nif_file.write(converted.nif))

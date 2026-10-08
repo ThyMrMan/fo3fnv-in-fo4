@@ -29,6 +29,7 @@ from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.consumables import Consumables
+from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.scol import BASE_SITE, PART_SITE, Parts, compose
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
@@ -43,6 +44,7 @@ from fo4_import.spike.packages import Packages
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
+from fo4_import.nif import weapon
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike import voice
@@ -74,12 +76,14 @@ FIRST_ID = 0x800
 AS_STATIC = ('STAT', 'MSTT', 'SCOL', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
 #: FNV base types converted as themselves (spike.items), and the types whose engine objects FO4 may share.
 ITEM_BASES, SHARED_TYPES = ('MISC', 'CONT'), ('STAT', 'MISC')
-#: Item types placed as FO4 items; each still takes its old static's numbered FormID (unused), so no id moves.
-PICKUPS = ('ALCH', 'AMMO')
+#: Item types placed as FO4 items; each still takes its old static's numbered FormID (its static when no item).
+PICKUPS = ('ALCH', 'AMMO', 'WEAP', 'ARMO')
 #: Stand-in doors in QASmoke: the first one's position and the spacing along X.
 DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
 #: Where a stand-in door puts the player: offset from the door, facing +X, away from it.
 ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
+#: QASmoke's test chest: QAConsumableChest (its model), a spot past the first door's arrival, rounds per gun, FormID site.
+TEST_CHEST, TEST_CHEST_POS, TEST_ROUNDS, TEST_SITE = 0x1E7DC8, (-1450.0, -1120.0, 0.0), 100, 'FNV test chest'
 #: FNV LIGH flag bits as FO4 ones: carried, flicker (and slow), off by default, pulse (and slow), spot, spot shadow.
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
 #: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).
@@ -147,7 +151,8 @@ class CellBuilder:
         self.next_id = len(MASTERS) << 24 | FIRST_ID
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
-        self.swaps, self.imods, self.poses, self.parts = None, None, None, None
+        self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
+        self.equipment = None
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -164,6 +169,13 @@ class CellBuilder:
             self.meshes[model] = write_assets(self.export_dir, model, self.data_dir)
         return self.meshes[model]
 
+    def weapon_mesh(self, model: str, pose: dict) -> tuple:
+        """mesh() of an FNV weapon model in its held `pose`, dressed as a weapon after Elric (nif.weapon)."""
+        if model not in self.meshes:
+            self.meshes[model] = write_assets(self.export_dir, model, self.data_dir, pose)
+        self.weapons.add(self.meshes[model][0])
+        return self.meshes[model]
+
     def base(self, fnv_fid: int, new_id=None) -> 'int | None':
         """The FO4 base for an FNV base FormID, made on first use (id from `new_id`); None: not converted."""
         if fnv_fid < ENGINE_IDS:
@@ -171,14 +183,22 @@ class CellBuilder:
         if self.items.records.get(fnv_fid, ('',))[0] in ITEM_BASES:
             return self.items.item(fnv_fid)
         sig, rec = self.bases.get(fnv_fid, (None, None))
+        if fnv_fid in self.made:
+            return self.made[fnv_fid]
         if sig in PICKUPS:
-            if fnv_fid not in self.made and _model(rec):
-                self.made[fnv_fid] = self.new_id()
-            return self.items.item(fnv_fid)
-        if fnv_fid not in self.made:
+            self.made[fnv_fid] = self._pickup(fnv_fid, sig, rec)
+        else:
             made = sig in ('LIGH', 'ACTI') or (sig and _model(rec))
             self.made[fnv_fid] = self._make(sig, rec, new_id or self.new_id) if made else None
         return self.made[fnv_fid]
+
+    def _pickup(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
+        """The FO4 item for placed FNV item `rec`; without one, its static on the numbered FormID it reserves."""
+        reserved = self.new_id() if _model(rec) else None
+        item = self.items.item(fnv_fid)
+        if item is not None or reserved is None:
+            return item
+        return self._make(sig, rec, lambda: reserved)
 
     def _make(self, sig: str, rec: dict, new_id) -> int:
         """Write the FO4 record for FNV base `rec` of type `sig` on FormID `new_id()`; its FormID."""
@@ -253,6 +273,16 @@ def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tup
     return qa_refs, teleports
 
 
+def _test_chest(builder: CellBuilder, template) -> bytes:
+    """QASmoke's test chest (vanilla QA chests' footlocker) with every converted weapon and armor piece; its REFR."""
+    subs = sub_map(template.body)
+    fid = builder.writer.derive_formid(TEST_SITE, 'CONT')
+    builder.writer.add_record('CONT', R.pack_cont(
+        fid, 'FNV_TestChest', 'FNV test chest', subs[b'MODL'].rstrip(b'\0').decode(),
+        struct.unpack('<6h', subs[b'OBND']), builder.equipment.test_items(TEST_ROUNDS), 0, 0.0))
+    return R.pack_refr(builder.writer.derive_formid(TEST_SITE, 'REFR'), fid, TEST_CHEST_POS, (0.0, 0.0, 0.0))
+
+
 def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tuple:
     """(persistent, temporary) REFRs of the cell's converted references."""
     persistent, temporary = b'', b''
@@ -295,8 +325,8 @@ def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
 
 
 def _vanilla(fo4: bytes, fids: set) -> dict:
-    """{FormID: Record} of the Fallout4.esm records `fids` (CELL, IMGS, NPC_)."""
-    return {rec.form_id: rec for rec, _ in walk(fo4, b'CELL', b'IMGS', b'NPC_')
+    """{FormID: Record} of the Fallout4.esm records `fids` (CELL, IMGS, NPC_, CONT)."""
+    return {rec.form_id: rec for rec, _ in walk(fo4, b'CELL', b'IMGS', b'NPC_', b'CONT')
             if rec.form_id in fids}
 
 
@@ -481,8 +511,11 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
 def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list) -> None:
     """Give `builder` its item, activator and package makers; `refs` are the cell's FNV references."""
     records = index(export_dir, ITEM_TYPES)
+    consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
+    equipment = builder.equipment
+    makers = {'ALCH': consumables.alch, 'AMMO': consumables.ammo, 'WEAP': equipment.weap, 'ARMO': equipment.armo}
     builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
-                                                              SHARED_TYPES), Consumables(builder, HELPER_INDEX))
+                                                              SHARED_TYPES), makers)
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.activators = Activators(builder, export_dir)
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in refs
@@ -520,9 +553,10 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     quest_recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in quests]
     builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
     builder.objectives = objective_globals(builder, quest_recs)
-    vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE} | set(STAND_INS.values()))
+    vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST} | set(STAND_INS.values()))
     actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(builder, ids, quest_recs, quests))
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, {**ids, **ext_ids})
+    qa_refs += _test_chest(builder, vanilla[TEST_CHEST])
     teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
     persistent, temporary = _placed(builder, refs, ids, teleports)
     persistent += actors
@@ -556,6 +590,9 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     """Collision, lowered skeletons, voices, the texture BA2 and scripts, then the plugin; the counts."""
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
+    for model in sorted(builder.weapons):
+        weapon.dress_file(data_dir / 'Meshes' / model)
+    builder.counts['weapon meshes'] = len(builder.weapons)
     builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
     _voice(builder, export_dir, data_dir, out.name)
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))

@@ -7,8 +7,8 @@ paper note (BOOK). FNV's engine objects (FormID below ENGINE_IDS) that
 Fallout4.esm has under the same FormID, type and EditorID are FO4's own
 (the bottle cap, COC and X markers), and an item STAND_INS names is the
 Fallout4.esm item itself, with FO4's name and stats. Consumables and
-ammunition are made by consumables.Consumables; weapons and armor are not
-converted yet and are skipped and counted.
+ammunition are made by consumables.Consumables, weapons and armor by
+equipment.Equipment; any other type is skipped and counted.
 
 See: docs/fork/fo4_spikes.md#spike-2-items
 """
@@ -101,12 +101,13 @@ def _list(rec: dict, prefix: str, fields: tuple) -> list:
 class Items:
     """FO4 records for FNV items and containers, each made once, written through a cell builder."""
 
-    def __init__(self, builder, records: dict, shared: dict, consumables=None):
+    def __init__(self, builder, records: dict, shared: dict, makers: 'dict | None' = None):
         """Items made through `builder`, from index() `records`, sharing `shared` and the stand-ins.
 
-        `consumables` (consumables.Consumables) makes ALCH and AMMO; without it they are skipped.
+        `makers` is {type: maker(FNV FormID, record) -> FormID or None} for the types made elsewhere
+        (consumables, equipment); a type with no maker here or there is skipped.
         """
-        self.builder, self.records, self.made, self.consumables = builder, records, {}, consumables
+        self.builder, self.records, self.made, self.makers = builder, records, {}, makers or {}
         self.numbered = set()
         named = {rec.get('EditorID'): fid for fid, (_, rec) in records.items()}
         self.names = {name.lower(): fid for name, fid in named.items() if name}
@@ -129,9 +130,11 @@ class Items:
     def _make(self, sig: str, rec: dict) -> 'int | None':
         """Write the FO4 record of a convertible FNV record; its FormID, or None (counted as skipped)."""
         maker = {'MISC': self._misc, 'LVLI': self._leveled, 'CONT': self._container, 'NOTE': self._note}.get(sig)
-        if self.consumables and sig in ('ALCH', 'AMMO'):
-            maker = getattr(self.consumables, sig.lower())
-            return maker(int(rec['FormID'], 16), rec)
+        if sig in self.makers:
+            made = self.makers[sig](int(rec['FormID'], 16), rec)
+            if made is None:
+                self.builder.counts[f'item skipped ({sig})'] += 1
+            return made
         if maker is None:
             self.builder.counts[f'item skipped ({sig or "not exported"})'] += 1
             return None

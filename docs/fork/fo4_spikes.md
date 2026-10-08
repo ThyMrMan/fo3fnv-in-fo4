@@ -1927,6 +1927,153 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   0.3038 is 50/50, 0.4938 and up leave, door south; the same tilt with the
   door north traps (the tilt is about the world axis, after the heading).
 
+### <a id="spike-4-equipment"></a>Weapons and armor (built 2026-10-08, not yet played)
+
+The Goodsprings build skipped 6 weapons and 13 armor pieces, all from
+leveled lists and quest properties: the BB gun, baseball bat, 9mm SMG,
+rolling pin, switchblade and tire iron; 12 pre-war outfits, the hockey
+mask and the Pip-Boy glove. `fo4_import/spike/equipment.py` writes each on
+a copy of a Fallout4.esm record, the
+[substitution table](research/fo4_target.md#asset-overlap): FO4's model,
+first- and third-person animations, sounds, keywords and mod templates
+(OBTE), with FNV's name, value and weight.
+
+| FNV | Written on |
+|---|---|
+| Baseball bat, rolling pin, switchblade, tire iron | The same FO4 weapon |
+| 9mm SMG | `SubmachineGun` |
+| BB gun | `PipeBoltAction` |
+| Business wear (dirty, dark) | `ClothesSuitDirty_Grey`, `_Black` |
+| Casual wear, relaxed wear (and dirty) | `ClothesPrewarSweaterVest`, `ClothesPrewarShortSleeves` |
+| Spring outfit, parkstroller outfit (and dirty) | `ClothesPrewarWomensCasual`, `ClothesPreWarDress` |
+| Sexy sleepwear | `ClothesBathrobe` (FO4 has no negligee) |
+| Hockey mask | `Clothes_Raider_SurgicalMask` (none in the base game) |
+| Pre-war hat, reading glasses (placed in the world) | `ClothesMobsterhat`, `ClothesEyeGlasses` |
+
+- **Weapons:** DNAM takes FNV's weight, value and base damage; a gun also
+  its magazine size and its ammunition (FNV's `NAM0`, not in the export,
+  read from FalloutNV.esm; a form list gives its first entry), as
+  converted. The template's mods still apply on top, so a gun's receiver
+  and magazine mods change those numbers as in FO4.
+- **Armor:** DATA takes FNV's value and weight (also missing from the
+  export), FNAM's armor rating FNV's protection unscaled: FNV gives all
+  armor 0 DR and its protection as DT (combat armor 15, leather 6, the
+  hockey mask 1), FO3 as DR. The template's resistances (DAMA) are
+  dropped. FO4's armor rating is a damage curve, not a threshold, so the
+  scale is open.
+- Placed weapons and armor become pickups as consumables did: each keeps
+  its old static's numbered FormID unused (the hat, the glasses and a
+  knife, now FO4's knife; 0 existing records moved). A placed piece with
+  no substitute stays a static on that id.
+- Fallout4.esm is localized, so a copied FULL or DESC holds a string ID;
+  the copy takes the text (`fo4_import/base/strings.py`, from the game's
+  `Strings\Fallout4_en.*STRINGS`), including the mod templates' names.
+- **Test chest:** QASmoke gets `FNV_TestChest` (vanilla QA chests' footlocker,
+  `Props\FootLocker01.nif`) in front of the first stand-in door's arrival
+  point, holding one of every piece the table names (made even when the
+  block does not use it) and 100 rounds of each gun's ammunition.
+  `coc QASmoke`.
+- **Not converted:** the Pip-Boy glove (FO4's Pip-Boy is one item, already
+  the Pip-Boy's stand-in); condition; critical data; the stand-ins in
+  `items.STAND_INS` (9mm pistol, laser pistol, Vault 21 suit…) still keep
+  FO4's stats.
+
+### <a id="spike-4-melee"></a>Melee weapons on FNV's own meshes (built 2026-10-08, not yet played)
+
+The bat, rolling pin, switchblade and tire iron keep their FO4 template
+record (animations, sounds, keywords, reach) but show FNV's mesh
+(`fo4_import/nif/weapon.py`).
+
+- **Vanilla's layout** (RollingPin01.nif, TireIron.nif, BaseballBat.nif,
+  Switchblade.nif): one root node with `Prn` string extra data `WEAPON`
+  (the bone it hangs from), BSXFlags 194, attach points `p-MeleeMod` and
+  `p-Material` for weapon mods, and each shape twice: once with its own
+  material, once hidden (node flags 15 against 14) with
+  `BloodWeapon.BGSM`, shown as the weapon gets bloody. The first-person
+  model (`MOD4`, `*_1.nif`) is the same mesh again; FNV's (`WNAM`, a STAT)
+  is the world model itself for all four.
+- **Placement:** both games hold a melee weapon with its grip at the origin
+  and its length along +Y (rolling pin: FNV −4.6 to 38.7, FO4 −3.9 to
+  42.8; bat: FNV −18 to 59, FO4 −8 to 48), so FNV's geometry is used as
+  converted. FNV's tire iron hooks to +X where FO4's hooks to −X.
+- **Held pose** (played: the switchblade faced the wrong way, the hand off
+  its handle). FNV's switchblade mesh is folded: its resting nodes put the
+  handle at y 2.7 to 15.2 and the blade inside it (3.3 to 14.2). FNV's hold
+  animation for one-handed melee (`characters\_male\1hmaim.kf`) moves
+  `##l_SwitchBlade` back 10 and slides `##l_Blade` out 11. In that pose
+  the handle is −7.3 to 5.2 around the grip and the blade 4.4 to 15.3,
+  FO4's switchblade layout (−8 to 5 and its blade). A melee mesh is now
+  converted with its nodes in the hold animation's pose (`1hmaim.kf`,
+  `2hmaim.kf` by FNV animation type; `convert_static.posed`); the other
+  three have no keyed nodes and are unchanged.
+- The converted mesh gets `Prn`, BSXFlags 194 and a blood copy of each lit
+  shape, after Elric (which drops every block after the first Havok one).
+  No attach points: the record drops its template's mod templates
+  (OBTE…STOP) and model data, so the weapon takes no FO4 mods.
+
+### <a id="spike-4-headgear"></a>Headgear on FNV's own meshes (built 2026-10-08, not yet played)
+
+The hockey mask, pre-war hat and reading glasses use FNV's meshes
+(`fo4_import/nif/headgear.py`), through their own armor addons.
+
+- **FNV:** headgear is not skinned. The mesh is rigid, in the head mesh's
+  frame (`characters\head\headhuman.nif`), and an NPC's `.egm` moves it
+  with the face. The mask spans x ±7.5, y −7.1 to 10.6, z −1.6 to 17;
+  the mean head x ±6.3, y −6.3 to 9.6, z −7.4 to 15.1.
+- **FO4:** worn meshes are skinned BSSubIndexTriShapes (118 of 119 in
+  vanilla hats, masks and glasses) under a stub of skeleton nodes. Their
+  vertices are in model space shifted so the HEAD bone sits at the origin:
+  HEAD's skin transform is its node rotation transposed, with no
+  translation (BaseMaleHead.nif, Raider02MaskM.nif). Bone bounding spheres
+  are in bone space.
+- **Fit:** FO4's base head (`basemalehead.nif`, `basefemalehead.nif`) is
+  fitted onto FNV's mean head (`headhuman.nif`, `headfemale.nif`) with
+  the face fit's `align`. Male: scale 1.008, offset 4.2 up; female: scale
+  0.963. The mask goes through the inverse and lands in front of FO4's
+  face (y to 10.55 against the face's 9.5).
+- **Head shape** (played: the head came through the back of the hat). The
+  face fit leaves FO4's skull out: its back and top are a separate mesh
+  (`faceparts\maleheadrear.nif`, `femaleheadrear.nif`), larger there than
+  FNV's. Each FNV head vertex, fitted into FO4's frame, gets the offset to
+  FO4's nearest face-or-rear surface point (smoothed over 8 neighbours, 3
+  passes), and each headgear vertex the inverse-distance average of its 8
+  nearest. Head vertices under the hat poking through it: FNV's own hat on
+  FNV's head 2 (0.08 deep), the face fit alone 25 (0.38), with the shift 2
+  (0.07).
+- **Hair line** (played: female, a hair gap at the back under the hat).
+  A hat on slot 30 hides FO4's hair top; FO4 keeps the hair below a cut
+  meant for its own hats. Lowest back brim (within 15° of straight back
+  round HEAD) of vanilla's female hats on slot 30: 1.34 to 4.55 (postman's
+  cap, `postwomanfhat.nif`, which tips forward like FNV's: front 2.79).
+  FNV's pre-war hat tips forward (back 9.01, front 7.86 on FNV's head)
+  and lands at back 5.30 (male) and 5.56 (female). The fit is not the
+  cause: matched over the upper skull instead of the face, it tips the hat
+  further (pitch 5.4° and 6.7° against 3.3° and 4.0°). A hat that hides
+  hair is now tipped back about its front brim's lowest point until its
+  back brim is at 4.55 (2.1° male, 2.8° female).
+- **Clearance:** every headgear vertex is then moved out from FO4's head,
+  along the line from its centre, until it is at least as far outside it
+  as it was outside FNV's head (nearest surface sample, radial distance).
+  Head points under the hat whose ray from the head's centre meets no hat
+  surface beyond them: male 0 of 184, female 0 of 139 (tipped alone: 2
+  and 0; untipped: 0 and 2, at the back). The mask and glasses move at
+  most 0.8. Final back brims: male 4.62, female 4.55. Every vertex is weighted fully
+  to HEAD; there is no `_facebones` variant, so the mask does not follow
+  facial animation, and FNV's `.egm` is not used.
+- **Segments,** as vanilla's head items: an empty segment, then one with
+  every triangle and one sub-segment, and shared data whose last entry is
+  the item's first slot with bone ID `0x86B72980`; no `.ssf` file.
+- **Slots:** FNV hair maps to 30 (which hides FO4's hair top), headband
+  and hat to 46, eyeglasses to 47, mask to 48 and 49, as vanilla's hats
+  (30, 46), glasses (47) and gas masks (46–49). FNV's hat bit does not
+  hide hair; its hair bit does (played: the hockey mask on 30 left the
+  player bald). Hockey mask: 46–49. Hat: 30, 46. Glasses: 47–49 (FNV's set
+  the mask bit too).
+- **Records:** an ARMA per item (`FNV_AA_<EditorID>`, hashed FormID)
+  with those slots, the template addon's race, priorities and additional
+  races, and male and female models (`<mesh>.nif`, `<mesh>_female.nif`).
+  The ARMO points at it, and its world model is FNV's ground model.
+
 ### <a id="step-map"></a>Step test map (played 2026-10-08)
 
 `fo4_import.spike.step_map` builds `StepTest.esp`: one interior (`coc

@@ -40,7 +40,7 @@ SURFACE_DENSITY = 6
 VA_FULL_PRECISION = 0x400
 
 
-def _vertex_layout(raw: bytes) -> tuple:
+def vertex_layout(raw: bytes) -> tuple:
     """(first vertex offset, stride, count, full precision) of a BSTriShape-like block's vertex data."""
     n_extra = struct.unpack_from('<I', raw, 4)[0]
     pos = 4 + 4 + 4 * n_extra + 4 + 4 + 12 + 36 + 4 + 4 + 16 + 12
@@ -51,21 +51,21 @@ def _vertex_layout(raw: bytes) -> tuple:
 
 def positions(raw: bytes) -> np.ndarray:
     """A shape block's vertex positions."""
-    start, stride, count, full = _vertex_layout(raw)
+    start, stride, count, full = vertex_layout(raw)
     fmt = '<3f' if full else '<3e'
     return np.array([struct.unpack_from(fmt, raw, start + i * stride) for i in range(count)], float)
 
 
 def uvs(raw: bytes) -> np.ndarray:
     """A shape block's vertex UVs (after the position and its bitangent x)."""
-    start, stride, count, full = _vertex_layout(raw)
+    start, stride, count, full = vertex_layout(raw)
     skip = 16 if full else 8
     return np.array([struct.unpack_from('<2e', raw, start + i * stride + skip) for i in range(count)], float)
 
 
 def with_positions(raw: bytes, points: np.ndarray) -> bytes:
     """`raw` with its vertex positions replaced by `points`."""
-    start, stride, count, full = _vertex_layout(raw)
+    start, stride, count, full = vertex_layout(raw)
     out, fmt = bytearray(raw), '<3f' if full else '<3e'
     for i in range(count):
         struct.pack_into(fmt, out, start + i * stride, *points[i])
@@ -130,7 +130,7 @@ def head_displacement(fo4_head: np.ndarray, fnv: FnvHead, variant: str) -> np.nd
 
 def triangles(raw: bytes) -> np.ndarray:
     """A shape block's triangles (vertex index triples)."""
-    start, stride, count, _ = _vertex_layout(raw)
+    start, stride, count, _ = vertex_layout(raw)
     n_tris = struct.unpack_from('<I', raw, start - 10)[0]
     return np.frombuffer(raw, '<u2', n_tris * 3, start + count * stride).reshape(-1, 3)
 

@@ -212,6 +212,8 @@ def read_vertex(r: Reader, attrs: int) -> dict:
             v['tangent'], v['bitangent_z'] = r.take('3B'), r.take('B')
     if attrs & VA_COLOR:
         v['color'] = r.take('4B')
+    if attrs & VA_SKINNED:
+        v['weights'], v['bones'] = r.take('4e'), r.take('4B')
     return v
 
 
@@ -231,11 +233,13 @@ def pack_vertex(v: dict, attrs: int) -> bytes:
             out += bytes(v['tangent']) + bytes([v['bitangent_z']])
     if attrs & VA_COLOR:
         out += bytes(v['color'])
+    if attrs & VA_SKINNED:
+        out += struct.pack('<4e', *v['weights']) + bytes(v['bones'])
     return out
 
 
 def read_tri_shape(r: Reader) -> dict:
-    """BSTriShape at stream 130, unskinned."""
+    """BSTriShape at stream 130 (a skinned one's vertices carry weights and bone indices)."""
     out = {}
     read_av(r, out)
     out['bound'] = r.take('4f')
@@ -243,8 +247,6 @@ def read_tri_shape(r: Reader) -> dict:
     out['vertex_desc'] = r.take('Q')
     n_tris, n_verts, size = r.take('I'), r.take('H'), r.take('I')
     attrs = out['vertex_desc'] >> 44
-    if attrs & VA_SKINNED:
-        raise ValueError('skinned BSTriShape not supported')
     out['vertices'] = [read_vertex(r, attrs) for _ in range(n_verts)] if size else []
     out['triangles'] = [r.take('3H') for _ in range(n_tris)] if size else []
     if not size:

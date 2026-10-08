@@ -514,13 +514,27 @@ def lighting_shader(nif: NifFile, material: str, texture_set: int, flags1: int) 
             'fresnel_power': 5.0, 'wetness': (-1.0,) * 6}
 
 
-def convert(path: str, texture_root=None) -> Converted:
-    """The FO4 version of the FNV mesh at `path`; `texture_root` holds FNV's textures folder."""
+def posed(root, pose: dict) -> None:
+    """Move the nodes under `root` that `pose` names: {name: (translation or None, rotation rows or None)}."""
+    for node in root.tree():
+        moved = pose.get(node.name.decode('cp1252')) if isinstance(node, NifFormat.NiNode) else None
+        if moved and moved[0]:
+            node.translation.x, node.translation.y, node.translation.z = moved[0]
+        if moved and moved[1]:
+            for i, row in enumerate(moved[1]):
+                for j, value in enumerate(row):
+                    setattr(node.rotation, f'm_{i + 1}{j + 1}', value)
+
+
+def convert(path: str, texture_root=None, pose: dict = None) -> Converted:
+    """The FO4 version of the FNV mesh at `path`; `texture_root` holds FNV's textures folder, `pose` moves
+    named nodes first (posed())."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
     latch_source(data)
     root = data.roots[0]
+    posed(root, pose or {})
     nif = NifFile()
     out = Converted(nif)
     node = {'name': nif.string(root.name.decode('cp1252')), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
