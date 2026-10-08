@@ -16,6 +16,7 @@ from itertools import accumulate
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.file import NifFile
+from fo4_import.nif.stairs import stairs
 
 apply_patches()
 from asset_convert.collision.collision import repaired_mesh_soup, visual_tri_soup_in
@@ -45,6 +46,8 @@ MATERIALS = {
 #: FO4 stairs materials for FNV's stairs variants (index & 64); the others keep their base material.
 STAIRS = {0: 2519395573, 2: 1340314491, 3: 2534329404, 4: 2926148967, 5: 3236651581, 9: 1879074862,
           10: 2519395573, 19: 1439425931}
+#: FO4 stairs material of each FO4 base material that has one (FNV's stairs pairs).
+STAIRS_OF = {MATERIALS[base]: pair for base, pair in STAIRS.items()}
 #: FNV motion systems as Havok 2014's, which Elric reads; keyframed is fixed, as its animation is dropped.
 MOTIONS = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 5, 7: 5, 8: 6, 9: 7}
 #: An empty hkWorldObjectCinfo::Property (data, size, capacity and flags).
@@ -55,6 +58,11 @@ def material(fnv: int) -> int:
     """An FO4 Havok material CRC for an FNV material index (platform bits ignored)."""
     base = fnv & 31
     return STAIRS.get(base, MATERIALS[base]) if fnv & 64 else MATERIALS[base]
+
+
+def stairs_material(crc: int) -> int:
+    """The FO4 stairs material for base material `crc` (default: stone stairs)."""
+    return crc if crc in STAIRS_OF.values() else STAIRS_OF.get(crc, STAIRS[0])
 
 
 def triangle_materials(shape, n: int) -> list:
@@ -189,7 +197,7 @@ def _body_shape(blocks: _Blocks, body, node) -> 'int | None':
     A bhkRigidBodyT's transform moves into the shape (the body becomes an
     identity one, see _baked): the repair bakes it into a mesh, its
     translation scaled to FO4 units first; a convex shape goes under a
-    bhkConvexTransformShape.
+    bhkConvexTransformShape. A mesh's steps take stairs materials and risers (stairs.py).
     """
     filt = havok_filter(body.havok_col_filter)
     kind = type(body.shape).__name__
@@ -202,9 +210,9 @@ def _body_shape(blocks: _Blocks, body, node) -> 'int | None':
     soup = repaired_mesh_soup(body, node, triangle_materials, _visual(blocks.root, node))
     if soup is None or soup == 'drop':
         return None
-    tris, materials = soup
     grow = blocks.unit / SCALE
-    return blocks.mesh([tuple(tuple(c * grow for c in v) for v in tri) for tri in tris], materials, filt)
+    tris = [tuple(tuple(c * grow for c in v) for v in tri) for tri in soup[0]]
+    return blocks.mesh(*stairs(tris, soup[1], GAME_PER_HAVOK, stairs_material), filt)
 
 
 def _visual(root, node) -> 'list | None':

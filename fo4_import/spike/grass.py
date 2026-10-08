@@ -3,8 +3,9 @@
 Both games scatter grass at runtime from each LTEX's grass list (GNAM) over
 the ground painted with it. FO4's GRAS DATA has FNV's layout (density, min
 and max slope, units from water and its type, position, height and color
-range, wave period, flags; 32 bytes), so the values copy across; the model
-is FNV's grass mesh converted like any other, then copied to where every
+range, wave period, flags; 32 bytes), so the values copy across, density
+scaled by DENSITY_SCALE; the model is FNV's grass mesh converted like any
+other, then copied to where every
 vanilla grass model lives (all 71: directly in Landscape/Grass; Skyrim has the
 same contract, asset_convert/nif/grass_profile.py) as FNV_<name>.nif. FNV's
 grass has no collision, so the copy needs no Elric pass. A GRAS's FormID is
@@ -26,12 +27,15 @@ SITE = 'FNV GRAS'
 #: The folder (under Meshes) the grass renderer takes models from, and our models' name prefix.
 GRASS_FOLDER, GRASS_PREFIX = 'Landscape\\Grass', 'FNV_'
 DATA = struct.Struct('<BBBxHxxIffffBxxx')
+#: FNV's density as FO4 draws it: FO4 grew it too thick at FNV's value (first play), so half.
+DENSITY_SCALE = 0.5
 
 
 def pack_data(rec: dict) -> bytes:
     """FNV GRAS `rec`'s DATA fields as FO4's 32-byte DATA."""
     ints = [int(rec.get(f'DATA.{k}', 0)) for k in ('Density', 'MinSlope', 'MaxSlope', 'UnitFromWaterAmount',
                                                     'UnitFromWaterType')]
+    ints[0] = max(1, round(ints[0] * DENSITY_SCALE))
     floats = [float(rec.get(f'DATA.{k}', 0.0)) for k in ('PositionRange', 'HeightRange', 'ColorRange', 'WavePeriod')]
     return DATA.pack(*ints, *floats, int(rec.get('DATA.Flags', 0)))
 

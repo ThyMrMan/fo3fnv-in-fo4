@@ -48,10 +48,14 @@ def test_material_templates_write_and_read_back(module, template, key):
 
 @pytest.mark.skipif(not SHELF.exists(), reason='needs the FalloutNV.esm export')
 def test_converted_shelf_round_trips_through_the_fo4_reader():
-    """The FNV shelf as one lit shape, then its collision as pre-Elric Havok blocks; it reads back identically."""
+    """The FNV shelf as one lit shape, then its collision as pre-Elric Havok blocks (its bottom board, 11
+
+    units up, a step: two materials); it reads back identically.
+    """
     converted = C.convert(str(SHELF))
     raw = F.write(converted.nif)
     assert F.write(F.read(raw)) == raw
     assert [k for k, _ in converted.nif.blocks] == ['NiNode', 'BSTriShape', 'BSLightingShaderProperty',
                                                     'BSShaderTextureSet', 'BSXFlags', 'NiTriStripsData',
-                                                    'bhkNiTriStripsShape', 'bhkRigidBody', 'bhkCollisionObject']
+                                                    'NiTriStripsData', 'bhkNiTriStripsShape', 'bhkRigidBody',
+                                                    'bhkCollisionObject']

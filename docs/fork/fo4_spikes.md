@@ -1817,6 +1817,69 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     in fnv\\landscape\\grass. The converted mesh is now copied to
     Landscape\\Grass\\FNV_<name>.nif. Vanilla grass shader flags vary
     (flags1 0x80400201 in 44 of 71, flags2 0x31 in 29), so they were left.
+  - Second play: grass shows, a little thick; density is now FNV's × 0.5
+    (`grass.DENSITY_SCALE`).
+- **Steps.** The saloon's front step is `WoodSteps01NV`: FNV material 0
+  (stone, no stairs bit), risers 15–16 units (collision tops at 3, 16, 31,
+  47, 65; placed at 8,316 on ground at 8,352, so about 16 units show per
+  step). FNV's controller walks up it; FO4's does not without a jump.
+  FO4's `[HAVOK] fStepHeightModifier` defaults to 0.5 (read from
+  Fallout4.exe with `tools/disasm/ck_settings_dump.py`, Python 3.13 with
+  capstone); FNV has no such setting. FO4 also has a stairs state for its
+  character controller (`bCCOnStairs`), entered on its stairs materials,
+  which vanilla puts on step collision.
+  - Played: `fStepHeightModifier=1.0` changed nothing, and the console
+    finds no such setting: FO4 compiles the name and default in but does
+    not register it.
+  - What is climbed: the steps' treads sit at 3, 16, 31, 47 and the deck at
+    65 (local, rising toward -X); the ground meets them at local 36, so the
+    walk is 11 units onto the last tread, then 18 onto the deck.
+  - Vanilla stair collision (decoded with `fo4_import/nif/hknp.py`, face
+    slopes and material CRCs): plain risers up to 16–17 units carry no
+    stairs material (decobasea1x1stairs01: risers 16–17, no ramp, no
+    material; housekit stairs: material 9); the 21–22-unit risers of
+    hitextintstairs128 carry stairs material (FO4 CRC of STAIRS[5]) with
+    only small 18° nosing bevels, no ramp; bossteps01 (risers 14–20) also
+    carries it. So FO4 climbs about 17 units on plain collision and taller
+    risers with stairs material. FNV marks only its staircases (bit 64).
+  - Built: `fo4_import/nif/stairs.py` marks steps in every FNV mesh
+    collision with the stairs variant of their material (STAIRS[0], stone
+    stairs, where FNV's has none). WoodSteps01NV has no riser faces: each
+    step is a floating plate (treads at 16, 31, 47, the deck at 65 with a
+    17-unit gap before it), so a step is two treads, the lower within
+    REACH (24) beyond an edge of the upper, more than RISER_MIN (16, what
+    FO4 climbs on plain collision) and at most RISER_MAX (24) below it.
+    WoodSteps01NV marks tread 47 and the deck (the 18-unit step). Marking
+    every step up to 24 touched 94 of the block's 179 mesh-collision models
+    (road edges, rock ledges, logs) for no climbing gain; above 16, 27
+    (house shells, Novac buildings, beds, a bathtub, some rocks). A rule
+    for short vertical faces under a tread (a step up from open ground)
+    marked every board's front edge, so it was dropped; a step up from
+    terrain is not seen, the ground not being in the mesh.
+  - Played (RISER_MIN 16): the marked step (47 → deck, 18) works; the one
+    below still sticks, run into it long enough and you slip up. Terrain
+    sampled along the steps sits at local 24–28: tread 16 is buried, tread
+    31 shows 3–7 units, so that step is 31 → 47, 16 units, left plain.
+    FO4's plain limit is under 16, so RISER_MIN is now 8 (curbs and lips
+    stay plain): 54 of the block's 179 mesh-collision models get stairs
+    faces, the shelf's 11-unit bottom board among them.
+  - Played (RISER_MIN 8): still stuck at 31 → 47 though marked. The step
+    that worked (47 → deck) is the only one with an upright face (the
+    deck's skirt, 54–65); FNV's step plates have none between them (no
+    near-vertical face tops at 47), so FO4's character meets a bare plate
+    edge and the plate's underside. Each detected step now also gets a riser:
+    two upright triangles from the upper tread's edge down to the lower
+    tread, facing out, on the stairs material (deduplicated per edge, as
+    the repair doubles treads). In the shipped WoodSteps01NV: risers at x
+    108 (16–31), 73 (31–47) and 21 (47–65). The audit still matches FNV.
+  - Played: the general store's steps work; the saloon still not reliably.
+    The saloon's own porch: a front strip at local 3, the porch floor at 16;
+    terrain along the front at local −16, so the street-to-porch step is 19
+    units, from the terrain, which no mesh rule saw. The porch has a skirt
+    from −15 (the mesh's lowest point) to 3. An upright face rising from the
+    mesh's lowest point (within 2) to a tread 8–24 above it is now a step
+    from the ground, marked with its tread (shelf base boards qualify too).
+    63 of the block's 179 mesh-collision models get stairs faces.
 
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 
