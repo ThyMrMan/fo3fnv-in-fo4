@@ -160,7 +160,7 @@ def tipped(points: np.ndarray) -> tuple:
     return _tip(points, low)
 
 
-def _shape_arrays(shape: dict) -> tuple:
+def shape_arrays(shape: dict) -> tuple:
     """(positions, UVs, unit normals, triangles) of a converted shape's vertices."""
     pos = np.array([v['position'] for v in shape['vertices']], float)
     uv = np.array([v['uv'] for v in shape['vertices']], float)
@@ -191,7 +191,7 @@ def _skin(nif, index: int, head_node: int, fit: HeadFit, slot: int, placed: tupl
     normals), weighted fully to it, its skin blocks appended."""
     shape = nif.blocks[index][1]
     points, normals = placed
-    _, uv, _, tris = _shape_arrays(shape)
+    _, uv, _, tris = shape_arrays(shape)
     verts = vertices(points, uv, normals / np.linalg.norm(normals, axis=1, keepdims=True), None, tris)
     for v in verts:
         v.update(weights=(1.0, 0.0, 0.0, 0.0), bones=(0, 0, 0, 0))
@@ -212,7 +212,7 @@ def worn(static_bytes: bytes, fit: HeadFit, slots: tuple) -> bytes:
     nif = without_havok(nif_file.read(static_bytes))
     root = nif.blocks[0][1]
     shapes = [i for i in root['children'] if nif.blocks[i][0] == 'BSTriShape']
-    arrays = [_shape_arrays(nif.blocks[i][1]) for i in shapes]
+    arrays = [shape_arrays(nif.blocks[i][1]) for i in shapes]
     fnv_points = np.vstack([a[0] for a in arrays])
     points, turn = tipped(fit.placed(fnv_points)) if HAIR_SLOT in slots else (fit.placed(fnv_points), np.eye(3))
     points = np.split(fit.cleared(fnv_points, points), np.cumsum([len(a[0]) for a in arrays])[:-1])

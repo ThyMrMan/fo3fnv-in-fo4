@@ -1927,7 +1927,7 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   0.3038 is 50/50, 0.4938 and up leave, door south; the same tilt with the
   door north traps (the tilt is about the world axis, after the heading).
 
-### <a id="spike-4-equipment"></a>Weapons and armor (built 2026-10-08, not yet played)
+### <a id="spike-4-equipment"></a>Weapons and armor (played 2026-10-08)
 
 The Goodsprings build skipped 6 weapons and 13 armor pieces, all from
 leveled lists and quest properties: the BB gun, baseball bat, 9mm SMG,
@@ -1978,7 +1978,7 @@ first- and third-person animations, sounds, keywords and mod templates
   `items.STAND_INS` (9mm pistol, laser pistol, Vault 21 suit…) still keep
   FO4's stats.
 
-### <a id="spike-4-melee"></a>Melee weapons on FNV's own meshes (built 2026-10-08, not yet played)
+### <a id="spike-4-melee"></a>Melee weapons on FNV's own meshes (played 2026-10-08)
 
 The bat, rolling pin, switchblade and tire iron keep their FO4 template
 record (animations, sounds, keywords, reach) but show FNV's mesh
@@ -2011,7 +2011,7 @@ record (animations, sounds, keywords, reach) but show FNV's mesh
   No attach points: the record drops its template's mod templates
   (OBTE…STOP) and model data, so the weapon takes no FO4 mods.
 
-### <a id="spike-4-headgear"></a>Headgear on FNV's own meshes (built 2026-10-08, not yet played)
+### <a id="spike-4-headgear"></a>Headgear on FNV's own meshes (played 2026-10-08)
 
 The hockey mask, pre-war hat and reading glasses use FNV's meshes
 (`fo4_import/nif/headgear.py`), through their own armor addons.
@@ -2074,7 +2074,78 @@ The hockey mask, pre-war hat and reading glasses use FNV's meshes
   races, and male and female models (`<mesh>.nif`, `<mesh>_female.nif`).
   The ARMO points at it, and its world model is FNV's ground model.
 
-### <a id="spike-4-guns"></a>Guns on FNV's own meshes (built 2026-10-08, not yet played)
+### <a id="spike-4-outfits"></a>Outfits on FNV's own meshes (played 2026-10-08)
+
+Pre-War Casualwear (`OutfitPrewarCasualwear`, `fnv` in the
+[replacement table](fo4_replacements.md)) shows FNV's outfit, male and
+female (`fo4_import/nif/outfit.py`), through its own armor addon. Its
+dirty variant stays on FO4's sweater vest, for comparison in the test chest.
+
+- **FNV:** an outfit is skinned to the Bip01 skeleton in its bind pose
+  (`characters\_male\skeleton.nif`, both sexes), and holds the whole body
+  but hands and head: clothes, any bare skin (shapes whose shader has the
+  FaceGen flag, tinted to the body), dismemberment caps (partitions 100 to
+  999), and the left sleeve twice (`pipboyon`, `pipboyoff`).
+- **FO4:** worn bodies are skinned BSSubIndexTriShapes on the body's bones
+  and its helper `_skin` bones (58 male, 60 female), under a stub of
+  skeleton nodes (SweaterVest\MOutfit.nif, MaleBody.nif). Vertices are in
+  the skeleton's world shifted by (0, -0.88, -120.84), which puts the neck
+  near the origin; every bone's bind data in MaleBody.nif shows the same
+  shift. The first-person body (`1stPersonMaleBody.nif`) has the same bind
+  data, arms only.
+- **Skeletons:** FO4's is close in size; its torso is taller (neck 113.2
+  against FNV's 107.4, collarbones 110.4 against 105.2) and its arms hang
+  lower and further forward (hand at x -38.1, y 7.7, z 84.0 against -44.3,
+  -0.2, 85.3).
+- **Retarget:** FNV bones map to FO4's (Spine, Spine1, Spine2 to SPINE1,
+  SPINE2, Chest; limbs by name). A bone that spans a part (spine, neck,
+  collarbone, upper arm, forearm, thigh, calf, foot) turns onto FO4's
+  direction and stretches along itself to FO4's length; twist bones,
+  hands, toes and the head move with the part they follow. Each outfit
+  vertex moves by its FNV weights. (Played: dark blocks and streaks on the
+  dress's skirt. Converted vertices found their FNV originals, which give
+  the normal and weights, by position alone; where vertices share a
+  position (hard edges, the hem's two sides) some took a neighbour's, 152
+  normals of the dress facing in. They are now matched by position, UV and
+  normal: 0 facing in, 90 more than 45° off their triangles against FNV's
+  own 80.)
+- **Conform:** FNV's body (`upperbody.nif`, `femaleupperbody.nif`, caps
+  left out), retargeted the same way, lies within 0.7 (male) and 1.0
+  (female) on average of FO4's body surface, at most 2.6 and 3.5; each FNV
+  body vertex's offset to FO4's nearest surface point is smoothed (8
+  neighbours, 3 passes) and each outfit vertex takes the inverse-distance
+  average of its 8 nearest. Outfit vertices then lie on average 0.6 to 1.5
+  from FO4's body (90% within 4; the dress hem 13); the cuffs meet FO4's
+  hands and the shoes its feet.
+- **Weights:** FO4's body's at each vertex's nearest surface point
+  (barycentric), the four largest, normalized. Each shape's skin instance
+  lists the body bones it uses; their bind data is the body's, with
+  bounding spheres of the outfit's own vertices.
+- **Segments:** each triangle goes to the segment of its strongest bone, in
+  vanilla's body order: left arm 2, torso 3, right arm 4, left leg 5,
+  right leg 6 (collarbones and shoulders are torso). No sub-segments,
+  cut data or `.ssf` file, so dismemberment does not cut the outfit.
+- **Left out:** caps, and `pipboyoff`: FO4's player always wears the
+  Pip-Boy, so the sleeve rolled for it (`pipboyon`) is the one drawn, NPCs
+  included. Vertex colours are dropped.
+- **Skin:** FNV's skin shapes take FO4's body skin shader (skin-tint type 5)
+  and a copy of FO4's skin material (`basehumanskin.bgsm`,
+  `basehumanfemaleskin.bgsm`) with FNV's skin textures, written beside
+  FNV's (`..._skin.bgsm`). The female casual wear has skin forearms and
+  lower legs; the male none. (Played: the female version crashed the game. The
+  skin-tint shader block ends in four floats, colour and alpha, 156 bytes
+  in vanilla's FemaleBody.nif; it was written with three, 152. The shader
+  reader now refuses a block it does not read to the end.)
+- **First person:** the arm segments alone (`<mesh>_1stperson.nif`), on the
+  same bind data.
+- **Records:** an ARMA (`FNV_AA_<EditorID>`, hashed FormID, the one new
+  record) with the template addon's slots (33, and 60 as vanilla clothes
+  have), race, priorities and additional races, and FNV's meshes as the
+  male and female third- and first-person models. The ARMO keeps the
+  template's slots (33 and armor slots 41 to 45, so no armor goes over it)
+  and shows FNV's ground model.
+
+### <a id="spike-4-guns"></a>Guns on FNV's own meshes (played twice 2026-10-08, parked)
 
 The 9mm SMG and BB gun show FNV's meshes on their templates' animations
 (`fo4_import/nif/gun.py`, `fo4_import/spike/guns.py`).

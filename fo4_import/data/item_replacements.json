@@ -30,7 +30,7 @@
 
   "OutfitPrewarBusinesswearDirty": {"use": "Fallout4.esm|ClothesSuitDirty_Grey", "as": "stats"},
   "OutfitPrewarBusinesswearDirtyDARK": {"use": "Fallout4.esm|ClothesSuitDirty_Black", "as": "stats"},
-  "OutfitPrewarCasualwear": {"use": "Fallout4.esm|ClothesPrewarSweaterVest", "as": "stats"},
+  "OutfitPrewarCasualwear": {"use": "Fallout4.esm|ClothesPrewarSweaterVest", "as": "fnv"},
   "OutfitPrewarCasualwearDirty": {"use": "Fallout4.esm|ClothesPrewarSweaterVest", "as": "stats"},
   "OutfitPrewarCasualwear2": {"use": "Fallout4.esm|ClothesPrewarShortSleeves", "as": "stats"},
   "OutfitPrewarCasualwear2Dirty": {"use": "Fallout4.esm|ClothesPrewarShortSleeves", "as": "stats"},

@@ -13,8 +13,10 @@ from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import convert_static as C
 from fo4_import.face import bake as B
 from fo4_import.nif import file as F
+from fo4_import.nif import blocks as K
 from fo4_import.nif import gun as G
 from fo4_import.nif import headgear as H
+from fo4_import.nif import outfit as O
 from fo4_import.nif import weapon as W
 
 SHELF = Path('export/FalloutNV.esm/meshes/furniture/shelveswoodenhalf02.nif')
@@ -205,3 +207,73 @@ def test_fnv_gun_hangs_on_the_receivers_bones_turned_and_trigger_aligned():
     assert names['##Clip:1'] in out.blocks[names['WeaponMagazine']][1]['children']
     assert np.ptp(placed['Gun:0'][:, 1]) == pytest.approx(25.0, abs=0.01)
     assert np.allclose(worlds[names["ProjectileNode"]][3, :3], (0.0, 30.0, 1.5), atol=0.01)
+
+
+def test_part_move_turns_and_stretches_a_bone_onto_fo4s():
+    """FNV's forearm (along +X, length 10) onto FO4's (down, length 12): its joint and end land on FO4's; a point
+    beside the joint keeps its distance from the bone."""
+    move, shift = O.part_move((0, 0, 0), (10, 0, 0), (5, 5, 5), (5, 5, -7))
+    assert np.allclose(move @ (0, 0, 0) + shift, (5, 5, 5)) and np.allclose(move @ (10, 0, 0) + shift, (5, 5, -7))
+    beside = move @ np.array([0.0, 2.0, 0.0]) + shift
+    assert np.linalg.norm(beside - (5, 5, 5)) == pytest.approx(2.0)
+
+
+def test_bone_moves_follow_their_part_and_fall_back_to_a_mapped_ancestor():
+    """A twist bone takes its upper arm's move; a finger (unmapped) its hand's; the pelvis only shifts."""
+    fnv = {b: np.zeros(3) for b in O.BONES}
+    fo4 = {b: np.zeros(3) for b in O.BONES.values()}
+    for i, bone in enumerate(O.BONES):
+        fnv[bone] = np.array([i, 1.0 + i * i, 2.0 * i])
+        fo4[O.BONES[bone]] = fnv[bone] + (0.0, 0.5 * i, 1.0)
+    parents = {'Bip01 L Finger0': 'Bip01 L Hand', 'Bip01 L Hand': 'Bip01 L Forearm'}
+    moves = O.bone_moves(fnv, parents, fo4)
+    assert moves['Bip01 LUpArmTwistBone'] is moves['Bip01 L UpperArm']
+    assert moves['Bip01 L Finger0'] is moves['Bip01 L Forearm']
+    assert np.allclose(moves['Bip01 Pelvis'][0], np.eye(3))
+    assert np.allclose(moves['Bip01 Pelvis'][0] @ fnv['Bip01 Pelvis'] + moves['Bip01 Pelvis'][1], fo4['Pelvis'])
+
+
+def test_segments_follow_vanillas_body_order():
+    """Arms 2 and 4 (collarbones and shoulders are torso), legs 5 and 6; the trailer counts triangles in order."""
+    assert [O.segment_of(b) for b in ('LArm_ForeArm1_skin', 'RArm_Hand', 'LArm_Collarbone', 'RArm_ShoulderFat_skin',
+                                      'LLeg_Calf_skin', 'RLeg_Foot', 'SPINE2', 'Neck_skin')] == [2, 4, 3, 3, 5, 6, 3, 3]
+    raw = O._segments([0, 0, 2, 3, 0])
+    assert struct.unpack_from('<3I', raw) == (5, 5, 5)
+    assert [struct.unpack_from('<4I', raw, 12 + 16 * i) for i in (2, 3)] == [(0, 2, H.NO_PARENT, 0),
+                                                                            (6, 3, H.NO_PARENT, 0)]
+    kept, counts = O._segment_order(np.array([3, 2, 5, 4, 2]), True)
+    assert kept.tolist() == [1, 4, 3] and counts == [0, 0, 2, 0, 1]
+
+
+def test_caps_are_fnvs_dismemberment_partitions():
+    """Partitions 100-999 are caps; torso sections (1000 and up) and body parts are drawn."""
+    class Part:
+        def __init__(self, n):
+            self.body_part = n
+
+    class Shape:
+        def __init__(self, parts):
+            self.skin_instance = type('Skin', (), {'partitions': [Part(n) for n in parts]})()
+
+    assert O.is_cap(Shape([205, 203])) and O.is_cap(Shape([101]))
+    assert not O.is_cap(Shape([5000, 5, 3000, 3])) and not O.is_cap(Shape([0, 7, 10]))
+
+
+def test_skin_tint_shader_round_trips():
+    """A type-5 lighting shader keeps its skin tint colour through the reader and packer."""
+    nif = F.NifFile()
+    shader = dict(C.lighting_shader(nif, 'materials\\skin.bgsm', 1, 0), shader_type=K.SHADER_SKIN_TINT,
+                  skin_tint=(0.25, 0.5, 1.0, 0.75))
+    back = K.read_lighting(K.Reader(K.pack_lighting(shader)))
+    assert back['shader_type'] == 5 and back['skin_tint'] == (0.25, 0.5, 1.0, 0.75)
+
+
+def test_converted_vertices_find_their_own_fnv_original_where_positions_are_shared():
+    """A hem's two sides share positions with opposite normals; a UV seam shares position and normal."""
+    pos = np.array([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (5.0, 0.0, 0.0)])
+    uv = np.array([(0.1, 0.1), (0.1, 0.1), (0.6, 0.1), (0.2, 0.2)])
+    nrm = np.array([(0.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0)])
+    order = [2, 3, 1, 0]
+    rounded = (pos[order] + 0.03, uv[order], nrm[order] * 0.98)
+    assert O.originals(rounded, (pos, uv, nrm)).tolist() == order
+

@@ -129,12 +129,12 @@ _LIGHTING = (('flags1', 'I'), ('flags2', 'I'), ('uv_offset', '2f'), ('uv_scale',
              ('specular_strength', 'f'), ('subsurface_rolloff', 'f'), ('rimlight_power', 'f'))
 _LIGHTING_TAIL = (('grayscale_scale', 'f'), ('fresnel_power', 'f'), ('wetness', '6f'))
 _FLT_MAX = struct.unpack('<f', struct.pack('<f', 3.4028234663852886e38))[0]
-#: Shader types whose extra fields this module reads (default, environment map).
-SHADER_DEFAULT, SHADER_ENVMAP = 0, 1
+#: Shader types whose extra fields this module reads (default, environment map, skin tint).
+SHADER_DEFAULT, SHADER_ENVMAP, SHADER_SKIN_TINT = 0, 1, 5
 
 
 def read_lighting(r: Reader) -> dict:
-    """BSLightingShaderProperty at stream 130 (default or environment-map type)."""
+    """BSLightingShaderProperty at stream 130 (default, environment-map or skin-tint type)."""
     out = {'shader_type': r.take('I')}
     read_net(r, out)
     for name, fmt in _LIGHTING:
@@ -145,8 +145,12 @@ def read_lighting(r: Reader) -> dict:
         out[name] = r.take(fmt)
     if out['shader_type'] == SHADER_ENVMAP:
         out['envmap'] = r.take('f2B')
+    elif out['shader_type'] == SHADER_SKIN_TINT:
+        out['skin_tint'] = r.take('4f')
     elif out['shader_type'] != SHADER_DEFAULT:
         raise ValueError(f"shader type {out['shader_type']} not supported")
+    if r.pos != len(r.data):
+        raise ValueError(f"shader type {out['shader_type']}: {len(r.data) - r.pos} bytes not read")
     return out
 
 
@@ -166,6 +170,8 @@ def pack_lighting(b: dict) -> bytes:
         out += struct.pack('<' + fmt, *_flat(b[name]))
     if b['shader_type'] == SHADER_ENVMAP:
         out += struct.pack('<f2B', *b['envmap'])
+    elif b['shader_type'] == SHADER_SKIN_TINT:
+        out += struct.pack('<4f', *b['skin_tint'])
     return out
 
 

@@ -34,7 +34,8 @@ EditorID:
     weight, damage, magazine, ammo, armor rating): guns and outfits by
     default;
   - `fnv` writes a copy showing FNV's own mesh: melee weapons and headgear
-    by default; on a gun it builds the mesh on the FO4 gun
+    by default; on an outfit it moves the mesh onto FO4's body
+    ([outfits](fo4_spikes.md#spike-4-outfits)); on a gun it builds the mesh on the FO4 gun
     `spike.gun_choice` picks (experimental: hands and reload do not fit).
 - `mods`: OMOD EditorIDs that replace a gun's default parts at the same
   attach points; with them only the default combination is kept, so a
@@ -82,5 +83,6 @@ at the mod's record.
   on the pipe bolt-action with a full stock.
 - Melee weapons (bat, rolling pin, switchblade, tire iron) and headgear
   (hockey mask, pre-war hat, reading glasses): FNV's meshes (`fnv`).
-- Outfits: FO4 clothing (`stats`).
+- Outfits: FO4 clothing (`stats`), but Pre-War Casualwear on FNV's mesh
+  (`fnv`, under test; its dirty variant stays FO4's for comparison).
 - The old stand-ins: FO4's records (`item`).
