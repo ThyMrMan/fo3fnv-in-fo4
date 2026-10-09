@@ -39,6 +39,11 @@ _FO4_LINE = re.compile(r'[\\/](\w+)\.psc\(\d+,\d+\): (.+)')
 #: Converted script names, folded so one missed construct is one error kind.
 _CONVERTED_NAME = re.compile(r'\b(?:falloutnv|fallout3|tes4)_\w+', re.I)
 _WORD = re.compile(r'\w+')
+#: A Papyrus line continued on the next (`\` at its end).
+_CONTINUED = re.compile(r'\\[ \t]*\r?\n')
+#: A declaration other scripts compile against: header, import, custom event, struct, function, event, property.
+_DECLARATION = re.compile(r'^(?:scriptname|import|customevent|struct|endstruct'
+                          r'|(?:[\w:\[\]]+ )?(?:function|event|property)\b|[\w:\[\]]+ property\b)')
 #: Per-script results of the last Fallout 4 run, in --out, so the next run compiles only what changed.
 _STATE_FILE = 'compile_state.json'
 
@@ -137,19 +142,49 @@ def source_hashes(files: list) -> dict:
     return {f.stem.lower(): hashlib.sha1(f.read_bytes()).hexdigest() for f in files}
 
 
-def needs_compile(files: list, hashes: dict, state: dict) -> set:
-    """Lower-case names whose source changed since `state`, plus every script naming one, transitively."""
-    todo = {n for n, sha in hashes.items() if state.get(n, {}).get('sha') != sha}
+def declarations(text: str) -> list:
+    """The sorted declaration lines of a script's source (lower case, comments and extra spaces dropped), struct
+    members included: all a script naming it compiles against."""
+    out, in_struct = set(), False
+    for raw in _CONTINUED.sub(' ', text).splitlines():
+        line = ' '.join(raw.split(';', 1)[0].lower().split())
+        if line and (in_struct or _DECLARATION.match(line)):
+            out.add(line)
+        in_struct = (in_struct or line.startswith('struct ')) and line != 'endstruct'
+    return sorted(out)
+
+
+def source_declarations(files: list) -> dict:
+    """{lower-case script name: its declarations()}."""
+    return {f.stem.lower(): declarations(f.read_text(encoding='utf-8', errors='replace')) for f in files}
+
+
+def users_index(files: list, names: set) -> dict:
+    """{lower-case script name: the scripts naming it}."""
     users = collections.defaultdict(set)
     for f in files:
-        for word in set(_WORD.findall(f.read_text(encoding='utf-8', errors='replace').lower())) & hashes.keys():
+        for word in set(_WORD.findall(f.read_text(encoding='utf-8', errors='replace').lower())) & names:
             users[word].add(f.stem.lower())
-    queue = list(todo)
+    return users
+
+
+def users_of(users: dict, seeds: set) -> set:
+    """Every script naming one of `seeds`, transitively (seeds not included unless named)."""
+    out, queue = set(), list(seeds)
     while queue:
-        for user in users[queue.pop()] - todo:
-            todo.add(user)
+        for user in users[queue.pop()] - out:
+            out.add(user)
             queue.append(user)
-    return todo
+    return out
+
+
+def needs_compile(hashes: dict, apis: dict, state: dict, users: dict) -> set:
+    """Changed names; users of one that lost or changed a declaration; failing users of one that added one."""
+    changed = {n for n, sha in hashes.items() if state.get(n, {}).get('sha') != sha}
+    redeclared = {n for n in changed if state.get(n, {}).get('api') != apis[n]}
+    broke = {n for n in redeclared if 'api' not in state.get(n, {}) or set(state[n]['api']) - set(apis[n])}
+    failing = {n for n, s in state.items() if not s.get('ok')}
+    return changed | users_of(users, broke) | (users_of(users, redeclared) & failing)
 
 
 def _load_state(out_dir: Path, imports: str) -> dict:
@@ -175,27 +210,40 @@ def _compile_chunks(files: list, out_dir: Path, imports: str, workers: int) -> d
     return {name.lower(): messages for name, messages in own.items()}
 
 
+def _compile_named(files: list, names: set, out_dir: Path, imports: str, workers: int) -> tuple:
+    """({script: [own errors]}, names with a .pex after) from compiling `names`, their old .pex deleted first."""
+    for name in names:
+        (out_dir / f'{name}.pex').unlink(missing_ok=True)
+    own = _compile_chunks([f for f in files if f.stem.lower() in names], out_dir, imports, workers)
+    return own, {p.stem.lower() for p in out_dir.glob('*.pex')}
+
+
 def compile_fallout4(args) -> tuple:
     """(compiled names, {file: [own error messages]}, source names) with FO4's compiler.
 
-    Only scripts whose source changed since the last run, and the scripts
-    naming them, are compiled; the rest keep their saved result. `--full`
-    compiles everything. A script's old .pex is deleted first, so a script
-    that stops compiling cannot pass on a stale one.
+    Only scripts whose source changed since the last run are compiled, with
+    the scripts naming one whose declarations lost or changed a line (and
+    failing ones naming one that added a line), then those naming one that
+    started or stopped compiling; the rest keep their saved result. `--full` compiles everything. A script's old .pex is
+    deleted first, so a script that stops compiling cannot pass on a stale one.
     """
     src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
     imports = f'{args.headers or header_dirs()};{src_dir}'
     files = sorted(src_dir.glob('*.psc'))
-    hashes = source_hashes(files)
+    hashes, apis = source_hashes(files), source_declarations(files)
     state = {} if args.full else _load_state(out_dir, imports)
-    todo = needs_compile(files, hashes, state)
-    print(f'{len(todo)} of {len(files)} scripts changed or use one that did')
-    for name in todo:
-        (out_dir / f'{name}.pex').unlink(missing_ok=True)
-    own = _compile_chunks([f for f in files if f.stem.lower() in todo], out_dir, imports, args.workers)
-    pex = {p.stem.lower() for p in out_dir.glob('*.pex')}
-    scripts = {n: state[n] if n not in todo else {'sha': hashes[n], 'ok': n in pex, 'own': own.get(n, [])}
-               for n in hashes}
+    users = users_index(files, set(hashes))
+    todo = needs_compile(hashes, apis, state, users)
+    print(f'{len(todo)} of {len(files)} scripts changed or use one whose declarations did')
+    own, pex = _compile_named(files, todo, out_dir, imports, args.workers)
+    flipped = {n for n in todo if n in state and state[n].get('ok') != (n in pex)}
+    more = users_of(users, flipped) - todo
+    if more:
+        print(f'{len(more)} more use one that started or stopped compiling')
+        extra, pex = _compile_named(files, more, out_dir, imports, args.workers)
+        own, todo = {**own, **extra}, todo | more
+    scripts = {n: {**(state[n] if n not in todo else {'ok': n in pex, 'own': own.get(n, [])}),
+                   'sha': hashes[n], 'api': apis[n]} for n in hashes}
     (out_dir / _STATE_FILE).write_text(json.dumps({'imports': imports, 'scripts': scripts}), encoding='utf-8')
     compiled = {n for n, s in scripts.items() if s['ok']}
     own = {f.stem: scripts[f.stem.lower()]['own'] for f in files if scripts[f.stem.lower()]['own']}

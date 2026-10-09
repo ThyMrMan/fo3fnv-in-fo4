@@ -46,7 +46,7 @@ from script_convert.say_durations import scan_voice_durations
 from script_convert.speech_challenges_falloutnv import reroll_line, speech_helper
 from tes5_import.dialogue.speech_chance_falloutnv import NEED_GLOBALS, rerolls
 from script_convert.force_greet_lines import in_menu_only, menu_only_infos
-from script_convert.info_responses_fallout4 import declarations, first_response, last_response, response_count
+from script_convert.info_responses_fallout4 import first_response, last_response, line_over, response_count
 from script_convert.say_to_done import (fragment_calls, say_to_done_hooks,
                                         say_to_done_topics)
 from script_convert.scro_refs import (preload_scro_refs, resolve_scro_aliases,
@@ -752,7 +752,8 @@ def _info_end_fragment(body_lines: list, seq_gate: str,
     if service_kind:
         out.append(SERVICE_MENU_CALL[service_kind])
     ended = [f'  TES4Polyfill.LineEnded(akSpeakerRef, {length:g})']
-    return head + last_response(out, count) + ended + last_response(list(done_calls), count) + ['EndFunction', '']
+    over = line_over(count, bool(out or done_calls))
+    return head + over + last_response(out, count) + ended + last_response(list(done_calls), count) + ['EndFunction', '']
 
 
 def _info_bodies(rec: dict, xref: CrossRefGraph, result_script: str) -> tuple:
@@ -798,7 +799,7 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
     if declared:
         out_lines.append('')
     count = response_count(rec)
-    out_lines += declarations(count) + _info_begin_fragment(body_lines, seq_gate, length, begin_lines, reveals, count)
+    out_lines += _info_begin_fragment(body_lines, seq_gate, length, begin_lines, reveals, count)
     done = (_WORKER_CTX.get('say_to_done') or {}).get((rec.get('ParentDIAL') or '').upper(), ())
     out_lines += _info_end_fragment(body_lines, seq_gate, service_kind, length,
                                     fragment_calls(done) + ([reroll_line()] if speech else []), count)

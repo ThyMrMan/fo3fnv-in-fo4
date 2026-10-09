@@ -145,3 +145,20 @@ Function StartConversation(Scene akScene, ObjectReference akSpeaker) Global
   (akScene.GetOwningQuest().GetAlias(0) as ReferenceAlias).ForceRefTo(akSpeaker)
   akScene.Start()
 EndFunction
+
+; fallout4: new
+Int Function ResponseBegan(Form akLine, Int aiResponses) Global
+  {A converted line with aiResponses responses began one: its number in this play (TES4_LineResponses on the helper plugin, quest 0x902). 1 without the helper plugin.}
+  TES4_LineResponses store = Game.GetFormFromFile(0x902, "TES4Helpers.esl") as TES4_LineResponses
+  If !store
+    Return 1
+  EndIf
+  Return store.Began(akLine, aiResponses)
+EndFunction
+
+; fallout4: new
+Bool Function LineOver(Form akLine, Int aiResponses) Global
+  {A converted line's End ran: true once the line is over (TES4_LineResponses.Over). True without the helper plugin.}
+  TES4_LineResponses store = Game.GetFormFromFile(0x902, "TES4Helpers.esl") as TES4_LineResponses
+  Return !store || store.Over(akLine, aiResponses)
+EndFunction

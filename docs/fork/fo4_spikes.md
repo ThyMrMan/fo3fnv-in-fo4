@@ -672,12 +672,20 @@ baseline it exits 1 when more files fail or an error kind grows or is new;
 `--write-baseline` records an improvement.
 
 **Only what changed is compiled.** `<out>/compile_state.json` keeps each
-script's source SHA-1 and result; a run compiles the scripts whose source
-changed plus every script naming one of them, transitively (a script can fail
-through one it uses), and takes the rest from the state. No state, other
-include folders, or `--full` compiles everything. A narrow converter fix
-recompiles tens to hundreds of files; a change to a helper every script
-names (`TES4Polyfill`) is still a full run. Each compiled script's old
+script's source SHA-1, its declarations (header, imports, custom events,
+structs and their members, function and event signatures with their
+defaults, properties) and its result. A run compiles the scripts whose
+source changed. A script naming one of them (transitively) recompiles only
+when that script lost or changed a declaration, which is all another script
+compiles against, or, if it failed last time, when that script added one (it
+may have failed on the missing function). A body edit or an added function
+recompiles that script alone. Then the scripts naming one that started or
+stopped compiling recompile, as a script can fail through one it uses. The
+rest come from the state. No state, other include folders, or `--full`
+compiles everything. Adding `ResponseBegan` and `LineOver` to `TES4Polyfill`
+recompiled 17,678 scripts (15 minutes) before this rule; under it, 13 (the
+polyfill and its failing users). Removing a polyfill function still reaches
+16,959. Each compiled script's old
 `.pex` is deleted first: before, a script that stopped compiling still
 counted as compiled through the `.pex` an earlier run left.
 
@@ -1026,7 +1034,7 @@ item preview. 1,128 of Fallout4.esm's misc items name `MiscMod01`
 mostly not inventory items (no name); every converted misc item now does.
 The fridge and oven are containers in FNV too (food).
 
-### <a id="spike-2-furniture"></a>Furniture (built 2026-10-06, not yet played)
+### <a id="spike-2-furniture"></a>Furniture (built 2026-10-06, played 2026-10-08: every seat and bed in Doc's house)
 
 FNV marks each way into a seat or bed in the mesh: a `BSFurnitureMarker`
 position has an offset, a heading in thousandths of a radian pointing at the
@@ -1349,7 +1357,7 @@ FNV's order in place of the stand-in's PKIDs: 7 of 9; left out are
 `VCG01DocMitchellFarewellDialogueStart` (a Dialogue package, the outro's
 force greet).
 
-**The outro** (built 2026-10-07, not yet played). At stage 115 Doc's
+**The outro** (built and played 2026-10-07: Doc force-greets the player at the door before they leave). At stage 115 Doc's
 `VCG01DocMitchellFarewellDialogueStart`, a Dialogue package on the player
 with no topic (FNV: the GREETING), force-greets at the exit marker.
 
@@ -1617,7 +1625,7 @@ door; the outro there is next.
 
 **Played (step 1):** from the start marker beside the bed (player.moveto, as the hallway the vigor tester trigger covers lies between the coc door and the bed), stage 55 shows the walk objective, the trigger sets 60 and completes it, and with objective 30 shown by hand the Vit-o-matic sets 65. The trigger fires on any entry and starts the quest if it is not running, as in FNV, where the player cannot reach it before 55.
 
-### <a id="spike-4-exterior"></a>Goodsprings exterior (built 2026-10-07, not yet played)
+### <a id="spike-4-exterior"></a>Goodsprings exterior (built 2026-10-07, played 2026-10-08)
 
 The cell spike can add a block of an FNV worldspace
 (`fo4_import/spike/exterior.py`, `--world WastelandNV --around -18 0
@@ -1640,6 +1648,17 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
 - Static collections carry their merged mesh (`SCOL\…`), placed as
   statics. Trees are SpeedTree (`.spt`): not converted. No grass, LOD or
   exterior navmesh yet.
+- **Played (2026-10-08):** in good shape. Open:
+  - **Trees:** the block's 43 trees are not converted.
+  - **Porch teleport:** stepping onto Doc's porch moves the player to the
+    same spot each time. Not found in the data: the two doors link each
+    other (FO4 FNAM 0, no Automatic flag), the porch trigger
+    (`DocHouseTriggerREF`, `VCG01RemoveDocCarebearModeTrigger`) and the two
+    triggers above the house carry no script in the exterior, no shipped
+    script moves the player, and the worldspace bounds hold the whole block.
+    The interior door's arrival point is on the porch at (-73,163, 1,312,
+    8,686), 55 units under the porch floor (8,741).
+  - Leaving Doc's house by its door: wired both ways, not yet tried.
 - **First play:** invisible walls (one across a road at -69,091, 5,594),
   purple ruins and flagpole, blurry ground.
   - Collision placed twice. Static collections keep each part's collision
@@ -2081,8 +2100,8 @@ The 12 pre-war outfits (`OutfitPrewar*`, `fnv` in the
 female (`fo4_import/nif/outfit.py`), each through its own armor addon:
 casual wear, relaxed wear, business wear, spring and parkstroller outfits
 (each with its dirty variant) and the sexy sleepwear, on four FNV meshes
-per sex. Pre-War Casualwear was played first (2026-10-08); the rest are
-built, not yet played.
+per sex. Pre-War Casualwear was played first (2026-10-08), then the rest
+(2026-10-08).
 
 - **Variants:** FNV tells an outfit's variants apart on one mesh by
   alternate textures (ARMO `MODS` male, `MO3S` female, `MO2S` ground model;

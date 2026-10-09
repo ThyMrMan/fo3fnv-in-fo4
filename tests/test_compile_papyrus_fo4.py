@@ -36,17 +36,45 @@ def test_gate_fails_on_more_failures_or_a_grown_or_new_kind(tmp_path):
         'failing files 2 -> 3', '2 -> 3  K', '0 -> 1  New']
 
 
-def test_only_changed_scripts_and_their_users_recompile(tmp_path):
-    """A changed helper pulls in the script naming it, and whoever names that; the rest keep their result."""
-    sources = {'Helper': 'ScriptName Helper', 'Mid': 'ScriptName Mid\nHelper Property H Auto',
-               'Top': 'ScriptName Top\nMid Property M Auto', 'Alone': 'ScriptName Alone'}
+def _corpus(tmp_path, sources: dict) -> tuple:
+    """(hashes, declarations, users index) of `sources` written as .psc files."""
     files = []
     for name, text in sources.items():
         (tmp_path / f'{name}.psc').write_text(text, encoding='utf-8')
         files.append(tmp_path / f'{name}.psc')
     hashes = CP.source_hashes(files)
-    state = {n: {'sha': sha} for n, sha in hashes.items()}
-    assert CP.needs_compile(files, hashes, state) == set()
-    state['helper']['sha'] = 'old'
-    assert CP.needs_compile(files, hashes, state) == {'helper', 'mid', 'top'}
-    assert CP.needs_compile(files, hashes, {}) == set(hashes)
+    return hashes, CP.source_declarations(files), CP.users_index(files, set(hashes))
+
+
+CORPUS = {'Helper': 'ScriptName Helper\nInt Function Get(Int a = 1)\n  Return a\nEndFunction',
+          'Mid': 'ScriptName Mid\nHelper Property H Auto', 'Top': 'ScriptName Top\nMid Property M Auto',
+          'Alone': 'ScriptName Alone'}
+
+
+def test_users_recompile_only_when_a_declaration_is_lost_or_changed(tmp_path):
+    """A body edit or an added function recompiles the helper alone; a changed signature pulls in its users."""
+    hashes, apis, users = _corpus(tmp_path, CORPUS)
+    state = {n: {'sha': sha, 'api': apis[n], 'ok': True} for n, sha in hashes.items()}
+    assert CP.needs_compile(hashes, apis, state, users) == set()
+    body = dict(CORPUS, Helper=CORPUS['Helper'].replace('Return a', 'Return a + 1') + '\nFunction New()\nEndFunction')
+    hashes, apis, users = _corpus(tmp_path, body)
+    assert CP.needs_compile(hashes, apis, state, users) == {'helper'}
+    hashes, apis, users = _corpus(tmp_path, dict(CORPUS, Helper=CORPUS['Helper'].replace('a = 1', 'a = 2')))
+    assert CP.needs_compile(hashes, apis, state, users) == {'helper', 'mid', 'top'}
+    assert CP.needs_compile(hashes, apis, {}, users) == set(hashes)
+
+
+def test_an_added_declaration_recompiles_failing_users(tmp_path):
+    """A user that failed (perhaps on the missing function) recompiles when the helper gains one."""
+    hashes, apis, users = _corpus(tmp_path, CORPUS)
+    state = {n: {'sha': sha, 'api': apis[n], 'ok': n != 'mid'} for n, sha in hashes.items()}
+    hashes, apis, users = _corpus(tmp_path, dict(CORPUS, Helper=CORPUS['Helper'] + '\nFunction New()\nEndFunction'))
+    assert CP.needs_compile(hashes, apis, state, users) == {'helper', 'mid'}
+
+
+def test_declarations_join_continued_lines_and_keep_struct_members():
+    """Signatures (continued over lines), properties and struct members; bodies and comments are not."""
+    text = ('ScriptName S extends Quest ; note\nStruct Pair\n  Int A = 1\nEndStruct\n'
+            'Int Function F(Int a, \\\n  Int b = 2) Global\n  Int local = 3\nEndFunction\nInt Property P = 4 Auto')
+    assert CP.declarations(text) == ['endstruct', 'int a = 1', 'int function f(int a, int b = 2) global',
+                                     'int property p = 4 auto', 'scriptname s extends quest', 'struct pair']

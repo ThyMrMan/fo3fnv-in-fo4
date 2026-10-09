@@ -751,7 +751,7 @@ FALLOUT4_FALLOUT_AV_RENAMES = {'RadiationRads': 'Rads'}
 #: Skyrim skill names the shared helpers use -> the FO3/FNV skill they read on Fallout 4.
 FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair'}
 #: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.
-FALLOUT4_HELPER_QUESTS = {'TES4_PlayerControls': 0x900, 'TES4_CharacterEvents': 0x901}
+FALLOUT4_HELPER_QUESTS = {'TES4_PlayerControls': 0x900, 'TES4_CharacterEvents': 0x901, 'TES4_LineResponses': 0x902}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
 FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00}
 #: Message boxes -> (object id in FALLOUT4_HELPER_PLUGIN, title and text, buttons); ids append only.
