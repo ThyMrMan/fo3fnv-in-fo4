@@ -2076,10 +2076,27 @@ The hockey mask, pre-war hat and reading glasses use FNV's meshes
 
 ### <a id="spike-4-outfits"></a>Outfits on FNV's own meshes (played 2026-10-08)
 
-Pre-War Casualwear (`OutfitPrewarCasualwear`, `fnv` in the
-[replacement table](fo4_replacements.md)) shows FNV's outfit, male and
-female (`fo4_import/nif/outfit.py`), through its own armor addon. Its
-dirty variant stays on FO4's sweater vest, for comparison in the test chest.
+The 12 pre-war outfits (`OutfitPrewar*`, `fnv` in the
+[replacement table](fo4_replacements.md)) show FNV's outfits, male and
+female (`fo4_import/nif/outfit.py`), each through its own armor addon:
+casual wear, relaxed wear, business wear, spring and parkstroller outfits
+(each with its dirty variant) and the sexy sleepwear, on four FNV meshes
+per sex. Pre-War Casualwear was played first (2026-10-08); the rest are
+built, not yet played.
+
+- **Variants:** FNV tells an outfit's variants apart on one mesh by
+  alternate textures (ARMO `MODS` male, `MO3S` female, `MO2S` ground model;
+  dropped by the export, read from FalloutNV.esm): (shape name, texture
+  set, shape index), the index counting shapes in tree order. The index
+  decides; the names are sometimes another shape's (Pre-War Relaxedwear's
+  index 5, `UpperBody`, is listed as `pipboyoff`). Each becomes an MSWP
+  (`FNV_MS_<EditorID>_<subrecord>`, hashed FormID) mapping the shape's
+  converted material to a copy with the texture set's diffuse and normal
+  maps and a specular map from that normal map's alpha, at the original's
+  smoothness (`statics.swapped_material`). The addon names it after each
+  model (`MO2S`-`MO5S`, as vanilla's `HighSchoolJacketSwap`), the ARMO
+  after its ground model (`MO2S`). 20 swaps; Pre-War Businesswear (dirty)
+  has none, as in FNV.
 
 - **FNV:** an outfit is skinned to the Bip01 skeleton in its bind pose
   (`characters\_male\skeleton.nif`, both sexes), and holds the whole body
@@ -2117,6 +2134,18 @@ dirty variant stays on FO4's sweater vest, for comparison in the test chest.
   average of its 8 nearest. Outfit vertices then lie on average 0.6 to 1.5
   from FO4's body (90% within 4; the dress hem 13); the cuffs meet FO4's
   hands and the shoes its feet.
+- **Seams** (played: a step between the female's bare forearm and FO4's
+  hand). FO4's body has open edges only at the wrists and neck, where the
+  hands and head join (the hand's edge lies on the body's exactly); FNV's
+  skin edges there sit 0.28 from FNV's body edge (FNV's hands overlap) and
+  landed a median 1.3 from FO4's. Each FO4 body edge is paired with the
+  FNV body edge whose retargeted centre is nearest; an outfit edge vertex
+  within 0.5 of that FNV edge (in FNV's frame) moves to the nearest point
+  of FO4's edge, the move fading out over 3 units inward (`seamed`). The
+  sexy sleepwear's wrists: within 0.02 of FO4's edge after. Played: the
+  wrist still looked wrong (FO4's hand too large for FNV's forearm), so
+  bare skin is now FO4's own body (below); the snap still applies to
+  clothing edges there, such as cuffs.
 - **Weights:** FO4's body's at each vertex's nearest surface point
   (barycentric), the four largest, normalized. Each shape's skin instance
   lists the body bones it uses; their bind data is the body's, with
@@ -2128,14 +2157,43 @@ dirty variant stays on FO4's sweater vest, for comparison in the test chest.
 - **Left out:** caps, and `pipboyoff`: FO4's player always wears the
   Pip-Boy, so the sleeve rolled for it (`pipboyon`) is the one drawn, NPCs
   included. Vertex colours are dropped.
-- **Skin:** FNV's skin shapes take FO4's body skin shader (skin-tint type 5)
-  and a copy of FO4's skin material (`basehumanskin.bgsm`,
-  `basehumanfemaleskin.bgsm`) with FNV's skin textures, written beside
-  FNV's (`..._skin.bgsm`). The female casual wear has skin forearms and
-  lower legs; the male none. (Played: the female version crashed the game. The
-  skin-tint shader block ends in four floats, colour and alpha, 156 bytes
-  in vanilla's FemaleBody.nif; it was written with three, 152. The shader
-  reader now refuses a block it does not read to the end.)
+- **Skin:** FNV's skin shapes are replaced as vanilla outfits draw bare
+  skin (`BaseFemaleBodyFitted` in WomensCasual\FOutfit.nif): by the piece of
+  FO4's own body they cover, with its shape, UVs, weights, skin-tint
+  shader, material and textures (`FemaleBody_d.dds`), so forearms meet
+  FO4's hands as the body does.
+  - **Covered:** a body triangle whose fitted FNV skin's nearest point lies
+    over or under it (within half its longest edge sideways, 3 units deep).
+  - **Only skin FNV shows counts.** FNV's skin legs run on into the shoes,
+    where FO4's flat feet poked out of heeled shoes; skin and body
+    triangles under the outfit's clothing (within 1 unit sideways) are
+    left out.
+  - **Feet** take FNV's foot shape (posed for its shoes): each vertex moves
+    onto the fitted skin by its FO4 foot and toe weights, which fade into
+    the calf.
+  - **Painted underwear:** FO4's female body texture has a bra and briefs
+    painted on (diffuse and normal map), which vanilla outfits keep
+    covered; skin FNV shows there (the sexy sleepwear's chest) shows FO4's
+    painted bra, as every FO4 woman wears it. Accepted (2026-10-08); a body
+    texture replacer the player installs applies here too. Masking it out
+    by colour misses the painted shadows and strap edges.
+  - **History (played 2026-10-08):** FNV's skin under FO4's skin material
+    first crashed the female version (the skin-tint shader block ends in
+    four floats, colour and alpha, 156 bytes in vanilla's FemaleBody.nif;
+    it was written with three, 152; the shader reader now refuses a block
+    it does not read to the end), then looked patchy and unlike FO4's
+    hands. FNV's skin mesh on FO4's body texture (each vertex at its
+    nearest body point's UV) matched the colour, but FO4's hand stayed too
+    large for FNV's thinner forearm, hence FO4's own body.
+- **Shine** (played: many outfits too shiny). A specular map's strength
+  (R) was FNV's normal-map alpha and its smoothness (G) FNV's glossiness
+  as the same lobe width (`smoothness()`): 0.36 to 0.58 on the outfits,
+  against 0.06 to 0.13 on vanilla clothing. FNV's Blinn-Phong highlight
+  peaks at its specular map; FO4's lobe is normalized, so the same
+  strength in a lobe of glossiness n reflects (n + 2) / 2 pi times the
+  energy. R is now scaled by 2 pi / (n + 2), pi (1 - smoothness) ** 4
+  (`specular_scale()`): 0.53 at glossiness 10, 0.10 at 60. This applies
+  to every converted specular map (statics, landscape, outfits).
 - **First person:** the arm segments alone (`<mesh>_1stperson.nif`), on the
   same bind data.
 - **Records:** an ARMA (`FNV_AA_<EditorID>`, hashed FormID, the one new

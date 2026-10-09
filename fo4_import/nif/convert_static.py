@@ -231,11 +231,18 @@ def _specular(mat: dict, fnv_normal: str, props: dict, texture_root) -> 'tuple |
     return path, (fnv_normal, smoothness(material.glossiness if material else 0.0))
 
 
+def specular_scale(smooth: float) -> float:
+    """FO4 specular per unit of FNV's, at equal energy: 2 pi / (n + 2)."""
+    return min(1.0, math.pi * (1.0 - smooth) ** 4)
+
+
 def spec_image(normal_dds: bytes, smooth: float) -> np.ndarray:
-    """The RGB image of an FO4 specular map: R the normal map's alpha, G the smoothness."""
+    """The RGB image of an FO4 specular map: R the normal map's alpha scaled by specular_scale(), G the
+    smoothness."""
     alpha = np.asarray(Image.open(io.BytesIO(normal_dds)).convert('RGBA'))[:, :, 3]
     out = np.zeros(alpha.shape + (3,), np.uint8)
-    out[:, :, 0], out[:, :, 1] = alpha, int(round(smooth * 255))
+    out[:, :, 0] = np.round(alpha * specular_scale(smooth)).astype(np.uint8)
+    out[:, :, 1] = int(round(smooth * 255))
     return out
 
 

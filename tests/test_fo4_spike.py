@@ -222,3 +222,20 @@ def test_another_plugins_formid_is_renumbered_to_our_masters():
     with pytest.raises(ValueError):
         RP._ours(0x01000F99, ['Fallout4.esm', 'Other.esm'], 'BBGunMod.esp', ours)
 
+
+def test_fnv_alternate_textures_list_shape_index_and_texture_set():
+    """Entries are (3D name, TXST, 3D index); the index decides (FNV's names are sometimes another shape's)."""
+    body = struct.pack('<I', 2)
+    for name, txst, index in ((b'pipboyoff', 0x10, 5), (b'Arms', 0x99, 0)):
+        body += struct.pack('<I', len(name)) + name + struct.pack('<Ii', txst, index)
+    sets = {0x10: ('armor\\a.dds', 'armor\\a_n.dds')}
+    assert E._alternates(body, sets) == [(5, ('armor\\a.dds', 'armor\\a_n.dds'))]
+
+
+def test_copy_puts_a_material_swap_right_after_its_model():
+    """The template has no MO2S; the copy writes the swap after MOD2, where vanilla armor has it."""
+    eq = E.Equipment.__new__(E.Equipment)
+    eq.strings, eq.vanilla = {}, {}
+    template = [(b'EDID', b'X\0'), (b'MOD2', b'old.nif\0'), (b'BOD2', b'\0' * 4)]
+    out = eq._copy({'EditorID': 'Y'}, {b'MOD2': b'new.nif\0', b'MO2S': b'\1\0\0\3'}, source=template)
+    assert [sig for sig, _ in out] == [b'EDID', b'MOD2', b'MO2S', b'BOD2']

@@ -16,12 +16,14 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import file as nif_file
 from asset_convert.texture.dds_codec import write_normal_dds
-from fo4_import.nif.convert_static import PREFIX, convert, fo4_texture, spec_image, texture_source
+from asset_convert.texture import spec_mask
+from fo4_import.nif.convert_static import PREFIX, convert, fo4_texture, spec_image, spec_map_path, texture_source
 from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
@@ -92,6 +94,59 @@ def swap_material(export_dir: Path, model: str, node: str, texture: str, data_di
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(export_dir / source.replace('\\', '/'), target)
     return path, new
+
+
+def swapped_material(export_dir: Path, data_dir: Path, material: str, textures: tuple) -> str:
+    """Material `material` (already in `data_dir`) showing FNV texture set `textures` (diffuse, normal or ''),
+    written once with its textures beside it; its path.
+
+    The normal map's alpha becomes the specular map, at the smoothness of
+    the material's own map, as convert_static does; without a mask in it
+    specular is off.
+
+    See: docs/fork/fo4_spikes.md#spike-4-outfits
+    """
+    diffuse, normal = (texture_source(t) if t else '' for t in textures)
+    mat = bgsm.read(_material_file(data_dir, material).read_bytes())
+    old = mat['textures']['diffuse'].rsplit('.', 1)[0].replace('/', '\\')
+    new = material.replace(old, fo4_texture(diffuse).rsplit('.', 1)[0], 1)
+    if new == material or _material_file(data_dir, new).exists():
+        return new
+    mat['textures']['diffuse'] = fo4_texture(diffuse).replace('\\', '/')
+    _copy_texture(export_dir, data_dir, diffuse)
+    if normal:
+        mat['textures']['normal'] = fo4_texture(normal).replace('\\', '/')
+        _copy_texture(export_dir, data_dir, normal)
+        _swapped_spec(export_dir, data_dir, mat, normal)
+    target = _material_file(data_dir, new)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(bgsm.write(mat))
+    return new
+
+
+def _swapped_spec(export_dir: Path, data_dir: Path, mat: dict, normal: str) -> None:
+    """Point `mat`'s specular map at one made from FNV `normal`'s alpha, at the smoothness of its own."""
+    own = data_dir / 'Textures' / mat['textures']['smooth_spec'].replace('/', '\\') if mat['specular'] else None
+    raw = (export_dir / normal.replace('\\', '/')).read_bytes()
+    if own is None or not own.exists() or not spec_mask.has_mask(raw):
+        mat['specular'], mat['textures']['smooth_spec'] = False, ''
+        return
+    smooth = float(np.asarray(Image.open(own).convert('RGB'))[:, :, 1].mean()) / 255
+    path = spec_map_path(normal)
+    write_normal_dds(spec_image(raw, smooth), data_dir / 'Textures' / path)
+    mat['textures']['smooth_spec'] = path.replace('\\', '/')
+
+
+def _material_file(data_dir: Path, material: str) -> Path:
+    """The data folder file of material path `material` (materials\\...)."""
+    return data_dir / material.replace('materials\\', 'Materials\\', 1)
+
+
+def _copy_texture(export_dir: Path, data_dir: Path, source: str) -> None:
+    """Copy FNV texture `source` (textures\\...) to its FO4 path in `data_dir`."""
+    target = data_dir / 'Textures' / fo4_texture(source)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(export_dir / source.replace('\\', '/'), target)
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, edids: list) -> list:

@@ -15,7 +15,9 @@ experimental); so does headgear FNV draws in
 its head's frame (nif.headgear), through its own armor addon (ARMA) with
 FNV's slots and the template addon's races, and an FNV outfit (a skinned
 upper-body mesh) moved onto FO4's body (nif.outfit), through its own addon
-with the template addon's slots and races and FNV's sleeves in first person. Armor takes the protection FNV
+with the template addon's slots and races and FNV's sleeves in first person;
+FNV's alternate textures, which tell an outfit's variants apart on one mesh,
+become material swaps (MSWP) on its models. Armor takes the protection FNV
 gives it as its armor rating, unscaled: DT (all FNV armor), else DR (FO3's),
 and drops the template's resistances. Condition and the template's scripts
 are dropped. An FNV piece the table does not name is skipped and counted.
@@ -28,20 +30,20 @@ See: docs/fork/fo4_spikes.md#spike-4-outfits
 """
 
 import struct
-from pathlib import Path
 
 from fo4_import.base import strings
 from fo4_import.base.install import FALLOUTNV_ESM
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.nif import bgsm, headgear, outfit, weapon
+from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.spike.gun_choice import GUN_TYPES
 from fo4_import.spike.guns import Guns
-from fo4_import.spike.statics import write_assets
+from fo4_import.spike import records as R
+from fo4_import.spike.statics import swapped_material, write_assets
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: derive_formid sites (key: FNV FormID).
-SITES = {'WEAP': 'FNV WEAP', 'ARMO': 'FNV ARMO', 'ARMA': 'FNV ARMA'}
+SITES = {'WEAP': 'FNV WEAP', 'ARMO': 'FNV ARMO', 'ARMA': 'FNV ARMA', 'MSWP': 'FNV MSWP'}
 #: FO4 WEAP DNAM offsets: ammo, capacity, animation type, weight, value, base damage.
 DNAM_AMMO, DNAM_CAPACITY, DNAM_ANIM, DNAM_WEIGHT, DNAM_VALUE, DNAM_DAMAGE = 0, 52, 54, 59, 63, 67
 #: FO4 WEAP DNAM animation type of a gun.
@@ -58,6 +60,10 @@ SEXES = ('male', 'female')
 UPPER_BODY = 0x4
 #: FO4 armor addon model subrecords: third person male, female; first person male, female.
 THIRD_PERSON, FIRST_PERSON = (b'MOD2', b'MOD3'), (b'MOD4', b'MOD5')
+#: FNV ARMO alternate textures: male worn, male world, female worn model.
+FNV_MALE_SWAP, FNV_WORLD_SWAP, FNV_FEMALE_SWAP = b'MODS', b'MO2S', b'MO3S'
+#: FO4 model subrecord -> the material swap subrecord after it.
+SWAP_OF = {b'MOD2': b'MO2S', b'MOD3': b'MO3S', b'MOD4': b'MO4S', b'MOD5': b'MO5S'}
 #: Localized subrecords: Fallout4.esm stores a string ID, a copy the text.
 LOCALIZED = (b'FULL', b'DESC')
 #: FNV ARMO DNAM: DR (int16, times DR_SCALE) at 0, DT (float) at DT_AT when it is that long.
@@ -74,11 +80,26 @@ def _bod2(slots: tuple) -> bytes:
     return struct.pack('<I', sum(1 << (slot - 30) for slot in slots))
 
 
+def _alternates(body: bytes, sets: dict) -> list:
+    """[(shape index, (diffuse, normal))] of an FNV alternate-texture subrecord, by texture set (`sets`)."""
+    n, pos, out = struct.unpack_from('<I', body)[0], 4, []
+    for _ in range(n):
+        size = struct.unpack_from('<I', body, pos)[0]
+        txst, index = struct.unpack_from('<Ii', body, pos + 4 + size)
+        if txst in sets:
+            out.append((index, sets[txst]))
+        pos += 4 + size + 8
+    return out
+
+
 def _fnv_fields() -> dict:
     """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0); an armor's
-    value, weight (DATA) and rating (DNAM: DT, else DR). An ammo form list (FLST) gives its first entry."""
+    value, weight (DATA), rating (DNAM: DT, else DR) and alternate textures. An ammo form list (FLST)
+    gives its first entry."""
     raw = FALLOUTNV_ESM.read_bytes()
     lists = {rec.form_id: first_sub(rec.body, b'LNAM') for rec, _ in walk(raw, b'FLST')}
+    sets = {rec.form_id: tuple((first_sub(rec.body, t) or b'').rstrip(b'\0').decode('cp1252')
+                               for t in (b'TX00', b'TX01')) for rec, _ in walk(raw, b'TXST')}
     out = {}
     for rec, _ in walk(raw, b'WEAP', b'ARMO'):
         ammo, data, dnam = (first_sub(rec.body, t) for t in (b'NAM0', b'DATA', b'DNAM'))
@@ -89,7 +110,9 @@ def _fnv_fields() -> dict:
             value, _, weight = struct.unpack_from('<iif', data)
             dt = struct.unpack_from('<f', dnam, DT_AT)[0] if len(dnam) >= DT_AT + 4 else 0.0
             rating = dt or struct.unpack_from('<h', dnam)[0] / DR_SCALE
-            out[rec.form_id] = {'value': value, 'weight': weight, 'rating': rating}
+            out[rec.form_id] = {'value': value, 'weight': weight, 'rating': rating, 'alternates': {
+                sig: _alternates(first_sub(rec.body, sig), sets) for sig in (FNV_MALE_SWAP, FNV_WORLD_SWAP,
+                                                                           FNV_FEMALE_SWAP) if first_sub(rec.body, sig)}}
     return out
 
 
@@ -99,7 +122,7 @@ class Equipment:
     def __init__(self, builder):
         """Index the Fallout4.esm templates the table names, their strings and FNV's dropped fields."""
         self.builder, self.fnv, self.strings, self.table = builder, _fnv_fields(), strings.load(), builder.table
-        self.fits, self.statics, self.poses, self.bodies = {}, {}, {}, {}
+        self.fits, self.statics, self.poses, self.bodies, self.worn_paths = {}, {}, {}, {}, {}
         self.guns = Guns(builder, self.strings)
         wanted = {r.edid for r in self.table.values() if r.base and r.mode != 'item'}
         self.vanilla, self.addons = {}, {}
@@ -136,6 +159,10 @@ class Equipment:
             if sig in data:
                 used.add(sig)
                 out.append((sig, data[sig]))
+                swap = SWAP_OF.get(sig)
+                if swap in data and swap not in used:
+                    used.add(swap)
+                    out.append((swap, data[swap]))
                 continue
             if sig == b'EDID':
                 body = f'FNV_{rec["EditorID"]}\0'.encode()
@@ -244,16 +271,40 @@ class Equipment:
         if not (int(rec.get('BMDT.BipedFlags', 0)) & UPPER_BODY and worn and world) or headgear.rigid(
                 meshes / worn.replace('\\', '/').lower()):
             return None
-        models = {}
-        for sex, third, first in zip(SEXES, THIRD_PERSON, FIRST_PERSON):
-            models[third], models[first] = self._body_worn(rec.get(f'{sex.title()}.BipedModel.MODL') or worn, sex)
+        models, swaps = {}, {}
+        for sex, third, first, alternates in zip(SEXES, THIRD_PERSON, FIRST_PERSON, (FNV_MALE_SWAP, FNV_FEMALE_SWAP)):
+            model = rec.get(f'{sex.title()}.BipedModel.MODL') or worn
+            models[third], models[first] = self._body_worn(model, sex)
+            swap = self._swap(fnv, rec, alternates, self._static(model)[1], model)
+            if swap:
+                swaps[SWAP_OF[third]] = swaps[SWAP_OF[first]] = swap
         vanilla = struct.unpack('<I', template[b'MODL'])[0]
         bod2 = dict(self.addons[vanilla])[b'BOD2']
-        return self._world(world, self._addon(fnv, rec, vanilla, bod2, models))
+        out = self._world(world, self._addon(fnv, rec, vanilla, bod2, models, swaps))
+        swap = self._swap(fnv, rec, FNV_WORLD_SWAP, (self.builder.data_dir / 'Meshes' / out[b'MOD2'][:-1].decode(
+            'cp1252')).read_bytes(), world)
+        return {**out, SWAP_OF[b'MOD2']: struct.pack('<I', swap)} if swap else out
+
+    def _swap(self, fnv: int, rec: dict, sig: bytes, static: bytes, model: str) -> 'int | None':
+        """The MSWP (made once) putting FNV ARMO `rec`'s alternate textures `sig` on converted `model` (its
+        static NIF `static`): each listed shape's material to a copy with the texture set's maps; None without."""
+        alternates = self.fnv.get(fnv, {}).get('alternates', {}).get(sig)
+        fnv_path = self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower()
+        materials = outfit.shape_materials(static, fnv_path) if alternates else {}
+        pairs = sorted({(materials[i], swapped_material(self.builder.export_dir, self.builder.data_dir, materials[i],
+                                                        textures)) for i, textures in alternates or () if i in materials})
+        pairs = [(a[len('materials\\'):], b[len('materials\\'):]) for a, b in pairs if a != b]
+        if not pairs:
+            return None
+        fid = self.builder.writer.derive_formid(SITES['MSWP'], f'{fnv:08X} {sig.decode()}')
+        self.builder.writer.add_record('MSWP', R.pack_mswp(fid, f'FNV_MS_{rec["EditorID"]}_{sig.decode()}', pairs))
+        self.builder.counts['MSWP'] += 1
+        return fid
 
     def _body_worn(self, model: str, sex: str) -> tuple:
-        """(third-, first-person path under Meshes) of FNV outfit `model` moved onto `sex`'s FO4 body; the skin
-        materials its skin shapes name are written beside FNV's."""
+        """(third-, first-person path under Meshes) of FNV outfit `model` moved onto `sex`'s FO4 body."""
+        if (model, sex) in self.worn_paths:
+            return self.worn_paths[model, sex]
         if sex not in self.bodies:
             self.bodies[sex] = outfit.body_fit(self.builder.export_dir, sex)
         path, static = self._static(model)
@@ -261,26 +312,21 @@ class Equipment:
         fnv_path = self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower()
         out = []
         for name, first in ((f'{stem}.nif', False), (f'{stem}_1stperson.nif', True)):
-            raw, skins = outfit.worn(static, fnv_path, self.bodies[sex], first)
-            (self.builder.data_dir / 'Meshes' / name).write_bytes(raw)
-            for material in skins:
-                fnv_material = bgsm.read(self._material_file(material).read_bytes())
-                self._material_file(outfit.skin_path(material)).write_bytes(
-                    bgsm.write(outfit.skin_material(fnv_material, sex)))
+            (self.builder.data_dir / 'Meshes' / name).write_bytes(outfit.worn(static, fnv_path, self.bodies[sex], first))
             out.append(name)
-        return tuple(out)
+        self.worn_paths[model, sex] = tuple(out)
+        return self.worn_paths[model, sex]
 
-    def _material_file(self, material: str) -> Path:
-        """The data folder file of material path `material` (materials\\...)."""
-        return self.builder.data_dir / material.replace('materials\\', 'Materials\\', 1)
-
-    def _addon(self, fnv: int, rec: dict, template: int, bod2: bytes, models: dict) -> int:
-        """An armor addon for FNV `rec` on `models` {MOD2..MOD5: path}, with `bod2` and the template addon's
-        races."""
+    def _addon(self, fnv: int, rec: dict, template: int, bod2: bytes, models: dict, swaps: dict = None) -> int:
+        """An armor addon for FNV `rec` on `models` {MOD2..MOD5: path} and their material `swaps`
+        {MO2S..MO5S: MSWP}, with `bod2` and the template addon's races."""
         vanilla = self.addons[template]
         subs = [(b'EDID', f'FNV_AA_{rec["EditorID"]}\0'.encode()), (b'BOD2', bod2)]
         subs += [(sig, body) for sig, body in vanilla if sig in ADDON_KEPT]
-        subs += [(sig, (models[sig] + '\0').encode()) for sig in THIRD_PERSON + FIRST_PERSON if sig in models]
+        for sig in (s for s in THIRD_PERSON + FIRST_PERSON if s in models):
+            subs.append((sig, (models[sig] + '\0').encode()))
+            if SWAP_OF[sig] in (swaps or {}):
+                subs.append((SWAP_OF[sig], struct.pack('<I', swaps[SWAP_OF[sig]])))
         subs += [(sig, body) for sig, body in vanilla if sig == b'MODL']
         return self._write('ARMA', fnv, subs)
 

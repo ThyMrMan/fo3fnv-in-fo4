@@ -31,10 +31,9 @@ EditorID:
     old stand-ins (9mm pistol → 10mm, Stimpak → Stimpak, Vault 21 suit →
     Vault 111's);
   - `stats` writes a copy of the target with FNV's name and stats (value,
-    weight, damage, magazine, ammo, armor rating): guns and outfits by
-    default;
-  - `fnv` writes a copy showing FNV's own mesh: melee weapons and headgear
-    by default; on an outfit it moves the mesh onto FO4's body
+    weight, damage, magazine, ammo, armor rating): guns by default;
+  - `fnv` writes a copy showing FNV's own mesh: melee weapons, headgear and
+    the pre-war outfits by default; on an outfit it moves the mesh onto FO4's body
     ([outfits](fo4_spikes.md#spike-4-outfits)); on a gun it builds the mesh on the FO4 gun
     `spike.gun_choice` picks (experimental: hands and reload do not fit).
 - `mods`: OMOD EditorIDs that replace a gun's default parts at the same
@@ -83,6 +82,6 @@ at the mod's record.
   on the pipe bolt-action with a full stock.
 - Melee weapons (bat, rolling pin, switchblade, tire iron) and headgear
   (hockey mask, pre-war hat, reading glasses): FNV's meshes (`fnv`).
-- Outfits: FO4 clothing (`stats`), but Pre-War Casualwear on FNV's mesh
-  (`fnv`, under test; its dirty variant stays FO4's for comparison).
+- Outfits: the 12 pre-war outfits on FNV's meshes (`fnv`), their variants
+  as material swaps ([outfits](fo4_spikes.md#spike-4-outfits)).
 - The old stand-ins: FO4's records (`item`).

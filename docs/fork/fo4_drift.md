@@ -26,7 +26,7 @@ here, so a later patch can close the gap. Content is never dropped.
 | Imagespace modifiers | FNV's HDR (skin dimmer, target luminance, bloom alphas), cinematic contrast average, intro/outro sounds | Dropped; blur, double vision, tint, fade, radial blur, depth of field, eye adapt, bloom radius, saturation, contrast and brightness kept | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Items with an FO4 counterpart | FNV's own items, names and stats | The Fallout4.esm item: its name, stats and model (the 9mm pistol is the 10mm, energy cells are fusion cells, dynamite is the frag grenade, the Vault 21 suit is Vault 111's) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Item condition | Leveled lists give an item at a condition | No condition: the item | [vcg01](fo4_spikes.md#spike-2-vcg01) |
-| Weapons and armor without a stand-in | FNV's models, DT, criticals | FNV's name, value, weight, damage (and a gun's magazine and ammo) on an FO4 weapon or outfit's animations and sounds; melee weapons, headgear and the casual wear show FNV's meshes, without FO4 mods, headgear fitted to FO4's head and not following facial animation, outfits moved onto FO4's body and skinned to it (no dismemberment cuts; the Pip-Boy sleeve always rolled; FNV's skin textures under FO4's skin shader); guns FO4's guns and their mods (FNV's mesh on an FO4 receiver only in the experimental `fnv` mode); outfits FO4's models; every stand-in set by the [replacement table](fo4_replacements.md); FNV's DT as the armor rating, unscaled | [equipment](fo4_spikes.md#spike-4-equipment), [melee](fo4_spikes.md#spike-4-melee), [headgear](fo4_spikes.md#spike-4-headgear), [outfits](fo4_spikes.md#spike-4-outfits) |
+| Weapons and armor without a stand-in | FNV's models, DT, criticals | FNV's name, value, weight, damage (and a gun's magazine and ammo) on an FO4 weapon or outfit's animations and sounds; melee weapons, headgear and the pre-war outfits show FNV's meshes, without FO4 mods, headgear fitted to FO4's head and not following facial animation, outfits moved onto FO4's body and skinned to it (no dismemberment cuts; the Pip-Boy sleeve always rolled; bare skin on FO4's body texture and shader, not FNV's skin texture); guns FO4's guns and their mods (FNV's mesh on an FO4 receiver only in the experimental `fnv` mode); outfits FO4's models; every stand-in set by the [replacement table](fo4_replacements.md); FNV's DT as the armor rating, unscaled | [equipment](fo4_spikes.md#spike-4-equipment), [melee](fo4_spikes.md#spike-4-melee), [headgear](fo4_spikes.md#spike-4-headgear), [outfits](fo4_spikes.md#spike-4-outfits) |
 | Consumable effects | Health, rads, skill boosts, Hardcore needs, chem stats, limb and script effects | Health (FO4's food heal), rads, Nuka-Cola's cap, and skill boosts (Rad-X's timed boost on the skill) carry; perk variants act as without the perk; the rest is dropped | [exterior](fo4_spikes.md#spike-4-exterior) |
 | Ammunition | FNV's rounds, with their own projectiles | FNV's name, model, value and weight on FO4's 5.56 round | [exterior](fo4_spikes.md#spike-4-exterior) |
 | Quest objectives in conditions | Engine condition functions | Mirror globals the converted scripts set | [vcg01](fo4_spikes.md#spike-2-vcg01) |
@@ -38,36 +38,32 @@ here, so a later patch can close the gap. Content is never dropped.
 | Character collision height | FNV's controller fits a 139 opening | FO4's human skeleton box lowered from 128 to 115 so it does too; FO4's own NPCs get the same box | [player collision](research/fo4_target.md#player-collision) |
 | Script timing | Per-frame GameMode blocks | Papyrus timers (0.1 s at the fastest) | [timing](fo4_spikes.md#spike-3-timing) |
 
-## <a id="candidates"></a>Systems where FO4's own version is the likely answer
+## <a id="candidates"></a>Systems: FO4's or FNV's (decided 2026-10-08)
 
-Not built yet. Each names the FO4 mechanism to take and the drift to note.
+Not built yet. Size is the build estimate: S small, M medium, L large.
+Counts are from the FalloutNV.esm export.
 
-- **SPECIAL, skills, traits, perks.** Decided: FNV's system on
-  LevelUpMenuEx ([decision](research/fo4_target.md#decisions)). Drift:
-  skills appear in LevelUpMenuEx's menu rather than a Pip-Boy page; FO4's
-  perk chart is turned off.
-- **Speech checks and skill-gated lines.** FNV shows `[Speech 50]`; FO4
-  colors persuasion by Charisma. Keep FNV's checks as conditions, shown
-  through XDI.
-- **Karma and faction reputation.** FO4 has neither; globals or actor
-  values with a status display (FO4 affinity is per companion only).
-- **Companions.** FNV's companion wheel versus FO4's command mode and
-  affinity: use FO4's follower system and note the lost wheel options.
-- **VATS.** FO4's slowed time versus FNV's pause.
-- **Weapons and armor.** FNV mods and item condition versus FO4's object
-  mods (no condition or repair): mods become OMODs; condition is dropped
-  or kept as a script value.
-- **Hardcore mode.** Thirst, hunger and sleep onto FO4 Survival's needs.
-- **Crafting.** Workbenches, campfires and reloading benches as FO4
-  crafting stations (COBJ recipes).
-- **Pip-Boy, map and fast travel.** FO4's Pip-Boy and world map;
-  FNV-specific pages (reputation, radio list) need a place.
-- **Lockpicking and hacking.** FO4's minigames; FNV's skill gates become
-  perk or skill-value checks.
-- **The player's voice.** FO4's voiced player says "Hi" before a greeting
-  ([spike 1](fo4_spikes.md#spike-1-design)); silence it or accept it.
-- **Ambient NPC conversations and barks.** FO3's 204 NPC-to-NPC Dialogue
-  packages as FO4 two-actor scenes ([census](fo4_spikes.md#scene-census)).
-- **Disguises and faction armor.** FO4 has no disguise system.
-- **Radio.** Stations as FO4 radio scenes.
-- **Level scaling.** Leveled lists and encounter zones under FO4's rules.
+| System | Decision | What it takes | Size |
+|---|---|---|---|
+| SPECIAL, skills, traits, perks | FNV's system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions)) | Skills in LevelUpMenuEx's menu; FO4's perk chart off | — |
+| Speech checks, skill-gated lines | **FNV's**: deterministic skill checks, not FO4's Charisma chance (no reloading past them) | Already converted as dialogue conditions (spike 1, played); left: the `[Speech 50]` tag and how a failed check shows through XDI | S |
+| Karma | **Build** | Karma as an actor value: 48 `RewardKarma`, about 200 reads in scripts and conditions. FNV's engine also moves karma on kills and thefts: FO4 story-manager kill and crime events with a script. Design borrowed from KARMA ([mods](research/fo4_target.md#mods)) | S-M |
+| Faction reputation | **Build** | 13 REPU factions; 218 `AddReputation`, 81 `SetReputation`, 202 `GetReputation`, 135 `GetReputationThreshold`. Fame and infamy per faction plus a stored tier, so conditions can test it; scripts through the converter's helpers. Hit squads and gift givers are FNV content and convert with it. REPUTATION is closed to new factions | M |
+| Disguises, faction armor | **Build**, after reputation | FNV's are records and scripts, not engine code: `DisguiseFactionQuestScript` watches faction gear form lists (`FactionGearNVNCR`...) and a scripted pulse (`DisguiseFactionPulse*`) drops nearby sniffers from the disguise faction, saving and restoring reputation. They convert as content | S |
+| Companions | **FO4's** follower system | Drift: FNV's companion wheel options | — |
+| VATS | **FO4's** slowed time | Suits FO4's faster combat | — |
+| Weapon mods | **Build** | FNV's 50 IMODs as FO4 object mods (the receiver and part pipeline of the gun work); installed at a workbench, not from the Pip-Boy (drift) | M |
+| Item condition | **Build** | FO4 keeps item health only for power armor. Weapons need per-item health storage, its effects (damage, spread, jams), wear, repair (kits, other weapons, Jury Rigging, vendors) and a display: likely an F4SE piece (Hydra or our own). Our own, from FNV's per-weapon health ([mods](research/fo4_target.md#mods)) | L |
+| Hardcore | **FO4 Survival's needs** | Thirst, hunger and sleep map directly. Open: Survival's other rules (bed saves, no fast travel, damage) as Hardcore's drift, or its needs under our own Hardcore switch | S-M |
+| Crafting | **FO4's benches**, menus showing FNV's recipes | 105 RCPE, 10 RCCT as COBJ. Converted benches as copies of FO4's with their own crafting keyword, so menus list FNV's recipes without editing vanilla's; the reloading bench needs a home (FO4 has none) | S-M |
+| Pip-Boy pages | Open | XDI and MCM don't touch it; LevelUpMenuEx has its own menu; Hydra adds stats-page lines. Options: PipboyTabs (not installed; tabs for any actor value or global, LevelUpMenuEx fills a skills tab), our own Pip-Boy SWF pages, or PrismaUI (installed, off; HTML overlays). Proposed: PipboyTabs behind our API | — |
+| Lockpicking, hacking | **FO4's minigames on FNV's skills** | FO4's tiers are gated by perk ranks: hidden ranks granted at Lockpick or Science 25, 50, 75. FNV has five tiers (locks: 0: 39, 25: 73, 50: 121, 75: 58, 100: 32, key only: 103), FO4 four: Very Hard would open at 75 without a small script holding it to 100 (32 locks, 18 terminals) | S-M |
+| The player's voice | **Silent** | Silent voice files; needs a test | S |
+| Ambient conversations | **FO4 scenes** | The scene converter exists; needs a test with two NPCs | S |
+| Radio | **FO4's radio** | FNV's songs are dialogue: an INFO per song (`{Song 15 Blue Moon}`) voiced by the song, picked by conditions, said by a talking activator (87 TACT); the station quest's script tracks order and story (Kimball's death). FO4's stations are radio activators whose quest scenes play songs as radio actions (sound descriptors) between DJ dialogue. So: songs to sound descriptors, DJ lines through the dialogue, scene and voice pipeline, station logic as converted script. Not only importing the music | M |
+| Level scaling | **FNV's** | 17 ECZN, 2,738 LVLI, 365 LVLN, 343 LVLC map one to one onto FO4's (minimum levels, match-PC-below-minimum, never resets), keeping FNV's difficult routes; none of FO4's legendary spawns are referenced | S |
+
+Proposed order: reputation and karma, then disguises (one store); weapon
+mods; crafting, lockpicking and hacking; radio; item condition last (it
+settles the runtime question). The voice and ambient-conversation tests fit
+any build.

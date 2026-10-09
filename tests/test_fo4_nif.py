@@ -277,3 +277,61 @@ def test_converted_vertices_find_their_own_fnv_original_where_positions_are_shar
     rounded = (pos[order] + 0.03, uv[order], nrm[order] * 0.98)
     assert O.originals(rounded, (pos, uv, nrm)).tolist() == order
 
+
+def test_specular_scale_keeps_fnvs_reflected_energy():
+    """Glossiness n scales FNV specular by 2 pi / (n + 2), at most 1."""
+    for n in (10.0, 30.0, 60.0):
+        assert C.specular_scale(C.smoothness(n)) == pytest.approx(2 * np.pi / (n + 2), rel=1e-6)
+    assert C.specular_scale(0.0) == 1.0
+
+
+def test_open_edges_weld_split_vertices_and_find_the_rim():
+    """Two triangles of a quad, one corner split in two (a UV seam): the four rim edges, not the diagonal."""
+    pts = np.array([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0), (1.0, 1.0, 0.0)])
+    edges = O.open_edges(pts, np.array([(0, 1, 2), (0, 4, 3)]))
+    assert sorted(map(tuple, np.sort(pts[edges].sum(1), axis=1).tolist())) == sorted(
+        map(tuple, np.sort(np.array([[1, 0, 0], [2, 1, 0], [1, 2, 0], [0, 1, 0]], float), axis=1).tolist()))
+
+
+def test_seam_moves_the_edge_on_fnvs_body_edge_onto_fo4s_and_fades_inward():
+    """A strip whose bottom edge was on FNV's body edge: that edge lands on FO4's, a row 1 up moves 2/3 as far,
+    a row 4 up stays."""
+    xs = np.arange(4.0)
+    pts = np.array([(x, 0.0, z) for z in (0.0, 1.0, 4.0) for x in xs])
+    tris = np.array([t for r in range(2) for c in range(3) for t in
+                     ((r * 4 + c, r * 4 + c + 1, r * 4 + c + 5), (r * 4 + c, r * 4 + c + 5, r * 4 + c + 4))])
+    fnv_edge = np.array([(x, 0.0, 0.0) for x in xs])
+    fo4 = (np.array([(-1.0, 0.0, -1.0)]), np.array([(5.0, 0.0, -1.0)]))
+    fit = O.BodyFit({}, None, None, None, [], [], [], None, None, None, 0, seams=[(fnv_edge, fo4)])
+    out = fit.seamed(pts, pts, tris)
+    assert np.allclose(out[:4, 2], -1.0) and np.allclose(out[4:8, 2], 1.0 - 1.0 * (1 - 1 / 3))
+    assert np.allclose(out[8:], pts[8:])
+
+
+def test_body_triangles_under_the_fitted_skin_count_as_covered():
+    """A strip of body triangles; skin lying 1 above the first half covers it, not the far half nor a deep one."""
+    xs = np.arange(0.0, 11.0)
+    body = np.array([(x, y, 0.0) for y in (0.0, 1.0) for x in xs])
+    tris = np.array([t for c in range(10) for t in ((c, c + 1, c + 12), (c, c + 12, c + 11))])
+    fit = O.BodyFit({}, None, None, None, [], [], [], None, None, tris, 0, points=body)
+    skin = np.array([(x, y, 1.0) for y in (0.0, 1.0) for x in np.arange(0.0, 5.5, 0.5)])
+    skin_tris = np.array([t for c in range(10) for t in ((c, c + 1, c + 12), (c, c + 12, c + 11))])
+    covered = fit.covered(skin, skin_tris)
+    centres = body[tris].mean(1)[:, 0]
+    assert covered[centres < 4.5].all() and not covered[centres > 6].any()
+    assert not fit.covered(skin + (0.0, 0.0, 5.0), skin_tris).any()
+    under = O.under(body, np.tile((0.0, 0.0, 1.0), (len(body), 1)), skin, skin_tris)
+    assert under[body[:, 0] <= 5].all() and not under[body[:, 0] >= 7].any()
+
+
+def test_feet_take_the_fnv_skin_shape_by_their_foot_weight():
+    """A vertex fully on a foot bone lands on the skin; one half on it goes halfway; one off it stays."""
+    body = np.array([(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (0.0, 10.0, 0.0)])
+    weights = np.array([(1.0, 0.0), (0.5, 0.5), (0.0, 1.0)])
+    fit = O.BodyFit({}, None, None, None, ['LLeg_Foot', 'LLeg_Calf_skin'], [], [], weights, None,
+                    np.array([(0, 1, 2)]), 0, points=body, normals=np.tile((0.0, 0.0, 1.0), (3, 1)))
+    skin = body + (0.0, 0.0, 2.0)
+    moved, normals = fit.with_fnv_feet(skin, np.array([(0, 1, 2)]))
+    assert np.allclose(moved[:, 2], (2.0, 1.0, 0.0), atol=1e-6)
+    assert np.allclose(normals[2], (0.0, 0.0, 1.0)) and np.allclose(np.linalg.norm(normals, axis=1), 1.0)
+
