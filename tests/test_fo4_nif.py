@@ -308,30 +308,12 @@ def test_seam_moves_the_edge_on_fnvs_body_edge_onto_fo4s_and_fades_inward():
     assert np.allclose(out[8:], pts[8:])
 
 
-def test_body_triangles_under_the_fitted_skin_count_as_covered():
-    """A strip of body triangles; skin lying 1 above the first half covers it, not the far half nor a deep one."""
-    xs = np.arange(0.0, 11.0)
-    body = np.array([(x, y, 0.0) for y in (0.0, 1.0) for x in xs])
-    tris = np.array([t for c in range(10) for t in ((c, c + 1, c + 12), (c, c + 12, c + 11))])
-    fit = O.BodyFit({}, None, None, None, [], [], [], None, None, tris, 0, points=body)
-    skin = np.array([(x, y, 1.0) for y in (0.0, 1.0) for x in np.arange(0.0, 5.5, 0.5)])
-    skin_tris = np.array([t for c in range(10) for t in ((c, c + 1, c + 12), (c, c + 12, c + 11))])
-    covered = fit.covered(skin, skin_tris)
-    centres = body[tris].mean(1)[:, 0]
-    assert covered[centres < 4.5].all() and not covered[centres > 6].any()
-    assert not fit.covered(skin + (0.0, 0.0, 5.0), skin_tris).any()
-    under = O.under(body, np.tile((0.0, 0.0, 1.0), (len(body), 1)), skin, skin_tris)
-    assert under[body[:, 0] <= 5].all() and not under[body[:, 0] >= 7].any()
-
-
-def test_feet_take_the_fnv_skin_shape_by_their_foot_weight():
-    """A vertex fully on a foot bone lands on the skin; one half on it goes halfway; one off it stays."""
-    body = np.array([(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (0.0, 10.0, 0.0)])
-    weights = np.array([(1.0, 0.0), (0.5, 0.5), (0.0, 1.0)])
-    fit = O.BodyFit({}, None, None, None, ['LLeg_Foot', 'LLeg_Calf_skin'], [], [], weights, None,
-                    np.array([(0, 1, 2)]), 0, points=body, normals=np.tile((0.0, 0.0, 1.0), (3, 1)))
-    skin = body + (0.0, 0.0, 2.0)
-    moved, normals = fit.with_fnv_feet(skin, np.array([(0, 1, 2)]))
-    assert np.allclose(moved[:, 2], (2.0, 1.0, 0.0), atol=1e-6)
-    assert np.allclose(normals[2], (0.0, 0.0, 1.0)) and np.allclose(np.linalg.norm(normals, axis=1), 1.0)
+def test_skin_uv_extends_one_body_triangles_mapping_and_stretch_compares_uv_to_size():
+    """A point off a triangle's corner takes its mapping extended; a triangle spanning the atlas is stretched."""
+    corners = np.array([(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (0.0, 10.0, 0.0)])
+    uvs = np.array([(0.1, 0.1), (0.2, 0.1), (0.1, 0.2)])
+    assert np.allclose(O._affine_uv(np.array([12.0, 1.0, 3.0]), corners, uvs), (0.22, 0.11))
+    tris = np.array([(0, 1, 2)])
+    assert O.uv_stretch(corners, uvs, tris)[0] == pytest.approx(0.1 * np.sqrt(2) / (10 * np.sqrt(2)))
+    assert O.uv_stretch(corners, np.array([(0.1, 0.1), (0.9, 0.1), (0.1, 0.2)]), tris)[0] > 0.05
 

@@ -75,6 +75,26 @@ at the mod's record.
 4. **Copy mode for mods' records.** `stats` on another plugin's record
    needs its FormID fields renumbered (field layouts from xEdit's
    definitions); worth it only if users want FNV stats on a mod's model.
+5. <a id="bodyslide"></a>**CBBE and BodySlide.** FNV's outfits are cut for
+   FNV's body, and FO4's base body carries painted underwear
+   ([outfits](fo4_spikes.md#spike-4-outfits)). CBBE, the common FO4 body
+   replacer, brings its own body, textures without underwear, and
+   BodySlide, which reshapes outfits to any body preset. The converted
+   outfits are already FO4 worn meshes (skinned to FO4's body bones, FO4
+   segments), so they fit its known pipeline:
+   - **By hand, now:** open a converted outfit in Outfit Studio, load the
+     CBBE reference (its vanilla-to-CBBE conversion reference, as the
+     outfit sits on FO4's vanilla body), conform, fix by brush, save as a
+     BodySlide project. The usual conversion process.
+   - **Automated, later:** the converter writes the BodySlide project
+     itself: the outfit as the project's shapes, CBBE as its reference
+     (read from the player's install, never shipped), and the slider data
+     made as Outfit Studio's conform makes it, each outfit vertex taking
+     the slider moves of the reference vertices nearest it. Bare skin then
+     uses the CBBE body: one body and texture for skin and hands, no
+     painted underwear. Open: CBBE's permissions for generated
+     conversions, and whether conform alone fits FNV's loose clothes
+     (skirts, robes) or needs per-outfit fixes.
 
 ## Defaults now
 

@@ -25,19 +25,14 @@ outfit is carried across in three steps:
 
 FNV's dismemberment caps (partitions 100-999) and the sleeve it shows
 without a Pip-Boy (`pipboyoff`; FO4's player always wears one) are left out.
-Skin shapes (FNV's FaceGen shader flag) are replaced as vanilla outfits
-draw bare skin (`BaseFemaleBodyFitted`): by the piece of FO4's own body
-they cover, with its shape, UVs, weights, shader and textures, so skin
-meets FO4's hands and head as the body does. A body triangle is covered
-when the fitted FNV skin's nearest point lies over or under it: within
-half its longest edge sideways and COVER_DEPTH along its normal. Only
-skin FNV shows counts: FNV's skin runs on under clothes (legs into shoes),
-where FO4's differently shaped body would poke through, so skin triangles
-whose corners all lie under the outfit's clothing (CLOTH_ACROSS sideways)
-are left out, and so are body triangles under it. The piece's feet take
-FNV's foot shape (FNV poses its feet for its shoes, heels included): each
-vertex moves onto the fitted FNV skin by its weight on FO4's foot and toe
-bones (FOOT_BONES), which fades into the calf. The first-person model is the arm
+Skin shapes (FNV's FaceGen shader flag) are drawn with FO4's body shader,
+material and textures, each vertex on the body texture at its nearest body
+point, so skin matches FO4's hands and head. A triangle stretched on the
+texture past the body's own most stretched one (its corners on distant
+parts of the texture) takes the UV mapping of the body triangle nearest
+its centre instead. (FO4's own body in their place, as vanilla outfits draw
+bare skin, was tried and dropped: FNV's clothes are cut for FNV's body.)
+The first-person model is the arm
 segments alone; FO4's first-person body shares the third-person bind data.
 
 See: docs/fork/fo4_spikes.md#spike-4-outfits
@@ -101,12 +96,6 @@ SEAM_REACH = 0.5
 SEAM_BLEND = 3.0
 #: Decimals positions are welded at when finding open edges (vertices split along UV seams).
 WELD_DECIMALS = 3
-#: FO4 units: how far off a body triangle FNV's fitted skin may lie for it to count as covered.
-COVER_DEPTH = 3.0
-#: FO4 units: how far sideways the clothing's nearest point may lie for a body vertex to count as under it.
-CLOTH_ACROSS = 1.0
-#: FO4 bones of the feet: a body piece's vertices weighted to them take FNV's foot shape.
-FOOT_BONES = ('LLeg_Foot', 'LLeg_Toe1', 'RLeg_Foot', 'RLeg_Toe1')
 #: Vanilla body segments (MaleBody.nif): left arm, torso, right arm, left leg, right leg; first person has five.
 SEG_LARM, SEG_TORSO, SEG_RARM, SEG_LLEG, SEG_RLEG = 2, 3, 4, 5, 6
 SEGMENTS, FIRST_PERSON_SEGMENTS = 7, 5
@@ -236,8 +225,8 @@ def _skin_bones(nif, shape: dict) -> tuple:
 @dataclass
 class BodyFit:
     """FNV bone moves onto FO4's skeleton; FNV body vertices moved (`anchors`) and their offsets onto FO4's
-    body; FO4's body (its NIF, bones, bind data, per-vertex weights, positions, normals and UVs, surface
-    samples, its edges where hands and head join with FNV's) and its skin shader block index."""
+    body; FO4's body (its NIF, bones, bind data, per-vertex weights, positions and UVs, surface samples, most
+    UV stretch of a triangle, its edges where hands and head join with FNV's) and its skin shader block index."""
     moves: dict
     anchors: np.ndarray
     offsets: np.ndarray
@@ -251,7 +240,7 @@ class BodyFit:
     skin_shader: int
     uv: np.ndarray = None
     points: np.ndarray = None
-    normals: np.ndarray = None
+    stretch: float = 0.0
     seams: list = None
 
     def retargeted(self, points: np.ndarray, normals: np.ndarray, weights: list) -> tuple:
@@ -286,33 +275,23 @@ class BodyFit:
         dist, near = cKDTree(points[at]).query(points)
         return points + np.array(moves)[near] * np.clip(1.0 - dist / SEAM_BLEND, 0.0, 1.0)[:, None]
 
-    def covered(self, points: np.ndarray, tris: np.ndarray) -> np.ndarray:
-        """Per body triangle: whether the surface of `points`' triangles lies over or under it (module notes)."""
-        samples = surface(points, tris)[0]
-        corners = self.points[self.tris]
-        centres = corners.mean(1)
-        normal = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
-        normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
-        offset = samples[cKDTree(samples).query(centres)[1]] - centres
-        along = (offset * normal).sum(1)
-        across = np.linalg.norm(offset - along[:, None] * normal, axis=1)
-        half = np.max([np.linalg.norm(corners[:, k] - corners[:, (k + 1) % 3], axis=1) for k in range(3)], axis=0) / 2
-        return (across <= half) & (np.abs(along) <= COVER_DEPTH)
-
-    def with_fnv_feet(self, points: np.ndarray, tris: np.ndarray) -> tuple:
-        """(positions, normals) of FO4's body with its feet moved onto the surface of `points`' triangles (fitted
-        FNV skin) by their weight on FOOT_BONES; normals of moved vertices recomputed in the same share."""
-        share = np.clip(self.weights[:, [b in FOOT_BONES for b in self.bones]].sum(1), 0.0, 1.0)
-        samples = surface(points, tris)[0]
-        target = samples[cKDTree(samples).query(self.points)[1]]
-        moved = self.points + share[:, None] * (target - self.points)
-        face = np.cross(moved[self.tris[:, 1]] - moved[self.tris[:, 0]], moved[self.tris[:, 2]] - moved[self.tris[:, 0]])
-        shaped = np.zeros_like(moved)
-        for k in range(3):
-            np.add.at(shaped, self.tris[:, k], face)
-        shaped /= np.maximum(np.linalg.norm(shaped, axis=1, keepdims=True), 1e-12)
-        normals = self.normals + share[:, None] * (shaped - self.normals)
-        return moved, normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+    def on_body_texture(self, points: np.ndarray, tris: np.ndarray) -> tuple:
+        """(source vertex per new vertex, triangles, UVs) of `points`' triangles on FO4's body texture: each
+        vertex at its nearest body point; a triangle stretched past `stretch` on its own vertices, mapped as the
+        body triangle nearest its centre."""
+        samples, owner, bary = self.samples
+        tree = cKDTree(samples)
+        near = tree.query(points)[1]
+        uv = (bary[near][:, :, None] * self.uv[self.tris[owner[near]]]).sum(1)
+        source, new_tris = list(range(len(points))), tris.copy()
+        extra = []
+        for t in np.flatnonzero(uv_stretch(points, uv, tris) > self.stretch):
+            body_tri = self.tris[owner[tree.query(points[tris[t]].mean(0))[1]]]
+            for k, v in enumerate(tris[t]):
+                new_tris[t, k] = len(source)
+                source.append(v)
+                extra.append(_affine_uv(points[v], self.points[body_tri], self.uv[body_tri]))
+        return np.array(source), new_tris, np.vstack([uv] + extra) if extra else uv
 
     def skin(self, points: np.ndarray) -> tuple:
         """(weights, body bone indices), WEIGHTS_PER_VERTEX each, of FO4's body at its nearest surface points."""
@@ -344,11 +323,26 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
             weights[i, b] += w
     samples = surface(points, tris)
     fit = BodyFit(moves, np.zeros((0, 3)), np.zeros((0, 3)), body, bones, nodes, bind, weights, samples, tris,
-                  shape['shader'], np.array([v['uv'] for v in shape['vertices']], float), points,
-                  np.array([v['normal'] for v in shape['vertices']], float) / 127.5 - 1.0)
+                  shape['shader'], np.array([v['uv'] for v in shape['vertices']], float), points)
+    fit.stretch = float(uv_stretch(points, fit.uv, tris).max())
     fit.anchors, fit.offsets, fnv_body = _anchors(fit, export_dir / 'meshes' / FNV_BODIES[sex])
     fit.seams = _seams(points, tris, fnv_body, fit.anchors)
     return fit
+
+
+def uv_stretch(points: np.ndarray, uv: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    """Per triangle: its longest UV edge over its longest edge."""
+    edges = [(tris[:, i], tris[:, (i + 1) % 3]) for i in range(3)]
+    span = np.max([np.linalg.norm(points[a] - points[b], axis=1) for a, b in edges], axis=0)
+    return np.max([np.linalg.norm(uv[a] - uv[b], axis=1) for a, b in edges], axis=0) / np.maximum(span, 1e-9)
+
+
+def _affine_uv(point: np.ndarray, corners: np.ndarray, uvs: np.ndarray) -> np.ndarray:
+    """The UV of `point`, projected onto the plane of triangle `corners`, by that triangle's UV mapping."""
+    a, b = corners[1] - corners[0], corners[2] - corners[0]
+    gram = np.array([[a @ a, a @ b], [a @ b, b @ b]])
+    v, w = np.linalg.solve(gram, np.array([a @ (point - corners[0]), b @ (point - corners[0])]))
+    return uvs[0] + v * (uvs[1] - uvs[0]) + w * (uvs[2] - uvs[0])
 
 
 def open_edges(points: np.ndarray, tris: np.ndarray) -> np.ndarray:
@@ -531,21 +525,14 @@ def _fitted(shape: dict, fit: BodyFit, fnv: tuple) -> tuple:
     return fit.seamed(points, fnv_pos[near], tris), normals, uv, tris
 
 
-def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: bool = False,
-               clothes: 'tuple | None' = None) -> 'WornShape | None':
+def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: bool = False) -> 'WornShape | None':
     """Static shape `shape` (of FNV shape `fnv`) skinned on FO4's body, its triangles in body-part segments
-    (arms only in first person); for a skin shape (`skin`), the piece of FO4's body it covers, but for triangles
-    under `clothes` (the outfit's fitted clothing: points, triangles). None when nothing is left of it."""
+    (arms only in first person), on FO4's body texture when `skin`; None when nothing is left of it."""
     points, normals, uv, tris = _fitted(shape, fit, fnv)
     if skin:
-        shown = tris if clothes is None else tris[~under(points, normals, *clothes)[tris].all(1)]
-        keep = fit.covered(points, shown) if len(shown) else np.zeros(len(fit.tris), bool)
-        body, body_normals = fit.with_fnv_feet(points, tris)
-        if clothes is not None:
-            keep &= ~under(body, body_normals, *clothes)[fit.tris].all(1)
-        tris = fit.tris[keep]
-        points, normals, uv = body, body_normals, fit.uv
-    weights, bones = fit.skin(points) if not skin else _top_weights(fit.weights)
+        source, tris, uv = fit.on_body_texture(points, tris)
+        points, normals = points[source], normals[source]
+    weights, bones = fit.skin(points)
     strength = np.zeros((len(tris), len(fit.bones)))
     for k in range(3):
         np.add.at(strength, (np.repeat(np.arange(len(tris)), WEIGHTS_PER_VERTEX), bones[tris[:, k]].ravel()),
@@ -567,23 +554,6 @@ def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: 
                   translation=(0.0, 0.0, 0.0), rotation=IDENTITY, scale=1.0, collision=NONE, extra=[],
                   controller=NONE, bound=(*map(float, center), float(np.linalg.norm(points - center, axis=1).max())))
     return WornShape(fields, counts, used, points, local, weights)
-
-
-def under(points: np.ndarray, normals: np.ndarray, cover: np.ndarray, cover_tris: np.ndarray) -> np.ndarray:
-    """Per point: whether `cover`'s surface lies over or under it."""
-    samples = surface(cover, cover_tris)[0]
-    offset = samples[cKDTree(samples).query(points)[1]] - points
-    unit = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
-    along = (offset * unit).sum(1)
-    across = np.linalg.norm(offset - along[:, None] * unit, axis=1)
-    return (across <= CLOTH_ACROSS) & (np.abs(along) <= COVER_DEPTH)
-
-
-def _top_weights(dense: np.ndarray) -> tuple:
-    """The WEIGHTS_PER_VERTEX largest of dense per-vertex weights: (weights, bones)."""
-    top = np.argsort(-dense, axis=1)[:, :WEIGHTS_PER_VERTEX]
-    w = np.take_along_axis(dense, top, axis=1)
-    return w / np.maximum(w.sum(1, keepdims=True), 1e-9), top
 
 
 def _copy_material(nif, static, shape: dict) -> tuple:
@@ -621,20 +591,6 @@ def _wanted(geom) -> bool:
                 and not geom.name.lower().startswith(PIPBOY_OFF.encode()))
 
 
-def _clothes(static, root: dict, fnv: dict, fnv_root, fit: BodyFit) -> 'tuple | None':
-    """(points, triangles) of the outfit's clothing shapes (drawn, not skin) fitted onto FO4's body; None without."""
-    parts = []
-    for shape in [static.blocks[i][1] for i in root['children'] if static.blocks[i][0] == 'BSTriShape']:
-        geom = fnv.get(static.strings[shape['name']])
-        if _wanted(geom) and not is_skin(geom):
-            points, _, _, tris = _fitted(shape, fit, fnv_skin(geom, fnv_root))
-            parts.append((points, tris))
-    if not parts:
-        return None
-    starts = np.cumsum([0] + [len(p) for p, _ in parts])
-    return np.vstack([p for p, _ in parts]), np.vstack([t + s for (_, t), s in zip(parts, starts)])
-
-
 def worn(static_bytes: bytes, fnv_path: Path, fit: BodyFit, first_person: bool = False) -> bytes:
     """The FO4 worn NIF of a converted FNV outfit (convert_static's, of the FNV NIF at `fnv_path`), on `fit`'s
     body; arms only when `first_person`."""
@@ -645,11 +601,10 @@ def worn(static_bytes: bytes, fnv_path: Path, fit: BodyFit, first_person: bool =
     nif = nif_file.NifFile()
     nif.blocks.append(('NiNode', dict(root, name=nif.string(static.strings[root['name']]), extra=[], children=[])))
     nodes = _copy_skeleton(nif, fit)
-    clothes = _clothes(static, root, fnv, fnv_root, fit)
     for shape in [static.blocks[i][1] for i in root['children'] if static.blocks[i][0] == 'BSTriShape']:
         geom = fnv.get(static.strings[shape['name']])
         skin = _wanted(geom) and is_skin(geom)
-        made = worn_shape(shape, fit, fnv_skin(geom, fnv_root), first_person, skin, clothes) if _wanted(geom) else None
+        made = worn_shape(shape, fit, fnv_skin(geom, fnv_root), first_person, skin) if _wanted(geom) else None
         if made is None:
             continue
         index = len(nif.blocks)

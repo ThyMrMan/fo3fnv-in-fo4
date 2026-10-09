@@ -2143,9 +2143,8 @@ built, not yet played.
   within 0.5 of that FNV edge (in FNV's frame) moves to the nearest point
   of FO4's edge, the move fading out over 3 units inward (`seamed`). The
   sexy sleepwear's wrists: within 0.02 of FO4's edge after. Played: the
-  wrist still looked wrong (FO4's hand too large for FNV's forearm), so
-  bare skin is now FO4's own body (below); the snap still applies to
-  clothing edges there, such as cuffs.
+  wrist still looked wrong (FO4's hand too large for FNV's forearm);
+  accepted (Skin, below).
 - **Weights:** FO4's body's at each vertex's nearest surface point
   (barycentric), the four largest, normalized. Each shape's skin instance
   lists the body bones it uses; their bind data is the body's, with
@@ -2157,20 +2156,26 @@ built, not yet played.
 - **Left out:** caps, and `pipboyoff`: FO4's player always wears the
   Pip-Boy, so the sleeve rolled for it (`pipboyon`) is the one drawn, NPCs
   included. Vertex colours are dropped.
-- **Skin:** FNV's skin shapes are replaced as vanilla outfits draw bare
-  skin (`BaseFemaleBodyFitted` in WomensCasual\FOutfit.nif): by the piece of
-  FO4's own body they cover, with its shape, UVs, weights, skin-tint
-  shader, material and textures (`FemaleBody_d.dds`), so forearms meet
-  FO4's hands as the body does.
-  - **Covered:** a body triangle whose fitted FNV skin's nearest point lies
-    over or under it (within half its longest edge sideways, 3 units deep).
-  - **Only skin FNV shows counts.** FNV's skin legs run on into the shoes,
-    where FO4's flat feet poked out of heeled shoes; skin and body
-    triangles under the outfit's clothing (within 1 unit sideways) are
-    left out.
-  - **Feet** take FNV's foot shape (posed for its shoes): each vertex moves
-    onto the fitted skin by its FO4 foot and toe weights, which fade into
-    the calf.
+- **Skin:** FNV's skin shapes keep their mesh, fitted like the clothes,
+  and are drawn with FO4's body skin-tint shader, material and textures
+  (`FemaleBody_d.dds`), so their colour matches FO4's hands and head.
+  Each vertex takes the body texture's UV at its nearest body point; a
+  triangle whose corners land on distant parts of the texture (longest
+  UV edge over longest edge past the body's own most stretched triangle,
+  0.0166 female) takes the UV mapping of the body triangle nearest its
+  centre, extended over its corners, on vertices of its own (the
+  negligee's skin: 320 of 2,788 such triangles before, 0 after).
+  - **Accepted (2026-10-08):** FO4's hand is a little large for FNV's
+    thinner forearm, so the wrist does not meet cleanly; and the painted
+    underwear below. Both are for [CBBE and BodySlide](fo4_replacements.md#bodyslide).
+  - **Tried and dropped: FO4's own body in the skin's place** (vanilla's
+    `BaseFemaleBodyFitted` method; commit `ea8d8ac7`). The covered piece
+    of FO4's body (triangles the fitted skin lies over, within half a
+    triangle sideways, 3 units deep), without skin under the clothes and
+    with FNV's foot shape by foot weight. Played: arms through the sleeves
+    (FO4's arm is thicker than FNV's sleeves allow), skin missing along
+    hems and straps, heels without soles. FNV's clothes are cut for FNV's
+    body, so each fix would move the mismatch.
   - **Painted underwear:** FO4's female body texture has a bra and briefs
     painted on (diffuse and normal map), which vanilla outfits keep
     covered; skin FNV shows there (the sexy sleepwear's chest) shows FO4's
@@ -2183,8 +2188,8 @@ built, not yet played.
     it was written with three, 152; the shader reader now refuses a block
     it does not read to the end), then looked patchy and unlike FO4's
     hands. FNV's skin mesh on FO4's body texture (each vertex at its
-    nearest body point's UV) matched the colour, but FO4's hand stayed too
-    large for FNV's thinner forearm, hence FO4's own body.
+    nearest body point's UV) matched the colour; FO4's own body in its
+    place was tried next and dropped (above).
 - **Shine** (played: many outfits too shiny). A specular map's strength
   (R) was FNV's normal-map alpha and its smoothness (G) FNV's glossiness
   as the same lobe width (`smoothness()`): 0.36 to 0.58 on the outfits,
