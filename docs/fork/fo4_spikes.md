@@ -1883,6 +1883,10 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     up front in placement order (`Exterior.placement_order`), so no existing
     record moves (2,231 compared, 0 moved; 22 SCOL references gone). The
     SCOL bases themselves are still written, unused, to keep later ids.
+    (Since [FormIDs](#formids), a part's base takes FNV's id, as when it is
+    placed by itself. The hashed part-base id depended on how the base was
+    first reached: building 5×5 cells instead of 3×3 moved two wires,
+    `CeilingMountWire` and `GeneratorWire`, placed directly there.)
 - **Ninth play:** the split fixed the walls. Cause not pinned down: every
   file-side check of the merged meshes matched FNV (boxes, vertices,
   decoded faces), so the difference is in how FO4 loads a mesh with many

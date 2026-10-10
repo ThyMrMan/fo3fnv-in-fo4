@@ -150,6 +150,43 @@ What a rebuild still spends, profiled:
 - Elric's read and graft over every mesh (15 s);
 - voice (29 s, now skipped for existing files).
 
+## <a id="converters"></a>Per-type converters and the region scope (built 2026-10-10)
+
+**Converters.** `fo4_import/pipeline/converters.py` holds `PLACED`: each
+FNV base type a reference can place, mapped to the cell builder's
+converter for it. `CellBuilder.base()` dispatches on that table instead of
+its chain of type checks.
+
+| Converter | Types |
+|---|---|
+| `record` (its FO4 record; `_make`) | STAT, MSTT, SCOL, LIGH, DOOR, FURN, ACTI |
+| `record`, as a static stand-in (`STATIC_STAND_INS`) | BOOK, KEYM, NOTE, TERM, IDLM |
+| `pickup` (the FO4 item, else a static) | ALCH, AMMO, WEAP, ARMO |
+| `item` (`spike.items`) | MISC, CONT |
+| `tree` (a static from the SpeedTree) | TREE |
+| `sound` (a sound marker) | SOUN |
+
+The census tool's new `Placed` column reads the same table, so it can't
+disagree with the code. A type gets its own converter by adding a builder
+method and pointing its entry at it; a stand-in type leaves
+`STATIC_STAND_INS` when it does. The record types that aren't placed
+(quests, dialogue, packages, NPCs) are next. They are still built for the
+spike's cell quests and stand-ins only.
+
+**Region scope.** `--region X0 Y0 X1 Y1` builds any rectangle of a
+worldspace's cells (`exterior.Exterior` takes the two corners).
+`--around X Y --radius R` remains as the square shorthand.
+`--region -19 -1 -17 1` is the spike block, and it builds the same plugin
+byte for byte as `--around -18 0 --radius 1` did.
+
+**Growing the area moves nothing.** A 5×5 build (`--region -20 -2 -16 2`):
+25 cells, 5,102 records, no FormID duplicated, built in 147 s with the 3×3
+block's meshes cached. Every one of the 3×3 build's 3,772 records keeps its
+FormID, type and EditorID in it. The first try found two that didn't: a
+static collection's part base took a hashed id when it was first reached
+as a part, and FNV's id when first placed by itself. A part's base now
+always takes FNV's id. That moved the block's 20 part-only bases once.
+
 ## <a id="before"></a>Before the pipeline: build and research
 
 In order. **Built** marks what is done.

@@ -3,12 +3,18 @@
 See: docs/fork/fo4_pipeline.md#skeleton
 """
 
+from types import SimpleNamespace
+
 from fo4_import.nif.convert_static import Converted
 from fo4_import.nif.file import NifFile
 from fo4_import.pipeline import code_tag as CT
+from fo4_import.pipeline import converters as CV
 from fo4_import.pipeline import elric_cache as EC
 from fo4_import.pipeline import export_index as EI
 from fo4_import.pipeline import mesh_cache as MC
+from fo4_import.pipeline import run as RUN
+from fo4_import.record_routes import ROUTES
+from fo4_import.spike.cell import CellBuilder
 
 
 def test_an_export_file_is_parsed_once_and_shared(tmp_path):
@@ -53,3 +59,16 @@ def test_elric_runs_only_on_uncached_meshes_and_remembers_a_crash(tmp_path, monk
     assert EC.process({'a': b'one', 'b': b'bad'}) == {'a': b'one!'}
     assert EC.process({'c': b'one', 'd': b'bad', 'e': b'two'}) == {'c': b'one!', 'e': b'two!'}
     assert runs == [['a', 'b'], ['e']]
+
+
+def test_every_placed_type_has_a_converter_and_a_route():
+    """PLACED names only builder methods and routed types; stand-ins are placed."""
+    assert all(callable(getattr(CellBuilder, method, None)) for method in CV.PLACED.values())
+    assert set(CV.PLACED) <= set(ROUTES) and CV.STATIC_STAND_INS <= set(CV.PLACED)
+
+
+def test_a_region_is_its_two_corners_and_around_is_its_square():
+    """--region in any corner order is (low, high); --around is its square."""
+    region = SimpleNamespace(region=[-17, 1, -19, -1], around=(0, 0), radius=1)
+    assert RUN.scope_cells(region) == ((-19, -1), (-17, 1))
+    assert RUN.scope_cells(SimpleNamespace(region=None, around=(-18, 0), radius=1)) == ((-19, -1), (-17, 1))

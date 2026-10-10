@@ -6,8 +6,8 @@ part (ONAM, a STAT) and its placements (DATA: position, rotation, scale; 28
 bytes each). The export drops them, so they are read from FalloutNV.esm.
 A placement rotates as a reference does, Rx(-x)·Ry(-y)·Rz(-z). A part
 reference's FormID is hashed from its SCOL reference's FNV FormID and its
-index in the SCOL's list (PART_SITE), and a base first made for a part from
-the part's FNV FormID (BASE_SITE), so no other record's id moves.
+index in the SCOL's list (PART_SITE); a part's base is its FNV STAT, on
+FNV's FormID as when it is placed by itself.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
@@ -20,8 +20,8 @@ import numpy as np
 from fo4_import.base.install import FALLOUTNV_ESM
 from tes5_import.base.tes5_reader import subrecords, walk
 
-#: derive_formid sites: a part reference (key: SCOL reference FormID, part index) and a part's base.
-PART_SITE, BASE_SITE = 'FNV SCOL part', 'FNV SCOL part base'
+#: derive_formid site of a part reference (key: SCOL reference FormID, part index).
+PART_SITE = 'FNV SCOL part'
 PLACEMENT = struct.Struct('<7f')
 
 

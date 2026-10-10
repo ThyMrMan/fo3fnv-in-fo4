@@ -1,6 +1,6 @@
-"""A block of an FNV worldspace as an FO4 worldspace, for the cell spike.
+"""A rectangle of an FNV worldspace's cells as an FO4 worldspace, for the cell spike.
 
-The cells within `radius` of a grid cell keep their land (heights, normals,
+The cells keep their land (heights, normals,
 colors and every texture layer: FO4's LAND is FNV's) and references; the
 persistent references standing in the block (doors) go in the worldspace's
 persistent cell. The worldspace takes the Commonwealth's climate, water and
@@ -41,18 +41,18 @@ WORLD_CHILDREN, BLOCK, SUB_BLOCK, CELL_CHILDREN, PERSISTENT_CHILDREN, TEMPORARY_
 
 
 class Exterior:
-    """The FNV cells, land and references of one block; `refs` lists every reference placed."""
+    """The FNV cells, land and references of one rectangle of cells; `refs` lists every reference placed."""
 
-    def __init__(self, export_dir: Path, all_refs: list, world: str, center: tuple, radius: int):
-        """The block of FNV worldspace `world` within `radius` cells of `center` (grid x, y)."""
+    def __init__(self, export_dir: Path, all_refs: list, world: str, lo: tuple, hi: tuple):
+        """The cells of FNV worldspace `world` from grid `lo` to `hi` (x, y; both included)."""
         self.export_dir = export_dir
         self.world = next(r for r in export_records(export_dir, 'WRLD') if r.get('EditorID') == world)
         cells = [r for r in export_records(export_dir, 'CELL')
                  if r.get('ParentWRLD') == self.world['FormID']]
         self.persistent_cell = next(r['FormID'] for r in cells if int(r['RecordFlags']) & PERSISTENT)
         self.cells = {(int(r['XCLC.X']), int(r['XCLC.Y'])): r for r in cells if 'XCLC.X' in r and not
-                      int(r['RecordFlags']) & PERSISTENT and max(abs(int(r['XCLC.X']) - center[0]),
-                                                                abs(int(r['XCLC.Y']) - center[1])) <= radius}
+                      int(r['RecordFlags']) & PERSISTENT and lo[0] <= int(r['XCLC.X']) <= hi[0]
+                      and lo[1] <= int(r['XCLC.Y']) <= hi[1]}
         own = {r['FormID']: grid for grid, r in self.cells.items()}
         self.by_cell = {grid: [] for grid in self.cells}
         self.persistent = []

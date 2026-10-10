@@ -27,7 +27,7 @@ from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
 from fo4_import.spike.equipment import Equipment
-from fo4_import.spike.scol import BASE_SITE, PART_SITE, Parts, compose
+from fo4_import.spike.scol import PART_SITE, Parts, compose
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
 from fo4_import.spike import character, replacements, skeleton
@@ -52,6 +52,7 @@ from fo4_import.spike.script import compile_into
 from fo4_import.spike.quest import objective_globals, quest_record
 from fo4_import.spike.statics import tree_assets, write_assets
 from fo4_import.pipeline import elric_cache
+from fo4_import.pipeline.converters import PLACED, placed_types
 from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from script_convert.context_setup import load_records
@@ -77,12 +78,8 @@ TREE_SITE = 'FNV TREE'
 LOAD_DOOR_SITE = 'FNV DOOR load'
 #: derive_formid site of a generated record (CellBuilder.new_id; key: its owner and count there).
 MADE_SITE = 'FNV made'
-#: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
-AS_STATIC = ('STAT', 'MSTT', 'SCOL', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
-#: FNV base types converted as themselves (spike.items), and the types whose engine objects FO4 may share.
-ITEM_BASES, SHARED_TYPES = ('MISC', 'CONT'), ('STAT', 'MISC')
-#: Item types placed as FO4 items (their static when no item converts).
-PICKUPS = ('ALCH', 'AMMO', 'WEAP', 'ARMO')
+#: The types whose engine objects FO4 may share.
+SHARED_TYPES = ('STAT', 'MISC')
 #: Stand-in doors in QASmoke: the first one's position and the spacing along X.
 DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
 #: Where a stand-in door puts the player: offset from the door, facing +X, away from it.
@@ -201,45 +198,52 @@ class CellBuilder:
         self.weapons.add(self.meshes[model][0])
         return self.meshes[model]
 
-    def base(self, fnv_fid: int, new_id=None) -> 'int | None':
-        """The FO4 base for an FNV base FormID, made on first use (id from `new_id`, else FNV's); None: not
-        converted."""
+    def base(self, fnv_fid: int) -> 'int | None':
+        """The FO4 base for an FNV base FormID, made once by its type's converter (pipeline.converters.PLACED);
+        None: not converted."""
         if fnv_fid < ENGINE_IDS:
             return self.items.shared.get(fnv_fid)
-        if self.items.records.get(fnv_fid, ('',))[0] in ITEM_BASES:
-            return self.items.item(fnv_fid)
-        sig, rec = self.bases.get(fnv_fid, (None, None))
-        if fnv_fid in self.made:
-            return self.made[fnv_fid]
-        if sig in PICKUPS:
-            self.made[fnv_fid] = self._pickup(fnv_fid, sig, rec)
-        elif sig == 'TREE':
-            self.made[fnv_fid] = self._tree(fnv_fid, rec)
-        elif sig == 'SOUN':
-            self.made[fnv_fid] = self.sounds.marker(fnv_fid)
-        else:
-            made = sig in ('LIGH', 'ACTI') or (sig and world_model(rec))
-            self.made[fnv_fid] = self._make(sig, rec, new_id or (lambda: self.fnv_id(fnv_fid))) if made else None
+        if fnv_fid not in self.made:
+            sig, rec = self.bases.get(fnv_fid) or self._item_base(fnv_fid)
+            self.made[fnv_fid] = getattr(self, PLACED[sig])(fnv_fid, sig, rec) if sig in PLACED else None
         return self.made[fnv_fid]
 
-    def _tree(self, fnv_fid: int, rec: dict) -> int:
-        """The FO4 static for FNV TREE `rec`, its mesh generated from its SpeedTree; FormID hashed from FNV's."""
+    def _item_base(self, fnv_fid: int) -> tuple:
+        """(type, record) of an FNV item base items.item() makes; (None, None) if not."""
+        found = self.items.records.get(fnv_fid, (None, None))
+        return found if found[0] in placed_types('item') else (None, None)
+
+    def item(self, fnv_fid: int, _sig, _rec) -> 'int | None':
+        """Converter: an FNV misc item or container as itself (spike.items)."""
+        return self.items.item(fnv_fid)
+
+    def sound(self, fnv_fid: int, _sig, _rec) -> int:
+        """Converter: an FNV sound marker (spike.sounds)."""
+        return self.sounds.marker(fnv_fid)
+
+    def record(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
+        """Converter: `rec`'s FO4 record (_make); None for no mesh, light or script."""
+        return self._make(sig, rec, self.fnv_id(fnv_fid)) if sig in ('LIGH', 'ACTI') or world_model(rec) else None
+
+    def tree(self, fnv_fid: int, _sig, rec: dict) -> int:
+        """Converter: the FO4 static for FNV TREE `rec`, its mesh generated from its SpeedTree; FormID hashed
+        from FNV's."""
         fid = self.writer.derive_formid(TREE_SITE, f'{fnv_fid:08X}')
         model, bounds = self.meshes[world_model(rec)] = tree_assets(self.export_dir, rec, self.data_dir)
         self.writer.add_record('STAT', R.pack_stat(fid, f'FNV_{rec["EditorID"]}', model, bounds or _bounds(rec)))
         self.counts['TREE'] += 1
         return fid
 
-    def _pickup(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
-        """The FO4 item for placed FNV item `rec`; without one, its static (FNV's FormID)."""
+    def pickup(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
+        """Converter: the FO4 item for placed FNV item `rec`; without one, its static (FNV's FormID)."""
         item = self.items.item(fnv_fid)
         if item is not None or not world_model(rec):
             return item
-        return self._make(sig, rec, lambda: self.fnv_id(fnv_fid))
+        return self._make(sig, rec, self.fnv_id(fnv_fid))
 
-    def _make(self, sig: str, rec: dict, new_id) -> int:
-        """Write the FO4 record for FNV base `rec` of type `sig` on FormID `new_id()`; its FormID."""
-        fid, edid = new_id(), f'FNV_{rec["EditorID"]}'
+    def _make(self, sig: str, rec: dict, fid: int) -> int:
+        """Write the FO4 record for FNV base `rec` of type `sig` on FormID `fid`; its FormID."""
+        edid = f'FNV_{rec["EditorID"]}'
         model, bounds = self.mesh(world_model(rec)) if world_model(rec) else ('', None)
         bounds = bounds or _bounds(rec)
         if sig == 'LIGH':
@@ -304,7 +308,7 @@ def find_cell(export_dir: Path, edid: str) -> dict:
 def placed_bases(export_dir: Path, used: set) -> dict:
     """{FNV FormID: (type, record)} of the used bases this spike converts."""
     out = {}
-    for sig in AS_STATIC + ('LIGH', 'DOOR', 'FURN', 'ACTI', 'TREE', 'SOUN'):
+    for sig in placed_types('record', 'pickup', 'tree', 'sound'):
         for rec in export_records(export_dir, sig):
             fid = int(rec['FormID'], 16)
             if fid in used:
@@ -378,14 +382,13 @@ def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
     position, angle = _place(ref)
     scale, out = float(ref.get('XSCL.Scale', 1.0)), b''
     disabled = bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED)
-    derive = builder.writer.derive_formid
     for index, (part, placement) in enumerate(builder.parts.parts[int(ref['NAME'], 16)]):
-        base = builder.base(part, lambda: derive(BASE_SITE, part))
+        base = builder.base(part)
         if base is None:
             builder.counts['SCOL part skipped'] += 1
             continue
         at, turn, size = compose(position, angle, scale, placement)
-        fid = derive(PART_SITE, (ref['FormID'], index))
+        fid = builder.writer.derive_formid(PART_SITE, (ref['FormID'], index))
         out += R.pack_refr(fid, base, at, turn, size, persistent=False, disabled=disabled)
         builder.counts['SCOL parts placed'] += 1
     builder.counts['SCOL references split'] += 1
@@ -616,7 +619,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made.
 
     `scripts_dir` holds the converted scripts; the activators' are attached and compiled into <data_dir>/Scripts.
-    `exterior` is (worldspace, (grid x, y), radius): that block of the worldspace too (exterior.Exterior).
+    `exterior` is (worldspace, (x, y) low, (x, y) high): that rectangle of cells too (exterior.Exterior).
     `table` is the replacement table (spike.replacements), its other plugins found in `plugin_dirs`.
     """
     cell = find_cell(export_dir, cell_edid)

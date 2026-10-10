@@ -1,9 +1,9 @@
-"""Build an FNV interior cell (and a block of a worldspace) for Fallout 4: the scope's meshes converted in
+"""Build an FNV interior cell (and a rectangle of a worldspace's cells) for Fallout 4: the scope's meshes converted in
 worker processes into the mesh cache, then the spike's records and assets (spike.cell.build).
 
     py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FNVCellSpike.esp
-        --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --around -18 0
-        --radius 1 GSDocMitchellHouse
+        --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --region -19 -1 -17 1
+        GSDocMitchellHouse
 
 See: docs/fork/fo4_pipeline.md#skeleton
 """
@@ -14,14 +14,12 @@ from pathlib import Path
 
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
+from fo4_import.pipeline.converters import placed_types
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.spike import replacements
-from fo4_import.spike.cell import ITEM_BASES, build, find_cell, placed_bases, world_model
+from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
 from fo4_import.spike.exterior import Exterior
-
-#: Placed base types whose mesh is not convert()'s (generated trees; sound markers have none).
-NOT_CONVERTED = ('TREE', 'SOUN')
 
 
 def scope_models(export_dir: Path, cell_edid: str, exterior: 'tuple | None') -> list:
@@ -32,10 +30,19 @@ def scope_models(export_dir: Path, cell_edid: str, exterior: 'tuple | None') -> 
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     refs += Exterior(export_dir, all_refs, *exterior).refs if exterior else []
     used = {int(r['NAME'], 16) for r in refs}
-    recs = [rec for sig, rec in placed_bases(export_dir, used).values() if sig not in NOT_CONVERTED]
-    recs += [r for sig in ITEM_BASES for r in export_records(export_dir, sig) if int(r['FormID'], 16) in used]
+    recs = [rec for sig, rec in placed_bases(export_dir, used).values() if sig in placed_types('record', 'pickup')]
+    recs += [r for sig in placed_types('item') for r in export_records(export_dir, sig) if int(r['FormID'], 16) in used]
     paths = {export_dir / 'meshes' / world_model(r).replace('/', '\\').lower() for r in recs if world_model(r)}
     return sorted(p for p in paths if p.exists())
+
+
+def scope_cells(args: argparse.Namespace) -> tuple:
+    """(low (x, y), high (x, y)) grid corners of the cells to build: --region, else --around and --radius."""
+    if args.region:
+        x0, y0, x1, y1 = args.region
+        return (min(x0, x1), min(y0, y1)), (max(x0, x1), max(y0, y1))
+    (x, y), r = args.around, args.radius
+    return (x - r, y - r), (x + r, y + r)
 
 
 def arguments() -> argparse.Namespace:
@@ -45,9 +52,12 @@ def arguments() -> argparse.Namespace:
     ap.add_argument('--out', required=True, type=Path, help='Plugin to write')
     ap.add_argument('--data', required=True, type=Path, help='Data folder for meshes, materials and textures')
     ap.add_argument('--scripts', type=Path, help='Converted FNV scripts (script_convert.pipeline --target fallout4)')
-    ap.add_argument('--world', help='FNV worldspace editor ID to add a block of (with --around)')
-    ap.add_argument('--around', type=int, nargs=2, default=(0, 0), metavar=('X', 'Y'), help='The block\'s center cell')
-    ap.add_argument('--radius', type=int, default=1, help='Cells around the center (1: a 3x3 block)')
+    ap.add_argument('--world', help='FNV worldspace editor ID to add cells of (with --region, or --around)')
+    ap.add_argument('--region', type=int, nargs=4, metavar=('X0', 'Y0', 'X1', 'Y1'),
+                    help='The rectangle of grid cells to build, corners included')
+    ap.add_argument('--around', type=int, nargs=2, default=(0, 0), metavar=('X', 'Y'),
+                    help='Without --region: the center cell of a square block')
+    ap.add_argument('--radius', type=int, default=1, help='Without --region: cells around the center (1: 3x3)')
     ap.add_argument('--replacements', type=Path, help='A replacement table laid over the defaults (JSON)')
     ap.add_argument('--plugin-dirs', nargs='*', default=(), help='Folders holding plugins the table names')
     ap.add_argument('--workers', type=int, default=0, help='Mesh conversion processes (default: all CPUs but one)')
@@ -60,7 +70,7 @@ def main():
     args = arguments()
     configure_multiprocessing()
     create_pool_job()
-    exterior = (args.world, tuple(args.around), args.radius) if args.world else None
+    exterior = (args.world, *scope_cells(args)) if args.world else None
     started = time.time()
     models = scope_models(args.export, args.cell, exterior)
     warm(models, args.export, args.workers)
