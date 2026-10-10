@@ -6,7 +6,9 @@ persistent references standing in the block (doors) go in the worldspace's
 persistent cell. The worldspace takes the Commonwealth's climate, water and
 map settings. Landscape textures become LTEX records with FO4 texture sets:
 FNV's diffuse and normal map, and a specular map from the normal map's
-alpha, and the grasses FNV grows on them (grass.py). LOD is not converted.
+alpha, and the grasses FNV grows on them (grass.py). A cell's navmeshes
+(navmesh.py) go in its temporary group, pathing cell (world, grid). LOD is
+not converted.
 Records keep FNV's FormIDs; a texture set's is hashed from its LTEX.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
@@ -21,6 +23,7 @@ from asset_convert.texture.dds_codec import write_normal_dds
 from asset_convert.texture.landscape_normals import SPECULAR_ALPHA
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.grass import Grasses
+from fo4_import.spike.navmesh import grid_parent
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_image
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -70,10 +73,15 @@ class Exterior:
         """Every reference in group()'s order: the persistent cell's, then each cell's."""
         return self.persistent + [r for grid in sorted(self.cells) for r in self.by_cell[grid]]
 
-    def group(self, builder, place, data_dir: Path) -> bytes:
+    def pathing(self, builder) -> dict:
+        """{FNV cell: (FO4 worldspace, grid)}: each grid cell's navmesh pathing cell."""
+        world = builder.fnv_id(self.world['FormID'])
+        return {r['FormID']: (world, grid_parent(*grid)) for grid, r in self.cells.items()}
+
+    def group(self, builder, place, data_dir: Path, navmesh: dict) -> bytes:
         """The WRLD group's body: worldspace, persistent cell, grid cells; `place(refs)` packs (persistent, temporary).
 
-        Records made here (LTEX, TXST) are added to `builder.writer`.
+        `navmesh` holds each FNV cell's NAVM records. Records made here (LTEX, TXST) are added to `builder.writer`.
         """
         world, persistent_cell = builder.fnv_id(self.world['FormID']), builder.fnv_id(self.persistent_cell)
         cells, kept = {}, place(self.persistent)[0]
@@ -82,7 +90,8 @@ class Exterior:
             kept += persistent
             land = self.land.get(self.cells[grid]['FormID'])
             land_record = self._land(builder, land, data_dir) if land else b''
-            cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + temporary)
+            navm = navmesh.get(self.cells[grid]['FormID'], b'')
+            cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + navm + temporary)
         record = self._world(builder, world)
         children = _cell(persistent_cell, PERSISTENT, (0, 0), kept, b'')
         children += _blocks({grid: _cell(fid, 0, grid, b'', temp) for grid, (fid, temp) in cells.items()})

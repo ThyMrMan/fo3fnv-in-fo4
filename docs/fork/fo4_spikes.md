@@ -1179,7 +1179,9 @@ Fallout4.esm's 781 interior navmeshes:
 - **Triangle flags** are the same bits in FNV and FO4 (xEdit's shared
   `wbNavmeshTriangleFlags`: edge links, Door 0x400, Found 0x800, Water,
   Preferred), so FNV's flags and cover flags carry over. Edge links to
-  other cells' navmeshes are dropped and their edges left open.
+  navmeshes in the build are kept and gain FO4's facing-edge byte; links
+  to any other navmesh are dropped and their edges left open
+  ([exterior navmesh](fo4_pipeline.md#exterior-navmesh)).
 - **The record** is NVNM and an empty MNAM (pre-cut map; empty in 7,723 of
   7,799). It is a temporary child of the cell.
 - **NAVI.** Vanilla registers every navmesh in the singleton `0x00000FF1`

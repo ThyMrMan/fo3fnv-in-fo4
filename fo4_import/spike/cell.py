@@ -506,10 +506,10 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
     return fid
 
 
-def _navmesh(builder: CellBuilder, export_dir: Path, fnv_cell: str, cell_fid: int, ids: dict) -> bytes:
-    """The cell's FNV navmeshes as FO4 NAVM records, registered in the plugin's NAVI override."""
-    recs = [r for r in export_records(export_dir, 'NAVM') if r.get('DATA.Cell') == fnv_cell]
-    records, infos = navmeshes(recs, cell_fid, ids, builder.fnv_id)
+def _navmesh(builder: CellBuilder, export_dir: Path, pathing: dict, ids: dict) -> dict:
+    """{FNV cell: FO4 NAVM records} of the FNV navmeshes in `pathing`'s cells, linked and registered in NAVI."""
+    recs = [r for r in export_records(export_dir, 'NAVM') if r.get('DATA.Cell') in pathing]
+    records, infos = navmeshes(recs, pathing, ids, builder.fnv_id)
     if infos:
         builder.writer.add_record('NAVI', navi(builder.fo4, infos))
         builder.counts['NAVM'] += len(recs)
@@ -649,13 +649,15 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     persistent += actors
     _quests(builder, export_dir, quest_recs, quests, {**ids, **builder.actor_ids})
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
-    temporary += _navmesh(builder, export_dir, cell['FormID'], cell_fid, ids)
+    navmesh = _navmesh(builder, export_dir, {cell['FormID']: (0, cell_fid), **(world.pathing(builder) if world else {})},
+                       {**ids, **ext_ids})
+    temporary += navmesh.get(cell['FormID'], b'')
     _cell_group(builder, export_dir, cell, cell_fid, vanilla, (persistent + builder.poses.placed, temporary, qa_refs))
     if world:
         for ref in world.placement_order():
             builder.base(int(ref['NAME'], 16))
         builder.writer.add_raw_group('WRLD', world.group(builder, lambda r: _placed(builder, r, ext_ids, teleports),
-                                                         data_dir))
+                                                         data_dir, navmesh))
     return _finish(builder, export_dir, data_dir, out, scripts_dir)
 
 

@@ -22,6 +22,7 @@ from fo4_import.spike import gun_choice as GC
 from fo4_import.spike import sounds as SO
 from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
+from fo4_import.spike import navmesh as NM
 from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
 from fo4_import.spike import skeleton as S
@@ -288,6 +289,26 @@ def test_a_generated_formid_depends_only_on_its_owner():
     second = _ids()[0]
     assert (new_id(second, 'DIAL y'), new_id(second, 'DIAL x'), new_id(second, 'DIAL x')) == (b, a, a2)
     assert len({a, a2, b}) == 3
+
+
+def test_an_edge_link_inside_the_build_gains_the_facing_edge_and_one_outside_is_opened():
+    """A's edge 1-2 links to B's triangle (whose edge 2-0 faces back); its edge 2-0 links to C, not built."""
+    a = [(0, 0, 0), (10, 0, 0), (0, 10, 0)], [[0, 1, 2, -1, 0, 1, 0x6, 0]], [(0, 'B', 0), (0, 'C', 0)]
+    b = [(10, 0, 0), (10, 10, 0), (0, 10, 0)], [[0, 1, 2, -1, -1, -1, 0, 0]], []
+    out = NM.linked({'A': a, 'B': b})
+    assert out['A'][1:] == ([[0, 1, 2, -1, 0, -1, 0x2, 0]], [(0, 'B', 0, 2)])
+    assert out['B'][1:] == ([[0, 1, 2, -1, -1, -1, 0, 0]], [])
+
+
+def test_the_facing_edge_holds_the_middle_of_a_split_border():
+    """A border split differently on each side: the edge under the link's midpoint, not a shared corner."""
+    verts, tri = [(0, 0, 0), (0, 20, 0), (-10, 10, 0)], [0, 1, 2]
+    assert NM.facing(((0, 4, 0), (0, 8, 0)), verts, tri) == 0
+
+
+def test_an_exterior_pathing_cell_stores_y_then_x():
+    """As all 7,113 Fallout4.esm exterior navmeshes do."""
+    assert struct.pack('<I', NM.grid_parent(-18, 3)) == struct.pack('<hh', 3, -18)
 
 
 def test_the_census_flags_an_unrouted_type_and_a_missing_target():

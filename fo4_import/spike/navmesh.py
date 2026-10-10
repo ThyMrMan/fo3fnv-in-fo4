@@ -1,16 +1,20 @@
 """FNV navmeshes as FO4 NAVM records, for the cell spike.
 
 FNV's navmesh is authored: vertices, triangles with their adjacency, flags
-(the same bits in both games) and cover flags, and door links carry over;
-only the container changes, to FO4's NVNM version 15. A triangle's Height
-(the clearance above it) is FLT_MAX, as vanilla writes for an unbounded one;
-cover and waypoints are empty. Links to navmeshes outside the cell are
-dropped (the edge left open). The navmeshes are registered in an override of
-Fallout4.esm's NAVI singleton, which carries vanilla's precomputed paths.
+(the same bits in both games), cover flags, door links and edge links to
+neighbouring navmeshes carry over; only the container changes, to FO4's
+NVNM version 15. A triangle's Height (the clearance above it) is FLT_MAX, as
+vanilla writes for an unbounded one; cover and waypoints are empty. An edge
+link gains the edge of the linked triangle that faces back (`facing`); a link
+to a navmesh outside the build is dropped (the edge left open). The navmeshes
+are registered in an override of Fallout4.esm's NAVI singleton, which carries
+vanilla's precomputed paths.
 
 See: docs/fork/fo4_spikes.md#spike-2-navmesh
+See: docs/fork/fo4_pipeline.md#exterior-navmesh
 """
 
+import math
 import struct
 
 from fo4_import.base.writer import pack_fo4_record
@@ -34,18 +38,73 @@ NO_CEILING = struct.unpack('<f', b'\xff\xff\x7f\x7f')[0]
 EDGE_LINK_BITS = (0x1, 0x2, 0x4)
 #: FNV door link (NVDP): door reference, triangle.
 FNV_DOOR = struct.Struct('<IH2x')
+#: FNV edge link (NVEX): type, navmesh, triangle; FO4's adds the linked triangle's edge.
+FNV_EDGE, FO4_EDGE = struct.Struct('<IIH'), struct.Struct('<IIhB')
 
 
-def triangles(raw: bytes) -> list:
-    """FNV NVTR -> [[v0, v1, v2, e01, e12, e20, flags, cover]], edge links opened (edge -1, link bit cleared)."""
-    out = []
-    for i in range(len(raw) // FNV_TRIANGLE.size):
-        tri = list(FNV_TRIANGLE.unpack_from(raw, i * FNV_TRIANGLE.size))
-        for slot, bit in enumerate(EDGE_LINK_BITS):
-            if tri[6] & bit:
-                tri[3 + slot], tri[6] = -1, tri[6] & ~bit
-        out.append(tri)
+def grid_parent(x: int, y: int) -> int:
+    """An exterior pathing cell's parent field: its grid, Y then X."""
+    return struct.unpack('<I', struct.pack('<hh', y, x))[0]
+
+
+def read(rec: dict) -> tuple:
+    """FNV NAVM `rec` -> (vertices, triangles as FNV_TRIANGLE lists, edge links [(type, FNV navmesh, triangle)])."""
+    tris, raw = get_hex_bytes(rec, 'NVTR'), get_hex_bytes(rec, 'NVEX')
+    links = [FNV_EDGE.unpack_from(raw, i * FNV_EDGE.size) for i in range(len(raw) // FNV_EDGE.size)]
+    return (parse_vertices(get_hex_bytes(rec, 'NVVX')),
+            [list(FNV_TRIANGLE.unpack_from(tris, i * FNV_TRIANGLE.size)) for i in range(len(tris) // FNV_TRIANGLE.size)],
+            [(kind, f'{navm:08X}', tri) for kind, navm, tri in links])
+
+
+def _seg_dist(p: tuple, a: tuple, b: tuple) -> float:
+    """Distance in x, y from `p` to the segment `a`-`b`."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = dx * dx + dy * dy
+    t = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length)) if length else 0.0
+    return math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
+
+
+def facing(edge: tuple, verts: list, tri: list) -> int:
+    """The slot of `tri`'s edge nearest the middle of `edge` (two points)."""
+    mid = ((edge[0][0] + edge[1][0]) / 2, (edge[0][1] + edge[1][1]) / 2)
+    return min(range(3), key=lambda s: _seg_dist(mid, verts[tri[s]], verts[tri[(s + 1) % 3]]))
+
+
+def linked(meshes: dict) -> dict:
+    """{FNV navmesh: (vertices, triangles, edge links)} with each link kept when it reaches a navmesh in `meshes`.
+
+    `meshes` is read()'s output by FNV navmesh FormID. A kept link is
+    (type, FNV navmesh, triangle, facing edge); a triangle's linked edge holds
+    its index in the new list. Any other link is dropped and its edge opened.
+    """
+    out = {}
+    for fid, (verts, tris, targets) in meshes.items():
+        links = []
+        out[fid] = verts, [_relink(list(tri), verts, meshes, targets, links) for tri in tris], links
     return out
+
+
+def _relink(tri: list, verts: list, meshes: dict, targets: list, links: list) -> list:
+    """`tri` with each linked edge pointing at its link appended to `links`, or opened when it leaves `meshes`."""
+    for slot, bit in enumerate(EDGE_LINK_BITS):
+        if not tri[6] & bit:
+            continue
+        link = _link(meshes, targets, tri[3 + slot], (verts[tri[slot]], verts[tri[(slot + 1) % 3]]))
+        if link:
+            tri[3 + slot] = len(links)
+            links.append(link)
+        else:
+            tri[3 + slot], tri[6] = -1, tri[6] & ~bit
+    return tri
+
+
+def _link(meshes: dict, targets: list, index: int, edge: tuple) -> 'tuple | None':
+    """FNV edge link `index` of `targets` as (type, navmesh, triangle, facing edge); None if it leaves `meshes`."""
+    if not 0 <= index < len(targets) or targets[index][1] not in meshes:
+        return None
+    kind, other, tri = targets[index]
+    verts, tris, _ = meshes[other]
+    return (kind, other, tri, facing(edge, verts, tris[tri])) if tri < len(tris) else None
 
 
 def door_links(raw: bytes, ids: dict) -> list:
@@ -66,35 +125,44 @@ def _grid(verts: list, tris: list) -> bytes:
     return out
 
 
-def pack_nvnm(cell_fid: int, verts: list, tris: list, doors: list) -> bytes:
-    """An interior NVNM: vertices, triangles, no edge links, `doors` [(triangle, door)], no cover or waypoints."""
-    out = struct.pack('<4I', NVNM_VERSION, PATHING_CELL_CRC, 0, cell_fid)
+def pack_nvnm(pathing: tuple, verts: list, tris: list, links: list, doors: list) -> bytes:
+    """An NVNM in pathing cell `pathing` (world, parent): vertices, triangles, FO4 edge links, `doors`
+    [(triangle, door)], no cover or waypoints."""
+    out = struct.pack('<4I', NVNM_VERSION, PATHING_CELL_CRC, *pathing)
     out += struct.pack('<I', len(verts)) + b''.join(struct.pack('<3f', *v) for v in verts)
     out += struct.pack('<I', len(tris)) + b''.join(FO4_TRIANGLE.pack(*t[:6], NO_CEILING, 0, *t[6:]) for t in tris)
-    out += struct.pack('<II', 0, len(doors)) + b''.join(struct.pack('<hII', t, PATHING_DOOR_CRC, d) for t, d in doors)
+    out += struct.pack('<I', len(links)) + b''.join(FO4_EDGE.pack(*link) for link in links)
+    out += struct.pack('<I', len(doors)) + b''.join(struct.pack('<hII', t, PATHING_DOOR_CRC, d) for t, d in doors)
     return out + struct.pack('<3I', 0, 0, 0) + _grid(verts, tris)
 
 
-def navmeshes(rec_list: list, cell_fid: int, ids: dict, fid_of) -> tuple:
-    """(NAVM records, NVMI subrecords) of a cell's FNV navmeshes; `fid_of(FNV FormID)` gives each one's."""
-    records, infos = b'', b''
-    for rec in rec_list:
-        verts, tris = parse_vertices(get_hex_bytes(rec, 'NVVX')), triangles(get_hex_bytes(rec, 'NVTR'))
-        if not verts or not tris:
-            continue
-        fid, doors = fid_of(rec['FormID']), door_links(get_hex_bytes(rec, 'NVDP'), ids)
-        nvnm = pack_nvnm(cell_fid, verts, tris, doors)
-        records += pack_fo4_record('NAVM', fid, 0, pack_subrecord('NVNM', nvnm) + pack_subrecord('MNAM', b''))
-        infos += pack_subrecord('NVMI', _info(fid, cell_fid, verts, sorted({d for _, d in doors})))
+def navmeshes(recs: list, pathing: dict, ids: dict, fid_of) -> tuple:
+    """({FNV cell: NAVM records}, NVMI subrecords) of FNV navmeshes `recs`, linked among themselves.
+
+    `pathing` gives each FNV cell's pathing cell (world, parent), `ids` the
+    FO4 door references, `fid_of(FNV FormID)` each navmesh's FormID.
+    """
+    recs = {r['FormID']: r for r in recs}
+    meshes = linked({fid: m for fid, m in ((fid, read(r)) for fid, r in recs.items()) if m[0] and m[1]})
+    records, infos = {}, b''
+    for fnv, (verts, tris, links) in meshes.items():
+        rec, fid = recs[fnv], fid_of(fnv)
+        cell, doors = pathing[rec['DATA.Cell']], door_links(get_hex_bytes(rec, 'NVDP'), ids)
+        fo4_links = [(kind, fid_of(other), tri, edge) for kind, other, tri, edge in links]
+        nvnm = pack_nvnm(cell, verts, tris, fo4_links, doors)
+        records[rec['DATA.Cell']] = records.get(rec['DATA.Cell'], b'') + pack_fo4_record(
+            'NAVM', fid, 0, pack_subrecord('NVNM', nvnm) + pack_subrecord('MNAM', b''))
+        reached = sorted({link[1] for link in fo4_links} - {fid})
+        infos += pack_subrecord('NVMI', _info(fid, cell, verts, reached, sorted({d for _, d in doors})))
     return records, infos
 
 
-def _info(fid: int, cell_fid: int, verts: list, doors: list) -> bytes:
-    """An NVMI body: navmesh, flags, centre, no edge links, its door refs, no island, pathing cell."""
+def _info(fid: int, pathing: tuple, verts: list, reached: list, doors: list) -> bytes:
+    """An NVMI body: navmesh, flags, centre, the navmeshes it links to, its door refs, no island, pathing cell."""
     centre = [sum(v[i] for v in verts) / len(verts) for i in range(3)]
-    out = struct.pack('<2I4f2I', fid, 0, *centre, 0.0, 0, 0) + struct.pack('<I', len(doors))
-    out += b''.join(struct.pack('<II', PATHING_DOOR_CRC, d) for d in doors)
-    return out + struct.pack('<B3I', 0, PATHING_CELL_CRC, 0, cell_fid)
+    out = struct.pack('<2I4fI', fid, 0, *centre, 0.0, len(reached)) + struct.pack(f'<{len(reached)}I', *reached)
+    out += struct.pack('<2I', 0, len(doors)) + b''.join(struct.pack('<II', PATHING_DOOR_CRC, d) for d in doors)
+    return out + struct.pack('<B3I', 0, PATHING_CELL_CRC, *pathing)
 
 
 def navi(fo4: bytes, infos: bytes) -> bytes:

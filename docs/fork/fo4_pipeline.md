@@ -187,6 +187,46 @@ static collection's part base took a hashed id when it was first reached
 as a part, and FNV's id when first placed by itself. A part's base now
 always takes FNV's id. That moved the block's 20 part-only bases once.
 
+## <a id="exterior-navmesh"></a>Exterior navmesh (built 2026-10-10)
+
+`spike/navmesh.py` converts every navmesh in the build in one pass: the
+interior's and each exterior cell's. An exterior navmesh goes in its cell's
+temporary group. Its pathing cell is the worldspace plus the grid, stored
+Y then X as in all 7,113 of Fallout4.esm's exterior navmeshes. One NAVI
+override registers them all.
+
+**Edge links.** FNV's NVEX links a triangle's edge to a triangle in a
+neighboring navmesh (type, navmesh, triangle), and so does FO4's NVNM. FO4
+adds one byte: which edge of the linked triangle faces back. A census of
+Fallout4.esm's 283,269 links:
+
+- Where the two edges share both ends, the byte is the shared edge in
+  207,727 of 207,776.
+- Most of the rest are borders split differently on each side. The edge
+  nearest the middle of the linking edge matches vanilla's byte in 269,093
+  of 269,278 portal links, and 13,080 of 13,991 ledge links.
+
+`facing()` uses that nearest-edge rule. Link types (portal, ledge up,
+ledge down) are the same in both games and carry over. A link to a
+navmesh outside the build is dropped and its edge left open, as
+before. A NAVI entry lists the navmeshes its navmesh links to; vanilla's
+do in 5,882 of its 7,113 exterior entries (962 of the rest also list
+preferred links, which FNV doesn't author).
+
+**Measured.**
+- Goodsprings to Primm (x −21…−10, y −16…4): 252 cells, 370 navmeshes,
+  8,501 FNV links, 8,065 kept (the rest leave the rectangle), in 0.5 s.
+  Of the 8,045 portal links kept, 7,951 have the linking edge's middle
+  within 1 unit of the facing edge (256 share both ends).
+- The spike block (`--region -19 -1 -17 1`): 17 exterior navmeshes added
+  with 340 links, all to navmeshes in the plugin. Against the previous
+  build only the NAVI record changed; nothing else moved.
+
+**Not done yet.** Door references carry no XNDP (the navmesh triangle at
+the door), on the interior or outside; FNV has none to copy, and the
+interior worked without it. NVMI island data and the Is Island flag are
+not written.
+
 ## <a id="before"></a>Before the pipeline: build and research
 
 In order. **Built** marks what is done.
@@ -349,7 +389,8 @@ order of payoff:
      (the spike's code runs as it was), and a region scope (`--region`).
 3. **Goodsprings to Primm:** the first region, a few hundred cells.
    - Brings in the opening quests (VCG02's wells, Ghost Town Gunfight,
-     the road south) and the exterior navmesh.
+     the road south) and the exterior navmesh (**built**,
+     [exterior navmesh](#exterior-navmesh)).
    - Measures frame rate and build time at region scale.
 4. The whole Mojave, then the other worldspaces and every interior.
 5. NPCs, AI and quests across it, starting with Sunny Smiles and VCG02.
