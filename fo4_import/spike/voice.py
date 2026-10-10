@@ -62,7 +62,7 @@ def remove_stale(job_list: list, folders: list) -> int:
 
 
 def _convert_one(job: tuple, tools: tuple) -> bool:
-    """One recording to .fuz; False when it fails or decodes to silence."""
+    """One recording to .fuz (or .xwm); False when it fails or decodes to silence."""
     try:
         return convert_file_to_xwm(job[0], job[1], *tools, job[2]) and job[1].is_file()
     except SilentSource:
@@ -70,7 +70,8 @@ def _convert_one(job: tuple, tools: tuple) -> bool:
 
 
 def convert(job_list: list, lipgen_dir: Path) -> int:
-    """Run every job with the CK's xWMAEncode and LipGenerator; return how many .fuz files were written."""
+    """Run every job (source, .fuz with a transcript or .xwm without) with the CK's xWMAEncode and LipGenerator;
+    return how many files were written."""
     tools = (find_ffmpeg(need_decoder='vorbis'), str(lipgen_dir / 'xWMAEncode.exe'),
              str(lipgen_dir / 'LipGenerator.exe'))
     with ThreadPoolExecutor() as pool:

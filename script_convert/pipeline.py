@@ -46,7 +46,6 @@ from script_convert.say_durations import scan_voice_durations
 from script_convert.speech_challenges_falloutnv import reroll_line, speech_helper
 from tes5_import.dialogue.speech_chance_falloutnv import NEED_GLOBALS, rerolls
 from script_convert.force_greet_lines import in_menu_only, menu_only_infos
-from script_convert.info_responses_fallout4 import first_response, last_response, line_over, response_count
 from script_convert.say_to_done import (fragment_calls, say_to_done_hooks,
                                         say_to_done_topics)
 from script_convert.scro_refs import (preload_scro_refs, resolve_scro_aliases,
@@ -697,7 +696,7 @@ def build_quest_script_vars(by_type: dict) -> dict:
 
 
 def _info_begin_fragment(body_lines: list, seq_gate: str, length: float,
-                         begin_lines: list = (), reveals=(), count: int = 0) -> list:
+                         begin_lines: list = (), reveals=()) -> list:
     """Fragment_1 (OnBegin): report the line, unlock topics, run a Begin script, hand over.
 
     Unlocks land here so a choice the line reveals is open before its menu is
@@ -716,7 +715,7 @@ def _info_begin_fragment(body_lines: list, seq_gate: str, length: float,
     out = ['Function Fragment_1(ObjectReference akSpeakerRef)',
            f'  TES4Polyfill.LineBegan(akSpeakerRef, {length:g})']
     out += [f'  {gname}.SetValue(1)' for gname in reveals]
-    out.extend(first_response(begin_lines, count))
+    out.extend(begin_lines)
     if handoff:
         out.append(f"  If {seq_gate}  ; still this line's turn")
         out.extend('  ' + b for b in handoff)
@@ -725,7 +724,7 @@ def _info_begin_fragment(body_lines: list, seq_gate: str, length: float,
 
 
 def _info_end_fragment(body_lines: list, seq_gate: str,
-                       service_kind, length: float, done_calls=(), count: int = 0) -> list:
+                       service_kind, length: float, done_calls=()) -> list:
     """Fragment_0 (OnEnd): the TES4 result, LineEnded, then SayToDone.
 
     A poll waiting on this speaker must see the result's state writes before
@@ -735,7 +734,7 @@ def _info_end_fragment(body_lines: list, seq_gate: str,
     See: docs/commentary/script_convert.md#sequenced-fragment-surgery
     See: docs/commentary/script_convert.md#saytodone
     """
-    out, head = [], ['Function Fragment_0(ObjectReference akSpeakerRef)']
+    out = ['Function Fragment_0(ObjectReference akSpeakerRef)']
     body_lines = state_writes_before_setstage(body_lines)
     counter_step, rest_body = split_counter_step(body_lines, seq_gate)
     if seq_gate and body_lines and counter_step:
@@ -751,9 +750,8 @@ def _info_end_fragment(body_lines: list, seq_gate: str,
         out.extend(body_lines)
     if service_kind:
         out.append(SERVICE_MENU_CALL[service_kind])
-    ended = [f'  TES4Polyfill.LineEnded(akSpeakerRef, {length:g})']
-    over = line_over(count, bool(out or done_calls))
-    return head + over + last_response(out, count) + ended + last_response(list(done_calls), count) + ['EndFunction', '']
+    out.append(f'  TES4Polyfill.LineEnded(akSpeakerRef, {length:g})')
+    return out + list(done_calls) + ['EndFunction', '']
 
 
 def _info_bodies(rec: dict, xref: CrossRefGraph, result_script: str) -> tuple:
@@ -798,11 +796,10 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
         out_lines += property_declarations(dict(conv.sc.property_refs), declared)
     if declared:
         out_lines.append('')
-    count = response_count(rec)
-    out_lines += _info_begin_fragment(body_lines, seq_gate, length, begin_lines, reveals, count)
+    out_lines += _info_begin_fragment(body_lines, seq_gate, length, begin_lines, reveals)
     done = (_WORKER_CTX.get('say_to_done') or {}).get((rec.get('ParentDIAL') or '').upper(), ())
     out_lines += _info_end_fragment(body_lines, seq_gate, service_kind, length,
-                                    fragment_calls(done) + ([reroll_line()] if speech else []), count)
+                                    fragment_calls(done) + ([reroll_line()] if speech else []))
     if conv:
         out_lines.extend(conv.get_cell_family_helpers())
     return script_name, '\n'.join(out_lines)

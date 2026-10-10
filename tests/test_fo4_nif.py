@@ -17,6 +17,7 @@ from fo4_import.nif import blocks as K
 from fo4_import.nif import gun as G
 from fo4_import.nif import headgear as H
 from fo4_import.nif import outfit as O
+from fo4_import.nif import tree as T
 from fo4_import.nif import weapon as W
 
 SHELF = Path('export/FalloutNV.esm/meshes/furniture/shelveswoodenhalf02.nif')
@@ -317,3 +318,91 @@ def test_skin_uv_extends_one_body_triangles_mapping_and_stretch_compares_uv_to_s
     assert O.uv_stretch(corners, uvs, tris)[0] == pytest.approx(0.1 * np.sqrt(2) / (10 * np.sqrt(2)))
     assert O.uv_stretch(corners, np.array([(0.1, 0.1), (0.9, 0.1), (0.1, 0.2)]), tris)[0] > 0.05
 
+
+SHRUB = {'EditorID': 'WastelandShrub01', 'Model.MODL': 'WastelandShrub01.spt', 'ICON': 'WastelandShrub01Foliage.dds',
+         'Seed[0]': '1'}
+
+
+@pytest.mark.skipif(not Path('export/FalloutNV.esm/trees/wastelandshrub01.spt').exists(),
+                    reason='needs the FalloutNV.esm export')
+def test_a_speedtree_becomes_a_wind_animated_tree_like_vanillas():
+    """BSLeafAnimNode root with BSX 130, bark and leaves (Tree Anim shader, two-sided tree-flagged material), a body."""
+    out = T.tree_mesh(Path('export/FalloutNV.esm'), SHRUB)
+    kinds = [k for k, _ in out.nif.blocks]
+    assert kinds[:2] == ['BSLeafAnimNode', 'BSXFlags'] and out.nif.blocks[1][1]['value'] == T.TREE_BSX
+    assert kinds.count('BSTriShape') == 2 and 'bhkCollisionObject' in kinds
+    leaves = next(b for k, b in out.nif.blocks if k == 'BSLightingShaderProperty' and b['flags2'] & 0x20000000)
+    material = out.materials[out.nif.strings[leaves['name']]]
+    assert material['tree'] and material['two_sided'] and material['alpha_test']
+
+
+DOOR = Path('export/FalloutNV.esm/meshes/dungeons/nv_craftsmanhomesinterior/nvcraftsmanrmdooranimated.nif')
+
+
+@pytest.mark.skipif(not DOOR.exists(), reason='needs the FalloutNV.esm export')
+def test_an_animated_fnv_door_keeps_its_moving_node_and_sequences():
+    """The panel stays its own node (shape and collision on it); Open and Close drive it; BSX gets Animated."""
+    nif = F.read(F.write(C.convert(str(DOOR), 'export/FalloutNV.esm').nif))
+    name = {i: nif.strings[b['name']] for i, (k, b) in enumerate(nif.blocks) if k == 'NiNode'}
+    panel = next(i for i, n in name.items() if n == 'OffDoorHotelSm')
+    node = nif.blocks[panel][1]
+    assert nif.blocks[node['children'][0]][0] == 'BSTriShape' and node['collision'] != K.NONE
+    sequences = [b for k, b in nif.blocks if k == 'NiControllerSequence']
+    assert [nif.strings[b['name']] for b in sequences] == ['Open', 'Close']
+    assert all(nif.strings[c['node']] == 'OffDoorHotelSm' for b in sequences for c in b['blocks'])
+    assert nif.blocks[0][1]['controller'] != K.NONE
+    assert next(b['value'] for k, b in nif.blocks if k == 'BSXFlags') & C.BSX_ANIMATED
+    assert not C.convert(str(DOOR), 'export/FalloutNV.esm', animated=False).nif.blocks[0][1]['controller'] >= 0
+
+
+
+#: Byte of a pre-Elric bhkRigidBody holding its motion system (after the 32-byte head and the body info before it).
+MOTION_BYTE = 216
+
+
+@pytest.mark.skipif(not DOOR.exists(), reason='needs the FalloutNV.esm export')
+def test_an_animated_doors_moving_body_is_keyframed_and_a_static_ones_fixed():
+    """The panel's keyframed FNV body stays keyframed when it animates, else becomes fixed (the door held still)."""
+    for animated, motion in ((True, 4), (False, 5)):
+        nif = C.convert(str(DOOR), 'export/FalloutNV.esm', animated=animated).nif
+        bodies = [b for k, b in nif.blocks if k.startswith('bhkRigidBody')]
+        assert [b[MOTION_BYTE] for b in bodies] == [motion]
+
+
+FLAG = Path('export/FalloutNV.esm/meshes/clutter/flags/nv_nevadaflag.nif')
+
+
+@pytest.mark.skipif(not FLAG.exists(), reason='needs the FalloutNV.esm export')
+def test_a_skinned_flag_keeps_its_skin_and_matches_fnvs_deformation():
+    """Each flag shape is skinned to the kept bones; at the stored pose it lands where pyffi's skinning puts FNV's."""
+    nif = F.read(F.write(C.convert(str(FLAG), 'export/FalloutNV.esm').nif))
+    parent = {c: i for i, (k, b) in enumerate(nif.blocks) if k == 'NiNode' for c in b['children']}
+
+    def world(i):
+        """Column-form world transform of node `i`."""
+        b, m = nif.blocks[i][1], np.eye(4)
+        m[:3, :3], m[:3, 3] = np.array(b['rotation']).reshape(3, 3) * b['scale'], b['translation']
+        return world(parent[i]) @ m if i in parent else m
+
+    data = C.NifFormat.Data()
+    with open(FLAG, 'rb') as f:
+        data.read(f)
+    root = data.roots[0]
+    fnv = {g.name.decode(): g for g in root.tree() if isinstance(g, C.NifFormat.NiTriBasedGeom) and g.skin_instance}
+    shapes = [b for k, b in nif.blocks if k == 'BSTriShape']
+    assert shapes and all(b['skin'] != K.NONE for b in shapes)
+    for b in shapes:
+        _, data_index, n = struct.unpack_from('<iiI', nif.blocks[b['skin']][1])
+        bones = struct.unpack_from(f'<{n}i', nif.blocks[b['skin']][1], 12)
+        mats = []
+        for j in range(n):
+            v = struct.unpack_from('<4f9f3ff', nif.blocks[data_index][1], 4 + j * 68)
+            m = np.eye(4)
+            m[:3, :3], m[:3, 3] = np.array(v[4:13]).reshape(3, 3), v[13:16]
+            mats.append(world(bones[j]) @ m)
+        ours = np.array([sum(w * (mats[i] @ np.array([*v['position'], 1.0]))[:3] for w, i in zip(v['weights'], v['bones']))
+                         for v in b['vertices']])
+        g = fnv[nif.strings[b['name']]]
+        ref = np.array([(d.x, d.y, d.z, 1.0) for d in g.get_skin_deformation()[0]]) @ np.array(
+            g.get_transform(root).as_list())
+        assert np.linalg.norm(ours[:, None] - ref[None, :, :3], axis=2).min(axis=1).max() < 0.2

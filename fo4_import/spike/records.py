@@ -19,7 +19,7 @@ INITIALLY_DISABLED = 0x800
 #: FO4 CTDA Run On values.
 RUN_SUBJECT, RUN_TARGET, RUN_REFERENCE = 0, 1, 2
 #: INFO ENAM flag bits (wbDefinitionsFO4.pas INFO 'Response flags'). Random is never written: see dialogue.random_chain.
-INFO_SAY_ONCE, INFO_END_SCENE = 0x0004, 0x0040
+INFO_START_ON_END, INFO_SAY_ONCE, INFO_END_SCENE = 0x0001, 0x0004, 0x0040
 #: DIAL DATA + SNAM. Scene topics: DialogueDiamondCity 001994FB; greetings: 000A7D2D.
 TOPIC_SCENE = (bytes([0, 2, 0x10, 0]), b'SCEN')
 TOPIC_GREETING = (bytes([0, 7, 0x74, 0]), b'GREE')
@@ -33,6 +33,8 @@ PLAYER_DIALOGUE_FLAGS = 0x228800
 DIALOGUE_ACTION_FLAGS = 0x28000
 #: SCEN FNAM from CookeGreetScene: show all text, has player dialogue, no follower chatter.
 SCENE_FLAGS = 0x1024
+#: SCEN FNAM Prevent Player Exit Dialogue (84 vanilla player-dialogue scenes).
+SCENE_NO_EXIT = 0x40
 #: Object id in XDI.esm of the keyword that marks a scene's menu for XDI.
 XDI_KEYWORD = 0x800
 #: SCEN ACTV (Dialogue Distance Override); the menu scene also ends past it, as 127 vanilla phases end on GetDistance.
@@ -87,19 +89,25 @@ def pack_dlbr(fid: int, edid: str, quest: int, start_topic: int) -> bytes:
     return pack_fo4_record('DLBR', fid, 0, subs + _u32('SNAM', start_topic))
 
 
+def pack_cis1(text: str) -> bytes:
+    """A condition's first string parameter (CIS1), written after its CTDA."""
+    return _zstr('CIS1', text)
+
+
 def pack_cis2(text: str) -> bytes:
     """A condition's string parameter (CIS2), written after its CTDA."""
     return _zstr('CIS2', text)
 
 
 def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b'',
-              prompt: str = '', scene: int = 0, phase: str = '',
+              prompt: str = '', scene: int = 0, phase: str = '', phase_index: int = 0,
               stages: tuple = (NO_STAGE, NO_STAGE), notes: str = '', forced_alias: int = None,
               vmad: bytes = b'', idle: int = 0) -> bytes:
     """An INFO in vanilla's field order (DialogueDiamondCity 00199516).
 
     lines are response texts (none: an empty padding INFO); stages are the
-    quest stages set on begin and on end (TIQS); scene/phase start a scene;
+    quest stages set on begin and on end (TIQS); scene/phase start a scene,
+    at phase_index (INTV, which the engine reads, not the NAM0 name);
     forced_alias (ALFA) puts the speaker into that alias; vmad is its fragments;
     idle is the first response's speaker idle (SNAM, as 00142444's DialogueGiveItem).
     """
@@ -112,7 +120,7 @@ def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b
     if prompt:
         subs += _zstr('RNAM', prompt)
     if scene:
-        subs += _u32('TSCE', scene)
+        subs += _u32('TSCE', scene) + (_s32('INTV', phase_index) if phase_index else b'')
     if forced_alias is not None:
         subs += _s32('ALFA', forced_alias)
     if stages != (NO_STAGE, NO_STAGE):
@@ -141,8 +149,9 @@ def pack_dialogue_action(index: int, alias: int, topic: int, phase: int = 0) -> 
 
 
 def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keyword: int,
-              phases: tuple = ('Menu',)) -> bytes:
-    """A scene of named `phases` in order with one actor and `actions` (indices 1..n), tagged with `keyword` (0: none).
+              phases: tuple = ('Menu',), flags: int = 0) -> bytes:
+    """A scene of named `phases` in order with one actor and `actions` (indices 1..n), tagged with `keyword` (0: none),
+    FNAM SCENE_FLAGS plus `flags`.
 
     A one-phase scene also completes once the alias is farther than
     DIALOGUE_DISTANCE from the player; with several phases each completes
@@ -151,7 +160,7 @@ def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keywor
     """
     walked_off = b'' if len(phases) > 1 else pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
                                                        run_on=RUN_QUEST_ALIAS, param3=alias)
-    subs = _zstr('EDID', edid) + _u32('FNAM', SCENE_FLAGS)
+    subs = _zstr('EDID', edid) + _u32('FNAM', SCENE_FLAGS | flags)
     for phase in phases:
         subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'') + walked_off
         subs += pack_subrecord('NEXT', b'') + _u32('WNAM', 350) + pack_subrecord('HNAM', b'')
@@ -230,11 +239,18 @@ def pack_mstt(fid: int, edid: str, model: str, bounds: tuple) -> bytes:
     return pack_fo4_record('MSTT', fid, 0, _bounded(edid, bounds) + _zstr('MODL', model) + pack_subrecord('DATA', b'\0'))
 
 
-def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: int, vmad: bytes = b'') -> bytes:
-    """A door: scripts, bounds, name, model, FNAM flags (Automatic, Hidden...)."""
+def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: int, vmad: bytes = b'',
+              sounds: tuple = (0, 0)) -> bytes:
+    """A door: scripts, bounds, name, model, open and close sounds (SNDRs, 0 for none), FNAM flags."""
     subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
     subs += pack_subrecord('OBND', struct.pack('<6h', *bounds)) + _zstr('FULL', name) + _zstr('MODL', model)
+    subs += _sounds(('SNAM', 'ANAM'), sounds)
     return pack_fo4_record('DOOR', fid, 0, subs + pack_subrecord('FNAM', bytes([flags])))
+
+
+def _sounds(sigs: tuple, sounds: tuple) -> bytes:
+    """The sound subrecords `sigs` of SNDRs `sounds`, each left out when 0."""
+    return b''.join(_u32(sig, sound) for sig, sound in zip(sigs, sounds) if sound)
 
 
 def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, stages: list, objectives: list,
@@ -271,11 +287,14 @@ def pack_book(fid: int, edid: str, name: str, text: str) -> bytes:
                            + _u32('INAM', NOTE_INVENTORY_ART))
 
 
-def pack_acti(fid: int, edid: str, name: str, model: str, bounds: tuple, vmad: bytes, prompt: str) -> bytes:
-    """An activator: scripts, bounds, name, model (none for a trigger), vanilla's marker colour, activate prompt."""
+def pack_acti(fid: int, edid: str, name: str, model: str, bounds: tuple, vmad: bytes, prompt: str,
+              loop: int = 0) -> bytes:
+    """An activator: scripts, bounds, name, model (none for a trigger), vanilla's marker colour, looping sound
+    (an SNDR, 0 for none), activate prompt."""
     subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
     subs += pack_subrecord('OBND', struct.pack('<6h', *bounds)) + (_zstr('FULL', name) if name else b'')
     subs += (_zstr('MODL', model) if model else b'') + pack_subrecord('PNAM', MARKER_COLOR)
+    subs += _sounds(('SNAM',), (loop,))
     subs += (_zstr('ATTX', prompt) if prompt else b'') + pack_subrecord('FNAM', bytes(2))
     return pack_fo4_record('ACTI', fid, 0, subs)
 
@@ -322,12 +341,14 @@ def pack_lvli(fid: int, edid: str, chance_none: int, flags: int, entries: list) 
 
 
 def pack_cont(fid: int, edid: str, name: str, model: str, bounds: tuple, items: list, flags: int,
-              weight: float) -> bytes:
-    """A container: bounds, name, model, items [(FormID, count)] (COCT, CNTO), DATA flags and weight."""
+              weight: float, sounds: tuple = (0, 0)) -> bytes:
+    """A container: bounds, name, model, items [(FormID, count)] (COCT, CNTO), DATA flags and weight, open and
+    close sounds (SNDRs, 0 for none)."""
     subs = _bounded(edid, bounds) + _zstr('FULL', name) + _zstr('MODL', model)
     subs += _u32('COCT', len(items)) + b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count))
                                                  for item, count in items)
-    return pack_fo4_record('CONT', fid, 0, subs + pack_subrecord('DATA', struct.pack('<Bf', flags, weight)))
+    subs += pack_subrecord('DATA', struct.pack('<Bf', flags, weight)) + _sounds(('SNAM', 'QNAM'), sounds)
+    return pack_fo4_record('CONT', fid, 0, subs)
 
 
 def pack_ligh(fid: int, edid: str, bounds: tuple, model: str, light: tuple, fade: float) -> bytes:

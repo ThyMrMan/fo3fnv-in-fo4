@@ -42,8 +42,8 @@ def _corpus(tmp_path, sources: dict) -> tuple:
     for name, text in sources.items():
         (tmp_path / f'{name}.psc').write_text(text, encoding='utf-8')
         files.append(tmp_path / f'{name}.psc')
-    hashes = CP.source_hashes(files)
-    return hashes, CP.source_declarations(files), CP.users_index(files, set(hashes))
+    hashes, words = CP.source_hashes(files), CP.source_words(files)
+    return hashes, CP.source_declarations(files), CP.users_index(words, set(hashes)), words
 
 
 CORPUS = {'Helper': 'ScriptName Helper\nInt Function Get(Int a = 1)\n  Return a\nEndFunction',
@@ -52,24 +52,28 @@ CORPUS = {'Helper': 'ScriptName Helper\nInt Function Get(Int a = 1)\n  Return a\
 
 
 def test_users_recompile_only_when_a_declaration_is_lost_or_changed(tmp_path):
-    """A body edit or an added function recompiles the helper alone; a changed signature pulls in its users."""
-    hashes, apis, users = _corpus(tmp_path, CORPUS)
+    """A body edit, an added function or a signature no user names recompiles the helper alone; a changed header
+    pulls in every user, transitively."""
+    hashes, apis, users, words = _corpus(tmp_path, CORPUS)
     state = {n: {'sha': sha, 'api': apis[n], 'ok': True} for n, sha in hashes.items()}
-    assert CP.needs_compile(hashes, apis, state, users) == set()
+    assert CP.needs_compile(hashes, apis, state, users, words) == set()
     body = dict(CORPUS, Helper=CORPUS['Helper'].replace('Return a', 'Return a + 1') + '\nFunction New()\nEndFunction')
-    hashes, apis, users = _corpus(tmp_path, body)
-    assert CP.needs_compile(hashes, apis, state, users) == {'helper'}
-    hashes, apis, users = _corpus(tmp_path, dict(CORPUS, Helper=CORPUS['Helper'].replace('a = 1', 'a = 2')))
-    assert CP.needs_compile(hashes, apis, state, users) == {'helper', 'mid', 'top'}
-    assert CP.needs_compile(hashes, apis, {}, users) == set(hashes)
+    hashes, apis, users, words = _corpus(tmp_path, body)
+    assert CP.needs_compile(hashes, apis, state, users, words) == {'helper'}
+    hashes, apis, users, words = _corpus(tmp_path, dict(CORPUS, Helper=CORPUS['Helper'].replace('a = 1', 'a = 2')))
+    assert CP.needs_compile(hashes, apis, state, users, words) == {'helper'}
+    header = dict(CORPUS, Helper=CORPUS['Helper'].replace('ScriptName Helper', 'ScriptName Helper extends Quest'))
+    hashes, apis, users, words = _corpus(tmp_path, header)
+    assert CP.needs_compile(hashes, apis, state, users, words) == {'helper', 'mid', 'top'}
+    assert CP.needs_compile(hashes, apis, {}, users, words) == set(hashes)
 
 
 def test_an_added_declaration_recompiles_failing_users(tmp_path):
     """A user that failed (perhaps on the missing function) recompiles when the helper gains one."""
-    hashes, apis, users = _corpus(tmp_path, CORPUS)
+    hashes, apis, users, words = _corpus(tmp_path, CORPUS)
     state = {n: {'sha': sha, 'api': apis[n], 'ok': n != 'mid'} for n, sha in hashes.items()}
-    hashes, apis, users = _corpus(tmp_path, dict(CORPUS, Helper=CORPUS['Helper'] + '\nFunction New()\nEndFunction'))
-    assert CP.needs_compile(hashes, apis, state, users) == {'helper', 'mid'}
+    hashes, apis, users, words = _corpus(tmp_path, dict(CORPUS, Helper=CORPUS['Helper'] + '\nFunction New()\nEndFunction'))
+    assert CP.needs_compile(hashes, apis, state, users, words) == {'helper', 'mid'}
 
 
 def test_declarations_join_continued_lines_and_keep_struct_members():
@@ -78,3 +82,14 @@ def test_declarations_join_continued_lines_and_keep_struct_members():
             'Int Function F(Int a, \\\n  Int b = 2) Global\n  Int local = 3\nEndFunction\nInt Property P = 4 Auto')
     assert CP.declarations(text) == ['endstruct', 'int a = 1', 'int function f(int a, int b = 2) global',
                                      'int property p = 4 auto', 'scriptname s extends quest', 'struct pair']
+
+
+def test_a_lost_function_recompiles_only_users_naming_it(tmp_path):
+    """Removing Get from the helper recompiles a user calling it, not one that only holds the helper."""
+    sources = dict(CORPUS, Caller='ScriptName Caller\nHelper Property H Auto\nInt Function F()\n  Return H.Get()\n'
+                                  'EndFunction')
+    hashes, apis, users, words = _corpus(tmp_path, sources)
+    state = {n: {'sha': sha, 'api': apis[n], 'ok': True} for n, sha in hashes.items()}
+    gone = CORPUS['Helper'].replace('Int Function Get(Int a = 1)\n  Return a\nEndFunction', '')
+    hashes, apis, users, words = _corpus(tmp_path, dict(sources, Helper=gone))
+    assert CP.needs_compile(hashes, apis, state, users, words) == {'helper', 'caller'}

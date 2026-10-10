@@ -684,8 +684,10 @@ stopped compiling recompile, as a script can fail through one it uses. The
 rest come from the state. No state, other include folders, or `--full`
 compiles everything. Adding `ResponseBegan` and `LineOver` to `TES4Polyfill`
 recompiled 17,678 scripts (15 minutes) before this rule; under it, 13 (the
-polyfill and its failing users). Removing a polyfill function still reaches
-16,959. Each compiled script's old
+polyfill and its failing users). A lost or changed function, event,
+property or custom event recompiles only the users that also name it
+(removing those two reached 16,959 scripts before); a changed header,
+import or struct line reaches every user. Each compiled script's old
 `.pex` is deleted first: before, a script that stopped compiling still
 counted as compiled through the `.pex` an earlier run left.
 
@@ -1095,9 +1097,10 @@ chair with that byte set to each value, 5 comes out fixed (no motion), 4
 keyframed (motion cinfo, no properties), 1, 6 and 7 moving. FNV's fixed
 (7) is 2014's character. `collision.MOTIONS` maps FNV's numbers to
 2014's: fixed 7 → 5, box inertia 4/5 → 3, sphere 2/3 → 2. Keyframed (6)
-is fixed (5) too while the converter drops the animation that moves it
-(fridge door, oven, gun cabinet, shack cabinet doors); Elric then writes
-them with no motion, as vanilla's fixed bodies.
+is fixed (5) too where the converter drops the animation that moves it
+(a static mesh); Elric then writes them with no motion, as vanilla's fixed
+bodies. On a node that keeps its animation it is keyframed (4), see
+[animations](#spike-4-animations).
 Played: the furniture keeps its collision and its sit and sleep options,
 and the fridge, oven and gun cabinet collide too.
 
@@ -1439,13 +1442,76 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
   each response: "Here. These are yours" (2 responses) gave its items twice
   and the Pip-Boy line (3) three times, 4 to 6 s apart. Vanilla has 58
   multi-response lines with a Begin fragment, all repeat-safe (a spotlight,
-  a flag). On Fallout 4 a converted line with several responses counts them
-  (`script_convert/info_responses_fallout4.py`, 2,421 FNV lines): its FNV
-  Begin result runs on the first, its End result, service menu and done
-  calls once the last has begun (right whether the End fragment runs after
-  each response or once), and a pause over 30 s starts a new play.
+  a flag).
+  - Tried and dropped (2026-10-09): counting responses. In the fragment's
+    own variables it failed (a topic info fragment's variables do not last
+    between calls: the Pip-Boy line's gated handout ran on all three
+    responses); in a helper quest keyed by the fragment's script object it
+    failed too (each call is a new object: every response took a new slot).
+  - Now (not yet played): a line with several responses and a result
+    script is split into one FO4 line per response, each a scene step, the
+    FNV Begin result on the first, its End result on the last
+    (`conversation.part`), so each runs once. Vanilla writes 94% of its
+    lines with one response (73,099 of 78,087), and 4,279 of its 4,544
+    lines with a fragment; all 1,975 such FNV lines are Topic-type (scene)
+    lines, none a scripted Say topic.
+  - With it (vanilla patterns, census of Fallout4.esm): a line leading to
+    another step jumps once said (Start Scene on End, as 316 vanilla lines
+    into another scene at a phase), without End Running Scene (XDI draws
+    that as the door icon); a topic's lines with different prompts are one
+    option each, gated by their line (the speech check's four lines gated
+    on Medicine and Speech: one option shows, as FNV shows the first
+    passing line's prompt); a Choices menu has no `[Leave]` and its scene
+    Prevent Player Exit Dialogue (as 84 vanilla scenes): leaving at the
+    farewell's two answers had stranded VCG01 (both GREETING lines before
+    it are Say Once, so talking again went to Doc's everyday greeting, the
+    Pip-Boy still disabled). Only the topic list keeps `[Leave]`.
+  - **Starting a scene at a phase needs INTV.** Played: from Bandit's menu
+    "Light." came with Bandit's answers again, then "Light." and the right
+    ones; "First one. Conflict..." was said twice. Every jump had started
+    its scene at phase 0 (the Enemy menu; the statements scene's own
+    "First one"). The engine reads the start phase's index from the
+    INFO's INTV (after TSCE), not the NAM0 name: all 1,911 vanilla lines
+    starting a later phase write INTV equal to its index, and the 2,042
+    naming a phase without INTV start at phase 0. `pack_info` writes it
+    (89 jumps). Played (2026-10-10): the dialogue works through.
 - The Pip-Boy stays disabled until the farewell's last line ends (FNV's
   stage 55 disables it, the farewell's End enables it), as in FNV.
+- <a id="spike-2-doc-quests"></a>**Doc after the intro** (built 2026-10-09,
+  not yet played). Played: after the outro Doc said nothing and could not be
+  talked to. His talk after VCG01 is VFreeformGoodsprings' (greetings,
+  Goodsprings topics, a speech check) and VDoctors' (healing, supplies,
+  radiation), and VCG01 (priority 76, still running after stage 200) kept
+  winning the greeting with none of its 4 GREETING lines passing. The cell
+  now converts both quests, and every cell quest's conversations share one
+  Hub (`conversation.hub`):
+  - **One greeting:** every cell quest's GREETING lines, highest quest
+    priority first (FNV picks the first passing), in the scene of one quest
+    the game starts (highest priority: VDoctors); VCG01's
+    `StartConversation ... GREETING` starts the same scene.
+  - **The topic list:** FNV shows, after a line with no Choices, Follow Ups
+    or Goodbye, every top-level topic (DIAL flag 0x02) and every added one
+    with a passing line. Such a line now returns to that list (a menu
+    step), and the list holds the cell quests' topics with a line whose
+    conditions convert: Doc's 10 (yourself, Goodsprings, the town, the
+    man who shot me, who rescued me, something taken, the speech check,
+    healing, supplies, radiation). Addiction (quest 0x38B2), the shootout
+    (Ghost Town Gunfight) and the injured man (0x15EC5B) need quests the
+    cell does not convert.
+  - **Gates:** a topic an AddTopic reveals shows when its `TES4Unlock_`
+    global is set, named by the script converter's own unlock plan; those
+    globals and the Follow Up marks (`TES4FollowUpFrom_`/`Said_`, which
+    logged "SetValue() on a None object") are made on demand, hashed by
+    name. An option with several lines shows to their speakers (GetIsID on
+    the target); a line of another quest than the scene's needs that quest
+    running (GetQuestRunning).
+  - Conditions: GetQuestVariable reads the variable of the quest it names
+    (it used the line's quest); GetScriptVariable is GetVMScriptVariable on
+    the reference (CIS1 the script, CIS2 `::<name>_var`, as 107 vanilla
+    conditions); items FO4 shares by FormID (caps) map, so the caps answers
+    convert. None of Doc's lines is left out (388 other residents' are:
+    their NPCs are not in the cell).
+  - FormIDs moved (approved): 3,045 records became 3,623.
 
 **Step 4, the character menus** (`fo4_import/spike/character.py`,
 `TES4_CharacterRules.psc`; played 2026-10-07). FNV's
@@ -1649,9 +1715,11 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   statics. Trees are SpeedTree (`.spt`): not converted. No grass, LOD or
   exterior navmesh yet.
 - **Played (2026-10-08):** in good shape. Open:
-  - **Trees:** the block's 43 trees are not converted.
-  - **Porch teleport:** stepping onto Doc's porch moves the player to the
-    same spot each time. Not found in the data: the two doors link each
+  - **Trees:** the block's 43 trees are not converted (since done:
+    [trees](#spike-4-trees)).
+  - **Porch teleport (not a bug):** stepping onto Doc's porch moves the player to the
+    same spot each time. It is the one-time event that blurs the screen on
+    first stepping outside, replaying. Not found in the data: the two doors link each
     other (FO4 FNAM 0, no Automatic flag), the porch trigger
     (`DocHouseTriggerREF`, `VCG01RemoveDocCarebearModeTrigger`) and the two
     triggers above the house carry no script in the exterior, no shipped
@@ -1945,6 +2013,122 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   same home leaves only with the doorway raised: X tilt 0 and 0.2138 trap,
   0.3038 is 50/50, 0.4938 and up leave, door south; the same tilt with the
   door north traps (the tilt is about the world axis, after the heading).
+
+### <a id="spike-4-trees"></a>Trees (built 2026-10-09, played 2026-10-10: they look right)
+
+FNV has 3 TREE records, all SpeedTree (`.spt`): its Joshua trees, dead
+trees and palms are ordinary meshes, converted as statics already. The
+block's 43 trees are one, `WastelandShrub01`. `fo4_import/nif/tree.py`
+builds its mesh from asset_convert.speedtree's generator (bark, leaf cards
+with the wind weight in vertex alpha, a collision mesh; seeded by the
+record's first seed, leaves from its ICON; the Oblivion-engine geometry path
+needs a configured Oblivion.exe and is not used), as vanilla builds trees:
+
+- Vanilla Fallout 4 has no TREE records; its 175 tree meshes
+  (`landscape\trees`) are statics. 108 have a NiNode root and materials
+  without the tree flag (dead trees, stumps); 66 have a BSLeafAnimNode
+  root and tree-flagged materials (98 shapes), the wind-animated ones.
+  All are alpha-tested and nearly all two-sided; BSXFlags 130 on 131 of
+  151.
+- The shrub follows blastedforestfungaltreelarge01: BSLeafAnimNode root,
+  BSXFlags 130, vertex-coloured shapes, the leaves' shader flags
+  0x80400209 / 0x20000031 (Tree Anim) with alpha test 0x12EC at 160 on a
+  two-sided, tree-flagged BGSM; the bark's 0x8C400201 / 0x21.
+- Collision: the generated mesh, wood, on FNV's own tree body
+  (nvgreybirch01: static layer, fixed motion, as FNV's tree meshes),
+  finished by Elric as the statics' is.
+- The TREE becomes a STAT on a FormID hashed from FNV's (`FNV TREE`), so
+  no record moves.
+
+### <a id="spike-4-sounds"></a>Sounds (built 2026-10-09, played 2026-10-10: they work)
+
+In Doc's house and the block: 8 placed SOUNs (ambient loops: Doc's fridge
+and bathroom, the air conditioner, a light string), 23 doors' open and
+close sounds, 28 containers', 6 activators' loops. An FNV SOUN names a file
+or a folder (one file picked at random) with attenuation and flags
+(xEdit: Loop 0x10, min distance ×5, max ×100).
+
+- Fallout 4 splits it: a descriptor (SNDR: CNAM type, GNAM category, ANAM
+  files picked at random, ONAM output model, LNAM playback flags, BNAM
+  priority and attenuation; 5,475 in Fallout4.esm) holds the sound; DOOR
+  SNAM/ANAM (263/259 vanilla uses), CONT SNAM/QNAM (265 each) and ACTI SNAM
+  name SNDRs; a sound marker (SOUN: EDID, OBND, SDSC, 179 vanilla) places
+  one.
+- `fo4_import/spike/sounds.py` writes one SNDR per FNV SOUN, copied from
+  the vanilla descriptor of its kind: a looping one (FNV Loop) from
+  AMBSteamVaultPipeA, the rest from DRSWoodSingleLightLoadAOpen. Its files
+  are FNV's (49 here), converted to .xwm under `Sound\FX\FNV` and named
+  .wav, as vanilla names its .xwm files. Falloff comes from the template's
+  output model, not FNV's distances (drift).
+- FormIDs are hashed from FNV's (`FNV SNDR`, `FNV SOUN`): 44 records added,
+  none moved.
+
+### <a id="spike-4-animations"></a>Door and container animations (built 2026-10-09, played 2026-10-10)
+
+FNV and Fallout 4 animate doors and containers the same way, inside the
+mesh: a NiControllerManager on the root (vanilla: 201 of 227 door meshes, 94
+of 119 container meshes) whose NiControllerSequences ("Open", "Close") drive
+named nodes through a NiMultiTargetTransformController, NiTransformInterpolators
+and NiTransformData, with NiTextKeyExtraData and a NiDefaultAVObjectPalette.
+The static conversion flattened every shape into the root, so nothing could
+move.
+
+- `fo4_import/nif/anim_blocks.py` reads and writes the seven block types
+  (nif.xml at 20.2.0.7; FNV's stream 34 and Fallout 4's 130 share them):
+  all 343 vanilla door and container meshes rebuild byte for byte.
+- `fo4_import/nif/animation.py`: the nodes a sequence names, and those
+  between them and the root, are kept with their own transforms; shapes
+  under them sit in their space; the controller blocks carry over with
+  strings and references renumbered (vanilla: empty controlled-block
+  strings -1, a text key list named ''). Collision on a kept node stays on
+  it (`collision_nodes`), so it moves with the door.
+- BSXFlags Animated (0x1) is set on such a mesh, as on every vanilla
+  animated door and container (139, 11, 171, 43...).
+- Only NiTransformInterpolator sequences carry over; a mesh with another
+  interpolator stays static. Weapon and equipment meshes stay static
+  (`animated=False`): FO4 animates weapons through behaviour graphs, and
+  the headgear and outfit fitting expect the flat layout.
+- Checked: all 2,275 vanilla meshes holding any of the seven types rebuild
+  byte for byte. In this build 26 meshes keep animation: doors and gates
+  (Doc's, the saloon's, two fence gates, the shack cabinet), containers
+  (fridge, footlocker, gun cabinet, toolbox, first aid kit, ammo box,
+  dumpster, range, Mojave Express drop box, a mailbox), the harvestable
+  plants' Forward/Backward, and Idle/SpecialIdle loops (a fan, a flag,
+  vultures, two windmills, the saloon sign). Elric built every collision,
+  the moving ones on their node; no record changed.
+- **First play:** the bathroom door and fence gates played their sound but
+  did not move; after leaving and coming back they stood where the click
+  had put them. Doc's flag did not wave.
+  - The moving part's body was fixed. FNV gives it the keyframed motion
+    system (6), which `collision.MOTIONS` had mapped to fixed (5) while
+    the animation was dropped ([collision](#spike-2-collision)); a fixed
+    body holds its node still each frame, and only the end pose set at
+    load showed. A keyframed body on a node that keeps its animation now
+    goes to Elric as Havok 2014's keyframed (4), which gives it a motion
+    (Elric's physics for the craftsman door: 1,508 bytes, 1,380 fixed).
+    Changed: 12 meshes (doors, gates, fridge, gun cabinet, dumpster,
+    toolbox, shack cabinet, mailbox, windmills); a keyframed body on a
+    static mesh stays fixed.
+  - The flag is skinned: two shapes weighted to ten bones that its Idle
+    loop moves, as vanilla FlagWavingMinutemen01.nif (BSSkin::Instance and
+    BoneData, which plays a looping sequence on a static too: 12 vanilla
+    meshes loop "Idle" with no behaviour graph). The static conversion had
+    baked it flat. An animated mesh now keeps the bones its skins name
+    (`animation.skin_bones`), and each skinned shape is weighted to them
+    (four heaviest weights per vertex). A bone's transform takes a
+    root-space point to bone space: the shape's placement undone, then
+    FNV's skin transform (pyffi's `get_skin_deformation` reads it so); at
+    the stored pose every vertex lands within 0.08 units of pyffi's
+    skinning. FNV's NiGeomMorpherController (8 morphs rippling the cloth)
+    is dropped: a BSTriShape has no morphs, so the wave is the bones'.
+  - Every kept node's rotation had been written transposed (pyffi lists a
+    Matrix33 row by row; the file holds it column by column, as
+    `collision.node_transform` already reads it). Turned back: parts of
+    the saloon sign, ammo box, toolbox, mailbox flag, fan, a windmill, the
+    shack cabinet, the vultures and the flag's bones.
+- **Played (2026-10-10):** doors and gates open and close, the flag waves.
+  Open: an opened door shows what is behind its frame (as in the Skyrim
+  build).
 
 ### <a id="spike-4-equipment"></a>Weapons and armor (played 2026-10-08)
 

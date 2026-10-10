@@ -65,7 +65,8 @@ class Activators:
             vmad, prompt = self._drink(self.water[fnv_fid]), DRINK_PROMPT
         elif 'SCRI' in rec:
             vmad = self.builder.scripts.vmad(int(rec['SCRI'], 16))
-        return R.pack_acti(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds, vmad, prompt)
+        return R.pack_acti(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds, vmad, prompt,
+                           self.builder.sounds.field(rec, 'SNAM'))
 
     def _drink(self, water: int) -> bytes:
         """The drinking script VMAD for FNV water type `water`."""

@@ -26,6 +26,8 @@ sys.path.insert(0, str(_ROOT))
 from tes5_import.base.text_reader import parse_export_file
 from tools.generators.gen_ctda_param_types import formid_types, parse_enum, parse_functions
 
+#: xEdit's parameter type of an actor value (an index into the game's actor value list).
+ACTOR_VALUE_PARAM = 'ptActorValue'
 #: TES4 condition function names (wbDefinitionsTES4.pas, the dialogue ones); others print as Func<N>.
 FUNC_NAMES = {
     1: 'GetDistance', 5: 'GetLocked', 6: 'GetPos', 8: 'GetAngle',
@@ -103,12 +105,13 @@ _DIAL_TYPES = ('Topic', 'Conversation', 'Combat', 'Persuasion', 'Detection',
 
 
 class FuncTable:
-    """Condition function names and which params are FormIDs, for one game."""
+    """Condition function names and which params are FormIDs or actor values, for one game."""
 
-    def __init__(self, names: dict, form_slots: dict = None):
-        """form_slots: {func: {slot,...}} from xEdit; None keeps the Oblivion heuristics."""
+    def __init__(self, names: dict, form_slots: dict = None, av_slots: dict = None):
+        """Slots {func: {slot,...}} from xEdit; no form_slots: Oblivion heuristics."""
         self.names = names
         self.form_slots = form_slots
+        self.av_slots = av_slots or {}
 
     def name(self, func: int) -> str:
         """The function's name, or Func<N>."""
@@ -140,6 +143,8 @@ def xedit_table(game: str) -> FuncTable:
     funcs = parse_functions(text)
     return FuncTable({i: name for i, (name, _) in funcs.items()},
                      {i: {s for s, t in params.items() if t in form_types}
+                      for i, (_, params) in funcs.items()},
+                     {i: {s for s, t in params.items() if t == ACTOR_VALUE_PARAM}
                       for i, (_, params) in funcs.items()})
 
 

@@ -35,13 +35,14 @@ from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, p
 from fo4_import.spike.activators import Activators
 from fo4_import.spike import character, replacements, skeleton
 from fo4_import.spike.attach import ObjectScripts
-from fo4_import.spike.conversation import Conversations
+from fo4_import.spike.conversation import GREETING, Conversations, Hub, hub
 from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.packages import Packages
 from fo4_import.spike.poses import Poses
+from fo4_import.spike.sounds import Sounds
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif import weapon
@@ -49,14 +50,16 @@ from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike import voice
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS, VOICES
-from fo4_import.spike.say_topics import SayTopics
+from fo4_import.spike.say_topics import SayTopics, actor_values, conditions_of
 from fo4_import.spike.script import compile_into
 from fo4_import.spike.quest import objective_globals, quest_record
-from fo4_import.spike.statics import write_assets
+from fo4_import.spike.statics import tree_assets, write_assets
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
+from script_convert.context_setup import load_records
 from tes5_import.base.tes5_reader import first_sub, sub_map, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 from tes5_import.base.text_reader import parse_export_file
+from tes5_import.dialogue.unlocks import build_unlock_plan
 
 MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN, 'XDI.esm']
 #: Master index of the helper plugin (TES4Helpers.esl).
@@ -68,9 +71,11 @@ STAND_IN_TIES = frozenset({b'SNAM', b'CRIF'})
 #: The player's reference, the same FormID in both games.
 PLAYER = 0x14
 #: FNV quests the cell's scripts run, converted with it.
-CELL_QUESTS = ('VCG01', 'VCG01Test', 'VGenericTimer')
+CELL_QUESTS = ('VCG01', 'VCG01Test', 'VGenericTimer', 'VFreeformGoodsprings', 'VDoctors')
 #: Quests the spike starts by hand (setstage), not with the game: VCG01's stage 0 takes a loaded save's Pip-Boy.
 HAND_STARTED = frozenset({'VCG01'})
+#: derive_formid site of the statics made from FNV TREE records (key: the TREE's FormID).
+TREE_SITE = 'FNV TREE'
 FIRST_ID = 0x800
 #: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
 AS_STATIC = ('STAT', 'MSTT', 'SCOL', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
@@ -176,7 +181,7 @@ class CellBuilder:
     def weapon_mesh(self, model: str, pose: dict) -> tuple:
         """mesh() of an FNV weapon model in its held `pose`, dressed as a weapon after Elric (nif.weapon)."""
         if model not in self.meshes:
-            self.meshes[model] = write_assets(self.export_dir, model, self.data_dir, pose)
+            self.meshes[model] = write_assets(self.export_dir, model, self.data_dir, pose, animated=False)
         self.weapons.add(self.meshes[model][0])
         return self.meshes[model]
 
@@ -191,10 +196,22 @@ class CellBuilder:
             return self.made[fnv_fid]
         if sig in PICKUPS:
             self.made[fnv_fid] = self._pickup(fnv_fid, sig, rec)
+        elif sig == 'TREE':
+            self.made[fnv_fid] = self._tree(fnv_fid, rec)
+        elif sig == 'SOUN':
+            self.made[fnv_fid] = self.sounds.marker(fnv_fid)
         else:
             made = sig in ('LIGH', 'ACTI') or (sig and _model(rec))
             self.made[fnv_fid] = self._make(sig, rec, new_id or self.new_id) if made else None
         return self.made[fnv_fid]
+
+    def _tree(self, fnv_fid: int, rec: dict) -> int:
+        """The FO4 static for FNV TREE `rec`, its mesh generated from its SpeedTree; FormID hashed from FNV's."""
+        fid = self.writer.derive_formid(TREE_SITE, f'{fnv_fid:08X}')
+        model, bounds = self.meshes[_model(rec)] = tree_assets(self.export_dir, rec, self.data_dir)
+        self.writer.add_record('STAT', R.pack_stat(fid, f'FNV_{rec["EditorID"]}', model, bounds or _bounds(rec)))
+        self.counts['TREE'] += 1
+        return fid
 
     def _pickup(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
         """The FO4 item for placed FNV item `rec`; without one, its static on the numbered FormID it reserves."""
@@ -220,7 +237,8 @@ class CellBuilder:
             record = self.activators.record(fid, rec, model, bounds)
         elif sig == 'DOOR':
             vmad = self.scripts.vmad(int(rec['SCRI'], 16)) if 'SCRI' in rec else b''
-            record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)), vmad)
+            record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)), vmad,
+                                 (self.sounds.field(rec, 'SNAM.Open'), self.sounds.field(rec, 'ANAM.Close')))
         else:
             sig, record = _static(sig, fid, edid, model, bounds)
         self.writer.add_record(sig, record)
@@ -246,7 +264,7 @@ def _find_cell(export_dir: Path, edid: str) -> dict:
 def _bases(export_dir: Path, used: set) -> dict:
     """{FNV FormID: (type, record)} of the used bases this spike converts."""
     out = {}
-    for sig in AS_STATIC + ('LIGH', 'DOOR', 'FURN', 'ACTI'):
+    for sig in AS_STATIC + ('LIGH', 'DOOR', 'FURN', 'ACTI', 'TREE', 'SOUN'):
         for rec in parse_export_file(str(export_dir / f'{sig}.txt')):
             fid = int(rec['FormID'], 16)
             if fid in used:
@@ -474,31 +492,57 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     """Write FNV quests `recs` (FO4 ids in `quests`) with their lines; `ref_ids` maps FNV references.
 
     A line's conditions see the cell's references, actors' bases, these
-    quests and the player. Conversations are built once every script's
-    `TES4Talk_<topic>` scene is known.
+    quests, the player, actor values and the items FO4 shares or stands in. Conversations are built once every script's
+    `TES4Talk_<topic>` scene is known; they share one Hub (every quest's lines
+    and topic list), and the greeting goes to `_greeter`'s quest.
     """
     say = builder.say = SayTopics(builder, export_dir)
-    form_map = {**_form_map(builder, ref_ids, recs, quests), **builder.npc_ids}
-    done = []
+    form_map = {**builder.items.shared, **actor_values(HELPER_INDEX), **_form_map(builder, ref_ids, recs, quests),
+                **builder.npc_ids}
+    shared = _hub(builder, export_dir, say, recs, quests, form_map)
+    greeter, done = _greeter(say, recs), []
     for rec in recs:
         fid = quests[rec['EditorID']]
         topics = {dial: builder.new_id() for dial in say.topics(rec)}
         builder.scripts.named.update({say.dials[d]['EditorID']: t for d, t in topics.items()})
         branch, blobs = say.build(rec, fid, topics, form_map) if topics else (None, [])
-        talks = Conversations(say, rec, fid, form_map, XDI_KEYWORD)
+        talks = Conversations(say, rec, fid, form_map, XDI_KEYWORD, shared)
         record = quest_record(fid, rec, builder.scripts, ref_ids, talks.has_lines(),
                               rec['EditorID'] not in HAND_STARTED)
         done.append((fid, record, [branch] if branch else [], blobs, talks))
     built = set()
-    for fid, record, branches, blobs, talks in done:
+    for fid, record, branches, blobs, talks in sorted(done, key=lambda d: d[4].quest is not greeter):
         built |= {prop for prop, scene in list(builder.scripts.talks.items())
                   if prop not in built and talks.talk(prop, scene)}
-        talks.greeting(builder.packages.greets)
+        if talks.quest is greeter:
+            talks.greeting(builder.packages.greets)
         builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics, talks.scenes))
         builder.counts['QUST'] += 1
         builder.counts['SCEN'] += len(talks.scenes)
     for prop in set(builder.scripts.talks) - built:
         builder.counts[f'{prop}: no lines in the cell quests'] += 1
+
+
+def _hub(builder: CellBuilder, export_dir: Path, say: SayTopics, recs: list, quests: dict, form_map: dict) -> Hub:
+    """The cell quests' Hub, listing only topics with a line whose conditions convert; a topic an AddTopic
+    reveals is gated on the unlock global the scripts set, as the script converter's unlock plan names it."""
+    plan = build_unlock_plan(load_records(str(export_dir), ('DIAL', 'INFO', 'QUST', 'SCPT')))
+    shared = hub(say, recs, quests, plan['added'])
+    shared.topics = tuple(d for d in shared.topics if any(
+        r['ParentDIAL'].upper() == d and conditions_of(r, form_map, say.script_vars) is not None
+        for r in shared.lines.values()))
+    shared.gates = {d: builder.scripts.global_(plan['gated'][int(d, 16) & 0xFFFFFF]) for d in shared.topics
+                    if int(d, 16) & 0xFFFFFF in plan['gated']}
+    builder.counts['topics listed'] = len(shared.topics)
+    return shared
+
+
+def _greeter(say: SayTopics, recs: list) -> 'dict | None':
+    """Of the quests with GREETING lines: a game-started one, highest priority."""
+    greeting = [r for r in recs
+                if any(i['ParentDIAL'].upper() == GREETING for i in say.infos.get(r['FormID'].upper(), []))]
+    return max(greeting, key=lambda r: (r['EditorID'] not in HAND_STARTED, int(r.get('DATA.Priority', 0) or 0)),
+               default=None)
 
 
 def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) -> None:
@@ -514,6 +558,7 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
 
 def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list) -> None:
     """Give `builder` its item, activator and package makers; `refs` are the cell's FNV references."""
+    builder.sounds = Sounds(builder, export_dir)
     records = index(export_dir, ITEM_TYPES)
     consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
     equipment = builder.equipment
@@ -594,7 +639,7 @@ def _cell_group(builder: CellBuilder, export_dir: Path, cell: dict, cell_fid: in
 
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
-    """Collision, lowered skeletons, voices, the texture BA2 and scripts, then the plugin; the counts."""
+    """Collision, lowered skeletons, voices and sounds, the texture BA2 and scripts, then the plugin; the counts."""
     failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
     for model in sorted(builder.weapons):
@@ -602,6 +647,8 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     builder.counts['weapon meshes'] = len(builder.weapons)
     builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
     _voice(builder, export_dir, data_dir, out.name)
+    todo = [job for job in builder.sounds.jobs if not job[1].exists()]
+    builder.counts['sound files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))

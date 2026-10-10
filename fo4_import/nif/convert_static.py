@@ -29,6 +29,7 @@ apply_patches()
 from pyffi.formats.nif import NifFormat
 
 from asset_convert.collision.collision_falloutnv import latch_source
+from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_nodes, manager_of, skin
 from fo4_import.nif.collision import collision_nodes
 
 PREFIX = 'fnv'
@@ -45,6 +46,8 @@ IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 BSX_KEPT = 0x2 | 0x8 | 0x40 | 0x80
 #: BSXFlags Havok, Complex, Articulated: all 2,352 vanilla FURN/STAT/MISC meshes with Havok, not Complex, set Articulated.
 BSX_HAVOK, BSX_COMPLEX, BSX_ARTICULATED = 0x2, 0x8, 0x80
+#: BSXFlags Animated: on every vanilla door and container mesh with a NiControllerManager (animation).
+BSX_ANIMATED = 0x1
 BGSM_TEXTURES = ('diffuse', 'normal', 'smooth_spec', 'greyscale', 'envmap', 'glow', 'inner_layer', 'wrinkles',
                  'displacement')
 #: Vanilla ChemistrySetBeaker01's effect shader: flags, lighting influence, falloff, base colour, env map scale.
@@ -179,7 +182,8 @@ def vertices(pos, uv, nrm, colors, tris) -> list:
 
 
 def _geometry(geom, root) -> tuple:
-    """(positions, UVs, normals, colours or None, triangles) of one FNV shape in root space."""
+    """(positions, UVs, normals, colours or None, triangles) of one FNV shape in the space of its ancestor
+    `root`."""
     data, m = geom.data, np.array(geom.get_transform(root).as_list())
     pos = np.array([(v.x, v.y, v.z, 1.0) for v in data.vertices]) @ m
     nrm = np.array([(n.x, n.y, n.z) for n in data.normals]) @ m[:3, :3] if data.has_normals else None
@@ -359,7 +363,7 @@ def _lit_alpha(alpha, decal: bool) -> 'tuple | None':
     return (alpha.flags & ~1) | ALPHA_TEST_BIT, threshold
 
 
-def _bgsm(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, texture_root) -> ShapeMaterial:
+def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, texture_root) -> ShapeMaterial:
     """A lit FNV shape's BGSM: its textures, spec map, sidedness and alpha as FO4 draws it (_lit_alpha)."""
     mat = dict(MATERIAL, root_material='', two_sided=two_sided, decal=decal,
                textures={**dict.fromkeys(BGSM_TEXTURES, '')})
@@ -409,7 +413,7 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     clear = _effect(fnv, alpha) if glass else _translucent(fnv, alpha, two_sided) if cut_from_blend else None
     if glass and not cut_from_blend or cut_from_blend and translucent(texture):
         return clear
-    mat = _bgsm(fnv, props, alpha, two_sided, decal, texture_root)
+    mat = lit_material(fnv, props, alpha, two_sided, decal, texture_root)
     if cut_from_blend:
         mat.split = (clear, texture)
     return mat
@@ -429,7 +433,7 @@ def _shaded(geom) -> bool:
     return any(isinstance(p, (NifFormat.BSShaderProperty, NifFormat.NiTexturingProperty)) for p in geom.get_properties())
 
 
-def _emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeMaterial, out: Converted) -> int:
+def emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeMaterial, out: Converted) -> int:
     """Append one FO4 shape (`tris` of `geometry`, its used vertices only) with `mat`'s blocks; its index."""
     pos, uv, nrm, colors, _ = geometry
     used, local = np.unique(tris, return_inverse=True)
@@ -475,9 +479,9 @@ def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> lis
         if see_through.all():
             mat = mat.split[0]
         elif see_through.any():
-            return [_emit(nif, name, geometry, tris[~see_through], mat, out),
-                    _emit(nif, name, geometry, tris[see_through], mat.split[0], out)]
-    return [_emit(nif, name, geometry, tris, mat, out)]
+            return [emit(nif, name, geometry, tris[~see_through], mat, out),
+                    emit(nif, name, geometry, tris[see_through], mat.split[0], out)]
+    return [emit(nif, name, geometry, tris, mat, out)]
 
 
 def _effect_shader(nif: NifFile, mat: ShapeMaterial) -> dict:
@@ -533,9 +537,10 @@ def posed(root, pose: dict) -> None:
                     setattr(node.rotation, f'm_{i + 1}{j + 1}', value)
 
 
-def convert(path: str, texture_root=None, pose: dict = None) -> Converted:
+def convert(path: str, texture_root=None, pose: dict = None, animated: bool = True) -> Converted:
     """The FO4 version of the FNV mesh at `path`; `texture_root` holds FNV's textures folder, `pose` moves
-    named nodes first (posed())."""
+    named nodes first (posed()). An animated mesh keeps its animated nodes, skins and controllers
+    (nif.animation) unless not `animated` (a weapon, which FO4 animates through its behaviour graph)."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
@@ -547,11 +552,33 @@ def convert(path: str, texture_root=None, pose: dict = None) -> Converted:
     node = {'name': nif.string(root.name.decode('cp1252')), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
             'translation': (0.0, 0.0, 0.0), 'rotation': IDENTITY, 'scale': 1.0, 'collision': NONE, 'children': []}
     nif.blocks.append(('NiNode', node))
-    node['children'] = [i for g in _visible_shapes(root) for i in _shape_blocks(nif, g, root, out, texture_root)]
+    manager = manager_of(root)
+    kept = kept_nodes(root, manager) if animated and manager is not None and animatable(manager) else []
+    nodes = add_nodes(nif, kept, root, NODE_FLAGS) if kept else {id(root): 0}
+    for g in _visible_shapes(root):
+        skinned = bool(kept) and g.skin_instance is not None
+        owner = root if skinned else _owner(g, root, nodes)
+        made = _shape_blocks(nif, g, owner, out, texture_root)
+        nif.blocks[nodes[id(owner)]][1]['children'] += made
+        if skinned:
+            skin(nif, made, g, root, nodes)
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
     bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK else 0
+    bsx |= BSX_ANIMATED if kept else 0
     if bsx:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))
         node['extra'].append(len(nif.blocks) - 1)
-    collision_nodes(nif, root, 0, NODE_FLAGS)
+    if kept:
+        controllers(nif, root, manager, nodes)
+    collision_nodes(nif, root, 0, NODE_FLAGS, nodes)
     return out
+
+
+def _owner(geom, root, nodes: dict):
+    """The nearest of `geom`'s ancestors among the kept `nodes` ({id(FNV node): index}, the root included)."""
+    parents = {id(child): node for node in root.tree() if hasattr(node, 'children') for child in node.children
+               if child is not None}
+    current = parents.get(id(geom), root)
+    while id(current) not in nodes:
+        current = parents.get(id(current), root)
+    return current

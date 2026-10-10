@@ -49,10 +49,10 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.face.bake import surface
 from fo4_import.nif import file as nif_file
-from fo4_import.nif.blocks import NONE, Reader, pack_tri_shape, read_tri_shape
+from fo4_import.nif.blocks import DESC_SKINNED, NONE, SHADER_SKINNED, Reader, pack_tri_shape, read_tri_shape
 from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
-from fo4_import.nif.headgear import DESC_SKINNED, NO_PARENT, SHADER_SKINNED, shape_arrays
+from fo4_import.nif.headgear import NO_PARENT, shape_arrays
 
 #: Per sex: FO4's body (in Fallout 4 - Meshes.ba2) and FNV's body (under the export's meshes).
 FO4_BODIES = {'male': 'meshes\\actors\\character\\characterassets\\malebody.nif',

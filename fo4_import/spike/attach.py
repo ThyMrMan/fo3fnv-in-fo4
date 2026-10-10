@@ -6,15 +6,16 @@ actor or quest of the cell named as the property (FNV EditorIDs), the
 player, a helper quest or global (TES4Helpers.esl), the FNV item it names
 through the cell's item converter (its conversion or FO4 stand-in), else a
 Fallout4.esm misc item or potion of the same name, or the FNV message it
-names (converted once). Same-named Fallout4.esm forms are not used
-otherwise.
+names (converted once), or a dialogue global it sets (an AddTopic unlock or a
+Follow Up mark, made once, its FormID hashed from its name). Same-named
+Fallout4.esm forms are not used otherwise.
 
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
 from pathlib import Path
 
-from fo4_import.base.support_records import pack_mesg
+from fo4_import.base.support_records import pack_global, pack_mesg
 from fo4_import.base.vmad import object_scripts
 from fo4_import.helpers_plugin import helper_forms
 from fo4_import.spike.script import declared_properties, fill, fo4_forms
@@ -27,6 +28,10 @@ SCRIPT_PREFIX = 'FALLOUTNV_'
 PLAYER = ('Player', 0x14)
 #: MESG DNAM Message Box, the one flag FNV and FO4 share (FNV bit 1 is Auto Display, FO4's Delay Initial Display).
 MESSAGE_BOX = 0x1
+#: Name prefixes of the dialogue globals converted lines set: AddTopic unlocks and Follow Up marks.
+DIALOGUE_GLOBALS = ('TES4Unlock_', 'TES4FollowUpFrom_', 'TES4FollowUpSaid_')
+#: derive_formid site of the dialogue globals (key: the global's name).
+GLOBAL_SITE = 'FNV dialogue GLOB'
 #: Papyrus types of the item properties the cell's item converter fills by FNV name.
 ITEM_TYPES = frozenset({'Potion', 'MiscObject', 'LeveledItem', 'Weapon', 'Armor', 'Ammo', 'Book', 'Key'})
 
@@ -39,7 +44,7 @@ class ObjectScripts:
         self.builder, self.dir, self.helper_index, self.used = builder, scripts_dir, helper_index, []
         self.names = {int(r['FormID'], 16): r['EditorID'] for r in parse_export_file(str(export_dir / 'SCPT.txt'))}
         self.messages = {r.get('EditorID'): r for r in parse_export_file(str(export_dir / 'MESG.txt'))}
-        self.forms, self.made_messages = {**fo4_forms(), **helper_forms(helper_index)}, {}
+        self.forms, self.made_messages, self.globals = {**fo4_forms(), **helper_forms(helper_index)}, {}, {}
         self.named, self.talks = dict([PLAYER]), {}
 
     def name(self, scpt: int) -> 'str | None':
@@ -67,9 +72,19 @@ class ObjectScripts:
             return self.builder.swaps.swap(prop)
         if kind == 'ImageSpaceModifier':
             return self.builder.imods.modifier(prop)
+        if kind == 'GlobalVariable' and prop.startswith(DIALOGUE_GLOBALS):
+            return self.global_(prop)
         if kind == 'ObjectReference' and prop.startswith(FALLOUT4_POSE_PREFIX):
             return self.builder.poses.pose(prop)
         return self.builder.items.by_name(prop) if kind in ITEM_TYPES else None
+
+    def global_(self, name: str) -> int:
+        """The dialogue global `name`, written once; its FormID hashed from the name."""
+        if name not in self.globals:
+            self.globals[name] = fid = self.builder.writer.derive_formid(GLOBAL_SITE, name)
+            self.builder.writer.add_record('GLOB', pack_global(fid, name))
+            self.builder.counts['dialogue GLOB'] += 1
+        return self.globals[name]
 
     def talk(self, prop: str) -> int:
         """The FormID of the scene a `TES4Talk_<topic>` property starts, reserved once."""

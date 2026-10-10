@@ -44,6 +44,8 @@ _CONTINUED = re.compile(r'\\[ \t]*\r?\n')
 #: A declaration other scripts compile against: header, import, custom event, struct, function, event, property.
 _DECLARATION = re.compile(r'^(?:scriptname|import|customevent|struct|endstruct'
                           r'|(?:[\w:\[\]]+ )?(?:function|event|property)\b|[\w:\[\]]+ property\b)')
+#: The member a declaration line declares: a function, event, property or custom event name.
+_MEMBER = re.compile(r'\b(?:function|event|property|customevent) (\w+)')
 #: Per-script results of the last Fallout 4 run, in --out, so the next run compiles only what changed.
 _STATE_FILE = 'compile_state.json'
 
@@ -159,13 +161,24 @@ def source_declarations(files: list) -> dict:
     return {f.stem.lower(): declarations(f.read_text(encoding='utf-8', errors='replace')) for f in files}
 
 
-def users_index(files: list, names: set) -> dict:
-    """{lower-case script name: the scripts naming it}."""
+def source_words(files: list) -> dict:
+    """{lower-case script name: the lower-case words of its source}."""
+    return {f.stem.lower(): set(_WORD.findall(f.read_text(encoding='utf-8', errors='replace').lower())) for f in files}
+
+
+def users_index(words: dict, names: set) -> dict:
+    """{lower-case script name: the scripts naming it}, from source_words()."""
     users = collections.defaultdict(set)
-    for f in files:
-        for word in set(_WORD.findall(f.read_text(encoding='utf-8', errors='replace').lower())) & names:
-            users[word].add(f.stem.lower())
+    for script, found in words.items():
+        for word in found & names:
+            users[word].add(script)
     return users
+
+
+def member(line: str) -> 'str | None':
+    """The member a declaration line declares; None for a header, import or struct line."""
+    found = _MEMBER.search(line)
+    return found.group(1) if found else None
 
 
 def users_of(users: dict, seeds: set) -> set:
@@ -178,13 +191,18 @@ def users_of(users: dict, seeds: set) -> set:
     return out
 
 
-def needs_compile(hashes: dict, apis: dict, state: dict, users: dict) -> set:
-    """Changed names; users of one that lost or changed a declaration; failing users of one that added one."""
+def needs_compile(hashes: dict, apis: dict, state: dict, users: dict, words: dict) -> set:
+    """Changed names; users of one that lost or changed a declaration (those naming the member, for a member);
+    failing users of one that added one."""
     changed = {n for n, sha in hashes.items() if state.get(n, {}).get('sha') != sha}
     redeclared = {n for n in changed if state.get(n, {}).get('api') != apis[n]}
-    broke = {n for n in redeclared if 'api' not in state.get(n, {}) or set(state[n]['api']) - set(apis[n])}
+    lost = {n: {member(line) for line in set(state[n]['api']) - set(apis[n])}
+            for n in redeclared if 'api' in state.get(n, {})}
+    whole = {n for n in redeclared if n not in lost or None in lost[n]}
+    named = {u for n, members in lost.items() if members and n not in whole
+             for u in users_of(users, {n}) if words.get(u, set()) & members}
     failing = {n for n, s in state.items() if not s.get('ok')}
-    return changed | users_of(users, broke) | (users_of(users, redeclared) & failing)
+    return changed | users_of(users, whole) | named | (users_of(users, redeclared) & failing)
 
 
 def _load_state(out_dir: Path, imports: str) -> dict:
@@ -222,9 +240,10 @@ def compile_fallout4(args) -> tuple:
     """(compiled names, {file: [own error messages]}, source names) with FO4's compiler.
 
     Only scripts whose source changed since the last run are compiled, with
-    the scripts naming one whose declarations lost or changed a line (and
-    failing ones naming one that added a line), then those naming one that
-    started or stopped compiling; the rest keep their saved result. `--full` compiles everything. A script's old .pex is
+    the scripts naming one whose declarations lost or changed a line (for a
+    function, event or property, only those also naming it; failing ones
+    naming one that added a line), then those naming one that started or
+    stopped compiling; the rest keep their saved result. `--full` compiles everything. A script's old .pex is
     deleted first, so a script that stops compiling cannot pass on a stale one.
     """
     src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
@@ -232,8 +251,9 @@ def compile_fallout4(args) -> tuple:
     files = sorted(src_dir.glob('*.psc'))
     hashes, apis = source_hashes(files), source_declarations(files)
     state = {} if args.full else _load_state(out_dir, imports)
-    users = users_index(files, set(hashes))
-    todo = needs_compile(hashes, apis, state, users)
+    words = source_words(files)
+    users = users_index(words, set(hashes))
+    todo = needs_compile(hashes, apis, state, users, words)
     print(f'{len(todo)} of {len(files)} scripts changed or use one whose declarations did')
     own, pex = _compile_named(files, todo, out_dir, imports, args.workers)
     flipped = {n for n in todo if n in state and state[n].get('ok') != (n in pex)}

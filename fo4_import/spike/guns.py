@@ -67,7 +67,7 @@ class Guns:
         """(the FO4 gun to build FNV gun `rec` on, its EditorID's record subrecords, the converted FNV mesh's
         path and layout); None when no FO4 gun matches."""
         model = rec['Model.MODL']
-        path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir)
+        path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
         static = (self.builder.data_dir / 'Meshes' / path).read_bytes()
         nodes = gun.fnv_nodes(self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower())
         layout = gun.fnv_layout(static, nodes)

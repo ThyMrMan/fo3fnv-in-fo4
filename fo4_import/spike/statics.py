@@ -25,6 +25,7 @@ from asset_convert.texture.dds_codec import write_normal_dds
 from asset_convert.texture import spec_mask
 from fo4_import.nif.convert_static import PREFIX, convert, fo4_texture, spec_image, spec_map_path, texture_source
 from fo4_import.nif.elric import finish
+from fo4_import.nif.tree import tree_mesh
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
 from tes5_import.base.text_reader import parse_export_file
@@ -43,11 +44,21 @@ def mesh_bounds(nif) -> 'tuple | None':
     return (*lo.tolist(), *hi.tolist())
 
 
-def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None) -> tuple:
-    """Convert one FNV model (its nodes moved to `pose`, convert_static.posed) into <data_dir>; (FO4 model
-    path under Meshes, OBND)."""
+def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None, animated: bool = True) -> tuple:
+    """write_converted() of FNV `model` converted (nodes moved to `pose`; animation kept when `animated`)."""
     rel = model.replace('/', '\\').lower()
-    converted = convert(str(export_dir / 'meshes' / rel), export_dir, pose)
+    converted = convert(str(export_dir / 'meshes' / rel), export_dir, pose, animated)
+    return write_converted(export_dir, converted, rel, data_dir)
+
+
+def tree_assets(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
+    """write_converted() of FNV TREE `rec`'s generated mesh (nif.tree)."""
+    return write_converted(export_dir, tree_mesh(export_dir, rec), f'trees\\{rec["EditorID"].lower()}.nif', data_dir)
+
+
+def write_converted(export_dir: Path, converted, rel: str, data_dir: Path) -> tuple:
+    """Write converted mesh `converted` as Meshes\\<PREFIX>\\`rel` with its materials and textures into
+    <data_dir>; (FO4 model path under Meshes, OBND)."""
     out = data_dir / 'Meshes' / PREFIX / rel
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(nif_file.write(converted.nif))

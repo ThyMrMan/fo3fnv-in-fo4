@@ -168,7 +168,8 @@ class Items:
         contents = [c for c in contents if c[0] is not None]
         return self._write('CONT', lambda fid: R.pack_cont(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), contents,
-            int(rec.get('DATA.Flags', 0)) & CONTAINER_FLAGS, float(rec.get('DATA.Weight', 0.0))))
+            int(rec.get('DATA.Flags', 0)) & CONTAINER_FLAGS, float(rec.get('DATA.Weight', 0.0)),
+            (self.builder.sounds.field(rec, 'SNAM.OpenSound'), self.builder.sounds.field(rec, 'QNAM.CloseSound'))))
 
     def _note(self, rec: dict) -> 'int | None':
         """A text note as a paper note; None for sound, image and voice notes."""

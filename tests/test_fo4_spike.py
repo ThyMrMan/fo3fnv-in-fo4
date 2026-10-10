@@ -17,6 +17,7 @@ from fo4_import.nif import file as nf
 from fo4_import.spike import dialogue as D
 from fo4_import.spike import equipment as E
 from fo4_import.spike import gun_choice as GC
+from fo4_import.spike import sounds as SO
 from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
 from fo4_import.spike import poses as P
@@ -239,3 +240,23 @@ def test_copy_puts_a_material_swap_right_after_its_model():
     template = [(b'EDID', b'X\0'), (b'MOD2', b'old.nif\0'), (b'BOD2', b'\0' * 4)]
     out = eq._copy({'EditorID': 'Y'}, {b'MOD2': b'new.nif\0', b'MO2S': b'\1\0\0\3'}, source=template)
     assert [sig for sig, _ in out] == [b'EDID', b'MOD2', b'MO2S', b'BOD2']
+
+
+def test_an_fnv_sound_becomes_a_descriptor_of_its_kind(tmp_path):
+    """A looping FNV SOUN copies the loop template's playback, its folder's files named .wav under FX\\FNV."""
+    folder = tmp_path / 'sound' / 'fx' / 'amb' / 'hum'
+    folder.mkdir(parents=True)
+    for name in ('hum_01.wav', 'hum_02.ogg', 'notes.txt'):
+        (folder / name).write_bytes(b'x')
+    added = []
+    writer = SimpleNamespace(derive_formid=lambda site, key: 0x01000800, add_record=lambda sig, rec: added.append(rec))
+    sounds = object.__new__(SO.Sounds)
+    sounds.builder = SimpleNamespace(writer=writer, data_dir=tmp_path / 'Data', counts={'SNDR': 0})
+    sounds.export_dir, sounds.jobs, sounds.made, sounds.markers = tmp_path, [], {}, {}
+    sounds.records = {0x123: {'EditorID': 'Hum', 'FNAM.Filename': 'fx\\amb\\hum', 'SNDD.Flags': str(SO.LOOP)}}
+    sounds.templates = {SO.LOOP_TEMPLATE: {b'CNAM': b'C', b'LNAM': b'LOOP'}, SO.ONE_SHOT_TEMPLATE: {b'LNAM': b'ONCE'}}
+    assert sounds.descriptor(0x123) == 0x01000800
+    assert b'LOOP' in added[0] and b'ONCE' not in added[0]
+    assert b'data\\Sound\\FX\\FNV\\fx\\amb\\hum\\hum_01.wav' in added[0] and b'hum_02.wav' in added[0]
+    assert b'notes' not in added[0] and [job[1].suffix for job in sounds.jobs] == ['.xwm', '.xwm']
+

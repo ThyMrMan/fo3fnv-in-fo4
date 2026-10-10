@@ -250,7 +250,7 @@ class Equipment:
     def _static(self, model: str) -> tuple:
         """(FO4 path under Meshes, NIF bytes) of FNV `model` converted as a static, once."""
         if model not in self.statics:
-            path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir)
+            path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
             self.statics[model] = path, (self.builder.data_dir / 'Meshes' / path).read_bytes()
         return self.statics[model]
 

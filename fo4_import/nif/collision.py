@@ -48,8 +48,10 @@ STAIRS = {0: 2519395573, 2: 1340314491, 3: 2534329404, 4: 2926148967, 5: 3236651
           10: 2519395573, 19: 1439425931}
 #: FO4 stairs material of each FO4 base material that has one (FNV's stairs pairs).
 STAIRS_OF = {MATERIALS[base]: pair for base, pair in STAIRS.items()}
-#: FNV motion systems as Havok 2014's, which Elric reads; keyframed is fixed, as its animation is dropped.
+#: FNV motion systems as Havok 2014's, which Elric reads; keyframed is fixed unless its node keeps its animation.
 MOTIONS = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 5, 7: 5, 8: 6, 9: 7}
+#: FNV's keyframed motion system and Havok 2014's, for a body on a node that keeps its animation.
+FNV_KEYFRAMED, KEYFRAMED = 6, 4
 #: An empty hkWorldObjectCinfo::Property (data, size, capacity and flags).
 EMPTY_PROPERTY = struct.pack('<3I', 0, 0, 0x80000000)
 
@@ -94,11 +96,12 @@ def _vec(v, n: int = 4, scale: float = SCALE) -> tuple:
 class _Blocks:
     """Appends collision blocks to a NifFile, each as (type, bytes)."""
 
-    def __init__(self, nif: NifFile, scale: float = 1.0, root=None):
-        """Write into `nif`; lengths grown by `scale`; `root` is the FNV mesh root."""
+    def __init__(self, nif: NifFile, scale: float = 1.0, root=None, animated: bool = False):
+        """Write into `nif`; lengths grown by `scale`; `root` is the FNV mesh root; `animated`: the node moves."""
         self.nif = nif
         self.unit = SCALE * scale
         self.root = root
+        self.animated = animated
 
     def add(self, kind: str, body: bytes) -> int:
         """Append one block; its index."""
@@ -273,18 +276,21 @@ def _body_block(blocks: _Blocks, shape: int, body, baked: bool) -> int:
     info += struct.pack('<12f', *(t * SCALE * SCALE for t in tensor)) + struct.pack('<4f', *_vec(body.center))
     info += struct.pack('<9f', body.mass, body.linear_damping, body.angular_damping, 1.0, body.friction, 0.0,
                         body.restitution, body.max_linear_velocity, body.max_angular_velocity)
-    info += struct.pack('<4Bff4xBBHBBBBB3x', MOTIONS[body.motion_system], body.deactivator_type, body.solver_deactivation, 0,
+    motion = KEYFRAMED if blocks.animated and body.motion_system == FNV_KEYFRAMED else MOTIONS[body.motion_system]
+    info += struct.pack('<4Bff4xBBHBBBBB3x', motion, body.deactivator_type, body.solver_deactivation, 0,
                         body.penetration_depth * SCALE, 1.0, body.collision_response, 0,
                         body.process_contact_callback_delay, body.quality_type, 0, 0, 3, 0)
     return blocks.add('bhkRigidBody' if baked else type(body).__name__, head + info + struct.pack('<IH', 0, 0))
 
 
-def collision_object(nif: NifFile, co, target: int, node, scale: float = 1.0, root=None) -> int:
-    """Write `co` of FNV `node` for block `target`, its shapes grown by `scale`, children first as Elric needs.
+def collision_object(nif: NifFile, co, target: int, node, scale: float = 1.0, root=None,
+                     animated: bool = False) -> int:
+    """Write `co` of FNV `node` for block `target`, its shapes grown by `scale`, children first as Elric needs;
+    keyframed when `animated` (the node keeps its animation).
 
     Its index (NONE: dropped).
     """
-    blocks = _Blocks(nif, scale, root)
+    blocks = _Blocks(nif, scale, root, animated)
     body = _rigid_body(blocks, co.body, node)
     if body is None:
         return NONE
@@ -311,8 +317,9 @@ def node_transform(node, root) -> tuple:
     return (trans.x, trans.y, trans.z), tuple(float(r) for r in cells), float(scale)
 
 
-def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int) -> None:
-    """Give the FO4 root FNV's collision: the root's own, and a NiNode per child node that has one.
+def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int, kept: dict = None) -> None:
+    """Give the FO4 root FNV's collision: the root's own, and a NiNode per child node that has one; a node
+    already kept (`kept`: {id(FNV node): FO4 index}, an animated one) carries its own.
 
     The NiNodes come first and every Havok block after them, so the Havok
     blocks are the file's tail (elric.graft swaps that tail for FO4's).
@@ -324,8 +331,8 @@ def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int) ->
         co = getattr(node, 'collision_object', None)
         if co is None or co.body is None:
             continue
-        index, scale = root_index, 1.0
-        if node is not fnv_root:
+        index, scale = (kept or {}).get(id(node), root_index), 1.0
+        if node is not fnv_root and id(node) not in (kept or {}):
             translation, rotation, scale = node_transform(node, fnv_root)
             index = len(nif.blocks)
             nif.blocks.append(('NiNode', {
@@ -335,4 +342,5 @@ def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int) ->
             nif.blocks[root_index][1]['children'].append(index)
         owners.append((index, co, node, scale))
     for index, co, node, scale in owners:
-        nif.blocks[index][1]['collision'] = collision_object(nif, co, index, node, scale, fnv_root)
+        nif.blocks[index][1]['collision'] = collision_object(nif, co, index, node, scale, fnv_root,
+                                                             id(node) in (kept or {}))

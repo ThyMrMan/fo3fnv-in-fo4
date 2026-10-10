@@ -10,7 +10,11 @@ See: docs/fork/fo4_spikes.md#spike-2-nif
 import struct
 from dataclasses import dataclass, field
 
-from fo4_import.nif.blocks import BLOCKS, Reader
+from fo4_import.nif.anim_blocks import ANIM_BLOCKS
+from fo4_import.nif.blocks import BLOCKS as STATIC_BLOCKS, Reader
+
+#: Every block type this package reads and writes.
+BLOCKS = {**STATIC_BLOCKS, **ANIM_BLOCKS}
 
 HEADER_TEXT = b'Gamebryo File Format, Version 20.2.0.7\n'
 VERSION, USER_VERSION, BS_VERSION = 0x14020007, 12, 130

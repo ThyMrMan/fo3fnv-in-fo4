@@ -23,6 +23,12 @@ _FNV_DEFS = Path(__file__).resolve().parents[2] / 'references' / 'xEdit' / 'Core
 _AV_ENUM = re.search(r"wbActorValueEnum\s*:=\s*wbEnum\(\[(.*?)\]", _FNV_DEFS.read_text(errors='replace'), re.S)
 #: FNV actor value names by index; position, not xEdit's printed number (its Variable08 reads {79}).
 FNV_AV_NAMES = re.findall(r"\}\s*'([^']*)'", _AV_ENUM.group(1))
+#: xEdit's FNV actor value labels that are not the game's own name with the spaces dropped (GECK, scripts).
+FNV_AV_GAME_NAMES = {'Critical Chance': 'CritChance', 'Damage Resistance': 'DamageResist',
+                     'Poison Resistance': 'PoisonResist', 'Rad Resistance': 'RadResist',
+                     'Speed Multiplier': 'SpeedMult', 'Rad Level': 'RadiationRads', 'Fire Resistance': 'FireResist',
+                     'Electric Resistance': 'ElectricResist', 'Frost Resistance': 'FrostResist',
+                     'Energy Resistance': 'EnergyResist', 'EMP Resistance': 'EmpResist'}
 #: FNV name -> FO4 name where FO4 renamed the function.
 RENAMED = {'GetActorValue': 'GetValue', 'GetPCIsSex': 'GetIsSex'}
 #: FNV functions that test the player; FO4's counterpart runs on the player reference.
@@ -30,6 +36,12 @@ ON_PLAYER = {'GetPCIsSex'}
 PLAYER_REF = 0x14
 _OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,
         0x60: lambda a, b: a >= b, 0x80: lambda a, b: a < b, 0xA0: lambda a, b: a <= b}
+
+
+def fnv_av_name(index: int) -> str:
+    """The game's name of FNV actor value `index` ('' past the list)."""
+    label = FNV_AV_NAMES[index] if index < len(FNV_AV_NAMES) else ''
+    return FNV_AV_GAME_NAMES.get(label, label.replace(' ', ''))
 
 
 def parse(raw_hex: str) -> dict:

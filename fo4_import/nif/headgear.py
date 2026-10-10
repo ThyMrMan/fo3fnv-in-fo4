@@ -31,7 +31,7 @@ from scipy.spatial import cKDTree
 from fo4_import.face.bake import align, positions, surface, triangles
 from fo4_import.face.fnv_head import head
 from fo4_import.nif import file as nif_file
-from fo4_import.nif.blocks import NONE, pack_tri_shape
+from fo4_import.nif.blocks import DESC_SKINNED, NONE, SHADER_SKINNED, pack_tri_shape
 from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
 
@@ -48,10 +48,6 @@ HAIR_SLOT, HAIR_LINE, BRIM_SECTOR = 30, 4.55, 15.0
 #: The most a hat is tipped back (radians) and the bisection steps that find the angle.
 MAX_TIP, TIP_STEPS = np.radians(20.0), 40
 BONE = 'HEAD'
-#: Vanilla Raider02MaskM.nif's vertex descriptor: half positions, UV, normal, tangent, skin (32 bytes).
-DESC_SKINNED = 0x5B00050430208
-#: Shader flags1 bit Skinned (lighting and effect shaders alike).
-SHADER_SKINNED = 0x2
 #: Vanilla head items' last segment's bone ID (Raider02MaskM.nif, FCaptainsHat.nif).
 HEAD_BONE_ID = 0x86B72980
 NO_PARENT = 0xFFFFFFFF

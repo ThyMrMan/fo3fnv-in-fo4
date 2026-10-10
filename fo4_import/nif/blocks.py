@@ -14,6 +14,12 @@ import struct
 NONE = -1
 #: BSVertexDesc attribute bits (nif.xml VertexAttribute).
 VA_VERTEX, VA_UV, VA_NORMAL, VA_TANGENT, VA_COLOR, VA_SKINNED, VA_FULL_PRECISION = 0x1, 0x2, 0x8, 0x10, 0x20, 0x40, 0x400
+#: Vanilla Raider02MaskM.nif's vertex descriptor: half positions, UV, normal, tangent, skin (32 bytes).
+DESC_SKINNED = 0x5B00050430208
+#: The same with vertex colours before the skin (36 bytes).
+DESC_SKINNED_COLOR = 0x7B00065430209
+#: Shader flags1 bit Skinned (lighting and effect shaders alike).
+SHADER_SKINNED = 0x2
 
 
 class Reader:
@@ -41,12 +47,12 @@ class Reader:
         return list(self.take(f'{n}i')) if n > 1 else ([self.take('i')] if n else [])
 
 
-def _refs(values: list) -> bytes:
+def pack_refs(values: list) -> bytes:
     """A u32 count, then the i32 references."""
     return struct.pack(f'<I{len(values)}i', len(values), *values)
 
 
-def _sized(text: str) -> bytes:
+def pack_sized(text: str) -> bytes:
     """A u32-length string."""
     raw = text.encode('cp1252')
     return struct.pack('<I', len(raw)) + raw
@@ -59,7 +65,7 @@ def read_net(r: Reader, out: dict) -> None:
 
 def pack_net(b: dict) -> bytes:
     """NiObjectNET's bytes."""
-    return struct.pack('<i', b['name']) + _refs(b['extra']) + struct.pack('<i', b['controller'])
+    return struct.pack('<i', b['name']) + pack_refs(b['extra']) + struct.pack('<i', b['controller'])
 
 
 def read_av(r: Reader, out: dict) -> None:
@@ -86,7 +92,7 @@ def read_node(r: Reader) -> dict:
 
 def pack_node(b: dict) -> bytes:
     """NiNode's bytes."""
-    return pack_av(b) + _refs(b['children'])
+    return pack_av(b) + pack_refs(b['children'])
 
 
 def read_bsx(r: Reader) -> dict:
@@ -119,7 +125,7 @@ def read_texture_set(r: Reader) -> dict:
 
 def pack_texture_set(b: dict) -> bytes:
     """BSShaderTextureSet's bytes."""
-    return struct.pack('<I', len(b['textures'])) + b''.join(_sized(t) for t in b['textures'])
+    return struct.pack('<I', len(b['textures'])) + b''.join(pack_sized(t) for t in b['textures'])
 
 
 #: BSLightingShaderProperty after NiObjectNET at stream 130, for a shader type with no extra fields.
@@ -196,10 +202,10 @@ def read_effect(r: Reader) -> dict:
 def pack_effect(b: dict) -> bytes:
     """BSEffectShaderProperty's bytes."""
     out = pack_net(b) + struct.pack('<II2f2f', b['flags1'], b['flags2'], *b['uv_offset'], *b['uv_scale'])
-    out += _sized(b['source_texture'])
+    out += pack_sized(b['source_texture'])
     for name, fmt in _EFFECT_MID:
         out += struct.pack('<' + fmt, *_flat(b[name]))
-    out += b''.join(_sized(b[k]) for k in ('greyscale', 'env_map', 'normal', 'env_mask'))
+    out += b''.join(pack_sized(b[k]) for k in ('greyscale', 'env_map', 'normal', 'env_mask'))
     return out + struct.pack('<f', b['env_map_scale'])
 
 
@@ -274,7 +280,7 @@ def pack_tri_shape(b: dict) -> bytes:
 
 #: Block type -> (reader, packer). NiNode subclasses that add nothing share NiNode's.
 BLOCKS = {
-    'NiNode': (read_node, pack_node), 'BSFadeNode': (read_node, pack_node),
+    'NiNode': (read_node, pack_node), 'BSFadeNode': (read_node, pack_node), 'BSLeafAnimNode': (read_node, pack_node),
     'BSXFlags': (read_bsx, pack_bsx), 'NiAlphaProperty': (read_alpha, pack_alpha),
     'BSShaderTextureSet': (read_texture_set, pack_texture_set),
     'BSLightingShaderProperty': (read_lighting, pack_lighting),
