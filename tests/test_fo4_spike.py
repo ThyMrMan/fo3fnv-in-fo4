@@ -27,6 +27,8 @@ from fo4_import.spike import records as R
 from fo4_import.spike import skeleton as S
 from fo4_import.spike import voice as V
 from fo4_import.spike.cell import CellBuilder
+from fo4_import import record_routes as RT
+from tools.esm import fo4_record_census as C
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
@@ -286,3 +288,10 @@ def test_a_generated_formid_depends_only_on_its_owner():
     second = _ids()[0]
     assert (new_id(second, 'DIAL y'), new_id(second, 'DIAL x'), new_id(second, 'DIAL x')) == (b, a, a2)
     assert len({a, a2, b}) == 3
+
+
+def test_the_census_flags_an_unrouted_type_and_a_missing_target():
+    """A type with no route and a route to a type Fallout 4 lacks are both problems."""
+    fo4 = {target for target, _ in RT.ROUTES.values() if target}
+    assert C.problems(set(RT.ROUTES), fo4) == []
+    assert C.problems({'ZZZZ'}, fo4 - {'COBJ'}) == ['ZZZZ: no route', 'RCPE: target COBJ is not a Fallout 4 type']

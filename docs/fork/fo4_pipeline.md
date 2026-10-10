@@ -11,6 +11,7 @@ Goodsprings; this plan turns them into a converter for whole plugins.
 - [Is this the right base?](#base)
 - [The pipeline](#pipeline)
 - [Before the pipeline: build and research](#before)
+- [Record census](#census)
 - [Speed](#speed)
 - [Stability](#stability)
 - [Order](#order)
@@ -96,10 +97,7 @@ In order. **Built** marks what is done.
    - FalloutNV.esm's source ids reserved first, as the Skyrim pipeline
      does, so the hashed window (0x180000 to 0xF00000) is the one the
      pipeline will use.
-2. **Record coverage census.** Count each FNV record type, map it to its
-   FO4 type and converter, and record what the spike already converts. It
-   is the checklist for the converters and the gap list for the
-   replacement table.
+2. **Record coverage census.** **Built 2026-10-10** ([census](#census)).
 3. **Exterior navmesh across cells.** The spike converts one interior
    cell's navmesh. Exteriors need FNV's authored edge links (NVEX) carried
    into FO4's NVNM, and NAVI entries for every navmesh. The parsing is
@@ -128,6 +126,73 @@ In order. **Built** marks what is done.
    - packages, factions, inventories;
    - LVLC → LVLN;
    - creatures through the replacement table.
+
+## <a id="census"></a>Record census (2026-10-10)
+
+`fo4_import/record_routes.py` routes every FO3/FNV record type to its
+Fallout 4 type; the pipeline dispatches from it. Run the census with
+`python -m tools.esm.fo4_record_census export/FalloutNV.esm
+export/Fallout3.esm`; it prints the counts and fails on a type with no
+route or a target Fallout 4 lacks. Today: all 107 FalloutNV.esm types
+routed (Fallout3.esm's are a subset), every target real. The Anchorage
+and CaravanPack exports hold assets only.
+
+Kinds: **same** (FO4 has the type), **into** (another FO4 type),
+**override** (FO4's own singletons and settings), **system** (an FNV game
+system FO4 has no record for: rebuilt from quests, globals and scripts),
+**engine** (FO4 makes or holds the data elsewhere).
+
+| Status | Types | FNV records | FO3 records |
+|---|---|---|---|
+| Converter in the spike | 27 | 398,376 (86%) | 673,329 |
+| Partly converted | 23 | 58,168 | 40,463 |
+| Not started | 57 | 8,472 | 5,159 |
+
+The records that are not started are few but are the game's rules
+(factions, races, combat, weather), and the next phase (AI, quests,
+NPCs) needs most of them.
+
+**Converter in the spike** (scoped to the spike's cells, but general):
+
+| Types | Where |
+|---|---|
+| CELL, WRLD, LAND, LTEX, GRAS, REFR, ACHR | `cell.py`, `exterior.py`, `grass.py` |
+| NAVM, NAVI | `navmesh.py` (interior only so far: [exterior navmesh](#before)) |
+| STAT, MSTT, DOOR, LIGH, FURN, TREE (as STAT), SCOL | `cell.py`, `furniture.py`, `scol.py`, the NIF writers |
+| ACTI | `activators.py` |
+| CONT, MISC, LVLI | `items.py` |
+| ALCH, AMMO | `consumables.py` |
+| SOUN (as SNDR) | `sounds.py` |
+| IMGS, IMAD | `imagespace.py`, `imods.py` |
+| MESG | `attach.py` |
+| SCPT (as Papyrus) | `script_convert` FO4 target, 99.9% compile; attached by `attach.py` |
+
+**Partly converted:**
+
+| Types | FNV | What's missing |
+|---|---|---|
+| DIAL, INFO, QUST | 18,215 / 23,247 / 436 | Built for the five cell quests (scenes, XDI menus, fragments, objectives). Aliases, quest targets and the remaining 431 quests |
+| PACK | 4,163 | Travel, sandbox and force-greet packages only |
+| NPC_ | 3,816 | Vanilla stand-ins with FNV's face fitted; real NPCs need race, class, factions, inventory and AI data |
+| CREA, ACRE | 1,578 / 2,999 | Dogs on Dogmeat, geckos as mole rats; the rest by the replacement table ([creatures](fo4_replacements.md)) |
+| WEAP, ARMO, ARMA | 261 / 389 / 131 | FO4 stand-ins by default; melee, headgear and pre-war outfits on FNV's meshes; guns parked |
+| NOTE | 894 | Text notes as paper; holotapes (voice, sound, image) left |
+| BOOK, KEYM, TERM, IDLM | 27 / 283 / 344 / 211 | Placed as statics only |
+| HAIR, EYES | 67 / 12 | Matched to FO4 head parts per NPC |
+| PERK, AVIF | 176 / 64 | Traits by name; FNV skills as helper actor values; perk effects left |
+| MGEF, SPEL, GLOB, WATR | 289 / 270 / 218 / 78 | Only what the spike's items and scripts use |
+
+**Not started**, by what needs them:
+
+| Need | Types |
+|---|---|
+| NPCs and AI | FACT 682, CLAS 74, RACE 22, CSTY 84, VTYP 100, LVLN 365, LVLC 343 (into LVLN), IDLE 1,597, ANIO 152, BPTD 49, HDPT 61, TACT 87 |
+| Combat and effects | PROJ 95, EXPL 154, IPCT 125, IPDS 60, ENCH 145, EFSH 35, DEBR 6, ADDN 37, CAMS 276, PGRE 174, AMEF 54 (into OMOD), IMOD 50 (into OMOD) |
+| World | REGN 276, WTHR 63, CLMT 31, ECZN 17, LGTM 31, ASPC 113, CPTH 418, MUSC 20, ALOC 89 (into MUSC), MSET 140 (into MUST), PWAT 29 (into ACTI), TXST 493, LSCR 208, FLST 464 |
+| Crafting | RCPE 105 (into COBJ), RCCT 10 (into KYWD), INGR 1 |
+| Settings | GMST 648, DOBJ 1 (overrides) |
+| FNV systems | CCRD 270, CDCK 13, CSNO 5, CMNY 6, CHIP 5 (into MISC), CHAL 105, REPU 13, HUNG/DEHY/SLPD 5 each |
+| Engine-held | RGDL 38, RADS 5, MICN 12, LSCT 1 |
 
 ## <a id="speed"></a>Speed
 
