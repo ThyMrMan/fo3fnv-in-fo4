@@ -16,8 +16,8 @@ from pathlib import Path
 from fo4_import.base.install import FALLOUTNV_ESM
 from fo4_import.base.vmad import object_scripts, read_entry
 from fo4_import.spike import records as R
+from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import first_sub, walk
-from tes5_import.base.text_reader import parse_export_file
 
 #: Vanilla sink whose drinkFromFountainScript (sounds, drinking idle) drinkable FNV activators take.
 DRINK_TEMPLATE, DRINK_SCRIPT = 'PlayerHouse_Ruin_KitchenSink01Activator', 'drinkfromfountainscript'
@@ -54,7 +54,7 @@ class Activators:
         fnv = FALLOUTNV_ESM.read_bytes()
         self.builder, self.drink = builder, drink_template(builder.fo4)
         self.water, self.water_spell = fnv_links(fnv, b'ACTI', b'WNAM'), fnv_links(fnv, b'WATR', b'XNAM')
-        self.spells = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'SPEL.txt'))}
+        self.spells = {int(r['FormID'], 16): r for r in export_records(export_dir, 'SPEL')}
         self.fo4_spells = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                            for r, _ in walk(builder.fo4, b'SPEL')}
 

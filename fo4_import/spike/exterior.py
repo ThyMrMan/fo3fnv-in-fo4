@@ -22,8 +22,8 @@ from asset_convert.texture.landscape_normals import SPECULAR_ALPHA
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.grass import Grasses
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_image
+from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
-from tes5_import.base.text_reader import parse_export_file
 from tes5_import.base.writer import pack_group, pack_subrecord
 
 CELL_UNITS = 4096.0
@@ -46,8 +46,8 @@ class Exterior:
     def __init__(self, export_dir: Path, all_refs: list, world: str, center: tuple, radius: int):
         """The block of FNV worldspace `world` within `radius` cells of `center` (grid x, y)."""
         self.export_dir = export_dir
-        self.world = next(r for r in parse_export_file(str(export_dir / 'WRLD.txt')) if r.get('EditorID') == world)
-        cells = [r for r in parse_export_file(str(export_dir / 'CELL.txt'))
+        self.world = next(r for r in export_records(export_dir, 'WRLD') if r.get('EditorID') == world)
+        cells = [r for r in export_records(export_dir, 'CELL')
                  if r.get('ParentWRLD') == self.world['FormID']]
         self.persistent_cell = next(r['FormID'] for r in cells if int(r['RecordFlags']) & PERSISTENT)
         self.cells = {(int(r['XCLC.X']), int(r['XCLC.Y'])): r for r in cells if 'XCLC.X' in r and not
@@ -62,7 +62,7 @@ class Exterior:
             elif ref.get('ParentCELL') == self.persistent_cell and _grid(ref) in self.cells:
                 self.persistent.append(ref)
         self.refs = self.persistent + [r for refs in self.by_cell.values() for r in refs]
-        self.land = {r['ParentCELL']: r for r in parse_export_file(str(export_dir / 'LAND.txt')) if r['ParentCELL'] in own}
+        self.land = {r['ParentCELL']: r for r in export_records(export_dir, 'LAND') if r['ParentCELL'] in own}
         self.textures, self.made = {}, {}
         self.grasses = Grasses(export_dir)
 
@@ -138,7 +138,7 @@ class Exterior:
     def _ltex_records(self) -> dict:
         """FNV's LTEX records by FormID, read once."""
         if not self.textures:
-            self.textures = {r['FormID']: r for r in parse_export_file(str(self.export_dir / 'LTEX.txt'))}
+            self.textures = {r['FormID']: r for r in export_records(self.export_dir, 'LTEX')}
         return self.textures
 
     def _write_ltex(self, builder, rec: dict, data_dir: Path) -> int:

@@ -10,17 +10,22 @@ Fallout 4 helpers with Fallout 4's compiler into <Data>/Scripts.
 See: docs/fork/fo4_spikes.md#spike-3-end-to-end
 """
 
+import hashlib
+import os
 import re
 import shutil
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from fo4_import.base.papyrus import compile_folder, header_dirs
 from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import info_fragments, object_scripts, quest_fragments
 from fo4_import.helpers_plugin import actor_value_form, helper_forms
+from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.code_tag import ROOT
 from script_convert.target import AV_PROPERTY_PREFIX
-from tes5_import.base.text_reader import parse_export_file
+from tools.script.compile_papyrus import compile_fallout4
 
 DOC_SCRIPT = 'FALLOUTNV_GSDocMitchellScript'
 FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
@@ -35,6 +40,10 @@ _PROPERTY = re.compile(r'^(\w+)\s+Property\s+(\w+)', re.I | re.M)
 _CONVERTED_TYPE = re.compile(r'\bFALLOUTNV_\w+', re.I)
 TRACE_SCRIPT = 'FNVSpike_SceneTrace'
 TRACE_LOG = 'FNVSpikeTrace'
+#: compile_into's staging folders (one per output Scripts folder).
+STAGE = ROOT / 'output' / 'fo4_cache' / 'script_stage'
+#: Compiler instances compile_into runs at once.
+WORKERS = max(1, (os.cpu_count() or 2) - 1)
 
 
 def stage_fragments(psc: str) -> list:
@@ -49,7 +58,7 @@ def declared_properties(psc: str) -> list:
 
 def fo4_forms() -> dict:
     """{Papyrus type: {editor ID: FormID}} of the records FORM_DUMPS names."""
-    return {ptype: {r['EditorID']: int(r['FormID'], 16) for r in parse_export_file(str(FO4_DUMP / f'{sig}.txt'))
+    return {ptype: {r['EditorID']: int(r['FormID'], 16) for r in export_records(FO4_DUMP, sig)
                     if r.get('EditorID')} for ptype, sig in FORM_DUMPS.items()}
 
 
@@ -125,15 +134,26 @@ def with_types(scripts_dir: Path, names) -> set:
 
 
 def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = ()) -> str:
-    """Compile Doc's script, `fragments`, the scripts they name and every static helper into <data_dir>/Scripts."""
+    """Compile Doc's script, `fragments`, the scripts they name and every static helper into <data_dir>/Scripts;
+    a summary. Only what changed since the last build compiles (compile_papyrus.compile_fallout4), from a
+    staging folder that stays put between builds."""
     scripts_dir, out = scripts_dir.resolve(), (data_dir / 'Scripts').resolve()
     out.mkdir(parents=True, exist_ok=True)
     wanted = with_types(scripts_dir, [DOC_SCRIPT, *fragments])
-    with tempfile.TemporaryDirectory(prefix='fo4spike_') as tmp:
-        for psc in scripts_dir.glob('*.psc'):
-            if psc.stem in wanted or not psc.stem.upper().startswith('FALLOUTNV_'):
-                shutil.copy2(psc, tmp)
-        return compile_folder(Path(tmp), out, f'{header_dirs()};{scripts_dir}')
+    keep = {p.name for p in scripts_dir.glob('*.psc') if p.stem in wanted or not p.stem.upper().startswith('FALLOUTNV_')}
+    stage = STAGE / hashlib.sha1(str(out).encode()).hexdigest()[:12]
+    stage.mkdir(parents=True, exist_ok=True)
+    for old in stage.glob('*.psc'):
+        if old.name not in keep:
+            old.unlink()
+    for name in sorted(keep):
+        if not (stage / name).exists() or (stage / name).read_bytes() != (scripts_dir / name).read_bytes():
+            shutil.copyfile(scripts_dir / name, stage / name)
+    compiled, own, names = compile_fallout4(SimpleNamespace(src=str(stage), out=str(out), full=False, workers=WORKERS,
+                                                            headers=f'{header_dirs()};{scripts_dir}'))
+    failed = sorted(n for n in names if n.lower() not in compiled)
+    return f'{len(names) - len(failed)} of {len(names)} scripts compile' + ''.join(
+        f'\n  {n}: {"; ".join(own.get(n, ["through a script it uses"]))}' for n in failed)
 
 
 def trace_source(plugin: str, scenes: list, actors: list) -> str:

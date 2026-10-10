@@ -87,6 +87,69 @@ Stages, each scoped and cached on its own so a fix rebuilds only its stage:
    makes them stale.
 7. **Pack:** BA2s per plugin.
 
+## <a id="skeleton"></a>The skeleton (built 2026-10-10)
+
+```bash
+py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FNVCellSpike.esp --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --around -18 0 --radius 1 GSDocMitchellHouse
+```
+
+`fo4_import/pipeline/` runs the spike's converters (`spike.cell.build`)
+with the pipeline's infrastructure under them. It replaced the spike's own
+command line.
+
+- **The export read once** (`export_index.export_records`): the spike's
+  74 parses (several files read two or three times) became one per type
+  file.
+- **A mesh cache** (`mesh_cache.cached_convert`). A converted mesh is kept
+  under `output/fo4_cache/meshes`.
+  - Its key: the source NIF's bytes, the call's pose and animation flag,
+    the winding-repair switch, and a code tag. `code_tag` is a SHA-1 over
+    the converter's source and every repo module it imports (42 files), so
+    no version is bumped by hand.
+  - An entry also keeps each FNV texture's size and time; a changed
+    texture is a miss.
+  - `mesh_cache.warm` fills it first in worker processes, from the meshes
+    of the bases the scope places (`run.scope_models`).
+- **An Elric cache** (`elric_cache.process`). Elric's output is kept per
+  pre-Elric NIF, keyed by its bytes and a SHA-1 over Elric's exe, DLLs and
+  settings; a NIF Elric crashes on is remembered as a crash.
+  - Elric writes uninitialized bytes into its physics: two fresh builds
+    differed in 162 of 946 files, only inside `bhkPhysicsSystem` (32 bytes
+    in `flamerfuel.nif`, 3 in `woodplanks01nv.nif`). Our own blocks were
+    identical. With the cache, every rebuild after the first is byte for
+    byte the same.
+  - Elric runs as one instance. Four at once never finished: no CPU after
+    nine minutes.
+- **Scripts compiled only when changed.** `script.compile_into` stages the
+  needed scripts in a folder that stays put
+  (`output/fo4_cache/script_stage`) and compiles through the corpus gate's
+  incremental compiler (`tools/script/compile_papyrus.compile_fallout4`),
+  in parallel batches. Its state file sits in the data folder's `Scripts`.
+- **Voice files kept.** Lines' FormIDs no longer move, so a `.fuz` that
+  exists is kept (sounds already were).
+
+**Measured** (the 3×3 block and Doc's house):
+
+| Build | Time | Plugin |
+|---|---|---|
+| Spike, before | 362 s | (reference) |
+| Pipeline, empty caches | 168 s (389 meshes converted in 26 s on all cores) | byte-identical to the spike's |
+| Pipeline, rebuilt | 108 s (meshes ready in 8 s, 0 of 440 scripts recompiled) | byte-identical, every mesh too |
+
+Profiled, the spike spent 267 of its 592 profiled seconds in collision
+(the shared winding repair, `collision_winding.py`, pure Python), and 113
+in the Papyrus compiler. The winding repair now hands each rule only the
+render faces that could decide it: the same verdicts, 6.4x less CPU on the
+block's meshes, 16 s instead of 26 s to convert them all
+([render oracle](../commentary/asset_convert_collision.md#the-render-oracles-grids)).
+What a rebuild still spends, profiled:
+
+- outfits and the test chest's armor fitted again every build (38 s);
+- the export parse (21 s);
+- texture copies and spec maps rewritten (18 s);
+- Elric's read and graft over every mesh (15 s);
+- voice (29 s, now skipped for existing files).
+
 ## <a id="before"></a>Before the pipeline: build and research
 
 In order. **Built** marks what is done.
@@ -211,9 +274,8 @@ order of payoff:
 3. **Parallel work.**
    - Mesh, texture and tree conversion run in a process pool (pure
      Python, `cpu_count() - 1` workers).
-   - Elric runs as several instances over chunks, from a thread pool,
-     since each is a subprocess. One crash then costs only its chunk's
-     single-file retry.
+   - Elric cannot: several instances at once deadlock
+     ([skeleton](#skeleton)), so its cache carries it.
 4. **Read once.** One index of the export per run (the
    [import-once](../commentary/performance.md#import-once-per-run) rule),
    instead of each spike module parsing the text files itself.
@@ -242,9 +304,12 @@ order of payoff:
 ## <a id="order"></a>Order
 
 1. FormIDs. **Built.**
-2. Record census, then the pipeline skeleton:
-   - index, per-type converters, asset cache, parallel Elric;
-   - it must rebuild the spike block identically.
+2. Record census (**built**), then the pipeline skeleton (**built**, [skeleton](#skeleton)):
+   - built: the export read once, the mesh and Elric caches, meshes
+     converted on every core, scripts compiled only when changed; it
+     rebuilds the spike block byte for byte;
+   - left: converters per record type dispatched from `record_routes`
+     (the spike's code runs as it was), and a region scope (`--region`).
 3. **Goodsprings to Primm:** the first region, a few hundred cells.
    - Brings in the opening quests (VCG02's wells, Ghost Town Gunfight,
      the road south) and the exterior navmesh.

@@ -837,8 +837,8 @@ all 10,787 BSEffectShaderProperty blocks in the 32,397 readable meshes.
 
 ### <a id="spike-2-cell"></a>Doc Mitchell's house as an FO4 cell (played 2026-10-06)
 
-`fo4_import/spike/cell.py` rebuilds one FNV interior cell, by EditorID, in
-its own plugin: `coc FNV_GSDocMitchellHouse`. Of the house's 434
+`fo4_import/spike/cell.py` (run by `fo4_import.pipeline.run`) rebuilds one
+FNV interior cell, by EditorID, in its own plugin: `coc FNV_GSDocMitchellHouse`. Of the house's 434
 references, 427 are placed:
 
 - **Lighting:** FNV's XCLL colours, fog, directional light and fog power,
@@ -1119,7 +1119,7 @@ so `SubDiningChairDirtyL`/`R` are 0xe8/0xe4.
 ### <a id="spike-2-activators"></a>Activators (built 2026-10-06, not yet played)
 
 ```bash
-py -3.14 -m fo4_import.spike.cell ... --scripts temp/fo4_scripts/FalloutNV.esm GSDocMitchellHouse
+py -3.14 -m fo4_import.pipeline.run ... --scripts temp/fo4_scripts/FalloutNV.esm GSDocMitchellHouse
 ```
 
 Doc's house has 11 activators: the sink and toilet (purified water), the

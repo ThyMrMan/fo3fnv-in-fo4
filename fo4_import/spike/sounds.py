@@ -20,8 +20,8 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.writer import pack_fo4_record
+from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
-from tes5_import.base.text_reader import parse_export_file
 from tes5_import.base.writer import pack_subrecord
 
 #: FNV SOUN SNDD flag Loop.
@@ -45,7 +45,7 @@ class Sounds:
     def __init__(self, builder, export_dir: Path):
         """Index FNV's SOUNs; the templates come from `builder`'s Fallout4.esm."""
         self.builder, self.export_dir, self.jobs, self.made, self.markers = builder, export_dir, [], {}, {}
-        self.records = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'SOUN.txt'))}
+        self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'SOUN')}
         self.templates = {}
         for rec, _ in walk(builder.fo4, b'SNDR'):
             subs = dict(subrecords(rec.body))
@@ -75,7 +75,7 @@ class Sounds:
         return self.markers[fnv]
 
     def field(self, rec: dict, key: str) -> int:
-        """descriptor() of the FNV SOUN in field `key` of export record `rec` (0 when it has none)."""
+        """descriptor() of the FNV SOUN in `rec`'s field `key` (0 for none)."""
         return self.descriptor(int(rec[key], 16)) if rec.get(key) else 0
 
     def _files(self, rec: dict) -> list:

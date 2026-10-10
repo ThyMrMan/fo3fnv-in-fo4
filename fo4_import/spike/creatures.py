@@ -23,11 +23,11 @@ from pathlib import Path
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.nif.convert_static import convert
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import write_converted
-from tes5_import.base.text_reader import parse_export_file
+from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.mesh_cache import cached_convert
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
@@ -55,7 +55,7 @@ class Creatures:
     def __init__(self, builder, export_dir: Path, data_dir: Path):
         """For `builder`'s plugin (its writer and Fallout4.esm bytes), FNV export `export_dir`, into `data_dir`."""
         self.builder, self.export_dir, self.data_dir = builder, export_dir, data_dir
-        self.records = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'CREA.txt'))}
+        self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'CREA')}
         wanted = {fid for fids in TEMPLATES.values() for fid in fids} | set(STAND_INS.values())
         self.vanilla = {rec.form_id: rec for rec, _ in walk(builder.fo4, b'NPC_', b'ARMO', b'ARMA')
                         if rec.form_id in wanted}
@@ -108,7 +108,7 @@ class Creatures:
             if folder not in self.fits:
                 self.fits[folder] = creature_fit(self.export_dir, folder, self.archives)
             meshes = self.export_dir / 'meshes' / folder
-            parts = [(convert(str(meshes / n), self.export_dir, animated=False), meshes / n) for n in names]
+            parts = [(cached_convert(meshes / n, self.export_dir, animated=False), meshes / n) for n in names]
             body = creature_mesh(parts, self.fits[folder], PAIRS[folder].rig.root,
                                  skeleton_parents(meshes / 'skeleton.nif'))
             self.meshes[rel] = write_converted(self.export_dir, body, rel, self.data_dir)[0]

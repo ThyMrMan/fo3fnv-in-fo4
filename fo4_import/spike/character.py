@@ -19,8 +19,8 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.helpers_plugin import EDID_PREFIX, actor_value_form, form_id
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_HELPER_QUESTS
-from tes5_import.base.text_reader import parse_export_file
 
 RULES_SCRIPT = 'TES4_CharacterRules'
 SPECIAL = ('Strength', 'Perception', 'Endurance', 'Charisma', 'Intelligence', 'Agility', 'Luck')
@@ -41,12 +41,12 @@ INI_VERSION = 3
 
 def _settings(export_dir: Path) -> dict:
     """{GMST EditorID: value} of the game's settings."""
-    return {r.get('EditorID'): r.get('DATA.Value') for r in parse_export_file(str(export_dir / 'GMST.txt'))}
+    return {r.get('EditorID'): r.get('DATA.Value') for r in export_records(export_dir, 'GMST')}
 
 
 def _skill_texts(builder, export_dir: Path, skills: list, helper_index: int) -> None:
     """Override the helper plugin's skill actor values with the game's name and description."""
-    avifs = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'AVIF.txt'))}
+    avifs = {int(r['FormID'], 16): r for r in export_records(export_dir, 'AVIF')}
     for i, name in enumerate(C.FNV_AV_NAMES):
         if name.replace(' ', '') in skills and FNV_AVIF_BASE + i in avifs:
             rec = avifs[FNV_AVIF_BASE + i]
@@ -65,7 +65,7 @@ def _list(builder, edid: str, forms: list) -> int:
 def _traits(builder, export_dir: Path) -> list:
     """The game's traits as FO4 trait perks (name and description; their effects are a later step)."""
     out = []
-    for rec in parse_export_file(str(export_dir / 'PERK.txt')):
+    for rec in export_records(export_dir, 'PERK'):
         if rec.get('DATA.Trait') == '1' and rec.get('DATA.Playable') == '1':
             fid = builder.fnv_id(rec['FormID'])
             builder.writer.add_record('PERK', R.pack_perk(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''),

@@ -20,9 +20,9 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike.poses import line_idle
+from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import papyrus_script_name
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
-from tes5_import.base.text_reader import parse_export_file
 
 #: FNV DIAL type of the topics scripts Say: Conversation.
 CONVERSATION = '1'
@@ -48,9 +48,9 @@ class SayTopics:
     def __init__(self, builder, export_dir: Path):
         """Index FNV topics, lines and quest script variables; topics are written through `builder`."""
         self.builder, self.voiced = builder, []
-        self.dials = {r['FormID']: r for r in parse_export_file(str(export_dir / 'DIAL.txt'))}
+        self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         self.infos = {}
-        for rec in parse_export_file(str(export_dir / 'INFO.txt')):
+        for rec in export_records(export_dir, 'INFO'):
             self.infos.setdefault(rec.get('QSTI.Quest', '').upper(), []).append(rec)
         self.script_vars = _script_vars(export_dir)
 
@@ -119,16 +119,16 @@ def _script_vars(export_dir: Path) -> dict:
     """{FNV quest or actor reference FormID: (its converted script, {variable index: name})}, for
     GetQuestVariable and GetScriptVariable."""
     scripts = {}
-    for rec in parse_export_file(str(export_dir / 'SCPT.txt')):
+    for rec in export_records(export_dir, 'SCPT'):
         names, i = {}, 0
         while f'Variable[{i}].Index' in rec:
             names[int(rec[f'Variable[{i}].Index'])] = rec[f'Variable[{i}].Name']
             i += 1
         scripts[rec['FormID'].upper()] = (papyrus_script_name(rec.get('EditorID', ''), SCRIPT_PREFIX), names)
-    bases = {r['FormID'].upper(): r.get('SCRI', '').upper() for r in parse_export_file(str(export_dir / 'NPC_.txt'))}
+    bases = {r['FormID'].upper(): r.get('SCRI', '').upper() for r in export_records(export_dir, 'NPC_')}
     out = {int(q['FormID'], 16): scripts.get(q.get('SCRI', '').upper(), ('', {}))
-           for q in parse_export_file(str(export_dir / 'QUST.txt'))}
-    for ref in parse_export_file(str(export_dir / 'ACHR.txt')):
+           for q in export_records(export_dir, 'QUST')}
+    for ref in export_records(export_dir, 'ACHR'):
         script = scripts.get(bases.get(ref.get('NAME', '').upper(), ''))
         if script:
             out[int(ref['FormID'], 16)] = script

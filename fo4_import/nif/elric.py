@@ -104,14 +104,15 @@ def process(sources: dict) -> dict:
     return done
 
 
-def finish(paths: list) -> list:
-    """Replace the Havok input in each NIF at `paths` with Elric's physics; the paths left without collision."""
+def finish(paths: list, run=None) -> list:
+    """Replace the Havok input in each NIF at `paths` with Elric's physics (from `run`, process() by default);
+    the paths left without collision."""
     inputs = {}
     for i, path in enumerate(paths):
         nif = nif_file.read(Path(path).read_bytes())
         if havok_start(nif) is not None:
             inputs[f'{i:05d}.nif'] = (Path(path), nif)
-    done = process({name: nif_file.write(nif) for name, (_, nif) in inputs.items()})
+    done = (run or process)({name: nif_file.write(nif) for name, (_, nif) in inputs.items()})
     failed = []
     for name, (path, nif) in inputs.items():
         if name in done:

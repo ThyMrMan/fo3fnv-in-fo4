@@ -23,7 +23,8 @@ from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import file as nif_file
 from asset_convert.texture.dds_codec import write_normal_dds
 from asset_convert.texture import spec_mask
-from fo4_import.nif.convert_static import PREFIX, convert, fo4_texture, spec_image, spec_map_path, texture_source
+from fo4_import.nif.convert_static import PREFIX, fo4_texture, spec_image, spec_map_path, texture_source
+from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.nif.elric import finish
 from fo4_import.nif.tree import tree_mesh
 from fo4_import.spike import records as R
@@ -49,7 +50,7 @@ def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None
     """write_converted() of FNV `model` converted (convert()); a `load` door's static, as `<name>load.nif` (vanilla
     load door meshes' naming), or None when the mesh has no animation (the plain one serves)."""
     rel = model.replace('/', '\\').lower()
-    converted = convert(str(export_dir / 'meshes' / rel), export_dir, pose, animated and not load)
+    converted = cached_convert(export_dir / 'meshes' / rel, export_dir, pose, animated and not load)
     if load and not converted.animatable:
         return None
     return write_converted(export_dir, converted, rel[:-4] + 'load.nif' if load else rel, data_dir)
@@ -90,7 +91,7 @@ def swap_material(export_dir: Path, model: str, node: str, texture: str, data_di
     The swap material is the shape's BGSM with only the diffuse texture
     replaced; it and the texture are written into `data_dir`.
     """
-    converted = convert(str(export_dir / 'meshes' / model.replace('/', '\\').lower()), export_dir)
+    converted = cached_convert(export_dir / 'meshes' / model.replace('/', '\\').lower(), export_dir)
     nif = converted.nif
     shaders = [b['shader'] for kind, b in nif.blocks
                if kind == 'BSTriShape' and nif.strings[b['name']].lower() == node.lower() and b['shader'] >= 0]

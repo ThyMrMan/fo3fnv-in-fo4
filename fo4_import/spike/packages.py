@@ -18,8 +18,8 @@ import struct
 
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.say_topics import conditions_of
+from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
-from tes5_import.base.text_reader import parse_export_file
 from tes5_import.base.writer import pack_subrecord
 
 #: Vanilla instances copied per template (Parsons' travel, a Children of Atom sit, a Minutemen sandbox, Kendra's greet).
@@ -43,7 +43,7 @@ class Packages:
     def __init__(self, builder, export_dir, furniture: set):
         """Index FNV packages and read the vanilla instances; `furniture` holds the FNV references that are seats."""
         self.builder, self.furniture, self.made, self.greets = builder, furniture, {}, []
-        self.packs = {r['FormID']: r for r in parse_export_file(str(export_dir / 'PACK.txt'))}
+        self.packs = {r['FormID']: r for r in export_records(export_dir, 'PACK')}
         wanted = {fid: name for name, fid in INSTANCES.items()}
         self.vanilla = {wanted[r.form_id]: r.body for r, _ in walk(builder.fo4, b'PACK') if r.form_id in wanted}
 

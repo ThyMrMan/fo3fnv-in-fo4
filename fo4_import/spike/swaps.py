@@ -14,8 +14,8 @@ from pathlib import Path
 
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import swap_material
+from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import fallout4_swap_property
-from tes5_import.base.text_reader import parse_export_file
 
 #: `[<ref>.]SwapTexture <ref> "<node>" "<texture>"` in FO3/FNV script text.
 SWAP = re.compile(r'(?i)\bswaptexture[ \t]+(\w+)[ \t]+"([^"]+)"[ \t]+"([^"]+)"')
@@ -31,7 +31,7 @@ class Swaps:
         """Index the SwapTexture calls; `models` maps reference EditorIDs to FNV models."""
         self.builder, self.export_dir, self.models, self.made, self.targets = builder, export_dir, models, {}, {}
         self.pairs = {}
-        texts = [text for sig, fields in SCRIPT_SOURCES.items() for rec in parse_export_file(str(export_dir / f'{sig}.txt'))
+        texts = [text for sig, fields in SCRIPT_SOURCES.items() for rec in export_records(export_dir, sig)
                  for key, text in rec.items() if key.endswith(fields)]
         for ref, node, texture in (call for text in texts for call in SWAP.findall(text)):
             self.targets.setdefault(fallout4_swap_property(node, texture), (ref, node, texture))

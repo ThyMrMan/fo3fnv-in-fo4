@@ -19,7 +19,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.writer import pack_fo4_record
-from tes5_import.base.text_reader import parse_export_file
+from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_subrecord
 
 #: derive_formid site of a converted grass (key: FNV GRAS FormID).
@@ -54,7 +54,7 @@ class Grasses:
 
     def __init__(self, export_dir: Path):
         """Read FNV's GRAS records from the export."""
-        self.records = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'GRAS.txt'))}
+        self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'GRAS')}
         self.made = {}
 
     def grass(self, builder, fnv: int) -> 'int | None':

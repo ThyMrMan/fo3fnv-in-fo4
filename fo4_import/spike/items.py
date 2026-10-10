@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fo4_import.spike import records as R
 from tes5_import.base.tes5_reader import first_sub, walk
-from tes5_import.base.text_reader import parse_export_file
+from fo4_import.pipeline.export_index import export_records
 
 #: FNV's engine objects sit below this FormID.
 ENGINE_IDS = 0x800
@@ -54,9 +54,7 @@ def index(export_dir: Path, types: tuple) -> dict:
     """{FormID: (type, export record)} of every exported record of `types`."""
     out = {}
     for sig in types:
-        path = export_dir / f'{sig}.txt'
-        if path.exists():
-            out.update({int(r['FormID'], 16): (sig, r) for r in parse_export_file(str(path))})
+        out.update({int(r['FormID'], 16): (sig, r) for r in export_records(export_dir, sig)})
     return out
 
 

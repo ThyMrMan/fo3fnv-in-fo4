@@ -1,18 +1,14 @@
-"""Spike 2 step 2: an FNV interior cell rebuilt in Fallout 4.
-
-    py -3.14 -m fo4_import.spike.cell --export <FalloutNV.esm export> --out <plugin.esp> --data <Data> <cell EDID>
+"""Spike 2 step 2: an FNV interior cell rebuilt in Fallout 4 (built through fo4_import.pipeline.run).
 
 The cell keeps FNV's lighting, every placed object with a mesh, its lights,
 doors, misc items, containers, furniture and activators with their
 converted scripts (other types are statics for now). A door that led out of
 the cell leads to a stand-in door in QASmoke, and back. Engine objects FO4
-shares keep their base. Meshes get FNV's collision through Elric. Sounds are
-a later step.
+shares keep their base. Meshes get FNV's collision through Elric.
 
 See: docs/fork/fo4_spikes.md#spike-2-cell
 """
 
-import argparse
 import collections
 import math
 import struct
@@ -55,10 +51,11 @@ from fo4_import.spike.say_topics import SayTopics, actor_values, conditions_of
 from fo4_import.spike.script import compile_into
 from fo4_import.spike.quest import objective_globals, quest_record
 from fo4_import.spike.statics import tree_assets, write_assets
+from fo4_import.pipeline import elric_cache
+from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from script_convert.context_setup import load_records
 from tes5_import.base.tes5_reader import first_sub, records, sub_map, walk
-from tes5_import.base.text_reader import parse_export_file
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
 MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN, 'XDI.esm']
@@ -106,7 +103,7 @@ FACE_VARIANTS, FACE_SPACING = ('STH',), 50.0
 LIGHT_BASE = 0x1
 
 
-def _model(rec: dict) -> str:
+def world_model(rec: dict) -> str:
     """An FNV base record's world model ('' for none)."""
     return rec.get('Model.MODL') or rec.get('Male.WorldModel.MODL') or ''
 
@@ -221,14 +218,14 @@ class CellBuilder:
         elif sig == 'SOUN':
             self.made[fnv_fid] = self.sounds.marker(fnv_fid)
         else:
-            made = sig in ('LIGH', 'ACTI') or (sig and _model(rec))
+            made = sig in ('LIGH', 'ACTI') or (sig and world_model(rec))
             self.made[fnv_fid] = self._make(sig, rec, new_id or (lambda: self.fnv_id(fnv_fid))) if made else None
         return self.made[fnv_fid]
 
     def _tree(self, fnv_fid: int, rec: dict) -> int:
         """The FO4 static for FNV TREE `rec`, its mesh generated from its SpeedTree; FormID hashed from FNV's."""
         fid = self.writer.derive_formid(TREE_SITE, f'{fnv_fid:08X}')
-        model, bounds = self.meshes[_model(rec)] = tree_assets(self.export_dir, rec, self.data_dir)
+        model, bounds = self.meshes[world_model(rec)] = tree_assets(self.export_dir, rec, self.data_dir)
         self.writer.add_record('STAT', R.pack_stat(fid, f'FNV_{rec["EditorID"]}', model, bounds or _bounds(rec)))
         self.counts['TREE'] += 1
         return fid
@@ -236,21 +233,21 @@ class CellBuilder:
     def _pickup(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
         """The FO4 item for placed FNV item `rec`; without one, its static (FNV's FormID)."""
         item = self.items.item(fnv_fid)
-        if item is not None or not _model(rec):
+        if item is not None or not world_model(rec):
             return item
         return self._make(sig, rec, lambda: self.fnv_id(fnv_fid))
 
     def _make(self, sig: str, rec: dict, new_id) -> int:
         """Write the FO4 record for FNV base `rec` of type `sig` on FormID `new_id()`; its FormID."""
         fid, edid = new_id(), f'FNV_{rec["EditorID"]}'
-        model, bounds = self.mesh(_model(rec)) if _model(rec) else ('', None)
+        model, bounds = self.mesh(world_model(rec)) if world_model(rec) else ('', None)
         bounds = bounds or _bounds(rec)
         if sig == 'LIGH':
             light = (int(rec['DATA.Radius']), tuple(int(rec[f'DATA.Color.{c}']) for c in 'RGB'),
                      light_flags(int(rec['DATA.Flags'])))
             record = R.pack_ligh(fid, edid, _bounds(rec), model, light, float(rec.get('FNAM.Fade', 1.0)))
         elif sig == 'FURN':
-            marks = markers(str(self.export_dir / 'meshes' / _model(rec).replace('/', '\\').lower()))
+            marks = markers(str(self.export_dir / 'meshes' / world_model(rec).replace('/', '\\').lower()))
             record = furniture(fid, rec, model, bounds, marks, self.keywords)
         elif sig == 'ACTI':
             record = self.activators.record(fid, rec, model, bounds)
@@ -278,11 +275,11 @@ class CellBuilder:
             return self.load_doors[fnv_fid]
         plain = self.base(fnv_fid)
         sig, rec = self.bases.get(fnv_fid, (None, None))
-        made = write_assets(self.export_dir, _model(rec), self.data_dir, load=True) \
+        made = write_assets(self.export_dir, world_model(rec), self.data_dir, load=True) \
             if sig == 'DOOR' and plain is not None else None
         self.load_doors[fnv_fid] = plain
         if made is not None:
-            self.meshes[f'{_model(rec)}#load'] = made
+            self.meshes[f'{world_model(rec)}#load'] = made
             fid = self.load_doors[fnv_fid] = self.writer.derive_formid(LOAD_DOOR_SITE, f'{fnv_fid:08X}')
             self.writer.add_record('DOOR', self._door(fid, f'FNV_{rec["EditorID"]}Load', rec, made))
             self.counts['load doors made static'] += 1
@@ -296,19 +293,19 @@ def _static(sig: str, fid: int, edid: str, model: str, bounds: tuple) -> tuple:
     return 'STAT', R.pack_stat(fid, edid, model, bounds)
 
 
-def _find_cell(export_dir: Path, edid: str) -> dict:
+def find_cell(export_dir: Path, edid: str) -> dict:
     """The FNV interior CELL record with EditorID `edid`."""
-    for rec in parse_export_file(str(export_dir / 'CELL.txt')):
+    for rec in export_records(export_dir, 'CELL'):
         if rec.get('EditorID') == edid:
             return rec
     raise SystemExit(f'no CELL {edid}')
 
 
-def _bases(export_dir: Path, used: set) -> dict:
+def placed_bases(export_dir: Path, used: set) -> dict:
     """{FNV FormID: (type, record)} of the used bases this spike converts."""
     out = {}
     for sig in AS_STATIC + ('LIGH', 'DOOR', 'FURN', 'ACTI', 'TREE', 'SOUN'):
-        for rec in parse_export_file(str(export_dir / f'{sig}.txt')):
+        for rec in export_records(export_dir, sig):
             fid = int(rec['FormID'], 16)
             if fid in used:
                 out[fid] = (sig, rec)
@@ -464,10 +461,10 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
     variant; STH also takes FNV's matched hair, facial hair, eyes and hair
     colour. `form_map` maps the FNV forms packages name.
     """
-    npcs = {int(r['FormID'], 16): r for r in parse_export_file(str(export_dir / 'NPC_.txt'))}
+    npcs = {int(r['FormID'], 16): r for r in export_records(export_dir, 'NPC_')}
     assets = hair.Fo4Assets(builder.fo4, Archives(FALLOUT4_DIR / 'Data'))
     out = b''
-    for ref in parse_export_file(str(export_dir / 'ACHR.txt')):
+    for ref in export_records(export_dir, 'ACHR'):
         fnv = int(ref['NAME'], 16)
         if ref.get('ParentCELL') != cell_fid or fnv not in STAND_INS:
             continue
@@ -498,7 +495,7 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
     if 'XCIM.Imagespace' not in cell:
         builder.counts['cell without an FNV imagespace'] += 1
         return None
-    fnv = next(r for r in parse_export_file(str(export_dir / 'IMGS.txt')) if r['FormID'] == cell['XCIM.Imagespace'])
+    fnv = next(r for r in export_records(export_dir, 'IMGS') if r['FormID'] == cell['XCIM.Imagespace'])
     lut = write_lut(bytes.fromhex(fnv['DNAM']), fnv['EditorID'], builder.data_dir, base_hdr(base_body))
     fid = builder.fnv_id(fnv['FormID'])
     builder.writer.add_record('IMGS', pack_imgs(fid, f'FNV_{fnv["EditorID"]}', base_body, lut))
@@ -508,7 +505,7 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
 
 def _navmesh(builder: CellBuilder, export_dir: Path, fnv_cell: str, cell_fid: int, ids: dict) -> bytes:
     """The cell's FNV navmeshes as FO4 NAVM records, registered in the plugin's NAVI override."""
-    recs = [r for r in parse_export_file(str(export_dir / 'NAVM.txt')) if r.get('DATA.Cell') == fnv_cell]
+    recs = [r for r in export_records(export_dir, 'NAVM') if r.get('DATA.Cell') == fnv_cell]
     records, infos = navmeshes(recs, cell_fid, ids, builder.fnv_id)
     if infos:
         builder.writer.add_record('NAVI', navi(builder.fo4, infos))
@@ -587,7 +584,8 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
     todo = voice.jobs(builder.say.voiced, voices, data_dir, plugin)
     folders = [data_dir / 'Sound' / 'Voice' / plugin / fo4 for _, fo4 in voices]
     builder.counts['stale voice files removed'] = voice.remove_stale(todo, folders)
-    builder.counts['voice files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
+    builder.counts['voice files written'] = voice.convert([job for job in todo if not job[1].exists()],
+                                                          FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
 
 
 def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list) -> None:
@@ -604,10 +602,10 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.activators = Activators(builder, export_dir)
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in refs
                                                       if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN'})
-    builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): _model(builder.bases[int(r['NAME'], 16)][1])
+    builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
                                                 for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
     builder.imods = ImageSpaces(builder)
-    furniture = [(_place(r), str(export_dir / 'meshes' / _model(builder.bases[int(r['NAME'], 16)][1]).lower()))
+    furniture = [(_place(r), str(export_dir / 'meshes' / world_model(builder.bases[int(r['NAME'], 16)][1]).lower()))
                  for r in refs if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
     builder.poses = Poses(builder, {r['EditorID']: _place(r) for r in refs if r.get('EditorID')}, furniture)
 
@@ -621,21 +619,21 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     `exterior` is (worldspace, (grid x, y), radius): that block of the worldspace too (exterior.Exterior).
     `table` is the replacement table (spike.replacements), its other plugins found in `plugin_dirs`.
     """
-    cell = _find_cell(export_dir, cell_edid)
-    all_refs = parse_export_file(str(export_dir / 'REFR.txt'))
+    cell = find_cell(export_dir, cell_edid)
+    all_refs = export_records(export_dir, 'REFR')
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     world = Exterior(export_dir, all_refs, *exterior) if exterior else None
     outside = world.refs if world else []
     used = {int(r['NAME'], 16) for r in refs + outside}
     parts = Parts(used)
-    builder = CellBuilder(export_dir, data_dir, _bases(export_dir, used | parts.fids()), table, plugin_dirs)
+    builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), table, plugin_dirs)
     builder.parts = parts
     _object_makers(builder, export_dir, scripts_dir, refs)
     cell_fid = builder.fnv_id(cell['FormID'])
     ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in refs}
     ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in outside}
-    quest_recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in CELL_QUESTS]
+    quest_recs = [r for r in export_records(export_dir, 'QUST') if r.get('EditorID') in CELL_QUESTS]
     quests = {r['EditorID']: builder.fnv_id(r['FormID']) for r in quest_recs}
     builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
     builder.objectives = objective_globals(builder, quest_recs)
@@ -674,7 +672,7 @@ def _cell_group(builder: CellBuilder, export_dir: Path, cell: dict, cell_fid: in
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
     """Collision, lowered skeletons, voices and sounds, the texture BA2 and scripts, then the plugin; the counts."""
-    failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
+    failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()], elric_cache.process)
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
     for model in sorted(builder.weapons):
         weapon.dress_file(data_dir / 'Meshes' / model)
@@ -690,28 +688,3 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))
     return builder.counts
-
-
-def main():
-    """Build the plugin and assets, and print the counts."""
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
-    ap.add_argument('--out', required=True, help='Plugin to write')
-    ap.add_argument('--data', required=True, help='Data folder for meshes, materials and textures')
-    ap.add_argument('--scripts', type=Path, help='Converted FNV scripts (script_convert.pipeline --target fallout4)')
-    ap.add_argument('--world', help='FNV worldspace editor ID to add a block of (with --around)')
-    ap.add_argument('--around', type=int, nargs=2, default=(0, 0), metavar=('X', 'Y'), help='The block\'s center cell')
-    ap.add_argument('--radius', type=int, default=1, help='Cells around the center (1: a 3x3 block)')
-    ap.add_argument('--replacements', type=Path, help='A replacement table laid over the defaults (JSON)')
-    ap.add_argument('--plugin-dirs', nargs='*', default=(), help='Folders holding plugins the table names')
-    ap.add_argument('cell', help='FNV interior cell editor ID')
-    args = ap.parse_args()
-    exterior = (args.world, tuple(args.around), args.radius) if args.world else None
-    table = replacements.load(args.replacements)
-    for key, count in sorted(build(Path(args.export), Path(args.out), Path(args.data), args.cell,
-                                   args.scripts, exterior, table, tuple(args.plugin_dirs)).items()):
-        print(f'{key}: {count}')
-
-
-if __name__ == '__main__':
-    main()

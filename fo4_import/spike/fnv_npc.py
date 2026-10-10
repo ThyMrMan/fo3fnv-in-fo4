@@ -21,8 +21,8 @@ from fo4_import.face import hair
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, coefficients, head
 from fo4_import.face.texture import fnv_texture
+from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
-from tes5_import.base.text_reader import parse_export_file
 
 #: FNV race head part index of the left eye mesh.
 FNV_EYE_PART = 6
@@ -46,7 +46,7 @@ def first(value):
 
 def record(export_dir: Path, kind: str, form_id: str) -> dict:
     """An exported record by FormID."""
-    return next(r for r in parse_export_file(str(export_dir / f'{kind}.txt')) if r['FormID'] == form_id)
+    return next(r for r in export_records(export_dir, kind) if r['FormID'] == form_id)
 
 
 def asset(export_dir: Path, folder: str, rel: str) -> Path:
@@ -56,7 +56,7 @@ def asset(export_dir: Path, folder: str, rel: str) -> Path:
 
 def npc_head(export_dir: Path, edid: str) -> tuple:
     """(FNV head, NPC record, race record, race head part key) of FNV NPC `edid`."""
-    npc = next(r for r in parse_export_file(str(export_dir / 'NPC_.txt')) if r.get('EditorID') == edid)
+    npc = next(r for r in export_records(export_dir, 'NPC_') if r.get('EditorID') == edid)
     race = record(export_dir, 'RACE', npc['RNAM.Race'])
     part = 'FemalePart[0]' if int(npc.get('ACBS.Flags', 0)) & 1 else 'MalePart[0]'
     model = first(race[part + '.Model'])

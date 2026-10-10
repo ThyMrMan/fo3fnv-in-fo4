@@ -52,7 +52,7 @@ def jobs(lines: list, voices: list, data_dir: Path, plugin: str) -> list:
 def remove_stale(job_list: list, folders: list) -> int:
     """Delete the .fuz files in `folders` no job writes; how many.
 
-    INFO FormIDs move between builds, so a stale file would play under another line.
+    A line that is gone, or moved to another voice type, would otherwise leave its file behind.
     """
     keep = {job[1] for job in job_list}
     stale = [p for folder in folders if folder.is_dir() for p in folder.glob('*.fuz') if p not in keep]

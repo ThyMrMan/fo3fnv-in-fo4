@@ -19,9 +19,9 @@ from fo4_import.base.support_records import pack_global, pack_mesg
 from fo4_import.base.vmad import object_scripts
 from fo4_import.helpers_plugin import helper_forms
 from fo4_import.spike.script import declared_properties, fill, fo4_forms
+from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import (FALLOUT4_POSE_PREFIX, FALLOUT4_SWAP_PREFIX, FALLOUT4_TALK_PREFIX,
                                       papyrus_script_name)
-from tes5_import.base.text_reader import parse_export_file
 
 SCRIPT_PREFIX = 'FALLOUTNV_'
 #: The player reference, which converted scripts name `Player`.
@@ -42,8 +42,8 @@ class ObjectScripts:
     def __init__(self, builder, export_dir: Path, scripts_dir: 'Path | None', helper_index: int):
         """Scripts from the converted `scripts_dir` (None: none attached); helpers at master `helper_index`."""
         self.builder, self.dir, self.helper_index, self.used = builder, scripts_dir, helper_index, []
-        self.names = {int(r['FormID'], 16): r['EditorID'] for r in parse_export_file(str(export_dir / 'SCPT.txt'))}
-        self.messages = {r.get('EditorID'): r for r in parse_export_file(str(export_dir / 'MESG.txt'))}
+        self.names = {int(r['FormID'], 16): r['EditorID'] for r in export_records(export_dir, 'SCPT')}
+        self.messages = {r.get('EditorID'): r for r in export_records(export_dir, 'MESG')}
         self.forms, self.made_messages, self.globals = {**fo4_forms(), **helper_forms(helper_index)}, {}, {}
         self.named, self.talks = dict([PLAYER]), {}
 
