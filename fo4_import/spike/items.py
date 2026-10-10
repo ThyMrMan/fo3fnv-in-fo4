@@ -23,8 +23,6 @@ from tes5_import.base.text_reader import parse_export_file
 ENGINE_IDS = 0x800
 #: FNV record types an inventory may name, indexed for conversion (the rest are skipped).
 ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT')
-#: derive_formid site of a leveled item first made by converting consumables (key: FNV FormID).
-HASHED_SITE = 'FNV LVLI'
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
 CONTAINER_FLAGS = 0x2
 #: FNV NOTE DATA type of a text note (0 sound, 2 image, 3 voice).
@@ -88,7 +86,6 @@ class Items:
         (consumables, equipment); a type with no maker here or there is skipped.
         """
         self.builder, self.records, self.made, self.makers = builder, records, {}, makers or {}
-        self.numbered = set()
         named = {rec.get('EditorID'): fid for fid, (_, rec) in records.items()}
         self.names = {name.lower(): fid for name, fid in named.items() if name}
         self.shared = {**shared, **{named[e]: fid for e, fid in (stand_ins or {}).items() if e in named}}
@@ -118,15 +115,11 @@ class Items:
         if maker is None:
             self.builder.counts[f'item skipped ({sig or "not exported"})'] += 1
             return None
-        made = maker(rec)
-        if made is not None and sig != 'LVLI':
-            self.numbered.add(int(rec['FormID'], 16))
-        return made
+        return maker(rec)
 
-    def _write(self, sig: str, record_of, hashed_from: 'int | None' = None) -> int:
-        """Add the record `record_of(FormID)` of type `sig`; its FormID, the next numbered one or one hashed
-        from FNV FormID `hashed_from`."""
-        fid = self.builder.writer.derive_formid(HASHED_SITE, hashed_from) if hashed_from else self.builder.new_id()
+    def _write(self, sig: str, record_of, rec: dict) -> int:
+        """Add the record `record_of(FormID)` of type `sig` made from FNV `rec`; its FormID (FNV's)."""
+        fid = self.builder.fnv_id(rec['FormID'])
         self.builder.writer.add_record(sig, record_of(fid))
         self.builder.counts[sig] += 1
         return fid
@@ -138,26 +131,18 @@ class Items:
         model, bounds = self.builder.mesh(rec['Model.MODL'])
         return self._write('MISC', lambda fid: R.pack_misc(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), int(rec.get('DATA.Value', 0)),
-            float(rec.get('DATA.Weight', 0.0))))
+            float(rec.get('DATA.Weight', 0.0))), rec)
 
     def _leveled(self, rec: dict) -> 'int | None':
-        """A leveled item with the entries whose items convert; None when none do.
-
-        One with no entry from before consumables converted (none numbered or
-        shared) takes a hashed FormID, so the numbered ids after it do not move.
-        """
+        """A leveled item with the entries whose items convert; None when none do."""
         listed = _list(rec, 'Entry', ('Level', 'FormID', 'Count'))
         entries = [(level, self.item(fid), count) for level, fid, count in listed]
         entries = [e for e in entries if e[1] is not None]
         if not entries:
             return None
-        fnv = int(rec['FormID'], 16)
-        numbered = any(fid in self.numbered or fid in self.shared for _, fid, _ in listed)
-        if numbered:
-            self.numbered.add(fnv)
         return self._write('LVLI', lambda fid: R.pack_lvli(
             fid, f'FNV_{rec["EditorID"]}', int(rec.get('LVLD.ChanceNone', 0)), int(rec.get('LVLF.Flags', 0)),
-            entries), None if numbered else fnv)
+            entries), rec)
 
     def _container(self, rec: dict) -> 'int | None':
         """A container with the contents that convert."""
@@ -169,11 +154,11 @@ class Items:
         return self._write('CONT', lambda fid: R.pack_cont(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), contents,
             int(rec.get('DATA.Flags', 0)) & CONTAINER_FLAGS, float(rec.get('DATA.Weight', 0.0)),
-            (self.builder.sounds.field(rec, 'SNAM.OpenSound'), self.builder.sounds.field(rec, 'QNAM.CloseSound'))))
+            (self.builder.sounds.field(rec, 'SNAM.OpenSound'), self.builder.sounds.field(rec, 'QNAM.CloseSound'))), rec)
 
     def _note(self, rec: dict) -> 'int | None':
         """A text note as a paper note; None for sound, image and voice notes."""
         if int(rec.get('DATA.Type', -1)) != TEXT_NOTE:
             return None
         text = rec.get('TNAM.Text', '').replace(chr(13) + chr(10), chr(10))
-        return self._write('BOOK', lambda fid: R.pack_book(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), text))
+        return self._write('BOOK', lambda fid: R.pack_book(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), text), rec)

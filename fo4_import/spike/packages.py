@@ -65,7 +65,7 @@ class Packages:
                 self.builder.counts[f'package left out: {rec["EditorID"]}'] += 1
                 self.made[fnv] = 0
             else:
-                self.made[fnv] = fid = self.builder.new_id()
+                self.made[fnv] = fid = self.builder.fnv_id(fnv)
                 self.builder.writer.add_record('PACK', pack_package(fid, f'FNV_{rec["EditorID"]}',
                                                                    self.vanilla[plan[0]], plan[1], conditions,
                                                                    int(rec.get('PKDT.Flags', 0))))

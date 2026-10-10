@@ -89,7 +89,7 @@ class ObjectScripts:
     def talk(self, prop: str) -> int:
         """The FormID of the scene a `TES4Talk_<topic>` property starts, reserved once."""
         if prop not in self.talks:
-            self.talks[prop] = self.builder.new_id()
+            self.talks[prop] = self.builder.new_id(f'SCEN {prop}')
         return self.talks[prop]
 
     def vmad(self, scpt: int) -> bytes:
@@ -104,7 +104,8 @@ class ObjectScripts:
     def message(self, edid: str) -> int:
         """The FO4 MESG for FNV message `edid`, made once; with no text it shows its title (FO4 shows only DESC)."""
         if edid not in self.made_messages:
-            rec, fid = self.messages[edid], self.builder.new_id()
+            rec = self.messages[edid]
+            fid = self.builder.fnv_id(rec['FormID'])
             buttons, i = [], 0
             while f'Button[{i}].Text' in rec:
                 buttons.append(rec[f'Button[{i}].Text'])

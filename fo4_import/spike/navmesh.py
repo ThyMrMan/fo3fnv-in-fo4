@@ -75,14 +75,14 @@ def pack_nvnm(cell_fid: int, verts: list, tris: list, doors: list) -> bytes:
     return out + struct.pack('<3I', 0, 0, 0) + _grid(verts, tris)
 
 
-def navmeshes(rec_list: list, cell_fid: int, ids: dict, new_id) -> tuple:
-    """(NAVM records, NVMI subrecords) of a cell's FNV navmeshes; `new_id()` hands out FormIDs."""
+def navmeshes(rec_list: list, cell_fid: int, ids: dict, fid_of) -> tuple:
+    """(NAVM records, NVMI subrecords) of a cell's FNV navmeshes; `fid_of(FNV FormID)` gives each one's."""
     records, infos = b'', b''
     for rec in rec_list:
         verts, tris = parse_vertices(get_hex_bytes(rec, 'NVVX')), triangles(get_hex_bytes(rec, 'NVTR'))
         if not verts or not tris:
             continue
-        fid, doors = new_id(), door_links(get_hex_bytes(rec, 'NVDP'), ids)
+        fid, doors = fid_of(rec['FormID']), door_links(get_hex_bytes(rec, 'NVDP'), ids)
         nvnm = pack_nvnm(cell_fid, verts, tris, doors)
         records += pack_fo4_record('NAVM', fid, 0, pack_subrecord('NVNM', nvnm) + pack_subrecord('MNAM', b''))
         infos += pack_subrecord('NVMI', _info(fid, cell_fid, verts, sorted({d for _, d in doors})))

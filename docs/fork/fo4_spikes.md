@@ -12,6 +12,7 @@ plan are in [research/fo4_target.md](research/fo4_target.md).
 - [Spike 2: one interior cell](#spike-2)
 - [Scripted sequences as FO4 scenes](#scene-census)
 - [Creatures on Fallout 4](#creature-census)
+- [FormIDs: none counted](#formids)
 - [Decision point](#decision)
 - [Test setup](#test-setup)
 
@@ -1992,7 +1993,9 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     a leveled list first made non-empty by them is hashed too, and a
     placed consumable's old static base keeps its numbered id unused, so
     no existing record moves (2,591 compared, 0 moved; the 23 static
-    stand-ins are gone, their references now on the items).
+    stand-ins are gone, their references now on the items). Since
+    [FormIDs](#formids), leveled lists keep FNV's id and nothing is
+    reserved.
   - Played: items work; harvested foods made a bottle sound and showed no
     Pip-Boy preview. Every FNV food item had taken Nuka-Cola's sounds. A
     consumable's category now comes from FNV's ETYP (10 chem, 11 stimpak,
@@ -2265,7 +2268,8 @@ first- and third-person animations, sounds, keywords and mod templates
 - Placed weapons and armor become pickups as consumables did: each keeps
   its old static's numbered FormID unused (the hat, the glasses and a
   knife, now FO4's knife; 0 existing records moved). A placed piece with
-  no substitute stays a static on that id.
+  no substitute stays a static on that id (since [FormIDs](#formids), on
+  FNV's id).
 - Fallout4.esm is localized, so a copied FULL or DESC holds a string ID;
   the copy takes the text (`fo4_import/base/strings.py`, from the game's
   `Strings\Fallout4_en.*STRINGS`), including the mod templates' names.
@@ -3133,6 +3137,37 @@ as the NIF writer was. Parked with the modlist direction
 
 A community port (GrilledTurkey's, [candidate mods](fo4_replacements.md#candidate-mods))
 answers the same need as way 1 or 2 for the creatures it covers.
+
+## <a id="formids"></a>FormIDs: none counted
+
+Every FormID in the spike plugin is a function of FNV's data, never of build
+order, so building more of the map moves nothing already built:
+
+- **An FNV record made into one FO4 record keeps FNV's object id**
+  (`CellBuilder.fnv_id`): cells, references, bases, quests, packages,
+  messages, imagespaces, navmeshes, LAND and LTEX, traits. This is how the
+  Skyrim converter keeps Oblivion's ids. Every FalloutNV.esm id (465,016,
+  ending at 0x17BA47) is reserved first (`reserve_source_ids`), which
+  also puts the hashed window in the emptiest run after them,
+  0x180000-0xF00000, the window the full pipeline will use.
+- **A generated record is hashed** (`derive_formid`). Older sites keep
+  their own site names (trees, load doors, sounds, consumables, equipment,
+  creatures). The rest use `CellBuilder.new_id(owner)`: site `FNV made`,
+  key the FNV data the record is made from (`DIAL <quest> <topic>`,
+  `INFO <line>`, `SCEN <quest> <step>`, `GLOB <quest> <objective> <state>`),
+  plus a count when one owner makes several (an FNV line said in two
+  menus; a menu's five topics). Only those counts depend on build order,
+  and only within their owner.
+
+Switching cost one round of drift (2026-10-10, approved): 3,757 of the
+plugin's 3,772 records moved, so saves from earlier builds don't carry
+over; the other 15 are overrides of Fallout4.esm. Built, no FormID
+duplicated, and every record on an FNV id carries that record's EditorID:
+1,524 references, 253 statics, 138 leveled lists, 87 misc items, the 11
+cells, 9 LAND, 5 quests, 8 packages and the rest. Hashed: 487 topics, 361
+lines, 108 scenes, 357 generated references (seats, stand-in doors, SCOL
+parts, QA test objects) and the equipment and consumables. A second build into a
+fresh data folder wrote the plugin byte for byte the same.
 
 ## <a id="decision"></a>Decision point
 

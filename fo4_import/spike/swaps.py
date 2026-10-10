@@ -45,7 +45,7 @@ class Swaps:
         """
         if prop not in self.made:
             pair = self._pair(prop)
-            self.made[prop] = fid = self.builder.new_id() if pair else 0
+            self.made[prop] = fid = self.builder.new_id('MSWP ' + ' '.join(self.targets[prop])) if pair else 0
             if pair:
                 ref, node = self.targets[prop][:2]
                 worn = {pair[0]} | {self._pair(p)[1] for p, (r, n, _) in self.targets.items()

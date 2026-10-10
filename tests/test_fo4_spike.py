@@ -4,6 +4,7 @@ See: docs/fork/fo4_spikes.md#spike-1b
 """
 
 import struct
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ import pytest
 from fo4_import.base.ba2 import Archives
 from fo4_import.base import strings as ST
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif import file as nf
 from fo4_import.spike import dialogue as D
 from fo4_import.spike import equipment as E
@@ -24,6 +26,7 @@ from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
 from fo4_import.spike import skeleton as S
 from fo4_import.spike import voice as V
+from fo4_import.spike.cell import CellBuilder
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
@@ -260,3 +263,26 @@ def test_an_fnv_sound_becomes_a_descriptor_of_its_kind(tmp_path):
     assert b'data\\Sound\\FX\\FNV\\fx\\amb\\hum\\hum_01.wav' in added[0] and b'hum_02.wav' in added[0]
     assert b'notes' not in added[0] and [job[1].suffix for job in sounds.jobs] == ['.xwm', '.xwm']
 
+
+
+def _ids():
+    """A stand-in CellBuilder carrying only what fnv_id and new_id read."""
+    builder = SimpleNamespace(writer=FO4PluginWriter(masters=['Fallout4.esm', 'A.esl', 'B.esm']), owned=Counter(),
+                              top=0x800)
+    return builder, CellBuilder.fnv_id, CellBuilder.new_id
+
+
+def test_a_converted_fnv_record_keeps_its_object_id():
+    """FNV's id under our plugin's index, and the header's next id clears it."""
+    builder, fnv_id, _ = _ids()
+    assert fnv_id(builder, '0010C6F2') == 0x0310C6F2 == fnv_id(builder, 0x0010C6F2)
+    assert builder.top == 0x10C6F3
+
+
+def test_a_generated_formid_depends_only_on_its_owner():
+    """The same owners give the same ids in any order; one owner's repeats differ."""
+    first, _, new_id = _ids()
+    a, a2, b = new_id(first, 'DIAL x'), new_id(first, 'DIAL x'), new_id(first, 'DIAL y')
+    second = _ids()[0]
+    assert (new_id(second, 'DIAL y'), new_id(second, 'DIAL x'), new_id(second, 'DIAL x')) == (b, a, a2)
+    assert len({a, a2, b}) == 3

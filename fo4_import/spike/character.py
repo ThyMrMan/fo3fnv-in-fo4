@@ -57,7 +57,7 @@ def _skill_texts(builder, export_dir: Path, skills: list, helper_index: int) -> 
 
 def _list(builder, edid: str, forms: list) -> int:
     """Write a form list of `forms`; its FormID."""
-    fid = builder.new_id()
+    fid = builder.new_id(f'FLST {edid}')
     builder.writer.add_record('FLST', R.pack_flst(fid, edid, forms))
     return fid
 
@@ -67,7 +67,7 @@ def _traits(builder, export_dir: Path) -> list:
     out = []
     for rec in parse_export_file(str(export_dir / 'PERK.txt')):
         if rec.get('DATA.Trait') == '1' and rec.get('DATA.Playable') == '1':
-            fid = builder.new_id()
+            fid = builder.fnv_id(rec['FormID'])
             builder.writer.add_record('PERK', R.pack_perk(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''),
                                                           rec.get('DESC', ''), True))
             out.append(fid)
@@ -95,7 +95,7 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
               'LevelsPerPerk': ('int', per_perk), 'TagBonus': ('int', int(float(settings['fAVDTagSkillBonus']))),
               'TraitCount': ('int', int(settings.get('iTraitMenuMaxNumTraits', 0))),
               'SkillBase': ('float', float(settings['fAVDSkillBarterBase']))}
-    quest = builder.new_id()
+    quest = builder.new_id('QUST FNV_CharacterRules')
     builder.writer.add_record('QUST', pack_script_quest(
         quest, 'FNV_CharacterRules', quest_fragments('', [], scripts=[(RULES_SCRIPT, objects, values)])))
     builder.scripts.used.append(RULES_SCRIPT)

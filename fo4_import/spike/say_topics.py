@@ -67,7 +67,7 @@ class SayTopics:
 
         `form_map` maps the FNV forms conditions name to FO4 ones.
         """
-        branch, blobs = self.builder.new_id(), []
+        branch, blobs = self.builder.new_id(f'DLBR {quest["FormID"]}'), []
         for dial, fid in topic_ids.items():
             lines = [rec for rec in self.infos[quest['FormID'].upper()] if rec['ParentDIAL'] == dial]
             infos = [i for i in (self.info(rec, form_map) for rec in lines) if i]
@@ -89,7 +89,7 @@ class SayTopics:
         if conditions is None:
             self.builder.counts['line left out (condition)'] += 1
             return b''
-        fid = self.builder.new_id()
+        fid = self.builder.new_id(f'INFO {rec["FormID"]} {rec.get(PART, 1)}')
         name = f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
         scripts, vmad = self.builder.scripts, b''
         if scripts.dir and (scripts.dir / f'{name}.psc').exists() and (first or last):

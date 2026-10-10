@@ -76,16 +76,16 @@ class ImageSpaces:
         self.fnv = {}
         for r, _ in walk(FALLOUTNV_ESM.read_bytes(), b'IMAD'):
             subs = subrecords(r.body)
-            self.fnv[zstr(subs[0][1])] = r.body
+            self.fnv[zstr(subs[0][1])] = r
 
     def modifier(self, edid: str) -> 'int | None':
         """The FO4 IMAD of FNV modifier `edid`, written once; None when FNV has none."""
         if edid not in self.made:
-            body = self.fnv.get(edid)
-            fid = self.builder.new_id() if body else None
+            rec = self.fnv.get(edid)
+            fid = self.builder.fnv_id(rec.form_id) if rec else None
             if fid:
                 self.builder.writer.add_record('IMAD', pack_fo4_record(
-                    'IMAD', fid, 0, pack_subrecord('EDID', f'FNV_{edid}'.encode() + b'\0') + convert(body)))
+                    'IMAD', fid, 0, pack_subrecord('EDID', f'FNV_{edid}'.encode() + b'\0') + convert(rec.body)))
                 self.builder.counts['IMAD'] += 1
             self.made[edid] = fid
         return self.made[edid]

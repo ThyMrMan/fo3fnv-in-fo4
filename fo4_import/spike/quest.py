@@ -58,7 +58,8 @@ def objective_globals(builder, recs: list) -> dict:
     for rec in recs:
         for i in _numbered(rec, 'Objective'):
             for state in OBJECTIVE_FUNCS.values():
-                index, fid = int(rec[f'Objective[{i}].Index']), builder.new_id()
+                index = int(rec[f'Objective[{i}].Index'])
+                fid = builder.new_id(f'GLOB {rec["FormID"]} {index} {state}')
                 name = objective_global_name(rec['EditorID'], index, state)
                 builder.writer.add_record('GLOB', pack_global(fid, name))
                 out[(int(rec['FormID'], 16), index, state)] = builder.scripts.named[name] = fid

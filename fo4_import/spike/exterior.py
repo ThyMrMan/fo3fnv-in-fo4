@@ -6,9 +6,8 @@ persistent references standing in the block (doors) go in the worldspace's
 persistent cell. The worldspace takes the Commonwealth's climate, water and
 map settings. Landscape textures become LTEX records with FO4 texture sets:
 FNV's diffuse and normal map, and a specular map from the normal map's
-alpha, and the grasses FNV grows on them (grass.py). Trees (SpeedTree) and LOD
-are not converted. Records made here
-take ids from EXTERIOR_FIRST on, so the interior's ids do not move.
+alpha, and the grasses FNV grows on them (grass.py). LOD is not converted.
+Records keep FNV's FormIDs; a texture set's is hashed from its LTEX.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
@@ -27,8 +26,6 @@ from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.text_reader import parse_export_file
 from tes5_import.base.writer import pack_group, pack_subrecord
 
-#: First object id of the exterior's own records, past the interior's sequential ids.
-EXTERIOR_FIRST = 0x100000
 CELL_UNITS = 4096.0
 #: Fallout4.esm's Commonwealth, whose climate, water and map settings the worldspace takes.
 WORLD_TEMPLATE = 0x3C
@@ -48,7 +45,7 @@ class Exterior:
 
     def __init__(self, export_dir: Path, all_refs: list, world: str, center: tuple, radius: int):
         """The block of FNV worldspace `world` within `radius` cells of `center` (grid x, y)."""
-        self.export_dir, self.next = export_dir, EXTERIOR_FIRST
+        self.export_dir = export_dir
         self.world = next(r for r in parse_export_file(str(export_dir / 'WRLD.txt')) if r.get('EditorID') == world)
         cells = [r for r in parse_export_file(str(export_dir / 'CELL.txt'))
                  if r.get('ParentWRLD') == self.world['FormID']]
@@ -69,15 +66,6 @@ class Exterior:
         self.textures, self.made = {}, {}
         self.grasses = Grasses(export_dir)
 
-    def new_id(self, plugin_index: int) -> int:
-        """The next exterior FormID in plugin `plugin_index`."""
-        self.next += 1
-        return plugin_index << 24 | self.next - 1
-
-    def ids(self, plugin_index: int) -> dict:
-        """{FNV reference FormID: FO4 FormID} of every reference in the block."""
-        return {r['FormID']: self.new_id(plugin_index) for r in self.refs}
-
     def placement_order(self) -> list:
         """Every reference in group()'s order: the persistent cell's, then each cell's."""
         return self.persistent + [r for grid in sorted(self.cells) for r in self.by_cell[grid]]
@@ -87,20 +75,18 @@ class Exterior:
 
         Records made here (LTEX, TXST) are added to `builder.writer`.
         """
-        index = builder.next_id >> 24
-        world, persistent_cell = self.new_id(index), self.new_id(index)
+        world, persistent_cell = builder.fnv_id(self.world['FormID']), builder.fnv_id(self.persistent_cell)
         cells, kept = {}, place(self.persistent)[0]
         for grid in sorted(self.cells):
             persistent, temporary = place(self.by_cell[grid])
             kept += persistent
             land = self.land.get(self.cells[grid]['FormID'])
             land_record = self._land(builder, land, data_dir) if land else b''
-            cells[grid] = (self.new_id(index), land_record + temporary)
+            cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + temporary)
         record = self._world(builder, world)
         children = _cell(persistent_cell, PERSISTENT, (0, 0), kept, b'')
         children += _blocks({grid: _cell(fid, 0, grid, b'', temp) for grid, (fid, temp) in cells.items()})
         builder.counts['exterior cells'] = len(cells)
-        builder.next_id = max(builder.next_id, index << 24 | self.next)
         return record + pack_group(WORLD_CHILDREN, struct.pack('<I', world), children)
 
     def _world(self, builder, fid: int) -> bytes:
@@ -138,7 +124,7 @@ class Exterior:
                                                                     float(rec[f'{key}.VT[{v}].Opacity']))
                                                         for v in range(int(rec[f'{key}.VTXTCount']))))
         builder.counts['LAND'] += 1
-        return pack_fo4_record('LAND', self.new_id(builder.next_id >> 24), 0, subs)
+        return pack_fo4_record('LAND', builder.fnv_id(rec['FormID']), 0, subs)
 
     def _ltex(self, builder, fnv: 'str | None', data_dir: Path) -> int:
         """The FO4 LTEX for FNV LTEX FormID `fnv`, made once; 0 (the default texture) for none."""
@@ -157,8 +143,7 @@ class Exterior:
 
     def _write_ltex(self, builder, rec: dict, data_dir: Path) -> int:
         """An LTEX and its texture set for FNV LTEX `rec`, textures written into `data_dir`; the LTEX FormID."""
-        index = builder.next_id >> 24
-        txst, ltex = self.new_id(index), self.new_id(index)
+        txst, ltex = builder.new_id(f'TXST {rec["FormID"]}'), builder.fnv_id(rec['FormID'])
         diffuse, normal, specular = _landscape_textures(self.export_dir, rec, data_dir)
         edid = f'FNV_{rec["EditorID"]}'
         sets = pack_subrecord('EDID', f'{edid}_TXST\0'.encode()) + pack_subrecord('OBND', bytes(12))

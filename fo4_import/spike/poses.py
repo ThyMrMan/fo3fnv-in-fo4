@@ -48,7 +48,7 @@ class Poses:
         if marker not in self.markers:
             return None
         if marker not in self.seats:
-            self.seats[marker] = self.builder.new_id()
+            self.seats[marker] = self.builder.new_id(f'REFR seat {marker}')
             place = seat_place(self.markers[marker], self.furniture)
             self.placed += R.pack_refr(self.seats[marker], self._base(), *place, disabled=True)
         return self.seats[marker]
@@ -56,7 +56,7 @@ class Poses:
     def _base(self) -> int:
         """The seat FURN, written once."""
         if self.base is None:
-            self.base = self.builder.new_id()
+            self.base = self.builder.new_id('FURN TES4PlayerSeat')
             keywords = [self.builder.keywords[k] for k in SEAT_KEYWORDS + THROUGH_GEOMETRY]
             marker = (0.0, 0.0, 0.0, 0.0, UNUSED_ENTRY | OTHER | FRONT)
             self.builder.writer.add_record('FURN', R.pack_furn(self.base, 'TES4PlayerSeat', '', SEAT_MODEL, SEAT_BOUNDS,

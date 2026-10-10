@@ -20,7 +20,7 @@ from pathlib import Path
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.ba2_pack import pack_textures
-from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
+from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, FALLOUTNV_ESM
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest
 from fo4_import.face import hair, tint
 from fo4_import.face.sculpt import FACE_SHAPE
@@ -57,7 +57,7 @@ from fo4_import.spike.quest import objective_globals, quest_record
 from fo4_import.spike.statics import tree_assets, write_assets
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from script_convert.context_setup import load_records
-from tes5_import.base.tes5_reader import first_sub, sub_map, walk
+from tes5_import.base.tes5_reader import first_sub, records, sub_map, walk
 from tes5_import.base.text_reader import parse_export_file
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
@@ -78,12 +78,13 @@ HAND_STARTED = frozenset({'VCG01'})
 TREE_SITE = 'FNV TREE'
 #: FormID site of a load door's static copy of an FNV DOOR (CellBuilder.load_door).
 LOAD_DOOR_SITE = 'FNV DOOR load'
-FIRST_ID = 0x800
+#: derive_formid site of a generated record (CellBuilder.new_id; key: its owner and count there).
+MADE_SITE = 'FNV made'
 #: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
 AS_STATIC = ('STAT', 'MSTT', 'SCOL', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
 #: FNV base types converted as themselves (spike.items), and the types whose engine objects FO4 may share.
 ITEM_BASES, SHARED_TYPES = ('MISC', 'CONT'), ('STAT', 'MISC')
-#: Item types placed as FO4 items; each still takes its old static's numbered FormID (its static when no item).
+#: Item types placed as FO4 items (their static when no item converts).
 PICKUPS = ('ALCH', 'AMMO', 'WEAP', 'ARMO')
 #: Stand-in doors in QASmoke: the first one's position and the spacing along X.
 DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
@@ -163,7 +164,9 @@ class CellBuilder:
         self.table, self.plugin_dirs = table if table is not None else replacements.load(), plugin_dirs
         self.masters = MASTERS + replacements.extra_masters(self.table)
         self.writer = FO4PluginWriter(masters=self.masters, is_esm=False, description='FNV cell spike')
-        self.next_id = len(self.masters) << 24 | FIRST_ID
+        self.top, self.owned = ENGINE_IDS, collections.Counter()
+        own = self.writer.own_index << 24
+        self.writer.reserve_source_ids({own | r.form_id & 0xFFFFFF for r in records(FALLOUTNV_ESM.read_bytes(), bodies=())})
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
@@ -173,10 +176,20 @@ class CellBuilder:
                          for r, _ in walk(self.fo4, b'KYWD')}
         self.counts = collections.Counter()
 
-    def new_id(self) -> int:
-        """The next plugin FormID."""
-        self.next_id += 1
-        return self.next_id - 1
+    def fnv_id(self, fnv) -> int:
+        """FormID of FNV record `fnv` (int or hex) made 1:1: FNV's own object id."""
+        oid = (int(fnv, 16) if isinstance(fnv, str) else fnv) & 0xFFFFFF
+        self.top = max(self.top, oid + 1)
+        return self.writer.own_index << 24 | oid
+
+    def new_id(self, owner: str) -> int:
+        """A generated record's FormID, hashed from its `owner` (FNV data) and count.
+
+        See: docs/fork/fo4_spikes.md#formids
+        """
+        n = self.owned[owner]
+        self.owned[owner] += 1
+        return self.writer.derive_formid(MADE_SITE, f'{owner} {n}' if n else owner)
 
     def mesh(self, model: str) -> tuple:
         """(FO4 model path, bounds) of an FNV model, converted into the data folder once."""
@@ -192,7 +205,8 @@ class CellBuilder:
         return self.meshes[model]
 
     def base(self, fnv_fid: int, new_id=None) -> 'int | None':
-        """The FO4 base for an FNV base FormID, made on first use (id from `new_id`); None: not converted."""
+        """The FO4 base for an FNV base FormID, made on first use (id from `new_id`, else FNV's); None: not
+        converted."""
         if fnv_fid < ENGINE_IDS:
             return self.items.shared.get(fnv_fid)
         if self.items.records.get(fnv_fid, ('',))[0] in ITEM_BASES:
@@ -208,7 +222,7 @@ class CellBuilder:
             self.made[fnv_fid] = self.sounds.marker(fnv_fid)
         else:
             made = sig in ('LIGH', 'ACTI') or (sig and _model(rec))
-            self.made[fnv_fid] = self._make(sig, rec, new_id or self.new_id) if made else None
+            self.made[fnv_fid] = self._make(sig, rec, new_id or (lambda: self.fnv_id(fnv_fid))) if made else None
         return self.made[fnv_fid]
 
     def _tree(self, fnv_fid: int, rec: dict) -> int:
@@ -220,12 +234,11 @@ class CellBuilder:
         return fid
 
     def _pickup(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
-        """The FO4 item for placed FNV item `rec`; without one, its static on the numbered FormID it reserves."""
-        reserved = self.new_id() if _model(rec) else None
+        """The FO4 item for placed FNV item `rec`; without one, its static (FNV's FormID)."""
         item = self.items.item(fnv_fid)
-        if item is not None or reserved is None:
+        if item is not None or not _model(rec):
             return item
-        return self._make(sig, rec, lambda: reserved)
+        return self._make(sig, rec, lambda: self.fnv_id(fnv_fid))
 
     def _make(self, sig: str, rec: dict, new_id) -> int:
         """Write the FO4 record for FNV base `rec` of type `sig` on FormID `new_id()`; its FormID."""
@@ -317,7 +330,7 @@ def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tup
     qa_refs, teleports = b'', _linked(door_refs, ids)
     for i, ref in enumerate(r for r in door_refs if r['FormID'] not in teleports):
         pos = (DOOR_START[0] + i * DOOR_SPACING, DOOR_START[1], DOOR_START[2])
-        stand_in, partner = builder.new_id(), links.get(ref['XTEL.Door'], ref)
+        stand_in, partner = builder.new_id(f'DOOR stand-in {ref["FormID"]}'), links.get(ref['XTEL.Door'], ref)
         inside = _place(partner, 'XTEL.') if partner is not ref else _place(ref)
         qa_refs += R.pack_refr(stand_in, builder.load_door(int(ref['NAME'], 16)), pos, (0.0, 0.0, 0.0),
                                teleport=(ids[ref['FormID']], *inside))
@@ -466,12 +479,12 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
         edits = {'ST': _composed(tinted, packages),
                  'STH': _composed(tinted, _head_edit(builder, export_dir, npc['EditorID'], assets), packages)}
         for i, variant in enumerate(FACE_VARIANTS):
-            base = builder.new_id()
+            base = builder.new_id(f'NPC_ {fnv:08X} {variant}')
             builder.writer.add_record('NPC_', R.clone_npc(
                 base, stand_in.body, stand_in.flags, f'FNV_{npc["EditorID"]}_{variant}',
                 f'{npc.get("FULL", "")} ({variant})', FACE_SHAPE | STAND_IN_TIES, morphs, edits[variant]))
             spot = (pos[0] + i * FACE_SPACING * math.cos(rot[2]), pos[1] - i * FACE_SPACING * math.sin(rot[2]), pos[2])
-            achr = builder.new_id()
+            achr = builder.new_id(f'ACHR {ref["FormID"]} {variant}')
             builder.actor_ids[ref['FormID']] = builder.scripts.named[ref.get('EditorID', '')] = achr
             vmad = builder.scripts.vmad(int(npc['SCRI'], 16)) if 'SCRI' in npc else b''
             out += R.pack_achr(achr, base, spot, rot, vmad)
@@ -487,7 +500,7 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
         return None
     fnv = next(r for r in parse_export_file(str(export_dir / 'IMGS.txt')) if r['FormID'] == cell['XCIM.Imagespace'])
     lut = write_lut(bytes.fromhex(fnv['DNAM']), fnv['EditorID'], builder.data_dir, base_hdr(base_body))
-    fid = builder.new_id()
+    fid = builder.fnv_id(fnv['FormID'])
     builder.writer.add_record('IMGS', pack_imgs(fid, f'FNV_{fnv["EditorID"]}', base_body, lut))
     builder.counts[f'imagespace: {fnv["EditorID"]}'] += 1
     return fid
@@ -496,7 +509,7 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
 def _navmesh(builder: CellBuilder, export_dir: Path, fnv_cell: str, cell_fid: int, ids: dict) -> bytes:
     """The cell's FNV navmeshes as FO4 NAVM records, registered in the plugin's NAVI override."""
     recs = [r for r in parse_export_file(str(export_dir / 'NAVM.txt')) if r.get('DATA.Cell') == fnv_cell]
-    records, infos = navmeshes(recs, cell_fid, ids, builder.new_id)
+    records, infos = navmeshes(recs, cell_fid, ids, builder.fnv_id)
     if infos:
         builder.writer.add_record('NAVI', navi(builder.fo4, infos))
         builder.counts['NAVM'] += len(recs)
@@ -524,7 +537,7 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     greeter, done = _greeter(say, recs), []
     for rec in recs:
         fid = quests[rec['EditorID']]
-        topics = {dial: builder.new_id() for dial in say.topics(rec)}
+        topics = {dial: builder.new_id(f'DIAL {rec["FormID"]} {dial}') for dial in say.topics(rec)}
         builder.scripts.named.update({say.dials[d]['EditorID']: t for d, t in topics.items()})
         branch, blobs = say.build(rec, fid, topics, form_map) if topics else (None, [])
         talks = Conversations(say, rec, fid, form_map, XDI_KEYWORD, shared)
@@ -619,11 +632,11 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     builder = CellBuilder(export_dir, data_dir, _bases(export_dir, used | parts.fids()), table, plugin_dirs)
     builder.parts = parts
     _object_makers(builder, export_dir, scripts_dir, refs)
-    cell_fid = builder.new_id()
-    ids = {r['FormID']: builder.new_id() for r in refs}
-    ext_ids = world.ids(len(builder.masters)) if world else {}
-    quests = {edid: builder.new_id() for edid in CELL_QUESTS}
-    quest_recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in quests]
+    cell_fid = builder.fnv_id(cell['FormID'])
+    ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in refs}
+    ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in outside}
+    quest_recs = [r for r in parse_export_file(str(export_dir / 'QUST.txt')) if r.get('EditorID') in CELL_QUESTS]
+    quests = {r['EditorID']: builder.fnv_id(r['FormID']) for r in quest_recs}
     builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
     builder.objectives = objective_globals(builder, quest_recs)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST} | set(STAND_INS.values()))
@@ -673,7 +686,7 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))
-    builder.writer.next_object_id = builder.next_id & 0xFFFFFF
+    builder.writer.next_object_id = builder.top
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))
     return builder.counts

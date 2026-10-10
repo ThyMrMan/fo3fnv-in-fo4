@@ -126,7 +126,7 @@ class Conversations:
         """
         if step in self.placed:
             return self.placed[step]
-        fid, first = fid or self.say.builder.new_id(), step
+        fid, first = fid or self.say.builder.new_id(f'SCEN {self.quest["FormID"]} {step!r}'), step
         edid, phases, actions, menu = f'FNV_{self.quest["EditorID"]}_Scene{len(self.placed)}', [], [], False
         locked = False
         while step is not None and step not in self.placed:
@@ -168,19 +168,21 @@ class Conversations:
 
     def _action(self, step: tuple, place: tuple, edid: str, continues: bool) -> bytes:
         """The scene action playing `step` at `place` (index, phase); its lines run on when `continues`."""
-        name = f'{edid}_{place[1]}'
+        name, owner = f'{edid}_{place[1]}', f'{self.quest["FormID"]} {step!r}'
+        take = self.say.builder.new_id
         if step[0] == 'menu':
             player, npc = [], []
             for dial in step[1]:
                 self._option(dial, player, npc, continues)
             if step[1] == self.hub.topics:
-                player.append(R.pack_info(self.say.builder.new_id(), 0, (LEAVE,), prompt=LEAVE))
-                npc.append(R.pack_info(self.say.builder.new_id(), R.INFO_END_SCENE, ('...',), notes='FNV Tab exit'))
-            topics, action = menu_action(self.say.builder.new_id, (name, self.fid, SPEAKER_ALIAS), player, npc, place)
+                player.append(R.pack_info(take(f'INFO leave {owner}'), 0, (LEAVE,), prompt=LEAVE))
+                npc.append(R.pack_info(take(f'INFO exit {owner}'), R.INFO_END_SCENE, ('...',), notes='FNV Tab exit'))
+            topics, action = menu_action(lambda: take(f'DIAL {owner}'), (name, self.fid, SPEAKER_ALIAS), player, npc,
+                                         place)
             self.topics += topics
             return action
         lines = [line for line in (self._line(r, continues) for r in self._members(step)) if line]
-        topic = self.say.builder.new_id()
+        topic = take(f'DIAL {owner}')
         self.topics.append(pack_topic(R.pack_dial(topic, name, self.fid, R.TOPIC_SCENE, len(lines)), topic, lines))
         return R.pack_dialogue_action(place[0], SPEAKER_ALIAS, topic, place[1])
 
@@ -208,8 +210,9 @@ class Conversations:
         else:
             shown = self._speakers(members)
         shown += self._running(members[0]) + self._gate(dial)
-        player.append(R.pack_info(self.say.builder.new_id(), once, (text,), shown, prompt=text))
-        player += [R.pack_info(self.say.builder.new_id()) for _ in answers[1:]]
+        owner = f'INFO prompt {members[0]["FormID"]}'
+        player.append(R.pack_info(self.say.builder.new_id(owner), once, (text,), shown, prompt=text))
+        player += [R.pack_info(self.say.builder.new_id(owner)) for _ in answers[1:]]
         npc += answers
         return True
 
@@ -265,9 +268,9 @@ class Conversations:
         opened = _any([(PLAYER_ACTIVATED, 0)] + [(CURRENT_PACKAGE, p) for p in greets])
         opened += _any([(IS_ID, npc) for npc in speakers])
         scene, phase, index = self.scene(('line', tuple(infos)))
-        line = R.pack_info(self.say.builder.new_id(), 0, ('...',), opened, scene=scene, phase=phase, phase_index=index,
+        line = R.pack_info(self.say.builder.new_id(f'INFO greeting {self.quest["FormID"]}'), 0, ('...',), opened, scene=scene, phase=phase, phase_index=index,
                            notes='FNV GREETING', forced_alias=SPEAKER_ALIAS)
-        fid = self.say.builder.new_id()
+        fid = self.say.builder.new_id(f'DIAL greeting {self.quest["FormID"]}')
         dial = R.pack_dial(fid, f'FNV_{self.quest["EditorID"]}_Greeting', self.fid, R.TOPIC_GREETING, 1)
         self.topics.append(pack_topic(dial, fid, [line]))
 
