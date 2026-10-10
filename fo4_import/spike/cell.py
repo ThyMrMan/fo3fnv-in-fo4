@@ -29,6 +29,7 @@ from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.consumables import Consumables
+from fo4_import.spike.creatures import Creatures
 from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.scol import BASE_SITE, PART_SITE, Parts, compose
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
@@ -56,8 +57,7 @@ from fo4_import.spike.quest import objective_globals, quest_record
 from fo4_import.spike.statics import tree_assets, write_assets
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from script_convert.context_setup import load_records
-from tes5_import.base.tes5_reader import first_sub, sub_map, subrecords, walk
-from tes5_import.base.writer import pack_subrecord
+from tes5_import.base.tes5_reader import first_sub, sub_map, walk
 from tes5_import.base.text_reader import parse_export_file
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
@@ -91,6 +91,8 @@ DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
 ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
 #: QASmoke's test chest: QAConsumableChest (its model), a spot past the first door's arrival, rounds per gun, FormID site.
 TEST_CHEST, TEST_CHEST_POS, TEST_ROUNDS, TEST_SITE = 0x1E7DC8, (-1450.0, -1120.0, 0.0), 100, 'FNV test chest'
+#: FNV creatures placed in QASmoke, as (EditorID, position, rotation): Cheyenne, whose saloon is not built.
+QA_CREATURES = (('GSCheyenne', (-1550.0, -1330.0, 0.0), (0.0, 0.0, 0.0)),)
 #: FNV LIGH flag bits as FO4 ones: carried, flicker (and slow), off by default, pulse (and slow), spot, spot shadow.
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
 #: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).
@@ -331,6 +333,12 @@ def _test_chest(builder: CellBuilder, template) -> bytes:
     return R.pack_refr(builder.writer.derive_formid(TEST_SITE, 'REFR'), fid, TEST_CHEST_POS, (0.0, 0.0, 0.0))
 
 
+def _qa_creatures(builder: CellBuilder, export_dir: Path, data_dir: Path) -> bytes:
+    """ACHRs of QA_CREATURES in QASmoke (their FNV cells not built yet)."""
+    creatures = Creatures(builder, export_dir, data_dir)
+    return b''.join(creatures.placed(edid, pos, rot) for edid, pos, rot in QA_CREATURES)
+
+
 def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tuple:
     """(persistent, temporary) REFRs of the cell's converted references."""
     persistent, temporary = b'', b''
@@ -432,21 +440,6 @@ def _composed(*edits):
     return edit if present else None
 
 
-def _packages_edit(packages: list):
-    """A clone edit putting FO4 `packages` (PKID) in place of the stand-in's."""
-    def edit(subs: bytes) -> bytes:
-        """The subrecords with the stand-in's PKIDs replaced."""
-        ours = b''.join(pack_subrecord('PKID', struct.pack('<I', p)) for p in packages)
-        out, placed = b'', False
-        for tag, data in subrecords(subs):
-            if tag == b'PKID':
-                out, placed = out + (b'' if placed else ours), True
-                continue
-            out += pack_subrecord(tag.decode(), data)
-        return out if placed else out + ours
-    return edit
-
-
 def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict, form_map: dict) -> bytes:
     """Persistent ACHRs for the cell's FNV actors that have a stand-in, each base a clone of it.
 
@@ -467,7 +460,7 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
         pos, rot = _place(ref)
         morphs = _sculpt_morphs(builder, export_dir, npc['EditorID'])
         tinted = _tint_edit(builder, export_dir, npc['EditorID'], skin_tone_layers())
-        packages = _packages_edit(builder.packages.for_npc(npc, form_map))
+        packages = R.packages_edit(builder.packages.for_npc(npc, form_map))
         edits = {'ST': _composed(tinted, packages),
                  'STH': _composed(tinted, _head_edit(builder, export_dir, npc['EditorID'], assets), packages)}
         for i, variant in enumerate(FACE_VARIANTS):
@@ -634,7 +627,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST} | set(STAND_INS.values()))
     actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(builder, ids, quest_recs, quests))
     qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, {**ids, **ext_ids})
-    qa_refs += _test_chest(builder, vanilla[TEST_CHEST])
+    qa_refs += _test_chest(builder, vanilla[TEST_CHEST]) + _qa_creatures(builder, export_dir, data_dir)
     teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
     persistent, temporary = _placed(builder, refs, ids, teleports)
     persistent += actors

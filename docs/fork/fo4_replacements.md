@@ -95,6 +95,17 @@ at the mod's record.
      painted underwear. Open: CBBE's permissions for generated
      conversions, and whether conform alone fits FNV's loose clothes
      (skirts, robes) or needs per-outfit fixes.
+6. <a id="candidate-mods"></a>**Candidate mods (noted 2026-10-10).**
+   - [GrilledTurkey](https://www.nexusmods.com/profile/GrilledTurkey): many
+     FO3/FNV adaptations for Fallout 4. Candidates for the modlist, or as
+     dependencies if creature conversion ([creatures](fo4_spikes.md#creature-census))
+     keeps creatures with no FO4 counterpart through existing ports rather
+     than rebuilt skeletons.
+   - **Permissions:** the mod pages ask permission for asset use. The
+     author's About Me says they have retired, and reads as allowing use if
+     the original mod is downloaded and credited. The modlist route
+     (installing the original mod) fits that. Confirm the exact terms
+     before shipping anything that depends on them.
 
 ## Defaults now
 

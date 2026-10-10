@@ -365,6 +365,21 @@ def pack_ligh(fid: int, edid: str, bounds: tuple, model: str, light: tuple, fade
         'FNAM', struct.pack('<f', fade)))
 
 
+def packages_edit(packages: list):
+    """A clone edit putting FO4 `packages` (PKID) in place of the stand-in's."""
+    def edit(subs: bytes) -> bytes:
+        """The subrecords with the stand-in's PKIDs replaced."""
+        ours = b''.join(pack_subrecord('PKID', struct.pack('<I', p)) for p in packages)
+        out, placed = b'', False
+        for tag, data in subrecords(subs):
+            if tag == b'PKID':
+                out, placed = out + (b'' if placed else ours), True
+                continue
+            out += pack_subrecord(tag.decode(), data)
+        return out if placed else out + ours
+    return edit
+
+
 def clone_npc(fid: int, body: bytes, flags: int, edid: str, name: str, drop: frozenset = frozenset(),
               morphs: bytes = b'', edit=None) -> bytes:
     """A vanilla NPC_ body as a new NPC: EDID, FULL (plain) replaced, `drop` left out, face `morphs` added.

@@ -8,15 +8,20 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from scipy.spatial import cKDTree
 
 from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import convert_static as C
+from fo4_import.nif import creature as CR
+from fo4_import.base.ba2 import Archives
+from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.face import bake as B
 from fo4_import.nif import file as F
 from fo4_import.nif import blocks as K
 from fo4_import.nif import gun as G
 from fo4_import.nif import headgear as H
 from fo4_import.nif import outfit as O
+from fo4_import.nif import retarget as RT
 from fo4_import.nif import tree as T
 from fo4_import.nif import weapon as W
 from fo4_import.spike.statics import write_assets
@@ -214,7 +219,7 @@ def test_fnv_gun_hangs_on_the_receivers_bones_turned_and_trigger_aligned():
 def test_part_move_turns_and_stretches_a_bone_onto_fo4s():
     """FNV's forearm (along +X, length 10) onto FO4's (down, length 12): its joint and end land on FO4's; a point
     beside the joint keeps its distance from the bone."""
-    move, shift = O.part_move((0, 0, 0), (10, 0, 0), (5, 5, 5), (5, 5, -7))
+    move, shift = RT.part_move((0, 0, 0), (10, 0, 0), (5, 5, 5), (5, 5, -7))
     assert np.allclose(move @ (0, 0, 0) + shift, (5, 5, 5)) and np.allclose(move @ (10, 0, 0) + shift, (5, 5, -7))
     beside = move @ np.array([0.0, 2.0, 0.0]) + shift
     assert np.linalg.norm(beside - (5, 5, 5)) == pytest.approx(2.0)
@@ -228,7 +233,7 @@ def test_bone_moves_follow_their_part_and_fall_back_to_a_mapped_ancestor():
         fnv[bone] = np.array([i, 1.0 + i * i, 2.0 * i])
         fo4[O.BONES[bone]] = fnv[bone] + (0.0, 0.5 * i, 1.0)
     parents = {'Bip01 L Finger0': 'Bip01 L Hand', 'Bip01 L Hand': 'Bip01 L Forearm'}
-    moves = O.bone_moves(fnv, parents, fo4)
+    moves = RT.bone_moves(O.HUMAN, fnv, parents, fo4)
     assert moves['Bip01 LUpArmTwistBone'] is moves['Bip01 L UpperArm']
     assert moves['Bip01 L Finger0'] is moves['Bip01 L Forearm']
     assert np.allclose(moves['Bip01 Pelvis'][0], np.eye(3))
@@ -239,7 +244,7 @@ def test_segments_follow_vanillas_body_order():
     """Arms 2 and 4 (collarbones and shoulders are torso), legs 5 and 6; the trailer counts triangles in order."""
     assert [O.segment_of(b) for b in ('LArm_ForeArm1_skin', 'RArm_Hand', 'LArm_Collarbone', 'RArm_ShoulderFat_skin',
                                       'LLeg_Calf_skin', 'RLeg_Foot', 'SPINE2', 'Neck_skin')] == [2, 4, 3, 3, 5, 6, 3, 3]
-    raw = O._segments([0, 0, 2, 3, 0])
+    raw = O.segments([0, 0, 2, 3, 0])
     assert struct.unpack_from('<3I', raw) == (5, 5, 5)
     assert [struct.unpack_from('<4I', raw, 12 + 16 * i) for i in (2, 3)] == [(0, 2, H.NO_PARENT, 0),
                                                                             (6, 3, H.NO_PARENT, 0)]
@@ -419,3 +424,27 @@ def test_a_load_door_is_written_static_beside_its_animated_mesh(tmp_path):
     nif = F.read((tmp_path / 'Meshes' / path).read_bytes())
     assert nif.blocks[0][1]['controller'] == K.NONE
     assert write_assets(export, str(SHELF.relative_to(export / 'meshes')), tmp_path, load=True) is None
+
+
+DOG = Path('export/FalloutNV.esm/meshes/creatures/dog')
+
+
+@pytest.mark.skipif(not (DOG / 'dogskin.nif').exists() or not (FALLOUT4_DIR / 'Data').exists(),
+                    reason='needs the FalloutNV.esm export and Fallout 4')
+def test_fnvs_dog_sits_on_dogmeats_skeleton_with_its_eyes_level():
+    """Cheyenne's parts on Dogmeat: every shape skinned, the body on Dogmeat's surface, the eyes symmetric."""
+    fit = CR.creature_fit(Path('export/FalloutNV.esm'), 'creatures\dog', Archives(FALLOUT4_DIR / 'Data'))
+    parts = [(C.convert(str(DOG / n), 'export/FalloutNV.esm', animated=False), DOG / n)
+             for n in ('dogskin.nif', 'eyessetblue.nif')]
+    nif = F.read(F.write(CR.creature_mesh(parts, fit, CR.DOG.root, CR.skeleton_parents(DOG / 'skeleton.nif')).nif))
+    shapes = {}
+    for kind, raw in nif.blocks:
+        if kind == 'BSSubIndexTriShape':
+            shape = K.read_tri_shape(K.Reader(raw))
+            assert shape['skin'] != K.NONE
+            shapes[nif.strings[shape['name']]] = np.array([v['position'] for v in shape['vertices']])
+    assert 'Dog' in shapes and not any(n.startswith('MeatCap') for n in shapes)
+    assert np.median(cKDTree(fit.samples[0]).query(shapes['Dog'])[0]) < 1.0
+    eyes = shapes['EyesBlue:0']
+    assert abs(eyes[:, 0].min() + eyes[:, 0].max()) < 0.5 and 25 < eyes[:, 1].mean() < 35
+

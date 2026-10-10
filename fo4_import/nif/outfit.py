@@ -53,6 +53,7 @@ from fo4_import.nif.blocks import DESC_SKINNED, NONE, SHADER_SKINNED, Reader, pa
 from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
 from fo4_import.nif.headgear import NO_PARENT, shape_arrays
+from fo4_import.nif.retarget import Rig, bone_moves, retargeted
 
 #: Per sex: FO4's body (in Fallout 4 - Meshes.ba2) and FNV's body (under the export's meshes).
 FO4_BODIES = {'male': 'meshes\\actors\\character\\characterassets\\malebody.nif',
@@ -82,6 +83,7 @@ for _fnv, _ in SIDES:
                    f'Bip01 {_fnv}UpArmTwistBone': f'Bip01 {_fnv} UpperArm',
                    f'Bip01 {_fnv} ForeTwist': f'Bip01 {_fnv} Forearm'})
 ROOT_BONE = 'Bip01 Pelvis'
+HUMAN = Rig(BONES, ENDS, FOLLOW, ROOT_BONE)
 #: FNV dismemberment partitions that are caps (section, torso and limb caps): shown only once a limb is cut.
 CAP_PARTS = range(100, 1000)
 PIPBOY_OFF = 'pipboyoff'
@@ -112,41 +114,7 @@ def segment_of(bone: str) -> int:
     return next((seg for prefix, seg in SEGMENT_OF if bone.startswith(prefix)), SEG_TORSO)
 
 
-def _turn(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """The smallest rotation taking unit vector `a` onto unit vector `b`."""
-    v, c = np.cross(a, b), float(np.dot(a, b))
-    if np.linalg.norm(v) < 1e-9:
-        return np.eye(3) if c > 0 else -np.eye(3)
-    k = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    return np.eye(3) + k + k @ k / (1.0 + c)
-
-
-def part_move(joint, end, fo4_joint, fo4_end) -> tuple:
-    """(L, c) with x' = L x + c: the part `joint`->`end` turned onto `fo4_joint`->`fo4_end` and stretched along
-    itself to its length."""
-    span, fo4_span = np.subtract(end, joint), np.subtract(fo4_end, fo4_joint)
-    d = span / np.linalg.norm(span)
-    k = np.linalg.norm(fo4_span) / np.linalg.norm(span)
-    move = _turn(d, fo4_span / np.linalg.norm(fo4_span)) @ (np.eye(3) + (k - 1.0) * np.outer(d, d))
-    return move, np.asarray(fo4_joint) - move @ joint
-
-
-def bone_moves(fnv_joints: dict, fnv_parents: dict, fo4_joints: dict) -> dict:
-    """{FNV bone: (L, c)} for every FNV skeleton bone (retarget, in the module notes)."""
-    moves = {ROOT_BONE: (np.eye(3), np.asarray(fo4_joints[BONES[ROOT_BONE]]) - fnv_joints[ROOT_BONE])}
-    for bone, end in ENDS.items():
-        moves[bone] = part_move(fnv_joints[bone], fnv_joints[end], fo4_joints[BONES[bone]], fo4_joints[BONES[end]])
-    for bone, leader in FOLLOW.items():
-        moves[bone] = moves[leader]
-    for bone in fnv_parents:
-        up = bone
-        while up not in moves and up in fnv_parents:
-            up = fnv_parents[up]
-        moves[bone] = moves.get(up, moves[ROOT_BONE])
-    return moves
-
-
-def _fnv_nif(path: Path):
+def fnv_nif(path: Path):
     """An FNV NIF's root (pyffi)."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
@@ -166,15 +134,16 @@ def is_skin(geom) -> bool:
     return bool(shader and shader.shader_flags.sf_face_gen)
 
 
-def fnv_skin(geom, root) -> tuple:
-    """(root-space positions, unit normals, [{bone: weight}], UVs per vertex) of a skinned FNV shape."""
+def fnv_skin(geom, root, rigid: str = '') -> tuple:
+    """(root-space positions, unit normals, [{bone: weight}], UVs per vertex) of a skinned FNV shape; a shape
+    with no skin is weighted fully to bone `rigid`."""
     m = np.array(geom.get_transform(root).as_list())
     pos = (np.array([(v.x, v.y, v.z, 1.0) for v in geom.data.vertices]) @ m)[:, :3]
     nrm = np.array([(n.x, n.y, n.z) for n in geom.data.normals]) @ m[:3, :3] if geom.data.has_normals else \
         np.zeros_like(pos)
-    weights = [{} for _ in pos]
+    weights = [{rigid: 1.0} if rigid else {} for _ in pos]
     skin = geom.skin_instance
-    for bone, data in zip(skin.bones, skin.data.bone_list):
+    for bone, data in zip(skin.bones if skin else (), skin.data.bone_list if skin else ()):
         name = bone.name.decode('cp1252')
         for vw in data.vertex_weights:
             weights[vw.index][name] = weights[vw.index].get(name, 0.0) + vw.weight
@@ -183,7 +152,7 @@ def fnv_skin(geom, root) -> tuple:
     return pos, nrm, weights, uv
 
 
-def _fo4_joints(skeleton) -> dict:
+def fo4_joints(skeleton) -> dict:
     """{name: world position} of an FO4 skeleton NIF's nodes (nif rotations act on column vectors)."""
     parent = {c: i for i, (_, b) in enumerate(skeleton.blocks) if isinstance(b, dict) and 'children' in b
               for c in b['children']}
@@ -204,7 +173,7 @@ def _fo4_joints(skeleton) -> dict:
             if isinstance(b, dict) and 'children' in b}
 
 
-def _bone_data(raw: bytes) -> list:
+def bone_data(raw: bytes) -> list:
     """[(sphere 4f, rotation 3x3, translation)] per bone of a BSSkin::BoneData; bone space is rot @ p + t."""
     n = struct.unpack_from('<I', raw)[0]
     out = []
@@ -214,7 +183,7 @@ def _bone_data(raw: bytes) -> list:
     return out
 
 
-def _skin_bones(nif, shape: dict) -> tuple:
+def shape_bones(nif, shape: dict) -> tuple:
     """(bone node indices, BoneData block index) of a skinned FO4 shape."""
     r = Reader(nif.blocks[shape['skin']][1])
     r.take('i')
@@ -244,15 +213,8 @@ class BodyFit:
     seams: list = None
 
     def retargeted(self, points: np.ndarray, normals: np.ndarray, weights: list) -> tuple:
-        """(positions, unit normals) of FNV root-space points moved by their FNV bones' moves."""
-        out, nrm = np.zeros_like(points), np.zeros_like(points)
-        for i, (p, n, w) in enumerate(zip(points, normals, weights)):
-            total = sum(w.values()) or 1.0
-            for bone, share in (w or {ROOT_BONE: 1.0}).items():
-                move, shift = self.moves.get(bone, self.moves[ROOT_BONE])
-                out[i] += share / total * (move @ p + shift)
-                nrm[i] += share / total * (move @ n)
-        return out, nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-9)
+        """retarget.retargeted() of FNV root-space points by the fit's moves."""
+        return retargeted(self.moves, ROOT_BONE, points, normals, weights)
 
     def placed(self, points: np.ndarray, normals: np.ndarray, weights: list) -> tuple:
         """retargeted(), then each point shifted by its nearest FNV body vertices' offsets (inverse distance)."""
@@ -309,12 +271,12 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
     body = nif_file.read(archives.read(FO4_BODIES[sex]))
     raw = next(b for kind, b in body.blocks if kind == 'BSSubIndexTriShape')
     shape = read_tri_shape(Reader(raw))
-    nodes, data = _skin_bones(body, shape)
+    nodes, data = shape_bones(body, shape)
     bones = [body.strings[body.blocks[i][1]['name']] for i in nodes]
-    bind = _bone_data(body.blocks[data][1])
-    skeleton = _fo4_joints(nif_file.read(archives.read(FO4_SKELETON)))
+    bind = bone_data(body.blocks[data][1])
+    skeleton = fo4_joints(nif_file.read(archives.read(FO4_SKELETON)))
     shift = np.mean([-rot.T @ t - skeleton[b] for b, (_, rot, t) in zip(bones, bind) if b in skeleton], axis=0)
-    moves = bone_moves(*_fnv_skeleton(export_dir), {name: pos + shift for name, pos in skeleton.items()})
+    moves = bone_moves(HUMAN, *fnv_skeleton(export_dir / 'meshes' / FNV_SKELETON), {name: pos + shift for name, pos in skeleton.items()})
     points = np.array([v['position'] for v in shape['vertices']], float)
     tris = np.array(shape['triangles'])
     weights = np.zeros((len(points), len(bones)))
@@ -399,9 +361,9 @@ def _nearest_on_segments(point: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.
     return candidates[np.argmin(np.linalg.norm(candidates - point, axis=1))]
 
 
-def _fnv_skeleton(export_dir: Path) -> tuple:
-    """({bone: world position}, {bone: parent}) of FNV's skeleton."""
-    skeleton = _fnv_nif(export_dir / 'meshes' / FNV_SKELETON)
+def fnv_skeleton(path: Path) -> tuple:
+    """({bone: world position}, {bone: parent}) of the FNV skeleton NIF at `path`."""
+    skeleton = fnv_nif(path)
     joints, parents = {}, {}
     for node in skeleton.tree():
         if isinstance(node, NifFormat.NiNode):
@@ -414,7 +376,7 @@ def _fnv_skeleton(export_dir: Path) -> tuple:
 def _anchors(fit: BodyFit, fnv_body_path: Path) -> tuple:
     """(FNV's body vertices retargeted by `fit`, their smoothed offsets onto FO4's body surface, FNV's body as
     (positions, triangles) in its own frame)."""
-    fnv_body = _fnv_nif(fnv_body_path)
+    fnv_body = fnv_nif(fnv_body_path)
     geoms = [g for g in fnv_body.tree() if isinstance(g, NifFormat.NiTriBasedGeom) and g.skin_instance and not is_cap(g)]
     parts = [fnv_skin(g, fnv_body) for g in geoms]
     anchors, _ = fit.retargeted(np.vstack([p[0] for p in parts]), np.vstack([p[1] for p in parts]),
@@ -435,7 +397,7 @@ def shape_materials(static_bytes: bytes, fnv_path: Path) -> dict:
     shapes in tree order."""
     static = nif_file.read(static_bytes)
     order = {}
-    for i, geom in enumerate(g for g in _fnv_nif(fnv_path).tree() if isinstance(g, NifFormat.NiTriBasedGeom)):
+    for i, geom in enumerate(g for g in fnv_nif(fnv_path).tree() if isinstance(g, NifFormat.NiTriBasedGeom)):
         order.setdefault(geom.name.decode('cp1252'), i)
     out = {}
     for kind, b in static.blocks:
@@ -445,7 +407,7 @@ def shape_materials(static_bytes: bytes, fnv_path: Path) -> dict:
     return out
 
 
-def _segments(counts: list) -> bytes:
+def segments(counts: list) -> bytes:
     """A BSSubIndexTriShape trailer of segments holding `counts` triangles each, in order, no sub-segments."""
     out, start = struct.pack('<3I', sum(counts), len(counts), len(counts)), 0
     for n in counts:
@@ -454,7 +416,7 @@ def _segments(counts: list) -> bytes:
     return out
 
 
-def _copy_skeleton(nif, fit: BodyFit) -> dict:
+def copy_skeleton(nif, fit: BodyFit) -> dict:
     """Append FO4's body's skeleton nodes under `nif`'s root; {body node index: new index}."""
     kept = [i for i, (kind, _) in enumerate(fit.body.blocks) if kind == 'NiNode' and i]
     new = {old: len(nif.blocks) + k for k, old in enumerate(kept)}
@@ -467,7 +429,7 @@ def _copy_skeleton(nif, fit: BodyFit) -> dict:
     return new
 
 
-def _skin_blocks(nif, fit: BodyFit, nodes: dict, used: list, points: np.ndarray, local: np.ndarray,
+def skin_blocks(nif, fit: BodyFit, nodes: dict, used: list, points: np.ndarray, local: np.ndarray,
                  weights: np.ndarray) -> int:
     """Append a BSSkin::Instance and BoneData on body bones `used` for a shape's points; the instance's index."""
     out = bytearray(struct.pack('<I', len(used)))
@@ -538,12 +500,16 @@ def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: 
         np.add.at(strength, (np.repeat(np.arange(len(tris)), WEIGHTS_PER_VERTEX), bones[tris[:, k]].ravel()),
                   weights[tris[:, k]].ravel())
     kept, counts = _segment_order(np.array([segment_of(fit.bones[b]) for b in strength.argmax(1)]), first_person)
-    if not len(kept):
-        return None
-    used_verts, flat = np.unique(tris[kept], return_inverse=True)
+    return skinned_shape((points, normals, uv), tris[kept], (weights, bones), counts) if len(kept) else None
+
+
+def skinned_shape(arrays: tuple, tris: np.ndarray, skin: tuple, counts: list) -> WornShape:
+    """The skinned shape of `tris` over per-vertex (positions, normals, UVs) `arrays` and (weights, bone indices)
+    `skin` (unused vertices dropped), its segments holding `counts` triangles."""
+    used_verts, flat = np.unique(tris, return_inverse=True)
     tris = flat.reshape(-1, 3)
-    points, normals, uv = points[used_verts], normals[used_verts], uv[used_verts]
-    weights, bones = weights[used_verts], bones[used_verts]
+    points, normals, uv = (a[used_verts] for a in arrays)
+    weights, bones = (a[used_verts] for a in skin)
     used = sorted(set(bones[weights > 0].tolist()))
     local = np.where(weights > 0, np.searchsorted(used, bones), 0)
     verts = vertices(points, uv, normals, None, tris)
@@ -556,7 +522,7 @@ def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: 
     return WornShape(fields, counts, used, points, local, weights)
 
 
-def _copy_material(nif, static, shape: dict) -> tuple:
+def copy_material(nif, static, shape: dict) -> tuple:
     """Append copies of static shape `shape`'s shader (and texture set) and alpha property; (shader, alpha)."""
     kind, shader = static.blocks[shape['shader']]
     index = len(nif.blocks)
@@ -595,12 +561,12 @@ def worn(static_bytes: bytes, fnv_path: Path, fit: BodyFit, first_person: bool =
     """The FO4 worn NIF of a converted FNV outfit (convert_static's, of the FNV NIF at `fnv_path`), on `fit`'s
     body; arms only when `first_person`."""
     static = without_havok(nif_file.read(static_bytes))
-    fnv_root = _fnv_nif(fnv_path)
+    fnv_root = fnv_nif(fnv_path)
     fnv = {g.name.decode('cp1252'): g for g in fnv_root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)}
     root = static.blocks[0][1]
     nif = nif_file.NifFile()
     nif.blocks.append(('NiNode', dict(root, name=nif.string(static.strings[root['name']]), extra=[], children=[])))
-    nodes = _copy_skeleton(nif, fit)
+    nodes = copy_skeleton(nif, fit)
     for shape in [static.blocks[i][1] for i in root['children'] if static.blocks[i][0] == 'BSTriShape']:
         geom = fnv.get(static.strings[shape['name']])
         skin = _wanted(geom) and is_skin(geom)
@@ -612,11 +578,11 @@ def worn(static_bytes: bytes, fnv_path: Path, fit: BodyFit, first_person: bool =
         if skin:
             shader, alpha = _body_material(nif, fit), NONE
         else:
-            shader, alpha = _copy_material(nif, static, shape)
+            shader, alpha = copy_material(nif, static, shape)
             nif.blocks[shader][1]['flags1'] |= SHADER_SKINNED
-        skin = _skin_blocks(nif, fit, nodes, made.used, made.points, made.local, made.weights)
+        skin = skin_blocks(nif, fit, nodes, made.used, made.points, made.local, made.weights)
         out = dict(shape, **made.fields, name=nif.string(static.strings[shape['name']]), shader=shader,
                    alpha_property=alpha, skin=skin)
-        nif.blocks[index] = ('BSSubIndexTriShape', pack_tri_shape(out) + _segments(made.counts))
+        nif.blocks[index] = ('BSSubIndexTriShape', pack_tri_shape(out) + segments(made.counts))
         nif.blocks[0][1]['children'].append(index)
     return nif_file.write(nif)

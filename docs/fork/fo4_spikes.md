@@ -11,6 +11,7 @@ plan are in [research/fo4_target.md](research/fo4_target.md).
 - [Spike 3: one script](#spike-3)
 - [Spike 2: one interior cell](#spike-2)
 - [Scripted sequences as FO4 scenes](#scene-census)
+- [Creatures on Fallout 4](#creature-census)
 - [Decision point](#decision)
 - [Test setup](#test-setup)
 
@@ -142,6 +143,9 @@ until it causes a problem:
   for topic `00018184`'s 52 INFOs; no record changes. Open: whether the
   line's subtitle still shows, and it silences those hellos everywhere
   (fine for a game where the player is silent).
+- **Open (2026-10-10):** the silent `...` greeting a speaker needs (the talk
+  breaks without it) adds an unskippable second or two to every
+  conversation; wanted: a replacement for it.
 
 ### <a id="spike-1b"></a>1b: one scene for many speakers
 
@@ -1726,7 +1730,7 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     script moves the player, and the worldspace bounds hold the whole block.
     The interior door's arrival point is on the porch at (-73,163, 1,312,
     8,686), 55 units under the porch floor (8,741).
-  - Leaving Doc's house by its door: wired both ways, not yet tried.
+  - Leaving Doc's house by its door: works both ways (played 2026-10-10).
 - **First play:** invisible walls (one across a road at -69,091, 5,594),
   purple ruins and flagpole, blurry ground.
   - Collision placed twice. Static collections keep each part's collision
@@ -2161,6 +2165,39 @@ straight to it. An opened FNV load door showed what is behind it.
 - The saloon's door leads into an interior the spike does not build, so
   it is a plain door here and swings open onto the empty building; it
   becomes a static load door once that interior is converted.
+
+### <a id="spike-4-creatures"></a>Creatures: Cheyenne on Dogmeat (built and played 2026-10-10: works in game)
+
+The first creature by the census's second way ([census](#creature-census)):
+FNV's mesh on FO4's creature, its animations, AI and combat. Cheyenne
+(`GSCheyenne`, Sunny Smiles' dog; FNV parts `dogskin.nif` and
+`eyessetblue.nif` on `creatures\dog\skeleton.nif`) is placed in QASmoke,
+since the saloon she lives in is not built.
+
+- **Mesh** (`fo4_import/nif/creature.py`). FNV's dog skeleton rest pose is
+  `dogskin.nif`'s bind pose (every bone 0.0 apart); FO4's Dogmeat bind data
+  is the same in all six of `Dogmeat.nif`'s shapes and within 0.25 of
+  `skeleton.nif`. The parts are converted as statics, each vertex moved
+  from FNV's skeleton onto Dogmeat's by the `DOG` rig (`retarget.py`,
+  shared with the outfits: pelvis to spine to neck to head, legs as
+  collarbone/leg/ankle/toe, tail 1 to 5; the head moves with the neck, as
+  FNV's off-centre muzzle bone, x -3.9, turned it sideways), then weighted
+  from Dogmeat's surface. The body's vertices sit a median 0.6 units from
+  Dogmeat's surface (95% within 2.4); eyes, mouth and tongue within 1.7.
+- **Rigid parts.** FNV attaches a part's root node in place of the
+  skeleton's node of that name, keeping the part's own local transform
+  under that node's parent: `eyessetblue.nif`'s root `EyesBlue` under
+  `Bip01 Head` puts the eyes at x ±4.6, level with FNV's eyelid bone.
+- **Shapes.** One BSSubIndexTriShape per FNV shape with Dogmeat's segment
+  layout (an empty segment, then every triangle; Dogmeat has no
+  dismemberment data). FNV's `MeatCap` shapes are left out.
+- **Records** (`fo4_import/spike/creatures.py`): copies of `dogmeat`
+  (`0001D15C`), `SkinDogmeat` and `DogmeatAA` on FormIDs hashed from FNV's
+  (`FNV CREA`); the NPC keeps Dogmeat's race, stats and keywords, drops his
+  scripts, factions, perks and spells, and sandboxes at its spot
+  (`DefaultSandboxEditorLocation`). FNV's own packages (follow Sunny) wait
+  for Sunny.
+- The mouth takes Dogmeat's jaw and lip weights by surface, not FNV's jaw bone.
 
 ### <a id="spike-4-equipment"></a>Weapons and armor (played 2026-10-08)
 
@@ -2939,6 +2976,55 @@ by scene order rather than FO3/FNV's first-passing rule. Timed beats need a
 per-script pattern match, so only straight sequences convert. Packages stay
 packages. First comparison: VCG01's outro as one stage-started scene against
 the force-greet build.
+
+## <a id="creature-census"></a>Creatures on Fallout 4 (census 2026-10-10)
+
+Placements per FO3/FNV creature skeleton folder, counting placed creatures
+and leveled lists (a list's share split over its entries, through
+templates; FNV's `nvvoid`, the empty "spawn nothing" entry, left out),
+against Fallout 4's races (Fallout4.esm and the three DLCs).
+
+| | FNV | FO3 |
+|---|---|---|
+| Placements | 2,547 | 3,349 |
+| FO4 has the same creature | 1,292 (51%) | 3,095 (92%) |
+| FO4 has a close body plan | 698 (27%) | 185 (6%) |
+| No FO4 counterpart | 556 (22%) | 69 (2%) |
+
+- **Same creature** (FO4 race): feral ghoul, dog (Dogmeat), deathclaw,
+  radscorpion, super mutant and behemoth, brahmin, mole rat, radroach,
+  bloatfly, mirelurk and king, yao guai, protectron, Mr. Gutsy (Handy),
+  sentry bot, eyebot, robobrain (Automatron), turrets, Liberty Prime,
+  alien.
+- **Close body plan:** giant ants (Nuka-World rad ant), giant rat
+  (Nuka-World rad rat), bighorner (brahmin or radstag), cazador
+  (stingwing), night stalker (dog body), raven (no FO4 bird race; FO4's
+  birds are ambient critters).
+- **None:** FNV gecko 256, giant mantis 126, securitron 104, centaur and
+  floater 29, spore carrier 20, spore plant 12, Mr. House's computer and
+  Festus; FO3 centaur 53, Eye Intercom 14, failed FEV subject 2.
+- **The Goodsprings block:** 5 young bighorners, 4 ravens. VCG02 adds
+  geckos and Sunny's dog Cheyenne.
+- **Bones share no names.** FNV builds every creature on a `Bip01` biped
+  rig; FO4 names its own (`Dogmeat_COM`, `LArm1`, `HubSpine`): dog 58
+  against 67 bones, brahmin 51/50, deathclaw 78/89, ghoul 62/94,
+  radscorpion 66/75, mole rat 49/45, super mutant 59/111, none shared
+  (`Weapon` aside). An FNV mesh moves onto an FO4 skeleton only by
+  position, as the outfits take FO4's body weights at each vertex's
+  nearest point ([outfits](#spike-4-outfits)).
+
+Three ways a creature can convert:
+
+1. **FO4's own creature** (record, mesh, skeleton, behaviour): the
+   replacement table, as guns default to FO4's.
+2. **FNV's mesh on FO4's creature:** aligned to the FO4 creature's bind
+   pose and weighted from its skin; FO4 animations, AI and combat. For
+   the "same" and "close" rows (78% FNV, 98% FO3).
+3. **FNV's skeleton, animations and behaviour graph rebuilt for FO4**
+   (Havok 2014; `external/pynifly_hkx/anim_fo4.py` reads and writes FO4
+   animations; the Skyrim converter builds creature graphs in
+   `asset_convert/havok`). The only way to keep geckos, mantises and
+   securitrons; the costliest.
 
 ## <a id="decision"></a>Decision point
 
