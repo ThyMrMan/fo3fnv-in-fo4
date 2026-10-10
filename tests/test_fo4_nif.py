@@ -448,3 +448,15 @@ def test_fnvs_dog_sits_on_dogmeats_skeleton_with_its_eyes_level():
     eyes = shapes['EyesBlue:0']
     assert abs(eyes[:, 0].min() + eyes[:, 0].max()) < 0.5 and 25 < eyes[:, 1].mean() < 35
 
+
+def test_an_unlit_shape_with_normals_keeps_fnvs_view_falloff():
+    """IndFXLightRays01's beam fades by view angle (Use_Falloff, FNV's four values); without normals, no falloff."""
+    shader = type('S', (), {'file_name': b'textures\\effects\\FXSoftGlowBeamMulti.dds',
+                            'shader_flags': type('F', (), {'sf_vertex_alpha': 1})(), 'falloff_start_angle': 0.98,
+                            'falloff_stop_angle': 0.17, 'falloff_start_opacity': 1.0, 'falloff_stop_opacity': 0.0})()
+    nif = F.NifFile()
+    lit = C._unlit_shader(nif, C._unlit(shader, None, True, True, True), True)
+    assert lit['flags1'] & C.USE_FALLOFF and lit['falloff'] == (0.98, 0.17, 1.0, 0.0)
+    flat = C._unlit_shader(nif, C._unlit(shader, None, True, True, False), True)
+    assert not flat['flags1'] & C.USE_FALLOFF and flat['falloff'] == (1.0, 1.0, 1.0, 1.0)
+

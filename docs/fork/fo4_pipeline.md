@@ -348,6 +348,35 @@ Against the spike-block build:
   Without it FO4 shows the mesh's bind pose. Vanilla puts `XRGD` on 4,081
   MSTT references and 1,301 statics.
 
+<a id="effects"></a>**Effect meshes and the interior fog clip** (interior lighting
+pass, step 1).
+- **White shapes at the end of Doc's hall.** These were left after the
+  portal fix: Doc's house has no rooms. FNV clips interior drawing at
+  `XCLL` fog clip distance (Doc's: 1,500), where its fog is already the
+  full fog color, so the cut never shows. FO4 shows bright background
+  past a clip. Interiors now write clip 0, as 578 of 606 vanilla FO4
+  interiors do; with fog max 1.0, everything past FNV's far distance is
+  pure fog color, as in FNV.
+- **View falloff of unlit shapes.** The region places 414 ambient
+  effect meshes indoors and 64 outside: light rays (`IndFXLightRays01`),
+  dust, haze cards. FNV draws them with `BSShaderNoLightingProperty`,
+  usually additive (alpha flags `0x100D`: source alpha, one) with faint
+  vertex alpha (the beams: 0–0.1). They already became inline FO4
+  effect shaders with that blend, vertex alpha and colors, but without
+  FNV's view falloff.
+  - In FNV's shader package 019, every one of the 14 unlit vertex
+    shaders with a normal input uses the `Falloff` constant, and none of
+    the 14 without normals do. The variants differ only by inputs, so FNV
+    fades every unlit shape that has normals.
+  - The formula, as `NOLIGHT004.vso` computes it:
+    `t = saturate((|n·v| − start angle) / (stop angle − start angle))`;
+    opacity = start opacity + smoothstep(t) × (stop opacity − start
+    opacity), on cosines.
+  - Such a shape now gets FO4's `Use_Falloff` (flags1 `0x40`) and FNV's
+    four values. Of the region's 313 unlit shader blocks, 244 have FNV's
+    default (1, 0, 1, 0): opaque face-on, gone edge-on. The beams have
+    (0.98, 0.17, 1, 0).
+
 Census of the region's 1,630 meshes' Havok blocks: MOPP/packed strips
 941, rigid bodies 928 (+503 T), convex vertices 360, boxes 111, lists 27,
 capsules 14, convex transforms 11, spheres 4, constraints 26, phantom and

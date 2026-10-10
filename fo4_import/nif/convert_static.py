@@ -58,6 +58,8 @@ BEAKER_SHADER = {'lighting_influence': 242, 'falloff': (1.0, -4.371138828673793e
 #: Effect shader flags of an unlit FNV shape: (flags1 z-test, flags2 0); the bits added per shape (Double_Sided: any).
 UNLIT_FLAGS, UNLIT_VERTEX_ALPHA = (0x80000000, 0), 0x8
 UNLIT_ZWRITE, DOUBLE_SIDED, UNLIT_COLORS = 0x1, 0x10, 0x20
+#: Effect shader flags1 Use_Falloff (nif.xml Fallout4ShaderPropertyFlags1 bit 6).
+USE_FALLOFF = 0x40
 #: Vanilla ChemistrySetBeaker01.BGEM, textures aside: FO4's glass for a small prop.
 GLASS_EFFECT = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 0.8999999761581421,
@@ -289,16 +291,20 @@ def _alpha_part(alpha) -> 'tuple | None':
     return (alpha.flags, alpha.threshold) if alpha is not None else None
 
 
-def _unlit(shader, alpha, two_sided: bool, fades: bool) -> ShapeMaterial:
-    """An FNV BSShaderNoLightingProperty shape: its texture, vertex alpha, blend and sidedness.
+def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool) -> ShapeMaterial:
+    """An FNV BSShaderNoLightingProperty shape: its texture, vertex alpha, blend, sidedness and view falloff.
 
     One that fades by vertex alpha (`fades`: some vertex alpha below 1, sf_vertex_alpha) blends with no
     NiAlphaProperty, as FNV's baked soft shadows do; an untextured one that fades has only its vertex
-    alpha to blend by, flagged or not (NV_NoSo_RanchHouse03:1).
+    alpha to blend by, flagged or not (NV_NoSo_RanchHouse03:1). A shape with `normals` keeps FNV's view
+    falloff (angle cosines, opacities), as FNV applies it.
+    See: docs/fork/fo4_pipeline.md#effects
     """
     fnv = shader.file_name.decode('cp1252')
     vertex_alpha = bool(shader.shader_flags.sf_vertex_alpha) or (not fnv and fades)
-    data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided}
+    falloff = tuple(getattr(shader, f'falloff_{k}') for k in ('start_angle', 'stop_angle', 'start_opacity',
+                                                               'stop_opacity')) if normals else None
+    data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided, 'falloff': falloff}
     part = _alpha_part(alpha) or (VERTEX_ALPHA_BLEND if vertex_alpha and fades else None)
     return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], part, None)
 
@@ -402,7 +408,7 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     props = {type(p).__name__: p for p in geom.get_properties()}
     alpha, two_sided = props.get('NiAlphaProperty'), 'NiStencilProperty' in props
     if 'BSShaderNoLightingProperty' in props:
-        return _unlit(props['BSShaderNoLightingProperty'], alpha, two_sided, _fades(geom))
+        return _unlit(props['BSShaderNoLightingProperty'], alpha, two_sided, _fades(geom), bool(geom.data.has_normals))
     shader, grass = props.get('BSShaderPPLightingProperty'), props.get('TallGrassShaderProperty')
     fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else \
         [grass.file_name.decode('cp1252')] if grass else ['']
@@ -501,16 +507,17 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
     """An effect shader with no material file and no scene lighting, as vanilla's 1,104 untextured ones.
 
     Flags: z-test always; z-write unless it blends; vertex colours and vertex
-    alpha when the shape has colours (and FNV used their alpha); two-sided.
+    alpha when the shape has colours (and FNV used their alpha); two-sided; FNV's falloff when it has one.
     """
     data = mat.data
-    flags1 = UNLIT_FLAGS[0] | (UNLIT_VERTEX_ALPHA if has_colors and data['vertex_alpha'] else 0)
+    flags1 = (UNLIT_FLAGS[0] | (UNLIT_VERTEX_ALPHA if has_colors and data['vertex_alpha'] else 0)
+              | (USE_FALLOFF if data['falloff'] else 0))
     flags2 = ((0 if mat.alpha and mat.alpha[0] & 1 else UNLIT_ZWRITE) | (UNLIT_COLORS if has_colors else 0)
               | (DOUBLE_SIDED if data['two_sided'] else 0))
     return {'name': nif.string(''), 'extra': [], 'controller': NONE, 'flags1': flags1, 'flags2': flags2,
             'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0),
             'source_texture': f'textures\\{data["texture"]}' if data['texture'] else '', 'clamp': 3,
-            'lighting_influence': 0, 'env_min_lod': 0, 'unused': 0, 'falloff': (1.0, 1.0, 1.0, 1.0),
+            'lighting_influence': 0, 'env_min_lod': 0, 'unused': 0, 'falloff': data['falloff'] or (1.0, 1.0, 1.0, 1.0),
             'base_color': (1.0, 1.0, 1.0, 1.0), 'base_color_scale': 1.0, 'soft_depth': 100.0, 'greyscale': '',
             'env_map': '', 'normal': '', 'env_mask': '', 'env_map_scale': 1.0}
 

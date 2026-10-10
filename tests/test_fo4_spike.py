@@ -353,7 +353,7 @@ def test_an_interiors_height_fog_takes_fnvs_fog_colour_not_the_templates():
                                           'DirectionalFade', 'FogClipDist', 'FogPower')})
     out = CB.lighting(cell, bytes(range(136)))
     assert out[100:108] == bytes((77, 62, 32, 0)) * 2 and out[108:] == bytes(range(108, 136))
-    assert struct.unpack_from('<f', out, 76)[0] == 1.0
+    assert struct.unpack_from('<f', out, 76)[0] == 1.0 and struct.unpack_from('<f', out, 32)[0] == 0.0
 
 
 def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypatch):

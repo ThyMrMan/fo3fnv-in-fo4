@@ -105,6 +105,8 @@ LIGHT_BASE = 0x1
 HAS_WATER = 0x2
 #: XCLL fog max: FNV fog has no cap (see lighting()); vanilla FO4 writes 1.0 in 307 of 606 interiors.
 FOG_MAX = 1.0
+#: XCLL fog clip distance: none, as 578 of 606 vanilla FO4 interiors (FO4 shows bright background past a clip).
+NO_CLIP = 0.0
 
 
 def world_model(rec: dict) -> str:
@@ -138,14 +140,15 @@ def lighting(cell: dict, template: bytes) -> bytes:
     FNV's ambient colour also fills FO4's six directional ambient colours and
     its fog colour the far and both height-fog colours (FNV has no height fog,
     so the fog is the same at every height); fog max is 1 (FNV's shaders blend to the fog colour by the full
-    fog amount, so past the far distance and its clip only fog shows); the other FO4-only fields keep `template`'s.
+    fog amount) and the clip distance 0, so past the far distance only fog shows, as in FNV; the other
+    FO4-only fields keep `template`'s.
     See: docs/fork/fo4_pipeline.md#interiors
     """
     out = bytearray(template)
     out[0:12] = _color(cell, 'Ambient') + _color(cell, 'Directional') + _color(cell, 'Fog')
     out[12:40] = struct.pack('<2f2i3f', *_floats(cell, 'XCLL.', ('FogNear', 'FogFar')),
                              int(cell['XCLL.DirectionalRotXY']), int(cell['XCLL.DirectionalRotZ']),
-                             *_floats(cell, 'XCLL.', ('DirectionalFade', 'FogClipDist', 'FogPower')))
+                             float(cell['XCLL.DirectionalFade']), NO_CLIP, float(cell['XCLL.FogPower']))
     out[40:64] = _color(cell, 'Ambient') * 6
     out[72:80] = _color(cell, 'Fog') + struct.pack('<f', FOG_MAX)
     out[88:92] = bytes(4)
