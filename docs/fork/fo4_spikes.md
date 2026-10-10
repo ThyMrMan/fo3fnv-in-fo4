@@ -2128,7 +2128,39 @@ move.
     shack cabinet, the vultures and the flag's bones.
 - **Played (2026-10-10):** doors and gates open and close, the flag waves.
   Open: an opened door shows what is behind its frame (as in the Skyrim
-  build).
+  build). See [load doors](#spike-4-load-doors).
+
+### <a id="spike-4-load-doors"></a>Load doors stay shut (built and played 2026-10-10: the door loads without opening)
+
+Fallout 4 swings a load door open before the loading screen; FNV goes
+straight to it. An opened FNV load door showed what is behind it.
+
+- **FNV's load doors are not built to open.** Doc's exterior door uses the
+  animated craftsman door mesh (the same as the bathroom door), but behind
+  it `CraftsmanHomeA` closes the doorway: rays through the doorway at 12
+  points all hit one wood face 3.2 units in front of the panel's middle
+  (panel x -11..5, door frame). Its interior partner uses the static
+  `nvcraftsmanrmdoor.nif`. The house is a closed shell with the door laid
+  on its wall.
+- **Fallout 4's way does not fit.** Vanilla load doors are their own bases
+  (57 models, 974 placements); the CK wiki's Door page says a load door
+  differs only by "a solid black or white backing". In the mesh:
+  `paintedwooddoorload01.nif` is `paintedwooddoor01.nif` plus a 4-vertex
+  `BlackPlane` on the root across the doorway, inside the closed panel (y
+  3 in -5..11), on the door's own material. No placed `BlackPlane`
+  (5,421 of them) is within 300 units of a load door. Built and played:
+  an unlit black quad through the panel's middle; the house's wood face
+  in front of it showed instead.
+- **Built: a load door is static.** A door placed with a teleport (cell,
+  exterior, QASmoke stand-ins) takes `CellBuilder.load_door`: a copy of
+  its DOOR (`FNV_<edid>Load`, FormID hashed from FNV's at
+  `FNV DOOR load`) on `<model>load.nif`, the mesh converted without its
+  animation (its moving body fixed). Fallout 4 loads through a door that
+  does not move (vanilla `vltdoorload01.nif`). A mesh with no animation
+  keeps its plain base.
+- The saloon's door leads into an interior the spike does not build, so
+  it is a plain door here and swings open onto the empty building; it
+  becomes a static load door once that interior is converted.
 
 ### <a id="spike-4-equipment"></a>Weapons and armor (played 2026-10-08)
 

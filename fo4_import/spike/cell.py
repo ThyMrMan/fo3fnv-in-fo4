@@ -76,6 +76,8 @@ CELL_QUESTS = ('VCG01', 'VCG01Test', 'VGenericTimer', 'VFreeformGoodsprings', 'V
 HAND_STARTED = frozenset({'VCG01'})
 #: derive_formid site of the statics made from FNV TREE records (key: the TREE's FormID).
 TREE_SITE = 'FNV TREE'
+#: FormID site of a load door's static copy of an FNV DOOR (CellBuilder.load_door).
+LOAD_DOOR_SITE = 'FNV DOOR load'
 FIRST_ID = 0x800
 #: FNV base types placed as FO4 statics (their mesh only) until each gets its own conversion.
 AS_STATIC = ('STAT', 'MSTT', 'SCOL', 'ALCH', 'WEAP', 'ARMO', 'BOOK', 'KEYM', 'NOTE', 'AMMO', 'TERM', 'IDLM')
@@ -161,7 +163,7 @@ class CellBuilder:
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
-        self.equipment = None
+        self.equipment, self.load_doors = None, {}
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -236,14 +238,38 @@ class CellBuilder:
         elif sig == 'ACTI':
             record = self.activators.record(fid, rec, model, bounds)
         elif sig == 'DOOR':
-            vmad = self.scripts.vmad(int(rec['SCRI'], 16)) if 'SCRI' in rec else b''
-            record = R.pack_door(fid, edid, rec.get('FULL', ''), model, bounds, int(rec.get('FNAM.Flags', 0)), vmad,
-                                 (self.sounds.field(rec, 'SNAM.Open'), self.sounds.field(rec, 'ANAM.Close')))
+            record = self._door(fid, edid, rec, (model, bounds))
         else:
             sig, record = _static(sig, fid, edid, model, bounds)
         self.writer.add_record(sig, record)
         self.counts[sig] += 1
         return fid
+
+    def _door(self, fid: int, edid: str, rec: dict, mesh: tuple) -> bytes:
+        """FNV DOOR `rec` as FO4's on `fid` with `mesh` (model, bounds)."""
+        vmad = self.scripts.vmad(int(rec['SCRI'], 16)) if 'SCRI' in rec else b''
+        return R.pack_door(fid, edid, rec.get('FULL', ''), *mesh, int(rec.get('FNAM.Flags', 0)), vmad,
+                           (self.sounds.field(rec, 'SNAM.Open'), self.sounds.field(rec, 'ANAM.Close')))
+
+    def load_door(self, fnv_fid: int) -> 'int | None':
+        """The FO4 base for FNV door `fnv_fid` placed as a load door: a copy on its mesh made static (FNV never
+        opens a load door), FormID hashed from FNV's; the plain base when the mesh has no animation.
+
+        See: docs/fork/fo4_spikes.md#spike-4-load-doors
+        """
+        if fnv_fid in self.load_doors:
+            return self.load_doors[fnv_fid]
+        plain = self.base(fnv_fid)
+        sig, rec = self.bases.get(fnv_fid, (None, None))
+        made = write_assets(self.export_dir, _model(rec), self.data_dir, load=True) \
+            if sig == 'DOOR' and plain is not None else None
+        self.load_doors[fnv_fid] = plain
+        if made is not None:
+            self.meshes[f'{_model(rec)}#load'] = made
+            fid = self.load_doors[fnv_fid] = self.writer.derive_formid(LOAD_DOOR_SITE, f'{fnv_fid:08X}')
+            self.writer.add_record('DOOR', self._door(fid, f'FNV_{rec["EditorID"]}Load', rec, made))
+            self.counts['load doors made static'] += 1
+        return self.load_doors[fnv_fid]
 
 
 def _static(sig: str, fid: int, edid: str, model: str, bounds: tuple) -> tuple:
@@ -289,7 +315,7 @@ def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tup
         pos = (DOOR_START[0] + i * DOOR_SPACING, DOOR_START[1], DOOR_START[2])
         stand_in, partner = builder.new_id(), links.get(ref['XTEL.Door'], ref)
         inside = _place(partner, 'XTEL.') if partner is not ref else _place(ref)
-        qa_refs += R.pack_refr(stand_in, builder.base(int(ref['NAME'], 16)), pos, (0.0, 0.0, 0.0),
+        qa_refs += R.pack_refr(stand_in, builder.load_door(int(ref['NAME'], 16)), pos, (0.0, 0.0, 0.0),
                                teleport=(ids[ref['FormID']], *inside))
         teleports[ref['FormID']] = (stand_in, tuple(p + a for p, a in zip(pos, ARRIVAL)), ARRIVAL_ROT)
     return qa_refs, teleports
@@ -309,7 +335,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
     """(persistent, temporary) REFRs of the cell's converted references."""
     persistent, temporary = b'', b''
     for ref in refs:
-        base = builder.base(int(ref['NAME'], 16))
+        base = (builder.load_door if ref['FormID'] in teleports else builder.base)(int(ref['NAME'], 16))
         if int(ref['NAME'], 16) in builder.parts.parts:
             temporary += _part_refs(builder, ref)
             continue

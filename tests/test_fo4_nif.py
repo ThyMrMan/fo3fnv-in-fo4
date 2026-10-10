@@ -19,6 +19,7 @@ from fo4_import.nif import headgear as H
 from fo4_import.nif import outfit as O
 from fo4_import.nif import tree as T
 from fo4_import.nif import weapon as W
+from fo4_import.spike.statics import write_assets
 
 SHELF = Path('export/FalloutNV.esm/meshes/furniture/shelveswoodenhalf02.nif')
 
@@ -406,3 +407,15 @@ def test_a_skinned_flag_keeps_its_skin_and_matches_fnvs_deformation():
         ref = np.array([(d.x, d.y, d.z, 1.0) for d in g.get_skin_deformation()[0]]) @ np.array(
             g.get_transform(root).as_list())
         assert np.linalg.norm(ours[:, None] - ref[None, :, :3], axis=2).min(axis=1).max() < 0.2
+
+
+@pytest.mark.skipif(not DOOR.exists() or not SHELF.exists(), reason='needs the FalloutNV.esm export')
+def test_a_load_door_is_written_static_beside_its_animated_mesh(tmp_path):
+    """An animated door's load copy is <name>load.nif with no controller; a mesh with no animation has none."""
+    export = Path('export/FalloutNV.esm')
+    model = str(DOOR.relative_to(export / 'meshes'))
+    path, _ = write_assets(export, model, tmp_path, load=True)
+    assert path.endswith('nvcraftsmanrmdooranimatedload.nif')
+    nif = F.read((tmp_path / 'Meshes' / path).read_bytes())
+    assert nif.blocks[0][1]['controller'] == K.NONE
+    assert write_assets(export, str(SHELF.relative_to(export / 'meshes')), tmp_path, load=True) is None

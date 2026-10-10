@@ -55,9 +55,9 @@ EFFECT_FLAGS = (0xA00000C0, 0x40000010)
 BEAKER_SHADER = {'lighting_influence': 242, 'falloff': (1.0, -4.371138828673793e-08, 0.6000000238418579, 1.0),
                  'base_color': (0.18039216101169586, 0.18823537230491638, 0.20392164587974548, 0.8999999761581421),
                  'base_color_scale': 0.20000000298023224, 'env_map_scale': 2.0}
-#: Effect shader flags of an unlit FNV shape: (flags1 z-test, flags2 0); the bits added per shape.
+#: Effect shader flags of an unlit FNV shape: (flags1 z-test, flags2 0); the bits added per shape (Double_Sided: any).
 UNLIT_FLAGS, UNLIT_VERTEX_ALPHA = (0x80000000, 0), 0x8
-UNLIT_ZWRITE, UNLIT_TWO_SIDED, UNLIT_COLORS = 0x1, 0x10, 0x20
+UNLIT_ZWRITE, DOUBLE_SIDED, UNLIT_COLORS = 0x1, 0x10, 0x20
 #: Vanilla ChemistrySetBeaker01.BGEM, textures aside: FO4's glass for a small prop.
 GLASS_EFFECT = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 0.8999999761581421,
@@ -118,13 +118,15 @@ class Converted:
     """One converted mesh: the NIF, {material path: BGSM dict}, the FNV textures it needs.
 
     `spec_maps` is {FO4 specular map path: (FNV normal map path, smoothness)},
-    the maps to build from FNV's normal-map alpha; `effects` is {path: BGEM dict}.
+    the maps to build from FNV's normal-map alpha; `effects` is {path: BGEM dict}; `animatable`: the FNV mesh
+    has an animation it can keep (kept unless converted not `animated`).
     """
     nif: NifFile
     materials: dict = field(default_factory=dict)
     textures: set = field(default_factory=set)
     spec_maps: dict = field(default_factory=dict)
     effects: dict = field(default_factory=dict)
+    animatable: bool = False
 
 
 def fo4_texture(fnv_path: str) -> str:
@@ -504,7 +506,7 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
     data = mat.data
     flags1 = UNLIT_FLAGS[0] | (UNLIT_VERTEX_ALPHA if has_colors and data['vertex_alpha'] else 0)
     flags2 = ((0 if mat.alpha and mat.alpha[0] & 1 else UNLIT_ZWRITE) | (UNLIT_COLORS if has_colors else 0)
-              | (UNLIT_TWO_SIDED if data['two_sided'] else 0))
+              | (DOUBLE_SIDED if data['two_sided'] else 0))
     return {'name': nif.string(''), 'extra': [], 'controller': NONE, 'flags1': flags1, 'flags2': flags2,
             'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0),
             'source_texture': f'textures\\{data["texture"]}' if data['texture'] else '', 'clamp': 3,
@@ -540,7 +542,8 @@ def posed(root, pose: dict) -> None:
 def convert(path: str, texture_root=None, pose: dict = None, animated: bool = True) -> Converted:
     """The FO4 version of the FNV mesh at `path`; `texture_root` holds FNV's textures folder, `pose` moves
     named nodes first (posed()). An animated mesh keeps its animated nodes, skins and controllers
-    (nif.animation) unless not `animated` (a weapon, which FO4 animates through its behaviour graph)."""
+    (nif.animation) unless not `animated` (a weapon, which FO4 animates through its behaviour graph; a load
+    door, which FNV never opens)."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
@@ -555,13 +558,8 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     manager = manager_of(root)
     kept = kept_nodes(root, manager) if animated and manager is not None and animatable(manager) else []
     nodes = add_nodes(nif, kept, root, NODE_FLAGS) if kept else {id(root): 0}
-    for g in _visible_shapes(root):
-        skinned = bool(kept) and g.skin_instance is not None
-        owner = root if skinned else _owner(g, root, nodes)
-        made = _shape_blocks(nif, g, owner, out, texture_root)
-        nif.blocks[nodes[id(owner)]][1]['children'] += made
-        if skinned:
-            skin(nif, made, g, root, nodes)
+    out.animatable = manager is not None and animatable(manager)
+    _shapes(nif, root, nodes, out, texture_root)
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
     bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK else 0
     bsx |= BSX_ANIMATED if kept else 0
@@ -572,6 +570,18 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
         controllers(nif, root, manager, nodes)
     collision_nodes(nif, root, 0, NODE_FLAGS, nodes)
     return out
+
+
+def _shapes(nif: NifFile, root, nodes: dict, out: Converted, texture_root) -> None:
+    """Append FNV `root`'s visible shapes under their kept `nodes` (a skinned one under the root, skinned to
+    them)."""
+    for g in _visible_shapes(root):
+        skinned = len(nodes) > 1 and g.skin_instance is not None
+        owner = root if skinned else _owner(g, root, nodes)
+        made = _shape_blocks(nif, g, owner, out, texture_root)
+        nif.blocks[nodes[id(owner)]][1]['children'] += made
+        if skinned:
+            skin(nif, made, g, root, nodes)
 
 
 def _owner(geom, root, nodes: dict):

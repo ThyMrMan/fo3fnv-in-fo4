@@ -44,11 +44,15 @@ def mesh_bounds(nif) -> 'tuple | None':
     return (*lo.tolist(), *hi.tolist())
 
 
-def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None, animated: bool = True) -> tuple:
-    """write_converted() of FNV `model` converted (nodes moved to `pose`; animation kept when `animated`)."""
+def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None, animated: bool = True,
+                 load: bool = False) -> 'tuple | None':
+    """write_converted() of FNV `model` converted (convert()); a `load` door's static, as `<name>load.nif` (vanilla
+    load door meshes' naming), or None when the mesh has no animation (the plain one serves)."""
     rel = model.replace('/', '\\').lower()
-    converted = convert(str(export_dir / 'meshes' / rel), export_dir, pose, animated)
-    return write_converted(export_dir, converted, rel, data_dir)
+    converted = convert(str(export_dir / 'meshes' / rel), export_dir, pose, animated and not load)
+    if load and not converted.animatable:
+        return None
+    return write_converted(export_dir, converted, rel[:-4] + 'load.nif' if load else rel, data_dir)
 
 
 def tree_assets(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
