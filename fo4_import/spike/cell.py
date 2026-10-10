@@ -2,8 +2,9 @@
 
 The cell keeps FNV's lighting, every placed object with a mesh, its lights,
 doors, misc items, containers, furniture and activators with their
-converted scripts (other types are statics for now). A door that led out of
-the cell leads to a stand-in door in QASmoke, and back. Engine objects FO4
+converted scripts (other types are statics for now). Every interior a door
+leads into is built too (interiors.py); a door that led out of the build
+leads to a stand-in door in QASmoke, and back. Engine objects FO4
 shares keep their base. Meshes get FNV's collision through Elric.
 
 See: docs/fork/fo4_spikes.md#spike-2-cell
@@ -37,6 +38,7 @@ from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
+from fo4_import.spike.interiors import scope
 from fo4_import.spike.packages import Packages
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.sounds import Sounds
@@ -98,6 +100,8 @@ STAND_INS = {fnv: fo4 for _, fnv, fo4, *_ in SPEAKERS if fnv}
 FACE_VARIANTS, FACE_SPACING = ('STH',), 50.0
 #: The bit every vanilla FO4 omni light carries.
 LIGHT_BASE = 0x1
+#: CELL DATA flag of a cell with water (both games).
+HAS_WATER = 0x2
 
 
 def world_model(rec: dict) -> str:
@@ -164,7 +168,7 @@ class CellBuilder:
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
-        self.equipment, self.load_doors = None, {}
+        self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -494,15 +498,17 @@ def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict
 
 
 def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: bytes):
-    """The FO4 imagespace made from the FNV cell's (FNV's grading in a LUT); None if the cell names none."""
+    """The FO4 imagespace made once from the FNV cell's (FNV's grading in a LUT); None if the cell names none."""
     if 'XCIM.Imagespace' not in cell:
         builder.counts['cell without an FNV imagespace'] += 1
         return None
-    fnv = next(r for r in export_records(export_dir, 'IMGS') if r['FormID'] == cell['XCIM.Imagespace'])
-    lut = write_lut(bytes.fromhex(fnv['DNAM']), fnv['EditorID'], builder.data_dir, base_hdr(base_body))
-    fid = builder.fnv_id(fnv['FormID'])
-    builder.writer.add_record('IMGS', pack_imgs(fid, f'FNV_{fnv["EditorID"]}', base_body, lut))
-    builder.counts[f'imagespace: {fnv["EditorID"]}'] += 1
+    fid = builder.fnv_id(cell['XCIM.Imagespace'])
+    if fid not in builder.imagespaces:
+        fnv = next(r for r in export_records(export_dir, 'IMGS') if r['FormID'] == cell['XCIM.Imagespace'])
+        lut = write_lut(bytes.fromhex(fnv['DNAM']), fnv['EditorID'], builder.data_dir, base_hdr(base_body))
+        builder.writer.add_record('IMGS', pack_imgs(fid, f'FNV_{fnv["EditorID"]}', base_body, lut))
+        builder.imagespaces.add(fid)
+        builder.counts[f'imagespace: {fnv["EditorID"]}'] += 1
     return fid
 
 
@@ -620,6 +626,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
 
     `scripts_dir` holds the converted scripts; the activators' are attached and compiled into <data_dir>/Scripts.
     `exterior` is (worldspace, (x, y) low, (x, y) high): that rectangle of cells too (exterior.Exterior).
+    Every interior a door leads into is built as well (interiors.reached); the cell's actors and quests are its own.
     `table` is the replacement table (spike.replacements), its other plugins found in `plugin_dirs`.
     """
     cell = find_cell(export_dir, cell_edid)
@@ -628,31 +635,31 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     world = Exterior(export_dir, all_refs, *exterior) if exterior else None
     outside = world.refs if world else []
-    used = {int(r['NAME'], 16) for r in refs + outside}
+    interiors, every = scope(export_dir, all_refs, cell, outside)
+    used = {int(r['NAME'], 16) for r in every + outside}
     parts = Parts(used)
     builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), table, plugin_dirs)
     builder.parts = parts
     _object_makers(builder, export_dir, scripts_dir, refs)
-    cell_fid = builder.fnv_id(cell['FormID'])
-    ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in refs}
+    ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in every}
     ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in outside}
     quest_recs = [r for r in export_records(export_dir, 'QUST') if r.get('EditorID') in CELL_QUESTS]
     quests = {r['EditorID']: builder.fnv_id(r['FormID']) for r in quest_recs}
-    builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in refs if r.get('EditorID')}, **quests})
+    builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in every if r.get('EditorID')}, **quests})
     builder.objectives = objective_globals(builder, quest_recs)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST} | set(STAND_INS.values()))
     actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(builder, ids, quest_recs, quests))
-    qa_refs, teleports = _doors(builder, [r for r in refs if 'XTEL.Door' in r], links, {**ids, **ext_ids})
+    qa_refs, teleports = _doors(builder, [r for r in every if 'XTEL.Door' in r], links, {**ids, **ext_ids})
     qa_refs += _test_chest(builder, vanilla[TEST_CHEST]) + _qa_creatures(builder, export_dir, data_dir)
     teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
     persistent, temporary = _placed(builder, refs, ids, teleports)
     persistent += actors
     _quests(builder, export_dir, quest_recs, quests, {**ids, **builder.actor_ids})
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
-    navmesh = _navmesh(builder, export_dir, {cell['FormID']: (0, cell_fid), **(world.pathing(builder) if world else {})},
-                       {**ids, **ext_ids})
-    temporary += navmesh.get(cell['FormID'], b'')
-    _cell_group(builder, export_dir, cell, cell_fid, vanilla, (persistent + builder.poses.placed, temporary, qa_refs))
+    pathing = {c['FormID']: (0, builder.fnv_id(c['FormID'])) for c in interiors}
+    navmesh = _navmesh(builder, export_dir, {**pathing, **(world.pathing(builder) if world else {})}, {**ids, **ext_ids})
+    rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh, (persistent + builder.poses.placed, temporary))
+    _cell_group(builder, export_dir, vanilla, rooms, qa_refs)
     if world:
         for ref in world.placement_order():
             builder.base(int(ref['NAME'], 16))
@@ -661,18 +668,33 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     return _finish(builder, export_dir, data_dir, out, scripts_dir)
 
 
-def _cell_group(builder: CellBuilder, export_dir: Path, cell: dict, cell_fid: int, vanilla: dict, children: tuple):
-    """Add the CELL group: the FNV cell with `children` (persistent, temporary) and QASmoke with its stand-in doors."""
-    persistent, temporary, qa_refs = children
+def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, first: tuple) -> list:
+    """[(cell, persistent, temporary)] of the interiors in `scoped` (cells, their references), each with its
+    navmeshes: the first's children are `first`, the others' references placed with `placing` (ids, teleports)."""
+    interiors, every = scoped
+    placed = [first] + [_placed(builder, [r for r in every if r['ParentCELL'] == c['FormID']], *placing)
+                        for c in interiors[1:]]
+    return [(c, p, t + navmesh.get(c['FormID'], b'')) for c, (p, t) in zip(interiors, placed)]
+
+
+def _cell_group(builder: CellBuilder, export_dir: Path, vanilla: dict, rooms: list, qa_refs: bytes):
+    """Add the CELL group: each FNV interior of `rooms` [(cell, persistent, temporary)] and QASmoke with its
+    stand-in doors."""
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
+    cells = [(_interior(builder, export_dir, cell, vanilla), builder.fnv_id(cell['FormID']), persistent, temporary)
+             for cell, persistent, temporary in rooms]
+    builder.writer.add_raw_group('CELL', R.pack_interior_cells(cells + [(qa_record, CELL_FO4, qa_refs, b'')]))
+
+
+def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict) -> bytes:
+    """The FO4 CELL of FNV interior `cell`: FNV's lighting, imagespace and water height over QASmoke's settings."""
     template = sub_map(vanilla[CELL_FO4].body)
     imagespace = _imagespace(builder, export_dir, cell, vanilla[BASE_IMAGESPACE].body)
-    edid = cell['EditorID']
-    record = R.pack_cell(cell_fid, f'FNV_{edid}', cell.get('FULL', edid), int(cell['DATA.Flags']) & 0xFF,
-                         lighting(cell, template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
-                         imagespace or struct.unpack('<I', template[b'XCIM'])[0])
-    builder.writer.add_raw_group('CELL', R.pack_interior_cells([(record, cell_fid, persistent, temporary),
-                                                                (qa_record, CELL_FO4, qa_refs, b'')]))
+    edid, flags = cell['EditorID'], int(cell['DATA.Flags'])
+    water = float(cell['XCLW.WaterHeight']) if flags & HAS_WATER and 'XCLW.WaterHeight' in cell else 0.0
+    return R.pack_cell(builder.fnv_id(cell['FormID']), f'FNV_{edid}', cell.get('FULL', edid), flags & 0xFF,
+                       lighting(cell, template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
+                       imagespace or struct.unpack('<I', template[b'XCIM'])[0], water)
 
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:

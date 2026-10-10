@@ -20,16 +20,16 @@ from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.spike import replacements
 from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
 from fo4_import.spike.exterior import Exterior
+from fo4_import.spike.interiors import scope
 
 
 def scope_models(export_dir: Path, cell_edid: str, exterior: 'tuple | None') -> list:
-    """The FNV mesh files of the bases placed in cell `cell_edid` and the `exterior` block, as build() makes
-    them first (convert() with its defaults)."""
+    """The FNV mesh files of the bases placed in cell `cell_edid`, the `exterior` block and the interiors their
+    doors reach, as build() makes them first (convert() with its defaults)."""
     all_refs = export_records(export_dir, 'REFR')
-    cell = find_cell(export_dir, cell_edid)
-    refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
-    refs += Exterior(export_dir, all_refs, *exterior).refs if exterior else []
-    used = {int(r['NAME'], 16) for r in refs}
+    outside = Exterior(export_dir, all_refs, *exterior).refs if exterior else []
+    used = {int(r['NAME'], 16) for r in scope(export_dir, all_refs, find_cell(export_dir, cell_edid), outside)[1]
+            + outside}
     recs = [rec for sig, rec in placed_bases(export_dir, used).values() if sig in placed_types('record', 'pickup')]
     recs += [r for sig in placed_types('item') for r in export_records(export_dir, sig) if int(r['FormID'], 16) in used]
     paths = {export_dir / 'meshes' / world_model(r).replace('/', '\\').lower() for r in recs if world_model(r)}

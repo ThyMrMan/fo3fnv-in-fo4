@@ -1223,6 +1223,19 @@ idles and imagespace modifiers.
   Fallout4.esm misc items and potions, and the messages it names. Other
   same-named Fallout4.esm forms are not used: stage 0's
   `RemoveItem PipBoy` would take FO4's Pip-Boy.
+  - **Engine globals** (built 2026-10-10) are the exception: a
+    `GlobalVariable` property takes the Fallout4.esm global of its name
+    when that global's FormID is below 0x800. Those are the engine's own,
+    the same form in both games (`GameHour` 0x38, `GameDaysPassed` 0x39).
+  - Before this, `GameHour` was always empty, and two things broke:
+    - every `FALLOUTNV_WastelandWindowScript` window logged two errors
+      every 0.5 s (13 windows: about 95% of a 3 MB Papyrus log over six
+      minutes);
+    - VCG01's stage 200 never set the clock to 8 AM.
+  - The window and Lucky 38 light scripts still change nothing in game:
+    the mesh conversion drops FNV's NIF animations ("Left"/"Right"), and
+    the light's `IsAnimPlaying` (`GetAnimationVariableBool("bAnimPlaying")`)
+    logs two errors every 0.5 s on a mesh with no animation graph.
 - A property typed as a script (`DocMitchellREF` as
   `FALLOUTNV_GSDocMitchellScript`) needs the reference to carry it, so Doc
   carries his FNV script and doors theirs. Doc is one clone now (STH).

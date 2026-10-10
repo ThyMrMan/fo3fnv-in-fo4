@@ -227,6 +227,39 @@ the door), on the interior or outside; FNV has none to copy, and the
 interior worked without it. NVMI island data and the Is Island flag are
 not written.
 
+## <a id="interiors"></a>Interiors reached by doors (built 2026-10-10)
+
+A build now includes every interior a door leads into, not just the named
+cell (`spike/interiors.py`). Starting from the exterior block's doors and
+the named cell's, each door's partner door names a cell. When that cell
+is an interior, it is built and its doors are followed in turn. Doors into
+another worldspace, or into exterior cells outside the block, are not
+followed. A door that leads out of the build still leads to a stand-in in
+QASmoke.
+
+Each interior gets:
+- its references;
+- FNV's lighting and imagespace (one FO4 imagespace per FNV one, shared);
+- its water height, when the cell has water (the water type is FO4's
+  default until WATR converts);
+- its navmesh.
+
+Actors and quests are still the named cell's only.
+
+| Scope | Interiors | References in them |
+|---|---|---|
+| Spike block (`--region -19 -1 -17 1`) | 9 (Doc's house, the saloon, the store, the school, the gas station, 4 houses) | 2,227 |
+| Goodsprings to Primm (x −21…−10, y −16…4) | 27 (adds Primm's houses, sheriff, Bison Steve's two floors, Vikki and Vance, the cave, the shacks, the Prospectors' den) | 6,791 |
+
+The spike block built in 104 s (680 meshes). Against the previous build:
+- added: 8 cells, 1,764 references, 9 navmeshes and the bases they place;
+- removed: nothing; no FormID moved;
+- changed:
+  - 13 exterior doors, which had no destination and now lead into the
+    new interiors (3 take a static load-door copy);
+  - 2 scripts, whose properties naming the saloon's references
+    (`GSJoeCobbTriggerRef`, `GSRadioRef`) are now filled.
+
 ## <a id="before"></a>Before the pipeline: build and research
 
 In order. **Built** marks what is done.

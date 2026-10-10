@@ -22,6 +22,7 @@ from fo4_import.base.papyrus import compile_folder, header_dirs
 from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import info_fragments, object_scripts, quest_fragments
 from fo4_import.helpers_plugin import actor_value_form, helper_forms
+from fo4_import.spike.items import ENGINE_IDS
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.code_tag import ROOT
 from script_convert.target import AV_PROPERTY_PREFIX
@@ -34,7 +35,9 @@ QUEST_PREFIX = 'FALLOUTNV_QF_'
 QUESTS = {'VDoctors': 0x1000}
 _STAGE_FRAGMENT = re.compile(r'^Function (Fragment_Stage_(\d+)_Item_(\d+))\(', re.I | re.M)
 #: Papyrus property type -> the Fallout4.esm dump whose same-named records fill it.
-FORM_DUMPS = {'MiscObject': 'MISC', 'Potion': 'ALCH'}
+FORM_DUMPS = {'MiscObject': 'MISC', 'Potion': 'ALCH', 'GlobalVariable': 'GLOB'}
+#: Types filled only by engine objects (FormID below ENGINE_IDS): the same form in both games, e.g. GameHour.
+ENGINE_ONLY = frozenset({'GlobalVariable'})
 FO4_DUMP = Path(__file__).resolve().parents[2] / 'references' / 'Fallout4.esm'
 _PROPERTY = re.compile(r'^(\w+)\s+Property\s+(\w+)', re.I | re.M)
 _CONVERTED_TYPE = re.compile(r'\bFALLOUTNV_\w+', re.I)
@@ -57,9 +60,18 @@ def declared_properties(psc: str) -> list:
 
 
 def fo4_forms() -> dict:
-    """{Papyrus type: {editor ID: FormID}} of the records FORM_DUMPS names."""
-    return {ptype: {r['EditorID']: int(r['FormID'], 16) for r in export_records(FO4_DUMP, sig)
-                    if r.get('EditorID')} for ptype, sig in FORM_DUMPS.items()}
+    """{Papyrus type: {editor ID: FormID}} of the records FORM_DUMPS names (ENGINE_ONLY types: engine objects)."""
+    out = {}
+    for ptype, sig in FORM_DUMPS.items():
+        ids = ((r['EditorID'], int(r['FormID'], 16)) for r in export_records(FO4_DUMP, sig) if r.get('EditorID'))
+        out[ptype] = {edid: fid for edid, fid in ids if ptype not in ENGINE_ONLY or fid < ENGINE_IDS}
+    return out
+
+
+def base_forms(helper_index: int) -> dict:
+    """fill()'s `forms`: fo4_forms() and the helper plugin's, joined per type."""
+    fo4, helpers = fo4_forms(), helper_forms(helper_index)
+    return {ptype: {**fo4.get(ptype, {}), **helpers.get(ptype, {})} for ptype in fo4.keys() | helpers.keys()}
 
 
 def fill(declared: list, forms: dict, helper_index: int) -> dict:
@@ -85,7 +97,7 @@ def fill(declared: list, forms: dict, helper_index: int) -> dict:
 def spike_forms(helper_index: int, own_index: int) -> dict:
     """fill()'s `forms`: helper quests, globals, FO4 records, QUESTS."""
     quests = {'Quest': {edid: own_index << 24 | oid for edid, oid in QUESTS.items()}}
-    return {**fo4_forms(), **helper_forms(helper_index), **quests}
+    return {**base_forms(helper_index), **quests}
 
 
 def quest_record(scripts_dir: Path, edid: str, fid: int, stages: list, forms: dict, helper_index: int) -> tuple:

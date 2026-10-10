@@ -22,9 +22,12 @@ from fo4_import.spike import gun_choice as GC
 from fo4_import.spike import sounds as SO
 from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
+from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
+from fo4_import.spike import script as SC
+from fo4_import import helpers_plugin as HP
 from fo4_import.spike import skeleton as S
 from fo4_import.spike import voice as V
 from fo4_import.spike.cell import CellBuilder
@@ -309,6 +312,25 @@ def test_the_facing_edge_holds_the_middle_of_a_split_border():
 def test_an_exterior_pathing_cell_stores_y_then_x():
     """As all 7,113 Fallout4.esm exterior navmeshes do."""
     assert struct.pack('<I', NM.grid_parent(-18, 3)) == struct.pack('<hh', 3, -18)
+
+
+def test_interiors_reached_follow_doors_from_the_block_and_through_interiors():
+    """Block door -> saloon -> cellar is reached; a door into another worldspace and an unlinked cell are not."""
+    cells = {c: {'FormID': c} for c in ('DOC', 'SALOON', 'CELLAR', 'FAR')}
+    door = lambda fid, cell, to: {'FormID': fid, 'ParentCELL': cell, 'XTEL.Door': to}
+    refs = [door('d1', 'BLOCK', 'd2'), door('d2', 'SALOON', 'd1'), door('d3', 'SALOON', 'd4'),
+            door('d4', 'CELLAR', 'd3'), door('d5', 'CELLAR', 'd6'), door('d6', 'OTHERWORLD', 'd5'),
+            {'FormID': 'r', 'ParentCELL': 'FAR'}]
+    found = IN.reached(cells, refs, cells['DOC'], [refs[0]])
+    assert [c['FormID'] for c in found] == ['DOC', 'CELLAR', 'SALOON']
+
+
+def test_a_global_property_takes_fallout4s_engine_global_beside_the_helper_globals():
+    """GameHour fills from Fallout4.esm (0x38, as in FNV); only engine globals qualify; helper globals stay."""
+    forms = SC.base_forms(1)
+    assert SC.fill([('GlobalVariable', 'GameHour')], forms, 1) == {'GameHour': 0x38}
+    assert all(fid < 0x800 for fid in SC.fo4_forms()['GlobalVariable'].values())
+    assert set(HP.helper_forms(1)['GlobalVariable']) <= set(forms['GlobalVariable'])
 
 
 def test_the_census_flags_an_unrouted_type_and_a_missing_target():
