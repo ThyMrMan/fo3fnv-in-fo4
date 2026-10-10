@@ -15,6 +15,7 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base import strings as ST
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import FO4PluginWriter
+from fo4_import.nif import collision as CO
 from fo4_import.nif import file as nf
 from fo4_import.spike import dialogue as D
 from fo4_import.spike import equipment as E
@@ -24,12 +25,14 @@ from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
+from fo4_import.spike import placement as PL
 from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
 from fo4_import.spike import script as SC
 from fo4_import import helpers_plugin as HP
 from fo4_import.spike import skeleton as S
 from fo4_import.spike import voice as V
+from fo4_import.spike import cell as CB
 from fo4_import.spike.cell import CellBuilder
 from fo4_import import record_routes as RT
 from tools.esm import fo4_record_census as C
@@ -331,6 +334,38 @@ def test_a_global_property_takes_fallout4s_engine_global_beside_the_helper_globa
     assert SC.fill([('GlobalVariable', 'GameHour')], forms, 1) == {'GameHour': 0x38}
     assert all(fid < 0x800 for fid in SC.fo4_forms()['GlobalVariable'].values())
     assert set(HP.helper_forms(1)['GlobalVariable']) <= set(forms['GlobalVariable'])
+
+
+def test_a_phantom_trigger_volume_is_left_out_of_the_collision():
+    """The bear trap's bhkSimpleShapePhantom (its pressure-plate trigger) adds no block."""
+    phantom = SimpleNamespace(collision_object=SimpleNamespace(body=type('bhkSimpleShapePhantom', (), {})()))
+    root = SimpleNamespace(collision_object=None, tree=lambda: [root, phantom])
+    nif = SimpleNamespace(blocks=[('BSFadeNode', {'children': []})])
+    CO.collision_nodes(nif, root, 0, 0)
+    assert nif.blocks == [('BSFadeNode', {'children': []})]
+
+
+def test_an_interiors_height_fog_takes_fnvs_fog_colour_not_the_templates():
+    """QASmoke's green height fog showed in Doc's house (7,400 units up); both height-fog colours are FNV's fog."""
+    keys = ('Ambient', 'Directional', 'Fog')
+    cell = {f'XCLL.{k}{c}': v for k in keys for c, v in zip('RGB', (77, 62, 32))}
+    cell.update({f'XCLL.{k}': 1 for k in ('FogNear', 'FogFar', 'DirectionalRotXY', 'DirectionalRotZ',
+                                          'DirectionalFade', 'FogClipDist', 'FogPower')})
+    out = CB.lighting(cell, bytes(range(136)))
+    assert out[100:108] == bytes((77, 62, 32, 0)) * 2 and out[108:] == bytes(range(108, 136))
+    assert struct.unpack_from('<f', out, 76)[0] == 1.0
+
+
+def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypatch):
+    """XPOD's two rooms are renumbered; a portal drops XMBO; a room marker keeps XMBO before XPRM; XRGD carries."""
+    raw = {0x5A: {b'XPOD': struct.pack('<2I', 0x57, 0x58), b'XPRM': b'p' * 32, b'XMBO': b'b' * 12},
+           0x57: {b'XPRM': b'p' * 32, b'XMBO': b'b' * 12}, 0x99: {b'XRGD': b'r' * 28}}
+    monkeypatch.setattr(PL, 'fields', lambda: raw)
+    ids = {'00000057': 0x03000057, '00000058': 0x03000058}
+    assert PL.placement(0x5A, ids) == (pack_subrecord('XPRM', b'p' * 32)
+                                       + pack_subrecord('XPOD', struct.pack('<2I', 0x03000057, 0x03000058)))
+    assert PL.placement(0x57, ids) == pack_subrecord('XMBO', b'b' * 12) + pack_subrecord('XPRM', b'p' * 32)
+    assert PL.placement(0x99, ids) == pack_subrecord('XRGD', b'r' * 28) and PL.placement(0x1, ids) == b''
 
 
 def test_the_census_flags_an_unrouted_type_and_a_missing_target():

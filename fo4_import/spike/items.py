@@ -21,6 +21,8 @@ from fo4_import.pipeline.export_index import export_records
 
 #: FNV's engine objects sit below this FormID.
 ENGINE_IDS = 0x800
+#: The portal marker: built into FNV's engine (FalloutNV.esm has no record), Fallout4.esm's PortalMarker STAT.
+PORTAL_MARKER = 0x20
 #: FNV record types an inventory may name, indexed for conversion (the rest are skipped).
 ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT')
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
@@ -35,11 +37,12 @@ def _edid(rec) -> str:
 
 
 def shared_engine_ids(fo4_esm: bytes, fnv: dict, types: tuple) -> dict:
-    """{FNV FormID: FO4 FormID} of FNV engine objects Fallout4.esm has with the same FormID, type and EditorID.
+    """{FNV FormID: FO4 FormID} of FNV engine objects Fallout4.esm has with the same FormID, type and EditorID,
+    and the portal marker (PORTAL_MARKER).
 
     `fnv` is {FormID: (type, export record)}.
     """
-    out = {}
+    out = {PORTAL_MARKER: PORTAL_MARKER}
     for rec, _ in walk(fo4_esm, *(t.encode() for t in types)):
         if rec.form_id >= ENGINE_IDS or rec.form_id not in fnv:
             continue

@@ -324,12 +324,13 @@ def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int, ke
     The NiNodes come first and every Havok block after them, so the Havok
     blocks are the file's tail (elric.graft swaps that tail for FO4's).
     Elric ignores a node's scale, so the node gets 1.0 and its shapes the scale.
+    Only rigid bodies convert: a phantom (a trigger volume, not solid) is left out.
     See: docs/fork/fo4_spikes.md#spike-4-exterior
     """
     owners = []
     for node in fnv_root.tree():
         co = getattr(node, 'collision_object', None)
-        if co is None or co.body is None:
+        if co is None or co.body is None or not type(co.body).__name__.startswith('bhkRigidBody'):
             continue
         index, scale = (kept or {}).get(id(node), root_index), 1.0
         if node is not fnv_root and id(node) not in (kept or {}):

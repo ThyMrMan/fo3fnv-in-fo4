@@ -201,15 +201,15 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') ->
 
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
-              teleport: tuple = None, persistent: bool = True, primitive: bytes = b'', disabled: bool = False,
+              teleport: tuple = None, persistent: bool = True, placement: bytes = b'', disabled: bool = False,
               linked: int = 0, edid: str = '') -> bytes:
-    """A placed object: base, trigger primitive (XPRM), light radius (XRDS), teleport (door, position, rotation), scale.
+    """A placed object: base, `placement` (packed XMBO/XPRM/XPOD/XRGD, spike.placement), light radius (XRDS),
+    teleport (door, position, rotation), scale.
 
     `disabled` sets Initially Disabled (0x800), as FO3/FNV's flag; `linked` is its linked reference (XLKR, no keyword);
     `edid` names the reference.
     """
-    subs = (_zstr('EDID', edid) if edid else b'') + _u32('NAME', base)
-    subs += pack_subrecord('XPRM', primitive) if primitive else b''
+    subs = (_zstr('EDID', edid) if edid else b'') + _u32('NAME', base) + placement
     if radius is not None:
         subs += pack_subrecord('XRDS', struct.pack('<f', radius))
     if teleport:

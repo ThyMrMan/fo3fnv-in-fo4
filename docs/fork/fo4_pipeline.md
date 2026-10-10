@@ -246,6 +246,36 @@ Each interior gets:
 
 Actors and quests are still the named cell's only.
 
+**Height fog.** FO4's XCLL has height fog FNV lacks: a second pair of fog
+colors (bytes 100–107) blended in with height (near height 0, range
+10,000 in QASmoke's template). The cell took them from QASmoke, whose
+near fog is green (75, 99, 97). Doc's house stands about 7,400 units up
+in FNV (the saloon ~3,500, the store ~600), so it showed the green
+almost fully. Both height-fog colors are now the cell's FNV fog color,
+so the fog is the same at every height, as in FNV.
+
+**FNV's fog, read from its shaders and exe** (GOG FalloutNV.exe, shader
+package 019):
+- The engine sets the shader constant `FogParam` (global `0x11FD934`,
+  written at `0xB7AF0A`) to (far, far − near, power, 0) and `FogColor` to
+  the fog color.
+- The vertex shader computes
+  `fog = (1 − saturate((far − d) / (far − near)))^power`.
+- A fog-variant pixel shader blends `lerp(lit, FogColor, fog)`. Only 14
+  of package 019's 203 standard-lighting pixel shaders read the fog.
+- Nothing caps the fog: past the far distance it is the fog color alone.
+  So XCLL's fog max is 1.0 (vanilla FO4 writes 1.0 in 307 of 606
+  interiors).
+  - QASmoke's 0.7 let Doc's house show bright background past its
+    1,500-unit fog clip distance: the white shapes at the end of its hall.
+
+Doc's fog values (near 100, far 1,500, power 0.6) are among FNV's
+foggiest; FNV's p10/median/p90 far is 1,600/4,000/10,000. In FNV the
+fog color (77, 62, 32) is near the room's own brightness, so the fog
+barely shows. In FO4 the same color renders as a bright beige haze. The
+cause, likely FO4's linear HDR lighting and exposure, is not confirmed:
+FO4's shaders carry no constant names to read.
+
 | Scope | Interiors | References in them |
 |---|---|---|
 | Spike block (`--region -19 -1 -17 1`) | 9 (Doc's house, the saloon, the store, the school, the gas station, 4 houses) | 2,227 |
@@ -259,6 +289,69 @@ The spike block built in 104 s (680 meshes). Against the previous build:
     new interiors (3 take a static load-door copy);
   - 2 scripts, whose properties naming the saloon's references
     (`GSJoeCobbTriggerRef`, `GSRadioRef`) are now filled.
+
+## <a id="region"></a>Goodsprings to Primm (built 2026-10-10)
+
+`--region -21 -16 -10 4` (the [interiors](#interiors) table's second row):
+
+| | |
+|---|---|
+| Exterior cells | 252 (LAND 252, 37 landscape textures) |
+| Interiors | 27 |
+| References placed | 20,725 (72 static collections split into 588 parts) |
+| Navmeshes | 400 (370 exterior, 30 interior), 8,067 edge links, all resolved |
+| Meshes | 1,630; textures packed 2,312 |
+| Scripts | 516 compile |
+| Plugin | 9.5 MB |
+| Build, meshes cached | 177 s (mesh cache 8 s) |
+
+Against the spike-block build:
+- **Removed:** one QASmoke stand-in door, because its door now leads to
+  its real partner.
+- **Changed:**
+  - 13 border navmeshes now link outward;
+  - two markers now have their linked reference;
+  - the worldspace's bounds grew.
+- No record that is still built changed its FormID.
+
+**Two mesh faults found at this size.**
+- `traps/beartrap01.nif` is the only mesh in the region with a Havok
+  phantom: the pressure plate's trigger volume
+  (`bhkSPCollisionObject` → `bhkSimpleShapePhantom` →
+  `bhkTransformShape`). `collision_nodes` converts rigid bodies only, so
+  the phantom is left out. The trap's base and jaws keep their collision.
+- Elric writes a node named `Head` as `HEAD`, so its collision didn't
+  match ours. `elric.graft` now matches names ignoring case. This hit 5
+  skeleton and corpse meshes.
+
+<a id="rooms"></a>**Rooms, portals and ragdolls** (found playing the region).
+- **White boxes:** Vikki and Vance's side rooms and Bison Steve's halls
+  showed a white box past each doorway, but only from inside a room.
+  FNV divides those cells with room markers (`0x1F` RoomMarker, `XMBO`
+  bounds) joined by portals (`0x20`, `XPOD` naming the two rooms).
+  - Two links were missing:
+    - **The portal base:** FNV's portal marker is built into its engine
+      (FalloutNV.esm has no `0x20` record), so every portal was skipped.
+    - **The room links:** the export keeps `XPRM` but not `XMBO` or `XPOD`.
+  - With rooms and no portals, FO4 drew only the room the player stood
+    in.
+  - Fixes:
+    - `items.PORTAL_MARKER` maps `0x20` to Fallout4.esm's PortalMarker
+      (`0x20`);
+    - `spike/placement.py` copies `XMBO`, `XPRM`, `XPOD` (rooms renumbered)
+      and `XRGD` from FalloutNV.esm itself.
+  - Vanilla has the same layout: 1,725 portals are `NAME XPRM XPOD DATA`;
+    601 room markers are `NAME XMBO XPRM DATA`.
+- **A skeleton standing upright** (`Skeleton50sCasualMale` near Goodsprings):
+  FNV lays a ragdolled object down with the reference's `XRGD` bone pose
+  (bone id, 3 unused bytes, position, rotation: 28 bytes, as in FO4).
+  Without it FO4 shows the mesh's bind pose. Vanilla puts `XRGD` on 4,081
+  MSTT references and 1,301 statics.
+
+Census of the region's 1,630 meshes' Havok blocks: MOPP/packed strips
+941, rigid bodies 928 (+503 T), convex vertices 360, boxes 111, lists 27,
+capsules 14, convex transforms 11, spheres 4, constraints 26, phantom and
+transform shape 1 each.
 
 ## <a id="before"></a>Before the pipeline: build and research
 
@@ -420,7 +513,8 @@ order of payoff:
      rebuilds the spike block byte for byte;
    - left: converters per record type dispatched from `record_routes`
      (the spike's code runs as it was), and a region scope (`--region`).
-3. **Goodsprings to Primm:** the first region, a few hundred cells.
+3. **Goodsprings to Primm:** the first region, a few hundred cells
+   (**built**, [region](#region)).
    - Brings in the opening quests (VCG02's wells, Ghost Town Gunfight,
      the road south) and the exterior navmesh (**built**,
      [exterior navmesh](#exterior-navmesh)).

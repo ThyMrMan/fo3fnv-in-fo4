@@ -50,7 +50,8 @@ def without_havok(nif: NifFile) -> NifFile:
 
 
 def graft(ours: NifFile, processed: NifFile) -> NifFile:
-    """`ours` with its Havok input replaced by Elric's FO4 physics, matched to our nodes by name, in order.
+    """`ours` with its Havok input replaced by Elric's FO4 physics, matched to our nodes by name, in order
+    (ignoring case: Elric writes a node named Head as HEAD).
 
     Elric bakes a collision node's transform into the physics and keeps it on the node too, so a
     collision-only node (no children: collision.collision_nodes') is reset to identity. Every
@@ -58,14 +59,14 @@ def graft(ours: NifFile, processed: NifFile) -> NifFile:
     See: docs/fork/fo4_spikes.md#spike-4-exterior
     """
     owners = [i for i, (_, b) in enumerate(ours.blocks) if isinstance(b, dict) and b.get('collision', NONE) != NONE]
-    names = [ours.strings[ours.blocks[i][1]['name']] for i in owners]
+    names = [ours.strings[ours.blocks[i][1]['name']].lower() for i in owners]
     without_havok(ours)
     systems = {}
     for kind, raw in processed.blocks:
         if kind != 'bhkNPCollisionObject':
             continue
         target, flags, data, body_id = struct.unpack('<iHiI', raw)
-        name = processed.strings[processed.blocks[target][1]['name']]
+        name = processed.strings[processed.blocks[target][1]['name']].lower()
         owner = owners.pop(names.index(name))
         names.remove(name)
         if data not in systems:

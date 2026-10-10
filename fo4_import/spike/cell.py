@@ -39,6 +39,7 @@ from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.interiors import scope
+from fo4_import.spike.placement import placement
 from fo4_import.spike.packages import Packages
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.sounds import Sounds
@@ -102,6 +103,8 @@ FACE_VARIANTS, FACE_SPACING = ('STH',), 50.0
 LIGHT_BASE = 0x1
 #: CELL DATA flag of a cell with water (both games).
 HAS_WATER = 0x2
+#: XCLL fog max: FNV fog has no cap (see lighting()); vanilla FO4 writes 1.0 in 307 of 606 interiors.
+FOG_MAX = 1.0
 
 
 def world_model(rec: dict) -> str:
@@ -133,7 +136,10 @@ def lighting(cell: dict, template: bytes) -> bytes:
     """FO4 XCLL: FNV's colours, fog, directional light and fog power over `template`, inheriting nothing.
 
     FNV's ambient colour also fills FO4's six directional ambient colours and
-    its fog colour the far fog colour; the FO4-only fields keep `template`'s.
+    its fog colour the far and both height-fog colours (FNV has no height fog,
+    so the fog is the same at every height); fog max is 1 (FNV's shaders blend to the fog colour by the full
+    fog amount, so past the far distance and its clip only fog shows); the other FO4-only fields keep `template`'s.
+    See: docs/fork/fo4_pipeline.md#interiors
     """
     out = bytearray(template)
     out[0:12] = _color(cell, 'Ambient') + _color(cell, 'Directional') + _color(cell, 'Fog')
@@ -141,8 +147,9 @@ def lighting(cell: dict, template: bytes) -> bytes:
                              int(cell['XCLL.DirectionalRotXY']), int(cell['XCLL.DirectionalRotZ']),
                              *_floats(cell, 'XCLL.', ('DirectionalFade', 'FogClipDist', 'FogPower')))
     out[40:64] = _color(cell, 'Ambient') * 6
-    out[72:76] = _color(cell, 'Fog')
+    out[72:80] = _color(cell, 'Fog') + struct.pack('<f', FOG_MAX)
     out[88:92] = bytes(4)
+    out[100:108] = _color(cell, 'Fog') * 2
     return bytes(out)
 
 
@@ -374,7 +381,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
-                             teleports.get(ref['FormID']), keep, bytes.fromhex(ref.get('XPRM.Raw', '')),
+                             teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), ids),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
