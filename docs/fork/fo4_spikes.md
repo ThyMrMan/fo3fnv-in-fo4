@@ -2199,6 +2199,35 @@ since the saloon she lives in is not built.
   for Sunny.
 - The mouth takes Dogmeat's jaw and lip weights by surface, not FNV's jaw bone.
 
+**Geckos: the deathclaw tried and dropped; a mole rat stands in (2026-10-10).**
+FNV's most placed creature with no FO4 counterpart ([census](#creature-census)).
+
+- **Tried: FNV's gecko on FO4's deathclaw.** FNV's gecko (`NVGecko.NIF`, an
+  upright biped with arms, digitigrade legs and a tail) on the deathclaw
+  skeleton, by a gecko rig like the dog's. The mesh fitted (feet on the
+  deathclaw's floor once toes and fingers moved without the foot's 6.7x
+  stretch; body a median 3.6 units from the deathclaw's surface). Played:
+  it does not work. The movement is the deathclaw's and reads wrong, FO4's
+  deathclaws are far more aggressive than FNV's geckos, and it came out
+  deathclaw-sized: "a deathclaw with an odd skin over top". (The size was
+  also a bug: FO4's NPC has a minimum and a maximum height, `NAM6` and
+  `NAM4`, and only `NAM6` was set, to 0.32.) What makes a creature read as
+  itself is its own motion and behaviour, so FNV's mesh on an FO4 rig
+  works only where the two are the same animal (Cheyenne on Dogmeat).
+  Removed: the gecko rig, the height scaling and the rig's rigid tips.
+- **Built: an FO4 stand-in (played 2026-10-10: works as mole rats).** A creature with no FO4 counterpart is a copy of
+  a vanilla creature of its size and role under FNV's name, with that
+  creature's own body, animations and factions; only its scripts drop
+  (`creatures.STAND_INS`). Geckos stand in as a mole rat
+  (`EncMolerat01Template`, `0001D966`: no template, no scripts, its two
+  factions): small, an aggressive pack biter, and it moves as itself. FNV's
+  quest steps that count geckos still work. A ported gecko from the modlist
+  replaces it through the replacement table
+  ([direction](fo4_replacements.md#direction)).
+- **Placed:** VCG02's two well geckos (`VCG02CrGecko`, "Gecko") in QASmoke
+  beside Cheyenne. Their real spot, the first well at (-68,150, -12,819), is
+  3 grid rows south of the built block; building down to it adds cells.
+
 ### <a id="spike-4-equipment"></a>Weapons and armor (played 2026-10-08)
 
 The Goodsprings build skipped 6 weapons and 13 armor pieces, all from
@@ -3025,6 +3054,68 @@ Three ways a creature can convert:
    animations; the Skyrim converter builds creature graphs in
    `asset_convert/havok`). The only way to keep geckos, mantises and
    securitrons; the costliest.
+
+### <a id="creature-option3"></a>Option 3: FNV's own skeletons on Fallout 4 (feasibility 2026-10-10)
+
+What a vanilla creature ships (the mole rat, Fallout4.esm `MoleratRace`):
+the race names a behaviour **project** (`Actors\Molerat\MoleratProject.hkx`,
+male and female `MODL` after `NAM3`), shared subgraphs (`SGNM`
+`Actors\Shared\Behaviors\MoleratSharedCoreWrappingBehavior.hkx`, the
+ambush and furniture behaviours) each with an animation folder (`SAPT`),
+the skeleton NIF (`ANAM`) and attack data (`ATKD`/`ATKE`: events such as
+`meleeStart_1_Mirrored`). Under `Actors\Molerat\`: the project, a
+character file (`Characters\MoleratCharacter.hkx`), its behaviour
+(`Behaviors\MoleratRootBehavior.hkx`), `CharacterAssets\skeleton.hkx` (the
+animation skeleton, a skeleton mapper and an `hknpRagdollData` ragdoll)
+and 74 clips in `Animations\`, plus `AnimTextData\AnimationFileData\
+moleratproject.txt`. All files are `hk_2014.1.0-r1` 64-bit packfiles.
+
+| Piece | State |
+|---|---|
+| Body mesh, skeleton NIF | Have: the FO4 NIF writer and skinning (Cheyenne) |
+| Animations (FNV `.kf` to FO4 `.hkx`) | Have the parts: the Skyrim converter decodes and retargets KF (`asset_convert/havok/kf_decode.py`, `clip_retarget.py`); `external/pynifly_hkx/anim_fo4.py` writes FO4 spline-compressed animations |
+| Animation skeleton (`hkaSkeleton`) | Have: `anim_fo4.write_fo4_skeleton` |
+| Ragdoll and skeleton mapper | Missing: no `hknpRagdollData` writer; Elric builds static physics only |
+| Behaviour graph, character, project | **Missing, the blocker** |
+| AnimTextData, RACE | Easy: text, and a copy of a vanilla race |
+
+**The behaviour graph is the blocker.** The FO4 root behaviour holds 42
+classes (`hkbStateMachine`, `hkbClipGenerator`, `BSLookAtModifier`,
+`hkbKeyframeBonesModifier`, `hkbGetUpModifier`...). Nothing here reads or
+writes Havok 2014 behaviour classes: `hkxconv` (HKX2E) and `hkxcmd` know
+Skyrim's 2010 layouts only, and pynifly reads only animations and
+skeletons. The files carry no class descriptions (`__types__` is empty in
+the project, behaviour and skeleton), so a reader needs every layout from
+elsewhere. `Fallout4.exe` and `CreationKit.exe` hold the member names
+(`cropStartAmountLocalTime`, `hkbFootIkDriverInfo`), but in string lookup
+tables (`0x142F40B18`), not static `hkClass`/`hkClassMember` records; the
+layouts are built in code. Recovering them means disassembling Havok's
+type registration, or inferring ~40 layouts from vanilla files against
+Skyrim's 2010 ones. Bethesda ships no behaviour tools (`Tools\`: Elric,
+LipGen, Archive2, the material editor, the NIF exporter).
+
+Three ways a creature with no FO4 counterpart can still convert:
+
+1. **FNV's mesh on the nearest FO4 rig** (option 2). The FNV gecko is an
+   upright biped (pelvis z 36, head z 87, arms with hands, digitigrade
+   legs, a tail): FO4's deathclaw rig, scaled down. FO4's deathclaw
+   animations and AI. **Played 2026-10-10 and dropped:** it reads as a
+   deathclaw ([geckos](#spike-4-creatures)); a vanilla stand-in (a mole
+   rat) is the default until a ported gecko.
+2. **A vanilla behaviour project reused byte for byte, FNV's motion on
+   its rig.** The project, character and behaviour files are copied
+   unchanged under a new folder (their paths are relative, so nothing in
+   them changes); the skeleton keeps the vanilla rig's bones and order (so
+   every bone index in the behaviour stays valid) at FNV's proportions;
+   FNV's clips are retargeted onto it and written under the vanilla clip
+   names. FNV's look and motion on FO4's states, attacks and events. Needs
+   the skeleton (and ragdoll) rewritten in place: same bone count, new
+   reference pose and shape sizes. No new behaviour writer.
+3. **FNV's skeleton and its own behaviour graph:** the full option 3.
+   Needs a Havok 2014 behaviour serializer, a project of its own.
+
+A community port (GrilledTurkey's, [candidate mods](fo4_replacements.md#candidate-mods))
+answers the same need as way 1 or 2 for the creatures it covers.
 
 ## <a id="decision"></a>Decision point
 

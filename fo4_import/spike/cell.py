@@ -91,8 +91,10 @@ DOOR_START, DOOR_SPACING = (-1700.0, -1184.0, 0.0), 300.0
 ARRIVAL, ARRIVAL_ROT = (100.0, 64.0, 0.0), (0.0, 0.0, math.pi / 2)
 #: QASmoke's test chest: QAConsumableChest (its model), a spot past the first door's arrival, rounds per gun, FormID site.
 TEST_CHEST, TEST_CHEST_POS, TEST_ROUNDS, TEST_SITE = 0x1E7DC8, (-1450.0, -1120.0, 0.0), 100, 'FNV test chest'
-#: FNV creatures placed in QASmoke, as (EditorID, position, rotation): Cheyenne, whose saloon is not built.
-QA_CREATURES = (('GSCheyenne', (-1550.0, -1330.0, 0.0), (0.0, 0.0, 0.0)),)
+#: FNV creatures in QASmoke, as (EditorID, position, rotation): Cheyenne (saloon not built), VCG02's well geckos.
+QA_CREATURES = (('GSCheyenne', (-1550.0, -1330.0, 0.0), (0.0, 0.0, 0.0)),
+                ('VCG02CrGecko', (-1150.0, -1450.0, 0.0), (0.0, 0.0, 3.14)),
+                ('VCG02CrGecko', (-1050.0, -1500.0, 0.0), (0.0, 0.0, 3.14)))
 #: FNV LIGH flag bits as FO4 ones: carried, flicker (and slow), off by default, pulse (and slow), spot, spot shadow.
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
 #: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).

@@ -433,7 +433,7 @@ DOG = Path('export/FalloutNV.esm/meshes/creatures/dog')
                     reason='needs the FalloutNV.esm export and Fallout 4')
 def test_fnvs_dog_sits_on_dogmeats_skeleton_with_its_eyes_level():
     """Cheyenne's parts on Dogmeat: every shape skinned, the body on Dogmeat's surface, the eyes symmetric."""
-    fit = CR.creature_fit(Path('export/FalloutNV.esm'), 'creatures\dog', Archives(FALLOUT4_DIR / 'Data'))
+    fit = CR.creature_fit(Path('export/FalloutNV.esm'), 'creatures\\dog', Archives(FALLOUT4_DIR / 'Data'))
     parts = [(C.convert(str(DOG / n), 'export/FalloutNV.esm', animated=False), DOG / n)
              for n in ('dogskin.nif', 'eyessetblue.nif')]
     nif = F.read(F.write(CR.creature_mesh(parts, fit, CR.DOG.root, CR.skeleton_parents(DOG / 'skeleton.nif')).nif))
