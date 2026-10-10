@@ -3114,6 +3114,23 @@ Three ways a creature with no FO4 counterpart can still convert:
 3. **FNV's skeleton and its own behaviour graph:** the full option 3.
    Needs a Havok 2014 behaviour serializer, a project of its own.
 
+**Behavior Graph Studio** ([Nexus 107691](https://www.nexusmods.com/fallout4/mods/107691),
+source [G-A-R-D-E-N/BGS](https://github.com/G-A-R-D-E-N/BGS), MIT, C#/.NET)
+removes the serializer blocker: `src/Hkx/HavokClassTypes.json` holds the
+Havok 2014 class layouts (hkxpack's MIT class descriptions with instance
+sizes measured from Fallout 4), under a native reader and writer for
+behaviour, character, project, skeleton and animation files (all 531
+vanilla behaviour graphs parse; 15,320 animations rebuild byte for byte;
+add, remove and rename edits go through its native writer). Not covered:
+ragdoll physics (its physics tab is a preview and writes no HKX physics),
+skeleton-mapper write-back (unfinished; its mapper math is documented in
+`docs/skeleton-mapping-authoring.md`), and bone-index edits in skeletons
+that hold physics or mapper data. The route, when option 3 resumes: a
+Python Havok 2014 reader and writer built on its class tables (with the
+MIT notices), proved by rebuilding every vanilla behaviour byte for byte,
+as the NIF writer was. Parked with the modlist direction
+([direction](fo4_replacements.md#direction)).
+
 A community port (GrilledTurkey's, [candidate mods](fo4_replacements.md#candidate-mods))
 answers the same need as way 1 or 2 for the creatures it covers.
 
