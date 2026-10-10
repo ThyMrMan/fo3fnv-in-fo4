@@ -812,6 +812,47 @@ with no mesh getting worse. The pairs left are faces the render mesh itself
 decided both ways, which this rule does not override. Navmesh extraction
 classifies by `abs(nz)`, so no walkable output and no cache version changed.
 
+### <a id="the-render-oracles-grids"></a>The render oracle's grids: the same verdicts, a fraction of the work (2026-10-10)
+
+The nearest and floor rules each scanned every render face for every
+collision face without a twin: on `nv_noso_ranchhouse03.nif`, 1,383,880
+nearest tests and 1,312,300 floor tests, when 50,378 (3.6%) and 3,598
+(0.27%) could matter. `RenderOracle` builds the render side once per body,
+on first use: the faces, the twin index, and two grids with the median
+face width as cell edge. Each rule is handed only the faces that could
+decide it, in face order:
+
+- **Nearest:** faces whose centre lies within
+  `(_MAX_MATCH_WIDTHS * width * (1 + _CONSENSUS_MARGIN) + 1e-9) / 3`.
+  This is exact. A face's vertex-set distance is at least three times its
+  centre distance (the sum of corner distances is at least the length of
+  their sum, which is three times the centre offset). A face further than
+  that bound is beyond the match cap and beyond the consensus margin of any
+  nearest within the cap, so it can neither win nor break a tie. A query
+  spanning more cells than are occupied reads every cell instead.
+- **Floor:** up-facing faces whose footprint box (grown by
+  `_REACH_SLACK` of a cell) holds the point. A face that covers the point
+  lies in its box, and any covering face gives the same verdict. Faces
+  spanning over `_WIDE_CELLS` cells are offered to every query.
+- **Shared:** `repaired_mesh_soup` builds one oracle and hands it to both
+  `repair_inverted_floors` and `two_sided_floors`. FO3/FNV meshes had
+  rebuilt the faces and twin index, then run the floor rule a second time.
+  Both functions still take a plain triangle list.
+
+**Measured.** Every call's inputs and results were recorded with the old
+code, then replayed through old and new (scratch harness, all cores):
+
+| Sample | Calls | Results differing | CPU old → new |
+|---|---|---|---|
+| FNV, the FO4 spike block's 389 meshes | 1,040 | 0 | 161 s → 25 s (6.4x) |
+| Oblivion, 400 architecture and dungeon meshes, repair forced on | 439 | 0 | 796 s → 55 s (14.5x) |
+
+`nv_noso_ranchhouse03.nif` converts (FO4) in 0.37 s instead of 1.18 s. The
+FO4 spike block's 389 meshes convert on all cores in 16.1 s instead of
+25.7 s, every mesh byte-identical after Elric. The Morrowind fixtures
+(`test_solid_source_stays_solid`, Tamriel Data) were not run here, since
+their exports are not on this machine.
+
 ### <a id="welding-is-per-group"></a>Welding is scoped PER GROUP
 
 The packed triangle list stores each triangle's corners independently, so

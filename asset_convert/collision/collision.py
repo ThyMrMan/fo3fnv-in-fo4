@@ -23,6 +23,7 @@ from asset_convert.collision.collision_material import (
 )
 from asset_convert.collision.collision_winding import (
     INVERTED_FLOOR_FLIPS,
+    RenderOracle,
     repair_inverted_floors,
     two_sided_floors,
 )
@@ -613,10 +614,10 @@ def repaired_mesh_soup(rb, target_node, materials_of=None, visual=None):
         return 'drop'
     authored_normals = _normals_in_body_frame(rb, authored_normals)
     tris = _bake_body_transform_into_tris(rb, tris)
-    visual = _visual_tri_soup(target_node) if visual is None else visual
-    tris, n_flipped = repair_inverted_floors(tris, visual, groups, authored_normals)
+    oracle = RenderOracle(_visual_tri_soup(target_node) if visual is None else visual)
+    tris, n_flipped = repair_inverted_floors(tris, oracle, groups, authored_normals)
     if is_fallout_source():
-        tris, materials = two_sided_floors(tris, materials, visual)
+        tris, materials = two_sided_floors(tris, materials, oracle)
     if n_flipped:
         INVERTED_FLOOR_FLIPS[0] += n_flipped
     return tris, materials

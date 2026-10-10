@@ -7,6 +7,10 @@ part off scaled child nodes.
 See: docs/commentary/asset_convert_falloutnv.md#collision-rules
 """
 
+from asset_convert.nif.pyffi_monkey_patch import apply_patches
+
+apply_patches()
+
 from pyffi.formats.nif import NifFormat
 
 #: user_version_2 stamped on every FO3/FNV NIF.
