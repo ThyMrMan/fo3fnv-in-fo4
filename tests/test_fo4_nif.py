@@ -362,6 +362,26 @@ def test_an_animated_fnv_door_keeps_its_moving_node_and_sequences():
 
 
 
+SALOON_LIGHTS = Path('export/FalloutNV.esm/meshes/architecture/goodsprings/nv_prospectorsaloon_lights.nif')
+
+
+@pytest.mark.skipif(not SALOON_LIGHTS.exists(), reason='needs the FalloutNV.esm export')
+def test_shader_animation_drives_the_shapes_shader_through_idle_blend_controllers():
+    """The saloon's Left/Right light states: emittance and emissive colour on the window glass's lighting shader,
+    each controller's own interpolator an idle blend (it ran Left forever: solid yellow windows)."""
+    nif = F.read(F.write(C.convert(str(SALOON_LIGHTS), 'export/FalloutNV.esm').nif))
+    controllers = {(k, b['variable']): b for k, b in nif.blocks
+                   if k.startswith('BSLightingShaderProperty') and k.endswith('Controller')}
+    assert set(controllers) == {('BSLightingShaderPropertyFloatController', 11),
+                                ('BSLightingShaderPropertyColorController', 1)}
+    blends = [nif.blocks[b['interpolator']] for b in controllers.values()]
+    assert all(k.startswith('NiBlend') and b['flags'] == 1 and min(np.atleast_1d(b['value'])) < -1e38 for k, b in blends)
+    blocks = [c for k, b in nif.blocks if k == 'NiControllerSequence' for c in b['blocks']]
+    shader_blocks = [c for c in blocks if nif.strings[c['property']] == 'BSLightingShaderProperty']
+    assert {nif.strings[c['controller_id']] for c in shader_blocks} == {'11', '1'}
+    assert all(nif.blocks[c['interpolator']][0] in ('NiFloatInterpolator', 'NiPoint3Interpolator') for c in shader_blocks)
+
+
 #: Byte of a pre-Elric bhkRigidBody holding its motion system (after the 32-byte head and the body info before it).
 MOTION_BYTE = 216
 

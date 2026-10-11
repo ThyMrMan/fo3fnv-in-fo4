@@ -494,6 +494,62 @@ the texture's presence is what turns it on.
     Decal and Dynamic_Decal flags (`0x0C000000`), as vanilla's
     `eyeao.bgem` overlays the eye.
 
+<a id="effect-animation"></a>**Effect animation (played 2026-10-10: OPEN sign, saloon ON and windows).** Dust clouds and other effects stood still.
+- In the region's FNV meshes, 117 are animated (701 references). Beyond
+  the door and container motion already converted, they animate:
+  - emissive color (`NiMaterialColorController` `SELF_ILLUM`): 52 meshes,
+    263 references;
+  - single-node motion: 52 meshes, 221 references;
+  - alpha (`NiAlphaController`): 15 meshes, 146 references;
+  - emittance (`BSMaterialEmittanceMultController`): 8 meshes, 102
+    references;
+  - particle systems: 12 meshes, 69 references;
+  - texture scroll (`NiTextureTransformController` `0-0-TT_TRANSLATE_U`):
+    19 meshes, 56 references;
+  - visibility, refraction, morphs, light color: 8 meshes or fewer each.
+- The converter kept a mesh's animation only when every channel moved a
+  node, so any effect channel dropped the whole animation.
+- It now keeps every node motion and every shader channel FO4 has
+  (`nif/shader_anim.py`), and leaves out the rest (particles, for now).
+  FO4 drives the same values on the shape's shader property, as vanilla
+  `sentrybotfacelight.nif` and `ashpile01.nif` do: a
+  `BS{Effect,Lighting}ShaderProperty{Float,Color}Controller` on the
+  shader. Its controlled block names the shape, the property and the
+  controller type; its controller ID is the variable's number.
+
+  | FNV channel | Effect shader variable | Lighting shader variable |
+  |---|---|---|
+  | Alpha | 5 | 12 |
+  | U and V offset | 6 and 8 | 20 and 22 |
+  | U and V scale | 7 and 9 | 21 and 23 |
+  | Emissive color | color 0 | color 1 |
+  | Emittance | 0 | 11 |
+
+  The interpolators and keys carry over (`NiFloatInterpolator` and
+  `NiFloatData`, `NiPoint3Interpolator` and `NiPosData`). The animated
+  shapes join the object palette. An emissive channel of a cut-out glow
+  shape drives its neon overlay, named `<shape>Glow`.
+- A controller's own interpolator is a blend interpolator, idle until a
+  sequence plays: manager-controlled, size 2, value −FLT_MAX, as vanilla's.
+  The first build gave it the first sequence's interpolator, so it ran
+  that sequence's keys on its own. The saloon window glass played its
+  `Left` light-on state forever (solid yellow), and the OPEN sign its
+  flicker at full white.
+- Scripts play these sequences through `PlayGroup`, as the saloon's
+  `Lucky38LightScript` plays `Left` (on, 20:00 to 06:00) and `Right`
+  (off). The script converter wrote `PlayAnimation`, which on FO4 sends a
+  behavior-graph event and does nothing on an object without a graph.
+  For Fallout 4 it now writes `PlayGamebryoAnimation`, which plays the
+  NIF's own sequence, as vanilla scripts do
+  (`DN158_YangtzeReactorScript`). The sequence keeps FNV's name, where
+  Oblivion's case-folding would have made `SpecialIdle` into
+  `Specialidle`. That changed 109 of the FNV scripts, and all of them
+  compile.
+- That build also turned emittance on for lit shapes with an animated
+  emissive color but no glow map. It was dropped: FNV's lit shaders
+  without a glow map have no emittance input (`SLS2000` takes no
+  `EmittanceColor`).
+
 <a id="parents"></a>**Enable and activate parents (in test).** FNV's `XESP` (enable
 parent: reference, flags) and `XAPD`/`XAPR` (parent-activate-only flag,
 then reference and delay, repeating) have FO4's layout. They are copied

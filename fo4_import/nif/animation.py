@@ -21,6 +21,7 @@ import numpy as np
 
 from fo4_import.nif.blocks import DESC_SKINNED, DESC_SKINNED_COLOR, NONE, SHADER_SKINNED
 from fo4_import.nif.file import NifFile
+from fo4_import.nif.shader_anim import channel, key_group, shader_block, shapes_by_name
 
 #: Bones a BSTriShape vertex is weighted to.
 VERTEX_BONES = 4
@@ -32,10 +33,17 @@ def manager_of(root):
     return controller if controller is not None and type(controller).__name__ == 'NiControllerManager' else None
 
 
+def moves(cb) -> bool:
+    """Whether an FNV controlled block moves a node (a NiTransformInterpolator)."""
+    return type(cb.interpolator).__name__ == 'NiTransformInterpolator'
+
+
 def animatable(manager) -> bool:
-    """True when every sequence animates through NiTransformInterpolators."""
-    return all(type(cb.interpolator).__name__ == 'NiTransformInterpolator'
-               for seq in manager.controller_sequences for cb in seq.controlled_blocks if cb.interpolator)
+    """Whether a sequence moves a node or animates a shader channel (shader_anim).
+
+    See: docs/fork/fo4_pipeline.md#effect-animation
+    """
+    return any(moves(cb) or channel(cb) for seq in manager.controller_sequences for cb in seq.controlled_blocks)
 
 
 def skin_bones(root) -> set:
@@ -85,23 +93,31 @@ def controllers(nif: NifFile, root, manager, nodes: dict) -> int:
     """Append FNV `manager`'s blocks (sequences, interpolators, data, text keys, palette) for the kept `nodes`;
     the FO4 manager's index, set as the root's controller."""
     base = len(nif.blocks)
-    multi = manager.next_controller
-    sequences = list(manager.controller_sequences)
-    at = {'manager': base, 'multi': base + 1}
+    multi = _multi_target(manager)
+    at = {'manager': base, 'multi': base + 1, 'shapes': shapes_by_name(nif), 'made': {}, 'animated': {}}
     nif.blocks += [('NiControllerManager', {}), ('NiMultiTargetTransformController', {})]
-    seq_index = [_sequence(nif, seq, at, root) for seq in sequences]
+    seq_index = [_sequence(nif, seq, at, root) for seq in manager.controller_sequences]
     palette = len(nif.blocks)
     nif.blocks.append(('NiDefaultAVObjectPalette', {
         'scene': 0, 'objects': [(o.name.decode('cp1252'), nodes.get(id(o.av_object), NONE))
-                                for o in manager.object_palette.objs if id(o.av_object) in nodes]}))
+                                for o in manager.object_palette.objs if id(o.av_object) in nodes]
+        + sorted(at['animated'].items())}))
     nif.blocks[at['manager']] = ('NiControllerManager', {
         **_timing(manager), 'next': at['multi'], 'target': 0, 'cumulative': int(manager.cumulative),
         'sequences': seq_index, 'palette': palette})
     nif.blocks[at['multi']] = ('NiMultiTargetTransformController', {
-        **_timing(multi), 'next': NONE, 'target': 0,
-        'targets': [nodes[id(t)] for t in multi.extra_targets if id(t) in nodes]})
+        **(_timing(multi) if multi else _timing(manager)), 'next': NONE, 'target': 0,
+        'targets': [nodes[id(t)] for t in (multi.extra_targets if multi else []) if id(t) in nodes]})
     nif.blocks[0][1]['controller'] = at['manager']
     return at['manager']
+
+
+def _multi_target(manager):
+    """The NiMultiTargetTransformController in the FNV manager's controller chain, or None."""
+    controller = manager.next_controller
+    while controller is not None and type(controller).__name__ != 'NiMultiTargetTransformController':
+        controller = controller.next_controller
+    return controller
 
 
 def _timing(controller) -> dict:
@@ -121,6 +137,16 @@ def _sequence(nif: NifFile, seq, at: dict, root) -> int:
     nif.blocks.append(('NiControllerSequence', {}))
     blocks = []
     for cb in seq.controlled_blocks:
+        if channel(cb):
+            timing = _timing(cb.controller) if cb.controller is not None else _timing(seq.manager)
+            block = shader_block(nif, cb, timing, at['shapes'], at['made'], cb.priority)
+            if block:
+                name, shape = block.pop('shape')
+                at['animated'][name] = shape
+                blocks.append(block)
+            continue
+        if cb.interpolator is not None and not moves(cb):
+            continue
         blocks.append({'interpolator': _interpolator(nif, cb.interpolator), 'controller': at['multi'],
                        'priority': cb.priority, 'node': _string(nif, cb.node_name),
                        'property': _string(nif, cb.property_type), 'controller_type': _string(nif, cb.controller_type),
@@ -158,24 +184,8 @@ def _data(d) -> dict:
                                                                           else ()) for k in d.quaternion_keys]
     return {'rotation_count': d.num_rotation_keys, 'rotation_kind': kind,
             'rotations': rotations if kind != 4 else [],
-            'xyz': [_group(g, 1) for g in d.xyz_rotations] if kind == 4 else [],
-            'translations': _group(d.translations, 3), 'scales': _group(d.scales, 1)}
-
-
-def _group(g, width: int) -> dict:
-    """A KeyGroup's fields: interpolation and flat float keys (time, value, tangents or TBC)."""
-    kind = g.interpolation if g.num_keys else 0
-    out = []
-    for k in g.keys:
-        values = (k.value.x, k.value.y, k.value.z) if width == 3 else (k.value,)
-        extra = ()
-        if kind == 2:
-            extra = ((k.forward.x, k.forward.y, k.forward.z, k.backward.x, k.backward.y, k.backward.z) if width == 3
-                     else (k.forward, k.backward))
-        elif kind == 3:
-            extra = (k.tbc.t, k.tbc.b, k.tbc.c)
-        out.append((k.time, *values, *extra))
-    return {'kind': kind, 'keys': out}
+            'xyz': [key_group(g, 1) for g in d.xyz_rotations] if kind == 4 else [],
+            'translations': key_group(d.translations, 3), 'scales': key_group(d.scales, 1)}
 
 
 def skin(nif: NifFile, shapes: list, geom, root, nodes: dict) -> None:

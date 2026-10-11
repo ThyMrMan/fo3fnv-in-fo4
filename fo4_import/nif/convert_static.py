@@ -31,6 +31,7 @@ from pyffi.formats.nif import NifFormat
 
 from asset_convert.collision.collision_falloutnv import latch_source
 from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_nodes, manager_of, skin, with_parents
+from fo4_import.nif.shader_anim import GLOW_SUFFIX
 from fo4_import.nif.addons import fo4_index
 from fo4_import.nif.collision import collision_nodes, node_transform
 
@@ -570,7 +571,8 @@ def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> lis
         elif see_through.any():
             return [emit(nif, name, geometry, tris[~see_through], mat, out),
                     emit(nif, name, geometry, tris[see_through], mat.split[0], out)]
-    return [emit(nif, name, geometry, tris, m, out) for m in (mat, mat.overlay) if m]
+    made = [emit(nif, name, geometry, tris, mat, out)]
+    return made + ([emit(nif, name + GLOW_SUFFIX, geometry, tris, mat.overlay, out)] if mat.overlay else [])
 
 
 def _effect_shader(nif: NifFile, mat: ShapeMaterial) -> dict:
@@ -660,7 +662,8 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
             'translation': (0.0, 0.0, 0.0), 'rotation': IDENTITY, 'scale': 1.0, 'collision': NONE, 'children': []}
     nif.blocks.append(('NiNode', node))
     manager = manager_of(root)
-    kept = kept_nodes(root, manager) if animated and manager is not None and animatable(manager) else []
+    animate = animated and manager is not None and animatable(manager)
+    kept = kept_nodes(root, manager) if animate else []
     joined = any(isinstance(b, NifFormat.bhkConstraint) for b in data.blocks)
     bones = kept or (with_parents(root, _has_body) if joined else [])
     nodes = add_nodes(nif, bones, root, NODE_FLAGS) if bones else {id(root): 0}
@@ -670,11 +673,11 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
     bsx |= BSX_ADDON if addons else 0
     bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK or joined else 0
-    bsx |= BSX_ANIMATED if kept else 0
+    bsx |= BSX_ANIMATED if animate else 0
     if bsx:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))
         node['extra'].append(len(nif.blocks) - 1)
-    if kept:
+    if animate:
         controllers(nif, root, manager, nodes)
     collision_nodes(nif, root, 0, NODE_FLAGS, nodes)
     return out

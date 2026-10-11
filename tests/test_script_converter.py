@@ -6221,6 +6221,12 @@ class TestFalloutQuestStageSubject:
         converter._current_event = 'Fragment'
         assert 'Game.GetPlayer()' not in conv_lines(converter, 'RemoveSpell WithdrawalJet', 'Quest')
 
+    def test_playgroup_on_an_object_plays_its_nif_sequence_on_fallout4(self, converter, monkeypatch):
+        """FO4 keeps the NIF's sequences: PlayGamebryoAnimation by FNV's name (PlayAnimation left the saloon lit)."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        out = conv_lines(converter, 'PlayGroup SpecialIdle 0', 'ObjectReference')
+        assert 'PlayGamebryoAnimation("SpecialIdle")' in out and 'PlayAnimation(' not in out
+
     def test_radiation_rads_is_fallout4_rads(self, converter, monkeypatch):
         """On Fallout 4, RestoreAV RadiationRads heals FO4's Rads, as vanilla doctors do."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')

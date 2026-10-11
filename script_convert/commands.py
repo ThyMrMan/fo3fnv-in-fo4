@@ -493,10 +493,12 @@ def play_group(ctx, call) -> str:
         ref = ctx._resolve_objref_ref(call.ref, call.extends)
         return anim_event_call(ref, event)
 
-    # NiControllerSequence names in Oblivion NIFs are capitalized.
+    # NiControllerSequence names in Oblivion NIFs are capitalized. Fallout 4 keeps the NIF's own sequences and
+    # plays them by their FNV name, as vanilla scripts do (DN158_YangtzeReactorScript).
     obj = (ctx._resolve_objref_ref(call.ref, call.extends) if call.ref
            else ctx._implicit_self(call.extends))
-    play = f'{obj}.PlayAnimation("{anim.capitalize()}")'
+    play = (f'{obj}.PlayGamebryoAnimation("{anim}")' if is_fallout4()
+            else f'{obj}.PlayAnimation("{anim.capitalize()}")')
     return (f'{play}\n  TES4Polyfill.ReleaseBreakaway({obj})'
             if _needs_havok_release(ctx, call) else play)
 

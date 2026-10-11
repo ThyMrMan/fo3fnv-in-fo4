@@ -1,4 +1,4 @@
-"""The Fallout 4 animation blocks of a mesh (a door's or container's Open and Close), as dicts.
+"""The Fallout 4 animation blocks of a mesh (a door's Open and Close, an effect's Idle), as dicts.
 
 Layouts from NifSkope's nif.xml at 20.2.0.7: NiControllerManager,
 NiMultiTargetTransformController, NiControllerSequence (its controlled
@@ -144,6 +144,65 @@ def pack_transform_data(b: dict) -> bytes:
     return out + _pack_group(b['translations']) + _pack_group(b['scales'])
 
 
+def read_value_interpolator(width: int):
+    """A reader of NiFloatInterpolator (`width` 1) or NiPoint3Interpolator (3): value, data."""
+    def read(r: Reader) -> dict:
+        """The interpolator's fields."""
+        return {'value': r.take(f'{width}f'), 'data': r.take('i')}
+    return read
+
+
+def pack_value_interpolator(b: dict) -> bytes:
+    """NiFloatInterpolator's or NiPoint3Interpolator's bytes."""
+    value = b['value'] if isinstance(b['value'], tuple) else (b['value'],)
+    return struct.pack(f'<{len(value)}fi', *value, b['data'])
+
+
+def read_key_data(width: int):
+    """A reader of NiFloatData (`width` 1) or NiPosData (3): one key group."""
+    def read(r: Reader) -> dict:
+        """The data's key group."""
+        return {'keys': _read_group(r, width)}
+    return read
+
+
+def pack_key_data(b: dict) -> bytes:
+    """NiFloatData's or NiPosData's bytes."""
+    return _pack_group(b['keys'])
+
+
+def read_blend_interpolator(width: int):
+    """A reader of NiBlendFloatInterpolator (`width` 1) or NiBlendPoint3Interpolator (3) as vanilla's: flags,
+    array size, weight threshold, value."""
+    def read(r: Reader) -> dict:
+        """The interpolator's fields."""
+        return {'flags': r.take('B'), 'size': r.take('B'), 'threshold': r.take('f'), 'value': r.take(f'{width}f')}
+    return read
+
+
+def pack_blend_interpolator(b: dict) -> bytes:
+    """A blend interpolator's bytes."""
+    value = b['value'] if isinstance(b['value'], tuple) else (b['value'],)
+    return struct.pack(f'<BBf{len(value)}f', b['flags'], b['size'], b['threshold'], *value)
+
+
+def read_shader_controller(r: Reader) -> dict:
+    """A BS{Effect,Lighting}ShaderProperty{Float,Color}Controller: controller, interpolator, controlled variable."""
+    out = _controller(r)
+    out['interpolator'], out['variable'] = r.take('iI')
+    return out
+
+
+def pack_shader_controller(b: dict) -> bytes:
+    """A shader property controller's bytes."""
+    return _pack_controller(b) + struct.pack('<iI', b['interpolator'], b['variable'])
+
+
+#: Fallout 4's shader property controllers, all a controller, an interpolator and a controlled variable.
+SHADER_CONTROLLERS = tuple(f'BS{shader}ShaderProperty{kind}Controller' for shader in ('Effect', 'Lighting')
+                           for kind in ('Float', 'Color'))
+
+
 def read_text_keys(r: Reader) -> dict:
     """NiTextKeyExtraData: name, keys (time, string)."""
     name, n = r.take('i'), r.take('I')
@@ -176,4 +235,11 @@ ANIM_BLOCKS = {
     'NiTransformData': (read_transform_data, pack_transform_data),
     'NiTextKeyExtraData': (read_text_keys, pack_text_keys),
     'NiDefaultAVObjectPalette': (read_palette, pack_palette),
+    'NiFloatInterpolator': (read_value_interpolator(1), pack_value_interpolator),
+    'NiPoint3Interpolator': (read_value_interpolator(3), pack_value_interpolator),
+    'NiFloatData': (read_key_data(1), pack_key_data),
+    'NiPosData': (read_key_data(3), pack_key_data),
+    'NiBlendFloatInterpolator': (read_blend_interpolator(1), pack_blend_interpolator),
+    'NiBlendPoint3Interpolator': (read_blend_interpolator(3), pack_blend_interpolator),
+    **{kind: (read_shader_controller, pack_shader_controller) for kind in SHADER_CONTROLLERS},
 }
