@@ -336,6 +336,24 @@ def test_a_global_property_takes_fallout4s_engine_global_beside_the_helper_globa
     assert set(HP.helper_forms(1)['GlobalVariable']) <= set(forms['GlobalVariable'])
 
 
+def test_a_mopp_over_a_list_is_not_a_mesh_but_one_over_strips_is():
+    """CookingStove's MOPP wraps a list (hull + MOPP mesh): its shapes convert one by one, not as one mesh."""
+    strips = type('bhkPackedNiTriStripsShape', (), {})()
+    mopp = type('bhkMoppBvTreeShape', (), {})
+    over_strips, over_list = mopp(), mopp()
+    over_strips.shape, over_list.shape = strips, type('bhkListShape', (), {})()
+    assert CO.is_mesh(strips) and CO.is_mesh(over_strips) and not CO.is_mesh(over_list)
+
+
+def test_still_collision_gets_both_sides_once_and_moving_collision_keeps_one():
+    """FacRmWallONLY01's inward faces: a fixed body adds each reversed face not already there; a dynamic one none."""
+    a, b, c = (0, 0, 0), (1, 0, 0), (0, 1, 0)
+    soup = ([(a, b, c), (a, c, b), (b, c, (1, 1, 0))], [1, 2, 3])
+    tris, mats = CO.both_sides(soup, SimpleNamespace(motion_system=7))
+    assert len(tris) == 4 and tris[3] == (b, (1, 1, 0), c) and mats == [1, 2, 3, 3]
+    assert CO.both_sides(soup, SimpleNamespace(motion_system=1)) == soup
+
+
 def test_a_phantom_trigger_volume_is_left_out_of_the_collision():
     """The bear trap's bhkSimpleShapePhantom (its pressure-plate trigger) adds no block."""
     phantom = SimpleNamespace(collision_object=SimpleNamespace(body=type('bhkSimpleShapePhantom', (), {})()))
@@ -366,6 +384,24 @@ def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypa
                                        + pack_subrecord('XPOD', struct.pack('<2I', 0x03000057, 0x03000058)))
     assert PL.placement(0x57, ids) == pack_subrecord('XMBO', b'b' * 12) + pack_subrecord('XPRM', b'p' * 32)
     assert PL.placement(0x99, ids) == pack_subrecord('XRGD', b'r' * 28) and PL.placement(0x1, ids) == b''
+
+
+def test_a_light_keeps_fnvs_falloff_and_fov_and_a_slow_flicker_moves_at_half_speed():
+    """Falloff exponent and FOV are FNV's; flicker slow (0x40) doubles the period; a steady light does not move."""
+    rec = {'DATA.Radius': '256', 'DATA.Color.R': '255', 'DATA.Color.G': '200', 'DATA.Color.B': '100',
+           'DATA.Flags': str(0x40), 'DATA.FalloffExponent': '2.0', 'DATA.FOV': '60.0'}
+    assert CB.light_data(rec) == (256, (255, 200, 100), CB.LIGHT_BASE | 0x8, 2.0, 60.0, (0.66, 0.45, 8.0))
+    assert CB.light_data(dict(rec, **{'DATA.Flags': '0'}))[5] == CB.STEADY
+    assert CB.light_data(dict(rec, **{'DATA.Flags': str(0x80)}))[5] == (0.33, 0.45, 0.0)
+
+
+def test_a_locked_reference_keeps_its_level_and_key_and_an_unlocked_one_gets_no_lock():
+    """FNV XLOC level 0 (very easy) stays 0, FO4's novice; the key is made through items; no XLOC, no lock."""
+    builder = SimpleNamespace(items=SimpleNamespace(item=lambda fid: 0x0300ABCD if fid == 0xABCD else None),
+                              counts=Counter())
+    ref = {'XLOC.Level': '0', 'XLOC.Key': '0000ABCD', 'XLOC.Flags': '4'}
+    assert CB._lock(builder, ref) == pack_subrecord('XLOC', struct.pack('<B3xIB3xI', 0, 0x0300ABCD, 4, 0))
+    assert CB._lock(builder, {}) == b'' and builder.counts['locked references'] == 1
 
 
 def test_the_census_flags_an_unrouted_type_and_a_missing_target():

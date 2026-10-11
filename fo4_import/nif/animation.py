@@ -45,14 +45,18 @@ def skin_bones(root) -> set:
 
 
 def kept_nodes(root, manager) -> list:
-    """The FNV nodes to keep, parents first: every node a sequence names or a skin is weighted to, and those
-    between it and `root`."""
+    """with_parents() of the nodes a sequence names or a skin is weighted to."""
+    named = {cb.node_name for seq in manager.controller_sequences for cb in seq.controlled_blocks} | skin_bones(root)
+    return with_parents(root, lambda node: node.name in named)
+
+
+def with_parents(root, wanted) -> list:
+    """The FNV nodes under `root` for which `wanted(node)` holds, and those between each and `root`, parents first."""
     parents = {id(child): node for node in root.tree() if hasattr(node, 'children')
                for child in node.children if child is not None}
-    named = {cb.node_name for seq in manager.controller_sequences for cb in seq.controlled_blocks} | skin_bones(root)
     out = []
     for node in root.tree():
-        if hasattr(node, 'children') and node.name in named and node is not root:
+        if hasattr(node, 'children') and node is not root and wanted(node):
             chain, current = [], node
             while current is not None and current is not root:
                 chain.append(current)

@@ -11,12 +11,12 @@ See: docs/fork/fo4_pipeline.md#converters
 #: FNV base type -> the CellBuilder method making a placed base of it, in the order bases are read.
 PLACED = {
     'STAT': 'record', 'MSTT': 'record', 'SCOL': 'record', 'ALCH': 'pickup', 'WEAP': 'pickup', 'ARMO': 'pickup',
-    'BOOK': 'record', 'KEYM': 'record', 'NOTE': 'record', 'AMMO': 'pickup', 'TERM': 'record', 'IDLM': 'record',
+    'BOOK': 'record', 'KEYM': 'pickup', 'NOTE': 'record', 'AMMO': 'pickup', 'TERM': 'record', 'IDLM': 'record',
     'LIGH': 'record', 'DOOR': 'record', 'FURN': 'record', 'ACTI': 'record', 'TREE': 'tree', 'SOUN': 'sound',
     'MISC': 'item', 'CONT': 'item',
 }
 #: Placed types written as a static of their mesh until they get a converter of their own.
-STATIC_STAND_INS = frozenset({'BOOK', 'KEYM', 'NOTE', 'TERM', 'IDLM'})
+STATIC_STAND_INS = frozenset({'BOOK', 'NOTE', 'TERM', 'IDLM'})
 
 
 def placed_types(*methods: str) -> tuple:

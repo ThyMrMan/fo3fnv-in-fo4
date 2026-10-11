@@ -107,7 +107,8 @@ class Items:
 
     def _make(self, sig: str, rec: dict) -> 'int | None':
         """Write the FO4 record of a convertible FNV record; its FormID, or None (counted as skipped)."""
-        maker = {'MISC': self._misc, 'LVLI': self._leveled, 'CONT': self._container, 'NOTE': self._note}.get(sig)
+        maker = {'MISC': self._misc, 'KEYM': self._key, 'LVLI': self._leveled, 'CONT': self._container,
+                 'NOTE': self._note}.get(sig)
         if sig in self.makers:
             made = self.makers[sig](int(rec['FormID'], 16), rec)
             if made is None:
@@ -125,12 +126,16 @@ class Items:
         self.builder.counts[sig] += 1
         return fid
 
-    def _misc(self, rec: dict) -> 'int | None':
-        """A misc item."""
+    def _key(self, rec: dict) -> 'int | None':
+        """A key: a misc item's fields as a FO4 KEYM, which locks name."""
+        return self._misc(rec, 'KEYM', R.pack_keym)
+
+    def _misc(self, rec: dict, sig: str = 'MISC', pack=R.pack_misc) -> 'int | None':
+        """A misc item (or a record of `sig` packed alike by `pack`)."""
         if 'Model.MODL' not in rec:
             return None
         model, bounds = self.builder.mesh(rec['Model.MODL'])
-        return self._write('MISC', lambda fid: R.pack_misc(
+        return self._write(sig, lambda fid: pack(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), int(rec.get('DATA.Value', 0)),
             float(rec.get('DATA.Weight', 0.0))), rec)
 

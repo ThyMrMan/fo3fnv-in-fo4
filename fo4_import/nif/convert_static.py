@@ -29,7 +29,7 @@ apply_patches()
 from pyffi.formats.nif import NifFormat
 
 from asset_convert.collision.collision_falloutnv import latch_source
-from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_nodes, manager_of, skin
+from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_nodes, manager_of, skin, with_parents
 from fo4_import.nif.collision import collision_nodes
 
 PREFIX = 'fnv'
@@ -44,7 +44,7 @@ TEXTURE_SLOTS, SLOT_SPECULAR = 10, 7
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 #: FNV BSXFlags bits kept (same meaning in FO4): Havok, Complex, Dynamic, Articulated; vanilla statics carry 0x82.
 BSX_KEPT = 0x2 | 0x8 | 0x40 | 0x80
-#: BSXFlags Havok, Complex, Articulated: all 2,352 vanilla FURN/STAT/MISC meshes with Havok, not Complex, set Articulated.
+#: BSXFlags Havok, Complex, Articulated: vanilla meshes with Havok, not Complex (2,352), or joints set Articulated.
 BSX_HAVOK, BSX_COMPLEX, BSX_ARTICULATED = 0x2, 0x8, 0x80
 #: BSXFlags Animated: on every vanilla door and container mesh with a NiControllerManager (animation).
 BSX_ANIMATED = 0x1
@@ -564,11 +564,13 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     nif.blocks.append(('NiNode', node))
     manager = manager_of(root)
     kept = kept_nodes(root, manager) if animated and manager is not None and animatable(manager) else []
-    nodes = add_nodes(nif, kept, root, NODE_FLAGS) if kept else {id(root): 0}
+    joined = any(isinstance(b, NifFormat.bhkConstraint) for b in data.blocks)
+    bones = kept or (with_parents(root, _has_body) if joined else [])
+    nodes = add_nodes(nif, bones, root, NODE_FLAGS) if bones else {id(root): 0}
     out.animatable = manager is not None and animatable(manager)
     _shapes(nif, root, nodes, out, texture_root)
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
-    bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK else 0
+    bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK or joined else 0
     bsx |= BSX_ANIMATED if kept else 0
     if bsx:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))
@@ -577,6 +579,15 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
         controllers(nif, root, manager, nodes)
     collision_nodes(nif, root, 0, NODE_FLAGS, nodes)
     return out
+
+
+def _has_body(node) -> bool:
+    """Whether FNV `node` carries a rigid body (a jointed mesh keeps it).
+
+    See: docs/fork/fo4_pipeline.md#ragdolls
+    """
+    co = getattr(node, 'collision_object', None)
+    return co is not None and type(getattr(co, 'body', None)).__name__.startswith('bhkRigidBody')
 
 
 def _shapes(nif: NifFile, root, nodes: dict, out: Converted, texture_root) -> None:

@@ -60,6 +60,7 @@ from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from script_convert.context_setup import load_records
 from tes5_import.base.tes5_reader import first_sub, records, sub_map, walk
+from tes5_import.base.writer import pack_subrecord
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
 MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN, 'XDI.esm']
@@ -101,6 +102,12 @@ STAND_INS = {fnv: fo4 for _, fnv, fo4, *_ in SPEAKERS if fnv}
 FACE_VARIANTS, FACE_SPACING = ('STH',), 50.0
 #: The bit every vanilla FO4 omni light carries.
 LIGHT_BASE = 0x1
+#: FNV LIGH flags: flicker or flicker slow; pulse or pulse slow; either slow.
+MOVING_LIGHT, PULSING_LIGHT, SLOW_LIGHT = 0x8 | 0x40, 0x80 | 0x100, 0x40 | 0x100
+#: FO4 flicker (period, intensity, movement): vanilla's most common, FNV's fFlickerMovement (8) as movement.
+FLICKER = (0.33, 0.45, 8.0)
+#: A steady light's flicker fields, as vanilla's most common omni light.
+STEADY = (1.0, 0.0, 0.0)
 #: CELL DATA flag of a cell with water (both games).
 HAS_WATER = 0x2
 #: XCLL fog max: FNV fog has no cap (see lighting()); vanilla FO4 writes 1.0 in 307 of 606 interiors.
@@ -138,10 +145,9 @@ def lighting(cell: dict, template: bytes) -> bytes:
     """FO4 XCLL: FNV's colours, fog, directional light and fog power over `template`, inheriting nothing.
 
     FNV's ambient colour also fills FO4's six directional ambient colours and
-    its fog colour the far and both height-fog colours (FNV has no height fog,
-    so the fog is the same at every height); fog max is 1 (FNV's shaders blend to the fog colour by the full
-    fog amount) and the clip distance 0, so past the far distance only fog shows, as in FNV; the other
-    FO4-only fields keep `template`'s.
+    its fog colour the far and both height-fog colours (FNV has no height fog);
+    fog max is 1 (FNV's fog has no cap) and the clip distance 0, so past the
+    far distance only fog shows, as in FNV; other FO4-only fields keep `template`'s.
     See: docs/fork/fo4_pipeline.md#interiors
     """
     out = bytearray(template)
@@ -154,6 +160,22 @@ def lighting(cell: dict, template: bytes) -> bytes:
     out[88:92] = bytes(4)
     out[100:108] = _color(cell, 'Fog') * 2
     return bytes(out)
+
+
+def light_data(rec: dict) -> tuple:
+    """pack_ligh's light of FNV LIGH `rec`: radius, colour, flags, FNV's falloff exponent and FOV, flicker.
+
+    A flickering light takes vanilla's most common flicker (31 of 182) with
+    FNV's flicker movement, a pulsing one its period and intensity without
+    movement; a slow one twice the period, as FNV halves its flicker clock.
+    See: docs/fork/fo4_pipeline.md#lights
+    """
+    fnv = int(rec['DATA.Flags'])
+    period = FLICKER[0] * (2 if fnv & SLOW_LIGHT else 1)
+    flicker = ((period, *FLICKER[1:]) if fnv & MOVING_LIGHT else (period, FLICKER[1], 0.0) if fnv & PULSING_LIGHT
+               else STEADY)
+    return (int(rec['DATA.Radius']), tuple(int(rec[f'DATA.Color.{c}']) for c in 'RGB'), light_flags(fnv),
+            float(rec.get('DATA.FalloffExponent', 1.0)), float(rec.get('DATA.FOV', 90.0)), flicker)
 
 
 def light_flags(fnv: int) -> int:
@@ -261,9 +283,7 @@ class CellBuilder:
         model, bounds = self.mesh(world_model(rec)) if world_model(rec) else ('', None)
         bounds = bounds or _bounds(rec)
         if sig == 'LIGH':
-            light = (int(rec['DATA.Radius']), tuple(int(rec[f'DATA.Color.{c}']) for c in 'RGB'),
-                     light_flags(int(rec['DATA.Flags'])))
-            record = R.pack_ligh(fid, edid, _bounds(rec), model, light, float(rec.get('FNAM.Fade', 1.0)))
+            record = R.pack_ligh(fid, edid, _bounds(rec), model, light_data(rec), float(rec.get('FNAM.Fade', 1.0)))
         elif sig == 'FURN':
             marks = markers(str(self.export_dir / 'meshes' / world_model(rec).replace('/', '\\').lower()))
             record = furniture(fid, rec, model, bounds, marks, self.keywords)
@@ -384,11 +404,25 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
-                             teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), ids),
+                             teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), ids) + _lock(builder, ref),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
     return persistent, temporary
+
+
+def _lock(builder: CellBuilder, ref: dict) -> bytes:
+    """The XLOC of a locked FNV reference (level, its key as a FO4 KEYM, flags); b'' when it has no lock.
+
+    FO4 numbers lock levels as FNV does (0, 25, 50, 75, 100; 255 requires the key).
+    See: docs/fork/fo4_pipeline.md#locks
+    """
+    if 'XLOC.Level' not in ref:
+        return b''
+    fnv_key = int(ref.get('XLOC.Key', '0'), 16)
+    key = (builder.items.item(fnv_key) or 0) if fnv_key else 0
+    builder.counts['locked references'] += 1
+    return pack_subrecord('XLOC', struct.pack('<B3xIB3xI', int(ref['XLOC.Level']), key, int(ref.get('XLOC.Flags', 0)), 0))
 
 
 def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
@@ -629,15 +663,24 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.poses = Poses(builder, {r['EditorID']: _place(r) for r in refs if r.get('EditorID')}, furniture)
 
 
+def _cell_quests(builder: CellBuilder, export_dir: Path, every: list, ids: dict) -> tuple:
+    """(CELL_QUESTS records, {EditorID: FO4 FormID}); the scripts learn them and `every` reference by name."""
+    quest_recs = [r for r in export_records(export_dir, 'QUST') if r.get('EditorID') in CELL_QUESTS]
+    quests = {r['EditorID']: builder.fnv_id(r['FormID']) for r in quest_recs}
+    builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in every if r.get('EditorID')}, **quests})
+    builder.objectives = objective_globals(builder, quest_recs)
+    return quest_recs, quests
+
+
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
           scripts_dir: 'Path | None' = None, exterior: tuple = None, table: 'dict | None' = None,
           plugin_dirs: tuple = ()) -> collections.Counter:
     """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made.
 
-    `scripts_dir` holds the converted scripts; the activators' are attached and compiled into <data_dir>/Scripts.
-    `exterior` is (worldspace, (x, y) low, (x, y) high): that rectangle of cells too (exterior.Exterior).
-    Every interior a door leads into is built as well (interiors.reached); the cell's actors and quests are its own.
-    `table` is the replacement table (spike.replacements), its other plugins found in `plugin_dirs`.
+    `scripts_dir` holds the converted scripts (attached, compiled into <data_dir>/Scripts). `exterior` is
+    (worldspace, (x, y) low, (x, y) high): that rectangle of cells too. Every interior a door leads into is
+    built as well (interiors.reached); actors and quests are the cell's. `table` is the replacement table,
+    its other plugins found in `plugin_dirs`.
     """
     cell = find_cell(export_dir, cell_edid)
     all_refs = export_records(export_dir, 'REFR')
@@ -653,10 +696,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     _object_makers(builder, export_dir, scripts_dir, refs)
     ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in every}
     ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in outside}
-    quest_recs = [r for r in export_records(export_dir, 'QUST') if r.get('EditorID') in CELL_QUESTS]
-    quests = {r['EditorID']: builder.fnv_id(r['FormID']) for r in quest_recs}
-    builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in every if r.get('EditorID')}, **quests})
-    builder.objectives = objective_globals(builder, quest_recs)
+    quest_recs, quests = _cell_quests(builder, export_dir, every, ids)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST} | set(STAND_INS.values()))
     actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(builder, ids, quest_recs, quests))
     qa_refs, teleports = _doors(builder, [r for r in every if 'XTEL.Door' in r], links, {**ids, **ext_ids})

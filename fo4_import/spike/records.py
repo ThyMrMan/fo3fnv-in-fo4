@@ -45,6 +45,8 @@ FUNC_GET_DISTANCE = 1
 PLAYER = 0x14
 #: Fallout4.esm's MiscMod01 TRNS: the Pip-Boy preview transform (PTRN) of 1,128 vanilla misc items.
 MISC_PREVIEW = 0x248769
+#: Fallout4.esm KeyChainsAlt: the Pip-Boy preview transform of 71 of vanilla's 177 keys, the most common.
+KEY_PREVIEW = 0x248894
 #: Vanilla paper notes' model, bounds, preview transform (PTRN), pickup sound (YNAM) and inventory art (INAM).
 NOTE_MODEL, NOTE_BOUNDS = 'Props\\Note_LowPoly.nif', (-6, -7, 0, 6, 7, 1)
 NOTE_PREVIEW, NOTE_PICKUP, NOTE_INVENTORY_ART = 0x2488FF, 0x1D4C0F, 0x1B5EF1
@@ -279,6 +281,12 @@ def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: 
     return pack_fo4_record('MISC', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
 
 
+def pack_keym(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float) -> bytes:
+    """A key, as 134 of vanilla's 177: bounds, Pip-Boy preview (KeyChainsAlt), name, model, DATA value and weight."""
+    subs = _bounded(edid, bounds) + _u32('PTRN', KEY_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
+    return pack_fo4_record('KEYM', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
+
+
 def pack_book(fid: int, edid: str, name: str, text: str) -> bytes:
     """A paper note to read: name and text on vanilla's note fields (BoS302BIngramBackupNote 0024800F)."""
     subs = _bounded(edid, NOTE_BOUNDS) + _u32('PTRN', NOTE_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', NOTE_MODEL)
@@ -352,13 +360,13 @@ def pack_cont(fid: int, edid: str, name: str, model: str, bounds: tuple, items: 
 
 
 def pack_ligh(fid: int, edid: str, bounds: tuple, model: str, light: tuple, fade: float) -> bytes:
-    """A light; `light` is (radius, (r, g, b), flags), the rest of DATA vanilla's most common omni light.
+    """A light; `light` is (radius, (r, g, b), flags, falloff exponent, FOV, flicker (period, intensity and
+    movement amplitudes)), the rest of DATA vanilla's most common omni light.
 
-    That light (604 of 801 in Fallout4.esm): falloff exponent 1, FOV 90,
-    near clip 7.217, flicker period 1, constant 0, scalar 1, exponent 2.
+    That light (604 of 801 in Fallout4.esm): near clip 7.217, constant 0, scalar 1, exponent 2.
     """
-    radius, color, flags = light
-    data = struct.pack('<iI4BI12f', -1, radius, *color, 0, flags, 1.0, 90.0, 7.217, 1.0, 0.0, 0.0, 0.0, 1.0, 2.0,
+    radius, color, flags, falloff, fov, flicker = light
+    data = struct.pack('<iI4BI12f', -1, radius, *color, 0, flags, falloff, fov, 7.217, *flicker, 0.0, 1.0, 2.0,
                        0.0, 0.0, 0.0)
     subs = _bounded(edid, bounds) + (_zstr('MODL', model) if model else b'')
     return pack_fo4_record('LIGH', fid, 0, subs + pack_subrecord('DATA', data) + pack_subrecord(

@@ -12,6 +12,9 @@ See: docs/fork/fo4_spikes.md#spike-2-collision
 import struct
 from bisect import bisect_right
 from itertools import accumulate
+from types import SimpleNamespace
+
+import numpy as np
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from fo4_import.nif.blocks import NONE
@@ -52,8 +55,29 @@ STAIRS_OF = {MATERIALS[base]: pair for base, pair in STAIRS.items()}
 MOTIONS = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 5, 7: 5, 8: 6, 9: 7}
 #: FNV's keyframed motion system and Havok 2014's, for a body on a node that keeps its animation.
 FNV_KEYFRAMED, KEYFRAMED = 6, 4
+#: FNV constraint -> (descriptor, body A's vectors then pivot, body B's, then angles), in FO4's (Havok 2010) order.
+JOINT_FIELDS = {
+    'bhkRagdollConstraint': ('ragdoll', ('twist_a', 'plane_a', 'motor_a', 'pivot_a'),
+                             ('twist_b', 'plane_b', 'motor_b', 'pivot_b'),
+                             ('cone_max_angle', 'plane_min_angle', 'plane_max_angle', 'twist_min_angle',
+                              'twist_max_angle', 'max_friction')),
+    'bhkLimitedHingeConstraint': ('limited_hinge', ('axle_a', 'perp_2_axle_in_a_1', 'perp_2_axle_in_a_2', 'pivot_a'),
+                                  ('axle_b', 'perp_2_axle_in_b_1', 'perp_2_axle_in_b_2', 'pivot_b'),
+                                  ('min_angle', 'max_angle', 'max_friction')),
+}
+#: FNV motion systems of bodies that never move under physics (keyframed, fixed): their meshes get both sides.
+STILL_MOTIONS = frozenset({6, 7})
 #: An empty hkWorldObjectCinfo::Property (data, size, capacity and flags).
 EMPTY_PROPERTY = struct.pack('<3I', 0, 0, 0x80000000)
+
+
+def is_mesh(shape) -> bool:
+    """Whether FNV `shape` is a triangle mesh or a MOPP tree over one.
+
+    See: docs/fork/fo4_pipeline.md#mixed-collision
+    """
+    kind = type(shape).__name__
+    return kind in MESH_SHAPES and (kind != 'bhkMoppBvTreeShape' or is_mesh(shape.shape))
 
 
 def material(fnv: int) -> int:
@@ -96,12 +120,14 @@ def _vec(v, n: int = 4, scale: float = SCALE) -> tuple:
 class _Blocks:
     """Appends collision blocks to a NifFile, each as (type, bytes)."""
 
-    def __init__(self, nif: NifFile, scale: float = 1.0, root=None, animated: bool = False):
-        """Write into `nif`; lengths grown by `scale`; `root` is the FNV mesh root; `animated`: the node moves."""
+    def __init__(self, nif: NifFile, scale: float = 1.0, root=None, animated: bool = False, body=None):
+        """Write into `nif`; lengths grown by `scale`; `root` is the FNV mesh root; `animated`: the node moves;
+        `body` is (FNV rigid body, its node), for meshes inside a list."""
         self.nif = nif
         self.unit = SCALE * scale
         self.root = root
         self.animated = animated
+        self.body = body
 
     def add(self, kind: str, body: bytes) -> int:
         """Append one block; its index."""
@@ -158,6 +184,30 @@ class _Blocks:
         return self.add('bhkConvexTransformShape', struct.pack('<iIf8x16f', child, material(s.material.material),
                                                                s.radius * self.unit, *cells))
 
+    def _bhkMoppBvTreeShape(self, s) -> int:
+        """A MOPP over a list: the list; one inside a list: its repaired mesh."""
+        return self.shape(s.shape) if not is_mesh(s) else self._nested_mesh(s, None)
+
+    def _bhkTransformShape(self, s) -> int:
+        """A transform inside a list: over a convex shape a bhkConvexTransformShape, over a mesh baked into it."""
+        if not is_mesh(s.shape):
+            return self._bhkConvexTransformShape(s)
+        m = s.transform
+        rows = np.array([[m.m_11, m.m_12, m.m_13], [m.m_21, m.m_22, m.m_23], [m.m_31, m.m_32, m.m_33]])
+        return self._nested_mesh(s.shape, (rows, np.array([m.m_14, m.m_24, m.m_34]) * self.unit))
+
+    def _nested_mesh(self, s, transform: 'tuple | None') -> int:
+        """Mesh shape `s` inside a list, through the winding repair as a whole body's, moved by `transform`
+        (rotation rows, translation)."""
+        body, node = self.body
+        soup = _mesh_soup(SimpleNamespace(shape=s), node, self.root, self.unit / SCALE)
+        if soup is None:
+            raise ValueError(f'no triangles in nested {type(s).__name__}')
+        tris, materials = soup
+        if transform is not None:
+            tris = [tuple(tuple(float(c) for c in transform[0] @ v + transform[1]) for v in tri) for tri in tris]
+        return self.mesh(*both_sides((tris, materials), body), havok_filter(body.havok_col_filter))
+
     def _bhkListShape(self, s) -> int:
         """Sub-shapes, zeroed filters."""
         subs = [self.shape(c) for c in s.sub_shapes]
@@ -203,11 +253,32 @@ def _body_shape(blocks: _Blocks, body, node) -> 'int | None':
     bhkConvexTransformShape. A mesh's steps take stairs materials and risers (stairs.py).
     """
     kind = type(body.shape).__name__
-    if kind not in MESH_SHAPES:
+    if not is_mesh(body.shape):
         shape = blocks.shape(body.shape)
         return blocks.transformed(shape, body.shape, body) if _baked(body) and kind in CONVEX_SHAPES else shape
     soup = _mesh_soup(body, node, blocks.root, blocks.unit / SCALE)
-    return None if soup is None else blocks.mesh(*soup, havok_filter(body.havok_col_filter))
+    return None if soup is None else blocks.mesh(*both_sides(soup, body), havok_filter(body.havok_col_filter))
+
+
+def both_sides(soup: tuple, body) -> tuple:
+    """(triangles, materials) with a reversed copy of each triangle not already present, for a fixed or keyframed
+    `body`: FNV collides with both sides of a triangle, FO4's character only with its front.
+
+    See: docs/fork/fo4_pipeline.md#two-sided-collision
+    """
+    tris, materials = soup
+    if getattr(body, 'motion_system', None) not in STILL_MOTIONS:
+        return soup
+    have = {_tri_key(t) for t in tris}
+    extra = [(i, (t[0], t[2], t[1])) for i, t in enumerate(tris) if _tri_key((t[0], t[2], t[1])) not in have]
+    return list(tris) + [t for _, t in extra], list(materials) + [materials[i] for i, _ in extra]
+
+
+def _tri_key(tri) -> tuple:
+    """A triangle's rounded corners from its smallest (same winding, same key)."""
+    corners = [tuple(round(c, 4) for c in v) for v in tri]
+    first = corners.index(min(corners))
+    return tuple(corners[first:] + corners[:first])
 
 
 def _mesh_soup(body, node, root, grow: float) -> 'tuple | None':
@@ -245,8 +316,7 @@ def _visual(root, node) -> 'list | None':
 
 def _baked(body) -> bool:
     """Whether bhkRigidBodyT `body`'s transform moves into its shape."""
-    kind = type(body.shape).__name__
-    return type(body).__name__ == 'bhkRigidBodyT' and (kind in MESH_SHAPES or kind in CONVEX_SHAPES)
+    return type(body).__name__ == 'bhkRigidBodyT' and (is_mesh(body.shape) or type(body.shape).__name__ in CONVEX_SHAPES)
 
 
 def _rigid_body(blocks: _Blocks, body, node) -> 'int | None':
@@ -290,7 +360,7 @@ def collision_object(nif: NifFile, co, target: int, node, scale: float = 1.0, ro
 
     Its index (NONE: dropped).
     """
-    blocks = _Blocks(nif, scale, root, animated)
+    blocks = _Blocks(nif, scale, root, animated, (co.body, node))
     body = _rigid_body(blocks, co.body, node)
     if body is None:
         return NONE
@@ -342,6 +412,64 @@ def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int, ke
                 'collision': NONE, 'children': []}))
             nif.blocks[root_index][1]['children'].append(index)
         owners.append((index, co, node, scale))
+    bodies = {}
     for index, co, node, scale in owners:
         nif.blocks[index][1]['collision'] = collision_object(nif, co, index, node, scale, fnv_root,
                                                              id(node) in (kept or {}))
+        if nif.blocks[index][1]['collision'] != NONE:
+            body = struct.unpack_from('<iHi', nif.blocks[nif.blocks[index][1]['collision']][1])[2]
+            bodies[id(co.body)] = (co.body, body, scale)
+    joints(nif, bodies)
+
+
+def joints(nif: NifFile, bodies: dict) -> None:
+    """Write each FNV body's constraints between converted bodies and list them on it (its record's tail).
+
+    `bodies` is {id(FNV body): (FNV body, FO4 block, scale)}.
+    See: docs/fork/fo4_pipeline.md#ragdolls
+    """
+    for fnv, index, _ in bodies.values():
+        refs = []
+        for c in fnv.constraints:
+            packed = _joint(c, bodies)
+            if packed:
+                nif.blocks.append((type(c).__name__, packed))
+                refs.append(len(nif.blocks) - 1)
+        if refs:
+            kind, raw = nif.blocks[index]
+            nif.blocks[index] = (kind, raw[:-6] + struct.pack(f'<I{len(refs)}iH', len(refs), *refs, 0))
+
+
+def _joint(c, bodies: dict) -> 'bytes | None':
+    """FNV constraint `c` in FO4's pre-Elric layout (twist/axis vectors before each pivot); None when it is
+    not a ragdoll or limited hinge or joins a body not converted."""
+    ends = [bodies.get(id(e() if callable(e) else e)) for e in c.entities]
+    kind = type(c).__name__
+    if None in ends or kind not in JOINT_FIELDS:
+        return None
+    desc = getattr(c, JOINT_FIELDS[kind][0])
+    side = [(ends[0], JOINT_FIELDS[kind][1]), (ends[1], JOINT_FIELDS[kind][2])]
+    out = struct.pack('<I2iI', 2, ends[0][1], ends[1][1], c.priority)
+    for (fnv, _, scale), names in side:
+        *axes, pivot = [getattr(desc, n) for n in names]
+        out += b''.join(struct.pack('<4f', *_moved(fnv, v, False, scale)) for v in axes)
+        out += struct.pack('<4f', *_moved(fnv, pivot, True, scale))
+    return out + struct.pack(f'<{len(JOINT_FIELDS[kind][3])}fB', *(getattr(desc, n) for n in JOINT_FIELDS[kind][3]), 0)
+
+
+def _moved(body, v, pivot: bool, scale: float) -> tuple:
+    """A constraint vector of `body` in FO4 units: a pivot scaled; both moved by a baked bhkRigidBodyT's transform
+    (a mesh body's translation is already in FO4 units: _mesh_soup)."""
+    x = np.array([v.x, v.y, v.z]) * (SCALE * scale if pivot else 1.0)
+    if _baked(body):
+        q = body.rotation
+        unit = scale if is_mesh(body.shape) else SCALE * scale
+        x = _rotation(q.x, q.y, q.z, q.w) @ x + (np.array(_vec(body.translation, 3, unit)) if pivot else 0)
+    return (*map(float, x), 0.0)
+
+
+def _rotation(x: float, y: float, z: float, w: float) -> np.ndarray:
+    """The rotation matrix (rows) of quaternion (x, y, z, w), as transformed()'s."""
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])

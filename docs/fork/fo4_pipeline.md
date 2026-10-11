@@ -377,6 +377,106 @@ pass, step 1).
     default (1, 0, 1, 0): opaque face-on, gone edge-on. The beams have
     (0.98, 0.17, 1, 0).
 
+<a id="lights"></a>**Lights** (interior lighting pass, step 2). FNV's 501 LIGH
+records and vanilla FO4's 694 (with a full DATA) use about the same
+values:
+- radius p10/p50/p90: FNV 128/200/512, FO4 128/256/512;
+- fade (FNAM): FNV 0.75/1.2/2.5, FO4 1.0/1.0/4.0.
+
+Two fields were dropped:
+- **Falloff exponent and FOV:** written as 1 and 90 for every light. 28
+  FNV lights use another exponent (2.0 ×12, 0.5 ×4, 5.0 ×4); spotlights
+  have their own FOV. Both are now FNV's.
+- **Flicker and pulse:** FO4 drives them by period, intensity amplitude
+  and movement amplitude, and every light got period 1 and amplitudes 0,
+  so none moved.
+  - FNV has 50 flickering lights, 12 slow-flickering, 5 pulsing and 11
+    slow-pulsing.
+  - FNV's flicker is procedural: sines with random phase rates, in
+    `0x50DE60`. The slow flag (0x40) halves its clock (`fdiv 2` at
+    `0x50DF15`), and `fFlickerMovement` (8) is its movement.
+  - A flickering light now takes vanilla's most common flicker (period
+    0.33, intensity 0.45; 31 of 182) with movement 8. A pulsing light
+    takes that period and intensity without movement. A slow one doubles
+    the period.
+  - This is FO4's own flicker, not FNV's exact curve.
+
+<a id="mixed-collision"></a>**Mixed collision under a MOPP** (walk-through stove in Bison
+Steve). The collision converter treated any body whose shape is a MOPP
+tree as one triangle mesh. FNV also puts a MOPP over a list of mixed
+shapes, and then the mesh reader found no triangles and the whole body
+was dropped. That happened to 10 bodies in Goodsprings to Primm:
+- `CookingStove` and 6 rubble chunks: a convex hull plus a MOPP mesh;
+- `bigpot01`: 7 boxes and 2 hulls;
+- the bear trap's base: two MOPP meshes, one under a transform.
+
+The MOPP is only a lookup structure. Now `collision.is_mesh` tells the two
+apart:
+- a MOPP over a list converts the list;
+- a MOPP inside a list converts its triangles through the same winding
+  repair as a whole body's;
+- a `bhkTransformShape` in a list becomes a convex transform over a
+  convex shape, or is baked into a mesh's triangles.
+
+Elric turns each into a compound (`hknpDynamicCompoundShape`). The
+stove's children match its render bounds: hull −41…41 × 21…95 × 0…91,
+mesh −38…37 × 25…91 × 0…91, render −41…41 × 12…95 × 0…94.
+
+<a id="two-sided-collision"></a>**Collision from both sides** (wall behind the Bison Steve stove).
+FNV collides with both sides of a mesh triangle; FO4's character only
+with its front. The winding repair fixes a face from its render twin,
+but a collision-only box has none.
+- `FacRmWallONLY01` is a 12-triangle box (±16 × ±129 × 0–256) inside
+  render faces 53 units out. FNV authored 4 of its triangles facing in,
+  including half the face toward the stove, so the player walked
+  through.
+- A fixed or keyframed body's mesh now also gets a reversed copy of each
+  triangle not already present (`collision.both_sides`). Dynamic bodies
+  keep one side, so their mass is not changed.
+- Elric accepts the doubled meshes; the wall's physics bounds are
+  unchanged.
+
+<a id="ragdolls"></a>**Joints** (skeletons standing up in Bison Steve).
+The `XRGD` pose was copied, but FO4 has nothing to pose: the bodies
+were converted and the joints between them dropped.
+- `SkeletonMale50sCasual` has 16 dynamic bodies, 9 limited hinges and 2
+  ragdoll joints. Vanilla's `SkeletonClothed01` (824 placements with
+  `XRGD`) has 17 bodies, 6 hinges and 10 ragdoll joints in its physics,
+  and BSXFlags `0xEA`; ours had no joints and `0x4A`.
+- `collision.joints` now writes FNV's `bhkRagdollConstraint` and
+  `bhkLimitedHingeConstraint` in FO4's pre-Elric layout (nif.xml
+  "Fallout 3 and later", Havok 2010: per body, the twist or axis vectors,
+  then the pivot) and lists them on their body.
+  - FNV stores pivot, plane, twist, then the motors. This was checked on
+    the data: twist, plane and motor are mutually perpendicular for each
+    body.
+  - Pivots are scaled to FO4 units. A baked `bhkRigidBodyT`'s transform
+    moves its side's vectors.
+  - The motor is written as none.
+- A mesh with joints sets Articulated (`0x80`).
+- **Played: still a solid object with glitchy physics.** The collision
+  converter hung each body on a new node off the root, and the visible
+  parts stayed on the root, so the bones moved and the mesh did not.
+  A jointed mesh now keeps every node with a rigid body, and the nodes
+  between it and the root, as animated meshes keep theirs
+  (`animation.with_parents`). Each part goes under its bone and each body
+  on that bone's node, as vanilla's skeleton has a node per bone.
+  `SkeletonMale50sCasual` keeps Torso → Head and both arms, Pelvis →
+  right leg, and the left leg and Skull01 as root nodes.
+- Elric's output now has `hkpLimitedHingeConstraintData` and
+  `hkpRagdollConstraintData`, as vanilla's skeleton does.
+
+<a id="locks"></a>**Locks and keys** (everything open; the maintenance key on a table
+could not be taken).
+- **Locks:** `XLOC` was never written. FNV has 426 locked references.
+  FO4's XLOC (16 bytes: level, key, flags, 4 more) numbers its levels as
+  FNV does: 0, 25, 50, 75, 100, and 255 for "requires key". Vanilla uses
+  level 0 on 490 of its 1,358 locks, so 0 is a lock tier, not "none".
+  The level and flags are copied, and the key is made as an FO4 key.
+- **Keys:** KEYM was placed as a static stand-in. It is now an item:
+  `pack_keym`, laid out as 134 of vanilla's 177 keys (preview
+  KeyChainsAlt, the most common), made by `Items` like a misc item.
+
 Census of the region's 1,630 meshes' Havok blocks: MOPP/packed strips
 941, rigid bodies 928 (+503 T), convex vertices 360, boxes 111, lists 27,
 capsules 14, convex transforms 11, spheres 4, constraints 26, phantom and
