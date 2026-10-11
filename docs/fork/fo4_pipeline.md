@@ -401,6 +401,38 @@ Two fields were dropped:
     the period.
   - This is FO4's own flicker, not FNV's exact curve.
 
+<a id="lighting-templates"></a>**FNV lighting templates** (played 2026-10-10). An FNV cell's `LTMP` names an LGTM,
+and its `LNAM` flags pick which `XCLL` fields come from the template. The
+export has no `LNAM`, so it is read from FalloutNV.esm.
+- 273 FNV interiors use a template; the most common flags are `0x9F`
+  (68 cells) and `0x98` (28).
+- Doc's house (`0x9F`) inherits from `EnclaveLightingTemplate01`:
+  - fog from 64 to 5,000 units, where the cell's own values said 100 to
+    1,500;
+  - ambient (31, 31, 45), where the cell's own color was teal
+    (47, 70, 69).
+  Converting the unused cell values buried the far end of the hall in fog
+  that FNV never shows.
+- The converter now resolves each field the way FNV does
+  (`spike/lighting_template.py`).
+
+<a id="emittance"></a>**Light brightness and emittance** (played 2026-10-10).
+- FO4's tiled light shader (`shaders011.fxp`, compute shader 3584) uses
+  `att = (1 − saturate(constant + scalar · (d/r)^exponent))^2.2`, with
+  vanilla's 0, 1, 2. FNV's (`SM3000`) is `1 − saturate(d/r)²` in display
+  space. FO4's falloff is therefore FNV's in linear light, and no
+  falloff conversion is needed.
+- A reference's `XEMI` takes its color from another light or a region's
+  daylight; FNV and FO4 both use it.
+  - Region: 2,276 of FNV's 8,376 light references have one.
+  - Doc's house: 23 of its 25 lights (Doc's "warm" lights shine as
+    `DLC01FXLightMillSmoke`, 255, 162, 85).
+  - Vikki and Vance: all 25 (`NellisGeneratorFillWarm` and others).
+  - FO4: vanilla uses it on 8,456 lights.
+- Dropping `XEMI` left those lights on their pale base colors. It now
+  points at the emittance light's FO4 LIGH. Region emittance (FNV
+  daylight, 6 of Doc's lights) is not converted yet.
+
 <a id="glow"></a>**Glow maps** (lighting pass, step 3). FNV lights a lit shape's glow
 map (texture set slot 2) with the shape's `NiMaterialProperty` emissive
 color and multiplier. None of these shapes sets the glow shader flag, so

@@ -24,6 +24,7 @@ from fo4_import.spike import sounds as SO
 from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
 from fo4_import.spike import imagespace as IM
+from fo4_import.spike import lighting_template as LT
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import placement as PL
@@ -374,6 +375,18 @@ def test_an_interiors_height_fog_takes_fnvs_fog_colour_not_the_templates():
     assert out[100:108] == bytes((77, 62, 32, 0)) * 2 and out[108:] == bytes(range(108, 136))
     assert struct.unpack_from('<f', out, 76)[0] == 1.0 and struct.unpack_from('<f', out, 32)[0] == 0.0
     assert struct.unpack_from('<f', out, 36)[0] == pytest.approx(IM.DISPLAY_GAMMA)
+
+
+def test_an_interior_takes_the_fields_its_inherit_flags_name_from_its_lighting_template(monkeypatch):
+    """Doc's house (LNAM 0x9F) showed its unused own fog (100-1,500) instead of its template's (64-5,000)."""
+    data = bytes((31, 31, 45, 0, 32, 30, 21, 0, 73, 68, 48, 0)) + struct.pack('<2f2i3f', 64, 5000, 0, 267, 1, 5000, 0.84)
+    monkeypatch.setattr(LT, 'inherit_flags', lambda: {0x103DF9: 0x9F})
+    monkeypatch.setattr(LT, '_templates', lambda _: {'0008F58B': data})
+    cell = {'FormID': '00103DF9', 'LTMP.LightingTemplate': '0008F58B', 'XCLL.FogNear': '100.0', 'XCLL.FogFar': '1500.0',
+            'XCLL.FogPower': '0.6', 'XCLL.AmbientR': '47'}
+    out = LT.resolved(Path('.'), cell)
+    assert (out['XCLL.FogNear'], out['XCLL.FogFar'], out['XCLL.AmbientR']) == ('64.0', '5000.0', '31')
+    assert out['XCLL.FogPower'] == '0.6'
 
 
 def test_a_fixed_exposure_shows_exposed_colours_as_fnvs_straight_display():
