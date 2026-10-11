@@ -95,6 +95,18 @@ def pack_node(b: dict) -> bytes:
     return pack_av(b) + pack_refs(b['children'])
 
 
+def read_value_node(r: Reader) -> dict:
+    """BSValueNode: a NiNode, its value (an add-on node's ADDN index) and a flags byte."""
+    out = read_node(r)
+    out['value'], out['value_flags'] = r.take('I'), r.take('B')
+    return out
+
+
+def pack_value_node(b: dict) -> bytes:
+    """BSValueNode's bytes."""
+    return pack_node(b) + struct.pack('<IB', b['value'], b.get('value_flags', 0))
+
+
 def read_bsx(r: Reader) -> dict:
     """BSXFlags: a name and an integer."""
     return {'name': r.take('i'), 'value': r.take('I')}
@@ -281,6 +293,7 @@ def pack_tri_shape(b: dict) -> bytes:
 #: Block type -> (reader, packer). NiNode subclasses that add nothing share NiNode's.
 BLOCKS = {
     'NiNode': (read_node, pack_node), 'BSFadeNode': (read_node, pack_node), 'BSLeafAnimNode': (read_node, pack_node),
+    'BSValueNode': (read_value_node, pack_value_node),
     'BSXFlags': (read_bsx, pack_bsx), 'NiAlphaProperty': (read_alpha, pack_alpha),
     'BSShaderTextureSet': (read_texture_set, pack_texture_set),
     'BSLightingShaderProperty': (read_lighting, pack_lighting),

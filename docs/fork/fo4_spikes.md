@@ -2991,6 +2991,15 @@ clips at FO4 0.8 (8x middle grey), where FO4's shoulder rolls off to 5.6x
 more. Anchoring at middle grey assumes FNV's adaptation targets the same
 average; FNV's HDRParam is filled by the engine, not read here.
 
+**Exposure (played 2026-10-10).** That assumption washed out Vikki and Vance. The
+alpha FNV's exposure divides by is constant, so FNV does not brighten a dark
+room, while the base imagespace auto-exposes 0.5x–15x toward middle grey.
+`pack_imgs` now pins Auto Exposure Min and Max to `fixed_exposure`:
+middle grey / fo4_display(middle grey)^2.2 = 0.18 / 0.393^2.2 = 1.40. With the
+LUT, FO4 then shows exposed colour c as c^(1/2.2), FNV's display, at every
+level (0.01 / 0.05 / 0.18 / 0.5 → 0.123 / 0.256 / 0.459 / 0.730 on both).
+Cells without an FNV imagespace keep QASmoke's.
+
 ## <a id="scene-census"></a>Scripted sequences as FO4 scenes (census 2026-10-07)
 
 **Drift policy.** Emulating an FO3/FNV mechanism exactly on FO4 costs

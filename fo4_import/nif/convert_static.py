@@ -10,6 +10,7 @@ under `textures\\fnv\\`.
 See: docs/fork/fo4_spikes.md#spike-2-static
 """
 
+import collections
 import functools
 import io
 import math
@@ -30,7 +31,8 @@ from pyffi.formats.nif import NifFormat
 
 from asset_convert.collision.collision_falloutnv import latch_source
 from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_nodes, manager_of, skin, with_parents
-from fo4_import.nif.collision import collision_nodes
+from fo4_import.nif.addons import fo4_index
+from fo4_import.nif.collision import collision_nodes, node_transform
 
 PREFIX = 'fnv'
 #: BSVertexDesc of a vanilla static shape (ClutterGen, SetDressing): half positions, UV, normal, tangent.
@@ -41,6 +43,8 @@ DESC_COLOR = 0x3B00005430206
 NODE_FLAGS, SHADER_FLAGS = 0xE, (0x80400201, 0x11)
 #: Texture set slots a lighting shader fills (vanilla: 10, specular at 7).
 TEXTURE_SLOTS, SLOT_SPECULAR = 10, 7
+#: The glow map's slot in an FNV texture set and in FO4's.
+GLOW_SLOT = 2
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 #: FNV BSXFlags bits kept (same meaning in FO4): Havok, Complex, Dynamic, Articulated; vanilla statics carry 0x82.
 BSX_KEPT = 0x2 | 0x8 | 0x40 | 0x80
@@ -48,6 +52,8 @@ BSX_KEPT = 0x2 | 0x8 | 0x40 | 0x80
 BSX_HAVOK, BSX_COMPLEX, BSX_ARTICULATED = 0x2, 0x8, 0x80
 #: BSXFlags Animated: on every vanilla door and container mesh with a NiControllerManager (animation).
 BSX_ANIMATED = 0x1
+#: BSXFlags Addon: set on vanilla meshes with add-on nodes (WorkstationWoodCookingFire 0x29B, BarrelTank 0x5B).
+BSX_ADDON = 0x10
 BGSM_TEXTURES = ('diffuse', 'normal', 'smooth_spec', 'greyscale', 'envmap', 'glow', 'inner_layer', 'wrinkles',
                  'displacement')
 #: Vanilla ChemistrySetBeaker01's effect shader: flags, lighting influence, falloff, base colour, env map scale.
@@ -379,13 +385,33 @@ def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, te
     mat['textures']['normal'] = fo4_texture(fnv[1] if len(fnv) > 1 else '').replace('\\', '/')
     spec = _specular(mat, fnv[1] if len(fnv) > 1 else '', props, texture_root)
     part = _lit_alpha(alpha, decal)
-    suffix = '_2s' if two_sided else ''
+    suffix = ('_2s' if two_sided else '') + _glow(mat, fnv, props)
     if part is not None:
         mat.update(_alpha_fields_of(*part))
         suffix += f'_a{part[0]:x}_{part[1]}'
     stem = mat['textures']['diffuse'].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
-    return ShapeMaterial('lit', f'materials\\{stem}{suffix}.bgsm', mat, [t for t in fnv[:2] if t],
-                         part, spec, flags1=DECAL_FLAGS if decal else 0)
+    textures = list(fnv[:GLOW_SLOT + 1]) if mat['glowmap'] else [t for t in fnv[:2] if t]
+    return ShapeMaterial('lit', f'materials\\{stem}{suffix}.bgsm', mat, textures, part, spec,
+                         flags1=DECAL_FLAGS if decal else 0)
+
+
+def _glow(mat: dict, fnv: list, props: dict) -> str:
+    """Give `mat` FNV's glow map (texture set slot 2), lit by the shape's emissive colour and multiplier as FNV
+    lights it; the material path's suffix for it ('' without one).
+
+    See: docs/fork/fo4_pipeline.md#glow
+    """
+    if len(fnv) <= GLOW_SLOT or not fnv[GLOW_SLOT]:
+        return ''
+    material, shader = props.get('NiMaterialProperty'), props.get('BSShaderPPLightingProperty')
+    color = tuple(max(0.0, min(1.0, float(getattr(material.emissive_color, c)))) for c in 'rgb') if material \
+        else (1.0, 1.0, 1.0)
+    mult = float(getattr(material, 'emit_multi', 1.0)) if material else 1.0
+    external = bool(shader and shader.shader_flags.sf_external_emittance)
+    mat['textures']['glow'] = fo4_texture(fnv[GLOW_SLOT]).replace('\\', '/')
+    mat.update(glowmap=True, emittance=True, emittance_color=color, emittance_mult=mult, external_emittance=external)
+    return '_glow' + ''.join(f'{round(c * 255):02x}' for c in color) + (f'x{mult:g}' if mult != 1.0 else '') + \
+        ('e' if external else '')
 
 
 def _fades(geom) -> bool:
@@ -449,7 +475,7 @@ def emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeM
     colors, tris = (colors[used] if colors is not None else None), local.reshape(-1, 3)
     if mat.kind != 'unlit':
         (out.effects if mat.kind == 'effect' else out.materials)[mat.path] = mat.data
-    out.textures |= set(mat.textures)
+    out.textures |= {t for t in mat.textures if t}
     if mat.spec:
         out.spec_maps[mat.spec[0]] = mat.spec[1]
     index = len(nif.blocks)
@@ -468,7 +494,7 @@ def emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeM
         nif.blocks.append(('BSEffectShaderProperty', _unlit_shader(nif, mat, colors is not None)))
     else:
         nif.blocks.append(('BSLightingShaderProperty', lighting_shader(nif, mat.path, index + 2, mat.flags1)))
-        slots = [f'textures\\{fo4_texture(t)}' for t in mat.textures] + [''] * TEXTURE_SLOTS
+        slots = [f'textures\\{fo4_texture(t)}' if t else '' for t in mat.textures] + [''] * TEXTURE_SLOTS
         if mat.spec:
             slots[SLOT_SPECULAR] = f'textures\\{mat.spec[0]}'
         nif.blocks.append(('BSShaderTextureSet', {'textures': slots[:TEXTURE_SLOTS]}))
@@ -569,7 +595,9 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     nodes = add_nodes(nif, bones, root, NODE_FLAGS) if bones else {id(root): 0}
     out.animatable = manager is not None and animatable(manager)
     _shapes(nif, root, nodes, out, texture_root)
+    addons = _addon_nodes(nif, root, texture_root)
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
+    bsx |= BSX_ADDON if addons else 0
     bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK or joined else 0
     bsx |= BSX_ANIMATED if kept else 0
     if bsx:
@@ -579,6 +607,35 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
         controllers(nif, root, manager, nodes)
     collision_nodes(nif, root, 0, NODE_FLAGS, nodes)
     return out
+
+
+def _addon_nodes(nif: NifFile, root, export_dir) -> bool:
+    """FNV `root`'s shown add-on nodes as FO4 BSValueNodes on the root in its space, each ADDN index mapped (addons)
+    and named for it as vanilla's (AddOnNode04, a repeat AddOnNode04@#0); whether any was written.
+
+    One under a hidden node (a vehicle's damage stage, shown once damaged) is left out.
+    See: docs/fork/fo4_pipeline.md#addons
+    """
+    parents = {id(c): n for n in root.tree() if hasattr(n, 'children') for c in n.children if c is not None}
+    seen = collections.Counter()
+    for node in root.tree():
+        chain, at = [], node
+        while at is not None:
+            chain.append(at)
+            at = parents.get(id(at))
+        shown = type(node).__name__ == 'BSValueNode' and export_dir and not any(n.flags & 1 for n in chain)
+        index = fo4_index(int(node.value), str(export_dir)) if shown else None
+        if index is None:
+            continue
+        translation, rotation, scale = node_transform(node, root)
+        name = f'AddOnNode{index:02d}' + (f'@#{seen[index] - 1}' if seen[index] else '')
+        seen[index] += 1
+        nif.blocks.append(('BSValueNode', {
+            'name': nif.string(name), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
+            'translation': translation, 'rotation': rotation, 'scale': scale, 'collision': NONE, 'children': [],
+            'value': index, 'value_flags': 0}))
+        nif.blocks[0][1]['children'].append(len(nif.blocks) - 1)
+    return bool(seen)
 
 
 def _has_body(node) -> bool:

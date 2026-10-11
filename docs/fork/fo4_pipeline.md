@@ -401,6 +401,63 @@ Two fields were dropped:
     the period.
   - This is FO4's own flicker, not FNV's exact curve.
 
+<a id="glow"></a>**Glow maps** (lighting pass, step 3). FNV lights a lit shape's glow
+map (texture set slot 2) with the shape's `NiMaterialProperty` emissive
+color and multiplier. None of these shapes sets the glow shader flag, so
+the texture's presence is what turns it on.
+- In Goodsprings to Primm, 125 shapes in 55 meshes have one: the saloon
+  neon (white), the Mojave Express sign (1, 0.35, 0), the hospital light
+  (0.26 grey), recessed lighting.
+- The BGSM kept only diffuse and normal, so none glowed. It now takes the
+  glow map with `glowmap` and `emittance` on, FNV's emissive color
+  (clamped to 0–1; the briefcase detonator's is −0.14) and multiplier,
+  and `external_emittance` where FNV sets it (18 shapes).
+- Vanilla's 209 glow-textured BGSMs mostly turn on `glowmap`. The lit
+  ones also turn on `emittance` (white ×1.0 is the most common). Vanilla
+  fixture shaders already carry Own_Emit in flags1 (`0x80400201`, as
+  ours).
+- The material path gains `_glow<rgb>` so shapes sharing a diffuse but
+  glowing differently keep their own material.
+
+<a id="lighting-colors"></a>**Cell lighting colors stay as authored** (Vikki and Vance washed
+out against FNV).
+- FO4's fog formula, from shader 38 of `shaders011.fxp`:
+  `t = d·k − c`; `fog = min(cap, t^power)`, with the cap the fog max,
+  rising to 1 over the last quarter. That is FNV's formula with a cap, so
+  with the same values FO4's fog is never denser than FNV's.
+- Converting the XCLL colors from sRGB to linear was tried and rejected:
+  the casino went dark wherever no light fell directly. Vanilla authors
+  these bytes at FNV's scale: Fallout4.esm's 66 LGTM records have a median
+  ambient of 33, directional ambient 29 and fog 70, against FNV's 388
+  interiors at ambient 49 and fog 48. So FO4 reads them as display colors.
+- The washed-out look was exposure instead; see
+  [spike-2-imagespace](fo4_spikes.md#spike-2-imagespace).
+- **Fog power is FNV's × 2.2.** FNV blends fog into display colors, FO4
+  into linear light, so the same fog amount lifts a dark pixel further
+  (36% fog shows black at 63% of the fog color). Raising the amount to the
+  2.2 power makes the two match exactly on black; bright pixels get a
+  little less fog than in FNV. In the casino, the mid-ground's contrast
+  was half FNV's (std. dev. 10–13 against 19–24) with blacks lifted to 23;
+  the haze was gone in play after the change. Doc's house stays foggy
+  because its lights come out dimmer than FNV's (next step).
+
+<a id="addons"></a>**Add-on nodes** (the trash-can fire outside Vikki and Vance showed
+its light but no flame).
+- The burning barrels are LIGH records whose model, `Barrel02fireLight`,
+  holds a `BSValueNode` (`AddOnNode14`). FNV attaches ADDN index 14's
+  particle effect there (`MPSFireSmall01`). FO4 uses the same mechanism,
+  and the mesh converter dropped the node.
+- FO4's ADDN indices differ, so the FNV index's ADDN EditorID picks
+  Fallout4.esm's ADDN of that name (`nif/addons.py`):
+  `MPSFireSmall01` 14 → 4, `MPSFireMed01` 0 → 5. The smoke add-ons
+  (`MPSSmokeMed01`, `MPSSmokeSmall01`) have no FO4 namesake and stay out.
+- An add-on node under a hidden node is left out. `car03`'s six fires
+  sit under `BSDamageStage` nodes FNV shows only once the car is damaged,
+  and damage stages are not converted.
+- Region: 1 barrel fire kept. The car, truck, motorcycle, electric box
+  and fusion generator add-ons are hidden or have no FO4 namesake.
+- The node is written as vanilla's: a NiNode, the index, a flags byte 0.
+
 <a id="mixed-collision"></a>**Mixed collision under a MOPP** (walk-through stove in Bison
 Steve). The collision converter treated any body whose shape is a MOPP
 tree as one triangle mesh. FNV also puts a MOPP over a list of mixed

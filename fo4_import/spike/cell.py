@@ -29,7 +29,7 @@ from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
 from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.scol import PART_SITE, Parts, compose
-from fo4_import.spike.imagespace import BASE_IMAGESPACE, LUT_FOLDER, base_hdr, pack_imgs, write_lut
+from fo4_import.spike.imagespace import BASE_IMAGESPACE, DISPLAY_GAMMA, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
 from fo4_import.spike import character, replacements, skeleton
 from fo4_import.spike.attach import ObjectScripts
@@ -148,13 +148,15 @@ def lighting(cell: dict, template: bytes) -> bytes:
     its fog colour the far and both height-fog colours (FNV has no height fog);
     fog max is 1 (FNV's fog has no cap) and the clip distance 0, so past the
     far distance only fog shows, as in FNV; other FO4-only fields keep `template`'s.
+    Fog power is FNV's x 2.2: FO4 mixes fog in linear light, FNV in display colours.
     See: docs/fork/fo4_pipeline.md#interiors
     """
     out = bytearray(template)
     out[0:12] = _color(cell, 'Ambient') + _color(cell, 'Directional') + _color(cell, 'Fog')
     out[12:40] = struct.pack('<2f2i3f', *_floats(cell, 'XCLL.', ('FogNear', 'FogFar')),
                              int(cell['XCLL.DirectionalRotXY']), int(cell['XCLL.DirectionalRotZ']),
-                             float(cell['XCLL.DirectionalFade']), NO_CLIP, float(cell['XCLL.FogPower']))
+                             float(cell['XCLL.DirectionalFade']), NO_CLIP,
+                             float(cell['XCLL.FogPower']) * DISPLAY_GAMMA)
     out[40:64] = _color(cell, 'Ambient') * 6
     out[72:80] = _color(cell, 'Fog') + struct.pack('<f', FOG_MAX)
     out[88:92] = bytes(4)

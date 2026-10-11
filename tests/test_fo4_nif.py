@@ -449,6 +449,29 @@ def test_fnvs_dog_sits_on_dogmeats_skeleton_with_its_eyes_level():
     assert abs(eyes[:, 0].min() + eyes[:, 0].max()) < 0.5 and 25 < eyes[:, 1].mean() < 35
 
 
+def test_a_fire_addon_maps_to_fo4s_by_name_and_a_damage_stage_one_is_left_out():
+    """Barrel02fireLight's AddOnNode14 (FNV MPSFireSmall01) becomes FO4's index 4; car03's fires sit under hidden
+    damage stages and stay out; a BSValueNode survives a write and read."""
+    export = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
+    if not export.exists():
+        pytest.skip('no FNV export')
+    values = [[b['value'] for k, b in F.read(F.write(C.convert(str(export / 'meshes' / m), str(export)).nif)).blocks
+               if k == 'BSValueNode'] for m in ('clutter/barrel02firelight.nif', 'vehicles/car03.nif')]
+    assert values == [[4], []]
+
+
+def test_a_glow_map_lights_the_material_with_fnvs_emissive_colour():
+    """MojaveExpressSign's glow map: glowmap and emittance on, FNV's emissive colour (clamped), a path per colour."""
+    material = type('M', (), {'emissive_color': type('C', (), {'r': 1.0, 'g': 0.35, 'b': -0.2})(), 'emit_multi': 1.0})()
+    flags = type('F', (), {'sf_external_emittance': 0})()
+    props = {'NiMaterialProperty': material, 'BSShaderPPLightingProperty': type('S', (), {'shader_flags': flags})()}
+    mat = dict(C.MATERIAL, textures=dict.fromkeys(C.BGSM_TEXTURES, ''))
+    suffix = C._glow(mat, ['a.dds', 'a_n.dds', 'textures\\a_g.dds'], props)
+    assert mat['glowmap'] and mat['emittance'] and mat['emittance_color'] == (1.0, 0.35, 0.0)
+    assert suffix == '_glowff5900' and mat['textures']['glow'] == 'fnv/a_g.dds'
+    assert C._glow(dict(mat), ['a.dds', 'a_n.dds'], props) == ''
+
+
 def test_an_unlit_shape_with_normals_keeps_fnvs_view_falloff():
     """IndFXLightRays01's beam fades by view angle (Use_Falloff, FNV's four values); without normals, no falloff."""
     shader = type('S', (), {'file_name': b'textures\\effects\\FXSoftGlowBeamMulti.dds',

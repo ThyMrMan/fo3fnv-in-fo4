@@ -23,6 +23,7 @@ from fo4_import.spike import gun_choice as GC
 from fo4_import.spike import sounds as SO
 from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
+from fo4_import.spike import imagespace as IM
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import placement as PL
@@ -372,6 +373,16 @@ def test_an_interiors_height_fog_takes_fnvs_fog_colour_not_the_templates():
     out = CB.lighting(cell, bytes(range(136)))
     assert out[100:108] == bytes((77, 62, 32, 0)) * 2 and out[108:] == bytes(range(108, 136))
     assert struct.unpack_from('<f', out, 76)[0] == 1.0 and struct.unpack_from('<f', out, 32)[0] == 0.0
+    assert struct.unpack_from('<f', out, 36)[0] == pytest.approx(IM.DISPLAY_GAMMA)
+
+
+def test_a_fixed_exposure_shows_exposed_colours_as_fnvs_straight_display():
+    """Vikki and Vance washed out under 0.5-15x auto exposure; pinned exposure plus the LUT show c as c^(1/2.2)."""
+    tonemap_e, grey = 0.02, 0.18
+    exposure = IM.fixed_exposure(tonemap_e, grey)
+    c = np.array([0.01, 0.05, 0.18, 0.5])
+    shown = IM.fnv_tone(IM.fo4_display(exposure * c, tonemap_e), tonemap_e, grey)
+    assert exposure == pytest.approx(1.40, abs=0.01) and shown == pytest.approx(c ** (1 / 2.2), abs=1e-4)
 
 
 def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypatch):

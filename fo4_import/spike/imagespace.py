@@ -124,13 +124,28 @@ def write_lut(dnam: bytes, edid: str, data_dir: Path, hdr: tuple) -> str:
     return rel
 
 
+def fixed_exposure(tonemap_e: float, middle_grey: float) -> float:
+    """The exposure at which FO4 under fnv_tone's LUT shows c as FNV does.
+
+    See: docs/fork/fo4_spikes.md#spike-2-imagespace
+    """
+    return middle_grey / float(fo4_display(np.array(middle_grey), tonemap_e)) ** DISPLAY_GAMMA
+
+
 def pack_imgs(fid: int, edid: str, base_body: bytes, lut: str) -> bytes:
-    """An FO4 IMGS: the base imagespace's subrecords under a new EditorID, cinematic neutral, LUT `lut`."""
+    """An FO4 IMGS: the base imagespace's subrecords under a new EditorID, cinematic neutral, LUT `lut`.
+
+    Auto exposure is pinned to fixed_exposure (FNV's exposure does not follow the scene).
+    See: docs/fork/fo4_spikes.md#spike-2-imagespace
+    """
     neutral = {b'CNAM': struct.pack('<3f', 1.0, 1.0, 1.0), b'TNAM': struct.pack('<4f', 0.0, 1.0, 1.0, 1.0)}
     subs, placed = b'', False
     for tag, data in subrecords(base_body):
         if tag == b'EDID':
             data = edid.encode() + b'\0'
+        elif tag == b'HNAM':
+            exposure = fixed_exposure(*base_hdr(base_body))
+            data = data[:16] + struct.pack('<2f', exposure, exposure) + data[24:]
         elif tag == b'TX00':
             data, placed = lut.encode() + b'\0', True
         subs += pack_subrecord(tag.decode(), neutral.get(tag, data))
