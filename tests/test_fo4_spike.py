@@ -25,6 +25,7 @@ from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
 from fo4_import.spike import imagespace as IM
 from fo4_import.spike import lighting_template as LT
+from fo4_import.spike import emittance as EM
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import placement as PL
@@ -389,6 +390,16 @@ def test_an_interior_takes_the_fields_its_inherit_flags_name_from_its_lighting_t
     assert out['XCLL.FogPower'] == '0.6'
 
 
+def test_a_region_emittance_weather_takes_fnvs_sunlight_at_each_fo4_time_of_day():
+    """FO4's eight times take FNV's four (early/late sunrise and sunset as sunrise and sunset) in two entries."""
+    fnv = bytearray(240)
+    fnv[EM.FNV_SUNLIGHT * 24:EM.FNV_SUNLIGHT * 24 + 16] = bytes((1, 1, 1, 0, 2, 2, 2, 0, 3, 3, 3, 0, 4, 4, 4, 0))
+    out = EM.sunlight_table(bytes(range(256)) * 2 + bytes(96), bytes(fnv))
+    expected = b''.join(bytes((t, t, t, 0)) for t in (1, 2, 3, 4, 1, 1, 3, 3))
+    assert out[EM.FO4_SUNLIGHT * 32:EM.FO4_SUNLIGHT * 32 + 32] == expected == out[EM.FO4_EFFECT * 32:EM.FO4_EFFECT * 32 + 32]
+    assert out[:EM.FO4_SUNLIGHT * 32] == (bytes(range(256)) * 2)[:EM.FO4_SUNLIGHT * 32]
+
+
 def test_a_fixed_exposure_shows_exposed_colours_as_fnvs_straight_display():
     """Vikki and Vance washed out under 0.5-15x auto exposure; pinned exposure plus the LUT show c as c^(1/2.2)."""
     tonemap_e, grey = 0.02, 0.18
@@ -402,7 +413,7 @@ def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypa
     """XPOD's two rooms are renumbered; a portal drops XMBO; a room marker keeps XMBO before XPRM; XRGD carries."""
     raw = {0x5A: {b'XPOD': struct.pack('<2I', 0x57, 0x58), b'XPRM': b'p' * 32, b'XMBO': b'b' * 12},
            0x57: {b'XPRM': b'p' * 32, b'XMBO': b'b' * 12}, 0x99: {b'XRGD': b'r' * 28}}
-    monkeypatch.setattr(PL, 'fields', lambda: raw)
+    monkeypatch.setattr(PL, 'fields', lambda: {fid: list(found.items()) for fid, found in raw.items()})
     ids = {'00000057': 0x03000057, '00000058': 0x03000058}
     assert PL.placement(0x5A, ids) == (pack_subrecord('XPRM', b'p' * 32)
                                        + pack_subrecord('XPOD', struct.pack('<2I', 0x03000057, 0x03000058)))

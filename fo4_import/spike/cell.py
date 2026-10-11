@@ -29,6 +29,7 @@ from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
 from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.scol import PART_SITE, Parts, compose
+from fo4_import.spike.emittance import Emittance
 from fo4_import.spike.lighting_template import resolved
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, DISPLAY_GAMMA, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
@@ -407,8 +408,8 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
-                             teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), ids) + _lock(builder, ref)
-                             + _emittance(builder, ref),
+                             teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids) + _lock(builder, ref)
+                             + builder.emittance.xemi(ref),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
@@ -427,20 +428,6 @@ def _lock(builder: CellBuilder, ref: dict) -> bytes:
     key = (builder.items.item(fnv_key) or 0) if fnv_key else 0
     builder.counts['locked references'] += 1
     return pack_subrecord('XLOC', struct.pack('<B3xIB3xI', int(ref['XLOC.Level']), key, int(ref.get('XLOC.Flags', 0)), 0))
-
-
-def _emittance(builder: CellBuilder, ref: dict) -> bytes:
-    """The XEMI of a reference taking its colour from an FNV light, as that light's FO4 LIGH; b'' otherwise.
-
-    A region emittance (FNV daylight) is not converted yet.
-    See: docs/fork/fo4_pipeline.md#emittance
-    """
-    fnv = int(ref.get('XEMI.Emittance', '0'), 16)
-    if builder.bases.get(fnv, ('',))[0] != 'LIGH':
-        builder.counts['emittance left out (region)'] += 'XEMI.Emittance' in ref
-        return b''
-    builder.counts['emittance from a light'] += 1
-    return pack_subrecord('XEMI', struct.pack('<I', builder.base(fnv) or 0))
 
 
 def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
@@ -710,7 +697,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     used = {int(r[key], 16) for r in every + outside for key in ('NAME', 'XEMI.Emittance') if key in r}
     parts = Parts(used)
     builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), table, plugin_dirs)
-    builder.parts = parts
+    builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
     _object_makers(builder, export_dir, scripts_dir, refs)
     ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in every}
     ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in outside}
@@ -720,6 +707,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     qa_refs, teleports = _doors(builder, [r for r in every if 'XTEL.Door' in r], links, {**ids, **ext_ids})
     qa_refs += _test_chest(builder, vanilla[TEST_CHEST]) + _qa_creatures(builder, export_dir, data_dir)
     teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
+    builder.ref_ids = {**ids, **ext_ids, **builder.actor_ids}
     persistent, temporary = _placed(builder, refs, ids, teleports)
     persistent += actors
     _quests(builder, export_dir, quest_recs, quests, {**ids, **builder.actor_ids})

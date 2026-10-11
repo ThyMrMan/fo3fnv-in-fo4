@@ -23,7 +23,8 @@ from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import file as nif_file
 from asset_convert.texture.dds_codec import write_normal_dds
 from asset_convert.texture import spec_mask
-from fo4_import.nif.convert_static import PREFIX, fo4_texture, spec_image, spec_map_path, texture_source
+from asset_convert.texture.image_transcode import encode_dds
+from fo4_import.nif.convert_static import PREFIX, fo4_texture, glow_image, spec_image, spec_map_path, texture_source
 from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.nif.elric import finish
 from fo4_import.nif.tree import tree_mesh
@@ -82,6 +83,12 @@ def write_converted(export_dir: Path, converted, rel: str, data_dir: Path) -> tu
     for spec_path, (fnv_normal, smooth) in converted.spec_maps.items():
         normal = (export_dir / texture_source(fnv_normal).replace('\\', '/')).read_bytes()
         write_normal_dds(spec_image(normal, smooth), data_dir / 'Textures' / spec_path)
+    for glow_path, sources in converted.glow_maps.items():
+        diffuse, glow = (export_dir / texture_source(t).replace('\\', '/') for t in sources)
+        if diffuse.exists() and glow.exists():
+            target = data_dir / 'Textures' / glow_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(encode_dds(glow_image(diffuse.read_bytes(), glow.read_bytes())))
     return f'{PREFIX}\\{rel}', mesh_bounds(converted.nif)
 
 

@@ -430,8 +430,20 @@ export has no `LNAM`, so it is read from FalloutNV.esm.
   - Vikki and Vance: all 25 (`NellisGeneratorFillWarm` and others).
   - FO4: vanilla uses it on 8,456 lights.
 - Dropping `XEMI` left those lights on their pale base colors. It now
-  points at the emittance light's FO4 LIGH. Region emittance (FNV
-  daylight, 6 of Doc's lights) is not converted yet.
+  points at the emittance light's FO4 LIGH.
+- **Region emittance (daylight; in test).** FO4's 7,797 sunlight-region
+  lights point at `FXLightRegionSunlightWhite` (or its bounce variant).
+  That region has one weather, `FXWthrSunlightWhite`, which holds only a
+  Sunlight and an Effect Lighting color per time of day.
+  - Each FNV region used as emittance becomes such a region, and its
+    weather a copy of that weather (`spike/emittance.py`). The copy gets
+    the Sunlight of the FNV region's first weather, read from
+    FalloutNV.esm because the export misreads FNV's 12-byte `RDWT`
+    entries.
+  - FO4's early and late sunrise and sunset take FNV's sunrise and
+    sunset.
+  - `NewVegasRegion` gives (255, 227, 170) by day; the inverted-daylight
+    regions are black by day and white at night.
 
 <a id="glow"></a>**Glow maps** (lighting pass, step 3). FNV lights a lit shape's glow
 map (texture set slot 2) with the shape's `NiMaterialProperty` emissive
@@ -450,6 +462,48 @@ the texture's presence is what turns it on.
   ours).
 - The material path gains `_glow<rgb>` so shapes sharing a diffuse but
   glowing differently keep their own material.
+- **The glow is baked, and a cut-out glow is a neon overlay (played 2026-10-10).** The
+  OPEN 24 HOURS sign showed blurry colored blocks on a yellow panel.
+  - FNV's glow shader (`SLS2004`) adds `EmittanceColor × glow` to the
+    light sum, which then multiplies the diffuse. So FNV's glow is
+    diffuse × glow-map color.
+  - FO4 adds the glow map as emission without the diffuse, so each glow
+    map is now baked: diffuse × glow, at the diffuse's resolution
+    (`<diffuse>_<glow>.dds`).
+  - The sign's diffuse hides a yellow, blotched panel behind alpha 0, cut
+    away by FNV's alpha test (threshold 64). Our material, alpha block
+    and packed texture all carried that test.
+  - Glow shapes are written as vanilla's alpha-tested glow mesh
+    (`cagebulb01.nif`): glow shader, type 2, flags2 Glow_Map `0x40`.
+    That did not restore the cut, and neither did a default shader.
+    - A one-change test settled it: the sign drew correctly with only its
+      glow removed (glow-free BGSM, default shader, empty glow slot).
+    - Our glow BGSM's flags all fall inside what vanilla's 54
+      glow-and-alpha-test BGSMs use, and vanilla's glow maps are opaque
+      BC1 like ours, so the cause is not identified.
+  - Vanilla's own OPEN sign (`signgeneralopen.nif`) is not a glow-mapped
+    BGSM. Its neon is `NeonRed01.BGEM`: additive (src alpha, one), unlit,
+    no z-write.
+  - An alpha-tested glow shape is therefore now two shapes: the lit BGSM
+    without glow (keeping the cut), and the same triangles with an
+    additive BGEM shaped like that neon. The BGEM's base texture is the
+    baked glow, colored by FNV's emissive color and multiplier. Black
+    adds nothing, so only the glowing parts light.
+  - The overlay shares its triangles' depth, and drawn plain it
+    z-fought (rapid flicker). It is a decal: BGEM `decal` and the shader's
+    Decal and Dynamic_Decal flags (`0x0C000000`), as vanilla's
+    `eyeao.bgem` overlays the eye.
+
+<a id="parents"></a>**Enable and activate parents (in test).** FNV's `XESP` (enable
+parent: reference, flags) and `XAPD`/`XAPR` (parent-activate-only flag,
+then reference and delay, repeating) have FO4's layout. They are copied
+from FalloutNV.esm like the room fields.
+- The reference is renumbered through every reference the build makes:
+  interiors, exterior and actors.
+- One that is not built is dropped, so its child stays enabled.
+- FalloutNV.esm has 2,484 references and 647 actors with an enable
+  parent, and 216 references with activate parents. Actors (here only
+  the stand-in speakers) do not carry theirs yet.
 
 <a id="lighting-colors"></a>**Cell lighting colors stay as authored** (Vikki and Vance washed
 out against FNV).

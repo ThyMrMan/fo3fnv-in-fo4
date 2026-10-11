@@ -147,8 +147,8 @@ _LIGHTING = (('flags1', 'I'), ('flags2', 'I'), ('uv_offset', '2f'), ('uv_scale',
              ('specular_strength', 'f'), ('subsurface_rolloff', 'f'), ('rimlight_power', 'f'))
 _LIGHTING_TAIL = (('grayscale_scale', 'f'), ('fresnel_power', 'f'), ('wetness', '6f'))
 _FLT_MAX = struct.unpack('<f', struct.pack('<f', 3.4028234663852886e38))[0]
-#: Shader types whose extra fields this module reads (default, environment map, skin tint).
-SHADER_DEFAULT, SHADER_ENVMAP, SHADER_SKIN_TINT = 0, 1, 5
+#: Shader types whose extra fields this module reads (default, environment map, glow: none extra; skin tint).
+SHADER_DEFAULT, SHADER_ENVMAP, SHADER_GLOW, SHADER_SKIN_TINT = 0, 1, 2, 5
 
 
 def read_lighting(r: Reader) -> dict:
@@ -165,7 +165,7 @@ def read_lighting(r: Reader) -> dict:
         out['envmap'] = r.take('f2B')
     elif out['shader_type'] == SHADER_SKIN_TINT:
         out['skin_tint'] = r.take('4f')
-    elif out['shader_type'] != SHADER_DEFAULT:
+    elif out['shader_type'] not in (SHADER_DEFAULT, SHADER_GLOW):
         raise ValueError(f"shader type {out['shader_type']} not supported")
     if r.pos != len(r.data):
         raise ValueError(f"shader type {out['shader_type']}: {len(r.data) - r.pos} bytes not read")

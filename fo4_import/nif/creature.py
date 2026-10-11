@@ -148,7 +148,7 @@ def creature_mesh(parts: list, fit: BodyFit, root_bone: str, skeleton: dict) -> 
     nodes, out = copy_skeleton(nif, fit), Converted(nif)
     for converted, path in parts:
         for name, value in (('materials', converted.materials), ('effects', converted.effects),
-                            ('spec_maps', converted.spec_maps)):
+                            ('spec_maps', converted.spec_maps), ('glow_maps', converted.glow_maps)):
             getattr(out, name).update(value)
         out.textures |= converted.textures
         _add_part(nif, converted.nif, fnv_nif(path), (fit, nodes, root_bone, skeleton))

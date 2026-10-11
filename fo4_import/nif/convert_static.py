@@ -43,6 +43,8 @@ DESC_COLOR = 0x3B00005430206
 NODE_FLAGS, SHADER_FLAGS = 0xE, (0x80400201, 0x11)
 #: Texture set slots a lighting shader fills (vanilla: 10, specular at 7).
 TEXTURE_SLOTS, SLOT_SPECULAR = 10, 7
+#: A glow-mapped lighting shader's type and flags2 bit, as vanilla cagebulb01.nif (type 2, flags2 0x41).
+SHADER_GLOW, GLOW_MAP_FLAG = 2, 0x40
 #: The glow map's slot in an FNV texture set and in FO4's.
 GLOW_SLOT = 2
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
@@ -85,6 +87,11 @@ TRANSLUCENT_EFFECT = dict(GLASS_EFFECT, alpha=1.0, two_sided=False, env_mapping=
                           base_color=(1.0, 1.0, 1.0), base_color_scale=1.0, falloff_start_angle=1.0,
                           falloff_stop_angle=1.0, falloff_start_opacity=0.0, falloff_stop_opacity=0.0,
                           lighting_influence=1.0)
+#: Vanilla NeonRed01.BGEM (signgeneralopen.nif's neon): additive (src alpha, one), unlit, no z-write.
+NEON_EFFECT = dict(TRANSLUCENT_EFFECT, src_blend=6, dst_blend=0, effect_lighting=False)
+#: Its NIF effect shader: values, flags (z-test only) and alpha property (blend 0x100D).
+NEON_SHADER = {'lighting_influence': 255, 'falloff': (1.0, 1.0, 0.0, 0.0), 'env_map_scale': 1.0}
+NEON_FLAGS, NEON_ALPHA = (0x80000000, 0x0), (0x100D, 128)
 #: Vanilla bloatfly.nif's wing effect shader values, and its flags (z-test, effect lighting; skinned bit dropped).
 WING_SHADER = {'lighting_influence': 255, 'falloff': (1.0, 1.0, 0.0, 0.0), 'base_color': (1.0, 1.0, 1.0, 1.0),
                'base_color_scale': 1.0, 'env_map_scale': 1.0}
@@ -135,6 +142,7 @@ class Converted:
     spec_maps: dict = field(default_factory=dict)
     effects: dict = field(default_factory=dict)
     animatable: bool = False
+    glow_maps: dict = field(default_factory=dict)
 
 
 def fo4_texture(fnv_path: str) -> str:
@@ -260,6 +268,23 @@ def spec_image(normal_dds: bytes, smooth: float) -> np.ndarray:
     return out
 
 
+def glow_map_path(fnv_diffuse: str, fnv_glow: str) -> str:
+    """The FO4 path of the glow map baked from an FNV diffuse and glow map: <diffuse>_<glow name>.dds."""
+    glow = fo4_texture(fnv_glow).rsplit('.', 1)[0].rsplit('\\', 1)[-1]
+    return f'{fo4_texture(fnv_diffuse).rsplit(".", 1)[0]}_{glow}.dds'
+
+
+def glow_image(diffuse_dds: bytes, glow_dds: bytes) -> Image.Image:
+    """FNV's glow as FO4's: the diffuse colour times the glow map's, at the diffuse's size.
+
+    See: docs/fork/fo4_pipeline.md#glow
+    """
+    diffuse = Image.open(io.BytesIO(diffuse_dds)).convert('RGB')
+    glow = Image.open(io.BytesIO(glow_dds)).convert('RGB').resize(diffuse.size, Image.BILINEAR)
+    lit = np.asarray(diffuse, np.float32) * (np.asarray(glow, np.float32) / 255)
+    return Image.fromarray(np.round(lit).astype(np.uint8), 'RGB')
+
+
 @dataclass
 class ShapeMaterial:
     """A shape's material, its path and dict, FNV textures, alpha, spec map.
@@ -279,6 +304,8 @@ class ShapeMaterial:
     shader: 'tuple | None' = None
     flags1: int = 0
     split: 'tuple | None' = None
+    glow: 'tuple | None' = None
+    overlay: 'ShapeMaterial | None' = None
 
 
 def _alpha_fields_of(flags: int, threshold: int) -> dict:
@@ -385,14 +412,45 @@ def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, te
     mat['textures']['normal'] = fo4_texture(fnv[1] if len(fnv) > 1 else '').replace('\\', '/')
     spec = _specular(mat, fnv[1] if len(fnv) > 1 else '', props, texture_root)
     part = _lit_alpha(alpha, decal)
-    suffix = ('_2s' if two_sided else '') + _glow(mat, fnv, props)
+    cut = bool(part and part[0] & ALPHA_TEST_BIT)
+    suffix = ('_2s' if two_sided else '') + ('' if cut else _glow(mat, fnv, props))
     if part is not None:
         mat.update(_alpha_fields_of(*part))
         suffix += f'_a{part[0]:x}_{part[1]}'
     stem = mat['textures']['diffuse'].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
     textures = list(fnv[:GLOW_SLOT + 1]) if mat['glowmap'] else [t for t in fnv[:2] if t]
+    glow = (glow_map_path(fnv[0], fnv[GLOW_SLOT]), (fnv[0], fnv[GLOW_SLOT])) if mat['glowmap'] and fnv[0] else None
+    overlay = _glow_overlay(fnv, props, two_sided) if cut and len(fnv) > GLOW_SLOT and fnv[GLOW_SLOT] and fnv[0] \
+        else None
     return ShapeMaterial('lit', f'materials\\{stem}{suffix}.bgsm', mat, textures, part, spec,
-                         flags1=DECAL_FLAGS if decal else 0)
+                         flags1=DECAL_FLAGS if decal else 0, glow=glow, overlay=overlay)
+
+
+def _emission(props: dict) -> tuple:
+    """(colour clamped to 0-1, multiplier) of an FNV shape's NiMaterialProperty emission; white x1 without one."""
+    material = props.get('NiMaterialProperty')
+    if material is None:
+        return (1.0, 1.0, 1.0), 1.0
+    color = tuple(max(0.0, min(1.0, float(getattr(material.emissive_color, c)))) for c in 'rgb')
+    return color, float(getattr(material, 'emit_multi', 1.0))
+
+
+def _glow_overlay(fnv: list, props: dict, two_sided: bool) -> ShapeMaterial:
+    """An alpha-tested glow shape's glow as vanilla's neon (NeonRed01.BGEM): additive, unlit, its baked glow map;
+    a decal over the shape's own triangles, as vanilla's eyeao.bgem overlays the eye.
+
+    See: docs/fork/fo4_pipeline.md#glow
+    """
+    color, mult = _emission(props)
+    baked = glow_map_path(fnv[0], fnv[GLOW_SLOT])
+    data = dict(NEON_EFFECT, two_sided=two_sided, decal=True, base_color=color, base_color_scale=mult,
+                textures={'base': baked.replace('\\', '/'), 'grayscale': '', 'envmap': '', 'normal': '', 'env_mask': ''})
+    values = dict(NEON_SHADER, base_color=(*color, 1.0), base_color_scale=mult)
+    flags = (NEON_FLAGS[0] | DECAL_FLAGS, NEON_FLAGS[1] | (DOUBLE_SIDED if two_sided else 0))
+    rgb = ''.join(f'{round(c * 255):02x}' for c in color)
+    return ShapeMaterial('effect', f'materials\\{baked.rsplit(".", 1)[0]}_neon{rgb}x{mult:g}.bgem', data,
+                         [fnv[0], fnv[GLOW_SLOT]], NEON_ALPHA, None, (values, flags),
+                         glow=(baked, (fnv[0], fnv[GLOW_SLOT])))
 
 
 def _glow(mat: dict, fnv: list, props: dict) -> str:
@@ -403,12 +461,11 @@ def _glow(mat: dict, fnv: list, props: dict) -> str:
     """
     if len(fnv) <= GLOW_SLOT or not fnv[GLOW_SLOT]:
         return ''
-    material, shader = props.get('NiMaterialProperty'), props.get('BSShaderPPLightingProperty')
-    color = tuple(max(0.0, min(1.0, float(getattr(material.emissive_color, c)))) for c in 'rgb') if material \
-        else (1.0, 1.0, 1.0)
-    mult = float(getattr(material, 'emit_multi', 1.0)) if material else 1.0
+    shader = props.get('BSShaderPPLightingProperty')
+    color, mult = _emission(props)
     external = bool(shader and shader.shader_flags.sf_external_emittance)
-    mat['textures']['glow'] = fo4_texture(fnv[GLOW_SLOT]).replace('\\', '/')
+    glow = glow_map_path(fnv[0], fnv[GLOW_SLOT]) if fnv[0] else fo4_texture(fnv[GLOW_SLOT])
+    mat['textures']['glow'] = glow.replace('\\', '/')
     mat.update(glowmap=True, emittance=True, emittance_color=color, emittance_mult=mult, external_emittance=external)
     return '_glow' + ''.join(f'{round(c * 255):02x}' for c in color) + (f'x{mult:g}' if mult != 1.0 else '') + \
         ('e' if external else '')
@@ -478,6 +535,8 @@ def emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeM
     out.textures |= {t for t in mat.textures if t}
     if mat.spec:
         out.spec_maps[mat.spec[0]] = mat.spec[1]
+    if mat.glow:
+        out.glow_maps[mat.glow[0]] = mat.glow[1]
     index = len(nif.blocks)
     after_shader = index + (3 if mat.kind == 'lit' else 2)
     center = (pos.min(axis=0) + pos.max(axis=0)) / 2
@@ -493,11 +552,7 @@ def emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeM
     elif mat.kind == 'unlit':
         nif.blocks.append(('BSEffectShaderProperty', _unlit_shader(nif, mat, colors is not None)))
     else:
-        nif.blocks.append(('BSLightingShaderProperty', lighting_shader(nif, mat.path, index + 2, mat.flags1)))
-        slots = [f'textures\\{fo4_texture(t)}' if t else '' for t in mat.textures] + [''] * TEXTURE_SLOTS
-        if mat.spec:
-            slots[SLOT_SPECULAR] = f'textures\\{mat.spec[0]}'
-        nif.blocks.append(('BSShaderTextureSet', {'textures': slots[:TEXTURE_SLOTS]}))
+        nif.blocks += _lit_blocks(nif, mat, index)
     if mat.alpha:
         nif.blocks.append(('NiAlphaProperty', {'name': NONE, 'extra': [], 'controller': NONE,
                                                'alpha_flags': mat.alpha[0], 'threshold': mat.alpha[1]}))
@@ -515,7 +570,7 @@ def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> lis
         elif see_through.any():
             return [emit(nif, name, geometry, tris[~see_through], mat, out),
                     emit(nif, name, geometry, tris[see_through], mat.split[0], out)]
-    return [emit(nif, name, geometry, tris, mat, out)]
+    return [emit(nif, name, geometry, tris, m, out) for m in (mat, mat.overlay) if m]
 
 
 def _effect_shader(nif: NifFile, mat: ShapeMaterial) -> dict:
@@ -546,6 +601,22 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
             'lighting_influence': 0, 'env_min_lod': 0, 'unused': 0, 'falloff': data['falloff'] or (1.0, 1.0, 1.0, 1.0),
             'base_color': (1.0, 1.0, 1.0, 1.0), 'base_color_scale': 1.0, 'soft_depth': 100.0, 'greyscale': '',
             'env_map': '', 'normal': '', 'env_mask': '', 'env_map_scale': 1.0}
+
+
+def _lit_blocks(nif: NifFile, mat: ShapeMaterial, index: int) -> list:
+    """A lit shape's shader and texture set blocks; a glow-mapped one is a glow shader, as vanilla's.
+
+    See: docs/fork/fo4_pipeline.md#glow
+    """
+    shader = lighting_shader(nif, mat.path, index + 2, mat.flags1)
+    slots = [f'textures\\{fo4_texture(t)}' if t else '' for t in mat.textures] + [''] * TEXTURE_SLOTS
+    if mat.spec:
+        slots[SLOT_SPECULAR] = f'textures\\{mat.spec[0]}'
+    if mat.data.get('glowmap'):
+        shader.update(shader_type=SHADER_GLOW, flags2=shader['flags2'] | GLOW_MAP_FLAG)
+    if mat.glow:
+        slots[GLOW_SLOT] = f'textures\\{mat.glow[0]}'
+    return [('BSLightingShaderProperty', shader), ('BSShaderTextureSet', {'textures': slots[:TEXTURE_SLOTS]})]
 
 
 def lighting_shader(nif: NifFile, material: str, texture_set: int, flags1: int) -> dict:

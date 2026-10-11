@@ -460,15 +460,28 @@ def test_a_fire_addon_maps_to_fo4s_by_name_and_a_damage_stage_one_is_left_out():
     assert values == [[4], []]
 
 
+def test_an_alpha_tested_glow_shape_keeps_its_cut_and_glows_through_an_additive_decal_overlay():
+    """The OPEN 24 HOURS sign drew its hidden panel with a glow BGSM; the cut stays on a glow-free BGSM and the
+    glow is a neon-like BGEM (additive, decal) on the baked glow map."""
+    alpha = type('A', (), {'flags': 0x12EC, 'threshold': 64})()
+    mat = C.lit_material(['a.dds', 'a_n.dds', 'a_e.dds'], {}, alpha, False, False, None)
+    glow = mat.overlay
+    assert mat.data['alpha_test'] and not mat.data['glowmap'] and mat.alpha == (0x12EC, 64)
+    assert glow.kind == 'effect' and glow.alpha == C.NEON_ALPHA and glow.glow[0] == 'fnv\\a_a_e.dds'
+    assert (glow.data['src_blend'], glow.data['dst_blend'], glow.data['decal']) == (6, 0, True)
+    assert glow.shader[1][0] & C.DECAL_FLAGS == C.DECAL_FLAGS
+
+
 def test_a_glow_map_lights_the_material_with_fnvs_emissive_colour():
-    """MojaveExpressSign's glow map: glowmap and emittance on, FNV's emissive colour (clamped), a path per colour."""
+    """MojaveExpressSign's glow map: glowmap and emittance on, FNV's emissive colour (clamped), a path per colour;
+    the glow slot names the map baked from the diffuse."""
     material = type('M', (), {'emissive_color': type('C', (), {'r': 1.0, 'g': 0.35, 'b': -0.2})(), 'emit_multi': 1.0})()
     flags = type('F', (), {'sf_external_emittance': 0})()
     props = {'NiMaterialProperty': material, 'BSShaderPPLightingProperty': type('S', (), {'shader_flags': flags})()}
     mat = dict(C.MATERIAL, textures=dict.fromkeys(C.BGSM_TEXTURES, ''))
     suffix = C._glow(mat, ['a.dds', 'a_n.dds', 'textures\\a_g.dds'], props)
     assert mat['glowmap'] and mat['emittance'] and mat['emittance_color'] == (1.0, 0.35, 0.0)
-    assert suffix == '_glowff5900' and mat['textures']['glow'] == 'fnv/a_g.dds'
+    assert suffix == '_glowff5900' and mat['textures']['glow'] == 'fnv/a_a_g.dds'
     assert C._glow(dict(mat), ['a.dds', 'a_n.dds'], props) == ''
 
 
