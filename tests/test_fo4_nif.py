@@ -403,6 +403,23 @@ def test_a_particle_controller_only_drives_a_modifier_its_system_has():
             controller = block['next']
 
 
+@pytest.mark.skipif(not WHIRLWIND.exists(), reason='needs the FalloutNV.esm export')
+def test_a_mesh_emitter_points_at_a_hidden_emitter_shape_and_the_modifiers_stay_modifiers():
+    """The whirlwind crashed loading: its emitter shape was made mid-way through the modifiers, shifting them onto
+    the shape and its BSPositionData. Each system's modifiers are modifiers; the emitter shape is vanilla's form."""
+    nif = F.read(F.write(C.convert(str(WHIRLWIND), 'export/FalloutNV.esm').nif))
+    for kind, system in nif.blocks:
+        if kind == 'NiParticleSystem':
+            assert all(nif.blocks[m][0].startswith(('NiPSys', 'BSPSys')) for m in system['modifiers'])
+    emitters = [b for k, b in nif.blocks if k == 'NiPSysMeshEmitter']
+    shape = nif.blocks[emitters[0]['meshes'][0]][1]
+    assert len(emitters) == 2 and emitters[0]['meshes'] == emitters[1]['meshes']
+    assert shape['flags'] & 1 and shape['vertex_desc'] == 0 and shape['shader'] == K.NONE
+    triangles, corners = shape['counts']
+    position = nif.blocks[shape['extra'][0]]
+    assert position[0] == 'BSPositionData' and corners == 3 * triangles and len(position[1]['values']) == 7 * corners
+
+
 @pytest.mark.skipif(not (FALLOUT4_DIR / 'Data').exists(), reason='needs Fallout 4')
 def test_every_particle_block_layout_round_trips_a_vanilla_effect_mesh():
     """particle_blocks reads each vanilla block to its exact length and packs back the same bytes."""

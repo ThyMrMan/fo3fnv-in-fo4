@@ -13,15 +13,21 @@ See: docs/fork/fo4_pipeline.md#particles
 
 import struct
 
+import numpy as np
+
 from fo4_import.nif.blocks import Reader, pack_refs, read_av, pack_av
 
 #: NiPSysModifier: name (string), order, target (the system), active.
 MODIFIER = (('name', 'i'), ('order', 'I'), ('target', 'i'), ('active', 'B'))
-#: NiPSysEmitter's fields after the modifier's.
-EMITTER = MODIFIER + (('speed', 'f'), ('speed_variation', 'f'), ('declination', 'f'),
-                      ('declination_variation', 'f'), ('planar_angle', 'f'), ('planar_angle_variation', 'f'),
-                      ('initial_color', '4f'), ('initial_radius', 'f'), ('radius_variation', 'f'),
-                      ('life_span', 'f'), ('life_span_variation', 'f'), ('emitter_object', 'i'))
+#: NiPSysEmitter: the modifier's fields, then the emission's.
+EMITTER_BASE = MODIFIER + (('speed', 'f'), ('speed_variation', 'f'), ('declination', 'f'),
+                           ('declination_variation', 'f'), ('planar_angle', 'f'), ('planar_angle_variation', 'f'),
+                           ('initial_color', '4f'), ('initial_radius', 'f'), ('radius_variation', 'f'),
+                           ('life_span', 'f'), ('life_span_variation', 'f'))
+#: NiPSysVolumeEmitter: an emitter placed by a node.
+EMITTER = EMITTER_BASE + (('emitter_object', 'i'),)
+#: NiPSysMeshEmitter after its emitter meshes.
+MESH_EMITTER_TAIL = (('velocity_type', 'I'), ('emission_type', 'I'), ('emission_axis', '3f'))
 #: NiTimeController: next, flags, frequency, phase, start, stop, target.
 CONTROLLER = (('next', 'i'), ('flags', 'H'), ('frequency', 'f'), ('phase', 'f'), ('start', 'f'), ('stop', 'f'),
               ('target', 'i'))
@@ -45,6 +51,8 @@ SPECS = {
     'NiPSysGrowFadeModifier': MODIFIER + (('grow_time', 'f'), ('grow_generation', 'H'), ('fade_time', 'f'),
                                           ('fade_generation', 'H'), ('base_scale', 'f')),
     'NiPSysBoundUpdateModifier': MODIFIER + (('update_skip', 'H'),),
+    'NiPSysBombModifier': MODIFIER + (('bomb_object', 'i'), ('bomb_axis', '3f'), ('decay', 'f'), ('delta_v', 'f'),
+                                      ('decay_type', 'I'), ('symmetry_type', 'I')),
     'NiPSysPositionModifier': MODIFIER,
     'BSPSysSimpleColorModifier': MODIFIER + (('fade_in', 'f'), ('fade_out', 'f'), ('color1_end', 'f'),
                                              ('color1_start', 'f'), ('color2_end', 'f'), ('color2_start', 'f'),
@@ -131,6 +139,31 @@ def pack_scale(b: dict) -> bytes:
     return pack_fields(b, MODIFIER) + struct.pack(f'<I{len(b["scales"])}f', len(b['scales']), *b['scales'])
 
 
+def read_mesh_emitter(r: Reader) -> dict:
+    """NiPSysMeshEmitter: the emitter, its emitter meshes (pointers), velocity and emission type, emission axis."""
+    out = read_fields(r, EMITTER_BASE)
+    out['meshes'] = r.refs()
+    out.update(read_fields(r, MESH_EMITTER_TAIL))
+    return out
+
+
+def pack_mesh_emitter(b: dict) -> bytes:
+    """NiPSysMeshEmitter's bytes."""
+    return pack_fields(b, EMITTER_BASE) + pack_refs(b['meshes']) + pack_fields(b, MESH_EMITTER_TAIL)
+
+
+def read_position_data(r: Reader) -> dict:
+    """BSPositionData: name, then half floats (an emitter mesh's positions, normals and a per-vertex value)."""
+    name, n = r.take('i'), r.take('I')
+    raw, r.pos = r.data[r.pos:r.pos + 2 * n], r.pos + 2 * n
+    return {'name': name, 'values': [float(v) for v in np.frombuffer(raw, '<f2')]}
+
+
+def pack_position_data(b: dict) -> bytes:
+    """BSPositionData's bytes."""
+    return struct.pack('<iI', b['name'], len(b['values'])) + np.asarray(b['values'], '<f2').tobytes()
+
+
 def read_bool_data(r: Reader) -> dict:
     """NiBoolData: a key group of byte values (time, value; interpolation as the keys say)."""
     n = r.take('I')
@@ -151,4 +184,6 @@ PARTICLE_BLOCKS = {
     'NiParticleSystem': (read_system, pack_system),
     'BSPSysScaleModifier': (read_scale, pack_scale),
     'NiBoolData': (read_bool_data, pack_bool_data),
+    'NiPSysMeshEmitter': (read_mesh_emitter, pack_mesh_emitter),
+    'BSPositionData': (read_position_data, pack_position_data),
 }

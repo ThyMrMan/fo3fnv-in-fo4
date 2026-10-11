@@ -582,8 +582,23 @@ dust, and drew nothing; the whirlwind's dust puffs went missing.
   vanilla's 1,162 `NiBlendBoolInterpolator`s are (manager-controlled,
   value 2). A mesh whose sequences only drive particles counts as
   animated.
-- **Left out:** colliders, bomb modifiers and mesh emitters (one mesh
-  each in the region).
+- **Mesh emitters and bombs (played 2026-10-11: loads).** The whirlwind's wisps and debris
+  emit from the faces of a hidden mesh and are pushed by a bomb.
+  - Vanilla's mesh emitter (`fxbitsdebrisspiral01.nif`) points at a
+    hidden `BSTriShape` with no shader and no vertex data, only counts.
+    The shape's `BSPositionData` (`BSPosData`, half floats) lists every
+    triangle corner unshared: 5 triangles give 15 positions, then 15
+    normals (the face's), then 15 zeros.
+  - An FNV emitter mesh becomes that shape (16 strip triangles give 48
+    corners), made once even when two systems share it, under its kept
+    parent.
+  - The bomb's node is kept like the emitter's. The mesh emitter, bomb
+    and position data round-trip vanilla's 9, 24 and 3 instances.
+  - The emitter shapes are made before the system's modifiers are
+    numbered. The first build made one partway through, which shifted
+    every later modifier onto the shape and its `BSPositionData`, and FO4
+    crashed loading the whirlwind.
+- **Left out:** colliders (one mesh in the region).
 - A controller of a modifier that was left out is left out too. The
   whirlwind's `NiPSysModifierActiveCtlr` named its bomb modifier, and FO4
   crashed entering Goodsprings looking it up

@@ -708,11 +708,10 @@ def _particles(nif: NifFile, root, found: list, nodes: dict, out: Converted, tex
 
     See: docs/fork/fo4_pipeline.md#particles
     """
-    made = {}
+    made, scene = {}, {'nodes': nodes, 'place': lambda geom: nodes[id(_owner(geom, root, nodes))], 'emitters': {}}
     for system in found:
-        owner = _owner(system, root, nodes)
         shader = material_blocks(nif, _material(system, texture_root), out, bool(system.data.has_vertex_colors))
-        made.update(add_system(nif, system, nodes[id(owner)], nodes, shader))
+        made.update(add_system(nif, system, scene['place'](system), shader, scene))
     return made
 
 

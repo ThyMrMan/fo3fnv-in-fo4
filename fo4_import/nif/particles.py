@@ -12,8 +12,10 @@ aspect 1). Colliders, bomb and mesh emitters are left out.
 See: docs/fork/fo4_pipeline.md#particles
 """
 
+import numpy as np
+
 from fo4_import.nif.blocks import NONE
-from fo4_import.nif.particle_blocks import SPECS
+from fo4_import.nif.particle_blocks import EMITTER_BASE, SPECS
 from fo4_import.nif.shader_anim import interpolator, timing
 
 #: Our field name -> pyffi's for the FNV blocks where they differ.
@@ -26,13 +28,20 @@ ALIASES = {'rotation_speed': 'initial_rotation_speed', 'rotation_speed_variation
            'color2_start': 'color_2_start_percent', 'lod_begin': 'uknown_float_1', 'lod_end': 'uknown_float_2',
            'end_emit_scale': 'uknown_float_3', 'end_size': 'uknown_float_4'}
 #: Fields naming a scene node (kept as a node so the reference resolves).
-OBJECT_FIELDS = ('emitter_object', 'gravity_object', 'drag_object')
+OBJECT_FIELDS = ('emitter_object', 'gravity_object', 'drag_object', 'bomb_object')
+#: NiPSysMeshEmitter's fields after its meshes -> pyffi's names.
+MESH_EMITTER_FIELDS = {'velocity_type': 'initial_velocity_type', 'emission_type': 'emission_type',
+                       'emission_axis': 'emission_axis'}
 #: Controllers FO4 shares with FNV on a particle system.
 CONTROLLERS = ('NiPSysEmitterCtlr', 'NiPSysModifierActiveCtlr', 'NiPSysUpdateCtlr')
 #: Vanilla's NiParticleSystem vertex description (all 729 systems).
 VERTEX_DESC = 594510335218548785
 #: Points of a grow/fade scale curve over the particle's life.
 SCALE_SAMPLES = 33
+#: Modifiers written by their own code rather than SPECS.
+WRITTEN = ('BSPSysScaleModifier', 'NiPSysMeshEmitter')
+#: An emitter shape's position data name and its hidden flag (vanilla fxbitsdebrisspiral01.nif's EmitterSpiral).
+POSITION_DATA, HIDDEN = 'BSPosData', 0x1
 
 
 def drives_particles(cb) -> bool:
@@ -63,6 +72,7 @@ def wanted_nodes(root, found: list) -> set:
     out = {id(parents[id(s)]) for s in found if id(s) in parents}
     for system in found:
         for mod in system.modifiers:
+            out |= {id(parents[id(m)]) for m in getattr(mod, 'emitter_meshes', []) if m is not None and id(m) in parents}
             for field in OBJECT_FIELDS:
                 target = getattr(mod, ALIASES.get(field, field), None)
                 if target is not None:
@@ -70,19 +80,22 @@ def wanted_nodes(root, found: list) -> set:
     return out
 
 
-def add_system(nif, system, owner: int, nodes: dict, shader: tuple) -> dict:
+def add_system(nif, system, owner: int, shader: tuple, scene: dict) -> dict:
     """Append FNV particle `system` under block `owner` with `shader` (shader, alpha indices); {id(FNV controller):
-    FO4 index} of its converted controllers."""
+    FO4 index} of its converted controllers. `scene` holds the kept `nodes`, `place` (an FNV shape's owner block)
+    and `emitters` (emitter shapes made so far)."""
     index = len(nif.blocks)
     nif.blocks.append(('NiParticleSystem', {}))
     data = _data(nif, system.data)
-    supported = [m for m in system.modifiers
-                 if type(m).__name__ in SPECS or type(m).__name__ == 'BSPSysScaleModifier' or _grow_fade(m)]
-    refs = {'system': index, 'nodes': nodes,
-            'modifiers': {id(m): len(nif.blocks) + i for i, m in enumerate(supported)}}
-    life = next((float(m.life_span) for m in supported if hasattr(m, 'emitter_object')), 1.0)
+    supported = [m for m in system.modifiers if type(m).__name__ in SPECS or type(m).__name__ in WRITTEN
+                 or _grow_fade(m)]
+    for geom in (g for m in supported for g in getattr(m, 'emitter_meshes', []) if g is not None):
+        _emitter(nif, geom, scene)
+    refs = {**scene, 'system': index, 'modifiers': {id(m): len(nif.blocks) + i for i, m in enumerate(supported)}}
+    life = next((float(m.life_span) for m in supported if type(m).__name__.endswith('Emitter')), 1.0)
     for mod in supported:
         nif.blocks.append(_modifier(nif, mod, refs, life))
+    assert all(nif.blocks[i][0] == _fo4_kind(m) for m, i in zip(supported, refs['modifiers'].values()))
     made = _controllers(nif, system, index, {m.name for m in supported})
     t = system.translation
     nif.blocks[index] = ('NiParticleSystem', {
@@ -112,6 +125,11 @@ def _data(nif, d) -> int:
     return len(nif.blocks) - 1
 
 
+def _fo4_kind(mod) -> str:
+    """The FO4 block type FNV modifier `mod` becomes."""
+    return 'BSPSysScaleModifier' if _grow_fade(mod) else type(mod).__name__
+
+
 def _grow_fade(mod) -> bool:
     """Whether `mod` is an FNV grow/fade modifier (made a scale curve)."""
     return type(mod).__name__ == 'NiPSysGrowFadeModifier'
@@ -125,7 +143,37 @@ def _modifier(nif, mod, refs: dict, life: float) -> tuple:
     kind = type(mod).__name__
     if kind == 'BSPSysScaleModifier':
         return kind, {**head, 'scales': [float(v) for v in mod.floats]}
+    if kind == 'NiPSysMeshEmitter':
+        fields = {name: _value(nif, name, getattr(mod, name), refs) for name, _ in EMITTER_BASE}
+        tail = {name: _value(nif, name, getattr(mod, attr), refs) for name, attr in MESH_EMITTER_FIELDS.items()}
+        return kind, {**fields, **tail, 'meshes': [_emitter(nif, m, refs) for m in mod.emitter_meshes if m is not None]}
     return kind, {name: _value(nif, name, getattr(mod, ALIASES.get(name, name)), refs) for name, _ in SPECS[kind]}
+
+
+def _emitter(nif, geom, refs: dict) -> int:
+    """The FO4 emitter shape of FNV mesh `geom`, made once under its kept owner, as vanilla's: a hidden BSTriShape
+    with no shader or vertex data, its triangles' corners (unshared, face normals) in a BSPositionData."""
+    if id(geom) in refs['emitters']:
+        return refs['emitters'][id(geom)]
+    verts = np.array([(v.x, v.y, v.z) for v in geom.data.vertices], float)
+    corners = verts[np.array(geom.data.get_triangles(), int)]
+    normals = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-9)
+    points = corners.reshape(-1, 3)
+    values = [*points.ravel(), *np.repeat(normals, 3, axis=0).ravel(), *[0.0] * len(points)]
+    nif.blocks.append(('BSPositionData', {'name': nif.string(POSITION_DATA), 'values': [float(v) for v in values]}))
+    center = (points.min(axis=0) + points.max(axis=0)) / 2
+    t, owner = geom.translation, refs['place'](geom)
+    refs['emitters'][id(geom)] = len(nif.blocks)
+    nif.blocks.append(('BSTriShape', {
+        'name': nif.string(geom.name.decode('cp1252')), 'extra': [len(nif.blocks) - 1], 'controller': NONE,
+        'flags': geom.flags | HIDDEN, 'translation': (t.x, t.y, t.z),
+        'rotation': tuple(v for column in zip(*geom.rotation.as_list()) for v in column), 'scale': geom.scale,
+        'collision': NONE, 'bound': (*map(float, center), float(np.linalg.norm(points - center, axis=1).max())),
+        'skin': NONE, 'shader': NONE, 'alpha_property': NONE, 'vertex_desc': 0, 'vertices': [], 'triangles': [],
+        'counts': (len(corners), len(points))}))
+    nif.blocks[owner][1]['children'].append(refs['emitters'][id(geom)])
+    return refs['emitters'][id(geom)]
 
 
 def scale_curve(grow: float, fade: float, life: float) -> list:
