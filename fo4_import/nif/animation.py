@@ -21,7 +21,8 @@ import numpy as np
 
 from fo4_import.nif.blocks import DESC_SKINNED, DESC_SKINNED_COLOR, NONE, SHADER_SKINNED
 from fo4_import.nif.file import NifFile
-from fo4_import.nif.shader_anim import channel, key_group, shader_block, shapes_by_name
+from fo4_import.nif.particles import drives_particles, particle_block
+from fo4_import.nif.shader_anim import channel, key_group, shader_block, shapes_by_name, timing
 
 #: Bones a BSTriShape vertex is weighted to.
 VERTEX_BONES = 4
@@ -39,11 +40,12 @@ def moves(cb) -> bool:
 
 
 def animatable(manager) -> bool:
-    """Whether a sequence moves a node or animates a shader channel (shader_anim).
+    """Whether a sequence moves a node, animates a shader or drives particles.
 
     See: docs/fork/fo4_pipeline.md#effect-animation
     """
-    return any(moves(cb) or channel(cb) for seq in manager.controller_sequences for cb in seq.controlled_blocks)
+    return any(moves(cb) or channel(cb) or drives_particles(cb)
+               for seq in manager.controller_sequences for cb in seq.controlled_blocks)
 
 
 def skin_bones(root) -> set:
@@ -89,12 +91,13 @@ def add_nodes(nif: NifFile, kept: list, root, flags: int) -> dict:
     return index
 
 
-def controllers(nif: NifFile, root, manager, nodes: dict) -> int:
-    """Append FNV `manager`'s blocks (sequences, interpolators, data, text keys, palette) for the kept `nodes`;
-    the FO4 manager's index, set as the root's controller."""
+def controllers(nif: NifFile, root, manager, nodes: dict, particles: dict) -> int:
+    """Append FNV `manager`'s blocks (sequences, interpolators, data, text keys, palette) for the kept `nodes`
+    and converted `particles` controllers ({id(FNV): FO4}); the FO4 manager's index, set as the root's controller."""
     base = len(nif.blocks)
     multi = _multi_target(manager)
-    at = {'manager': base, 'multi': base + 1, 'shapes': shapes_by_name(nif), 'made': {}, 'animated': {}}
+    at = {'manager': base, 'multi': base + 1, 'shapes': shapes_by_name(nif), 'made': {}, 'animated': {},
+          'particles': particles}
     nif.blocks += [('NiControllerManager', {}), ('NiMultiTargetTransformController', {})]
     seq_index = [_sequence(nif, seq, at, root) for seq in manager.controller_sequences]
     palette = len(nif.blocks)
@@ -103,10 +106,10 @@ def controllers(nif: NifFile, root, manager, nodes: dict) -> int:
                                 for o in manager.object_palette.objs if id(o.av_object) in nodes]
         + sorted(at['animated'].items())}))
     nif.blocks[at['manager']] = ('NiControllerManager', {
-        **_timing(manager), 'next': at['multi'], 'target': 0, 'cumulative': int(manager.cumulative),
+        **timing(manager), 'next': at['multi'], 'target': 0, 'cumulative': int(manager.cumulative),
         'sequences': seq_index, 'palette': palette})
     nif.blocks[at['multi']] = ('NiMultiTargetTransformController', {
-        **(_timing(multi) if multi else _timing(manager)), 'next': NONE, 'target': 0,
+        **(timing(multi) if multi else timing(manager)), 'next': NONE, 'target': 0,
         'targets': [nodes[id(t)] for t in (multi.extra_targets if multi else []) if id(t) in nodes]})
     nif.blocks[0][1]['controller'] = at['manager']
     return at['manager']
@@ -120,12 +123,6 @@ def _multi_target(manager):
     return controller
 
 
-def _timing(controller) -> dict:
-    """A NiTimeController's flags, frequency, phase, start and stop."""
-    return {'flags': controller.flags, 'frequency': controller.frequency, 'phase': controller.phase,
-            'start': controller.start_time, 'stop': controller.stop_time}
-
-
 def _string(nif: NifFile, value: bytes) -> int:
     """The string index of an FNV string field (-1 for empty)."""
     return nif.string(value.decode('cp1252')) if value else NONE
@@ -137,9 +134,15 @@ def _sequence(nif: NifFile, seq, at: dict, root) -> int:
     nif.blocks.append(('NiControllerSequence', {}))
     blocks = []
     for cb in seq.controlled_blocks:
+        if drives_particles(cb):
+            block = particle_block(nif, cb, at['particles'])
+            if block:
+                at['animated'][cb.node_name.decode('cp1252')] = nif.blocks[block['controller']][1]['target']
+                blocks.append(block)
+            continue
         if channel(cb):
-            timing = _timing(cb.controller) if cb.controller is not None else _timing(seq.manager)
-            block = shader_block(nif, cb, timing, at['shapes'], at['made'], cb.priority)
+            when = timing(cb.controller) if cb.controller is not None else timing(seq.manager)
+            block = shader_block(nif, cb, when, at['shapes'], at['made'], cb.priority)
             if block:
                 name, shape = block.pop('shape')
                 at['animated'][name] = shape

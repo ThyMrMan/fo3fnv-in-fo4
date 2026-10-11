@@ -21,6 +21,7 @@ from fo4_import.nif import blocks as K
 from fo4_import.nif import gun as G
 from fo4_import.nif import headgear as H
 from fo4_import.nif import outfit as O
+from fo4_import.nif.particle_blocks import PARTICLE_BLOCKS
 from fo4_import.nif import retarget as RT
 from fo4_import.nif import tree as T
 from fo4_import.nif import weapon as W
@@ -380,6 +381,42 @@ def test_shader_animation_drives_the_shapes_shader_through_idle_blend_controller
     shader_blocks = [c for c in blocks if nif.strings[c['property']] == 'BSLightingShaderProperty']
     assert {nif.strings[c['controller_id']] for c in shader_blocks} == {'11', '1'}
     assert all(nif.blocks[c['interpolator']][0] in ('NiFloatInterpolator', 'NiPoint3Interpolator') for c in shader_blocks)
+
+
+WHIRLWIND = Path('export/FalloutNV.esm/meshes/effects/ambient/fxdustwhirlwind01.nif')
+
+
+@pytest.mark.skipif(not WHIRLWIND.exists(), reason='needs the FalloutNV.esm export')
+def test_a_particle_controller_only_drives_a_modifier_its_system_has():
+    """Goodsprings crashed (NiPSysModifierActiveCtlr on a null modifier): every particle controller's modifier
+    name is one of its system's converted modifiers."""
+    nif = F.read(F.write(C.convert(str(WHIRLWIND), 'export/FalloutNV.esm').nif))
+    name = lambda i: nif.strings[i] if i >= 0 else ''
+    for kind, system in nif.blocks:
+        if kind != 'NiParticleSystem':
+            continue
+        modifiers = {name(nif.blocks[m][1]['name']) for m in system['modifiers']}
+        controller = system['controller']
+        while controller >= 0:
+            block = nif.blocks[controller][1]
+            assert 'modifier_name' not in block or name(block['modifier_name']) in modifiers
+            controller = block['next']
+
+
+@pytest.mark.skipif(not (FALLOUT4_DIR / 'Data').exists(), reason='needs Fallout 4')
+def test_every_particle_block_layout_round_trips_a_vanilla_effect_mesh():
+    """particle_blocks reads each vanilla block to its exact length and packs back the same bytes."""
+    data = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2').read('meshes\\effects\\dustfloatingslow.nif')
+    _, entries, pos = F.read_header(data)
+    seen = set()
+    for kind, size in entries:
+        raw, pos = data[pos:pos + size], pos + size
+        if kind in PARTICLE_BLOCKS:
+            reader, packer = PARTICLE_BLOCKS[kind]
+            r = K.Reader(raw)
+            assert packer(reader(r)) == raw and r.pos == len(raw), kind
+            seen.add(kind)
+    assert {'NiParticleSystem', 'NiPSysData', 'NiPSysBoxEmitter', 'BSPSysSimpleColorModifier'} <= seen
 
 
 #: Byte of a pre-Elric bhkRigidBody holding its motion system (after the 32-byte head and the body info before it).

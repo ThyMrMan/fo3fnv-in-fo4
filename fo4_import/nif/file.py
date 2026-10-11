@@ -12,9 +12,10 @@ from dataclasses import dataclass, field
 
 from fo4_import.nif.anim_blocks import ANIM_BLOCKS
 from fo4_import.nif.blocks import BLOCKS as STATIC_BLOCKS, Reader
+from fo4_import.nif.particle_blocks import PARTICLE_BLOCKS
 
 #: Every block type this package reads and writes.
-BLOCKS = {**STATIC_BLOCKS, **ANIM_BLOCKS}
+BLOCKS = {**STATIC_BLOCKS, **ANIM_BLOCKS, **PARTICLE_BLOCKS}
 
 HEADER_TEXT = b'Gamebryo File Format, Version 20.2.0.7\n'
 VERSION, USER_VERSION, BS_VERSION = 0x14020007, 12, 130
@@ -52,7 +53,7 @@ def _short(data: bytes, pos: int) -> tuple:
     return data[pos + 1:pos + 1 + n], pos + 1 + n
 
 
-def _read_header(data: bytes) -> tuple:
+def read_header(data: bytes) -> tuple:
     """(NifFile with its header strings, [(type, size)], first block position)."""
     pos = len(HEADER_TEXT)
     version, _, user, n_blocks, bs = struct.unpack_from('<IBIII', data, pos)
@@ -97,7 +98,7 @@ def _parsed(kind: str, raw: bytes):
 
 def read(data: bytes) -> NifFile:
     """A NifFile from bytes; block types (and variants, such as skinned shapes) this module does not know stay raw."""
-    nif, entries, pos = _read_header(data)
+    nif, entries, pos = read_header(data)
     for kind, size in entries:
         raw = data[pos:pos + size]
         nif.blocks.append((kind, _parsed(kind, raw)))

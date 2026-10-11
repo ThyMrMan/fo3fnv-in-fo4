@@ -550,6 +550,45 @@ the texture's presence is what turns it on.
   without a glow map have no emittance input (`SLS2000` takes no
   `EmittanceColor`).
 
+<a id="particles"></a>**Particle systems (played 2026-10-11: Goodsprings loads).** The region places 12 FNV meshes with particle
+systems (69 references). Some are particles only, such as the wide light
+dust, and drew nothing; the whirlwind's dust puffs went missing.
+- **Layouts:** FO4 still uses Gamebryo's `NiPSys` family.
+  - The modifiers and controllers have no Bethesda-version conditions in
+    nif.xml, so FNV's values fill the same fields.
+  - `NiParticleSystem` takes BSGeometry's fields: bound, skin, shader,
+    alpha, vertex description and LOD distances.
+  - `NiPSysData` keeps counts, flags and subtexture offsets, but no
+    per-particle arrays.
+  - `nif/particle_blocks.py` writes 22 block types. Each round-trips
+    every instance in the first 1,500 vanilla effect meshes byte for
+    byte (729 particle systems).
+- **Conversion** (`nif/particles.py`):
+  - Each modifier and controller carries FNV's values; pyffi's older
+    field names are mapped.
+  - References go to the converted system, its modifiers, and the kept
+    emitter, gravity and drag nodes.
+  - FO4-only fields take vanilla's values: the same vertex description
+    and zero bound as all 729 systems, and no LOD distances and aspect 1
+    as most.
+  - The system's material goes through the shapes' path, which makes an
+    FNV no-lighting shader an unlit effect shader.
+- **Grow and fade:** FO4 never uses `NiPSysGrowFadeModifier` (0 of 729),
+  so FNV's grow and fade times become a `BSPSysScaleModifier` curve (33
+  points over the first emitter's life span).
+- **Animation:** sequences drive the emitter's `BirthRate` and
+  `EmitterActive`, and a modifier's activity, through the converted
+  controllers. Those controllers' own interpolators are idle blends, as
+  vanilla's 1,162 `NiBlendBoolInterpolator`s are (manager-controlled,
+  value 2). A mesh whose sequences only drive particles counts as
+  animated.
+- **Left out:** colliders, bomb modifiers and mesh emitters (one mesh
+  each in the region).
+- A controller of a modifier that was left out is left out too. The
+  whirlwind's `NiPSysModifierActiveCtlr` named its bomb modifier, and FO4
+  crashed entering Goodsprings looking it up
+  (`NiPSysModifierActiveCtlr::InterpTargetIsCorrectType`, null modifier).
+
 <a id="parents"></a>**Enable and activate parents (in test).** FNV's `XESP` (enable
 parent: reference, flags) and `XAPD`/`XAPR` (parent-activate-only flag,
 then reference and delay, repeating) have FO4's layout. They are copied

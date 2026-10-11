@@ -32,6 +32,8 @@ GLOW_SUFFIX = 'Glow'
 #: A controller's own blend interpolator, idle until a sequence plays, as vanilla's: manager-controlled flag,
 #: array size 2, value unset (-FLT_MAX).
 MANAGER_CONTROLLED, BLEND_SIZE, UNSET = 1, 2, -3.4028234663852886e38
+#: A bool interpolator's unset value (vanilla's controller-owned NiBoolInterpolators hold 2).
+BOOL_UNSET = 2
 #: FNV interpolator -> (FO4 interpolator, its data, values per key).
 INTERPOLATORS = {'NiFloatInterpolator': ('NiFloatInterpolator', 'NiFloatData', 1),
                  'NiPoint3Interpolator': ('NiPoint3Interpolator', 'NiPosData', 3)}
@@ -67,13 +69,10 @@ def shader_block(nif, cb, timing: dict, shapes: dict, made: dict, priority: int)
     shape, shader, shader_kind = shapes[name]
     variable = effect_var if shader_kind == 'Effect' else lit_var
     ctype = f'BS{shader_kind}ShaderProperty{value_kind}Controller'
-    interp = _interpolator(nif, cb.interpolator)
+    interp = interpolator(nif, cb.interpolator)
     key = (shader, ctype, variable)
     if key not in made:
-        width = 3 if value_kind == 'Color' else 1
-        blend = len(nif.blocks)
-        nif.blocks.append((f'NiBlend{"Point3" if width == 3 else "Float"}Interpolator',
-                           {'flags': MANAGER_CONTROLLED, 'size': BLEND_SIZE, 'threshold': 0.0, 'value': (UNSET,) * width}))
+        blend = idle_blend(nif, 'Point3' if value_kind == 'Color' else 'Float')
         made[key] = len(nif.blocks)
         nif.blocks.append((ctype, {**timing, 'next': nif.blocks[shader][1]['controller'], 'target': shader,
                                    'interpolator': blend, 'variable': variable}))
@@ -83,9 +82,40 @@ def shader_block(nif, cb, timing: dict, shapes: dict, made: dict, priority: int)
             'controller_id': nif.string(str(variable)), 'interpolator_id': NONE, 'shape': (name, shape)}
 
 
-def _interpolator(nif, interp) -> int:
-    """Append an FNV float or point interpolator and its key data; its index."""
-    kind, data_kind, width = INTERPOLATORS[type(interp).__name__]
+def timing(controller) -> dict:
+    """A NiTimeController's flags, frequency, phase, start and stop."""
+    return {'flags': controller.flags, 'frequency': controller.frequency, 'phase': controller.phase,
+            'start': controller.start_time, 'stop': controller.stop_time}
+
+
+def idle_blend(nif, kind: str) -> int:
+    """Append a controller's own NiBlend{kind}Interpolator (Float, Point3, Bool), idle until a sequence plays,
+    as vanilla's; its index."""
+    value = {'Point3': (UNSET,) * 3, 'Float': (UNSET,), 'Bool': BOOL_UNSET}[kind]
+    nif.blocks.append((f'NiBlend{kind}Interpolator', {'flags': MANAGER_CONTROLLED, 'size': BLEND_SIZE,
+                                                      'threshold': 0.0, 'value': value}))
+    return len(nif.blocks) - 1
+
+
+def interpolator(nif, interp) -> int:
+    """Append an FNV interpolator (float, point, bool, or a controller's blend) and its key data; its index (-1
+    for none)."""
+    kind = type(interp).__name__
+    if interp is None:
+        return NONE
+    if kind.startswith('NiBlend'):
+        return idle_blend(nif, kind[len('NiBlend'):-len('Interpolator')])
+    if kind in ('NiBoolInterpolator', 'NiBoolTimelineInterpolator'):
+        index = len(nif.blocks)
+        nif.blocks.append((kind, {'value': int(interp.bool_value), 'data': index + 1 if interp.data else NONE}))
+        if interp.data:
+            group = interp.data.data
+            nif.blocks.append(('NiBoolData', {'kind': group.interpolation if group.num_keys else 0,
+                                              'keys': [(k.time, int(k.value)) for k in group.keys]}))
+        return index
+    if kind not in INTERPOLATORS:
+        return NONE
+    kind, data_kind, width = INTERPOLATORS[kind]
     index = len(nif.blocks)
     point = interp.point_3_value if width == 3 else None
     value = interp.float_value if width == 1 else (point.x, point.y, point.z)

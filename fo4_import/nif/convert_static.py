@@ -31,6 +31,7 @@ from pyffi.formats.nif import NifFormat
 
 from asset_convert.collision.collision_falloutnv import latch_source
 from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_nodes, manager_of, skin, with_parents
+from fo4_import.nif.particles import add_system, systems as particle_systems, wanted_nodes
 from fo4_import.nif.shader_anim import GLOW_SUFFIX
 from fo4_import.nif.addons import fo4_index
 from fo4_import.nif.collision import collision_nodes, node_transform
@@ -531,6 +532,22 @@ def emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeM
     used, local = np.unique(tris, return_inverse=True)
     pos, uv, nrm = pos[used], uv[used], nrm[used]
     colors, tris = (colors[used] if colors is not None else None), local.reshape(-1, 3)
+    index = len(nif.blocks)
+    center = (pos.min(axis=0) + pos.max(axis=0)) / 2
+    shape = {'name': nif.string(name), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
+             'translation': (0.0, 0.0, 0.0), 'rotation': IDENTITY, 'scale': 1.0, 'collision': NONE,
+             'bound': (*map(float, center), float(np.linalg.norm(pos - center, axis=1).max())),
+             'skin': NONE, 'shader': NONE, 'alpha_property': NONE,
+             'vertex_desc': DESC_COLOR if colors is not None else DESC_PLAIN,
+             'vertices': vertices(pos, uv, nrm, colors, tris), 'triangles': [tuple(map(int, t)) for t in tris]}
+    nif.blocks.append(('BSTriShape', shape))
+    shape['shader'], shape['alpha_property'] = material_blocks(nif, mat, out, colors is not None)
+    return index
+
+
+def material_blocks(nif: NifFile, mat: ShapeMaterial, out: Converted, has_colors: bool) -> tuple:
+    """Append `mat`'s shader (and texture set) and alpha property, registering its files in `out`; (shader, alpha)
+    indices, alpha -1 without one."""
     if mat.kind != 'unlit':
         (out.effects if mat.kind == 'effect' else out.materials)[mat.path] = mat.data
     out.textures |= {t for t in mat.textures if t}
@@ -538,26 +555,18 @@ def emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeM
         out.spec_maps[mat.spec[0]] = mat.spec[1]
     if mat.glow:
         out.glow_maps[mat.glow[0]] = mat.glow[1]
-    index = len(nif.blocks)
-    after_shader = index + (3 if mat.kind == 'lit' else 2)
-    center = (pos.min(axis=0) + pos.max(axis=0)) / 2
-    shape = {'name': nif.string(name), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
-             'translation': (0.0, 0.0, 0.0), 'rotation': IDENTITY, 'scale': 1.0, 'collision': NONE,
-             'bound': (*map(float, center), float(np.linalg.norm(pos - center, axis=1).max())),
-             'skin': NONE, 'shader': index + 1, 'alpha_property': after_shader if mat.alpha else NONE,
-             'vertex_desc': DESC_COLOR if colors is not None else DESC_PLAIN,
-             'vertices': vertices(pos, uv, nrm, colors, tris), 'triangles': [tuple(map(int, t)) for t in tris]}
-    nif.blocks.append(('BSTriShape', shape))
+    shader = len(nif.blocks)
     if mat.kind == 'effect':
         nif.blocks.append(('BSEffectShaderProperty', _effect_shader(nif, mat)))
     elif mat.kind == 'unlit':
-        nif.blocks.append(('BSEffectShaderProperty', _unlit_shader(nif, mat, colors is not None)))
+        nif.blocks.append(('BSEffectShaderProperty', _unlit_shader(nif, mat, has_colors)))
     else:
-        nif.blocks += _lit_blocks(nif, mat, index)
-    if mat.alpha:
-        nif.blocks.append(('NiAlphaProperty', {'name': NONE, 'extra': [], 'controller': NONE,
-                                               'alpha_flags': mat.alpha[0], 'threshold': mat.alpha[1]}))
-    return index
+        nif.blocks += _lit_blocks(nif, mat, shader - 1)
+    if not mat.alpha:
+        return shader, NONE
+    nif.blocks.append(('NiAlphaProperty', {'name': NONE, 'extra': [], 'controller': NONE,
+                                           'alpha_flags': mat.alpha[0], 'threshold': mat.alpha[1]}))
+    return shader, len(nif.blocks) - 1
 
 
 def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> list:
@@ -665,22 +674,46 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     animate = animated and manager is not None and animatable(manager)
     kept = kept_nodes(root, manager) if animate else []
     joined = any(isinstance(b, NifFormat.bhkConstraint) for b in data.blocks)
-    bones = kept or (with_parents(root, _has_body) if joined else [])
+    found = particle_systems(root)
+    bones = _bones(root, kept or (with_parents(root, _has_body) if joined else []), found)
     nodes = add_nodes(nif, bones, root, NODE_FLAGS) if bones else {id(root): 0}
     out.animatable = manager is not None and animatable(manager)
     _shapes(nif, root, nodes, out, texture_root)
+    made = _particles(nif, root, found, nodes, out, texture_root)
     addons = _addon_nodes(nif, root, texture_root)
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
     bsx |= BSX_ADDON if addons else 0
     bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK or joined else 0
-    bsx |= BSX_ANIMATED if animate else 0
+    bsx |= BSX_ANIMATED if animate or found else 0
     if bsx:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))
         node['extra'].append(len(nif.blocks) - 1)
     if animate:
-        controllers(nif, root, manager, nodes)
+        controllers(nif, root, manager, nodes, made)
     collision_nodes(nif, root, 0, NODE_FLAGS, nodes)
     return out
+
+
+def _bones(root, bones: list, found: list) -> list:
+    """`bones` and the nodes FNV particle systems `found` hang under or name, with their parents, parents first."""
+    if not found:
+        return bones
+    keep = {id(n) for n in bones} | wanted_nodes(root, found)
+    return with_parents(root, lambda node: id(node) in keep)
+
+
+def _particles(nif: NifFile, root, found: list, nodes: dict, out: Converted, texture_root) -> dict:
+    """Append FNV particle systems `found` under their kept parents, each with its material's shader;
+    {id(FNV controller): FO4 index} of their controllers.
+
+    See: docs/fork/fo4_pipeline.md#particles
+    """
+    made = {}
+    for system in found:
+        owner = _owner(system, root, nodes)
+        shader = material_blocks(nif, _material(system, texture_root), out, bool(system.data.has_vertex_colors))
+        made.update(add_system(nif, system, nodes[id(owner)], nodes, shader))
+    return made
 
 
 def _addon_nodes(nif: NifFile, root, export_dir) -> bool:
