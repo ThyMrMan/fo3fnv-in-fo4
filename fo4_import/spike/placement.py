@@ -13,7 +13,7 @@ See: docs/fork/fo4_pipeline.md#rooms
 import functools
 import struct
 
-from fo4_import.base.install import FALLOUTNV_ESM
+from fo4_import.base.install import fnv_esm
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -29,7 +29,7 @@ ENGINE_FORMS = 0x800
 def fields() -> dict:
     """{FNV reference FormID: [(tag, data)]} of FalloutNV.esm's references and actors holding any KEPT subrecord."""
     out = {}
-    for rec, _ in walk(FALLOUTNV_ESM.read_bytes(), b'REFR', b'ACHR', b'ACRE'):
+    for rec, _ in walk(fnv_esm(), b'REFR', b'ACHR', b'ACRE'):
         found = [(tag, data) for tag, data in subrecords(rec.body) if tag in KEPT]
         if found:
             out[rec.form_id] = found

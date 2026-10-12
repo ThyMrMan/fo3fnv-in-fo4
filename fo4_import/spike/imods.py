@@ -12,7 +12,7 @@ See: docs/fork/fo4_spikes.md#spike-2-vcg01
 
 import struct
 
-from fo4_import.base.install import FALLOUTNV_ESM
+from fo4_import.base.install import fnv_esm
 from fo4_import.base.writer import pack_fo4_record
 from tes5_import.base.tes5_reader import subrecords, walk, zstr
 from tes5_import.base.writer import pack_subrecord
@@ -74,7 +74,7 @@ class ImageSpaces:
         """FNV's IMADs indexed by EditorID (FalloutNV.esm)."""
         self.builder, self.made = builder, {}
         self.fnv = {}
-        for r, _ in walk(FALLOUTNV_ESM.read_bytes(), b'IMAD'):
+        for r, _ in walk(fnv_esm(), b'IMAD'):
             subs = subrecords(r.body)
             self.fnv[zstr(subs[0][1])] = r
 

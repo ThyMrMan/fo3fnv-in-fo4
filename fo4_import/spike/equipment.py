@@ -32,7 +32,7 @@ See: docs/fork/fo4_spikes.md#spike-4-outfits
 import struct
 
 from fo4_import.base import strings
-from fo4_import.base.install import FALLOUTNV_ESM
+from fo4_import.base.install import fnv_esm
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.pipeline.work_cache import cached
@@ -102,7 +102,7 @@ def _fnv_fields() -> dict:
     """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0); an armor's
     value, weight (DATA), rating (DNAM: DT, else DR) and alternate textures. An ammo form list (FLST)
     gives its first entry."""
-    raw = FALLOUTNV_ESM.read_bytes()
+    raw = fnv_esm()
     lists = {rec.form_id: first_sub(rec.body, b'LNAM') for rec, _ in walk(raw, b'FLST')}
     sets = {rec.form_id: tuple((first_sub(rec.body, t) or b'').rstrip(b'\0').decode('cp1252')
                                for t in (b'TX00', b'TX01')) for rec, _ in walk(raw, b'TXST')}

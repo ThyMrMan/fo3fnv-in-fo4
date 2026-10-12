@@ -34,6 +34,8 @@ RENAMED = {'GetActorValue': 'GetValue', 'GetPCIsSex': 'GetIsSex'}
 #: FNV functions that test the player; FO4's counterpart runs on the player reference.
 ON_PLAYER = {'GetPCIsSex'}
 PLAYER_REF = 0x14
+#: Condition flag (both games): compare against a global's value; the value field holds the global's FormID.
+USE_GLOBAL = 0x04
 _OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,
         0x60: lambda a, b: a >= b, 0x80: lambda a, b: a < b, 0xA0: lambda a, b: a <= b}
 
@@ -48,8 +50,16 @@ def parse(raw_hex: str) -> dict:
     """One FNV condition's fields: op_flags, value, func name, p1, p2, run_on, ref."""
     raw = bytes.fromhex(raw_hex) + b'\0' * 28
     op_flags, value, func, p1, p2, run_on, ref = struct.unpack_from('<B3xfIIIII', raw)
-    return {'op_flags': op_flags, 'value': value, 'func': FNV.name(func),
-            'p1': p1, 'p2': p2, 'run_on': run_on, 'ref': ref}
+    return {'op_flags': op_flags, 'value': value, 'func': FNV.name(func), 'p1': p1, 'p2': p2, 'run_on': run_on,
+            'ref': ref, 'global': struct.unpack_from('<I', raw, 4)[0]}
+
+
+def fo4_value(cond: dict, form_map: dict) -> 'tuple | None':
+    """(USE_GLOBAL or 0, comparison value) for FO4; a global's FormID maps through `form_map`, None without one."""
+    if not cond['op_flags'] & USE_GLOBAL:
+        return 0, cond['value']
+    fo4 = form_map.get(cond.get('global'))
+    return None if fo4 is None else (USE_GLOBAL, struct.unpack('<f', struct.pack('<I', fo4))[0])
 
 
 def _is_or(cond: dict) -> bool:
@@ -119,5 +129,6 @@ def convert(kept: list, form_map: dict, av, swap: bool) -> bytes:
             run_on, ref = run_on_of(cond, swap, form_map)
             or_flag = 0x01 if i < len(group) - 1 else 0
             p1, p2 = _fo4_params(cond, form_map, av)
-            out += pack_ctda((cond['op_flags'] & 0xE0) | or_flag, cond['value'], func, p1, p2, run_on, ref)
+            flag, value = fo4_value(cond, form_map)
+            out += pack_ctda((cond['op_flags'] & 0xE0) | flag | or_flag, value, func, p1, p2, run_on, ref)
     return out

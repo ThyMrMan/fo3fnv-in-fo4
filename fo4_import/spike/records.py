@@ -225,9 +225,10 @@ def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, r
     return pack_fo4_record('REFR', fid, (0x400 if persistent else 0) | (INITIALLY_DISABLED if disabled else 0), subs)
 
 
-def _bounded(edid: str, bounds: tuple) -> bytes:
-    """EDID and OBND, the start of every placeable base record."""
-    return _zstr('EDID', edid) + pack_subrecord('OBND', struct.pack('<6h', *bounds))
+def _bounded(edid: str, bounds: tuple, vmad: bytes = b'') -> bytes:
+    """EDID, scripts (VMAD, if any) and OBND: every placeable base record's start."""
+    return _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_subrecord(
+        'OBND', struct.pack('<6h', *bounds))
 
 
 def pack_stat(fid: int, edid: str, model: str, bounds: tuple) -> bytes:
@@ -275,15 +276,17 @@ def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, s
     return pack_fo4_record('QUST', fid, 0, subs)
 
 
-def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float) -> bytes:
-    """A misc item: bounds, Pip-Boy preview, name, model, DATA value and weight."""
-    subs = _bounded(edid, bounds) + _u32('PTRN', MISC_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
+def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float,
+              vmad: bytes = b'') -> bytes:
+    """A misc item: scripts, bounds, preview, name, model, DATA value and weight."""
+    subs = _bounded(edid, bounds, vmad) + _u32('PTRN', MISC_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
     return pack_fo4_record('MISC', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
 
 
-def pack_keym(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float) -> bytes:
-    """A key, as 134 of vanilla's 177: bounds, Pip-Boy preview (KeyChainsAlt), name, model, DATA value and weight."""
-    subs = _bounded(edid, bounds) + _u32('PTRN', KEY_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
+def pack_keym(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float,
+              vmad: bytes = b'') -> bytes:
+    """A key (vanilla's commonest layout, preview KeyChainsAlt), laid out as pack_misc."""
+    subs = _bounded(edid, bounds, vmad) + _u32('PTRN', KEY_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
     return pack_fo4_record('KEYM', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
 
 
@@ -349,10 +352,10 @@ def pack_lvli(fid: int, edid: str, chance_none: int, flags: int, entries: list) 
 
 
 def pack_cont(fid: int, edid: str, name: str, model: str, bounds: tuple, items: list, flags: int,
-              weight: float, sounds: tuple = (0, 0)) -> bytes:
-    """A container: bounds, name, model, items [(FormID, count)] (COCT, CNTO), DATA flags and weight, open and
-    close sounds (SNDRs, 0 for none)."""
-    subs = _bounded(edid, bounds) + _zstr('FULL', name) + _zstr('MODL', model)
+              weight: float, sounds: tuple = (0, 0), vmad: bytes = b'') -> bytes:
+    """A container: scripts, bounds, name, model, items [(FormID, count)] (COCT, CNTO), DATA flags and weight,
+    open and close sounds (SNDRs, 0 for none)."""
+    subs = _bounded(edid, bounds, vmad) + _zstr('FULL', name) + _zstr('MODL', model)
     subs += _u32('COCT', len(items)) + b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count))
                                                  for item, count in items)
     subs += pack_subrecord('DATA', struct.pack('<Bf', flags, weight)) + _sounds(('SNAM', 'QNAM'), sounds)

@@ -361,6 +361,94 @@ Against the spike-block build:
   small ridge term would make the answer unique, but would change Doc's
   played face.
 
+<a id="audit"></a>**Audit before step 2 (2026-10-12).** Several bugs this far
+were one small thing left unconverted with a large effect (portals, XLOC,
+add-on nodes, colliders, joints). Two tools now look for them on every
+build:
+- `tools/validate/fo4_check.py`: FO4Edit's own "Check for errors",
+  headless, over the built plugin.
+- `tools/validate/fo4_coverage.py`: FNV's references and fields against
+  the plugin's, paired by FNV's object ids.
+
+Found and fixed:
+- **Links to references never built.** `ids` held every reference in
+  scope, including those `_placed()` skips (a base that doesn't convert,
+  a static collection split into parts). So 4 linked references (XLKR,
+  furniture to idle markers) and the script properties of 14 activators
+  and a door pointed at nothing. `cell._built` now
+  keeps only references that are written, and the existing "not built,
+  dropped" rule does the rest.
+- **Scripts on containers and misc items.** Of 5 scripted containers
+  and 5 scripted misc items, none had its script: the graves
+  (`GraveContScript`), the schoolhouse safe, the Mojave Express box, the
+  mantis ootheca, `VCG02TargetSCRIPT`, the snow globe and the star caps.
+  `pack_cont`, `pack_misc` and `pack_keym` now take a VMAD. 15 more
+  scripts compile (531), with 7 messages and a book they use.
+- No FormID moved, nothing was removed; FO4Edit then reports only the 23
+  consumables with no effect left (below).
+
+Found and left for their step (counts for Goodsprings to Primm):
+
+| Gap | Count | Step |
+|---|---|---|
+| Idle markers (IDLM) not converted; furniture links to them dropped | 185 | 3 (NPCs) |
+| Actors | 206 creatures, 153 NPCs | 3 |
+| Ownership (XOWN) on references and cells | 87 + 14 | 2 |
+| Map markers (XMRK, TNAM, FULL) | 15 | 2 |
+| Consumable effects with no FO4 effect: chem and alcohol stats, hunger, thirst and sleep, RadAway, limbs, Stealth Boy, Psycho, Turbo and more (44 kinds); 23 consumables have none left, which FO4Edit reports as a NULL effect | 44 kinds | 2 |
+| Leveled-list chance-none globals (LVLG) | 18 | 2 |
+| Door navmesh links (XNDP), patrol data (INAM, SCHR, XPPA, XPRD) | 70, 68 | 3 |
+| Placeable water (PWAT): the spring's clean water, blood, dirty and toxic water | 13 | world gaps |
+| Placed mines (PROJ through PGRE/PMIS) at the Powder Ganger camps | 11 | world gaps |
+| Music zones: FNV audio markers name a media location controller (ALOC, MMRK) | 45 | world gaps |
+| Looping sounds: statics (RNAM), movable statics and lights (SNAM), doors (BNAM) | 256, 13, 6, 3 | world gaps |
+| Cell acoustic space (XCAS) and music (XCMO) | 275, 27 | world gaps |
+| The Goodsprings store radio (TACT) | 1 | 4 (quests) |
+| Radiation on references (XRAD) | 6 | world gaps |
+| Doors open by default (ONAM), item counts (XCNT), occlusion planes (base 0x17), blood decals (TXST) | 3, 1, 3, 2 | world gaps |
+| Billboard nodes (4 glow and dust meshes), the school globe's hinge, heat shimmer controllers | 4, 1, 4 | parked |
+
+Meshes: of the region's 1,630 FNV meshes, no block type is lost beyond
+the parked ones above and the damage stages and phantom already noted.
+Standalone transform and visibility controllers sit in weapon,
+clothing and skeleton meshes FNV animates only from actor animations.
+
+<a id="globals"></a>**Globals (step 2, built 2026-10-12).** Only dialogue
+unlocks, objective mirrors, helper globals and the engine globals were
+made, so a script property naming one of FNV's own globals read None, and
+every condition comparing against a global (the use-global flag, the
+global's FormID in the value) dropped its line.
+- `spike/globals.py` writes all 218 FNV globals on FNV's FormIDs with
+  type, value and the Constant flag (`0x40` in both games). The six
+  both games define (GameHour, GameDaysPassed, GameDay, GameMonth,
+  GameYear, TimeScale) stay Fallout4.esm's.
+- They join the shared `form_map`, so GetGlobalValue resolves; a
+  property of type GlobalVariable takes the FNV global of its name.
+- `conditions.fo4_value` keeps the use-global flag and maps the
+  global's FormID through `form_map`, for both condition converters
+  (say_topics' and conditions.convert); a global with no conversion
+  still drops the line.
+
+<a id="factions"></a>**Factions (step 2, built 2026-10-12).** `spike/factions.py`
+writes all 682 FNV factions on FNV's FormIDs, read from FalloutNV.esm (the
+export keeps rank numbers but not their titles).
+- Relations (XNAM: faction, modifier, combat reaction) and ranks (RNAM,
+  MNAM, FNAM) have the same layout in both games. A relation names a
+  converted faction; one naming a race is dropped. INAM (insignia) is
+  unused in FO4.
+- DATA: FNV's two flag bytes become FO4's u32: hidden (`0x1`), special
+  combat (`0x2`), track crime (`0x40`). Evil (karma) and Allow Sell
+  have no FO4 bit; vendors come with merchants (step 3).
+- FO4 requires crime values (CRVA) and vendor values (VENV). Vanilla's 699
+  factions: 556 use "arrest, attack on sight, no gold", while
+  crime-tracking ones mostly use "attack on sight, no arrest" (123), and
+  443 have empty vendor values. The converted factions take those.
+- Can Be Owner (`0x8000`, on 270 vanilla factions) is set on each faction
+  FNV names as an owner (XOWN on 4,505 references and 158 cells), so
+  ownership can follow.
+- Factions join `form_map`, so GetInFaction and faction parameters
+  resolve.
+
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok
   phantom: the pressure plate's trigger volume
@@ -1060,11 +1148,15 @@ add-ons, land texture blending and weathers (sections above).
    - FACT, CLAS, RACE, CSTY, VTYP, LVLN (with LVLC), FLST, and GLOB in
      full;
    - locations from FNV's map markers, encounter zones and ownership;
-     map markers.
+     map markers;
+   - ownership on references and cells (XOWN), leveled lists' chance-none
+     globals, and consumable effects (MGEF, SPEL), from the
+     [audit](#audit).
 3. **Real NPCs in the region.** Goodsprings' and Primm's people as their
    own records (FO4 race and head parts with the spike-2 face fit, class,
    factions, inventory, packages) in place of the stand-ins; creatures
-   through the replacement table.
+   through the replacement table; idle markers, door navmesh links and
+   patrol data ([audit](#audit)).
 4. **The opening quests:** VCG02 (Sunny Smiles), Ghost Town Gunfight and
    Primm's quests. This brings quest aliases and targets in general, the
    [force greet](fo4_spikes.md#spike-1-force-greet), terminals and the
@@ -1072,7 +1164,10 @@ add-ons, land texture blending and weathers (sections above).
    house to Primm.
 5. **The whole Mojave:** every WastelandNV cell and interior, then the
    other worldspaces; regions and water; the worldspace map; build time
-   and memory at full size.
+   and memory at full size; the [audit](#audit)'s world gaps (placeable
+   water, mines, music zones, looping sounds, acoustic spaces).
+   Placeable water and mines show in the region already and can come
+   sooner.
 6. **Engine passes:** terrain and object LOD (Project Mojave's terrain
    LOD as the FO4 format reference), then precombines and previs if
    step 1's frame rate says they are needed.

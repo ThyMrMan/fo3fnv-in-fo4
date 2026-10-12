@@ -6,8 +6,9 @@ actor or quest of the cell named as the property (FNV EditorIDs), the
 player, a helper quest or global (TES4Helpers.esl), the FNV item it names
 through the cell's item converter (its conversion or FO4 stand-in), else a
 Fallout4.esm misc item or potion of the same name, or the FNV message it
-names (converted once), or a dialogue global it sets (an AddTopic unlock or a
-Follow Up mark, made once, its FormID hashed from its name). Same-named
+names (converted once), the FNV global it names (globals.py), or a dialogue
+global it sets (an AddTopic unlock or a Follow Up mark, made once, its FormID
+hashed from its name). Same-named
 Fallout4.esm forms are not used otherwise.
 
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
@@ -43,6 +44,8 @@ class ObjectScripts:
         self.builder, self.dir, self.helper_index, self.used = builder, scripts_dir, helper_index, []
         self.names = {int(r['FormID'], 16): r['EditorID'] for r in export_records(export_dir, 'SCPT')}
         self.messages = {r.get('EditorID'): r for r in export_records(export_dir, 'MESG')}
+        self.global_names = {r['EditorID']: int(r['FormID'], 16) for r in export_records(export_dir, 'GLOB')
+                             if r.get('EditorID')}
         self.forms, self.made_messages, self.globals = base_forms(helper_index), {}, {}
         self.named, self.talks = dict([PLAYER]), {}
 
@@ -71,8 +74,9 @@ class ObjectScripts:
             return self.builder.swaps.swap(prop)
         if kind == 'ImageSpaceModifier':
             return self.builder.imods.modifier(prop)
-        if kind == 'GlobalVariable' and prop.startswith(DIALOGUE_GLOBALS):
-            return self.global_(prop)
+        if kind == 'GlobalVariable':
+            return self.global_(prop) if prop.startswith(DIALOGUE_GLOBALS) else self.builder.globals.get(
+                self.global_names.get(prop))
         if kind == 'ObjectReference' and prop.startswith(FALLOUT4_POSE_PREFIX):
             return self.builder.poses.pose(prop)
         return self.builder.items.by_name(prop) if kind in ITEM_TYPES else None

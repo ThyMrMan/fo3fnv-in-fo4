@@ -32,7 +32,7 @@ SAY_ONCE = 0x04
 PART, PARTS = '_part', '_parts'
 FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
 #: CTDA operator bits: the comparison, OR with the next, use a global as the value.
-COMPARE, OR, USE_GLOBAL = 0xE0, 0x01, 0x04
+COMPARE, OR = 0xE0, 0x01
 #: FNV GetQuestVariable and FO4's GetVMQuestVariable, which names the Papyrus property in its CIS2.
 QUEST_VARIABLE, VM_QUEST_VARIABLE = 'GetQuestVariable', 'GetVMQuestVariable'
 #: FNV GetScriptVariable (reference, variable) and FO4's GetVMScriptVariable (run on it; CIS1 script, CIS2 variable).
@@ -87,7 +87,7 @@ class SayTopics:
         first, last = rec.get(PART, 1) == 1, rec.get(PART, 1) == rec.get(PARTS, 1)
         conditions = conditions_of(rec, form_map, self.script_vars) if first else b''
         if conditions is None:
-            self.builder.counts['line left out (condition)'] += 1
+            self.builder.counts[f'line left out (condition: {blocker(rec, form_map, self.script_vars)})'] += 1
             return b''
         fid = self.builder.new_id(f'INFO {rec["FormID"]} {rec.get(PART, 1)}')
         name = f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
@@ -136,9 +136,9 @@ def _script_vars(export_dir: Path) -> dict:
 
 
 def _unmapped(cond: dict, form_map: dict) -> bool:
-    """True when a condition uses a global or names an FNV form `form_map` lacks."""
+    """True when a condition names an FNV form or global `form_map` lacks."""
     slots = C.FNV.form_slots.get(C.FNV.index(cond['func']), set())
-    return bool(cond['op_flags'] & USE_GLOBAL) or any(
+    return C.fo4_value(cond, form_map) is None or any(
         s in slots and p not in form_map for s, p in ((1, cond['p1']), (2, cond['p2'])))
 
 
@@ -152,7 +152,7 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
     is `form_map[('av', index)]` (actor_values()), None without one.
     """
     func, state = cond['func'], OBJECTIVE_FUNCS.get(C.FNV.index(cond['func']))
-    if cond['op_flags'] & USE_GLOBAL:
+    if C.fo4_value(cond, form_map) is None:
         return None
     if func in (QUEST_VARIABLE, SCRIPT_VARIABLE):
         script, names = script_vars.get(cond['p1'], ('', {}))
@@ -174,6 +174,17 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
     return None if None in params else (index, *params, '', '')
 
 
+def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
+    """The function of an FNV record's first condition that cannot convert, '(global)' marking a global test."""
+    i = 0
+    while f'Condition[{i}].Raw' in rec:
+        cond = C.parse(rec[f'Condition[{i}].Raw'])
+        i += 1
+        if _fo4_condition(cond, form_map, script_vars) is None:
+            return cond['func'] + (' (global)' if cond['op_flags'] & C.USE_GLOBAL else '')
+    return ''
+
+
 def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = False) -> 'bytes | None':
     """An FNV record's conditions as FO4 CTDAs (and CIS1/CIS2s); None when one cannot convert.
 
@@ -192,6 +203,7 @@ def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = Fal
             return None
         func, p1, p2, cis1, cis2 = fo4
         run_on, ref = (R.RUN_REFERENCE, form_map[cond['p1']]) if cis1 else C.run_on_of(cond, swap, form_map)
-        out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR), cond['value'], func, p1, p2, run_on, ref)
+        flag, value = C.fo4_value(cond, form_map)
+        out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR) | flag, value, func, p1, p2, run_on, ref)
         out += (R.pack_cis1(cis1) if cis1 else b'') + (R.pack_cis2(cis2) if cis2 else b'')
     return out

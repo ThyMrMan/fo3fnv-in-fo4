@@ -137,7 +137,11 @@ class Items:
         model, bounds = self.builder.mesh(rec['Model.MODL'])
         return self._write(sig, lambda fid: pack(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), int(rec.get('DATA.Value', 0)),
-            float(rec.get('DATA.Weight', 0.0))), rec)
+            float(rec.get('DATA.Weight', 0.0)), self._vmad(rec)), rec)
+
+    def _vmad(self, rec: dict) -> bytes:
+        """The VMAD attaching FNV item `rec`'s converted script; b'' without one."""
+        return self.builder.scripts.vmad(int(rec['SCRI'], 16)) if 'SCRI' in rec else b''
 
     def _leveled(self, rec: dict) -> 'int | None':
         """A leveled item with the entries whose items convert; None when none do."""
@@ -160,7 +164,8 @@ class Items:
         return self._write('CONT', lambda fid: R.pack_cont(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), contents,
             int(rec.get('DATA.Flags', 0)) & CONTAINER_FLAGS, float(rec.get('DATA.Weight', 0.0)),
-            (self.builder.sounds.field(rec, 'SNAM.OpenSound'), self.builder.sounds.field(rec, 'QNAM.CloseSound'))), rec)
+            (self.builder.sounds.field(rec, 'SNAM.OpenSound'), self.builder.sounds.field(rec, 'QNAM.CloseSound')),
+            self._vmad(rec)), rec)
 
     def _note(self, rec: dict) -> 'int | None':
         """A text note as a paper note; None for sound, image and voice notes."""

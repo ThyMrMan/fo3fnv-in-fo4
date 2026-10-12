@@ -41,7 +41,7 @@ def pack_script_quest(fid: int, edid: str, vmad: bytes, stages: tuple = ()) -> b
     return pack_fo4_record('QUST', fid, 0, subs + pack_subrecord('ANAM', struct.pack('<I', 0)))
 
 
-def pack_global(fid: int, edid: str, kind: str = 's', value: float = 0.0) -> bytes:
-    """A global ('s' short, 'l' long, 'f' float), as GameDaysPassed 00000039."""
+def pack_global(fid: int, edid: str, kind: str = 's', value: float = 0.0, flags: int = 0) -> bytes:
+    """A global (type s, l or f), as GameDaysPassed 00000039; `flags`: record flags."""
     subs = pack_string_subrecord('EDID', edid) + pack_subrecord('FNAM', kind.encode('ascii'))
-    return pack_fo4_record('GLOB', fid, 0, subs + pack_subrecord('FLTV', struct.pack('<f', value)))
+    return pack_fo4_record('GLOB', fid, flags, subs + pack_subrecord('FLTV', struct.pack('<f', value)))

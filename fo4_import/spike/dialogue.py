@@ -221,8 +221,8 @@ class Spike:
         return self.avs[index]
 
     def unconvertible(self, cond: dict) -> bool:
-        """True when a condition has no FO4 function, actor value or form to become."""
-        if C.FO4.index(C.RENAMED.get(cond['func'], cond['func'])) < 0 or cond['op_flags'] & 0x04:
+        """True when a condition has no FO4 function, actor value, global or form to become."""
+        if C.FO4.index(C.RENAMED.get(cond['func'], cond['func'])) < 0 or C.fo4_value(cond, self.form_map) is None:
             return True
         if cond['func'] == 'GetActorValue':
             return self.av(cond['p1']) is None

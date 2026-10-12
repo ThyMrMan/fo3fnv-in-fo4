@@ -17,7 +17,7 @@ import struct
 
 import numpy as np
 
-from fo4_import.base.install import FALLOUTNV_ESM
+from fo4_import.base.install import fnv_esm
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: derive_formid site of a part reference (key: SCOL reference FormID, part index).
@@ -28,7 +28,7 @@ PLACEMENT = struct.Struct('<7f')
 def read_parts(scols: set) -> dict:
     """{FNV SCOL FormID: [(part FormID, (x, y, z, rx, ry, rz, scale))]} for the SCOLs in `scols`."""
     out = {}
-    for rec, _ in walk(FALLOUTNV_ESM.read_bytes(), b'SCOL'):
+    for rec, _ in walk(fnv_esm(), b'SCOL'):
         if rec.form_id not in scols:
             continue
         part, placed = None, []

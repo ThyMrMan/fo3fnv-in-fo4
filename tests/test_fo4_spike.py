@@ -17,8 +17,11 @@ from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif import collision as CO
 from fo4_import.nif import file as nf
+from fo4_import.spike import conditions as CD
 from fo4_import.spike import dialogue as D
+from fo4_import.spike import globals as GL
 from fo4_import.spike import equipment as E
+from fo4_import.spike import factions as FA
 from fo4_import.spike import gun_choice as GC
 from fo4_import.spike import sounds as SO
 from fo4_import.spike import replacements as RP
@@ -502,3 +505,64 @@ def test_a_quadrant_keeps_its_four_heaviest_textures_and_shared_vertices_still_m
     assert [t for t, _ in limited[0]] == ['a', 'b', 'c', 'd'] and np.allclose(sum(left.values()), 1.0)
     border = LL.SIDE - 1
     assert all(abs(left.get(t, np.zeros(1))[border] - right.get(t, np.zeros(1))[0]) < 1e-9 for t in 'abcd')
+
+
+def test_only_references_written_as_themselves_are_linked_to():
+    """References on an unconverted base or split into parts are not built."""
+    builder = SimpleNamespace(parts=SimpleNamespace(parts={0x20}), base=lambda fid: None if fid == 0x30 else fid)
+    refs = [{'FormID': f'{i:08X}', 'NAME': f'{base:08X}'} for i, base in ((1, 0x10), (2, 0x20), (3, 0x30))]
+    assert [r['FormID'] for r in CB._built(builder, refs)] == ['00000001']
+
+
+def test_scripted_items_carry_their_vmad_between_edid_and_bounds():
+    """Containers, misc items and keys take a VMAD right after EDID, as vanilla's scripted bases do."""
+    vmad = b'\x06\x00\x02\x00\x00\x00'
+    records = (R.pack_cont(0x801, 'Box', '', 'm.nif', (0,) * 6, [], 0, 0.0, vmad=vmad),
+               R.pack_misc(0x802, 'Cap', '', 'm.nif', (0,) * 6, 1, 0.0, vmad=vmad),
+               R.pack_keym(0x803, 'Key', '', 'm.nif', (0,) * 6, 1, 0.0, vmad=vmad))
+    for record in records:
+        tags = [t for t, _ in subrecords(record[24:])]
+        assert tags[:3] == [b'EDID', b'VMAD', b'OBND'] and dict(subrecords(record[24:]))[b'VMAD'] == vmad
+    assert b'VMAD' not in dict(subrecords(R.pack_misc(0x804, 'Plain', '', 'm.nif', (0,) * 6, 1, 0.0)[24:]))
+
+
+def test_a_global_comparison_keeps_its_flag_and_names_the_converted_global():
+    """The value field's FNV global becomes the FO4 one; an unconverted global or a plain value is handled apart."""
+    raw = struct.pack('<B3xIIIIII', 0x24, 0x00012345, 0, 0, 0, 0, 0).hex()
+    cond = CD.parse(raw)
+    flag, value = CD.fo4_value(cond, {0x12345: 0x03012345})
+    assert flag == CD.USE_GLOBAL and struct.pack('<f', value) == struct.pack('<I', 0x03012345)
+    assert CD.fo4_value(cond, {}) is None
+    plain = CD.parse(struct.pack('<B3xfIIIII', 0x20, 2.5, 0, 0, 0, 0, 0).hex())
+    assert CD.fo4_value(plain, {}) == (0, 2.5)
+
+
+def test_every_fnv_global_is_written_except_the_engine_globals_fo4_shares(tmp_path, monkeypatch):
+    """Own globals keep FNV's id, type, value and Constant flag; GameHour stays Fallout4.esm's."""
+    records = [{'FormID': '00012345', 'EditorID': 'MyGlobal', 'FNAM.Type': 'l', 'FLTV.Value': '3.0', 'RecordFlags': '64'},
+               {'FormID': '00000038', 'EditorID': 'GameHour', 'FNAM.Type': 'f', 'FLTV.Value': '8.0', 'RecordFlags': '0'}]
+    monkeypatch.setattr(GL, 'export_records', lambda *_: records)
+    monkeypatch.setattr(GL, 'fo4_forms', lambda: {'GlobalVariable': {'GameHour': 0x38}})
+    written = []
+    builder = SimpleNamespace(fnv_id=lambda fid: 0x03000000 | int(fid, 16), counts=Counter(),
+                              writer=SimpleNamespace(add_record=lambda sig, raw: written.append(raw)))
+    assert GL.write_all(builder, tmp_path) == {0x12345: 0x03012345, 0x38: 0x38}
+    (record,) = written
+    assert struct.unpack_from('<I', record, 8)[0] == 0x40 and struct.unpack_from('<I', record, 12)[0] == 0x03012345
+    subs = dict(subrecords(record[24:]))
+    assert subs[b'EDID'] == b'FNV_MyGlobal\0' and subs[b'FNAM'] == b'l' and struct.unpack('<f', subs[b'FLTV'])[0] == 3.0
+
+
+def test_a_faction_keeps_relations_to_factions_ranks_and_maps_its_flags():
+    """Hidden, special combat and track crime map to FO4 bits; a race relation is dropped; an owner can own."""
+    subs = [(b'EDID', b'GSFaction\0'), (b'FULL', b'Goodsprings\0'),
+            (b'XNAM', struct.pack('<IiI', 0x10, 20, 2)), (b'XNAM', struct.pack('<IiI', 0x99, -10, 1)),
+            (b'DATA', bytes([0x05, 0x01, 0, 0])), (b'RNAM', struct.pack('<I', 0)), (b'MNAM', b'Sheriff\0'),
+            (b'INAM', b'icon.dds\0')]
+    record = FA.faction_record(0x03000801, subs, {0x10: 0x03000010}, owner=True)
+    found = list(subrecords(record[24:]))
+    assert [t for t, _ in found] == [b'EDID', b'FULL', b'XNAM', b'DATA', b'CRVA', b'RNAM', b'MNAM', b'VENV']
+    data = dict(found)
+    assert struct.unpack('<IiI', data[b'XNAM']) == (0x03000010, 20, 2)
+    assert struct.unpack('<I', data[b'DATA'])[0] == 0x1 | 0x2 | FA.TRACK_CRIME | FA.CAN_BE_OWNER
+    assert data[b'CRVA'] == FA.CRIME_VALUES[True] and data[b'EDID'] == b'FNV_GSFaction\0'

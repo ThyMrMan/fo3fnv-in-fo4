@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.ba2_pack import pack_textures
-from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, FALLOUTNV_ESM
+from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, fnv_esm
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest
 from fo4_import.face import hair, tint
 from fo4_import.face.sculpt import FACE_SHAPE
@@ -46,6 +46,8 @@ from fo4_import.spike.packages import Packages
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.sounds import Sounds
 from fo4_import.spike.swaps import Swaps
+from fo4_import.spike.factions import write_all as write_factions
+from fo4_import.spike.globals import write_all as write_globals
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif import weapon
 from fo4_import.spike import records as R
@@ -199,9 +201,10 @@ class CellBuilder:
         self.writer = FO4PluginWriter(masters=self.masters, is_esm=False, description='FNV cell spike')
         self.top, self.owned = ENGINE_IDS, collections.Counter()
         own = self.writer.own_index << 24
-        self.writer.reserve_source_ids({own | r.form_id & 0xFFFFFF for r in records(FALLOUTNV_ESM.read_bytes(), bodies=())})
+        self.writer.reserve_source_ids({own | r.form_id & 0xFFFFFF for r in records(fnv_esm(), bodies=())})
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
+        self.globals, self.factions = {}, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.fo4 = FALLOUT4_ESM.read_bytes()
@@ -392,6 +395,14 @@ def _qa_creatures(builder: CellBuilder, export_dir: Path, data_dir: Path) -> byt
     return b''.join(creatures.placed(edid, pos, rot) for edid, pos, rot in QA_CREATURES)
 
 
+def _built(builder: CellBuilder, refs: list) -> list:
+    """The references _placed() writes as themselves, the only ones linked to.
+    See: docs/fork/fo4_pipeline.md#audit
+    """
+    return [r for r in refs if int(r['NAME'], 16) not in builder.parts.parts
+            and builder.base(int(r['NAME'], 16)) is not None]
+
+
 def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tuple:
     """(persistent, temporary) REFRs of the cell's converted references."""
     persistent, temporary = b'', b''
@@ -571,8 +582,9 @@ def _navmesh(builder: CellBuilder, export_dir: Path, pathing: dict, ids: dict) -
 
 
 def _form_map(builder: CellBuilder, ref_ids: dict, recs: list, quests: dict) -> dict:
-    """FNV to FO4 forms: the cell's references, quests, player, objective states."""
-    return {**{int(k, 16): v for k, v in ref_ids.items()}, PLAYER: PLAYER, **builder.objectives,
+    """FNV to FO4 forms: references, quests, player, objectives, globals, factions."""
+    return {**builder.globals, **builder.factions, **{int(k, 16): v for k, v in ref_ids.items()}, PLAYER: PLAYER,
+            **builder.objectives,
             **{int(r['FormID'], 16): quests[r['EditorID']] for r in recs}}
 
 
@@ -647,7 +659,8 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
 
 def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list) -> None:
     """Give `builder` its item, activator and package makers; `refs` are the cell's FNV references."""
-    builder.sounds = Sounds(builder, export_dir)
+    builder.sounds, builder.globals = Sounds(builder, export_dir), write_globals(builder, export_dir)
+    builder.factions = write_factions(builder, export_dir)
     records = index(export_dir, ITEM_TYPES)
     consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
     equipment = builder.equipment
@@ -671,7 +684,7 @@ def _cell_quests(builder: CellBuilder, export_dir: Path, every: list, ids: dict)
     """(CELL_QUESTS records, {EditorID: FO4 FormID}); the scripts learn them and `every` reference by name."""
     quest_recs = [r for r in export_records(export_dir, 'QUST') if r.get('EditorID') in CELL_QUESTS]
     quests = {r['EditorID']: builder.fnv_id(r['FormID']) for r in quest_recs}
-    builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in every if r.get('EditorID')}, **quests})
+    builder.scripts.named.update({**{r['EditorID']: ids[r['FormID']] for r in every if r.get('EditorID') and r['FormID'] in ids}, **quests})
     builder.objectives = objective_globals(builder, quest_recs)
     return quest_recs, quests
 
@@ -698,8 +711,8 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), table, plugin_dirs)
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
     _object_makers(builder, export_dir, scripts_dir, refs)
-    ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in every}
-    ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in outside}
+    ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, every)}
+    ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, outside)}
     quest_recs, quests = _cell_quests(builder, export_dir, every, ids)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST} | set(STAND_INS.values()))
     actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(builder, ids, quest_recs, quests))

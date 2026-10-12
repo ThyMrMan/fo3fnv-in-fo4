@@ -15,7 +15,7 @@ import functools
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import FALLOUTNV_ESM
+from fo4_import.base.install import fnv_esm
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.weathers import colour_table
@@ -32,7 +32,7 @@ SUNLIGHT = {4: (4, 9)}
 def region_weathers() -> dict:
     """{FNV region FormID: its first weather's FormID} of FalloutNV.esm's regions with a weather list."""
     out = {}
-    for rec, _ in walk(FALLOUTNV_ESM.read_bytes(), b'REGN'):
+    for rec, _ in walk(fnv_esm(), b'REGN'):
         rdwt = dict(subrecords(rec.body)).get(b'RDWT')
         if rdwt:
             out[rec.form_id] = struct.unpack_from('<I', rdwt)[0]
