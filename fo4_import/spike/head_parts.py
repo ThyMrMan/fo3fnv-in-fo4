@@ -21,6 +21,8 @@ from fo4_import.spike import fnv_npc
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
+#: FNV ACBS flag Female.
+FEMALE = 0x1
 #: FO4 HDPT types whose shapes are the skull that hides hair behind it: face, head rear.
 SKULL_TYPES = (1, 9)
 
@@ -61,15 +63,16 @@ def _hair(choice: HeadChoice, assets, export_dir: Path, at: fnv_npc.Frame, depth
     record = fnv_npc.record(export_dir, 'HAIR', at.npc['HNAM.Hair'])
     drawn = fnv_npc.hair_rgb(fnv_npc.asset(export_dir, 'textures', record['ICON']), at.npc)
     target = _drawn_coverage(fnv_npc.asset(export_dir, 'meshes', record['Model.MODL']), drawn, at, depths)
-    choice.hair, choice.distances['hair'] = hair.best_part(assets, hair.HAIR, False, target, depths)
+    female = bool(int(at.npc.get('ACBS.Flags', 0)) & FEMALE)
+    choice.hair, choice.distances['hair'] = hair.best_part(assets, hair.HAIR, female, target, depths)
     _, material = assets.shapes(choice.hair)[0]
     choice.colour = hair.best_hair_colour(assets, assets.texture(material['textures']['diffuse']), material,
                                           hair.fnv_hair_colour(drawn))
 
 
 def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes) -> HeadChoice:
-    """The FO4 hair, facial hair, eyes and hair colour for FNV NPC `edid` (male HumanRace); none for a part FNV
-    leaves to the race (no HNAM, no ENAM)."""
+    """The FO4 hair, facial hair, eyes and hair colour for FNV NPC `edid` (HumanRace, its sex's parts); none for a
+    part FNV leaves to the race (no HNAM, no ENAM)."""
     face, depths = skull(assets, baseline)
     at = fnv_npc.frame(export_dir, edid, face)
     choice = HeadChoice()
@@ -84,7 +87,8 @@ def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes)
     eye_points, eye_tris, eye_uv, _ = hair.fnv_shape(fnv_npc.eye_mesh(export_dir, at.race, at.part))
     eyes = fnv_npc.record(export_dir, 'EYES', at.npc['ENAM.Eyes'])
     texture = hair.image(fnv_npc.asset(export_dir, 'textures', eyes['ICON']))
-    choice.eyes = hair.best_eyes(assets, False, hair.iris_colour(eye_points, eye_tris, eye_uv, texture))
+    female = bool(int(at.npc.get('ACBS.Flags', 0)) & FEMALE)
+    choice.eyes = hair.best_eyes(assets, female, hair.iris_colour(eye_points, eye_tris, eye_uv, texture))
     return choice
 
 

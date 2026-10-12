@@ -1,6 +1,6 @@
 """Measure FO4's face sculpt region and tint layer bases through the Creation Kit, once per race and sex.
 
-    py -3.14 -m fo4_import.spike.sculpt_calibration --data <mod folder> [--what sculpt|tints]
+    py -3.14 -m fo4_import.spike.sculpt_calibration --data <mod folder> [--what sculpt|tints] [--female]
 
 Writes the calibration plugin (face.sculpt) into the mod folder, exports its
 FaceGen with the CK through MO2, measures each control's effect on the face
@@ -23,17 +23,23 @@ from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 PLUGIN, TINT_PLUGIN = 'FNVSculptCalib.esp', 'FNVTintCalib.esp'
-#: The face-shape-free male NPC every calibration clone starts from: DocWeathers, the dialogue spike's stand-in.
-TEMPLATE = 0x12FCCB
+#: Per sex (female?), the NPC every calibration clone starts from, face shape removed: npcs.BODIES' humans.
+TEMPLATES = {False: 0x12FCCB, True: 0x09A680}
 
 
-def calibrate(data_dir: Path) -> Path:
-    """Measure and cache the male HumanRace basis; the cache file."""
+def _template(female: bool) -> tuple:
+    """(HumanRace record, template NPC record, template body without its face shape) for one sex."""
     records = {r.form_id: r for r, _ in walk(FALLOUT4_ESM.read_bytes(), b'RACE', b'NPC_')
-               if r.form_id in (HUMAN_RACE, TEMPLATE)}
-    template = records[TEMPLATE]
+               if r.form_id in (HUMAN_RACE, TEMPLATES[female])}
+    template = records[TEMPLATES[female]]
     body = b''.join(pack_subrecord(t.decode(), d) for t, d in subrecords(template.body) if t not in sculpt.FACE_SHAPE)
-    regions = sculpt.race_regions(records[HUMAN_RACE].body, female=False)
+    return records[HUMAN_RACE], template, body
+
+
+def calibrate(data_dir: Path, female: bool = False) -> Path:
+    """Measure and cache HumanRace's sculpt basis for one sex; the cache file."""
+    race, template, body = _template(female)
+    regions = sculpt.race_regions(race.body, female=female)
     names = sculpt.calibration_plugin(data_dir / PLUGIN, body, template.flags, regions)
     try:
         clear(PLUGIN, data_dir)
@@ -41,7 +47,7 @@ def calibrate(data_dir: Path) -> Path:
         collect(PLUGIN, data_dir)
         folder = data_dir / FACEGEN_DIRS[0] / PLUGIN
         nifs = {name: (folder / f'{0x800 + i:08X}.NIF').read_bytes() for i, name in enumerate(names)}
-        out = sculpt.basis_path()
+        out = sculpt.basis_path(female)
         out.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(out, basis=sculpt.measure(nifs, regions), regions=np.array(regions, np.uint32),
                             baseline=np.frombuffer(nifs[sculpt.BASELINE], np.uint8))
@@ -57,13 +63,10 @@ def _exported(names: list, plugin: str, data_dir: Path, folder: int, suffix: str
     return {name: base / f'{0x800 + i:08X}{suffix}' for i, name in enumerate(names)}
 
 
-def calibrate_tints(data_dir: Path) -> Path:
-    """Measure and cache the male HumanRace tint basis; the cache file."""
-    records = {r.form_id: r for r, _ in walk(FALLOUT4_ESM.read_bytes(), b'RACE', b'NPC_')
-               if r.form_id in (HUMAN_RACE, TEMPLATE)}
-    template = records[TEMPLATE]
-    body = b''.join(pack_subrecord(t.decode(), d) for t, d in subrecords(template.body) if t not in sculpt.FACE_SHAPE)
-    complexion, brows, tone = tint.race_options(records[HUMAN_RACE].body, female=False)
+def calibrate_tints(data_dir: Path, female: bool = False) -> Path:
+    """Measure and cache HumanRace's tint basis for one sex; the cache file."""
+    race, template, body = _template(female)
+    complexion, brows, tone = tint.race_options(race.body, female=female)
     options = complexion + brows
     names = tint.calibration_plugin(data_dir / TINT_PLUGIN, body, template.flags, options, tone)
     try:
@@ -73,7 +76,7 @@ def calibrate_tints(data_dir: Path) -> Path:
         paths = _exported(names, TINT_PLUGIN, data_dir, 1, '_d.dds')
         effects = tint.measure({n: tint.reduced(p) for n, p in paths.items()}, options)
         baseline = np.asarray(Image.open(paths[tint.BASELINE]).convert('RGBA'))
-        out = tint.basis_path()
+        out = tint.basis_path(female)
         out.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(out, effects=effects.astype(np.float16), options=np.array(options, np.uint32),
                             baseline=baseline, brows=np.array(brows, np.uint32))
@@ -88,8 +91,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--data', required=True, help='The MO2 mod folder the CK sees')
     ap.add_argument('--what', choices=('sculpt', 'tints'), default='sculpt', help='Which basis to measure')
+    ap.add_argument('--female', action='store_true', help='Measure the female HumanRace basis')
     args = ap.parse_args()
-    print('basis:', (calibrate if args.what == 'sculpt' else calibrate_tints)(Path(args.data)))
+    print('basis:', (calibrate if args.what == 'sculpt' else calibrate_tints)(Path(args.data), args.female))
 
 
 if __name__ == '__main__':

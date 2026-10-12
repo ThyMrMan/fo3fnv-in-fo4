@@ -2,12 +2,13 @@
 
 Each FNV NPC base becomes a copy of a vanilla body for its race and sex
 (BODIES), with FNV's name, factions, AI packages, script, outfit (its worn
-items) and inventory (the rest); a male human
-also takes FNV's face fitted to FO4's sculpt regions, tints and head parts
-(the fits are calibrated for male humans only). A template (TPLT) is
-followed for each part its flags take from it; an NPC whose traits come
-from a leveled list is not converted yet. Every actor placed in a built
-cell is written in that cell, persistent as in FNV.
+items) and inventory (the rest); a human whose sex has a calibration (both
+are measured by sculpt_calibration) also takes FNV's face fitted to FO4's
+sculpt regions, tints and head parts. A template (TPLT) is followed for
+each part its flags take from it; an NPC whose traits come from a leveled
+list becomes an FO4 template actor on the converted list. Every actor
+placed in a built cell is written in that cell, with FNV's persistent and
+initially disabled flags.
 
 See: docs/fork/fo4_pipeline.md#npcs
 """
@@ -142,8 +143,8 @@ class Npcs:
         ghoul = 'ghoul' in self.races.get(int(traits.get('RNAM.Race', '0'), 16), '').lower()
         female = bool(int(traits.get('ACBS.Flags', 0)) & FEMALE)
         body = self.bodies[BODIES[ghoul, female]]
-        face = not (ghoul or female)
-        morphs, edit = (self._face(traits) if face else (b'', None))
+        face = not ghoul and all(p.exists() for p in (sculpt.basis_path(female), tint.basis_path(female)))
+        morphs, edit = (self._face(traits, female) if face else (b'', None))
         fid = self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
@@ -233,22 +234,23 @@ class Npcs:
         rec = self.source(fnv, USE_PACKAGES) or {}
         return R.packages_edit(self.builder.packages.for_npc(rec, self.form_map))
 
-    def _face(self, npc: dict) -> tuple:
-        """(sculpt morphs, edit giving tints and head parts) of male FNV NPC `npc`'s fitted face."""
+    def _face(self, npc: dict, female: bool) -> tuple:
+        """(sculpt morphs, edit giving tints and head parts) of FNV NPC `npc`'s face fitted on its sex's basis."""
         inputs = tuple(npc.get(k, '') for k in ('FGGS', 'FGGA', 'FGTS', 'RNAM.Race', 'HNAM.Hair', 'ENAM.Eyes',
                                                 'HCLR.R', 'HCLR.G', 'HCLR.B', 'LNAM.HairLength'))
-        bases = tuple(p.read_bytes() for p in (sculpt.basis_path(), tint.basis_path()) if p.exists())
+        bases = tuple(p.read_bytes() for p in (sculpt.basis_path(female), tint.basis_path(female)) if p.exists())
         if len(bases) < 2:
             self.builder.counts['face fit skipped (no calibration)'] += 1
             return b'', None
         edid, key = npc['EditorID'], inputs + bases
-        sculpted = cached('sculpt_fit', 'fo4_import.spike.face_fit', key, lambda: sculpt_fit(self.export_dir, edid))
-        tinted = cached('tint_fit', 'fo4_import.spike.face_fit', key, lambda: tint_fit(self.export_dir, edid))
+        sculpted = cached('sculpt_fit', 'fo4_import.spike.face_fit', key,
+                          lambda: sculpt_fit(self.export_dir, edid, female))
+        tinted = cached('tint_fit', 'fo4_import.spike.face_fit', key, lambda: tint_fit(self.export_dir, edid, female))
         self.assets = self.assets or hair.Fo4Assets(self.builder.fo4, Archives(FALLOUT4_DIR / 'Data'))
         chosen = cached('head_parts', 'fo4_import.spike.head_parts', key,
-                        lambda: choose(self.export_dir, edid, self.assets, sculpt.load_basis()[2]))
+                        lambda: choose(self.export_dir, edid, self.assets, sculpt.load_basis(female)[2]))
         self.builder.counts['face fitted'] += 1
-        return (sculpted or (b'',))[0], composed(_tint_edit(tinted), head_parts_edit(chosen, self.assets))
+        return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female), head_parts_edit(chosen, self.assets))
 
     def placed(self, refs: list, cell_of, ids: dict, owners: dict) -> dict:
         """{FNV cell: (persistent, temporary) ACHRs} of the actors `refs` placed in built cells (`cell_of(ref)`, None
@@ -284,12 +286,13 @@ class Npcs:
         return R.pack_achr(achr, base, *place(ref), vmad, extra, flags)
 
 
-def _tint_edit(fitted):
-    """A record edit giving fitted tint layers and skin tone (tint_fit's result); None without a fit."""
+def _tint_edit(fitted, female: bool):
+    """A record edit giving fitted tint layers and skin tone (tint_fit's result on `female`'s basis); None without
+    a fit."""
     if fitted is None:
         return None
     values, tone, _ = fitted
-    basis, options = tint.load_basis(), skin_tone_layers()
+    basis, options = tint.load_basis(female), skin_tone_layers()
 
     def edit(subs: bytes) -> bytes:
         """The record with the fitted tint layers and its skin tone scaled."""

@@ -44,9 +44,10 @@ def variant_npcs(plugin_path: Path, variants) -> dict:
     return out
 
 
-def sculpt_fit(export_dir: Path, edid: str) -> tuple:
-    """(FMRI/FMRS for every region fitted to FNV NPC `edid`'s face, fraction captured); None uncalibrated."""
-    cached = sculpt.load_basis()
+def sculpt_fit(export_dir: Path, edid: str, female: bool = False) -> tuple:
+    """(FMRI/FMRS for every region fitted to FNV NPC `edid`'s face on its sex's basis, fraction captured); None
+    uncalibrated."""
+    cached = sculpt.load_basis(female)
     if cached is None:
         return None
     basis, regions, baseline = cached
@@ -82,13 +83,13 @@ def brow_overlay(export_dir: Path, edid: str, face: tuple) -> np.ndarray:
     return out
 
 
-def tint_target(export_dir: Path, edid: str) -> tuple:
+def tint_target(export_dir: Path, edid: str, female: bool = False) -> tuple:
     """(target change of the reduced face texture, face mask, skin tone scale) for FNV NPC `edid`.
 
     The target is T1's colour with the NPC's brows drawn over it.
     """
-    face = face_shape(sculpt.load_basis()[2])
-    base = tint.load_basis()[2]
+    face = face_shape(sculpt.load_basis(female)[2])
+    base = tint.load_basis(female)[2]
     fnv, pieces = fnv_face(export_dir, edid)
     rgba, tone = face_texture(base, face, fnv, pieces, 'T1')
     brows = brow_overlay(export_dir, edid, face)
@@ -97,12 +98,12 @@ def tint_target(export_dir: Path, edid: str) -> tuple:
     return target - tint.reduced(base), tint.face_mask(face), tone
 
 
-def tint_fit(export_dir: Path, edid: str) -> tuple:
-    """(fitted value per option, skin tone scale, fraction captured); None uncalibrated."""
-    cached = tint.load_basis()
-    if cached is None or sculpt.load_basis() is None:
+def tint_fit(export_dir: Path, edid: str, female: bool = False) -> tuple:
+    """(fitted value per option of its sex's basis, skin tone scale, fraction captured); None uncalibrated."""
+    cached = tint.load_basis(female)
+    if cached is None or sculpt.load_basis(female) is None:
         return None
-    target, mask, tone = tint_target(export_dir, edid)
+    target, mask, tone = tint_target(export_dir, edid, female)
     values, captured = tint.fit_with_brow(cached[0], target, mask, [cached[1].index(b) for b in cached[3]])
     return values, tone, captured
 
