@@ -598,7 +598,17 @@ dust, and drew nothing; the whirlwind's dust puffs went missing.
     numbered. The first build made one partway through, which shifted
     every later modifier onto the shape and its `BSPositionData`, and FO4
     crashed loading the whirlwind.
-- **Left out:** colliders (one mesh in the region).
+- **Colliders (played 2026-10-11: the snow globe's flakes stay in the
+  glass).** The Goodsprings snow globe's 5 snow systems each have a
+  `NiPSysColliderManager` with a chain of 15 colliders (the glass sphere,
+  planes for the base and the scene inside). They were dropped, so the
+  flakes fell through.
+  - The manager, `NiPSysPlanarCollider` and `NiPSysSphericalCollider`
+    have no version conditions, and their layouts round-trip all 134 of
+    vanilla's (63 managers, 68 planar, 3 spherical in 32 effect meshes).
+  - A system's colliders follow its modifiers; each names its manager
+    (parent), the next collider, its spawn modifier and its node, which is
+    kept like the emitter's.
 - A controller of a modifier that was left out is left out too. The
   whirlwind's `NiPSysModifierActiveCtlr` named its bomb modifier, and FO4
   crashed entering Goodsprings looking it up

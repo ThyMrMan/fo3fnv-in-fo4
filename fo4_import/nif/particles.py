@@ -7,7 +7,7 @@ the file's table. FO4 never uses NiPSysGrowFadeModifier (0 of vanilla's 729
 systems), so FNV's grow and fade times become a BSPSysScaleModifier's scale
 curve over the first emitter's life span. FO4-only fields take vanilla's
 values (all 729: vertex description, zero bound; most: no LOD distances,
-aspect 1). Colliders, bomb and mesh emitters are left out.
+aspect 1). A collider manager's colliders follow the system's modifiers.
 
 See: docs/fork/fo4_pipeline.md#particles
 """
@@ -28,7 +28,11 @@ ALIASES = {'rotation_speed': 'initial_rotation_speed', 'rotation_speed_variation
            'color2_start': 'color_2_start_percent', 'lod_begin': 'uknown_float_1', 'lod_end': 'uknown_float_2',
            'end_emit_scale': 'uknown_float_3', 'end_size': 'uknown_float_4'}
 #: Fields naming a scene node (kept as a node so the reference resolves).
-OBJECT_FIELDS = ('emitter_object', 'gravity_object', 'drag_object', 'bomb_object')
+OBJECT_FIELDS = ('emitter_object', 'gravity_object', 'drag_object', 'bomb_object', 'collider_object')
+#: Fields naming a modifier of the system (a collider's manager is its parent).
+MODIFIER_FIELDS = ('spawn_modifier', 'parent')
+#: Fields naming a collider.
+COLLIDER_FIELDS = ('collider', 'next_collider')
 #: NiPSysMeshEmitter's fields after its meshes -> pyffi's names.
 MESH_EMITTER_FIELDS = {'velocity_type': 'initial_velocity_type', 'emission_type': 'emission_type',
                        'emission_axis': 'emission_axis'}
@@ -70,14 +74,21 @@ def wanted_nodes(root, found: list) -> set:
     """ids of the FNV nodes the particle systems hang under or name (emitter, gravity and drag objects)."""
     parents = {id(c): n for n in root.tree() if hasattr(n, 'children') for c in n.children if c is not None}
     out = {id(parents[id(s)]) for s in found if id(s) in parents}
-    for system in found:
-        for mod in system.modifiers:
-            out |= {id(parents[id(m)]) for m in getattr(mod, 'emitter_meshes', []) if m is not None and id(m) in parents}
-            for field in OBJECT_FIELDS:
-                target = getattr(mod, ALIASES.get(field, field), None)
-                if target is not None:
-                    out.add(id(target))
+    for mod in (m for system in found for m in system.modifiers):
+        out |= {id(parents[id(m)]) for m in getattr(mod, 'emitter_meshes', []) if m is not None and id(m) in parents}
+        for block in (mod, *colliders(mod)):
+            targets = (getattr(block, ALIASES.get(field, field), None) for field in OBJECT_FIELDS)
+            out |= {id(t) for t in targets if t is not None}
     return out
+
+
+def colliders(mod) -> list:
+    """FNV collider manager `mod`'s colliders in chain order; empty for any other modifier."""
+    found, collider = [], mod.collider if type(mod).__name__ == 'NiPSysColliderManager' else None
+    while collider is not None:
+        found.append(collider)
+        collider = collider.next_collider
+    return found
 
 
 def add_system(nif, system, owner: int, shader: tuple, scene: dict) -> dict:
@@ -91,11 +102,14 @@ def add_system(nif, system, owner: int, shader: tuple, scene: dict) -> dict:
                  or _grow_fade(m)]
     for geom in (g for m in supported for g in getattr(m, 'emitter_meshes', []) if g is not None):
         _emitter(nif, geom, scene)
-    refs = {**scene, 'system': index, 'modifiers': {id(m): len(nif.blocks) + i for i, m in enumerate(supported)}}
+    chain, first = [c for m in supported for c in colliders(m)], len(nif.blocks) + len(supported)
+    refs = {**scene, 'system': index, 'modifiers': {id(m): len(nif.blocks) + i for i, m in enumerate(supported)},
+            'colliders': {id(c): first + i for i, c in enumerate(chain)}}
     life = next((float(m.life_span) for m in supported if type(m).__name__.endswith('Emitter')), 1.0)
     for mod in supported:
         nif.blocks.append(_modifier(nif, mod, refs, life))
     assert all(nif.blocks[i][0] == _fo4_kind(m) for m, i in zip(supported, refs['modifiers'].values()))
+    nif.blocks.extend((type(c).__name__, _fields(nif, c, refs)) for c in chain)
     made = _controllers(nif, system, index, {m.name for m in supported})
     t = system.translation
     nif.blocks[index] = ('NiParticleSystem', {
@@ -147,7 +161,13 @@ def _modifier(nif, mod, refs: dict, life: float) -> tuple:
         fields = {name: _value(nif, name, getattr(mod, name), refs) for name, _ in EMITTER_BASE}
         tail = {name: _value(nif, name, getattr(mod, attr), refs) for name, attr in MESH_EMITTER_FIELDS.items()}
         return kind, {**fields, **tail, 'meshes': [_emitter(nif, m, refs) for m in mod.emitter_meshes if m is not None]}
-    return kind, {name: _value(nif, name, getattr(mod, ALIASES.get(name, name)), refs) for name, _ in SPECS[kind]}
+    return kind, _fields(nif, mod, refs)
+
+
+def _fields(nif, block, refs: dict) -> dict:
+    """FO4 values of FNV `block`'s SPECS fields, read by their pyffi names."""
+    return {name: _value(nif, name, getattr(block, ALIASES.get(name, name)), refs)
+            for name, _ in SPECS[type(block).__name__]}
 
 
 def _emitter(nif, geom, refs: dict) -> int:
@@ -196,8 +216,10 @@ def _value(nif, name: str, value, refs: dict):
         return refs['system']
     if name in OBJECT_FIELDS:
         return refs['nodes'].get(id(value), NONE) if value is not None else NONE
-    if name == 'spawn_modifier':
+    if name in MODIFIER_FIELDS:
         return refs['modifiers'].get(id(value), NONE) if value is not None else NONE
+    if name in COLLIDER_FIELDS:
+        return refs['colliders'].get(id(value), NONE) if value is not None else NONE
     if name == 'colors':
         return tuple(v for c in value for v in (c.r, c.g, c.b, c.a))
     if hasattr(value, 'a'):

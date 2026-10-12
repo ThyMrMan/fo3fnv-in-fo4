@@ -26,6 +26,7 @@ from fo4_import.spike import imods as I
 from fo4_import.spike import imagespace as IM
 from fo4_import.spike import lighting_template as LT
 from fo4_import.spike import emittance as EM
+from fo4_import.spike import exterior as EX
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import placement as PL
@@ -444,3 +445,21 @@ def test_the_census_flags_an_unrouted_type_and_a_missing_target():
     fo4 = {target for target, _ in RT.ROUTES.values() if target}
     assert C.problems(set(RT.ROUTES), fo4) == []
     assert C.problems({'ZZZZ'}, fo4 - {'COBJ'}) == ['ZZZZ: no route', 'RCPE: target COBJ is not a Fallout 4 type']
+
+
+def test_painted_layers_become_shares_that_never_pass_one():
+    """A layer's share is its opacity times what the layers above leave showing."""
+    shares = EX.layer_weights([{0: 1.0, 1: 0.5}, {0: 0.5}])
+    assert shares == [{0: 0.5, 1: 0.5}, {0: 0.5}]
+
+
+def test_texture_zero_draws_fnvs_default_land_texture_not_fo4s():
+    """FNV draws DirtWasteland01 for texture 0 and a quadrant without a base; FO4's own default is the pale,
+    grassless CommonwealthDefault01. Texture 0 becomes the lowest FNV LTEX using FNV's default."""
+    ext = EX.Exterior.__new__(EX.Exterior)
+    ext.textures = {'00015457': {'ICON': 'DirtWasteland01.dds'}, '00000A8A': {'ICON': 'DirtWasteland01.dds'},
+                    '00020524': {'ICON': 'DirtPathWasteland01.dds'}}
+    ext.made, written = {}, []
+    ext._write_ltex = lambda builder, rec, data_dir: written.append(rec) or 0x03000A8A
+    assert ext._ltex(None, '00000000', None) == 0x03000A8A and ext._ltex(None, None, None) == 0x03000A8A
+    assert written == [ext.textures['00000A8A']]

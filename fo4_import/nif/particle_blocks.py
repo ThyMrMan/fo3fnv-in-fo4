@@ -31,6 +31,9 @@ MESH_EMITTER_TAIL = (('velocity_type', 'I'), ('emission_type', 'I'), ('emission_
 #: NiTimeController: next, flags, frequency, phase, start, stop, target.
 CONTROLLER = (('next', 'i'), ('flags', 'H'), ('frequency', 'f'), ('phase', 'f'), ('start', 'f'), ('stop', 'f'),
               ('target', 'i'))
+#: NiPSysCollider: bounce, spawn and death on collision, its manager, the next collider and its scene node.
+COLLIDER = (('bounce', 'f'), ('spawn_on_collide', 'B'), ('die_on_collide', 'B'), ('spawn_modifier', 'i'),
+            ('parent', 'i'), ('next_collider', 'i'), ('collider_object', 'i'))
 #: Fixed layouts: block type -> its fields in order.
 SPECS = {
     'NiPSysBoxEmitter': EMITTER + (('width', 'f'), ('height', 'f'), ('depth', 'f')),
@@ -54,6 +57,9 @@ SPECS = {
     'NiPSysBombModifier': MODIFIER + (('bomb_object', 'i'), ('bomb_axis', '3f'), ('decay', 'f'), ('delta_v', 'f'),
                                       ('decay_type', 'I'), ('symmetry_type', 'I')),
     'NiPSysPositionModifier': MODIFIER,
+    'NiPSysColliderManager': MODIFIER + (('collider', 'i'),),
+    'NiPSysPlanarCollider': COLLIDER + (('width', 'f'), ('height', 'f'), ('x_axis', '3f'), ('y_axis', '3f')),
+    'NiPSysSphericalCollider': COLLIDER + (('radius', 'f'),),
     'BSPSysSimpleColorModifier': MODIFIER + (('fade_in', 'f'), ('fade_out', 'f'), ('color1_end', 'f'),
                                              ('color1_start', 'f'), ('color2_end', 'f'), ('color2_start', 'f'),
                                              ('colors', '12f')),

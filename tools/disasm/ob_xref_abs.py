@@ -5,6 +5,7 @@ The HDR globals live at 0xB432xx (found via the double-buffered setter at
 4-byte scan of .text plus a disassembly window around each hit gives every
 reader/writer.
 """
+import argparse
 import struct
 import sys
 
@@ -40,12 +41,14 @@ class PE32:
 
 
 def main():
-    targets = [int(a, 0) for a in sys.argv[1:]]
-    if not targets:
-        targets = [0xB43200, 0xB43204, 0xB43208, 0xB4320C,
-                   0xB43210, 0xB43214, 0xB43218, 0xB4321C,
-                   0xB43074, 0xB42EA8, 0xB42F44]
-    pe = PE32(EXE)
+    """Print each target address's literal references in --exe's .text (default: Oblivion's HDR globals)."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument('targets', nargs='*', type=lambda a: int(a, 0))
+    parser.add_argument('--exe', default=EXE)
+    args = parser.parse_args()
+    targets = args.targets or [0xB43200, 0xB43204, 0xB43208, 0xB4320C, 0xB43210, 0xB43214, 0xB43218, 0xB4321C,
+                               0xB43074, 0xB42EA8, 0xB42F44]
+    pe = PE32(args.exe)
     tbase, tra, trsz, code = pe.text()
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
 

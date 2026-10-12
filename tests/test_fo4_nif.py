@@ -420,6 +420,29 @@ def test_a_mesh_emitter_points_at_a_hidden_emitter_shape_and_the_modifiers_stay_
     assert position[0] == 'BSPositionData' and corners == 3 * triangles and len(position[1]['values']) == 7 * corners
 
 
+SNOW_GLOBE = Path('export/FalloutNV.esm/meshes/clutter/snowglobes/snowglobes_goodsprings.nif')
+
+
+@pytest.mark.skipif(not SNOW_GLOBE.exists(), reason='needs the FalloutNV.esm export')
+def test_a_collider_manager_keeps_its_chain_of_colliders_on_kept_nodes():
+    """The snow globe's flakes fell through the glass: its colliders were dropped. Each of its 5 systems keeps its
+    manager and its 15 colliders, chained, each naming its manager, its spawn modifier and a kept node."""
+    nif = F.read(F.write(C.convert(str(SNOW_GLOBE), 'export/FalloutNV.esm').nif))
+    managers = [b for k, b in nif.blocks if k == 'NiPSysColliderManager']
+    assert len(managers) == 5
+    for manager in managers:
+        chain, at = [], manager['collider']
+        while at != K.NONE:
+            kind, collider = nif.blocks[at]
+            assert kind in ('NiPSysPlanarCollider', 'NiPSysSphericalCollider')
+            assert nif.blocks[collider['parent']][1] is manager
+            assert nif.blocks[collider['spawn_modifier']][0] == 'NiPSysSpawnModifier'
+            assert nif.blocks[collider['collider_object']][0] == 'NiNode'
+            chain.append(at)
+            at = collider['next_collider']
+        assert len(chain) == 15
+
+
 @pytest.mark.skipif(not (FALLOUT4_DIR / 'Data').exists(), reason='needs Fallout 4')
 def test_every_particle_block_layout_round_trips_a_vanilla_effect_mesh():
     """particle_blocks reads each vanilla block to its exact length and packs back the same bytes."""

@@ -289,7 +289,8 @@ navmesh tools) and `quest_walkthrough_tes5.py` (the TES5 half of
   first slots. Defaults to the sky classes. This is how `Atmosphere::Update`
   (0x53b0e0) and `Clouds::Update` (0x53b730) were found. Per `SkyObject`, slot 3 is
   `Update(sky, t)`.
-- **★ Oblivion absolute xrefs** (`python tools/disasm/ob_xref_abs.py 0xADDR [...]`) — every
+- **★ Oblivion absolute xrefs** (`python tools/disasm/ob_xref_abs.py 0xADDR [...] [--exe <32-bit exe>]`,
+  e.g. FalloutNV.exe) — every
   instruction in `.text` referencing an absolute address. x86-32 encodes absolute
   operands directly, so this finds all readers AND writers of a global. Used to find
   the HDR parameter bank at `0xB432xx` and the sky gradient stops at `0xB431A8/B8/C8`.

@@ -1721,9 +1721,27 @@ The cell spike can add a block of an FNV worldspace
 moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
 6 doors, 3 furniture), 4 creatures and 9 LAND records of 24 to 28 layers.
 
-- FO4's LAND is FNV's: DATA, VNML, VHGT, VCLR, and BTXT/ATXT/VTXT per
+- FO4's LAND has FNV's layout: DATA, VNML, VHGT, VCLR, and BTXT/ATXT/VTXT per
   quadrant (vanilla `0000F540` has 9 alpha layers in a quadrant, so no cap
-  like Skyrim's 6). FNV's LTEX names a texture (`ICON`, under
+  like Skyrim's 6). Two meanings differ (played 2026-10-11: the region's
+  straight pale, grassless ground seams are about 95% gone):
+  - **Opacities.** FNV paints each alpha layer over the ones below, so a
+    vertex's opacities can sum past 1 (up to 1.51; 8.7% of FNV vertices).
+    FO4's are shares of the vertex: none of 694,000 vanilla vertices sums
+    past 1.0, and 53% sit at 1. Each layer is written as its opacity times
+    what the layers above leave showing (`layer_weights`).
+  - **Texture 0** (and a quadrant with no base) is the engine's default:
+    FNV's is `DirtWasteland01.dds` (FalloutNV.exe and Fallout.ini
+    `sDefaultLandDiffuseTexture`), FO4's `Ground\CommonwealthDefault01`,
+    pale and grassless. The region has 272 alpha layers on texture 0 and 95
+    quadrants with no base (whole columns at x -21 and -20). Texture 0 now
+    becomes the lowest FNV LTEX using FNV's default (`Dirt10`, no grass),
+    and every quadrant gets a BTXT.
+  - FO4's landscape pixel shader blends 4 textures per draw, but vanilla
+    still puts 20% of its alpha weight in layers 3 and up (a later layer
+    is the heaviest at 20% of vertices), and capping a test build to 3
+    layers changed no seam: the count is not a limit to convert to.
+  FNV's LTEX names a texture (`ICON`, under
   `Textures\Landscape\`); FO4's names a texture set (TNAM), whose landscape
   sets are diffuse (TX00), normal (TX01) and specular (TX07).
 - The worldspace record takes the Commonwealth's climate, water, map and
