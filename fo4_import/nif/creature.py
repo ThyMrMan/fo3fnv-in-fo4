@@ -118,6 +118,11 @@ def _fnv_part(geom, root, skeleton: dict) -> tuple:
     return (np.hstack([pos, np.ones((len(pos), 1))]) @ m)[:, :3], nrm @ m[:3, :3], weights, uv
 
 
+def _placed(geom, root, skeleton: dict) -> bool:
+    """Whether `geom` is skinned or under a node `skeleton` names."""
+    return bool(geom.skin_instance) or _anchor(geom, root, skeleton).name.decode('cp1252') in skeleton
+
+
 def _anchor(geom, root, skeleton: dict):
     """The nearest ancestor node of `geom` under `root` whose name `skeleton` holds (the root at last)."""
     parents = {id(c): n for n in root.tree() if isinstance(n, NifFormat.NiNode) for c in n.children if c is not None}
@@ -162,7 +167,7 @@ def _add_part(nif, static, fnv_root, fitting: tuple) -> None:
     fnv = {g.name.decode('cp1252'): g for g in fnv_root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)}
     for shape in [static.blocks[i][1] for i in static.blocks[0][1]['children'] if static.blocks[i][0] == 'BSTriShape']:
         geom = fnv.get(static.strings[shape['name']])
-        if geom is None or is_cap(geom):
+        if geom is None or is_cap(geom) or not _placed(geom, fnv_root, skeleton):
             continue
         pos, uv, nrm, tris = shape_arrays(shape)
         own = fnv_skin(geom, fnv_root, 'rigid')

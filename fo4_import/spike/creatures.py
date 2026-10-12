@@ -7,10 +7,14 @@ Two ways, by the creature's skeleton folder:
   scripts, factions, perks and spells left out and a sandbox package; its
   skin is a copy of the vanilla skin, whose addon shows FNV's body (its
   NIFZ parts on the FO4 skeleton).
-- **An FO4 stand-in** (`STAND_INS`) for a creature with no FO4 counterpart:
-  a copy of a vanilla creature of its size and role under FNV's name, its
-  own body, animations and factions; only its scripts drop. A ported
-  creature from the modlist replaces it through the replacement table.
+- **An FO4 stand-in** (`STAND_INS`): FO4's own kind (bloatfly, radscorpion,
+  deathclaw, ghoul, brahmin, robots), else the nearest in size and role: a
+  copy of the vanilla creature under FNV's name, its own body, animations
+  and factions; only its scripts drop. A ported creature from the modlist
+  replaces it through the replacement table.
+
+Templated creatures and leveled creature lists become FO4 template actors,
+as leveled NPCs do (npcs.py).
 
 Records are hashed from the FNV creature's FormID, so none moves.
 
@@ -25,6 +29,8 @@ from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents
 from fo4_import.spike import records as R
+from fo4_import.spike.actor_data import CREATURE_FLAGS, with_actor_data
+from fo4_import.spike.npcs import composed
 from fo4_import.spike.statics import write_converted
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.mesh_cache import cached_convert
@@ -35,8 +41,14 @@ from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 DOGMEAT_TIES = frozenset({b'VMAD', b'SNAM', b'PRKZ', b'PRKR', b'SPCT', b'SPLO'})
 #: FNV creature skeleton folder -> the vanilla (NPC_, skin ARMO, its ARMA) a creature wearing FNV's body copies.
 TEMPLATES = {'creatures\\dog': (0x1D15C, 0x1D725, 0x1D726)}
-#: FNV creature skeleton folder with no FO4 counterpart -> the vanilla NPC_ standing in (EncMolerat01Template).
-STAND_INS = {'creatures\\nvgecko': 0x1D966}
+#: FNV creature skeleton folder -> the vanilla NPC_ (EditorID) standing in: FO4's own kind, else the nearest.
+STAND_INS = {'creatures\\nvgecko': 'EncMolerat01Template', 'creatures\\molerat': 'EncMolerat01Template',
+             'creatures\\blowfly': 'EncBloatfly01Template', 'creatures\\radscorpion': 'EncRadscorpion01Template',
+             'creatures\\deathclaw': 'EncDeathclaw01Template', 'creatures\\radroach': 'EncRadRoach',
+             'creatures\\ghoul': 'encFeralGhoul01Template', 'creatures\\brahmin': 'EncBrahminTemplate',
+             'creatures\\nvbighorner': 'EncBrahminTemplate', 'creatures\\eyebot': 'EncEyeBot',
+             'creatures\\protectron': 'EncProtectron01Template', 'creatures\\nvsecuritron': 'EncProtectron01Template',
+             'creatures\\nvmantis': 'EncStingwing01Template'}
 #: Vanilla DefaultSandboxEditorLocation, every converted creature's package for now.
 SANDBOX = 0x107AEA
 SITE = 'FNV CREA'
@@ -56,9 +68,13 @@ class Creatures:
         """For `builder`'s plugin (its writer and Fallout4.esm bytes), FNV export `export_dir`, into `data_dir`."""
         self.builder, self.export_dir, self.data_dir = builder, export_dir, data_dir
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'CREA')}
-        wanted = {fid for fids in TEMPLATES.values() for fid in fids} | set(STAND_INS.values())
-        self.vanilla = {rec.form_id: rec for rec, _ in walk(builder.fo4, b'NPC_', b'ARMO', b'ARMA')
-                        if rec.form_id in wanted}
+        wanted, names = {fid for fids in TEMPLATES.values() for fid in fids}, set(STAND_INS.values())
+        self.vanilla, self.stand_ins = {}, {}
+        for rec, _ in walk(builder.fo4, b'NPC_', b'ARMO', b'ARMA'):
+            edid = (dict(subrecords(rec.body)).get(b'EDID') or b'').rstrip(b'\0').decode()
+            if rec.form_id in wanted or edid in names:
+                self.vanilla[rec.form_id] = rec
+                self.stand_ins[edid] = rec.form_id
         self.archives = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2')
         self.fits, self.meshes, self.made, self.count = {}, {}, {}, {}
 
@@ -88,10 +104,10 @@ class Creatures:
 
     def _stand_in(self, fid: int, rec: dict, folder: str) -> None:
         """Write FNV creature `rec` as a copy of its vanilla stand-in under FNV's name, scripts dropped."""
-        npc = self.vanilla[STAND_INS[folder]]
+        npc = self.vanilla[self.stand_ins[STAND_INS[folder]]]
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, npc.body, npc.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), frozenset({b'VMAD'}),
-            edit=R.packages_edit([SANDBOX])))
+            edit=composed(R.packages_edit([SANDBOX]), with_actor_data(rec, rec, CREATURE_FLAGS))))
 
     def _worn(self, fid: int, rec: dict, folder: str) -> None:
         """Write FNV creature `rec` as a copy of its pair's vanilla NPC on a skin showing FNV's body."""
@@ -101,7 +117,7 @@ class Creatures:
         arma, armo = (write.derive_formid(SITE, f'{key} {part}') for part in ('ARMA', 'ARMO'))
         write.add_record('ARMA', _copy(addon, arma, f'{edid}AA', {b'MOD2': _zstr(model), b'MOD3': _zstr(model)}))
         write.add_record('ARMO', _copy(skin, armo, f'{edid}Skin', {b'MODL': struct.pack('<I', arma)}))
-        edit = R.packages_edit([SANDBOX])
+        edit = composed(R.packages_edit([SANDBOX]), with_actor_data(rec, rec, CREATURE_FLAGS))
         write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''), DOGMEAT_TIES,
                                              edit=lambda subs: _replaced(edit(subs), {b'WNAM': struct.pack('<I', armo)})))
 

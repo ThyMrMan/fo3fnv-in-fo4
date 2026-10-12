@@ -257,6 +257,12 @@ def attacks_player_on_sight(rec: dict) -> bool:
         get_int(rec, 'DATA.Personality', 50)) >= 2)
 
 
+def morality(rec: dict) -> int:
+    """TES5/FO4 Morality (any crime .. none) from Responsibility (0-100)."""
+    resp = get_int(rec, 'AIDT.Responsibility')
+    return 3 if resp >= 80 else (2 if resp >= 50 else (1 if resp >= 30 else 0))
+
+
 def build_aidt(rec: dict) -> bytes:
     """Build TES5 AIDT subrecord (20 bytes).
 
@@ -278,7 +284,7 @@ def build_aidt(rec: dict) -> bytes:
         pers = get_int(rec, 'DATA.Personality', 50)
         tes5_aggr = _aggression_tier(rec, get_int(rec, 'AIDT.Aggression'), pers)
         tes5_conf = confidence_tier(rec)
-    tes5_moral = 3 if resp >= 80 else (2 if resp >= 50 else (1 if resp >= 30 else 0))
+    tes5_moral = morality(rec)
     if is_fallout_source():
         tes5_assist = assistance(rec)
         behavior, radius = aggro_radius(rec)
