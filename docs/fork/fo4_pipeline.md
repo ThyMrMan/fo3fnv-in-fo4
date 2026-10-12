@@ -449,6 +449,28 @@ export keeps rank numbers but not their titles).
 - Factions join `form_map`, so GetInFaction and faction parameters
   resolve.
 
+<a id="ownership"></a>**Ownership and map markers (step 2, played 2026-10-12: owned doors, beds and a Goodsprings house's items show as owned; markers discovered, fast travel works).**
+Both are copied from FalloutNV.esm by `spike/placement.py`, like the room
+fields.
+- **Ownership.** FNV's XOWN is the owner's FormID (4 bytes); FO4's is 12
+  (owner, 4 unused, a No Crime byte, 3 unused), as all 5,909 of vanilla's.
+  The owner maps to its converted faction or NPC (today only the stand-in
+  clones); an owner not converted is dropped with its rank (XRNK, the same
+  in both). Interior cells take their owner too (`pack_cell`). Goodsprings
+  to Primm: 74 of 87 owned references and 11 of 14 owned cells; the rest
+  are NPCs' (step 3).
+- **Map markers.** Both games mark one with an empty XMRK, then FNAM flags
+  (visible, can travel, "show all" hidden: the same bits), FULL and a
+  2-byte TNAM whose first byte is the type. FNV's types map to FO4's of
+  the same kind (`MARKER_TYPES`: settlement 2 → 13, cave 5 → 0, metro
+  13 → 6, vault 14 → 15, …). The discovery radius (XRDS) is kept, as on
+  246 of vanilla's 315 markers. FNV also puts TNAM and XRDS on other
+  references (68 patrol points), so these fields are kept only beside
+  XMRK. The region's 15 markers carry them (Goodsprings, Primm, the
+  cemetery, Goodsprings Source, the Powder Ganger camps, …).
+- Not yet: locations (LCTN) and encounter zones (ECZN), which quests'
+  aliases and level ranges need.
+
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok
   phantom: the pressure plate's trigger volume

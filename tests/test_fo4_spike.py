@@ -566,3 +566,22 @@ def test_a_faction_keeps_relations_to_factions_ranks_and_maps_its_flags():
     assert struct.unpack('<IiI', data[b'XNAM']) == (0x03000010, 20, 2)
     assert struct.unpack('<I', data[b'DATA'])[0] == 0x1 | 0x2 | FA.TRACK_CRIME | FA.CAN_BE_OWNER
     assert data[b'CRVA'] == FA.CRIME_VALUES[True] and data[b'EDID'] == b'FNV_GSFaction\0'
+
+
+def test_an_owner_converts_to_fo4s_twelve_bytes_and_an_unconverted_one_drops_its_rank(monkeypatch):
+    """A converted owner keeps its rank; an owner not converted drops both XOWN and XRNK."""
+    found = [(b'XOWN', struct.pack('<I', 0x500)), (b'XRNK', struct.pack('<i', 2))]
+    monkeypatch.setattr(PL, 'fields', lambda: {0x900: found})
+    kept = dict(subrecords(PL.placement(0x900, {}, {0x500: 0x03000500})))
+    assert kept[b'XOWN'] == struct.pack('<I', 0x03000500) + bytes(8) and kept[b'XRNK'] == struct.pack('<i', 2)
+    assert PL.placement(0x900, {}, {}) == b''
+
+
+def test_a_map_marker_keeps_its_name_flags_radius_and_fo4_type_but_other_refs_drop_tnam(monkeypatch):
+    """FNV's Settlement type (2) is FO4's (13); a TNAM on a reference with no XMRK is not a map marker's."""
+    marker = [(b'XRDS', struct.pack('<f', 2000.0)), (b'XMRK', b''), (b'FNAM', b'\x01'), (b'FULL', b'Goodsprings\0'),
+              (b'TNAM', b'\x02\x00')]
+    monkeypatch.setattr(PL, 'fields', lambda: {0x901: marker, 0x902: [(b'TNAM', b'\x05\x00'), (b'XRDS', bytes(4))]})
+    kept = list(subrecords(PL.placement(0x901, {})))
+    assert [t for t, _ in kept] == [b'XRDS', b'XMRK', b'FNAM', b'FULL', b'TNAM'] and dict(kept)[b'TNAM'] == b'\x0d\x00'
+    assert PL.placement(0x902, {}) == b''

@@ -405,7 +405,7 @@ def _built(builder: CellBuilder, refs: list) -> list:
 
 def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tuple:
     """(persistent, temporary) REFRs of the cell's converted references."""
-    persistent, temporary = b'', b''
+    persistent, temporary, owners = b'', b'', {**builder.factions, **builder.npc_ids}
     for ref in refs:
         base = (builder.load_door if ref['FormID'] in teleports else builder.base)(int(ref['NAME'], 16))
         if int(ref['NAME'], 16) in builder.parts.parts:
@@ -418,7 +418,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
-                             teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids) + _lock(builder, ref)
+                             teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids, owners) + _lock(builder, ref)
                              + builder.emittance.xemi(ref),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
@@ -755,14 +755,15 @@ def _cell_group(builder: CellBuilder, export_dir: Path, vanilla: dict, rooms: li
 
 
 def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict) -> bytes:
-    """The FO4 CELL of FNV interior `cell`: FNV's lighting, imagespace and water height over QASmoke's settings."""
+    """The FO4 CELL of FNV interior `cell`: FNV's lighting, imagespace, water height and owner over QASmoke's."""
     template = sub_map(vanilla[CELL_FO4].body)
     imagespace = _imagespace(builder, export_dir, cell, vanilla[BASE_IMAGESPACE].body)
     edid, flags = cell['EditorID'], int(cell['DATA.Flags'])
     water = float(cell['XCLW.WaterHeight']) if flags & HAS_WATER and 'XCLW.WaterHeight' in cell else 0.0
     return R.pack_cell(builder.fnv_id(cell['FormID']), f'FNV_{edid}', cell.get('FULL', edid), flags & 0xFF,
                        lighting(resolved(export_dir, cell), template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
-                       imagespace or struct.unpack('<I', template[b'XCIM'])[0], water)
+                       imagespace or struct.unpack('<I', template[b'XCIM'])[0], water,
+                       {**builder.factions, **builder.npc_ids}.get(int(cell.get('XOWN.Owner', '0'), 16), 0))
 
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
