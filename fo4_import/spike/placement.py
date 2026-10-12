@@ -87,3 +87,13 @@ def placement(fnv_fid: int, ids: dict, owners: dict = None) -> bytes:
         kept = None if skip else _field(tag, data, ids, owner)
         out += pack_subrecord(tag.decode(), kept) if kept is not None else b''
     return out
+
+
+def map_markers(ids: dict) -> dict:
+    """{map marker name: FO4 reference} of the built markers (through `ids` {FNV hex: FO4}), first by FormID."""
+    out = {}
+    for fnv, found in sorted(fields().items()):
+        tags = dict(found)
+        if b'XMRK' in tags and b'FULL' in tags and f'{fnv:08X}' in ids:
+            out.setdefault(tags[b'FULL'].rstrip(b'\0').decode('cp1252'), ids[f'{fnv:08X}'])
+    return out

@@ -468,8 +468,31 @@ fields.
   references (68 patrol points), so these fields are kept only beside
   XMRK. The region's 15 markers carry them (Goodsprings, Primm, the
   cemetery, Goodsprings Source, the Powder Ganger camps, …).
-- Not yet: locations (LCTN) and encounter zones (ECZN), which quests'
-  aliases and level ranges need.
+- Locations and encounter zones: [below](#locations).
+
+<a id="locations"></a>**Locations and encounter zones (step 2, built 2026-10-12).**
+FNV has no location records; FO4's quests, aliases and level ranges lean
+on them. `spike/locations.py` builds them from what FNV authored:
+- **Places.** FNV's regions with a map name (RDMP, the name FNV shows for
+  where the player stands, 55 in FalloutNV.esm, Goodsprings and Primm
+  among them) are polygons over a worldspace (RPLD points, world units).
+  Each becomes a location under a root location named for the worldspace
+  ("Mojave Wasteland"), which the WRLD names (XLCN). Its map marker
+  (MNAM) is the built marker of the same name.
+- **Cells.** An exterior cell takes the region whose polygon holds its
+  centre, else the root. An interior takes the location of the exterior
+  door leading into it (doors by FormID, nearest first), passed on through
+  interior doors, as `interiors.reached` walks them.
+- **Fields.** Vanilla's commonest layout: EDID, FULL, PNAM parent, MNAM
+  marker, RNAM, ANAM 1.0 (393 vanilla locations; keywords left out until a
+  quest needs one). The CK-computed reference lists (LCPR, LCUN, LCEC …)
+  are left out, as a plugin may. Locations are generated, so their ids are
+  hashed from the region's (or worldspace's) FormID.
+- **Encounter zones.** All 17 FNV zones on FNV's ids: owner (through the
+  converted factions and NPCs), rank, minimum level and flags (Never
+  Resets, Match PC Below Minimum: the same bits); FO4's location and
+  maximum level are 0. Cells keep their XEZN (84 in FalloutNV.esm, all
+  interiors; Bison Steve's and Vikki and Vance's in the region).
 
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok

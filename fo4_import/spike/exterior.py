@@ -102,15 +102,18 @@ class Exterior:
             land = lands[grid]
             land_record = self._land(builder, land, mixes.get(grid), data_dir) if land else b''
             navm = navmesh.get(self.cells[grid]['FormID'], b'')
-            cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + navm + temporary)
+            zone = builder.zones.get(int(self.cells[grid].get('XEZN.EncounterZone', '0'), 16), 0)
+            cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + navm + temporary,
+                           (builder.locations.of_grid(grid), zone))
         record = self._world(builder, world)
         children = _cell(persistent_cell, PERSISTENT, (0, 0), kept, b'')
-        children += _blocks({grid: _cell(fid, 0, grid, b'', temp) for grid, (fid, temp) in cells.items()})
+        children += _blocks({grid: _cell(fid, 0, grid, b'', temp, place) for grid, (fid, temp, place) in cells.items()})
         builder.counts['exterior cells'] = len(cells)
         return record + pack_group(WORLD_CHILDREN, struct.pack('<I', world), children)
 
     def _world(self, builder, fid: int) -> bytes:
-        """The WRLD record: FNV's name, climate (weathers.py) and the block's bounds, the Commonwealth's settings."""
+        """The WRLD record: FNV's name, location, climate (weathers.py) and the block's bounds, the Commonwealth's
+        settings."""
         template = next(r for r, _ in walk(builder.fo4, b'WRLD') if r.form_id == WORLD_TEMPLATE)
         kept = {t: d for t, d in subrecords(template.body) if t in WORLD_COPIED}
         fnv_climate = climate(builder, int(self.world.get('CNAM.Climate', '0'), 16))
@@ -121,6 +124,7 @@ class Exterior:
                   struct.pack('<2f', (max(xs) + 1) * CELL_UNITS, (max(ys) + 1) * CELL_UNITS))
         subs = pack_subrecord('EDID', f'FNV_{self.world["EditorID"]}\0'.encode())
         subs += pack_subrecord('FULL', (self.world.get('FULL', self.world['EditorID']) + '\0').encode('cp1252'))
+        subs += pack_subrecord('XLCN', struct.pack('<I', builder.locations.root))
         subs += b''.join(pack_subrecord(t.decode(), kept[t]) for t in WORLD_COPIED[:-2] if t in kept)
         subs += pack_subrecord('DATA', kept[b'DATA']) + pack_subrecord('NAM0', bounds[0])
         subs += pack_subrecord('NAM9', bounds[1]) + (pack_subrecord('XWEM', kept[b'XWEM']) if b'XWEM' in kept else b'')
@@ -220,10 +224,11 @@ def _grid(ref: dict) -> tuple:
     return math.floor(float(ref['PosX']) / CELL_UNITS), math.floor(float(ref['PosY']) / CELL_UNITS)
 
 
-def _cell(fid: int, flags: int, grid: tuple, persistent: bytes, temporary: bytes) -> bytes:
-    """An exterior CELL and its children group."""
+def _cell(fid: int, flags: int, grid: tuple, persistent: bytes, temporary: bytes, place: tuple = (0, 0)) -> bytes:
+    """An exterior CELL and its children group; `place` its (location, encounter zone), 0 for none."""
     subs = pack_subrecord('DATA', struct.pack('<H', CELL_DATA)) + pack_subrecord('XCLC', struct.pack('<iiI', *grid, 0))
     subs += pack_subrecord('LTMP', bytes(4)) + pack_subrecord('XCLW', struct.pack('<f', 3.4028234663852886e+38))
+    subs += b''.join(pack_subrecord(tag, struct.pack('<I', form)) for tag, form in zip(('XLCN', 'XEZN'), place) if form)
     label = struct.pack('<I', fid)
     kids = (pack_group(PERSISTENT_CHILDREN, label, persistent) if persistent else b'') + (
         pack_group(TEMPORARY_CHILDREN, label, temporary) if temporary else b'')

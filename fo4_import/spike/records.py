@@ -412,14 +412,14 @@ def clone_npc(fid: int, body: bytes, flags: int, edid: str, name: str, drop: fro
 
 
 def pack_cell(fid: int, edid: str, name: str, flags: int, lighting: bytes, template: int, imagespace: int,
-              water: float = 0.0, owner: int = 0) -> bytes:
+              water: float = 0.0, owner: int = 0, place: tuple = (0, 0)) -> bytes:
     """An interior cell: name, DATA flags, XCLL lighting, lighting template, water height, owner (a faction or
-    NPC, 0 for none), imagespace."""
+    NPC), `place` (location, encounter zone), imagespace; 0 for none."""
     subs = _zstr('EDID', edid) + _zstr('FULL', name) + pack_subrecord('DATA', struct.pack('<H', flags))
     subs += pack_subrecord('XCLL', lighting) + _u32('LTMP', template)
-    subs += pack_subrecord('XCLW', struct.pack('<f', water))
+    subs += pack_subrecord('XCLW', struct.pack('<f', water)) + (_u32('XLCN', place[0]) if place[0] else b'')
     subs += pack_subrecord('XOWN', struct.pack('<I', owner) + bytes(8)) if owner else b''
-    subs += _u32('XCIM', imagespace)
+    subs += (_u32('XEZN', place[1]) if place[1] else b'') + _u32('XCIM', imagespace)
     return pack_fo4_record('CELL', fid, 0, subs)
 
 

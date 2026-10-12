@@ -41,13 +41,14 @@ from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.interiors import scope
-from fo4_import.spike.placement import placement
+from fo4_import.spike.placement import map_markers, placement
 from fo4_import.spike.packages import Packages
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.sounds import Sounds
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.factions import write_all as write_factions
 from fo4_import.spike.globals import write_all as write_globals
+from fo4_import.spike.locations import Locations, encounter_zones
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif import weapon
 from fo4_import.spike import records as R
@@ -204,7 +205,7 @@ class CellBuilder:
         self.writer.reserve_source_ids({own | r.form_id & 0xFFFFFF for r in records(fnv_esm(), bodies=())})
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
-        self.globals, self.factions = {}, {}
+        self.globals, self.factions, self.zones, self.places, self.locations = {}, {}, {}, {}, None
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.fo4 = FALLOUT4_ESM.read_bytes()
@@ -720,13 +721,14 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     qa_refs += _test_chest(builder, vanilla[TEST_CHEST]) + _qa_creatures(builder, export_dir, data_dir)
     teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
     builder.ref_ids = {**ids, **ext_ids, **builder.actor_ids}
+    _places(builder, export_dir, world, (all_refs, outside, interiors))
     persistent, temporary = _placed(builder, refs, ids, teleports)
-    persistent += actors
     _quests(builder, export_dir, quest_recs, quests, {**ids, **builder.actor_ids})
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
     pathing = {c['FormID']: (0, builder.fnv_id(c['FormID'])) for c in interiors}
     navmesh = _navmesh(builder, export_dir, {**pathing, **(world.pathing(builder) if world else {})}, {**ids, **ext_ids})
-    rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh, (persistent + builder.poses.placed, temporary))
+    rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh,
+                   (persistent + actors + builder.poses.placed, temporary))
     _cell_group(builder, export_dir, vanilla, rooms, qa_refs)
     if world:
         for ref in world.placement_order():
@@ -754,6 +756,22 @@ def _cell_group(builder: CellBuilder, export_dir: Path, vanilla: dict, rooms: li
     builder.writer.add_raw_group('CELL', R.pack_interior_cells(cells + [(qa_record, CELL_FO4, qa_refs, b'')]))
 
 
+def _places(builder: CellBuilder, export_dir: Path, world, scoped: tuple) -> None:
+    """Write the encounter zones and `world`'s locations; `builder.places` maps each interior to its location.
+    `scoped` is (every reference, the exterior block's, the interiors built).
+    See: docs/fork/fo4_pipeline.md#locations
+    """
+    builder.zones = encounter_zones(builder, export_dir, {**builder.factions, **builder.npc_ids})
+    if world:
+        builder.locations = Locations(builder, world.world, map_markers(builder.ref_ids))
+        builder.places = builder.locations.interiors(*scoped)
+
+
+def _zone(builder: CellBuilder, cell: dict) -> int:
+    """The FO4 encounter zone of FNV cell `cell`; 0 without one."""
+    return builder.zones.get(int(cell.get('XEZN.EncounterZone', '0'), 16), 0)
+
+
 def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict) -> bytes:
     """The FO4 CELL of FNV interior `cell`: FNV's lighting, imagespace, water height and owner over QASmoke's."""
     template = sub_map(vanilla[CELL_FO4].body)
@@ -763,7 +781,8 @@ def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict)
     return R.pack_cell(builder.fnv_id(cell['FormID']), f'FNV_{edid}', cell.get('FULL', edid), flags & 0xFF,
                        lighting(resolved(export_dir, cell), template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
                        imagespace or struct.unpack('<I', template[b'XCIM'])[0], water,
-                       {**builder.factions, **builder.npc_ids}.get(int(cell.get('XOWN.Owner', '0'), 16), 0))
+                       {**builder.factions, **builder.npc_ids}.get(int(cell.get('XOWN.Owner', '0'), 16), 0),
+                       (builder.places.get(cell['FormID'], 0), _zone(builder, cell)))
 
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:

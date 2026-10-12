@@ -32,6 +32,7 @@ from fo4_import.spike import emittance as EM
 from fo4_import.spike import weathers as WT
 from fo4_import.spike import exterior as EX
 from fo4_import.spike import land_layers as LL
+from fo4_import.spike import locations as LO
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import placement as PL
@@ -585,3 +586,34 @@ def test_a_map_marker_keeps_its_name_flags_radius_and_fo4_type_but_other_refs_dr
     kept = list(subrecords(PL.placement(0x901, {})))
     assert [t for t, _ in kept] == [b'XRDS', b'XMRK', b'FNAM', b'FULL', b'TNAM'] and dict(kept)[b'TNAM'] == b'\x0d\x00'
     assert PL.placement(0x902, {}) == b''
+
+
+def test_a_point_is_inside_a_region_polygon_by_the_even_odd_rule():
+    """A square region holds its centre and not a point past its edge."""
+    square = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    assert LO.inside(square, 5.0, 5.0) and not LO.inside(square, 15.0, 5.0)
+
+
+def test_an_interior_takes_the_location_of_the_exterior_door_leading_in_and_passes_it_on():
+    """Outside door A (in the region) leads into cell X; X's door leads into Y; both take A's location."""
+    locations = LO.Locations.__new__(LO.Locations)
+    locations.root, locations.regions = 1, [(2, [[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]])]
+    a = {'FormID': '0A', 'ParentCELL': 'W', 'XTEL.Door': '0B', 'PosX': '50', 'PosY': '50'}
+    refs = [a, {'FormID': '0B', 'ParentCELL': 'X', 'XTEL.Door': '0A'},
+            {'FormID': '0C', 'ParentCELL': 'X', 'XTEL.Door': '0D'}, {'FormID': '0D', 'ParentCELL': 'Y', 'XTEL.Door': '0C'}]
+    places = locations.interiors(refs, [a], [{'FormID': 'X'}, {'FormID': 'Y'}, {'FormID': 'Z'}])
+    assert places == {'X': 2, 'Y': 2}
+
+
+def test_an_encounter_zone_gains_fo4s_location_and_maximum_level_slots():
+    """FNV's owner, rank, minimum level and flags in FO4's DATA order, owner through the converted forms."""
+    written = []
+    builder = SimpleNamespace(fnv_id=lambda fid: 0x03000000 | int(fid, 16), counts=Counter(),
+                              writer=SimpleNamespace(add_record=lambda sig, raw: written.append(raw)))
+    rec = {'FormID': '000D6FB0', 'EditorID': 'BisonSteve', 'DATA.Owner': '00000500', 'DATA.Rank': '1',
+           'DATA.MinLevel': '2', 'DATA.Flags': '1'}
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(LO, 'export_records', lambda *_: [rec])
+        assert LO.encounter_zones(builder, None, {0x500: 0x03000500}) == {0xD6FB0: 0x030D6FB0}
+    data = dict(subrecords(written[0][24:]))[b'DATA']
+    assert struct.unpack('<IIbbBb', data) == (0x03000500, 0, 1, 2, 1, 0)
