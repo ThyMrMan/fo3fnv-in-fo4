@@ -1763,8 +1763,9 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   FNV's LTEX names a texture (`ICON`, under
   `Textures\Landscape\`); FO4's names a texture set (TNAM), whose landscape
   sets are diffuse (TX00), normal (TX01) and specular (TX07).
-- The worldspace record takes the Commonwealth's climate, water, map and
-  water-environment settings (`0000003C`); its persistent cell and grid
+- The worldspace record takes the Commonwealth's water, map and
+  water-environment settings (`0000003C`), and FNV's climate
+  ([weathers](fo4_pipeline.md#weathers)); its persistent cell and grid
   cells follow vanilla's (DATA `0x02`, XCLC, LTMP, no water). Exterior
   groups are labelled (y, x) in int16s: block = coordinate ÷ 32, sub-block
   ÷ 8 (vanilla cell (-89, 7) is block (0, -3), sub-block (0, -12)).

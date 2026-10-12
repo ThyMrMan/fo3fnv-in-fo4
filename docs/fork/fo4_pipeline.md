@@ -15,6 +15,7 @@ Goodsprings; this plan turns them into a converter for whole plugins.
 - [Speed](#speed)
 - [Stability](#stability)
 - [Order](#order)
+- [Parked](#parked)
 
 ## <a id="scale"></a>Scale (measured 2026-10-10)
 
@@ -959,22 +960,97 @@ order of payoff:
   rejects silently: missing masters, unresolved FormIDs, NAVI entries
   without a NAVM.
 
-## <a id="order"></a>Order
+## <a id="order"></a>Order (reworked 2026-10-11)
 
-1. FormIDs. **Built.**
-2. Record census (**built**), then the pipeline skeleton (**built**, [skeleton](#skeleton)):
-   - built: the export read once, the mesh and Elric caches, meshes
-     converted on every core, scripts compiled only when changed; it
-     rebuilds the spike block byte for byte;
-   - left: converters per record type dispatched from `record_routes`
-     (the spike's code runs as it was), and a region scope (`--region`).
-3. **Goodsprings to Primm:** the first region, a few hundred cells
-   (**built**, [region](#region)).
-   - Brings in the opening quests (VCG02's wells, Ghost Town Gunfight,
-     the road south) and the exterior navmesh (**built**,
-     [exterior navmesh](#exterior-navmesh)).
-   - Measures frame rate and build time at region scale.
-4. The whole Mojave, then the other worldspaces and every interior.
-5. NPCs, AI and quests across it, starting with Sunny Smiles and VCG02.
-6. Engine passes: LOD, then precombines and previs if
-   [performance](#before) needs them.
+**The first order (2026-10-10), and where it stands.**
+1. FormIDs: built.
+2. Record census and the pipeline skeleton: built, with per-type
+   converters for placed bases and `--region`.
+3. Goodsprings to Primm: the world is built and played. Its other two
+   goals were not reached: the opening quests (VCG02, Ghost Town
+   Gunfight, the road south), and frame rate and build time measured at
+   region scale.
+4. The whole Mojave; 5. NPCs, AI and quests; 6. engine passes: not
+   started.
+
+Of [before the pipeline](#before): 1–3 are built, and 6 partly
+([climate and weathers](#weathers); not regions or water). 4, 5, 7, 8
+and 9 are not started.
+
+**What happened instead.** From 2026-10-10 to 2026-10-11, each region
+play-test found something in the world that didn't look or behave like
+FNV's. Each was fixed before moving on: rooms and portals, ragdolls and
+joints, mixed and two-sided collision, locks and keys, lights and
+lighting templates, emittance, glow maps, effect animation, particles,
+add-ons, land texture blending and weathers (sections above).
+
+**What that taught.**
+- Almost every fix was a general converter that the whole map needs, so
+  none of it is wasted. The region turned up the mesh and record long
+  tail at about one fix per kind of asset, not per cell; the whole map
+  will turn up more of the same kind.
+- Visual parity has no natural end. FNV's exact look (HDR bloom, warm
+  display colours, dry grass) fights FO4's renderer. Each round costs a
+  build and a play-test, and the last several moved the image less and
+  less. Per [accept drift](fo4_drift.md), these wait in
+  [parked](#parked), possibly as a player option.
+- The region builds in about 180 s with meshes cached.
+- NPCs, factions and quests are the census's 57 untouched types and the
+  largest unknown left. The world converters are now proven at region
+  scale.
+
+**The new order.**
+1. **Close the region's world** (short).
+   - Measure frame rate in Goodsprings and Primm, and the build's time
+     and memory.
+   - The two pieces still in test (enable parents, region emittance)
+     ride along with the next play-test.
+   - From here on, triage each play-test finding: fix a crash, a blocker
+     or anything that breaks play now; send a look that differs from FNV
+     to [parked](#parked).
+2. **The records NPCs and quests stand on** ([before](#before) 4, 5
+   and 9):
+   - persistent references and the worldspace layout;
+   - FACT, CLAS, RACE, CSTY, VTYP, LVLN (with LVLC), FLST, and GLOB in
+     full;
+   - locations from FNV's map markers, encounter zones and ownership;
+     map markers.
+3. **Real NPCs in the region.** Goodsprings' and Primm's people as their
+   own records (FO4 race and head parts with the spike-2 face fit, class,
+   factions, inventory, packages) in place of the stand-ins; creatures
+   through the replacement table.
+4. **The opening quests:** VCG02 (Sunny Smiles), Ghost Town Gunfight and
+   Primm's quests. This brings quest aliases and targets in general, the
+   [force greet](fo4_spikes.md#spike-1-force-greet), terminals and the
+   rest of the dialogue. The region is then a playable slice from Doc's
+   house to Primm.
+5. **The whole Mojave:** every WastelandNV cell and interior, then the
+   other worldspaces; regions and water; the worldspace map; build time
+   and memory at full size.
+6. **Engine passes:** terrain and object LOD (Project Mojave's terrain
+   LOD as the FO4 format reference), then precombines and previs if
+   step 1's frame rate says they are needed.
+
+Steps 2–4 come before the whole map (the reverse of the first order).
+This tests the remaining unknown where the world already works.
+The whole-map step then carries NPCs and quests with it, rather than
+converting the world twice.
+
+## <a id="parked"></a>Parked
+
+Found and deliberately left for later. Each needs its own look, not a
+quick fix.
+
+| Item | State | Where |
+|---|---|---|
+| Overall warmth: FO4's tone curve and LUT against FNV's clipped display colours | Not measured; a candidate player option ("FNV look") | [color drift](#color-drift) |
+| FNV's weather imagespace modifier: the amber tint (`NVWastelandIS`, 39%) and brightness × 1.3 | Values read; not converted | [weathers](#weathers) |
+| Region weathers: Goodsprings' thicker fog (`NVWastelandGS`) | Not converted | [weathers](#weathers) |
+| Grass reads green, FNV's dry yellow | Not measured | [color drift](#color-drift) |
+| Bright dirt road | Re-check now that the weathers are FNV's | [color drift](#color-drift) |
+| Bright lamps blown out (the Goodsprings lantern) | FNV multiplies an emissive shape by 15 with HDR on (`0xBC6FE0`) and then clips; FO4 blooms the same energy. A rescale was tried and reverted. Tied to the tone question | [emittance](#emittance) |
+| Last land seams: soft edges, the road near the graveyard fading more than FNV's | 67 shared vertices have no common texture | [land seams](fo4_spikes.md#spike-4-exterior) |
+| FNV's HDR imagespace fields (skin dimmer, target luminance, bloom alphas) | Dropped | [drift](fo4_drift.md) |
+| Bear trap's trigger volume (Havok phantom) | Left out; base and jaws collide | [region](#region) |
+| Damage stages (car fires) and smoke add-ons with no FO4 namesake | Left out | [add-ons](#addons) |
+| FNV's guns on FO4 receivers; creatures with no FO4 rig | The replacement table and the modlist | [guns](fo4_spikes.md#spike-4-guns), [replacements](fo4_replacements.md) |
