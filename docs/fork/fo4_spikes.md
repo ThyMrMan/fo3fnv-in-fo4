@@ -1737,10 +1737,29 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     quadrants with no base (whole columns at x -21 and -20). Texture 0 now
     becomes the lowest FNV LTEX using FNV's default (`Dirt10`, no grass),
     and every quadrant gets a BTXT.
-  - FO4's landscape pixel shader blends 4 textures per draw, but vanilla
-    still puts 20% of its alpha weight in layers 3 and up (a later layer
-    is the heaviest at 20% of vertices), and capping a test build to 3
-    layers changed no seam: the count is not a limit to convert to.
+  - **Seams at quadrant borders (played 2026-10-11: hard seams became soft
+    edges).** FNV switches base texture at a quadrant border; 669 of the
+    region's 1,950 quadrant borders change base, and the base is 58% of
+    the ground. `land_layers.py` makes each quadrant a mix of shares (the
+    base taking what the painted layers leave), and gives every vertex
+    shared by quadrants, inside or across cells, their average mix.
+  - That alone left straight seams. Fallout4.exe (and the CK, which shares
+    the code) stores a weight byte per vertex for up to 12 layers
+    (`0x4B3A90`), merges duplicate textures and puts the base in slot 0
+    (`0x4BCD40`, base weight 255 minus the rest), and the landscape pixel
+    shaders blend 4 textures per draw. Textures past the first 4 draw
+    differently: listing the road first in every quadrant removed the road
+    seams. So each quadrant keeps its 4 heaviest textures (the heaviest as
+    the BTXT), and a shared vertex keeps only textures every quadrant on it
+    keeps, renormalized. Vanilla holds 88% of its weight in the base and
+    first 3 layers (layers sorted by coverage).
+  - Cost: a median 7% of a quadrant's weight moves (p90 28%); 630 road
+    vertices above 0.2 lose the road; 67 of 30,321 shared vertices cannot
+    match (no common texture).
+  - Ruled out on the way: a 3-layer cap (each quadrant kept different
+    textures, so seams stayed in the data), FNV's terrain LOD textures as
+    FO4's land-LOD blend target (seams got worse), and VCLR, DATA flags,
+    VTXT grid order and texture formats (all match vanilla).
   FNV's LTEX names a texture (`ICON`, under
   `Textures\Landscape\`); FO4's names a texture set (TNAM), whose landscape
   sets are diffuse (TX00), normal (TX01) and specular (TX07).

@@ -27,6 +27,7 @@ from fo4_import.spike import imagespace as IM
 from fo4_import.spike import lighting_template as LT
 from fo4_import.spike import emittance as EM
 from fo4_import.spike import exterior as EX
+from fo4_import.spike import land_layers as LL
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import placement as PL
@@ -449,7 +450,7 @@ def test_the_census_flags_an_unrouted_type_and_a_missing_target():
 
 def test_painted_layers_become_shares_that_never_pass_one():
     """A layer's share is its opacity times what the layers above leave showing."""
-    shares = EX.layer_weights([{0: 1.0, 1: 0.5}, {0: 0.5}])
+    shares = LL.layer_weights([{0: 1.0, 1: 0.5}, {0: 0.5}])
     assert shares == [{0: 0.5, 1: 0.5}, {0: 0.5}]
 
 
@@ -463,3 +464,28 @@ def test_texture_zero_draws_fnvs_default_land_texture_not_fo4s():
     ext._write_ltex = lambda builder, rec, data_dir: written.append(rec) or 0x03000A8A
     assert ext._ltex(None, '00000000', None) == 0x03000A8A and ext._ltex(None, None, None) == 0x03000A8A
     assert written == [ext.textures['00000A8A']]
+
+
+def _mixes(left: dict, right: dict) -> dict:
+    """A cell: bottom quadrants `left`, `right` ({texture: share}), top ones 'a'."""
+    flat = lambda shares: {t: np.full(LL.QUAD_POINTS, s) for t, s in shares.items()}
+    return {(0, 0): {0: flat(left), 1: flat(right), 2: flat({'a': 1.0}), 3: flat({'a': 1.0})}}
+
+
+def test_a_base_change_at_a_quadrant_border_is_averaged_on_the_shared_vertices():
+    """FNV switches base at a border; both quadrants' shared vertices take the average mix, so FO4 shows no seam."""
+    mixes = LL.blend_borders(_mixes({'a': 1.0}, {'b': 1.0}))
+    left, right = mixes[(0, 0)][0], mixes[(0, 0)][1]
+    edge = [p for p in range(LL.QUAD_POINTS) if p % LL.SIDE == LL.SIDE - 1 and p // LL.SIDE < LL.SIDE - 1]
+    assert all(left[t][p] == right[t][p - LL.SIDE + 1] == 0.5 for p in edge for t in 'ab')
+    assert left['a'][0] == 1.0 and right['b'][LL.SIDE - 1] == 1.0
+
+
+def test_a_quadrant_keeps_its_four_heaviest_textures_and_shared_vertices_still_match():
+    """FO4 draws 4 textures a quadrant; the fifth is dropped, shares sum to 1, and both sides of a border agree."""
+    mixes = LL.blend_borders(_mixes({'a': 0.4, 'b': 0.3, 'c': 0.15, 'd': 0.1, 'e': 0.05}, {'a': 1.0}))
+    limited = LL.limit_textures(mixes)[(0, 0)]
+    left, right = dict(limited[0]), dict(limited[1])
+    assert [t for t, _ in limited[0]] == ['a', 'b', 'c', 'd'] and np.allclose(sum(left.values()), 1.0)
+    border = LL.SIDE - 1
+    assert all(abs(left.get(t, np.zeros(1))[border] - right.get(t, np.zeros(1))[0]) < 1e-9 for t in 'abcd')

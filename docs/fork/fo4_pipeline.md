@@ -647,6 +647,19 @@ out against FNV).
   the haze was gone in play after the change. Doc's house stays foggy
   because its lights come out dimmer than FNV's (next step).
 
+<a id="color-drift"></a>**Colour drift from FNV (parked, noted 2026-10-11).** Side by side,
+the converted region reads less warm and yellow than FNV, and more
+"realistic". Both are accepted for now; worth a later look, possibly as a
+player option to match FNV's look more closely.
+- **Overall image:** FNV's interiors and exteriors are warmer and more
+  yellow. Exposure, fog and the cinematic grade already follow FNV
+  ([spike-2-imagespace](fo4_spikes.md#spike-2-imagespace)); what is left is
+  the colour itself (FO4's tone curve and LUT against FNV's straight,
+  clipped display colours).
+- **Grass:** FNV's Mojave grass is dry and yellow; in FO4 the same grass
+  reads green and alive. Not measured yet (grass shader tint and lighting
+  are the first places to look).
+
 <a id="addons"></a>**Add-on nodes** (the trash-can fire outside Vikki and Vance showed
 its light but no flame).
 - The burning barrels are LIGH records whose model, `Barrel02fireLight`,

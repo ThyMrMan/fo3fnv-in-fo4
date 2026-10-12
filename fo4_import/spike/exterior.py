@@ -1,8 +1,8 @@
 """A rectangle of an FNV worldspace's cells as an FO4 worldspace, for the cell spike.
 
 The cells keep their land (heights, normals,
-colors and every texture layer, FNV's painted opacities as FO4's blend
-weights) and references; the
+colors, and every texture as blended shares: land_layers.py) and
+references; the
 persistent references standing in the block (doors) go in the worldspace's
 persistent cell. The worldspace takes the Commonwealth's climate, water and
 map settings. Landscape textures become LTEX records with FO4 texture sets:
@@ -20,10 +20,13 @@ import shutil
 import struct
 from pathlib import Path
 
+import numpy as np
+
 from asset_convert.texture.dds_codec import write_normal_dds
 from asset_convert.texture.landscape_normals import SPECULAR_ALPHA
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.grass import Grasses
+from fo4_import.spike.land_layers import blend_borders, limit_textures, quadrant_mix
 from fo4_import.spike.navmesh import grid_parent
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_image
 from fo4_import.pipeline.export_index import export_records
@@ -34,6 +37,8 @@ CELL_UNITS = 4096.0
 #: Fallout4.esm's Commonwealth, whose climate, water and map settings the worldspace takes.
 WORLD_TEMPLATE = 0x3C
 WORLD_COPIED = (b'CNAM', b'NAM2', b'NAM3', b'NAM4', b'DNAM', b'MNAM', b'ONAM', b'NAMA', b'DATA', b'XWEM')
+#: Smallest share written: a texture or vertex below it is left out.
+MIN_SHARE = 1e-4
 #: BTXT layer of a base texture: vanilla's -1 (every one of the 2,000+ sampled), never an alpha layer's index.
 BASE_LAYER = -1
 #: FNV's default land texture (FalloutNV.exe sDefaultLandDiffuseTexture), drawn for texture 0 and a missing base.
@@ -88,11 +93,13 @@ class Exterior:
         """
         world, persistent_cell = builder.fnv_id(self.world['FormID']), builder.fnv_id(self.persistent_cell)
         cells, kept = {}, place(self.persistent)[0]
+        lands = {grid: self.land.get(self.cells[grid]['FormID']) for grid in sorted(self.cells)}
+        mixes = limit_textures(blend_borders({grid: quadrant_mix(land) for grid, land in lands.items() if land}))
         for grid in sorted(self.cells):
             persistent, temporary = place(self.by_cell[grid])
             kept += persistent
-            land = self.land.get(self.cells[grid]['FormID'])
-            land_record = self._land(builder, land, data_dir) if land else b''
+            land = lands[grid]
+            land_record = self._land(builder, land, mixes.get(grid), data_dir) if land else b''
             navm = navmesh.get(self.cells[grid]['FormID'], b'')
             cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + navm + temporary)
         record = self._world(builder, world)
@@ -115,27 +122,22 @@ class Exterior:
         subs += pack_subrecord('NAM9', bounds[1]) + (pack_subrecord('XWEM', kept[b'XWEM']) if b'XWEM' in kept else b'')
         return pack_fo4_record('WRLD', fid, 0, subs)
 
-    def _land(self, builder, rec: dict, data_dir: Path) -> bytes:
-        """The FO4 LAND of FNV LAND `rec`: its vertex data and texture layers, per quadrant in FNV's layer order."""
+    def _land(self, builder, rec: dict, mix: dict, data_dir: Path) -> bytes:
+        """The FO4 LAND of FNV LAND `rec`: its vertex data and, per quadrant, its limited `mix` (land_layers): the
+        heaviest texture as the base (FO4 draws the base first), the rest as alpha layers with their shares."""
         subs = pack_subrecord('DATA', struct.pack('<I', int(rec.get('DATA.Flags', 0))))
         subs += b''.join(pack_subrecord(t, bytes.fromhex(rec[t])) for t in ('VNML', 'VHGT', 'VCLR') if rec.get(t))
-        base, alpha = {}, {}
-        for i in range(int(rec.get('LayerCount', 0))):
-            key = f'Layer[{i}]'
-            if rec[f'{key}.Type'] == 'BASE':
-                base.setdefault(int(rec[f'{key}.BTXT.Quadrant']), rec[f'{key}.BTXT.Texture'])
-            else:
-                alpha.setdefault(int(rec[f'{key}.ATXT.Quadrant']), []).append((int(rec[f'{key}.ATXT.Layer']), key))
         for quad in range(4):
-            subs += pack_subrecord('BTXT', struct.pack('<IBBh', self._ltex(builder, base.get(quad), data_dir), quad, 0,
-                                                       BASE_LAYER))
-            keys = [key for _, key in sorted(alpha.get(quad, []))]
-            shares = layer_weights([{int(rec[f'{key}.VT[{v}].Pos']): float(rec[f'{key}.VT[{v}].Opacity'])
-                                     for v in range(int(rec[f'{key}.VTXTCount']))} for key in keys])
-            for layer, (key, weights) in enumerate(zip(keys, shares)):
-                subs += pack_subrecord('ATXT', struct.pack('<IBBH', self._ltex(builder, rec[f'{key}.ATXT.Texture'],
-                                                                               data_dir), quad, 0, layer))
-                subs += pack_subrecord('VTXT', b''.join(struct.pack('<HHf', pos, 0, w) for pos, w in weights.items()))
+            layers = {}
+            for texture, shares in mix[quad]:
+                fo4 = self._ltex(builder, texture, data_dir)
+                layers[fo4] = layers.get(fo4, 0) + shares
+            (base, _), *alpha = layers.items()
+            subs += pack_subrecord('BTXT', struct.pack('<IBBh', base, quad, 0, BASE_LAYER))
+            for layer, (fo4, shares) in enumerate(alpha):
+                subs += pack_subrecord('ATXT', struct.pack('<IBBH', fo4, quad, 0, layer))
+                subs += pack_subrecord('VTXT', b''.join(struct.pack('<HHf', pos, 0, shares[pos])
+                                                        for pos in np.flatnonzero(shares > MIN_SHARE)))
         builder.counts['LAND'] += 1
         return pack_fo4_record('LAND', builder.fnv_id(rec['FormID']), 0, subs)
 
@@ -176,17 +178,6 @@ class Exterior:
         builder.writer.add_record('LTEX', pack_fo4_record('LTEX', ltex, 0, subs))
         builder.counts['LTEX'] += 1
         return ltex
-
-
-def layer_weights(layers: list) -> list:
-    """FNV's alpha layers of a quadrant ({position: opacity}, painted bottom first, each over those below) as FO4's
-    blend weights (vanilla's sum to at most 1, the base taking the rest): each layer's opacity times what the layers
-    above it leave showing."""
-    showing, out = {}, []
-    for layer in reversed(layers):
-        out.append({pos: op * showing.get(pos, 1.0) for pos, op in layer.items()})
-        showing.update({pos: showing.get(pos, 1.0) * (1 - op) for pos, op in layer.items()})
-    return out[::-1]
 
 
 def _grass_count(rec: dict) -> int:
