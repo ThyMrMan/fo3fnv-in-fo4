@@ -17,7 +17,7 @@ See: docs/fork/fo4_spikes.md#spike-2-vcg01
 import struct
 
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.spike.say_topics import conditions_of
+from fo4_import.spike.say_topics import blocker, conditions_of
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
@@ -26,6 +26,10 @@ from tes5_import.base.writer import pack_subrecord
 INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGreet': 0x1BEAD3}
 #: FNV PKDT types converted.
 FNV_TRAVEL, FNV_SANDBOX, FNV_DIALOGUE = '6', '12', '15'
+#: FNV PKDT package type names (xEdit's wbPackageTypeEnum), for the build's counts.
+FNV_TYPES = {'0': 'Find', '1': 'Follow', '2': 'Escort', '3': 'Eat', '4': 'Sleep', '5': 'Wander', '6': 'Travel',
+             '7': 'Accompany', '8': 'UseItemAt', '9': 'Ambush', '10': 'FleeNotCombat', '12': 'Sandbox',
+             '13': 'Patrol', '14': 'Guard', '15': 'Dialogue', '16': 'UseWeapon'}
 #: FNV PTDT target of a Dialogue package that talks to the player.
 PLAYER_TARGET = '00000014'
 #: FNV PLDT location types FO4 shares: near reference, in cell, near current (package start) location, editor location.
@@ -62,7 +66,8 @@ class Packages:
             plan = self._plan(rec, form_map)
             conditions = conditions_of(rec, form_map, {})
             if plan is None or conditions is None:
-                self.builder.counts[f'package left out: {rec["EditorID"]}'] += 1
+                why = _why(rec, form_map) if plan is None else f'condition {blocker(rec, form_map, {})}'
+                self.builder.counts[f'package left out ({why})'] += 1
                 self.made[fnv] = 0
             else:
                 self.made[fnv] = fid = self.builder.fnv_id(fnv)
@@ -87,6 +92,16 @@ class Packages:
             return 'Sit', struct.pack('<iI', TARGET_REFERENCE, target)
         template = {FNV_TRAVEL: 'Travel', FNV_SANDBOX: 'Sandbox', FNV_DIALOGUE: 'ForceGreet'}[kind]
         return template, struct.pack('<iIi', int(place), target, radius)
+
+
+def _why(rec: dict, form_map: dict) -> str:
+    """Why _plan() leaves FNV package `rec` out: its type, its location type or its location not built."""
+    kind, place = rec.get('PKDT.Type'), rec.get('PLDT.Type')
+    if kind not in (FNV_TRAVEL, FNV_SANDBOX, FNV_DIALOGUE):
+        return f'type {FNV_TYPES.get(kind, kind)}'
+    if place not in SHARED_LOCATIONS:
+        return f'location type {place}'
+    return 'dialogue not with the player' if kind == FNV_DIALOGUE else 'location not built'
 
 
 def _greets_player(rec: dict) -> bool:

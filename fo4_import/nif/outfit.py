@@ -38,6 +38,7 @@ segments alone; FO4's first-person body shares the third-person bind data.
 See: docs/fork/fo4_spikes.md#spike-4-outfits
 """
 
+import collections
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -396,14 +397,23 @@ def shape_materials(static_bytes: bytes, fnv_path: Path) -> dict:
     """{FNV shape index: material} of a converted FNV mesh (convert_static's); FNV's alternate textures count
     shapes in tree order."""
     static = nif_file.read(static_bytes)
-    order = {}
-    for i, geom in enumerate(g for g in fnv_nif(fnv_path).tree() if isinstance(g, NifFormat.NiTriBasedGeom)):
-        order.setdefault(geom.name.decode('cp1252'), i)
+    order = in_order(enumerate(g for g in fnv_nif(fnv_path).tree() if isinstance(g, NifFormat.NiTriBasedGeom)))
     out = {}
     for kind, b in static.blocks:
-        name = static.strings[b['name']] if kind == 'BSTriShape' else ''
-        if name in order and b['shader'] >= 0 and static.blocks[b['shader']][0] == 'BSLightingShaderProperty':
-            out.setdefault(order[name], static.strings[static.blocks[b['shader']][1]['name']])
+        found = order[static.strings[b['name']]] if kind == 'BSTriShape' else None
+        index = found.popleft()[0] if found else None
+        if index is not None and b['shader'] >= 0 and static.blocks[b['shader']][0] == 'BSLightingShaderProperty':
+            out.setdefault(index, static.strings[static.blocks[b['shader']][1]['name']])
+    return out
+
+
+def in_order(geoms) -> dict:
+    """{name: deque of (index, FNV geometry)} of `geoms` [(index, geometry)], in tree order. FNV names some
+    shapes alike (a dress and its shoes both "arms"), and the converted shapes keep tree order, so each takes the
+    next of its name."""
+    out = collections.defaultdict(collections.deque)
+    for index, geom in geoms:
+        out[geom.name.decode('cp1252')].append((index, geom))
     return out
 
 
@@ -562,13 +572,14 @@ def worn(static_bytes: bytes, fnv_path: Path, fit: BodyFit, first_person: bool =
     body; arms only when `first_person`."""
     static = without_havok(nif_file.read(static_bytes))
     fnv_root = fnv_nif(fnv_path)
-    fnv = {g.name.decode('cp1252'): g for g in fnv_root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)}
+    fnv = in_order(enumerate(g for g in fnv_root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)))
     root = static.blocks[0][1]
     nif = nif_file.NifFile()
     nif.blocks.append(('NiNode', dict(root, name=nif.string(static.strings[root['name']]), extra=[], children=[])))
     nodes = copy_skeleton(nif, fit)
     for shape in [static.blocks[i][1] for i in root['children'] if static.blocks[i][0] == 'BSTriShape']:
-        geom = fnv.get(static.strings[shape['name']])
+        found = fnv[static.strings[shape['name']]]
+        geom = found.popleft()[1] if found else None
         skin = _wanted(geom) and is_skin(geom)
         made = worn_shape(shape, fit, fnv_skin(geom, fnv_root), first_person, skin) if _wanted(geom) else None
         if made is None:

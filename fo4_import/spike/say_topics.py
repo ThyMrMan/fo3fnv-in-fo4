@@ -33,6 +33,8 @@ PART, PARTS = '_part', '_parts'
 FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
 #: CTDA operator bits: the comparison, OR with the next, use a global as the value.
 COMPARE, OR = 0xE0, 0x01
+#: The FNV command opening a vendor's barter menu (lower case).
+BARTER = 'showbartermenu'
 #: FNV GetQuestVariable and FO4's GetVMQuestVariable, which names the Papyrus property in its CIS2.
 QUEST_VARIABLE, VM_QUEST_VARIABLE = 'GetQuestVariable', 'GetVMQuestVariable'
 #: FNV GetScriptVariable (reference, variable) and FO4's GetVMScriptVariable (run on it; CIS1 script, CIS2 variable).
@@ -82,7 +84,8 @@ class SayTopics:
 
         `scene` is (scene, phase) the line starts; `flags` are ENAM flags added to its Say Once; `extra` CTDAs
         are added to its conditions. A part of a split line (conversation.part) after the first has no
-        conditions or Say Once; the first part runs the Begin fragment, the last the End one.
+        conditions or Say Once; the first part runs the Begin fragment, the last the End one. The part that opens
+        barter ends the conversation scene, as vanilla's vendor lines do, so the menu does not stay behind it.
         """
         first, last = rec.get(PART, 1) == 1, rec.get(PART, 1) == rec.get(PARTS, 1)
         conditions = conditions_of(rec, form_map, self.script_vars) if first else b''
@@ -98,6 +101,7 @@ class SayTopics:
             scripts.used.append(name)
         lines = [rec[f'Response[{i}].ResponseText'] for i in range(int(rec.get('ResponseCount', 0) or 0))]
         flags |= R.INFO_SAY_ONCE if first and int(rec.get('DATA.Flags', 0)) & SAY_ONCE else 0
+        flags |= R.INFO_END_SCENE if opens_barter(rec, first, last) else 0
         self.voiced.append((fid, rec))
         self.builder.counts['INFO'] += 1
         return R.pack_info(fid, flags, tuple(lines) or ('...',), conditions + extra, scene=scene[0], phase=scene[1],
@@ -172,6 +176,14 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
     params = [form_map.get(('av', cond[f'p{s}'])) if s in avs else form_map.get(cond[f'p{s}'], cond[f'p{s}'])
               for s in (1, 2)]
     return None if None in params else (index, *params, '', '')
+
+
+def opens_barter(rec: dict, first: bool, last: bool) -> bool:
+    """Whether this part of FNV line `rec` runs a script opening barter.
+    See: docs/fork/fo4_pipeline.md#npcs
+    """
+    scripts = (rec.get('ResultScript') if first else '', rec.get('ResultScriptEnd') if last else '')
+    return any(BARTER in (text or '').lower() for text in scripts)
 
 
 def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:

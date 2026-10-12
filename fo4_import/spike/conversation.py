@@ -228,14 +228,15 @@ class Conversations:
 
     def _speakers(self, members: list) -> bytes:
         """One OR-group of the lines' speakers (GetIsID), run on the player line's target; b'' when a line has
-        none (anyone may answer)."""
+        none (anyone may answer). A line whose speaker is not built is left out with its speaker."""
         tests = []
         for rec in members:
             found = [c['p1'] for c in _conditions(rec) if c['func'] == SPEAKER_TEST and c['value'] == 1.0
-                     and not c['op_flags'] & 0xE0 and c['p1'] in self.form_map]
+                     and not c['op_flags'] & 0xE0]
             if not found:
                 return b''
-            tests += [self.form_map[found[0]]] if self.form_map[found[0]] not in tests else []
+            if found[0] in self.form_map and self.form_map[found[0]] not in tests:
+                tests.append(self.form_map[found[0]])
         return b''.join(R.pack_ctda(OR if i < len(tests) - 1 else 0, 1.0, IS_ID, npc, run_on=R.RUN_TARGET)
                         for i, npc in enumerate(tests))
 

@@ -531,6 +531,28 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
   topic (`talk <topic>`); FNV's follow-up, choice and part steps keep their
   authored contents; a player option is keyed by its FNV topic and prompt
   text. Content arriving later adds records without moving any.
+- **First NPC play-test (2026-10-12), fixed:**
+  - *Doctors' options on everyone.* A menu option answered by several
+    speakers' lines is gated by those speakers (GetIsID). A line whose
+    speaker is not built gave up the gate ("anyone may answer"), so Doc's
+    "I need medical supplies" showed on Chet and Easy Pete. Such lines are
+    now left out of the gate; only a line with no speaker test opens it.
+  - *Invisible dresses, missing arms* (Trudy, Sunny Smiles).
+    `outfit.worn` paired converted shapes with FNV's by name, but FNV
+    names some alike: Trudy's dress and shoes are both "arms", so the dress
+    (1,786 vertices) was fitted onto the shoes and collapsed at the feet.
+    Shapes now pair by name in tree order (`outfit.in_order`, also for
+    material swaps).
+  - *The menu behind barter.* A line whose FNV result script opens barter
+    (`ShowBarterMenu`: 86 in end scripts, 4 in begin) now ends the
+    conversation scene (End Running Scene, as vanilla's vendor lines), so
+    barter shows alone. FNV returned to the talk after barter; in FO4 the
+    player talks again.
+  - *NPCs standing still:* 22 packages convert and 88 are left out (the
+    build log now counts why): types not converted (Sleep 17, Guard 6,
+    Eat, Follow, Patrol 3 each, …), locations not built (23, mostly idle
+    and linked markers), conditions on quests not built (17); schedules
+    are not converted either. Next in step 3.
 
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok
