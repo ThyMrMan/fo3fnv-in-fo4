@@ -411,7 +411,8 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         record = R.pack_refr(ids[ref['FormID']], base, *place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
                              teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids, owners) + _lock(builder, ref)
                              + builder.emittance.xemi(ref),
-                             bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0))
+                             bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0),
+                             door_link=builder.door_links.get(ids[ref['FormID']]))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
     return persistent, temporary
@@ -471,9 +472,10 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
 
 
 def _navmesh(builder: CellBuilder, export_dir: Path, pathing: dict, ids: dict) -> dict:
-    """{FNV cell: FO4 NAVM records} of the FNV navmeshes in `pathing`'s cells, linked and registered in NAVI."""
+    """{FNV cell: FO4 NAVM records} of the FNV navmeshes in `pathing`'s cells, linked and registered in NAVI;
+    each door's navmesh triangle in `builder.door_links`."""
     recs = [r for r in export_records(export_dir, 'NAVM') if r.get('DATA.Cell') in pathing]
-    records, infos = navmeshes(recs, pathing, ids, builder.fnv_id)
+    records, infos, builder.door_links = navmeshes(recs, pathing, ids, builder.fnv_id)
     if infos:
         builder.writer.add_record('NAVI', navi(builder.fo4, infos))
         builder.counts['NAVM'] += len(recs)
@@ -625,11 +627,11 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
     builder.ref_ids = {**ids, **ext_ids, **builder.actor_ids}
     _places(builder, export_dir, world, (all_refs, outside, interiors))
+    pathing = {c['FormID']: (0, builder.fnv_id(c['FormID'])) for c in interiors}
+    navmesh = _navmesh(builder, export_dir, {**pathing, **(world.pathing(builder) if world else {})}, {**ids, **ext_ids})
     persistent, temporary = _placed(builder, refs, ids, teleports)
     _quests(builder, export_dir, quest_recs, quests, {**ids, **builder.actor_ids})
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
-    pathing = {c['FormID']: (0, builder.fnv_id(c['FormID'])) for c in interiors}
-    navmesh = _navmesh(builder, export_dir, {**pathing, **(world.pathing(builder) if world else {})}, {**ids, **ext_ids})
     rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh, (persistent + builder.poses.placed, temporary),
                    actors)
     _cell_group(builder, export_dir, vanilla, rooms, qa_refs)

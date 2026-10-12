@@ -206,12 +206,12 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'', ex
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
               teleport: tuple = None, persistent: bool = True, placement: bytes = b'', disabled: bool = False,
-              linked: int = 0, edid: str = '') -> bytes:
+              linked: int = 0, edid: str = '', door_link: tuple = None) -> bytes:
     """A placed object: base, `placement` (packed XMBO/XPRM/XPOD/XRGD, spike.placement), light radius (XRDS),
     teleport (door, position, rotation), scale.
 
     `disabled` sets Initially Disabled (0x800), as FO3/FNV's flag; `linked` is its linked reference (XLKR, no keyword);
-    `edid` names the reference.
+    `edid` names the reference; `door_link` is a teleport door's (navmesh, triangle) (XNDP).
     """
     subs = (_zstr('EDID', edid) if edid else b'') + _u32('NAME', base) + placement
     if radius is not None:
@@ -219,6 +219,8 @@ def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, r
     if teleport:
         door, to_pos, to_rot = teleport
         subs += pack_subrecord('XTEL', struct.pack('<I6fII', door, *to_pos, *to_rot, 0, 0))
+    if teleport and door_link:
+        subs += pack_subrecord('XNDP', struct.pack('<Ih2x', *door_link))
     if linked:
         subs += pack_subrecord('XLKR', struct.pack('<II', 0, linked))
     if scale != 1.0:

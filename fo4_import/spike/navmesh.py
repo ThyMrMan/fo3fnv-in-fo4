@@ -137,24 +137,27 @@ def pack_nvnm(pathing: tuple, verts: list, tris: list, links: list, doors: list)
 
 
 def navmeshes(recs: list, pathing: dict, ids: dict, fid_of) -> tuple:
-    """({FNV cell: NAVM records}, NVMI subrecords) of FNV navmeshes `recs`, linked among themselves.
+    """({FNV cell: NAVM records}, NVMI subrecords, {FO4 door: (navmesh, triangle)}) of FNV navmeshes `recs`,
+    linked among themselves; each door's link is the inverse of its navmesh's (vanilla's XNDP).
 
     `pathing` gives each FNV cell's pathing cell (world, parent), `ids` the
     FO4 door references, `fid_of(FNV FormID)` each navmesh's FormID.
     """
     recs = {r['FormID']: r for r in recs}
     meshes = linked({fid: m for fid, m in ((fid, read(r)) for fid, r in recs.items()) if m[0] and m[1]})
-    records, infos = {}, b''
+    records, infos, at_door = {}, b'', {}
     for fnv, (verts, tris, links) in meshes.items():
         rec, fid = recs[fnv], fid_of(fnv)
         cell, doors = pathing[rec['DATA.Cell']], door_links(get_hex_bytes(rec, 'NVDP'), ids)
         fo4_links = [(kind, fid_of(other), tri, edge) for kind, other, tri, edge in links]
         nvnm = pack_nvnm(cell, verts, tris, fo4_links, doors)
+        for tri, door in doors:
+            at_door.setdefault(door, (fid, tri))
         records[rec['DATA.Cell']] = records.get(rec['DATA.Cell'], b'') + pack_fo4_record(
             'NAVM', fid, 0, pack_subrecord('NVNM', nvnm) + pack_subrecord('MNAM', b''))
         reached = sorted({link[1] for link in fo4_links} - {fid})
         infos += pack_subrecord('NVMI', _info(fid, cell, verts, reached, sorted({d for _, d in doors})))
-    return records, infos
+    return records, infos, at_door
 
 
 def _info(fid: int, pathing: tuple, verts: list, reached: list, doors: list) -> bytes:
