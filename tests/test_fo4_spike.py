@@ -43,6 +43,7 @@ from fo4_import.spike import script as SC
 from fo4_import import helpers_plugin as HP
 from fo4_import.spike import skeleton as S
 from fo4_import.spike import voice as V
+from fo4_import.spike.voice_types import with_voice
 from fo4_import.spike import cell as CB
 from fo4_import.spike.cell import CellBuilder
 from fo4_import import record_routes as RT
@@ -641,3 +642,11 @@ def test_an_in_cell_sleep_goes_to_the_npcs_own_bed_else_an_unowned_one():
     rec = {'PLDT.Type': '1', 'PLDT.Location': '001057F1'}
     assert packages._bed(rec, 0x104C78) == 0x200
     assert packages._bed(rec, 0x999) == 0x100
+
+
+def test_an_npc_takes_its_fnv_voice_type_in_place_of_its_bodys():
+    """VTCK becomes the converted voice type; the other subrecords are untouched."""
+    subs = pack_subrecord('VTCK', b'\1\0\0\0') + pack_subrecord('RNAM', b'\2\0\0\0')
+    out = dict(subrecords(with_voice(0x0310512F)(subs)))
+    assert struct.unpack('<I', out[b'VTCK'])[0] == 0x0310512F and out[b'RNAM'] == b'\2\0\0\0'
+    assert with_voice(None) is None

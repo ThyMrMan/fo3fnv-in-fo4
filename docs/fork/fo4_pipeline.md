@@ -578,6 +578,18 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   their marker facing along the mattress as vanilla's (heading 0 where a
   bed's is π/2).
 
+<a id="voice-types"></a>**Voice types (played 2026-10-12: NPCs speak in
+their FNV voices).** `spike/voice_types.py` writes each FNV voice type an
+NPC uses as an FO4 VTYP on FNV's FormID: EditorID and DNAM flags (Allow
+Default Dialog 0x1, Female 0x2, the same in both games), read from
+FalloutNV.esm because the export doesn't decode VTYP. The NPC's VTCK
+(from its traits template) replaces its body's, so a line's recording is
+found under its own voice type; `cell._voice` converts the built lines for
+every such type (region: 21 types, 610 files; Doc's 197 moved from
+`NPCMDocWeathers`). Every other folder in the plugin's voice directory is
+swept as stale. FO4's generic barks are tied to vanilla voice types, so
+converted NPCs speak none until FNV's own arrive with its dialogue.
+
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok
   phantom: the pressure plate's trigger volume

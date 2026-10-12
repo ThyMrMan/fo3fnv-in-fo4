@@ -47,7 +47,7 @@ from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_
 from fo4_import.nif import weapon
 from fo4_import.spike import records as R
 from fo4_import.spike import voice
-from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS, VOICES
+from fo4_import.spike.dialogue import CELL_FO4
 from fo4_import.spike.say_topics import SayTopics, actor_values, conditions_of
 from fo4_import.spike.script import compile_into
 from fo4_import.spike.quest import objective_globals, quest_record
@@ -375,8 +375,7 @@ def _test_chest(builder: CellBuilder, template) -> bytes:
 
 def _qa_creatures(builder: CellBuilder, export_dir: Path, data_dir: Path) -> bytes:
     """ACHRs of QA_CREATURES in QASmoke (their FNV cells not built yet)."""
-    creatures = Creatures(builder, export_dir, data_dir)
-    return b''.join(creatures.placed(edid, pos, rot) for edid, pos, rot in QA_CREATURES)
+    return b''.join(builder.creatures.placed(edid, pos, rot) for edid, pos, rot in QA_CREATURES)
 
 
 def _built(builder: CellBuilder, refs: list) -> list:
@@ -538,13 +537,13 @@ def _greeter(say: SayTopics, recs: list) -> 'dict | None':
 
 
 def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) -> None:
-    """The scripted lines' FNV recordings as .fuz under every cell actor's stand-in voice type."""
+    """The built lines' FNV recordings as .fuz under each NPC's converted voice type (voice_types); files in
+    any other folder of the plugin's voice directory are stale."""
     folders = export_dir / 'sound' / 'voice' / 'falloutnv.esm'
-    voices = [(folders / VOICES[label][0], VOICES[label][1]) for label, fnv, *_ in SPEAKERS
-              if fnv in builder.npc_ids and label in VOICES]
+    voices = [(folders / fnv.lower(), fo4) for fo4, fnv in sorted(builder.npcs.voices.made.items())]
     todo = voice.jobs(builder.say.voiced, voices, data_dir, plugin)
-    folders = [data_dir / 'Sound' / 'Voice' / plugin / fo4 for _, fo4 in voices]
-    builder.counts['stale voice files removed'] = voice.remove_stale(todo, folders)
+    ours = data_dir / 'Sound' / 'Voice' / plugin
+    builder.counts['stale voice files removed'] = voice.remove_stale(todo, [p for p in ours.glob('*') if p.is_dir()])
     builder.counts['voice files written'] = voice.convert([job for job in todo if not job[1].exists()],
                                                           FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
 
@@ -564,6 +563,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
                                                               SHARED_TYPES), makers, stand_ins)
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.activators = Activators(builder, export_dir)
+    builder.creatures = Creatures(builder, export_dir, builder.data_dir)
     seats = [r for r in every if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in seats}, beds(builder, seats))
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
@@ -654,8 +654,8 @@ def _cells(builder: CellBuilder, interiors: list, world) -> dict:
 
 
 def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dict, ids: dict) -> dict:
-    """{FNV cell: (persistent, temporary)} ACHRs of the FNV NPCs placed in the built cells (npcs.py); `scoped` is
-    (the interiors, the exterior block or None)."""
+    """{FNV cell: (persistent, temporary)} ACHRs of the FNV NPCs and creatures placed in the built cells (npcs.py);
+    `scoped` is (the interiors, the exterior block or None)."""
     interiors, world = scoped
     inside = {c['FormID'] for c in interiors}
 
@@ -663,8 +663,9 @@ def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dic
         """The FNV cell a built actor stands in; None outside the build."""
         cell = ref.get('ParentCELL')
         return cell if cell in inside or (world and world.holds(ref)) else None
-    builder.npcs = Npcs(builder, export_dir, form_map)
-    return builder.npcs.placed(export_records(export_dir, 'ACHR'), cell_of, ids, {**builder.factions, **builder.npc_ids})
+    builder.npcs = Npcs(builder, export_dir, form_map, builder.creatures)
+    return builder.npcs.placed(export_records(export_dir, 'ACHR') + export_records(export_dir, 'ACRE'), cell_of, ids,
+                               {**builder.factions, **builder.npc_ids})
 
 
 def _cell_group(builder: CellBuilder, export_dir: Path, vanilla: dict, rooms: list, qa_refs: bytes):

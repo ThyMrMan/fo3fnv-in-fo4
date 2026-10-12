@@ -69,6 +69,11 @@ class Creatures:
         fid = self.builder.writer.derive_formid(SITE, f'{fnv:08X} ACHR' + (f' {n}' if n else ''))
         return R.pack_achr(fid, self.base(fnv), pos, rot)
 
+    def converts(self, fnv: int) -> bool:
+        """Whether FNV creature `fnv` has a pair or a stand-in (TEMPLATES, STAND_INS)."""
+        rec = self.records.get(fnv)
+        return rec is not None and 'Model.MODL' in rec and _folder(rec['Model.MODL']) in {*TEMPLATES, *STAND_INS}
+
     def base(self, fnv: int) -> int:
         """The FO4 NPC of FNV creature `fnv` (the module notes), made once."""
         if fnv not in self.made:

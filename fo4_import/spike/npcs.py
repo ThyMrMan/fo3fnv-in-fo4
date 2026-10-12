@@ -27,13 +27,14 @@ from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.placement import place, placement
+from fo4_import.spike.voice_types import VoiceTypes, with_voice
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: (ghoul, female) -> the Fallout4.esm NPC a converted NPC starts from: DocWeathers, DoctorAmari, Jones, Holly.
 BODIES = {(False, False): 0x12FCCB, (False, True): 0x09A680, (True, False): 0x3F239, (True, True): 0x3F23A}
-#: Body subrecords a converted NPC leaves out: its factions and crime faction.
-BODY_TIES = frozenset({b'SNAM', b'CRIF'})
+#: Body subrecords a converted NPC leaves out: factions, crime faction, short name (subtitles), scripts (Jones').
+BODY_TIES = frozenset({b'SNAM', b'CRIF', b'SHRT', b'VMAD'})
 #: FNV ACBS template flags: traits (race, face, sex, voice), factions, AI packages, inventory, script.
 USE_TRAITS, USE_FACTIONS, USE_PACKAGES, USE_INVENTORY, USE_SCRIPT = 0x1, 0x4, 0x20, 0x100, 0x200
 #: derive_formid site of an NPC's outfit (key: the FNV NPC's FormID).
@@ -88,13 +89,14 @@ def composed(*edits):
 class Npcs:
     """FO4 NPCs for FNV NPC bases, each written once, and their placed actors."""
 
-    def __init__(self, builder, export_dir: Path, form_map: dict):
-        """Index FNV's NPCs and races; `form_map` maps the FNV forms packages name."""
-        self.builder, self.export_dir, self.form_map = builder, export_dir, form_map
+    def __init__(self, builder, export_dir: Path, form_map: dict, creatures):
+        """Index FNV's NPCs and races; `form_map` maps the FNV forms packages name, `creatures` (creatures.py)
+        makes the placed creatures' bases."""
+        self.builder, self.export_dir, self.form_map, self.creatures = builder, export_dir, form_map, creatures
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'NPC_')}
         self.races = {int(r['FormID'], 16): r.get('EditorID', '') for r in export_records(export_dir, 'RACE')}
         self.bodies = {rec.form_id: rec for rec, _ in walk(builder.fo4, b'NPC_') if rec.form_id in BODIES.values()}
-        self.assets, self.made = None, {}
+        self.assets, self.made, self.voices = None, {}, VoiceTypes(builder)
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
         """The NPC record FNV NPC `fnv` takes template part `flag` from (itself without one); None if a list."""
@@ -124,7 +126,8 @@ class Npcs:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
             (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
-            composed(edit, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv))))
+            composed(edit, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
+                     with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))))))
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
         return fid
@@ -191,11 +194,17 @@ class Npcs:
         out = {}
         for ref in sorted(refs, key=lambda r: r['FormID']):
             cell = cell_of(ref)
-            base = self.base(int(ref['NAME'], 16)) if cell and int(ref['NAME'], 16) in self.records else None
+            base = self._base_of(int(ref['NAME'], 16)) if cell else None
             if base is not None:
                 slot = out.setdefault(cell, [b'', b''])
                 slot[0 if int(ref['RecordFlags']) & PERSISTENT else 1] += self._actor(ref, base, ids, owners)
         return {cell: tuple(slot) for cell, slot in out.items()}
+
+    def _base_of(self, fnv: int) -> 'int | None':
+        """The FO4 base of FNV NPC or creature `fnv`; None when it does not convert."""
+        if fnv in self.records:
+            return self.base(fnv)
+        return self.creatures.base(fnv) if self.creatures.converts(fnv) else None
 
     def _actor(self, ref: dict, base: int, ids: dict, owners: dict) -> bytes:
         """The FO4 ACHR of FNV actor `ref` on `base`, with its script, parents and linked reference."""
@@ -203,7 +212,7 @@ class Npcs:
         achr = self.builder.new_id(ACHR_KEY.format(ref['FormID']))
         self.builder.actor_ids[ref['FormID']] = achr
         self.builder.scripts.named[ref.get('EditorID', '')] = achr
-        script = self.source(fnv, USE_SCRIPT) or {}
+        script = (self.source(fnv, USE_SCRIPT) if fnv in self.records else self.creatures.records.get(fnv)) or {}
         vmad = self.builder.scripts.vmad(int(script['SCRI'], 16)) if 'SCRI' in script else b''
         linked = ids.get(ref.get('XLKR.LinkedRef'), 0)
         extra = placement(int(ref['FormID'], 16), ids, owners)
