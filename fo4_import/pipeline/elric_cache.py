@@ -1,4 +1,5 @@
-"""elric.process() through an on-disk cache: Elric runs only on the NIFs it has not done.
+"""elric.process() through an on-disk cache: Elric runs only on the NIFs it has not done; finish() also keeps
+each finished NIF, so a NIF seen before is not read, grafted and written again.
 
 An entry is Elric's output for one pre-Elric NIF, keyed by that NIF's bytes
 and a tag over Elric's own files (its exe, DLLs and settings); a NIF Elric
@@ -12,9 +13,11 @@ See: docs/fork/fo4_pipeline.md#skeleton
 
 import functools
 import hashlib
+from pathlib import Path
 
 from fo4_import.nif import elric
 from fo4_import.pipeline.code_tag import ROOT
+from fo4_import.pipeline.work_cache import lookup, store
 
 CACHE = ROOT / 'output' / 'fo4_cache' / 'elric'
 
@@ -32,6 +35,25 @@ def _entry(data: bytes):
     """The cache file of one pre-Elric NIF."""
     key = hashlib.sha1(elric_tag() + data).hexdigest()
     return CACHE / key[:2] / key
+
+
+def finish(paths: list) -> list:
+    """elric.finish(paths, process()) through work_cache: a NIF finished before (same bytes, Elric and code) is
+    written back from the cache; the paths left without collision."""
+    failed, todo = [], {}
+    for path in dict.fromkeys(Path(p) for p in paths):
+        inputs = (elric_tag(), path.read_bytes())
+        done = lookup('elric_finish', 'fo4_import.nif.elric', inputs)
+        if done is None:
+            todo[path] = inputs
+            continue
+        ok, data = done
+        path.write_bytes(data)
+        failed += [] if ok else [path]
+    newly = set(elric.finish(list(todo), process) if todo else ())
+    for path, inputs in todo.items():
+        store('elric_finish', 'fo4_import.nif.elric', inputs, (path not in newly, path.read_bytes()))
+    return failed + sorted(newly)
 
 
 def process(sources: dict) -> dict:

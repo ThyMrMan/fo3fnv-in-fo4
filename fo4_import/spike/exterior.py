@@ -22,7 +22,6 @@ from pathlib import Path
 
 import numpy as np
 
-from asset_convert.texture.dds_codec import write_normal_dds
 from asset_convert.texture.landscape_normals import SPECULAR_ALPHA
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.grass import Grasses
@@ -31,6 +30,7 @@ from fo4_import.spike.navmesh import grid_parent
 from fo4_import.spike.weathers import climate
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_image
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.work_cache import normal_map
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_group, pack_subrecord
 
@@ -211,7 +211,7 @@ def _landscape_textures(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
         image = spec_image(normal, smoothness(float(rec.get('SNAM.Specular', 30))))
         if normal[84:88] == b'DXT1':
             image[:, :, 0] = SPECULAR_ALPHA
-        write_normal_dds(image, data_dir / 'Textures' / specular)
+        (data_dir / 'Textures' / specular).write_bytes(normal_map(image))
     return out[0], out[1], specular
 
 

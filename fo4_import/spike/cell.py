@@ -48,7 +48,6 @@ from fo4_import.spike.sounds import Sounds
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.nif import weapon
-from fo4_import.nif.elric import finish
 from fo4_import.spike import records as R
 from fo4_import.spike import voice
 from fo4_import.spike.dialogue import CELL_FO4, SPEAKERS, VOICES
@@ -755,7 +754,7 @@ def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict)
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
     """Collision, lowered skeletons, voices and sounds, the texture BA2 and scripts, then the plugin; the counts."""
-    failed = finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()], elric_cache.process)
+    failed = elric_cache.finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
     for model in sorted(builder.weapons):
         weapon.dress_file(data_dir / 'Meshes' / model)

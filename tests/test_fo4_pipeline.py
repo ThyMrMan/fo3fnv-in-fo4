@@ -13,6 +13,7 @@ from fo4_import.pipeline import elric_cache as EC
 from fo4_import.pipeline import export_index as EI
 from fo4_import.pipeline import mesh_cache as MC
 from fo4_import.pipeline import run as RUN
+from fo4_import.pipeline import work_cache as WC
 from fo4_import.record_routes import ROUTES
 from fo4_import.spike.cell import CellBuilder
 
@@ -59,6 +60,41 @@ def test_elric_runs_only_on_uncached_meshes_and_remembers_a_crash(tmp_path, monk
     assert EC.process({'a': b'one', 'b': b'bad'}) == {'a': b'one!'}
     assert EC.process({'c': b'one', 'd': b'bad', 'e': b'two'}) == {'c': b'one!', 'e': b'two!'}
     assert runs == [['a', 'b'], ['e']]
+
+
+def test_cached_work_runs_once_per_input_and_keeps_a_none(tmp_path, monkeypatch):
+    """Same inputs come from the cache (even a None value); other inputs run the work again."""
+    calls = []
+    monkeypatch.setattr(WC, 'CACHE', tmp_path)
+    work = lambda: calls.append(1)
+    assert WC.cached('site', 'fo4_import.pipeline.work_cache', (b'a', 1), work) is None
+    assert WC.cached('site', 'fo4_import.pipeline.work_cache', (b'a', 1), work) is None
+    WC.cached('site', 'fo4_import.pipeline.work_cache', (b'a', 2), work)
+    assert len(calls) == 2
+    assert WC.lookup('site', 'fo4_import.pipeline.work_cache', (b'b',), 'none') == 'none'
+
+
+def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_path, monkeypatch):
+    """elric_cache.finish() finishes only meshes it has not seen; a seen one gets its finished bytes and its
+    failed flag back."""
+    runs = []
+
+    def fake(paths, run):
+        """Stand in for elric.finish: append b'+' to each mesh; 'b' fails."""
+        runs.append(sorted(p.name for p in paths))
+        for p in paths:
+            p.write_bytes(p.read_bytes() + b'+')
+        return [p for p in paths if p.name == 'b.nif']
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
+    monkeypatch.setattr(EC.elric, 'finish', fake)
+    paths = [tmp_path / 'a.nif', tmp_path / 'b.nif']
+    for _ in range(2):
+        for p in paths:
+            p.write_bytes(p.stem.encode())
+        assert EC.finish(paths) == [tmp_path / 'b.nif']
+        assert [p.read_bytes() for p in paths] == [b'a+', b'b+']
+    assert runs == [['a.nif', 'b.nif']]
 
 
 def test_every_placed_type_has_a_converter_and_a_route():

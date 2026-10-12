@@ -315,6 +315,52 @@ Against the spike-block build:
   - the worldspace's bounds grew.
 - No record that is still built changed its FormID.
 
+<a id="region-measured"></a>**Measured 2026-10-11** ([order](#order) step 1).
+- **Frame rate:** a run from Doc's porch down the main road to Primm,
+  logged by Afterburner (RTX 5070 Ti, 315 one-second samples). The game
+  held its 118 cap with a median frame time of 8.5 ms and the GPU at
+  24%. It used 2.9 GB of RAM and 1.3 GB of VRAM. The only spikes were
+  cell loads: 1.7 s just after the start and 370 ms entering Primm. So
+  this region needs no precombines or previs; denser places (Freeside,
+  the Strip) still need their own measurement.
+- **Build, meshes cached:** 183 s; peak memory 5.8 GB over all the
+  build's processes, with the main process near 3.6 GB throughout.
+  Under cProfile (268 s, so shares rather than seconds):
+
+  | Share | Where | Cached? |
+  |---|---|---|
+  | 25% | Specular maps from FNV normal-map alpha (`write_normal_dds`: BC4 encode and resizing), 2,142 a build | No: re-encoded every build |
+  | 20% | `elric.finish` reading every mesh back (the pure-Python vertex reader) | Elric's physics is cached; the read and graft are not |
+  | 16% | The QA test chest's outfits and headgear (`equipment.test_items`, pyffi reads) | No |
+  | 9% | Parsing the export text (`text_reader`, 50 files; `scope_models` alone 19 s) | Parsed once a run |
+  | 6% | Texture BA2 packing | No |
+  | 3% | Face tint fit for Doc | No |
+
+  A rebuild with nothing changed still spent most of its time on assets
+  the mesh cache already covers in spirit.
+- **Work cache (built 2026-10-12).** `pipeline/work_cache.py` keeps a
+  piece of work's result on disk, keyed by its site, the `code_tag()` of
+  the module doing it, and every byte it reads. It now holds:
+  - the specular maps (`normal_dds`) and glow maps (`encode_dds`), keyed
+    by the image;
+  - each finished mesh after Elric (`elric_cache.finish`), keyed by the
+    pre-Elric NIF and Elric's files, with its failed flag;
+  - the outfits moved onto FO4's body, their shape materials and the
+    rigid-headgear check, keyed by the converted and FNV meshes.
+
+  Region rebuild with meshes cached: 183 s → 86 s (empty work cache: 132
+  s; the cache is 220 MB). Both builds wrote all 2,910 output files byte
+  for byte as before.
+- **Doc's sculpt fit changed once.** One warm build of four wrote
+  different sculpt values (FMRS) for Doc. Every other build matched. So
+  did 10 parallel standalone fits, a build with the fit's inputs hashed,
+  and builds under different memory layouts. The fit
+  (`sculpt.fit`, `lsq_linear` with bounds) solves a rank-deficient
+  system (the basis's condition number is infinite), so equally good
+  answers exist; many values sit on the ±0.9 bound. Not reproduced. A
+  small ridge term would make the answer unique, but would change Doc's
+  played face.
+
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok
   phantom: the pressure plate's trigger volume

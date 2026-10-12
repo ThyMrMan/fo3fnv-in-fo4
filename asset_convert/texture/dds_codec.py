@@ -275,12 +275,17 @@ def encode_bc4_channel(chan: np.ndarray) -> np.ndarray:
 
 
 def write_normal_dds(normal_rgb: np.ndarray, path: Path):
-    """Write a BC5/ATI2 normal map from an RGB normal image.
+    """Write normal_dds(`normal_rgb`) to `path`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(normal_dds(normal_rgb))
+
+
+def normal_dds(normal_rgb: np.ndarray) -> bytes:
+    """A BC5/ATI2 normal map DDS, mipmapped, from an RGB normal image.
 
     BC5 stores R (normal X) and G (normal Y) as two BC4 channels interleaved
     per block; Skyrim's landscape LOD shader reconstructs Z.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
     img = Image.fromarray(normal_rgb, 'RGB')
     size = img.size[0]
 
@@ -299,6 +304,5 @@ def write_normal_dds(normal_rgb: np.ndarray, path: Path):
             break
         s //= 2
 
-    hdr = make_bc5_dds_header(size, mip_count)
-    path.write_bytes(hdr + bytes(mip_data))
+    return make_bc5_dds_header(size, mip_count) + bytes(mip_data)
 
