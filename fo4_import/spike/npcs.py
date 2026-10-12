@@ -37,8 +37,8 @@ BODIES = {(False, False): 0x12FCCB, (False, True): 0x09A680, (True, False): 0x3F
 BODY_TIES = frozenset({b'SNAM', b'CRIF', b'SHRT', b'VMAD'})
 #: FNV ACBS template flags: traits (race, face, sex, voice), factions, AI packages, inventory, script.
 USE_TRAITS, USE_FACTIONS, USE_PACKAGES, USE_INVENTORY, USE_SCRIPT = 0x1, 0x4, 0x20, 0x100, 0x200
-#: FNV's ten template parts (traits ... script), the same bits in FO4's ACBS; FO4's TPTA slots and ACBS offset.
-TEMPLATE_PARTS, TEMPLATE_SLOTS, ACBS_TEMPLATE = 0x3FF, 13, 18
+#: FNV's ten template parts (traits ... script), the same bits in FO4's ACBS; TPTA slots; ACBS byte (xEdit).
+TEMPLATE_PARTS, TEMPLATE_SLOTS, ACBS_TEMPLATE = 0x3FF, 13, 14
 #: derive_formid site of an NPC's outfit (key: the FNV NPC's FormID).
 OUTFIT_SITE = 'FNV OTFT'
 #: FNV ACBS flag Female; reference record flag Persistent.
@@ -280,7 +280,8 @@ class Npcs:
         extra = placement(int(ref['FormID'], 16), ids, owners)
         extra += pack_subrecord('XLKR', struct.pack('<II', 0, linked)) if linked else b''
         self.builder.counts['ACHR'] += 1
-        return R.pack_achr(achr, base, *place(ref), vmad, extra, bool(int(ref['RecordFlags']) & PERSISTENT))
+        flags = int(ref['RecordFlags']) & (PERSISTENT | R.INITIALLY_DISABLED)
+        return R.pack_achr(achr, base, *place(ref), vmad, extra, flags)
 
 
 def _tint_edit(fitted):

@@ -196,11 +196,12 @@ def _alias(alias: int, name: str, ref) -> bytes:
 
 
 def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'', extra: bytes = b'',
-              persistent: bool = True) -> bytes:
-    """A placed actor: scripts (VMAD), base, `extra` subrecords (parents, links), position, rotation."""
+              flags: int = 0x400) -> bytes:
+    """A placed actor: scripts (VMAD), base, `extra` subrecords (parents, links), position, rotation; record
+    `flags` (persistent 0x400, initially disabled 0x800: the same bits as FNV's)."""
     data = struct.pack('<6f', *pos, *rot)
     subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + _u32('NAME', base) + extra
-    return pack_fo4_record('ACHR', fid, 0x400 if persistent else 0, subs + pack_subrecord('DATA', data))
+    return pack_fo4_record('ACHR', fid, flags, subs + pack_subrecord('DATA', data))
 
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,

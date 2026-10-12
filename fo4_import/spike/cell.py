@@ -33,6 +33,7 @@ from fo4_import.spike.furniture import furniture, markers
 from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
+from fo4_import.spike.idle_markers import IdleMarkers
 from fo4_import.spike.interiors import scope
 from fo4_import.spike.placement import map_markers, place, placement
 from fo4_import.spike.npcs import Npcs
@@ -192,6 +193,7 @@ class CellBuilder:
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.fo4 = FALLOUT4_ESM.read_bytes()
+        self.idle_markers = IdleMarkers(self.fo4)
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
         self.counts = collections.Counter()
@@ -242,6 +244,12 @@ class CellBuilder:
     def item(self, fnv_fid: int, _sig, _rec) -> 'int | None':
         """Converter: an FNV misc item or container as itself (spike.items)."""
         return self.items.item(fnv_fid)
+
+    def idle(self, _fnv_fid: int, _sig, rec: dict) -> 'int | None':
+        """Converter: FNV idle marker `rec`'s vanilla stand-in (idle_markers)."""
+        made = self.idle_markers.of(rec)
+        self.counts['idle marker ' + ('placed' if made else 'left out')] += 1
+        return made
 
     def sound(self, fnv_fid: int, _sig, _rec) -> int:
         """Converter: an FNV sound marker (spike.sounds)."""
@@ -332,7 +340,7 @@ def find_cell(export_dir: Path, edid: str) -> dict:
 def placed_bases(export_dir: Path, used: set) -> dict:
     """{FNV FormID: (type, record)} of the used bases this spike converts."""
     out = {}
-    for sig in placed_types('record', 'pickup', 'tree', 'sound'):
+    for sig in placed_types('record', 'pickup', 'tree', 'sound', 'idle'):
         for rec in export_records(export_dir, sig):
             fid = int(rec['FormID'], 16)
             if fid in used:

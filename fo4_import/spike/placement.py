@@ -21,8 +21,9 @@ from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: The subrecords copied, in FO4's REFR order.
-KEPT = (b'XMBO', b'XPRM', b'XPOD', b'XRGD', b'XRDS', b'XAPD', b'XAPR', b'XOWN', b'XRNK', b'XESP', b'XMRK', b'FNAM',
-        b'FULL', b'TNAM')
+KEPT = (b'XMBO', b'XPRM', b'XPOD', b'XRGD', b'XRDS', b'XAPD', b'XAPR', b'XOWN', b'XRNK', b'XESP', b'XPRD', b'XMRK', b'FNAM', b'FULL', b'TNAM')
+#: Patrol data after XPRD as all 7,684 vanilla points write it: flag, no idle, no topic (no PDTO crashes FO4).
+PATROL_REST = pack_subrecord('XPPA', b'') + pack_subrecord('INAM', bytes(4)) + pack_subrecord('PDTO', bytes(8))
 #: A map marker's fields, kept only on a reference with XMRK (FNV uses TNAM and XRDS elsewhere too).
 MARKER = (b'XRDS', b'FNAM', b'FULL', b'TNAM')
 #: FNV map marker type -> FO4's of the same kind (FNV's None, unused, as Natural Landmark).
@@ -86,6 +87,7 @@ def placement(fnv_fid: int, ids: dict, owners: dict = None) -> bytes:
         skip = tag == b'XMBO' and portal or tag in MARKER and not marker
         kept = None if skip else _field(tag, data, ids, owner)
         out += pack_subrecord(tag.decode(), kept) if kept is not None else b''
+        out += PATROL_REST if tag == b'XPRD' else b''
     return out
 
 
