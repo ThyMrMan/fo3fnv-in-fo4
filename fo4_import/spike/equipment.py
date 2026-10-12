@@ -50,8 +50,8 @@ SITES = {'WEAP': 'FNV WEAP', 'ARMO': 'FNV ARMO', 'ARMA': 'FNV ARMA', 'MSWP': 'FN
 DNAM_AMMO, DNAM_CAPACITY, DNAM_ANIM, DNAM_WEIGHT, DNAM_VALUE, DNAM_DAMAGE = 0, 52, 54, 59, 63, 67
 #: FO4 WEAP DNAM animation type of a gun.
 ANIM_GUN = 9
-#: Template subrecords a copy leaves out: its scripts, and armor's resistances.
-DROPPED = (b'VMAD', b'DAMA')
+#: Template subrecords a copy leaves out: scripts, armor's resistances, naming rules (they add words to FNV's name).
+DROPPED = (b'VMAD', b'DAMA', b'INRD')
 #: A piece on FNV's own mesh drops the template's model data (an armor's female world model too) and mod templates.
 OWN_MODEL_DROPPED = (b'MODT', b'MO2T', b'MO2S', b'MOD4', b'MO4T', b'MO4S', b'MO4C', b'MO4F')
 TEMPLATES = (b'OBTE', b'STOP')

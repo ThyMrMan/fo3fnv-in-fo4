@@ -564,7 +564,7 @@ def test_an_alpha_tested_glow_shape_keeps_its_cut_and_glows_through_an_additive_
     mat = C.lit_material(['a.dds', 'a_n.dds', 'a_e.dds'], {}, alpha, False, False, None)
     glow = mat.overlay
     assert mat.data['alpha_test'] and not mat.data['glowmap'] and mat.alpha == (0x12EC, 64)
-    assert glow.kind == 'effect' and glow.alpha == C.NEON_ALPHA and glow.glow[0] == 'fnv\\a_a_e.dds'
+    assert glow.kind == 'effect' and glow.alpha == C.NEON_ALPHA and glow.glow[0] == 'fnv\\a_a_e_cut64.dds'
     assert (glow.data['src_blend'], glow.data['dst_blend'], glow.data['decal']) == (6, 0, True)
     assert glow.shader[1][0] & C.DECAL_FLAGS == C.DECAL_FLAGS
 
@@ -585,11 +585,13 @@ def test_a_glow_map_lights_the_material_with_fnvs_emissive_colour():
 def test_an_unlit_shape_with_normals_keeps_fnvs_view_falloff():
     """IndFXLightRays01's beam fades by view angle (Use_Falloff, FNV's four values); without normals, no falloff."""
     shader = type('S', (), {'file_name': b'textures\\effects\\FXSoftGlowBeamMulti.dds',
-                            'shader_flags': type('F', (), {'sf_vertex_alpha': 1})(), 'falloff_start_angle': 0.98,
-                            'falloff_stop_angle': 0.17, 'falloff_start_opacity': 1.0, 'falloff_stop_opacity': 0.0})()
+                            'shader_flags': type('F', (), {'sf_vertex_alpha': 1, 'sf_external_emittance': 1})(),
+                            'falloff_start_angle': 0.98, 'falloff_stop_angle': 0.17, 'falloff_start_opacity': 1.0,
+                            'falloff_stop_opacity': 0.0})()
     nif = F.NifFile()
     lit = C._unlit_shader(nif, C._unlit(shader, None, True, True, True), True)
     assert lit['flags1'] & C.USE_FALLOFF and lit['falloff'] == (0.98, 0.17, 1.0, 0.0)
+    assert lit['flags1'] & C.EXTERNAL_EMITTANCE
     flat = C._unlit_shader(nif, C._unlit(shader, None, True, True, False), True)
     assert not flat['flags1'] & C.USE_FALLOFF and flat['falloff'] == (1.0, 1.0, 1.0, 1.0)
 

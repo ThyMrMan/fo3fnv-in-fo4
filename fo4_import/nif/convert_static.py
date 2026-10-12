@@ -70,6 +70,8 @@ UNLIT_FLAGS, UNLIT_VERTEX_ALPHA = (0x80000000, 0), 0x8
 UNLIT_ZWRITE, DOUBLE_SIDED, UNLIT_COLORS = 0x1, 0x10, 0x20
 #: Effect shader flags1 Use_Falloff (nif.xml Fallout4ShaderPropertyFlags1 bit 6).
 USE_FALLOFF = 0x40
+#: Shader flags1 External_Emittance (bit 29): the reference's XEMI colours the shape, as FNV's sf_external_emittance.
+EXTERNAL_EMITTANCE = 0x20000000
 #: Vanilla ChemistrySetBeaker01.BGEM, textures aside: FO4's glass for a small prop.
 GLASS_EFFECT = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 0.8999999761581421,
@@ -270,20 +272,24 @@ def spec_image(normal_dds: bytes, smooth: float) -> np.ndarray:
     return out
 
 
-def glow_map_path(fnv_diffuse: str, fnv_glow: str) -> str:
-    """The FO4 path of the glow map baked from an FNV diffuse and glow map: <diffuse>_<glow name>.dds."""
+def glow_map_path(fnv_diffuse: str, fnv_glow: str, cut: 'int | None' = None) -> str:
+    """FO4 path of glow_image's bake: <diffuse>_<glow name>[_cut<cut>].dds."""
     glow = fo4_texture(fnv_glow).rsplit('.', 1)[0].rsplit('\\', 1)[-1]
-    return f'{fo4_texture(fnv_diffuse).rsplit(".", 1)[0]}_{glow}.dds'
+    return f'{fo4_texture(fnv_diffuse).rsplit(".", 1)[0]}_{glow}{"" if cut is None else f"_cut{cut}"}.dds'
 
 
-def glow_image(diffuse_dds: bytes, glow_dds: bytes) -> Image.Image:
-    """FNV's glow as FO4's: the diffuse colour times the glow map's, at the diffuse's size.
+def glow_image(diffuse_dds: bytes, glow_dds: bytes, cut: 'int | None' = None) -> Image.Image:
+    """FNV's glow as FO4's: the diffuse colour times the glow map's, at the diffuse's size; black where the
+    diffuse's alpha is below `cut`, the alpha test that hides those texels in FNV.
 
     See: docs/fork/fo4_pipeline.md#glow
     """
-    diffuse = Image.open(io.BytesIO(diffuse_dds)).convert('RGB')
-    glow = Image.open(io.BytesIO(glow_dds)).convert('RGB').resize(diffuse.size, Image.BILINEAR)
-    lit = np.asarray(diffuse, np.float32) * (np.asarray(glow, np.float32) / 255)
+    source = Image.open(io.BytesIO(diffuse_dds)).convert('RGBA')
+    glow = Image.open(io.BytesIO(glow_dds)).convert('RGB').resize(source.size, Image.BILINEAR)
+    pixels = np.asarray(source, np.float32)
+    lit = pixels[:, :, :3] * (np.asarray(glow, np.float32) / 255)
+    if cut is not None:
+        lit[pixels[:, :, 3] < cut] = 0
     return Image.fromarray(np.round(lit).astype(np.uint8), 'RGB')
 
 
@@ -339,7 +345,8 @@ def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool) -> ShapeM
     vertex_alpha = bool(shader.shader_flags.sf_vertex_alpha) or (not fnv and fades)
     falloff = tuple(getattr(shader, f'falloff_{k}') for k in ('start_angle', 'stop_angle', 'start_opacity',
                                                                'stop_opacity')) if normals else None
-    data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided, 'falloff': falloff}
+    data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided, 'falloff': falloff,
+            'external': bool(shader.shader_flags.sf_external_emittance)}
     part = _alpha_part(alpha) or (VERTEX_ALPHA_BLEND if vertex_alpha and fades else None)
     return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], part, None)
 
@@ -421,9 +428,10 @@ def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, te
         suffix += f'_a{part[0]:x}_{part[1]}'
     stem = mat['textures']['diffuse'].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
     textures = list(fnv[:GLOW_SLOT + 1]) if mat['glowmap'] else [t for t in fnv[:2] if t]
-    glow = (glow_map_path(fnv[0], fnv[GLOW_SLOT]), (fnv[0], fnv[GLOW_SLOT])) if mat['glowmap'] and fnv[0] else None
-    overlay = _glow_overlay(fnv, props, two_sided) if cut and len(fnv) > GLOW_SLOT and fnv[GLOW_SLOT] and fnv[0] \
+    glow = (glow_map_path(fnv[0], fnv[GLOW_SLOT]), (fnv[0], fnv[GLOW_SLOT], None)) if mat['glowmap'] and fnv[0] \
         else None
+    overlay = _glow_overlay(fnv, props, two_sided, part[1]) if cut and len(fnv) > GLOW_SLOT and fnv[GLOW_SLOT] \
+        and fnv[0] else None
     return ShapeMaterial('lit', f'materials\\{stem}{suffix}.bgsm', mat, textures, part, spec,
                          flags1=DECAL_FLAGS if decal else 0, glow=glow, overlay=overlay)
 
@@ -437,14 +445,14 @@ def _emission(props: dict) -> tuple:
     return color, float(getattr(material, 'emit_multi', 1.0))
 
 
-def _glow_overlay(fnv: list, props: dict, two_sided: bool) -> ShapeMaterial:
-    """An alpha-tested glow shape's glow as vanilla's neon (NeonRed01.BGEM): additive, unlit, its baked glow map;
-    a decal over the shape's own triangles, as vanilla's eyeao.bgem overlays the eye.
+def _glow_overlay(fnv: list, props: dict, two_sided: bool, cut: int) -> ShapeMaterial:
+    """An alpha-tested glow shape's glow as vanilla's neon (NeonRed01.BGEM): additive, unlit, its glow map baked
+    black past alpha threshold `cut`; a decal over the shape's own triangles, as vanilla's eyeao.bgem overlays the eye.
 
     See: docs/fork/fo4_pipeline.md#glow
     """
     color, mult = _emission(props)
-    baked = glow_map_path(fnv[0], fnv[GLOW_SLOT])
+    baked = glow_map_path(fnv[0], fnv[GLOW_SLOT], cut)
     data = dict(NEON_EFFECT, two_sided=two_sided, decal=True, base_color=color, base_color_scale=mult,
                 textures={'base': baked.replace('\\', '/'), 'grayscale': '', 'envmap': '', 'normal': '', 'env_mask': ''})
     values = dict(NEON_SHADER, base_color=(*color, 1.0), base_color_scale=mult)
@@ -452,7 +460,7 @@ def _glow_overlay(fnv: list, props: dict, two_sided: bool) -> ShapeMaterial:
     rgb = ''.join(f'{round(c * 255):02x}' for c in color)
     return ShapeMaterial('effect', f'materials\\{baked.rsplit(".", 1)[0]}_neon{rgb}x{mult:g}.bgem', data,
                          [fnv[0], fnv[GLOW_SLOT]], NEON_ALPHA, None, (values, flags),
-                         glow=(baked, (fnv[0], fnv[GLOW_SLOT])))
+                         glow=(baked, (fnv[0], fnv[GLOW_SLOT], cut)))
 
 
 def _glow(mat: dict, fnv: list, props: dict) -> str:
@@ -599,11 +607,12 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
     """An effect shader with no material file and no scene lighting, as vanilla's 1,104 untextured ones.
 
     Flags: z-test always; z-write unless it blends; vertex colours and vertex
-    alpha when the shape has colours (and FNV used their alpha); two-sided; FNV's falloff when it has one.
+    alpha when the shape has colours (and FNV used their alpha); two-sided; FNV's falloff when it has one;
+    coloured by the reference's emittance (XEMI) where FNV's is.
     """
     data = mat.data
     flags1 = (UNLIT_FLAGS[0] | (UNLIT_VERTEX_ALPHA if has_colors and data['vertex_alpha'] else 0)
-              | (USE_FALLOFF if data['falloff'] else 0))
+              | (USE_FALLOFF if data['falloff'] else 0) | (EXTERNAL_EMITTANCE if data['external'] else 0))
     flags2 = ((0 if mat.alpha and mat.alpha[0] & 1 else UNLIT_ZWRITE) | (UNLIT_COLORS if has_colors else 0)
               | (DOUBLE_SIDED if data['two_sided'] else 0))
     return {'name': nif.string(''), 'extra': [], 'controller': NONE, 'flags1': flags1, 'flags2': flags2,

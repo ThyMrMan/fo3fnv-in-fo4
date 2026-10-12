@@ -17,8 +17,12 @@ import math
 from fo4_import.face.fnv_head import NifFormat
 from fo4_import.spike import records as R
 
-#: FNV marker animation slots: sleep entered from the right and left, sit entered from the left, right and front.
-SLEEP_RIGHT, SLEEP_LEFT, SIT_LEFT, SIT_RIGHT, SIT_FRONT = 1, 2, 11, 12, 14
+#: FNV marker animation slots: sit entered from the left, right and front.
+SIT_LEFT, SIT_RIGHT, SIT_FRONT = 11, 12, 14
+#: FNV sleep slots entered from the right and left (a bed's 1 and 2, a bedroll's 4 and 3, the floor's 6 and 5).
+SLEEP_RIGHT, SLEEP_LEFT = (1, 4, 6), (2, 3, 5)
+#: FNV sleep slots on the floor (bedrolls, mattresses, bare ground).
+SLEEP_FLOOR = (3, 4, 5, 6)
 #: FO4 SNAM entry sides.
 FRONT, RIGHT, LEFT = 0x1, 0x4, 0x8
 #: SNAM entry byte: the unused bits vanilla sets beside the sides, and Other, which it adds to seats with Front.
@@ -27,11 +31,12 @@ UNUSED_ENTRY, OTHER = 0xE0, 0x10
 SIT, SLEEP, MUST_EXIT_TO_TALK = 0x40000000, 0x80000000, 0x08000000
 #: Record flag vanilla beds carry: Must Exit To Talk.
 BED_RECORD_FLAGS = 0x10000000
-#: Vanilla keywords: chairs and couches (sit animations, relaxation), beds (sleep, bed animations).
+#: Vanilla keywords: chairs and couches (sit animations, relaxation), beds and floor beds (sleep, their animations).
 SEAT_KEYWORDS = ('AnimFurnChairSitAnims', 'FurnitureClassRelaxation')
 BED_KEYWORDS = ('IsSleepFurniture', 'AnimFurnBedAnims')
-#: The marker model vanilla beds name.
-BED_MARKER = 'Markers\\SleepBed.nif'
+FLOOR_BED_KEYWORDS = ('IsSleepFurniture', 'AnimFurnFloorBedAnims')
+#: The marker models vanilla beds and floor beds name.
+BED_MARKER, FLOOR_BED_MARKER = 'Markers\\SleepBed.nif', 'Markers\\MarkerSleep01.nif'
 #: How far behind its front edge vanilla puts a chair's seat marker (median of 129 sit markers).
 SEAT_DEPTH = 18.0
 #: FNV marker headings are in thousandths of a radian.
@@ -90,15 +95,15 @@ def moved(point: tuple, facing: float, depth: float) -> tuple:
 
 def sleepers(marks: list, active: int, bounds: tuple) -> list:
     """FO4 bed markers (x, y, z, heading, entry byte) of FNV's active sleep markers, one lane each across `bounds`."""
-    sleep = [(m, (m[3] + math.pi if m[4] == SLEEP_RIGHT else m[3]) % math.tau, i)
-             for i, m in enumerate(marks) if m[4] in (SLEEP_RIGHT, SLEEP_LEFT)]
+    sleep = [(m, (m[3] + math.pi if m[4] in SLEEP_RIGHT else m[3]) % math.tau, i)
+             for i, m in enumerate(marks) if m[4] in SLEEP_RIGHT + SLEEP_LEFT]
     out = []
     for lane, ((x, y, z, _, slot), facing, i) in enumerate(sorted(sleep, key=lambda s: across(s[0], s[1]))):
         if not active >> i & 1:
             continue
         corners = _corners(bounds, facing)
         depth = min(corners) + (max(corners) - min(corners)) * (lane + 0.5) / len(sleep)
-        out.append(moved((x, y), facing, depth) + (z, facing, UNUSED_ENTRY | (RIGHT if slot == SLEEP_RIGHT else LEFT)))
+        out.append(moved((x, y), facing, depth) + (z, facing, UNUSED_ENTRY | (RIGHT if slot in SLEEP_RIGHT else LEFT)))
     return out
 
 
@@ -112,8 +117,10 @@ def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keywo
     active = int(rec.get('MNAM.Flags', 0))
     bed = sleepers(marks, active, bounds)
     placed = bed or seats(marks, active, bounds)
+    floor = any(m[4] in SLEEP_FLOOR for m in marks)
     flags = (SLEEP | MUST_EXIT_TO_TALK) if bed else SIT
-    keywords = [keyword_ids[k] for k in (BED_KEYWORDS if bed else SEAT_KEYWORDS)]
-    return R.pack_furn(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds, keywords,
-                       BED_RECORD_FLAGS if bed else 0, flags | (1 << len(placed)) - 1,
-                       BED_MARKER if bed else '', placed)
+    words, marker = ((FLOOR_BED_KEYWORDS, FLOOR_BED_MARKER) if floor else (BED_KEYWORDS, BED_MARKER)) if bed \
+        else (SEAT_KEYWORDS, '')
+    return R.pack_furn(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds,
+                       [keyword_ids[k] for k in words], BED_RECORD_FLAGS if bed else 0,
+                       flags | (1 << len(placed)) - 1, marker, placed)

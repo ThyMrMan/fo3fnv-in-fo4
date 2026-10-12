@@ -23,8 +23,10 @@ outfit is carried across in three steps:
   segment of its strongest bone (arms, legs, torso), as vanilla's body
   orders them; dismemberment cut data is left out.
 
-FNV's dismemberment caps (partitions 100-999) and the sleeve it shows
-without a Pip-Boy (`pipboyoff`; FO4's player always wears one) are left out.
+FNV's dismemberment caps (partitions 100-999) are left out. Of FNV's two
+left forearms, the third-person model keeps the sleeve shown without a
+Pip-Boy (`pipboyoff`: FO4's NPCs wear none) and the first-person one the
+wrist shown past it (`pipboyon`: the player always wears one).
 Skin shapes (FNV's FaceGen shader flag) are drawn with FO4's body shader,
 material and textures, each vertex on the body texture at its nearest body
 point, so skin matches FO4's hands and head. A triangle stretched on the
@@ -87,7 +89,8 @@ ROOT_BONE = 'Bip01 Pelvis'
 HUMAN = Rig(BONES, ENDS, FOLLOW, ROOT_BONE)
 #: FNV dismemberment partitions that are caps (section, torso and limb caps): shown only once a limb is cut.
 CAP_PARTS = range(100, 1000)
-PIPBOY_OFF = 'pipboyoff'
+#: FNV's left forearm per Pip-Boy: the sleeve shown without one (NPCs), the wrist shown past one (the player).
+PIPBOY_OFF, PIPBOY_ON = b'pipboyoff', b'pipboyon'
 #: FNV body vertices whose offsets an outfit vertex averages (inverse distance), and smoothing passes over them.
 NEIGHBOURS, SMOOTH_PASSES = 8, 3
 #: UV and normal weights against position when a converted vertex finds its FNV original (shared positions).
@@ -561,10 +564,11 @@ def _body_material(nif, fit: BodyFit) -> int:
     return index
 
 
-def _wanted(geom) -> bool:
-    """Whether FO4 draws an FNV outfit shape (skinned, no cap, no pipboyoff)."""
+def _wanted(geom, first_person: bool) -> bool:
+    """Whether FO4 draws `geom`: skinned, no cap, its view's forearm (PIPBOY_ON)."""
+    hidden = PIPBOY_OFF if first_person else PIPBOY_ON
     return bool(geom is not None and geom.skin_instance and not is_cap(geom)
-                and not geom.name.lower().startswith(PIPBOY_OFF.encode()))
+                and not geom.name.lower().startswith(hidden))
 
 
 def worn(static_bytes: bytes, fnv_path: Path, fit: BodyFit, first_person: bool = False) -> bytes:
@@ -580,8 +584,9 @@ def worn(static_bytes: bytes, fnv_path: Path, fit: BodyFit, first_person: bool =
     for shape in [static.blocks[i][1] for i in root['children'] if static.blocks[i][0] == 'BSTriShape']:
         found = fnv[static.strings[shape['name']]]
         geom = found.popleft()[1] if found else None
-        skin = _wanted(geom) and is_skin(geom)
-        made = worn_shape(shape, fit, fnv_skin(geom, fnv_root), first_person, skin) if _wanted(geom) else None
+        wanted = _wanted(geom, first_person)
+        skin = wanted and is_skin(geom)
+        made = worn_shape(shape, fit, fnv_skin(geom, fnv_root), first_person, skin) if wanted else None
         if made is None:
             continue
         index = len(nif.blocks)

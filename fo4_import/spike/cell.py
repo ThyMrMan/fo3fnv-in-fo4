@@ -549,8 +549,10 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
                                                           FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
 
 
-def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list) -> None:
-    """Give `builder` its item, activator and package makers; `refs` are the cell's FNV references."""
+def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list,
+                   every: list) -> None:
+    """Give `builder` its item, activator and package makers; `refs` are the cell's FNV references, `every` all
+    the build's (packages sit in their seats)."""
     builder.sounds, builder.globals = Sounds(builder, export_dir), write_globals(builder, export_dir)
     builder.factions = write_factions(builder, export_dir)
     records = index(export_dir, ITEM_TYPES)
@@ -562,7 +564,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
                                                               SHARED_TYPES), makers, stand_ins)
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.activators = Activators(builder, export_dir)
-    builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in refs
+    builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in every
                                                       if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN'})
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
                                                 for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
@@ -602,12 +604,13 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     parts = Parts(used)
     builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), table, plugin_dirs)
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
-    _object_makers(builder, export_dir, scripts_dir, refs)
+    _object_makers(builder, export_dir, scripts_dir, refs, every + outside)
     ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, every)}
     ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, outside)}
     quest_recs, quests = _cell_quests(builder, export_dir, every, ids)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST})
-    actors = _people(builder, export_dir, (interiors, world), _form_map(builder, ids, quest_recs, quests),
+    actors = _people(builder, export_dir, (interiors, world),
+                     {**_form_map(builder, {**ids, **ext_ids}, quest_recs, quests), **_cells(builder, interiors, world)},
                      {**ids, **ext_ids})
     qa_refs, teleports = _doors(builder, [r for r in every if 'XTEL.Door' in r], links, {**ids, **ext_ids})
     qa_refs += _test_chest(builder, vanilla[TEST_CHEST]) + _qa_creatures(builder, export_dir, data_dir)
@@ -642,6 +645,12 @@ def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, f
         people = actors.get(c['FormID'], (b'', b''))
         out.append((c, p + people[0], t + people[1] + navmesh.get(c['FormID'], b'')))
     return out
+
+
+def _cells(builder: CellBuilder, interiors: list, world) -> dict:
+    """{FNV cell: FO4 cell} of the built interiors and `world`'s (or None's) cells."""
+    return {int(c['FormID'], 16): builder.fnv_id(c['FormID'])
+            for c in interiors + (list(world.cells.values()) if world else [])}
 
 
 def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dict, ids: dict) -> dict:

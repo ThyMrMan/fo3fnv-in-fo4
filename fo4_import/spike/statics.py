@@ -82,10 +82,11 @@ def write_converted(export_dir: Path, converted, rel: str, data_dir: Path) -> tu
     for spec_path, (fnv_normal, smooth) in converted.spec_maps.items():
         normal = (export_dir / texture_source(fnv_normal).replace('\\', '/')).read_bytes()
         _write(data_dir / 'Textures' / spec_path, normal_map(spec_image(normal, smooth)))
-    for glow_path, sources in converted.glow_maps.items():
+    for glow_path, (*sources, cut) in converted.glow_maps.items():
         diffuse, glow = (export_dir / texture_source(t).replace('\\', '/') for t in sources)
         if diffuse.exists() and glow.exists():
-            _write(data_dir / 'Textures' / glow_path, colour_map(glow_image(diffuse.read_bytes(), glow.read_bytes())))
+            _write(data_dir / 'Textures' / glow_path,
+                   colour_map(glow_image(diffuse.read_bytes(), glow.read_bytes(), cut)))
     return f'{PREFIX}\\{rel}', mesh_bounds(converted.nif)
 
 

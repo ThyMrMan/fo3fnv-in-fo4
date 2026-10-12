@@ -2,14 +2,9 @@
 
 FO4 packages, like Skyrim's, are instances of template packages filled with
 data inputs. Each FNV package becomes a copy of a vanilla FO4 instance of the
-matching template with its destination, conditions and EditorID replaced:
-Travel to a reference (a Sit when the reference is furniture: FNV seats an
-actor who travels to a chair), Sandbox, and Dialogue with the player on
-the GREETING (a ForceGreet on the Greeting subtype, waiting at FNV's
-location, as 108 vanilla force greets do). The copied instances have no
-conditions, scripts or owner quest and a direct reference as first input.
-Other package types, and packages naming forms or conditions that do not
-convert, are left out and counted.
+matching template (PLANS) with its first input, schedule, conditions and
+EditorID replaced, and its owner quest and scripts dropped. Packages whose
+type, location or target do not convert are left out and counted by reason.
 
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
@@ -22,23 +17,34 @@ from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
-#: Vanilla instances copied per template (Parsons' travel, a Children of Atom sit, a Minutemen sandbox, Kendra's greet).
-INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGreet': 0x1BEAD3}
-#: FNV PKDT types converted.
-FNV_TRAVEL, FNV_SANDBOX, FNV_DIALOGUE = '6', '12', '15'
+#: Vanilla instances copied per template: no conditions, and none whose inputs differ from the template's order.
+INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGreet': 0x1BEAD3, 'Sleep': 0x1B9EB0,
+             'Eat': 0x1AE26C, 'HoldPosition': 0x2491F8, 'Patrol': 0x248492, 'FollowNPC': 0x232257}
+#: What a copy's first input takes from FNV: its location (PLDT), its target (PTDT), or nothing (the template's).
+PLACE, TARGET, KEEP = 'place', 'target', 'keep'
+#: FNV PKDT type: (FO4 template, first input). Wander sandboxes; Guard holds its position; Patrol walks linked refs.
+PLANS = {'1': ('FollowNPC', TARGET), '3': ('Eat', PLACE), '4': ('Sleep', PLACE), '5': ('Sandbox', PLACE),
+         '6': ('Travel', PLACE), '8': ('Sit', TARGET), '12': ('Sandbox', PLACE), '13': ('Patrol', KEEP),
+         '14': ('HoldPosition', PLACE), '15': ('ForceGreet', PLACE)}
+FNV_TRAVEL, FNV_DIALOGUE = '6', '15'
 #: FNV PKDT package type names (xEdit's wbPackageTypeEnum), for the build's counts.
 FNV_TYPES = {'0': 'Find', '1': 'Follow', '2': 'Escort', '3': 'Eat', '4': 'Sleep', '5': 'Wander', '6': 'Travel',
              '7': 'Accompany', '8': 'UseItemAt', '9': 'Ambush', '10': 'FleeNotCombat', '12': 'Sandbox',
              '13': 'Patrol', '14': 'Guard', '15': 'Dialogue', '16': 'UseWeapon'}
 #: FNV PTDT target of a Dialogue package that talks to the player.
 PLAYER_TARGET = '00000014'
-#: FNV PLDT location types FO4 shares: near reference, in cell, near current (package start) location, editor location.
-SHARED_LOCATIONS = ('0', '1', '2', '3')
-NEAR_REFERENCE = 0
+#: FNV PLDT location types FO4 shares: near reference, in cell, near start or editor location, near linked reference.
+SHARED_LOCATIONS = ('0', '1', '2', '3', '6')
+#: FNV PLDT location types naming a form: a reference, a cell.
+NAMED_LOCATIONS = ('0', '1')
 #: PKDT general flags FNV and FO4 define alike (xEdit wbPackageFlags), e.g. Weapons Unequipped 0x200000.
 SHARED_FLAGS = 0x1 | 0x4 | 0x40 | 0x80 | 0x200 | 0x400 | 0x20000 | 0x40000 | 0x200000 | 0x800000 | 0x8000000
-#: PTDA target type: a specific reference.
+#: PTDA/PTDT target type: a specific reference.
 TARGET_REFERENCE = 0
+#: PSDT minute vanilla writes on 242 of its 252 timed schedules (FNV schedules start on the hour).
+ANY_MINUTE = -1
+#: Vanilla subrecords a copy drops: its owner quest and its scripts.
+DROPPED = (b'QNAM', b'VMAD')
 
 
 class Packages:
@@ -65,43 +71,50 @@ class Packages:
             rec = self.packs[fnv]
             plan = self._plan(rec, form_map)
             conditions = conditions_of(rec, form_map, {})
-            if plan is None or conditions is None:
-                why = _why(rec, form_map) if plan is None else f'condition {blocker(rec, form_map, {})}'
+            if isinstance(plan, str) or conditions is None:
+                why = plan if isinstance(plan, str) else f'condition {blocker(rec, form_map, {})}'
                 self.builder.counts[f'package left out ({why})'] += 1
                 self.made[fnv] = 0
             else:
                 self.made[fnv] = fid = self.builder.fnv_id(fnv)
-                self.builder.writer.add_record('PACK', pack_package(fid, f'FNV_{rec["EditorID"]}',
-                                                                   self.vanilla[plan[0]], plan[1], conditions,
-                                                                   int(rec.get('PKDT.Flags', 0))))
-                self.builder.counts['PACK'] += 1
+                self.builder.writer.add_record('PACK', pack_package(fid, rec, self.vanilla[plan[0]], plan[1],
+                                                                   conditions))
+                self.builder.counts[f'PACK {plan[0]}'] += 1
                 self.greets += [fid] if plan[0] == 'ForceGreet' else []
         return self.made[fnv]
 
-    def _plan(self, rec: dict, form_map: dict) -> 'tuple | None':
-        """(template, first input payload) for FNV package `rec`; None when it does not convert."""
-        kind, place = rec.get('PKDT.Type'), rec.get('PLDT.Type')
-        if kind not in (FNV_TRAVEL, FNV_SANDBOX, FNV_DIALOGUE) or place not in SHARED_LOCATIONS or (
-                kind == FNV_DIALOGUE and not _greets_player(rec)):
-            return None
-        ref = int(rec.get('PLDT.Location', '0'), 16)
-        if int(place) == NEAR_REFERENCE and ref not in form_map:
-            return None
-        target, radius = form_map.get(ref, 0), int(rec.get('PLDT.Radius', 0))
-        if kind == FNV_TRAVEL and int(place) == NEAR_REFERENCE and ref in self.furniture:
-            return 'Sit', struct.pack('<iI', TARGET_REFERENCE, target)
-        template = {FNV_TRAVEL: 'Travel', FNV_SANDBOX: 'Sandbox', FNV_DIALOGUE: 'ForceGreet'}[kind]
-        return template, struct.pack('<iIi', int(place), target, radius)
+    def _plan(self, rec: dict, form_map: dict) -> 'tuple | str':
+        """(template, first input payload) for FNV package `rec`; why it does not convert otherwise."""
+        kind = rec.get('PKDT.Type')
+        if kind not in PLANS:
+            return f'type {FNV_TYPES.get(kind, kind)}'
+        if kind == FNV_DIALOGUE and not _greets_player(rec):
+            return 'dialogue not with the player'
+        template, first = PLANS[kind]
+        if first == PLACE:
+            return self._at(rec, kind, template, form_map)
+        return self._aimed(rec, template, form_map) if first == TARGET else (template, b'')
 
+    def _at(self, rec: dict, kind: str, template: str, form_map: dict) -> 'tuple | str':
+        """(template, PLDT payload) at FNV package `rec`'s location; a Travel to a seat sits in it."""
+        place = rec.get('PLDT.Type')
+        ref = int(rec.get('PLDT.Location', '0') or '0', 16)
+        if place not in SHARED_LOCATIONS:
+            return f'location type {place}'
+        if place in NAMED_LOCATIONS and ref not in form_map:
+            return 'location not built'
+        if kind == FNV_TRAVEL and place == '0' and ref in self.furniture:
+            return 'Sit', struct.pack('<iI', TARGET_REFERENCE, form_map[ref])
+        return template, struct.pack('<iIi', int(place), form_map.get(ref, 0), int(rec.get('PLDT.Radius', 0)))
 
-def _why(rec: dict, form_map: dict) -> str:
-    """Why _plan() leaves FNV package `rec` out: its type, its location type or its location not built."""
-    kind, place = rec.get('PKDT.Type'), rec.get('PLDT.Type')
-    if kind not in (FNV_TRAVEL, FNV_SANDBOX, FNV_DIALOGUE):
-        return f'type {FNV_TYPES.get(kind, kind)}'
-    if place not in SHARED_LOCATIONS:
-        return f'location type {place}'
-    return 'dialogue not with the player' if kind == FNV_DIALOGUE else 'location not built'
+    def _aimed(self, rec: dict, template: str, form_map: dict) -> 'tuple | str':
+        """(template, PTDA payload) at FNV package `rec`'s target reference; a Sit's target must be a seat."""
+        ref = int(rec.get('PTDT.Target', '0') or '0', 16)
+        if rec.get('PTDT.Type') != str(TARGET_REFERENCE) or ref not in form_map:
+            return 'target not built'
+        if template == 'Sit' and ref not in self.furniture:
+            return 'target not a seat'
+        return template, struct.pack('<iIi', TARGET_REFERENCE, form_map[ref], int(rec.get('PTDT.Count', 0) or 0))
 
 
 def _greets_player(rec: dict) -> bool:
@@ -109,19 +122,23 @@ def _greets_player(rec: dict) -> bool:
     return rec.get('PTDT.Target') == PLAYER_TARGET and not int(rec.get('PKDD.Topic', '0'), 16)
 
 
-def pack_package(fid: int, edid: str, vanilla: bytes, first_input: bytes, conditions: bytes, flags: int) -> bytes:
-    """A copy of vanilla instance `vanilla`: our EditorID, conditions after PSDT, its first PLDT/PTDA from `first_input`.
+def schedule(rec: dict) -> bytes:
+    """FO4 PSDT of FNV package `rec`'s schedule, its duration in minutes."""
+    return struct.pack('<bbbbb3xi', int(rec.get('PSDT.Month', -1)), int(rec.get('PSDT.DayOfWeek', -1)),
+                       int(rec.get('PSDT.Date', 0)), int(rec.get('PSDT.Time', -1)), ANY_MINUTE,
+                       int(rec.get('PSDT.Duration', 0)) * 60)
 
-    The input keeps the vanilla payload's bytes past `first_input`. PKDT's
-    general flags become FNV's `flags` the two games share (SHARED_FLAGS).
+
+def pack_package(fid: int, rec: dict, vanilla: bytes, first_input: bytes, conditions: bytes) -> bytes:
+    """A copy of vanilla instance `vanilla` for FNV package `rec`: its EditorID, schedule and conditions after PSDT,
+    the first PLDT/PTDA from `first_input` (the vanilla bytes past it kept), PKDT flags the games share (SHARED_FLAGS).
     """
-    out, replaced = b'', False
+    fields, out, replaced = {b'EDID': f'FNV_{rec["EditorID"]}'.encode() + b'\0', b'PSDT': schedule(rec)}, b'', False
     for tag, data in subrecords(vanilla):
-        if tag == b'EDID':
-            data = edid.encode() + b'\0'
-        elif tag == b'PKDT':
-            data = struct.pack('<I', flags & SHARED_FLAGS) + data[4:]
+        if tag == b'PKDT':
+            data = struct.pack('<I', int(rec.get('PKDT.Flags', 0)) & SHARED_FLAGS) + data[4:]
         elif tag in (b'PLDT', b'PTDA') and not replaced:
             data, replaced = first_input + data[len(first_input):], True
-        out += pack_subrecord(tag.decode(), data) + (conditions if tag == b'PSDT' else b'')
+        if tag not in DROPPED:
+            out += pack_subrecord(tag.decode(), fields.get(tag, data)) + (conditions if tag == b'PSDT' else b'')
     return pack_fo4_record('PACK', fid, 0, out)
