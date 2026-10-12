@@ -195,11 +195,12 @@ def _alias(alias: int, name: str, ref) -> bytes:
     return subs + pack_subrecord('ALED', b'')
 
 
-def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'') -> bytes:
-    """A persistent placed actor: scripts (VMAD), base, position, rotation."""
+def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'', extra: bytes = b'',
+              persistent: bool = True) -> bytes:
+    """A placed actor: scripts (VMAD), base, `extra` subrecords (parents, links), position, rotation."""
     data = struct.pack('<6f', *pos, *rot)
-    subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + _u32('NAME', base)
-    return pack_fo4_record('ACHR', fid, 0x400, subs + pack_subrecord('DATA', data))
+    subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + _u32('NAME', base) + extra
+    return pack_fo4_record('ACHR', fid, 0x400 if persistent else 0, subs + pack_subrecord('DATA', data))
 
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,

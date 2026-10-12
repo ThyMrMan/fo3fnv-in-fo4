@@ -494,6 +494,36 @@ on them. `spike/locations.py` builds them from what FNV authored:
   maximum level are 0. Cells keep their XEZN (84 in FalloutNV.esm, all
   interiors; Bison Steve's and Vikki and Vance's in the region).
 
+<a id="npcs"></a>**NPCs (step 3, in progress).** `spike/npcs.py` replaces the
+spike's stand-in actors with every FNV NPC placed in the built cells.
+- **The body.** Each FNV NPC base becomes a copy of a vanilla NPC for its
+  race and sex (`BODIES`: DocWeathers, DoctorAmari, the ghouls Jones and
+  Holly), keeping that NPC's outfit, class and voice for now. FNV's name,
+  factions (SNAM with rank, through the converted factions), AI packages
+  and script replace the copy's; its factions and crime faction are left
+  out.
+- **The face.** A male human takes FNV's face fitted to FO4's sculpt
+  regions, tints and head parts, as Doc's was. Each fit is cached
+  (work_cache), since the tint fit takes about 8 s. The fits are calibrated
+  for male humans only, so women and ghouls keep their body's face.
+- **Templates.** FNV's template flags (ACBS) are followed per part:
+  traits (race, face, sex), factions, AI packages, script. An NPC whose
+  traits come from a leveled list (LVLN) is left out until leveled NPCs
+  convert.
+- **Placement.** Every ACHR in a built cell, persistent as in FNV, with
+  its parents, ownership and linked reference. The ids keep the spike's
+  keys (`NPC_ <FNV id> STH`, `ACHR <FNV id> STH`), so Doc's moved
+  nowhere.
+- **Conversation ids keyed on authored data** (approved drift, 2026-10-12).
+  With real speakers, 300 dropped lines returned, and 165 of VDoctors'
+  generated scene and topic records moved id while 271 were replaced: a
+  step's key listed the lines found that build (the Hub's topic list, a
+  script's topic), so any line arriving shifted it. `Conversation._key`
+  now keys the Hub's menu as `menu hub` and a script-started step by its
+  topic (`talk <topic>`); FNV's follow-up, choice and part steps keep their
+  authored contents; a player option is keyed by its FNV topic and prompt
+  text. Content arriving later adds records without moving any.
+
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok
   phantom: the pressure plate's trigger volume

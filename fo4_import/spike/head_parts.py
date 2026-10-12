@@ -55,7 +55,9 @@ def _drawn_coverage(mesh: Path, drawn: np.ndarray, at: fnv_npc.Frame, depths: li
 
 
 def _hair(choice: HeadChoice, assets, export_dir: Path, at: fnv_npc.Frame, depths: list) -> None:
-    """Choose the hair and the hair colour."""
+    """Choose the hair and the hair colour; none for a bald NPC (no HNAM)."""
+    if 'HNAM.Hair' not in at.npc:
+        return
     record = fnv_npc.record(export_dir, 'HAIR', at.npc['HNAM.Hair'])
     drawn = fnv_npc.hair_rgb(fnv_npc.asset(export_dir, 'textures', record['ICON']), at.npc)
     target = _drawn_coverage(fnv_npc.asset(export_dir, 'meshes', record['Model.MODL']), drawn, at, depths)
@@ -66,7 +68,8 @@ def _hair(choice: HeadChoice, assets, export_dir: Path, at: fnv_npc.Frame, depth
 
 
 def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes) -> HeadChoice:
-    """The FO4 hair, facial hair, eyes and hair colour for FNV NPC `edid` (male HumanRace)."""
+    """The FO4 hair, facial hair, eyes and hair colour for FNV NPC `edid` (male HumanRace); none for a part FNV
+    leaves to the race (no HNAM, no ENAM)."""
     face, depths = skull(assets, baseline)
     at = fnv_npc.frame(export_dir, edid, face)
     choice = HeadChoice()
@@ -76,6 +79,8 @@ def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes)
         drawn = hair.image(fnv_npc.mesh_texture(export_dir, mesh)).astype(float)
         choice.facial_hair, choice.distances['facial hair'] = hair.best_part(
             assets, hair.FACIAL_HAIR, False, _drawn_coverage(mesh, drawn, at, depths), depths)
+    if 'ENAM.Eyes' not in at.npc:
+        return choice
     eye_points, eye_tris, eye_uv, _ = hair.fnv_shape(fnv_npc.eye_mesh(export_dir, at.race, at.part))
     eyes = fnv_npc.record(export_dir, 'EYES', at.npc['ENAM.Eyes'])
     texture = hair.image(fnv_npc.asset(export_dir, 'textures', eyes['ICON']))
@@ -84,8 +89,9 @@ def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes)
 
 
 def head_parts_edit(choice: HeadChoice, assets: hair.Fo4Assets):
-    """A clone edit swapping in the chosen eyes, hair, facial hair (with extras) and hair colour."""
-    replaced = (hair.EYES, hair.HAIR, hair.FACIAL_HAIR)
+    """A clone edit swapping in the chosen eyes, hair, facial hair (with extras) and hair colour; with no eyes
+    chosen (an FNV NPC on its race's) the clone keeps its own, while no hair or facial hair means none."""
+    replaced = (hair.HAIR, hair.FACIAL_HAIR) + ((hair.EYES,) if choice.eyes is not None else ())
     added = [q for p in (choice.eyes, choice.hair, choice.facial_hair) if p is not None for q in [p] + assets.extras(p)]
 
     def edit(subs: bytes) -> bytes:
@@ -100,6 +106,7 @@ def head_parts_edit(choice: HeadChoice, assets: hair.Fo4Assets):
                 placed = True
             if tag == b'PNAM' and struct.unpack('<I', data)[0] in dropped:
                 continue
-            out += pack_subrecord(tag.decode(), struct.pack('<I', choice.colour) if tag == b'HCLF' else data)
+            colour = tag == b'HCLF' and choice.colour is not None
+            out += pack_subrecord(tag.decode(), struct.pack('<I', choice.colour) if colour else data)
         return out
     return edit

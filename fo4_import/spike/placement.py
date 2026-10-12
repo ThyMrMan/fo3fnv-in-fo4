@@ -97,3 +97,9 @@ def map_markers(ids: dict) -> dict:
         if b'XMRK' in tags and b'FULL' in tags and f'{fnv:08X}' in ids:
             out.setdefault(tags[b'FULL'].rstrip(b'\0').decode('cp1252'), ids[f'{fnv:08X}'])
     return out
+
+
+def place(rec: dict, prefix: str = '') -> tuple:
+    """(position, rotation) of an exported reference; 'XTEL.' for its teleport."""
+    return (tuple(float(rec[prefix + k]) for k in ('PosX', 'PosY', 'PosZ')),
+            tuple(float(rec[prefix + k]) for k in ('RotX', 'RotY', 'RotZ')))

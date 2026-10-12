@@ -65,7 +65,7 @@ class Exterior:
         self.cells = {(int(r['XCLC.X']), int(r['XCLC.Y'])): r for r in cells if 'XCLC.X' in r and not
                       int(r['RecordFlags']) & PERSISTENT and lo[0] <= int(r['XCLC.X']) <= hi[0]
                       and lo[1] <= int(r['XCLC.Y']) <= hi[1]}
-        own = {r['FormID']: grid for grid, r in self.cells.items()}
+        self.own = own = {r['FormID']: grid for grid, r in self.cells.items()}
         self.by_cell = {grid: [] for grid in self.cells}
         self.persistent = []
         for ref in all_refs:
@@ -78,6 +78,11 @@ class Exterior:
         self.textures, self.made = {}, {}
         self.grasses = Grasses(export_dir)
 
+    def holds(self, ref: dict) -> bool:
+        """Whether FNV reference `ref` stands in the block (by cell, or by position)."""
+        cell = ref.get('ParentCELL')
+        return cell in self.own or cell == self.persistent_cell and _grid(ref) in self.cells
+
     def placement_order(self) -> list:
         """Every reference in group()'s order: the persistent cell's, then each cell's."""
         return self.persistent + [r for grid in sorted(self.cells) for r in self.by_cell[grid]]
@@ -87,18 +92,21 @@ class Exterior:
         world = builder.fnv_id(self.world['FormID'])
         return {r['FormID']: (world, grid_parent(*grid)) for grid, r in self.cells.items()}
 
-    def group(self, builder, place, data_dir: Path, navmesh: dict) -> bytes:
+    def group(self, builder, place, data_dir: Path, navmesh: dict, actors: dict = None) -> bytes:
         """The WRLD group's body: worldspace, persistent cell, grid cells; `place(refs)` packs (persistent, temporary).
 
-        `navmesh` holds each FNV cell's NAVM records. Records made here (LTEX, TXST) are added to `builder.writer`.
+        `navmesh` holds each FNV cell's NAVM records, `actors` its ACHRs (persistent, temporary): persistent ones
+        go to the persistent cell. Records made here (LTEX, TXST) are added to `builder.writer`.
         """
         world, persistent_cell = builder.fnv_id(self.world['FormID']), builder.fnv_id(self.persistent_cell)
-        cells, kept = {}, place(self.persistent)[0]
+        actors = actors or {}
+        cells, kept = {}, place(self.persistent)[0] + b''.join(actors.get(self.persistent_cell, (b'', b'')))
         lands = {grid: self.land.get(self.cells[grid]['FormID']) for grid in sorted(self.cells)}
         mixes = limit_textures(blend_borders({grid: quadrant_mix(land) for grid, land in lands.items() if land}))
         for grid in sorted(self.cells):
             persistent, temporary = place(self.by_cell[grid])
-            kept += persistent
+            people = actors.get(self.cells[grid]['FormID'], (b'', b''))
+            kept, temporary = kept + persistent + people[0], temporary + people[1]
             land = lands[grid]
             land_record = self._land(builder, land, mixes.get(grid), data_dir) if land else b''
             navm = navmesh.get(self.cells[grid]['FormID'], b'')
@@ -107,7 +115,7 @@ class Exterior:
                            (builder.locations.of_grid(grid), zone))
         record = self._world(builder, world)
         children = _cell(persistent_cell, PERSISTENT, (0, 0), kept, b'')
-        children += _blocks({grid: _cell(fid, 0, grid, b'', temp, place) for grid, (fid, temp, place) in cells.items()})
+        children += _blocks({grid: _cell(fid, 0, grid, b'', temp, spot) for grid, (fid, temp, spot) in cells.items()})
         builder.counts['exterior cells'] = len(cells)
         return record + pack_group(WORLD_CHILDREN, struct.pack('<I', world), children)
 

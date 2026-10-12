@@ -15,16 +15,9 @@ import math
 import struct
 from pathlib import Path
 
-from fo4_import.base.ba2 import Archives
 from fo4_import.base.ba2_pack import pack_textures
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, fnv_esm
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest
-from fo4_import.face import hair, tint
-from fo4_import.face.sculpt import FACE_SHAPE
-from fo4_import.face.sculpt import load_basis as sculpt_basis
-from fo4_import.spike.face_fit import sculpt_fit, tint_fit
-from fo4_import.spike.facegen import skin_tone_layers
-from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
 from fo4_import.spike.equipment import Equipment
@@ -41,7 +34,8 @@ from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.interiors import scope
-from fo4_import.spike.placement import map_markers, placement
+from fo4_import.spike.placement import map_markers, place, placement
+from fo4_import.spike.npcs import Npcs
 from fo4_import.spike.packages import Packages
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.sounds import Sounds
@@ -72,8 +66,6 @@ MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN, 'XDI.esm']
 HELPER_INDEX = 1
 #: XDI's menu keyword (conversation menus show more than four options).
 XDI_KEYWORD = MASTERS.index('XDI.esm') << 24 | R.XDI_KEYWORD
-#: Stand-in subrecords a clone leaves out: its factions (vanilla doctor dialogue, caravans) and crime faction.
-STAND_IN_TIES = frozenset({b'SNAM', b'CRIF'})
 #: The player's reference, the same FormID in both games.
 PLAYER = 0x14
 #: FNV quests the cell's scripts run, converted with it.
@@ -100,10 +92,6 @@ QA_CREATURES = (('GSCheyenne', (-1550.0, -1330.0, 0.0), (0.0, 0.0, 0.0)),
                 ('VCG02CrGecko', (-1050.0, -1500.0, 0.0), (0.0, 0.0, 3.14)))
 #: FNV LIGH flag bits as FO4 ones: carried, flicker (and slow), off by default, pulse (and slow), spot, spot shadow.
 LIGHT_FLAGS = {0x2: 0x2, 0x8: 0x8, 0x20: 0x20, 0x40: 0x8, 0x80: 0x80, 0x100: 0x80, 0x200: 0x4000, 0x400: 0x400}
-#: FNV NPC -> the vanilla FO4 NPC whose face and body its clone takes (the dialogue spike's stand-ins).
-STAND_INS = {fnv: fo4 for _, fnv, fo4, *_ in SPEAKERS if fnv}
-#: Face variants per actor (fitted sculpt regions and tints, FNV's head parts matched); the last plays the FNV ref.
-FACE_VARIANTS, FACE_SPACING = ('STH',), 50.0
 #: The bit every vanilla FO4 omni light carries.
 LIGHT_BASE = 0x1
 #: FNV LIGH flags: flicker or flicker slow; pulse or pulse slow; either slow.
@@ -133,11 +121,6 @@ def _bounds(rec: dict) -> tuple:
 def _floats(rec: dict, prefix: str, keys: tuple) -> tuple:
     """`rec[prefix + key]` for each key, as floats."""
     return tuple(float(rec[prefix + k]) for k in keys)
-
-
-def _place(rec: dict, prefix: str = '') -> tuple:
-    """(position, rotation) of a reference, or of its teleport with prefix 'XTEL.'."""
-    return _floats(rec, prefix, ('PosX', 'PosY', 'PosZ')), _floats(rec, prefix, ('RotX', 'RotY', 'RotZ'))
 
 
 def _color(cell: dict, key: str) -> bytes:
@@ -359,7 +342,7 @@ def placed_bases(export_dir: Path, used: set) -> dict:
 
 def _linked(door_refs: list, ids: dict) -> dict:
     """{door ref: its teleport} of doors whose partner is in `ids`."""
-    return {r['FormID']: (ids[r['XTEL.Door']], *_place(r, 'XTEL.')) for r in door_refs if r['XTEL.Door'] in ids}
+    return {r['FormID']: (ids[r['XTEL.Door']], *place(r, 'XTEL.')) for r in door_refs if r['XTEL.Door'] in ids}
 
 
 def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tuple:
@@ -373,7 +356,7 @@ def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tup
     for i, ref in enumerate(r for r in door_refs if r['FormID'] not in teleports):
         pos = (DOOR_START[0] + i * DOOR_SPACING, DOOR_START[1], DOOR_START[2])
         stand_in, partner = builder.new_id(f'DOOR stand-in {ref["FormID"]}'), links.get(ref['XTEL.Door'], ref)
-        inside = _place(partner, 'XTEL.') if partner is not ref else _place(ref)
+        inside = place(partner, 'XTEL.') if partner is not ref else place(ref)
         qa_refs += R.pack_refr(stand_in, builder.load_door(int(ref['NAME'], 16)), pos, (0.0, 0.0, 0.0),
                                teleport=(ids[ref['FormID']], *inside))
         teleports[ref['FormID']] = (stand_in, tuple(p + a for p, a in zip(pos, ARRIVAL)), ARRIVAL_ROT)
@@ -418,7 +401,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         keep = bool(int(ref['RecordFlags']) & 0x400) or ref['FormID'] in teleports
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
-        record = R.pack_refr(ids[ref['FormID']], base, *_place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
+        record = R.pack_refr(ids[ref['FormID']], base, *place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
                              teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids, owners) + _lock(builder, ref)
                              + builder.emittance.xemi(ref),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0))
@@ -443,7 +426,7 @@ def _lock(builder: CellBuilder, ref: dict) -> bytes:
 
 def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
     """The REFRs of FNV SCOL reference `ref`'s parts, on hashed FormIDs (scol.PART_SITE)."""
-    position, angle = _place(ref)
+    position, angle = place(ref)
     scale, out = float(ref.get('XSCL.Scale', 1.0)), b''
     disabled = bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED)
     for index, (part, placement) in enumerate(builder.parts.parts[int(ref['NAME'], 16)]):
@@ -463,98 +446,6 @@ def _vanilla(fo4: bytes, fids: set) -> dict:
     """{FormID: Record} of the Fallout4.esm records `fids` (CELL, IMGS, NPC_, CONT)."""
     return {rec.form_id: rec for rec, _ in walk(fo4, b'CELL', b'IMGS', b'NPC_', b'CONT')
             if rec.form_id in fids}
-
-
-def _sculpt_morphs(builder: CellBuilder, export_dir: Path, edid: str) -> bytes:
-    """FO4 sculpt regions fitted to FNV NPC `edid`'s face; b'' before calibration."""
-    fitted = sculpt_fit(export_dir, edid)
-    if fitted is None:
-        builder.counts['sculpt fit skipped (no calibration)'] += 1
-        return b''
-    builder.counts[f'sculpt fit captures % ({edid})'] = round(100 * fitted[1])
-    return fitted[0]
-
-
-def _tint_edit(builder: CellBuilder, export_dir: Path, edid: str, tone_options: frozenset):
-    """A clone edit giving FNV NPC `edid`'s fitted tint layers and skin tone; None before calibration."""
-    fitted = tint_fit(export_dir, edid)
-    cached = tint.load_basis()
-    if fitted is None:
-        builder.counts['tint fit skipped (no calibration)'] += 1
-        return None
-    values, tone, captured = fitted
-    builder.counts[f'tint fit captures % ({edid})'] = round(100 * captured)
-
-    def edit(subs: bytes) -> bytes:
-        """The clone with the fitted tint layers and its skin tone scaled."""
-        rest, kept = tint.without_tints(subs, tone_options)
-        rest = tint.with_tints(rest, tint.pack_layers(cached[1], values, kept, cached[3]))
-        return tint.with_tone(rest, tone, tone_options)
-    return edit
-
-
-def _head_edit(builder: CellBuilder, export_dir: Path, edid: str, assets: hair.Fo4Assets):
-    """A clone edit giving FNV NPC `edid`'s matched hair, facial hair, eyes and hair colour; None uncalibrated."""
-    if sculpt_basis() is None:
-        builder.counts['head parts skipped (no calibration)'] += 1
-        return None
-    choice = choose(export_dir, edid, assets, sculpt_basis()[2])
-    picked = [assets.edid(p) for p in (choice.hair, choice.facial_hair, choice.eyes) if p is not None]
-    builder.counts[f'head parts ({edid}): ' + ', '.join(picked)] += 1
-    builder.counts[f'hair colour ({edid}): ' + assets.colours[choice.colour][b'EDID'][0].rstrip(b'\0').decode()] += 1
-    for name in choice.unmapped:
-        builder.counts[f'head part without an FO4 kind ({edid}): {name}'] += 1
-    return head_parts_edit(choice, assets)
-
-
-def _composed(*edits):
-    """One clone edit applying `edits` (None skipped) in order."""
-    present = [e for e in edits if e is not None]
-
-    def edit(subs: bytes) -> bytes:
-        """The subrecords after every edit."""
-        for step in present:
-            subs = step(subs)
-        return subs
-    return edit if present else None
-
-
-def _actors(builder: CellBuilder, export_dir: Path, cell_fid: str, vanilla: dict, form_map: dict) -> bytes:
-    """Persistent ACHRs for the cell's FNV actors that have a stand-in, each base a clone of it.
-
-    One clone per FACE_VARIANTS entry, side by side along the actor's right:
-    the stand-in's body and inventory with FNV's face fitted (sculpt regions,
-    tints) and the FNV NPC's packages, under its EditorID and name plus the
-    variant; STH also takes FNV's matched hair, facial hair, eyes and hair
-    colour. `form_map` maps the FNV forms packages name.
-    """
-    npcs = {int(r['FormID'], 16): r for r in export_records(export_dir, 'NPC_')}
-    assets = hair.Fo4Assets(builder.fo4, Archives(FALLOUT4_DIR / 'Data'))
-    out = b''
-    for ref in export_records(export_dir, 'ACHR'):
-        fnv = int(ref['NAME'], 16)
-        if ref.get('ParentCELL') != cell_fid or fnv not in STAND_INS:
-            continue
-        stand_in, npc = vanilla[STAND_INS[fnv]], npcs[fnv]
-        pos, rot = _place(ref)
-        morphs = _sculpt_morphs(builder, export_dir, npc['EditorID'])
-        tinted = _tint_edit(builder, export_dir, npc['EditorID'], skin_tone_layers())
-        packages = R.packages_edit(builder.packages.for_npc(npc, form_map))
-        edits = {'ST': _composed(tinted, packages),
-                 'STH': _composed(tinted, _head_edit(builder, export_dir, npc['EditorID'], assets), packages)}
-        for i, variant in enumerate(FACE_VARIANTS):
-            base = builder.new_id(f'NPC_ {fnv:08X} {variant}')
-            builder.writer.add_record('NPC_', R.clone_npc(
-                base, stand_in.body, stand_in.flags, f'FNV_{npc["EditorID"]}_{variant}',
-                f'{npc.get("FULL", "")} ({variant})', FACE_SHAPE | STAND_IN_TIES, morphs, edits[variant]))
-            spot = (pos[0] + i * FACE_SPACING * math.cos(rot[2]), pos[1] - i * FACE_SPACING * math.sin(rot[2]), pos[2])
-            achr = builder.new_id(f'ACHR {ref["FormID"]} {variant}')
-            builder.actor_ids[ref['FormID']] = builder.scripts.named[ref.get('EditorID', '')] = achr
-            vmad = builder.scripts.vmad(int(npc['SCRI'], 16)) if 'SCRI' in npc else b''
-            out += R.pack_achr(achr, base, spot, rot, vmad)
-            builder.counts['NPC_'] += 1
-            builder.npc_ids[fnv] = base
-    return out
 
 
 def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: bytes):
@@ -676,9 +567,9 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
                                                 for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
     builder.imods = ImageSpaces(builder)
-    furniture = [(_place(r), str(export_dir / 'meshes' / world_model(builder.bases[int(r['NAME'], 16)][1]).lower()))
+    furniture = [(place(r), str(export_dir / 'meshes' / world_model(builder.bases[int(r['NAME'], 16)][1]).lower()))
                  for r in refs if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
-    builder.poses = Poses(builder, {r['EditorID']: _place(r) for r in refs if r.get('EditorID')}, furniture)
+    builder.poses = Poses(builder, {r['EditorID']: place(r) for r in refs if r.get('EditorID')}, furniture)
 
 
 def _cell_quests(builder: CellBuilder, export_dir: Path, every: list, ids: dict) -> tuple:
@@ -715,8 +606,9 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, every)}
     ext_ids = {r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, outside)}
     quest_recs, quests = _cell_quests(builder, export_dir, every, ids)
-    vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST} | set(STAND_INS.values()))
-    actors = _actors(builder, export_dir, cell['FormID'], vanilla, _form_map(builder, ids, quest_recs, quests))
+    vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST})
+    actors = _people(builder, export_dir, (interiors, world), _form_map(builder, ids, quest_recs, quests),
+                     {**ids, **ext_ids})
     qa_refs, teleports = _doors(builder, [r for r in every if 'XTEL.Door' in r], links, {**ids, **ext_ids})
     qa_refs += _test_chest(builder, vanilla[TEST_CHEST]) + _qa_creatures(builder, export_dir, data_dir)
     teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
@@ -727,24 +619,43 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
     pathing = {c['FormID']: (0, builder.fnv_id(c['FormID'])) for c in interiors}
     navmesh = _navmesh(builder, export_dir, {**pathing, **(world.pathing(builder) if world else {})}, {**ids, **ext_ids})
-    rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh,
-                   (persistent + actors + builder.poses.placed, temporary))
+    rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh, (persistent + builder.poses.placed, temporary),
+                   actors)
     _cell_group(builder, export_dir, vanilla, rooms, qa_refs)
     if world:
         for ref in world.placement_order():
             builder.base(int(ref['NAME'], 16))
         builder.writer.add_raw_group('WRLD', world.group(builder, lambda r: _placed(builder, r, ext_ids, teleports),
-                                                         data_dir, navmesh))
+                                                         data_dir, navmesh, actors))
     return _finish(builder, export_dir, data_dir, out, scripts_dir)
 
 
-def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, first: tuple) -> list:
+def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, first: tuple, actors: dict) -> list:
     """[(cell, persistent, temporary)] of the interiors in `scoped` (cells, their references), each with its
-    navmeshes: the first's children are `first`, the others' references placed with `placing` (ids, teleports)."""
+    navmeshes and `actors` {FNV cell: (persistent, temporary)}: the first's references are `first`, the others'
+    placed with `placing` (ids, teleports)."""
     interiors, every = scoped
     placed = [first] + [_placed(builder, [r for r in every if r['ParentCELL'] == c['FormID']], *placing)
                         for c in interiors[1:]]
-    return [(c, p, t + navmesh.get(c['FormID'], b'')) for c, (p, t) in zip(interiors, placed)]
+    out = []
+    for c, (p, t) in zip(interiors, placed):
+        people = actors.get(c['FormID'], (b'', b''))
+        out.append((c, p + people[0], t + people[1] + navmesh.get(c['FormID'], b'')))
+    return out
+
+
+def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dict, ids: dict) -> dict:
+    """{FNV cell: (persistent, temporary)} ACHRs of the FNV NPCs placed in the built cells (npcs.py); `scoped` is
+    (the interiors, the exterior block or None)."""
+    interiors, world = scoped
+    inside = {c['FormID'] for c in interiors}
+
+    def cell_of(ref: dict) -> 'str | None':
+        """The FNV cell a built actor stands in; None outside the build."""
+        cell = ref.get('ParentCELL')
+        return cell if cell in inside or (world and world.holds(ref)) else None
+    builder.npcs = Npcs(builder, export_dir, form_map)
+    return builder.npcs.placed(export_records(export_dir, 'ACHR'), cell_of, ids, {**builder.factions, **builder.npc_ids})
 
 
 def _cell_group(builder: CellBuilder, export_dir: Path, vanilla: dict, rooms: list, qa_refs: bytes):

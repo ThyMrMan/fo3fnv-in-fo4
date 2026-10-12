@@ -93,7 +93,7 @@ class Conversations:
         """FNV `quest` (FO4 `quest_fid`) in `say`; steps draw on `shared`'s lines."""
         self.say, self.quest, self.fid, self.form_map, self.keyword = say, quest, quest_fid, form_map, keyword
         self.lines = {r['FormID'].upper(): r for r in say.infos.get(quest['FormID'].upper(), [])}
-        self.hub, self.topics, self.scenes, self.placed = shared, [], [], {}
+        self.hub, self.topics, self.scenes, self.placed, self.labels = shared, [], [], {}, {}
 
     def has_lines(self) -> bool:
         """True when the quest has lines outside its scripted Conversation topics."""
@@ -108,6 +108,7 @@ class Conversations:
         else:
             infos = [i for i, r in self.lines.items() if self.say.dials[r['ParentDIAL']]['EditorID'].lower() == topic]
         if infos:
+            self.labels[('line', tuple(infos))] = f'talk {topic}'
             self.scene(('line', tuple(infos)), fid)
         return bool(infos)
 
@@ -126,7 +127,7 @@ class Conversations:
         """
         if step in self.placed:
             return self.placed[step]
-        fid, first = fid or self.say.builder.new_id(f'SCEN {self.quest["FormID"]} {step!r}'), step
+        fid, first = fid or self.say.builder.new_id(f'SCEN {self.quest["FormID"]} {self._key(step)}'), step
         edid, phases, actions, menu = f'FNV_{self.quest["EditorID"]}_Scene{len(self.placed)}', [], [], False
         locked = False
         while step is not None and step not in self.placed:
@@ -141,6 +142,15 @@ class Conversations:
         self.scenes.append(R.pack_scen(fid, edid, self.fid, SPEAKER_ALIAS, actions, self.keyword if menu else 0,
                                        tuple(phases), R.SCENE_NO_EXIT if locked else 0))
         return self.placed[first]
+
+    def _key(self, step: tuple) -> str:
+        """The FormID key of `step`: what FNV authored, not the lines found today (the Hub's topic list and a
+        script's topic grow as more converts), so ids stay put as content arrives.
+        See: docs/fork/fo4_pipeline.md#npcs
+        """
+        if step[0] == 'menu' and step[1] == self.hub.topics:
+            return 'menu hub'
+        return self.labels.get(step, repr(step))
 
     def _members(self, step: tuple) -> list:
         """The FNV lines of `step` (a split line's first part): its lines, every line of its menu's topics, or
@@ -168,7 +178,7 @@ class Conversations:
 
     def _action(self, step: tuple, place: tuple, edid: str, continues: bool) -> bytes:
         """The scene action playing `step` at `place` (index, phase); its lines run on when `continues`."""
-        name, owner = f'{edid}_{place[1]}', f'{self.quest["FormID"]} {step!r}'
+        name, owner = f'{edid}_{place[1]}', f'{self.quest["FormID"]} {self._key(step)}'
         take = self.say.builder.new_id
         if step[0] == 'menu':
             player, npc = [], []
@@ -210,7 +220,7 @@ class Conversations:
         else:
             shown = self._speakers(members)
         shown += self._running(members[0]) + self._gate(dial)
-        owner = f'INFO prompt {members[0]["FormID"]}'
+        owner = f'INFO prompt {dial} {text}'
         player.append(R.pack_info(self.say.builder.new_id(owner), once, (text,), shown, prompt=text))
         player += [R.pack_info(self.say.builder.new_id(owner)) for _ in answers[1:]]
         npc += answers
