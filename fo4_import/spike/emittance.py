@@ -18,15 +18,14 @@ from pathlib import Path
 from fo4_import.base.install import FALLOUTNV_ESM
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike.weathers import colour_table
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: Fallout4.esm FXLightRegionSunlightWhite and its weather FXWthrSunlightWhite.
 FX_REGION, FX_WEATHER = 0x1171, 0x75491
-#: Weather colour entries: FO4's Sunlight and Effect Lighting; FNV's Sunlight (of 10).
-FO4_SUNLIGHT, FO4_EFFECT, FNV_SUNLIGHT, FNV_ENTRIES, FO4_ENTRIES = 4, 9, 4, 10, 19
-#: FO4's eight times of day as indices into FNV's four (sunrise, day, sunset, night).
-FO4_TIMES = (0, 1, 2, 3, 0, 0, 2, 2)
+#: Weather colour types the daylight copies: FNV's Sunlight -> FO4's Sunlight and Effect Lighting.
+SUNLIGHT = {4: (4, 9)}
 
 
 @functools.cache
@@ -38,17 +37,6 @@ def region_weathers() -> dict:
         if rdwt:
             out[rec.form_id] = struct.unpack_from('<I', rdwt)[0]
     return out
-
-
-def sunlight_table(fo4_nam0: bytes, fnv_nam0: bytes) -> bytes:
-    """FO4 weather colours `fo4_nam0` with Sunlight and Effect Lighting set to FNV colours `fnv_nam0`'s Sunlight."""
-    per, entry = len(fnv_nam0) // FNV_ENTRIES, len(fo4_nam0) // FO4_ENTRIES
-    fnv = fnv_nam0[FNV_SUNLIGHT * per:FNV_SUNLIGHT * per + 16]
-    colours = b''.join(fnv[4 * t:4 * t + 4] for t in FO4_TIMES)
-    out = bytearray(fo4_nam0)
-    for index in (FO4_SUNLIGHT, FO4_EFFECT):
-        out[index * entry:(index + 1) * entry] = colours
-    return bytes(out)
 
 
 class Emittance:
@@ -89,7 +77,7 @@ class Emittance:
         subs = b''
         for tag, data in subrecords(self._vanilla[FX_WEATHER]):
             data = {b'EDID': edid.encode() + b'\0',
-                    b'NAM0': sunlight_table(data, bytes.fromhex(fnv_weather['NAM0.Data']))}.get(tag, data)
+                    b'NAM0': colour_table(data, bytes.fromhex(fnv_weather['NAM0.Data']), SUNLIGHT)}.get(tag, data)
             subs += pack_subrecord(tag.decode(), data)
         self.builder.writer.add_record('WTHR', pack_fo4_record('WTHR', wthr_id, 0, subs))
         regn_id = self.builder.fnv_id(fnv)

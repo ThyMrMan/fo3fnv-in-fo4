@@ -26,6 +26,7 @@ from fo4_import.spike import imods as I
 from fo4_import.spike import imagespace as IM
 from fo4_import.spike import lighting_template as LT
 from fo4_import.spike import emittance as EM
+from fo4_import.spike import weathers as WT
 from fo4_import.spike import exterior as EX
 from fo4_import.spike import land_layers as LL
 from fo4_import.spike import interiors as IN
@@ -392,14 +393,26 @@ def test_an_interior_takes_the_fields_its_inherit_flags_name_from_its_lighting_t
     assert out['XCLL.FogPower'] == '0.6'
 
 
+def test_a_weathers_fog_colour_fills_fo4s_near_far_and_high_fogs_and_fog_power_is_gamma_scaled():
+    """FNV fog colour lands in FO4 types 1, 12, 17 and 18; fog powers x 2.2, the rest of FNAM kept."""
+    fnv = bytearray(240)
+    fnv[24:40] = bytes((9, 9, 9, 0)) * 4
+    out = WT.colour_table(bytes(608), bytes(fnv))
+    assert all(out[t * 32:t * 32 + 32] == bytes((9, 9, 9, 0)) * 8 for t in (1, 12, 17, 18))
+    assert out[2 * 32:3 * 32] == bytes(32)
+    fog = WT.fog_table(struct.pack('<18f', *range(18)), struct.pack('<6f', 10, 20, 30, 40, 1, 2))
+    assert struct.unpack('<18f', fog)[:6] == pytest.approx((10, 20, 30, 40, IM.DISPLAY_GAMMA, 2 * IM.DISPLAY_GAMMA))
+    assert struct.unpack('<18f', fog)[6:] == tuple(range(6, 18))
+
+
 def test_a_region_emittance_weather_takes_fnvs_sunlight_at_each_fo4_time_of_day():
     """FO4's eight times take FNV's four (early/late sunrise and sunset as sunrise and sunset) in two entries."""
     fnv = bytearray(240)
-    fnv[EM.FNV_SUNLIGHT * 24:EM.FNV_SUNLIGHT * 24 + 16] = bytes((1, 1, 1, 0, 2, 2, 2, 0, 3, 3, 3, 0, 4, 4, 4, 0))
-    out = EM.sunlight_table(bytes(range(256)) * 2 + bytes(96), bytes(fnv))
+    fnv[4 * 24:4 * 24 + 16] = bytes((1, 1, 1, 0, 2, 2, 2, 0, 3, 3, 3, 0, 4, 4, 4, 0))
+    out = WT.colour_table(bytes(range(256)) * 2 + bytes(96), bytes(fnv), EM.SUNLIGHT)
     expected = b''.join(bytes((t, t, t, 0)) for t in (1, 2, 3, 4, 1, 1, 3, 3))
-    assert out[EM.FO4_SUNLIGHT * 32:EM.FO4_SUNLIGHT * 32 + 32] == expected == out[EM.FO4_EFFECT * 32:EM.FO4_EFFECT * 32 + 32]
-    assert out[:EM.FO4_SUNLIGHT * 32] == (bytes(range(256)) * 2)[:EM.FO4_SUNLIGHT * 32]
+    assert out[4 * 32:5 * 32] == expected == out[9 * 32:10 * 32]
+    assert out[:4 * 32] == (bytes(range(256)) * 2)[:4 * 32]
 
 
 def test_a_fixed_exposure_shows_exposed_colours_as_fnvs_straight_display():

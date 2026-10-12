@@ -28,6 +28,7 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.grass import Grasses
 from fo4_import.spike.land_layers import blend_borders, limit_textures, quadrant_mix
 from fo4_import.spike.navmesh import grid_parent
+from fo4_import.spike.weathers import climate
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_image
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -109,9 +110,12 @@ class Exterior:
         return record + pack_group(WORLD_CHILDREN, struct.pack('<I', world), children)
 
     def _world(self, builder, fid: int) -> bytes:
-        """The WRLD record: FNV's name and the block's bounds, the Commonwealth's settings."""
+        """The WRLD record: FNV's name, climate (weathers.py) and the block's bounds, the Commonwealth's settings."""
         template = next(r for r, _ in walk(builder.fo4, b'WRLD') if r.form_id == WORLD_TEMPLATE)
         kept = {t: d for t, d in subrecords(template.body) if t in WORLD_COPIED}
+        fnv_climate = climate(builder, int(self.world.get('CNAM.Climate', '0'), 16))
+        if fnv_climate:
+            kept[b'CNAM'] = struct.pack('<I', fnv_climate)
         xs, ys = [g[0] for g in self.cells], [g[1] for g in self.cells]
         bounds = (struct.pack('<2f', min(xs) * CELL_UNITS, min(ys) * CELL_UNITS),
                   struct.pack('<2f', (max(xs) + 1) * CELL_UNITS, (max(ys) + 1) * CELL_UNITS))

@@ -416,6 +416,32 @@ export has no `LNAM`, so it is read from FalloutNV.esm.
 - The converter now resolves each field the way FNV does
   (`spike/lighting_template.py`).
 
+<a id="weathers"></a>**Exterior climate and weathers** (played 2026-10-11; a new save is
+needed, since a save keeps its current weather). The exterior used the
+Commonwealth's climate: a grey sun (225, 225, 225) and neutral ambient.
+WastelandNV's `NVDefaultClimate` lists `NVWastelandClear` and
+`NVWastelandClearNight`; the regions over Goodsprings add `NVWastelandGS`
+and `NVWastelandBorders`. All four share their colours (sun 255, 227, 170;
+ambient 87, 105, 138) and differ only in fog.
+- Each climate weather becomes a copy of `CommonwealthClear` with FNV's
+  colours (`weathers.py`; FNV's 10 colour types into FO4's 19: fog fills
+  near, far and both high fogs; sunlight also fills effect lighting) and
+  FNV's fog distances and power (× 2.2). Clouds and imagespaces stay
+  vanilla's, as Project Mojave's do.
+- The climate copies `DefaultClimate` with FNV's weather list and sun
+  timing; the worldspace points at it.
+- Not yet: the region weathers (fog only) and FNV's weather imagespace
+  modifiers (`IAD`). These two are most of FNV's "dirty" outdoor haze:
+  - every wasteland weather plays `NVWastelandIS` (0x0CEE18; sunrise
+    `NVWastelandSunriseIS` 0x0CEE1A). It tints toward amber (1.0, 0.737,
+    0.051) at 0.392 and multiplies brightness by 1.3 → 1.1, with HDR
+    pairs 2 (0.35 → 0.6), 4 (1.8), 7 (0.4), 8 (0.8) and 11 (1.1). How FNV
+    evaluates a weather's modifier over its keys is unconfirmed;
+  - `NVWastelandGS` fogs fully at 120,000 (power 0.5) against the clear
+    weather's 200,000 (power 0.6);
+  - FNV's HDR bloom also softens the image (see [color drift](#color-drift)).
+  The tint is a candidate for a player option (an "FNV filter").
+
 <a id="emittance"></a>**Light brightness and emittance** (played 2026-10-10).
 - FO4's tiled light shader (`shaders011.fxp`, compute shader 3584) uses
   `att = (1 − saturate(constant + scalar · (d/r)^exponent))^2.2`, with
