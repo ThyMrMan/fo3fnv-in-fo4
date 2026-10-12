@@ -189,3 +189,13 @@ at the mod's record.
 - Outfits: the 12 pre-war outfits on FNV's meshes (`fnv`), their variants
   as material swaps ([outfits](fo4_spikes.md#spike-4-outfits)).
 - The old stand-ins: FO4's records (`item`).
+- **Anything the table leaves out** (2026-10-12, so real NPCs are dressed
+  and armed): an armor goes on FNV's mesh (`fnv`) on a template for what
+  it covers, by FNV's biped slots (`equipment.ARMOR_DEFAULTS`: upper body
+  on ClothesPrewarShortSleeves, head, headband or hat on
+  ClothesMobsterhat, eyeglasses on ClothesEyeGlasses, mask or mouth on
+  Clothes_Raider_SurgicalMask); a gun is the FO4 gun gun_choice picks for
+  it, with the parts it matched, under FNV's name and stats (`stats`); a
+  melee weapon by its animation type (`MELEE_DEFAULTS`): hand to hand on
+  FO4's Knuckles, one-handed on FNV's mesh on the TireIron, two-handed on
+  the BaseballBat. A table entry still wins.

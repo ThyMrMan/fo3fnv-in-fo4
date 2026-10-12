@@ -96,6 +96,14 @@ class Items:
         fid = self.names.get(edid.lower())
         return self.item(fid) if fid is not None else None
 
+    def wearable(self, fnv_fid: int, seen: tuple = ()) -> bool:
+        """Whether an FNV item is worn: armor, or a leveled list of worn items only."""
+        sig, rec = self.records.get(fnv_fid, (None, None))
+        if sig != 'LVLI' or fnv_fid in seen:
+            return sig == 'ARMO'
+        entries = _list(rec, 'Entry', ('FormID',))
+        return bool(entries) and all(self.wearable(entry, seen + (fnv_fid,)) for (entry,) in entries)
+
     def item(self, fnv_fid: int) -> 'int | None':
         """The FO4 record for an FNV item, leveled item or container; None when its type is not converted."""
         if fnv_fid in self.shared:

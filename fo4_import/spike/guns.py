@@ -100,8 +100,13 @@ class Guns:
                 raise ValueError(f'no object mod {mod} in Fallout4.esm')
             new = self.edids[mod]
             combo = [new if self.choices.attach(f) == self.choices.attach(new) else f for f in combo]
+        return self.combination(template, combo)
+
+    def combination(self, template: list, parts: list) -> list:
+        """The object template subrecords of `template`'s default combination with its parts set to `parts`."""
+        name, obts = _default(template)
         out, start = bytearray(obts), includes_at(obts)
-        for i, fid in enumerate(combo):
+        for i, fid in enumerate(parts):
             struct.pack_into('<I', out, start + INCLUDE_SIZE * i, fid)
         return self._block(name, bytes(out))
 

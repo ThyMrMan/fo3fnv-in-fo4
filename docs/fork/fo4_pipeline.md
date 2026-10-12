@@ -502,6 +502,14 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
   factions (SNAM with rank, through the converted factions), AI packages
   and script replace the copy's; its factions and crime faction are left
   out.
+- **Outfit and inventory.** FNV keeps worn and carried items in one list.
+  Its armor, and leveled lists of only armor (`Items.wearable`), become
+  the NPC's outfit (OTFT, keyed by the NPC's FNV id); the rest its
+  inventory (CNTO); both replace the body's. Items the replacement table
+  leaves out take its defaults ([replacements](fo4_replacements.md)), so
+  81 of the region's 84 NPCs wear FNV's clothes and 46 weapons convert
+  (3 skipped). Caravan cards and money (CCRD, CMNY: 342 entries) wait for
+  the Caravan system.
 - **The face.** A male human takes FNV's face fitted to FO4's sculpt
   regions, tints and head parts, as Doc's was. Each fit is cached
   (work_cache), since the tint fit takes about 8 s. The fits are calibrated

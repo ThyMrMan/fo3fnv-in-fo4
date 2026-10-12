@@ -1,7 +1,8 @@
 """FNV's NPCs as Fallout 4 NPCs, placed where FNV places them.
 
 Each FNV NPC base becomes a copy of a vanilla body for its race and sex
-(BODIES), with FNV's name, factions, AI packages and script; a male human
+(BODIES), with FNV's name, factions, AI packages, script, outfit (its worn
+items) and inventory (the rest); a male human
 also takes FNV's face fitted to FO4's sculpt regions, tints and head parts
 (the fits are calibrated for male humans only). A template (TPLT) is
 followed for each part its flags take from it; an NPC whose traits come
@@ -16,6 +17,7 @@ from pathlib import Path
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.writer import pack_fo4_record
 from fo4_import.face import hair, sculpt, tint
 from fo4_import.face.sculpt import FACE_SHAPE
 from fo4_import.pipeline.export_index import export_records
@@ -32,8 +34,10 @@ from tes5_import.base.writer import pack_subrecord
 BODIES = {(False, False): 0x12FCCB, (False, True): 0x09A680, (True, False): 0x3F239, (True, True): 0x3F23A}
 #: Body subrecords a converted NPC leaves out: its factions and crime faction.
 BODY_TIES = frozenset({b'SNAM', b'CRIF'})
-#: FNV ACBS template flags: traits (race, face, sex, voice), factions, AI packages, script.
-USE_TRAITS, USE_FACTIONS, USE_PACKAGES, USE_SCRIPT = 0x1, 0x4, 0x20, 0x200
+#: FNV ACBS template flags: traits (race, face, sex, voice), factions, AI packages, inventory, script.
+USE_TRAITS, USE_FACTIONS, USE_PACKAGES, USE_INVENTORY, USE_SCRIPT = 0x1, 0x4, 0x20, 0x100, 0x200
+#: derive_formid site of an NPC's outfit (key: the FNV NPC's FormID).
+OUTFIT_SITE = 'FNV OTFT'
 #: FNV ACBS flag Female; reference record flag Persistent.
 FEMALE, PERSISTENT = 0x1, 0x400
 #: new_id keys of a converted NPC and its placed actor (the spike's, kept so no FormID moves).
@@ -47,6 +51,24 @@ def with_factions(snams: bytes):
         out = b''
         for tag, data in subrecords(subs):
             out += pack_subrecord(tag.decode(), data) + (snams if tag == b'ACBS' else b'')
+        return out
+    return edit
+
+
+def with_inventory(outfit: int, carried: list):
+    """A record edit replacing the body's default outfit with `outfit` (0: none) and its inventory with `carried`
+    [(item, count)]."""
+    def edit(subs: bytes) -> bytes:
+        """The subrecords with the outfit and inventory replaced."""
+        out = b''
+        for tag, data in subrecords(subs):
+            if tag == b'COCT' and carried:
+                out += pack_subrecord('COCT', struct.pack('<I', len(carried)))
+                out += b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count)) for item, count in carried)
+            elif tag == b'DOFT' and outfit:
+                out += pack_subrecord('DOFT', struct.pack('<I', outfit))
+            elif tag not in (b'COCT', b'CNTO', b'COED', b'DOFT'):
+                out += pack_subrecord(tag.decode(), data)
         return out
     return edit
 
@@ -102,7 +124,7 @@ class Npcs:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
             (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
-            composed(edit, with_factions(self._factions(fnv)), self._packages(fnv))))
+            composed(edit, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv))))
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
         return fid
@@ -116,6 +138,30 @@ class Npcs:
             if faction:
                 out += pack_subrecord('SNAM', struct.pack('<Ib3x', faction, int(rec[f'Faction[{i}].Rank'])))
         return out
+
+    def _inventory(self, fnv: int):
+        """The edit giving FNV NPC `fnv` (or its template) its worn items as an outfit, the rest as inventory."""
+        rec, items = self.source(fnv, USE_INVENTORY) or {}, self.builder.items
+        worn, carried = [], []
+        for i in range(int(rec.get('ItemCount', 0))):
+            item = int(rec[f'Item[{i}].FormID'], 16)
+            made = items.item(item)
+            if made is not None and items.wearable(item):
+                worn.append(made)
+            elif made is not None:
+                carried.append((made, int(rec[f'Item[{i}].Count'])))
+        return with_inventory(self._outfit(fnv, worn), carried)
+
+    def _outfit(self, fnv: int, worn: list) -> int:
+        """An outfit of `worn` for FNV NPC `fnv`, written; 0 when it wears nothing."""
+        if not worn:
+            return 0
+        fid = self.builder.writer.derive_formid(OUTFIT_SITE, fnv)
+        body = pack_subrecord('EDID', f'FNV_{self.records[fnv]["EditorID"]}Outfit\0'.encode('cp1252'))
+        body += pack_subrecord('INAM', b''.join(struct.pack('<I', f) for f in sorted(set(worn))))
+        self.builder.writer.add_record('OTFT', pack_fo4_record('OTFT', fid, 0, body))
+        self.builder.counts['OTFT'] += 1
+        return fid
 
     def _packages(self, fnv: int):
         """The edit giving FNV NPC `fnv` its (or its template's) AI packages."""

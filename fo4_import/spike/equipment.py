@@ -38,6 +38,7 @@ from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.pipeline.work_cache import cached
 from fo4_import.spike.gun_choice import GUN_TYPES
 from fo4_import.spike.guns import Guns
+from fo4_import.spike.replacements import BASE, Replacement
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import swapped_material, write_assets
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
@@ -56,6 +57,12 @@ OWN_MODEL_DROPPED = (b'MODT', b'MO2T', b'MO2S', b'MOD4', b'MO4T', b'MO4S', b'MO4
 TEMPLATES = (b'OBTE', b'STOP')
 #: Armor addon subrecords copied from the template's: race, priorities, additional races.
 ADDON_KEPT = (b'RNAM', b'DNAM')
+#: Unlisted FNV armor -> (BMDT biped bits it covers, Fallout4.esm template FNV's mesh goes on), first match.
+ARMOR_DEFAULTS = ((0x4, 'ClothesPrewarShortSleeves'), (0x1 | 0x200 | 0x400, 'ClothesMobsterhat'),
+                  (0x800, 'ClothesEyeGlasses'), (0x4000 | 0x10000, 'Clothes_Raider_SurgicalMask'))
+#: Unlisted FNV melee weapon by animation type -> entry: hand to hand on FO4's knuckles, one- and two-handed on FNV's mesh.
+MELEE_DEFAULTS = {0: Replacement(BASE, 'Knuckles', 'stats'), 1: Replacement(BASE, 'TireIron', 'fnv'),
+                  2: Replacement(BASE, 'BaseballBat', 'fnv')}
 SEXES = ('male', 'female')
 #: FNV biped flag of the upper body (an outfit).
 UPPER_BODY = 0x4
@@ -79,6 +86,14 @@ def _edid(subs: list) -> str:
 def _rigid(path) -> bool:
     """headgear.rigid(`path`), cached."""
     return cached('rigid', 'fo4_import.nif.headgear', (path.read_bytes(),), lambda: headgear.rigid(path))
+
+
+def _default(rec: dict) -> 'Replacement | None':
+    """An unlisted FNV armor's or melee weapon's default entry (ARMOR_DEFAULTS, MELEE_DEFAULTS); else None."""
+    if rec.get('Signature') == 'WEAP':
+        return MELEE_DEFAULTS.get(int(rec.get('DNAM.FalloutAnimType', -1)))
+    covers = int(rec.get('BMDT.BipedFlags', 0)) if rec.get('Signature') == 'ARMO' else 0
+    return next((Replacement(BASE, edid, 'fnv') for bits, edid in ARMOR_DEFAULTS if covers & bits), None)
 
 
 def _bod2(slots: tuple) -> bytes:
@@ -130,7 +145,8 @@ class Equipment:
         self.builder, self.fnv, self.strings, self.table = builder, _fnv_fields(), strings.load(), builder.table
         self.fits, self.statics, self.poses, self.bodies, self.worn_paths = {}, {}, {}, {}, {}
         self.guns = Guns(builder, self.strings)
-        wanted = {r.edid for r in self.table.values() if r.base and r.mode != 'item'}
+        wanted = {r.edid for r in self.table.values() if r.base and r.mode != 'item'} | {e for _, e in ARMOR_DEFAULTS} | {
+            r.edid for r in MELEE_DEFAULTS.values()}
         self.vanilla, self.addons = {}, {}
         for rec, _ in walk(builder.fo4, b'WEAP', b'ARMO', b'ARMA'):
             subs = list(subrecords(rec.body))
@@ -140,8 +156,8 @@ class Equipment:
                 self.vanilla[_edid(subs)] = subs
 
     def _entry(self, rec: dict):
-        """FNV `rec`'s entry when it is a Fallout4.esm copy (stats, fnv), else None."""
-        entry = self.table.get(rec.get('EditorID'))
+        """FNV `rec`'s Fallout4.esm-copy entry (else its _default), or None."""
+        entry = self.table.get(rec.get('EditorID')) or _default(rec)
         return entry if entry and entry.base and entry.mode != 'item' and entry.edid in self.vanilla else None
 
     def _template(self, rec: dict) -> 'dict | None':
@@ -181,12 +197,13 @@ class Equipment:
 
     def weap(self, fnv: int, rec: dict) -> 'int | None':
         """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`) on its table entry's target (an `fnv` gun on the
-        FO4 gun spike.gun_choice picks, when one matches); None without an entry."""
+        FO4 gun spike.gun_choice picks, when one matches); a gun the table leaves out is that FO4 gun itself, its
+        chosen parts, FNV's stats; None without either."""
         entry = self._entry(rec)
-        if entry is None:
+        gun = int(rec.get('DNAM.FalloutAnimType', -1)) in GUN_TYPES and 'Model.MODL' in rec
+        chosen = self.guns.choose(rec) if gun and (entry is None or entry.mode == 'fnv') else None
+        if entry is None and chosen is None:
             return None
-        chosen = self.guns.choose(rec) if entry.mode == 'fnv' and int(rec.get('DNAM.FalloutAnimType', -1)) in (
-            GUN_TYPES) and 'Model.MODL' in rec else None
         source = chosen[1] if chosen else self.vanilla[entry.edid]
         template = dict(source)
         dnam = bytearray(template[b'DNAM'])
@@ -200,11 +217,14 @@ class Equipment:
             if made is not None:
                 struct.pack_into('<I', dnam, DNAM_AMMO, made)
         data = {b'DNAM': bytes(dnam)}
-        if entry.mode == 'fnv' and dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec:
+        if entry and entry.mode == 'fnv' and dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec:
             data.update(self._own_model(rec['Model.MODL'], int(rec.get('DNAM.FalloutAnimType', -1))))
             return self._write('WEAP', fnv, self._copy(rec, data, [], OWN_MODEL_DROPPED))
-        templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2]) if chosen
-                     else self.guns.with_mods(source, entry.mods) if entry.mods else None)
+        if chosen and entry is None:
+            templates = self.guns.combination(source, chosen[0].includes)
+        else:
+            templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2]) if chosen
+                         else self.guns.with_mods(source, entry.mods) if entry.mods else None)
         return self._write('WEAP', fnv, self._copy(rec, data, templates, source=source))
 
     def _own_model(self, model: str, anim_type: int) -> dict:
