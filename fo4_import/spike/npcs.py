@@ -224,8 +224,9 @@ class Npcs:
     def _actor_data(self, fnv: int):
         """The edit giving FNV NPC `fnv` its (or its templates') flags, level band and AI data (actor_data)."""
         npc = self.records[fnv]
-        stats = {**(self.source(fnv, USE_STATS) or npc), 'ACBS.Flags': (self.source(fnv, USE_BASE_DATA) or npc)
-                 .get('ACBS.Flags', 0)}
+        flags = int((self.source(fnv, USE_BASE_DATA) or npc).get('ACBS.Flags', 0))
+        female = int((self.source(fnv, USE_TRAITS) or npc).get('ACBS.Flags', 0)) & FEMALE
+        stats = {**(self.source(fnv, USE_STATS) or npc), 'ACBS.Flags': flags & ~FEMALE | female}
         return with_actor_data(stats, self.source(fnv, USE_AI_DATA) or npc, NPC_FLAGS)
 
     def _factions(self, fnv: int) -> bytes:

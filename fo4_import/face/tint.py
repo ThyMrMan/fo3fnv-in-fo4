@@ -36,6 +36,8 @@ SKIN_TONE_SLOT = 12
 #: NPC TETI data type of a value-only layer.
 VALUE_ONLY = 2
 WORK_SIZE = 256
+#: A layer TEND template colour index meaning its own colour, not a race preset (the CK bakes a preset's).
+CUSTOM_COLOUR = struct.pack('<H', 0xFFFF)
 BASELINE = 'FNVTint_Base'
 
 
@@ -128,12 +130,12 @@ def reduced(texture) -> np.ndarray:
 
 
 def scaled_tone(tag: bytes, data: bytes, scale) -> bytes:
-    """A QNAM (texture lighting) or Skin Tone TEND with its colour multiplied by `scale` (clamped)."""
+    """A QNAM (texture lighting) or Skin Tone TEND (then a custom colour) times `scale` (clamped)."""
     if tag == b'QNAM':
         rgba = struct.unpack('<4f', data)
         return struct.pack('<4f', *(min(c * s, 1.0) for c, s in zip(rgba, scale)), rgba[3])
     colour = bytes(min(round(data[1 + i] * scale[i]), 255) for i in range(3))
-    return data[:1] + colour + data[4:]
+    return data[:1] + colour + data[4:5] + CUSTOM_COLOUR
 
 
 def with_tone(npc_subs: bytes, scale, tone_options: frozenset) -> bytes:
