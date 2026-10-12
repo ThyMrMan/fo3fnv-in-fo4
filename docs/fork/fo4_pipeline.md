@@ -548,11 +548,35 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
     conversation scene (End Running Scene, as vanilla's vendor lines), so
     barter shows alone. FNV returned to the talk after barter; in FO4 the
     player talks again.
-  - *NPCs standing still:* 22 packages convert and 88 are left out (the
-    build log now counts why): types not converted (Sleep 17, Guard 6,
-    Eat, Follow, Patrol 3 each, …), locations not built (23, mostly idle
-    and linked markers), conditions on quests not built (17); schedules
-    are not converted either. Next in step 3.
+  - *NPCs standing still:* see [packages](#packages).
+
+<a id="packages"></a>**AI packages (played 2026-10-12: NPCs sandbox, sit
+and sleep).** `spike/packages.py` copies a vanilla instance of the
+matching FO4 template per FNV type (`PLANS`): Travel (a seat: Sit),
+Sandbox, Wander (as Sandbox), Sleep, Eat, Guard (HoldPosition), Patrol,
+Follow (FollowNPC), UseItemAt a seat (Sit), Dialogue with the player
+(ForceGreet). The copy takes FNV's first input, schedule, conditions and
+shared PKDT flags, and drops its owner quest and scripts. The build log
+counts each left-out package by reason. In the region 45 of 110 convert;
+49 wait on quests not built (VFreeformGoodsprings, VMS16, nVPrimmDeputyConv:
+Trudy, Joe Cobb, Ringo, Sunny, McGee).
+- **The month.** Form version 122+ records store PSDT's month one higher
+  (xEdit `wbPackagePSDTMonthValueToStr`): Any is 0, as in all vanilla
+  packages of that version; −1 in older ones. Writing FNV's −1 made every
+  package's schedule fail, so no NPC moved: this hid the fixes below until
+  it was found. The minute is −1 (242 of vanilla's 252 timed schedules),
+  the duration FNV's hours × 60.
+- **Places.** NPC packages see the exterior block's references and every
+  built cell (FNV's "in cell"); seats are every FURN reference in the build.
+  An in-cell Sleep goes to a bed in that cell the NPC owns, else an unowned
+  one (`_bed`, FNV's choice), as a near-reference Sleep: with the cell
+  alone Chet and Easy Pete stopped at the door.
+- **The list.** PKIDs follow AIDT, as in all 1,120 vanilla NPCs with
+  packages (the body, DocWeathers, has none, so they had gone last).
+- **Floor beds.** FNV sleep slots 3–6 (bedrolls, mattresses, bare floor)
+  become FO4 floor beds (`AnimFurnFloorBedAnims`, `MarkerSleep01.nif`),
+  their marker facing along the mattress as vanilla's (heading 0 where a
+  bed's is π/2).
 
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok
@@ -1299,4 +1323,7 @@ quick fix.
 | FNV's HDR imagespace fields (skin dimmer, target luminance, bloom alphas) | Dropped | [drift](fo4_drift.md) |
 | Bear trap's trigger volume (Havok phantom) | Left out; base and jaws collide | [region](#region) |
 | Damage stages (car fires) and smoke add-ons with no FO4 namesake | Left out | [add-ons](#addons) |
+| NPCs catch on steps (Vikki and Vance's front steps, about 30 s, 2 of 6) | Lead: FNV's stepped collision against FO4's ramped stairs; not measured | [packages](#packages) |
+| The saloon's night windows read flat yellow | FNV's own colour (1, 0.98, 0.29) × 3; total glow within vanilla windows' 0.05–0.26, so no global rescale | [glow](#glow) |
+| Placed guns lie wrong (the store's .22 stands on its grip) | FNV's reference rotation fits FNV's model, not the FO4 gun built in its place | [guns](fo4_spikes.md#spike-4-guns) |
 | FNV's guns on FO4 receivers; creatures with no FO4 rig | The replacement table and the modlist | [guns](fo4_spikes.md#spike-4-guns), [replacements](fo4_replacements.md) |

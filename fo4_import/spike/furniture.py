@@ -35,6 +35,8 @@ BED_RECORD_FLAGS = 0x10000000
 SEAT_KEYWORDS = ('AnimFurnChairSitAnims', 'FurnitureClassRelaxation')
 BED_KEYWORDS = ('IsSleepFurniture', 'AnimFurnBedAnims')
 FLOOR_BED_KEYWORDS = ('IsSleepFurniture', 'AnimFurnFloorBedAnims')
+#: A floor bed's marker turned from a bed's: vanilla floor beds face along the mattress (0), beds across it (pi/2).
+FLOOR_TURN = math.pi / 2
 #: The marker models vanilla beds and floor beds name.
 BED_MARKER, FLOOR_BED_MARKER = 'Markers\\SleepBed.nif', 'Markers\\MarkerSleep01.nif'
 #: How far behind its front edge vanilla puts a chair's seat marker (median of 129 sit markers).
@@ -118,6 +120,7 @@ def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keywo
     bed = sleepers(marks, active, bounds)
     placed = bed or seats(marks, active, bounds)
     floor = any(m[4] in SLEEP_FLOOR for m in marks)
+    placed = [(x, y, z, (h - FLOOR_TURN) % math.tau, e) for x, y, z, h, e in placed] if bed and floor else placed
     flags = (SLEEP | MUST_EXIT_TO_TALK) if bed else SIT
     words, marker = ((FLOOR_BED_KEYWORDS, FLOOR_BED_MARKER) if floor else (BED_KEYWORDS, BED_MARKER)) if bed \
         else (SEAT_KEYWORDS, '')

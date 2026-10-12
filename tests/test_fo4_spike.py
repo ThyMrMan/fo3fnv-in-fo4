@@ -35,6 +35,7 @@ from fo4_import.spike import land_layers as LL
 from fo4_import.spike import locations as LO
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
+from fo4_import.spike import packages as PK
 from fo4_import.spike import placement as PL
 from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
@@ -617,3 +618,26 @@ def test_an_encounter_zone_gains_fo4s_location_and_maximum_level_slots():
         assert LO.encounter_zones(builder, None, {0x500: 0x03000500}) == {0xD6FB0: 0x030D6FB0}
     data = dict(subrecords(written[0][24:]))[b'DATA']
     assert struct.unpack('<IIbbBb', data) == (0x03000500, 0, 1, 2, 1, 0)
+
+
+def test_a_package_schedule_stores_any_month_as_zero_and_its_hours_in_minutes():
+    """Form version 122+ months shift by one; 22x8 is 22:00 for 480 minutes."""
+    rec = {'PSDT.Month': '-1', 'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '22', 'PSDT.Duration': '8'}
+    assert struct.unpack('<bbbbb3xi', PK.schedule(rec)) == (0, -1, 0, 22, -1, 480)
+
+
+def test_packages_go_right_after_aidt_in_place_of_the_bodys():
+    """All 1,120 vanilla NPCs with packages list them after AIDT; a body's own PKIDs are dropped."""
+    subs = pack_subrecord('AIDT', b'\0' * 4) + pack_subrecord('PKID', b'\1\0\0\0') + pack_subrecord('KSIZ', b'\0' * 4)
+    tags = [(t, d) for t, d in subrecords(R.packages_edit([7, 8])(subs))]
+    assert [t for t, _ in tags] == [b'AIDT', b'PKID', b'PKID', b'KSIZ']
+    assert [struct.unpack('<I', d)[0] for t, d in tags if t == b'PKID'] == [7, 8]
+
+
+def test_an_in_cell_sleep_goes_to_the_npcs_own_bed_else_an_unowned_one():
+    """Chet's sleep in his store takes the mattress he owns; another NPC takes the unowned bed."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.beds = {0x1057F1: [(0x100, 0), (0x200, 0x104C78)]}
+    rec = {'PLDT.Type': '1', 'PLDT.Location': '001057F1'}
+    assert packages._bed(rec, 0x104C78) == 0x200
+    assert packages._bed(rec, 0x999) == 0x100

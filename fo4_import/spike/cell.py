@@ -36,7 +36,7 @@ from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.interiors import scope
 from fo4_import.spike.placement import map_markers, place, placement
 from fo4_import.spike.npcs import Npcs
-from fo4_import.spike.packages import Packages
+from fo4_import.spike.packages import Packages, beds
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.sounds import Sounds
 from fo4_import.spike.swaps import Swaps
@@ -564,8 +564,8 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
                                                               SHARED_TYPES), makers, stand_ins)
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.activators = Activators(builder, export_dir)
-    builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in every
-                                                      if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN'})
+    seats = [r for r in every if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
+    builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in seats}, beds(builder, seats))
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
                                                 for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
     builder.imods = ImageSpaces(builder)

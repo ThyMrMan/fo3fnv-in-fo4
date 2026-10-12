@@ -378,17 +378,16 @@ def pack_ligh(fid: int, edid: str, bounds: tuple, model: str, light: tuple, fade
 
 
 def packages_edit(packages: list):
-    """A clone edit putting FO4 `packages` (PKID) in place of the stand-in's."""
+    """A clone edit putting FO4 `packages` (PKID) in place of the stand-in's, right after AIDT as all 1,120 vanilla
+    NPCs with packages place them."""
     def edit(subs: bytes) -> bytes:
-        """The subrecords with the stand-in's PKIDs replaced."""
+        """The subrecords without the stand-in's PKIDs, ours after AIDT."""
         ours = b''.join(pack_subrecord('PKID', struct.pack('<I', p)) for p in packages)
-        out, placed = b'', False
+        out = b''
         for tag, data in subrecords(subs):
-            if tag == b'PKID':
-                out, placed = out + (b'' if placed else ours), True
-                continue
-            out += pack_subrecord(tag.decode(), data)
-        return out if placed else out + ours
+            if tag != b'PKID':
+                out += pack_subrecord(tag.decode(), data) + (ours if tag == b'AIDT' else b'')
+        return out
     return edit
 
 
