@@ -158,8 +158,8 @@ class Items:
         entries = [e for e in entries if e[1] is not None]
         if not entries:
             return None
-        return self._write('LVLI', lambda fid: R.pack_lvli(
-            fid, f'FNV_{rec["EditorID"]}', int(rec.get('LVLD.ChanceNone', 0)), int(rec.get('LVLF.Flags', 0)),
+        return self._write('LVLI', lambda fid: R.pack_leveled(
+            'LVLI', fid, f'FNV_{rec["EditorID"]}', int(rec.get('LVLD.ChanceNone', 0)), int(rec.get('LVLF.Flags', 0)),
             entries), rec)
 
     def _container(self, rec: dict) -> 'int | None':
