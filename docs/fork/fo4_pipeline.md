@@ -659,6 +659,30 @@ player option to match FNV's look more closely.
 - **Grass:** FNV's Mojave grass is dry and yellow; in FO4 the same grass
   reads green and alive. Not measured yet (grass shader tint and lighting
   are the first places to look).
+- **Bright ground in exteriors:** the dirt path up the Goodsprings water
+  tower hill shows near-white (screenshot 198, 195, 178) where FNV shows
+  soft tan (141, 124, 86), while the ground beside it matches (about 85
+  in both): road over ground 2.4× in FO4, 1.9× in FNV. The land data is
+  not the cause: where we draw the road above 0.5 (1,390 vertices), FNV
+  paints it at 0.75 and we write 0.79. A colour-tinted test build showed
+  the path is `LDirtPathWasteland01`; ground smoothness at vanilla's 0.17
+  changed nothing. The exterior uses the Commonwealth's climate (and so
+  FO4's weather imagespaces: eye adaptation, contrast, LUT), not FNV's;
+  interiors get FNV's grading. Converting the exterior weathers and
+  imagespaces is the first thing to try.
+- **Reference: Project Mojave** (`mods/Project Mojave/ProjectMojave.esm`,
+  master Fallout4.esm). Its Mojave worldspace has its own climate
+  (`00DCMojaveClimate`: `00DCNVWastelandClear`, `00DCOrangeColouredSky01`).
+  The weathers keep vanilla's record layout and clouds; the look is in the
+  NAM0 colours. Day, against vanilla `CommonwealthClear` and FNV's
+  `NVWastelandClear`: ambient (92, 114, 150) / (93, 93, 93) / FNV
+  (87, 105, 138); sunlight (255, 249, 242) / (225, 225, 225) / FNV
+  (255, 227, 170); sky upper (67, 98, 155) / (38, 64, 99) / FNV
+  (50, 71, 135). Its imagespaces are vanilla's with small tweaks
+  (saturation and contrast 1.025, eye adaptation) and vanilla's
+  `LUT_CW_ClearDAY`. So: clone a vanilla weather and put FNV's colours in,
+  as the emittance region weathers already do
+  ([emittance](#emittance)); FNV's sun is warmer than Project Mojave's.
 
 <a id="addons"></a>**Add-on nodes** (the trash-can fire outside Vikki and Vance showed
 its light but no flame).
