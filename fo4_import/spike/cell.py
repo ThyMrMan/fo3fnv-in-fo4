@@ -29,7 +29,7 @@ from fo4_import.spike.activators import Activators
 from fo4_import.spike import character, replacements, skeleton
 from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import GREETING, Conversations, Hub, hub
-from fo4_import.spike.furniture import furniture, markers
+from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
 from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
@@ -196,6 +196,8 @@ class CellBuilder:
         self.idle_markers = IdleMarkers(self.fo4)
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
+        self.furniture_idles = furniture_idles(export_records(export_dir, 'IDLE'))
+        self.enter_motions = enter_motions(export_dir / 'meshes')
         self.counts = collections.Counter()
 
     def fnv_id(self, fnv) -> int:
@@ -276,15 +278,17 @@ class CellBuilder:
         return self._make(sig, rec, self.fnv_id(fnv_fid))
 
     def _make(self, sig: str, rec: dict, fid: int) -> int:
-        """Write the FO4 record for FNV base `rec` of type `sig` on FormID `fid`; its FormID."""
+        """Write the FO4 record for FNV base `rec` of type `sig` on FormID `fid`; its FormID. FNV furniture whose
+        mesh has no markers, which nothing can use, is a static."""
         edid = f'FNV_{rec["EditorID"]}'
         model, bounds = self.mesh(world_model(rec)) if world_model(rec) else ('', None)
         bounds = bounds or _bounds(rec)
         if sig == 'LIGH':
             record = R.pack_ligh(fid, edid, _bounds(rec), model, light_data(rec), float(rec.get('FNAM.Fade', 1.0)))
-        elif sig == 'FURN':
-            marks = markers(str(self.export_dir / 'meshes' / world_model(rec).replace('/', '\\').lower()))
-            record = furniture(fid, rec, model, bounds, marks, self.keywords)
+        elif sig == 'FURN' and (marks := markers(str(self.export_dir / 'meshes'
+                                                     / world_model(rec).replace('/', '\\').lower()))):
+            record = furniture(fid, rec, model, bounds, marks, self.keywords,
+                               self.furniture_idles.get(rec['FormID'].upper(), ()), self.enter_motions)
         elif sig == 'ACTI':
             record = self.activators.record(fid, rec, model, bounds)
         elif sig == 'DOOR':

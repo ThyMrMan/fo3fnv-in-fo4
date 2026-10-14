@@ -1077,6 +1077,28 @@ Exit to Talk, record flag Must Exit To Talk and XMRK `Markers\SleepBed.nif`.
   width for one sleeper, 0.26 and 0.74 for two, the +X lane entered from
   the Right. FNV's slot-1 marker stands at +X facing −X, slot 2 at −X facing
   +X; both become heading π/2 in their lane, slot 1 Right and slot 2 Left.
+- **Side-entry chairs** (slots 11/12 only, e.g. pushed under a table): the
+  front marker is midway between a left and right marker facing the same
+  seat, the seated actor a quarter turn from them (`Chair_LeftEnter.kf`
+  −90°, `Chair_RightEnter.kf` +90°).
+- **Stools, floor and restrained sits** (slots 15, 17, 18): the seat is
+  where FNV's enter animation leaves the actor (`stoolenter.kf`,
+  `sitfloorenter.kf`, `restrainedsitenter.kf`: Bip01's travel, Bip01
+  NonAccum's turn to the nearest quarter), with the keywords and marker
+  model of vanilla `NpcStoolDinerIntSit01`, `NPCInvGroundSit` and
+  `NPCPrisonerFloorSit`, entered from every side.
+- **Standing furniture.** Wall leaning (slot 19) and the special idle (slot
+  22, its animation an FNV IDLE whose `IsCurrentFurnitureObj` names the
+  furniture) were left with no SNAM, so a package sending an actor to one
+  did nothing: Trudy's bar spot (`BarKeep`) and Joe Cobb's exit
+  (`WallMarker`) froze both after their argument (played 2026-10-14). Each
+  active FNV marker is now an SNAM where FNV has it, entered from every
+  side (0xFF), MNAM sit | its bit, with the keywords of vanilla's
+  equivalent: `NPCInvWallLean01` for slot 19; by idle group,
+  `NPCBartender` (BarKeeping) and `NPCPushUps` (PushUps). A special idle
+  FO4 has no NPC furniture for (`CookingStove`: FO4's stoves are player
+  workbenches) keeps the marker without keywords. Confirmed in game:
+  Trudy and Joe walk off once the argument ends.
 
 Doc's house: 7 furniture bases (14 references) convert: 4 chairs, the couch
 (one seat), 2 dining chairs, a twin and a queen bed.
