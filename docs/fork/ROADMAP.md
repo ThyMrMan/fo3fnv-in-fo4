@@ -14,7 +14,7 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | [standalone_play.md](standalone_play.md) | Setup, MO2 integration, per-world profiles, launcher, world picker |
 | [performance.md](performance.md) | Rules for new systems, Papyrus runtime cost, FO3/FNV occlusion |
 | [kill_cams.md](kill_cams.md) | Kill cams and killmoves on converted weapons, per game |
-| [bink_movies.md](bink_movies.md) | Source-game Bink 1 movies (parked) |
+| [bink_movies.md](bink_movies.md) | Source-game Bink 1 movies on Fallout 4: census (36 movies), playback, plan, play test |
 | [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md), [Fallout 4 as the target](research/fo4_target.md), [dynamic collision for FO4 (parked mod idea)](research/fo4_dynamic_collision.md) |
 | [done/](done/) | Plans that are built, kept as their design record: [preflight audits](done/preflight_audits.md) |
 | [fo4_spikes.md](fo4_spikes.md) | **This repo's current work:** the spikes that decide whether FO3/FNV on Fallout 4 is buildable |
@@ -113,7 +113,7 @@ Carried over from the character plan's own status notes of 2026-09-28.
 
 | Item | Why |
 |---|---|
-| [Bink movies](bink_movies.md) | Nothing plays; low value against the rest |
+| [Bink movies](bink_movies.md) | **Built 2026-10-12** for the FO4 build ([as built](bink_movies.md#plan)): source movies shipped with their audio as tracks 1-5, `PlayBink` converted, calls to unshipped movies dropped. FNV: the intro converts, 3 dead calls dropped. FNV intro played 2026-10-14 (the new game). Open: FO3 intro, untested (no FO3 build path yet), other languages' track IDs |
 | OBSE command coverage | Until the standalone Oblivion work is done; probe in `probes\obse_coverage` |
 | Nehrim | Deprioritized for the four main games |
 | [Graphics and OpenMW research](research/graphics_options.md) | Notes to revisit when the project is more mature |

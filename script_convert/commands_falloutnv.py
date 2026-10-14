@@ -11,6 +11,7 @@ imports nothing from `commands` and the two cannot form a cycle.
 See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
+from fo4_import.base.bink import movie_key
 from script_convert.constants import FALLOUT4_POSE_PREFIX, fallout4_swap_property, safe_property_name, typed_already
 from script_convert.message_menus import authored_site
 from script_convert.target import (CONTROLS_PROPERTY, CONTROLS_SCRIPT, arm_update, av_property, fallout4_av_name,
@@ -257,7 +258,36 @@ def tag_skill(ctx, call):
     return f'PRKF:PRKF.IsTagSkillAV({prop})'
 
 
+#: FO3/FNV PlayBink's optional flags after the file -- interruptible, mute audio, pause music, letterbox -- defaults.
+_BINK_FLAG_DEFAULTS = ('0', '1', '1', '1')
+
+
+def _flag(call, n: int, default: str) -> str:
+    """Argument `n` as a Papyrus Bool under FO3/FNV's nonzero-is-true, `default` when absent."""
+    raw = call.source(n).strip() if len(call) > n else default
+    if raw.lstrip('-').replace('.', '', 1).isdigit():
+        return 'true' if float(raw) else 'false'
+    return f'({call.arg(n)} != 0)'
+
+
+def play_bink(ctx, call):
+    """FO3/FNV `PlayBink "<movie>" [flags]` on Fallout 4: Game.PlayBink with the same flags, for a shipped movie only.
+
+    Fallout 4 hangs on a movie it cannot find, so a call naming one the build
+    does not ship (ctx.xref.movies) is dropped. Declines elsewhere.
+    See: docs/fork/bink_movies.md#plan
+    """
+    if not is_fallout4() or not len(call):
+        return None
+    movie = call.source(0).strip().strip('"')
+    if movie_key(movie) not in ctx.xref.movies:
+        return ctx.note(f'{call.written()} - movie not shipped (a missing movie hangs Fallout 4)')
+    flags = ', '.join(_flag(call, n, default) for n, default in enumerate(_BINK_FLAG_DEFAULTS, 1))
+    return f'Game.PlayBink("{movie.replace(chr(92), chr(92) * 2)}", {flags})'
+
+
 FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
+                    'playbink': play_bink,
                     'isplayertagskill': tag_skill,
                     'addscriptpackage': player_package,
                     'removescriptpackage': player_package,

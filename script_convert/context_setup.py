@@ -12,6 +12,7 @@ import shutil
 
 from asset_convert.collision.collision_extract import bounds_cache_is_current
 from core.plugin_masters import masters_from_export_header
+from fo4_import.base.bink import source_movies
 from output_layout import assets_for
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.message_menus import build_chargen_menus
@@ -128,10 +129,12 @@ def deploy_static_scripts(export_dir: str, output_dir: str,
 
 
 def build_xref(export_dir: str) -> CrossRefGraph:
-    """The cross-reference graph, with the cross-script ref-as-int analysis."""
+    """The cross-reference graph, with the cross-script ref-as-int analysis and, on Fallout 4, the shipped movies."""
     print('  Building cross-reference graph...')
     xref = CrossRefGraph()
     xref.load_from_export(export_dir)
+    if is_fallout4():
+        xref.movies = frozenset(source_movies(export_dir))
     print(f'    {len(xref.formid_to_edid)} FormID->EditorID mappings')
     print(f'    {len(xref.script_formid_to_edid)} scripts, '
           f'{len(xref.quest_edids)} quests')

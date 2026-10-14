@@ -331,6 +331,8 @@ class CrossRefGraph:
         # from record_base by unique_placed_ref().
         self._base_to_unique_ref: 'dict[str, str] | None' = None
         self.quest_edids: set[str] = set()
+        #: Fallout 4: the movies the build ships (fo4_import.base.bink.movie_key spellings).
+        self.movies: frozenset = frozenset()
         self.npc_formids: set[str] = set()
         # Cross-script ref-as-int analysis: set of (script_name_lower, var_name_lower)
         # where the TES4 `ref` variable is only ever assigned/compared with integers

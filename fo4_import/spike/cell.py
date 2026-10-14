@@ -16,6 +16,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.ba2_pack import pack_textures
+from fo4_import.base.bink import write_movies
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, fnv_esm
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest
 from fo4_import.spike.consumables import Consumables
@@ -813,7 +814,8 @@ def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict)
 
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
-    """Collision, lowered skeletons, voices and sounds, the texture BA2 and scripts, then the plugin; the counts."""
+    """Collision, lowered skeletons, voices, sounds and movies, the texture BA2 and scripts, then the plugin; the
+    counts."""
     failed = elric_cache.finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
     for model in sorted(builder.weapons):
@@ -823,6 +825,7 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     _voice(builder, export_dir, data_dir, out.name)
     todo = [job for job in builder.sounds.jobs if not job[1].exists()]
     builder.counts['sound files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
+    builder.counts['movies written'] = write_movies(export_dir, data_dir)
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))
