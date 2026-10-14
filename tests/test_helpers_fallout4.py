@@ -57,6 +57,24 @@ def test_an_edited_shared_block_stops_the_run(tmp_path, monkeypatch):
         H.fallout4_helper('T', SHARED)
 
 
+def test_an_unused_function_is_dropped_with_its_comment(tmp_path, monkeypatch):
+    """A `Script.Function` in FALLOUT4_UNUSED_HELPERS leaves the script with the comment above it."""
+    _override(tmp_path, monkeypatch, '')
+    monkeypatch.setattr(H, 'FALLOUT4_UNUSED_HELPERS', frozenset({'T.Long', 'Other.Tail'}))
+    shared = SHARED.replace('Function Long()', '; about Long\nFunction Long()')
+    out = H.fallout4_helper('T', shared).splitlines()
+    assert 'Function Long()' not in out and '; about Long' not in out
+    assert out[7:9] == ['Function Tail()', 'EndFunction']
+
+
+def test_an_unused_entry_naming_no_block_stops_the_run(tmp_path, monkeypatch):
+    """A listed function the shared script no longer has: StaleOverride names it."""
+    _override(tmp_path, monkeypatch, '')
+    monkeypatch.setattr(H, 'FALLOUT4_UNUSED_HELPERS', frozenset({'T.Gone'}))
+    with pytest.raises(H.StaleOverride, match=r'T\.Gone'):
+        H.fallout4_helper('T', SHARED)
+
+
 def test_every_shipped_override_matches_its_shared_block():
     """The real overrides apply to the real shared scripts (none is stale)."""
     for script in ('TES4Polyfill', 'TES4_StagePackageAlias'):

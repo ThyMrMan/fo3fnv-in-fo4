@@ -2,8 +2,8 @@
 
 A misc item keeps its name, model, value and weight; a leveled item its
 chance none, flags and the entries whose items convert; a container its
-model, flags, weight and the contents that convert; a text note becomes a
-paper note (BOOK). FNV's engine objects (FormID below ENGINE_IDS) that
+model, flags, weight and the contents that convert; a book or note is the
+cell builder's (spike.readables). FNV's engine objects (FormID below ENGINE_IDS) that
 Fallout4.esm has under the same FormID, type and EditorID are FO4's own
 (the bottle cap, COC and X markers), and an item the replacement table
 names as an `item` is that record itself (spike.replacements). Consumables and
@@ -27,8 +27,6 @@ PORTAL_MARKER = 0x20
 ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT')
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
 CONTAINER_FLAGS = 0x2
-#: FNV NOTE DATA type of a text note (0 sound, 2 image, 3 voice).
-TEXT_NOTE = 1
 
 
 def _edid(rec) -> str:
@@ -116,7 +114,7 @@ class Items:
     def _make(self, sig: str, rec: dict) -> 'int | None':
         """Write the FO4 record of a convertible FNV record; its FormID, or None (counted as skipped)."""
         maker = {'MISC': self._misc, 'KEYM': self._key, 'LVLI': self._leveled, 'CONT': self._container,
-                 'NOTE': self._note}.get(sig)
+                 'NOTE': self._readable, 'BOOK': self._readable}.get(sig)
         if sig in self.makers:
             made = self.makers[sig](int(rec['FormID'], 16), rec)
             if made is None:
@@ -139,10 +137,9 @@ class Items:
         return self._misc(rec, 'KEYM', R.pack_keym)
 
     def _misc(self, rec: dict, sig: str = 'MISC', pack=R.pack_misc) -> 'int | None':
-        """A misc item (or a record of `sig` packed alike by `pack`)."""
-        if 'Model.MODL' not in rec:
-            return None
-        model, bounds = self.builder.mesh(rec['Model.MODL'])
+        """A misc item (or a record of `sig` packed alike by `pack`); one FNV keeps only in inventory has no model,
+        as Fallout4.esm's MS04_ShroudCostume."""
+        model, bounds = self.builder.mesh(rec['Model.MODL']) if 'Model.MODL' in rec else ('', None)
         return self._write(sig, lambda fid: pack(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), int(rec.get('DATA.Value', 0)),
             float(rec.get('DATA.Weight', 0.0)), self._vmad(rec)), rec)
@@ -175,9 +172,6 @@ class Items:
             (self.builder.sounds.field(rec, 'SNAM.OpenSound'), self.builder.sounds.field(rec, 'QNAM.CloseSound')),
             self._vmad(rec)), rec)
 
-    def _note(self, rec: dict) -> 'int | None':
-        """A text note as a paper note; None for sound, image and voice notes."""
-        if int(rec.get('DATA.Type', -1)) != TEXT_NOTE:
-            return None
-        text = rec.get('TNAM.Text', '').replace(chr(13) + chr(10), chr(10))
-        return self._write('BOOK', lambda fid: R.pack_book(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), text), rec)
+    def _readable(self, rec: dict) -> 'int | None':
+        """A book or note: the cell builder's record of it (spike.readables)."""
+        return self.builder.readable(int(rec['FormID'], 16), rec['Signature'], rec)

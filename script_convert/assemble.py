@@ -23,7 +23,8 @@ from script_convert.constants import (
 from script_convert.command_rows import (
     COMMAND_ROWS, ACTOR_ONLY_FUNCTIONS, OBJREF_SHARED_FUNCTIONS
 )
-from script_convert import symbols as _symbols
+from script_convert import atomic_adds as _adds, quest_var_mirrors as _quest_vars, symbols as _symbols, \
+    trace_points as _trace
 from script_convert.poll_motion import relative_sets
 from script_convert.poll_interval import MIN_INTERVAL
 from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
@@ -55,7 +56,7 @@ def build(conv, name: str, source: str, extends: str, editor_id: str) -> str:
     body += door_relock(conv, tree, extends)
     body += lifecycle(conv, tree, extends)
     body = block_activation(conv, tree, extends, body)
-    body = fall_damage(conv, extends, body)
+    body = _adds.own_reads(_trace.items(_trace.actor(fall_damage(conv, extends, body), extends)))
     body += helpers(conv)
     body += chargen_latch(conv)
     body += stage_latches(conv)
@@ -257,7 +258,7 @@ def _load_facts(conv, tree) -> None:
     sc.suppressed_fall_damage = 'resetfalldamagetimer' in called
     _load_time_facts(sc, tree, called, btypes)
     sc.uses_timer = 'timer' in names
-    sc.uses_say = bool(called & {'say', 'sayto'})
+    sc.uses_say = bool(called & {'say', 'sayto', 'startconversation'})
     sc.uses_say_timer = any(
         isinstance(st, N.Assign)
         and any(e.called in ('say', 'sayto')
@@ -411,7 +412,7 @@ def quest_restart(conv, tree, extends: str, name: str) -> list:
             '    TES4Start(akQuest)',
             '  EndIf',
             '  Bool TES4_StageSet = akQuest.SetStage(aiStage)',
-            '  TES4Polyfill.StageSet(akQuest)',
+            '  TES4Polyfill.StageSet(akQuest)' + _trace.stage_suffix(),
             '  Return TES4_StageSet']
     return out + ['EndFunction']
 
@@ -770,6 +771,7 @@ def helpers(conv) -> list:
     out += conv.get_cell_family_helpers()
     out += conv._emit_button_helpers()
     out += notify_helper(conv)
+    out += _adds.adders(conv, _quest_vars.GLOBALS)
     return out
 
 

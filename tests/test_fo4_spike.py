@@ -163,6 +163,7 @@ def test_weapon_copy_takes_fnv_stats_and_resolves_template_strings():
         derive_formid=lambda site, key: 0x01ABCDEF, add_record=lambda sig, rec: written.append(rec)))
     eq = E.Equipment.__new__(E.Equipment)
     eq.builder, eq.fnv, eq.vanilla = builder, {}, {'BaseballBat': template}
+    eq.by_anim = {}
     eq.table = {'WeapBaseballBat': RP.Replacement('Fallout4.esm', 'BaseballBat', 'stats')}
     eq.strings = {1: b'Baseball Bat', 2: b'Swing it', 3: b'Default'}
     rec = {'EditorID': 'WeapBaseballBat', 'FULL': 'Bat', 'DATA.Weight': '3.0', 'DATA.Value': '250', 'DATA.Damage': '22'}
@@ -189,6 +190,7 @@ def test_melee_weapon_on_fnv_mesh_drops_template_model_and_mods():
     eq = E.Equipment.__new__(E.Equipment)
     eq.builder, eq.fnv, eq.vanilla, eq.strings = builder, {}, {'RollingPin': template}, {1: b'Rolling Pin'}
     eq.poses = {}
+    eq.by_anim = {}
     eq.table = {'WeapRollingPin': RP.Replacement('Fallout4.esm', 'RollingPin', 'fnv')}
     eq.weap(1, {'EditorID': 'WeapRollingPin', 'FULL': 'Rolling Pin', 'Model.MODL': 'Weapons/RollingPin.NIF'})
     subs = list(subrecords(written[0][24:]))

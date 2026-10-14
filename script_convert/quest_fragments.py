@@ -22,6 +22,7 @@ from script_convert.scro_refs import (
     scro_list,
 )
 from script_convert.symbols import property_declarations
+from script_convert.trace_points import items
 
 #: Script-scope re-entrancy latch for the modal chargen menus.
 _CHARGEN_LATCH = 'Bool TES4_ChargenMenuBusy = False'
@@ -66,7 +67,7 @@ def _fragment_lines(conv, rec: dict, xref, edid: str, frag: tuple,
     for gname in stage_reveals.get((edid.lower(), stage_idx), []):
         out.append(f'  {gname}.SetValue(1)')
     if script_src.strip():
-        out.extend(conv.convert_fragment(script_src, 'Quest'))
+        out.extend(items(conv.convert_fragment(script_src, 'Quest')))
     out += ['EndFunction', '']
     return out
 

@@ -87,9 +87,13 @@ def emit_patrol_data(lines: list, rec: Record) -> None:
 
 
 def emit_package_deltas(lines: list, rec: Record) -> None:
-    """FO3/FNV PACK: the section scripts, the patrol, weapon, trigger-location
-    and second-target data, then PKDD's topic and dialogue type."""
+    """FO3/FNV PACK: the section scripts, PKDT's Fallout behavior and type-specific flags (Ambush's Hide While
+    Ambushing), the patrol, weapon, second-location and second-target data, then PKDD's topic and dialogue type."""
     lines += _section_lines(rec)
+    pkdt = get_subrecord(rec, 'PKDT')
+    if pkdt and len(pkdt.data) >= 10:
+        behavior, specific = struct.unpack_from('<HH', pkdt.data, 6)
+        lines += [f'PKDT.BehaviorFlags={behavior}', f'PKDT.TypeFlags={specific}']
     pkpt = get_subrecord(rec, 'PKPT')
     if pkpt and pkpt.data:
         lines.append(f'PKPT.Repeatable={pkpt.data[0]}')

@@ -33,6 +33,8 @@ def faction_relation(ctx, call):
                     f'faction-toward-actor reaction (read as 0)')
 
 
+#: Quest natives FO4 ignores on a quest not running, where FO3/FNV kept the objective (StartForObjective first).
+_OBJECTIVE_SETTERS = ('SetObjectiveDisplayed', 'SetObjectiveCompleted')
 #: FO3/FNV command -> Quest native it becomes, the quest argument as receiver.
 _QUEST_NATIVES = {
     'setobjectivedisplayed': 'SetObjectiveDisplayed',
@@ -118,7 +120,9 @@ def quest_native(ctx, call):
     args = ', '.join(call.arg(i) for i in range(1, len(parts)))
     if native == 'RegisterForSingleUpdate':
         return arm_update(args, f'{prop}.')
-    return f'{prop}.{native}({args})' + _objective_mirror(ctx, call, quest_edid, parts)
+    started = (f'TES4Polyfill.StartForObjective({prop})\n  '
+               if is_fallout4() and native in _OBJECTIVE_SETTERS else '')
+    return f'{started}{prop}.{native}({args})' + _objective_mirror(ctx, call, quest_edid, parts)
 
 
 def _mirror_values(name: str, flag: str, value: str) -> dict:

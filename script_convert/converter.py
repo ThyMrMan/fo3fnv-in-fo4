@@ -21,7 +21,7 @@ from script_convert.command_rows import (
     COMPARISON_BOOL_FUNCTIONS, OBJREF_SHARED_FUNCTIONS, PAPYRUS_VALUE_TYPES,
     VOID_FUNCTIONS, ZERO_ARG_REF_FUNCTIONS, void_assign
 )
-from script_convert import resolve_name as _resolve_name
+from script_convert import quest_var_mirrors as _quest_vars, resolve_name as _resolve_name
 from script_convert import assemble as _assemble
 from script_convert import commands as _commands
 from script_convert.context import ScriptContext
@@ -786,7 +786,7 @@ class ScriptConverter:
         # whether the rendering happens to contain a decimal point.
         self._value_type = _symbols.type_of_expr(stmt.value, self.type_of)
         try:
-            return self._assign(stmt, target, extends)
+            return _quest_vars.mirrored(self, stmt, target, self._assign(stmt, target, extends))
         finally:
             self._value_type = ''
 

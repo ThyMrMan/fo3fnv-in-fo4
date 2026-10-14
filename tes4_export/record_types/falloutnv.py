@@ -14,6 +14,7 @@ from ..tes4_reader import (Record, get_all_subrecords,
                            get_formid_str, get_string,
                            get_subrecord)
 from .character_falloutnv import CHARACTER_EXPORTERS, emit_class_deltas
+from .recipe_falloutnv import RECIPE_EXPORTERS
 from .package_falloutnv import emit_package_deltas, emit_patrol_data
 from .quest_falloutnv import emit_quest_deltas
 from .terminal_falloutnv import emit_terminal
@@ -903,4 +904,5 @@ FALLOUT_BASE_EXPORTERS = {
     "NOTE": export_NOTE,
     "TACT": export_TALKING_ACTIVATOR,
     **CHARACTER_EXPORTERS,
+    **RECIPE_EXPORTERS,
 }

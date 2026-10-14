@@ -78,6 +78,12 @@ class Exterior:
         self.textures, self.made = {}, {}
         self.grasses = Grasses(export_dir)
 
+    def add_persistent(self, refs: list) -> list:
+        """Add persistent `refs` from past the block to its persistent cell."""
+        self.persistent += refs
+        self.refs = self.persistent + [r for grid in self.by_cell.values() for r in grid]
+        return self.refs
+
     def holds(self, ref: dict) -> bool:
         """Whether FNV reference `ref` stands in the block (by cell, or by position)."""
         cell = ref.get('ParentCELL')

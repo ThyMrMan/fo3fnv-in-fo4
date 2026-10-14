@@ -79,6 +79,23 @@ def overrides(script: str) -> list:
     return out
 
 
+def unused_blocks(script: str, lines: list, spans: dict) -> list:
+    """[(span, [])] dropping the script's FALLOUT4_UNUSED_HELPERS functions, each with the comment above it."""
+    out = []
+    for entry in sorted(FALLOUT4_UNUSED_HELPERS):
+        owner, _, name = entry.partition('.')
+        if owner != script or not name:
+            continue
+        span = spans.get(name.lower())
+        if span is None:
+            raise StaleOverride(f'{entry}: in FALLOUT4_UNUSED_HELPERS, but {script}.psc has no such block')
+        start = span[0]
+        while start and lines[start - 1].lstrip().startswith(';'):
+            start -= 1
+        out.append(((start, span[1]), []))
+    return out
+
+
 def av_function() -> list:
     """TES4Polyfill.AV(name): the actor value named `name`, generated from target.fallout4_actor_values()."""
     out = ['ActorValue Function AV(String asName) Global',
@@ -99,7 +116,7 @@ def fallout4_helper(script: str, text: str) -> str:
     base = text.splitlines()
     spans = blocks(base)
     lines = apply_rules(text).splitlines()
-    added, swaps = [], []
+    added, swaps = [], unused_blocks(script, base, spans)
     for replaces, sha, block in overrides(script):
         if replaces is None:
             added += block + ['']

@@ -62,7 +62,8 @@ def pack_lctn(fid: int, edid: str, name: str, parent: int, marker: int) -> bytes
 
 
 class Locations:
-    """A worldspace's root location and its map regions' locations, written once; at() finds a point's."""
+    """A worldspace's root location and its map regions' locations (`by_region`: FNV region -> location), written
+    once; at() finds a point's."""
 
     def __init__(self, builder, world: dict, markers: dict):
         """Write the locations of FNV worldspace `world` (its export record); `markers` {map name: FO4 marker}."""
@@ -70,12 +71,13 @@ class Locations:
         self.root = builder.writer.derive_formid(SITE, fnv)
         builder.writer.add_record('LCTN', pack_lctn(self.root, f'FNV_{world["EditorID"]}Location',
                                                     world.get('FULL', world['EditorID']), 0, 0))
-        self.regions = []
+        self.regions, self.by_region = [], {}
         for region, edid, name, polygons in map_regions(fnv):
             fid = builder.writer.derive_formid(SITE, region)
             builder.writer.add_record('LCTN', pack_lctn(fid, f'FNV_{edid}Location', name, self.root,
                                                         markers.get(name, 0)))
             self.regions.append((fid, polygons))
+            self.by_region[region] = fid
         builder.counts['LCTN'] += 1 + len(self.regions)
 
     def at(self, x: float, y: float) -> int:

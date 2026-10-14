@@ -33,6 +33,12 @@ PLAYER_DIALOGUE_FLAGS = 0x228800
 DIALOGUE_ACTION_FLAGS = 0x28000
 #: SCEN FNAM from CookeGreetScene: show all text, has player dialogue, no follower chatter.
 SCENE_FLAGS = 0x1024
+#: Dialogue action FNAM Face Target of 1,031 vanilla actions in scenes of NPCs only; the target is its HTID actor.
+NPC_ACTION_FLAGS = 0x8000
+#: SCEN FNAM of NPC-only scenes: Show All Text, Interruptible (the 256 vanilla 0x17 less their quest start/stop).
+NPC_SCENE_FLAGS = 0x14
+#: SCEN actor LNAM Optional: the scene runs with the alias empty (a monologue's listener).
+ACTOR_OPTIONAL = 0x2
 #: SCEN FNAM Prevent Player Exit Dialogue (84 vanilla player-dialogue scenes).
 SCENE_NO_EXIT = 0x40
 #: Object id in XDI.esm of the keyword that marks a scene's menu for XDI.
@@ -104,14 +110,15 @@ def pack_cis2(text: str) -> bytes:
 def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b'',
               prompt: str = '', scene: int = 0, phase: str = '', phase_index: int = 0,
               stages: tuple = (NO_STAGE, NO_STAGE), notes: str = '', forced_alias: int = None,
-              vmad: bytes = b'', idle: int = 0) -> bytes:
+              vmad: bytes = b'', idle: int = 0, speaker: int = 0) -> bytes:
     """An INFO in vanilla's field order (DialogueDiamondCity 00199516).
 
     lines are response texts (none: an empty padding INFO); stages are the
     quest stages set on begin and on end (TIQS); scene/phase start a scene,
     at phase_index (INTV, which the engine reads, not the NAM0 name);
     forced_alias (ALFA) puts the speaker into that alias; vmad is its fragments;
-    idle is the first response's speaker idle (SNAM, as 00142444's DialogueGiveItem).
+    idle is the first response's speaker idle (SNAM, 00142444); speaker (ANAM)
+    is the NPC whose voice speaks it (001C01F8).
     """
     subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_subrecord('ENAM', struct.pack('<HH', flags, 0))
     for number, text in enumerate(lines, 1):
@@ -127,7 +134,7 @@ def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b
         subs += _s32('ALFA', forced_alias)
     if stages != (NO_STAGE, NO_STAGE):
         subs += pack_subrecord('TIQS', struct.pack('<HH', *stages))
-    subs += _zstr('NAM0', phase) + _u32('INAM', 1)
+    subs += (_u32('ANAM', speaker) if speaker else b'') + _zstr('NAM0', phase) + _u32('INAM', 1)
     return pack_fo4_record('INFO', fid, 0, subs)
 
 
@@ -142,18 +149,21 @@ def pack_player_dialogue(index: int, alias: int, player_topics: tuple, npc_topic
     return subs + _s32('DTGT', alias) + pack_subrecord('ANAM', b'')
 
 
-def pack_dialogue_action(index: int, alias: int, topic: int, phase: int = 0) -> bytes:
-    """A Dialogue scene action in `phase`: `alias` says `topic` (PastorGreetScene's flags and distances)."""
+def pack_dialogue_action(index: int, alias: int, topic: int, phase: int = 0, listener: 'int | None' = None) -> bytes:
+    """A Dialogue scene action in `phase`: `alias` says `topic` (PastorGreetScene's flags and distances); facing
+    and headtracking alias `listener` instead of the player when given (NPC_ACTION_FLAGS, HTID)."""
+    flags = DIALOGUE_ACTION_FLAGS if listener is None else NPC_ACTION_FLAGS
     subs = pack_subrecord('ANAM', struct.pack('<H', 0)) + _zstr('NAM0', '') + _s32('ALID', alias)
-    subs += _u32('INAM', index) + _u32('FNAM', DIALOGUE_ACTION_FLAGS) + _u32('SNAM', phase) + _u32('ENAM', phase)
+    subs += _u32('INAM', index) + _u32('FNAM', flags) + _u32('SNAM', phase) + _u32('ENAM', phase)
     subs += _u32('DATA', topic) + pack_subrecord('DMAX', struct.pack('<f', 10.0))
-    return subs + pack_subrecord('DMIN', struct.pack('<f', 1.0)) + pack_subrecord('ANAM', b'')
+    subs += pack_subrecord('DMIN', struct.pack('<f', 1.0)) + (b'' if listener is None else _s32('HTID', listener))
+    return subs + pack_subrecord('ANAM', b'')
 
 
 def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keyword: int,
-              phases: tuple = ('Menu',), flags: int = 0) -> bytes:
-    """A scene of named `phases` in order with one actor and `actions` (indices 1..n), tagged with `keyword` (0: none),
-    FNAM SCENE_FLAGS plus `flags`.
+              phases: tuple = ('Menu',), flags: int = 0, listener: 'int | None' = None) -> bytes:
+    """A scene of named `phases` in order with actor `alias` and `actions` (indices 1..n), tagged with `keyword`
+    (0: none), FNAM SCENE_FLAGS plus `flags`; with a `listener` actor too, an NPC-only scene (NPC_SCENE_FLAGS).
 
     A one-phase scene also completes once the alias is farther than
     DIALOGUE_DISTANCE from the player; with several phases each completes
@@ -162,11 +172,12 @@ def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keywor
     """
     walked_off = b'' if len(phases) > 1 else pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
                                                        run_on=RUN_QUEST_ALIAS, param3=alias)
-    subs = _zstr('EDID', edid) + _u32('FNAM', SCENE_FLAGS | flags)
+    subs = _zstr('EDID', edid) + _u32('FNAM', (SCENE_FLAGS if listener is None else NPC_SCENE_FLAGS) | flags)
     for phase in phases:
         subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'') + walked_off
         subs += pack_subrecord('NEXT', b'') + _u32('WNAM', 350) + pack_subrecord('HNAM', b'')
-    subs += _s32('ALID', alias) + _u32('LNAM', 4) + _u32('DNAM', 10)
+    for actor, optional in ((alias, 0),) if listener is None else ((alias, 0), (listener, ACTOR_OPTIONAL)):
+        subs += _s32('ALID', actor) + _u32('LNAM', 4 | optional) + _u32('DNAM', 10)
     subs += b''.join(actions) + _u32('PNAM', quest) + _u32('INAM', len(actions))
     subs += pack_subrecord('VNAM', struct.pack('<4I', 3, 3, 3, 3)) + pack_subrecord('ACTV', struct.pack('<f', DIALOGUE_DISTANCE))
     subs += (_u32('KSIZ', 1) + _u32('KWDA', keyword) if keyword else b'') + _u32('XNAM', 0)
@@ -174,13 +185,13 @@ def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keywor
 
 
 def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
-              alias_name: str, alias_ref) -> bytes:
-    """A start-game-enabled quest with plain stages and one alias (id 0).
+              alias_name: str, alias_ref, vmad: bytes = b'') -> bytes:
+    """A start-game-enabled quest with plain stages and one alias (id 0), scripts and fragments in `vmad`.
 
     alias_ref None: an optional, empty alias that forced-alias lines fill, as
     vanilla DialogueGenericDoctors' 'Doctor' (FNAM 2).
     """
-    subs = _zstr('EDID', edid) + _zstr('FULL', name)
+    subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'') + _zstr('FULL', name)
     subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0x0011, priority, 0.0, 0))
     subs += pack_subrecord('NEXT', b'')
     for stage in sorted(stages):
@@ -250,7 +261,7 @@ def pack_door(fid: int, edid: str, name: str, model: str, bounds: tuple, flags: 
               sounds: tuple = (0, 0)) -> bytes:
     """A door: scripts, bounds, name, model, open and close sounds (SNDRs, 0 for none), FNAM flags."""
     subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
-    subs += pack_subrecord('OBND', struct.pack('<6h', *bounds)) + _zstr('FULL', name) + _zstr('MODL', model)
+    subs += pack_subrecord('OBND', struct.pack('<6h', *bounds)) + _zstr('FULL', name) + (_zstr('MODL', model) if model else b'')
     subs += _sounds(('SNAM', 'ANAM'), sounds)
     return pack_fo4_record('DOOR', fid, 0, subs + pack_subrecord('FNAM', bytes([flags])))
 
@@ -276,29 +287,32 @@ def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, s
     for index, text, targets in objectives:
         subs += pack_subrecord('QOBJ', struct.pack('<H', index)) + _u32('FNAM', 0) + _zstr('NNAM', text)
         subs += b''.join(pack_subrecord('QSTA', struct.pack('<iII', alias, 0, 0)) for alias in targets)
-    subs += _u32('ANAM', len(aliases)) + b''.join(_alias(*alias) for alias in aliases)
+    subs += _u32('ANAM', max((alias[0] for alias in aliases), default=-1) + 1)
+    subs += b''.join(_alias(*alias) for alias in aliases)
     return pack_fo4_record('QUST', fid, 0, subs)
 
 
 def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float,
               vmad: bytes = b'') -> bytes:
     """A misc item: scripts, bounds, preview, name, model, DATA value and weight."""
-    subs = _bounded(edid, bounds, vmad) + _u32('PTRN', MISC_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
+    subs = _bounded(edid, bounds, vmad) + _u32('PTRN', MISC_PREVIEW) + _zstr('FULL', name) + (_zstr('MODL', model) if model else b'')
     return pack_fo4_record('MISC', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
 
 
 def pack_keym(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float,
               vmad: bytes = b'') -> bytes:
     """A key (vanilla's commonest layout, preview KeyChainsAlt), laid out as pack_misc."""
-    subs = _bounded(edid, bounds, vmad) + _u32('PTRN', KEY_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', model)
+    subs = _bounded(edid, bounds, vmad) + _u32('PTRN', KEY_PREVIEW) + _zstr('FULL', name) + (_zstr('MODL', model) if model else b'')
     return pack_fo4_record('KEYM', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
 
 
-def pack_book(fid: int, edid: str, name: str, text: str) -> bytes:
-    """A paper note to read: name and text on vanilla's note fields (BoS302BIngramBackupNote 0024800F)."""
-    subs = _bounded(edid, NOTE_BOUNDS) + _u32('PTRN', NOTE_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', NOTE_MODEL)
-    subs += _zstr('DESC', text) + _u32('YNAM', NOTE_PICKUP) + pack_subrecord('DATA', bytes(8))
-    return pack_fo4_record('BOOK', fid, 0, subs + pack_subrecord('DNAM', bytes(13)) + _u32('CNAM', 0)
+def pack_book(fid: int, edid: str, name: str, text: str, look: tuple = (NOTE_MODEL, NOTE_BOUNDS),
+              worth: tuple = (0, 0.0), vmad: bytes = b'', flags: int = 0) -> bytes:
+    """A book to read: name, `look` (model, bounds), text, `worth` (value, weight), scripts and DNAM `flags` on
+    vanilla's paper note fields (BoS302BIngramBackupNote 0024800F)."""
+    subs = _bounded(edid, look[1], vmad) + _u32('PTRN', NOTE_PREVIEW) + _zstr('FULL', name) + _zstr('MODL', look[0])
+    subs += _zstr('DESC', text) + _u32('YNAM', NOTE_PICKUP) + pack_subrecord('DATA', struct.pack('<If', *worth))
+    return pack_fo4_record('BOOK', fid, 0, subs + pack_subrecord('DNAM', bytes([flags]) + bytes(12)) + _u32('CNAM', 0)
                            + _u32('INAM', NOTE_INVENTORY_ART))
 
 
@@ -327,6 +341,21 @@ def pack_furn(fid: int, edid: str, name: str, model: str, bounds: tuple, keyword
     subs += _zstr('XMRK', marker_model) if marker_model else b''
     subs += pack_subrecord('SNAM', b''.join(struct.pack('<4fIB3x', *m[:4], 0, m[4]) for m in markers))
     return pack_fo4_record('FURN', fid, record_flags, subs)
+
+
+def pack_kywd(fid: int, edid: str, kind: int, name: str = '') -> bytes:
+    """A keyword of TNAM `kind` (9: recipe filter), white CNAM, `name` if given."""
+    subs = _zstr('EDID', edid) + pack_subrecord('CNAM', b'\xff\xff\xff\x00') + _u32('TNAM', kind)
+    return pack_fo4_record('KYWD', fid, 0, subs + (_zstr('FULL', name) if name else b''))
+
+
+def pack_cobj(fid: int, edid: str, parts: list, made: tuple, bench: int, filters: list, conditions: bytes) -> bytes:
+    """A constructible object: `parts` [(item, count)] (FVPA), `conditions`, `made` (item, count), the `bench`
+    keyword and recipe `filters` keywords."""
+    subs = _zstr('EDID', edid) + pack_subrecord('FVPA', b''.join(struct.pack('<II', *p) for p in parts))
+    subs += conditions + _u32('CNAM', made[0]) + _u32('BNAM', bench)
+    subs += pack_subrecord('FNAM', struct.pack(f'<{len(filters)}I', *filters)) if filters else b''
+    return pack_fo4_record('COBJ', fid, 0, subs + pack_subrecord('INTV', struct.pack('<HH', made[1], 0)))
 
 
 def pack_mswp(fid: int, edid: str, pairs: list) -> bytes:
@@ -359,7 +388,7 @@ def pack_cont(fid: int, edid: str, name: str, model: str, bounds: tuple, items: 
               weight: float, sounds: tuple = (0, 0), vmad: bytes = b'') -> bytes:
     """A container: scripts, bounds, name, model, items [(FormID, count)] (COCT, CNTO), DATA flags and weight,
     open and close sounds (SNDRs, 0 for none)."""
-    subs = _bounded(edid, bounds, vmad) + _zstr('FULL', name) + _zstr('MODL', model)
+    subs = _bounded(edid, bounds, vmad) + _zstr('FULL', name) + (_zstr('MODL', model) if model else b'')
     subs += _u32('COCT', len(items)) + b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count))
                                                  for item, count in items)
     subs += pack_subrecord('DATA', struct.pack('<Bf', flags, weight)) + _sounds(('SNAM', 'QNAM'), sounds)

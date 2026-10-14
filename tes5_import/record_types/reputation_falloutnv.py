@@ -15,7 +15,7 @@ from .common import get_float, get_formid
 from .world_falloutnv import is_fallout_source
 
 #: A reputation's globals in FormList order, with the value each starts at (None: its maximum).
-_SLOTS = (('Infamy', 0.0), ('Fame', 0.0), ('Mixed', 1.0), ('Good', 1.0), ('Bad', 1.0), ('Max', None))
+SLOTS = (('Infamy', 0.0), ('Fame', 0.0), ('Mixed', 1.0), ('Good', 1.0), ('Bad', 1.0), ('Max', None))
 
 #: The karma global, and FO3/FNV's Karma actor value.
 KARMA_GLOBAL, KARMA_AV = 'TES4Karma', 23
@@ -35,7 +35,7 @@ def _reputation(writer, rec: dict) -> int:
     edid = rec['EditorID']
     fids = [_glob(writer, f'TES4Rep{slot}_{edid}',
                   get_float(rec, 'DATA.Value') if start is None else start)
-            for slot, start in _SLOTS]
+            for slot, start in SLOTS]
     rep = get_formid(rec, 'FormID')
     subs = pack_string_subrecord('EDID', edid) + b''.join(pack_formid_subrecord('LNAM', f) for f in fids)
     writer.add_record('FLST', pack_record('FLST', rep, 0, subs))

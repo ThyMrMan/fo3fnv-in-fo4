@@ -20,7 +20,8 @@ Message Property ChooseSex Auto
 
 Function ShowRaceMenu()
   {FO3/FNV ShowRaceMenu: the sex (ChooseSex, set through TES4Polyfill.SetSex), then FO4's full appearance edit
-  as the vault exit elevator opens it (chargen skeleton, neutral face, third person, the player turned to the
+  as the vault exit elevator opens it (chargen skeleton, the face data precached for the sex just set as MQ101
+  precaches it, cleared when the menu closes as MQ101PlayerScript clears it, neutral face, third person, the player turned to the
   camera, LooksMenu mode 1). The menu needs third person, so a camera switch this layer disabled is enabled
   until the menu closes; then first person again. A held player stands for it and sits again after.}
   If ChooseSex
@@ -36,6 +37,8 @@ Function ShowRaceMenu()
     Stand()
   EndIf
   player.SetHasCharGenSkeleton()
+  Utility.Wait(0.5)
+  Game.PrecacheCharGen()
   player.ChangeAnimFaceArchetype(None)
   Game.ForceThirdPerson()
   Utility.Wait(1.0)
@@ -48,6 +51,7 @@ EndFunction
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
   If asMenuName == "LooksMenu" && !abOpening
     UnregisterForMenuOpenCloseEvent("LooksMenu")
+    Game.PrecacheCharGenClear()
     Game.ForceFirstPerson()
     If CamSwitchLifted
       Layer.EnableCamSwitch(false)

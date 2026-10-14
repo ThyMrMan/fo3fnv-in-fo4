@@ -20,6 +20,9 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike.poses import line_idle
+from fo4_import.spike.readiness import LINE, LINE_LEFT_OUT
+from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
+from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import papyrus_script_name
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
@@ -42,19 +45,21 @@ SCRIPT_VARIABLE, VM_SCRIPT_VARIABLE = 'GetScriptVariable', 'GetVMScriptVariable'
 SCRIPT_PREFIX = 'FALLOUTNV_'
 #: FO4 has no objective condition; an objective test reads its mirror global (objectives_falloutnv).
 GLOBAL_VALUE = 'GetGlobalValue'
+#: FNV reputation tests -> the reputation slot of their parameter 2's 0 (reputation.SLOT_KEY form map entries).
+REPUTATION_FIRST_SLOT = {'GetReputation': 0, 'GetReputationThreshold': 2}
 
 
 class SayTopics:
     """FO4 Custom topics for FNV quests' Conversation topics; `voiced` lists [(FO4 INFO, FNV INFO)]."""
 
     def __init__(self, builder, export_dir: Path):
-        """Index FNV topics, lines and quest script variables; topics are written through `builder`."""
+        """Index FNV topics and lines; topics are written through `builder` (its script_vars() names)."""
         self.builder, self.voiced = builder, []
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         self.infos = {}
         for rec in export_records(export_dir, 'INFO'):
             self.infos.setdefault(rec.get('QSTI.Quest', '').upper(), []).append(rec)
-        self.script_vars = _script_vars(export_dir)
+        self.script_vars = builder.script_vars
 
     def topics(self, quest: dict) -> list:
         """FNV FormIDs of `quest`'s Conversation topics, in first-line order."""
@@ -79,19 +84,24 @@ class SayTopics:
         dlbr = R.pack_dlbr(branch, f'FNV_{quest["EditorID"]}Branch', quest_fid, next(iter(topic_ids.values())))
         return dlbr, blobs
 
-    def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'') -> bytes:
+    def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
+             target: 'int | None' = None, speaker: int = 0) -> bytes:
         """One FNV line as an FO4 INFO; b'' when a condition cannot convert.
 
-        `scene` is (scene, phase) the line starts; `flags` are ENAM flags added to its Say Once; `extra` CTDAs
-        are added to its conditions. A part of a split line (conversation.part) after the first has no
-        conditions or Say Once; the first part runs the Begin fragment, the last the End one. The part that opens
-        barter ends the conversation scene, as vanilla's vendor lines do, so the menu does not stay behind it.
+        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once; `extra` CTDAs join its
+        conditions, Target tests run on alias `target`; `speaker`: its speaker NPC (ANAM). A split line's later
+        parts (conversation.part) have no conditions or Say Once; the first runs the Begin fragment, the last
+        the End one. The part opening barter ends the scene, as vanilla's vendor lines do. Recorded in readiness.
         """
         first, last = rec.get(PART, 1) == 1, rec.get(PART, 1) == rec.get(PARTS, 1)
-        conditions = conditions_of(rec, form_map, self.script_vars) if first else b''
+        conditions = conditions_of(rec, form_map, self.script_vars, target=target) if first else b''
+        quest = rec.get('QSTI.Quest', '')
         if conditions is None:
-            self.builder.counts[f'line left out (condition: {blocker(rec, form_map, self.script_vars)})'] += 1
+            why = blocker(rec, form_map, self.script_vars)
+            self.builder.counts[f'line left out (condition: {why})'] += 1
+            self.builder.readiness.add(LINE_LEFT_OUT, quest, f'{rec["FormID"].upper()} (condition: {why})')
             return b''
+        self.builder.readiness.add(LINE, quest, rec['FormID'].upper())
         fid = self.builder.new_id(f'INFO {rec["FormID"]} {rec.get(PART, 1)}')
         name = f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
         scripts, vmad = self.builder.scripts, b''
@@ -106,7 +116,8 @@ class SayTopics:
         self.builder.counts['INFO'] += 1
         return R.pack_info(fid, flags, tuple(lines) or ('...',), conditions + extra, scene=scene[0], phase=scene[1],
                            phase_index=scene[2] if len(scene) > 2 else 0,
-                           notes=f'FNV {rec["FormID"]}', vmad=vmad, idle=line_idle(rec['FormID']) or 0)
+                           notes=f'FNV {rec["FormID"]}', vmad=vmad, idle=line_idle(rec['FormID']) or 0,
+                           speaker=speaker)
 
 
 def actor_values(helper_index: int) -> dict:
@@ -119,7 +130,7 @@ def actor_values(helper_index: int) -> dict:
     return out
 
 
-def _script_vars(export_dir: Path) -> dict:
+def script_vars(export_dir: Path) -> dict:
     """{FNV quest or actor reference FormID: (its converted script, {variable index: name})}, for
     GetQuestVariable and GetScriptVariable."""
     scripts = {}
@@ -150,14 +161,16 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
     """(FO4 function, param 1, param 2, CIS1 text, CIS2 text) of an FNV condition; None when it cannot convert.
 
     GetQuestVariable and GetScriptVariable read the converted property
-    (GetVMQuestVariable, GetVMScriptVariable) `script_vars` names ({FNV quest
-    or reference: (script, {index: name})}); an objective test reads its
-    mirror global, `form_map[(quest, index, state)]`; an actor value param
-    is `form_map[('av', index)]` (actor_values()), None without one.
+    `script_vars` names ({quest or ref: (script, {index: name})}), or a
+    mirror global: `form_map[('qvar', quest, index)]` for a mirrored
+    variable, `form_map[(quest, index, state)]` for an objective. An actor
+    value param is `form_map[('av', index)]`, None without one.
     """
     func, state = cond['func'], OBJECTIVE_FUNCS.get(C.FNV.index(cond['func']))
     if C.fo4_value(cond, form_map) is None:
         return None
+    if func == QUEST_VARIABLE and ('qvar', cond['p1'], cond['p2']) in form_map:
+        return C.FO4.index(GLOBAL_VALUE), form_map[('qvar', cond['p1'], cond['p2'])], 0, '', ''
     if func in (QUEST_VARIABLE, SCRIPT_VARIABLE):
         script, names = script_vars.get(cond['p1'], ('', {}))
         variable = names.get(cond['p2'])
@@ -169,12 +182,18 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
     if state:
         glob = form_map.get((cond['p1'], cond['p2'], state))
         return (C.FO4.index(GLOBAL_VALUE), glob, 0, '', '') if glob else None
+    if func == 'GetActorValue' and cond['p1'] == KARMA_AV and KARMA_KEY in form_map:
+        return C.FO4.index(GLOBAL_VALUE), form_map[KARMA_KEY], 0, '', ''
+    if func in REPUTATION_FIRST_SLOT:
+        glob = form_map.get((REPUTATION_KEY, cond['p1'], REPUTATION_FIRST_SLOT[func] + cond['p2']))
+        return (C.FO4.index(GLOBAL_VALUE), glob, 0, '', '') if glob else None
     index = C.FO4.index(C.RENAMED.get(func, func))
     if index < 0 or _unmapped(cond, form_map):
         return None
     avs = C.FNV.av_slots.get(C.FNV.index(func), set())
-    params = [form_map.get(('av', cond[f'p{s}'])) if s in avs else form_map.get(cond[f'p{s}'], cond[f'p{s}'])
-              for s in (1, 2)]
+    forms = C.FNV.form_slots.get(C.FNV.index(func), set())
+    params = [form_map.get(('av', cond[f'p{s}'])) if s in avs
+              else form_map.get(cond[f'p{s}'], cond[f'p{s}']) if s in forms else cond[f'p{s}'] for s in (1, 2)]
     return None if None in params else (index, *params, '', '')
 
 
@@ -187,35 +206,54 @@ def opens_barter(rec: dict, first: bool, last: bool) -> bool:
 
 
 def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
-    """The function of an FNV record's first condition that cannot convert, '(global)' marking a global test."""
-    i = 0
-    while f'Condition[{i}].Raw' in rec:
-        cond = C.parse(rec[f'Condition[{i}].Raw'])
-        i += 1
+    """The function of an FNV record's first condition that cannot convert, '(global)' marking a global test; for
+    one never true in this build (conditions.without_absent), the first form it lacks."""
+    conds = C.without_absent(_parsed(rec), form_map)
+    if conds is None:
+        first = next((c['func'] for c in _parsed(rec) if C.absent(c, form_map) is False), '')
+        return f'{first}: never true in this build'
+    for cond in conds:
         if _fo4_condition(cond, form_map, script_vars) is None:
             return cond['func'] + (' (global)' if cond['op_flags'] & C.USE_GLOBAL else '')
     return ''
 
 
-def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = False) -> 'bytes | None':
+def _parsed(rec: dict) -> list:
+    """An FNV record's conditions, parsed, in order."""
+    return [C.parse(rec[f'Condition[{i}].Raw']) for i in range(_count(rec))]
+
+
+def _count(rec: dict) -> int:
+    """How many Condition[i] an FNV record has."""
+    i = 0
+    while f'Condition[{i}].Raw' in rec:
+        i += 1
+    return i
+
+
+def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = False,
+                  target: 'int | None' = None) -> 'bytes | None':
     """An FNV record's conditions as FO4 CTDAs (and CIS1/CIS2s); None when one cannot convert.
 
-    GetQuestVariable and GetScriptVariable become GetVMQuestVariable and
-    GetVMScriptVariable (run on the reference) on the name `script_vars`
-    gives ({FNV quest or reference: (script, {index: name})}; `::<name>_var`,
-    the converted property's backing variable). `swap` flips Subject and
-    Target, for a player line.
+    Quest and script variables read the converted property `script_vars`
+    names ({quest or reference: (script, {index: name})}, `::<name>_var`).
+    `swap` flips Subject and Target (a player line); Target tests run on
+    quest alias `target`. Tests of forms the build lacks are settled first
+    (conditions.without_absent).
     """
-    out, i = b'', 0
-    while f'Condition[{i}].Raw' in rec:
-        cond = C.parse(rec[f'Condition[{i}].Raw'])
-        i += 1
+    conds = C.without_absent(_parsed(rec), form_map)
+    if conds is None:
+        return None
+    out = b''
+    for cond in conds:
         fo4 = _fo4_condition(cond, form_map, script_vars)
         if fo4 is None:
             return None
         func, p1, p2, cis1, cis2 = fo4
         run_on, ref = (R.RUN_REFERENCE, form_map[cond['p1']]) if cis1 else C.run_on_of(cond, swap, form_map)
+        alias = target if run_on == R.RUN_TARGET and target is not None else -1
+        run_on, ref = (R.RUN_QUEST_ALIAS, 0) if alias >= 0 else (run_on, ref)
         flag, value = C.fo4_value(cond, form_map)
-        out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR) | flag, value, func, p1, p2, run_on, ref)
+        out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR) | flag, value, func, p1, p2, run_on, ref, alias)
         out += (R.pack_cis1(cis1) if cis1 else b'') + (R.pack_cis2(cis2) if cis2 else b'')
     return out

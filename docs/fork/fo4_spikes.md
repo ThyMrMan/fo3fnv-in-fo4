@@ -383,7 +383,18 @@ static scripts for Fallout 4:
 - **Left out** (`FALLOUT4_UNUSED_HELPERS`): `TES4_DialoguePause` (FO4 talks
   stay unpaused, [R5](research/fo4_target.md#no-pause)), `TES4_DayClock`
   (FO4's `GameDaysPassed` carries the day's fraction, as FNV's did),
-  `TES4_BoundItemEffect` (FO3/FNV have no bound items).
+  `TES4_BoundItemEffect` (FO3/FNV have no bound items). A `Script.Function`
+  entry drops one function and the comment above it: `TES4Polyfill`'s
+  `MirrorPlayerFactionRelation`, `GetIsCreature`, `IsGuard` and
+  `GetDayOfWeek` read `Skyrim.esm` forms and have no FO3/FNV caller (0 in the
+  FalloutNV.esm and Fallout3.esm exports, 2026-10-13: FNV's `GetDayOfWeek`
+  converts to the `GameDaysPassed` property, its `GetIsCreatureType` is a
+  different command). Fallout4.esm equivalents if one ever gains a caller:
+  `PlayerFaction` `0x1C21C`, `ActorTypeNPC` `0x13794`, `GameDaysPassed`
+  `0x39`.
+- **Player-hating faction**: `ForceCombatNow`/`EndCombat` use Fallout4.esm's
+  `PlayerEnemyFaction` (`0x106C2F`, sole relation Enemy of `PlayerFaction`,
+  which returns it) where Skyrim used `WIPlayerEnemyFaction`.
 - **The converter's FO4 rules on the shared source**: actor-value calls
   become `GetValue(TES4Polyfill.AV("Name"))` etc.; `OnUpdate` → `OnTimer`,
   `RegisterForSingleUpdate` → `StartTimer`; menu names (`Dialogue Menu` →

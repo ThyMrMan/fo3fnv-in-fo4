@@ -22,7 +22,11 @@ the conversation; a line followed by nothing else returns to the topic list
 GREETING scene when the player activates the speaker or a converted force
 greet runs; the GREETING lines are every cell quest's, highest quest priority
 first, in one quest's scene. A line of another quest than the scene's needs
-that quest running.
+that quest running. FNV's StartConversation between two NPCs starts a chat
+scene (`TES4Chat_<topic>`): the speaker and listener fill the Speaker and
+Listener aliases, each step said by one of them (a line's Choices by the
+other unless its Next Speaker is Self), facing the other; a line's Target
+tests run on the other's alias.
 
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
@@ -33,12 +37,15 @@ from fo4_import.base.writer import pack_topic
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import LEAVE, menu_action
-from fo4_import.spike.quest import SPEAKER_ALIAS
-from fo4_import.spike.say_topics import CONVERSATION, PART, PARTS, conditions_of
-from script_convert.constants import FALLOUT4_TALK_PREFIX
+from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS
+from fo4_import.spike.readiness import CHOICE_UNANSWERED
+from fo4_import.spike.say_topics import PART, PARTS, conditions_of
+from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX
 
 #: FNV INFO DATA flags.
 GOODBYE, SAY_ONCE = 0x01, 0x04
+#: FNV INFO DATA Next Speaker Self (0 Target, 2 Either: the other actor answers).
+NEXT_SELF = 1
 #: FNV's GREETING topic.
 GREETING = '000000C8'
 #: FNV DIAL: the Topic type, and the Top-level flag (listed without an AddTopic).
@@ -96,20 +103,22 @@ class Conversations:
         self.hub, self.topics, self.scenes, self.placed, self.labels = shared, [], [], {}, {}
 
     def has_lines(self) -> bool:
-        """True when the quest has lines outside its scripted Conversation topics."""
-        return any(self.say.dials[r['ParentDIAL']].get('DATA.Type') != CONVERSATION for r in self.lines.values())
+        """True when the quest has lines (said from its Speaker and Listener)."""
+        return bool(self.lines)
 
     def talk(self, prop: str, fid: int) -> bool:
-        """Build scene `fid` that `prop` (`TES4Talk_<topic>`) starts, if the topic has lines in this quest; the
-        GREETING one is the greeting scene (greeting())."""
-        topic = prop[len(FALLOUT4_TALK_PREFIX):].lower()
-        if topic == 'greeting':
+        """Build scene `fid` that `prop` (`TES4Talk_<topic>`, `TES4Chat_<topic>`) starts, if the topic has lines in
+        this quest; the GREETING talk is the greeting scene (greeting()), a chat one between two NPCs."""
+        chat = prop.startswith(FALLOUT4_CHAT_PREFIX)
+        topic = prop[len(FALLOUT4_CHAT_PREFIX if chat else FALLOUT4_TALK_PREFIX):].lower()
+        if topic == 'greeting' and not chat:
             infos = self._greetings()
         else:
             infos = [i for i, r in self.lines.items() if self.say.dials[r['ParentDIAL']]['EditorID'].lower() == topic]
+        step = ('chat', SPEAKER_ALIAS, ('line', tuple(infos))) if chat else ('line', tuple(infos))
         if infos:
-            self.labels[('line', tuple(infos))] = f'talk {topic}'
-            self.scene(('line', tuple(infos)), fid)
+            self.labels[step] = f'{"chat" if chat else "talk"} {topic}'
+            self.scene(step, fid)
         return bool(infos)
 
     def _greetings(self) -> list:
@@ -139,8 +148,9 @@ class Conversations:
             menu |= step[0] == 'menu'
             locked |= step[0] == 'menu' and step[1] != self.hub.topics
             step = nxt if continues else None
+        listener = LISTENER_ALIAS if first[0] == 'chat' else None
         self.scenes.append(R.pack_scen(fid, edid, self.fid, SPEAKER_ALIAS, actions, self.keyword if menu else 0,
-                                       tuple(phases), R.SCENE_NO_EXIT if locked else 0))
+                                       tuple(phases), R.SCENE_NO_EXIT if locked else 0, listener))
         return self.placed[first]
 
     def _key(self, step: tuple) -> str:
@@ -154,26 +164,39 @@ class Conversations:
 
     def _members(self, step: tuple) -> list:
         """The FNV lines of `step` (a split line's first part): its lines, every line of its menu's topics, or
-        a split line's later part."""
+        a split line's later part; a chat step's are its inner step's."""
+        if step[0] == 'chat':
+            return self._members(step[2])
         if step[0] == 'part':
             return [part(self.hub.lines[step[1]], step[2])]
         if step[0] == 'line':
             return [part(self.hub.lines[i], 1) for i in step[1] if i in self.hub.lines]
         return [part(r, 1) for r in self.hub.lines.values() if r['ParentDIAL'].upper() in step[1]]
 
-    def _next(self, rec: dict):
+    def _next(self, rec: dict, alias: 'int | None' = None):
         """The step after FNV line `rec`: a split line's next part; its Follow Ups or Choices; the Hub's
-        topic list after a line with neither (FNV lists the topics again); None after a Goodbye."""
+        topic list after a line with neither (FNV lists the topics again); None after a Goodbye.
+
+        Said by `alias` in a chat, the step is a chat step: the next part
+        and Follow Ups by the same actor, Choices by the other unless the
+        line names itself next (FNV Next Speaker Self); None after neither.
+        """
         if rec.get(PART, 1) < rec.get(PARTS, 1):
-            return 'part', rec['FormID'].upper(), rec[PART] + 1
+            nxt = 'part', rec['FormID'].upper(), rec[PART] + 1
+            return nxt if alias is None else ('chat', alias, nxt)
         nxt = _next(rec)
+        if alias is not None and nxt is not None:
+            same = nxt[0] == 'line' or int(rec.get('DATA.NextSpeaker', 0) or 0) == NEXT_SELF
+            return 'chat', alias if same else _other(alias), nxt
+        if alias is not None:
+            return None
         if nxt is None and self.hub.topics and not int(rec.get('DATA.Flags', 0)) & GOODBYE:
             return 'menu', self.hub.topics
         return nxt
 
     def _joined(self, step: tuple):
         """The step all of `step`'s lines lead to: None if they end, MIXED if they differ."""
-        nexts = {self._next(r) for r in self._members(step)}
+        nexts = {self._next(r, _chat_alias(step)) for r in self._members(step)}
         return nexts.pop() if len(nexts) == 1 else (MIXED if nexts else None)
 
     def _action(self, step: tuple, place: tuple, edid: str, continues: bool) -> bytes:
@@ -191,10 +214,13 @@ class Conversations:
                                          place)
             self.topics += topics
             return action
-        lines = [line for line in (self._line(r, continues) for r in self._members(step)) if line]
+        alias = _chat_alias(step)
+        lines = [line for line in (self._line(r, continues, alias) for r in self._members(step)) if line]
         topic = take(f'DIAL {owner}')
         self.topics.append(pack_topic(R.pack_dial(topic, name, self.fid, R.TOPIC_SCENE, len(lines)), topic, lines))
-        return R.pack_dialogue_action(place[0], SPEAKER_ALIAS, topic, place[1])
+        if alias is None:
+            return R.pack_dialogue_action(place[0], SPEAKER_ALIAS, topic, place[1])
+        return R.pack_dialogue_action(place[0], alias, topic, place[1], _other(alias))
 
     def _option(self, dial: str, player: list, npc: list, continues: bool) -> None:
         """Add FNV topic `dial` to a menu: an option per prompt among its lines (FNV shows the first passing
@@ -206,6 +232,8 @@ class Conversations:
         added = [self._prompt(dial, text, members, (player, npc), continues) for text, members in prompts.items()]
         if not any(added):
             self.say.builder.counts['choice without a line in the quest'] += 1
+            self.say.builder.readiness.add(CHOICE_UNANSWERED, self.quest['FormID'],
+                                           f'{self.say.dials[dial].get("EditorID", dial)} ({dial})')
 
     def _prompt(self, dial: str, text: str, members: list, menu: tuple, continues: bool) -> bool:
         """Add one option of FNV topic `dial` with prompt `text` answered by `members` to `menu` (player, npc);
@@ -218,13 +246,24 @@ class Conversations:
         if len(members) == 1:
             shown = conditions_of(members[0], self.form_map, self.say.script_vars, swap=True) or b''
         else:
-            shown = self._speakers(members)
+            shown = self._shared(members) + self._speakers(members)
         shown += self._running(members[0]) + self._gate(dial)
         owner = f'INFO prompt {dial} {text}'
         player.append(R.pack_info(self.say.builder.new_id(owner), once, (text,), shown, prompt=text))
         player += [R.pack_info(self.say.builder.new_id(owner)) for _ in answers[1:]]
         npc += answers
         return True
+
+    def _shared(self, members: list) -> bytes:
+        """CTDAs (from the player's side) of the conditions every line in `members` has besides its speaker; b''
+        when a line ORs conditions or one does not convert."""
+        raws = [[r[f'Condition[{i}].Raw'] for i in range(int(r.get('ConditionCount', 0) or 0))] for r in members]
+        if any(c['op_flags'] & OR for r in members for c in _conditions(r)):
+            return b''
+        common = [raw for raw in raws[0] if all(raw in other for other in raws[1:])
+                  and C.parse(raw)['func'] != SPEAKER_TEST]
+        shared = {f'Condition[{i}].Raw': raw for i, raw in enumerate(common)}
+        return conditions_of(shared, self.form_map, self.say.script_vars, swap=True) or b''
 
     def _speakers(self, members: list) -> bytes:
         """One OR-group of the lines' speakers (GetIsID), run on the player line's target; b'' when a line has
@@ -251,16 +290,17 @@ class Conversations:
         """GetGlobalValue of the global FNV topic `dial`'s AddTopic sets, when it is gated."""
         return R.pack_ctda(0, 1.0, GLOBAL_VALUE, self.hub.gates[dial]) if dial in self.hub.gates else b''
 
-    def _line(self, rec: dict, continues: bool) -> bytes:
-        """FNV line `rec` as the speaker's INFO: the scene runs on (`continues`), or it starts what follows
-        once said, or ends."""
-        extra = self._running(rec)
+    def _line(self, rec: dict, continues: bool, alias: 'int | None' = None) -> bytes:
+        """FNV line `rec` as the speaker's INFO (said by chat `alias`, its Target tests on the other actor): the
+        scene runs on (`continues`), or it starts what follows once said, or ends."""
+        extra, target = self._running(rec), None if alias is None else _other(alias)
         if continues:
-            return self.say.info(rec, self.form_map, extra=extra)
-        nxt = self._next(rec)
+            return self.say.info(rec, self.form_map, extra=extra, target=target)
+        nxt = self._next(rec, alias)
         if nxt is None:
-            return self.say.info(rec, self.form_map, flags=R.INFO_END_SCENE, extra=extra)
-        return self.say.info(rec, self.form_map, self.scene(nxt), flags=R.INFO_START_ON_END, extra=extra)
+            return self.say.info(rec, self.form_map, flags=R.INFO_END_SCENE, extra=extra, target=target)
+        return self.say.info(rec, self.form_map, self.scene(nxt), flags=R.INFO_START_ON_END, extra=extra,
+                             target=target)
 
     def greeting(self, greets: list) -> None:
         """A Greeting topic whose silent line starts the GREETING talk scene, for activation or force greets `greets`.
@@ -308,6 +348,16 @@ def _next(rec: dict):
     if int(rec.get('DATA.Flags', 0)) & GOODBYE or not (follow or choices):
         return None
     return ('line', tuple(follow)) if follow else ('menu', tuple(choices))
+
+
+def _other(alias: int) -> int:
+    """The other actor's alias of a chat (Speaker and Listener)."""
+    return LISTENER_ALIAS if alias == SPEAKER_ALIAS else SPEAKER_ALIAS
+
+
+def _chat_alias(step: tuple) -> 'int | None':
+    """The alias saying chat step `step`; None for a player conversation's."""
+    return step[1] if step[0] == 'chat' else None
 
 
 def _conditions(rec: dict) -> list:

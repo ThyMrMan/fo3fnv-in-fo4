@@ -39,6 +39,7 @@ from script_convert.package_fragments import package_fragment_name, package_psc
 from script_convert.patrol_scripts import patrol_psc, patrol_script_name
 from script_convert.terminal_plan import item_count, reachable_menus
 from script_convert.terminal_scripts import terminal_psc, terminal_script_name
+from script_convert.terminal_fragments import fragment_items, terminal_fragments_psc
 from script_convert.poll_interval import quest_script_delays
 from script_convert.quest_fragments import (quest_fragment_psc,
                                             scripted_count, stage_fragments)
@@ -53,6 +54,7 @@ from script_convert.scro_refs import (preload_scro_refs, resolve_scro_aliases,
 from script_convert.symbols import property_declarations, IMPLICIT_NAMES
 from script_convert.tes5.blocks import Kind, classify
 from tes5_import.base.objectives_falloutnv import objective_script_globals
+from script_convert import atomic_adds as _adds, quest_var_mirrors as _quest_vars, trace_points as _trace
 from tes5_import.base.text_reader import info_result_script
 from tes5_import.dialogue.conversations import (build_conversation_plan,
                                                 build_script_chain_map,
@@ -155,7 +157,8 @@ def _script_worker_init(xref, output_dir, info_reveals, service_topics,
                         quest_delays=None, quest_objectives=None,
                         conversation_chains=None, force_greet_slots=None,
                         info_begin_scripts=False, say_to_done=None,
-                        objective_globals=None, force_flee_slots=None, menu_only=None):
+                        objective_globals=None, force_flee_slots=None, menu_only=None,
+                        quest_var_globals=None, atomic_adds=None):
     """Seed one worker with the parent state that spawning does not carry.
 
     `namespace` is installed FIRST: the generated-script prefix derives from
@@ -198,6 +201,9 @@ def _script_worker_init(xref, output_dir, info_reveals, service_topics,
     # gate the INFO/QUST fragments do.
     ScriptConverter.topic_unlock_globals = topic_unlock_globals or {}
     ScriptConverter.objective_globals = objective_globals or {}
+    _quest_vars.GLOBALS.clear()
+    _quest_vars.GLOBALS.update(quest_var_globals or {})
+    _adds.CALLS, _adds.OWNED = atomic_adds or ({}, {})
     ScriptConverter.conversation_chains = conversation_chains or {}
     ScriptConverter.force_greet_slots = force_greet_slots or {}
     ScriptConverter.force_flee_slots = force_flee_slots or {}
@@ -313,7 +319,10 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
                 export_is_fallout(export_dir),
                 say_to_done_hooks(by_type, said_to_topics(by_type)),
                 objective_script_globals(by_type) if export_is_fallout(export_dir) else {},
-                build_force_flee_slots(by_type), menu_only_infos(by_type))
+                build_force_flee_slots(by_type), menu_only_infos(by_type),
+                _quest_vars.quest_var_mirrors(by_type, quest_script_vars)
+                if target.is_fallout4() and export_is_fallout(export_dir) else {},
+                _adds.find_adds(by_type) if target.is_fallout4() and export_is_fallout(export_dir) else None)
     stats['written'] = _drain_written()
     return {'initargs': initargs, 'scpt_work': scpt_work,
             'info_work': info_work, 'qust_work': qust_work,
@@ -802,7 +811,7 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
                                     fragment_calls(done) + ([reroll_line()] if speech else []))
     if conv:
         out_lines.extend(conv.get_cell_family_helpers())
-    return script_name, '\n'.join(out_lines)
+    return script_name, '\n'.join(_trace.items(_trace.info(out_lines, rec['FormID'])))
 
 
 def _info_length(formid: str) -> float:
@@ -883,21 +892,26 @@ def _patrol_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: di
 
 
 def terminal_work(export_dir: str) -> list:
-    """Each FO3/FNV terminal with menu items, as its reachable menus (terminal_plan.reachable_menus)."""
+    """Each FO3/FNV terminal with menu items, as its reachable menus (terminal_plan.reachable_menus); for Fallout 4,
+    each TERM with a fragment to run, alone (terminal_fragments.fragment_items)."""
     if not export_is_fallout(export_dir):
         return []
     terms = {r['FormID'].upper(): r for r in load_records(export_dir, ('TERM',))['TERM']}
+    if target.is_fallout4():
+        return [[r] for r in terms.values() if fragment_items(r)]
     return [reachable_menus(r, terms) for r in terms.values() if item_count(r)]
 
 
 def _term_batch(work: list, output_dir: str, xref: CrossRefGraph, stats: dict):
-    """Write the TM_ script of every terminal with menu items.
+    """Write the TM_ script of every terminal with menu items: for Fallout 4, its TERM's fragment script.
 
     See: docs/commentary/script_convert.md#terminals
     """
+    write = (lambda menus: terminal_fragments_psc(menus[0], xref)) if target.is_fallout4() else \
+        (lambda menus: terminal_psc(menus, xref))
     for menus in work:
         try:
-            write_psc(output_dir, terminal_script_name(menus[0]['FormID']), terminal_psc(menus, xref))
+            write_psc(output_dir, terminal_script_name(menus[0]['FormID']), write(menus))
             stats['term_ok'] += 1
         except Exception as e:
             stats['term_err'] += 1

@@ -42,7 +42,8 @@ from fo4_import.spike.replacements import BASE, Replacement
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import swapped_material, write_assets
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
-from tes5_import.base.writer import pack_subrecord
+from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
+from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
 #: derive_formid sites (key: FNV FormID).
 SITES = {'WEAP': 'FNV WEAP', 'ARMO': 'FNV ARMO', 'ARMA': 'FNV ARMA', 'MSWP': 'FNV MSWP'}
@@ -145,6 +146,7 @@ class Equipment:
         self.builder, self.fnv, self.strings, self.table = builder, _fnv_fields(), strings.load(), builder.table
         self.fits, self.statics, self.poses, self.bodies, self.worn_paths = {}, {}, {}, {}, {}
         self.guns = Guns(builder, self.strings)
+        self.by_anim = {kind: set() for kind in WEAPON_ANIM_LISTS}
         wanted = {r.edid for r in self.table.values() if r.base and r.mode != 'item'} | {e for _, e in ARMOR_DEFAULTS} | {
             r.edid for r in MELEE_DEFAULTS.values()}
         self.vanilla, self.addons = {}, {}
@@ -196,6 +198,26 @@ class Equipment:
         return out
 
     def weap(self, fnv: int, rec: dict) -> 'int | None':
+        """The FO4 weapon for FNV WEAP `rec` (_weapon), listed under its FNV animation type (anim_lists)."""
+        fid = self._weapon(fnv, rec)
+        if fid is not None and int(rec.get('DNAM.FalloutAnimType', -1)) in self.by_anim:
+            self.by_anim[int(rec['DNAM.FalloutAnimType'])].add(fid)
+        return fid
+
+    def anim_list(self, name: str) -> 'int | None':
+        """Weapon list `name`'s FormID (WEAPON_ANIM_LISTS); None for another name."""
+        return self.builder.writer.derive_formid('FLST', name) if name in WEAPON_ANIM_LISTS.values() else None
+
+    def write_anim_lists(self) -> None:
+        """Write every animation type's list of the converted weapons, empty or not, so a property always binds.
+        See: docs/commentary/script_convert.md#fallout-weapon-anim-type
+        """
+        for kind, name in WEAPON_ANIM_LISTS.items():
+            body = pack_string_subrecord('EDID', name) + b''.join(
+                pack_subrecord('LNAM', struct.pack('<I', fid)) for fid in sorted(self.by_anim[kind]))
+            self.builder.writer.add_record('FLST', pack_fo4_record('FLST', self.anim_list(name), 0, body))
+
+    def _weapon(self, fnv: int, rec: dict) -> 'int | None':
         """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`) on its table entry's target (an `fnv` gun on the
         FO4 gun spike.gun_choice picks, when one matches); a gun the table leaves out is that FO4 gun itself, its
         chosen parts, FNV's stats; None without either."""

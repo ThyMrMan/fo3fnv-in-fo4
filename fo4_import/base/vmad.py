@@ -1,4 +1,4 @@
-"""Fallout 4 VMAD: scripts attached to a record, and the INFO and QUST fragment blocks.
+"""Fallout 4 VMAD: scripts attached to a record, and the INFO, PACK, QUST and TERM fragment blocks.
 
 Fallout 4's VMAD is Skyrim's at version 6: the same object format 2, script
 entries and property layout (`script_convert.pipeline.script_entry`). The
@@ -20,6 +20,11 @@ INFO_BEGIN, INFO_END = 0x01, 0x02
 _PROP_OBJECT, _PROP_INT, _PROP_FLOAT, _PROP_BOOL, _PROP_OBJECTS = 1, 3, 4, 5, 11
 
 
+# ---------------------------------------------------------------------------
+# Writing
+# ---------------------------------------------------------------------------
+
+
 def _header(count: int = 0) -> bytes:
     """Version, object format and the count of plainly attached scripts."""
     return struct.pack('<HHH', VERSION, OBJECT_FORMAT, count)
@@ -30,15 +35,31 @@ def object_scripts(scripts: list) -> bytes:
     return _header(len(scripts)) + b''.join(script_entry(*s) for s in scripts)
 
 
+def _fragment_block(script: str, flags: int, fragments: list, object_props: dict, value_props: dict) -> bytes:
+    """A fragment VMAD: `script` and `fragments`, one per set bit of `flags`."""
+    out = _header() + struct.pack('<bB', BIND_DATA, flags) + script_entry(script, object_props, value_props)
+    return out + b''.join(struct.pack('<B', 1) + pack_wstring(script) + pack_wstring(f) for f in fragments)
+
+
 def info_fragments(script: str, object_props: dict = None, value_props: dict = None,
                    begin: str = 'Fragment_Begin', end: str = 'Fragment_End') -> bytes:
-    """An INFO's VMAD: `script`'s OnBegin and OnEnd fragments (a None name leaves that one out)."""
+    """An INFO's VMAD: `script`'s OnBegin and OnEnd fragments (None: left out)."""
     flags = (INFO_BEGIN if begin else 0) | (INFO_END if end else 0)
-    out = _header() + struct.pack('<bB', BIND_DATA, flags) + script_entry(script, object_props, value_props)
-    for fragment in (begin, end):
-        if fragment:
-            out += struct.pack('<B', 1) + pack_wstring(script) + pack_wstring(fragment)
-    return out
+    return _fragment_block(script, flags, [f for f in (begin, end) if f], object_props, value_props)
+
+
+def package_fragments(script: str, flags: int, object_props: dict = None, value_props: dict = None) -> bytes:
+    """A PACK's VMAD: Fragment_N for the Nth set bit (OnBegin, OnEnd, OnChange)."""
+    names = [f'Fragment_{i}' for i in range(bin(flags).count('1'))]
+    return _fragment_block(script, flags, names, object_props, value_props)
+
+
+def terminal_fragments(script: str, fragments: list, object_props: dict = None) -> bytes:
+    """A TERM's VMAD (xEdit wbVMADFragmentedPERK): `script`'s fragments [(menu item ID, function)], as vanilla's."""
+    out = _header() + struct.pack('<b', BIND_DATA) + script_entry(script, object_props, None)
+    out += struct.pack('<H', len(fragments))
+    return out + b''.join(struct.pack('<IB', index, 1) + pack_wstring(script) + pack_wstring(name)
+                          for index, name in fragments)
 
 
 def quest_fragments(script: str, stages: list, object_props: dict = None, value_props: dict = None,
@@ -70,7 +91,7 @@ class Unsupported(ValueError):
     """A VMAD part the packers do not write (strings, structs, alias-bound objects, other arrays)."""
 
 
-def _wstring(data: bytes, pos: int) -> tuple:
+def read_wstring(data: bytes, pos: int) -> tuple:
     """(text, position after) of one length-prefixed string."""
     n = struct.unpack_from('<H', data, pos)[0]
     return data[pos + 2:pos + 2 + n].decode('utf-8'), pos + 2 + n
@@ -101,14 +122,14 @@ def _property(data: bytes, pos: int) -> tuple:
 
 def read_entry(data: bytes, pos: int) -> tuple:
     """((script, {property: FormID}, {property: (kind, value)}), position after) of one script entry."""
-    name, pos = _wstring(data, pos)
+    name, pos = read_wstring(data, pos)
     flags, count = struct.unpack_from('<BH', data, pos)
     pos += 3
     if flags:
         raise Unsupported(f'script flags {flags}')
     objects, values = {}, {}
     for _ in range(count):
-        prop, pos = _wstring(data, pos)
+        prop, pos = read_wstring(data, pos)
         kind, value, pos = _property(data, pos)
         if kind == 'object':
             objects[prop] = value

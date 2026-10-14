@@ -20,6 +20,11 @@ _FILE_RE = re.compile(r'_([0-9a-f]{8})_(\d+)\.ogg$', re.I)
 _TAG_RE = re.compile(r'\[[^\]]*\]')
 
 
+def fnv_folder(export_dir: Path, voice_type: str) -> Path:
+    """The export's recordings folder of FNV voice type EditorID `voice_type`."""
+    return export_dir / 'sound' / 'voice' / 'falloutnv.esm' / voice_type.lower()
+
+
 def index_recordings(folder: Path) -> dict:
     """{(INFO id, response number): path} for one FNV voice-type folder."""
     out = {}

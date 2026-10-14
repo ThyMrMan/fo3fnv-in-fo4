@@ -31,6 +31,7 @@ from tools.script.compile_papyrus import compile_fallout4
 DOC_SCRIPT = 'FALLOUTNV_GSDocMitchellScript'
 FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
 QUEST_PREFIX = 'FALLOUTNV_QF_'
+PACKAGE_PREFIX = 'FALLOUTNV_PF__'
 #: FNV quests the spike converts -> their object id, outside the spike's sequential ids so no line moves.
 QUESTS = {'VDoctors': 0x1000}
 _STAGE_FRAGMENT = re.compile(r'^Function (Fragment_Stage_(\d+)_Item_(\d+))\(', re.I | re.M)

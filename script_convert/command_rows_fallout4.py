@@ -64,4 +64,8 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'showracemenu': Cmd(f'{CONTROLS_PROPERTY}.ShowRaceMenu()', self_type=_CONTROLS, flags='zero_arg'),
     'sexchange': Cmd('TES4Polyfill.SetSex({ref}, "{s0}")', ACTOR, defaults={0: '-1'}, flags='actor_only zero_arg'),
     'showtraitselectmenu': _menu('traits', '0.0', flags='zero_arg'),
+    'rewardkarma': Cmd('TES4Polyfill.ModKarma(TES4Karma, {f0})', self_type=('TES4Karma', 'GlobalVariable')),
+    'addnote': Cmd('Game.GetPlayer().AddItem({p0}, 1, False)', types={0: 'Form'}),
+    'removenote': Cmd('Game.GetPlayer().RemoveItem({p0}, 1, True)', types={0: 'Form'}),
+    'gethasnote': Cmd('Game.GetPlayer().GetItemCount({p0})', types={0: 'Form'}),
 }.items()}

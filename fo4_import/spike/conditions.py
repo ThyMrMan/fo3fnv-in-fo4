@@ -15,6 +15,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.spike.records import RUN_REFERENCE, RUN_SUBJECT, RUN_TARGET, pack_ctda
+from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 from tools.dialog.tes4_ctda_dump import xedit_table
 
 FNV = xedit_table('fnv')
@@ -29,11 +30,23 @@ FNV_AV_GAME_NAMES = {'Critical Chance': 'CritChance', 'Damage Resistance': 'Dama
                      'Speed Multiplier': 'SpeedMult', 'Rad Level': 'RadiationRads', 'Fire Resistance': 'FireResist',
                      'Electric Resistance': 'ElectricResist', 'Frost Resistance': 'FrostResist',
                      'Energy Resistance': 'EnergyResist', 'EMP Resistance': 'EmpResist'}
-#: FNV name -> FO4 name where FO4 renamed the function.
-RENAMED = {'GetActorValue': 'GetValue', 'GetPCIsSex': 'GetIsSex'}
+#: FNV name -> FO4's function doing the same: renamed, a note (an inventory item) counted, a map region's location.
+RENAMED = {'GetActorValue': 'GetValue', 'GetPCIsSex': 'GetIsSex', 'GetHasNote': 'GetItemCount',
+           'PlayerInRegion': 'GetInCurrentLocation'}
 #: FNV functions that test the player; FO4's counterpart runs on the player reference.
-ON_PLAYER = {'GetPCIsSex'}
+ON_PLAYER = {'GetPCIsSex', 'GetHasNote', 'PlayerInRegion'}
 PLAYER_REF = 0x14
+#: FNV functions reading 0 for a form the build leaves out (fo4_pipeline.md#dialogue-conditions).
+ABSENT_ZERO = frozenset({'GetIsID', 'GetIsReference', 'GetIsVoiceType', 'GetInCell', 'GetInWorldspace',
+                         'GetDeadCount', 'HasPerk', 'GetQuestCompleted', 'GetQuestRunning', 'GetStage',
+                         'GetStageDone', 'GetObjectiveCompleted', 'GetObjectiveDisplayed', 'GetQuestVariable',
+                         'GetScriptVariable', 'GetCasinoWinningStage'})
+#: FormIDs below this are the engine's own forms, the same in both games (the player's base 0x7 and reference 0x14).
+ENGINE_FORMS = 0x800
+#: Condition flag (both games): OR with the next condition.
+OR_NEXT = 0x01
+#: The objective states a mirror global keeps (form map key: (quest, objective, state)).
+OBJECTIVE_STATES = tuple(OBJECTIVE_FUNCS.values())
 #: Condition flag (both games): compare against a global's value; the value field holds the global's FormID.
 USE_GLOBAL = 0x04
 _OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,
@@ -101,6 +114,30 @@ def simplify(conds: list, settle):
             return None
         kept.append(live)
     return kept
+
+
+def absent(cond: dict, form_map: dict) -> 'bool | None':
+    """Outcome of an ABSENT_ZERO test of a form the build lacks; else None."""
+    if cond['func'] not in ABSENT_ZERO or cond['op_flags'] & USE_GLOBAL or cond['p1'] < ENGINE_FORMS:
+        return None
+    return None if cond['p1'] in form_map or _mirrored(cond, form_map) else compare(cond, 0.0)
+
+
+def _mirrored(cond: dict, form_map: dict) -> bool:
+    """True when a quest variable or objective test has a mirror global."""
+    p1, p2 = cond['p1'], cond['p2']
+    return ('qvar', p1, p2) in form_map or any((p1, p2, state) in form_map for state in OBJECTIVE_STATES)
+
+
+def without_absent(conds: list, form_map: dict) -> 'list | None':
+    """`conds` less those absent() fixes, OR flags set again within each group; None when they never pass.
+    See: docs/fork/fo4_pipeline.md#dialogue-conditions
+    """
+    kept = simplify(conds, lambda cond: absent(cond, form_map))
+    if kept is None:
+        return None
+    return [{**cond, 'op_flags': cond['op_flags'] & ~OR_NEXT | (OR_NEXT if i < len(group) - 1 else 0)}
+            for group in kept for i, cond in enumerate(group)]
 
 
 def _fo4_params(cond: dict, form_map: dict, av) -> tuple:

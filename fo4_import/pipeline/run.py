@@ -30,7 +30,8 @@ def scope_models(export_dir: Path, cell_edid: str, exterior: 'tuple | None') -> 
     outside = Exterior(export_dir, all_refs, *exterior).refs if exterior else []
     used = {int(r['NAME'], 16) for r in scope(export_dir, all_refs, find_cell(export_dir, cell_edid), outside)[1]
             + outside}
-    recs = [rec for sig, rec in placed_bases(export_dir, used).values() if sig in placed_types('record', 'pickup')]
+    recs = [rec for sig, rec in placed_bases(export_dir, used).values()
+            if sig in placed_types('record', 'pickup', 'readable')]
     recs += [r for sig in placed_types('item') for r in export_records(export_dir, sig) if int(r['FormID'], 16) in used]
     paths = {export_dir / 'meshes' / world_model(r).replace('/', '\\').lower() for r in recs if world_model(r)}
     return sorted(p for p in paths if p.exists())

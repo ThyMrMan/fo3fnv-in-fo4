@@ -672,7 +672,7 @@ POLL_BLOCKS = ('gamemode', 'scripteffectupdate')
 
 #: `begin MenuMode <id>` -> menu whose close runs it; docs/commentary/script_convert.md#menumode-with-a-menu-id
 MENU_ID_NAMES = {
-    '1036': 'RaceSex Menu',
+    '1036': 'RaceSex Menu', '1056': 'VATS Menu',
 }
 
 #: `begin MenuMode 1001`, the script's own message box; docs/commentary/script_convert.md#menumode-message-box
@@ -724,12 +724,14 @@ FALLOUT4_EVENTS = {
     'Event OnSleepStop(bool abInterrupted)': 'Event OnPlayerSleepStop(bool abInterrupted, ObjectReference akBed)',
     'Event OnMenuClose(String TES4_MenuName)': 'Event OnMenuOpenCloseEvent(string TES4_MenuName, bool abOpening)',
 }
-#: Static helpers FO3/FNV on Fallout 4 never use. See: docs/fork/fo4_spikes.md#spike-3-helpers
-FALLOUT4_UNUSED_HELPERS = frozenset({'TES4_DialoguePause', 'TES4_DayClock', 'TES4_BoundItemEffect'})
+#: Static helpers, or `Script.Function`s, FO3/FNV on Fallout 4 never use. See: docs/fork/fo4_spikes.md#spike-3-helpers
+FALLOUT4_UNUSED_HELPERS = frozenset({
+    'TES4_DialoguePause', 'TES4_DayClock', 'TES4_BoundItemEffect', 'TES4Polyfill.MirrorPlayerFactionRelation',
+    'TES4Polyfill.GetIsCreature', 'TES4Polyfill.IsGuard', 'TES4Polyfill.GetDayOfWeek'})
 #: The helpers' own Skyrim natives -> Fallout 4's (their update loop).
 FALLOUT4_HELPER_NATIVES = {'RegisterForSingleUpdate(': 'StartTimer(', 'UnregisterForUpdate()': 'CancelTimer()'}
 #: Skyrim menu name -> Fallout 4's (UI.IsMenuOpen comes from F4SE there).
-FALLOUT4_MENU_NAMES = {'Dialogue Menu': 'DialogueMenu', 'Book Menu': 'BookMenu', 'RaceSex Menu': 'LooksMenu'}
+FALLOUT4_MENU_NAMES = {'Dialogue Menu': 'DialogueMenu', 'Book Menu': 'BookMenu', 'RaceSex Menu': 'LooksMenu', 'VATS Menu': 'VATSMenu'}
 #: Actor value name -> its Fallout 4 FormID; FO4 has no Variable01-10. See: docs/fork/fo4_spikes.md#spike-3-helpers
 FALLOUT4_ACTOR_VALUE_IDS = {
     'Confidence': 0x2BD, 'Aggression': 0x2BC, 'Morality': 0x2BF, 'Assistance': 0x2C1,
@@ -757,13 +759,15 @@ FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech'
 #: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.
 FALLOUT4_HELPER_QUESTS = {'TES4_PlayerControls': 0x900, 'TES4_CharacterEvents': 0x901}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
-FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00}
+FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00, 'TES4Trace': 0xA01}
 #: Message boxes -> (object id in FALLOUT4_HELPER_PLUGIN, title and text, buttons); ids append only.
 FALLOUT4_HELPER_MESSAGES = {'TES4ChooseSexMessage': (0xB00, 'Choose Sex', ('Male', 'Female'))}
 #: Helper quest script -> {property: helper message} it is given.
 FALLOUT4_HELPER_QUEST_MESSAGES = {'TES4_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'}}
 #: Prefix of the Scene property `StartConversation Player [topic]` starts on Fallout 4 (topic, else GREETING).
 FALLOUT4_TALK_PREFIX = 'TES4Talk_'
+#: Prefix of the Scene property an NPC-to-NPC `StartConversation <actor> <topic>` starts on Fallout 4.
+FALLOUT4_CHAT_PREFIX = 'TES4Chat_'
 #: Prefix of the MatSwap property a Fallout 4 `SwapTexture` applies (fallout4_swap_property).
 FALLOUT4_SWAP_PREFIX = 'TES4Swap_'
 #: Prefix of the seat (ObjectReference) the player's Fallout 4 `AddScriptPackage <package>` seats them in.

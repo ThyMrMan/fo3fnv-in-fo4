@@ -161,8 +161,9 @@ its chain of type checks.
 | Converter | Types |
 |---|---|
 | `record` (its FO4 record; `_make`) | STAT, MSTT, SCOL, LIGH, DOOR, FURN, ACTI |
-| `record`, as a static stand-in (`STATIC_STAND_INS`) | BOOK, KEYM, NOTE, TERM, IDLM |
-| `pickup` (the FO4 item, else a static) | ALCH, AMMO, WEAP, ARMO |
+| `readable` (`spike.readables`, [below](#readables)) | BOOK, NOTE, TERM |
+| `idle` (a vanilla idle marker) | IDLM |
+| `pickup` (the FO4 item, else a static) | ALCH, AMMO, WEAP, ARMO, KEYM |
 | `item` (`spike.items`) | MISC, CONT |
 | `tree` (a static from the SpeedTree) | TREE |
 | `sound` (a sound marker) | SOUN |
@@ -369,6 +370,34 @@ build:
   headless, over the built plugin.
 - `tools/validate/fo4_coverage.py`: FNV's references and fields against
   the plugin's, paired by FNV's object ids.
+- `tools/validate/fo4_audit.py` (2026-10-13): the defect classes play-testing
+  found, checked before playing. It looks for:
+  - script properties left unfilled (split into names FNV has outside the
+    build and names it has nowhere) or naming no record;
+  - creatures keeping their own stats with Health 0;
+  - actors left with the copied body's TurretTripodClass;
+  - creatures with no factions or combat style that no template supplies;
+  - living actors of a burrowing race;
+  - FNV package sections with no package VMAD;
+  - package targets that lost FNV's Persistent flag;
+  - unique actors placed twice;
+  - script hazards: patterns where FNV's one-script-at-a-time model breaks
+    under Papyrus threads (a cross-script add left non-atomic, a counter
+    tested with `==` after its add, a Say in a dialogue result), and
+    GetFormFromFile naming a file outside the load order.
+
+  Seconds. Its first run found two counters the atomic-add pass missed
+  because FNV wrote them in parentheses (`set VMS16.nGangerDeathCount to
+  (VMS16.nGangerDeathCount + 1)`, the snow globes); `find_adds` now takes
+  them.
+- `tools/validate/fo4_value_census.py` (2026-10-13): what the plugin writes
+  that no Fallout4.esm record of the same type does: tags, sizes other than
+  vanilla's one fixed size, header flags, and bits in flag/enum words. Leads,
+  not defects. Engine semantics leak through this way: PKDT's Continue if PC
+  near is set by 0 of 3,828 vanilla packages (and by Sunny's sneak-to-well
+  package before it was dropped). First run on the region build: 37 findings, among them NPC_ SNAM
+  written at FNV's 8 bytes on 808 faction entries where vanilla writes 5, and
+  FACT MNAM/FNAM rank titles no vanilla faction writes. About 5 s.
 
 Found and fixed:
 - **Links to references never built.** `ids` held every reference in
@@ -395,7 +424,7 @@ Found and left for their step (counts for Goodsprings to Primm):
 | Actors | 206 creatures, 153 NPCs | 3 |
 | Ownership (XOWN) on references and cells | 87 + 14 | 2 |
 | Map markers (XMRK, TNAM, FULL) | 15 | 2 |
-| Consumable effects with no FO4 effect: chem and alcohol stats, hunger, thirst and sleep, RadAway, limbs, Stealth Boy, Psycho, Turbo and more (44 kinds); 23 consumables have none left, which FO4Edit reports as a NULL effect | 44 kinds | 2 |
+| Consumable effects with no FO4 effect: done 2026-10-14 ([consumable effects](#consumable-effects)); 20 kinds left are recorded drift | 20 kinds | 2 |
 | Leveled-list chance-none globals (LVLG) | 18 | 2 |
 | Door navmesh links (XNDP), patrol data (INAM, SCHR, XPPA, XPRD) | 70, 68 | 3 |
 | Placeable water (PWAT): the spring's clean water, blood, dirty and toxic water | 13 | world gaps |
@@ -412,6 +441,106 @@ Meshes: of the region's 1,630 FNV meshes, no block type is lost beyond
 the parked ones above and the damage stages and phantom already noted.
 Standalone transform and visibility controllers sit in weapon,
 clothing and skeleton meshes FNV animates only from actor animations.
+
+<a id="quest-scope"></a>**Quests by reference (built 2026-10-14).** The
+build's quests were a hand list of 18; region scripts named 58 quests
+outside it, so their stages, variables and objectives did nothing and
+conditions on them read 0. `spike/quest_scope.py` now includes every quest
+the build's content names, and every quest those name in turn. The content
+is the scripts of the placed bases, of the placed actors and of their
+packages, the actors' package conditions, and the dialogue lines whose
+conditions name a placed actor, base, reference or built cell. A quest is
+named by a converted script's property of its EditorID (attach.py fills
+properties by name) or by a condition parameter; lines count when their
+speaker or cell test (GetIsID, GetIsReference, GetInCell) names a placed
+actor, reference or built cell. Each such quest adds the quests its own
+scripts start or set a stage on, one step (VCG01 starts VGenericTimer to
+give the controls back), but not quests it only reads: following every
+reference pulled in 272 quests, the main quest to the Strip; any-parameter
+line matches (a caps or weapon check) 154. The rule gives 60 for
+Goodsprings to Primm. FNV FormIDs stay one to one.
+
+The shared greeting and the scenes it leads to belonged to the highest
+priority built quest and were keyed on it, so a higher-priority quest
+joining moved all of them (917 topics and 208 scenes when VMS38 joined).
+They now live in a generated start-game quest, `FNV_Greetings`
+(`cell._greetings`), keyed on itself; each line keeps a GetQuestRunning on
+its own quest. Re-keyed once with approval on 2026-10-14.
+
+<a id="readiness"></a>**Per-quest readiness (built 2026-10-14).** Each
+tutorial snag was something converted silently left out. The build now
+records, per FNV quest, its lines built and left out with the blocking
+condition, choices left with no reply, and objective targets not built,
+and per NPC the packages left out (`spike/readiness.py`, written to
+`temp/fo4_readiness/<plugin>.json`).
+`tools/validate/fo4_quest_readiness.py` joins them with the plugin's
+unfilled script properties (by owning quest: stage results, quest script,
+its lines' results) and the packages of each quest's speakers, and marks
+each quest clear or to check before it is played.
+
+<a id="named-references"></a>**References past the edge (built 2026-10-14).**
+Packages aimed at a marker past the build's cells were left out as
+location or target not built (Ringo's caravan, Hayes' Forlorn Hope trip),
+and GetDistance from one could not convert (the prospectors' meal and sleep
+packages measure from `VProspectorDenCampsiteMarkerREF`, 472 units past the
+region's south edge). FNV keeps those references persistent in the
+worldspace's persistent cell; `spike/named_refs.py` places the ones a
+placed actor's packages (its own or its template chain's) name as
+location, target or condition parameter there too. FNV's Find package
+(the prospectors loot 5 containers, Allow Killing and Stealing) has no FO4
+equivalent: FO4's Find procedure only picks a spot or seat for Sandbox and
+Sit ([drift](fo4_drift.md#recorded)).
+
+<a id="dialogue-conditions"></a>**Dialogue conditions (built 2026-10-14).**
+Lines were left out when a condition named something the build lacks.
+Three fixes (`conditions.without_absent`, `spike/condition_forms.py`):
+- *Settled when the form is not in the build.* A test of an actor, voice
+  type, cell, worldspace, quest (stage, variable, objective, running,
+  completed), script variable, perk or casino the build leaves out reads 0
+  here, as FNV reads an unrun quest's variable as 0: `GetIsID Other == 0`
+  holds and drops out, `== 1` never holds and the line goes. OR groups
+  settle as a whole (an always-true member satisfies its group). The
+  engine's own forms (below 0x800, the player) are never settled.
+- *Made on demand.* An item a line counts or checks worn (GetItemCount,
+  GetEquipped, and GetHasNote, which becomes GetItemCount on the player:
+  notes are inventory items here) and a form list of items convert when a
+  line names them; voice types, map regions' locations, the built cells and
+  the worldspace join the lines' form map.
+- *Renamed.* PlayerInRegion is GetInCurrentLocation on the player, of the
+  location made from that map region (a cell takes the region holding its
+  centre, so it is cell-grained where FNV tests the polygon).
+
+<a id="karma-page"></a>**Karma page (built 2026-10-14).** Karma is the
+`TES4Karma` global the scripts' RewardKarma sets (Karma conditions on the
+player read it). Its Pip-Boy Tabs page on STAT (`spike/karma_page.py`)
+has two rows, actor values `TES4_KarmaPage` sets on the player each time
+the Pip-Boy opens (it cannot hook every change: karma moves through a
+global, and the level on its own): Karma, very evil to very good by
+FNV's thresholds (`fAlignVeryEvilMaxKarma` -750, `fAlignEvilMaxKarma`
+-250, `fAlignGoodMinKarma` 250, `fAlignVeryGoodMinKarma` 750, from the
+engine settings file), and Title, FNV's karmic title for that kind (evil,
+neutral, good) and the player's level (capped at 30). FNV's titles are the
+settings `sKarmicTitle<Kind><nn>`: FalloutNV.esm sets 53 of the 90 (the
+Mojave titles: Samaritan, Mojave Legend, Vegas Crimelord), the rest keep
+the engine's defaults, Fallout 3's titles (Vault Guardian, Urban Legend),
+read from New Vegas's GECK (`oblivion_engine_extract.py --settings
+sKarmicTitle`). The KARMA mod (Nexus 80425) shows its own Commonwealth
+titles the same way, on STAT.
+
+<a id="reputation"></a>**Reputation (built 2026-10-14).** FNV's reputations
+take the Skyrim build's design
+([fallout reputation](../commentary/tes5_import_character_data.md#fallout-reputation)):
+each REPU is a FormList on FNV's own object id listing six globals
+(infamy, fame, the mixed, good and bad threshold, the maximum,
+`reputation_falloutnv.SLOTS`), `TES4_Reputation` keeps them in step and
+re-derives the title from FNV's fame-by-infamy grid, the script
+converter's AddReputation family calls it, a script property naming the
+REPU gets the list, and GetReputation / GetReputationThreshold read a
+global (`spike/reputation.py`). Two FO4 mods were read for reference:
+REPUTATION (Nexus 79394) and KARMA (Nexus 80425) keep fame, infamy and
+karma as actor values on the player, which their Pip-Boy pages (the Pip-Boy
+Tabs F4SE plugin, a 4×4 title grid in `RPTN_ReputationTab.ini`) list. The
+globals here have no Pip-Boy page yet.
 
 <a id="globals"></a>**Globals (step 2, built 2026-10-12).** Only dialogue
 unlocks, objective mirrors, helper globals and the engine globals were
@@ -1079,10 +1208,159 @@ could not be taken).
   `pack_keym`, laid out as 134 of vanilla's 177 keys (preview
   KeyChainsAlt, the most common), made by `Items` like a misc item.
 
+<a id="readables"></a>**Books, notes and terminals (built 2026-10-14, untested in game).**
+They were statics of their meshes. `spike/readables.py` now makes each
+one FNV's FormID keeps, whether a reference places it or a script gives it
+(`Items` hands BOOK and NOTE to it). Each FO4 target was checked against
+Fallout4.esm and xEdit's layouts:
+
+| FNV | FO4 | Evidence |
+|---|---|---|
+| Text note | Paper note (BOOK), FNV's mesh when it has one | as before; vanilla's note fields (BoS302BIngramBackupNote) |
+| Image note (5) | Paper note showing the image: `<img src='img://Textures/...'>` | vanilla's 2 notes with images use that tag |
+| Voice note (34) | Holotape (NOTE, [below](#holotapes)) | vanilla's 133 voice holotapes |
+| Sound note (2) | left out | no vanilla holotape is type Sound (0 of 167) |
+| Book | BOOK: FNV's mesh, name, text (DESC), value, weight, script; Can't Be Taken (FNV DATA 0x2 = FO4 DNAM 0x2) | xEdit both games |
+| Terminal | TERM ([below](#terminals)) | 778 vanilla terminals |
+
+<a id="skill-books"></a>**Skill books.** FNV raises the skill by 3
+(`fBookPerkBonus`; Comprehension's entry point adds 1) for every copy read,
+and uses the copy up. FO4's teach-on-read is DNAM Add Perk: 113 of
+vanilla's 327 books, every magazine; Advance Actor Value and Add Spell are
+on none. A perk is added once per book record, so it cannot count copies:
+not a true equivalent. A skill book instead runs `TES4_SkillBook`
+(ObjectReference's OnRead, raised on every read): the helper
+plugin's skill actor value + 3, and the copy removed. Comprehension is
+not converted, so its extra point is missing.
+
+<a id="terminals"></a>**Terminals** (`spike/terminals.py`). Field by field
+against FNV's TERM:
+- **Text.** DESC is FNV's welcome text, shown above the menu of that
+  terminal page; it becomes BTXT (body text), as vanilla's sub-menus carry
+  theirs (538 of 778 have BTXT). NAM0 is left empty, so FO4 shows its own
+  RobCo header where FNV showed its server lines.
+- **Menu items.** ITXT, RNAM (FNV's result text), ITID (item i is ID i+1,
+  vanilla numbers from 1) and the item's conditions (converted as a
+  line's; an item whose conditions cannot convert is left out). The type
+  (ANAM): a sub-menu is 4 with TNAM, as vanilla's 350; a displayed note is
+  8 (Display Text) with the note's text in UNAM, as vanilla's 1,804; Force
+  Redraw (FNV item flag 0x2) is 6, which vanilla uses on toggles whose
+  conditions change; `ForceTerminalBack` is 5 (Return to Top Level, used on
+  vanilla's Yes/No confirmations; FNV goes back one level, so deeper menus
+  differ); anything else is 8 with no text, as vanilla's script-only items.
+- **Item scripts.** FO4 runs `Fragment_Terminal_NN(ObjectReference
+  akTerminalRef)` of the TERM's fragment script for item ID NN. The VMAD
+  is xEdit's wbVMADFragmentedPERK (bind version 3, the script entry, then
+  per fragment its ID, a 1, script and function), as all vanilla terminal
+  VMADs. For the FO4 target, script_convert now writes one fragment script
+  per TERM (`script_convert/terminal_fragments.py`, `FALLOUTNV_TM__<id>
+  extends Terminal`): the item's script converts as a TopicInfo fragment
+  whose subject is the terminal, and Add Note adds the note. FalloutNV.esm:
+  140 TERMs have one.
+- **The user's spot.** A FO4 terminal is furniture: vanilla's carry
+  keywords (AnimFurnDeskTerminal, PlayerPathToFurniture,
+  FurnitureForce1stPerson), MNAM `0x40000001`, a marker model and one
+  marker (SNAM: offset, heading, all entry sides). These are copied from
+  DN054_ZekesTerminal (TerminalOn.nif). The marker stands where vanilla's
+  stands relative to its screen: 55.2 out along the screen's facing and
+  79.3 below its centre (TerminalOn.nif's screen centre (0, -5.8, 79.3),
+  marker (0, -61, 0)), facing it. FNV's six terminal meshes face +X,
+  FO4's -Y.
+- **The screen.** FO4 draws the terminal menu onto the terminal's shape
+  named `Screen:0`: the exe's terminal menu code looks the name up, and
+  the vanilla terminal meshes checked (TerminalOn, TerminalWall01,
+  TerminalOnCorded, TerminalDesk01) have it, lit by
+  `Materials\Interface\PipScreenTerminals.BGSM`. FNV draws its menu over
+  the whole view, so its meshes mark no screen. `nif/terminal.py` takes
+  the largest unlit, textured shape (the glass FNV textures with its
+  screen texture), names it `Screen:0` with vanilla's shader and texture
+  set, and lays its UVs 0 to 1 as vanilla's (u left to right, v top to
+  bottom). The mesh is written as `<name>terminal.nif`; the plain mesh
+  stays for statics.
+- **Locks.** FNV locks the base (difficulty, Leveled, Unlocked); FO4 locks
+  each reference (XLOC, vanilla's 623 terminal references: levels 0, 25,
+  50, 75, 100, 255). A placed terminal takes XLOC level difficulty × 25
+  (Requires Key: 255) and Leveled (`0x4`). FO4's hacking needs the Hacker
+  perk per level where FNV needed Science 25 per level. Password notes
+  (PNAM) are not keys yet: FO4's are KEYMs.
+- **Left out:** FNV's looping sound (FO4's TERM field is unused by vanilla),
+  Alternate Colors, the server type.
+
+<a id="holotapes"></a>**Holotapes** (`spike/holotapes.py`). FO4 plays a
+voice holotape (NOTE DNAM 1) by starting its scene (SNAM). Vanilla's
+(DN150_BonnieHolotape in HolotapesQuest) has one phase per line, an actor
+of none (alias -2), and Radio actions (type 6) naming each line's topic
+and SOMDialogue2D_Holotape as output (stored in DMAX, which xEdit reads as
+a float). Each line is a scene topic (DATA category 2, subtype 0x11) with
+one INFO whose speaker (ANAM) is an NPC carrying the voice type the
+recording is filed under (535 of HolotapesQuest's 536 lines). An FNV voice
+note names its topic and speaker: each of the topic's INFOs becomes a line
+(`say.info`, so its recordings convert under the speaker's voice type),
+and the speaker is a copy of vanilla's DN150_BonnieTournquist with FNV's
+name and voice type. The quest, scene, topics and speaker are hashed from
+the note's FormID. A script's AddNote of a voice note still declares a
+`Book` property, which a holotape cannot fill (attach.py fills items by
+`Book`, not `Holotape`).
+
+**Measured** (Goodsprings to Primm): the region places 4 books, 1 note and
+4 terminals; all were statics and all are now their records (2 TERMs, 3
+references locked, the Easy desk terminal's unlock item a fragment; the 4
+skill books; Bison Steve's ransom note). Scripts now also get 7 books and
+1 holotape (Deputy Beagle's journal: 6 lines, 6 recordings under
+MaleAdult11) that were skipped before. No FormID moved and nothing was
+removed: the 7 records replacing statics keep the static's FNV FormID.
+
 Census of the region's 1,630 meshes' Havok blocks: MOPP/packed strips
 941, rigid bodies 928 (+503 T), convex vertices 360, boxes 111, lists 27,
 capsules 14, convex transforms 11, spheres 4, constraints 26, phantom and
 transform shape 1 each.
+
+<a id="consumable-effects"></a>**Consumable effects (built 2026-10-14, untested in game).**
+`spike/consumable_effects.py` gives each FNV consumable (ALCH) effect a
+Fallout4.esm effect only where it is a true equivalent: the same actor value
+and the same kind, read field by field from both games' MGEF DATA (xEdit's
+layouts: FNV archetype and actor value at 0x40/0x44, FO4's at the same
+offsets). FNV's timed boosts (Value Modifier with Recover) become FO4's
+timed boosts of that actor value (Peak Value Modifier with Recover, as
+FO4's own chems); FNV's restores and damages without Recover over a duration
+are per-second changes in both games; instant ones have duration 0 in both.
+FNV's magnitude and duration are kept, except Turbo (FNV's magnitude is an
+on/off actor value; FO4 Jet's time scale 0.3, the wiki measures FNV's world
+at about 35%), Psycho (FNV adds `PsychoPerk`, Calculate Weapon Damage ×1.25;
+FO4's `ExtraDamage25Psycho` applies `ChemPsychoDamage`, Mod Weapon Attack
+Damage ×1.25, shown as 25) and the all-limbs restore (its script restores
+each limb by 100).
+
+- Carried as FO4's own effect: health (food heal; the stimpak's absolute
+  heal as `RestoreHealthGeneric`, since FO4's Stimpak archetype heals a
+  share of maximum health), rads up and down, Rad-X, SPECIAL and action
+  point boosts (the alcohol, Buffout and Mentats ones on FO4's alcohol,
+  Buffout and Mentats variants), SPECIAL reductions, damage, fire, poison and
+  energy resistance, Stealth Boy's Chameleon, Turbo (FO4 Jet's slow time),
+  Psycho (+25% damage), both cap adders (Sunset's script adds a cap 95% of
+  the time, a star cap otherwise; FO4's adds a cap), and the all-limbs
+  restore (FO4's six `RestoreCondition*`).
+- Copied and retargeted: skill boosts (FO4's `FortifyStrength` on the
+  helper plugin's skill; was Rad-X's dual-value boost) and Hydra's limb
+  restore over time (`RestoreHealthFood` on each limb condition: FO4's own
+  limb restores take no duration).
+- Effect conditions: HasPerk and IsHardcore count as false, since neither
+  FNV perks nor Hardcore mode convert; an effect needing one is left out.
+- An item left with no effect carries `FortifyHealth` at magnitude 0 and
+  duration 0, as vanilla's `VRWorkshopShared_MutfruitFake` (and
+  `HC_SippableWater`, `DamageRadiationChem` at 0). xEdit requires one
+  effect and reports an empty list as a NULL MGEF; vanilla leaves the list
+  empty only on its two survival status potions, never on an item.
+- Drift ([drift](fo4_drift.md#recorded)): Hardcore needs, addiction
+  (FNV's `UMON` usage monitor and withdrawal spells), weapon poisons,
+  Damage Threshold, critical chance, Rebound, Cateye, and the script-only
+  effects (Fixer, antivenom, Steady, Super Stimpak's after-effect, repair
+  kit, Stealth Boy's stop-combat).
+- Region build (Goodsprings to Primm, 125 consumables): effect kinds
+  dropped 44 → 20 (34 drops, all drift: 10 `UMON`, 11 on weapon
+  poisons); consumables with no effect 31 → 11, now carrying the zero
+  placeholder; 47 consumables changed; 6 MGEF copies added (Hydra), no
+  FormID moved; FO4Edit 31 errors → 0.
 
 ## <a id="before"></a>Before the pipeline: build and research
 
@@ -1123,6 +1401,52 @@ In order. **Built** marks what is done.
    - packages, factions, inventories;
    - LVLC → LVLN;
    - creatures through the replacement table.
+
+## <a id="atomic-adds"></a>Cross-script increments (built 2026-10-13, untested in game)
+
+`set Q.v to Q.v + 1` on another script's variable read and wrote it in one
+step: FO3/FNV run scripts one at a time. Papyrus runs each event on its own
+thread, and reading a property and writing it back are two calls into the
+owner. So two geckos dying together both read 1 and both wrote 2.
+VFreeformGoodsprings then counted 2 of the 3 second-well geckos, and 1 of
+the third well's 2, and the gecko hunt stalled.
+
+`script_convert/atomic_adds.py` fixes this. A pre-pass finds every
+increment whose owner (a quest's script, or a scripted reference's base
+script) declares the variable: 322 sites on 57 variables. The owner then
+gets `TES4Add_<v>(by)`, which also keeps the variable's mirror global in
+step. Each caller's write becomes a call to it, which Papyrus runs one at a
+time per object.
+
+## <a id="trace"></a>Session trace (built 2026-10-13)
+
+Quest bugs in the opening chain showed in game only as "she stands there".
+Examples: a line said twice, kills counted once, geckos already dead in an
+old save. Each needed a play-through and console checks to narrow down. The
+converted scripts now trace what they do, and a reader turns a session's
+Papyrus log into a timeline.
+
+- **Switch.** `TES4Trace`, a global in TES4Helpers.esl (object id 0xA01),
+  off by default. Turn it on with `set TES4Trace to 1` in the console. While
+  it is off, each trace point costs one call and one global read, and builds
+  no text.
+- **Trace points** (`script_convert/trace_points.py`, TES4Polyfill
+  `Trace*`):
+  - every converted SetStage: the quest, the stage asked, whether it was
+    set, and the stage it ends at;
+  - every atomic add: owner, variable, new value;
+  - every mirror global write;
+  - each converted line's begin and end: speaker and FNV INFO;
+  - each `SayWhenFree`: asked, started, not started, or dropped as a
+    duplicate;
+  - each package fragment: actor, fragment, current package;
+  - each scripted OnDeath: who died, and the killer.
+- **Reader.** `tools/validate/fo4_trace.py` prints the timeline, filtered
+  with `--grep` and `--kind`. It flags:
+  - a stage not set, or one that goes back;
+  - a Say that never started or was dropped;
+  - a line begun twice within 30 s;
+  - a counter that skips or goes back.
 
 ## <a id="census"></a>Record census (2026-10-10)
 
@@ -1339,3 +1663,4 @@ quick fix.
 | The saloon's night windows read flat yellow | FNV's own colour (1, 0.98, 0.29) × 3; total glow within vanilla windows' 0.05–0.26, so no global rescale | [glow](#glow) |
 | Placed guns lie wrong (the store's .22 stands on its grip) | FNV's reference rotation fits FNV's model, not the FO4 gun built in its place | [guns](fo4_spikes.md#spike-4-guns) |
 | FNV's guns on FO4 receivers; creatures with no FO4 rig | The replacement table and the modlist | [guns](fo4_spikes.md#spike-4-guns), [replacements](fo4_replacements.md) |
+| Terminal hum (FNV TERM looping sound) and Alternate Colors; FNV's 2 sound notes | Accepted drift ([fo4_drift.md](fo4_drift.md#recorded)). If wanted: write TERM's looping sound and test FO4 plays it, else a sound marker per terminal | [terminals](#terminals) |

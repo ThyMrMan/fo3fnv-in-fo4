@@ -14,14 +14,20 @@ Fallout4.esm forms are not used otherwise.
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
+import re
 from pathlib import Path
 
 from fo4_import.base.support_records import pack_global, pack_mesg
 from fo4_import.base.vmad import object_scripts
+from fo4_import.base.writer import pack_fo4_record
+from fo4_import.spike.controls import fo4_controls
+from fo4_import.spike.quest import QVAR_SITE, objective_key
+from script_convert.quest_var_mirrors import PREFIX as QVAR_PREFIX
 from fo4_import.spike.script import base_forms, declared_properties, fill
 from fo4_import.pipeline.export_index import export_records
-from script_convert.constants import (FALLOUT4_POSE_PREFIX, FALLOUT4_SWAP_PREFIX, FALLOUT4_TALK_PREFIX,
-                                      papyrus_script_name)
+from tes5_import.base.writer import pack_string_subrecord
+from script_convert.constants import (FALLOUT4_CHAT_PREFIX, FALLOUT4_POSE_PREFIX, FALLOUT4_SWAP_PREFIX,
+                                      FALLOUT4_TALK_PREFIX, papyrus_script_name)
 
 SCRIPT_PREFIX = 'FALLOUTNV_'
 #: The player reference, which converted scripts name `Player`.
@@ -32,6 +38,11 @@ MESSAGE_BOX = 0x1
 DIALOGUE_GLOBALS = ('TES4Unlock_', 'TES4FollowUpFrom_', 'TES4FollowUpSaid_')
 #: derive_formid site of the dialogue globals (key: the global's name).
 GLOBAL_SITE = 'FNV dialogue GLOB'
+#: The FormList the polyfill's SetDestroyed mirrors destroyed references into (converter._destroyed_formlist).
+DESTROYED_LIST = 'TES4DestroyedRefs'
+#: Mirror global name prefix of an objective state, and its parts: state, quest EditorID, objective index.
+OBJECTIVE_PREFIX = 'TES4Obj'
+OBJECTIVE_GLOBAL = re.compile(r'TES4Obj(Done|Shown)_(.+)_(\d+)$')
 #: Papyrus types of the item properties the cell's item converter fills by FNV name.
 ITEM_TYPES = frozenset({'Potion', 'MiscObject', 'LeveledItem', 'Weapon', 'Armor', 'Ammo', 'Book', 'Key'})
 
@@ -48,6 +59,8 @@ class ObjectScripts:
                              if r.get('EditorID')}
         self.forms, self.made_messages, self.globals = base_forms(helper_index), {}, {}
         self.named, self.talks = dict([PLAYER]), {}
+        self.quest_ids = {r['EditorID'].lower(): r['FormID'] for r in export_records(export_dir, 'QUST')
+                          if r.get('EditorID')}
 
     def name(self, scpt: int) -> 'str | None':
         """The converted script of FNV script `scpt`; None when it was not converted."""
@@ -58,28 +71,61 @@ class ObjectScripts:
         """{property: FormID} of converted `script`'s properties the spike can fill.
 
         A `TES4Talk_<topic>` scene gets its FormID here, kept in `talks` for the conversation builder;
-        material swaps, imagespace modifiers and poses are made on demand (_made).
+        material swaps, imagespace modifiers and poses are made on demand (_made). A name matches the build's
+        forms ignoring case, as FNV's script names do (SunnyREF is the reference SunnyRef).
         """
         declared = declared_properties((self.dir / f'{script}.psc').read_text(encoding='utf-8'))
         messages = {prop: self.message(prop) for kind, prop in declared if kind == 'Message' and prop in self.messages}
         props = fill(declared, {**self.forms, 'Message': messages}, self.helper_index)
-        talks = {prop: self.talk(prop) for kind, prop in declared if kind == 'Scene' and prop.startswith(FALLOUT4_TALK_PREFIX)}
-        made = {prop: self._made(kind, prop) for kind, prop in declared}
+        talks = {prop: self.talk(prop) for kind, prop in declared
+                 if kind == 'Scene' and prop.startswith((FALLOUT4_TALK_PREFIX, FALLOUT4_CHAT_PREFIX))}
+        made, named = {prop: self._made(kind, prop) for kind, prop in declared}, self.named_lower()
         return {**props, **talks, **{p: f for p, f in made.items() if f},
-                **{prop: self.named[prop] for _, prop in declared if prop in self.named}}
+                **{prop: named[prop.lower()] for _, prop in declared if prop.lower() in named}}
+
+    def named_lower(self) -> dict:
+        """`named` keyed by lower-case name."""
+        return {name.lower(): fid for name, fid in self.named.items()}
 
     def _made(self, kind: str, prop: str) -> 'int | None':
-        """A property's form the spike converts on demand: material swaps, imagespace modifiers, poses, items."""
+        """A property's form the spike converts on demand: material swaps, imagespace modifiers, poses, items,
+        weapon animation type lists, packages; a Form-typed item (a note: paper or holotape)."""
         if kind == 'MatSwap' and prop.startswith(FALLOUT4_SWAP_PREFIX):
             return self.builder.swaps.swap(prop)
         if kind == 'ImageSpaceModifier':
             return self.builder.imods.modifier(prop)
         if kind == 'GlobalVariable':
-            return self.global_(prop) if prop.startswith(DIALOGUE_GLOBALS) else self.builder.globals.get(
-                self.global_names.get(prop))
+            if prop.startswith(DIALOGUE_GLOBALS):
+                return self.global_(prop)
+            mirror = self.mirror_global(prop) if prop.startswith((QVAR_PREFIX, OBJECTIVE_PREFIX)) else None
+            return mirror or self.builder.globals.get(self.global_names.get(prop))
         if kind == 'ObjectReference' and prop.startswith(FALLOUT4_POSE_PREFIX):
             return self.builder.poses.pose(prop)
-        return self.builder.items.by_name(prop) if kind in ITEM_TYPES else None
+        if kind == 'FormList':
+            return self.builder.equipment.anim_list(prop) or self.form_list(prop)
+        if kind == 'Package':
+            return self.builder.packages.named(prop)
+        return self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None
+
+    def mirror_global(self, name: str) -> 'int | None':
+        """A quest-variable or objective mirror global (`TES4QVar_<quest>_<var>`, `TES4Obj<state>_<quest>_<n>`):
+        the build's own when written, else written for a quest the build leaves out on the FormID that quest's
+        own build gives it (quest_var_globals, objective_globals); None for an unknown objective quest."""
+        named = self.named_lower().get(name.lower())
+        if named:
+            return named
+        objective = OBJECTIVE_GLOBAL.match(name)
+        if objective is None:
+            fid = self.builder.writer.derive_formid(QVAR_SITE, name)
+        elif objective[2].lower() in self.quest_ids:
+            fid = self.builder.new_id(objective_key(self.quest_ids[objective[2].lower()], int(objective[3]),
+                                                    objective[1]))
+        else:
+            return None
+        self.builder.writer.add_record('GLOB', pack_global(fid, name))
+        self.named[name] = fid
+        self.builder.counts['mirror GLOB of a quest not built'] += 1
+        return fid
 
     def global_(self, name: str) -> int:
         """The dialogue global `name`, written once; its FormID hashed from the name."""
@@ -87,6 +133,15 @@ class ObjectScripts:
             self.globals[name] = fid = self.builder.writer.derive_formid(GLOBAL_SITE, name)
             self.builder.writer.add_record('GLOB', pack_global(fid, name))
             self.builder.counts['dialogue GLOB'] += 1
+        return self.globals[name]
+
+    def form_list(self, name: str) -> 'int | None':
+        """The helper FormList `name` (DESTROYED_LIST), written once and empty; None for other names."""
+        if name != DESTROYED_LIST:
+            return None
+        if name not in self.globals:
+            self.globals[name] = fid = self.builder.writer.derive_formid(GLOBAL_SITE, name)
+            self.builder.writer.add_record('FLST', pack_fo4_record('FLST', fid, 0, pack_string_subrecord('EDID', name)))
         return self.globals[name]
 
     def talk(self, prop: str) -> int:
@@ -105,7 +160,8 @@ class ObjectScripts:
         return object_scripts([(name, self.properties(name), {})])
 
     def message(self, edid: str) -> int:
-        """The FO4 MESG for FNV message `edid`, made once; with no text it shows its title (FO4 shows only DESC)."""
+        """The FO4 MESG for FNV message `edid`, made once; with no text it shows its title (FO4 shows only DESC), its
+        control tokens FO4's (controls)."""
         if edid not in self.made_messages:
             rec = self.messages[edid]
             fid = self.builder.fnv_id(rec['FormID'])
@@ -114,7 +170,7 @@ class ObjectScripts:
                 buttons.append(rec[f'Button[{i}].Text'])
                 i += 1
             self.builder.writer.add_record('MESG', pack_mesg(
-                fid, f'FNV_{edid}', rec.get('FULL', ''), rec.get('DESC') or rec.get('FULL', ''),
+                fid, f'FNV_{edid}', rec.get('FULL', ''), fo4_controls(rec.get('DESC') or rec.get('FULL', '')),
                 int(rec.get('DNAM', 0)) & MESSAGE_BOX, buttons))
             self.builder.counts['MESG'] += 1
             self.made_messages[edid] = fid

@@ -19,7 +19,7 @@ argument text -- so those are properties of the CALL and live on it.
 from script_convert import resolve_name as _resolve_name
 from script_convert.constants import (
     ANIM_GROUP_EVENTS, ATTRIBUTE_POLYFILL, ATTRIBUTE_STUB_VALUE, AV_ARGUMENT_NAMES, CASTABLE,
-    FALLOUT4_TALK_PREFIX, FORCE_FLEE_QUEST, FORCE_GREET_QUEST, PLACED_REF_SIGS, PRIMARY_STATS,
+    FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX, FORCE_FLEE_QUEST, FORCE_GREET_QUEST, PLACED_REF_SIGS, PRIMARY_STATS,
     TES4_ASSAULT_BOUNTY, TES4_MISC_STAT_NAMES, TES4_MURDER_BOUNTY, TES4_SCRIPT_OWNED_MISC_STATS,
     TES4_STEAL_BOUNTY, is_generated_script_type, mgef_family_keyword_name,
     record_type_to_papyrus, safe_property_name, papyrus_script_name
@@ -349,7 +349,7 @@ def start_conversation(ctx, call) -> str:
     """
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     parts = ctx.arg_srcs()
-    greet = _force_greet(ctx, ref, parts)
+    greet = _force_greet(ctx, ref, parts) or _npc_chat(ctx, ref, call, parts)
     if greet:
         return greet
     if len(parts) >= 2 and parts[1].strip():
@@ -386,6 +386,21 @@ def _force_greet(ctx, ref: str, parts: list) -> str:
     ctx.sc.property_refs[FORCE_GREET_QUEST] = 'Quest'
     return (f'TES4Polyfill.ForceGreet({FORCE_GREET_QUEST}, {slot[0]}, '
             f'{slot[1]}, {ref})')
+
+
+def _npc_chat(ctx, ref: str, call, parts: list) -> str:
+    """`StartConversation <actor> <topic>` on Fallout 4: the two play the topic's scene (`TES4Chat_<topic>`).
+
+    '' for another game or no topic. The speaker and listener fill the
+    scene quest's Speaker and Listener aliases; FNV's location, headtrack
+    and movement arguments are dropped.
+    See: docs/fork/fo4_spikes.md#spike-2-vcg01
+    """
+    if not is_fallout4() or len(parts) < 2 or not parts[1].strip():
+        return ''
+    scene = FALLOUT4_CHAT_PREFIX + parts[1].strip().split()[0]
+    ctx.sc.property_refs[scene] = 'Scene'
+    return f'TES4Polyfill.StartConversation({scene}, {ref}, {ctx.arg_expr(0, call.extends)})'
 
 
 def _actor_arg(ctx, call) -> str:
@@ -1558,15 +1573,19 @@ _KARMA = 'TES4Karma'
 
 
 def _karma_call(ctx, call) -> str:
-    """Karma as the TES4Karma global: a read, a Mod, or a Set.
+    """Karma as the TES4Karma global: a read, a Mod, or a Set (on Fallout 4 TES4Polyfill's traced ModKarma and
+    SetKarma).
 
     See: docs/commentary/tes5_import_character_data.md#fallout-reputation
     """
     ctx.sc.property_refs.setdefault(_KARMA, 'GlobalVariable')
     if call.name in ACTOR_VALUE_READ_FUNCTIONS:
         return f'{_KARMA}.GetValue()'
-    papyrus = 'SetValue' if call.name in _AV_SET else 'Mod'
-    return f'{_KARMA}.{papyrus}({call.arg(1)})' if len(call) > 1 else ''
+    if len(call) < 2:
+        return ''
+    if is_fallout4():
+        return f'TES4Polyfill.{"SetKarma" if call.name in _AV_SET else "ModKarma"}({_KARMA}, {call.arg(1)})'
+    return f'{_KARMA}.{"SetValue" if call.name in _AV_SET else "Mod"}({call.arg(1)})'
 
 
 @command(*sorted(ACTOR_VALUE_FUNCTIONS))
@@ -1750,24 +1769,28 @@ def set_game_setting(ctx, call) -> str:
 # Player controls
 # ---------------------------------------------------------------------------
 
-def _control_flag(call, i: int) -> str:
-    """Argument `i` as a Papyrus Bool: false when absent, a 0/1 literal as false/true."""
-    if i >= len(call):
-        return 'false'
-    src = call.arg(i).strip()
+#: FO3/FNV's value for each flag a call leaves out (the engine's presets): Enable's, Disable's.
+CONTROL_DEFAULTS = {False: (1, 1, 1, 1, 1, 1, 1), True: (1, 1, 1, 0, 0, 0, 0)}
+
+
+def _control_flag(call, i: int, default: int) -> str:
+    """Argument `i` as a Papyrus Bool: `default` when absent, a 0/1 literal as false/true."""
+    src = call.arg(i).strip() if i < len(call) else str(default)
     if src in ('0', '1'):
         return 'true' if src == '1' else 'false'
     return f'({src}) != 0'
 
 
-def _flagged_controls(call) -> str:
+def _flagged_controls(call, disabling: bool) -> str:
     """Skyrim's player-control arguments for FO3/FNV's flags (movement, Pip-Boy, fighting, POV, looking, rollover, sneaking).
 
-    A flag left out is untouched, as is a Skyrim `false`; movement and rollover
-    text both stop activation, and the Pip-Boy is the menus and journal.
+    A flag left out takes the engine's preset (CONTROL_DEFAULTS); a Skyrim
+    `false` leaves a control alone; movement and rollover text both stop
+    activation, and the Pip-Boy is the menus and journal.
     See: docs/commentary/script_convert.md#player-control-flags
     """
-    mov, pip, fight, pov, look, roll, sneak = (_control_flag(call, i) for i in range(7))
+    defaults = CONTROL_DEFAULTS[disabling]
+    mov, pip, fight, pov, look, roll, sneak = (_control_flag(call, i, defaults[i]) for i in range(7))
     literal = {mov, roll} <= {'true', 'false'}
     activate = (str('true' in (mov, roll)).lower() if literal
                 else roll if mov == 'false' else mov if roll == 'false' else f'{mov} || {roll}')
@@ -1786,7 +1809,7 @@ def player_controls(ctx, call) -> str:
     """
     disabling = call.name == 'disableplayercontrols'
     verb = 'Disable' if disabling else 'Enable'
-    args = _flagged_controls(call) if len(call) else ''
+    args = _flagged_controls(call, disabling) if len(call) else ''
     toggle, props = controls_call(verb, args)
     ctx.sc.property_refs.update(props)
     if args and not args.startswith('true'):

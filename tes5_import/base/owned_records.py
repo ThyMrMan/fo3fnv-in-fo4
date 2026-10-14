@@ -141,7 +141,7 @@ def create_chargen_menu_records(writer: PluginWriter, plan: dict) -> dict:
 
 
 #: The ForceCombat faction pair's EditorIDs: (attackers, victims).
-_FORCE_COMBAT_EDIDS = ('TES4ForceCombatAttackers', 'TES4ForceCombatVictims')
+FORCE_COMBAT_EDIDS = ('TES4ForceCombatAttackers', 'TES4ForceCombatVictims')
 
 
 def _adopted(master_index, sig: bytes, edids: tuple) -> dict:
@@ -160,12 +160,12 @@ def create_force_combat_factions(writer: PluginWriter, master_index=None) -> dic
 
     See: docs/commentary/tes5_import_dialogue.md#synthesized-menus-factions-and-formlists
     """
-    adopted = _adopted(master_index, b'FACT', _FORCE_COMBAT_EDIDS)
+    adopted = _adopted(master_index, b'FACT', FORCE_COMBAT_EDIDS)
     if adopted:
         return adopted
     atk_fid = writer.chargen_fid_base + 0x42
     vic_fid = writer.chargen_fid_base + 0x43
-    attackers, victims = _FORCE_COMBAT_EDIDS
+    attackers, victims = FORCE_COMBAT_EDIDS
     for fid, edid, other in ((atk_fid, attackers, vic_fid),
                              (vic_fid, victims, atk_fid)):
         subs = pack_string_subrecord('EDID', edid)

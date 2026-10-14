@@ -134,6 +134,20 @@ the folder-derived types rather than forking the music system.
 neither — it is dropped rather than written into `FLTV`, which on a non-silent
 track produces a combination no vanilla record uses.
 
+### <a id="recipes"></a>Recipes
+
+`RCPE` and `RCCT` were dumped as subrecord sizes only (unknown types) until
+the Fallout 4 path needed crafting (2026-10-13). `RCPE` (xEdit
+`wbDefinitionsFNV`): `FULL`, conditions, `DATA` (skill as an actor value
+index, signed, -1 for none; the level; the category and sub-category `RCCT`),
+then the ingredients and outputs, each an item subrecord (`RCIL` ingredient,
+`RCOD` output) followed by the `RCQY` quantity that belongs to it. The
+quantity tag is shared, so a part is read in order: an item opens it, the next
+`RCQY` closes it. Dumped as `Ingredient[i]`/`Output[i]` `.FormID` and
+`.Count`. `RCCT` is `FULL` and a one-byte `DATA` (xEdit: Subcategory). FNV has
+105 recipes in 3 categories (37 reloading bench, 36 campfire, 32 workbench)
+and 7 sub-categories.
+
 ## Measured field coverage
 
 From `FalloutNV.esm` (Tale of Two Wastelands merge), 465,054 records parsed

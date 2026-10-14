@@ -26,6 +26,7 @@ from fo4_import.nif.convert_static import PREFIX, fo4_texture, glow_image, spec_
 from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.pipeline.work_cache import colour_map, normal_map
 from fo4_import.nif.elric import finish
+from fo4_import.nif.terminal import with_screen
 from fo4_import.nif.tree import tree_mesh
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
@@ -54,6 +55,16 @@ def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None
     if load and not converted.animatable:
         return None
     return write_converted(export_dir, converted, rel[:-4] + 'load.nif' if load else rel, data_dir)
+
+
+def terminal_assets(export_dir: Path, model: str, data_dir: Path) -> 'tuple | None':
+    """(write_converted() of FNV terminal `model` with its screen made FO4's, as `<name>terminal.nif`, the screen's
+    (centre, facing)); None when the mesh has no screen (nif.terminal)."""
+    rel = model.replace('/', '\\').lower()
+    made = with_screen(cached_convert(export_dir / 'meshes' / rel, export_dir))
+    if made is None:
+        return None
+    return write_converted(export_dir, made[0], rel[:-4] + 'terminal.nif', data_dir), made[1]
 
 
 def tree_assets(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
@@ -134,10 +145,10 @@ def swapped_material(export_dir: Path, data_dir: Path, material: str, textures: 
     if new == material or _material_file(data_dir, new).exists():
         return new
     mat['textures']['diffuse'] = fo4_texture(diffuse).replace('\\', '/')
-    _copy_texture(export_dir, data_dir, diffuse)
+    copy_texture(export_dir, data_dir, diffuse)
     if normal:
         mat['textures']['normal'] = fo4_texture(normal).replace('\\', '/')
-        _copy_texture(export_dir, data_dir, normal)
+        copy_texture(export_dir, data_dir, normal)
         _swapped_spec(export_dir, data_dir, mat, normal)
     target = _material_file(data_dir, new)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -169,7 +180,7 @@ def _material_file(data_dir: Path, material: str) -> Path:
     return data_dir / material.replace('materials\\', 'Materials\\', 1)
 
 
-def _copy_texture(export_dir: Path, data_dir: Path, source: str) -> None:
+def copy_texture(export_dir: Path, data_dir: Path, source: str) -> None:
     """Copy FNV texture `source` (textures\\...) to its FO4 path in `data_dir`."""
     target = data_dir / 'Textures' / fo4_texture(source)
     target.parent.mkdir(parents=True, exist_ok=True)
