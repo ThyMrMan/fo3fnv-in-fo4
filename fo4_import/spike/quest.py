@@ -115,15 +115,17 @@ def quest_var_globals(builder, export_dir, recs: list) -> dict:
     return out
 
 
-def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = False, start: bool = False) -> bytes:
+def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = False, start: bool = False,
+                 markers: tuple = ()) -> bytes:
     """The FO4 QUST of FNV quest `rec`; `scripts` an attach.ObjectScripts, `ref_ids` as for objectives().
 
     `speaker` adds alias 0, empty, for the actor its conversation scenes play
     on, and LISTENER_ALIAS for the other actor of an NPC one; `start` keeps
-    FNV's start game enabled flag.
+    FNV's start game enabled flag; `markers` [(stage, log flags)] join its
+    stages (say_once).
     """
     stages = [(int(rec[f'Stage[{i}].Index']), int(rec.get(f'Stage[{i}].Log[0].Flags', 0)) & 1)
-              for i in _numbered(rec, 'Stage')]
+              for i in _numbered(rec, 'Stage')] + list(markers)
     fragments_script = f'{QUEST_PREFIX}{rec["EditorID"]}'
     fragments = []
     if scripts.dir and (scripts.dir / f'{fragments_script}.psc').exists():

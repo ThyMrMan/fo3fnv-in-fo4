@@ -421,12 +421,12 @@ EndFunction
 
 ; fallout4: new
 Function TraceHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource) Global
-  {A scripted reference's OnHit: who was hit, by whom, with what, and the target's health after the hit (actors).}
+  {A scripted reference's OnHit: who was hit, by whom, with what, and the target's health after the hit over its base (actors).}
   If Tracing()
     Actor target = akTarget as Actor
     String health = ""
     If target
-      health = "" + target.GetValue(AV("Health"))
+      health = "" + target.GetValue(AV("Health")) + "/" + target.GetBaseValue(AV("Health"))
     EndIf
     TraceWrite("hit", TraceName(akTarget) + "|" + TraceName(akAggressor) + "|" + akSource + "|" + health)
   EndIf
@@ -495,3 +495,14 @@ Function StartConversation(Scene akScene, ObjectReference akSpeaker, ObjectRefer
   EndIf
 EndFunction
 
+
+; fallout4: new
+Function ShowBarterMenu(Actor akVendor) Global
+  {FNV ShowBarterMenu, usually run as a line ends: the vendor's barter menu once the dialogue menu has closed (2 s at most), so barter does not open with the talk still on screen behind it.}
+  Float waited = 0.0
+  While UI.IsMenuOpen("DialogueMenu") && waited < 2.0
+    Utility.WaitMenuMode(0.1)
+    waited += 0.1
+  EndWhile
+  akVendor.ShowBarterMenu()
+EndFunction

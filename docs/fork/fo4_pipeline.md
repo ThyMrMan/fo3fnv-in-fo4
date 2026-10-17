@@ -509,6 +509,45 @@ Three fixes (`conditions.without_absent`, `spike/condition_forms.py`):
 - *Renamed.* PlayerInRegion is GetInCurrentLocation on the player, of the
   location made from that map region (a cell takes the region holding its
   centre, so it is cell-grained where FNV tests the polygon).
+- *Quest conditions.* An FNV quest's own conditions gate all its dialogue
+  (vDialogueEDE: `GetIsID` ED-E; Doctors: DoctorsDialogueFaction, not Doc
+  Mitchell's voice type). `say_topics.with_quest` ANDs them into each line,
+  because the shared greeting quest and the Hub have no FNV quest to carry
+  them. Without them, ED-E's beeps greeted everyone and doctor topics showed
+  on every NPC. A player option is made per prompt **and quest**, so its
+  shown conditions (the OR-groups its lines share, plus speakers) can scope
+  it. One option for lines from several quests had none, and showed on
+  every NPC: 37 prompts before, 1 after (`[Leave]`). When each line adds
+  one test of its own to what they share, the option also needs one of
+  those tests (an OR group, `Conversations._either`): Johnson Nash's "How's
+  Primm these days?" has answers only once Primm has a sheriff, and showed
+  with none before (fixed and played 2026-10-17).
+
+<a id="say-once"></a>**Say Once across copies (built 2026-10-15, not yet played).**
+In FNV, Say Once belongs to the NPC's line. Once it's said, the topic
+drops out of every menu.
+- **The problem.** The build makes a copy of a line for each menu or step
+  it plays in. Sunny's "survive in the desert" topic sits in her greeting's
+  choices and in the topic menu. FO4's Say Once (ENAM `0x4`) hid only the
+  copy said, and FO4 has no condition reading whether an INFO was said.
+- **Size (2026-10-15).** 234 Say Once lines; 84 had more than one copy
+  (61 two, 14 three, 4 four, 5 seven).
+- **The fix (`spike/say_once.py`).** A Say Once line gets one marker stage
+  in the quest its copy sits in.
+  - Each copy sets the stage as it begins (TIQS). It plays only while the
+    stage is not done (GetStageDone == 0).
+  - A player option whose answers are all Say Once shows while one of them
+    is unsaid (one OR-group).
+  - The quest lists its marker stages.
+- **Stage numbers.** Each is hashed from the FNV line: 10000 + CRC32 mod
+  55000, clear of FNV's authored stages. They stay put as content arrives;
+  a collision moves up one.
+- **Gaps.**
+  - Two lines have copies in two quests (the greeting quest and
+    VFreeformGoodsprings). Each quest keeps its own marker, so saying one
+    copy hides only that quest's copies.
+  - On an existing save, a line already heard through one copy can show
+    once more through another.
 
 <a id="karma-page"></a>**Karma page (built 2026-10-14).** Karma is the
 `TES4Karma` global the scripts' RewardKarma sets (Karma conditions on the
@@ -577,6 +616,32 @@ export keeps rank numbers but not their titles).
   ownership can follow.
 - Factions join `form_map`, so GetInFaction and faction parameters
   resolve.
+
+<a id="vendors"></a>**Vendors (built 2026-10-15, not yet played).**
+Barter worked on the vanilla stand-in vendors, which brought their own FO4
+vendor factions. The real FNV NPCs had none, so the barter menu was empty
+on both sides.
+- **Where FNV keeps it.** The merchant container is on the vendor's placed
+  reference (ACHR `XMRC`): 76 vendors. The chests stand in
+  `NVVendorChestsCell`. What the vendor trades is its AI services
+  (`AIDT.Services`).
+- **What we write.** `spike/vendors.py` gives each built vendor NPC its own
+  FO4 vendor faction, rank 0. It uses the shape of 57 of vanilla's 92
+  vendor factions:
+  - DATA Vendor + Can Be Owner;
+  - VEND, the buy/sell list, and VENC, the placed chest;
+  - VENV: 0–24 h, radius 500, buys stolen and non-stolen items;
+  - PLVD type 12.
+- **Buy/sell list.**
+  - A vendor whose services include weapons, armor, books or misc is a
+    general store, like 61 vanilla vendors: `VendorItemsMisc` (no-sale and
+    key items) with Everything Not In List.
+  - A consumables-only vendor lists FO4 keywords: alcohol; food, drink and
+    water; chems; stimpaks. Our consumables carry these keywords.
+  - Example: Trudy (`0x14`, alcohol and food) gets the keyword list; Chet
+    (`0x47F`) is a general store.
+- **Placing the chests.** Each built vendor's chest, and only that chest, is
+  added to the build with its holding cell.
 
 <a id="ownership"></a>**Ownership and map markers (step 2, played 2026-10-12: owned doors, beds and a Goodsprings house's items show as owned; markers discovered, fast travel works).**
 Both are copied from FalloutNV.esm by `spike/placement.py`, like the room
@@ -679,6 +744,118 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
     player talks again.
   - *NPCs standing still:* see [packages](#packages).
 
+<a id="script-packages"></a>**Script packages on NPCs (built 2026-10-16, not yet played).**
+FO3/FNV's `AddScriptPackage <package>` gives an actor a package that
+outranks all its others. An actor holds one at a time: a second replaces
+the first. `RemoveScriptPackage` takes it away.
+- **Size.** FalloutNV.esm has 1,114 `AddScriptPackage` calls on NPCs (516
+  packages, 352 actors) and 127 `RemoveScriptPackage` calls.
+- **The failure.** The FO4 target converted both commands to
+  `EvaluatePackage()`, so no script package ever ran. Example, VMS16:
+  Ringo's "Let's do this" moves Sunny to her spawn marker and gives her a
+  dialogue package to grab the player. She appeared at the gas station
+  and walked straight back out on her own packages.
+- **The fix, FO4's own mechanism.** An alias whose package list holds a
+  package runs it ahead of the actor's own packages.
+  - `spike/script_packages.py` writes one start-game quest,
+    `FNV_TES4ScriptPackages`: an empty collection alias per package any
+    converted script names. Alias i runs `Packages[i]` of its
+    `TES4_ScriptPackages` script. Collection aliases use vanilla's layout
+    (CZ_Arena's Crowd: ALCS, ALMI, ALST, ALID, FNAM, ALPC, VTCK).
+  - Converted `AddScriptPackage` is `TES4ScriptPackages.Add(actor,
+    package)`. It takes the actor out of every alias, adds it to the
+    package's alias and re-evaluates.
+  - `RemoveScriptPackage` is `Remove(actor)`.
+  - The player's own script packages keep their seat handling.
+- **Drift.** FNV also drops a finished script package without "must
+  complete" at the next re-evaluation. Here it stays until replaced or
+  removed: a Travel package's actor keeps standing at its destination
+  until the script moves it on.
+
+<a id="overlay-decals"></a>**Overlays as decals (built 2026-10-16, not yet played).**
+FNV's graffiti, posters, stains, grave text and blood splats are blended,
+lit, flat sheets set just in front of a surface. Most carry no decal flag:
+47 of 55 FNV graffiti meshes don't.
+- **What we did before.** They took the cut-out path
+  ([blended lit surfaces](fo4_spikes.md#spike-2-transparency)): alpha test at
+  128, with their mostly see-through triangles split off to the
+  translucent BGEM.
+- **What the player saw** (Lone Wolf Radio trailer, 2026-10-16). Half-lit
+  graffiti cut by a diagonal, which is the triangle edge between the two
+  materials. "LET IT ALL END" was mostly missing, since faint strokes fell
+  under the cut-out threshold.
+- **Placement was ruled out.** FO4 stores reference rotations as FNV does:
+  in 24 of 25 vanilla references found in precombined meshes, the stored
+  matrix is FNV's convention (X, then Y, then Z, angles negated). The
+  graffiti's FNV transforms lay it flat, about 2 units off the trailer
+  wall.
+- **The fix.** `convert_static.overlay_sheet` treats a blended lit shape
+  that is flat (every vertex within 0.5 units of one plane) and still (no
+  controller or skin) as a decal: a blended BGSM with the Decal flags, like
+  FO4's own placed decal meshes (`effects\decalsplaced`).
+- **Census** (the region's meshes; the scan stopped at its 110 s limit
+  partway through). 36 flat blended shapes: graffiti, grave text, the
+  Vault 87 blood splats, posters and sign stains. Also two animated flags,
+  which are excluded because they have controllers, plus a freezer lid, a
+  pinto bean pod and a scope part. 90 non-flat blended shapes (plants,
+  hotel walls, trees) keep the cut-out.
+
+<a id="still-bodies"></a>**Bodies that collide with nothing (built 2026-10-16, not yet played).**
+FNV's Broc Flower and White Horse Nettle plants had a dynamic physics body
+(motion 4, mass 45, BSX Dynamic) on layer 15, NONCOLLIDABLE.
+- **What happened.** FNV left those bodies asleep. In FO4 the body fell
+  through the ground, since a body on that layer touches nothing. The
+  plant then reset to its placed spot and fell again.
+- **Census.** Of FNV's 261 ACTI models, only these two have a moving
+  body on a non-collidable layer; every other moving body is on a real
+  layer. Vanilla FO4's harvestable plants (hubflower, bloodleaf,
+  carrotplant, tato) all have a fixed body on layer 15, BSX 130.
+- **The fix.** `collision.moves` treats a body as moving only when it is
+  neither keyframed nor fixed, and it either sits on a colliding layer or
+  hangs on a constraint. The constraint case is a hanging light,
+  `offrmlighthanging01`: its non-collidable bulb swings on a constraint.
+- **Blast radius.** Of the build's 2,040 FNV meshes, four change: Broc
+  Flower, White Horse Nettle, dead Xander root and `maizewitheredgroup2b`
+  (48 maize bodies).
+  - A body that doesn't move is written fixed, unless it is keyframed on
+    an animated node.
+  - A mesh whose bodies are all still drops BSX Dynamic.
+
+<a id="actors-on-the-ground"></a>**Actors on the ground (built 2026-10-16, not yet played).**
+FNV's records place some actors slightly below the landscape, and FNV set
+them on the ground as they loaded. FO4 places an actor where its record
+says, so such an actor started underground and fell through. Example: a
+leveled gecko spawn at z 6668 over ground at 6672.
+- `Exterior.on_ground` raises an exterior actor standing below the ground
+  to it. The ground height is the highest corner of the landscape square
+  the actor stands in, from FNV's own height map (VHGT, decoded with the
+  navmesh code's `decode_vhgt`). On a slope that drops it a few units onto
+  the ground instead of starting it inside the hill.
+- Actors standing above the ground (rooftops, ledges) and actors in
+  interiors keep their recorded position.
+
+<a id="creature-stats"></a>**Creature stats (built 2026-10-15, not yet played).**
+A converted creature is a copy of its FO4 stand-in with FNV's stats written
+into PRPS (`creatures.with_stats`). FO4 adds two things on top of the NPC's
+own health: its race's starting health (RACE PRPS) and a per-level bonus.
+- **Measured (trace, 2026-10-15).** The base health of FNV's well-3 gecko
+  (20 health, level 3, on the vicious dog: race 30) read 60. The Goodsprings
+  settler (100, level 1, human race 40) read 140. Your varmint rifle took
+  6–15 off a gecko per hit, so one needed 4–6 hits, against about 2 in FNV.
+- **The per-level bonus is a reading, not yet confirmed.** We use
+  (level − 1) × `fNPCHealthLevelBonus` (5.0); the gecko's extra 10 fits it.
+  (level − 1) × (Endurance / 2 + 2.5) fits the same point, so another
+  creature's trace decides.
+- **Health.** The NPC's health is now FNV's less the race's and the level
+  bonus, so in game the creature has FNV's health.
+- **Attack damage.** FNV's `AttackDamage` replaces the stand-in's
+  `UnarmedDamage`, which its unarmed attack deals (the vicious dog's 10 bit
+  the settler for 9).
+  - The trace showed a giant mantis nymph, on the stingwing's attack, taking
+    20–28 off a 105-health level-1 player.
+  - FO4's player starts with about half of FNV's health (FO4 105 against
+    FNV about 200 at Endurance 5). That gap is not converted yet.
+
 <a id="packages"></a>**AI packages (played 2026-10-12: NPCs sandbox, sit
 and sleep).** `spike/packages.py` copies a vanilla instance of the
 matching FO4 template per FNV type (`PLANS`): Travel (a seat: Sit),
@@ -700,6 +877,55 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   An in-cell Sleep goes to a bed in that cell the NPC owns, else an unowned
   one (`_bed`, FNV's choice), as a near-reference Sleep: with the cell
   alone Chet and Easy Pete stopped at the door.
+- <a id="in-cell-places"></a>**In-cell places (built 2026-10-16, played
+  2026-10-17: Chet walks his store).** NPCs with an FNV "in cell" package stood still or bunched up
+  in cells whose navmesh doesn't cover the cell's origin: Chet in the
+  General Store and the Vikki and Vance residents in a corner. The Prospector Saloon, whose navmesh covers the
+  origin, worked. So such a package now becomes "near reference": the
+  cell's built reference nearest the middle of its navmesh's bounds, with
+  a radius reaching the navmesh's farthest vertex (`Packages._in_cell`).
+  Without a navmesh or a built reference, the in-cell location is kept.
+  - *Persistent anchors.* The first anchors were the nearest reference of
+    any kind (a mannequin in the casino). Chet then moved, but the casino
+    residents bunched at the casino door: FO4 keeps a non-persistent
+    reference unloaded while its cell is, so while the player was outside
+    the package had no place and the residents fell to their next one
+    (FNV's DefaultSandboxLinkedMarker1024, to markers in their Primm
+    houses), heading out the door. The CK makes a reference a package
+    points at persistent; the anchor is now a persistent reference (flagged,
+    or a teleport door) when the cell has one.
+- <a id="sandbox-allows"></a>**Sandbox switches (built and played
+  2026-10-17: the casino residents spread out).** Every Sandbox copy came from one vanilla instance,
+  MinutemenRadioOperatorSandboxDefault, whose Allow inputs leave only
+  conversation and wandering on (eating, sleeping, idle markers, sitting
+  and special furniture off). The Primm residents, who sandbox with their
+  weapons drawn (FNV general flag 0x800000, Weapon Drawn in both games),
+  then had nothing to do and stood where they were: at the casino door,
+  inside the anchor's radius, in the save. FNV authors these per package as
+  type-specific No flags (No Eating 0x1, No Sleeping 0x2, No Conversation
+  0x4, No Idle Markers 0x8, No Furniture 0x10, No Wandering 0x20, xEdit
+  `wbDefinitionsFNV`), so an FNV Sandbox or Wander now sets each FO4 Allow
+  input to the negation of its flag (`ALLOWS`; No Furniture covers Allow
+  Sitting and Allow Special Furniture). The inputs are found by the
+  Sandbox template's data names (`value_slots`), not by position.
+- <a id="door-closer"></a>**Doors close behind NPCs (built and played
+  2026-10-17).** FNV closes a door after the NPC who opened it walks
+  through; FO4 leaves it open. In the Bison Steve a convict's patrol runs
+  through the double door into the deputy's room (markers at (1432, −4276)
+  and (783, −4217), the door at (1024, −4224)), so the room stood open.
+  Every DOOR base now carries `TES4_DoorCloser` beside its own script: an
+  NPC's OnOpen registers a distance event, and once the NPC is 200 units
+  away the door closes if still open. Doors the player opens stay as left.
+- **Patrol start (played 2026-10-17: Victor runs his circuit).** An FNV Patrol starts at its location reference (FNV
+  PLDT near reference, e.g. Victor's circuit marker). The FO4 copy's
+  Patrol Start is that reference; before, it was the actor's linked
+  reference, which Victor doesn't have, so he never ran his circuit.
+- **Force greets to a topic (played 2026-10-17: the Primm trooper warns
+  the player).** An FNV Dialogue package that opens a named
+  topic, not GREETING (114 in FNV, e.g. the Primm trooper's warning),
+  becomes a ForceGreet like the others. Its topic's lines go first in the
+  greeting scene, each needing that package current
+  (GetIsCurrentPackage), so the force greet opens on them.
 - **The list.** PKIDs follow AIDT, as in all 1,120 vanilla NPCs with
   packages (the body, DocWeathers, has none, so they had gone last).
 - **Floor beds.** FNV sleep slots 3–6 (bedrolls, mattresses, bare floor)
@@ -1266,6 +1492,27 @@ against FNV's TERM:
   79.3 below its centre (TerminalOn.nif's screen centre (0, -5.8, 79.3),
   marker (0, -61, 0)), facing it. FNV's six terminal meshes face +X,
   FO4's -Y.
+- <a id="terminal-facing"></a>**Facing -Y (built 2026-10-16, not yet
+  played).** FO4 offers a terminal only to a player standing within about
+  60° of its mesh's -Y side.
+  - **Where that comes from (exe, 1.11.240).** In the crosshair pick's
+    target filter (0x996E30), a TERM (form type 0x37) is rejected unless
+    -(the mesh's local Y axis · the flat direction from the terminal to the
+    player) is at least `fMinTerminalActivateDotProduct` (0.5).
+  - **Vanilla agrees.** All 777 vanilla TERM markers sit straight out
+    along -Y.
+  - **The failure.** Our terminals kept FNV's +X screens, so they showed
+    no prompt from the front.
+  - **The fix.** `nif/terminal.py` turns each child of the root about Z so
+    the screen faces -Y. Elric bakes those transforms into the physics,
+    as it does any node's. The marker then sits vanilla's way:
+    (0, -55.2, -79.3 from the screen centre), heading 0.
+  - **Placement.** Each placed terminal's heading takes the turn back
+    (`Terminals.turn`), so it stands where FNV placed it. 216 of FNV's 219
+    terminal references turn only about Z; the 3 tilted ones are turned
+    about Z only and counted.
+  - **Not turned.** A mesh whose root itself carries collision would not
+    turn with its children, so it is left facing +X.
 - **The screen.** FO4 draws the terminal menu onto the terminal's shape
   named `Screen:0`: the exe's terminal menu code looks the name up, and
   the vanilla terminal meshes checked (TerminalOn, TerminalWall01,

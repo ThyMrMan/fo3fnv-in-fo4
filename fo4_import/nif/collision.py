@@ -55,6 +55,8 @@ STAIRS_OF = {MATERIALS[base]: pair for base, pair in STAIRS.items()}
 MOTIONS = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3, 5: 3, 6: 5, 7: 5, 8: 6, 9: 7}
 #: FNV's keyframed motion system and Havok 2014's, for a body on a node that keeps its animation.
 FNV_KEYFRAMED, KEYFRAMED = 6, 4
+#: Havok 2014's fixed motion; FNV's collision layer that collides with nothing (NONCOLLIDABLE).
+FIXED, NONCOLLIDABLE = 5, 15
 #: FNV constraint -> (descriptor, body A's vectors then pivot, body B's, then angles), in FO4's (Havok 2010) order.
 JOINT_FIELDS = {
     'bhkRagdollConstraint': ('ragdoll', ('twist_a', 'plane_a', 'motor_a', 'pivot_a'),
@@ -104,6 +106,14 @@ def triangle_materials(shape, n: int) -> list:
     owners = [min(bisect_right(ends, t.triangle.v_1), len(parts) - 1) for t in shape.data.triangles
               if len({t.triangle.v_1, t.triangle.v_2, t.triangle.v_3}) == 3]
     return [material(parts[o].material.material) for o in owners]
+
+
+def moves(body) -> bool:
+    """Whether FNV body `body` moves: not still; collidable or constrained.
+    See: docs/fork/fo4_pipeline.md#still-bodies
+    """
+    held = body.havok_col_filter.layer != NONCOLLIDABLE or body.num_constraints > 0
+    return body.motion_system not in STILL_MOTIONS and held
 
 
 def havok_filter(f) -> bytes:
@@ -347,6 +357,7 @@ def _body_block(blocks: _Blocks, shape: int, body, baked: bool) -> int:
     info += struct.pack('<9f', body.mass, body.linear_damping, body.angular_damping, 1.0, body.friction, 0.0,
                         body.restitution, body.max_linear_velocity, body.max_angular_velocity)
     motion = KEYFRAMED if blocks.animated and body.motion_system == FNV_KEYFRAMED else MOTIONS[body.motion_system]
+    motion = motion if moves(body) or motion == KEYFRAMED else FIXED
     info += struct.pack('<4Bff4xBBHBBBBB3x', motion, body.deactivator_type, body.solver_deactivation, 0,
                         body.penetration_depth * SCALE, 1.0, body.collision_response, 0,
                         body.process_contact_callback_delay, body.quality_type, 0, 0, 3, 0)

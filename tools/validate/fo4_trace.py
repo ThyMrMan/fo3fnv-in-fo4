@@ -9,7 +9,7 @@ set, stage after), value (owner, variable, new value), global (global, value),
 line (speaker, FNV INFO, begin/end), say (speaker, topic, asked/started/not
 started/dropped), package (actor, fragment, current package), death (dead,
 killer), load (actor, x, y, z, loaded / 5 s later; scripted actors only), hit (target, aggressor,
-source, the target's health after), pkgstart (actor, package; scripted actors only), scene (scene,
+source, the target's health after over its base; scripted actors and the player), pkgstart (actor, package; scripted actors only), scene (scene,
 speaker, listener or None, playing; StartConversation), evaluate (nearby and the actors re-evaluated after a
 mirror global changed, or scene ended, the scene, seconds waited, its actors), rep (reputation, fame, infamy,
 title index), karma (change, new value), item (added/removed, item, count or -1; given to or taken from the

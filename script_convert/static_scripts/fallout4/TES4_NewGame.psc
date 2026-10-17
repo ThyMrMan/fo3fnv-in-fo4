@@ -14,6 +14,8 @@ ImageSpaceModifier Property CharGenMirrorImod Auto Const
 Int MirrorTimer = 50
 
 Event OnQuestInit()
+  TracePlayerHits(Game.GetPlayer())
+  RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
   If StartQuest.IsRunning() || StartQuest.IsCompleted() || MQ101.IsCompleted() || MQ101.GetStageDone(10)
     Return
   EndIf
@@ -67,3 +69,17 @@ Function LeaveOpening()
   EndWhile
   MQ101.Stop()
 EndFunction
+
+Function TracePlayerHits(Actor akPlayer)
+  {Hits on the player go to the trace (TES4Polyfill.TraceHit); registered again after each hit and on every load.}
+  RegisterForHitEvent(akPlayer)
+EndFunction
+
+Event Actor.OnPlayerLoadGame(Actor akSender)
+  TracePlayerHits(akSender)
+EndEvent
+
+Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource, Projectile akProjectile, bool abPowerAttack, bool abSneakAttack, bool abBashAttack, bool abHitBlocked, string apMaterial)
+  TES4Polyfill.TraceHit(akTarget, akAggressor, akSource)
+  TracePlayerHits(akTarget as Actor)
+EndEvent

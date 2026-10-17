@@ -60,6 +60,18 @@ repeatedly. Leave them as they are:
 
 The biggest saving, and it also fixes a behavior bug.
 
+**Built for Fallout 4 quest scripts (2026-10-15; not yet timed in game).**
+- `poll_interval.update_interval` gives a quest script the authored delay
+  or 5 s.
+- The script holds the delay in `TES4_Delay`, which `TES4Start` keeps.
+- FNV's `SetQuestDelay` calls the target script's `TES4SetDelay`, which
+  sets the delay for good (0.1 s at least) and re-arms.
+- `OnTimer` returns before arming while the quest isn't running, and
+  `OnQuestInit` (it fires on every start) restarts it.
+- New Vegas: 208 polling quest scripts, 121 `SetQuestDelay` sites. Of the
+  quest scripts, 248 take 5 s and 73 an authored delay.
+- The Skyrim target is unchanged.
+
 **The source games.** A quest script ran only while its quest was running,
 every 5 s by default, or at the quest's authored delay (FO3/FNV QUST
 `DATA.Delay`; `fQuestDelayTime` in a script). 146 of Fallout 3's 162 quests

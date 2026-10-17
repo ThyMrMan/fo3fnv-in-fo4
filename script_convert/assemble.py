@@ -26,7 +26,7 @@ from script_convert.command_rows import (
 from script_convert import atomic_adds as _adds, quest_var_mirrors as _quest_vars, symbols as _symbols, \
     trace_points as _trace
 from script_convert.poll_motion import relative_sets
-from script_convert.poll_interval import MIN_INTERVAL
+from script_convert.poll_interval import MIN_INTERVAL, QUEST_DELAY_VAR
 from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
                                    is_hit_event, menu_close_guard, menu_registration, run_update_now,
                                    sleep_registration, target_menu_name)
@@ -402,7 +402,9 @@ def quest_restart(conv, tree, extends: str, name: str) -> list:
         return []
     kept = variable_properties(conv, tree)
     script = papyrus_script_name(name)
-    out = ['', f'Function TES4Start({script} akQuest) Global']
+    out = _quest_delay(conv, script) if _delayed_quest(extends) else []
+    kept += [(QUEST_DELAY_VAR, 'Float')] if out else []
+    out += ['', f'Function TES4Start({script} akQuest) Global']
     out += [f'  {ptype} v{i} = akQuest.{prop}' for i, (prop, ptype) in enumerate(kept)]
     out.append('  akQuest.Start()')
     out += [f'  akQuest.{prop} = v{i}' for i, (prop, _t) in enumerate(kept)]
@@ -415,6 +417,20 @@ def quest_restart(conv, tree, extends: str, name: str) -> list:
             '  TES4Polyfill.StageSet(akQuest)' + _trace.stage_suffix(),
             '  Return TES4_StageSet']
     return out + ['EndFunction']
+
+
+def _quest_delay(conv, script: str) -> list:
+    """The quest's poll delay property (its authored delay, or the source game's default) and `TES4SetDelay`, FNV's
+    SetQuestDelay: the delay for good (MIN_INTERVAL at least), re-armed now while the quest runs.
+    See: docs/fork/performance.md#papyrus
+    """
+    return ['', f'Float Property {QUEST_DELAY_VAR} = {conv._get_update_interval()} Auto Hidden', '',
+            f'Function TES4SetDelay({script} akQuest, Float afSecs) Global',
+            f'  akQuest.{QUEST_DELAY_VAR} = Math.Max(afSecs, {MIN_INTERVAL})',
+            '  If akQuest.IsRunning()',
+            f'    akQuest.StartTimer(akQuest.{QUEST_DELAY_VAR})',
+            '  EndIf',
+            'EndFunction']
 
 
 def _declare(name: str, ptype: str) -> str:
@@ -833,6 +849,10 @@ def poll(conv, tree, extends: str) -> list:
         out += [f'Float TES4_SecondsPassed = {interval}',
                 'Float TES4_LastTick = 0.0', '']
     out.append(event_opener('Event OnUpdate()'))
+    rearm = interval
+    if _delayed_quest(extends):
+        out += ['  If (!IsRunning())', '    Return', '  EndIf']
+        rearm = QUEST_DELAY_VAR
 
     # Arm the poll TWICE: an insurance arm at the TOP and the real re-arm at
     # the BOTTOM.
@@ -855,11 +875,11 @@ def poll(conv, tree, extends: str) -> list:
     out += _arm(conv, _INSURANCE_SECS, load_gated)
 
     passes = _menu_passes(conv, tree)
-    sc.poll_return_prefix = _return_arm(conv, interval, load_gated, passes)
+    sc.poll_return_prefix = _return_arm(conv, rearm, load_gated, passes)
     body = _poll_body(conv, tree, extends, interval, load_gated)
     sc.poll_return_prefix = ''
     sc.glide_secs = ''
-    arm = _arm(conv, interval, load_gated)
+    arm = _arm(conv, rearm, load_gated)
     if not passes:
         return out + body + arm + ['EndEvent', '']
     return (out + [f'  {_POLL_PASS}()'] + arm + ['EndEvent', '', f'Function {_POLL_PASS}()']
@@ -877,7 +897,7 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
     """One poll pass: the quest and dialogue gates, the prologues, every polled block, then the stage latches."""
     sc = conv.sc
     out = []
-    if extends == 'Quest':
+    if extends == 'Quest' and not _delayed_quest(extends):
         # Not running: skip the body, but the poll keeps ticking so the loop
         # resumes once the quest is started.
         out += ['  If (!IsRunning())', '    Return', '  EndIf']
@@ -961,6 +981,13 @@ def _gate(conv) -> str:
         return conv._GAMEMODE_GATE
     return (f'{conv._GAMEMODE_GATE} || '
             f'TES4Polyfill.SafeGameModeGate({_HOLDER_VAR})')
+
+
+def _delayed_quest(extends: str) -> bool:
+    """A Fallout 4 quest script: polls at its quest delay while it runs.
+    See: docs/fork/performance.md#papyrus
+    """
+    return extends == 'Quest' and is_fallout4()
 
 
 def _arm(conv, secs: str, load_gated: bool, indent: str = '  ') -> list:
@@ -1048,17 +1075,17 @@ def lifecycle(conv, tree, extends: str) -> list:
     hits = is_fallout4() and bool(declared & {'onhit', 'onhitwith'})
     if not (sc.has_gamemode or sc.has_scripteffectupdate or sleeps or menus or hits):
         return []
-    interval = conv._get_update_interval()
-    start = ([f'  {arm_update(interval)}']
+    interval = QUEST_DELAY_VAR if _delayed_quest(extends) else conv._get_update_interval()
+    polls = ([f'  {arm_update(interval)}']
              if (sc.has_gamemode or sc.has_scripteffectupdate) else [])
-    start += [f'  {HIT_REGISTRATION}'] if hits else []
+    start = polls + ([f'  {HIT_REGISTRATION}'] if hits else [])
     if sleeps:
         start.append(f'  {sleep_registration(True)}')
     start += [f'  {menu_registration(m)}' for m in menus]
 
     if extends not in ('ObjectReference', 'Actor'):
-        return [] if 'oninit' in declared else (
-            ['Event OnInit()'] + start + ['EndEvent', ''])
+        restart = ['Event OnQuestInit()'] + polls + ['EndEvent', ''] if polls and _delayed_quest(extends) else []
+        return restart if 'oninit' in declared else ['Event OnInit()'] + start + ['EndEvent', ''] + restart
 
     out = ['Event OnCellAttach()'] + start + ['EndEvent', '']
     if sleeps:

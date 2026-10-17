@@ -1302,7 +1302,7 @@ class ScriptConverter:
     _GAMEMODE_GATE = 'TES4Polyfill.SafeGameModeGate(Self)'
 
     def _get_update_interval(self) -> str:
-        return update_interval(self.sc)
+        return update_interval(self.sc, getattr(self, '_script_extends', '') == 'Quest')
 
 
     def _parse_source(self, source: str):

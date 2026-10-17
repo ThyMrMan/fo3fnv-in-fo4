@@ -52,9 +52,15 @@ STAND_INS = {'creatures\\nvgecko': 'EncViciousDog01Template','creatures\\molerat
              'creatures\\nvbighorner': 'EncBrahminTemplate', 'creatures\\eyebot': 'EncEyeBot',
              'creatures\\protectron': 'EncProtectron01Template', 'creatures\\nvsecuritron': 'EncProtectron01Template',
              'creatures\\nvmantis': 'EncStingwing01Template'}
-#: FNV creature DATA stats as FO4 actor values (Fallout4.esm AVIF): Health and S.P.E.C.I.A.L.
+#: FNV creature DATA stats as FO4 actor values (Fallout4.esm AVIF): Health, S.P.E.C.I.A.L., attack damage.
 STATS = {'DATA.Health': 0x2D4, 'DATA.Strength': 0x2C2, 'DATA.Perception': 0x2C3, 'DATA.Endurance': 0x2C4,
-         'DATA.Charisma': 0x2C5, 'DATA.Intelligence': 0x2C6, 'DATA.Agility': 0x2C7, 'DATA.Luck': 0x2C8}
+         'DATA.Charisma': 0x2C5, 'DATA.Intelligence': 0x2C6, 'DATA.Agility': 0x2C7, 'DATA.Luck': 0x2C8,
+         'DATA.AttackDamage': 0x2DF}
+HEALTH = 0x2D4
+#: Health FO4 adds to an NPC per level past 1 (GMST fNPCHealthLevelBonus).
+LEVEL_HEALTH = 5.0
+#: ACBS flag PC Level Mult: the level is a multiplier of the player's, not a number.
+PC_LEVEL_MULT = 0x80
 #: A stand-in's own ties a creature leaves out: scripts and its factions (FNV's go in their place).
 STAND_IN_TIES = frozenset({b'VMAD', b'SNAM'})
 #: Vanilla DefaultSandboxEditorLocation, the package of a converted creature none of whose FNV packages convert.
@@ -77,8 +83,11 @@ class Creatures:
         self.builder, self.export_dir, self.data_dir = builder, export_dir, data_dir
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'CREA')}
         wanted, names = {fid for fids in TEMPLATES.values() for fid in fids}, set(STAND_INS.values())
-        self.vanilla, self.stand_ins = {}, {}
-        for rec, _ in walk(builder.fo4, b'NPC_', b'ARMO', b'ARMA'):
+        self.vanilla, self.stand_ins, self.race_health = {}, {}, {}
+        for rec, _ in walk(builder.fo4, b'NPC_', b'ARMO', b'ARMA', b'RACE'):
+            if rec.sig == b'RACE':
+                self.race_health[rec.form_id] = _health(rec.body)
+                continue
             edid = (dict(subrecords(rec.body)).get(b'EDID') or b'').rstrip(b'\0').decode()
             if rec.form_id in wanted or edid in names:
                 self.vanilla[rec.form_id] = rec
@@ -125,11 +134,11 @@ class Creatures:
         it from."""
         if templated:
             inherited = int(rec.get('ACBS.TemplateFlags', 0)) if 'TPLT.Template' in rec else 0
-            return (None if inherited & USE_STATS else with_stats(rec),
+            return (None if inherited & USE_STATS else with_stats(rec, self.race_health),
                     None if inherited & USE_FACTIONS else with_factions(faction_snams(rec, self.builder.factions)),
                     self._death_item({} if inherited & USE_INVENTORY else rec))
         factions = faction_snams(self.source(rec, USE_FACTIONS), self.builder.factions)
-        return (with_stats(self.source(rec, USE_STATS)), with_factions(factions),
+        return (with_stats(self.source(rec, USE_STATS), self.race_health), with_factions(factions),
                 self._death_item(self.source(rec, USE_INVENTORY)))
 
     def _death_item(self, rec: dict):
@@ -191,20 +200,35 @@ class Creatures:
         return self.meshes[rel]
 
 
-def with_stats(rec: dict):
-    """A record edit setting PRPS's Health and S.P.E.C.I.A.L. to FNV creature `rec`'s (STATS), the rest kept."""
+def with_stats(rec: dict, race_health: dict):
+    """A record edit setting PRPS's Health, S.P.E.C.I.A.L. and unarmed damage to FNV creature `rec`'s (STATS),
+    the rest kept. FO4 adds the race's health (`race_health` {RACE: Health}) and a per-level bonus to the NPC's,
+    so the NPC's is FNV's less those, and the creature has FNV's health in game.
+    See: docs/fork/fo4_pipeline.md#creature-stats
+    """
     values = {av: float(rec[key]) for key, av in STATS.items() if key in rec}
 
     def edit(subs: bytes) -> bytes:
         """The subrecords with PRPS updated."""
+        found = dict(subrecords(subs))
+        added = race_health.get(struct.unpack('<I', found[b'RNAM'])[0], 0.0) if b'RNAM' in found else 0.0
+        flags, _, level = struct.unpack_from('<IhH', found[b'ACBS']) if b'ACBS' in found else (PC_LEVEL_MULT, 0, 1)
+        added += 0.0 if flags & PC_LEVEL_MULT else LEVEL_HEALTH * max(level - 1, 0)
+        own = {**values, HEALTH: values[HEALTH] - added} if HEALTH in values else values
         out = b''
         for tag, data in subrecords(subs):
             if tag == b'PRPS':
-                pairs = {**dict(struct.unpack_from('<If', data, i) for i in range(0, len(data), 8)), **values}
+                pairs = {**dict(struct.unpack_from('<If', data, i) for i in range(0, len(data), 8)), **own}
                 data = b''.join(struct.pack('<If', av, value) for av, value in pairs.items())
             out += pack_subrecord(tag.decode(), data)
         return out
     return edit
+
+
+def _health(body: bytes) -> float:
+    """A RACE's starting Health (PRPS), 0 without one."""
+    data = dict(subrecords(body)).get(b'PRPS', b'')
+    return dict(struct.unpack_from('<If', data, i) for i in range(0, len(data), 8)).get(HEALTH, 0.0)
 
 
 def _zstr(text: str) -> bytes:

@@ -37,6 +37,8 @@ from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.idle_markers import IdleMarkers
 from fo4_import.spike.interiors import scope
+from fo4_import.spike.vendors import merchants, with_chests, write_vendors
+from fo4_import.spike.script_packages import PROPERTY as SCRIPT_PACKAGES, quest_id as script_packages_quest, write_script_packages
 from fo4_import.spike.placement import map_markers, place, placement
 from fo4_import.spike.npcs import ACHR_KEY, NPC_KEY, Npcs
 from fo4_import.spike.packages import Packages, beds
@@ -83,6 +85,8 @@ PLAYER = 0x14
 HAND_STARTED = frozenset({'VCG00', 'VCG01', 'CGTutorial'})
 #: Record key and EditorID of the generated quest holding the shared greeting (_greetings).
 GREETINGS_KEY, GREETINGS_EDID = 'GREETINGS', 'Greetings'
+#: The script closing a door behind the NPC that opened it (docs/fork/fo4_pipeline.md#door-closer).
+DOOR_CLOSER = 'TES4_DoorCloser'
 #: derive_formid site of the statics made from FNV TREE records (key: the TREE's FormID).
 TREE_SITE = 'FNV TREE'
 #: FormID site of a load door's static copy of an FNV DOOR (CellBuilder.load_door).
@@ -322,8 +326,8 @@ class CellBuilder:
         return 'ACTI', self.activators.record(fid, rec, model, bounds)
 
     def _door(self, fid: int, edid: str, rec: dict, mesh: tuple) -> bytes:
-        """FNV DOOR `rec` as FO4's on `fid` with `mesh` (model, bounds)."""
-        vmad = self.scripts.vmad(int(rec['SCRI'], 16)) if 'SCRI' in rec else b''
+        """FNV DOOR `rec` on `fid`, `mesh` (model, bounds); its script, DOOR_CLOSER."""
+        vmad = self.scripts.vmad(int(rec.get('SCRI', '0'), 16), ((DOOR_CLOSER, {}, {}),))
         return R.pack_door(fid, edid, rec.get('FULL', ''), *mesh, int(rec.get('FNAM.Flags', 0)), vmad,
                            (self.sounds.field(rec, 'SNAM.Open'), self.sounds.field(rec, 'ANAM.Close')))
 
@@ -434,7 +438,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         keep = bool(int(ref['RecordFlags']) & 0x400) or ref['FormID'] in teleports
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
-        record = R.pack_refr(ids[ref['FormID']], base, *place(ref), float(ref.get('XSCL.Scale', 1.0)), radius,
+        record = R.pack_refr(ids[ref['FormID']], base, *_placed_at(builder, ref), float(ref.get('XSCL.Scale', 1.0)), radius,
                              teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids, owners) + _lock(builder, ref)
                              + builder.emittance.xemi(ref),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0),
@@ -442,6 +446,16 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
     return persistent, temporary
+
+
+def _placed_at(builder: CellBuilder, ref: dict) -> tuple:
+    """(position, rotation) of FNV reference `ref`; a terminal's heading takes back its mesh's turn (Terminals.turn;
+    a tilted one, counted, only about Z)."""
+    pos, rot = place(ref)
+    readables = getattr(builder, 'readables', None)
+    turn = readables.terminals.turn(ref) if readables else 0.0
+    builder.counts['terminal tilted, turned about Z only'] += bool(turn and (rot[0] or rot[1]))
+    return pos, (rot[0], rot[1], rot[2] + turn)
 
 
 def _lock(builder: CellBuilder, ref: dict) -> bytes:
@@ -529,7 +543,7 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     say = builder.say
     lines = [line for rec in recs for line in say.infos.get(rec['FormID'].upper(), [])]
     form_map = {**builder.items.shared, **actor_values(HELPER_INDEX), **_form_map(builder, ref_ids, recs, quests),
-                **builder.npc_ids, **builder.creatures.made, **condition_forms(builder, export_dir, lines)}
+                **builder.npc_ids, **builder.creatures.made, **condition_forms(builder, lines)}
     shared = _hub(builder, export_dir, say, recs, quests, form_map)
     done = []
     for rec in recs:
@@ -538,13 +552,13 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
         builder.scripts.named.update({say.dials[d]['EditorID']: t for d, t in topics.items()})
         branch, blobs = say.build(rec, fid, topics, form_map) if topics else (None, [])
         talks = Conversations(say, rec, fid, form_map, XDI_KEYWORD, shared)
-        record = quest_record(fid, rec, builder.scripts, ref_ids, talks.has_lines(),
-                              rec['EditorID'] not in HAND_STARTED)
-        done.append((fid, record, [branch] if branch else [], blobs, talks))
+        done.append((fid, rec, [branch] if branch else [], blobs, talks))
     built = _greetings(builder, say, form_map, shared)
-    for fid, record, branches, blobs, talks in done:
+    for fid, rec, branches, blobs, talks in done:
         built |= {prop for prop, scene in list(builder.scripts.talks.items())
                   if prop not in built and talks.talk(prop, scene)}
+        record = quest_record(fid, rec, builder.scripts, ref_ids, talks.has_lines(),
+                              rec['EditorID'] not in HAND_STARTED, say.once.of(fid))
         builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics, talks.scenes))
         builder.counts['QUST'] += 1
         builder.counts['SCEN'] += len(talks.scenes)
@@ -578,10 +592,10 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
     talks = Conversations(say, {'FormID': GREETINGS_KEY, 'EditorID': GREETINGS_EDID}, fid, form_map, XDI_KEYWORD,
                           shared)
     built = {prop for prop, scene in builder.scripts.talks.items() if talks.talk(prop, scene)}
-    talks.greeting(builder.packages.greets)
+    talks.greeting(builder.packages.greets, builder.packages.topics)
     aliases = [(SPEAKER_ALIAS, 'Speaker', None), (LISTENER_ALIAS, 'Listener', None)]
     record = R.pack_fnv_quest(fid, f'FNV_{GREETINGS_EDID}', '', max((p for _, p in shared.quests.values()), default=0),
-                              quest_fragments('', []), [], [], aliases, True)
+                              quest_fragments('', []), say.once.of(fid), [], aliases, True)
     builder.writer.add_record('QUST', pack_quest(record, fid, [], talks.topics, talks.scenes))
     builder.counts['SCEN'] += len(talks.scenes)
     return built
@@ -613,12 +627,14 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
                                                               SHARED_TYPES), makers, stand_ins)
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
+    builder.scripts.named[SCRIPT_PACKAGES] = script_packages_quest(builder)
     reputations, builder.reputation_slots = write_reputations(builder, export_dir)
     builder.scripts.named.update(reputations)
     builder.activators, builder.crafting = Activators(builder, export_dir), Crafting(builder, export_dir, HELPER_INDEX, every)
     builder.creatures = Creatures(builder, export_dir, builder.data_dir)
     seats = [r for r in every if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
-    builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in seats}, beds(builder, seats))
+    builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in seats}, beds(builder, seats),
+                                every)
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
                                                 for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
     builder.imods = ImageSpaces(builder)
@@ -670,12 +686,13 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     world = Exterior(export_dir, all_refs, *exterior) if exterior else None
-    interiors, every, outside = _scoped(export_dir, all_refs, cell, world)
+    interiors, every, outside, sold = _scoped(export_dir, all_refs, cell, world)
     used = {int(r[key], 16) for r in every + outside for key in ('NAME', 'XEMI.Emittance') if key in r}
     parts = Parts(used)
     builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), table, plugin_dirs)
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
     _object_makers(builder, export_dir, scripts_dir, refs, every + outside)
+    builder.vendors = write_vendors(builder, export_dir, sold)
     quest_recs, quests = _cell_quests(builder, export_dir, every + outside, _in_build(interiors, world),
                                       _cell_names(builder, interiors, world))
     ids, ext_ids = _ref_ids(builder, every), _ref_ids(builder, outside)
@@ -726,16 +743,19 @@ def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, f
 
 
 def _scoped(export_dir: Path, all_refs: list, cell: dict, world) -> tuple:
-    """(interiors, their references, `world`'s references) of a build from `cell`: interiors.scope(), and
-    the exterior's with the persistent references past it its actors' packages name (named_refs)."""
+    """(interiors, their references, `world`'s references, the built vendors (vendors.merchants)) of a build
+    from `cell`: interiors.scope() with the vendors' merchant containers, and the exterior's with the persistent
+    references past it its actors' packages name (named_refs)."""
     outside = world.refs if world else []
     interiors, every = scope(export_dir, all_refs, cell, outside)
+    sold = merchants(export_dir, _in_build(interiors, world))
+    interiors, every = with_chests(export_dir, interiors, every, [chest for _, chest in sold])
     if world is None:
-        return interiors, every, outside
+        return interiors, every, outside, sold
     cell_of = _in_build(interiors, world)
     actors = [r for sig in ('ACHR', 'ACRE') for r in export_records(export_dir, sig) if cell_of(r)]
     extra = named_markers(export_dir, actors, world.persistent_cell, {r['FormID'] for r in outside})
-    return interiors, every, world.add_persistent(extra)
+    return interiors, every, world.add_persistent(extra), sold
 
 
 def _cell_names(builder: CellBuilder, interiors: list, world) -> dict:
@@ -758,7 +778,8 @@ def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dic
     properties reserved before the NPCs' forms were known."""
     builder.npcs = Npcs(builder, export_dir, form_map, builder.creatures)
     placed = builder.npcs.placed(export_records(export_dir, 'ACHR') + export_records(export_dir, 'ACRE'),
-                                 _in_build(*scoped), ids, {**builder.factions, **builder.npc_ids})
+                                 _in_build(*scoped), ids, {**builder.factions, **builder.npc_ids},
+                                 scoped[1].on_ground if scoped[1] else None)
     builder.packages.write_pending(builder.npcs.form_map)
     return placed
 
@@ -827,6 +848,7 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     builder.counts['sound files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
+    builder.counts['script packages'] = write_script_packages(builder)
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))
     print(f'karma page: {write_karma_page(builder, export_dir, data_dir, out.name, builder.reputation_slots)}')

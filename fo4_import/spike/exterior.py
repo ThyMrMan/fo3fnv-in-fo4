@@ -33,8 +33,12 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.work_cache import normal_map
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_group, pack_subrecord
+from tes5_import.navmesh.world import decode_vhgt
 
 CELL_UNITS = 4096.0
+#: A cell's landscape squares per side and their size (33 VHGT points a side).
+LAND_SQUARES = 32
+LAND_SPACING = CELL_UNITS / LAND_SQUARES
 #: Fallout4.esm's Commonwealth, whose climate, water and map settings the worldspace takes.
 WORLD_TEMPLATE = 0x3C
 WORLD_COPIED = (b'CNAM', b'NAM2', b'NAM3', b'NAM4', b'DNAM', b'MNAM', b'ONAM', b'NAMA', b'DATA', b'XWEM')
@@ -75,7 +79,7 @@ class Exterior:
                 self.persistent.append(ref)
         self.refs = self.persistent + [r for refs in self.by_cell.values() for r in refs]
         self.land = {r['ParentCELL']: r for r in export_records(export_dir, 'LAND') if r['ParentCELL'] in own}
-        self.textures, self.made = {}, {}
+        self.textures, self.made, self.heights = {}, {}, {}
         self.grasses = Grasses(export_dir)
 
     def add_persistent(self, refs: list) -> list:
@@ -83,6 +87,26 @@ class Exterior:
         self.persistent += refs
         self.refs = self.persistent + [r for grid in self.by_cell.values() for r in grid]
         return self.refs
+
+    def on_ground(self, ref: dict, pos: tuple) -> tuple:
+        """`ref`'s position `pos`, raised to ground() when below it in the block.
+        See: docs/fork/fo4_pipeline.md#actors-on-the-ground
+        """
+        ground = self.ground(pos[0], pos[1]) if self.holds(ref) else None
+        return pos if ground is None or pos[2] >= ground else (pos[0], pos[1], ground)
+
+    def ground(self, x: float, y: float) -> 'float | None':
+        """The highest corner of the landscape square at (x, y); None outside the block or without land."""
+        grid = (math.floor(x / CELL_UNITS), math.floor(y / CELL_UNITS))
+        if grid not in self.heights:
+            land = self.land.get(self.cells[grid]['FormID'], {}) if grid in self.cells else {}
+            self.heights[grid] = decode_vhgt(land['VHGT']) if land.get('VHGT') else None
+        heights = self.heights[grid]
+        if heights is None:
+            return None
+        col = min(int((x - grid[0] * CELL_UNITS) / LAND_SPACING), LAND_SQUARES - 1)
+        row = min(int((y - grid[1] * CELL_UNITS) / LAND_SPACING), LAND_SQUARES - 1)
+        return float(heights[row:row + 2, col:col + 2].max())
 
     def holds(self, ref: dict) -> bool:
         """Whether FNV reference `ref` stands in the block (by cell, or by position)."""

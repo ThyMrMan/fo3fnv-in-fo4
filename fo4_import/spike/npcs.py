@@ -254,8 +254,10 @@ class Npcs:
         return with_actor_data(stats, self.source(fnv, USE_AI_DATA) or npc, NPC_FLAGS)
 
     def _factions(self, fnv: int) -> bytes:
-        """FO4 SNAMs of FNV NPC `fnv`'s (or its template's) factions."""
-        return faction_snams(self.source(fnv, USE_FACTIONS) or {}, self.builder.factions)
+        """FO4 SNAMs of FNV NPC `fnv`'s (or template's) factions and vendor one."""
+        vendor = getattr(self.builder, 'vendors', {}).get(fnv)
+        own = pack_subrecord('SNAM', struct.pack('<Ib', vendor, 0)) if vendor else b''
+        return faction_snams(self.source(fnv, USE_FACTIONS) or {}, self.builder.factions) + own
 
     def _inventory(self, fnv: int):
         """The edit giving FNV NPC `fnv` (or its template) its worn items as an outfit, the rest as inventory."""
@@ -304,9 +306,11 @@ class Npcs:
         self.builder.counts['face fitted'] += 1
         return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female), head_parts_edit(chosen, self.assets))
 
-    def placed(self, refs: list, cell_of, ids: dict, owners: dict) -> dict:
+    def placed(self, refs: list, cell_of, ids: dict, owners: dict, lift=None) -> dict:
         """{FNV cell: (persistent, temporary) ACHRs} of the actors `refs` placed in built cells (`cell_of(ref)`, None
-        outside them); enable parents and linked references through `ids` {FNV hex: FO4}, owners through `owners`."""
+        outside them); enable parents and linked references through `ids` {FNV hex: FO4}, owners through `owners`;
+        each position through `lift(ref, pos)` (Exterior.on_ground) when given."""
+        self.lift = lift or (lambda ref, pos: pos)
         out = {}
         for ref in sorted(refs, key=lambda r: r['FormID']):
             cell = cell_of(ref)
@@ -334,7 +338,8 @@ class Npcs:
         self.builder.counts['ACHR'] += 1
         flags = int(ref['RecordFlags']) & (PERSISTENT | R.INITIALLY_DISABLED)
         flags |= starts_dead(self.records.get(fnv) or self.creatures.records.get(fnv) or {})
-        return R.pack_achr(achr, base, *place(ref), vmad, extra, flags)
+        pos, rot = place(ref)
+        return R.pack_achr(achr, base, self.lift(ref, pos), rot, vmad, extra, flags)
 
 
 def _tint_edit(fitted, female: bool):

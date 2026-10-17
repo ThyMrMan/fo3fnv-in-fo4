@@ -102,7 +102,7 @@ class ObjectScripts:
         if kind == 'ObjectReference' and prop.startswith(FALLOUT4_POSE_PREFIX):
             return self.builder.poses.pose(prop)
         if kind == 'FormList':
-            return self.builder.equipment.anim_list(prop) or self.form_list(prop)
+            return self.builder.equipment.anim_list(prop) or self.form_list(prop) or self.builder.items.by_name(prop)
         if kind == 'Package':
             return self.builder.packages.named(prop)
         return self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None
@@ -150,14 +150,14 @@ class ObjectScripts:
             self.talks[prop] = self.builder.new_id(f'SCEN {prop}')
         return self.talks[prop]
 
-    def vmad(self, scpt: int) -> bytes:
-        """The VMAD attaching FNV script `scpt`'s conversion, filled; b'' when it is not converted."""
-        name = self.name(scpt)
-        if name is None:
-            self.builder.counts['script not attached'] += 1
-            return b''
-        self.used.append(name)
-        return object_scripts([(name, self.properties(name), {})])
+    def vmad(self, scpt: int, extra: tuple = ()) -> bytes:
+        """The VMAD attaching FNV script `scpt`'s conversion (0: none), filled, beside `extra` (name, object
+        properties, value properties) entries; b'' with neither."""
+        name = self.name(scpt) if scpt else None
+        self.builder.counts['script not attached'] += 1 if scpt and name is None else 0
+        self.used += [name] if name else []
+        entries = ([(name, self.properties(name), {})] if name else []) + list(extra)
+        return object_scripts(entries) if entries else b''
 
     def message(self, edid: str) -> int:
         """The FO4 MESG for FNV message `edid`, made once; with no text it shows its title (FO4 shows only DESC), its

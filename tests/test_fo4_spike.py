@@ -646,6 +646,27 @@ def test_an_in_cell_sleep_goes_to_the_npcs_own_bed_else_an_unowned_one():
     assert packages._bed(rec, 0x999) == 0x100
 
 
+def test_a_sandbox_copy_takes_each_allow_from_fnvs_no_flag():
+    """Primm residents (no flags) may sit and use idle markers; Chet's No Sleeping turns only sleeping off."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.slots = {'Allow Eating': 1, 'Allow Sleeping': 2, 'Allow Conversation': 3, 'Allow Idle Markers': 4,
+                      'Allow Sitting': 5, 'Allow Special Furniture': 6, 'Allow Wandering': 7}
+    residents = packages._allows({'PKDT.Type': '12', 'PKDT.TypeFlags': '0'}, 'Sandbox')
+    chet = packages._allows({'PKDT.Type': '12', 'PKDT.TypeFlags': '2'}, 'Sandbox')
+    assert set(residents.values()) == {b'\1'} and len(residents) == 7
+    assert chet[2] == b'\0' and chet[5] == b'\1'
+    assert packages._allows({'PKDT.Type': '9', 'PKDT.TypeFlags': '1'}, 'Sandbox') == {}
+
+
+def test_a_package_copy_sets_value_inputs_by_slot():
+    """CNAM slot 1 is replaced; slots 0 and 2 keep the vanilla values."""
+    vanilla = b''.join(pack_subrecord('CNAM', bytes([v])) for v in (5, 6, 7))
+    rec = {'EditorID': 'X', 'PSDT.Month': '-1', 'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '-1',
+           'PSDT.Duration': '0'}
+    body = PK.pack_package(0x800, rec, vanilla, b'', b'', values={1: b'\1'})[24:]
+    assert [d for t, d in subrecords(body) if t == b'CNAM'] == [b'\5', b'\1', b'\7']
+
+
 def test_an_npc_takes_its_fnv_voice_type_in_place_of_its_bodys():
     """VTCK becomes the converted voice type; the other subrecords are untouched."""
     subs = pack_subrecord('VTCK', b'\1\0\0\0') + pack_subrecord('RNAM', b'\2\0\0\0')

@@ -34,7 +34,7 @@ from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_no
 from fo4_import.nif.particles import add_system, systems as particle_systems, wanted_nodes
 from fo4_import.nif.shader_anim import GLOW_SUFFIX
 from fo4_import.nif.addons import fo4_index
-from fo4_import.nif.collision import collision_nodes, node_transform
+from fo4_import.nif.collision import collision_nodes, moves, node_transform
 
 PREFIX = 'fnv'
 #: BSVertexDesc of a vanilla static shape (ClutterGen, SetDressing): half positions, UV, normal, tangent.
@@ -53,7 +53,7 @@ IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 #: FNV BSXFlags bits kept (same meaning in FO4): Havok, Complex, Dynamic, Articulated; vanilla statics carry 0x82.
 BSX_KEPT = 0x2 | 0x8 | 0x40 | 0x80
 #: BSXFlags Havok, Complex, Articulated: vanilla meshes with Havok, not Complex (2,352), or joints set Articulated.
-BSX_HAVOK, BSX_COMPLEX, BSX_ARTICULATED = 0x2, 0x8, 0x80
+BSX_HAVOK, BSX_COMPLEX, BSX_DYNAMIC, BSX_ARTICULATED = 0x2, 0x8, 0x40, 0x80
 #: BSXFlags Animated: on every vanilla door and container mesh with a NiControllerManager (animation).
 BSX_ANIMATED = 0x1
 #: BSXFlags Addon: set on vanilla meshes with add-on nodes (WorkstationWoodCookingFire 0x29B, BarrelTank 0x5B).
@@ -110,6 +110,8 @@ VERTEX_ALPHA_BLEND = (0x10ED, 0)
 TRIANGLE_SAMPLES = np.array([(1, 0, 0), (0, 1, 0), (0, 0, 1), (.5, .5, 0), (0, .5, .5), (.5, 0, .5), (1 / 3,) * 3])
 #: Lighting shader flags1 of a decal (Decal, Dynamic_Decal), as vanilla's blended decals carry them.
 DECAL_FLAGS = 0x0C000000
+#: Game units a blended sheet's vertices may stand off its plane and still count as flat (overlay_sheet).
+SHEET_DEPTH = 0.5
 #: The most common value of every field over Fallout4.esm's 6,616 BGSMs, textures and root material aside.
 MATERIAL = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 1.0,
@@ -508,7 +510,8 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     blended = alpha is not None and alpha.flags & 1 and shader
     glass = bool(blended and shader.shader_flags.sf_environment_mapping)
     flags = shader.shader_flags if shader else None
-    decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass))
+    decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass)) or \
+        bool(blended and not glass and overlay_sheet(geom))
     texture = Path(texture_root) / texture_source(fnv[0]).replace('\\', '/') if texture_root and fnv[0] else None
     cut_from_blend = bool(blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
     clear = _effect(fnv, alpha) if glass else _translucent(fnv, alpha, two_sided) if cut_from_blend else None
@@ -518,6 +521,19 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     if cut_from_blend:
         mat.split = (clear, texture)
     return mat
+
+
+def overlay_sheet(geom) -> bool:
+    """Whether FNV shape `geom` is a still, flat sheet (no controller or skin; every vertex within SHEET_DEPTH of
+    one plane): graffiti, posters, stains and blood, which FO4 places as decal meshes.
+    See: docs/fork/fo4_pipeline.md#overlay-decals
+    """
+    if geom.controller is not None or geom.skin_instance is not None or geom.data.num_vertices < 3:
+        return False
+    points = np.array([(v.x, v.y, v.z) for v in geom.data.vertices])
+    centred = points - points.mean(axis=0)
+    normal = np.linalg.svd(centred, full_matrices=False)[2][-1]
+    return bool(np.abs(centred @ normal).max() < SHEET_DEPTH)
 
 
 def _visible_shapes(root) -> list:
@@ -691,6 +707,8 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     made = _particles(nif, root, found, nodes, out, texture_root)
     addons = _addon_nodes(nif, root, texture_root)
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
+    bodies = [b for b in data.blocks if isinstance(b, NifFormat.bhkRigidBody)]
+    bsx &= ~BSX_DYNAMIC if bodies and not any(moves(b) for b in bodies) else ~0
     bsx |= BSX_ADDON if addons else 0
     bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK or joined else 0
     bsx |= BSX_ANIMATED if animate or found else 0

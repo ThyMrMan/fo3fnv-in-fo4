@@ -8,7 +8,8 @@ Fallout4.esm has under the same FormID, type and EditorID are FO4's own
 (the bottle cap, COC and X markers), and an item the replacement table
 names as an `item` is that record itself (spike.replacements). Consumables and
 ammunition are made by consumables.Consumables, weapons and armor by
-equipment.Equipment; any other type is skipped and counted.
+equipment.Equipment; a form list keeps its entries that convert as items (empty
+when none do, so counting it reads 0); any other type is skipped and counted.
 
 See: docs/fork/fo4_spikes.md#spike-2-items
 """
@@ -24,7 +25,7 @@ ENGINE_IDS = 0x800
 #: The portal marker: built into FNV's engine (FalloutNV.esm has no record), Fallout4.esm's PortalMarker STAT.
 PORTAL_MARKER = 0x20
 #: FNV record types an inventory may name, indexed for conversion (the rest are skipped).
-ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT')
+ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT', 'FLST')
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
 CONTAINER_FLAGS = 0x2
 
@@ -114,7 +115,7 @@ class Items:
     def _make(self, sig: str, rec: dict) -> 'int | None':
         """Write the FO4 record of a convertible FNV record; its FormID, or None (counted as skipped)."""
         maker = {'MISC': self._misc, 'KEYM': self._key, 'LVLI': self._leveled, 'CONT': self._container,
-                 'NOTE': self._readable, 'BOOK': self._readable}.get(sig)
+                 'NOTE': self._readable, 'BOOK': self._readable, 'FLST': self._form_list}.get(sig)
         if sig in self.makers:
             made = self.makers[sig](int(rec['FormID'], 16), rec)
             if made is None:
@@ -175,3 +176,18 @@ class Items:
     def _readable(self, rec: dict) -> 'int | None':
         """A book or note: the cell builder's record of it (spike.readables)."""
         return self.builder.readable(int(rec['FormID'], 16), rec['Signature'], rec)
+
+    def _form_list(self, rec: dict) -> int:
+        """A form list of the entries that convert as items, written even when none do."""
+        listed = [int(rec[f'LNAM[{i}]'], 16) for i in range(_count(rec, 'LNAM'))]
+        entries = [self.item(fid) for fid in listed if fid in self.records or fid in self.shared]
+        return self._write('FLST', lambda fid: R.pack_flst(
+            fid, f'FNV_{rec.get("EditorID", rec["FormID"])}', [e for e in entries if e]), rec)
+
+
+def _count(rec: dict, key: str) -> int:
+    """How many `key`[i] an export record has."""
+    i = 0
+    while f'{key}[{i}]' in rec:
+        i += 1
+    return i

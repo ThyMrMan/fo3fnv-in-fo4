@@ -12,9 +12,11 @@ See: docs/fork/fo4_pipeline.md#terminals
 """
 
 import copy
+import math
 
 import numpy as np
 
+from fo4_import.nif.blocks import NONE
 from fo4_import.nif.convert_static import DESC_PLAIN, lighting_shader, vertices
 
 SCREEN = 'Screen:0'
@@ -27,6 +29,8 @@ SCREEN_TEXTURES = ['textures\\AnimObjects\\PipBoy\\PipBoyScreen_d.dds', 'texture
 SCREEN_SHADER = {'shader_type': 1, 'flags1': 0x80400081, 'flags2': 0x21, 'smoothness': 0.92, 'grayscale_scale': 0.5,
                  'envmap': (3.0, 0, 0)}
 UP = np.array([0.0, 0.0, 1.0])
+#: The direction a terminal's screen faces in its mesh: FO4 offers a terminal only from its -Y side.
+FACING = (0.0, -1.0, 0.0)
 
 
 def _matrix(block: dict) -> np.ndarray:
@@ -87,9 +91,27 @@ def screen_uv(points: np.ndarray, facing: np.ndarray) -> np.ndarray:
     return np.stack([(s - s.min()) / (np.ptp(s) or 1.0), (t.max() - t) / (np.ptp(t) or 1.0)], axis=1)
 
 
+def _turned(nif, angle: float) -> np.ndarray:
+    """Turn every child of the root by `angle` about Z (their own transforms, which Elric bakes into physics); the
+    turn's matrix, the identity when the root itself has collision (it would not turn)."""
+    if nif.blocks[0][1].get('collision', NONE) != NONE:
+        return np.eye(3)
+    c, s = math.cos(angle), math.sin(angle)
+    turn = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+    for child in nif.blocks[0][1].get('children', []):
+        block = nif.blocks[child][1] if child >= 0 else None
+        if isinstance(block, dict) and 'rotation' in block:
+            block['rotation'] = tuple((turn @ np.array(block['rotation']).reshape(3, 3)).flatten())
+            block['translation'] = tuple(turn @ np.array(block['translation']))
+    return turn
+
+
 def with_screen(converted) -> 'tuple | None':
-    """(a copy of converted mesh `converted` whose screen is FO4's Screen:0, (screen centre, its facing) in the mesh's
-    space); None when the mesh has no unlit textured shape."""
+    """(a copy of converted mesh `converted` whose screen is FO4's Screen:0, turned to face -Y as FO4 needs to offer
+    it (FACING), (screen centre, facing, the turn in radians) in the mesh's space); None when the mesh has no unlit
+    textured shape.
+    See: docs/fork/fo4_pipeline.md#terminal-facing
+    """
     out = copy.deepcopy(converted)
     nif = out.nif
     found = _screen(nif)
@@ -98,6 +120,9 @@ def with_screen(converted) -> 'tuple | None':
     index, points, normals = found
     facing = normals.mean(axis=0)
     facing /= np.linalg.norm(facing) or 1.0
+    angle = math.atan2(FACING[1], FACING[0]) - math.atan2(facing[1], facing[0])
+    turn = _turned(nif, angle)
+    angle = angle if not np.allclose(turn, np.eye(3)) else 0.0
     shape = nif.blocks[index][1]
     local = np.array([v['position'] for v in shape['vertices']], dtype=float)
     local_normals = np.array([v['normal'] for v in shape['vertices']], dtype=float) / 127.5 - 1.0
@@ -106,4 +131,4 @@ def with_screen(converted) -> 'tuple | None':
     shader.update(SCREEN_SHADER)
     nif.blocks += [('BSLightingShaderProperty', shader), ('BSShaderTextureSet', {'textures': SCREEN_TEXTURES})]
     shape.update(name=nif.string(SCREEN), shader=len(nif.blocks) - 2, alpha_property=-1, vertex_desc=DESC_PLAIN)
-    return out, ((points.min(axis=0) + points.max(axis=0)) / 2, facing)
+    return out, (turn @ ((points.min(axis=0) + points.max(axis=0)) / 2), turn @ facing, angle)

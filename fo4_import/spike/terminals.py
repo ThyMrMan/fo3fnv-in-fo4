@@ -52,7 +52,7 @@ def marker(screen: 'tuple | None') -> bytes:
     """SNAM: the user's spot and heading before `screen` (centre, facing); the origin without a screen."""
     if screen is None:
         return pack_subrecord('SNAM', struct.pack('<4fI', 0.0, 0.0, 0.0, 0.0, 0) + ENTRY)
-    centre, facing = screen
+    centre, facing = screen[:2]
     length = math.hypot(facing[0], facing[1]) or 1.0
     fx, fy = facing[0] / length, facing[1] / length
     spot = (centre[0] + fx * REACH, centre[1] + fy * REACH, centre[2] - BELOW)
@@ -102,6 +102,12 @@ class Terminals:
                 self.builder.writer.add_record('TERM', self._record(self.made[fnv], rec))
                 self.builder.counts['TERM'] += 1
         return self.made[fnv]
+
+    def turn(self, ref: dict) -> float:
+        """Radians `ref`'s terminal mesh is turned by (nif.terminal); else 0."""
+        rec = self.records.get(int(ref['NAME'], 16), {})
+        screen = self.looks.get(rec.get('Model.MODL', ''), (None, None))[1]
+        return screen[2] if screen else 0.0
 
     def _look(self, model: str) -> tuple:
         """((FO4 model, bounds), screen) of FNV terminal mesh `model`, converted once; screen None without one."""

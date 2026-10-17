@@ -39,7 +39,7 @@ from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import LEAVE, menu_action
 from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS
 from fo4_import.spike.readiness import CHOICE_UNANSWERED
-from fo4_import.spike.say_topics import PART, PARTS, conditions_of
+from fo4_import.spike.say_topics import PART, PARTS, conditions_of, parsed, raws
 from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX
 
 #: FNV INFO DATA flags.
@@ -101,6 +101,7 @@ class Conversations:
         self.say, self.quest, self.fid, self.form_map, self.keyword = say, quest, quest_fid, form_map, keyword
         self.lines = {r['FormID'].upper(): r for r in say.infos.get(quest['FormID'].upper(), [])}
         self.hub, self.topics, self.scenes, self.placed, self.labels = shared, [], [], {}, {}
+        self.packaged = {}
 
     def has_lines(self) -> bool:
         """True when the quest has lines (said from its Speaker and Listener)."""
@@ -223,13 +224,15 @@ class Conversations:
         return R.pack_dialogue_action(place[0], alias, topic, place[1], _other(alias))
 
     def _option(self, dial: str, player: list, npc: list, continues: bool) -> None:
-        """Add FNV topic `dial` to a menu: an option per prompt among its lines (FNV shows the first passing
-        line's), each padded to its answers."""
+        """Add FNV topic `dial` to a menu: an option per prompt and quest among its lines (FNV shows the first
+        passing line's; a quest's conditions scope its speakers), each padded to its answers."""
         prompts = {}
         for rec in self.hub.lines.values():
             if rec['ParentDIAL'].upper() == dial:
-                prompts.setdefault(rec.get('Prompt') or self.say.dials[dial].get('FULL', ''), []).append(part(rec, 1))
-        added = [self._prompt(dial, text, members, (player, npc), continues) for text, members in prompts.items()]
+                text = rec.get('Prompt') or self.say.dials[dial].get('FULL', '')
+                prompts.setdefault((text, rec.get('QSTI.Quest', '')), []).append(part(rec, 1))
+        added = [self._prompt(dial, text, members, (player, npc), continues)
+                 for (text, _), members in prompts.items()]
         if not any(added):
             self.say.builder.counts['choice without a line in the quest'] += 1
             self.say.builder.readiness.add(CHOICE_UNANSWERED, self.quest['FormID'],
@@ -246,8 +249,9 @@ class Conversations:
         if len(members) == 1:
             shown = conditions_of(members[0], self.form_map, self.say.script_vars, swap=True) or b''
         else:
-            shown = self._shared(members) + self._speakers(members)
+            shown = self._shared(members) + self._either(members) + self._speakers(members)
         shown += self._running(members[0]) + self._gate(dial)
+        shown += self.say.once.unsaid(self.fid, [r['FormID'] for r in members]) if once else b''
         owner = f'INFO prompt {dial} {text}'
         player.append(R.pack_info(self.say.builder.new_id(owner), once, (text,), shown, prompt=text))
         player += [R.pack_info(self.say.builder.new_id(owner)) for _ in answers[1:]]
@@ -255,22 +259,35 @@ class Conversations:
         return True
 
     def _shared(self, members: list) -> bytes:
-        """CTDAs (from the player's side) of the conditions every line in `members` has besides its speaker; b''
-        when a line ORs conditions or one does not convert."""
-        raws = [[r[f'Condition[{i}].Raw'] for i in range(int(r.get('ConditionCount', 0) or 0))] for r in members]
-        if any(c['op_flags'] & OR for r in members for c in _conditions(r)):
-            return b''
-        common = [raw for raw in raws[0] if all(raw in other for other in raws[1:])
-                  and C.parse(raw)['func'] != SPEAKER_TEST]
+        """CTDAs (from the player's side) of the condition OR-groups every line in `members` has, besides a lone
+        speaker test; b'' when one does not convert."""
+        each = [_groups(r) for r in members]
+        common = [raw for group in each[0] if all(group in other for other in each[1:])
+                  and not (len(group) == 1 and C.parse(group[0])['func'] == SPEAKER_TEST) for raw in group]
         shared = {f'Condition[{i}].Raw': raw for i, raw in enumerate(common)}
         return conditions_of(shared, self.form_map, self.say.script_vars, swap=True) or b''
+
+    def _either(self, members: list) -> bytes:
+        """One OR-group (from the player's side) of what each line in `members` adds to the groups they share,
+        when each adds one test, so the option needs an answer that passes; b'' otherwise (a line adding nothing
+        always answers)."""
+        each = [_groups(r) for r in members]
+        rest = [[g for g in groups if not all(g in other for other in each)
+                 and not (len(g) == 1 and C.parse(g[0])['func'] == SPEAKER_TEST)] for groups in each]
+        if not all(len(r) == 1 and len(r[0]) == 1 for r in rest):
+            return b''
+        tests = list(dict.fromkeys(r[0][0] for r in rest))
+        ored = [f'{int(raw[:2], 16) & ~OR | (OR if i < len(tests) - 1 else 0):02x}{raw[2:]}'
+                for i, raw in enumerate(tests)]
+        either = {f'Condition[{i}].Raw': raw for i, raw in enumerate(ored)}
+        return conditions_of(either, self.form_map, self.say.script_vars, swap=True) or b''
 
     def _speakers(self, members: list) -> bytes:
         """One OR-group of the lines' speakers (GetIsID), run on the player line's target; b'' when a line has
         none (anyone may answer). A line whose speaker is not built is left out with its speaker."""
         tests = []
         for rec in members:
-            found = [c['p1'] for c in _conditions(rec) if c['func'] == SPEAKER_TEST and c['value'] == 1.0
+            found = [c['p1'] for c in parsed(rec) if c['func'] == SPEAKER_TEST and c['value'] == 1.0
                      and not c['op_flags'] & 0xE0]
             if not found:
                 return b''
@@ -294,27 +311,33 @@ class Conversations:
         """FNV line `rec` as the speaker's INFO (said by chat `alias`, its Target tests on the other actor): the
         scene runs on (`continues`), or it starts what follows once said, or ends."""
         extra, target = self._running(rec), None if alias is None else _other(alias)
+        package = self.packaged.get(rec['FormID'].upper()) if rec.get(PART, 1) == 1 else None
+        extra += R.pack_ctda(0, 1.0, CURRENT_PACKAGE, package) if package else b''
         if continues:
-            return self.say.info(rec, self.form_map, extra=extra, target=target)
+            return self.say.info(rec, self.form_map, extra=extra, target=target, owner=self.fid)
         nxt = self._next(rec, alias)
         if nxt is None:
-            return self.say.info(rec, self.form_map, flags=R.INFO_END_SCENE, extra=extra, target=target)
+            return self.say.info(rec, self.form_map, flags=R.INFO_END_SCENE, extra=extra, target=target,
+                                 owner=self.fid)
         return self.say.info(rec, self.form_map, self.scene(nxt), flags=R.INFO_START_ON_END, extra=extra,
-                             target=target)
+                             target=target, owner=self.fid)
 
-    def greeting(self, greets: list) -> None:
+    def greeting(self, greets: list, topics: 'dict | None' = None) -> None:
         """A Greeting topic whose silent line starts the GREETING talk scene, for activation or force greets `greets`.
 
-        The scene's lines are _greetings(). The line says '...'; it puts its speaker in the
+        The scene's lines are those of the topics force greets name (`topics`, {FNV topic: FO4 package}), each
+        needing its package current, then _greetings(). The line says '...'; it puts its speaker in the
         Speaker alias and needs GetPlayerActivated or a running force greet
         and a speaker the GREETING lines name; the lines stay in the scene, so
         each Say Once line exists once.
         See: docs/fork/fo4_spikes.md#spike-1-force-greet
         """
-        infos = self._greetings()
+        self.packaged = {i: (topics or {})[r['ParentDIAL'].upper()] for i, r in self.hub.lines.items()
+                         if r['ParentDIAL'].upper() in (topics or {})}
+        infos = list(self.packaged) + self._greetings()
         if not infos:
             return
-        speakers = sorted({self.form_map[c['p1']] for i in infos for c in _conditions(self.hub.lines[i])
+        speakers = sorted({self.form_map[c['p1']] for i in infos for c in parsed(self.hub.lines[i])
                            if c['func'] == SPEAKER_TEST and c['p1'] in self.form_map})
         opened = _any([(PLAYER_ACTIVATED, 0)] + [(CURRENT_PACKAGE, p) for p in greets])
         opened += _any([(IS_ID, npc) for npc in speakers])
@@ -360,9 +383,15 @@ def _chat_alias(step: tuple) -> 'int | None':
     return step[1] if step[0] == 'chat' else None
 
 
-def _conditions(rec: dict) -> list:
-    """An FNV record's conditions, parsed."""
-    return [C.parse(rec[f'Condition[{i}].Raw']) for i in range(int(rec.get('ConditionCount', 0) or 0))]
+def _groups(rec: dict) -> list:
+    """FNV line `rec`'s condition OR-groups, each a tuple of raw hex."""
+    out, cur = [], []
+    for raw in raws(rec):
+        cur.append(raw)
+        if not int(raw[:2], 16) & OR:
+            out.append(tuple(cur))
+            cur = []
+    return out + [tuple(cur)] if cur else out
 
 
 def _any(tests: list) -> bytes:

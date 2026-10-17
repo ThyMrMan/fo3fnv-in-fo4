@@ -6,16 +6,25 @@ follows what the script's body does with time.
 See: docs/commentary/script_convert.md#poll-interval
 """
 
-from script_convert.target import arm_update
+from script_convert.target import arm_update, is_fallout4
 
 #: Fastest Papyrus poll the converter emits; an authored delay never goes below it.
 MIN_INTERVAL = 0.1
+#: FO3/FNV's quest script delay when the quest authors none (seconds).
+QUEST_DEFAULT = 5.0
+#: Fallout 4: the quest-script property its poll re-arms at, which SetQuestDelay sets for good.
+QUEST_DELAY_VAR = 'TES4_Delay'
 
 
-def update_interval(sc) -> str:
-    """The RegisterForSingleUpdate literal for one script's poll."""
+def update_interval(sc, quest: bool = False) -> str:
+    """The RegisterForSingleUpdate literal for one script's poll; a Fallout 4 `quest` script's runs at the source
+    game's quest delay.
+    See: docs/fork/performance.md#papyrus
+    """
     if sc.quest_delay > 0:
         return float_literal(max(sc.quest_delay, MIN_INTERVAL))
+    if quest and is_fallout4():
+        return float_literal(QUEST_DEFAULT)
     if sc.uses_getsecondspassed or sc.moves_in_poll:
         return '0.1'
     if sc.uses_say_timer:

@@ -120,10 +120,20 @@ def quest_native(ctx, call):
         ctx.sc.property_refs[prop] = 'Quest'
     args = ', '.join(call.arg(i) for i in range(1, len(parts)))
     if native == 'RegisterForSingleUpdate':
-        return arm_update(args, f'{prop}.')
+        return _quest_delay(ctx, quest_edid, prop, args)
     started = (f'TES4Polyfill.StartForObjective({prop})\n  '
                if is_fallout4() and native in _OBJECTIVE_SETTERS else '')
     return f'{started}{prop}.{native}({args})' + _objective_mirror(ctx, call, quest_edid, parts)
+
+
+def _quest_delay(ctx, quest_edid: str, prop: str, secs: str) -> str:
+    """SetQuestDelay: Fallout 4's quest script keeps the delay (assemble._quest_delay); else one poll after `secs`.
+    See: docs/fork/performance.md#papyrus
+    """
+    script = ctx.xref.get_quest_script_type(quest_edid) if ctx.xref else 'Quest'
+    if is_fallout4() and script != 'Quest':
+        return f'{script}.TES4SetDelay({prop} as {script}, {secs})'
+    return arm_update(secs, f'{prop}.')
 
 
 def _mirror_values(name: str, flag: str, value: str) -> dict:

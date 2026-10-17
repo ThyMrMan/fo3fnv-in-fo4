@@ -6,6 +6,7 @@ are copied from vanilla Fallout4.esm records named in each docstring.
 See: docs/fork/fo4_spikes.md#spike-1
 """
 
+import re
 import struct
 
 from fo4_import.base.writer import pack_fo4_record
@@ -14,6 +15,8 @@ from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_group, pack_string_subrecord, pack_subrecord
 
 NO_STAGE = 0xFFFF
+#: FNV direction notes in dialogue text ({Apologetic}), which its subtitles leave out.
+_DIRECTION = re.compile(r"{[^}]*}")
 #: Record flag Initially Disabled, the same bit in FO3/FNV and FO4.
 INITIALLY_DISABLED = 0x800
 #: FO4 CTDA Run On values.
@@ -107,13 +110,18 @@ def pack_cis2(text: str) -> bytes:
     return _zstr('CIS2', text)
 
 
+def shown(text: str) -> str:
+    """FNV dialogue text as shown: `{...}` direction notes left out."""
+    return _DIRECTION.sub('', text).strip() or text
+
+
 def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b'',
               prompt: str = '', scene: int = 0, phase: str = '', phase_index: int = 0,
               stages: tuple = (NO_STAGE, NO_STAGE), notes: str = '', forced_alias: int = None,
               vmad: bytes = b'', idle: int = 0, speaker: int = 0) -> bytes:
     """An INFO in vanilla's field order (DialogueDiamondCity 00199516).
 
-    lines are response texts (none: an empty padding INFO); stages are the
+    lines are response texts (none: padding), shown() as the prompt; stages are the
     quest stages set on begin and on end (TIQS); scene/phase start a scene,
     at phase_index (INTV, which the engine reads, not the NAM0 name);
     forced_alias (ALFA) puts the speaker into that alias; vmad is its fragments;
@@ -123,11 +131,11 @@ def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b
     subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_subrecord('ENAM', struct.pack('<HH', flags, 0))
     for number, text in enumerate(lines, 1):
         subs += pack_subrecord('TRDA', struct.pack('<iBIBHii', -1, number, 0, 1, 0, -1, -1))
-        subs += _zstr('NAM1', text) + _zstr('NAM2', notes) + _zstr('NAM3', '') + _zstr('NAM4', '')
+        subs += _zstr('NAM1', shown(text)) + _zstr('NAM2', notes) + _zstr('NAM3', '') + _zstr('NAM4', '')
         subs += _u32('SNAM', idle) if idle and number == 1 else b''
     subs += conditions
     if prompt:
-        subs += _zstr('RNAM', prompt)
+        subs += _zstr('RNAM', shown(prompt))
     if scene:
         subs += _u32('TSCE', scene) + (_s32('INTV', phase_index) if phase_index else b'')
     if forced_alias is not None:
@@ -199,10 +207,13 @@ def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
     return pack_fo4_record('QUST', fid, 0, subs + _u32('ANAM', 1) + _alias(0, alias_name, alias_ref))
 
 
-def _alias(alias: int, name: str, ref) -> bytes:
-    """A reference alias forced to `ref`, or optional and empty when None."""
-    subs = _u32('ALST', alias) + _zstr('ALID', name)
-    subs += _u32('FNAM', 2) if ref is None else _u32('FNAM', 0) + _u32('ALFR', ref)
+def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None) -> bytes:
+    """A reference alias forced to `ref`, or optional and empty when None; given `packages`, an empty collection
+    alias running them (ALPC), in vanilla's order (CZ_Arena's Crowd)."""
+    collection = packages is not None
+    subs = (_u32('ALCS', alias) + pack_subrecord('ALMI', b'\0') if collection else b'') + _u32('ALST', alias)
+    subs += _zstr('ALID', name) + (_u32('FNAM', 2) if ref is None else _u32('FNAM', 0) + _u32('ALFR', ref))
+    subs += b''.join(_u32('ALPC', package) for package in packages or ()) + (_u32('VTCK', 0) if collection else b'')
     return subs + pack_subrecord('ALED', b'')
 
 

@@ -6249,10 +6249,12 @@ class TestFallout4PlayerPackage:
         assert conv_lines(converter, 'player.removescriptpackage', 'Quest') == 'TES4PlayerControls.ReleasePlayer()'
 
     def test_npc_package_and_skyrim_keep_the_row(self, converter, monkeypatch):
-        """Another actor's package, and the Skyrim target, still re-evaluate packages."""
+        """The Skyrim target keeps its row; on Fallout 4 another actor's package goes to the script-package quest."""
         assert 'HoldPlayer' not in conv_lines(converter, 'player.addscriptpackage VCG01PlayerSection0', 'Quest')
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
-        assert 'EvaluatePackage' in conv_lines(converter, 'DocREF.addscriptpackage DocSitPackage', 'Quest')
+        added = conv_lines(converter, 'DocREF.addscriptpackage DocSitPackage', 'Quest')
+        assert 'TES4ScriptPackages.Add(DocREF, DocSitPackage)' in added
+        assert 'TES4ScriptPackages.Remove(DocREF)' in conv_lines(converter, 'DocREF.removescriptpackage', 'Quest')
 
     def test_tag_skill_reads_levelupmenuex(self, converter, monkeypatch):
         """VCG01's handouts branch on the player's tag skills, which LevelUpMenuEx's tag menu set."""

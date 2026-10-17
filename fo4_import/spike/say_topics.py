@@ -21,6 +21,7 @@ from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike.poses import line_idle
 from fo4_import.spike.readiness import LINE, LINE_LEFT_OUT
+from fo4_import.spike.say_once import SayOnce
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import export_records
@@ -53,12 +54,15 @@ class SayTopics:
     """FO4 Custom topics for FNV quests' Conversation topics; `voiced` lists [(FO4 INFO, FNV INFO)]."""
 
     def __init__(self, builder, export_dir: Path):
-        """Index FNV topics and lines; topics are written through `builder` (its script_vars() names)."""
-        self.builder, self.voiced = builder, []
+        """Index FNV topics and lines, each line carrying its quest's dialogue conditions (with_quest); topics are
+        written through `builder` (its script_vars() names)."""
+        self.builder, self.voiced, self.once = builder, [], SayOnce()
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
+        quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
         self.infos = {}
         for rec in export_records(export_dir, 'INFO'):
-            self.infos.setdefault(rec.get('QSTI.Quest', '').upper(), []).append(rec)
+            quest = rec.get('QSTI.Quest', '').upper()
+            self.infos.setdefault(quest, []).append(with_quest(rec, quests.get(quest, [])))
         self.script_vars = builder.script_vars
 
     def topics(self, quest: dict) -> list:
@@ -77,7 +81,7 @@ class SayTopics:
         branch, blobs = self.builder.new_id(f'DLBR {quest["FormID"]}'), []
         for dial, fid in topic_ids.items():
             lines = [rec for rec in self.infos[quest['FormID'].upper()] if rec['ParentDIAL'] == dial]
-            infos = [i for i in (self.info(rec, form_map) for rec in lines) if i]
+            infos = [i for i in (self.info(rec, form_map, owner=quest_fid) for rec in lines) if i]
             record = R.pack_dial(fid, f'FNV_{self.dials[dial]["EditorID"]}', quest_fid, R.TOPIC_CUSTOM, len(infos),
                                  branch)
             blobs.append(pack_topic(record, fid, infos))
@@ -85,13 +89,13 @@ class SayTopics:
         return dlbr, blobs
 
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
-             target: 'int | None' = None, speaker: int = 0) -> bytes:
-        """One FNV line as an FO4 INFO; b'' when a condition cannot convert.
+             target: 'int | None' = None, speaker: int = 0, owner: int = 0) -> bytes:
+        """One FNV line as an FO4 INFO of quest `owner`; b'' when a condition cannot convert.
 
-        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once; `extra` CTDAs join its
-        conditions, Target tests run on alias `target`; `speaker`: its speaker NPC (ANAM). A split line's later
-        parts (conversation.part) have no conditions or Say Once; the first runs the Begin fragment, the last
-        the End one. The part opening barter ends the scene, as vanilla's vendor lines do. Recorded in readiness.
+        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once (and its say_once
+        marker in `owner`); `extra` CTDAs join its conditions, Target tests on alias `target`; `speaker` its
+        NPC (ANAM). A split line's later parts (conversation.part) have no conditions or Say Once; the first
+        runs the Begin fragment, the last the End one. The part opening barter ends the scene.
         """
         first, last = rec.get(PART, 1) == 1, rec.get(PART, 1) == rec.get(PARTS, 1)
         conditions = conditions_of(rec, form_map, self.script_vars, target=target) if first else b''
@@ -110,12 +114,15 @@ class SayTopics:
                                   end='Fragment_0' if last else None)
             scripts.used.append(name)
         lines = [rec[f'Response[{i}].ResponseText'] for i in range(int(rec.get('ResponseCount', 0) or 0))]
-        flags |= R.INFO_SAY_ONCE if first and int(rec.get('DATA.Flags', 0)) & SAY_ONCE else 0
+        once = first and int(rec.get('DATA.Flags', 0)) & SAY_ONCE
+        flags |= R.INFO_SAY_ONCE if once else 0
         flags |= R.INFO_END_SCENE if opens_barter(rec, first, last) else 0
+        marker = self.once.stage(owner, rec['FormID']) if once and owner else R.NO_STAGE
+        extra += self.once.unsaid(owner, [rec['FormID']]) if marker != R.NO_STAGE else b''
         self.voiced.append((fid, rec))
         self.builder.counts['INFO'] += 1
         return R.pack_info(fid, flags, tuple(lines) or ('...',), conditions + extra, scene=scene[0], phase=scene[1],
-                           phase_index=scene[2] if len(scene) > 2 else 0,
+                           phase_index=scene[2] if len(scene) > 2 else 0, stages=(marker, R.NO_STAGE),
                            notes=f'FNV {rec["FormID"]}', vmad=vmad, idle=line_idle(rec['FormID']) or 0,
                            speaker=speaker)
 
@@ -208,9 +215,9 @@ def opens_barter(rec: dict, first: bool, last: bool) -> bool:
 def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
     """The function of an FNV record's first condition that cannot convert, '(global)' marking a global test; for
     one never true in this build (conditions.without_absent), the first form it lacks."""
-    conds = C.without_absent(_parsed(rec), form_map)
+    conds = C.without_absent(parsed(rec), form_map)
     if conds is None:
-        first = next((c['func'] for c in _parsed(rec) if C.absent(c, form_map) is False), '')
+        first = next((c['func'] for c in parsed(rec) if C.absent(c, form_map) is False), '')
         return f'{first}: never true in this build'
     for cond in conds:
         if _fo4_condition(cond, form_map, script_vars) is None:
@@ -218,9 +225,30 @@ def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
     return ''
 
 
-def _parsed(rec: dict) -> list:
+def with_quest(rec: dict, quest: list) -> dict:
+    """FNV line `rec`, or a copy whose conditions also AND in its quest's dialogue conditions `quest` (raw hex).
+    See: docs/fork/fo4_pipeline.md#dialogue-conditions
+    """
+    if not quest:
+        return rec
+    both = _closed(raws(rec)) + _closed(quest)
+    out = {k: v for k, v in rec.items() if not k.startswith('Condition[')}
+    return {**out, **{f'Condition[{i}].Raw': raw for i, raw in enumerate(both)}, 'ConditionCount': str(len(both))}
+
+
+def raws(rec: dict) -> list:
+    """An FNV record's top-level conditions, raw hex, in order."""
+    return [rec[f'Condition[{i}].Raw'] for i in range(_count(rec))]
+
+
+def _closed(conds: list) -> list:
+    """Raw conditions `conds`, the last one's OR-with-next flag cleared."""
+    return conds[:-1] + [f'{int(conds[-1][:2], 16) & ~OR:02x}{conds[-1][2:]}'] if conds else []
+
+
+def parsed(rec: dict) -> list:
     """An FNV record's conditions, parsed, in order."""
-    return [C.parse(rec[f'Condition[{i}].Raw']) for i in range(_count(rec))]
+    return [C.parse(raw) for raw in raws(rec)]
 
 
 def _count(rec: dict) -> int:
@@ -241,7 +269,7 @@ def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = Fal
     quest alias `target`. Tests of forms the build lacks are settled first
     (conditions.without_absent).
     """
-    conds = C.without_absent(_parsed(rec), form_map)
+    conds = C.without_absent(parsed(rec), form_map)
     if conds is None:
         return None
     out = b''
