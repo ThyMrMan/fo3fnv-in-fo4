@@ -20,6 +20,8 @@ MQ101, MQ102, TIME_SCALE, CAMERA_IMOD, MIRROR_IMOD = 0x1ED86, 0x1CC2A, 0x3A, 0x1
 #: Fallout 4's opening quests besides MQ101: SanctuaryHills, Radio, TVStation, PlayerComments, Vault111.
 OPENING_QUESTS = (0xC3309, 0xBA4F3, 0xBA4F2, 0xF03D6, 0xD34DC)
 SITE, SCRIPT, PLAYER = 'FNV new game quest', 'TES4_NewGame', 0x14
+#: The quest's Player alias (its only one, forced to the player) and its script, which traces player hits on load.
+PLAYER_ALIAS, ALIAS_SCRIPT = 0, 'TES4_NewGamePlayer'
 
 
 def build(builder, export_dir: Path, quests: dict) -> None:
@@ -31,6 +33,7 @@ def build(builder, export_dir: Path, quests: dict) -> None:
     props = {'MQ101': MQ101, 'MQ102': MQ102, 'TimeScale': TIME_SCALE, 'StartQuest': quests[quest],
              'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD}
     values = {'OpeningQuests': ('objects', list(OPENING_QUESTS)), 'StartStage': ('int', stage)}
-    vmad = quest_fragments('', [], scripts=[(SCRIPT, props, values)])
+    vmad = quest_fragments('', [], aliases=[(PLAYER_ALIAS, fid, [(ALIAS_SCRIPT, {}, {})])],
+                           scripts=[(SCRIPT, props, values)])
     builder.writer.add_record('QUST', R.pack_qust(fid, 'FNV_NewGame', '', 0, [], 'Player', PLAYER, vmad))
     builder.counts['QUST (new game)'] += 1

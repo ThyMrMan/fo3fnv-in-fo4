@@ -117,10 +117,21 @@ def simplify(conds: list, settle):
 
 
 def absent(cond: dict, form_map: dict) -> 'bool | None':
-    """Outcome of an ABSENT_ZERO test of a form the build lacks; else None."""
-    if cond['func'] not in ABSENT_ZERO or cond['op_flags'] & USE_GLOBAL or cond['p1'] < ENGINE_FORMS:
+    """Outcome of an ABSENT_ZERO test of a form the build lacks, or of any test run on a reference it lacks (both
+    read 0); else None. See: docs/fork/fo4_pipeline.md#dialogue-conditions"""
+    if cond['op_flags'] & USE_GLOBAL:
+        return None
+    if unbuilt_reference(cond, form_map):
+        return compare(cond, 0.0)
+    if cond['func'] not in ABSENT_ZERO or cond['p1'] < ENGINE_FORMS:
         return None
     return None if cond['p1'] in form_map or _mirrored(cond, form_map) else compare(cond, 0.0)
+
+
+def unbuilt_reference(cond: dict, form_map: dict) -> bool:
+    """True when a condition runs on a reference the build does not write."""
+    return (cond['run_on'] == RUN_REFERENCE and cond['func'] not in ON_PLAYER and cond['ref'] >= ENGINE_FORMS
+            and cond['ref'] not in form_map)
 
 
 def _mirrored(cond: dict, form_map: dict) -> bool:

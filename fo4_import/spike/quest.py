@@ -10,6 +10,7 @@ starts it by setting its first stage.
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
+from fo4_import.base.ledger import NUMBER
 from fo4_import.base.support_records import pack_global
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
@@ -26,6 +27,8 @@ SPEAKER_ALIAS = 0
 LISTENER_ALIAS = 1000
 #: derive_formid site of a quest variable's mirror global (key: the global's name).
 QVAR_SITE = 'FNV qvar GLOB'
+#: Ledger site of a quest's objective target alias ids (with the FNV quest's FormID; key: the target's).
+ALIAS_SITE = 'FNV alias'
 #: FNV QUST DATA flag Start Game Enabled.
 START_GAME = 0x01
 
@@ -38,19 +41,28 @@ def _numbered(rec: dict, prefix: str) -> list:
     return out
 
 
-def objectives(rec: dict, ref_ids: dict, first: int = 0) -> tuple:
+def objectives(rec: dict, ref_ids: dict, first: int = 0, writer=None) -> tuple:
     """(objectives [(index, text, [alias ids])], aliases [(id, name, reference)]) of FNV quest `rec`.
 
     `ref_ids` is {FNV FormID (hex): FO4 reference}; a target not converted is
-    dropped. Alias ids start at `first`.
+    dropped. A target's alias id is the lowest free one from `first`, kept by
+    `writer`'s ledger so it stays put as more targets are built.
+    See: docs/fork/fo4_pipeline.md#formid-ledger
     """
-    aliases, out = {}, []
+    aliases, out, site = {}, [], f'{ALIAS_SITE} {rec["FormID"].upper()}'
+    taken = set(writer.ledger.values(NUMBER, site)) if writer else set()
+
+    def free() -> int:
+        """The lowest alias id from `first` neither kept nor given."""
+        return next(n for n in range(first, first + len(taken) + len(aliases) + 1) if n not in taken)
     for i in _numbered(rec, 'Objective'):
         targets, k = [], 0
         while f'Objective[{i}].Target[{k}].FormID' in rec:
             fnv = rec[f'Objective[{i}].Target[{k}].FormID'].upper()
-            if fnv in ref_ids:
-                targets.append(aliases.setdefault(fnv, first + len(aliases)))
+            if fnv in ref_ids and fnv not in aliases:
+                aliases[fnv] = writer.stable_number(site, fnv, free) if writer else free()
+                taken.add(aliases[fnv])
+            targets += [aliases[fnv]] if fnv in aliases else []
             k += 1
         out.append((int(rec[f'Objective[{i}].Index']), rec.get(f'Objective[{i}].Text', ''), targets))
     return out, [(alias, f'Target{fnv}', ref_ids[fnv]) for fnv, alias in aliases.items()]
@@ -136,7 +148,7 @@ def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = Fa
     scripts.used += [quest_script] if quest_script else []
     props = scripts.properties(fragments_script) if fragments else {}
     vmad = quest_fragments(fragments_script if fragments else '', fragments, props, scripts=attached)
-    goals, aliases = objectives(rec, ref_ids, int(speaker))
+    goals, aliases = objectives(rec, ref_ids, int(speaker), scripts.builder.writer)
     for target in missing_targets(rec, ref_ids):
         scripts.builder.readiness.add(TARGET_NOT_BUILT, rec['FormID'], target)
     aliases = [(SPEAKER_ALIAS, 'Speaker', None)] * speaker + aliases + [(LISTENER_ALIAS, 'Listener', None)] * speaker

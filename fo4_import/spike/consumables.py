@@ -13,7 +13,7 @@ See: docs/fork/fo4_spikes.md#spike-4-exterior
 import struct
 
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.base.install import fnv_esm
+from fo4_import.base.install import source_esm
 from fo4_import.spike.consumable_effects import WANTED, Effects
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
@@ -100,7 +100,7 @@ def _copied(template: dict, tags: tuple) -> bytes:
 
 def _fnv_consumables() -> dict:
     """{FNV ALCH FormID: (ETYP, consume sound EditorID)}: fields the export drops, read from FalloutNV.esm."""
-    raw = fnv_esm()
+    raw = source_esm()
     sounds = {rec.form_id: (first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode() for rec, _ in walk(raw, b'SOUN')}
     out = {}
     for rec, _ in walk(raw, b'ALCH'):

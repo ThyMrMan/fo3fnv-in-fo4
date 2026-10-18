@@ -21,7 +21,7 @@ def condition_forms(builder, lines: list) -> dict:
     locations, the built cells and worldspace."""
     voices = getattr(getattr(builder, 'npcs', None), 'voices', None)
     out = {**getattr(builder, 'cell_ids', {}), **{k: v for k, v in getattr(voices, 'ids', {}).items() if v}}
-    out.update(getattr(builder.locations, 'by_region', {}) if getattr(builder, 'locations', None) else {})
+    out.update(getattr(builder, 'regions', {}))
     for line in lines:
         for cond in (C.parse(line[f'Condition[{i}].Raw']) for i in range(int(line.get('ConditionCount', 0) or 0))):
             if cond['func'] in ITEM_TESTS and cond['p1'] not in out:

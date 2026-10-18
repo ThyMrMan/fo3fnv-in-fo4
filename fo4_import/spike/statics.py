@@ -5,26 +5,31 @@
 Each named FNV STAT's mesh is converted (fo4_import.nif.convert_static) into
 <Data>/Meshes/fnv, its materials into <Data>/Materials, its textures copied
 into <Data>/Textures/fnv; the plugin gets one STAT per mesh and one placed
-reference each, in a row in QASmoke.
+reference each, in a row in QASmoke. Every texture is written through
+ba2_pack.stage_texture: once per run, and only when its staged copy is not
+current. A copy's signature is its source's path, size and time; a derived
+map's is its work-cache key, so a current one is neither decoded nor written.
+A placed mesh's NIF and material bytes and OBND come from
+mesh_cache.cached_files, and a file already holding its bytes is not written.
 
 See: docs/fork/fo4_spikes.md#spike-2-static
 """
 
 import argparse
 import copy
+import functools
 import shutil
 from pathlib import Path
 
-import numpy as np
-from PIL import Image
-
+from fo4_import.base.ba2_pack import stage_texture
 from fo4_import.base.writer import FO4PluginWriter
-from fo4_import.nif import bgem, bgsm
-from fo4_import.nif import file as nif_file
+from fo4_import.nif import bgsm
 from asset_convert.texture import spec_mask
-from fo4_import.nif.convert_static import PREFIX, fo4_texture, glow_image, spec_image, spec_map_path, texture_source
-from fo4_import.pipeline.mesh_cache import cached_convert
-from fo4_import.pipeline.work_cache import colour_map, normal_map
+from fo4_import.nif.convert_static import (PREFIX, fo4_texture, retextured, smoothness, spec_glossiness, spec_map_path,
+                                           texture_source)
+from fo4_import.pipeline.elric_cache import written
+from fo4_import.pipeline.mesh_cache import cached_convert, cached_files, mesh_files
+from fo4_import.pipeline.work_cache import glow_map, spec_map
 from fo4_import.nif.elric import finish
 from fo4_import.nif.terminal import with_screen
 from fo4_import.nif.tree import tree_mesh
@@ -37,24 +42,16 @@ MASTERS = ['Fallout4.esm']
 START, SPACING = (-1700.0, -1484.0, 0.0), 300.0
 
 
-def mesh_bounds(nif) -> 'tuple | None':
-    """OBND: the integer box around every shape's vertices; None for a mesh with none."""
-    pts = np.array([v['position'] for kind, b in nif.blocks if kind == 'BSTriShape' for v in b['vertices']])
-    if not len(pts):
-        return None
-    lo, hi = np.floor(pts.min(axis=0)).astype(int), np.ceil(pts.max(axis=0)).astype(int)
-    return (*lo.tolist(), *hi.tolist())
-
-
 def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None, animated: bool = True,
-                 load: bool = False) -> 'tuple | None':
-    """write_converted() of FNV `model` converted (convert()); a `load` door's static, as `<name>load.nif` (vanilla
-    load door meshes' naming), or None when the mesh has no animation (the plain one serves)."""
+                 load: bool = False, suffix: str = '') -> 'tuple | None':
+    """write_files() of FNV `model` converted (cached_files()) as `<name><suffix>.nif` (a posed weapon's
+    `_weapon`); a `load` door's static, as `<name>load.nif` (vanilla load door meshes' naming), or None when the
+    mesh has no animation (the plain one serves)."""
     rel = model.replace('/', '\\').lower()
-    converted = cached_convert(export_dir / 'meshes' / rel, export_dir, pose, animated and not load)
-    if load and not converted.animatable:
+    files = cached_files(export_dir / 'meshes' / rel, export_dir, pose, animated and not load)
+    if load and not files.animatable:
         return None
-    return write_converted(export_dir, converted, rel[:-4] + 'load.nif' if load else rel, data_dir)
+    return write_files(export_dir, files, rel[:-4] + ('load' if load else suffix) + '.nif', data_dir)
 
 
 def terminal_assets(export_dir: Path, model: str, data_dir: Path) -> 'tuple | None':
@@ -73,32 +70,57 @@ def tree_assets(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
 
 
 def write_converted(export_dir: Path, converted, rel: str, data_dir: Path) -> tuple:
-    """Write converted mesh `converted` as Meshes\\<PREFIX>\\`rel` with its materials and textures into
-    <data_dir>; (FO4 model path under Meshes, OBND)."""
+    """write_files() of converted mesh `converted` (mesh_files())."""
+    return write_files(export_dir, mesh_files(converted), rel, data_dir)
+
+
+def write_files(export_dir: Path, files, rel: str, data_dir: Path) -> tuple:
+    """Write mesh_files() `files` as Meshes\\<PREFIX>\\`rel` with their materials and textures into <data_dir>;
+    (FO4 model path under Meshes, OBND)."""
     out = data_dir / 'Meshes' / PREFIX / rel
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(nif_file.write(converted.nif))
-    written = [(p, bgsm.write(m)) for p, m in converted.materials.items()]
-    written += [(p, bgem.write(m)) for p, m in converted.effects.items()]
-    for path, raw in written:
-        target = data_dir / path.replace('materials\\', 'Materials\\', 1)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(raw)
-    for texture in converted.textures:
-        source = export_dir / texture_source(texture).replace('\\', '/')
-        target = data_dir / 'Textures' / fo4_texture(texture)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if source.exists():
-            shutil.copyfile(source, target)
-    for spec_path, (fnv_normal, smooth) in converted.spec_maps.items():
-        normal = (export_dir / texture_source(fnv_normal).replace('\\', '/')).read_bytes()
-        _write(data_dir / 'Textures' / spec_path, normal_map(spec_image(normal, smooth)))
-    for glow_path, (*sources, cut) in converted.glow_maps.items():
-        diffuse, glow = (export_dir / texture_source(t).replace('\\', '/') for t in sources)
-        if diffuse.exists() and glow.exists():
-            _write(data_dir / 'Textures' / glow_path,
-                   colour_map(glow_image(diffuse.read_bytes(), glow.read_bytes(), cut)))
-    return f'{PREFIX}\\{rel}', mesh_bounds(converted.nif)
+    write_new(out, files.nif)
+    written(out, files.nif)
+    for path, data in files.materials:
+        write_new(_material_file(data_dir, path), data)
+    for texture in files.textures:
+        if _source(export_dir, texture).exists():
+            copy_texture(export_dir, data_dir, texture_source(texture))
+    for spec_path, (fnv_normal, glossiness) in files.spec_maps.items():
+        stage_derived(data_dir, spec_path, spec_map, (_source(export_dir, fnv_normal),), smoothness(glossiness))
+    for glow_path, (*sources, cut) in files.glow_maps.items():
+        paths = tuple(_source(export_dir, t) for t in sources)
+        if all(p.exists() for p in paths):
+            stage_derived(data_dir, glow_path, glow_map, paths, cut)
+    return f'{PREFIX}\\{rel}', files.bounds
+
+
+def write_new(target: Path, data: bytes) -> None:
+    """Write `data` to `target`, its folder made, unless the file already holds exactly that."""
+    if target.is_file() and target.stat().st_size == len(data) and target.read_bytes() == data:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+
+
+def _source(export_dir: Path, fnv_texture: str) -> Path:
+    """The export's file of FNV texture path `fnv_texture`."""
+    return export_dir / texture_source(fnv_texture).replace('\\', '/')
+
+
+def stage_derived(data_dir: Path, rel: str, work, sources: tuple, *args) -> bool:
+    """Stage texture `rel` made by work_cache `work` from `sources`' bytes and `args`."""
+    return stage_texture(data_dir, rel, functools.partial(_derived_plan, work, sources, args))
+
+
+def _derived_plan(work, sources: tuple, args: tuple) -> tuple:
+    """stage_texture's (signature, writer) of `work` on `sources`' bytes and `args`."""
+    key, get = work(*(path.read_bytes() for path in sources), *args)
+    return key, functools.partial(_write_value, get)
+
+
+def _write_value(get, target: Path) -> None:
+    """Write get()'s bytes to `target`."""
+    target.write_bytes(get())
 
 
 def swap_material(export_dir: Path, model: str, node: str, texture: str, data_dir: Path) -> 'tuple | None':
@@ -116,63 +138,52 @@ def swap_material(export_dir: Path, model: str, node: str, texture: str, data_di
         return None
     source = f'textures\\{texture.replace("/", chr(92)).lower()}.dds'
     material = copy.deepcopy(converted.materials[path])
-    old = material['textures']['diffuse'].rsplit('.', 1)[0].replace('/', '\\')
     material['textures']['diffuse'] = fo4_texture(source).replace('\\', '/')
-    new = path.replace(old, fo4_texture(source).rsplit('.', 1)[0], 1)
-    out = data_dir / new.replace('materials\\', 'Materials\\', 1)
+    new = retextured(path, converted.materials[path], material)
+    out = _material_file(data_dir, new)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(bgsm.write(material))
-    target = data_dir / 'Textures' / fo4_texture(source)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(export_dir / source.replace('\\', '/'), target)
+    copy_texture(export_dir, data_dir, source)
     return path, new
 
 
 def swapped_material(export_dir: Path, data_dir: Path, material: str, textures: tuple) -> str:
     """Material `material` (already in `data_dir`) showing FNV texture set `textures` (diffuse, normal or ''),
-    written once with its textures beside it; its path.
+    written with its textures beside it; its path (retextured(): named by its contents).
 
-    The normal map's alpha becomes the specular map, at the smoothness of
+    The normal map's alpha becomes the specular map, at the glossiness of
     the material's own map, as convert_static does; without a mask in it
     specular is off.
 
     See: docs/fork/fo4_spikes.md#spike-4-outfits
     """
     diffuse, normal = (texture_source(t) if t else '' for t in textures)
-    mat = bgsm.read(_material_file(data_dir, material).read_bytes())
-    old = mat['textures']['diffuse'].rsplit('.', 1)[0].replace('/', '\\')
-    new = material.replace(old, fo4_texture(diffuse).rsplit('.', 1)[0], 1)
-    if new == material or _material_file(data_dir, new).exists():
-        return new
+    own = bgsm.read(_material_file(data_dir, material).read_bytes())
+    mat = copy.deepcopy(own)
     mat['textures']['diffuse'] = fo4_texture(diffuse).replace('\\', '/')
     copy_texture(export_dir, data_dir, diffuse)
     if normal:
         mat['textures']['normal'] = fo4_texture(normal).replace('\\', '/')
         copy_texture(export_dir, data_dir, normal)
         _swapped_spec(export_dir, data_dir, mat, normal)
-    target = _material_file(data_dir, new)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(bgsm.write(mat))
+    new = retextured(material, own, mat)
+    if new != material:
+        target = _material_file(data_dir, new)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(bgsm.write(mat))
     return new
 
 
 def _swapped_spec(export_dir: Path, data_dir: Path, mat: dict, normal: str) -> None:
-    """Point `mat`'s specular map at one made from FNV `normal`'s alpha, at the smoothness of its own."""
-    own = data_dir / 'Textures' / mat['textures']['smooth_spec'].replace('/', '\\') if mat['specular'] else None
-    raw = (export_dir / normal.replace('\\', '/')).read_bytes()
-    if own is None or not own.exists() or not spec_mask.has_mask(raw):
+    """Point `mat`'s specular map at one made from FNV `normal`'s alpha, at the glossiness of its own."""
+    source = export_dir / normal.replace('\\', '/')
+    if not mat['specular'] or not spec_mask.has_mask(source.read_bytes()):
         mat['specular'], mat['textures']['smooth_spec'] = False, ''
         return
-    smooth = float(np.asarray(Image.open(own).convert('RGB'))[:, :, 1].mean()) / 255
-    path = spec_map_path(normal)
-    _write(data_dir / 'Textures' / path, normal_map(spec_image(raw, smooth)))
+    glossiness = spec_glossiness(mat['textures']['smooth_spec'])
+    path = spec_map_path(normal, glossiness)
+    stage_derived(data_dir, path, spec_map, (source,), smoothness(glossiness))
     mat['textures']['smooth_spec'] = path.replace('\\', '/')
-
-
-def _write(target: Path, data: bytes) -> None:
-    """Write `data` to `target`, making its folder."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
 
 
 def _material_file(data_dir: Path, material: str) -> Path:
@@ -180,11 +191,15 @@ def _material_file(data_dir: Path, material: str) -> Path:
     return data_dir / material.replace('materials\\', 'Materials\\', 1)
 
 
-def copy_texture(export_dir: Path, data_dir: Path, source: str) -> None:
-    """Copy FNV texture `source` (textures\\...) to its FO4 path in `data_dir`."""
-    target = data_dir / 'Textures' / fo4_texture(source)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(export_dir / source.replace('\\', '/'), target)
+def copy_texture(export_dir: Path, data_dir: Path, source: str) -> bool:
+    """Stage a copy of FNV texture `source` (textures\\...) at its FO4 path."""
+    return stage_texture(data_dir, fo4_texture(source), functools.partial(_copy_plan, _source(export_dir, source)))
+
+
+def _copy_plan(path: Path) -> tuple:
+    """stage_texture's (signature, writer) of a copy of `path`."""
+    stat = path.stat()
+    return f'copy {str(path).lower()} {stat.st_size} {stat.st_mtime_ns}', functools.partial(shutil.copyfile, path)
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, edids: list) -> list:

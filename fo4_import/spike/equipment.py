@@ -12,12 +12,14 @@ is written on the FO4 gun held, fired and laid out most like it
 (spike.gun_choice; the target when none matches) and shows its mesh on that
 gun's receiver skeleton, through copies of its default mods (spike.guns,
 experimental); so does headgear FNV draws in
-its head's frame (nif.headgear), through its own armor addon (ARMA) with
-FNV's slots and the template addon's races, and an FNV outfit (a skinned
-upper-body mesh) moved onto FO4's body (nif.outfit), through its own addon
-with the template addon's slots and races and FNV's sleeves in first person;
-FNV's alternate textures, which tell an outfit's variants apart on one mesh,
-become material swaps (MSWP) on its models. Armor takes the protection FNV
+its head's frame or skins to its head bone (nif.headgear; a worn mesh of its
+own per slots), through its own armor addon (ARMA) with FNV's slots and the
+template addon's races, and an FNV outfit (a skinned upper-body mesh) moved
+onto FO4's body (nif.outfit), through its own addon with the template
+addon's slots and races and FNV's sleeves in first person; FNV's alternate
+textures, which tell variants apart on one mesh, become material swaps
+(MSWP) on its models. A piece FNV gives no world model keeps the template's;
+one no FNV-mesh path takes keeps all its models, both counted. Armor takes the protection FNV
 gives it as its armor rating, unscaled: DT (all FNV armor), else DR (FO3's),
 and drops the template's resistances. Condition and the template's scripts
 are dropped. An FNV piece the table does not name is skipped and counted.
@@ -30,9 +32,10 @@ See: docs/fork/fo4_spikes.md#spike-4-outfits
 """
 
 import struct
+from pathlib import Path
 
 from fo4_import.base import strings
-from fo4_import.base.install import fnv_esm
+from fo4_import.base.install import source_esm
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.pipeline.work_cache import cached
@@ -55,6 +58,8 @@ ANIM_GUN = 9
 DROPPED = (b'VMAD', b'DAMA', b'INRD')
 #: A piece on FNV's own mesh drops the template's model data (an armor's female world model too) and mod templates.
 OWN_MODEL_DROPPED = (b'MODT', b'MO2T', b'MO2S', b'MOD4', b'MO4T', b'MO4S', b'MO4C', b'MO4F')
+#: An armor's world model data and swap, kept with the template's world model when FNV has none.
+WORLD_MODEL_DATA = (b'MO2T', b'MO2S')
 TEMPLATES = (b'OBTE', b'STOP')
 #: Armor addon subrecords copied from the template's: race, priorities, additional races.
 ADDON_KEPT = (b'RNAM', b'DNAM')
@@ -97,6 +102,22 @@ def _default(rec: dict) -> 'Replacement | None':
     return next((Replacement(BASE, edid, 'fnv') for bits, edid in ARMOR_DEFAULTS if covers & bits), None)
 
 
+def _sex_suffix(sex: str) -> str:
+    """A worn mesh's file name suffix for `sex`: none for male."""
+    return '' if sex == SEXES[0] else f'_{sex}'
+
+
+def _on_template(rec: dict) -> str:
+    """Why no FNV-mesh path takes FNV armor `rec`: no worn model, headgear not drawn on the head, a rigid upper
+    body, or slots neither headgear nor upper body."""
+    flags = int(rec.get('BMDT.BipedFlags', 0))
+    if not rec.get('Male.BipedModel.MODL'):
+        return 'no FNV worn model'
+    if headgear.slots(flags):
+        return 'headgear not on the head'
+    return 'rigid upper body' if flags & UPPER_BODY else 'other slots'
+
+
 def _bod2(slots: tuple) -> bytes:
     """BOD2: the FO4 biped slots (30 and up) as flag bits."""
     return struct.pack('<I', sum(1 << (slot - 30) for slot in slots))
@@ -118,7 +139,7 @@ def _fnv_fields() -> dict:
     """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0); an armor's
     value, weight (DATA), rating (DNAM: DT, else DR) and alternate textures. An ammo form list (FLST)
     gives its first entry."""
-    raw = fnv_esm()
+    raw = source_esm()
     lists = {rec.form_id: first_sub(rec.body, b'LNAM') for rec, _ in walk(raw, b'FLST')}
     sets = {rec.form_id: tuple((first_sub(rec.body, t) or b'').rstrip(b'\0').decode('cp1252')
                                for t in (b'TX00', b'TX01')) for rec, _ in walk(raw, b'TXST')}
@@ -261,7 +282,8 @@ class Equipment:
         return out
 
     def armo(self, fnv: int, rec: dict) -> 'int | None':
-        """The FO4 armor for FNV ARMO `rec` (FormID `fnv`); None without a substitute."""
+        """The FO4 armor for FNV ARMO `rec` (FormID `fnv`); None without a substitute. One no FNV-mesh path takes
+        keeps the template's models, counted by why (_on_template)."""
         template, fields = self._template(rec), self.fnv.get(fnv)
         if template is None or fields is None:
             return None
@@ -271,29 +293,60 @@ class Equipment:
         subs = {b'DATA': data, b'FNAM': bytes(fnam)}
         own = (self._headgear(fnv, rec, template) or self._outfit(fnv, rec, template)
                if self._entry(rec).mode == 'fnv' else None)
+        if own is None and self._entry(rec).mode == 'fnv':
+            self.builder.counts[f"ARMO on the template's models ({_on_template(rec)})"] += 1
         subs.update(own or {})
-        return self._write('ARMO', fnv, self._copy(rec, subs, [] if own else None, OWN_MODEL_DROPPED if own else ()))
+        dropped = tuple(s for s in OWN_MODEL_DROPPED if b'MOD2' in subs or s not in WORLD_MODEL_DATA) if own else ()
+        return self._write('ARMO', fnv, self._copy(rec, subs, [] if own else None, dropped))
+
+    def _fnv_path(self, model: str) -> Path:
+        """FNV model `model`'s file in the export."""
+        return self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower()
+
+    def _on_head(self, model: str, sex: str) -> tuple:
+        """(whether FNV headgear `model` is drawn on `sex`'s head: rigid, or skinned to its head bone; the
+        matrix moving a skinned one into the head's frame: headgear.head_frame)."""
+        path = self._fnv_path(model)
+        if _rigid(path):
+            return True, None
+        head = self._fnv_path(headgear.FNV_HEADS[sex])
+        frame = cached('head_frame', 'fo4_import.nif.headgear', (path.read_bytes(), head.read_bytes()),
+                       lambda: headgear.head_frame(path, head))
+        return frame is not None, frame
 
     def _headgear(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
-        """{sig: body} putting FNV headgear `rec` on its own meshes and armor addon; None when it is not
-        rigid headgear (nif.headgear)."""
+        """{sig: body} putting FNV headgear `rec` on its own meshes (with its alternate textures) and armor addon;
+        None when it is not headgear drawn on the head (_on_head)."""
         slots = headgear.slots(int(rec.get('BMDT.BipedFlags', 0)))
-        worn, world = rec.get('Male.BipedModel.MODL'), rec.get('Male.WorldModel.MODL')
-        meshes = self.builder.export_dir / 'meshes'
-        if not (slots and worn and world and _rigid(meshes / worn.replace('\\', '/').lower())):
+        worn = rec.get('Male.BipedModel.MODL')
+        models = {sex: rec.get(f'{sex.title()}.BipedModel.MODL') or worn for sex in SEXES}
+        heads = {sex: self._on_head(model, sex) for sex, model in models.items()} if slots and worn else {}
+        if not heads or not all(on for on, _ in heads.values()):
             return None
-        models = {sig: self._worn(rec.get(f'{sex.title()}.BipedModel.MODL') or worn, sex, slots)
-                  for sig, sex in zip(THIRD_PERSON, SEXES)}
-        addon = self._addon(fnv, rec, struct.unpack('<I', template[b'MODL'])[0], _bod2(slots), models)
-        return {b'BOD2': _bod2(slots), **self._world(world, addon)}
+        paths = {sig: self._worn(models[sex], sex, slots, heads[sex][1]) for sig, sex in zip(THIRD_PERSON, SEXES)}
+        swaps = {SWAP_OF[sig]: swap for sig, swap in zip(THIRD_PERSON, self._worn_swaps(fnv, rec, models)) if swap}
+        addon = self._addon(fnv, rec, struct.unpack('<I', template[b'MODL'])[0], _bod2(slots), paths, swaps)
+        return {b'BOD2': _bod2(slots), **self._world(fnv, rec, addon)}
 
-    def _world(self, world: str, addon: int) -> dict:
-        """{sig: body} of an armor's FNV world model and its one addon."""
+    def _worn_swaps(self, fnv: int, rec: dict, models: dict) -> list:
+        """Per sex, _swap() of `rec`'s worn alternates on `models` {sex: FNV model}."""
+        return [self._swap(fnv, rec, sig, self._static(models[sex])[1], models[sex])
+                for sex, sig in zip(SEXES, (FNV_MALE_SWAP, FNV_FEMALE_SWAP))]
+
+    def _world(self, fnv: int, rec: dict, addon: int) -> dict:
+        """{sig: body} of FNV ARMO `rec`'s one addon and its world model with its alternate textures; without an
+        FNV world model the template's stays (counted)."""
+        world = rec.get('Male.WorldModel.MODL')
+        out = {b'INDX': bytes(2), b'MODL': struct.pack('<I', addon)}
+        if not world:
+            self.builder.counts["ARMO on the template's world model (FNV has none)"] += 1
+            return out
         path, bounds = self.builder.mesh(world)
-        out = {b'MOD2': (path + '\0').encode(), b'INDX': bytes(2), b'MODL': struct.pack('<I', addon)}
+        out[b'MOD2'] = (path + '\0').encode()
         if bounds:
             out[b'OBND'] = struct.pack('<6h', *bounds)
-        return out
+        swap = self._swap(fnv, rec, FNV_WORLD_SWAP, (self.builder.data_dir / 'Meshes' / path).read_bytes(), world)
+        return {**out, SWAP_OF[b'MOD2']: struct.pack('<I', swap)} if swap else out
 
     def _static(self, model: str) -> tuple:
         """(FO4 path under Meshes, NIF bytes) of FNV `model` converted as a static, once."""
@@ -302,42 +355,42 @@ class Equipment:
             self.statics[model] = path, (self.builder.data_dir / 'Meshes' / path).read_bytes()
         return self.statics[model]
 
-    def _worn(self, model: str, sex: str, slots: tuple) -> str:
-        """The FO4 worn mesh of FNV headgear `model` fitted to `sex`'s head; its path under Meshes."""
-        if sex not in self.fits:
-            self.fits[sex] = headgear.head_fit(self.builder.export_dir, sex)
-        path, static = self._static(model)
-        out = path if sex == SEXES[0] else path[:-len('.nif')] + f'_{sex}.nif'
-        (self.builder.data_dir / 'Meshes' / out).write_bytes(headgear.worn(static, self.fits[sex], slots))
-        return out
+    def _worn(self, model: str, sex: str, slots: tuple, frame) -> str:
+        """The FO4 worn mesh of FNV headgear `model` in `slots` fitted to `sex`'s head (moved by `frame` when
+        skinned: _on_head), made once as `<static>_worn_<slots>[_female].nif`, apart from the static; its path
+        under Meshes.
+        See: docs/fork/fo4_tool_audit.md#meshes
+        """
+        if (model, sex, slots) not in self.worn_paths:
+            if sex not in self.fits:
+                self.fits[sex] = headgear.head_fit(self.builder.export_dir, sex)
+            path, static = self._static(model)
+            out = f'{path[:-len(".nif")]}_worn{"".join(f"_{s}" for s in slots)}{_sex_suffix(sex)}.nif'
+            (self.builder.data_dir / 'Meshes' / out).write_bytes(headgear.worn(static, self.fits[sex], slots, frame))
+            self.worn_paths[model, sex, slots] = out
+        return self.worn_paths[model, sex, slots]
 
     def _outfit(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
         """{sig: body} putting FNV outfit `rec` (upper body, skinned) on its own meshes moved onto FO4's body
         and its own armor addon, with the template addon's slots; None when it is not one (nif.outfit)."""
-        worn, world = rec.get('Male.BipedModel.MODL'), rec.get('Male.WorldModel.MODL')
-        meshes = self.builder.export_dir / 'meshes'
-        if not (int(rec.get('BMDT.BipedFlags', 0)) & UPPER_BODY and worn and world) or _rigid(
-                meshes / worn.replace('\\', '/').lower()):
+        worn = rec.get('Male.BipedModel.MODL')
+        if not (int(rec.get('BMDT.BipedFlags', 0)) & UPPER_BODY and worn) or _rigid(self._fnv_path(worn)):
             return None
-        models, swaps = {}, {}
-        for sex, third, first, alternates in zip(SEXES, THIRD_PERSON, FIRST_PERSON, (FNV_MALE_SWAP, FNV_FEMALE_SWAP)):
-            model = rec.get(f'{sex.title()}.BipedModel.MODL') or worn
-            models[third], models[first] = self._body_worn(model, sex)
-            swap = self._swap(fnv, rec, alternates, self._static(model)[1], model)
-            if swap:
-                swaps[SWAP_OF[third]] = swaps[SWAP_OF[first]] = swap
+        models, sexes = {}, {sex: rec.get(f'{sex.title()}.BipedModel.MODL') or worn for sex in SEXES}
+        for sex, third, first in zip(SEXES, THIRD_PERSON, FIRST_PERSON):
+            models[third], models[first] = self._body_worn(sexes[sex], sex)
+        swaps = {SWAP_OF[sig]: swap for third, first, swap in zip(THIRD_PERSON, FIRST_PERSON,
+                                                                   self._worn_swaps(fnv, rec, sexes))
+                 for sig in (third, first) if swap}
         vanilla = struct.unpack('<I', template[b'MODL'])[0]
         bod2 = dict(self.addons[vanilla])[b'BOD2']
-        out = self._world(world, self._addon(fnv, rec, vanilla, bod2, models, swaps))
-        swap = self._swap(fnv, rec, FNV_WORLD_SWAP, (self.builder.data_dir / 'Meshes' / out[b'MOD2'][:-1].decode(
-            'cp1252')).read_bytes(), world)
-        return {**out, SWAP_OF[b'MOD2']: struct.pack('<I', swap)} if swap else out
+        return self._world(fnv, rec, self._addon(fnv, rec, vanilla, bod2, models, swaps))
 
     def _swap(self, fnv: int, rec: dict, sig: bytes, static: bytes, model: str) -> 'int | None':
         """The MSWP (made once) putting FNV ARMO `rec`'s alternate textures `sig` on converted `model` (its
         static NIF `static`): each listed shape's material to a copy with the texture set's maps; None without."""
         alternates = self.fnv.get(fnv, {}).get('alternates', {}).get(sig)
-        fnv_path = self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower()
+        fnv_path = self._fnv_path(model)
         materials = cached('shape_materials', 'fo4_import.nif.outfit', (static, fnv_path.read_bytes()),
                            lambda: outfit.shape_materials(static, fnv_path)) if alternates else {}
         pairs = sorted({(materials[i], swapped_material(self.builder.export_dir, self.builder.data_dir, materials[i],
@@ -355,8 +408,8 @@ class Equipment:
         if (model, sex) in self.worn_paths:
             return self.worn_paths[model, sex]
         path, static = self._static(model)
-        stem = path[:-len('.nif')] + ('' if sex == SEXES[0] else f'_{sex}')
-        fnv_path = self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower()
+        stem = path[:-len('.nif')] + _sex_suffix(sex)
+        fnv_path = self._fnv_path(model)
         out = []
         for name, first in ((f'{stem}.nif', False), (f'{stem}_1stperson.nif', True)):
             (self.builder.data_dir / 'Meshes' / name).write_bytes(cached(

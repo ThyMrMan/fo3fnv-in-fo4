@@ -32,12 +32,19 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 from core.subprocess_flags import windows_cmd
+from core.memory_budget import memory_workers
 from fo4_import.base.papyrus import compile_folder, header_dirs
 
+#: One FO4 compiler's peak memory: a fixed part, and a part per script in its batch (0.93 GB at 84, 1.02 at 300).
+COMPILER_BYTES, COMPILER_SCRIPT_BYTES = 1 << 30, 1 << 19
+#: Memory kept free for the build and other programs while the compilers run.
+COMPILE_SPARE_BYTES = 2 << 30
 #: One FO4 compiler diagnostic: `<path>\<Script>.psc(line,col): message`.
 _FO4_LINE = re.compile(r'[\\/](\w+)\.psc\(\d+,\d+\): (.+)')
+#: Name prefixes of the scripts converted from a game (lower case): a .pex with one and no source is an orphan.
+CONVERTED_PREFIXES = ('falloutnv_', 'fallout3_')
 #: Converted script names, folded so one missed construct is one error kind.
-_CONVERTED_NAME = re.compile(r'\b(?:falloutnv|fallout3|tes4)_\w+', re.I)
+_CONVERTED_NAME = re.compile(rf'\b(?:{"|".join(CONVERTED_PREFIXES)}|tes4_)\w+', re.I)
 _WORD = re.compile(r'\w+')
 #: A Papyrus line continued on the next (`\` at its end).
 _CONTINUED = re.compile(r'\\[ \t]*\r?\n')
@@ -176,7 +183,7 @@ def users_index(words: dict, names: set) -> dict:
 
 
 def member(line: str) -> 'str | None':
-    """The member a declaration line declares; None for a header, import or struct line."""
+    """The member a declaration line declares; None for a header, import or struct."""
     found = _MEMBER.search(line)
     return found.group(1) if found else None
 
@@ -193,7 +200,8 @@ def users_of(users: dict, seeds: set) -> set:
 
 def needs_compile(hashes: dict, apis: dict, state: dict, users: dict, words: dict) -> set:
     """Changed names; users of one that lost or changed a declaration (those naming the member, for a member);
-    failing users of one that added one."""
+    failing users of one that added one; and every script that failed with no error of its own (through a
+    script it uses, or a compiler that died, e.g. out of memory), so a failure of the run is never kept."""
     changed = {n for n, sha in hashes.items() if state.get(n, {}).get('sha') != sha}
     redeclared = {n for n in changed if state.get(n, {}).get('api') != apis[n]}
     lost = {n: {member(line) for line in set(state[n]['api']) - set(apis[n])}
@@ -201,25 +209,56 @@ def needs_compile(hashes: dict, apis: dict, state: dict, users: dict, words: dic
     whole = {n for n in redeclared if n not in lost or None in lost[n]}
     named = {u for n, members in lost.items() if members and n not in whole
              for u in users_of(users, {n}) if words.get(u, set()) & members}
-    failing = {n for n, s in state.items() if not s.get('ok')}
-    return changed | users_of(users, whole) | named | (users_of(users, redeclared) & failing)
+    failing = {n for n, s in state.items() if not s.get('ok') and n in hashes}
+    unexplained = {n for n in failing if not state[n].get('own')}
+    return changed | users_of(users, whole) | named | (users_of(users, redeclared) & failing) | unexplained
 
 
-def _load_state(out_dir: Path, imports: str) -> dict:
-    """The last run's per-script results, {} when absent or made against other headers."""
+def header_digest(imports: str, src_dir: Path) -> str:
+    """SHA-1 over the path and bytes of every .psc in the import folders other than `src_dir`."""
+    digest = hashlib.sha1()
+    for folder in (Path(d).resolve() for d in imports.split(';') if d):
+        if folder == src_dir:
+            continue
+        for path in sorted(folder.rglob('*.psc')):
+            digest.update(str(path.relative_to(folder)).lower().encode() + b'\0' + path.read_bytes())
+    return digest.hexdigest()
+
+
+def _load_state(out_dir: Path, imports: str, headers: str) -> tuple:
+    """(the last run's per-script results, {} when absent or made against other header folders or contents;
+    every name it listed)."""
     path = out_dir / _STATE_FILE
     state = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
-    return state.get('scripts', {}) if state.get('imports') == imports else {}
+    scripts = state.get('scripts', {})
+    same = state.get('imports') == imports and state.get('headers') == headers
+    return (scripts if same else {}), set(scripts)
+
+
+def remove_orphans(out_dir: Path, sources: set, listed: set) -> int:
+    """Delete each .pex in out_dir that the last run listed and `sources` no longer has (another plugin's
+    scripts in the same folder are never touched); the count."""
+    gone = 0
+    for pex in out_dir.glob('*.pex'):
+        name = pex.stem.lower()
+        if name not in sources and name in listed:
+            pex.unlink()
+            gone += 1
+    return gone
 
 
 def _compile_chunks(files: list, out_dir: Path, imports: str, workers: int) -> dict:
-    """{script: [error messages]} from compiling `files` in parallel chunk folders."""
+    """{script: [error messages]} from compiling `files` in `workers` chunk folders, as many at once as free memory
+    holds (COMPILER_BYTES and COMPILER_SCRIPT_BYTES each, COMPILE_SPARE_BYTES left)."""
     if not files:
         return {}
     chunks = _fo4_chunks(files, out_dir, workers)
-    print(f'Compiling {len(files)} files with FO4\'s compiler in {len(chunks)} batches...')
+    each = COMPILER_BYTES + COMPILER_SCRIPT_BYTES * -(-len(files) // len(chunks))
+    running = memory_workers(len(chunks), each, COMPILE_SPARE_BYTES)
+    at_once = f', {running} at a time (free memory)' if running < len(chunks) else ''
+    print(f'Compiling {len(files)} files with FO4\'s compiler in {len(chunks)} batches{at_once}...')
     own = collections.defaultdict(list)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(chunks)) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=running) as ex:
         for text in ex.map(lambda c: compile_folder(c, out_dir, imports), chunks):
             for m in _FO4_LINE.finditer(text):
                 if m.group(2) not in own[m.group(1)]:
@@ -239,18 +278,23 @@ def _compile_named(files: list, names: set, out_dir: Path, imports: str, workers
 def compile_fallout4(args) -> tuple:
     """(compiled names, {file: [own error messages]}, source names) with FO4's compiler.
 
-    Only scripts whose source changed since the last run are compiled, with
-    the scripts naming one whose declarations lost or changed a line (for a
-    function, event or property, only those also naming it; failing ones
-    naming one that added a line), then those naming one that started or
-    stopped compiling; the rest keep their saved result. `--full` compiles everything. A script's old .pex is
-    deleted first, so a script that stops compiling cannot pass on a stale one.
+    Compiles what needs_compile names, then the users of one that started or
+    stopped compiling, then again in one batch any that failed with no error of
+    their own (a compiler out of memory); the rest keep the saved result, which
+    other header folders or contents void. `--full` compiles everything. A
+    script's old .pex is deleted first, so one that stops compiling cannot pass
+    on a stale one, and so is every .pex remove_orphans finds.
     """
     src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
     imports = f'{args.headers or header_dirs()};{src_dir}'
     files = sorted(src_dir.glob('*.psc'))
     hashes, apis = source_hashes(files), source_declarations(files)
-    state = {} if args.full else _load_state(out_dir, imports)
+    headers = header_digest(imports, src_dir)
+    saved, listed = _load_state(out_dir, imports, headers)
+    state = {} if args.full else saved
+    removed = remove_orphans(out_dir, set(hashes), listed)
+    if removed:
+        print(f'{removed} .pex without a source removed')
     words = source_words(files)
     users = users_index(words, set(hashes))
     todo = needs_compile(hashes, apis, state, users, words)
@@ -262,9 +306,15 @@ def compile_fallout4(args) -> tuple:
         print(f'{len(more)} more use one that started or stopped compiling')
         extra, pex = _compile_named(files, more, out_dir, imports, args.workers)
         own, todo = {**own, **extra}, todo | more
+    retry = {n for n in todo if n not in pex and n not in own}
+    if retry:
+        print(f'{len(retry)} failed with no error of their own; compiling them again in one batch')
+        extra, pex = _compile_named(files, retry, out_dir, imports, 1)
+        own = {**own, **extra}
     scripts = {n: {**(state[n] if n not in todo else {'ok': n in pex, 'own': own.get(n, [])}),
                    'sha': hashes[n], 'api': apis[n]} for n in hashes}
-    (out_dir / _STATE_FILE).write_text(json.dumps({'imports': imports, 'scripts': scripts}), encoding='utf-8')
+    (out_dir / _STATE_FILE).write_text(json.dumps({'imports': imports, 'headers': headers, 'scripts': scripts}),
+                                       encoding='utf-8')
     compiled = {n for n, s in scripts.items() if s['ok']}
     own = {f.stem: scripts[f.stem.lower()]['own'] for f in files if scripts[f.stem.lower()]['own']}
     return compiled, own, [f.stem for f in files]

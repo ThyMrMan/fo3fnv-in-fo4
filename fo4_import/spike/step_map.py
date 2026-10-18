@@ -30,7 +30,7 @@ from fo4_import.nif.elric import finish
 from fo4_import.nif.file import NifFile
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import vanilla_cell
-from fo4_import.spike.statics import mesh_bounds
+from fo4_import.pipeline.mesh_cache import mesh_bounds
 from pyffi.formats.nif import NifFormat
 from tes5_import.base.tes5_reader import subrecords
 

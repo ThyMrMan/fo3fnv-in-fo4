@@ -2,7 +2,8 @@
 
 FNV names a vendor's merchant container on its placed reference (ACHR
 XMRC; the chests stand in a holding cell, NVVendorChestsCell) and what it
-trades in its AI services (AIDT.Services). FO4 keeps both on a vendor
+trades in its AI services (AIDT.Services, its template's when it takes AI
+data from one). FO4 keeps both on a vendor
 faction, built in vanilla's shape (57 of 92 vendor factions): the merchant
 container (VENC), a buy/sell list (VEND), vendor values (VENV: all day,
 radius 500, buys stolen and non-stolen items) and the location (PLVD). A
@@ -20,6 +21,7 @@ from pathlib import Path
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.factions import CAN_BE_OWNER, CRIME_VALUES
+from fo4_import.spike.npcs import USE_AI_DATA, template_source
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -56,24 +58,30 @@ def with_chests(export_dir: Path, interiors: list, every: list, chests: list) ->
 
 def write_vendors(builder, export_dir: Path, sold: list) -> dict:
     """{FNV NPC base: FO4 vendor faction} of `sold` (merchants()), each faction written once."""
-    npcs = {r['FormID']: r for r in export_records(export_dir, 'NPC_')}
+    npcs = {int(r['FormID'], 16): r for r in export_records(export_dir, 'NPC_')}
     lists, out = _vanilla(builder.fo4), {}
     for actor, chest in sold:
-        base = npcs.get(actor['NAME'])
+        base = npcs.get(int(actor['NAME'], 16))
         if base is None or int(base['FormID'], 16) in out:
             continue
         fid = builder.writer.derive_formid(SITE, base['FormID'])
-        builder.writer.add_record('FACT', _faction(builder, fid, base, builder.fnv_id(chest['FormID']), lists))
+        builder.writer.add_record('FACT', _faction(builder, fid, base, services(npcs, base),
+                                                   builder.fnv_id(chest['FormID']), lists))
         builder.counts['vendor FACT'] += 1
         out[int(base['FormID'], 16)] = fid
     return out
 
 
-def _faction(builder, fid: int, npc: dict, chest: int, vanilla: dict) -> bytes:
-    """Vendor faction `fid` of FNV NPC `npc` selling from FO4 container `chest`."""
-    services = int(npc.get('AIDT.Services', 0) or 0)
-    general = bool(services & GOODS) or not services & sum(CONSUMABLES)
-    stock = vanilla[GENERAL_LIST] if general else _keywords(builder, npc, services, vanilla)
+def services(npcs: dict, npc: dict) -> int:
+    """`npc`'s AI services, from its AI data's template (else its own)."""
+    found, left = template_source(npcs, npc, USE_AI_DATA)
+    return int((npc if left else found).get('AIDT.Services', 0) or 0)
+
+
+def _faction(builder, fid: int, npc: dict, trades: int, chest: int, vanilla: dict) -> bytes:
+    """Vendor faction `fid` of FNV NPC `npc` trading in AI services `trades`, selling from FO4 container `chest`."""
+    general = bool(trades & GOODS) or not trades & sum(CONSUMABLES)
+    stock = vanilla[GENERAL_LIST] if general else _keywords(builder, npc, trades, vanilla)
     body = pack_subrecord('EDID', f'FNV_{npc["EditorID"]}VendorFaction\0'.encode())
     body += pack_subrecord('DATA', struct.pack('<I', VENDOR | CAN_BE_OWNER)) + pack_subrecord('CRVA', CRIME_VALUES[False])
     body += pack_subrecord('VEND', struct.pack('<I', stock)) + pack_subrecord('VENC', struct.pack('<I', chest))

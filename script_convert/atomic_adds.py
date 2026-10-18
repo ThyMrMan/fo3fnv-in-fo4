@@ -17,6 +17,8 @@ import re
 from script_convert.trace_points import global_line, value_line
 
 PREFIX, RESULT = 'TES4Add_', 'TES4Added_'
+#: The adder's local holding the value its add made.
+SUM = 'TES4_Sum'
 #: This worker's increments: {(owner EditorID lower, variable lower): Papyrus type} the callers rewrite.
 CALLS = {}
 #: This worker's owners: {script EditorID lower: {variable lower}} each script defines an adder for.
@@ -36,18 +38,29 @@ def _sources(by_type: dict):
                     yield str(value).replace('\\r\\n', '\n').replace('\\t', '\t')
 
 
-def _owners(by_type: dict) -> tuple:
+def _owners(by_type: dict, xref=None) -> tuple:
     """({EditorID lower: script EditorID lower} of quests and scripted references, {script lower: {variable:
-    Papyrus type}} from each script's declarations)."""
+    Papyrus type}} from each script's declarations); `xref` (the cross-reference graph) adds every placed
+    reference of the plugin and its masters."""
     scripts = {int(r['FormID'], 16): r.get('EditorID', '').lower() for r in by_type.get('SCPT', ())}
     variables = {r.get('EditorID', '').lower(): _types(r) for r in by_type.get('SCPT', ())}
     scripted = {int(r['FormID'], 16): scripts.get(int(r['SCRI'], 16)) for recs in by_type.values()
                 for r in recs if r.get('SCRI')}
     owners = {r['EditorID'].lower(): scripted.get(int(r['FormID'], 16)) for r in by_type.get('QUST', ())
               if r.get('EditorID')}
-    owners.update({r['EditorID'].lower(): scripted.get(int(r['NAME'], 16)) for sig in ('REFR', 'ACHR', 'ACRE')
-                   for r in by_type.get(sig, ()) if r.get('EditorID') and r.get('NAME')})
+    owners.update(_placed_owners(xref) if xref else {})
     return {k: v for k, v in owners.items() if v}, variables
+
+
+def _placed_owners(xref) -> dict:
+    """{EditorID lower: script EditorID lower} of each placed reference in `xref` whose base (or itself) has a script."""
+    out = {}
+    for ref, base in xref.record_base.items():
+        edid = xref.formid_to_edid.get(ref)
+        script = xref.script_formid_to_edid.get(xref.record_scri.get(ref) or xref.record_scri.get(base, ''))
+        if edid and script:
+            out[edid.lower()] = script.lower()
+    return out
 
 
 def _types(rec: dict) -> dict:
@@ -58,9 +71,10 @@ def _types(rec: dict) -> dict:
     return {name: declared.get(name, 'Int') for name in names}
 
 
-def find_adds(by_type: dict) -> tuple:
-    """(CALLS, OWNED) of every cross-script increment whose owner's script declares the variable."""
-    owners, variables = _owners(by_type)
+def find_adds(by_type: dict, xref=None) -> tuple:
+    """(CALLS, OWNED) of every cross-script increment whose owner (a quest, or a placed reference `xref` knows)
+    has a script declaring the variable."""
+    owners, variables = _owners(by_type, xref)
     calls, owned = {}, {}
     for text in _sources(by_type):
         for owner, var in _INCREMENT.findall(text):
@@ -84,17 +98,20 @@ def rewritten(line: str, target: str) -> 'str | None':
 
 
 def adders(conv, mirrors: dict) -> list:
-    """The adder functions script `conv` owns (OWNED), each keeping its mirror global (`mirrors`) in step."""
+    """The adder functions script `conv` owns (OWNED), each keeping its mirror global (`mirrors`) in step. The new
+    value is kept in a local (SUM): the trace reads the counter before any call out, and the mirror and the
+    return take the local, so an add that runs while this one is out cannot change what this one reports."""
     out = []
     edid = (conv.sc.edid or '').lower()
     for var in OWNED.get(edid, ()):
         vtype = conv.sc.var_types.get(var, 'Int')
-        out += [f'{vtype} Function {PREFIX}{var}(Float afBy)', f'  {var} = ({var} + afBy) as {vtype}']
+        out += [f'{vtype} Function {PREFIX}{var}(Float afBy)', f'  {vtype} {SUM} = ({var} + afBy) as {vtype}',
+                f'  {var} = {SUM}', value_line(var)]
         mirror = mirrors.get((edid, var))
         if mirror:
             conv.sc.property_refs.setdefault(mirror, 'GlobalVariable')
-            out.append(f'  {global_line(mirror, var)}')
-        out += [value_line(var), f'  Return {var}', 'EndFunction', '']
+            out.append(f'  {global_line(mirror, SUM)}')
+        out += [f'  Return {SUM}', 'EndFunction', '']
     return out
 
 
@@ -120,14 +137,25 @@ def _own_block(block: list, declared: dict) -> list:
         m = _ADD_CALL.match(line)
         key = m and (m[3].lower(), m[4].lower())
         if key in CALLS:
-            name = f'{RESULT}{m[3]}_{m[4]}'
-            kept[key] = (re.compile(rf'\b{re.escape(m[3])}\.{re.escape(m[4])}\b(?!\s*=[^=])', re.IGNORECASE), name)
+            name, counter = f'{RESULT}{m[3]}_{m[4]}', rf'{re.escape(m[3])}\.{re.escape(m[4])}'
+            kept[key] = (re.compile(rf'\b{counter}\b(?!\s*=[^=])', re.IGNORECASE),
+                         re.compile(rf'^(\s*)({counter})\s*=(?!=)\s*(.+)$', re.IGNORECASE), name)
             if name not in {n for _, n in opened}:
                 opened.append((f'  {name} = {m[3]}.{m[4]}', name))
             declared[name] = CALLS[key]
-            line = f'{m[1]}{name} = {m[2]}'
+            out.append(f'{m[1]}{name} = {m[2]}')
         else:
-            for pattern, name in kept.values():
-                line = pattern.sub(name, line)
-        out.append(line)
+            out += _kept_line(line, kept.values())
     return out[:1] + [init for init, _ in opened] + out[1:] if opened else out
+
+
+def _kept_line(line: str, kept) -> list:
+    """`line` reading each kept counter's own value; a direct write of one sets that value first, then the
+    counter from it, so the write's mirror and later reads carry the assigned value."""
+    for read, _write, name in kept:
+        line = read.sub(name, line)
+    for _read, write, name in kept:
+        m = write.match(line)
+        if m:
+            return [f'{m[1]}{name} = {m[3]}', f'{m[1]}{m[2]} = {name}']
+    return [line]

@@ -145,9 +145,11 @@ class ObjectScripts:
         return self.globals[name]
 
     def talk(self, prop: str) -> int:
-        """The FormID of the scene a `TES4Talk_<topic>` property starts, reserved once."""
+        """The FormID of the scene a `TES4Talk_<topic>` property starts, reserved once per topic in any case (FNV
+        names ignore case); its first spelling keys it."""
         if prop not in self.talks:
-            self.talks[prop] = self.builder.new_id(f'SCEN {prop}')
+            same = next((fid for name, fid in self.talks.items() if name.lower() == prop.lower()), None)
+            self.talks[prop] = same or self.builder.new_id(f'SCEN {prop}')
         return self.talks[prop]
 
     def vmad(self, scpt: int, extra: tuple = ()) -> bytes:

@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
+from asset_convert.game_paths import namespace_for
 from fo4_import.base.papyrus import compile_folder, header_dirs
 from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import info_fragments, object_scripts, quest_fragments
@@ -25,6 +26,7 @@ from fo4_import.helpers_plugin import actor_value_form, helper_forms
 from fo4_import.spike.items import ENGINE_IDS
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.code_tag import ROOT
+from output_layout import record_dir
 from script_convert.target import AV_PROPERTY_PREFIX
 from tools.script.compile_papyrus import compile_fallout4
 
@@ -41,7 +43,6 @@ FORM_DUMPS = {'MiscObject': 'MISC', 'Potion': 'ALCH', 'GlobalVariable': 'GLOB'}
 ENGINE_ONLY = frozenset({'GlobalVariable'})
 FO4_DUMP = Path(__file__).resolve().parents[2] / 'references' / 'Fallout4.esm'
 _PROPERTY = re.compile(r'^(\w+)\s+Property\s+(\w+)', re.I | re.M)
-_CONVERTED_TYPE = re.compile(r'\bFALLOUTNV_\w+', re.I)
 TRACE_SCRIPT = 'FNVSpike_SceneTrace'
 TRACE_LOG = 'FNVSpikeTrace'
 #: compile_into's staging folders (one per output Scripts folder).
@@ -132,9 +133,16 @@ def attach(scripts_dir: Path, forms: dict, helper_index: int) -> bytes:
     return object_scripts([(DOC_SCRIPT, fill(declared_properties(psc), forms, helper_index), {})])
 
 
-def with_types(scripts_dir: Path, names) -> set:
-    """`names` and every converted script they name, transitively: a script whose types are missing does not link."""
-    known = {p.stem.upper(): p.stem for p in scripts_dir.glob('FALLOUTNV_*.psc')}
+def converted_prefix(scripts_dir: Path) -> str:
+    """Converted-script prefix of `scripts_dir` (named for its plugin): the namespace."""
+    return namespace_for(record_dir(ROOT / 'export', scripts_dir.name)).upper() + '_'
+
+
+def with_types(scripts_dir: Path, names, prefix: str) -> set:
+    """`names` and every converted script (`prefix` names) they name, transitively: a script whose types are
+    missing does not link."""
+    known = {p.stem.upper(): p.stem for p in scripts_dir.glob(f'{prefix}*.psc')}
+    converted = re.compile(rf'\b{re.escape(prefix)}\w+', re.I)
     todo, seen = list(names), set()
     while todo:
         name = todo.pop()
@@ -142,18 +150,21 @@ def with_types(scripts_dir: Path, names) -> set:
             continue
         seen.add(name)
         text = (scripts_dir / f'{name}.psc').read_text(encoding='utf-8')
-        todo += [known[t.upper()] for t in _CONVERTED_TYPE.findall(text) if t.upper() in known]
+        todo += [known[t.upper()] for t in converted.findall(text) if t.upper() in known]
     return seen
 
 
 def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = ()) -> str:
-    """Compile Doc's script, `fragments`, the scripts they name and every static helper into <data_dir>/Scripts;
-    a summary. Only what changed since the last build compiles (compile_papyrus.compile_fallout4), from a
-    staging folder that stays put between builds."""
+    """Compile Doc's script (when the folder has it), `fragments`, the scripts they name and every static helper
+    into <data_dir>/Scripts; a summary. Only what changed since the last build compiles
+    (compile_papyrus.compile_fallout4), from a staging folder that stays put between builds and holds every
+    script the staged ones name."""
     scripts_dir, out = scripts_dir.resolve(), (data_dir / 'Scripts').resolve()
     out.mkdir(parents=True, exist_ok=True)
-    wanted = with_types(scripts_dir, [DOC_SCRIPT, *fragments])
-    keep = {p.name for p in scripts_dir.glob('*.psc') if p.stem in wanted or not p.stem.upper().startswith('FALLOUTNV_')}
+    prefix = converted_prefix(scripts_dir)
+    roots = [DOC_SCRIPT] if (scripts_dir / f'{DOC_SCRIPT}.psc').exists() else []
+    wanted = with_types(scripts_dir, [*roots, *fragments], prefix)
+    keep = {p.name for p in scripts_dir.glob('*.psc') if p.stem in wanted or not p.stem.upper().startswith(prefix)}
     stage = STAGE / hashlib.sha1(str(out).encode()).hexdigest()[:12]
     stage.mkdir(parents=True, exist_ok=True)
     for old in stage.glob('*.psc'):
@@ -163,10 +174,11 @@ def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = ()) -> str
         if not (stage / name).exists() or (stage / name).read_bytes() != (scripts_dir / name).read_bytes():
             shutil.copyfile(scripts_dir / name, stage / name)
     compiled, own, names = compile_fallout4(SimpleNamespace(src=str(stage), out=str(out), full=False, workers=WORKERS,
-                                                            headers=f'{header_dirs()};{scripts_dir}'))
+                                                            headers=None))
     failed = sorted(n for n in names if n.lower() not in compiled)
     return f'{len(names) - len(failed)} of {len(names)} scripts compile' + ''.join(
-        f'\n  {n}: {"; ".join(own.get(n, ["through a script it uses"]))}' for n in failed)
+        f'\n  {n}: {"; ".join(own.get(n, ["no error of its own (a script it uses failed, or the compiler did)"]))}'
+        for n in failed)
 
 
 def trace_source(plugin: str, scenes: list, actors: list) -> str:

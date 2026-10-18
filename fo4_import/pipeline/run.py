@@ -23,11 +23,11 @@ from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.interiors import scope
 
 
-def scope_models(export_dir: Path, cell_edid: str, exterior: 'tuple | None') -> list:
-    """The FNV mesh files of the bases placed in cell `cell_edid`, the `exterior` block and the interiors their
-    doors reach, as build() makes them first (convert() with its defaults)."""
+def scope_models(export_dir: Path, cell_edid: str, exteriors: tuple) -> list:
+    """The FNV mesh files of the bases placed in cell `cell_edid`, the `exteriors` (build()'s) and the interiors
+    their doors reach, as build() makes them first (convert() with its defaults)."""
     all_refs = export_records(export_dir, 'REFR')
-    outside = Exterior(export_dir, all_refs, *exterior).refs if exterior else []
+    outside = [r for spec in exteriors for r in Exterior(export_dir, all_refs, *spec).refs]
     used = {int(r['NAME'], 16) for r in scope(export_dir, all_refs, find_cell(export_dir, cell_edid), outside)[1]
             + outside}
     recs = [rec for sig, rec in placed_bases(export_dir, used).values()
@@ -38,12 +38,29 @@ def scope_models(export_dir: Path, cell_edid: str, exterior: 'tuple | None') -> 
 
 
 def scope_cells(args: argparse.Namespace) -> tuple:
-    """(low (x, y), high (x, y)) grid corners of the cells to build: --region, else --around and --radius."""
+    """(low (x, y), high (x, y)) grid corners of the first worldspace's cells to build: --region, else --around
+    and --radius; (None, None) with --whole."""
+    if args.whole:
+        return None, None
     if args.region:
         x0, y0, x1, y1 = args.region
         return (min(x0, x1), min(y0, y1)), (max(x0, x1), max(y0, y1))
     (x, y), r = args.around, args.radius
     return (x - r, y - r), (x + r, y + r)
+
+
+def world_names(export_dir: Path, names: list) -> list:
+    """`names` with `all` standing for every FNV worldspace that has grid cells, in the export's order."""
+    if 'all' not in names:
+        return list(names)
+    grids = {c.get('ParentWRLD') for c in export_records(export_dir, 'CELL') if 'XCLC.X' in c}
+    return [w['EditorID'] for w in export_records(export_dir, 'WRLD') if w['FormID'] in grids and w.get('EditorID')]
+
+
+def exteriors(args: argparse.Namespace) -> tuple:
+    """build()'s worldspaces: the first in scope_cells(), the others whole."""
+    names = world_names(args.export, args.world)
+    return tuple([(name, *scope_cells(args)) for name in names[:1]] + [(name, None, None) for name in names[1:]])
 
 
 def arguments() -> argparse.Namespace:
@@ -53,7 +70,13 @@ def arguments() -> argparse.Namespace:
     ap.add_argument('--out', required=True, type=Path, help='Plugin to write')
     ap.add_argument('--data', required=True, type=Path, help='Data folder for meshes, materials and textures')
     ap.add_argument('--scripts', type=Path, help='Converted FNV scripts (script_convert.pipeline --target fallout4)')
-    ap.add_argument('--world', help='FNV worldspace editor ID to add cells of (with --region, or --around)')
+    ap.add_argument('--world', nargs='*', default=[],
+                    help='FNV worldspace editor IDs to build (all: every one); the first takes --region or --around, '
+                         'the rest are built whole')
+    ap.add_argument('--whole', action='store_true', help='Build the first --world whole too')
+    ap.add_argument('--no-test-cell', dest='test_cell', action='store_false',
+                    help="Leave out QASmoke's test chest and stand-in doors (doors leading out of the build are "
+                         'counted instead)')
     ap.add_argument('--region', type=int, nargs=4, metavar=('X0', 'Y0', 'X1', 'Y1'),
                     help='The rectangle of grid cells to build, corners included')
     ap.add_argument('--around', type=int, nargs=2, default=(0, 0), metavar=('X', 'Y'),
@@ -71,13 +94,13 @@ def main():
     args = arguments()
     configure_multiprocessing()
     create_pool_job()
-    exterior = (args.world, *scope_cells(args)) if args.world else None
+    worlds = exteriors(args)
     started = time.time()
-    models = scope_models(args.export, args.cell, exterior)
+    models = scope_models(args.export, args.cell, worlds)
     warm(models, args.export, args.workers)
     print(f'mesh cache: {len(models)} meshes ready in {time.time() - started:.1f}s')
-    counts = build(args.export, args.out, args.data, args.cell, args.scripts, exterior,
-                   replacements.load(args.replacements), tuple(args.plugin_dirs))
+    counts = build(args.export, args.out, args.data, args.cell, args.scripts, worlds,
+                   replacements.load(args.replacements), tuple(args.plugin_dirs), args.test_cell)
     for key, count in sorted(counts.items()):
         print(f'{key}: {count}')
     print(f'built in {time.time() - started:.1f}s')

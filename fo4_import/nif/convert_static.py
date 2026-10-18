@@ -3,15 +3,18 @@
 Every visible NiTriShape/NiTriStrips becomes one BSTriShape under the root
 NiNode, its transform baked in; its textures and alpha become a material
 `materials\\fnv\\<diffuse path>.bgsm`, shared by every shape with the same
-textures and alpha. Collision becomes pre-Elric Havok blocks at the end
-(collision.py; elric.finish makes them FO4 physics). Textures keep their FNV paths
-under `textures\\fnv\\`.
+contents: every field a material or derived map holds is in its path (a tag
+for each field off its usual value). Collision becomes pre-Elric Havok blocks
+(collision.py; elric.finish makes them FO4 physics). Textures keep their FNV
+paths under `textures\\fnv\\`.
 
 See: docs/fork/fo4_spikes.md#spike-2-static
+See: docs/fork/fo4_tool_audit.md#meshes
 """
 
 import collections
 import functools
+import hashlib
 import io
 import math
 import struct
@@ -33,7 +36,6 @@ from asset_convert.collision.collision_falloutnv import latch_source
 from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_nodes, manager_of, skin, with_parents
 from fo4_import.nif.particles import add_system, systems as particle_systems, wanted_nodes
 from fo4_import.nif.shader_anim import GLOW_SUFFIX
-from fo4_import.nif.addons import fo4_index
 from fo4_import.nif.collision import collision_nodes, moves, node_transform
 
 PREFIX = 'fnv'
@@ -112,6 +114,10 @@ TRIANGLE_SAMPLES = np.array([(1, 0, 0), (0, 1, 0), (0, 0, 1), (.5, .5, 0), (0, .
 DECAL_FLAGS = 0x0C000000
 #: Game units a blended sheet's vertices may stand off its plane and still count as flat (overlay_sheet).
 SHEET_DEPTH = 0.5
+#: NiMaterialProperty's default glossiness, the most common one: a specular map at it keeps the plain name.
+GLOSSINESS = 10.0
+#: (blend bits, alpha test ref) of most FNV glass and see-through surfaces: blend, src alpha, inverse src alpha.
+EFFECT_ALPHA = (0xED, 0)
 #: The most common value of every field over Fallout4.esm's 6,616 BGSMs, textures and root material aside.
 MATERIAL = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 1.0,
@@ -138,7 +144,7 @@ MATERIAL = {
 class Converted:
     """One converted mesh: the NIF, {material path: BGSM dict}, the FNV textures it needs.
 
-    `spec_maps` is {FO4 specular map path: (FNV normal map path, smoothness)},
+    `spec_maps` is {FO4 specular map path: (FNV normal map path, glossiness)},
     the maps to build from FNV's normal-map alpha; `effects` is {path: BGEM dict}; `animatable`: the FNV mesh
     has an animation it can keep (kept unless converted not `animated`).
     """
@@ -236,14 +242,27 @@ def _square(dds: bytes) -> bool:
     return len(dds) >= 20 and struct.unpack_from('<I', dds, 12) == struct.unpack_from('<I', dds, 16)
 
 
-def spec_map_path(fnv_normal: str) -> str:
-    """The FO4 specular map path for an FNV normal map: x_n.dds becomes x_s.dds."""
+def gloss_tag(glossiness: float) -> str:
+    """Glossiness as a path tag: '' at GLOSSINESS, else its exact value, '.' as 'p'."""
+    return '' if glossiness == GLOSSINESS else repr(float(glossiness)).removesuffix('.0').replace('.', 'p')
+
+
+def spec_map_path(fnv_normal: str, glossiness: float = GLOSSINESS) -> str:
+    """FO4 specular map of an FNV normal map: x_n.dds as x_s.dds, x_s_g<gloss_tag>.dds"""
     path = fo4_texture(fnv_normal).rsplit('.', 1)[0]
-    return (path[:-2] if path.endswith('_n') else path) + '_s.dds'
+    tag = gloss_tag(glossiness)
+    return (path[:-2] if path.endswith('_n') else path) + '_s' + (f'_g{tag}' if tag else '') + '.dds'
+
+
+def spec_glossiness(spec_path: str) -> float:
+    """The glossiness spec_map_path() named `spec_path` for."""
+    _, sep, tag = spec_path.rsplit('.', 1)[0].rpartition('_s_g')
+    plain = not sep or not tag or any(c in tag for c in '_/\\')
+    return GLOSSINESS if plain else float(tag.replace('p', '.'))
 
 
 def _specular(mat: dict, fnv_normal: str, props: dict, texture_root) -> 'tuple | None':
-    """Set `mat`'s specular from FNV's normal-map alpha; (map path, (normal, smoothness)) or None.
+    """Set `mat`'s specular from FNV's normal-map alpha; (map path, (normal, glossiness)) or None.
 
     Specular is off when the alpha carries no mask (spec_mask's rule, which
     ignores the mesh's material colour) or the map is not square.
@@ -254,9 +273,10 @@ def _specular(mat: dict, fnv_normal: str, props: dict, texture_root) -> 'tuple |
         mat['specular'] = False
         return None
     material = props.get('NiMaterialProperty')
-    path = spec_map_path(fnv_normal)
+    glossiness = material.glossiness if material else 0.0
+    path = spec_map_path(fnv_normal, glossiness)
     mat['textures']['smooth_spec'] = path.replace('\\', '/')
-    return path, (fnv_normal, smoothness(material.glossiness if material else 0.0))
+    return path, (fnv_normal, glossiness)
 
 
 def specular_scale(smooth: float) -> float:
@@ -274,10 +294,23 @@ def spec_image(normal_dds: bytes, smooth: float) -> np.ndarray:
     return out
 
 
+def _beside(stem: str, suffix: str) -> str:
+    """A diffuse `stem`'s usual companion: `stem` (`_d` dropped) plus `suffix`."""
+    return (stem[:-2] if stem.endswith('_d') else stem) + suffix
+
+
+def _hashed(letter: str, value: str, usual: str) -> str:
+    """The path tag `_<letter><6 hex of value's SHA-1>`; '' when `value` is `usual`."""
+    return '' if value == usual else f'_{letter}{hashlib.sha1(value.encode()).hexdigest()[:6]}'
+
+
 def glow_map_path(fnv_diffuse: str, fnv_glow: str, cut: 'int | None' = None) -> str:
-    """FO4 path of glow_image's bake: <diffuse>_<glow name>[_cut<cut>].dds."""
-    glow = fo4_texture(fnv_glow).rsplit('.', 1)[0].rsplit('\\', 1)[-1]
-    return f'{fo4_texture(fnv_diffuse).rsplit(".", 1)[0]}_{glow}{"" if cut is None else f"_cut{cut}"}.dds'
+    """FO4 path of glow_image's bake: <diffuse>_<glow name>[_f<folder hash>][_cut<cut>].dds, the folder tag when
+    the glow map is not beside the diffuse."""
+    diffuse = fo4_texture(fnv_diffuse).rsplit('.', 1)[0]
+    folder, _, glow = fo4_texture(fnv_glow).rsplit('.', 1)[0].rpartition('\\')
+    tag = _hashed('f', folder, diffuse.rpartition('\\')[0])
+    return f'{diffuse}_{glow}{tag}{"" if cut is None else f"_cut{cut}"}.dds'
 
 
 def glow_image(diffuse_dds: bytes, glow_dds: bytes, cut: 'int | None' = None) -> Image.Image:
@@ -359,8 +392,18 @@ def _effect(fnv: list, alpha) -> ShapeMaterial:
     data = dict(GLASS_EFFECT, **_alpha_fields(alpha), env_mapping=bool(tex[4]),
                 textures={'base': tex[0], 'grayscale': '', 'envmap': tex[4], 'normal': tex[1], 'env_mask': ''})
     stem = tex[0].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
-    return ShapeMaterial('effect', f'materials\\{stem}_effect.bgem', data,
+    return ShapeMaterial('effect', f'materials\\{stem}_effect{effect_tags(data)}.bgem', data,
                          [t for i, t in enumerate(fnv[:5]) if t and i in (0, 1, 4)], _alpha_part(alpha), None)
+
+
+def effect_tags(data: dict) -> str:
+    """BGEM `data`'s path tags for what its plain name leaves out: blend and alpha test other than EFFECT_ALPHA
+    (`_a<bits>_<ref>`), a normal map other than `<base>_n` (`_n<hash>`), an env map (`_e<hash>`)."""
+    tex = data['textures']
+    bits = int(data['alpha_blend']) | data['src_blend'] << 1 | data['dst_blend'] << 5 | int(data['alpha_test']) << 9
+    alpha = '' if (bits, data['alpha_test_ref']) == EFFECT_ALPHA else f'_a{bits:x}_{data["alpha_test_ref"]}'
+    return alpha + _hashed('n', tex['normal'], _beside(tex['base'].rsplit('.', 1)[0], '_n.dds')) + \
+        _hashed('e', tex['envmap'], '')
 
 
 @functools.cache
@@ -403,8 +446,8 @@ def _translucent(fnv: list, alpha, two_sided: bool) -> ShapeMaterial:
                 textures={'base': tex[0], 'grayscale': '', 'envmap': '', 'normal': tex[1], 'env_mask': ''})
     stem = tex[0].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
     flags = (WING_FLAGS[0], WING_FLAGS[1] | (DOUBLE_SIDED if two_sided else 0))
-    return ShapeMaterial('effect', f'materials\\{stem}{"_2s" if two_sided else ""}_translucent.bgem', data,
-                         [t for t in fnv[:2] if t], _alpha_part(alpha), None, (WING_SHADER, flags))
+    return ShapeMaterial('effect', f'materials\\{stem}{"_2s" if two_sided else ""}_translucent{effect_tags(data)}.bgem',
+                         data, [t for t in fnv[:2] if t], _alpha_part(alpha), None, (WING_SHADER, flags))
 
 
 def _lit_alpha(alpha, decal: bool) -> 'tuple | None':
@@ -434,8 +477,31 @@ def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, te
         else None
     overlay = _glow_overlay(fnv, props, two_sided, part[1]) if cut and len(fnv) > GLOW_SLOT and fnv[GLOW_SLOT] \
         and fnv[0] else None
-    return ShapeMaterial('lit', f'materials\\{stem}{suffix}.bgsm', mat, textures, part, spec,
+    return ShapeMaterial('lit', f'materials\\{stem}{suffix}{lit_tags(mat)}.bgsm', mat, textures, part, spec,
                          flags1=DECAL_FLAGS if decal else 0, glow=glow, overlay=overlay)
+
+
+def lit_tags(mat: dict) -> str:
+    """BGSM `mat`'s path tags for what its plain name leaves out: a normal map other than the diffuse's `_n`
+    (_beside; `_n<hash>`), a glow map other than the bake of its `_g` (`_l<hash>`), the specular map's glossiness
+    tag (`_g<tag>`), a decal (`_decal`). Specular itself follows the normal map."""
+    tex = mat['textures']
+    stem = tex['diffuse'].rsplit('.', 1)[0]
+    glow = f'{stem}_{_beside(stem.rsplit("/", 1)[-1], "_g")}.dds' if mat['glowmap'] else ''
+    gloss = gloss_tag(spec_glossiness(tex['smooth_spec'])) if tex['smooth_spec'] else ''
+    return (_hashed('n', tex['normal'], _beside(stem, '_n.dds')) + _hashed('l', tex['glow'], glow)
+            + (f'_g{gloss}' if gloss else '') + ('_decal' if mat['decal'] else ''))
+
+
+def retextured(path: str, old: dict, new: dict) -> str:
+    """Path of BGSM `new`, `old` (at `path`) retextured: its diffuse and lit_tags."""
+    base = path.rsplit('.', 1)[0].removesuffix(lit_tags(old))
+    return base.replace(_diffuse_stem(old), _diffuse_stem(new), 1) + lit_tags(new) + '.bgsm'
+
+
+def _diffuse_stem(mat: dict) -> str:
+    """BGSM `mat`'s diffuse path without its extension, with backslashes."""
+    return mat['textures']['diffuse'].rsplit('.', 1)[0].replace('/', '\\')
 
 
 def _emission(props: dict) -> tuple:
@@ -459,8 +525,8 @@ def _glow_overlay(fnv: list, props: dict, two_sided: bool, cut: int) -> ShapeMat
                 textures={'base': baked.replace('\\', '/'), 'grayscale': '', 'envmap': '', 'normal': '', 'env_mask': ''})
     values = dict(NEON_SHADER, base_color=(*color, 1.0), base_color_scale=mult)
     flags = (NEON_FLAGS[0] | DECAL_FLAGS, NEON_FLAGS[1] | (DOUBLE_SIDED if two_sided else 0))
-    rgb = ''.join(f'{round(c * 255):02x}' for c in color)
-    return ShapeMaterial('effect', f'materials\\{baked.rsplit(".", 1)[0]}_neon{rgb}x{mult:g}.bgem', data,
+    look = ''.join(f'{round(c * 255):02x}' for c in color) + f'x{mult:g}' + ('_2s' if two_sided else '')
+    return ShapeMaterial('effect', f'materials\\{baked.rsplit(".", 1)[0]}_neon{look}.bgem', data,
                          [fnv[0], fnv[GLOW_SLOT]], NEON_ALPHA, None, (values, flags),
                          glow=(baked, (fnv[0], fnv[GLOW_SLOT], cut)))
 
@@ -679,11 +745,11 @@ def posed(root, pose: dict) -> None:
                     setattr(node.rotation, f'm_{i + 1}{j + 1}', value)
 
 
-def convert(path: str, texture_root=None, pose: dict = None, animated: bool = True) -> Converted:
+def convert(path: str, texture_root=None, pose: dict = None, animated: bool = True, addons: dict = None) -> Converted:
     """The FO4 version of the FNV mesh at `path`; `texture_root` holds FNV's textures folder, `pose` moves
-    named nodes first (posed()). An animated mesh keeps its animated nodes, skins and controllers
-    (nif.animation) unless not `animated` (a weapon, which FO4 animates through its behaviour graph; a load
-    door, which FNV never opens)."""
+    named nodes first (posed()), `addons` maps FNV ADDN indices to FO4's (nif.addons; none: add-on nodes left
+    out). An animated mesh keeps its animated nodes, skins and controllers (nif.animation) unless not
+    `animated` (a weapon, which FO4 animates through its behaviour graph; a load door, which FNV never opens)."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
@@ -705,11 +771,11 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     out.animatable = manager is not None and animatable(manager)
     _shapes(nif, root, nodes, out, texture_root)
     made = _particles(nif, root, found, nodes, out, texture_root)
-    addons = _addon_nodes(nif, root, texture_root)
+    added = _addon_nodes(nif, root, addons or {})
     bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
     bodies = [b for b in data.blocks if isinstance(b, NifFormat.bhkRigidBody)]
     bsx &= ~BSX_DYNAMIC if bodies and not any(moves(b) for b in bodies) else ~0
-    bsx |= BSX_ADDON if addons else 0
+    bsx |= BSX_ADDON if added else 0
     bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK or joined else 0
     bsx |= BSX_ANIMATED if animate or found else 0
     if bsx:
@@ -742,9 +808,9 @@ def _particles(nif: NifFile, root, found: list, nodes: dict, out: Converted, tex
     return made
 
 
-def _addon_nodes(nif: NifFile, root, export_dir) -> bool:
-    """FNV `root`'s shown add-on nodes as FO4 BSValueNodes on the root in its space, each ADDN index mapped (addons)
-    and named for it as vanilla's (AddOnNode04, a repeat AddOnNode04@#0); whether any was written.
+def _addon_nodes(nif: NifFile, root, addons: dict) -> bool:
+    """FNV `root`'s shown add-on nodes as FO4 BSValueNodes on the root in its space, each ADDN index mapped by
+    `addons` and named for it as vanilla's (AddOnNode04, a repeat AddOnNode04@#0); whether any was written.
 
     One under a hidden node (a vehicle's damage stage, shown once damaged) is left out.
     See: docs/fork/fo4_pipeline.md#addons
@@ -756,8 +822,8 @@ def _addon_nodes(nif: NifFile, root, export_dir) -> bool:
         while at is not None:
             chain.append(at)
             at = parents.get(id(at))
-        shown = type(node).__name__ == 'BSValueNode' and export_dir and not any(n.flags & 1 for n in chain)
-        index = fo4_index(int(node.value), str(export_dir)) if shown else None
+        shown = type(node).__name__ == 'BSValueNode' and not any(n.flags & 1 for n in chain)
+        index = addons.get(int(node.value)) if shown else None
         if index is None:
             continue
         translation, rotation, scale = node_transform(node, root)

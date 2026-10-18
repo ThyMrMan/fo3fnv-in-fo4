@@ -291,7 +291,7 @@ def test_an_fnv_sound_becomes_a_descriptor_of_its_kind(tmp_path):
 def _ids():
     """A stand-in CellBuilder carrying only what fnv_id and new_id read."""
     builder = SimpleNamespace(writer=FO4PluginWriter(masters=['Fallout4.esm', 'A.esl', 'B.esm']), owned=Counter(),
-                              top=0x800)
+                              top=0x800, keyed=set(), counts=Counter())
     return builder, CellBuilder.fnv_id, CellBuilder.new_id
 
 

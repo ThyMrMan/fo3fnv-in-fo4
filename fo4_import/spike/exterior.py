@@ -16,7 +16,6 @@ See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
 
 import math
-import shutil
 import struct
 from pathlib import Path
 
@@ -28,9 +27,10 @@ from fo4_import.spike.grass import Grasses
 from fo4_import.spike.land_layers import blend_borders, limit_textures, quadrant_mix
 from fo4_import.spike.navmesh import grid_parent
 from fo4_import.spike.weathers import climate
-from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_image
+from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_map_path
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.pipeline.work_cache import normal_map
+from fo4_import.pipeline.work_cache import spec_map
+from fo4_import.spike.statics import copy_texture, stage_derived
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_group, pack_subrecord
 from tes5_import.navmesh.world import decode_vhgt
@@ -52,23 +52,26 @@ DEFAULT_LAND_TEXTURE = 'dirtwasteland01.dds'
 LAND_MATERIAL, CELL_DATA = 0x12F35, 0x02
 #: Record flags of a persistent cell, and the persistent flag of a reference.
 PERSISTENT = 0x400
+#: XCLW of a cell at its worldspace's default water height (FLT_MAX, as 36,320 of Fallout4.esm's exterior cells).
+DEFAULT_WATER = 3.4028234663852886e+38
 #: Exterior group types: world children, cell block, sub-block, cell children, persistent, temporary.
 WORLD_CHILDREN, BLOCK, SUB_BLOCK, CELL_CHILDREN, PERSISTENT_CHILDREN, TEMPORARY_CHILDREN = 1, 4, 5, 6, 8, 9
 
 
 class Exterior:
-    """The FNV cells, land and references of one rectangle of cells; `refs` lists every reference placed."""
+    """The FNV cells, land and references of one rectangle of a worldspace's cells (or all of them); `refs` lists
+    every reference placed, `locations` its spike.locations.Locations once made."""
 
-    def __init__(self, export_dir: Path, all_refs: list, world: str, lo: tuple, hi: tuple):
-        """The cells of FNV worldspace `world` from grid `lo` to `hi` (x, y; both included)."""
-        self.export_dir = export_dir
+    def __init__(self, export_dir: Path, all_refs: list, world: str, lo: 'tuple | None' = None,
+                 hi: 'tuple | None' = None):
+        """The cells of FNV worldspace `world` from grid `lo` to `hi` (x, y; both included); every cell without."""
+        self.export_dir, self.locations = export_dir, None
         self.world = next(r for r in export_records(export_dir, 'WRLD') if r.get('EditorID') == world)
         cells = [r for r in export_records(export_dir, 'CELL')
                  if r.get('ParentWRLD') == self.world['FormID']]
         self.persistent_cell = next(r['FormID'] for r in cells if int(r['RecordFlags']) & PERSISTENT)
         self.cells = {(int(r['XCLC.X']), int(r['XCLC.Y'])): r for r in cells if 'XCLC.X' in r and not
-                      int(r['RecordFlags']) & PERSISTENT and lo[0] <= int(r['XCLC.X']) <= hi[0]
-                      and lo[1] <= int(r['XCLC.Y']) <= hi[1]}
+                      int(r['RecordFlags']) & PERSISTENT and _within(int(r['XCLC.X']), int(r['XCLC.Y']), lo, hi)}
         self.own = own = {r['FormID']: grid for grid, r in self.cells.items()}
         self.by_cell = {grid: [] for grid in self.cells}
         self.persistent = []
@@ -141,11 +144,13 @@ class Exterior:
             land_record = self._land(builder, land, mixes.get(grid), data_dir) if land else b''
             navm = navmesh.get(self.cells[grid]['FormID'], b'')
             zone = builder.zones.get(int(self.cells[grid].get('XEZN.EncounterZone', '0'), 16), 0)
+            water = float(self.cells[grid].get('XCLW.WaterHeight', DEFAULT_WATER))
             cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + navm + temporary,
-                           (builder.locations.of_grid(grid), zone))
+                           (self.locations.of_grid(grid), zone), water)
         record = self._world(builder, world)
         children = _cell(persistent_cell, PERSISTENT, (0, 0), kept, b'')
-        children += _blocks({grid: _cell(fid, 0, grid, b'', temp, spot) for grid, (fid, temp, spot) in cells.items()})
+        children += _blocks({grid: _cell(fid, 0, grid, b'', temp, spot, water)
+                             for grid, (fid, temp, spot, water) in cells.items()})
         builder.counts['exterior cells'] = len(cells)
         return record + pack_group(WORLD_CHILDREN, struct.pack('<I', world), children)
 
@@ -157,12 +162,13 @@ class Exterior:
         fnv_climate = climate(builder, int(self.world.get('CNAM.Climate', '0'), 16))
         if fnv_climate:
             kept[b'CNAM'] = struct.pack('<I', fnv_climate)
+        kept.update(_heights(self.world, kept))
         xs, ys = [g[0] for g in self.cells], [g[1] for g in self.cells]
         bounds = (struct.pack('<2f', min(xs) * CELL_UNITS, min(ys) * CELL_UNITS),
                   struct.pack('<2f', (max(xs) + 1) * CELL_UNITS, (max(ys) + 1) * CELL_UNITS))
         subs = pack_subrecord('EDID', f'FNV_{self.world["EditorID"]}\0'.encode())
         subs += pack_subrecord('FULL', (self.world.get('FULL', self.world['EditorID']) + '\0').encode('cp1252'))
-        subs += pack_subrecord('XLCN', struct.pack('<I', builder.locations.root))
+        subs += pack_subrecord('XLCN', struct.pack('<I', self.locations.root))
         subs += b''.join(pack_subrecord(t.decode(), kept[t]) for t in WORLD_COPIED[:-2] if t in kept)
         subs += pack_subrecord('DATA', kept[b'DATA']) + pack_subrecord('NAM0', bounds[0])
         subs += pack_subrecord('NAM9', bounds[1]) + (pack_subrecord('XWEM', kept[b'XWEM']) if b'XWEM' in kept else b'')
@@ -234,27 +240,31 @@ def _grass_count(rec: dict) -> int:
 def _landscape_textures(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
     """(diffuse, normal, specular) texture paths of an FNV LTEX under FO4's Textures; '' where FNV has none.
 
-    A DXT1 normal map has no specular alpha (all FNV ground's): the dim mask Skyrim's conversion gives it.
+    A DXT1 normal map has no specular alpha (all FNV ground's): the dim mask Skyrim's conversion gives it. The
+    specular map is named for the LTEX's glossiness (spec_map_path); every texture goes through statics.copy_texture
+    and stage_derived (once per run, not while the staged copy is current).
     """
     rel = 'textures\\landscape\\' + rec['ICON'].replace('/', '\\').lower()
     normal_rel = rel[:-4] + '_n.dds'
     out = []
     for src in (rel, normal_rel):
-        source = export_dir / src.replace('\\', '/')
-        target = fo4_texture(src) if source.exists() else ''
-        if target:
-            (data_dir / 'Textures' / target).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, data_dir / 'Textures' / target)
-        out.append(target)
-    specular = ''
-    if out[1]:
-        specular = out[1][:-6] + '_s.dds'
-        normal = (export_dir / normal_rel.replace('\\', '/')).read_bytes()
-        image = spec_image(normal, smoothness(float(rec.get('SNAM.Specular', 30))))
-        if normal[84:88] == b'DXT1':
-            image[:, :, 0] = SPECULAR_ALPHA
-        (data_dir / 'Textures' / specular).write_bytes(normal_map(image))
+        found = (export_dir / src.replace('\\', '/')).exists()
+        if found:
+            copy_texture(export_dir, data_dir, src)
+        out.append(fo4_texture(src) if found else '')
+    if not out[1]:
+        return out[0], '', ''
+    glossiness, normal = float(rec.get('SNAM.Specular', 30)), export_dir / normal_rel.replace('\\', '/')
+    with open(normal, 'rb') as f:
+        dxt1 = f.read(88)[84:88] == b'DXT1'
+    specular = spec_map_path(normal_rel, glossiness)
+    stage_derived(data_dir, specular, spec_map, (normal,), smoothness(glossiness), SPECULAR_ALPHA if dxt1 else None)
     return out[0], out[1], specular
+
+
+def _within(x: int, y: int, lo: 'tuple | None', hi: 'tuple | None') -> bool:
+    """Whether grid cell (x, y) is in `lo`..`hi` (included); always when unbounded."""
+    return lo is None or lo[0] <= x <= hi[0] and lo[1] <= y <= hi[1]
 
 
 def _grid(ref: dict) -> tuple:
@@ -262,10 +272,24 @@ def _grid(ref: dict) -> tuple:
     return math.floor(float(ref['PosX']) / CELL_UNITS), math.floor(float(ref['PosY']) / CELL_UNITS)
 
 
-def _cell(fid: int, flags: int, grid: tuple, persistent: bytes, temporary: bytes, place: tuple = (0, 0)) -> bytes:
-    """An exterior CELL and its children group; `place` its (location, encounter zone), 0 for none."""
+def _heights(world: dict, template: dict) -> dict:
+    """{DNAM, NAM4}: FNV worldspace `world`'s default land and water heights and LOD water height, each where FNV
+    has it (else `template`'s, the Commonwealth's).
+    See: docs/fork/fo4_pipeline.md#water-heights
+    """
+    land, water = struct.unpack('<2f', template[b'DNAM'])
+    out = {b'DNAM': struct.pack('<2f', float(world.get('DNAM.DefaultLandHeight', land)),
+                                float(world.get('DNAM.DefaultWaterHeight', water)))}
+    return {**out, b'NAM4': struct.pack('<f', float(world['NAM4.LODWaterHeight']))} if 'NAM4.LODWaterHeight' in world \
+        else out
+
+
+def _cell(fid: int, flags: int, grid: tuple, persistent: bytes, temporary: bytes, place: tuple = (0, 0),
+          water: float = DEFAULT_WATER) -> bytes:
+    """An exterior CELL and its children group; `place` its (location, encounter zone), 0 for none; `water` its
+    water height (DEFAULT_WATER: the worldspace's)."""
     subs = pack_subrecord('DATA', struct.pack('<H', CELL_DATA)) + pack_subrecord('XCLC', struct.pack('<iiI', *grid, 0))
-    subs += pack_subrecord('LTMP', bytes(4)) + pack_subrecord('XCLW', struct.pack('<f', 3.4028234663852886e+38))
+    subs += pack_subrecord('LTMP', bytes(4)) + pack_subrecord('XCLW', struct.pack('<f', water))
     subs += b''.join(pack_subrecord(tag, struct.pack('<I', form)) for tag, form in zip(('XLCN', 'XEZN'), place) if form)
     label = struct.pack('<I', fid)
     kids = (pack_group(PERSISTENT_CHILDREN, label, persistent) if persistent else b'') + (

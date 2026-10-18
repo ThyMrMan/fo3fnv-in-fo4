@@ -6,7 +6,8 @@ Runs the CK's `-ExportFaceGenData:<plugin> W32` through MO2 (so it loads the
 profile's plugins), moves the FaceGeom NIFs and face tint textures it writes
 from MO2's overwrite into the mod folder, then bakes the FNV face into every
 NPC whose EditorID ends in a C variant (face.bake), from the FNV NPC its
-EditorID names.
+EditorID names. Last, the face textures (2048 square, one mip) are
+re-encoded at vanilla's sizes and formats with full mips.
 
 See: docs/fork/fo4_spikes.md#spike-2-facegen
 """
@@ -16,16 +17,18 @@ import shutil
 import struct
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
 from core.subprocess_flags import POPEN_FLAGS
+from fo4_import.base.ba2_pack import STAGING
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
 from fo4_import.face.bake import bake, face_shape
 from fo4_import.face.sculpt import load_basis as sculpt_basis
-from fo4_import.face.texture import face_texture, write_dds
+from fo4_import.face.texture import face_texture, vanilla_face_texture, write_dds
 from fo4_import.face.tint import load_basis as tint_basis, scaled_tone
 from fo4_import.spike.face_fit import npc_subrecords, refine_sculpt, refine_tint, variant_npcs
 from fo4_import.spike.fnv_npc import fnv_face
@@ -38,8 +41,8 @@ FACEGEN_DIRS = (Path('Meshes/Actors/Character/FaceGenData/FaceGeom'),
                 Path('Textures/Actors/Character/FaceCustomization'))
 #: Where CKPE writes a zipped crash log and dump when the CK crashes.
 CK_CRASHES = FALLOUT4_DIR / 'Logs' / 'CKPE' / 'Crashes'
-#: Seconds to wait for the CK to finish, and between checks.
-CK_TIMEOUT, CK_POLL = 900, 5
+#: Seconds to wait for the CK at least, per NPC_ record (the region: 293 in 127 s, 0.43 s each), between checks.
+CK_TIMEOUT, CK_FACE_SECONDS, CK_POLL = 900, 2.0, 5
 #: Fallout4.esm HumanRace, and the tint slot (xEdit's TETI enum) of its Skin Tone options.
 HUMAN_RACE, SKIN_TONE_SLOT = 0x13746, 12
 #: Face variants with fitted sculpt regions, with fitted tint layers, and how many CK rounds refine them.
@@ -48,12 +51,24 @@ SCULPTED, TINTED, REFINE_ROUNDS = frozenset({'ST', 'STH'}), frozenset({'ST', 'ST
 BAKED_VARIANTS = {'C1': ('C1', None), 'C2': ('C2', None), 'T1': ('C1', 'T1'), 'T2': ('C1', 'T2')}
 
 
-def run_ck(plugin: str) -> None:
-    """Export `plugin`'s FaceGen with the CK through MO2 and wait for the CK to exit; raise if it crashed."""
+def npc_count(plugin_path: Path) -> int:
+    """How many NPC_ records the plugin at `plugin_path` holds."""
+    return sum(1 for _ in walk(plugin_path.read_bytes(), b'NPC_', bodies=()))
+
+
+def ck_timeout(faces: int) -> float:
+    """CK seconds for `faces` faces: CK_FACE_SECONDS each, at least CK_TIMEOUT."""
+    return max(CK_TIMEOUT, faces * CK_FACE_SECONDS)
+
+
+def run_ck(plugin: str, data_dir: Path = None) -> None:
+    """Export `plugin`'s FaceGen with the CK through MO2 and wait for the CK to exit, for ck_timeout of the NPCs
+    in `data_dir`'s copy of it (the floor without one); raise if it crashed or ran out of time."""
+    timeout = ck_timeout(npc_count(data_dir / plugin) if data_dir else 0)
     started = time.time()
     subprocess.run([str(MO2 / 'ModOrganizer.exe'), 'run', '-e', CK_EXECUTABLE, '-a',
                     f'-ExportFaceGenData:{plugin} W32'], check=True, **POPEN_FLAGS)
-    while time.time() < started + CK_TIMEOUT:
+    while time.time() < started + timeout:
         time.sleep(CK_POLL)
         listing = subprocess.run(['tasklist', '/FI', f'IMAGENAME eq {CK_PROCESS}'], capture_output=True,
                                  text=True, **POPEN_FLAGS).stdout
@@ -62,7 +77,7 @@ def run_ck(plugin: str) -> None:
             if crashes:
                 raise SystemExit(f'the Creation Kit crashed exporting {plugin}: see {max(crashes)}')
             return
-    raise SystemExit('the Creation Kit did not finish')
+    raise SystemExit(f'the Creation Kit did not finish exporting {plugin} in {timeout:.0f}s')
 
 
 def clear(plugin: str, data_dir: Path) -> None:
@@ -84,9 +99,24 @@ def collect(plugin: str, data_dir: Path) -> list:
     return nifs
 
 
+def prune(plugin: str, data_dir: Path, npcs) -> int:
+    """Delete `plugin`'s FaceGen it no longer uses: a FaceGeom NIF naming no NPC_ in `npcs` (FormIDs), and a face
+    texture, loose or staged for the BA2, whose FaceGeom NIF is gone (an export writes both for every face and
+    clears the NIFs first); how many files went."""
+    names = {f'{fid & 0xFFFFFF:08X}' for fid in npcs}
+    nifs = list((data_dir / FACEGEN_DIRS[0] / plugin).glob('*'))
+    stale = [p for p in nifs if p.stem.upper() not in names]
+    faces = {p.stem.upper() for p in nifs} & names
+    for folder in (data_dir / FACEGEN_DIRS[1] / plugin, data_dir / STAGING / FACEGEN_DIRS[1] / plugin):
+        stale += [p for p in folder.glob('*') if p.name[:8].upper() not in faces]
+    for path in stale:
+        path.unlink()
+    return len(stale)
+
+
 def bake_variants(export_dir: Path, data_dir: Path, plugin: str) -> list:
     """Bake every C-variant NPC's FaceGeom NIF in `data_dir`; [(EditorID, variant)] baked."""
-    done, faces, tone_layers = [], {}, skin_tone_layers()
+    done, faces, tone_layers = [], {}, skin_tone_layers(FALLOUT4_ESM.read_bytes())
     for form_id, (edid, variant) in sorted(variant_npcs(data_dir / plugin, BAKED_VARIANTS).items()):
         path = data_dir / FACEGEN_DIRS[0] / plugin / f'{form_id:08X}.NIF'
         if not path.exists():
@@ -107,10 +137,10 @@ def bake_variants(export_dir: Path, data_dir: Path, plugin: str) -> list:
     return done
 
 
-def skin_tone_layers() -> frozenset:
-    """HumanRace's tint option indices in the Skin Tone slot (male and female), from Fallout4.esm."""
+def skin_tone_layers(esm: bytes) -> frozenset:
+    """HumanRace's tint option indices in the Skin Tone slot (male and female), from Fallout4.esm's bytes `esm`."""
     out = set()
-    for rec, _ in walk(FALLOUT4_ESM.read_bytes(), b'RACE'):
+    for rec, _ in walk(esm, b'RACE'):
         if rec.form_id == HUMAN_RACE:
             out |= {struct.unpack('<HH', d)[1] for tag, d in subrecords(rec.body)
                     if tag == b'TETI' and struct.unpack('<HH', d)[0] == SKIN_TONE_SLOT}
@@ -148,10 +178,16 @@ def refine_fits(export_dir: Path, data_dir: Path, plugin: str, apply: bool) -> l
     return lines
 
 
+def vanilla_textures(plugin: str, data_dir: Path) -> int:
+    """How many of `plugin`'s face textures vanilla_face_texture re-encoded."""
+    with ThreadPoolExecutor() as pool:
+        return sum(pool.map(vanilla_face_texture, sorted((data_dir / FACEGEN_DIRS[1] / plugin).glob('*.dds'))))
+
+
 def export(plugin: str, data_dir: Path) -> int:
     """Clear, run the CK and collect `plugin`'s FaceGen; the FaceGeom NIFs collected."""
     clear(plugin, data_dir)
-    run_ck(plugin)
+    run_ck(plugin, data_dir)
     return len(collect(plugin, data_dir))
 
 
@@ -172,6 +208,7 @@ def main():
             export(args.plugin, data_dir)
     for edid, variant in bake_variants(export_dir, data_dir, args.plugin):
         print(f'baked {edid} {variant}')
+    print('face textures at vanilla size:', vanilla_textures(args.plugin, data_dir))
 
 
 if __name__ == '__main__':

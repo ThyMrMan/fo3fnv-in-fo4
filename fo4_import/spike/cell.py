@@ -17,8 +17,10 @@ from pathlib import Path
 
 from fo4_import.base.ba2_pack import pack_textures
 from fo4_import.base.bink import write_movies
-from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, fnv_esm
-from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest
+from fo4_import.base.ledger import Ledger, LedgerWriter, ledger_path
+from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_esm, use_source
+from fo4_import.base.source import source_plugin
+from fo4_import.base.writer import pack_fo4_record, pack_quest
 from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
 from fo4_import.spike.equipment import Equipment
@@ -28,7 +30,7 @@ from fo4_import.spike.lighting_template import resolved
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, DISPLAY_GAMMA, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
 from fo4_import.spike.crafting import Crafting
-from fo4_import.spike import character, new_game, replacements, skeleton
+from fo4_import.spike import character, facegen, new_game, replacements, skeleton
 from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import Conversations, Hub, hub
 from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
@@ -36,7 +38,7 @@ from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.idle_markers import IdleMarkers
-from fo4_import.spike.interiors import scope
+from fo4_import.spike.interiors import by_cell, scope
 from fo4_import.spike.vendors import merchants, with_chests, write_vendors
 from fo4_import.spike.script_packages import PROPERTY as SCRIPT_PACKAGES, quest_id as script_packages_quest, write_script_packages
 from fo4_import.spike.placement import map_markers, place, placement
@@ -193,14 +195,14 @@ class CellBuilder:
         self.export_dir, self.data_dir, self.bases = export_dir, data_dir, bases
         self.table, self.plugin_dirs = table if table is not None else replacements.load(), plugin_dirs
         self.masters = MASTERS + replacements.extra_masters(self.table)
-        self.writer = FO4PluginWriter(masters=self.masters, is_esm=False, description='FNV cell spike')
+        self.writer = LedgerWriter(masters=self.masters, is_esm=False, description='FNV cell spike')
         self.top, self.owned = ENGINE_IDS, collections.Counter()
-        own = self.writer.own_index << 24
-        self.writer.reserve_source_ids({own | r.form_id & 0xFFFFFF for r in records(fnv_esm(), bodies=())})
+        own, self.fnv_types = self.writer.own_index << 24, {r.form_id: r.sig.decode() for r in records(source_esm(), bodies=())}
+        self.writer.reserve_source_ids({own | fid & 0xFFFFFF for fid in self.fnv_types})
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.quest_vars, self.actor_refs = {}, {}
-        self.globals, self.factions, self.zones, self.places, self.locations = {}, {}, {}, {}, None
+        self.globals, self.factions, self.zones, self.places, self.regions = {}, {}, {}, {}, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.fo4 = FALLOUT4_ESM.read_bytes()
@@ -209,7 +211,7 @@ class CellBuilder:
                          for r, _ in walk(self.fo4, b'KYWD')}
         self.furniture_idles, self.readiness = furniture_idles(export_records(export_dir, 'IDLE')), Readiness()
         self.enter_motions = enter_motions(export_dir / 'meshes')
-        self.counts, self.readables = collections.Counter(), None
+        self.counts, self.readables, self.keyed = collections.Counter(), None, set()
 
     def fnv_id(self, fnv) -> int:
         """FormID of FNV record `fnv` (int or hex) made 1:1: FNV's own object id."""
@@ -217,14 +219,22 @@ class CellBuilder:
         self.top = max(self.top, oid + 1)
         return self.writer.own_index << 24 | oid
 
-    def new_id(self, owner: str) -> int:
-        """A generated record's FormID, hashed from its `owner` (FNV data) and count.
+    def new_id(self, owner: str, key: 'str | None' = None) -> int:
+        """A generated record's FormID: hashed from its authored `key`, or from its `owner` (FNV data) and count.
+        A key keeps the id its owner and count gave until the ledger holds it; two records keyed alike raise.
 
-        See: docs/fork/fo4_spikes.md#formids
+        See: docs/fork/fo4_pipeline.md#formid-ledger
         """
         n = self.owned[owner]
         self.owned[owner] += 1
-        return self.writer.derive_formid(MADE_SITE, f'{owner} {n}' if n else owner)
+        counted = f'{owner} {n}' if n else owner
+        if key is None:
+            self.counts['FormIDs from a counted key'] += bool(n)
+            return self.writer.derive_formid(MADE_SITE, counted)
+        if key in self.keyed:
+            raise ValueError(f'two generated records keyed {key!r}')
+        self.keyed.add(key)
+        return self.writer.derive_formid(MADE_SITE, key, legacy=counted)
 
     def first_id(self, owner: str) -> int:
         """The FormID new_id(owner) gives first, not taken."""
@@ -237,11 +247,13 @@ class CellBuilder:
         return self.meshes[model]
 
     def weapon_mesh(self, model: str, pose: dict) -> tuple:
-        """mesh() of an FNV weapon model in its held `pose`, dressed as a weapon after Elric (nif.weapon)."""
-        if model not in self.meshes:
-            self.meshes[model] = write_assets(self.export_dir, model, self.data_dir, pose, animated=False)
-        self.weapons.add(self.meshes[model][0])
-        return self.meshes[model]
+        """mesh() of an FNV weapon model in its held `pose` as its own `<name>_weapon.nif`, dressed as a weapon after
+        Elric (nif.weapon); the model placed as a static keeps its own file."""
+        key = f'{model}#weapon'
+        if key not in self.meshes:
+            self.meshes[key] = write_assets(self.export_dir, model, self.data_dir, pose, animated=False, suffix='_weapon')
+        self.weapons.add(self.meshes[key][0])
+        return self.meshes[key]
 
     def base(self, fnv_fid: int) -> 'int | None':
         """The FO4 base for an FNV base FormID, made once by its type's converter (pipeline.converters.PLACED);
@@ -264,8 +276,8 @@ class CellBuilder:
 
     def idle(self, _fnv_fid: int, _sig, rec: dict) -> 'int | None':
         """Converter: FNV idle marker `rec`'s vanilla stand-in (idle_markers)."""
-        made = self.idle_markers.of(rec)
-        self.counts['idle marker ' + ('placed' if made else 'left out')] += 1
+        made, plays = self.idle_markers.of(rec)
+        self.counts['idle marker placed' if made else f'idle marker left out: {plays}'] += 1
         return made
 
     def sound(self, fnv_fid: int, _sig, _rec) -> int:
@@ -401,6 +413,19 @@ def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tup
     return qa_refs, teleports
 
 
+def _teleports(builder: CellBuilder, scoped: tuple, links: dict, ids: dict, chest) -> tuple:
+    """(QASmoke's REFRs, {door ref: its teleport}) of the build's doors: `scoped` (interior, exterior references),
+    each leading to its partner when built (`ids`). With the test chest's template `chest`, an interior door whose
+    partner is not built leads to a QASmoke stand-in (_doors) and QASmoke gets the chest; without it, such a door
+    keeps no teleport. Doors leading out of the build are counted."""
+    inner, outer = ([r for r in refs if 'XTEL.Door' in r] for refs in scoped)
+    qa_refs, teleports = _doors(builder, inner, links, ids) if chest is not None else (b'', _linked(inner, ids))
+    qa_refs += _test_chest(builder, chest) if chest is not None else b''
+    teleports.update(_linked(outer, ids))
+    builder.counts['doors leading out of the build'] = sum(1 for r in inner + outer if r['XTEL.Door'] not in ids)
+    return qa_refs, teleports
+
+
 def _test_chest(builder: CellBuilder, template) -> bytes:
     """QASmoke's test chest (vanilla QA chests' footlocker) with every converted weapon and armor piece; its REFR."""
     subs = sub_map(template.body)
@@ -433,7 +458,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
             temporary += _part_refs(builder, ref)
             continue
         if base is None:
-            builder.counts['skipped ' + builder.bases.get(int(ref['NAME'], 16), ('other',))[0]] += 1
+            builder.counts[f'skipped {_base_type(builder, int(ref["NAME"], 16))}'] += 1
             continue
         keep = bool(int(ref['RecordFlags']) & 0x400) or ref['FormID'] in teleports
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
@@ -441,11 +466,17 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         record = R.pack_refr(ids[ref['FormID']], base, *_placed_at(builder, ref), float(ref.get('XSCL.Scale', 1.0)), radius,
                              teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids, owners) + _lock(builder, ref)
                              + builder.emittance.xemi(ref),
-                             bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), ids.get(ref.get('XLKR.LinkedRef'), 0),
+                             bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED),
+                             builder.ref_ids.get(ref.get('XLKR.LinkedRef'), 0),
                              door_link=builder.door_links.get(ids[ref['FormID']]))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
     return persistent, temporary
+
+
+def _base_type(builder: CellBuilder, fnv: int) -> str:
+    """FNV base `fnv`'s record type; an engine form is named by its FormID."""
+    return builder.fnv_types.get(fnv, f'engine form {fnv:08X}' if fnv < ENGINE_IDS else 'missing base')
 
 
 def _placed_at(builder: CellBuilder, ref: dict) -> tuple:
@@ -672,41 +703,38 @@ def _cell_quests(builder: CellBuilder, export_dir: Path, refs: list, cell_of, ce
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
-          scripts_dir: 'Path | None' = None, exterior: tuple = None, table: 'dict | None' = None,
-          plugin_dirs: tuple = ()) -> collections.Counter:
+          scripts_dir: 'Path | None' = None, exteriors: tuple = (), table: 'dict | None' = None,
+          plugin_dirs: tuple = (), test_cell: bool = True) -> collections.Counter:
     """Write the plugin and assets for the FNV interior cell `cell_edid`; counts of what was made.
 
-    `scripts_dir` holds the converted scripts (attached, compiled into <data_dir>/Scripts). `exterior` is
-    (worldspace, (x, y) low, (x, y) high): that rectangle of cells too. Every interior a door leads into is
-    built as well (interiors.reached); actors and quests are the cell's. `table` is the replacement table,
-    its other plugins found in `plugin_dirs`.
+    `scripts_dir` holds the converted scripts (compiled into <data_dir>/Scripts). `exteriors` lists
+    (worldspace, (x, y) low, (x, y) high), that rectangle of its cells (None, None: all). Every interior a
+    door leads into is built too (interiors.reached). `table` is the replacement table, its plugins in
+    `plugin_dirs`; `test_cell` adds QASmoke's test chest and stand-in doors (_teleports).
     """
+    use_source(source_plugin(export_dir))
     cell = find_cell(export_dir, cell_edid)
     all_refs = export_records(export_dir, 'REFR')
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
-    world = Exterior(export_dir, all_refs, *exterior) if exterior else None
-    interiors, every, outside, sold = _scoped(export_dir, all_refs, cell, world)
-    used = {int(r[key], 16) for r in every + outside for key in ('NAME', 'XEMI.Emittance') if key in r}
-    parts = Parts(used)
-    builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), table, plugin_dirs)
-    builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
+    worlds = [Exterior(export_dir, all_refs, *spec) for spec in exteriors]
+    interiors, every, outside, sold = _scoped(export_dir, all_refs, cell, worlds)
+    builder = _builder(export_dir, data_dir, every + outside, (table, plugin_dirs), ledger_path(out))
     _object_makers(builder, export_dir, scripts_dir, refs, every + outside)
     builder.vendors = write_vendors(builder, export_dir, sold)
-    quest_recs, quests = _cell_quests(builder, export_dir, every + outside, _in_build(interiors, world),
-                                      _cell_names(builder, interiors, world))
+    quest_recs, quests = _cell_quests(builder, export_dir, every + outside, _in_build(interiors, worlds),
+                                      _cell_names(builder, interiors, worlds))
     ids, ext_ids = _ref_ids(builder, every), _ref_ids(builder, outside)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST})
-    actors = _people(builder, export_dir, (interiors, world),
-                     {**_form_map(builder, {**ids, **ext_ids}, quest_recs, quests), **_cells(builder, interiors, world)},
+    actors = _people(builder, export_dir, (interiors, worlds),
+                     {**_form_map(builder, {**ids, **ext_ids}, quest_recs, quests), **_cells(builder, interiors, worlds)},
                      {**ids, **ext_ids})
-    qa_refs, teleports = _doors(builder, [r for r in every if 'XTEL.Door' in r], links, {**ids, **ext_ids})
-    qa_refs += _test_chest(builder, vanilla[TEST_CHEST])
-    teleports.update(_linked([r for r in outside if 'XTEL.Door' in r], ids))
+    qa_refs, teleports = _teleports(builder, (every, outside), links, {**ids, **ext_ids},
+                                    vanilla[TEST_CHEST] if test_cell else None)
     builder.ref_ids = {**ids, **ext_ids, **builder.actor_ids}
-    _places(builder, export_dir, world, (all_refs, outside, interiors))
+    _places(builder, export_dir, worlds, (all_refs, interiors))
     pathing = {c['FormID']: (0, builder.fnv_id(c['FormID'])) for c in interiors}
-    navmesh = _navmesh(builder, export_dir, {**pathing, **(world.pathing(builder) if world else {})}, {**ids, **ext_ids})
+    navmesh = _navmesh(builder, export_dir, {**pathing, **_world_pathing(builder, worlds)}, {**ids, **ext_ids})
     persistent, temporary = _placed(builder, refs, ids, teleports)
     _quests(builder, export_dir, quest_recs, quests, {**ids, **ext_ids, **builder.actor_ids})
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
@@ -714,12 +742,35 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh, (persistent + builder.poses.placed, temporary),
                    actors)
     _cell_group(builder, export_dir, vanilla, rooms, qa_refs)
-    if world:
+    _world_groups(builder, worlds, (lambda r: _placed(builder, r, ext_ids, teleports), data_dir, navmesh, actors))
+    return _finish(builder, export_dir, data_dir, out, scripts_dir)
+
+
+def _world_pathing(builder: CellBuilder, worlds: list) -> dict:
+    """Exterior.pathing() of every built worldspace, merged."""
+    return {cell: path for world in worlds for cell, path in world.pathing(builder).items()}
+
+
+def _world_groups(builder: CellBuilder, worlds: list, placing: tuple) -> None:
+    """Add each built worldspace's WRLD group: its bases made in placement order, then Exterior.group(`placing`:
+    place, data folder, navmeshes, actors)."""
+    for world in worlds:
         for ref in world.placement_order():
             builder.base(int(ref['NAME'], 16))
-        builder.writer.add_raw_group('WRLD', world.group(builder, lambda r: _placed(builder, r, ext_ids, teleports),
-                                                         data_dir, navmesh, actors))
-    return _finish(builder, export_dir, data_dir, out, scripts_dir)
+        builder.writer.add_raw_group('WRLD', world.group(builder, *placing))
+
+
+def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledger: Path) -> CellBuilder:
+    """The CellBuilder of the build placing FNV references `placed`: their bases and static collections' parts,
+    `table` (replacement table, its plugin folders), its FormIDs kept by the ledger file `ledger`.
+    See: docs/fork/fo4_pipeline.md#formid-ledger
+    """
+    used = {int(r[key], 16) for r in placed for key in ('NAME', 'XEMI.Emittance') if key in r}
+    parts = Parts(used)
+    builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), *table)
+    builder.writer.use_ledger(Ledger(ledger))
+    builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
+    return builder
 
 
 def _gameplay(builder: CellBuilder, export_dir: Path, quests: dict) -> None:
@@ -732,9 +783,8 @@ def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, f
     """[(cell, persistent, temporary)] of the interiors in `scoped` (cells, their references), each with its
     navmeshes and `actors` {FNV cell: (persistent, temporary)}: the first's references are `first`, the others'
     placed with `placing` (ids, teleports)."""
-    interiors, every = scoped
-    placed = [first] + [_placed(builder, [r for r in every if r['ParentCELL'] == c['FormID']], *placing)
-                        for c in interiors[1:]]
+    interiors, inside = scoped[0], by_cell(scoped[1])
+    placed = [first] + [_placed(builder, inside[c['FormID']], *placing) for c in interiors[1:]]
     out = []
     for c, (p, t) in zip(interiors, placed):
         people = actors.get(c['FormID'], (b'', b''))
@@ -742,35 +792,39 @@ def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, f
     return out
 
 
-def _scoped(export_dir: Path, all_refs: list, cell: dict, world) -> tuple:
-    """(interiors, their references, `world`'s references, the built vendors (vendors.merchants)) of a build
-    from `cell`: interiors.scope() with the vendors' merchant containers, and the exterior's with the persistent
-    references past it its actors' packages name (named_refs)."""
-    outside = world.refs if world else []
+def _scoped(export_dir: Path, all_refs: list, cell: dict, worlds: list) -> tuple:
+    """(interiors, their references, the worldspaces' references, the built vendors (vendors.merchants)) of a
+    build from `cell`: interiors.scope() with the vendors' merchant containers, and each of `worlds` with the
+    persistent references past it its actors' packages name (named_refs)."""
+    outside = [r for world in worlds for r in world.refs]
     interiors, every = scope(export_dir, all_refs, cell, outside)
-    sold = merchants(export_dir, _in_build(interiors, world))
+    sold = merchants(export_dir, _in_build(interiors, worlds))
     interiors, every = with_chests(export_dir, interiors, every, [chest for _, chest in sold])
-    if world is None:
-        return interiors, every, outside, sold
-    cell_of = _in_build(interiors, world)
-    actors = [r for sig in ('ACHR', 'ACRE') for r in export_records(export_dir, sig) if cell_of(r)]
-    extra = named_markers(export_dir, actors, world.persistent_cell, {r['FormID'] for r in outside})
-    return interiors, every, world.add_persistent(extra), sold
+    cell_of = _in_build(interiors, worlds)
+    actors = [r for sig in ('ACHR', 'ACRE') for r in export_records(export_dir, sig) if cell_of(r)] if worlds else []
+    for world in worlds:
+        placed = {r['FormID'] for w in worlds for r in w.refs}
+        world.add_persistent(named_markers(export_dir, actors, world.persistent_cell, placed))
+    return interiors, every, [r for world in worlds for r in world.refs], sold
 
 
-def _cell_names(builder: CellBuilder, interiors: list, world) -> dict:
-    """{EditorID: FO4 cell} of the built interiors and named exterior cells; every built cell and the worldspace,
-    by FNV FormID, in `builder.cell_ids`."""
-    cells = interiors + (list(world.cells.values()) if world else [])
-    whole = cells + ([world.world, {'FormID': world.persistent_cell}] if world else [])
+def _exterior_cells(worlds: list) -> list:
+    """Every built worldspace's grid cells (FNV CELL records)."""
+    return [c for world in worlds for c in world.cells.values()]
+
+
+def _cell_names(builder: CellBuilder, interiors: list, worlds: list) -> dict:
+    """{EditorID: FO4 cell} of the built interiors and named exterior cells; every built cell and worldspace, by
+    FNV FormID, in `builder.cell_ids`."""
+    cells = interiors + _exterior_cells(worlds)
+    whole = cells + [c for w in worlds for c in (w.world, {'FormID': w.persistent_cell})]
     builder.cell_ids = {int(c['FormID'], 16): builder.fnv_id(c['FormID']) for c in whole}
     return {c['EditorID']: builder.fnv_id(c['FormID']) for c in cells if c.get('EditorID')}
 
 
-def _cells(builder: CellBuilder, interiors: list, world) -> dict:
-    """{FNV cell: FO4 cell} of the built interiors and `world`'s (or None's) cells."""
-    return {int(c['FormID'], 16): builder.fnv_id(c['FormID'])
-            for c in interiors + (list(world.cells.values()) if world else [])}
+def _cells(builder: CellBuilder, interiors: list, worlds: list) -> dict:
+    """{FNV cell: FO4 cell} of the built interiors and worldspaces' cells."""
+    return {int(c['FormID'], 16): builder.fnv_id(c['FormID']) for c in interiors + _exterior_cells(worlds)}
 
 
 def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dict, ids: dict) -> dict:
@@ -779,41 +833,54 @@ def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dic
     builder.npcs = Npcs(builder, export_dir, form_map, builder.creatures)
     placed = builder.npcs.placed(export_records(export_dir, 'ACHR') + export_records(export_dir, 'ACRE'),
                                  _in_build(*scoped), ids, {**builder.factions, **builder.npc_ids},
-                                 scoped[1].on_ground if scoped[1] else None)
+                                 _on_ground(scoped[1]) if scoped[1] else None)
     builder.packages.write_pending(builder.npcs.form_map)
     return placed
 
 
-def _in_build(interiors: list, world):
-    """cell_of(actor ref): the FNV cell it stands in among `interiors` and `world`'s (None: no exterior), None
-    outside the build."""
+def _on_ground(worlds: list):
+    """on_ground(ref, position): Exterior.on_ground of the built worldspace holding `ref`; the position as it is
+    elsewhere."""
+    def on_ground(ref: dict, pos: tuple) -> tuple:
+        """`pos` raised onto the ground of the worldspace holding `ref`."""
+        return next((world.on_ground(ref, pos) for world in worlds if world.holds(ref)), pos)
+    return on_ground
+
+
+def _in_build(interiors: list, worlds: list):
+    """cell_of(actor ref): the FNV cell it stands in among `interiors` and `worlds`' cells, None outside the
+    build."""
     inside = {c['FormID'] for c in interiors}
 
     def cell_of(ref: dict) -> 'str | None':
         """The FNV cell a built actor stands in; None outside the build."""
         cell = ref.get('ParentCELL')
-        return cell if cell in inside or (world and world.holds(ref)) else None
+        return cell if cell in inside or any(world.holds(ref) for world in worlds) else None
     return cell_of
 
 
 def _cell_group(builder: CellBuilder, export_dir: Path, vanilla: dict, rooms: list, qa_refs: bytes):
-    """Add the CELL group: each FNV interior of `rooms` [(cell, persistent, temporary)] and QASmoke with its
-    stand-in doors."""
+    """Add the CELL group: each FNV interior of `rooms` [(cell, persistent, temporary)] and, when it has any of
+    `qa_refs` (stand-in doors, the test chest), QASmoke."""
     qa_record = pack_fo4_record('CELL', CELL_FO4, vanilla[CELL_FO4].flags, vanilla[CELL_FO4].body)
     cells = [(_interior(builder, export_dir, cell, vanilla), builder.fnv_id(cell['FormID']), persistent, temporary)
              for cell, persistent, temporary in rooms]
-    builder.writer.add_raw_group('CELL', R.pack_interior_cells(cells + [(qa_record, CELL_FO4, qa_refs, b'')]))
+    qa_smoke = [(qa_record, CELL_FO4, qa_refs, b'')] if qa_refs else []
+    builder.writer.add_raw_group('CELL', R.pack_interior_cells(cells + qa_smoke))
 
 
-def _places(builder: CellBuilder, export_dir: Path, world, scoped: tuple) -> None:
-    """Write the encounter zones and `world`'s locations; `builder.places` maps each interior to its location.
-    `scoped` is (every reference, the exterior block's, the interiors built).
+def _places(builder: CellBuilder, export_dir: Path, worlds: list, scoped: tuple) -> None:
+    """Write the encounter zones and each of `worlds`' locations; `builder.places` maps each interior to the
+    location of the first worldspace leading into it, `builder.regions` FNV map regions to theirs. `scoped` is
+    (every reference, the interiors built).
     See: docs/fork/fo4_pipeline.md#locations
     """
     builder.zones = encounter_zones(builder, export_dir, {**builder.factions, **builder.npc_ids})
-    if world:
-        builder.locations = Locations(builder, world.world, map_markers(builder.ref_ids))
-        builder.places = builder.locations.interiors(*scoped)
+    markers = map_markers(builder.ref_ids)
+    for world in reversed(worlds):
+        world.locations = Locations(builder, world.world, markers)
+        builder.places.update(world.locations.interiors(scoped[0], world.refs, scoped[1]))
+        builder.regions.update(world.locations.by_region)
 
 
 def _zone(builder: CellBuilder, cell: dict) -> int:
@@ -847,6 +914,8 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     todo = [job for job in builder.sounds.jobs if not job[1].exists()]
     builder.counts['sound files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
+    npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
+    builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
     builder.counts['script packages'] = write_script_packages(builder)
     if builder.scripts.used:
@@ -856,6 +925,8 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     builder.writer.next_object_id = builder.top
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))
+    builder.writer.ledger.save()
+    builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')
     print(f'reputation page: {write_page(builder, data_dir, out.name)}')
     return builder.counts

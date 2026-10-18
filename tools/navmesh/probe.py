@@ -17,6 +17,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from asset_convert.collision import collision_extract as ce
+from core.memory_budget import free_ram_bytes
 from tes5_import.navmesh import world
 from tes5_import.navmesh.pool import build_base_model_index, model_key
 from tes5_import.base.text_reader import (
@@ -33,32 +34,6 @@ _TYPES = {'CELL', 'REFR', 'PGRD', 'LAND', 'STAT', 'CONT', 'FURN', 'ACTI',
 
 
 _BY_TYPE_MEMO = {}
-
-
-def _free_ram_bytes():
-    """Physically free RAM, or None if it cannot be determined."""
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        class _MS(ctypes.Structure):
-            _fields_ = [('dwLength', wintypes.DWORD),
-                        ('dwMemoryLoad', wintypes.DWORD),
-                        ('ullTotalPhys', ctypes.c_uint64),
-                        ('ullAvailPhys', ctypes.c_uint64),
-                        ('ullTotalPageFile', ctypes.c_uint64),
-                        ('ullAvailPageFile', ctypes.c_uint64),
-                        ('ullTotalVirtual', ctypes.c_uint64),
-                        ('ullAvailVirtual', ctypes.c_uint64),
-                        ('ullAvailExtendedVirtual', ctypes.c_uint64)]
-
-        ms = _MS()
-        ms.dwLength = ctypes.sizeof(_MS)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
-            return int(ms.ullAvailPhys)
-    except Exception:
-        pass
-    return None
 
 
 def _guard_ram(cache_path):
@@ -79,7 +54,7 @@ def _guard_ram(cache_path):
         need = os.path.getsize(cache_path) * 3
     except OSError:
         return
-    free = _free_ram_bytes()
+    free = free_ram_bytes()
     if free is None or free > need:
         return
     raise MemoryError(

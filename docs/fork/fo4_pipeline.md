@@ -420,7 +420,7 @@ Found and left for their step (counts for Goodsprings to Primm):
 
 | Gap | Count | Step |
 |---|---|---|
-| Idle markers (IDLM) not converted; furniture links to them dropped | 185 | 3 (NPCs) |
+| Idle markers (IDLM): placed as vanilla markers by what they play, 2026-10-17 ([audit fixes](#audit-fixes)); 12 protectron markers left out | 185 | 3 (NPCs) |
 | Actors | 206 creatures, 153 NPCs | 3 |
 | Ownership (XOWN) on references and cells | 87 + 14 | 2 |
 | Map markers (XMRK, TNAM, FULL) | 15 | 2 |
@@ -501,6 +501,14 @@ Three fixes (`conditions.without_absent`, `spike/condition_forms.py`):
   holds and drops out, `== 1` never holds and the line goes. OR groups
   settle as a whole (an always-true member satisfies its group). The
   engine's own forms (below 0x800, the player) are never settled.
+  A test **run on** a reference the build does not write reads 0 the same
+  way (`conditions.unbuilt_reference`); before, it kept FNV's raw FormID,
+  which names whatever Fallout4.esm form has that id. One compared with a
+  global cannot settle and leaves its line out, counted.
+- *Script variables of placed objects.* GetScriptVariable converts on any
+  placed reference whose base runs a converted script (actors, creatures,
+  activators, containers, doors and the other scripted base types), not only
+  on placed NPCs.
 - *Made on demand.* An item a line counts or checks worn (GetItemCount,
   GetEquipped, and GetHasNote, which becomes GetItemCount on the player:
   notes are inventory items here) and a form list of items convert when a
@@ -1694,6 +1702,328 @@ Papyrus log into a timeline.
   - a Say that never started or was dropped;
   - a line begun twice within 30 s;
   - a counter that skips or goes back.
+
+## <a id="formid-ledger"></a>FormID ledger (built 2026-10-17)
+
+Generated FormIDs are hashed from authored keys (`derive_formid`), and a
+collision goes to whichever key asks first. So a build that adds content
+could move an existing record's id, and some keys counted copies in build
+order ([audit](fo4_tool_audit.md#formids)). Simulated with the real writer,
+growing today's 11,302 hashed ids tenfold moved 34–70 of them.
+
+- **The ledger** (`fo4_import/base/ledger.py`) is `<plugin stem>.formids.tsv`
+  beside the plugin. Each build reads it first: a key it holds keeps its id,
+  and its ids are reserved so no new key can take one. A key it lacks is
+  hashed as before and added. The file is sorted text, one line per id.
+- **Stable numbers** (a quest's alias ids, Say Once marker stages) are kept
+  in the same file (kind `n`).
+- **Replacing a key keeps its id.** A call site moving to an authored key
+  passes the key it replaces as `legacy`: with no ledger entry yet, the id is
+  the old key's hash, so the build that switches keys moves nothing.
+- **The writer.** `LedgerWriter` (in `ledger.py`, not `writer.py`) is the
+  plugin writer that keeps a ledger. It stays out of `writer.py` because the
+  face-fit cache's code tag covers `writer.py` (through `spike/records.py`):
+  a ledger change there reran all 165 of the region's face fits.
+- **Keys that counted copies now name them** (`CellBuilder.new_id(owner,
+  key)`; a key given twice raises, since two records would share an id):
+  - a copy of a line: the FNV line, its part and where it sits (the quest
+    and conversation step, or the quest's topic);
+  - a menu option and its padding: the step, the topic, the prompt and the
+    line's quest;
+  - a menu's five topics (four player topics, then the NPC's): the step and
+    the topic's slot;
+  - the greeting scene, when force-greet topics join it: labelled
+    `greeting` instead of its list of lines, which grows with content.
+- **Kept numbers.** An objective target's alias id is the lowest free one
+  from the first target alias, kept per quest; a Say Once line's marker
+  stage is its hash moved up past the stages already given or kept.
+- **What still counts.** `FormIDs from a counted key` in a build's counts is
+  how many generated records still take a count-based key.
+
+## <a id="worldspaces"></a>Several worldspaces, and builds without the test cell (built 2026-10-17)
+
+`--world` takes any number of worldspaces (`all`: every one with grid
+cells). The first keeps `--region`/`--around`; the others, and the first
+with `--whole`, are built whole. Each worldspace gets its own WRLD group,
+persistent cell, root location and map-region locations.
+- **Doors.** A door's teleport now leads to its partner wherever the build
+  placed it: interior, exterior, or another built worldspace. Before, an
+  exterior door paired with another exterior door lost its teleport
+  (14 WastelandNV doors: the Hoover Dam ladders, FortMainCampGate,
+  VHDLegateCampGate, vCCFortGate and NVCCBarge).
+- **Doors leading out of the build** are counted. With `--no-test-cell` an
+  interior door whose partner is not built keeps no teleport, and QASmoke,
+  its stand-in doors and the test chest are left out. Without the switch,
+  region builds keep them as before.
+- **Interiors.** Every interior a built worldspace's doors reach is built.
+  Today's single-worldspace build leaves out 109 of FNV's 388 interiors
+  (44,498 references) and the Strip, Lucky 38 and Freeside worldspaces.
+
+## <a id="source-plugin"></a>The source plugin (built 2026-10-17)
+
+Fields the export lacks (reference room and ownership data, static
+collection parts, factions, weathers, regions, voice types, imagespace
+modifiers, consumable and armor fields) were read from a fixed
+FalloutNV.esm, so a Fallout 3 or DLC build would have read another game's
+records for its FormIDs. A build now reads the plugin its export came from:
+`base/source.py` resolves it through the source registry (Fallout3.esm to
+Fallout 3's Data folder), and `build()` hands it to `install.use_source`,
+which `install.source_esm()` reads (once a run). One build converts one
+plugin, so the readers' run caches hold one plugin's records.
+
+## <a id="water-heights"></a>Water heights (built 2026-10-17)
+
+The worldspace copied the Commonwealth's DNAM (default water 450) and every
+exterior cell wrote XCLW FLT_MAX, which FO4 reads as "the worldspace's
+default" (36,320 of Fallout4.esm's 36,865 exterior cells do the same). FNV's
+WastelandNV defaults to −2300 and 412 cells set 2600 (Lake Mead, the
+Colorado). So 134 cells dry in FNV fell under 450 and flooded, and 346 lost
+their water. The worldspace now takes FNV's default land and water heights
+(DNAM) and LOD water height (NAM4), and each cell its own XCLW. The region
+had 2 cells losing water and none flooding.
+
+## <a id="audit-fixes"></a>Audit fixes (built 2026-10-17)
+
+The [tool audit](fo4_tool_audit.md)'s findings, as fixed. FormIDs, world
+building and dialogue are above ([ledger](#formid-ledger),
+[worldspaces](#worldspaces), [water](#water-heights),
+[conditions](#dialogue-conditions)).
+
+**Dialogue.**
+- *Menu options* take their topic's lines from an index by topic
+  (`Hub.by_topic`, in Hub order), as do menu steps and the greeting order,
+  instead of scanning every Hub line each time (the audit's model: about
+  1.1 billion compares, ~92 s, for the whole game).
+
+**Scripts.**
+- *Mirror after an atomic add.* A direct write of a counter after its add in
+  the same function sets the kept value first, so the mirror global and
+  later reads see the assigned value. 16 writes in 3 FNV scripts; VMS21a's
+  Omerta thug now mirrors 4, so INFO 0012745D (`OmertasDead == 4`) can pass.
+- *Adders* keep the sum in a local and write, mirror, trace and return it,
+  so two adds at once cannot both return the final value (192 adders).
+- *Counters on placed references* (`VTopsBlackjackDealer01REF.nPlayersAtTable`
+  and others) are atomic too: the adds' owners come from the cross-reference
+  graph. 22 more increments in FNV, on 13 owner scripts, with 60 callers.
+- *Quest delay.* `SetQuestDelay X 0` means the 5 s default; other values are
+  floored at 0.1 s. After a gap over 2 s (a menu, a load), GetSecondsPassed
+  counts the quest's current `TES4_Delay`, not the compile-time interval
+  (58 quest scripts).
+- *Incremental compile.* The saved state carries a hash of every header
+  `.psc` (10,284 files, under 1 s), so a changed header recompiles
+  everything. A script that fails with no error of its own (a script it
+  uses failed, or the compiler died) is compiled again at once in one batch,
+  and again on the next build if it still fails; one with its own errors
+  waits for a change. Out of memory is the usual cause: the 15 parallel
+  compilers peak at 10.8 GB together (0.94 GB each), on top of the build;
+  two runs on a busy machine lost 37 and 61 scripts. So the batches now run
+  as many at once as free memory holds (`core.memory_budget.memory_workers`),
+  keeping 2 GB free: one compiler measured 0.93 GB on 84 scripts and 1.02 GB
+  on 300, so each is counted as 1 GB plus 0.5 MB per script. A compile deletes the `.pex` of a script it compiled last time
+  and no longer has; another plugin's scripts in the same folder are never
+  touched. The spike compile takes the script prefix from the plugin's
+  namespace (`FALLOUT3_` as well) and adds Doc Mitchell's script only when
+  it exists.
+- *Player-hit trace on old saves.* `TES4_NewGamePlayer` on the new game
+  quest's Player alias starts the trace on every load.
+
+**Items.**
+- *Script form lists* hold every entry the build makes (items, placed
+  bases, actors and their bases, globals, factions, creatures, messages);
+  dropped entries are counted by type, and a list with none left is not
+  made. Of FNV's 464 lists, 389 are made when the placed forms are built.
+  NVRatList keeps its 9 creatures and DLC03TeslaExplosionList its 12.
+- *Armor that kept the template's models* (98 of 389): 47 skinned headgear
+  now sit on FO4's head through FNV's Bip01 Head skin transforms; 30 with no
+  world model wear their FNV mesh; 21 stay on the template (19 with slots
+  that are neither headgear nor upper body, 2 with no FNV model). Each kind
+  is counted.
+- *Headgear alternate textures* convert as material swaps, as outfits'
+  do (HeadWrap02/03/04, HelmetNVNCRTrooperMP).
+- *Worn headgear meshes* are `<static>_worn_<slots>[_female].nif`, one per
+  slot set, so two hats on one mesh no longer overwrite each other or the
+  world mesh.
+- *Guns.* Choosing an FO4 gun writes no FNV assets (region: 48 guns, 0
+  files). A part copy (experimental `fnv` mode) is keyed on the FNV gun and
+  attach point. 68 of 110 guns tie at the best distance (28 across FO4
+  weapons); ties still go to the lower FO4 FormID.
+
+**Faces, voice and NPCs.**
+- *Skin Tone layers* come from the builder's Fallout4.esm bytes once a build
+  (they reread the whole file for every face: 78 ms each).
+- *The shared half of a face fit* (the texel to FNV UV mapping, alignment,
+  masks, head meshes, FO4's head-part candidates) is kept per process
+  (`face/memo.py`). After the first face of a sex and FNV head, a male tint
+  fit takes 5.1 s (7.9 before), a female one 1.6 s (4.5), a head-part choice
+  about 1.5 s (5.8–6.7). The fitted values are byte-identical (5 NPCs
+  compared).
+- *Face fits in worker processes.* Before actors are written,
+  `Npcs.warm_faces` fits the faces the work cache lacks for every base the
+  build reaches (through traits templates and leveled lists), in at most
+  6 processes (`FACE_WORKERS`): each holds about 1.26 GB, and BLAS already
+  spreads one fit over every core, so more workers gain little (12 faces: 1
+  worker 102 s, 4 workers 74 s, 12 workers 67 s). Results match the serial
+  fits only at the same BLAS thread count: a sculpt fit has many equally
+  good answers and another thread count picks another one (one thread
+  changed 163 of the region's 165 faces, by up to 1.8 in a control).
+  `configure_multiprocessing` pins child processes to one OpenBLAS thread,
+  so the face pool starts its workers with the count the main process
+  loaded with (`npcs.MAIN_BLAS_THREADS`).
+- *The CK FaceGen timeout* is 2 s per NPC_ record, at least 900 s (the
+  region measured 0.43 s per record).
+- *Stale FaceGen.* Each build deletes the plugin's FaceGen files it no
+  longer uses (`facegen.prune`): a FaceGeom NIF of an NPC_ the plugin no
+  longer has, and a face texture, loose or staged for the BA2, whose
+  FaceGeom NIF is gone. An export writes both for every face and clears the
+  NIFs first, so a texture without one is an older export's. The region's
+  staging held 186 faces against the last export's 165 (21 from exports of
+  Oct 7–12, one of them for no NPC_).
+- *FaceGen textures at vanilla's sizes.* After the CK export,
+  `facegen.vanilla_textures` re-encodes the plugin's face textures as
+  vanilla does: `_d` and `_msn` BC1 1024 with full mips, `_s` BC5 512 with
+  mips. 12.6 MB per NPC became 1.75 MB (about 3.9 GB for 2,247 faces).
+- *Voice converted once per recording and transcript*, then copied to every
+  line copy that plays it. LipGenerator is not deterministic (two runs of
+  one line gave lip tracks of 1,758 and 1,746 bytes), so copies used to
+  differ.
+- *Vendors* read their services through the template chain
+  (`npcs.template_source`, shared with `Npcs.source` and
+  `Creatures.source`). No vendor changes: 6 of the 7 templated vendors end
+  in leveled lists whose entries trade goods, so a general store is right.
+- *Idle markers by what they play.* An FNV idle marker lists idles and
+  plays one at random; the export leaves the list out, so `idle_markers`
+  reads it (IDLA) from FalloutNV.esm. A placed marker becomes the
+  Fallout4.esm marker that plays the like of most of its idles (`PLAYS`, by
+  the idle's animation file name, or a creature's skeleton folder); idles
+  FO4 has nothing for don't vote, a tie goes to the first idle, and a marker
+  with no idles becomes `EmptyIdleMarker`. Weapon-ready idles and ghoul,
+  deathclaw and super mutant idles take `PatrolIdleMarker` (which holds
+  flavor idles for all three); general fidgets `NPCStandingExamineIdleMarker`;
+  smoking, hand warming, sweeping, cowering, dogs, bar tending, reading,
+  terminals, healing, repairs, bench work, welding and drinking the marker
+  or marker furniture vanilla places most for it. Two earlier choices stay by
+  EditorID (the shopkeeper's push broom, MS16's cower). Of FalloutNV.esm's
+  1,424 placed idle markers, 1,316 are placed (671 before); WastelandNV 545
+  of 590; the region 173 of 185. The 108 left out are counted as `idle
+  marker left out: <what it plays>`: protectron idles 55 (FO4 has no
+  protectron marker), watering plants 18, Mr Gutsy 15, picking up from the
+  ground 7, the Mesmetron daze 5, 8 single scene idles. References keep
+  FNV's FormIDs, and the 671 placed before keep their stand-in.
+- *Creatures with no FO4 base* are counted by skeleton folder (`ACRE
+  skipped (no FO4 base): <folder>`): 283 of FNV's 2,999 placed creatures
+  in 32 folders (nvraven 43, smspinebreaker 38, mistergutsy 34, giantant
+  23).
+
+**Meshes and assets.**
+- *Files named by their contents.* A BGSM's name adds a tag for an unusual
+  normal map (not the diffuse's `_n`), a decal, the spec map's glossiness or
+  an unusual glow map; a BGEM's for its blend, normal and env map. A spec map
+  is `x_s.dds` at glossiness 10 (the default and commonest), else
+  `x_s_g<value>.dds`. Over the region's 2,040 source meshes, names shared by
+  different contents went from 16 BGSM, 1 BGEM and 66 spec maps to none (2
+  spec maps are one file reached by two spellings). About half the names
+  changed (668 BGSM, 477 spec maps, all 89 landscape spec maps), mostly for
+  glossiness; 1,297 NIFs change only in those names.
+- *Mesh files kept.* `write_assets` takes a mesh's NIF and material bytes
+  and its OBND from the work cache (`mesh_cache.cached_files`, site
+  `mesh_files`), keyed by the mesh key and checked against the same texture
+  stamps, so a current mesh is not unpickled, serialized or bounded again; a
+  hit marks its mesh entry used. A NIF or material file that already holds
+  its bytes is not rewritten (a NIF Elric finished still is). Over 223
+  region meshes rebuilt, the step went from 1.45–1.50 s to 0.89–0.90 s
+  (13.2–13.7 s to 8.1–8.2 s at the region's 2,028 calls), output
+  byte-identical before and after Elric; entries are about 35 KB a mesh.
+  Most of what is left is the derived maps' signatures (2.3–2.5 s): each
+  spec and glow map reads and hashes its FNV images every build. The
+  audit's 61 s was mostly texture copies and decodes, fixed earlier.
+- *A weapon's posed mesh* is its own `<name>_weapon.nif`, so a static
+  placing the same model no longer gets the dressed weapon mesh.
+- *Elric one file at a time.* `elric.finish` keeps only file bytes and parses
+  each file again to graft it: over 600 meshes, 823 MB held became 136 MB,
+  output unchanged. `without_havok` refuses a block after the Havok input it
+  cannot renumber. `elric_cache.finish` keys a NIF by the SHA-1 of the bytes
+  the build wrote, so it reads nothing back (600 cached meshes: 2–5 s to
+  0.5 s).
+- *Code tags* read CRLF as LF (a fresh git checkout writes CRLF, which reran
+  all 186 region face fits), hash the native extensions a module names, and
+  skip four import edges into code no FO4 converter calls. The mesh key holds
+  the ADDN mapping. Closures: convert_static 59 to 33 files, face_fit 51 to
+  34, outfit 68 to 43, headgear 66 to 41. This change reran every cache once.
+- *Cache pruning.* Entries are touched when used; each build deletes mesh,
+  work and Elric entries unused for 14 days (`elric_cache.prune_caches`).
+  After a break longer than that, a small build lets a bigger area's entries
+  go.
+- *Textures.* Every texture goes through `ba2_pack.stage_texture`: written
+  once a run, and not at all while its staged copy in `_ba2` matches its
+  recorded source (`_ba2/manifest.json`). The archive is repacked only when
+  the staged set changed (`<archive>.json`), and staged `fnv` textures no
+  build wrote or confirmed are pruned (FaceGen is never touched). For 150
+  meshes a rebuild went from 673 copies to none and the pack from 2.5 s to
+  0.1 s.
+
+## <a id="published-face-fits"></a>Published face fits (built 2026-10-17, not yet published)
+
+A face fit costs about 2.6 s of wall time in the worker pool, so the game's
+~2,247 distinct faces take an estimated 1.5–2 h on a 16-core machine, once
+per user and again after any edit to the 34 files in the fit's code tag.
+The fits are small numbers, so like the [navmesh cache](../../CLAUDE.md#shared-navmesh-cache)
+they can be computed once and installed (`fo4_import/spike/face_fits.py`):
+
+```bash
+py -3.14 -m fo4_import.spike.face_fits export --export export/FalloutNV.esm --out face_fits.json.gz
+py -3.14 -m fo4_import.spike.face_fits verify face_fits.json.gz   # which sexes this machine can take
+py -3.14 -m fo4_import.spike.face_fits install face_fits.json.gz  # -> output/fo4_cache/face_fits.json.gz
+```
+
+- **Keyed only on what every user shares.** The work cache keys a fit on
+  the basis files' bytes, which hold FO4's baseline head NIF and face
+  texture and so can never ship. The file instead carries the fit code
+  version (`fit_code`: a SHA-1 of `FIT_SITES`' modules' code tags, so any
+  edit to the fit's files changes it, as the navmesh cache's source tag),
+  each sex's basis hash (`basis_hash`: a SHA-1 of the basis arrays' names,
+  types, shapes and values, never the arrays) and, per sex, each face under
+  a SHA-1 of its `FIT_FIELDS` values (no FNV data in the file).
+- **Only our numbers and Fallout4.esm FormIDs.** Gzipped JSON, read without
+  pickle, so a downloaded file runs no code. A sculpt fit is its FMRI region
+  numbers and seven controls each (`encode_sculpt` refuses any other
+  subrecord); a tint fit its floats; a head part choice its four FormIDs and
+  two coverage distances. `HeadChoice.unmapped` (FNV head part EditorIDs,
+  read by no build) is left out. Decoding refuses anything but numbers where
+  numbers go. The region's file, read back: 133 faces, the only strings its
+  own key names and SHA-1s, FormIDs at most 0x1ED510.
+- **Byte for byte.** `export` refuses a fit that does not decode to the same
+  value bit for bit (`same`). The one exception is a NaN fraction captured
+  (a face with nothing to fit: 0/0), whose sign bit JSON cannot keep; no
+  record reads the captured fraction.
+- **Fallback.** `Npcs.warm_faces` takes a face the work cache lacks from the
+  installed file (`face_fits.take`) and stores it under the local work-cache
+  key, so later builds read it as their own. A face the file cannot give is
+  fitted locally and counted by why: `faces fitted locally (published fits:
+  none installed | fit code differs | male/female basis differs | face not in
+  file)`; a taken one as `faces from published fits`.
+- **Same faces for everyone.** Fits are not thread-count stable (see [face
+  fits in worker processes](#audit-fixes)), so local fits on two machines
+  can differ; installed ones are the publisher's for every user.
+- **Measured (region, 2026-10-17).** The work cache held 133 current face
+  keys (90 male, 43 female) for the region's 165 fitted faces: NPCs with the
+  same face fields share one. File: 238 KB (615 KB of JSON). Built twice
+  into scratch copies of the mod folder: once with the work cache, and once
+  with no face entries in it and the file installed. The second build fitted
+  0 faces (133 taken), and all 293 NPC_ records, indeed the whole plugin,
+  were byte-identical (276.5 s against 327.0 s).
+- **Calibration repeats byte for byte.** All four bases measured twice
+  more through the CK on 2026-10-17 (CK 1.11.246 after a Steam update,
+  CKPE updated that day) came out byte-identical to each other and to the
+  calibrations of 2026-10-06 (male) and 2026-10-12 (female), every array
+  and the `.npz` files themselves (`np.savez_compressed` writes no time).
+  So users with the same game files should get the same basis hash. Two
+  machines were not compared. A sculpt calibration took 389–432 s, and 842
+  s with a region build running beside it, close to the CK's 900 s timeout
+  floor (`run_ck` gets no plugin from `calibrate`, so it waits only the
+  floor).
+- **Publishing** is left to the user: upload the exported file as a release
+  asset, as `navmesh_cache.py publish` does for the navmesh cache.
+  Republish after any edit that changes `fit_code`.
 
 ## <a id="census"></a>Record census (2026-10-10)
 

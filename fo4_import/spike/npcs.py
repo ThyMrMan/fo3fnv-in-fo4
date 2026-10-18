@@ -8,21 +8,30 @@ sculpt regions, tints and head parts. A template (TPLT) is followed for
 each part its flags take from it; an NPC whose traits come from a leveled
 list becomes an FO4 template actor on the converted list. Every actor
 placed in a built cell is written in that cell, with FNV's persistent and
-initially disabled flags.
+initially disabled flags. Before any is written, the faces the build will
+fit and the work cache lacks are taken from the installed published fits
+(face_fits) or fitted in worker processes (warm_faces).
 
 See: docs/fork/fo4_pipeline.md#npcs
+See: docs/fork/fo4_tool_audit.md#first-build
 """
 
+import contextlib
+import mmap
+import os
 import struct
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+from core.process_job import join_pool_job
 from fo4_import.base.ba2 import Archives
-from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.face import hair, sculpt, tint
 from fo4_import.face.sculpt import FACE_SHAPE
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.pipeline.work_cache import cached
+from fo4_import.pipeline.work_cache import cached, lookup, store
+from fo4_import.spike.face_fits import FIT_SITES, bases, fit_key, take
 from fo4_import.spike import records as R
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
@@ -51,6 +60,64 @@ OUTFIT_SITE = 'FNV OTFT'
 FEMALE, PERSISTENT = 0x1, 0x400
 #: new_id keys of a converted NPC and its placed actor (the spike's, kept so no FormID moves).
 NPC_KEY, ACHR_KEY = 'NPC_ {:08X} STH', 'ACHR {} STH'
+#: Face-fit worker processes at most: each holds about 1.26 GB, and BLAS already spreads one fit over every core.
+FACE_WORKERS = 6
+#: OpenBLAS threads this process loaded with, which face workers start with too (docs/fork/fo4_pipeline.md#audit-fixes).
+MAIN_BLAS_THREADS = os.environ.get('OPENBLAS_NUM_THREADS') or str(os.cpu_count() or 1)
+#: A face worker process's head part assets (_start_face_worker).
+_worker = {}
+
+
+def face_work(export_dir: Path, edid: str, female: bool, assets) -> tuple:
+    """The makers of FIT_SITES' values for FNV NPC `edid` (head parts among `assets`)."""
+    return (lambda: sculpt_fit(export_dir, edid, female), lambda: tint_fit(export_dir, edid, female),
+            lambda: choose(export_dir, edid, assets, sculpt.load_basis(female)[2]))
+
+
+def fit_face(export_dir: Path, npc: dict, female: bool, assets) -> 'tuple | None':
+    """(sculpt fit, tint fit, head part choice) of FNV NPC `npc` through the work cache; None uncalibrated."""
+    key = fit_key(npc, female)
+    if key is None:
+        return None
+    return tuple(cached(site, module, key, make)
+                 for (site, module), make in zip(FIT_SITES, face_work(export_dir, npc['EditorID'], female, assets)))
+
+
+def head_assets(esm) -> hair.Fo4Assets:
+    """Head parts of Fallout4.esm `esm` (bytes or a map) and the game's archives."""
+    return hair.Fo4Assets(esm, Archives(FALLOUT4_DIR / 'Data'))
+
+
+@contextlib.contextmanager
+def _blas_threads(count: str):
+    """OPENBLAS_NUM_THREADS set to `count` for the processes spawned inside, as it was after."""
+    old = os.environ.get('OPENBLAS_NUM_THREADS')
+    os.environ['OPENBLAS_NUM_THREADS'] = count
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop('OPENBLAS_NUM_THREADS', None)
+        else:
+            os.environ['OPENBLAS_NUM_THREADS'] = old
+
+
+def _start_face_worker() -> None:
+    """A face worker's start: join the pool job; index head parts (mapped esm)."""
+    join_pool_job()
+    with open(FALLOUT4_ESM, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as esm:
+        _worker['assets'] = head_assets(esm)
+
+
+def _fit_in_worker(job: tuple) -> 'dict | None':
+    """{FIT_SITES index: value} of the fits `job` = (export dir, NPC record, female, indices) asks for; None
+    when one fails, left to fail where the build uses it."""
+    export_dir, npc, female, wanted = job
+    makers = face_work(export_dir, npc['EditorID'], female, _worker['assets'])
+    try:
+        return {i: makers[i]() for i in wanted}
+    except Exception:
+        return None
 
 
 def faction_snams(rec: dict, factions: dict) -> bytes:
@@ -130,6 +197,29 @@ def composed(*edits):
     return edit if present else None
 
 
+def template_source(records: dict, rec: dict, flag: int) -> tuple:
+    """(the record of `records` {FormID: record} actor record `rec` takes template part `flag` from, following
+    TPLT while its template flags take `flag`; whether the chain left `records` (a leveled list or another
+    type), the record then being the last one in them)."""
+    while int(rec.get('ACBS.TemplateFlags', 0)) & flag and 'TPLT.Template' in rec:
+        nxt = records.get(int(rec['TPLT.Template'], 16))
+        if nxt is None:
+            return rec, True
+        rec = nxt
+    return rec, False
+
+
+def _entries(rec: dict) -> list:
+    """[(level, FormID hex, count)] of FNV leveled list `rec`'s entries."""
+    return [(int(rec[f'Entry[{i}].Level']), rec[f'Entry[{i}].FormID'], int(rec[f'Entry[{i}].Count']))
+            for i in range(int(rec.get('EntryCount', 0) or 0))]
+
+
+def _traits_templated(rec: dict) -> bool:
+    """Whether FNV actor record `rec` takes its traits from its template."""
+    return 'TPLT.Template' in rec and bool(int(rec.get('ACBS.TemplateFlags', 0)) & USE_TRAITS)
+
+
 class Npcs:
     """FO4 NPCs for FNV NPC bases, each written once, and their placed actors."""
 
@@ -142,14 +232,13 @@ class Npcs:
         self.bodies = {rec.form_id: rec for rec, _ in walk(builder.fo4, b'NPC_') if rec.form_id in BODIES.values()}
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
-        self.made_lists = {}
+        self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
-        """The NPC record FNV NPC `fnv` takes template part `flag` from (itself without one); None if a list."""
+        """The NPC `fnv` takes part `flag` from (template_source); None if a list."""
         rec = self.records.get(fnv)
-        while rec is not None and int(rec.get('ACBS.TemplateFlags', 0)) & flag and 'TPLT.Template' in rec:
-            rec = self.records.get(int(rec['TPLT.Template'], 16))
-        return rec
+        found, left = template_source(self.records, rec, flag) if rec is not None else (None, True)
+        return None if left else found
 
     def base(self, fnv: int) -> 'int | None':
         """The FO4 NPC for FNV NPC `fnv`, written once (_make); None if not made."""
@@ -162,10 +251,8 @@ class Npcs:
         npc, traits = self.records[fnv], self.source(fnv, USE_TRAITS)
         if traits is None:
             return self._templated(fnv)
-        ghoul = 'ghoul' in self.races.get(int(traits.get('RNAM.Race', '0'), 16), '').lower()
-        female = bool(int(traits.get('ACBS.Flags', 0)) & FEMALE)
+        ghoul, female, face = self._kind(traits)
         body = self.bodies[BODIES[ghoul, female]]
-        face = not ghoul and all(p.exists() for p in (sculpt.basis_path(female), tint.basis_path(female)))
         morphs, edit = (self._face(traits, female) if face else (b'', None))
         fid = self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
@@ -176,6 +263,12 @@ class Npcs:
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
         return fid
+
+    def _kind(self, traits: dict) -> tuple:
+        """(ghoul, female, fitted: a human whose sex has both bases) of `traits`."""
+        ghoul = 'ghoul' in self.races.get(int(traits.get('RNAM.Race', '0'), 16), '').lower()
+        female = bool(int(traits.get('ACBS.Flags', 0)) & FEMALE)
+        return ghoul, female, not ghoul and len(bases(female)) == 2
 
     def _templated(self, fnv: int) -> 'int | None':
         """Write FNV NPC or creature `fnv`, whose traits come from a leveled list or a template, as an FO4 template
@@ -212,7 +305,7 @@ class Npcs:
             if fnv in self.lists:
                 listed = self._list(fnv)
                 self.made[fnv] = listed and self._template_actor(fnv, self.lists[fnv], listed, TEMPLATE_PARTS, ())
-            elif rec is not None and 'TPLT.Template' in rec and int(rec.get('ACBS.TemplateFlags', 0)) & USE_TRAITS:
+            elif rec is not None and _traits_templated(rec):
                 self.made[fnv] = self._templated(fnv)
             else:
                 packages = (self.builder.packages.for_npc(self.creatures.source(rec, USE_PACKAGES), self.form_map)
@@ -234,8 +327,7 @@ class Npcs:
         if fnv not in self.made_lists:
             rec, fid = self.lists[fnv], self.builder.fnv_id(f'{fnv:08X}')
             self.made_lists[fnv] = fid
-            entries = [(int(rec[f'Entry[{i}].Level']), self._template(rec[f'Entry[{i}].FormID']),
-                        int(rec[f'Entry[{i}].Count'])) for i in range(int(rec.get('EntryCount', 0) or 0))]
+            entries = [(level, self._template(form), count) for level, form, count in _entries(rec)]
             entries = [e for e in entries if e[1] is not None]
             self.made_lists[fnv] = fid if entries else None
             if entries:
@@ -288,41 +380,105 @@ class Npcs:
         rec = self.source(fnv, USE_PACKAGES) or {}
         return R.packages_edit(self.builder.packages.for_npc(rec, self.form_map))
 
+    def _head_assets(self) -> hair.Fo4Assets:
+        """Fallout4.esm's head parts and the game's archives (hair.Fo4Assets), read once."""
+        self.assets = self.assets or head_assets(self.builder.fo4)
+        return self.assets
+
     def _face(self, npc: dict, female: bool) -> tuple:
         """(sculpt morphs, edit giving tints and head parts) of FNV NPC `npc`'s face fitted on its sex's basis."""
-        inputs = tuple(npc.get(k, '') for k in ('FGGS', 'FGGA', 'FGTS', 'RNAM.Race', 'HNAM.Hair', 'ENAM.Eyes',
-                                                'HCLR.R', 'HCLR.G', 'HCLR.B', 'LNAM.HairLength'))
-        bases = tuple(p.read_bytes() for p in (sculpt.basis_path(female), tint.basis_path(female)) if p.exists())
-        if len(bases) < 2:
+        fitted = fit_face(self.export_dir, npc, female, self._head_assets())
+        if fitted is None:
             self.builder.counts['face fit skipped (no calibration)'] += 1
             return b'', None
-        edid, key = npc['EditorID'], inputs + bases
-        sculpted = cached('sculpt_fit', 'fo4_import.spike.face_fit', key,
-                          lambda: sculpt_fit(self.export_dir, edid, female))
-        tinted = cached('tint_fit', 'fo4_import.spike.face_fit', key, lambda: tint_fit(self.export_dir, edid, female))
-        self.assets = self.assets or hair.Fo4Assets(self.builder.fo4, Archives(FALLOUT4_DIR / 'Data'))
-        chosen = cached('head_parts', 'fo4_import.spike.head_parts', key,
-                        lambda: choose(self.export_dir, edid, self.assets, sculpt.load_basis(female)[2]))
+        sculpted, tinted, chosen = fitted
         self.builder.counts['face fitted'] += 1
-        return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female), head_parts_edit(chosen, self.assets))
+        return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female, self.tone_layers),
+                                                 head_parts_edit(chosen, self.assets))
+
+    def warm_faces(self, fnvs: list, workers: int = 0) -> int:
+        """Fit in `workers` processes (FACE_WORKERS at most by default) the faces the bases of FNV forms `fnvs`
+        need (_faces) that the work cache lacks and the installed published fits can't give (face_fits.take),
+        stored under its keys so base() only reads them; how many.
+        See: docs/fork/fo4_pipeline.md#audit-fixes
+        See: docs/fork/fo4_pipeline.md#published-face-fits
+        """
+        jobs, keys = [], []
+        for npc, female in sorted(self._faces(fnvs).values(), key=lambda f: (f[1], f[0].get('RNAM.Race', ''),
+                                                                               f[0]['FormID'])):
+            key, missing = fit_key(npc, female), object()
+            wanted = [i for i, site in enumerate(FIT_SITES) if lookup(*site, key, missing) is missing]
+            taken, count = take(npc, female, key, wanted) if wanted else (True, '')
+            if not taken:
+                jobs.append((self.export_dir, npc, female, wanted))
+                keys.append(key)
+            if count:
+                self.builder.counts[count] += 1
+        if not jobs:
+            return 0
+        workers = min(len(jobs), workers or max(1, min(FACE_WORKERS, (os.cpu_count() or 2) - 1)))
+        with _blas_threads(MAIN_BLAS_THREADS), ProcessPoolExecutor(max_workers=workers,
+                                                                   initializer=_start_face_worker) as pool:
+            for key, made in zip(keys, pool.map(_fit_in_worker, jobs, chunksize=1)):
+                for i, value in (made or {}).items():
+                    store(*FIT_SITES[i], key, value)
+        self.builder.counts['faces fitted in worker processes'] += len(jobs)
+        return len(jobs)
+
+    def _faces(self, fnvs: list) -> dict:
+        """{traits FormID: (traits record, female)} of the faces base() fits making the bases of FNV forms `fnvs`
+        and of the templates and leveled list entries those reach."""
+        todo, seen, out = list(fnvs), set(), {}
+        while todo:
+            fnv = todo.pop()
+            if fnv not in seen:
+                seen.add(fnv)
+                todo += self._reaches(fnv, out)
+        return out
+
+    def _reaches(self, fnv: int, faces: dict) -> list:
+        """The forms whose bases get made with FNV form `fnv`'s (its template, its list's entries: as _make,
+        _templated, _creature and _list follow them); the face its base fits, if any, goes in `faces`."""
+        if fnv in self.lists:
+            return [int(form, 16) for _, form, _ in _entries(self.lists[fnv])]
+        traits = self.source(fnv, USE_TRAITS) if fnv in self.records else None
+        if traits is not None:
+            _, female, face = self._kind(traits)
+            faces.update({int(traits['FormID'], 16): (traits, female)} if face else {})
+            return []
+        rec = self.records.get(fnv) or self.creatures.records.get(fnv) or {}
+        follows = fnv in self.records or _traits_templated(rec)
+        return [int(rec['TPLT.Template'], 16)] if follows and 'TPLT.Template' in rec else []
 
     def placed(self, refs: list, cell_of, ids: dict, owners: dict, lift=None) -> dict:
         """{FNV cell: (persistent, temporary) ACHRs} of the actors `refs` placed in built cells (`cell_of(ref)`, None
-        outside them); enable parents and linked references through `ids` {FNV hex: FO4}, owners through `owners`;
-        each position through `lift(ref, pos)` (Exterior.on_ground) when given."""
+        outside them), their faces fitted first (warm_faces); enable parents and linked references through `ids`
+        {FNV hex: FO4}, owners through `owners`; each position through `lift(ref, pos)` (Exterior.on_ground)."""
         self.lift = lift or (lambda ref, pos: pos)
+        built = [(cell, ref) for ref in sorted(refs, key=lambda r: r['FormID']) if (cell := cell_of(ref))]
+        self.warm_faces([int(ref['NAME'], 16) for _, ref in built])
         out = {}
-        for ref in sorted(refs, key=lambda r: r['FormID']):
-            cell = cell_of(ref)
-            base = self._base_of(int(ref['NAME'], 16)) if cell else None
-            if base is not None:
-                slot = out.setdefault(cell, [b'', b''])
-                slot[0 if int(ref['RecordFlags']) & PERSISTENT else 1] += self._actor(ref, base, ids, owners)
+        for cell, ref in built:
+            base = self._base_of(int(ref['NAME'], 16))
+            if base is None:
+                self.builder.counts[self._unbuilt(ref)] += 1
+                continue
+            slot = out.setdefault(cell, [b'', b''])
+            slot[0 if int(ref['RecordFlags']) & PERSISTENT else 1] += self._actor(ref, base, ids, owners)
         return {cell: tuple(slot) for cell, slot in out.items()}
 
     def _base_of(self, fnv: int) -> 'int | None':
         """The FO4 base of FNV NPC, creature or creature list `fnv`; None if none."""
         return self.base(fnv) if fnv in self.records else self._creature(fnv)
+
+    def _unbuilt(self, ref: dict) -> str:
+        """The count key of placed actor `ref` whose base converts to nothing: its creature's skeleton folder
+        (Creatures.label), else the base's EditorID."""
+        fnv = int(ref['NAME'], 16)
+        if fnv in self.creatures.records:
+            return f'{ref["Signature"]} skipped (no FO4 base): {self.creatures.label(fnv)}'
+        rec = self.records.get(fnv) or self.lists.get(fnv) or {}
+        return f'{ref["Signature"]} skipped (no FO4 base): {rec.get("EditorID", ref["NAME"])}'
 
     def _actor(self, ref: dict, base: int, ids: dict, owners: dict) -> bytes:
         """The FO4 ACHR of FNV actor `ref` on `base`, with its script, parents and linked reference."""
@@ -342,13 +498,13 @@ class Npcs:
         return R.pack_achr(achr, base, self.lift(ref, pos), rot, vmad, extra, flags)
 
 
-def _tint_edit(fitted, female: bool):
-    """A record edit giving fitted tint layers and skin tone (tint_fit's result on `female`'s basis); None without
-    a fit."""
+def _tint_edit(fitted, female: bool, options: frozenset):
+    """A record edit giving fitted tint layers and skin tone (tint_fit's result on `female`'s basis; Skin Tone
+    options `options`); None without a fit."""
     if fitted is None:
         return None
     values, tone, _ = fitted
-    basis, options = tint.load_basis(female), skin_tone_layers()
+    basis = tint.load_basis(female)
 
     def edit(subs: bytes) -> bytes:
         """The record with the fitted tint layers and its skin tone scaled."""

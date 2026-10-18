@@ -23,6 +23,7 @@ here, so a later patch can close the gap. Content is never dropped.
 | AI packages | FNV package types and flags | Copies of vanilla FO4 template instances; flags the games share; Travel to a chair is a Sit | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Player script packages (wake-ups, knock-downs, deaths) | Special idles with an animated camera | VCG01's bed wake-up seats the player on the bed's edge from the start; the player stands by moving; other player packages play nothing | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Idles played by script | FO3/FNV special idles (`.kf`) | No animation: FO4's give is a talk idle; set as the speaker idle of Doc's next line ("How'd I do?") it did not show. Others play nothing | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Idle markers | A marker per kind of actor, playing one of its FNV idles at random | The vanilla FO4 marker that plays the like of most of them. FO4's one patrol marker serves every kind, so humans may use converted ghoul, deathclaw and super mutant markers, and those creatures human ones. 108 of 1,424 with no FO4 counterpart are left out (protectron idles 55, watering plants 18, Mr Gutsy 15) | [audit fixes](fo4_pipeline.md#audit-fixes) |
 | Imagespace modifiers | FNV's HDR (skin dimmer, target luminance, bloom alphas), cinematic contrast average, intro/outro sounds | Dropped; blur, double vision, tint, fade, radial blur, depth of field, eye adapt, bloom radius, saturation, contrast and brightness kept | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Items with an FO4 counterpart | FNV's own items, names and stats | The Fallout4.esm item: its name, stats and model (the 9mm pistol is the 10mm, energy cells are fusion cells, dynamite is the frag grenade, the Vault 21 suit is Vault 111's) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Item condition | Leveled lists give an item at a condition | No condition: the item | [vcg01](fo4_spikes.md#spike-2-vcg01) |
@@ -45,6 +46,9 @@ here, so a later patch can close the gap. Content is never dropped.
 | Sound notes | 2 NOTEs of type Sound (`NoteText01`/`02`) | Not converted: generic paper clutter with no sound or text, placed nowhere and given by no script (accepted 2026-10-14, parked) | [terminals](fo4_pipeline.md#terminals) |
 | Terminal hum | 268 of 344 TERMs loop a sound while near (267 `OBJComputerTerminalLP`) | Silent: FO4's TERM has the field but none of vanilla's 778 use it (accepted 2026-10-14, parked) | [terminals](fo4_pipeline.md#terminals) |
 | Terminal alternate colors | TERM flag Alternate Colors (only `GameTerminalSubMenuNorth`) | FO4's usual terminal colors; FO4 has no per-terminal color (accepted 2026-10-14, parked) | [terminals](fo4_pipeline.md#terminals) |
+| Skinned headgear | Parts weighted to the neck, spine or collarbones (21 of 47 pieces) | The whole piece follows FO4's head, moved there through FNV's Bip01 Head skin transforms | [audit fixes](fo4_pipeline.md#audit-fixes) |
+| Armor without a world model (30) | No ground model authored | Worn on FNV's mesh; on the ground, the FO4 template's model | [audit fixes](fo4_pipeline.md#audit-fixes) |
+| Form list entries the build doesn't make | Listed (armor addons, imagespace modifiers, explosions, spells) | Dropped, counted by type; a list left with none is not made, so its script property stays unfilled | [audit fixes](fo4_pipeline.md#audit-fixes) |
 
 ## <a id="candidates"></a>Systems: FO4's or FNV's (decided 2026-10-08)
 

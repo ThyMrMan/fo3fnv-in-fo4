@@ -322,7 +322,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
                 build_force_flee_slots(by_type), menu_only_infos(by_type),
                 _quest_vars.quest_var_mirrors(by_type, quest_script_vars)
                 if target.is_fallout4() and export_is_fallout(export_dir) else {},
-                _adds.find_adds(by_type) if target.is_fallout4() and export_is_fallout(export_dir) else None)
+                _adds.find_adds(by_type, xref) if target.is_fallout4() and export_is_fallout(export_dir) else None)
     stats['written'] = _drain_written()
     return {'initargs': initargs, 'scpt_work': scpt_work,
             'info_work': info_work, 'qust_work': qust_work,

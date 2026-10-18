@@ -45,7 +45,7 @@ def quest_delay_arm(quest_ref: str, value: str) -> str:
     except ValueError:
         return f'{arm_update(value, quest_ref + ".")}  ;fQuestDelayTime'
     if fval <= 0:
-        return f'{arm_update("5.0", quest_ref + ".")}  ;fQuestDelayTime = 0 (TES4 default cadence)'
+        return f'{arm_update(float_literal(QUEST_DEFAULT), quest_ref + ".")}  ;fQuestDelayTime = 0 (TES4 default cadence)'
     return f'{arm_update(f"{fval:g}", quest_ref + ".")}  ;fQuestDelayTime'
 
 

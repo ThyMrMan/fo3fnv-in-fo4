@@ -26,7 +26,7 @@ from script_convert.command_rows import (
 from script_convert import atomic_adds as _adds, quest_var_mirrors as _quest_vars, symbols as _symbols, \
     trace_points as _trace
 from script_convert.poll_motion import relative_sets
-from script_convert.poll_interval import MIN_INTERVAL, QUEST_DELAY_VAR
+from script_convert.poll_interval import MIN_INTERVAL, QUEST_DEFAULT, QUEST_DELAY_VAR, float_literal
 from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
                                    is_hit_event, menu_close_guard, menu_registration, run_update_now,
                                    sleep_registration, target_menu_name)
@@ -421,11 +421,15 @@ def quest_restart(conv, tree, extends: str, name: str) -> list:
 
 def _quest_delay(conv, script: str) -> list:
     """The quest's poll delay property (its authored delay, or the source game's default) and `TES4SetDelay`, FNV's
-    SetQuestDelay: the delay for good (MIN_INTERVAL at least), re-armed now while the quest runs.
+    SetQuestDelay: the delay for good (QUEST_DEFAULT for 0 or less, else MIN_INTERVAL at least), re-armed now while
+    the quest runs.
     See: docs/fork/performance.md#papyrus
     """
     return ['', f'Float Property {QUEST_DELAY_VAR} = {conv._get_update_interval()} Auto Hidden', '',
             f'Function TES4SetDelay({script} akQuest, Float afSecs) Global',
+            '  If afSecs <= 0.0',
+            f'    afSecs = {float_literal(QUEST_DEFAULT)}',
+            '  EndIf',
             f'  akQuest.{QUEST_DELAY_VAR} = Math.Max(afSecs, {MIN_INTERVAL})',
             '  If akQuest.IsRunning()',
             f'    akQuest.StartTimer(akQuest.{QUEST_DELAY_VAR})',
@@ -876,7 +880,7 @@ def poll(conv, tree, extends: str) -> list:
 
     passes = _menu_passes(conv, tree)
     sc.poll_return_prefix = _return_arm(conv, rearm, load_gated, passes)
-    body = _poll_body(conv, tree, extends, interval, load_gated)
+    body = _poll_body(conv, tree, extends, rearm, load_gated)
     sc.poll_return_prefix = ''
     sc.glide_secs = ''
     arm = _arm(conv, rearm, load_gated)
@@ -894,7 +898,8 @@ def _return_arm(conv, interval: str, load_gated: bool, passes: bool) -> str:
 
 
 def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> list:
-    """One poll pass: the quest and dialogue gates, the prologues, every polled block, then the stage latches."""
+    """One poll pass: the quest and dialogue gates, the prologues, every polled block, then the stage latches;
+    `interval` is the pass's re-arm (a literal, or a Fallout 4 quest's live TES4_Delay)."""
     sc = conv.sc
     out = []
     if extends == 'Quest' and not _delayed_quest(extends):
@@ -1033,16 +1038,13 @@ def _glide_prologue(sc) -> list:
 
 
 def _elapsed_prologue(conv, interval: str) -> list:
-    """Measure the REAL time this pass took, for getSecondsPassed.
+    """Measure the REAL time this pass took, for getSecondsPassed, as TES4 returned the time the frame took.
 
-    TES4 getSecondsPassed returned the time the frame actually took.  Measuring
-    it beats assuming the tick interval: RegisterForSingleUpdate delivers late
-    under VM load, and a fixed decrement then drains every counted timer slower
-    than real time, so all conversation pacing floated with load.  Every read
-    this pass sees the same value, exactly like TES4's per-frame constant.
-
-    The clamp covers the first pass and resumption after unload, menus or a
-    save-load, where the raw delta spans a gap TES4 never counted.
+    RegisterForSingleUpdate delivers late under VM load, so a fixed tick drains
+    counted timers slower than real time. Every read this pass sees the same
+    value, like TES4's per-frame constant. A gap below 0 or over 2 s (the first
+    pass, or resuming after unload, menus or a save-load, which TES4 never
+    counted) counts one `interval`, the re-arm the poll runs at now.
     """
     if not conv.sc.gsp_realtime:
         return []

@@ -105,6 +105,15 @@ def test_every_placed_type_has_a_converter_and_a_route():
 
 def test_a_region_is_its_two_corners_and_around_is_its_square():
     """--region in any corner order is (low, high); --around is its square."""
-    region = SimpleNamespace(region=[-17, 1, -19, -1], around=(0, 0), radius=1)
+    region = SimpleNamespace(region=[-17, 1, -19, -1], around=(0, 0), radius=1, whole=False)
     assert RUN.scope_cells(region) == ((-19, -1), (-17, 1))
-    assert RUN.scope_cells(SimpleNamespace(region=None, around=(-18, 0), radius=1)) == ((-19, -1), (-17, 1))
+    assert RUN.scope_cells(SimpleNamespace(region=None, around=(-18, 0), radius=1, whole=False)) == (
+        (-19, -1), (-17, 1))
+    assert RUN.scope_cells(SimpleNamespace(region=[-17, 1, -19, -1], whole=True)) == (None, None)
+
+
+def test_the_first_world_takes_the_rectangle_and_the_rest_are_whole():
+    """--world A B: A's cells in --region, B's all."""
+    args = SimpleNamespace(export=None, world=['A', 'B'], region=[0, 0, 1, 1], whole=False)
+    assert RUN.exteriors(args) == (('A', (0, 0), (1, 1)), ('B', None, None))
+    assert RUN.exteriors(SimpleNamespace(export=None, world=[], region=None, whole=False)) == ()

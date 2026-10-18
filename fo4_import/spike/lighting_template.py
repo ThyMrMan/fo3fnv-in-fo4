@@ -13,7 +13,7 @@ import functools
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import fnv_esm
+from fo4_import.base.install import source_esm
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
 
@@ -32,7 +32,7 @@ FIELDS = ((0x1, ('AmbientR', 'AmbientG', 'AmbientB'), 0, '3B'),
 @functools.cache
 def inherit_flags() -> dict:
     """{FNV cell FormID: LNAM inherit flags} of FalloutNV.esm's cells that have them."""
-    return {rec.form_id: struct.unpack('<I', s[b'LNAM'])[0] for rec, _ in walk(fnv_esm(), b'CELL')
+    return {rec.form_id: struct.unpack('<I', s[b'LNAM'])[0] for rec, _ in walk(source_esm(), b'CELL')
             if b'LNAM' in (s := dict(subrecords(rec.body)))}
 
 

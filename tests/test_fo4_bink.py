@@ -2,7 +2,7 @@
 
 import struct
 
-from fo4_import.base import bink
+from fo4_import.base import bink, source
 from fo4_import.base.bink import retrack, track_ids
 from script_convert.converter import ScriptConverter
 from script_convert.cross_ref import CrossRefGraph
@@ -69,7 +69,7 @@ def _source(tmp_path, monkeypatch, masters=''):
     (export / '_HEADER.txt').write_text(masters, encoding='utf-8')
     _bink(data / 'Video' / 'Intro.bik', [(k, p[:1], v) for k, p, v in FRAMES])
     _bink(data / 'Video' / 'Sub' / 'Card.bik', [(k, [], v) for k, _, v in FRAMES])
-    monkeypatch.setattr(bink.source_registry, 'directory_for', lambda root, plugin: str(data))
+    monkeypatch.setattr(source.source_registry, 'directory_for', lambda root, plugin: str(data))
     return export
 
 

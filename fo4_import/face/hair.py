@@ -29,7 +29,8 @@ from scipy.spatial import cKDTree
 
 from fo4_import.face.bake import positions, triangles, uvs
 from fo4_import.face.fnv_head import NifFormat
-from fo4_import.face.texture import texel_points
+from fo4_import.face.memo import digest, frozen
+from fo4_import.face.texture import shared_texel_points
 from fo4_import.nif import bgsm
 from fo4_import.nif import file as nif_file
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -136,13 +137,19 @@ class Fo4Assets:
 
     def __init__(self, esm_bytes: bytes, archives):
         """Index `esm_bytes`' HDPT, TXST and CLFM records; read assets through `archives` (ba2.Archives)."""
-        self.archives, self.parts, self.texture_sets, self.colours = archives, {}, {}, {}
+        self.archives, self.parts, self.texture_sets, self.colours, self.kept = archives, {}, {}, {}, {}
         for rec, _ in walk(esm_bytes, b'HDPT', b'TXST', b'CLFM'):
             subs = {}
             for tag, data in subrecords(rec.body):
                 subs.setdefault(tag, []).append(data)
             target = {b'HDPT': self.parts, b'TXST': self.texture_sets, b'CLFM': self.colours}[rec.sig]
             target[rec.form_id] = subs
+
+    def kept_value(self, key, make):
+        """make()'s value for `key`, worked out once per Fo4Assets, read-only."""
+        if key not in self.kept:
+            self.kept[key] = frozen(make())
+        return self.kept[key]
 
     def edid(self, form_id: int) -> str:
         """A head part's EditorID."""
@@ -191,14 +198,24 @@ def fo4_part_samples(assets: Fo4Assets, form_id: int) -> list:
     return out
 
 
+def part_coverages(assets: Fo4Assets, kind: int, female: bool, depths: list) -> list:
+    """[(coverage, FormID)] of the playable parts of `kind` for one sex (a hair with its extra parts) drawn over
+    head `depths`; worked out once per `assets`."""
+    def make() -> list:
+        """Every candidate's coverage."""
+        out = []
+        for fid in assets.candidates(kind, female):
+            parts = [fid] + (assets.extras(fid) if kind == HAIR else [])
+            drawn = [s for p in parts if b'MODL' in assets.parts.get(p, {}) for s in fo4_part_samples(assets, p)]
+            out.append((coverage(drawn, depths), fid))
+        return out
+    return assets.kept_value(('coverage', kind, female, digest(depths)), make)
+
+
 def best_part(assets: Fo4Assets, kind: int, female: bool, target: np.ndarray, depths: list) -> tuple:
-    """(head part FormID, coverage distance) of the playable part of `kind` drawn most like `target`."""
-    scored = []
-    for fid in assets.candidates(kind, female):
-        parts = [fid] + (assets.extras(fid) if kind == HAIR else [])
-        drawn = [s for p in parts if b'MODL' in assets.parts.get(p, {}) for s in fo4_part_samples(assets, p)]
-        scored.append((coverage_distance(target, coverage(drawn, depths)), fid))
-    distance, fid = min(scored)
+    """(FormID, coverage distance) of the part of `kind` drawn most like `target`."""
+    distance, fid = min((coverage_distance(target, drawn), fid)
+                        for drawn, fid in part_coverages(assets, kind, female, depths))
     return fid, distance
 
 
@@ -219,27 +236,37 @@ def iris_colour(points: np.ndarray, tris: np.ndarray, uv: np.ndarray, img: np.nd
     return lab(np.vstack(picked)).mean(0)
 
 
+def eye_colours(assets: Fo4Assets, female: bool) -> list:
+    """[(iris Lab colour, FormID)] of the playable eye head parts for one sex; worked out once per `assets`."""
+    def make() -> list:
+        """Every candidate's iris colour."""
+        out = []
+        for fid in assets.candidates(EYES, female):
+            texture_set = assets.texture_sets[struct.unpack('<I', assets.parts[fid][b'TNAM'][0])[0]]
+            raw = next(r for r, _ in assets.shapes(fid))
+            img = assets.texture(texture_set[b'TX00'][0].rstrip(b'\0').decode())
+            out.append((iris_colour(positions(raw), triangles(raw), uvs(raw), img), fid))
+        return out
+    return assets.kept_value(('eyes', female), make)
+
+
 def best_eyes(assets: Fo4Assets, female: bool, target: np.ndarray) -> int:
     """The playable eye head part whose iris colour is nearest `target` (Lab)."""
-    scored = []
-    for fid in assets.candidates(EYES, female):
-        texture_set = assets.texture_sets[struct.unpack('<I', assets.parts[fid][b'TNAM'][0])[0]]
-        raw = next(r for r, _ in assets.shapes(fid))
-        img = assets.texture(texture_set[b'TX00'][0].rstrip(b'\0').decode())
-        scored.append((float(np.linalg.norm(iris_colour(positions(raw), triangles(raw), uvs(raw), img) - target)), fid))
-    return min(scored)[1]
+    return min((float(np.linalg.norm(colour - target)), fid) for colour, fid in eye_colours(assets, female))[1]
 
 
+@cache
 def fnv_shape(path) -> tuple:
-    """(points, triangles, UVs, base texture) of an FNV head part mesh's shape (the hatless one)."""
+    """(points, triangles, UVs, base texture) of an FNV head part mesh's shape (the hatless one); read once per
+    process, its arrays read-only."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
     shape = next(b for b in data.blocks if isinstance(b, NifFormat.NiTriBasedGeom) and b.name != b'Hat')
     texture_set = next((b for b in data.blocks if isinstance(b, NifFormat.BSShaderTextureSet)), None)
     base = texture_set.textures[0].decode() if texture_set else ''
-    return (np.array([(v.x, v.y, v.z) for v in shape.data.vertices]), np.array(shape.data.get_triangles()),
-            np.array([(c.u, c.v) for c in shape.data.uv_sets[0]]), base)
+    return frozen((np.array([(v.x, v.y, v.z) for v in shape.data.vertices]), np.array(shape.data.get_triangles()),
+                   np.array([(c.u, c.v) for c in shape.data.uv_sets[0]]), base))
 
 
 def fnv_hair_rgb(texture: np.ndarray, layer: np.ndarray, hclr: tuple) -> np.ndarray:
@@ -261,7 +288,7 @@ def onto_face(face: tuple, size: int, points: np.ndarray, rgba: np.ndarray) -> n
 
     `face` is (positions, UVs, triangles); texels with no sample in reach stay clear.
     """
-    rows, cols, where = texel_points(*face, size)
+    rows, cols, where = shared_texel_points(*face, size)
     distance, nearest = cKDTree(points).query(where, distance_upper_bound=FACE_REACH)
     hit = np.isfinite(distance)
     out = np.zeros((size, size, 4))

@@ -13,7 +13,7 @@ See: docs/fork/fo4_spikes.md#spike-2-activators
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import fnv_esm
+from fo4_import.base.install import source_esm
 from fo4_import.base.vmad import object_scripts, read_entry
 from fo4_import.spike import records as R
 from fo4_import.pipeline.export_index import export_records
@@ -51,7 +51,7 @@ class Activators:
 
     def __init__(self, builder, export_dir: Path):
         """Activators made through `builder`."""
-        fnv = fnv_esm()
+        fnv = source_esm()
         self.builder, self.drink = builder, drink_template(builder.fo4)
         self.water, self.water_spell = fnv_links(fnv, b'ACTI', b'WNAM'), fnv_links(fnv, b'WATR', b'XNAM')
         self.spells = {int(r['FormID'], 16): r for r in export_records(export_dir, 'SPEL')}

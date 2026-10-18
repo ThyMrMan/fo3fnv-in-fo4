@@ -71,7 +71,8 @@ Function LeaveOpening()
 EndFunction
 
 Function TracePlayerHits(Actor akPlayer)
-  {Hits on the player go to the trace (TES4Polyfill.TraceHit); registered again after each hit and on every load.}
+  {Hits on the player go to the trace (TES4Polyfill.TraceHit); registered again after each hit and on every load, replacing any registration still pending, so calls from more than one hook keep one.}
+  UnregisterForAllHitEvents(akPlayer)
   RegisterForHitEvent(akPlayer)
 EndFunction
 

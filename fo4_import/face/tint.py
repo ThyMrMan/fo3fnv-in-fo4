@@ -25,7 +25,7 @@ from scipy.optimize import lsq_linear
 
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.face.sculpt import CACHE
-from fo4_import.face.texture import texel_points
+from fo4_import.face.texture import shared_texel_points
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
@@ -200,7 +200,7 @@ def pack_layers(options: list, values, kept: bytes, brows: list) -> bytes:
 
 def face_mask(face: tuple) -> np.ndarray:
     """WORK_SIZE texels inside the face's UV triangles; face = (positions, UVs, triangles)."""
-    rows, cols, _ = texel_points(*face, WORK_SIZE)
+    rows, cols, _ = shared_texel_points(*face, WORK_SIZE)
     mask = np.zeros((WORK_SIZE, WORK_SIZE), bool)
     mask[rows, cols] = True
     return mask

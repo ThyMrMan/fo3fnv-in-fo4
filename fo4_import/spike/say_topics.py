@@ -46,6 +46,9 @@ SCRIPT_VARIABLE, VM_SCRIPT_VARIABLE = 'GetScriptVariable', 'GetVMScriptVariable'
 SCRIPT_PREFIX = 'FALLOUTNV_'
 #: FO4 has no objective condition; an objective test reads its mirror global (objectives_falloutnv).
 GLOBAL_VALUE = 'GetGlobalValue'
+#: FNV base types a script runs on when placed (SCRI), for GetScriptVariable on their references.
+SCRIPTED_BASES = ('NPC_', 'CREA', 'ACTI', 'TACT', 'CONT', 'DOOR', 'FURN', 'MISC', 'BOOK', 'NOTE', 'TERM', 'LIGH',
+                  'ARMO', 'WEAP', 'ALCH', 'AMMO', 'KEYM')
 #: FNV reputation tests -> the reputation slot of their parameter 2's 0 (reputation.SLOT_KEY form map entries).
 REPUTATION_FIRST_SLOT = {'GetReputation': 0, 'GetReputationThreshold': 2}
 
@@ -56,7 +59,7 @@ class SayTopics:
     def __init__(self, builder, export_dir: Path):
         """Index FNV topics and lines, each line carrying its quest's dialogue conditions (with_quest); topics are
         written through `builder` (its script_vars() names)."""
-        self.builder, self.voiced, self.once = builder, [], SayOnce()
+        self.builder, self.voiced, self.once = builder, [], SayOnce(builder.writer)
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
         self.infos = {}
@@ -81,7 +84,8 @@ class SayTopics:
         branch, blobs = self.builder.new_id(f'DLBR {quest["FormID"]}'), []
         for dial, fid in topic_ids.items():
             lines = [rec for rec in self.infos[quest['FormID'].upper()] if rec['ParentDIAL'] == dial]
-            infos = [i for i in (self.info(rec, form_map, owner=quest_fid) for rec in lines) if i]
+            infos = [i for i in (self.info(rec, form_map, owner=quest_fid, place=f'{quest["FormID"]} topic {dial}')
+                                 for rec in lines) if i]
             record = R.pack_dial(fid, f'FNV_{self.dials[dial]["EditorID"]}', quest_fid, R.TOPIC_CUSTOM, len(infos),
                                  branch)
             blobs.append(pack_topic(record, fid, infos))
@@ -89,13 +93,13 @@ class SayTopics:
         return dlbr, blobs
 
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
-             target: 'int | None' = None, speaker: int = 0, owner: int = 0) -> bytes:
+             target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '') -> bytes:
         """One FNV line as an FO4 INFO of quest `owner`; b'' when a condition cannot convert.
 
-        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once (and its say_once
-        marker in `owner`); `extra` CTDAs join its conditions, Target tests on alias `target`; `speaker` its
-        NPC (ANAM). A split line's later parts (conversation.part) have no conditions or Say Once; the first
-        runs the Begin fragment, the last the End one. The part opening barter ends the scene.
+        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once (marker in `owner`);
+        `extra` CTDAs join its conditions, Target tests on alias `target`; `speaker` its NPC; `place` names
+        this copy (quest, step) for its FormID. A split line's later parts have no conditions or Say Once;
+        the first runs the Begin fragment, the last the End one; the part opening barter ends the scene.
         """
         first, last = rec.get(PART, 1) == 1, rec.get(PART, 1) == rec.get(PARTS, 1)
         conditions = conditions_of(rec, form_map, self.script_vars, target=target) if first else b''
@@ -106,7 +110,8 @@ class SayTopics:
             self.builder.readiness.add(LINE_LEFT_OUT, quest, f'{rec["FormID"].upper()} (condition: {why})')
             return b''
         self.builder.readiness.add(LINE, quest, rec['FormID'].upper())
-        fid = self.builder.new_id(f'INFO {rec["FormID"]} {rec.get(PART, 1)}')
+        line = f'INFO {rec["FormID"]} {rec.get(PART, 1)}'
+        fid = self.builder.new_id(line, key=f'{line} at {place}' if place else None)
         name = f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
         scripts, vmad = self.builder.scripts, b''
         if scripts.dir and (scripts.dir / f'{name}.psc').exists() and (first or last):
@@ -138,7 +143,7 @@ def actor_values(helper_index: int) -> dict:
 
 
 def script_vars(export_dir: Path) -> dict:
-    """{FNV quest or actor reference FormID: (its converted script, {variable index: name})}, for
+    """{FNV quest or placed reference FormID: (its converted script, {variable index: name})}, for
     GetQuestVariable and GetScriptVariable."""
     scripts = {}
     for rec in export_records(export_dir, 'SCPT'):
@@ -147,10 +152,11 @@ def script_vars(export_dir: Path) -> dict:
             names[int(rec[f'Variable[{i}].Index'])] = rec[f'Variable[{i}].Name']
             i += 1
         scripts[rec['FormID'].upper()] = (papyrus_script_name(rec.get('EditorID', ''), SCRIPT_PREFIX), names)
-    bases = {r['FormID'].upper(): r.get('SCRI', '').upper() for r in export_records(export_dir, 'NPC_')}
+    bases = {r['FormID'].upper(): r['SCRI'].upper() for sig in SCRIPTED_BASES for r in export_records(export_dir, sig)
+             if r.get('SCRI')}
     out = {int(q['FormID'], 16): scripts.get(q.get('SCRI', '').upper(), ('', {}))
            for q in export_records(export_dir, 'QUST')}
-    for ref in export_records(export_dir, 'ACHR'):
+    for ref in (r for sig in ('ACHR', 'ACRE', 'REFR') for r in export_records(export_dir, sig)):
         script = scripts.get(bases.get(ref.get('NAME', '').upper(), ''))
         if script:
             out[int(ref['FormID'], 16)] = script
@@ -174,7 +180,7 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
     value param is `form_map[('av', index)]`, None without one.
     """
     func, state = cond['func'], OBJECTIVE_FUNCS.get(C.FNV.index(cond['func']))
-    if C.fo4_value(cond, form_map) is None:
+    if C.fo4_value(cond, form_map) is None or C.unbuilt_reference(cond, form_map):
         return None
     if func == QUEST_VARIABLE and ('qvar', cond['p1'], cond['p2']) in form_map:
         return C.FO4.index(GLOBAL_VALUE), form_map[('qvar', cond['p1'], cond['p2'])], 0, '', ''

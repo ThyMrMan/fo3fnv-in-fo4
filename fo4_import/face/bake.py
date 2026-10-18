@@ -26,6 +26,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 from fo4_import.face.fnv_head import FnvHead
+from fo4_import.face.memo import by_content
 from fo4_import.nif import file as nif_file
 
 #: FaceGeom parts that are the face (FO4 HumanRace's male and female face head parts).
@@ -93,8 +94,10 @@ def _similarity(src: np.ndarray, dst: np.ndarray) -> tuple:
     return s, r, mu_d - s * r @ mu_s
 
 
+@by_content
 def align(fo4_head: np.ndarray, fnv_mean: np.ndarray, surface: tuple) -> tuple:
-    """(s, R, t) taking FO4 head coordinates onto FNV's mean head, fitted over the front of the face."""
+    """(s, R, t) taking FO4 head coordinates onto FNV's mean head, fitted over the front of the face; kept per
+    process (memo)."""
     tree = cKDTree(surface[0])
     front = fo4_head[fo4_head[:, 1] > 0]
     s = np.ptp(fnv_mean[fnv_mean[:, 1] > 0][:, 0]) / np.ptp(front[:, 0])

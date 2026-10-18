@@ -31,7 +31,7 @@ from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton
 from fo4_import.spike import records as R
 from fo4_import.spike.actor_data import CREATURE_FLAGS, with_actor_data
 from fo4_import.spike.npcs import (USE_AI_DATA, USE_FACTIONS, USE_INVENTORY, USE_STATS, composed, faction_snams,
-                                   with_factions)
+                                   template_source, with_factions)
 from fo4_import.spike.statics import write_converted
 from fo4_import.spike.voice import fnv_folder
 from fo4_import.spike.voice_types import VoiceTypes, fnv_voice_types, with_voice
@@ -121,6 +121,11 @@ class Creatures:
             edit=composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec),
                           *self.own_parts(rec))))
 
+    def label(self, fnv: int) -> str:
+        """FNV creature `fnv`'s skeleton folder, else its EditorID."""
+        rec = self.records[fnv]
+        return _folder(rec['Model.MODL']) if 'Model.MODL' in rec else rec.get('EditorID', f'{fnv:08X}')
+
     def stand_in(self, fnv: int):
         """The vanilla NPC_ record FNV creature `fnv`'s model stands in as (STAND_INS, TEMPLATES); None without."""
         folder = _folder(self.records[fnv].get('Model.MODL', ''))
@@ -157,14 +162,8 @@ class Creatures:
         return with_actor_data(self.source(rec, USE_STATS), self.source(rec, USE_AI_DATA), CREATURE_FLAGS)
 
     def source(self, rec: dict, flag: int) -> dict:
-        """The FNV creature `rec` takes template part `flag` from: along its creature templates, else itself."""
-        seen = rec
-        while int(seen.get('ACBS.TemplateFlags', 0)) & flag and 'TPLT.Template' in seen:
-            nxt = self.records.get(int(seen['TPLT.Template'], 16))
-            if nxt is None:
-                break
-            seen = nxt
-        return seen
+        """The creature `rec` takes part `flag` from (template_source)."""
+        return template_source(self.records, rec, flag)[0]
 
     def _voice(self, rec: dict):
         """`rec`'s FNV voice type (VTCK edit) if recorded; None keeps the body's."""

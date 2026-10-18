@@ -8,10 +8,16 @@ Fallout4.esm has under the same FormID, type and EditorID are FO4's own
 (the bottle cap, COC and X markers), and an item the replacement table
 names as an `item` is that record itself (spike.replacements). Consumables and
 ammunition are made by consumables.Consumables, weapons and armor by
-equipment.Equipment; a form list keeps its entries that convert as items (empty
-when none do, so counting it reads 0); any other type is skipped and counted.
+equipment.Equipment. A form list keeps the entries the build makes: items
+(made now), and the forms the cell builder has already made (BUILT_MAPS:
+placed bases, actors and their bases, globals, factions; its creatures) or
+converts on demand (messages); each other entry is dropped and counted by
+type, and a list whose every entry is dropped is not made (a script property
+naming it stays unfilled; one FNV leaves empty is made empty). Any other type
+is skipped and counted.
 
 See: docs/fork/fo4_spikes.md#spike-2-items
+See: docs/fork/fo4_tool_audit.md#fix-first
 """
 
 from pathlib import Path
@@ -28,6 +34,8 @@ PORTAL_MARKER = 0x20
 ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT', 'FLST')
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
 CONTAINER_FLAGS = 0x2
+#: Cell builder maps {FNV FormID: FO4 FormID} of the non-item forms it has made, which a form list may hold.
+BUILT_MAPS = ('made', 'actor_refs', 'npc_ids', 'globals', 'factions')
 
 
 def _edid(rec) -> str:
@@ -86,6 +94,7 @@ class Items:
         (consumables, equipment); a type with no maker here or there is skipped.
         """
         self.builder, self.records, self.made, self.makers = builder, records, {}, makers or {}
+        self.messages = None
         named = {rec.get('EditorID'): fid for fid, (_, rec) in records.items()}
         self.names = {name.lower(): fid for name, fid in named.items() if name}
         self.shared = {**shared, **{named[e]: fid for e, fid in (stand_ins or {}).items() if e in named}}
@@ -177,12 +186,42 @@ class Items:
         """A book or note: the cell builder's record of it (spike.readables)."""
         return self.builder.readable(int(rec['FormID'], 16), rec['Signature'], rec)
 
-    def _form_list(self, rec: dict) -> int:
-        """A form list of the entries that convert as items, written even when none do."""
+    def _form_list(self, rec: dict) -> 'int | None':
+        """A form list of the entries the build makes (_entry; one FNV leaves empty, for scripts to fill, is made
+        empty); each other entry counted by type; None, counted, when every entry is dropped."""
         listed = [int(rec[f'LNAM[{i}]'], 16) for i in range(_count(rec, 'LNAM'))]
-        entries = [self.item(fid) for fid in listed if fid in self.records or fid in self.shared]
+        made = [(fid, self._entry(fid)) for fid in listed]
+        for fid in (fid for fid, entry in made if entry is None):
+            self.builder.counts[f'form list entry dropped ({self._type(fid)})'] += 1
+        entries = [entry for _, entry in made if entry is not None]
+        if listed and not entries:
+            self.builder.counts['form list not made (no entry converts)'] += 1
+            return None
         return self._write('FLST', lambda fid: R.pack_flst(
-            fid, f'FNV_{rec.get("EditorID", rec["FormID"])}', [e for e in entries if e]), rec)
+            fid, f'FNV_{rec.get("EditorID", rec["FormID"])}', entries), rec)
+
+    def _entry(self, fid: int) -> 'int | None':
+        """The FO4 form of FNV form list entry `fid`: an item (made now), else _built()."""
+        if fid in self.records or fid in self.shared:
+            return self.item(fid)
+        return self._built(fid)
+
+    def _built(self, fid: int) -> 'int | None':
+        """The FO4 form the cell builder has made for FNV non-item `fid` (BUILT_MAPS, its creatures), else the
+        FNV message `fid` converted (attach.ObjectScripts.message); None."""
+        maps = [getattr(self.builder, name, {}) for name in BUILT_MAPS]
+        maps.append(getattr(getattr(self.builder, 'creatures', None), 'made', {}))
+        made = next((found[fid] for found in maps if found.get(fid)), None)
+        scripts = getattr(self.builder, 'scripts', None)
+        if made is not None or scripts is None:
+            return made
+        if self.messages is None:
+            self.messages = {int(r['FormID'], 16): edid for edid, r in scripts.messages.items()}
+        return scripts.message(self.messages[fid]) if fid in self.messages else None
+
+    def _type(self, fid: int) -> str:
+        """FNV form `fid`'s record type (the builder's index of the source plugin)."""
+        return getattr(self.builder, 'fnv_types', {}).get(fid, 'not in the source plugin')
 
 
 def _count(rec: dict, key: str) -> int:

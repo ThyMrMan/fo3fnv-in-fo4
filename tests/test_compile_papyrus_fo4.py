@@ -76,6 +76,16 @@ def test_an_added_declaration_recompiles_failing_users(tmp_path):
     assert CP.needs_compile(hashes, apis, state, users, words) == {'helper', 'mid'}
 
 
+def test_a_failure_with_no_error_of_its_own_is_retried(tmp_path):
+    """A script that failed without an error of its own (the compiler ran out of memory) compiles again on the
+    next run, unchanged; one that failed on its own errors waits for a change."""
+    hashes, apis, users, words = _corpus(tmp_path, CORPUS)
+    state = {n: {'sha': sha, 'api': apis[n], 'ok': True} for n, sha in hashes.items()}
+    state['mid'] = dict(state['mid'], ok=False, own=[])
+    state['alone'] = dict(state['alone'], ok=False, own=['X is not a function or does not exist'])
+    assert CP.needs_compile(hashes, apis, state, users, words) == {'mid'}
+
+
 def test_declarations_join_continued_lines_and_keep_struct_members():
     """Signatures (continued over lines), properties and struct members; bodies and comments are not."""
     text = ('ScriptName S extends Quest ; note\nStruct Pair\n  Int A = 1\nEndStruct\n'

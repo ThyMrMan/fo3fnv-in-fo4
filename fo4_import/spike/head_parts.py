@@ -16,6 +16,7 @@ import numpy as np
 
 from fo4_import.face import hair
 from fo4_import.face.bake import positions, triangles, uvs
+from fo4_import.face.memo import digest
 from fo4_import.nif import file as nif_file
 from fo4_import.spike import fnv_npc
 from tes5_import.base.tes5_reader import subrecords
@@ -73,7 +74,7 @@ def _hair(choice: HeadChoice, assets, export_dir: Path, at: fnv_npc.Frame, depth
 def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes) -> HeadChoice:
     """The FO4 hair, facial hair, eyes and hair colour for FNV NPC `edid` (HumanRace, its sex's parts); none for a
     part FNV leaves to the race (no HNAM, no ENAM)."""
-    face, depths = skull(assets, baseline)
+    face, depths = assets.kept_value(('skull', digest(baseline)), lambda: skull(assets, baseline))
     at = fnv_npc.frame(export_dir, edid, face)
     choice = HeadChoice()
     _hair(choice, assets, export_dir, at, depths)

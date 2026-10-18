@@ -15,6 +15,7 @@ See: docs/fork/fo4_pipeline.md#say-once
 
 import zlib
 
+from fo4_import.base.ledger import NUMBER
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 
@@ -23,24 +24,36 @@ FIRST, COUNT = 10000, 55000
 STAGE_DONE = C.FO4.index('GetStageDone')
 #: CTDA flag: OR with the next condition.
 OR = 0x01
+#: Ledger site of a quest's marker stages (with the FO4 quest's FormID; key: the FNV line).
+SITE = 'FNV say once'
 
 
 class SayOnce:
-    """Each quest's Say Once marker stages, {FO4 quest: {FNV line: stage}}, made on first use."""
+    """Each quest's Say Once marker stages, {FO4 quest: {FNV line: stage}}, made on first use and kept by `writer`'s
+    ledger (None: kept for the build only)."""
 
-    def __init__(self):
+    def __init__(self, writer=None):
         """No markers yet."""
-        self.stages = {}
+        self.stages, self.writer = {}, writer
 
     def stage(self, quest: int, line: str) -> int:
-        """The marker stage of FNV line `line` (FormID hex) in FO4 quest `quest`; a taken hash moves up one."""
-        taken = self.stages.setdefault(quest, {})
-        if line.upper() not in taken:
-            stage, used = FIRST + zlib.crc32(line.upper().encode()) % COUNT, set(taken.values())
-            while stage in used:
-                stage = FIRST + (stage - FIRST + 1) % COUNT
-            taken[line.upper()] = stage
-        return taken[line.upper()]
+        """The marker stage of FNV line `line` (FormID hex) in FO4 quest `quest`: the ledger's, else its hash
+        moved up one while taken.
+        See: docs/fork/fo4_pipeline.md#formid-ledger
+        """
+        taken, line = self.stages.setdefault(quest, {}), line.upper()
+        if line not in taken:
+            site = f'{SITE} {quest:08X}'
+            used = set(taken.values()) | set(self.writer.ledger.values(NUMBER, site) if self.writer else ())
+
+            def free() -> int:
+                """The line's hashed stage, moved up one while `used` holds it."""
+                stage = FIRST + zlib.crc32(line.encode()) % COUNT
+                while stage in used:
+                    stage = FIRST + (stage - FIRST + 1) % COUNT
+                return stage
+            taken[line] = self.writer.stable_number(site, line, free) if self.writer else free()
+        return taken[line]
 
     def unsaid(self, quest: int, lines: list) -> bytes:
         """CTDAs: one OR-group, true while one of FNV `lines` is unsaid."""

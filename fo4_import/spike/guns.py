@@ -11,7 +11,11 @@ receiver's copy shows the FNV gun built on that receiver's skeleton
 P-Scope point plus the top of the sights part there); the other parts with a model keep
 their stats and drop the model, as FNV's mesh has those parts; parts
 without a model stay vanilla's. The record's other combinations go.
-Vanilla's mods are untouched.
+Vanilla's mods are untouched. A copy's FormID is hashed from the FNV gun
+and the attach point (no combination holds two parts with a model at one),
+so another vanilla part chosen there keeps it. Choosing reads the FNV
+mesh's conversion only; its mesh, materials and textures are written for a
+gun built on it (templates).
 
 See: docs/fork/fo4_spikes.md#spike-4-guns
 """
@@ -23,7 +27,9 @@ import numpy as np
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import pack_fo4_record
+from fo4_import.nif import file as nif_file
 from fo4_import.nif import gun
+from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.spike.gun_choice import INCLUDE_SIZE, OBTS_DEFAULT, Choice, GunChoices, includes, includes_at
 from fo4_import.spike.statics import write_assets
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -31,7 +37,7 @@ from tes5_import.base.writer import pack_subrecord
 
 #: The built gun's file beside the plain conversion, which FNV's statics and misc items may share.
 GUN_SUFFIX = '_gun.nif'
-#: derive_formid site of a copied mod (key: the FNV gun's and the vanilla mod's FormIDs).
+#: derive_formid site of a copied mod (key: the FNV gun's FormID and its attach point's EditorID, one part each).
 SITE = 'FNV OMOD'
 #: The loose mod item, dropped from a copied mod (with its model data, and a non-receiver's model).
 LOOSE = b'LNAM'
@@ -64,23 +70,24 @@ class Guns:
         return self.receivers[model]
 
     def choose(self, rec: dict) -> 'tuple | None':
-        """(the FO4 gun to build FNV gun `rec` on, its EditorID's record subrecords, the converted FNV mesh's
-        path and layout); None when no FO4 gun matches."""
+        """(the FO4 gun to build FNV gun `rec` on, its EditorID's record subrecords, the FNV mesh's model, converted
+        NIF (not written) and layout); None when no FO4 gun matches."""
         model = rec['Model.MODL']
-        path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
-        static = (self.builder.data_dir / 'Meshes' / path).read_bytes()
-        nodes = gun.fnv_nodes(self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower())
+        fnv_path = self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower()
+        static = nif_file.write(cached_convert(fnv_path, self.builder.export_dir, None, False).nif)
+        nodes = gun.fnv_nodes(fnv_path)
         layout = gun.fnv_layout(static, nodes)
         choice = self.choices.choose(rec, layout)
         if choice is None:
             return None
-        return choice, self.choices.weapons[choice.weapon][1], (path, static, nodes, layout)
+        return choice, self.choices.weapons[choice.weapon][1], (model, static, nodes, layout)
 
     def templates(self, fnv: int, rec: dict, choice: Choice, template: list, fnv_mesh: tuple) -> list:
         """The object template subrecords for FNV gun `rec` (FormID `fnv`) on `choice`, `template` its record's
-        subrecords, `fnv_mesh` choose()'s converted mesh."""
+        subrecords, `fnv_mesh` choose()'s converted mesh, whose assets are written now, as only this uses them."""
         name, obts = _default(template)
-        path, static, nodes, layout = fnv_mesh
+        model, static, nodes, layout = fnv_mesh
+        path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
         out_path = path[:-len('.nif')] + GUN_SUFFIX
         (self.builder.data_dir / 'Meshes' / out_path).write_bytes(gun.gun(static, nodes, self._read(choice.model)))
         out, start = bytearray(obts), includes_at(obts)
@@ -147,7 +154,8 @@ class Guns:
             return fid
         out = [(sig, self._part_sub(sig, body, rec, path, lift)) for sig, body in subs
                if sig not in (LOOSE, b'MODT') and (sig != b'MODL' or path)]
-        copy = self.builder.writer.derive_formid(SITE, f'{fnv:08X} {fid:08X}')
+        point = self.choices.names[self.choices.attach(fid)]
+        copy = self.builder.writer.derive_formid(SITE, f'{fnv:08X} {point}')
         self.builder.writer.add_record('OMOD', pack_fo4_record('OMOD', copy, 0, b''.join(
             pack_subrecord(s.decode(), b) for s, b in out)))
         self.builder.counts['OMOD'] += 1

@@ -15,7 +15,7 @@ See: docs/fork/fo4_pipeline.md#factions
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import fnv_esm
+from fo4_import.base.install import source_esm
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.owned_records import FORCE_COMBAT_EDIDS
@@ -76,7 +76,7 @@ def owners(export_dir: Path) -> set:
 def write_all(builder, export_dir: Path) -> tuple:
     """Write every FNV faction through `builder` (ENGINE_FACTIONS are FO4's); ({FNV FormID: FO4 FormID},
     {FNV EditorID: FO4 FormID})."""
-    records = [(rec.form_id, list(subrecords(rec.body))) for rec, _ in walk(fnv_esm(), b'FACT')]
+    records = [(rec.form_id, list(subrecords(rec.body))) for rec, _ in walk(source_esm(), b'FACT')]
     factions = {fnv: ENGINE_FACTIONS.get(fnv) or builder.fnv_id(f'{fnv:08X}') for fnv, _ in records}
     owned = owners(export_dir)
     for fnv, subs in records:

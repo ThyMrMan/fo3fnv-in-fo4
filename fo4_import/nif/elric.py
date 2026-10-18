@@ -5,9 +5,11 @@ Havok input blocks (collision.py), then puts each output's bhkPhysicsSystem
 and bhkNPCollisionObject in place of the input blocks, keeping our own
 render blocks (Elric also changes a shader flag). Elric crashes on some
 input; after a crash the files it had not done run one at a time, and one
-it still crashes on is written without collision.
+it still crashes on is written without collision. Only the files' bytes are
+held across the run; each is parsed again when its physics is grafted.
 
 See: docs/fork/fo4_spikes.md#spike-2-collision
+See: docs/fork/fo4_tool_audit.md#meshes
 """
 
 import shutil
@@ -19,7 +21,7 @@ from pathlib import Path
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.nif import file as nif_file
-from fo4_import.nif.blocks import NONE
+from fo4_import.nif.blocks import BLOCKS, NONE
 from fo4_import.nif.file import NifFile
 
 ELRIC = FALLOUT4_DIR / 'Tools' / 'Elric'
@@ -30,6 +32,8 @@ IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 #: Keys of parsed blocks (nif.blocks) holding a block reference or a list of them.
 REF_KEYS = frozenset({'shader', 'alpha_property', 'skin', 'texture_set', 'controller', 'collision', 'children',
                       'extra', 'target'})
+#: Block types whose every reference is under REF_KEYS (nif.blocks' static set): all a block after the Havok may be.
+RENUMBERED = frozenset(BLOCKS)
 
 
 def _havok(kind: str) -> bool:
@@ -44,11 +48,16 @@ def havok_start(nif: NifFile) -> 'int | None':
 
 def without_havok(nif: NifFile) -> NifFile:
     """`nif` without its Havok blocks, no node naming a collision object; blocks added after the Havok input (a
-    terminal's screen shader) are kept, references to them renumbered."""
+    terminal's screen shader) are kept, references to them renumbered. ValueError for a block after the Havok
+    that is not a parsed RENUMBERED one, whose references renumbering would miss."""
     start = havok_start(nif)
     if start is None:
         return nif
     kept = [i for i, (kind, _) in enumerate(nif.blocks) if i < start or not _havok(kind)]
+    unsafe = [nif.blocks[i][0] for i in kept if i > start and not (nif.blocks[i][0] in RENUMBERED
+                                                                    and isinstance(nif.blocks[i][1], dict))]
+    if unsafe:
+        raise ValueError(f'blocks after the Havok input that renumbering would mis-point: {unsafe}')
     moved = {old: new for new, old in enumerate(kept) if old >= start}
     nif.blocks = [nif.blocks[i] for i in kept]
     for _, block in nif.blocks:
@@ -123,19 +132,20 @@ def process(sources: dict) -> dict:
 
 
 def finish(paths: list, run=None) -> list:
-    """Replace the Havok input in each NIF at `paths` with Elric's physics (from `run`, process() by default);
-    the paths left without collision."""
-    inputs = {}
+    """Replace the Havok input in each NIF at `paths` with Elric's physics (from `run`, process() by default),
+    one file at a time; the paths left without collision."""
+    inputs, sources = {}, {}
     for i, path in enumerate(paths):
-        nif = nif_file.read(Path(path).read_bytes())
+        raw = Path(path).read_bytes()
+        nif = nif_file.read(raw)
         if havok_start(nif) is not None:
-            inputs[f'{i:05d}.nif'] = (Path(path), nif)
-    done = (run or process)({name: nif_file.write(nif) for name, (_, nif) in inputs.items()})
+            inputs[f'{i:05d}.nif'], sources[f'{i:05d}.nif'] = (Path(path), raw), nif_file.write(nif)
+    done = (run or process)(sources)
+    sources.clear()
     failed = []
-    for name, (path, nif) in inputs.items():
-        if name in done:
-            path.write_bytes(nif_file.write(graft(nif, nif_file.read(done[name]))))
-        else:
-            path.write_bytes(nif_file.write(without_havok(nif)))
-            failed.append(path)
+    for name, (path, raw) in inputs.items():
+        nif = nif_file.read(raw)
+        out = done.pop(name, None)
+        path.write_bytes(nif_file.write(graft(nif, nif_file.read(out)) if out else without_havok(nif)))
+        failed += [] if out else [path]
     return failed

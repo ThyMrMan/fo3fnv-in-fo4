@@ -15,8 +15,8 @@ import shutil
 import struct
 from pathlib import Path
 
-from asset_convert.sources import source_registry
 from core.plugin_masters import masters_from_export_header
+from fo4_import.base.source import source_data
 
 #: Audio track IDs written: 1 is English's (played); 2-5 stand for the other four voiced languages (unplayed).
 TRACK_IDS = (1, 2, 3, 4, 5)
@@ -84,9 +84,8 @@ def movie_key(name: str) -> str:
 
 def source_movies(export_dir) -> dict:
     """{movie_key: source file} of the movies in the Data folder `export_dir`'s plugin was read from."""
-    export_dir = Path(export_dir)
-    data = source_registry.directory_for(export_dir.parent, export_dir.name)
-    video = Path(data) / 'Video' if data else None
+    data = source_data(export_dir)
+    video = data / 'Video' if data else None
     if not video or not video.is_dir():
         return {}
     return {movie_key(str(p.relative_to(video))): p for p in sorted(video.rglob('*'))

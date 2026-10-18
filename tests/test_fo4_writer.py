@@ -1,7 +1,13 @@
 """FO4 plugin writer: header layout, form version, group order and quest-children nesting."""
 
+import collections
 import struct
+from types import SimpleNamespace
 
+import pytest
+
+from fo4_import.base.ledger import ID, Ledger, LedgerWriter, ledger_path
+from fo4_import.spike.cell import MADE_SITE, CellBuilder
 from fo4_import.base.writer import (
     FO4PluginWriter, FORM_VERSION_FO4, GRP_QUEST_CHILDREN, GRP_TOPIC_CHILDREN,
     pack_fo4_record, pack_quest, pack_topic,
@@ -83,3 +89,62 @@ def test_quest_without_children_has_no_group():
     """A bare quest is just its record, as vanilla writes it."""
     rec = _rec('QUST', QUST, 'Bare')
     assert pack_quest(rec, QUST) == rec
+
+
+def _writer(ledger: Ledger = None) -> LedgerWriter:
+    """A writer with a fixed hash window, using `ledger` when given."""
+    w = LedgerWriter(masters=['Fallout4.esm'], is_esm=False)
+    w.reserve_source_ids({0x01000800})
+    if ledger is not None:
+        w.use_ledger(ledger)
+    return w
+
+
+def test_ledger_round_trip_keeps_ids_in_any_order(tmp_path):
+    """Ids a build gave come back from the saved ledger whatever order the next build asks in."""
+    first = _writer(Ledger(ledger_path(tmp_path / 'Spike.esp')))
+    given = {key: first.derive_formid('site', key) for key in ('a', 'b', ('c', 1))}
+    first.stable_number('alias Q', 'T', lambda: 4)
+    first.ledger.save()
+    again = _writer(Ledger(ledger_path(tmp_path / 'Spike.esp')))
+    assert {key: again.derive_formid('site', key) for key in (('c', 1), 'b', 'a')} == given
+    assert again.stable_number('alias Q', 'T', lambda: 9) == 4
+    assert (tmp_path / 'Spike.formids.tsv').read_text(encoding='utf-8').splitlines() == sorted(
+        (tmp_path / 'Spike.formids.tsv').read_text(encoding='utf-8').splitlines())
+
+
+def test_ledger_ids_are_reserved_for_new_keys(tmp_path):
+    """A new key whose hash lands on a kept id takes another, so the kept record does not move."""
+    plain = _writer().derive_formid('site', 'new')
+    ledger = Ledger()
+    ledger.put(ID, 'site', 'old', plain & 0xFFFFFF)
+    w = _writer(ledger)
+    assert w.derive_formid('site', 'old') == plain
+    assert w.derive_formid('site', 'new') != plain
+
+
+def test_a_replaced_key_keeps_its_old_keys_id():
+    """With no ledger entry, a new key gets the id its legacy key hashes to, and is kept under the new key."""
+    w = _writer(Ledger())
+    fid = w.derive_formid('site', 'INFO x 1 at quest step', legacy='INFO x 1')
+    assert fid == _writer().derive_formid('site', 'INFO x 1')
+    assert w.ledger.get(ID, 'site', 'INFO x 1 at quest step') == fid & 0xFFFFFF
+
+
+def test_a_replaced_key_takes_over_the_id_the_ledger_kept_for_its_old_key():
+    """A key the ledger kept moves to its new key with its id (a re-hash would hit the kept id and move it)."""
+    first = _writer(Ledger())
+    old = first.derive_formid('site', 'DIAL x 1')
+    again = _writer(first.ledger)
+    assert again.derive_formid('site', 'DIAL x slot 1', legacy='DIAL x 1') == old
+    assert again.ledger.get(ID, 'site', 'DIAL x 1') is None
+    assert again.derive_formid('site', 'DIAL x 1') != old
+
+
+def test_new_id_refuses_two_records_on_one_key():
+    """Two generated records keyed alike would share a FormID: new_id raises instead."""
+    fake = SimpleNamespace(owned=collections.Counter(), keyed=set(), counts=collections.Counter(), writer=_writer())
+    CellBuilder.new_id(fake, 'INFO x 1', key='INFO x 1 at a')
+    assert CellBuilder.new_id(fake, 'INFO x 1', key='INFO x 1 at b') == _writer().derive_formid(MADE_SITE, 'INFO x 1 1')
+    with pytest.raises(ValueError):
+        CellBuilder.new_id(fake, 'INFO x 1', key='INFO x 1 at a')

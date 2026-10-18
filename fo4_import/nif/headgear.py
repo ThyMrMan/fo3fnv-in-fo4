@@ -2,7 +2,10 @@
 
 FNV draws headgear as a rigid mesh in its head's frame: the race head mesh's
 (characters\\head\\headhuman.nif), which an NPC's .egm then moves with the
-face. Fallout 4 draws worn meshes skinned: a BSSubIndexTriShape on a stub of
+face; or skinned, in its skeleton's space, which the Bip01 Head skin
+transforms of its shapes and of the head mesh carry into that frame
+(head_frame; every bone's part then moves with the head). Fallout 4 draws
+worn meshes skinned: a BSSubIndexTriShape on a stub of
 skeleton nodes, its vertices in model space shifted to the HEAD bone
 (vanilla BaseMaleHead.nif, Raider02MaskM.nif). The converted mesh is carried
 across by the fit of FO4's base head onto FNV's mean head (face.bake.align),
@@ -48,6 +51,8 @@ HAIR_SLOT, HAIR_LINE, BRIM_SECTOR = 30, 4.55, 15.0
 #: The most a hat is tipped back (radians) and the bisection steps that find the angle.
 MAX_TIP, TIP_STEPS = np.radians(20.0), 40
 BONE = 'HEAD'
+#: FNV's head bone, which skinned headgear and the race head mesh are skinned to.
+FNV_BONE = b'Bip01 Head'
 #: Vanilla head items' last segment's bone ID (Raider02MaskM.nif, FCaptainsHat.nif).
 HEAD_BONE_ID = 0x86B72980
 NO_PARENT = 0xFFFFFFFF
@@ -69,6 +74,31 @@ def rigid(path: Path) -> bool:
     with open(path, 'rb') as f:
         data.read(f)
     return not any(isinstance(b, NifFormat.NiGeometry) and b.skin_instance for b in data.blocks)
+
+
+def _head_skin(path: Path) -> 'tuple | None':
+    """(world transform, Bip01 Head skin transform) as 4x4 row-vector matrices of the first shape of the FNV mesh at
+    `path` skinned to Bip01 Head; None without one."""
+    data = NifFormat.Data()
+    with open(path, 'rb') as f:
+        data.read(f)
+    for geom in (b for b in data.blocks if isinstance(b, NifFormat.NiGeometry) and b.skin_instance):
+        skin = geom.skin_instance
+        for bone, bone_data in zip(skin.bones, skin.data.bone_list):
+            if bone and bone.name == FNV_BONE:
+                return (np.array(geom.get_transform(data.roots[0]).as_list()),
+                        np.array(bone_data.skin_transform.get_transform().as_list()))
+    return None
+
+
+def head_frame(path: Path, head_path: Path) -> 'np.ndarray | None':
+    """The 4x4 row-vector matrix moving converted skinned FNV headgear (`path`; convert_static places it in its
+    skeleton's space) into the frame of FNV's head mesh at `head_path`, through Bip01 Head's skin transform in each;
+    None when no shape of it is skinned to Bip01 Head."""
+    ours, head = _head_skin(path), _head_skin(head_path)
+    if ours is None or head is None:
+        return None
+    return np.linalg.inv(ours[0]) @ ours[1] @ np.linalg.inv(head[1])
 
 
 @dataclass
@@ -202,13 +232,16 @@ def _skin(nif, index: int, head_node: int, fit: HeadFit, slot: int, placed: tupl
     nif.blocks[index] = ('BSSubIndexTriShape', pack_tri_shape(shape) + _segments(len(shape['triangles']), slot))
 
 
-def worn(static_bytes: bytes, fit: HeadFit, slots: tuple) -> bytes:
+def worn(static_bytes: bytes, fit: HeadFit, slots: tuple, frame: 'np.ndarray | None' = None) -> bytes:
     """A converted FNV headgear NIF (convert_static's, its collision dropped) as FO4's worn mesh in `slots`:
-    placed by `fit`, tipped to the hair line when it hides hair (slot 30), kept clear of FO4's head."""
+    moved by `frame` into the head's frame when skinned (head_frame), placed by `fit`, tipped to the hair line
+    when it hides hair (slot 30), kept clear of FO4's head."""
     nif = without_havok(nif_file.read(static_bytes))
     root = nif.blocks[0][1]
     shapes = [i for i in root['children'] if nif.blocks[i][0] == 'BSTriShape']
     arrays = [shape_arrays(nif.blocks[i][1]) for i in shapes]
+    if frame is not None:
+        arrays = [(pos @ frame[:3, :3] + frame[3, :3], uv, nrm @ frame[:3, :3], tris) for pos, uv, nrm, tris in arrays]
     fnv_points = np.vstack([a[0] for a in arrays])
     points, turn = tipped(fit.placed(fnv_points)) if HAIR_SLOT in slots else (fit.placed(fnv_points), np.eye(3))
     points = np.split(fit.cleared(fnv_points, points), np.cumsum([len(a[0]) for a in arrays])[:-1])

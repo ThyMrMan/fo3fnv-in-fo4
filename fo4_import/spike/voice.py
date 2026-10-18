@@ -9,6 +9,7 @@ See: docs/fork/fo4_spikes.md#spike-1-voice
 """
 
 import re
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -66,18 +67,38 @@ def remove_stale(job_list: list, folders: list) -> int:
     return len(stale)
 
 
-def _convert_one(job: tuple, tools: tuple) -> bool:
-    """One recording to .fuz (or .xwm); False when it fails or decodes to silence."""
+def _copy_converted(written: Path, first: Path, dest: Path) -> bool:
+    """Copy `written` (what converting to `first` wrote: it, or the .xwm left when its lips failed) to `dest` as
+    the conversion would have written it; whether `dest` itself was written."""
+    target = dest if written == first else dest.with_suffix('.xwm')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(written, target)
+    if target.suffix.lower() == '.fuz':
+        dest.with_suffix('.xwm').unlink(missing_ok=True)
+    return target == dest
+
+
+def _convert_shared(source: tuple, destinations: list, tools: tuple) -> int:
+    """`source` (recording, transcript) converted once to the first of `destinations`, then copied to the rest;
+    how many destinations were written (none when it fails or decodes to silence)."""
+    first = destinations[0]
     try:
-        return convert_file_to_xwm(job[0], job[1], *tools, job[2]) and job[1].is_file()
+        if not convert_file_to_xwm(source[0], first, *tools, source[1]):
+            return 0
     except SilentSource:
-        return False
+        return 0
+    fallback = first.with_suffix('.xwm')
+    written = fallback if first.suffix.lower() == '.fuz' and fallback.is_file() else first
+    return int(written == first) + sum(_copy_converted(written, first, dest) for dest in destinations[1:])
 
 
 def convert(job_list: list, lipgen_dir: Path) -> int:
-    """Run every job (source, .fuz with a transcript or .xwm without) with the CK's xWMAEncode and LipGenerator;
-    return how many files were written."""
+    """Run every job (source, .fuz with a transcript or .xwm without) with the CK's xWMAEncode and LipGenerator,
+    each (source, transcript) once (_convert_shared); return how many files were written."""
     tools = (find_ffmpeg(need_decoder='vorbis'), str(lipgen_dir / 'xWMAEncode.exe'),
              str(lipgen_dir / 'LipGenerator.exe'))
+    shared = {}
+    for source, dest, text in job_list:
+        shared.setdefault((source, text), []).append(dest)
     with ThreadPoolExecutor() as pool:
-        return sum(pool.map(lambda job: _convert_one(job, tools), job_list))
+        return sum(pool.map(lambda item: _convert_shared(*item, tools), shared.items()))

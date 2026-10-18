@@ -13,6 +13,7 @@ from scipy.spatial import cKDTree
 from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import convert_static as C
 from fo4_import.nif import creature as CR
+from fo4_import.nif.addons import addon_map
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.face import bake as B
@@ -552,7 +553,9 @@ def test_a_fire_addon_maps_to_fo4s_by_name_and_a_damage_stage_one_is_left_out():
     export = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
     if not export.exists():
         pytest.skip('no FNV export')
-    values = [[b['value'] for k, b in F.read(F.write(C.convert(str(export / 'meshes' / m), str(export)).nif)).blocks
+    addons = addon_map(str(export))
+    values = [[b['value'] for k, b in F.read(F.write(C.convert(str(export / 'meshes' / m), str(export),
+                                                               addons=addons).nif)).blocks
                if k == 'BSValueNode'] for m in ('clutter/barrel02firelight.nif', 'vehicles/car03.nif')]
     assert values == [[4], []]
 
