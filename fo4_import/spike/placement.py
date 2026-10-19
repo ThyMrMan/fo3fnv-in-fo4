@@ -32,6 +32,8 @@ MARKER_TYPES = {1: 1, 2: 13, 3: 3, 4: 8, 5: 0, 6: 4, 7: 5, 8: 7, 9: 9, 10: 10, 1
 REFERRING = (b'XAPR', b'XESP')
 #: Ownership subrecords: kept only with an owner that converts.
 OWNERSHIP = (b'XOWN', b'XRNK')
+#: Cell children group types (child, persistent, temporary, visible distant): a reference's cell is their label.
+CELL_CHILDREN = (6, 8, 9, 10)
 #: FormIDs below this are engine forms both games share (the player, 0x14).
 ENGINE_FORMS = 0x800
 
@@ -45,6 +47,23 @@ def fields() -> dict:
         if found:
             out[rec.form_id] = found
     return out
+
+
+@functools.cache
+def open_rooms() -> frozenset:
+    """FNV FormIDs of the room markers and portals in cells where a portal leads to no room: left out, so FO4 draws
+    the whole cell (a corpse settling outside every room stays culled with the room it left).
+    See: docs/fork/fo4_pipeline.md#rooms
+    """
+    rooms, open_cells = {}, set()
+    for rec, stack in walk(source_esm(), b'REFR'):
+        subs = dict(subrecords(rec.body))
+        cell = next((g.label for g in reversed(stack.groups) if g.type in CELL_CHILDREN), None)
+        if b'XMBO' in subs or b'XPOD' in subs:
+            rooms.setdefault(cell, []).append(rec.form_id)
+        if 0 in struct.unpack_from('<2I', subs.get(b'XPOD', b'\1' * 8)):
+            open_cells.add(cell)
+    return frozenset(fid for cell in open_cells for fid in rooms[cell])
 
 
 def owned(found: list, owners: dict) -> 'bytes | None':

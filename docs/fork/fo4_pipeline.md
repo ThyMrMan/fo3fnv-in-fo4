@@ -530,6 +530,13 @@ Three fixes (`conditions.without_absent`, `spike/condition_forms.py`):
   those tests (an OR group, `Conversations._either`): Johnson Nash's "How's
   Primm these days?" has answers only once Primm has a sheriff, and showed
   with none before (fixed and played 2026-10-17).
+  When lines add more than one test, the "some answer passes" test is
+  spread into OR-groups: one per pick of a group from each line (an OR of
+  ANDs as FO4's AND of ORs), up to `MAX_CLAUSES` (16). Nash's "How can I
+  bring rule of law back to Primm?" showed after Beagle's rescue with no
+  answer passing (each needs stage 100, or Meyers 2 and NCR 0), and
+  choosing it stalled the talk; FNV hides such a topic. 8 options in the
+  region changed (fixed and played 2026-10-18).
 
 <a id="say-once"></a>**Say Once across copies (built 2026-10-15, not yet played).**
 In FNV, Say Once belongs to the NPC's line. Once it's said, the topic
@@ -981,6 +988,20 @@ converted NPCs speak none until FNV's own arrive with its dialogue.
       and `XRGD` from FalloutNV.esm itself.
   - Vanilla has the same layout: 1,725 portals are `NAME XPRM XPOD DATA`;
     601 room markers are `NAME XMBO XPRM DATA`.
+- **Corpses vanishing as the player walks up (fixed and played
+  2026-10-18: Bison Steve's convicts).** The bodies stayed lootable but
+  went undrawn. Bison Steve's two FNV rooms leave its lobby in no room;
+  the convicts died there. A patch turning the cell's 2 room markers and 6
+  portals into XMarkers (8 bytes) kept the bodies drawn. Our rooms match
+  vanilla's (XMBO half extents, XPRM equal to XMBO, persistent markers in
+  the persistent group), and vanilla has portals to no room too (51 of
+  1,726). The reading: a corpse that settles outside every room stays with
+  the room it left, culled once the camera is outside that room. In 29 of
+  FNV's 69 roomed interiors a portal leads to no room (188 of 849
+  portals); their room markers and portals (944 references) are left out
+  (`placement.open_rooms`), so FO4 draws the whole cell: no room culling
+  there, which the region's frame rate allows (118 cap at 24% GPU). The
+  region leaves out 14. Recorded in [drift](fo4_drift.md#recorded).
 - **A skeleton standing upright** (`Skeleton50sCasualMale` near Goodsprings):
   FNV lays a ragdolled object down with the reference's `XRGD` bone pose
   (bone id, 3 unused bytes, position, rotation: 28 bytes, as in FO4).

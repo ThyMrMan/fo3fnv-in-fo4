@@ -2062,6 +2062,14 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     mesh's lowest point (within 2) to a tread 8–24 above it is now a step
     from the ground, marked with its tread (shelf base boards qualify too).
     63 of the block's 179 mesh-collision models get stairs faces.
+  - *24-unit steps (fixed and played 2026-10-18: the Bison Steve stairs).*
+    FNV's kit stairs rise 24 units (`HtlHallSmStairs03`: treads 0, 24 …
+    288), which read 24.003 apart after the Havok scale, just past
+    RISER_MAX, so none was marked. Both riser tests now allow TOUCH, as
+    every other height test in the pass does: all 12 steps marked, with
+    risers; 37 of the region's 2,365 meshes change (hotel pieces, Bison
+    Steve's entrance, broken Old Town buildings, and 24-unit edges of
+    beds, shelves and a footlocker, which FNV's player could step onto).
 - **Items** (`fo4_import/spike/consumables.py`): consumables (ALCH) and
   ammunition (AMMO) were skipped wherever they appeared, and placed ones
   stood as static stand-ins. In this block: a Speech magazine and a 5.56
@@ -2540,6 +2548,17 @@ per sex. Pre-War Casualwear was played first (2026-10-08), then the rest
   sexy sleepwear's wrists: within 0.02 of FO4's edge after. Played: the
   wrist still looked wrong (FO4's hand too large for FNV's forearm);
   accepted (Skin, below).
+  - *Mutual pairs only (fixed and played 2026-10-18: Deputy Beagle's and a
+    Primm resident's left sleeves).* FNV's male body has wrist edges but no
+    neck edge, so FO4's neck took the nearest FNV edge, a tie the left
+    wrist won. Every male outfit's left wrist edge then had two targets
+    and part of it snapped onto the neck: 8 vertices of the leather armor's
+    `Arms02` at one point by the chest, edges up to 41.8 units (median
+    3.6), a spike from the elbow when the arm moved. An FO4 edge now pairs
+    only with the FNV edge that is nearest it and has it as its own
+    nearest (`_seams`); the male neck pairs with none, the female body's
+    neck edge still pairs with FO4's. After: longest edges 4.8 (leather)
+    and 4.2 (settler 02).
 - **Weights:** FO4's body's at each vertex's nearest surface point
   (barycentric), the four largest, normalized. Each shape's skin instance
   lists the body bones it uses; their bind data is the body's, with

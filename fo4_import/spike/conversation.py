@@ -32,6 +32,8 @@ See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
 import heapq
+import itertools
+import math
 from dataclasses import dataclass, field
 
 from fo4_import.base.writer import pack_topic
@@ -60,6 +62,8 @@ IS_ID, QUEST_RUNNING, GLOBAL_VALUE = C.FO4.index(SPEAKER_TEST), C.FO4.index('Get
 MIXED = ('mixed',)
 #: Topics an XDI menu takes, in this order (dialogue.menu_action): four player topics, then the NPC's.
 MENU_TOPICS = 5
+#: Most OR-groups an option's "some answer passes" test is spread into (its lines' groups multiplied).
+MAX_CLAUSES = 16
 
 
 @dataclass
@@ -284,17 +288,19 @@ class Conversations:
         return conditions_of(shared, self.form_map, self.say.script_vars, swap=True) or b''
 
     def _either(self, members: list) -> bytes:
-        """One OR-group (from the player's side) of what each line in `members` adds to the groups they share,
-        when each adds one test, so the option needs an answer that passes; b'' otherwise (a line adding nothing
-        always answers)."""
+        """OR-groups (from the player's side) holding when some line in `members` passes what it adds to the groups
+        they share: the lines' groups distributed, one OR-group per pick of a group from each line, so the option
+        needs an answer that passes; b'' when a line adds nothing (it always answers) or past MAX_CLAUSES.
+        See: docs/fork/fo4_pipeline.md#dialogue-conditions
+        """
         each = [_groups(r) for r in members]
         rest = [[g for g in groups if not all(g in other for other in each)
                  and not (len(g) == 1 and C.parse(g[0])['func'] == SPEAKER_TEST)] for groups in each]
-        if not all(len(r) == 1 and len(r[0]) == 1 for r in rest):
+        if not all(rest) or math.prod(len(r) for r in rest) > MAX_CLAUSES:
             return b''
-        tests = list(dict.fromkeys(r[0][0] for r in rest))
+        clauses = dict.fromkeys(tuple(dict.fromkeys(t for g in pick for t in g)) for pick in itertools.product(*rest))
         ored = [f'{int(raw[:2], 16) & ~OR | (OR if i < len(tests) - 1 else 0):02x}{raw[2:]}'
-                for i, raw in enumerate(tests)]
+                for tests in clauses for i, raw in enumerate(tests)]
         either = {f'Condition[{i}].Raw': raw for i, raw in enumerate(ored)}
         return conditions_of(either, self.form_map, self.say.script_vars, swap=True) or b''
 

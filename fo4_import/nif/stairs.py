@@ -21,7 +21,7 @@ See: docs/fork/fo4_spikes.md#spike-4-exterior
 
 import numpy as np
 
-#: Tallest step (game units) marked: vanilla's tallest stairs-material riser is 22 (hitextintstairs128).
+#: Tallest step (game units) marked, within TOUCH: vanilla's tallest stairs riser is 22; FNV kits use 24.
 RISER_MAX = 24.0
 #: Steps no taller than this are left plain (curbs, lips): FO4's player climbs them, but not 16 reliably.
 RISER_MIN = 8.0
@@ -62,7 +62,7 @@ def _beyond(flat: np.ndarray, tops: np.ndarray, top: float, mid: np.ndarray, out
         hit = _covers(flat, mid + out * reach)
         if (hit & (np.abs(tops - top) <= TOUCH)).any():
             break
-        lower = hit & (tops < top - TOUCH) & (tops >= top - RISER_MAX)
+        lower = hit & (tops < top - TOUCH) & (tops >= top - RISER_MAX - TOUCH)
         if lower.any():
             level = tops[lower].max()
             return lower & (tops >= level - TOUCH) if top - level > RISER_MIN else lower & False
@@ -98,7 +98,7 @@ def _ground_steps(corners: np.ndarray, nz: np.ndarray, treads: np.ndarray) -> se
     marked = set()
     for i in np.nonzero(nz <= VERTICAL)[0]:
         high, low = corners[i, :, 2].max(), corners[i, :, 2].min()
-        if low > base + 2 * TOUCH or not RISER_MIN < high - low <= RISER_MAX:
+        if low > base + 2 * TOUCH or not RISER_MIN < high - low <= RISER_MAX + TOUCH:
             continue
         edge = corners[i][corners[i, :, 2] >= high - TOUCH].mean(axis=0)
         on = _covers(corners[treads], edge[:2]) & (np.abs(tops - high) <= TOUCH)

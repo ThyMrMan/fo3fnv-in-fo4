@@ -17,6 +17,7 @@ here, so a later patch can close the gap. Content is never dropped.
 | Skills page | Pip-Boy Skills tab | LevelUpMenuEx's menu; the Pip-Boy shows FO4's SPECIAL and perks | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Traits | Effects on pick | Picked through LevelUpMenuEx; no effects until perks are converted | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Skill points per level | Granted at the level-up | Added when LevelUpMenuEx's menu next opens | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Rooms and portals in partly covered interiors | Rooms cull what is outside view; space in no room is drawn as seen | In the 29 interiors where a portal leads to no room, no rooms: the whole cell is drawn (no room culling) | [rooms](fo4_pipeline.md#rooms) |
 | Walking away mid-conversation | The talk ends | A one-menu scene ends; a multi-phase scene waits in its phase until the player returns | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Opening a talk | `StartConversation`, force greets and clicking all open the GREETING | A silent `...` greeting line starts the GREETING scene (its subtitle shows briefly) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Force greets | Dialogue package: walk up and talk | FO4 ForceGreet (its approach distance, dialogue camera) | [vcg01](fo4_spikes.md#spike-2-vcg01) |

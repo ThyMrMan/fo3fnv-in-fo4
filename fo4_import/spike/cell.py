@@ -41,7 +41,7 @@ from fo4_import.spike.idle_markers import IdleMarkers
 from fo4_import.spike.interiors import by_cell, scope
 from fo4_import.spike.vendors import merchants, with_chests, write_vendors
 from fo4_import.spike.script_packages import PROPERTY as SCRIPT_PACKAGES, quest_id as script_packages_quest, write_script_packages
-from fo4_import.spike.placement import map_markers, place, placement
+from fo4_import.spike.placement import map_markers, open_rooms, place, placement
 from fo4_import.spike.npcs import ACHR_KEY, NPC_KEY, Npcs
 from fo4_import.spike.packages import Packages, beds
 from fo4_import.spike.poses import Poses
@@ -441,7 +441,7 @@ def _built(builder: CellBuilder, refs: list) -> list:
     See: docs/fork/fo4_pipeline.md#audit
     """
     return [r for r in refs if int(r['NAME'], 16) not in builder.parts.parts
-            and builder.base(int(r['NAME'], 16)) is not None]
+            and builder.base(int(r['NAME'], 16)) is not None and int(r['FormID'], 16) not in open_rooms()]
 
 
 def _ref_ids(builder: CellBuilder, refs: list) -> dict:
@@ -459,6 +459,9 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
             continue
         if base is None:
             builder.counts[f'skipped {_base_type(builder, int(ref["NAME"], 16))}'] += 1
+            continue
+        if int(ref['FormID'], 16) in open_rooms():
+            builder.counts['rooms and portals left out (a portal to no room)'] += 1
             continue
         keep = bool(int(ref['RecordFlags']) & 0x400) or ref['FormID'] in teleports
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(

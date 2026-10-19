@@ -24,6 +24,7 @@ from fo4_import.nif import headgear as H
 from fo4_import.nif import outfit as O
 from fo4_import.nif.particle_blocks import PARTICLE_BLOCKS
 from fo4_import.nif import retarget as RT
+from fo4_import.nif import stairs as S
 from fo4_import.nif import tree as T
 from fo4_import.nif import weapon as W
 from fo4_import.spike.statics import write_assets
@@ -315,6 +316,29 @@ def test_seam_moves_the_edge_on_fnvs_body_edge_onto_fo4s_and_fades_inward():
     out = fit.seamed(pts, pts, tris)
     assert np.allclose(out[:4, 2], -1.0) and np.allclose(out[4:8, 2], 1.0 - 1.0 * (1 - 1 / 3))
     assert np.allclose(out[8:], pts[8:])
+
+
+def test_a_body_edge_fnv_lacks_gets_no_seam():
+    """FO4's wrists and neck against FNV's wrists alone: each wrist pairs with its own, the neck with none (it
+    took the left wrist on a tie, pulling left sleeves onto the neck)."""
+    def rims(xs):
+        """One open triangle per x: (points, triangles)."""
+        pts = np.array([(x + dx, 0.0, dz) for x in xs for dx, dz in ((0, 0), (1, 0), (0, 1))], float)
+        return pts, np.arange(len(pts)).reshape(-1, 3)
+    fo4, fnv = rims((-10.0, 0.0, 10.0)), rims((-10.0, 10.0))
+    seams = O._seams(*fo4, fnv, fnv[0])
+    assert [(round(e[:, 0].mean()), round(a[:, 0].mean())) for e, (a, _) in seams] == [(-10, -10), (10, 10)]
+
+
+def test_fnv_24_unit_steps_with_float_noise_are_marked():
+    """The hotel's 24-unit risers read 24.003 apart after the Havok scale; each step still gets the stairs material
+    and a riser."""
+    rise = 24.0034 / 7.0
+    tris = [tuple(tuple(c) for c in face) for i in range(3) for face in (
+        ((0, 4 * i, rise * i), (4, 4 * i, rise * i), (4, 4 * i + 4, rise * i)),
+        ((0, 4 * i, rise * i), (4, 4 * i + 4, rise * i), (0, 4 * i + 4, rise * i)))]
+    out, mats = S.stairs(tris, [0] * len(tris), 7.0, lambda m: m + 1)
+    assert len(out) - len(tris) == 4 and all(1 in mats[k:k + 2] for k in range(0, len(tris), 2))
 
 
 def test_skin_uv_extends_one_body_triangles_mapping_and_stretch_compares_uv_to_size():

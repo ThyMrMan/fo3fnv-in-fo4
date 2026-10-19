@@ -345,16 +345,18 @@ def _loops(edges: np.ndarray) -> list:
 
 
 def _seams(points: np.ndarray, tris: np.ndarray, fnv_body: tuple, anchors: np.ndarray) -> list:
-    """[(FNV edge points in FNV's frame, FO4 edge segments (a, b))]: each of FO4's body edges (wrists, neck)
-    with the FNV body edge whose retargeted centre is nearest its centre."""
+    """[(FNV edge points in FNV's frame, FO4 edge segments (a, b))]: FO4's body edges (wrists, neck) each with
+    the FNV body edge whose retargeted centre is nearest it, when each is the other's nearest; an FO4 edge FNV's
+    body lacks (FNV's has no neck edge) gets none.
+    See: docs/fork/fo4_spikes.md#spike-4-outfits
+    """
     fnv_points, fnv_tris = fnv_body
     fnv_loops = _loops(open_edges(fnv_points, fnv_tris))
-    centres = np.array([anchors[np.unique(loop)].mean(0) for loop in fnv_loops])
-    out = []
-    for loop in _loops(open_edges(points, tris)):
-        nearest = int(np.argmin(np.linalg.norm(centres - points[np.unique(loop)].mean(0), axis=1)))
-        out.append((fnv_points[np.unique(fnv_loops[nearest])], (points[loop[:, 0]], points[loop[:, 1]])))
-    return out
+    fo4_loops = _loops(open_edges(points, tris))
+    apart = np.linalg.norm(np.array([anchors[np.unique(loop)].mean(0) for loop in fnv_loops])[:, None]
+                           - np.array([points[np.unique(loop)].mean(0) for loop in fo4_loops])[None], axis=2)
+    return [(fnv_points[np.unique(fnv_loops[f])], (points[loop[:, 0]], points[loop[:, 1]]))
+            for k, loop in enumerate(fo4_loops) if apart[(f := int(apart[:, k].argmin()))].argmin() == k]
 
 
 def _nearest_on_segments(point: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
