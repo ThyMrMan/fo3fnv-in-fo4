@@ -592,12 +592,15 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
         built |= {prop for prop, scene in list(builder.scripts.talks.items())
                   if prop not in built and talks.talk(prop, scene)}
         record = quest_record(fid, rec, builder.scripts, ref_ids, talks.has_lines(),
-                              rec['EditorID'] not in HAND_STARTED, say.once.of(fid))
+                              rec['EditorID'] not in HAND_STARTED)
         builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics, talks.scenes))
         builder.counts['QUST'] += 1
         builder.counts['SCEN'] += len(talks.scenes)
     for prop in set(builder.scripts.talks) - built:
         builder.counts[f'{prop}: no lines in the cell quests'] += 1
+    if say.once.stages:
+        builder.writer.add_record('QUST', say.once.record())
+        builder.counts['Say Once markers'] = len(say.once.stages)
 
 
 def _hub(builder: CellBuilder, export_dir: Path, say: SayTopics, recs: list, quests: dict, form_map: dict) -> Hub:
@@ -629,7 +632,7 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
     talks.greeting(builder.packages.greets, builder.packages.topics)
     aliases = [(SPEAKER_ALIAS, 'Speaker', None), (LISTENER_ALIAS, 'Listener', None)]
     record = R.pack_fnv_quest(fid, f'FNV_{GREETINGS_EDID}', '', max((p for _, p in shared.quests.values()), default=0),
-                              quest_fragments('', []), say.once.of(fid), [], aliases, True)
+                              quest_fragments('', []), [], [], aliases, True)
     builder.writer.add_record('QUST', pack_quest(record, fid, [], talks.topics, talks.scenes))
     builder.counts['SCEN'] += len(talks.scenes)
     return built

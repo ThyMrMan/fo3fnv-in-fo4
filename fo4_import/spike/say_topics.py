@@ -14,14 +14,14 @@ See: docs/fork/fo4_spikes.md#spike-2-vcg01
 
 from pathlib import Path
 
-from fo4_import.base.vmad import info_fragments
+from fo4_import.base.vmad import info_fragments, object_scripts
 from fo4_import.base.writer import pack_topic
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike.poses import line_idle
 from fo4_import.spike.readiness import LINE, LINE_LEFT_OUT
-from fo4_import.spike.say_once import SayOnce
+from fo4_import.spike.say_once import SCRIPT as SAY_ONCE_SCRIPT, SayOnce
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import export_records
@@ -92,11 +92,22 @@ class SayTopics:
         dlbr = R.pack_dlbr(branch, f'FNV_{quest["EditorID"]}Branch', quest_fid, next(iter(topic_ids.values())))
         return dlbr, blobs
 
+    def _vmad(self, rec: dict, first: bool, last: bool, marked: list) -> bytes:
+        """FNV line `rec`'s VMAD: the `marked` scripts (its Say Once marker), then its converted fragments (Begin on
+        its first part, End on its last); b'' with neither."""
+        scripts, name = self.builder.scripts, f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
+        scripts.used += [SAY_ONCE_SCRIPT] if marked and SAY_ONCE_SCRIPT not in scripts.used else []
+        if scripts.dir and (scripts.dir / f'{name}.psc').exists() and (first or last):
+            scripts.used.append(name)
+            return info_fragments(name, scripts.properties(name), begin='Fragment_1' if first else None,
+                                  end='Fragment_0' if last else None, scripts=marked)
+        return object_scripts(marked) if marked else b''
+
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
              target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '') -> bytes:
         """One FNV line as an FO4 INFO of quest `owner`; b'' when a condition cannot convert.
 
-        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once (marker in `owner`);
+        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once (say_once marks it);
         `extra` CTDAs join its conditions, Target tests on alias `target`; `speaker` its NPC; `place` names
         this copy (quest, step) for its FormID. A split line's later parts have no conditions or Say Once;
         the first runs the Begin fragment, the last the End one; the part opening barter ends the scene.
@@ -112,22 +123,17 @@ class SayTopics:
         self.builder.readiness.add(LINE, quest, rec['FormID'].upper())
         line = f'INFO {rec["FormID"]} {rec.get(PART, 1)}'
         fid = self.builder.new_id(line, key=f'{line} at {place}' if place else None)
-        name = f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
-        scripts, vmad = self.builder.scripts, b''
-        if scripts.dir and (scripts.dir / f'{name}.psc').exists() and (first or last):
-            vmad = info_fragments(name, scripts.properties(name), begin='Fragment_1' if first else None,
-                                  end='Fragment_0' if last else None)
-            scripts.used.append(name)
-        lines = [rec[f'Response[{i}].ResponseText'] for i in range(int(rec.get('ResponseCount', 0) or 0))]
         once = first and int(rec.get('DATA.Flags', 0)) & SAY_ONCE
+        marked = [self.once.script(rec['FormID'])] if once and owner else []
+        vmad = self._vmad(rec, first, last, marked)
+        lines = [rec[f'Response[{i}].ResponseText'] for i in range(int(rec.get('ResponseCount', 0) or 0))]
         flags |= R.INFO_SAY_ONCE if once else 0
         flags |= R.INFO_END_SCENE if opens_barter(rec, first, last) else 0
-        marker = self.once.stage(owner, rec['FormID']) if once and owner else R.NO_STAGE
-        extra += self.once.unsaid(owner, [rec['FormID']]) if marker != R.NO_STAGE else b''
+        extra += self.once.unsaid([rec['FormID']]) if marked else b''
         self.voiced.append((fid, rec))
         self.builder.counts['INFO'] += 1
         return R.pack_info(fid, flags, tuple(lines) or ('...',), conditions + extra, scene=scene[0], phase=scene[1],
-                           phase_index=scene[2] if len(scene) > 2 else 0, stages=(marker, R.NO_STAGE),
+                           phase_index=scene[2] if len(scene) > 2 else 0, stages=(R.NO_STAGE, R.NO_STAGE),
                            notes=f'FNV {rec["FormID"]}', vmad=vmad, idle=line_idle(rec['FormID']) or 0,
                            speaker=speaker)
 

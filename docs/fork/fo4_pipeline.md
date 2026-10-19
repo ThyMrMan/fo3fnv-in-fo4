@@ -460,6 +460,18 @@ reference pulled in 272 quests, the main quest to the Strip; any-parameter
 line matches (a caps or weapon check) 154. The rule gives 60 for
 Goodsprings to Primm. FNV FormIDs stay one to one.
 
+*Writes count (built 2026-10-18).* A quest whose variables a built script
+writes (an atomic add or an assignment) is built too, as one it starts:
+VCG01's psych test answers tally in `VCG01Test`, which was left out, so
+Doc's stage 85 tag skills read zeros. Goodsprings to Primm gains 9 quests
+(69 FNV quests): VCG01Test (VCG01), Generic (Doctors, VDoctors),
+VDialogueArcadeGannon, VDialogueCass and vDialogueLily (VNPCFollowers),
+VEFR02NCRBad2MostWanted (VFactionSquad), VFreeformNellis
+(VDialogueCrimsonCaravan), VMS08 (VFreeformMcCarran) and
+vFreeformTheStreet02 (the three Victor quests); 3,203 new FormIDs (2,239
+topics, 489 scenes, 270 lines, 174 globals), none moved. VCG01's unfilled
+properties drop from 74 to 3, the intended Pip-Boy glove and hand-over idle.
+
 The shared greeting and the scenes it leads to belonged to the highest
 priority built quest and were keyed on it, so a higher-priority quest
 joining moved all of them (917 topics and 208 scenes when VMS38 joined).
@@ -538,7 +550,7 @@ Three fixes (`conditions.without_absent`, `spike/condition_forms.py`):
   choosing it stalled the talk; FNV hides such a topic. 8 options in the
   region changed (fixed and played 2026-10-18).
 
-<a id="say-once"></a>**Say Once across copies (built 2026-10-15, not yet played).**
+<a id="say-once"></a>**Say Once across copies (built 2026-10-15; markers moved to their own quest 2026-10-19).**
 In FNV, Say Once belongs to the NPC's line. Once it's said, the topic
 drops out of every menu.
 - **The problem.** The build makes a copy of a line for each menu or step
@@ -548,21 +560,30 @@ drops out of every menu.
 - **Size (2026-10-15).** 234 Say Once lines; 84 had more than one copy
   (61 two, 14 three, 4 four, 5 seven).
 - **The fix (`spike/say_once.py`).** A Say Once line gets one marker stage
-  in the quest its copy sits in.
-  - Each copy sets the stage as it begins (TIQS). It plays only while the
-    stage is not done (GetStageDone == 0).
+  in one marker quest, `FNV_TES4SayOnce` (start game enabled).
+  - Each copy carries the `TES4_SayOnce` script (properties: the marker
+    quest and the stage), whose `OnBegin` sets the stage as the copy
+    begins; `OnBegin` runs beside the line's own fragments (vanilla's
+    `TopicInfo.psc`). It plays only while the stage is not done
+    (GetStageDone == 0 on the marker quest).
   - A player option whose answers are all Say Once shows while one of them
     is unsaid (one OR-group).
-  - The quest lists its marker stages.
+  - One marker per line, so a line with copies in two quests (the greeting
+    quest and VFreeformGoodsprings) hides in both once said.
+- **Why not the line's own quest (the first build, played 2026-10-19).**
+  The markers first sat in the quest of each copy, set by TIQS (which can
+  set only the INFO's own quest). FO4's GetStage, in scripts and conditions
+  alike, reads a quest's *highest done* stage (CK wiki,
+  `GetCurrentStageID`), so the first marker said stood in for the story
+  stage: VCG01 read 22583 after "You're awake", its timer's
+  `GetStage() == 5` never held and the intro stalled, while every
+  `GetStage >= n` condition passed, so Doc stood up and gave his "please,
+  have a seat" greeting. Any quest with a Say Once line was affected.
+  Saves that heard a Say Once line under that build keep such a stage.
 - **Stage numbers.** Each is hashed from the FNV line: 10000 + CRC32 mod
-  55000, clear of FNV's authored stages. They stay put as content arrives;
-  a collision moves up one.
-- **Gaps.**
-  - Two lines have copies in two quests (the greeting quest and
-    VFreeformGoodsprings). Each quest keeps its own marker, so saying one
-    copy hides only that quest's copies.
-  - On an existing save, a line already heard through one copy can show
-    once more through another.
+  55000. They stay put as content arrives; a collision moves up one.
+- **Gap.** On an existing save, a line already heard through one copy can
+  show once more through another.
 
 <a id="karma-page"></a>**Karma page (built 2026-10-14).** Karma is the
 `TES4Karma` global the scripts' RewardKarma sets (Karma conditions on the

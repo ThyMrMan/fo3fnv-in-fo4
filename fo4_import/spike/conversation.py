@@ -271,7 +271,7 @@ class Conversations:
         else:
             shown = self._shared(members) + self._either(members) + self._speakers(members)
         shown += self._running(members[0]) + self._gate(dial)
-        shown += self.say.once.unsaid(self.fid, [r['FormID'] for r in members]) if once else b''
+        shown += self.say.once.unsaid([r['FormID'] for r in members]) if once else b''
         owner, take = f'INFO prompt {dial} {text}', self.say.builder.new_id
         player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), once, (text,), shown, prompt=text))
         player += [R.pack_info(take(owner, key=f'{owner} at {place} pad {i}')) for i in range(1, len(answers))]

@@ -5,7 +5,8 @@ entries and property layout (`script_convert.pipeline.script_entry`). The
 fragment blocks differ: bind data version 3, an INFO's block embeds the whole
 script entry (its properties included) where Skyrim names only the file, and
 a quest stage fragment's stage is 32 bits. Vanilla Fallout 4 INFOs and quests
-with fragments attach no other scripts.
+with fragments attach no other scripts; the format lists plain scripts before the
+fragment block, which the build uses for TES4_SayOnce on Say Once lines.
 
 See: docs/fork/fo4_spikes.md#spike-3-vmad
 """
@@ -35,17 +36,19 @@ def object_scripts(scripts: list) -> bytes:
     return _header(len(scripts)) + b''.join(script_entry(*s) for s in scripts)
 
 
-def _fragment_block(script: str, flags: int, fragments: list, object_props: dict, value_props: dict) -> bytes:
-    """A fragment VMAD: `script` and `fragments`, one per set bit of `flags`."""
-    out = _header() + struct.pack('<bB', BIND_DATA, flags) + script_entry(script, object_props, value_props)
+def _fragment_block(script: str, flags: int, fragments: list, object_props: dict, value_props: dict,
+                    scripts: list = ()) -> bytes:
+    """A fragment VMAD: plainly attached `scripts`, then `script` and `fragments`, one per set bit of `flags`."""
+    out = _header(len(scripts)) + b''.join(script_entry(*s) for s in scripts)
+    out += struct.pack('<bB', BIND_DATA, flags) + script_entry(script, object_props, value_props)
     return out + b''.join(struct.pack('<B', 1) + pack_wstring(script) + pack_wstring(f) for f in fragments)
 
 
 def info_fragments(script: str, object_props: dict = None, value_props: dict = None,
-                   begin: str = 'Fragment_Begin', end: str = 'Fragment_End') -> bytes:
-    """An INFO's VMAD: `script`'s OnBegin and OnEnd fragments (None: left out)."""
+                   begin: str = 'Fragment_Begin', end: str = 'Fragment_End', scripts: list = ()) -> bytes:
+    """An INFO's VMAD: plain `scripts`, then `script`'s OnBegin/OnEnd (None: left out)."""
     flags = (INFO_BEGIN if begin else 0) | (INFO_END if end else 0)
-    return _fragment_block(script, flags, [f for f in (begin, end) if f], object_props, value_props)
+    return _fragment_block(script, flags, [f for f in (begin, end) if f], object_props, value_props, scripts)
 
 
 def package_fragments(script: str, flags: int, object_props: dict = None, value_props: dict = None) -> bytes:

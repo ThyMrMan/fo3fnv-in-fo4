@@ -24,6 +24,10 @@ from fo4_import.spike import equipment as E
 from fo4_import.spike import factions as FA
 from fo4_import.spike import gun_choice as GC
 from fo4_import.spike import sounds as SO
+from fo4_import.spike import quest_scope as QS
+from fo4_import.spike import say_once as SO1
+from fo4_import.base import vmad as VM
+from tools.validate import fo4_audit as AU
 from fo4_import.spike import replacements as RP
 from fo4_import.spike import imods as I
 from fo4_import.spike import imagespace as IM
@@ -673,3 +677,27 @@ def test_an_npc_takes_its_fnv_voice_type_in_place_of_its_bodys():
     out = dict(subrecords(with_voice(0x0310512F)(subs)))
     assert struct.unpack('<I', out[b'VTCK'])[0] == 0x0310512F and out[b'RNAM'] == b'\2\0\0\0'
     assert with_voice(None) is None
+
+
+def test_quest_scope_counts_writes_to_a_quests_variables():
+    """A script starting, advancing, adding to or setting a quest's variable pulls the quest in; a read or a
+    comparison does not (VCG01's psych test answers tally in VCG01Test)."""
+    text = ('VCG01Test.TES4Add_nBarter((2))\nVMS01.LookingForStealthBoys = 1\nTES4SetStage(VCG02, 10)\n'
+            'VDoctors.Start()\nIf Generic.Cost == 3\nx = VFreeformNellis.State\n')
+    found = {n for m in QS.STARTS.finditer(text) for n in m.groups() if n}
+    assert found == {'VCG01Test', 'VMS01', 'VCG02', 'VDoctors'}
+
+
+def test_say_once_markers_live_in_their_own_quest_and_ride_on_the_line():
+    """A Say Once line's marker is a stage of the marker quest (FO4's GetStage reads a quest's highest done stage,
+    so a marker in the line's own quest hid its story stage); the line carries TES4_SayOnce beside its fragments."""
+    once = SO1.SayOnce()
+    once.quest = 0x0300ABCD
+    stage = once.stage('00104BEE')
+    assert SO1.FIRST <= stage < SO1.FIRST + SO1.COUNT and once.stage('00104bee') == stage
+    ctda = once.unsaid(['00104BEE'])
+    assert struct.pack('<II', 0x0300ABCD, stage) in ctda
+    vmad = VM.info_fragments('FALLOUTNV_TIF__00104BEE', {}, begin='Fragment_1', end='Fragment_0',
+                             scripts=[once.script('00104BEE')])
+    assert [s for s, _ in AU.vmad_scripts(b'INFO', vmad)] == ['TES4_SayOnce', 'FALLOUTNV_TIF__00104BEE']
+    assert dict(AU.vmad_scripts(b'INFO', vmad))['TES4_SayOnce'] == {'Marks': 0x0300ABCD}

@@ -7,8 +7,10 @@ GetIsReference on a placed reference, a GetInCell on a built cell). A
 quest is named by a converted script's property of its name (attach.py
 fills properties by FNV EditorID) or by a condition on it. Each such quest
 adds the quests its own scripts (quest script, stage results, its lines'
-results) start or set a stage on, one step: those run when it does. A
-quest it only reads stays out, and the readiness report shows the read.
+results) start, set a stage on or write a variable of, one step: those run
+or keep state when it does (VCG01's psych test answers tally in
+VCG01Test). A quest it only reads stays out, and the readiness report shows
+the read.
 
 See: docs/fork/fo4_pipeline.md#quest-scope
 """
@@ -28,8 +30,9 @@ SCRIPT_PREFIX = 'FALLOUTNV_'
 PARAMS = (12, 16)
 #: FNV condition functions that say who speaks a line or where: GetIsID, GetIsReference, GetInCell.
 GET_IS_ID, GET_IS_REFERENCE, GET_IN_CELL = 72, 136, 67
-#: A converted call starting or advancing the quest it names: the helpers taking it first, or its own methods.
-STARTS = re.compile(r'\b(?:TES4Start|TES4SetStage|StartForObjective)\(\s*\(?(\w+)|\b(\w+)\.(?:SetStage|Start)\(')
+#: A converted call starting or advancing a quest, or writing its variable (TES4Add_<variable>, assignment).
+STARTS = re.compile(r'\b(?:TES4Start|TES4SetStage|StartForObjective)\(\s*\(?(\w+)'
+                    r'|\b(\w+)\.(?:SetStage\(|Start\(|TES4Add_\w+\(|\w+\s*=(?!=))')
 
 
 class QuestScope:
@@ -70,7 +73,8 @@ class QuestScope:
         return out
 
     def _starts(self, quest: dict) -> set:
-        """Quests an FNV quest's scripts start or set a stage on: quest script, stage results, lines' results."""
+        """Quests an FNV quest's scripts start, set a stage on or write a variable of: quest script, stage results,
+        lines' results."""
         out = self._script(quest.get('SCRI'))[1] | self._file(f'{QUEST_PREFIX}{quest["EditorID"]}')[1]
         for line in self.lines[int(quest['FormID'], 16)]:
             out |= self._file(f'{FRAGMENT_PREFIX}{line["FormID"].upper()}')[1]
@@ -82,8 +86,8 @@ class QuestScope:
         return self._file(papyrus_script_name(name, SCRIPT_PREFIX)) if name else (set(), set())
 
     def _file(self, script: str) -> tuple:
-        """(quests a converted script's properties name, quests it starts or sets a stage on), by FNV EditorID;
-        empty when it was not converted."""
+        """(quests a converted script's properties name, quests it starts, sets a stage on or writes a variable of),
+        by FNV EditorID; empty when it was not converted."""
         if script not in self.read:
             path = self.dir / f'{script}.psc' if self.dir else None
             text = path.read_text(encoding='utf-8') if path and path.exists() else ''
