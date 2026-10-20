@@ -19,6 +19,9 @@ See: docs/fork/fo4_idles.md#records
 import struct
 from pathlib import Path
 
+from external.pynifly_hkx.anim_fo4 import parse_fo4_animation, write_fo4_animation
+from fo4_import.base.ba2 import Archives
+from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.havok.human_clip import HumanClips
 from fo4_import.pipeline.export_index import export_records
@@ -27,6 +30,10 @@ from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
 #: Whether FNV idles convert at all: off until the clip encoder plays safely in game (docs/fork/fo4_idles.md).
 CONVERT = False
+#: Encoder probe (fo4_idles.md#encoder-test), {FNV idle: (vanilla clip, re-encoded, seconds kept or None)}.
+PROBE = {'VCG01DocGiveMirror': None}
+#: The archive holding vanilla's clips (under Meshes).
+ANIMATIONS = 'Fallout4 - Animations.ba2'
 #: Behavior graphs: standing (the human root) and a chair's (AnimFurnChairSitAnims, HumanRaceSubGraphData).
 ROOT_GRAPH = 'Actors\\Character\\Behaviors\\RaiderRootBehavior.hkx'
 FURNITURE_GRAPH = 'Actors\\Character\\Behaviors\\FurnitureBehavior.hkx'
@@ -58,7 +65,7 @@ class Idles:
     def idle(self, fnv: int, scripted: bool = False) -> 'int | None':
         """The FO4 FormID of FNV idle `fnv`, played by a script when `scripted`; None when it is left out (the
         module notes)."""
-        if not CONVERT:
+        if not CONVERT and self.records.get(fnv, {}).get('EditorID') not in PROBE:
             return None
         why = '' if scripted and self._reason(fnv) == SEATED else self._reason(fnv)
         if why:
@@ -98,7 +105,10 @@ class Idles:
         for fnv, fid in sorted(self.used.items()):
             rec = self.records[fnv]
             clip = Path(FO4_CLIPS, self.plugin, rec['Model.MODL'][len(FNV_HUMAN):]).with_suffix('.hkx')
-            self.clips.write(rec['Model.MODL'], data_dir / 'Meshes' / clip)
+            if PROBE.get(rec['EditorID']):
+                clip = self._probe(*PROBE[rec['EditorID']], data_dir)
+            else:
+                self.clips.write(rec['Model.MODL'], data_dir / 'Meshes' / clip)
             conditions = conditions_of(rec, self.form_map, self.builder.script_vars)
             if conditions is None:
                 self.builder.counts['idle conditions not converted'] += 1
@@ -106,6 +116,34 @@ class Idles:
             self.builder.writer.add_record('IDLE', pack_idle(fid, rec, conditions or b'', (graph, str(clip)),
                                                              self.used))
             self.builder.counts['IDLE' + (' (seated, scripted)' if graph == FURNITURE_GRAPH else '')] += 1
+
+
+    def _probe(self, vanilla: str, encoded: bool, seconds: 'float | None', data_dir: Path) -> Path:
+        """The clip a PROBE idle plays: vanilla's own path, or its clip decoded and written by our encoder,
+        cut to its first `seconds` when given.
+        See: docs/fork/fo4_idles.md#encoder-test
+        """
+        if not encoded:
+            return Path(vanilla)
+        raw = Archives(FALLOUT4_DIR / 'Data', ANIMATIONS).read('meshes\\' + vanilla.lower())
+        clip = Path(FO4_CLIPS, self.plugin, 'Probe', Path(vanilla.replace('\\', '/')).name)
+        (data_dir / 'Meshes' / clip).parent.mkdir(parents=True, exist_ok=True)
+        anim = parse_fo4_animation(raw)
+        write_fo4_animation(str(data_dir / 'Meshes' / clip), trimmed(anim, seconds) if seconds else anim)
+        self.builder.counts['idle probe clip re-encoded'] += 1
+        return clip
+
+
+def trimmed(anim, seconds: float):
+    """`anim` (anim_fo4.AnimationData) cut to its first `seconds`, in place; its events past the cut dropped."""
+    frames = min(anim.num_frames, round(seconds / anim.frame_duration) + 1)
+    anim.num_frames, anim.duration = frames, (frames - 1) * anim.frame_duration
+    anim.num_blocks = -(-(frames - 1) // (anim.max_frames_per_block - 1)) or 1
+    for track in anim.tracks:
+        track.translations, track.rotations, track.scales = (
+            track.translations[:frames], track.rotations[:frames], track.scales[:frames])
+    anim.annotations = [a for a in anim.annotations if a.time <= anim.duration]
+    return anim
 
 
 def pack_idle(fid: int, rec: dict, conditions: bytes, clip: tuple, built: dict) -> bytes:

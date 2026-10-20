@@ -158,7 +158,9 @@ def seats(marks: list, active: int, bounds: tuple) -> list:
 
     FNV's marker is where the actor stands, in front of the seat; FO4's sits
     SEAT_DEPTH behind the front of `bounds`, facing out. Without a front
-    marker the seat comes from the side markers (_side_fronts).
+    marker the seat comes from the side markers (_side_fronts). A lone seat
+    entered from the front is also left from both sides, as most of vanilla's.
+    See: docs/fork/fo4_spikes.md#spike-2-furniture
     """
     fronts = [m for m in marks if m[4] == SIT_FRONT] or _side_fronts(marks, bounds)
     sides = [0] * len(fronts)
@@ -169,6 +171,8 @@ def seats(marks: list, active: int, bounds: tuple) -> list:
         x, y, _, heading, _ = fronts[k]
         right = _right(heading + math.pi)
         sides[k] |= FRONT if slot == SIT_FRONT else RIGHT if (mx - x) * right[0] + (my - y) * right[1] > 0 else LEFT
+    if len(sides) == 1 and sides[0] & FRONT:
+        sides[0] |= LEFT | RIGHT
     out = []
     for (x, y, z, heading, _), side in zip(fronts, sides):
         facing = (heading + math.pi) % math.tau

@@ -1125,6 +1125,11 @@ def parse_fo4_skeleton(raw: bytes) -> Optional[Skeleton]:
     return _parse_skeleton_hkx(raw)
 
 
+def parse_fo4_animation(raw: bytes) -> Optional[AnimationData]:
+    """A FO4 animation from binary HKX bytes (e.g. read from a BA2); None without one."""
+    return _parse_animation_hkx(raw)
+
+
 def load_fo4_skeleton(filepath: str) -> Optional[Skeleton]:
     """Load a FO4 skeleton from a binary HKX file.
 

@@ -32,6 +32,8 @@ COM = 'COM'
 HEAD_TRACKING = ('HeadTrackingOff', 'HeadTrackingOn')
 #: Every track's scale: vanilla clips carry none (skeleton.hkx's are off 1 by up to 4e-5, which would write a channel).
 UNIT_SCALE = 1.0
+#: Every annotation track's name: vanilla leaves them blank (all 1,500 clips surveyed in fo4_idles.md#encoder-test).
+TRACK_NAME = ''
 #: A seated first frame: each thigh's drop over its length below [0], the pelvis below [1] of its rest height.
 SEATED = (0.5, 0.75)
 #: FNV finger chain (Bip01 <side> ...) -> FO4 finger number, thumb first.
@@ -91,6 +93,7 @@ class HumanClips:
         moved = retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,))
         events = [(0.0, HEAD_TRACKING[0]), (float(clip.duration), HEAD_TRACKING[1])]
         anim = clip_to_animation_data(moved, self.fo4.names, self.pose, events)
+        anim.bone_names = [TRACK_NAME] * anim.num_tracks
         out.parent.mkdir(parents=True, exist_ok=True)
         write_fo4_animation(str(out), anim)
 

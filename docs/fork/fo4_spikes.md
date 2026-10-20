@@ -1122,7 +1122,13 @@ Exit to Talk, record flag Must Exit To Talk and XMRK `Markers\SleepBed.nif`.
   the front edge (quartiles 16 and 21), at floor height, facing out. A seat
   is FNV's front marker turned by π and moved to 18 behind the front edge,
   keeping its sideways position and height; each active marker adds its
-  side.
+  side. A lone seat entered from the front is also left from both sides
+  (entry 0xFD): of vanilla's 75 one-seat sit furniture, 21 are 0xFD and 38
+  0xFF, only 10 front only (0xF1). Front only, Doc stood up from the
+  wake-up chair (`Chair01F`) straight into the seated player and stuck
+  there about 90% of the time. Played 2026-10-20: he stands out of the
+  chair to its side and walks on without sticking (7 chair bases in the
+  region change; couches and side-entry chairs do not).
 - **Beds.** FO4 and FNV beds both lie along Y with the headboard at +Y
   (tallest end, 5 vanilla beds and both FNV beds). Vanilla bed markers face
   +X (heading π/2) across the bed, at the middle of their lane: 0.5 of the
@@ -1812,6 +1818,20 @@ walking). Each is a type 6 package whose only content is a special idle
 **Played (2b, 3):** Doc walks to his chair and sits, the word association
 starts, and the whole test runs through to its end and Doc's walk to the
 door; the outro there is next.
+
+**Seen once, not reproduced (2026-10-19): no controls after the
+Vit-o-matic.** After the SPECIAL menu closed, the player could not move or
+open the pause menu (alt-tab, then the mouse, got out). Repeated runs did
+not show it again; possibly an FO4 glitch. The Papyrus log for that run:
+the menu opened at 23:49:33 and closed at 23:49:41 with the chosen values,
+Doc's reaction and psych-intro lines played, stage 80 set at 23:50:02, and
+quest timers kept running to 23:50:24 (so the game was not paused under an
+invisible menu). No script in stages 60 to 80 changes controls; stage 55
+enables movement. The pause menu was blocked by design of the conversion,
+not by the fault: FNV's stage 55 disables the Pip-Boy, mapped to FO4's
+menu flag (`TES4_PlayerControls.Disable`'s `abMenu`), which also blocks the
+pause menu until stage 110. If it shows again: note how the SPECIAL menu
+was closed, and trace the controls layer when it closes.
 
 **Played (step 1):** from the start marker beside the bed (player.moveto, as the hallway the vigor tester trigger covers lies between the coc door and the bed), stage 55 shows the walk objective, the trigger sets 60 and completes it, and with objective 30 shown by hand the Vit-o-matic sets 65. The trigger fires on any entry and starts the quest if it is not running, as in FNV, where the player cannot reach it before 55.
 

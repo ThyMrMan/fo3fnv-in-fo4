@@ -16,6 +16,7 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base import strings as ST
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import FO4PluginWriter
+from fo4_import.havok import human_clip as HC
 from fo4_import.nif import collision as CO
 from fo4_import.nif import file as nf
 from fo4_import.spike import conditions as CD
@@ -41,6 +42,7 @@ from fo4_import.spike import locations as LO
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import actor_data as AD
+from fo4_import.spike import idles as ID
 from fo4_import.spike import packages as PK
 from fo4_import.spike import npcs as N
 from fo4_import.spike import placement as PL
@@ -897,3 +899,40 @@ def test_a_decal_keeps_fnv_data_but_fo4_shininess_and_shared_flags():
     fnv = struct.pack('<7fBB2s4s', 25, 45, 25, 45, 32, 300, 1.0, 4, 0xCA, b'\xcd\xcd', b'\xb4\x18\x07\x00')
     out = struct.unpack('<7fBB2s4s', DE.decal_data(fnv))
     assert out[:5] == (25, 45, 25, 45, 32) and out[5] == 1.0 and out[7:] == (4, 0x0A, bytes(2), b'\xb4\x18\x07\x00')
+
+
+def test_with_conversion_off_only_the_probe_idle_is_built(monkeypatch):
+    """CONVERT off: an idle PROBE names is handed out (scripted, seated allowed); any other is not."""
+    idles = ID.Idles.__new__(ID.Idles)
+    idles.builder = SimpleNamespace(fnv_id=lambda fnv: 0x0B000000 | fnv, counts=Counter())
+    idles.records = {0x1: {'EditorID': 'VCG01DocGiveMirror'}, 0x2: {'EditorID': 'SomeOtherIdle'}}
+    idles.used, idles.counted, idles.checked = {}, set(), {0x1: ID.SEATED, 0x2: ''}
+    monkeypatch.setattr(ID, 'CONVERT', False)
+    monkeypatch.setattr(ID, 'PROBE', {'VCG01DocGiveMirror': (r'Actors\X.hkx', False, None)})
+    assert idles.idle(0x1, scripted=True) == 0x0B000001 and idles.idle(0x2, scripted=True) is None
+    assert idles._probe(r'Actors\X.hkx', False, None, Path('.')) == Path(r'Actors\X.hkx')
+
+
+def test_converted_clip_leaves_its_track_names_blank(monkeypatch, tmp_path):
+    """A converted FNV clip's annotation tracks are unnamed, as vanilla's are (named ones crashed Havok)."""
+    written = []
+    clips = HC.HumanClips.__new__(HC.HumanClips)
+    clips.meshes, clips.fnv, clips.fo4, clips.deltas, clips.pose = tmp_path, None, SimpleNamespace(names=['Root']), {}, {}
+    monkeypatch.setattr(HC, 'decode_kf', lambda path: [SimpleNamespace(duration=1.0)])
+    monkeypatch.setattr(HC, 'retarget_clip', lambda *a, **k: None)
+    monkeypatch.setattr(HC, 'clip_to_animation_data',
+                        lambda *a: SimpleNamespace(num_tracks=2, bone_names=['Root', 'COM']))
+    monkeypatch.setattr(HC, 'write_fo4_animation', lambda path, anim: written.append(anim.bone_names))
+    clips.write('x.kf', tmp_path / 'out' / 'x.hkx')
+    assert written == [['', '']]
+
+
+def test_trimmed_clip_keeps_its_first_seconds_and_their_events():
+    """A 10.7 s clip cut to 3 s keeps 91 frames per track, one block, and only the events inside the cut."""
+    track = SimpleNamespace(translations=list(range(322)), rotations=list(range(322)), scales=list(range(322)))
+    anim = SimpleNamespace(num_frames=322, frame_duration=1 / 30, duration=10.7, num_blocks=2,
+                           max_frames_per_block=256, tracks=[track],
+                           annotations=[SimpleNamespace(time=0.0), SimpleNamespace(time=5.0)])
+    ID.trimmed(anim, 3.0)
+    assert (anim.num_frames, anim.num_blocks, len(track.rotations), len(anim.annotations)) == (91, 1, 91, 1)
+    assert abs(anim.duration - 3.0) < 1e-6

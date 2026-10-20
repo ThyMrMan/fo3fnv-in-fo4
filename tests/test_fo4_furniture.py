@@ -48,6 +48,13 @@ def test_stool_seat_is_where_the_enter_animation_leaves_the_actor():
     assert (words, marker) == F.SLOT_SEATS[F.SIT_STOOL]
 
 
+def test_lone_front_seat_is_also_left_from_both_sides():
+    """A one-seat chair FNV enters from the front only gets vanilla's usual 0xFD; a two-seat couch keeps 0xF1."""
+    front = lambda x: (x, 40.0, 0.0, math.pi, F.SIT_FRONT)
+    assert [s[4] for s in F.seats([front(0.0)], 1, (-20, -20, 0, 20, 20, 40))] == [0xFD]
+    assert [s[4] for s in F.seats([front(-20.0), front(20.0)], 3, (-40, -20, 0, 40, 20, 40))] == [0xF1, 0xF1]
+
+
 def test_side_entry_chair_gets_a_seat_between_its_side_markers():
     """A chair entered only from the left (-30, facing +X) and right (+30, facing -X) seats once, midway."""
     marks = [(-30.0, 0.0, 0.0, math.pi / 2, F.SIT_LEFT), (30.0, 0.0, 0.0, 3 * math.pi / 2, F.SIT_RIGHT)]

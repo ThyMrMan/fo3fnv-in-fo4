@@ -204,6 +204,105 @@ now match vanilla's shape. That it was the cause is unproven.
 this work. Next test, one change: a vanilla clip re-encoded by our writer
 played as the mirror (isolates the encoder), then the scale-fixed FNV clip.
 
+## <a id="encoder-test"></a>Encoder test (built 2026-10-19, not yet played)
+
+**Question.** Do clips our writer encodes break Havok, whatever the
+motion? All four crashes came after an FNV clip played, on three graph
+routes, in Havok memory or graph code. A clip is two things: the motion
+(FNV's, retargeted onto FO4's skeleton) and the encoding (our Havok 2014
+spline writer, `anim_fo4.write_fo4_animation`). This test keeps the
+motion vanilla's and the encoding ours.
+
+**Setup** (`idles.PROBE`). With `CONVERT` off, only the idles PROBE
+names are built: `VCG01DocGiveMirror`, by the route already played
+without a crash at the time, played only by FNV's VCG01 stage-30 script
+(`PlayIdle`) on `FurnitureBehavior.hkx` with `dyn_Activation`, no line
+carrying it. Its clip is vanilla's `IdleSitFemaleReactingToViolence`
+(Kellogg's synth scene, a seated `dyn_Activation` on the furniture graph
+in Fallout4.esm), read from Fallout 4 - Animations.ba2, decoded and
+written again by our writer (`Probe\IdleSitFemaleReactingToViolence.hkx`
+under the plugin's clip folder). Everything else matches the build that
+played without a crash.
+
+**Offline check of the re-encoded clip:** duration (10.7 s), 322 frames,
+95 tracks, 2 blocks, bone names, binding, skeleton name (`Root`) and its
+HeadTrackingOff event are vanilla's; the first 64 header bytes are
+identical; decoded, rotations differ by at most 2.9e-4, translations by
+2.9e-6, scales not at all. Ours is 80,584 bytes against vanilla's 67,440
+(our writer compresses less).
+
+**To play:** a save before Doc's hand-over ("How'd I do?", VCG01 stage
+30). Doc should play the Kellogg-scene seated reaction in place of the
+mirror hand-over. Play past it: the stand-up, the looks menu (where the
+last crash happened), and leaving the house. Repeat from the save two or
+three times, as the last crash was intermittent.
+
+**Reading the result.**
+- Crash: the encoder is the suspect. Next, the control: the same clip
+  unencoded (PROBE's flag False, GNAM naming vanilla's own file). If the
+  control is clean, the encoder is confirmed; if it also crashes, the
+  route is at fault.
+- No crash: the encoder is cleared. Next, the scale-fixed FNV mirror
+  clip alone (PROBE emptied for that idle, its own clip converted), which
+  tests the retargeted motion and the scale fix.
+
+**Played 2026-10-19: no crash.** The re-encoded vanilla clip played as
+the hand-over, then the stand-up, the looks menu and leaving the house:
+the first run and a couple more from the save. The encoder is cleared: our writer's files play
+safely on this route. (One run lost the player's controls after the
+Vit-o-matic, not reproduced; see
+[vcg01](fo4_spikes.md#spike-2-vcg01).)
+
+**Next arm, built 2026-10-20:** `PROBE` names the mirror with no vanilla
+clip (None), so it plays its own FNV clip, retargeted and written with
+the scale fix (`human_clip.UNIT_SCALE`); everything else is unchanged.
+This tests FNV's retargeted motion alone. No crash over a few runs clears
+the FNV seated clip on this route; a crash puts the motion (or the old
+scale channel's fix) in question.
+
+**Played 2026-10-20: crashed on the second run.** The first run played
+through; the second crashed at 09:09:43, a second after the player stood
+(stage 30 at 09:09:37, stage 35 at :41, `TES4_PlayerControls.Stand` at
+:42). The crash had the same stack as the looks-menu crash of 2026-10-19
+14:58: `hkThreadMemory::blockAlloc` reading a corrupt free-list link
+(`0x005D002800290091`, packed 16-bit values) while the player's
+`Set3D` released a subgraph. That is the player's graph, so Havok's heap
+was already corrupt when the player stood up. The clip itself is clean:
+95 tracks bound 0 to 94 as in vanilla, no NaNs, unit quaternions, scales
+of 1, largest translation 120 units, splines well formed. Its position
+masks are all ones vanilla uses (a census of 3,000 vanilla clips: even the
+rarest it uses appears in 221 clips). Two things differ from the cleared
+arm:
+- **Length.** The FNV clip is 3.0 s; the vanilla clip was 10.7 s. In
+  every run the player stands 6 to 7 s after stage 30, so the vanilla clip
+  was always cut off by the stand-up, and the FNV clip always ended on its
+  own first. The cleared arm never tested a clip ending on this route.
+- **Track names.** The FNV clip names its 95 annotation tracks after the
+  bones; vanilla leaves them blank (0 of 1,500 vanilla clips name them).
+
+**Next arm, built 2026-10-20:** the cleared vanilla clip, re-encoded,
+cut to its first 3.0 s (`idles.trimmed`): vanilla motion, blank track
+names, the encoder already cleared; only the length changes, so it ends
+before the stand-up as the FNV clip did. A crash means a seated clip
+ending on its own on this route is the fault, whatever its source; no
+crash over a few runs points at the FNV clip's motion or its named tracks,
+tested next by blanking the names.
+
+**Played 2026-10-20: no crash, five runs back to back** through the
+character creator. A seated clip ending on its own before the stand-up is
+cleared.
+
+**Next arm, built 2026-10-20:** the FNV mirror clip again, its annotation
+tracks now blank as vanilla's are (`human_clip.TRACK_NAME`, for every
+converted clip). Motion, length and events are unchanged from the arm that
+crashed. No crash over several runs points at the names; a crash leaves
+FNV's retargeted motion itself.
+
+**Played 2026-10-20: no crash.** With blank track names the FNV mirror
+clip played through the hand-over, the stand-up and the character
+creator. The named annotation tracks were the fault; every converted
+clip now writes them blank.
+
 ## <a id="spike"></a>Spike: Doc's idles in the Goodsprings-Primm build
 
 Built 2026-10-19: the region build converts the idles its scripts and
