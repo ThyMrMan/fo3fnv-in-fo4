@@ -17,6 +17,7 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.dialogue import GREETING
 from fo4_import.spike.say_topics import blocker, conditions_of
 from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
+from fo4_import.spike.records import pack_flst
 from fo4_import.spike.script import PACKAGE_PREFIX
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS
 from fo4_import.pipeline.export_index import export_records
@@ -36,7 +37,7 @@ PLACE, TARGET, START, KEEP = 'place', 'target', 'start', 'keep'
 PLANS = {'1': ('FollowNPC', TARGET), '7': ('FollowNPC', TARGET), '3': ('Eat', PLACE), '4': ('Sleep', PLACE), '5': ('Sandbox', PLACE),
          '6': ('Travel', PLACE), '8': ('Sit', TARGET), '12': ('Sandbox', PLACE), '13': ('Patrol', START),
          '14': ('HoldPosition', PLACE), '15': ('ForceGreet', PLACE)}
-FNV_SLEEP, FNV_TRAVEL, FNV_DIALOGUE, FNV_FLEE, FNV_AMBUSH = '4', '6', '15', '10', '9'
+FNV_SLEEP, FNV_TRAVEL, FNV_DIALOGUE, FNV_FLEE, FNV_AMBUSH, FNV_GUARD = '4', '6', '15', '10', '9', '14'
 #: FNV Ambush type flag Hide While Ambushing (xEdit wbDefinitionsFNV), and the general flag both games call Always Sneak.
 HIDE_WHILE_AMBUSHING, ALWAYS_SNEAK = 0x1, 0x20000
 #: FO4 PLDT location type near the package's start location (FNV's near current location, the same code).
@@ -68,10 +69,20 @@ PLAYER_TARGET = '00000014'
 SHARED_LOCATIONS = ('0', '1', '2', '3', '6')
 #: FNV PLDT location types naming a form: a reference, a cell.
 NAMED_LOCATIONS = ('0', '1')
+#: ForceGreet's Target Trigger Location: its second location input (after the NPC Wait Location).
+TRIGGER_INPUT = 1
 #: PKDT general flags FNV and FO4 define alike (xEdit wbPackageFlags), e.g. Weapons Unequipped 0x200000; not 0x200.
 SHARED_FLAGS = 0x1 | 0x4 | 0x40 | 0x80 | 0x400 | 0x20000 | 0x40000 | 0x200000 | 0x800000 | 0x8000000
 #: PKDT interrupt override byte and None: vanilla's 1,872 NPC-list packages have 0, its 1,499 combat overrides 4.
-INTERRUPT_OVERRIDE, NO_OVERRIDE = 5, 0
+INTERRUPT_OVERRIDE, NO_OVERRIDE, COMBAT_OVERRIDE = 5, 0, 4
+#: FNV general flag 0x1000 (xEdit: Skip Fallout Behavior), set on every FNV package that authors its behavior flags.
+OWN_BEHAVIOR = 0x1000
+#: FO4 PKDT interrupt flags offset; the bits FNV's behavior flags share with them (Hellos To Player ... Idle Chatter).
+INTERRUPT_FLAGS, SHARED_BEHAVIOR = 8, 0xFF
+#: FNV general flag Continue During Combat.
+CONTINUE_DURING_COMBAT = 0x4000000
+#: derive_formid sites: a package's combat override copy (key: FNV package), an NPC's override list (key: FNV NPC).
+COMBAT_SITE, COMBAT_LIST_SITE = 'FNV PACK combat', 'FNV ECOR'
 #: FNV PKDT flag Always Run; FO4's flag at that bit, Preferred Speed, uses PKDT byte SPEED (0 walk, 1 jog, 2 run).
 ALWAYS_RUN, SPEED, RUN = 0x2000, 6, 2
 #: PTDA/PTDT target types (the same codes in both games): a specific reference, the actor's linked reference.
@@ -91,9 +102,11 @@ class Packages:
         """Index FNV packages and read the vanilla instances; `furniture` holds the FNV references that are seats,
         `cell_beds` each cell's beds (beds()), `refs` the build's references (in-cell places, _in_cell)."""
         self.builder, self.furniture, self.beds, self.made, self.greets = builder, furniture, cell_beds, {}, []
-        self.topics, self.cell_refs, self.navmeshes = {}, {}, {}
+        self.topics, self.cell_refs, self.navmeshes, self.combat, self.combat_lists = {}, {}, {}, {}, {}
         for ref in refs:
             self.cell_refs.setdefault(ref.get('ParentCELL'), []).append(ref)
+        self.boxes = {int(r['FormID'], 16): min(float(r['XPRM.BoundX']), float(r['XPRM.BoundY'])) for r in refs
+                      if 'XPRM.BoundX' in r}
         for rec in export_records(export_dir, 'NAVM'):
             self.navmeshes.setdefault(rec.get('DATA.Cell'), []).append(rec)
         self.why, self.pending, self.scripted = {}, set(), set()
@@ -101,7 +114,7 @@ class Packages:
         self.by_name = {r['EditorID'].lower(): fid for fid, r in self.packs.items() if r.get('EditorID')}
         packs ={r.form_id: r.body for r, _ in walk(builder.fo4, b'PACK')}
         self.vanilla = {name: packs[fid] for name, fid in INSTANCES.items()}
-        self.slots = value_slots(self.vanilla['Sandbox'], packs)
+        self.slots = {name: value_slots(self.vanilla[name], packs) for name in ('Sandbox', 'FollowNPC')}
 
     def named(self, name: str) -> 'int | None':
         """The FO4 package for a script property naming FNV package `name`: made now once the NPCs' forms are known,
@@ -129,11 +142,11 @@ class Packages:
         """FO4 FormIDs of FNV NPC `npc`'s packages that convert, in its order; `form_map` maps FNV forms. Each
         one left out is counted against the NPC: why, and how many of its packages it keeps."""
         out, lost = [], []
-        total = int(npc.get('AIPackageCount', 0) or 0)
-        for i in range(total):
-            fid = self.package(npc[f'AIPackage[{i}]'], form_map, int(npc['FormID'], 16))
+        total = len(listed(npc))
+        for fnv in listed(npc):
+            fid = self.package(fnv, form_map, int(npc['FormID'], 16))
             out += [fid] if fid else []
-            lost += [] if fid else [npc[f'AIPackage[{i}]']]
+            lost += [] if fid else [fnv]
         for fnv in lost:
             detail = f'{self.packs[fnv].get("EditorID")} ({self.why[fnv]}; keeps {len(out)} of {total})'
             self.builder.counts[f'package left out for {npc.get("EditorID")}: {detail}'] += 1
@@ -152,24 +165,78 @@ class Packages:
                 self.builder.counts[f'package left out ({why})'] += 1
                 self.made[fnv], self.why[fnv] = 0, why
             else:
-                self.made[fnv] = fid = self.builder.fnv_id(fnv)
-                values = {0: plan[2]} if len(plan) > 2 else self._allows(rec, plan[0])
-                self.builder.writer.add_record('PACK', pack_package(fid, rec, self.vanilla[plan[0]], plan[1],
-                                                                   conditions, self._fragments(rec), values))
-                self.builder.counts[f'PACK {plan[0]}'] += 1
-                self.greets += [fid] if plan[0] == 'ForceGreet' else []
-                topic = int(rec.get('PKDD.Topic', '0'), 16)
-                self.topics.update({f'{topic:08X}': fid} if plan[0] == 'ForceGreet' and topic != GREETING else {})
+                self.made[fnv] = self._write(fnv, rec, plan, conditions, form_map)
         return self.made[fnv]
 
-    def _allows(self, rec: dict, template: str) -> dict:
+    def combat_list(self, npc: dict) -> int:
+        """The FO4 Combat Override Package List (FLST) of FNV NPC `npc`'s packages held through combat (_write),
+        after for_npc(npc); written once per NPC, 0 without any.
+        See: docs/fork/fo4_pipeline.md#package-flags
+        """
+        held = [self.combat[fnv] for fnv in listed(npc) if fnv in self.combat]
+        if not held:
+            return 0
+        key = int(npc['FormID'], 16)
+        if key not in self.combat_lists:
+            self.combat_lists[key] = fid = self.builder.writer.derive_formid(COMBAT_LIST_SITE, key)
+            self.builder.writer.add_record('FLST', pack_flst(fid, f'FNV_{npc["EditorID"]}CombatOverrides', held))
+            self.builder.counts['FLST (combat override packages)'] += 1
+        return self.combat_lists[key]
+
+    def _write(self, fnv: str, rec: dict, plan: tuple, conditions: bytes, form_map: dict) -> int:
+        """Write FNV package `rec`'s copy by `plan` (_plan) with `conditions`; an FNV Guard kept through combat
+        (CONTINUE_DURING_COMBAT) also gets a combat override copy, without fragments. The copy's FormID."""
+        template, fid = plan[0], self.builder.fnv_id(fnv)
+        values = {0: plan[2]} if len(plan) > 2 else self._values(rec, template)
+        inputs = self._trigger(rec, form_map) if template == 'ForceGreet' else {}
+        args = (self.vanilla[template], plan[1], conditions)
+        self.builder.writer.add_record('PACK', pack_package(fid, rec, *args, self._fragments(rec), values, inputs))
+        self.builder.counts[f'PACK {template}'] += 1
+        if rec.get('PKDT.Type') == FNV_GUARD and fnv_flags(rec) & CONTINUE_DURING_COMBAT:
+            self.combat[fnv] = held = self.builder.writer.derive_formid(COMBAT_SITE, int(fnv, 16))
+            self.builder.writer.add_record('PACK', pack_package(held, {**rec, 'EditorID': rec['EditorID'] + 'Combat'},
+                                                                *args, b'', values, inputs, COMBAT_OVERRIDE))
+            self.builder.counts['PACK HoldPosition (combat override)'] += 1
+        self.greets += [fid] if template == 'ForceGreet' else []
+        topic = int(rec.get('PKDD.Topic', '0'), 16)
+        self.topics.update({f'{topic:08X}': fid} if template == 'ForceGreet' and topic != GREETING else {})
+        return fid
+
+    def _values(self, rec: dict, template: str) -> dict:
+        """{value slot: CNAM} of `rec`'s `template` copy: Sandbox Allows, FollowNPC radii."""
+        return {'Sandbox': self._allows, 'FollowNPC': self._radii}.get(template, lambda _: {})(rec)
+
+    def _allows(self, rec: dict) -> dict:
         """{value slot: Bool} of an FNV Sandbox or Wander `rec`'s copy: each FO4 Allow input from FNV's No flag.
         See: docs/fork/fo4_pipeline.md#sandbox-allows
         """
-        if template != 'Sandbox' or rec.get('PKDT.Type') not in SANDBOX_TYPES:
+        if rec.get('PKDT.Type') not in SANDBOX_TYPES:
             return {}
-        flags = int(rec.get('PKDT.TypeFlags', 0) or 0)
-        return {self.slots[name]: bytes([not flags & bit]) for name, bit in ALLOWS.items() if name in self.slots}
+        flags, slots = int(rec.get('PKDT.TypeFlags', 0) or 0), self.slots['Sandbox']
+        return {slots[name]: bytes([not flags & bit]) for name, bit in ALLOWS.items() if name in slots}
+
+    def _radii(self, rec: dict) -> dict:
+        """{value slot: Float} of an FNV Follow or Accompany `rec`'s FollowNPC radii: its distance (PTDT count) as
+        Min Radius, where the follower stops; Max Radius, where it runs, the vanilla one or that distance if farther.
+        See: docs/fork/fo4_pipeline.md#follow-distance
+        """
+        distance, slots = int(rec.get('PTDT.Count', 0) or 0), self.slots['FollowNPC']
+        if not distance:
+            return {}
+        cnams = [data for tag, data in subrecords(self.vanilla['FollowNPC']) if tag == b'CNAM']
+        far = max(float(distance), struct.unpack('<f', cnams[slots['Max Radius']])[0])
+        return {slots['Min Radius']: struct.pack('<f', distance), slots['Max Radius']: struct.pack('<f', far)}
+
+    def _trigger(self, rec: dict, form_map: dict) -> dict:
+        """{TRIGGER_INPUT: PLDT} of FNV Dialogue `rec`'s Trigger Location (PLD2), {} without one (the template's).
+        A trigger box (XPRM) with radius 0 reaches its smaller half extent.
+        See: docs/fork/fo4_pipeline.md#greet-trigger
+        """
+        place, ref = rec.get('PLD2.Type'), int(rec.get('PLD2.Location', '0') or '0', 16)
+        if place not in SHARED_LOCATIONS or place in NAMED_LOCATIONS and ref not in form_map:
+            return {}
+        radius = int(rec.get('PLD2.Radius', 0) or 0) or round(self.boxes.get(ref, 0))
+        return {TRIGGER_INPUT: struct.pack('<iIi', int(place), form_map.get(ref, 0), radius)}
 
     def _fragments(self, rec: dict) -> bytes:
         """VMAD binding FNV package `rec`'s converted PF_ script, filled; a cower's (cowers()) COWER_SCRIPT; b''
@@ -302,6 +369,11 @@ def beds(builder, refs: list) -> dict:
     return out
 
 
+def listed(npc: dict) -> list:
+    """The FNV packages actor record `npc` lists, in its order."""
+    return [npc[f'AIPackage[{i}]'] for i in range(int(npc.get('AIPackageCount', 0) or 0))]
+
+
 def cowers(rec: dict) -> bool:
     """True for a Flee Not Combat with no location or target (it cowers)."""
     return rec.get('PKDT.Type') == FNV_FLEE and 'PLDT.Type' not in rec and 'PTDT.Type' not in rec
@@ -320,13 +392,19 @@ def schedule(rec: dict) -> bytes:
                        int(rec.get('PSDT.Duration', 0)) * 60)
 
 
-def _pkdt(flags: int, vanilla: bytes) -> bytes:
-    """The vanilla PKDT with FNV `flags` the games share, no interrupt override, and FNV's Always Run as FO4's
-    preferred speed Run."""
+def _pkdt(rec: dict, vanilla: bytes, override: int) -> bytes:
+    """The vanilla PKDT with FNV package `rec`'s general flags the games share, interrupt override `override`, FNV's
+    Always Run as FO4's preferred speed Run, and its own behavior flags (OWN_BEHAVIOR) as FO4's interrupt flags.
+    See: docs/fork/fo4_pipeline.md#package-flags
+    """
+    flags = fnv_flags(rec)
     run = flags & ALWAYS_RUN
     speed = bytes([RUN]) if run else vanilla[SPEED:SPEED + 1]
-    return (struct.pack('<I', flags & SHARED_FLAGS | run) + vanilla[4:INTERRUPT_OVERRIDE] + bytes([NO_OVERRIDE])
-            + speed + vanilla[SPEED + 1:])
+    interrupt = struct.unpack_from('<H', vanilla, INTERRUPT_FLAGS)[0]
+    if flags & OWN_BEHAVIOR:
+        interrupt = interrupt & ~SHARED_BEHAVIOR | int(rec.get('PKDT.BehaviorFlags', 0) or 0) & SHARED_BEHAVIOR
+    return (struct.pack('<I', flags & SHARED_FLAGS | run) + vanilla[4:INTERRUPT_OVERRIDE] + bytes([override]) + speed
+            + vanilla[SPEED + 1:INTERRUPT_FLAGS] + struct.pack('<H', interrupt) + vanilla[INTERRUPT_FLAGS + 2:])
 
 
 def value_slots(instance: bytes, packs: dict) -> dict:
@@ -345,20 +423,22 @@ def value_slots(instance: bytes, packs: dict) -> dict:
 
 
 def pack_package(fid: int, rec: dict, vanilla: bytes, first_input: bytes, conditions: bytes,
-                 vmad: bytes = b'', values: 'dict | None' = None) -> bytes:
+                 vmad: bytes = b'', values: 'dict | None' = None, inputs: 'dict | None' = None,
+                 override: int = NO_OVERRIDE) -> bytes:
     """A copy of vanilla instance `vanilla` for FNV package `rec`: its EditorID, `vmad` (its fragments), schedule
-    and conditions after PSDT, the first PLDT/PTDA from `first_input` (the vanilla bytes past it kept), value
-    inputs (CNAMs, by slot) from `values`, PKDT flags the games share (SHARED_FLAGS) and no
-    interrupt override: it goes in an NPC's package list, where a combat override hangs the load.
+    and conditions after PSDT, the first PLDT/PTDA from `first_input`, later ones from `inputs` (by ordinal;
+    vanilla bytes past each kept), CNAMs (by slot) from `values`, PKDT flags the games share (_pkdt) and interrupt
+    override `override`: none for an NPC's package list, where a combat override hangs the load.
     See: docs/fork/fo4_pipeline.md#packages
     """
-    fields, out, replaced = {b'EDID': f'FNV_{rec["EditorID"]}'.encode() + b'\0', b'PSDT': schedule(rec)}, b'', False
-    values, slot = values or {}, 0
+    fields, out = {b'EDID': f'FNV_{rec["EditorID"]}'.encode() + b'\0', b'PSDT': schedule(rec)}, b''
+    values, slot, inputs, ordinal = values or {}, 0, {**(inputs or {}), 0: first_input}, 0
     for tag, data in subrecords(vanilla):
         if tag == b'PKDT':
-            data = _pkdt(fnv_flags(rec), data)
-        elif tag in (b'PLDT', b'PTDA') and not replaced:
-            data, replaced = first_input + data[len(first_input):], True
+            data = _pkdt(rec, data, override)
+        elif tag in (b'PLDT', b'PTDA'):
+            payload, ordinal = inputs.get(ordinal, b''), ordinal + 1
+            data = payload + data[len(payload):]
         elif tag == b'CNAM':
             data, slot = values.get(slot, data), slot + 1
         if tag not in DROPPED:

@@ -147,6 +147,38 @@ until it causes a problem:
 - **Open (2026-10-10):** the silent `...` greeting a speaker needs (the talk
   breaks without it) adds an unskippable second or two to every
   conversation; wanted: a replacement for it.
+- <a id="silent-line"></a>**Silent lines, built for a play-test
+  (2026-10-19).** Every filler line now takes its text from
+  `records.SILENT_LINE`, set to an empty line instead of `...`: the
+  greeting that opens a talk scene (`Conversations.greeting`), a speaker's
+  fallback greeting, the NPC line after [Leave], and an FNV line with no
+  text. The INFO and its scene place stay (the talk broke without the
+  greeting line); only its text is empty. The player's Hello is now
+  answered too: the Greetings quest holds a Hello topic (`HELO`, DATA 0 7
+  0x49 0, as DialogueGenericPlayer's 00018184) with one SILENT_LINE said
+  by the player (GetIsID 0x7 on the subject, as vanilla's 52 player hellos
+  test), and the quest's priority (the built quests' highest) outranks
+  DialogueGenericPlayer's 10 (`Conversations.player_hello`). To test: the
+  "..." subtitle and the player's "Hi" are gone, and the talk still opens
+  and closes. If an empty line breaks the talk, set SILENT_LINE back to
+  `...`.
+  - Played 2026-10-19: no crash, but the greeting still took as long; it
+    only looked as if nothing happened. A line with no voice file is held
+    for a fixed time whatever its text. Fallout4.exe's compiled-in
+    defaults (`tools/disasm/ck_settings_dump.py`): `fDialoguePaddedAudioLengthMin`
+    2.5 s, `fDialogSpeechDelaySeconds` 2.0, `fSubtitleSpeechDelay` 1.5,
+    `fSpeechDelay` 0.1 (FNV has only fSpeechDelay, 0.17). Fallout4.esm sets
+    none of the first, so the engine pads every line to 2.5 s. Now, for
+    the next play: each silent line plays a 0.2 s silent recording
+    (`voice.silent_jobs`, .xwm without lips: the greeting and [Leave]
+    lines under every converted voice type, the player Hello under
+    PlayerVoiceMale01 and PlayerVoiceFemale01), and the plugin sets
+    `fDialoguePaddedAudioLengthMin` to 0.2 (a new GMST, matched by
+    EditorID; `cell.PADDED_SETTING`). FNV pads no line, so FNV's shortest
+    recordings now also end with their audio. Two changes in one play: if
+    the greeting is quick, both stay; if not, the setting is the suspect.
+    NPCs whose voice type is a stand-in's vanilla one (no FNV voice
+    folder) get no silent file.
 
 ### <a id="spike-1b"></a>1b: one scene for many speakers
 
@@ -1010,6 +1042,15 @@ cloth at 81%), the middle mostly FNV hair and graffiti.
   texels solid) drew as dark glass whole; now 508 of its 556 triangles are
   lit and 48 glass. In Doc's house 9 more of the 18 glass meshes now draw
   their solid parts lit (camera, clock, pressure cooker, window frames);
+- additive (the blend's destination ONE): glass too, as environment-mapped
+  shapes are, through the effect shader with FNV's own blend. The Primm
+  museum cases (`archivesdisplaycases02.nif:18`, a grimy `StoreFrontQuad01`
+  patch added on top, ONE/ONE with alpha test 60, no environment map) were
+  flat sheets, so they became lit decals and drew the grime as a solid
+  streaky top (played 2026-10-19). Over 11,817 FNV meshes, 159 blended lit
+  shapes are additive: 143 environment-mapped, 16 not (the two museum
+  cases, 10 DLC05 grate lights, the Protectron pod glow, the war-room table
+  map, the minigun tracer), all glows or glass;
 - decal (`sf_decal_single_pass` or dynamic): a blended BGSM with `decal` and
   the shader's Decal and Dynamic_Decal flags (vanilla's blended decals);
 - a texture at least 50% partly transparent: vanilla BloatflyWing's BGEM
@@ -1384,6 +1425,20 @@ into the statements and the outro's lines.
 - `VCG01Test` (the answers' tallies, read at stage 85) is converted with
   the cell and keeps FNV's start game enabled flag; VCG01 still starts by
   hand.
+  - *The picks (built 2026-10-19, not yet played).* `VCG01TestSCRIPT`
+    picks three tag skills from the tallies (a combat skill, one of
+    Speech, Science, Lockpick and Barter, then the best untagged) with
+    `SetPlayerTagSkill`, which preselects them in FNV's tag menu. It
+    converts to `TES4_CharacterEvents.SuggestTag(<skill>)`: LevelUpMenuEx's
+    `AddTagSkillAV` tags it at once (so the third pick's `IsPlayerTagSkill`
+    sees the first two) and the helper records it; FNV's slot is dropped.
+    With suggestions pending, `TES4_CharacterRules` opens the tag menu with
+    re-tagging allowed and only the picks left to make (three in all, the
+    suggestions counting; untagging one frees a pick), and on its
+    `PRKF::TagSkills::Finish` event sets each
+    skill to its value before the menu plus `TagBonus` when it ends tagged,
+    so the bonus is right whatever the menu does for a skill tagged before
+    it opened. Later tag menus (FNV's Tag! perk) keep re-tagging off.
 - Left out: two topics no FNV line answers ("Double-tap.", "What do I do
   now?"; FNV hides them too), and the two greetings Doc gives when clicked
   mid-quest ("We can chat later", "have a seat"): FO4 has no condition
@@ -1647,9 +1702,23 @@ character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions))
     stub on FO4. FO3/FNV have no Oblivion attributes: on Fallout 4
     `IsTES4Attribute` is false and SPECIAL reads FO4's actor values. Also,
     FO4's Papyrus timers run while a menu is open and FNV's GameMode does
-    not, so a converted poll pass now returns while `Utility.IsInMenuMode()`
-    (676 scripts; not those whose MenuMode blocks poll); Doc's reaction
-    waits for the SPECIAL menu to close.
+    not, so a converted poll pass now returns while
+    `TES4Polyfill.InMenuMode()` (676 scripts; not those whose MenuMode
+    blocks poll); Doc's reaction waits for the SPECIAL menu to close.
+    `InMenuMode` is `Utility.IsInMenuMode()` or one of `SPECIALMenu`,
+    `LevelUpMenu` (LevelUpMenuEx's tags and traits) or `LooksMenu` open:
+    On 2026-10-19 Doc said "a pretty standard score" (reaction 0) on
+    every run. The log shows the game paused from stage 65 until the menu
+    closed, so the reaction did read the picks. FO4's menu totals
+    `uSPECIALPoints` (28: every stat at 1 plus 21), FNV's 40, so the same
+    picks read lower; the plugin now overrides `uSPECIALPoints` to 40
+    (`fo4_import/spike/character.py`), and `TES4_NewGame` sets each stat
+    to the FNV player record's value (5) before VCG00 starts
+    (`SetStartSpecial`; `Special`/`SpecialStart`, a float array property),
+    so the menu opens at 5s with 5 points left. `TES4_CharacterRules` traces
+    `special|opened|closed` with the seven values (`GetGameSettingInt`
+    refuses a `u` setting). Played 2026-10-19: opened at 5s, closed at
+    5/5/6/8/6/5/5 (40), and Doc gave the Charisma line (reaction 10).
   - The swap trace: every swap ran with its line and reported one material
     swapped, but the card did not redraw. `TES4Polyfill.SwapMaterial` now
     sets the persistent swap (`SetMaterialSwap`), which the game applies
@@ -1719,8 +1788,10 @@ walking). Each is a type 6 package whose only content is a special idle
   vanilla plays it only as a line's speaker idle (INFO `SNAM`, `00142444`),
   and `PlayIdle` on Doc at stage 30 played nothing. FNV's hand-over sits
   between "needlework" (its end sets 30) and "How'd I do?" (stage 35), so
-  `poses.LINE_IDLES` gives "How'd I do?" (`00104BF8`) that speaker idle;
-  `VCG01DocGiveMirror` stays unfilled.
+  `poses.LINE_IDLES` gave "How'd I do?" (`00104BF8`) that speaker idle.
+  Replaced 2026-10-19: FNV's own clips play as FO4 dynamic idles, and
+  "How'd I do?" carries FNV's own speaker idle, `VCG01DocGiveMirror`
+  ([idles](fo4_idles.md#records)).
 - **Played:** the blur and fade work; the player sits on the bed's edge,
   out of Doc's way, through the Reflectron and until they walk off.
   Getting there:
@@ -2001,6 +2072,16 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     (flags1 0x80400201 in 44 of 71, flags2 0x31 in 29), so they were left.
   - Second play: grass shows, a little thick; density is now FNV's × 0.5
     (`grass.DENSITY_SCALE`).
+  - Third play (2026-10-19): still too thick, so FNV's × 0.25. The grass
+    also went from bright to dark with the view. Its BGSM was a plain lit
+    two-sided material, so the side of a blade facing away from the sun
+    drew unlit. Vanilla grass lights through the blade: of the 28 BGSMs in
+    Materials\\Landscape\\Grass, 26 set subsurface lighting and 22 a
+    backlight power, the commonest setting (6) subsurface rolloff 4.0 and
+    backlight 12.5. A TallGrassShaderProperty shape (every FNV grass mesh,
+    17 of 17) now takes that (`convert_static.GRASS_LIGHTING`). Vanilla
+    grass also sways through Tree_Anim and vertex alpha; FNV's sway is
+    still not carried.
 - **Steps.** The saloon's front step is `WoodSteps01NV`: FNV material 0
   (stone, no stairs bit), risers 15–16 units (collision tops at 3, 16, 31,
   47, 65; placed at 8,316 on ground at 8,352, so about 16 units show per
@@ -2163,8 +2244,18 @@ or a folder (one file picked at random) with attenuation and flags
   the vanilla descriptor of its kind: a looping one (FNV Loop) from
   AMBSteamVaultPipeA, the rest from DRSWoodSingleLightLoadAOpen. Its files
   are FNV's (49 here), converted to .xwm under `Sound\FX\FNV` and named
-  .wav, as vanilla names its .xwm files. Falloff comes from the template's
-  output model, not FNV's distances (drift).
+  .wav, as vanilla names its .xwm files.
+- Volume and reach are FNV's (`Sounds.playback`). Both games store static
+  attenuation in hundredths of a dB (FNV SNDD i16, FO4 BNAM u16), so FNV's
+  copies into the template's BNAM. FO4 keeps reach in the output model
+  (SOPM ATTN, minimum and maximum distance as floats at bytes 8 and 12):
+  the vanilla `SOMMono<distance>` model (26, 250 to 40,960 units) nearest
+  FNV's maximum distance; FNV's 0 (484 sounds) keeps the template's.
+  Played 2026-10-19 before this: the Vikki and Vance casino hum drowned
+  everything. The template (AMBSteamVaultPipeA) is 18.9 dB over 80-800
+  units; FNV's fluorescent hum (`AMBLightFluorescentLP01`) is 46.7 dB over
+  400, its neon sconces (`EMTNeonSignNeoClassicalSconce`, 11 in the casino)
+  57.3 dB over 300. Vanilla's own fluorescent buzz is 19-26 dB over 500.
 - FormIDs are hashed from FNV's (`FNV SNDR`, `FNV SOUN`): 44 records added,
   none moved.
 
@@ -2704,6 +2795,40 @@ The 9mm SMG and BB gun show FNV's meshes on their templates' animations
   mode, experimental. FNV-looking guns need per-gun tuning, new
   animations, or an existing port named in the table.
 
+### <a id="spike-4-gun-clips"></a>FNV's own gun clips on a vanilla graph (played 2026-10-19, reverted, parked)
+
+Tried on the Varmint rifle (`2hr`, `2hrattack8`, `2hrreloadm`): the
+hunting rifle's behaviour graphs kept unchanged, FNV's clips retargeted
+onto FO4's human and first-person skeletons (arm IK on) and written under
+the vanilla clip names in a folder of the gun's own, reached through an
+additive subgraph race (SADD on HumanRaceSubGraphData, as DLC01 adds its
+lightning gun) and a keyword of the gun's own; FNV's mesh at FNV's size;
+the `##VRClip`/`##VRBolt`/`##VRTrigger` tracks of FNV's character clips on
+the receiver's WeaponMagazine/WeaponBolt/WeaponTrigger bones.
+
+- **Why the earlier pass reloaded from the side:** `gun_choice` put the
+  Varmint rifle on PipeGun's semi-automatic receiver, whose magazine sits
+  2.5 units left of center; its muzzle is 26 past the trigger to FNV's 46.
+- **Played:** iron sights were off (shots missed), the left hand came off
+  the gun while walking (vanilla walk clips, the hunting rifle's hold),
+  the gun never reloaded, and FNV's mesh looks poor in FO4 as ported.
+  Offline the hands landed within 0.05 units of FNV's and the gun on
+  FNV's, so the failures are in what FO4 does around the clips.
+- **Reverted;** guns stay on FO4's guns. Kept as findings:
+  - FO4's AnimTextData id (`Meshes\AnimTextData\AnimationFileData\<id>.txt`,
+    one per subgraph entry's folder list and graph): CRC-32 of the
+    lower-case folder list joined by `|` (high half) and of the behaviour
+    graph's path (low half), zero start, no final inversion. It reproduces
+    vanilla's and DLC01's names.
+  - FO4's character skeletons carry the weapon bones (Weapon,
+    WeaponMagazine, WeaponBolt, WeaponIKTargetL...); third person's left
+    hand is IK'd to WeaponIKTargetL, which the gun's two-frame
+    `WPNAssemblyPose` sets.
+  - FO4 shoots a bolt action as two clips (`WPNFireSingleReady`, then
+    `WPNBoltChargeReady`); FNV's attack clip holds both.
+  - Without arm IK, FNV clips on FO4's rigs put both hands 4.1–5.1 units
+    off FNV's (FO4's taller torso).
+
 ### <a id="step-map"></a>Step test map (played 2026-10-08)
 
 `fo4_import.spike.step_map` builds `StepTest.esp`: one interior (`coc
@@ -2771,7 +2896,8 @@ fCharControllerWarpDistSqr exist): the 141–145 comes from the executable.
 ### <a id="spike-2-facegen"></a>FaceGen and FNV faces (played 2026-10-06)
 
 The CK exports FaceGen from the command line: `CreationKit.exe
--ExportFaceGenData:<plugin> W32`. It writes
+-ExportFaceGenData:<plugin> X64`, never `W32` (see
+[stretched hair](#spike-2-hair-cloth)). It writes
 `Meshes\Actors\Character\FaceGenData\FaceGeom\<plugin>\<id>.NIF` (every head
 part as a skinned BSSubIndexTriShape in one head-local frame) and the face
 tint textures (`_d`, `_msn`, `_s`). Run through MO2 (`ModOrganizer.exe run -e
@@ -3032,6 +3158,33 @@ theirs.
 **Played:** STH (matched parts) beside ST (the stand-in's): face and hair
 look right. What still reads as unlike FNV is the cell's overall colour and
 tone (QASmoke's imagespace).
+
+<a id="spike-2-hair-cloth"></a>**Stretched long hair (fixed 2026-10-19, not yet
+played).** On a fresh save, women with long FO4 hair had a strand stretched
+from the head to the floor (a woman at the Vikki and Vance bar in Primm). It
+was not old save state, the seat or the skeleton: it followed the FaceGen
+export. FO4's long hairs carry cloth physics, a BSClothExtraData block holding
+a Havok packfile (`hk_2014.1.0-r1`). Primm's women wear HairFemale04 (two
+residents) and HairFemale13; their FaceGeom NIFs, set beside vanilla
+Scarlett's (0004B240, also HairFemale04):
+
+- Skinning matches: the same 11 bones (`HEAD`/`Head`, `Head_skin`, nine
+  `Hair_{C,L,R}_Cloth0n`), the cloth bone nodes in both, same vertex data
+  size.
+- The cloth block does not. Vanilla FaceGen keeps the hair's own packfile
+  (46,260 bytes, the same size as `FemaleHair04.nif`'s). Ours was 43,908, and
+  its layout byte for pointer size (packfile offset 16) was 4, where vanilla
+  is 8.
+
+The CK knows four export targets, `XB1 X64 PS4 W32` (a string table in
+`CreationKit.exe`). We passed `W32`, so it re-serialized every cloth packfile
+for 32-bit pointers, which the 64-bit game misreads. `spike.facegen` now
+passes `X64` (`CK_TARGET`), and `export` stops if any collected FaceGeom
+NIF's cloth packfile is not 8-byte (`cloth_pointer_sizes`). The bake is not
+involved: it moves vertex positions only, and these NPCs are STH faces (not
+baked). Re-exported with X64, the region's 167 FaceGeom NIFs hold 7 cloth
+hairs (HairFemale04 ×4, HairFemale01 ×3, all women), all 8-byte. Each one's
+packfile is byte for byte the hair mesh's own. HairFemale13 has no cloth.
 
 ### <a id="spike-2-imagespace"></a>Imagespace: FNV's colour grading and tone (played 2026-10-06)
 

@@ -29,8 +29,8 @@ from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents
 from fo4_import.spike import records as R
-from fo4_import.spike.actor_data import CREATURE_FLAGS, with_actor_data
-from fo4_import.spike.npcs import (USE_AI_DATA, USE_FACTIONS, USE_INVENTORY, USE_STATS, composed, faction_snams,
+from fo4_import.spike.actor_data import CREATURE_FLAGS, hit_proof, with_actor_data
+from fo4_import.spike.npcs import (USE_AI_DATA, USE_FACTIONS, USE_INVENTORY, USE_SCRIPT, USE_STATS, composed, faction_snams,
                                    template_source, with_factions)
 from fo4_import.spike.statics import write_converted
 from fo4_import.spike.voice import fnv_folder
@@ -159,7 +159,11 @@ class Creatures:
 
     def _actor_data(self, rec: dict):
         """The ACBS/AIDT edit of plain copy `rec`, each from its template chain's record."""
-        return with_actor_data(self.source(rec, USE_STATS), self.source(rec, USE_AI_DATA), CREATURE_FLAGS)
+        return self.actor_data(rec, self.source(rec, USE_STATS), self.source(rec, USE_AI_DATA))
+
+    def actor_data(self, rec: dict, stats: dict, ai: dict):
+        """with_actor_data of creature `rec` from `stats` and `ai` (hit_proof)."""
+        return with_actor_data(stats, ai, CREATURE_FLAGS, hit_proof(self.export_dir, self.source(rec, USE_SCRIPT)))
 
     def source(self, rec: dict, flag: int) -> dict:
         """The creature `rec` takes part `flag` from (template_source)."""

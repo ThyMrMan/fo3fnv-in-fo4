@@ -23,6 +23,8 @@ HIT_REGISTRATION = 'RegisterForHitEvent(Self)'
 AV_PROPERTY_PREFIX = 'TES4AV_'
 #: Property and script of the helper quest holding the one InputEnableLayer all scripts share.
 CONTROLS_PROPERTY, CONTROLS_SCRIPT = 'TES4PlayerControls', 'TES4_PlayerControls'
+#: Property and script of the helper quest sending the character menus and holding suggested tag skills.
+CHARACTER_PROPERTY, CHARACTER_SCRIPT = 'TES4CharacterEvents', 'TES4_CharacterEvents'
 
 
 def set_target(name: str) -> None:

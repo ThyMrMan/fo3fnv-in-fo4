@@ -6,9 +6,26 @@ sent by the script declaring it, so converted scripts call Menu().}
 
 CustomEvent CharacterMenu
 
+ActorValue[] Property Suggested Auto Hidden
+{Skills SetPlayerTagSkill tagged ahead of the next tag menu (the psych test's picks); the rules clear it after.}
+
 Function Menu(string asKind, float afValue)
   Var[] args = new Var[2]
   args[0] = asKind
   args[1] = afValue
   SendCustomEvent("CharacterMenu", args)
+EndFunction
+
+Function SuggestTag(ActorValue akSkill)
+  {FO3/FNV SetPlayerTagSkill: `akSkill` tagged ahead of the tag menu, where the player may still change it.}
+  If !akSkill
+    Return
+  EndIf
+  If !Suggested
+    Suggested = new ActorValue[0]
+  EndIf
+  If Suggested.Find(akSkill) < 0
+    Suggested.Add(akSkill)
+    PRKF:PRKF.AddTagSkillAV(akSkill)
+  EndIf
 EndFunction

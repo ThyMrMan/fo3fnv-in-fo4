@@ -26,6 +26,8 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.grass import Grasses
 from fo4_import.spike.land_layers import blend_borders, limit_textures, quadrant_mix
 from fo4_import.spike.navmesh import grid_parent
+from fo4_import.spike.music import music_of
+from fo4_import.spike.regions import regions_of
 from fo4_import.spike.weathers import climate
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_map_path
 from fo4_import.pipeline.export_index import export_records
@@ -132,7 +134,9 @@ class Exterior:
         go to the persistent cell. Records made here (LTEX, TXST) are added to `builder.writer`.
         """
         world, persistent_cell = builder.fnv_id(self.world['FormID']), builder.fnv_id(self.persistent_cell)
-        actors = actors or {}
+        actors, regions = actors or {}, regions_of(builder)
+        zones = music_of(builder).zones(world, int(self.persistent_cell, 16),
+                                        {grid: int(r['FormID'], 16) for grid, r in self.cells.items()})
         cells, kept = {}, place(self.persistent)[0] + b''.join(actors.get(self.persistent_cell, (b'', b'')))
         lands = {grid: self.land.get(self.cells[grid]['FormID']) for grid in sorted(self.cells)}
         mixes = limit_textures(blend_borders({grid: quadrant_mix(land) for grid, land in lands.items() if land}))
@@ -146,11 +150,13 @@ class Exterior:
             zone = builder.zones.get(int(self.cells[grid].get('XEZN.EncounterZone', '0'), 16), 0)
             water = float(self.cells[grid].get('XCLW.WaterHeight', DEFAULT_WATER))
             cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + navm + temporary,
-                           (self.locations.of_grid(grid), zone), water)
+                           (self.locations.of_grid(grid), zone), water,
+                           regions.xclr(int(self.cells[grid]['FormID'], 16),
+                                        zones.get(int(self.cells[grid]['FormID'], 16), ())))
         record = self._world(builder, world)
         children = _cell(persistent_cell, PERSISTENT, (0, 0), kept, b'')
-        children += _blocks({grid: _cell(fid, 0, grid, b'', temp, spot, water)
-                             for grid, (fid, temp, spot, water) in cells.items()})
+        children += _blocks({grid: _cell(fid, 0, grid, b'', temp, spot, water, xclr)
+                             for grid, (fid, temp, spot, water, xclr) in cells.items()})
         builder.counts['exterior cells'] = len(cells)
         return record + pack_group(WORLD_CHILDREN, struct.pack('<I', world), children)
 
@@ -171,7 +177,8 @@ class Exterior:
         subs += pack_subrecord('XLCN', struct.pack('<I', self.locations.root))
         subs += b''.join(pack_subrecord(t.decode(), kept[t]) for t in WORLD_COPIED[:-2] if t in kept)
         subs += pack_subrecord('DATA', kept[b'DATA']) + pack_subrecord('NAM0', bounds[0])
-        subs += pack_subrecord('NAM9', bounds[1]) + (pack_subrecord('XWEM', kept[b'XWEM']) if b'XWEM' in kept else b'')
+        subs += pack_subrecord('NAM9', bounds[1]) + pack_subrecord('ZNAM', struct.pack('<I', music_of(builder).silence()))
+        subs += pack_subrecord('XWEM', kept[b'XWEM']) if b'XWEM' in kept else b''
         return pack_fo4_record('WRLD', fid, 0, subs)
 
     def _land(self, builder, rec: dict, mix: dict, data_dir: Path) -> bytes:
@@ -285,11 +292,11 @@ def _heights(world: dict, template: dict) -> dict:
 
 
 def _cell(fid: int, flags: int, grid: tuple, persistent: bytes, temporary: bytes, place: tuple = (0, 0),
-          water: float = DEFAULT_WATER) -> bytes:
+          water: float = DEFAULT_WATER, regions: bytes = b'') -> bytes:
     """An exterior CELL and its children group; `place` its (location, encounter zone), 0 for none; `water` its
-    water height (DEFAULT_WATER: the worldspace's)."""
+    water height (DEFAULT_WATER: the worldspace's); `regions` its XCLR (spike.regions)."""
     subs = pack_subrecord('DATA', struct.pack('<H', CELL_DATA)) + pack_subrecord('XCLC', struct.pack('<iiI', *grid, 0))
-    subs += pack_subrecord('LTMP', bytes(4)) + pack_subrecord('XCLW', struct.pack('<f', water))
+    subs += pack_subrecord('LTMP', bytes(4)) + pack_subrecord('XCLW', struct.pack('<f', water)) + regions
     subs += b''.join(pack_subrecord(tag, struct.pack('<I', form)) for tag, form in zip(('XLCN', 'XEZN'), place) if form)
     label = struct.pack('<I', fid)
     kids = (pack_group(PERSISTENT_CHILDREN, label, persistent) if persistent else b'') + (

@@ -60,6 +60,8 @@ IS_ID, QUEST_RUNNING, GLOBAL_VALUE = C.FO4.index(SPEAKER_TEST), C.FO4.index('Get
     'GetGlobalValue')
 #: _joined's answer when a step's lines lead to different steps.
 MIXED = ('mixed',)
+#: The player's base form (NPC_), which vanilla's player Hello lines test with GetIsID.
+PLAYER_BASE = 0x7
 #: Topics an XDI menu takes, in this order (dialogue.menu_action): four player topics, then the NPC's.
 MENU_TOPICS = 5
 #: Most OR-groups an option's "some answer passes" test is spread into (its lines' groups multiplied).
@@ -229,7 +231,9 @@ class Conversations:
                 self._option(dial, (player, npc), continues, owner)
             if step[1] == self.hub.topics:
                 player.append(R.pack_info(take(f'INFO leave {owner}'), 0, (LEAVE,), prompt=LEAVE))
-                npc.append(R.pack_info(take(f'INFO exit {owner}'), R.INFO_END_SCENE, ('...',), notes='FNV Tab exit'))
+                exit_fid = take(f'INFO exit {owner}')
+                self.say.silent.append((exit_fid, False))
+                npc.append(R.pack_info(exit_fid, R.INFO_END_SCENE, (R.SILENT_LINE,), notes='FNV Tab exit'))
             slots = iter(range(MENU_TOPICS))
             topics, action = menu_action(lambda: take(f'DIAL {owner}', key=f'DIAL {owner} slot {next(slots)}'),
                                          (name, self.fid, SPEAKER_ALIAS), player, npc, place)
@@ -347,7 +351,7 @@ class Conversations:
         """A Greeting topic whose silent line starts the GREETING talk scene, for activation or force greets `greets`.
 
         The scene's lines are those of the topics force greets name (`topics`, {FNV topic: FO4 package}), each
-        needing its package current, then _greetings(). The line says '...'; it puts its speaker in the
+        needing its package current, then _greetings(). Its SILENT_LINE puts its speaker in the
         Speaker alias and needs GetPlayerActivated or a running force greet
         and a speaker the GREETING lines name; the lines stay in the scene, so
         each Say Once line exists once.
@@ -366,10 +370,24 @@ class Conversations:
         if step not in self.labels:
             self.labels[step], self.legacy[step] = 'greeting', repr(step)
         scene, phase, index = self.scene(step)
-        line = R.pack_info(self.say.builder.new_id(f'INFO greeting {self.quest["FormID"]}'), 0, ('...',), opened, scene=scene, phase=phase, phase_index=index,
+        greet = self.say.builder.new_id(f'INFO greeting {self.quest["FormID"]}')
+        self.say.silent.append((greet, False))
+        line = R.pack_info(greet, 0, (R.SILENT_LINE,), opened, scene=scene, phase=phase, phase_index=index,
                            notes='FNV GREETING', forced_alias=SPEAKER_ALIAS)
         fid = self.say.builder.new_id(f'DIAL greeting {self.quest["FormID"]}')
         dial = R.pack_dial(fid, f'FNV_{self.quest["EditorID"]}_Greeting', self.fid, R.TOPIC_GREETING, 1)
+        self.topics.append(pack_topic(dial, fid, [line]))
+
+    def player_hello(self) -> None:
+        """A Hello topic whose one line, said by the player, is SILENT_LINE: it outranks vanilla's player hellos.
+        See: docs/fork/fo4_spikes.md#silent-line
+        """
+        take, key = self.say.builder.new_id, self.quest['FormID']
+        hello = take(f'INFO player hello {key}')
+        self.say.silent.append((hello, True))
+        line = R.pack_info(hello, 0, (R.SILENT_LINE,), _any([(IS_ID, PLAYER_BASE)]), notes='FNV silent player hello')
+        fid = take(f'DIAL player hello {key}')
+        dial = R.pack_dial(fid, f'FNV_{self.quest["EditorID"]}_PlayerHello', self.fid, R.TOPIC_PLAYER_HELLO, 1)
         self.topics.append(pack_topic(dial, fid, [line]))
 
     def _priority(self, rec: dict) -> int:

@@ -89,7 +89,7 @@ class ObjectScripts:
 
     def _made(self, kind: str, prop: str) -> 'int | None':
         """A property's form the spike converts on demand: material swaps, imagespace modifiers, poses, items,
-        weapon animation type lists, packages; a Form-typed item (a note: paper or holotape)."""
+        weapon animation type lists, packages, idles; a Form-typed item (a note: paper or holotape)."""
         if kind == 'MatSwap' and prop.startswith(FALLOUT4_SWAP_PREFIX):
             return self.builder.swaps.swap(prop)
         if kind == 'ImageSpaceModifier':
@@ -105,6 +105,8 @@ class ObjectScripts:
             return self.builder.equipment.anim_list(prop) or self.form_list(prop) or self.builder.items.by_name(prop)
         if kind == 'Package':
             return self.builder.packages.named(prop)
+        if kind == 'Idle':
+            return self.builder.idles.named(prop)
         return self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None
 
     def mirror_global(self, name: str) -> 'int | None':

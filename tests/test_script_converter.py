@@ -6227,6 +6227,12 @@ class TestFalloutQuestStageSubject:
         out = conv_lines(converter, 'PlayGroup SpecialIdle 0', 'ObjectReference')
         assert 'PlayGamebryoAnimation("SpecialIdle")' in out and 'PlayAnimation(' not in out
 
+    def test_is_anim_playing_is_zero_on_fallout4(self, converter, monkeypatch):
+        """FO4 cannot ask a NIF sequence; the graph-variable read only errored (Lucky38LightScript)."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        out = conv_lines(converter, 'if IsAnimPlaying != 1\n  PlayGroup Left 1\nendif', 'ObjectReference')
+        assert 'bAnimPlaying' not in out and out.startswith('If 0 != 1')
+
     def test_radiation_rads_is_fallout4_rads(self, converter, monkeypatch):
         """On Fallout 4, RestoreAV RadiationRads heals FO4's Rads, as vanilla doctors do."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
@@ -6261,6 +6267,12 @@ class TestFallout4PlayerPackage:
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
         out = conv_lines(converter, 'if IsPlayerTagSkill Guns\nset x to 1\nendif', 'Quest')
         assert 'PRKF:PRKF.IsTagSkillAV(TES4AV_Guns)' in out and 'TODO' not in out
+
+    def test_set_tag_skill_suggests_it_ahead_of_the_tag_menu(self, converter, monkeypatch):
+        """The psych test's picks go through the character helper; the slot is dropped."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        out = conv_lines(converter, 'SetPlayerTagSkill Speech 1', 'Quest')
+        assert out == 'TES4CharacterEvents.SuggestTag(TES4AV_Speech)'
 
     def test_playidle_plays_an_idle_property(self, converter, monkeypatch):
         """Fallout 4's PlayIdle takes the Idle form the importer fills with a stand-in."""

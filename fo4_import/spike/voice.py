@@ -10,6 +10,8 @@ See: docs/fork/fo4_spikes.md#spike-1-voice
 
 import re
 import shutil
+import tempfile
+import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -19,6 +21,10 @@ from asset_convert.audio.audio_converter import SilentSource, convert_file_to_xw
 _FILE_RE = re.compile(r'_([0-9a-f]{8})_(\d+)\.ogg$', re.I)
 #: Bracketed tags in response text ([SUCCEEDED], [Medicine 30]) are shown, not spoken.
 _TAG_RE = re.compile(r'\[[^\]]*\]')
+#: The player's voice types (Fallout4.esm), whose folders hold lines the player says.
+PLAYER_VOICES = ('PlayerVoiceMale01', 'PlayerVoiceFemale01')
+#: Seconds a silent line's recording lasts, and its sample rate (as converted voice).
+SILENT_SECONDS, SILENT_RATE = 0.2, 44100
 
 
 def fnv_folder(export_dir: Path, voice_type: str) -> Path:
@@ -53,6 +59,29 @@ def jobs(lines: list, voices: list, data_dir: Path, plugin: str) -> list:
                     text = _TAG_RE.sub('', rec[f'Response[{i}].ResponseText'])
                     out.append((path, dest / f'{fid & 0xFFFFFF:08X}_{i + 1}.fuz', text))
     return out
+
+
+def silent_recording() -> Path:
+    """A SILENT_SECONDS mono 16-bit WAV of silence in the temp folder (written once).
+    See: docs/fork/fo4_spikes.md#silent-line
+    """
+    path = Path(tempfile.gettempdir()) / 'fnv_silent_line.wav'
+    if not path.is_file():
+        with wave.open(str(path), 'wb') as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(SILENT_RATE)
+            out.writeframes(bytes(2 * round(SILENT_SECONDS * SILENT_RATE)))
+    return path
+
+
+def silent_jobs(lines: list, voice_types: list, data_dir: Path, plugin: str) -> list:
+    """(silent recording, .xwm, None) jobs for `lines` [(INFO, the player's)] (silent_recording).
+    See: docs/fork/fo4_spikes.md#silent-line
+    """
+    source, root = silent_recording(), data_dir / 'Sound' / 'Voice' / plugin
+    return [(source, root / kind / f'{fid & 0xFFFFFF:08X}_1.xwm', None) for fid, player in lines
+            for kind in (PLAYER_VOICES if player else voice_types)]
 
 
 def remove_stale(job_list: list, folders: list) -> int:
@@ -94,11 +123,12 @@ def _convert_shared(source: tuple, destinations: list, tools: tuple) -> int:
 
 def convert(job_list: list, lipgen_dir: Path) -> int:
     """Run every job (source, .fuz with a transcript or .xwm without) with the CK's xWMAEncode and LipGenerator,
-    each (source, transcript) once (_convert_shared); return how many files were written."""
+    each (source, transcript) once to each distinct destination (_convert_shared); how many files were written."""
     tools = (find_ffmpeg(need_decoder='vorbis'), str(lipgen_dir / 'xWMAEncode.exe'),
              str(lipgen_dir / 'LipGenerator.exe'))
     shared = {}
     for source, dest, text in job_list:
-        shared.setdefault((source, text), []).append(dest)
+        dests = shared.setdefault((source, text), [])
+        dests += [] if dest in dests else [dest]
     with ThreadPoolExecutor() as pool:
         return sum(pool.map(lambda item: _convert_shared(*item, tools), shared.items()))

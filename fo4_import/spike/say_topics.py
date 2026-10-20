@@ -19,9 +19,8 @@ from fo4_import.base.writer import pack_topic
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form
-from fo4_import.spike.poses import line_idle
 from fo4_import.spike.readiness import LINE, LINE_LEFT_OUT
-from fo4_import.spike.say_once import SCRIPT as SAY_ONCE_SCRIPT, SayOnce
+from fo4_import.spike.say_once import SayOnce
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import export_records
@@ -54,12 +53,14 @@ REPUTATION_FIRST_SLOT = {'GetReputation': 0, 'GetReputationThreshold': 2}
 
 
 class SayTopics:
-    """FO4 Custom topics for FNV quests' Conversation topics; `voiced` lists [(FO4 INFO, FNV INFO)]."""
+    """FO4 Custom topics for FNV quests' Conversation topics; `voiced` lists [(FO4 INFO, FNV INFO)], `silent`
+    [(FO4 INFO, said by the player)] for the silent lines (voice.silent_jobs)."""
 
     def __init__(self, builder, export_dir: Path):
         """Index FNV topics and lines, each line carrying its quest's dialogue conditions (with_quest); topics are
         written through `builder` (its script_vars() names)."""
         self.builder, self.voiced, self.once = builder, [], SayOnce(builder.writer)
+        self.silent = []
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
         self.infos = {}
@@ -93,10 +94,10 @@ class SayTopics:
         return dlbr, blobs
 
     def _vmad(self, rec: dict, first: bool, last: bool, marked: list) -> bytes:
-        """FNV line `rec`'s VMAD: the `marked` scripts (its Say Once marker), then its converted fragments (Begin on
-        its first part, End on its last); b'' with neither."""
+        """FNV line `rec`'s VMAD: the `marked` helper scripts (its Say Once marker), then its
+        converted fragments (Begin on its first part, End on its last); b'' with neither."""
         scripts, name = self.builder.scripts, f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
-        scripts.used += [SAY_ONCE_SCRIPT] if marked and SAY_ONCE_SCRIPT not in scripts.used else []
+        scripts.used += [s[0] for s in marked if s[0] not in scripts.used]
         if scripts.dir and (scripts.dir / f'{name}.psc').exists() and (first or last):
             scripts.used.append(name)
             return info_fragments(name, scripts.properties(name), begin='Fragment_1' if first else None,
@@ -132,9 +133,9 @@ class SayTopics:
         extra += self.once.unsaid([rec['FormID']]) if marked else b''
         self.voiced.append((fid, rec))
         self.builder.counts['INFO'] += 1
-        return R.pack_info(fid, flags, tuple(lines) or ('...',), conditions + extra, scene=scene[0], phase=scene[1],
+        return R.pack_info(fid, flags, tuple(lines) or (R.SILENT_LINE,), conditions + extra, scene=scene[0], phase=scene[1],
                            phase_index=scene[2] if len(scene) > 2 else 0, stages=(R.NO_STAGE, R.NO_STAGE),
-                           notes=f'FNV {rec["FormID"]}', vmad=vmad, idle=line_idle(rec['FormID']) or 0,
+                           notes=f'FNV {rec["FormID"]}', vmad=vmad, idles=self.builder.idles.line(rec),
                            speaker=speaker)
 
 

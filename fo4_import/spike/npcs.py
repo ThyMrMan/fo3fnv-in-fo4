@@ -38,7 +38,7 @@ from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.placement import place, placement
 from fo4_import.spike.voice_types import with_voice
-from fo4_import.spike.actor_data import CREATURE_FLAGS, NPC_FLAGS, starts_dead, with_actor_data
+from fo4_import.spike.actor_data import CREATURE_FLAGS, NPC_FLAGS, hit_proof, starts_dead, with_actor_data
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -54,6 +54,10 @@ USE_STATS, USE_AI_DATA, USE_BASE_DATA = 0x2, 0x10, 0x80
 TEMPLATE_PARTS, TEMPLATE_SLOTS, ACBS_TEMPLATE = 0x3FF, 13, 14
 #: Fallout4.esm's Citizen, the commonest class of its human NPCs that set one (323); DocWeathers' is a turret's.
 HUMAN_CLASS = 0x1326B
+#: FNV CSSD Weapon Restrictions -> Fallout4.esm style: Melee Only csRaider01Melee, Ranged Only csRaiderRanged.
+COMBAT_STYLES = {'1': 0x47165, '2': 0x3183B}
+#: The tags vanilla's ZNAM (all 1,745) and ECOR (all 1,339) come right before.
+ZNAM_BEFORE, ECOR_BEFORE = (b'NAM5',), (b'FCPL', b'RCLR', b'PRKZ', b'PRKR', b'PRPS', b'FTYP', b'NTRM', b'COCT')
 #: derive_formid site of an NPC's outfit (key: the FNV NPC's FormID).
 OUTFIT_SITE = 'FNV OTFT'
 #: FNV ACBS flag Female; reference record flag Persistent.
@@ -233,6 +237,7 @@ class Npcs:
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
+        self.styles = {int(r['FormID'], 16): r.get('CSSD.WeaponRestrictions') for r in export_records(export_dir, 'CSTY')}
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
         """The NPC `fnv` takes part `flag` from (template_source); None if a list."""
@@ -259,7 +264,8 @@ class Npcs:
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
             (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
             composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
-                     with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv))))
+                     with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
+                     self._combat_style(traits))))
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
         return fid
@@ -280,7 +286,7 @@ class Npcs:
             self.builder.counts['NPC_ skipped (template not built)'] += 1
             return None
         parts = (with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
-                 self._actor_data(fnv)) if fnv in self.records else (with_actor_data(npc, npc, CREATURE_FLAGS),
+                 self._actor_data(fnv)) if fnv in self.records else (self.creatures.actor_data(npc, npc, npc),
                                                                      *self.creatures.own_parts(npc, templated=True))
         body = None if fnv in self.records else self.creatures.stand_in(fnv)
         fid = self._template_actor(fnv, npc, template, int(npc.get('ACBS.TemplateFlags', 0)), parts, body)
@@ -343,7 +349,8 @@ class Npcs:
         flags = int((self.source(fnv, USE_BASE_DATA) or npc).get('ACBS.Flags', 0))
         female = int((self.source(fnv, USE_TRAITS) or npc).get('ACBS.Flags', 0)) & FEMALE
         stats = {**(self.source(fnv, USE_STATS) or npc), 'ACBS.Flags': flags & ~FEMALE | female}
-        return with_actor_data(stats, self.source(fnv, USE_AI_DATA) or npc, NPC_FLAGS)
+        proof = hit_proof(self.export_dir, self.source(fnv, USE_SCRIPT) or npc)
+        return with_actor_data(stats, self.source(fnv, USE_AI_DATA) or npc, NPC_FLAGS, proof)
 
     def _factions(self, fnv: int) -> bytes:
         """FO4 SNAMs of FNV NPC `fnv`'s (or template's) factions and vendor one."""
@@ -376,9 +383,22 @@ class Npcs:
         return fid
 
     def _packages(self, fnv: int):
-        """The edit giving FNV NPC `fnv` its (or its template's) AI packages."""
-        rec = self.source(fnv, USE_PACKAGES) or {}
-        return R.packages_edit(self.builder.packages.for_npc(rec, self.form_map))
+        """The edit giving FNV NPC `fnv` its (or its template's) AI packages and combat override list."""
+        rec, packages = self.source(fnv, USE_PACKAGES) or {}, self.builder.packages
+        listed = R.packages_edit(packages.for_npc(rec, self.form_map))
+        combat = packages.combat_list(rec)
+        return composed(listed, R.with_sub(b'ECOR', struct.pack('<I', combat) if combat else b'', ECOR_BEFORE))
+
+    def _combat_style(self, traits: dict):
+        """The edit giving FNV NPC `traits` (its traits source, which holds ZNAM in FNV) the FO4 style of its
+        style's weapon restriction (COMBAT_STYLES); None when it keeps the default.
+        See: docs/fork/fo4_pipeline.md#combat-styles
+        """
+        restriction = self.styles.get(int(traits.get('ZNAM.CombatStyle', '0'), 16))
+        if restriction not in COMBAT_STYLES:
+            return None
+        self.builder.counts[f'NPC_ combat style (FNV weapon restriction {restriction})'] += 1
+        return R.with_sub(b'ZNAM', struct.pack('<I', COMBAT_STYLES[restriction]), ZNAM_BEFORE)
 
     def _head_assets(self) -> hair.Fo4Assets:
         """Fallout4.esm's head parts and the game's archives (hair.Fo4Assets), read once."""

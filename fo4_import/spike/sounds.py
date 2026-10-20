@@ -9,18 +9,23 @@ a sound marker (SOUN: EDID, OBND, SDSC, as 179 vanilla ones) places one.
 Each FNV SOUN becomes an SNDR copied from the vanilla descriptor of its kind
 (type, category, output model, playback flags, priority): a looping one
 (FNV flag Loop) from AMBSteamVaultPipeA, any other from
-DRSWoodSingleLightLoadAOpen. Its files are FNV's, converted to .xwm under
+DRSWoodSingleLightLoadAOpen, at FNV's static attenuation (both in
+hundredths of a dB) and range (Sounds.playback). Its files are FNV's, converted to .xwm under
 Sound\\FX\\FNV and named .wav, as vanilla names its .xwm files. FormIDs are
 hashed from FNV's, so no record moves.
 
 See: docs/fork/fo4_spikes.md#spike-4-sounds
 """
 
+import functools
+import re
 import struct
 from pathlib import Path
 
+from fo4_import.base.install import source_esm
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike.records import pack_u32
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -30,6 +35,10 @@ LOOP = 0x10
 LOOP_TEMPLATE, ONE_SHOT_TEMPLATE = 'AMBSteamVaultPipeA', 'DRSWoodSingleLightLoadAOpen'
 #: The template fields an SNDR keeps: type, category, output model, playback flags, priority and attenuation.
 KEPT = (b'CNAM', b'GNAM', b'ONAM', b'LNAM', b'BNAM')
+#: Vanilla's plain mono output models (SOPM), one per attenuation distance; ATTN's byte offset of that distance.
+MONO_MODEL, AT_MAX_DISTANCE = re.compile(r'SOMMono\d{5}'), 12
+#: FNV SNDD's maximum attenuation distance unit, in game units.
+FNV_DISTANCE_UNIT = 100
 #: derive_formid sites (key: the FNV SOUN's FormID).
 SNDR_SITE, SOUN_SITE = 'FNV SNDR', 'FNV SOUN'
 #: The bounds of vanilla's sound markers.
@@ -37,6 +46,21 @@ MARKER_BOUNDS = (-27, -27, -12, 27, 27, 12)
 #: The folder under Data\Sound\FX holding the converted FNV sounds.
 FOLDER = 'FNV'
 AUDIO = ('.wav', '.ogg')
+
+
+#: FNV base types with a looping sound the export drops, and its subrecord: STAT RNAM, MSTT SNAM.
+LOOP_FIELDS = {b'STAT': b'RNAM', b'MSTT': b'SNAM'}
+
+
+@functools.cache
+def looping_sounds() -> dict:
+    """{FNV STAT or MSTT FormID: its looping SOUN} of FalloutNV.esm's (the export drops the field)."""
+    out = {}
+    for rec, _ in walk(source_esm(), *LOOP_FIELDS):
+        value = dict(subrecords(rec.body)).get(LOOP_FIELDS[rec.sig])
+        if value:
+            out[rec.form_id] = struct.unpack('<I', value)[0]
+    return out
 
 
 class Sounds:
@@ -52,6 +76,23 @@ class Sounds:
             name = subs.get(b'EDID', b'').rstrip(b'\0').decode()
             if name in (LOOP_TEMPLATE, ONE_SHOT_TEMPLATE):
                 self.templates[name] = subs
+        self.models = {}
+        for rec, _ in walk(builder.fo4, b'SOPM'):
+            subs = dict(subrecords(rec.body))
+            if MONO_MODEL.fullmatch(subs.get(b'EDID', b'').rstrip(b'\0').decode()) and b'ATTN' in subs:
+                self.models.setdefault(struct.unpack_from('<f', subs[b'ATTN'], AT_MAX_DISTANCE)[0], rec.form_id)
+
+    def playback(self, rec: dict, template: dict) -> dict:
+        """Template fields `template` playing FNV SOUN `rec` at its own static attenuation and (as the vanilla mono
+        model nearest it) its own maximum distance; FNV's distance 0 keeps the template's model."""
+        out = dict(template)
+        reach = int(rec.get('SNDD.MaxAttDist', 0) or 0) * FNV_DISTANCE_UNIT
+        if reach:
+            out[b'ONAM'] = struct.pack('<I', self.models[min(self.models, key=lambda d: (abs(d - reach), d))])
+        quiet = max(0, int(rec.get('SNDD.StaticAttenuation', 0) or 0))
+        if b'BNAM' in template:
+            out[b'BNAM'] = template[b'BNAM'][:4] + struct.pack('<H', quiet)
+        return out
 
     def descriptor(self, fnv: int) -> int:
         """The FO4 SNDR of FNV SOUN `fnv`, made once; 0 when it is not an FNV SOUN or has no sound file."""
@@ -68,7 +109,7 @@ class Sounds:
             fid = self.builder.writer.derive_formid(SOUN_SITE, f'{fnv:08X}') if sndr else None
             if fid:
                 subs = pack_subrecord('EDID', f'FNV_{self.records[fnv]["EditorID"]}Marker'.encode() + b'\0')
-                subs += pack_subrecord('OBND', struct.pack('<6h', *MARKER_BOUNDS)) + _u32('SDSC', sndr)
+                subs += pack_subrecord('OBND', struct.pack('<6h', *MARKER_BOUNDS)) + pack_u32('SDSC', sndr)
                 self.builder.writer.add_record('SOUN', pack_fo4_record('SOUN', fid, 0, subs))
                 self.builder.counts['SOUN marker'] += 1
             self.markers[fnv] = fid
@@ -90,7 +131,7 @@ class Sounds:
     def _write(self, fnv: int, rec: dict, files: list) -> int:
         """Write the SNDR of FNV SOUN `rec` playing `files`, queueing their conversion; its FormID."""
         loop = int(rec.get('SNDD.Flags', 0) or 0) & LOOP
-        template = self.templates[LOOP_TEMPLATE if loop else ONE_SHOT_TEMPLATE]
+        template = self.playback(rec, self.templates[LOOP_TEMPLATE if loop else ONE_SHOT_TEMPLATE])
         fid = self.builder.writer.derive_formid(SNDR_SITE, f'{fnv:08X}')
         subs = pack_subrecord('EDID', f'FNV_{rec["EditorID"]}'.encode() + b'\0')
         subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[:2] if k in template)
@@ -104,7 +145,3 @@ class Sounds:
         self.builder.counts['SNDR'] += 1
         return fid
 
-
-def _u32(sig: str, value: int) -> bytes:
-    """A 4-byte subrecord."""
-    return pack_subrecord(sig, struct.pack('<I', value))

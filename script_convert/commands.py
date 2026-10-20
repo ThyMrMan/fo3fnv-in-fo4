@@ -793,13 +793,14 @@ def _is_mgef(xref, edid: str) -> bool:
 
 
 def _effect_family_test(ctx, call, effect_edid: str) -> str:
-    """`<actor>.HasMagicEffectWithKeyword(<family>)`: true while any copy of the MGEF is on the actor.
+    """`<actor>.HasMagicEffectWithKeyword(<family>)`: true while any copy of the MGEF is on the actor. Fallout 4
+    guards it: its effects are vanilla's, so a family keyword is often unfilled.
 
     See: docs/commentary/tes5_import_magic.md#effect-families
     """
     kw = mgef_family_keyword_name(effect_edid)
-    row = Cmd(f'{{ref}}.HasMagicEffectWithKeyword({kw})', ACTOR,
-              self_type=(kw, 'Keyword'))
+    test = f'{{ref}}.HasMagicEffectWithKeyword({kw})'
+    row = Cmd(f'({kw} && {test})' if is_fallout4() else test, ACTOR, self_type=(kw, 'Keyword'))
     return emit_row(ctx, row, call.ref, call.raw_name, call.src, call.extends)
 
 

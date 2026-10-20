@@ -11,7 +11,10 @@ source game starts at once. Nothing in Fallout4.esm is overridden.
 from pathlib import Path
 
 from fo4_import.base.vmad import quest_fragments
+from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
+from fo4_import.spike.character import SPECIAL
+from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS
 
 #: Source plugin -> (the quest whose stage opens its game, that stage).
 START = {'FalloutNV.esm': ('VCG00', 0)}
@@ -22,6 +25,8 @@ OPENING_QUESTS = (0xC3309, 0xBA4F3, 0xBA4F2, 0xF03D6, 0xD34DC)
 SITE, SCRIPT, PLAYER = 'FNV new game quest', 'TES4_NewGame', 0x14
 #: The quest's Player alias (its only one, forced to the player) and its script, which traces player hits on load.
 PLAYER_ALIAS, ALIAS_SCRIPT = 0, 'TES4_NewGamePlayer'
+#: The source game's player base record.
+PLAYER_BASE = 0x7
 
 
 def build(builder, export_dir: Path, quests: dict) -> None:
@@ -32,8 +37,16 @@ def build(builder, export_dir: Path, quests: dict) -> None:
     fid = builder.writer.derive_formid(SITE, export_dir.name)
     props = {'MQ101': MQ101, 'MQ102': MQ102, 'TimeScale': TIME_SCALE, 'StartQuest': quests[quest],
              'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD}
-    values = {'OpeningQuests': ('objects', list(OPENING_QUESTS)), 'StartStage': ('int', stage)}
+    values = {'OpeningQuests': ('objects', list(OPENING_QUESTS)), 'StartStage': ('int', stage),
+              'Special': ('objects', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
+              'SpecialStart': ('floats', start_special(export_dir))}
     vmad = quest_fragments('', [], aliases=[(PLAYER_ALIAS, fid, [(ALIAS_SCRIPT, {}, {})])],
                            scripts=[(SCRIPT, props, values)])
     builder.writer.add_record('QUST', R.pack_qust(fid, 'FNV_NewGame', '', 0, [], 'Player', PLAYER, vmad))
     builder.counts['QUST (new game)'] += 1
+
+
+def start_special(export_dir: Path) -> list:
+    """The source game's player record SPECIAL values, in SPECIAL's order."""
+    player = next(r for r in export_records(export_dir, 'NPC_') if int(r['FormID'], 16) == PLAYER_BASE)
+    return [float(player[f'DATA.{stat}']) for stat in SPECIAL]

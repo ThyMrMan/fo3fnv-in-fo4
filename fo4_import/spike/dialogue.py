@@ -317,7 +317,7 @@ class Spike:
         enam = (R.INFO_SAY_ONCE if flags & SAY_ONCE else 0) | (R.INFO_END_SCENE if flags & GOODBYE else 0)
         fid = self.ids.take()
         self.voiced.append((fid, rec))
-        return R.pack_info(fid, enam, tuple(lines) or ('...',),
+        return R.pack_info(fid, enam, tuple(lines) or (R.SILENT_LINE,),
                            C.convert(kept, self.form_map, self.av, False),
                            scene=scene, phase='Menu' if scene else '', stages=(begin, end),
                            notes=f"FNV {rec['FormID']}", forced_alias=0 if forced_alias else None, vmad=vmad)
@@ -354,7 +354,7 @@ class Spike:
                 hide += self.negate(groups, f'{where} "{text}"')
         conds = C.convert(hide, self.form_map, self.av, True)
         return (R.pack_info(self.ids.take(), 0, (LEAVE,), conds, prompt=LEAVE),
-                R.pack_info(self.ids.take(), R.INFO_END_SCENE, ('...',), notes='FNV Tab exit'))
+                R.pack_info(self.ids.take(), R.INFO_END_SCENE, (R.SILENT_LINE,), notes='FNV Tab exit'))
 
     def build_menu(self, edid: str, dial_fids: list, gated: bool, fid: int):
         """One XDI scene: four player topics (the first holds the options, then LEAVE) and one NPC topic."""
@@ -395,7 +395,7 @@ class Spike:
     def greeting(self) -> bytes:
         """The speakers' GREETING lines as one FO4 greeting topic; each forces its speaker into the alias.
 
-        A speaker with no FNV greeting gets a silent one last ('...'): FNV
+        A speaker with no FNV greeting gets a silent one last (SILENT_LINE): FNV
         opens the topic list without a greeting, FO4 needs a line to start it.
         Every line needs GetPlayerActivated, as 71 vanilla scene greetings do,
         or a speaker idling near the player opens the talk unasked.
@@ -411,7 +411,7 @@ class Spike:
             if npc and npc not in greeted:
                 self.report.append(f'{label}: no FNV greeting; silent fallback greeting added')
                 conds = C.convert([[_cond('GetIsID', 0, 1.0, npc)]] + activated, self.form_map, self.av, False)
-                infos.append(R.pack_info(self.ids.take(), 0, ('...',), conds, scene=self.main,
+                infos.append(R.pack_info(self.ids.take(), 0, (R.SILENT_LINE,), conds, scene=self.main,
                                          phase='Menu', forced_alias=0))
         fid = self.ids.take()
         return pack_topic(R.pack_dial(fid, 'FNVSpike_Greeting', self.quest, R.TOPIC_GREETING, len(infos)), fid, infos)

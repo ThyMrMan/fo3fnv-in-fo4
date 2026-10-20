@@ -1,5 +1,6 @@
 """FNV reference subrecords FO4 keeps, read from FalloutNV.esm: bounds, primitive, portal rooms, ragdoll, parents,
-ownership.
+ownership, item count (XCNT), open by default (ONAM) and an occlusion plane's size and linked planes (XOCP,
+XORD), all in FNV's layout.
 
 The export writes a reference's XPRM but not XMBO (a room marker's bound
 half extents), XPOD (a portal's origin and destination rooms) or XRGD (the
@@ -21,7 +22,8 @@ from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: The subrecords copied, in FO4's REFR order.
-KEPT = (b'XMBO', b'XPRM', b'XPOD', b'XRGD', b'XRDS', b'XAPD', b'XAPR', b'XOWN', b'XRNK', b'XESP', b'XPRD', b'XMRK', b'FNAM', b'FULL', b'TNAM')
+KEPT = (b'XMBO', b'XPRM', b'XPOD', b'XORD', b'XOCP', b'XRGD', b'XRDS', b'XAPD', b'XAPR', b'XOWN', b'XRNK', b'XESP', b'XCNT', b'XPRD',
+        b'ONAM', b'XMRK', b'FNAM', b'FULL', b'TNAM')
 #: Patrol data after XPRD as all 7,684 vanilla points write it: flag, no idle, no topic (no PDTO crashes FO4).
 PATROL_REST = pack_subrecord('XPPA', b'') + pack_subrecord('INAM', bytes(4)) + pack_subrecord('PDTO', bytes(8))
 #: A map marker's fields, kept only on a reference with XMRK (FNV uses TNAM and XRDS elsewhere too).
@@ -73,7 +75,7 @@ def owned(found: list, owners: dict) -> 'bytes | None':
 
 
 def _renumbered(ref: int, ids: dict) -> int:
-    """FO4 FormID of FNV reference `ref` through `ids` {FNV hex: FO4}; engine forms as they are, 0 if not built."""
+    """FNV reference `ref` through `ids` (engine forms kept; 0: not built)."""
     return ref if ref < ENGINE_FORMS else ids.get(f'{ref:08X}', 0)
 
 
@@ -83,8 +85,9 @@ def _field(tag: bytes, data: bytes, ids: dict, owner: 'bytes | None') -> 'bytes 
         return owner
     if tag == b'TNAM':
         return bytes([MARKER_TYPES.get(data[0], MARKER_TYPES[4])]) + data[1:2]
-    if tag == b'XPOD':
-        return struct.pack('<2I', *(ids.get(f'{room:08X}', 0) for room in struct.unpack('<2I', data)))
+    if tag in (b'XPOD', b'XORD'):
+        count = len(data) // 4
+        return struct.pack(f'<{count}I', *(ids.get(f'{ref:08X}', 0) for ref in struct.unpack(f'<{count}I', data)))
     if tag in REFERRING:
         parent = _renumbered(struct.unpack_from('<I', data)[0], ids)
         return struct.pack('<I', parent) + data[4:] if parent else None

@@ -4,6 +4,7 @@ See: docs/fork/fo4_spikes.md#spike-1b
 """
 
 import struct
+import wave
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
@@ -39,7 +40,9 @@ from fo4_import.spike import land_layers as LL
 from fo4_import.spike import locations as LO
 from fo4_import.spike import interiors as IN
 from fo4_import.spike import navmesh as NM
+from fo4_import.spike import actor_data as AD
 from fo4_import.spike import packages as PK
+from fo4_import.spike import npcs as N
 from fo4_import.spike import placement as PL
 from fo4_import.spike import poses as P
 from fo4_import.spike import records as R
@@ -108,6 +111,17 @@ def test_voice_job_names_the_fuz_by_plugin_voice_type_and_info(tmp_path):
     jobs = V.jobs([(0x02000869, rec)], [(folder, 'NPCMDocWeathers')], tmp_path / 'Data', 'Spike.esp')
     assert [(j[1].relative_to(tmp_path).as_posix(), j[2]) for j in jobs] == [
         ('Data/Sound/Voice/Spike.esp/NPCMDocWeathers/00000869_1.fuz', ' Of course.')]
+
+
+def test_a_silent_line_plays_a_short_silent_recording(tmp_path):
+    """An NPC's silent line gets the silent .xwm under each voice type; the player's under both player voices."""
+    jobs = V.silent_jobs([(0x02000900, False), (0x02000901, True)], ['NPCMDocWeathers'], tmp_path, 'Spike.esp')
+    assert [j[1].relative_to(tmp_path).as_posix() for j in jobs] == [
+        'Sound/Voice/Spike.esp/NPCMDocWeathers/00000900_1.xwm',
+        'Sound/Voice/Spike.esp/PlayerVoiceMale01/00000901_1.xwm',
+        'Sound/Voice/Spike.esp/PlayerVoiceFemale01/00000901_1.xwm']
+    with wave.open(str(jobs[0][0])) as recording:
+        assert recording.getnframes() == round(V.SILENT_SECONDS * V.SILENT_RATE) and jobs[0][2] is None
 
 
 def test_imad_moves_fnv_contrast_to_fo4_and_resets_hdr_slots():
@@ -289,6 +303,17 @@ def test_an_fnv_sound_becomes_a_descriptor_of_its_kind(tmp_path):
     assert b'LOOP' in added[0] and b'ONCE' not in added[0]
     assert b'data\\Sound\\FX\\FNV\\fx\\amb\\hum\\hum_01.wav' in added[0] and b'hum_02.wav' in added[0]
     assert b'notes' not in added[0] and [job[1].suffix for job in sounds.jobs] == ['.xwm', '.xwm']
+
+
+def test_an_fnv_sound_keeps_its_own_volume_and_reach():
+    """FNV's static attenuation (cdB) replaces the template's; its reach picks the nearest mono model."""
+    sounds = object.__new__(SO.Sounds)
+    sounds.models = {250.0: 0xA, 350.0: 0xB, 500.0: 0xC}
+    template = {b'ONAM': b'tmpl', b'BNAM': bytes((0, 5, 128, 0)) + struct.pack('<H', 1894)}
+    sconce = {'SNDD.MaxAttDist': '4', 'SNDD.StaticAttenuation': '5727'}
+    out = sounds.playback(sconce, template)
+    assert out[b'ONAM'] == struct.pack('<I', 0xB) and out[b'BNAM'] == bytes((0, 5, 128, 0)) + struct.pack('<H', 5727)
+    assert sounds.playback({}, template) == {**template, b'BNAM': bytes((0, 5, 128, 0, 0, 0))}
 
 
 
@@ -653,13 +678,98 @@ def test_an_in_cell_sleep_goes_to_the_npcs_own_bed_else_an_unowned_one():
 def test_a_sandbox_copy_takes_each_allow_from_fnvs_no_flag():
     """Primm residents (no flags) may sit and use idle markers; Chet's No Sleeping turns only sleeping off."""
     packages = PK.Packages.__new__(PK.Packages)
-    packages.slots = {'Allow Eating': 1, 'Allow Sleeping': 2, 'Allow Conversation': 3, 'Allow Idle Markers': 4,
-                      'Allow Sitting': 5, 'Allow Special Furniture': 6, 'Allow Wandering': 7}
-    residents = packages._allows({'PKDT.Type': '12', 'PKDT.TypeFlags': '0'}, 'Sandbox')
-    chet = packages._allows({'PKDT.Type': '12', 'PKDT.TypeFlags': '2'}, 'Sandbox')
+    packages.slots = {'Sandbox': {'Allow Eating': 1, 'Allow Sleeping': 2, 'Allow Conversation': 3,
+                                  'Allow Idle Markers': 4, 'Allow Sitting': 5, 'Allow Special Furniture': 6,
+                                  'Allow Wandering': 7}}
+    residents = packages._values({'PKDT.Type': '12', 'PKDT.TypeFlags': '0'}, 'Sandbox')
+    chet = packages._values({'PKDT.Type': '12', 'PKDT.TypeFlags': '2'}, 'Sandbox')
     assert set(residents.values()) == {b'\1'} and len(residents) == 7
     assert chet[2] == b'\0' and chet[5] == b'\1'
-    assert packages._allows({'PKDT.Type': '9', 'PKDT.TypeFlags': '1'}, 'Sandbox') == {}
+    assert packages._values({'PKDT.Type': '9', 'PKDT.TypeFlags': '1'}, 'Sandbox') == {}
+    assert packages._values({'PKDT.Type': '12', 'PKDT.TypeFlags': '0'}, 'Travel') == {}
+
+
+def test_a_follow_copy_stops_at_fnvs_follow_distance():
+    """FNV's distance (PTDT count) is Min Radius; Max Radius keeps vanilla's 600 unless FNV's is farther; none
+    keeps both."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.slots = {'FollowNPC': {'Min Radius': 0, 'Max Radius': 1}}
+    packages.vanilla = {'FollowNPC': pack_subrecord('CNAM', struct.pack('<f', 300))
+                        + pack_subrecord('CNAM', struct.pack('<f', 600))}
+    near = packages._values({'PTDT.Count': '128'}, 'FollowNPC')
+    assert near == {0: struct.pack('<f', 128), 1: struct.pack('<f', 600)}
+    assert packages._values({'PTDT.Count': '768'}, 'FollowNPC')[1] == struct.pack('<f', 768)
+    assert packages._values({'PTDT.Count': '0'}, 'FollowNPC') == {}
+
+
+def test_fnvs_own_behavior_flags_become_fo4_interrupt_flags():
+    """With 0x1000 set FNV's eight shared bits replace FO4's low byte (Avoid Radiation dropped); without it the
+    vanilla instance's flags stay. The override byte is the caller's."""
+    vanilla = struct.pack('<I4BHH', 0, 18, 0, 0, 0, 0xFEFF, 0)
+    own = PK._pkdt({'PKDT.Flags': str(0x1000), 'PKDT.BehaviorFlags': str(0x100 | 0x40 | 0x1)}, vanilla, 4)
+    assert struct.unpack_from('<H', own, 8)[0] == 0xFE41 and own[5] == 4
+    default = PK._pkdt({'PKDT.Flags': '0', 'PKDT.BehaviorFlags': str(0xCDCD)}, vanilla, 0)
+    assert struct.unpack_from('<H', default, 8)[0] == 0xFEFF and default[5] == 0
+    assert struct.unpack_from('<I', own)[0] == 0
+
+
+def test_a_guard_held_through_combat_gets_a_combat_override_list():
+    """An FNV Guard flagged Continue During Combat gets a second HoldPosition copy with the Combat override, listed
+    in its NPC's ECOR form list; a Guard without the flag and a cowering flee (a HoldPosition) with it get none."""
+    ids = {PK.COMBAT_SITE: 0x900, PK.COMBAT_LIST_SITE: 0x901}
+    writer = SimpleNamespace(added=[], add_record=lambda sig, data: writer.added.append((sig, data)),
+                             derive_formid=lambda site, key: ids[site])
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.builder = SimpleNamespace(writer=writer, fnv_id=lambda fnv: int(fnv, 16), counts=Counter())
+    packages.vanilla = {'HoldPosition': pack_subrecord('EDID', b'V\0') + pack_subrecord('PKDT', bytes(12))}
+    packages.combat, packages.combat_lists, packages.greets, packages.topics = {}, {}, [], {}
+    packages._fragments = lambda rec: b''
+    rec = {'EditorID': 'Guard', 'PKDT.Type': '14', 'PKDT.Flags': str(PK.CONTINUE_DURING_COMBAT), 'PSDT.Month': '-1',
+           'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '-1', 'PSDT.Duration': '0'}
+    assert packages._write('00000010', rec, ('HoldPosition', b''), b'', {}) == 0x10
+    assert packages._write('00000011', {**rec, 'PKDT.Flags': '0'}, ('HoldPosition', b''), b'', {}) == 0x11
+    assert packages._write('00000012', {**rec, 'PKDT.Type': '10'}, ('HoldPosition', b''), b'', {}) == 0x12
+    npc = {'FormID': '00000020', 'EditorID': 'Trooper', 'AIPackageCount': '2', 'AIPackage[0]': '00000011',
+           'AIPackage[1]': '00000010'}
+    assert packages.combat_list(npc) == 0x901 and packages.combat_list({}) == 0
+    combat = dict(subrecords(writer.added[1][1][24:]))
+    assert combat[b'PKDT'][5] == PK.COMBAT_OVERRIDE and combat[b'EDID'] == b'FNV_GuardCombat\0'
+    assert [s for s, _ in writer.added] == ['PACK', 'PACK', 'PACK', 'PACK', 'FLST']
+    assert dict(subrecords(writer.added[4][1][24:]))[b'LNAM'] == struct.pack('<I', 0x900)
+
+
+def test_a_force_greet_takes_fnvs_trigger_location():
+    """The Primm trooper's trigger box (radius 0) reaches its smaller half extent; no PLD2 keeps vanilla's."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.boxes = {0x172555: 1874.9}
+    rec = {'PLD2.Type': '0', 'PLD2.Location': '00172555', 'PLD2.Radius': '0'}
+    trigger = packages._trigger(rec, {0x172555: 0x0B172555})
+    assert trigger == {PK.TRIGGER_INPUT: struct.pack('<iIi', 0, 0x0B172555, 1875)}
+    wide = packages._trigger({**rec, 'PLD2.Radius': '300'}, {0x172555: 1})
+    assert wide[PK.TRIGGER_INPUT][-4:] == struct.pack('<i', 300)
+    assert packages._trigger({}, {}) == {} and packages._trigger(rec, {}) == {}
+
+
+def test_a_package_copy_replaces_later_location_inputs_by_ordinal():
+    """The second PLDT takes `inputs[1]`; the third keeps vanilla's bytes."""
+    vanilla = b''.join(pack_subrecord('PLDT', bytes([v]) * 16) for v in (5, 6, 7))
+    rec = {'EditorID': 'X', 'PSDT.Month': '-1', 'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '-1',
+           'PSDT.Duration': '0'}
+    out = PK.pack_package(0x800, rec, vanilla, b'\1' * 12, b'', inputs={1: b'\2' * 12})
+    pldts = [d for t, d in subrecords(out[24:]) if t == b'PLDT']
+    assert pldts == [b'\1' * 12 + b'\5' * 4, b'\2' * 12 + b'\6' * 4, b'\7' * 16]
+
+
+def test_an_fnv_script_resetting_health_on_hit_is_hit_proof(tmp_path, monkeypatch):
+    """The Well 3 gecko's OnHit block resets health; an OnDeath-only script and a later block's reset do not count."""
+    gecko = 'ScriptName G\r\n\r\nBEGIN OnHit VCG02GSSettlerREF\r\n\tif(bVulnerable == 0)\r\n\t\tResetHealth;\r\n\tendif\r\nEND\r\n'
+    later = 'BEGIN OnHit\r\n\tset x to 1\r\nEND\r\nBEGIN OnDeath\r\n\tResetHealth\r\nEND'
+    records = [{'FormID': '0010A1F4', 'SCTX': gecko}, {'FormID': '00000002', 'SCTX': later}]
+    monkeypatch.setattr(AD, 'export_records', lambda _dir, _sig: records)
+    AD.hit_proof_scripts.cache_clear()
+    assert AD.hit_proof_scripts(tmp_path) == {0x10A1F4}
+    assert AD.hit_proof(tmp_path, {'SCRI': '0010A1F4'}) and not AD.hit_proof(tmp_path, {})
+    AD.hit_proof_scripts.cache_clear()
 
 
 def test_a_package_copy_sets_value_inputs_by_slot():
@@ -669,6 +779,27 @@ def test_a_package_copy_sets_value_inputs_by_slot():
            'PSDT.Duration': '0'}
     body = PK.pack_package(0x800, rec, vanilla, b'', b'', values={1: b'\1'})[24:]
     assert [d for t, d in subrecords(body) if t == b'CNAM'] == [b'\5', b'\1', b'\7']
+
+
+def test_a_subrecord_goes_before_the_first_listed_tag_in_place_of_its_own():
+    """ZNAM lands before NAM5 (all 1,745 vanilla ZNAMs do), replacing an old one; without NAM5 it goes last."""
+    subs = pack_subrecord('ZNAM', b'\1\0\0\0') + pack_subrecord('HCLF', b'\0' * 4) + pack_subrecord('NAM5', b'\0\0')
+    out = [(t, d) for t, d in subrecords(R.with_sub(b'ZNAM', b'\2\0\0\0', (b'NAM5',))(subs))]
+    assert out[1:] == [(b'ZNAM', b'\2\0\0\0'), (b'NAM5', b'\0\0')] and out[0][0] == b'HCLF'
+    tail = [t for t, _ in subrecords(R.with_sub(b'ECOR', b'\3\0\0\0', (b'PRKZ',))(pack_subrecord('RNAM', b'\0' * 4)))]
+    assert tail == [b'RNAM', b'ECOR'] and R.with_sub(b'ECOR', b'', ()) is None
+
+
+def test_an_npc_takes_the_vanilla_style_of_its_fnv_styles_weapon_restriction():
+    """Ranged Only is csRaiderRanged, Melee Only csRaider01Melee; None or no style keeps the default."""
+    npcs = N.Npcs.__new__(N.Npcs)
+    npcs.builder = SimpleNamespace(counts=Counter())
+    npcs.styles = {0xB2945: '2', 0xB2944: '1', 0x2A44B: '0'}
+    ranged = npcs._combat_style({'ZNAM.CombatStyle': '000B2945'})(pack_subrecord('NAM5', b'\0\0'))
+    assert dict(subrecords(ranged))[b'ZNAM'] == struct.pack('<I', 0x3183B)
+    melee = npcs._combat_style({'ZNAM.CombatStyle': '000B2944'})(b'')
+    assert dict(subrecords(melee))[b'ZNAM'] == struct.pack('<I', 0x47165)
+    assert npcs._combat_style({'ZNAM.CombatStyle': '0002A44B'}) is None and npcs._combat_style({}) is None
 
 
 def test_an_npc_takes_its_fnv_voice_type_in_place_of_its_bodys():
@@ -701,3 +832,68 @@ def test_say_once_markers_live_in_their_own_quest_and_ride_on_the_line():
                              scripts=[once.script('00104BEE')])
     assert [s for s, _ in AU.vmad_scripts(b'INFO', vmad)] == ['TES4_SayOnce', 'FALLOUTNV_TIF__00104BEE']
     assert dict(AU.vmad_scripts(b'INFO', vmad))['TES4_SayOnce'] == {'Marks': 0x0300ABCD}
+
+
+def test_placeable_water_tiles_cover_a_strip_with_squares_of_its_width():
+    """A 512 x 2048 strip is four 512 tiles (scale 0.5) in a row along its length; a round mesh is one tile."""
+    from fo4_import.spike import placeable_water as PW
+    strip = PW.tiles((0.0, 0.0), (512.0, 2048.0), False)
+    assert [t[1] for t in strip] == [-768.0, -256.0, 256.0, 768.0] and {t[6] for t in strip} == {0.5}
+    assert PW.tiles((10.0, 20.0), (512.0, 512.0), True) == [(10.0, 20.0, 0.0, 0.0, 0.0, 0.0, 0.5)]
+
+
+def test_two_fnv_items_may_share_one_item_replacement():
+    """Every FNV entry naming the same Fallout4.esm record gets it (frag mines and powder charges: fragMine)."""
+    from fo4_import.base.writer import pack_fo4_record
+    from tes5_import.base.writer import pack_string_subrecord
+    weap = pack_fo4_record('WEAP', 0xE56C2, 0, pack_string_subrecord('EDID', 'fragMine'))
+    plugin = pack_fo4_record('TES4', 0, 0, b'') + b'GRUP' + struct.pack('<I4sIII', 24 + len(weap), b'WEAP', 0, 0, 0) + weap
+    table = {fnv: RP.Replacement(RP.BASE, 'fragMine', 'item') for fnv in ('WeapMineFrag', 'WeapNVMinePowderCharge')}
+    assert RP.items(table, plugin, ['Fallout4.esm']) == {'WeapMineFrag': 0xE56C2, 'WeapNVMinePowderCharge': 0xE56C2}
+
+
+def test_a_weather_region_keeps_its_areas_in_order_and_only_its_weather_entries(monkeypatch):
+    """FNV's areas stay RPLI/RPLD pairs in order; a map entry is dropped; the weather and worldspace convert."""
+    from fo4_import.spike import regions as RG
+    from tes5_import.base.tes5_reader import subrecords
+    monkeypatch.setattr(RG, 'fnv_weather', lambda builder, fnv: 0x03000000 | fnv & 0xFFFFFF)
+    builder = SimpleNamespace(globals={}, counts=Counter(), fnv_id=lambda f: 0x03000000 | f & 0xFFFFFF,
+                              writer=SimpleNamespace(derive_formid=lambda site, key: 0x03ABCDEF, records=[]))
+    builder.writer.add_record = lambda sig, rec: builder.writer.records.append(rec)
+    made = RG.Regions.__new__(RG.Regions)
+    made.builder, made.made = builder, {}
+    made.fnv = {0x123CE3: [(b'EDID', b'GSWeatherRegion\0'), (b'RCLR', b'\xff\x80\x80\0'), (b'WNAM', struct.pack('<I', 0xDA726)),
+                           (b'RPLI', b'\0\4\0\0'), (b'RPLD', b'A' * 16), (b'RPLI', b'\0\0\0\0'), (b'RPLD', b'B' * 16),
+                           (b'RDAT', struct.pack('<I4x', 4)), (b'RDMP', b'Goodsprings\0'),
+                           (b'RDAT', struct.pack('<IBB2x', 3, 0, 100)), (b'RDWT', struct.pack('<IiI', 0x1237D7, 100, 0))]}
+    assert made.region(0x123CE3) == 0x03ABCDEF
+    subs = list(subrecords(builder.writer.records[0][24:]))
+    assert [t for t, _ in subs] == [b'EDID', b'RCLR', b'WNAM', b'RPLI', b'RPLD', b'RPLI', b'RPLD', b'RDAT', b'RDWT']
+    assert dict(subs)[b'WNAM'] == struct.pack('<I', 0x030DA726)
+    assert dict(subs)[b'RDWT'] == struct.pack('<IiI', 0x031237D7, 100, 0)
+
+
+def test_a_radioactive_reference_takes_the_nearest_vanilla_hazard():
+    """FNV's rate picks the grade (1, 3, 6 a tick), its radius the size; no radius reads as the smallest."""
+    from fo4_import.spike import radiation as RA
+    table = {(g, r): i for i, (g, r) in enumerate((g, r) for g in RA.GRADES for r in (256, 512, 768, 2048))}
+    assert RA.nearest(table, 1.0, None) == table[('Light', 256)]
+    assert RA.nearest(table, 4.0, 700.0) == table[('Strong', 768)]
+    assert RA.nearest(table, 720.0, 10.0) == table[('Deadly', 256)]
+
+
+def test_a_music_zone_reaches_the_cells_its_radius_touches():
+    """A marker's zone is a 16-gon of its radius; a cell counts when any of it lies within the radius."""
+    from fo4_import.spike import music as MU
+    points = list(struct.iter_unpack('<2f', MU.polygon(100.0, 200.0, 50.0)))
+    assert len(points) == MU.SIDES and points[0] == (150.0, 200.0)
+    assert MU.reaches((0, 0), 4196.0, 100.0, 200.0) and not MU.reaches((0, 0), 4400.0, 100.0, 200.0)
+    assert MU.reaches((-1, -1), 10.0, 10.0, 20.0)
+
+
+def test_a_decal_keeps_fnv_data_but_fo4_shininess_and_shared_flags():
+    """Sizes, depth, parallax and colour stay; shininess is FO4's 1.0; flags keep 0x0E; FNV's junk bytes are 0."""
+    from fo4_import.spike import decals as DE
+    fnv = struct.pack('<7fBB2s4s', 25, 45, 25, 45, 32, 300, 1.0, 4, 0xCA, b'\xcd\xcd', b'\xb4\x18\x07\x00')
+    out = struct.unpack('<7fBB2s4s', DE.decal_data(fnv))
+    assert out[:5] == (25, 45, 25, 45, 32) and out[5] == 1.0 and out[7:] == (4, 0x0A, bytes(2), b'\xb4\x18\x07\x00')

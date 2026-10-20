@@ -18,6 +18,7 @@ from .recipe_falloutnv import RECIPE_EXPORTERS
 from .package_falloutnv import emit_package_deltas, emit_patrol_data
 from .quest_falloutnv import emit_quest_deltas
 from .terminal_falloutnv import emit_terminal
+from .world import export_REFR
 from .common import (emit_float, emit_formid, emit_model, emit_raw_hex,
                      emit_script, emit_string, emit_u8, emit_u16, emit_u32)
 
@@ -542,6 +543,7 @@ EFFECT_TYPES = frozenset({"SPEL", "ALCH", "ENCH", "INGR"})
 _DELTA_DISPATCH = {
     "CELL": _emit_cell_deltas,
     "REFR": _emit_refr_deltas,
+    "PGRE": _emit_refr_deltas,
     "ACHR": _emit_actor_ref_deltas,
     "ACRE": _emit_actor_ref_deltas,
     "WEAP": _emit_weap_deltas,
@@ -582,7 +584,7 @@ def export_deltas(rec: Record) -> list:
 def export_STATIC_BASE(rec: Record) -> list:
     """A model-only FO3/FNV base object, converted as a Skyrim STAT.
 
-    MSTT, SCOL, PWAT and IDLM all reduce to a model plus bounds. They are the
+    MSTT, SCOL, IDLM and ASPC reduce to a model plus bounds (PWAT adds DNAM). They are the
     base objects of 10,000+ placed references; without them those REFRs have a
     null base and the engine faults promoting them into their location.
 
@@ -592,6 +594,16 @@ def export_STATIC_BASE(rec: Record) -> list:
     emit_string(lines, "EditorID", get_subrecord(rec, "EDID"))
     emit_model(lines, "Model", rec)
     _emit_obnd(lines, rec)
+    return lines
+
+
+def export_PLACEABLE_WATER(rec: Record) -> list:
+    """A placeable water: a static base plus DNAM's flags and its water type (WATR)."""
+    lines = export_STATIC_BASE(rec)
+    dnam = get_subrecord(rec, "DNAM")
+    if dnam and len(dnam.data) >= 8:
+        flags, water = struct.unpack_from("<II", dnam.data, 0)
+        lines += [f"DNAM.Flags={flags}", f"DNAM.Water={water:08X}"]
     return lines
 
 
@@ -897,7 +909,8 @@ FALLOUT_BASE_EXPORTERS = {
     "NAVI": export_NAVMESH,
     "MSTT": export_STATIC_BASE,
     "SCOL": export_STATIC_BASE,
-    "PWAT": export_STATIC_BASE,
+    "PWAT": export_PLACEABLE_WATER,
+    "PGRE": export_REFR,
     "IDLM": export_STATIC_BASE,
     "ASPC": export_STATIC_BASE,
     "TERM": export_TERMINAL,

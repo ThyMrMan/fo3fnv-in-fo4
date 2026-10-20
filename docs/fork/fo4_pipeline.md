@@ -427,14 +427,14 @@ Found and left for their step (counts for Goodsprings to Primm):
 | Consumable effects with no FO4 effect: done 2026-10-14 ([consumable effects](#consumable-effects)); 20 kinds left are recorded drift | 20 kinds | 2 |
 | Leveled-list chance-none globals (LVLG) | 18 | 2 |
 | Door navmesh links (XNDP), patrol data (INAM, SCHR, XPPA, XPRD) | 70, 68 | 3 |
-| Placeable water (PWAT): the spring's clean water, blood, dirty and toxic water | 13 | world gaps |
-| Placed mines (PROJ through PGRE/PMIS) at the Powder Ganger camps | 11 | world gaps |
-| Music zones: FNV audio markers name a media location controller (ALOC, MMRK) | 45 | world gaps |
-| Looping sounds: statics (RNAM), movable statics and lights (SNAM), doors (BNAM) | 256, 13, 6, 3 | world gaps |
-| Cell acoustic space (XCAS) and music (XCMO) | 275, 27 | world gaps |
+| Placeable water (PWAT): built 2026-10-19 as FO4's water tiles ([placeable water](#placeable-water)) | 13 | world gaps |
+| Placed mines (PGRE): built 2026-10-19 on FO4's mine projectiles ([placed mines](#placed-mines)) | 11 | world gaps |
+| Music zones: FNV audio markers name a media location controller (ALOC, MMRK): built 2026-10-19 ([music](#music)) | 45 | world gaps |
+| Looping sounds: statics (RNAM), movable statics and lights (SNAM), doors (BNAM): built 2026-10-19 ([looping sounds](#looping-sounds)) | 256, 13, 6, 3 | world gaps |
+| Cell acoustic space (XCAS): interiors built 2026-10-19 ([acoustic spaces](#acoustic-spaces)); cell music (XCMO) built 2026-10-19 ([music](#music)) | 275, 27 | world gaps |
 | The Goodsprings store radio (TACT) | 1 | 4 (quests) |
-| Radiation on references (XRAD) | 6 | world gaps |
-| Doors open by default (ONAM), item counts (XCNT), occlusion planes (base 0x17), blood decals (TXST) | 3, 1, 3, 2 | world gaps |
+| Radiation on references (XRAD): built 2026-10-19 as vanilla hazards ([radiation](#radiation)) | 6 | world gaps |
+| Doors open by default (ONAM), item counts (XCNT), occlusion planes (base 0x17), blood decals (TXST): built 2026-10-19 ([reference fields](#reference-fields)) | 3, 1, 3, 2 | world gaps |
 | Billboard nodes (4 glow and dust meshes), the school globe's hinge, heat shimmer controllers | 4, 1, 4 | parked |
 
 Meshes: of the region's 1,630 FNV meshes, no block type is lost beyond
@@ -777,7 +777,12 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
     (`ShowBarterMenu`: 86 in end scripts, 4 in begin) now ends the
     conversation scene (End Running Scene, as vanilla's vendor lines), so
     barter shows alone. FNV returned to the talk after barter; in FO4 the
-    player talks again.
+    player talks again. Played 2026-10-19: Johnson Nash's barter
+    (`PrimmNashDialogue`, three lines, all end scripts) still opened over
+    the talk. `TES4Polyfill.ShowBarterMenu` waited at most 2 s for the
+    dialogue menu to close, and it had not. It now stops the vendor's
+    current scene first (`GetCurrentScene().Stop()`), which closes the
+    menu, then waits and opens barter.
   - *NPCs standing still:* see [packages](#packages).
 
 <a id="script-packages"></a>**Script packages on NPCs (built 2026-10-16, not yet played).**
@@ -944,6 +949,118 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   input to the negation of its flag (`ALLOWS`; No Furniture covers Allow
   Sitting and Allow Special Furniture). The inputs are found by the
   Sandbox template's data names (`value_slots`), not by position.
+- <a id="greet-trigger"></a>**A force greet waits for its trigger (built
+  2026-10-19, not yet played).** A ForceGreet copy kept vanilla's Target
+  Trigger Location (near its editor location, 250), so FNV's trigger was
+  lost: the Primm warning trooper (`PrimmWarningPackage`) reacted only
+  within 250 units of his post. FNV's Dialogue package names it as PLD2
+  (210 FNV packages), the second location input of FO4's ForceGreet
+  template (`Packages._trigger`, as the Skyrim side's `_greet_at_place`).
+  The trooper's is near `PrimmWarningMarker` with radius 0: a trigger box
+  (XPRM half extents 2,513 by 1,875, centred about 415 units from him).
+  FO4 has no "inside a box" location, so a box with radius 0 reaches its
+  smaller half extent (1,875): he runs out once the player is within it.
+  The leash (player, 5,000) and the greet distance (player, 200) stay
+  vanilla's.
+  - *Greet distance (tried and reverted 2026-10-19).* FNV's Dialogue
+    package keeps its Activate Distance in PTDT's count ("how close to
+    the target the actor needs to be before initiating dialogue", GECK;
+    239 of FNV's 293 player Dialogue packages set one, 256, 512 and 1,024
+    commonest). FO4's ForceGreet has a Forcegreet Distance, its third
+    location input (near PlayerRef; 122 of vanilla's 217 instances use
+    225, 3 use 1,000). Given FNV's count, the Primm trooper ran out, showed
+    his "..." prompt at 1,024 units and never spoke (played): FO4 stops the
+    actor at that distance but starts the conversation only once the
+    player is in talking range. FNV pulls the player into dialogue from
+    the activate distance; FO4 does not, so the template's 200 stays.
+- <a id="hit-proof"></a>**Actors a script keeps alive (built 2026-10-19,
+  not yet played).** Six FNV scripts reset their actor's health in an
+  OnHit block (`ResetHealth`), used by 7 actors: Sunny's Well 3 geckos and
+  the settler fighting them (`VFreeformGoodspringsGeckoWell3DeathSCRIPT`,
+  `VCG02GSSettlerSCRIPT`: neither dies until the player, Sunny or Cheyenne
+  hits a gecko), Doc Mitchell during his intro, Max and Stacey, the VMS18
+  assassin and a child. FNV runs OnHit before the hit can kill; FO4's
+  Papyrus OnHit is queued after the damage, so the converted reset came
+  too late: one or two hits killed a 20-health gecko, the settler then
+  had no package (his three wait on objective 50) and went on to Well 2
+  (played 2026-10-19: the geckos were dead when the player arrived). These
+  actors are now Protected (ACBS 0x800, `actor_data.hit_proof`): only the
+  player kills them; anyone else's hits leave them in bleedout. The script
+  still runs.
+- <a id="package-flags"></a>**Package flags (built 2026-10-19, not yet
+  played).** Bit meanings from xEdit's `wbPackageFlags` (one table, per
+  game), xNVSE/JIP `kPackageFlag_*`, the GECK wiki and the Skyrim CK
+  wiki's Package Flags page (FO4 shares Skyrim's); counts are FNV's 4,163
+  packages and Fallout4.esm's 3,828.
+  - *Behavior flags.* FNV's PKDT "Fallout Behavior Flags" (Hellos To
+    Player, Random Conversations, Observe Combat, Greet Corpse, Reaction To
+    Player Actions, Friendly Fire Comments, Aggro Radius, Idle Chatter) are
+    FO4's PKDT Interrupt Flags bit for bit (xEdit names them alike). They
+    count only when general flag 0x1000 is set (xEdit: Skip Fallout
+    Behavior; the GECK's checkbox is "Enable Fallout Behavior"): all 812
+    FNV packages with authored nonzero behavior flags set it, and the
+    2,500 without it hold 0 or uninitialized 0xCDCD (276 FO3 leftovers).
+    So with 0x1000 FNV's eight bits replace the copy's low byte
+    (`_pkdt`); without it the vanilla instance's flags stay. Avoid
+    Radiation (0x100, 659) has no FO4 bit.
+  - <a id="combat-override"></a>*Continue During Combat (0x4000000, 399).*
+    FNV keeps running the package in combat, fighting as it goes. FO4 has
+    no such flag; its mechanism is an NPC's Combat Override Package List
+    (ECOR, a form list): in combat the first valid package there runs
+    instead of combat AI. That fits a hold: the Skyrim CK wiki says a
+    HoldPosition there keeps the actor fighting inside its radius, while
+    a Travel there stops the actor attacking. So an FNV Guard (HoldPosition)
+    with the flag (87 packages) gets a second copy with interrupt override
+    Combat (4, as all 14 packages on vanilla's 9 override lists) and
+    without fragments, and its NPC gets an ECOR list of them
+    (`Packages.combat_list`; ids hashed from the FNV package and NPC). The
+    other types (Travel 153, UseWeapon 43, Follow 57, Patrol 32 ...) stay
+    drift: they drop the flag and fall to FO4's combat AI. Creatures don't
+    get the list yet. Only FNV Guards qualify, not every HoldPosition copy:
+    the Goodsprings settlers' cowering flee (`GoodspringsFleePackage`, a
+    HoldPosition with the Cowardly script) carries the flag too, and a
+    combat copy without that script would have them fight.
+  - *In the region build.* 91 of 197 packages take FNV's behavior flags
+    (42 Travel, 18 ForceGreet, 10 Sandbox, 8 HoldPosition ...); 4 Guards
+    get combat copies, listed on Trudy and three settlers for the
+    Goodsprings gunfight. No existing FormID moved; no other NPC field
+    changed.
+  - *Dropped, no FO4 meaning.* Defensive Combat (0x400000, 158) is
+    "Unused" (GECK). No Warn/Attack Behavior (0x10000000, 250), Pretend In
+    Combat (0x2000000, 53) and No Idle Anims (0x1000000, 29) sit on bits
+    FO4 leaves unnamed; Head-Tracking Off (0x100000, 114) is FO4's Ignore
+    Combat bit, so it must stay dropped. Recorded in the
+    [drift table](fo4_drift.md#recorded).
+- <a id="follow-distance"></a>**Follow distance (built 2026-10-19, not yet
+  played).** FNV's Follow and Accompany keep their distance in PTDT's
+  count (125 of 132 Follows and all 14 Accompanies set one, 50 to 768).
+  FO4's Follow procedure takes Min Radius ("too close, the follower will
+  not walk") and Max Radius ("too far away, the follower will begin
+  running"); FNV's follower closes to within its distance, so the
+  distance is Min Radius and Max Radius stays the instance's 600 unless
+  FNV's distance is farther (`Packages._radii`). Vanilla's 26 FollowNPC
+  packages pair them with no fixed ratio (200/500 most often). In the
+  region 5 FollowNPCs change (128 to 512).
+- <a id="combat-styles"></a>**Combat styles (built 2026-10-19, not yet
+  played).** Converted NPCs are copies of four vanilla bodies with no ZNAM,
+  so every one fought with the engine's default style, which weighs
+  melee and guns alike (`DefaultCombatStyle`, Equipment Score Mult 1.0
+  each). FNV and FO4 CSTY share almost no fields (FNV: dodge, block and
+  attack chances, cover search, combat radius, weapon restriction; FO4:
+  offensive and defensive mults, equipment score mults, close and long
+  range behavior), so an FNV style maps to a vanilla one by its authored
+  Weapon Restrictions (`npcs.COMBAT_STYLES`): Ranged Only to
+  `csRaiderRanged` (Fallout4.esm's commonest human style, 242 NPCs;
+  ranged 10, melee 1), Melee Only to `csRaider01Melee` (59; melee 10,
+  ranged 0.01). None (52 of FNV's 84 styles) keeps the default. ZNAM is a
+  traits part in FNV (xEdit hides it under Use Traits), so it comes from
+  the traits source and goes before NAM5, where all 1,745 vanilla ZNAMs
+  sit. FNV-wide 1,485 of 3,816 NPCs set a style: 933 Ranged Only, 25
+  Melee Only; in the region 81 NPCs take `csRaiderRanged`, none is Melee
+  Only. Dropped (drift): FNV's combat radius (2,000 for NCR
+  troopers, 6,000 for faction squads), cover chances and flee flags.
+  Package-level combat styles (FNV PACK CNAM) are not exported, so not
+  carried.
 - <a id="door-closer"></a>**Doors close behind NPCs (built and played
   2026-10-17).** FNV closes a door after the NPC who opened it walks
   through; FO4 leaves it open. In the Bison Steve a convict's patrol runs
@@ -1111,7 +1228,7 @@ ambient 87, 105, 138) and differ only in fog.
   vanilla's, as Project Mojave's do.
 - The climate copies `DefaultClimate` with FNV's weather list and sun
   timing; the worldspace points at it.
-- Not yet: the region weathers (fog only) and FNV's weather imagespace
+- The region weathers are converted ([region weather](#region-weather)). Not yet: FNV's weather imagespace
   modifiers (`IAD`). These two are most of FNV's "dirty" outdoor haze:
   - every wasteland weather plays `NVWastelandIS` (0x0CEE18; sunrise
     `NVWastelandSunriseIS` 0x0CEE1A). It tints toward amber (1.0, 0.737,
@@ -1824,6 +1941,265 @@ their water. The worldspace now takes FNV's default land and water heights
 (DNAM) and LOD water height (NAM4), and each cell its own XCLW. The region
 had 2 cells losing water and none flooding.
 
+## <a id="placeable-water"></a>Placeable water (built 2026-10-19, not yet played)
+
+FNV places pools, springs and puddles as PWAT references: a flat mesh, and
+the record's water type (DNAM). The export now writes DNAM (flags and water
+type); before, PWAT was a bare static and every reference was skipped.
+FO4 places water as an activator with a water type (ACTI WNAM) on a generic
+tile the reference scales: 33 of Fallout4.esm's 45 use `Water\Water1024.nif`
+and 4 `WaterCircle1024.nif`. The tile carries the water shader and a
+convex volume on collision layer 11 (water), so swimming and wading come
+with it. FNV's meshes are 512 squares, 512-wide strips (1×2 to 1×4), a
+2048 square, a 512 circle and a bathtub (46×114).
+`fo4_import/spike/placeable_water.py`:
+
+- Each PWAT is a copy of the vanilla tile activator with FNV's EditorID and
+  a water type. The circle is picked when the FNV mesh's triangles fill
+  under 90% of its extent (a circle fills π/4).
+- Each reference becomes tiles placed through the SCOL parts path: squares
+  the width of the mesh's shorter side, in a row along the longer side. A
+  1×4 strip is four tiles at scale 0.5, the 2048 square one tile at 2, and
+  the bathtub three overlapping 46-unit tiles.
+- The water type is a copy of the Fallout4.esm placeable water type nearest
+  in shallow and deep color (FNV WATR DNAM bytes 40 and 44, FO4's 4 and 8).
+  The copy takes FNV's drinking effect: clean (`WaterFountainCleanDrinking`,
+  no contact spell) for FNV's Purified water, else irradiated
+  (`WaterRadiationDrinking`, `WaterRadiationHazard`). This is the same test
+  the drinkable activators use. Nearly every vanilla type is lightly
+  irradiated, so taking one as is would have made Goodsprings' spring
+  radioactive.
+- Part references now keep their source reference's persistence. Before,
+  they were always temporary, and `Exterior.group` keeps only the persistent
+  part of the persistent cell, so the region's 8 exterior water references
+  (in WastelandNV's persistent cell) placed nothing. No SCOL reference in the
+  region was affected (616 parts before and after).
+
+Region: 4 water activators and their water types; 28 tiles from 13
+references (blood 5, Goodsprings' clean water 20, dirty 1, toxic 2). Whole
+game: 29 PWATs on 27 water types.
+
+## <a id="region-weather"></a>Region weather and sounds (built 2026-10-19, not yet played)
+
+A region with a weather list overrides the climate in the cells that list
+it: Goodsprings' `GSWeatherRegion` plays `NVWastelandGS` (FNV's thicker
+fog there), and `NVBorderRegion` plays `NVWastelandBorders`. FO4 does the
+same, through a REGN record and each exterior cell's region list (XCLR,
+after XCLW; 9,264 of Fallout4.esm's cells carry one). The REGN layout is
+FNV's: colour (RCLR), worldspace (WNAM), areas (RPLI edge falloff and RPLD
+points, one pair per area), then an 8-byte RDAT (type, flags, priority)
+before each data entry, with weather entries in RDWT (weather, chance,
+global; 12 bytes each). `fo4_import/spike/regions.py`:
+
+- A region FNV's built cells list (XCLR, 4,363 of FNV's 30,497 cells, read
+  from FalloutNV.esm because the export has none) is written once, if it
+  has a weather entry. It keeps FNV's colour, areas, flags and priority;
+  its worldspace and weathers become the converted ones; a global the
+  build lacks reads 0. Its other data (map name, sounds, objects, land,
+  grass, imposters) is left out; map names are the locations' own.
+- The record is on its own hashed FormID (site `FNV weather region`),
+  apart from the emittance's daylight copy of the same FNV region: 6 FNV
+  regions are both.
+- Each weather is written once per build (`weathers.fnv_weather`), whether
+  the climate or a region names it first.
+
+Region: 2 weather regions, Goodsprings' on 27 of the 253 exterior cells and
+the border on 21; 2 more weathers (4 in all). Whole game: 24 FNV regions
+with a worldspace carry weather, 3 of their entries name a global.
+
+**Sounds.** A sound entry (RDAT type 7) is FNV's RDSD: sound, weather flags
+(pleasant, cloudy, rainy, snowy) and chance as a percentage × 10,000. FO4's
+is RDSA: a sound descriptor, the same flags, and chance as a fraction
+(0.01 to 1.0 in Fallout4.esm's 220 entries, median 0.05). So FNV's 200000
+is 0.20. A region with weather or sounds is written. Its music (RDMO,
+RDSI, RDSB) is left out; music comes from audio markers ([music](#music)). FNV's interior sound regions
+(`AudioInt*`) have no worldspace and reach interiors through acoustic
+spaces ([acoustic spaces](#acoustic-spaces)). The ledger site keeps its
+first name (`FNV weather region`), so the regions built first keep their
+FormIDs. Region: 8 regions, 6 of them with 67 sounds.
+
+## <a id="vertex-alpha"></a>Vertex alpha on lit shapes (built 2026-10-19, not yet played)
+
+Victor's shack (`NV_ShackVictor.NIF`) still showed rusty metal sticking out
+after its material was split ([audit fixes](#audit-fixes)). Its triangles,
+UVs, texture (DXT5, alpha kept) and alpha test (threshold 100) all match
+FNV's. The one difference: the rusty-metal shape's vertex colours carry
+junk alpha (as low as −3.3e38). FNV ignores it, because that shader has
+`sf_vertex_alpha` off, but the converter clamped it into 605 of the shape's
+1,173 vertices at 0. A lit shape's FO4 shader (`SHADER_FLAGS`) never sets
+vertex alpha. Vanilla agrees: of 600 Architecture meshes, alpha-tested lit
+shapes without the flag have vertex alpha 255 in 84 of 93 cases, and low
+alpha goes with the flag (103 shapes). A lit shape's vertex alpha is now
+written as 1 (`convert_static.opaque`). Unlit shapes keep their vertex
+alpha rules (FNV's baked soft shadows fade by it). Not yet confirmed in
+game as the cause of the shack's strips.
+
+## <a id="acoustic-spaces"></a>Acoustic spaces (built 2026-10-19, not yet played)
+
+FNV gives an acoustic space (XCAS) to 373 interiors and 17,112 exterior cells.
+FO4 gives one only to interiors (282 of Fallout4.esm's cells) and leaves the
+outdoors to region sounds, so only an interior's XCAS converts.
+`fo4_import/spike/acoustics.py`:
+
+- FNV's ASPC has four loops by time of day, a walla sound, the region whose
+  sounds play inside (RDAT; 112 of 113 name one) and an environment type
+  (ANAM, an EAX preset). FO4's has one loop (SNAM), the region (RDAT), a
+  reverb record (BNAM), the interior flag (XTRI) and weather attenuation
+  (WNAM, 0 as 46 of 84 vanilla).
+- A space takes FNV's dawn/default loop, its region (`regions.py`; an
+  interior region has no worldspace and is written without one), and the
+  vanilla reverb `REVERBS` names for its environment type.
+- Spaces and the cells' XCAS are read from FalloutNV.esm (the export has
+  neither).
+
+Region: 9 acoustic spaces on 27 interiors.
+
+## <a id="looping-sounds"></a>Looping sounds (built 2026-10-19, not yet played)
+
+FNV's statics (STAT RNAM), movable statics (MSTT SNAM), lights (LIGH SNAM)
+and doors (DOOR BNAM) can carry a looping sound. FO4 has the slot on
+movable statics (SNAM), lights (SNAM, after FNAM) and doors (BNAM), not on
+statics. A static with a loop is written as a movable static on the same
+FormID with the loop, as vanilla's humming and whirring objects are. The
+export drops STAT RNAM and MSTT SNAM, so `sounds.looping_sounds` reads them
+from FalloutNV.esm. The light and door loops come from the export.
+
+Region: 256 statics now movable statics with their loop, 13 movable
+statics, 6 lights, 3 doors. Each loop plays at FNV's own volume and reach
+([sounds](fo4_spikes.md#spike-4-sounds)); first play, they all took the
+steam-pipe template's, and the casino's hums were far too loud.
+
+Also fixed: two FNV sounds naming the same file queued the same converted
+file twice, and the second copy failed on itself (`voice.convert`). Region
+sounds were the first to share files.
+
+## <a id="log-noise"></a>Papyrus log noise (2026-10-19)
+
+Played 2026-10-19 with some stutter: Papyrus.0.log had 28,266 lines in five
+and a half minutes, most of them errors with stack traces. Grouped by
+message and first script frame:
+
+| Errors | Script | Cause | Now |
+|---|---|---|---|
+| 3,825 | `Lucky38LightScript` (OnTimer, every 0.5 s per light) | FNV's IsAnimPlaying became `GetAnimationVariableBool("bAnimPlaying")`, a Skyrim-side graph variable; FO4's objects play NIF sequences (PlayGamebryoAnimation) with no graph, so every read errored and returned false | IsAnimPlaying is 0 on FO4 (`command_rows_fallout4`): the same value without the error. FO4 has no way to ask a NIF sequence, so a script waiting for one to end does not wait (35 FNV scripts use it; unchanged behavior) |
+| 675 | `GenericScript` (OnTimer) | Addiction checks through effect-family keywords (`TES4FX_addict*`, `HasMagicEffectWithKeyword`); FNV effects become vanilla FO4 effects, which carry none, so the properties stay unfilled | Guarded on FO4: `(kw && ref.HasMagicEffectWithKeyword(kw))` |
+| about 2,500 | quest timers: followers, the Primm deputy, Arcade, ED-E, VMQ01/05, Victor in the boulder | Calls on references and forms outside the region build (None) | Not changed: a region build lacks them; a whole-map build fills most |
+| 210 | vanilla `DLC04_GZSetConsciousOnHit` | A Nuka-World script's properties on a vanilla reference | Not ours |
+
+## <a id="radiation"></a>Radiation (built 2026-10-19, not yet played)
+
+FNV gives a reference a radiation rate (XRAD, rads a second; 119 in
+FalloutNV.esm) over its radius (XRDS). FO4 has no such field: it places
+hazards (PHZD; 981 in Fallout4.esm, nearly all its generic
+`RadiationHazard<Light|Strong|Deadly><256..2048>`). Their spells deal 1, 3
+and 6 a tick (with 10, 30 and 60 beside). `fo4_import/spike/radiation.py`
+places the hazard whose grade is nearest the reference's rate and whose
+radius is nearest its own (256 without one). The hazard stands at the
+reference's position, persistent and initially disabled as the reference
+is, whether or not the reference's base converts.
+
+Region: 6 hazards.
+
+## <a id="reference-fields"></a>Item counts, open doors, occlusion planes, decals (built 2026-10-19, not yet played)
+
+FO4's REFR keeps these in FNV's layout, so `placement.py` copies them from
+FalloutNV.esm:
+
+- XCNT (item count): 33 in FNV.
+- ONAM (open by default): 185.
+- XOCP and XORD (an occlusion plane's size and its four linked planes,
+  renumbered as portal rooms are).
+
+FNV's plane marker (engine form 0x17) has no record in FalloutNV.esm. It
+is Fallout4.esm's `PlaneMarker` on the same FormID (187 placed in vanilla),
+shared as the portal marker is (`items.PLANE_MARKER`).
+
+Region: 1 item count, 3 doors open by default, 3 occlusion planes.
+
+**Placed decals.** FO4 places texture sets as decals as FNV does (24,718
+in Fallout4.esm; FNV has 2, the blood in Vikki and Vance, enabled after the
+robbery). `fo4_import/spike/decals.py` writes the texture set: FNV's
+diffuse and normal (staged as any texture), and its decal data (DODT,
+the same layout in both games), with three changes. Shininess is FO4's
+1.0 (FNV's 300 is a specular exponent; 132 of vanilla's 180 decals use
+1.0). Flags keep alpha blending, alpha testing and no subtextures (FNV's
+bit 0 is parallax, FO4's POM shadows). FNV's two junk bytes are 0. The
+references place as any reference, enable parent included. Region: 1
+texture set, 2 decals.
+
+## <a id="music"></a>Music (built 2026-10-19, not yet played)
+
+**How FNV plays music.** FNV plays its music through audio markers: 572
+placed references to the engine's marker 0x23, with MMRK set. Each names a
+media location controller (ALOC, 89) over a radius (XRDS) with two layer
+boundaries (MNAM, NNAM).
+
+- A controller picks media sets (MSET, 140) by the player's standing with
+  a faction (neutral, ally, friend and enemy sets), plus location sets and
+  battle sets.
+- A set is one of four types:
+  - battle (32): one loop;
+  - location (81): low, mid and high stems by distance from the marker,
+    day and night;
+  - dungeon (23): explore, suspense and battle loops;
+  - incidental (4): random one-shot sounds.
+- A cell's own music type (XCMO, a MUSC) is mostly one of FNV's defaults
+  (no music 159, dungeon 63, explore 35, public 26, base 9). Those name
+  folders FNV ships no files for, so in FNV they play nothing.
+
+**How FO4 plays music.** FO4 plays a music type (MUSC): flags, priority,
+fade and a track list (TNAM) of tracks (MUST). A track is a single file
+(ANAM, `data\Music\...wav`, read as .xwm), a palette or silence, chosen
+by conditions. Fallout4.esm's explore tracks test day as `GetCurrentTime`
+>= 6 and <= 20, and night as < 6 or > 20. Vanilla tracks carry no
+duration.
+
+**The mapping** (`fo4_import/spike/music.py`):
+
+- **Controllers.** A controller takes its first location set, else its
+  first neutral set. Standing variants, battle sets (FO4's own combat
+  music plays) and incidental sets are left out. A controller with neither
+  kind of set is silent; `musCtrlAAAntiMusic` has only battle sets.
+- **Location sets.** A location set becomes a music type of its outer layer
+  (the low stem, heard across the whole radius): a day track and a night
+  track, each if FNV enables it (PNAM). FNV stacks mid and high stems
+  closer in; FO4 cannot layer by distance.
+- **Dungeon sets and music types.** A dungeon set plays its explore loop.
+  An FNV MUSC naming a file plays it; one naming a folder, or none, is
+  silence.
+- **Interiors.** An interior's music (XCMO) is its audio marker's, else
+  its MUSC's. Every built interior has exactly one marker.
+- **Outdoors.** Each audio marker becomes a music region: a 16-sided
+  polygon of its radius, with the sound entry (RDAT type 7) naming the
+  music (RDMO). Its priority rises as radii shrink (10 for the widest), so
+  a town's zone wins over the desert around it. Every cell it reaches
+  lists it (XCLR). The worldspace's music (ZNAM) is silence, as FNV is
+  between zones.
+- **Files and sources.** Music files convert to `Data\Music\FNV` with the
+  sound jobs. Media sets, controllers and markers are read from
+  FalloutNV.esm (the export does not decode MSET or ALOC).
+
+Region: 14 music types, 22 tracks on 16 files (14 MB), 20 music regions;
+28 interiors with music, 9 of them silent.
+
+## <a id="placed-mines"></a>Placed mines (built 2026-10-19, not yet played)
+
+FNV arms a mine as a PGRE reference on a projectile (PROJ). FO4 does the
+same with its own mine projectiles (Fallout4.esm: 395 PGREs, 340 of them
+`FragMineProjectile`). The export now writes PGRE like any placed reference;
+before, it was an unknown record type. The cell build reads PGRE with REFR,
+and `pack_refr` writes the record type it is given.
+`fo4_import/spike/mines.py` takes the FNV weapon that throws the projectile
+(WEAP DNAM), converts it through the replacement table, and places the FO4
+weapon's projectile (WEAP FNAM, byte 29). Table entries: frag mine →
+`fragMine`, bottlecap mine → `BottlecapMine`, powder charge → `fragMine`
+(FO4 has none). Two FNV items naming the same `item` target used to keep
+only the last one (`replacements.items`); both now get it.
+
+Region: 11 frag mines at the Powder Ganger camps. Whole game: 174 placed
+(frag 131, powder charge 33, bottlecap 3). The 7 C4 charges at Hoover Dam
+are left out, because no weapon throws their projectile.
+
 ## <a id="audit-fixes"></a>Audit fixes (built 2026-10-17)
 
 The [tool audit](fo4_tool_audit.md)'s findings, as fixed. FormIDs, world
@@ -2270,7 +2646,7 @@ quick fix.
 |---|---|---|
 | Overall warmth: FO4's tone curve and LUT against FNV's clipped display colours | Not measured; a candidate player option ("FNV look") | [color drift](#color-drift) |
 | FNV's weather imagespace modifier: the amber tint (`NVWastelandIS`, 39%) and brightness × 1.3 | Values read; not converted | [weathers](#weathers) |
-| Region weathers: Goodsprings' thicker fog (`NVWastelandGS`) | Not converted | [weathers](#weathers) |
+| Region weathers: Goodsprings' thicker fog (`NVWastelandGS`) | Built 2026-10-19, not yet played | [region weather](#region-weather) |
 | Grass reads green, FNV's dry yellow | Not measured | [color drift](#color-drift) |
 | Bright dirt road | Re-check now that the weathers are FNV's | [color drift](#color-drift) |
 | Bright lamps blown out (the Goodsprings lantern) | FNV multiplies an emissive shape by 15 with HDR on (`0xBC6FE0`) and then clips; FO4 blooms the same energy. A rescale was tried and reverted. Tied to the tone question | [emittance](#emittance) |

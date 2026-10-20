@@ -1117,6 +1117,14 @@ def _parse_skeleton_hkx(data: bytes) -> Optional[Skeleton]:
     return skel
 
 
+def parse_fo4_skeleton(raw: bytes) -> Optional[Skeleton]:
+    """A FO4 skeleton from binary HKX bytes (e.g. read from a BA2); None without one.
+
+    TESConversion: public entry for in-memory files.
+    """
+    return _parse_skeleton_hkx(raw)
+
+
 def load_fo4_skeleton(filepath: str) -> Optional[Skeleton]:
     """Load a FO4 skeleton from a binary HKX file.
 
@@ -1999,7 +2007,8 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         at_rel = rel()
         annot_track_offsets.append(at_rel)
         write(bytes(8))      # name ptr
-        write(_hkarray(0))   # annotations (empty for now)
+        # TESConversion: the clip's events sit on track 0, as vanilla FO4 clips keep them.
+        write(_hkarray(len(anim.annotations) if i == 0 else 0))
 
     # Annotation track name strings
     for i in range(num_tracks):
@@ -2008,6 +2017,16 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         write_string(name)
         fx.add_local(annot_track_offsets[i], name_str_rel)
     align16()
+
+    # TESConversion: hkaAnnotation structs (time f32, pad, text ptr) and their strings.
+    if anim.annotations and num_tracks:
+        events_rel = rel()
+        fx.add_local(annot_track_offsets[0] + 8, events_rel)
+        for a in anim.annotations:
+            write(_w_f32(a.time) + bytes(12))
+        for j, a in enumerate(anim.annotations):
+            fx.add_local(events_rel + j * 0x10 + 8, write_string(a.text))
+        align16()
 
     # Block offsets array
     block_off_data_rel = rel()

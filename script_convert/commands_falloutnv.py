@@ -14,8 +14,8 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 from fo4_import.base.bink import movie_key
 from script_convert.constants import FALLOUT4_POSE_PREFIX, fallout4_swap_property, safe_property_name, typed_already
 from script_convert.message_menus import authored_site
-from script_convert.target import (CONTROLS_PROPERTY, CONTROLS_SCRIPT, arm_update, av_property, fallout4_av_name,
-                                   is_fallout4)
+from script_convert.target import (CHARACTER_PROPERTY, CHARACTER_SCRIPT, CONTROLS_PROPERTY, CONTROLS_SCRIPT, arm_update,
+                                   av_property, fallout4_av_name, is_fallout4)
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
 
@@ -255,9 +255,9 @@ def player_package(ctx, call):
 
 
 def tag_skill(ctx, call):
-    """FNV `IsPlayerTagSkill <skill>` on Fallout 4: LevelUpMenuEx's IsTagSkillAV on the skill's ActorValue.
-
-    The tag menu is LevelUpMenuEx's (TES4_CharacterRules); declines elsewhere.
+    """FNV `IsPlayerTagSkill <skill>` and `SetPlayerTagSkill <skill> <slot>` on Fallout 4, on the skill's ActorValue:
+    LevelUpMenuEx's IsTagSkillAV, and TES4_CharacterEvents.SuggestTag (tagged ahead of the tag menu, which the
+    player may still change; FNV's slot is the menu's order). The tag menu is LevelUpMenuEx's (TES4_CharacterRules).
     See: docs/fork/fo4_spikes.md#spike-2-vcg01
     """
     if not is_fallout4() or not len(call):
@@ -265,6 +265,9 @@ def tag_skill(ctx, call):
     raw = call.source(0).strip('"')
     prop = av_property(fallout4_av_name(raw) or raw)
     ctx.sc.property_refs[prop] = 'ActorValue'
+    if call.name == 'setplayertagskill':
+        ctx.sc.property_refs[CHARACTER_PROPERTY] = CHARACTER_SCRIPT
+        return f'{CHARACTER_PROPERTY}.SuggestTag({prop})'
     return f'PRKF:PRKF.IsTagSkillAV({prop})'
 
 
@@ -299,6 +302,7 @@ def play_bink(ctx, call):
 FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'playbink': play_bink,
                     'isplayertagskill': tag_skill,
+                    'setplayertagskill': tag_skill,
                     'addscriptpackage': player_package,
                     'removescriptpackage': player_package,
                     'getopenstate': get_open_state,

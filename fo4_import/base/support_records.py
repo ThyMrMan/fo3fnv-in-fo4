@@ -41,6 +41,16 @@ def pack_script_quest(fid: int, edid: str, vmad: bytes, stages: tuple = ()) -> b
     return pack_fo4_record('QUST', fid, 0, subs + pack_subrecord('ANAM', struct.pack('<I', 0)))
 
 
+#: Game setting EditorID prefix -> its DATA format: unsigned, int, float.
+GMST_FORMATS = {'u': '<I', 'i': '<i', 'f': '<f'}
+
+
+def pack_gmst(fid: int, edid: str, value: float) -> bytes:
+    """A game setting, DATA by its EditorID's type prefix (GMST_FORMATS), as uSPECIALPoints 00078744."""
+    subs = pack_string_subrecord('EDID', edid) + pack_subrecord('DATA', struct.pack(GMST_FORMATS[edid[0]], value))
+    return pack_fo4_record('GMST', fid, 0, subs)
+
+
 def pack_global(fid: int, edid: str, kind: str = 's', value: float = 0.0, flags: int = 0) -> bytes:
     """A global (type s, l or f), as GameDaysPassed 00000039; `flags`: record flags."""
     subs = pack_string_subrecord('EDID', edid) + pack_subrecord('FNAM', kind.encode('ascii'))

@@ -224,6 +224,12 @@ Bool Function Tracing() Global
 EndFunction
 
 ; fallout4: new
+Bool Function InMenuMode() Global
+  {FO3/FNV menu mode: a pausing menu is open, or a character menu (SPECIAL, LevelUpMenuEx's tags and traits, the face) that FO4 does not count as one.}
+  Return Utility.IsInMenuMode() || UI.IsMenuOpen("SPECIALMenu") || UI.IsMenuOpen("LevelUpMenu") || UI.IsMenuOpen("LooksMenu")
+EndFunction
+
+; fallout4: new
 Function TraceWrite(String asKind, String asText) Global
   {One trace line for tools/validate/fo4_trace.py: TES4TRACE|real time|kind|text.}
   Debug.Trace("TES4TRACE|" + Utility.GetCurrentRealTime() + "|" + asKind + "|" + asText)
@@ -498,7 +504,11 @@ EndFunction
 
 ; fallout4: new
 Function ShowBarterMenu(Actor akVendor) Global
-  {FNV ShowBarterMenu, usually run as a line ends: the vendor's barter menu once the dialogue menu has closed (2 s at most), so barter does not open with the talk still on screen behind it.}
+  {FNV ShowBarterMenu, usually run as a line ends: the vendor's talk scene stopped (its dialogue menu closes), then the barter menu once that menu has closed (2 s at most), so barter does not open over the talk.}
+  Scene talk = akVendor.GetCurrentScene()
+  If talk
+    talk.Stop()
+  EndIf
   Float waited = 0.0
   While UI.IsMenuOpen("DialogueMenu") && waited < 2.0
     Utility.WaitMenuMode(0.1)

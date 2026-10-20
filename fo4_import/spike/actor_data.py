@@ -9,13 +9,18 @@ Auto-calc too), the level band, and FNV's aggression, confidence, energy,
 morality (from responsibility), assistance and aggro radius as the Skyrim
 side reads them (tes5_import actors_falloutnv). FNV marks an NPC or
 creature placed dead on its record (STARTS_DEAD_FNV); FO4 on the placed
-actor (STARTS_DEAD).
+actor (STARTS_DEAD). An actor whose FNV script resets its health when hit
+(hit_proof_scripts) is Protected: FO4's hit lands before a script's reset.
 
 See: docs/fork/fo4_pipeline.md#npcs
 """
 
+import functools
+import re
 import struct
+from pathlib import Path
 
+from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 from tes5_import.record_types.actor_common import morality
@@ -31,11 +36,29 @@ STARTS_DEAD_FNV = 0x80000
 STARTS_DEAD = 0x200
 #: FO4 ACBS offsets: flags, level, calc min, calc max (each after the last).
 LEVEL_AT = 6
+#: An FNV OnHit block (to its END) that resets the actor's health.
+RESET_ON_HIT = re.compile(r'(?ims)^\s*begin\s+onhit\b(?:(?!^\s*end\b).)*\bresethealth\b')
 
 
-def acbs(body: bytes, rec: dict, kept: int) -> bytes:
-    """`body` ACBS with `rec`'s `kept` flags and level band; no Protected."""
+@functools.cache
+def hit_proof_scripts(export_dir: Path) -> frozenset:
+    """FormIDs of FNV scripts whose OnHit block resets health.
+
+    See: docs/fork/fo4_pipeline.md#hit-proof
+    """
+    return frozenset(int(r['FormID'], 16) for r in export_records(export_dir, 'SCPT')
+                     if RESET_ON_HIT.search(r.get('SCTX', '')))
+
+
+def hit_proof(export_dir: Path, rec: dict) -> bool:
+    """Whether FNV actor `rec`'s script is one of hit_proof_scripts."""
+    return int(rec.get('SCRI', '0'), 16) in hit_proof_scripts(export_dir)
+
+
+def acbs(body: bytes, rec: dict, kept: int, protected: bool = False) -> bytes:
+    """`body` ACBS with `rec`'s `kept` flags and level band; Protected only when `protected`."""
     flags = struct.unpack_from('<I', body)[0] & ~(kept | PROTECTED) | int(rec.get('ACBS.Flags', 0) or 0) & kept
+    flags |= PROTECTED if protected else 0
     band = (int(rec.get(k, 0) or 0) for k in ('ACBS.Level', 'ACBS.CalcMin', 'ACBS.CalcMax'))
     return struct.pack('<I', flags) + body[4:LEVEL_AT] + struct.pack('<3H', *band) + body[LEVEL_AT + 6:]
 
@@ -48,13 +71,14 @@ def aidt(rec: dict) -> bytes:
                        morality(rec), 0, assistance(rec), behavior, 0, radius, radius, radius, 0)
 
 
-def with_actor_data(stats: dict, ai: dict, kept: int):
-    """A record edit giving an actor FNV `stats`' ACBS flags and level (`kept` flags) and `ai`'s AIDT."""
+def with_actor_data(stats: dict, ai: dict, kept: int, protected: bool = False):
+    """A record edit giving an actor FNV `stats`' ACBS flags and level (`kept` flags; Protected when
+    `protected`) and `ai`'s AIDT."""
     def edit(subs: bytes) -> bytes:
         """The subrecords with ACBS and AIDT replaced."""
         out = b''
         for tag, data in subrecords(subs):
-            data = acbs(data, stats, kept) if tag == b'ACBS' else aidt(ai) if tag == b'AIDT' else data
+            data = acbs(data, stats, kept, protected) if tag == b'ACBS' else aidt(ai) if tag == b'AIDT' else data
             out += pack_subrecord(tag.decode(), data)
         return out
     return edit

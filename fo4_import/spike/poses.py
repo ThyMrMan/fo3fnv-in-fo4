@@ -1,12 +1,10 @@
-"""FO3/FNV special idles on FO4, for the cell spike: the player's script packages and idles played by script.
+"""The player's FO3/FNV script packages on FO4, for the cell spike: seats instead of their special idles.
 
-FO4 cannot play FO3/FNV's `.kf` special idles. A player script package with
-a pose here becomes a seat (`TES4_PlayerControls.HoldPlayer`), initially
-disabled: FNV's marker stands outside the bed and its idle moves the player
-onto it, so the seat moves back from the marker to a chair seat's depth
-inside the edge of the furniture behind it. FO4's give animation is a talk idle,
-played only as a line's speaker idle, so a hand-over FNV plays between two
-lines rides on the line after it (LINE_IDLES). Others play nothing.
+A player script package with a pose here becomes a seat
+(`TES4_PlayerControls.HoldPlayer`), initially disabled: FNV's marker stands
+outside the bed and its idle moves the player onto it, so the seat moves
+back from the marker to a chair seat's depth inside the edge of the
+furniture behind it.
 
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
@@ -20,8 +18,6 @@ from script_convert.constants import FALLOUT4_POSE_PREFIX
 
 #: Player script package (lowercase) -> the FNV marker its seat stands on: VCG01's wake-up on the bed's edge.
 SEATED_PACKAGES = {'vcg01playersection0': 'VCG01PlayerStartMarkerREF', 'vcg01playersection1': 'VCG01PlayerStartMarkerREF'}
-#: FNV INFO -> Fallout4.esm speaker idle: "How'd I do?" follows Doc's VCG01DocGiveMirror, as DialogueGiveItem.
-LINE_IDLES = {'00104BF8': 0x0CEA8D}
 #: Keywords letting the player sit and stand through the bed the seat lies in (NpcChairVaultSitThruGeom03's).
 THROUGH_GEOMETRY = ('FurnitureAllowEnterThroughGeometry', 'FurnitureAllowExitThroughGeometry')
 #: The seat's model (vanilla's NPC marker furniture) and bounds.
@@ -108,8 +104,3 @@ def seat_place(marker: tuple, furniture: list) -> tuple:
     edge = max(across(v, facing) for v in vertices if abs(across(v, side) - across(local, side)) < SIDE_REACH)
     x, y = _world(moved(local, facing, edge - SEAT_DEPTH), place)
     return (x, y, mz), rot
-
-
-def line_idle(info: str) -> 'int | None':
-    """The Fallout4.esm speaker idle for FNV INFO `info` (FormID text), or None."""
-    return LINE_IDLES.get(info.upper())

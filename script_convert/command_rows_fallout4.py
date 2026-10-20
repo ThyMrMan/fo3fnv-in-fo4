@@ -6,13 +6,14 @@ Actor values are ActorValue form properties (`target.av_property`) declared
 through `self_type`; behavior-graph events go through PlayAnimation. Where
 Fallout 4 has FO3/FNV's own feature the row uses it (RewardXP is the native
 RewardPlayerXP); the character menus, which Skyrim sends as SKSE mod events,
-become one custom event from the TES4_CharacterEvents helper.
+become one custom event from the TES4_CharacterEvents helper. IsAnimPlaying
+is 0: FO4 cannot ask a NIF sequence, and the graph read errored (fo4_pipeline.md#log-noise).
 
 See: docs/fork/fo4_spikes.md#spike-3-target
 """
 
 from script_convert.command_rows import ACTOR, AV, COMMAND_ROWS, MAP, RAW, Cmd
-from script_convert.target import CONTROLS_PROPERTY, CONTROLS_SCRIPT, av_property
+from script_convert.target import CHARACTER_PROPERTY, CHARACTER_SCRIPT, CONTROLS_PROPERTY, CONTROLS_SCRIPT, av_property
 
 
 def _av(name: str) -> tuple:
@@ -21,7 +22,7 @@ def _av(name: str) -> tuple:
 
 
 #: The FO4 helper quest sending FO3/FNV's character menus as a custom event.
-_CHARACTER = ('TES4CharacterEvents', 'TES4_CharacterEvents')
+_CHARACTER = (CHARACTER_PROPERTY, CHARACTER_SCRIPT)
 #: The FO4 helper quest holding the shared InputEnableLayer (controls, fast travel).
 _CONTROLS = (CONTROLS_PROPERTY, CONTROLS_SCRIPT)
 
@@ -49,6 +50,7 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'pickidle': Cmd('{ref}.PlayAnimation("{s0}")', ACTOR, defaults={0: 'IdleForceDefaultState'}, flags='zero_arg'),
     'playidle': Cmd('{ref}.PlayIdle({p0})', ACTOR, types={0: 'Idle'}),
     'rewardxp': Cmd('Game.RewardPlayerXP({i0})'),
+    'isanimplaying': Cmd('0'),
     'setrestrained': Cmd('{ref}.SetRestrained({b0})', ACTOR, defaults={0: '0'}),
     'getlos': Cmd('HasDetectionLOS', MAP, flags='actor_only'),
     'removeallitems': Cmd('RemoveAllItems', MAP, flags='actor_only objref_shared', max_args=2),

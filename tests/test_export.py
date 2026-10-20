@@ -889,6 +889,16 @@ class TestFalloutTopicLinks(unittest.TestCase):
         lines = export_INFO(self._record('INFO', ('RNAM', b'Who rescued me?\0')))
         self.assertIn('Prompt=Who rescued me?', lines)
 
+    def test_info_response_idles(self):
+        """FNV SNAM / LNAM belong to the response whose TRDT they follow."""
+        from tes4_export.record_types.dialog_misc import export_INFO
+        trdt = ('TRDT', bytes(24))
+        lines = export_INFO(self._record('INFO', trdt, ('NAM1', b'a\0'), trdt, ('NAM1', b'b\0'),
+                                         ('SNAM', b'\x8c\x65\x10\x00'), ('LNAM', b'\x01\x00\x00\x00')))
+        self.assertIn('Response[1].SpeakerIdle=0010658C', lines)
+        self.assertIn('Response[1].ListenerIdle=00000001', lines)
+        self.assertFalse([line for line in lines if line.startswith('Response[0].') and 'Idle' in line])
+
 
 class TestFalloutTriggerPrimitive(unittest.TestCase):
     """An FO3/FNV REFR's XPRM is dumped raw so the importer can copy it.

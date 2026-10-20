@@ -118,6 +118,8 @@ SHEET_DEPTH = 0.5
 GLOSSINESS = 10.0
 #: (blend bits, alpha test ref) of most FNV glass and see-through surfaces: blend, src alpha, inverse src alpha.
 EFFECT_ALPHA = (0xED, 0)
+#: FNV grass (TallGrassShaderProperty) lit as vanilla grass is, its most common setting (fo4_spikes.md#spike-4-exterior).
+GRASS_LIGHTING = {'subsurface': True, 'subsurface_rolloff': 4.0, 'backlight_power': 12.5}
 #: The most common value of every field over Fallout4.esm's 6,616 BGSMs, textures and root material aside.
 MATERIAL = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 1.0,
@@ -462,6 +464,7 @@ def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, te
     """A lit FNV shape's BGSM: its textures, spec map, sidedness and alpha as FO4 draws it (_lit_alpha)."""
     mat = dict(MATERIAL, root_material='', two_sided=two_sided, decal=decal,
                textures={**dict.fromkeys(BGSM_TEXTURES, '')})
+    mat.update(GRASS_LIGHTING if 'TallGrassShaderProperty' in props else {})
     mat['textures']['diffuse'] = fo4_texture(fnv[0]).replace('\\', '/')
     mat['textures']['normal'] = fo4_texture(fnv[1] if len(fnv) > 1 else '').replace('\\', '/')
     spec = _specular(mat, fnv[1] if len(fnv) > 1 else '', props, texture_root)
@@ -559,7 +562,7 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
 
     Unlit shapes get an inline effect shader. A blended one with a mostly
     see-through texture gets vanilla's beaker BGEM when environment-mapped
-    (FNV glass), else its insect-wing BGEM; the rest a BGSM (blended decals as
+    or additive (FNV glass), else its insect-wing BGEM; the rest a BGSM (blended decals as
     FO4 decals, other blends as cut-outs whose see-through triangles split off
     to that BGEM: `split`). FO4 draws no blended lit surface but a decal. A
     NiStencilProperty makes it two-sided.
@@ -574,7 +577,7 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else \
         [grass.file_name.decode('cp1252')] if grass else ['']
     blended = alpha is not None and alpha.flags & 1 and shader
-    glass = bool(blended and shader.shader_flags.sf_environment_mapping)
+    glass = bool(blended and (shader.shader_flags.sf_environment_mapping or not alpha.flags >> 5 & 0xF))
     flags = shader.shader_flags if shader else None
     decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass)) or \
         bool(blended and not glass and overlay_sheet(geom))
@@ -659,10 +662,19 @@ def material_blocks(nif: NifFile, mat: ShapeMaterial, out: Converted, has_colors
     return shader, len(nif.blocks) - 1
 
 
+def opaque(colors: np.ndarray) -> np.ndarray:
+    """`colors` with alpha 1 (a lit shape: SHADER_FLAGS has no vertex alpha).
+    See: docs/fork/fo4_pipeline.md#vertex-alpha
+    """
+    return np.column_stack([colors[:, :3], np.ones(len(colors))])
+
+
 def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> list:
     """Append one FNV shape as FO4 shapes: one, or a cut-out plus its see-through triangles; their indices."""
     geometry = _geometry(geom, root)
     tris, mat, name = geometry[4], _material(geom, texture_root), geom.name.decode('cp1252')
+    if mat.kind == 'lit' and geometry[3] is not None:
+        geometry = (*geometry[:3], opaque(geometry[3]), tris)
     if mat.split:
         see_through = translucent_triangles(mat.split[1], geometry[1], tris)
         if see_through.all():

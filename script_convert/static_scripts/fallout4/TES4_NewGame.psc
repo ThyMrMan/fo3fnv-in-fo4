@@ -7,6 +7,10 @@ Quest[] Property OpeningQuests Auto Const
 GlobalVariable Property TimeScale Auto Const
 Quest Property StartQuest Auto Const
 Int Property StartStage = 0 Auto Const
+ActorValue[] Property Special Auto Const
+{Fallout4.esm's seven SPECIAL actor values, in order.}
+Float[] Property SpecialStart Auto Const
+{Each one's value in the source game's player record.}
 ImageSpaceModifier Property CharGenCameraImod Auto Const
 ImageSpaceModifier Property CharGenMirrorImod Auto Const
 {MQ101 stage 0's mirror camera effects: the camera one holds until removed (as MQ101PlayerScript removes it).}
@@ -27,6 +31,7 @@ Event OnQuestInit()
   If MQ101.GetStageDone(0)
     LeaveOpening()
   EndIf
+  SetStartSpecial()
   StartQuest.SetStage(StartStage)
   Game.FadeOutGame(False, True, 0.0, 1.0)
 EndEvent
@@ -68,6 +73,16 @@ Function LeaveOpening()
     i += 1
   EndWhile
   MQ101.Stop()
+EndFunction
+
+Function SetStartSpecial()
+  {The player's SPECIAL as the source game's player record has it (Special[i] at SpecialStart[i]).}
+  Actor player = Game.GetPlayer()
+  Int i = 0
+  While i < Special.Length && i < SpecialStart.Length
+    player.SetValue(Special[i], SpecialStart[i])
+    i += 1
+  EndWhile
 EndFunction
 
 Function TracePlayerHits(Actor akPlayer)

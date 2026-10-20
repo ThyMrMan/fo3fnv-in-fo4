@@ -20,6 +20,7 @@ from fo4_import.base.bink import write_movies
 from fo4_import.base.ledger import Ledger, LedgerWriter, ledger_path
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_esm, use_source
 from fo4_import.base.source import source_plugin
+from fo4_import.base.support_records import pack_gmst
 from fo4_import.base.writer import pack_fo4_record, pack_quest
 from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
@@ -36,6 +37,7 @@ from fo4_import.spike.conversation import Conversations, Hub, hub
 from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
 from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
+from fo4_import.spike.idles import Idles
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.idle_markers import IdleMarkers
 from fo4_import.spike.interiors import by_cell, scope
@@ -45,7 +47,7 @@ from fo4_import.spike.placement import map_markers, open_rooms, place, placement
 from fo4_import.spike.npcs import ACHR_KEY, NPC_KEY, Npcs
 from fo4_import.spike.packages import Packages, beds
 from fo4_import.spike.poses import Poses
-from fo4_import.spike.sounds import Sounds
+from fo4_import.spike.sounds import Sounds, looping_sounds
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.factions import write_all as write_factions
 from fo4_import.spike.globals import write_all as write_globals
@@ -67,6 +69,12 @@ from fo4_import.spike.reputation import write_page, write_reputations
 from fo4_import.spike.karma_page import write_karma_page
 from fo4_import.spike.statics import tree_assets, write_assets
 from fo4_import.spike.readables import Readables
+from fo4_import.spike.decals import Decals
+from fo4_import.spike.mines import Mines
+from fo4_import.spike.music import music_of
+from fo4_import.spike.radiation import hazard_ref
+from fo4_import.spike.acoustics import AcousticSpaces
+from fo4_import.spike.placeable_water import PlaceableWater
 from fo4_import.pipeline import elric_cache
 from fo4_import.pipeline.converters import PLACED, placed_types
 from fo4_import.pipeline.export_index import export_records
@@ -87,6 +95,8 @@ PLAYER = 0x14
 HAND_STARTED = frozenset({'VCG00', 'VCG01', 'CGTutorial'})
 #: Record key and EditorID of the generated quest holding the shared greeting (_greetings).
 GREETINGS_KEY, GREETINGS_EDID = 'GREETINGS', 'Greetings'
+#: FO4's shortest padded length of a voiced line (2.5 s), set to a silent line's (fo4_spikes.md#silent-line).
+PADDED_SETTING = 'fDialoguePaddedAudioLengthMin'
 #: The script closing a door behind the NPC that opened it (docs/fork/fo4_pipeline.md#door-closer).
 DOOR_CLOSER = 'TES4_DoorCloser'
 #: derive_formid site of the statics made from FNV TREE records (key: the TREE's FormID).
@@ -205,13 +215,15 @@ class CellBuilder:
         self.globals, self.factions, self.zones, self.places, self.regions = {}, {}, {}, {}, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
+        self.weather_ids, self.weather_templates, self.weather_regions, self.acoustics = {}, {}, None, None
+        self.hazards, self.music, self.decals = None, None, None
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.idle_markers = IdleMarkers(self.fo4)
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
         self.furniture_idles, self.readiness = furniture_idles(export_records(export_dir, 'IDLE')), Readiness()
         self.enter_motions = enter_motions(export_dir / 'meshes')
-        self.counts, self.readables, self.keyed = collections.Counter(), None, set()
+        self.counts, self.readables, self.mines, self.keyed = collections.Counter(), None, None, set()
 
     def fnv_id(self, fnv) -> int:
         """FormID of FNV record `fnv` (int or hex) made 1:1: FNV's own object id."""
@@ -284,6 +296,20 @@ class CellBuilder:
         """Converter: an FNV sound marker (spike.sounds)."""
         return self.sounds.marker(fnv_fid)
 
+    def water(self, fnv_fid: int, _sig, rec: dict) -> int:
+        """Converter: an FNV placeable water's FO4 tile activator (placeable_water)."""
+        return self.placeable_water.record(self.fnv_id(fnv_fid), rec)
+
+    def decal(self, fnv_fid: int, _sig, rec: dict) -> int:
+        """Converter: an FNV decal texture set (spike.decals)."""
+        self.decals = self.decals or Decals(self)
+        return self.decals.record(self.fnv_id(fnv_fid), rec)
+
+    def mine(self, fnv_fid: int, _sig, _rec) -> 'int | None':
+        """Converter: a placed FNV mine's projectile as FO4's (spike.mines)."""
+        self.mines = self.mines or Mines(self, self.export_dir)
+        return self.mines.projectile(fnv_fid)
+
     def readable(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
         """Converter: an FNV book, note or terminal (spike.readables)."""
         self.readables = self.readables or Readables(self)
@@ -316,7 +342,8 @@ class CellBuilder:
         model, bounds = self.mesh(world_model(rec)) if world_model(rec) else ('', None)
         bounds = bounds or _bounds(rec)
         if sig == 'LIGH':
-            record = R.pack_ligh(fid, edid, _bounds(rec), model, light_data(rec), float(rec.get('FNAM.Fade', 1.0)))
+            record = R.pack_ligh(fid, edid, _bounds(rec), model, light_data(rec), float(rec.get('FNAM.Fade', 1.0)),
+                                 self.sounds.field(rec, 'SNAM.Sound'))
         elif sig == 'FURN' and (marks := markers(str(self.export_dir / 'meshes'
                                                      / world_model(rec).replace('/', '\\').lower()))):
             record = furniture(fid, rec, model, bounds, marks, self.keywords,
@@ -326,7 +353,8 @@ class CellBuilder:
         elif sig == 'DOOR':
             record = self._door(fid, edid, rec, (model, bounds))
         else:
-            sig, record = _static(sig, fid, edid, model, bounds)
+            loop = self.sounds.descriptor(looping_sounds().get(int(rec['FormID'], 16), 0))
+            sig, record = _static(sig, fid, edid, model, bounds, loop)
         self.writer.add_record(sig, record)
         self.counts[sig] += 1
         return fid
@@ -341,7 +369,7 @@ class CellBuilder:
         """FNV DOOR `rec` on `fid`, `mesh` (model, bounds); its script, DOOR_CLOSER."""
         vmad = self.scripts.vmad(int(rec.get('SCRI', '0'), 16), ((DOOR_CLOSER, {}, {}),))
         return R.pack_door(fid, edid, rec.get('FULL', ''), *mesh, int(rec.get('FNAM.Flags', 0)), vmad,
-                           (self.sounds.field(rec, 'SNAM.Open'), self.sounds.field(rec, 'ANAM.Close')))
+                           tuple(self.sounds.field(rec, key) for key in ('SNAM.Open', 'ANAM.Close', 'BNAM.Loop')))
 
     def load_door(self, fnv_fid: int) -> 'int | None':
         """The FO4 base for FNV door `fnv_fid` placed as a load door: a copy on its mesh made static (FNV never
@@ -364,10 +392,10 @@ class CellBuilder:
         return self.load_doors[fnv_fid]
 
 
-def _static(sig: str, fid: int, edid: str, model: str, bounds: tuple) -> tuple:
-    """(FO4 type, record): an FNV MSTT as a movable static, anything else as a static."""
-    if sig == 'MSTT':
-        return 'MSTT', R.pack_mstt(fid, edid, model, bounds)
+def _static(sig: str, fid: int, edid: str, model: str, bounds: tuple, loop: int = 0) -> tuple:
+    """(type, record): a movable static for an MSTT or a `loop` (SNDR), else a static."""
+    if sig == 'MSTT' or loop:
+        return 'MSTT', R.pack_mstt(fid, edid, model, bounds, loop)
     return 'STAT', R.pack_stat(fid, edid, model, bounds)
 
 
@@ -382,7 +410,7 @@ def find_cell(export_dir: Path, edid: str) -> dict:
 def placed_bases(export_dir: Path, used: set) -> dict:
     """{FNV FormID: (type, record)} of the used bases this spike converts."""
     out = {}
-    for sig in placed_types('record', 'pickup', 'tree', 'sound', 'idle', 'readable'):
+    for sig in placed_types('record', 'pickup', 'tree', 'sound', 'idle', 'readable', 'water', 'mine', 'decal'):
         for rec in export_records(export_dir, sig):
             fid = int(rec['FormID'], 16)
             if fid in used:
@@ -454,8 +482,11 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
     persistent, temporary, owners = b'', b'', {**builder.factions, **builder.npc_ids}
     for ref in refs:
         base = (builder.load_door if ref['FormID'] in teleports else builder.base)(int(ref['NAME'], 16))
+        hazard = hazard_ref(builder, ref, _persistent(ref))
+        persistent, temporary = (persistent + hazard, temporary) if _persistent(ref) else (persistent, temporary + hazard)
         if int(ref['NAME'], 16) in builder.parts.parts:
-            temporary += _part_refs(builder, ref)
+            parts = _part_refs(builder, ref)
+            persistent, temporary = (persistent + parts, temporary) if _persistent(ref) else (persistent, temporary + parts)
             continue
         if base is None:
             builder.counts[f'skipped {_base_type(builder, int(ref["NAME"], 16))}'] += 1
@@ -463,7 +494,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         if int(ref['FormID'], 16) in open_rooms():
             builder.counts['rooms and portals left out (a portal to no room)'] += 1
             continue
-        keep = bool(int(ref['RecordFlags']) & 0x400) or ref['FormID'] in teleports
+        keep = _persistent(ref) or ref['FormID'] in teleports
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_placed_at(builder, ref), float(ref.get('XSCL.Scale', 1.0)), radius,
@@ -471,7 +502,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
                              + builder.emittance.xemi(ref),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED),
                              builder.ref_ids.get(ref.get('XLKR.LinkedRef'), 0),
-                             door_link=builder.door_links.get(ids[ref['FormID']]))
+                             door_link=builder.door_links.get(ids[ref['FormID']]), sig=ref['Signature'])
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
     return persistent, temporary
@@ -508,8 +539,13 @@ def _lock(builder: CellBuilder, ref: dict) -> bytes:
     return pack_subrecord('XLOC', struct.pack('<B3xIB3xI', int(ref['XLOC.Level']), key, int(ref.get('XLOC.Flags', 0)), 0))
 
 
+def _persistent(ref: dict) -> bool:
+    """Whether FNV reference `ref` is flagged persistent."""
+    return bool(int(ref['RecordFlags']) & 0x400)
+
+
 def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
-    """The REFRs of FNV SCOL reference `ref`'s parts, on hashed FormIDs (scol.PART_SITE)."""
+    """The REFRs of FNV SCOL reference `ref`'s parts, on hashed FormIDs (scol.PART_SITE), persistent as `ref` is."""
     position, angle = place(ref)
     scale, out = float(ref.get('XSCL.Scale', 1.0)), b''
     disabled = bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED)
@@ -520,7 +556,7 @@ def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
             continue
         at, turn, size = compose(position, angle, scale, placement)
         fid = builder.writer.derive_formid(PART_SITE, (ref['FormID'], index))
-        out += R.pack_refr(fid, base, at, turn, size, persistent=False, disabled=disabled)
+        out += R.pack_refr(fid, base, at, turn, size, persistent=_persistent(ref), disabled=disabled)
         builder.counts['SCOL parts placed'] += 1
     builder.counts['SCOL references split'] += 1
     return out
@@ -578,6 +614,7 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     lines = [line for rec in recs for line in say.infos.get(rec['FormID'].upper(), [])]
     form_map = {**builder.items.shared, **actor_values(HELPER_INDEX), **_form_map(builder, ref_ids, recs, quests),
                 **builder.npc_ids, **builder.creatures.made, **condition_forms(builder, lines)}
+    builder.idles.form_map = form_map
     shared = _hub(builder, export_dir, say, recs, quests, form_map)
     done = []
     for rec in recs:
@@ -630,6 +667,9 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
                           shared)
     built = {prop for prop, scene in builder.scripts.talks.items() if talks.talk(prop, scene)}
     talks.greeting(builder.packages.greets, builder.packages.topics)
+    talks.player_hello()
+    builder.writer.add_record('GMST', pack_gmst(builder.new_id(f'GMST {PADDED_SETTING}'), PADDED_SETTING,
+                                                voice.SILENT_SECONDS))
     aliases = [(SPEAKER_ALIAS, 'Speaker', None), (LISTENER_ALIAS, 'Listener', None)]
     record = R.pack_fnv_quest(fid, f'FNV_{GREETINGS_EDID}', '', max((p for _, p in shared.quests.values()), default=0),
                               quest_fragments('', []), [], [], aliases, True)
@@ -643,6 +683,7 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
     any other folder of the plugin's voice directory are stale."""
     voices = [(voice.fnv_folder(export_dir, fnv), fo4) for fo4, fnv in sorted(builder.npcs.voices.made.items())]
     todo = voice.jobs(builder.say.voiced, voices, data_dir, plugin)
+    todo += voice.silent_jobs(builder.say.silent, sorted({fo4 for _, fo4 in voices}), data_dir, plugin)
     ours = data_dir / 'Sound' / 'Voice' / plugin
     builder.counts['stale voice files removed'] = voice.remove_stale(todo, [p for p in ours.glob('*') if p.is_dir()])
     builder.counts['voice files written'] = voice.convert([job for job in todo if not job[1].exists()],
@@ -678,6 +719,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     furniture = [(place(r), str(export_dir / 'meshes' / world_model(builder.bases[int(r['NAME'], 16)][1]).lower()))
                  for r in refs if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
     builder.poses = Poses(builder, {r['EditorID']: place(r) for r in refs if r.get('EditorID')}, furniture)
+    builder.idles = Idles(builder, export_dir)
 
 
 def _cell_quests(builder: CellBuilder, export_dir: Path, refs: list, cell_of, cells: dict) -> tuple:
@@ -720,7 +762,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     """
     use_source(source_plugin(export_dir))
     cell = find_cell(export_dir, cell_edid)
-    all_refs = export_records(export_dir, 'REFR')
+    all_refs = export_records(export_dir, 'REFR') + export_records(export_dir, 'PGRE')
     refs = [r for r in all_refs if r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     worlds = [Exterior(export_dir, all_refs, *spec) for spec in exteriors]
@@ -776,6 +818,8 @@ def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledge
     builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), *table)
     builder.writer.use_ledger(Ledger(ledger))
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
+    water = builder.placeable_water = PlaceableWater(builder, export_dir)
+    parts.parts.update({fid: water.parts(fid, rec) for fid, (sig, rec) in builder.bases.items() if sig == 'PWAT'})
     return builder
 
 
@@ -904,7 +948,15 @@ def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict)
                        lighting(resolved(export_dir, cell), template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
                        imagespace or struct.unpack('<I', template[b'XCIM'])[0], water,
                        {**builder.factions, **builder.npc_ids}.get(int(cell.get('XOWN.Owner', '0'), 16), 0),
-                       (builder.places.get(cell['FormID'], 0), _zone(builder, cell)))
+                       (builder.places.get(cell['FormID'], 0), _zone(builder, cell)),
+                       music_of(builder).interior(int(cell['FormID'], 16), int(cell.get('XCMO.Music', '0'), 16))
+                       + _acoustics(builder).xcas(int(cell['FormID'], 16)))
+
+
+def _acoustics(builder: CellBuilder) -> AcousticSpaces:
+    """`builder`'s acoustic spaces, made on first use."""
+    builder.acoustics = builder.acoustics or AcousticSpaces(builder)
+    return builder.acoustics
 
 
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
@@ -928,6 +980,7 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))
     print(f'karma page: {write_karma_page(builder, export_dir, data_dir, out.name, builder.reputation_slots)}')
     builder.equipment.write_anim_lists()
+    builder.idles.write(data_dir)
     builder.writer.next_object_id = builder.top
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))

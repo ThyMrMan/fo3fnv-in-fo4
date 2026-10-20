@@ -14,7 +14,7 @@ See: docs/fork/research/fo4_target.md#decisions
 
 from pathlib import Path
 
-from fo4_import.base.support_records import pack_avif, pack_script_quest
+from fo4_import.base.support_records import pack_avif, pack_gmst, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.helpers_plugin import EDID_PREFIX, actor_value_form, form_id
 from fo4_import.spike import conditions as C
@@ -37,6 +37,8 @@ SKILL_POINTS_BASE = 10
 #: FO3/FNV actor value FormIDs: index + this.
 FNV_AVIF_BASE = 0x490
 INI_VERSION = 3
+#: Fallout4.esm's SPECIAL menu total (28) and FO3/FNV's: 40, ShowSPECIALBookMenu's default.
+SPECIAL_POINTS_SETTING, SPECIAL_POINTS_ID, SPECIAL_POINTS = 'uSPECIALPoints', 0x00078744, 40
 
 
 def _settings(export_dir: Path) -> dict:
@@ -99,6 +101,7 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     builder.writer.add_record('QUST', pack_script_quest(
         quest, 'FNV_CharacterRules', quest_fragments('', [], scripts=[(RULES_SCRIPT, objects, values)])))
     builder.scripts.used.append(RULES_SCRIPT)
+    builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
     perks = _list(builder, 'FNV_Perks', [])
     write_ini(data_dir / 'PRKF' / f'{Path(plugin).stem}.ini', plugin, perks, skill_list)
 

@@ -65,17 +65,28 @@ def climate(builder, fnv: int) -> int:
     source = _fnv_records().get(fnv)
     if source is None:
         return 0
-    templates = {r.form_id: r.body for r, _ in walk(builder.fo4, b'CLMT', b'WTHR')
-                 if r.form_id in (CLIMATE_TEMPLATE, WEATHER_TEMPLATE)}
-    weathers = [(weather(builder, w, templates[WEATHER_TEMPLATE]), chance)
-                for w, chance, _ in struct.iter_unpack('<IiI', source[b'WLST'])]
+    weathers = [(fnv_weather(builder, w), chance) for w, chance, _ in struct.iter_unpack('<IiI', source[b'WLST'])]
     replace = {b'EDID': b'FNV_' + source[b'EDID'], b'TNAM': source[b'TNAM'],
                b'WLST': b''.join(struct.pack('<IiI', w, chance, 0) for w, chance in weathers if w)}
-    subs = b''.join(pack_subrecord(t.decode(), replace.get(t, d)) for t, d in subrecords(templates[CLIMATE_TEMPLATE]))
+    subs = b''.join(pack_subrecord(t.decode(), replace.get(t, d)) for t, d in subrecords(_template(builder, CLIMATE_TEMPLATE)))
     fid = builder.fnv_id(fnv)
     builder.writer.add_record('CLMT', pack_fo4_record('CLMT', fid, 0, subs))
     builder.counts['climates'] += 1
     return fid
+
+
+def _template(builder, fid: int) -> bytes:
+    """The body of Fallout4.esm climate or weather `fid`, read once per build."""
+    if fid not in builder.weather_templates:
+        builder.weather_templates[fid] = next(r.body for r, _ in walk(builder.fo4, b'CLMT', b'WTHR') if r.form_id == fid)
+    return builder.weather_templates[fid]
+
+
+def fnv_weather(builder, fnv: int) -> int:
+    """The FO4 weather of FNV weather `fnv`, written once per build (weather())."""
+    if fnv not in builder.weather_ids:
+        builder.weather_ids[fnv] = weather(builder, fnv, _template(builder, WEATHER_TEMPLATE))
+    return builder.weather_ids[fnv]
 
 
 def weather(builder, fnv: int, template: bytes) -> int:

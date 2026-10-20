@@ -33,6 +33,11 @@ def fnv_links(raw: bytes, sig: bytes, tag: bytes) -> dict:
     return {r.form_id: struct.unpack('<I', v)[0] for r, _ in walk(raw, sig) for v in [first_sub(r.body, tag)] if v}
 
 
+def irradiating(spell: dict) -> bool:
+    """Whether FNV SPEL export record `spell` damages radiation."""
+    return RADIATION_EFFECT in [v for k, v in spell.items() if k.endswith('.EFID')]
+
+
 def drink_template(fo4: bytes) -> tuple:
     """(script, {property: FormID}, {property: value}) of DRINK_TEMPLATE's drinking script."""
     for r, _ in walk(fo4, b'ACTI'):
@@ -70,8 +75,7 @@ class Activators:
 
     def _drink(self, water: int) -> bytes:
         """The drinking script VMAD for FNV water type `water`."""
-        spell = self.spells.get(self.water_spell.get(water), {})
-        irradiated = RADIATION_EFFECT in [v for k, v in spell.items() if k.endswith('.EFID')]
+        irradiated = irradiating(self.spells.get(self.water_spell.get(water), {}))
         script, objects, values = self.drink
         objects = {**objects, 'spellOnDrink': self.fo4_spells[IRRADIATED_WATER if irradiated else CLEAN_WATER]}
         return object_scripts([(script, objects, values)])

@@ -101,12 +101,14 @@ def items(table: dict, fo4: bytes, masters: list, dirs: tuple = ()) -> dict:
     """{FNV EditorID: FormID in our numbering} of the table's `item` entries, found by EditorID."""
     out = {}
     for plugin in {r.plugin for r in table.values() if r.mode == 'item'}:
-        edids = {r.edid.lower(): fnv for fnv, r in table.items() if r.mode == 'item' and r.plugin == plugin}
+        edids = {}
+        for fnv, r in table.items():
+            if r.mode == 'item' and r.plugin == plugin:
+                edids.setdefault(r.edid.lower(), []).append(fnv)
         base = plugin.lower() == BASE.lower()
         data = fo4 if base else _find(plugin, dirs).read_bytes()
         theirs = [] if base else plugin_masters(data)
         for rec, _ in walk(data, *ITEM_TYPES):
-            fnv = edids.get((first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode('cp1252').lower())
-            if fnv:
+            for fnv in edids.get((first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode('cp1252').lower(), ()):
                 out[fnv] = rec.form_id if base else _ours(rec.form_id, theirs, plugin, masters)
     return out

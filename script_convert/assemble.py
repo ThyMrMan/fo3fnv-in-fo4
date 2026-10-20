@@ -939,7 +939,7 @@ def _menu_hold(conv, tree) -> list:
                                 for b in (tree.blocks if tree else ())):
         return []
     arm = [f'    {line.strip()}' for line in conv.sc.poll_return_prefix.splitlines() if line.strip()]
-    return ['  If Utility.IsInMenuMode()'] + arm + ['    Return', '  EndIf']
+    return ['  If TES4Polyfill.InMenuMode()'] + arm + ['    Return', '  EndIf']
 
 
 #: The poll body as a function, for a script whose MenuMode must run in-event; see `_menu_passes`.

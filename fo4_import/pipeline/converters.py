@@ -13,7 +13,7 @@ PLACED = {
     'STAT': 'record', 'MSTT': 'record', 'SCOL': 'record', 'ALCH': 'pickup', 'WEAP': 'pickup', 'ARMO': 'pickup',
     'BOOK': 'readable', 'KEYM': 'pickup', 'NOTE': 'readable', 'AMMO': 'pickup', 'TERM': 'readable', 'IDLM': 'idle',
     'LIGH': 'record', 'DOOR': 'record', 'FURN': 'record', 'ACTI': 'record', 'TREE': 'tree', 'SOUN': 'sound',
-    'MISC': 'item', 'CONT': 'item',
+    'MISC': 'item', 'CONT': 'item', 'PWAT': 'water', 'PROJ': 'mine', 'TXST': 'decal',
 }
 #: Placed types written as a static of their mesh until they get a converter of their own.
 STATIC_STAND_INS = frozenset()

@@ -16,12 +16,14 @@ import pytest
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
+from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.base.writer import pack_fo4_header, pack_fo4_record
 from fo4_import.face import memo
 from fo4_import.face import texture as TX
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, head
+from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import work_cache
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import facegen as FG
@@ -32,6 +34,9 @@ from fo4_import.spike.creatures import Creatures
 from tes5_import.base.writer import pack_group, pack_subrecord
 
 EXPORT = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
+VANILLA_MESHES = FALLOUT4_ESM.parent / 'Fallout4 - Meshes.ba2'
+#: Vanilla Scarlett's FaceGen: HairFemale04, a hair with cloth physics.
+SCARLETT_FACEGEN = 'meshes/Actors/Character/FaceGenData/FaceGeom/Fallout4.esm/0004B240.nif'
 
 
 def _plugin(*records: tuple) -> bytes:
@@ -186,6 +191,36 @@ def test_ck_timeout_scales_with_the_plugins_npcs(tmp_path):
     assert FG.npc_count(plugin) == 3
     assert FG.ck_timeout(3) == FG.CK_TIMEOUT
     assert FG.ck_timeout(2247) == 2247 * FG.CK_FACE_SECONDS > FG.CK_TIMEOUT
+
+
+def test_ck_exports_facegen_for_64_bit_pc(monkeypatch):
+    """The CK is asked for the X64 target: W32 writes hair cloth physics with 4-byte pointers."""
+    calls = []
+    monkeypatch.setattr(FG.subprocess, 'run', lambda args, **_: calls.append(args) or SimpleNamespace(stdout=''))
+    monkeypatch.setattr(FG.time, 'sleep', lambda _: None)
+    FG.run_ck('Spike.esp')
+    assert calls[0][-1] == '-ExportFaceGenData:Spike.esp X64'
+
+
+@pytest.mark.skipif(not VANILLA_MESHES.exists(), reason='needs Fallout 4')
+def test_export_refuses_facegen_with_32_bit_cloth_physics(monkeypatch, tmp_path):
+    """Vanilla FaceGen with cloth hair (Scarlett's) passes; the same with its packfile's pointer size set to 4, as
+    the CK's W32 target writes it, stops the export."""
+    vanilla = Archives(VANILLA_MESHES.parent, VANILLA_MESHES.name).read(SCARLETT_FACEGEN)
+    assert FG.cloth_pointer_sizes(vanilla) == [8]
+    nif = nif_file.read(vanilla)
+    at = next(i for i, (kind, _) in enumerate(nif.blocks) if kind == 'BSClothExtraData')
+    raw = bytearray(nif.blocks[at][1])
+    raw[FG.CLOTH_POINTER_SIZE_AT] = 4
+    nif.blocks[at] = ('BSClothExtraData', bytes(raw))
+    face = tmp_path / '00000801.NIF'
+    monkeypatch.setattr(FG, 'run_ck', lambda *_: None)
+    monkeypatch.setattr(FG, 'collect', lambda *_: [face])
+    face.write_bytes(vanilla)
+    assert FG.export('Spike.esp', tmp_path) == 1
+    face.write_bytes(nif_file.write(nif))
+    with pytest.raises(SystemExit, match='00000801.NIF'):
+        FG.export('Spike.esp', tmp_path)
 
 
 def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_path):

@@ -27,8 +27,8 @@ SITE = 'FNV GRAS'
 #: The folder (under Meshes) the grass renderer takes models from, and our models' name prefix.
 GRASS_FOLDER, GRASS_PREFIX = 'Landscape\\Grass', 'FNV_'
 DATA = struct.Struct('<BBBxHxxIffffBxxx')
-#: FNV's density as FO4 draws it: FO4 grew it too thick at FNV's value (first play), so half.
-DENSITY_SCALE = 0.5
+#: FNV's density as FO4 draws it: thick at FNV's value, then at half (plays 1 and 2), so a quarter.
+DENSITY_SCALE = 0.25
 
 
 def pack_data(rec: dict) -> bytes:

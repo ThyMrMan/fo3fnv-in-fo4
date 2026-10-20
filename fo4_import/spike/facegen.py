@@ -2,12 +2,17 @@
 
     py -3.14 -m fo4_import.spike.facegen --export <FalloutNV.esm export> --data <mod folder> FNVCellSpike.esp
 
-Runs the CK's `-ExportFaceGenData:<plugin> W32` through MO2 (so it loads the
+Runs the CK's `-ExportFaceGenData:<plugin> X64` through MO2 (so it loads the
 profile's plugins), moves the FaceGeom NIFs and face tint textures it writes
 from MO2's overwrite into the mod folder, then bakes the FNV face into every
 NPC whose EditorID ends in a C variant (face.bake), from the FNV NPC its
 EditorID names. Last, the face textures (2048 square, one mip) are
 re-encoded at vanilla's sizes and formats with full mips.
+
+The CK's targets are XB1, X64, PS4 and W32. W32 rewrites a hair's cloth
+physics (BSClothExtraData's Havok packfile) with 4-byte pointers; the 64-bit
+game misreads it and long hair stretches to the floor. X64 keeps 8-byte ones,
+as vanilla FaceGen does.
 
 See: docs/fork/fo4_spikes.md#spike-2-facegen
 """
@@ -30,12 +35,17 @@ from fo4_import.face.bake import bake, face_shape
 from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.face.texture import face_texture, vanilla_face_texture, write_dds
 from fo4_import.face.tint import load_basis as tint_basis, scaled_tone
+from fo4_import.nif import file as nif_file
 from fo4_import.spike.face_fit import npc_subrecords, refine_sculpt, refine_tint, variant_npcs
 from fo4_import.spike.fnv_npc import fnv_face
 from tes5_import.base.tes5_reader import subrecords, walk
 
 MO2 = Path(r'C:\Modlists\fo3fnv-in-fo4')
 CK_EXECUTABLE, CK_PROCESS = 'Creation Kit', 'CreationKit.exe'
+#: The CK's export target: X64, since W32 writes hair cloth physics the 64-bit game misreads (see the module doc).
+CK_TARGET = 'X64'
+#: The game's pointer size, and where a BSClothExtraData block (u32 size, packfile) states its packfile's.
+GAME_POINTER_SIZE, CLOTH_POINTER_SIZE_AT = 8, 20
 #: Folders (under Meshes / Textures) the CK writes a plugin's FaceGen into.
 FACEGEN_DIRS = (Path('Meshes/Actors/Character/FaceGenData/FaceGeom'),
                 Path('Textures/Actors/Character/FaceCustomization'))
@@ -67,7 +77,7 @@ def run_ck(plugin: str, data_dir: Path = None) -> None:
     timeout = ck_timeout(npc_count(data_dir / plugin) if data_dir else 0)
     started = time.time()
     subprocess.run([str(MO2 / 'ModOrganizer.exe'), 'run', '-e', CK_EXECUTABLE, '-a',
-                    f'-ExportFaceGenData:{plugin} W32'], check=True, **POPEN_FLAGS)
+                    f'-ExportFaceGenData:{plugin} {CK_TARGET}'], check=True, **POPEN_FLAGS)
     while time.time() < started + timeout:
         time.sleep(CK_POLL)
         listing = subprocess.run(['tasklist', '/FI', f'IMAGENAME eq {CK_PROCESS}'], capture_output=True,
@@ -184,11 +194,21 @@ def vanilla_textures(plugin: str, data_dir: Path) -> int:
         return sum(pool.map(vanilla_face_texture, sorted((data_dir / FACEGEN_DIRS[1] / plugin).glob('*.dds'))))
 
 
+def cloth_pointer_sizes(nif_bytes: bytes) -> list:
+    """Each BSClothExtraData packfile's pointer size (8 on 64-bit PC)."""
+    return [raw[CLOTH_POINTER_SIZE_AT] for kind, raw in nif_file.read(nif_bytes).blocks if kind == 'BSClothExtraData']
+
+
 def export(plugin: str, data_dir: Path) -> int:
-    """Clear, run the CK and collect `plugin`'s FaceGen; the FaceGeom NIFs collected."""
+    """Clear, run the CK and collect `plugin`'s FaceGen; the FaceGeom NIFs collected. Raise if any carries cloth
+    physics for another pointer size than the game's."""
     clear(plugin, data_dir)
     run_ck(plugin, data_dir)
-    return len(collect(plugin, data_dir))
+    nifs = collect(plugin, data_dir)
+    wrong = [p.name for p in nifs if set(cloth_pointer_sizes(p.read_bytes())) - {GAME_POINTER_SIZE}]
+    if wrong:
+        raise SystemExit(f'the Creation Kit wrote cloth physics for another platform than {CK_TARGET}: {wrong}')
+    return len(nifs)
 
 
 def main():

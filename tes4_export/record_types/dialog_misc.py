@@ -66,6 +66,22 @@ def _emit_info_responses(lines: list, rec: Record):
             lines.append(f"{pfx}.ResponseText={escape_value(get_string(nam1s[i]))}")
         if i < len(nam2s):
             lines.append(f"{pfx}.ActorNotes={escape_value(get_string(nam2s[i]))}")
+    _emit_response_idles(lines, rec)
+
+
+#: FNV response subrecord -> its key: the idle the speaker or the listener plays with the line.
+RESPONSE_IDLES = {"SNAM": "SpeakerIdle", "LNAM": "ListenerIdle"}
+
+
+def _emit_response_idles(lines: list, rec: Record):
+    """`Response[i].SpeakerIdle` / `.ListenerIdle` from the SNAM / LNAM following the i-th TRDT (FNV)."""
+    i = -1
+    for sub in rec.subrecords:
+        if sub.type == "TRDT":
+            i += 1
+        elif sub.type in RESPONSE_IDLES and i >= 0 and len(sub.data) >= 4:
+            value = get_formid_str(struct.unpack_from('<I', sub.data, 0)[0])
+            lines.append(f"Response[{i}].{RESPONSE_IDLES[sub.type]}={value}")
 
 
 def export_INFO(rec: Record) -> list:

@@ -21,6 +21,7 @@ Int LastLevel
 Int LastPP
 Int LastSP
 Float SkillPointCarry
+Float[] TagBases
 
 Event OnInit()
   RegisterForCustomEvent(TES4CharacterEvents, "CharacterMenu")
@@ -36,13 +37,16 @@ Event TES4_CharacterEvents.CharacterMenu(TES4_CharacterEvents akSender, Var[] ak
   If kind == "special"
     Game.ShowSPECIALMenu()
   ElseIf kind == "tags"
-    PRKF:PRKF.OpenTagSkillsMenu((akArgs[1] as Float) as Int, TagBonus, False)
+    OpenTags((akArgs[1] as Float) as Int)
   ElseIf kind == "traits"
     PRKF:PRKF.OpenTraitsMenuFL(Traits, TraitCount, True)
   EndIf
 EndEvent
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+  If asMenuName == "SPECIALMenu"
+    TraceSpecial(abOpening)
+  EndIf
   If asMenuName == "SPECIALMenu" && !abOpening
     SetSkillBases()
   ElseIf asMenuName == "LevelUpMenu" && abOpening
@@ -52,6 +56,87 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     LastSP = PRKF:PRKF.GetSP()
   EndIf
 EndEvent
+
+Function OpenTags(Int count)
+  {The tag menu for `count` skills in all. Skills SetPlayerTagSkill suggested are already tagged and count toward
+  them; the player may untag one to pick another, and OnTagsFinished squares each skill's bonus once it closes.}
+  Int tagged = 0
+  If TES4CharacterEvents.Suggested
+    tagged = TES4CharacterEvents.Suggested.Length
+  EndIf
+  If tagged > 0
+    TagBases = SkillValues()
+    RegisterForExternalEvent("PRKF::TagSkills::Finish", "OnTagsFinished")
+  EndIf
+  Int left = count - tagged
+  If left < 0
+    left = 0
+  EndIf
+  PRKF:PRKF.OpenTagSkillsMenu(left, TagBonus, tagged > 0)
+EndFunction
+
+Function OnTagsFinished()
+  {Each skill at its value before the tag menu plus TagBonus when it ends tagged, whatever the menu added or took
+  for a skill tagged before it opened; the suggestions are cleared.}
+  UnregisterForExternalEvent("PRKF::TagSkills::Finish")
+  Actor player = Game.GetPlayer()
+  ActorValue[] skills = Skills()
+  Int i = 0
+  While i < skills.Length && i < TagBases.Length
+    Float bonus = 0.0
+    If PRKF:PRKF.IsTagSkillAV(skills[i])
+      bonus = TagBonus
+    EndIf
+    player.SetValue(skills[i], TagBases[i] + bonus)
+    i += 1
+  EndWhile
+  TES4CharacterEvents.Suggested = new ActorValue[0]
+EndFunction
+
+ActorValue[] Function Skills()
+  {Every governed skill, in GovernedSkills' order.}
+  ActorValue[] out = new ActorValue[0]
+  Int i = 0
+  While i < GovernedSkills.GetSize()
+    FormList governed = GovernedSkills.GetAt(i) as FormList
+    Int k = 0
+    While k < governed.GetSize()
+      out.Add(governed.GetAt(k) as ActorValue)
+      k += 1
+    EndWhile
+    i += 1
+  EndWhile
+  Return out
+EndFunction
+
+Float[] Function SkillValues()
+  {The player's value of each of Skills().}
+  ActorValue[] skills = Skills()
+  Float[] out = new Float[skills.Length]
+  Int i = 0
+  While i < skills.Length
+    out[i] = Game.GetPlayer().GetValue(skills[i])
+    i += 1
+  EndWhile
+  Return out
+EndFunction
+
+Function TraceSpecial(Bool abOpening)
+  {When tracing: the player's seven SPECIAL values as the SPECIAL menu opens or closes.}
+  If !TES4Polyfill.Tracing()
+    Return
+  EndIf
+  String text = "closed"
+  If abOpening
+    text = "opened"
+  EndIf
+  Int i = 0
+  While i < SpecialStats.GetSize()
+    text += "|" + Game.GetPlayer().GetValue(SpecialStats.GetAt(i) as ActorValue)
+    i += 1
+  EndWhile
+  TES4Polyfill.TraceWrite("special", text)
+EndFunction
 
 Function SetSkillBases()
   {Each skill's base: SkillBase + 2 x its governing stat + Luck / 2, rounded up (FO3/FNV's starting value).}

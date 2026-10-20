@@ -569,6 +569,10 @@ Two reductions cover the model-shaped ones. `export_STATIC_BASE` (MSTT, SCOL,
 PWAT, IDLM, ASPC) keeps model plus bounds; without it the 10,000+ REFRs those
 base is null and the engine faults promoting them into their location.
 `export_ACTIVATOR_BASE` (TERM, TACT) adds a display name and the script.
+`export_PLACEABLE_WATER` adds PWAT's DNAM (`DNAM.Flags`, `DNAM.Water`, the
+WATR). PGRE (a placed mine or grenade, base a PROJ) has a reference's layout
+(xEdit `wbRefRecord(PGRE)`) and goes through `export_REFR` and the REFR
+deltas. FNV has 174 of them; until 2026-10-19 they exported as an unknown type.
 
 <a id="terminals"></a>**Terminals** (`terminal_falloutnv.py`, `export_TERMINAL`).
 Until 2026-09-30 a TERM was only its activator fields, so none of Fallout 3's
