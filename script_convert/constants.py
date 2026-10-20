@@ -739,6 +739,7 @@ FALLOUT4_ACTOR_VALUE_IDS = {
     'Strength': 0x2C2, 'Perception': 0x2C3, 'Endurance': 0x2C4, 'Charisma': 0x2C5, 'Intelligence': 0x2C6,
     'Agility': 0x2C7, 'Luck': 0x2C8, 'Experience': 0x2C9, 'ActionPoints': 0x2D5, 'HealRate': 0x2D7,
     'UnarmedDamage': 0x2DF, 'PoisonResist': 0x2E4, 'FireResist': 0x2E5, 'FrostResist': 0x2E7, 'EnergyResist': 0x2EB,
+    'RadResistExposure': 0x2EA,
     'Invisibility': 0x2F3, 'WaterBreathing': 0x2F6, 'PerceptionCondition': 0x36C, 'EnduranceCondition': 0x36D,
     'LeftAttackCondition': 0x36E, 'RightAttackCondition': 0x36F, 'LeftMobilityCondition': 0x370,
     'RightMobilityCondition': 0x371, 'BrainCondition': 0x372,
@@ -753,7 +754,7 @@ FALLOUT4_HELPER_AVS = {
     'SmallGuns': 0x81A, 'Sneak': 0x81B, 'Speech': 0x81C, 'Survival': 0x81D, 'Unarmed': 0x81E,
 }
 #: FO3/FNV actor value -> Fallout 4's of the same meaning, each checked against vanilla FO4 scripts.
-FALLOUT4_FALLOUT_AV_RENAMES = {'RadiationRads': 'Rads', 'XP': 'Experience'}
+FALLOUT4_FALLOUT_AV_RENAMES = {'RadiationRads': 'Rads', 'XP': 'Experience', 'RadResist': 'RadResistExposure'}
 #: Skyrim skill names the shared helpers use -> the FO3/FNV skill they read on Fallout 4.
 FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair'}
 #: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.

@@ -387,12 +387,6 @@ def pack_flst(fid: int, edid: str, forms: list) -> bytes:
     return pack_fo4_record('FLST', fid, 0, _zstr('EDID', edid) + b''.join(pack_u32('LNAM', f) for f in forms))
 
 
-def pack_perk(fid: int, edid: str, name: str, desc: str, trait: bool) -> bytes:
-    """A playable one-rank perk without effects (a trait when `trait`)."""
-    subs = _zstr('EDID', edid) + _zstr('FULL', name) + _zstr('DESC', desc)
-    return pack_fo4_record('PERK', fid, 0, subs + pack_subrecord('DATA', bytes([int(trait), 0, 1, 1, 0])))
-
-
 def pack_leveled(sig: str, fid: int, edid: str, chance_none: int, flags: int, entries: list) -> bytes:
     """A leveled list `sig` (LVLI, LVLN): chance none, flags, entries [(level, FormID, count)] (LVLO, 12 bytes)."""
     subs = _bounded(edid, (0,) * 6) + pack_subrecord('LVLD', bytes([chance_none])) + pack_subrecord(

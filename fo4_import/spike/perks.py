@@ -1,0 +1,308 @@
+"""FNV perks as FO4 PERK records, for the cell spike.
+
+Each FNV perk keeps its FormID, name, description, level and requirements (its
+conditions). A perk of several ranks becomes FO4's chain of one record per
+rank (NNAM), as vanilla's QuickHands01/02; FNV applies only the current rank's
+effects (Swift Learner x1.1, x1.2, x1.3), so an earlier rank's effects are off
+once the next rank is held. An entry point maps by meaning (ENTRY_POINTS),
+keeping FNV's function, value and condition tabs, or carries the vanilla perk
+effect doing the same (VANILLA_EFFECTS); an ability becomes an FO4 ability of
+constant effects; a quest stage stays one. What cannot convert is counted.
+
+See: docs/fork/fo4_perks.md#records
+"""
+
+import re
+import struct
+from pathlib import Path
+
+from fo4_import.base.writer import pack_fo4_record
+from fo4_import.helpers_plugin import actor_value_form
+from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike import conditions as C
+from fo4_import.spike import records as R
+from fo4_import.spike.consumable_effects import AV_AT, Effects
+from fo4_import.spike.say_topics import conditions_of
+from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
+
+#: FNV entry point -> the FO4 entry point of the same meaning (fo4_perks.md#census).
+ENTRY_POINTS = {0: 35, 1: 1, 2: 2, 4: 3, 6: 4, 8: 123, 9: 22, 11: 5, 12: 6, 23: 11, 25: 13, 31: 15, 32: 16, 34: 134,
+                36: 17, 40: 79, 59: 103, 72: 100}
+#: FNV entry point -> (Fallout4.esm perk, its entry point) whose effect does the same in FO4.
+VANILLA_EFFECTS = {20: ('Hacker04', 127), 29: ('IronFist05', 155), 33: ('ConcentratedFire01', 109),
+                   35: ('GrimReaperSprint01', 107)}
+#: FO4 PRKE effect types, by the FNV export's names.
+QUEST_STAGE, ABILITY, ENTRY_POINT = 0, 1, 2
+EFFECT_TYPES = {'QuestStage': QUEST_STAGE, 'Ability': ABILITY, 'EntryPoint': ENTRY_POINT}
+#: FNV's quest stage effect: the stage is the low byte, 0xCD fill above it (Scrounger 0xCD46: Generic's stage 70).
+STAGE_MASK = 0xFF
+#: FNV entry point parameter types FO4 reads alike (EPFT): none, a float, two floats.
+VALUE_TYPES = (0, 1, 2)
+#: Condition tabs of an entry point vanilla never uses: the perk owner's, which every one has.
+OWNER_TABS = 1
+#: Fallout4.esm's ability lending SPIT and ETYP; constant effects copied where vanilla lacks one (raise, lower).
+SPELL_TEMPLATE, RAISE, LOWER = 'AbPerkQuickHands', 'AbFortifyStrength', 'AbReduceCarryWeight'
+#: Fallout4.esm's constant value effects, by EditorID prefix; FNV's and FO4's Detrimental magic effect flag.
+CONSTANT_PREFIXES, DETRIMENTAL = ('AbFortify', 'AbReduce'), 0x4
+#: FNV condition tab captions whose subject is an item, not an actor (xEdit wbPERKCondition).
+ITEM_CAPTIONS = frozenset({'Item', 'Weapon', 'Attacker Weapon'})
+#: Perk DATA: trait, level, ranks, playable, hidden.
+PERK_DATA = '<5B'
+
+
+class Perks:
+    """The build's FO4 perks: `ids` hands out each FNV perk's rank records, `write` writes them all."""
+
+    def __init__(self, builder, export_dir: Path, helper_index: int):
+        """Perks of `export_dir`'s PERK records, drawing on Fallout4.esm's abilities and perks."""
+        self.builder, self.helper_index = builder, helper_index
+        self.records = export_records(export_dir, 'PERK')
+        self.spells = {int(r['FormID'], 16): r for r in export_records(export_dir, 'SPEL')}
+        self.fnv_effects = {r['EditorID']: r for r in export_records(export_dir, 'MGEF') if r.get('EditorID')}
+        self.ids = {int(r['FormID'], 16): self._rank_ids(r) for r in self.records}
+        self.constants, self.tabs, self.vanilla, self.written = {}, {}, {}, set()
+        self._index_vanilla()
+        self.effects = Effects(builder, helper_index, self.vanilla)
+
+    def _rank_ids(self, rec: dict) -> list:
+        """FO4 FormIDs of an FNV perk's ranks: FNV's own for the first."""
+        later = [self.builder.new_id(f'PERK {rec["FormID"]} rank {r + 1}') for r in range(1, _ranks(rec))]
+        return [self.builder.fnv_id(rec['FormID'])] + later
+
+    def _index_vanilla(self) -> None:
+        """Fallout4.esm's constant effects by (actor value, lowering), entry points' tab counts, and templates."""
+        perks = {p for p, _ in VANILLA_EFFECTS.values()}
+        for rec, _ in walk(self.builder.fo4, b'MGEF', b'PERK', b'SPEL'):
+            subs = subrecords(rec.body)
+            edid = dict(subs).get(b'EDID', b'').rstrip(b'\0').decode()
+            if rec.sig == b'PERK':
+                for block in effect_blocks(subs):
+                    self.tabs[block[0][0]] = max(self.tabs.get(block[0][0], 0), block[0][2])
+                if edid in perks:
+                    self.vanilla[edid] = (rec.form_id, effect_blocks(subs))
+            elif edid in (SPELL_TEMPLATE, RAISE, LOWER):
+                self.vanilla[edid] = (rec.form_id, dict(subs))
+            if rec.sig == b'MGEF' and edid.startswith(CONSTANT_PREFIXES):
+                data = dict(subs)[b'DATA']
+                key = (struct.unpack_from('<I', data, AV_AT)[0], bool(data[0] & DETRIMENTAL))
+                self.constants.setdefault(key, rec.form_id)
+
+    def traits(self) -> list:
+        """The FO4 perks of FNV's playable traits."""
+        return [self.ids[int(r['FormID'], 16)][0] for r in self.records
+                if r.get('DATA.Trait') == '1' and r.get('DATA.Playable') == '1']
+
+    def write(self, form_map: dict, script_vars: dict) -> None:
+        """Write every perk's rank records; their conditions see `form_map` and `script_vars` (conditions_of)."""
+        self.forms, self.script_vars = form_map, script_vars
+        for rec in self.records:
+            ids = self.ids[int(rec['FormID'], 16)]
+            needs = conditions_of(rec, form_map, script_vars)
+            if needs is None:
+                self.builder.counts['perk requirements not converted'] += 1
+            for rank, fid in enumerate(ids):
+                after = ids[rank + 1] if rank + 1 < len(ids) else 0
+                edid = f'FNV_{rec["EditorID"]}' + (f'_Rank{rank + 1}' if rank else '')
+                effects = self._effects(rec, rank, after, edid)
+                self.builder.writer.add_record('PERK', pack_perk(fid, (edid, rec.get('FULL', ''), rec.get('DESC', '')),
+                                                                 needs or b'', _data(rec, len(ids)), after, effects))
+                self.builder.counts['PERK'] += 1
+
+    def _effects(self, rec: dict, rank: int, after: int, edid: str) -> bytes:
+        """The packed effects of rank `rank` of FNV perk `rec`; off while perk `after` (its next rank) is held."""
+        off = R.pack_ctda(0, 0.0, C.FO4.index('HasPerk'), after) if after else b''
+        out, entry = [], 0
+        for i in range(int(rec.get('EffectCount', 0) or 0)):
+            key = f'Effect[{i}]'
+            if int(rec.get(f'{key}.Rank', 0)) != rank:
+                continue
+            kind = EFFECT_TYPES.get(rec.get(f'{key}.Type'))
+            made = self._effect(rec, key, kind, off, f'{edid} {i}')
+            if made is None:
+                continue
+            data, tabs, params = made
+            if kind == ENTRY_POINT:
+                tabs = {**tabs, 0: off + tabs.get(0, b'')} if off else tabs
+                params, entry = _with_entry_id(params, entry), entry + 1
+            out.append((int(rec.get(f'{key}.Priority', 0)), kind, pack_effect(kind, data, tabs, params)))
+        return b''.join(e for _, _, e in sorted(out, key=lambda e: e[:2]))
+
+    def _effect(self, rec: dict, key: str, kind: int, off: bytes, owner: str) -> 'tuple | None':
+        """(DATA, {tab: conditions}, parameters) of one FNV perk effect; None, counted, when it cannot convert."""
+        if kind == QUEST_STAGE:
+            quest = self.forms.get(int(rec.get(f'{key}.Quest', '0'), 16))
+            if quest is None:
+                self.builder.counts['perk effect left out (quest not built)'] += 1
+                return None
+            return struct.pack('<IH', quest, int(rec.get(f'{key}.Stage', 0)) & STAGE_MASK), {}, []
+        if kind == ABILITY:
+            spell = self._ability(int(rec.get(f'{key}.Ability', '0'), 16), off, owner)
+            return None if spell is None else (struct.pack('<I', spell), {}, [])
+        return self._entry_point(rec, key)
+
+    def _entry_point(self, rec: dict, key: str) -> 'tuple | None':
+        """An FNV entry-point effect on FO4's (ENTRY_POINTS) or vanilla's (VANILLA_EFFECTS); None, counted, when
+        FO4 has neither, a condition cannot convert or it tests a tab FO4's entry point lacks."""
+        ep, value_type = int(rec[f'{key}.EntryPoint']), int(rec.get(f'{key}.ValueType', 0))
+        if ep in VANILLA_EFFECTS:
+            perk, fo4 = VANILLA_EFFECTS[ep]
+            return next(b for b in self.vanilla[perk][1] if b[0][0] == fo4)
+        if ep not in ENTRY_POINTS or value_type not in VALUE_TYPES:
+            self.builder.counts[f'perk effect left out (FNV entry point {ep})'] += 1
+            return None
+        fo4, tabs = ENTRY_POINTS[ep], {}
+        count = self.tabs.get(ENTRY_POINTS[ep], OWNER_TABS)
+        items = FNV_ITEM_TABS.get(ep, frozenset())
+        for tab, raws in _tabs(rec, key).items():
+            conds = None if tab >= count else conditions_of(raws, self.forms, self.script_vars, item=tab in items)
+            if conds is None:
+                self.builder.counts['perk effect left out (' + ('condition)' if tab < count else 'tab FO4 lacks)')] += 1
+                return None
+            tabs[tab] = conds
+        value = bytes.fromhex(rec.get(f'{key}.Value', ''))
+        params = [(b'EPFT', bytes([value_type]))] + ([(b'EPFD', value)] if value_type else [])
+        return bytes([fo4, int(rec[f'{key}.Function']), count]), tabs, params
+
+    def _ability(self, fnv: int, off: bytes, owner: str) -> 'int | None':
+        """The FO4 ability of FNV spell `fnv`, its effects off when `off` holds (an earlier rank's); None, counted,
+        when none of its effects converts."""
+        spell = self.spells.get(fnv)
+        if spell is None:
+            self.builder.counts['perk effect left out (no ability)'] += 1
+            return None
+        fid = self.builder.fnv_id(fnv) if not off else self.builder.new_id(f'SPEL {owner}')
+        if fid in self.written:
+            return fid
+        effects = b''
+        for j in range(int(spell.get('EffectCount', 0) or 0)):
+            made = self._spell_effect(spell, f'Effect[{j}]')
+            if made is None:
+                self.builder.counts[f'ability effect left out ({spell.get(f"Effect[{j}].EFID")})'] += 1
+                continue
+            effects += made[0] + off + made[1]
+        if not effects:
+            return None
+        self.written.add(fid)
+        template = self.vanilla[SPELL_TEMPLATE][1]
+        edid = f'FNV_{spell["EditorID"]}' + ('_' + owner.split()[0] if off else '')
+        self.builder.writer.add_record('SPEL', pack_spell(fid, edid, spell.get('FULL', ''), template, effects))
+        self.builder.counts['SPEL (perk ability)'] += 1
+        return fid
+
+    def _spell_effect(self, spell: dict, key: str) -> 'tuple | None':
+        """(EFID and EFIT, conditions) of an FNV ability effect on an FO4 constant effect; None when it cannot."""
+        av = int(spell.get(f'{key}.ActorValue', -1))
+        name = C.fnv_av_name(av) if 0 <= av < len(C.FNV_AV_NAMES) else ''
+        fo4_av = actor_value_form(name, self.helper_index) if name else None
+        raws = {f'Condition[{c}].Raw': spell[f'{key}.Condition[{c}].Raw']
+                for c in range(int(spell.get(f'{key}.ConditionCount', 0) or 0))}
+        conds = conditions_of(raws, self.forms, self.script_vars)
+        if fo4_av is None or conds is None:
+            return None
+        lower = bool(int(self.fnv_effects.get(spell[f'{key}.EFID'], {}).get('DATA.Flags', 0)) & DETRIMENTAL)
+        effect = self.constants.get((fo4_av, lower))
+        if effect is None:
+            template = LOWER if lower else RAISE
+            effect = self.effects.copy(template, name, 'copy', f'{template} {name}', f'FNV_{template}_{name}')
+        fit = struct.pack('<fII', float(spell[f'{key}.Magnitude']), int(spell.get(f'{key}.Area', 0)),
+                          int(spell.get(f'{key}.Duration', 0)))
+        return pack_subrecord('EFID', struct.pack('<I', effect)) + pack_subrecord('EFIT', fit), conds
+
+
+def fnv_item_tabs(defs: str) -> dict:
+    """{FNV entry point: its tabs whose subject is an item} from xEdit's FNV definitions `defs`."""
+    kinds = re.search(r'TPERKEntryPointConditionType = \((.*?)\);', defs, re.S).group(1).replace(',', ' ').split()
+    rows = re.search(r'wbPERKCondition : array.*?= \((.*?)\n  \);', defs, re.S).group(1)
+    captions = [re.findall(r"Caption\d: '([^']*)'", row) for row in rows.splitlines() if 'Count:' in row]
+    table = re.search(r'wbPERKEntryPoints : array.*?= \((.*?)\n  \);', defs, re.S).group(1)
+    points = [m.group(1) or 'epcDefault' for m in re.finditer(r"Name: '[^']*'(?:; Condition: (epc\w+))?", table)]
+    return {ep: frozenset(i for i, c in enumerate(captions[kinds.index(kind)]) if c in ITEM_CAPTIONS)
+            for ep, kind in enumerate(points)}
+
+
+#: {FNV entry point: tabs whose subject is an item} (fnv_item_tabs).
+FNV_ITEM_TABS = fnv_item_tabs(C.FNV_DEFS.read_text(errors='replace'))
+
+
+def _ranks(rec: dict) -> int:
+    """How many ranks an FNV perk has (at least one)."""
+    return max(1, int(rec.get('DATA.Ranks', 1) or 1))
+
+
+def _data(rec: dict, ranks: int) -> bytes:
+    """FO4 perk DATA of FNV perk `rec`, its chain `ranks` long."""
+    flags = (int(rec.get(f'DATA.{k}', 0) or 0) for k in ('Trait', 'MinLevel'))
+    return struct.pack(PERK_DATA, *flags, ranks, int(rec.get('DATA.Playable', 0) or 0),
+                       int(rec.get('DATA.Hidden', 0) or 0))
+
+
+def _tabs(rec: dict, key: str) -> dict:
+    """{tab: {'Condition[j].Raw': raw}} of an FNV perk effect's condition tabs."""
+    out, k = {}, 0
+    while f'{key}.Tab[{k}].RunOn' in rec:
+        tab, j, raws = int(rec[f'{key}.Tab[{k}].RunOn']), 0, {}
+        while f'{key}.Tab[{k}].Condition[{j}].Raw' in rec:
+            raws[f'Condition[{j}].Raw'] = rec[f'{key}.Tab[{k}].Condition[{j}].Raw']
+            j += 1
+        out[tab], k = raws, k + 1
+    return out
+
+
+def _with_entry_id(params: list, entry: int) -> list:
+    """`params` with EPFB `entry` (unique in its perk) after EPFT."""
+    rest = [p for p in params if p[0] not in (b'EPFT', b'EPFB')]
+    return [p for p in params if p[0] == b'EPFT'] + [(b'EPFB', struct.pack('<H', entry))] + rest
+
+
+def effect_blocks(subs: list) -> list:
+    """[(DATA, {tab: conditions}, [(tag, data)] parameters)] of a Fallout4.esm perk's entry-point effects."""
+    out, tab, block = [], 0, None
+    for tag, data in subs:
+        if tag == b'PRKE':
+            block = [b'', {}, []] if data[0] == ENTRY_POINT else None
+            continue
+        if block is None:
+            continue
+        if tag == b'PRKF':
+            out.append(tuple(block))
+            block = None
+        elif tag == b'PRKC':
+            tab = struct.unpack('<b', data)[0]
+            block[1][tab] = b''
+        else:
+            _add_part(block, tab, tag, data)
+    return out
+
+
+def _add_part(block: list, tab: int, tag: bytes, data: bytes) -> None:
+    """Add subrecord `tag` to an effect_blocks block: its DATA, a condition of tab `tab`, or a parameter."""
+    if tag == b'DATA':
+        block[0] = data
+    elif tag in (b'CTDA', b'CIS1', b'CIS2'):
+        block[1][tab] += pack_subrecord(tag.decode(), data)
+    else:
+        block[2].append((tag, data))
+
+
+def pack_effect(kind: int, data: bytes, tabs: dict, params: list) -> bytes:
+    """One FO4 perk effect: PRKE (rank 0, the chain holding ranks), DATA, its tabs, parameters and end marker."""
+    out = pack_subrecord('PRKE', bytes([kind, 0, 0])) + pack_subrecord('DATA', data)
+    for tab in sorted(tabs):
+        out += pack_subrecord('PRKC', struct.pack('<b', tab)) + tabs[tab]
+    return out + b''.join(pack_subrecord(t.decode(), d) for t, d in params) + pack_subrecord('PRKF', b'')
+
+
+def pack_perk(fid: int, text: tuple, conditions: bytes, data: bytes, next_perk: int, effects: bytes) -> bytes:
+    """An FO4 perk: `text` (EditorID, name, description), requirement `conditions`, DATA, the next rank, effects."""
+    edid, name, desc = text
+    subs = pack_string_subrecord('EDID', edid) + pack_string_subrecord('FULL', name) + pack_string_subrecord('DESC', desc) + conditions
+    subs += pack_subrecord('DATA', data) + (pack_subrecord('NNAM', struct.pack('<I', next_perk)) if next_perk else b'')
+    return pack_fo4_record('PERK', fid, 0, subs + effects)
+
+
+def pack_spell(fid: int, edid: str, name: str, template: dict, effects: bytes) -> bytes:
+    """An FO4 ability of `effects`, with `template`'s equip type and SPIT."""
+    subs = pack_string_subrecord('EDID', edid) + pack_subrecord('OBND', bytes(12)) + pack_string_subrecord('FULL', name)
+    subs += pack_subrecord('ETYP', template[b'ETYP']) + pack_string_subrecord('DESC', '') + pack_subrecord('SPIT', template[b'SPIT'])
+    return pack_fo4_record('SPEL', fid, 0, subs + effects)

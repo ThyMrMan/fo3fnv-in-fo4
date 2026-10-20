@@ -20,8 +20,8 @@ from tools.dialog.tes4_ctda_dump import xedit_table
 
 FNV = xedit_table('fnv')
 FO4 = xedit_table('fo4')
-_FNV_DEFS = Path(__file__).resolve().parents[2] / 'references' / 'xEdit' / 'Core' / 'wbDefinitionsFNV.pas'
-_AV_ENUM = re.search(r"wbActorValueEnum\s*:=\s*wbEnum\(\[(.*?)\]", _FNV_DEFS.read_text(errors='replace'), re.S)
+FNV_DEFS = Path(__file__).resolve().parents[2] / 'references' / 'xEdit' / 'Core' / 'wbDefinitionsFNV.pas'
+_AV_ENUM = re.search(r"wbActorValueEnum\s*:=\s*wbEnum\(\[(.*?)\]", FNV_DEFS.read_text(errors='replace'), re.S)
 #: FNV actor value names by index; position, not xEdit's printed number (its Variable08 reads {79}).
 FNV_AV_NAMES = re.findall(r"\}\s*'([^']*)'", _AV_ENUM.group(1))
 #: xEdit's FNV actor value labels that are not the game's own name with the spaces dropped (GECK, scripts).
@@ -31,7 +31,7 @@ FNV_AV_GAME_NAMES = {'Critical Chance': 'CritChance', 'Damage Resistance': 'Dama
                      'Electric Resistance': 'ElectricResist', 'Frost Resistance': 'FrostResist',
                      'Energy Resistance': 'EnergyResist', 'EMP Resistance': 'EmpResist'}
 #: FNV name -> FO4's function doing the same: renamed, a note (an inventory item) counted, a map region's location.
-RENAMED = {'GetActorValue': 'GetValue', 'GetPCIsSex': 'GetIsSex', 'GetHasNote': 'GetItemCount',
+RENAMED = {'GetActorValue': 'GetValue', 'GetPermanentActorValue': 'GetPermanentValue', 'GetPCIsSex': 'GetIsSex', 'GetHasNote': 'GetItemCount',
            'PlayerInRegion': 'GetInCurrentLocation'}
 #: FNV functions that test the player; FO4's counterpart runs on the player reference.
 ON_PLAYER = {'GetPCIsSex', 'GetHasNote', 'PlayerInRegion'}

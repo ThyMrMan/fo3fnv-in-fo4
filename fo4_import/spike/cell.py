@@ -46,6 +46,8 @@ from fo4_import.spike.script_packages import PROPERTY as SCRIPT_PACKAGES, quest_
 from fo4_import.spike.placement import map_markers, open_rooms, place, placement
 from fo4_import.spike.npcs import ACHR_KEY, NPC_KEY, Npcs
 from fo4_import.spike.packages import Packages, beds
+from fo4_import.spike.perks import Perks
+from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, TypeKeywords
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.sounds import Sounds, looping_sounds
 from fo4_import.spike.swaps import Swaps
@@ -216,7 +218,8 @@ class CellBuilder:
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.weather_ids, self.weather_templates, self.weather_regions, self.acoustics = {}, {}, None, None
-        self.hazards, self.music, self.decals = None, None, None
+        self.hazards, self.music, self.decals, self.perks, self.forms = None, None, None, None, {}
+        self.type_keywords = TypeKeywords(self.writer)
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.idle_markers = IdleMarkers(self.fo4)
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
@@ -613,8 +616,9 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     say = builder.say
     lines = [line for rec in recs for line in say.infos.get(rec['FormID'].upper(), [])]
     form_map = {**builder.items.shared, **actor_values(HELPER_INDEX), **_form_map(builder, ref_ids, recs, quests),
-                **builder.npc_ids, **builder.creatures.made, **condition_forms(builder, lines)}
-    builder.idles.form_map = form_map
+                **builder.npc_ids, **builder.creatures.made, **condition_forms(builder, lines),
+                TYPE_KEYWORDS: builder.type_keywords}
+    builder.idles.form_map = builder.forms = form_map
     shared = _hub(builder, export_dir, say, recs, quests, form_map)
     done = []
     for rec in recs:
@@ -785,6 +789,8 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     navmesh = _navmesh(builder, export_dir, {**pathing, **_world_pathing(builder, worlds)}, {**ids, **ext_ids})
     persistent, temporary = _placed(builder, refs, ids, teleports)
     _quests(builder, export_dir, quest_recs, quests, {**ids, **ext_ids, **builder.actor_ids})
+    builder.perks = Perks(builder, export_dir, HELPER_INDEX)
+    builder.perks.write(builder.forms, builder.say.script_vars)
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
     _gameplay(builder, export_dir, quests)
     rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh, (persistent + builder.poses.placed, temporary),

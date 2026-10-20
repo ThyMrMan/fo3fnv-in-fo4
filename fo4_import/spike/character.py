@@ -2,8 +2,8 @@
 
 LevelUpMenuEx (PRKF) reads `Data\\PRKF\\*.ini`: form lists of its skills and
 perks (`Plugin.esp|<hex id>`, split at `|`), points per level, and whether
-FO4's perk chart is off. The plugin gets those lists, the game's traits as
-perks (no effects yet), the skills' FNV names and descriptions over the helper
+FO4's perk chart is off. The plugin gets those lists, the game's traits
+(perks.Perks), the skills' FNV names and descriptions over the helper
 plugin's actor values, and a quest running TES4_CharacterRules: it opens FO4's
 SPECIAL menu and LevelUpMenuEx's tag and trait menus for the converted
 scripts' CharacterMenu events, sets starting skills from SPECIAL and tops up
@@ -64,19 +64,6 @@ def _list(builder, edid: str, forms: list) -> int:
     return fid
 
 
-def _traits(builder, export_dir: Path) -> list:
-    """The game's traits as FO4 trait perks (name and description; their effects are a later step)."""
-    out = []
-    for rec in export_records(export_dir, 'PERK'):
-        if rec.get('DATA.Trait') == '1' and rec.get('DATA.Playable') == '1':
-            fid = builder.fnv_id(rec['FormID'])
-            builder.writer.add_record('PERK', R.pack_perk(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''),
-                                                          rec.get('DESC', ''), True))
-            out.append(fid)
-    builder.counts['trait perks'] = len(out)
-    return out
-
-
 def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: int) -> None:
     """Write the character-rule records into `builder`'s plugin `plugin` and LevelUpMenuEx's INI for it."""
     game = export_dir.name
@@ -91,7 +78,7 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     objects = {'TES4CharacterEvents': form_id(FALLOUT4_HELPER_QUESTS['TES4_CharacterEvents'], helper_index),
                'SpecialStats': _list(builder, 'FNV_SpecialStats', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
                'GovernedSkills': _list(builder, 'FNV_GovernedSkills', governed),
-               'Traits': _list(builder, 'FNV_Traits', _traits(builder, export_dir))}
+               'Traits': _list(builder, 'FNV_Traits', builder.perks.traits())}
     per_int, per_perk = RATES[game]
     values = {'SkillPointsBase': ('int', SKILL_POINTS_BASE), 'SkillPointsPerIntelligence': ('float', per_int),
               'LevelsPerPerk': ('int', per_perk), 'TagBonus': ('int', int(float(settings['fAVDTagSkillBonus']))),

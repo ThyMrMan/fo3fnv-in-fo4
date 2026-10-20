@@ -179,7 +179,7 @@ def test_weapon_copy_takes_fnv_stats_and_resolves_template_strings():
     template = [(b'EDID', b'BaseballBat\0'), (b'VMAD', b'x'), (b'FULL', struct.pack('<I', 1)),
                 (b'DESC', struct.pack('<I', 2)), (b'OBTE', b''), (b'FULL', struct.pack('<I', 3)), (b'DNAM', bytes(dnam))]
     written = []
-    builder = SimpleNamespace(counts={'WEAP': 0}, writer=SimpleNamespace(
+    builder = SimpleNamespace(counts={'WEAP': 0}, type_keywords=SimpleNamespace(of=lambda fnv: []), writer=SimpleNamespace(
         derive_formid=lambda site, key: 0x01ABCDEF, add_record=lambda sig, rec: written.append(rec)))
     eq = E.Equipment.__new__(E.Equipment)
     eq.builder, eq.fnv, eq.vanilla = builder, {}, {'BaseballBat': template}
@@ -205,6 +205,7 @@ def test_melee_weapon_on_fnv_mesh_drops_template_model_and_mods():
                 (b'MOD4', b'Weapons/RollingPin/RollingPin01_1.nif\0'), (b'MO4T', b'z'), (b'DNAM', bytes(dnam))]
     written, ours = [], ('fnv/weapons/rollingpin.nif', (-2, -5, -2, 2, 39, 2))
     builder = SimpleNamespace(counts={"WEAP": 0}, weapon_mesh=lambda model, pose: ours, export_dir=Path("."),
+                              type_keywords=SimpleNamespace(of=lambda fnv: []),
                               writer=SimpleNamespace(derive_formid=lambda site, key: 7,
                                                      add_record=lambda sig, rec: written.append(rec)))
     eq = E.Equipment.__new__(E.Equipment)

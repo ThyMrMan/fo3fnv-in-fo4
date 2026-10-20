@@ -108,13 +108,13 @@ class Effects:
             return [self.vanilla[e][0] for e in EFFECTS[edid]]
         if edid in RETARGETED:
             template, avs = RETARGETED[edid]
-            return [self._copy(template, name, 'copy', f'{edid} {name}', f'FNV_{edid}_{name}') for name in avs]
+            return [self.copy(template, name, 'copy', f'{edid} {name}', f'FNV_{edid}_{name}') for name in avs]
         if edid.startswith(SKILL_EFFECT_PREFIX) and 0 <= av < len(C.FNV_AV_NAMES):
             skill = C.FNV_AV_NAMES[av].replace(' ', '')
-            return [self._copy(SKILL_TEMPLATE, skill, 'skill', skill, f'FNV_Fortify{skill}')]
+            return [self.copy(SKILL_TEMPLATE, skill, 'skill', skill, f'FNV_Fortify{skill}')]
         return []
 
-    def _copy(self, template: str, av: str, site: str, key: str, edid: str) -> int:
+    def copy(self, template: str, av: str, site: str, key: str, edid: str) -> int:
         """FormID of a copy of vanilla effect `template` changing FO4 actor value `av`; written on first use."""
         if key in self.copies:
             return self.copies[key]

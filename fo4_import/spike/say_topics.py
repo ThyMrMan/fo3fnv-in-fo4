@@ -21,6 +21,7 @@ from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike.readiness import LINE, LINE_LEFT_OUT
 from fo4_import.spike.say_once import SayOnce
+from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, translated
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import export_records
@@ -228,7 +229,7 @@ def opens_barter(rec: dict, first: bool, last: bool) -> bool:
 def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
     """The function of an FNV record's first condition that cannot convert, '(global)' marking a global test; for
     one never true in this build (conditions.without_absent), the first form it lacks."""
-    conds = C.without_absent(parsed(rec), form_map)
+    conds = _settled(rec, form_map)
     if conds is None:
         first = next((c['func'] for c in parsed(rec) if C.absent(c, form_map) is False), '')
         return f'{first}: never true in this build'
@@ -236,6 +237,12 @@ def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
         if _fo4_condition(cond, form_map, script_vars) is None:
             return cond['func'] + (' (global)' if cond['op_flags'] & C.USE_GLOBAL else '')
     return ''
+
+
+def _settled(rec: dict, form_map: dict, item: bool = False) -> 'list | None':
+    """An FNV record's conditions settled (without_absent), translated; or None."""
+    conds = C.without_absent(parsed(rec), form_map)
+    return None if conds is None else translated(conds, form_map.get(TYPE_KEYWORDS), item)
 
 
 def with_quest(rec: dict, quest: list) -> dict:
@@ -273,16 +280,17 @@ def _count(rec: dict) -> int:
 
 
 def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = False,
-                  target: 'int | None' = None) -> 'bytes | None':
+                  target: 'int | None' = None, item: bool = False) -> 'bytes | None':
     """An FNV record's conditions as FO4 CTDAs (and CIS1/CIS2s); None when one cannot convert.
 
     Quest and script variables read the converted property `script_vars`
     names ({quest or reference: (script, {index: name})}, `::<name>_var`).
     `swap` flips Subject and Target (a player line); Target tests run on
     quest alias `target`. Tests of forms the build lacks are settled first
-    (conditions.without_absent).
+    (conditions.without_absent); type tests are keyword tests, a weapon
+    subject when `item`.
     """
-    conds = C.without_absent(parsed(rec), form_map)
+    conds = _settled(rec, form_map, item)
     if conds is None:
         return None
     out = b''

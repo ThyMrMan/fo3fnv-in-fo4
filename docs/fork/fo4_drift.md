@@ -15,7 +15,9 @@ here, so a later patch can close the gap. Content is never dropped.
 | Choosing sex | The Reflectron's race menu | A Male/Female box before the Reflectron opens FO4's appearance editor | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Naming the character | The Reflectron's name entry | FO4's SPECIAL menu name field, at the Vit-o-matic | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Skills page | Pip-Boy Skills tab | LevelUpMenuEx's menu; the Pip-Boy shows FO4's SPECIAL and perks | [vcg01](fo4_spikes.md#spike-2-vcg01) |
-| Traits | Effects on pick | Picked through LevelUpMenuEx; no effects until perks are converted | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Traits | Effects on pick | Picked through LevelUpMenuEx; their effects are the perk conversion's, with its gaps (next row) | [perks](fo4_perks.md#records) |
+| Perk effects | 143 entry-point effects, abilities, quest stages | FO4's entry points of the same meaning; Computer Whiz, Paralyzing Palm, Concentrated Fire and Grim Reaper's Sprint (all AP back, by chance) as FO4's own perks do them; no attack or equip speed, aiming speed, item condition, casings, unarmed special moves, Miss Fortune, Long Haul; Damage Threshold perks wait on the armor rules | [perks](fo4_perks.md#records) |
+| Rad resistance | A percentage | FO4's `RadResistExposure` at FNV's number, as Rad-X already converts | [perks](fo4_perks.md#records) |
 | Skill points per level | Granted at the level-up | Added when LevelUpMenuEx's menu next opens | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Rooms and portals in partly covered interiors | Rooms cull what is outside view; space in no room is drawn as seen | In the 29 interiors where a portal leads to no room, no rooms: the whole cell is drawn (no room culling) | [rooms](fo4_pipeline.md#rooms) |
 | Walking away mid-conversation | The talk ends | A one-menu scene ends; a multi-phase scene waits in its phase until the player returns | [vcg01](fo4_spikes.md#spike-2-vcg01) |

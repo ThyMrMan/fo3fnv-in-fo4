@@ -34,6 +34,7 @@ See: docs/fork/fo4_spikes.md#spike-4-outfits
 import struct
 from pathlib import Path
 
+from fo4_import.spike.type_tests import with_keywords
 from fo4_import.base import strings
 from fo4_import.base.install import source_esm
 from fo4_import.base.writer import pack_fo4_record
@@ -259,16 +260,16 @@ class Equipment:
             made = self.builder.items.item(ammo) if ammo else None
             if made is not None:
                 struct.pack_into('<I', dnam, DNAM_AMMO, made)
-        data = {b'DNAM': bytes(dnam)}
+        data, marks = {b'DNAM': bytes(dnam)}, self.builder.type_keywords.of(fnv)
         if entry and entry.mode == 'fnv' and dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec:
             data.update(self._own_model(rec['Model.MODL'], int(rec.get('DNAM.FalloutAnimType', -1))))
-            return self._write('WEAP', fnv, self._copy(rec, data, [], OWN_MODEL_DROPPED))
+            return self._write('WEAP', fnv, with_keywords(self._copy(rec, data, [], OWN_MODEL_DROPPED), marks))
         if chosen and entry is None:
             templates = self.guns.combination(source, chosen[0].includes)
         else:
             templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2]) if chosen
                          else self.guns.with_mods(source, entry.mods) if entry.mods else None)
-        return self._write('WEAP', fnv, self._copy(rec, data, templates, source=source))
+        return self._write('WEAP', fnv, with_keywords(self._copy(rec, data, templates, source=source), marks))
 
     def _own_model(self, model: str, anim_type: int) -> dict:
         """{sig: body} pointing a weapon's world and first-person models (FNV uses one mesh) at FNV `model`,

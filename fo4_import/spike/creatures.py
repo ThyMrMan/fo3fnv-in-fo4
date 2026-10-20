@@ -24,6 +24,7 @@ See: docs/fork/fo4_spikes.md#spike-4-creatures
 import struct
 from pathlib import Path
 
+from fo4_import.spike.type_tests import keywords_edit
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import pack_fo4_record
@@ -118,8 +119,12 @@ class Creatures:
         npc = self.vanilla[self.stand_ins[STAND_INS[folder]]]
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, npc.body, npc.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), STAND_IN_TIES,
-            edit=composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec),
+            edit=composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
                           *self.own_parts(rec))))
+
+    def _keywords(self, rec: dict):
+        """The clone edit marking FNV creature `rec`'s type (type_tests)."""
+        return keywords_edit(self.builder.type_keywords.of(int(rec['FormID'], 16)))
 
     def label(self, fnv: int) -> str:
         """FNV creature `fnv`'s skeleton folder, else its EditorID."""
@@ -183,7 +188,7 @@ class Creatures:
         arma, armo = (write.derive_formid(SITE, f'{key} {part}') for part in ('ARMA', 'ARMO'))
         write.add_record('ARMA', _copy(addon, arma, f'{edid}AA', {b'MOD2': _zstr(model), b'MOD3': _zstr(model)}))
         write.add_record('ARMO', _copy(skin, armo, f'{edid}Skin', {b'MODL': struct.pack('<I', arma)}))
-        edit = composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec),
+        edit = composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
                         *self.own_parts(rec))
         write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''), DOGMEAT_TIES,
                                              edit=lambda subs: _replaced(edit(subs), {b'WNAM': struct.pack('<I', armo)})))
