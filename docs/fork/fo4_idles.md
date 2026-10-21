@@ -303,6 +303,24 @@ clip played through the hand-over, the stand-up and the character
 creator. The named annotation tracks were the fault; every converted
 clip now writes them blank.
 
+## <a id="standing"></a>Standing idles back on (built 2026-10-21, played: Doc's intro, no crash)
+
+`CONVERT` is gone: every standing idle the build uses converts again, from
+lines (speaker and listener idles) and scripts (Idle properties), on the
+root graph. A seated idle converts only when a script plays it and it is
+in `SEATED_PLAYED` (the mirror hand-over, played safely); every other
+seated idle stays out until it is played. `PROBE` is empty.
+
+In the Goodsprings-Primm region: 12 standing idles added (talk head nod
+and shake, shrug, arms folded, hands up, angry, NPC giving, Doc's heal and
+Pip-Boy hand-over, the opening thugs' hood and pistol whip), plus the
+mirror; 35 lines gain speaker or listener idles. Left out: 8 seated, 5 with
+no human clip. No FormID moved (41,389 kept, 12 added); FO4Edit clean.
+
+**To play:** a new game through Doc's intro (the Pip-Boy hand-over, his
+heal) and the opening scene, then talk around Goodsprings and Primm,
+watching for the gestures and for any crash.
+
 ## <a id="spike"></a>Spike: Doc's idles in the Goodsprings-Primm build
 
 Built 2026-10-19: the region build converts the idles its scripts and

@@ -5669,6 +5669,12 @@ class TestFalloutObjectiveCommands:
                                       'TES4ObjShown_MQ01_20.SetValue(1)']
         assert converter_with_quests.sc.property_refs['TES4ObjDone_MQ01_20'] == 'GlobalVariable'
 
+    def test_force_active_quest_sets_the_quest_active(self, converter_with_quests):
+        """`ForceActiveQuest Q` is Q.SetActive(): the quest the Pip-Boy tracks."""
+        line = conv_line(converter_with_quests, 'ForceActiveQuest MQ01', 'Quest')
+        assert line == 'MQ01.SetActive()'
+        assert converter_with_quests.sc.property_refs['MQ01'] == 'Quest'
+
     def test_get_completed_reads_the_quest_native(self, converter_with_quests):
         """GetObjectiveCompleted is Quest.IsObjectiveCompleted."""
         expr = conv_expr(converter_with_quests,

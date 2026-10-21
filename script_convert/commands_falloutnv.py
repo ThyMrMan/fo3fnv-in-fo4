@@ -126,6 +126,17 @@ def quest_native(ctx, call):
     return f'{started}{prop}.{native}({args})' + _objective_mirror(ctx, call, quest_edid, parts)
 
 
+def force_active_quest(ctx, call):
+    """`ForceActiveQuest <quest>` -- Quest.SetActive(): the quest becomes the one the Pip-Boy tracks."""
+    parts = ctx.arg_srcs()
+    if not parts:
+        return None
+    prop = safe_property_name(parts[0].strip())
+    if not typed_already(ctx.sc.property_refs, prop):
+        ctx.sc.property_refs[prop] = 'Quest'
+    return f'{prop}.SetActive()'
+
+
 def _quest_delay(ctx, quest_edid: str, prop: str, secs: str) -> str:
     """SetQuestDelay: Fallout 4's quest script keeps the delay (assemble._quest_delay); else one poll after `secs`.
     See: docs/fork/performance.md#papyrus
@@ -310,4 +321,5 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'getweaponanimtype': weapon_anim_type,
                     'showmessage': show_message,
                     'swaptexture': swap_texture,
+                    'forceactivequest': force_active_quest,
                     **{name: quest_native for name in _QUEST_NATIVES}}

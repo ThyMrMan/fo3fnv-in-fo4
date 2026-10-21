@@ -679,6 +679,13 @@ their items; barter opens.
   NPCs are new records without those ties, so this stays a stand-in artifact.
 - Doc's barter line keeps the scene running (FNV returns to the conversation
   after barter), so the menu box stays under the barter menu.
+- *Quest tracking (fixed and played 2026-10-21).* Back in the Saddle
+  (VCG02) showed in the Pip-Boy but would not take tracking: a click, no
+  selection. Its record matched They Went That-a-Way's, which tracks, and
+  its stages ran. FNV's `ForceActiveQuest` (VCG02 stages 5 and 10; VMQ02,
+  VMS16, VMS16b: 7 calls) was dropped as a TODO; it is now FO4's
+  `Quest.SetActive()` (`commands_falloutnv.force_active_quest`). Played:
+  the quest is tracked when it starts and can be toggled.
 
 ### <a id="spike-3-names"></a>Script names
 

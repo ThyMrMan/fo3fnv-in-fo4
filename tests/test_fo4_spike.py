@@ -353,7 +353,7 @@ def test_an_edge_link_inside_the_build_gains_the_facing_edge_and_one_outside_is_
 
 
 def test_the_facing_edge_holds_the_middle_of_a_split_border():
-    """A border split differently on each side: the edge under the link's midpoint, not a shared corner."""
+    """A border split unevenly: the edge under the link's midpoint, not a corner."""
     verts, tri = [(0, 0, 0), (0, 20, 0), (-10, 10, 0)], [0, 1, 2]
     assert NM.facing(((0, 4, 0), (0, 8, 0)), verts, tri) == 0
 
@@ -392,7 +392,7 @@ def test_a_mopp_over_a_list_is_not_a_mesh_but_one_over_strips_is():
 
 
 def test_moving_props_layer_body_takes_clutter_and_a_fixed_one_keeps_props():
-    """FNV's wooden barrel (props, 10) moving is FO4 clutter (4), as vanilla keeps heavy movers; fixed stays 10."""
+    """A moving props (10) body is FO4 clutter (4); a fixed one stays props."""
     props = SimpleNamespace(layer=10, flags_and_part_number=0, unknown_short=0)
     assert CO.havok_filter(props, moving=True)[0] == 4 and CO.havok_filter(props)[0] == 10
 
@@ -908,15 +908,22 @@ def test_a_decal_keeps_fnv_data_but_fo4_shininess_and_shared_flags():
     assert out[:5] == (25, 45, 25, 45, 32) and out[5] == 1.0 and out[7:] == (4, 0x0A, bytes(2), b'\xb4\x18\x07\x00')
 
 
-def test_with_conversion_off_only_the_probe_idle_is_built(monkeypatch):
-    """CONVERT off: an idle PROBE names is handed out (scripted, seated allowed); any other is not."""
+def test_standing_idles_are_built_and_seated_ones_only_when_played_by_script():
+    """A standing idle is built from a line or a script; a seated one only when a script plays one
+    SEATED_PLAYED names."""
     idles = ID.Idles.__new__(ID.Idles)
     idles.builder = SimpleNamespace(fnv_id=lambda fnv: 0x0B000000 | fnv, counts=Counter())
-    idles.records = {0x1: {'EditorID': 'VCG01DocGiveMirror'}, 0x2: {'EditorID': 'SomeOtherIdle'}}
-    idles.used, idles.counted, idles.checked = {}, set(), {0x1: ID.SEATED, 0x2: ''}
-    monkeypatch.setattr(ID, 'CONVERT', False)
-    monkeypatch.setattr(ID, 'PROBE', {'VCG01DocGiveMirror': (r'Actors\X.hkx', False, None)})
-    assert idles.idle(0x1, scripted=True) == 0x0B000001 and idles.idle(0x2, scripted=True) is None
+    idles.records = {0x1: {'EditorID': 'VCG01DocGiveMirror'}, 0x2: {'EditorID': 'SeatedShrug'},
+                     0x3: {'EditorID': 'StandingWave'}}
+    idles.used, idles.counted, idles.checked = {}, set(), {0x1: ID.SEATED, 0x2: ID.SEATED, 0x3: ''}
+    assert idles.idle(0x3) == 0x0B000003 and idles.idle(0x1, scripted=True) == 0x0B000001
+    assert idles.idle(0x1) is None and idles.idle(0x2, scripted=True) is None
+    assert idles.builder.counts['idle left out (seated)'] == 2
+
+
+def test_probe_idle_plays_vanillas_own_clip_when_not_re_encoded():
+    """A PROBE entry not re-encoded names vanilla's clip path as is."""
+    idles = ID.Idles.__new__(ID.Idles)
     assert idles._probe(r'Actors\X.hkx', False, None, Path('.')) == Path(r'Actors\X.hkx')
 
 

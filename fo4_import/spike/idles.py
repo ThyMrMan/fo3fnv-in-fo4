@@ -28,10 +28,10 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.say_topics import conditions_of
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
-#: Whether FNV idles convert at all: off until the clip encoder plays safely in game (docs/fork/fo4_idles.md).
-CONVERT = False
-#: Encoder probe (fo4_idles.md#encoder-test), {FNV idle: (vanilla clip, re-encoded, seconds kept or None)}.
-PROBE = {'VCG01DocGiveMirror': None}
+#: Seated idles a script may play, each played safely in game; other seated idles stay out (fo4_idles.md#standing).
+SEATED_PLAYED = frozenset({'VCG01DocGiveMirror'})
+#: Encoder probe (fo4_idles.md#encoder-test), {FNV idle: (vanilla clip, re-encoded, seconds kept)}; empty when off.
+PROBE = {}
 #: The archive holding vanilla's clips (under Meshes).
 ANIMATIONS = 'Fallout4 - Animations.ba2'
 #: Behavior graphs: standing (the human root) and a chair's (AnimFurnChairSitAnims, HumanRaceSubGraphData).
@@ -65,9 +65,8 @@ class Idles:
     def idle(self, fnv: int, scripted: bool = False) -> 'int | None':
         """The FO4 FormID of FNV idle `fnv`, played by a script when `scripted`; None when it is left out (the
         module notes)."""
-        if not CONVERT and self.records.get(fnv, {}).get('EditorID') not in PROBE:
-            return None
-        why = '' if scripted and self._reason(fnv) == SEATED else self._reason(fnv)
+        played = scripted and self.records.get(fnv, {}).get('EditorID') in SEATED_PLAYED
+        why = '' if played and self._reason(fnv) == SEATED else self._reason(fnv)
         if why:
             if (fnv, why) not in self.counted:
                 self.counted.add((fnv, why))
