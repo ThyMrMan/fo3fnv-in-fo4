@@ -89,7 +89,7 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
         quest, 'FNV_CharacterRules', quest_fragments('', [], scripts=[(RULES_SCRIPT, objects, values)])))
     builder.scripts.used.append(RULES_SCRIPT)
     builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
-    perks = _list(builder, 'FNV_Perks', [])
+    perks = _list(builder, 'FNV_Perks', builder.perks.playable())
     write_ini(data_dir / 'PRKF' / f'{Path(plugin).stem}.ini', plugin, perks, skill_list)
 
 

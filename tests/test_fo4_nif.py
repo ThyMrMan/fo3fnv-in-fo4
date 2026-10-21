@@ -27,6 +27,7 @@ from fo4_import.nif import retarget as RT
 from fo4_import.nif import stairs as S
 from fo4_import.nif import tree as T
 from fo4_import.nif import weapon as W
+from fo4_import.pipeline.elric_cache import mesh_bytes
 from fo4_import.spike.statics import write_assets
 
 SHELF = Path('export/FalloutNV.esm/meshes/furniture/shelveswoodenhalf02.nif')
@@ -349,8 +350,25 @@ def test_fnv_24_unit_steps_with_float_noise_are_marked():
     tris = [tuple(tuple(c) for c in face) for i in range(3) for face in (
         ((0, 4 * i, rise * i), (4, 4 * i, rise * i), (4, 4 * i + 4, rise * i)),
         ((0, 4 * i, rise * i), (4, 4 * i + 4, rise * i), (0, 4 * i + 4, rise * i)))]
-    out, mats = S.stairs(tris, [0] * len(tris), 7.0, lambda m: m + 1)
+    out, mats, _ = S.stairs(tris, [0] * len(tris), 7.0, lambda m: m + 1)
     assert len(out) - len(tris) == 4 and all(1 in mats[k:k + 2] for k in range(0, len(tris), 2))
+
+
+def _flight(steps: int, rise: float = 24.0, run: float = 27.0) -> list:
+    """`steps` + 1 floating treads, 100 wide, `run` deep, `rise` apart, up +Y."""
+    return [tuple(tuple(c) for c in face) for i in range(steps + 1) for face in (
+        ((0, run * i, rise * i), (100, run * i, rise * i), (100, run * i + run, rise * i)),
+        ((0, run * i, rise * i), (100, run * i + run, rise * i), (0, run * i + run, rise * i)))]
+
+
+def test_a_flight_gets_one_stair_helper_ramp_through_its_nosings_and_two_steps_none():
+    """Four steps up: one 8-corner slab, its top face from the foot of the first riser to the last nosing, as wide
+    as the treads; two steps make no flight."""
+    (corners, crc), = S.stairs(_flight(4), [0] * 10, 1.0, lambda m: m + 1)[2]
+    top = {(round(float(c[0])), round(float(c[1])), round(float(c[2]))) for c in corners[::2]}
+    assert crc == 1 and len(corners) == 8 and top == {(0, 0, 0), (100, 0, 0), (0, 108, 96), (100, 108, 96)}
+    assert np.allclose(corners[::2, 2] - corners[1::2, 2], S.RAMP_THICK)
+    assert S.stairs(_flight(2), [0] * 6, 1.0, lambda m: m + 1)[2] == []
 
 
 def test_skin_uv_extends_one_body_triangles_mapping_and_stretch_compares_uv_to_size():
@@ -555,7 +573,7 @@ def test_a_load_door_is_written_static_beside_its_animated_mesh(tmp_path):
     model = str(DOOR.relative_to(export / 'meshes'))
     path, _ = write_assets(export, model, tmp_path, load=True)
     assert path.endswith('nvcraftsmanrmdooranimatedload.nif')
-    nif = F.read((tmp_path / 'Meshes' / path).read_bytes())
+    nif = F.read(mesh_bytes(tmp_path / 'Meshes' / path))
     assert nif.blocks[0][1]['controller'] == K.NONE
     assert write_assets(export, str(SHELF.relative_to(export / 'meshes')), tmp_path, load=True) is None
 

@@ -1,6 +1,6 @@
 # FNV perks on Fallout 4
 
-**Status:** step 1, the census, done 2026-10-20. Nothing built.
+**Status:** census done 2026-10-20; PERK records (step 2), the level-up list (step 3) and real `HasPerk` (step 4) built 2026-10-20/21, not played. Next: the play-test (step 5).
 
 Today no FNV perk converts. The level-up menu's perk list (`FNV_Perks` in
 LevelUpMenuEx's ini) is empty, FO4's perk chart is off, the 10 traits are
@@ -73,6 +73,30 @@ effects on quests outside the build, and the entry points with no
 counterpart or still to design ([census](#census)); ability effects on
 crit chance (5, FO4 has no actor value: its crit chance is an entry
 point), Damage Threshold (1) and the script effects (5).
+
+## <a id="hasperk"></a>The level-up list and HasPerk (steps 3 and 4)
+
+- **Level-up list.** LevelUpMenuEx reads `FNV_Perks` (the PRKF INI's
+  `PerksList`) and, per perk, its rank count, required level and next rank
+  (its strings: `numranks`, `reqlevel`, `ranksInfo`; ownership through
+  `GetPerkRank`), so FO4's rank chains fit it as they are. The list holds
+  FNV's playable perks that are not traits or hidden, first ranks only,
+  by level then name: 91 (`perks.Perks.playable`). Traits stay on
+  `FNV_Traits`. A perk point comes every `LevelsPerPerk` levels (FNV: 2)
+  from `TES4_CharacterRules`; the INI's own `PPPerLevel` stays 0.
+- **HasPerk.** FNV's HasPerk holds at any rank, and an FO4 actor keeps
+  every rank of a chain, so an FNV perk is its first-rank record
+  everywhere (`Perks.form_map`):
+  - dialogue, idle and perk conditions (the condition form map): the 32
+    region lines blocked on `HasPerk` now pass it (8 build; the rest stop
+    on other conditions);
+  - recipes (`crafting._condition`): the 17 perk-gated recipes, Vigilant
+    Recycler, Hand Loader and Nuka Chemist, were skipped and now build;
+  - consumable effects (`consumable_effects`): 129 effect tests in the
+    region. Before, an effect needing a perk was dropped and one needing
+    a perk's absence ran for everyone;
+  - converted scripts' `Perk` properties fill by FNV EditorID
+    (`Perks.named`; `WildWasteland` alone in 13 scripts).
 
 ## <a id="type-tests"></a>Weapon and creature type tests
 

@@ -39,6 +39,7 @@ from fo4_import.base import strings
 from fo4_import.base.install import source_esm
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, outfit, weapon
+from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
 from fo4_import.pipeline.work_cache import cached
 from fo4_import.spike.gun_choice import GUN_TYPES
 from fo4_import.spike.guns import Guns
@@ -346,14 +347,14 @@ class Equipment:
         out[b'MOD2'] = (path + '\0').encode()
         if bounds:
             out[b'OBND'] = struct.pack('<6h', *bounds)
-        swap = self._swap(fnv, rec, FNV_WORLD_SWAP, (self.builder.data_dir / 'Meshes' / path).read_bytes(), world)
+        swap = self._swap(fnv, rec, FNV_WORLD_SWAP, mesh_bytes(self.builder.data_dir / 'Meshes' / path), world)
         return {**out, SWAP_OF[b'MOD2']: struct.pack('<I', swap)} if swap else out
 
     def _static(self, model: str) -> tuple:
         """(FO4 path under Meshes, NIF bytes) of FNV `model` converted as a static, once."""
         if model not in self.statics:
             path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
-            self.statics[model] = path, (self.builder.data_dir / 'Meshes' / path).read_bytes()
+            self.statics[model] = path, mesh_bytes(self.builder.data_dir / 'Meshes' / path)
         return self.statics[model]
 
     def _worn(self, model: str, sex: str, slots: tuple, frame) -> str:
@@ -367,7 +368,7 @@ class Equipment:
                 self.fits[sex] = headgear.head_fit(self.builder.export_dir, sex)
             path, static = self._static(model)
             out = f'{path[:-len(".nif")]}_worn{"".join(f"_{s}" for s in slots)}{_sex_suffix(sex)}.nif'
-            (self.builder.data_dir / 'Meshes' / out).write_bytes(headgear.worn(static, self.fits[sex], slots, frame))
+            write_new(self.builder.data_dir / 'Meshes' / out, headgear.worn(static, self.fits[sex], slots, frame))
             self.worn_paths[model, sex, slots] = out
         return self.worn_paths[model, sex, slots]
 
@@ -413,7 +414,7 @@ class Equipment:
         fnv_path = self._fnv_path(model)
         out = []
         for name, first in ((f'{stem}.nif', False), (f'{stem}_1stperson.nif', True)):
-            (self.builder.data_dir / 'Meshes' / name).write_bytes(cached(
+            write_new(self.builder.data_dir / 'Meshes' / name, cached(
                 'outfit_worn', 'fo4_import.nif.outfit', (static, fnv_path.read_bytes(), sex, first),
                 lambda: outfit.worn(static, fnv_path, self._body(sex), first)))
             out.append(name)

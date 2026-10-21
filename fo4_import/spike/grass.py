@@ -14,11 +14,11 @@ hashed from FNV's (SITE), so no other record's id moves.
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
 
-import shutil
 import struct
 from pathlib import Path
 
 from fo4_import.base.writer import pack_fo4_record
+from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_subrecord
 
@@ -41,11 +41,9 @@ def pack_data(rec: dict) -> bytes:
 
 
 def _grass_copy(data_dir: Path, model: str) -> str:
-    """Copy converted mesh `model` (under Meshes) into the grass folder; its path there."""
+    """Copy converted mesh `model` (under Meshes) to the grass folder; its path there."""
     name = chr(92).join((GRASS_FOLDER, GRASS_PREFIX + model.rsplit(chr(92), 1)[-1]))
-    target = data_dir / 'Meshes' / name.replace(chr(92), '/')
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(data_dir / 'Meshes' / model.replace(chr(92), '/'), target)
+    write_new(data_dir / 'Meshes' / name.replace(chr(92), '/'), mesh_bytes(data_dir / 'Meshes' / model.replace(chr(92), '/')))
     return name
 
 

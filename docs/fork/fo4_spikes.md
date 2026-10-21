@@ -2207,6 +2207,28 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     risers; 37 of the region's 2,365 meshes change (hotel pieces, Bison
     Steve's entrance, broken Old Town buildings, and 24-unit edges of
     beds, shelves and a footlocker, which FNV's player could step onto).
+  - <a id="stair-ramps"></a>*Stair-helper ramps (built and played 2026-10-21: the staircase climbs smoothly).*
+    Played: `OTBldgDestroy01NV`'s inside staircase (13 steps, 24 up,
+    26.8 deep, 41.9°, all marked, risers in place) climbs only by
+    pushing into it. Steepness is not the cause: vanilla ships steeper
+    (`bldbricksmstairs03` 23 over 23, `qrystonestair01` 25.5 over 25.5).
+    Vanilla's staircases carry a second body beside the stepped mesh: an
+    8-vertex convex slab whose top runs along the nosings to the foot
+    (`bldbricksmstairs01`, `02`, `03`, `qrystonestair01`,
+    `churchintstairs01`), its collision filter layer 31, the stair
+    helper, which only the character controller meets (the steps are on
+    layer 1). The stairs pass now finds flights (3 steps or more on one
+    edge span, each rising from the last and further along) and gives
+    each such a slab, 4 units thick, on its own NiNode
+    (`StairHelper`, the owner's place) with a layer-31 body
+    (`collision._stair_ramps`); only still bodies, not animated ones.
+    The building gets one ramp (y −153 to 195, z 20 to 336); the hotel's
+    switchback stairs one per flight. In the region, 4 meshes get ramps:
+    `OTBldgDestroy01NV` and `02NV`, `HtlHallSmStairs03` and
+    `CasLoPit2xStairs01` (34°). After Elric each holds a second,
+    8-vertex body on layer 31, as vanilla's. A static's root is always in
+    the converter's kept-node map, so stillness is judged as the body
+    writer does (keyframed on an animated node moves), not by that map.
 - **Items** (`fo4_import/spike/consumables.py`): consumables (ALCH) and
   ammunition (AMMO) were skipped wherever they appeared, and placed ones
   stood as static stand-ins. In this block: a Speech magazine and a 5.56

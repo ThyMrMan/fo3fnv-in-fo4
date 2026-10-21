@@ -81,10 +81,11 @@ def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_pat
 
     def fake(paths, run):
         """Stand in for elric.finish: append b'+' to each mesh; 'b' fails."""
-        runs.append(sorted(p.name for p in paths))
+        runs.append(sorted(p.read_bytes() for p in paths))
+        failed = [p for p in paths if p.read_bytes() == b'b']
         for p in paths:
             p.write_bytes(p.read_bytes() + b'+')
-        return [p for p in paths if p.name == 'b.nif']
+        return failed
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
     monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
     monkeypatch.setattr(EC.elric, 'finish', fake)
@@ -94,7 +95,7 @@ def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_pat
             p.write_bytes(p.stem.encode())
         assert EC.finish(paths) == [tmp_path / 'b.nif']
         assert [p.read_bytes() for p in paths] == [b'a+', b'b+']
-    assert runs == [['a.nif', 'b.nif']]
+    assert runs == [[b'a', b'b']]
 
 
 def test_every_placed_type_has_a_converter_and_a_route():

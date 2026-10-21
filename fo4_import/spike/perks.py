@@ -61,6 +61,7 @@ class Perks:
         self.spells = {int(r['FormID'], 16): r for r in export_records(export_dir, 'SPEL')}
         self.fnv_effects = {r['EditorID']: r for r in export_records(export_dir, 'MGEF') if r.get('EditorID')}
         self.ids = {int(r['FormID'], 16): self._rank_ids(r) for r in self.records}
+        self.first = {fnv: ids[0] for fnv, ids in self.ids.items()}
         self.constants, self.tabs, self.vanilla, self.written = {}, {}, {}, set()
         self._index_vanilla()
         self.effects = Effects(builder, helper_index, self.vanilla)
@@ -92,6 +93,21 @@ class Perks:
         """The FO4 perks of FNV's playable traits."""
         return [self.ids[int(r['FormID'], 16)][0] for r in self.records
                 if r.get('DATA.Trait') == '1' and r.get('DATA.Playable') == '1']
+
+    def playable(self) -> list:
+        """The first-rank FO4 perks a level-up offers (FNV's playable, shown perks; not traits), by level and name."""
+        offered = [r for r in self.records if r.get('DATA.Playable') == '1' and r.get('DATA.Trait') != '1'
+                   and r.get('DATA.Hidden') != '1']
+        offered.sort(key=lambda r: (int(r.get('DATA.MinLevel', 0) or 0), r.get('FULL', '')))
+        return [self.ids[int(r['FormID'], 16)][0] for r in offered]
+
+    def form_map(self) -> dict:
+        """{FNV perk FormID: first-rank FO4 perk}, held at any rank."""
+        return self.first
+
+    def named(self) -> dict:
+        """{FNV perk EditorID: first-rank FO4 perk}, for scripts' Perk properties."""
+        return {r['EditorID']: self.ids[int(r['FormID'], 16)][0] for r in self.records if r.get('EditorID')}
 
     def write(self, form_map: dict, script_vars: dict) -> None:
         """Write every perk's rank records; their conditions see `form_map` and `script_vars` (conditions_of)."""

@@ -121,6 +121,15 @@ command line.
     byte the same.
   - Elric runs as one instance. Four at once never finished: no CPU after
     nine minutes.
+  - <a id="held-meshes"></a>*Only finished NIFs reach the data folder.*
+    A NIF with Havok input is held in memory (`elric_cache.write_mesh`)
+    until `finish()` writes its finished bytes, and only when they
+    changed. Each build used to write every Havok NIF twice, first
+    pre-Elric, a form FO4 cannot load. Played (2026-10-21): during a build
+    that rewrote 2,139 meshes, a game left running drew the red "!"
+    missing-model marker on Primm's fence beams and utility poles, though
+    the files were whole afterwards. Code reading a mesh the build just
+    made uses `mesh_bytes()`.
 - **Scripts compiled only when changed.** `script.compile_into` stages the
   needed scripts in a folder that stays put
   (`output/fo4_cache/script_stage`) and compiles through the corpus gate's
@@ -1758,8 +1767,11 @@ each limb by 100).
   helper plugin's skill; was Rad-X's dual-value boost) and Hydra's limb
   restore over time (`RestoreHealthFood` on each limb condition: FO4's own
   limb restores take no duration).
-- Effect conditions: HasPerk and IsHardcore count as false, since neither
-  FNV perks nor Hardcore mode convert; an effect needing one is left out.
+- Effect conditions: IsHardcore counts as false (FO4 has no Hardcore
+  mode; an effect needing it is left out). HasPerk is written as FO4's on
+  the effect, on the perk's first rank (2026-10-21: 129 tests in the region;
+  a perk the build lacks counts as not held). See
+  [perks](fo4_perks.md#hasperk).
 - An item left with no effect carries `FortifyHealth` at magnitude 0 and
   duration 0, as vanilla's `VRWorkshopShared_MutfruitFake` (and
   `HC_SippableWater`, `DamageRadiationChem` at 0). xEdit requires one
@@ -2349,7 +2361,7 @@ building and dialogue are above ([ledger](#formid-ledger),
   `mesh_files`), keyed by the mesh key and checked against the same texture
   stamps, so a current mesh is not unpickled, serialized or bounded again; a
   hit marks its mesh entry used. A NIF or material file that already holds
-  its bytes is not rewritten (a NIF Elric finished still is). Over 223
+  its bytes is not rewritten, finished ones included ([held meshes](#held-meshes)). Over 223
   region meshes rebuilt, the step went from 1.45–1.50 s to 0.89–0.90 s
   (13.2–13.7 s to 8.1–8.2 s at the region's 2,028 calls), output
   byte-identical before and after Elric; entries are about 35 KB a mesh.

@@ -55,7 +55,7 @@ from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import DESC_SKINNED, NONE, SHADER_SKINNED, Reader, pack_tri_shape, read_tri_shape
 from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
-from fo4_import.nif.headgear import NO_PARENT, shape_arrays
+from fo4_import.nif.headgear import BONE as HEAD_BONE, FNV_HEADS, NO_PARENT, HeadFit, head_fit, head_frame, shape_arrays
 from fo4_import.nif.retarget import Rig, bone_moves, retargeted
 
 #: Per sex: FO4's body (in Fallout 4 - Meshes.ba2) and FNV's body (under the export's meshes).
@@ -86,6 +86,8 @@ for _fnv, _ in SIDES:
                    f'Bip01 {_fnv}UpArmTwistBone': f'Bip01 {_fnv} UpperArm',
                    f'Bip01 {_fnv} ForeTwist': f'Bip01 {_fnv} Forearm'})
 ROOT_BONE = 'Bip01 Pelvis'
+#: FNV's head bone: an outfit's share on it is placed by the head fit and skinned to FO4's HEAD.
+FNV_HEAD = 'Bip01 Head'
 HUMAN = Rig(BONES, ENDS, FOLLOW, ROOT_BONE)
 #: FNV dismemberment partitions that are caps (section, torso and limb caps): shown only once a limb is cut.
 CAP_PARTS = range(100, 1000)
@@ -196,6 +198,21 @@ def shape_bones(nif, shape: dict) -> tuple:
 
 
 @dataclass
+class HeadPart:
+    """FO4's HEAD on a body fit: its head fit (headgear.head_fit), position in the body's frame, index among the
+    fit's bones, and FNV's head mesh (whose frame head_frame moves an outfit's points into)."""
+    fit: HeadFit
+    at: np.ndarray
+    index: int
+    fnv_head: Path
+
+    def placed(self, points: np.ndarray, normals: np.ndarray, frame: np.ndarray) -> tuple:
+        """FNV root-space (points, normals) placed as headgear, via `frame`."""
+        local = points @ frame[:3, :3] + frame[3, :3]
+        return self.fit.cleared(local, self.fit.placed(local)) + self.at, normals @ frame[:3, :3] @ self.fit.r
+
+
+@dataclass
 class BodyFit:
     """FNV bone moves onto FO4's skeleton; FNV body vertices moved (`anchors`) and their offsets onto FO4's
     body; FO4's body (its NIF, bones, bind data, per-vertex weights, positions and UVs, surface samples, most
@@ -215,6 +232,7 @@ class BodyFit:
     points: np.ndarray = None
     stretch: float = 0.0
     seams: list = None
+    head: HeadPart = None
 
     def retargeted(self, points: np.ndarray, normals: np.ndarray, weights: list) -> tuple:
         """retarget.retargeted() of FNV root-space points by the fit's moves."""
@@ -259,11 +277,15 @@ class BodyFit:
                 extra.append(_affine_uv(points[v], self.points[body_tri], self.uv[body_tri]))
         return np.array(source), new_tris, np.vstack([uv] + extra) if extra else uv
 
-    def skin(self, points: np.ndarray) -> tuple:
-        """(weights, body bone indices), WEIGHTS_PER_VERTEX each, of FO4's body at its nearest surface points."""
+    def skin(self, points: np.ndarray, on_head: np.ndarray = None) -> tuple:
+        """(weights, body bone indices), WEIGHTS_PER_VERTEX each, of FO4's body at its nearest surface points;
+        each point's `on_head` share goes to HEAD instead."""
         points_s, owner, bary = self.samples
         idx = cKDTree(points_s).query(points)[1]
         dense = (bary[idx][:, :, None] * self.weights[self.tris[owner[idx]]]).sum(1)
+        if on_head is not None:
+            dense *= (1.0 - on_head)[:, None]
+            dense[:, self.head.index] += on_head
         top = np.argsort(-dense, axis=1)[:, :WEIGHTS_PER_VERTEX]
         w = np.take_along_axis(dense, top, axis=1)
         return w / np.maximum(w.sum(1, keepdims=True), 1e-9), top
@@ -281,6 +303,9 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
     skeleton = fo4_joints(nif_file.read(archives.read(FO4_SKELETON)))
     shift = np.mean([-rot.T @ t - skeleton[b] for b, (_, rot, t) in zip(bones, bind) if b in skeleton], axis=0)
     moves = bone_moves(HUMAN, *fnv_skeleton(export_dir / 'meshes' / FNV_SKELETON), {name: pos + shift for name, pos in skeleton.items()})
+    head = HeadPart(head_fit(export_dir, sex, archives), skeleton[HEAD_BONE] + shift, len(bones),
+                    export_dir / 'meshes' / FNV_HEADS[sex])
+    _add_head(head, body, (bones, nodes, bind))
     points = np.array([v['position'] for v in shape['vertices']], float)
     tris = np.array(shape['triangles'])
     weights = np.zeros((len(points), len(bones)))
@@ -293,7 +318,22 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
     fit.stretch = float(uv_stretch(points, fit.uv, tris).max())
     fit.anchors, fit.offsets, fnv_body = _anchors(fit, export_dir / 'meshes' / FNV_BODIES[sex])
     fit.seams = _seams(points, tris, fnv_body, fit.anchors)
+    fit.head = head
     return fit
+
+
+def _add_head(head: HeadPart, body, rig: tuple) -> None:
+    """Add FO4's HEAD, turned as its base head's HEAD node, to body NIF `body`'s nodes and to `rig` (its bones,
+    their nodes and bind data)."""
+    bones, nodes, bind = rig
+    rot = np.array(head.fit.rotation).reshape(3, 3)
+    body.blocks.append(('NiNode', {'name': body.string(HEAD_BONE), 'extra': [], 'controller': NONE, 'flags': 0xE,
+                                   'translation': tuple(map(float, head.at)), 'rotation': head.fit.rotation,
+                                   'scale': 1.0, 'collision': NONE, 'children': []}))
+    body.blocks[0][1]['children'].append(len(body.blocks) - 1)
+    nodes.append(len(body.blocks) - 1)
+    bind.append(((0.0,) * 4, rot.T, -rot.T @ head.at))
+    bones.append(HEAD_BONE)
 
 
 def uv_stretch(points: np.ndarray, uv: np.ndarray, tris: np.ndarray) -> np.ndarray:
@@ -492,24 +532,35 @@ def _segment_order(segment: np.ndarray, first_person: bool) -> tuple:
     return kept, [int((segment[kept] == s).sum()) for s in range(n)]
 
 
-def _fitted(shape: dict, fit: BodyFit, fnv: tuple) -> tuple:
-    """(positions, normals, UVs, triangles) of static shape `shape` (of FNV shape `fnv`: positions, normals,
-    weights, UVs) moved onto FO4's body, its edges on FNV's body edges onto FO4's."""
+def _fitted(shape: dict, fit: BodyFit, fnv: tuple, frame: 'np.ndarray | None') -> tuple:
+    """(positions, normals, UVs, triangles, share on FNV's head per vertex) of static shape `shape` (of FNV shape
+    `fnv`: positions, normals, weights, UVs) moved onto FO4's body, its edges on FNV's body edges onto FO4's; the
+    head's share placed as headgear (HeadPart.placed through `frame`: head_frame) and blended in."""
     pos, uv, nrm, tris = shape_arrays(shape)
     fnv_pos, fnv_nrm, fnv_weights, fnv_uv = fnv
     near = originals((pos, uv, nrm), (fnv_pos, fnv_uv, fnv_nrm))
-    points, normals = fit.placed(fnv_pos[near], fnv_nrm[near], [fnv_weights[i] for i in near])
-    return fit.seamed(points, fnv_pos[near], tris), normals, uv, tris
+    weights = [fnv_weights[i] for i in near]
+    points, normals = fit.placed(fnv_pos[near], fnv_nrm[near], weights)
+    share = np.array([w.get(FNV_HEAD, 0.0) / (sum(w.values()) or 1.0) for w in weights]) if frame is not None \
+        else np.zeros(len(near))
+    if share.any():
+        head, head_normals = fit.head.placed(fnv_pos[near], fnv_nrm[near], frame)
+        points = points + share[:, None] * (head - points)
+        normals = normals + share[:, None] * (head_normals - normals)
+        normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-9)
+    return fit.seamed(points, fnv_pos[near], tris), normals, uv, tris, share
 
 
-def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: bool = False) -> 'WornShape | None':
-    """Static shape `shape` (of FNV shape `fnv`) skinned on FO4's body, its triangles in body-part segments
-    (arms only in first person), on FO4's body texture when `skin`; None when nothing is left of it."""
-    points, normals, uv, tris = _fitted(shape, fit, fnv)
+def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: bool = False,
+               frame: 'np.ndarray | None' = None) -> 'WornShape | None':
+    """Static shape `shape` (of FNV shape `fnv`) skinned on FO4's body, its share on FNV's head on HEAD (moved
+    by `frame`: _fitted), its triangles in body-part segments (arms only in first person), on FO4's body texture
+    when `skin`; None when nothing is left of it."""
+    points, normals, uv, tris, share = _fitted(shape, fit, fnv, frame)
     if skin:
         source, tris, uv = fit.on_body_texture(points, tris)
-        points, normals = points[source], normals[source]
-    weights, bones = fit.skin(points)
+        points, normals, share = points[source], normals[source], share[source]
+    weights, bones = fit.skin(points, share if share.any() else None)
     strength = np.zeros((len(tris), len(fit.bones)))
     for k in range(3):
         np.add.at(strength, (np.repeat(np.arange(len(tris)), WEIGHTS_PER_VERTEX), bones[tris[:, k]].ravel()),
@@ -583,12 +634,13 @@ def worn(static_bytes: bytes, fnv_path: Path, fit: BodyFit, first_person: bool =
     nif = nif_file.NifFile()
     nif.blocks.append(('NiNode', dict(root, name=nif.string(static.strings[root['name']]), extra=[], children=[])))
     nodes = copy_skeleton(nif, fit)
+    frame = head_frame(fnv_path, fit.head.fnv_head) if fit.head else None
     for shape in [static.blocks[i][1] for i in root['children'] if static.blocks[i][0] == 'BSTriShape']:
         found = fnv[static.strings[shape['name']]]
         geom = found.popleft()[1] if found else None
         wanted = _wanted(geom, first_person)
         skin = wanted and is_skin(geom)
-        made = worn_shape(shape, fit, fnv_skin(geom, fnv_root), first_person, skin) if wanted else None
+        made = worn_shape(shape, fit, fnv_skin(geom, fnv_root), first_person, skin, frame) if wanted else None
         if made is None:
             continue
         index = len(nif.blocks)

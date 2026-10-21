@@ -41,6 +41,11 @@ def _havok(kind: str) -> bool:
     return kind.startswith('bhk') or kind == 'NiTriStripsData'
 
 
+def has_havok(data: bytes) -> bool:
+    """Whether NIF bytes `data` hold pre-Elric Havok blocks (read from the header)."""
+    return any(_havok(kind) for kind, _ in nif_file.read_header(data)[1])
+
+
 def havok_start(nif: NifFile) -> 'int | None':
     """The index of the first pre-Elric Havok block, or None."""
     return next((i for i, (kind, _) in enumerate(nif.blocks) if _havok(kind)), None)

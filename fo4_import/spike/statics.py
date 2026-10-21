@@ -27,10 +27,9 @@ from fo4_import.nif import bgsm
 from asset_convert.texture import spec_mask
 from fo4_import.nif.convert_static import (PREFIX, fo4_texture, retextured, smoothness, spec_glossiness, spec_map_path,
                                            texture_source)
-from fo4_import.pipeline.elric_cache import written
+from fo4_import.pipeline.elric_cache import finish, write_mesh, write_new
 from fo4_import.pipeline.mesh_cache import cached_convert, cached_files, mesh_files
 from fo4_import.pipeline.work_cache import glow_map, spec_map
-from fo4_import.nif.elric import finish
 from fo4_import.nif.terminal import with_screen
 from fo4_import.nif.tree import tree_mesh
 from fo4_import.spike import records as R
@@ -78,8 +77,7 @@ def write_files(export_dir: Path, files, rel: str, data_dir: Path) -> tuple:
     """Write mesh_files() `files` as Meshes\\<PREFIX>\\`rel` with their materials and textures into <data_dir>;
     (FO4 model path under Meshes, OBND)."""
     out = data_dir / 'Meshes' / PREFIX / rel
-    write_new(out, files.nif)
-    written(out, files.nif)
+    write_mesh(out, files.nif)
     for path, data in files.materials:
         write_new(_material_file(data_dir, path), data)
     for texture in files.textures:
@@ -92,14 +90,6 @@ def write_files(export_dir: Path, files, rel: str, data_dir: Path) -> tuple:
         if all(p.exists() for p in paths):
             stage_derived(data_dir, glow_path, glow_map, paths, cut)
     return f'{PREFIX}\\{rel}', files.bounds
-
-
-def write_new(target: Path, data: bytes) -> None:
-    """Write `data` to `target`, its folder made, unless the file already holds exactly that."""
-    if target.is_file() and target.stat().st_size == len(data) and target.read_bytes() == data:
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
 
 
 def _source(export_dir: Path, fnv_texture: str) -> Path:

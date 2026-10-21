@@ -8,6 +8,8 @@ from collections import Counter
 from types import SimpleNamespace
 
 from fo4_import.spike import conditions as C
+from fo4_import.spike import consumable_effects as CE
+from fo4_import.spike import crafting as CR
 from fo4_import.spike import perks as P
 from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS
 from tes5_import.base.tes5_reader import subrecords
@@ -121,3 +123,40 @@ def test_rank_ids_keep_fnv_formid_for_the_first_rank():
     perks = _perks()
     ids = perks._rank_ids(_rec([], ranks=3))
     assert ids[0] == 0x0B01ABCD and len(set(ids)) == 3
+
+
+def _has_perk(perk: int, value: float = 1.0, or_next: bool = False) -> dict:
+    """A parsed FNV condition: HasPerk `perk` == `value`."""
+    return {'func': 'HasPerk', 'op_flags': C.OR_NEXT if or_next else 0, 'value': value, 'p1': perk, 'p2': 0,
+            'run_on': 0, 'ref': 0, 'global': 0}
+
+
+def test_level_up_offers_playable_perks_by_level_not_traits_or_hidden():
+    """Playable perks by level then name; a trait, a hidden and an unplayable perk are left off."""
+    perks = _perks()
+    perks.records = [{'FormID': '01', 'FULL': 'B', 'DATA.Playable': '1', 'DATA.MinLevel': '4'},
+                     {'FormID': '02', 'FULL': 'A', 'DATA.Playable': '1', 'DATA.MinLevel': '4'},
+                     {'FormID': '03', 'FULL': 'C', 'DATA.Playable': '1', 'DATA.MinLevel': '2'},
+                     {'FormID': '04', 'FULL': 'T', 'DATA.Playable': '1', 'DATA.Trait': '1'},
+                     {'FormID': '05', 'FULL': 'H', 'DATA.Playable': '1', 'DATA.Hidden': '1'},
+                     {'FormID': '06', 'FULL': 'U', 'DATA.Playable': '0'}]
+    perks.ids = {int(r['FormID'], 16): [0x0B000000 | int(r['FormID'], 16)] for r in perks.records}
+    assert perks.playable() == [0x0B000003, 0x0B000002, 0x0B000001]
+
+
+def test_recipe_perk_condition_is_fo4_has_perk():
+    """A Vigilant Recycler recipe's HasPerk == 1 becomes FO4 HasPerk on its first-rank perk."""
+    crafting = CR.Crafting.__new__(CR.Crafting)
+    crafting.builder = SimpleNamespace(perks=SimpleNamespace(form_map=lambda: {0x1234: 0x0B001234}))
+    ctda = crafting._condition(_has_perk(0x1234))
+    assert struct.unpack_from('<fHxxI', ctda, 10) == (1.0, C.FO4.index('HasPerk'), 0x0B001234)
+
+
+def test_consumable_effect_carries_its_perk_test_and_an_unknown_perk_counts_as_not_held():
+    """An effect needing a known perk gets FO4 HasPerk; one needing a perk the build lacks never runs."""
+    effects = CE.Effects.__new__(CE.Effects)
+    effects.builder = SimpleNamespace(perks=SimpleNamespace(form_map=lambda: {0x1234: 0x0B001234}), counts=Counter())
+    ctda = effects._perk_tests([_has_perk(0x1234)])
+    assert struct.unpack_from('<HxxI', ctda, 14) == (C.FO4.index('HasPerk'), 0x0B001234)
+    assert effects._perk_tests([_has_perk(0x9999)]) is None
+    assert effects._perk_tests([_has_perk(0x9999, 0.0)]) == b''

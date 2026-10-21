@@ -6,9 +6,10 @@ and a tag over Elric's own files (its exe, DLLs and settings); a NIF Elric
 crashes on alone is kept as an empty entry. Elric writes a few uninitialised
 bytes into its physics, so two fresh runs differ; a cached entry makes every
 rebuild after the first byte for byte the same. Elric runs as one instance:
-four at once never finished (no CPU after nine minutes). finish() keys a NIF
-by the SHA-1 of its bytes, taken from written() when the build wrote it, so
-the file is not read back.
+four at once never finished (no CPU after nine minutes). A NIF with Havok
+input is held in memory (hold()) rather than written, since FO4 cannot load
+it; finish() writes only the finished NIF, and only when its bytes changed,
+so a game running beside the build never loads a half-made mesh.
 
 See: docs/fork/fo4_pipeline.md#skeleton
 """
@@ -16,6 +17,7 @@ See: docs/fork/fo4_pipeline.md#skeleton
 import functools
 import hashlib
 import os
+import tempfile
 from pathlib import Path
 
 from fo4_import.nif import elric
@@ -24,8 +26,8 @@ from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.work_cache import UNUSED_DAYS, lookup, prune, store
 
 CACHE = ROOT / 'output' / 'fo4_cache' / 'elric'
-#: {normcased NIF path: (SHA-1, size, mtime_ns)} of the NIFs written() this run.
-_WRITTEN = {}
+#: {normcased NIF path: pre-Elric bytes} held this run until finish() writes them finished.
+_HELD = {}
 
 
 @functools.cache
@@ -43,37 +45,55 @@ def _entry(data: bytes):
     return CACHE / key[:2] / key
 
 
-def written(path: Path, data: bytes) -> None:
-    """Note that `data` was just written to the NIF at `path` (finish() keys on it)."""
-    stat = Path(path).stat()
-    _WRITTEN[os.path.normcase(str(path))] = (hashlib.sha1(data).digest(), stat.st_size, stat.st_mtime_ns)
+def write_new(target: Path, data: bytes) -> None:
+    """Write `data` to `target`, its folder made, unless the file already holds exactly that; any NIF held for
+    `target` is dropped."""
+    _HELD.pop(os.path.normcase(str(target)), None)
+    if target.is_file() and target.stat().st_size == len(data) and target.read_bytes() == data:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
 
 
-def _digest(path: Path) -> bytes:
-    """The SHA-1 of the NIF at `path`: written()'s while the file is unchanged since, else read from it."""
-    known, stat = _WRITTEN.get(os.path.normcase(str(path))), path.stat()
-    if known and known[1:] == (stat.st_size, stat.st_mtime_ns):
-        return known[0]
-    return hashlib.sha1(path.read_bytes()).digest()
+def write_mesh(path: Path, data: bytes) -> None:
+    """Hold NIF `data` for `path` until finish() when it has Havok input, else write_new() it."""
+    if elric.has_havok(data):
+        _HELD[os.path.normcase(str(path))] = data
+    else:
+        write_new(Path(path), data)
+
+
+def mesh_bytes(path: Path) -> bytes:
+    """The NIF for `path` as the build made it: held (write_mesh) or on disk."""
+    held = _HELD.get(os.path.normcase(str(path)))
+    return Path(path).read_bytes() if held is None else held
 
 
 def finish(paths: list) -> list:
-    """elric.finish(paths, process()) through work_cache: a NIF finished before (same bytes, Elric and code) is
-    written back from the cache; the paths left without collision."""
+    """elric.finish() through work_cache (a NIF finished before, same bytes, Elric and code, comes from the cache)
+    on each path's mesh_bytes(), run on staged copies; each finished NIF written with write_new(). The paths left
+    without collision."""
     failed, todo = [], {}
     for path in dict.fromkeys(Path(p) for p in paths):
-        inputs = (elric_tag(), _digest(path))
+        data = _HELD.pop(os.path.normcase(str(path)), None) or path.read_bytes()
+        inputs = (elric_tag(), hashlib.sha1(data).digest())
         done = lookup('elric_finish', 'fo4_import.nif.elric', inputs)
         if done is None:
-            todo[path] = inputs
+            todo[path] = inputs, data
             continue
-        ok, data = done
-        path.write_bytes(data)
-        failed += [] if ok else [path]
-    newly = set(elric.finish(list(todo), process) if todo else ())
-    for path, inputs in todo.items():
-        store('elric_finish', 'fo4_import.nif.elric', inputs, (path not in newly, path.read_bytes()))
-    return failed + sorted(newly)
+        write_new(path, done[1])
+        failed += [] if done[0] else [path]
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = {path: Path(tmp) / f'{i:05d}.nif' for i, path in enumerate(todo)}
+        for path, (_, data) in todo.items():
+            staged[path].write_bytes(data)
+        newly = set(elric.finish(list(staged.values()), process) if todo else ())
+        for path, (inputs, _) in todo.items():
+            ok, data = staged[path] not in newly, staged[path].read_bytes()
+            store('elric_finish', 'fo4_import.nif.elric', inputs, (ok, data))
+            write_new(path, data)
+            failed += [] if ok else [path]
+    return failed
 
 
 def process(sources: dict) -> dict:

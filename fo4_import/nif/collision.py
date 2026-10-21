@@ -15,6 +15,7 @@ from itertools import accumulate
 from types import SimpleNamespace
 
 import numpy as np
+from scipy.spatial import ConvexHull
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from fo4_import.nif.blocks import NONE
@@ -71,6 +72,10 @@ JOINT_FIELDS = {
 }
 #: FNV motion systems of bodies that never move under physics (keyframed, fixed): their meshes get both sides.
 STILL_MOTIONS = frozenset({6, 7})
+#: FO4's stair-helper layer (31, Skyrim's numbering), met only by the character controller: vanilla's stair ramps.
+STAIR_HELPER = struct.pack('<BBH', 31, 0, 0)
+#: The name of the NiNode carrying a stair-helper ramp body, and an identity rotation as a NiNode stores it.
+STAIR_HELPER_NODE, IDENTITY = 'StairHelper', (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 #: An empty hkWorldObjectCinfo::Property (data, size, capacity and flags).
 EMPTY_PROPERTY = struct.pack('<3I', 0, 0, 0x80000000)
 
@@ -136,14 +141,17 @@ def _vec(v, n: int = 4, scale: float = SCALE) -> tuple:
 class _Blocks:
     """Appends collision blocks to a NifFile, each as (type, bytes)."""
 
-    def __init__(self, nif: NifFile, scale: float = 1.0, root=None, animated: bool = False, body=None):
+    def __init__(self, nif: NifFile, scale: float = 1.0, root=None, animated: bool = False, body=None,
+                 soups: dict = None):
         """Write into `nif`; lengths grown by `scale`; `root` is the FNV mesh root; `animated`: the node moves;
-        `body` is (FNV rigid body, its node), for meshes inside a list."""
+        `body` is (FNV rigid body, its node), for meshes inside a list; `soups` {id(body): _mesh_soup()} made
+        already."""
         self.nif = nif
         self.unit = SCALE * scale
         self.root = root
         self.animated = animated
         self.body = body
+        self.soups = soups or {}
 
     def add(self, kind: str, body: bytes) -> int:
         """Append one block; its index."""
@@ -164,6 +172,14 @@ class _Blocks:
         normals = b''.join(struct.pack('<4f', n.x, n.y, n.z, n.w * self.unit) for n in s.normals)
         body = struct.pack('<If', material(s.material.material), s.radius * self.unit) + EMPTY_PROPERTY * 2
         body += struct.pack('<I', len(s.vertices)) + verts + struct.pack('<I', len(s.normals)) + normals
+        return self.add('bhkConvexVerticesShape', body)
+
+    def convex(self, points: np.ndarray, crc: int) -> int:
+        """A bhkConvexVerticesShape of material `crc` around `points` (FO4 Havok units), its planes their hull's."""
+        planes = np.unique(ConvexHull(points).equations.round(6), axis=0)
+        body = struct.pack('<If', crc, MESH_RADIUS) + EMPTY_PROPERTY * 2
+        body += struct.pack('<I', len(points)) + b''.join(struct.pack('<4f', *p, 0.0) for p in points)
+        body += struct.pack('<I', len(planes)) + b''.join(struct.pack('<4f', *e) for e in planes)
         return self.add('bhkConvexVerticesShape', body)
 
     def _bhkBoxShape(self, s) -> int:
@@ -219,7 +235,7 @@ class _Blocks:
         soup = _mesh_soup(SimpleNamespace(shape=s), node, self.root, self.unit / SCALE)
         if soup is None:
             raise ValueError(f'no triangles in nested {type(s).__name__}')
-        tris, materials = soup
+        tris, materials, _ = soup
         if transform is not None:
             tris = [tuple(tuple(float(c) for c in transform[0] @ v + transform[1]) for v in tri) for tri in tris]
         return self.mesh(*both_sides((tris, materials), body), havok_filter(body.havok_col_filter))
@@ -272,8 +288,9 @@ def _body_shape(blocks: _Blocks, body, node) -> 'int | None':
     if not is_mesh(body.shape):
         shape = blocks.shape(body.shape)
         return blocks.transformed(shape, body.shape, body) if _baked(body) and kind in CONVEX_SHAPES else shape
-    soup = _mesh_soup(body, node, blocks.root, blocks.unit / SCALE)
-    return None if soup is None else blocks.mesh(*both_sides(soup, body), havok_filter(body.havok_col_filter))
+    soup = (blocks.soups[id(body)] if id(body) in blocks.soups
+            else _mesh_soup(body, node, blocks.root, blocks.unit / SCALE))
+    return None if soup is None else blocks.mesh(*both_sides(soup[:2], body), havok_filter(body.havok_col_filter))
 
 
 def both_sides(soup: tuple, body) -> tuple:
@@ -298,8 +315,9 @@ def _tri_key(tri) -> tuple:
 
 
 def _mesh_soup(body, node, root, grow: float) -> 'tuple | None':
-    """(triangles in FO4 Havok units, materials) of FNV mesh `body` on `node`: repaired, grown by `grow`, through
-    the stairs pass. None: drop it. A bhkRigidBodyT's translation is scaled in place first (call once per body)."""
+    """(triangles in FO4 Havok units, materials, stair ramps) of FNV mesh `body` on `node`: repaired, grown by
+    `grow`, through the stairs pass. None: drop it. A bhkRigidBodyT's translation is scaled in place first (call
+    once per body)."""
     if type(body).__name__ == 'bhkRigidBodyT':
         t = body.translation
         t.x, t.y, t.z = t.x * SCALE, t.y * SCALE, t.z * SCALE
@@ -316,7 +334,7 @@ def mesh_triangles(path: str) -> tuple:
     with open(path, 'rb') as f:
         data.read(f)
     root = data.roots[0]
-    tris, materials = _mesh_soup(root.collision_object.body, root, root, 1.0)
+    tris, materials, _ = _mesh_soup(root.collision_object.body, root, root, 1.0)
     return [tuple(tuple(c * GAME_PER_HAVOK for c in v) for v in tri) for tri in tris], materials
 
 
@@ -342,12 +360,13 @@ def _rigid_body(blocks: _Blocks, body, node) -> 'int | None':
     return None if shape is None else _body_block(blocks, shape, body, baked)
 
 
-def _body_block(blocks: _Blocks, shape: int, body, baked: bool) -> int:
-    """FNV `body` around block `shape` with the 2014 body info; lengths scaled, inertia by the square.
+def _body_block(blocks: _Blocks, shape: int, body, baked: bool, filt: bytes = None) -> int:
+    """FNV `body` around block `shape` with the 2014 body info; lengths scaled, inertia by the square; its
+    filter, or `filt`.
 
     A body whose transform its shape carries (`baked`) is written as an identity bhkRigidBody.
     """
-    filt = havok_filter(body.havok_col_filter, moves(body))
+    filt = filt or havok_filter(body.havok_col_filter, moves(body))
     head = struct.pack('<i', shape) + filt + struct.pack('<4xB3x', 1) + EMPTY_PROPERTY
     head += struct.pack('<BBH', body.collision_response, 0, body.process_contact_callback_delay)
     inertia = body.inertia
@@ -371,13 +390,13 @@ def _body_block(blocks: _Blocks, shape: int, body, baked: bool) -> int:
 
 
 def collision_object(nif: NifFile, co, target: int, node, scale: float = 1.0, root=None,
-                     animated: bool = False) -> int:
+                     animated: bool = False, soups: dict = None) -> int:
     """Write `co` of FNV `node` for block `target`, its shapes grown by `scale`, children first as Elric needs;
-    keyframed when `animated` (the node keeps its animation).
+    keyframed when `animated` (the node keeps its animation); a mesh soup from `soups` when made already.
 
     Its index (NONE: dropped).
     """
-    blocks = _Blocks(nif, scale, root, animated, (co.body, node))
+    blocks = _Blocks(nif, scale, root, animated, (co.body, node), soups)
     body = _rigid_body(blocks, co.body, node)
     if body is None:
         return NONE
@@ -429,14 +448,49 @@ def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int, ke
                 'collision': NONE, 'children': []}))
             nif.blocks[root_index][1]['children'].append(index)
         owners.append((index, co, node, scale))
+    soups, ramps = _stair_ramps(nif, owners, root_index, node_flags, fnv_root, kept or {})
     bodies = {}
     for index, co, node, scale in owners:
         nif.blocks[index][1]['collision'] = collision_object(nif, co, index, node, scale, fnv_root,
-                                                             id(node) in (kept or {}))
+                                                             id(node) in (kept or {}), soups)
         if nif.blocks[index][1]['collision'] != NONE:
             body = struct.unpack_from('<iHi', nif.blocks[nif.blocks[index][1]['collision']][1])[2]
             bodies[id(co.body)] = (co.body, body, scale)
+    for index, ramp, co in ramps:
+        nif.blocks[index][1]['collision'] = _ramp_object(nif, index, ramp, co)
     joints(nif, bodies)
+
+
+def _stair_ramps(nif: NifFile, owners: list, root_index: int, node_flags: int, fnv_root, kept: dict) -> tuple:
+    """({id(body): _mesh_soup()} of each still mesh body in `owners` (index, co, node, scale): fixed, or keyframed
+    on a node not `kept` animated; [(NiNode index, stair ramp, its owner's co)]): a NiNode under the root per
+    ramp, at its owner's place.
+
+    See: docs/fork/fo4_spikes.md#stair-ramps
+    """
+    soups, ramps = {}, []
+    for index, co, node, scale in owners:
+        motion = co.body.motion_system
+        if not is_mesh(co.body.shape) or motion not in STILL_MOTIONS or (motion == FNV_KEYFRAMED and id(node) in kept):
+            continue
+        soups[id(co.body)] = soup = _mesh_soup(co.body, node, fnv_root, scale)
+        owner = nif.blocks[index][1]
+        for ramp in soup[2] if soup else ():
+            nif.blocks.append(('NiNode', {
+                'name': nif.string(STAIR_HELPER_NODE), 'extra': [], 'controller': NONE, 'flags': node_flags,
+                'translation': owner['translation'] if index != root_index else (0.0, 0.0, 0.0),
+                'rotation': owner['rotation'] if index != root_index else IDENTITY, 'scale': 1.0,
+                'collision': NONE, 'children': []}))
+            nif.blocks[root_index][1]['children'].append(len(nif.blocks) - 1)
+            ramps.append((len(nif.blocks) - 1, ramp, co))
+    return soups, ramps
+
+
+def _ramp_object(nif: NifFile, target: int, ramp: tuple, co) -> int:
+    """Block `target`'s collision object: stair-helper `ramp` on `co`'s body settings."""
+    blocks = _Blocks(nif)
+    body = _body_block(blocks, blocks.convex(*ramp), co.body, True, STAIR_HELPER)
+    return blocks.add('bhkCollisionObject', struct.pack('<iHi', target, co.flags | SYNC_ON_UPDATE, body))
 
 
 def joints(nif: NifFile, bodies: dict) -> None:

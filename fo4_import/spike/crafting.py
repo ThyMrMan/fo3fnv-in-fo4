@@ -47,6 +47,8 @@ PLAIN, RECIPE_FILTER = 0, 9
 #: Condition comparison >= and the function a skill requirement and a note test become.
 AT_LEAST = 0x60
 GET_VALUE, GET_ITEM_COUNT = FO4.index('GetValue'), FO4.index('GetItemCount')
+#: FO4 HasPerk, and a CTDA's comparison bits.
+HAS_PERK, COMPARE = FO4.index('HasPerk'), 0xE0
 #: Template subrecords a station replaces with FNV's or drops (MODT names the vanilla model's textures).
 REPLACED = frozenset({b'EDID', b'OBND', b'FULL', b'MODL', b'MODT', b'KWDA'})
 _MENU = re.compile(r'showrecipemenu\s+(\w+)', re.IGNORECASE)
@@ -192,7 +194,7 @@ class Crafting:
         self.builder.counts['QUST (recipe outputs)'] += 1
 
     def _conditions(self, rec: dict) -> 'bytes | None':
-        """The recipe's conditions on the player: its skill requirement and its notes; None if one cannot convert."""
+        """The recipe's conditions on the player: its skill requirement, notes and perks; None if one cannot convert."""
         out, skill = b'', int(rec.get('DATA.Skill', -1))
         if skill >= 0:
             av = actor_value_form(fnv_av_name(skill), self.helper_index)
@@ -200,13 +202,20 @@ class Crafting:
                 return None
             out += R.pack_ctda(AT_LEAST, float(rec.get('DATA.Level', 0)), GET_VALUE, av)
         for i in range(int(rec.get('ConditionCount', 0))):
-            cond = parse(rec[f'Condition[{i}].Raw'])
-            has = cond['func'] == 'GetHasNote' and cond['op_flags'] & 0xE0 == 0 and cond['value'] == 1.0
-            book = self.builder.items.item(cond['p1']) if has else None
-            if book is None:
+            ctda = self._condition(parse(rec[f'Condition[{i}].Raw']))
+            if ctda is None:
                 return None
-            out += R.pack_ctda(AT_LEAST, 1.0, GET_ITEM_COUNT, book)
+            out += ctda
         return out
+
+    def _condition(self, cond: dict) -> 'bytes | None':
+        """One recipe condition: a note held (as its book counted) or a perk held; None for any other."""
+        if cond['func'] == 'HasPerk':
+            perk = self.builder.perks.form_map().get(cond['p1'])
+            return None if perk is None else R.pack_ctda(cond['op_flags'] & COMPARE, cond['value'], HAS_PERK, perk)
+        has = cond['func'] == 'GetHasNote' and cond['op_flags'] & COMPARE == 0 and cond['value'] == 1.0
+        book = self.builder.items.item(cond['p1']) if has else None
+        return None if book is None else R.pack_ctda(AT_LEAST, 1.0, GET_ITEM_COUNT, book)
 
 
 def _edid(rec) -> str:

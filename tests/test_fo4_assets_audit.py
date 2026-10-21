@@ -230,22 +230,20 @@ def test_a_current_mesh_is_written_from_its_kept_files_and_a_file_holding_its_by
     assert len(calls) == 3
 
 
-def test_finish_keys_a_nif_the_build_wrote_without_reading_it_back(tmp_path, monkeypatch):
-    """A NIF noted by written() and unchanged since is keyed from that note (not read); a changed one is read."""
+def test_a_havok_nif_reaches_disk_only_finished_and_an_unchanged_one_is_not_rewritten(tmp_path, monkeypatch):
+    """write_mesh() holds a Havok NIF (mesh_bytes() gives it back) and writes nothing; finish() writes it finished;
+    a rebuild of the same NIF leaves the file untouched; a NIF without Havok is written at once."""
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
     monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
+    monkeypatch.setattr(EC.elric, 'has_havok', lambda data: data != b'plain')
     monkeypatch.setattr(EC.elric, 'finish', lambda paths, run: [p.write_bytes(p.read_bytes() + b'+') for p in paths]
                         and [])
-    path = tmp_path / 'a.nif'
-    path.write_bytes(b'one')
-    EC.written(path, b'one')
-    EC.finish([path])
-    path.write_bytes(b'one')
-    EC.written(path, b'one')
-    real = pathlib.Path.read_bytes
-    monkeypatch.setattr(pathlib.Path, 'read_bytes', lambda p: (_ for _ in ()).throw(AssertionError(p))
-                        if p.name == 'a.nif' else real(p))
-    assert EC.finish([path]) == [] and real(path) == b'one+'
-    monkeypatch.setattr(pathlib.Path, 'read_bytes', real)
-    path.write_bytes(b'two')
-    assert EC.finish([path]) == [] and path.read_bytes() == b'two+'
+    path, plain = tmp_path / 'a.nif', tmp_path / 'b.nif'
+    EC.write_mesh(path, b'one')
+    assert not path.exists() and EC.mesh_bytes(path) == b'one'
+    assert EC.finish([path]) == [] and path.read_bytes() == b'one+'
+    os.utime(path, (1, 1))
+    EC.write_mesh(path, b'one')
+    assert path.read_bytes() == b'one+' and EC.finish([path]) == [] and path.stat().st_mtime == 1
+    EC.write_mesh(plain, b'plain')
+    assert plain.read_bytes() == b'plain'

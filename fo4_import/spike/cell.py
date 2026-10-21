@@ -617,7 +617,7 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     lines = [line for rec in recs for line in say.infos.get(rec['FormID'].upper(), [])]
     form_map = {**builder.items.shared, **actor_values(HELPER_INDEX), **_form_map(builder, ref_ids, recs, quests),
                 **builder.npc_ids, **builder.creatures.made, **condition_forms(builder, lines),
-                TYPE_KEYWORDS: builder.type_keywords}
+                **builder.perks.form_map(), TYPE_KEYWORDS: builder.type_keywords}
     builder.idles.form_map = builder.forms = form_map
     shared = _hub(builder, export_dir, say, recs, quests, form_map)
     done = []
@@ -702,6 +702,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.factions, builder.faction_names = write_factions(builder, export_dir)
     builder.script_vars = script_vars(export_dir)
     records = index(export_dir, ITEM_TYPES)
+    builder.perks = Perks(builder, export_dir, HELPER_INDEX)
     consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
     equipment = builder.equipment
     makers = {'ALCH': consumables.alch, 'AMMO': consumables.ammo, 'WEAP': equipment.weap, 'ARMO': equipment.armo}
@@ -711,7 +712,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.scripts.named[SCRIPT_PACKAGES] = script_packages_quest(builder)
     reputations, builder.reputation_slots = write_reputations(builder, export_dir)
-    builder.scripts.named.update(reputations)
+    builder.scripts.named.update({**reputations, **builder.perks.named()})
     builder.activators, builder.crafting = Activators(builder, export_dir), Crafting(builder, export_dir, HELPER_INDEX, every)
     builder.creatures = Creatures(builder, export_dir, builder.data_dir)
     seats = [r for r in every if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
@@ -789,7 +790,6 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     navmesh = _navmesh(builder, export_dir, {**pathing, **_world_pathing(builder, worlds)}, {**ids, **ext_ids})
     persistent, temporary = _placed(builder, refs, ids, teleports)
     _quests(builder, export_dir, quest_recs, quests, {**ids, **ext_ids, **builder.actor_ids})
-    builder.perks = Perks(builder, export_dir, HELPER_INDEX)
     builder.perks.write(builder.forms, builder.say.script_vars)
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
     _gameplay(builder, export_dir, quests)

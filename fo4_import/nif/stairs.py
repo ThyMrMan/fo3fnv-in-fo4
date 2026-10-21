@@ -14,7 +14,11 @@ but steps up a riser, as vanilla's plain stairs are built. The ground is
 not in the mesh, so a step up from it is an upright face rising from the
 mesh's lowest point to a tread (the saloon porch's skirt); any upright face
 under a tread would take every board's front edge. Faces are judged in the
-collision node's own frame.
+collision node's own frame. A flight (MIN_FLIGHT steps or more on one edge
+span, each rising from the last) also gets a stair-helper ramp, as vanilla
+puts under its staircases: a thin slab whose top face runs through the
+first and last nosings down to the flight's foot, which only FO4's
+character controller meets, so it walks up a slope instead of each step.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
@@ -31,6 +35,10 @@ REACH = 24.0
 FLAT, VERTICAL = 0.98, 0.17
 #: Game units a point may sit off a face and still touch it.
 TOUCH = 1.0
+#: Fewest steps in a row that get a stair-helper ramp (vanilla's ramped flights have 7 to 15).
+MIN_FLIGHT = 3
+#: Game units a ramp slab reaches below its top face (vanilla bldbricksmstairs01's: about 4.7).
+RAMP_THICK = 4.0
 
 
 def _faces(tris: list, unit: float) -> tuple:
@@ -118,15 +126,55 @@ def _riser_faces(p: np.ndarray, q: np.ndarray, low: float, out: np.ndarray) -> l
     return [first, second]
 
 
-def stairs(tris: list, materials: list, unit: float, stairs_of) -> tuple:
-    """(tris, materials) with each step's treads on `stairs_of(material)` and its missing riser added.
+def _flights(risers: list) -> list:
+    """_edge_steps risers in flights, lowest step first: one outward direction and edge span (to the unit), each
+    step's lower level the last one's top and its edge further along the climb; MIN_FLIGHT steps or more."""
+    groups = {}
+    for riser in risers:
+        _, p, q, _, out = riser
+        side = np.array([-out[1], out[0]])
+        span = tuple(sorted((round(float(p[:2] @ side)), round(float(q[:2] @ side)))))
+        groups.setdefault((round(out[0], 1), round(out[1], 1), span), []).append(riser)
+    flights = []
+    for steps in groups.values():
+        steps.sort(key=lambda r: r[1][2])
+        flight = [steps[0]]
+        for step in steps[1:]:
+            last = flight[-1]
+            advance = float((last[1][:2] - step[1][:2]) @ step[4])
+            if abs(step[3] - last[1][2]) > TOUCH or not TOUCH < advance <= 2 * REACH:
+                flights.append(flight)
+                flight = []
+            flight.append(step)
+        flights.append(flight)
+    return [f for f in flights if len(f) >= MIN_FLIGHT]
 
-    `tris` are in units of `unit` game units. FNV's floating step plates
-    leave no upright face between treads, and FO4's character snags on the
-    bare edge; the riser runs from the upper tread's edge down to the lower.
+
+def _ramp(flight: list) -> 'np.ndarray | None':
+    """The 8 corners of `flight`'s stair-helper slab: its top face through the first and last nosings, from the
+    first step's lower level to the last step's top, as wide as the first step's edge; None if it does not climb."""
+    (_, p0, q0, low, out), (_, top, _, _, _) = flight[0], flight[-1]
+    climb, side = -np.asarray(out), np.array([-out[1], out[0]])
+    start, end = float(p0[:2] @ climb), float(top[:2] @ climb)
+    if end - start <= TOUCH:
+        return None
+    slope = (top[2] - p0[2]) / (end - start)
+    foot = start - (p0[2] - low) / slope
+    corners = [(*(s * climb + t * side), z - drop) for s, z in ((foot, low), (end, top[2]))
+               for t in sorted((float(p0[:2] @ side), float(q0[:2] @ side))) for drop in (0.0, RAMP_THICK)]
+    return np.array(corners)
+
+
+def stairs(tris: list, materials: list, unit: float, stairs_of) -> tuple:
+    """(tris, materials, ramps) with each step's treads on `stairs_of(material)` and its missing riser added;
+    ramps are each flight's stair-helper slab: (8 corners, its lowest tread's stairs material).
+
+    `tris` and ramps are in units of `unit` game units. FNV's floating step
+    plates leave no upright face between treads, and FO4's character snags on
+    the bare edge; the riser runs from the upper tread's edge down to the lower.
     """
     if not tris:
-        return tris, materials
+        return tris, materials, []
     corners, nz = _faces(tris, unit)
     treads = np.nonzero(nz >= FLAT)[0]
     marked, risers = _edge_steps(corners, treads)
@@ -134,4 +182,6 @@ def stairs(tris: list, materials: list, unit: float, stairs_of) -> tuple:
     out_mats = [stairs_of(m) if i in marked else m for i, m in enumerate(materials)]
     added = [(tuple(tuple(c / unit) for c in face), stairs_of(materials[i]))
              for i, p, q, low, out in risers for face in _riser_faces(p, q, low, out)]
-    return list(tris) + [t for t, _ in added], out_mats + [m for _, m in added]
+    ramps = [(ramp / unit, stairs_of(materials[flight[0][0]])) for flight in _flights(risers)
+             if (ramp := _ramp(flight)) is not None]
+    return list(tris) + [t for t, _ in added], out_mats + [m for _, m in added], ramps
