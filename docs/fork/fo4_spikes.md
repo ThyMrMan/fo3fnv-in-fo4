@@ -2090,6 +2090,33 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     in fnv\\landscape\\grass. The converted mesh is now copied to
     Landscape\\Grass\\FNV_<name>.nif. Vanilla grass shader flags vary
     (flags1 0x80400201 in 44 of 71, flags2 0x31 in 29), so they were left.
+  - Physics clutter far too light (2026-10-20): FNV's wooden barrels and
+    the Sarsaparilla crates flew when walked into (one over a building);
+    in FNV they barely move, and vanilla FO4's 15 kg trash can and 75 kg
+    oxygen tank stay put. Mass, damping, friction, restitution, speeds,
+    gravity factor, motion and shape type all match FNV's and vanilla's
+    conventions. A probe giving FNV_Barrel01 vanilla's oxygen tank mesh
+    behaved like vanilla, and a freshly spawned wooden barrel flew, so
+    the mesh is at fault. Both are on FNV's props layer (10). In vanilla
+    FO4, layer 10 holds only small knock-about props (25 moving bodies,
+    glasses, vases, rattles, skeletons: 10 kg or less); everything that
+    resists a kick, up to 100 kg, is on clutter (4, 305 bodies). A moving
+    body on FNV's props layer now takes clutter (`collision.MOVING_LAYERS`;
+    77 bodies in the region build); fixed bodies keep theirs. Played
+    2026-10-21: the wooden barrels and crates stay heavy when walked into.
+  - Floating grass on slopes (2026-10-20, not fixed): tufts sit on a
+    flatter surface than the terrain, above it downhill and under it
+    uphill. Ruled out: the GRAS layout and flag bits (same in both
+    games), slope limits and position ranges (vanilla's range), the
+    meshes (FNV's vertex for vertex, no wider than vanilla's tufts,
+    sunk deeper than vanilla's), the shader (vanilla grass sets no
+    fit-to-slope shader bit), the NIF layout (vanilla's NiNode plus
+    shape), LAND heights, normals and flags (copied, vanilla-legal), a
+    grass cache (none), and terrain LOD (xLODGen's FNV_WastelandNV LOD
+    installed: still floating), and GRAS flag 0x1 (all 82 vanilla
+    grasses set it, no FNV grass does; set on ours: still floating at
+    Goodsprings and Primm, reverted). What we write matches vanilla;
+    the placement mechanism is next, in Fallout4.exe.
   - Second play: grass shows, a little thick; density is now FNV's × 0.5
     (`grass.DENSITY_SCALE`).
   - Third play (2026-10-19): still too thick, so FNV's × 0.25. The grass

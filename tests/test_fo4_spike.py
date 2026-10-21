@@ -391,6 +391,12 @@ def test_a_mopp_over_a_list_is_not_a_mesh_but_one_over_strips_is():
     assert CO.is_mesh(strips) and CO.is_mesh(over_strips) and not CO.is_mesh(over_list)
 
 
+def test_moving_props_layer_body_takes_clutter_and_a_fixed_one_keeps_props():
+    """FNV's wooden barrel (props, 10) moving is FO4 clutter (4), as vanilla keeps heavy movers; fixed stays 10."""
+    props = SimpleNamespace(layer=10, flags_and_part_number=0, unknown_short=0)
+    assert CO.havok_filter(props, moving=True)[0] == 4 and CO.havok_filter(props)[0] == 10
+
+
 def test_still_collision_gets_both_sides_once_and_moving_collision_keeps_one():
     """FacRmWallONLY01's inward faces: a fixed body adds each reversed face not already there; a dynamic one none."""
     a, b, c = (0, 0, 0), (1, 0, 0), (0, 1, 0)

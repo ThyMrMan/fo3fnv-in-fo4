@@ -38,6 +38,8 @@ CONVEX_SHAPES = frozenset({'bhkBoxShape', 'bhkSphereShape', 'bhkCapsuleShape', '
 SYNC_ON_UPDATE = 0x80
 #: FNV collision layers past 28 whose FO4 number differs (same names; 0-28 match).
 LAYERS = {29: 32, 31: 34, 32: 35, 33: 36, 34: 37, 35: 39, 36: 40, 37: 41, 38: 42, 39: 43, 41: 45, 42: 46, 43: 0}
+#: A moving body's layer where FO4's use differs: props (10) is for small knock-about props, clutter (4) the rest.
+MOVING_LAYERS = {10: 4}
 #: FNV base Havok materials (index & 31) as FO4 material CRCs.
 MATERIALS = {
     0: 3741512247, 1: 3839073443, 2: 3106094762, 3: 3739830338, 4: 1848600814, 5: 104858580, 6: 2974920155,
@@ -116,9 +118,13 @@ def moves(body) -> bool:
     return body.motion_system not in STILL_MOTIONS and held
 
 
-def havok_filter(f) -> bytes:
-    """An FNV HavokColFilter as FO4's: layer remapped, flags and group kept."""
-    return struct.pack('<BBH', LAYERS.get(f.layer, f.layer), f.flags_and_part_number, f.unknown_short)
+def havok_filter(f, moving: bool = False) -> bytes:
+    """An FNV HavokColFilter as FO4's: layer remapped (MOVING_LAYERS too when `moving`), flags and group kept.
+    See: docs/fork/fo4_spikes.md#spike-4-exterior
+    """
+    layer = LAYERS.get(f.layer, f.layer)
+    layer = MOVING_LAYERS.get(layer, layer) if moving else layer
+    return struct.pack('<BBH', layer, f.flags_and_part_number, f.unknown_short)
 
 
 def _vec(v, n: int = 4, scale: float = SCALE) -> tuple:
@@ -341,7 +347,7 @@ def _body_block(blocks: _Blocks, shape: int, body, baked: bool) -> int:
 
     A body whose transform its shape carries (`baked`) is written as an identity bhkRigidBody.
     """
-    filt = havok_filter(body.havok_col_filter)
+    filt = havok_filter(body.havok_col_filter, moves(body))
     head = struct.pack('<i', shape) + filt + struct.pack('<4xB3x', 1) + EMPTY_PROPERTY
     head += struct.pack('<BBH', body.collision_response, 0, body.process_contact_callback_delay)
     inertia = body.inertia
