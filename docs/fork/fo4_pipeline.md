@@ -2031,7 +2031,9 @@ vertex alpha. Vanilla agrees: of 600 Architecture meshes, alpha-tested lit
 shapes without the flag have vertex alpha 255 in 84 of 93 cases, and low
 alpha goes with the flag (103 shapes). A lit shape's vertex alpha is now
 written as 1 (`convert_static.opaque`). Unlit shapes keep their vertex
-alpha rules (FNV's baked soft shadows fade by it). Not yet confirmed in
+alpha rules (FNV's baked soft shadows fade by it). Grass
+(TallGrassShaderProperty) keeps FNV's vertex alpha too: a height ramp FO4's
+grass needs to sit on slopes ([spike 4](fo4_spikes.md#spike-4-exterior)). Not yet confirmed in
 game as the cause of the shack's strips.
 
 ## <a id="acoustic-spaces"></a>Acoustic spaces (built 2026-10-19, not yet played)

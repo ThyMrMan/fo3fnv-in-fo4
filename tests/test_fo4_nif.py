@@ -32,6 +32,18 @@ from fo4_import.spike.statics import write_assets
 SHELF = Path('export/FalloutNV.esm/meshes/furniture/shelveswoodenhalf02.nif')
 
 
+GRASS = Path('export/FalloutNV.esm/meshes/landscape/grass/grasswasteland05.nif')
+
+
+@pytest.mark.skipif(not GRASS.exists(), reason='needs the FalloutNV.esm export')
+def test_grass_keeps_its_vertex_alpha_ramp():
+    """FNV grass keeps its vertex alpha, rising from 0 at the base, as FO4's grass expects."""
+    shape = next(b for k, b in C.convert(str(GRASS)).nif.blocks if k == 'BSTriShape')
+    alpha = np.array([v['color'][3] for v in shape['vertices']])
+    height = np.array([v['position'][2] for v in shape['vertices']])
+    assert alpha.min() == 0 and alpha.max() < 255 and np.corrcoef(height, alpha)[0, 1] > 0.5
+
+
 def test_tangent_frame_is_du_then_dv():
     """A quad whose u runs along +X and v along +Y: dP/du is +X, dP/dv +Y (FO4 stores dv as 'tangent')."""
     pos = np.array([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], float)

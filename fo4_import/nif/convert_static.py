@@ -669,11 +669,18 @@ def opaque(colors: np.ndarray) -> np.ndarray:
     return np.column_stack([colors[:, :3], np.ones(len(colors))])
 
 
+def is_grass(geom) -> bool:
+    """Whether an FNV shape draws as grass (TallGrassShaderProperty): its vertex alpha anchors the blades.
+    See: docs/fork/fo4_spikes.md#spike-4-exterior
+    """
+    return any(isinstance(p, NifFormat.TallGrassShaderProperty) for p in geom.get_properties())
+
+
 def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> list:
     """Append one FNV shape as FO4 shapes: one, or a cut-out plus its see-through triangles; their indices."""
     geometry = _geometry(geom, root)
     tris, mat, name = geometry[4], _material(geom, texture_root), geom.name.decode('cp1252')
-    if mat.kind == 'lit' and geometry[3] is not None:
+    if mat.kind == 'lit' and geometry[3] is not None and not is_grass(geom):
         geometry = (*geometry[:3], opaque(geometry[3]), tris)
     if mat.split:
         see_through = translucent_triangles(mat.split[1], geometry[1], tris)

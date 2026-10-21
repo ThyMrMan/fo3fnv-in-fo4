@@ -2104,7 +2104,7 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     body on FNV's props layer now takes clutter (`collision.MOVING_LAYERS`;
     77 bodies in the region build); fixed bodies keep theirs. Played
     2026-10-21: the wooden barrels and crates stay heavy when walked into.
-  - Floating grass on slopes (2026-10-20, not fixed): tufts sit on a
+  - Floating grass on slopes (2026-10-20, fixed 2026-10-21): tufts sat on a
     flatter surface than the terrain, above it downhill and under it
     uphill. Ruled out: the GRAS layout and flag bits (same in both
     games), slope limits and position ranges (vanilla's range), the
@@ -2116,7 +2116,16 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     installed: still floating), and GRAS flag 0x1 (all 82 vanilla
     grasses set it, no FNV grass does; set on ours: still floating at
     Goodsprings and Primm, reverted). What we write matches vanilla;
-    the placement mechanism is next, in Fallout4.exe.
+    the placement mechanism was next. Project Mojave's grass does not
+    float, and a probe putting our 15 grasses on its model sat on the
+    hill: the model was the fault. Vanilla grass vertex alpha is a height
+    ramp, 0 at the base rising to 50-190 (correlation with height +0.83
+    to +0.99), as is Project Mojave's; FNV authors the same ramp. Ours
+    was 255 everywhere: `convert_static.opaque` (vertex alpha on lit
+    shapes, [vertex-alpha](fo4_pipeline.md#vertex-alpha)) also flattened
+    grass. A TallGrassShaderProperty shape now keeps FNV's vertex alpha
+    (`convert_static.is_grass`; 10 models, 0 to 31-191). Played: the
+    grass sits on the hillsides.
   - Second play: grass shows, a little thick; density is now FNV's × 0.5
     (`grass.DENSITY_SCALE`).
   - Third play (2026-10-19): still too thick, so FNV's × 0.25. The grass
