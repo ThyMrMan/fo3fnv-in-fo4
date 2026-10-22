@@ -11,7 +11,8 @@ the answers behind padding so the first passing one answers). The topic list
 (the Hub) ends in `[Leave]`, FNV's Tab; a Choices menu has none and its scene
 prevents the player's exit (Prevent Player Exit Dialogue, as 84 vanilla
 scenes), so leaving mid-conversation cannot strand a quest whose next line
-is Say Once. While every line of a step leads to the same
+is Say Once, unless its conversation can never end (no step from it ends or
+returns to the Hub), when it keeps `[Leave]`. While every line of a step leads to the same
 next step, the scene runs on into it; lines leading apart start their own
 scene by TSCE once said, as vanilla lines do. A line with several
 responses and a result script is split into one FO4 line per response, each
@@ -158,7 +159,7 @@ class Conversations:
             continues = nxt not in (None, MIXED) and nxt not in self.placed
             actions.append(self._action(step, (len(actions) + 1, len(phases) - 1), edid, continues))
             menu |= step[0] == 'menu'
-            locked |= step[0] == 'menu' and step[1] != self.hub.topics
+            locked |= step[0] == 'menu' and not self._leaves(step)
             step = nxt if continues else None
         listener = LISTENER_ALIAS if first[0] == 'chat' else None
         self.scenes.append(R.pack_scen(fid, edid, self.fid, SPEAKER_ALIAS, actions, self.keyword if menu else 0,
@@ -216,6 +217,26 @@ class Conversations:
             return 'menu', self.hub.topics
         return nxt
 
+    def _leaves(self, step: tuple) -> bool:
+        """Whether menu `step` offers `[Leave]` (FNV's Tab): the topic list does, and a Choices menu whose
+        conversation can never end (no step reached from it ends or returns to the topic list: Victor's loop);
+        any other keeps the player in (SCENE_NO_EXIT), so leaving cannot strand a quest.
+        See: docs/fork/fo4_spikes.md#spike-2-vcg01
+        """
+        if step[1] == self.hub.topics:
+            return True
+        seen, todo = {step}, [step]
+        while todo:
+            here = todo.pop()
+            for rec in self._members(here):
+                nxt = self._next(rec, _chat_alias(here))
+                if nxt is None or nxt == ('menu', self.hub.topics):
+                    return False
+                if nxt not in seen:
+                    seen.add(nxt)
+                    todo.append(nxt)
+        return True
+
     def _joined(self, step: tuple):
         """The step all of `step`'s lines lead to: None if they end, MIXED if they differ."""
         nexts = {self._next(r, _chat_alias(step)) for r in self._members(step)}
@@ -229,7 +250,8 @@ class Conversations:
             player, npc = [], []
             for dial in step[1]:
                 self._option(dial, (player, npc), continues, owner)
-            if step[1] == self.hub.topics:
+            if self._leaves(step):
+                self.say.builder.counts['[Leave] on a never-ending Choices menu'] += step[1] != self.hub.topics
                 player.append(R.pack_info(take(f'INFO leave {owner}'), 0, (LEAVE,), prompt=LEAVE))
                 exit_fid = take(f'INFO exit {owner}')
                 self.say.silent.append((exit_fid, False))

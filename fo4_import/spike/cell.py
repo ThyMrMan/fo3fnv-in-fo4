@@ -69,6 +69,7 @@ from fo4_import.spike.named_refs import named_markers
 from fo4_import.spike.condition_forms import condition_forms
 from fo4_import.spike.readiness import Readiness
 from fo4_import.spike.reputation import write_page, write_reputations
+from fo4_import.spike.standings import Standings
 from fo4_import.spike.karma_page import write_karma_page
 from fo4_import.spike.statics import tree_assets, write_assets
 from fo4_import.spike.readables import Readables
@@ -803,6 +804,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     _quests(builder, export_dir, quest_recs, quests, {**ids, **ext_ids, **builder.actor_ids})
     builder.perks.write(builder.forms, builder.say.script_vars)
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
+    Standings(builder, export_dir).build()
     _gameplay(builder, export_dir, quests)
     rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh, (persistent + builder.poses.placed, temporary),
                    actors)

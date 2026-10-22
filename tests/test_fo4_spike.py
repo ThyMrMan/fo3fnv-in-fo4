@@ -971,21 +971,75 @@ def test_only_radio_stations_the_pipboy_lists_become_transmitters(monkeypatch):
     assert list(RA.pipboy_stations(Path('x'))) == [1]
 
 
-def test_playlist_scene_plays_each_song_on_its_own_gated_phase():
-    """A playlist scene: phase 1 says the pick topic; each song phase starts only on its CurrentSong and plays its
-    SNDR through a Radio action's sound (HTID), as DiamondCityRadioMusicScene's songs."""
-    from fo4_import.spike import radio as RA
+def test_a_step_scene_plays_each_song_on_its_own_gated_phase():
+    """A step scene: its first topic's phase, later topics only while Said is 0, then each song phase only on its
+    CurrentSong, playing its SNDR through a Radio action's sound (HTID), as DiamondCityRadioMusicScene's songs; its
+    end fragment is TES4_RadioScene's."""
+    from fo4_import.spike import radio_program as RP
+    from fo4_import.base.vmad import scene_fragments
     from fo4_import.spike.holotapes import pack_scene
     from tes5_import.base.tes5_reader import subrecords
-    gate = RA.playing(0x0100, 2)
-    record = pack_scene(0x0200, 'Playlist', 0x0100, [0x0300, 0, 0], RA.PLAYLIST_FLAGS, RA.HOST_ALIAS, 0,
-                        sounds=[0, 0x0401, 0x0402], conditions=[b'', RA.playing(0x0100, 1), gate])
+    gates = [b'', RP.quest_var(0x0100, RP.SAID, 0), RP.quest_var(0x0100, RP.CURRENT_SONG, 1)]
+    record = pack_scene(0x0200, 'Step', 0x0100, [0x0300, 0x0301, 0], RP.PLAYLIST_FLAGS, RP.HOST_ALIAS, 0,
+                        sounds=[0, 0, 0x0401], conditions=gates, vmad=scene_fragments(RP.SCENE_SCRIPT, RP.SCENE_END))
     subs = subrecords(record[24:])
     tags = [t for t, _ in subs]
-    assert tags.count(b'CTDA') == 2 and subs[tags.index(b'CIS2')][1] == b'::CurrentSong_var\0'
+    assert tags[1] == b'VMAD' and b'TES4_RadioScene' in subs[1][1] and subs[1][1].endswith(b'Fragment_End\0\0')
+    assert [d for t, d in subs if t == b'CIS2'] == [b'::Said_var\0', b'::CurrentSong_var\0']
     ctda = subs[tags.index(b'CTDA')][1]
-    assert struct.unpack_from('<fH', ctda, 4) == (1.0, CD.FO4.index('GetVMQuestVariable'))
+    assert struct.unpack_from('<fH', ctda, 4) == (0.0, CD.FO4.index('GetVMQuestVariable'))
     assert struct.unpack_from('<I', ctda, 12)[0] == 0x0100
     sounds = [struct.unpack('<I', d)[0] for t, d in subs if t == b'HTID']
     topics = [struct.unpack('<I', d)[0] for t, d in subs if t == b'DATA']
-    assert sounds == [0, 0x0401, 0x0402] and topics == [0x0300, 0, 0]
+    assert sounds == [0, 0, 0x0401] and topics == [0x0300, 0x0301, 0]
+
+
+def test_a_stations_steps_follow_its_lines_choices_from_radiohello():
+    """Steps are the topic sets lines choose from, RadioHello first; a line without Choices (or naming a topic the
+    station has no lines in) returns to RadioHello. Black Mountain's shape: a song, then one of its segments, each
+    segment line leading to the segment again or back to RadioHello."""
+    from fo4_import.spike import radio_program as RP
+    hello, seg_a, seg_b, other = RP.RADIO_HELLO, '0000A001', '0000A002', '0000FFFF'
+
+    def line(*choices):
+        return {'ChoiceCount': str(len(choices)), **{f'Choice[{i}]': c for i, c in enumerate(choices)}}
+    topics = {hello: [line(seg_a, seg_b)], seg_a: [line(seg_a), line(hello)], seg_b: [line(other)]}
+    assert RP.steps(topics) == [(hello,), (seg_a, seg_b), (seg_a,)]
+    assert RP.choices(line(other), topics) == (hello,) and RP.choices(line(), topics) == (hello,)
+
+
+def test_a_radio_activator_becomes_a_receiver_on_its_stations_frequency():
+    """An FNV activator naming a placed Pip-Boy station gets RADR on that station's frequency, off until activated,
+    and FNAM Is a Radio; a Non-Pipboy (lounge) station's frequency is outside the Pip-Boy's band; one naming no
+    placed station stays a plain activator."""
+    from fo4_import.spike import radio as RA
+    from tes5_import.base.tes5_reader import subrecords
+    radio = RA.Radio.__new__(RA.Radio)
+    lounge = {'RecordFlags': str(RA.RADIO_STATION | RA.NON_PIPBOY)}
+    radio.builder, radio.refs, radio.stations_of = SimpleNamespace(counts=Counter()), {5: ['a'], 9: ['b'], 3: ['c']}, \
+        {1: 9, 2: 7, 4: 3}
+    radio.stations = {5: {'RecordFlags': str(RA.RADIO_STATION)}, 9: {'RecordFlags': str(RA.RADIO_STATION)}, 3: lounge}
+    data = radio.receiver(1)
+    assert struct.unpack('<IffBB', data) == (RA.RECEIVER_OUTPUT, RA.FREQUENCIES[1], RA.RECEIVER_VOLUME, 0, 0) and radio.receiver(2) == b''
+    assert struct.unpack('<IffBB', radio.receiver(4))[1] == RA.LOUNGE_FREQUENCIES[0]
+    subs = dict(subrecords(R.pack_acti(0x10, 'Radio', 'Radio', 'r.nif', (0,) * 6, b'', '', 0, data)[24:]))
+    assert subs[b'FNAM'] == struct.pack('<H', R.IS_A_RADIO) and subs[b'RADR'] == data
+
+
+def test_standings_quests_hang_off_vanillas_event_nodes_after_their_last_child():
+    """A Story Manager quest node goes under Fallout4.esm's event node after its last child (the one no sibling
+    names as previous), sharing the event; an int array property packs as VMAD type 13."""
+    from fo4_import.base.support_records import SHARES_EVENT, pack_story_node
+    from fo4_import.spike import standings as ST
+    from script_convert.pipeline import script_entry
+    from tes5_import.base.tes5_reader import subrecords
+
+    def node(fid, parent, previous):
+        return pack_story_node(fid, f'N{fid}', parent, previous, 0x99)
+    raw = b''.join(node(fid, 0x50, prev) for fid, prev in ((0x51, 0), (0x52, 0x51), (0x53, 0x52)))
+    raw += node(0x60, 0x70, 0)
+    assert ST.last_child(raw, 0x50) == 0x53 and ST.last_child(raw, 0x80) == 0
+    subs = dict(subrecords(node(0x54, 0x50, 0x53)[24:]))
+    assert struct.unpack('<I', subs[b'DNAM'])[0] == SHARES_EVENT and struct.unpack('<I', subs[b'NNAM'])[0] == 0x99
+    entry = script_entry('S', {}, {'KillMurders': ('ints', [1, 0, 2])})
+    assert entry.endswith(struct.pack('<BBI3i', 13, 1, 3, 1, 0, 2))

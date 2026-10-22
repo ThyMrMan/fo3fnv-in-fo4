@@ -94,19 +94,20 @@ def _field(tag: bytes, data: bytes, ids: dict, owner: 'bytes | None') -> 'bytes 
     return data
 
 
-def placement(fnv_fid: int, ids: dict, owners: dict = None) -> bytes:
+def placement(fnv_fid: int, ids: dict, owners: dict = None, pose: bool = True) -> bytes:
     """FO4 subrecords of FNV reference `fnv_fid`'s KEPT fields, references through `ids` {FNV hex: FO4}.
 
     A portal's rooms are renumbered; an enable or activate parent that is not built is dropped; an owner maps
     through `owners` {FNV FormID: FO4}, and without one so is its rank; a map marker keeps its flags, name,
-    type (MARKER_TYPES) and discovery radius.
+    type (MARKER_TYPES) and discovery radius. Without `pose` the ragdoll pose (XRGD) is dropped: a placed
+    actor's indexes FNV's skeleton's ragdoll bones, not FO4's.
     See: docs/fork/fo4_pipeline.md#parents
     """
     found = fields().get(fnv_fid, [])
     owner, portal = owned(found, owners or {}), any(t == b'XPOD' for t, _ in found)
     marker, out = any(t == b'XMRK' for t, _ in found), b''
     for tag, data in sorted(found, key=lambda f: KEPT.index(f[0])):
-        skip = tag == b'XMBO' and portal or tag in MARKER and not marker
+        skip = tag == b'XMBO' and portal or tag in MARKER and not marker or tag == b'XRGD' and not pose
         kept = None if skip else _field(tag, data, ids, owner)
         out += pack_subrecord(tag.decode(), kept) if kept is not None else b''
         out += PATROL_REST if tag == b'XPRD' else b''

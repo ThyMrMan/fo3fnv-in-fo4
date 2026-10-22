@@ -1246,6 +1246,7 @@ _VMAD_PROP_INT = 3
 _VMAD_PROP_FLOAT = 4
 _VMAD_PROP_BOOL = 5
 _VMAD_PROP_OBJECT_ARRAY = 11
+_VMAD_PROP_INT_ARRAY = 13
 _VMAD_PROP_FLOAT_ARRAY = 14
 
 
@@ -1304,6 +1305,8 @@ def _property_value(kind: str, value) -> bytes:
                 + b''.join(struct.pack('<HhI', 0, -1, fid) for fid in value))
     if kind == 'floats':
         return struct.pack(f'<BBI{len(value)}f', _VMAD_PROP_FLOAT_ARRAY, 1, len(value), *value)
+    if kind == 'ints':
+        return struct.pack(f'<BBI{len(value)}i', _VMAD_PROP_INT_ARRAY, 1, len(value), *value)
     return struct.pack('<BBi', _VMAD_PROP_INT, 1, int(value))
 
 

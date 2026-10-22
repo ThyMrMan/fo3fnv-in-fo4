@@ -143,6 +143,17 @@ def quest_call(ctx, call):
     return f'{prop}.{_QUEST_CALLS[call.name]}()'
 
 
+def teammate_perk(ctx, call):
+    """`AddPerk`/`RemovePerk <perk> 1` -- FNV's teammates flag: a companion perk, applied to the companion, never to
+    the player; held by the player on FO4 it would act on the player (Companion Suite's Sneak +100), so it stays a
+    note until companion perks are built; None (the plain row) without the flag.
+    See: docs/fork/fo4_perks.md#teammate-perks
+    """
+    if len(call) < 2 or call.source(1).strip() in ('', '0'):
+        return None
+    return ctx.note(f'{call.written()} - a companion perk (teammates flag): not the player\'s')
+
+
 def cell_ownership(ctx, call):
     """`SetCellOwnership <cell> [owner]` -- Cell.SetFactionOwner for a faction, SetActorOwner for an NPC or, with
     no owner, the player (as FO3/FNV gave the cell to the player); None (a note) for any other owner."""
@@ -347,5 +358,7 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'showmessage': show_message,
                     'swaptexture': swap_texture,
                     'setcellownership': cell_ownership,
+                    'addperk': teammate_perk,
+                    'removeperk': teammate_perk,
                     **{name: quest_call for name in _QUEST_CALLS},
                     **{name: quest_native for name in _QUEST_NATIVES}}

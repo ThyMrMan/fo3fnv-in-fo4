@@ -150,6 +150,40 @@ Drift: FNV's Easy tier (25) needs Lockpick or Science 25; FO4's Novice tier
 has no gate, so the player opens those from the start (in the region: 6
 containers, 2 doors, 3 terminals).
 
+## <a id="teammate-perks"></a>Teammate perks (built 2026-10-21, not yet played)
+
+FNV's `AddPerk <perk> 1` and `RemovePerk <perk> 1` (the teammates flag) add
+a companion perk. FNV applies it to the active companion, never to the
+player:
+- Calm Heart: Cass +50 HP.
+- Hand of Vengeance: Cass +15% Guns damage.
+- Old Vaquero: Raul +33% fire rate.
+- Bonds of Steel and Causeless Rebel likewise.
+
+Companion Suite's effects are an ability spell, which FNV never applies to a
+companion; the wiki calls it "a bugged perk with no real effects". Across
+FNV the flag is on 7 calls in 10 scripts. Doc Mitchell's exit trigger
+(`VCG01RemoveDocCarebearModeTriggerSCRIPT`) runs
+`Player.AddPerk CompanionSuite 1`. The converter dropped the second argument
+(`max_args=1`) and gave the player the perk. Its ability
+(`PerkCompanionSuite` 0015C570: carry weight -75, DR +50, Sneak +100, no
+conditions) then showed in the Pip-Boy and put Sneak at 115 (played
+2026-10-21). `commands_falloutnv.teammate_perk` now leaves the flagged call
+as a note; without the flag, the plain row converts it.
+
+A save made after leaving Doc's keeps the perk:
+`player.removeperk <plugin index>15C571` removes it.
+
+Open:
+- **Companion perks on the companion.** FO4 applies a perk to its holder,
+  so a companion perk the player held would act on the player. Building
+  them means giving the perk to the companion actor (FO4 applies perks to
+  NPCs) while it follows. Until then they are notes, and FNV's companion
+  bonuses are missing.
+- **Companion Suite on companions.** FNV's other `AddPerk CompanionSuite`
+  calls name the companion (`CraigBooneREF.AddPerk`). On FO4 its ability
+  would take effect there, where FNV's never did.
+
 ## <a id="census"></a>Census (2026-10-20)
 
 Sources: the FalloutNV.esm export (`export/FalloutNV.esm/PERK.txt`), FNV's

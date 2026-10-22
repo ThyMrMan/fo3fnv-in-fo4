@@ -58,11 +58,11 @@ def radio_action(index: int, topic: int, alias: int = NO_ACTOR, output: int = OU
 
 
 def pack_scene(fid: int, edid: str, quest: int, topics: list, flags: int = SCENE_FLAGS, alias: int = NO_ACTOR,
-               output: int = OUTPUT, sounds: list = (), conditions: list = ()) -> bytes:
+               output: int = OUTPUT, sounds: list = (), conditions: list = (), vmad: bytes = b'') -> bytes:
     """A scene of Radio actions, one phase per topic of `topics`, on `alias` (none: a holotape's, as
     DN150_BonnieHolotape) through `output`, its `flags`; a phase's `sounds` entry plays that SNDR instead,
-    its `conditions` entry (CTDA bytes) gates its start."""
-    subs = _zstr('EDID', edid) + _u32('FNAM', flags)
+    its `conditions` entry (CTDA bytes) gates its start; `vmad` its fragments."""
+    subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'') + _u32('FNAM', flags)
     for i in range(len(topics)):
         subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', '') + (conditions[i] if i < len(conditions) else b'')
         subs += pack_subrecord('NEXT', b'') + pack_subrecord('NEXT', b'') + _u32('WNAM', 350) + pack_subrecord('HNAM', b'')

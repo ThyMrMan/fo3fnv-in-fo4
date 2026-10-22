@@ -4,8 +4,8 @@
 
 FNV's radio stations (Radio New Vegas, Mojave Music Radio, Black
 Mountain, the casino and Tops lounges) as Fallout 4 radio: stations in the
-Pip-Boy's radio list, and FNV's placed radios (the Goodsprings store's,
-which Chet asks the player to fix) playing them.
+Pip-Boy's radio list, and FNV's placed radios (Trudy's in the Prospector
+Saloon, which she asks the player to fix) playing them.
 
 ## <a id="fnv"></a>How FNV does it (measured in the FalloutNV.esm export)
 
@@ -28,8 +28,9 @@ which Chet asks the player to fix) playing them.
   repeats at once.
 - **A placed radio is an activator** whose radio-station field (RNAM, also
   dropped by the export) names the station; activating it toggles the
-  station on. `GoodspringsRadio` is broken until the player fixes it
-  (`GoodspringsRadioScript`, Chet's `VFreeformGoodsprings`).
+  station on. `GoodspringsRadio` (`GSRadioRef`, in the Prospector
+  Saloon) is broken until the player fixes it (`GoodspringsRadioScript`,
+  Trudy's lines in `VFreeformGoodsprings`).
 
 ## <a id="fo4"></a>How Fallout 4 does it (Fallout4.esm)
 
@@ -60,8 +61,7 @@ Music Radio (`Vault11a`, an interior; Everywhere), NCR Emergency Radio
 outside position reference, 50% static), Black Mountain Radio
 (WastelandNV's persistent cell; 50,000, 5% static), the Chinese Radio
 Beacon (another worldspace; 3,000). The other 13 placed stations are
-Non-Pipboy (casino and Tops lounges, Hanlon's broadcast, ED-E's, the
-Goodsprings store's): step 3.
+Non-Pipboy (casino and Tops lounges, Hanlon's broadcast, ED-E's): step 3.
 
 - **Base:** a copy of Fallout4.esm's `RadioTransmitter` (no model) named
   for the station, on FNV's FormID. Vanilla's stations share
@@ -141,8 +141,7 @@ build quest is written:
   conditions name a placed base (a station quest's GetIsID on its
   transmitter; FNV adds a quest's conditions to every line): in the
   region the five stations' quests, `VFreeformBlackMountain` (Black
-  Mountain's starts it) and the Goodsprings store's `vGSRadioQuest`
-  (step 3). 69 to 76 quests; no FormID moved.
+  Mountain's starts it) and `vGSRadioQuest` (step 3). 69 to 76 quests; no FormID moved.
 - **Host.** Alias 2000 `Host`, forced to the station's transmitter
   reference; a line's GetIsID on its station maps to the transmitter's
   base (`Radio.form_map`). It has Uses Stored Text (0x4000) and a display
@@ -198,6 +197,94 @@ scene (`DiamondCityRadioMusicScene`):
   its quest starts. Every 5 s it is restarted if it stopped, as vanilla's
   `RadioFailsafeScript` does. A fault in a song therefore costs one pass
   per 5 s, not a spin.
+- **Still wrong at first play.** The play-test log had a pick line every
+  5.0 s, each ending in about 0.02 s. The scene stopped right after the
+  pick, and the failsafe restarted it, so songs probably changed every
+  5 s. Every radio dialogue line we built has ended this way.
+
+<a id="radio-dialogue"></a>**Why radio dialogue played nothing (2026-10-21,
+from Fallout4.exe; fix played 2026-10-22).**
+- **The radio action.** `BGSSceneActionRadio` (vtable 0x24d3720) starts
+  in slot 18 (0x416f80). A disabled or deleted speaker (record flags
+  0x820) says the topic as ordinary dialogue. A registered transmitter
+  (0xbdba50 finds it in the radio manager's table) says it through
+  0x4f48a0, and a sound (HTID) plays through 0xbdb190.
+- **When it ends.** The update (slot 21, 0x417510) keeps a topic action
+  running while a count on the topic (+0x60) is at least 1; ours drops
+  at once. So the line is chosen (its Begin fragment runs) but no audio
+  starts.
+- **The fix tried.** Vanilla's one radio speaker that is an unplaced NPC,
+  like ours, is the subway announcer. `RadioSubway`'s alias sets Voice
+  Types (VTCK, xEdit "Voice Types": NPC, FACT, FLST or VTYP) to the same
+  NPC its lines name as speaker (`RadioSubwayAnnouncer` 000E6F76).
+  `RadioDiamondCity`'s Host leaves it empty, but Travis is a placed
+  actor. Each station's Host now sets VTCK to its speaker NPC, or a list
+  when it has several (`Speakers.voices`).
+- **Measuring it.** `TES4_RadioPlaylist` traces each restart
+  (`TES4Radio|<time>|restart|<scene>`). With the fix, Mojave's scene ran
+  from 45 s to 200 s, a whole song, and Trudy's radio played complete
+  songs (played 2026-10-22).
+
+<a id="steps-model"></a>**Every station as steps (built 2026-10-22; Radio
+New Vegas played 2026-10-22: news, sign-off, song intro and songs in
+order).** `spike/radio_program.py`. It replaces the playlist and talk
+stations with one model. That model also builds the stations mixing spoken
+topics and songs, whose lines choose what follows (FNV INFO Choices):
+- **Radio New Vegas.** RadioHello leads to an intro and a news story.
+  Stories lead to another story, a transition or a sign-off; sign-offs to
+  a song intro; intros to RNVMusic, songs that lead to another song.
+- **Black Mountain.** RadioHello (15 songs) offers its 12 segments. Each
+  segment line (no Random flag, FNV's order) leads to the segment again,
+  and its last line back to RadioHello.
+- **Steps.** A step is the set of topics a line chooses from; RadioHello
+  is the first. A line without Choices, or naming a topic the station has
+  no lines in, leads back to RadioHello. Steps are found breadth-first from
+  RadioHello; topics not reached are left out, counted (NCR Emergency's
+  RadioGoodbye).
+- **Scenes.** One scene per step (flags 0x104, on the Host alias):
+  - a Radio phase per topic of the step; after the first, each runs only
+    while `Said` is 0, so the first topic with a passing line speaks;
+  - a phase per song of those topics, gated on `CurrentSong`, playing the
+    song's sound record, as before.
+- **Lines.** Each line carries `TES4_RadioLine` (Song, NextStep). As the
+  line begins, it calls `TES4_RadioPlaylist.LineBegan`: `Said` 1, its song
+  (0 for spoken), its next step. FNV's Random flags and conditions still
+  pick the line.
+- **Moving on.** Each scene has an end fragment (`TES4_RadioScene`,
+  `Fragment_End`, SCEN VMAD per xEdit `wbVMADFragmentedSCEN`) calling
+  `SceneEnded`. When a line was said, it clears `Said` and `CurrentSong`
+  and starts the next step's scene. When none was, nothing starts: the
+  playlist's 5 s timer starts RadioHello again once no step is playing. A
+  step whose topics have no passing line can therefore never loop.
+- **FormIDs.** RadioHello's topic and the first step's scene keep the
+  keys the playlist and talk stations used (`DIAL radio <quest> pick`,
+  `SCEN radio <quest>`). No existing record moves.
+- **Voices.** A line is said by the speaker of the voice type its
+  recording is filed under, else the station's (its VNAM, else the most
+  common recorded voice among its lines). Black Mountain has no VNAM, and
+  its 30 song lines have no recording; before this fallback all 30 were
+  left out.
+- **No silent loops.** FO4 ends a line with no audio at once, so a step
+  whose only line has neither recording nor song would chain forever: the
+  first spin's cause. Such lines are left out, counted; FNV plays nothing
+  for them either. The general store's `VGSStoreRadio` has one, naming
+  `_nv_temp_billy_the_kid.mp3`, a file FNV does not ship, so it gets no
+  program. As a safety net, `SceneEnded` does not chain a step that ended
+  within 1 s of its line starting (traced `short step`); the 5 s timer
+  restarts the station.
+- **Topics only scripts say.** 15 lines in the region are reached by no
+  line's Choices; FNV's scripts say them at story moments: Black
+  Mountain's music intros, Segment 12 and three event lines (GetHim,
+  Static, DontTakeMyRaul), and NCR Emergency's RadioGoodbye. They are left
+  out, counted.
+
+**Non-Pipboy stations (built 2026-10-22, not yet played).** FNV's 13
+stations flagged Non-Pipboy are the casino and Tops lounges, Hanlon's
+broadcast and ED-E's. Each becomes a transmitter where FNV places it, on a
+frequency outside the Pip-Boy's band (`LOUNGE_FREQUENCIES`, 5.0 to 14.5,
+1.0 or more from vanilla's out-of-band transmitters). The Pip-Boy never
+lists them; a placed radio naming one (RNAM) is a receiver on its
+frequency. None is in the Goodsprings to Primm region.
 
 <a id="heard"></a>**Messages only when heard (built 2026-10-21, not yet
 played).** FNV plays a station's lines, and runs their result scripts,
@@ -214,6 +301,38 @@ radio is on, the player is in range, and the player is tuned to the
 transmitter's frequency, which comes from the `TES4_RadioStation` script
 on the transmitter base.
 
+## <a id="receivers"></a>Step 3: placed radios (built 2026-10-21, not yet played)
+
+An FNV activator whose radio station field (ACTI RNAM, dropped by the
+export, read from FalloutNV.esm: 24 activators) names a placed Pip-Boy
+station becomes an FO4 receiver (`Radio.receiver`, `pack_acti`).
+- **Record.** FNAM Is a Radio (0x10) and RADR: the station's frequency,
+  volume 1.0, off until activated, static on weak signal, as
+  `RadioDiamondCityReceiverOff`. The sound model is
+  `SOMMonoWorldRadio_02500_Jukebox` (0023E390: full volume to 350 units,
+  silent at 2,500). The default, `WorldRadioOutputModel_DO` =
+  `SOMMonoWorldRadio_01600`, is full volume only to 150 units. On it,
+  Trudy's radio was quiet unless the player stood right in front of it
+  (played 2026-10-21). FNV sets no world-radio distance (its exe has none).
+- **Scripts.** FNV's own carry over unchanged. Their `Activate` becomes
+  `TES4_TwoStateActivator.DefaultActivate`, which ends in
+  `Activate(akActionRef, true)`, the game's own activation, and that
+  toggles a receiver. `GoodspringsRadioScript` marks the radio destroyed
+  as it loads until the player knows about it; FO4's destroyed state, as
+  FNV's, hides the activate prompt. Trudy's line 0010907C (her
+  freeloaders) sets `bKnowAboutRadio`, and 00109083 ("something broke on
+  the inside") runs `GSRadioRef.SetDestroyed 0` and gives `GSTrudyNote`.
+  It then shows `GSBrokenRadioMsg` until the repair button sets `bFixed`,
+  and activates.
+  `VintageRadioStartOnSCRIPT` switches its radio on as it loads.
+- **In the region.** 12 placed receivers:
+  - Trudy's radio, 2 jukeboxes and 7 start-on radios, on
+    Mojave Music Radio.
+  - 2 on Radio New Vegas and 1 on Black Mountain, silent until those
+    stations have programs.
+  - Radios naming a Non-Pipboy station (the casino and Tops lounges) stay
+    plain activators.
+
 ## <a id="steps"></a>Steps
 
 1. **Transmitters.** Each FNV station's placed TACT becomes an FO4
@@ -229,8 +348,8 @@ on the transmitter base.
    the Pip-Boy.
 3. **Placed radios.** An FNV radio activator naming a station becomes an
    FO4 receiver on that station's frequency; its script carries over, so
-   the Goodsprings store radio plays once Chet's repair is done. Played:
-   fix it, turn it on.
+   Trudy's radio in the Prospector Saloon plays once it is repaired.
+   Played: ask Trudy about it, fix it, turn it on.
 
 **Size:** M. Open to settle in step 1: FO4's XRDO and RADR fields (xEdit),
 and the frequencies (FNV has none; one per station, clear of FO4's own).

@@ -23,6 +23,8 @@ SILENT_LINE = ''
 INITIALLY_DISABLED = 0x800
 #: Quest alias flag Uses Stored Text: the alias's display name (ALDN) names it, as a radio station's Host.
 USES_STORED_TEXT = 0x4000
+#: ACTI FNAM flag Is a Radio: a receiver, its RADR naming the frequency.
+IS_A_RADIO = 0x10
 #: FO4 CTDA Run On values.
 RUN_SUBJECT, RUN_TARGET, RUN_REFERENCE = 0, 1, 2
 #: INFO ENAM flag bits (wbDefinitionsFO4.pas INFO 'Response flags'). Random is never written: see dialogue.random_chain.
@@ -214,16 +216,17 @@ def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
     return pack_fo4_record('QUST', fid, 0, subs + pack_u32('ANAM', 1) + _alias(0, alias_name, alias_ref))
 
 
-def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display: int = 0) -> bytes:
+def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display: int = 0, voices: int = 0) -> bytes:
     """A reference alias forced to `ref`, or optional and empty when None; given `packages`, an empty collection
     alias running them (ALPC), in vanilla's order (CZ_Arena's Crowd); a `display` name message (ALDN) sets Uses
-    Stored Text, as RadioDiamondCity's Host."""
+    Stored Text, as RadioDiamondCity's Host; `voices` (VTCK: an NPC or list) voices a non-actor, as RadioSubway's."""
     collection = packages is not None
     subs = (pack_u32('ALCS', alias) + pack_subrecord('ALMI', b'\0') if collection else b'') + pack_u32('ALST', alias)
     flags = 2 if ref is None else USES_STORED_TEXT if display else 0
     subs += _zstr('ALID', name) + pack_u32('FNAM', flags) + (b'' if ref is None else pack_u32('ALFR', ref))
     subs += pack_u32('ALDN', display) if display else b''
-    subs += b''.join(pack_u32('ALPC', package) for package in packages or ()) + (pack_u32('VTCK', 0) if collection else b'')
+    subs += b''.join(pack_u32('ALPC', package) for package in packages or ())
+    subs += pack_u32('VTCK', voices) if voices or collection else b''
     return subs + pack_subrecord('ALED', b'')
 
 
@@ -340,15 +343,16 @@ def pack_book(fid: int, edid: str, name: str, text: str, look: tuple = (NOTE_MOD
 
 
 def pack_acti(fid: int, edid: str, name: str, model: str, bounds: tuple, vmad: bytes, prompt: str,
-              loop: int = 0) -> bytes:
+              loop: int = 0, receiver: bytes = b'') -> bytes:
     """An activator: scripts, bounds, name, model (none for a trigger), vanilla's marker colour, looping sound
-    (an SNDR, 0 for none), activate prompt."""
+    (an SNDR, 0 for none), activate prompt; a `receiver` (RADR data) makes it a radio (FNAM Is a Radio), as
+    RadioDiamondCityReceiverOff."""
     subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
     subs += pack_subrecord('OBND', struct.pack('<6h', *bounds)) + (_zstr('FULL', name) if name else b'')
     subs += (_zstr('MODL', model) if model else b'') + pack_subrecord('PNAM', MARKER_COLOR)
     subs += _sounds(('SNAM',), (loop,))
-    subs += (_zstr('ATTX', prompt) if prompt else b'') + pack_subrecord('FNAM', bytes(2))
-    return pack_fo4_record('ACTI', fid, 0, subs)
+    subs += (_zstr('ATTX', prompt) if prompt else b'') + pack_subrecord('FNAM', struct.pack('<H', IS_A_RADIO if receiver else 0))
+    return pack_fo4_record('ACTI', fid, 0, subs + (pack_subrecord('RADR', receiver) if receiver else b''))
 
 
 def pack_furn(fid: int, edid: str, name: str, model: str, bounds: tuple, keywords: list, record_flags: int,

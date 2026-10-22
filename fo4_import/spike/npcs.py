@@ -509,7 +509,7 @@ class Npcs:
         script = (self.source(fnv, USE_SCRIPT) if fnv in self.records else self.creatures.records.get(fnv)) or {}
         vmad = self.builder.scripts.vmad(int(script['SCRI'], 16)) if 'SCRI' in script else b''
         linked = ids.get(ref.get('XLKR.LinkedRef'), 0)
-        extra = placement(int(ref['FormID'], 16), ids, owners)
+        extra = placement(int(ref['FormID'], 16), ids, owners, pose=False)
         extra += pack_subrecord('XLKR', struct.pack('<II', 0, linked)) if linked else b''
         self.builder.counts['ACHR'] += 1
         flags = int(ref['RecordFlags']) & (PERSISTENT | R.INITIALLY_DISABLED)

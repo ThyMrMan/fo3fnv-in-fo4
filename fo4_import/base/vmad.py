@@ -16,8 +16,9 @@ import struct
 from script_convert.pipeline import pack_wstring, script_entry
 
 VERSION, OBJECT_FORMAT, BIND_DATA = 6, 2, 3
-#: INFO fragment flags: OnBegin, OnEnd.
+#: INFO fragment flags: OnBegin, OnEnd; a scene's OnEnd, the same bit.
 INFO_BEGIN, INFO_END = 0x01, 0x02
+SCENE_END = INFO_END
 _PROP_OBJECT, _PROP_INT, _PROP_FLOAT, _PROP_BOOL, _PROP_OBJECTS = 1, 3, 4, 5, 11
 
 
@@ -32,7 +33,7 @@ def _header(count: int = 0) -> bytes:
 
 
 def object_scripts(scripts: list) -> bytes:
-    """VMAD attaching [(script, {property: FormID}, {property: (kind, value)})] to an object record."""
+    """An object's VMAD: [(script, {property: FormID}, {property: (kind, value)})]."""
     return _header(len(scripts)) + b''.join(script_entry(*s) for s in scripts)
 
 
@@ -49,6 +50,11 @@ def info_fragments(script: str, object_props: dict = None, value_props: dict = N
     """An INFO's VMAD: plain `scripts`, then `script`'s OnBegin/OnEnd (None: left out)."""
     flags = (INFO_BEGIN if begin else 0) | (INFO_END if end else 0)
     return _fragment_block(script, flags, [f for f in (begin, end) if f], object_props, value_props, scripts)
+
+
+def scene_fragments(script: str, end: str) -> bytes:
+    """A SCEN's VMAD: `script`'s `end` fragment (OnEnd), no phase fragments."""
+    return _fragment_block(script, SCENE_END, [end], None, None) + struct.pack('<H', 0)
 
 
 def package_fragments(script: str, flags: int, object_props: dict = None, value_props: dict = None) -> bytes:

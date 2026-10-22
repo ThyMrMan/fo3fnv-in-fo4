@@ -584,10 +584,11 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     texture = Path(texture_root) / texture_source(fnv[0]).replace('\\', '/') if texture_root and fnv[0] else None
     cut_from_blend = bool(blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
     clear = _effect(fnv, alpha) if glass else _translucent(fnv, alpha, two_sided) if cut_from_blend else None
-    if glass and not cut_from_blend or cut_from_blend and translucent(texture):
+    splits = cut_from_blend or bool(glass and alpha.flags >> 5 & 0xF and texture and not translucent(texture))
+    if clear and not splits or splits and translucent(texture):
         return clear
     mat = lit_material(fnv, props, alpha, two_sided, decal, texture_root)
-    if cut_from_blend:
+    if splits:
         mat.split = (clear, texture)
     return mat
 

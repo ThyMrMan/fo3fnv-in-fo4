@@ -1067,7 +1067,16 @@ cloth at 81%), the middle mostly FNV hair and graffiti.
   to the beaker BGEM. The mutagen tank (`ms04mutagentank01.nif`, 88% of its
   texels solid) drew as dark glass whole; now 508 of its 556 triangles are
   lit and 48 glass. In Doc's house 9 more of the 18 glass meshes now draw
-  their solid parts lit (camera, clock, pressure cooker, window frames);
+  their solid parts lit (camera, clock, pressure cooker, window frames).
+  Alpha-tested glass split too since 2026-10-21. Before that, only glass
+  without alpha test split, and the rest drew as glass whole. The Prospector
+  Saloon's framed posters (`nvposter01`-`12`) use `Marquee.dds`, an atlas
+  of an opaque wood frame beside a cracked, partly transparent glass pane.
+  They are blended (SRC_ALPHA, INV_SRC_ALPHA) with alpha test 0, so their
+  frames drew as see-through glass (played 2026-10-21). Additive glass still
+  never splits: it only adds light, and the Primm museum cases' grime
+  patch is one. In the region the change touches 19 shapes in 14 of 2,236
+  meshes: the 12 posters, `drinkingglass01` and `glasspitcher01`;
 - additive (the blend's destination ONE): glass too, as environment-mapped
   shapes are, through the effect shader with FNV's own blend. The Primm
   museum cases (`archivesdisplaycases02.nif:18`, a grimy `StoreFrontQuad01`
@@ -1605,7 +1614,14 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
     Prevent Player Exit Dialogue (as 84 vanilla scenes): leaving at the
     farewell's two answers had stranded VCG01 (both GREETING lines before
     it are Say Once, so talking again went to Doc's everyday greeting, the
-    Pip-Boy still disabled). Only the topic list keeps `[Leave]`.
+    Pip-Boy still disabled). Only the topic list keeps `[Leave]`, and
+    (2026-10-22) a Choices menu whose conversation can never end, where no
+    step reached from it is a Goodbye, a line followed by nothing, or the
+    topic list (`Conversations._leaves`). Played: Victor's bodyguard talk
+    (VES01VictorGSMyBodyguard) loops menu to menu. Each menu's third choice
+    is "Goodbye.", a topic with no line, so FNV shows two options and the
+    player leaves by Tab; on FO4 the player was held in until walking off.
+    Doc's farewell still ends in a Goodbye, so it stays held.
   - **Starting a scene at a phase needs INTV.** Played: from Bandit's menu
     "Light." came with Bandit's answers again, then "Light." and the right
     ones; "First one. Conflict..." was said twice. Every jump had started

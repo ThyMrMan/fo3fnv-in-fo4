@@ -5694,6 +5694,14 @@ class TestFalloutObjectiveCommands:
             'FadeToBlack4sISFX.Apply(1.0')
         assert 'GetKiller() ==' in conv_expr(converter_with_quests, 'IsKiller player', 'Quest')
 
+    def test_a_teammates_perk_is_not_the_players(self, converter_with_quests):
+        """`Player.AddPerk P 1` (FNV's teammates flag, Doc's exit trigger giving Companion Suite) adds no perk to the
+        player; the plain call still does."""
+        teammates = conv_lines(converter_with_quests, 'Player.AddPerk CompanionSuite 1', 'Quest')
+        assert 'AddPerk(' not in teammates and 'companion perk' in teammates
+        assert conv_line(converter_with_quests, 'Player.AddPerk CompanionSuite', 'Quest').endswith(
+            '.AddPerk(CompanionSuite)')
+
     def test_get_completed_reads_the_quest_native(self, converter_with_quests):
         """GetObjectiveCompleted is Quest.IsObjectiveCompleted."""
         expr = conv_expr(converter_with_quests,

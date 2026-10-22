@@ -638,6 +638,50 @@ karma as actor values on the player, which their Pip-Boy pages (the Pip-Boy
 Tabs F4SE plugin, a 4×4 title grid in `RPTN_ReputationTab.ini`) list. The
 globals here have no Pip-Boy page yet.
 
+**Karma page redraw (2026-10-22, not yet played).** In play, `set TES4Karma
+to 500` left the page unchanged. `TES4_KarmaPage` sets its rows as the
+Pip-Boy opens, after Pip-Boy Tabs has drawn them. It now calls
+`PBT:PBT.UpdateMenu()` (Pip-Boy Tabs' native redraw) after setting them.
+The compiler imports Pip-Boy Tabs' header (`references/PipboyTabs`,
+`papyrus.PIPBOY_TABS_HEADERS`).
+
+<a id="standings"></a>**Karma and infamy from kills and crimes (built
+2026-10-22; kill karma played 2026-10-22: Powder Ganger kills raised karma).** `spike/standings.py`. FNV's engine scores
+these itself. FalloutNV.exe's rules were read for the Skyrim build's
+character rules
+([karma and infamy](../commentary/character_rules.md#fallout-karma-and-infamy)),
+and the FO4 build ports them; FO4 has all the events they need:
+- **Data.** The same character data (`character_data`) and amounts
+  (`amount_table`): the actors of each alignment (FNV's karma through
+  trait templates: 32 very evil, 1,196 evil, 302 good, 10 very good in
+  FalloutNV.esm; the lists hold those the build made); 188
+  crime-tracking and 44 evil factions; for each reputation, the 37
+  crime-tracking factions answering to it (FACT WMI1).
+- **Amounts.** Karma per kill of a victim a crime-tracking faction
+  claims: evil +100, very evil +2, good -50, very good -100; neutral
+  0. Theft -5 unless the owner is evil; karma kept within -1,000 to
+  1,000. Infamy: 30 for a reported murder, 2 for a kill in a fight or a
+  reported theft or pickpocketing.
+- **Rules.** `TES4_FalloutStandings` on a start-game quest
+  (`FNV_Standings`). It is `FalloutRules_Main`'s karma and infamy half;
+  a leveled victim is sorted by its leveled base as well as its own.
+  Karma moves through `TES4Polyfill.SetKarma` (traced `karma`), infamy
+  through `TES4_Reputation.AddExact` (traced `rep`).
+- **Kills and crimes.** Two event quests, `FNV_StandingsKill` (event
+  KILL, `OnStoryKillActor` with its crime status) and
+  `FNV_StandingsAdcr` (ADCR, `OnStoryCrimeGold`). Each is started by a
+  Story Manager quest node added after the last child of Fallout4.esm's
+  own event node (Kill Actor 00034A37, CrimeGoldEvent 00245FD3), sharing
+  the event so vanilla's nodes still run.
+- **Thefts.** The quest's player alias (`TES4_FalloutStandingsPlayer`,
+  all items through `AddInventoryEventFilter(None)`) reports each item
+  taken. A rise in FO4's `Items Stolen` stat makes it a theft, charged
+  to the owner: the container's, the item's, else the cell's.
+- **Open.** Converted crime factions carry vanilla's no-crime-gold values
+  (FNV has no bounty), so FO4 may never add crime gold and the ADCR
+  event, the reported-theft infamy, may not fire. A reported murder
+  comes through the kill event's crime status either way.
+
 <a id="globals"></a>**Globals (step 2, built 2026-10-12).** Only dialogue
 unlocks, objective mirrors, helper globals and the engine globals were
 made, so a script property naming one of FNV's own globals read None, and
@@ -1733,9 +1777,11 @@ note names its topic and speaker: each of the topic's INFOs becomes a line
 (`say.info`, so its recordings convert under the speaker's voice type),
 and the speaker is a copy of vanilla's DN150_BonnieTournquist with FNV's
 name and voice type. The quest, scene, topics and speaker are hashed from
-the note's FormID. A script's AddNote of a voice note still declares a
-`Book` property, which a holotape cannot fill (attach.py fills items by
-`Book`, not `Holotape`).
+the note's FormID. A script's AddNote declares its note as a `Form`
+property on Fallout 4 (`command_rows_fallout4`; the FNV row's `Book` is the
+Skyrim target's). attach.py fills a `Form` item with whatever the note
+became, paper note or holotape, so FNV's one script-given holotape (Hanlon's
+Confession, `TIF__00158676`) is given as a holotape (checked 2026-10-22).
 
 **Measured** (Goodsprings to Primm): the region places 4 books, 1 note and
 4 terminals; all were statics and all are now their records (2 TERMs, 3

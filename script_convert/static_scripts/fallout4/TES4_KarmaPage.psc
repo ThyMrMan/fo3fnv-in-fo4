@@ -1,5 +1,5 @@
 ScriptName TES4_KarmaPage extends Quest Hidden
-{The karma Pip-Boy page (Pip-Boy Tabs): each time the Pip-Boy opens, the player's Alignment row is set to FNV's karma level (0 very evil to 4 very good, by FNV's fAlign thresholds) and the Title row to FNV's karmic title for that alignment and the player's level (5 + kind * 30 + level - 1; kind 0 evil, 1 neutral, 2 good; levels past 30 take 30's). See docs/fork/fo4_pipeline.md#karma-page}
+{The karma Pip-Boy page (Pip-Boy Tabs): each time the Pip-Boy opens, the player's Alignment row is set to FNV's karma level (0 very evil to 4 very good, by FNV's fAlign thresholds) and the Title row to FNV's karmic title for that alignment and the player's level (5 + kind * 30 + level - 1; kind 0 evil, 1 neutral, 2 good; levels past 30 take 30's). Pip-Boy Tabs has drawn the page by then, so it is redrawn (PBT:PBT.UpdateMenu). See docs/fork/fo4_pipeline.md#karma-page}
 
 GlobalVariable Property TES4Karma Auto Const
 ActorValue Property AlignmentValue Auto Const
@@ -45,4 +45,5 @@ Function Refresh()
   EndIf
   player.SetValue(AlignmentValue, alignment as Float)
   player.SetValue(TitleValue, (5 + kind * 30 + level - 1) as Float)
+  PBT:PBT.UpdateMenu()
 EndFunction
