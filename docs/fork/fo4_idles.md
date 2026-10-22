@@ -204,7 +204,7 @@ now match vanilla's shape. That it was the cause is unproven.
 this work. Next test, one change: a vanilla clip re-encoded by our writer
 played as the mirror (isolates the encoder), then the scale-fixed FNV clip.
 
-## <a id="encoder-test"></a>Encoder test (built 2026-10-19, not yet played)
+## <a id="encoder-test"></a>Encoder test (built 2026-10-19, played 2026-10-21)
 
 **Question.** Do clips our writer encodes break Havok, whatever the
 motion? All four crashes came after an FNV clip played, on three graph

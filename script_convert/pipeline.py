@@ -31,7 +31,7 @@ from script_convert.context_setup import (
     load_records, prepare_output_dir, quest_edids_by_fid,
     service_menu_topics, topic_unlock_globals)
 from script_convert.ownership import owner_key, write_owned
-from script_convert import target
+from script_convert import radio_lines, target
 from script_convert.message_menus import build_message_plan
 from script_convert.commands_falloutnv import (quest_objective_indices,
                                                set_quest_objectives)
@@ -811,6 +811,8 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
                                     fragment_calls(done) + ([reroll_line()] if speech else []))
     if conv:
         out_lines.extend(conv.get_cell_family_helpers())
+    if target.is_fallout4() and radio_lines.is_radio(rec):
+        out_lines = radio_lines.gated(out_lines)
     return script_name, '\n'.join(_trace.items(_trace.info(out_lines, rec['FormID'])))
 
 

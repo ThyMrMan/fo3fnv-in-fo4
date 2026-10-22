@@ -2,8 +2,10 @@
 
 The content is the scripts of the bases placed in the build, of its placed
 actors and of their packages, the actors' package conditions, and the
-dialogue lines spoken there (a GetIsID on a placed actor's base, a
-GetIsReference on a placed reference, a GetInCell on a built cell). A
+dialogue lines spoken there (a GetIsID on a placed actor's or object's base,
+a GetIsReference on a placed reference, a GetInCell on a built cell), in
+a line's conditions or its quest's own, which FNV adds to every line (a
+radio station's quest names its talking activator). A
 quest is named by a converted script's property of its name (attach.py
 fills properties by FNV EditorID) or by a condition on it. Each such quest
 adds the quests its own scripts (quest script, stage results, its lines'
@@ -54,12 +56,13 @@ class QuestScope:
         """FNV QUST records of a build placing `bases` {FormID: (type, record)}, references `refs` and actors
         `actors` (ACHR/ACRE records), in FormID order."""
         actor_bases = {int(a['NAME'], 16) for a in actors}
-        where = {GET_IS_ID: actor_bases, GET_IS_REFERENCE: {int(r['FormID'], 16) for r in refs + actors},
+        where = {GET_IS_ID: actor_bases | bases.keys(), GET_IS_REFERENCE: {int(r['FormID'], 16) for r in refs + actors},
                  GET_IN_CELL: {int(r['ParentCELL'], 16) for r in refs + actors if r.get('ParentCELL')}}
         named = set().union(*(self._script(rec.get('SCRI'))[0] for _, rec in bases.values()))
         for fid in actor_bases & self.actors.keys():
             named |= self._actor(self.actors[fid])
         named |= {quest for quest, lines in self.lines.items() if any(_placed(line, where) for line in lines)}
+        named |= {quest for quest, rec in self.quests.items() if self.lines.get(quest) and _placed(rec, where)}
         named &= self.quests.keys()
         started = set().union(*(self._starts(self.quests[q]) for q in named)) & self.quests.keys()
         return [self.quests[q] for q in sorted(named | started)]

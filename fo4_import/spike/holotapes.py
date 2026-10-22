@@ -49,21 +49,26 @@ def _u32(sig: str, value: int) -> bytes:
     return pack_subrecord(sig, struct.pack('<i' if value < 0 else '<I', value))
 
 
-def radio_action(index: int, topic: int) -> bytes:
-    """Scene action `index` (1..n): Radio, saying `topic` in phase index - 1."""
-    subs = pack_subrecord('ANAM', struct.pack('<H', RADIO)) + _zstr('NAM0', '') + _u32('ALID', NO_ACTOR)
+def radio_action(index: int, topic: int, alias: int = NO_ACTOR, output: int = OUTPUT, sound: int = 0) -> bytes:
+    """Radio scene action `index` (1..n) in phase index - 1, on `alias`: saying `topic`, or playing `sound` (an
+    SNDR, as DiamondCityRadioMusicScene's songs)."""
+    subs = pack_subrecord('ANAM', struct.pack('<H', RADIO)) + _zstr('NAM0', '') + _u32('ALID', alias)
     subs += _u32('INAM', index) + _u32('SNAM', index - 1) + _u32('ENAM', index - 1) + _u32('DATA', topic)
-    return subs + _u32('HTID', 0) + _u32('DMAX', OUTPUT) + pack_subrecord('ANAM', b'')
+    return subs + _u32('HTID', sound) + _u32('DMAX', output) + pack_subrecord('ANAM', b'')
 
 
-def pack_scene(fid: int, edid: str, quest: int, topics: list) -> bytes:
-    """A holotape scene: one phase per line of `topics`, no actor, Radio actions, as DN150_BonnieHolotape."""
-    subs = _zstr('EDID', edid) + _u32('FNAM', SCENE_FLAGS)
-    for _ in topics:
-        subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', '') + pack_subrecord('NEXT', b'')
-        subs += pack_subrecord('NEXT', b'') + _u32('WNAM', 350) + pack_subrecord('HNAM', b'')
-    subs += _u32('ALID', NO_ACTOR) + _u32('LNAM', 0) + _u32('DNAM', 0)
-    subs += b''.join(radio_action(i, topic) for i, topic in enumerate(topics, 1))
+def pack_scene(fid: int, edid: str, quest: int, topics: list, flags: int = SCENE_FLAGS, alias: int = NO_ACTOR,
+               output: int = OUTPUT, sounds: list = (), conditions: list = ()) -> bytes:
+    """A scene of Radio actions, one phase per topic of `topics`, on `alias` (none: a holotape's, as
+    DN150_BonnieHolotape) through `output`, its `flags`; a phase's `sounds` entry plays that SNDR instead,
+    its `conditions` entry (CTDA bytes) gates its start."""
+    subs = _zstr('EDID', edid) + _u32('FNAM', flags)
+    for i in range(len(topics)):
+        subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', '') + (conditions[i] if i < len(conditions) else b'')
+        subs += pack_subrecord('NEXT', b'') + pack_subrecord('NEXT', b'') + _u32('WNAM', 350) + pack_subrecord('HNAM', b'')
+    subs += _u32('ALID', alias) + _u32('LNAM', 0) + _u32('DNAM', 0)
+    subs += b''.join(radio_action(i, topic, alias, output, sounds[i - 1] if i <= len(sounds) else 0)
+                     for i, topic in enumerate(topics, 1))
     subs += _u32('PNAM', quest) + _u32('INAM', len(topics)) + pack_subrecord('VNAM', struct.pack('<4I', 3, 3, 3, 3))
     return pack_fo4_record('SCEN', fid, 0, subs + _u32('XNAM', 0))
 
@@ -86,7 +91,6 @@ class Holotapes:
         for rec in export_records(export_dir, 'INFO'):
             self.infos.setdefault(rec['ParentDIAL'].upper(), []).append(rec)
         self.voices = {int(r['FormID'], 16): r for sig in ('NPC_', 'CREA') for r in export_records(export_dir, sig)}
-        self.template = None
 
     def holotape(self, rec: dict) -> 'int | None':
         """The FO4 holotape of FNV voice note `rec` (its FormID); None when its lines or speaker cannot convert."""
@@ -128,13 +132,20 @@ class Holotapes:
     def _speaker(self, rec: dict) -> 'int | None':
         """A speaker NPC carrying the voice type of the note's FNV speaker (SNAM), made once per note."""
         fnv = self.voices.get(int(rec.get('SNAM', '0'), 16))
-        voice = self.builder.creatures.voices.of(int(fnv.get('VTCK.Voice', '0'), 16)) if fnv else None
-        if voice is None:
+        if fnv is None:
             return None
-        if self.template is None:
-            self.template = next(r for r, _ in walk(self.builder.fo4, b'NPC_') if r.form_id == SPEAKER)
-        fid = self.builder.new_id(f'NPC_ holotape {rec["FormID"].upper()}')
-        self.builder.writer.add_record('NPC_', R.clone_npc(fid, self.template.body, self.template.flags,
-                                                           f'FNV_{fnv["EditorID"]}Holotape', fnv.get('FULL', ''),
-                                                           edit=with_voice(voice)))
-        return fid
+        return speaker_npc(self.builder, f'NPC_ holotape {rec["FormID"].upper()}', f'FNV_{fnv["EditorID"]}Holotape',
+                           fnv.get('FULL', ''), int(fnv.get('VTCK.Voice', '0'), 16))
+
+
+def speaker_npc(builder, key: str, edid: str, name: str, fnv_voice: int) -> 'int | None':
+    """A speaker NPC (a copy of vanilla's holotape speaker SPEAKER) named `name`, on FNV voice type `fnv_voice`
+    converted; its FormID from `key`; None when the voice type does not convert."""
+    voice = builder.creatures.voices.of(fnv_voice)
+    if voice is None:
+        return None
+    template = next(r for r, _ in walk(builder.fo4, b'NPC_') if r.form_id == SPEAKER)
+    fid = builder.new_id(key)
+    builder.writer.add_record('NPC_', R.clone_npc(fid, template.body, template.flags, edid, name,
+                                                  edit=with_voice(voice)))
+    return fid

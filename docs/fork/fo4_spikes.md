@@ -684,8 +684,27 @@ their items; barter opens.
   selection. Its record matched They Went That-a-Way's, which tracks, and
   its stages ran. FNV's `ForceActiveQuest` (VCG02 stages 5 and 10; VMQ02,
   VMS16, VMS16b: 7 calls) was dropped as a TODO; it is now FO4's
-  `Quest.SetActive()` (`commands_falloutnv.force_active_quest`). Played:
+  `Quest.SetActive()` (`commands_falloutnv.quest_call`). Played:
   the quest is tracked when it starts and can be toggled.
+- *Ghost Town Gunfight commands (built 2026-10-21, not yet played).* Its
+  scripts (VMS16, VMS16b and their lines) dropped five FNV commands, now
+  converted: `CompleteAllObjectives` (Quest native; 52 calls in FNV),
+  `SetCellOwnership` (`Cell.SetFactionOwner`/`SetActorOwner`; with no
+  owner the player, as FNV gave Goodsprings' houses, saloon and Doc's
+  house to the player for siding with the Powder Gangers),
+  `AddItemHealthPercent` (`AddItem`, FO4 items carrying no condition; the
+  settlers' leather armor), `imod`/`rimod` (FNV's short forms of the
+  imagespace modifier commands; the region now builds 9 more IMADs: the
+  fades and cave transitions) and `IsKiller` (`GetKiller() ==`; a dead
+  settler turns Sunny on the player only if the player killed him). Left
+  as FNV had them: objective indices the quests never author, and
+  `GetShouldAttack` (no FO4 equivalent).
+- *A talking object (built 2026-10-21).* `StartConversation`'s speaker was
+  cast `as Actor` for the Skyrim target's Say; Hoover Dam's control panel
+  (`VHDControlOverrideBoxSCRIPT`, an ObjectReference script) talks, and the
+  cast did not compile, the one script of 1,438 that failed. On Fallout 4
+  the speaker stays an ObjectReference, which the polyfill and Say take:
+  76 casts gone, 1,438 of 1,438 compile.
 
 ### <a id="spike-3-names"></a>Script names
 
@@ -1203,7 +1222,7 @@ seats are plain Left 0xe8 (21) and Right 0xe4 (22), and Left with Other
 and 0xf9 19 each). Other is now set only on a seat entered from the front,
 so `SubDiningChairDirtyL`/`R` are 0xe8/0xe4.
 
-### <a id="spike-2-activators"></a>Activators (built 2026-10-06, not yet played)
+### <a id="spike-2-activators"></a>Activators (built 2026-10-06, played 2026-10-21)
 
 ```bash
 py -3.14 -m fo4_import.pipeline.run ... --scripts temp/fo4_scripts/FalloutNV.esm GSDocMitchellHouse
@@ -1334,7 +1353,7 @@ Without Doc's lines the quest stops at stage 3 (stage 5 is set by his
 line's result).
 
 **Step 2a, Doc's scripted lines** (`fo4_import/spike/say_topics.py`;
-built 2026-10-06, not yet played). VCG01's 128 INFOs are 39 lines in five
+built 2026-10-06, played 2026-10-21). VCG01's 128 INFOs are 39 lines in five
 Conversation-type topics the quest Says (`VCG01Intro` 15,
 `VCG01DocReactions` 16, `VCG01DocPsychIntro` 3, `VCG01DocTraitIntro` 3,
 `VCG01DocFarewellTransition` 2), the psych test's greeting and 77 answer
@@ -1438,7 +1457,7 @@ into the statements and the outro's lines.
 - `VCG01Test` (the answers' tallies, read at stage 85) is converted with
   the cell and keeps FNV's start game enabled flag; VCG01 still starts by
   hand.
-  - *The picks (built 2026-10-19, not yet played).* `VCG01TestSCRIPT`
+  - *The picks (built 2026-10-19, played 2026-10-21).* `VCG01TestSCRIPT`
     picks three tag skills from the tallies (a combat skill, one of
     Speech, Science, Lockpick and Barter, then the best untagged) with
     `SetPlayerTagSkill`, which preselects them in FNV's tag menu. It
@@ -1517,7 +1536,7 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
   objective globals at 0, which a save from the previous build at stage
   110 gives (this build added the globals ahead of the packages, so ids
   moved): test from a save made outside the house.
-- **As one scene** (2026-10-07, not yet played). Each step (a set of
+- **As one scene** (2026-10-07, played 2026-10-21). Each step (a set of
   lines, or a Choices menu) is a phase; while every line of a step leads
   to the same next step the scene runs on into it, and lines that lead
   apart start their own scene by TSCE (by phase name when the step is
@@ -1569,7 +1588,7 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
     between calls: the Pip-Boy line's gated handout ran on all three
     responses); in a helper quest keyed by the fragment's script object it
     failed too (each call is a new object: every response took a new slot).
-  - Now (not yet played): a line with several responses and a result
+  - Now (played 2026-10-21): a line with several responses and a result
     script is split into one FO4 line per response, each a scene step, the
     FNV Begin result on the first, its End result on the last
     (`conversation.part`), so each runs once. Vanilla writes 94% of its
@@ -1599,7 +1618,7 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
 - The Pip-Boy stays disabled until the farewell's last line ends (FNV's
   stage 55 disables it, the farewell's End enables it), as in FNV.
 - <a id="spike-2-doc-quests"></a>**Doc after the intro** (built 2026-10-09,
-  not yet played). Played: after the outro Doc said nothing and could not be
+  played 2026-10-21). Played: after the outro Doc said nothing and could not be
   talked to. His talk after VCG01 is VFreeformGoodsprings' (greetings,
   Goodsprings topics, a speech check) and VDoctors' (healing, supplies,
   radiation), and VCG01 (priority 76, still running after stage 200) kept
@@ -1839,6 +1858,15 @@ not by the fault: FNV's stage 55 disables the Pip-Boy, mapped to FO4's
 menu flag (`TES4_PlayerControls.Disable`'s `abMenu`), which also blocks the
 pause menu until stage 110. If it shows again: note how the SPECIAL menu
 was closed, and trace the controls layer when it closes.
+
+*Fixed (built 2026-10-21, not yet played):* FO4's layer has a separate
+journal flag (`abJournalTabs`; `EnableJournal`, "the journal menu", the
+Pip-Boy), and its menu flag is the main (pause) menu, which FO3/FNV never
+blocked. On Fallout 4 the Pip-Boy flag now goes to the journal alone and
+the menu flag is false (`commands._flagged_controls`); a flagless
+DisablePlayerControls passes FNV's defaults the same way instead of the
+layer's own (which block the menu). All 151 converted calls leave the
+pause menu open.
 
 **Played (step 1):** from the start marker beside the bed (player.moveto, as the hallway the vigor tester trigger covers lies between the coc door and the bed), stage 55 shows the walk objective, the trigger sets 60 and completes it, and with objective 30 shown by hand the Vit-o-matic sets 65. The trigger fires on any entry and starts the quest if it is not running, as in FNV, where the player cannot reach it before 55.
 

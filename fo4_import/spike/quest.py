@@ -127,12 +127,14 @@ def quest_var_globals(builder, export_dir, recs: list) -> dict:
     return out
 
 
-def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = False, start: bool = False) -> bytes:
+def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = False, start: bool = False,
+                 more: tuple = (), attach: tuple = ()) -> bytes:
     """The FO4 QUST of FNV quest `rec`; `scripts` an attach.ObjectScripts, `ref_ids` as for objectives().
 
     `speaker` adds alias 0, empty, for the actor its conversation scenes play
     on, and LISTENER_ALIAS for the other actor of an NPC one; `start` keeps
-    FNV's start game enabled flag.
+    FNV's start game enabled flag; `more` aliases (pack_fnv_quest's) follow;
+    `attach` scripts [(script, object props, value props)] join its own.
     """
     stages = [(int(rec[f'Stage[{i}].Index']), int(rec.get(f'Stage[{i}].Log[0].Flags', 0)) & 1)
               for i in _numbered(rec, 'Stage')]
@@ -142,7 +144,7 @@ def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = Fa
         fragments = stage_fragments((scripts.dir / f'{fragments_script}.psc').read_text(encoding='utf-8'))
         scripts.used.append(fragments_script)
     quest_script = scripts.name(int(rec['SCRI'], 16)) if 'SCRI' in rec else None
-    attached = [(quest_script, scripts.properties(quest_script), {})] if quest_script else []
+    attached = ([(quest_script, scripts.properties(quest_script), {})] if quest_script else []) + list(attach)
     scripts.used += [quest_script] if quest_script else []
     props = scripts.properties(fragments_script) if fragments else {}
     vmad = quest_fragments(fragments_script if fragments else '', fragments, props, scripts=attached)
@@ -150,5 +152,6 @@ def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = Fa
     for target in missing_targets(rec, ref_ids):
         scripts.builder.readiness.add(TARGET_NOT_BUILT, rec['FormID'], target)
     aliases = [(SPEAKER_ALIAS, 'Speaker', None)] * speaker + aliases + [(LISTENER_ALIAS, 'Listener', None)] * speaker
+    aliases += list(more)
     return R.pack_fnv_quest(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), int(rec.get('DATA.Priority', 0)),
                             vmad, stages, goals, aliases, start and int(rec.get('DATA.Flags', 0)) & START_GAME)

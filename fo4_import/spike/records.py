@@ -21,6 +21,8 @@ _DIRECTION = re.compile(r"{[^}]*}")
 SILENT_LINE = ''
 #: Record flag Initially Disabled, the same bit in FO3/FNV and FO4.
 INITIALLY_DISABLED = 0x800
+#: Quest alias flag Uses Stored Text: the alias's display name (ALDN) names it, as a radio station's Host.
+USES_STORED_TEXT = 0x4000
 #: FO4 CTDA Run On values.
 RUN_SUBJECT, RUN_TARGET, RUN_REFERENCE = 0, 1, 2
 #: INFO ENAM flag bits (wbDefinitionsFO4.pas INFO 'Response flags'). Random is never written: see dialogue.random_chain.
@@ -212,12 +214,15 @@ def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
     return pack_fo4_record('QUST', fid, 0, subs + pack_u32('ANAM', 1) + _alias(0, alias_name, alias_ref))
 
 
-def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None) -> bytes:
+def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display: int = 0) -> bytes:
     """A reference alias forced to `ref`, or optional and empty when None; given `packages`, an empty collection
-    alias running them (ALPC), in vanilla's order (CZ_Arena's Crowd)."""
+    alias running them (ALPC), in vanilla's order (CZ_Arena's Crowd); a `display` name message (ALDN) sets Uses
+    Stored Text, as RadioDiamondCity's Host."""
     collection = packages is not None
     subs = (pack_u32('ALCS', alias) + pack_subrecord('ALMI', b'\0') if collection else b'') + pack_u32('ALST', alias)
-    subs += _zstr('ALID', name) + (pack_u32('FNAM', 2) if ref is None else pack_u32('FNAM', 0) + pack_u32('ALFR', ref))
+    flags = 2 if ref is None else USES_STORED_TEXT if display else 0
+    subs += _zstr('ALID', name) + pack_u32('FNAM', flags) + (b'' if ref is None else pack_u32('ALFR', ref))
+    subs += pack_u32('ALDN', display) if display else b''
     subs += b''.join(pack_u32('ALPC', package) for package in packages or ()) + (pack_u32('VTCK', 0) if collection else b'')
     return subs + pack_subrecord('ALED', b'')
 

@@ -13,6 +13,7 @@ See: docs/fork/fo4_spikes.md#spike-2-cell
 import collections
 import math
 import struct
+import time
 from pathlib import Path
 
 from fo4_import.base.ba2_pack import pack_textures
@@ -75,9 +76,10 @@ from fo4_import.spike.decals import Decals
 from fo4_import.spike.mines import Mines
 from fo4_import.spike.music import music_of
 from fo4_import.spike.radiation import hazard_ref
+from fo4_import.spike.radio import Radio, placements as radio_placements
 from fo4_import.spike.acoustics import AcousticSpaces
 from fo4_import.spike.placeable_water import PlaceableWater
-from fo4_import.pipeline import elric_cache
+from fo4_import.pipeline import elric_cache, stale_files
 from fo4_import.pipeline.converters import PLACED, placed_types
 from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
@@ -219,7 +221,9 @@ class CellBuilder:
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.weather_ids, self.weather_templates, self.weather_regions, self.acoustics = {}, {}, None, None
         self.hazards, self.music, self.decals, self.perks, self.forms = None, None, None, None, {}
+        self.radio = None
         self.type_keywords = TypeKeywords(self.writer)
+        self.started = time.time()
         self.fo4 = FALLOUT4_ESM.read_bytes()
         self.idle_markers = IdleMarkers(self.fo4)
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
@@ -312,6 +316,10 @@ class CellBuilder:
         """Converter: a placed FNV mine's projectile as FO4's (spike.mines)."""
         self.mines = self.mines or Mines(self, self.export_dir)
         return self.mines.projectile(fnv_fid)
+
+    def transmitter(self, fnv_fid: int, _sig, rec: dict) -> 'int | None':
+        """Converter: a Pip-Boy station's transmitter (spike.radio), else None."""
+        return self.radio.base(fnv_fid, rec)
 
     def readable(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
         """Converter: an FNV book, note or terminal (spike.readables)."""
@@ -411,9 +419,9 @@ def find_cell(export_dir: Path, edid: str) -> dict:
 
 
 def placed_bases(export_dir: Path, used: set) -> dict:
-    """{FNV FormID: (type, record)} of the used bases this spike converts."""
+    """{FNV FormID: (type, record)} of the used bases this spike converts (items are found through _item_base)."""
     out = {}
-    for sig in placed_types('record', 'pickup', 'tree', 'sound', 'idle', 'readable', 'water', 'mine', 'decal'):
+    for sig in (s for s in placed_types() if PLACED[s] != 'item'):
         for rec in export_records(export_dir, sig):
             fid = int(rec['FormID'], 16)
             if fid in used:
@@ -502,7 +510,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_placed_at(builder, ref), float(ref.get('XSCL.Scale', 1.0)), radius,
                              teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids, owners) + _lock(builder, ref)
-                             + builder.emittance.xemi(ref),
+                             + builder.emittance.xemi(ref) + builder.radio.xrdo(ref),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED),
                              builder.ref_ids.get(ref.get('XLKR.LinkedRef'), 0),
                              door_link=builder.door_links.get(ids[ref['FormID']]), sig=ref['Signature'])
@@ -617,7 +625,7 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     lines = [line for rec in recs for line in say.infos.get(rec['FormID'].upper(), [])]
     form_map = {**builder.items.shared, **actor_values(HELPER_INDEX), **_form_map(builder, ref_ids, recs, quests),
                 **builder.npc_ids, **builder.creatures.made, **condition_forms(builder, lines),
-                **builder.perks.form_map(), TYPE_KEYWORDS: builder.type_keywords}
+                **builder.perks.form_map(), **builder.radio.form_map(), TYPE_KEYWORDS: builder.type_keywords}
     builder.idles.form_map = builder.forms = form_map
     shared = _hub(builder, export_dir, say, recs, quests, form_map)
     done = []
@@ -627,14 +635,16 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
         builder.scripts.named.update({say.dials[d]['EditorID']: t for d, t in topics.items()})
         branch, blobs = say.build(rec, fid, topics, form_map) if topics else (None, [])
         talks = Conversations(say, rec, fid, form_map, XDI_KEYWORD, shared)
-        done.append((fid, rec, [branch] if branch else [], blobs, talks))
+        radio = builder.radio.program(rec, fid, form_map, ref_ids) or ((), [], [], ())
+        done.append((fid, rec, [branch] if branch else [], blobs + radio[1], talks, radio))
     built = _greetings(builder, say, form_map, shared)
-    for fid, rec, branches, blobs, talks in done:
+    for fid, rec, branches, blobs, talks, radio in done:
         built |= {prop for prop, scene in list(builder.scripts.talks.items())
                   if prop not in built and talks.talk(prop, scene)}
         record = quest_record(fid, rec, builder.scripts, ref_ids, talks.has_lines(),
-                              rec['EditorID'] not in HAND_STARTED)
-        builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics, talks.scenes))
+                              rec['EditorID'] not in HAND_STARTED, radio[0], radio[3])
+        builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics,
+                                                     talks.scenes + radio[2]))
         builder.counts['QUST'] += 1
         builder.counts['SCEN'] += len(talks.scenes)
     for prop in set(builder.scripts.talks) - built:
@@ -714,6 +724,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     reputations, builder.reputation_slots = write_reputations(builder, export_dir)
     builder.scripts.named.update({**reputations, **builder.perks.named()})
     builder.activators, builder.crafting = Activators(builder, export_dir), Crafting(builder, export_dir, HELPER_INDEX, every)
+    builder.radio = Radio(builder, export_dir)
     builder.creatures = Creatures(builder, export_dir, builder.data_dir)
     seats = [r for r in every if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in seats}, beds(builder, seats),
@@ -858,9 +869,10 @@ def _scoped(export_dir: Path, all_refs: list, cell: dict, worlds: list) -> tuple
     interiors, every = with_chests(export_dir, interiors, every, [chest for _, chest in sold])
     cell_of = _in_build(interiors, worlds)
     actors = [r for sig in ('ACHR', 'ACRE') for r in export_records(export_dir, sig) if cell_of(r)] if worlds else []
-    for world in worlds:
+    for n, world in enumerate(worlds):
         placed = {r['FormID'] for w in worlds for r in w.refs}
         world.add_persistent(named_markers(export_dir, actors, world.persistent_cell, placed))
+        world.add_persistent(radio_placements(export_dir, all_refs, world, n == 0))
     return interiors, every, [r for world in worlds for r in world.refs], sold
 
 
@@ -991,6 +1003,8 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))
     builder.writer.ledger.save()
+    made = stale_files.made(data_dir, Path(export_dir.name).stem, builder.started)
+    builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')
     print(f'reputation page: {write_page(builder, data_dir, out.name)}')

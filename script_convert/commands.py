@@ -338,16 +338,13 @@ def set_talking_activator_actor(ctx, call) -> str:
 
 @command('startconversation')
 def start_conversation(ctx, call) -> str:
-    """StartConversation -- the topic INFO is the payload, not just the target.
+    """StartConversation -- the topic's lines play (as a Say chain, or a Fallout 4 scene); no topic is GREETING.
 
-    Discarding it as `Say(None)` silenced every scripted NPC-NPC conversation
-    (DANocturnal's Bejeen/Nocturnal talk, MQ12's Jauffre/Martin council, MS10's
-    Llevana scene) and lost their SetStage results.  Per UESP the Topic
-    argument is explicitly optional, and omitting it opens the conversation on
-    the GREETING -- a real resolvable topic rather than "nothing to say";
-    dropping those silenced 64 call sites, all the standard walk-up beat.
+    On Fallout 4 the speaker stays an ObjectReference, as the polyfill and Say
+    take one: a talking object (Hoover Dam's control panel) is no actor.
+    See: docs/commentary/tes5_import_dialogue.md#script-started-conversation-chains
     """
-    ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
+    ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=not is_fallout4())
     parts = ctx.arg_srcs()
     greet = _force_greet(ctx, ref, parts) or _npc_chat(ctx, ref, call, parts)
     if greet:
@@ -1787,7 +1784,8 @@ def _flagged_controls(call, disabling: bool) -> str:
 
     A flag left out takes the engine's preset (CONTROL_DEFAULTS); a Skyrim
     `false` leaves a control alone; movement and rollover text both stop
-    activation, and the Pip-Boy is the menus and journal.
+    activation, and the Pip-Boy is the menus and journal (Fallout 4: the journal alone; its menu flag is the
+    pause menu, which FO3/FNV never blocked).
     See: docs/commentary/script_convert.md#player-control-flags
     """
     defaults = CONTROL_DEFAULTS[disabling]
@@ -1795,7 +1793,7 @@ def _flagged_controls(call, disabling: bool) -> str:
     literal = {mov, roll} <= {'true', 'false'}
     activate = (str('true' in (mov, roll)).lower() if literal
                 else roll if mov == 'false' else mov if roll == 'false' else f'{mov} || {roll}')
-    return ', '.join((mov, fight, pov, look, sneak, pip, activate, pip))
+    return ', '.join((mov, fight, pov, look, sneak, 'false' if is_fallout4() else pip, activate, pip))
 
 
 @command('disableplayercontrols', 'enableplayercontrols')
@@ -1810,7 +1808,7 @@ def player_controls(ctx, call) -> str:
     """
     disabling = call.name == 'disableplayercontrols'
     verb = 'Disable' if disabling else 'Enable'
-    args = _flagged_controls(call, disabling) if len(call) else ''
+    args = _flagged_controls(call, disabling) if len(call) or is_fallout4() else ''
     toggle, props = controls_call(verb, args)
     ctx.sc.property_refs.update(props)
     if args and not args.startswith('true'):

@@ -106,10 +106,11 @@ class SayTopics:
         return object_scripts(marked) if marked else b''
 
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
-             target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '') -> bytes:
+             target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '', helpers: tuple = ()) -> bytes:
         """One FNV line as an FO4 INFO of quest `owner`; b'' when a condition cannot convert.
 
         `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once (say_once marks it);
+        `helpers` more scripts [(script, object props, value props)] on its first part;
         `extra` CTDAs join its conditions, Target tests on alias `target`; `speaker` its NPC; `place` names
         this copy (quest, step) for its FormID. A split line's later parts have no conditions or Say Once;
         the first runs the Begin fragment, the last the End one; the part opening barter ends the scene.
@@ -127,7 +128,7 @@ class SayTopics:
         fid = self.builder.new_id(line, key=f'{line} at {place}' if place else None)
         once = first and int(rec.get('DATA.Flags', 0)) & SAY_ONCE
         marked = [self.once.script(rec['FormID'])] if once and owner else []
-        vmad = self._vmad(rec, first, last, marked)
+        vmad = self._vmad(rec, first, last, marked + list(helpers) * first)
         lines = [rec[f'Response[{i}].ResponseText'] for i in range(int(rec.get('ResponseCount', 0) or 0))]
         flags |= R.INFO_SAY_ONCE if once else 0
         flags |= R.INFO_END_SCENE if opens_barter(rec, first, last) else 0

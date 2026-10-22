@@ -36,7 +36,7 @@ def build(builder, export_dir: Path, quests: dict) -> None:
         return
     fid = builder.writer.derive_formid(SITE, export_dir.name)
     props = {'MQ101': MQ101, 'MQ102': MQ102, 'TimeScale': TIME_SCALE, 'StartQuest': quests[quest],
-             'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD}
+             'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD, 'SkillGates': builder.perks.gates}
     values = {'OpeningQuests': ('objects', list(OPENING_QUESTS)), 'StartStage': ('int', stage),
               'Special': ('objects', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
               'SpecialStart': ('floats', start_special(export_dir))}

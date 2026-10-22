@@ -5675,6 +5675,25 @@ class TestFalloutObjectiveCommands:
         assert line == 'MQ01.SetActive()'
         assert converter_with_quests.sc.property_refs['MQ01'] == 'Quest'
 
+    def test_complete_all_objectives_is_the_quest_native(self, converter_with_quests):
+        """`CompleteAllObjectives Q` is Q.CompleteAllObjectives()."""
+        assert conv_line(converter_with_quests, 'CompleteAllObjectives MQ01', 'Quest') == \
+            'MQ01.CompleteAllObjectives()'
+
+    def test_cell_ownership_without_an_owner_gives_the_cell_to_the_player(self, converter_with_quests):
+        """`SetCellOwnership C` (no owner) makes the player the owner, as FO3/FNV did."""
+        line = conv_line(converter_with_quests, 'SetCellOwnership GSHouseInterior01', 'Quest')
+        assert line == 'GSHouseInterior01.SetActorOwner(Game.GetPlayer().GetActorBase())'
+        assert converter_with_quests.sc.property_refs['GSHouseInterior01'] == 'Cell'
+
+    def test_items_with_health_imods_and_killer_reads_convert(self, converter_with_quests):
+        """AddItemHealthPercent drops the percent; imod applies at full strength; IsKiller compares GetKiller()."""
+        assert conv_line(converter_with_quests, 'player.AddItemHealthPercent ArmorLeather 1 0.50',
+                         'Quest').endswith('.AddItem(ArmorLeather, 1)')
+        assert conv_line(converter_with_quests, 'imod FadeToBlack4sISFX', 'Quest').startswith(
+            'FadeToBlack4sISFX.Apply(1.0')
+        assert 'GetKiller() ==' in conv_expr(converter_with_quests, 'IsKiller player', 'Quest')
+
     def test_get_completed_reads_the_quest_native(self, converter_with_quests):
         """GetObjectiveCompleted is Quest.IsObjectiveCompleted."""
         expr = conv_expr(converter_with_quests,
@@ -6233,6 +6252,14 @@ class TestFalloutQuestStageSubject:
         out = conv_lines(converter, 'PlayGroup SpecialIdle 0', 'ObjectReference')
         assert 'PlayGamebryoAnimation("SpecialIdle")' in out and 'PlayAnimation(' not in out
 
+    def test_fallout4_pipboy_flag_is_the_journal_not_the_pause_menu(self, converter, monkeypatch):
+        """FNV's Pip-Boy flag blocks FO4's journal (the Pip-Boy) only: FO4's menu flag is the pause menu."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        flagged = conv_lines(converter, 'DisablePlayerControls 0 1 1 0 0 0 0', 'Quest')
+        assert '.Disable(false, true, false, false, false, false, false, true)' in flagged
+        bare = conv_lines(converter, 'DisablePlayerControls', 'Quest')
+        assert '.Disable(true, true, false, false, false, false, true, true)' in bare
+
     def test_is_anim_playing_is_zero_on_fallout4(self, converter, monkeypatch):
         """FO4 cannot ask a NIF sequence; the graph-variable read only errored (Lucky38LightScript)."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
@@ -6319,3 +6346,17 @@ class TestVoidAssign:
         out = conv_lines(converter, 'set rCharge to player.additem AmmoNVArchimedesII 1')
         assert out.splitlines()[0].endswith('.AddItem(AmmoNVArchimedesII, 1)')
         assert out.splitlines()[1] == 'rCharge = None'
+
+
+class TestRadioLines:
+    """FO3/FNV radio lines on Fallout 4: a message shows only while the player hears the station."""
+
+    def test_only_messages_wait_on_the_listener(self):
+        """Camp Guardian's ShowMessage is guarded by TES4_Radio.Heard; a song-history write still runs."""
+        from script_convert import radio_lines
+        lines = ['Function Fragment_1(ObjectReference akSpeakerRef)', '  NVCGHalfordRadio1.Show(0.0, 0.0)',
+                 '  iLastSong1 = 4', 'EndFunction']
+        assert radio_lines.gated(lines) == [
+            'Function Fragment_1(ObjectReference akSpeakerRef)', '  If TES4_Radio.Heard(akSpeakerRef)',
+            '    NVCGHalfordRadio1.Show(0.0, 0.0)', '  EndIf', '  iLastSong1 = 4', 'EndFunction']
+        assert radio_lines.is_radio({'DATA.DialogType': '7'}) and not radio_lines.is_radio({'DATA.DialogType': '0'})

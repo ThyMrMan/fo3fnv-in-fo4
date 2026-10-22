@@ -33,6 +33,8 @@ from tes5_import.base.writer import pack_subrecord
 LOOP = 0x10
 #: Vanilla descriptors the converted ones copy: a looping one, and a one-shot (doors, containers, the rest).
 LOOP_TEMPLATE, ONE_SHOT_TEMPLATE = 'AMBSteamVaultPipeA', 'DRSWoodSingleLightLoadAOpen'
+#: The vanilla radio song descriptor a station's songs copy (Diamond City Radio's).
+SONG_TEMPLATE = 'MUSRadioDiamondBillieHolidayCrazyHeCallsMe'
 #: The template fields an SNDR keeps: type, category, output model, playback flags, priority and attenuation.
 KEPT = (b'CNAM', b'GNAM', b'ONAM', b'LNAM', b'BNAM')
 #: Vanilla's plain mono output models (SOPM), one per attenuation distance; ATTN's byte offset of that distance.
@@ -74,7 +76,7 @@ class Sounds:
         for rec, _ in walk(builder.fo4, b'SNDR'):
             subs = dict(subrecords(rec.body))
             name = subs.get(b'EDID', b'').rstrip(b'\0').decode()
-            if name in (LOOP_TEMPLATE, ONE_SHOT_TEMPLATE):
+            if name in (LOOP_TEMPLATE, ONE_SHOT_TEMPLATE, SONG_TEMPLATE):
                 self.templates[name] = subs
         self.models = {}
         for rec, _ in walk(builder.fo4, b'SOPM'):
@@ -128,10 +130,17 @@ class Sounds:
                           if p.suffix.lower() in AUDIO)
         return [name.lower()] if source.is_file() else []
 
-    def _write(self, fnv: int, rec: dict, files: list) -> int:
-        """Write the SNDR of FNV SOUN `rec` playing `files`, queueing their conversion; its FormID."""
+    def song(self, fnv: int, file: str) -> int:
+        """FNV song SOUN `fnv` as a radio song SNDR playing `file`, made once."""
+        if fnv not in self.made:
+            self.made[fnv] = self._write(fnv, self.records[fnv], [file], self.templates[SONG_TEMPLATE])
+        return self.made[fnv]
+
+    def _write(self, fnv: int, rec: dict, files: list, template: dict = None) -> int:
+        """Write the SNDR of FNV SOUN `rec` playing `files` (on `template`, else its kind's), queueing their
+        conversion; its FormID."""
         loop = int(rec.get('SNDD.Flags', 0) or 0) & LOOP
-        template = self.playback(rec, self.templates[LOOP_TEMPLATE if loop else ONE_SHOT_TEMPLATE])
+        template = template or self.playback(rec, self.templates[LOOP_TEMPLATE if loop else ONE_SHOT_TEMPLATE])
         fid = self.builder.writer.derive_formid(SNDR_SITE, f'{fnv:08X}')
         subs = pack_subrecord('EDID', f'FNV_{rec["EditorID"]}'.encode() + b'\0')
         subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[:2] if k in template)

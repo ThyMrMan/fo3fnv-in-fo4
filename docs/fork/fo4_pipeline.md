@@ -130,6 +130,18 @@ command line.
     missing-model marker on Primm's fence beams and utility poles, though
     the files were whole afterwards. Code reading a mesh the build just
     made uses `mesh_bytes()`.
+  - <a id="stale-files"></a>*Stale meshes, materials and clips (built
+    2026-10-21).* A mesh, material or idle clip a build stops making
+    stayed in the data folder (the encoder probe's clips, worn meshes
+    renamed, meshes of cells a region no longer covers). `stale_files`
+    lists what a build made under `Meshes/fnv`, `Materials/fnv` and the
+    plugin's clip folder (every writer there rewrites its file or, holding
+    its bytes, touches it, so files dated from the build's start) beside
+    the plugin as `<plugin>.files.txt`; the next build of that plugin
+    deletes what the last list named and the new one does not, unless
+    another plugin's list names it (a DLC build shares these folders). No
+    earlier list, nothing deleted. FaceGen and voice keep their own
+    pruning; scripts and textures are not covered.
 - **Scripts compiled only when changed.** `script.compile_into` stages the
   needed scripts in a folder that stays put
   (`output/fo4_cache/script_stage`) and compiles through the corpus gate's
@@ -662,7 +674,7 @@ export keeps rank numbers but not their titles).
 - Factions join `form_map`, so GetInFaction and faction parameters
   resolve.
 
-<a id="vendors"></a>**Vendors (built 2026-10-15, not yet played).**
+<a id="vendors"></a>**Vendors (built 2026-10-15, played 2026-10-21).**
 Barter worked on the vanilla stand-in vendors, which brought their own FO4
 vendor factions. The real FNV NPCs had none, so the barter menu was empty
 on both sides.
@@ -794,7 +806,7 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
     menu, then waits and opens barter.
   - *NPCs standing still:* see [packages](#packages).
 
-<a id="script-packages"></a>**Script packages on NPCs (built 2026-10-16, not yet played).**
+<a id="script-packages"></a>**Script packages on NPCs (built 2026-10-16, played 2026-10-21).**
 FO3/FNV's `AddScriptPackage <package>` gives an actor a package that
 outranks all its others. An actor holds one at a time: a second replaces
 the first. `RemoveScriptPackage` takes it away.
@@ -822,7 +834,7 @@ the first. `RemoveScriptPackage` takes it away.
   removed: a Travel package's actor keeps standing at its destination
   until the script moves it on.
 
-<a id="overlay-decals"></a>**Overlays as decals (built 2026-10-16, not yet played).**
+<a id="overlay-decals"></a>**Overlays as decals (built 2026-10-16, played 2026-10-21).**
 FNV's graffiti, posters, stains, grave text and blood splats are blended,
 lit, flat sheets set just in front of a surface. Most carry no decal flag:
 47 of 55 FNV graffiti meshes don't.
@@ -850,7 +862,7 @@ lit, flat sheets set just in front of a surface. Most carry no decal flag:
   pinto bean pod and a scope part. 90 non-flat blended shapes (plants,
   hotel walls, trees) keep the cut-out.
 
-<a id="still-bodies"></a>**Bodies that collide with nothing (built 2026-10-16, not yet played).**
+<a id="still-bodies"></a>**Bodies that collide with nothing (built 2026-10-16, played 2026-10-21).**
 FNV's Broc Flower and White Horse Nettle plants had a dynamic physics body
 (motion 4, mass 45, BSX Dynamic) on layer 15, NONCOLLIDABLE.
 - **What happened.** FNV left those bodies asleep. In FO4 the body fell
@@ -871,7 +883,7 @@ FNV's Broc Flower and White Horse Nettle plants had a dynamic physics body
     an animated node.
   - A mesh whose bodies are all still drops BSX Dynamic.
 
-<a id="actors-on-the-ground"></a>**Actors on the ground (built 2026-10-16, not yet played).**
+<a id="actors-on-the-ground"></a>**Actors on the ground (built 2026-10-16, played 2026-10-21).**
 FNV's records place some actors slightly below the landscape, and FNV set
 them on the ground as they loaded. FO4 places an actor where its record
 says, so such an actor started underground and fell through. Example: a
@@ -884,7 +896,7 @@ leveled gecko spawn at z 6668 over ground at 6672.
 - Actors standing above the ground (rooftops, ledges) and actors in
   interiors keep their recorded position.
 
-<a id="creature-stats"></a>**Creature stats (built 2026-10-15, not yet played).**
+<a id="creature-stats"></a>**Creature stats (built 2026-10-15, played 2026-10-21).**
 A converted creature is a copy of its FO4 stand-in with FNV's stats written
 into PRPS (`creatures.with_stats`). FO4 adds two things on top of the NPC's
 own health: its race's starting health (RACE PRPS) and a per-level bonus.
@@ -959,7 +971,7 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   Sitting and Allow Special Furniture). The inputs are found by the
   Sandbox template's data names (`value_slots`), not by position.
 - <a id="greet-trigger"></a>**A force greet waits for its trigger (built
-  2026-10-19, not yet played).** A ForceGreet copy kept vanilla's Target
+  2026-10-19, played 2026-10-21).** A ForceGreet copy kept vanilla's Target
   Trigger Location (near its editor location, 250), so FNV's trigger was
   lost: the Primm warning trooper (`PrimmWarningPackage`) reacted only
   within 250 units of his post. FNV's Dialogue package names it as PLD2
@@ -983,7 +995,7 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
     player is in talking range. FNV pulls the player into dialogue from
     the activate distance; FO4 does not, so the template's 200 stays.
 - <a id="hit-proof"></a>**Actors a script keeps alive (built 2026-10-19,
-  not yet played).** Six FNV scripts reset their actor's health in an
+  played 2026-10-21).** Six FNV scripts reset their actor's health in an
   OnHit block (`ResetHealth`), used by 7 actors: Sunny's Well 3 geckos and
   the settler fighting them (`VFreeformGoodspringsGeckoWell3DeathSCRIPT`,
   `VCG02GSSettlerSCRIPT`: neither dies until the player, Sunny or Cheyenne
@@ -1610,7 +1622,7 @@ could not be taken).
   `pack_keym`, laid out as 134 of vanilla's 177 keys (preview
   KeyChainsAlt, the most common), made by `Items` like a misc item.
 
-<a id="readables"></a>**Books, notes and terminals (built 2026-10-14, untested in game).**
+<a id="readables"></a>**Books, notes and terminals (built 2026-10-14, played 2026-10-21).**
 They were statics of their meshes. `spike/readables.py` now makes each
 one FNV's FormID keeps, whether a reference places it or a script gives it
 (`Items` hands BOOK and NOTE to it). Each FO4 target was checked against
@@ -1738,7 +1750,7 @@ Census of the region's 1,630 meshes' Havok blocks: MOPP/packed strips
 capsules 14, convex transforms 11, spheres 4, constraints 26, phantom and
 transform shape 1 each.
 
-<a id="consumable-effects"></a>**Consumable effects (built 2026-10-14, untested in game).**
+<a id="consumable-effects"></a>**Consumable effects (built 2026-10-14, played 2026-10-21).**
 `spike/consumable_effects.py` gives each FNV consumable (ALCH) effect a
 Fallout4.esm effect only where it is a true equivalent: the same actor value
 and the same kind, read field by field from both games' MGEF DATA (xEdit's
@@ -1828,7 +1840,7 @@ In order. **Built** marks what is done.
    - LVLC → LVLN;
    - creatures through the replacement table.
 
-## <a id="atomic-adds"></a>Cross-script increments (built 2026-10-13, untested in game)
+## <a id="atomic-adds"></a>Cross-script increments (built 2026-10-13, played 2026-10-21)
 
 `set Q.v to Q.v + 1` on another script's variable read and wrote it in one
 step: FO3/FNV run scripts one at a time. Papyrus runs each event on its own
@@ -1953,7 +1965,7 @@ their water. The worldspace now takes FNV's default land and water heights
 (DNAM) and LOD water height (NAM4), and each cell its own XCLW. The region
 had 2 cells losing water and none flooding.
 
-## <a id="placeable-water"></a>Placeable water (built 2026-10-19, not yet played)
+## <a id="placeable-water"></a>Placeable water (built 2026-10-19, played 2026-10-21)
 
 FNV places pools, springs and puddles as PWAT references: a flat mesh, and
 the record's water type (DNAM). The export now writes DNAM (flags and water
@@ -1991,7 +2003,7 @@ Region: 4 water activators and their water types; 28 tiles from 13
 references (blood 5, Goodsprings' clean water 20, dirty 1, toxic 2). Whole
 game: 29 PWATs on 27 water types.
 
-## <a id="region-weather"></a>Region weather and sounds (built 2026-10-19, not yet played)
+## <a id="region-weather"></a>Region weather and sounds (built 2026-10-19, played 2026-10-21)
 
 A region with a weather list overrides the climate in the cells that list
 it: Goodsprings' `GSWeatherRegion` plays `NVWastelandGS` (FNV's thicker
@@ -2030,7 +2042,7 @@ spaces ([acoustic spaces](#acoustic-spaces)). The ledger site keeps its
 first name (`FNV weather region`), so the regions built first keep their
 FormIDs. Region: 8 regions, 6 of them with 67 sounds.
 
-## <a id="vertex-alpha"></a>Vertex alpha on lit shapes (built 2026-10-19, not yet played)
+## <a id="vertex-alpha"></a>Vertex alpha on lit shapes (built 2026-10-19, played 2026-10-21)
 
 Victor's shack (`NV_ShackVictor.NIF`) still showed rusty metal sticking out
 after its material was split ([audit fixes](#audit-fixes)). Its triangles,
@@ -2048,7 +2060,7 @@ alpha rules (FNV's baked soft shadows fade by it). Grass
 grass needs to sit on slopes ([spike 4](fo4_spikes.md#spike-4-exterior)). Not yet confirmed in
 game as the cause of the shack's strips.
 
-## <a id="acoustic-spaces"></a>Acoustic spaces (built 2026-10-19, not yet played)
+## <a id="acoustic-spaces"></a>Acoustic spaces (built 2026-10-19, played 2026-10-21)
 
 FNV gives an acoustic space (XCAS) to 373 interiors and 17,112 exterior cells.
 FO4 gives one only to interiors (282 of Fallout4.esm's cells) and leaves the
@@ -2068,7 +2080,7 @@ outdoors to region sounds, so only an interior's XCAS converts.
 
 Region: 9 acoustic spaces on 27 interiors.
 
-## <a id="looping-sounds"></a>Looping sounds (built 2026-10-19, not yet played)
+## <a id="looping-sounds"></a>Looping sounds (built 2026-10-19, played 2026-10-21)
 
 FNV's statics (STAT RNAM), movable statics (MSTT SNAM), lights (LIGH SNAM)
 and doors (DOOR BNAM) can carry a looping sound. FO4 has the slot on
@@ -2100,7 +2112,7 @@ message and first script frame:
 | about 2,500 | quest timers: followers, the Primm deputy, Arcade, ED-E, VMQ01/05, Victor in the boulder | Calls on references and forms outside the region build (None) | Not changed: a region build lacks them; a whole-map build fills most |
 | 210 | vanilla `DLC04_GZSetConsciousOnHit` | A Nuka-World script's properties on a vanilla reference | Not ours |
 
-## <a id="radiation"></a>Radiation (built 2026-10-19, not yet played)
+## <a id="radiation"></a>Radiation (built 2026-10-19, played 2026-10-21)
 
 FNV gives a reference a radiation rate (XRAD, rads a second; 119 in
 FalloutNV.esm) over its radius (XRDS). FO4 has no such field: it places
@@ -2114,7 +2126,7 @@ is, whether or not the reference's base converts.
 
 Region: 6 hazards.
 
-## <a id="reference-fields"></a>Item counts, open doors, occlusion planes, decals (built 2026-10-19, not yet played)
+## <a id="reference-fields"></a>Item counts, open doors, occlusion planes, decals (built 2026-10-19, played 2026-10-21)
 
 FO4's REFR keeps these in FNV's layout, so `placement.py` copies them from
 FalloutNV.esm:
@@ -2141,7 +2153,7 @@ bit 0 is parallax, FO4's POM shadows). FNV's two junk bytes are 0. The
 references place as any reference, enable parent included. Region: 1
 texture set, 2 decals.
 
-## <a id="music"></a>Music (built 2026-10-19, not yet played)
+## <a id="music"></a>Music (built 2026-10-19, played 2026-10-21)
 
 **How FNV plays music.** FNV plays its music through audio markers: 572
 placed references to the engine's marker 0x23, with MMRK set. Each names a
@@ -2196,7 +2208,7 @@ duration.
 Region: 14 music types, 22 tracks on 16 files (14 MB), 20 music regions;
 28 interiors with music, 9 of them silent.
 
-## <a id="placed-mines"></a>Placed mines (built 2026-10-19, not yet played)
+## <a id="placed-mines"></a>Placed mines (built 2026-10-19, played 2026-10-21)
 
 FNV arms a mine as a PGRE reference on a projectile (PROJ). FO4 does the
 same with its own mine projectiles (Fallout4.esm: 395 PGREs, 340 of them
@@ -2660,7 +2672,7 @@ quick fix.
 |---|---|---|
 | Overall warmth: FO4's tone curve and LUT against FNV's clipped display colours | Not measured; a candidate player option ("FNV look") | [color drift](#color-drift) |
 | FNV's weather imagespace modifier: the amber tint (`NVWastelandIS`, 39%) and brightness × 1.3 | Values read; not converted | [weathers](#weathers) |
-| Region weathers: Goodsprings' thicker fog (`NVWastelandGS`) | Built 2026-10-19, not yet played | [region weather](#region-weather) |
+| Region weathers: Goodsprings' thicker fog (`NVWastelandGS`) | Built 2026-10-19, played 2026-10-21 | [region weather](#region-weather) |
 | Grass reads green, FNV's dry yellow | Not measured | [color drift](#color-drift) |
 | Bright dirt road | Re-check now that the weathers are FNV's | [color drift](#color-drift) |
 | Bright lamps blown out (the Goodsprings lantern) | FNV multiplies an emissive shape by 15 with HDR on (`0xBC6FE0`) and then clips; FO4 blooms the same energy. A rescale was tried and reverted. Tied to the tone question | [emittance](#emittance) |

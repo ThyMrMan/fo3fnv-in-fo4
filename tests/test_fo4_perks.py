@@ -160,3 +160,15 @@ def test_consumable_effect_carries_its_perk_test_and_an_unknown_perk_counts_as_n
     assert struct.unpack_from('<HxxI', ctda, 14) == (C.FO4.index('HasPerk'), 0x0B001234)
     assert effects._perk_tests([_has_perk(0x9999)]) is None
     assert effects._perk_tests([_has_perk(0x9999, 0.0)]) == b''
+
+
+def test_skill_gates_set_each_minigame_gate_by_its_skill_with_the_higher_tier_later():
+    """Lockpick and Science each set their FO4 gate (62, 98) to 1, 2, 3 at 50, 75, 100, priority rising with tier."""
+    raw = P.gate_effects(1)
+    blocks = P.effect_blocks(subrecords(P.pack_subrecord('DATA', bytes(5)) + raw))
+    assert [b[0] for b in blocks] == [bytes([ep, P.SET_VALUE, 1]) for ep in (62, 98) for _ in range(3)]
+    values = [struct.unpack('<f', dict(b[2])[b'EPFD'])[0] for b in blocks]
+    levels = [struct.unpack_from('<f', b[1][0], 10)[0] for b in blocks]
+    assert values == [1.0, 2.0, 3.0] * 2 and levels == [50.0, 75.0, 100.0] * 2
+    priorities = [p[2] for t, p in subrecords(raw) if t == b'PRKE']
+    assert priorities == [1, 2, 3] * 2

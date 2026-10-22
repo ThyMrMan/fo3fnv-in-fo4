@@ -127,6 +127,29 @@ left out. Our own keywords rather than FO4's `WeaponType*`: they carry
 FNV's authored type exactly (an FNV rifle on an FO4 template keeps FNV's
 skill), where FO4's keywords describe the template.
 
+## <a id="skill-gates"></a>Lock and terminal gates (built 2026-10-21, not yet played)
+
+FNV opens a lock or terminal of level L (0 to 100) only at Lockpick or
+Science L or more. FO4 numbers lock levels alike (xEdit: 0 and 25 Novice,
+50 Advanced, 75 Expert, 100 Master; vanilla places 0 and 25 freely) and our
+build already writes FNV's levels unchanged. FO4 gates the tiers by perk
+entry points, not ranks: each Locksmith rank sets Set Player Gate Lockpick
+(62) to 1, 2, 3 (Fallout4.esm Locksmith01-03), each Hacker rank Set Player
+Gate Hacking (98) the same.
+
+`FNV_SkillGates` (`perks.gate_effects`) is one hidden, unplayable perk of
+six entry-point effects: each gate Set Value 1, 2 and 3 on the condition
+GetValue(Lockpick or Science) >= 50, 75 and 100 (the helper plugin's skill
+actor values), the higher tier at a higher priority so it applies last. The
+conditions are read live, so the gate follows the skill (and its buffs) as
+it changes. `TES4_NewGame` gives the player the perk as it starts and on
+every load (a save from before it gets it too). FO4's own Locksmith and
+Hacker perks are untouched (the FO4 perk chart is off).
+
+Drift: FNV's Easy tier (25) needs Lockpick or Science 25; FO4's Novice tier
+has no gate, so the player opens those from the start (in the region: 6
+containers, 2 doors, 3 terminals).
+
 ## <a id="census"></a>Census (2026-10-20)
 
 Sources: the FalloutNV.esm export (`export/FalloutNV.esm/PERK.txt`), FNV's

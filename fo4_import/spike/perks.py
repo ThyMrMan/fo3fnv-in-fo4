@@ -49,6 +49,14 @@ CONSTANT_PREFIXES, DETRIMENTAL = ('AbFortify', 'AbReduce'), 0x4
 ITEM_CAPTIONS = frozenset({'Item', 'Weapon', 'Attacker Weapon'})
 #: Perk DATA: trait, level, ranks, playable, hidden.
 PERK_DATA = '<5B'
+#: FO4 entry points gating the minigames' tiers (Set Player Gate Lockpick, Hacking) and the FNV skill each follows.
+SKILL_GATES = ((62, 'Lockpick'), (98, 'Science'))
+#: Skill opening FO4's Advanced, Expert and Master tiers: FNV's lock and terminal levels 50, 75 and 100.
+GATE_SKILLS = (50.0, 75.0, 100.0)
+#: Entry point function Set Value, its float parameter type (EPFT), and CTDA's greater-or-equal.
+SET_VALUE, FLOAT_PARAM, AT_LEAST = 1, 1, 0x60
+#: The skill gates perk: its EditorID and FormID key, and DATA (no trait or level, one rank, unplayable, hidden).
+GATES_EDID, GATES_KEY, GATES_DATA = 'FNV_SkillGates', 'PERK skill gates', struct.pack(PERK_DATA, 0, 0, 1, 0, 1)
 
 
 class Perks:
@@ -65,6 +73,7 @@ class Perks:
         self.constants, self.tabs, self.vanilla, self.written = {}, {}, {}, set()
         self._index_vanilla()
         self.effects = Effects(builder, helper_index, self.vanilla)
+        self.gates = builder.new_id(GATES_KEY, key=GATES_KEY)
 
     def _rank_ids(self, rec: dict) -> list:
         """FO4 FormIDs of an FNV perk's ranks: FNV's own for the first."""
@@ -124,6 +133,8 @@ class Perks:
                 self.builder.writer.add_record('PERK', pack_perk(fid, (edid, rec.get('FULL', ''), rec.get('DESC', '')),
                                                                  needs or b'', _data(rec, len(ids)), after, effects))
                 self.builder.counts['PERK'] += 1
+        self.builder.writer.add_record('PERK', pack_perk(self.gates, (GATES_EDID, '', ''), b'', GATES_DATA, 0,
+                                                         gate_effects(self.helper_index)))
 
     def _effects(self, rec: dict, rank: int, after: int, edid: str) -> bytes:
         """The packed effects of rank `rank` of FNV perk `rec`; off while perk `after` (its next rank) is held."""
@@ -301,9 +312,25 @@ def _add_part(block: list, tab: int, tag: bytes, data: bytes) -> None:
         block[2].append((tag, data))
 
 
-def pack_effect(kind: int, data: bytes, tabs: dict, params: list) -> bytes:
-    """One FO4 perk effect: PRKE (rank 0, the chain holding ranks), DATA, its tabs, parameters and end marker."""
-    out = pack_subrecord('PRKE', bytes([kind, 0, 0])) + pack_subrecord('DATA', data)
+def gate_effects(helper_index: int) -> bytes:
+    """The skill gates perk's effects: each gate entry point set to 1, 2 and 3 at its skill's GATE_SKILLS, the
+    higher tier at a higher priority so it applies last.
+
+    See: docs/fork/fo4_perks.md#skill-gates
+    """
+    gates = [(entry, skill, tier, level) for entry, skill in SKILL_GATES for tier, level in enumerate(GATE_SKILLS, 1)]
+    out = b''
+    for n, (entry, skill, tier, level) in enumerate(gates):
+        ctda = R.pack_ctda(AT_LEAST, level, C.FO4.index('GetValue'), actor_value_form(skill, helper_index))
+        params = [(b'EPFT', bytes([FLOAT_PARAM])), (b'EPFB', struct.pack('<H', n)), (b'EPFD', struct.pack('<f', tier))]
+        out += pack_effect(ENTRY_POINT, bytes([entry, SET_VALUE, OWNER_TABS]), {0: ctda}, params, tier)
+    return out
+
+
+def pack_effect(kind: int, data: bytes, tabs: dict, params: list, priority: int = 0) -> bytes:
+    """One FO4 perk effect: PRKE (rank 0, the chain holding ranks; `priority`), DATA, its tabs, parameters and end
+    marker."""
+    out = pack_subrecord('PRKE', bytes([kind, 0, priority])) + pack_subrecord('DATA', data)
     for tab in sorted(tabs):
         out += pack_subrecord('PRKC', struct.pack('<b', tab)) + tabs[tab]
     return out + b''.join(pack_subrecord(t.decode(), d) for t, d in params) + pack_subrecord('PRKF', b'')

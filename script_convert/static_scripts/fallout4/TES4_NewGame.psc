@@ -14,11 +14,14 @@ Float[] Property SpecialStart Auto Const
 ImageSpaceModifier Property CharGenCameraImod Auto Const
 ImageSpaceModifier Property CharGenMirrorImod Auto Const
 {MQ101 stage 0's mirror camera effects: the camera one holds until removed (as MQ101PlayerScript removes it).}
+Perk Property SkillGates Auto Const
+{The hidden perk opening FO4's lock and terminal tiers by the source game's Lockpick and Science skills.}
 ; MQ101QuestScript's timer re-disabling directional light, SSR and god rays each second until var_MirrorSequenceDone.
 Int MirrorTimer = 50
 
 Event OnQuestInit()
   TracePlayerHits(Game.GetPlayer())
+  GivePerks(Game.GetPlayer())
   RegisterForRemoteEvent(Game.GetPlayer(), "OnPlayerLoadGame")
   If StartQuest.IsRunning() || StartQuest.IsCompleted() || MQ101.IsCompleted() || MQ101.GetStageDone(10)
     Return
@@ -93,7 +96,15 @@ EndFunction
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
   TracePlayerHits(akSender)
+  GivePerks(akSender)
 EndEvent
+
+Function GivePerks(Actor akPlayer)
+  {The player's always-on perks (SkillGates), given when this quest starts and on every load, so a save from before a perk existed gets it.}
+  If SkillGates && !akPlayer.HasPerk(SkillGates)
+    akPlayer.AddPerk(SkillGates)
+  EndIf
+EndFunction
 
 Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource, Projectile akProjectile, bool abPowerAttack, bool abSneakAttack, bool abBashAttack, bool abHitBlocked, string apMaterial)
   TES4Polyfill.TraceHit(akTarget, akAggressor, akSource)

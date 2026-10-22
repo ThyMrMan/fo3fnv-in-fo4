@@ -3,6 +3,8 @@
 See: docs/fork/fo4_pipeline.md#skeleton
 """
 
+import os
+import time
 from types import SimpleNamespace
 
 from fo4_import.nif.convert_static import Converted
@@ -13,6 +15,7 @@ from fo4_import.pipeline import elric_cache as EC
 from fo4_import.pipeline import export_index as EI
 from fo4_import.pipeline import mesh_cache as MC
 from fo4_import.pipeline import run as RUN
+from fo4_import.pipeline import stale_files as SF
 from fo4_import.pipeline import work_cache as WC
 from fo4_import.record_routes import ROUTES
 from fo4_import.spike.cell import CellBuilder
@@ -118,3 +121,23 @@ def test_the_first_world_takes_the_rectangle_and_the_rest_are_whole():
     args = SimpleNamespace(export=None, world=['A', 'B'], region=[0, 0, 1, 1], whole=False)
     assert RUN.exteriors(args) == (('A', (0, 0), (1, 1)), ('B', None, None))
     assert RUN.exteriors(SimpleNamespace(export=None, world=[], region=None, whole=False)) == ()
+
+
+def test_stale_files_are_what_the_last_list_named_and_no_list_names_now(tmp_path):
+    """A build's files are those under ROOTS dated from its start; the next build deletes its last list's others,
+    keeping one another plugin lists; with no earlier list nothing goes."""
+    files = {name: tmp_path / name for name in ('Meshes/fnv/a.nif', 'Meshes/fnv/old.nif', 'Materials/fnv/m.bgsm',
+                                                'Meshes/fnv/shared.nif', 'Meshes/other/x.nif')}
+    for path in files.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'x')
+    os.utime(files['Meshes/fnv/old.nif'], (1, 1))
+    os.utime(files['Meshes/fnv/shared.nif'], (1, 1))
+    started = time.time() - 1
+    assert SF.made(tmp_path, 'FalloutNV', started) == {'Meshes/fnv/a.nif', 'Materials/fnv/m.bgsm'}
+    plugin = tmp_path / 'A.esp'
+    assert SF.prune(plugin, tmp_path, {'Meshes/fnv/a.nif', 'Meshes/fnv/old.nif', 'Meshes/fnv/shared.nif'}) == []
+    (tmp_path / ('B.esp' + SF.LIST_SUFFIX)).write_text('Meshes/fnv/shared.nif\n', encoding='utf-8')
+    assert SF.prune(plugin, tmp_path, {'Meshes/fnv/a.nif'}) == ['Meshes/fnv/old.nif']
+    assert not files['Meshes/fnv/old.nif'].exists() and files['Meshes/fnv/shared.nif'].exists()
+    assert (tmp_path / ('A.esp' + SF.LIST_SUFFIX)).read_text(encoding='utf-8') == 'Meshes/fnv/a.nif\n'

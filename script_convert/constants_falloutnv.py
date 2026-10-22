@@ -77,6 +77,12 @@ FALLOUT_COMMAND_ROWS = {
     'applyimagespacemodifier': dict(emit='{p0}.Apply({f1})',
                                     types={0: 'ImageSpaceModifier'}, defaults={1: '1.0'}),
     'removeimagespacemodifier': dict(emit='{p0}.Remove()', types={0: 'ImageSpaceModifier'}),
+    'imod': dict(emit='{p0}.Apply({f1})', types={0: 'ImageSpaceModifier'}, defaults={1: '1.0'}),
+    'rimod': dict(emit='{p0}.Remove()', types={0: 'ImageSpaceModifier'}),
+    #: FO4 items carry no condition, so the health percent drops.
+    'additemhealthpercent': dict(emit='{ref}.AddItem({p0}, {a1})', subj='OBJREF', defaults={1: '1'}),
+    'iskiller': dict(emit='({ref}.GetKiller() == {a0})', subj='ACTOR', defaults={0: 'None'},
+                     flags='actor_only cmp_bool'),
     'showwarning': dict(emit='Debug.MessageBox({fmt})'),
     'showmessage': dict(emit='{p0}.Show({a1}, {a2})', types={0: 'Message'},
                         defaults={1: '0.0', 2: '0.0'}),

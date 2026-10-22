@@ -48,6 +48,12 @@ _QUEST_NATIVES = {
 }
 
 
+#: FO3/FNV quest command -> the argument-less Quest native it becomes (ForceActiveQuest: the tracked quest).
+_QUEST_CALLS = {'forceactivequest': 'SetActive', 'completeallobjectives': 'CompleteAllObjectives'}
+#: Owner record type -> (Cell native setting it as owner, its property type).
+_OWNER_SETTERS = {'FACT': ('SetFactionOwner', 'Faction'), 'NPC_': ('SetActorOwner', 'ActorBase')}
+
+
 #: Quest EditorID (lower) -> frozenset of authored QOBJ indices, per process.
 _QUEST_OBJECTIVES: dict = {}
 
@@ -126,15 +132,34 @@ def quest_native(ctx, call):
     return f'{started}{prop}.{native}({args})' + _objective_mirror(ctx, call, quest_edid, parts)
 
 
-def force_active_quest(ctx, call):
-    """`ForceActiveQuest <quest>` -- Quest.SetActive(): the quest becomes the one the Pip-Boy tracks."""
+def quest_call(ctx, call):
+    """`<cmd> <quest>` -- the Quest native _QUEST_CALLS names, no arguments, on the quest."""
     parts = ctx.arg_srcs()
     if not parts:
         return None
     prop = safe_property_name(parts[0].strip())
     if not typed_already(ctx.sc.property_refs, prop):
         ctx.sc.property_refs[prop] = 'Quest'
-    return f'{prop}.SetActive()'
+    return f'{prop}.{_QUEST_CALLS[call.name]}()'
+
+
+def cell_ownership(ctx, call):
+    """`SetCellOwnership <cell> [owner]` -- Cell.SetFactionOwner for a faction, SetActorOwner for an NPC or, with
+    no owner, the player (as FO3/FNV gave the cell to the player); None (a note) for any other owner."""
+    parts = [p.strip() for p in ctx.arg_srcs()]
+    if not parts:
+        return None
+    cell = safe_property_name(parts[0])
+    ctx.sc.property_refs.setdefault(cell, 'Cell')
+    if len(parts) < 2:
+        return f'{cell}.SetActorOwner(Game.GetPlayer().GetActorBase())'
+    fid = ctx.xref.edid_to_formid.get(parts[1].lower(), '') if ctx.xref else ''
+    setter = _OWNER_SETTERS.get(ctx.xref.record_type.get(fid, '') if fid else '')
+    if setter is None:
+        return None
+    owner = safe_property_name(parts[1])
+    ctx.sc.property_refs.setdefault(owner, setter[1])
+    return f'{cell}.{setter[0]}({owner})'
 
 
 def _quest_delay(ctx, quest_edid: str, prop: str, secs: str) -> str:
@@ -321,5 +346,6 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'getweaponanimtype': weapon_anim_type,
                     'showmessage': show_message,
                     'swaptexture': swap_texture,
-                    'forceactivequest': force_active_quest,
+                    'setcellownership': cell_ownership,
+                    **{name: quest_call for name in _QUEST_CALLS},
                     **{name: quest_native for name in _QUEST_NATIVES}}

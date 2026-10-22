@@ -203,8 +203,8 @@ def _cup() -> C.Converted:
 
 def test_a_current_mesh_is_written_from_its_kept_files_and_a_file_holding_its_bytes_is_left_alone(tmp_path,
                                                                                                      monkeypatch):
-    """Writing an unchanged mesh again neither converts, unpickles nor serializes it, and skips a material that
-    already holds its bytes; a NIF Elric rewrote is written again; a changed texture or a pose converts again."""
+    """Writing an unchanged mesh again neither converts, unpickles nor serializes it, and only touches a material
+    already holding its bytes; a NIF Elric rewrote is written again; a changed texture or a pose converts again."""
     for module in (MC, WC):
         monkeypatch.setattr(module, 'CACHE', tmp_path / module.__name__)
     calls, real = [], (F.write, MC.cached_convert)
@@ -221,7 +221,7 @@ def test_a_current_mesh_is_written_from_its_kept_files_and_a_file_holding_its_by
     monkeypatch.setattr(F, 'write', lambda *a: pytest.fail('serialized again'))
     monkeypatch.setattr(MC, 'cached_convert', lambda *a: pytest.fail('Converted read again'))
     assert ST.write_assets(export, 'Clutter\\Cup.nif', data) == first and nif.read_bytes() == raw
-    assert material.stat().st_mtime < time.time() - DAY and len(calls) == 1
+    assert material.stat().st_mtime > time.time() - DAY and len(calls) == 1
     monkeypatch.setattr(F, 'write', real[0])
     monkeypatch.setattr(MC, 'cached_convert', real[1])
     (export / 'textures' / 'a.dds').write_bytes(b'new dds')
@@ -232,7 +232,7 @@ def test_a_current_mesh_is_written_from_its_kept_files_and_a_file_holding_its_by
 
 def test_a_havok_nif_reaches_disk_only_finished_and_an_unchanged_one_is_not_rewritten(tmp_path, monkeypatch):
     """write_mesh() holds a Havok NIF (mesh_bytes() gives it back) and writes nothing; finish() writes it finished;
-    a rebuild of the same NIF leaves the file untouched; a NIF without Havok is written at once."""
+    a rebuild of the same NIF does not rewrite the file, only touches it; a NIF without Havok is written at once."""
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
     monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
     monkeypatch.setattr(EC.elric, 'has_havok', lambda data: data != b'plain')
@@ -244,6 +244,9 @@ def test_a_havok_nif_reaches_disk_only_finished_and_an_unchanged_one_is_not_rewr
     assert EC.finish([path]) == [] and path.read_bytes() == b'one+'
     os.utime(path, (1, 1))
     EC.write_mesh(path, b'one')
-    assert path.read_bytes() == b'one+' and EC.finish([path]) == [] and path.stat().st_mtime == 1
+    real = pathlib.Path.write_bytes
+    monkeypatch.setattr(pathlib.Path, 'write_bytes', lambda p, d: pytest.fail('rewritten') if p == path else real(p, d))
+    assert path.read_bytes() == b'one+' and EC.finish([path]) == [] and path.stat().st_mtime > 1
+    monkeypatch.setattr(pathlib.Path, 'write_bytes', real)
     EC.write_mesh(plain, b'plain')
     assert plain.read_bytes() == b'plain'

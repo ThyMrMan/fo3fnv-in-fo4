@@ -950,3 +950,42 @@ def test_trimmed_clip_keeps_its_first_seconds_and_their_events():
     ID.trimmed(anim, 3.0)
     assert (anim.num_frames, anim.num_blocks, len(track.rotations), len(anim.annotations)) == (91, 1, 91, 1)
     assert abs(anim.duration - 3.0) < 1e-6
+
+
+def test_radio_station_xrdo_reaches_everywhere_or_weakens_over_fnvs_static_share():
+    """Everywhere ignores distance; a 5000 radius at 50% static weakens from 2500 out; frequencies in the Pip-Boy's
+    80-110 band, one slot per station in FormID order."""
+    from fo4_import.spike import radio as RA
+    assert struct.unpack('<3fI', RA.xrdo_data(96.0, (0.0, 1, 0.0, 0))) == (96.0, 0.0, 0.0, RA.IGNORES_DISTANCE)
+    assert struct.unpack('<3fI', RA.xrdo_data(96.0, (5000.0, RA.RADIUS, 50.0, 0)))[1:] == (2500.0, 5000.0, 0)
+    assert [RA.frequency_of(s, {9: 0, 2: 0, 5: 0}) for s in (2, 5, 9)] == list(RA.FREQUENCIES[:3])
+    assert all(80.0 <= f <= 110.0 for f in RA.FREQUENCIES)
+
+
+def test_only_radio_stations_the_pipboy_lists_become_transmitters(monkeypatch):
+    """A Radio Station talking activator is a Pip-Boy station unless flagged Non-Pipboy; others are not."""
+    from fo4_import.spike import radio as RA
+    monkeypatch.setattr(RA, 'export_records', lambda d, sig: [
+        {'FormID': '00000001', 'RecordFlags': str(0x40020000)}, {'FormID': '00000002', 'RecordFlags': str(0x10020000)},
+        {'FormID': '00000003', 'RecordFlags': '0'}])
+    assert list(RA.pipboy_stations(Path('x'))) == [1]
+
+
+def test_playlist_scene_plays_each_song_on_its_own_gated_phase():
+    """A playlist scene: phase 1 says the pick topic; each song phase starts only on its CurrentSong and plays its
+    SNDR through a Radio action's sound (HTID), as DiamondCityRadioMusicScene's songs."""
+    from fo4_import.spike import radio as RA
+    from fo4_import.spike.holotapes import pack_scene
+    from tes5_import.base.tes5_reader import subrecords
+    gate = RA.playing(0x0100, 2)
+    record = pack_scene(0x0200, 'Playlist', 0x0100, [0x0300, 0, 0], RA.PLAYLIST_FLAGS, RA.HOST_ALIAS, 0,
+                        sounds=[0, 0x0401, 0x0402], conditions=[b'', RA.playing(0x0100, 1), gate])
+    subs = subrecords(record[24:])
+    tags = [t for t, _ in subs]
+    assert tags.count(b'CTDA') == 2 and subs[tags.index(b'CIS2')][1] == b'::CurrentSong_var\0'
+    ctda = subs[tags.index(b'CTDA')][1]
+    assert struct.unpack_from('<fH', ctda, 4) == (1.0, CD.FO4.index('GetVMQuestVariable'))
+    assert struct.unpack_from('<I', ctda, 12)[0] == 0x0100
+    sounds = [struct.unpack('<I', d)[0] for t, d in subs if t == b'HTID']
+    topics = [struct.unpack('<I', d)[0] for t, d in subs if t == b'DATA']
+    assert sounds == [0, 0x0401, 0x0402] and topics == [0x0300, 0, 0]
