@@ -1,5 +1,5 @@
 ScriptName TES4_NewGame extends Quest Hidden
-{The FO3/FNV opening on Fallout 4, run once as this start-game quest starts. A new game first runs Fallout 4's own opening, MQ101 stage 0: its intro movie, then the character creation state. Once the movie is over that state is undone with the calls vanilla undoes it with (TimeScale 20 as vaultExitCommonWealthSCRIPT, SetInCharGen, the chargen skeleton, the mirror sequence flag ending MQ101's lighting timer, directional light and the camera imod as MQ101PlayerScript and MQ101QuestScript, ambient particles as a later MQ101 stage, the HUD mode as MQ03QuestScript, MQ101's and MQ03's input layers deleted), Fallout 4's opening quests are stopped and the source game's first stage (StartQuest, StartStage) is set. A coc from the main menu runs no MQ101 stage 0: the source game starts at once. A save where the source game, or Fallout 4's own game, is already under way is left alone.}
+{The FO3/FNV opening on Fallout 4, run once as this start-game quest starts. A new game first runs Fallout 4's own opening, MQ101 stage 0: its intro movie, then the character creation state. Once the movie is over that state is undone with the calls vanilla undoes it with (TimeScale 20 as vaultExitCommonWealthSCRIPT, SetInCharGen, the chargen skeleton, the mirror sequence flag ending MQ101's lighting timer, directional light and the camera imod as MQ101PlayerScript and MQ101QuestScript, ambient particles as a later MQ101 stage, the HUD mode as MQ03QuestScript, MQ101's and MQ03's input layers deleted), Fallout 4's opening quests are stopped and the source game's first stage (StartQuest, StartStage) is set. A coc from the main menu runs no MQ101 stage 0, so the source game does not start; setting this quest's stage 10 (TES4_NewGameStart) starts it by hand. A save where the source game, or Fallout 4's own game, is already under way is left alone.}
 
 Quest Property MQ101 Auto Const
 Quest Property MQ102 Auto Const
@@ -33,11 +33,21 @@ Event OnQuestInit()
   EndWhile
   If MQ101.GetStageDone(0)
     LeaveOpening()
+    Begin()
+  Else
+    Debug.Trace("TES4NewGame|no New Game opening (a coc): the source game waits for setstage FNV_NewGame 10")
+  EndIf
+EndEvent
+
+Function Begin()
+  {Start the source game: the player's SPECIAL, then its first stage. Once only; stage 10 calls it by hand.}
+  If StartQuest.IsRunning() || StartQuest.IsCompleted()
+    Return
   EndIf
   SetStartSpecial()
   StartQuest.SetStage(StartStage)
   Game.FadeOutGame(False, True, 0.0, 1.0)
-EndEvent
+EndFunction
 
 Function LeaveOpening()
   {Wait out MQ101 stage 0 (its movie, then the rest of its fragment), then undo what it set up and stop its quests.}

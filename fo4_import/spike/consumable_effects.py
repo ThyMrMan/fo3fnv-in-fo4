@@ -107,10 +107,10 @@ class Effects:
                 self.builder.counts['effect dropped (perk not in the build)'] += 1
                 continue
             for fid in fo4:
-                out += _pair(fid, MAGNITUDES.get(edid, magnitude), area, duration) + tests
+                out += effect_pair(fid, MAGNITUDES.get(edid, magnitude), area, duration) + tests
         if not out:
             self.builder.counts['ALCH with no effect (placeholder)'] += 1
-            out = _pair(self.vanilla[NO_EFFECT][0], 0.0, 0, 0)
+            out = effect_pair(self.vanilla[NO_EFFECT][0], 0.0, 0, 0)
         return out
 
     def _perk_tests(self, perks: list) -> 'bytes | None':
@@ -157,7 +157,7 @@ class Effects:
         return fid
 
 
-def _pair(fid: int, magnitude: float, area: int, duration: int) -> bytes:
+def effect_pair(fid: int, magnitude: float, area: int, duration: int) -> bytes:
     """One EFID/EFIT pair."""
     return pack_subrecord('EFID', struct.pack('<I', fid)) + pack_subrecord('EFIT', struct.pack('<fII', magnitude,
                                                                                                area, duration))

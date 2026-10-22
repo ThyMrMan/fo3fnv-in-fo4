@@ -1,7 +1,8 @@
 """Which FNV quests a build includes: the quests its content names, and the quests those start or advance.
 
-The content is the scripts of the bases placed in the build, of its placed
-actors and of their packages, the actors' package conditions, and the
+The content is the scripts of the bases placed in the build, of the items
+its placed actors and containers carry (a faction outfit's equip script),
+of its placed actors and of their packages, the actors' package conditions, and the
 dialogue lines spoken there (a GetIsID on a placed actor's or object's base,
 a GetIsReference on a placed reference, a GetInCell on a built cell), in
 a line's conditions or its quest's own, which FNV adds to every line (a
@@ -15,6 +16,7 @@ VCG01Test). A quest it only reads stays out, and the readiness report shows
 the read.
 
 See: docs/fork/fo4_pipeline.md#quest-scope
+See: docs/fork/fo4_pipeline.md#disguises
 """
 
 import collections
@@ -23,11 +25,17 @@ import struct
 from pathlib import Path
 
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike.items import ITEM_TYPES
+from fo4_import.spike.npcs import USE_INVENTORY
 from fo4_import.spike.script import FRAGMENT_PREFIX, PACKAGE_PREFIX, QUEST_PREFIX, declared_properties
 from script_convert.constants import papyrus_script_name
 
 #: Converted script name prefix of an FNV script (attach.SCRIPT_PREFIX).
 SCRIPT_PREFIX = 'FALLOUTNV_'
+#: FNV records that hold others (_holds): actors, containers, leveled lists.
+HOLDERS = ('NPC_', 'CREA', 'CONT', 'LVLI', 'LVLN', 'LVLC')
+#: Export keys of a held FormID: an inventory item, a leveled entry.
+HELD = re.compile(r'(?:Item|Entry)\[\d+\]\.FormID$')
 #: FNV CTDA byte offsets of parameter 1 and 2.
 PARAMS = (12, 16)
 #: FNV condition functions that say who speaks a line or where: GetIsID, GetIsReference, GetInCell.
@@ -51,6 +59,19 @@ class QuestScope:
             self.lines[int(info.get('QSTI.Quest', '0') or '0', 16)].append(info)
         self.packs = {int(r['FormID'], 16): r for r in export_records(export_dir, 'PACK')}
         self.actors = {int(r['FormID'], 16): r for sig in ('NPC_', 'CREA') for r in export_records(export_dir, sig)}
+        self.items = {int(r['FormID'], 16): r['SCRI'] for sig in ITEM_TYPES for r in export_records(export_dir, sig)
+                      if r.get('SCRI')}
+        self.holds = {int(r['FormID'], 16): _holds(r) for sig in HOLDERS for r in export_records(export_dir, sig)}
+
+    def _held(self, start: set) -> set:
+        """What the records `start` hold, at any depth: inventories, leveled entries, inventory templates."""
+        seen, todo = set(), list(start)
+        while todo:
+            for fid in self.holds.get(todo.pop(), ()):
+                if fid not in seen:
+                    seen.add(fid)
+                    todo.append(fid)
+        return seen
 
     def included(self, bases: dict, refs: list, actors: list) -> list:
         """FNV QUST records of a build placing `bases` {FormID: (type, record)}, references `refs` and actors
@@ -58,7 +79,9 @@ class QuestScope:
         actor_bases = {int(a['NAME'], 16) for a in actors}
         where = {GET_IS_ID: actor_bases | bases.keys(), GET_IS_REFERENCE: {int(r['FormID'], 16) for r in refs + actors},
                  GET_IN_CELL: {int(r['ParentCELL'], 16) for r in refs + actors if r.get('ParentCELL')}}
-        named = set().union(*(self._script(rec.get('SCRI'))[0] for _, rec in bases.values()))
+        scripts = [rec.get('SCRI') for _, rec in bases.values()]
+        scripts += [self.items[fid] for fid in self._held(bases.keys() | actor_bases) if fid in self.items]
+        named = set().union(*(self._script(scri)[0] for scri in scripts))
         for fid in actor_bases & self.actors.keys():
             named |= self._actor(self.actors[fid])
         named |= {quest for quest, lines in self.lines.items() if any(_placed(line, where) for line in lines)}
@@ -111,6 +134,13 @@ def _placed(line: dict, where: dict) -> bool:
         if p1 in where.get(func, ()):
             return True
     return False
+
+
+def _holds(rec: dict) -> list:
+    """What FNV `rec` holds: items, leveled entries, its inventory's template."""
+    out = [int(v, 16) for k, v in rec.items() if HELD.match(k)]
+    template = int(rec.get('ACBS.TemplateFlags', 0) or 0) & USE_INVENTORY and rec.get('TPLT.Template')
+    return out + ([int(template, 16)] if template else [])
 
 
 def _params(rec: dict) -> set:

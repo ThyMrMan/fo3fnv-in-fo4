@@ -180,14 +180,21 @@ class Terminals:
         vmad = terminal_fragments(name, [(i + 1, fragment_name(i)) for i in items], scripts.properties(name))
         return pack_subrecord('VMAD', vmad)
 
-    def lock(self, ref: dict) -> bytes:
-        """XLOC of a placed FNV terminal its base locks (FO4 locks the reference); b'' for one it leaves open."""
+    def lock_of(self, ref: dict) -> 'tuple | None':
+        """(XLOC level, Leveled, password note FNV FormID or 0) of a placed FNV terminal its base locks; None for one
+        it leaves open."""
         rec = self.records.get(int(ref['NAME'], 16))
         flags = int(rec.get('DNAM.Flags', 0)) if rec else UNLOCKED
         if flags & UNLOCKED:
-            return b''
+            return None
         difficulty = int(rec.get('DNAM.Difficulty', 0))
         level = KEY_ONLY if difficulty >= REQUIRES_KEY else difficulty * LOCK_STEP
+        return level, bool(flags & LEVELED), int(rec.get('PNAM', '0'), 16)
+
+    def lock(self, ref: dict) -> bytes:
+        """XLOC of a placed FNV terminal its base locks (FO4 locks the reference); b'' for one it leaves open."""
+        lock = self.lock_of(ref)
+        if lock is None:
+            return b''
         self.builder.counts['locked terminals'] += 1
-        self.builder.counts['terminal password notes left out'] += bool(rec.get('PNAM'))
-        return pack_subrecord('XLOC', struct.pack('<B3xIB3xI', level, 0, LEVELED_LOCK if flags & LEVELED else 0, 0))
+        return pack_subrecord('XLOC', struct.pack('<B3xIB3xI', lock[0], 0, LEVELED_LOCK if lock[1] else 0, 0))

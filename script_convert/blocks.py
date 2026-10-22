@@ -132,10 +132,17 @@ def _rebind_existing(param: str, safe: str, param_type: str,
     """
     if (is_generated_script_type(existing)
             and param_type in ('Actor', 'ObjectReference', 'Form')):
-        return f'{param} == {safe}'
+        return _matches(param, safe)
     if param_type == 'Form' and is_base_object_type(existing):
-        return f'{param} == {safe}'
+        return _matches(param, safe)
     return None
+
+
+def _matches(param: str, safe: str) -> str:
+    """`param` is the filter's form `safe`; false while `safe` is unfilled.
+    See: docs/commentary/script_convert.md#block-filter-guards
+    """
+    return f'{safe} && {param} == {safe}'
 
 
 def _filter_record_type(conv, name: str) -> str:
@@ -191,4 +198,4 @@ def block_filter_guard(conv, block_type: str,
     if existing and existing != ptype:
         return _rebind_existing(param, safe, param_type, existing)
     conv.sc.property_refs[safe] = ptype
-    return f'{param} == {safe}'
+    return _matches(param, safe)

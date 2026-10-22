@@ -283,8 +283,9 @@ other ranged reload, and this is cosmetic — the weapon fires correctly.
 
 ### <a id="ammo-is-a-bolt"></a>Ammo: rounds are bolts
 
-**Code:** `tes4_export/record_types/falloutnv.py` (`_emit_ammo_deltas`),
-`tes5_import/record_types/equipment_falloutnv.py` (`ammo_flags`).
+**Code:** `tes4_export/record_types/ammo_falloutnv.py` (`emit_ammo_deltas`,
+`export_AMMO_EFFECT`), `tes5_import/record_types/equipment_falloutnv.py`
+(`ammo_flags`).
 
 The FO3/FNV `AMMO.DATA` is 13 bytes (speed f32, flags u8 + 3 unused, value
 s32, clip rounds u8) and the weight moved to `DAT2` (+8, after projectiles
@@ -297,6 +298,15 @@ The importer sets Non-Bolt (0x04) on every TES4 arrow, and a crossbow-type
 WEAP can only load bolts, so a converted gun could never equip its rounds
 and `arrowRelease` had nothing to spend. A Fallout-sourced AMMO leaves that
 bit clear.
+
+FNV's `DAT2` runs on past the weight: the casing the round leaves when fired
+(Consumed Ammo, a MISC or AMMO) and its chance in percent, exported as
+`DAT2.Casing` and `DAT2.CasingChance` (FO3's 12-byte `DAT2` has neither).
+`ONAM` (short name), `QNAM` (HUD abbreviation) and each `RCIL` (an ammo
+effect, `RCIL[i]`) export too, and AMEF exports its name and `DATA` (type:
+Damage, DR, DT, Spread, Condition, Fatigue; operation: Add, Multiply,
+Subtract; value). The FO4 build uses them:
+[ammo](../fork/fo4_pipeline.md#nv-ammo).
 
 ### <a id="embedded-weapons"></a>Embedded weapons (2026-09-28, unconfirmed in game)
 

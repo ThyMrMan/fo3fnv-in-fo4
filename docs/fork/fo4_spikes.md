@@ -2560,6 +2560,14 @@ a copy of a Fallout4.esm record, the
 first- and third-person animations, sounds, keywords and mod templates
 (OBTE), with FNV's name, value and weight.
 
+**One configuration per weapon (2026-10-22).** A copy keeps only its FO4
+template's default combination (`Guns.default_only`), as a chosen gun
+already did. Fallout 4's other combinations are loot variants drawing random
+parts from mod collections (`modcol_*`). They gave converted weapons FO4
+parts FNV never had: the 9mm SMG's "Silver Shroud" and 10 fist and melee
+weapons' "Standard"/"Simple Epic" sets kept 5 each. FNV weapons have one
+form, plus FNV's own mods.
+
 | FNV | Written on |
 |---|---|
 | Baseball bat, rolling pin, switchblade, tire iron | The same FO4 weapon |

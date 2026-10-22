@@ -31,6 +31,7 @@ from fo4_import.spike.emittance import Emittance
 from fo4_import.spike.lighting_template import resolved
 from fo4_import.spike.imagespace import BASE_IMAGESPACE, DISPLAY_GAMMA, LUT_FOLDER, base_hdr, pack_imgs, write_lut
 from fo4_import.spike.activators import Activators
+from fo4_import.spike import ammo_casings, ammo_switch
 from fo4_import.spike.crafting import Crafting
 from fo4_import.spike import character, facegen, new_game, replacements, skeleton
 from fo4_import.spike.attach import ObjectScripts
@@ -67,6 +68,7 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.spike.quest_scope import QuestScope
 from fo4_import.spike.named_refs import named_markers
 from fo4_import.spike.condition_forms import condition_forms
+from fo4_import.spike.locks import lock_vmad
 from fo4_import.spike.readiness import Readiness
 from fo4_import.spike.reputation import write_page, write_reputations
 from fo4_import.spike.standings import Standings
@@ -472,7 +474,8 @@ def _test_chest(builder: CellBuilder, template) -> bytes:
     fid = builder.writer.derive_formid(TEST_SITE, 'CONT')
     builder.writer.add_record('CONT', R.pack_cont(
         fid, 'FNV_TestChest', 'FNV test chest', subs[b'MODL'].rstrip(b'\0').decode(),
-        struct.unpack('<6h', subs[b'OBND']), builder.equipment.test_items(TEST_ROUNDS), 0, 0.0))
+        struct.unpack('<6h', subs[b'OBND']), builder.equipment.test_items(TEST_ROUNDS)
+        + builder.equipment.ammo_mods.test_items(TEST_ROUNDS), 0, 0.0))
     return R.pack_refr(builder.writer.derive_formid(TEST_SITE, 'REFR'), fid, TEST_CHEST_POS, (0.0, 0.0, 0.0))
 
 
@@ -514,7 +517,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
                              + builder.emittance.xemi(ref) + builder.radio.xrdo(ref),
                              bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED),
                              builder.ref_ids.get(ref.get('XLKR.LinkedRef'), 0),
-                             door_link=builder.door_links.get(ids[ref['FormID']]), sig=ref['Signature'])
+                             door_link=builder.door_links.get(ids[ref['FormID']]), sig=ref['Signature'], vmad=lock_vmad(builder, ref))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         builder.counts['placed'] += 1
     return persistent, temporary
@@ -716,7 +719,8 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.perks = Perks(builder, export_dir, HELPER_INDEX)
     consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
     equipment = builder.equipment
-    makers = {'ALCH': consumables.alch, 'AMMO': consumables.ammo, 'WEAP': equipment.weap, 'ARMO': equipment.armo}
+    makers = {'ALCH': consumables.alch, 'AMMO': consumables.ammo, 'WEAP': equipment.weap, 'ARMO': equipment.armo,
+              'IMOD': equipment.weapon_mods.loose}
     stand_ins = replacements.items(builder.table, builder.fo4, builder.masters, builder.plugin_dirs)
     builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
                                                               SHARED_TYPES), makers, stand_ins)
@@ -996,6 +1000,9 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
     builder.counts['script packages'] = write_script_packages(builder)
+    ammo_casings.write(builder, builder.equipment.ammo_mods.loaded)
+    ammo_switch.write(builder, builder.equipment.ammo_mods)
+    builder.equipment.condition.write(builder.equipment.ammo_mods, data_dir, HELPER_INDEX)
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))
     print(f'karma page: {write_karma_page(builder, export_dir, data_dir, out.name, builder.reputation_slots)}')

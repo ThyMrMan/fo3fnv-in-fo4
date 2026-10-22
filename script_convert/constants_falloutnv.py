@@ -79,7 +79,7 @@ FALLOUT_COMMAND_ROWS = {
     'removeimagespacemodifier': dict(emit='{p0}.Remove()', types={0: 'ImageSpaceModifier'}),
     'imod': dict(emit='{p0}.Apply({f1})', types={0: 'ImageSpaceModifier'}, defaults={1: '1.0'}),
     'rimod': dict(emit='{p0}.Remove()', types={0: 'ImageSpaceModifier'}),
-    #: FO4 items carry no condition, so the health percent drops.
+    #: Skyrim items carry no condition, so the health percent drops (Fallout 4: command_rows_fallout4).
     'additemhealthpercent': dict(emit='{ref}.AddItem({p0}, {a1})', subj='OBJREF', defaults={1: '1'}),
     'iskiller': dict(emit='({ref}.GetKiller() == {a0})', subj='ACTOR', defaults={0: 'None'},
                      flags='actor_only cmp_bool'),
@@ -124,6 +124,8 @@ FALLOUT_COMMAND_ROWS = {
     'getweaponhealthperc': dict(
         emit='0', note='{f} - Skyrim has no weapon condition (read as 0)',
         flags='zero_arg'),
+    'setweaponhealthperc': dict(emit='', note='{f} - Skyrim has no weapon condition'),
+    'modweaponhealthperc': dict(emit='', note='{f} - Skyrim has no weapon condition'),
     #: Fallout's per-faction "player is an enemy" crime flag: Skyrim's, kept readable by TES4_FalloutCrime.
     'getactorfactionplayerenemy': dict(
         emit='TES4_FalloutCrime.TES4AnyEnemy({ref}, TES4PlayerEnemyFactions)', subj='ACTOR',

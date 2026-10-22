@@ -682,6 +682,67 @@ and the FO4 build ports them; FO4 has all the events they need:
   event, the reported-theft infamy, may not fire. A reported murder
   comes through the kill event's crime status either way.
 
+<a id="disguises"></a>**Disguises and faction armor (built 2026-10-22, not yet
+played).** FNV's disguises are content, not engine code, and convert as
+such ([drift](fo4_drift.md#candidates)):
+- **FNV's mechanism.** Each faction outfit (the five `FactionGearNV*` form
+  lists: NCR, Legion, Brotherhood, Great Khans, Powder Gangers; the White
+  Glove set) carries an object script (`NCRFactionOutfitWarningScript`...)
+  whose `OnEquip Player` saves the five reputations into
+  `DisguiseFactionPulseQuest`, zeroes them, starts that quest and allies
+  `PlayerFaction` with the outfit's armor faction (`ArmorNCRFactionNV`,
+  which 860 NPC_ carry), and puts the player in its enemy twin
+  (`ArmorNCRFactionNVEnemy`, the Legion's foe); `OnUnequip` undoes it and
+  adds the saved reputations back. The quest's script (delay 1 s) casts
+  `DisguiseFactionPulseActorEffect` on the player: a Touch spell of area
+  25 and 5 s whose script effect (`DisguiseFactionPulseScript`) takes a
+  sniffer (`VNCRSnifferFaction`...) out of the armor faction while it is
+  near, and puts it back when the effect ends. Companions drop faction
+  armor given to them (`OnAdd` + `DropMe`).
+- **What was missing.** The scripts converted already (FO4's
+  `OnEquipped`/`OnUnequipped`, reputation through `TES4_Reputation`,
+  `SetAlly`/`SetEnemy` with FNV's friend and neutral flags, `GetEquipped`
+  of a form list as `IsEquipped`). Three things kept them from running:
+  - *Weapons and armor dropped their script.* A copy drops its FO4
+    template's VMAD and now carries FNV's own instead
+    (`Equipment._script`), filled like any object's (attach.py).
+  - *The quest stayed out.* Quest scope saw only placed bases and actors,
+    and outfits are carried. It now also reads the scripts of the items the
+    build's placed actors and containers hold: inventories, leveled entries
+    and inventory templates (TPLT when the Use Inventory flag is set), at
+    any depth (`QuestScope._held`).
+  - *The pulse spell was never made.* `spike/script_effects.py` converts a
+    spell a script names (a Spell property) when every effect is a script
+    effect (MGEF DATA.AssocItem is a SCPT), unconditioned, whose script
+    converted: an FO4 Script-archetype effect carrying the converted
+    `ActiveMagicEffect` script, on the DATA of Fallout4.esm's
+    `BloodyMessNearbyEffect` (Script, fire and forget, Touch, its spell
+    area 25: the same shape as FNV's pulse) with FNV's flags mapped bit by
+    bit; the spell keeps FNV's FormID, type, magnitude, area and duration,
+    fire and forget (an ability: constant), delivered at the effect's
+    range. FalloutNV.esm has 86 script effects; 47 spells are all script
+    effects with no conditions (11 of them abilities). A spell with another effect or a condition
+    is left out, counted.
+  - *`DropMe`* converts to `ObjectReference.Drop()` (FO4's and Skyrim's),
+    where it was a TODO.
+- **Region build (Goodsprings to Primm).** Against the deployed plugin:
+  32 records added (`DisguiseFactionPulseQuest`, the pulse spell and its
+  effect, 20 messages, `FactionGearNVBrotherhood` and the 4 armor pieces
+  it lists), none removed, no FormID moved or reused. 30 armor and 3
+  weapons gained FNV's script (the outfits; `WeapNVDetonator`,
+  `WeapNVBoxingTape`, `VFSWeapLaserRifleVanGraff`); one VMS23 line's
+  `DisguiseFactionPulseQuest` property is now filled. 16 spells scripts
+  name are left out (not all script effects). Converted scripts: only the
+  6 outfit scripts changed (`DropMe`). FO4Edit: 0 errors.
+- **Who it affects there.** The armor factions' members, as in FNV: the
+  generic Powder Gangers (`PowderGangerGun*` templates; the leveled pair
+  at cell -11,-7, `VES04FactReactPowderGanger01`-`03` at -11,-16) and
+  Primm's NCR. Joe Cobb's Goodsprings gang (`GoodspringsPowderGangFaction`)
+  and Primm's convicts are not members, so an outfit does not calm them.
+- **To check in play.** FO4 applying a Touch spell's area around the
+  player when a script casts it on the player, and `Actor.IsEquipped` taking a form list (Skyrim's wiki says it
+  does; FO4's is silent).
+
 <a id="globals"></a>**Globals (step 2, built 2026-10-12).** Only dialogue
 unlocks, objective mirrors, helper globals and the engine globals were
 made, so a script property naming one of FNV's own globals read None, and
@@ -1666,6 +1727,37 @@ could not be taken).
   `pack_keym`, laid out as 134 of vanilla's 177 keys (preview
   KeyChainsAlt, the most common), made by `Items` like a misc item.
 
+<a id="lock-script"></a>**Skill gates and the lock script (built 2026-10-22,
+not yet played).** FNV opens a lock of level L (0 to 100) at Lockpick L and
+a terminal at Science L. FO4's lockpicking and hacking keep their own
+minigames; their tiers are held by the hidden `FNV_SkillGates` perk
+([fo4_perks.md](fo4_perks.md#skill-gates)): Advanced (50), Expert (75) and
+Master (100) open at the FNV skill of the same number, read live. That
+leaves two things FO4's tiers cannot say:
+- **Easy (25).** FO4's Novice tier holds both 0 and 25 (xEdit's FO4 XLOC
+  enum: 1 and 25 Novice, 50 Advanced, 75 Expert, 100 Master) and has no
+  gate. FalloutNV.esm: 73 placed locks and 17 placed locked terminals at 25.
+- **Password notes.** An FNV terminal's PNAM names a note that unlocks it.
+  FO4's passwords are KEYMs (39 of vanilla's 177 keys, EditorID
+  `*Password`, 37 on `Holotape_Prop.nif`), which have no text, so the note
+  stays a note. FalloutNV.esm: 23 TERMs have one, on 22 placed locked
+  terminals (4 of them key-only).
+
+`spike/locks.py` gives such a reference `TES4_FalloutLock`
+(`static_scripts/fallout4/`). While the reference is locked, it blocks
+activation (`BlockActivation`, set on load and on every lock change). On the
+player's activation it unlocks when the player holds the password note. It
+refuses with "Requires Lockpick 25" (or Science) when the skill is below the
+current lock level. Otherwise it passes the activation on to the game
+(`Activate(ref, true)`, vanilla's HaircutScript pattern), which starts the
+minigame. FNV has no leveled locks (0 of 426), so the live lock level is
+FNV's. The note is whatever the note converted to: a paper note (BOOK) or a
+holotape (NOTE), both inventory items.
+
+Drift: a password note opens the terminal on activation rather than showing
+FNV's password menu entry; an Easy lock shows FO4's Novice prompt and is
+refused by a notification, not greyed out.
+
 <a id="readables"></a>**Books, notes and terminals (built 2026-10-14, played 2026-10-21).**
 They were statics of their meshes. `spike/readables.py` now makes each
 one FNV's FormID keeps, whether a reference places it or a script gives it
@@ -1759,9 +1851,9 @@ against FNV's TERM:
 - **Locks.** FNV locks the base (difficulty, Leveled, Unlocked); FO4 locks
   each reference (XLOC, vanilla's 623 terminal references: levels 0, 25,
   50, 75, 100, 255). A placed terminal takes XLOC level difficulty × 25
-  (Requires Key: 255) and Leveled (`0x4`). FO4's hacking needs the Hacker
-  perk per level where FNV needed Science 25 per level. Password notes
-  (PNAM) are not keys yet: FO4's are KEYMs.
+  (Requires Key: 255) and Leveled (`0x4`). Science opens the tiers
+  ([lock script](#lock-script)), and a password note (PNAM) unlocks the
+  terminal through the lock script.
 - **Left out:** FNV's looping sound (FO4's TERM field is unused by vanilla),
   Alternate Colors, the server type.
 
@@ -2199,6 +2291,153 @@ bit 0 is parallax, FO4's POM shadows). FNV's two junk bytes are 0. The
 references place as any reference, enable parent included. Region: 1
 texture set, 2 decals.
 
+## <a id="nv-ammo"></a>Ammo subtypes, ammo effects and casings (built 2026-10-22, not yet played)
+
+`spike/ammo_mods.py`, `spike/ammo_casings.py`,
+`static_scripts/fallout4/TES4_AmmoCasings.psc`; export:
+`tes4_export/record_types/ammo_falloutnv.py`.
+
+**Export.** FNV's AMMO `DAT2` past the weight (Consumed Ammo: the casing,
+and its chance in percent), `ONAM` (short name), `QNAM` (HUD abbreviation)
+and every `RCIL` (ammo effect) were dropped, and AMEF was dumped as sizes
+only. Both now export (`DAT2.Casing`, `DAT2.CasingChance`, `ONAM`, `QNAM`,
+`RCIL[i]`; AMEF `FULL`, `DATA.Type`, `DATA.Operation`, `DATA.Value`). The
+change only adds lines. FalloutNV.esm: 92 AMMO, 111 RCIL, 52 rounds with a
+casing; 54 AMEF: damage x (19), DT - (15), condition x (11), spread x (5),
+DT x (3), fatigue + (1); no DR effect.
+
+**Census: how Fallout 4 changes a gun's ammo.** Fallout4.esm has 11 weapon
+OMODs with an `Ammo` property, all `SET`, each with `NPCAmmoList` `SET`:
+the Alien Blaster's `AmmoStandard` / `AmmoConversion` pair at `ap_gun_Mag`,
+and nine .38/.308/.45/.50 conversion receivers at `ap_gun_receiver`. Each is
+crafted at the weapons workbench from a COBJ with no bench keyword. The
+Alien Blaster lists `ap_gun_Mag` in its `APPR` and its default combination
+includes `AmmoStandard`. 69 of the mod recipes have no components (no
+`FVPA`).
+
+**What is built.** Each FNV ammo list (a gun's `NAM0` FLST) that a converted
+gun loads, with two or more of its ammo converting, becomes:
+
+- a mod-association keyword `FNV_ma_<list>`, added to every gun loading it;
+- one OMOD per ammo, `FNV_mod_<list>_<ammo>`, at our attach point
+  `FNV_ap_Ammo` (TNAM 2, named "Ammo"), setting `Ammo` to the converted
+  round, with FNV's effects as properties; its name is the round's and
+  its description lists the effects;
+- a free recipe per mod (`FNV_co_mod_...`: CNAM, INTV 1; no components,
+  no bench), as vanilla's free mod recipes.
+
+The gun gains `FNV_ap_Ammo` in `APPR` (inserted before its object template
+when it has none) and its default combination includes the list's first
+ammo's mod, which is the gun's own `DNAM` ammo. FormIDs are hashed from the
+FNV list and ammo FormIDs; existing records keep theirs.
+
+| FNV effect | Fallout 4 property |
+|---|---|
+| Damage x v | `AttackDamage` MUL+ADD v - 1 |
+| Damage +/- v | `AttackDamage` ADD +/-v |
+| Spread x v | `AimModelMinConeDegrees` and `AimModelMaxConeDegrees` MUL+ADD v - 1 |
+| DT - v | `ActorValues` ADD `FNV_AmmoDTReduction` v, plus `Enchantments` ADD `FNV_enchAmmoDT` |
+| DT x v | `ActorValues` ADD `FNV_AmmoDTMultiplier` v - 1, plus the enchantment |
+| Projectiles per shot n | `NumProjectiles` SET n (slugs 1, coin shot 8) |
+| Condition, fatigue | none; counted as `ammo effect left out` |
+
+DT follows vanilla's armor-piercing receivers exactly: they add
+`enchModArmorPenetration` and the weapon actor value `ArmorPenetration`; the
+enchantment's effect (`ModArmorPenetrationAddPerkEffect`) applies
+`ModArmorPenetrationPerk`, entry point 37 Mod Target Damage Resistance,
+function 14 Multiply 1 + Actor Value Mult over that actor value. Ours are
+copies with our own actor values and one perk `FNV_AmmoDTPerk` of two
+entries: function 5 Add Actor Value Mult (`FNV_AmmoDTReduction` x -1: the
+target's resistance less the DT taken off, flat, as converted armor rates
+FNV's DT unscaled) and function 14 (`FNV_AmmoDTMultiplier` x 1). Vanilla
+uses function 5 with EPFT 8 in 16 perk entries.
+
+**Casings.** GECK: the casing is "randomly created in the user's inventory
+every time the weapon is fired" at the percent chance. Hand Loader (Guns)
+and Vigilant Recycler (Energy Weapons) multiply it by 2: entry point 57
+Modify Chance for Ammo Item, conditioned on `IsWeaponSkillType`. Fallout 4
+has no such field; `OnPlayerFireWeapon` fires only out of combat, on a
+timer. So a start-game quest `FNV_AmmoCasings` runs `TES4_AmmoCasings` on
+its player alias: it listens for the `weaponFire` animation event (as the
+NV Ammo Crafting mod does), finds the group of the equipped gun's base ammo
+(a group is a gun's FNV ammo list, keyed by its first ammo), and 0.5 s
+after the last shot reads each group member's count; the drop is the rounds
+fired, each rolling FNV's chance (times the group's perk multiplier when
+the player holds it). Ammo gained, dropped, handed over or used while a
+menu is open (crafting, barter) moves the counts, so it is not taken for
+firing; ammo a script removes during play is. This needs no F4SE: the mod used F4SE instance data to
+learn the loaded ammo, which the count drop gives here. Arrays: the casing
+ammo (`FNV_CasingAmmo`), casings, chances, each group's first ammo,
+member ranges, perk and multiplier. A group's perk is the FNV perk of
+entry point 57 for the skill of the first gun (lowest FormID) loading it.
+
+Not carried: FNV's ammo projectile overrides (incendiary, HE and HV
+missiles fly as the gun's projectile; their damage effects are carried),
+`QNAM` (Fallout 4's HUD shows no abbreviation), condition effects (no weapon
+condition), the bean bag's fatigue, `NPCAmmoList` on the mods, and casings
+for NPCs (FNV gives them to the player only). Swapping ammo needs the
+weapons workbench. Since 2026-10-22 no FNV weapon or round is a Fallout4.esm record itself
+(`item` mode): the 9mm and laser pistols, dynamite, the three mines, the
+straight razor, boxing gloves and knife are copies (`stats`), so they carry
+FNV's names and stats and take FNV's mods and ammo. The 9mm round and the
+small energy cell left the table and convert as every other FNV round
+does ("9mm Round", "Energy Cell"): as Fallout 4's "10mm Round" and "Fusion
+Cell" they shared names with other ammo. Rows in [drift](fo4_drift.md#recorded).
+
+**Region build (2026-10-22).** 36 of 79 weapons take the ammo slot (19
+lists): 65 ammo mods, 65 recipes, 10 more rounds made (the subtypes), 20
+condition effects and 1 fatigue effect left out; the casing quest tracks 51
+rounds. 167 records added, none of the deployed build's 42,227 FormIDs
+moved (its ledger seeded the build). FO4 check: 0 errors; 1,790 of 1,790
+scripts compile.
+
+<a id="ammo-switch"></a>**The Ammo Type hotkey** (`spike/ammo_switch.py`,
+`TES4_AmmoSwitch.psc`, `TES4_AmmoSwitchItem.psc`; built 2026-10-22, not yet
+played).
+- **What FNV does:** the Ammo Type hotkey reloads with the next round of the
+  gun's list that the player carries.
+- **How it is built:** Loads of Ammo v2's method, in vanilla Papyrus
+  ([read](research/fo4_target.md#ammo-switching)).
+  - A start-game quest holds each list the build made ammo mods for: the
+    list keyword its guns carry, and each round's item, mod, "loaded"
+    keyword and notification.
+  - `Cycle()` finds the equipped gun's list by that keyword on its weapon
+    record (`Weapon.HasKeyword`), and the round
+    it holds by the keyword each round's mod adds (`AmmoMods.mark`,
+    `FNV_AmmoLoaded_<ammo>`, one per FNV round). Without either keyword it
+    takes the first.
+  - It then steps to the next round the player carries, wrapping round,
+    attaches that round's mod (`AttachModToInventoryItem`), equips the
+    ammo and shows the round's FNV name.
+- **The hotkey:** an aid item, "Ammo Type", for the Favorites wheel. The
+  quest gives the player one. Its script effect gives the item back and
+  calls `Cycle()`.
+- **Messages:** "No other ammo for this weapon", "This weapon takes one
+  kind of ammo".
+- **Drift:**
+  - With two of the same gun carried, the switch refuses ("drop one"),
+    since `AttachModToInventoryItem` cannot pick a copy, as in Loads.
+  - Choosing ammo in the Pip-Boy has no counterpart: Fallout 4 cannot
+    equip ammo there.
+  - The loaded round shows as a notification, not on the HUD.
+
+## <a id="new-game"></a>Starting the source game (`spike/new_game.py`)
+
+`FNV_NewGame` is a start-game quest running `TES4_NewGame`.
+- **New Game:** Fallout 4 runs MQ101 stage 0, its intro movie and then
+  character creation. The script waits that out, undoes it and stops Fallout
+  4's opening quests. It then sets the player's SPECIAL to FNV's player
+  record and sets VCG00 stage 0, which moves the player to Doc Mitchell's
+  and plays FNV's intro.
+- **A coc from the main menu** runs no MQ101 stage 0. Until 2026-10-22 that
+  started FNV at once, which pulled a `coc qasmoke` test out of its room.
+  Now nothing starts; the log says `TES4NewGame|no New Game opening`.
+- **Starting by hand:** `setstage FNV_NewGame 10`. Its fragment
+  (`TES4_NewGameStart`) calls `TES4_NewGame.Begin()`, the same start, once
+  only.
+- A save where FNV's opening or Fallout 4's own game is under way is left
+  alone.
+
 ## <a id="music"></a>Music (built 2026-10-19, played 2026-10-21)
 
 **How FNV plays music.** FNV plays its music through audio markers: 572
@@ -2271,6 +2510,89 @@ only the last one (`replacements.items`); both now get it.
 Region: 11 frag mines at the Powder Ganger camps. Whole game: 174 placed
 (frag 131, powder charge 33, bottlecap 3). The 7 C4 charges at Hoover Dam
 are left out, because no weapon throws their projectile.
+
+## <a id="weapon-mods"></a>Weapon mods (built 2026-10-22, not yet played)
+
+`spike/weapon_mods.py`. FNV keeps a mod's effect on the gun, not the mod:
+WEAP's slots `WMI1`-`WMI3` name an IMOD, and DNAM gives each slot an effect
+and a value (offsets 140 and 152; xEdit's `wbModEffectEnum`). FalloutNV.esm:
+35 guns name all 50 IMODs; 9 IMODs sit on two guns, 2 of them with
+different values (the recycler: 1 shot on the RCW, 3 on the recharger
+pistol). So each (gun, slot) becomes its own OMOD. The export dumps IMOD
+as sizes only, so names, models and the slot data are read from the
+plugin.
+
+- **The item.** An IMOD becomes the loose mod: a MISC on FNV's FormID
+  with FNV's name, model, value and weight and `ObjectTypeLooseMod`, as
+  vanilla's 1,481 loose mods. It converts wherever FNV puts one
+  (containers, leveled lists, vendors, placed in the world), and the
+  test chest holds one of each.
+- **The recipe, locked.** The workbench lists a weapon mod only through a
+  recipe (COBJ, no bench keyword, as all 1,481 vanilla mod recipes). With
+  none, a converted gun showed its Ammo slot but none of its FNV mods,
+  carried items or not (played 2026-10-22). With a recipe taking the loose
+  item, which no vanilla COBJ does (0 of 1,273), each mod showed both a
+  build and an attach entry (played 2026-10-22). So a recipe has no
+  components and one condition, `HasPerk FNV_WeaponModFound` ("Mod Item"),
+  a hidden perk no one holds, as vanilla's perk-gated recipes lock a mod.
+  A carried mod item is expected to fit it all the same, as Fallout 4 lets
+  a loose mod past its recipe's perk requirements (built 2026-10-22, not
+  yet played). FNV's mods are never crafted. A mod
+  replaced at the bench comes back as its item (`LNAM`).
+- **Which gun takes it.** Each converted gun gets its own
+  mod-association keyword (`FNV_ma_<gun>`, KYWD type 5 as vanilla's 163
+  `ma_` keywords), which its FNV mods target (`MNAM`); its vanilla `ma_`
+  keywords go, so a converted gun lists only FNV's mods (FNV guns took
+  only their own). This applies to every gun copy, mods or none. Weapons used
+  as FO4's own record (`item` in the table) are not copies, so FNV mods
+  attach to nothing there. The 9mm pistol was one until 2026-10-22, when
+  it became a copy of the 10mm (`stats`), as did the laser pistol.
+- **Where it attaches.** By effect, at the point vanilla gives that part
+  (`POINTS`): capacity at the magazine (else the barrel, as a tube
+  magazine, then the receiver: the railway rifle and double-barrel
+  shotgun have no magazine point), zoom at the scope, silence at the
+  muzzle, spread, projectile speed and split beam at the barrel, weight at
+  the grip (stock), the rest at the receiver; the first in that list that
+  the gun's record (`APPR`) or default parts offer and no earlier slot of
+  the gun took. The .357 revolver's condition mod takes the receiver, so
+  its long barrel's damage goes on the barrel; the service rifle's forged
+  receiver goes on the barrel behind its springs.
+- **What it copies.** The FO4 gun's own part of that kind (its `ma_`
+  keywords in the part's `MNAM`): its largest magazine, its scope (night
+  vision first when FNV's has it) or its suppressor (`HasSilencer`), lowest
+  FormID on ties. The copy keeps the part's model, attach slots, includes
+  and its keyword, bool and form properties (the scope's overlay, the
+  suppressor's quieter projectile) but not its numbers, which are FO4's
+  balance. Without such a part it copies the gun's default part at that
+  point whole, since installing it removes that part; without one, no
+  model.
+- **The effect** (FNV's semantics checked against the wiki dump):
+
+  | FNV effect | FO4 properties |
+  |---|---|
+  | Clip capacity +A | `AmmoCapacity` ADD A |
+  | Damage +A | `AttackDamage` ADD A |
+  | Weight −A | `Weight` ADD −A |
+  | Spread −A | `AimModelMin/MaxConeDegrees` MUL+ADD −A ÷ FNV's spread (DNAM 16): the 10mm laser sight halves both cones |
+  | Rate of fire +A (a fraction) | automatic: `Speed` MUL+ADD A (vanilla's faster automatic receivers); else `AttackDelaySec` MUL+ADD −A ÷ (1 + A) (vanilla's hair trigger) |
+  | Split beam A | `NumProjectiles` ADD A, `AttackDamage` × 1 ÷ (1 + A): A + 1 beams sharing the damage, as FNV's engine does |
+  | Zoom A (the scope's FOV, degrees) | `HasScope`, `ZoomData` the vanilla preset nearest (night vision ones when FNV's DNAM Flags2 0x1000), `ZoomDataFOVMult` 70 ÷ A (FO4's default world FOV, so the view is FNV's A degrees), keywords `HasScope`, `dn_HasScope`, `dn_HasNightVision` |
+  | Silence | `SoundLevel` Silent, keywords `HasSilencer`, `s_20_Silenced` (a sound keyword, type 6), `dn_HasMuzzle_Suppressor`: what the 10mm's suppressor adds; a copied suppressor also keeps its projectile override |
+  | Max condition, ammo regeneration, projectile speed | none: FO4 has no item condition yet ([drift](fo4_drift.md#candidates)), no ammo regeneration, and no projectile speed property; the mod installs with no effect (counted) |
+
+  A FormID property's second value is vanilla's (440 on keyword ADDs,
+  441 on ZoomData), as is a bool's (1).
+
+FormIDs are hashed from FNV's (`FNV weapon mod` and `FNV weapon mod
+recipe`: the gun's FormID and slot; `FNV weapon mod lock`: its EditorID; `FNV weapon mod keyword`: the gun's),
+so nothing else moves. Tests: `tests/test_fo4_weapon_mods.py`.
+
+Goodsprings to Primm (2026-10-22): 44 mods and recipes on the region's
+guns, every slot placed, all 50 loose items; 8 of the 44 have no FO4
+effect (condition 4, projectile speed 2, ammo regeneration 2); FO4Edit
+check 0 errors. The varmint rifle (on the pipe rifle) takes the pipe
+rifle's drum magazine (+3), its zoom scope (night vision preset, 15°)
+and its silencer.
 
 ## <a id="audit-fixes"></a>Audit fixes (built 2026-10-17)
 

@@ -146,43 +146,73 @@ it changes. `TES4_NewGame` gives the player the perk as it starts and on
 every load (a save from before it gets it too). FO4's own Locksmith and
 Hacker perks are untouched (the FO4 perk chart is off).
 
-Drift: FNV's Easy tier (25) needs Lockpick or Science 25; FO4's Novice tier
-has no gate, so the player opens those from the start (in the region: 6
-containers, 2 doors, 3 terminals).
+FNV's Easy tier (25) needs Lockpick or Science 25, but FO4's Novice tier
+has no gate. Those locks run `TES4_FalloutLock`, which refuses the player
+below the skill ([fo4_pipeline.md](fo4_pipeline.md#lock-script)).
 
-## <a id="teammate-perks"></a>Teammate perks (built 2026-10-21, not yet played)
+## <a id="teammate-perks"></a>Teammate perks (companion side built 2026-10-22, not yet played)
 
-FNV's `AddPerk <perk> 1` and `RemovePerk <perk> 1` (the teammates flag) add
-a companion perk. FNV applies it to the active companion, never to the
-player:
-- Calm Heart: Cass +50 HP.
-- Hand of Vengeance: Cass +15% Guns damage.
-- Old Vaquero: Raul +33% fire rate.
-- Bonds of Steel and Causeless Rebel likewise.
+FNV's `AddPerk <perk> 1` and `RemovePerk <perk> 1` (the teammates flag) put
+a perk on the player's teammate list. FNV applies its entry points to each
+active companion, never to the player, and each perk's owner tab names its
+companion (`GetIsID`). The flag is on 11 calls in 10 scripts and line
+results, on 6 perks:
 
-Companion Suite's effects are an ability spell, which FNV never applies to a
-companion; the wiki calls it "a bugged perk with no real effects". Across
-FNV the flag is on 7 calls in 10 scripts. Doc Mitchell's exit trigger
-(`VCG01RemoveDocCarebearModeTriggerSCRIPT`) runs
-`Player.AddPerk CompanionSuite 1`. The converter dropped the second argument
-(`max_args=1`) and gave the player the perk. Its ability
-(`PerkCompanionSuite` 0015C570: carry weight -75, DR +50, Sneak +100, no
-conditions) then showed in the Pip-Boy and put Sneak at 115 (played
-2026-10-21). `commands_falloutnv.teammate_perk` now leaves the flagged call
-as a note; without the flag, the plain row converts it.
+| Perk | Companion | FNV effect | On FO4 today |
+|---|---|---|---|
+| Hand of Vengeance | Cass | Guns damage ×1.15 (entry point 0) | Mod Weapon Attack Damage (35) |
+| Old Vaquero | Raul | attack speed ×1.33 (43) | left out: no FO4 counterpart ([census](#census)) |
+| Causeless Rebel | Veronica | attack speed ×1.3 (43) | left out, as Old Vaquero |
+| Bonds of Steel | Veronica | DT +4 (56) | left out: Damage Threshold waits on the armor rules |
+| Companion Suite | Cass | Shotgun Surgeon's target DT (58), an ability | left out: DT; the ability, as below |
+| Calm Heart | Cass (wiki) | an ability: `CalmHeartScript` sets Health base +50 | left out: a script effect, and no companion named |
 
-A save made after leaving Doc's keeps the perk:
-`player.removeperk <plugin index>15C571` removes it.
+**How FO4 does it.** FO4 has no teammate flag; a perk acts on its holder
+only. Vanilla's Inspirational is the pattern: the player holds
+`Inspirational01`, and the companions' NPC records hold
+`CompanionInspirational` (PRKR on 9 NPCs), whose entry points test
+`PlayerRef.HasPerk(Inspirational0x)`. Neither other option fits: adding the
+perk to each follower by script needs a list of followers and a re-add
+when one joins, and a player perk's entry points act on the player (the
+ability types too).
 
-Open:
-- **Companion perks on the companion.** FO4 applies a perk to its holder,
-  so a companion perk the player held would act on the player. Building
-  them means giving the perk to the companion actor (FO4 applies perks to
-  NPCs) while it follows. Until then they are notes, and FNV's companion
-  bonuses are missing.
-- **Companion Suite on companions.** FNV's other `AddPerk CompanionSuite`
-  calls name the companion (`CraigBooneREF.AddPerk`). On FO4 its ability
-  would take effect there, where FNV's never did.
+**What the build does** (`fo4_import/spike/teammates.py`):
+- `teammate_edids` reads the flagged calls in the export's scripts and line
+  results (SCPT, INFO, QUST). Those perks are the player's, with no
+  effects: holding one only switches its companion perk on. They are
+  hidden (DATA), since FNV kept them on its teammate list, not the
+  player's. Companion Suite showed in the perk list before that
+  (played 2026-10-22).
+- Each one gets a companion perk, `FNV_<perk>_Teammates` (FormID from
+  `PERK <FNV FormID> teammates`, hidden, unplayable). It carries FNV's entry
+  points, their owner tab gated first by `GetPlayerTeammate == 1` and
+  `PlayerRef.HasPerk(<the FNV perk>) == 1`, so it works only while the
+  companion follows, as FNV's. Abilities are left out (counted): FNV never
+  applied Companion Suite's (the wiki calls it "a bugged perk with no real
+  effects"), and Calm Heart's is a script effect.
+- The companions the owner tabs name (`GetIsID == 1`) hold it: PRKZ and
+  PRKR on their NPC record (`npcs.with_perks`). A perk naming none (Calm
+  Heart) gets no companion perk (counted).
+- The converter turns the flagged call into the player's
+  `AddPerk`/`RemovePerk`, as without the flag, so a script's
+  `Player.HasPerk CalmHeart` reads true too.
+
+Doc Mitchell's exit trigger (`VCG01RemoveDocCarebearModeTriggerSCRIPT`)
+runs `Player.AddPerk CompanionSuite 1`. Before 2026-10-21 the player got
+its ability (`PerkCompanionSuite` 0015C570: carry weight -75, DR +50, Sneak
++100) and Sneak showed 115. Now the player's Companion Suite has no effects,
+so a save that holds it from then is fixed too. FNV's other
+`AddPerk CompanionSuite` calls name the companion (`CraigBooneREF.AddPerk`):
+the companion holds the effectless perk, as FNV's companions held one that
+did nothing.
+
+The region build has no FNV companion that a perk names (Cass, Raul and
+Veronica live outside it). Their `GetIsID` cannot convert there, so the
+companion perks are written without effects and no NPC holds one.
+- **Calm Heart.** The +50 Health is a script effect; it needs Cass named and
+  the effect as a Health ability.
+- **Attack speed and Damage Threshold.** These entry points come with the
+  census's open rows.
 
 ## <a id="census"></a>Census (2026-10-20)
 

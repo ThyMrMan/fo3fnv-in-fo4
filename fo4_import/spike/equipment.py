@@ -22,7 +22,8 @@ textures, which tell variants apart on one mesh, become material swaps
 one no FNV-mesh path takes keeps all its models, both counted. Armor takes the protection FNV
 gives it as its armor rating, unscaled: DT (all FNV armor), else DR (FO3's),
 and drops the template's resistances. Condition and the template's scripts
-are dropped. An FNV piece the table does not name is skipped and counted.
+are dropped; the piece carries FNV's own script instead (a faction outfit's
+equip events). An FNV piece the table does not name is skipped and counted.
 FormIDs are hashed from FNV's (SITES), so no other record's id moves.
 
 See: docs/fork/fo4_spikes.md#spike-4-equipment
@@ -35,6 +36,8 @@ import struct
 from pathlib import Path
 
 from fo4_import.spike.type_tests import with_keywords
+from fo4_import.spike.ammo_mods import AmmoMods
+from fo4_import.spike.condition import Condition
 from fo4_import.base import strings
 from fo4_import.base.install import source_esm
 from fo4_import.base.writer import pack_fo4_record
@@ -43,6 +46,7 @@ from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
 from fo4_import.pipeline.work_cache import cached
 from fo4_import.spike.gun_choice import GUN_TYPES
 from fo4_import.spike.guns import Guns
+from fo4_import.spike.weapon_mods import WeaponMods
 from fo4_import.spike.replacements import BASE, Replacement
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import swapped_material, write_assets
@@ -169,6 +173,7 @@ class Equipment:
         self.builder, self.fnv, self.strings, self.table = builder, _fnv_fields(), strings.load(), builder.table
         self.fits, self.statics, self.poses, self.bodies, self.worn_paths = {}, {}, {}, {}, {}
         self.guns = Guns(builder, self.strings)
+        self.weapon_mods = WeaponMods(builder, self.guns.mods)
         self.by_anim = {kind: set() for kind in WEAPON_ANIM_LISTS}
         wanted = {r.edid for r in self.table.values() if r.base and r.mode != 'item'} | {e for _, e in ARMOR_DEFAULTS} | {
             r.edid for r in MELEE_DEFAULTS.values()}
@@ -179,6 +184,7 @@ class Equipment:
                 self.addons[rec.form_id] = subs
             elif _edid(subs) in wanted:
                 self.vanilla[_edid(subs)] = subs
+        self.ammo_mods, self.condition = AmmoMods(builder), Condition(builder)
 
     def _entry(self, rec: dict):
         """FNV `rec`'s Fallout4.esm-copy entry (else its _default), or None."""
@@ -212,13 +218,21 @@ class Equipment:
                     out.append((swap, data[swap]))
                 continue
             if sig == b'EDID':
-                body = f'FNV_{rec["EditorID"]}\0'.encode()
-            elif sig == b'FULL' and not named:
+                out += [(sig, f'FNV_{rec["EditorID"]}\0'.encode())] + self._script(rec)
+                continue
+            if sig == b'FULL' and not named:
                 body, named = (rec.get('FULL', '') + '\0').encode(), True
             elif sig in LOCALIZED:
                 body = self.strings.get(struct.unpack('<I', body)[0], b'') + b'\0'
             out.append((sig, body))
         return out
+
+    def _script(self, rec: dict) -> list:
+        """[(VMAD, FNV `rec`'s converted script attached and filled)]; [] without one.
+        See: docs/fork/fo4_pipeline.md#disguises
+        """
+        vmad = self.builder.scripts.vmad(int(rec['SCRI'], 16)) if rec.get('SCRI') else b''
+        return [(b'VMAD', vmad)] if vmad else []
 
     def weap(self, fnv: int, rec: dict) -> 'int | None':
         """The FO4 weapon for FNV WEAP `rec` (_weapon), listed under its FNV animation type (anim_lists)."""
@@ -269,8 +283,10 @@ class Equipment:
             templates = self.guns.combination(source, chosen[0].includes)
         else:
             templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2]) if chosen
-                         else self.guns.with_mods(source, entry.mods) if entry.mods else None)
-        return self._write('WEAP', fnv, with_keywords(self._copy(rec, data, templates, source=source), marks))
+                         else self.guns.with_mods(source, entry.mods) if entry.mods
+                         else self.guns.default_only(source))
+        copy = self.weapon_mods.wire(fnv, self._copy(rec, data, templates, source=source))
+        return self._write('WEAP', fnv, with_keywords(copy, marks))
 
     def _own_model(self, model: str, anim_type: int) -> dict:
         """{sig: body} pointing a weapon's world and first-person models (FNV uses one mesh) at FNV `model`,
@@ -451,11 +467,13 @@ class Equipment:
                 continue
             ammo = self.fnv.get(fnv, {}).get('ammo')
             out += [(made, 1)] + ([(items.item(ammo), rounds)] if ammo and items.item(ammo) else [])
-        return out
+        return out + self.weapon_mods.test_items()
 
     def _write(self, sig: str, fnv: int, subs: list) -> int:
         """Add a `sig` record of `subs` on its hashed FormID; the FormID."""
         fid = self.builder.writer.derive_formid(SITES[sig], fnv)
+        if sig == 'WEAP':
+            subs = self.condition.wire(fnv, fid, self.ammo_mods.wire(fnv, subs))
         body = b''.join(pack_subrecord(s.decode(), b) for s, b in subs)
         self.builder.writer.add_record(sig, pack_fo4_record(sig, fid, 0, body))
         self.builder.counts[sig] += 1

@@ -572,10 +572,13 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
         # subject a bare `GetActionRef` means depends on which event we are
         # inside (see `_get_action_ref_param`).
         conv._current_event = header[0]
-        body = _script.emit_body(conv, block.body, extends, 1)
-        conv._current_event = ''
         consumes = (block.btype.lower() == 'onactivate'
                     and _consumes_activation(conv, tree))
+        stmts = block.body
+        if block.btype.lower() == 'onactivate' and not consumes:
+            stmts = [st for st in stmts if not is_self_activate(st)]
+        body = _script.emit_body(conv, stmts, extends, 1)
+        conv._current_event = ''
         if not body and not consumes:
             continue
         body = _guarded(conv, block, body)

@@ -938,6 +938,28 @@ End
         assert 'TES4_TwoStateActivator.OpenState(doorRef) == 1' in body
         assert 'TES4_TwoStateActivator.SetOpenState(doorRef, false)' in body
 
+    def test_passthrough_onactivate_leaves_activation_to_the_engine(self, converter):
+        """A body whose every path runs a bare Activate is not blocked, so it drops that Activate (no double toggle)."""
+        source = """ScriptName RadioScript
+short init
+Begin OnLoad
+  if init == 0
+    activate
+    set init to 1
+  endif
+End
+Begin OnActivate
+  activate
+  set init to 2
+End
+"""
+        converter.xref._is_fallout = True
+        result = converter.convert_standalone('RadioScript', source, 'ObjectReference', 'RadioScript')
+        on_activate = result.split('Event OnActivate', 1)[1].split('EndEvent', 1)[0]
+        assert 'Activate(' not in on_activate and 'init = 2' in on_activate
+        assert 'BlockActivation' not in result
+        assert 'DefaultActivate(Self' in result.split('Event OnActivate', 1)[0]
+
     def test_gamemode_oninit_not_duplicated(self, converter):
         """A script with its own OnInit must not get a second one."""
         source = """ScriptName UpdateScript
@@ -3019,7 +3041,7 @@ class TestFilterGuardTes4Type:
         conv = ScriptConverter(xref)
         conv.sc.property_refs['CGAssassin01Ref'] = 'TES4_CGAssassinScript'
         guard = block_filter_guard(conv, 'onhit', 'CGAssassin01Ref')
-        assert guard == 'akAggressor == CGAssassin01Ref'
+        assert guard == 'CGAssassin01Ref && akAggressor == CGAssassin01Ref'
 
 
 class TestOnHitWithAmmo:
@@ -3042,7 +3064,7 @@ class TestOnHitWithAmmo:
         xref.edid_to_formid['ironsword'] = '00001234'
         xref.record_type['00001234'] = 'WEAP'
         conv = ScriptConverter(xref)
-        assert block_filter_guard(conv, 'onhitwith', 'IronSword') == 'akSource == IronSword'
+        assert block_filter_guard(conv, 'onhitwith', 'IronSword') == 'IronSword && akSource == IronSword'
 
 
 class TestGameHourFractional:
@@ -5694,13 +5716,12 @@ class TestFalloutObjectiveCommands:
             'FadeToBlack4sISFX.Apply(1.0')
         assert 'GetKiller() ==' in conv_expr(converter_with_quests, 'IsKiller player', 'Quest')
 
-    def test_a_teammates_perk_is_not_the_players(self, converter_with_quests):
-        """`Player.AddPerk P 1` (FNV's teammates flag, Doc's exit trigger giving Companion Suite) adds no perk to the
-        player; the plain call still does."""
-        teammates = conv_lines(converter_with_quests, 'Player.AddPerk CompanionSuite 1', 'Quest')
-        assert 'AddPerk(' not in teammates and 'companion perk' in teammates
-        assert conv_line(converter_with_quests, 'Player.AddPerk CompanionSuite', 'Quest').endswith(
-            '.AddPerk(CompanionSuite)')
+    def test_a_teammates_perk_is_held_by_the_player(self, converter_with_quests):
+        """`Player.AddPerk P 1` / `RemovePerk P 1` (FNV's teammates flag) give or take the player the perk, which
+        only switches its companion perk on (fo4_perks.md#teammate-perks)."""
+        for cmd in ('AddPerk', 'RemovePerk'):
+            assert conv_line(converter_with_quests, f'Player.{cmd} CalmHeart 1', 'Quest').endswith(
+                f'.{cmd}(CalmHeart)')
 
     def test_get_completed_reads_the_quest_native(self, converter_with_quests):
         """GetObjectiveCompleted is Quest.IsObjectiveCompleted."""
@@ -6280,6 +6301,17 @@ class TestFalloutQuestStageSubject:
         converter.xref._is_fallout = True
         out = conv_lines(converter, 'player.RestoreAV RadiationRads 1000', 'Quest')
         assert 'RestoreValue(TES4AV_Rads, 1000)' in out
+
+    def test_weapon_condition_commands_reach_the_condition_helpers_on_fallout4(self, converter, monkeypatch):
+        """FNV's condition commands call TES4_ConditionCalls on Fallout 4, percents and health as FNV's."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        converter.xref._is_fallout = True
+        read = conv_lines(converter, 'if player.GetWeaponHealthPerc < 25\n  set x to 1\nendif', 'Quest')
+        assert 'TES4_ConditionCalls.WeaponPercent(Game.GetPlayer()) < 25' in read
+        broken = conv_lines(converter, 'player.ModWeaponHealthPerc -100', 'Quest')
+        assert 'TES4_ConditionCalls.ModWeaponPercent(Game.GetPlayer(), -100' in broken
+        given = conv_lines(converter, 'player.AddItemHealthPercent ArmorLeather 1 0.50', 'Quest')
+        assert 'TES4_ConditionCalls.AddWithHealth(Game.GetPlayer(), ArmorLeather, 1, 0.50' in given
 
 
 class TestFallout4PlayerPackage:

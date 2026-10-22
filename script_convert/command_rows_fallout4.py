@@ -12,7 +12,7 @@ is 0: FO4 cannot ask a NIF sequence, and the graph read errored (fo4_pipeline.md
 See: docs/fork/fo4_spikes.md#spike-3-target
 """
 
-from script_convert.command_rows import ACTOR, AV, COMMAND_ROWS, MAP, RAW, Cmd
+from script_convert.command_rows import ACTOR, AV, COMMAND_ROWS, MAP, OBJREF, RAW, Cmd
 from script_convert.target import CHARACTER_PROPERTY, CHARACTER_SCRIPT, CONTROLS_PROPERTY, CONTROLS_SCRIPT, av_property
 
 
@@ -75,4 +75,9 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
                             self_type=('TES4ScriptPackages', 'TES4_ScriptPackages'), flags='actor_only'),
     'removescriptpackage': Cmd('TES4ScriptPackages.Remove({ref})', ACTOR, max_args=0,
                                self_type=('TES4ScriptPackages', 'TES4_ScriptPackages'), flags='actor_only'),
+    'getweaponhealthperc': Cmd('TES4_ConditionCalls.WeaponPercent({ref})', ACTOR, flags='actor_only zero_arg'),
+    'setweaponhealthperc': Cmd('TES4_ConditionCalls.SetWeaponPercent({ref}, {f0})', ACTOR, flags='actor_only'),
+    'modweaponhealthperc': Cmd('TES4_ConditionCalls.ModWeaponPercent({ref}, {f0})', ACTOR, flags='actor_only'),
+    'additemhealthpercent': Cmd('TES4_ConditionCalls.AddWithHealth({ref}, {p0}, {i1}, {f2}, {b3})', OBJREF,
+                                types={0: 'Form'}, defaults={1: '1', 2: '1.0', 3: '0'}),
 }.items()}

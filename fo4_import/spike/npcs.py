@@ -58,6 +58,8 @@ HUMAN_CLASS = 0x1326B
 COMBAT_STYLES = {'1': 0x47165, '2': 0x3183B}
 #: The tags vanilla's ZNAM (all 1,745) and ECOR (all 1,339) come right before.
 ZNAM_BEFORE, ECOR_BEFORE = (b'NAM5',), (b'FCPL', b'RCLR', b'PRKZ', b'PRKR', b'PRPS', b'FTYP', b'NTRM', b'COCT')
+#: The tags vanilla's PRKZ and PRKR come right before (xEdit's NPC_ order; AIDT is in every NPC).
+PERKS_BEFORE = (b'PRPS', b'FTYP', b'NTRM', b'COCT', b'CNTO', b'AIDT')
 #: derive_formid site of an NPC's outfit (key: the FNV NPC's FormID).
 OUTFIT_SITE = 'FNV OTFT'
 #: FNV ACBS flag Female; reference record flag Persistent.
@@ -189,6 +191,26 @@ def with_template(template: int, flags: int):
     return edit
 
 
+def with_perks(perks: list):
+    """A record edit giving an NPC `perks` at rank 1 (PRKZ, a PRKR each) where vanilla orders them; None for none.
+    See: docs/fork/fo4_perks.md#teammate-perks
+    """
+    if not perks:
+        return None
+    block = pack_subrecord('PRKZ', struct.pack('<I', len(perks)))
+    block += b''.join(pack_subrecord('PRKR', struct.pack('<IB', perk, 1)) for perk in perks)
+
+    def edit(subs: bytes) -> bytes:
+        """The subrecords with the perks before the first of PERKS_BEFORE."""
+        out, placed = b'', False
+        for tag, data in subrecords(subs):
+            if tag in PERKS_BEFORE and not placed:
+                out, placed = out + block, True
+            out += pack_subrecord(tag.decode(), data)
+        return out if placed else out + block
+    return edit
+
+
 def composed(*edits):
     """One record edit applying `edits` (None skipped) in order; None when there are none."""
     present = [e for e in edits if e is not None]
@@ -265,7 +287,7 @@ class Npcs:
             (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
             composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
-                     self._combat_style(traits))))
+                     self._combat_style(traits), with_perks(self.builder.perks.teammates.held_by(fnv)))))
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
         return fid

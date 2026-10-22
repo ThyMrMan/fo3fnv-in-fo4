@@ -483,6 +483,14 @@ parameter that holds the filtered object. Without it the block runs for every
 actor / container / package -- which is how an item's "you can't equip this"
 message ended up firing for NPCs the moment they loaded in.
 
+**A filter on a form is written `Form && param == Form`.** A property the build
+leaves unfilled is None, and so is an event parameter with nothing in it, such as
+`akNewContainer` when an item drops to the ground. Papyrus reads None == None as
+true; FO3/FNV never match a missing reference. Seen on FNV's faction outfits
+(2026-10-22): their `Begin OnAdd <companion>` blocks showed "Your companion can't
+wear that faction armor" and called `Drop()` with no companion near, because the
+region build holds none of the 11 companions they name.
+
 **A block type with no parameter naming an object cannot be guarded.**
 MenuMode's argument is a menu ID and OnAlarm's a crime type, so neither is in
 `BLOCK_FILTER_PARAM` and their filters are dropped.
@@ -4126,6 +4134,15 @@ consumes the activation, so an empty body is meaningful. Dropping it lost both
 the consume and the door-relock preamble (`ND04TitanSCRIPT`,
 `ARLesserWelkyndStoneStaticScript`). `events()` now keeps a block that
 `_consumes_activation` reports, body or not.
+
+<a id="passthrough-activate"></a>**A pass-through `OnActivate` drops its own
+`activate`.** When every path runs a bare `activate`, nothing is blocked and the
+engine's default activation already runs, so converting that `activate` too ran
+it twice. FNV's `VintageRadioStartOnSCRIPT` (`Begin OnActivate` / `activate`)
+toggled a jukebox off and straight back on, so it could not be turned off
+(played 2026-10-22). `events()` now emits a pass-through body without its
+top-level bare `activate`; a consuming body keeps it, as `DefaultActivate` after
+`BlockActivation`.
 
 **`TES4Polyfill.EnterOblivionGate` was never emitted.** The gate's identity is
 known only on the authored line that discards it (`set MQ00.nearOblivionGate

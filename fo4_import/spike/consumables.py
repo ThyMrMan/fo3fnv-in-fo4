@@ -4,7 +4,7 @@ A consumable keeps its name, model, value, weight and kind (food, medicine)
 and the effects FO4 has (consumable_effects). Its category (food, drink, stimpak,
 chem, alcohol, magazine), from FNV's equipment type and consume sound, gives
 it a vanilla item's Pip-Boy preview, sounds and keyword (CATEGORIES). Ammunition keeps its name, model,
-value and weight on FO4's 5.56 round (its projectile and casing). FormIDs are
+value, weight and short name on FO4's 5.56 round (its projectile and casing). FormIDs are
 hashed from FNV's (SITES), so no other record's id moves.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
@@ -71,7 +71,8 @@ class Consumables:
         return self._write('ALCH', fnv, body)
 
     def ammo(self, fnv: int, rec: dict) -> 'int | None':
-        """The FO4 ammunition for FNV AMMO `rec` (FormID `fnv`) on FO4's 5.56 round; None without a model."""
+        """The FO4 ammunition for FNV AMMO `rec` (FormID `fnv`) on FO4's 5.56 round, with FNV's short name (ONAM,
+        else its name); None without a model."""
         if 'Model.MODL' not in rec:
             return None
         model, bounds = self.builder.mesh(rec['Model.MODL'])
@@ -82,7 +83,8 @@ class Consumables:
         body += b''.join(pack_subrecord(t.decode(), template[t]) for t in (b'YNAM', b'ZNAM', b'KSIZ', b'KWDA'))
         body += pack_subrecord('DATA', struct.pack('<If', int(rec.get('DATA.Value', 0)),
                                                    float(rec.get('DATA.Weight', 0.0))))
-        body += pack_subrecord('DNAM', template[b'DNAM']) + pack_subrecord('ONAM', name)
+        short = (rec.get('ONAM') or rec.get('FULL', '')) + '\0'
+        body += pack_subrecord('DNAM', template[b'DNAM']) + pack_subrecord('ONAM', short.encode())
         return self._write('AMMO', fnv, body)
 
     def _write(self, sig: str, fnv: int, body: bytes) -> int:

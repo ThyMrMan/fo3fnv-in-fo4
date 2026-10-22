@@ -5,7 +5,10 @@ creation state). TES4_NewGame waits that out, undoes it with vanilla's own
 calls, stops Fallout 4's opening quests and sets the source game's first
 stage (START): FNV's VCG00 stage 0 moves the player to Doc Mitchell's and
 plays FNV's intro. A coc from the main menu skips MQ101 stage 0, so the
-source game starts at once. Nothing in Fallout4.esm is overridden.
+source game waits: stage 10 (`setstage FNV_NewGame 10`) starts it by hand.
+Nothing in Fallout4.esm is overridden.
+
+See: docs/fork/fo4_pipeline.md#new-game
 """
 
 from pathlib import Path
@@ -27,6 +30,8 @@ SITE, SCRIPT, PLAYER = 'FNV new game quest', 'TES4_NewGame', 0x14
 PLAYER_ALIAS, ALIAS_SCRIPT = 0, 'TES4_NewGamePlayer'
 #: The source game's player base record.
 PLAYER_BASE = 0x7
+#: The stage starting the source game by hand (setstage FNV_NewGame 10), its fragment script and function.
+START_BY_HAND, FRAGMENTS, FRAGMENT = 10, 'TES4_NewGameStart', 'Fragment_Stage_0010_Item_00'
 
 
 def build(builder, export_dir: Path, quests: dict) -> None:
@@ -40,9 +45,10 @@ def build(builder, export_dir: Path, quests: dict) -> None:
     values = {'OpeningQuests': ('objects', list(OPENING_QUESTS)), 'StartStage': ('int', stage),
               'Special': ('objects', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
               'SpecialStart': ('floats', start_special(export_dir))}
-    vmad = quest_fragments('', [], aliases=[(PLAYER_ALIAS, fid, [(ALIAS_SCRIPT, {}, {})])],
-                           scripts=[(SCRIPT, props, values)])
-    builder.writer.add_record('QUST', R.pack_qust(fid, 'FNV_NewGame', '', 0, [], 'Player', PLAYER, vmad))
+    vmad = quest_fragments(FRAGMENTS, [(START_BY_HAND, 0, FRAGMENT)],
+                           aliases=[(PLAYER_ALIAS, fid, [(ALIAS_SCRIPT, {}, {})])], scripts=[(SCRIPT, props, values)])
+    builder.writer.add_record('QUST', R.pack_qust(fid, 'FNV_NewGame', '', 0, [START_BY_HAND], 'Player', PLAYER, vmad))
+    builder.scripts.used.append(FRAGMENTS)
     builder.counts['QUST (new game)'] += 1
 
 

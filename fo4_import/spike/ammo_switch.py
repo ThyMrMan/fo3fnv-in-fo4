@@ -1,0 +1,76 @@
+"""FNV's Ammo Type hotkey on Fallout 4: an aid item for the Favorites wheel that loads the equipped gun's next round.
+
+FNV's Ammo Type hotkey reloads with the next round of the gun's list the
+player carries. Fallout 4 has no such key, so this follows Loads of Ammo v2's
+method in vanilla Papyrus: a start-game quest (TES4_AmmoSwitch) holds every
+ammo list the build made mods for (ammo_mods), and its Cycle() attaches the
+next carried round's mod to the equipped gun. A gun's list is found by the
+list keyword on its weapon record, its loaded round by the keyword that round's mod
+adds (AmmoMods.mark). The hotkey is an aid item whose script effect
+(TES4_AmmoSwitchItem) gives itself back and calls Cycle(); the quest hands
+the player one. Each round shows its FNV name as a notification.
+
+See: docs/fork/fo4_pipeline.md#ammo-switch
+"""
+
+from fo4_import.base.support_records import pack_mesg, pack_script_quest
+from fo4_import.base.vmad import object_scripts, quest_fragments
+from fo4_import.spike.hotkey_items import hotkey_effect, hotkey_item
+
+#: derive_formid site (keys: 'quest', 'item', 'effect', a message's name, 'note <FNV ammo FormID>').
+SITE = 'FNV ammo switch'
+SCRIPT, ITEM_SCRIPT = 'TES4_AmmoSwitch', 'TES4_AmmoSwitchItem'
+#: The hotkey item's name (FNV's own for the hotkey).
+ITEM_NAME = 'Ammo Type'
+#: The quest's messages: property, text.
+MESSAGES = (('NoOtherAmmo', 'No other ammo for this weapon.'),
+            ('SingleAmmo', 'This weapon takes one kind of ammo.'),
+            ('TwoCopies', 'You carry two of this weapon; drop one to change its ammo.'))
+
+
+def groups(made: dict) -> list:
+    """[(list keyword, [(FNV ammo, its mod)])] of AmmoMods.made, lists with mods only."""
+    return [(keyword, mods) for _, (keyword, mods) in sorted(made.items()) if keyword and len(mods) > 1]
+
+
+def arrays(builder, mods, grouped: list) -> dict:
+    """TES4_AmmoSwitch's array properties {name: (kind, value)} for `grouped` (groups()); each round's message
+    written once."""
+    out = {'Lists': [], 'Starts': [], 'Rounds': [], 'Mods': [], 'Loaded': [], 'Notes': []}
+    notes = {}
+    for keyword, members in grouped:
+        out['Lists'].append(keyword)
+        out['Starts'].append(len(out['Rounds']))
+        for ammo, mod in members:
+            if ammo not in notes:
+                notes[ammo] = builder.writer.derive_formid(SITE, f'note {ammo:08X}')
+                rec = mods.ammo[ammo]
+                builder.writer.add_record('MESG', pack_mesg(notes[ammo], f'FNV_AmmoNote_{rec["EditorID"]}', '',
+                                                            rec.get('FULL', rec['EditorID']), 0, []))
+            out['Rounds'].append(builder.items.item(ammo))
+            out['Mods'].append(mod)
+            out['Loaded'].append(mods.mark(ammo))
+            out['Notes'].append(notes[ammo])
+    out['Starts'].append(len(out['Rounds']))
+    return {name: ('ints' if name == 'Starts' else 'objects', value) for name, value in out.items()}
+
+
+def write(builder, mods) -> None:
+    """The Ammo Type hotkey for AmmoMods `mods`: quest, messages, script effect and aid item; nothing without lists."""
+    grouped = groups(mods.made)
+    if not grouped:
+        return
+    quest, item, effect = (builder.writer.derive_formid(SITE, key) for key in ('quest', 'item', 'effect'))
+    messages = {}
+    for name, text in MESSAGES:
+        messages[name] = builder.writer.derive_formid(SITE, name)
+        builder.writer.add_record('MESG', pack_mesg(messages[name], f'FNV_AmmoSwitch{name}', '', text, 0, []))
+    props = {**messages, 'Hotkey': item}
+    vmad = quest_fragments('', [], scripts=[(SCRIPT, props, arrays(builder, mods, grouped))])
+    builder.writer.add_record('QUST', pack_script_quest(quest, 'FNV_AmmoSwitch', vmad))
+    hotkey_effect(builder, effect, 'FNV_AmmoSwitchEffect', ITEM_NAME,
+                  object_scripts([(ITEM_SCRIPT, {'Switch': quest, 'Hotkey': item}, {})]))
+    hotkey_item(builder, item, 'FNV_AmmoSwitchHotkey', ITEM_NAME, effect)
+    builder.scripts.used += [SCRIPT, ITEM_SCRIPT]
+    builder.counts['ammo switch lists'] = len(grouped)
+

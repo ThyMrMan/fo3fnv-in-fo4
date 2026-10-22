@@ -241,15 +241,15 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'', ex
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
               teleport: tuple = None, persistent: bool = True, placement: bytes = b'', disabled: bool = False,
-              linked: int = 0, edid: str = '', door_link: tuple = None, sig: str = 'REFR') -> bytes:
+              linked: int = 0, edid: str = '', door_link: tuple = None, sig: str = 'REFR', vmad: bytes = b'') -> bytes:
     """A placed object: base, `placement` (packed XMBO/XPRM/XPOD/XRGD, spike.placement), light radius (XRDS),
     teleport (door, position, rotation), scale.
 
     `disabled` sets Initially Disabled (0x800), as FO3/FNV's flag; `linked` is its linked reference (XLKR, no keyword);
     `edid` names the reference; `door_link` is a teleport door's (navmesh, triangle) (XNDP); `sig` is the record
-    type (PGRE for a placed projectile).
+    type (PGRE for a placed projectile); `vmad` its scripts.
     """
-    subs = (_zstr('EDID', edid) if edid else b'') + pack_u32('NAME', base) + placement
+    subs = (_zstr('EDID', edid) if edid else b'') + (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_u32('NAME', base) + placement
     if radius is not None:
         subs += pack_subrecord('XRDS', struct.pack('<f', radius))
     if teleport:
@@ -319,9 +319,11 @@ def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, s
 
 
 def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: int, weight: float,
-              vmad: bytes = b'') -> bytes:
-    """A misc item: scripts, bounds, preview, name, model, DATA value and weight."""
+              vmad: bytes = b'', keywords: tuple = ()) -> bytes:
+    """A misc item: scripts, bounds, preview, name, model, keywords, DATA value and weight."""
     subs = _bounded(edid, bounds, vmad) + pack_u32('PTRN', MISC_PREVIEW) + _zstr('FULL', name) + (_zstr('MODL', model) if model else b'')
+    subs += (pack_u32('KSIZ', len(keywords)) + pack_subrecord('KWDA', struct.pack(f'<{len(keywords)}I', *keywords))
+             if keywords else b'')
     return pack_fo4_record('MISC', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
 
 
@@ -376,11 +378,12 @@ def pack_kywd(fid: int, edid: str, kind: int, name: str = '') -> bytes:
     return pack_fo4_record('KYWD', fid, 0, subs + (_zstr('FULL', name) if name else b''))
 
 
-def pack_cobj(fid: int, edid: str, parts: list, made: tuple, bench: int, filters: list, conditions: bytes) -> bytes:
+def pack_cobj(fid: int, edid: str, parts: list, made: tuple, bench: 'int | None', filters: list,
+              conditions: bytes) -> bytes:
     """A constructible object: `parts` [(item, count)] (FVPA), `conditions`, `made` (item, count), the `bench`
-    keyword and recipe `filters` keywords."""
+    keyword (None: none, as an object mod's recipe) and recipe `filters` keywords."""
     subs = _zstr('EDID', edid) + pack_subrecord('FVPA', b''.join(struct.pack('<II', *p) for p in parts))
-    subs += conditions + pack_u32('CNAM', made[0]) + pack_u32('BNAM', bench)
+    subs += conditions + pack_u32('CNAM', made[0]) + (pack_u32('BNAM', bench) if bench is not None else b'')
     subs += pack_subrecord('FNAM', struct.pack(f'<{len(filters)}I', *filters)) if filters else b''
     return pack_fo4_record('COBJ', fid, 0, subs + pack_subrecord('INTV', struct.pack('<HH', made[1], 0)))
 

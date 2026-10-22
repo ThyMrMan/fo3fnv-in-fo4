@@ -182,8 +182,12 @@ def test_weapon_copy_takes_fnv_stats_and_resolves_template_strings():
     builder = SimpleNamespace(counts={'WEAP': 0}, type_keywords=SimpleNamespace(of=lambda fnv: []), writer=SimpleNamespace(
         derive_formid=lambda site, key: 0x01ABCDEF, add_record=lambda sig, rec: written.append(rec)))
     eq = E.Equipment.__new__(E.Equipment)
+    eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.builder, eq.fnv, eq.vanilla = builder, {}, {'BaseballBat': template}
     eq.by_anim = {}
+    eq.guns = SimpleNamespace(default_only=lambda subs: None)
+    eq.ammo_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
+    eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
     eq.table = {'WeapBaseballBat': RP.Replacement('Fallout4.esm', 'BaseballBat', 'stats')}
     eq.strings = {1: b'Baseball Bat', 2: b'Swing it', 3: b'Default'}
     rec = {'EditorID': 'WeapBaseballBat', 'FULL': 'Bat', 'DATA.Weight': '3.0', 'DATA.Value': '250', 'DATA.Damage': '22'}
@@ -209,9 +213,12 @@ def test_melee_weapon_on_fnv_mesh_drops_template_model_and_mods():
                               writer=SimpleNamespace(derive_formid=lambda site, key: 7,
                                                      add_record=lambda sig, rec: written.append(rec)))
     eq = E.Equipment.__new__(E.Equipment)
+    eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.builder, eq.fnv, eq.vanilla, eq.strings = builder, {}, {'RollingPin': template}, {1: b'Rolling Pin'}
     eq.poses = {}
     eq.by_anim = {}
+    eq.ammo_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
+    eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
     eq.table = {'WeapRollingPin': RP.Replacement('Fallout4.esm', 'RollingPin', 'fnv')}
     eq.weap(1, {'EditorID': 'WeapRollingPin', 'FULL': 'Rolling Pin', 'Model.MODL': 'Weapons/RollingPin.NIF'})
     subs = list(subrecords(written[0][24:]))
@@ -283,6 +290,7 @@ def test_fnv_alternate_textures_list_shape_index_and_texture_set():
 def test_copy_puts_a_material_swap_right_after_its_model():
     """The template has no MO2S; the copy writes the swap after MOD2, where vanilla armor has it."""
     eq = E.Equipment.__new__(E.Equipment)
+    eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.strings, eq.vanilla = {}, {}
     template = [(b'EDID', b'X\0'), (b'MOD2', b'old.nif\0'), (b'BOD2', b'\0' * 4)]
     out = eq._copy({'EditorID': 'Y'}, {b'MOD2': b'new.nif\0', b'MO2S': b'\1\0\0\3'}, source=template)

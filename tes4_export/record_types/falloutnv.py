@@ -13,6 +13,7 @@ import struct
 from ..tes4_reader import (Record, get_all_subrecords,
                            get_formid_str, get_string,
                            get_subrecord)
+from .ammo_falloutnv import AMMO_EXPORTERS, emit_ammo_deltas
 from .character_falloutnv import CHARACTER_EXPORTERS, emit_class_deltas
 from .recipe_falloutnv import RECIPE_EXPORTERS
 from .package_falloutnv import emit_package_deltas, emit_patrol_data
@@ -240,32 +241,6 @@ def _emit_proj_deltas(lines: list, rec: Record):
             lines.append(f"DATA.{key}={get_formid_str(fid)}")
     emit_string(lines, "NAM1", get_subrecord(rec, "NAM1"))
     emit_u32(lines, "VNAM", get_subrecord(rec, "VNAM"))
-
-
-def _emit_ammo_deltas(lines: list, rec: Record):
-    """AMMO's FO3/FNV layout: a 13-byte DATA and the weight in DAT2.
-
-    DATA: speed f32, flags u8 (bit 0 Ignores Normal Weapon Resistance, bit 1
-    Non-Playable), 3 unused, value s32, clip rounds u8. DAT2: projectiles
-    per shot u32, projectile FormID, weight f32, consumed ammo, percentage.
-    The TES4 keys are emitted for the shared fields.
-
-    See: docs/commentary/tes4_export_falloutnv.md#ammo-is-a-bolt
-    """
-    data = get_subrecord(rec, "DATA")
-    if data and len(data.data) >= 13:
-        d = data.data
-        lines.append(f"DATA.Speed={struct.unpack_from('<f', d, 0)[0]}")
-        lines.append(f"DATA.Flags={d[4]}")
-        lines.append(f"DATA.Value={struct.unpack_from('<i', d, 8)[0]}")
-        lines.append(f"DATA.ClipRounds={d[12]}")
-    dat2 = get_subrecord(rec, "DAT2")
-    if dat2 and len(dat2.data) >= 12:
-        d = dat2.data
-        lines.append(f"DAT2.ProjPerShot={struct.unpack_from('<I', d, 0)[0]}")
-        lines.append(f"DAT2.Projectile="
-                     f"{get_formid_str(struct.unpack_from('<I', d, 4)[0])}")
-        lines.append(f"DATA.Weight={struct.unpack_from('<f', d, 8)[0]}")
 
 
 def _emit_wrld_deltas(lines: list, rec: Record):
@@ -547,7 +522,7 @@ _DELTA_DISPATCH = {
     "ACHR": _emit_actor_ref_deltas,
     "ACRE": _emit_actor_ref_deltas,
     "WEAP": _emit_weap_deltas,
-    "AMMO": _emit_ammo_deltas,
+    "AMMO": emit_ammo_deltas,
     "NAVM": _emit_navm_deltas,
     "NAVI": _emit_navi_deltas,
     "WRLD": _emit_wrld_deltas,
@@ -916,6 +891,7 @@ FALLOUT_BASE_EXPORTERS = {
     "TERM": export_TERMINAL,
     "NOTE": export_NOTE,
     "TACT": export_TALKING_ACTIVATOR,
+    **AMMO_EXPORTERS,
     **CHARACTER_EXPORTERS,
     **RECIPE_EXPORTERS,
 }

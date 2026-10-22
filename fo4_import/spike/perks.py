@@ -23,6 +23,7 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.consumable_effects import AV_AT, Effects
 from fo4_import.spike.say_topics import conditions_of
+from fo4_import.spike.teammates import Teammates, companion_gate
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
@@ -74,6 +75,7 @@ class Perks:
         self._index_vanilla()
         self.effects = Effects(builder, helper_index, self.vanilla)
         self.gates = builder.new_id(GATES_KEY, key=GATES_KEY)
+        self.teammates = Teammates(builder, export_dir, self.records)
 
     def _rank_ids(self, rec: dict) -> list:
         """FO4 FormIDs of an FNV perk's ranks: FNV's own for the first."""
@@ -126,25 +128,48 @@ class Perks:
             needs = conditions_of(rec, form_map, script_vars)
             if needs is None:
                 self.builder.counts['perk requirements not converted'] += 1
+            teammates = self.teammates.perks.get(int(rec['FormID'], 16))
             for rank, fid in enumerate(ids):
                 after = ids[rank + 1] if rank + 1 < len(ids) else 0
                 edid = f'FNV_{rec["EditorID"]}' + (f'_Rank{rank + 1}' if rank else '')
-                effects = self._effects(rec, rank, after, edid)
+                effects = b'' if teammates else self._effects(rec, rank, after, edid)
                 self.builder.writer.add_record('PERK', pack_perk(fid, (edid, rec.get('FULL', ''), rec.get('DESC', '')),
-                                                                 needs or b'', _data(rec, len(ids)), after, effects))
+                                                                 needs or b'', _data(rec, len(ids), bool(teammates)),
+                                                                 after, effects))
                 self.builder.counts['PERK'] += 1
+            if teammates:
+                self._companion_perk(rec, ids[0], teammates)
         self.builder.writer.add_record('PERK', pack_perk(self.gates, (GATES_EDID, '', ''), b'', GATES_DATA, 0,
                                                          gate_effects(self.helper_index)))
 
-    def _effects(self, rec: dict, rank: int, after: int, edid: str) -> bytes:
-        """The packed effects of rank `rank` of FNV perk `rec`; off while perk `after` (its next rank) is held."""
-        off = R.pack_ctda(0, 0.0, C.FO4.index('HasPerk'), after) if after else b''
+    def _companion_perk(self, rec: dict, player_perk: int, teammates: tuple) -> None:
+        """Write teammate perk `rec`'s companion perk (`teammates`: its FormID, holders): FNV's entry points, on while
+        the holder is a teammate and the player holds `player_perk`; counted, not written, when it names no NPC.
+        See: docs/fork/fo4_perks.md#teammate-perks
+        """
+        fid, holders = teammates
+        if not holders:
+            self.builder.counts['teammate perk naming no companion'] += 1
+            return
+        edid = f'FNV_{rec["EditorID"]}_Teammates'
+        effects = self._effects(rec, 0, 0, edid, companion_gate(player_perk))
+        self.builder.writer.add_record('PERK', pack_perk(fid, (edid, rec.get('FULL', ''), rec.get('DESC', '')), b'',
+                                                         GATES_DATA, 0, effects))
+        self.builder.counts['PERK (companion)'] += 1
+
+    def _effects(self, rec: dict, rank: int, after: int, edid: str, gate: bytes = b'') -> bytes:
+        """The packed effects of rank `rank` of FNV perk `rec`; off while perk `after` (its next rank) is held.
+        With `gate` (a companion perk's conditions), only entry points, each gated by it on the owner tab."""
+        off = (R.pack_ctda(0, 0.0, C.FO4.index('HasPerk'), after) if after else b'') + gate
         out, entry = [], 0
         for i in range(int(rec.get('EffectCount', 0) or 0)):
             key = f'Effect[{i}]'
             if int(rec.get(f'{key}.Rank', 0)) != rank:
                 continue
             kind = EFFECT_TYPES.get(rec.get(f'{key}.Type'))
+            if gate and kind != ENTRY_POINT:
+                self.builder.counts['companion perk effect left out (not an entry point)'] += 1
+                continue
             made = self._effect(rec, key, kind, off, f'{edid} {i}')
             if made is None:
                 continue
@@ -257,11 +282,13 @@ def _ranks(rec: dict) -> int:
     return max(1, int(rec.get('DATA.Ranks', 1) or 1))
 
 
-def _data(rec: dict, ranks: int) -> bytes:
-    """FO4 perk DATA of FNV perk `rec`, its chain `ranks` long."""
+def _data(rec: dict, ranks: int, hidden: bool = False) -> bytes:
+    """FO4 perk DATA of FNV perk `rec`, its chain `ranks` long; `hidden` for a teammate perk's player switch.
+    See: docs/fork/fo4_perks.md#teammate-perks
+    """
     flags = (int(rec.get(f'DATA.{k}', 0) or 0) for k in ('Trait', 'MinLevel'))
     return struct.pack(PERK_DATA, *flags, ranks, int(rec.get('DATA.Playable', 0) or 0),
-                       int(rec.get('DATA.Hidden', 0) or 0))
+                       int(hidden or rec.get('DATA.Hidden', 0) or 0))
 
 
 def _tabs(rec: dict, key: str) -> dict:

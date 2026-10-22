@@ -395,6 +395,146 @@ LevelUpMenuEx loaded would answer all three.
 LevelUpMenuEx shipping a 1.11.240 build within a month of that runtime also
 eases the downgrade question in [What is installed](#installed).
 
+### <a id="awc"></a>Armor and Weapon Condition, read (2026-10-22)
+
+Version 2.0.2, read for its method: its 21 scripts decompiled with
+Champollion 1.3.2, and its plugin censused. Champollion's folder mode fails
+on this build, so it is run once per file.
+
+- **Per-item state:** the plugin overrides vanilla's weapons (77 WEAP) and
+  armor (326 of 525 ARMO) only to add a script (VMAD). FO4 keeps a
+  scripted item as its own reference, so every copy of a gun has its own
+  script and its own variables. Condition is a float on that script
+  (`wpnCnd`), with no engine health field.
+- **Applying condition:** 101 object mods per kind
+  (`AWC_WeaponConditionMod_000`…`_100`, `AWC_ArmorConditionMod_*`). Each
+  time condition changes, the script attaches the mod for the rounded
+  percentage to its own instance. The mod carries the damage or resistance
+  change. The item's name shows it through instance naming rules. A
+  condition perk added in ranks below 75 adds the rest, through perk
+  entry points with conditions.
+- **Wear:** the script registers for the holder's animation events.
+  `weaponFire` wears guns (base 0.1 per shot, times type, action,
+  automatic and ammo multipliers), `HitFrame` wears melee weapons (0.2),
+  and `reloadStateEnter` adds reload wear. At 0 the weapon is unequipped
+  and gets the broken mod. NPCs' guns start between per-faction bounds
+  (raiders 15–75, BoS 50–100).
+- **Jams and misfires:** chance rises in bands below 50 condition. A jam
+  plays a hand-interrupt idle and the dry-fire sound, then forces a
+  reload. It does that by reading the magazine count from the HUD
+  (`UI.Get`) and setting the instance's capacity (`InstanceData.SetAmmoCapacity`),
+  then restoring it on `reloadStateExit`. A hard jam attaches a defect
+  mod (15 in `AWC_GunDefects`) and unequips the gun.
+- **Repair:** repair kits, gun oil, lube and patch kits are potions. Their
+  effect makes a manager quest send a custom event, and every scripted
+  item the player holds is registered for it. The cap is
+  set by FO4 perks (Gun Nut, Science, Nuclear Physicist, Blacksmith:
+  40 to 100), higher at a workbench.
+- **Dependencies:** F4SE (`UI.Get`, `InstanceData`, `GetAllMods`) and the
+  NV Ammo Crafting plugin as a master (its gun oil and repair kits).
+
+For us: the method fits, and every piece maps to FNV data we hold.
+- Its per-category perk caps become FNV's Repair skill.
+- Its invented wear rates become FNV's per-weapon health (WEAP
+  health).
+- Its repair kits become FNV's Weapon Repair Kit and repair from a
+  same-type weapon (Jury Rigging).
+
+Our build would add a script to converted weapons, not override vanilla's. It would still need F4SE for the instance and HUD calls, and neither call is in Hydra
+([drift](../fo4_drift.md#candidates)).
+
+### <a id="nv-ammo"></a>NV Ammo Crafting and Components, read (2026-10-22)
+
+Its 7 scripts were decompiled the same way, and its ESM (1,351 records) was censused.
+
+- **No new ammo:** its 16 AMMO records rename vanilla rounds and add a
+  casing-chance keyword and a reuse keyword. There are no JHP, AP or hand
+  loads.
+- **Recipes:** 65 at the vanilla Chemistry Station (`WorkbenchChemlab`),
+  under its own tabs for rounds, shotshells and breakdown, gated on Gun
+  Nut. It adds 39 components; boxes, jars and powder packs open into their
+  contents when picked up.
+- **Breakdown:** a token item whose script asks how many (All, 10, 1),
+  then gives a leveled list per round.
+- **Casings after firing:** a player-alias script on `weaponFire` finds
+  the fired ammo through F4SE's instance data, then the casing by index in
+  two matched form lists. The chance is invented: fire mode × the ammo's
+  keyword × indoors × light, halved by Hand Loader. A script on 34
+  vanilla guns gives NPCs casings to loot.
+- **Vendors and loot:** a start-up quest makes 216 `LeveledItem.AddForm`
+  calls instead of editing vanilla lists, so it works across load orders.
+- **Dependencies:** F4SE, Base Object Swapper and the four DLCs.
+
+Ours, compared:
+- Each FNV AMMO becomes an FO4 AMMO keeping name, model, value and weight
+  (`consumables.py`). A gun loads its first ammo only (`equipment.py`).
+- Recipes go to our own bench copies with their own keyword
+  (`crafting.py`), gated on FNV's skills. A multi-output recipe gives a
+  token swapped for a leveled list (`TES4_RecipeOutputs.psc`), with no
+  F4SE and no menu.
+
+Gaps it shows:
+- **Casings:** FNV authors the casing and its chance per round
+  (AMMO DAT2: 52 of 92 name one, for example `Ammo10mm` gives `Case10mm`
+  at 20%). Our export keeps only `DAT2.Projectile` and `ProjPerShot`, so
+  that is lost. To carry it, the export would write the casing and
+  chance, and a `weaponFire` alias would grant them from FNV's own
+  numbers. That still needs a way to read the gun's loaded ammo (F4SE
+  instance data).
+- **Ammo subtypes:** FNV has 58 AMMO with 111 effect entries and 54 AMEF.
+  Neither mod nor converter carries them, and JHP and AP rounds convert
+  but no gun loads them.
+- **Vendor stock:** runtime `AddForm` injection is a pattern to borrow if
+  FNV's own vendor lists don't cover reloading supplies.
+
+### <a id="ammo-switching"></a>Switching ammo in play: Loads of Ammo v2 and NVAS, read (2026-10-22)
+
+**FNV:** the Ammo Type hotkey (the "up" hotkey on console) reloads with the
+next round of the gun's list that the player carries. The HUD shows the
+loaded type under the AP bar (strategy guide). Our build so far swaps ammo
+only at the weapons workbench ([nv-ammo](../fo4_pipeline.md#nv-ammo)).
+
+Both mods were read from their decompiled scripts (Champollion, per file,
+pulled from their BA2s with `fo4_import.base.ba2`).
+
+**Loads of Ammo v2** (2.1.3, Nexus 9057): object mods, vanilla Papyrus only.
+- Each ammo type is an object mod on a hidden ammo slot. A script adds the
+  slot to every weapon with one more object mod, `a0aLOADS_OMOD_Slots`.
+- Switching calls `AttachModToInventoryItem(weapon, the ammo's mod)` on the
+  equipped gun, then `EquipItem(the ammo)`. Both are vanilla natives, as
+  is `Weapon.GetAmmo`.
+- Cycling (`AmmoCyclePrimaryNext`) skips rounds the player has none of
+  and wraps around, as FNV's hotkey does. It shows a message with no ammo.
+- **Hotkeys need no F4SE:** they are aid items (`MGEF_Hotkey`) that the
+  player puts on the Favorites wheel. Using one adds itself back and calls
+  the manager's function. MCM key binds are an option on top.
+- A gun's mods are re-applied when it is re-equipped (`OnItemEquipped`).
+  Switching is refused while the player carries two of the same gun.
+  `AttachModToInventoryItem` cannot pick which copy, so it shows
+  `TooManyItems`.
+
+**NVAS** (1.0, Nexus 73226): instance data, F4SE required.
+- On the hotkey (MCM, so F4SE too) it reads the worn gun's instance with
+  `InstanceData.GetAmmo` and sets the next round with
+  `InstanceData.SetAmmo`.
+- It then unequips and re-equips the gun.
+- It needs no object mods, but its author warns that every swap is
+  permanent: weapons have to be swapped back before uninstalling.
+- Changing a gun that has no instance of its own edits the base weapon for
+  every copy.
+
+**For us:** Loads' method fits our build as it stands.
+- The ammo session already gives each converted gun FNV's rounds as object
+  mods on an attach point of our own ([nv-ammo](../fo4_pipeline.md#nv-ammo)).
+  So switching in play is one script on top: `AttachModToInventoryItem`
+  with the next carried round's mod, cycling the gun's FNV list in order.
+- An Ammo Type hotkey as a Favorites aid item gives FNV's hotkey with no
+  F4SE. The player can also bind it in MCM where MCM is installed.
+- Choosing ammo in the Pip-Boy has no counterpart: Fallout 4 cannot equip
+  ammo from the Pip-Boy, and neither mod offers it.
+- The loaded type could show as a notification, since FO4's HUD has no slot
+  for it.
+
 ## <a id="ai-rules"></a>AI rules in Fallout4.exe
 
 Spike 4, read 2026-10-05 from `Fallout4.exe.unpacked.exe` (1.11.240, image

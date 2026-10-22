@@ -719,6 +719,7 @@ COMMAND_ROWS = {
     'modfactionreaction': Cmd('ModReaction', MAP, bare=True),
     'triggerscreenblood': Cmd('Game.TriggerScreenBlood', MAP, bare=True),
     'removeme': Cmd('Delete', MAP),
+    'dropme': Cmd('Drop', MAP, flags='objref_self zero_arg'),
 
     #: --- Object state ---
     'setdisabled': Cmd('Disable', MAP),

@@ -6,7 +6,8 @@ actor or quest of the cell named as the property (FNV EditorIDs), the
 player, a helper quest or global (TES4Helpers.esl), the FNV item it names
 through the cell's item converter (its conversion or FO4 stand-in), else a
 Fallout4.esm misc item or potion of the same name, or the FNV message it
-names (converted once), the FNV global it names (globals.py), or a dialogue
+names (converted once), the FNV spell of script effects it names
+(script_effects.py), the FNV global it names (globals.py), or a dialogue
 global it sets (an AddTopic unlock or a Follow Up mark, made once, its FormID
 hashed from its name). Same-named
 Fallout4.esm forms are not used otherwise.
@@ -24,6 +25,7 @@ from fo4_import.spike.controls import fo4_controls
 from fo4_import.spike.quest import QVAR_SITE, objective_key
 from script_convert.quest_var_mirrors import PREFIX as QVAR_PREFIX
 from fo4_import.spike.script import base_forms, declared_properties, fill
+from fo4_import.spike.script_effects import ScriptEffects
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_string_subrecord
 from script_convert.constants import (FALLOUT4_CHAT_PREFIX, FALLOUT4_POSE_PREFIX, FALLOUT4_SWAP_PREFIX,
@@ -58,6 +60,7 @@ class ObjectScripts:
         self.global_names = {r['EditorID']: int(r['FormID'], 16) for r in export_records(export_dir, 'GLOB')
                              if r.get('EditorID')}
         self.forms, self.made_messages, self.globals = base_forms(helper_index), {}, {}
+        self.effects = ScriptEffects(builder, export_dir)
         self.named, self.talks = dict([PLAYER]), {}
         self.quest_ids = {r['EditorID'].lower(): r['FormID'] for r in export_records(export_dir, 'QUST')
                           if r.get('EditorID')}
@@ -105,6 +108,8 @@ class ObjectScripts:
             return self.builder.equipment.anim_list(prop) or self.form_list(prop) or self.builder.items.by_name(prop)
         if kind == 'Package':
             return self.builder.packages.named(prop)
+        if kind == 'Spell':
+            return self.effects.spell(prop)
         if kind == 'Idle':
             return self.builder.idles.named(prop)
         return self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None

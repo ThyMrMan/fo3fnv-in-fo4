@@ -117,6 +117,14 @@ class Guns:
             struct.pack_into('<I', out, start + INCLUDE_SIZE * i, fid)
         return self._block(name, bytes(out))
 
+    def default_only(self, template: list) -> 'list | None':
+        """`template`'s object template cut to its default combination; None for a record without one.
+        See: docs/fork/fo4_spikes.md#spike-4-equipment
+        """
+        if not any(sig == b'OBTS' for sig, _ in template):
+            return None
+        return self._block(*_default(template))
+
     def _block(self, name: bytes, obts: bytes) -> list:
         """An object template of one combination: its name (a string ID resolved) and OBTS."""
         name = self.strings.get(struct.unpack('<I', name)[0], b'') + b'\0' if len(name) == 4 else name

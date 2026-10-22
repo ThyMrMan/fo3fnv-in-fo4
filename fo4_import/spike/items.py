@@ -31,7 +31,7 @@ ENGINE_IDS = 0x800
 #: FNV's engine portal and plane markers (no FalloutNV.esm record), Fallout4.esm's PortalMarker and PlaneMarker.
 PORTAL_MARKER, PLANE_MARKER = 0x20, 0x17
 #: FNV record types an inventory may name, indexed for conversion (the rest are skipped).
-ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT', 'FLST')
+ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT', 'FLST', 'IMOD')
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
 CONTAINER_FLAGS = 0x2
 #: Cell builder maps {FNV FormID: FO4 FormID} of the non-item forms it has made, which a form list may hold.

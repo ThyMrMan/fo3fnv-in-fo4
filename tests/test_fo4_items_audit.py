@@ -122,6 +122,7 @@ def test_worn_headgear_gets_a_file_per_slots_apart_from_its_static(tmp_path, mon
     monkeypatch.setattr(E.headgear, 'worn', lambda static, fit, slots, frame: made.append(slots) or repr(slots).encode())
     (tmp_path / 'Meshes' / 'fnv').mkdir(parents=True)
     eq = E.Equipment.__new__(E.Equipment)
+    eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.builder, eq.fits, eq.worn_paths = SimpleNamespace(data_dir=tmp_path), {'male': 0, 'female': 0}, {}
     eq.statics = {'hat.nif': ('fnv\\red_beret.nif', b'static')}
     paths = [eq._worn('hat.nif', sex, slots, None) for sex, slots in
@@ -134,6 +135,7 @@ def test_worn_headgear_gets_a_file_per_slots_apart_from_its_static(tmp_path, mon
 def test_headgear_puts_fnvs_worn_alternate_textures_on_its_addon():
     """The male model's swap goes after MOD2 (MO2S), none for a female model without alternates."""
     eq = E.Equipment.__new__(E.Equipment)
+    eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     taken = {}
     eq._on_head = lambda model, sex: (True, None)
     eq._worn = lambda model, sex, slots, frame: f'{model}_{sex}'
@@ -153,6 +155,7 @@ def test_an_armor_fnv_gives_no_world_model_wears_its_own_mesh_on_the_templates_w
                 (b'INDX', bytes(2)), (b'MODL', struct.pack('<I', 0x216376)), (b'DATA', bytes(12)), (b'FNAM', bytes(8))]
     written = []
     eq = E.Equipment.__new__(E.Equipment)
+    eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.builder = SimpleNamespace(counts=collections.Counter(), writer=SimpleNamespace(
         derive_formid=lambda site, key: 0x0300F00D, add_record=lambda sig, rec: written.append(rec)))
     eq.fnv, eq.strings, eq.vanilla = {1: {'value': 5, 'weight': 1.0, 'rating': 2.0}}, {}, {'ClothesMobsterhat': template}
@@ -216,3 +219,18 @@ def test_a_gun_part_copy_is_keyed_on_the_fnv_gun_and_its_attach_point(tmp_path):
     guns.choices = SimpleNamespace(model=lambda fid: 'r.nif', attach=lambda fid: 0x99, names={0x99: 'ap_gun_receiver'})
     assert guns._part(0x1234, {'EditorID': 'WeapX'}, 0x10, 'fnv\\x_gun.nif', 0.0) == 0x0300C0DE
     assert guns.builder.keys == ['00001234 ap_gun_receiver'] and guns.builder.counts['OMOD'] == 1
+
+
+def test_a_copy_keeps_only_its_default_mod_combination(tmp_path):
+    """default_only cuts a template's object template (OBTE ... STOP) to its default combination; a record with
+    no combination gets None."""
+    guns = _guns(tmp_path)
+    default, loot = bytearray(20), bytearray(20)
+    default[G.OBTS_DEFAULT] = 1
+    template = [(b'EDID', b'x\0'), (b'OBTE', struct.pack('<I', 2)), (b'OBTF', b''), (b'FULL', b'Default\0'),
+                (b'OBTS', bytes(default)), (b'OBTF', b''), (b'FULL', b'Standard Epic\0'), (b'OBTS', bytes(loot)),
+                (b'STOP', b'')]
+    block = guns.default_only(template)
+    assert block == [(b'OBTE', struct.pack('<I', 1)), (b'OBTF', b''), (b'FULL', b'Default\0'),
+                     (b'OBTS', bytes(default)), (b'STOP', b'')]
+    assert guns.default_only([(b'EDID', b'x\0')]) is None
