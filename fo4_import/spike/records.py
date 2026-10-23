@@ -399,22 +399,28 @@ def pack_flst(fid: int, edid: str, forms: list) -> bytes:
     return pack_fo4_record('FLST', fid, 0, _zstr('EDID', edid) + b''.join(pack_u32('LNAM', f) for f in forms))
 
 
+def pack_coed(condition: 'float | None') -> bytes:
+    """An entry's COED with item condition `condition` (no owner); b'' for None."""
+    return b'' if condition is None else pack_subrecord('COED', struct.pack('<IIf', 0, 0, condition))
+
+
 def pack_leveled(sig: str, fid: int, edid: str, chance_none: int, flags: int, entries: list) -> bytes:
-    """A leveled list `sig` (LVLI, LVLN): chance none, flags, entries [(level, FormID, count)] (LVLO, 12 bytes)."""
+    """A leveled list `sig` (LVLI, LVLN): chance none, flags, entries [(level, FormID, count[, condition])] (LVLO,
+    12 bytes, then a COED when the entry has a condition)."""
     subs = _bounded(edid, (0,) * 6) + pack_subrecord('LVLD', bytes([chance_none])) + pack_subrecord(
         'LVLM', b'\0') + pack_subrecord('LVLF', bytes([flags])) + pack_subrecord('LLCT', bytes([len(entries)]))
-    subs += b''.join(pack_subrecord('LVLO', struct.pack('<HHIHBB', level, 0, item, count, 0, 0))
-                     for level, item, count in entries)
+    subs += b''.join(pack_subrecord('LVLO', struct.pack('<HHIHBB', e[0], 0, e[1], e[2], 0, 0)) +
+                     pack_coed(e[3] if len(e) > 3 else None) for e in entries)
     return pack_fo4_record(sig, fid, 0, subs)
 
 
 def pack_cont(fid: int, edid: str, name: str, model: str, bounds: tuple, items: list, flags: int,
               weight: float, sounds: tuple = (0, 0), vmad: bytes = b'') -> bytes:
-    """A container: scripts, bounds, name, model, items [(FormID, count)] (COCT, CNTO), DATA flags and weight,
-    open and close sounds (SNDRs, 0 for none)."""
+    """A container: scripts, bounds, name, model, items [(FormID, count[, condition])] (COCT, CNTO, a COED after
+    an item with a condition), DATA flags and weight, open and close sounds (SNDRs, 0 for none)."""
     subs = _bounded(edid, bounds, vmad) + _zstr('FULL', name) + (_zstr('MODL', model) if model else b'')
-    subs += pack_u32('COCT', len(items)) + b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count))
-                                                 for item, count in items)
+    subs += pack_u32('COCT', len(items)) + b''.join(pack_subrecord('CNTO', struct.pack('<Ii', i[0], i[1])) +
+                                                 pack_coed(i[2] if len(i) > 2 else None) for i in items)
     subs += pack_subrecord('DATA', struct.pack('<Bf', flags, weight)) + _sounds(('SNAM', 'QNAM'), sounds)
     return pack_fo4_record('CONT', fid, 0, subs)
 

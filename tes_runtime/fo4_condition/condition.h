@@ -5,6 +5,8 @@
 #include "f4se/GameFormComponents.h"
 #include "f4se/GameForms.h"
 #include "f4se/GameReferences.h"
+#include "f4se/ScaleformMovie.h"
+#include "f4se/ScaleformValue.h"
 
 #include <mutex>
 #include <unordered_set>
@@ -42,8 +44,11 @@ struct Spare {
     UInt32 count;
 };
 
-// `item`'s FNV repair list, and the Repair skill's actor value (TES4_Condition.TrackRepair).
-void TrackRepair(TESForm *item, BGSListForm *list, ActorValueInfo *skill);
+// `item`'s FNV repair list and Jury Rigging group, and the Repair skill's actor value (TES4_Condition.TrackRepair).
+void TrackRepair(TESForm *item, BGSListForm *list, SInt32 group, ActorValueInfo *skill);
+
+// Whether the player has Jury Rigging (TES4_Condition.SetJuryRigging).
+void SetJuryRigging(bool has);
 
 // The holder's Repair skill.
 float RepairSkill(Actor *holder);
@@ -71,6 +76,21 @@ struct Repair {
 
 // The repair chosen in the Pip-Boy, cleared as it is taken; false with none.
 bool TakePipboyRepair(Repair *out);
+
+// A Flash value as a number (int, uint, number or bool; else 0).
+double Num(const GFxValue &v);
+
+// Member `name` of Flash object `obj` into `out`; false when `obj` is not an object or lacks it.
+bool Get(GFxValue &obj, const char *name, GFxValue *out);
+
+// Keep a CND line at `health` in item card `card`'s InfoObj, redrawing the card when it is added or changes.
+void ShowLine(GFxMovieRoot *movie, GFxValue &card, float health, bool force);
+
+// Hook the transfer and barter menus (transfer.cpp): each line's condition, shown on the item card.
+void InstallTransfer();
+
+// Listen for the transfer or barter menu `name` opening's frames (transfer.cpp), on the UI thread.
+void HookTransferMenu(const char *name);
 
 // Listen for the Pip-Boy opening (pipboy.cpp), with F4SE's task interface; once the game has loaded.
 void InstallPipboy(void *taskInterface);

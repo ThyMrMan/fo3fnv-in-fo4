@@ -143,7 +143,7 @@ def _alternates(body: bytes, sets: dict) -> list:
 
 def _fnv_fields() -> dict:
     """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0); an armor's
-    value, weight (DATA), rating (DNAM: DT, else DR) and alternate textures. An ammo form list (FLST)
+    value, health, weight (DATA), rating (DNAM: DT, else DR) and alternate textures. An ammo form list (FLST)
     gives its first entry."""
     raw = source_esm()
     lists = {rec.form_id: first_sub(rec.body, b'LNAM') for rec, _ in walk(raw, b'FLST')}
@@ -306,7 +306,7 @@ class Equipment:
         template, fields = self._template(rec), self.fnv.get(fnv)
         if template is None or fields is None:
             return None
-        data = struct.pack('<if', fields['value'], fields['weight']) + template[b'DATA'][8:12]
+        data = struct.pack('<ifI', fields['value'], fields['weight'], max(fields.get('health', 0), 0))
         fnam = bytearray(template[b'FNAM'])
         struct.pack_into('<H', fnam, 0, round(fields['rating']))
         subs = {b'DATA': data, b'FNAM': bytes(fnam)}

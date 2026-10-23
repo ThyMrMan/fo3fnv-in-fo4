@@ -27,6 +27,20 @@
 
 namespace condition {
 
+double Num(const GFxValue &v) {
+    switch (v.GetType()) {
+        case GFxValue::kType_Int: return v.GetInt();
+        case GFxValue::kType_UInt: return v.GetUInt();
+        case GFxValue::kType_Number: return v.GetNumber();
+        case GFxValue::kType_Bool: return v.GetBool() ? 1.0 : 0.0;
+        default: return 0.0;
+    }
+}
+
+bool Get(GFxValue &obj, const char *name, GFxValue *out) {
+    return obj.IsObject() && obj.GetMember(name, out);
+}
+
 namespace {
 
 // The Pip-Boy's own keys there: Enter, X, R, Q, C, Tab, Z, and T (Grid View); G is free. No gamepad button is.
@@ -42,19 +56,6 @@ const void *g_hintPage = nullptr;  // The inventory page given the REPAIR hint (
 bool g_loggedEntry = false;
 std::string g_base = "root";       // The path of the PipboyMenu instance (root, or root.Menu_mc).
 
-double Num(const GFxValue &v) {
-    switch (v.GetType()) {
-        case GFxValue::kType_Int: return v.GetInt();
-        case GFxValue::kType_UInt: return v.GetUInt();
-        case GFxValue::kType_Number: return v.GetNumber();
-        case GFxValue::kType_Bool: return v.GetBool() ? 1.0 : 0.0;
-        default: return 0.0;
-    }
-}
-
-bool Get(GFxValue &obj, const char *name, GFxValue *out) {
-    return obj.IsObject() && obj.GetMember(name, out);
-}
 
 // Log an object's members by name and GFx type (the first highlighted entry; the root when the hook fails).
 class LogMembers : public GFxValue::ObjectInterface::ObjVisitor {
@@ -330,36 +331,6 @@ void AddHint(GFxMovieRoot *movie, GFxValue &root, GFxValue &page) {
     _MESSAGE("added the Pip-Boy %s hint", HINT);
 }
 
-// Keep the CND line in item card `card`'s InfoObj at g_health, redrawing the card when it changes.
-void ShowLine(GFxMovieRoot *movie, GFxValue &card, bool force) {
-    GFxValue info, text, value;
-    if (!Get(card, "InfoObj", &info) || !info.IsArray()) return;
-    double percent = std::floor(g_health * 100.0 + 0.5);
-    SInt32 at = -1;
-    for (UInt32 i = 0, n = info.GetArraySize(); i < n && at < 0; i++) {
-        GFxValue item, label;
-        if (info.GetElement(i, &item) && Get(item, "text", &label) && label.IsString() &&
-            !strcmp(label.GetString(), LINE))
-            at = SInt32(i);
-    }
-    GFxValue line;
-    if (at >= 0 && info.GetElement(UInt32(at), &line)) {
-        if (Get(line, "value", &value) && Num(value) == percent && !force) return;
-    } else {
-        GFxValue on(true);
-        movie->CreateObject(&line);
-        movie->CreateString(&text, LINE);
-        line.SetMember("text", &text);
-        line.SetMember("showAsPercent", &on);
-        info.PushBack(&line);
-        static bool logged = false;
-        if (!logged) _MESSAGE("added the %s line to the Pip-Boy item card", LINE);
-        logged = true;
-    }
-    value.SetNumber(percent);
-    line.SetMember("value", &value);
-    card.Invoke("onDataChange", nullptr, nullptr, 0);
-}
 
 // Set the equipped mark (equipState) of each of Pip-Boy `list`'s lines of form `formID` from its own stack (its
 // StackID), redrawing the list when one changes: the game leaves the marks of two copies of one form as they were
@@ -426,7 +397,7 @@ void Update(GFxMovieRoot *movie) {
                      g_health);
     }
     if (force && formID) FixEquipMarks(list, formID);
-    if (g_wears) ShowLine(movie, card, force);
+    if (g_wears) ShowLine(movie, card, g_health, force);
 }
 
 class FrameHandler : public GFxFunctionHandler {
@@ -480,11 +451,26 @@ public:
 };
 
 // Menu open and close events: hook the Pip-Boy on the UI thread as it opens.
+// The transfer or barter menu just opened: hook it on the UI thread (transfer.cpp).
+class TransferHookTask : public ITaskDelegate {
+public:
+    explicit TransferHookTask(const char *name) : m_name(name) {}
+    void Run() override { HookTransferMenu(m_name); }
+
+private:
+    const char *m_name;
+};
+
+const char *TRANSFER_MENUS[] = {"ContainerMenu", "BarterMenu"};
+
 class OpenSink : public BSTEventSink<MenuOpenCloseEvent> {
 public:
     EventResult ReceiveEvent(MenuOpenCloseEvent *evn, void *) override {
-        if (evn && evn->isOpen && evn->menuName.c_str() && !strcmp(evn->menuName.c_str(), MENU) && g_tasks)
-            g_tasks->AddUITask(new HookTask);
+        const char *name = evn && evn->isOpen ? evn->menuName.c_str() : nullptr;
+        if (!name || !g_tasks) return kEvent_Continue;
+        if (!strcmp(name, MENU)) g_tasks->AddUITask(new HookTask);
+        for (const char *transfer : TRANSFER_MENUS)
+            if (!strcmp(name, transfer)) g_tasks->AddUITask(new TransferHookTask(transfer));
         return kEvent_Continue;
     }
 };
@@ -508,6 +494,36 @@ bool TakePipboyRepair(Repair *out) {
 
 void RefreshPipboy() {
     g_refresh = true;
+}
+
+void ShowLine(GFxMovieRoot *movie, GFxValue &card, float health, bool force) {
+    GFxValue info, text, value;
+    if (!Get(card, "InfoObj", &info) || !info.IsArray()) return;
+    double percent = std::floor(health * 100.0 + 0.5);
+    SInt32 at = -1;
+    for (UInt32 i = 0, n = info.GetArraySize(); i < n && at < 0; i++) {
+        GFxValue item, label;
+        if (info.GetElement(i, &item) && Get(item, "text", &label) && label.IsString() &&
+            !strcmp(label.GetString(), LINE))
+            at = SInt32(i);
+    }
+    GFxValue line;
+    if (at >= 0 && info.GetElement(UInt32(at), &line)) {
+        if (Get(line, "value", &value) && Num(value) == percent && !force) return;
+    } else {
+        GFxValue on(true);
+        movie->CreateObject(&line);
+        movie->CreateString(&text, LINE);
+        line.SetMember("text", &text);
+        line.SetMember("showAsPercent", &on);
+        info.PushBack(&line);
+        static bool logged = false;
+        if (!logged) _MESSAGE("added the %s line to an item card", LINE);
+        logged = true;
+    }
+    value.SetNumber(percent);
+    line.SetMember("value", &value);
+    card.Invoke("onDataChange", nullptr, nullptr, 0);
 }
 
 }  // namespace condition

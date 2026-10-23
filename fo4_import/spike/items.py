@@ -23,6 +23,7 @@ See: docs/fork/fo4_tool_audit.md#fix-first
 from pathlib import Path
 
 from fo4_import.spike import records as R
+from fo4_import.spike.entry_condition import condition_of
 from tes5_import.base.tes5_reader import first_sub, walk
 from fo4_import.pipeline.export_index import export_records
 
@@ -160,8 +161,8 @@ class Items:
 
     def _leveled(self, rec: dict) -> 'int | None':
         """A leveled item with the entries whose items convert; None when none do."""
-        listed = _list(rec, 'Entry', ('Level', 'FormID', 'Count'))
-        entries = [(level, self.item(fid), count) for level, fid, count in listed]
+        listed, fnv = _list(rec, 'Entry', ('Level', 'FormID', 'Count')), int(rec['FormID'], 16)
+        entries = [(level, self.item(fid), count, condition_of(fnv, i)) for i, (level, fid, count) in enumerate(listed)]
         entries = [e for e in entries if e[1] is not None]
         if not entries:
             return None
@@ -174,7 +175,9 @@ class Items:
         if 'Model.MODL' not in rec:
             return None
         model, bounds = self.builder.mesh(rec['Model.MODL'])
-        contents = [(self.item(fid), count) for fid, count in _list(rec, 'Item', ('FormID', 'Count'))]
+        fnv = int(rec['FormID'], 16)
+        contents = [(self.item(fid), count, condition_of(fnv, i))
+                    for i, (fid, count) in enumerate(_list(rec, 'Item', ('FormID', 'Count')))]
         contents = [c for c in contents if c[0] is not None]
         return self._write('CONT', lambda fid: R.pack_cont(
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), contents,

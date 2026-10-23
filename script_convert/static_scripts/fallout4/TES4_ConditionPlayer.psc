@@ -29,6 +29,19 @@ Potion Property RepairHotkey Auto Const
 Form[] Property RepairLists Auto Const
 {Each item's repair list (a FormList, or None): Weapons' first, then Armors'.}
 ActorValue Property Repair Auto Const
+Int[] Property JuryGroups Auto Const
+{Each item's Jury Rigging group (FNV's weapon animation type and skill, armor weight class and equipment type), parallel to RepairLists; 0 for none.}
+Perk Property JuryRigging Auto Const
+Float[] Property JamTimes Auto Const
+{Each weapon's FNV reload jam time in seconds, parallel to Weapons; -1 for one that never jams (No Jam After Reload).}
+Float[] Property JamChances Auto Const
+{FNV's reload jam chance by condition index (fWeaponConditionReloadJam1..10).}
+Idle Property JamInterrupt1st Auto Const
+Idle Property JamInterrupt3rd Auto Const
+Idle Property JamReload1st Auto Const
+Idle Property JamReload3rd Auto Const
+Sound Property DryFire Auto Const
+{FNV's Jury Rigging: while held, a spare of the item's group repairs it too.}
 Int Property RepairKey = 34 Auto Const
 {G: repairs the item highlighted in the Pip-Boy (its REPAIR button hint). The Pip-Boy's T is Grid View.}
 
@@ -36,6 +49,7 @@ Form[] Seen
 Int[] SeenTier
 Form[] Pending
 Float RepairedAt
+Bool JamClearing
 Form Noted
 Float NotedAt
 
@@ -59,7 +73,8 @@ Function ListenPipboy()
   {Give the plugin the items that wear (it forgets them each game start) and hear the Pip-Boy's repair requests.}
   TES4_Condition.Track(Weapons)
   TES4_Condition.Track(Armors)
-  TES4_Condition.TrackRepair(Weapons, Armors, RepairLists, Repair)
+  TES4_Condition.TrackRepair(Weapons, Armors, RepairLists, JuryGroups, Repair)
+  TellJuryRigging()
   RegisterForMenuOpenCloseEvent("PipboyMenu")
   RegisterForExternalEvent("FNVConditionRepair", "OnPipboyRepair")
 EndFunction
@@ -67,6 +82,7 @@ EndFunction
 Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
   Debug.Trace("TES4Condition|menu|" + asMenuName + "|" + abOpening)
   If abOpening
+    TellJuryRigging()
     ApplyPending()
     RegisterForKey(RepairKey)
   Else
@@ -99,8 +115,14 @@ Function OnPipboyRepair()
   TES4_Condition.PipboyRefresh()
 EndFunction
 
+Function TellJuryRigging()
+  {Tell the plugin whether the player has Jury Rigging (it can be taken at any level-up).}
+  TES4_Condition.SetJuryRigging(JuryRigging && GetActorReference().HasPerk(JuryRigging))
+EndFunction
+
 Function RepairFromHotkey()
   {The Repair hotkey: repair the equipped weapon when it is below whole and has a spare, else the worn armor piece in the worst condition that has one.}
+  TellJuryRigging()
   Actor player = GetActorReference()
   Form item = player.GetEquippedWeapon()
   If !Repairable(item, -1)
@@ -129,7 +151,7 @@ Function RepairItem(Form akItem, Int aiStack)
   Actor player = GetActorReference()
   If TES4_ConditionCalls.Whole(TES4_Condition.GetStackHealth(player, akItem, aiStack)) >= 1.0
     Debug.Notification(akItem.GetName() + " needs no repair.")
-  ElseIf TES4_ConditionCalls.RepairWithSpare(player, akItem, aiStack, ListOf(akItem))
+  ElseIf TES4_ConditionCalls.RepairWithSpare(player, akItem, aiStack)
     Refresh(akItem)
     Int percent = Math.Floor(TES4_ConditionCalls.Whole(TES4_Condition.GetStackHealth(player, akItem, aiStack)) * 100.0 + 0.5)
     Debug.Notification(akItem.GetName() + " repaired: " + percent + "%")
@@ -147,20 +169,7 @@ Bool Function Repairable(Form akItem, Int aiStack)
   If TES4_ConditionCalls.Whole(TES4_Condition.GetStackHealth(player, akItem, aiStack)) >= 1.0
     Return False
   EndIf
-  Return TES4_ConditionCalls.Spare(player, akItem, ListOf(akItem)) != None
-EndFunction
-
-FormList Function ListOf(Form akItem)
-  {akItem's repair list; None without one.}
-  Int i = Weapons.Find(akItem)
-  If i < 0
-    i = Armors.Find(akItem)
-    If i < 0
-      Return None
-    EndIf
-    i += Weapons.Length
-  EndIf
-  Return RepairLists[i] as FormList
+  Return TES4_Condition.SpareCount(player, akItem, aiStack) > 0
 EndFunction
 
 Function Listen()
@@ -169,6 +178,7 @@ Function Listen()
   RegisterForAnimationEvent(GetReference(), "HitFrame")
   RegisterForAnimationEvent(GetReference(), "weaponSheathe")
   RegisterForAnimationEvent(GetReference(), "reloadStateExit")
+  RegisterForAnimationEvent(GetReference(), "reloadStateEnter")
 EndFunction
 
 Function ListenHits()
@@ -206,6 +216,9 @@ EndEvent
 Event OnAnimationEvent(ObjectReference akSource, String asEventName)
   If asEventName == "weaponSheathe" || asEventName == "reloadStateExit"
     ApplyPending()
+    Return
+  ElseIf asEventName == "reloadStateEnter"
+    Reloading()
     Return
   EndIf
   Actor player = GetActorReference()
@@ -307,6 +320,55 @@ Function ApplyPending()
     EndIf
     k += 1
   EndWhile
+EndFunction
+
+Function Reloading()
+  {A reload began: roll FNV's reload jam for the equipped weapon (not the reload that clears a jam).}
+  If JamClearing
+    JamClearing = False
+    Return
+  EndIf
+  Actor player = GetActorReference()
+  Weapon gun = player.GetEquippedWeapon()
+  Int i = Weapons.Find(gun)
+  If !gun || i < 0 || JamTimes[i] < 0.0
+    Return
+  EndIf
+  If Utility.RandomFloat(0.0, 1.0) < JamChance(Health(player, gun))
+    Jam(player, JamTimes[i])
+  EndIf
+EndFunction
+
+Float Function JamChance(Float afHealth)
+  {FNV's reload jam chance at condition afHealth: index ceil(percent / 10), less one above 1, into JamChances (index 0 is the first).}
+  Int i = Math.Ceiling(afHealth * 10.0)
+  If i > 1
+    i -= 1
+  EndIf
+  If i >= JamChances.Length
+    Return 0.0
+  EndIf
+  Return JamChances[i]
+EndFunction
+
+Function Jam(Actor akPlayer, Float afTime)
+  {Jam the reload: stop it with the hand-interrupt idle, click the dry fire, then reload again after afTime seconds (FNV's jam time).}
+  Bool first = akPlayer.GetAnimationVariableBool("IsFirstPerson")
+  If first
+    akPlayer.PlayIdle(JamInterrupt1st)
+  Else
+    akPlayer.PlayIdle(JamInterrupt3rd)
+  EndIf
+  DryFire.Play(akPlayer)
+  Debug.Notification("Your weapon jammed.")
+  Utility.Wait(Math.Max(afTime, 0.5))
+  DryFire.Play(akPlayer)
+  JamClearing = True
+  If first
+    akPlayer.PlayIdle(JamReload1st)
+  Else
+    akPlayer.PlayIdle(JamReload3rd)
+  EndIf
 EndFunction
 
 Int Function TierOf(Form akItem)

@@ -467,13 +467,112 @@ disassembled 2026-10-23; the `.text` section is not encrypted):
   which get no repair.
 - There is no gamepad key, since every button is taken there.
 
+<a id="entry-condition"></a>**Starting condition, built 2026-10-23 (not yet played).**
+- FNV authors an inventory entry's condition as a COED after its CNTO
+  (containers, NPCs, creatures) or LVLO (leveled lists). The export leaves it
+  out.
+- `spike/entry_condition.py` reads it from FalloutNV.esm, per record and entry.
+  Containers, leveled items and NPC carried items now write FO4's COED (same
+  layout: owner, global or rank, condition) after each entry that has one.
+- NPCs' worn armor goes into an outfit (OTFT), which has no COED, so it starts
+  whole.
+- The region build: 682 entries carry a COED (678 leveled-list entries,
+  3 NPC, 1 container), from 15% to 75%, median 45%. FO4Edit reports 0 errors.
+- Played 2026-10-23: many NPCs' weapons came at 100%. FNV's data is there:
+  in FalloutNV.esm, 1,039 of 1,146 weapon entries in leveled lists have a
+  COED. In the build, all 159 NPCs with weapons reach them through entries
+  with one (127 for every weapon, 32 for some).
+- The game drops it for weapons. The spawn routine (0x271570) applies an
+  entry's COED only when the item has a maximum health. That comes from
+  0x316940, by form type: armor (0x1D) reads its own DATA health, ammo (0x2C)
+  its charge at +0x168, anything else a health component, which weapons
+  lack. So a weapon reports 0.
+- Fixed in the plugin: its one call there (0x271611) is redirected through
+  F4SE's branch trampoline, and a weapon answers 1. Vanilla puts COED only on
+  power armor entries.
+- Armor got its health field from the FO4 template, sometimes 0. It now gets
+  FNV's own (ARMO DATA health).
+- NPCs whose inventories were rolled before this build keep what they have.
+
+<a id="transfer-menu"></a>**Transfer and barter menus (built 2026-10-23, not yet played).** These had no
+CND (played).
+- `containermenu.swf` (`ContainerMenu`, which `BarterMenu` extends) shows the
+  highlighted line's `ItemCardInfoList` on `ItemCard_mc`. Its lists are
+  `ContainerList_mc` and `PlayerInventory_mc.PlayerList_mc`.
+- The game builds each Flash line with slot 28 of the menu's vtable:
+  `ContainerMenu` 0x103E690, `BarterMenu` 0xA4B500 (pure in
+  `ContainerMenuBase`).
+  - Its arguments: the menu, the owner's handle, the game's line record and
+    the Flash line.
+  - The record is an `InventoryInterface` handle, resolved by 0x347C10 on the
+    singleton at 0x30EC470, then the line's stack indices (count at +8;
+    inline at +0x10 when negative, else a pointer there).
+- `transfer.cpp` replaces both slots. After the original, it stamps the line
+  with `fnvCND`, the condition of its first stack.
+- A native `enterFrame` listener on each opened menu keeps a CND line at the
+  stamped value on the card, for the line whose `ItemCardInfoList` the card
+  shows. The CND drawer is shared with the Pip-Boy (`ShowLine`).
+- Played 2026-10-23: the hook never attached ("neither root nor root.Menu_mc
+  has its item card"), because `HasMember` does not see a display object's
+  named child clips. It now reads `<base>.ItemCard_mc` by path, as the
+  Pip-Boy hook does, and logs the root's members if that fails too.
+- Played again: still not found. The transfer menu's root holds only `f4se`
+  and `FilterHolder_mc`, so the menu sits under it. The hook now tries
+  `root.FilterHolder_mc.Menu_mc` and `root.FilterHolder_mc` first, and logs
+  the holder's members otherwise. Played: it shows CND.
+
+<a id="jury-rigging"></a>**Jury Rigging, built 2026-10-23 (not yet played).** FNV's perk (entry point
+48, Has Jury Rigging) lets an item be repaired with "a roughly similar item".
+FalloutNV.exe's "can this spare repair that item" test (0x47BB50, GOG build):
+1. The same item: yes.
+2. The item's repair list contains the spare (0x47BAC0, 0x47BA80): yes.
+3. With entry point 48 above 0: both of one form type, the spare not
+   persistent or a quest item (vtable +0x94), and then:
+   - weapons (form type 0x28): the spare playable (Flags 1 bit 0x80 clear,
+     +0x100), with the same weapon animation type (+0xF4, DNAM 0) and the
+     same skill (+0x15C, DNAM 104);
+   - armor (0x18): the spare playable (biped general flags bit 0x40 clear),
+     with the same weight class (heavy, bit 0x80: 1; medium, 0x08: 2; else 0)
+     and the same equipment type (ETYP, +0x154).
+
+Ours:
+- `condition.jury_groups` reads each item's group from FalloutNV.esm.
+- The player alias carries them (`JuryGroups`, parallel to the repair lists)
+  and the converted perk (`JuryRigging`).
+- The plugin offers a spare of the same group while the player has the perk.
+- The quest-item test is not carried over.
+
+<a id="jams"></a>**Reload jams, built 2026-10-23 (not yet played).**
+- FNV jams on reload (FalloutNV.exe 0x92B9E0, roll at 0x4DFF00). The
+  condition index is i = ceil(percent / 10), minus 1 when above 1. The chance
+  is `fWeaponConditionReloadJam[i]`, whose exe defaults (FalloutNV.esm sets
+  none) are 1, 0.75, 0.5, 0.25, 0.1, then 0.
+  - So a weapon at 0% always jams, up to 20% 75%, then 50%, 25% and 10%,
+    and above 50% never.
+  - Weapons with "No Jam After Reload" (DNAM Flags 2 bit 0x4, 17 weapons)
+    never jam.
+  - The jam lasts the weapon's Jam Time (DNAM offset 96).
+  - Firing jams are in FNV's tables, but every value is 0.
+- Fallout 4 has no jam animation, idle or sound. AWC's jam (on firing):
+  - a hand-interrupt idle (`1stPRightInterrupt`, `RaiderRightInterrupt` in
+    third person) and the dry-fire sound twice;
+  - then a forced reload idle (`1stPReloadNonLM`, `RaiderReload`), with
+    the magazine capacity set to the rounds left so the reload is allowed.
+- Ours jams the reload itself, as FNV does. On `reloadStateEnter` it rolls
+  FNV's chance for the equipped weapon (`JamTimes`, `JamChances`). On a
+  jam:
+  - the hand-interrupt idle stops the reload;
+  - the dry-fire sound plays, with a "jammed" notice;
+  - after the weapon's Jam Time, the reload idle plays the reload again,
+    and that one is not rolled.
+  - The interrupted reload never added rounds, so no capacity change is
+    needed.
+
 Next:
-- Jams.
-- Vendor repair (`ShowRepairMenu`) and Jury Rigging.
+- Vendor repair (`ShowRepairMenu`).
 - NPC weapons' wear.
-- FNV's per-entry starting condition (COED) on NPCs, leveled lists and
-  containers.
-- A Pip-Boy display.
+- Karma and reputation lines on the Pip-Boy's STAT page from this plugin,
+  which would drop PipboyTabs (2026-10-23, suggested).
 
 ## <a id="drift"></a>Expected drift
 

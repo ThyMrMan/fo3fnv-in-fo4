@@ -1875,6 +1875,19 @@ Skyrim target's). attach.py fills a `Form` item with whatever the note
 became, paper note or holotape, so FNV's one script-given holotape (Hanlon's
 Confession, `TIF__00158676`) is given as a holotape (checked 2026-10-22).
 
+A holotape line's own speaker tests are settled before conversion
+(`spoken_by`). FNV says a voice note's lines as its speaker (SNAM), and 8 of
+the 9 voice notes with lines test exactly that: `GetIsID <SNAM> == 1` on
+Subject, always true in FNV. Kept, the test names the FO4 copy of that NPC
+while the line is said by the stand-in speaker (or no actor), so it is never
+true: the scene had no line to play, the holotape stayed silent and the End
+fragment never ran (Deputy Beagle's journal never completed VMQ01's
+objectives 30-38). Subject `GetIsID` and `GetIsVoiceType` tests now resolve
+against the note's speaker record (true tests dropped, a line for another
+speaker left out); every other test converts as before. Vanilla gives no
+counter-example: 5 of HolotapesQuest's 536 lines have conditions, none a
+Subject identity test.
+
 **Measured** (Goodsprings to Primm): the region places 4 books, 1 note and
 4 terminals; all were statics and all are now their records (2 TERMs, 3
 references locked, the Easy desk terminal's unlock item a fragment; the 4

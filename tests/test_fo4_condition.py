@@ -8,8 +8,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from fo4_import.spike import condition as C
+from fo4_import.spike import condition as C, records as R
 from fo4_import.spike.ammo_mods import ATTACK_DAMAGE, PROPERTY
+from tes5_import.base.tes5_reader import subrecords
 
 
 def _props(tier: int) -> dict:
@@ -92,3 +93,20 @@ def test_only_armor_with_fnv_health_takes_the_condition_point():
     assert struct.unpack('<I', wired[b'APPR'])[0] == cond.point and b'KWDA' in wired
     assert cond.wire_armor(2, 0x200, list(armor), {'health': 0, 'rating': 5.0}) == armor
     assert cond.armors == {0x100: (1, 300.0, 12)}
+
+
+def test_entry_condition_is_a_coed_after_its_entry():
+    """A container item or leveled entry with a condition is followed by a COED (owner 0, condition at +8)."""
+    cont = R.pack_cont(0x10, 'x', '', '', (0,) * 6, [(0x20, 1, 0.4), (0x21, 2)], 0, 0.0)
+    tags = [(tag, data) for tag, data in subrecords(cont[24:]) if tag in (b'CNTO', b'COED')]
+    assert [t for t, _ in tags] == [b'CNTO', b'COED', b'CNTO']
+    assert struct.unpack('<IIf', tags[1][1]) == (0, 0, pytest.approx(0.4))
+    lvli = R.pack_leveled('LVLI', 0x11, 'y', 0, 0, [(1, 0x20, 1, 0.5), (1, 0x21, 1, None)])
+    assert [t for t, _ in subrecords(lvli[24:]) if t in (b'LVLO', b'COED')] == [b'LVLO', b'COED', b'LVLO']
+
+
+def test_jury_rigging_perk_is_the_one_with_entry_point_48():
+    """Only a perk with an effect on entry point Has Jury Rigging (48) counts."""
+    perks = [{'FormID': '00000001', 'Effect[0].EntryPoint': '48'}, {'FormID': '00000002', 'Effect[0].EntryPoint': '68'},
+             {'FormID': '00000003', 'Effect[0].EntryPoint': '9', 'Effect[1].EntryPoint': '48'}]
+    assert C.jury_rigging_perks(perks) == [1, 3]

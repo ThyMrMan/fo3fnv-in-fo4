@@ -15,7 +15,9 @@ namespace condition {
 namespace {
 
 std::unordered_map<UInt32, BGSListForm *> g_repairLists;  // item form ID -> its repair list (under g_lock)
+std::unordered_map<UInt32, SInt32> g_juryGroups;           // item form ID -> its Jury Rigging group (under g_lock)
 ActorValueInfo *g_repairSkill = nullptr;
+bool g_juryRigging = false;
 
 // BGSInventoryList::RemoveFromStack(object, stack index, count, more stacks follow): the count removed. It sends
 // the inventory event, marks the list's weight dirty and drops an emptied stack (Fallout4.exe 1.11.240, RVA
@@ -27,7 +29,14 @@ float Whole(float health) {
     return health < 0.0f ? 1.0f : health;
 }
 
-bool InRepairList(TESForm *item, TESForm *form) {
+// Whether `form` can repair `item` (FalloutNV.exe 0x47BB50): the same item, one in its repair list, or, with Jury
+// Rigging, one of its Jury Rigging group (docs/fork/fo4_condition.md#jury-rigging).
+bool CanRepairWith(TESForm *item, TESForm *form) {
+    if (form == item) return true;
+    auto group = g_juryGroups.find(item->formID), theirs = g_juryGroups.find(form->formID);
+    if (g_juryRigging && group != g_juryGroups.end() && theirs != g_juryGroups.end() && group->second &&
+        group->second == theirs->second)
+        return true;
     auto it = g_repairLists.find(item->formID);
     if (it == g_repairLists.end() || !it->second) return false;
     for (UInt32 i = 0; i < it->second->forms.count; i++) {
@@ -59,7 +68,7 @@ std::vector<Spare> Spares(Actor *holder, TESForm *item, SInt32 stack) {
     for (UInt32 i = 0; i < list->items.count; i++) {
         BGSInventoryItem entry;
         list->items.GetNthItem(i, entry);
-        if (!entry.form || (entry.form != item && !InRepairList(item, entry.form))) continue;
+        if (!entry.form || !CanRepairWith(item, entry.form)) continue;
         SInt32 n = 0;
         for (BGSInventoryItem::Stack *s = entry.stack; s; s = s->next, n++) {
             bool equipped = (s->flags & BGSInventoryItem::Stack::kFlagEquipped) != 0;
@@ -86,12 +95,17 @@ SInt32 DefaultSpare(const std::vector<Spare> &spares, float ours, float skill) {
 float RepairWith(Actor *holder, TESForm *item, SInt32 stack, TESForm *spare, SInt32 spareStack) {
     SInt32 at = -1;
     BGSInventoryItem::Stack *target = FindStack(holder, item, stack, &at);
-    if (!target || !spare || at < 0) return -1.0f;
+    if (!target || at < 0) return -1.0f;
     float ours = Whole(HealthOf(target)), skill = RepairSkill(holder);
     std::vector<Spare> spares = Spares(holder, item, at);
     const Spare *used = nullptr;
+    if (!spare) {
+        SInt32 chosen = DefaultSpare(spares, ours, skill);
+        used = chosen < 0 ? nullptr : &spares[chosen];
+    }
     for (const Spare &s : spares)
-        if (s.form == spare && (spareStack < 0 ? !used || s.health < used->health : s.stack == spareStack)) used = &s;
+        if (spare && s.form == spare && (spareStack < 0 ? !used || s.health < used->health : s.stack == spareStack))
+            used = &s;
     if (!used) return -1.0f;
     float result = RepairResult(ours, used->health, skill);
     BGSInventoryList *list = holder->inventoryList;
@@ -104,10 +118,15 @@ float RepairWith(Actor *holder, TESForm *item, SInt32 stack, TESForm *spare, SIn
     return result;
 }
 
-void TrackRepair(TESForm *item, BGSListForm *list, ActorValueInfo *skill) {
+void TrackRepair(TESForm *item, BGSListForm *list, SInt32 group, ActorValueInfo *skill) {
     std::lock_guard<std::mutex> hold(g_lock);
-    if (item) g_repairLists[item->formID] = list;
+    if (item) g_repairLists[item->formID] = list, g_juryGroups[item->formID] = group;
     if (skill) g_repairSkill = skill;
+}
+
+void SetJuryRigging(bool has) {
+    std::lock_guard<std::mutex> hold(g_lock);
+    g_juryRigging = has;
 }
 
 }  // namespace condition

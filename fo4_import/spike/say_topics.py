@@ -250,11 +250,13 @@ def with_quest(rec: dict, quest: list) -> dict:
     """FNV line `rec`, or a copy whose conditions also AND in its quest's dialogue conditions `quest` (raw hex).
     See: docs/fork/fo4_pipeline.md#dialogue-conditions
     """
-    if not quest:
-        return rec
-    both = _closed(raws(rec)) + _closed(quest)
+    return with_conditions(rec, _closed(raws(rec)) + _closed(quest)) if quest else rec
+
+
+def with_conditions(rec: dict, conds: list) -> dict:
+    """A copy of FNV record `rec` whose conditions are `conds` (raw hex)."""
     out = {k: v for k, v in rec.items() if not k.startswith('Condition[')}
-    return {**out, **{f'Condition[{i}].Raw': raw for i, raw in enumerate(both)}, 'ConditionCount': str(len(both))}
+    return {**out, **{f'Condition[{i}].Raw': raw for i, raw in enumerate(conds)}, 'ConditionCount': str(len(conds))}
 
 
 def raws(rec: dict) -> list:

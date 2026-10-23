@@ -12,6 +12,7 @@
 #include "f4se/PapyrusArgs.h"
 #include "f4se/PapyrusNativeFunctions.h"
 #include "f4se/PapyrusVM.h"
+#include "f4se_common/BranchTrampoline.h"
 #include "f4se_common/f4se_version.h"
 
 #include <shlobj.h>
@@ -100,6 +101,30 @@ const char *SCRIPT = "TES4_Condition";
 PluginHandle g_handle = kPluginHandle_Invalid;
 void *g_tasks = nullptr;
 
+// ---- Starting condition (docs/fork/fo4_condition.md#entry-condition) ----
+// The game gives an item spawned from an inventory entry the entry's COED condition (0x271570) only when the
+// item has a maximum health (0x316940: armor's own field, ammo's charge, else a health component). Weapons have
+// none, so their COED was dropped. The one call there (0x271611) is redirected: a weapon answers 1, so its
+// condition applies. Vanilla puts COED only on power armor entries, so only FNV's data is affected.
+using MaxHealthFn = UInt32 (*)(TESForm *, TESObjectREFR *);
+RelocAddr<MaxHealthFn> MaxHealth(0x316940);
+RelocAddr<uintptr_t> SPAWN_HEALTH_CALL(0x271611);
+const size_t TRAMPOLINE_SIZE = 64;
+
+UInt32 SpawnMaxHealth(TESForm *form, TESObjectREFR *ref) {
+    UInt32 health = MaxHealth(form, ref);
+    return health || !form || form->formType != kFormType_WEAP ? health : 1;
+}
+
+// Redirect the spawn routine's max-health call to SpawnMaxHealth, with F4SE's branch pool; false when it cannot.
+bool HookSpawnHealth(const F4SEInterface *f4se) {
+    auto *trampolines = static_cast<F4SETrampolineInterface *>(f4se->QueryInterface(kInterface_Trampoline));
+    void *pool = trampolines ? trampolines->AllocateFromBranchPool(g_handle, TRAMPOLINE_SIZE) : nullptr;
+    if (!pool) return false;
+    g_branchTrampoline.SetBase(TRAMPOLINE_SIZE, pool);
+    return g_branchTrampoline.Write5Call(SPAWN_HEALTH_CALL.GetUIntPtr(), uintptr_t(SpawnMaxHealth));
+}
+
 // F4SE messages: hook the Pip-Boy once the game has loaded (the UI exists then).
 void OnMessage(F4SEMessagingInterface::Message *msg) {
     if (msg->type == F4SEMessagingInterface::kMessage_GameLoaded) InstallPipboy(g_tasks);
@@ -176,17 +201,25 @@ void PipboyRefresh(StaticFunctionTag *) {
     RefreshPipboy();
 }
 
-// Papyrus: the FNV repair lists (`lists`: weapons' first, then armors', parallel to the two) and the Repair skill.
+// Papyrus: the FNV repair lists (`lists`: weapons' first, then armors', parallel to the two), the Jury Rigging
+// groups (parallel to `lists`) and the Repair skill.
 void TrackRepairLists(StaticFunctionTag *, VMArray<TESForm *> weapons, VMArray<TESForm *> armors,
-                      VMArray<TESForm *> lists, ActorValueInfo *skill) {
+                      VMArray<TESForm *> lists, VMArray<SInt32> groups, ActorValueInfo *skill) {
     for (UInt32 i = 0; i < weapons.Length() + armors.Length() && i < lists.Length(); i++) {
         TESForm *item = nullptr, *list = nullptr;
+        SInt32 group = 0;
         if (i < weapons.Length()) weapons.Get(&item, i);
         else armors.Get(&item, i - weapons.Length());
         lists.Get(&list, i);
-        TrackRepair(item, list ? DYNAMIC_CAST(list, TESForm, BGSListForm) : nullptr, skill);
+        if (i < groups.Length()) groups.Get(&group, i);
+        TrackRepair(item, list ? DYNAMIC_CAST(list, TESForm, BGSListForm) : nullptr, group, skill);
     }
-    TrackRepair(nullptr, nullptr, skill);
+    TrackRepair(nullptr, nullptr, 0, skill);
+}
+
+// Papyrus: whether the player has Jury Rigging.
+void SetJuryRiggingNative(StaticFunctionTag *, bool has) {
+    SetJuryRigging(has);
 }
 
 // Papyrus: repair stack `stack` of `item` from one copy of `spare` (its stack `spareStack`; -1: its worst):
@@ -194,6 +227,12 @@ void TrackRepairLists(StaticFunctionTag *, VMArray<TESForm *> weapons, VMArray<T
 float RepairWithNative(StaticFunctionTag *, Actor *holder, TESForm *item, SInt32 stack, TESForm *spare,
                        SInt32 spareStack) {
     return RepairWith(holder, item, stack, spare, spareStack);
+}
+
+// Papyrus: how many spare stacks `holder` carries for stack `stack` of `item`.
+UInt32 SpareCount(StaticFunctionTag *, Actor *holder, TESForm *item, SInt32 stack) {
+    SInt32 at = -1;
+    return FindStack(holder, item, stack, &at) ? UInt32(Spares(holder, item, at).size()) : 0;
 }
 
 // Papyrus: carry out the repair chosen in the Pip-Boy's repair list: the new health, or -1 with none chosen.
@@ -223,11 +262,15 @@ bool Register(VirtualMachine *vm) {
                                                                           PipboySelection, vm));
     vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, SInt32>("PipboyStack", SCRIPT, PipboyStack, vm));
     vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, void>("PipboyRefresh", SCRIPT, PipboyRefresh, vm));
-    vm->RegisterFunction(new NativeFunction4<StaticFunctionTag, void, VMArray<TESForm *>, VMArray<TESForm *>,
-                                             VMArray<TESForm *>, ActorValueInfo *>("TrackRepair", SCRIPT,
-                                                                                   TrackRepairLists, vm));
+    vm->RegisterFunction(new NativeFunction5<StaticFunctionTag, void, VMArray<TESForm *>, VMArray<TESForm *>,
+                                             VMArray<TESForm *>, VMArray<SInt32>, ActorValueInfo *>(
+        "TrackRepair", SCRIPT, TrackRepairLists, vm));
+    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, void, bool>("SetJuryRigging", SCRIPT,
+                                                                            SetJuryRiggingNative, vm));
     vm->RegisterFunction(new NativeFunction5<StaticFunctionTag, float, Actor *, TESForm *, SInt32, TESForm *, SInt32>(
         "RepairWith", SCRIPT, RepairWithNative, vm));
+    vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, UInt32, Actor *, TESForm *, SInt32>(
+        "SpareCount", SCRIPT, SpareCount, vm));
     vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, float, Actor *>("PipboyRepair", SCRIPT,
                                                                                 PipboyRepair, vm));
     _MESSAGE("registered %s natives", SCRIPT);
@@ -260,6 +303,8 @@ __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se) {
     _MESSAGE("FalloutCondition loaded, runtime %08X", f4se->runtimeVersion);
     g_tasks = f4se->QueryInterface(kInterface_Task);
     auto *messaging = static_cast<F4SEMessagingInterface *>(f4se->QueryInterface(kInterface_Messaging));
+    _MESSAGE("weapon starting condition %s", HookSpawnHealth(f4se) ? "hooked" : "not hooked");
+    InstallTransfer();
     if (!messaging || !g_tasks || !messaging->RegisterListener(g_handle, "F4SE", OnMessage))
         _MESSAGE("no Pip-Boy display (messaging %p, task %p)", messaging, g_tasks);
     return papyrus->Register(Register);

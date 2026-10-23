@@ -54,6 +54,17 @@ MODIFY_ITEM_DAMAGE, MULTIPLY = 68, 3
 #: FNV GMSTs (name, default): weapon wear per shot, armor wear per absorbed point, the most armor absorbs (percent).
 SETTINGS = {'WearPerShot': ('fDamageToWeaponValue', 0.2), 'ArmorWear': ('fDamageToArmorPercentage', 0.35),
             'MaxAbsorb': ('fMaxArmorRating', 85.0)}
+#: FNV entry point Has Jury Rigging; WEAP DNAM offsets of Flags 1 and the skill; non-playable bits (WEAP, ARMO BMDT).
+JURY_RIGGING, FLAGS1_AT, SKILL_AT, NON_PLAYABLE_WEAPON, NON_PLAYABLE_ARMOR = 48, 12, 104, 0x80, 0x40
+#: FNV WEAP DNAM offsets of Flags 2 and the jam time; Flags 2's No Jam After Reload bit.
+FLAGS2_AT, JAM_TIME_AT, NO_JAM_AFTER_RELOAD = 56, 96, 0x4
+#: FNV's reload jam chance GMSTs (fWeaponConditionReloadJam1..10) and FalloutNV.exe's defaults for them.
+RELOAD_JAM, RELOAD_JAM_DEFAULTS = 'fWeaponConditionReloadJam', (1.0, 0.75, 0.5, 0.25, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0)
+#: Fallout4.esm's jam pieces: hand-interrupt and reload idles (first, third person), and the dry-fire sound.
+JAM_FORMS = {'JamInterrupt1st': 0xF2496, 'JamInterrupt3rd': 0xF249C, 'JamReload1st': 0x4D33, 'JamReload3rd': 0xBDDA6,
+             'DryFire': 0x1DACD}
+#: BMDT heavy and medium armor bits; group bases keeping weapons and armor apart.
+HEAVY, MEDIUM, WEAPON_GROUP, ARMOR_GROUP = 0x80, 0x08, 1_000_000, 2_000_000
 #: OMOD weapon property Value, armor properties Value and Rating; the tenths condition is written in.
 VALUE, ARMOR_VALUE, RATING, TENTHS = 29, 5, 6, 10
 #: Fallout4.esm's DamageResist actor value.
@@ -124,6 +135,43 @@ def wear_perks(perks: list) -> list:
     return out
 
 
+def jam_times() -> dict:
+    """{FNV WEAP FormID: its reload jam time in seconds (DNAM), or -1 with No Jam After Reload}, read from the
+    source plugin. See: docs/fork/fo4_condition.md#jams"""
+    out = {}
+    for rec, _ in walk(source_esm(), b'WEAP'):
+        dnam = first_sub(rec.body, b'DNAM') or b''
+        if len(dnam) >= JAM_TIME_AT + 4:
+            exempt = struct.unpack_from('<I', dnam, FLAGS2_AT)[0] & NO_JAM_AFTER_RELOAD
+            out[rec.form_id] = -1.0 if exempt else struct.unpack_from('<f', dnam, JAM_TIME_AT)[0]
+    return out
+
+
+def jury_groups() -> dict:
+    """{FNV WEAP or ARMO FormID: its Jury Rigging group}, read from the source plugin: a weapon's animation type
+    and skill, an armor's weight class and equipment type, as FalloutNV.exe compares them; non-playable items
+    have none. See: docs/fork/fo4_condition.md#jury-rigging"""
+    out = {}
+    for rec, _ in walk(source_esm(), b'WEAP', b'ARMO'):
+        if rec.sig == b'WEAP':
+            dnam = first_sub(rec.body, b'DNAM') or b''
+            if len(dnam) >= SKILL_AT + 4 and not dnam[FLAGS1_AT] & NON_PLAYABLE_WEAPON:
+                out[rec.form_id] = WEAPON_GROUP + struct.unpack_from('<I', dnam)[0] * 1000 + struct.unpack_from(
+                    '<i', dnam, SKILL_AT)[0] + 1
+            continue
+        bmdt, etyp = first_sub(rec.body, b'BMDT') or b'', first_sub(rec.body, b'ETYP') or b''
+        if len(bmdt) >= 5 and len(etyp) >= 4 and not bmdt[4] & NON_PLAYABLE_ARMOR:
+            weight = 1 if bmdt[4] & HEAVY else 2 if bmdt[4] & MEDIUM else 0
+            out[rec.form_id] = ARMOR_GROUP + weight * 1000 + struct.unpack('<i', etyp)[0] + 1
+    return out
+
+
+def jury_rigging_perks(perks: list) -> list:
+    """The FNV PERK FormIDs of export `perks` with entry point Has Jury Rigging."""
+    return [int(r['FormID'], 16) for r in perks
+            if any(r.get(f'Effect[{i}].EntryPoint') == str(JURY_RIGGING) for i in range(8))]
+
+
 def repair_lists() -> dict:
     """{FNV WEAP or ARMO FormID: its repair list's FLST FormID} (REPL), read from the source plugin."""
     out = {}
@@ -166,9 +214,16 @@ class Condition:
         writer = self.builder.writer
         quest, item, effect = (writer.derive_formid(SITE, key) for key in ('quest', 'item', 'effect'))
         player = {name: self._message(name, text) for name, text in MESSAGES}
-        player.update(RepairHotkey=item, DamageResist=DAMAGE_RESIST, Repair=actor_value_form('Repair', helper_index) or 0)
+        player.update(RepairHotkey=item, DamageResist=DAMAGE_RESIST, Repair=actor_value_form('Repair', helper_index) or 0,
+                      **JAM_FORMS)
         values = self._values(ammo_mods)
-        values['RepairLists'] = ('objects', self._repair_lists(sorted(self.weapons) + sorted(self.armors)))
+        items = sorted(self.weapons) + sorted(self.armors)
+        groups = jury_groups()
+        values['RepairLists'] = ('objects', self._repair_lists(items))
+        values['JuryGroups'] = ('ints', [groups.get((self.weapons.get(i) or self.armors[i])[0], 0) for i in items])
+        jury = [self.builder.perks.first.get(f) for f in jury_rigging_perks(export_records(self.builder.export_dir,
+                                                                                            'PERK'))]
+        player['JuryRigging'] = next((perk for perk in jury if perk), 0)
         vmad = quest_fragments('', [], aliases=[(0, quest, [(SCRIPT, player, values)])])
         writer.add_record('QUST', R.pack_qust(quest, 'FNV_Condition', '', 0, [], 'Player', 0x14, vmad))
         hotkey_effect(self.builder, effect, 'FNV_ConditionRepairEffect', REPAIR_NAME,
@@ -186,11 +241,15 @@ class Condition:
         perks = [(self.builder.perks.first.get(fnv), mult) for fnv, mult in wear_perks(export_records(export, 'PERK'))]
         perks = [(p, m) for p, m in perks if p]
         rounds = self._ammo_wear(ammo_mods)
-        wanted = {edid for edid, _ in SETTINGS.values()}
+        wanted = {edid for edid, _ in SETTINGS.values()} | {f'{RELOAD_JAM}{i}' for i in range(1, 11)}
         gmst = {r['EditorID']: float(r['DATA.Value']) for r in export_records(export, 'GMST') if r.get('EditorID') in wanted}
         weapons = sorted(self.weapons)
         out = {name: ('float', gmst.get(edid, default)) for name, (edid, default) in SETTINGS.items()}
         out['MaxAbsorb'] = ('float', out['MaxAbsorb'][1] / 100.0)
+        jams = jam_times()
+        out['JamTimes'] = ('floats', [jams.get(self.weapons[w][0], -1.0) for w in weapons])
+        out['JamChances'] = ('floats', [gmst.get(f'{RELOAD_JAM}{i}', chance)
+                                        for i, chance in enumerate(RELOAD_JAM_DEFAULTS, start=1)])
         out.update({'Weapons': ('objects', weapons), 'MaxHealth': ('floats', [self.weapons[w][1] for w in weapons]),
                     'Tiers': ('objects', [self._tier(t) for t in range(TENTHS + 1)]),
                     'AmmoMarks': ('objects', [k for k, _ in rounds]), 'AmmoWear': ('floats', [m for _, m in rounds]),

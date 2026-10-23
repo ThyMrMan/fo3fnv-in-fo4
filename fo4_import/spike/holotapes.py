@@ -22,7 +22,9 @@ from pathlib import Path
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.base.writer import pack_fo4_record, pack_quest, pack_topic
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from fo4_import.spike.say_topics import raws, with_conditions
 from fo4_import.spike.voice_types import with_voice
 from tes5_import.base.tes5_reader import walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
@@ -35,8 +37,8 @@ VOICE, SPEAKER, OUTPUT = 1, 0x1C0380, 0x073265
 TOPIC = (bytes([0, 2, 0x11, 0]), b'SCEN')
 #: Holotape scene FNAM, scene action type Radio, and the actor id of none, as DN150_BonnieHolotape.
 SCENE_FLAGS, RADIO, NO_ACTOR = 0x104, 6, -2
-#: FNV NOTE DATA type of a voice note.
-FNV_VOICE = 3
+#: FNV NOTE DATA type of a voice note; FNV condition Run On Subject.
+FNV_VOICE, SUBJECT = 3, 0
 
 
 def _zstr(sig: str, text: str) -> bytes:
@@ -94,8 +96,10 @@ class Holotapes:
 
     def holotape(self, rec: dict) -> 'int | None':
         """The FO4 holotape of FNV voice note `rec` (its FormID); None when its lines or speaker cannot convert."""
-        key, speaker = rec['FormID'].upper(), self._speaker(rec)
-        lines = self.infos.get(rec.get('TNAM.Topic', '').upper(), [])
+        key, fnv = rec['FormID'].upper(), self.voices.get(int(rec.get('SNAM', '0'), 16))
+        speaker = self._speaker(rec, fnv) if fnv else None
+        lines = [spoken_by(info, fnv) for info in self.infos.get(rec.get('TNAM.Topic', '').upper(), [])] if fnv else []
+        lines = [line for line in lines if line]
         if speaker is None or not lines or self.builder.say is None:
             self.builder.counts['holotape left out (no speaker, lines or dialogue)'] += 1
             return None
@@ -129,13 +133,30 @@ class Holotapes:
         dial = R.pack_dial(topic, f'FNV_Holotape{info["FormID"].upper()}', quest, TOPIC, 1)
         return topic, pack_topic(dial, topic, [made])
 
-    def _speaker(self, rec: dict) -> 'int | None':
-        """A speaker NPC carrying the voice type of the note's FNV speaker (SNAM), made once per note."""
-        fnv = self.voices.get(int(rec.get('SNAM', '0'), 16))
-        if fnv is None:
-            return None
+    def _speaker(self, rec: dict, fnv: dict) -> 'int | None':
+        """A stand-in for note `rec`'s FNV speaker `fnv` (SNAM), on its voice type."""
         return speaker_npc(self.builder, f'NPC_ holotape {rec["FormID"].upper()}', f'FNV_{fnv["EditorID"]}Holotape',
                            fnv.get('FULL', ''), int(fnv.get('VTCK.Voice', '0'), 16))
+
+
+def spoken_by(info: dict, speaker: dict) -> 'dict | None':
+    """FNV line `info` as said by the note's speaker record `speaker`: its Subject GetIsID and GetIsVoiceType tests
+    settled on that speaker, OR flags redone; None when its conditions never pass.
+    See: docs/fork/fo4_pipeline.md#holotapes
+    """
+    known = {'GetIsID': int(speaker['FormID'], 16), 'GetIsVoiceType': int(speaker.get('VTCK.Voice', '0'), 16)}
+
+    def settle(cond: dict) -> 'bool | None':
+        """The outcome of a Subject identity test of the speaker; None for any other test."""
+        if cond['run_on'] != SUBJECT or cond['op_flags'] & C.USE_GLOBAL or cond['func'] not in known:
+            return None
+        return C.compare(cond, float(cond['p1'] == known[cond['func']]))
+
+    kept = C.simplify([{**C.parse(raw), 'raw': raw} for raw in raws(info)], settle)
+    if kept is None:
+        return None
+    return with_conditions(info, [f'{int(c["raw"][:2], 16) & ~C.OR_NEXT | (C.OR_NEXT if i < len(g) - 1 else 0):02x}'
+                                  f'{c["raw"][2:]}' for g in kept for i, c in enumerate(g)])
 
 
 def speaker_npc(builder, key: str, edid: str, name: str, fnv_voice: int) -> 'int | None':

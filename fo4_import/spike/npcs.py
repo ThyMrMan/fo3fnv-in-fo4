@@ -33,6 +33,7 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.work_cache import cached, lookup, store
 from fo4_import.spike.face_fits import FIT_SITES, bases, fit_key, take
 from fo4_import.spike import records as R
+from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
@@ -155,14 +156,15 @@ def with_factions(snams: bytes):
 
 def with_inventory(outfit: int, carried: list):
     """A record edit replacing the body's default outfit with `outfit` (0: none) and its inventory with `carried`
-    [(item, count)]."""
+    [(item, count, condition or None)], a COED after an item with a condition."""
     def edit(subs: bytes) -> bytes:
         """The subrecords with the outfit and inventory replaced."""
         out = b''
         for tag, data in subrecords(subs):
             if tag == b'COCT' and carried:
                 out += pack_subrecord('COCT', struct.pack('<I', len(carried)))
-                out += b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count)) for item, count in carried)
+                out += b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count)) + R.pack_coed(condition)
+                                for item, count, condition in carried)
             elif tag == b'DOFT' and outfit:
                 out += pack_subrecord('DOFT', struct.pack('<I', outfit))
             elif tag not in (b'COCT', b'CNTO', b'COED', b'DOFT'):
@@ -390,7 +392,7 @@ class Npcs:
             if made is not None and items.wearable(item):
                 worn.append(made)
             elif made is not None:
-                carried.append((made, int(rec[f'Item[{i}].Count'])))
+                carried.append((made, int(rec[f'Item[{i}].Count']), condition_of(int(rec['FormID'], 16), i)))
         return with_inventory(self._outfit(fnv, worn), carried)
 
     def _outfit(self, fnv: int, worn: list) -> int:

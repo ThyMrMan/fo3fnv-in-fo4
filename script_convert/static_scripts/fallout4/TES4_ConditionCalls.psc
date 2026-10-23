@@ -29,29 +29,9 @@ Function AddWithHealth(ObjectReference akTarget, Form akItem, Int aiCount, Float
   TES4_Condition.SetHealth(akTarget, akItem, afHealth)
 EndFunction
 
-Bool Function RepairWithSpare(Actor akActor, Form akItem, Int aiStack, FormList akList) Global
-  {Repair stack aiStack of akActor's akItem (-1: its equipped, else first) from a spare it carries: another of the same item, else the first item of its repair list akList it carries (that one's worst copy), by FNV's rule (TES4_Condition.RepairWith); the spare is used up. False with no spare.}
-  Form spare = Spare(akActor, akItem, akList)
-  Return akItem && spare && TES4_Condition.RepairWith(akActor, akItem, aiStack, spare, -1) >= 0.0
-EndFunction
-
-Form Function Spare(Actor akActor, Form akItem, FormList akList) Global
-  {A spare for akItem: another akItem, else the first item of akList akActor carries; None.}
-  If akActor.GetItemCount(akItem) > 1
-    Return akItem
-  EndIf
-  If !akList
-    Return None
-  EndIf
-  Int i = 0
-  While i < akList.GetSize()
-    Form item = akList.GetAt(i)
-    If item != akItem && akActor.GetItemCount(item) > 0
-      Return item
-    EndIf
-    i += 1
-  EndWhile
-  Return None
+Bool Function RepairWithSpare(Actor akActor, Form akItem, Int aiStack) Global
+  {Repair stack aiStack of akActor's akItem (-1: its equipped, else first) from a spare it carries, chosen as the Pip-Boy's repair list chooses it (the worst that still gives the best result; repair list and Jury Rigging included), by FNV's rule (TES4_Condition.RepairWith); the spare is used up. False with no spare.}
+  Return akItem && TES4_Condition.RepairWith(akActor, akItem, aiStack, None, -1) >= 0.0
 EndFunction
 
 Form[] Function WornOf(Actor akActor, Form[] akArmors) Global
