@@ -9,6 +9,7 @@
 #include "f4se/ScaleformValue.h"
 
 #include <mutex>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -66,13 +67,50 @@ SInt32 DefaultSpare(const std::vector<Spare> &spares, float ours, float skill);
 // health, or -1 when there is no such spare.
 float RepairWith(Actor *holder, TESForm *item, SInt32 stack, TESForm *spare, SInt32 spareStack);
 
-// A repair chosen in the Pip-Boy's repair list (pipboy.cpp): the item's stack, and the spare's.
+// Remove `count` copies from stack `stack` of `form` in `list` (held for writing) with the engine's own
+// remove-from-stack: the count removed.
+UInt32 TakeFromStack(BGSInventoryList *list, TESForm *form, UInt32 stack, UInt32 count);
+
+// A repair chosen in the Pip-Boy's repair list (pipboy.cpp): the item's stack, and the spare's; or, from a
+// vendor (health >= 0), its price and the condition it reaches.
 struct Repair {
     UInt32 item = 0;
     SInt32 stack = -1;
     UInt32 spare = 0;
     SInt32 spareStack = -1;
+    UInt32 cost = 0;
+    float health = -1.0f;
 };
+
+// ---- Vendor repair (vendor.cpp; docs/fork/fo4_condition.md#vendor-repair) ----
+
+// A vendor's repair of an item: the condition it reaches and its price in caps (0: it can do nothing).
+struct Offer {
+    float health;
+    UInt32 cost;
+};
+
+// FNV's vendor repair rules (TES4_Condition.SetServiceRules): fRepairSkillBase and fRepairSkillMax, the cap in
+// tenths at Repair 0 and 100, and fItemRepairCostMult.
+void SetServiceRules(float skillBase, float skillMax, float costMult);
+
+// The vendor whose repair services the Pip-Boy offers, with its Repair skill; None clears it.
+void SetVendor(Actor *vendor);
+
+// Whether a vendor offers repair services; its name and Repair skill when it does.
+bool Vendor(std::string *name, float *skill);
+
+// FNV's vendor repair (FalloutNV.exe 0x648230) of an item worth `value` at `health`, by a vendor at `skill`.
+Offer VendorOffer(float health, UInt32 value, float skill);
+
+// `item`'s value in caps (a weapon's or armor's own; else 0).
+UInt32 ItemValue(TESForm *item);
+
+// The caps `holder` carries.
+UInt32 Caps(Actor *holder);
+
+// Pay `cost` caps to set stack `stack` of `item` to `health`: the new health, -2 short of caps, -1 without it.
+float BuyRepair(Actor *holder, TESForm *item, SInt32 stack, UInt32 cost, float health);
 
 // The repair chosen in the Pip-Boy, cleared as it is taken; false with none.
 bool TakePipboyRepair(Repair *out);

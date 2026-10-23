@@ -235,12 +235,25 @@ UInt32 SpareCount(StaticFunctionTag *, Actor *holder, TESForm *item, SInt32 stac
     return FindStack(holder, item, stack, &at) ? UInt32(Spares(holder, item, at).size()) : 0;
 }
 
-// Papyrus: carry out the repair chosen in the Pip-Boy's repair list: the new health, or -1 with none chosen.
+// Papyrus: carry out the repair chosen in the Pip-Boy's repair list or vendor offer: the new health, -1 with none
+// chosen, -2 short of the vendor's price.
 float PipboyRepair(StaticFunctionTag *, Actor *holder) {
     Repair chosen;
     if (!TakePipboyRepair(&chosen)) return -1.0f;
+    if (chosen.health >= 0.0f)
+        return BuyRepair(holder, LookupFormByID(chosen.item), chosen.stack, chosen.cost, chosen.health);
     return RepairWith(holder, LookupFormByID(chosen.item), chosen.stack, LookupFormByID(chosen.spare),
                       chosen.spareStack);
+}
+
+// Papyrus: offer `vendor`'s repair services on the Pip-Boy's repair card until it closes (None: stop).
+void SetVendorNative(StaticFunctionTag *, Actor *vendor) {
+    SetVendor(vendor);
+}
+
+// Papyrus: FNV's vendor repair GMSTs (fRepairSkillBase, fRepairSkillMax, fItemRepairCostMult).
+void SetServiceRulesNative(StaticFunctionTag *, float skillBase, float skillMax, float costMult) {
+    SetServiceRules(skillBase, skillMax, costMult);
 }
 
 bool Register(VirtualMachine *vm) {
@@ -271,6 +284,10 @@ bool Register(VirtualMachine *vm) {
         "RepairWith", SCRIPT, RepairWithNative, vm));
     vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, UInt32, Actor *, TESForm *, SInt32>(
         "SpareCount", SCRIPT, SpareCount, vm));
+    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, void, Actor *>("SetVendor", SCRIPT,
+                                                                               SetVendorNative, vm));
+    vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, void, float, float, float>(
+        "SetServiceRules", SCRIPT, SetServiceRulesNative, vm));
     vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, float, Actor *>("PipboyRepair", SCRIPT,
                                                                                 PipboyRepair, vm));
     _MESSAGE("registered %s natives", SCRIPT);

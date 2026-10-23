@@ -51,9 +51,10 @@ POINT_EDID, KEYWORD_EDID, ATTACH_POINT, MOD_ASSOCIATION = 'FNV_ap_Condition', 'F
 NO_WEAR = frozenset(range(10, 14))
 #: FNV perk entry point Modify Item Damage and its Multiply Value function.
 MODIFY_ITEM_DAMAGE, MULTIPLY = 68, 3
-#: FNV GMSTs (name, default): weapon wear per shot, armor wear per absorbed point, the most armor absorbs (percent).
+#: FNV GMSTs (name, exe default): weapon and armor wear, the most armor absorbs (percent), vendor repair's cap and price.
 SETTINGS = {'WearPerShot': ('fDamageToWeaponValue', 0.2), 'ArmorWear': ('fDamageToArmorPercentage', 0.35),
-            'MaxAbsorb': ('fMaxArmorRating', 85.0)}
+            'MaxAbsorb': ('fMaxArmorRating', 85.0), 'RepairSkillBase': ('fRepairSkillBase', 4.0),
+            'RepairSkillMax': ('fRepairSkillMax', 9.0), 'RepairCostMult': ('fItemRepairCostMult', 1.0)}
 #: FNV entry point Has Jury Rigging; WEAP DNAM offsets of Flags 1 and the skill; non-playable bits (WEAP, ARMO BMDT).
 JURY_RIGGING, FLAGS1_AT, SKILL_AT, NON_PLAYABLE_WEAPON, NON_PLAYABLE_ARMOR = 48, 12, 104, 0x80, 0x40
 #: FNV WEAP DNAM offsets of Flags 2 and the jam time; Flags 2's No Jam After Reload bit.

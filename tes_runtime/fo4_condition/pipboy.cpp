@@ -158,6 +158,10 @@ struct RepairListState {
     UInt32 item = 0;
     SInt32 stack = -1;
     float health = 1.0f, skill = 0.0f;
+    bool service = false;  // a vendor's offer (FNV's repair services) instead of the spares
+    std::string vendor;
+    Offer offer{};
+    UInt32 caps = 0;
 } g_list;  // UI thread only
 Repair g_pending;
 bool g_hasPending = false;  // under g_lock
@@ -185,11 +189,28 @@ void AddLine(GFxMovieRoot *movie, GFxValue &lines, const std::string &text, cons
     lines.PushBack(&line);
 }
 
-// Draw the repair list on `page`'s item card.
+// The vendor's offer on the card's lines: its skill, the condition before and after, the price, the caps held.
+void DrawOffer(GFxMovieRoot *movie, GFxValue &lines) {
+    AddLine(movie, lines, "REPAIR SERVICES", g_list.vendor);
+    AddLine(movie, lines, "VENDOR REPAIR", std::to_string(int(g_list.skill)));
+    AddLine(movie, lines, "CND", Percent(g_list.health) + " > " + Percent(g_list.offer.health));
+    AddLine(movie, lines, "COST", std::to_string(g_list.offer.cost) + " caps");
+    AddLine(movie, lines, "YOUR CAPS", std::to_string(g_list.caps));
+    bool afford = g_list.caps >= g_list.offer.cost;
+    AddLine(movie, lines, afford ? "ENTER) REPAIR" : "NOT ENOUGH CAPS", "ESC) CANCEL");
+}
+
+// Draw the repair list, or the vendor's offer, on `page`'s item card.
 void DrawList(GFxMovieRoot *movie, GFxValue &page) {
     GFxValue card, lines;
     if (!Get(page, "ItemCard_mc", &card)) return;
     movie->CreateArray(&lines);
+    if (g_list.service) {
+        DrawOffer(movie, lines);
+        card.SetMember("InfoObj", &lines);
+        card.Invoke("onDataChange", nullptr, nullptr, 0);
+        return;
+    }
     AddLine(movie, lines, "REPAIR SKILL", std::to_string(int(g_list.skill)));
     SInt32 size = SInt32(g_list.spares.size());
     SInt32 first = std::max<SInt32>(0, std::min<SInt32>(g_list.chosen - LIST_ROWS / 2, size - LIST_ROWS));
@@ -227,8 +248,33 @@ void SetModal(GFxValue &page, bool on) {
     page.Invoke("setChildIndex", nullptr, args, 2);
 }
 
+// Add a REPAIR line saying why there is nothing to choose to `page`'s item card.
+void SayOnCard(GFxMovieRoot *movie, GFxValue &page, const char *why) {
+    GFxValue card, info;
+    if (Get(page, "ItemCard_mc", &card) && Get(card, "InfoObj", &info) && info.IsArray()) {
+        AddLine(movie, info, "REPAIR", why);
+        card.Invoke("onDataChange", nullptr, nullptr, 0);
+    }
+}
+
+// Open the vendor's offer for the highlighted item (stack chosen in g_list); on one the vendor cannot improve,
+// say so on the card.
+void OpenOffer(GFxMovieRoot *movie, GFxValue &page) {
+    g_list.offer = VendorOffer(g_list.health, ItemValue(LookupFormByID(g_list.item)), g_list.skill);
+    g_list.caps = Caps(*g_player);
+    _MESSAGE("vendor repair offer for %08X stack %d: %.3f for %u caps (held %u)", g_list.item, g_list.stack,
+             g_list.offer.health, g_list.offer.cost, g_list.caps);
+    if (!g_list.offer.cost) {
+        SayOnCard(movie, page, g_list.health >= 0.995f ? "Not needed" : "Beyond the vendor's skill");
+        return;
+    }
+    g_list.open = true;
+    SetModal(page, true);
+    DrawList(movie, page);
+}
+
 // Open the repair list for the highlighted item, on its default spare; on a whole item or with no spare, say so
-// on the card.
+// on the card. While a vendor offers repair services, open its offer instead.
 void OpenList(GFxMovieRoot *movie) {
     GFxValue page;
     if (!g_wears || !CurrentPage(movie, &page)) return;
@@ -238,20 +284,21 @@ void OpenList(GFxMovieRoot *movie) {
         selected = g_selection;
     }
     Actor *player = *g_player;
-    g_list.spares = Spares(player, LookupFormByID(selected.form), selected.stack);
     g_list.item = selected.form;
     g_list.stack = selected.stack;
     g_list.health = g_health;
+    g_list.service = Vendor(&g_list.vendor, &g_list.skill);
+    if (g_list.service) {
+        OpenOffer(movie, page);
+        return;
+    }
+    g_list.spares = Spares(player, LookupFormByID(selected.form), selected.stack);
     g_list.skill = RepairSkill(player);
     _MESSAGE("Pip-Boy repair list for %08X stack %d: %u spares", selected.form, selected.stack,
              UInt32(g_list.spares.size()));
-    GFxValue card, info;
     bool whole = g_list.health >= 0.995f;
     if (whole || g_list.spares.empty()) {
-        if (Get(page, "ItemCard_mc", &card) && Get(card, "InfoObj", &info) && info.IsArray()) {
-            AddLine(movie, info, "REPAIR", whole ? "Not needed" : "No spare");
-            card.Invoke("onDataChange", nullptr, nullptr, 0);
-        }
+        SayOnCard(movie, page, whole ? "Not needed" : "No spare");
         return;
     }
     g_list.chosen = DefaultSpare(g_list.spares, g_list.health, g_list.skill);
@@ -264,9 +311,10 @@ void OpenList(GFxMovieRoot *movie) {
 void CloseList(GFxMovieRoot *movie, bool repair) {
     GFxValue page;
     if (repair) {
-        const Spare &spare = g_list.spares[g_list.chosen];
         std::lock_guard<std::mutex> hold(g_lock);
-        g_pending = {g_list.item, g_list.stack, spare.form->formID, spare.stack};
+        g_pending = g_list.service ? Repair{g_list.item, g_list.stack, 0, -1, g_list.offer.cost, g_list.offer.health}
+                                   : Repair{g_list.item, g_list.stack, g_list.spares[g_list.chosen].form->formID,
+                                            g_list.spares[g_list.chosen].stack};
         g_hasPending = true;
     }
     g_list.open = false;
@@ -299,10 +347,11 @@ public:
             return;
         }
         SInt32 last = SInt32(g_list.spares.size()) - 1;
-        if (key == KEY_UP || key == KEY_W || key == KEY_DOWN || key == KEY_S) {
+        bool vertical = key == KEY_UP || key == KEY_W || key == KEY_DOWN || key == KEY_S;
+        if (vertical && !g_list.service) {
             g_list.chosen = std::max<SInt32>(0, std::min<SInt32>(last, g_list.chosen + (key == KEY_UP || key == KEY_W ? -1 : 1)));
             if (CurrentPage(movie, &page)) DrawList(movie, page);
-        } else if (key == KEY_ENTER || key == KEY_E) {
+        } else if ((key == KEY_ENTER || key == KEY_E) && (!g_list.service || g_list.caps >= g_list.offer.cost)) {
             CloseList(movie, true);
         } else if (key == KEY_ESC || key == KEY_TAB || key == KEY_G) {
             CloseList(movie, false);
@@ -466,6 +515,7 @@ const char *TRANSFER_MENUS[] = {"ContainerMenu", "BarterMenu"};
 class OpenSink : public BSTEventSink<MenuOpenCloseEvent> {
 public:
     EventResult ReceiveEvent(MenuOpenCloseEvent *evn, void *) override {
+        if (evn && !evn->isOpen && !strcmp(evn->menuName.c_str(), MENU)) SetVendor(nullptr);
         const char *name = evn && evn->isOpen ? evn->menuName.c_str() : nullptr;
         if (!name || !g_tasks) return kEvent_Continue;
         if (!strcmp(name, MENU)) g_tasks->AddUITask(new HookTask);

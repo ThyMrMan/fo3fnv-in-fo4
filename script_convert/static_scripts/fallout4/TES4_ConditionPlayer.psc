@@ -42,6 +42,10 @@ Idle Property JamReload1st Auto Const
 Idle Property JamReload3rd Auto Const
 Sound Property DryFire Auto Const
 {FNV's Jury Rigging: while held, a spare of the item's group repairs it too.}
+Float Property RepairSkillBase = 4.0 Auto Const
+Float Property RepairSkillMax = 10.0 Auto Const
+Float Property RepairCostMult = 2.0 Auto Const
+{FNV's vendor repair: fRepairSkillBase, fRepairSkillMax (tenths of condition at Repair 0 and 100), fItemRepairCostMult.}
 Int Property RepairKey = 34 Auto Const
 {G: repairs the item highlighted in the Pip-Boy (its REPAIR button hint). The Pip-Boy's T is Grid View.}
 
@@ -74,6 +78,7 @@ Function ListenPipboy()
   TES4_Condition.Track(Weapons)
   TES4_Condition.Track(Armors)
   TES4_Condition.TrackRepair(Weapons, Armors, RepairLists, JuryGroups, Repair)
+  TES4_Condition.SetServiceRules(RepairSkillBase, RepairSkillMax, RepairCostMult)
   TellJuryRigging()
   RegisterForMenuOpenCloseEvent("PipboyMenu")
   RegisterForExternalEvent("FNVConditionRepair", "OnPipboyRepair")
@@ -109,6 +114,8 @@ Function OnPipboyRepair()
   Debug.Trace("TES4Condition|Pip-Boy repair|" + item + "|" + health)
   If item && health >= 0.0
     Refresh(item)
+  ElseIf item && health < -1.5
+    Debug.MessageBox("You don't have enough caps.")
   ElseIf item
     Debug.MessageBox("No spare to repair " + item.GetName() + " with.")
   EndIf

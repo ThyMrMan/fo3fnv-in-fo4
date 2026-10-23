@@ -568,9 +568,77 @@ Ours:
   - The interrupted reload never added rounds, so no capacity change is
     needed.
 
+<a id="vendor-repair"></a>**Vendor repair, built 2026-10-23 (unplayed: no repairer in the built region).**
+- **FNV's rule** (FalloutNV.exe 0x648230, called per item by
+  `RepairServicesMenu` at 0x7B7920):
+  - The vendor reaches `fRepairSkillBase + (fRepairSkillMax -
+    fRepairSkillBase) x Repair / 100` tenths of condition. FalloutNV.esm sets
+    those to 4 and 10 (the exe's defaults are 4 and 9), so the vendor reaches
+    40% plus 0.6% per Repair point.
+  - The price is `fItemRepairCostMult` (2 in the ESM, 1 in the exe) x the
+    item's value x the tenths gained / 10.
+  - A price of 0.5 or less means the vendor can't help. Any other price is
+    rounded, with a minimum of 1 cap.
+  - The Repair skill is the repairer's: the speaker,
+    `SatoREF.ShowRepairMenu`'s Sato, or the player in
+    `player.showrepairmenu`.
+- **The repairers' skills.** FNV keeps an NPC's skills in its NPC record:
+  14 values, then 14 offsets, in skill order from Barter. A skill is value
+  plus offset, at most 100. The export leaves these out, so
+  `fo4_import/spike/npc_skills.py` reads them from FalloutNV.esm. Each
+  converted NPC carries them as actor values in its own list (PRPS), or in
+  its stats template's. The 10 repairers are:
+
+  | Repairer | Repair |
+  |---|---|
+  | Sato (Paladin) | 100 |
+  | Major Knight | 100 |
+  | Raul | 90 |
+  | Mick | 75 |
+  | Old Lady Gibson | 65 |
+  | Calamity | 60 |
+  | Samuel | 40 |
+  | Barton | 30 |
+
+  Raul's skills are auto-calculated in FNV, so his stored 90 is the
+  Creation Kit's last calculation.
+- **In game.** `ShowRepairMenu` converts to
+  `TES4_ConditionCalls.ShowRepairMenu(<repairer>)`, which sets the vendor
+  (`TES4_Condition.SetVendor`) and shows a notice to open the Pip-Boy.
+  - It first opened the Pip-Boy itself with F4SE's `UI.OpenMenu`. Played
+    2026-10-23 from the console: that opens the menu without raising the
+    Pip-Boy, and input locks (Tab does nothing). The player opens it now.
+  - Untested in play beyond that: none of the 10 repairers are in the built
+    region. Test with the larger world.
+- **On the Pip-Boy** (`vendor.cpp`, `pipboy.cpp`), until it closes, G (or
+  the REPAIR hint) on an item shows the vendor's offer on the item card:
+  - the vendor's name and Repair skill;
+  - CND before > after;
+  - the price, and the caps you carry;
+  - "ENTER) REPAIR", or "NOT ENOUGH CAPS".
+
+  Enter sends the repair to Papyrus, which calls `PipboyRepair`. That pays
+  the caps through the engine's remove-from-stack, then writes the stack's
+  health. An item the vendor can't improve says "Beyond the vendor's skill"
+  (or "Not needed" when it's whole).
+- **Found on the way:** the converter's undeclared-owner check
+  (`pipeline._comment_dangling`) only knew the top-level static scripts. It
+  had been commenting out every statement call to a Fallout 4 static
+  script: 130 `AddItemHealthPercent` calls, 6 `ModWeaponHealthPerc` and 1
+  `SetWeaponHealthPerc`. `STATIC_SCRIPT_CLASSES` now walks each target's
+  folder, and none are commented out.
+
+<a id="npc-wear"></a>**NPC weapons don't wear in FNV.** Both of FalloutNV.exe's
+weapon wear sites call the per-shot wear (0x646260, `fDamageToWeaponValue`)
+only after the attacker's `IsPlayerRef` (vtable 0xD8, named in xNVSE's
+`GameObjects.h`):
+- 0x524A28, a melee hit;
+- 0x9B55C4, the hit data of a shot.
+
+An NPC's weapon keeps the condition it spawned with (its entry's COED,
+[#entry-condition](#entry-condition)), so there is nothing to build.
+
 Next:
-- Vendor repair (`ShowRepairMenu`).
-- NPC weapons' wear.
 - Karma and reputation lines on the Pip-Boy's STAT page from this plugin,
   which would drop PipboyTabs (2026-10-23, suggested).
 
@@ -581,5 +649,9 @@ Next:
   fire, as AWC does it.
 - Copies of a weapon in one inventory stack share one condition (FNV kept
   one per item).
-- Only the player's weapons wear; a melee weapon wears per swing, not per hit.
+- A melee weapon wears per swing, not per hit. (Only the player's weapons wear, as
+  in FNV: [#npc-wear](#npc-wear).)
 - Condition shows as a notification on equip and repair, not in the Pip-Boy.
+- Vendor repair is offered item by item on the Pip-Boy's item card, not in
+  FNV's list with Repair All. The caps leave the player but don't go to the
+  vendor (FO4 vendors keep caps in their own container).

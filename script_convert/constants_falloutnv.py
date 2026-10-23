@@ -126,6 +126,7 @@ FALLOUT_COMMAND_ROWS = {
         flags='zero_arg'),
     'setweaponhealthperc': dict(emit='', note='{f} - Skyrim has no weapon condition'),
     'modweaponhealthperc': dict(emit='', note='{f} - Skyrim has no weapon condition'),
+    'showrepairmenu': dict(emit='', note='{f} - Skyrim has no item condition'),
     #: Fallout's per-faction "player is an enemy" crime flag: Skyrim's, kept readable by TES4_FalloutCrime.
     'getactorfactionplayerenemy': dict(
         emit='TES4_FalloutCrime.TES4AnyEnemy({ref}, TES4PlayerEnemyFactions)', subj='ACTOR',

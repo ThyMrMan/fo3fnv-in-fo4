@@ -71,6 +71,7 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'removenote': Cmd('Game.GetPlayer().RemoveItem({p0}, 1, True)', types={0: 'Form'}),
     'gethasnote': Cmd('Game.GetPlayer().GetItemCount({p0})', types={0: 'Form'}),
     'showbartermenu': Cmd('TES4Polyfill.ShowBarterMenu({ref})', ACTOR, flags='actor_only', max_args=0),
+    'showrepairmenu': Cmd('TES4_ConditionCalls.ShowRepairMenu({ref})', ACTOR, flags='actor_only', max_args=0),
     'addscriptpackage': Cmd('TES4ScriptPackages.Add({ref}, {p0})', ACTOR, types={0: 'Package'},
                             self_type=('TES4ScriptPackages', 'TES4_ScriptPackages'), flags='actor_only'),
     'removescriptpackage': Cmd('TES4ScriptPackages.Remove({ref})', ACTOR, max_args=0,

@@ -34,6 +34,12 @@ Bool Function RepairWithSpare(Actor akActor, Form akItem, Int aiStack) Global
   Return akItem && TES4_Condition.RepairWith(akActor, akItem, aiStack, None, -1) >= 0.0
 EndFunction
 
+Function ShowRepairMenu(Actor akVendor) Global
+  {ShowRepairMenu: akVendor's repair services on the Pip-Boy's repair card (G) until the Pip-Boy next closes, at FNV's cap and price for akVendor's Repair skill. The player opens the Pip-Boy: UI.OpenMenu opens its menu without raising it and locks input (played 2026-10-23).}
+  TES4_Condition.SetVendor(akVendor)
+  Debug.Notification("Repair services: open your Pip-Boy, highlight an item and press G.")
+EndFunction
+
 Form[] Function WornOf(Actor akActor, Form[] akArmors) Global
   {The armor of akArmors akActor wears, each once (F4SE's worn items by biped slot).}
   Form[] out = new Form[0]

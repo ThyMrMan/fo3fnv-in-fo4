@@ -10,6 +10,9 @@ import pytest
 
 from fo4_import.spike import condition as C, records as R
 from fo4_import.spike.ammo_mods import ATTACK_DAMAGE, PROPERTY
+from fo4_import.spike.npc_skills import merged_prps
+from script_convert.symbols import STATIC_SCRIPT_CLASSES
+from tes5_import.base.writer import pack_subrecord
 from tes5_import.base.tes5_reader import subrecords
 
 
@@ -110,3 +113,24 @@ def test_jury_rigging_perk_is_the_one_with_entry_point_48():
     perks = [{'FormID': '00000001', 'Effect[0].EntryPoint': '48'}, {'FormID': '00000002', 'Effect[0].EntryPoint': '68'},
              {'FormID': '00000003', 'Effect[0].EntryPoint': '9', 'Effect[1].EntryPoint': '48'}]
     assert C.jury_rigging_perks(perks) == [1, 3]
+
+
+def _prps(subs: bytes) -> dict:
+    """{actor value: value} of `subs`' PRPS."""
+    data = dict(subrecords(subs))[b'PRPS']
+    return dict(struct.unpack_from('<If', data, i) for i in range(0, len(data), 8))
+
+
+def test_npc_skills_join_prps_or_come_before_its_successor():
+    """Skills join an NPC's own PRPS values, or go in a new PRPS right before the first tag that follows it."""
+    own = pack_subrecord('EDID', b'x\0') + pack_subrecord('PRPS', struct.pack('<If', 1, 5.0))
+    merged = merged_prps(own + pack_subrecord('AIDT', b''), {2: 90.0, 1: 7.0})
+    assert _prps(merged) == {1: 7.0, 2: 90.0}
+    assert [t for t, _ in subrecords(merged)] == [b'EDID', b'PRPS', b'AIDT']
+    added = merged_prps(pack_subrecord('CNTO', b'') + pack_subrecord('CNTO', b''), {2: 90.0})
+    assert [t for t, _ in subrecords(added)] == [b'PRPS', b'CNTO', b'CNTO']
+
+
+def test_fallout4_static_scripts_count_as_declared():
+    """Fallout 4's static scripts are known, so their calls are kept."""
+    assert {'tes4_conditioncalls', 'tes4_condition', 'tes4polyfill'} <= STATIC_SCRIPT_CLASSES

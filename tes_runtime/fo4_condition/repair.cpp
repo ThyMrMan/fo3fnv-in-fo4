@@ -49,6 +49,10 @@ bool CanRepairWith(TESForm *item, TESForm *form) {
 
 }  // namespace
 
+UInt32 TakeFromStack(BGSInventoryList *list, TESForm *form, UInt32 stack, UInt32 count) {
+    return RemoveFromStack(list, form, stack, count, false);
+}
+
 float RepairSkill(Actor *holder) {
     std::lock_guard<std::mutex> hold(g_lock);
     return holder && g_repairSkill ? holder->actorValueOwner.GetValue(g_repairSkill) : 0.0f;

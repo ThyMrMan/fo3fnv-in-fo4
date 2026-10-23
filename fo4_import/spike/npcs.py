@@ -37,6 +37,7 @@ from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
+from fo4_import.spike.npc_skills import with_skills
 from fo4_import.spike.placement import place, placement
 from fo4_import.spike.voice_types import with_voice
 from fo4_import.spike.actor_data import CREATURE_FLAGS, NPC_FLAGS, hit_proof, starts_dead, with_actor_data
@@ -289,7 +290,8 @@ class Npcs:
             (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
             composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
-                     self._combat_style(traits), with_perks(self.builder.perks.teammates.held_by(fnv)))))
+                     self._combat_style(traits), with_perks(self.builder.perks.teammates.held_by(fnv)),
+                     self._skills(fnv))))
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
         return fid
@@ -310,8 +312,8 @@ class Npcs:
             self.builder.counts['NPC_ skipped (template not built)'] += 1
             return None
         parts = (with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
-                 self._actor_data(fnv)) if fnv in self.records else (self.creatures.actor_data(npc, npc, npc),
-                                                                     *self.creatures.own_parts(npc, templated=True))
+                 self._actor_data(fnv), self._skills(fnv)) if fnv in self.records else (
+                     self.creatures.actor_data(npc, npc, npc), *self.creatures.own_parts(npc, templated=True))
         body = None if fnv in self.records else self.creatures.stand_in(fnv)
         fid = self._template_actor(fnv, npc, template, int(npc.get('ACBS.TemplateFlags', 0)), parts, body)
         self.builder.npc_ids[fnv] = fid
@@ -375,6 +377,11 @@ class Npcs:
         stats = {**(self.source(fnv, USE_STATS) or npc), 'ACBS.Flags': flags & ~FEMALE | female}
         proof = hit_proof(self.export_dir, self.source(fnv, USE_SCRIPT) or npc)
         return with_actor_data(stats, self.source(fnv, USE_AI_DATA) or npc, NPC_FLAGS, proof)
+
+    def _skills(self, fnv: int):
+        """FNV NPC `fnv`'s (or stats template's) skills edit; None from a list."""
+        stats = self.source(fnv, USE_STATS)
+        return with_skills(int(stats['FormID'], 16), self.builder.scripts.helper_index) if stats else None
 
     def _factions(self, fnv: int) -> bytes:
         """FO4 SNAMs of FNV NPC `fnv`'s (or template's) factions and vendor one."""

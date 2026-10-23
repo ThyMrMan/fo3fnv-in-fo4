@@ -44,4 +44,10 @@ Int Function SpareCount(Actor akHolder, Form akItem, Int aiStack) Global Native
 {How many spare stacks akHolder carries for stack aiStack of akItem (the same item, its repair list, and its Jury Rigging group while the player has the perk).}
 
 Float Function PipboyRepair(Actor akHolder) Global Native
-{Carry out the repair chosen in the Pip-Boy's repair list (on PipboySelection's item): the new health, or -1 with none chosen.}
+{Carry out the repair chosen in the Pip-Boy's repair list or vendor offer (on PipboySelection's item), paying the vendor's price: the new health, -1 with none chosen, -2 short of caps.}
+
+Function SetVendor(Actor akVendor) Global Native
+{Offer akVendor's repair services (FNV's ShowRepairMenu) on the Pip-Boy's repair card (G) until the Pip-Boy closes: the condition its Repair skill reaches, for caps. None stops.}
+
+Function SetServiceRules(Float afSkillBase, Float afSkillMax, Float afCostMult) Global Native
+{FNV's vendor repair GMSTs: fRepairSkillBase and fRepairSkillMax (the condition reached in tenths at Repair 0 and 100) and fItemRepairCostMult.}

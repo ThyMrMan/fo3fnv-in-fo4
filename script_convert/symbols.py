@@ -42,9 +42,9 @@ from script_convert.command_rows import (
     OBJREF_SHARED_FUNCTIONS,
 )
 
-#: The static_scripts/ classes every converted game ships, lowercase.
-STATIC_SCRIPT_CLASSES = frozenset(name[:-4].lower() for name in os.listdir(
-    os.path.join(os.path.dirname(__file__), 'static_scripts')) if name.endswith('.psc'))
+#: The static_scripts/ classes the converted games ship (each target's folder too), lowercase.
+STATIC_SCRIPT_CLASSES = frozenset(name[:-4].lower() for _, _, names in os.walk(
+    os.path.join(os.path.dirname(__file__), 'static_scripts')) for name in names if name.endswith('.psc'))
 
 #: Names a script may use undeclared: Papyrus globals, keywords, event parameters, the static scripts.
 IMPLICIT_NAMES = STATIC_SCRIPT_CLASSES | frozenset({
