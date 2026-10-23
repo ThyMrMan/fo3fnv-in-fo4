@@ -3,7 +3,7 @@
 `dialogue.build(..., scripts=<converted folder>)` calls `attach`: the VMAD
 putting GSDocMitchellScript on Doc's stand-in with its properties filled where
 the spike world has the form (actor values, helper quests and globals from
-Fallout4.esm and TES4Helpers.esl; the rest stay unfilled). `Fragments` gives each spike line whose FNV INFO has a converted
+Fallout4.esm and FalloutHelpers.esl; the rest stay unfilled). `Fragments` gives each spike line whose FNV INFO has a converted
 fragment script its INFO VMAD. `compile_into` compiles the scripts and the
 Fallout 4 helpers with Fallout 4's compiler into <Data>/Scripts.
 

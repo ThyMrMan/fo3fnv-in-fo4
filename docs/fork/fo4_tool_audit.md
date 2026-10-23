@@ -198,11 +198,11 @@ old truncation.
 | S6 | **`compile_into` works for FNV only.** `with_types` always opens `FALLOUTNV_GSDocMitchellScript.psc`; `keep` and `_CONVERTED_TYPE` assume `FALLOUTNV_` | `fo4_import/spike/script.py:44, 135-156` | V (scripts reviewer): a Fallout 3 folder raises FileNotFoundError, and every `FALLOUT3_*` script would be staged | Take the prefix from the namespace; add the Doc script only when it exists |
 | S7 | Adders mirror and trace before `Return`, so two adds at once can both return the final value | `atomic_adds.py:86-97` | Suspected (FO4 releases an object's lock on a call out; not run in game). 78 adders, e.g. `FALLOUTNV_1EWatchFiendDeathScript` tests `== 4` | Keep the new value in a local and return it |
 | S8 | Cross-script counters on references stay non-atomic: `find_adds` sees no ACHR/ACRE | `atomic_adds.py` | V: 7 FNV counters (`VTopsBlackjackDealer01REF.nPlayersAtTable`, `VFSRotfaceREF.RumorCount`, `VFSJulieFarkasREF.iMedDonation*` …) | Index placed actors too |
-| S9 | The player-hit trace registers only in `OnQuestInit`, so a save where TES4_NewGame already ran never traces hits | `TES4_NewGame.psc:17-18` (uncommitted) | R | Register in `OnPlayerLoadGame` too |
+| S9 | The player-hit trace registers only in `OnQuestInit`, so a save where F3NV_NewGame already ran never traces hits | `F3NV_NewGame.psc:17-18` (uncommitted) | R | Register in `OnPlayerLoadGame` too |
 
 Checked and fine (scripts reviewer): one poll loop per quest (every arm
 uses timer 0); stopping and restarting a quest re-arms once; all 15
-sampled FNV scripts, TES4_NewGame and TES4Polyfill compile with FO4's
+sampled FNV scripts, F3NV_NewGame and TES4Polyfill compile with FO4's
 compiler; the compile rescan over 17,549 sources takes ~3 s.
 
 ## <a id="fine"></a>Checked and fine

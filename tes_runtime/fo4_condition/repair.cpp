@@ -1,7 +1,7 @@
-// FalloutCondition's repair (docs/fork/fo4_condition.md#repair-list): FNV's repair from a spare, on one copy.
+// F3NV's repair (docs/fork/fo4_condition.md#repair-list): FNV's repair from a spare, on one copy.
 //
 // A spare is an unequipped stack of the same item (another stack, or another copy of the item's own stack) or
-// of an item in its FNV repair list (TES4_Condition.TrackRepair). FNV's rule: the better of the two
+// of an item in its FNV repair list (F3NV_Condition.TrackRepair). FNV's rule: the better of the two
 // conditions, plus 5, plus 0.15 per Repair point, plus 0.05 of the worse, in percent, capped at 100. The
 // default spare is the worst one that still gives the best result. Repairing removes one copy of the chosen
 // spare stack with the engine's own remove-from-stack, then writes the item's stack (WriteHealth).

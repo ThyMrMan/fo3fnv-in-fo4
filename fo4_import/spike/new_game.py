@@ -1,7 +1,7 @@
-"""The FO3/FNV opening on Fallout 4: one start-game quest running TES4_NewGame.
+"""The FO3/FNV opening on Fallout 4: one start-game quest running F3NV_NewGame.
 
 Fallout 4's New Game runs MQ101 stage 0 (its intro movie, then the character
-creation state). TES4_NewGame waits that out, undoes it with vanilla's own
+creation state). F3NV_NewGame waits that out, undoes it with vanilla's own
 calls, stops Fallout 4's opening quests and sets the source game's first
 stage (START): FNV's VCG00 stage 0 moves the player to Doc Mitchell's and
 plays FNV's intro. A coc from the main menu skips MQ101 stage 0, so the
@@ -25,13 +25,13 @@ START = {'FalloutNV.esm': ('VCG00', 0)}
 MQ101, MQ102, TIME_SCALE, CAMERA_IMOD, MIRROR_IMOD = 0x1ED86, 0x1CC2A, 0x3A, 0x1A71FC, 0x1E9902
 #: Fallout 4's opening quests besides MQ101: SanctuaryHills, Radio, TVStation, PlayerComments, Vault111.
 OPENING_QUESTS = (0xC3309, 0xBA4F3, 0xBA4F2, 0xF03D6, 0xD34DC)
-SITE, SCRIPT, PLAYER = 'FNV new game quest', 'TES4_NewGame', 0x14
+SITE, SCRIPT, PLAYER = 'FNV new game quest', 'F3NV_NewGame', 0x14
 #: The quest's Player alias (its only one, forced to the player) and its script, which traces player hits on load.
-PLAYER_ALIAS, ALIAS_SCRIPT = 0, 'TES4_NewGamePlayer'
+PLAYER_ALIAS, ALIAS_SCRIPT = 0, 'F3NV_NewGamePlayer'
 #: The source game's player base record.
 PLAYER_BASE = 0x7
 #: The stage starting the source game by hand (setstage FNV_NewGame 10), its fragment script and function.
-START_BY_HAND, FRAGMENTS, FRAGMENT = 10, 'TES4_NewGameStart', 'Fragment_Stage_0010_Item_00'
+START_BY_HAND, FRAGMENTS, FRAGMENT = 10, 'F3NV_NewGameStart', 'Fragment_Stage_0010_Item_00'
 
 
 def build(builder, export_dir: Path, quests: dict) -> None:

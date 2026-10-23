@@ -1,7 +1,7 @@
 """The player's FO3/FNV script packages on FO4, for the cell spike: seats instead of their special idles.
 
 A player script package with a pose here becomes a seat
-(`TES4_PlayerControls.HoldPlayer`), initially disabled: FNV's marker stands
+(`F3NV_PlayerControls.HoldPlayer`), initially disabled: FNV's marker stands
 outside the bed and its idle moves the player onto it, so the seat moves
 back from the marker to a chair seat's depth inside the edge of the
 furniture behind it.

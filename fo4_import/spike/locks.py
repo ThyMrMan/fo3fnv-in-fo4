@@ -15,7 +15,7 @@ from fo4_import.base.vmad import object_scripts
 from fo4_import.helpers_plugin import actor_value_form
 
 #: The script holding a lock to FNV's rule, and the one FNV level FO4's tiers leave ungated (Novice holds 0 and 25).
-LOCK_SCRIPT, EASY = 'TES4_FalloutLock', 25
+LOCK_SCRIPT, EASY = 'F3NV_FalloutLock', 25
 
 
 def lock_vmad(builder, ref: dict) -> bytes:

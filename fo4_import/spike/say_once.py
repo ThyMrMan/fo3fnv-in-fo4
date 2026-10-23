@@ -5,7 +5,7 @@ it drops it. The build makes a copy of a line for each menu or step it plays
 in, and FO4's own Say Once (ENAM) hides only the copy said; FO4 has no
 condition reading whether an INFO was said. So a Say Once line gets a stage
 of the marker quest (FNV_TES4SayOnce): each copy sets it as it begins (the
-TES4_SayOnce script's OnBegin) and plays only while it is not done
+F3NV_SayOnce script's OnBegin) and plays only while it is not done
 (GetStageDone), and a player option whose answers are all Say Once shows
 while one of them is unsaid. The markers stay out of the lines' own quests:
 FO4's GetStage reads a quest's highest done stage, so a marker there stood in
@@ -30,7 +30,7 @@ OR = 0x01
 #: Ledger site of the marker stages (key: the FNV line) and of the marker quest's FormID.
 SITE = 'FNV say once'
 #: The marker quest's EditorID and the script each Say Once line carries.
-EDID, SCRIPT = 'FNV_TES4SayOnce', 'TES4_SayOnce'
+EDID, SCRIPT = 'FNV_TES4SayOnce', 'F3NV_SayOnce'
 
 
 class SayOnce:
@@ -67,7 +67,7 @@ class SayOnce:
                         for i, stage in enumerate(stages))
 
     def script(self, line: str) -> tuple:
-        """The TES4_SayOnce script entry setting FNV line `line`'s marker."""
+        """The F3NV_SayOnce script entry setting FNV line `line`'s marker."""
         return SCRIPT, {'Marks': self.quest}, {'Stage': ('int', self.stage(line))}
 
     def record(self) -> bytes:

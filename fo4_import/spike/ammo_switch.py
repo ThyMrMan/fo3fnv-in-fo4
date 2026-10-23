@@ -2,12 +2,12 @@
 
 FNV's Ammo Type hotkey reloads with the next round of the gun's list the
 player carries. Fallout 4 has no such key, so this follows Loads of Ammo v2's
-method in vanilla Papyrus: a start-game quest (TES4_AmmoSwitch) holds every
+method in vanilla Papyrus: a start-game quest (F3NV_AmmoSwitch) holds every
 ammo list the build made mods for (ammo_mods), and its Cycle() attaches the
 next carried round's mod to the equipped gun. A gun's list is found by the
 list keyword on its weapon record, its loaded round by the keyword that round's mod
 adds (AmmoMods.mark). The hotkey is an aid item whose script effect
-(TES4_AmmoSwitchItem) gives itself back and calls Cycle(); the quest hands
+(F3NV_AmmoSwitchItem) gives itself back and calls Cycle(); the quest hands
 the player one. Each round shows its FNV name as a notification.
 
 See: docs/fork/fo4_pipeline.md#ammo-switch
@@ -19,7 +19,7 @@ from fo4_import.spike.hotkey_items import hotkey_effect, hotkey_item
 
 #: derive_formid site (keys: 'quest', 'item', 'effect', a message's name, 'note <FNV ammo FormID>').
 SITE = 'FNV ammo switch'
-SCRIPT, ITEM_SCRIPT = 'TES4_AmmoSwitch', 'TES4_AmmoSwitchItem'
+SCRIPT, ITEM_SCRIPT = 'F3NV_AmmoSwitch', 'F3NV_AmmoSwitchItem'
 #: The hotkey item's name (FNV's own for the hotkey).
 ITEM_NAME = 'Ammo Type'
 #: The quest's messages: property, text.
@@ -34,7 +34,7 @@ def groups(made: dict) -> list:
 
 
 def arrays(builder, mods, grouped: list) -> dict:
-    """TES4_AmmoSwitch's array properties {name: (kind, value)} for `grouped` (groups()); each round's message
+    """F3NV_AmmoSwitch's array properties {name: (kind, value)} for `grouped` (groups()); each round's message
     written once."""
     out = {'Lists': [], 'Starts': [], 'Rounds': [], 'Mods': [], 'Loaded': [], 'Notes': []}
     notes = {}

@@ -1,8 +1,8 @@
 # FNV's Pip-Boy tabs on Fallout 4 (SKILLS, REPUTATION, KARMA)
 
 **Code:**
-- `tes_runtime/fo4_condition/pages.cpp` (in the FalloutCondition F4SE plugin)
-- `script_convert/static_scripts/fallout4/TES4_Pipboy.psc`, `TES4_PipboyTab.psc`, `TES4_KarmaPage.psc`
+- `tes_runtime/fo4_condition/pages.cpp` (in the F3NV F4SE plugin)
+- `script_convert/static_scripts/fallout4/F3NV_Pipboy.psc`, `F3NV_PipboyTab.psc`, `F3NV_KarmaPage.psc`
 - `fo4_import/spike/pipboy_tabs.py`, `karma_page.py`, `reputation.py`, `character.py`
 
 **Status:** built and played 2026-10-23: the three tabs show, switch, and stay after leaving STAT and coming back. It replaces the Pip-Boy Tabs
@@ -60,7 +60,7 @@ From `pipboy_statspage.swf` and `pipboymenu.swf`, read with FFDec:
 
 ## <a id="data"></a>Where the rows come from
 
-- **Papyrus.** `TES4_Pipboy.SetTab(name, order, rows, values, shown)` hands
+- **Papyrus.** `F3NV_Pipboy.SetTab(name, order, rows, values, shown)` hands
   the plugin a tab:
   - `rows`: a FormList of actor values on the player (or globals);
   - `values`: the strings a row's value picks (none: the number shows);
@@ -69,14 +69,14 @@ From `pipboy_statspage.swf` and `pipboymenu.swf`, read with FFDec:
 
   A row's name is its actor value's name, and its description is the actor
   value's description.
-- **The quests.** Each tab is a start-game quest running `TES4_PipboyTab`.
+- **The quests.** Each tab is a start-game quest running `F3NV_PipboyTab`.
   It hands the tab over as the quest starts and each time the Pip-Boy
   opens, because the plugin forgets tabs at each game start.
   - **SKILLS:** the `FNV_Skills` list. The numbers show, with "( + )" or
     "( - )" when buffed or hurt.
   - **REPUTATION:** each reputation's title row, shown once it has
     reputation.
-  - **KARMA:** `TES4_KarmaPage`, which extends `TES4_PipboyTab`. It sets
+  - **KARMA:** `F3NV_KarmaPage`, which extends `F3NV_PipboyTab`. It sets
     the Alignment and Title rows, then hands the tab over
     ([karma page](fo4_pipeline.md#karma-page)). Its quest keeps the Pip-Boy
     Tabs page quest's FormID.

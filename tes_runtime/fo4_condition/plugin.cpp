@@ -1,8 +1,8 @@
-// FalloutCondition: FO3/FNV item condition on Fallout 4 (docs/fork/fo4_condition.md).
+// F3NV: FO3/FNV item condition on Fallout 4 (docs/fork/fo4_condition.md).
 //
 // Condition is the engine's own item health (ExtraHealth, 0 to 1) on an inventory stack, which the save keeps.
 // Fallout 4 gives Papyrus no way to read or write it on an inventory item, so this plugin adds natives to the
-// script TES4_Condition; the rules (wear, effects, repair) live in Papyrus and records. pipboy.cpp shows the
+// script F3NV_Condition; the rules (wear, effects, repair) live in Papyrus and records. pipboy.cpp shows the
 // condition on the Pip-Boy's item card and reports the highlighted item.
 // Built against F4SE 0.7.9 for Fallout4.exe 1.11.240.
 #include "condition.h"
@@ -97,7 +97,7 @@ namespace {
 
 using namespace condition;
 
-const char *SCRIPT = "TES4_Condition";
+const char *SCRIPT = "F3NV_Condition";
 PluginHandle g_handle = kPluginHandle_Invalid;
 void *g_tasks = nullptr;
 
@@ -302,7 +302,7 @@ extern "C" {
 __declspec(dllexport) F4SEPluginVersionData F4SEPlugin_Version = {
     F4SEPluginVersionData::kVersion,
     2,
-    "FalloutCondition",
+    "F3NV",
     "fo3fnv-in-fo4",
     0,
     0,
@@ -311,14 +311,14 @@ __declspec(dllexport) F4SEPluginVersionData F4SEPlugin_Version = {
 };
 
 __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se) {
-    gLog.OpenRelative(CSIDL_MYDOCUMENTS, "\\My Games\\Fallout4\\F4SE\\FalloutCondition.log");
+    gLog.OpenRelative(CSIDL_MYDOCUMENTS, "\\My Games\\Fallout4\\F4SE\\F3NV.log");
     g_handle = f4se->GetPluginHandle();
     auto *papyrus = static_cast<F4SEPapyrusInterface *>(f4se->QueryInterface(kInterface_Papyrus));
     if (!papyrus) {
         _MESSAGE("no Papyrus interface");
         return false;
     }
-    _MESSAGE("FalloutCondition loaded, runtime %08X", f4se->runtimeVersion);
+    _MESSAGE("F3NV loaded, runtime %08X", f4se->runtimeVersion);
     g_tasks = f4se->QueryInterface(kInterface_Task);
     auto *messaging = static_cast<F4SEMessagingInterface *>(f4se->QueryInterface(kInterface_Messaging));
     _MESSAGE("weapon starting condition %s", HookSpawnHealth(f4se) ? "hooked" : "not hooked");

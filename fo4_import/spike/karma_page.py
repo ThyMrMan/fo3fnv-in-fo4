@@ -1,6 +1,6 @@
 """The Pip-Boy's KARMA tab (pipboy_tabs, on STAT): the player's alignment and karmic title, as FNV shows them.
 
-Two rows, actor values on the player that TES4_KarmaPage sets whenever the
+Two rows, actor values on the player that F3NV_KarmaPage sets whenever the
 Pip-Boy opens: Alignment (very evil to very good by FNV's fAlign
 thresholds) and Title. FNV's titles are game settings sKarmicTitle<kind><nn>
 for kinds Evil, Neutral and Good and levels 1-30: FalloutNV.esm's where it
@@ -19,7 +19,7 @@ from fo4_import.spike.pipboy_tabs import tab_quest
 from fo4_import.spike.reputation import KARMA_KEY, PAGE_SITE, actor_value, page_list
 from tes5_import.character_data_falloutnv import ENGINE_SETTINGS
 
-SCRIPT = 'TES4_KarmaPage'
+SCRIPT = 'F3NV_KarmaPage'
 #: The page's alignment labels, very evil to very good (the Alignment row's values 0-4).
 ALIGNMENTS = ('Very Evil', 'Evil', 'Neutral', 'Good', 'Very Good')
 #: Title kinds in the Title row's order (5 + kind * LEVELS + level - 1), and the levels with a title.
@@ -63,7 +63,7 @@ def thresholds(export_dir: Path) -> dict:
 
 
 def write_karma_page(builder, export_dir: Path, form_map: dict) -> int:
-    """Write the KARMA tab (pipboy_tabs): its actor values, row list and start-game quest running TES4_KarmaPage
+    """Write the KARMA tab (pipboy_tabs): its actor values, row list and start-game quest running F3NV_KarmaPage
     (karma from `form_map`'s KARMA_KEY), on the Pip-Boy Tabs page quest's FormID; the quest's FormID."""
     alignment = actor_value(builder, 'TES4KarmaAlignment', 'Karma')
     title = actor_value(builder, 'TES4KarmaTitle', 'Title')

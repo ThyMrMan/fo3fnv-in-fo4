@@ -262,7 +262,7 @@ scale channel's fix) in question.
 
 **Played 2026-10-20: crashed on the second run.** The first run played
 through; the second crashed at 09:09:43, a second after the player stood
-(stage 30 at 09:09:37, stage 35 at :41, `TES4_PlayerControls.Stand` at
+(stage 30 at 09:09:37, stage 35 at :41, `F3NV_PlayerControls.Stand` at
 :42). The crash had the same stack as the looks-menu crash of 2026-10-19
 14:58: `hkThreadMemory::blockAlloc` reading a corrupt free-list link
 (`0x005D002800290091`, packed 16-bit values) while the player's

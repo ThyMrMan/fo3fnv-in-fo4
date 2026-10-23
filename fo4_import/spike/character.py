@@ -4,7 +4,7 @@ LevelUpMenuEx (PRKF) reads `Data\\PRKF\\*.ini`: form lists of its skills and
 perks (`Plugin.esp|<hex id>`, split at `|`), points per level, and whether
 FO4's perk chart is off. The plugin gets those lists, the game's traits
 (perks.Perks), the skills' FNV names and descriptions over the helper
-plugin's actor values, and a quest running TES4_CharacterRules: it opens FO4's
+plugin's actor values, and a quest running F3NV_CharacterRules: it opens FO4's
 SPECIAL menu and LevelUpMenuEx's tag and trait menus for the converted
 scripts' CharacterMenu events, sets starting skills from SPECIAL and tops up
 each level's points to the game's rates.
@@ -23,7 +23,7 @@ from fo4_import.spike.pipboy_tabs import tab_quest
 from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_HELPER_QUESTS
 
-RULES_SCRIPT = 'TES4_CharacterRules'
+RULES_SCRIPT = 'F3NV_CharacterRules'
 SPECIAL = ('Strength', 'Perception', 'Endurance', 'Charisma', 'Intelligence', 'Agility', 'Luck')
 #: Per game: the skills each SPECIAL stat governs (Fallout wiki, "Fallout: New Vegas skills" / "Fallout 3 skills").
 GOVERNING = {
@@ -77,7 +77,7 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     skill_list = _list(builder, 'FNV_Skills', [actor_value_form(s, helper_index) for s in skills])
     governed = [_list(builder, f'FNV_GovernedBy{stat}', [actor_value_form(s, helper_index) for s in group])
                 for stat, group in zip(SPECIAL, governing)]
-    objects = {'TES4CharacterEvents': form_id(FALLOUT4_HELPER_QUESTS['TES4_CharacterEvents'], helper_index),
+    objects = {'TES4CharacterEvents': form_id(FALLOUT4_HELPER_QUESTS['F3NV_CharacterEvents'], helper_index),
                'SpecialStats': _list(builder, 'FNV_SpecialStats', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
                'GovernedSkills': _list(builder, 'FNV_GovernedSkills', governed),
                'Traits': _list(builder, 'FNV_Traits', builder.perks.traits())}

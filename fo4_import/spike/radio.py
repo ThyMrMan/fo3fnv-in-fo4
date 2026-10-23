@@ -15,7 +15,7 @@ worldspace's persistent cell (one in an interior or past the build too, the
 first world built taking interior ones), at the position reference when
 there is one, on a free Pip-Boy frequency (FREQUENCIES, in station FormID
 order); a Non-Pipboy station's stay where FNV places them, on a frequency
-outside the Pip-Boy's band (LOUNGE_FREQUENCIES). TES4_RadioStation names
+outside the Pip-Boy's band (LOUNGE_FREQUENCIES). F3NV_RadioStation names
 the frequency on the base. Everywhere is Ignores Distance Checks, a radius
 a weak signal from where FNV's static begins out to the radius. An FNV
 activator naming a station (RNAM) is a receiver on its frequency. Programs
@@ -47,8 +47,8 @@ TRANSMITTER = 'RadioTransmitter'
 FREQUENCIES = (80.0, 80.5, 81.0, 84.0, 84.5, 85.0, 90.0, 93.0, 96.0, 101.0, 108.5, 109.0, 109.5, 110.0)
 #: Non-Pipboy frequencies: off the 80-110 band, 1.0 or more from vanilla's (0-4, 11, 22, 31-32, 42-44, 60-77, 303).
 LOUNGE_FREQUENCIES = (5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0, 13.0, 13.5, 14.0, 14.5)
-#: The script a transmitter base carries, naming its frequency for TES4_Radio.Heard.
-STATION_SCRIPT = 'TES4_RadioStation'
+#: The script a transmitter base carries, naming its frequency for F3NV_Radio.Heard.
+STATION_SCRIPT = 'F3NV_RadioStation'
 #: A receiver's volume (RADR), as RadioDiamondCityReceiverOff's.
 RECEIVER_VOLUME = 1.0
 #: A receiver's sound model: SOMMonoWorldRadio_02500_Jukebox (full to 350, silent at 2500), not the default 150 to 1600.

@@ -271,7 +271,7 @@ def test_replacement_table_lays_a_user_file_over_the_defaults(tmp_path):
 
 def test_another_plugins_formid_is_renumbered_to_our_masters():
     """Its own record takes its place in our masters; its override of a Fallout4.esm record stays index 0."""
-    ours = ['Fallout4.esm', 'TES4Helpers.esl', 'XDI.esm', 'BBGunMod.esp']
+    ours = ['Fallout4.esm', 'FalloutHelpers.esl', 'XDI.esm', 'BBGunMod.esp']
     assert RP._ours(0x01000F99, ['Fallout4.esm'], 'BBGunMod.esp', ours) == 0x03000F99
     assert RP._ours(0x00004822, ['Fallout4.esm'], 'BBGunMod.esp', ours) == 0x00004822
     with pytest.raises(ValueError):
@@ -838,7 +838,7 @@ def test_quest_scope_counts_writes_to_a_quests_variables():
 
 def test_say_once_markers_live_in_their_own_quest_and_ride_on_the_line():
     """A Say Once line's marker is a stage of the marker quest (FO4's GetStage reads a quest's highest done stage,
-    so a marker in the line's own quest hid its story stage); the line carries TES4_SayOnce beside its fragments."""
+    so a marker in the line's own quest hid its story stage); the line carries F3NV_SayOnce beside its fragments."""
     once = SO1.SayOnce()
     once.quest = 0x0300ABCD
     stage = once.stage('00104BEE')
@@ -847,8 +847,8 @@ def test_say_once_markers_live_in_their_own_quest_and_ride_on_the_line():
     assert struct.pack('<II', 0x0300ABCD, stage) in ctda
     vmad = VM.info_fragments('FALLOUTNV_TIF__00104BEE', {}, begin='Fragment_1', end='Fragment_0',
                              scripts=[once.script('00104BEE')])
-    assert [s for s, _ in AU.vmad_scripts(b'INFO', vmad)] == ['TES4_SayOnce', 'FALLOUTNV_TIF__00104BEE']
-    assert dict(AU.vmad_scripts(b'INFO', vmad))['TES4_SayOnce'] == {'Marks': 0x0300ABCD}
+    assert [s for s, _ in AU.vmad_scripts(b'INFO', vmad)] == ['F3NV_SayOnce', 'FALLOUTNV_TIF__00104BEE']
+    assert dict(AU.vmad_scripts(b'INFO', vmad))['F3NV_SayOnce'] == {'Marks': 0x0300ABCD}
 
 
 def test_placeable_water_tiles_cover_a_strip_with_squares_of_its_width():
@@ -982,7 +982,7 @@ def test_only_radio_stations_the_pipboy_lists_become_transmitters(monkeypatch):
 def test_a_step_scene_plays_each_song_on_its_own_gated_phase():
     """A step scene: its first topic's phase, later topics only while Said is 0, then each song phase only on its
     CurrentSong, playing its SNDR through a Radio action's sound (HTID), as DiamondCityRadioMusicScene's songs; its
-    end fragment is TES4_RadioScene's."""
+    end fragment is F3NV_RadioScene's."""
     from fo4_import.spike import radio_program as RP
     from fo4_import.base.vmad import scene_fragments
     from fo4_import.spike.holotapes import pack_scene
@@ -992,7 +992,7 @@ def test_a_step_scene_plays_each_song_on_its_own_gated_phase():
                         sounds=[0, 0, 0x0401], conditions=gates, vmad=scene_fragments(RP.SCENE_SCRIPT, RP.SCENE_END))
     subs = subrecords(record[24:])
     tags = [t for t, _ in subs]
-    assert tags[1] == b'VMAD' and b'TES4_RadioScene' in subs[1][1] and subs[1][1].endswith(b'Fragment_End\0\0')
+    assert tags[1] == b'VMAD' and b'F3NV_RadioScene' in subs[1][1] and subs[1][1].endswith(b'Fragment_End\0\0')
     assert [d for t, d in subs if t == b'CIS2'] == [b'::Said_var\0', b'::CurrentSong_var\0']
     ctda = subs[tags.index(b'CTDA')][1]
     assert struct.unpack_from('<fH', ctda, 4) == (0.0, CD.FO4.index('GetVMQuestVariable'))

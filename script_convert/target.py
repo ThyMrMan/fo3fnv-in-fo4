@@ -22,9 +22,9 @@ HIT_REGISTRATION = 'RegisterForHitEvent(Self)'
 #: Prefix of the ActorValue property a Fallout 4 script declares per actor value it names.
 AV_PROPERTY_PREFIX = 'TES4AV_'
 #: Property and script of the helper quest holding the one InputEnableLayer all scripts share.
-CONTROLS_PROPERTY, CONTROLS_SCRIPT = 'TES4PlayerControls', 'TES4_PlayerControls'
+CONTROLS_PROPERTY, CONTROLS_SCRIPT = 'TES4PlayerControls', 'F3NV_PlayerControls'
 #: Property and script of the helper quest sending the character menus and holding suggested tag skills.
-CHARACTER_PROPERTY, CHARACTER_SCRIPT = 'TES4CharacterEvents', 'TES4_CharacterEvents'
+CHARACTER_PROPERTY, CHARACTER_SCRIPT = 'TES4CharacterEvents', 'F3NV_CharacterEvents'
 
 
 def set_target(name: str) -> None:

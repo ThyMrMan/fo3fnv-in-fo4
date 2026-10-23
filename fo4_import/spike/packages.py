@@ -43,7 +43,7 @@ HIDE_WHILE_AMBUSHING, ALWAYS_SNEAK = 0x1, 0x20000
 #: FO4 PLDT location type near the package's start location (FNV's near current location, the same code).
 NEAR_START = 2
 #: Fragments of a flee with no location or target: Cowardly while it runs (fo4_pipeline.md#packages).
-COWER_SCRIPT = 'TES4_CowerPackage'
+COWER_SCRIPT = 'F3NV_CowerPackage'
 #: Its fragment flags: OnBegin and OnEnd.
 COWER_FRAGMENTS = 0x01 | 0x02
 #: FNV PLDT location type "in cell", and FO4's near reference.

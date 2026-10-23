@@ -1,6 +1,6 @@
 """Spike 2 step 4: FaceGen for the cell's NPCs, from the Creation Kit, with FNV face shapes baked in.
 
-    py -3.14 -m fo4_import.spike.facegen --export <FalloutNV.esm export> --data <mod folder> FNVCellSpike.esp
+    py -3.14 -m fo4_import.spike.facegen --export <FalloutNV.esm export> --data <mod folder> FalloutNV.esp
 
 Runs the CK's `-ExportFaceGenData:<plugin> X64` through MO2 (so it loads the
 profile's plugins), moves the FaceGeom NIFs and face tint textures it writes

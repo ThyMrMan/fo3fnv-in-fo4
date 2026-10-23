@@ -6303,15 +6303,15 @@ class TestFalloutQuestStageSubject:
         assert 'RestoreValue(TES4AV_Rads, 1000)' in out
 
     def test_weapon_condition_commands_reach_the_condition_helpers_on_fallout4(self, converter, monkeypatch):
-        """FNV's condition commands call TES4_ConditionCalls on Fallout 4, percents and health as FNV's."""
+        """FNV's condition commands call F3NV_ConditionCalls on Fallout 4, percents and health as FNV's."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
         converter.xref._is_fallout = True
         read = conv_lines(converter, 'if player.GetWeaponHealthPerc < 25\n  set x to 1\nendif', 'Quest')
-        assert 'TES4_ConditionCalls.WeaponPercent(Game.GetPlayer()) < 25' in read
+        assert 'F3NV_ConditionCalls.WeaponPercent(Game.GetPlayer()) < 25' in read
         broken = conv_lines(converter, 'player.ModWeaponHealthPerc -100', 'Quest')
-        assert 'TES4_ConditionCalls.ModWeaponPercent(Game.GetPlayer(), -100' in broken
+        assert 'F3NV_ConditionCalls.ModWeaponPercent(Game.GetPlayer(), -100' in broken
         given = conv_lines(converter, 'player.AddItemHealthPercent ArmorLeather 1 0.50', 'Quest')
-        assert 'TES4_ConditionCalls.AddWithHealth(Game.GetPlayer(), ArmorLeather, 1, 0.50' in given
+        assert 'F3NV_ConditionCalls.AddWithHealth(Game.GetPlayer(), ArmorLeather, 1, 0.50' in given
 
 
 class TestFallout4PlayerPackage:
@@ -6392,11 +6392,11 @@ class TestRadioLines:
     """FO3/FNV radio lines on Fallout 4: a message shows only while the player hears the station."""
 
     def test_only_messages_wait_on_the_listener(self):
-        """Camp Guardian's ShowMessage is guarded by TES4_Radio.Heard; a song-history write still runs."""
+        """Camp Guardian's ShowMessage is guarded by F3NV_Radio.Heard; a song-history write still runs."""
         from script_convert import radio_lines
         lines = ['Function Fragment_1(ObjectReference akSpeakerRef)', '  NVCGHalfordRadio1.Show(0.0, 0.0)',
                  '  iLastSong1 = 4', 'EndFunction']
         assert radio_lines.gated(lines) == [
-            'Function Fragment_1(ObjectReference akSpeakerRef)', '  If TES4_Radio.Heard(akSpeakerRef)',
+            'Function Fragment_1(ObjectReference akSpeakerRef)', '  If F3NV_Radio.Heard(akSpeakerRef)',
             '    NVCGHalfordRadio1.Show(0.0, 0.0)', '  EndIf', '  iLastSong1 = 4', 'EndFunction']
         assert radio_lines.is_radio({'DATA.DialogType': '7'}) and not radio_lines.is_radio({'DATA.DialogType': '0'})

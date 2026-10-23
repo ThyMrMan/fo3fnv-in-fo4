@@ -218,8 +218,8 @@ EndFunction
 
 ; fallout4: new
 Bool Function Tracing() Global
-  {Whether TES4Helpers.esl's TES4Trace global is on (console: set TES4Trace to 1): the Trace* functions below write only then.}
-  GlobalVariable g = Game.GetFormFromFile(0xA01, "TES4Helpers.esl") as GlobalVariable
+  {Whether FalloutHelpers.esl's TES4Trace global is on (console: set TES4Trace to 1): the Trace* functions below write only then.}
+  GlobalVariable g = Game.GetFormFromFile(0xA01, "FalloutHelpers.esl") as GlobalVariable
   Return g && g.GetValue() > 0.0
 EndFunction
 

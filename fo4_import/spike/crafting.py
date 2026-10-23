@@ -20,7 +20,7 @@ keywords (FNAM) that make the menu's tabs. So:
 - a COBJ makes one item, so a recipe with several outputs makes a token (a
   misc item named for the recipe) instead, and its outputs become a leveled
   list giving every entry. One start-game quest's player alias runs
-  TES4_RecipeOutputs, which swaps each token as it arrives for its list:
+  F3NV_RecipeOutputs, which swaps each token as it arrives for its list:
   vanilla's player-alias inventory filter (BoS301PlayerAliasScript).
 """
 
@@ -55,7 +55,7 @@ _MENU = re.compile(r'showrecipemenu\s+(\w+)', re.IGNORECASE)
 #: FormID sites: a recipe's token and outputs list (keyed by its FNV FormID), the quest and its lists (by name).
 TOKEN_SITE, OUTPUTS_SITE, QUEST_SITE = 'FNV recipe token', 'FNV recipe outputs', 'FNV recipe outputs quest'
 #: LVLF Use All: the list gives every entry. The player reference, and the script swapping tokens.
-USE_ALL, PLAYER, OUTPUTS_SCRIPT = 0x04, 0x14, 'TES4_RecipeOutputs'
+USE_ALL, PLAYER, OUTPUTS_SCRIPT = 0x04, 0x14, 'F3NV_RecipeOutputs'
 
 
 class Crafting:
@@ -183,7 +183,7 @@ class Crafting:
         return token
 
     def _outputs_quest(self) -> None:
-        """The start-game quest whose player alias swaps each token for its outputs (TES4_RecipeOutputs)."""
+        """The start-game quest whose player alias swaps each token for its outputs (F3NV_RecipeOutputs)."""
         writer = self.builder.writer
         quest, tokens, outputs = (writer.derive_formid(QUEST_SITE, key) for key in ('quest', 'tokens', 'outputs'))
         writer.add_record('FLST', R.pack_flst(tokens, 'FNV_RecipeTokens', [t for t, _ in self.tokens]))

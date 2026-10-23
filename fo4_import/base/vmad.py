@@ -6,7 +6,7 @@ fragment blocks differ: bind data version 3, an INFO's block embeds the whole
 script entry (its properties included) where Skyrim names only the file, and
 a quest stage fragment's stage is 32 bits. Vanilla Fallout 4 INFOs and quests
 with fragments attach no other scripts; the format lists plain scripts before the
-fragment block, which the build uses for TES4_SayOnce on Say Once lines.
+fragment block, which the build uses for F3NV_SayOnce on Say Once lines.
 
 See: docs/fork/fo4_spikes.md#spike-3-vmad
 """

@@ -1,4 +1,4 @@
-// FalloutCondition's transfer and barter menus: a CND line on the item card for items that wear, each line at
+// F3NV's transfer and barter menus: a CND line on the item card for items that wear, each line at
 // its own stack's condition (docs/fork/fo4_condition.md#transfer-menu).
 //
 // Each menu builds its Flash lines with a virtual function, slot 28 of ContainerMenu's and BarterMenu's vtables

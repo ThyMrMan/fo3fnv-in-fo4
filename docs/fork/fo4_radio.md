@@ -83,7 +83,7 @@ Non-Pipboy (casino and Tops lounges, Hanlon's broadcast, ED-E's): step 3.
   build used FormID low 24 bits / 1000 (940-1,490). Those stations never
   listed, and their scenes cycled every line in about 20 ms, around 120
   line scripts a second, until the Papyrus VM stalled (lag spikes, a 30 s
-  door, no Pip-Boy, slow saves). The base carries `TES4_RadioStation`
+  door, no Pip-Boy, slow saves). The base carries `F3NV_RadioStation`
   naming the frequency, which Papyrus cannot read from a transmitter
   (`GetRadioFrequency` is for receivers). Everywhere (or no radius) Ignores
   Distance Checks, as vanilla's global stations; a radius weak from
@@ -181,7 +181,7 @@ scene (`DiamondCityRadioMusicScene`):
 - **Pick topic.** FNV's lines become one topic, with their conditions (no
   song in `iLastSong1..3`) and result scripts. Each keeps its own short
   recording and carries `TES4_RadioSong`, which sets the station quest's
-  `TES4_RadioPlaylist.CurrentSong` to its song as it begins (attached
+  `F3NV_RadioPlaylist.CurrentSong` to its song as it begins (attached
   as Say Once's helper is).
 - **Song phases.** After the pick phase, one phase per song, gated on
   `GetVMQuestVariable ::CurrentSong_var` equal to its number. Each plays
@@ -193,7 +193,7 @@ scene (`DiamondCityRadioMusicScene`):
   `songs\radionv\mus_*.mp3` and ships `mus_*_mono.ogg`, found as `.ogg`,
   then `_mono.ogg` (`song_file`).
 - **Running.** The scene (flags 0x104, `RadioSilverShroudQuest_Music`'s
-  without begin on quest start) is started by `TES4_RadioPlaylist` as
+  without begin on quest start) is started by `F3NV_RadioPlaylist` as
   its quest starts. Every 5 s it is restarted if it stopped, as vanilla's
   `RadioFailsafeScript` does. A fault in a song therefore costs one pass
   per 5 s, not a spin.
@@ -220,7 +220,7 @@ from Fallout4.exe; fix played 2026-10-22).**
   `RadioDiamondCity`'s Host leaves it empty, but Travis is a placed
   actor. Each station's Host now sets VTCK to its speaker NPC, or a list
   when it has several (`Speakers.voices`).
-- **Measuring it.** `TES4_RadioPlaylist` traces each restart
+- **Measuring it.** `F3NV_RadioPlaylist` traces each restart
   (`TES4Radio|<time>|restart|<scene>`). With the fix, Mojave's scene ran
   from 45 s to 200 s, a whole song, and Trudy's radio played complete
   songs (played 2026-10-22).
@@ -246,11 +246,11 @@ topics and songs, whose lines choose what follows (FNV INFO Choices):
     while `Said` is 0, so the first topic with a passing line speaks;
   - a phase per song of those topics, gated on `CurrentSong`, playing the
     song's sound record, as before.
-- **Lines.** Each line carries `TES4_RadioLine` (Song, NextStep). As the
-  line begins, it calls `TES4_RadioPlaylist.LineBegan`: `Said` 1, its song
+- **Lines.** Each line carries `F3NV_RadioLine` (Song, NextStep). As the
+  line begins, it calls `F3NV_RadioPlaylist.LineBegan`: `Said` 1, its song
   (0 for spoken), its next step. FNV's Random flags and conditions still
   pick the line.
-- **Moving on.** Each scene has an end fragment (`TES4_RadioScene`,
+- **Moving on.** Each scene has an end fragment (`F3NV_RadioScene`,
   `Fragment_End`, SCEN VMAD per xEdit `wbVMADFragmentedSCEN`) calling
   `SceneEnded`. When a line was said, it clears `Said` and `CurrentSong`
   and starts the next step's scene. When none was, nothing starts: the
@@ -294,11 +294,11 @@ Mitchell's greeting, showed Camp Guardian's lines over and over as
 top-left HUD notifications: each line's FNV script calls `ShowMessage`
 (`TIF__0014ADA5` shows `NVCGHalfordRadio1`). Vanilla FO4 radio has no
 subtitles. On FO4, each message a radio line (dialog type 7) shows is
-guarded by `TES4_Radio.Heard(akSpeakerRef)`
+guarded by `F3NV_Radio.Heard(akSpeakerRef)`
 (`script_convert/radio_lines.py`). Its other statements run, as FO4's
 stations do, so a playlist's song history keeps up. Heard checks that the
 radio is on, the player is in range, and the player is tuned to the
-transmitter's frequency, which comes from the `TES4_RadioStation` script
+transmitter's frequency, which comes from the `F3NV_RadioStation` script
 on the transmitter base.
 
 ## <a id="receivers"></a>Step 3: placed radios (built 2026-10-21, not yet played)

@@ -1,4 +1,4 @@
-"""TES4Helpers.esl: fixed ids in the light-plugin range, and the names converted scripts resolve through it.
+"""FalloutHelpers.esl: fixed ids in the light-plugin range, and the names converted scripts resolve through it.
 
 See: docs/fork/fo4_spikes.md#spike-3-helper-plugin
 """
@@ -22,13 +22,13 @@ def test_ids_are_unique_and_fit_a_light_plugin():
 
 def test_plugin_is_a_light_master_with_every_record(tmp_path):
     """ESM and ESL flags set; one record per table entry at its fixed id."""
-    out = tmp_path / 'TES4Helpers.esl'
+    out = tmp_path / 'FalloutHelpers.esl'
     H.build(out)
     raw = out.read_bytes()
     assert struct.unpack_from('<I', raw, 8)[0] & 0x201 == 0x201
     got = {(r.sig, r.form_id & 0xFFFFFF) for r, _ in walk(raw)}
     assert (b'AVIF', FALLOUT4_HELPER_AVS['Variable01']) in got
-    assert (b'QUST', FALLOUT4_HELPER_QUESTS['TES4_PlayerControls']) in got
+    assert (b'QUST', FALLOUT4_HELPER_QUESTS['F3NV_PlayerControls']) in got
     assert (b'GLOB', FALLOUT4_HELPER_GLOBALS['TES4ControlsDisabled']) in got
     assert (b'MESG', FALLOUT4_HELPER_MESSAGES['TES4ChooseSexMessage'][0]) in got
     assert len(got) == (len(FALLOUT4_HELPER_AVS) + len(FALLOUT4_HELPER_QUESTS) + len(FALLOUT4_HELPER_GLOBALS)

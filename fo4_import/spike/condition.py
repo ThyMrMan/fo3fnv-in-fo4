@@ -1,12 +1,12 @@
 """FO3/FNV weapon and armor condition on Fallout 4: the records and data its scripts run on.
 
-Condition is the engine's own item health, set through the FalloutCondition
-F4SE plugin (TES4_Condition). Every converted weapon that wears (FNV DATA
+Condition is the engine's own item health, set through the F3NV
+F4SE plugin (F3NV_Condition). Every converted weapon that wears (FNV DATA
 Health, and not thrown or placed) and every armor with FNV health gets our
 condition attach point and keyword (`wire`, `wire_armor`). Condition mods
 by tenths carry FNV's curves: eleven for weapons (damage, value), and for
 armor eleven per armor rating (DT, value). A start-game quest's player alias
-runs TES4_ConditionPlayer on data read from the source game:
+runs F3NV_ConditionPlayer on data read from the source game:
 - each item's FNV health;
 - the wear per shot, `fDamageToWeaponValue`, and per absorbed hit,
   `fDamageToArmorPercentage` up to `fMaxArmorRating`;
@@ -43,8 +43,8 @@ from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
 #: derive_formid site: quest, item, effect, keywords, 'tier <t>', 'armor tier <t>[ rating <r>]', messages, 'repair <FLST>'.
 SITE = 'FNV condition'
-SCRIPT, CALLS, NATIVES, ITEM_SCRIPT = ('TES4_ConditionPlayer', 'TES4_ConditionCalls', 'TES4_Condition',
-                                       'TES4_ConditionRepairItem')
+SCRIPT, CALLS, NATIVES, ITEM_SCRIPT = ('F3NV_ConditionPlayer', 'F3NV_ConditionCalls', 'F3NV_Condition',
+                                       'F3NV_ConditionRepairItem')
 #: Our condition attach point (attach point keyword) and the keyword every converted item takes its mods by.
 POINT_EDID, KEYWORD_EDID, ATTACH_POINT, MOD_ASSOCIATION = 'FNV_ap_Condition', 'FNV_ma_Condition', 2, 5
 #: FNV weapon animation types that never wear: grenade throw, land mine, mine drop, thrown.
@@ -73,9 +73,11 @@ DAMAGE_RESIST = 0x2E3
 #: The hotkey item's name, and the player script's messages: property, text (a %.0f takes the percent).
 REPAIR_NAME = 'Repair'
 MESSAGES = (('ConditionNote', 'Condition %.0f%%'), ('BrokenNote', 'This weapon is broken.'))
-#: The FalloutCondition plugin as built (tes_runtime/fo4_condition) and where a mod ships F4SE plugins.
-PLUGIN = Path(__file__).resolve().parents[2] / 'tes_runtime' / 'dist' / 'FalloutCondition.dll'
+#: The F3NV plugin as built (tes_runtime/fo4_condition) and where a mod ships F4SE plugins.
+PLUGIN = Path(__file__).resolve().parents[2] / 'tes_runtime' / 'dist' / 'F3NV.dll'
 PLUGIN_DIR = Path('F4SE') / 'Plugins'
+#: The plugin's name before 2026-10-23, deleted on rebuild: both would load and hook the Pip-Boy twice.
+LEGACY_PLUGIN = 'FalloutCondition.dll'
 
 
 def damage_factor(health: float) -> float:
@@ -235,9 +237,12 @@ class Condition:
                                                                                              len(self.armors))
         (data_dir / PLUGIN_DIR).mkdir(parents=True, exist_ok=True)
         shutil.copy2(PLUGIN, data_dir / PLUGIN_DIR / PLUGIN.name)
+        legacy = data_dir / PLUGIN_DIR / LEGACY_PLUGIN
+        if legacy.exists():
+            legacy.unlink()
 
     def _values(self, ammo_mods) -> dict:
-        """TES4_ConditionPlayer's value properties."""
+        """F3NV_ConditionPlayer's value properties."""
         export = self.builder.export_dir
         perks = [(self.builder.perks.first.get(fnv), mult) for fnv, mult in wear_perks(export_records(export, 'PERK'))]
         perks = [(p, m) for p, m in perks if p]
@@ -259,7 +264,7 @@ class Condition:
         return out
 
     def _armor_values(self) -> dict:
-        """TES4_ConditionPlayer's armor properties: each armor's health and tier group, and the groups' tiers."""
+        """F3NV_ConditionPlayer's armor properties: each armor's health and tier group, and the groups' tiers."""
         armors = sorted(self.armors)
         ratings = sorted({self.armors[a][2] for a in armors})
         tiers = [self._armor_tier(t, r) for r in ratings for t in range(TENTHS + 1)]

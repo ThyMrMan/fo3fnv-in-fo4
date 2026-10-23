@@ -4,7 +4,7 @@ FO4's Papyrus has no AddScriptPackage; its own way to give an actor a
 package from script is an alias whose package list holds it, which runs
 ahead of the actor's own. The build writes one start-game quest,
 FNV_TES4ScriptPackages: a collection alias per package any converted script
-names, alias i running Packages[i] of its TES4_ScriptPackages script.
+names, alias i running Packages[i] of its F3NV_ScriptPackages script.
 Converted AddScriptPackage puts the actor in that package's alias (out of
 any other, as FNV keeps one script package per actor); RemoveScriptPackage
 takes it out. Converted scripts reach the quest through their
@@ -17,7 +17,7 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.spike import records as R
 
 #: The quest's EditorID (its FormID is hashed from it), script and the property converted scripts name it by.
-EDID, SCRIPT, PROPERTY = 'FNV_TES4ScriptPackages', 'TES4_ScriptPackages', 'TES4ScriptPackages'
+EDID, SCRIPT, PROPERTY = 'FNV_TES4ScriptPackages', 'F3NV_ScriptPackages', 'TES4ScriptPackages'
 SITE = 'FNV script packages'
 
 

@@ -470,7 +470,7 @@ Ours, compared:
   (`consumables.py`). A gun loads its first ammo only (`equipment.py`).
 - Recipes go to our own bench copies with their own keyword
   (`crafting.py`), gated on FNV's skills. A multi-output recipe gives a
-  token swapped for a leveled list (`TES4_RecipeOutputs.psc`), with no
+  token swapped for a leveled list (`F3NV_RecipeOutputs.psc`), with no
   F4SE and no menu.
 
 Gaps it shows:

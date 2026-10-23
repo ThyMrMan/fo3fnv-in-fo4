@@ -367,7 +367,7 @@ directly; nothing rewrites emitted text:
 | Actor values | `av_call`: `GetValue(TES4AV_<name>)` etc. with an `ActorValue` property per name |
 | Row templates | `command_rows_fallout4.FALLOUT4_ROWS`, keyed by the Skyrim `Cmd`, picked by `emit_row` (9 rows so far) |
 | Animation events | `anim_event_call`: `PlayAnimation` |
-| Player controls | `controls_call`: the FO4-only helper `static_scripts/fallout4/TES4_PlayerControls` holds the one shared `InputEnableLayer` |
+| Player controls | `controls_call`: the FO4-only helper `static_scripts/fallout4/F3NV_PlayerControls` holds the one shared `InputEnableLayer` |
 | Tables | `FALLOUT4_EVENTS`, `FALLOUT4_AV_NATIVES` in `constants.py` |
 
 Skyrim output is byte-identical (Doc's script against the pipeline's; 579
@@ -465,7 +465,7 @@ join any authored enter and leave blocks (`assemble._trigger_repeat`).
 | FNV | FO4 |
 |---|---|
 | `SetRestrained` (Skyrim: `SetDontMove`) | `Actor.SetRestrained` |
-| `EnableFastTravel`, `SetCanFastTravelFromWorld` | `TES4_PlayerControls.FastTravel` (an `InputEnableLayer` setting) |
+| `EnableFastTravel`, `SetCanFastTravelFromWorld` | `F3NV_PlayerControls.FastTravel` (an `InputEnableLayer` setting) |
 | `GetLOS` | `HasDetectionLOS` |
 | `RemoveAllItems` | at most 2 arguments |
 | `OnMagicEffectApply` | FO4's opener (adds `akTarget`) |
@@ -545,7 +545,7 @@ FO4's compiler into `<Data>/Scripts`. Properties filled: `TES4AV_Variable01`
 and `TES4AV_Health` (the spike's actor values: FO4's `Health`, and the
 plugin's own `FNV_Variable01` record, made the way the spike makes FNV
 skills, since FO4 has no `Variable01`), `TES4PlayerControls` (a
-start-game-enabled helper quest carrying `TES4_PlayerControls`). Left unfilled:
+start-game-enabled helper quest carrying `F3NV_PlayerControls`). Left unfilled:
 `VCG01`, `VDoctors`, `TES4CombatApproaches`, `TES4ControlsDisabled`,
 `TES4ForceCombatAttackers`, `Sawbones`, `FadeToBlackISFX` (not converted).
 
@@ -572,10 +572,10 @@ controls off at 43.62 s and on at 51.68 s of real time, 8.06 s for FNV's 8.
 ### <a id="spike-3-helper-plugin"></a>The shared helper plugin (played 2026-10-05)
 
 ```bash
-py -3.14 -m fo4_import.helpers_plugin --out <Data>/TES4Helpers.esl
+py -3.14 -m fo4_import.helpers_plugin --out <Data>/FalloutHelpers.esl
 ```
 
-`TES4Helpers.esl` (ESM + ESL flags, master `Fallout4.esm`) holds what every
+`FalloutHelpers.esl` (ESM + ESL flags, master `Fallout4.esm`) holds what every
 converted FO3/FNV plugin needs and no source plugin has, once for all games,
 since it is player or actor state:
 
@@ -583,7 +583,7 @@ since it is player or actor state:
 |---|---|
 | `0x800`–`0x809` | AVIF `TES4Variable01`–`10` (FO4 has no Variable actor values) |
 | `0x810`–`0x81E` | AVIF per FO3/FNV skill (`TES4Barter` … `TES4Unarmed`; FO4 has no skills) |
-| `0x900`, `0x901` | start-game quests running `TES4_PlayerControls` and `TES4_CharacterEvents` |
+| `0x900`, `0x901` | start-game quests running `F3NV_PlayerControls` and `F3NV_CharacterEvents` |
 | `0xA00` | GLOB `TES4ControlsDisabled` |
 
 The ids live in `script_convert/constants.py` (`FALLOUT4_HELPER_*`) and are
@@ -602,7 +602,7 @@ a plugin writes for them, by its master index.
 - The FO3/FNV values FO4 has under another name (resistances, `SpeedMult`,
   `ActionPoints`) are character-systems work and not mapped here.
 - The spike masters the helper plugin (`Fallout4.esm`, `XDI.esm`,
-  `TES4Helpers.esl`) instead of making its own actor values and controls
+  `FalloutHelpers.esl`) instead of making its own actor values and controls
   quest; each skill's first use still takes the FormID its spike record had,
   so no line moved.
 
@@ -787,8 +787,8 @@ FNV's own feature the FO4 row uses it: `RewardXP` → the native
 `Game.RewardPlayerXP`, FO4's own XP and notification. The menus (SPECIAL with
 a point total, tag skills, traits) have no full FO4 native (`ShowSPECIALMenu`
 takes no total), so they become one custom event,
-`TES4_CharacterEvents.CharacterMenu(kind, value)`, for the FO4 character
-rules to answer; the FO4-only helper `static_scripts/fallout4/TES4_CharacterEvents`
+`F3NV_CharacterEvents.CharacterMenu(kind, value)`, for the FO4 character
+rules to answer; the FO4-only helper `static_scripts/fallout4/F3NV_CharacterEvents`
 sends it, since only the declaring script may. The one `SendModEvent` left is
 in `TES4Polyfill` (helper port).
 
@@ -1334,7 +1334,7 @@ idles and imagespace modifiers.
 - `attach.ObjectScripts` attaches every record's converted script (doors,
   activators, Doc's ACHR, the quest) and fills a property from the cell's
   own forms by FNV name (references, actors, the quest), `Player`, the
-  helper quests and globals (the plugin now masters `TES4Helpers.esl`),
+  helper quests and globals (the plugin now masters `FalloutHelpers.esl`),
   Fallout4.esm misc items and potions, and the messages it names. Other
   same-named Fallout4.esm forms are not used: stage 0's
   `RemoveItem PipBoy` would take FO4's Pip-Boy.
@@ -1424,7 +1424,7 @@ topics (step 2b), the outro and two epilogue lines.
   to first person once it closes, as the elevator's `MenusDone` does.
   Played: the camera swung out, then the menu came up in first person
   again. Stage 0's `DisablePlayerControls` reaches FO4's shared input
-  layer with the camera switch disabled (`TES4_PlayerControls.Disable`'s
+  layer with the camera switch disabled (`F3NV_PlayerControls.Disable`'s
   third flag), which pins first person; FNV's Reflectron did not depend on
   it. Lifting it alone changed nothing: the helper's
   `Utility.Wait(0.5)` then `ForceFirstPerson()` ran half a second after
@@ -1470,10 +1470,10 @@ into the statements and the outro's lines.
     picks three tag skills from the tallies (a combat skill, one of
     Speech, Science, Lockpick and Barter, then the best untagged) with
     `SetPlayerTagSkill`, which preselects them in FNV's tag menu. It
-    converts to `TES4_CharacterEvents.SuggestTag(<skill>)`: LevelUpMenuEx's
+    converts to `F3NV_CharacterEvents.SuggestTag(<skill>)`: LevelUpMenuEx's
     `AddTagSkillAV` tags it at once (so the third pick's `IsPlayerTagSkill`
     sees the first two) and the helper records it; FNV's slot is dropped.
-    With suggestions pending, `TES4_CharacterRules` opens the tag menu with
+    With suggestions pending, `F3NV_CharacterRules` opens the tag menu with
     re-tagging allowed and only the picks left to make (three in all, the
     suggestions counting; untagging one frees a pick), and on its
     `PRKF::TagSkills::Finish` event sets each
@@ -1670,7 +1670,7 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
   - FormIDs moved (approved): 3,045 records became 3,623.
 
 **Step 4, the character menus** (`fo4_import/spike/character.py`,
-`TES4_CharacterRules.psc`; played 2026-10-07). FNV's
+`F3NV_CharacterRules.psc`; played 2026-10-07). FNV's
 character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions)).
 
 - LevelUpMenuEx reads `Data\PRKF\*.ini`; its list keys name a FormList as
@@ -1682,7 +1682,7 @@ character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions))
 - The 13 FNV skills are the helper plugin's actor values, overridden with
   FNV's AVIF names and descriptions. The 10 FNV traits are trait perks
   with name and description only; their effects come with the perks.
-- `TES4_CharacterRules` (a start-game quest) answers the converted
+- `F3NV_CharacterRules` (a start-game quest) answers the converted
   scripts' `CharacterMenu` events: `special` opens FO4's
   `Game.ShowSPECIALMenu()`, `tags` LevelUpMenuEx's tag menu (3, +15,
   `fAVDTagSkillBonus`), `traits` its trait menu (up to 2,
@@ -1742,7 +1742,7 @@ character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions))
   - Nothing sets VCG01 stage 17 in FNV (the line after the name goes to
     stage 25): the "Choose Sex" box is dead content, and FNV picks the sex
     in the Reflectron's own race menu. FO4's remake menu cannot, so
-    `TES4_PlayerControls.ShowRaceMenu` first shows the helper plugin's
+    `F3NV_PlayerControls.ShowRaceMenu` first shows the helper plugin's
     `TES4ChooseSexMessage` (Male, Female; object id `0xB00`) and sets it
     through `TES4Polyfill.SetSex`. Drift: a box before the editor.
   - Doc's reaction reads SPECIAL through `GetTES4ActorValue`, which took
@@ -1760,10 +1760,10 @@ character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions))
     closed, so the reaction did read the picks. FO4's menu totals
     `uSPECIALPoints` (28: every stat at 1 plus 21), FNV's 40, so the same
     picks read lower; the plugin now overrides `uSPECIALPoints` to 40
-    (`fo4_import/spike/character.py`), and `TES4_NewGame` sets each stat
+    (`fo4_import/spike/character.py`), and `F3NV_NewGame` sets each stat
     to the FNV player record's value (5) before VCG00 starts
     (`SetStartSpecial`; `Special`/`SpecialStart`, a float array property),
-    so the menu opens at 5s with 5 points left. `TES4_CharacterRules` traces
+    so the menu opens at 5s with 5 points left. `F3NV_CharacterRules` traces
     `special|opened|closed` with the seven values (`GetGameSettingInt`
     refuses a `u` setting). Played 2026-10-19: opened at 5s, closed at
     5/5/6/8/6/5/5 (40), and Doc gave the Charisma line (reaction 10).
@@ -1871,7 +1871,7 @@ quest timers kept running to 23:50:24 (so the game was not paused under an
 invisible menu). No script in stages 60 to 80 changes controls; stage 55
 enables movement. The pause menu was blocked by design of the conversion,
 not by the fault: FNV's stage 55 disables the Pip-Boy, mapped to FO4's
-menu flag (`TES4_PlayerControls.Disable`'s `abMenu`), which also blocks the
+menu flag (`F3NV_PlayerControls.Disable`'s `abMenu`), which also blocks the
 pause menu until stage 110. If it shows again: note how the SPECIAL menu
 was closed, and trace the controls layer when it closes.
 

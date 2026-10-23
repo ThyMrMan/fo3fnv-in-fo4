@@ -1,7 +1,7 @@
 """Build an FNV interior cell (and a rectangle of a worldspace's cells) for Fallout 4: the scope's meshes converted in
 worker processes into the mesh cache, then the spike's records and assets (spike.cell.build).
 
-    py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FNVCellSpike.esp
+    py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FalloutNV.esp
         --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --region -19 -1 -17 1
         GSDocMitchellHouse
 

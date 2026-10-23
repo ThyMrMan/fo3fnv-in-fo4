@@ -1,4 +1,4 @@
-// FalloutCondition's vendor repair (docs/fork/fo4_condition.md#vendor-repair): FNV's ShowRepairMenu, offered on
+// F3NV's vendor repair (docs/fork/fo4_condition.md#vendor-repair): FNV's ShowRepairMenu, offered on
 // the Pip-Boy's repair card while a vendor is set (pipboy.cpp).
 //
 // FalloutNV.exe's rule (0x648230, called by RepairServicesMenu 0x7B7920 per item): the vendor reaches

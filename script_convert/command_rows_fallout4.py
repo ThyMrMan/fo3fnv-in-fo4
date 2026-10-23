@@ -6,7 +6,7 @@ Actor values are ActorValue form properties (`target.av_property`) declared
 through `self_type`; behavior-graph events go through PlayAnimation. Where
 Fallout 4 has FO3/FNV's own feature the row uses it (RewardXP is the native
 RewardPlayerXP); the character menus, which Skyrim sends as SKSE mod events,
-become one custom event from the TES4_CharacterEvents helper. IsAnimPlaying
+become one custom event from the F3NV_CharacterEvents helper. IsAnimPlaying
 is 0: FO4 cannot ask a NIF sequence, and the graph read errored (fo4_pipeline.md#log-noise).
 
 See: docs/fork/fo4_spikes.md#spike-3-target
@@ -28,7 +28,7 @@ _CONTROLS = (CONTROLS_PROPERTY, CONTROLS_SCRIPT)
 
 
 def _menu(kind: str, value: str = '{f0}', **row) -> Cmd:
-    """A character-menu command as TES4_CharacterEvents.Menu(kind, value)."""
+    """A character-menu command as F3NV_CharacterEvents.Menu(kind, value)."""
     return Cmd(f'{_CHARACTER[0]}.Menu("{kind}", {value})', self_type=_CHARACTER, **row)
 
 
@@ -71,14 +71,14 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'removenote': Cmd('Game.GetPlayer().RemoveItem({p0}, 1, True)', types={0: 'Form'}),
     'gethasnote': Cmd('Game.GetPlayer().GetItemCount({p0})', types={0: 'Form'}),
     'showbartermenu': Cmd('TES4Polyfill.ShowBarterMenu({ref})', ACTOR, flags='actor_only', max_args=0),
-    'showrepairmenu': Cmd('TES4_ConditionCalls.ShowRepairMenu({ref})', ACTOR, flags='actor_only', max_args=0),
+    'showrepairmenu': Cmd('F3NV_ConditionCalls.ShowRepairMenu({ref})', ACTOR, flags='actor_only', max_args=0),
     'addscriptpackage': Cmd('TES4ScriptPackages.Add({ref}, {p0})', ACTOR, types={0: 'Package'},
-                            self_type=('TES4ScriptPackages', 'TES4_ScriptPackages'), flags='actor_only'),
+                            self_type=('TES4ScriptPackages', 'F3NV_ScriptPackages'), flags='actor_only'),
     'removescriptpackage': Cmd('TES4ScriptPackages.Remove({ref})', ACTOR, max_args=0,
-                               self_type=('TES4ScriptPackages', 'TES4_ScriptPackages'), flags='actor_only'),
-    'getweaponhealthperc': Cmd('TES4_ConditionCalls.WeaponPercent({ref})', ACTOR, flags='actor_only zero_arg'),
-    'setweaponhealthperc': Cmd('TES4_ConditionCalls.SetWeaponPercent({ref}, {f0})', ACTOR, flags='actor_only'),
-    'modweaponhealthperc': Cmd('TES4_ConditionCalls.ModWeaponPercent({ref}, {f0})', ACTOR, flags='actor_only'),
-    'additemhealthpercent': Cmd('TES4_ConditionCalls.AddWithHealth({ref}, {p0}, {i1}, {f2}, {b3})', OBJREF,
+                               self_type=('TES4ScriptPackages', 'F3NV_ScriptPackages'), flags='actor_only'),
+    'getweaponhealthperc': Cmd('F3NV_ConditionCalls.WeaponPercent({ref})', ACTOR, flags='actor_only zero_arg'),
+    'setweaponhealthperc': Cmd('F3NV_ConditionCalls.SetWeaponPercent({ref}, {f0})', ACTOR, flags='actor_only'),
+    'modweaponhealthperc': Cmd('F3NV_ConditionCalls.ModWeaponPercent({ref}, {f0})', ACTOR, flags='actor_only'),
+    'additemhealthpercent': Cmd('F3NV_ConditionCalls.AddWithHealth({ref}, {p0}, {i1}, {f2}, {b3})', OBJREF,
                                 types={0: 'Form'}, defaults={1: '1', 2: '1.0', 3: '0'}),
 }.items()}

@@ -1,7 +1,7 @@
 """FNV's Pip-Boy tabs on Fallout 4's STAT page: SKILLS, REPUTATION, KARMA, after its own three.
 
-Each tab is a start-game quest running TES4_PipboyTab (TES4_KarmaPage for
-KARMA, which sets its rows first), which hands the FalloutCondition plugin
+Each tab is a start-game quest running F3NV_PipboyTab (F3NV_KarmaPage for
+KARMA, which sets its rows first), which hands the F3NV plugin
 the tab: its name, place, rows (a FormList of actor values on the player),
 the strings a row's value picks (none: the number) and the globals showing
 each row. The plugin draws it. Builds before 2026-10-23 drew these with the
@@ -16,7 +16,7 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.spike import records as R
 
 #: The tab quest script, the natives it calls, and each tab's place among ours (FNV's STATS order).
-TAB_SCRIPT, NATIVES = 'TES4_PipboyTab', 'TES4_Pipboy'
+TAB_SCRIPT, NATIVES = 'F3NV_PipboyTab', 'F3NV_Pipboy'
 ORDER = {'SKILLS': 0, 'REPUTATION': 1, 'KARMA': 2}
 #: derive_formid site of a tab's quest (key: its EditorID).
 TAB_SITE = 'FNV Pip-Boy tab'
@@ -27,7 +27,7 @@ LEGACY_FOLDER, LEGACY_NAMES = 'PBT', ('Karma', 'Reputation')
 def tab_quest(builder, name: str, rows: int, values: list = (), shown: int = 0, script: str = TAB_SCRIPT,
               props: tuple = (None, None), fid: int = None) -> int:
     """Write tab `name`'s start-game quest (on `fid`, else one hashed at TAB_SITE) running `script`
-    (TES4_PipboyTab or one extending it, with its own `props`: object and value properties) on FormList `rows`,
+    (F3NV_PipboyTab or one extending it, with its own `props`: object and value properties) on FormList `rows`,
     strings `values` and FormList `shown`; its FormID."""
     objects, extra = props
     props = {'Rows': rows, **({'Shown': shown} if shown else {}), **(objects or {})}

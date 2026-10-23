@@ -55,7 +55,7 @@ STARTS_DEAD = 0x200
 #: The shared helper script every converted script calls, read with the attached ones.
 POLYFILL = 'TES4Polyfill'
 #: Files a converted script may name in GetFormFromFile beside the plugin and its masters.
-HELPER_FILES = frozenset({'TES4Helpers.esl'})
+HELPER_FILES = frozenset({'FalloutHelpers.esl'})
 _SHARED_ADD = re.compile(r'^\s*(\w+)\.(\w+) = \1\.\2 [-+] ', re.MULTILINE)
 _ATOMIC_ADD = re.compile(rf'(\w+)\.{ADD_PREFIX}(\w+)\(')
 _FUNCTION = re.compile(r'^(?:\w+\s+)?(?:Event|Function)\s', re.MULTILINE | re.IGNORECASE)

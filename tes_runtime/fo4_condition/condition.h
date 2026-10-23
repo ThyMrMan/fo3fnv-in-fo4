@@ -1,4 +1,4 @@
-// FalloutCondition: the item health shared by the Papyrus natives (plugin.cpp) and the Pip-Boy (pipboy.cpp).
+// F3NV: the item health shared by the Papyrus natives (plugin.cpp) and the Pip-Boy (pipboy.cpp).
 #pragma once
 
 #include "f4se/GameExtraData.h"
@@ -16,7 +16,7 @@
 
 namespace condition {
 
-// The forms that wear (TES4_Condition.Track): the Pip-Boy shows their condition.
+// The forms that wear (F3NV_Condition.Track): the Pip-Boy shows their condition.
 extern std::mutex g_lock;
 extern std::unordered_set<UInt32> g_tracked;
 
@@ -46,10 +46,10 @@ struct Spare {
     UInt32 count;
 };
 
-// `item`'s FNV repair list and Jury Rigging group, and the Repair skill's actor value (TES4_Condition.TrackRepair).
+// `item`'s FNV repair list and Jury Rigging group, and the Repair skill's actor value (F3NV_Condition.TrackRepair).
 void TrackRepair(TESForm *item, BGSListForm *list, SInt32 group, ActorValueInfo *skill);
 
-// Whether the player has Jury Rigging (TES4_Condition.SetJuryRigging).
+// Whether the player has Jury Rigging (F3NV_Condition.SetJuryRigging).
 void SetJuryRigging(bool has);
 
 // The holder's Repair skill.
@@ -91,7 +91,7 @@ struct Offer {
     UInt32 cost;
 };
 
-// FNV's vendor repair rules (TES4_Condition.SetServiceRules): fRepairSkillBase and fRepairSkillMax, the cap in
+// FNV's vendor repair rules (F3NV_Condition.SetServiceRules): fRepairSkillBase and fRepairSkillMax, the cap in
 // tenths at Repair 0 and 100, and fItemRepairCostMult.
 void SetServiceRules(float skillBase, float skillMax, float costMult);
 
@@ -146,7 +146,7 @@ void UpdatePages(GFxMovieRoot *movie, const std::string &base);
 // Forget the STAT page given the tabs (the Pip-Boy opened again).
 void ResetPages();
 
-// Register TES4_Pipboy's native SetTab.
+// Register F3NV_Pipboy's native SetTab.
 void RegisterPages(VirtualMachine *vm);
 
 }  // namespace condition

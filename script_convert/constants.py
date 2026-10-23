@@ -745,7 +745,7 @@ FALLOUT4_ACTOR_VALUE_IDS = {
     'RightMobilityCondition': 0x371, 'BrainCondition': 0x372,
 }
 #: The plugin every converted FO3/FNV plugin masters for the records no source plugin has.
-FALLOUT4_HELPER_PLUGIN = 'TES4Helpers.esl'
+FALLOUT4_HELPER_PLUGIN = 'FalloutHelpers.esl'
 #: Actor values FO4 lacks -> object id in FALLOUT4_HELPER_PLUGIN; ids are a save contract, append only.
 FALLOUT4_HELPER_AVS = {
     **{f'Variable{n:02d}': 0x800 + n - 1 for n in range(1, 11)},
@@ -758,13 +758,13 @@ FALLOUT4_FALLOUT_AV_RENAMES = {'RadiationRads': 'Rads', 'XP': 'Experience', 'Rad
 #: Skyrim skill names the shared helpers use -> the FO3/FNV skill they read on Fallout 4.
 FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair'}
 #: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.
-FALLOUT4_HELPER_QUESTS = {'TES4_PlayerControls': 0x900, 'TES4_CharacterEvents': 0x901}
+FALLOUT4_HELPER_QUESTS = {'F3NV_PlayerControls': 0x900, 'F3NV_CharacterEvents': 0x901}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
 FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00, 'TES4Trace': 0xA01}
 #: Message boxes -> (object id in FALLOUT4_HELPER_PLUGIN, title and text, buttons); ids append only.
 FALLOUT4_HELPER_MESSAGES = {'TES4ChooseSexMessage': (0xB00, 'Choose Sex', ('Male', 'Female'))}
 #: Helper quest script -> {property: helper message} it is given.
-FALLOUT4_HELPER_QUEST_MESSAGES = {'TES4_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'}}
+FALLOUT4_HELPER_QUEST_MESSAGES = {'F3NV_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'}}
 #: Prefix of the Scene property `StartConversation Player [topic]` starts on Fallout 4 (topic, else GREETING).
 FALLOUT4_TALK_PREFIX = 'TES4Talk_'
 #: Prefix of the Scene property an NPC-to-NPC `StartConversation <actor> <topic>` starts on Fallout 4.

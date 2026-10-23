@@ -2,7 +2,7 @@
 
 A book is a FO4 BOOK with FNV's mesh, name, text, value, weight and its
 converted script; Can't Be Taken is the same flag in both games. A skill
-book (DATA Teaches) also runs TES4_SkillBook: reading it raises FNV's skill
+book (DATA Teaches) also runs F3NV_SkillBook: reading it raises FNV's skill
 (the helper plugin's actor value) by fBookPerkBonus and uses the copy up,
 as FNV does per copy. FO4's own teach-on-read (DNAM Add Perk, on 113 of
 vanilla's 327 books; Advance Actor Value and Add Spell on none) adds a perk
@@ -32,7 +32,7 @@ IMAGE_NOTE = 2
 #: FNV skill actor values follow this index (Barter is 32; BOOK DATA Teaches is the skill's place among them).
 FIRST_SKILL = 32
 #: The FO4 script a skill book runs, and FNV's book skill bonus setting (3 points, as FNV's in-game count).
-SKILL_SCRIPT, SKILL_SETTING = 'TES4_SkillBook', 'fBookPerkBonus'
+SKILL_SCRIPT, SKILL_SETTING = 'F3NV_SkillBook', 'fBookPerkBonus'
 #: BOOK DNAM flag Can't Be Taken (FNV DATA flag 0x2, FO4 DNAM 0x2).
 CANT_BE_TAKEN = 0x2
 PLAYER = 0x14

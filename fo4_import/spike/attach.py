@@ -3,7 +3,7 @@
 A record's FNV script (its SCRI) becomes its conversion (`papyrus_script_name`)
 by VMAD. A property is filled when the spike has the form: a reference,
 actor or quest of the cell named as the property (FNV EditorIDs), the
-player, a helper quest or global (TES4Helpers.esl), the FNV item it names
+player, a helper quest or global (FalloutHelpers.esl), the FNV item it names
 through the cell's item converter (its conversion or FO4 stand-in), else a
 Fallout4.esm misc item or potion of the same name, or the FNV message it
 names (converted once), the FNV spell of script effects it names

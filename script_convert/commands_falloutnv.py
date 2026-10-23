@@ -292,8 +292,8 @@ def player_package(ctx, call):
 
 def tag_skill(ctx, call):
     """FNV `IsPlayerTagSkill <skill>` and `SetPlayerTagSkill <skill> <slot>` on Fallout 4, on the skill's ActorValue:
-    LevelUpMenuEx's IsTagSkillAV, and TES4_CharacterEvents.SuggestTag (tagged ahead of the tag menu, which the
-    player may still change; FNV's slot is the menu's order). The tag menu is LevelUpMenuEx's (TES4_CharacterRules).
+    LevelUpMenuEx's IsTagSkillAV, and F3NV_CharacterEvents.SuggestTag (tagged ahead of the tag menu, which the
+    player may still change; FNV's slot is the menu's order). The tag menu is LevelUpMenuEx's (F3NV_CharacterRules).
     See: docs/fork/fo4_spikes.md#spike-2-vcg01
     """
     if not is_fallout4() or not len(call):

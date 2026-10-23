@@ -582,7 +582,7 @@ drops out of every menu.
   (61 two, 14 three, 4 four, 5 seven).
 - **The fix (`spike/say_once.py`).** A Say Once line gets one marker stage
   in one marker quest, `FNV_TES4SayOnce` (start game enabled).
-  - Each copy carries the `TES4_SayOnce` script (properties: the marker
+  - Each copy carries the `F3NV_SayOnce` script (properties: the marker
     quest and the stage), whose `OnBegin` sets the stage as the copy
     begins; `OnBegin` runs beside the line's own fragments (vanilla's
     `TopicInfo.psc`). It plays only while the stage is not done
@@ -609,7 +609,7 @@ drops out of every menu.
 <a id="karma-page"></a>**Karma page (built 2026-10-14).** Karma is the
 `TES4Karma` global the scripts' RewardKarma sets (Karma conditions on the
 player read it). Its Pip-Boy tab, KARMA on STAT (`spike/karma_page.py`; [fo4_pipboy_tabs.md](fo4_pipboy_tabs.md)),
-has two rows, actor values `TES4_KarmaPage` sets on the player each time
+has two rows, actor values `F3NV_KarmaPage` sets on the player each time
 the Pip-Boy opens (it cannot hook every change: karma moves through a
 global, and the level on its own): Karma, very evil to very good by
 FNV's thresholds (`fAlignVeryEvilMaxKarma` -750, `fAlignEvilMaxKarma`
@@ -639,7 +639,7 @@ Tabs F4SE plugin, a 4×4 title grid in `RPTN_ReputationTab.ini`) list. The
 globals here show on the REPUTATION tab ([fo4_pipboy_tabs.md](fo4_pipboy_tabs.md)).
 
 **Karma page redraw (2026-10-22).** In play, `set TES4Karma to 500` left
-the page unchanged: `TES4_KarmaPage` set its rows as the Pip-Boy opened,
+the page unchanged: `F3NV_KarmaPage` set its rows as the Pip-Boy opened,
 after Pip-Boy Tabs had drawn them. Since 2026-10-23 our own plugin draws
 the tab, filling its rows each time it shows
 ([fo4_pipboy_tabs.md](fo4_pipboy_tabs.md#how)), so that no longer
@@ -662,7 +662,7 @@ and the FO4 build ports them; FO4 has all the events they need:
   0. Theft -5 unless the owner is evil; karma kept within -1,000 to
   1,000. Infamy: 30 for a reported murder, 2 for a kill in a fight or a
   reported theft or pickpocketing.
-- **Rules.** `TES4_FalloutStandings` on a start-game quest
+- **Rules.** `F3NV_FalloutStandings` on a start-game quest
   (`FNV_Standings`). It is `FalloutRules_Main`'s karma and infamy half;
   a leveled victim is sorted by its leveled base as well as its own.
   Karma moves through `TES4Polyfill.SetKarma` (traced `karma`), infamy
@@ -673,7 +673,7 @@ and the FO4 build ports them; FO4 has all the events they need:
   Story Manager quest node added after the last child of Fallout4.esm's
   own event node (Kill Actor 00034A37, CrimeGoldEvent 00245FD3), sharing
   the event so vanilla's nodes still run.
-- **Thefts.** The quest's player alias (`TES4_FalloutStandingsPlayer`,
+- **Thefts.** The quest's player alias (`F3NV_FalloutStandingsPlayer`,
   all items through `AddInventoryEventFilter(None)`) reports each item
   taken. A rise in FO4's `Items Stolen` stat makes it a theft, charged
   to the owner: the container's, the item's, else the cell's.
@@ -927,7 +927,7 @@ the first. `RemoveScriptPackage` takes it away.
   - `spike/script_packages.py` writes one start-game quest,
     `FNV_TES4ScriptPackages`: an empty collection alias per package any
     converted script names. Alias i runs `Packages[i]` of its
-    `TES4_ScriptPackages` script. Collection aliases use vanilla's layout
+    `F3NV_ScriptPackages` script. Collection aliases use vanilla's layout
     (CZ_Arena's Crowd: ALCS, ALMI, ALST, ALID, FNAM, ALPC, VTCK).
   - Converted `AddScriptPackage` is `TES4ScriptPackages.Add(actor,
     package)`. It takes the actor out of every alias, adds it to the
@@ -1192,7 +1192,7 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   through; FO4 leaves it open. In the Bison Steve a convict's patrol runs
   through the double door into the deputy's room (markers at (1432, −4276)
   and (783, −4217), the door at (1024, −4224)), so the room stood open.
-  Every DOOR base now carries `TES4_DoorCloser` beside its own script: an
+  Every DOOR base now carries `F3NV_DoorCloser` beside its own script: an
   NPC's OnOpen registers a distance event, and once the NPC is 200 units
   away the door closes if still open. Doors the player opens stay as left.
 - **Patrol start (played 2026-10-17: Victor runs his circuit).** An FNV Patrol starts at its location reference (FNV
@@ -1743,7 +1743,7 @@ leaves two things FO4's tiers cannot say:
   stays a note. FalloutNV.esm: 23 TERMs have one, on 22 placed locked
   terminals (4 of them key-only).
 
-`spike/locks.py` gives such a reference `TES4_FalloutLock`
+`spike/locks.py` gives such a reference `F3NV_FalloutLock`
 (`static_scripts/fallout4/`). While the reference is locked, it blocks
 activation (`BlockActivation`, set on load and on every lock change). On the
 player's activation it unlocks when the player holds the password note. It
@@ -1778,7 +1778,7 @@ Fallout4.esm and xEdit's layouts:
 and uses the copy up. FO4's teach-on-read is DNAM Add Perk: 113 of
 vanilla's 327 books, every magazine; Advance Actor Value and Add Spell are
 on none. A perk is added once per book record, so it cannot count copies:
-not a true equivalent. A skill book instead runs `TES4_SkillBook`
+not a true equivalent. A skill book instead runs `F3NV_SkillBook`
 (ObjectReference's OnRead, raised on every read): the helper
 plugin's skill actor value + 3, and the copy removed. Comprehension is
 not converted, so its extra point is missing.
@@ -2015,7 +2015,7 @@ old save. Each needed a play-through and console checks to narrow down. The
 converted scripts now trace what they do, and a reader turns a session's
 Papyrus log into a timeline.
 
-- **Switch.** `TES4Trace`, a global in TES4Helpers.esl (object id 0xA01),
+- **Switch.** `TES4Trace`, a global in FalloutHelpers.esl (object id 0xA01),
   off by default. Turn it on with `set TES4Trace to 1` in the console. While
   it is off, each trace point costs one call and one global read, and builds
   no text.
@@ -2307,7 +2307,7 @@ texture set, 2 decals.
 ## <a id="nv-ammo"></a>Ammo subtypes, ammo effects and casings (built 2026-10-22, not yet played)
 
 `spike/ammo_mods.py`, `spike/ammo_casings.py`,
-`static_scripts/fallout4/TES4_AmmoCasings.psc`; export:
+`static_scripts/fallout4/F3NV_AmmoCasings.psc`; export:
 `tes4_export/record_types/ammo_falloutnv.py`.
 
 **Export.** FNV's AMMO `DAT2` past the weight (Consumed Ammo: the casing,
@@ -2370,7 +2370,7 @@ every time the weapon is fired" at the percent chance. Hand Loader (Guns)
 and Vigilant Recycler (Energy Weapons) multiply it by 2: entry point 57
 Modify Chance for Ammo Item, conditioned on `IsWeaponSkillType`. Fallout 4
 has no such field; `OnPlayerFireWeapon` fires only out of combat, on a
-timer. So a start-game quest `FNV_AmmoCasings` runs `TES4_AmmoCasings` on
+timer. So a start-game quest `FNV_AmmoCasings` runs `F3NV_AmmoCasings` on
 its player alias: it listens for the `weaponFire` animation event (as the
 NV Ammo Crafting mod does), finds the group of the equipped gun's base ammo
 (a group is a gun's FNV ammo list, keyed by its first ammo), and 0.5 s
@@ -2405,7 +2405,7 @@ moved (its ledger seeded the build). FO4 check: 0 errors; 1,790 of 1,790
 scripts compile.
 
 <a id="ammo-switch"></a>**The Ammo Type hotkey** (`spike/ammo_switch.py`,
-`TES4_AmmoSwitch.psc`, `TES4_AmmoSwitchItem.psc`; built 2026-10-22, not yet
+`F3NV_AmmoSwitch.psc`, `F3NV_AmmoSwitchItem.psc`; built 2026-10-22, not yet
 played).
 - **What FNV does:** the Ammo Type hotkey reloads with the next round of the
   gun's list that the player carries.
@@ -2436,7 +2436,7 @@ played).
 
 ## <a id="new-game"></a>Starting the source game (`spike/new_game.py`)
 
-`FNV_NewGame` is a start-game quest running `TES4_NewGame`.
+`FNV_NewGame` is a start-game quest running `F3NV_NewGame`.
 - **New Game:** Fallout 4 runs MQ101 stage 0, its intro movie and then
   character creation. The script waits that out, undoes it and stops Fallout
   4's opening quests. It then sets the player's SPECIAL to FNV's player
@@ -2446,7 +2446,7 @@ played).
   started FNV at once, which pulled a `coc qasmoke` test out of its room.
   Now nothing starts; the log says `TES4NewGame|no New Game opening`.
 - **Starting by hand:** `setstage FNV_NewGame 10`. Its fragment
-  (`TES4_NewGameStart`) calls `TES4_NewGame.Begin()`, the same start, once
+  (`F3NV_NewGameStart`) calls `F3NV_NewGame.Begin()`, the same start, once
   only.
 - A save where FNV's opening or Fallout 4's own game is under way is left
   alone.
@@ -2649,7 +2649,7 @@ building and dialogue are above ([ledger](#formid-ledger),
   touched. The spike compile takes the script prefix from the plugin's
   namespace (`FALLOUT3_` as well) and adds Doc Mitchell's script only when
   it exists.
-- *Player-hit trace on old saves.* `TES4_NewGamePlayer` on the new game
+- *Player-hit trace on old saves.* `F3NV_NewGamePlayer` on the new game
   quest's Player alias starts the trace on every load.
 
 **Items.**
@@ -3066,3 +3066,26 @@ quick fix.
 | Placed guns lie wrong (the store's .22 stands on its grip) | FNV's reference rotation fits FNV's model, not the FO4 gun built in its place | [guns](fo4_spikes.md#spike-4-guns) |
 | FNV's guns on FO4 receivers; creatures with no FO4 rig | The replacement table and the modlist | [guns](fo4_spikes.md#spike-4-guns), [replacements](fo4_replacements.md) |
 | Terminal hum (FNV TERM looping sound) and Alternate Colors; FNV's 2 sound notes | Accepted drift ([fo4_drift.md](fo4_drift.md#recorded)). If wanted: write TERM's looping sound and test FO4 plays it, else a sound marker per terminal | [terminals](#terminals) |
+
+<a id="f3nv-names"></a>**Names (2026-10-23).** The Fallout 4 build's own names
+dropped the inherited "TES4":
+- The 32 static scripts in `script_convert/static_scripts/fallout4/` are
+  `F3NV_*` (they were `TES4_*`). The shared converter's names stay:
+  `TES4Polyfill`, the top-level `TES4_*` scripts and their `overrides/`
+  copies, since the Skyrim converter emits them too.
+- The helper plugin is `FalloutHelpers.esl` (was `TES4Helpers.esl`); its
+  object ids are unchanged.
+- The F4SE plugin is `F3NV.dll`, logging to `F3NV.log` (was
+  `FalloutCondition.dll`).
+- The built plugin is `FalloutNV.esp` (was `FNVCellSpike.esp`). Its
+  ledger, voice and FaceGen folders are named after it, so they moved to
+  the new name with it. Measured on the first renamed build: all 43,002
+  records and the helper's 30 kept their FormIDs.
+
+A rebuild deletes the old copies a mod folder still holds:
+- `F4SE\Plugins\FalloutCondition.dll`, by `condition.LEGACY_PLUGIN`;
+- each `Scripts` `.pex` with no source left, the old `TES4_` names among
+  them (the compile step's own cleanup: 32 in the first renamed build).
+
+Existing saves don't carry over: a save names its plugins, and the
+scripts on its running quests.

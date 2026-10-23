@@ -176,8 +176,8 @@ re-equip saw a stale tier and attached again. The script now records the tier
 it attached per weapon before attaching, and a whole weapon gets no mod.
 Untested: a weapon breaking at 0, wear perks, and ammo with a condition effect.
 
-- **The plugin** (`tes_runtime/fo4_condition`, `FalloutCondition.dll`) adds
-  four natives to `TES4_Condition`:
+- **The plugin** (`tes_runtime/fo4_condition`, `F3NV.dll`) adds
+  four natives to `F3NV_Condition`:
   - `GetHealth` and `SetHealth` read and set an item's health. They work on
     its equipped stack, else its first, and add `ExtraHealth` when the item
     has none.
@@ -189,10 +189,10 @@ Untested: a weapon breaking at 0, wear perks, and ammo with a condition effect.
   - Eleven condition mods `FNV_mod_Condition000`…`100`, one per tenth, set at
     the tenth's middle: value × h^1.5 always, and FNV's damage curve below
     75%. The whole one has no effect.
-  - The quest `FNV_Condition`, whose player alias runs `TES4_ConditionPlayer`.
+  - The quest `FNV_Condition`, whose player alias runs `F3NV_ConditionPlayer`.
   - FNV's repair lists as FLSTs, and the Repair Weapon hotkey item.
   - The DLL is copied into the mod's `F4SE\Plugins`.
-- **Wear** (`TES4_ConditionPlayer`, the player only):
+- **Wear** (`F3NV_ConditionPlayer`, the player only):
   - Each `weaponFire` (gun) or `HitFrame` (melee swing) takes
     `fDamageToWeaponValue` (0.2) over the weapon's FNV health.
   - The loaded round's condition effect multiplies it, found by its ammo mod's
@@ -208,7 +208,7 @@ Untested: a weapon breaking at 0, wear perks, and ammo with a condition effect.
     equipped.
   - Equipping shows the condition.
   - An item with no health set yet is whole.
-- **FNV's commands** convert to `TES4_ConditionCalls`: `GetWeaponHealthPerc`,
+- **FNV's commands** convert to `F3NV_ConditionCalls`: `GetWeaponHealthPerc`,
   `SetWeaponHealthPerc`, `ModWeaponHealthPerc` (Miss Fortune's -100 breaks)
   and `AddItemHealthPercent`. So FNV's own Weapon Repair Kit script works as
   written.
@@ -234,7 +234,7 @@ DLL loads on Fallout4.exe 1.11.240 only.
     one set per distinct armor rating: `FNV_mod_ArmorCondition<tier>_DT<r>`
     below 50%, where FNV's curve takes `r × (0.5 − h)` off. Tiers from 50%
     up change only the value and are shared by every rating.
-- **Wear** (`TES4_ConditionPlayer.OnHit`, the player only):
+- **Wear** (`F3NV_ConditionPlayer.OnHit`, the player only):
   - FO4's hit event carries no damage, so it is rebuilt. The hit's damage is
     the attacker's equipped weapon instance's (F4SE `InstanceData`, slot
     32 + `GetEquippedItemType`, AWC's method), else the weapon form's own.
@@ -286,7 +286,7 @@ Not yet played.
 
 <a id="repair-choice"></a>Asked for: choose what gets repaired, and show condition in the Pip-Boy.
 FNV repairs the item highlighted in the Pip-Boy. Built with no new mod: the
-FalloutCondition plugin (`pipboy.cpp`) works inside FO4's own Pip-Boy movie.
+F3NV plugin (`pipboy.cpp`) works inside FO4's own Pip-Boy movie.
 
 **How the Pip-Boy works.** Read from `interface\pipboymenu.swf` and
 `pipboy_invpage.swf` (Fallout4 - Interface.ba2), decompiled with JPEXS FFDec
@@ -315,11 +315,11 @@ FalloutCondition plugin (`pipboy.cpp`) works inside FO4's own Pip-Boy movie.
   root members are not set yet when that callback runs.
 - Each frame on the inventory page, it reads the highlighted entry. It finds
   that entry's item in the player's inventory by `formID`, among the forms
-  that wear (`TES4_Condition.Track`), and its stack (see the third play-test).
+  that wear (`F3NV_Condition.Track`), and its stack (see the third play-test).
   - It keeps a `CND` line at the stack's condition in the card's `InfoObj`,
     and redraws the card (`onDataChange`) when it adds or changes the line.
   - The game's refill drops the line, and the next frame adds it back.
-  - It logs the members of the first entry it reads to `FalloutCondition.log`.
+  - It logs the members of the first entry it reads to `F3NV.log`.
     The game may give an inventory handle that would replace matching by name.
 - On keyboard and mouse (`uiPlatform` 0), it adds a REPAIR hint (G) to the
   inventory page's `buttonHintDataV`, once per page, and rebuilds the hint bar. Clicking the
@@ -328,7 +328,7 @@ FalloutCondition plugin (`pipboy.cpp`) works inside FO4's own Pip-Boy movie.
   `PipboyRefresh` (show the new value after a repair), and
   `GetStackHealth` and `SetStackHealth`.
 
-**Papyrus:** `TES4_ConditionPlayer` tracks the items, registers G
+**Papyrus:** `F3NV_ConditionPlayer` tracks the items, registers G
 while the Pip-Boy is open, and listens for the hint's event. Each of them
 repairs the highlighted stack from a spare. The Repair hotkey item now calls
 the same alias code (`RepairFromHotkey`).
@@ -421,8 +421,8 @@ Repair skill (asked for with a screenshot). Ours:
     removed.
 - FNV's rule now lives only in the plugin: `RepairResult`, the better plus
   5, plus 0.15 per Repair point, plus 0.05 of the worse, capped at 100.
-  - The Repair hotkey calls the same native: `TES4_ConditionCalls.RepairWithSpare`
-    → `TES4_Condition.RepairWith`, on the worst copy of the first spare item.
+  - The Repair hotkey calls the same native: `F3NV_ConditionCalls.RepairWithSpare`
+    → `F3NV_Condition.RepairWith`, on the worst copy of the first spare item.
   - `TrackRepair` gives the plugin the repair lists and the Repair skill.
 - Played: the fade dimmed the card too, so G looked like a pop-up that never
   came. While the list is open, the card is now lifted above the fade
@@ -603,8 +603,8 @@ Ours:
   Raul's skills are auto-calculated in FNV, so his stored 90 is the
   Creation Kit's last calculation.
 - **In game.** `ShowRepairMenu` converts to
-  `TES4_ConditionCalls.ShowRepairMenu(<repairer>)`, which sets the vendor
-  (`TES4_Condition.SetVendor`) and shows a notice to open the Pip-Boy.
+  `F3NV_ConditionCalls.ShowRepairMenu(<repairer>)`, which sets the vendor
+  (`F3NV_Condition.SetVendor`) and shows a notice to open the Pip-Boy.
   - It first opened the Pip-Boy itself with F4SE's `UI.OpenMenu`. Played
     2026-10-23 from the console: that opens the menu without raising the
     Pip-Boy, and input locks (Tab does nothing). The player opens it now.

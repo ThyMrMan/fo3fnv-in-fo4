@@ -11,9 +11,9 @@ line chooses from (RadioHello the first). Its scene has a Radio phase per
 topic, each after the first tried only while nothing is said yet
 (`Said`), so the first topic with a passing line speaks, then a phase per
 song of those topics, gated on `CurrentSong` and playing the song's sound
-record. Each line carries TES4_RadioLine, which tells TES4_RadioPlaylist as
+record. Each line carries F3NV_RadioLine, which tells F3NV_RadioPlaylist as
 it begins that it was said, its song and the step its Choices make (back to
-the first without any). Each scene's end fragment (TES4_RadioScene) starts
+the first without any). Each scene's end fragment (F3NV_RadioScene) starts
 that step when a line was said; a step with nothing to say ends there, and
 the playlist's timer starts the first step again (RadioFailsafeScript's
 role). Lines are said by speaker NPCs on the FNV voice types their
@@ -48,7 +48,7 @@ RADIO_LINE, RANDOM_FLAGS = '7', 0x22
 #: The station quest's transmitter alias; step scene flags (RadioSilverShroudQuest_Music's, started by script).
 HOST_ALIAS, PLAYLIST_FLAGS = 2000, 0x104
 #: The station quest's script, a line's script, and the step scenes' end fragment script and function.
-PLAYLIST_SCRIPT, LINE_SCRIPT, SCENE_SCRIPT, SCENE_END = 'TES4_RadioPlaylist', 'TES4_RadioLine', 'TES4_RadioScene', \
+PLAYLIST_SCRIPT, LINE_SCRIPT, SCENE_SCRIPT, SCENE_END = 'F3NV_RadioPlaylist', 'F3NV_RadioLine', 'F3NV_RadioScene', \
     'Fragment_End'
 #: The playlist's conditional properties, as GetVMQuestVariable names them.
 CURRENT_SONG, SAID = '::CurrentSong_var', '::Said_var'
@@ -163,7 +163,7 @@ class Program:
 
     def build(self, form_map: dict, host: int, station: dict) -> 'tuple | None':
         """(aliases, topic blobs, scenes, quest scripts): the Host alias, a topic per FNV topic reached, a scene per
-        step and TES4_RadioPlaylist; None when no line converts."""
+        step and F3NV_RadioPlaylist; None when no line converts."""
         ids = [self.builder.new_id(self._scene_key(step)) for step in self.steps]
         reached = list(dict.fromkeys(topic for step in self.steps for topic in step))
         made = {topic: blob for topic in reached for blob in [self._topic(topic, form_map)] if blob}
@@ -194,7 +194,7 @@ class Program:
 
     def _line(self, line: dict, form_map: dict) -> bytes:
         """FNV radio `line` as an FO4 line said by the speaker of its voice (FNV's Random flags kept), telling the
-        playlist its song and next step as it begins (TES4_RadioLine); b'' with no recording or song (FO4 ends a
+        playlist its song and next step as it begins (F3NV_RadioLine); b'' with no recording or song (FO4 ends a
         line without audio at once), no speaker or a condition not converting."""
         recorded = recorded_voices(self.radio.export_dir).get(int(line['FormID'], 16))
         soun, path = self._song_file(line)

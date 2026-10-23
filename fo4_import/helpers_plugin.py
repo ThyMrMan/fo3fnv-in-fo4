@@ -1,6 +1,6 @@
-"""TES4Helpers.esl: the records every converted FO3/FNV plugin masters and no source plugin has.
+"""FalloutHelpers.esl: the records every converted FO3/FNV plugin masters and no source plugin has.
 
-    py -3.14 -m fo4_import.helpers_plugin --out <Data>/TES4Helpers.esl
+    py -3.14 -m fo4_import.helpers_plugin --out <Data>/FalloutHelpers.esl
 
 Actor values FO4 lacks (Variable01-10, the FO3/FNV skills), the start-game
 quests running the helper quest scripts, and the helpers' globals; one copy

@@ -4,7 +4,7 @@ FNV adds the casing (Case10mm, Hull12Ga, a drained cell) to the player's
 inventory at its percent chance each time a round is fired; Hand Loader and
 Vigilant Recycler multiply that chance for their weapon skill (entry point
 57, Modify Chance for Ammo Item). Fallout 4 has no such field, so a
-start-game quest's player alias runs TES4_AmmoCasings: on each weaponFire
+start-game quest's player alias runs F3NV_AmmoCasings: on each weaponFire
 animation event it finds the group of the equipped gun's ammo (its base
 ammo, its FNV list's first) and, once firing pauses, takes the drop in each
 of the group's ammo counts as rounds fired and rolls each round's casing.
@@ -22,7 +22,7 @@ from fo4_import.spike import records as R
 from fo4_import.base.vmad import quest_fragments
 from tes5_import.base.tes5_reader import first_sub, walk
 
-SITE, SCRIPT, PLAYER = 'FNV ammo casings', 'TES4_AmmoCasings', 0x14
+SITE, SCRIPT, PLAYER = 'FNV ammo casings', 'F3NV_AmmoCasings', 0x14
 #: FNV WEAP DNAM offset of its skill (xEdit's FNV WEAP DNAM); FNV entry point Modify Chance for Ammo Item, Multiply.
 SKILL_AT, CHANCE_ENTRY, MULTIPLY = 104, 57, 3
 #: FNV condition function IsWeaponSkillType, and where a raw CTDA holds its function and parameter.
@@ -71,7 +71,7 @@ def groups(loaded: dict, ammo: dict, skills: dict) -> list:
 
 
 def script_arrays(builder, grouped: list, perks: dict) -> tuple:
-    """([(FO4 ammo, FO4 casing, chance)] each ammo once, {property: (kind, value)}) of TES4_AmmoCasings for
+    """([(FO4 ammo, FO4 casing, chance)] each ammo once, {property: (kind, value)}) of F3NV_AmmoCasings for
     `grouped` (groups()), `perks` (chance_perks()); a group whose first ammo or every casing does not convert goes."""
     items, entries, index = builder.items, [], {}
     out = {'Defaults': [], 'Starts': [], 'Members': [], 'Perks': [], 'PerkMults': []}
@@ -97,7 +97,7 @@ def script_arrays(builder, grouped: list, perks: dict) -> tuple:
 
 
 def write(builder, loaded: dict) -> None:
-    """The start-game quest whose player alias gives FNV's casings (TES4_AmmoCasings), for AmmoMods.loaded `loaded`;
+    """The start-game quest whose player alias gives FNV's casings (F3NV_AmmoCasings), for AmmoMods.loaded `loaded`;
     nothing when no group leaves casings."""
     ammo = {int(r['FormID'], 16): r for r in export_records(builder.export_dir, 'AMMO')}
     perks = chance_perks(export_records(builder.export_dir, 'PERK'))

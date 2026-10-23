@@ -93,7 +93,7 @@ from tes5_import.base.writer import pack_subrecord
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
 MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN, 'XDI.esm']
-#: Master index of the helper plugin (TES4Helpers.esl).
+#: Master index of the helper plugin (FalloutHelpers.esl).
 HELPER_INDEX = 1
 #: XDI's menu keyword (conversation menus show more than four options).
 XDI_KEYWORD = MASTERS.index('XDI.esm') << 24 | R.XDI_KEYWORD
@@ -106,7 +106,7 @@ GREETINGS_KEY, GREETINGS_EDID = 'GREETINGS', 'Greetings'
 #: FO4's shortest padded length of a voiced line (2.5 s), set to a silent line's (fo4_spikes.md#silent-line).
 PADDED_SETTING = 'fDialoguePaddedAudioLengthMin'
 #: The script closing a door behind the NPC that opened it (docs/fork/fo4_pipeline.md#door-closer).
-DOOR_CLOSER = 'TES4_DoorCloser'
+DOOR_CLOSER = 'F3NV_DoorCloser'
 #: derive_formid site of the statics made from FNV TREE records (key: the TREE's FormID).
 TREE_SITE = 'FNV TREE'
 #: FormID site of a load door's static copy of an FNV DOOR (CellBuilder.load_door).

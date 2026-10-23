@@ -12,7 +12,7 @@ from tes5_import.base.tes5_reader import subrecords
 
 
 def test_the_new_game_quest_has_a_hand_start_stage(monkeypatch):
-    """FNV_NewGame carries TES4_NewGame and a stage 10 whose fragment (TES4_NewGameStart) starts FNV by hand."""
+    """FNV_NewGame carries F3NV_NewGame and a stage 10 whose fragment (F3NV_NewGameStart) starts FNV by hand."""
     written = []
     builder = SimpleNamespace(writer=SimpleNamespace(derive_formid=lambda site, key: 0x01000800,
                                                      add_record=lambda sig, rec: written.append((sig, rec))),
@@ -25,4 +25,4 @@ def test_the_new_game_quest_has_a_hand_start_stage(monkeypatch):
     vmad = dict(subs)[b'VMAD']
     assert sig == 'QUST' and builder.scripts.used == [new_game.FRAGMENTS]
     assert (b'INDX', struct.pack('<HBB', new_game.START_BY_HAND, 0, 0)) in subs
-    assert all(name in vmad for name in (b'TES4_NewGame', b'TES4_NewGameStart', b'Fragment_Stage_0010_Item_00'))
+    assert all(name in vmad for name in (b'F3NV_NewGame', b'F3NV_NewGameStart', b'Fragment_Stage_0010_Item_00'))

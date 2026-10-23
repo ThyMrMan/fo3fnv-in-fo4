@@ -1,5 +1,5 @@
-// FalloutCondition's Pip-Boy: a CND line on the inventory item card for items that wear, a REPAIR (G) button
-// hint, and the highlighted item for TES4_Condition.PipboySelection (docs/fork/fo4_condition.md#pipboy).
+// F3NV's Pip-Boy: a CND line on the inventory item card for items that wear, a REPAIR (G) button
+// hint, and the highlighted item for F3NV_Condition.PipboySelection (docs/fork/fo4_condition.md#pipboy).
 //
 // When the Pip-Boy menu opens (a menu open event, then a UI task), its movie gets a native enterFrame listener.
 // The menu's instance (root.Menu_mc) keeps its current page in CurrentPage. The inventory page
@@ -134,7 +134,7 @@ bool Resolve(UInt32 formID, UInt32 nodeID) {
     return true;
 }
 
-// Ask Papyrus to repair the highlighted item: TES4_ConditionPlayer listens for the F4SE external event.
+// Ask Papyrus to repair the highlighted item: F3NV_ConditionPlayer listens for the F4SE external event.
 void SendRepair(GFxMovieRoot *movie, const char *why) {
     GFxValue f4se, name;
     bool sent = movie->GetVariable(&f4se, "root.f4se") && f4se.IsObject();

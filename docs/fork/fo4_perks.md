@@ -83,7 +83,7 @@ point), Damage Threshold (1) and the script effects (5).
   FNV's playable perks that are not traits or hidden, first ranks only,
   by level then name: 91 (`perks.Perks.playable`). Traits stay on
   `FNV_Traits`. A perk point comes every `LevelsPerPerk` levels (FNV: 2)
-  from `TES4_CharacterRules`; the INI's own `PPPerLevel` stays 0.
+  from `F3NV_CharacterRules`; the INI's own `PPPerLevel` stays 0.
 - **HasPerk.** FNV's HasPerk holds at any rank, and an FO4 actor keeps
   every rank of a chain, so an FNV perk is its first-rank record
   everywhere (`Perks.form_map`):
@@ -142,12 +142,12 @@ six entry-point effects: each gate Set Value 1, 2 and 3 on the condition
 GetValue(Lockpick or Science) >= 50, 75 and 100 (the helper plugin's skill
 actor values), the higher tier at a higher priority so it applies last. The
 conditions are read live, so the gate follows the skill (and its buffs) as
-it changes. `TES4_NewGame` gives the player the perk as it starts and on
+it changes. `F3NV_NewGame` gives the player the perk as it starts and on
 every load (a save from before it gets it too). FO4's own Locksmith and
 Hacker perks are untouched (the FO4 perk chart is off).
 
 FNV's Easy tier (25) needs Lockpick or Science 25, but FO4's Novice tier
-has no gate. Those locks run `TES4_FalloutLock`, which refuses the player
+has no gate. Those locks run `F3NV_FalloutLock`, which refuses the player
 below the skill ([fo4_pipeline.md](fo4_pipeline.md#lock-script)).
 
 ## <a id="teammate-perks"></a>Teammate perks (companion side built 2026-10-22, not yet played)

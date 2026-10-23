@@ -11,8 +11,8 @@ crime-tracking factions (as built here: FNV's NPCs, creatures and factions
 on their FO4 records), each reputation's FormList (reputation.py) and the
 crime-tracking factions answering to it, and the settings' amounts.
 
-A start-game quest runs TES4_FalloutStandings with them, its player alias
-TES4_FalloutStandingsPlayer (every item taken). Two event quests hear the
+A start-game quest runs F3NV_FalloutStandings with them, its player alias
+F3NV_FalloutStandingsPlayer (every item taken). Two event quests hear the
 Story Manager's kill (KILL) and crime-gold (ADCR) events, from quest nodes
 added after the last child of Fallout4.esm's own event nodes, sharing the
 event, so vanilla's still run.
@@ -35,8 +35,8 @@ from tools.release.character_rules_standings import ALIGNMENT_LISTS, amount_tabl
 #: derive_formid site of this module's records (key: what each is).
 SITE = 'FNV standings'
 #: The scripts: the rules on the start-game quest, its player alias's, and the two event quests'.
-SCRIPT, PLAYER_SCRIPT, KILL_SCRIPT, CRIME_SCRIPT = ('TES4_FalloutStandings', 'TES4_FalloutStandingsPlayer',
-                                                    'TES4_FalloutKillEvent', 'TES4_FalloutCrimeEvent')
+SCRIPT, PLAYER_SCRIPT, KILL_SCRIPT, CRIME_SCRIPT = ('F3NV_FalloutStandings', 'F3NV_FalloutStandingsPlayer',
+                                                    'F3NV_FalloutKillEvent', 'F3NV_FalloutCrimeEvent')
 #: Fallout4.esm's Story Manager event nodes: Kill Actor (00034A37) and CrimeGoldEvent (00245FD3), by event.
 EVENT_NODES = {b'KILL': 0x034A37, b'ADCR': 0x245FD3}
 #: The player reference (alias forced to it).
