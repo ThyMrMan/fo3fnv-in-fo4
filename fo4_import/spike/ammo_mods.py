@@ -79,10 +79,10 @@ def scaled(which: int, op: int, value: float) -> bytes:
     return prop(FLOAT, ADD, which, struct.pack('<f', -value if op == SUBTRACT_OP else value))
 
 
-def omod_data(point: int, props: list) -> bytes:
-    """A weapon OMOD DATA at attach point `point`, `props` sorted."""
+def omod_data(point: int, props: list, form: bytes = b'WEAP') -> bytes:
+    """An OMOD DATA for `form` items (WEAP, ARMO) at attach point `point`, `props` sorted."""
     ordered = sorted(props, key=lambda p: struct.unpack_from('<H', p, 8)[0])
-    return OMOD_HEAD.pack(0, len(ordered), b'WEAP', point) + bytes(8) + b''.join(ordered)
+    return OMOD_HEAD.pack(0, len(ordered), form, point) + bytes(8) + b''.join(ordered)
 
 
 def with_point(subs: list, point: int) -> list:

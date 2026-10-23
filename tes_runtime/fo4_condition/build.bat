@@ -17,8 +17,8 @@ if not exist obj mkdir obj
 del /q obj\*.obj 2>nul
 
 echo [build] compiling FalloutCondition...
-cl /nologo /c /EHsc /std:c++17 /O2 /MT /W3 /DNDEBUG /DRUNTIME /D_CRT_SECURE_NO_WARNINGS ^
-   /I"%F4SE_ROOT%" /I"%COMMON_ROOT%\include" /FI"common/IPrefix.h" plugin.cpp /Fo:obj\
+cl /nologo /c /EHsc /std:c++17 /O2 /MT /W3 /DNDEBUG /DRUNTIME /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
+   /I"%F4SE_ROOT%" /I"%COMMON_ROOT%\include" /FI"common/IPrefix.h" plugin.cpp pipboy.cpp repair.cpp /Fo:obj\
 if errorlevel 1 (
     echo [build] ERROR: FalloutCondition compilation failed
     exit /b 1

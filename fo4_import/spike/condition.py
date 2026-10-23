@@ -1,23 +1,26 @@
-"""FO3/FNV weapon condition on Fallout 4: the records and data its scripts run on.
+"""FO3/FNV weapon and armor condition on Fallout 4: the records and data its scripts run on.
 
 Condition is the engine's own item health, set through the FalloutCondition
 F4SE plugin (TES4_Condition). Every converted weapon that wears (FNV DATA
-Health, and not thrown or placed) gets our condition attach point and
-keyword (`wire`). Eleven condition mods carry FNV's damage and value curves
-by tenths, and the player script attaches them as condition changes. A
-start-game quest's player alias runs TES4_ConditionPlayer on data read from
-the source game:
-- each weapon's FNV health;
-- the wear per shot, `fDamageToWeaponValue`;
+Health, and not thrown or placed) and every armor with FNV health gets our
+condition attach point and keyword (`wire`, `wire_armor`). Condition mods
+by tenths carry FNV's curves: eleven for weapons (damage, value), and for
+armor eleven per armor rating (DT, value). A start-game quest's player alias
+runs TES4_ConditionPlayer on data read from the source game:
+- each item's FNV health;
+- the wear per shot, `fDamageToWeaponValue`, and per absorbed hit,
+  `fDamageToArmorPercentage` up to `fMaxArmorRating`;
 - the rounds whose ammo effect multiplies wear, by the keyword their ammo mod
   adds;
 - the perks multiplying it (entry point Modify Item Damage).
 
-A Repair hotkey item repairs the equipped weapon from a spare: the same
-weapon, or an item of its FNV repair list (WEAP REPL). The plugin DLL ships
-in the mod's F4SE\\Plugins.
+Repair uses a spare: the same item, or an item of its FNV repair list
+(REPL). The Repair hotkey item repairs the equipped weapon, else the most
+worn armor piece; in the Pip-Boy, T (or its REPAIR hint) repairs the
+highlighted item, whose item card shows its condition (CND, drawn by the
+plugin). The plugin DLL ships in the mod's F4SE\\Plugins.
 
-See: docs/fork/fo4_condition.md#plan
+See: docs/fork/fo4_condition.md#armor
 """
 
 import shutil
@@ -31,30 +34,33 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
-from fo4_import.spike.ammo_mods import (ATTACK_DAMAGE, CONDITION, MULTIPLY_OP, members, omod_data, scaled,
-                                        with_point)
+from fo4_import.spike.ammo_mods import (ADD, ATTACK_DAMAGE, CONDITION, INT, MULTIPLY_OP, members, omod_data, prop,
+                                        scaled, with_point)
 from fo4_import.spike.hotkey_items import hotkey_effect, hotkey_item
 from fo4_import.spike.type_tests import with_keywords
 from tes5_import.base.tes5_reader import first_sub, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
-#: derive_formid site (keys: quest, item, effect, keyword EditorIDs, 'tier <t>', messages, 'repair <FNV FLST>').
+#: derive_formid site: quest, item, effect, keywords, 'tier <t>', 'armor tier <t>[ rating <r>]', messages, 'repair <FLST>'.
 SITE = 'FNV condition'
 SCRIPT, CALLS, NATIVES, ITEM_SCRIPT = ('TES4_ConditionPlayer', 'TES4_ConditionCalls', 'TES4_Condition',
                                        'TES4_ConditionRepairItem')
-#: Our condition attach point (attach point keyword) and the keyword every converted weapon takes its mods by.
+#: Our condition attach point (attach point keyword) and the keyword every converted item takes its mods by.
 POINT_EDID, KEYWORD_EDID, ATTACH_POINT, MOD_ASSOCIATION = 'FNV_ap_Condition', 'FNV_ma_Condition', 2, 5
 #: FNV weapon animation types that never wear: grenade throw, land mine, mine drop, thrown.
 NO_WEAR = frozenset(range(10, 14))
-#: FNV perk entry point Modify Item Damage and its Multiply Value function; the GMST of wear per shot.
-MODIFY_ITEM_DAMAGE, MULTIPLY, WEAR_SETTING = 68, 3, 'fDamageToWeaponValue'
-#: OMOD weapon property Value; the tenths condition is written in.
-VALUE, TENTHS = 29, 10
+#: FNV perk entry point Modify Item Damage and its Multiply Value function.
+MODIFY_ITEM_DAMAGE, MULTIPLY = 68, 3
+#: FNV GMSTs (name, default): weapon wear per shot, armor wear per absorbed point, the most armor absorbs (percent).
+SETTINGS = {'WearPerShot': ('fDamageToWeaponValue', 0.2), 'ArmorWear': ('fDamageToArmorPercentage', 0.35),
+            'MaxAbsorb': ('fMaxArmorRating', 85.0)}
+#: OMOD weapon property Value, armor properties Value and Rating; the tenths condition is written in.
+VALUE, ARMOR_VALUE, RATING, TENTHS = 29, 5, 6, 10
+#: Fallout4.esm's DamageResist actor value.
+DAMAGE_RESIST = 0x2E3
 #: The hotkey item's name, and the player script's messages: property, text (a %.0f takes the percent).
-REPAIR_NAME = 'Repair Weapon'
-MESSAGES = (('ConditionNote', 'Condition %.0f%%'), ('BrokenNote', 'This weapon is broken.'),
-            ('RepairedNote', 'Repaired: condition %.0f%%'),
-            ('NoSpareNote', 'No spare to repair this weapon with. Condition %.0f%%'))
+REPAIR_NAME = 'Repair'
+MESSAGES = (('ConditionNote', 'Condition %.0f%%'), ('BrokenNote', 'This weapon is broken.'))
 #: The FalloutCondition plugin as built (tes_runtime/fo4_condition) and where a mod ships F4SE plugins.
 PLUGIN = Path(__file__).resolve().parents[2] / 'tes_runtime' / 'dist' / 'FalloutCondition.dll'
 PLUGIN_DIR = Path('F4SE') / 'Plugins'
@@ -65,19 +71,41 @@ def damage_factor(health: float) -> float:
     return 1.0 if health >= 0.75 else 1.0 - (0.75 - health) * 0.67
 
 
+def armor_factor(health: float) -> float:
+    """FNV's armor DT and DR factor at `health` (0 to 1): whole from 50%, half at 0."""
+    return 1.0 if health >= 0.5 else 1.0 - (0.5 - health)
+
+
 def value_factor(health: float) -> float:
     """FNV's item value at `health` (0 to 1): value * h^1.5."""
     return health ** 1.5
 
 
 def tier_properties(tier: int) -> list:
-    """The OMOD properties of condition tier `tier` (tenths; TENTHS is whole and has none), at its middle."""
+    """The weapon OMOD properties of condition tier `tier` (tenths; TENTHS is whole and has none), at its middle."""
     if tier >= TENTHS:
         return []
     middle = (tier + 0.5) / TENTHS
     props = [scaled(VALUE, MULTIPLY_OP, value_factor(middle))]
     if damage_factor(middle) < 1.0:
         props.append(scaled(ATTACK_DAMAGE, MULTIPLY_OP, damage_factor(middle)))
+    return props
+
+
+def armor_cut(tier: int, rating: int) -> int:
+    """The rating tier `tier` takes off armor of `rating`, at the tier's middle."""
+    if tier >= TENTHS:
+        return 0
+    return round(rating * (1.0 - armor_factor((tier + 0.5) / TENTHS)))
+
+
+def armor_tier_properties(tier: int, rating: int) -> list:
+    """The armor OMOD properties of condition tier `tier` on armor of `rating`: value, and rating below 50%."""
+    if tier >= TENTHS:
+        return []
+    props = [scaled(ARMOR_VALUE, MULTIPLY_OP, value_factor((tier + 0.5) / TENTHS))]
+    if armor_cut(tier, rating):
+        props.append(prop(INT, ADD, RATING, struct.pack('<i', -armor_cut(tier, rating))))
     return props
 
 
@@ -97,9 +125,9 @@ def wear_perks(perks: list) -> list:
 
 
 def repair_lists() -> dict:
-    """{FNV WEAP FormID: its repair list's FLST FormID} (WEAP REPL), read from the source plugin."""
+    """{FNV WEAP or ARMO FormID: its repair list's FLST FormID} (REPL), read from the source plugin."""
     out = {}
-    for rec, _ in walk(source_esm(), b'WEAP'):
+    for rec, _ in walk(source_esm(), b'WEAP', b'ARMO'):
         repl = first_sub(rec.body, b'REPL')
         if repl:
             out[rec.form_id] = struct.unpack('<I', repl)[0]
@@ -107,11 +135,12 @@ def repair_lists() -> dict:
 
 
 class Condition:
-    """Weapon condition through a cell builder: `wire` each converted weapon, then `write` the rest once."""
+    """Item condition through a cell builder: `wire` each converted weapon and armor, then `write` the rest once."""
 
     def __init__(self, builder):
-        """No weapon wired yet."""
-        self.builder, self.weapons, self.point, self.keyword, self.tiers = builder, {}, None, None, set()
+        """No item wired yet."""
+        self.builder, self.weapons, self.armors, self.made = builder, {}, {}, {}
+        self.point = self.keyword = None
 
     def wire(self, fnv: int, fid: int, subs: list) -> list:
         """Converted weapon `subs` (FO4 `fid`, FNV WEAP `fnv`) taking condition mods; unchanged if it never wears."""
@@ -121,41 +150,62 @@ class Condition:
         self.weapons[fid] = (fnv, float(rec['DATA.Health']))
         return with_point(with_keywords(subs, [self._keyword()]), self._point())
 
+    def wire_armor(self, fnv: int, fid: int, subs: list, fields: dict) -> list:
+        """Converted armor `subs` (FO4 `fid`, FNV ARMO `fnv` with `fields` health and rating) taking condition
+        mods; unchanged without FNV health."""
+        if fields.get('health', 0) <= 0:
+            return subs
+        self.armors[fid] = (fnv, float(fields['health']), round(fields['rating']))
+        return with_point(with_keywords(subs, [self._keyword()]), self._point())
+
     def write(self, ammo_mods, data_dir: Path, helper_index: int) -> None:
-        """The condition quest, tiers, messages and Repair hotkey for the wired weapons, and the plugin DLL in
-        `data_dir`; nothing without a wired weapon."""
-        if not self.weapons:
+        """The condition quest, tiers, messages and Repair hotkey for the wired items, and the plugin DLL in
+        `data_dir`; nothing without a wired item."""
+        if not self.weapons and not self.armors:
             return
         writer = self.builder.writer
         quest, item, effect = (writer.derive_formid(SITE, key) for key in ('quest', 'item', 'effect'))
-        notes = {name: self._message(name, text) for name, text in MESSAGES}
-        weapons = sorted(self.weapons)
-        lists = self._repair_lists(weapons)
-        player = {'ConditionNote': notes['ConditionNote'], 'BrokenNote': notes['BrokenNote'], 'RepairHotkey': item}
-        vmad = quest_fragments('', [], aliases=[(0, quest, [(SCRIPT, player, self._values(weapons, ammo_mods))])])
+        player = {name: self._message(name, text) for name, text in MESSAGES}
+        player.update(RepairHotkey=item, DamageResist=DAMAGE_RESIST, Repair=actor_value_form('Repair', helper_index) or 0)
+        values = self._values(ammo_mods)
+        values['RepairLists'] = ('objects', self._repair_lists(sorted(self.weapons) + sorted(self.armors)))
+        vmad = quest_fragments('', [], aliases=[(0, quest, [(SCRIPT, player, values)])])
         writer.add_record('QUST', R.pack_qust(quest, 'FNV_Condition', '', 0, [], 'Player', 0x14, vmad))
-        repair = {'Hotkey': item, 'Repair': actor_value_form('Repair', helper_index) or 0,
-                  'RepairedNote': notes['RepairedNote'], 'NoSpareNote': notes['NoSpareNote']}
-        hotkey_effect(self.builder, effect, 'FNV_ConditionRepairEffect', REPAIR_NAME, object_scripts(
-            [(ITEM_SCRIPT, repair, {'Weapons': ('objects', weapons), 'RepairLists': ('objects', lists)})]))
+        hotkey_effect(self.builder, effect, 'FNV_ConditionRepairEffect', REPAIR_NAME,
+                      object_scripts([(ITEM_SCRIPT, {'Hotkey': item, 'Owner': quest}, {})]))
         hotkey_item(self.builder, item, 'FNV_ConditionRepairHotkey', REPAIR_NAME, effect)
         self.builder.scripts.used += [SCRIPT, CALLS, NATIVES, ITEM_SCRIPT]
-        self.builder.counts['condition weapons'] = len(weapons)
+        self.builder.counts['condition weapons'], self.builder.counts['condition armor'] = (len(self.weapons),
+                                                                                             len(self.armors))
         (data_dir / PLUGIN_DIR).mkdir(parents=True, exist_ok=True)
         shutil.copy2(PLUGIN, data_dir / PLUGIN_DIR / PLUGIN.name)
 
-    def _values(self, weapons: list, ammo_mods) -> dict:
-        """TES4_ConditionPlayer's value properties for `weapons` (FO4 FormIDs, sorted)."""
+    def _values(self, ammo_mods) -> dict:
+        """TES4_ConditionPlayer's value properties."""
         export = self.builder.export_dir
         perks = [(self.builder.perks.first.get(fnv), mult) for fnv, mult in wear_perks(export_records(export, 'PERK'))]
         perks = [(p, m) for p, m in perks if p]
         rounds = self._ammo_wear(ammo_mods)
-        setting = next((float(r['DATA.Value']) for r in export_records(export, 'GMST')
-                        if r.get('EditorID') == WEAR_SETTING), 0.2)
-        return {'Weapons': ('objects', weapons), 'MaxHealth': ('floats', [self.weapons[w][1] for w in weapons]),
-                'Tiers': ('objects', [self._tier(t) for t in range(TENTHS + 1)]), 'WearPerShot': ('float', setting),
-                'AmmoMarks': ('objects', [k for k, _ in rounds]), 'AmmoWear': ('floats', [m for _, m in rounds]),
-                'WearPerks': ('objects', [p for p, _ in perks]), 'WearPerkMults': ('floats', [m for _, m in perks])}
+        wanted = {edid for edid, _ in SETTINGS.values()}
+        gmst = {r['EditorID']: float(r['DATA.Value']) for r in export_records(export, 'GMST') if r.get('EditorID') in wanted}
+        weapons = sorted(self.weapons)
+        out = {name: ('float', gmst.get(edid, default)) for name, (edid, default) in SETTINGS.items()}
+        out['MaxAbsorb'] = ('float', out['MaxAbsorb'][1] / 100.0)
+        out.update({'Weapons': ('objects', weapons), 'MaxHealth': ('floats', [self.weapons[w][1] for w in weapons]),
+                    'Tiers': ('objects', [self._tier(t) for t in range(TENTHS + 1)]),
+                    'AmmoMarks': ('objects', [k for k, _ in rounds]), 'AmmoWear': ('floats', [m for _, m in rounds]),
+                    'WearPerks': ('objects', [p for p, _ in perks]), 'WearPerkMults': ('floats', [m for _, m in perks])})
+        out.update(self._armor_values())
+        return out
+
+    def _armor_values(self) -> dict:
+        """TES4_ConditionPlayer's armor properties: each armor's health and tier group, and the groups' tiers."""
+        armors = sorted(self.armors)
+        ratings = sorted({self.armors[a][2] for a in armors})
+        tiers = [self._armor_tier(t, r) for r in ratings for t in range(TENTHS + 1)]
+        return {'Armors': ('objects', armors), 'ArmorMax': ('floats', [self.armors[a][1] for a in armors]),
+                'ArmorGroup': ('ints', [ratings.index(self.armors[a][2]) for a in armors]),
+                'ArmorTiers': ('objects', tiers)}
 
     def _ammo_wear(self, ammo_mods) -> list:
         """[(the keyword an ammo mod adds, the round's wear multiplier)] of the rounds with a condition effect."""
@@ -170,33 +220,45 @@ class Condition:
                 i += 1
         return out
 
-    def _repair_lists(self, weapons: list) -> list:
-        """Each of `weapons`' repair list as our FLST of its converted items (0 without one), each written once."""
+    def _repair_lists(self, items: list) -> list:
+        """Each of `items`' repair list as our FLST of its converted items (0 without one), each written once."""
         repl, made = repair_lists(), {}
         lists = {int(r['FormID'], 16): r for r in export_records(self.builder.export_dir, 'FLST')}
         out = []
-        for fid in weapons:
-            source = repl.get(self.weapons[fid][0])
+        for fid in items:
+            source = repl.get((self.weapons.get(fid) or self.armors[fid])[0])
             if source in lists and source not in made:
-                items = [i for i in (self.builder.items.item(m) for m in members(lists[source])) if i is not None]
-                made[source] = self.builder.writer.derive_formid(SITE, f'repair {source:08X}') if items else 0
-                if items:
+                found = [i for i in (self.builder.items.item(m) for m in members(lists[source])) if i is not None]
+                made[source] = self.builder.writer.derive_formid(SITE, f'repair {source:08X}') if found else 0
+                if found:
                     self.builder.writer.add_record('FLST', R.pack_flst(
-                        made[source], f'FNV_Repair_{lists[source]["EditorID"]}', items))
+                        made[source], f'FNV_Repair_{lists[source]["EditorID"]}', found))
             out.append(made.get(source, 0))
         return out
 
     def _tier(self, tier: int) -> int:
-        """Condition mod `tier` (tenths), written once."""
-        fid = self.builder.writer.derive_formid(SITE, f'tier {tier}')
-        if tier not in self.tiers:
-            self.tiers.add(tier)
-            body = pack_string_subrecord('EDID', f'FNV_mod_Condition{tier * 10:03d}')
-            body += pack_string_subrecord('FULL', f'{tier * 10}% condition')
-            body += pack_subrecord('DATA', omod_data(self._point(), tier_properties(tier)))
-            self.builder.writer.add_record('OMOD', pack_fo4_record('OMOD', fid, 0, body + R.pack_u32('MNAM',
-                                                                                                    self._keyword())))
-        return fid
+        """Weapon condition mod `tier` (tenths), written once."""
+        return self._omod(f'tier {tier}', f'FNV_mod_Condition{tier * 10:03d}', f'{tier * 10}% condition',
+                          omod_data(self._point(), tier_properties(tier)))
+
+    def _armor_tier(self, tier: int, rating: int) -> int:
+        """Armor condition mod `tier` (tenths) for armor of `rating`, written once; one that leaves the rating is
+        shared by every rating."""
+        cut = armor_cut(tier, rating)
+        key, edid = f'armor tier {tier}', f'FNV_mod_ArmorCondition{tier * 10:03d}'
+        if cut:
+            key, edid = f'{key} rating {rating}', f'{edid}_DT{rating}'
+        return self._omod(key, edid, f'{tier * 10}% condition',
+                          omod_data(self._point(), armor_tier_properties(tier, rating), b'ARMO'))
+
+    def _omod(self, key: str, edid: str, name: str, data: bytes) -> int:
+        """Condition mod `edid` on DATA `data`, written once per `key`."""
+        if key not in self.made:
+            self.made[key] = fid = self.builder.writer.derive_formid(SITE, key)
+            body = pack_string_subrecord('EDID', edid) + pack_string_subrecord('FULL', name)
+            body += pack_subrecord('DATA', data) + R.pack_u32('MNAM', self._keyword())
+            self.builder.writer.add_record('OMOD', pack_fo4_record('OMOD', fid, 0, body))
+        return self.made[key]
 
     def _message(self, name: str, text: str) -> int:
         """A notification message `text`, written now."""
@@ -211,7 +273,7 @@ class Condition:
         return self.point
 
     def _keyword(self) -> int:
-        """The keyword wired weapons carry and condition mods target; written once."""
+        """The keyword wired items carry and condition mods target; written once."""
         if self.keyword is None:
             self.keyword = self._kywd(KEYWORD_EDID, MOD_ASSOCIATION)
         return self.keyword

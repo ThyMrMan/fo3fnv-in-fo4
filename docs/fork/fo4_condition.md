@@ -198,7 +198,12 @@ Untested: a weapon breaking at 0, wear perks, and ammo with a condition effect.
   - The loaded round's condition effect multiplies it, found by its ammo mod's
     keyword, as do held perks on entry point 68: Full Maintenance ×0.25,
     Regular Maintenance ×0.5, Built to Destroy ×1.15.
-  - The condition mod is swapped as a tenth is crossed.
+  - The condition mod is swapped as a tenth is crossed, but not mid-fight:
+    attaching re-equips the item (played: the pistol fired twice, then
+    re-equipped on the first shot). Wear marks the item, and the mod goes on
+    at the next holster (`weaponSheathe`), reload end (`reloadStateExit`),
+    Pip-Boy opening or equip. From 90% up an item takes no mod, so value
+    there is whole (drift: FNV's value starts falling at once).
   - At 0 the weapon is unequipped as broken, and a broken weapon will not stay
     equipped.
   - Equipping shows the condition.
@@ -219,8 +224,250 @@ gives (`-DF4SE_STATIC_LIB=ON`), under `TOOLS_EXT`
 (default `C:\Coding\tes4skyrim\tools_ext`). Its addresses are F4SE 0.7.9's, so the
 DLL loads on Fallout4.exe 1.11.240 only.
 
+## <a id="armor"></a>Armor, built 2026-10-22 (not yet played)
+
+- **Records** (`condition.py`, `wire_armor`):
+  - Every converted armor with FNV health (ARMO DATA, read from
+    FalloutNV.esm) takes the same attach point and keyword as weapons.
+  - Vanilla armor mods never multiply Rating: Fallout4.esm's 271 Rating
+    properties are all integer adds. So armor tiers subtract, and there is
+    one set per distinct armor rating: `FNV_mod_ArmorCondition<tier>_DT<r>`
+    below 50%, where FNV's curve takes `r × (0.5 − h)` off. Tiers from 50%
+    up change only the value and are shared by every rating.
+- **Wear** (`TES4_ConditionPlayer.OnHit`, the player only):
+  - FO4's hit event carries no damage, so it is rebuilt. The hit's damage is
+    the attacker's equipped weapon instance's (F4SE `InstanceData`, slot
+    32 + `GetEquippedItemType`, AWC's method), else the weapon form's own.
+  - The share the armor stopped comes from FO4's armor formula: damage taken
+    = damage × clamp((damage × 0.15 / DR)^0.365, 0.01, 0.99), with the
+    player's DamageResist. It is capped at FNV's `fMaxArmorRating` (85%).
+  - Every worn armor piece with health loses damage × share × 0.35
+    (`fDamageToArmorPercentage`) over its FNV health. FNV's exe stores one
+    wear value per hit; which pieces it goes to is inferred.
+  - Armor at 0 stays on with half its DT, as FNV's curve gives.
+- **Repair:** the Repair hotkey (renamed from Repair Weapon) repairs the
+  equipped weapon when it is below whole and has a spare, else the worn
+  armor piece in the worst condition that has one (ARMO REPL lists). It
+  names what it repaired and puts the new condition mod on at once.
+- **The region build:** 136 armors wired, all with the keyword. The 4
+  unwired ARMO are creature skins. There are 92 armor tier mods, 81 of which
+  cut DT. All 1,810 scripts compile, and FO4Edit reports 0 errors.
+- **Drift:** physical damage and DamageResist only, since converted armor
+  keeps only physical resistance. Armor penetration is ignored.
+
+## <a id="pipboy"></a>Pip-Boy, built 2026-10-22
+
+**First play-test, 2026-10-22:** nothing showed, and T opened the perk grid. The log
+had "Pip-Boy hook registered" but no "hooked the Pip-Boy menu". Rebuilt with
+the open-event hook and the G key.
+
+**Second play-test, 2026-10-23:** still nothing. The log said "its root has no
+BGSCodeObj" on all 4 opens. The hook now looks for the menu's instance at
+`root` and at `root.Menu_mc`, by path (as F4SE's `UI.Get` does), and logs the
+root's members when neither has it.
+
+**Third play-test, 2026-10-23:** CND showed, and the menu's instance is at
+`root.Menu_mc`. G did nothing. With two 9mm pistols at 100% and 97%, both
+entries showed 100%, because matching by name found the first stack for
+both. So G on the 97% one hit "needs no repair", and that notification is
+hidden in the Pip-Boy.
+
+The log gave each entry's members: `favorite`, `taggedForSearch`,
+`isLegendary`, `count`, `nodeID`, `filterFlag`, `equipState`, `text`,
+`clipIndex`, `formID` and `canFavorite`. There is a form ID, but no stack index.
+- Entries now match by `formID`.
+- An equipped entry is the equipped stack.
+- An unequipped entry is the stack of its position among that form's
+  unequipped entries (`entryList` order, taken as the inventory's; unverified).
+- Each match is logged.
+- In the Pip-Boy a failed repair shows a message box.
+
+Not yet played.
+
+<a id="repair-choice"></a>Asked for: choose what gets repaired, and show condition in the Pip-Boy.
+FNV repairs the item highlighted in the Pip-Boy. Built with no new mod: the
+FalloutCondition plugin (`pipboy.cpp`) works inside FO4's own Pip-Boy movie.
+
+**How the Pip-Boy works.** Read from `interface\pipboymenu.swf` and
+`pipboy_invpage.swf` (Fallout4 - Interface.ba2), decompiled with JPEXS FFDec
+26.4.0 (`tools_ext\FFDec`, `ffdec-cli.jar -export script <out> <swf>`):
+- The menu's root (`PipboyMenu`) keeps its pages in `PageA`, the shown one in
+  the `CurrentPage` getter, and the game's data in `DataObj` (`InvItems`).
+  Pages share the root's `BGSCodeObj`, a plain object of native functions
+  that `BGSExternalInterface.call` calls by name.
+- The inventory page (`Pipboy_InvPage`) has `List_mc` (a `BSScrollingList`;
+  its `selectedEntry` has `text`, `count`, `equipState`, `nodeID`) and
+  `ItemCard_mc`. On a selection change it calls the native
+  `onInvItemSelection(index, ItemCard_mc.InfoObj, …, page)`. The game
+  refills that array and calls back `onListSelectionChangeCallback`, which
+  marks the card dirty.
+- The card (`Components.ItemCard`) draws one line per `InfoObj` element at
+  its next render: `{text, value}`, with `showAsPercent` adding "%".
+- Keys in use there: Enter, X, R, Q, C, Tab, Z, and T, which is the menu's own
+  Grid View (`PipboyMenu.GridViewButton`; Y on a gamepad). G is free. No
+  gamepad button is free.
+
+**What the plugin does:**
+- When `PipboyMenu` opens (a menu open event, then an F4SE UI task), it adds
+  a native `enterFrame` listener on the menu's root, once per menu: a flag
+  on its `BGSCodeObj` marks it. The first build hooked F4SE's per-menu
+  Scaleform callback instead. In play it never matched the Pip-Boy, whose
+  root members are not set yet when that callback runs.
+- Each frame on the inventory page, it reads the highlighted entry. It finds
+  that entry's item in the player's inventory by `formID`, among the forms
+  that wear (`TES4_Condition.Track`), and its stack (see the third play-test).
+  - It keeps a `CND` line at the stack's condition in the card's `InfoObj`,
+    and redraws the card (`onDataChange`) when it adds or changes the line.
+  - The game's refill drops the line, and the next frame adds it back.
+  - It logs the members of the first entry it reads to `FalloutCondition.log`.
+    The game may give an inventory handle that would replace matching by name.
+- On keyboard and mouse (`uiPlatform` 0), it adds a REPAIR hint (G) to the
+  inventory page's `buttonHintDataV`, once per page, and rebuilds the hint bar. Clicking the
+  hint sends the F4SE external event `FNVConditionRepair`.
+- Natives: `PipboySelection` and `PipboyStack` (the highlighted item),
+  `PipboyRefresh` (show the new value after a repair), and
+  `GetStackHealth` and `SetStackHealth`.
+
+**Papyrus:** `TES4_ConditionPlayer` tracks the items, registers G
+while the Pip-Boy is open, and listens for the hint's event. Each of them
+repairs the highlighted stack from a spare. The Repair hotkey item now calls
+the same alias code (`RepairFromHotkey`).
+
+**Fourth play-test, 2026-10-23:**
+- The game's stack lookup worked. The log matched each line to its stack
+  (lines 13970 and 14067 of the 9mm pistol: stacks 0 and 1, at 1.000 and 0.979).
+- Two whole pistols picked up together share one stack (count 2), and one
+  health. Firing the equipped one wore both to 98%.
+  - First fix (reverted after the fifth play-test): park the other copies in
+    a holding container and bring them back.
+- G never reached Papyrus: the log had no repair trace. G is now heard two
+  ways:
+  - Papyrus `OnKeyDown`, traced;
+  - a native `keyUp` listener on the menu (Flash key code 71), which sends
+    `FNVConditionRepair`.
+  A second request within 0.3 s is ignored. Menu events, keys and each send
+  are logged. Not yet played.
+
+**Fifth play-test, 2026-10-23:**
+- G reached the repair: the trace showed "Pip-Boy repair … stack 0".
+- The parking unequipped the pistol after a couple of shots. `RemoveItem`
+  moved every other 9mm pistol ("parked 4"), the worn one among them.
+- Condition then landed on the wrong copies: the repair hit several pistols,
+  and there ended up two stacks of two whole ones.
+
+<a id="stack-writer"></a>**The engine's stack writer** (replaces the parking):
+- The game writes an item's health with
+  `TESObjectREFR::FindAndWriteStackData` (RVA 0x502560). It passes the
+  reference's inventory list to 0x34E870, with five arguments: the object, a
+  compare functor, a write functor, an object compare function and an
+  always-continue flag.
+- `BGSInventoryItem::CheckStackIDFunctor` (vtable 0x247A038, countdown at +8)
+  accepts the stack its countdown reaches. Its compare at 0x34BE90 decrements
+  and matches at 0.
+- `BGSInventoryItem::SetHealthFunctor` (vtable 0x252B680) has two flags at +8
+  and +9 and the health at +0x10.
+  - Its write method (0x34C070) sets the stack's extra data health
+    (0x27B440).
+  - Read from CommonLibF4's names, not verified: the flags split one copy off
+    a shared stack, then move the equipped flag to it.
+  - The game's own call at 0x98E750 sets both flags.
+- `WriteHealth` in `plugin.cpp` builds the two functors with our own
+  same-object compare and calls it. So wear and repair change one copy
+  only, and the one in hand stays equipped.
+
+**Sixth play-test, 2026-10-23:**
+- The stack writer worked: firing kept the pistol equipped, and three
+  pistols ended up as separate 100%, 99% and 98% lines.
+- G sent the event eight times (plugin log), but no repair trace followed. The
+  double-press guard compared the real-time clock with the last repair's
+  time, which the save keeps from an earlier session. The clock restarts at
+  each launch, so the difference came out negative, and every press was
+  taken for a repeat. Fixed: a time before the stored one is a new press.
+- Equipping another copy left the Pip-Boy's equipped mark on the old line
+  until it was reopened. On a tracked item's equip or unequip, the plugin now
+  sets each line of that form from its own stack (`FixEquipMarks`), then
+  calls the list's `UpdateList`.
+- Papyrus `OnKeyDown` never fired in the Pip-Boy (no key trace). The
+  native key listener carries G.
+
+Not yet played.
+
+<a id="repair-list"></a>**The repair list (built 2026-10-23; played the same day: it repairs).** FNV's repair menu
+lists every spare with its condition bar, previews the gain and shows the
+Repair skill (asked for with a screenshot). Ours:
+- G or the REPAIR hint on an item that wears opens a list on the item card.
+  - First the Repair skill.
+  - Then up to six spares: the item's other unequipped stacks, another copy
+    in its own stack, and unequipped stacks of items in its FNV repair list.
+    Each shows its name, a count when more than one, and its CND.
+  - Then the item's CND before and after, and "ENTER) REPAIR / ESC) CANCEL".
+- The page's own modal is on meanwhile: `ModalFadeRect_mc` visible, which
+  its quantity and favorites pop-ups use and which makes `ProcessUserEvent`
+  skip its actions, and `List_mc.disableInput`.
+- Keys, heard by the native `keyUp` listener: Up or W and Down or S move,
+  Enter or E repairs, Esc, Tab or G cancels. Closing calls the page's
+  `onListSelectionChange`, so the game refills the card.
+- The default spare is the worst one that still gives the best result
+  (`repair.cpp` `DefaultSpare`).
+- Repairing (`RepairWith`) uses up one copy of the chosen stack with the
+  engine's remove-from-stack, `BGSInventoryList` 0x34E020.
+  - Its arguments: the list, the object, the stack index, the count and a
+    more-stacks flag.
+  - `TESObjectREFR::RemoveItem` calls it once per stack ID, at 0x50162C.
+  - It sends the inventory event, marks the list weight dirty (+0x70 =
+    -1) and drops an emptied stack.
+  - Then the item's stack is written through the stack writer, its index
+    shifted down when an earlier one-copy spare stack of the same item was
+    removed.
+- FNV's rule now lives only in the plugin: `RepairResult`, the better plus
+  5, plus 0.15 per Repair point, plus 0.05 of the worse, capped at 100.
+  - The Repair hotkey calls the same native: `TES4_ConditionCalls.RepairWithSpare`
+    → `TES4_Condition.RepairWith`, on the worst copy of the first spare item.
+  - `TrackRepair` gives the plugin the repair lists and the Repair skill.
+- Played: the fade dimmed the card too, so G looked like a pop-up that never
+  came. While the list is open, the card is now lifted above the fade
+  (`setChildIndex` to the top, put back on close). A whole item says "REPAIR
+  Not needed", not "No spare". Not yet played.
+- Untested: removal skips `RemoveItem`'s own work, so no `OnItemRemoved` and
+  no HUD line. Equipped stacks are never offered as spares.
+
+<a id="pipboy-lines"></a>**The game's link from a line to its stack** (Fallout4.exe 1.11.240,
+disassembled 2026-10-23; the `.text` section is not encrypted):
+- The line builder (RVA 0xB433C0; unnamed in the exe) is called once per line
+  (from 0xB42C30). Its arguments: the `BGSInventoryItem`, one of its stacks,
+  the line's `PipboyObject`, a handle and the stack's index. It writes
+  `formID`, `text`, `count`, …, `HandleID` and `StackID`. `StackID` is a
+  `PipboyArray` holding that index.
+  - 0xB43A80 merges a further stack into an existing line: it adds the count
+    and appends the index. So a line lists every stack it shows.
+  - The Pip-Boy movie gets none of `HandleID` or `StackID`. Its entry members
+    were logged: `formID`, `nodeID`, … (third play-test).
+- The `PipboyDataManager` pointer is the global at RVA 0x30E8AF8, set at
+  0xC386BF. Its `PipboyInventoryData` sits at +0x358, built at 0xB3D4E9, with
+  primary vtable 0x2544750.
+- At `PipboyInventoryData` +0xF8 is a hash map from form ID to that form's
+  lines. It has F4SE's `tHashSet` layout: size at +4, end marker at +0x10,
+  slots at +0x20, each slot 0x18 bytes (key, value, next).
+  - The value points to the head of a circular list. Each node holds next,
+    prev, then a record whose first field is the line's `PipboyObject`.
+- A `PipboyObject`'s ID (`PipboyValue` +0x08) is taken to be the movie's
+  `nodeID`.
+  - `StackID`'s array keeps its elements in a `BSTArray` at +0x18 (count at
+    +0x28).
+  - Each element is a `PipboyPrimitiveValue<UInt32>` with its value at +0x18.
+- `pipboy.cpp` `LineStack` walks this path.
+  - It first checks the vtable, so another game build falls back to the
+    equipped or first stack, logged once.
+  - Each match is logged as "Pip-Boy line <nodeID> of <form>: stack <n>".
+
+**Limits:**
+- Repairing a stack from a same-form spare removes "one of the item", and the
+  engine picks which stack loses it.
+- The hint shows on every inventory item, including ones that don't wear,
+  which get no repair.
+- There is no gamepad key, since every button is taken there.
+
 Next:
-- Armor (wear by damage taken, DT/DR curve).
 - Jams.
 - Vendor repair (`ShowRepairMenu`) and Jury Rigging.
 - NPC weapons' wear.

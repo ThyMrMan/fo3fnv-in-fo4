@@ -123,6 +123,7 @@ def test_worn_headgear_gets_a_file_per_slots_apart_from_its_static(tmp_path, mon
     (tmp_path / 'Meshes' / 'fnv').mkdir(parents=True)
     eq = E.Equipment.__new__(E.Equipment)
     eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
+    eq.condition = SimpleNamespace(wire_armor=lambda fnv, fid, subs, fields: subs)
     eq.builder, eq.fits, eq.worn_paths = SimpleNamespace(data_dir=tmp_path), {'male': 0, 'female': 0}, {}
     eq.statics = {'hat.nif': ('fnv\\red_beret.nif', b'static')}
     paths = [eq._worn('hat.nif', sex, slots, None) for sex, slots in
@@ -136,6 +137,7 @@ def test_headgear_puts_fnvs_worn_alternate_textures_on_its_addon():
     """The male model's swap goes after MOD2 (MO2S), none for a female model without alternates."""
     eq = E.Equipment.__new__(E.Equipment)
     eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
+    eq.condition = SimpleNamespace(wire_armor=lambda fnv, fid, subs, fields: subs)
     taken = {}
     eq._on_head = lambda model, sex: (True, None)
     eq._worn = lambda model, sex, slots, frame: f'{model}_{sex}'
@@ -156,6 +158,7 @@ def test_an_armor_fnv_gives_no_world_model_wears_its_own_mesh_on_the_templates_w
     written = []
     eq = E.Equipment.__new__(E.Equipment)
     eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
+    eq.condition = SimpleNamespace(wire_armor=lambda fnv, fid, subs, fields: subs)
     eq.builder = SimpleNamespace(counts=collections.Counter(), writer=SimpleNamespace(
         derive_formid=lambda site, key: 0x0300F00D, add_record=lambda sig, rec: written.append(rec)))
     eq.fnv, eq.strings, eq.vanilla = {1: {'value': 5, 'weight': 1.0, 'rating': 2.0}}, {}, {'ClothesMobsterhat': template}

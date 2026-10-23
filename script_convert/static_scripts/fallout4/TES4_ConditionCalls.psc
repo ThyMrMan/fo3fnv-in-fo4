@@ -29,34 +29,16 @@ Function AddWithHealth(ObjectReference akTarget, Form akItem, Int aiCount, Float
   TES4_Condition.SetHealth(akTarget, akItem, afHealth)
 EndFunction
 
-Bool Function RepairWithSpare(Actor akActor, Form[] akWeapons, Form[] akRepairLists, ActorValue akRepair) Global
-  {Repair akActor's equipped weapon from a spare it carries: another of the same weapon, else an item of its repair list (akRepairLists[i] for akWeapons[i]). FNV's rule: the better of the two conditions, plus 5, plus 0.15 per Repair point, plus 0.05 of the worse, in percent; the spare is used up. False with no spare.}
-  Weapon gun = akActor.GetEquippedWeapon()
-  Int i = akWeapons.Find(gun)
-  If !gun || i < 0
-    Return False
-  EndIf
-  Form spare = Spare(akActor, gun, akRepairLists[i] as FormList)
-  If !spare
-    Return False
-  EndIf
-  Float ours = Whole(TES4_Condition.GetHealth(akActor, gun)) * 100.0
-  Float theirs = ours
-  If spare != gun
-    theirs = Whole(TES4_Condition.GetHealth(akActor, spare)) * 100.0
-  EndIf
-  Float better = Math.Max(ours, theirs)
-  Float worse = Math.Min(ours, theirs)
-  Float repaired = better + 5.0 + 0.15 * akActor.GetValue(akRepair) + 0.05 * worse
-  akActor.RemoveItem(spare, 1, True)
-  TES4_Condition.SetHealth(akActor, gun, Math.Min(repaired, 100.0) / 100.0)
-  Return True
+Bool Function RepairWithSpare(Actor akActor, Form akItem, Int aiStack, FormList akList) Global
+  {Repair stack aiStack of akActor's akItem (-1: its equipped, else first) from a spare it carries: another of the same item, else the first item of its repair list akList it carries (that one's worst copy), by FNV's rule (TES4_Condition.RepairWith); the spare is used up. False with no spare.}
+  Form spare = Spare(akActor, akItem, akList)
+  Return akItem && spare && TES4_Condition.RepairWith(akActor, akItem, aiStack, spare, -1) >= 0.0
 EndFunction
 
-Form Function Spare(Actor akActor, Weapon akGun, FormList akList) Global
-  {A spare for akGun: another akGun, else the first item of akList akActor carries; None.}
-  If akActor.GetItemCount(akGun) > 1
-    Return akGun
+Form Function Spare(Actor akActor, Form akItem, FormList akList) Global
+  {A spare for akItem: another akItem, else the first item of akList akActor carries; None.}
+  If akActor.GetItemCount(akItem) > 1
+    Return akItem
   EndIf
   If !akList
     Return None
@@ -64,12 +46,26 @@ Form Function Spare(Actor akActor, Weapon akGun, FormList akList) Global
   Int i = 0
   While i < akList.GetSize()
     Form item = akList.GetAt(i)
-    If item != akGun && akActor.GetItemCount(item) > 0
+    If item != akItem && akActor.GetItemCount(item) > 0
       Return item
     EndIf
     i += 1
   EndWhile
   Return None
+EndFunction
+
+Form[] Function WornOf(Actor akActor, Form[] akArmors) Global
+  {The armor of akArmors akActor wears, each once (F4SE's worn items by biped slot).}
+  Form[] out = new Form[0]
+  Int slot = 0
+  While slot < 32
+    Form item = akActor.GetWornItem(slot).item
+    If item && akArmors.Find(item) >= 0 && out.Find(item) < 0
+      out.Add(item)
+    EndIf
+    slot += 1
+  EndWhile
+  Return out
 EndFunction
 
 Float Function Whole(Float afHealth) Global

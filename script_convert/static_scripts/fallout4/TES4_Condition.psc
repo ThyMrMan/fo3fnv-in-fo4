@@ -12,3 +12,30 @@ Float Function GetEquippedWeaponHealth(Actor akActor) Global Native
 
 Int Function StackCount(ObjectReference akHolder, Form akItem) Global Native
 {How many of akItem share the stack its health sits on (they share one condition).}
+
+Float Function GetStackHealth(ObjectReference akHolder, Form akItem, Int aiStack) Global Native
+{GetHealth on stack aiStack of akItem (-1, or a stack it lacks: its equipped copy, else its first).}
+
+Bool Function SetStackHealth(ObjectReference akHolder, Form akItem, Int aiStack, Float afHealth) Global Native
+{SetHealth on stack aiStack of akItem, chosen as GetStackHealth chooses it.}
+
+Function Track(Form[] akItems) Global Native
+{akItems wear: the Pip-Boy shows their condition (CND) on the item card.}
+
+Form Function PipboySelection() Global Native
+{The item highlighted in the Pip-Boy's inventory when it wears; None otherwise.}
+
+Int Function PipboyStack() Global Native
+{The stack index of PipboySelection's item; -1 with none.}
+
+Function PipboyRefresh() Global Native
+{Show the highlighted item's condition again on the Pip-Boy's item card (after a repair).}
+
+Function TrackRepair(Form[] akWeapons, Form[] akArmors, Form[] akRepairLists, ActorValue akRepair) Global Native
+{The FNV repair lists (akRepairLists: akWeapons' first, then akArmors'; a FormList or None each) and the Repair skill, for repair and the Pip-Boy's repair list.}
+
+Float Function RepairWith(Actor akHolder, Form akItem, Int aiStack, Form akSpare, Int aiSpareStack) Global Native
+{Repair stack aiStack of akItem (-1: its equipped, else first) from one copy of akSpare's stack aiSpareStack (-1: its worst), by FNV's rule, using that copy up: the new health (0 to 1), or -1 with no such spare.}
+
+Float Function PipboyRepair(Actor akHolder) Global Native
+{Carry out the repair chosen in the Pip-Boy's repair list (on PipboySelection's item): the new health, or -1 with none chosen.}

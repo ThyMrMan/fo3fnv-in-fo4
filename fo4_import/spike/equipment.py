@@ -156,12 +156,13 @@ def _fnv_fields() -> dict:
             fid = struct.unpack('<I', ammo)[0]
             out[rec.form_id] = {'ammo': struct.unpack('<I', lists[fid])[0] if lists.get(fid) else fid}
         elif rec.sig == b'ARMO' and data and dnam:
-            value, _, weight = struct.unpack_from('<iif', data)
+            value, health, weight = struct.unpack_from('<iif', data)
             dt = struct.unpack_from('<f', dnam, DT_AT)[0] if len(dnam) >= DT_AT + 4 else 0.0
             rating = dt or struct.unpack_from('<h', dnam)[0] / DR_SCALE
-            out[rec.form_id] = {'value': value, 'weight': weight, 'rating': rating, 'alternates': {
-                sig: _alternates(first_sub(rec.body, sig), sets) for sig in (FNV_MALE_SWAP, FNV_WORLD_SWAP,
-                                                                           FNV_FEMALE_SWAP) if first_sub(rec.body, sig)}}
+            out[rec.form_id] = {'value': value, 'weight': weight, 'rating': rating, 'health': health,
+                                'alternates': {sig: _alternates(first_sub(rec.body, sig), sets)
+                                               for sig in (FNV_MALE_SWAP, FNV_WORLD_SWAP, FNV_FEMALE_SWAP)
+                                               if first_sub(rec.body, sig)}}
     return out
 
 
@@ -474,6 +475,8 @@ class Equipment:
         fid = self.builder.writer.derive_formid(SITES[sig], fnv)
         if sig == 'WEAP':
             subs = self.condition.wire(fnv, fid, self.ammo_mods.wire(fnv, subs))
+        elif sig == 'ARMO':
+            subs = self.condition.wire_armor(fnv, fid, subs, self.fnv.get(fnv, {}))
         body = b''.join(pack_subrecord(s.decode(), b) for s, b in subs)
         self.builder.writer.add_record(sig, pack_fo4_record(sig, fid, 0, body))
         self.builder.counts[sig] += 1
