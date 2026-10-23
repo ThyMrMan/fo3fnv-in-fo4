@@ -413,6 +413,7 @@ void FixEquipMarks(GFxValue &list, UInt32 formID) {
 // One Pip-Boy frame: on the inventory page, resolve the highlighted entry and keep its CND line.
 void Update(GFxMovieRoot *movie) {
     GFxValue root, page, card, list, entry, id, node, equip;
+    UpdatePages(movie, g_base);
     if (!movie->GetVariable(&root, g_base.c_str()) || !movie->GetVariable(&page, (g_base + ".CurrentPage").c_str()) ||
         !page.IsObject() || !page.HasMember("ItemCard_mc")) {
         std::lock_guard<std::mutex> hold(g_lock);
@@ -454,6 +455,18 @@ public:
     void Invoke(Args *args) override { Update(args->movie->movieRoot); }
 };
 
+// A display object joined the menu: when it is a newly loaded STAT page, give it our tabs at once, before the
+// menu's header reads its tab names (from the next frame on, a page loaded on one of ours showed none of them).
+class AddedHandler : public GFxFunctionHandler {
+public:
+    void Invoke(Args *args) override {
+        GFxValue target;
+        if (args->numArgs > 0 && Get(args->args[0], "target", &target) && target.IsObject() &&
+            target.HasMember("SPECIALTab_mc"))
+            UpdatePages(args->movie->movieRoot, g_base);
+    }
+};
+
 // The open Pip-Boy menu's movie: listen for its frames, once per menu (a flag on its BGSCodeObj).
 class HookTask : public ITaskDelegate {
 public:
@@ -488,9 +501,14 @@ public:
         movie->CreateString(&keys[0], "keyUp");
         CreateFunction<KeyHandler>(&keys[1], movie);
         bool listening = root.Invoke("addEventListener", nullptr, keys, 2);
+        GFxValue added[2];
+        movie->CreateString(&added[0], "added");
+        CreateFunction<AddedHandler>(&added[1], movie);
+        root.Invoke("addEventListener", nullptr, added, 2);
         _MESSAGE("Pip-Boy key listener %s", listening ? "added" : "not added");
         code.SetMember(HOOKED, &flag);
         g_hintPage = nullptr;
+        ResetPages();
         g_list.open = false;
         g_lastKey.clear();
         GFxValue f4se;

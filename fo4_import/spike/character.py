@@ -19,6 +19,7 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.helpers_plugin import EDID_PREFIX, actor_value_form, form_id
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from fo4_import.spike.pipboy_tabs import tab_quest
 from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_HELPER_QUESTS
 
@@ -65,7 +66,8 @@ def _list(builder, edid: str, forms: list) -> int:
 
 
 def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: int) -> None:
-    """Write the character-rule records into `builder`'s plugin `plugin` and LevelUpMenuEx's INI for it."""
+    """Write the character-rule records into `builder`'s plugin `plugin`, LevelUpMenuEx's INI for it and the
+    Pip-Boy's SKILLS tab."""
     game = export_dir.name
     governing = GOVERNING[game]
     skills = sorted({s for group in governing for s in group}, key=lambda s: C.FNV_AV_NAMES.index(
@@ -91,6 +93,7 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
     perks = _list(builder, 'FNV_Perks', builder.perks.playable())
     write_ini(data_dir / 'PRKF' / f'{Path(plugin).stem}.ini', plugin, perks, skill_list)
+    tab_quest(builder, 'SKILLS', skill_list)
 
 
 def write_ini(path: Path, plugin: str, perks: int, skills: int) -> None:

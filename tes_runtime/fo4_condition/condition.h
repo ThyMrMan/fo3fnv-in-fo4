@@ -5,6 +5,7 @@
 #include "f4se/GameFormComponents.h"
 #include "f4se/GameForms.h"
 #include "f4se/GameReferences.h"
+#include "f4se/PapyrusVM.h"
 #include "f4se/ScaleformMovie.h"
 #include "f4se/ScaleformValue.h"
 
@@ -135,5 +136,17 @@ void InstallPipboy(void *taskInterface);
 
 // Ask the Pip-Boy to show the highlighted item's condition again (after a repair).
 void RefreshPipboy();
+
+// ---- Pip-Boy tabs (pages.cpp; docs/fork/fo4_pipboy_tabs.md) ----
+
+// One Pip-Boy frame for our STAT page tabs: give a newly loaded STAT page its tabs, and show the current one.
+// `base` is the Pip-Boy menu instance's path.
+void UpdatePages(GFxMovieRoot *movie, const std::string &base);
+
+// Forget the STAT page given the tabs (the Pip-Boy opened again).
+void ResetPages();
+
+// Register TES4_Pipboy's native SetTab.
+void RegisterPages(VirtualMachine *vm);
 
 }  // namespace condition

@@ -257,6 +257,7 @@ void SetServiceRulesNative(StaticFunctionTag *, float skillBase, float skillMax,
 }
 
 bool Register(VirtualMachine *vm) {
+    RegisterPages(vm);
     vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, float, TESObjectREFR *, TESForm *>(
         "GetHealth", SCRIPT, GetHealth, vm));
     vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, bool, TESObjectREFR *, TESForm *, float>(

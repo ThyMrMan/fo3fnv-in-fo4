@@ -608,7 +608,7 @@ drops out of every menu.
 
 <a id="karma-page"></a>**Karma page (built 2026-10-14).** Karma is the
 `TES4Karma` global the scripts' RewardKarma sets (Karma conditions on the
-player read it). Its Pip-Boy Tabs page on STAT (`spike/karma_page.py`)
+player read it). Its Pip-Boy tab, KARMA on STAT (`spike/karma_page.py`; [fo4_pipboy_tabs.md](fo4_pipboy_tabs.md)),
 has two rows, actor values `TES4_KarmaPage` sets on the player each time
 the Pip-Boy opens (it cannot hook every change: karma moves through a
 global, and the level on its own): Karma, very evil to very good by
@@ -636,14 +636,14 @@ global (`spike/reputation.py`). Two FO4 mods were read for reference:
 REPUTATION (Nexus 79394) and KARMA (Nexus 80425) keep fame, infamy and
 karma as actor values on the player, which their Pip-Boy pages (the Pip-Boy
 Tabs F4SE plugin, a 4×4 title grid in `RPTN_ReputationTab.ini`) list. The
-globals here have no Pip-Boy page yet.
+globals here show on the REPUTATION tab ([fo4_pipboy_tabs.md](fo4_pipboy_tabs.md)).
 
-**Karma page redraw (2026-10-22, not yet played).** In play, `set TES4Karma
-to 500` left the page unchanged. `TES4_KarmaPage` sets its rows as the
-Pip-Boy opens, after Pip-Boy Tabs has drawn them. It now calls
-`PBT:PBT.UpdateMenu()` (Pip-Boy Tabs' native redraw) after setting them.
-The compiler imports Pip-Boy Tabs' header (`references/PipboyTabs`,
-`papyrus.PIPBOY_TABS_HEADERS`).
+**Karma page redraw (2026-10-22).** In play, `set TES4Karma to 500` left
+the page unchanged: `TES4_KarmaPage` set its rows as the Pip-Boy opened,
+after Pip-Boy Tabs had drawn them. Since 2026-10-23 our own plugin draws
+the tab, filling its rows each time it shows
+([fo4_pipboy_tabs.md](fo4_pipboy_tabs.md#how)), so that no longer
+applies.
 
 <a id="standings"></a>**Karma and infamy from kills and crimes (built
 2026-10-22; kill karma played 2026-10-22: Powder Ganger kills raised karma).** `spike/standings.py`. FNV's engine scores

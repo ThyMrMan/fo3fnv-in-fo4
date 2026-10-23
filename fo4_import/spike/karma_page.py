@@ -1,4 +1,4 @@
-"""The karma Pip-Boy page (Pip-Boy Tabs, on STAT): the player's alignment and karmic title, as FNV shows them.
+"""The Pip-Boy's KARMA tab (pipboy_tabs, on STAT): the player's alignment and karmic title, as FNV shows them.
 
 Two rows, actor values on the player that TES4_KarmaPage sets whenever the
 Pip-Boy opens: Alignment (very evil to very good by FNV's fAlign
@@ -14,10 +14,9 @@ See: docs/fork/fo4_pipeline.md#karma-page
 import json
 from pathlib import Path
 
-from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.spike import records as R
-from fo4_import.spike.reputation import KARMA_KEY, PAGE_SITE, STAT_PAGE, actor_value, page_list, write_tab
+from fo4_import.spike.pipboy_tabs import tab_quest
+from fo4_import.spike.reputation import KARMA_KEY, PAGE_SITE, actor_value, page_list
 from tes5_import.character_data_falloutnv import ENGINE_SETTINGS
 
 SCRIPT = 'TES4_KarmaPage'
@@ -63,14 +62,12 @@ def thresholds(export_dir: Path) -> dict:
     return {prop: ('float', float(gmst.get(name) or engine[name])) for prop, name in THRESHOLDS.items()}
 
 
-def write_karma_page(builder, export_dir: Path, data_dir: Path, plugin: str, form_map: dict) -> Path:
-    """Write the page's actor values, row list, start-game quest running TES4_KarmaPage (karma from `form_map`'s
-    KARMA_KEY) and Data\\PBT tab; the tab's path."""
+def write_karma_page(builder, export_dir: Path, form_map: dict) -> int:
+    """Write the KARMA tab (pipboy_tabs): its actor values, row list and start-game quest running TES4_KarmaPage
+    (karma from `form_map`'s KARMA_KEY), on the Pip-Boy Tabs page quest's FormID; the quest's FormID."""
     alignment = actor_value(builder, 'TES4KarmaAlignment', 'Karma')
     title = actor_value(builder, 'TES4KarmaTitle', 'Title')
     rows = page_list(builder, 'TES4KarmaPageRows', [alignment, title])
-    props = {'TES4Karma': form_map[KARMA_KEY], 'AlignmentValue': alignment, 'TitleValue': title}
-    vmad = quest_fragments('', [], scripts=[(SCRIPT, props, thresholds(export_dir))])
-    quest = builder.writer.derive_formid(PAGE_SITE, 'TES4KarmaPageQuest')
-    builder.writer.add_record('QUST', R.pack_fnv_quest(quest, 'TES4KarmaPageQuest', '', 0, vmad, [], [], [], True))
-    return write_tab(data_dir, plugin, ('Karma', STAT_PAGE), rows, '|'.join(titles(export_dir)))
+    objects = {'TES4Karma': form_map[KARMA_KEY], 'AlignmentValue': alignment, 'TitleValue': title}
+    return tab_quest(builder, 'KARMA', rows, titles(export_dir), script=SCRIPT, props=(objects, thresholds(export_dir)),
+                     fid=builder.writer.derive_formid(PAGE_SITE, 'TES4KarmaPageQuest'))

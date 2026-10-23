@@ -70,6 +70,7 @@ from fo4_import.spike.named_refs import named_markers
 from fo4_import.spike.condition_forms import condition_forms
 from fo4_import.spike.locks import lock_vmad
 from fo4_import.spike.readiness import Readiness
+from fo4_import.spike.pipboy_tabs import remove_legacy_tabs
 from fo4_import.spike.reputation import write_page, write_reputations
 from fo4_import.spike.standings import Standings
 from fo4_import.spike.karma_page import write_karma_page
@@ -1003,9 +1004,11 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     ammo_casings.write(builder, builder.equipment.ammo_mods.loaded)
     ammo_switch.write(builder, builder.equipment.ammo_mods)
     builder.equipment.condition.write(builder.equipment.ammo_mods, data_dir, HELPER_INDEX)
+    write_karma_page(builder, export_dir, builder.reputation_slots)
+    write_page(builder)
+    builder.counts['Pip-Boy Tabs files removed'] = len(remove_legacy_tabs(data_dir, out.name))
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))
-    print(f'karma page: {write_karma_page(builder, export_dir, data_dir, out.name, builder.reputation_slots)}')
     builder.equipment.write_anim_lists()
     builder.idles.write(data_dir)
     builder.writer.next_object_id = builder.top
@@ -1016,5 +1019,4 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')
-    print(f'reputation page: {write_page(builder, data_dir, out.name)}')
     return builder.counts

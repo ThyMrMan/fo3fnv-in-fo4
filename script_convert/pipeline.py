@@ -1242,10 +1242,12 @@ def build_vmad_package_fragment(script_name: str, value_props: dict = None,
 # Papyrus property object-type codes for the VMAD property record (objectFormat 2).
 #   1 = Object (FormID + alias), 2 = wstring, 3 = Int32, 4 = Float, 5 = Bool
 _VMAD_PROP_OBJECT = 1
+_VMAD_PROP_STRING = 2
 _VMAD_PROP_INT = 3
 _VMAD_PROP_FLOAT = 4
 _VMAD_PROP_BOOL = 5
 _VMAD_PROP_OBJECT_ARRAY = 11
+_VMAD_PROP_STRING_ARRAY = 12
 _VMAD_PROP_INT_ARRAY = 13
 _VMAD_PROP_FLOAT_ARRAY = 14
 
@@ -1300,6 +1302,10 @@ def _property_value(kind: str, value) -> bytes:
         return struct.pack('<BBf', _VMAD_PROP_FLOAT, 1, float(value))
     if kind == 'bool':
         return struct.pack('<BBB', _VMAD_PROP_BOOL, 1, 1 if value else 0)
+    if kind == 'string':
+        return struct.pack('<BB', _VMAD_PROP_STRING, 1) + pack_wstring(value)
+    if kind == 'strings':
+        return struct.pack('<BBI', _VMAD_PROP_STRING_ARRAY, 1, len(value)) + b''.join(pack_wstring(v) for v in value)
     if kind == 'objects':
         return (struct.pack('<BBI', _VMAD_PROP_OBJECT_ARRAY, 1, len(value))
                 + b''.join(struct.pack('<HhI', 0, -1, fid) for fid in value))

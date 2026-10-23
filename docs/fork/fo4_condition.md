@@ -638,9 +638,9 @@ only after the attacker's `IsPlayerRef` (vtable 0xD8, named in xNVSE's
 An NPC's weapon keeps the condition it spawned with (its entry's COED,
 [#entry-condition](#entry-condition)), so there is nothing to build.
 
-Next:
-- Karma and reputation lines on the Pip-Boy's STAT page from this plugin,
-  which would drop PipboyTabs (2026-10-23, suggested).
+Next: none for condition. The plugin also draws the Pip-Boy's SKILLS,
+REPUTATION and KARMA tabs ([fo4_pipboy_tabs.md](fo4_pipboy_tabs.md)), which
+replaced Pip-Boy Tabs.
 
 ## <a id="drift"></a>Expected drift
 

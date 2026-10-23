@@ -8,9 +8,9 @@ TES4_Reputation calls work alike: a script property naming the REPU gets
 the list, and GetReputation / GetReputationThreshold read a global. On
 Fallout 4 the list also holds the actor value its Pip-Boy page row shows
 (slot 6, named as FNV names the faction) and the global showing that row
-(slot 7); Pip-Boy Tabs reads both through a tab file in Data\\PBT, laid
-out as the REPUTATION mod's (Nexus 79394): a title per fame and infamy
-range, rows hidden until there is reputation.
+(slot 7): the Pip-Boy's REPUTATION tab (pipboy_tabs) shows a title per
+fame and infamy range, rows hidden until there is reputation, as the
+REPUTATION mod (Nexus 79394) lays it out.
 
 See: docs/fork/fo4_pipeline.md#reputation
 """
@@ -21,6 +21,7 @@ from pathlib import Path
 from fo4_import.base.support_records import pack_global
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike.pipboy_tabs import tab_quest
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV, KARMA_GLOBAL, SLOTS
 
@@ -30,15 +31,14 @@ GLOBAL_SITE = 'FNV REPU GLOB'
 PAGE_SITE = 'FNV REPU page'
 #: Key prefix of a reputation global in a form map: ('rep', REPU FormID, slot index).
 SLOT_KEY = 'rep'
-#: Pip-Boy Tabs pages a tab goes on: STAT, DATA.
-STAT_PAGE, DATA_PAGE = 0, 2
 #: Form map key of the karma global, which FNV's Karma actor value (on the player) reads as.
 KARMA_KEY = ('av global', KARMA_AV)
 #: The page rows' actor value layout, as the REPUTATION mod's RPTN_PBT_FirstAV_*: default 0, AVFL, NAM1.
 AV_FLAGS, AV_KIND = 0x400, 8
-#: FNV's titles by infamy range * 4 + fame range (TES4_Reputation.Range), as Pip-Boy Tabs' StringArray.
-TITLES = ('Neutral|Accepted|Liked|Idolized|Shunned|Mixed|Smiling Troublemaker|Good-Natured Rascal|Hated|'
-          'Sneering Punk|Unpredictable|Dark Hero|Vilified|Merciful Thug|Soft-Hearted Devil|Wild Child')
+#: FNV's titles by infamy range * 4 + fame range (TES4_Reputation.Range).
+TITLES = ('Neutral', 'Accepted', 'Liked', 'Idolized', 'Shunned', 'Mixed', 'Smiling Troublemaker', 'Good-Natured Rascal',
+          'Hated', 'Sneering Punk', 'Unpredictable', 'Dark Hero', 'Vilified', 'Merciful Thug', 'Soft-Hearted Devil',
+          'Wild Child')
 
 
 def write_reputations(builder, export_dir: Path) -> tuple:
@@ -95,22 +95,7 @@ def _form_list(fid: int, edid: str, forms: list) -> bytes:
     return pack_fo4_record('FLST', fid, 0, subs)
 
 
-def write_page(builder, data_dir: Path, plugin: str) -> Path:
-    """Write the reputation tab (write_tab) on the DATA page; its path."""
+def write_page(builder) -> int:
+    """Write the REPUTATION tab (pipboy_tabs); its quest's FormID."""
     rows, shown = builder.reputation_page
-    return write_tab(data_dir, plugin, ('Reputation', DATA_PAGE), rows, TITLES, shown)
-
-
-def write_tab(data_dir: Path, plugin: str, tab: tuple, rows: int, titles: str, shown: 'int | None' = None) -> Path:
-    """Write a Pip-Boy Tabs type 2 tab (Data\\PBT\\<plugin>_<name>.ini): `tab` (name, page), the FormList `rows`
-    of actor values whose value picks from `titles` ('|'-separated), rows shown by FormList `shown`; its path."""
-    name, page = tab
-    path = data_dir / 'PBT' / f'{Path(plugin).stem}_{name}.ini'
-    path.parent.mkdir(parents=True, exist_ok=True)
-    filters = f'{plugin}|{shown & 0xFFFFFF:X}' if shown else ''
-    path.write_text('\n'.join(['[Main]', 'INIVersion=2', 'TabType=2', 'ShowListOnly=0',
-                               f'UniqueID={Path(plugin).stem}_{name}Tab', f'TabName={name}',
-                               f'PageNumberToInsert={page}', f'FirstList={plugin}|{rows & 0xFFFFFF:X}',
-                               f'StringArray={titles}', f'FilterList={filters}',
-                               'SecondList=', 'MaxValueList=', 'Precision=', '']), encoding='utf-8')
-    return path
+    return tab_quest(builder, 'REPUTATION', rows, TITLES, shown)
