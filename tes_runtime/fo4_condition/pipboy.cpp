@@ -1,5 +1,6 @@
 // F3NV's Pip-Boy: a CND line on the inventory item card for items that wear, a REPAIR (G) button
-// hint, and the highlighted item for F3NV_Condition.PipboySelection (docs/fork/fo4_condition.md#pipboy).
+// hint, the AMMO (V) hint and its keys (ammo.cpp), and the highlighted item for F3NV_Condition.PipboySelection
+// (docs/fork/fo4_condition.md#pipboy).
 //
 // When the Pip-Boy menu opens (a menu open event, then a UI task), its movie gets a native enterFrame listener.
 // The menu's instance (root.Menu_mc) keeps its current page in CurrentPage. The inventory page
@@ -136,13 +137,7 @@ bool Resolve(UInt32 formID, UInt32 nodeID) {
 
 // Ask Papyrus to repair the highlighted item: F3NV_ConditionPlayer listens for the F4SE external event.
 void SendRepair(GFxMovieRoot *movie, const char *why) {
-    GFxValue f4se, name;
-    bool sent = movie->GetVariable(&f4se, "root.f4se") && f4se.IsObject();
-    if (sent) {
-        movie->CreateString(&name, REPAIR_EVENT);
-        sent = f4se.Invoke("SendExternalEvent", nullptr, &name, 1);
-    }
-    _MESSAGE("Pip-Boy repair (%s): %s %s", why, REPAIR_EVENT, sent ? "sent" : "not sent");
+    _MESSAGE("Pip-Boy repair (%s): %s %s", why, REPAIR_EVENT, SendExternal(movie, REPAIR_EVENT) ? "sent" : "not sent");
 }
 
 // ---- The repair list ----
@@ -170,13 +165,15 @@ SInt32 g_cardIndex = -1;  // the item card's place among the page's children whi
 enum : int { KEY_TAB = 9, KEY_ENTER = 13, KEY_ESC = 27, KEY_UP = 38, KEY_DOWN = 40, KEY_E = 69, KEY_G = 71,
              KEY_S = 83, KEY_W = 87 };
 
+std::string Percent(float health) {
+    return std::to_string(int(std::floor(health * 100.0f + 0.5f))) + "%";
+}
+
+}  // namespace
+
 bool CurrentPage(GFxMovieRoot *movie, GFxValue *page) {
     return movie->GetVariable(page, (g_base + ".CurrentPage").c_str()) && page->IsObject() &&
            page->HasMember("ItemCard_mc");
-}
-
-std::string Percent(float health) {
-    return std::to_string(int(std::floor(health * 100.0f + 0.5f))) + "%";
 }
 
 void AddLine(GFxMovieRoot *movie, GFxValue &lines, const std::string &text, const std::string &value) {
@@ -188,6 +185,8 @@ void AddLine(GFxMovieRoot *movie, GFxValue &lines, const std::string &text, cons
     line.SetMember("value", &shown);
     lines.PushBack(&line);
 }
+
+namespace {
 
 // The vendor's offer on the card's lines: its skill, the condition before and after, the price, the caps held.
 void DrawOffer(GFxMovieRoot *movie, GFxValue &lines) {
@@ -228,6 +227,8 @@ void DrawList(GFxMovieRoot *movie, GFxValue &page) {
     card.Invoke("onDataChange", nullptr, nullptr, 0);
 }
 
+}  // namespace
+
 // Turn `page`'s modal (its fade, which blocks the page's actions, and its list's input) on or off. While on,
 // the item card is lifted above the fade, as the page's own pop-ups are, so the list reads as the pop-up; off,
 // it goes back to its place (played 2026-10-23: under the fade the list looked like a pop-up that never came).
@@ -248,14 +249,33 @@ void SetModal(GFxValue &page, bool on) {
     page.Invoke("setChildIndex", nullptr, args, 2);
 }
 
-// Add a REPAIR line saying why there is nothing to choose to `page`'s item card.
-void SayOnCard(GFxMovieRoot *movie, GFxValue &page, const char *why) {
+void SayOnCard(GFxMovieRoot *movie, GFxValue &page, const char *why, const char *label) {
     GFxValue card, info;
     if (Get(page, "ItemCard_mc", &card) && Get(card, "InfoObj", &info) && info.IsArray()) {
-        AddLine(movie, info, "REPAIR", why);
+        AddLine(movie, info, label, why);
         card.Invoke("onDataChange", nullptr, nullptr, 0);
     }
 }
+
+bool SendExternal(GFxMovieRoot *movie, const char *event) {
+    GFxValue f4se, name;
+    if (!movie->GetVariable(&f4se, "root.f4se") || !f4se.IsObject()) return false;
+    movie->CreateString(&name, event);
+    return f4se.Invoke("SendExternalEvent", nullptr, &name, 1);
+}
+
+bool MakeHint(GFxMovieRoot *movie, const char *label, const char *key, MakeClick click, GFxValue *hint) {
+    GFxValue args[6];
+    const char *texts[4] = {label, key, "", ""};
+    for (int i = 0; i < 4; i++) movie->CreateString(&args[i], texts[i]);
+    args[4] = GFxValue(UInt32(1));
+    click(movie, &args[5]);
+    movie->CreateObject(hint, HINT_CLASS, args, 6);
+    if (!hint->IsObject()) _MESSAGE("could not create the Pip-Boy %s hint (%s)", label, HINT_CLASS);
+    return hint->IsObject();
+}
+
+namespace {
 
 // Open the vendor's offer for the highlighted item (stack chosen in g_list); on one the vendor cannot improve,
 // say so on the card.
@@ -330,11 +350,12 @@ void CloseList(GFxMovieRoot *movie, bool repair) {
 class HintClick : public GFxFunctionHandler {
 public:
     void Invoke(Args *args) override {
-        if (!g_list.open) OpenList(args->movie->movieRoot);
+        if (!g_list.open && !AmmoListOpen()) OpenList(args->movie->movieRoot);
     }
 };
 
-// The Pip-Boy's own key events: G opens the repair list on an item that wears; the list's keys while it is open.
+// The Pip-Boy's own key events: G opens the repair list on an item that wears, V the ammo list (ammo.cpp); the
+// open list's keys.
 class KeyHandler : public GFxFunctionHandler {
 public:
     void Invoke(Args *args) override {
@@ -342,6 +363,7 @@ public:
         if (args->numArgs < 1 || !Get(args->args[0], "keyCode", &code)) return;
         GFxMovieRoot *movie = args->movie->movieRoot;
         int key = int(Num(code));
+        if (!g_list.open && AmmoKey(movie, key)) return;
         if (!g_list.open) {
             if (key == KEY_G) OpenList(movie);
             return;
@@ -359,25 +381,19 @@ public:
     }
 };
 
-// Give inventory page `page` the REPAIR hint, once per page, on keyboard and mouse only.
+// Give inventory page `page` the REPAIR and AMMO hints, once per page, on keyboard and mouse only.
 void AddHint(GFxMovieRoot *movie, GFxValue &root, GFxValue &page) {
     if (page.data.obj == g_hintPage) return;
-    GFxValue hints, bar, hint, platform, args[6];
+    GFxValue hints, bar, hint, ammo, platform;
     if (!Get(page, "buttonHintDataV", &hints) || !Get(root, "ButtonHintBar_mc", &bar)) return;
     g_hintPage = page.data.obj;
     if (Get(root, "uiPlatform", &platform) && Num(platform) != KEYBOARD_MOUSE) return;
-    const char *texts[4] = {HINT, HINT_KEY, "", ""};
-    for (int i = 0; i < 4; i++) movie->CreateString(&args[i], texts[i]);
-    args[4] = GFxValue(UInt32(1));
-    CreateFunction<HintClick>(&args[5], movie);
-    movie->CreateObject(&hint, HINT_CLASS, args, 6);
-    if (!hint.IsObject()) {
-        _MESSAGE("could not create the Pip-Boy %s hint (%s)", HINT, HINT_CLASS);
-        return;
-    }
+    MakeClick click = [](GFxMovieRoot *m, GFxValue *out) { CreateFunction<HintClick>(out, m); };
+    if (!MakeHint(movie, HINT, HINT_KEY, click, &hint)) return;
     hints.Invoke("push", nullptr, &hint, 1);
+    if (MakeAmmoHint(movie, &ammo)) hints.Invoke("push", nullptr, &ammo, 1);
     bar.Invoke("SetButtonHintData", nullptr, &hints, 1);
-    _MESSAGE("added the Pip-Boy %s hint", HINT);
+    _MESSAGE("added the Pip-Boy %s and ammo hints", HINT);
 }
 
 
@@ -420,10 +436,11 @@ void Update(GFxMovieRoot *movie) {
         g_selection = Selection();
         g_lastKey.clear();
         g_list.open = false;
+        ForgetAmmoList();
         return;
     }
     AddHint(movie, root, page);
-    if (g_list.open) return;
+    if (g_list.open || AmmoListOpen()) return;
     if (!Get(page, "ItemCard_mc", &card) || !Get(page, "List_mc", &list)) return;
     bool force = g_refresh.exchange(false);
     std::string key;
@@ -510,6 +527,7 @@ public:
         g_hintPage = nullptr;
         ResetPages();
         g_list.open = false;
+        ForgetAmmoList();
         g_lastKey.clear();
         GFxValue f4se;
         _MESSAGE("hooked the Pip-Boy menu at %s (root.f4se: %s)", g_base.c_str(),
@@ -562,6 +580,14 @@ bool TakePipboyRepair(Repair *out) {
 
 void RefreshPipboy() {
     g_refresh = true;
+}
+
+SInt32 PipboyLineStack(UInt32 formID, UInt32 nodeID) {
+    return LineStack(formID, nodeID);
+}
+
+bool RepairListOpen() {
+    return g_list.open;
 }
 
 void ShowLine(GFxMovieRoot *movie, GFxValue &card, float health, bool force) {

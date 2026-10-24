@@ -1,11 +1,10 @@
-# FO4 spikes: deciding whether FO3/FNV on Fallout 4 is buildable
+# FO4 spikes: how FO3/FNV on Fallout 4 was shown buildable (done; work continues in fo4_pipeline.md)
 
 Design only; status is in [ROADMAP.md](ROADMAP.md). The findings behind this
 plan are in [research/fo4_target.md](research/fo4_target.md).
 
 ## Contents
 
-- [Order and why](#order)
 - [Step 0: groundwork](#step-0)
 - [Spike 1: dialogue](#spike-1)
 - [Spike 3: one script](#spike-3)
@@ -15,23 +14,6 @@ plan are in [research/fo4_target.md](research/fo4_target.md).
 - [FormIDs: none counted](#formids)
 - [Decision point](#decision)
 - [Test setup](#test-setup)
-
-## <a id="order"></a>Order and why
-
-Spikes come before more exe reading. The [AI rules](research/fo4_target.md#ai-rules)
-read so far settled the one question exe work could decide: FO4's AI
-decisions are Skyrim's. The questions that could still sink the project are
-on the content side, ordered by how decisive each is:
-
-1. **Dialogue (spike 1).** Can FO3/FNV dialogue be generated for FO4 at all?
-   This is go/no-go.
-2. **Scripts (spike 3).** How big is the script back end? Runs in parallel
-   with spike 1 and needs none of your play time.
-3. **Assets (spike 2).** What does the mesh/material/collision/FaceGen back end
-   really cost? Only worth paying for once spike 1 passes.
-
-Exe reading resumes where a spike needs it. Spike 1 plays a force greet, which
-settles R10 by observation.
 
 ## <a id="step-0"></a>Step 0: groundwork
 
@@ -264,7 +246,7 @@ Built 2026-10-05: 41 files, 40 on Doc's lines and 1 on Barrows'. FNV has no
 recordings for `HD00`'s robot butler lines. **Played:** Doc speaks in Doc
 Mitchell's voice with moving lips.
 
-### <a id="spike-1-force-greet"></a>Force greet (designed, not built)
+### <a id="spike-1-force-greet"></a>Force greet (built: [greet trigger](fo4_pipeline.md#greet-trigger))
 
 FO3/FNV force greets play the same GREETING lines the player gets by
 talking. FO3's Amata: `CG04AmataForceGreet` is a Dialogue package targeting
@@ -351,7 +333,7 @@ where Skyrim has a file name; vanilla FO4 INFOs attach no other scripts.
 Fragment scripts are namespaced (`Fragments:TopicInfos:TIF_<quest>_<id>`).
 Five builders in `script_convert/pipeline.py` change.
 
-### <a id="spike-3-target"></a>The target switch (in progress)
+### <a id="spike-3-target"></a>The target switch (done)
 
 `script_convert/target.py` picks the game a run emits Papyrus for (Skyrim by
 default, Fallout 4 with `convert_scripts_subset.py --target fallout4`),
@@ -1676,7 +1658,7 @@ character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions))
 - LevelUpMenuEx reads `Data\PRKF\*.ini`; its list keys name a FormList as
   `Plugin.esp|<hex id>` (the DLL splits at `|`, `mov r8b, 0x7C` before
   the find in its parser at RVA `0xa190`) and check the entries are perks
-  or actor values. The cell writes `PRKF\FNVCellSpike.ini`: `FNV_Skills`
+  or actor values. The cell writes `PRKF\<plugin stem>.ini` (now `PRKF\FalloutNV.ini`): `FNV_Skills`
   and an empty `FNV_Perks` (perks are a later step), FO4's perk chart off,
   0 points per level (the rules add them).
 - The 13 FNV skills are the helper plugin's actor values, overridden with
@@ -3579,8 +3561,8 @@ fresh data folder wrote the plugin byte for byte the same.
 
 ## <a id="decision"></a>Decision point
 
-After spikes 1–3: the architecture plan (the `fo4_import` package, the asset
-writers, the script back end, the runtime), or a stop.
+After spikes 1–3: the architecture plan or a stop. Decided: go ahead, as
+[fo4_pipeline.md](fo4_pipeline.md).
 
 ## <a id="test-setup"></a>Test setup
 

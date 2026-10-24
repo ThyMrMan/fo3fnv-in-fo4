@@ -1,6 +1,6 @@
 """FNV weapon condition on Fallout 4: the curves, the condition mods, wear perks and which weapons are wired.
 
-See: docs/fork/fo4_condition.md#plan
+See: docs/fork/fo4_condition.md#built
 """
 import struct
 from collections import Counter

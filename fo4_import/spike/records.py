@@ -76,6 +76,13 @@ def pack_u32(sig: str, value: int) -> bytes:
     return pack_subrecord(sig, struct.pack('<I', value & 0xFFFFFFFF))
 
 
+def pack_keywords(keywords) -> bytes:
+    """KSIZ and KWDA of keyword FormIDs `keywords`; b'' when there are none."""
+    if not keywords:
+        return b''
+    return pack_u32('KSIZ', len(keywords)) + pack_subrecord('KWDA', struct.pack(f'<{len(keywords)}I', *keywords))
+
+
 def _s32(sig: str, value: int) -> bytes:
     """A 4-byte signed subrecord."""
     return pack_subrecord(sig, struct.pack('<i', value))
@@ -322,8 +329,7 @@ def pack_misc(fid: int, edid: str, name: str, model: str, bounds: tuple, value: 
               vmad: bytes = b'', keywords: tuple = ()) -> bytes:
     """A misc item: scripts, bounds, preview, name, model, keywords, DATA value and weight."""
     subs = _bounded(edid, bounds, vmad) + pack_u32('PTRN', MISC_PREVIEW) + _zstr('FULL', name) + (_zstr('MODL', model) if model else b'')
-    subs += (pack_u32('KSIZ', len(keywords)) + pack_subrecord('KWDA', struct.pack(f'<{len(keywords)}I', *keywords))
-             if keywords else b'')
+    subs += pack_keywords(keywords)
     return pack_fo4_record('MISC', fid, 0, subs + pack_subrecord('DATA', struct.pack('<If', value, weight)))
 
 

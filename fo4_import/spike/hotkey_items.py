@@ -10,6 +10,7 @@ import struct
 
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.consumable_effects import effect_pair
+from fo4_import.spike.records import pack_keywords
 from fo4_import.spike.script_effects import FIRE_AND_FORGET
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
@@ -26,10 +27,11 @@ def hotkey_effect(builder, fid: int, edid: str, name: str, vmad: bytes) -> None:
     builder.writer.add_record('MGEF', pack_fo4_record('MGEF', fid, 0, body))
 
 
-def hotkey_item(builder, fid: int, edid: str, name: str, effect: int) -> None:
-    """A hotkey aid item `edid` named `name` running `effect`: no weight or value, on vanilla MODEL_FROM's model."""
-    body = pack_string_subrecord('EDID', edid) + pack_subrecord('OBND', bytes(12))
-    body += pack_string_subrecord('FULL', name) + pack_subrecord('MODL', model(builder.fo4))
+def hotkey_item(builder, fid: int, edid: str, name: str, effect: int, keywords: tuple = ()) -> None:
+    """An aid item `edid` named `name` running `effect`, with `keywords` (FormIDs): no weight or value, on vanilla
+    MODEL_FROM's model."""
+    body = pack_string_subrecord('EDID', edid) + pack_subrecord('OBND', bytes(12)) + pack_string_subrecord('FULL', name)
+    body += pack_keywords(keywords) + pack_subrecord('MODL', model(builder.fo4))
     body += pack_subrecord('DATA', struct.pack('<f', 0.0))
     body += pack_subrecord('ENIT', struct.pack('<iIIfI', 0, NO_AUTO_CALC, 0, 0.0, 0))
     body += effect_pair(effect, 0.0, 0, 0)

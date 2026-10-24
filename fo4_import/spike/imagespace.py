@@ -65,6 +65,13 @@ def cinematic(dnam: bytes) -> Cinematic:
                      bri if flags & BRIGHTNESS else 1.0, (r, g, b), amount if flags & TINT else 0.0)
 
 
+def own_tint(dnam: bytes) -> tuple:
+    """(colour, amount) of an FNV IMGS DNAM's tint, its flags aside."""
+    offset = OLD_CINEMATIC if len(dnam) == OLD_DNAM else CINEMATIC
+    r, g, b, amount = struct.unpack_from('<4f', dnam, offset + 16)
+    return (r, g, b), amount
+
+
 def grade(rgb: np.ndarray, c: Cinematic) -> np.ndarray:
     """Display colours (0..1, [..., 3]) graded as FNV's cinematic pass does, clamped."""
     y = (rgb @ FNV_LUMA)[..., None]
@@ -85,11 +92,12 @@ def fo4_display(c: np.ndarray, e: float) -> np.ndarray:
 
 
 def fnv_tone(display: np.ndarray, tonemap_e: float, middle_grey: float) -> np.ndarray:
-    """FO4 display colours re-toned with FNV's straight curve, anchored where FO4 shows `middle_grey`."""
+    """FO4 display colours re-toned with FNV's straight curve, anchored where FO4 shows `middle_grey`; not clipped
+    at 1, since FNV grades (grade) before its output clips. See: docs/fork/fo4_look.md#night"""
     scene = np.linspace(0.0, FO4_WHITE / 2, CURVE_SAMPLES)
     exposed = np.interp(display, fo4_display(scene, tonemap_e), scene)
     anchor = fo4_display(np.array(middle_grey), tonemap_e)
-    return np.clip(anchor * (exposed / middle_grey) ** (1 / DISPLAY_GAMMA), 0.0, 1.0)
+    return anchor * (exposed / middle_grey) ** (1 / DISPLAY_GAMMA)
 
 
 def base_hdr(base_body: bytes) -> tuple:
@@ -115,12 +123,12 @@ def lut_dds(rgb: np.ndarray) -> bytes:
     return header + pixels.tobytes()
 
 
-def write_lut(dnam: bytes, edid: str, data_dir: Path, hdr: tuple) -> str:
-    """Write FNV imagespace `edid`'s LUT (FNV's tone over FO4's `hdr`, from base_hdr; its grading); TX00 path."""
+def write_lut(grading: Cinematic, edid: str, data_dir: Path, hdr: tuple) -> str:
+    """Write imagespace `edid`'s LUT (FNV's tone over FO4's `hdr`, from base_hdr; FNV `grading`); TX00 path."""
     rel = f'{LUT_FOLDER}\\{edid}.dds'
     path = data_dir / 'Textures' / rel.replace(chr(92), '/')
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(lut_dds(grade(fnv_tone(identity(), *hdr), cinematic(dnam))))
+    path.write_bytes(lut_dds(grade(fnv_tone(identity(), *hdr), grading)))
     return rel
 
 

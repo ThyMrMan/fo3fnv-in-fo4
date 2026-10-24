@@ -14,6 +14,7 @@ See: docs/fork/fo4_pipeline.md#effect-animation
 """
 
 from fo4_import.nif.blocks import NONE
+from fo4_import.nif.glow_scale import map_keys
 
 #: (FNV controller type, FNV channel) -> (FO4 value kind, effect shader variable, lighting shader variable).
 CHANNELS = {
@@ -27,6 +28,8 @@ CHANNELS = {
 }
 #: FNV controller types that light a shape: on a cut-out glow shape they drive its overlay.
 EMISSIVE = ('NiMaterialColorController', 'BSMaterialEmittanceMultController')
+#: FNV's emittance multiplier (dropped on blended unlit shapes) and NiAlphaProperty's blend bit.
+EMITTANCE, ALPHA_BLEND = 'BSMaterialEmittanceMultController', 1
 #: The neon overlay's name suffix (convert_static's cut-out glow).
 GLOW_SUFFIX = 'Glow'
 #: A controller's own blend interpolator, idle until a sequence plays, as vanilla's: manager-controlled flag,
@@ -56,9 +59,11 @@ def shapes_by_name(nif) -> dict:
     return out
 
 
-def shader_block(nif, cb, timing: dict, shapes: dict, made: dict, priority: int) -> 'dict | None':
+def shader_block(nif, cb, timing: dict, at: dict, priority: int) -> 'dict | None':
     """The FO4 controlled block (with its controller and interpolator appended) of FNV shader channel `cb`;
-    None when unsupported or its shape is not converted. `made` caches controllers per shape and variable."""
+    None when unsupported or its shape is not converted. `at` holds the converted `shapes` (shapes_by_name),
+    `made` (controllers per shape and variable) and unlit shapes' texel `peaks`."""
+    shapes, made = at['shapes'], at['made']
     found = channel(cb)
     name = cb.node_name.decode('cp1252')
     if found and cb.controller_type.decode('cp1252') in EMISSIVE and name + GLOW_SUFFIX in shapes:
@@ -67,9 +72,14 @@ def shader_block(nif, cb, timing: dict, shapes: dict, made: dict, priority: int)
         return None
     value_kind, effect_var, lit_var = found
     shape, shader, shader_kind = shapes[name]
+    if cb.controller_type.decode('cp1252') == EMITTANCE and blended_unlit(nif, shape, name, shader_kind):
+        return None
     variable = effect_var if shader_kind == 'Effect' else lit_var
     ctype = f'BS{shader_kind}ShaderProperty{value_kind}Controller'
     interp = interpolator(nif, cb.interpolator)
+    if cb.controller_type.decode('cp1252') == EMITTANCE:
+        neon = name.endswith(GLOW_SUFFIX)
+        map_keys(nif, interp, 'neon' if neon else 'lit', 1.0 if neon else at['peaks'].get(name, 1.0))
     key = (shader, ctype, variable)
     if key not in made:
         blend = idle_blend(nif, 'Point3' if value_kind == 'Color' else 'Float')
@@ -80,6 +90,18 @@ def shader_block(nif, cb, timing: dict, shapes: dict, made: dict, priority: int)
     return {'interpolator': interp, 'controller': made[key], 'priority': priority, 'node': nif.string(name),
             'property': nif.string(f'BS{shader_kind}ShaderProperty'), 'controller_type': nif.string(ctype),
             'controller_id': nif.string(str(variable)), 'interpolator_id': NONE, 'shape': (name, shape)}
+
+
+def blended_unlit(nif, shape: int, name: str, shader_kind: str) -> bool:
+    """Whether converted shape `shape` is unlit (not a glow overlay) and alpha-blends: FNV clips its emissive
+    colour before blending, so its emittance multiplier must not light the faint texels.
+
+    See: docs/fork/fo4_look.md#emissive
+    """
+    alpha = nif.blocks[shape][1]['alpha_property']
+    if shader_kind != 'Effect' or name.endswith(GLOW_SUFFIX) or alpha < 0:
+        return False
+    return bool(nif.blocks[alpha][1]['alpha_flags'] & ALPHA_BLEND)
 
 
 def timing(controller) -> dict:

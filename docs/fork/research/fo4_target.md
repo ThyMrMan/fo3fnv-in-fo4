@@ -21,7 +21,6 @@ any plan come later, and status goes in [ROADMAP.md](../ROADMAP.md).
 - [Target formats](#formats)
 - [fnv-to-fo4](#fnv-to-fo4)
 - [Decisions for the user](#decisions)
-- [Proposed spikes](#spikes)
 
 ## <a id="summary"></a>Summary
 
@@ -57,7 +56,7 @@ any plan come later, and status goes in [ROADMAP.md](../ROADMAP.md).
   conditions match, become FO4 scenes. Spike 1 settles that.
 - **Second risk, now read: the package engine is Skyrim's.** The census
   says 58 of 115 bugs came from imitating FO3 engine rules in Skyrim's AI
-  ([census](fallout_rule_census.md)). `Fallout4.exe` decides package choice,
+  ([census](https://github.com/ThyMrMan/tes4skyrim/blob/standalone/docs/fork/research/fallout_rule_census.md)). `Fallout4.exe` decides package choice,
   `EvaluatePackage`, the dialogue pause, IgnoreCrime and the failsafe warp the
   way Skyrim does, function for function ([AI rules](#ai-rules)). So the
   phase A record work carries over as design, and the phase B runtime is
@@ -66,7 +65,8 @@ any plan come later, and status goes in [ROADMAP.md](../ROADMAP.md).
 - **Missing systems have FO4 mods, but most can't be used as code.** Karma
   can be a soft dependency through its API. Reputation is closed to new
   factions. The skills framework (LevelUpMenuEx) is maintained for 1.11.240.
-  Weapon condition has to be built here ([existing mods](#mods)).
+  Weapon condition had to be built here ([existing mods](#mods)); it was, in our F4SE plugin
+  ([fo4_condition.md](../fo4_condition.md)).
 
 ## <a id="installed"></a>What is installed
 
@@ -77,7 +77,7 @@ Paths are relative to `C:\Program Files (x86)\Steam\steamapps\common\Fallout 4`.
 | `Fallout4.exe` | 1.11.240.0, newer than the 2024 next-gen update (1.10.980). `Fallout4.exe.unpacked.exe` sits next to it |
 | `CreationKit.exe` | 1.11.240.0. `Tools\LipGen\CreationKit32.exe` handles lip generation |
 | F4SE | 0.7.9. Full source is in `src\f4se-0.7.9.tar.gz`; `PluginAPI.h` is the plugin interface |
-| Address Library for F4SE | **Not installed.** A native plugin on 1.11 needs the 1.11-format `Data\F4SE\Plugins\version-*.bin` |
+| Address Library for F4SE | **Not installed** (as of 2026-10-05; since installed, [fo4_condition.md](../fo4_condition.md#fo4-pieces)). A native plugin on 1.11 needs the 1.11-format `Data\F4SE\Plugins\version-*.bin` |
 | DLC | All six, plus the HD texture pack and nine Creation Club `.esl` files |
 | Tools | Archive2 1.1.0.5, Elric (`Tools\Elric\Elrich.exe`), LipGen + LIPFuzer, xWMAEncode, MaterialEditor, the 3ds Max NIF exporter, Papyrus compiler 2.8.0.4 |
 | Script sources | Zipped: `Data\Scripts\Source\Base\Base.zip` (7,874 entries, with `Institute_Papyrus_Flags.flg`) plus a DLC zip each. The F4SE `.psc` files sit loose in `Data\Scripts\Source\`, outside the CK's import paths |
@@ -188,7 +188,7 @@ own actor values, and F4SE adds about 248 Papyrus functions (58 of them on
 | System | How |
 |---|---|
 | 13 skills | Plugin AVIFs. WEAP DNAM has an actor-value "skill" field for damage scaling. Checks become conditions on the AVIFs. The menu can come from LevelUpMenuEx ([mods](#mods)) |
-| Karma, fame/infamy, reputation | Globals or AVIFs plus Papyrus and a UI. FO4 has no REPU or CHAL records. Karma can go through KARMA's API; reputation is ours to build ([mods](#mods)) |
+| Karma, fame/infamy, reputation | Globals or AVIFs plus Papyrus and a UI. FO4 has no REPU or CHAL records. Both built as our own (2026-10-14; [standings](../fo4_pipeline.md#standings)), shown on our Pip-Boy tabs ([fo4_pipboy_tabs.md](../fo4_pipboy_tabs.md)) |
 | Weapon and armor condition | No item health in FO4. Needs F4SE `InstanceData` plus extra data, or a native plugin. This is character piece H, which isn't started anyway. Ours to build ([mods](#mods)) |
 | Ammo effects (AMEF) | No ammo effects; approximate with OMODs or legendary effects |
 | Topic-list dialogue | XDI ([mods](#mods)) gives any number of options and a silent player. What remains is mapping FO3/FNV topics onto scenes (spike 1) |
@@ -266,7 +266,7 @@ behind our API, with a fallback).
 
 ### <a id="dependency-policy"></a>Dependency or our own build
 
-Proposed 2026-10-05, not yet decided. The split runs on what a mod's value
+Proposed 2026-10-05; rows decided since say so. The split runs on what a mod's value
 is:
 
 - **Content mods** (Karma, Reputation, Weapon Condition) are mostly Papyrus
@@ -330,9 +330,9 @@ Library are for Skyrim. The question is how many more to add.
 | Armor and Weapon Condition | Our own | Restrictive permissions; FNV's own per-weapon health is better data |
 | Hydra | Development tool; decide when the runtime is built | Large Papyrus library and setup checks, but brand new with one maintainer ([above](#mods)) |
 | CHALLENGES | Our own, from FNV's CHAL records, borrowing its design | Three extra F4SE plugins as hard requirements; its author allows reusing its scripts and records |
-| PipboyTabs | Behind our API, with a fallback | One Pip-Boy UI for skills, karma, fame/infamy and challenges; LevelUpMenuEx already feeds it |
+| PipboyTabs | Dropped 2026-10-23 | Our F4SE plugin draws the SKILLS, REPUTATION and KARMA tabs ([fo4_pipboy_tabs.md](../fo4_pipboy_tabs.md)) |
 | Baka Framework | Only if one of its pieces is needed | Small and liberally licensed, but mostly covered by Hydra |
-| Garden of Eden PSE | No | Overlaps Hydra; restrictive terms |
+| Garden of Eden PSE | Yes (decision 7, 2026-10-07) | Proposed No (overlaps Hydra; restrictive terms), then taken for its natives |
 
 ### <a id="levelupmenuex"></a>LevelUpMenuEx, read
 
@@ -539,8 +539,8 @@ pulled from their BA2s with `fo4_import.base.ba2`).
 
 Spike 4, read 2026-10-05 from `Fallout4.exe.unpacked.exe` (1.11.240, image
 base `0x140000000`, RTTI intact). Addresses are RVAs. The rules and their FO3
-and Skyrim readings are in [engine rules](fallout_engine_rules.md) and
-[Skyrim hooks](skyrim_hooks.md). Functions were matched to Skyrim 1.6.1170's
+and Skyrim readings are in [engine rules](https://github.com/ThyMrMan/tes4skyrim/blob/standalone/docs/fork/research/fallout_engine_rules.md) and
+[Skyrim hooks](https://github.com/ThyMrMan/tes4skyrim/blob/standalone/docs/fork/research/skyrim_hooks.md). Functions were matched to Skyrim 1.6.1170's
 by their shape and callers: the AI state clear is instruction for instruction
 the same.
 
@@ -786,9 +786,9 @@ reviewed through the GitHub API, without cloning.
    `disableVanillaPerks`; its Papyrus (`PRKF:PRKF`) has `AddSP`/`AddPP`,
    `OpenTagSkillsMenu(3, 15, …)` and `OpenTraitsMenuFL(list, 2, …)`.
    FNV's 10 + Intelligence ÷ 2 skill points and a perk every 2 levels come
-   from a level-up script adding the difference. Drift: skills show in
-   LevelUpMenuEx's menu, not a Pip-Boy page; the Pip-Boy keeps FO4's
-   SPECIAL and perk pages.
+   from a level-up script adding the difference. Skills are spent in
+   LevelUpMenuEx's menu and shown on our Pip-Boy SKILLS tab (since
+   2026-10-23); the Pip-Boy keeps FO4's SPECIAL and perk pages.
 7. **Garden of Eden.** Decided 2026-10-07: a dependency (F4SE plugin,
    about 1,160 Papyrus natives; headers copied into
    `references\GardenOfEden` for compiling). First use: FO3/FNV
@@ -800,31 +800,3 @@ reviewed through the GitHub API, without cloning.
    hits) in place of 0.1 s GameMode polls, VATS critical charge and count
    for FNV's crit chance, current-topic and dialogue pause/stop for
    scripted lines, per-item instance data for later item conditions.
-
-## <a id="spikes"></a>Proposed spikes
-
-Each spike is small, can be thrown away, and answers one question before
-anything is committed:
-
-1. **Dialogue.**
-   - Build Doc Mitchell's opening conversation (FNV) by hand, from the
-     export text, as XDI-enabled FO4 scenes: topic list, more than four
-     choices, SPECIAL/skill checks, silent player.
-   - Then build one generic topic that many NPCs share, to see how
-     quest-owned, condition-picked topics fit alias-based scenes.
-   - Answers: whether the topic → scene mapping can be generated without
-     hand work, and what it does with Add Topic, greetings and the
-     return to the topic list.
-2. **One interior cell end to end.**
-   - Doc Mitchell's house: records via a minimal `fo4_import` (CELL, REFR,
-     STAT, LIGH, DOOR, NPC_), meshes through a minimal BSTriShape + BGSM
-     writer (or Elric), textures re-encoded, FaceGen from the CK.
-   - Answers: the real cost of the asset back end.
-3. **One script.**
-   - Compile a converted FNV object script (a terminal's, for instance)
-     against FO4 headers.
-   - Answers: whether the vendored compiler works, and how big the row-table
-     change is.
-4. **Exe reads.** Done 2026-10-05 ([AI rules](#ai-rules)): FO4's AI is
-   Skyrim's for R1, R3, R5, R8 and R14. Radio is native. A force greet
-   probably lasts through the talk.

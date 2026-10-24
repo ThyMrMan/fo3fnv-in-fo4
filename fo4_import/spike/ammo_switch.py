@@ -20,6 +20,8 @@ from fo4_import.spike.hotkey_items import hotkey_effect, hotkey_item
 #: derive_formid site (keys: 'quest', 'item', 'effect', a message's name, 'note <FNV ammo FormID>').
 SITE = 'FNV ammo switch'
 SCRIPT, ITEM_SCRIPT = 'F3NV_AmmoSwitch', 'F3NV_AmmoSwitchItem'
+#: The F3NV plugin's natives for the Pip-Boy's ammo list (tes_runtime/fo4_condition/ammo.cpp).
+NATIVES = 'F3NV_PipboyAmmo'
 #: The hotkey item's name (FNV's own for the hotkey).
 ITEM_NAME = 'Ammo Type'
 #: The quest's messages: property, text.
@@ -71,6 +73,6 @@ def write(builder, mods) -> None:
     hotkey_effect(builder, effect, 'FNV_AmmoSwitchEffect', ITEM_NAME,
                   object_scripts([(ITEM_SCRIPT, {'Switch': quest, 'Hotkey': item}, {})]))
     hotkey_item(builder, item, 'FNV_AmmoSwitchHotkey', ITEM_NAME, effect)
-    builder.scripts.used += [SCRIPT, ITEM_SCRIPT]
+    builder.scripts.used += [SCRIPT, ITEM_SCRIPT, NATIVES]
     builder.counts['ammo switch lists'] = len(grouped)
 

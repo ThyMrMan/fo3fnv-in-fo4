@@ -29,7 +29,8 @@ from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.scol import PART_SITE, Parts, compose
 from fo4_import.spike.emittance import Emittance
 from fo4_import.spike.lighting_template import resolved
-from fo4_import.spike.imagespace import BASE_IMAGESPACE, DISPLAY_GAMMA, LUT_FOLDER, base_hdr, pack_imgs, write_lut
+from fo4_import.spike.imagespace import (BASE_IMAGESPACE, DISPLAY_GAMMA, LUT_FOLDER, base_hdr, cinematic, pack_imgs,
+                                         write_lut)
 from fo4_import.spike.activators import Activators
 from fo4_import.spike import ammo_casings, ammo_switch
 from fo4_import.spike.crafting import Crafting
@@ -74,6 +75,7 @@ from fo4_import.spike.pipboy_tabs import remove_legacy_tabs
 from fo4_import.spike.reputation import write_page, write_reputations
 from fo4_import.spike.standings import Standings
 from fo4_import.spike.karma_page import write_karma_page
+from fo4_import.spike.challenges import Challenges
 from fo4_import.spike.statics import tree_assets, write_assets
 from fo4_import.spike.readables import Readables
 from fo4_import.spike.decals import Decals
@@ -224,6 +226,7 @@ class CellBuilder:
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.weather_ids, self.weather_templates, self.weather_regions, self.acoustics = {}, {}, None, None
+        self.world_imagespace, self.weather_imagespaces = 0, {}
         self.hazards, self.music, self.decals, self.perks, self.forms = None, None, None, None, {}
         self.radio = None
         self.type_keywords = TypeKeywords(self.writer)
@@ -375,9 +378,12 @@ class CellBuilder:
         return fid
 
     def _activator(self, fid: int, rec: dict, model: str, bounds: tuple) -> tuple:
-        """(signature, record) of FNV activator `rec`: a crafting station, else an ACTI."""
+        """(signature, record) of FNV activator `rec`: a crafting station, a static when it only loops its mesh
+        (Activators.ambient), else an ACTI."""
         if self.crafting.station_of(rec):
             return 'FURN', self.crafting.station(fid, rec, model, bounds)
+        if self.activators.ambient(rec, model):
+            return _static('STAT', fid, f'FNV_{rec["EditorID"]}', model, bounds, self.sounds.field(rec, 'SNAM'))
         return 'ACTI', self.activators.record(fid, rec, model, bounds)
 
     def _door(self, fid: int, edid: str, rec: dict, mesh: tuple) -> bytes:
@@ -592,7 +598,7 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
     fid = builder.fnv_id(cell['XCIM.Imagespace'])
     if fid not in builder.imagespaces:
         fnv = next(r for r in export_records(export_dir, 'IMGS') if r['FormID'] == cell['XCIM.Imagespace'])
-        lut = write_lut(bytes.fromhex(fnv['DNAM']), fnv['EditorID'], builder.data_dir, base_hdr(base_body))
+        lut = write_lut(cinematic(bytes.fromhex(fnv['DNAM'])), fnv['EditorID'], builder.data_dir, base_hdr(base_body))
         builder.writer.add_record('IMGS', pack_imgs(fid, f'FNV_{fnv["EditorID"]}', base_body, lut))
         builder.imagespaces.add(fid)
         builder.counts[f'imagespace: {fnv["EditorID"]}'] += 1
@@ -728,7 +734,8 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
     builder.scripts.named[SCRIPT_PACKAGES] = script_packages_quest(builder)
     reputations, builder.reputation_slots = write_reputations(builder, export_dir)
-    builder.scripts.named.update({**reputations, **builder.perks.named()})
+    builder.challenges = Challenges(builder, export_dir)
+    builder.scripts.named.update({**reputations, **builder.perks.named(), **builder.challenges.named()})
     builder.activators, builder.crafting = Activators(builder, export_dir), Crafting(builder, export_dir, HELPER_INDEX, every)
     builder.radio = Radio(builder, export_dir)
     builder.creatures = Creatures(builder, export_dir, builder.data_dir)
@@ -1006,6 +1013,7 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     builder.equipment.condition.write(builder.equipment.ammo_mods, data_dir, HELPER_INDEX)
     write_karma_page(builder, export_dir, builder.reputation_slots)
     write_page(builder)
+    builder.challenges.write()
     builder.counts['Pip-Boy Tabs files removed'] = len(remove_legacy_tabs(data_dir, out.name))
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))

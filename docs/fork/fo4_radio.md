@@ -1,6 +1,6 @@
-# FNV radio on Fallout 4 (plan, 2026-10-21)
+# FNV radio on Fallout 4 (built 2026-10-21/22)
 
-**Code:** not built.
+**Code:** `fo4_import/spike/radio.py`, `radio_program.py`; `script_convert/static_scripts/fallout4/F3NV_Radio*.psc`.
 
 FNV's radio stations (Radio New Vegas, Mojave Music Radio, Black
 Mountain, the casino and Tops lounges) as Fallout 4 radio: stations in the
@@ -180,7 +180,7 @@ a song (Mojave Music Radio's 15) is built like Diamond City Radio's music
 scene (`DiamondCityRadioMusicScene`):
 - **Pick topic.** FNV's lines become one topic, with their conditions (no
   song in `iLastSong1..3`) and result scripts. Each keeps its own short
-  recording and carries `TES4_RadioSong`, which sets the station quest's
+  recording and carries `F3NV_RadioLine`, which sets the station quest's
   `F3NV_RadioPlaylist.CurrentSong` to its song as it begins (attached
   as Say Once's helper is).
 - **Song phases.** After the pick phase, one phase per song, gated on
@@ -301,7 +301,7 @@ radio is on, the player is in range, and the player is tuned to the
 transmitter's frequency, which comes from the `F3NV_RadioStation` script
 on the transmitter base.
 
-## <a id="receivers"></a>Step 3: placed radios (built 2026-10-21, not yet played)
+## <a id="receivers"></a>Step 3: placed radios (built 2026-10-21, played: Trudy's radio)
 
 An FNV activator whose radio station field (ACTI RNAM, dropped by the
 export, read from FalloutNV.esm: 24 activators) names a placed Pip-Boy
@@ -328,8 +328,8 @@ station becomes an FO4 receiver (`Radio.receiver`, `pack_acti`).
 - **In the region.** 12 placed receivers:
   - Trudy's radio, 2 jukeboxes and 7 start-on radios, on
     Mojave Music Radio.
-  - 2 on Radio New Vegas and 1 on Black Mountain, silent until those
-    stations have programs.
+  - 2 on Radio New Vegas and 1 on Black Mountain, which play since every
+    station runs as steps ([steps model](#steps-model)).
   - Radios naming a Non-Pipboy station (the casino and Tops lounges) stay
     plain activators.
 

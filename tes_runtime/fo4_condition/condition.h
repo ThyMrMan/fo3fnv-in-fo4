@@ -137,6 +137,52 @@ void InstallPipboy(void *taskInterface);
 // Ask the Pip-Boy to show the highlighted item's condition again (after a repair).
 void RefreshPipboy();
 
+// ---- Pip-Boy lists on the item card (pipboy.cpp), shared by the ammo list ----
+
+// The Pip-Boy's current page into `page` when it is the inventory page (it has an item card).
+bool CurrentPage(GFxMovieRoot *movie, GFxValue *page);
+
+// Push a {text, value} line onto item card line array `lines`.
+void AddLine(GFxMovieRoot *movie, GFxValue &lines, const std::string &text, const std::string &value);
+
+// Turn the inventory page's modal on or off: its fade and list input, with the item card lifted above the fade.
+void SetModal(GFxValue &page, bool on);
+
+// Add a `label` line saying why there is nothing to choose to `page`'s item card.
+void SayOnCard(GFxMovieRoot *movie, GFxValue &page, const char *why, const char *label = "REPAIR");
+
+// Send F4SE external event `event` to Papyrus from the Pip-Boy's movie; false when it could not be sent.
+bool SendExternal(GFxMovieRoot *movie, const char *event);
+
+// Make a hint's click handler in `out` (a GFxValue is never copied: its copy would release the handler twice).
+using MakeClick = void (*)(GFxMovieRoot *movie, GFxValue *out);
+
+// A button hint `label` on key `key` whose click is made by `click`, into `hint`; false when it cannot be made.
+bool MakeHint(GFxMovieRoot *movie, const char *label, const char *key, MakeClick click, GFxValue *hint);
+
+// The first stack index the game lists on Pip-Boy line `nodeID` of form `formID`, or -1.
+SInt32 PipboyLineStack(UInt32 formID, UInt32 nodeID);
+
+// Whether the repair list is open.
+bool RepairListOpen();
+
+// ---- The ammo list (ammo.cpp; docs/fork/fo4_condition.md#ammo-list) ----
+
+// Whether the ammo list is open.
+bool AmmoListOpen();
+
+// Forget an open ammo list (the page changed or the Pip-Boy opened again).
+void ForgetAmmoList();
+
+// A Pip-Boy key (Flash key code): V opens the ammo list, and the open list takes every key; false otherwise.
+bool AmmoKey(GFxMovieRoot *movie, int key);
+
+// The AMMO hint into `hint`; false when it cannot be made.
+bool MakeAmmoHint(GFxMovieRoot *movie, GFxValue *hint);
+
+// Register F3NV_PipboyAmmo's natives.
+void RegisterAmmo(VirtualMachine *vm);
+
 // ---- Pip-Boy tabs (pages.cpp; docs/fork/fo4_pipboy_tabs.md) ----
 
 // One Pip-Boy frame for our STAT page tabs: give a newly loaded STAT page its tabs, and show the current one.

@@ -7,7 +7,8 @@ boost IncreaseSkill* on its FNV skill), or nothing: drift, counted per effect.
 Magnitude and duration stay FNV's, except where FNV's magnitude is a flag or
 lives in a script (MAGNITUDES). An effect conditioned on a perk carries the
 perk test (perks.Perks); one conditioned on Hardcore mode counts as without it
-(UNCONVERTED). An item left without effects
+(UNCONVERTED), except Hardcore's need effects (NEEDS), which go to Survival mode
+(survival_needs) and count it as on. An item left without effects
 carries NO_EFFECT at magnitude 0, as vanilla's do.
 
 See: docs/fork/fo4_pipeline.md#consumable-effects
@@ -57,8 +58,12 @@ RETARGETED = {'NVRestoreLimbs': ('RestoreHealthFood', LIMBS)}
 SKILL_EFFECT_PREFIX, SKILL_TEMPLATE = 'IncreaseSkill', 'FortifyStrength'
 #: FNV engine effects the export cannot name (EFID ''): FalloutNV.esm uses only 0x14F, the addiction usage monitor.
 UNNAMED = 'UMON'
-#: FNV condition functions counted as false: FO4 has no Hardcore mode. HasPerk is written as FO4's (PERK_TEST).
+#: FNV condition functions counted as false (true on NEEDS): FO4 has no Hardcore mode. HasPerk is written as FO4's.
 UNCONVERTED = {'IsHardcore'}
+#: FNV Hardcore need effect -> (Survival need, 1 when it lowers the need, -1 when it raises it).
+NEEDS = {'RestoreStarvationLevel': ('hunger', 1), 'DamageStarvationLevel': ('hunger', -1),
+         'RestoreDehydrationLevel': ('thirst', 1), 'DamageDehydrationLevel': ('thirst', -1),
+         'RestoreSleepDeprivationLevel': ('sleep', 1), 'DamageSleepDeprivationLevel': ('sleep', -1)}
 PERK_TEST, HAS_PERK = 'HasPerk', C.FO4.index('HasPerk')
 #: A CTDA's comparison bits.
 COMPARE = 0xE0
@@ -75,14 +80,15 @@ WANTED = {*(e for fo4 in EFFECTS.values() for e in fo4), *(t for t, _ in RETARGE
 
 def fnv_effects(rec: dict) -> list:
     """[(FNV effect EditorID, magnitude, area, duration, actor value index, its HasPerk tests)] FO4 can run
-    (UNCONVERTED false)."""
+    (UNCONVERTED false, true on NEEDS)."""
     out = []
     for i in range(int(rec.get('EffectCount', 0))):
         key = f'Effect[{i}]'
+        edid = rec[f'{key}.EFID'] or UNNAMED
         conds = [C.parse(rec[f'{key}.Condition[{j}].Raw']) for j in range(int(rec.get(f'{key}.ConditionCount', 0)))]
-        if any(c['func'] in UNCONVERTED and not C.compare(c, 0.0) for c in conds):
+        if any(c['func'] in UNCONVERTED and not C.compare(c, float(edid in NEEDS)) for c in conds):
             continue
-        out.append((rec[f'{key}.EFID'] or UNNAMED, float(rec[f'{key}.Magnitude']), int(rec[f'{key}.Area']),
+        out.append((edid, float(rec[f'{key}.Magnitude']), int(rec[f'{key}.Area']),
                     int(rec[f'{key}.Duration']), int(rec[f'{key}.ActorValue']),
                     [c for c in conds if c['func'] == PERK_TEST]))
     return out
@@ -91,23 +97,24 @@ def fnv_effects(rec: dict) -> list:
 class Effects:
     """FO4 effects for FNV consumables; copies are written once through the cell builder."""
 
-    def __init__(self, builder, helper_index: int, vanilla: dict):
-        """`vanilla`: {EditorID: (FormID, {tag: data})}, WANTED's included."""
-        self.builder, self.helper_index, self.vanilla, self.copies = builder, helper_index, vanilla, {}
+    def __init__(self, builder, helper_index: int, vanilla: dict, needs=None):
+        """`vanilla`: {EditorID: (FormID, data)}; `needs`: a SurvivalNeeds or None."""
+        self.builder, self.helper_index, self.vanilla, self.needs = builder, helper_index, vanilla, needs
+        self.copies = {}
 
     def subs(self, rec: dict) -> bytes:
         """EFID/EFIT pairs for FNV consumable `rec`; NO_EFFECT at magnitude 0 when none carries."""
         out = b''
         for edid, magnitude, area, duration, av, perks in fnv_effects(rec):
-            fo4 = self._fo4(edid, av)
+            fo4 = self._targets(edid, av, magnitude)
             if not fo4:
                 self.builder.counts[f'effect dropped ({edid})'] += 1
             tests = self._perk_tests(perks)
             if tests is None:
                 self.builder.counts['effect dropped (perk not in the build)'] += 1
                 continue
-            for fid in fo4:
-                out += effect_pair(fid, MAGNITUDES.get(edid, magnitude), area, duration) + tests
+            for fid, value in fo4:
+                out += effect_pair(fid, value, area, duration) + tests
         if not out:
             self.builder.counts['ALCH with no effect (placeholder)'] += 1
             out = effect_pair(self.vanilla[NO_EFFECT][0], 0.0, 0, 0)
@@ -126,6 +133,12 @@ class Effects:
             out += R.pack_ctda(cond['op_flags'] & COMPARE | joined, cond['value'], HAS_PERK, ids[cond['p1']])
         self.builder.counts['effect perk tests'] += len(perks)
         return out
+
+    def _targets(self, edid: str, av: int, magnitude: float) -> list:
+        """[(FO4 effect FormID, magnitude)] for FNV effect `edid`; [] when none."""
+        if edid in NEEDS:
+            return self.needs.effects(edid, magnitude) if self.needs else []
+        return [(fid, MAGNITUDES.get(edid, magnitude)) for fid in self._fo4(edid, av)]
 
     def _fo4(self, edid: str, av: int) -> list:
         """FormIDs of the FO4 effects for FNV effect `edid` (on FNV actor value index `av`); [] when FO4 has none."""

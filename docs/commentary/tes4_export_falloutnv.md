@@ -148,6 +148,19 @@ quantity tag is shared, so a part is read in order: an item opens it, the next
 105 recipes in 3 categories (37 reloading bench, 36 campfire, 32 workbench)
 and 7 sub-categories.
 
+### <a id="challenges"></a>Challenges
+
+`CHAL` was dumped as subrecord sizes only until the Fallout 4 path needed
+challenges (2026-10-23, `challenge_falloutnv.py`). xEdit names DATA's last
+three fields only "(depends on type)"; JIP's `TESChallenge::ChallengeData`
+calls them value1 (u16), value2 (u16), value3 (u32). Dumped as `FULL`,
+`DESC`, `ICON`, `SCRI`, `DATA.Type`/`Threshold`/`Flags`/`Interval`/
+`Value1`/`Value2`/`Value3`, `SNAM`, `XNAM`; what the values mean per type
+is read in [fo4_pipeline.md](../fork/fo4_pipeline.md#challenges). Two fields
+the challenges need were added beside it: WEAP `DNAM.Skill` (offset 104,
+an actor value, all 261 weapons) and CREA `DATA.CreatureType` (byte 0, xEdit
+`wbCreatureTypeEnum`, all 1,578 creatures).
+
 ## Measured field coverage
 
 From `FalloutNV.esm` (Tale of Two Wastelands merge), 465,054 records parsed

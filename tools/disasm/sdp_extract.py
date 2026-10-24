@@ -16,6 +16,9 @@ import os
 import struct
 import sys
 
+#: The Data/Shaders folder read without --dir.
+DEFAULT_DIR = r"D:\Other Games\Nehrim At Fate's Edge\Data\Shaders"
+
 # ---- D3D9 shader model opcode table (d3d9types.h D3DSIO_*) ----
 OPC = {
     0x00: 'nop', 0x01: 'mov', 0x02: 'add', 0x03: 'sub', 0x04: 'mad',
@@ -138,8 +141,15 @@ def find_shaders(buf):
 
 
 def main():
+    """List (or with dump:<hexoffset>, disassemble) the shaders of the packages matching argv[1]; `--dir <path>`
+    picks the game's Data/Shaders folder (default DEFAULT_DIR, Nehrim's)."""
+    args = sys.argv[1:]
+    base = DEFAULT_DIR
+    if '--dir' in args:
+        at = args.index('--dir')
+        base, args = args[at + 1], args[:at] + args[at + 2:]
+    sys.argv = sys.argv[:1] + args
     pat = sys.argv[1] if len(sys.argv) > 1 else None
-    base = r"D:\Other Games\Nehrim At Fate's Edge\Data\Shaders"
     files = sorted(glob.glob(os.path.join(base, 'shaderpackage*.sdp')))
     want = sys.argv[2] if len(sys.argv) > 2 else None
     for f in files:
@@ -147,6 +157,12 @@ def main():
             continue
         buf = open(f, 'rb').read()
         shaders = list(find_shaders(buf))
+        if want and want.startswith('dump:'):
+            at = int(want[len('dump:'):], 16)
+            for off, _, ln in shaders:
+                if off == at:
+                    print('\n'.join(disasm(buf[off:off + ln])[1]))
+            continue
         # names are stored as ASCII near each shader in the sdp directory
         print(f'\n===== {os.path.basename(f)}  {len(buf)} bytes  '
               f'{len(shaders)} shaders =====')

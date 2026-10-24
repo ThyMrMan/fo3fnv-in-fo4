@@ -91,7 +91,7 @@ Stages, each scoped and cached on its own so a fix rebuilds only its stage:
 ## <a id="skeleton"></a>The skeleton (built 2026-10-10)
 
 ```bash
-py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FNVCellSpike.esp --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --around -18 0 --radius 1 GSDocMitchellHouse
+py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FalloutNV.esp --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --around -18 0 --radius 1 GSDocMitchellHouse
 ```
 
 `fo4_import/pipeline/` runs the spike's converters (`spike.cell.build`)
@@ -742,6 +742,87 @@ such ([drift](fo4_drift.md#candidates)):
 - **To check in play.** FO4 applying a Touch spell's area around the
   player when a script casts it on the player, and `Actor.IsEquipped` taking a form list (Skyrim's wiki says it
   does; FO4's is silent).
+
+<a id="challenges"></a>**Challenges (built 2026-10-23, not yet played).**
+`spike/challenges.py`, `F3NV_Challenges`, `F3NV_ChallengesPlayer`. FNV's
+engine counts its 105 challenges (CHAL) itself; on FO4 a start-game quest
+does, and they show on a CHALLENGES tab on STAT after KARMA
+([tabs](fo4_pipboy_tabs.md#data)).
+- **The record.** DATA is type, threshold, flags (start disabled,
+  recurring, show zero progress), interval (a progress message every
+  so many), then two u16 and a u32 whose meaning depends on the type; SNAM
+  and XNAM are form links, also by type
+  ([export](../commentary/tes4_export_falloutnv.md#challenges)). Read from
+  the 105 records and their descriptions:
+  - kill (types 0-2): Value2 a weapon skill (actor value: 34 Energy
+    Weapons, 35 Explosives, 38 Melee, 41 Guns), Value3 a weapon type (FNV
+    animation type + 1: 1 hand-to-hand, 4 one-hand pistol, 6 rifle,
+    14 thrown), XNAM a weapon list; type 2's Value2 a creature type + 1;
+    type 1's SNAM the actor;
+  - hit (3): Value1 a body part (0 any, 1 head, 2 torso, 4 right arm),
+    Value2 the kind (0 damage, 1 critical, 2 knockdown, 3 cripple), Value3
+    and XNAM the weapon;
+  - damage (8): as hit, Value2 the skill; discover (4): SNAM a map marker;
+    use (5, 9): SNAM an item or a list;
+  - misc stat (11): Value1 an index into the engine's 43 stats
+    (FalloutNV.exe's table, `FNV_STATS`).
+- **Census (FalloutNV.esm).** 41 misc stat, 18 damage, 16 kill with a
+  weapon, 16 hit, 5 kill a creature type, 5 discover, 3 use an item, 1 use
+  from a list. 39 are recurring, 35 start disabled (unlocked by another's
+  reward), 35 show at zero progress. 99 name a reward script (58
+  scripts), all effect scripts: `RewardXP`, `AddPerk` of a
+  challenge perk with `ShowMessage`, `UnlockChallenge`,
+  `RemoveRecurringFromChallenge` (when the perk's last rank is reached),
+  `AddAchievement` (dropped).
+- **Counting.** 61 are kept (26 recurring, 19 start disabled), each
+  counted by one event:
+  - *kills* (24: 16 with a weapon, 5 of a creature type, 3 any kill):
+    `OnKill` on the player's alias. The weapon is the player's equipped
+    one (`UnarmedHuman` when none), checked against a form list of the
+    build's weapons of that skill, type and list (FNV's WEAP `DNAM.Skill`
+    and animation type); the victim's base (or leveled base) against the
+    creatures the build made of that type (CREA `DATA.CreatureType`,
+    a Use Traits template's).
+  - *FO4 tracked stats* (26): `RegisterForTrackedStatsEvent` on each,
+    re-registered one above its value, the rise added. 20 FNV stats have an
+    FO4 stat of the same name; Books Read is Skill Books Read, Weapon
+    Modifications Weapons Improved, Items Crafted Chems Crafted plus Food
+    Cooked. FNV's 5 critical-hit challenges count Critical Strikes with
+    the weapon check.
+  - *uses* (4): `OnItemEquipped` of a potion in the build's items for
+    SNAM; *discoveries* (5): on each Locations Discovered rise, a marker
+    the player can fast travel to; *Tough Guy*: `OnCripple` on the
+    player; *Up to the Challenge*: each completion.
+- **State.** Progress is an actor value on the player (the CHAL's FormID:
+  the tab's row, FNV's name, description and "Goal: n"). A global per
+  challenge (`FNV_<EditorID>`, the tab's shown global) holds -2/-1 while
+  locked (hidden/shown once unlocked), 0 counting but hidden (FNV hides a
+  challenge with no progress unless Show Zero Progress), 1 shown, 2 no
+  longer recurring, 3 and 4 the same once completed. A non-recurring
+  challenge stops at its threshold; a recurring one completes at each
+  multiple.
+- **Rewards.** The SCRI script, converted, runs as a fire-and-forget self
+  spell cast on the player (`ScriptEffects.script_spell`, one per script:
+  39 for the 56 kept challenges naming one), then the
+  notification "Challenge Completed: <name>" (FNV's `sChallengeComplete`)
+  and, each interval, "Challenge Progress: <name> n/goal". The converted
+  scripts' `UnlockChallenge` (38 calls), `RemoveRecurringFromChallenge` (5)
+  and `GetChallengeCompleted` (20, all in 5 rewards guarding a commented-out
+  achievement) call `F3NV_Challenges.Unlock` / `StopRecurring` /
+  `Completed` on the state global (a
+  property named for the challenge); a left-out challenge's property stays
+  empty and the call does nothing.
+- <a id="challenges-left-out"></a>**Left out (44), no FO4 event:** damage
+  dealt (18), hits by body part, cripples and knockdowns (11; FO4's hit
+  event needs a target registered), and 15 misc stats FO4 does not track:
+  caravan (3), casino (3), Barter Amount Traded, Health From Stimpaks and
+  Food, Speech Failures, Disintegrations, Dismembered Limbs, Items
+  Repaired, Miss Fortunate Occurrences, Doctor Bags Used. They have no
+  row. Damage and hits would need a combat-hit perk entry point with a
+  script per hit, measuring the target's health. Explosives kills count
+  only with an explosive equipped (a thrown grenade is not the equipped
+  weapon). A use or discovery whose item or marker is outside the build
+  cannot progress.
 
 <a id="globals"></a>**Globals (step 2, built 2026-10-12).** Only dialogue
 unlocks, objective mirrors, helper globals and the engine globals were
@@ -1633,6 +1714,26 @@ player option to match FNV's look more closely.
   `LUT_CW_ClearDAY`. So: clone a vanilla weather and put FNV's colours in,
   as the emittance region weathers already do
   ([emittance](#emittance)); FNV's sun is warmer than Project Mojave's.
+- <a id="reference-shots"></a>**Reference shots (2026-10-23).** The user took
+  matching FNV and FO4 shots of the Prospector Saloon at noon and midnight
+  and of the Goodsprings cemetery lantern at night. What they show:
+  - **Noon:** FNV is hazy and muted: grey-amber clouds, soft shadows, the
+    brick a dull ochre. FO4 has a saturated blue sky with white clouds,
+    hard shadows, and the brick a bright, saturated yellow. The weathers
+    may also have differed in that moment (FNV cloudy, FO4 clear).
+  - **Midnight:** FNV's night is dark and blue-grey, and the saloon's windows
+    are a dim, pale green-yellow with the panes and grime still visible.
+    FO4's windows are solid, saturated bright yellow (no detail), the
+    ground is lit a bright blue-white, the "ON" bulbs are blown out, and
+    the street lamp and its cone are much brighter.
+  - **Lantern:** FNV's makes a small warm pool on a dark ground. FO4's
+    blooms into a bright yellow sphere and lights the whole ground yellow,
+    under a purple sky. Open water shows on the horizon past the region's
+    edge, and dark triangle-shaped flecks float around the water tower
+    (a particle drawing without its texture, not yet identified).
+  - The NPCs' purple faces in these shots were the plugin rename: the
+    FaceGen heads named `FaceCustomization\FNVCellSpike.esp`
+    ([names](#f3nv-names)).
 
 <a id="addons"></a>**Add-on nodes** (the trash-can fire outside Vikki and Vance showed
 its light but no flame).
@@ -1931,7 +2032,8 @@ each limb by 100).
   restore over time (`RestoreHealthFood` on each limb condition: FO4's own
   limb restores take no duration).
 - Effect conditions: IsHardcore counts as false (FO4 has no Hardcore
-  mode; an effect needing it is left out). HasPerk is written as FO4's on
+  mode; an effect needing it is left out), except on the need effects,
+  which go to Survival mode ([survival needs](#survival-needs)). HasPerk is written as FO4's on
   the effect, on the perk's first rank (2026-10-21: 129 tests in the region;
   a perk the build lacks counts as not held). See
   [perks](fo4_perks.md#hasperk).
@@ -1940,7 +2042,7 @@ each limb by 100).
   `HC_SippableWater`, `DamageRadiationChem` at 0). xEdit requires one
   effect and reports an empty list as a NULL MGEF; vanilla leaves the list
   empty only on its two survival status potions, never on an item.
-- Drift ([drift](fo4_drift.md#recorded)): Hardcore needs, addiction
+- Drift ([drift](fo4_drift.md#recorded)): addiction
   (FNV's `UMON` usage monitor and withdrawal spells), weapon poisons,
   Damage Threshold, critical chance, Rebound, Cateye, and the script-only
   effects (Fixer, antivenom, Steady, Super Stimpak's after-effect, repair
@@ -1950,6 +2052,72 @@ each limb by 100).
   poisons); consumables with no effect 31 → 11, now carrying the zero
   placeholder; 47 consumables changed; 6 MGEF copies added (Hydra), no
   FormID moved; FO4Edit 31 errors → 0.
+
+<a id="survival-needs"></a>**Survival needs (built 2026-10-23, not yet played).**
+`spike/survival_needs.py` feeds FNV's Hardcore need effects on consumables
+into FO4's Survival mode, kept as it is (decided 2026-10-22). FalloutNV.esm
+has 155 need effects on its consumables: 95 lower Hunger
+(`RestoreStarvationLevel`), 25 lower Dehydration, 27 raise it
+(`DamageDehydrationLevel`: alcohol, Nuka-Cola, salty food) and 8 lower
+Sleep Deprivation (Nuka-Cola, Quantum, Atomic Cocktail, coyote tobacco).
+Every one but unpurified irradiated water's is gated on IsHardcore, which
+now counts as on for these effects (Survival gates them itself).
+
+How vanilla Survival works (`Hardcore:HC_ManagerScript` on the
+`HC_Manager` quest, read from the `.psc` and Fallout4.esm's VMAD, which
+overrides no number): on `OnItemEquipped` it feeds the food pool by the
+item's **price** when it has `ObjectTypeFood`, and the drink pool by its
+price when it has `HC_SustenanceType_QuenchesThirst` or `AnimFurnWater`
+(`ObjectTypeDrink` does nothing). `ObjectTypeAlcohol`, `ObjectTypeChem`,
+`ObjectTypeStimpak` and `HC_SustenanceType_IncreasesThirst` cost half the
+price in drink; `ObjectTypeCaffeinated` takes one sleep tier off and delays
+the next by 2.333 hours (7 with `ObjectTypeExtraCaffeinated`). Both pools
+lose 4 per game hour; an item with a `NonFoodKeywords` keyword, such as
+`HC_IgnoreAsFood` (on 21 vanilla items, wild crops included), is skipped.
+
+What the build does:
+
+- **Amounts by hours.** FNV's needs rise one point per `fHCStarvationRate`
+  (25), `fHCDehydrationRate` (not in the ESM; FalloutNV.exe's default is 10)
+  and `fHCSleepDeprivationRate` (50) real seconds, at TimeScale 30: 4.8
+  hunger, 12 thirst and 2.4 sleep points per game hour (the wiki's table
+  agrees). An amount is the hours it covers at that rate, times Survival's 4
+  per hour: purified water 50 → 17 (vanilla's purified water: 20), Brahmin
+  steak 50 → 42, whiskey's +25 dehydration → −8. Keeping a stage-for-stage
+  scale instead (FNV's 200 points against Survival's first 16-24) would make
+  FNV food feed about a seventh of its worth, since Survival's stages come
+  about 7 times sooner.
+- **Hunger and thirst** run `F3NV_SurvivalNeed`, a Script-archetype effect
+  (fire and forget, self), one per FNV effect and amount: FO4's Papyrus
+  cannot read an effect's magnitude, so the Survival amount is the script's
+  `Amount` property, as vanilla's `AddictionOddsScript` carries its
+  `Magnitude` (the item's magnitude shows the same number). It calls
+  the manager's own `ModFoodPoolAndUpdateHungerEffects` and
+  `ModDrinkPoolAndUpdateThirstEffects` (raises negative), plus its
+  `FillDiseaseRiskPool` on eating and drinking, as vanilla food does, only
+  while `HC_Rule_SustenanceEffects` is on. Vanilla has no effect that feeds
+  by an amount (its pools take the price), so this script is the one piece
+  of our own.
+- **Sleep** goes through vanilla's caffeine: the effect equips a hidden,
+  weightless potion carrying `ObjectTypeCaffeinated` (and
+  `ObjectTypeExtraCaffeinated` from 4.67 hours, the middle of the two
+  delays), which the manager handles as it does `HC_SippableWater`, only
+  while `HC_Rule_SleepEffects` is on. The magnitude shown is the delay.
+  Nuka-Cola's 15 points (6.25 hours) are extra caffeine, as are every other
+  Nuka-Cola's, the Atomic Cocktail's and coyote tobacco's; only Rum &
+  Nuka's 5 (2.1 hours) is plain caffeine.
+  FNV raises Sleep Deprivation on no consumable; it would be dropped.
+- **No price feeding.** An item with need effects carries
+  `HC_IgnoreAsFood` beside its category keyword, so Survival does not also
+  feed or dehydrate by its price; its vendor and category keywords stay.
+  Chems and stimpaks without FNV needs keep Survival's own thirst cost.
+- A HasPerk test on a need effect is kept (water's +7 with a perk).
+- Region build (Goodsprings to Primm, 125 consumables): 81 consumables
+  carry need effects (105 uses of 32 `F3NV_SurvivalNeed` effects, one per
+  FNV effect and amount; 6 of them caffeine) and are the only consumables
+  changed; one hidden potion added (extra caffeine; the plain one has no
+  user in the region); no FormID moved; 1,786 of 1,786 scripts compile;
+  FO4Edit 0 errors.
 
 ## <a id="before"></a>Before the pipeline: build and research
 
@@ -1962,7 +2130,7 @@ In order. **Built** marks what is done.
      does, so the hashed window (0x180000 to 0xF00000) is the one the
      pipeline will use.
 2. **Record coverage census.** **Built 2026-10-10** ([census](#census)).
-3. **Exterior navmesh across cells.** The spike converts one interior
+3. **Exterior navmesh across cells.** **Built 2026-10-10** ([exterior navmesh](#exterior-navmesh)). The spike converted one interior
    cell's navmesh. Exteriors need FNV's authored edge links (NVEX) carried
    into FO4's NVNM, and NAVI entries for every navmesh. The parsing is
    already in `navm_falloutnv.py`; FO4's edge-link and NAVI layout still
@@ -1971,21 +2139,21 @@ In order. **Built** marks what is done.
    cell, cell blocks and sub-blocks at full size, and which references
    must stay persistent (quest aliases, doors, map markers, enable
    parents).
-5. **Map markers, locations, encounter zones.**
+5. **Map markers, locations, encounter zones.** **Built 2026-10-12** ([locations](#locations)); the worldspace map art is not.
    - FO4 quests and aliases lean on LCTN records; FNV has none.
    - Design location records from FNV's map markers, encounter zones
      (ECZN) and interior ownership.
    - Also the worldspace map: the CK `-MapMaker` switch, or FNV's map art.
-6. **Regions, climate, weather, water.** REGN, CLMT, WTHR, WATR conversion.
-   The spike borrows the Commonwealth's.
-7. **Performance without precombines.** Measure frame rate in the densest
+6. **Regions, climate, weather, water.** **Built:** FNV's climate and weathers ([weathers](#weathers)), region
+   weathers ([region weather](#region-weather)), water heights ([water](#water-heights)).
+7. **Performance without precombines.** The region holds the 118 cap ([measured](#region-measured)); the denser areas wait for the whole map. Measure frame rate in the densest
    FNV areas once they exist (Freeside, the Strip, Novac), before deciding
    whether the precombine/previs stage is needed for the first release.
    FNV's world is sparser than the Commonwealth.
 8. **LOD.** Terrain through xLODGen (FO4 supported) or our own terrain LOD
    generator with an FO4 BTR writer; object LOD from FNV's own LOD meshes
    ([fnv-to-fo4](research/fo4_target.md#fnv-to-fo4) renamed them).
-9. **NPCs in general.** Real FNV NPCs, not stand-ins:
+9. **NPCs in general.** **Built from 2026-10-12** ([npcs](#npcs)). Real FNV NPCs, not stand-ins:
    - FO4 races and head parts, with the face fit from spike 2;
    - packages, factions, inventories;
    - LVLC → LVLN;
@@ -2425,6 +2593,8 @@ played).
 - **The hotkey:** an aid item, "Ammo Type", for the Favorites wheel. The
   quest gives the player one. Its script effect gives the item back and
   calls `Cycle()`.
+- **The Pip-Boy:** V on a gun lists its rounds and loads the one chosen
+  through the same quest ([fo4_condition.md#ammo-list](fo4_condition.md#ammo-list)).
 - **Messages:** "No other ammo for this weapon", "This weapon takes one
   kind of ammo".
 - **Drift:**
@@ -2919,8 +3089,10 @@ NPCs) needs most of them.
 
 ## <a id="speed"></a>Speed
 
-The spike rebuilds its 3×3 block and Doc's house in 362 s, converting
-every mesh and running Elric over all of them each time. At 7,428
+**Built:** 1 to 5 below (the asset and work caches, the Elric cache, the
+process pool, the one export index, `--region`); 6 stays the rule. The spike
+rebuilt its 3×3 block and Doc's house in 362 s, converting every mesh and
+running Elric over all of them each time. At 7,428
 distinct models, rebuilding every mesh on every run stops working. In
 order of payoff:
 
@@ -2976,7 +3148,8 @@ order of payoff:
 
 Of [before the pipeline](#before): 1–3 are built, and 6 partly
 ([climate and weathers](#weathers); not regions or water). 4, 5, 7, 8
-and 9 are not started.
+and 9 were not started then; 3, 5, 6 and 9 are built since (see
+[before](#before)).
 
 **What happened instead.** From 2026-10-10 to 2026-10-11, each region
 play-test found something in the world that didn't look or behave like
@@ -3081,6 +3254,11 @@ dropped the inherited "TES4":
   ledger, voice and FaceGen folders are named after it, so they moved to
   the new name with it. Measured on the first renamed build: all 43,002
   records and the helper's 30 kept their FormIDs.
+
+The CK's FaceGen heads name the plugin in their face texture paths
+(`FaceCustomization\<plugin>\`), so the rename left 167 heads pointing at the old
+folder and the faces drew purple. They were repointed in place (a one-off);
+a fresh CK FaceGen export writes the new name.
 
 A rebuild deletes the old copies a mod folder still holds:
 - `F4SE\Plugins\FalloutCondition.dll`, by `condition.LEGACY_PLUGIN`;

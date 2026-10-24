@@ -1,4 +1,4 @@
-"""FNV's Pip-Boy tabs on Fallout 4's STAT page: SKILLS, REPUTATION, KARMA, after its own three.
+"""FNV's Pip-Boy tabs on Fallout 4's STAT page: SKILLS, REPUTATION, KARMA, CHALLENGES, after its own three.
 
 Each tab is a start-game quest running F3NV_PipboyTab (F3NV_KarmaPage for
 KARMA, which sets its rows first), which hands the F3NV plugin
@@ -17,7 +17,7 @@ from fo4_import.spike import records as R
 
 #: The tab quest script, the natives it calls, and each tab's place among ours (FNV's STATS order).
 TAB_SCRIPT, NATIVES = 'F3NV_PipboyTab', 'F3NV_Pipboy'
-ORDER = {'SKILLS': 0, 'REPUTATION': 1, 'KARMA': 2}
+ORDER = {'SKILLS': 0, 'REPUTATION': 1, 'KARMA': 2, 'CHALLENGES': 3}
 #: derive_formid site of a tab's quest (key: its EditorID).
 TAB_SITE = 'FNV Pip-Boy tab'
 #: The Pip-Boy Tabs files older builds wrote: Data\\PBT\\<plugin stem>_<name>.ini.

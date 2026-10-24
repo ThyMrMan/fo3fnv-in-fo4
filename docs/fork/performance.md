@@ -36,7 +36,7 @@ event fires, and anything that needs more lives in C++. Either way it:
 
 ## <a id="papyrus"></a>Papyrus runtime cost: polls and dialogue helpers that run all game
 
-Unbuilt. This comes from a review on 2026-09-28 of the
+Item 1 (quest poll interval) is built for Fallout 4 (below); the rest are unbuilt. This comes from a review on 2026-09-28 of the
 fixes made while play-testing Fallout 3 and New Vegas. The counts were measured
 from the generated scripts in `output/<game>/scripts/source`. None of it has
 been profiled in game.
@@ -187,7 +187,8 @@ game's scripts together.
 
 ## <a id="occlusion"></a>FO3/FNV occlusion planes, rooms and portals
 
-Noted 2026-09-28 as a possible follow-up, not started. Nothing below is measured.
+Noted 2026-09-28 for the Skyrim path, not started there; nothing below is measured. The Fallout 4 build copies FNV's
+rooms, portals and occlusion planes ([fo4_pipeline.md](fo4_pipeline.md#rooms)).
 
 ### The observation
 

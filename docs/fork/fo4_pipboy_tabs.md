@@ -1,4 +1,4 @@
-# FNV's Pip-Boy tabs on Fallout 4 (SKILLS, REPUTATION, KARMA)
+# FNV's Pip-Boy tabs on Fallout 4 (SKILLS, REPUTATION, KARMA, CHALLENGES)
 
 **Code:**
 - `tes_runtime/fo4_condition/pages.cpp` (in the F3NV F4SE plugin)
@@ -80,6 +80,11 @@ From `pipboy_statspage.swf` and `pipboymenu.swf`, read with FFDec:
     the Alignment and Title rows, then hands the tab over
     ([karma page](fo4_pipeline.md#karma-page)). Its quest keeps the Pip-Boy
     Tabs page quest's FormID.
+  - **CHALLENGES** (built 2026-10-23, not yet played): a row per challenge
+    counted, its progress as the number; its state global hides it until
+    it shows in FNV (unlocked, and progressed unless Show Zero Progress).
+    No "3/10" text: SetTab shows a number or a string from `values`, so the
+    goal is in the row's description ([challenges](fo4_pipeline.md#challenges)).
 - **String properties.** VMAD string and string-array properties (types 2
   and 12) were added to `script_convert.pipeline.script_entry` for this.
 

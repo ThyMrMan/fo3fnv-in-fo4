@@ -28,6 +28,7 @@ from fo4_import.spike.land_layers import blend_borders, limit_textures, quadrant
 from fo4_import.spike.navmesh import grid_parent
 from fo4_import.spike.music import music_of
 from fo4_import.spike.regions import regions_of
+from fo4_import.spike.weather_imagespace import world_imagespace
 from fo4_import.spike.weathers import climate
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_map_path
 from fo4_import.pipeline.export_index import export_records
@@ -134,6 +135,7 @@ class Exterior:
         go to the persistent cell. Records made here (LTEX, TXST) are added to `builder.writer`.
         """
         world, persistent_cell = builder.fnv_id(self.world['FormID']), builder.fnv_id(self.persistent_cell)
+        builder.world_imagespace = world_imagespace(int(self.world['FormID'], 16))
         actors, regions = actors or {}, regions_of(builder)
         zones = music_of(builder).zones(world, int(self.persistent_cell, 16),
                                         {grid: int(r['FormID'], 16) for grid, r in self.cells.items()})

@@ -14,6 +14,7 @@ from ..tes4_reader import (Record, get_all_subrecords,
                            get_formid_str, get_string,
                            get_subrecord)
 from .ammo_falloutnv import AMMO_EXPORTERS, emit_ammo_deltas
+from .challenge_falloutnv import CHALLENGE_EXPORTERS
 from .character_falloutnv import CHARACTER_EXPORTERS, emit_class_deltas
 from .recipe_falloutnv import RECIPE_EXPORTERS
 from .package_falloutnv import emit_package_deltas, emit_patrol_data
@@ -193,7 +194,7 @@ def _emit_weap_fire(lines: list, rec: Record, dnam):
 
     DNAM offsets (wbDefinitionsFNV): 14 Ammo Use, 28 Sight FOV, 36
     Projectile, 42 Projectile Count, 60 Animation Attack Multiplier, 64
-    Fire Rate, 88 Attack Shots/Sec. SNAM appears twice (shoot 3D, shoot
+    Fire Rate, 88 Attack Shots/Sec, 104 Skill. SNAM appears twice (shoot 3D, shoot
     distant); the first is the shot.
     See: docs/commentary/tes4_export_falloutnv.md#projectiles
     """
@@ -208,6 +209,8 @@ def _emit_weap_fire(lines: list, rec: Record, dnam):
         emit_float(lines, "DNAM.AnimAttackMult", dnam, 60)
         emit_float(lines, "DNAM.FireRate", dnam, 64)
         emit_float(lines, "DNAM.ShotsPerSec", dnam, 88)
+    if dnam and len(dnam.data) >= 108:
+        lines.append(f"DNAM.Skill={struct.unpack_from('<i', dnam.data, 104)[0]}")
     for sig in _WEAP_FORMIDS:
         emit_formid(lines, sig, get_subrecord(rec, sig))
     emit_string(lines, "NNAM", get_subrecord(rec, "NNAM"))
@@ -392,6 +395,7 @@ def _emit_crea_deltas(lines: list, rec: Record):
 
     TES4's CREA DATA is 20 bytes with Soul and 8 attributes; FO3/FNV's is 17
     with neither, so the shared exporter's >= 20 guard silently emits nothing.
+    Its byte 0 is the creature type (xEdit wbCreatureTypeEnum), as CreatureType.
     A Fallout creature names its voice type as an NPC_ does (robots, Rex).
     See: docs/commentary/tes4_export_falloutnv.md#voice-files
     """
@@ -403,6 +407,7 @@ def _emit_crea_deltas(lines: list, rec: Record):
     if not data or len(data.data) < 17:
         return
     d = data.data
+    lines.append(f"DATA.CreatureType={d[0]}")
     lines.append(f"DATA.Health={struct.unpack_from('<h', d, 4)[0]}")
     lines.append(f"DATA.AttackDamage={struct.unpack_from('<h', d, 8)[0]}")
     for i, name in enumerate(_CREA_ATTRIBUTES):
@@ -892,6 +897,7 @@ FALLOUT_BASE_EXPORTERS = {
     "NOTE": export_NOTE,
     "TACT": export_TALKING_ACTIVATOR,
     **AMMO_EXPORTERS,
+    **CHALLENGE_EXPORTERS,
     **CHARACTER_EXPORTERS,
     **RECIPE_EXPORTERS,
 }

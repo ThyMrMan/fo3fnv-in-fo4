@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fo4_import.base.install import source_esm
 from fo4_import.base.vmad import object_scripts, read_entry
+from fo4_import.nif import file as nf
 from fo4_import.spike import records as R
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import first_sub, walk
@@ -26,11 +27,20 @@ CLEAN_WATER, IRRADIATED_WATER, RADIATION_EFFECT = 'WaterFountainCleanDrinking', 
     'DamageRadiationLevel'
 #: The activation prompt of a drinkable activator.
 DRINK_PROMPT = 'Drink'
+#: Sequences FNV loops on an object by itself; FO4 does so on a static (vanilla windmill, fans), not an ACTI.
+AUTO_LOOPS = ('Idle', 'SpecialIdle')
 
 
 def fnv_links(raw: bytes, sig: bytes, tag: bytes) -> dict:
     """{FormID: FormID} of FNV records of type `sig` with a FormID subrecord `tag`."""
     return {r.form_id: struct.unpack('<I', v)[0] for r, _ in walk(raw, sig) for v in [first_sub(r.body, tag)] if v}
+
+
+def auto_loops(path: Path) -> bool:
+    """Whether the FO4 NIF at `path` holds a sequence FNV plays on its own (AUTO_LOOPS)."""
+    nif = nf.read(path.read_bytes())
+    return any(kind == 'NiControllerSequence' and isinstance(block, dict) and nif.strings[block['name']] in AUTO_LOOPS
+               for kind, block in nif.blocks)
 
 
 def irradiating(spell: dict) -> bool:
@@ -72,6 +82,14 @@ class Activators:
             vmad = self.builder.scripts.vmad(int(rec['SCRI'], 16))
         return R.pack_acti(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds, vmad, prompt,
                            self.builder.sounds.field(rec, 'SNAM'), self.builder.radio.receiver(fnv_fid))
+
+    def ambient(self, rec: dict, model: str) -> bool:
+        """Whether FNV activator `rec` only plays its mesh's own loop: no script, name, water or station, and its
+        converted `model` holds an AUTO_LOOPS sequence. See: docs/fork/fo4_look.md#emissive"""
+        fnv_fid = int(rec['FormID'], 16)
+        if 'SCRI' in rec or rec.get('FULL') or not model or fnv_fid in self.water:
+            return False
+        return fnv_fid not in self.builder.radio.stations_of and auto_loops(self.builder.data_dir / 'Meshes' / model)
 
     def _drink(self, water: int) -> bytes:
         """The drinking script VMAD for FNV water type `water`."""

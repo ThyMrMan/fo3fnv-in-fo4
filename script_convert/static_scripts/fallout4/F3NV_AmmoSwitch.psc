@@ -1,5 +1,5 @@
 ScriptName F3NV_AmmoSwitch extends Quest Hidden
-{FNV's Ammo Type hotkey on Fallout 4. Cycle() loads the equipped gun's next round of its FNV ammo list that the player carries, wrapping around, by attaching that round's ammo mod to the gun (AttachModToInventoryItem, vanilla Papyrus), and shows the round's name. A group is one ammo list: Lists[g] the keyword its guns carry, Rounds/Mods/Loaded/Notes[Starts[g]] to [Starts[g + 1] - 1] its rounds, their mods, the keyword each mod adds (the loaded round) and its notification. The quest gives the player the hotkey item once.}
+{FNV's Ammo Type hotkey on Fallout 4. Cycle() loads the equipped gun's next round of its FNV ammo list that the player carries, wrapping around, by attaching that round's ammo mod to the gun (AttachModToInventoryItem, vanilla Papyrus), and shows the round's name. A group is one ammo list: Lists[g] the keyword its guns carry, Rounds/Mods/Loaded/Notes[Starts[g]] to [Starts[g + 1] - 1] its rounds, their mods, the keyword each mod adds (the loaded round) and its notification. The quest gives the player the hotkey item once, and hands the lists to the F3NV plugin for the Pip-Boy's ammo list (F3NV_PipboyAmmo), whose choice it loads.}
 
 Form[] Property Lists Auto Const
 Int[] Property Starts Auto Const
@@ -17,7 +17,29 @@ Event OnQuestInit()
   If player.GetItemCount(Hotkey) == 0
     player.AddItem(Hotkey, 1, True)
   EndIf
+  RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+  ListenPipboy()
 EndEvent
+
+Event Actor.OnPlayerLoadGame(Actor akSender)
+  ListenPipboy()
+EndEvent
+
+Function ListenPipboy()
+  {Give the plugin the ammo lists (it forgets them each game start) and hear the Pip-Boy ammo list's choices.}
+  F3NV_PipboyAmmo.SetLists(Lists, Starts, Rounds, Mods)
+  RegisterForExternalEvent("FNVAmmoSwitch", "OnPipboyAmmo")
+EndFunction
+
+Function OnPipboyAmmo()
+  {Load the round chosen in the Pip-Boy's ammo list (the plugin sends FNVAmmoSwitch as it is confirmed).}
+  Weapon gun = F3NV_PipboyAmmo.ChosenGun() as Weapon
+  Int m = F3NV_PipboyAmmo.TakeChoice()
+  Debug.Trace("TES4AmmoSwitch|Pip-Boy|" + gun + "|round " + m)
+  If gun && m >= 0
+    Load(Game.GetPlayer(), gun, m)
+  EndIf
+EndFunction
 
 Function Cycle()
   {Load the equipped gun's next carried round, or say why not.}
@@ -36,17 +58,24 @@ Function Cycle()
   While step < count
     Int m = first + (now + step) % count
     If player.GetItemCount(Rounds[m]) > 0
-      If player.GetItemCount(gun) > 1
-        TwoCopies.Show()
-      ElseIf player.AttachModToInventoryItem(gun, Mods[m] as ObjectMod)
-        player.EquipItem(Rounds[m], False, True)
-        (Notes[m] as Message).Show()
-      EndIf
+      Load(player, gun, m)
       Return
     EndIf
     step += 1
   EndWhile
   NoOtherAmmo.Show()
+EndFunction
+
+Function Load(Actor player, Weapon gun, Int m)
+  {Load round m (an index into Rounds) into the player's gun by attaching its mod, and show its name; refused with two copies of the gun (the mod goes on the form, not one copy).}
+  If player.GetItemCount(gun) > 1
+    TwoCopies.Show()
+  ElseIf player.AttachModToInventoryItem(gun, Mods[m] as ObjectMod)
+    If player.GetEquippedWeapon() == gun
+      player.EquipItem(Rounds[m], False, True)
+    EndIf
+    (Notes[m] as Message).Show()
+  EndIf
 EndFunction
 
 Int Function ListOf(Weapon gun)

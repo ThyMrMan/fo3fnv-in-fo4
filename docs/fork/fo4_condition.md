@@ -1,8 +1,8 @@
 # Item condition on Fallout 4
 
-**Status:** planned 2026-10-22, not built. The decision is in
-[drift](fo4_drift.md#candidates) (Item condition: build, our own, with
-F4SE). Mods read for method: [Armor and Weapon Condition](research/fo4_target.md#awc)
+**Status:** built 2026-10-22/23 in the F3NV F4SE plugin
+(`tes_runtime/fo4_condition/`); each part's play state is in its heading. The
+decision is in [drift](fo4_drift.md#candidates). Mods read for method: [Armor and Weapon Condition](research/fo4_target.md#awc)
 and [NV Ammo Crafting](research/fo4_target.md#nv-ammo).
 
 Fallout 4 keeps no condition on weapons or armor, except power armor. This plan rebuilds FNV's condition
@@ -47,8 +47,8 @@ F4SE 0.7.9's Papyrus sources.
   armor: 60 leveled-list entries carry a condition, and one perk
   condition (`PowerArmorPerk`) tests it. Papyrus has
   `ObjectReference.GetItemHealthPercent()` and `Repair()`, but no way to
-  set an item's health. Whether the engine keeps and shows health on a
-  weapon is untested.
+  set an item's health. The engine keeps a weapon's health and saves it
+  ([spike results](#spike-results)).
 - **F4SE Papyrus:** `InstanceData` reads and sets an instance's damage,
   damage types, magazine size, armor rating and health, weight, value and
   keywords. Its owner is a weapon or armor form, or an actor plus an
@@ -60,34 +60,10 @@ F4SE 0.7.9's Papyrus sources.
 
 ## <a id="options"></a>Two ways to build it
 
-**A. Scripts on items (AWC's method), F4SE Papyrus only.** A script on every
-converted weapon and armor base keeps a float per copy. Each change
-attaches one of up to 101 condition object mods to that copy, which carries
-the damage or DT multiplier. Wear comes from the holder's animation events
-(`weaponFire`, `HitFrame`, `reloadStateEnter`).
-- For: proven in play (AWC 2.0.2), no compiled code.
-- Against: every scripted item is its own persistent reference. FNV
-  places thousands of weapons and armor in NPCs and containers, which
-  means save size and script load. Each weapon needs an attach point for
-  the condition mod, and the condition mod competes with the weapon-mods
-  work for the same instance. Display is a name suffix.
-
-**B. Our own F4SE plugin on the engine's item health.** Condition lives in
-the item's own health extra data, the one power armor uses. The engine
-saves it, COED gives NPC gear its starting condition, and
-`GetItemHealthPercent` lets records test it.
-- The plugin wears the equipped item on firing and hits.
-- It scales damage and DT, through perk entry points conditioned on item
-  health if those read it, else in a damage hook.
-- It rolls reload jams and exposes Papyrus natives for repair, kits and
-  FNV's script calls.
-- For: no per-item scripts, native saves, FNV's COED data used as is, and
-  maybe the Pip-Boy's own condition bar.
-- Against: compiled code to build and keep up with runtime updates. Three
-  engine behaviors are untested (below).
-
-**Proposal: B, decided by a spike.** B is the native mechanism and scales
-to the whole Mojave; A stays the fallback if the spike fails.
+Two were weighed: **A**, AWC's scripts on every item (a float per copy and
+up to 101 condition mods, but every scripted item a persistent reference),
+and **B**, the engine's own item health through an F4SE plugin. The spike
+below settled it for B.
 
 ## <a id="spike"></a>Spike: does the engine keep weapon health?
 
@@ -101,18 +77,8 @@ A small test plugin, one question per play-test:
 3. A minimal F4SE plugin built for 1.11.240 reads and writes the equipped
    weapon's health. Does it persist across a save and load?
 
-Built 2026-10-22, not played. The files are in `temp/condition_spike/` (gitignored), installed as the
-MO2 mod `Condition Spike`:
-- `make_esp.py` writes `ConditionSpike.esp`: lists `CondSpike_Pistol50` and `CondSpike_LeatherTorso50`,
-  and the perk `CondSpike_DamagePerk`.
-- `plugin.cpp` and `build.bat` make `ConditionSpike.dll`. It is a standalone F4SE plugin with F4SE 0.7.9's
-  1.11.240 addresses, so it runs on that runtime only.
-- On each save load the plugin logs every carried weapon and armor's health to
-  `My Games\Fallout4\F4SE\ConditionSpike.log`. It then multiplies the equipped weapon's health by 0.6,
-  or gives it health 0.4 when it has none.
-
-If 1 and 3 pass, B goes ahead; if 2 fails, B scales damage with a hook.
-If 1 fails, the engine drops health off weapons and A is built instead.
+Built and played 2026-10-22 as the disabled MO2 mod `Condition Spike`
+(`temp/condition_spike/`).
 
 <a id="spike-results"></a>**Played 2026-10-22** (the plugin's log and the console):
 - **3 passed: weapon health is stored and saved.** The plugin gave the equipped
@@ -135,37 +101,6 @@ So the build is a hybrid of B and A:
   damage hook.
 - Wear, jams, repair, FNV's script calls and the display are the plugin's
   and ours.
-
-## <a id="plan"></a>Build steps (B)
-
-1. **Plugin groundwork:** an F4SE plugin project beside `tes_runtime/`
-   (the Skyrim DLL's build setup), on CommonLibF4 or F4SE's own headers,
-   with the Address Library. It ships in the generated mod folder.
-2. **Records:**
-   - Read WEAP and ARMO health and REPL from FalloutNV.esm, and stamp each
-     converted item with its max health and repair list (a keyword or a
-     form-list lookup the plugin reads).
-   - Convert COED Item Condition on NPC, leveled-list and container
-     entries, which `npcs.py` drops today.
-3. **Wear:** per shot, `fDamageToWeaponValue` × the ammo's effect × the
-   perk multiplier, over the item's max health. Melee wears per hit and
-   armor per absorbed hit. Non-playable items don't wear, and an item
-   breaks at 0 (unequipped, unusable until repaired).
-4. **Effects:** FNV's damage curve and DT/DR curve, the reload jam table
-   (jam idle and dry fire, skipped on No Jam After Reload weapons) and
-   value × h^1.5.
-5. **Repair:**
-   - Repair kits through FNV's own script (a native for
-     Get/SetWeaponHealthPerc).
-   - Repair from a same-type item (REPL, or any same class with Jury
-     Rigging), using FNV's formula.
-   - Vendor repair for the 10 `ShowRepairMenu` lines, with FNV's cap and cost.
-   - The menu is the open design question: a message-box list first, our
-     own Pip-Boy page later.
-6. **Scripts:** `AddItemHealthPercent`, `Get/Set/ModWeaponHealthPerc`
-   and `ShowRepairMenu` convert to the plugin's natives.
-7. **Display:** the Pip-Boy's bar if the spike shows one, else a line on
-   the item card.
 
 ## <a id="built"></a>Weapons, built 2026-10-22
 
@@ -224,7 +159,7 @@ gives (`-DF4SE_STATIC_LIB=ON`), under `TOOLS_EXT`
 (default `C:\Coding\tes4skyrim\tools_ext`). Its addresses are F4SE 0.7.9's, so the
 DLL loads on Fallout4.exe 1.11.240 only.
 
-## <a id="armor"></a>Armor, built 2026-10-22 (not yet played)
+## <a id="armor"></a>Armor, built 2026-10-22, played
 
 - **Records** (`condition.py`, `wire_armor`):
   - Every converted armor with FNV health (ARMO DATA, read from
@@ -431,6 +366,47 @@ Repair skill (asked for with a screenshot). Ours:
 - Untested: removal skips `RemoveItem`'s own work, so no `OnItemRemoved` and
   no HUD line. Equipped stacks are never offered as spares.
 
+<a id="ammo-list"></a>**The ammo list (built 2026-10-23, not yet played).** FNV picks a gun's
+ammo in the Pip-Boy. Asked for: the same on the inventory page, opened the
+way the repair list is. The ammo itself still switches through the Ammo
+Type hotkey's Papyrus ([fo4_pipeline.md#ammo-switch](fo4_pipeline.md#ammo-switch)):
+each FNV round is one ammo mod.
+- **Key:** V, or the AMMO hint beside REPAIR (keyboard and mouse only, like
+  REPAIR). V is free in the Pip-Boy, which uses T, G, Q, E, R, X, C, Z, Tab
+  and Enter. Like G, it is heard by the native `keyUp` listener, since
+  Papyrus `OnKeyDown` never fires in the Pip-Boy.
+- **The list** (`tes_runtime/fo4_condition/ammo.cpp`), drawn on the item card
+  under the page's modal with the card lifted above the fade. It reuses the
+  repair list's helpers in `pipboy.cpp` (`CurrentPage`, `AddLine`,
+  `SetModal`, `SayOnCard`, `MakeHint`, `SendExternal`):
+  - "AMMO TYPE / CARRIED", then up to eight rounds of the gun's FNV ammo list:
+    name, the count carried over all stacks, and "(loaded)" on the round the
+    gun holds. Last, "ENTER) LOAD / ESC) CANCEL"; ENTER is left out on the
+    loaded round and on one the player has none of.
+  - Keys: Up or W and Down or S move, Enter or E loads, Esc, Tab or V
+    cancels. Enter on the loaded round just closes.
+  - The loaded round: the highlighted line's stack (`LineStack`), then the
+    first of the list's ammo mods among the mods in that stack's
+    `BGSObjectInstanceExtra`. With none, the first round, which the gun's
+    default combination holds (`AmmoMods.wire`).
+  - A gun of a single ammo type says "AMMO One type only" on the card.
+    Carrying two copies says "Drop a copy first": Papyrus's
+    `AttachModToInventoryItem` takes a form, not a copy, so the hotkey
+    refuses that case too.
+- **The gun's list:** the gun's record carries the list keyword
+  (`TESObjectWEAP` keywords at +0x150), as `Cycle()` finds it.
+- **Papyrus:** `F3NV_AmmoSwitch` hands its `Lists`, `Starts`, `Rounds` and
+  `Mods` arrays to the plugin (`F3NV_PipboyAmmo.SetLists`) at quest start and
+  on each game load (a remote `OnPlayerLoadGame` on the player), and registers
+  for the external event `FNVAmmoSwitch`. Confirming sends it; `OnPipboyAmmo`
+  reads `ChosenGun` and `TakeChoice` (the round's index in `Rounds`) and calls
+  `Load`, the code `Cycle()` now uses too. `Load` equips the rounds only when
+  the gun is the one in hand.
+- Untested: whether the item card and the gun's line refresh after the mod
+  goes on while the Pip-Boy is open. A save made before this build already ran
+  the quest's `OnQuestInit`, so it never hands over the lists; every gun then
+  says "One type only". Start a new game.
+
 <a id="pipboy-lines"></a>**The game's link from a line to its stack** (Fallout4.exe 1.11.240,
 disassembled 2026-10-23; the `.text` section is not encrypted):
 - The line builder (RVA 0xB433C0; unnamed in the exe) is called once per line
@@ -467,7 +443,7 @@ disassembled 2026-10-23; the `.text` section is not encrypted):
   which get no repair.
 - There is no gamepad key, since every button is taken there.
 
-<a id="entry-condition"></a>**Starting condition, built 2026-10-23 (not yet played).**
+<a id="entry-condition"></a>**Starting condition, built and played 2026-10-23.**
 - FNV authors an inventory entry's condition as a COED after its CNTO
   (containers, NPCs, creatures) or LVLO (leveled lists). The export leaves it
   out.
@@ -494,7 +470,7 @@ disassembled 2026-10-23; the `.text` section is not encrypted):
   FNV's own (ARMO DATA health).
 - NPCs whose inventories were rolled before this build keep what they have.
 
-<a id="transfer-menu"></a>**Transfer and barter menus (built 2026-10-23, not yet played).** These had no
+<a id="transfer-menu"></a>**Transfer and barter menus (built and played 2026-10-23).** These had no
 CND (played).
 - `containermenu.swf` (`ContainerMenu`, which `BarterMenu` extends) shows the
   highlighted line's `ItemCardInfoList` on `ItemCard_mc`. Its lists are
@@ -521,7 +497,7 @@ CND (played).
   `root.FilterHolder_mc.Menu_mc` and `root.FilterHolder_mc` first, and logs
   the holder's members otherwise. Played: it shows CND.
 
-<a id="jury-rigging"></a>**Jury Rigging, built 2026-10-23 (not yet played).** FNV's perk (entry point
+<a id="jury-rigging"></a>**Jury Rigging, built and played 2026-10-23.** FNV's perk (entry point
 48, Has Jury Rigging) lets an item be repaired with "a roughly similar item".
 FalloutNV.exe's "can this spare repair that item" test (0x47BB50, GOG build):
 1. The same item: yes.
@@ -542,7 +518,7 @@ Ours:
 - The plugin offers a spare of the same group while the player has the perk.
 - The quest-item test is not carried over.
 
-<a id="jams"></a>**Reload jams, built 2026-10-23 (not yet played).**
+<a id="jams"></a>**Reload jams, built 2026-10-23, played briefly (needs longer play).**
 - FNV jams on reload (FalloutNV.exe 0x92B9E0, roll at 0x4DFF00). The
   condition index is i = ceil(percent / 10), minus 1 when above 1. The chance
   is `fWeaponConditionReloadJam[i]`, whose exe defaults (FalloutNV.esm sets
@@ -644,14 +620,15 @@ replaced Pip-Boy Tabs.
 
 ## <a id="drift"></a>Expected drift
 
-- Repair happens in a menu of our own, not FNV's Pip-Boy repair screen.
+- Repair is a list on the Pip-Boy's item card (G), not FNV's own repair screen.
 - FO4 has no jam animation of its own; a jam is an interrupt idle plus dry
   fire, as AWC does it.
-- Copies of a weapon in one inventory stack share one condition (FNV kept
-  one per item).
+- Copies of an item stack only while their condition matches; a change
+  splits one copy off through the engine's stack writer ([stack
+  writer](#stack-writer)). FNV keeps one condition per item.
 - A melee weapon wears per swing, not per hit. (Only the player's weapons wear, as
   in FNV: [#npc-wear](#npc-wear).)
-- Condition shows as a notification on equip and repair, not in the Pip-Boy.
+- Condition shows as a CND line on the Pip-Boy, transfer and barter item cards, and as a notification on equip.
 - Vendor repair is offered item by item on the Pip-Boy's item card, not in
   FNV's list with Repair All. The caps leave the player but don't go to the
   vendor (FO4 vendors keep caps in their own container).

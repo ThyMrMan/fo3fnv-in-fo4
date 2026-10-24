@@ -4,8 +4,10 @@ The exterior used the Commonwealth's climate: FO4's grey sun and neutral
 ambient. Each FNV climate weather becomes a copy of Fallout4.esm's
 CommonwealthClear with FNV's colours (sky, fog, ambient, sunlight, sun,
 stars, horizon; FNV's four times of day spread over FO4's eight) and FNV's
-fog distances and power (power x 2.2, as interiors'); its clouds,
-imagespaces and the rest stay vanilla's, as Project Mojave's weathers do.
+fog distances and power (power x 2.2, as interiors'), and as imagespaces
+FNV's worldspace imagespace under the weather's modifiers
+(weather_imagespace), and FNV's cloud layers (weather_clouds); the rest
+stays vanilla's, as Project Mojave's weathers do.
 The climate is a copy of DefaultClimate with FNV's weather list and sun
 timing. Records read from FalloutNV.esm keep FNV's FormIDs.
 
@@ -18,6 +20,8 @@ import struct
 from fo4_import.base.install import source_esm
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.imagespace import DISPLAY_GAMMA
+from fo4_import.spike.weather_clouds import with_clouds
+from fo4_import.spike.weather_imagespace import weather_imagespaces
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -31,6 +35,8 @@ COLOURS = {0: (0,), 1: (1, 12, 17, 18), 3: (3,), 4: (4, 9), 5: (5,), 6: (6,), 7:
 FO4_TIMES = (0, 1, 2, 3, 0, 0, 2, 2)
 #: FNV fog floats: day near, day far, night near, night far, day power, night power (FO4's first six).
 FOG_FLOATS, FOG_POWERS = 6, (4, 5)
+#: FNV's ambient colour type; FO4 lights exteriors with the weather's DALC (one per FO4 time), not NAM0's ambient.
+AMBIENT = 3
 
 
 def colour_table(fo4_nam0: bytes, fnv_nam0: bytes, types: dict = None) -> bytes:
@@ -44,6 +50,16 @@ def colour_table(fo4_nam0: bytes, fnv_nam0: bytes, types: dict = None) -> bytes:
         for index in fo4_types:
             out[index * entry:(index + 1) * entry] = colours
     return bytes(out)
+
+
+def directional_ambient(fo4_dalc: bytes, fnv_nam0: bytes, time: int) -> bytes:
+    """FO4 DALC `fo4_dalc` (FO4 time `time`) with its six colours FNV's ambient at that time; specular kept.
+
+    See: docs/fork/fo4_look.md#night
+    """
+    per = len(fnv_nam0) // FNV_ENTRIES
+    start = AMBIENT * per + 4 * FO4_TIMES[time]
+    return fnv_nam0[start:start + 4] * 6 + fo4_dalc[24:]
 
 
 def fog_table(fo4_fnam: bytes, fnv_fnam: bytes) -> bytes:
@@ -82,6 +98,12 @@ def _template(builder, fid: int) -> bytes:
     return builder.weather_templates[fid]
 
 
+def _imagespaces(builder, source: dict, vanilla: bytes) -> bytes:
+    """IMSP of FNV weather `source`'s imagespaces per FO4_TIMES, else `vanilla`."""
+    fnv = weather_imagespaces(builder, source, struct.unpack_from('<4I', vanilla))
+    return struct.pack(f'<{len(FO4_TIMES)}I', *(fnv[t] for t in FO4_TIMES)) if fnv else vanilla
+
+
 def fnv_weather(builder, fnv: int) -> int:
     """The FO4 weather of FNV weather `fnv`, written once per build (weather())."""
     if fnv not in builder.weather_ids:
@@ -90,17 +112,22 @@ def fnv_weather(builder, fnv: int) -> int:
 
 
 def weather(builder, fnv: int, template: bytes) -> int:
-    """Write FNV weather `fnv` as a copy of `template` with FNV's colours and fog; its FormID (0 if FNV lacks it)."""
+    """Write FNV weather `fnv` as a copy of `template` with FNV's colours, fog, imagespaces and clouds; its FormID
+    (0 if FNV lacks it)."""
     source = _fnv_records().get(fnv)
     if source is None:
         return 0
     replace = {b'EDID': b'FNV_' + source[b'EDID']}
-    subs = b''
-    for tag, data in subrecords(template):
-        if tag == b'NAM0':
+    subs, dalc = b'', 0
+    for tag, data in with_clouds(builder, list(subrecords(template)), source, FO4_TIMES):
+        if tag == b'DALC':
+            data, dalc = directional_ambient(data, source[b'NAM0'], dalc), dalc + 1
+        elif tag == b'NAM0':
             data = colour_table(data, source[b'NAM0'])
         elif tag == b'FNAM':
             data = fog_table(data, source[b'FNAM'])
+        elif tag == b'IMSP':
+            data = _imagespaces(builder, source, data)
         subs += pack_subrecord(tag.decode('latin1'), replace.get(tag, data))
     fid = builder.fnv_id(fnv)
     builder.writer.add_record('WTHR', pack_fo4_record('WTHR', fid, 0, subs))

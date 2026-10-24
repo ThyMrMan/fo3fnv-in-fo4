@@ -4,7 +4,7 @@ Both games scatter grass at runtime from each LTEX's grass list (GNAM) over
 the ground painted with it. FO4's GRAS DATA has FNV's layout (density, min
 and max slope, units from water and its type, position, height and color
 range, wave period, flags; 32 bytes), so the values copy across, density
-scaled by DENSITY_SCALE; the model is FNV's grass mesh converted like any
+scaled by DENSITY_SCALE (the two games' grass grids; at least 1); the model is FNV's grass mesh converted like any
 other, then copied to where every
 vanilla grass model lives (all 71: directly in Landscape/Grass; Skyrim has the
 same contract, asset_convert/nif/grass_profile.py) as FNV_<name>.nif. FNV's
@@ -12,6 +12,7 @@ grass has no collision, so the copy needs no Elric pass. A GRAS's FormID is
 hashed from FNV's (SITE), so no other record's id moves.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
+See: docs/fork/fo4_look.md#grass-density
 """
 
 import struct
@@ -27,8 +28,10 @@ SITE = 'FNV GRAS'
 #: The folder (under Meshes) the grass renderer takes models from, and our models' name prefix.
 GRASS_FOLDER, GRASS_PREFIX = 'Landscape\\Grass', 'FNV_'
 DATA = struct.Struct('<BBBxHxxIffffBxxx')
-#: FNV's density as FO4 draws it: thick at FNV's value, then at half (plays 1 and 2), so a quarter.
-DENSITY_SCALE = 0.25
+#: The grass grid spacing each game ships (iMinGrassSize: FNV Fallout_default.ini, FO4 Fallout4_Default.ini).
+FNV_GRASS_GRID, FO4_GRASS_GRID = 80, 20
+#: FNV's density on FO4's finer grid: FO4 tries (80 / 20)^2 = 16x the points on the same ground.
+DENSITY_SCALE = (FO4_GRASS_GRID / FNV_GRASS_GRID) ** 2
 
 
 def pack_data(rec: dict) -> bytes:

@@ -203,6 +203,10 @@ FALLOUT_COMMAND_ROWS = {
     'getreputationthreshold': dict(emit='TES4_Reputation.Threshold({p0}, {i1})', types={0: 'FormList'}),
     'rewardkarma': dict(emit='TES4Karma.Mod({f0})', self_type=('TES4Karma', 'GlobalVariable')),
     'isplayerinregion': dict(emit='0', note='{f} {a} - Skyrim has no region query (read as 0)'),
+    #: Challenges exist on Fallout 4 only (command_rows_fallout4, F3NV_Challenges).
+    'unlockchallenge': dict(note='{f} {a} - Skyrim has no challenges'),
+    'removerecurringfromchallenge': dict(note='{f} {a} - Skyrim has no challenges'),
+    'getchallengecompleted': dict(emit='0', note='{f} {a} - Skyrim has no challenges (read as 0)'),
     'showbartermenu': dict(emit='ShowBarterMenu', subj='MAP', flags='actor_only', max_args=0),
     'addperk': dict(emit='AddPerk', subj='MAP', flags='actor_only', max_args=1),
     'removeperk': dict(emit='RemovePerk', subj='MAP', flags='actor_only', max_args=1),

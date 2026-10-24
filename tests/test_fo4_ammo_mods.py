@@ -286,7 +286,7 @@ def test_the_ammo_type_hotkey_lists_each_round_with_its_mod_keyword_and_name(mon
     ammo_switch.write(builder, mods)
     written = Counter(sig for sig, _ in builder.writer.records[before:])
     assert written == {'MESG': 3 + 3, 'QUST': 1, 'MGEF': 1, 'ALCH': 1}
-    assert builder.scripts.used == [ammo_switch.SCRIPT, ammo_switch.ITEM_SCRIPT]
+    assert builder.scripts.used == [ammo_switch.SCRIPT, ammo_switch.ITEM_SCRIPT, ammo_switch.NATIVES]
     item = _subs(next(d for s, d in builder.writer.records if s == 'ALCH'))
     assert item[b'FULL'] == b'Ammo Type\0' and item[b'EFID'] == struct.pack('<I', builder.writer.derive_formid(
         ammo_switch.SITE, 'effect'))

@@ -91,13 +91,14 @@ def add_nodes(nif: NifFile, kept: list, root, flags: int) -> dict:
     return index
 
 
-def controllers(nif: NifFile, root, manager, nodes: dict, particles: dict) -> int:
+def controllers(nif: NifFile, root, manager, nodes: dict, particles: dict, peaks: dict = None) -> int:
     """Append FNV `manager`'s blocks (sequences, interpolators, data, text keys, palette) for the kept `nodes`
-    and converted `particles` controllers ({id(FNV): FO4}); the FO4 manager's index, set as the root's controller."""
+    and converted `particles` controllers ({id(FNV): FO4}), unlit shapes' texel `peaks` (convert_static.texel_peaks)
+    scaling their emittance; the FO4 manager's index, set as the root's controller."""
     base = len(nif.blocks)
     multi = _multi_target(manager)
     at = {'manager': base, 'multi': base + 1, 'shapes': shapes_by_name(nif), 'made': {}, 'animated': {},
-          'particles': particles}
+          'particles': particles, 'peaks': peaks or {}}
     nif.blocks += [('NiControllerManager', {}), ('NiMultiTargetTransformController', {})]
     seq_index = [_sequence(nif, seq, at, root) for seq in manager.controller_sequences]
     palette = len(nif.blocks)
@@ -142,7 +143,7 @@ def _sequence(nif: NifFile, seq, at: dict, root) -> int:
             continue
         if channel(cb):
             when = timing(cb.controller) if cb.controller is not None else timing(seq.manager)
-            block = shader_block(nif, cb, when, at['shapes'], at['made'], cb.priority)
+            block = shader_block(nif, cb, when, at, cb.priority)
             if block:
                 name, shape = block.pop('shape')
                 at['animated'][name] = shape

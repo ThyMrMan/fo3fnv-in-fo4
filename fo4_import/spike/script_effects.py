@@ -87,13 +87,31 @@ class ScriptEffects:
                                      float(e[1] or 0), _number(e[2]), _number(e[3])) for e in effects)
         fnv_flags = _number(rec.get('SPIT.Flags'))
         flags = MANUAL_COST | sum(fo4 for fnv, fo4 in SPELL_FLAGS.items() if fnv_flags & fnv)
-        spit = struct.pack('<IIIfIIffI', 0, flags, kind, 0.0, cast, delivery, 0.0, 0.0, 0)
         fid = self.builder.fnv_id(rec['FormID'])
-        template = {b'ETYP': self._templates()[1][b'ETYP'], b'SPIT': spit}
-        self.builder.writer.add_record('SPEL', pack_spell(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''),
-                                                          template, pairs))
-        self.builder.counts['SPEL (script effects)'] += 1
+        self._write_spell(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), (kind, flags, cast, delivery), pairs)
         return fid
+
+    def script_spell(self, scpt: int, edid: str) -> 'int | None':
+        """A fire-and-forget spell `edid`, delivered on self, of one script effect running FNV script `scpt`'s
+        conversion, written once on FormIDs hashed at SITE (key: `edid`); None when the script did not convert."""
+        if edid not in self.made:
+            self.made[edid] = None
+            if self.builder.scripts.name(scpt):
+                effect = self.builder.writer.derive_formid(SITE, f'{edid} effect')
+                self._write_effect(effect, f'{edid}Effect', '', self.builder.scripts.vmad(scpt),
+                                   self.effect_data(FIRE_AND_FORGET, DELIVERY['Self']))
+                self.made[edid] = self.builder.writer.derive_formid(SITE, edid)
+                self._write_spell(self.made[edid], edid, '', (0, MANUAL_COST, FIRE_AND_FORGET, DELIVERY['Self']),
+                                  effect_pair(effect, 0.0, 0, 0))
+        return self.made[edid]
+
+    def _write_spell(self, fid: int, edid: str, name: str, spit: tuple, pairs: bytes) -> None:
+        """Write spell `edid` of effect `pairs`; `spit`: (type, flags, casting type, delivery)."""
+        kind, flags, cast, delivery = spit
+        data = struct.pack('<IIIfIIffI', 0, flags, kind, 0.0, cast, delivery, 0.0, 0.0, 0)
+        template = {b'ETYP': self._templates()[1][b'ETYP'], b'SPIT': data}
+        self.builder.writer.add_record('SPEL', pack_spell(fid, edid, name, template, pairs))
+        self.builder.counts['SPEL (script effects)'] += 1
 
     def _effect(self, rec: dict, cast: int, delivery: int) -> int:
         """The FO4 script effect of FNV effect `rec` cast and delivered so, written once on its hashed FormID."""
@@ -103,13 +121,17 @@ class ScriptEffects:
             data = bytearray(self.effect_data(cast, delivery))
             fnv_flags = _number(rec.get('DATA.Flags'))
             struct.pack_into('<I', data, FLAGS_AT, sum(1 << fo4 for fnv, fo4 in FLAGS.items() if fnv_flags >> fnv & 1))
-            vmad = self.builder.scripts.vmad(int(rec['DATA.AssocItem'], 16))
-            body = pack_string_subrecord('EDID', f'FNV_{rec["EditorID"]}_{cast}{delivery}') + pack_subrecord('VMAD', vmad)
-            body += pack_string_subrecord('FULL', rec.get('FULL', '')) + pack_subrecord('DATA', bytes(data))
-            body += pack_subrecord('SNDD', b'') + pack_subrecord('DNAM', b'\0')
-            self.builder.writer.add_record('MGEF', pack_fo4_record('MGEF', fid, 0, body))
-            self.builder.counts['MGEF (script effects)'] += 1
+            self._write_effect(fid, f'FNV_{rec["EditorID"]}_{cast}{delivery}', rec.get('FULL', ''),
+                               self.builder.scripts.vmad(int(rec['DATA.AssocItem'], 16)), bytes(data))
         return self.made_effects[key]
+
+    def _write_effect(self, fid: int, edid: str, name: str, vmad: bytes, data: bytes) -> None:
+        """Write Script-archetype effect `edid` carrying `vmad`, its DATA `data`."""
+        body = pack_string_subrecord('EDID', edid) + pack_subrecord('VMAD', vmad)
+        body += pack_string_subrecord('FULL', name) + pack_subrecord('DATA', data)
+        body += pack_subrecord('SNDD', b'') + pack_subrecord('DNAM', b'\0')
+        self.builder.writer.add_record('MGEF', pack_fo4_record('MGEF', fid, 0, body))
+        self.builder.counts['MGEF (script effects)'] += 1
 
     def effect_data(self, cast: int, delivery: int) -> bytes:
         """A Script-archetype MGEF DATA (the TEMPLATES effect's) cast and delivered so, with no flags."""

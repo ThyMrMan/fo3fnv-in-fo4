@@ -459,6 +459,15 @@ def test_a_weathers_fog_colour_fills_fo4s_near_far_and_high_fogs_and_fog_power_i
     assert struct.unpack('<18f', fog)[6:] == tuple(range(6, 18))
 
 
+def test_a_weathers_directional_ambient_is_fnvs_ambient_at_that_time():
+    """FO4 night (time 3) and late sunset (time 7, FNV sunset) DALC: six FNV ambient colours, specular kept."""
+    fnv = bytearray(240)
+    fnv[72:88] = bytes((1, 1, 1, 0, 2, 2, 2, 0, 3, 3, 3, 0, 4, 4, 4, 0))
+    vanilla = bytes(range(24)) + b'SPECFRES'
+    assert WT.directional_ambient(vanilla, bytes(fnv), 3) == bytes((4, 4, 4, 0)) * 6 + b'SPECFRES'
+    assert WT.directional_ambient(vanilla, bytes(fnv), 7)[:24] == bytes((3, 3, 3, 0)) * 6
+
+
 def test_a_region_emittance_weather_takes_fnvs_sunlight_at_each_fo4_time_of_day():
     """FO4's eight times take FNV's four (early/late sunrise and sunset as sunrise and sunset) in two entries."""
     fnv = bytearray(240)
