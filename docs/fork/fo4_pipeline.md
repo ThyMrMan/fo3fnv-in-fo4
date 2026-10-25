@@ -934,7 +934,7 @@ on them. `spike/locations.py` builds them from what FNV authored:
 <a id="npcs"></a>**NPCs (step 3, in progress).** `spike/npcs.py` replaces the
 spike's stand-in actors with every FNV NPC placed in the built cells.
 - **The body.** Each FNV NPC base becomes a copy of a vanilla NPC for its
-  race and sex (`BODIES`: DocWeathers, DoctorAmari, the ghouls Jones and
+  race and sex (the replacement table's `_rules.body`: DocWeathers, DoctorAmari, the ghouls Jones and
   Holly), keeping that NPC's outfit, class and voice for now. FNV's name,
   factions (SNAM with rank, through the converted factions), AI packages
   and script replace the copy's; its factions and crime faction are left
@@ -3216,6 +3216,62 @@ Steps 2–4 come before the whole map (the reverse of the first order).
 This tests the remaining unknown where the world already works.
 The whole-map step then carries NPCs and quests with it, rather than
 converting the world twice.
+
+## <a id="whole-map"></a>The first whole-map build (2026-10-24)
+
+`--world WastelandNV --whole` into a scratch Data folder (`temp/whole`).
+Each run stopped at one bug the region never had; all were general:
+
+| Run | Stopped after | Cause | Fix |
+|---|---|---|---|
+| 1 | 2 min | the looping-activator check read a mesh not yet written | read it from the mesh cache |
+| 2 | 3 min | a huge activator's bounds overflowed OBND's 16 bits | `mesh_cache.mesh_bounds` clamps |
+| 3 | 44 min | a fitted skin tone went negative | `tint.scaled_tone` clamps at 0 |
+| 4 | 52 min | a line lists one Choice twice: two INFOs on one key | `conversation._next` lists each once |
+| 5 | 64 min | a talk scene added talks while they were built | `cell._all_talks` runs to a fixed point |
+| 6 | 7 min | a merchant chest in an exterior cell made it an "interior" | `vendors.with_chests` keeps interior cells |
+| 7 | 84 min | Archive2 fails on relative paths | `ba2_pack._pack` passes absolute ones |
+
+Run 8 finished: 6,204 s; peak 15.6 GB over all processes, 12.7 GB in the
+build process; 508,186 records, a 258 MB plugin, a 1.2 GB texture archive,
+3.8 GB of sound (150,375 voice files), 8.1 GB in all (2.0 GB of it the
+texture staging); 9,920 of 9,920 scripts compile. The other worldspaces
+(the Strip, Freeside, Lucky 38 and the rest) are separate in FNV and were
+not in it.
+
+<a id="dangling-script-properties"></a>**Dangling script properties.**
+FO4Edit found 1,001 unresolved references, 991 of them script properties
+naming a record the build never wrote: 752 placed creatures with no FO4
+base (`npcs.placed` skips them after `actor_refs` gave them an id), 191
+references to talking activators that are not radio stations (REPCON,
+Hidden Valley and Hoover Dam intercoms), 52 packages left out. Each
+kind reserves its id before knowing the record converts.
+`base/dangling_scripts.clear_dangling` runs after the plugin is written:
+every VMAD object property naming this plugin's index but no record in it
+becomes None, in place (the size does not change). On run 8's plugin:
+957 cleared, every VMAD read, 1.4 s; FO4Edit then reports 44 (conditions
+whose subject is an unbuilt actor or reference: Black Mountain radio
+lines, two terminals, one package), from 1,001.
+
+**Every worldspace a door reaches** (WastelandNV, TheStripWorldNew,
+Lucky38World, the three Freeside worlds, GamorrahWorld,
+GreenhouseWorld01, TheFortWorld, BoulderCityWorld, WastelandNVmini, and
+FFEncounterWorld, the freeform encounters' holding pen; not TestMap01 or
+FXInvertedDaylightWorld). The first run hit a recursion: a package's
+fragment script names a package that names it back, and each was written
+again before the other finished; `packages.package` now takes the id
+before writing. Then: 7,181 s; peak 12.9 GB (12.8 in the build process);
+a 361 MB plugin, a 1.3 GB texture archive, 179,299 voice files; 13,140 of
+13,140 scripts compile; 1,080 dangling properties cleared. Dialogue lines
+dropped as never true (`GetIsID` on an unbuilt speaker) fell from 24,531
+to 3,274, doors leading out of the build from 52 to 0, packages for an
+unbuilt location from 58 to 3. Still left out: 1,036 placed creatures of
+121 kinds with no FO4 base (the replacement table's gap).
+
+**Where the time goes.** About an hour of each run is LipGenerator, once
+per voice line. A voice file is skipped when it already exists, so a
+rebuild into the same Data folder skips it; these runs cleared the
+folder each time.
 
 ## <a id="parked"></a>Parked
 

@@ -259,14 +259,15 @@ def test_layout_distance_prefers_the_nearer_magazine_and_muzzle():
 def test_replacement_table_lays_a_user_file_over_the_defaults(tmp_path):
     """A user entry replaces the default one; another plugin becomes a master and may only be an item."""
     user = tmp_path / 'mine.json'
-    user.write_text('{"WeapBBGun": {"use": "BBGunMod.esp|BBGun", "as": "item"}}', encoding='utf-8')
-    table = RP.load(user)
-    assert table['WeapBBGun'] == RP.Replacement('BBGunMod.esp', 'BBGun', 'item')
+    (tmp_path / 'BBGunMod.esp').write_bytes(b'')
+    user.write_text('{"weapon": {"WeapBBGun": {"use": "BBGunMod.esp|BBGun", "as": "item"}}}', encoding='utf-8')
+    table = RP.load(user, dirs=(tmp_path,))
+    assert table['WeapBBGun'] == RP.Replacement('BBGunMod.esp', 'BBGun', 'item', (), 'weapon', 'user')
     assert table['WeapBaseballBat'].mode == 'fnv' and table['VaultSuit21'].mode == 'item'
     assert RP.extra_masters(table) == ['BBGunMod.esp']
-    user.write_text('{"WeapBBGun": {"use": "BBGunMod.esp|BBGun", "as": "stats"}}', encoding='utf-8')
+    user.write_text('{"weapon": {"WeapBBGun": {"use": "BBGunMod.esp|BBGun", "as": "stats"}}}', encoding='utf-8')
     with pytest.raises(ValueError):
-        RP.load(user)
+        RP.load(user, dirs=(tmp_path,))
 
 
 def test_another_plugins_formid_is_renumbered_to_our_masters():

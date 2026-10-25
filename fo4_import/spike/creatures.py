@@ -1,17 +1,20 @@
 """FNV creatures as Fallout 4 actors.
 
-Two ways, by the creature's skeleton folder:
+Each creature takes the replacement table's creature entry for its
+EditorID, else the rule for its skeleton folder (`_rules.creature`), in one
+of three modes:
 
-- **FNV's body on its FO4 counterpart** (`TEMPLATES`, nif.creature.PAIRS):
-  a copy of the pair's vanilla NPC (Dogmeat for dogs) with Dogmeat's
+- **`fnv`, FNV's body on its FO4 counterpart** (only where nif.creature.PAIRS
+  has the folder): a copy of the target NPC (Dogmeat for dogs) with Dogmeat's
   scripts, factions, perks and spells left out and a sandbox package; its
-  skin is a copy of the vanilla skin, whose addon shows FNV's body (its
-  NIFZ parts on the FO4 skeleton).
-- **An FO4 stand-in** (`STAND_INS`): FO4's own kind (bloatfly, radscorpion,
+  skin is a copy of the target's skin (WNAM), whose addon (the skin's first
+  MODL) shows FNV's body (its NIFZ parts on the FO4 skeleton).
+- **`stats`, an FO4 stand-in**: FO4's own kind (bloatfly, radscorpion,
   deathclaw, ghoul, brahmin, robots), else the nearest in size and role: a
-  copy of the vanilla creature under FNV's name, its own body, animations
-  and factions; only its scripts drop. A ported creature from the modlist
-  replaces it through the replacement table.
+  copy of the target creature under FNV's name, its own body, animations
+  and factions; only its scripts drop.
+- **`item`, the target as it is** (a DLC's or a mod's creature, or a
+  Fallout4.esm one): nothing is written; its references and lists name it.
 
 Templated creatures and leveled creature lists become FO4 template actors,
 as leveled NPCs do (npcs.py).
@@ -31,6 +34,7 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents
 from fo4_import.spike import records as R
 from fo4_import.spike.actor_data import CREATURE_FLAGS, hit_proof, with_actor_data
+from fo4_import.spike.replacements import CREATURE_TYPES, targets
 from fo4_import.spike.npcs import (USE_AI_DATA, USE_FACTIONS, USE_INVENTORY, USE_SCRIPT, USE_STATS, composed, faction_snams,
                                    template_source, with_factions)
 from fo4_import.spike.statics import write_converted
@@ -43,16 +47,6 @@ from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
 #: Dogmeat's ties to his own quests and character, left out of a dog.
 DOGMEAT_TIES = frozenset({b'VMAD', b'SNAM', b'PRKZ', b'PRKR', b'SPCT', b'SPLO'})
-#: FNV creature skeleton folder -> the vanilla (NPC_, skin ARMO, its ARMA) a creature wearing FNV's body copies.
-TEMPLATES = {'creatures\\dog': (0x1D15C, 0x1D725, 0x1D726)}
-#: FNV creature skeleton folder -> the vanilla NPC_ (EditorID) standing in: FO4's own kind, else the nearest.
-STAND_INS = {'creatures\\nvgecko': 'EncViciousDog01Template','creatures\\molerat': 'EncMolerat01Template',
-             'creatures\\blowfly': 'EncBloatfly01Template', 'creatures\\radscorpion': 'EncRadscorpion01Template',
-             'creatures\\deathclaw': 'EncDeathclaw01Template', 'creatures\\radroach': 'EncRadRoach',
-             'creatures\\ghoul': 'encFeralGhoul01Template', 'creatures\\brahmin': 'EncBrahminTemplate',
-             'creatures\\nvbighorner': 'EncBrahminTemplate', 'creatures\\eyebot': 'EncEyeBot',
-             'creatures\\protectron': 'EncProtectron01Template', 'creatures\\nvsecuritron': 'EncProtectron01Template',
-             'creatures\\nvmantis': 'EncStingwing01Template'}
 #: FNV creature DATA stats as FO4 actor values (Fallout4.esm AVIF): Health, S.P.E.C.I.A.L., attack damage.
 STATS = {'DATA.Health': 0x2D4, 'DATA.Strength': 0x2C2, 'DATA.Perception': 0x2C3, 'DATA.Endurance': 0x2C4,
          'DATA.Charisma': 0x2C5, 'DATA.Intelligence': 0x2C6, 'DATA.Agility': 0x2C7, 'DATA.Luck': 0x2C8,
@@ -71,7 +65,7 @@ SITE = 'FNV CREA'
 MODEL_TEXTURES = frozenset({b'MODT', b'MO2T', b'MO3T', b'MO4T', b'MO5T'})
 
 
-def _folder(model: str) -> str:
+def skeleton_folder(model: str) -> str:
     """An FNV creature model path's skeleton folder (`creatures\\dog`)."""
     return '\\'.join(model.replace('/', '\\').lower().split('\\')[:2])
 
@@ -83,40 +77,74 @@ class Creatures:
         """For `builder`'s plugin (its writer and Fallout4.esm bytes), FNV export `export_dir`, into `data_dir`."""
         self.builder, self.export_dir, self.data_dir = builder, export_dir, data_dir
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'CREA')}
-        wanted, names = {fid for fids in TEMPLATES.values() for fid in fids}, set(STAND_INS.values())
-        self.vanilla, self.stand_ins, self.race_health = {}, {}, {}
-        for rec, _ in walk(builder.fo4, b'NPC_', b'ARMO', b'ARMA', b'RACE'):
-            if rec.sig == b'RACE':
-                self.race_health[rec.form_id] = _health(rec.body)
-                continue
-            edid = (dict(subrecords(rec.body)).get(b'EDID') or b'').rstrip(b'\0').decode()
-            if rec.form_id in wanted or edid in names:
-                self.vanilla[rec.form_id] = rec
-                self.stand_ins[edid] = rec.form_id
+        table = builder.table
+        self.by_edid, self.by_folder = table.creatures, table.rules.creature
+        keyed = {**self.by_folder, **self.by_edid}
+        self.npcs, self.worn, self.race_health = self._index(builder.fo4, keyed)
+        self.as_is = targets({k: e for k, e in keyed.items() if e.mode == 'item'}, builder.fo4, builder.masters,
+                             builder.plugin_dirs, CREATURE_TYPES)
         self.archives = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2')
         self.fits, self.meshes, self.made = {}, {}, {}
         self.voices = VoiceTypes(builder)
 
+    @staticmethod
+    def _index(fo4: bytes, keyed: dict) -> tuple:
+        """({EditorID lowercased: NPC_} of the Fallout4.esm targets in `keyed`, {EditorID: (NPC_, skin ARMO,
+        addon ARMA)} of its `fnv` targets, {RACE: starting Health})."""
+        wanted = {e.edid.lower() for e in keyed.values() if e.base}
+        npcs, armor, race_health = {}, {}, {}
+        for rec, _ in walk(fo4, b'NPC_', b'ARMO', b'ARMA', b'RACE'):
+            if rec.sig == b'RACE':
+                race_health[rec.form_id] = _health(rec.body)
+            elif rec.sig != b'NPC_':
+                armor[rec.form_id] = rec
+            else:
+                edid = (dict(subrecords(rec.body)).get(b'EDID') or b'').rstrip(b'\0').decode().lower()
+                npcs.update({edid: rec} if edid in wanted else {})
+        worn = {}
+        for edid in {e.edid.lower() for e in keyed.values() if e.base and e.mode == 'fnv'} & set(npcs):
+            skin = armor[_form(npcs[edid], b'WNAM')]
+            worn[edid] = (npcs[edid], skin, armor[_form(skin, b'MODL')])
+        return npcs, worn, race_health
+
+    def _entry(self, rec: dict) -> tuple:
+        """(the table's entry for FNV creature `rec`, its key): by EditorID, else by skeleton folder; (None, '')."""
+        if rec.get('EditorID') in self.by_edid:
+            return self.by_edid[rec['EditorID']], rec['EditorID']
+        folder = skeleton_folder(rec.get('Model.MODL', ''))
+        return self.by_folder.get(folder), folder
+
     def converts(self, fnv: int) -> bool:
-        """Whether FNV creature `fnv` has a pair or a stand-in (TEMPLATES, STAND_INS)."""
+        """Whether FNV creature `fnv` has an entry whose target is there (and, for `fnv`, a rig pair)."""
         rec = self.records.get(fnv)
-        return rec is not None and 'Model.MODL' in rec and _folder(rec['Model.MODL']) in {*TEMPLATES, *STAND_INS}
+        entry, key = self._entry(rec) if rec is not None else (None, '')
+        if entry is None:
+            return False
+        if entry.mode == 'item':
+            return key in self.as_is
+        if entry.mode == 'fnv':
+            return entry.edid.lower() in self.worn and skeleton_folder(rec.get('Model.MODL', '')) in PAIRS
+        return entry.edid.lower() in self.npcs
 
     def base(self, fnv: int, packages: list = ()) -> int:
         """The FO4 NPC of FNV creature `fnv` (the module notes) running `packages` (else SANDBOX), made once."""
         if fnv not in self.made:
             rec = self.records[fnv]
-            folder = _folder(rec['Model.MODL'])
+            entry, key = self._entry(rec)
+            if entry.mode == 'item':
+                self.builder.counts['creatures (target as is)'] += 1
+                self.made[fnv] = self.as_is[key]
+                return self.made[fnv]
             fid = self.builder.writer.derive_formid(SITE, f'{fnv:08X} NPC_')
-            made = self._stand_in if folder in STAND_INS else self._worn
-            made(fid, rec, folder, list(packages) or [SANDBOX])
+            made = self._stand_in if entry.mode == 'stats' else self._worn
+            made(fid, rec, entry, list(packages) or [SANDBOX])
             self.builder.counts['creatures'] += 1
             self.made[fnv] = fid
         return self.made[fnv]
 
-    def _stand_in(self, fid: int, rec: dict, folder: str, packages: list) -> None:
-        """Write FNV creature `rec` as a copy of its vanilla stand-in under FNV's name, scripts dropped."""
-        npc = self.vanilla[self.stand_ins[STAND_INS[folder]]]
+    def _stand_in(self, fid: int, rec: dict, entry, packages: list) -> None:
+        """Write FNV creature `rec` as a copy of its entry's target under FNV's name, scripts dropped."""
+        npc = self.npcs[entry.edid.lower()]
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, npc.body, npc.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), STAND_IN_TIES,
             edit=composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
@@ -129,14 +157,12 @@ class Creatures:
     def label(self, fnv: int) -> str:
         """FNV creature `fnv`'s skeleton folder, else its EditorID."""
         rec = self.records[fnv]
-        return _folder(rec['Model.MODL']) if 'Model.MODL' in rec else rec.get('EditorID', f'{fnv:08X}')
+        return skeleton_folder(rec['Model.MODL']) if 'Model.MODL' in rec else rec.get('EditorID', f'{fnv:08X}')
 
     def stand_in(self, fnv: int):
-        """The vanilla NPC_ record FNV creature `fnv`'s model stands in as (STAND_INS, TEMPLATES); None without."""
-        folder = _folder(self.records[fnv].get('Model.MODL', ''))
-        if folder in STAND_INS:
-            return self.vanilla[self.stand_ins[STAND_INS[folder]]]
-        return self.vanilla[TEMPLATES[folder][0]] if folder in TEMPLATES else None
+        """The Fallout4.esm NPC_ FNV creature `fnv`'s entry targets, or None."""
+        entry = self._entry(self.records[fnv])[0]
+        return self.npcs.get(entry.edid.lower()) if entry is not None and entry.base else None
 
     def own_parts(self, rec: dict, templated: bool = False) -> tuple:
         """Edits giving creature `rec` its stats, factions and death item: on a template actor (`templated`) only
@@ -180,10 +206,10 @@ class Creatures:
         edid = fnv_voice_types().get(fnv, ('',))[0]
         return with_voice(self.voices.of(fnv)) if edid and fnv_folder(self.export_dir, edid).is_dir() else None
 
-    def _worn(self, fid: int, rec: dict, folder: str, packages: list) -> None:
-        """Write FNV creature `rec` as a copy of its pair's vanilla NPC on a skin showing FNV's body."""
-        npc, skin, addon = (self.vanilla[f] for f in TEMPLATES[folder])
-        model, write = self._mesh(rec, folder), self.builder.writer
+    def _worn(self, fid: int, rec: dict, entry, packages: list) -> None:
+        """Write FNV creature `rec` as a copy of its entry's target NPC on a skin showing FNV's body."""
+        npc, skin, addon = self.worn[entry.edid.lower()]
+        model, write = self._mesh(rec, skeleton_folder(rec['Model.MODL'])), self.builder.writer
         key, edid = f'{int(rec["FormID"], 16):08X}', f'FNV_{rec["EditorID"]}'
         arma, armo = (write.derive_formid(SITE, f'{key} {part}') for part in ('ARMA', 'ARMO'))
         write.add_record('ARMA', _copy(addon, arma, f'{edid}AA', {b'MOD2': _zstr(model), b'MOD3': _zstr(model)}))
@@ -237,6 +263,11 @@ def _health(body: bytes) -> float:
     """A RACE's starting Health (PRPS), 0 without one."""
     data = dict(subrecords(body)).get(b'PRPS', b'')
     return dict(struct.unpack_from('<If', data, i) for i in range(0, len(data), 8)).get(HEALTH, 0.0)
+
+
+def _form(rec, tag: bytes) -> int:
+    """The FormID in record `rec`'s first `tag` subrecord."""
+    return struct.unpack('<I', dict(subrecords(rec.body))[tag][:4])[0]
 
 
 def _zstr(text: str) -> bytes:

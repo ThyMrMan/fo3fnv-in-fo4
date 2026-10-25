@@ -21,6 +21,7 @@ from pathlib import Path
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.factions import CAN_BE_OWNER, CRIME_VALUES
+from fo4_import.spike.interiors import INTERIOR
 from fo4_import.spike.npcs import USE_AI_DATA, template_source
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
@@ -48,8 +49,10 @@ def merchants(export_dir: Path, cell_of) -> list:
 
 
 def with_chests(export_dir: Path, interiors: list, every: list, chests: list) -> tuple:
-    """(`interiors`, `every`) with merchant containers `chests` and the holding cells they stand in."""
-    cells = {r['FormID']: r for r in export_records(export_dir, 'CELL')}
+    """(`interiors`, `every`) with merchant containers `chests` in interior holding cells, and those cells; a chest
+    in an exterior cell is placed with its worldspace instead."""
+    cells = {r['FormID']: r for r in export_records(export_dir, 'CELL') if int(r.get('DATA.Flags', 0)) & INTERIOR}
+    chests = [c for c in chests if c['ParentCELL'] in cells]
     built = {c['FormID'] for c in interiors}
     held = [cells[cell] for cell in dict.fromkeys(c['ParentCELL'] for c in chests) if cell not in built]
     placed = {r['FormID'] for r in every}

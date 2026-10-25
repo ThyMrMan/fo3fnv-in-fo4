@@ -23,7 +23,7 @@ from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 PLUGIN, TINT_PLUGIN = 'FNVSculptCalib.esp', 'FNVTintCalib.esp'
-#: Per sex (female?), the NPC every calibration clone starts from, face shape removed: npcs.BODIES' humans.
+#: Per sex (female?), the NPC every calibration clone starts from, face shape removed: the default human bodies.
 TEMPLATES = {False: 0x12FCCB, True: 0x09A680}
 
 

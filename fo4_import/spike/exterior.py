@@ -141,7 +141,8 @@ class Exterior:
                                         {grid: int(r['FormID'], 16) for grid, r in self.cells.items()})
         cells, kept = {}, place(self.persistent)[0] + b''.join(actors.get(self.persistent_cell, (b'', b'')))
         lands = {grid: self.land.get(self.cells[grid]['FormID']) for grid in sorted(self.cells)}
-        mixes = limit_textures(blend_borders({grid: quadrant_mix(land) for grid, land in lands.items() if land}))
+        grassy = frozenset(k for k, r in self._ltex_records().items() if _grass_count(r))
+        mixes = limit_textures(blend_borders({grid: quadrant_mix(land) for grid, land in lands.items() if land}), grassy)
         for grid in sorted(self.cells):
             persistent, temporary = place(self.by_cell[grid])
             people = actors.get(self.cells[grid]['FormID'], (b'', b''))

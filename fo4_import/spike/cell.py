@@ -18,6 +18,7 @@ from pathlib import Path
 
 from fo4_import.base.ba2_pack import pack_textures
 from fo4_import.base.bink import write_movies
+from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.ledger import Ledger, LedgerWriter, ledger_path
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_esm, use_source
 from fo4_import.base.source import source_plugin
@@ -382,7 +383,7 @@ class CellBuilder:
         (Activators.ambient), else an ACTI."""
         if self.crafting.station_of(rec):
             return 'FURN', self.crafting.station(fid, rec, model, bounds)
-        if self.activators.ambient(rec, model):
+        if self.activators.ambient(rec, world_model(rec)):
             return _static('STAT', fid, f'FNV_{rec["EditorID"]}', model, bounds, self.sounds.field(rec, 'SNAM'))
         return 'ACTI', self.activators.record(fid, rec, model, bounds)
 
@@ -679,6 +680,17 @@ def _hub(builder: CellBuilder, export_dir: Path, say: SayTopics, recs: list, que
     return shared
 
 
+def _all_talks(found: dict, talks) -> set:
+    """The `TES4Talk_<topic>` properties of `found` ({property: scene}) that Conversations `talks` built, including
+    those a built scene's own scripts add to `found` while it is built."""
+    done, built = set(), set()
+    while todo := [(prop, scene) for prop, scene in list(found.items()) if prop not in done]:
+        for prop, scene in todo:
+            done.add(prop)
+            built |= {prop} if talks.talk(prop, scene) else set()
+    return built
+
+
 def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub) -> set:
     """Write the generated, start-game quest holding the greeting every built quest's GREETING lines share and
     the scenes it leads to, at the built quests' highest priority; the `TES4Talk_<topic>` scenes it built.
@@ -690,7 +702,7 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
     fid = builder.new_id(f'QUST {GREETINGS_KEY}')
     talks = Conversations(say, {'FormID': GREETINGS_KEY, 'EditorID': GREETINGS_EDID}, fid, form_map, XDI_KEYWORD,
                           shared)
-    built = {prop for prop, scene in builder.scripts.talks.items() if talks.talk(prop, scene)}
+    built = _all_talks(builder.scripts.talks, talks)
     talks.greeting(builder.packages.greets, builder.packages.topics)
     talks.player_hello()
     builder.writer.add_record('GMST', pack_gmst(builder.new_id(f'GMST {PADDED_SETTING}'), PADDED_SETTING,
@@ -974,7 +986,7 @@ def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict)
     """The FO4 CELL of FNV interior `cell`: FNV's lighting, imagespace, water height and owner over QASmoke's."""
     template = sub_map(vanilla[CELL_FO4].body)
     imagespace = _imagespace(builder, export_dir, cell, vanilla[BASE_IMAGESPACE].body)
-    edid, flags = cell['EditorID'], int(cell['DATA.Flags'])
+    edid, flags = cell.get('EditorID') or f'Cell{cell["FormID"]}', int(cell['DATA.Flags'])
     water = float(cell['XCLW.WaterHeight']) if flags & HAS_WATER and 'XCLW.WaterHeight' in cell else 0.0
     return R.pack_cell(builder.fnv_id(cell['FormID']), f'FNV_{edid}', cell.get('FULL', edid), flags & 0xFF,
                        lighting(resolved(export_dir, cell), template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
@@ -1022,6 +1034,8 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     builder.writer.next_object_id = builder.top
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))
+    for key, count in clear_dangling(out, len(builder.writer.masters)).items():
+        builder.counts[f'script properties naming no written record ({key})'] = count
     builder.writer.ledger.save()
     made = stale_files.made(data_dir, Path(export_dir.name).stem, builder.started)
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))

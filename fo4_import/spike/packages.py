@@ -155,7 +155,8 @@ class Packages:
 
     def package(self, fnv: str, form_map: dict, npc: int = 0) -> int:
         """The FO4 package for FNV package `fnv` (made once, for the first NPC `npc` that runs it), 0 when it
-        does not convert."""
+        does not convert. Its id is taken before it is written, so a fragment script naming it (or a package
+        naming it back) resolves to it instead of writing it again."""
         if fnv not in self.made:
             rec = self.packs[fnv]
             plan = self._plan(rec, form_map, npc)
@@ -165,6 +166,7 @@ class Packages:
                 self.builder.counts[f'package left out ({why})'] += 1
                 self.made[fnv], self.why[fnv] = 0, why
             else:
+                self.made[fnv] = self.builder.fnv_id(fnv)
                 self.made[fnv] = self._write(fnv, rec, plan, conditions, form_map)
         return self.made[fnv]
 

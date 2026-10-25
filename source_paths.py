@@ -29,6 +29,18 @@ _REGISTRY_KEYS = {
         r"SOFTWARE\WOW6432Node\Bethesda Softworks\Skyrim VR",
         r"SOFTWARE\Bethesda Softworks\Skyrim VR",
     ),
+    "fallout4": (
+        r"SOFTWARE\WOW6432Node\Bethesda Softworks\Fallout4",
+        r"SOFTWARE\Bethesda Softworks\Fallout4",
+    ),
+    "falloutnv": (
+        r"SOFTWARE\WOW6432Node\Bethesda Softworks\FalloutNV",
+        r"SOFTWARE\Bethesda Softworks\FalloutNV",
+    ),
+    "fallout3": (
+        r"SOFTWARE\WOW6432Node\Bethesda Softworks\Fallout3",
+        r"SOFTWARE\Bethesda Softworks\Fallout3",
+    ),
 }
 
 

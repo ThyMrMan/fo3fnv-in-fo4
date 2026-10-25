@@ -129,8 +129,11 @@ def _pack(staged: Path, root: Path, archive: Path, files: dict) -> None:
     stat = archive.stat() if archive.exists() else None
     if stat and packed.get('files') == state and packed.get('archive') == [stat.st_size, stat.st_mtime_ns]:
         return
-    subprocess.run([str(ARCHIVE2), str(staged), f'-c={archive}', '-f=DDS', f'-r={root}', f'-maxChunkCount={CHUNKS}',
-                    '-q'], check=True, capture_output=True, **POPEN_FLAGS)
+    done = subprocess.run([str(ARCHIVE2), str(staged.resolve()), f'-c={archive.resolve()}', '-f=DDS',
+                           f'-r={root.resolve()}', f'-maxChunkCount={CHUNKS}', '-q'],
+                          capture_output=True, text=True, **POPEN_FLAGS)
+    if done.returncode or not archive.exists():
+        raise RuntimeError(f'Archive2 could not pack {archive} (absolute paths only): {done.stdout}{done.stderr}')
     stat = archive.stat()
     record.write_text(json.dumps({'files': state, 'archive': [stat.st_size, stat.st_mtime_ns]}), encoding='utf-8')
 

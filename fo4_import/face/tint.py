@@ -133,8 +133,8 @@ def scaled_tone(tag: bytes, data: bytes, scale) -> bytes:
     """A QNAM (texture lighting) or Skin Tone TEND (then a custom colour) times `scale` (clamped)."""
     if tag == b'QNAM':
         rgba = struct.unpack('<4f', data)
-        return struct.pack('<4f', *(min(c * s, 1.0) for c, s in zip(rgba, scale)), rgba[3])
-    colour = bytes(min(round(data[1 + i] * scale[i]), 255) for i in range(3))
+        return struct.pack('<4f', *(min(max(c * s, 0.0), 1.0) for c, s in zip(rgba, scale)), rgba[3])
+    colour = bytes(min(max(round(data[1 + i] * scale[i]), 0), 255) for i in range(3))
     return data[:1] + colour + data[4:5] + CUSTOM_COLOUR
 
 

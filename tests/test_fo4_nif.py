@@ -220,7 +220,7 @@ def test_fnv_gun_hangs_on_the_receivers_bones_turned_and_trigger_aligned():
                   ('BSTriShape', _box_shape(src, 'Gun:0', (-5, 0, -1), (20, 3, 1), 4)),
                   ('BSLightingShaderProperty', C.lighting_shader(src, 'materials\\fnv\\gun.bgsm', -1, 0))]
     out = F.read(G.gun(F.write(src), {'ProjectileNode': np.array([22.0, 1.5, 0.0])}, F.write(rec)))
-    worlds = G._worlds(out)
+    worlds = G.node_worlds(out)
     names = {out.strings[b['name']]: i for i, (k, b) in enumerate(out.blocks) if isinstance(b, dict) and 'name' in b}
     for old in ('OldTrigger:0', 'OldBody:0'):
         assert out.blocks[names[old]][0] == 'BSTriShape' and out.blocks[names[old]][1]['vertices'] == []

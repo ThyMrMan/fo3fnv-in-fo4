@@ -430,8 +430,9 @@ def part(rec: dict, number: int) -> dict:
 
 
 def _next(rec: dict):
-    """The step after FNV line `rec`: ('line', Follow Ups) or ('menu', Choices); None after a Goodbye or neither."""
-    follow, choices = _fids(rec, 'FollowUp'), _fids(rec, 'Choice')
+    """The step after FNV line `rec`: ('line', Follow Ups) or ('menu', Choices), each topic once (a topic listed
+    twice is offered once); None after a Goodbye or neither."""
+    follow, choices = list(dict.fromkeys(_fids(rec, 'FollowUp'))), list(dict.fromkeys(_fids(rec, 'Choice')))
     if int(rec.get('DATA.Flags', 0)) & GOODBYE or not (follow or choices):
         return None
     return ('line', tuple(follow)) if follow else ('menu', tuple(choices))

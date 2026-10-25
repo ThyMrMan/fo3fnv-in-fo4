@@ -50,7 +50,7 @@ def _matrix(block: dict) -> np.ndarray:
     return m
 
 
-def _worlds(nif) -> dict:
+def node_worlds(nif) -> dict:
     """{block index: world matrix} of every node reachable from the root."""
     out, stack = {}, [(0, np.eye(4))]
     while stack:
@@ -104,23 +104,54 @@ def _receiver_trigger(nif, worlds: dict) -> 'np.ndarray | None':
 
 
 def connect_points(nif, worlds: dict) -> dict:
-    """{parent connect point name: receiver-space position} of a NIF's BSConnectPoint::Parents."""
+    """{parent connect point name: receiver-space position} (connect_frames)."""
+    return {name: frame[3, :3] for name, frame in connect_frames(nif, worlds).items()}
+
+
+def connect_frames(nif, worlds: dict) -> dict:
+    """{parent connect point name: its 4x4 row-vector transform in receiver space} of BSConnectPoint::Parents
+    (rotation quaternion w x y z, translation, on the named node's world transform in `worlds`)."""
     out = {}
     for kind, raw in nif.blocks:
         if kind != 'BSConnectPoint::Parents':
             continue
         at, count = 8, struct.unpack_from('<I', raw, 4)[0]
         for _ in range(count):
-            names = []
-            for _ in range(2):
-                n = struct.unpack_from('<I', raw, at)[0]
-                names.append(raw[at + 4:at + 4 + n].decode('cp1252'))
-                at += 4 + n
-            translation = np.array(struct.unpack_from('<3f', raw, at + 16))
+            names, at = _sized_strings(raw, at, 2)
+            local = np.eye(4)
+            local[:3, :3] = _quaternion(struct.unpack_from('<4f', raw, at)).T
+            local[3, :3] = struct.unpack_from('<3f', raw, at + 16)
             at += 32
             parent = _named(nif, names[0])
-            out[names[1]] = _moved(translation[None], worlds[parent])[0] if parent in worlds else translation
+            out[names[1]] = local @ worlds[parent] if parent in worlds else local
     return out
+
+
+def connect_children(nif) -> list:
+    """The parent point names (C-X attaches to P-X) a part's BSConnectPoint::Children name."""
+    out = []
+    for kind, raw in nif.blocks:
+        if kind == 'BSConnectPoint::Children':
+            out += _sized_strings(raw, 9, struct.unpack_from('<I', raw, 5)[0])[0]
+    return ['P-' + name[2:] if name.startswith('C-') else name for name in out]
+
+
+def _sized_strings(raw: bytes, at: int, count: int) -> tuple:
+    """(`count` u32-length strings read from `at`, the offset after them)."""
+    out = []
+    for _ in range(count):
+        n = struct.unpack_from('<I', raw, at)[0]
+        out.append(raw[at + 4:at + 4 + n].decode('cp1252'))
+        at += 4 + n
+    return out, at
+
+
+def _quaternion(q: tuple) -> np.ndarray:
+    """The 3x3 rotation (column vectors) of quaternion (w, x, y, z)."""
+    w, x, y, z = q
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
 
 
 def _top(nif, worlds: dict) -> float:
@@ -133,13 +164,13 @@ def _top(nif, worlds: dict) -> float:
 def mesh_top(raw: bytes) -> float:
     """The highest point of a NIF's placed shapes."""
     nif = nif_file.read(raw)
-    return _top(nif, _worlds(nif))
+    return _top(nif, node_worlds(nif))
 
 
 def receiver_layout(raw: bytes) -> dict:
     """A FO4 receiver NIF's trigger, magazine mouth, muzzle and sights point, and its top (z), receiver space."""
     nif = nif_file.read(raw)
-    worlds = _worlds(nif)
+    worlds = node_worlds(nif)
     points = connect_points(nif, worlds)
     node = {name: worlds[i][3, :3] for name in (MAGAZINE_BONE, MUZZLE) if (i := _named(nif, name)) in worlds}
     return {'trigger': _receiver_trigger(nif, worlds), 'mag': points.get(MAG_POINT, node.get(MAGAZINE_BONE)),
@@ -216,7 +247,7 @@ def gun(static_bytes: bytes, nodes: dict, receiver_bytes: bytes) -> bytes:
     receiver NIF `receiver_bytes`."""
     src = without_havok(nif_file.read(static_bytes))
     nif = nif_file.read(receiver_bytes)
-    worlds = _worlds(nif)
+    worlds = node_worlds(nif)
     muzzle = _named(nif, MUZZLE)
     body = next((i for i, (_, b) in enumerate(nif.blocks)
                  if isinstance(b, dict) and muzzle in b.get('children', [])), 0)

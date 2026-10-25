@@ -47,7 +47,7 @@ from fo4_import.pipeline.work_cache import cached
 from fo4_import.spike.gun_choice import GUN_TYPES
 from fo4_import.spike.guns import Guns
 from fo4_import.spike.weapon_mods import WeaponMods
-from fo4_import.spike.replacements import BASE, Replacement
+from fo4_import.spike.replacements import Replacement, Rules
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import swapped_material, write_assets
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
@@ -69,12 +69,6 @@ WORLD_MODEL_DATA = (b'MO2T', b'MO2S')
 TEMPLATES = (b'OBTE', b'STOP')
 #: Armor addon subrecords copied from the template's: race, priorities, additional races.
 ADDON_KEPT = (b'RNAM', b'DNAM')
-#: Unlisted FNV armor -> (BMDT biped bits it covers, Fallout4.esm template FNV's mesh goes on), first match.
-ARMOR_DEFAULTS = ((0x4, 'ClothesPrewarShortSleeves'), (0x1 | 0x200 | 0x400, 'ClothesMobsterhat'),
-                  (0x800, 'ClothesEyeGlasses'), (0x4000 | 0x10000, 'Clothes_Raider_SurgicalMask'))
-#: Unlisted FNV melee weapon by animation type -> entry: hand to hand on FO4's knuckles, one- and two-handed on FNV's mesh.
-MELEE_DEFAULTS = {0: Replacement(BASE, 'Knuckles', 'stats'), 1: Replacement(BASE, 'TireIron', 'fnv'),
-                  2: Replacement(BASE, 'BaseballBat', 'fnv')}
 SEXES = ('male', 'female')
 #: FNV biped flag of the upper body (an outfit).
 UPPER_BODY = 0x4
@@ -100,12 +94,12 @@ def _rigid(path) -> bool:
     return cached('rigid', 'fo4_import.nif.headgear', (path.read_bytes(),), lambda: headgear.rigid(path))
 
 
-def _default(rec: dict) -> 'Replacement | None':
-    """An unlisted FNV armor's or melee weapon's default entry (ARMOR_DEFAULTS, MELEE_DEFAULTS); else None."""
+def default_entry(rec: dict, rules: Rules) -> 'Replacement | None':
+    """An unlisted FNV armor's or melee weapon's entry from the table's `rules` (armor, melee); else None."""
     if rec.get('Signature') == 'WEAP':
-        return MELEE_DEFAULTS.get(int(rec.get('DNAM.FalloutAnimType', -1)))
+        return rules.melee.get(int(rec.get('DNAM.FalloutAnimType', -1)))
     covers = int(rec.get('BMDT.BipedFlags', 0)) if rec.get('Signature') == 'ARMO' else 0
-    return next((Replacement(BASE, edid, 'fnv') for bits, edid in ARMOR_DEFAULTS if covers & bits), None)
+    return next((entry for bits, entry in rules.armor if covers & bits), None)
 
 
 def _sex_suffix(sex: str) -> str:
@@ -176,8 +170,9 @@ class Equipment:
         self.guns = Guns(builder, self.strings)
         self.weapon_mods = WeaponMods(builder, self.guns.mods)
         self.by_anim = {kind: set() for kind in WEAPON_ANIM_LISTS}
-        wanted = {r.edid for r in self.table.values() if r.base and r.mode != 'item'} | {e for _, e in ARMOR_DEFAULTS} | {
-            r.edid for r in MELEE_DEFAULTS.values()}
+        rules = self.table.rules
+        wanted = {r.edid for r in [*self.table.values(), *(e for _, e in rules.armor), *rules.melee.values()]
+                  if r.base and r.mode != 'item'}
         self.vanilla, self.addons = {}, {}
         for rec, _ in walk(builder.fo4, b'WEAP', b'ARMO', b'ARMA'):
             subs = list(subrecords(rec.body))
@@ -189,7 +184,7 @@ class Equipment:
 
     def _entry(self, rec: dict):
         """FNV `rec`'s Fallout4.esm-copy entry (else its _default), or None."""
-        entry = self.table.get(rec.get('EditorID')) or _default(rec)
+        entry = self.table.get(rec.get('EditorID')) or default_entry(rec, self.table.rules)
         return entry if entry and entry.base and entry.mode != 'item' and entry.edid in self.vanilla else None
 
     def _template(self, rec: dict) -> 'dict | None':

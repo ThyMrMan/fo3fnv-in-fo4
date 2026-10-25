@@ -31,6 +31,8 @@ from fo4_import.pipeline.code_tag import ROOT, code_tag
 from fo4_import.pipeline.work_cache import lookup, store
 
 CACHE = ROOT / 'output' / 'fo4_cache' / 'meshes'
+#: OBND's range: six signed 16-bit coordinates.
+OBND_RANGE = (-32768, 32767)
 
 
 class MeshFiles(NamedTuple):
@@ -46,12 +48,13 @@ class MeshFiles(NamedTuple):
 
 
 def mesh_bounds(nif) -> 'tuple | None':
-    """OBND: the integer box around every shape's vertices; None for a mesh with none."""
+    """OBND: the integer box around every shape's vertices, held in OBND's signed 16-bit range; None for a mesh with
+    none."""
     pts = np.array([v['position'] for kind, b in nif.blocks if kind == 'BSTriShape' for v in b['vertices']])
     if not len(pts):
         return None
-    lo, hi = np.floor(pts.min(axis=0)).astype(int), np.ceil(pts.max(axis=0)).astype(int)
-    return (*lo.tolist(), *hi.tolist())
+    lo, hi = np.floor(pts.min(axis=0)), np.ceil(pts.max(axis=0))
+    return tuple(int(v) for v in np.clip(np.concatenate([lo, hi]), *OBND_RANGE))
 
 
 def mesh_files(converted: Converted) -> MeshFiles:

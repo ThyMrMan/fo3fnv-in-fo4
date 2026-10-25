@@ -75,6 +75,21 @@ amount, where grass can grow, and what a tuft looks like can match.
       so a layer's share moves only where the two rules disagree, and the
       change is measured as the count of vertices whose visible texture
       changes.
+
+   **Found (2026-10-24):** the cause was the 4-texture limit, not the
+   pick rule. In the saloon's cell 3 of 4 quadrants hold 7 textures and
+   lost their only grassy one (`ScrubBarrenWastes02Grass`); over the
+   region 345 quadrants lost one, grassy share fell from FNV's 17,543 to
+   14,120 and vertices with any grass from 50,421 to 37,283. Now a grassy
+   texture painted inside a quadrant (not only on its border, where
+   `blend_borders` brings a neighbour's) replaces the lightest kept
+   non-base, non-grassy one (`kept_textures`), and grassy textures keep
+   FNV's share when the rest is renormalized (`_renormalized`; the
+   leftover goes to the heaviest non-grassy texture). Result: grassy
+   share 17,496, vertices with grass 50,159, grass dominant at 15,675
+   against FNV's 16,908; 4.4% of all share moves; 22 quadrants still
+   lose a grassy texture. Neither exe was read: keeping FNV's shares
+   holds under either pick rule.
 3. **<a id="grass-flecks"></a>Dark flecks on the grass.** Black,
    triangle-shaped bits hang on some tufts and have been there all along.
    - Already ruled out: the atlas texture (FNV's own file, unchanged) and

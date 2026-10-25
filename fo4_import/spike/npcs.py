@@ -1,7 +1,7 @@
 """FNV's NPCs as Fallout 4 NPCs, placed where FNV places them.
 
 Each FNV NPC base becomes a copy of a vanilla body for its race and sex
-(BODIES), with FNV's name, factions, AI packages, script, outfit (its worn
+(the replacement table's body rules), with FNV's name, factions, AI packages, script, outfit (its worn
 items) and inventory (the rest); a human whose sex has a calibration (both
 are measured by sculpt_calibration) also takes FNV's face fitted to FO4's
 sculpt regions, tints and head parts. A template (TPLT) is followed for
@@ -44,8 +44,6 @@ from fo4_import.spike.actor_data import CREATURE_FLAGS, NPC_FLAGS, hit_proof, st
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
-#: (ghoul, female) -> the Fallout4.esm NPC a converted NPC starts from: DocWeathers, DoctorAmari, Jones, Holly.
-BODIES = {(False, False): 0x12FCCB, (False, True): 0x09A680, (True, False): 0x3F239, (True, True): 0x3F23A}
 #: Body subrecords a converted NPC leaves out: factions, crime faction, short name (subtitles), scripts (Jones').
 BODY_TIES = frozenset({b'SNAM', b'CRIF', b'SHRT', b'VMAD'})
 #: FNV ACBS template flags: traits (race, face, sex, voice), factions, AI packages, inventory, script.
@@ -244,6 +242,26 @@ def _entries(rec: dict) -> list:
             for i in range(int(rec.get('EntryCount', 0) or 0))]
 
 
+def body_kind(ghoul: bool, female: bool) -> str:
+    """The body rule key (replacements.BODY_KINDS) of a ghoul or human."""
+    return f"{'ghoul' if ghoul else 'human'}_{'female' if female else 'male'}"
+
+
+def bodies(fo4: bytes, rules: dict) -> dict:
+    """{body kind: the Fallout4.esm NPC_ record} of the table's body `rules` {kind: Replacement}, by EditorID."""
+    wanted = {}
+    for kind, entry in rules.items():
+        wanted.setdefault(entry.edid.lower(), []).append(kind)
+    found = {}
+    for rec, _ in walk(fo4, b'NPC_'):
+        edid = (dict(subrecords(rec.body)).get(b'EDID') or b'').rstrip(b'\0').decode('cp1252').lower()
+        found.update({kind: rec for kind in wanted.get(edid, ())})
+    missing = sorted(set(rules) - set(found))
+    if missing:
+        raise ValueError(f'replacement bodies not in Fallout4.esm: {[rules[k].edid for k in missing]}')
+    return found
+
+
 def _traits_templated(rec: dict) -> bool:
     """Whether FNV actor record `rec` takes its traits from its template."""
     return 'TPLT.Template' in rec and bool(int(rec.get('ACBS.TemplateFlags', 0)) & USE_TRAITS)
@@ -258,7 +276,7 @@ class Npcs:
         self.builder, self.export_dir, self.form_map, self.creatures = builder, export_dir, form_map, creatures
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'NPC_')}
         self.races = {int(r['FormID'], 16): r.get('EditorID', '') for r in export_records(export_dir, 'RACE')}
-        self.bodies = {rec.form_id: rec for rec, _ in walk(builder.fo4, b'NPC_') if rec.form_id in BODIES.values()}
+        self.bodies = bodies(builder.fo4, builder.table.rules.body)
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
@@ -282,7 +300,7 @@ class Npcs:
         if traits is None:
             return self._templated(fnv)
         ghoul, female, face = self._kind(traits)
-        body = self.bodies[BODIES[ghoul, female]]
+        body = self.bodies[body_kind(ghoul, female)]
         morphs, edit = (self._face(traits, female) if face else (b'', None))
         fid = self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
@@ -322,11 +340,11 @@ class Npcs:
     def _template_actor(self, fnv: int, rec: dict, template: int, flags: int, parts: tuple, body=None) -> int:
         """Write a template actor for FNV form `fnv` (`rec`) on `template` with `flags`, then `parts` edits; a copy
         of `body` (a creature's stand-in, whose class and combat style it keeps), else the male NPC body."""
-        body, fid = body or self.bodies[BODIES[False, False]], self.builder.new_id(NPC_KEY.format(fnv))
+        male = self.bodies[body_kind(False, False)]
+        body, fid = body or male, self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), BODY_TIES, b'',
-            composed(*parts, with_template(template, flags), None if body is not self.bodies[BODIES[False, False]]
-                     else with_class)))
+            composed(*parts, with_template(template, flags), None if body is not male else with_class)))
         self.builder.counts['NPC_ (template actor)'] += 1
         return fid
 

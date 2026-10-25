@@ -25,7 +25,7 @@ from tes5_import.base.tes5_reader import subrecords
 ROOT = Path(__file__).resolve().parents[2]
 FO4EDIT = ROOT / 'references' / 'FO4Edit 4.1.5f' / 'FO4Edit.exe'
 SCRIPT = Path(__file__).with_name('fo4edit_check.pas')
-#: Seconds FO4Edit may take to load and check.
+#: Seconds FO4Edit may take to load and check, unless --timeout says otherwise.
 TIMEOUT = 1200
 
 
@@ -58,7 +58,7 @@ def stage(plugin: Path, dirs: list, work: Path) -> None:
     shutil.copyfile(SCRIPT, work / SCRIPT.name)
 
 
-def run(work: Path) -> list:
+def run(work: Path, timeout: int = TIMEOUT) -> list:
     """Run FO4Edit over `work` until the script writes its result (FO4Edit stays open in script mode, so it is
     closed then); the result file's lines."""
     cmd = [str(FO4EDIT), f'-D:{work}\\', f'-P:{work / "plugins.txt"}', f'-script:{work / SCRIPT.name}',
@@ -66,7 +66,7 @@ def run(work: Path) -> list:
     result = work / 'fo4_check_result.txt'
     proc = subprocess.Popen(cmd, **POPEN_FLAGS)
     started = time.time()
-    while not result.exists() and proc.poll() is None and time.time() - started < TIMEOUT:
+    while not result.exists() and proc.poll() is None and time.time() - started < timeout:
         time.sleep(2)
     time.sleep(2)
     proc.kill()
@@ -92,9 +92,10 @@ def main() -> int:
     ap.add_argument('--plugin-dirs', nargs='*', default=(), help='Folders holding masters other than Fallout4.esm')
     ap.add_argument('--work', type=Path, default=ROOT / 'temp' / 'fo4_check', help='Folder to stage the load in')
     ap.add_argument('--show', type=int, default=5, help='Examples per error kind')
+    ap.add_argument('--timeout', type=int, default=TIMEOUT, help='Seconds FO4Edit may take')
     args = ap.parse_args()
     stage(args.plugin.resolve(), args.plugin_dirs, args.work.resolve())
-    lines = run(args.work.resolve())
+    lines = run(args.work.resolve(), args.timeout)
     groups = summary(lines)
     print('\n'.join(line for line in lines if line.startswith('#')))
     for message, items in sorted(groups.items(), key=lambda kv: -len(kv[1])):

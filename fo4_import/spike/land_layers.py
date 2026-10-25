@@ -65,15 +65,30 @@ def _texture(fnv: str) -> str:
     return fnv if int(fnv, 16) else ''
 
 
-def limit_textures(mixes: dict) -> dict:
+def kept_textures(mix: dict, grassy: frozenset = frozenset()) -> list:
+    """The DRAWN textures a quadrant `mix` keeps, heaviest first; a grassy texture past them, painted inside the
+    quadrant (not only on its border, where blend_borders brings a neighbour's), replaces the lightest kept one
+    that is neither the base nor grassy, so the ground still grows FNV's grass.
+
+    See: docs/fork/fo4_look.md#grass-ground
+    """
+    order = sorted(mix, key=lambda t: -mix[t].sum())
+    kept = order[:DRAWN]
+    for texture in (t for t in order[DRAWN:] if t in grassy and np.delete(mix[t], EDGE).any()):
+        spare = [i for i in range(len(kept) - 1, 0, -1) if kept[i] not in grassy]
+        if spare:
+            kept[spare[0]] = texture
+    return kept
+
+
+def limit_textures(mixes: dict, grassy: frozenset = frozenset()) -> dict:
     """{cell grid: {quadrant: [(texture, shares)], heaviest first}}: each quadrant of blend_borders' `mixes` keeps its
-    DRAWN heaviest textures; a shared vertex keeps only those every quadrant on it keeps, so both sides still match.
-    Shares are renormalized per vertex.
+    kept_textures (`grassy`: the textures that grow grass); a shared vertex keeps only those every quadrant on it
+    keeps, so both sides still match. Shares are renormalized per vertex.
 
     See: docs/fork/fo4_spikes.md#spike-4-exterior
     """
-    kept = {(grid, q): sorted(mix, key=lambda t: -mix[t].sum())[:DRAWN]
-            for grid, quads in mixes.items() for q, mix in quads.items()}
+    kept = {(grid, q): kept_textures(mix, grassy) for grid, quads in mixes.items() for q, mix in quads.items()}
     allowed = {key: [set(textures)] * QUAD_POINTS for key, textures in kept.items()}
     fill = {key: [textures[0]] * QUAD_POINTS for key, textures in kept.items()}
     for members in _shared(mixes).values():
@@ -89,8 +104,23 @@ def limit_textures(mixes: dict) -> dict:
                            for t in textures]).clip(0.0, 1.0)
         for p in np.flatnonzero(shares.sum(0) <= 0):
             shares[textures.index(fill[(grid, q)][p]), p] = 1.0
-        out.setdefault(grid, {})[q] = list(zip(textures, shares / shares.sum(0)))
+        out.setdefault(grid, {})[q] = list(zip(textures, _renormalized(shares, [t in grassy for t in textures])))
     return out
+
+
+def _renormalized(shares: np.ndarray, grows: list) -> np.ndarray:
+    """`shares` (textures x vertices, heaviest texture first) summing to 1 per vertex: grassy rows (`grows`) keep
+    FNV's share, the others scale to fill the rest; where none has a share the heaviest non-grassy row takes it."""
+    grows = np.array(grows, bool)
+    out = shares.copy()
+    if grows.all() or not grows.any():
+        return out / out.sum(0)
+    grass = np.minimum(out[grows].sum(0), 1.0)
+    other = out[~grows].sum(0)
+    out[np.flatnonzero(~grows)[0], other <= 0] = 1.0
+    other = out[~grows].sum(0)
+    out[~grows] *= (1.0 - grass) / other
+    return out / out.sum(0)
 
 
 def _shared(mixes: dict) -> dict:

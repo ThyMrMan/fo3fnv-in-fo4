@@ -86,6 +86,7 @@ def _npcs(records: dict, lists: dict = None, creatures: dict = None) -> N.Npcs:
     npcs.records, npcs.lists, npcs.made = records, lists or {}, {}
     npcs.creatures = Creatures.__new__(Creatures)
     npcs.creatures.records = creatures or {}
+    npcs.creatures.by_edid, npcs.creatures.by_folder = {}, {}
     npcs.races = {0x19: 'Caucasian', 0x3B3E: 'Ghoul'}
     npcs.builder = SimpleNamespace(counts=collections.Counter())
     npcs.export_dir, npcs.assets = EXPORT, None

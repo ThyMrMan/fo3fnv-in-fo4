@@ -12,8 +12,10 @@ import argparse
 import time
 from pathlib import Path
 
+from core.mod_sources import data_dirs
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
+from fo4_import.app import settings
 from fo4_import.pipeline.converters import placed_types
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.mesh_cache import warm
@@ -63,6 +65,12 @@ def exteriors(args: argparse.Namespace) -> tuple:
     return tuple([(name, *scope_cells(args)) for name in names[:1]] + [(name, None, None) for name in names[1:]])
 
 
+def plugin_dirs(args: argparse.Namespace) -> tuple:
+    """Folders searched for the table's plugins: --plugin-dirs, then --mod-sources'."""
+    sources = settings.mod_sources(settings.load(args.mod_sources)) if args.mod_sources else []
+    return (*map(Path, args.plugin_dirs), *data_dirs(sources))
+
+
 def arguments() -> argparse.Namespace:
     """The command line (the module notes)."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -82,8 +90,13 @@ def arguments() -> argparse.Namespace:
     ap.add_argument('--around', type=int, nargs=2, default=(0, 0), metavar=('X', 'Y'),
                     help='Without --region: the center cell of a square block')
     ap.add_argument('--radius', type=int, default=1, help='Without --region: cells around the center (1: 3x3)')
-    ap.add_argument('--replacements', type=Path, help='A replacement table laid over the defaults (JSON)')
+    ap.add_argument('--profile', help='A replacement profile laid over the defaults: a name in '
+                                      'fo4_import/data/profiles, or a JSON path')
+    ap.add_argument('--replacements', type=Path, help='A replacement table laid over the defaults and profile (JSON)')
     ap.add_argument('--plugin-dirs', nargs='*', default=(), help='Folders holding plugins the table names')
+    ap.add_argument('--mod-sources', type=Path,
+                    help="The app's settings file (fo4_import.app.settings); its mod sources are searched for "
+                         'plugins after --plugin-dirs')
     ap.add_argument('--workers', type=int, default=0, help='Mesh conversion processes (default: all CPUs but one)')
     ap.add_argument('cell', help='FNV interior cell editor ID')
     return ap.parse_args()
@@ -99,8 +112,11 @@ def main():
     models = scope_models(args.export, args.cell, worlds)
     warm(models, args.export, args.workers)
     print(f'mesh cache: {len(models)} meshes ready in {time.time() - started:.1f}s')
-    counts = build(args.export, args.out, args.data, args.cell, args.scripts, worlds,
-                   replacements.load(args.replacements), tuple(args.plugin_dirs), args.test_cell)
+    dirs = plugin_dirs(args)
+    table = replacements.load(args.replacements, args.profile, dirs)
+    for warning in table.warnings:
+        print(f'replacements: {warning}')
+    counts = build(args.export, args.out, args.data, args.cell, args.scripts, worlds, table, dirs, args.test_cell)
     for key, count in sorted(counts.items()):
         print(f'{key}: {count}')
     print(f'built in {time.time() - started:.1f}s')

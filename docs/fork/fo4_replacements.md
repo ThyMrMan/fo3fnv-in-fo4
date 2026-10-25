@@ -53,7 +53,8 @@ FNV form (EditorID) --table--> stand-in --> converted plugin's records
 
 Layers, each over the one before, entry by entry:
 
-1. **Converter defaults** (`fo4_import/data/item_replacements.json`):
+1. **Converter defaults** (`fo4_import/data/replacements.json`; its layout
+   by category and its `_rules` are in [fo4_gui.md](fo4_gui.md#replacement-data)):
    what the converter builds alone (FO4 records, FNV stats, FNV meshes on
    FO4 rigs).
 2. **A profile** (`vanilla-fo4`, `fnv-look`, a modlist's), picked at
@@ -70,6 +71,10 @@ The mod's plugin becomes a master of the converted plugin, as items'
 already do.
 
 ## <a id="gui"></a>The GUI
+
+Designed in full in [fo4_gui.md](fo4_gui.md#replacements-screen) (two
+columns, mods read from any folder, 3D previews); the outline below is the
+first sketch.
 
 The table is plain JSON keyed by EditorID, so a GUI is a front end over
 it, with no conversion logic of its own:
@@ -89,8 +94,8 @@ it, with no conversion logic of its own:
 
 ## Step 1: the table (built)
 
-`fo4_import/data/item_replacements.json`, one entry per FNV item by
-EditorID:
+`fo4_import/data/replacements.json`, one entry per FNV item by
+EditorID, under its category (since phase 2 of the [app](fo4_gui.md#replacement-data)):
 
 ```json
 "WeapBBGun": {"use": "Fallout4.esm|PipeBoltAction", "as": "stats",
@@ -191,11 +196,11 @@ at the mod's record.
 - The old stand-ins: FO4's records (`item`).
 - **Anything the table leaves out** (2026-10-12, so real NPCs are dressed
   and armed): an armor goes on FNV's mesh (`fnv`) on a template for what
-  it covers, by FNV's biped slots (`equipment.ARMOR_DEFAULTS`: upper body
+  it covers, by FNV's biped slots (the table's `_rules.armor`: upper body
   on ClothesPrewarShortSleeves, head, headband or hat on
   ClothesMobsterhat, eyeglasses on ClothesEyeGlasses, mask or mouth on
   Clothes_Raider_SurgicalMask); a gun is the FO4 gun gun_choice picks for
   it, with the parts it matched, under FNV's name and stats (`stats`); a
-  melee weapon by its animation type (`MELEE_DEFAULTS`): hand to hand on
+  melee weapon by its animation type (`_rules.melee`): hand to hand on
   FO4's Knuckles, one-handed on FNV's mesh on the TireIron, two-handed on
   the BaseballBat. A table entry still wins.

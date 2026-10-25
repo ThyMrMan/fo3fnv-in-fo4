@@ -12,3 +12,6 @@ setuptools==84.0.0
 fonttools==4.63.0
 # Optional: drag mod archives onto the GUI.
 tkinterdnd2==0.6.3
+# The FO4 app's window and 3D preview (fo4_import/app): Qt's essential modules only, and OpenGL 3.3 through moderngl.
+PySide6-Essentials==6.12.0
+moderngl==5.13.0

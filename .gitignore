@@ -99,3 +99,7 @@ conversion_config.json
 # Hand-editing artifacts from tools/cellview (local ground truth, not shipped)
 tests/navmesh_authored/
 tests/navmesh_fixed/
+
+# The FO4 app's portable settings and replacement files (fo4_import/app/settings.py)
+/fo4_app.json
+/replacements/
