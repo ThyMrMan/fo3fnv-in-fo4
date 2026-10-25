@@ -147,7 +147,7 @@ def build_arguments(settings: dict, source: str, scope: Scope, settings_file: Pa
     elif scope.kind == 'region':
         args += ['--region', *map(str, scope.region)]
     else:
-        args += ['--whole', '--no-test-cell']
+        args += ['reached', '--whole', '--no-test-cell']
     args += ['--workers', str(scope.workers)] if scope.workers else []
     args += ['--profile', block['profile']] if block['profile'] else []
     replacements = S.replacement_file(settings, source)

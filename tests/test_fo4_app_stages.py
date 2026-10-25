@@ -36,6 +36,8 @@ def test_build_arguments_follow_the_choices(tmp_path):
     assert '--replacements' not in cmd and cmd[-1] == 'GSDocMitchellHouse'
     test = ST.command(s, 'falloutnv', 'build', ST.Scope(), tmp_path / 'x.json')
     assert test[test.index('--around') + 1:test.index('--around') + 3] == ['-18', '0']
+    whole = ST.command(s, 'falloutnv', 'build', ST.Scope('world'), tmp_path / 'x.json')
+    assert whole[whole.index('--world') + 1:whole.index('--whole')] == ['WastelandNV', 'reached']
 
 
 def test_a_chosen_scripts_folder_is_used(tmp_path):

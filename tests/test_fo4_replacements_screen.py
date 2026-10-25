@@ -1,15 +1,21 @@
 """The Replacements screen's parts without a window: stand-ins, the user file, gun parts and their assembly."""
 
+import json
+import os
 import struct
 
 import numpy as np
 import pytest
+from PySide6.QtWidgets import QApplication
 
+from core.mod_sources import data_dirs
 from fo4_import.app import catalog as C
+from fo4_import.app import required_mods as RM
+from fo4_import.app import settings as S
 from fo4_import.app import standins as SI
 from fo4_import.app import user_table as U
 from fo4_import.app.preview import assembly as A
-from fo4_import.app.replacements_view import allowed_modes
+from fo4_import.app.replacements_view import allowed_modes, required
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import blocks as K
 from fo4_import.nif import file as F
@@ -189,3 +195,57 @@ def test_assembly_places_a_part_on_its_connect_point():
     assert len(parts) == 2 and why == ''
     assert np.allclose(parts[0].positions, [(0, 0, 0), (1, 0, 0), (0, 1, 0)], atol=1e-6)
     assert np.allclose(parts[1].positions, [(0, 10, 0), (0, 11, 0), (-1, 10, 0)], atol=1e-5)
+
+
+def _required_setup(tmp_path) -> dict:
+    """Settings over a fake MO2 instance (profile Play) and a user file naming four plugins: one ready, one whose
+    master sits in a mod Play leaves off, one only in such a mod, one nowhere."""
+    inst = tmp_path / 'MO2'
+    (inst / 'profiles' / 'Play').mkdir(parents=True)
+    (inst / 'profiles' / 'Play' / 'modlist.txt').write_text('+Guns\n-Munitions\n-Extra\n', encoding='utf-8')
+    (inst / 'ModOrganizer.ini').write_text('[General]\nselected_profile=@ByteArray(Play)\n', encoding='utf-8')
+    for mod, plugin, masters in (('Guns', 'ReqTestGood.esp', []), ('Guns', 'ReqTestAmmo.esp', ['ReqTestMun.esl']),
+                                 ('Munitions', 'ReqTestMun.esl', []), ('Extra', 'ReqTestOff.esp', [])):
+        (inst / 'mods' / mod).mkdir(parents=True, exist_ok=True)
+        _write_plugin(inst / 'mods' / mod / plugin, masters, {})
+    uses = {'A': 'ReqTestGood.esp|G1', 'B': 'ReqTestGood.esp|G2', 'C': 'ReqTestAmmo.esp|Gauss',
+            'D': 'ReqTestOff.esp|X', 'E': 'ReqTestGone.esp|Y'}
+    user = tmp_path / 'mine.json'
+    user.write_text(json.dumps({'weapon': {k: {'use': v} for k, v in uses.items()},
+                                '_rules': {'creature': {'nvgecko': {'use': 'ReqTestGood.esp|G1'}}}}), encoding='utf-8')
+    settings = S.defaults()
+    settings['mod_sources'] = [{'folder': str(inst), 'kind': 'mo2_profile', 'profile': '', 'enabled': True}]
+    settings['per_source']['falloutnv']['replacements'] = {'where': 'custom', 'path': str(user)}
+    return settings
+
+
+def test_required_mods_flag_not_enabled_and_missing_masters(tmp_path):
+    """Each named plugin gets its entry count, where it is, the MO2 mod Play leaves off, and its missing masters."""
+    settings = _required_setup(tmp_path)
+    mods = {m.plugin: m for m in required(settings, data_dirs(S.mod_sources(settings)))
+            if m.plugin.startswith('ReqTest')}
+    good, ammo, off, gone = (mods[f'ReqTest{n}.esp'] for n in ('Good', 'Ammo', 'Off', 'Gone'))
+    assert (good.status, good.entries, good.path.parent.name) == ('ready', 3, 'Guns')
+    assert (ammo.status, ammo.entries, [name for name, _ in ammo.missing_masters]) == \
+        ('missing masters', 1, ['ReqTestMun.esl'])
+    assert ammo.missing_masters[0][1][0].mod == 'Munitions'
+    assert (off.status, off.path, off.disabled[0].mod, off.disabled[0].profile) == ('not enabled', None, 'Extra',
+                                                                                     'Play')
+    assert (gone.status, gone.disabled) == ('not installed', ())
+    cells, bad = RM.row(ammo)
+    assert bad and cells[4] == 'ReqTestMun.esl (MO2 mod "Munitions" (not enabled in profile Play))'
+    assert RM.row(off)[0][3] == 'MO2 mod "Extra" (not enabled in profile Play)' and not RM.row(good)[1]
+    assert RM.button_text([good, ammo, off, gone]) == 'Required mods (3 to fix)'
+    assert 'their 3 entries fall back' in RM.summary([good, ammo, off, gone])
+
+
+def test_required_mods_dialog_shows_problems_in_red(tmp_path):
+    """The dialog lists every plugin, problems first and in red, with the loader's warnings under them."""
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    app = QApplication.instance() or QApplication([])
+    settings = _required_setup(tmp_path)
+    mods = [m for m in required(settings, data_dirs(S.mod_sources(settings))) if m.plugin.startswith('ReqTest')]
+    dialog = RM.RequiredModsDialog(mods, ['user weapon E: ReqTestGone.esp is not installed'])
+    table = dialog.table
+    assert app and table.rowCount() == 4 and table.item(3, 0).text() == 'ReqTestGood.esp'
+    assert table.item(0, 2).foreground().color() == RM.PROBLEM and 'ReqTestGone' in dialog.warnings.toPlainText()

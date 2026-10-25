@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel, QLi
 
 from core.mod_sources import ModSource, data_dirs, plugins
 from fo4_import.app import catalog as C
+from fo4_import.app import required_mods as RM
 from fo4_import.app import settings as S
 from fo4_import.app import standins as SI
 from fo4_import.app import user_table
@@ -73,7 +74,9 @@ class ReplacementsView(QWidget):
             for key, label in labels.items():
                 box.addItem(label, key)
         self.search.setPlaceholderText('Search names and EditorIDs')
-        self.match = QPushButton('Match by name')
+        self.match, self.required = QPushButton('Match by name'), QPushButton('Required mods')
+        self.required.setToolTip('The plugins your replacement table names, and which are not enabled or are '
+                                 'missing masters (their entries fall back).')
         self.left, self.right = SourceColumn(), TargetColumn()
         self.apply, self.revert, self.status = QPushButton('Apply'), QPushButton('Revert to default'), QLabel()
         self.accept_one, self.accept_all = QPushButton('Accept suggestion'), QPushButton('Accept all shown')
@@ -84,7 +87,8 @@ class ReplacementsView(QWidget):
     def _layout(self) -> None:
         """Top bar, the two columns side by side, the buttons under them."""
         top, bottom = QHBoxLayout(), QHBoxLayout()
-        for widget in (QLabel('Category'), self.category, self.search, QLabel('Show'), self.show_filter, self.match):
+        for widget in (QLabel('Category'), self.category, self.search, QLabel('Show'), self.show_filter, self.match,
+                       self.required):
             top.addWidget(widget)
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self.left)
@@ -103,6 +107,7 @@ class ReplacementsView(QWidget):
         self.search.textChanged.connect(self._show_forms)
         self.show_filter.currentIndexChanged.connect(self._show_forms)
         self.match.clicked.connect(self._match_by_name)
+        self.required.clicked.connect(self._show_required)
         self.left.picked.connect(self._form_picked)
         self.right.picked.connect(self._target_picked)
         self.right.plugin.currentIndexChanged.connect(self._plugin_changed)
@@ -136,6 +141,7 @@ class ReplacementsView(QWidget):
             self._fill_plugins()
             self._show_forms()
             self._show_targets()
+            self._required_changed()
             self.status.setText(f"Replacement file: {self.data['user_path']}")
 
     def _fill_plugins(self) -> None:
@@ -148,6 +154,17 @@ class ReplacementsView(QWidget):
         for name in sorted(self.data['found'], key=str.lower):
             combo.addItem(name, (name,))
         combo.blockSignals(False)
+
+    def _required_changed(self) -> None:
+        """Label the Required mods button with the count to fix, red when any."""
+        self.required.setText(RM.button_text(self.data['required']))
+        broken = any(not m.installed for m in self.data['required'])
+        self.required.setStyleSheet(f'color: {RM.PROBLEM.name()}; font-weight: bold' if broken else '')
+
+    def _show_required(self) -> None:
+        """Open the required-mods list for the current table."""
+        if self.data is not None:
+            RM.RequiredModsDialog(self.data['required'], self.data['table'].warnings, self).exec()
 
     # ---------------------------------------------------------------------------
     #  Left: the source forms
@@ -347,6 +364,8 @@ class ReplacementsView(QWidget):
         form, row = self._form(), self.left.table.currentRow()
         path = user_table.write(self.data['user_path'], user)
         self.data['table'] = load_table(self.data['settings'], self.data['dirs'])
+        self.data['required'] = required(self.data['settings'], self.data['dirs'])
+        self._required_changed()
         if self.suggestions:
             self.suggestions = suggest_all(self.data)
         self._show_forms()
@@ -379,12 +398,21 @@ def suggest_all(data: dict) -> dict:
     return out
 
 
-def load_table(settings: dict, dirs: list):
-    """The replacement table for the chosen game: defaults, its profile, the user's file."""
+def table_layers(settings: dict) -> tuple:
+    """(the user's replacement file or None, the profile or None) for the chosen game."""
     source = settings['source']
     user = S.replacement_file(settings, source)
-    profile = settings['per_source'][source]['profile'] or None
-    return RP.load(user if user.is_file() else None, profile, tuple(dirs))
+    return user if user.is_file() else None, settings['per_source'][source]['profile'] or None
+
+
+def load_table(settings: dict, dirs: list):
+    """The chosen game's replacement table: defaults, profile, the user's file."""
+    return RP.load(*table_layers(settings), tuple(dirs))
+
+
+def required(settings: dict, dirs: list) -> list:
+    """required_mods.survey() of the chosen game's table layers."""
+    return RM.survey(RP.layers(*table_layers(settings)), dirs, S.mod_sources(settings))
 
 
 def load(settings: dict) -> dict:
@@ -402,4 +430,5 @@ def load(settings: dict) -> dict:
             'index': {(e.plugin.lower(), e.edid.lower()): e for entries in found.values() for e in entries},
             'export': export if export.is_dir() else None,
             'placed': SI.placements(export) if export.is_dir() else {},
-            'table': load_table(settings, dirs), 'user_path': S.replacement_file(settings, source)}
+            'table': load_table(settings, dirs), 'required': required(settings, dirs),
+            'user_path': S.replacement_file(settings, source)}

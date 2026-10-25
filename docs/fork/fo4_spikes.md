@@ -1951,7 +1951,9 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     it reaches (-3,517, -3,870), covering the road spot, and is the only
     placement that does. Elric keeps the node transform on its output and
     bakes it into the physics too, so `elric.graft` resets a collision-only
-    node to identity.
+    node to identity. (Wrong, corrected 2026-10-25: Elric keeps the vertices
+    local and FO4 places them by the node; the reset was removed. See
+    [collision nodes](fo4_pipeline.md#collision-nodes).)
   - A `bhkRigidBodyT` with a convex shape (163 placements: crates, the
     floor mattress, maize groups) now carries its transform in a
     `bhkConvexTransformShape` under an identity body, as a mesh shape
@@ -2682,6 +2684,15 @@ The hockey mask, pre-war hat and reading glasses use FNV's meshes
   hide hair; its hair bit does (played: the hockey mask on 30 left the
   player bald). Hockey mask: 46–49. Hat: 30, 46. Glasses: 47–49 (FNV's set
   the mask bit too).
+  - *Hats without the hair bit (fixed 2026-10-25, not yet played).* Hair
+    showed through Westside Marco's Pre-War Baseball Cap (bits 9 and 10,
+    no hair bit), which went on 46 alone, so FO4 kept the hair top. FNV's
+    hat bit does not hide hair; it swaps the hair to its `Hat` node, a
+    flattened version, and nearly every vanilla hat covers 30 (fedora 30,
+    46; caps 30, 31; hard hat 30; only the super mutant hats 46 alone). A
+    hat bit without the mask bit now adds 30: 35 converted hats (the
+    caps, Ranger hats, berets, fedoras, head wraps, fire helmet). A hat
+    with the mask bit (the hockey mask, White Glove masks) stays off 30.
 - **Records:** an ARMA per item (`FNV_AA_<EditorID>`, hashed FormID)
   with those slots, the template addon's race, priorities and additional
   races, and male and female models (`<mesh>.nif`, `<mesh>_female.nif`).

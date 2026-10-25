@@ -361,14 +361,28 @@ def _flight(steps: int, rise: float = 24.0, run: float = 27.0) -> list:
         ((0, run * i, rise * i), (100, run * i + run, rise * i), (0, run * i + run, rise * i)))]
 
 
-def test_a_flight_gets_one_stair_helper_ramp_through_its_nosings_and_two_steps_none():
+def test_a_flight_gets_one_stair_helper_ramp_through_its_nosings_and_two_low_steps_none():
     """Four steps up: one 8-corner slab, its top face from the foot of the first riser to the last nosing, as wide
-    as the treads; two steps make no flight."""
+    as the treads; two 24-unit steps (a catwalk turn's half) get one, two 12-unit steps none."""
     (corners, crc), = S.stairs(_flight(4), [0] * 10, 1.0, lambda m: m + 1)[2]
     top = {(round(float(c[0])), round(float(c[1])), round(float(c[2]))) for c in corners[::2]}
     assert crc == 1 and len(corners) == 8 and top == {(0, 0, 0), (100, 0, 0), (0, 108, 96), (100, 108, 96)}
     assert np.allclose(corners[::2, 2] - corners[1::2, 2], S.RAMP_THICK)
-    assert S.stairs(_flight(2), [0] * 6, 1.0, lambda m: m + 1)[2] == []
+    assert len(S.stairs(_flight(2), [0] * 6, 1.0, lambda m: m + 1)[2]) == 1
+    assert S.stairs(_flight(2, rise=12.0), [0] * 6, 1.0, lambda m: m + 1)[2] == []
+
+
+def test_a_flight_whose_first_steps_are_elsewhere_ramps_down_to_the_floor_but_one_off_a_landing_does_not():
+    """UtlCatStairsHalfTop: four steps standing 48 above the body's lowest point (a stringer down to 0) get a slab
+    reaching down to 0; with a deep landing at the foot's level the slab starts on the landing."""
+    raised = [tuple((x, y, z + 48) for x, y, z in face) for face in _flight(4)]
+    stringer = [((-10, 0, 0), (-10, 108, 144), (-10, 0, 144))]
+    landing = [((0, -100, 48), (100, 0, 48), (100, -100, 48)), ((0, -100, 48), (0, 0, 48), (100, 0, 48))]
+    feet = []
+    for tris in (raised + stringer, raised + stringer + landing):
+        (corners, _), = S.stairs(tris, [0] * len(tris), 1.0, lambda m: m + 1)[2]
+        feet.append(round(float(corners[::2, 2].min())))
+    assert feet == [0, 48]
 
 
 def test_skin_uv_extends_one_body_triangles_mapping_and_stretch_compares_uv_to_size():
@@ -652,3 +666,26 @@ def test_an_unlit_shape_with_normals_keeps_fnvs_view_falloff():
     flat = C._unlit_shader(nif, C._unlit(shader, None, True, True, False), True)
     assert not flat['flags1'] & C.USE_FALLOFF and flat['falloff'] == (1.0, 1.0, 1.0, 1.0)
 
+
+def test_a_blended_black_fill_draws_as_vanillas_opaque_black_flat_and_mist_stays_an_effect():
+    """bldgcorner04_nv's black box (unlit, blended, alpha 1, dark) is lit on vanilla's black flat.bgsm with no alpha
+    property and no BGSM of ours; fxmistlow01's mist (0.5 grey) stays an effect shader."""
+    export = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
+    if not export.exists():
+        pytest.skip('no FNV export')
+    shapes = {}
+    for mesh in ('architecture/suburban/bldgcorner04_nv.nif', 'effects/ambient/fxmistlow01.nif'):
+        done = C.convert(str(export / 'meshes' / mesh), str(export))
+        assert C.BLACK_FLAT not in done.materials
+        nif = done.nif
+        shapes |= {nif.strings[b['name']]: (b, nif.blocks[b['shader']]) for k, b in nif.blocks if k == 'BSTriShape'}
+    box, (kind, shader) = shapes['BldgCorner04_NV:5']
+    assert kind == 'BSLightingShaderProperty' and box['alpha_property'] == -1
+    assert (shader['flags1'], shader['flags2']) == C.BLACK_FLAGS
+    assert shapes['FXMistLow01:3'][1][0] == 'BSEffectShaderProperty'
+
+
+
+def test_a_hat_covers_the_hair_top_unless_it_is_a_mask():
+    """A cap (headband, hat) also takes 30; the hockey mask (hat and mask) does not."""
+    assert H.slots(0x600) == (30, 46) and H.slots(0x4E00) == (46, 47, 48, 49)

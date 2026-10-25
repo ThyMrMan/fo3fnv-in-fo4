@@ -56,16 +56,22 @@ FNV_BONE = b'Bip01 Head'
 #: Vanilla head items' last segment's bone ID (Raider02MaskM.nif, FCaptainsHat.nif).
 HEAD_BONE_ID = 0x86B72980
 NO_PARENT = 0xFFFFFFFF
-#: FNV biped bit (hair, headband, hat, eyeglasses, mask) -> FO4 slots; only FNV's hair bit hides hair (30).
+#: FNV biped bit (hair, headband, hat, eyeglasses, mask) -> FO4 slots (30, HairTop, hides FO4's hair top).
 SLOTS = {1: (30,), 9: (46,), 10: (46,), 11: (47,), 14: (48, 49)}
+#: FNV's hat and mask bits: a hat that is no mask also covers 30, as vanilla's hats do (slots()).
+HAT, MASK = 10, 14
 
 
 def slots(biped_flags: int) -> 'tuple | None':
-    """The FO4 slots of FNV biped flags that are all headgear (SLOTS), sorted; None otherwise."""
+    """The FO4 slots of FNV biped flags that are all headgear (SLOTS), sorted, a hat that is no mask also on 30;
+    None otherwise.
+    See: docs/fork/fo4_spikes.md#spike-4-headgear
+    """
     bits = [i for i in range(32) if biped_flags >> i & 1]
     if not bits or any(b not in SLOTS for b in bits):
         return None
-    return tuple(sorted({slot for b in bits for slot in SLOTS[b]}))
+    hair_top = (30,) if HAT in bits and MASK not in bits else ()
+    return tuple(sorted({slot for b in bits for slot in SLOTS[b]} | set(hair_top)))
 
 
 def rigid(path: Path) -> bool:

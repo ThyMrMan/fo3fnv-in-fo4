@@ -35,6 +35,12 @@ CHUNKS = 1
 MANIFEST = 'manifest.json'
 #: Texture keys (lowercase, under Textures) a build writes itself; only these are pruned (FaceGen is not).
 OWN = 'fnv/'
+#: Archive2's options for the texture archive: DDS, CHUNKS chunks per texture.
+TEXTURE_OPTIONS = ('-f=DDS', f'-maxChunkCount={CHUNKS}')
+#: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
+SOUND = 'Sound'
+#: Archive2's options for the Main archive.
+GENERAL_OPTIONS = ('-f=General', '-compression=None')
 #: Per resolved Data folder, this run's {'manifest': the last pack's record, 'staged': {key: signature}}.
 _RUNS = {}
 
@@ -121,16 +127,17 @@ def _staged_files(staged: Path, keep: set) -> dict:
     return out
 
 
-def _pack(staged: Path, root: Path, archive: Path, files: dict) -> None:
-    """Pack `staged` as `archive` with Archive2 unless the record beside it shows the same `files` packed."""
+def _pack(staged: Path, root: Path, archive: Path, files: dict, options: tuple = TEXTURE_OPTIONS) -> None:
+    """Pack `staged` as `archive` with Archive2 (`options`) unless the record beside it shows the same `files`
+    packed."""
     state = hashlib.sha1(json.dumps(files, sort_keys=True).encode()).hexdigest()
     record = archive.with_name(archive.name + '.json')
     packed = _read_json(record)
     stat = archive.stat() if archive.exists() else None
     if stat and packed.get('files') == state and packed.get('archive') == [stat.st_size, stat.st_mtime_ns]:
         return
-    done = subprocess.run([str(ARCHIVE2), str(staged.resolve()), f'-c={archive.resolve()}', '-f=DDS',
-                           f'-r={root.resolve()}', f'-maxChunkCount={CHUNKS}', '-q'],
+    done = subprocess.run([str(ARCHIVE2), str(staged.resolve()), f'-c={archive.resolve()}', *options,
+                           f'-r={root.resolve()}', '-q'],
                           capture_output=True, text=True, **POPEN_FLAGS)
     if done.returncode or not archive.exists():
         raise RuntimeError(f'Archive2 could not pack {archive} (absolute paths only): {done.stdout}{done.stderr}')
@@ -153,4 +160,28 @@ def pack_textures(data_dir: Path, plugin: str, keep_loose: tuple = ()) -> int:
     _pack(root / 'Textures', root, data_dir / f'{Path(plugin).stem} - Textures.ba2',
           {key: value[:2] for key, value in files.items()})
     (root / MANIFEST).write_text(json.dumps(files, sort_keys=True), encoding='utf-8')
+    return len(files)
+
+
+def sound_root(data_dir: Path) -> Path:
+    """Where sounds are written, as <it>/Sound/...: the staging folder.
+    See: docs/fork/fo4_pipeline.md#sound-archive
+    """
+    return Path(data_dir) / STAGING
+
+
+def stage_loose_sounds(data_dir: Path, own: tuple) -> int:
+    """Move loose files in the `own` Sound folders into sound_root; how many."""
+    root = sound_root(data_dir) / SOUND
+    return sum(len(_move_loose(Path(data_dir) / SOUND / folder, root / folder, ())) for folder in own)
+
+
+def pack_sounds(data_dir: Path, plugin: str) -> int:
+    """Pack the staged sounds (sound_root) as `<plugin stem> - Main.ba2` when they changed since it was packed;
+    the file count."""
+    root = sound_root(data_dir)
+    files = {p.relative_to(root).as_posix().lower(): [p.stat().st_size, p.stat().st_mtime_ns]
+             for p in (root / SOUND).rglob('*') if p.is_file()} if (root / SOUND).is_dir() else {}
+    if files:
+        _pack(root / SOUND, root, Path(data_dir) / f'{Path(plugin).stem} - Main.ba2', files, GENERAL_OPTIONS)
     return len(files)

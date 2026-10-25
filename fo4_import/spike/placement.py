@@ -38,17 +38,53 @@ OWNERSHIP = (b'XOWN', b'XRNK')
 CELL_CHILDREN = (6, 8, 9, 10)
 #: FormIDs below this are engine forms both games share (the player, 0x14).
 ENGINE_FORMS = 0x800
+#: A reference's record flag Initially Disabled, in both games.
+INITIALLY_DISABLED = 0x800
 
 
 @functools.cache
-def fields() -> dict:
-    """{FNV reference FormID: [(tag, data)]} of FalloutNV.esm's references and actors holding any KEPT subrecord."""
-    out = {}
+def _scan() -> tuple:
+    """({FNV reference FormID: [(tag, data)]} of the references and actors holding any KEPT subrecord,
+    {FormID: record flags} of all of them), read once from FalloutNV.esm."""
+    out, flags = {}, {}
     for rec, _ in walk(source_esm(), b'REFR', b'ACHR', b'ACRE'):
+        flags[rec.form_id] = rec.flags
         found = [(tag, data) for tag, data in subrecords(rec.body) if tag in KEPT]
         if found:
             out[rec.form_id] = found
-    return out
+    return out, flags
+
+
+def fields() -> dict:
+    """_scan()'s {FNV reference FormID: [(KEPT tag, data)]}."""
+    return _scan()[0]
+
+
+def _parent(fnv_fid: int) -> tuple:
+    """(enable parent FormID or 0, opposite-state bit) of FNV reference `fnv_fid`."""
+    data = dict(fields().get(fnv_fid, ())).get(b'XESP')
+    return (struct.unpack_from('<I', data)[0], data[4] & 1) if data else (0, 0)
+
+
+def _disabled_at_start(fnv_fid: int, seen: frozenset = frozenset()) -> bool:
+    """Whether FNV reference `fnv_fid` starts disabled: as its enable parent starts (flipped by the opposite bit),
+    else by its own flag."""
+    parent, opposite = _parent(fnv_fid)
+    if parent and parent not in seen:
+        return _disabled_at_start(parent, seen | {fnv_fid}) != bool(opposite)
+    return bool(_scan()[1].get(fnv_fid, 0) & INITIALLY_DISABLED)
+
+
+def starts_disabled(ref: dict, ids: dict) -> bool:
+    """Whether FNV reference `ref` is placed disabled: its own flag, or, when its enable parent is not built
+    (placement() drops it), the state that parent's chain gives it at the start.
+    See: docs/fork/fo4_pipeline.md#parents
+    """
+    fid = int(ref['FormID'], 16)
+    parent = _parent(fid)[0]
+    if parent and not _renumbered(parent, ids):
+        return _disabled_at_start(fid)
+    return bool(int(ref['RecordFlags']) & INITIALLY_DISABLED)
 
 
 @functools.cache

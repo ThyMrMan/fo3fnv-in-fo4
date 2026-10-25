@@ -17,8 +17,8 @@ Fallout4.esm targets take any mode. Another plugin's record (a DLC's, a
 mod's) is used only as an `item`: copying it would mean renumbering every
 FormID in it. That plugin becomes a master, appended (the DLCs first, in the
 game's order); it is read from the game's Data folder or the plugin folders.
-An entry whose plugin is not installed is dropped with a warning, so the
-layer below it applies: a mod is never required.
+An entry whose plugin is not installed (or names a master that is not) is
+dropped with a warning, so the layer below it applies: a mod is never required.
 
 See: docs/fork/fo4_gui.md#replacement-data
 """
@@ -122,13 +122,10 @@ class Table(dict):
 
 def load(user: 'Path | None' = None, profile: 'str | Path | None' = None, dirs: tuple = ()) -> Table:
     """The defaults, then `profile`'s and `user`'s entries laid over them; plugins looked for in `dirs`."""
-    layers = [(_read(DEFAULTS), 'default')]
-    layers += [(_read(profile_path(profile)), 'profile')] if profile else []
-    layers += [(_read(Path(user)), 'user')] if user else []
-    present, warnings = _presence(dirs), []
+    present, warnings = presence(dirs), []
     items, creatures = {}, {}
     rules = {'creature': {}, 'body': {}, 'armor': (), 'melee': {}}
-    for data, origin in layers:
+    for data, origin in layers(user, profile):
         warnings += _missing_requirements(data, present)
         kept = _Layer(origin, present, warnings)
         for category in CATEGORIES:
@@ -139,6 +136,13 @@ def load(user: 'Path | None' = None, profile: 'str | Path | None' = None, dirs: 
     if missing:
         raise ValueError(f'replacement rules give no body for {missing}')
     return Table(items, creatures, Rules(**rules), warnings)
+
+
+def layers(user: 'Path | None' = None, profile: 'str | Path | None' = None) -> list:
+    """[(layer JSON, origin)] lowest first: the defaults, `profile`'s, `user`'s."""
+    out = [(_read(DEFAULTS), 'default')]
+    out += [(_read(profile_path(profile)), 'profile')] if profile else []
+    return out + ([(_read(Path(user)), 'user')] if user else [])
 
 
 def profile_path(profile: 'str | Path') -> Path:
@@ -218,16 +222,27 @@ def _missing_requirements(data: dict, present) -> list:
             for req in header.get('requires', ()) if not present(req['plugin'])]
 
 
-def _presence(dirs: tuple):
-    """present(plugin): whether a plugin is in the game's Data folder or `dirs`, each looked up once."""
+def presence(dirs: tuple):
+    """present(plugin): whether a plugin and every master it names are in the game's Data folder or `dirs`, each
+    looked up once (a master cycle counts as missing)."""
     known = {}
 
     def present(plugin: str) -> bool:
-        """Whether `plugin` is installed."""
-        if plugin.lower() not in known:
-            known[plugin.lower()] = find_file(plugin, [FALLOUT4_DIR / 'Data', *dirs]) is not None
-        return known[plugin.lower()]
+        """Whether `plugin` is installed and loadable."""
+        key = plugin.lower()
+        if key not in known:
+            known[key] = False
+            found = find_file(plugin, [FALLOUT4_DIR / 'Data', *dirs])
+            known[key] = found is not None and all(present(m) for m in file_masters(found))
+        return known[key]
     return present
+
+
+def file_masters(path: Path) -> list:
+    """A plugin file's master names, read from its header record only."""
+    with open(path, 'rb') as f:
+        head = f.read(HEADER)
+        return plugin_masters(head + f.read(struct.unpack_from('<I', head, 4)[0]))
 
 
 def _read(path: Path) -> dict:

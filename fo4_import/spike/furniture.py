@@ -70,7 +70,8 @@ SLOT_SEATS = {SIT_STOOL: (('AnimFurnBarStool', 'AnimFurnAllowEating', 'Furniture
 #: The FNV animation (under meshes) that takes an actor from each slot's marker onto the seat.
 ENTER_ANIMS = {SIT_STOOL: 'characters\\_male\\idleanims\\stoolenter.kf',
                FLOOR_SIT: 'characters\\_male\\idleanims\\sitfloorenter.kf',
-               RESTRAINED_SIT: 'characters\\_male\\idleanims\\restrainedsitenter.kf'}
+               RESTRAINED_SIT: 'characters\\_male\\idleanims\\restrainedsitenter.kf',
+               WALL_LEAN: 'characters\\_male\\idleanims\\wallfrontentry.kf'}
 #: FNV furniture animations turn the actor in quarter turns; the seated pose adds a few degrees of twist.
 QUARTER = math.pi / 2
 
@@ -221,14 +222,22 @@ def slot_seats(marks: list, active: int, motions: dict) -> 'tuple | None':
     slot = slots.pop() if len(slots) == 1 else None
     if slot not in SLOT_SEATS or slot not in motions:
         return None
-    right, forward, turn = motions[slot]
+    return (entered(marks, active, motions[slot]),) + SLOT_SEATS[slot]
+
+
+def entered(marks: list, active: int, motion: tuple) -> list:
+    """Each active marker of `marks` moved and turned by an enter animation's `motion` (right, forward, turn):
+    where FNV's actor ends up, entered from every side.
+    See: docs/fork/fo4_pipeline.md#wall-lean
+    """
+    right, forward, turn = motion
     out = []
     for i, (x, y, z, heading, _) in enumerate(marks):
         if active >> i & 1:
             (rx, ry), (fx, fy) = _right(heading), (math.sin(heading), math.cos(heading))
             out.append((x + right * rx + forward * fx, y + right * ry + forward * fy, z, (heading + turn) % math.tau,
                         ANY_ENTRY))
-    return (out,) + SLOT_SEATS[slot]
+    return out
 
 
 def standing(marks: list, idles: tuple) -> 'tuple | None':
@@ -256,7 +265,8 @@ def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keywo
               idles: tuple = (), motions: dict = None) -> bytes:
     """The FO4 FURN of FNV furniture `rec` with converted `model` and `bounds` and its mesh's `marks`; a stool,
     floor sit or restrained sit takes slot_seats() by the enter `motions` (enter_motions()); standing furniture
-    (standing()) keeps each active marker where FNV has it, entered from any side."""
+    (standing()) keeps each active marker where FNV has it, entered from any side, or where its slot's enter
+    animation takes the actor (a wall lean: entered())."""
     active = int(rec.get('MNAM.Flags', 0))
     bed = sleepers(marks, active, bounds)
     slotted = None if bed else slot_seats(marks, active, motions or {})
@@ -268,8 +278,7 @@ def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keywo
         else slotted[1:] if slotted else (SEAT_KEYWORDS, '')
     stand = None if placed else standing(marks, idles)
     if stand is not None:
-        placed, words = [(x, y, z, h % math.tau, ANY_ENTRY) for i, (x, y, z, h, _) in enumerate(marks)
-                         if active >> i & 1], stand
+        placed, words = entered(marks, active, (motions or {}).get(marks[0][4], (0.0, 0.0, 0.0))), stand
     return R.pack_furn(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds,
                        [keyword_ids[k] for k in words], BED_RECORD_FLAGS if bed else 0,
                        flags | (1 << len(placed)) - 1, marker, placed)

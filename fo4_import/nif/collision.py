@@ -321,7 +321,7 @@ def _mesh_soup(body, node, root, grow: float) -> 'tuple | None':
     if type(body).__name__ == 'bhkRigidBodyT':
         t = body.translation
         t.x, t.y, t.z = t.x * SCALE, t.y * SCALE, t.z * SCALE
-    soup = repaired_mesh_soup(body, node, triangle_materials, _visual(root, node))
+    soup = repaired_mesh_soup(body, node, triangle_materials, repair_oracle(root, node))
     if soup is None or soup == 'drop':
         return None
     tris = [tuple(tuple(c * grow for c in v) for v in tri) for tri in soup[0]]
@@ -338,7 +338,7 @@ def mesh_triangles(path: str) -> tuple:
     return [tuple(tuple(c * GAME_PER_HAVOK for c in v) for v in tri) for tri in tris], materials
 
 
-def _visual(root, node) -> 'list | None':
+def repair_oracle(root, node) -> 'list | None':
     """A collision-only node's repair oracle: the mesh's render triangles, or None.
 
     See: docs/fork/fo4_spikes.md#spike-4-exterior

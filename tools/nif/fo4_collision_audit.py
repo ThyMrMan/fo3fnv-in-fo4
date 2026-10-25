@@ -173,15 +173,17 @@ def _placed(node: dict, pts: np.ndarray) -> np.ndarray:
 
 
 def shipped_parts(path: Path) -> dict:
-    """{owner node name: (lo, hi)} of a shipped mesh's Elric bodies, under the owner's transform (game units)."""
+    """{owner node name: (lo, hi)} of a shipped mesh's Elric bodies: their local vertices under the owner's
+    transform (game units), as FO4 places them (the body position only copies the node's).
+    See: docs/fork/fo4_pipeline.md#collision-nodes
+    """
     nif = nif_file.read(path.read_bytes())
     parts = {}
     for kind, raw in nif.blocks:
         if kind != 'bhkNPCollisionObject':
             continue
         target, _, system, body = struct.unpack('<iHiI', raw)
-        position, orientation, local = PhysicsSystem(nif.blocks[system][1]).bodies()[body]
-        pts = (_rotate(orientation, local) + np.array(position)) * GAME_PER_HAVOK
+        pts = PhysicsSystem(nif.blocks[system][1]).bodies()[body][2] * GAME_PER_HAVOK
         node = nif.blocks[target][1]
         if target:
             pts = _placed(node, pts)

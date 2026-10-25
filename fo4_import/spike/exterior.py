@@ -27,7 +27,7 @@ from fo4_import.spike.grass import Grasses
 from fo4_import.spike.land_layers import blend_borders, limit_textures, quadrant_mix
 from fo4_import.spike.navmesh import grid_parent
 from fo4_import.spike.music import music_of
-from fo4_import.spike.regions import regions_of
+from fo4_import.spike.regions import imposters, regions_of
 from fo4_import.spike.weather_imagespace import world_imagespace
 from fo4_import.spike.weathers import climate
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_map_path
@@ -44,7 +44,9 @@ LAND_SQUARES = 32
 LAND_SPACING = CELL_UNITS / LAND_SQUARES
 #: Fallout4.esm's Commonwealth, whose climate, water and map settings the worldspace takes.
 WORLD_TEMPLATE = 0x3C
-WORLD_COPIED = (b'CNAM', b'NAM2', b'NAM3', b'NAM4', b'DNAM', b'MNAM', b'ONAM', b'NAMA', b'DATA', b'XWEM')
+WORLD_COPIED = (b'CNAM', b'NAM2', b'NAM3', b'NAM4', b'DNAM', b'ICON', b'MNAM', b'ONAM', b'NAMA', b'DATA', b'XWEM')
+#: FNV's world map cell bounds (MNAM): north-west then south-east cell, as FO4 writes them after its two zeros.
+MAP_CELLS = ('NWCellX', 'NWCellY', 'SECellX', 'SECellY')
 #: Smallest share written: a texture or vertex below it is left out.
 MIN_SHARE = 1e-4
 #: BTXT layer of a base texture: vanilla's -1 (every one of the 2,000+ sampled), never an alpha layer's index.
@@ -77,8 +79,10 @@ class Exterior:
                       int(r['RecordFlags']) & PERSISTENT and _within(int(r['XCLC.X']), int(r['XCLC.Y']), lo, hi)}
         self.own = own = {r['FormID']: grid for grid, r in self.cells.items()}
         self.by_cell = {grid: [] for grid in self.cells}
-        self.persistent = []
+        self.persistent, shown_far = [], imposters()
         for ref in all_refs:
+            if int(ref['FormID'], 16) in shown_far:
+                continue
             if ref.get('ParentCELL') in own:
                 self.by_cell[own[ref['ParentCELL']]].append(ref)
             elif ref.get('ParentCELL') == self.persistent_cell and _grid(ref) in self.cells:
@@ -87,6 +91,11 @@ class Exterior:
         self.land = {r['ParentCELL']: r for r in export_records(export_dir, 'LAND') if r['ParentCELL'] in own}
         self.textures, self.made, self.heights = {}, {}, {}
         self.grasses = Grasses(export_dir)
+
+    @property
+    def fo4_edid(self) -> str:
+        """The FO4 worldspace's EditorID (its LOD folders' name too)."""
+        return f'FNV_{self.world["EditorID"]}'
 
     def add_persistent(self, refs: list) -> list:
         """Add persistent `refs` from past the block to its persistent cell."""
@@ -164,18 +173,19 @@ class Exterior:
         return record + pack_group(WORLD_CHILDREN, struct.pack('<I', world), children)
 
     def _world(self, builder, fid: int) -> bytes:
-        """The WRLD record: FNV's name, location, climate (weathers.py) and the block's bounds, the Commonwealth's
-        settings."""
+        """The WRLD record: FNV's name, location, climate (weathers.py), world map (_world_map) and the block's
+        bounds, the Commonwealth's settings."""
         template = next(r for r, _ in walk(builder.fo4, b'WRLD') if r.form_id == WORLD_TEMPLATE)
         kept = {t: d for t, d in subrecords(template.body) if t in WORLD_COPIED}
         fnv_climate = climate(builder, int(self.world.get('CNAM.Climate', '0'), 16))
         if fnv_climate:
             kept[b'CNAM'] = struct.pack('<I', fnv_climate)
         kept.update(_heights(self.world, kept))
+        kept.update(_world_map(self.world, self.export_dir, builder.data_dir))
         xs, ys = [g[0] for g in self.cells], [g[1] for g in self.cells]
         bounds = (struct.pack('<2f', min(xs) * CELL_UNITS, min(ys) * CELL_UNITS),
                   struct.pack('<2f', (max(xs) + 1) * CELL_UNITS, (max(ys) + 1) * CELL_UNITS))
-        subs = pack_subrecord('EDID', f'FNV_{self.world["EditorID"]}\0'.encode())
+        subs = pack_subrecord('EDID', f'{self.fo4_edid}\0'.encode())
         subs += pack_subrecord('FULL', (self.world.get('FULL', self.world['EditorID']) + '\0').encode('cp1252'))
         subs += pack_subrecord('XLCN', struct.pack('<I', self.locations.root))
         subs += b''.join(pack_subrecord(t.decode(), kept[t]) for t in WORLD_COPIED[:-2] if t in kept)
@@ -240,6 +250,20 @@ class Exterior:
         builder.writer.add_record('LTEX', pack_fo4_record('LTEX', ltex, 0, subs))
         builder.counts['LTEX'] += 1
         return ltex
+
+
+def _world_map(world: dict, export_dir: Path, data_dir: Path) -> dict:
+    """{ICON, MNAM}: FNV worldspace `world`'s map image (staged for the texture BA2) and its cell bounds, each
+    where FNV has one; the Pip-Boy shows the image and places markers by the bounds.
+    See: docs/fork/fo4_pipeline.md#world-map
+    """
+    out = {}
+    if world.get('ICON'):
+        copy_texture(export_dir, data_dir, world['ICON'])
+        out[b'ICON'] = f"{fo4_texture(world['ICON'])}\0".encode('cp1252')
+    if all(f'MNAM.{k}' in world for k in MAP_CELLS):
+        out[b'MNAM'] = struct.pack('<ii4h', 0, 0, *(int(world[f'MNAM.{k}']) for k in MAP_CELLS))
+    return out
 
 
 def _grass_count(rec: dict) -> int:

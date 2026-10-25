@@ -18,7 +18,7 @@ import struct
 
 from fo4_import.base.install import source_esm
 from fo4_import.spike import records as R
-from fo4_import.spike.placement import place
+from fo4_import.spike.placement import place, starts_disabled
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 
 #: Fallout4.esm's generic hazards by name, and each grade's per-tick radiation.
@@ -69,4 +69,4 @@ def hazard_ref(builder, ref: dict, persistent: bool) -> bytes:
     fid = builder.writer.derive_formid(HAZARD_SITE, ref['FormID'])
     builder.counts['radiation hazards'] += 1
     return R.pack_refr(fid, nearest(builder.hazards, *found), *place(ref), persistent=persistent,
-                       disabled=bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED), sig='PHZD')
+                       disabled=starts_disabled(ref, builder.ref_ids), sig='PHZD')

@@ -71,7 +71,13 @@
       "creatures\\eyebot": {"use": "Fallout4.esm|EncEyeBot", "as": "stats"},
       "creatures\\protectron": {"use": "Fallout4.esm|EncProtectron01Template", "as": "stats"},
       "creatures\\nvsecuritron": {"use": "Fallout4.esm|EncProtectron01Template", "as": "stats"},
-      "creatures\\nvmantis": {"use": "Fallout4.esm|EncStingwing01Template", "as": "stats"}
+      "creatures\\nvmantis": {"use": "Fallout4.esm|EncStingwing01Template", "as": "stats"},
+      "creatures\\smspinebreaker": {"use": "Fallout4.esm|EncSuperMutantTemplate", "as": "stats"},
+      "creatures\\smbehemoth": {"use": "Fallout4.esm|EncSMBehemoth01Template", "as": "stats"},
+      "creatures\\mistergutsy": {"use": "Fallout4.esm|encMrGutsy01Template", "as": "stats"},
+      "creatures\\sentrybot": {"use": "Fallout4.esm|EncSentryBot01Template", "as": "stats"},
+      "creatures\\mirelurk": {"use": "Fallout4.esm|EncMirelurk01Template", "as": "stats"},
+      "creatures\\mirelurkking": {"use": "Fallout4.esm|EncMirelurkKing01", "as": "stats"}
     },
     "body": {
       "human_male": {"use": "Fallout4.esm|DocWeathers"},

@@ -74,7 +74,7 @@ def test_a_retextured_material_takes_the_new_diffuse_and_its_tags():
 def _node(nif: NifFile, collision: int = NONE) -> dict:
     """A root NiNode dict with collision object `collision`."""
     return {'name': nif.string('root'), 'extra': [], 'controller': NONE, 'flags': 0, 'translation': (0.0,) * 3,
-            'rotation': E.IDENTITY, 'scale': 1.0, 'collision': collision, 'children': []}
+            'rotation': C.IDENTITY, 'scale': 1.0, 'collision': collision, 'children': []}
 
 
 def test_without_havok_renumbers_a_block_after_the_havok_and_refuses_one_it_cannot():
@@ -159,12 +159,18 @@ def test_a_used_entry_is_touched_and_prune_drops_only_long_unused_files(tmp_path
     assert used.exists() and recent.exists() and not stale.exists()
 
 
+def fake_archive2(cmd: list, packs: list) -> SimpleNamespace:
+    """Archive2 stand-in: log `cmd`, write the archive it names (-c=)."""
+    packs.append(cmd)
+    pathlib.Path(cmd[2][3:]).write_bytes(str(len(packs)).encode())
+    return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+
 def test_a_texture_is_staged_once_per_run_and_not_rewritten_or_repacked_while_current(tmp_path, monkeypatch):
     """A second call this run is skipped; the next run skips a current staged copy and Archive2; a staged own
     texture no build wrote is pruned, FaceGen kept; a changed source is written and repacked."""
     packs = []
-    monkeypatch.setattr(BP.subprocess, 'run', lambda cmd, **_: packs.append(cmd) or pathlib.Path(cmd[2][3:]).write_bytes(
-        str(len(packs)).encode()))
+    monkeypatch.setattr(BP.subprocess, 'run', lambda cmd, **_: fake_archive2(cmd, packs))
     data, source = tmp_path / 'data', tmp_path / 'src.dds'
     source.write_bytes(b'dds')
     plan = lambda: (f'copy {source.read_bytes()}', lambda target: target.write_bytes(source.read_bytes()))
@@ -180,6 +186,22 @@ def test_a_texture_is_staged_once_per_run_and_not_rewritten_or_repacked_while_cu
     source.write_bytes(b'new dds')
     assert BP.stage_texture(data, 'fnv\\a.dds', plan) and BP.pack_textures(data, 'P.esp') == 2 and len(packs) == 2
     assert (data / BP.STAGING / 'Textures' / 'fnv' / 'a.dds').read_bytes() == b'new dds'
+
+
+def test_loose_sounds_are_staged_and_packed_into_the_main_archive(tmp_path, monkeypatch):
+    """An older build's loose voice moves to the staging folder (others' sounds stay); the staged sounds pack
+    once as `<plugin> - Main.ba2`, General and uncompressed, and not again while unchanged."""
+    packs = []
+    monkeypatch.setattr(BP.subprocess, 'run', lambda cmd, **_: fake_archive2(cmd, packs))
+    data = tmp_path / 'data'
+    ours, theirs = data / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.fuz', data / 'Sound' / 'Voice' / 'O.esp' / 'b.fuz'
+    for path in (ours, theirs):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'x')
+    assert BP.stage_loose_sounds(data, ('Voice/P.esp',)) == 1 and theirs.exists() and not ours.exists()
+    assert (BP.sound_root(data) / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.fuz').is_file()
+    assert BP.pack_sounds(data, 'P.esp') == 1 and BP.pack_sounds(data, 'P.esp') == 1 and len(packs) == 1
+    assert packs[0][2] == f'-c={(data / "P - Main.ba2").resolve()}' and '-f=General' in packs[0]
 
 
 def test_write_assets_names_a_weapon_mesh_apart_and_keeps_load_doors(tmp_path, monkeypatch):

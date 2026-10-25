@@ -545,6 +545,63 @@ A new, game-agnostic module, `core/mod_sources.py`:
       04), as adding a master in xEdit does.
     - Not played.
 
+### <a id="required-mods"></a>Required mods (added 2026-10-25)
+
+Every plugin other than Fallout4.esm that the replacement table names becomes
+a master of the built plugin. If that plugin isn't installed, or one of its
+own masters isn't, its entries silently fall back to the layer below. The
+user's table named 38 plugins, none enabled in their MO2 `Play` profile, and
+17 entries needed masters that weren't installed (`Munitions - An Ammo
+Expansion.esl`, the Gauss rifle prototype Creation Club plugin). Nothing on
+the screen said so.
+
+- **The button:** "Required mods" in the top bar. It reads "Required mods (N
+  to fix)" in red when any plugin can't be used. It is recounted on load and
+  after every Apply, Revert or Accept.
+- **The list** (`fo4_import/app/required_mods.py`, a dialog). One row per
+  plugin, problems first (in red), then the most entries:
+  - **Plugin.**
+  - **Entries:** how many entries name the plugin, counted once per entry key
+    across the default, profile and user layers, rules included. A plugin
+    named only by a profile's `_profile.requires` shows 0.
+  - **Status:**
+    - Ready;
+    - Missing masters;
+    - Not enabled (the file is only in MO2 mod folders the profile doesn't
+      enable);
+    - Not installed (nowhere at all).
+
+    Every status but Ready ends "its entries fall back".
+  - **Where:** the mod folder that supplies the plugin. If no enabled source
+    has it, each MO2 mod holding it, as `MO2 mod "X" (not enabled in profile
+    Play)`.
+  - **Missing masters:** the plugin's own masters that aren't loadable. Each
+    one names the disabled MO2 mod that holds it, if any. For a plugin that
+    is only in a disabled mod, the masters are read from that file, so the
+    list shows whether enabling the mod alone is enough.
+
+  Below the table, the loader's own warnings (`Table.warnings`, "X is not
+  installed; the layer below applies") are shown as they are.
+- **No second rule set:** "installed" is `replacements.presence`, the same
+  check the loader uses. It is true when the plugin and every master it names
+  (recursively) are found in the game's Data folder or the mod sources'
+  `data_dirs`. Masters come from `replacements.file_masters`, and the layers
+  from `replacements.layers`. The only new lookup is the disabled-mod index:
+  each `mo2_profile` source's `mods` folder, minus the folders its profile
+  enables (`mo2_folders`), scanned one level deep for plugins.
+- **Tested:** `tests/test_fo4_replacements_screen.py` builds a fake MO2
+  instance with four plugins, one per status, and checks the dialog off
+  screen.
+- **Checked 2026-10-25** (read only) against the user's saved app settings
+  and MO2 `Play` profile. Of 41 named plugins (defaults included), 35 are
+  ready. Five have missing masters, and all five also sit in mods `Play`
+  doesn't enable:
+  - `NVUMP.esp` (8 entries) needs `ccbgsfo4018-gaussrifleprototype.esl`;
+  - four weapon plugins need `Munitions - An Ammo Expansion.esl`.
+
+  `CW10mmPistol.esl` is only not enabled. In all, 16 entries fall back. The
+  dialog itself has not been opened in the real window.
+
 ## <a id="preview"></a>The 3D preview
 
 ### What exists (researched 2026-10-24)

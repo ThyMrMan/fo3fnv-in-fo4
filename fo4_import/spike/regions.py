@@ -16,6 +16,7 @@ are read from FalloutNV.esm (the export has neither).
 See: docs/fork/fo4_pipeline.md#region-weather
 """
 
+import functools
 import struct
 
 from fo4_import.base.install import source_esm
@@ -24,8 +25,8 @@ from fo4_import.spike.weathers import fnv_weather
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
-#: FNV/FO4 region data types: a weather list, a sound list.
-WEATHER, SOUND = 3, 7
+#: FNV/FO4 region data types: a weather list, a sound list; FNV's imposter list (RDID: references).
+WEATHER, SOUND, IMPOSTER = 3, 7, 8
 #: FNV region sound chance: a percentage x 10,000; FO4's is a fraction.
 CHANCE_SCALE = 1_000_000
 #: ledger site of a converted region (key: the FNV REGN); named before regions carried sounds.
@@ -34,6 +35,19 @@ REGION_SITE = 'FNV weather region'
 AREAS = (b'RPLI', b'RPLD')
 #: Each converted entry type's FNV data subrecord.
 DATA = {WEATHER: b'RDWT', SOUND: b'RDSD'}
+
+
+@functools.cache
+def imposters() -> frozenset:
+    """FNV FormIDs of the references a region shows as imposters (its RDAT type IMPOSTER entry's RDID list).
+    See: docs/fork/fo4_pipeline.md#imposters
+    """
+    out, kind = set(), None
+    for rec, _ in walk(source_esm(), b'REGN'):
+        for tag, data in subrecords(rec.body):
+            kind = struct.unpack_from('<I', data)[0] if tag == b'RDAT' else kind
+            out.update(struct.unpack_from(f'<{len(data) // 4}I', data) if tag == b'RDID' and kind == IMPOSTER else ())
+    return frozenset(out)
 
 
 def regions_of(builder) -> 'Regions':

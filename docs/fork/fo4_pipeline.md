@@ -570,6 +570,23 @@ Three fixes (`conditions.without_absent`, `spike/condition_forms.py`):
   answer passing (each needs stage 100, or Meyers 2 and NCR 0), and
   choosing it stalled the talk; FNV hides such a topic. 8 options in the
   region changed (fixed and played 2026-10-18).
+  Past `MAX_CLAUSES` the option had no such test at all: Tommy Torini's
+  "Let's talk about the acts I recruited." (10 lines, 6 needing
+  `VMSTopsTalentPool` stage 10) showed as soon as the quest ran (whole
+  map, 2026-10-24). It now gets one OR-group of one group per line, the
+  one most lines share (`conversation.one_each`): looser than the full
+  spread, but false whenever no line could pass.
+
+<a id="blank-choices"></a>**Blank choices (fixed 2026-10-24, not yet played).** On the whole
+map, Cliff Briscoe offered one choice reading "dialogueentry" (FO4's
+text for a choice with no prompt) and Manny Vargas an empty one. A
+choice is a player line with the prompt and the answers' conditions
+(`Conversations._prompt`), then one empty "pad" line per further answer,
+so the player lines pair up with the NPC's. The pads had no conditions.
+FO4 shows a topic's first player line that passes; when the prompt's
+conditions failed (a topic not yet unlocked), the pad passed instead and
+showed blank. Cliff's choice topic holds 11 prompts and their pads. Each
+pad now carries its prompt's conditions.
 
 <a id="say-once"></a>**Say Once across copies (built 2026-10-15; markers moved to their own quest 2026-10-19).**
 In FNV, Say Once belongs to the NPC's line. Once it's said, the topic
@@ -1651,7 +1668,15 @@ then reference and delay, repeating) have FO4's layout. They are copied
 from FalloutNV.esm like the room fields.
 - The reference is renumbered through every reference the build makes:
   interiors, exterior and actors.
-- One that is not built is dropped, so its child stays enabled.
+- One that is not built is dropped. Its child then starts as that
+  parent's chain leaves it (`placement.starts_disabled`: disabled when
+  the parent starts disabled, flipped by the opposite bit), not by its own
+  flag (fixed 2026-10-25). Whole map: 236 references showed at the start
+  that FNV hides, nearly all under unbuilt parents in cells no door
+  reaches (Hoover Dam's dummy cell: 168 power-plant pieces, NCR markers;
+  NVWildwastelandCell: 15 Wild Wasteland items); 255 now start disabled,
+  10 enabled. Actor-to-actor parents are still dropped (the actors' ids
+  are not in the map yet); those children now take the same fallback.
 - FalloutNV.esm has 2,484 references and 647 actors with an enable
   parent, and 216 references with activate parents. Actors (here only
   the stand-in speakers) do not carry theirs yet.
@@ -2907,7 +2932,17 @@ building and dialogue are above ([ledger](#formid-ledger),
 - *Creatures with no FO4 base* are counted by skeleton folder (`ACRE
   skipped (no FO4 base): <folder>`): 283 of FNV's 2,999 placed creatures
   in 32 folders (nvraven 43, smspinebreaker 38, mistergutsy 34, giantant
-  23).
+  23). The whole-Mojave build left out 1,024 placed creatures in 121 bases,
+  every super mutant and nightkin among them (Westside's
+  `WestsideMeanSonofabitch`, Black Mountain, REPCONN), played 2026-10-25.
+  The defaults now give the folders whose creature FO4 has a rule of
+  their own, in stats mode as the deathclaw's: `smspinebreaker`
+  (`EncSuperMutantTemplate`), `smbehemoth`, `mistergutsy`, `sentrybot`,
+  `mirelurk`, `mirelurkking` (super mutants played 2026-10-25, Westside's
+  among them; placed creatures left out fell from 1,024 to 341). Still
+  without one: the close body plans
+  (giant ant, giant rat, night stalker, cazador, raven), turrets, robobrain
+  (Automatron's), and the creatures with no FO4 counterpart.
 
 **Meshes and assets.**
 - *Files named by their contents.* A BGSM's name adds a tag for an unusual
@@ -3253,6 +3288,24 @@ becomes None, in place (the size does not change). On run 8's plugin:
 whose subject is an unbuilt actor or reference: Black Mountain radio
 lines, two terminals, one package), from 1,001.
 
+<a id="reached-worlds"></a>**`--world reached` (2026-10-25).** A whole build from the app passed
+only `--world WastelandNV`. When it ran into the MO2 folder, it replaced
+the 12-world deploy with WastelandNV alone (285 MB against 383), and
+Westside could not be entered: its 44 doors had no worldspace to lead to.
+`run.reached_worlds` names the worldspaces a build needs:
+- each worldspace a load door leads into (11 worlds: WastelandNV 373
+  doors, WastelandNVmini 44, TheStripWorldNew 25, GreenhouseWorld01 22,
+  and others);
+- each worldspace holding a reference that a script names in its SCRO
+  list, on scripts or quest stages. FFEncounterWorld, the freeform
+  encounters' holding pen, is reached only by its scripts' MoveTo
+  (8 scripts).
+
+TestMap01 and FXInvertedDaylightWorld are reached by nothing and are not
+built. The app's whole build passes `--world WastelandNV reached`, which
+yields the same 12 worldspaces as the hand-picked list below. With the
+12-world build restored, Westside could be entered (played 2026-10-25).
+
 **Every worldspace a door reaches** (WastelandNV, TheStripWorldNew,
 Lucky38World, the three Freeside worlds, GamorrahWorld,
 GreenhouseWorld01, TheFortWorld, BoulderCityWorld, WastelandNVmini, and
@@ -3272,6 +3325,310 @@ unbuilt location from 58 to 3. Still left out: 1,036 placed creatures of
 per voice line. A voice file is skipped when it already exists, so a
 rebuild into the same Data folder skips it; these runs cleared the
 folder each time.
+
+<a id="sound-archive"></a>**Sounds go in the Main BA2 (2026-10-24).** The
+first launch of the full build sat on a black screen at 1% CPU. It was
+not hung: the main thread was in `ZwCreateFile` under MO2's
+`usvfs_x64.dll`, opening the loose voice files one by one in name order
+(sampled from the thread's `OBJECT_ATTRIBUTES`), about 290 a second,
+so roughly 10 minutes for 179,414 files. After the last one the
+game went on to render. Vanilla keeps its voices in a BA2
+(`Fallout4 - Voices.ba2`). The build now writes voice and sound-effect
+files to the staging folder (`ba2_pack.sound_root`, `<data>/_ba2/Sound`)
+and packs them as `<plugin> - Main.ba2` (`pack_sounds`; General,
+uncompressed, since .fuz and .xwm are already compressed), which the game
+loads with the plugin. A previous build's loose files in the plugin's own
+folders (`Sound/Voice/<plugin>`, `Sound/FX/FNV`) are moved into the
+staging folder first (`stage_loose_sounds`), so LipGenerator still skips them.
+
+<a id="terrain-lod"></a>**Terrain LOD from FNV's own tiles (built 2026-10-24, not yet played).**
+FNV ships its terrain LOD prebuilt: per worldspace,
+`meshes/landscape/lod/<world>/<world>.level<L>.x<X>.y<Y>.nif` (1,360 for
+WastelandNV: 1,024 level-4, 256 level-8, 64 level-16, 16 level-32, the
+whole 128 by 128 cells from (-64, -64)) and a diffuse and normal map per
+tile. FO4's layout, read from vanilla (`Fallout4 - Meshes.ba2`) and
+Project Mojave:
+- `Meshes/Terrain/<world>/<world>.<L>.<X>.<Y>.btr`, named by the tile's
+  south-west cell as FNV's are. One `BSMultiBoundNode` "chunk", one
+  `BSTriShape` "Land" with scale L and positions in tile units (world / L),
+  vertex layout `0x300000000203` (half position, UV; no normals, as FNV's
+  tiles have none), shader type 18 (LOD land), a `BSMultiBoundAABB` in
+  world units. Commonwealth tiles add a `WATER` shape; Mojave's do not.
+- `Textures/Terrain/<world>/<world>.<L>.<X>.<Y>.dds` and `_msn.dds`.
+- `LODSettings/<world>.lod`, 16 bytes: south-west cell (two int16), size
+  in cells, lowest and highest level (Commonwealth -96, -96, 256, 4, 32;
+  Mojave -50, -50, 128, 4, 32).
+- The WRLD record needs nothing for it: Mojave's has no field ours lacks
+  but `MHDT` and `ICON`.
+
+`spike/terrain_lod.py` converts each tile's land shape (its largest; a
+second 3-triangle shape some tiles carry is dropped). FNV's UVs run
+mirrored (u = 1 - x, v = y; FO4's u = x, v = 1 - y). Each FNV tile holds
+two shapes: the land (a shaded NiTriShape with UVs) and its LOD water (a
+BSSegmentedTriShape with no properties: Lake Mead flat at 2600, the
+Colorado at -2300). Taking the larger shape picked the water on 17 tiles
+around Lake Mead and Hoover Dam (x 12 to 28; e.g. 4.28.12: water 3,825
+vertices, land 1,773), drawn with the land texture; through the holes it
+left, the tile skirts (edge vertices dropped to -14098, on every FNV
+tile) showed as grey walls from The Fort. `land_shape` now takes the
+shaded shape. That alone left The Fort's view unchanged: the land shapes
+carry skirts too, each border vertex repeated at -14098 (FO4's tiles,
+vanilla's and xLODGen's, have none), and where FO4 lowers or hides a
+neighbour they stand as walls. `without_skirts` drops every triangle
+touching a border vertex that lies under another at the same x, y (4.20.8:
+4,207 to 4,044 triangles, lowest vertex -14098 to 2600). The water shapes are not converted yet (FO4's tiles carry a
+`WATER` BSSubIndexTriShape); FNV's land under the lake is flattened to
+its surface with a lake-coloured diffuse, so it stands in. The
+dark rectangles in the tiles east of The Fort are the Legion tents'
+footprints baked into FNV's LOD diffuse, which FNV's object LOD covers. The
+first play-test (FNV's UVs and textures kept as they were) showed the LOD
+dark blue and pushing through the land near the player. FO4 reads a tile's
+normal map by name (`Data\Textures\Terrain\%s\%s.%u.%i.%i_msn.DDS` in
+Fallout4.exe), not only through the mesh, so both textures now turn half a
+turn into FO4's layout and the UVs follow (u = x, v = 1 - y, checked on
+every vertex); a model-space normal does not change when its image turns.
+Not yet played. FO4 lowers LOD land under loaded cells in its shader
+(`fLODLandDropAmount`); the heights need nothing: both FNV's and Project
+Mojave's level-4 tiles sit exactly on their land (median difference 0). Both normal maps are model space;
+correlating each texel with its triangle's face normal on one tile per
+game showed FNV stores x, y, z in R, G, B (blue the up axis, mean 0.81)
+and FO4 x, z, y (green up, mean 0.90; blue follows y), so the normal map's
+green and blue swap. Textures go through `stage_texture` into the texture
+BA2; the meshes are loose. A full WastelandNV run takes 97 s cold (most of
+it the 1,360 normal maps through texconv); the meshes are work-cached and
+the textures skipped while staged and current. The first every-world build
+after this stopped on Lucky38World: 6 of its 135 tile meshes have no
+textures (level 4, x-16 y-12 among them). `tiles` now leaves out a tile
+missing its diffuse or normal map; every other world keeps all its tiles.
+
+<a id="imposters"></a>**FNV's imposters are left out (built 2026-10-24, not yet played).**
+Playing the whole map showed grey, low-detail copies of the Freeside
+overpass and the Strip wall standing over the real ones at the North Gate
+(`OverpassRampLo01Imposter01`, `NVStripWallImposter*`, textured with
+`McCarranWall_Imposter.dds`). FNV places 216 such references in
+WastelandNV (210 persistent) beside the real objects, and shows each only
+from inside a region that lists it: region data type 8 (Imposter), an
+`RDID` list of references, in 18 regions naming 290 references
+(`StripImposter` 222, `StripImposterBlackMountain` 195,
+`StripImposterJacobstown` 190, the Freeside worlds' 3 to 9 each). That is
+how the Strip's skyline shows from Black Mountain without doubling up
+close. FO4 has no region-gated references, so `regions.imposters()` reads
+the lists from FalloutNV.esm and `Exterior` leaves those references out;
+the distant skyline is object LOD's job.
+
+<a id="outfit-slots"></a>**One item per slot in an outfit (built 2026-10-25, not yet played).**
+Red Lucy wore FO4's sleepwear stand-in: her FNV inventory holds both
+`BountyHunterDuster` (DT 6, value 70) and `OutfitPrewarNegligee` ("Sexy
+Sleepwear", DT 0, value 6), both upper body (BipedFlags 4). FNV equips the
+better one; her script changes her for the bedroom scene. `_inventory` put
+every wearable into the FO4 outfit, and FO4 equipped the sleepwear.
+193 of 2,303 outfits had two items on one slot (Joana and Martina
+Groesbeck the same sleepwear; dirty and clean business wear; the two
+Centurion armors). `NPCs._dressed` now keeps, per biped slot, the armor
+with the best rating, then value, as FNV does; the rest are carried, so
+scripts can still equip them. Leveled lists stay in the outfit.
+
+<a id="collision-nodes"></a>**Collision nodes keep their transform (fixed 2026-10-25, the pipe played).** In the
+East Central Sewers the player fell through a walkable pipe
+(`utlbaycorintalltoppuritypipe.nif`, 00169FD5). Its collision sits on a
+child node with no render children, `LPipe1Way02` at x -128.
+`elric.graft` reset such collision-only nodes to identity, on the theory
+that Elric bakes the node transform into the physics. It does not: Elric
+keeps the node's transform, writes the body's vertices local to it, and
+copies the node's translation and rotation into the body position, which
+FO4 ignores (vanilla `pgaragetoprail1x1str01.nif`: only node × vertices
+fits the render shape). So the reset moved the pipe's collision 128 units
+to the side. Restoring the node's translation in the deployed mesh let the
+player walk inside (played 2026-10-25). The Goodsprings fence collection
+(`Havok0`… up to 2,000 units out, rotated) comes out of Elric in exactly
+the same layout, so the graft now keeps every node's transform.
+`tools/nif/fo4_collision_audit.shipped_parts` placed vertices by the node
+and the body position together, which matched FNV only because of the
+reset; it now uses the node alone. The SCOL walls that stayed after the
+reset until the collections were split into parts
+([spike 4](fo4_spikes.md#spike-4-exterior)) fit the same cause.
+
+<a id="stair-helper-pitch"></a>**Stair helpers at the flight's pitch (built 2026-10-25, not yet played).** The player
+stuck about 70% up The Thorn's catwalk stairs (`utlcatstairsfull01.nif`,
+00133C33): 16 risers of 24 over 24 (45°), then a last step of 8 onto the
+landing. The stair-helper slab ([stair ramps](fo4_spikes.md#stair-ramps))
+ran through the first and last nosings, so the short last step tilted it
+to 43.8° and each nosing stood about 1 unit higher above it per step (10.9
+at step 11, 14.9 at step 15); the character riding the slab met them. FNV
+has no helper. `stairs._ramp` now takes the median step's rise over run,
+lifts the slab so no nosing stands above it, and spans the widest step
+edge (the treads ran 8 past the first step's edge on each side). The Novac
+motel's stairs are a plain 38° collision ramp behind a plain 16-unit riser,
+with no treads for the pass to find; the stuck spot there is not pinned
+down.
+
+<a id="stairs-audit"></a>**Stairs audit (tool, 2026-10-25).** `tools/nif/stairs_audit.py` runs
+every FNV mesh's collision through the stairs pass and ranks by placements
+three kinds of step FO4's character may refuse:
+- **Open foot:** a flight whose ramp foot stands more than 32 units above
+  the mesh's lowest point. The flight's first steps belong to another
+  reference, as with `utlcatstairshalftop` (foot 48, the small Thorn stairs
+  09133bb8). The working `utlcatstairsfull01` ends one 26.3-unit floor
+  step up (played).
+- **Tall risers:** a plain step 16 to 28 units tall that the pass left
+  unmarked. It is an upright face whose top meets a walkable face (a tread,
+  or a ramp up to 50°) with no stairs material, and whose bottom meets a
+  walkable face or the ground. Novac's motel and houses lead this list (the
+  motel's 16-unit riser in front of its 38° ramp).
+- **Over max:** the same, 28 to 40 units tall: ledges, or steps too tall.
+
+Trial on `architecture/novac` and `dungeons/utility/catwalks` (69 meshes
+with mesh collision): 7 with an open foot, 33 with tall risers, 16 over
+max. A working flight can still show a riser or two where its top or
+bottom step leaves the pass's pairing, so the list is for triage, not a
+defect count. It runs in the overnight script after the build
+(`temp/overnight/stairs_audit.txt`).
+
+<a id="open-foot"></a>**Helper slabs reach the floor (built 2026-10-25, not yet played).** The
+small Thorn stairs (09133bb8, `utlcatstairshalftop`) could not be climbed
+at all. Their lowest tread stands 48 above the body's lowest point, with a
+22-unit first riser off the catwalk base. The helper slab started at that
+tread, out of the character's reach. Vanilla's helper slabs run down into
+the floor. `stairs._foot` now starts a flight's slab at the body's lowest
+point, at the flight's pitch, so it rises out of the floor where the
+flight begins. The exception is a lowest tread that is a landing (a tread
+at its level still beyond its edge by 48): that flight starts from its
+landing, as the upper hotel and office hall flights do. The whole-export
+audit before the change: 52 meshes with an open foot (176 placements);
+after, 21 (92), each a flight off a landing. Played 2026-10-25: the small
+Thorn stairs still could not be climbed. The user's ID, 09133bb8, is a
+bay wall (`UtlBayWallMidTR01`). Its collision and that of every piece
+around it match FNV's boxes, and the shipped half-top's helper runs from
+-164 to the landing, so its foot was not the cause.
+
+<a id="short-flights"></a>**Two-step runs get a helper (built 2026-10-25; the small Thorn stairs played).** Beside
+the half-top, the catwalk turn `UtlCatStairsTurnHalfL01` (00133C2B) climbs
+two runs of two 24-unit steps with a landing between them. Flights needed
+three steps, so neither run had a helper. Without one, FO4's character
+does not climb 24-unit steps (the big Thorn stairs before theirs). A run
+of two now gets a helper when both steps rise at least 16, the height FO4
+refuses as a plain step. Census over every FNV mesh:
+- With two-step runs allowed, 102 meshes (318 placements) gain helpers.
+  Most are catwalk turn, half and end pieces, step-downs and wooden steps.
+- The 16-unit floor leaves out the display cases (a 22 step, then an
+  8 lip).
+- It keeps the ruined slide's ladder steps (22 to 24) and the train
+  station bench (15 and 18, within 1 unit of 16).
+
+<a id="glass-texture"></a>**Textured glass at full strength (built 2026-10-25; Madrid played).** FNV glass
+converts to vanilla's beaker BGEM, whose base colour is a dark grey (0.18,
+0.19, 0.20) at scale 0.2: it multiplies FNV's glass texture (the Madrid
+building's dirty `apartmentpre01gla.dds`, 63% alpha) to near black, and
+the windows read as empty. With base colour white at scale 1 the Madrid
+glass looked right in game (2026-10-25). `_effect` now keeps the beaker's
+tint only for glass with no texture of its own.
+
+<a id="falloff-panes"></a>**Black window panes (built 2026-10-25, not yet played).** FNV fills a
+broken shop window with an untextured, black, blended unlit pane whose
+view falloff makes it opaque face-on (`BldgCorner04_NV:5`: vertex colour
+0.03, falloff 1.0 / 0 / 1.0 / 0): pure black behind the shards, the wires
+in front (FNV screenshot, 2026-10-25). Converted as an untextured effect
+shader with the same falloff, it vanished face-on; with the falloff
+cleared it showed a see-through tint. Every vanilla effect shader with
+falloff (a sample of 8,000 meshes) has a source texture, the same values
+included (`lightoillampon.nif`: 1.0, 0, 1.0, 0). An untextured unlit shape
+with falloff now draws through vanilla's `textures\shared\flatwhite01_d.dds`
+(alpha 1). Played 2026-10-25: no change, still a see-through tint. The
+pane over the hole (`BldgCorner01_NVs01:5`) blends by vertex alpha (mean
+0.34, flagged in FNV too), so FNV draws the same partial pane; its black
+is the room behind, which FNV leaves unlit and FO4 lights with the
+exterior's ambient. Recorded as drift, not converted further.
+
+<a id="black-fill"></a>**Black fills as vanilla's black flat (built 2026-10-25; played).** The
+drift note above was wrong. The black box (`BldgCorner04_NV:5`) is an
+unlit, untextured, blended shape whose every vertex and material alpha
+is 1 (vertex colour at most 0.19), so FNV's blend never shows through.
+FO4 drew it see-through as a blended effect shader; dropping the alpha
+property and turning on depth writes did not help either (played
+2026-10-25). Vanilla fills such holes with a lit opaque shape on
+`materials\shared\black flat.bgsm` (`hitextawindowadmg01black.nif`, the
+`hitextskylight*black` meshes: flags 0x80400000 / 0x1, no alpha
+property). With that material the box drew solid black (played
+2026-10-25). `convert_static.black_fill` now picks every such FNV shape:
+unlit, untextured, blended, all alpha 1, vertex colours at most 0.25.
+It points at vanilla's material, so no BGSM of ours is written. Census of
+14,909 FNV meshes: 6 blended unlit opaque shapes at 0.22 or darker
+(`bldgcorner04_nv`, `apartmentpre02`, `bld03stairs01`, `offrmfreecol03`,
+`offrmpipes03ralt`, plus `workbenchmarker`'s editor marker). The next
+brightest are mist, smoke and bubble effects, from 0.31 up, which stay
+effect shaders.
+
+<a id="overlay-layers"></a>**Grime and plaster layers as decals (built 2026-10-24, not yet
+played).** Westside row houses (`rowhousebasebred01_nv`, `rowhouse02_nv`)
+showed black with orange flecks, and the Madrid building
+(`apartmentpre01`) a wrongly coloured, Z-fighting concrete layer. FNV
+lays a lit, alpha-blended grime shell (`ApartmentPre01dcl.dds`, 80% of it
+clear) over the building's own walls. It is not flat, so
+`overlay_sheet` passed it over, and being mostly see-through it went to
+the insect-wing BGEM (`_translucent`), which drew it dark. Hiding that
+shape in game showed the walls right (played 2026-10-24).
+`convert_static.overlay_layers` now marks a blended lit shape whose area
+lies on the mesh's opaque triangles (at least half of it within 4 units,
+measured at triangle centres, projection inside a triangle) as a layer,
+converted as a decal: a BGSM with FO4's decal flags, blended. Measured:
+the three grime shells 1.0, 0.91 and 0.99 of their area within 4 units;
+free-standing blended shapes 0 (an NCR flag; the building's own glass,
+`ApartmentPre01c`) and 0.03 (REPCONN's pod window glass).
+
+<a id="wall-lean"></a>**Wall leans face the wall (built 2026-10-24, not yet played).** NPCs
+leaned on air facing the wall (Freeside, 001381D2 and others). All 352
+FNV wall leans use FURN `WallMarker`: one marker, heading 0, slot 19
+(wall lean), at the spot the actor walks up to, facing the wall (its
+EditorMarker sits at y +41). FNV's `wallfrontentry.kf` then moves the
+actor 31.2 units forward and turns it 180° onto the wall. FO4's
+`NPCInvWallLean01` (449 vanilla references) has no enter offset: the
+actor leans at the marker, facing its heading. Wall-lean furniture now
+moves and turns its markers by that enter motion, as stools and floor
+seats already did (`furniture.entered`): `FNV_WallMarker`'s marker
+becomes (0, 31.2, 0, 180°). Only the FURN record changes.
+
+<a id="rest-alpha"></a>**Effects hidden at rest (built 2026-10-24, not yet played).** The
+Freeside North Gate showed a permanent electric web: its load door's mesh
+is `forcefieldrightimpact01.nif`, whose two unlit shapes have
+`NiMaterialProperty` alpha 0. FNV keeps them invisible until a sequence's
+NiAlphaController flashes them (0 → 1 → 0 in 0.433 s, when touched). The
+unlit conversion wrote base colour alpha 1.0 and never read the material
+alpha, so the effect showed all the time. `_unlit` now carries the
+material alpha into the effect shader's base colour alpha (the variable
+the converted NiAlphaController drives). 26 FNV meshes have an alpha-0
+shape, used by 62 DOOR, ACTI and STAT records: the force-field impact and
+glow meshes, vault gear doors, the Lucky 38 lights, the Freeside welcome
+sign. The material's emissive tint (the field's cyan) is still dropped.
+
+<a id="old-texturing"></a>**Shapes textured the old way (built 2026-10-24, not yet played).** A
+purple part on the East Central Sewers' door (`utldoor01.nif`) and on a
+rubble pile (`utlrubblepilereg01.nif`): FNV shades some visible shapes
+with a Gamebryo `NiTexturingProperty` (base texture) and no BS shader
+(`UtlDoor01:12`; the pile's four `debris` shapes). They were converted,
+but only a BS shader's texture set was read, so they got the untextured
+material and FO4 drew them purple. `_material` now takes the
+NiTexturingProperty's base texture as the diffuse. (The door's other two
+shader-less shapes, `door_temp10` and `Object281`, carry FNV's hidden
+flag and were already left out.)
+
+<a id="world-map"></a>**The Pip-Boy world map (built 2026-10-24, not yet played).** The
+Pip-Boy showed the Commonwealth's map with FNV's markers, Freeside East
+Gate at its very top. FO4's WRLD names its map image in `ICON`
+(`Interface\Pip-Boy\WorldMap_d.dds`, 2048 by 2048, BC1) and its cell
+bounds in `MNAM` (two int32 zeros, then the north-west and south-east cell
+as int16: -33, 25 and 28, -36). The WRLD copied both from the Commonwealth.
+FNV's WastelandNV has its own: `interface\worldmap\wasteland_nv_1024_no_map.dds`
+and cells -35, 35 to 25, -25. `exterior._world_map` writes FNV's (the
+image staged into the texture BA2 under `fnv\`). Only WastelandNV has a
+map in FNV; Freeside, the Strip and the rest use their parent world's, not
+converted yet.
+
+**Run it inside a build, not alone.** `pack_textures` deletes every staged
+`fnv/` texture the current run did not write, which is right for a build
+but wrong for a run that only wrote terrain LOD. Writing LOD into the
+deployed folder by hand and then packing pruned 7,347 of its 7,437
+textures; they came back from the build folder, copied in as loose files,
+which the packer moves and keeps.
 
 ## <a id="parked"></a>Parked
 

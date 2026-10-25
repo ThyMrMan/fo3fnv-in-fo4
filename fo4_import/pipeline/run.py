@@ -24,6 +24,9 @@ from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.interiors import scope
 
+#: Record types whose scripts name forms (SCRO): scripts, and quests' stage result scripts.
+SCRIPTED = ('SCPT', 'QUST')
+
 
 def scope_models(export_dir: Path, cell_edid: str, exteriors: tuple) -> list:
     """The FNV mesh files of the bases placed in cell `cell_edid`, the `exteriors` (build()'s) and the interiors
@@ -52,11 +55,31 @@ def scope_cells(args: argparse.Namespace) -> tuple:
 
 
 def world_names(export_dir: Path, names: list) -> list:
-    """`names` with `all` standing for every FNV worldspace that has grid cells, in the export's order."""
-    if 'all' not in names:
+    """`names` with `all` standing for every FNV worldspace that has grid cells and `reached` for those of them
+    reached_worlds() finds, each in the export's order; every name once."""
+    if not {'all', 'reached'} & set(names):
         return list(names)
-    grids = {c.get('ParentWRLD') for c in export_records(export_dir, 'CELL') if 'XCLC.X' in c}
-    return [w['EditorID'] for w in export_records(export_dir, 'WRLD') if w['FormID'] in grids and w.get('EditorID')]
+    cells = export_records(export_dir, 'CELL')
+    grids = {c.get('ParentWRLD') for c in cells if 'XCLC.X' in c}
+    reached = reached_worlds(export_dir, cells) if 'reached' in names else set()
+    worlds = [w for w in export_records(export_dir, 'WRLD') if w['FormID'] in grids and w.get('EditorID')]
+    out = []
+    for name in names:
+        add = [w['EditorID'] for w in worlds if name == 'all' or name == 'reached' and w['FormID'] in reached]
+        out += [n for n in (add if name in ('all', 'reached') else [name]) if n not in out]
+    return out
+
+
+def reached_worlds(export_dir: Path, cells: list) -> set:
+    """FNV worldspace FormIDs a load door leads into or a script (SCRO: scripts, quest stages) names a reference
+    in: FFEncounterWorld is reached only by its scripts' MoveTo, TestMap01 by nothing.
+    See: docs/fork/fo4_pipeline.md#reached-worlds
+    """
+    world_of = {c['FormID']: c.get('ParentWRLD') for c in cells}
+    refs = {r['FormID']: r for sig in ('REFR', 'ACHR', 'ACRE') for r in export_records(export_dir, sig)}
+    named = {v for sig in SCRIPTED for r in export_records(export_dir, sig) for k, v in r.items() if 'SCRO' in k}
+    targets = {r['XTEL.Door'] for r in refs.values() if r.get('XTEL.Door')} | named
+    return {world_of.get(refs[t].get('ParentCELL')) for t in targets if t in refs} - {None}
 
 
 def exteriors(args: argparse.Namespace) -> tuple:
@@ -79,8 +102,8 @@ def arguments() -> argparse.Namespace:
     ap.add_argument('--data', required=True, type=Path, help='Data folder for meshes, materials and textures')
     ap.add_argument('--scripts', type=Path, help='Converted FNV scripts (script_convert.pipeline --target fallout4)')
     ap.add_argument('--world', nargs='*', default=[],
-                    help='FNV worldspace editor IDs to build (all: every one); the first takes --region or --around, '
-                         'the rest are built whole')
+                    help='FNV worldspace editor IDs to build (all: every one; reached: every one a load door or script '
+                         'reaches); the first takes --region or --around, the rest are built whole')
     ap.add_argument('--whole', action='store_true', help='Build the first --world whole too')
     ap.add_argument('--no-test-cell', dest='test_cell', action='store_false',
                     help="Leave out QASmoke's test chest and stand-in doors (doors leading out of the build are "

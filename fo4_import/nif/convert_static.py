@@ -118,6 +118,16 @@ TRIANGLE_SAMPLES = np.array([(1, 0, 0), (0, 1, 0), (0, 0, 1), (.5, .5, 0), (0, .
 DECAL_FLAGS = 0x0C000000
 #: Game units a blended sheet's vertices may stand off its plane and still count as flat (overlay_sheet).
 SHEET_DEPTH = 0.5
+#: Vanilla's plain white texture: an untextured unlit shape with falloff draws through it (fo4_pipeline.md#falloff-panes).
+WHITE = 'textures\\shared\\flatwhite01_d.dds'
+#: Vanilla's solid black (hitextawindowadmg01black.nif's backing): its material, textures and lighting shader flags.
+BLACK_FLAT = 'materials\\shared\\black flat.bgsm'
+BLACK_TEXTURES = ('textures\\shared\\black01_d.dds', 'textures\\shared\\black01_n.dds')
+BLACK_FLAGS = (0x80400000, 0x1)
+#: Brightest vertex colour of an FNV black fill (black_fill); FNV's next brighter blended unlit shape is mist at 0.31.
+BLACK_FILL_MAX = 0.25
+#: overlay_layers: game units off an opaque triangle, and the share of a layer's area that must lie that close.
+OVERLAY_GAP, OVERLAY_SHARE = 4.0, 0.5
 #: NiMaterialProperty's default glossiness, the most common one: a specular map at it keeps the plain name.
 GLOSSINESS = 10.0
 #: (blend bits, alpha test ref) of most FNV glass and see-through surfaces: blend, src alpha, inverse src alpha.
@@ -341,7 +351,7 @@ class ShapeMaterial:
     """A shape's material, its path and dict, FNV textures, alpha, spec map.
 
     kind 'lit' is a BGSM, 'effect' a BGEM, 'unlit' an effect shader with no
-    material file (path ''; data holds its texture and vertex alpha). An
+    material file (path ''; data holds its texture and vertex alpha), 'black' vanilla's BLACK_FLAT. An
     effect's `shader` is its NIF shader's values and flags (vanilla beaker
     glass when None); `flags1` is added to a lit shader's flags1; `split` is
     (translucent material, texture) for a cut-out's see-through triangles.
@@ -375,13 +385,13 @@ def _alpha_part(alpha) -> 'tuple | None':
     return (alpha.flags, alpha.threshold) if alpha is not None else None
 
 
-def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool) -> ShapeMaterial:
+def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool, material=None) -> ShapeMaterial:
     """An FNV BSShaderNoLightingProperty shape: its texture, vertex alpha, blend, sidedness and view falloff.
 
     One that fades by vertex alpha (`fades`: some vertex alpha below 1, sf_vertex_alpha) blends with no
     NiAlphaProperty, as FNV's baked soft shadows do; an untextured one that fades has only its vertex
-    alpha to blend by, flagged or not (NV_NoSo_RanchHouse03:1). A shape with `normals` keeps FNV's view
-    falloff (angle cosines, opacities), as FNV applies it.
+    alpha to blend by, flagged or not. A shape with `normals` keeps FNV's view falloff (angle cosines,
+    opacities). Its `material`'s alpha scales its opacity.
     See: docs/fork/fo4_pipeline.md#effects
     """
     fnv = shader.file_name.decode('cp1252')
@@ -389,7 +399,8 @@ def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool) -> ShapeM
     falloff = tuple(getattr(shader, f'falloff_{k}') for k in ('start_angle', 'stop_angle', 'start_opacity',
                                                                'stop_opacity')) if normals else None
     data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided, 'falloff': falloff,
-            'external': bool(shader.shader_flags.sf_external_emittance)}
+            'external': bool(shader.shader_flags.sf_external_emittance),
+            'alpha': material.alpha if material is not None else 1.0}
     part = _alpha_part(alpha) or (VERTEX_ALPHA_BLEND if vertex_alpha and fades else None)
     return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], part, None)
 
@@ -415,13 +426,19 @@ def texel_peaks(root, texture_root) -> dict:
 
 
 def _effect(fnv: list, alpha) -> ShapeMaterial:
-    """Alpha-blended FNV glass as vanilla's beaker glass, with FNV's textures and blend."""
+    """Alpha-blended FNV glass as vanilla's beaker glass, with FNV's textures and blend; glass with its own
+    texture shows it at full strength (white base colour), the beaker's tint is for untextured glass.
+    See: docs/fork/fo4_pipeline.md#glass-texture
+    """
     tex = [fo4_texture(t).replace('\\', '/') if t else '' for t in fnv + [''] * 6]
-    data = dict(GLASS_EFFECT, **_alpha_fields(alpha), env_mapping=bool(tex[4]),
+    tint = {'base_color': (1.0, 1.0, 1.0), 'base_color_scale': 1.0} if tex[0] else {}
+    data = dict(GLASS_EFFECT, **_alpha_fields(alpha), **tint, env_mapping=bool(tex[4]),
                 textures={'base': tex[0], 'grayscale': '', 'envmap': tex[4], 'normal': tex[1], 'env_mask': ''})
     stem = tex[0].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
+    shader = (dict(BEAKER_SHADER, base_color=(1.0, 1.0, 1.0, BEAKER_SHADER['base_color'][3]), base_color_scale=1.0),
+              EFFECT_FLAGS) if tex[0] else None
     return ShapeMaterial('effect', f'materials\\{stem}_effect{effect_tags(data)}.bgem', data,
-                         [t for i, t in enumerate(fnv[:5]) if t and i in (0, 1, 4)], _alpha_part(alpha), None)
+                         [t for i, t in enumerate(fnv[:5]) if t and i in (0, 1, 4)], _alpha_part(alpha), None, shader)
 
 
 def effect_tags(data: dict) -> str:
@@ -586,30 +603,33 @@ def _fades(geom) -> bool:
     return bool(geom.data.has_vertex_colors and any(c.a < 1 for c in geom.data.vertex_colors))
 
 
-def _material(geom, texture_root=None) -> ShapeMaterial:
+def _material(geom, texture_root=None, layer: bool = False) -> ShapeMaterial:
     """The FO4 material of an FNV shape.
 
     Unlit shapes get an inline effect shader. A blended one with a mostly
     see-through texture gets vanilla's beaker BGEM when environment-mapped
     or additive (FNV glass), else its insect-wing BGEM; the rest a BGSM (blended decals as
     FO4 decals, other blends as cut-outs whose see-through triangles split off
-    to that BGEM: `split`). FO4 draws no blended lit surface but a decal. A
-    NiStencilProperty makes it two-sided.
+    to that BGEM: `split`). FO4 draws no blended lit surface but a decal
+    (a `layer` is one: overlay_layers). NiStencilProperty: two-sided.
 
     See: docs/fork/fo4_spikes.md#spike-2-transparency
     """
     props = {type(p).__name__: p for p in geom.get_properties()}
     alpha, two_sided = props.get('NiAlphaProperty'), 'NiStencilProperty' in props
     if 'BSShaderNoLightingProperty' in props:
-        return _unlit(props['BSShaderNoLightingProperty'], alpha, two_sided, _fades(geom), bool(geom.data.has_normals))
+        if black_fill(geom, props):
+            return ShapeMaterial('black', BLACK_FLAT, {'two_sided': two_sided}, [], None, None)
+        return _unlit(props['BSShaderNoLightingProperty'], alpha, two_sided, _fades(geom), bool(geom.data.has_normals),
+                      props.get('NiMaterialProperty'))
     shader, grass = props.get('BSShaderPPLightingProperty'), props.get('TallGrassShaderProperty')
     fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else \
-        [grass.file_name.decode('cp1252')] if grass else ['']
+        [grass.file_name.decode('cp1252')] if grass else [_base_texture(props.get('NiTexturingProperty'))]
     blended = alpha is not None and alpha.flags & 1 and shader
     glass = bool(blended and (shader.shader_flags.sf_environment_mapping or not alpha.flags >> 5 & 0xF))
     flags = shader.shader_flags if shader else None
     decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass)) or \
-        bool(blended and not glass and overlay_sheet(geom))
+        bool(blended and not glass and (layer or overlay_sheet(geom)))
     texture = Path(texture_root) / texture_source(fnv[0]).replace('\\', '/') if texture_root and fnv[0] else None
     cut_from_blend = bool(blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
     clear = _effect(fnv, alpha) if glass else _translucent(fnv, alpha, two_sided) if cut_from_blend else None
@@ -620,6 +640,73 @@ def _material(geom, texture_root=None) -> ShapeMaterial:
     if splits:
         mat.split = (clear, texture)
     return mat
+
+
+def black_fill(geom, props: dict) -> bool:
+    """Whether an FNV unlit shape (`props` by type name) is a black fill: untextured and blended, yet never seen
+    through (every vertex and material alpha 1), its vertex colours at most BLACK_FILL_MAX.
+    See: docs/fork/fo4_pipeline.md#black-fill
+    """
+    alpha, material = props.get('NiAlphaProperty'), props.get('NiMaterialProperty')
+    if props['BSShaderNoLightingProperty'].file_name or not (alpha and alpha.flags & 1) or \
+            not geom.data.has_vertex_colors or (material is not None and material.alpha < 1):
+        return False
+    return all(c.a >= 1 and max(c.r, c.g, c.b) <= BLACK_FILL_MAX for c in geom.data.vertex_colors)
+
+
+def _base_texture(texturing) -> str:
+    """The NiTexturingProperty's base texture path, or ''.
+    See: docs/fork/fo4_pipeline.md#old-texturing
+    """
+    source = texturing.base_texture.source if texturing is not None and texturing.has_base_texture else None
+    return source.file_name.decode('cp1252') if source is not None and source.use_external else ''
+
+
+def _blended_lit(geom) -> bool:
+    """Whether an FNV shape is lit and alpha-blended."""
+    props = {type(p).__name__: p for p in geom.get_properties()}
+    alpha = props.get('NiAlphaProperty')
+    return 'BSShaderPPLightingProperty' in props and alpha is not None and bool(alpha.flags & 1)
+
+
+def overlay_layers(shapes: list, root) -> frozenset:
+    """ids of `shapes`' blended lit shapes lying on the mesh's opaque ones (OVERLAY_SHARE of their area within
+    OVERLAY_GAP): a grime or plaster layer, a decal in FO4.
+    See: docs/fork/fo4_pipeline.md#overlay-layers
+    """
+    layers, solid = [g for g in shapes if _blended_lit(g)], [_geometry(g, root) for g in shapes if not _blended_lit(g)]
+    if not layers or not solid:
+        return frozenset()
+    surface = np.concatenate([g[0][g[4]] for g in solid])
+    out = set()
+    for geom in layers:
+        geometry = _geometry(geom, root)
+        corners = geometry[0][geometry[4]]
+        area = np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1)
+        near = _surface_gaps(corners.mean(axis=1), surface) <= OVERLAY_GAP
+        if area.sum() and area[near].sum() >= OVERLAY_SHARE * area.sum():
+            out.add(id(geom))
+    return frozenset(out)
+
+
+def _surface_gaps(points: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    """Per point, its distance to the nearest of triangles `tris` (n, 3, 3) its projection falls inside; inf
+    for none."""
+    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    normal = np.cross(b - a, c - a)
+    size = np.linalg.norm(normal, axis=1)
+    keep = size > 1e-9
+    a, b, c, normal = a[keep], b[keep], c[keep], normal[keep] / size[keep, None]
+    out = np.full(len(points), np.inf)
+    for start in range(0, len(points) if len(a) else 0, 256):
+        p = points[start:start + 256, None, :]
+        depth = np.einsum('pij,ij->pi', p - a, normal)
+        q = p - depth[..., None] * normal
+        inside = np.ones(depth.shape, bool)
+        for u, v in ((a, b), (b, c), (c, a)):
+            inside &= np.einsum('pij,ij->pi', np.cross(v - u, q - u), normal) >= -1e-6
+        out[start:start + 256] = np.where(inside, np.abs(depth), np.inf).min(axis=1)
+    return out
 
 
 def overlay_sheet(geom) -> bool:
@@ -671,7 +758,7 @@ def emit(nif: NifFile, name: str, geometry: tuple, tris: np.ndarray, mat: ShapeM
 def material_blocks(nif: NifFile, mat: ShapeMaterial, out: Converted, has_colors: bool) -> tuple:
     """Append `mat`'s shader (and texture set) and alpha property, registering its files in `out`; (shader, alpha)
     indices, alpha -1 without one."""
-    if mat.kind != 'unlit':
+    if mat.kind in ('lit', 'effect'):
         (out.effects if mat.kind == 'effect' else out.materials)[mat.path] = mat.data
     out.textures |= {t for t in mat.textures if t}
     if mat.spec:
@@ -683,6 +770,8 @@ def material_blocks(nif: NifFile, mat: ShapeMaterial, out: Converted, has_colors
         nif.blocks.append(('BSEffectShaderProperty', _effect_shader(nif, mat)))
     elif mat.kind == 'unlit':
         nif.blocks.append(('BSEffectShaderProperty', _unlit_shader(nif, mat, has_colors)))
+    elif mat.kind == 'black':
+        nif.blocks += _black_blocks(nif, mat, shader)
     else:
         nif.blocks += _lit_blocks(nif, mat, shader - 1)
     if not mat.alpha:
@@ -706,10 +795,10 @@ def is_grass(geom) -> bool:
     return any(isinstance(p, NifFormat.TallGrassShaderProperty) for p in geom.get_properties())
 
 
-def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root) -> list:
+def _shape_blocks(nif: NifFile, geom, root, out: Converted, texture_root, layer: bool = False) -> list:
     """Append one FNV shape as FO4 shapes: one, or a cut-out plus its see-through triangles; their indices."""
     geometry = _geometry(geom, root)
-    tris, mat, name = geometry[4], _material(geom, texture_root), geom.name.decode('cp1252')
+    tris, mat, name = geometry[4], _material(geom, texture_root, layer), geom.name.decode('cp1252')
     if mat.kind == 'lit' and geometry[3] is not None and not is_grass(geom):
         geometry = (*geometry[:3], opaque(geometry[3]), tris)
     if mat.split:
@@ -750,9 +839,10 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
               | (DOUBLE_SIDED if data['two_sided'] else 0))
     return {'name': nif.string(''), 'extra': [], 'controller': NONE, 'flags1': flags1, 'flags2': flags2,
             'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0),
-            'source_texture': f'textures\\{data["texture"]}' if data['texture'] else '', 'clamp': 3,
+            'source_texture': f'textures\\{data["texture"]}' if data['texture'] else WHITE if data['falloff'] else '',
+            'clamp': 3,
             'lighting_influence': 0, 'env_min_lod': 0, 'unused': 0, 'falloff': data['falloff'] or (1.0, 1.0, 1.0, 1.0),
-            'base_color': (1.0, 1.0, 1.0, 1.0), 'base_color_scale': 1.0,
+            'base_color': (1.0, 1.0, 1.0, data['alpha']), 'base_color_scale': 1.0,
             'soft_depth': SOFT_DEPTH if beam else 100.0, 'greyscale': '',
             'env_map': '', 'normal': '', 'env_mask': '', 'env_map_scale': 1.0}
 
@@ -771,6 +861,16 @@ def _lit_blocks(nif: NifFile, mat: ShapeMaterial, index: int) -> list:
     if mat.glow:
         slots[GLOW_SLOT] = f'textures\\{mat.glow[0]}'
     return [('BSLightingShaderProperty', shader), ('BSShaderTextureSet', {'textures': slots[:TEXTURE_SLOTS]})]
+
+
+def _black_blocks(nif: NifFile, mat: ShapeMaterial, index: int) -> list:
+    """A black fill's lighting shader on vanilla BLACK_FLAT (at `index`) and its texture set.
+    See: docs/fork/fo4_pipeline.md#black-fill
+    """
+    shader = lighting_shader(nif, mat.path, index + 1, 0)
+    shader.update(flags1=BLACK_FLAGS[0], flags2=BLACK_FLAGS[1] | (DOUBLE_SIDED if mat.data['two_sided'] else 0))
+    slots = [*BLACK_TEXTURES] + [''] * (TEXTURE_SLOTS - len(BLACK_TEXTURES))
+    return [('BSLightingShaderProperty', shader), ('BSShaderTextureSet', {'textures': slots})]
 
 
 def lighting_shader(nif: NifFile, material: str, texture_set: int, flags1: int) -> dict:
@@ -901,10 +1001,12 @@ def _has_body(node) -> bool:
 def _shapes(nif: NifFile, root, nodes: dict, out: Converted, texture_root) -> None:
     """Append FNV `root`'s visible shapes under their kept `nodes` (a skinned one under the root, skinned to
     them)."""
-    for g in _visible_shapes(root):
+    shapes = _visible_shapes(root)
+    layers = overlay_layers(shapes, root)
+    for g in shapes:
         skinned = len(nodes) > 1 and g.skin_instance is not None
         owner = root if skinned else _owner(g, root, nodes)
-        made = _shape_blocks(nif, g, owner, out, texture_root)
+        made = _shape_blocks(nif, g, owner, out, texture_root, id(g) in layers)
         nif.blocks[nodes[id(owner)]][1]['children'] += made
         if skinned:
             skin(nif, made, g, root, nodes)

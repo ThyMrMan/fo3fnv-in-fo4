@@ -19,7 +19,7 @@ from fo4_import.app.runner import Runner
 #: Lines the log keeps.
 LOG_LINES = 20000
 SCOPES = (('test', 'Test block (3x3 cells around the start, plus its interiors)'), ('region', 'Region (grid corners)'),
-          ('world', 'Whole main worldspace'))
+          ('world', 'Whole game (every worldspace a door or script reaches)'))
 
 
 class StageThread(QThread):

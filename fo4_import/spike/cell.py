@@ -16,7 +16,7 @@ import struct
 import time
 from pathlib import Path
 
-from fo4_import.base.ba2_pack import pack_textures
+from fo4_import.base.ba2_pack import pack_sounds, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
 from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.ledger import Ledger, LedgerWriter, ledger_path
@@ -35,7 +35,7 @@ from fo4_import.spike.imagespace import (BASE_IMAGESPACE, DISPLAY_GAMMA, LUT_FOL
 from fo4_import.spike.activators import Activators
 from fo4_import.spike import ammo_casings, ammo_switch
 from fo4_import.spike.crafting import Crafting
-from fo4_import.spike import character, facegen, new_game, replacements, skeleton
+from fo4_import.spike import character, facegen, new_game, replacements, skeleton, terrain_lod
 from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import Conversations, Hub, hub
 from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
@@ -47,12 +47,13 @@ from fo4_import.spike.idle_markers import IdleMarkers
 from fo4_import.spike.interiors import by_cell, scope
 from fo4_import.spike.vendors import merchants, with_chests, write_vendors
 from fo4_import.spike.script_packages import PROPERTY as SCRIPT_PACKAGES, quest_id as script_packages_quest, write_script_packages
-from fo4_import.spike.placement import map_markers, open_rooms, place, placement
+from fo4_import.spike.placement import map_markers, open_rooms, place, placement, starts_disabled
 from fo4_import.spike.npcs import ACHR_KEY, NPC_KEY, Npcs
 from fo4_import.spike.packages import Packages, beds
 from fo4_import.spike.perks import Perks
 from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, TypeKeywords
 from fo4_import.spike.poses import Poses
+from fo4_import.spike.sounds import FOLDER as SOUND_FOLDER
 from fo4_import.spike.sounds import Sounds, looping_sounds
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.factions import write_all as write_factions
@@ -523,7 +524,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         record = R.pack_refr(ids[ref['FormID']], base, *_placed_at(builder, ref), float(ref.get('XSCL.Scale', 1.0)), radius,
                              teleports.get(ref['FormID']), keep, placement(int(ref['FormID'], 16), builder.ref_ids, owners) + _lock(builder, ref)
                              + builder.emittance.xemi(ref) + builder.radio.xrdo(ref),
-                             bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED),
+                             starts_disabled(ref, builder.ref_ids),
                              builder.ref_ids.get(ref.get('XLKR.LinkedRef'), 0),
                              door_link=builder.door_links.get(ids[ref['FormID']]), sig=ref['Signature'], vmad=lock_vmad(builder, ref))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
@@ -571,7 +572,7 @@ def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
     """The REFRs of FNV SCOL reference `ref`'s parts, on hashed FormIDs (scol.PART_SITE), persistent as `ref` is."""
     position, angle = place(ref)
     scale, out = float(ref.get('XSCL.Scale', 1.0)), b''
-    disabled = bool(int(ref['RecordFlags']) & R.INITIALLY_DISABLED)
+    disabled = starts_disabled(ref, builder.ref_ids)
     for index, (part, placement) in enumerate(builder.parts.parts[int(ref['NAME'], 16)]):
         base = builder.base(part)
         if base is None:
@@ -716,15 +717,27 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
 
 
 def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) -> None:
-    """The built lines' FNV recordings as .fuz under each NPC's converted voice type (voice_types); files in
-    any other folder of the plugin's voice directory are stale."""
+    """The built lines' FNV recordings as .fuz under each NPC's converted voice type (voice_types), staged for
+    the Main BA2 (sound_root); files in any other folder of the plugin's voice directory are stale."""
     voices = [(voice.fnv_folder(export_dir, fnv), fo4) for fo4, fnv in sorted(builder.npcs.voices.made.items())]
-    todo = voice.jobs(builder.say.voiced, voices, data_dir, plugin)
-    todo += voice.silent_jobs(builder.say.silent, sorted({fo4 for _, fo4 in voices}), data_dir, plugin)
-    ours = data_dir / 'Sound' / 'Voice' / plugin
+    builder.counts['loose sound files staged'] = stage_loose_sounds(data_dir, (f'Voice/{plugin}', f'FX/{SOUND_FOLDER}'))
+    root = sound_root(data_dir)
+    todo = voice.jobs(builder.say.voiced, voices, root, plugin)
+    todo += voice.silent_jobs(builder.say.silent, sorted({fo4 for _, fo4 in voices}), root, plugin)
+    ours = root / 'Sound' / 'Voice' / plugin
     builder.counts['stale voice files removed'] = voice.remove_stale(todo, [p for p in ours.glob('*') if p.is_dir()])
     builder.counts['voice files written'] = voice.convert([job for job in todo if not job[1].exists()],
                                                           FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
+
+
+def _sounds(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) -> None:
+    """Voices (_voice) and the sound records' files, packed into the plugin's Main BA2.
+    See: docs/fork/fo4_pipeline.md#sound-archive
+    """
+    _voice(builder, export_dir, data_dir, plugin)
+    todo = [job for job in builder.sounds.jobs if not job[1].exists()]
+    builder.counts['sound files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
+    builder.counts['sound files packed'] = pack_sounds(data_dir, plugin)
 
 
 def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list,
@@ -844,11 +857,13 @@ def _world_pathing(builder: CellBuilder, worlds: list) -> dict:
 
 def _world_groups(builder: CellBuilder, worlds: list, placing: tuple) -> None:
     """Add each built worldspace's WRLD group: its bases made in placement order, then Exterior.group(`placing`:
-    place, data folder, navmeshes, actors)."""
+    place, data folder, navmeshes, actors), and its terrain LOD (terrain_lod)."""
     for world in worlds:
         for ref in world.placement_order():
             builder.base(int(ref['NAME'], 16))
         builder.writer.add_raw_group('WRLD', world.group(builder, *placing))
+        builder.counts['terrain LOD tiles'] += terrain_lod.write(world.export_dir, placing[1], world.world['EditorID'],
+                                                                 world.fo4_edid)
 
 
 def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledger: Path) -> CellBuilder:
@@ -1012,9 +1027,7 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
         weapon.dress_file(data_dir / 'Meshes' / model)
     builder.counts['weapon meshes'] = len(builder.weapons)
     builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
-    _voice(builder, export_dir, data_dir, out.name)
-    todo = [job for job in builder.sounds.jobs if not job[1].exists()]
-    builder.counts['sound files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
+    _sounds(builder, export_dir, data_dir, out.name)
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
     npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
     builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)

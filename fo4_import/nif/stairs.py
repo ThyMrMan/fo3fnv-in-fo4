@@ -37,11 +37,13 @@ FLAT, VERTICAL = 0.98, 0.17
 TOUCH = 1.0
 #: Fewest steps in a row that get a stair-helper ramp (vanilla's ramped flights have 7 to 15).
 MIN_FLIGHT = 3
+#: A two-step run gets one too when both rise at least this (FO4 refuses a plain 16): a catwalk turn's halves.
+SHORT_RISE = 16.0
 #: Game units a ramp slab reaches below its top face (vanilla bldbricksmstairs01's: about 4.7).
 RAMP_THICK = 4.0
 
 
-def _faces(tris: list, unit: float) -> tuple:
+def faces(tris: list, unit: float) -> tuple:
     """(corners (n, 3, 3) in game units, |unit normal z| per face)."""
     corners = np.array(tris, dtype=float).reshape(-1, 3, 3) * unit
     normals = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
@@ -128,7 +130,10 @@ def _riser_faces(p: np.ndarray, q: np.ndarray, low: float, out: np.ndarray) -> l
 
 def _flights(risers: list) -> list:
     """_edge_steps risers in flights, lowest step first: one outward direction and edge span (to the unit), each
-    step's lower level the last one's top and its edge further along the climb; MIN_FLIGHT steps or more."""
+    step's lower level the last one's top and its edge further along the climb; MIN_FLIGHT steps or more, or two
+    each rising SHORT_RISE or more.
+    See: docs/fork/fo4_pipeline.md#short-flights
+    """
     groups = {}
     for riser in risers:
         _, p, q, _, out = riser
@@ -147,21 +152,44 @@ def _flights(risers: list) -> list:
                 flight = []
             flight.append(step)
         flights.append(flight)
-    return [f for f in flights if len(f) >= MIN_FLIGHT]
+    return [f for f in flights if len(f) >= MIN_FLIGHT or len(f) == 2 and
+            all(r[1][2] - r[3] >= SHORT_RISE - TOUCH for r in f)]
 
 
-def _ramp(flight: list) -> 'np.ndarray | None':
-    """The 8 corners of `flight`'s stair-helper slab: its top face through the first and last nosings, from the
-    first step's lower level to the last step's top, as wide as the first step's edge; None if it does not climb."""
-    (_, p0, q0, low, out), (_, top, _, _, _) = flight[0], flight[-1]
+def _foot(flight: list, corners: np.ndarray, treads: np.ndarray) -> float:
+    """The level `flight`'s helper slab starts from: its first step's lower level when that tread is a landing
+    (a tread at that level still beyond its edge by twice REACH), else the body's lowest point, so the slab
+    runs down into the floor the flight rises from (the first steps are another reference's).
+    See: docs/fork/fo4_pipeline.md#open-foot
+    """
+    _, p, q, low, out = flight[0]
+    base = float(corners[:, :, 2].min())
+    flat, tops = corners[treads], corners[treads, :, 2].mean(axis=1)
+    beyond = _covers(flat, (p[:2] + q[:2]) / 2 + out * 2 * REACH) & (np.abs(tops - low) <= TOUCH)
+    return low if beyond.any() or low - base <= RISER_MIN else base
+
+
+def _ramp(flight: list, floor: float) -> 'np.ndarray | None':
+    """The 8 corners of `flight`'s stair-helper slab: its top face at the flight's typical pitch (the median
+    step's rise over run), raised so no nosing stands above it, from `floor` (_foot) up to the top nosing's
+    height, as wide as the widest step edge; None if it does not climb.
+    See: docs/fork/fo4_pipeline.md#stair-helper-pitch
+    """
+    out, low = flight[0][4], floor
     climb, side = -np.asarray(out), np.array([-out[1], out[0]])
-    start, end = float(p0[:2] @ climb), float(top[:2] @ climb)
-    if end - start <= TOUCH:
+    run = np.array([float(p[:2] @ climb) for _, p, _, _, _ in flight])
+    rise = np.array([float(p[2]) for _, p, _, _, _ in flight])
+    if run[-1] - run[0] <= TOUCH:
         return None
-    slope = (top[2] - p0[2]) / (end - start)
-    foot = start - (p0[2] - low) / slope
-    corners = [(*(s * climb + t * side), z - drop) for s, z in ((foot, low), (end, top[2]))
-               for t in sorted((float(p0[:2] @ side), float(q0[:2] @ side))) for drop in (0.0, RAMP_THICK)]
+    steps = np.diff(run) > TOUCH
+    slope = float(np.median(np.diff(rise)[steps] / np.diff(run)[steps]))
+    if slope <= 0:
+        return None
+    lift = float((rise - slope * run).max())
+    foot, end = (low - lift) / slope, (float(rise.max()) - lift) / slope
+    edges = [float(v[:2] @ side) for _, p, q, _, _ in flight for v in (p, q)]
+    corners = [(*(s * climb + t * side), slope * s + lift - drop) for s in (foot, end)
+               for t in (min(edges), max(edges)) for drop in (0.0, RAMP_THICK)]
     return np.array(corners)
 
 
@@ -175,7 +203,7 @@ def stairs(tris: list, materials: list, unit: float, stairs_of) -> tuple:
     """
     if not tris:
         return tris, materials, []
-    corners, nz = _faces(tris, unit)
+    corners, nz = faces(tris, unit)
     treads = np.nonzero(nz >= FLAT)[0]
     marked, risers = _edge_steps(corners, treads)
     marked |= _ground_steps(corners, nz, treads)
@@ -183,5 +211,5 @@ def stairs(tris: list, materials: list, unit: float, stairs_of) -> tuple:
     added = [(tuple(tuple(c / unit) for c in face), stairs_of(materials[i]))
              for i, p, q, low, out in risers for face in _riser_faces(p, q, low, out)]
     ramps = [(ramp / unit, stairs_of(materials[flight[0][0]])) for flight in _flights(risers)
-             if (ramp := _ramp(flight)) is not None]
+             if (ramp := _ramp(flight, _foot(flight, corners, treads))) is not None]
     return list(tris) + [t for t, _ in added], out_mats + [m for _, m in added], ramps

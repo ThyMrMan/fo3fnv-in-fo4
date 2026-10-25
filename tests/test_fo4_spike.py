@@ -259,7 +259,7 @@ def test_layout_distance_prefers_the_nearer_magazine_and_muzzle():
 def test_replacement_table_lays_a_user_file_over_the_defaults(tmp_path):
     """A user entry replaces the default one; another plugin becomes a master and may only be an item."""
     user = tmp_path / 'mine.json'
-    (tmp_path / 'BBGunMod.esp').write_bytes(b'')
+    (tmp_path / 'BBGunMod.esp').write_bytes(b'TES4' + struct.pack('<I', 0) + bytes(16))
     user.write_text('{"weapon": {"WeapBBGun": {"use": "BBGunMod.esp|BBGun", "as": "item"}}}', encoding='utf-8')
     table = RP.load(user, dirs=(tmp_path,))
     assert table['WeapBBGun'] == RP.Replacement('BBGunMod.esp', 'BBGun', 'item', (), 'weapon', 'user')
@@ -1061,3 +1061,27 @@ def test_standings_quests_hang_off_vanillas_event_nodes_after_their_last_child()
     assert struct.unpack('<I', subs[b'DNAM'])[0] == SHARES_EVENT and struct.unpack('<I', subs[b'NNAM'])[0] == 0x99
     entry = script_entry('S', {}, {'KillMurders': ('ints', [1, 0, 2])})
     assert entry.endswith(struct.pack('<BBI3i', 13, 1, 3, 1, 0, 2))
+
+
+def test_an_outfit_wears_one_item_per_slot_the_best_rated_as_fnv_equips():
+    """Red Lucy's duster (DT 6) and sleepwear (DT 0) share the upper body: the duster is worn; a hat and a
+    leveled list are worn too."""
+    duster, sleepwear, hat, listed = 0x10D8DB, 0x340E6, 0x1, 0x2
+    npcs = N.Npcs.__new__(N.Npcs)
+    records = {duster: ('ARMO', {'BMDT.BipedFlags': '4'}), sleepwear: ('ARMO', {'BMDT.BipedFlags': '4'}),
+               hat: ('ARMO', {'BMDT.BipedFlags': '1'}), listed: ('LVLI', {})}
+    fields = {duster: {'rating': 6.0, 'value': 70}, sleepwear: {'rating': 0.0, 'value': 6}, hat: {'rating': 1.0}}
+    npcs.builder = SimpleNamespace(items=SimpleNamespace(records=records), equipment=SimpleNamespace(fnv=fields))
+    assert npcs._dressed([sleepwear, duster, hat, listed]) == {duster, hat, listed}
+
+
+def test_a_reference_whose_enable_parent_is_not_built_starts_as_the_parent_leaves_it(monkeypatch):
+    """Parent 0x2000 starts disabled: child 0x1000 (unbuilt parent) starts disabled, child 0x1001 (opposite bit)
+    enabled; with the parent built, the child keeps its own flag."""
+    def xesp(parent, opposite):
+        """One XESP field."""
+        return [(b'XESP', struct.pack('<IB3x', parent, opposite))]
+    monkeypatch.setattr(PL, '_scan', lambda: ({0x1000: xesp(0x2000, 0), 0x1001: xesp(0x2000, 1)}, {0x2000: 0x800}))
+    assert PL.starts_disabled({'FormID': '00001000', 'RecordFlags': '0'}, {})
+    assert not PL.starts_disabled({'FormID': '00001001', 'RecordFlags': '0'}, {})
+    assert not PL.starts_disabled({'FormID': '00001000', 'RecordFlags': '0'}, {'00002000': 0x123})

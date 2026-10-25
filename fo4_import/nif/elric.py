@@ -27,8 +27,6 @@ from fo4_import.nif.file import NifFile
 ELRIC = FALLOUT4_DIR / 'Tools' / 'Elric'
 #: Seconds one Elric run may take before it counts as hung.
 TIMEOUT = 600
-#: An identity rotation as NiNode stores it (nine cells).
-IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 #: Keys of parsed blocks (nif.blocks) holding a block reference or a list of them.
 REF_KEYS = frozenset({'shader', 'alpha_property', 'skin', 'texture_set', 'controller', 'collision', 'children',
                       'extra', 'target'})
@@ -84,10 +82,10 @@ def graft(ours: NifFile, processed: NifFile) -> NifFile:
     """`ours` with its Havok input replaced by Elric's FO4 physics, matched to our nodes by name, in order
     (ignoring case: Elric writes a node named Head as HEAD).
 
-    Elric bakes a collision node's transform into the physics and keeps it on the node too, so a
-    collision-only node (no children: collision.collision_nodes') is reset to identity. Every
-    collision object shares Elric's one bhkPhysicsSystem, as vanilla's do.
-    See: docs/fork/fo4_spikes.md#spike-4-exterior
+    Each node keeps its transform: Elric's body holds local vertices, and FO4 places it by the node (its
+    body position only copies the node's). Every collision object shares Elric's one bhkPhysicsSystem,
+    as vanilla's do.
+    See: docs/fork/fo4_pipeline.md#collision-nodes
     """
     owners = [i for i, (_, b) in enumerate(ours.blocks) if isinstance(b, dict) and b.get('collision', NONE) != NONE]
     names = [ours.strings[ours.blocks[i][1]['name']].lower() for i in owners]
@@ -105,8 +103,6 @@ def graft(ours: NifFile, processed: NifFile) -> NifFile:
             systems[data] = len(ours.blocks) - 1
         ours.blocks.append(('bhkNPCollisionObject', struct.pack('<iHiI', owner, flags, systems[data], body_id)))
         ours.blocks[owner][1]['collision'] = len(ours.blocks) - 1
-        if not ours.blocks[owner][1].get('children', [None]):
-            ours.blocks[owner][1].update(translation=(0.0, 0.0, 0.0), rotation=IDENTITY, scale=1.0)
     return ours
 
 

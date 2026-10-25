@@ -38,7 +38,7 @@ from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.npc_skills import with_skills
-from fo4_import.spike.placement import place, placement
+from fo4_import.spike.placement import place, placement, starts_disabled
 from fo4_import.spike.voice_types import with_voice
 from fo4_import.spike.actor_data import CREATURE_FLAGS, NPC_FLAGS, hit_proof, starts_dead, with_actor_data
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -413,12 +413,30 @@ class Npcs:
         worn, carried = [], []
         for i in range(int(rec.get('ItemCount', 0))):
             item = int(rec[f'Item[{i}].FormID'], 16)
-            made = items.item(item)
+            made, entry = items.item(item), (int(rec[f'Item[{i}].Count']), condition_of(int(rec['FormID'], 16), i))
             if made is not None and items.wearable(item):
-                worn.append(made)
+                worn.append((item, made, entry))
             elif made is not None:
-                carried.append((made, int(rec[f'Item[{i}].Count']), condition_of(int(rec['FormID'], 16), i)))
-        return with_inventory(self._outfit(fnv, worn), carried)
+                carried.append((made, *entry))
+        dressed = self._dressed([item for item, _, _ in worn])
+        carried += [(made, *entry) for item, made, entry in worn if item not in dressed]
+        return with_inventory(self._outfit(fnv, [made for item, made, _ in worn if item in dressed]), carried)
+
+    def _dressed(self, items: list) -> set:
+        """The FNV items of `items` an NPC wears, as FNV equips them: per biped slot the armor with the best
+        rating, then value; a leveled list always (its slots are known only when it is drawn).
+        See: docs/fork/fo4_pipeline.md#outfit-slots
+        """
+        records, fields = self.builder.items.records, self.builder.equipment.fnv
+        armor = [i for i in items if records.get(i, (None,))[0] == 'ARMO']
+        best = sorted(armor, key=lambda i: (-fields.get(i, {}).get('rating', 0), -fields.get(i, {}).get('value', 0)))
+        taken, out = 0, {i for i in items if i not in armor}
+        for item in best:
+            slots = int(records[item][1].get('BMDT.BipedFlags', 0) or 0)
+            if not slots & taken:
+                taken |= slots
+                out.add(item)
+        return out
 
     def _outfit(self, fnv: int, worn: list) -> int:
         """An outfit of `worn` for FNV NPC `fnv`, written; 0 when it wears nothing."""
@@ -561,7 +579,7 @@ class Npcs:
         extra = placement(int(ref['FormID'], 16), ids, owners, pose=False)
         extra += pack_subrecord('XLKR', struct.pack('<II', 0, linked)) if linked else b''
         self.builder.counts['ACHR'] += 1
-        flags = int(ref['RecordFlags']) & (PERSISTENT | R.INITIALLY_DISABLED)
+        flags = int(ref['RecordFlags']) & PERSISTENT | (R.INITIALLY_DISABLED if starts_disabled(ref, ids) else 0)
         flags |= starts_dead(self.records.get(fnv) or self.creatures.records.get(fnv) or {})
         pos, rot = place(ref)
         return R.pack_achr(achr, base, self.lift(ref, pos), rot, vmad, extra, flags)

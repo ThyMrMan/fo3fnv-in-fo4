@@ -1,6 +1,7 @@
 """fo4_import.spike.replacements: categories, layers and origins, rules, missing plugins, masters."""
 
 import json
+import struct
 
 import pytest
 
@@ -19,6 +20,8 @@ def test_defaults_hold_every_rule():
     assert table.rules.creature['creatures\\nvgecko'] == RP.Replacement(
         RP.BASE, 'EncViciousDog01Template', 'stats', (), 'creature', 'default')
     assert table.rules.creature['creatures\\dog'].mode == 'fnv'
+    assert table.rules.creature['creatures\\smspinebreaker'] == RP.Replacement(
+        RP.BASE, 'EncSuperMutantTemplate', 'stats', (), 'creature', 'default')
     assert {k: e.edid for k, e in table.rules.body.items()} == {
         'human_male': 'DocWeathers', 'human_female': 'DoctorAmari', 'ghoul_male': 'Jones', 'ghoul_female': 'Holly'}
     assert [(bits, e.edid) for bits, e in table.rules.armor] == [
@@ -66,10 +69,30 @@ def test_unknown_profile_name():
         RP.load(profile='no-such-profile')
 
 
+def _plugin(path, *masters):
+    """Write a plugin at `path` holding only a file header naming `masters`; the path."""
+    body = b''.join(b'MAST' + struct.pack('<H', len(m) + 1) + m.encode() + b'\0' + b'DATA\x08\x00' + bytes(8)
+                    for m in masters)
+    path.write_bytes(b'TES4' + struct.pack('<I', len(body)) + bytes(16) + body)
+    return path
+
+
+def test_a_plugin_whose_master_is_missing_counts_as_not_installed(tmp_path):
+    """NVUMP.esp names a Creation Club file that is not installed: its entries fall back, and it is no master."""
+    _plugin(tmp_path / 'Mod.esp', 'Fallout4.esm', 'Gone.esl')
+    _plugin(tmp_path / 'Fine.esp', 'Fallout4.esm', 'Base.esl')
+    _plugin(tmp_path / 'Base.esl', 'Fallout4.esm')
+    user = _layer(tmp_path / 'mine.json', {'weapon': {'WeapKnife': {'use': 'Mod.esp|Knife', 'as': 'item'},
+                                                      'Weap10mmPistol': {'use': 'Fine.esp|Gun', 'as': 'item'}}})
+    table = RP.load(user, dirs=(tmp_path,))
+    assert table['WeapKnife'] == RP.load()['WeapKnife'] and table['Weap10mmPistol'].plugin == 'Fine.esp'
+    assert RP.extra_masters(table) == ['Fine.esp'] and len(table.warnings) == 1
+
+
 def test_dlc_masters_come_first(tmp_path):
     """DLC targets become masters before mods', in the game's order; any case finds the plugin."""
     for name in ('dlccoast.esm', 'DLCRobot.esm', 'Aaa.esp'):
-        (tmp_path / name).write_bytes(b'')
+        _plugin(tmp_path / name, 'Fallout4.esm')
     user = _layer(tmp_path / 'mine.json', {
         'weapon': {'A': {'use': 'Aaa.esp|X', 'as': 'item'}, 'B': {'use': 'DLCCoast.esm|Y', 'as': 'item'}},
         'creature': {'C': {'use': 'DLCRobot.esm|Z', 'as': 'item'}}})

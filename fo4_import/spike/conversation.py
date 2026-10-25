@@ -32,6 +32,7 @@ tests run on the other's alias.
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
+import collections
 import heapq
 import itertools
 import math
@@ -285,8 +286,11 @@ class Conversations:
                                            f'{self.say.dials[dial].get("EditorID", dial)} ({dial})')
 
     def _prompt(self, dial: str, text: str, members: list, menu: tuple, continues: bool, place: str) -> bool:
-        """Add one option of FNV topic `dial` with prompt `text` answered by `members` to `menu` (player, npc);
-        False when no line of it converts. `place` (step, topic, quest) keys its FormIDs."""
+        """Add one option of FNV topic `dial` with prompt `text` answered by `members` to `menu` (player, npc),
+        its pads (one per further answer) on the prompt's conditions; False when no line of it converts.
+        `place` (step, topic, quest) keys its FormIDs.
+        See: docs/fork/fo4_pipeline.md#blank-choices
+        """
         player, npc = menu
         answers = [a for a in (self._line(r, continues, place=place) for r in members) if a]
         if not answers:
@@ -300,7 +304,8 @@ class Conversations:
         shown += self.say.once.unsaid([r['FormID'] for r in members]) if once else b''
         owner, take = f'INFO prompt {dial} {text}', self.say.builder.new_id
         player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), once, (text,), shown, prompt=text))
-        player += [R.pack_info(take(owner, key=f'{owner} at {place} pad {i}')) for i in range(1, len(answers))]
+        player += [R.pack_info(take(owner, key=f'{owner} at {place} pad {i}'), conditions=shown)
+                   for i in range(1, len(answers))]
         npc += answers
         return True
 
@@ -316,15 +321,17 @@ class Conversations:
     def _either(self, members: list) -> bytes:
         """OR-groups (from the player's side) holding when some line in `members` passes what it adds to the groups
         they share: the lines' groups distributed, one OR-group per pick of a group from each line, so the option
-        needs an answer that passes; b'' when a line adds nothing (it always answers) or past MAX_CLAUSES.
+        needs an answer that passes; past MAX_CLAUSES, one OR-group of a group per line (one_each); b'' when a
+        line adds nothing (it always answers).
         See: docs/fork/fo4_pipeline.md#dialogue-conditions
         """
         each = [_groups(r) for r in members]
         rest = [[g for g in groups if not all(g in other for other in each)
                  and not (len(g) == 1 and C.parse(g[0])['func'] == SPEAKER_TEST)] for groups in each]
-        if not all(rest) or math.prod(len(r) for r in rest) > MAX_CLAUSES:
+        if not all(rest):
             return b''
-        clauses = dict.fromkeys(tuple(dict.fromkeys(t for g in pick for t in g)) for pick in itertools.product(*rest))
+        picks = itertools.product(*rest) if math.prod(len(r) for r in rest) <= MAX_CLAUSES else [one_each(rest)]
+        clauses = dict.fromkeys(tuple(dict.fromkeys(t for g in pick for t in g)) for pick in picks)
         ored = [f'{int(raw[:2], 16) & ~OR | (OR if i < len(tests) - 1 else 0):02x}{raw[2:]}'
                 for tests in clauses for i, raw in enumerate(tests)]
         either = {f'Condition[{i}].Raw': raw for i, raw in enumerate(ored)}
@@ -446,6 +453,14 @@ def _other(alias: int) -> int:
 def _chat_alias(step: tuple) -> 'int | None':
     """The alias saying chat step `step`; None for a player conversation's."""
     return step[1] if step[0] == 'chat' else None
+
+
+def one_each(rest: list) -> tuple:
+    """Per line in `rest`, its group most lines share.
+    See: docs/fork/fo4_pipeline.md#dialogue-conditions
+    """
+    shared = collections.Counter(g for groups in rest for g in set(groups))
+    return tuple(max(groups, key=lambda g: shared[g]) for groups in rest)
 
 
 def _groups(rec: dict) -> list:

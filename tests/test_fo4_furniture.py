@@ -60,3 +60,9 @@ def test_side_entry_chair_gets_a_seat_between_its_side_markers():
     marks = [(-30.0, 0.0, 0.0, math.pi / 2, F.SIT_LEFT), (30.0, 0.0, 0.0, 3 * math.pi / 2, F.SIT_RIGHT)]
     seats = F.seats(marks, 3, (-20, -20, 0, 20, 20, 40))
     assert [(round(x, 3), round(y, 3), round(h, 3)) for x, y, _, h, _ in seats] == [(0.0, 2.0, 0.0)]
+
+
+def test_a_wall_lean_marker_moves_to_where_fnvs_enter_animation_ends():
+    """The enter motion moves the marker 31.2 forward and turns it."""
+    placed = F.entered([(0.0, 0.0, 0.0, 0.0, F.WALL_LEAN)], 1, (0.0, 31.2, math.pi))
+    assert [tuple(round(v, 3) for v in p[:4]) for p in placed] == [(0.0, 31.2, 0.0, round(math.pi, 3))]

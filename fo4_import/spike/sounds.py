@@ -22,6 +22,7 @@ import re
 import struct
 from pathlib import Path
 
+from fo4_import.base.ba2_pack import sound_root
 from fo4_import.base.install import source_esm
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
@@ -148,7 +149,7 @@ class Sounds:
             stem = str(Path(name).with_suffix('')).replace('/', '\\')
             subs += pack_subrecord('ANAM', f'data\\Sound\\FX\\{FOLDER}\\{stem}.wav'.encode('cp1252') + b'\0')
             self.jobs.append((self.export_dir / 'sound' / name,
-                              self.builder.data_dir / 'Sound' / 'FX' / FOLDER / f'{stem}.xwm', None))
+                              sound_root(self.builder.data_dir) / 'Sound' / 'FX' / FOLDER / f'{stem}.xwm', None))
         subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[2:] if k in template)
         self.builder.writer.add_record('SNDR', pack_fo4_record('SNDR', fid, 0, subs))
         self.builder.counts['SNDR'] += 1
