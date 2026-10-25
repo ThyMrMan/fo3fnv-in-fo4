@@ -1265,26 +1265,140 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   FNV's distance is farther (`Packages._radii`). Vanilla's 26 FollowNPC
   packages pair them with no fixed ratio (200/500 most often). In the
   region 5 FollowNPCs change (128 to 512).
-- <a id="combat-styles"></a>**Combat styles (built 2026-10-19, not yet
-  played).** Converted NPCs are copies of four vanilla bodies with no ZNAM,
-  so every one fought with the engine's default style, which weighs
-  melee and guns alike (`DefaultCombatStyle`, Equipment Score Mult 1.0
-  each). FNV and FO4 CSTY share almost no fields (FNV: dodge, block and
-  attack chances, cover search, combat radius, weapon restriction; FO4:
-  offensive and defensive mults, equipment score mults, close and long
-  range behavior), so an FNV style maps to a vanilla one by its authored
-  Weapon Restrictions (`npcs.COMBAT_STYLES`): Ranged Only to
-  `csRaiderRanged` (Fallout4.esm's commonest human style, 242 NPCs;
-  ranged 10, melee 1), Melee Only to `csRaider01Melee` (59; melee 10,
-  ranged 0.01). None (52 of FNV's 84 styles) keeps the default. ZNAM is a
-  traits part in FNV (xEdit hides it under Use Traits), so it comes from
-  the traits source and goes before NAM5, where all 1,745 vanilla ZNAMs
-  sit. FNV-wide 1,485 of 3,816 NPCs set a style: 933 Ranged Only, 25
-  Melee Only; in the region 81 NPCs take `csRaiderRanged`, none is Melee
-  Only. Dropped (drift): FNV's combat radius (2,000 for NCR
-  troopers, 6,000 for faction squads), cover chances and flee flags.
-  Package-level combat styles (FNV PACK CNAM) are not exported, so not
-  carried.
+- <a id="combat-styles"></a>**Combat styles (built 2026-10-25, not yet
+  played; replaced the 2026-10-19 vanilla-style-by-weapon-restriction
+  mapping).** `spike/combat_styles.py`: each FNV CSTY becomes its own FO4
+  CSTY (`FNV_<EditorID>`, derive_formid site `FNV CSTY`, key the FNV
+  FormID), written when an actor first names it. NPCs and creature
+  stand-ins take their traits source's style (creatures replace their
+  vanilla stand-in's, e.g. csDeathclaw); an actor with no ZNAM gets FNV's
+  form 0x3D `DefaultCombatstyle`, as FalloutNV.exe does (NPC load
+  0x603558, creature 0x5f9601, both `0x505000` = lookup 0x3D). The method
+  is the Oblivion one ([tes5_import_actors.md](../commentary/tes5_import_actors.md#combat-styles)):
+  invert each FNV per-decision chance onto the FO4 multiplier that gives
+  it. Fields FNV has no source for keep Fallout4.esm `DefaultCombatStyle`'s.
+  - **FO4's side** (Fallout4.exe 1.11.240 unpacked). Every multiplier
+    feeds `lerp(min, max, mult)` (0x101b540, unclamped) of two
+    `fCombat*Min/Max` settings; Fallout4.esm overrides none of them.
+    TESCombatStyle offsets: CSGD +0x20, CSME +0x50, CSRA +0x78, CSCR +0x7c,
+    CSLR +0xa8, CSCV +0xbc, CSFL +0xc0, DATA +0xe0.
+
+    | Chance | Getter | Min–Max | Mult |
+    |---|---|---|---|
+    | Melee attack | 0x101c700 | 0.025–1.0 (Min read from the image, the dump shows no thunk) | Offensive × group term; × max(Attack/PA Staggered) on a staggered target |
+    | Block | 0x101cb52 | **0–0** | Defensive: never blocks in vanilla |
+    | Block threat | 0x101cb14 | 0–1 | Defensive |
+    | Dodge / avoid / evade threat | 0x101d564 / 534 / 594 | 0–1 | CSGD Dodge / Avoid / Evade |
+    | Circle, fallback (Dueling) | 0x101b8a4, 0x101b7e4 | 0–0.75, 0–0.5 | CSCR |
+    | Cover search distance | 0x101bf40 | 128–4096 | CSCV; 0 or less takes no cover |
+    | Optimal range | 0x101cff0 | three-point 0.1 / 1.0 / 1.5 of 2·mult − 1 (0x101b5a0) | CSLR Range |
+
+    Defensive − Offensive is a stance (0x101b16e, 0x101b1ae) and scales
+    the optimal range, so Defensive is capped at Offensive for a style that
+    attacks, as in Skyrim. Gun fire waits are `lerp(2.0, 0.0, Offensive)`
+    (0x101d8c7): no field of their own for FNV's fire timers.
+  - **FNV's side** (GOG FalloutNV.exe; a subagent's trace, the default
+    style, attack score and roll re-read). Melee re-decides each AI update:
+    attack score A = (Attack% + recoil, knockdown and hand-to-hand bonuses
+    + skill base + skill mult × skill/100) × under/not-under-attack mult ×
+    (target blocking ? during-block mult : 1) (0x644680); block B = (Block%
+    + base + mult × 0.5, skill fixed at 50) × under/not-under mult ×
+    fBlockScoreNoShieldMult 0.5 × (target attacking ? 1 : 0.25)
+    (0x644580); hold H = max(100 − A − B, fCombatMaxHoldScore 30); one
+    `rand() % int(A + B + H)` picks (0x9cc8de). Dodge (melee only, while
+    the target swings): D = (Dodge% + fatigue and speed terms) × mult,
+    passing `rand() % 100 <= D` (0x644990); direction by three 1–5 draws ×
+    fAIDodgeDecisionBase 10: back if back ≥ forward and > side, forward
+    only beyond 1.5 × reach, else side on the Left/Right% roll (0x644a70).
+    Ranged: take cover re-rolled every 10 s; cover search radius in units;
+    range mults scale the weapon's min/max range; weapon restrictions
+    divide the other kind's weapon score by 10,000 (0x6461cb). Flags: bit 0
+    picks power-attack directions only; Ignore Threats stops threat
+    detection; no reader of Acrobatic Dodge% or Melee Alert OK.
+  - **The mapping:** Offensive from A's share not under attack, Defensive
+    from B's share under attack (both with weapon skill 50); Attack
+    Staggered from the share with the recoil bonus over the share without;
+    Power Attack Staggered (PA% + fatigue base + bonus) / (PA% + fatigue
+    base); Dodge from the under-attack dodge × the chance a direction is
+    taken (exact over the 125 draws, at melee range against a melee
+    target), Circle and Fallback from the not-under-attack side and back
+    dodges; a Ranged Only style dodges, circles and falls back 0 (FNV's
+    ranged procedure never dodges); Ignore Threats writes Avoid and Evade
+    0; cover 0 without a take-cover chance, else the radius on 128–4096
+    (at least 1e-4, so a radius under 128 still searches); Range Mult from
+    FNV's mean range mult; Melee Only scores ranged 1e-4, Ranged Only melee
+    and unarmed 1e-4. CSME and CSLR are written at vanilla's commonest
+    sizes, 10 and 5 floats.
+  - **Values** (all 84 finite): DefaultCombatstyle (2,904 actors) Offensive
+    0.49, Defensive 0.37, Dodge 0.53; CSDeathclaw Offensive 0.78,
+    Defensive 0.08, Dodge 0.14 (FO4's csDeathclaw: 0.7, 0, 1.0).
+  - **Dropped** (drift): per-actor terms (weapon skill at 50, speed and
+    fatigue terms: FNV adds `int(CalculateWalkSpeed) × mult + base` and the
+    fatigue fraction); fire/wait/hold timers; rushing attacks and
+    power-attack direction weights (FO4 takes attacks from the race's
+    attack data); combat radius; Max Targeting FOV; flee, stealth-boy and
+    ignore-damaging flags; partial take-cover chances. Package-level
+    combat styles (FNV PACK CNAM) are not exported, so not carried.
+  - **Template actors.** FNV keeps ZNAM under Use Traits (0x5fb9c5); the
+    FO4 CK wiki puts Combat Style on the AI Data tab, so FO4 inherits it
+    with Use AI Data (not confirmed in the exe). A template actor therefore
+    gets the style its FNV traits chain reaches as its own ZNAM
+    (`npcs._template_style`), which FO4 reads only when AI Data is its
+    own; a chain that reaches a leveled list gives none (FNV takes the
+    drawn actor's). Whole-map build 2026-10-25: 48 styles; 1,674 plain
+    actors and 179 template actors on converted styles (0 template actors
+    before `_template_style`), 576 template actors with none and 2 on their
+    creature body's vanilla style; the 24 plain NPCs without one are
+    holotape and radio speakers. FNV-wide, 924 list-templated actors also
+    take AI Data from the list (FO4 then inherits the drawn actor's
+    style); 179 keep their own and fight with FO4's default style.
+- <a id="creature-attacks"></a>**Creature attacks (built 2026-10-25, not
+  yet played).** `spike/creature_attacks.py`: a converted creature keeps
+  its stand-in's behaviour graph, so it can only play the attack events its
+  race lists; each creature gets its own attack list (ATKR its stand-in's
+  attack race, then every one of that race's events), each event kept or
+  set to chance 0 by what FNV lets the creature do.
+  - **FO4's side** (Fallout4.exe; a subagent's trace, the pick loop
+    re-read). BGSAttackData is 0x60 bytes: event +0x10, ATKD from +0x18
+    (chance +0x1c, flags +0x28, attack angle +0x2c, strike angle +0x30,
+    recovery time +0x44 used as the attack's cooldown). An NPC with ATKR
+    merges: its entries whose event the attack race lacks are dropped, then
+    the race's entries it lacks are added (0x6ffb2f–0x6ffddc), so a race
+    attack is suppressed only by listing it at chance 0; ATKD without ATKR
+    is the NPC's alone. The chooser (0xf7b5c0) pools the entries whose
+    time-to-hit (the clip's `HitFrame`; continuous 1.5 s) is over 0, whose
+    cooldown has passed and whose weight (chance × the style's Attack /
+    Power Attack Staggered or Power Attack Blocking mult, 0x101c890) is
+    over 0; it picks `r = rand(0, total)` by running sum, then rejects when
+    `rand01() > weight` or the cone (|target heading − (facing + attack
+    angle)| ≤ strike angle × mult, 0xef3030), reach and path checks fail,
+    and picks again from the rest. Power and normal attacks share the pool:
+    no separate power roll (fAIPowerAttack* have no readers). Power attacks
+    and bashes cost action points and are skipped at 0. Bash attacks are a
+    list of their own for blocking; charge attacks also feed the charge
+    behaviour.
+  - **FNV's side** (FalloutNV.exe). A creature's normal attack is
+    AttackLeft or AttackRight by its movement clip's `m:` text key
+    (0x9ccb20), the `_A`/`_B` variant uniform (0x48f450); power attacks are
+    AttackPower/Forward/Back/Left/RightPower by direction; a group with no
+    animation means no attack that time. The hit: reach from CREA RNAM,
+    a 35° cone (fCombatHitConeAngle, 0x9a6ae0), damage the creature's own
+    attack damage with no power bonus (0x8ae98a skips it for creatures).
+  - **The mapping.** Off (chance 0): an attack aimed outside FNV's cone
+    (|attack angle| > 35); a power attack when the style's power attack
+    chance is 0 or the creature has no power-attack animation (by its
+    `.kf` groups); a charge attack when the style has no rushing attack;
+    whatever vanilla already disables. Kept: damage mult 1; normal and
+    power entries weighted so power attacks take FNV's share of attacks,
+    (PA% + Power Attack Fatigue Mod Base + 1) / 100 at full fatigue
+    (0x644810), the smaller weight 1 so FO4's acceptance roll never
+    rejects; entries uniform within each kind, as FNV's variants are.
+  - **Not carried:** FNV's power-attack direction weights (FO4's numbered
+    events name no direction), the left/right foot rule, rushing attack
+    chance and reach (the next step, with movement speeds), FO4-only front
+    attacks that look like nothing FNV has (the deathclaw's horn ram and
+    tail combo pass every test). Unverified: whether converted creatures
+    have action points for power attacks.
 - <a id="door-closer"></a>**Doors close behind NPCs (built and played
   2026-10-17).** FNV closes a door after the NPC who opened it walks
   through; FO4 leaves it open. In the Bison Steve a convict's patrol runs
@@ -3114,7 +3228,7 @@ NPCs) needs most of them.
 
 | Need | Types |
 |---|---|
-| NPCs and AI | FACT 682, CLAS 74, RACE 22, CSTY 84, VTYP 100, LVLN 365, LVLC 343 (into LVLN), IDLE 1,597, ANIO 152, BPTD 49, HDPT 61, TACT 87 |
+| NPCs and AI | FACT 682, CLAS 74, RACE 22, VTYP 100, LVLN 365, LVLC 343 (into LVLN), IDLE 1,597, ANIO 152, BPTD 49, HDPT 61, TACT 87 |
 | Combat and effects | PROJ 95, EXPL 154, IPCT 125, IPDS 60, ENCH 145, EFSH 35, DEBR 6, ADDN 37, CAMS 276, PGRE 174, AMEF 54 (into OMOD), IMOD 50 (into OMOD) |
 | World | REGN 276, WTHR 63, CLMT 31, ECZN 17, LGTM 31, ASPC 113, CPTH 418, MUSC 20, ALOC 89 (into MUSC), MSET 140 (into MUST), PWAT 29 (into ACTI), TXST 493, LSCR 208, FLST 464 |
 | Crafting | RCPE 105 (into COBJ), RCCT 10 (into KYWD), INGR 1 |

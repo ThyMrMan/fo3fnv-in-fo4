@@ -34,9 +34,10 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents
 from fo4_import.spike import records as R
 from fo4_import.spike.actor_data import CREATURE_FLAGS, hit_proof, with_actor_data
+from fo4_import.spike.creature_attacks import attack_list, fnv_groups, race_attacks, with_attacks
 from fo4_import.spike.replacements import CREATURE_TYPES, targets
-from fo4_import.spike.npcs import (USE_AI_DATA, USE_FACTIONS, USE_INVENTORY, USE_SCRIPT, USE_STATS, composed, faction_snams,
-                                   template_source, with_factions)
+from fo4_import.spike.npcs import (USE_AI_DATA, USE_FACTIONS, USE_INVENTORY, USE_SCRIPT, USE_STATS, USE_TRAITS, composed,
+                                   faction_snams, template_source, with_factions)
 from fo4_import.spike.statics import write_converted
 from fo4_import.spike.voice import fnv_folder
 from fo4_import.spike.voice_types import VoiceTypes, fnv_voice_types, with_voice
@@ -85,7 +86,7 @@ class Creatures:
                              builder.plugin_dirs, CREATURE_TYPES)
         self.archives = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2')
         self.fits, self.meshes, self.made = {}, {}, {}
-        self.voices = VoiceTypes(builder)
+        self.voices, self.race_attacks = VoiceTypes(builder), race_attacks(builder.fo4)
 
     @staticmethod
     def _index(fo4: bytes, keyed: dict) -> tuple:
@@ -148,7 +149,28 @@ class Creatures:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, npc.body, npc.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), STAND_IN_TIES,
             edit=composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
-                          *self.own_parts(rec))))
+                          self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec))))
+
+    def _combat_style(self, rec: dict):
+        """The ZNAM edit of plain copy `rec`: its traits source's FNV style, converted."""
+        return self.builder.combat_styles.edit(self.source(rec, USE_TRAITS))
+
+    def _attacks(self, rec: dict, npc):
+        """The attack-list edit of FNV creature `rec` on stand-in NPC `npc` (creature_attacks); None when the
+        stand-in's attack race has no attacks.
+        See: docs/fork/fo4_pipeline.md#creature-attacks
+        """
+        found = dict(subrecords(npc.body))
+        race = struct.unpack('<I', found.get(b'ATKR') or found[b'RNAM'])[0]
+        attacks = self.race_attacks.get(race)
+        if not attacks:
+            return None
+        style = self.builder.combat_styles.record(self.source(rec, USE_TRAITS))
+        groups = fnv_groups(self.export_dir, skeleton_folder(rec.get('Model.MODL', '')))
+        subs, count = attack_list(attacks, groups, style)
+        self.builder.counts['creature attacks kept'] += count
+        self.builder.counts['creature attacks disabled'] += len(attacks) - count
+        return with_attacks(race, subs)
 
     def _keywords(self, rec: dict):
         """The clone edit marking FNV creature `rec`'s type (type_tests)."""
@@ -215,7 +237,7 @@ class Creatures:
         write.add_record('ARMA', _copy(addon, arma, f'{edid}AA', {b'MOD2': _zstr(model), b'MOD3': _zstr(model)}))
         write.add_record('ARMO', _copy(skin, armo, f'{edid}Skin', {b'MODL': struct.pack('<I', arma)}))
         edit = composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
-                        *self.own_parts(rec))
+                        self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec))
         write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''), DOGMEAT_TIES,
                                              edit=lambda subs: _replaced(edit(subs), {b'WNAM': struct.pack('<I', armo)})))
 

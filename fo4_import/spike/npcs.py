@@ -54,10 +54,8 @@ USE_STATS, USE_AI_DATA, USE_BASE_DATA = 0x2, 0x10, 0x80
 TEMPLATE_PARTS, TEMPLATE_SLOTS, ACBS_TEMPLATE = 0x3FF, 13, 14
 #: Fallout4.esm's Citizen, the commonest class of its human NPCs that set one (323); DocWeathers' is a turret's.
 HUMAN_CLASS = 0x1326B
-#: FNV CSSD Weapon Restrictions -> Fallout4.esm style: Melee Only csRaider01Melee, Ranged Only csRaiderRanged.
-COMBAT_STYLES = {'1': 0x47165, '2': 0x3183B}
-#: The tags vanilla's ZNAM (all 1,745) and ECOR (all 1,339) come right before.
-ZNAM_BEFORE, ECOR_BEFORE = (b'NAM5',), (b'FCPL', b'RCLR', b'PRKZ', b'PRKR', b'PRPS', b'FTYP', b'NTRM', b'COCT')
+#: The tags vanilla's ECOR (all 1,339) comes right before.
+ECOR_BEFORE = (b'FCPL', b'RCLR', b'PRKZ', b'PRKR', b'PRPS', b'FTYP', b'NTRM', b'COCT')
 #: The tags vanilla's PRKZ and PRKR come right before (xEdit's NPC_ order; AIDT is in every NPC).
 PERKS_BEFORE = (b'PRPS', b'FTYP', b'NTRM', b'COCT', b'CNTO', b'AIDT')
 #: derive_formid site of an NPC's outfit (key: the FNV NPC's FormID).
@@ -280,7 +278,6 @@ class Npcs:
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
-        self.styles = {int(r['FormID'], 16): r.get('CSSD.WeaponRestrictions') for r in export_records(export_dir, 'CSTY')}
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
         """The NPC `fnv` takes part `flag` from (template_source); None if a list."""
@@ -308,7 +305,7 @@ class Npcs:
             (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
             composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
-                     self._combat_style(traits), with_perks(self.builder.perks.teammates.held_by(fnv)),
+                     self.builder.combat_styles.edit(traits), with_perks(self.builder.perks.teammates.held_by(fnv)),
                      self._skills(fnv))))
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
@@ -333,9 +330,19 @@ class Npcs:
                  self._actor_data(fnv), self._skills(fnv)) if fnv in self.records else (
                      self.creatures.actor_data(npc, npc, npc), *self.creatures.own_parts(npc, templated=True))
         body = None if fnv in self.records else self.creatures.stand_in(fnv)
+        parts += (self._template_style(npc),)
         fid = self._template_actor(fnv, npc, template, int(npc.get('ACBS.TemplateFlags', 0)), parts, body)
         self.builder.npc_ids[fnv] = fid
         return fid
+
+    def _template_style(self, rec: dict):
+        """The ZNAM edit of template actor `rec`: the FNV style its traits chain reaches, which FO4 reads when it
+        does not take AI Data from its template; None when the chain reaches a leveled list.
+        See: docs/fork/fo4_pipeline.md#combat-styles
+        """
+        records = self.records if int(rec['FormID'], 16) in self.records else self.creatures.records
+        traits, left = template_source(records, rec, USE_TRAITS)
+        return None if left else self.builder.combat_styles.edit(traits)
 
     def _template_actor(self, fnv: int, rec: dict, template: int, flags: int, parts: tuple, body=None) -> int:
         """Write a template actor for FNV form `fnv` (`rec`) on `template` with `flags`, then `parts` edits; a copy
@@ -455,17 +462,6 @@ class Npcs:
         listed = R.packages_edit(packages.for_npc(rec, self.form_map))
         combat = packages.combat_list(rec)
         return composed(listed, R.with_sub(b'ECOR', struct.pack('<I', combat) if combat else b'', ECOR_BEFORE))
-
-    def _combat_style(self, traits: dict):
-        """The edit giving FNV NPC `traits` (its traits source, which holds ZNAM in FNV) the FO4 style of its
-        style's weapon restriction (COMBAT_STYLES); None when it keeps the default.
-        See: docs/fork/fo4_pipeline.md#combat-styles
-        """
-        restriction = self.styles.get(int(traits.get('ZNAM.CombatStyle', '0'), 16))
-        if restriction not in COMBAT_STYLES:
-            return None
-        self.builder.counts[f'NPC_ combat style (FNV weapon restriction {restriction})'] += 1
-        return R.with_sub(b'ZNAM', struct.pack('<I', COMBAT_STYLES[restriction]), ZNAM_BEFORE)
 
     def _head_assets(self) -> hair.Fo4Assets:
         """Fallout4.esm's head parts and the game's archives (hair.Fo4Assets), read once."""

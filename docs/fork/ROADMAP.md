@@ -49,6 +49,7 @@ next heading are the history that led here.
 | NPC skills ([vendor repair](fo4_condition.md#vendor-repair)) | Built, not played |
 | Disguises ([disguises](fo4_pipeline.md#disguises)) | Built, not played |
 | Weapon mods ([weapon mods](fo4_pipeline.md#weapon-mods)) | Built, not played |
+| Combat styles ([combat styles](fo4_pipeline.md#combat-styles)) | Each FNV style converted to its own FO4 style from both exes' formulas: built 2026-10-25, not played |
 | Ammo subtypes, effects, casings, the Ammo Type hotkey ([ammo](fo4_pipeline.md#nv-ammo)) | Built, not played |
 | Lockpicking and hacking on FNV's skills | Built, not played |
 | Perks, traits, teammate perks ([perks](fo4_perks.md)) | Built, not played |

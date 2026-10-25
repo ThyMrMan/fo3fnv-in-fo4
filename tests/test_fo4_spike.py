@@ -817,18 +817,6 @@ def test_a_subrecord_goes_before_the_first_listed_tag_in_place_of_its_own():
     assert tail == [b'RNAM', b'ECOR'] and R.with_sub(b'ECOR', b'', ()) is None
 
 
-def test_an_npc_takes_the_vanilla_style_of_its_fnv_styles_weapon_restriction():
-    """Ranged Only is csRaiderRanged, Melee Only csRaider01Melee; None or no style keeps the default."""
-    npcs = N.Npcs.__new__(N.Npcs)
-    npcs.builder = SimpleNamespace(counts=Counter())
-    npcs.styles = {0xB2945: '2', 0xB2944: '1', 0x2A44B: '0'}
-    ranged = npcs._combat_style({'ZNAM.CombatStyle': '000B2945'})(pack_subrecord('NAM5', b'\0\0'))
-    assert dict(subrecords(ranged))[b'ZNAM'] == struct.pack('<I', 0x3183B)
-    melee = npcs._combat_style({'ZNAM.CombatStyle': '000B2944'})(b'')
-    assert dict(subrecords(melee))[b'ZNAM'] == struct.pack('<I', 0x47165)
-    assert npcs._combat_style({'ZNAM.CombatStyle': '0002A44B'}) is None and npcs._combat_style({}) is None
-
-
 def test_an_npc_takes_its_fnv_voice_type_in_place_of_its_bodys():
     """VTCK becomes the converted voice type; the other subrecords are untouched."""
     subs = pack_subrecord('VTCK', b'\1\0\0\0') + pack_subrecord('RNAM', b'\2\0\0\0')

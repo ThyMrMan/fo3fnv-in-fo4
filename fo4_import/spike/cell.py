@@ -26,6 +26,7 @@ from fo4_import.base.support_records import pack_gmst
 from fo4_import.base.writer import pack_fo4_record, pack_quest
 from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
+from fo4_import.spike.combat_styles import CombatStyles
 from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.scol import PART_SITE, Parts, compose
 from fo4_import.spike.emittance import Emittance
@@ -763,6 +764,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.scripts.named.update({**reputations, **builder.perks.named(), **builder.challenges.named()})
     builder.activators, builder.crafting = Activators(builder, export_dir), Crafting(builder, export_dir, HELPER_INDEX, every)
     builder.radio = Radio(builder, export_dir)
+    builder.combat_styles = CombatStyles(builder, export_dir)
     builder.creatures = Creatures(builder, export_dir, builder.data_dir)
     seats = [r for r in every if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in seats}, beds(builder, seats),
