@@ -8,6 +8,7 @@ folder recorded it. Audio and lips come from the FO4 Creation Kit's own tools.
 See: docs/fork/fo4_spikes.md#spike-1-voice
 """
 
+import os
 import re
 import shutil
 import tempfile
@@ -84,16 +85,32 @@ def silent_jobs(lines: list, voice_types: list, data_dir: Path, plugin: str) -> 
             for kind in (PLAYER_VOICES if player else voice_types)]
 
 
-def remove_stale(job_list: list, folders: list) -> int:
-    """Delete the .fuz files in `folders` no job writes; how many.
+def remove_stale(job_list: list, folders: list, cache: Path) -> int:
+    """Move the .fuz files in `folders` no job writes into `cache` (<voice type>/<file>); how many.
 
-    A line that is gone, or moved to another voice type, would otherwise leave its file behind.
+    A line that is gone, or whose voice type no built NPC uses, would otherwise be packed; restore() brings
+    it back when a later build needs it, saving its LipGenerator run.
+    See: docs/fork/fo4_pipeline.md#voice-cache
     """
     keep = {job[1] for job in job_list}
     stale = [p for folder in folders if folder.is_dir() for p in folder.glob('*.fuz') if p not in keep]
     for path in stale:
-        path.unlink()
+        target = cache / path.parent.name / path.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(path, target)
     return len(stale)
+
+
+def restore(job_list: list, cache: Path) -> int:
+    """Move back from `cache` each job's missing .fuz an earlier remove_stale kept; how many."""
+    restored = 0
+    for _, dest, _ in job_list:
+        kept = cache / dest.parent.name / dest.name
+        if not dest.exists() and kept.is_file():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(kept, dest)
+            restored += 1
+    return restored
 
 
 def _copy_converted(written: Path, first: Path, dest: Path) -> bool:

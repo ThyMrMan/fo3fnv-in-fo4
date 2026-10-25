@@ -296,6 +296,18 @@ def test_voice_converts_each_recording_and_transcript_once(monkeypatch, tmp_path
     assert len({p.read_bytes() for p in shared}) == 1 and not (tmp_path / 'B' / '1_1.xwm').exists()
 
 
+def test_an_unused_voice_file_waits_in_the_cache_and_comes_back_when_a_line_needs_it(tmp_path):
+    """A build without line 2's voice type keeps its .fuz aside, not deleted; the next build needing it restores it
+    instead of converting it again."""
+    voice, cache = tmp_path / 'Voice' / 'MaleAdult01', tmp_path / 'VoiceCache'
+    _write(voice / '1_1.fuz', b'one')
+    _write(voice / '2_1.fuz', b'two')
+    assert V.remove_stale([(None, voice / '1_1.fuz', 'a')], [voice], cache) == 1
+    assert not (voice / '2_1.fuz').exists() and (cache / 'MaleAdult01' / '2_1.fuz').read_bytes() == b'two'
+    assert V.restore([(None, voice / '1_1.fuz', 'a'), (None, voice / '2_1.fuz', 'b')], cache) == 1
+    assert (voice / '2_1.fuz').read_bytes() == b'two' and not (cache / 'MaleAdult01' / '2_1.fuz').exists()
+
+
 def test_voice_copies_the_audio_left_when_lips_fail(monkeypatch, tmp_path):
     """When the lips fail, the .xwm left beside the first .fuz is copied beside the others; none counts."""
     _fake_tools(monkeypatch, lambda dest, n: _write(dest.with_suffix('.xwm'), b'audio'))

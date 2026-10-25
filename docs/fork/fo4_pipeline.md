@@ -3440,6 +3440,21 @@ per voice line. A voice file is skipped when it already exists, so a
 rebuild into the same Data folder skips it; these runs cleared the
 folder each time.
 
+<a id="voice-cache"></a>**Voice files kept aside, not deleted (2026-10-25).** Each whole build
+ran about 80,000 lines back through LipGenerator: 81,370 voice files
+written and 31,972 deleted as stale in the 12-world build, and 76,981 and
+65,793 in the one-world build before it. Lines keep their FormIDs (the
+ledger; 98 of them counted), and two identical test-block builds showed
+the skip works: 1,963 files, then 0 (694 s, then 100 s). The churn came
+from scope. A line's .fuz is written for each FO4 voice type a built NPC
+uses, so a build with fewer or other NPCs (one world against twelve, a
+replacement table swapping NPCs for a mod's) deleted still-valid files,
+and the next build to need them converted them again. `voice.remove_stale`
+now moves such a file to `_ba2/VoiceCache/<plugin>/<voice type>/`,
+outside what the Main BA2 packs, and `voice.restore` moves it back when a
+line needs it. Build log: `voice files kept aside`, `voice files
+restored`.
+
 <a id="sound-archive"></a>**Sounds go in the Main BA2 (2026-10-24).** The
 first launch of the full build sat on a black screen at 1% CPU. It was
 not hung: the main thread was in `ZwCreateFile` under MO2's

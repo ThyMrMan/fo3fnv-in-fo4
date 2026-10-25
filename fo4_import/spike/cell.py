@@ -108,6 +108,8 @@ PLAYER = 0x14
 HAND_STARTED = frozenset({'VCG00', 'VCG01', 'CGTutorial'})
 #: Record key and EditorID of the generated quest holding the shared greeting (_greetings).
 GREETINGS_KEY, GREETINGS_EDID = 'GREETINGS', 'Greetings'
+#: Voice recordings no built line uses, kept under the sound staging folder outside what is packed (voice-cache).
+VOICE_CACHE = 'VoiceCache'
 #: FO4's shortest padded length of a voiced line (2.5 s), set to a silent line's (fo4_spikes.md#silent-line).
 PADDED_SETTING = 'fDialoguePaddedAudioLengthMin'
 #: The script closing a door behind the NPC that opened it (docs/fork/fo4_pipeline.md#door-closer).
@@ -725,8 +727,10 @@ def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) 
     root = sound_root(data_dir)
     todo = voice.jobs(builder.say.voiced, voices, root, plugin)
     todo += voice.silent_jobs(builder.say.silent, sorted({fo4 for _, fo4 in voices}), root, plugin)
-    ours = root / 'Sound' / 'Voice' / plugin
-    builder.counts['stale voice files removed'] = voice.remove_stale(todo, [p for p in ours.glob('*') if p.is_dir()])
+    ours, cache = root / 'Sound' / 'Voice' / plugin, root / VOICE_CACHE / plugin
+    builder.counts['voice files kept aside'] = voice.remove_stale(todo, [p for p in ours.glob('*') if p.is_dir()],
+                                                                  cache)
+    builder.counts['voice files restored'] = voice.restore(todo, cache)
     builder.counts['voice files written'] = voice.convert([job for job in todo if not job[1].exists()],
                                                           FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
 
