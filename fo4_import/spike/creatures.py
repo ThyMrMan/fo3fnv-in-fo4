@@ -35,6 +35,7 @@ from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton
 from fo4_import.spike import records as R
 from fo4_import.spike.actor_data import CREATURE_FLAGS, hit_proof, with_actor_data
 from fo4_import.spike.creature_attacks import attack_list, fnv_groups, race_attacks, with_attacks
+from fo4_import.spike.creature_speed import Fo4Speeds, fnv_run_speed, with_speed_mult
 from fo4_import.spike.replacements import CREATURE_TYPES, targets
 from fo4_import.spike.npcs import (USE_AI_DATA, USE_FACTIONS, USE_INVENTORY, USE_SCRIPT, USE_STATS, USE_TRAITS, composed,
                                    faction_snams, template_source, with_factions)
@@ -87,6 +88,7 @@ class Creatures:
         self.archives = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2')
         self.fits, self.meshes, self.made = {}, {}, {}
         self.voices, self.race_attacks = VoiceTypes(builder), race_attacks(builder.fo4)
+        self.speeds = Fo4Speeds(builder.fo4)
 
     @staticmethod
     def _index(fo4: bytes, keyed: dict) -> tuple:
@@ -149,7 +151,8 @@ class Creatures:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, npc.body, npc.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), STAND_IN_TIES,
             edit=composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
-                          self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec))))
+                          self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec),
+                          self._speed(rec, npc))))
 
     def _combat_style(self, rec: dict):
         """The ZNAM edit of plain copy `rec`: its traits source's FNV style, converted."""
@@ -171,6 +174,18 @@ class Creatures:
         self.builder.counts['creature attacks kept'] += count
         self.builder.counts['creature attacks disabled'] += len(attacks) - count
         return with_attacks(race, subs)
+
+    def _speed(self, rec: dict, npc):
+        """The SpeedMult edit giving FNV creature `rec` its FNV run on stand-in `npc`; None when either speed is
+        unknown.
+        See: docs/fork/fo4_pipeline.md#creature-speed
+        """
+        traits = self.source(rec, USE_TRAITS)
+        fnv = fnv_run_speed(self.export_dir, skeleton_folder(rec.get('Model.MODL', '')), self.source(rec, USE_STATS),
+                            float(traits.get('BNAM.BaseScale', 1.0) or 1.0))
+        value = self.speeds.speed_mult(dict(subrecords(npc.body)), fnv)
+        self.builder.counts['creature speeds' if value else 'creature speeds unknown'] += 1
+        return with_speed_mult(round(value, 1)) if value else None
 
     def _keywords(self, rec: dict):
         """The clone edit marking FNV creature `rec`'s type (type_tests)."""
@@ -237,7 +252,7 @@ class Creatures:
         write.add_record('ARMA', _copy(addon, arma, f'{edid}AA', {b'MOD2': _zstr(model), b'MOD3': _zstr(model)}))
         write.add_record('ARMO', _copy(skin, armo, f'{edid}Skin', {b'MODL': struct.pack('<I', arma)}))
         edit = composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
-                        self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec))
+                        self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec), self._speed(rec, npc))
         write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''), DOGMEAT_TIES,
                                              edit=lambda subs: _replaced(edit(subs), {b'WNAM': struct.pack('<I', armo)})))
 

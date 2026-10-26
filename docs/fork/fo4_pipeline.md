@@ -1399,6 +1399,42 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
     attacks that look like nothing FNV has (the deathclaw's horn ram and
     tail combo pass every test). Unverified: whether converted creatures
     have action points for power attacks.
+- <a id="creature-speed"></a>**Creature speed (built 2026-10-25, not yet
+  built into a plugin or played).** `spike/creature_speed.py`: a converted
+  creature's own SpeedMult (PRPS, AVIF 0x2DA; 3,015 vanilla NPCs list it)
+  makes its FO4 forward run FNV's.
+  - **FNV's side** (FalloutNV.exe; a subagent's trace, the run formula
+    re-read at 0x8d4f10). A creature moves by its movement clips' root
+    motion: run = int(FastForward clip root speed) × actor value 0x15 (ACBS
+    Speed Multiplier) × 0.01 (0x8d4f10, 0x494300); a group with several
+    variants reads speed 0 and its clips play at rate 1, so it moves at the
+    clips' own speed. Every direction plays at that rate, so walk, side and
+    back keep the clips' ratios. Scale is the reference's × BNAM base
+    scale. Turning: TNAM degrees/s (45 when 0), × fCreatureTurnSpeedScale
+    1.25 in place. NPCs use a settings formula instead (fMoveBaseSpeed,
+    fMoveRunMult...), not touched here.
+  - **FO4's side** (Fallout4.exe; a subagent's trace, the multiply re-read
+    at 0xcb270d). The movement type comes from the behaviour graph: its
+    `iState` value names a state `<X>` (variables `iState_<X>`), and the
+    MOVT whose MNAM is `<X>` is used, else the race's WKMV, else DOBJ DMWL
+    (0xca5c90); so a new race WKMV would not change a creature on a vanilla
+    graph. Speeds are capped by the graph's clip speeds, then every
+    translation is × scale (reference × NPC height NAM6..NAM4 × race
+    height) × |SpeedMult| / 100, 0 read as 100 (0xcb25f0). SpeedMult does
+    not touch turning (MOVT yaw). SPED layouts: 112 bytes (form version
+    104+) forward run float 10; older 40–68 bytes float 5.
+  - **The mapping.** SpeedMult = 100 × FNV run / (FO4 run × the stand-in's
+    mean scale, its NAM6..NAM4 midpoint × race height); the placed
+    reference's scale is in both and cancels. FO4's movement type: the
+    race's WKMV when the graph names it or names none; else the graph's
+    `<kind>Default` state (vanilla's name for a base state: DeathclawDefault,
+    DogDefault, NPCDefault), else the state the others extend (FeralGhoul
+    over FeralGhoulSprint), else the only one. That order stands in for the
+    graph's iState initial value, which needs a Havok 2014 reader.
+  - **Not carried:** walk, side and back speeds and turning (one SpeedMult
+    scales all four directions alike, and turning only lives in the MOVT
+    yaw); FO4's clip-speed cap, which can hold a fast creature below its
+    SpeedMult; FNV NPCs' formula speeds.
 - <a id="door-closer"></a>**Doors close behind NPCs (built and played
   2026-10-17).** FNV closes a door after the NPC who opened it walks
   through; FO4 leaves it open. In the Bison Steve a convict's patrol runs
