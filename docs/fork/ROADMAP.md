@@ -20,6 +20,7 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | [fo4_spikes.md](fo4_spikes.md) | The spikes that showed FO3/FNV on Fallout 4 buildable (done), and the findings they made |
 | [fo4_pipeline.md](fo4_pipeline.md) | The plan from the spike to the whole of FNV: the base it grows on, what to build and research first, speed, stability, order |
 | [fo4_tool_audit.md](fo4_tool_audit.md) | The converter audit before the whole-map build (2026-10-15): bugs, speed, overlooked issues, with counts |
+| [fo4_menu_audit.md](fo4_menu_audit.md) | Plan: the dialogue menu audit (exact checks on the pieces the build adds to make menus: structure, one option per topic, option gates, effects; both games' rules from XDI and the exes; menus logged in play) |
 | [fo4_replacements.md](fo4_replacements.md) | The user-editable replacement table (items, then creatures: FO4 records, FNV stats, FNV meshes on FO4 rigs, other mods' records), its profiles and GUI, and the Wabbajack modlist as a soft requirement for the full experience |
 | [fo4_idles.md](fo4_idles.md) | FNV idle animations on Fallout 4: `.kf` clips retargeted to FO4's skeleton, IDLE records as dynamic idles, idle trees, seated idles |
 | [fo4_perks.md](fo4_perks.md) | FNV perks and traits on Fallout 4: the entry-point census, the plan, `HasPerk` |
@@ -134,6 +135,26 @@ Carried over from the character plan's own status notes of 2026-09-28.
 ## <a id="stability"></a>Stability
 
 - **Play-test backlog:** every "not played" row above.
+- **[Dialogue menu audit](fo4_menu_audit.md):** planned 2026-10-25, not
+  started. Revised the same day: exact checks on what the build adds to make
+  menus (structure, one option per topic, option gates, per-line effects) in
+  place of trying every state and walking conversations; skill checks and
+  reputation paired first (about 2,300 FNV lines no audit judges); FNV's
+  rules from its exe, FO4's from XDI's source and its exe; the play log built
+  on `fo4_trace`. No FNV game runs (wiki files, GECK, xEdit and
+  `PrintNPCDialog` ruled out). Six phases; the first whole-map report comes at
+  phase 2.
+- **[One option per topic](fo4_pipeline.md#one-option-per-topic):** built
+  2026-10-26; **Jason Bright's pair played 2026-10-26** (one option at a
+  time), Doc Mitchell's caps pair not yet. The whole-map build showed one FNV topic as two
+  options at once (Jason Bright's "Not interested." pair, Doc Mitchell's caps
+  pair) since `conversation.py` had lost the spike's "no earlier option"
+  test. Each option now hides while a line FNV tries first passes (speakers'
+  voice types and factions settled, at most 16 OR-groups per option): menus
+  able to show two options of one topic fell from 760 (113 topics) to 152
+  (8: GOODBYE at the cap, three counted only for lack of speaker facts, four
+  with a loose earlier gate). Options' tests grew from 27.9 to 57.1 MB, 95%
+  of it GOODBYE; the plugin from 403 to 432 MB.
 - **Preflight audits:** built (`python -m tools.validate.preflight`, `--audit
   logs` after a play-test). Open gaps:
   - audit 1 doesn't check stage-item conditions or Say Once lines;

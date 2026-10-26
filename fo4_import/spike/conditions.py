@@ -85,6 +85,20 @@ def compare(cond: dict, result: float) -> bool:
     return _OPS[cond['op_flags'] & 0xE0](result, cond['value'])
 
 
+def speaker_settle(known: dict):
+    """A settle() for simplify(): the outcome of a Subject test of one speaker's fixed facts, `known` {GetIsID or
+    GetIsVoiceType: FormID, GetInFaction: frozenset of factions, 'unfixed': forms never settled}; None for any
+    other test or fact."""
+    def settle(cond: dict) -> 'bool | None':
+        """The outcome of `cond` on the speaker, or None."""
+        fact = known.get(cond['func'])
+        if cond['run_on'] != RUN_SUBJECT or cond['op_flags'] & USE_GLOBAL or fact is None \
+                or cond['p1'] in known.get('unfixed', ()):
+            return None
+        return compare(cond, float(cond['p1'] in fact if isinstance(fact, frozenset) else cond['p1'] == fact))
+    return settle
+
+
 def groups(conds: list) -> list:
     """Split a condition list into OR-groups (the engine ANDs the groups)."""
     out, cur = [], []

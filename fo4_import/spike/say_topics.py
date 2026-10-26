@@ -253,6 +253,16 @@ def with_quest(rec: dict, quest: list) -> dict:
     return with_conditions(rec, _closed(raws(rec)) + _closed(quest)) if quest else rec
 
 
+def settled_on(rec: dict, known: dict) -> 'dict | None':
+    """FNV record `rec` with its tests of one speaker's fixed facts `known` (conditions.speaker_settle) settled, OR
+    flags redone; None when its conditions never pass for that speaker."""
+    kept = C.simplify([{**C.parse(raw), 'raw': raw} for raw in raws(rec)], C.speaker_settle(known))
+    if kept is None:
+        return None
+    return with_conditions(rec, [f'{int(c["raw"][:2], 16) & ~OR | (OR if i < len(g) - 1 else 0):02x}{c["raw"][2:]}'
+                                 for g in kept for i, c in enumerate(g)])
+
+
 def with_conditions(rec: dict, conds: list) -> dict:
     """A copy of FNV record `rec` whose conditions are `conds` (raw hex)."""
     out = {k: v for k, v in rec.items() if not k.startswith('Condition[')}

@@ -38,7 +38,7 @@ from fo4_import.spike import ammo_casings, ammo_switch
 from fo4_import.spike.crafting import Crafting
 from fo4_import.spike import character, facegen, new_game, replacements, skeleton, terrain_lod
 from fo4_import.spike.attach import ObjectScripts
-from fo4_import.spike.conversation import Conversations, Hub, hub
+from fo4_import.spike.conversation import Conversations, Hub, hub, speaker_index
 from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
 from fo4_import.spike.navmesh import navi, navmeshes
 from fo4_import.spike.exterior import Exterior
@@ -675,6 +675,7 @@ def _hub(builder: CellBuilder, export_dir: Path, say: SayTopics, recs: list, que
     reveals is gated on the unlock global the scripts set, as the script converter's unlock plan names it."""
     plan = build_unlock_plan(load_records(str(export_dir), ('DIAL', 'INFO', 'QUST', 'SCPT')))
     shared = hub(say, recs, quests, plan['added'])
+    shared.actors, shared.unfixed = speaker_index(export_dir)
     shared.topics = tuple(d for d in shared.topics if any(
         r['ParentDIAL'].upper() == d and conditions_of(r, form_map, say.script_vars) is not None
         for r in shared.lines.values()))

@@ -588,6 +588,67 @@ conditions failed (a topic not yet unlocked), the pad passed instead and
 showed blank. Cliff's choice topic holds 11 prompts and their pads. Each
 pad now carries its prompt's conditions.
 
+<a id="one-option-per-topic"></a>**One option per topic (built 2026-10-26; Jason Bright's pair played 2026-10-26, Doc Mitchell's not yet).** FNV
+shows a topic once, with the prompt of its first passing line. The build
+makes an option per prompt and quest (`Conversations._option`), and the
+whole-map path had dropped the spike's "no earlier option could be chosen"
+test (`dialogue.exclusivity`), so a topic whose lines carry two prompts
+showed both whenever both could pass. Found in the records while auditing
+the [menu audit plan](fo4_menu_audit.md#exclusion): Jason Bright offered
+"Sorry. Not interested." and "Like I said, not interested." together before
+the first (Say Once) was said; Doc Mitchell offered "Okay, fix me. Here's
+100 caps." beside "Sorry, I don't have 100 caps." to a player holding 100
+caps. Up to 167 FNV topics have two prompts for one named speaker that can
+pass together.
+- *The test.* An option now also needs each line of another option of the
+  topic that FNV tries before one of the option's lines to fail, unless a
+  line of the option before it passes (`Conversations._earlier`). A line
+  fails when a test of each condition group fails (the negated tests as
+  one OR-group, or one per pick of a test from each group), its Hub quest
+  is stopped, or, Say Once, its marker stage is done (`_unpassed`); "a line
+  of the option before it passes" ORs in a group of each such line
+  (`_unless`, Nash's "How can I bring rule of law back to Primm?", whose
+  lines sit before and after four other prompts). A line whose conditions
+  always pass leaves the option a never-true test (GetIsID of the player's
+  base on the NPC), as FNV never reaches it.
+- *Which lines count.* Only a line that can pass for the same actor
+  (`_together`): the same speaker by a lone GetIsID, or a named speaker
+  whose fixed facts let the other line pass (`speaker_facts`: its GetIsID,
+  voice type and factions, through its templates). A faction any script
+  changes (AddToFaction, RemoveFromFaction, SetFactionRank, ModFactionRank
+  in scripts, lines, quests, packages and terminals) is never settled.
+  (`_can_say` settles the line with `settled_on`, shared with holotapes.)
+  Tried and dropped (third build, 2026-10-26): settling an earlier line
+  naming no speaker on each of the option's speakers, one OR-group each
+  guarded by "the speaker is not them". On FNV's records with every form
+  built it cut GOODBYE by a fifth; on the real build it added 23% more
+  tests (701,128 against 568,860), as one OR-group per speaker outweighs
+  one shared one.
+- *The cap.* The first build (2026-10-25) had neither and no cap: options'
+  conditions grew from 476,319 to 3,578,008 (27.9 MB to 145.8 MB of the
+  plugin), 99% of it in the shared GOODBYE topic, whose generic options
+  came after dozens of named NPCs' own lines, every pad copying the tests.
+  An option's test now takes at most `MAX_CLAUSES` OR-groups, earliest
+  lines first; one past it is not tested (counted). On FNV's records (every
+  form treated as built) a GOODBYE menu's share fell from 77,276 tests to
+  10,723.
+- *Not tested (counted):* a line whose negation does not convert or would
+  need more than `MAX_CLAUSES` OR-groups, and one past an option's cap.
+  Those options can still show beside the earlier one, as before.
+- *Measured on the whole-map build (2026-10-26).* Menus where two options
+  of one FNV topic can pass at once, by their built conditions alone: 760
+  menus in 113 topics before, 152 in 8 after; Jason Bright's and Doc
+  Mitchell's menus now exclusive. Of the 8: GOODBYE (the cap); three
+  doctor topics the count reports only because it does not know speakers'
+  fixed facts (Ada Strauss and Linda Schuler are not in
+  DoctorsDialogueFaction, Doc Mitchell has the voice type the Doctors
+  quest excludes); four (Big Sal, Gloria Van Graff, Diane, Primm's deputy)
+  where the earlier option's own gate is looser than its lines (its "one
+  answer unsaid" OR-group or speakers judged apart from the answers), so
+  it shows with no answer passing. Options' tests: 476,319 before (27.9
+  MB), 1,242,864 after (57.1 MB, 95% GOODBYE); the plugin went from 403 to
+  432 MB.
+
 <a id="say-once"></a>**Say Once across copies (built 2026-10-15; markers moved to their own quest 2026-10-19).**
 In FNV, Say Once belongs to the NPC's line. Once it's said, the topic
 drops out of every menu.

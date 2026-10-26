@@ -22,9 +22,8 @@ from pathlib import Path
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.base.writer import pack_fo4_record, pack_quest, pack_topic
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
-from fo4_import.spike.say_topics import raws, with_conditions
+from fo4_import.spike.say_topics import settled_on
 from fo4_import.spike.voice_types import with_voice
 from tes5_import.base.tes5_reader import walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
@@ -37,8 +36,8 @@ VOICE, SPEAKER, OUTPUT = 1, 0x1C0380, 0x073265
 TOPIC = (bytes([0, 2, 0x11, 0]), b'SCEN')
 #: Holotape scene FNAM, scene action type Radio, and the actor id of none, as DN150_BonnieHolotape.
 SCENE_FLAGS, RADIO, NO_ACTOR = 0x104, 6, -2
-#: FNV NOTE DATA type of a voice note; FNV condition Run On Subject.
-FNV_VOICE, SUBJECT = 3, 0
+#: FNV NOTE DATA type of a voice note.
+FNV_VOICE = 3
 
 
 def _zstr(sig: str, text: str) -> bytes:
@@ -140,23 +139,11 @@ class Holotapes:
 
 
 def spoken_by(info: dict, speaker: dict) -> 'dict | None':
-    """FNV line `info` as said by the note's speaker record `speaker`: its Subject GetIsID and GetIsVoiceType tests
-    settled on that speaker, OR flags redone; None when its conditions never pass.
+    """`info` settled on the note's speaker record `speaker`; None if it never passes.
     See: docs/fork/fo4_pipeline.md#holotapes
     """
-    known = {'GetIsID': int(speaker['FormID'], 16), 'GetIsVoiceType': int(speaker.get('VTCK.Voice', '0'), 16)}
-
-    def settle(cond: dict) -> 'bool | None':
-        """The outcome of a Subject identity test of the speaker; None for any other test."""
-        if cond['run_on'] != SUBJECT or cond['op_flags'] & C.USE_GLOBAL or cond['func'] not in known:
-            return None
-        return C.compare(cond, float(cond['p1'] == known[cond['func']]))
-
-    kept = C.simplify([{**C.parse(raw), 'raw': raw} for raw in raws(info)], settle)
-    if kept is None:
-        return None
-    return with_conditions(info, [f'{int(c["raw"][:2], 16) & ~C.OR_NEXT | (C.OR_NEXT if i < len(g) - 1 else 0):02x}'
-                                  f'{c["raw"][2:]}' for g in kept for i, c in enumerate(g)])
+    return settled_on(info, {'GetIsID': int(speaker['FormID'], 16),
+                             'GetIsVoiceType': int(speaker.get('VTCK.Voice', '0'), 16)})
 
 
 def speaker_npc(builder, key: str, edid: str, name: str, fnv_voice: int) -> 'int | None':

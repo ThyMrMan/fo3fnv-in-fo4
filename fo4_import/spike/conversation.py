@@ -36,15 +36,20 @@ import collections
 import heapq
 import itertools
 import math
+import re
+import struct
 from dataclasses import dataclass, field
 
 from fo4_import.base.writer import pack_topic
+from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
-from fo4_import.spike.dialogue import LEAVE, menu_action
+from fo4_import.spike.dialogue import LEAVE, NEGATE, menu_action
+from fo4_import.spike.npcs import USE_FACTIONS, USE_TRAITS, template_source
 from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS
 from fo4_import.spike.readiness import CHOICE_UNANSWERED
-from fo4_import.spike.say_topics import PART, PARTS, conditions_of, parsed, raws
+from fo4_import.spike.say_once import STAGE_DONE
+from fo4_import.spike.say_topics import COMPARE, PART, PARTS, conditions_of, parsed, raws, settled_on, with_conditions
 from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX
 
 #: FNV INFO DATA flags.
@@ -64,10 +69,15 @@ IS_ID, QUEST_RUNNING, GLOBAL_VALUE = C.FO4.index(SPEAKER_TEST), C.FO4.index('Get
 MIXED = ('mixed',)
 #: The player's base form (NPC_), which vanilla's player Hello lines test with GetIsID.
 PLAYER_BASE = 0x7
+#: A player line's test that never passes: the NPC it is said to is the player's base.
+NEVER = R.pack_ctda(0, 1.0, IS_ID, PLAYER_BASE, run_on=R.RUN_TARGET)
 #: Topics an XDI menu takes, in this order (dialogue.menu_action): four player topics, then the NPC's.
 MENU_TOPICS = 5
-#: Most OR-groups an option's "some answer passes" test is spread into (its lines' groups multiplied).
+#: Most OR-groups an option's "some answer passes" test is spread into, and most its _earlier test takes.
 MAX_CLAUSES = 16
+#: FNV record types holding scripts, and a script call adding an actor to a faction or taking it out (the faction).
+SCRIPTED = ('SCPT', 'INFO', 'QUST', 'PACK', 'TERM')
+FACTION_CHANGE = re.compile(r'\b(?:AddToFaction|RemoveFromFaction|SetFactionRank|ModFactionRank)[\s,]+(\w+)', re.I)
 
 
 @dataclass
@@ -77,7 +87,9 @@ class Hub:
     `lines` {FNV INFO: record} of all cell quests, `topics` the FNV topics the
     list shows (top-level or added), `gates` {topic: FO4 global its AddTopic
     sets}, `quests` {FNV quest: (FO4 quest, FNV priority)}, `by_topic` {FNV
-    topic: [(position in `lines`, INFO)] in that order}.
+    topic: [(position in `lines`, INFO)] in that order}, `actors` {FNV actor
+    FormID: its NPC_ or CREA record} and `unfixed` the factions scripts change,
+    for speakers' fixed facts (speaker_index, speaker_facts).
     """
 
     lines: dict = field(default_factory=dict)
@@ -85,6 +97,8 @@ class Hub:
     gates: dict = field(default_factory=dict)
     quests: dict = field(default_factory=dict)
     by_topic: dict = field(default_factory=dict)
+    actors: dict = field(default_factory=dict)
+    unfixed: frozenset = frozenset()
 
 
 def hub(say, quests: list, quest_fids: dict, added: set) -> Hub:
@@ -115,7 +129,7 @@ class Conversations:
         self.say, self.quest, self.fid, self.form_map, self.keyword = say, quest, quest_fid, form_map, keyword
         self.lines = {r['FormID'].upper(): r for r in say.infos.get(quest['FormID'].upper(), [])}
         self.hub, self.topics, self.scenes, self.placed, self.labels = shared, [], [], {}, {}
-        self.packaged, self.legacy = {}, {}
+        self.packaged, self.legacy, self.memo = {}, {}, {}
 
     def has_lines(self) -> bool:
         """True when the quest has lines (said from its Speaker and Listener)."""
@@ -273,22 +287,25 @@ class Conversations:
     def _option(self, dial: str, menu: tuple, continues: bool, owner: str) -> None:
         """Add FNV topic `dial` to menu `menu` (player, npc) of step `owner`: an option per prompt and quest among its
         lines (FNV shows the first passing line's; a quest's conditions scope its speakers), each padded to its
-        answers."""
-        prompts = {}
+        answers and hidden while a line FNV tries first passes (_earlier)."""
+        prompts, order = {}, []
         for rec in (self.hub.lines[i] for _, i in self.hub.by_topic.get(dial, ())):
-            text = rec.get('Prompt') or self.say.dials[dial].get('FULL', '')
-            prompts.setdefault((text, rec.get('QSTI.Quest', '')), []).append(part(rec, 1))
-        added = [self._prompt(dial, text, members, menu, continues, f'{owner} {dial} for {quest}')
-                 for (text, quest), members in prompts.items()]
+            key = (rec.get('Prompt') or self.say.dials[dial].get('FULL', ''), rec.get('QSTI.Quest', ''))
+            prompts.setdefault(key, []).append(part(rec, 1))
+            order.append((key, rec, named_speaker(rec)))
+        added = [self._prompt(dial, key[0], members, menu, continues, f'{owner} {dial} for {key[1]}',
+                              self._earlier(key, order))
+                 for key, members in prompts.items()]
         if not any(added):
             self.say.builder.counts['choice without a line in the quest'] += 1
             self.say.builder.readiness.add(CHOICE_UNANSWERED, self.quest['FormID'],
                                            f'{self.say.dials[dial].get("EditorID", dial)} ({dial})')
 
-    def _prompt(self, dial: str, text: str, members: list, menu: tuple, continues: bool, place: str) -> bool:
+    def _prompt(self, dial: str, text: str, members: list, menu: tuple, continues: bool, place: str,
+                earlier: bytes = b'') -> bool:
         """Add one option of FNV topic `dial` with prompt `text` answered by `members` to `menu` (player, npc),
         its pads (one per further answer) on the prompt's conditions; False when no line of it converts.
-        `place` (step, topic, quest) keys its FormIDs.
+        `place` (step, topic, quest) keys its FormIDs; `earlier` CTDAs hide it while a line FNV tries first passes.
         See: docs/fork/fo4_pipeline.md#blank-choices
         """
         player, npc = menu
@@ -300,7 +317,7 @@ class Conversations:
             shown = conditions_of(members[0], self.form_map, self.say.script_vars, swap=True) or b''
         else:
             shown = self._shared(members) + self._either(members) + self._speakers(members)
-        shown += self._running(members[0]) + self._gate(dial)
+        shown += earlier + self._running(members[0]) + self._gate(dial)
         shown += self.say.once.unsaid([r['FormID'] for r in members]) if once else b''
         owner, take = f'INFO prompt {dial} {text}', self.say.builder.new_id
         player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), once, (text,), shown, prompt=text))
@@ -351,12 +368,113 @@ class Conversations:
         return b''.join(R.pack_ctda(OR if i < len(tests) - 1 else 0, 1.0, IS_ID, npc, run_on=R.RUN_TARGET)
                         for i, npc in enumerate(tests))
 
-    def _running(self, rec: dict) -> bytes:
-        """GetQuestRunning on FNV line `rec`'s quest when it is a Hub quest other than this one."""
+    def _earlier(self, key: tuple, order: list) -> bytes:
+        """CTDAs (player's side) holding while no line of another option of the topic that FNV tries first passes:
+        each such line that can pass beside a later line of option `key` (_together) fails, or a line of the
+        option before it passes (_unless); `order` [(option, FNV line, speaker)] in Hub order. One that does not
+        convert, or would take the option past MAX_CLAUSES OR-groups, is not tested (counted).
+        See: docs/fork/fo4_pipeline.md#one-option-per-topic
+        """
+        own = [(at, rec, speaker) for at, (other, rec, speaker) in enumerate(order) if other == key]
+        out, counts = {}, self.say.builder.counts
+        for at, (other, rec, speaker) in enumerate(order):
+            beside = [(j, mine) for j, mine, by in own if other != key and self._together(rec, speaker, mine, by)]
+            if not beside or beside[-1][0] < at:
+                continue
+            tests = self._unless(self._unpassed(rec), [mine for j, mine in beside if j < at], speaker)
+            fits = tests is not None and len(out | dict.fromkeys(tests)) <= MAX_CLAUSES
+            counts['earlier line tested' if fits else 'earlier line not tested'] += 1
+            out |= dict.fromkeys(tests) if fits else {}
+        return b''.join(out)
+
+    def _together(self, rec: dict, speaker, mine: dict, by) -> bool:
+        """Whether FNV lines `rec` and `mine`, of speakers `speaker` and `by` (named_speaker), can pass for one
+        actor: the same named speaker, or a named one whose fixed facts let the other line pass."""
+        if speaker and by:
+            return speaker == by
+        if speaker or by:
+            return self._can_say(speaker or by, mine if speaker else rec)
+        return True
+
+    def _can_say(self, actor: int, rec: dict) -> bool:
+        """Whether FNV actor `actor`'s fixed facts (speaker_facts) let FNV line `rec` pass."""
+        key = ('says', actor, rec['FormID'])
+        if key not in self.memo:
+            self.memo[key] = settled_on(rec, speaker_facts(self.hub, actor)) is not None
+        return self.memo[key]
+
+    def _unless(self, clauses: 'list | None', before: list, speaker) -> 'list | None':
+        """`clauses` (OR-groups holding while a line of `speaker` fails), each ORed with one group of every line in
+        `before` (one of them passes, _passing), less that speaker's own test; None when one does not convert or
+        there would be more than MAX_CLAUSES."""
+        if clauses is None or not before:
+            return clauses
+        own = R.pack_ctda(0, 1.0, IS_ID, self.form_map.get(speaker, 0), run_on=R.RUN_TARGET)
+        groups = [None if g is None else [t for t in g if t != own] for g in map(self._passing, before)]
+        if None in groups or len(clauses) * math.prod(len(g) for g in groups) > MAX_CLAUSES:
+            return None
+        return [_any_of(list(pick) + [c]) for c in clauses for pick in itertools.product(*groups)]
+
+    def _unpassed(self, rec: dict) -> 'list | None':
+        """OR-groups (player's side) all holding while FNV line `rec` cannot pass in this quest's scenes: a test of
+        each of its condition groups fails (one OR-group per pick of a test from each, at most MAX_CLAUSES), or
+        it is held back (_held); None when a test does not convert.
+        See: docs/fork/fo4_pipeline.md#one-option-per-topic
+        """
+        key = ('fails', rec['FormID'])
+        if key not in self.memo:
+            groups = _groups(rec)
+            picks = list(itertools.product(*groups)) if math.prod(len(g) for g in groups) <= MAX_CLAUSES else []
+            clauses = [self._clause(rec, pick) for pick in picks]
+            self.memo[key] = None if not picks or None in clauses else [c for c in clauses if c]
+        return self.memo[key]
+
+    def _clause(self, rec: dict, pick: tuple) -> 'bytes | None':
+        """One OR-group (player's side): a test in `pick` (a raw test from each condition group of FNV line `rec`)
+        fails, or `rec` is held back (_held); b'' when it always holds, None when a test does not convert."""
+        fnv = self._tests(rec, [negated(raw, i < len(pick) - 1) for i, raw in enumerate(pick)])
+        if not fnv:
+            return fnv
+        return _any_of([R.pack_ctda(0, value, func, p1, p2) for func, value, p1, p2 in self._held(rec)] + [fnv])
+
+    def _passing(self, rec: dict) -> 'list | None':
+        """OR-groups (player's side) all holding while FNV line `rec` passes here: its condition groups that can
+        fail, its Hub quest running and (Say Once) unsaid; [NEVER] when it never passes, None when one does not
+        convert."""
+        key = ('passes', rec['FormID'])
+        if key not in self.memo:
+            groups = [self._tests(rec, list(group)) for group in _groups(rec)]
+            held = [R.pack_ctda(0, 1.0 - value, func, p1, p2) for func, value, p1, p2 in self._held(rec)]
+            self.memo[key] = None if None in groups else [NEVER] if NEVER in groups else [g for g in groups if g] + held
+        return self.memo[key]
+
+    def _tests(self, rec: dict, tests: list) -> 'bytes | None':
+        """FNV raw `tests` (one OR-group) of line `rec` from the player's side: b'' when they always hold, NEVER
+        when they never can (or are none), None when one does not convert."""
+        probe = with_conditions(rec, tests)
+        settled = C.without_absent(parsed(probe), self.form_map) if tests else None
+        if not settled:
+            return NEVER if settled is None else b''
+        return conditions_of(probe, self.form_map, self.say.script_vars, swap=True)
+
+    def _held(self, rec: dict) -> list:
+        """FO4 tests [(function, value, param 1, param 2)], each true while FNV line `rec`'s copy here cannot play
+        whatever its conditions: its Hub quest is stopped, or (Say Once) its marker stage is done."""
+        quest = self._hub_quest(rec)
+        out = [(QUEST_RUNNING, 0.0, quest, 0)] if quest else []
+        if int(rec.get('DATA.Flags', 0)) & SAY_ONCE:
+            out.append((STAGE_DONE, 1.0, self.say.once.quest, self.say.once.stage(rec['FormID'])))
+        return out
+
+    def _hub_quest(self, rec: dict) -> int:
+        """FO4 quest of FNV line `rec` if a Hub quest other than this one, else 0."""
         quest = rec.get('QSTI.Quest', '').upper()
-        if quest == self.quest['FormID'].upper() or quest not in self.hub.quests:
-            return b''
-        return R.pack_ctda(0, 1.0, QUEST_RUNNING, self.hub.quests[quest][0])
+        return self.hub.quests[quest][0] if quest != self.quest['FormID'].upper() and quest in self.hub.quests else 0
+
+    def _running(self, rec: dict) -> bytes:
+        """GetQuestRunning on FNV line `rec`'s Hub quest, if not this one."""
+        quest = self._hub_quest(rec)
+        return R.pack_ctda(0, 1.0, QUEST_RUNNING, quest) if quest else b''
 
     def _gate(self, dial: str) -> bytes:
         """GetGlobalValue of the global FNV topic `dial`'s AddTopic sets, when it is gated."""
@@ -461,6 +579,63 @@ def one_each(rest: list) -> tuple:
     """
     shared = collections.Counter(g for groups in rest for g in set(groups))
     return tuple(max(groups, key=lambda g: shared[g]) for groups in rest)
+
+
+def negated(raw: str, or_next: bool) -> str:
+    """FNV test `raw` (hex) negated, ORed with the next when `or_next`."""
+    op = int(raw[:2], 16)
+    return f'{op & ~(COMPARE | OR) | NEGATE[op & COMPARE] | (OR if or_next else 0):02x}{raw[2:]}'
+
+
+def named_speaker(rec: dict) -> 'int | None':
+    """The NPC FNV line `rec` names alone in a condition group (GetIsID == 1 on the subject); None: anyone."""
+    for group in _groups(rec):
+        cond = C.parse(group[0])
+        if len(group) == 1 and cond['func'] == SPEAKER_TEST and cond['value'] == 1.0 and cond['run_on'] == R.RUN_SUBJECT \
+                and not cond['op_flags'] & COMPARE:
+            return cond['p1']
+    return None
+
+
+def speaker_index(export_dir) -> tuple:
+    """({FNV actor FormID: NPC_ or CREA record}, the FNV factions a script adds actors to or takes them from)."""
+    actors = {int(r['FormID'], 16): r for sig in ('NPC_', 'CREA') for r in export_records(export_dir, sig)}
+    names = {r['EditorID'].lower(): int(r['FormID'], 16) for r in export_records(export_dir, 'FACT') if r.get('EditorID')}
+    changed = {m.lower() for sig in SCRIPTED for r in export_records(export_dir, sig) for v in r.values()
+               if isinstance(v, str) for m in FACTION_CHANGE.findall(v)}
+    return actors, frozenset(names[n] for n in changed if n in names)
+
+
+def speaker_facts(shared: Hub, actor: int) -> dict:
+    """FNV actor `actor`'s fixed facts for C.speaker_settle: itself, its voice type and its factions, through its
+    templates (npcs.template_source); a faction a script changes (`shared.unfixed`) stays unsettled."""
+    facts, rec = {'GetIsID': actor, 'unfixed': shared.unfixed}, shared.actors.get(actor)
+    if rec is None:
+        return facts
+    traits, lost = template_source(shared.actors, rec, USE_TRAITS)
+    if not lost and traits.get('VTCK.Voice'):
+        facts['GetIsVoiceType'] = int(traits['VTCK.Voice'], 16)
+    member, gone = template_source(shared.actors, rec, USE_FACTIONS)
+    if not gone:
+        facts['GetInFaction'] = frozenset(int(member[f'Faction[{i}].FormID'], 16)
+                                          for i in range(int(member.get('FactionCount', 0) or 0))
+                                          if int(member[f'Faction[{i}].Rank']) >= 0)
+    return facts
+
+
+def _any_of(pieces: list) -> bytes:
+    """One OR-group of FO4 condition `pieces`, NEVER ones dropped; NEVER if none."""
+    pieces = [p for p in pieces if p and p != NEVER]
+    return b''.join(_chained(p) for p in pieces[:-1]) + pieces[-1] if pieces else NEVER
+
+
+def _chained(tests: bytes) -> bytes:
+    """FO4 condition subrecords `tests` (CTDA, CIS1, CIS2), their last CTDA ORed with what follows."""
+    at, last = 0, -1
+    while at < len(tests):
+        last = at if tests[at:at + 4] == b'CTDA' else last
+        at += 6 + struct.unpack_from('<H', tests, at + 4)[0]
+    return tests[:last + 6] + bytes([tests[last + 6] | OR]) + tests[last + 7:] if last >= 0 else tests
 
 
 def _groups(rec: dict) -> list:

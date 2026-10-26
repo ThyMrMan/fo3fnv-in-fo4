@@ -75,7 +75,7 @@ SPEAKER_TESTS = ('GetIsID', 'GetInFaction', 'GetIsVoiceType')
 #: FNV INFO DATA flags.
 GOODBYE, RANDOM, SAY_ONCE, RANDOM_END = 0x01, 0x02, 0x04, 0x20
 #: CTDA comparison operator -> its negation.
-_NEGATE = {0x00: 0x20, 0x20: 0x00, 0x40: 0xA0, 0xA0: 0x40, 0x60: 0x80, 0x80: 0x60}
+NEGATE = {0x00: 0x20, 0x20: 0x00, 0x40: 0xA0, 0xA0: 0x40, 0x60: 0x80, 0x80: 0x60}
 _OP_LESS = 0x80
 
 
@@ -294,7 +294,7 @@ class Spike:
             if len(members) > 1 or any(len(g) > 1 for g in kept):
                 self.report.append(f'{where}: earlier prompt with OR/multi-INFO conditions not excluded')
                 continue
-            group = [dict(g[0], op_flags=_NEGATE[g[0]['op_flags'] & 0xE0]) for g in kept]
+            group = [dict(g[0], op_flags=NEGATE[g[0]['op_flags'] & 0xE0]) for g in kept]
             if _int(rec, 'DATA.Flags') & SAY_ONCE:
                 group.append(_cond('GetStageDone', 0, 1.0, self.quest, self.stage(('said', rec['FormID']))))
             if group:
@@ -338,7 +338,7 @@ class Spike:
     def negate(self, groups: list, where: str) -> list:
         """OR-groups for NOT(groups): exact for one OR-group or all single conditions, else [] and a report."""
         def flip(c):
-            return dict(c, op_flags=_NEGATE[c['op_flags'] & 0xE0])
+            return dict(c, op_flags=NEGATE[c['op_flags'] & 0xE0])
         if len(groups) == 1:
             return [[flip(c)] for c in groups[0]]
         if all(len(g) == 1 for g in groups):
