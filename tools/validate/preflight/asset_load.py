@@ -124,7 +124,7 @@ def textures_in(data: bytes) -> set:
     return {norm(m.decode('latin-1'), 'textures') for m in _TEXTURE.findall(data)}
 
 
-def _users_detail(users: list) -> tuple:
+def users_detail(users: list) -> tuple:
     """Detail lines naming a mesh's first users and its placement total."""
     placed = sum(n for _label, n in users)
     lines = [f'used by {label}' for label, _n in users[:_USERS_SHOWN]]
@@ -139,13 +139,13 @@ def nif_findings(game: str, path: str, data: bytes, known: set, users: list) -> 
         header = parse_header(data)
     except (IndexError, ValueError, UnicodeDecodeError):
         return [Finding('assets', f'assets|{game}|unreadable|{path}', 'review',
-                        f'{path} has a header the audit cannot read', _users_detail(users))]
+                        f'{path} has a header the audit cannot read', users_detail(users))]
     dead = sorted({header['types'][t] for t in header['tidx']} - known)
     if not dead:
         return []
     return [Finding('assets', f'assets|{game}|block|{path}', 'error',
                     f'{path} has blocks Skyrim cannot build ({", ".join(dead)}): a red error marker',
-                    _users_detail(users))]
+                    users_detail(users))]
 
 
 def in_source(path: str, source_dir: Path) -> bool:
@@ -171,7 +171,7 @@ def _missing_meshes(game: str, users: dict, archives, own: str, source_dir: Path
             continue
         if path.split('\\')[1:2] == [own]:
             out.append(_absent(game, 'missing', path, source_dir, 'a red error marker',
-                               _users_detail(users[path])))
+                               users_detail(users[path])))
         else:
             outside[path.split('\\')[1]].append(path)
     for folder, paths in sorted(outside.items()):

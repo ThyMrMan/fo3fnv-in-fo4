@@ -99,6 +99,23 @@ Faction Function _PlayerEnemyFaction() Global
   Return Game.GetFormFromFile(0x00106C2F, "Fallout4.esm") as Faction
 EndFunction
 
+; fallout4: new
+Function PushActorAway(ObjectReference akSource, Actor akTarget, Float afForce) Global
+  {FNV's PushActorAway. Fallout 4 never ragdolls the player by script (every vanilla push is the player's on an NPC) and its get-up can drop the player through the ground, so the player is staggered as Fallout4.esm's PerkStagger (0x1D33D6) does; anyone else is pushed. See docs/fork/fo4_pipeline.md#attack-spells}
+  If akSource == None || akTarget == None
+    Return
+  EndIf
+  Bool staggered = akTarget == Game.GetPlayer()
+  If Tracing()
+    TraceWrite("push", TraceName(akSource) + "|" + TraceName(akTarget) + "|" + afForce + "|staggered " + staggered)
+  EndIf
+  If staggered
+    (Game.GetFormFromFile(0x001D33D6, "Fallout4.esm") as Spell).Cast(akSource, akTarget)
+  Else
+    akSource.PushActorAway(akTarget, afForce)
+  EndIf
+EndFunction
+
 ; fallout4: replaces ForceCombatNow 8c58cc5780a8af03fadc8b3d12810637906ad569
 Bool Function ForceCombatNow(Actor akAttacker, Actor akTarget, Faction akAttackers, Faction akVictims, Bool abAdd = False) Global
   {The shared ForceCombatNow; a fight with the player puts the other actor in _PlayerEnemyFaction.}
@@ -227,6 +244,15 @@ EndFunction
 Bool Function InMenuMode() Global
   {FO3/FNV menu mode: a pausing menu is open, or a character menu (SPECIAL, LevelUpMenuEx's tags and traits, the face) that FO4 does not count as one.}
   Return Utility.IsInMenuMode() || UI.IsMenuOpen("SPECIALMenu") || UI.IsMenuOpen("LevelUpMenu") || UI.IsMenuOpen("LooksMenu")
+EndFunction
+
+; fallout4: new
+Bool Function MenuMode(Int aiMenu = 0) Global
+  {FO3/FNV MenuMode <id>: the dialogue menu (1009) while the player talks, else any menu (InMenuMode); Papyrus cannot tell the other menus apart.}
+  If aiMenu == 1009
+    Return PlayerIsInDialogue()
+  EndIf
+  Return InMenuMode()
 EndFunction
 
 ; fallout4: new
@@ -415,6 +441,67 @@ EndFunction
 String Function TracePosition(ObjectReference akRef, String asWhen) Global
   {A trace line's reference, x, y, z and moment.}
   Return TraceName(akRef) + "|" + akRef.GetPositionX() + "|" + akRef.GetPositionY() + "|" + akRef.GetPositionZ() + "|" + asWhen
+EndFunction
+
+; fallout4: new
+Function TraceActivate(ObjectReference akRef, ObjectReference akActionRef) Global
+  {A scripted actor's OnActivate: who activated it.}
+  If Tracing()
+    TraceWrite("activate", TraceName(akRef) + "|" + TraceName(akActionRef))
+  EndIf
+EndFunction
+
+; fallout4: new
+Function TraceAnimEvents(ScriptObject akListener, ObjectReference akRef) Global
+  {While tracing, `akListener` hears `akRef`'s combat graph events (TraceAnim): the attack, ready and fire events FO4 fires a gun on.}
+  If !Tracing()
+    Return
+  EndIf
+  String[] names = new String[15]
+  names[0] = "rangedAttackStart"
+  names[1] = "weaponFire"
+  names[2] = "AttackState0"
+  names[3] = "attackState"
+  names[4] = "ReadyState"
+  names[5] = "AttackEnd"
+  names[6] = "attackStop"
+  names[7] = "weaponDraw"
+  names[8] = "HitFrame"
+  names[9] = "weaponSheathe"
+  names[10] = "attackStart"
+  names[11] = "AttackState1"
+  names[12] = "AttackState2"
+  names[13] = "AttackState3"
+  names[14] = "AttackState4"
+  Int i = 0
+  While i < names.Length
+    akListener.RegisterForAnimationEvent(akRef, names[i])
+    i += 1
+  EndWhile
+  TraceEquipped(akRef as Actor)
+EndFunction
+
+; fallout4: new
+Function TraceEquipped(Actor akActor) Global
+  {While tracing, `akActor`'s equipped weapon in each of equip indices 0-4 (a robot's slots in its race's QNAM order).}
+  If !Tracing() || !akActor
+    Return
+  EndIf
+  String found = ""
+  Int slot = 0
+  While slot < 5
+    found += "|" + akActor.GetEquippedWeapon(slot)
+    slot += 1
+  EndWhile
+  TraceWrite("equipped", TraceName(akActor) + found)
+EndFunction
+
+; fallout4: new
+Function TraceAnim(ObjectReference akSource, String asEventName) Global
+  {One graph event TraceAnimEvents registered for.}
+  If Tracing()
+    TraceWrite("anim", TraceName(akSource) + "|" + asEventName)
+  EndIf
 EndFunction
 
 ; fallout4: new

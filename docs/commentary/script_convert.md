@@ -1221,6 +1221,25 @@ copied verbatim from `SkyrimSE.exe` (note the space in `RaceSex Menu`):
 |---|---|---|
 | 1036 | `RaceSex Menu` | FNV stage 36 calls `ShowRaceMenu`; Nehrim's block feeds `LongInCharacterDesigner` |
 
+#### <a id="menumode-dialogue"></a>`begin MenuMode 1009` runs in the dialogue gate (Fallout 4)
+
+1009 is the dialogue menu. FNV opens it for every conversation, a one-line
+Goodbye greeting included, and runs the block every frame it is up; FO4
+plays such a greeting with no `DialogueMenu` at all, so a menu-close
+listener never fires. The block's body runs instead in the poll's dialogue
+gate (`_dialogue_gate`, which any script with a 1009 block gets): the pass
+that skips GameMode while the actor or the player talks, on exactly
+FNV's frames. Its one FNV user, `Lucky38VictorElevatorScript`, steps
+`DelayCounter` 1 to 2 there; GameMode then shows the elevator box once
+`MenuMode 1009 != 1`. Without the step the counter stuck at 1 and every
+later activation skipped Victor's talk package (played 2026-10-28).
+
+The `MenuMode <id>` READ is `TES4Polyfill.MenuMode` on Fallout 4: the
+dialogue menu while the player talks, any other id "a menu is open"
+(Papyrus cannot tell them apart). As a command with no row it compiled to
+`false`, so `MenuMode 1009 != 1` never passed and the elevator box never
+showed.
+
 #### <a id="menumode-message-box"></a>`begin MenuMode 1001` runs as the script's own box closes
 
 1001 is the message box. FO3/FNV's button idiom is `ShowMessage <MESG>` in

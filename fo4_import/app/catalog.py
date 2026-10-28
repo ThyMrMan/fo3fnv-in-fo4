@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fo4_import.base.strings import KINDS, parse
+from fo4_import.spike.actor_data import ACBS_TEMPLATE
 from fo4_import.spike.equipment import DNAM_AMMO, DNAM_CAPACITY, DNAM_DAMAGE, DNAM_VALUE, DNAM_WEIGHT
 from fo4_import.spike.gun_choice import OBTS_DEFAULT, includes
 from fo4_import.spike.replacements import BASE, DLC, plugin_masters
@@ -31,8 +32,8 @@ PARTS = LINKED[b'OMOD']
 MOD2_TYPES = (b'ARMO', b'ARMA')
 #: TES4 header flag: FULL and DESC hold string IDs into the plugin's strings files.
 LOCALIZED = 0x80
-#: FO4 ACBS: offset of the template flags, and the flag taking traits (race, skin) from the template.
-ACBS_TEMPLATE_FLAGS, USE_TRAITS = 14, 0x1
+#: FO4 ACBS template flag taking traits (race, skin) from the template.
+USE_TRAITS = 0x1
 #: Plugins shown together as "Fallout 4 + DLC".
 BASE_GAME = (BASE, *DLC)
 #: Links followed at most in a row (templates of templates, lists of lists), against loops.
@@ -135,7 +136,7 @@ class _Plugin:
     def npc_links(self, subs: dict) -> dict:
         """An NPC's skin, race and template keys, and whether it takes its traits from the template."""
         acbs = subs.get(b'ACBS', b'')
-        flags = struct.unpack_from('<H', acbs, ACBS_TEMPLATE_FLAGS)[0] if len(acbs) >= ACBS_TEMPLATE_FLAGS + 2 else 0
+        flags = struct.unpack_from('<H', acbs, ACBS_TEMPLATE)[0] if len(acbs) >= ACBS_TEMPLATE + 2 else 0
         made = {name: self.key(_form(subs[tag])) for name, tag in (('skin', b'WNAM'), ('race', b'RNAM'),
                                                                    ('template', b'TPLT')) if _form(subs.get(tag))}
         return {**made, 'traits': bool(flags & USE_TRAITS) and 'template' in made}

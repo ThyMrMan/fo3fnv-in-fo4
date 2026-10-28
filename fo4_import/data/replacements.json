@@ -1,5 +1,5 @@
 {
-  "_about": "What stands in for each FNV/FO3 form, by category, keyed by the source EditorID. use: 'Plugin|EditorID'. as: item (that record itself), stats (a copy with the source's name and stats), fnv (the source's own mesh). mods: OMOD EditorIDs replacing a gun's default parts at the same attach points. _rules: what forms the table leaves out get (creatures by skeleton folder, NPC bodies, armor by biped slot, melee weapons by animation type). A profile (--profile) and then a user file (--replacements) of the same shape are laid over this one entry by entry. See docs/fork/fo4_replacements.md and docs/fork/fo4_gui.md#replacement-data.",
+  "_about": "What stands in for each FNV/FO3 form, by category, keyed by the source EditorID. use: 'Plugin|EditorID'. as: item (that record itself), stats (a copy with the source's name and stats), fnv (the source's own mesh), rig (a creature on its own FNV skeleton, behaviour and race, from data/creature_rigs.json; the copy's NPC on that race). mods: OMOD EditorIDs replacing a gun's default parts at the same attach points. _rules: what forms the table leaves out get (creatures by skeleton folder, NPC bodies, armor by biped slot, melee weapons by animation type). A profile (--profile) and then a user file (--replacements) of the same shape are laid over this one entry by entry. See docs/fork/fo4_replacements.md and docs/fork/fo4_gui.md#replacement-data.",
 
   "consumable": {
     "Stimpak": {"use": "Fallout4.esm|Stimpak", "as": "item"},
@@ -18,6 +18,18 @@
   "ammo": {},
 
   "weapon": {
+    "WeapNVSecuritronSubmachineGun": {"use": "Fallout4.esm|SentryBotRightMinigun", "as": "stats"},
+    "WeapNVSecuritronLaser": {"use": "Fallout4.esm|Protectron01LeftArmLaserGun", "as": "stats"},
+    "WeapNVSecuritronLauncher": {"use": "Fallout4.esm|SentryBotLeftMiniRocketLauncher", "as": "stats"},
+    "WeapNVSecuritronMissile": {"use": "Fallout4.esm|SentryBotRightShoulderClusterLauncher", "as": "stats"},
+    "MS04FireAntWorkerFlame2HL": {"use": "Fallout4.esm|Protectron02RightArmFlamer", "as": "stats"},
+    "MS04FireAntSoldierFlame2HL": {"use": "Fallout4.esm|Protectron02RightArmFlamer", "as": "stats"},
+    "MS04FireAntGuardFlame2HL": {"use": "Fallout4.esm|Protectron02RightArmFlamer", "as": "stats"},
+    "MS04FireAntQueenFlame2HL": {"use": "Fallout4.esm|Protectron02RightArmFlamer", "as": "stats"},
+    "QueenAnt2HL": {"use": "Fallout4.esm|WeapMirelurkhunter01", "as": "stats"},
+    "CentaurSpitMissile": {"use": "Fallout4.esm|WeapMirelurkhunter01", "as": "stats"},
+    "CentaurEvolvedSpitMissile": {"use": "Fallout4.esm|WeapMirelurkhunter01", "as": "stats"},
+    "SporePlantSpitMissile": {"use": "Fallout4.esm|WeapMirelurkhunter01", "as": "stats"},
     "WeapNV9mmPistol": {"use": "Fallout4.esm|10mm", "as": "stats"},
     "WeapLaserPistol": {"use": "Fallout4.esm|LaserGun", "as": "stats"},
     "WeapNVDynamite": {"use": "Fallout4.esm|fragGrenade", "as": "stats"},
@@ -57,9 +69,13 @@
   "creature": {},
 
   "_rules": {
+    "ability": {
+      "GlowingOneGlowSpell": {"use": "Fallout4.esm|encFeralGhoulGlowing01", "as": "stats"}
+    },
     "creature": {
       "creatures\\dog": {"use": "Fallout4.esm|dogmeat", "as": "fnv"},
-      "creatures\\nvgecko": {"use": "Fallout4.esm|EncViciousDog01Template", "as": "stats"},
+      "creatures\\nvgecko": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\nightstalker": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
       "creatures\\molerat": {"use": "Fallout4.esm|EncMolerat01Template", "as": "stats"},
       "creatures\\blowfly": {"use": "Fallout4.esm|EncBloatfly01Template", "as": "stats"},
       "creatures\\radscorpion": {"use": "Fallout4.esm|EncRadscorpion01Template", "as": "stats"},
@@ -70,8 +86,22 @@
       "creatures\\nvbighorner": {"use": "Fallout4.esm|EncBrahminTemplate", "as": "stats"},
       "creatures\\eyebot": {"use": "Fallout4.esm|EncEyeBot", "as": "stats"},
       "creatures\\protectron": {"use": "Fallout4.esm|EncProtectron01Template", "as": "stats"},
-      "creatures\\nvsecuritron": {"use": "Fallout4.esm|EncProtectron01Template", "as": "stats"},
-      "creatures\\nvmantis": {"use": "Fallout4.esm|EncStingwing01Template", "as": "stats"},
+      "creatures\\nvsecuritron": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\nvmantis": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\nvcazadores": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\nvgiantrat": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\giantant": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\queenant": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\nvsporecarrier": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\centaur": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\nvraven": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\nvsporeplant": {"use": "Fallout4.esm|EncMolerat01Template", "as": "rig"},
+      "creatures\\sentryturret": {"use": "Fallout4.esm|EncTurretBubbleLaserTemplate", "as": "stats"},
+      "creatures\\minisentryturret": {"use": "Fallout4.esm|EncTurretBubbleLaserTemplate", "as": "stats"},
+      "creatures\\robobrain": {"use": "Fallout4.esm|EncProtectron01Template", "as": "stats"},
+      "creatures\\nvpenthouemaincomputer": {"use": "Fallout4.esm|EncProtectron01Template", "as": "speaker"},
+      "creatures\\nvmrhouse": {"use": "Fallout4.esm|EncProtectron01Template", "as": "speaker"},
+      "creatures\\nvfestus": {"use": "Fallout4.esm|EncProtectron01Template", "as": "speaker"},
       "creatures\\smspinebreaker": {"use": "Fallout4.esm|EncSuperMutantTemplate", "as": "stats"},
       "creatures\\smbehemoth": {"use": "Fallout4.esm|EncSMBehemoth01Template", "as": "stats"},
       "creatures\\mistergutsy": {"use": "Fallout4.esm|encMrGutsy01Template", "as": "stats"},

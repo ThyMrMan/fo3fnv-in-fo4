@@ -70,12 +70,18 @@ JOINT_FIELDS = {
                                   ('axle_b', 'perp_2_axle_in_b_1', 'perp_2_axle_in_b_2', 'pivot_b'),
                                   ('min_angle', 'max_angle', 'max_friction')),
 }
+#: A joint's friction torque scales with length like a lever, so FNV's units to FO4's (see fo4_spikes own-rig-ragdoll).
+FRICTION_SCALE = SCALE
 #: FNV motion systems of bodies that never move under physics (keyframed, fixed): their meshes get both sides.
 STILL_MOTIONS = frozenset({6, 7})
 #: FO4's stair-helper layer (31, Skyrim's numbering), met only by the character controller: vanilla's stair ramps.
 STAIR_HELPER = struct.pack('<BBH', 31, 0, 0)
 #: The name of the NiNode carrying a stair-helper ramp body, and an identity rotation as a NiNode stores it.
 STAIR_HELPER_NODE, IDENTITY = 'StairHelper', (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+#: FO4's character controller layer (vanilla creature skeletons' CharacterController and CharacterBumper).
+CHARCONTROLLER = 30
+#: A creature skeleton's controller nodes and their capsules' radius, as a share of its bound's half width.
+CONTROLLER_RADII = (('CharacterController', 0.8), ('CharacterBumper', 1.2))
 #: An empty hkWorldObjectCinfo::Property (data, size, capacity and flags).
 EMPTY_PROPERTY = struct.pack('<3I', 0, 0, 0x80000000)
 
@@ -525,7 +531,8 @@ def _joint(c, bodies: dict) -> 'bytes | None':
         *axes, pivot = [getattr(desc, n) for n in names]
         out += b''.join(struct.pack('<4f', *_moved(fnv, v, False, scale)) for v in axes)
         out += struct.pack('<4f', *_moved(fnv, pivot, True, scale))
-    return out + struct.pack(f'<{len(JOINT_FIELDS[kind][3])}fB', *(getattr(desc, n) for n in JOINT_FIELDS[kind][3]), 0)
+    limits = [getattr(desc, n) * (FRICTION_SCALE if n == 'max_friction' else 1.0) for n in JOINT_FIELDS[kind][3]]
+    return out + struct.pack(f'<{len(limits)}fB', *limits, 0)
 
 
 def _moved(body, v, pivot: bool, scale: float) -> tuple:
@@ -537,6 +544,40 @@ def _moved(body, v, pivot: bool, scale: float) -> tuple:
         unit = scale if is_mesh(body.shape) else SCALE * scale
         x = _rotation(q.x, q.y, q.z, q.w) @ x + (np.array(_vec(body.translation, 3, unit)) if pivot else 0)
     return (*map(float, x), 0.0)
+
+
+def character_controller(nif: NifFile, center: tuple, half: tuple, node_flags: int) -> None:
+    """A creature skeleton's CharacterController and CharacterBumper: root children each holding a phantom capsule
+    (bhkSimpleShapePhantom, layer CHARCONTROLLER) standing on the floor through `center`, its radius the bound's
+    smaller half width (`half`, game units) × CONTROLLER_RADII; Elric makes them vanilla's bhkPhysicsSystem.
+
+    See: docs/fork/fo4_spikes.md#own-rigs
+    """
+    filt = struct.pack('<BBH', CHARCONTROLLER, 0, 0)
+    matrix = struct.pack('<16f', 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+    blocks = _Blocks(nif, animated=True)
+    for name, grow in CONTROLLER_RADII:
+        nif.blocks.append(('NiNode', {'name': nif.string(name), 'extra': [], 'controller': NONE, 'flags': node_flags,
+                                      'translation': (0.0, 0.0, 0.0), 'rotation': IDENTITY, 'scale': 1.0,
+                                      'collision': NONE, 'children': []}))
+        node = len(nif.blocks) - 1
+        nif.blocks[0][1]['children'].append(node)
+        shape = blocks._bhkCapsuleShape(_standing_capsule(center, half, grow))
+        head = struct.pack('<i', shape) + filt + struct.pack('<4xB3x', 1) + EMPTY_PROPERTY
+        phantom = blocks.add('bhkSimpleShapePhantom', head + bytes(8) + matrix)
+        nif.blocks[node][1]['collision'] = blocks.add('bhkSPCollisionObject',
+                                                      struct.pack('<iHi', node, 1 | SYNC_ON_UPDATE, phantom))
+
+
+def _standing_capsule(center: tuple, half: tuple, grow: float) -> SimpleNamespace:
+    """An FNV-unit bhkCapsuleShape standing on the floor through `center` (game units), radius `grow` × the smaller
+    horizontal half size, top at the bound's top."""
+    unit = GAME_PER_HAVOK * SCALE
+    point = lambda z: SimpleNamespace(x=center[0] / unit, y=center[1] / unit, z=z / unit)
+    r = min(half[0], half[1]) * grow
+    top = max(center[2] + half[2] - r, r + 1)
+    return SimpleNamespace(material=SimpleNamespace(material=0), radius=r / unit, radius_1=r / unit,
+                           radius_2=r / unit, first_point=point(r), second_point=point(top))
 
 
 def _rotation(x: float, y: float, z: float, w: float) -> np.ndarray:

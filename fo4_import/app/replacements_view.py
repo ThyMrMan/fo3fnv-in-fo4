@@ -33,6 +33,7 @@ from fo4_import.app.preview.materials import Materials
 from fo4_import.app.replacement_columns import SourceColumn, TargetColumn, fill, stats_text
 from fo4_import.app.stages import GAMES, export_dir
 from fo4_import.nif.creature import PAIRS
+from fo4_import.rig.table import rigs
 from fo4_import.spike import replacements as RP
 from fo4_import.spike.creatures import skeleton_folder
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
@@ -377,13 +378,15 @@ class ReplacementsView(QWidget):
 
 
 def allowed_modes(target, form) -> tuple:
-    """The modes the loader accepts for `target` (FO4 records any; others, leveled lists, as they are), FNV's mesh on
-    a creature only where a rig pair exists for its skeleton folder."""
+    """The modes the loader accepts for `target` (FO4 records any; others, leveled lists, as they are): items any but
+    `rig` and `speaker`; a creature FNV's mesh only where a rig pair exists for its skeleton folder, its own rig only
+    where the rig table has it."""
     if target.plugin.lower() != RP.BASE.lower() or target.sig == 'LVLN':
         return ('item',)
-    if target.category == 'creature' and (form is None or skeleton_folder(form.model) not in PAIRS):
-        return ('item', 'stats')
-    return RP.MODES
+    if target.category != 'creature':
+        return tuple(m for m in RP.MODES if m not in ('rig', 'speaker'))
+    folder = skeleton_folder(form.model) if form is not None else None
+    return ('item', 'stats', 'speaker') + (('fnv',) if folder in PAIRS else ()) + (('rig',) if folder in rigs() else ())
 
 
 def suggest_all(data: dict) -> dict:

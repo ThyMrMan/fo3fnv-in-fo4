@@ -10,10 +10,17 @@ Function Add(Actor akActor, Package akPackage)
   EndIf
   Release(akActor)
   Int i = Packages.Find(akPackage)
+  If TES4Polyfill.Tracing()
+    TES4Polyfill.TraceWrite("scriptpackage", TES4Polyfill.TraceName(akActor) + "|" + akPackage + "|alias " + i)
+  EndIf
   If i >= 0
     (GetAlias(i) as RefCollectionAlias).AddRef(akActor)
   EndIf
   akActor.EvaluatePackage()
+  If TES4Polyfill.Tracing() && i >= 0
+    Utility.Wait(1.0)
+    TES4Polyfill.TraceWrite("scriptpackage", TES4Polyfill.TraceName(akActor) + "|now " + akActor.GetCurrentPackage() + "|running " + IsRunning() + "|alias holds " + (GetAlias(i) as RefCollectionAlias).GetCount())
+  EndIf
 EndFunction
 
 Function Remove(Actor akActor)

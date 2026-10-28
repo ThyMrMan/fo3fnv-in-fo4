@@ -26,10 +26,18 @@ from tes5_import.base.writer import pack_subrecord
 from tes5_import.record_types.actor_common import morality
 from tes5_import.record_types.actors_falloutnv import aggro_radius, aidt_tiers, assistance
 
-#: FNV ACBS flags FO4 defines alike: an NPC's Female, Essential, Respawn, Auto-calc, PC Level Mult; a creature's 3.
-NPC_FLAGS, CREATURE_FLAGS = 0x1 | 0x2 | 0x8 | 0x10 | 0x80, 0x2 | 0x8 | 0x80
-#: The body's ACBS flags a copy drops besides those: Protected.
-PROTECTED = 0x800
+#: FNV creature ACBS Is Ghost and Invulnerable (bits 29, 31; xEdit's FNV list repeats bit 27): FO4's same bits.
+IS_GHOST, INVULNERABLE = 0x20000000, 0x80000000
+#: FNV creature ACBS Allow PC Dialogue (bit 21); FO4 keeps it on the race.
+ACBS_ALLOW_PC_DIALOGUE = 0x200000
+#: FNV ACBS flags FO4 defines alike: an NPC's Female, Essential, Respawn, Auto-calc, PC Level Mult; a creature's 5.
+NPC_FLAGS, CREATURE_FLAGS = 0x1 | 0x2 | 0x8 | 0x10 | 0x80, 0x2 | 0x8 | 0x80 | IS_GHOST | INVULNERABLE
+#: A creature's flags FNV keeps under Base Data, not Stats: Essential, Respawn, Is Ghost, Invulnerable.
+BASE_DATA_FLAGS = 0x2 | 0x8 | IS_GHOST | INVULNERABLE
+#: The body's ACBS flags a copy drops besides those: Protected, and Unique, which FNV has no flag for.
+PROTECTED, UNIQUE = 0x800, 0x20
+#: FO4 ACBS offset of the template flags (u16).
+ACBS_TEMPLATE = 14
 #: FNV record flag of an NPC or creature placed dead (148 of FNV's 150 NPCs named dead; xEdit's Unknown 19).
 STARTS_DEAD_FNV = 0x80000
 #: FO4 ACHR record flag Starts Dead.
@@ -56,8 +64,10 @@ def hit_proof(export_dir: Path, rec: dict) -> bool:
 
 
 def acbs(body: bytes, rec: dict, kept: int, protected: bool = False) -> bytes:
-    """`body` ACBS with `rec`'s `kept` flags and level band; Protected only when `protected`."""
-    flags = struct.unpack_from('<I', body)[0] & ~(kept | PROTECTED) | int(rec.get('ACBS.Flags', 0) or 0) & kept
+    """`body` ACBS with `rec`'s `kept` flags and level band, never Unique; Protected only when `protected`.
+    See: docs/fork/fo4_creature_audit.md#unique
+    """
+    flags = struct.unpack_from('<I', body)[0] & ~(kept | PROTECTED | UNIQUE) | int(rec.get('ACBS.Flags', 0) or 0) & kept
     flags |= PROTECTED if protected else 0
     band = (int(rec.get(k, 0) or 0) for k in ('ACBS.Level', 'ACBS.CalcMin', 'ACBS.CalcMax'))
     return struct.pack('<I', flags) + body[4:LEVEL_AT] + struct.pack('<3H', *band) + body[LEVEL_AT + 6:]

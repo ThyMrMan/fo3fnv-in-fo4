@@ -14,7 +14,8 @@ Each mod also adds its round's keyword (mark), so the Ammo Type hotkey
 (ammo_switch) can tell which round a gun holds.
 
 A mod carries the ammo's effects as properties: damage on AttackDamage,
-spread on both aim cones, a projectile count on NumProjectiles, and DT on
+spread on both aim cones, a projectile count on NumProjectiles, the round's own
+projectile on OverrideProjectile (spike.projectiles), and DT on
 the target's damage resistance the way vanilla's armor-piercing receivers
 do it: the mod adds an enchantment applying a perk (Mod Target Damage
 Resistance) and a weapon actor value the perk reads. DT subtracted comes off
@@ -50,6 +51,8 @@ SET, MUL_ADD, ADD = 0, 1, 2
 ATTACK_DAMAGE, KEYWORDS, MIN_CONE, MAX_CONE, NUM_PROJECTILES, AMMO, ENCHANTMENTS, ACTOR_VALUES = (28, 31, 33, 34, 51,
                                                                                                61, 65, 94)
 PROPERTY = struct.Struct('<B3xB3xH2x4s4sf')
+#: OMOD property OverrideProjectile: what a round FNV gives its own projectile flies (spike.projectiles).
+OVERRIDE_PROJECTILE = 80
 #: Vanilla's second value on an Ammo SET (11 of 11), Enchantments ADD (150 of 151), Keywords ADD (2,253 of 2,295).
 FORM_VALUE2 = 440
 #: OMOD DATA head: include and property counts, two bools, form type, rank, tier, attach point.
@@ -80,7 +83,7 @@ def scaled(which: int, op: int, value: float) -> bytes:
 
 
 def omod_data(point: int, props: list, form: bytes = b'WEAP') -> bytes:
-    """An OMOD DATA for `form` items (WEAP, ARMO) at attach point `point`, `props` sorted."""
+    """An OMOD DATA for `form` items (WEAP or ARMO) at attach point `point`, sorted."""
     ordered = sorted(props, key=lambda p: struct.unpack_from('<H', p, 8)[0])
     return OMOD_HEAD.pack(0, len(ordered), form, point) + bytes(8) + b''.join(ordered)
 
@@ -179,6 +182,9 @@ class AmmoMods:
         props.append(prop(FORM, SET, AMMO, struct.pack('<I', self.builder.items.item(ammo)),
                           struct.pack('<I', FORM_VALUE2)))
         props.append(prop(FORM, ADD, KEYWORDS, struct.pack('<I', self.mark(ammo)), struct.pack('<I', FORM_VALUE2)))
+        override = self.builder.projectiles.override(ammo)
+        if override is not None:
+            props.append(prop(FORM, SET, OVERRIDE_PROJECTILE, struct.pack('<I', override), struct.pack('<I', FORM_VALUE2)))
         fid = self.builder.writer.derive_formid(MOD_SITE, key)
         edid = f'FNV_mod_{self.lists[source]["EditorID"]}_{rec["EditorID"]}'
         subs = pack_string_subrecord('EDID', edid) + pack_string_subrecord('FULL', rec.get('FULL', ''))

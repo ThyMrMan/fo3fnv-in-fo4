@@ -70,6 +70,14 @@ class ScriptEffects:
             self.made[key] = self._spell(self.spells[key])
         return self.made.get(key)
 
+    def effect(self, edid: str, cast: int, delivery: int) -> 'int | None':
+        """The FO4 script effect of FNV effect `edid` cast and delivered so; None for another effect or one whose
+        script did not convert."""
+        rec = self.effects.get(edid)
+        if rec is None or not self.builder.scripts.name(int(rec['DATA.AssocItem'], 16)):
+            return None
+        return self._effect(rec, cast, delivery)
+
     def _converts(self, effect: tuple) -> bool:
         """Whether an FNV effect is an unconditioned, converted script effect."""
         rec = self.effects.get(effect[0])
@@ -95,15 +103,18 @@ class ScriptEffects:
         """A fire-and-forget spell `edid`, delivered on self, of one script effect running FNV script `scpt`'s
         conversion, written once on FormIDs hashed at SITE (key: `edid`); None when the script did not convert."""
         if edid not in self.made:
-            self.made[edid] = None
-            if self.builder.scripts.name(scpt):
-                effect = self.builder.writer.derive_formid(SITE, f'{edid} effect')
-                self._write_effect(effect, f'{edid}Effect', '', self.builder.scripts.vmad(scpt),
-                                   self.effect_data(FIRE_AND_FORGET, DELIVERY['Self']))
-                self.made[edid] = self.builder.writer.derive_formid(SITE, edid)
-                self._write_spell(self.made[edid], edid, '', (0, MANUAL_COST, FIRE_AND_FORGET, DELIVERY['Self']),
-                                  effect_pair(effect, 0.0, 0, 0))
+            self.made[edid] = self.vmad_spell(edid, self.builder.scripts.vmad(scpt), DELIVERY['Self']) \
+                if self.builder.scripts.name(scpt) else None
         return self.made[edid]
+
+    def vmad_spell(self, edid: str, vmad: bytes, delivery: int) -> int:
+        """Write fire-and-forget spell `edid` of one script effect carrying `vmad`, delivered so, on FormIDs hashed
+        at SITE (key: `edid`); its FormID."""
+        effect = self.builder.writer.derive_formid(SITE, f'{edid} effect')
+        self._write_effect(effect, f'{edid}Effect', '', vmad, self.effect_data(FIRE_AND_FORGET, delivery))
+        fid = self.builder.writer.derive_formid(SITE, edid)
+        self._write_spell(fid, edid, '', (0, MANUAL_COST, FIRE_AND_FORGET, delivery), effect_pair(effect, 0.0, 0, 0))
+        return fid
 
     def _write_spell(self, fid: int, edid: str, name: str, spit: tuple, pairs: bytes) -> None:
         """Write spell `edid` of effect `pairs`; `spit`: (type, flags, casting type, delivery)."""

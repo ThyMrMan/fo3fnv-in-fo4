@@ -82,6 +82,7 @@ class SourceInfo:
     choices: list
     link_from: list
     flags: int = 0
+    raw: tuple = ()
 
 
 def strip_comment(line: str) -> str:
@@ -197,6 +198,7 @@ class SourceGame:
         self.used_scripts = set()
         self.actor_names = {}
         self.stages = {}
+        self.quest_conditions = {}
         self.fallout = False
         self._read(export_dir)
 
@@ -236,8 +238,12 @@ class SourceGame:
         self._topics_named_by_scripts()
 
     def _read_quest(self, rec: dict) -> None:
-        """Record one quest's stage list and the setters in every stage result script."""
+        """Record one quest's stage list, its conditions (which gate all its lines) and the setters in every stage
+        result script."""
         edid = get_str(rec, 'EditorID')
+        self.quest_conditions[int(rec['FormID'], 16)] = tuple(
+            bytes.fromhex(rec[f'Condition[{i}].Raw']) for i in range(get_int(rec, 'ConditionCount'))
+            if rec.get(f'Condition[{i}].Raw'))
         for i in range(get_int(rec, 'StageCount')):
             stage = get_int(rec, f'Stage[{i}].Index')
             self.stages.setdefault(edid.lower(), []).append(stage)
@@ -249,12 +255,11 @@ class SourceGame:
         """Record one INFO's setters, dialogue links and conditions."""
         fid = int(rec['FormID'], 16)
         self._add('info', rec['FormID'].upper(), '', info_result_script(rec))
-        conds = [decode_condition(bytes.fromhex(rec[f'Condition[{i}].Raw']))
-                 for i in range(get_int(rec, 'ConditionCount'))
-                 if rec.get(f'Condition[{i}].Raw')]
+        raw = tuple(bytes.fromhex(rec[f'Condition[{i}].Raw']) for i in range(get_int(rec, 'ConditionCount'))
+                    if rec.get(f'Condition[{i}].Raw'))
         self.infos[fid] = SourceInfo(fid, int(rec.get('ParentDIAL', '0'), 16),
-                                     int(rec.get('QSTI.Quest', '0') or '0', 16), conds,
-                                     _fids(rec, 'Choice'), _fids(rec, 'LinkFrom'), get_int(rec, 'DATA.Flags'))
+                                     int(rec.get('QSTI.Quest', '0') or '0', 16), [decode_condition(d) for d in raw],
+                                     _fids(rec, 'Choice'), _fids(rec, 'LinkFrom'), get_int(rec, 'DATA.Flags'), raw)
         self.external_topics.update(_fids(rec, 'AddTopic'))
 
     def _topics_named_by_scripts(self) -> None:

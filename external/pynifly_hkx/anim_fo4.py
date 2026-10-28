@@ -1776,26 +1776,24 @@ class _FixupBuilder:
     def add_virtual(self, obj_rel: int, sec_idx: int, name_off: int):
         self.virtual.append((obj_rel, sec_idx, name_off))
 
+    # TESConversion: each table is padded to 16 bytes with 0xFF, as every vanilla FO4 packfile's is.
     def build_local_table(self) -> bytes:
         out = b''
         for src, dst in sorted(self.local):
             out += _w_u32(src) + _w_u32(dst)
-        out += _w_u32(0xFFFFFFFF) + _w_u32(0xFFFFFFFF)
-        return out
+        return _pad16(out)
 
     def build_global_table(self) -> bytes:
         out = b''
         for src, sec, dst in sorted(self.global_):
             out += _w_u32(src) + _w_u32(sec) + _w_u32(dst)
-        out += _w_u32(0xFFFFFFFF) + _w_u32(0xFFFFFFFF) + _w_u32(0xFFFFFFFF)
-        return out
+        return _pad16(out)
 
     def build_virtual_table(self) -> bytes:
         out = b''
         for obj, sec, noff in sorted(self.virtual):
             out += _w_u32(obj) + _w_u32(sec) + _w_u32(noff)
-        out += _w_u32(0xFFFFFFFF) + _w_u32(0xFFFFFFFF) + _w_u32(0xFFFFFFFF)
-        return out
+        return _pad16(out)
 
 
 def _build_anim_classnames() -> Tuple[bytes, Dict[str, int]]:
@@ -1836,10 +1834,9 @@ def _anim_section_header(name: str, abs_start: int,
                          virt_fix: int, exports: int) -> bytes:
     """Build a 0x40-byte section header."""
     hdr = bytearray(0x40)
-    name_b = name.encode('ascii') + b'\x00'
-    hdr[:len(name_b)] = name_b
-    for i in range(len(name_b), 0x14):
-        hdr[i] = 0xFF
+    # TESConversion: the name zero-padded to 16 bytes, then the 0xFF000000 marker, as vanilla's section headers.
+    hdr[:16] = name.encode('ascii').ljust(16, b'\x00')
+    struct.pack_into('<I', hdr, 0x10, 0xFF000000)
     struct.pack_into('<I', hdr, 0x14, abs_start)
     struct.pack_into('<I', hdr, 0x18, local_fix - abs_start)
     struct.pack_into('<I', hdr, 0x1C, global_fix - abs_start)
@@ -1877,6 +1874,12 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         while len(data) % 16:
             data.append(0)
 
+    def write_string16(s: str) -> int:
+        """TESConversion: a member string padded to 16 bytes, as vanilla FO4 packfiles lay them out."""
+        off = write_string(s)
+        align16()
+        return off
+
     # Compress the animation data (FO4 uses rot_quant=1, 40-bit quaternions)
     spline_blob, block_offsets = _compress_all_blocks(anim, rot_quant=1)
 
@@ -1906,21 +1909,10 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     align16()
 
     # Variant strings
-    nv0_name_str = rel()
-    write_string("Merged Animation Container")
-    while len(data) % 2:
-        data.append(0)
-    nv0_class_str = rel()
-    write_string("hkaAnimationContainer")
-    while len(data) % 2:
-        data.append(0)
-    nv1_name_str = rel()
-    write_string("Resource Data")
-    while len(data) % 2:
-        data.append(0)
-    nv1_class_str = rel()
-    write_string("hkMemoryResourceContainer")
-    align16()
+    nv0_name_str = write_string16("Merged Animation Container")
+    nv0_class_str = write_string16("hkaAnimationContainer")
+    nv1_name_str = write_string16("Resource Data")
+    nv1_class_str = write_string16("hkMemoryResourceContainer")
 
     # Fixups for variant name/class strings (local)
     fx.add_local(nv0_name, nv0_name_str)
@@ -2015,23 +2007,18 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         # TESConversion: the clip's events sit on track 0, as vanilla FO4 clips keep them.
         write(_hkarray(len(anim.annotations) if i == 0 else 0))
 
-    # Annotation track name strings
+    # TESConversion: each track's name string, then (track 0) its hkaAnnotation structs (time f32, pad, text ptr)
+    # and their texts, every string padded to 16: vanilla's order and layout.
     for i in range(num_tracks):
-        name_str_rel = rel()
         name = bone_names[i] if i < len(bone_names) else ""
-        write_string(name)
-        fx.add_local(annot_track_offsets[i], name_str_rel)
-    align16()
-
-    # TESConversion: hkaAnnotation structs (time f32, pad, text ptr) and their strings.
-    if anim.annotations and num_tracks:
-        events_rel = rel()
-        fx.add_local(annot_track_offsets[0] + 8, events_rel)
-        for a in anim.annotations:
-            write(_w_f32(a.time) + bytes(12))
-        for j, a in enumerate(anim.annotations):
-            fx.add_local(events_rel + j * 0x10 + 8, write_string(a.text))
-        align16()
+        fx.add_local(annot_track_offsets[i], write_string16(name))
+        if i == 0 and anim.annotations:
+            events_rel = rel()
+            fx.add_local(annot_track_offsets[0] + 8, events_rel)
+            for a in anim.annotations:
+                write(_w_f32(a.time) + bytes(12))
+            for j, a in enumerate(anim.annotations):
+                fx.add_local(events_rel + j * 0x10 + 8, write_string16(a.text))
 
     # Block offsets array
     block_off_data_rel = rel()
@@ -2058,9 +2045,9 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     fx.add_virtual(ref_frame_rel, 0, name_offs['hkaDefaultAnimatedReferenceFrame'])
     fx.add_global(spline_rel + 0x20, 2, ref_frame_rel)
 
-    # hkaDefaultAnimatedReferenceFrame: 0x70 header + referenceFrameSamples
+    # hkaDefaultAnimatedReferenceFrame: 0x60 header (vanilla's size) + referenceFrameSamples
     # Base class is 0x20 bytes (16-byte base + padding for vec4 alignment)
-    ref_hdr = bytearray(0x70)
+    ref_hdr = bytearray(0x60)
     # +0x20: up vec4 = (0,0,1,0)
     struct.pack_into('<ffff', ref_hdr, 0x20, 0.0, 0.0, 1.0, 0.0)
     # +0x30: forward vec4 = (0,1,0,0)
@@ -2096,13 +2083,10 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     struct.pack_into('<I', bind_hdr, 0x40 + 12, 0x80000000)
     # +0x50: blendHint = 0
     write(bytes(bind_hdr))
+    align16()
 
     # Skeleton name string
-    skel_name_rel = rel()
-    write_string(skel_name)
-    fx.add_local(binding_rel + 0x10, skel_name_rel)
-    while len(data) % 2:
-        data.append(0)
+    fx.add_local(binding_rel + 0x10, write_string16(skel_name))
 
     # Animation ptr (global fixup — inter-object reference)
     fx.add_global(binding_rel + 0x18, 2, spline_rel)
@@ -2118,13 +2102,14 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     mrc_rel = rel()
     fx.add_virtual(mrc_rel, 0, name_offs['hkMemoryResourceContainer'])
     fx.add_global(nv1_variant, 2, mrc_rel)  # RLC variant[1] → here
-    # Full struct: base(16) + 3 hkArrays(48) + name(8) + pad(8) = 80 bytes
-    mrc_buf = bytearray(80)
-    # Arrays 2 and 3 need DONT_DEALLOCATE flag (cap at array_start + P + 4)
-    struct.pack_into('<I', mrc_buf, 0x2C, 0x80000000)  # externalLinks cap (+0x20 + 8 + 4)
-    struct.pack_into('<I', mrc_buf, 0x3C, 0x80000000)  # objectData cap (+0x30 + 8 + 4)
+    # TESConversion: vanilla's 64-byte layout: base(16), name(8, an empty string, never null), parent(8, runtime),
+    # resourceHandles and children (empty hkArrays, DONT_DEALLOCATE). A null name crashed the game when it freed
+    # the clip. See docs/fork/fo4_spikes.md#own-rig-clip-layout
+    mrc_buf = bytearray(64)
+    struct.pack_into('<I', mrc_buf, 0x2C, 0x80000000)  # resourceHandles cap
+    struct.pack_into('<I', mrc_buf, 0x3C, 0x80000000)  # children cap
     write(bytes(mrc_buf))
-    align16()
+    fx.add_local(mrc_rel + 0x10, write_string16(''))
 
     return bytes(data), fx
 
@@ -2206,7 +2191,6 @@ _SKEL_CLASS_ENTRIES_FO4: List[Tuple[int, str]] = [
     (0x2772C11E, 'hkRootLevelContainer'),
     (0x26859F4C, 'hkaAnimationContainer'),
     (0xFEC1CEDB, 'hkaSkeleton'),
-    (0x1DE13A73, 'hkMemoryResourceContainer'),
 ]
 
 
@@ -2251,6 +2235,12 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
         while len(data) % n:
             data.append(0)
 
+    def write_string16(s: str) -> int:
+        """TESConversion: a member string padded to 16 bytes, as vanilla FO4 packfiles lay them out."""
+        off = write_string(s)
+        align16()
+        return off
+
     P = 8
     arr_sz = 16   # hkArray: ptr(8) + count(4) + cap(4)
     base_sz = 16  # hkReferencedObject: vtable(8) + memSizeAndFlags(8)
@@ -2269,28 +2259,19 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
         ref_floats = ref_floats + [0.0] * (len(float_slots) - len(ref_floats))
 
     # ═══ hkRootLevelContainer ═══
+    # TESConversion: one named variant, the animation container. Vanilla skeletons carry no resource container.
     rlc_rel = rel()
     fx.add_virtual(rlc_rel, 0, name_offs['hkRootLevelContainer'])
-    arr_rlc = write(_hkarray(2))
+    arr_rlc = write(_hkarray(1))
     align16()
 
-    # NamedVariant data: 2 entries x 3 pointers
+    # NamedVariant data: 1 entry x 3 pointers
     nv_data_rel = rel()
     fx.add_local(arr_rlc, nv_data_rel)
     nv0_name = write(bytes(P)); nv0_class = write(bytes(P)); nv0_variant = write(bytes(P))
-    nv1_name = write(bytes(P)); nv1_class = write(bytes(P)); nv1_variant = write(bytes(P))
-    align16()
 
-    # Variant strings
-    nv0_name_str = rel(); write_string("Merged Animation Container"); align_to(2)
-    nv0_class_str = rel(); write_string("hkaAnimationContainer"); align_to(2)
-    nv1_name_str = rel(); write_string("Resource Data"); align_to(2)
-    nv1_class_str = rel(); write_string("hkMemoryResourceContainer"); align16()
-
-    fx.add_local(nv0_name, nv0_name_str)
-    fx.add_local(nv0_class, nv0_class_str)
-    fx.add_local(nv1_name, nv1_name_str)
-    fx.add_local(nv1_class, nv1_class_str)
+    fx.add_local(nv0_name, write_string16("Merged Animation Container"))
+    fx.add_local(nv0_class, write_string16("hkaAnimationContainer"))
 
     # ═══ hkaAnimationContainer ═══
     ac_rel = rel()
@@ -2358,18 +2339,15 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
     struct.pack_into('<I', skel_buf, o_parts + P + 4, 0x80000000)
     write(bytes(skel_buf))
 
-    # Skeleton name string
-    skel_name_rel = rel()
-    write_string(skel_name)
-    fx.add_local(skel_obj_rel + o_name, skel_name_rel)
-    align_to(2)
+    # TESConversion: from here every array starts 16-aligned and every member string is padded to 16, as vanilla.
+    fx.add_local(skel_obj_rel + o_name, write_string16(skel_name))
 
     # parentIndices data (int16 array)
     pi_data_rel = rel()
     fx.add_local(skel_obj_rel + o_pi, pi_data_rel)
     for p in parents:
         write(_w_i16(p))
-    align_to(P)
+    align16()
 
     # bones array — one hkaBone per bone (0x10 bytes each: ptr(8) + lockTranslation(4) + pad(4))
     bone_stride = 0x10
@@ -2382,15 +2360,10 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
         write(bytes(P))                                    # name ptr (placeholder)
         write(struct.pack('<I', 1 if lock[i] else 0))      # lockTranslation
         write(bytes(bone_stride - P - 4))                  # padding
-    align_to(2)
 
-    # bone name strings
+    # bone name strings (hkaBone members)
     for i in range(nbones):
-        align_to(2)
-        bn_rel = rel()
-        write_string(bones[i] or "")
-        fx.add_local(bone_struct_offsets[i], bn_rel)
-    align16()
+        fx.add_local(bone_struct_offsets[i], write_string16(bones[i] or ""))
 
     # referencePose data — hkQsTransform (0x30 bytes each)
     pose_data_rel = rel()
@@ -2410,7 +2383,7 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
         fx.add_local(skel_obj_rel + o_rfloats, rf_rel)
         for v in ref_floats:
             write(struct.pack('<f', v))
-        align_to(P)
+        align16()
 
     if float_slots:
         fs_arr_rel = rel()
@@ -2419,25 +2392,12 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
         for _ in float_slots:
             slot_ptr_offsets.append(rel())
             write(bytes(P))
-        align_to(2)
         for i, name in enumerate(float_slots):
-            sn_rel = rel()
-            write_string(name)
-            fx.add_local(slot_ptr_offsets[i], sn_rel)
+            fx.add_local(slot_ptr_offsets[i], write_string(name))
+            align_to(2)
         align16()
 
     align16()
-
-    # ═══ hkMemoryResourceContainer ═══
-    mrc_rel = rel()
-    fx.add_virtual(mrc_rel, 0, name_offs['hkMemoryResourceContainer'])
-    fx.add_global(nv1_variant, 2, mrc_rel)
-    mrc_buf = bytearray(80)
-    struct.pack_into('<I', mrc_buf, 0x2C, 0x80000000)  # externalLinks cap
-    struct.pack_into('<I', mrc_buf, 0x3C, 0x80000000)  # objectData cap
-    write(bytes(mrc_buf))
-    align16()
-
     return bytes(data), fx
 
 

@@ -90,12 +90,15 @@ class Fo4Speeds:
         self._archives = None
 
     def speed_mult(self, npc_subs: dict, fnv_run: 'float | None') -> 'float | None':
-        """The SpeedMult giving stand-in `npc_subs` FNV's forward run `fnv_run`; None when either is unknown."""
+        """The SpeedMult giving `npc_subs` FNV's forward run `fnv_run`; None if unknown."""
         race = struct.unpack('<I', npc_subs[b'RNAM'])[0]
         fo4 = self.run(race)
+        return 100.0 * fnv_run / (fo4 * fo4_scale(npc_subs, self.race_height(race))) if fnv_run and fo4 else None
+
+    def race_height(self, race: int) -> float:
+        """Race `race`'s height (its DATA's first float), 1 when unknown."""
         data = dict(self.races.get(race, [])).get(b'DATA', b'')
-        height = struct.unpack_from('<f', data)[0] if len(data) >= 4 else 1.0
-        return 100.0 * fnv_run / (fo4 * fo4_scale(npc_subs, height)) if fnv_run and fo4 else None
+        return struct.unpack_from('<f', data)[0] if len(data) >= 4 else 1.0
 
     def run(self, race: int) -> 'float | None':
         """Race `race`'s forward run speed (units/s) before scale and SpeedMult; None when unknown."""
@@ -157,11 +160,32 @@ def _dobj(dnam: bytes, key: bytes) -> int:
     return 0
 
 
+def heights(npc_subs: dict) -> tuple:
+    """An NPC_'s (min, max) height: NAM6, NAM4 (min when absent); 1 without NAM6."""
+    low = struct.unpack('<f', npc_subs[b'NAM6'])[0] if b'NAM6' in npc_subs else 1.0
+    return low, struct.unpack('<f', npc_subs[b'NAM4'])[0] if b'NAM4' in npc_subs else low
+
+
 def fo4_scale(npc_subs: dict, race_height: float) -> float:
     """The stand-in's mean scale: mid height range (NAM6..NAM4) x `race_height`."""
-    low = struct.unpack('<f', npc_subs[b'NAM6'])[0] if b'NAM6' in npc_subs else 1.0
-    high = struct.unpack('<f', npc_subs[b'NAM4'])[0] if b'NAM4' in npc_subs else low
-    return (low + high) / 2.0 * race_height
+    return sum(heights(npc_subs)) / 2.0 * race_height
+
+
+def with_height(low: float, high: float):
+    """A record edit setting NPC_ height min (NAM6) and max (NAM4, added after NAM6/NAM7 when absent)."""
+    values = {b'NAM6': struct.pack('<f', low), b'NAM4': struct.pack('<f', high)}
+
+    def edit(subs: bytes) -> bytes:
+        """The subrecords with NAM6 and NAM4 set."""
+        tags = [t for t, _ in subrecords(subs)]
+        after = b'NAM7' if b'NAM7' in tags else b'NAM6'
+        out = b''
+        for tag, data in subrecords(subs):
+            out += pack_subrecord(tag.decode(), values.get(tag, data))
+            if tag == after and b'NAM4' not in tags:
+                out += pack_subrecord('NAM4', values[b'NAM4'])
+        return out
+    return edit
 
 
 def with_speed_mult(value: float):

@@ -39,8 +39,10 @@ from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.npc_skills import with_skills
 from fo4_import.spike.placement import place, placement, starts_disabled
+from fo4_import.spike.stand_in_fields import checked
 from fo4_import.spike.voice_types import with_voice
-from fo4_import.spike.actor_data import CREATURE_FLAGS, NPC_FLAGS, hit_proof, starts_dead, with_actor_data
+from fo4_import.spike.void_actors import VOID_FOLDER, VoidActors
+from fo4_import.spike.actor_data import ACBS_TEMPLATE, CREATURE_FLAGS, NPC_FLAGS, UNIQUE, hit_proof, starts_dead, with_actor_data
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -51,17 +53,21 @@ USE_TRAITS, USE_FACTIONS, USE_PACKAGES, USE_INVENTORY, USE_SCRIPT = 0x1, 0x4, 0x
 #: FNV ACBS template flags: stats (level band), AI data, base data (essential, respawn).
 USE_STATS, USE_AI_DATA, USE_BASE_DATA = 0x2, 0x10, 0x80
 #: FNV's ten template parts (traits ... script), the same bits in FO4's ACBS; TPTA slots; ACBS byte (xEdit).
-TEMPLATE_PARTS, TEMPLATE_SLOTS, ACBS_TEMPLATE = 0x3FF, 13, 14
+TEMPLATE_PARTS, TEMPLATE_SLOTS = 0x3FF, 13
+#: FO4's template parts FNV lacks (Def Pack List, Attack Data, Keywords), and all thirteen.
+USE_DEF_PACKS, USE_ATTACKS, USE_KEYWORDS, ALL_PARTS = 0x400, 0x800, 0x1000, 0x1FFF
 #: Fallout4.esm's Citizen, the commonest class of its human NPCs that set one (323); DocWeathers' is a turret's.
 HUMAN_CLASS = 0x1326B
 #: The tags vanilla's ECOR (all 1,339) comes right before.
 ECOR_BEFORE = (b'FCPL', b'RCLR', b'PRKZ', b'PRKR', b'PRPS', b'FTYP', b'NTRM', b'COCT')
 #: The tags vanilla's PRKZ and PRKR come right before (xEdit's NPC_ order; AIDT is in every NPC).
 PERKS_BEFORE = (b'PRPS', b'FTYP', b'NTRM', b'COCT', b'CNTO', b'AIDT')
+#: The tag an NPC_'s VMAD comes right before (it follows EDID).
+VMAD_BEFORE = (b'OBND',)
 #: derive_formid site of an NPC's outfit (key: the FNV NPC's FormID).
 OUTFIT_SITE = 'FNV OTFT'
-#: FNV ACBS flag Female; reference record flag Persistent.
-FEMALE, PERSISTENT = 0x1, 0x400
+#: FNV ACBS flag Female; reference record flags Persistent and No AI Acquire (the same bits in FO4's ACHR).
+FEMALE, PERSISTENT, NO_AI_ACQUIRE = 0x1, 0x400, 0x2000000
 #: new_id keys of a converted NPC and its placed actor (the spike's, kept so no FormID moves).
 NPC_KEY, ACHR_KEY = 'NPC_ {:08X} STH', 'ACHR {} STH'
 #: Face-fit worker processes at most: each holds about 1.26 GB, and BLAS already spreads one fit over every core.
@@ -153,16 +159,20 @@ def with_factions(snams: bytes):
 
 def with_inventory(outfit: int, carried: list):
     """A record edit replacing the body's default outfit with `outfit` (0: none) and its inventory with `carried`
-    [(item, count, condition or None)], a COED after an item with a condition."""
+    [(item, count, condition or None)], a COED after an item with a condition; a body without items gets them
+    before AIDT, as vanilla orders them."""
+    block = (pack_subrecord('COCT', struct.pack('<I', len(carried))) + b''.join(
+        pack_subrecord('CNTO', struct.pack('<Ii', item, count)) + R.pack_coed(condition)
+        for item, count, condition in carried)) if carried else b''
+
     def edit(subs: bytes) -> bytes:
         """The subrecords with the outfit and inventory replaced."""
+        found = list(subrecords(subs))
+        at = b'COCT' if any(tag == b'COCT' for tag, _ in found) else b'AIDT'
         out = b''
-        for tag, data in subrecords(subs):
-            if tag == b'COCT' and carried:
-                out += pack_subrecord('COCT', struct.pack('<I', len(carried)))
-                out += b''.join(pack_subrecord('CNTO', struct.pack('<Ii', item, count)) + R.pack_coed(condition)
-                                for item, count, condition in carried)
-            elif tag == b'DOFT' and outfit:
+        for tag, data in found:
+            out += block if tag == at else b''
+            if tag == b'DOFT' and outfit:
                 out += pack_subrecord('DOFT', struct.pack('<I', outfit))
             elif tag not in (b'COCT', b'CNTO', b'COED', b'DOFT'):
                 out += pack_subrecord(tag.decode(), data)
@@ -170,21 +180,26 @@ def with_inventory(outfit: int, carried: list):
     return edit
 
 
-def with_template(template: int, flags: int):
-    """A record edit making an NPC a template actor: ACBS template `flags` (FNV's bits are FO4's, TEMPLATE_PARTS),
-    TPLT `template` and TPTA naming it for each flagged part, before RNAM as vanilla orders them."""
-    flags &= TEMPLATE_PARTS
-    tpta = b''.join(struct.pack('<I', template if flags >> bit & 1 else 0) for bit in range(TEMPLATE_SLOTS))
+def with_template(template: int, flags: int, traits: int = 0):
+    """A record edit making an NPC a template actor: FO4 ACBS template `flags` (ALL_PARTS), TPLT `template` and
+    TPTA naming it for each flagged part, before RNAM as vanilla orders them. The clone's attack race (ATKR) goes,
+    so attacks follow the race its template gives, and its Unique flag (FNV has none). `traits`, when given, is
+    the Traits slot's own template, as 653 vanilla template actors name one."""
+    flags &= ALL_PARTS
+    slots = [template if flags >> bit & 1 else 0 for bit in range(TEMPLATE_SLOTS)]
+    slots[0] = traits if traits and flags & USE_TRAITS else slots[0]
+    tpta = struct.pack(f'<{TEMPLATE_SLOTS}I', *slots)
 
     def edit(subs: bytes) -> bytes:
         """The subrecords with the template set."""
         out = b''
         for tag, data in subrecords(subs):
             if tag == b'ACBS':
+                data = struct.pack('<I', struct.unpack_from('<I', data)[0] & ~UNIQUE) + data[4:]
                 data = data[:ACBS_TEMPLATE] + struct.pack('<H', flags) + data[ACBS_TEMPLATE + 2:]
             elif tag == b'RNAM':
                 out += pack_subrecord('TPLT', struct.pack('<I', template)) + pack_subrecord('TPTA', tpta)
-            if tag not in (b'TPLT', b'TPTA'):
+            if tag not in (b'TPLT', b'TPTA', b'ATKR'):
                 out += pack_subrecord(tag.decode(), data)
         return out
     return edit
@@ -260,6 +275,21 @@ def bodies(fo4: bytes, rules: dict) -> dict:
     return found
 
 
+def with_script(scripts, scpt: int, extra: tuple = ()):
+    """VMAD edit: FNV script `scpt` (0: none) and `extra`; None for neither."""
+    return R.with_sub(b'VMAD', scripts.vmad(scpt, extra), VMAD_BEFORE)
+
+
+def without_keywords(subs: bytes) -> bytes:
+    """NPC_ subrecords `subs` without their keyword list (KSIZ, KWDA)."""
+    return b''.join(pack_subrecord(t.decode(), d) for t, d in subrecords(subs) if t not in (b'KSIZ', b'KWDA'))
+
+
+def script_of(rec: 'dict | None') -> int:
+    """FNV record `rec`'s script FormID; 0 without one."""
+    return int((rec or {}).get('SCRI', '0'), 16)
+
+
 def _traits_templated(rec: dict) -> bool:
     """Whether FNV actor record `rec` takes its traits from its template."""
     return 'TPLT.Template' in rec and bool(int(rec.get('ACBS.TemplateFlags', 0)) & USE_TRAITS)
@@ -278,11 +308,13 @@ class Npcs:
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
+        self.voids, self.void_lists = VoidActors(builder), set()
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
-        """The NPC `fnv` takes part `flag` from (template_source); None if a list."""
-        rec = self.records.get(fnv)
-        found, left = template_source(self.records, rec, flag) if rec is not None else (None, True)
+        """The NPC or creature `fnv` takes part `flag` from (template_source); None if a list."""
+        records = self.records if fnv in self.records else self.creatures.records
+        rec = records.get(fnv)
+        found, left = template_source(records, rec, flag) if rec is not None else (None, True)
         return None if left else found
 
     def base(self, fnv: int) -> 'int | None':
@@ -306,7 +338,7 @@ class Npcs:
             composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
                      self.builder.combat_styles.edit(traits), with_perks(self.builder.perks.teammates.held_by(fnv)),
-                     self._skills(fnv))))
+                     self._skills(fnv), with_script(self.builder.scripts, script_of(self.source(fnv, USE_SCRIPT))))))
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
         return fid
@@ -326,32 +358,76 @@ class Npcs:
         if template is None:
             self.builder.counts['NPC_ skipped (template not built)'] += 1
             return None
+        body = None if fnv in self.records else self.creatures.stand_in(fnv)
         parts = (with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
                  self._actor_data(fnv), self._skills(fnv)) if fnv in self.records else (
-                     self.creatures.actor_data(npc, npc, npc), *self.creatures.own_parts(npc, templated=True))
-        body = None if fnv in self.records else self.creatures.stand_in(fnv)
-        parts += (self._template_style(npc),)
-        fid = self._template_actor(fnv, npc, template, int(npc.get('ACBS.TemplateFlags', 0)), parts, body)
+                     None if body else without_keywords, self.creatures.actor_data(npc, npc, npc),
+                     self._packages(fnv), *self.creatures.own_parts(npc, templated=True),
+                     self.creatures.inventory(npc, body or self.bodies[body_kind(False, False)],
+                                              bool(body) and self.creatures.keeps_look(fnv)))
+        parts += (self._template_style(npc), self._template_script(npc))
+        traits = 0 if fnv in self.records else self.creatures.traits_variant(npc) or 0
+        fid = self._template_actor(fnv, npc, template, self._template_flags(npc), parts, body, traits)
         self.builder.npc_ids[fnv] = fid
         return fid
 
     def _template_style(self, rec: dict):
-        """The ZNAM edit of template actor `rec`: the FNV style its traits chain reaches, which FO4 reads when it
-        does not take AI Data from its template; None when the chain reaches a leveled list.
+        """ZNAM edit of template actor `rec`: its traits' style; None from a list.
         See: docs/fork/fo4_pipeline.md#combat-styles
         """
-        records = self.records if int(rec['FormID'], 16) in self.records else self.creatures.records
-        traits, left = template_source(records, rec, USE_TRAITS)
+        traits, left = self._traits(rec)
         return None if left else self.builder.combat_styles.edit(traits)
 
-    def _template_actor(self, fnv: int, rec: dict, template: int, flags: int, parts: tuple, body=None) -> int:
+    def _traits(self, rec: dict) -> tuple:
+        """(record, left) `rec`'s traits chain reaches (template_source)."""
+        records = self.records if int(rec['FormID'], 16) in self.records else self.creatures.records
+        return template_source(records, rec, USE_TRAITS)
+
+    def _template_flags(self, rec: dict) -> int:
+        """FO4 template flags of template actor `rec`: FNV's ten; with Traits, also Attack Data, Def Pack List and
+        Keywords, except a creature whose traits come from a creature keeps its own keywords (its sound set may be
+        its own: Creatures.own_parts writes them).
+        See: docs/fork/fo4_creature_audit.md#template-slots
+        """
+        flags = int(rec.get('ACBS.TemplateFlags', 0)) & TEMPLATE_PARTS
+        if not flags & USE_TRAITS:
+            return flags
+        own = int(rec['FormID'], 16) in self.creatures.records and not self._traits(rec)[1]
+        return flags | USE_ATTACKS | USE_DEF_PACKS | (0 if own else USE_KEYWORDS)
+
+    def _template_script(self, rec: dict):
+        """The VMAD edit of template actor `rec`: its own FNV script and, when its list can draw the void, the
+        void check; neither when FNV takes its script from the template (FO4's Script slot gives that).
+        See: docs/fork/fo4_creature_audit.md#void
+        """
+        if int(rec.get('ACBS.TemplateFlags', 0)) & USE_SCRIPT:
+            return None
+        void = self.voids.check() if self._draws_void(int(rec['TPLT.Template'], 16)) else ()
+        return with_script(self.builder.scripts, script_of(rec), void)
+
+    def _draws_void(self, fnv: int) -> bool:
+        """Whether FNV form `fnv` (a template or list entry) can give a void creature's traits: a void creature,
+        a list holding one (made by _list), or a creature whose traits come from such a form."""
+        if fnv in self.lists:
+            return fnv in self.void_lists
+        rec = self.creatures.records.get(fnv)
+        if rec is None or fnv in self.records:
+            return False
+        if self.creatures.label(fnv) == VOID_FOLDER:
+            return True
+        return _traits_templated(rec) and self._draws_void(int(rec['TPLT.Template'], 16))
+
+    def _template_actor(self, fnv: int, rec: dict, template: int, flags: int, parts: tuple, body=None,
+                        traits: int = 0) -> int:
         """Write a template actor for FNV form `fnv` (`rec`) on `template` with `flags`, then `parts` edits; a copy
-        of `body` (a creature's stand-in, whose class and combat style it keeps), else the male NPC body."""
+        of `body` (a creature's stand-in, whose class and combat style it keeps), else the male NPC body; its
+        Traits slot naming `traits` when given (with_template)."""
         male = self.bodies[body_kind(False, False)]
         body, fid = body or male, self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), BODY_TIES, b'',
-            composed(*parts, with_template(template, flags), None if body is not male else with_class)))
+            checked(self.builder.counts, body.body, rec['EditorID'],
+                    composed(*parts, with_template(template, flags, traits), None if body is not male else with_class))))
         self.builder.counts['NPC_ (template actor)'] += 1
         return fid
 
@@ -361,7 +437,7 @@ class Npcs:
             rec = self.creatures.records.get(fnv)
             if fnv in self.lists:
                 listed = self._list(fnv)
-                self.made[fnv] = listed and self._template_actor(fnv, self.lists[fnv], listed, TEMPLATE_PARTS, ())
+                self.made[fnv] = listed and self._template_actor(fnv, self.lists[fnv], listed, ALL_PARTS, ())
             elif rec is not None and _traits_templated(rec):
                 self.made[fnv] = self._templated(fnv)
             else:
@@ -376,7 +452,7 @@ class Npcs:
         if fnv in self.records:
             return self.base(fnv)
         if fnv in self.creatures.records:
-            return self._creature(fnv)
+            return self.voids.actor() if self.creatures.label(fnv) == VOID_FOLDER else self._creature(fnv)
         return self._list(fnv) if fnv in self.lists else None
 
     def _list(self, fnv: int) -> 'int | None':
@@ -386,6 +462,8 @@ class Npcs:
             self.made_lists[fnv] = fid
             entries = [(level, self._template(form), count) for level, form, count in _entries(rec)]
             entries = [e for e in entries if e[1] is not None]
+            if any(self._draws_void(int(form, 16)) for _, form, _ in _entries(rec)):
+                self.void_lists.add(fnv)
             self.made_lists[fnv] = fid if entries else None
             if entries:
                 self.builder.writer.add_record('LVLN', R.pack_leveled(
@@ -540,14 +618,19 @@ class Npcs:
         self.lift = lift or (lambda ref, pos: pos)
         built = [(cell, ref) for ref in sorted(refs, key=lambda r: r['FormID']) if (cell := cell_of(ref))]
         self.warm_faces([int(ref['NAME'], 16) for _, ref in built])
-        out = {}
-        for cell, ref in built:
-            base = self._base_of(int(ref['NAME'], 16))
-            if base is None:
+        bases = {}
+        for _, ref in built:
+            bases[ref['FormID']] = self._base_of(int(ref['NAME'], 16))
+            if bases[ref['FormID']] is None:
                 self.builder.counts[self._unbuilt(ref)] += 1
                 continue
-            slot = out.setdefault(cell, [b'', b''])
-            slot[0 if int(ref['RecordFlags']) & PERSISTENT else 1] += self._actor(ref, base, ids, owners)
+            self.builder.actor_ids[ref['FormID']] = self.builder.new_id(ACHR_KEY.format(ref['FormID']))
+        links, out = {**ids, **self.builder.actor_ids}, {}
+        for cell, ref in built:
+            if bases[ref['FormID']] is not None:
+                slot = out.setdefault(cell, [b'', b''])
+                slot[0 if int(ref['RecordFlags']) & PERSISTENT else 1] += self._actor(ref, bases[ref['FormID']],
+                                                                                      links, owners)
         return {cell: tuple(slot) for cell, slot in out.items()}
 
     def _base_of(self, fnv: int) -> 'int | None':
@@ -564,21 +647,25 @@ class Npcs:
         return f'{ref["Signature"]} skipped (no FO4 base): {rec.get("EditorID", ref["NAME"])}'
 
     def _actor(self, ref: dict, base: int, ids: dict, owners: dict) -> bytes:
-        """The FO4 ACHR of FNV actor `ref` on `base`, with its script, parents and linked reference."""
+        """The FO4 ACHR of FNV actor `ref` on `base` (its FormID from placed()), with its script, parents and linked
+        reference through `ids` (actors included), No AI Acquire and scale."""
         fnv = int(ref['NAME'], 16)
-        achr = self.builder.new_id(ACHR_KEY.format(ref['FormID']))
-        self.builder.actor_ids[ref['FormID']] = achr
+        achr = self.builder.actor_ids[ref['FormID']]
         self.builder.scripts.named[ref.get('EditorID', '')] = achr
-        script = (self.source(fnv, USE_SCRIPT) if fnv in self.records else self.creatures.records.get(fnv)) or {}
-        vmad = self.builder.scripts.vmad(int(script['SCRI'], 16)) if 'SCRI' in script else b''
+        vanilla = fnv in self.creatures.records and base in self.creatures.as_is.values()
+        vmad = self.builder.scripts.vmad(script_of(self.creatures.records[fnv])) if vanilla else b''
         linked = ids.get(ref.get('XLKR.LinkedRef'), 0)
         extra = placement(int(ref['FormID'], 16), ids, owners, pose=False)
         extra += pack_subrecord('XLKR', struct.pack('<II', 0, linked)) if linked else b''
         self.builder.counts['ACHR'] += 1
-        flags = int(ref['RecordFlags']) & PERSISTENT | (R.INITIALLY_DISABLED if starts_disabled(ref, ids) else 0)
+        flags = int(ref['RecordFlags']) & (PERSISTENT | NO_AI_ACQUIRE)
+        flags |= R.INITIALLY_DISABLED if starts_disabled(ref, ids) else 0
         flags |= starts_dead(self.records.get(fnv) or self.creatures.records.get(fnv) or {})
         pos, rot = place(ref)
-        return R.pack_achr(achr, base, self.lift(ref, pos), rot, vmad, extra, flags)
+        pos, scale = self.lift(ref, pos), float(ref.get('XSCL.Scale', 1.0) or 1.0)
+        look = self.creatures.speaker_look(fnv, achr, ref['FormID'], (pos, rot, scale, bool(flags & PERSISTENT),
+                                                                      bool(flags & R.INITIALLY_DISABLED)))
+        return R.pack_achr(achr, base, pos, rot, vmad, extra, flags, scale) + look
 
 
 def _tint_edit(fitted, female: bool, options: frozenset):

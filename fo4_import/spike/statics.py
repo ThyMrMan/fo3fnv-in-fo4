@@ -74,10 +74,14 @@ def write_converted(export_dir: Path, converted, rel: str, data_dir: Path) -> tu
 
 
 def write_files(export_dir: Path, files, rel: str, data_dir: Path) -> tuple:
-    """Write mesh_files() `files` as Meshes\\<PREFIX>\\`rel` with their materials and textures into <data_dir>;
-    (FO4 model path under Meshes, OBND)."""
-    out = data_dir / 'Meshes' / PREFIX / rel
-    write_mesh(out, files.nif)
+    """Write `files` as Meshes\\<PREFIX>\\`rel`, staged; (model path, OBND)."""
+    write_mesh(data_dir / 'Meshes' / PREFIX / rel, files.nif)
+    stage_files(export_dir, files, data_dir)
+    return f'{PREFIX}\\{rel}', files.bounds
+
+
+def stage_files(export_dir: Path, files, data_dir: Path) -> None:
+    """Write mesh_files() `files`' materials and stage their textures and derived maps into <data_dir>."""
     for path, data in files.materials:
         write_new(_material_file(data_dir, path), data)
     for texture in files.textures:
@@ -89,7 +93,6 @@ def write_files(export_dir: Path, files, rel: str, data_dir: Path) -> tuple:
         paths = tuple(_source(export_dir, t) for t in sources)
         if all(p.exists() for p in paths):
             stage_derived(data_dir, glow_path, glow_map, paths, cut)
-    return f'{PREFIX}\\{rel}', files.bounds
 
 
 def _source(export_dir: Path, fnv_texture: str) -> Path:

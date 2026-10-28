@@ -5,7 +5,8 @@ Fallout4.esm `stats` or `fnv` target is a copy of that record, so it keeps
 its models, animations, sounds, keywords and mod templates, with FNV's
 name, value and weight over them (`item` targets are the records
 themselves, spike.items). A weapon also takes FNV's base damage, and a gun
-FNV's magazine size and ammunition (when it converts); the entry's `mods`
+FNV's magazine size and ammunition (when it converts), and a gun not a creature's
+FNV's projectile and projectile count (spike.projectiles); the entry's `mods`
 replace its default parts. In `fnv` mode a melee weapon shows FNV's own
 mesh (nif.weapon), on the template's animations, without its mods; a gun
 is written on the FO4 gun held, fired and laid out most like it
@@ -44,7 +45,7 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
 from fo4_import.pipeline.work_cache import cached
-from fo4_import.spike.gun_choice import GUN_TYPES
+from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_NOT_PLAYABLE, GUN_TYPES
 from fo4_import.spike.guns import Guns
 from fo4_import.spike.weapon_mods import WeaponMods
 from fo4_import.spike.replacements import Replacement, Rules
@@ -58,6 +59,8 @@ from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 SITES = {'WEAP': 'FNV WEAP', 'ARMO': 'FNV ARMO', 'ARMA': 'FNV ARMA', 'MSWP': 'FNV MSWP'}
 #: FO4 WEAP DNAM offsets: ammo, capacity, animation type, weight, value, base damage.
 DNAM_AMMO, DNAM_CAPACITY, DNAM_ANIM, DNAM_WEIGHT, DNAM_VALUE, DNAM_DAMAGE = 0, 52, 54, 59, 63, 67
+#: FO4 WEAP DNAM Min Range, Max Range (two floats: damage falloff); FNV WEAP DNAM's, which its AI picks a gun by.
+DNAM_RANGES, FNV_DNAM_RANGES = 16, 44
 #: FO4 WEAP DNAM animation type of a gun.
 ANIM_GUN = 9
 #: Template subrecords a copy leaves out: scripts, armor's resistances, naming rules (they add words to FNV's name).
@@ -136,7 +139,7 @@ def _alternates(body: bytes, sets: dict) -> list:
 
 
 def _fnv_fields() -> dict:
-    """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0); an armor's
+    """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0) and min/max range; an armor's
     value, health, weight (DATA), rating (DNAM: DT, else DR) and alternate textures. An ammo form list (FLST)
     gives its first entry."""
     raw = source_esm()
@@ -146,9 +149,12 @@ def _fnv_fields() -> dict:
     out = {}
     for rec, _ in walk(raw, b'WEAP', b'ARMO'):
         ammo, data, dnam = (first_sub(rec.body, t) for t in (b'NAM0', b'DATA', b'DNAM'))
-        if rec.sig == b'WEAP' and ammo:
-            fid = struct.unpack('<I', ammo)[0]
-            out[rec.form_id] = {'ammo': struct.unpack('<I', lists[fid])[0] if lists.get(fid) else fid}
+        if rec.sig == b'WEAP':
+            fid = struct.unpack('<I', ammo)[0] if ammo else None
+            fields = {'ammo': struct.unpack('<I', lists[fid])[0] if lists.get(fid) else fid} if ammo else {}
+            if dnam and len(dnam) >= FNV_DNAM_RANGES + 8:
+                fields['ranges'] = struct.unpack_from('<2f', dnam, FNV_DNAM_RANGES)
+            out.update({rec.form_id: fields} if fields else {})
         elif rec.sig == b'ARMO' and data and dnam:
             value, health, weight = struct.unpack_from('<iif', data)
             dt = struct.unpack_from('<f', dnam, DT_AT)[0] if len(dnam) >= DT_AT + 4 else 0.0
@@ -170,6 +176,7 @@ class Equipment:
         self.guns = Guns(builder, self.strings)
         self.weapon_mods = WeaponMods(builder, self.guns.mods)
         self.by_anim = {kind: set() for kind in WEAPON_ANIM_LISTS}
+        self.weapon_ammo, self.creature_guns = {}, {}
         rules = self.table.rules
         wanted = {r.edid for r in [*self.table.values(), *(e for _, e in rules.armor), *rules.melee.values()]
                   if r.base and r.mode != 'item'}
@@ -265,24 +272,42 @@ class Equipment:
         struct.pack_into('<f', dnam, DNAM_WEIGHT, float(rec.get('DATA.Weight', 0.0)))
         struct.pack_into('<I', dnam, DNAM_VALUE, int(rec.get('DATA.Value', 0)))
         struct.pack_into('<H', dnam, DNAM_DAMAGE, int(rec.get('DATA.Damage', 0)))
-        if dnam[DNAM_ANIM] == ANIM_GUN:
-            struct.pack_into('<H', dnam, DNAM_CAPACITY, int(rec.get('DATA.ClipSize', 0)))
-            ammo = self.fnv.get(fnv, {}).get('ammo')
-            made = self.builder.items.item(ammo) if ammo else None
-            if made is not None:
-                struct.pack_into('<I', dnam, DNAM_AMMO, made)
-        data, marks = {b'DNAM': bytes(dnam)}, self.builder.type_keywords.of(fnv)
+        data, own = self._gun(fnv, rec, template, dnam) if dnam[DNAM_ANIM] == ANIM_GUN else ({}, None)
+        data[b'DNAM'], marks = bytes(dnam), self.builder.type_keywords.of(fnv)
         if entry and entry.mode == 'fnv' and dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec:
             data.update(self._own_model(rec['Model.MODL'], int(rec.get('DNAM.FalloutAnimType', -1))))
             return self._write('WEAP', fnv, with_keywords(self._copy(rec, data, [], OWN_MODEL_DROPPED), marks))
         if chosen and entry is None:
             templates = self.guns.combination(source, chosen[0].includes)
         else:
-            templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2]) if chosen
+            templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2], own is not None) if chosen
                          else self.guns.with_mods(source, entry.mods) if entry.mods
                          else self.guns.default_only(source))
+        templates = self.guns.own_projectile(fnv, rec, templates) if own is not None and templates else templates
         copy = self.weapon_mods.wire(fnv, self._copy(rec, data, templates, source=source))
         return self._write('WEAP', fnv, with_keywords(copy, marks))
+
+    def _gun(self, fnv: int, rec: dict, template: dict, dnam: bytearray) -> tuple:
+        """({sig: body}, FO4 projectile or None) of gun copy `dnam` (filled in): FNV's magazine, ammo, projectile.
+        A creature gun (its template not playable) keeps its magazine, 0 in every vanilla one (it never reloads), and
+        takes FNV's min/max range as its damage falloff; its equip slot is kept in `creature_guns`."""
+        data, own = {}, None
+        if not struct.unpack_from('<I', dnam, DNAM_FLAGS)[0] & FO4_NOT_PLAYABLE:
+            struct.pack_into('<H', dnam, DNAM_CAPACITY, int(rec.get('DATA.ClipSize', 0)))
+            if b'FNAM' in template:
+                own, data[b'FNAM'] = self.builder.projectiles.gun(rec), self.builder.projectiles.fnam(template[b'FNAM'], rec)
+        else:
+            self.creature_guns[fnv] = struct.unpack('<I', template.get(b'ETYP', bytes(4)))[0]
+            if 'ranges' in self.fnv.get(fnv, {}):
+                struct.pack_into('<2f', dnam, DNAM_RANGES, *self.fnv[fnv]['ranges'])
+        ammo = self.fnv.get(fnv, {}).get('ammo')
+        made = self.builder.items.item(ammo) if ammo else None
+        if made is not None and fnv in self.creature_guns:
+            self.builder.consumables.fired_from(ammo, fnv, struct.unpack_from('<I', dnam, DNAM_AMMO)[0])
+        if made is not None:
+            struct.pack_into('<I', dnam, DNAM_AMMO, made)
+        self.weapon_ammo[fnv] = struct.unpack_from('<I', dnam, DNAM_AMMO)[0]
+        return data, own
 
     def _own_model(self, model: str, anim_type: int) -> dict:
         """{sig: body} pointing a weapon's world and first-person models (FNV uses one mesh) at FNV `model`,

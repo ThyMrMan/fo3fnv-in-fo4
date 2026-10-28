@@ -40,7 +40,7 @@ def test_current_follows_table_rules_and_converter():
     hat = SI.current(table, _form('ARMO', 'HatX', **{'BMDT.BipedFlags': str(0x400)}))
     assert hat.entry.edid == 'ClothesMobsterhat'
     gecko = SI.current(table, _form('CREA', 'GeckoX', **{'Model.MODL': 'Creatures\\NVGecko\\Skeleton.nif'}))
-    assert (gecko.how, gecko.entry.edid) == ('rule', 'EncViciousDog01Template')
+    assert (gecko.how, gecko.entry.edid, gecko.entry.mode) == ('rule', 'EncMolerat01Template', 'rig')
     assert SI.current(table, _form('CREA', 'Nothing', **{'Model.MODL': 'Creatures\\Spore\\s.nif'})).how == 'none'
 
 
@@ -69,15 +69,18 @@ def test_user_file_set_clear_and_refuse(tmp_path):
 
 
 def test_allowed_modes():
-    """FO4 records take any mode; others and leveled lists only as they are; creature fnv needs a rig pair."""
+    """FO4 records take item, stats and fnv; others and leveled lists only as they are; a creature's fnv needs a
+    rig pair and its own rig a rig table entry; any creature may be a speaker."""
     entry = lambda plugin, sig, category: C.Entry(plugin, 1, sig, 'X', '', category)
     gecko = _form('CREA', 'G', **{'Model.MODL': 'Creatures\\NVGecko\\s.nif'})
     dog = _form('CREA', 'D', **{'Model.MODL': 'Creatures\\Dog\\s.nif'})
+    spore = _form('CREA', 'S', **{'Model.MODL': 'Creatures\\Spore\\s.nif'})
     assert allowed_modes(entry('Mod.esp', 'WEAP', 'weapon'), None) == ('item',)
-    assert allowed_modes(entry('Fallout4.esm', 'WEAP', 'weapon'), None) == RP.MODES
+    assert allowed_modes(entry('Fallout4.esm', 'WEAP', 'weapon'), None) == ('item', 'stats', 'fnv')
     assert allowed_modes(entry('Fallout4.esm', 'LVLN', 'creature'), gecko) == ('item',)
-    assert allowed_modes(entry('Fallout4.esm', 'NPC_', 'creature'), gecko) == ('item', 'stats')
-    assert allowed_modes(entry('Fallout4.esm', 'NPC_', 'creature'), dog) == RP.MODES
+    assert allowed_modes(entry('Fallout4.esm', 'NPC_', 'creature'), gecko) == ('item', 'stats', 'speaker', 'rig')
+    assert allowed_modes(entry('Fallout4.esm', 'NPC_', 'creature'), dog) == ('item', 'stats', 'speaker', 'fnv')
+    assert allowed_modes(entry('Fallout4.esm', 'NPC_', 'creature'), spore) == ('item', 'stats', 'speaker')
 
 
 def _group(sig: str, *recs: bytes) -> bytes:

@@ -15,7 +15,7 @@ from fo4_import.app.preview.viewer import PreviewWidget
 MAX_ROWS = 2000
 #: Mode labels.
 MODE_LABELS = {'item': 'Use the record as it is', 'stats': "Its model, with FNV's name and stats",
-               'fnv': "FNV's own mesh on it"}
+               'fnv': "FNV's own mesh on it", 'speaker': "An unseen speaker beside FNV's model (talking machines)"}
 
 
 def stats_text(stats: dict) -> str:

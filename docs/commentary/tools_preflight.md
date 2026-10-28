@@ -48,6 +48,11 @@ A ninth, **logs**, runs only when asked, after a play-test. It sorts the
 session's Papyrus errors by cause and names where each touched quest stopped
 ([log triage](#log-triage)).
 
+A Fallout 4 build runs them with `--fo4 <plugin>`, on its own dialogue model
+(scenes) and asset rules, plus a tenth, **conditions**, that evaluates each
+built line's conditions against its source line's
+([fo4_preflight.md](../fork/fo4_preflight.md#running)).
+
 None of them needs the game running. Each game takes about 10 s for the quest,
 start and dialogue audits together, 20 s for the scripts audit, a few seconds
 each for packages and world, and 40 s for the asset audit (about 6,000 models

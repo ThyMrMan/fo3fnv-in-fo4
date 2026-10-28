@@ -58,3 +58,14 @@ def test_speed_mult_is_set_in_prps_or_added_before_aidt():
         {0x2D4: 50.0, CS.SPEED_MULT: 115.5}
     bare = [t for t, _ in subrecords(CS.with_speed_mult(80.0)(pack_subrecord('AIDT', b'\0' * 4)))]
     assert bare == [b'PRPS', b'AIDT']
+
+
+def test_height_edit_sets_both_and_adds_a_missing_max_in_order():
+    """NAM6 and NAM4 take the values; a missing NAM4 goes after NAM7, where FO4's NPC_ keeps it."""
+    f = lambda v: struct.pack('<f', v)
+    subs = b''.join(pack_subrecord(t, d) for t, d in (('ZNAM', b'\0' * 4), ('NAM6', f(0.9)), ('NAM7', f(0.0)),
+                                                      ('MWGT', b'\0' * 12)))
+    out = list(subrecords(CS.with_height(1.5, 1.6)(subs)))
+    assert [t for t, _ in out] == [b'ZNAM', b'NAM6', b'NAM7', b'NAM4', b'MWGT']
+    assert CS.heights(dict(out)) == pytest.approx((1.5, 1.6))
+    assert CS.heights({}) == (1.0, 1.0)

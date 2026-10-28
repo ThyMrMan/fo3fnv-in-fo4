@@ -44,6 +44,8 @@ MONO_MODEL, AT_MAX_DISTANCE = re.compile(r'SOMMono\d{5}'), 12
 FNV_DISTANCE_UNIT = 100
 #: derive_formid sites (key: the FNV SOUN's FormID).
 SNDR_SITE, SOUN_SITE = 'FNV SNDR', 'FNV SOUN'
+#: derive_formid site of a SOUN's copy under conditions (key: the caller's).
+LAYER_SITE = 'FNV SNDR layer'
 #: The bounds of vanilla's sound markers.
 MARKER_BOUNDS = (-27, -27, -12, 27, 27, 12)
 #: The folder under Data\Sound\FX holding the converted FNV sounds.
@@ -105,6 +107,12 @@ class Sounds:
             self.made[fnv] = self._write(fnv, rec, files) if files else 0
         return self.made[fnv]
 
+    def layer(self, fnv: int, key: str, edid: str, conditions: bytes) -> int:
+        """SOUN `fnv`'s descriptor copied as `edid` under `conditions`; 0 if none."""
+        rec = self.records.get(fnv)
+        files = self._files(rec) if rec else []
+        return self._write(fnv, rec, files, layer=(key, edid, conditions)) if files else 0
+
     def marker(self, fnv: int) -> 'int | None':
         """The FO4 sound marker placing FNV SOUN `fnv`'s descriptor, made once; None without one."""
         if fnv not in self.markers:
@@ -137,20 +145,23 @@ class Sounds:
             self.made[fnv] = self._write(fnv, self.records[fnv], [file], self.templates[SONG_TEMPLATE])
         return self.made[fnv]
 
-    def _write(self, fnv: int, rec: dict, files: list, template: dict = None) -> int:
+    def _write(self, fnv: int, rec: dict, files: list, template: dict = None, layer: tuple = None) -> int:
         """Write the SNDR of FNV SOUN `rec` playing `files` (on `template`, else its kind's), queueing their
-        conversion; its FormID."""
+        conversion; its FormID. A `layer` (key, EditorID, conditions) writes a copy under conditions instead."""
         loop = int(rec.get('SNDD.Flags', 0) or 0) & LOOP
         template = template or self.playback(rec, self.templates[LOOP_TEMPLATE if loop else ONE_SHOT_TEMPLATE])
-        fid = self.builder.writer.derive_formid(SNDR_SITE, f'{fnv:08X}')
-        subs = pack_subrecord('EDID', f'FNV_{rec["EditorID"]}'.encode() + b'\0')
+        site, key, edid, conditions = (LAYER_SITE, *layer) if layer else (SNDR_SITE, f'{fnv:08X}',
+                                                                         f'FNV_{rec["EditorID"]}', b'')
+        fid = self.builder.writer.derive_formid(site, key)
+        subs = pack_subrecord('EDID', edid.encode() + b'\0')
         subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[:2] if k in template)
         for name in files:
             stem = str(Path(name).with_suffix('')).replace('/', '\\')
             subs += pack_subrecord('ANAM', f'data\\Sound\\FX\\{FOLDER}\\{stem}.wav'.encode('cp1252') + b'\0')
             self.jobs.append((self.export_dir / 'sound' / name,
                               sound_root(self.builder.data_dir) / 'Sound' / 'FX' / FOLDER / f'{stem}.xwm', None))
-        subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[2:] if k in template)
+        subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[2:3] if k in template) + conditions
+        subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[3:] if k in template)
         self.builder.writer.add_record('SNDR', pack_fo4_record('SNDR', fid, 0, subs))
         self.builder.counts['SNDR'] += 1
         return fid

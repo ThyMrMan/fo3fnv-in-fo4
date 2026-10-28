@@ -35,8 +35,11 @@ _ALIAS_TYPE = {'PLDT': 8, 'PTDA': 4}
 #: PSDT field ranges, -1 meaning any: month, day of week (7 to 10 are day groups), date, hour, minute.
 _SCHEDULE_RANGES = ((-1, 11), (-1, 10), (0, 31), (-1, 23), (-1, 59))
 
-#: Byte offset of the u16 template flags in NPC_ ACBS.
-_TEMPLATE_FLAGS_AT = 18
+#: Byte offset of the u16 template flags in NPC_ ACBS: {Fallout 4: offset, Skyrim: offset}.
+_TEMPLATE_FLAGS_AT = {True: 14, False: 18}
+
+#: Byte offset of the AI Packages template actor in a Fallout 4 NPC_ TPTA (its sixth entry).
+_TPTA_AI_PACKAGES = 20
 
 #: ACBS template flag: the NPC runs its template's AI packages.
 _USE_AI_PACKAGES = 0x20
@@ -92,11 +95,12 @@ def schedule_problem(pack) -> str:
 
 def package_source(index, npc):
     """The NPC_ whose PKID list `npc` runs: itself, or the template it takes AI packages from."""
-    seen = set()
+    seen, at = set(), _TEMPLATE_FLAGS_AT[index.fo4]
     while npc.form_id not in seen:
         seen.add(npc.form_id)
-        acbs, template = first(npc, 'ACBS'), index.by_fid.get(u32(first(npc, 'TPLT')))
-        flags = struct.unpack_from('<H', acbs, _TEMPLATE_FLAGS_AT)[0] if len(acbs) >= _TEMPLATE_FLAGS_AT + 2 else 0
+        acbs = first(npc, 'ACBS')
+        template = index.by_fid.get(u32(first(npc, 'TPTA'), _TPTA_AI_PACKAGES) or u32(first(npc, 'TPLT')))
+        flags = struct.unpack_from('<H', acbs, at)[0] if len(acbs) >= at + 2 else 0
         if not flags & _USE_AI_PACKAGES or template is None or template.type != 'NPC_':
             return npc
         npc = template

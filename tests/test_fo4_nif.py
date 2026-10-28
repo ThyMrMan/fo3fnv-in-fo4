@@ -689,3 +689,26 @@ def test_a_blended_black_fill_draws_as_vanillas_opaque_black_flat_and_mist_stays
 def test_a_hat_covers_the_hair_top_unless_it_is_a_mask():
     """A cap (headband, hat) also takes 30; the hockey mask (hat and mask) does not."""
     assert H.slots(0x600) == (30, 46) and H.slots(0x4E00) == (46, 47, 48, 49)
+
+
+def test_refraction_surface_is_a_materialless_refraction_shader():
+    """An FNV refraction shape draws as vanilla's gas leak: no material, Refraction at FNV's strength, no z-write."""
+    textures = ['effects\\fxgas.dds', 'effects\\fxgas_n.dds']
+    mat = C.ShapeMaterial('refract', '', {'strength': 0.03}, textures, None, None)
+    (kind, shader), (_, texture_set) = C._refract_blocks(F.NifFile(), mat, 0, False)
+    assert kind == 'BSLightingShaderProperty' and shader['name'] == -1 and shader['texture_set'] == 1
+    assert (shader['flags1'], shader['flags2'], shader['refraction']) == (*C.REFRACT_FLAGS, 0.03)
+    assert texture_set['textures'][:2] == [f'textures\\{C.fo4_texture(t)}' for t in textures]
+
+
+def test_attaching_moves_the_roots_children_and_a_named_root_moves_alone():
+    """ATTACH (a body part's Prn bone) moves the root's children; a translation-only pose naming the root (a
+    weapon's hold) moves just the root."""
+    root, child = C.NifFormat.NiNode(), C.NifFormat.NiNode()
+    root.name, child.name = b'HeartRoot', b'Heart'
+    child.translation.x = 1.0
+    root.add_child(child)
+    C.posed(root, {C.ATTACH: ((0.0, 0.0, 5.0), [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])})
+    assert (child.translation.x, child.translation.z, root.translation.z) == (1.0, 5.0, 0.0)
+    C.posed(root, {'HeartRoot': ((0.0, 0.0, 2.0), None)})
+    assert (child.translation.z, root.translation.z) == (5.0, 2.0)

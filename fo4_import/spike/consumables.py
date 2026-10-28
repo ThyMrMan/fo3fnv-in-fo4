@@ -5,7 +5,10 @@ the effects FO4 has (consumable_effects) and its Hardcore needs as Survival's
 (survival_needs). Its category (food, drink, stimpak,
 chem, alcohol, magazine), from FNV's equipment type and consume sound, gives
 it a vanilla item's Pip-Boy preview, sounds and keyword (CATEGORIES). Ammunition keeps its name, model,
-value, weight and short name on FO4's 5.56 round (its projectile and casing). FormIDs are
+value, weight and short name on FO4's 5.56 round (its casing); ammo a creature's
+gun fires takes the projectile of that gun's FO4 template's ammo (the lowest FNV
+weapon FormID's when several do), other ammo the one FNV's data gives it (spike.projectiles),
+so ammunition is written last (write_ammo). FormIDs are
 hashed from FNV's (SITES), so no other record's id moves.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
@@ -30,6 +33,8 @@ ETYP_CHEM, ETYP_STIMPAK, ETYP_ALCOHOL = 10, 11, 13
 #: Template subrecords a consumable takes, in vanilla's order around its own.
 PREVIEW, SOUNDS = (b'PTRN',), (b'YNAM', b'ZNAM', b'CUSD')
 AMMO_TEMPLATE = 'Ammo556'
+#: FO4 AMMO DNAM: its projectile's FormID comes first.
+PROJECTILE_SIZE = 4
 #: FNV ALCH ENIT flags -> FO4's: no auto-calc and food keep their bit, medicine moves.
 FNV_MEDICINE, FO4_MEDICINE = 0x4, 0x10000
 #: derive_formid sites (key: FNV FormID).
@@ -45,9 +50,12 @@ class Consumables:
         wanted = {*WANTED, *S.WANTED, AMMO_TEMPLATE, *(t for t, _ in CATEGORIES.values()),
                   *(k for _, k in CATEGORIES.values() if k)}
         self.vanilla, self.fnv = {}, _fnv_consumables()
+        self.projectiles, self.pending, self.fired_by = {}, {}, {}
         for rec, _ in walk(builder.fo4, b'MGEF', b'ALCH', b'AMMO', b'KYWD', b'BOOK', b'GLOB', b'QUST'):
             subs = dict(subrecords(rec.body))
             edid = subs.get(b'EDID', b'').rstrip(b'\0').decode()
+            if rec.sig == b'AMMO':
+                self.projectiles[rec.form_id] = subs[b'DNAM'][:PROJECTILE_SIZE]
             if edid in wanted:
                 self.vanilla[edid] = (rec.form_id, subs)
         needs = S.SurvivalNeeds(builder, self.vanilla, S.fnv_per_hour(builder.export_dir))
@@ -73,8 +81,8 @@ class Consumables:
         return self._write('ALCH', fnv, body)
 
     def ammo(self, fnv: int, rec: dict) -> 'int | None':
-        """The FO4 ammunition for FNV AMMO `rec` (FormID `fnv`) on FO4's 5.56 round, with FNV's short name (ONAM,
-        else its name); None without a model."""
+        """The FormID of the FO4 ammunition for FNV AMMO `rec` (FormID `fnv`) on FO4's 5.56 round, with FNV's
+        short name (ONAM, else its name), written by write_ammo; None without a model."""
         if 'Model.MODL' not in rec:
             return None
         model, bounds = self.builder.mesh(rec['Model.MODL'])
@@ -86,8 +94,25 @@ class Consumables:
         body += pack_subrecord('DATA', struct.pack('<If', int(rec.get('DATA.Value', 0)),
                                                    float(rec.get('DATA.Weight', 0.0))))
         short = (rec.get('ONAM') or rec.get('FULL', '')) + '\0'
-        body += pack_subrecord('DNAM', template[b'DNAM']) + pack_subrecord('ONAM', short.encode())
-        return self._write('AMMO', fnv, body)
+        self.pending[fnv] = (body, pack_subrecord('ONAM', short.encode()))
+        return self.builder.writer.derive_formid(SITES['AMMO'], fnv)
+
+    def fired_from(self, ammo: int, weapon: int, fo4_ammo: int) -> None:
+        """Creature gun `weapon` fires `ammo` on a gun loaded with `fo4_ammo`."""
+        self.fired_by.setdefault(ammo, {})[weapon] = fo4_ammo
+
+    def write_ammo(self) -> None:
+        """Write every ammunition ammo() made, its DNAM the 5.56 round's firing its creature gun's projectile
+        (fired_from), else its own (spike.projectiles), else the 5.56 round's.
+        See: docs/fork/fo4_pipeline.md#nv-ammo
+        """
+        template = self.vanilla[AMMO_TEMPLATE][1][b'DNAM']
+        default = template[:PROJECTILE_SIZE]
+        for fnv, (head, tail) in sorted(self.pending.items()):
+            guns, own = self.fired_by.get(fnv, {}), self.builder.projectiles.ammo(fnv)
+            projectile = (self.projectiles.get(guns[min(guns)], default) if guns
+                          else struct.pack('<I', own) if own is not None else default)
+            self._write('AMMO', fnv, head + pack_subrecord('DNAM', projectile + template[PROJECTILE_SIZE:]) + tail)
 
     def _write(self, sig: str, fnv: int, body: bytes) -> int:
         """Add a `sig` record with `body` on its hashed FormID; the FormID."""

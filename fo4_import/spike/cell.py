@@ -28,6 +28,7 @@ from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
 from fo4_import.spike.combat_styles import CombatStyles
 from fo4_import.spike.equipment import Equipment
+from fo4_import.spike.projectiles import Projectiles
 from fo4_import.spike.scol import PART_SITE, Parts, compose
 from fo4_import.spike.emittance import Emittance
 from fo4_import.spike.lighting_template import resolved
@@ -89,6 +90,7 @@ from fo4_import.spike.radio import Radio, placements as radio_placements
 from fo4_import.spike.acoustics import AcousticSpaces
 from fo4_import.spike.placeable_water import PlaceableWater
 from fo4_import.pipeline import elric_cache, stale_files
+from fo4_import.rig import anim_info
 from fo4_import.pipeline.converters import PLACED, placed_types
 from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
@@ -741,7 +743,7 @@ def _sounds(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str)
     See: docs/fork/fo4_pipeline.md#sound-archive
     """
     _voice(builder, export_dir, data_dir, plugin)
-    todo = [job for job in builder.sounds.jobs if not job[1].exists()]
+    todo = [job for job in dict.fromkeys(builder.sounds.jobs) if not job[1].exists()]
     builder.counts['sound files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
     builder.counts['sound files packed'] = pack_sounds(data_dir, plugin)
 
@@ -755,8 +757,9 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.script_vars = script_vars(export_dir)
     records = index(export_dir, ITEM_TYPES)
     builder.perks = Perks(builder, export_dir, HELPER_INDEX)
-    consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
-    equipment = builder.equipment
+    builder.projectiles = Projectiles(builder)
+    builder.consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
+    consumables, equipment = builder.consumables, builder.equipment
     makers = {'ALCH': consumables.alch, 'AMMO': consumables.ammo, 'WEAP': equipment.weap, 'ARMO': equipment.armo,
               'IMOD': equipment.weapon_mods.loose}
     stand_ins = replacements.items(builder.table, builder.fo4, builder.masters, builder.plugin_dirs)
@@ -1025,6 +1028,18 @@ def _acoustics(builder: CellBuilder) -> AcousticSpaces:
     return builder.acoustics
 
 
+def _write_plugin(builder: CellBuilder, out: Path, data_dir: Path) -> None:
+    """Write the plugin to `out`, clear script properties naming no written record, then, when it made an own-rig
+    creature, have the Creation Kit write their animation data (rig.anim_info) into `data_dir`."""
+    builder.writer.next_object_id = builder.top
+    out.parent.mkdir(parents=True, exist_ok=True)
+    builder.writer.write(str(out))
+    for key, count in clear_dangling(out, len(builder.writer.masters)).items():
+        builder.counts[f'script properties naming no written record ({key})'] = count
+    if builder.counts['own-rig creature races']:
+        builder.counts['own-rig animation data files (Creation Kit)'] = anim_info.generate(out, data_dir)
+
+
 def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
     """Collision, lowered skeletons, voices, sounds and movies, the texture BA2 and scripts, then the plugin; the
     counts."""
@@ -1050,12 +1065,9 @@ def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, s
     if builder.scripts.used:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used))
     builder.equipment.write_anim_lists()
+    builder.consumables.write_ammo()
     builder.idles.write(data_dir)
-    builder.writer.next_object_id = builder.top
-    out.parent.mkdir(parents=True, exist_ok=True)
-    builder.writer.write(str(out))
-    for key, count in clear_dangling(out, len(builder.writer.masters)).items():
-        builder.counts[f'script properties naming no written record ({key})'] = count
+    _write_plugin(builder, out, data_dir)
     builder.writer.ledger.save()
     made = stale_files.made(data_dir, Path(export_dir.name).stem, builder.started)
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))

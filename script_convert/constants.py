@@ -677,6 +677,8 @@ MENU_ID_NAMES = {
 
 #: `begin MenuMode 1001`, the script's own message box; docs/commentary/script_convert.md#menumode-message-box
 MESSAGE_BOX_MENU_ID = '1001'
+#: `begin MenuMode 1009`, the dialogue menu: run in the poll's dialogue gate; script_convert.md#menumode-dialogue
+DIALOGUE_MENU_ID = '1009'
 
 
 #: Reference types, WIDEST first: the later one is the more specific.

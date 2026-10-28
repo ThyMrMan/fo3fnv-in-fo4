@@ -11,6 +11,7 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import consumable_effects as CE
 from fo4_import.spike import crafting as CR
 from fo4_import.spike import perks as P
+from fo4_import.spike import say_topics as ST
 from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
@@ -21,7 +22,7 @@ def _perks(**extra) -> P.Perks:
     written = []
     perks = P.Perks.__new__(P.Perks)
     perks.builder = SimpleNamespace(counts=Counter(), writer=SimpleNamespace(add_record=lambda s, r: written.append(r)),
-                                    new_id=lambda owner: 0x0B100000 + sum(map(ord, owner)), fnv_id=lambda f: 0x0B000000 | int(f, 16))
+                                    new_id=lambda owner: 0x0B100000 + sum(map(ord, owner)), fnv_id=lambda f: 0x0B000000 | int(str(f), 16 if isinstance(f, str) else 10))
     perks.forms, perks.script_vars, perks.tabs, perks.vanilla, perks.written = {}, {}, {35: 3, 123: 1}, {}, set()
     perks.written_records = written
     for k, v in extra.items():
@@ -172,3 +173,61 @@ def test_skill_gates_set_each_minigame_gate_by_its_skill_with_the_higher_tier_la
     assert values == [1.0, 2.0, 3.0] * 2 and levels == [50.0, 75.0, 100.0] * 2
     priorities = [p[2] for t, p in subrecords(raw) if t == b'PRKE']
     assert priorities == [1, 2, 3] * 2
+
+
+def _ability_perks(flags: int) -> P.Perks:
+    """Perks knowing one FNV ability (Health +10 by effect `E`, magic effect flags `flags`) and FO4's AbFortifyHealth."""
+    spell = {'FormID': '00000AB0', 'EditorID': 'Heal', 'EffectCount': '1', 'Effect[0].EFID': 'E',
+             'Effect[0].ActorValue': str(C.FNV_AV_NAMES.index('Health')), 'Effect[0].Magnitude': '10'}
+    copies = []
+    effects = SimpleNamespace(copy=lambda template, *rest: copies.append(template) or 0x77)
+    perks = _perks(spells={0xAB0: spell}, fnv_effects={'E': {'DATA.Flags': str(flags)}}, pending=set(),
+                   effects=effects, helper_index=0xFE, constants={(0x2D4, False, True): 0x55})
+    perks.copies = copies
+    return perks
+
+
+def test_an_ability_effect_keeps_fnvs_recover_kind():
+    """Recover: vanilla's fortify; no Recover (heal per second): the restore copy."""
+    assert _ability_perks(P.RECOVER)._target(_ability_perks(0).spells[0xAB0], 'Effect[0]') == 0x55
+    healing = _ability_perks(0)
+    assert healing._target(healing.spells[0xAB0], 'Effect[0]') == 0x77 and healing.copies == [P.RESTORE]
+
+
+def test_an_actor_ability_is_named_now_and_written_with_the_perks():
+    """ability() gives the FNV FormID and queues the spell; unknown is counted."""
+    perks = _ability_perks(P.RECOVER)
+    assert perks.ability(0xAB0) == 0x0B000AB0 and perks.pending == {0xAB0}
+    assert perks.ability(0xAB1) is None and perks.builder.counts['actor ability left out'] == 1
+
+
+def test_a_stealth_boy_ability_cloaks_with_vanillas_constant_chameleon():
+    """StealthBoyInvis (FNV Chameleon) is AssaultronStealthEFFECT; a script's Spell property finds an ability by
+    EditorID in any case, and only an ability."""
+    cloak = {'FormID': '00000AB2', 'EditorID': 'StealthBoyInvisibilitySpell', 'SPIT.Type': '4', 'EffectCount': '1',
+             'Effect[0].EFID': 'StealthBoyInvis', 'Effect[0].ActorValue': '49', 'Effect[0].Magnitude': '95'}
+    perks = _ability_perks(P.RECOVER)
+    perks.vanilla = {'AssaultronStealthEFFECT': (0x1CFB16, {})}
+    perks.spells[0xAB2] = cloak
+    perks.abilities = {'stealthboyinvisibilityspell': cloak}
+    assert perks._target(cloak, 'Effect[0]') == 0x1CFB16
+    assert perks.named_ability('STEALTHBOYINVISIBILITYSPELL') == 0x0B000AB2 and 0xAB2 in perks.pending
+    assert perks.named_ability('Heal') is None
+
+
+def test_a_script_effect_ability_is_script_effects():
+    """An ability no effect of which converts is ScriptEffects' when it makes one (the glowing one's glow)."""
+    glow = {'FormID': '00000AB3', 'EditorID': 'GlowingOneGlowSpell', 'SPIT.Type': '4', 'EffectCount': '1',
+            'Effect[0].EFID': 'GlowingOneGlowEffect', 'Effect[0].ActorValue': '-1'}
+    perks = _ability_perks(P.RECOVER)
+    perks.spells[0xAB3] = glow
+    made = {'GlowingOneGlowSpell': 0x0B000AB3}
+    perks.builder.scripts = SimpleNamespace(effects=SimpleNamespace(spell=made.get))
+    assert perks.ability(0xAB3) == 0x0B000AB3 and perks.builder.counts['actor ability (script effect)'] == 1
+
+
+def test_radiation_level_is_fo4s_rads_value():
+    """GetRadiationLevel > 0 is GetValue Rads > 0."""
+    cond = C.parse('4000000000000000F701000000000000000000000000000000000000')
+    form_map = {('av', C.AS_VALUE['GetRadiationLevel']): 0x2E1}
+    assert ST._fo4_condition(cond, form_map, {}) == (C.FO4.index('GetValue'), 0x2E1, 0, '', '')

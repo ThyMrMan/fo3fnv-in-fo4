@@ -41,11 +41,12 @@ def is_fallout4() -> bool:
 
 def event_opener(skyrim_opener: str) -> str:
     """The target's spelling of an event opener given in Skyrim's; Fallout 4's OnDeath and OnHit also trace the
-    event (trace_points)."""
+    event (trace_points), OnHit also starting the hit reference's graph event trace (TraceAnimEvents)."""
     if not is_fallout4():
         return skyrim_opener
     trace = {'Event OnDeath(': '\n  TES4Polyfill.TraceDeath(Self, akKiller)',
-             'Event OnHit(': '\n  TES4Polyfill.TraceHit(akTarget, akAggressor, akSource)'}
+             'Event OnHit(': '\n  TES4Polyfill.TraceHit(akTarget, akAggressor, akSource)'
+                             '\n  TES4Polyfill.TraceAnimEvents(Self, akTarget)'}
     return FALLOUT4_EVENTS.get(skyrim_opener, skyrim_opener) + next(
         (line for opener, line in trace.items() if skyrim_opener.startswith(opener)), '')
 

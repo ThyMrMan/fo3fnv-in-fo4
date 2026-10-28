@@ -65,8 +65,11 @@ A stand-in is a target and a mode. Items have them now (`item`, `stats`,
 `fnv`, below). Creatures get the same shape: `item` uses an FO4 race's
 own NPC; `fnv` puts FNV's mesh on an FO4 creature's rig (Cheyenne on
 Dogmeat, [creatures](fo4_spikes.md#spike-4-creatures)), only where the FO4 creature is the same
-animal: FNV's gecko on the deathclaw read as a deathclaw;
-another mod's record (`"use": "Port.esp|NVGecko"`) uses a port as it is.
+animal: FNV's gecko on the deathclaw read as a deathclaw; `rig` keeps
+FNV's own skeleton, clips and behaviour on a race of its own (the target is
+the NPC copied onto it; [fo4_own_rig.md](fo4_own_rig.md#table), the gecko
+first); another mod's record (`"use": "Port.esp|NVGecko"`) uses a port as
+it is.
 The mod's plugin becomes a master of the converted plugin, as items'
 already do.
 
@@ -179,11 +182,20 @@ at the mod's record.
      dependencies if creature conversion ([creatures](fo4_spikes.md#creature-census))
      keeps creatures with no FO4 counterpart through existing ports rather
      than rebuilt skeletons.
-   - **Permissions:** the mod pages ask permission for asset use. The
-     author's About Me says they have retired, and reads as allowing use if
-     the original mod is downloaded and credited. The modlist route
-     (installing the original mod) fits that. Confirm the exact terms
-     before shipping anything that depends on them.
+   - **Permissions (read 2026-10-25):** stricter than first noted. The
+     About Me (retired) allows edits and patches, bans reuploading
+     unedited files or ESMs, and allows reuploads only of substantially
+     changed files that need the original as a requirement. Each creature
+     mod's permission block is stricter still: asset use needs permission
+     or is "not allowed … under any circumstances" (Cazadores, Yao Guai,
+     Brahmin), conversion to other games is not allowed, and the authors
+     no longer read messages. Only a user-installed dependency (the
+     modlist names the mod; nothing of theirs ships) fits. Their custom
+     creatures (new skeleton, Havok ragdoll, behaviours, animations; 3ds
+     Max 2013 with Bethesda's official exporter): Mojave Mantises 48442,
+     Geckos 50275, the Securitron in the Capital Wasteland Robot Pack
+     52147, Cazadores 57161, Bighorners 57991, Capital Wasteland Centaurs
+     59379. See the prior-art report `reports/FO4 custom creature rig prior art.md`.
 
 ## Defaults now
 

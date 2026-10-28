@@ -54,7 +54,7 @@ def lost_lines(ctx) -> list:
     for info in ctx.source.infos.values():
         if info.dial not in ctx.source_topics or not speakable(info.conditions, ctx.source.present):
             continue
-        reason = ctx.dialogue.reachable_info(ctx.built_fid(f'{info.fid:08X}'))
+        reason = ctx.info_reason(f'{info.fid:08X}')
         if reason:
             kind = TOPIC_TYPES.get(ctx.source.dials.get(info.dial, ('', 0))[1], 'unknown')
             via = ', which the source reaches through LinkFrom' if info.link_from and 'topic' in reason else ''
@@ -91,6 +91,8 @@ def speaker_findings(ctx, lost: list) -> list:
 
 
 def audit(ctx) -> list:
-    """Lost lines, unshown greeting replies and engine-rule findings."""
-    return (speaker_findings(ctx, lost_lines(ctx)) + bark_findings(ctx.game, ctx.index)
-            + greeting_replies.audit(ctx) + dialogue_rules.audit(ctx))
+    """Lost lines, and on a Skyrim build unshown greeting replies and engine-rule findings."""
+    lost = speaker_findings(ctx, lost_lines(ctx))
+    if ctx.index.fo4:
+        return lost
+    return lost + bark_findings(ctx.game, ctx.index) + greeting_replies.audit(ctx) + dialogue_rules.audit(ctx)

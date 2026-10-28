@@ -6,6 +6,7 @@
     python -m tools.validate.preflight --mark "assets|*|outside|*" --as skip
     python -m tools.validate.preflight --accept-build --game Fallout3.esm
     python -m tools.validate.preflight --game Fallout3.esm --audit logs     # after a play-test
+    py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esp"  # a Fallout 4 build
 
 Exit code 1 when any error is left that the ledger does not hide.
 See: docs/commentary/tools_preflight.md#running-it
@@ -14,19 +15,31 @@ See: docs/commentary/tools_preflight.md#running-it
 import argparse
 import re
 import sys
+from functools import partial
 from pathlib import Path
 
-from tools.validate.preflight import (asset_load, build_diff, dialogue_loss, findings, log_triage, package_ai,
+from tools.validate.preflight import (asset_fo4, asset_load, build_diff, condition_diff, dialogue_loss, findings, log_triage, package_ai,
                                       quest_progression, quest_start, script_health, world_links)
+from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.ledger import ledger_path
+from fo4_import.spike.readiness import report_path
+from tools.validate.fo4_quest_readiness import RECORD_PREFIX as FO4_EDID_PREFIX
+from tools.validate.preflight.fo4_dialogue import Fo4Dialogue, left_out, line_copies, line_parts
 from tools.validate.preflight.plugin_index import load_plugin
 from tools.validate.preflight.quest_converted import load_scripts
 from tools.validate.preflight.quest_source import SourceGame
 
 #: The audits in the order they run and print.
-AUDITS = ('quest', 'start', 'dialogue', 'scripts', 'packages', 'world', 'assets', 'build', 'logs')
+AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'scripts', 'packages', 'world', 'assets', 'build', 'logs')
+
+#: The audits a Skyrim build runs.
+SKYRIM_AUDITS = tuple(a for a in AUDITS if a != 'conditions')
 
 #: The audits a plain run does; `logs` reads the last play session, so it runs only when asked.
-DEFAULT_AUDITS = AUDITS[:-1]
+DEFAULT_AUDITS = SKYRIM_AUDITS[:-1]
+
+#: The audits a Fallout 4 build runs: fo4_audit checks its script properties and fo4_trace its play sessions.
+FO4_AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'packages', 'world', 'assets', 'build')
 
 
 def games(output: Path, export: Path, wanted: list) -> list:
@@ -45,6 +58,8 @@ def own_folder(game: str) -> str:
 class Game:
     """One built game's plugin index, and its quest model built on first use."""
 
+    audits, default = SKYRIM_AUDITS, DEFAULT_AUDITS
+
     def __init__(self, name: str, args):
         """Read the plugin; the export and scripts load when an audit asks."""
         self.name, self.args = name, args
@@ -62,6 +77,32 @@ class Game:
         return self._ctx
 
 
+class Fo4Game(Game):
+    """A Fallout 4 build: the plugin in its mod folder, sources apart from the compiled scripts."""
+
+    audits = default = FO4_AUDITS
+
+    def __init__(self, plugin: Path, args):
+        """Read the plugin; its source export is `export/<plugin stem>.esm` unless --fo4-source names one."""
+        self.plugin, self.name, self.args = Path(plugin), Path(plugin).name, args
+        self.source = args.fo4_source or f'{self.plugin.stem}.esm'
+        self.index = load_plugin(self.plugin, FO4_EDID_PREFIX)
+        self._ctx, self.parts = None, {}
+
+    @property
+    def ctx(self):
+        """The QuestContext over the FO4 dialogue model and the ledger's line copies."""
+        if self._ctx is None:
+            source = SourceGame(str(self.args.export / self.source))
+            scripts = load_scripts(self.plugin.parent / 'Scripts',
+                                   self.args.fo4_scripts or Path('temp') / 'fo4_scripts' / self.source)
+            self.parts = line_parts(self.index, ledger_path(self.plugin), source.infos)
+            self._ctx = quest_progression.QuestContext(self.name, source, scripts, self.index,
+                                                       dialogue=Fo4Dialogue(self.index), copies=line_copies(self.parts),
+                                                       left_out=left_out(report_path(self.plugin)))
+        return self._ctx
+
+
 def run_quest(game: Game) -> list:
     """The quest progression findings for one game."""
     return quest_progression.audit(game.ctx)
@@ -75,6 +116,12 @@ def run_start(game: Game) -> list:
 def run_dialogue(game: Game) -> list:
     """The dialogue loss findings for one game."""
     return dialogue_loss.audit(game.ctx)
+
+
+def run_conditions(game: Fo4Game) -> list:
+    """The condition differential findings for one Fallout 4 build."""
+    ctx = game.ctx
+    return condition_diff.audit(ctx, game.parts, game.args.export / game.source, ledger_path(game.plugin))
 
 
 def run_packages(game: Game) -> list:
@@ -107,6 +154,8 @@ def run_scripts(game: Game) -> list:
 def run_assets(game: Game) -> list:
     """The asset load findings for one game."""
     args = game.args
+    if game.index.fo4:
+        return asset_fo4.audit(game.name, game.index, game.plugin, FALLOUT4_DIR / 'Data', args.export / game.source)
     own = game.ctx.prefix.rstrip('_').lower() or own_folder(game.name)
     return asset_load.audit(game.name, game.index, args.output / game.name, own, args.export / game.name, args.exe)
 
@@ -115,30 +164,39 @@ def run_build(game: Game) -> list:
     """The drift findings for one game, advancing the baseline while there is none."""
     args = game.args
     path = findings.state_dir(args.output, game.name) / 'build_baseline.json'
+    hashes = path.with_name('build_contents.json')
     before, after = build_diff.load_baseline(path), build_diff.snapshot(game.index)
+    was, now = build_diff.load_baseline(hashes), build_diff.contents(game.index)
     out = build_diff.audit(game.name, before, after)
     if before is not None:
-        grown = build_diff.added(before, after)
-        print(f'  build: {sum(grown.values())} records added since the baseline'
-              + (f' ({", ".join(f"{n} {s}" for s, n in grown.most_common(6))})' if grown else ''))
+        print_counts('added', build_diff.added(before, after))
+    if before is not None and was is not None:
+        print_counts('changed', build_diff.changed(was, now, after))
     if before is None or not out or args.accept_build:
         build_diff.save_baseline(path, after)
+        build_diff.save_baseline(hashes, now)
     return [] if args.accept_build else out
 
 
+def print_counts(what: str, counts) -> None:
+    """One line: the records the build `what` since the baseline, by type."""
+    print(f'  build: {sum(counts.values())} records {what} since the baseline'
+          + (f' ({", ".join(f"{n} {s}" for s, n in counts.most_common(6))})' if counts else ''))
+
+
 #: Each audit's runner, keyed by its name.
-RUNNERS = {'quest': run_quest, 'start': run_start, 'dialogue': run_dialogue, 'scripts': run_scripts,
+RUNNERS = {'quest': run_quest, 'start': run_start, 'dialogue': run_dialogue, 'conditions': run_conditions,
+           'scripts': run_scripts,
            'packages': run_packages, 'world': run_world, 'assets': run_assets, 'build': run_build,
            'logs': run_logs}
 
 
-def audit_game(name: str, args, ledger: dict) -> int:
+def audit_game(game: Game, args, ledger: dict) -> int:
     """Run the chosen audits on one game, print and file the report; the unhidden error count."""
-    print(f'== {name} ==')
-    game = Game(name, args)
-    folder = findings.state_dir(args.output, name)
+    print(f'== {game.name} ==')
+    folder = findings.state_dir(args.output, game.name)
     report, errors = [], 0
-    for audit in [a for a in AUDITS if a in args.audit]:
+    for audit in [a for a in AUDITS if a in (args.audit or game.default) and a in game.audits]:
         found = RUNNERS[audit](game)
         found, previous = found if isinstance(found, tuple) else (found, findings.load_previous(folder, audit))
         sections = findings.triage(found, ledger, previous)
@@ -166,8 +224,11 @@ def parse_args(argv=None):
     ap.add_argument('--unmark', metavar='KEY', help='drop a decision from the ledger')
     ap.add_argument('--accept-build', action='store_true', help='accept the current build as the drift baseline')
     ap.add_argument('--logs', type=Path, help='the Papyrus log folder for --audit logs (default: the game\'s)')
+    ap.add_argument('--fo4', action='append', default=[], type=Path, help='a built Fallout 4 plugin to audit')
+    ap.add_argument('--fo4-source', help='its source export folder name (default: the plugin stem + .esm)')
+    ap.add_argument('--fo4-scripts', type=Path, help='its converted .psc folder (default: temp/fo4_scripts/<source>)')
     args = ap.parse_args(argv)
-    args.audit = args.audit or (['build'] if args.accept_build else list(DEFAULT_AUDITS))
+    args.audit = args.audit or (['build'] if args.accept_build else None)
     return args
 
 
@@ -191,7 +252,9 @@ def main(argv=None) -> int:
     if args.mark or args.unmark:
         return edit_ledger(args)
     ledger = findings.load_ledger()
-    errors = sum(audit_game(g, args, ledger) for g in games(args.output, args.export, args.game))
+    chosen = [] if args.fo4 and not args.game else games(args.output, args.export, args.game)
+    makers = [partial(Game, n, args) for n in chosen] + [partial(Fo4Game, p, args) for p in args.fo4]
+    errors = sum(audit_game(make(), args, ledger) for make in makers)
     print(f'{errors} unhidden errors' if errors else 'no unhidden errors')
     return 1 if errors else 0
 

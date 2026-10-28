@@ -1,0 +1,848 @@
+{
+  "_about": "FNV creatures on their own rig, keyed by FNV skeleton folder. project: FO4 file and folder name (Actors\\<project>\\...), the movement type's MNAM and iState_<project>. template: the vanilla race whose race, body parts, skin and movement type are copied (unarmed: the FO4 weapon whose impact set the race's own copy of the template's unarmed weapon hits with). clips: FO4 clip role -> FNV .kf under the skeleton folder. attacks: attack clip -> [melee event, power, label]. parts: template body-part node -> our bone. pose_bones: the pose matcher's ragdoll bones in the template's roles (pelvis, chest, upper arm). guns: ranged clip role -> [the equip slot (an EQUP EditorID; the race adds it when its template lacks it) of the guns that clip fires; the bones whose subtrees that clip plays on over its movement (the rest keep their aim); the FNV node those guns fire from (the slot's WEAPON node goes there, the race's ZNAM naming it)]. See docs/fork/fo4_own_rig.md#table.",
+  "creatures\\nvgecko": {
+    "project": "FNVGecko",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtturnleft.kf",
+      "TurnRight": "mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "AttackForwardPower": "h2hattackforwardpower.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Spine1",
+      "SPINE2": "Bip01 Spine2",
+      "Chest": "Bip01 Spine3",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 L UpperArm",
+      "Front_LLeg2": "Bip01 L Forearm",
+      "Front_LLegAnkle": "Bip01 L Hand",
+      "Back_LLeg1": "Bip01 L Thigh",
+      "Front_RLeg1": "Bip01 R UpperArm",
+      "Front_RLeg2": "Bip01 R Forearm",
+      "Front_RLegAnkle": "Bip01 R Hand",
+      "Back_RLeg1": "Bip01 R Thigh"
+    },
+    "default_part": "Bip01 Spine2",
+    "pose_bones": [
+      "Bip01 Pelvis",
+      "Bip01 Spine4",
+      "Bip01 R UpperArm"
+    ]
+  },
+  "creatures\\nightstalker": {
+    "project": "FNVNightstalker",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtturnleft.kf",
+      "TurnRight": "mtturnright.kf",
+      "WalkForward": "locomotion\\mtfoward.kf",
+      "RunForward": "locomotion\\mtfastfoward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "AttackForwardPower": "h2hattackforwardpower.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Spine1",
+      "SPINE2": "Bip01 Spine4",
+      "Chest": "Bip01 Spine7",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01LUpperArm",
+      "Front_LLeg2": "Bip01LForearm",
+      "Front_LLegAnkle": "Bip01LHand",
+      "Back_LLeg1": "Bip01LCalf",
+      "Front_RLeg1": "Bip01RUpperArm",
+      "Front_RLeg2": "Bip01RForearm",
+      "Front_RLegAnkle": "Bip01RHand",
+      "Back_RLeg1": "Bip01RCalf"
+    },
+    "default_part": "Bip01 Spine4",
+    "pose_bones": [
+      "Bip01 Pelvis",
+      "Bip01 Spine4",
+      "Bip01RUpperArm"
+    ]
+  },
+  "creatures\\nvmantis": {
+    "project": "FNVMantis",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtturnleft.kf",
+      "TurnRight": "mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "AttackForwardPower": "h2hattackforwardpower.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Root",
+      "SPINE1": "Bip01 Thorax00",
+      "SPINE2": "Bip01 Thorax01",
+      "Chest": "Bip01 Neck",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 LeftArm00",
+      "Front_LLeg2": "Bip01 LeftArm01",
+      "Front_LLegAnkle": "Bip01 LeftArm02",
+      "Back_LLeg1": "Bip01 BackLeftLeg00",
+      "Front_RLeg1": "Bip01 RightArm00",
+      "Front_RLeg2": "Bip01 RightArm01",
+      "Front_RLegAnkle": "Bip01 RightArm02",
+      "Back_RLeg1": "Bip01 BackRightLeg00"
+    },
+    "default_part": "Bip01 Thorax00",
+    "pose_bones": [
+      "Bip01 Root",
+      "Bip01 Thorax00",
+      "Bip01 RightArm00"
+    ]
+  },
+  "creatures\\nvcazadores": {
+    "project": "FNVCazador",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtturnleft.kf",
+      "TurnRight": "mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "AttackForwardPower": "h2hattackforwardpower.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Root",
+      "SPINE1": "Bip01 Tail1",
+      "SPINE2": "Bip01 Tail2",
+      "Chest": "Bip01 Neck",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 FrontLeftLeg01",
+      "Front_LLeg2": "Bip01 FrontLeftLeg02",
+      "Front_LLegAnkle": "Bip01 FrontLeftLeg03",
+      "Back_LLeg1": "Bip01 BackLeftLeg01",
+      "Front_RLeg1": "Bip01 FrontRightLeg01",
+      "Front_RLeg2": "Bip01 FrontRightLeg02",
+      "Front_RLegAnkle": "Bip01 FrontRightLeg03",
+      "Back_RLeg1": "Bip01 BackRightLeg01"
+    },
+    "default_part": "Bip01 Root",
+    "pose_bones": [
+      "Bip01 Root",
+      "Bip01 Neck",
+      "Bip01 FrontRightLeg01"
+    ]
+  },
+  "creatures\\nvgiantrat": {
+    "project": "FNVGiantRat",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtturnleft.kf",
+      "TurnRight": "mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "AttackForwardPower": "h2hattackforwardpower.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Spine1",
+      "SPINE2": "Bip01 Spine2",
+      "Chest": "Bip01 Spine3",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 L UpperArm",
+      "Front_LLeg2": "Bip01 L Forearm",
+      "Front_LLegAnkle": "Bip01 L Hand",
+      "Back_LLeg1": "Bip01 L Thigh",
+      "Front_RLeg1": "Bip01 R UpperArm",
+      "Front_RLeg2": "Bip01 R Forearm",
+      "Front_RLegAnkle": "Bip01 R Hand",
+      "Back_RLeg1": "Bip01 R Thigh"
+    },
+    "default_part": "Bip01 Spine1",
+    "pose_bones": [
+      "Bip01 Spine0",
+      "Bip01 Spine3",
+      "Bip01 R UpperArm"
+    ]
+  },
+  "creatures\\giantant": {
+    "project": "FNVGiantAnt",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtturnleft.kf",
+      "TurnRight": "mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "AttackForwardPower": "h2hattackforwardpower.kf",
+      "RangedAttack": "2hlattackspin.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Spine",
+      "SPINE2": "Bip01 Tail",
+      "Chest": "Bip01 Neck1",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 L UpperArm",
+      "Front_LLeg2": "Bip01 L ForeArm",
+      "Front_LLegAnkle": "Bip01 L Hand",
+      "Back_LLeg1": "Bip01 L Thigh Rear",
+      "Front_RLeg1": "Bip01 R UpperArm",
+      "Front_RLeg2": "Bip01 R ForeArm",
+      "Front_RLegAnkle": "Bip01 R Hand",
+      "Back_RLeg1": "Bip01 R Thigh Rear"
+    },
+    "default_part": "Bip01 Spine",
+    "pose_bones": [
+      "Bip01 Spine",
+      "Bip01 Head",
+      "Bip01 R UpperArm"
+    ],
+    "guns": {
+      "RangedAttack": [
+        "RightHand",
+        [],
+        "ProjectileNode_Fire"
+      ]
+    }
+  },
+  "creatures\\queenant": {
+    "project": "FNVQueenAnt",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtturnleft.kf",
+      "TurnRight": "mtturnright.kf",
+      "WalkForward": "mtforward.kf",
+      "RunForward": "mtfastforward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "RangedAttack": "2hlattackright.kf",
+      "RangedAttackSpit": "2hlattackright.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Spine",
+      "SPINE2": "Bip01 Spine1",
+      "Chest": "Bip01 Neck1",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 L Thigh Front",
+      "Front_LLeg2": "Bip01 L Calf Front",
+      "Front_LLegAnkle": "Bip01 L Foot Front",
+      "Back_LLeg1": "Bip01 L Thigh Rear",
+      "Front_RLeg1": "Bip01 R Thigh Front",
+      "Front_RLeg2": "Bip01 R Calf Front",
+      "Front_RLegAnkle": "Bip01 R Foot Front",
+      "Back_RLeg1": "Bip01 R Thigh Rear"
+    },
+    "default_part": "Bip01 Spine1",
+    "pose_bones": [
+      "Bip01 Spine1",
+      "Bip01 Head",
+      "Bip01 R Thigh Front"
+    ],
+    "guns": {
+      "RangedAttack": [
+        "RightHand",
+        [],
+        "ProjectileNode_Fire"
+      ],
+      "RangedAttackSpit": [
+        "MiddleHand",
+        [],
+        "ProjectileNode_Fire"
+      ]
+    }
+  },
+  "creatures\\nvsporecarrier": {
+    "project": "FNVSporeCarrier",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "locomotion\\mtturnleft.kf",
+      "TurnRight": "locomotion\\mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "AttackForwardPower": "h2hattackforwardpower.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Spine",
+      "SPINE2": "Bip01 Spine1",
+      "Chest": "Bip01 Neck",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 L UpperArm",
+      "Front_LLeg2": "Bip01 L Forearm",
+      "Front_LLegAnkle": "Bip01 L Hand",
+      "Back_LLeg1": "Bip01 L Thigh",
+      "Front_RLeg1": "Bip01 R UpperArm",
+      "Front_RLeg2": "Bip01 R Forearm",
+      "Front_RLegAnkle": "Bip01 R Hand",
+      "Back_RLeg1": "Bip01 R Thigh"
+    },
+    "default_part": "Bip01 Spine1",
+    "pose_bones": [
+      "Bip",
+      "Bip01 Spine1",
+      "Bip01 R UpperArm"
+    ]
+  },
+  "creatures\\centaur": {
+    "project": "FNVCentaur",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "locomotion\\mtturnleft.kf",
+      "TurnRight": "locomotion\\mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackleftpower.kf",
+      "AttackForwardPower": "h2hattackrightpower.kf",
+      "RangedAttack": "2hlattackleft.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Spine",
+      "SPINE2": "Bip01 Tail",
+      "Chest": "Bip01 Neck",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 L Thigh",
+      "Front_LLeg2": "Bip01 L Calf",
+      "Front_LLegAnkle": "Bip01 L Foot",
+      "Back_LLeg1": "Bip01 L2 Thigh",
+      "Front_RLeg1": "Bip01 R Thigh",
+      "Front_RLeg2": "Bip01 R Calf",
+      "Front_RLegAnkle": "Bip01 R Foot",
+      "Back_RLeg1": "Bip01 R2 Thigh"
+    },
+    "default_part": "Bip01 Spine",
+    "pose_bones": [
+      "Bip01 Spine",
+      "Bip01 Neck",
+      "Bip01 R UpperArm"
+    ],
+    "guns": {
+      "RangedAttack": [
+        "MiddleHand",
+        [],
+        "ProjectileNode"
+      ]
+    }
+  },
+  "creatures\\nvraven": {
+    "project": "FNVRaven",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtidle.kf",
+      "TurnRight": "mtidle.kf",
+      "WalkForward": "mtidle.kf",
+      "RunForward": "mtidle.kf",
+      "CombatIdle": "mtidle.kf"
+    },
+    "attacks": {},
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 RigPelvis",
+      "SPINE1": "Bip01 RigSpine",
+      "SPINE2": "Bip01 RigTorso",
+      "Chest": "Bip01 RigNeck",
+      "Head": "Bip01 RigHead01",
+      "Front_LLeg1": "Bip01 RigLwing01",
+      "Front_LLeg2": "Bip01 RigLwing02",
+      "Front_LLegAnkle": "Bip01 RigLwing03",
+      "Back_LLeg1": "Bip01 RigLLeg1",
+      "Front_RLeg1": "Bip01 RigRwing01",
+      "Front_RLeg2": "Bip01 RigRwing02",
+      "Front_RLegAnkle": "Bip01 RigRwing03",
+      "Back_RLeg1": "Bip01 RigRLeg1"
+    },
+    "default_part": "Bip01 RigTorso",
+    "pose_bones": [
+      "Bip01 RigPelvis",
+      "Bip01 RigTorso",
+      "Bip01 RigTail02"
+    ]
+  },
+  "creatures\\nvsporeplant": {
+    "project": "FNVSporePlant",
+    "template": {
+      "race": "MoleratRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtidle.kf",
+      "TurnRight": "mtidle.kf",
+      "WalkForward": "mtidle.kf",
+      "RunForward": "mtidle.kf",
+      "CombatIdle": "h2haim.kf",
+      "AttackRight": "h2hattackright.kf",
+      "RangedAttack": "2hrattackleft.kf"
+    },
+    "attacks": {
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Base",
+      "SPINE1": "Bip01 Spine02",
+      "SPINE2": "Bip01 Spine03",
+      "Chest": "Bip01 Neck01",
+      "Head": "Bip01 Pitch",
+      "Front_LLeg1": "Bip01 LeafL2 01",
+      "Front_LLeg2": "Bip01 LeafL2 02",
+      "Front_LLegAnkle": "Bip01 LeafL2 03",
+      "Back_LLeg1": "Bip01 LeafL2 04",
+      "Front_RLeg1": "Bip01 LeafR1 01",
+      "Front_RLeg2": "Bip01 LeafR1 02",
+      "Front_RLegAnkle": "Bip01 LeafR1 03",
+      "Back_RLeg1": "Bip01 LeafR1 04"
+    },
+    "default_part": "Bip01 Spine02",
+    "pose_bones": [
+      "Bip01 Spine02",
+      "Bip01 Neck02",
+      "Bip01 LeafR1 01"
+    ],
+    "guns": {
+      "RangedAttack": [
+        "MiddleHand",
+        [],
+        "ProjectileNode"
+      ]
+    }
+  },
+  "creatures\\nvsecuritron": {
+    "project": "FNVSecuritron",
+    "template": {
+      "race": "ProtectronRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx",
+      "unarmed": "UnarmedProtectron"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "mtturnleft.kf",
+      "TurnRight": "mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "1hpaim.kf",
+      "AttackLeft": "h2hattackleft.kf",
+      "AttackRight": "h2hattackright.kf",
+      "AttackPower": "h2hattackpower.kf",
+      "AttackForwardPower": "h2hattackforwardpower.kf",
+      "RangedAttack": "1hpattackleft.kf",
+      "RangedAttackLeft": "2hlattackleft.kf",
+      "RangedAttackMissile": "2hhattackleft.kf",
+      "Talk": "idleanims\\specialidle_talk01.kf"
+    },
+    "attacks": {
+      "AttackLeft": [
+        "meleeStart_Left",
+        false,
+        "Attack Left"
+      ],
+      "AttackRight": [
+        "meleeStart_Right",
+        false,
+        "Attack Right"
+      ],
+      "AttackPower": [
+        "meleeStart_Power",
+        true,
+        "Power Attack"
+      ],
+      "AttackForwardPower": [
+        "meleeStart_ForwardPower",
+        true,
+        "Forward Power Attack"
+      ]
+    },
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Spin01",
+      "SPINE2": "Bip01 Spin02",
+      "Chest": "Bip01 Body",
+      "Head": "Bip01 Head",
+      "Front_LLeg1": "Bip01 LArm01",
+      "Front_LLeg2": "Bip01 LArm02",
+      "Front_LLegAnkle": "Bip01 LArm03",
+      "Back_LLeg1": "Bip01 Wheel",
+      "Front_RLeg1": "Bip01 RArm01",
+      "Front_RLeg2": "Bip01 RArm02",
+      "Front_RLegAnkle": "Bip01 RArm03",
+      "Back_RLeg1": "Bip01 WheelFork"
+    },
+    "default_part": "Bip01 Body",
+    "pose_bones": [
+      "Bip01 Pelvis",
+      "Bip01 Body",
+      "Bip01 RArm01"
+    ],
+    "guns": {
+      "RangedAttack": [
+        "RightHand",
+        [
+          "Bip01 RShoulder"
+        ],
+        "ProjectileNode_MachineGun"
+      ],
+      "RangedAttackLeft": [
+        "LeftHand",
+        [
+          "Bip01 LShoulder"
+        ],
+        "ProjectileNode_Launcher"
+      ],
+      "RangedAttackMissile": [
+        "AltAttackSlot2",
+        [
+          "Bip01 LShoulder"
+        ],
+        "ProjectileNode_Missle"
+      ]
+    }
+  }
+}

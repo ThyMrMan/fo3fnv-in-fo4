@@ -147,7 +147,7 @@ def test_headgear_puts_fnvs_worn_alternate_textures_on_its_addon():
     out = eq._headgear(1, {'BMDT.BipedFlags': '1024', 'Male.BipedModel.MODL': 'hat.nif'},
                        {b'MODL': struct.pack('<I', 9)})
     assert taken == {'models': {b'MOD2': 'hat.nif_male', b'MOD3': 'hat.nif_female'}, 'swaps': {b'MO2S': 0x0300AAAA}}
-    assert out[b'BOD2'] == E._bod2((46,)) and out[b'MODL'] == struct.pack('<I', 7)
+    assert out[b'BOD2'] == E._bod2((30, 46)) and out[b'MODL'] == struct.pack('<I', 7)
 
 
 def test_an_armor_fnv_gives_no_world_model_wears_its_own_mesh_on_the_templates_world_model():
@@ -208,9 +208,9 @@ def test_choosing_a_gun_writes_none_of_its_fnv_assets_and_building_on_it_does(tm
     assert chosen[2][:2] == ('Weapons\\Pistol.NIF', b'static') and not written and not (tmp_path / 'data').exists()
     (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons').mkdir(parents=True)
     guns._read, guns._lift = lambda model: b'receiver', lambda layout, ch: 0.0
-    guns._part = lambda fnv, rec, fid, path, lift: path and 0x0300C0DE
+    guns._part = lambda fnv, rec, fid, path, lift, own: path and 0x0300C0DE
     obts = struct.pack('<I', 1) + bytes(10) + b'\1' + b'\0' + bytes(2) + struct.pack('<I', 0x10) + bytes(3)
-    guns.templates(0x1234, {'EditorID': 'WeapX'}, choice, [(b'FULL', b'Default\0'), (b'OBTS', obts)], chosen[2])
+    guns.templates(0x1234, {'EditorID': 'WeapX'}, choice, [(b'FULL', b'Default\0'), (b'OBTS', obts)], chosen[2], False)
     assert written == ['Weapons\\Pistol.NIF']
     assert (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons' / 'pistol_gun.nif').read_bytes() == b'gun'
 
@@ -220,7 +220,7 @@ def test_a_gun_part_copy_is_keyed_on_the_fnv_gun_and_its_attach_point(tmp_path):
     guns = _guns(tmp_path)
     guns.mods = {0x10: [(b'EDID', b'mod_Receiver\0'), (b'MODL', b'r.nif\0'), (b'DATA', bytes(24))]}
     guns.choices = SimpleNamespace(model=lambda fid: 'r.nif', attach=lambda fid: 0x99, names={0x99: 'ap_gun_receiver'})
-    assert guns._part(0x1234, {'EditorID': 'WeapX'}, 0x10, 'fnv\\x_gun.nif', 0.0) == 0x0300C0DE
+    assert guns._part(0x1234, {'EditorID': 'WeapX'}, 0x10, 'fnv\\x_gun.nif', 0.0, False) == 0x0300C0DE
     assert guns.builder.keys == ['00001234 ap_gun_receiver'] and guns.builder.counts['OMOD'] == 1
 
 

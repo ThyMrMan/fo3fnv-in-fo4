@@ -17,8 +17,9 @@ def _layer(path, data: dict):
 def test_defaults_hold_every_rule():
     """The defaults carry the creature, body, armor and melee rules the converter used to hard-code."""
     table = RP.load()
-    assert table.rules.creature['creatures\\nvgecko'] == RP.Replacement(
-        RP.BASE, 'EncViciousDog01Template', 'stats', (), 'creature', 'default')
+    for folder in ('creatures\\nvgecko', 'creatures\\nightstalker'):
+        assert table.rules.creature[folder] == RP.Replacement(
+            RP.BASE, 'EncMolerat01Template', 'rig', (), 'creature', 'default')
     assert table.rules.creature['creatures\\dog'].mode == 'fnv'
     assert table.rules.creature['creatures\\smspinebreaker'] == RP.Replacement(
         RP.BASE, 'EncSuperMutantTemplate', 'stats', (), 'creature', 'default')
@@ -113,3 +114,15 @@ def test_table_of_keeps_default_rules():
     """Table.of gives exactly the items asked for with the default rules."""
     table = RP.Table.of({'X': RP.Replacement(RP.BASE, 'Knife', 'stats')})
     assert list(table) == ['X'] and table.rules.melee[0].edid == 'Knuckles'
+
+
+def test_creature_entry_order():
+    """A creature takes the table's entry, else its first ability rule, else its skeleton folder's."""
+    table = RP.load()
+    glow = {'EditorID': 'GlowX', 'SpellCount': '2', 'Spell[0]': '00000001', 'Spell[1]': '00000002'}
+    spells = {1: 'GhoulRadHeal', 2: 'GlowingOneGlowSpell'}
+    entry, key, how = RP.creature_entry(table, glow, 'creatures\ghoul', spells)
+    assert (entry.edid, key, how) == ('encFeralGhoulGlowing01', 'glowingoneglowspell', 'rule')
+    plain = {'EditorID': 'FeralX', 'SpellCount': '1', 'Spell[0]': '00000001'}
+    assert RP.creature_entry(table, plain, 'creatures\ghoul', spells)[0].edid == 'encFeralGhoul01Template'
+    assert RP.creature_entry(table, plain, 'creatures\spore', spells) == (None, '', 'none')

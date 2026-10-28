@@ -109,7 +109,7 @@ class ObjectScripts:
         if kind == 'Package':
             return self.builder.packages.named(prop)
         if kind == 'Spell':
-            return self.effects.spell(prop)
+            return self.effects.spell(prop) or (self.builder.perks and self.builder.perks.named_ability(prop))
         if kind == 'Idle':
             return self.builder.idles.named(prop)
         return self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None

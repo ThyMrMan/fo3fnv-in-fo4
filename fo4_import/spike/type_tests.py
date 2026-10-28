@@ -32,6 +32,8 @@ DNAM_ANIM, DNAM_SKILL, DATA_TYPE = 0, 104, 0
 SITE, KIND = 'FNV type keyword', 0
 #: form_map key of the build's TypeKeywords (say_topics.conditions_of).
 FORM_KEY = 'type keywords'
+#: An NPC_'s tags its KSIZ/KWDA follow (the last AIDT or PKID: all 1,913 vanilla NPCs with keywords).
+NPC_KEYWORDS_AFTER = (b'AIDT', b'PKID')
 #: FO4 condition functions: a keyword on the subject itself, and on what an actor wears or holds.
 HAS, WORN = 'HasKeyword', 'WornHasKeyword'
 EQUAL, COMPARE = 0x00, 0xE0
@@ -108,13 +110,18 @@ def with_keywords(subs: list, keywords: list) -> list:
 
 
 def keywords_edit(keywords: list):
-    """A clone edit (records.clone_npc) adding `keywords`; None without any."""
+    """An NPC_ clone edit (records.clone_npc) adding `keywords`, KSIZ/KWDA after the last of NPC_KEYWORDS_AFTER
+    when it has none; None without any."""
     if not keywords:
         return None
 
     def edit(subs: bytes) -> bytes:
         """The subrecords with the keywords added."""
-        return b''.join(pack_subrecord(t.decode(), d) for t, d in with_keywords(subrecords(subs), keywords))
+        found = list(subrecords(subs))
+        if not any(tag == b'KWDA' for tag, _ in found):
+            last = max(i for i, (tag, _) in enumerate(found) if tag in NPC_KEYWORDS_AFTER)
+            found[last + 1:last + 1] = [(b'KSIZ', struct.pack('<I', 0)), (b'KWDA', b'')]
+        return b''.join(pack_subrecord(t.decode(), d) for t, d in with_keywords(found, keywords))
     return edit
 
 

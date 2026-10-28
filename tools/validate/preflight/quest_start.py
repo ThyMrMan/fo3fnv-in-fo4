@@ -17,7 +17,7 @@ from collections import defaultdict
 
 from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.plugin_index import every, first, u32
-from tools.validate.preflight.quest_progression import graphs, site_lines
+from tools.validate.preflight.quest_progression import built_quests, graphs, site_lines
 from tools.validate.preflight.quest_source import START
 
 #: QUST DNAM flag: Start Game Enabled.
@@ -44,14 +44,31 @@ def started(reached: set, quest: str) -> bool:
     return any(q == quest for q, _stage in reached)
 
 
+def unbuilt_finding(ctx, quest: str, name: str, source: set) -> Finding:
+    """The finding for a quest the source starts that the build does not hold."""
+    stages = sorted(s for q, s in source if q == quest and s != START)
+    if not stages:
+        return Finding('start', f'start|{ctx.game}|unbuilt|{name}', 'review', f'{name} is not in the build',
+                       ('the source reaches none of its stages, so it may only hold lines the build says '
+                        'through other quests',))
+    return Finding('start', f'start|{ctx.game}|unbuilt|{name}', 'error',
+                   f'{name} is not in the build, so its {len(stages)} reached stages are lost',
+                   (f'stages {", ".join(map(str, stages[:12]))}{" ..." if len(stages) > 12 else ""}',))
+
+
 def start_findings(ctx) -> list:
-    """Findings for quests the source starts that the build never starts."""
+    """Findings for quests the source starts that the build never starts, or does not hold."""
     verdicts, source, hopeful, strict = graphs(ctx)
-    built_sge = built_start_enabled(ctx.index)
+    built_sge, built = built_start_enabled(ctx.index), built_quests(ctx.index)
     out = []
     for quest, name in sorted(ctx.source.quests.items()):
         sge = quest in ctx.source.start_enabled
-        if not (sge or started(source, quest)) or quest in built_sge or started(strict, quest):
+        if not (sge or started(source, quest)):
+            continue
+        if quest not in built:
+            out.append(unbuilt_finding(ctx, quest, name, source))
+            continue
+        if quest in built_sge or started(strict, quest):
             continue
         detail = ['starts at game load in the source, but the built quest is not Start Game Enabled'] if sge else []
         detail += site_lines([s for s in verdicts if (s.quest.lower(), s.stage) == (quest, START)],
@@ -135,8 +152,8 @@ def alias_findings(game: str, index) -> list:
 
 
 def journal_findings(ctx) -> list:
-    """One error per Fallout quest whose stages carry journal text (CNAM)."""
-    if not ctx.source.fallout:
+    """One error per Fallout quest whose stages carry journal text (CNAM), on a Skyrim build."""
+    if not ctx.source.fallout or ctx.index.fo4:
         return []
     return [Finding('start', f'start|{ctx.game}|journal|{ctx.index.edid(q.form_id)}', 'error',
                     f'{ctx.index.edid(q.form_id)} shows Fallout stage notes as journal text, '

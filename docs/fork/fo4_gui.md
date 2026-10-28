@@ -299,6 +299,13 @@ A new, game-agnostic module, `core/mod_sources.py`:
   - `creature`: one entry per skeleton folder (was `creatures.STAND_INS`
     and `TEMPLATES`). A `creature` entry keyed by a CREA EditorID wins over
     its folder's rule;
+  - <a id="ability-rules"></a>`ability`: one entry per FNV ability, for a creature carrying it
+    among its own spells (`replacements.creature_entry`, shared by the build
+    and this screen): it wins over the folder's rule, a table entry still
+    wins over it. The default: `GlowingOneGlowSpell` on FO4's
+    `encFeralGhoulGlowing01`, so FNV's glowing ones (the ferals, the
+    glowing troopers, the Vault 34 guards, Jason Bright: 14 records owning
+    their look, their template actors through them) look and act as FO4's;
   - `body`: `human_male`, `human_female`, `ghoul_male`, `ghoul_female` (was
     `npcs.BODIES`). These must be Fallout4.esm NPCs. Face calibration
     (`spike/sculpt_calibration.py`) is still measured on the default humans;

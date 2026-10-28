@@ -3,7 +3,9 @@
 FNV's Say/SayTo plays a topic's first line whose conditions pass, and Say
 Once lines step through a chain. FO4's Say does the same with a Custom topic
 (DATA 0, SNAM CUST) in a branch of its quest, as vanilla's MS09Branch. The
-quest's Conversation-type topics (FNV DIAL type 1) become such topics; each
+quest's Conversation-type topics (FNV DIAL type 1) become such topics, but
+HELLO and GOODBYE, which FNV's engine plays itself, become the quest's FO4
+Hello and Goodbye topics, which FO4's engine plays the same way; each
 line keeps its responses, Say Once flag, conditions (forms through the cell;
 GetQuestVariable as GetVMQuestVariable on the converted property) and its
 converted result fragments. Lines with a condition that cannot convert are
@@ -30,6 +32,8 @@ from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 
 #: FNV DIAL type of the topics scripts Say: Conversation.
 CONVERSATION = '1'
+#: FNV's Conversation topics the engine plays itself, HELLO and GOODBYE, and the FO4 topic kind it plays the same way.
+ENGINE_TOPICS = {'000000D2': R.TOPIC_HELLO, '000000D4': R.TOPIC_GOODBYE}
 #: FNV INFO DATA flag Say Once.
 SAY_ONCE = 0x04
 #: Keys of a split line's part (conversation.part): its number and the line's count of parts.
@@ -79,19 +83,22 @@ class SayTopics:
         return list(seen)
 
     def build(self, quest: dict, quest_fid: int, topic_ids: dict, form_map: dict) -> tuple:
-        """(DLBR record, [topic blobs]) of `quest`'s topics `topic_ids` ({FNV DIAL: FO4 FormID}, not empty).
+        """(DLBR record, or None when every topic is HELLO or GOODBYE, and [topic blobs]) of `quest`'s topics
+        `topic_ids` ({FNV DIAL: FO4 FormID}, not empty); HELLO and GOODBYE are the engine's own (ENGINE_TOPICS).
 
         `form_map` maps the FNV forms conditions name to FO4 ones.
         """
         branch, blobs = self.builder.new_id(f'DLBR {quest["FormID"]}'), []
+        custom = [fid for dial, fid in topic_ids.items() if dial not in ENGINE_TOPICS]
         for dial, fid in topic_ids.items():
             lines = [rec for rec in self.infos[quest['FormID'].upper()] if rec['ParentDIAL'] == dial]
             infos = [i for i in (self.info(rec, form_map, owner=quest_fid, place=f'{quest["FormID"]} topic {dial}')
                                  for rec in lines) if i]
-            record = R.pack_dial(fid, f'FNV_{self.dials[dial]["EditorID"]}', quest_fid, R.TOPIC_CUSTOM, len(infos),
-                                 branch)
+            kind = ENGINE_TOPICS.get(dial, R.TOPIC_CUSTOM)
+            record = R.pack_dial(fid, f'FNV_{self.dials[dial]["EditorID"]}', quest_fid, kind, len(infos),
+                                 0 if dial in ENGINE_TOPICS else branch)
             blobs.append(pack_topic(record, fid, infos))
-        dlbr = R.pack_dlbr(branch, f'FNV_{quest["EditorID"]}Branch', quest_fid, next(iter(topic_ids.values())))
+        dlbr = R.pack_dlbr(branch, f'FNV_{quest["EditorID"]}Branch', quest_fid, custom[0]) if custom else None
         return dlbr, blobs
 
     def _vmad(self, rec: dict, first: bool, last: bool, marked: list) -> bytes:
@@ -188,6 +195,7 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
     variable, `form_map[(quest, index, state)]` for an objective. An actor
     value param is `form_map[('av', index)]`, None without one.
     """
+    cond = {**cond, 'func': 'GetActorValue', 'p1': C.AS_VALUE[cond['func']]} if cond['func'] in C.AS_VALUE else cond
     func, state = cond['func'], OBJECTIVE_FUNCS.get(C.FNV.index(cond['func']))
     if C.fo4_value(cond, form_map) is None or C.unbuilt_reference(cond, form_map):
         return None

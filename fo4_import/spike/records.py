@@ -34,6 +34,10 @@ TOPIC_SCENE = (bytes([0, 2, 0x10, 0]), b'SCEN')
 TOPIC_GREETING = (bytes([0, 7, 0x74, 0]), b'GREE')
 #: The player's Hello before an NPC greets (DialogueGenericPlayer's 00018184: DATA 0 7 0x49 0, SNAM HELO).
 TOPIC_PLAYER_HELLO = (bytes([0, 7, 0x49, 0]), b'HELO')
+#: An NPC's Hello the engine plays itself (DialogueDiamondCity's, as 68 of vanilla's 360; no branch, one per quest).
+TOPIC_HELLO = (bytes([0, 7, 0x52, 0]), b'HELO')
+#: An NPC's Goodbye, which the engine plays itself (DialogueDrinkingBuddy's: DATA 0 7 0x55 0, SNAM GBYE; no branch).
+TOPIC_GOODBYE = (bytes([0, 7, 0x55, 0]), b'GBYE')
 #: A Custom topic a script Says (MS09LorenzoWeakenedTopic 001A8938: DATA 0, SNAM CUST, in its quest's branch).
 TOPIC_CUSTOM = (bytes(4), b'CUST')
 #: DLBR DNAM of 128 of vanilla's 132 branches: Top-Level.
@@ -238,11 +242,12 @@ def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display:
 
 
 def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'', extra: bytes = b'',
-              flags: int = 0x400) -> bytes:
-    """A placed actor: scripts (VMAD), base, `extra` subrecords (parents, links), position, rotation; record
-    `flags` (persistent 0x400, initially disabled 0x800: the same bits as FNV's)."""
+              flags: int = 0x400, scale: float = 1.0) -> bytes:
+    """A placed actor: scripts (VMAD), base, `extra` subrecords (parents, links), scale (XSCL, when not 1),
+    position, rotation; record `flags` (persistent 0x400, initially disabled 0x800: the same bits as FNV's)."""
     data = struct.pack('<6f', *pos, *rot)
     subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_u32('NAME', base) + extra
+    subs += pack_subrecord('XSCL', struct.pack('<f', scale)) if scale != 1.0 else b''
     return pack_fo4_record('ACHR', fid, flags, subs + pack_subrecord('DATA', data))
 
 
@@ -276,6 +281,17 @@ def _bounded(edid: str, bounds: tuple, vmad: bytes = b'') -> bytes:
     """EDID, scripts (VMAD, if any) and OBND: every placeable base record's start."""
     return _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_subrecord(
         'OBND', struct.pack('<6h', *bounds))
+
+
+def without_object_templates(subs: bytes) -> bytes:
+    """Subrecords `subs` less their object template block (OBTE ... STOP, its entries' FULLs included): the parts
+    FO4 attaches to a robot NPC (a protectron's arms, head and torso) apart from its skin."""
+    out, inside = b'', False
+    for tag, data in subrecords(subs):
+        inside = inside or tag == b'OBTE'
+        out += b'' if inside else pack_subrecord(tag.decode(), data)
+        inside = inside and tag != b'STOP'
+    return out
 
 
 def pack_stat(fid: int, edid: str, model: str, bounds: tuple) -> bytes:

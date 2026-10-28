@@ -36,12 +36,20 @@ class QuestContext:
     manifest: dict = field(default_factory=dict)
     prefix: str = ''
     offset: int = 0
+    dialogue: object = None
+    copies: dict = None
+    left_out: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        """Derive the prefix, FormID shift, both dialogue models and the converted setter map."""
+        """Derive the prefix, FormID shift, both dialogue models and the converted setter map.
+
+        `dialogue` defaults to Skyrim's model; `copies` ({source INFO FormID: [built INFO FormIDs]})
+        is given when the build splits a source line into several, as the Fallout 4 build does;
+        `left_out` ({source INFO hex: why}) is the build's own reason for a line it did not write.
+        """
         self.prefix = self.prefix or script_prefix_of(self.scripts)
         self.offset = self.offset or fid_offset(self.source, self.index)
-        self.dialogue = ConvertedDialogue(self.index)
+        self.dialogue = self.dialogue or ConvertedDialogue(self.index)
         self.source_topics = self.source.reachable_topics()
         self.qf_owner = {papyrus_script_name(edid, self.prefix + 'QF_').lower(): edid.lower()
                          for edid in self.source.quests.values()}
@@ -54,6 +62,26 @@ class QuestContext:
             return hit
         src = int(owner, 16)
         return (((src >> 24) + self.offset) << 24) | (src & 0xFFFFFF)
+
+    def built_infos(self, owner: str) -> list:
+        """The built INFOs that say the source INFO `owner` (hex)."""
+        if self.copies is not None:
+            return self.copies.get(int(owner, 16), [])
+        fid = self.built_fid(owner)
+        return [fid] if fid in self.index.by_fid else []
+
+    def info_reason(self, owner: str, fragment: str = '') -> str:
+        """'' when a built copy of source INFO `owner` can be spoken (with `fragment` attached), else why not."""
+        fids = self.built_infos(owner)
+        if fragment:
+            attached = [f for f in fids if f in self.index.attached.get(fragment, ())]
+            if fids and not attached:
+                return 'its fragment is not attached to the built INFO'
+            fids = attached
+        if not fids and owner.upper() in self.left_out:
+            return self.left_out[owner.upper()]
+        reasons = [self.dialogue.reachable_info(f) for f in fids or [self.built_fid(owner)]]
+        return '' if '' in reasons else reasons[0]
 
     def context_quest(self, script: str) -> str:
         """The quest a script's `Self` or `GetOwningQuest()` means, lower, or ''."""
@@ -157,7 +185,8 @@ def check_setter(site, ctx) -> tuple:
         return (('review', f'{name} was not generated; {moved[0]} has the {command}')
                 if moved else ('lost', f'{name} was not generated'))
     if not script.compiled:
-        return 'lost', f'{name} failed to compile'
+        return 'lost', (f'{name} failed to compile' if ctx.index.attached.get(name)
+                        else f'{name} is attached to no record, so the build did not compile it')
     scope = fragment_scope(site, ctx)
     hits = [c for c in script.calls if c.stage == site.stage and scope(c.function)]
     confirmed = [c for c in hits if ctx.resolve(c.quest_expr, name) == quest]
@@ -180,12 +209,7 @@ def check_runs(site, ctx) -> str:
     """'' when the site's container runs in the build, else why it does not."""
     name = converted_name(site, ctx.prefix)
     if site.kind == 'info':
-        fid = ctx.built_fid(site.owner)
-        if fid not in ctx.index.by_fid:
-            return ctx.dialogue.reachable_info(fid)
-        if fid not in ctx.index.attached.get(name, ()):
-            return 'its fragment is not attached to the built INFO'
-        return ctx.dialogue.reachable_info(fid)
+        return ctx.info_reason(site.owner, name)
     if site.kind in ('script', 'package') and not ctx.index.attached.get(name):
         return f'{name} is attached to no record'
     return ''
@@ -274,13 +298,19 @@ def graphs(ctx) -> tuple:
     return verdicts, source, hopeful, strict
 
 
+def built_quests(index) -> set:
+    """EditorIDs (lower) of the quests the build holds."""
+    return {index.edid(r.form_id).lower() for r in index.by_type['QUST']}
+
+
 def audit(ctx) -> list:
-    """The quest progression findings for one game; quest starts are `quest_start`'s."""
+    """The quest progression findings for one game; quest starts, and quests the build lacks, are `quest_start`'s."""
     verdicts, source, hopeful, strict = graphs(ctx)
     sites = list(verdicts)
     computed = {s.quest.lower() for s in ctx.source.setters if s.stage is None}
+    built = built_quests(ctx.index)
     out = []
-    for quest, stage in sorted(k for k in source - strict if k[1] != START):
+    for quest, stage in sorted(k for k in source - strict if k[1] != START and k[0] in built):
         stage_sites = [s for s in sites if (s.quest.lower(), s.stage) == (quest, stage)]
         detail = site_lines(stage_sites, verdicts, ctx, hopeful)
         lost = (quest, stage) not in hopeful

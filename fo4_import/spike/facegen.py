@@ -4,7 +4,7 @@
 
 Runs the CK's `-ExportFaceGenData:<plugin> X64` through MO2 (so it loads the
 profile's plugins), moves the FaceGeom NIFs and face tint textures it writes
-from MO2's overwrite into the mod folder, then bakes the FNV face into every
+from where MO2 put them (creation_kit) into the mod folder, then bakes the FNV face into every
 NPC whose EditorID ends in a C variant (face.bake), from the FNV NPC its
 EditorID names. Last, the face textures (2048 square, one mip) are
 re-encoded at vanilla's sizes and formats with full mips.
@@ -20,28 +20,24 @@ See: docs/fork/fo4_spikes.md#spike-2-facegen
 import argparse
 import shutil
 import struct
-import subprocess
-import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.ba2_pack import STAGING
-from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
+from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.face.bake import bake, face_shape
 from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.face.texture import face_texture, vanilla_face_texture, write_dds
 from fo4_import.face.tint import load_basis as tint_basis, scaled_tone
 from fo4_import.nif import file as nif_file
+from fo4_import.pipeline import creation_kit
 from fo4_import.spike.face_fit import npc_subrecords, refine_sculpt, refine_tint, variant_npcs
 from fo4_import.spike.fnv_npc import fnv_face
 from tes5_import.base.tes5_reader import subrecords, walk
 
-MO2 = Path(r'C:\Modlists\fo3fnv-in-fo4')
-CK_EXECUTABLE, CK_PROCESS = 'Creation Kit', 'CreationKit.exe'
 #: The CK's export target: X64, since W32 writes hair cloth physics the 64-bit game misreads (see the module doc).
 CK_TARGET = 'X64'
 #: The game's pointer size, and where a BSClothExtraData block (u32 size, packfile) states its packfile's.
@@ -49,10 +45,8 @@ GAME_POINTER_SIZE, CLOTH_POINTER_SIZE_AT = 8, 20
 #: Folders (under Meshes / Textures) the CK writes a plugin's FaceGen into.
 FACEGEN_DIRS = (Path('Meshes/Actors/Character/FaceGenData/FaceGeom'),
                 Path('Textures/Actors/Character/FaceCustomization'))
-#: Where CKPE writes a zipped crash log and dump when the CK crashes.
-CK_CRASHES = FALLOUT4_DIR / 'Logs' / 'CKPE' / 'Crashes'
-#: Seconds to wait for the CK at least, per NPC_ record (the region: 293 in 127 s, 0.43 s each), between checks.
-CK_TIMEOUT, CK_FACE_SECONDS, CK_POLL = 900, 2.0, 5
+#: Seconds to wait for the CK at least, and per NPC_ record (the region: 293 in 127 s, 0.43 s each).
+CK_TIMEOUT, CK_FACE_SECONDS = 900, 2.0
 #: Fallout4.esm HumanRace, and the tint slot (xEdit's TETI enum) of its Skin Tone options.
 HUMAN_RACE, SKIN_TONE_SLOT = 0x13746, 12
 #: Face variants with fitted sculpt regions, with fitted tint layers, and how many CK rounds refine them.
@@ -72,22 +66,9 @@ def ck_timeout(faces: int) -> float:
 
 
 def run_ck(plugin: str, data_dir: Path = None) -> None:
-    """Export `plugin`'s FaceGen with the CK through MO2 and wait for the CK to exit, for ck_timeout of the NPCs
-    in `data_dir`'s copy of it (the floor without one); raise if it crashed or ran out of time."""
+    """Export `plugin`'s FaceGen with the CK, timed for `data_dir`'s copy's NPCs."""
     timeout = ck_timeout(npc_count(data_dir / plugin) if data_dir else 0)
-    started = time.time()
-    subprocess.run([str(MO2 / 'ModOrganizer.exe'), 'run', '-e', CK_EXECUTABLE, '-a',
-                    f'-ExportFaceGenData:{plugin} {CK_TARGET}'], check=True, **POPEN_FLAGS)
-    while time.time() < started + timeout:
-        time.sleep(CK_POLL)
-        listing = subprocess.run(['tasklist', '/FI', f'IMAGENAME eq {CK_PROCESS}'], capture_output=True,
-                                 text=True, **POPEN_FLAGS).stdout
-        if CK_PROCESS not in listing:
-            crashes = [p for p in CK_CRASHES.glob('*.zip') if p.stat().st_mtime > started]
-            if crashes:
-                raise SystemExit(f'the Creation Kit crashed exporting {plugin}: see {max(crashes)}')
-            return
-    raise SystemExit(f'the Creation Kit did not finish exporting {plugin} in {timeout:.0f}s')
+    creation_kit.run(f'-ExportFaceGenData:{plugin} {CK_TARGET}', timeout, f'exporting {plugin}')
 
 
 def clear(plugin: str, data_dir: Path) -> None:
@@ -97,10 +78,11 @@ def clear(plugin: str, data_dir: Path) -> None:
 
 
 def collect(plugin: str, data_dir: Path) -> list:
-    """Move `plugin`'s FaceGen files from MO2's overwrite into `data_dir`; the FaceGeom NIFs moved."""
+    """Move `plugin`'s FaceGen files from where MO2 put them (creation_kit.output_dir) into `data_dir`; the FaceGeom
+    NIFs moved."""
     nifs = []
     for folder in FACEGEN_DIRS:
-        source = MO2 / 'overwrite' / folder / plugin
+        source = creation_kit.output_dir() / folder / plugin
         for path in sorted(source.glob('*')) if source.exists() else []:
             target = data_dir / folder / plugin / path.name
             target.parent.mkdir(parents=True, exist_ok=True)

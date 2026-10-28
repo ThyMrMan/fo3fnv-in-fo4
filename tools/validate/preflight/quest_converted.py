@@ -120,9 +120,12 @@ def parse_script(name: str, text: str, compiled: bool) -> Script:
     return script
 
 
-def load_scripts(scripts_dir: Path) -> dict:
-    """{script name lower: Script} for every generated source under `scripts_dir`."""
-    source = Path(scripts_dir) / 'source'
+def load_scripts(scripts_dir: Path, source_dir: Path = None) -> dict:
+    """{script name lower: Script} for every source in `source_dir` (default `scripts_dir/source`).
+
+    A script counts as compiled when `scripts_dir` holds its `.pex`.
+    """
+    source = Path(source_dir) if source_dir else Path(scripts_dir) / 'source'
     compiled = {p.stem.lower() for p in Path(scripts_dir).glob('*.pex')}
     out = {}
     for path in source.glob('*.psc'):

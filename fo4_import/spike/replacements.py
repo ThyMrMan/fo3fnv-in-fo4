@@ -10,8 +10,8 @@ source EditorID: `{"use": "Plugin|EditorID", "as": mode, "mods": [...]}`:
 - `stats`: a copy of the target with the source's name and stats;
 - `fnv`: a copy showing the source's own mesh.
 
-`_rules` says what forms the table leaves out get: creatures by skeleton
-folder, NPC bodies, armor by biped slot, melee weapons by animation type.
+`_rules` says what forms the table leaves out get: creatures by an ability
+of their own (the glowing one's glow), else by skeleton folder, NPC bodies, armor by biped slot, melee weapons by animation type.
 
 Fallout4.esm targets take any mode. Another plugin's record (a DLC's, a
 mod's) is used only as an `item`: copying it would mean renumbering every
@@ -36,7 +36,7 @@ BASE = 'Fallout4.esm'
 #: Fallout 4's official add-ons in the game's load order; as masters they come before any mod's plugin.
 DLC = ('DLCRobot.esm', 'DLCworkshop01.esm', 'DLCCoast.esm', 'DLCworkshop02.esm', 'DLCworkshop03.esm',
        'DLCNukaWorld.esm')
-MODES = ('item', 'stats', 'fnv')
+MODES = ('item', 'stats', 'fnv', 'rig', 'speaker')
 DATA = Path(__file__).resolve().parents[1] / 'data'
 DEFAULTS = DATA / 'replacements.json'
 PROFILES = DATA / 'profiles'
@@ -85,15 +85,17 @@ class Replacement:
 @dataclass(frozen=True)
 class Rules:
     """What forms the table leaves out get: {skeleton folder: entry}, {BODY_KINDS: entry},
-    ((biped bits, entry), ...) first match wins, {FNV animation type: entry}."""
+    ((biped bits, entry), ...) first match wins, {FNV animation type: entry}, {FNV ability EditorID: entry}."""
     creature: dict
     body: dict
     armor: tuple
     melee: dict
+    ability: dict
 
     def entries(self) -> list:
         """Every rule's entry."""
-        return [*self.creature.values(), *self.body.values(), *(e for _, e in self.armor), *self.melee.values()]
+        return [*self.creature.values(), *self.body.values(), *(e for _, e in self.armor), *self.melee.values(),
+                *self.ability.values()]
 
 
 class Table(dict):
@@ -116,6 +118,20 @@ class Table(dict):
         return [*self.values(), *self.creatures.values(), *self.rules.entries()]
 
 
+def creature_entry(table: 'Table', rec: dict, folder: str, spells: dict) -> tuple:
+    """(entry, key, how) standing in for FNV creature `rec` of skeleton `folder` ({spell FormID: EditorID}
+    `spells`): the table's ('table'), else its first own ability with a rule, else the folder's ('rule');
+    (None, '', 'none')."""
+    edid = rec.get('EditorID')
+    if edid in table.creatures:
+        return table.creatures[edid], edid, 'table'
+    own = (spells.get(int(rec[f'Spell[{i}]'], 16), '').lower() for i in range(int(rec.get('SpellCount', 0) or 0)))
+    for key in sorted(a for a in own if a in table.rules.ability):
+        return table.rules.ability[key], key, 'rule'
+    entry = table.rules.creature.get(folder)
+    return (entry, folder, 'rule') if entry else (None, '', 'none')
+
+
 # ---------------------------------------------------------------------------
 #  Loading
 # ---------------------------------------------------------------------------
@@ -124,7 +140,7 @@ def load(user: 'Path | None' = None, profile: 'str | Path | None' = None, dirs: 
     """The defaults, then `profile`'s and `user`'s entries laid over them; plugins looked for in `dirs`."""
     present, warnings = presence(dirs), []
     items, creatures = {}, {}
-    rules = {'creature': {}, 'body': {}, 'armor': (), 'melee': {}}
+    rules = {'creature': {}, 'body': {}, 'armor': (), 'melee': {}, 'ability': {}}
     for data, origin in layers(user, profile):
         warnings += _missing_requirements(data, present)
         kept = _Layer(origin, present, warnings)
@@ -191,8 +207,10 @@ class _Layer:
 
 
 def _lay_rules(rules: dict, layer: dict, kept: _Layer) -> None:
-    """Lay one layer's `_rules` over `rules`: creature, body and melee entry by entry, armor as a whole list."""
-    rules['creature'].update({k.lower(): v for k, v in kept.entries(layer.get('creature', {}), 'creature').items()})
+    """Lay one layer's `_rules` over `rules`: creature, ability, body and melee entry by entry, armor as a whole
+    list."""
+    for kind in ('creature', 'ability'):
+        rules[kind].update({k.lower(): v for k, v in kept.entries(layer.get(kind, {}), 'creature').items()})
     for kind in layer.get('body', {}):
         if kind not in BODY_KINDS:
             raise ValueError(f'replacement body {kind!r} is not one of {BODY_KINDS}')

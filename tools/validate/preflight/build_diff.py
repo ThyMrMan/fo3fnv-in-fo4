@@ -4,12 +4,14 @@ A snapshot keeps every record's FormID, signature and EditorID. A FormID
 that is gone, now holds another signature, or an EditorID that moved to
 another FormID is drift: saves and other plugins point at the old FormID,
 so it needs approval. The baseline advances by itself while a build shows
-no drift, and only on `--accept-build` once it does.
+no drift, and only on `--accept-build` once it does. A content hash per
+record beside it counts the records each build changed, by type.
 
 See: docs/commentary/tools_preflight.md#build-diff
 """
 
 import json
+import zlib
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -54,6 +56,23 @@ def drift(before: dict, after: dict) -> dict:
 def added(before: dict, after: dict) -> Counter:
     """How many records of each signature the build added."""
     return Counter(v.split('|', 1)[0] for fid, v in after.items() if fid not in before)
+
+
+def contents(index) -> dict:
+    """{FormID hex: CRC-32 hex} of every record's subrecords, types and data."""
+    out = {}
+    for fid, rec in index.by_fid.items():
+        crc = 0
+        for sub in rec.subrecords:
+            crc = zlib.crc32(sub.data, zlib.crc32(sub.type.encode('latin-1'), crc))
+        out[f'{fid:08X}'] = f'{crc:08X}'
+    return out
+
+
+def changed(before: dict, after: dict, snap: dict) -> Counter:
+    """How many records of each signature kept their FormID and changed their contents."""
+    return Counter(snap[fid].split('|', 1)[0] for fid, crc in after.items()
+                   if fid in before and before[fid] != crc)
 
 
 _WHAT = {'removed': 'records were removed', 'retyped': 'FormIDs now hold another record type',

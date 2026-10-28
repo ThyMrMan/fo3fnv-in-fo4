@@ -9,7 +9,8 @@ from types import SimpleNamespace
 
 from fo4_import.spike import ammo_casings, ammo_mods, ammo_switch, hotkey_items
 from fo4_import.spike.ammo_mods import (ACTOR_VALUES, AMMO, ATTACK_DAMAGE, ENCHANTMENTS, MAX_CONE, MIN_CONE,
-                                        NUM_PROJECTILES, PROPERTY, KEYWORDS, AmmoMods, with_point)
+                                        NUM_PROJECTILES, OVERRIDE_PROJECTILE, PROPERTY, KEYWORDS, AmmoMods,
+                                        with_point)
 from fo4_import.spike.gun_choice import includes, includes_at
 from tes4_export.record_types.ammo_falloutnv import emit_ammo_deltas, export_AMMO_EFFECT
 from tes4_export.tes4_reader import Record, Subrecord
@@ -17,6 +18,7 @@ from tes4_export.tes4_reader import Record, Subrecord
 LIST, PLAIN, HOLLOW, HAND = 0x1537E6, 0x4241, 0x13E43B, 0x140AA8
 CASE, HP_DAMAGE, HP_DT, JHP_CONDITION, SLUG = 0x140AA7, 0x157B54, 0x157B56, 0x17BA45, 0x157B59
 GUN, OTHER_GUN, KEYWORD_AT = 0x1000, 0x2000, 0x9999
+SLUG_PROJECTILE = 0x1F674
 
 
 def _export(subs: list, export=None) -> list:
@@ -87,6 +89,7 @@ class _Builder:
     def __init__(self, items: dict):
         """A builder converting `items`."""
         self.writer, self.items, self.counts, self.fo4 = _Writer(), _Items(items), Counter(), b''
+        self.projectiles = SimpleNamespace(override=lambda ammo: SLUG_PROJECTILE if ammo == SLUG else None)
 
 
 def _effect(fid: int, kind: int, op: int, value: float, name: str) -> tuple:
@@ -229,6 +232,18 @@ def test_projectile_count_and_spread(monkeypatch):
     assert [(t, f, _int(a)) for t, f, a, _ in found[NUM_PROJECTILES]] == [(0, 0, 1)] and notes == ['Spread Reduction x0.35']
     for cone in (MIN_CONE, MAX_CONE):
         assert abs(_float(found[cone][0][2]) + 0.65) < 1e-6
+
+
+def test_a_round_with_its_own_projectile_sets_it_on_its_mod(monkeypatch):
+    """A round FNV gives a projectile (DAT2) SETs OverrideProjectile to its FO4 one; the others set none."""
+    mods = _mods(monkeypatch)
+    mods.lists[LIST]['LNAM[3]'] = f'{SLUG:08X}'
+    mods.wire(GUN, _gun())
+    omods = {_subs(d)[b'FULL'].rstrip(bytes(1)): _props(_subs(d)[b'DATA']) for s, d in mods.builder.writer.records
+             if s == 'OMOD'}
+    assert [(t, f, _int(v1), _int(v2)) for t, f, v1, v2 in omods[b'Ammo12GaSlug'][OVERRIDE_PROJECTILE]] == [
+        (4, 0, SLUG_PROJECTILE, 440)]
+    assert not any(OVERRIDE_PROJECTILE in props for name, props in omods.items() if name != b'Ammo12GaSlug')
 
 
 def test_a_gun_without_attach_points_gets_them_before_its_template():

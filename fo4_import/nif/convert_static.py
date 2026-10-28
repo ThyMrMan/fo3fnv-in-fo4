@@ -78,6 +78,8 @@ USE_FALLOFF = 0x40
 SOFT_EFFECT, SOFT_DEPTH = 0x40000000, 150.0
 #: Shader flags1 External_Emittance (bit 29): the reference's XEMI colours the shape, as FNV's sf_external_emittance.
 EXTERNAL_EMITTANCE = 0x20000000
+#: Lighting shader flags of a refraction surface, as vanilla gasleakanim.nif's: Refraction and z-test; Double_Sided.
+REFRACT_FLAGS = (0x80008000, DOUBLE_SIDED)
 #: Vanilla ChemistrySetBeaker01.BGEM, textures aside: FO4's glass for a small prop.
 GLASS_EFFECT = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 0.8999999761581421,
@@ -351,7 +353,8 @@ class ShapeMaterial:
     """A shape's material, its path and dict, FNV textures, alpha, spec map.
 
     kind 'lit' is a BGSM, 'effect' a BGEM, 'unlit' an effect shader with no
-    material file (path ''; data holds its texture and vertex alpha), 'black' vanilla's BLACK_FLAT. An
+    material file (path ''; data holds its texture and vertex alpha), 'refract' a lighting shader with no
+    material file drawing only refraction (data: strength), 'black' vanilla's BLACK_FLAT. An
     effect's `shader` is its NIF shader's values and flags (vanilla beaker
     glass when None); `flags1` is added to a lit shader's flags1; `split` is
     (translucent material, texture) for a cut-out's see-through triangles.
@@ -625,6 +628,8 @@ def _material(geom, texture_root=None, layer: bool = False) -> ShapeMaterial:
     shader, grass = props.get('BSShaderPPLightingProperty'), props.get('TallGrassShaderProperty')
     fnv = [t.decode('cp1252') for t in shader.texture_set.textures] if shader and shader.texture_set else \
         [grass.file_name.decode('cp1252')] if grass else [_base_texture(props.get('NiTexturingProperty'))]
+    if shader and shader.shader_flags.sf_refraction:
+        return ShapeMaterial('refract', '', {'strength': shader.refraction_strength}, fnv, None, None)
     blended = alpha is not None and alpha.flags & 1 and shader
     glass = bool(blended and (shader.shader_flags.sf_environment_mapping or not alpha.flags >> 5 & 0xF))
     flags = shader.shader_flags if shader else None
@@ -772,6 +777,8 @@ def material_blocks(nif: NifFile, mat: ShapeMaterial, out: Converted, has_colors
         nif.blocks.append(('BSEffectShaderProperty', _unlit_shader(nif, mat, has_colors)))
     elif mat.kind == 'black':
         nif.blocks += _black_blocks(nif, mat, shader)
+    elif mat.kind == 'refract':
+        nif.blocks += _refract_blocks(nif, mat, shader, has_colors)
     else:
         nif.blocks += _lit_blocks(nif, mat, shader - 1)
     if not mat.alpha:
@@ -853,7 +860,7 @@ def _lit_blocks(nif: NifFile, mat: ShapeMaterial, index: int) -> list:
     See: docs/fork/fo4_pipeline.md#glow
     """
     shader = lighting_shader(nif, mat.path, index + 2, mat.flags1)
-    slots = [f'textures\\{fo4_texture(t)}' if t else '' for t in mat.textures] + [''] * TEXTURE_SLOTS
+    slots = _texture_slots(mat)
     if mat.spec:
         slots[SLOT_SPECULAR] = f'textures\\{mat.spec[0]}'
     if mat.data.get('glowmap'):
@@ -861,6 +868,24 @@ def _lit_blocks(nif: NifFile, mat: ShapeMaterial, index: int) -> list:
     if mat.glow:
         slots[GLOW_SLOT] = f'textures\\{mat.glow[0]}'
     return [('BSLightingShaderProperty', shader), ('BSShaderTextureSet', {'textures': slots[:TEXTURE_SLOTS]})]
+
+
+def _texture_slots(mat: ShapeMaterial) -> list:
+    """`mat`'s FNV textures as FO4 texture set slots, padded past TEXTURE_SLOTS."""
+    return [f'textures\\{fo4_texture(t)}' if t else '' for t in mat.textures] + [''] * TEXTURE_SLOTS
+
+
+def _refract_blocks(nif: NifFile, mat: ShapeMaterial, index: int, has_colors: bool) -> list:
+    """An FNV refraction surface (sf_refraction: heat shimmer, gas) as vanilla gasleakanim.nif draws one: a
+    lighting shader with no material file, Refraction at FNV's strength, two-sided, no z-write; vertex colours
+    and alpha when the shape has colours. At `index`, its texture set after it.
+    See: docs/fork/fo4_pipeline.md#refraction
+    """
+    shader = lighting_shader(nif, '', index + 1, 0)
+    shader.update(flags1=REFRACT_FLAGS[0] | (UNLIT_VERTEX_ALPHA if has_colors else 0),
+                  flags2=REFRACT_FLAGS[1] | (UNLIT_COLORS if has_colors else 0), refraction=mat.data['strength'])
+    return [('BSLightingShaderProperty', shader),
+            ('BSShaderTextureSet', {'textures': _texture_slots(mat)[:TEXTURE_SLOTS]})]
 
 
 def _black_blocks(nif: NifFile, mat: ShapeMaterial, index: int) -> list:
@@ -885,8 +910,21 @@ def lighting_shader(nif: NifFile, material: str, texture_set: int, flags1: int) 
             'fresnel_power': 5.0, 'wetness': (-1.0,) * 6}
 
 
+#: The pose key that attaches a whole mesh under a bone (posed()); no NIF node can be named it.
+ATTACH = '\0attach'
+
+
 def posed(root, pose: dict) -> None:
-    """Move the nodes under `root` that `pose` names: {name: (translation or None, rotation rows or None)}."""
+    """Move the nodes `pose` names: {name: (translation or None, rotation rows or None)}. Its ATTACH entry (both
+    parts) moves the root's children by that transform (a body part under its `Prn` bone), as the geometry is
+    read relative to the root."""
+    attach = pose.get(ATTACH)
+    if attach:
+        m = NifFormat.Matrix44()
+        m.set_identity()
+        m.set_rows(*[[*row, 0.0] for row in attach[1]], [*attach[0], 1.0])
+        for child in (c for c in root.children if c is not None):
+            child.set_transform(child.get_transform() * m)
     for node in root.tree():
         moved = pose.get(node.name.decode('cp1252')) if isinstance(node, NifFormat.NiNode) else None
         if moved and moved[0]:
@@ -897,11 +935,13 @@ def posed(root, pose: dict) -> None:
                     setattr(node.rotation, f'm_{i + 1}{j + 1}', value)
 
 
-def convert(path: str, texture_root=None, pose: dict = None, animated: bool = True, addons: dict = None) -> Converted:
+def convert(path: str, texture_root=None, pose: dict = None, animated: bool = True, addons: dict = None,
+            every_bone: bool = False) -> Converted:
     """The FO4 version of the FNV mesh at `path`; `texture_root` holds FNV's textures folder, `pose` moves
     named nodes first (posed()), `addons` maps FNV ADDN indices to FO4's (nif.addons; none: add-on nodes left
     out). An animated mesh keeps its animated nodes, skins and controllers (nif.animation) unless not
-    `animated` (a weapon, which FO4 animates through its behaviour graph; a load door, which FNV never opens)."""
+    `animated` (a weapon, animated by its behaviour graph; a load door, never opened). `every_bone` keeps
+    every node (a creature skeleton)."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
@@ -918,7 +958,7 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     kept = kept_nodes(root, manager) if animate else []
     joined = any(isinstance(b, NifFormat.bhkConstraint) for b in data.blocks)
     found = particle_systems(root)
-    bones = _bones(root, kept or (with_parents(root, _has_body) if joined else []), found)
+    bones = _bones(root, kept or _skeleton_nodes(root, joined, every_bone), found)
     nodes = add_nodes(nif, bones, root, NODE_FLAGS) if bones else {id(root): 0}
     out.animatable = manager is not None and animatable(manager)
     _shapes(nif, root, nodes, out, texture_root)
@@ -987,6 +1027,13 @@ def _addon_nodes(nif: NifFile, root, addons: dict) -> bool:
             'value': index, 'value_flags': 0}))
         nif.blocks[0][1]['children'].append(len(nif.blocks) - 1)
     return bool(seen)
+
+
+def _skeleton_nodes(root, joined: bool, every_bone: bool) -> list:
+    """FNV nodes kept as bones: all, or a jointed mesh's bodied ones and parents."""
+    if every_bone:
+        return with_parents(root, bool)
+    return with_parents(root, _has_body) if joined else []
 
 
 def _has_body(node) -> bool:

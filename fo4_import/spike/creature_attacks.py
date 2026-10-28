@@ -118,10 +118,10 @@ def weights(normal: int, power: int, share: float) -> tuple:
     return (1.0 / ratio, 1.0) if ratio < 1.0 else (1.0, ratio)
 
 
-def attack_list(attacks: list, groups: frozenset, style: dict) -> tuple:
+def attack_list(attacks: list, groups: frozenset, style: dict, spell: int = 0) -> tuple:
     """(subrecords of `attacks` as FNV's creature uses them, kept count). A kept attack (one FNV's creature could
     make, not disabled by vanilla) has damage mult 1 and its group's weight (weights); charge attacks keep 1;
-    the rest have chance 0."""
+    the rest have chance 0. Every attack casts `spell` (attack_spells; 0: none), not the stand-in's."""
     powers, decoded = power_directions(groups, style), [list(ATKD.unpack_from(a)) for a, _, _ in attacks]
     on = [v[1] > 0 and kept(tuple(v), groups, powers, style) for v in decoded]
     kinds = ['charge' if v[3] & CHARGE else 'power' if v[3] & POWER else 'normal' for v in decoded]
@@ -130,8 +130,21 @@ def attack_list(attacks: list, groups: frozenset, style: dict) -> tuple:
     out = b''
     for (atkd, atke, rest), values, use, kind in zip(attacks, decoded, on, kinds):
         values[0], values[1] = (1.0, {'normal': normal, 'power': power, 'charge': 1.0}[kind]) if use else (values[0], 0.0)
+        values[2] = spell
         out += pack_subrecord('ATKD', ATKD.pack(*values) + atkd[ATKD.size:]) + pack_subrecord('ATKE', atke) + rest
     return out, sum(on)
+
+
+def with_spell(subs: bytes, spell: int) -> bytes:
+    """Attack subrecords `subs` with every attack casting `spell`."""
+    out = b''
+    for tag, data in subrecords(subs):
+        if tag == b'ATKD':
+            values = list(ATKD.unpack_from(data))
+            values[2] = spell
+            data = ATKD.pack(*values) + data[ATKD.size:]
+        out += pack_subrecord(tag.decode(), data)
+    return out
 
 
 def with_attacks(race: int, subs: bytes):

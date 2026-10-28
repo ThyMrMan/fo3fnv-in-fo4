@@ -47,9 +47,40 @@ description, minimum level, playable and hidden flags, and its requirements
   FO4 entry point, conditions and value included.
 - **Abilities** become FO4 abilities (SPEL, `AbPerkQuickHands`'s type):
   each FNV effect on vanilla's constant effect of the same FO4 actor value
-  (`AbFortify*`/`AbReduce*`, by the Detrimental flag 0x4 both games use),
-  or a copy of `AbFortifyStrength`/`AbReduceCarryWeight` on it. Script
-  effects (Calm Heart, the regeneration implant) are left out.
+  and kind (`AbFortify*`/`AbReduce*`/`abRestore*`, by the Detrimental 0x4
+  and Recover 0x2 flags both games use), or a copy of `AbFortifyStrength`,
+  `AbReduceCarryWeight` or `abRestoreHealth` on it. An effect without
+  Recover changes the value every second (FNV's `Regen`, the limb
+  restores, `GhoulRadHeal`; FO4's `abRestoreHealth`); until 2026-10-27
+  those became permanent raises. Script effects (Calm Heart, the
+  regeneration implant) are left out.
+- **Actors' abilities** (FNV creatures' actor effect lists, from the
+  template with Use Actor Effect List 0x8) convert the same way
+  (`Perks.ability`): the NPC's spell list (`SPCT`, `SPLO` after `RNAM`)
+  gets the ability's FNV FormID at once, and the record is written with
+  the perks, when its conditions' form map exists. FalloutNV.esm's
+  creatures carry 38 spells, all abilities: resistances (Rad, Poison and
+  Fire Immunity at FNV's number, as Rad-X), Damage Resistance, crit
+  chance, water breathing, regeneration. Left out, as for perks: Damage
+  Threshold (17 spells) and crit chance, which FO4 has no actor value
+  for. A script-effect ability (the glow, `GlowingOneGlowSpell`) is
+  `script_effects`' constant script effect (`Perks.ability` falls back to
+  it). FNV's `GetRadiationLevel` condition is FO4's `GetValue Rads`
+  (`conditions.AS_VALUE`), so the ghouls' `GhoulRadHeal` (heal while
+  irradiated, burning the rads off) keeps its two effects; it was written
+  empty before.
+- <a id="script-abilities"></a>**Abilities a script adds** (a Spell
+  property naming an FNV ability, `Perks.named_ability`, after
+  `script_effects` for script-effect spells) convert the same way. FNV's
+  Chameleon effect `StealthBoyInvis` has no FO4 actor value; it becomes
+  `AssaultronStealthEFFECT` (`CONSTANT_EFFECTS`), Fallout4.esm's constant
+  Chameleon effect behind `assaultronStealthSpell`, vanilla's NPC cloak
+  ability (the other constant one, `ChameleonEffectArmorMod`, carries the
+  armor's script). Magnitude stays FNV's: FO4 reads it as the stealth
+  percentage (Stealth Boy 99, armor 20 and 50). So Jacobstown's
+  nightstalkers (`JacobstownNightstalkerScript`) get
+  `StealthBoyInvisibilitySpell` again, cloaked at 95 with Sneak +100 until
+  hit (played 2026-10-27); before then its property was empty.
 - **Quest stages** stay quest stage effects, on a quest the build has.
   FNV stores the stage as one byte with `0xCD` fill above it (the export
   reads Scrounger's as 0xCD46; Generic's stage is 70, and Intense

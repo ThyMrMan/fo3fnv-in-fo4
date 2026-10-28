@@ -1460,6 +1460,71 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
     attacks that look like nothing FNV has (the deathclaw's horn ram and
     tail combo pass every test). Unverified: whether converted creatures
     have action points for power attacks.
+  - <a id="attack-spells"></a>**Attack spells (built 2026-10-27; the deathclaw knockdown played).** FNV casts a
+    creature's unarmed attack effect (CREA EITM, a SPEL; part of the Actor
+    Effect List template part) on every unarmed hit. The export never
+    carried it (217 creatures: radscorpion poison 39, bark scorpions 11,
+    cazadores 21, nightstalkers 28, the glowing ones' burst 27, deathclaw
+    and bighorner knockdowns 19 and 19, Legion mongrel hamstring 20, golden
+    geckos' radiation 10); `attack_spells` reads it from FalloutNV.esm.
+    FO4 casts an attack's ATKD spell on its hit: Fallout4.esm's radscorpion
+    stings carry `PoisonRadscorpion`, the mole rat's every bite
+    `PoisonMolerat` (with the `MS19Infect` disease), so stand-in copies
+    poisoned with FO4's numbers, and anything on a mole rat stand-in got its
+    infection. Every attack of a stand-in copy (`attack_list`) now casts
+    FNV's spell, or none: on `PoisonRadscorpion`'s shape (fire and forget),
+    delivered by FNV's range. Poisons and drains are FNV's Touch and land on
+    the victim; every knockdown (deathclaw, bighorner, Rex, the mongrel
+    hamstring) and the spore and glowing-one bursts are Self, whose script
+    pushes its own combat target away. FO4 casts an attack's spell on the
+    actor hit whatever its delivery: with the knockdown self-delivered on
+    the attack, Quarry Junction's mother and alpha male flung the other
+    deathclaws (played 2026-10-27: the player, hit, pushed away its own
+    combat target). So a Self spell is written self-delivered and the
+    attack carries a touch relay (`FNV_<spell>OnHit`, script
+    `F3NV_CastOnAttacker`) that casts it on its caster, the attacker,
+    where FNV's script expects to run. With the relay the knockdown landed
+    on the player, at FNV's force (20; FNV's and FO4's scales agree: a
+    rifle knockdown is 5 in both, FO4's Pain Train 9), and on getting up
+    the player fell through the ground (played 2026-10-27). Fallout 4 never
+    pushes the player by script (every vanilla `PushActorAway` is the
+    player's on an NPC; its heavy hits stagger the player), so a converted
+    `PushActorAway` is `TES4Polyfill.PushActorAway`: the player is staggered
+    by Fallout4.esm's `PerkStagger` (StaggerEffect 2, as the yao guai's and
+    Mirelurk King's hits), anyone else pushed (played 2026-10-27: the mother
+    and alpha male stagger the player, no deathclaw flung). With `set
+    TES4Trace to 1` the relay logs `attack` lines and the push `push` lines. Each detrimental touch value effect on vanilla `crPoisonEffect`
+    (damage per second; Health) or `StingwingPoisonEffectNPC` (lowered,
+    then recovered) or a copy on its actor value, script effects by
+    `script_effects`, magnitudes and durations FNV's. A creature FNV gives
+    none loses its stand-in's: mantises the stingwing's poison, mole rats
+    and anything on the mole rat its infection, deathclaws without FNV's
+    knockdown FO4's `abDeathclawClawsSCRIPT`. Rig Test (bark scorpions
+    near Hidden Valley, `OVWestSewers03b`): `FNV_BarkScorpionPoison`,
+    `FNV_RadScorpion1Poison`, `FNV_RadScorpion2Poison`, none left out;
+    Quarry Junction: the mother and alpha male self-cast
+    `FNV_DeathClawKnockback`, other deathclaws and Vault 22c's mantises
+    cast none. Mantises kept the
+    stingwing's body in `stats` mode; since 2026-10-27 they are an own rig
+    (played, [fo4_own_rig.md](fo4_own_rig.md#mantis)). Own-rig races
+    (nightstalkers, geckos) write attacks with no spell and are not yet
+    given FNV's; template actors take their template's list.
+  - <a id="template-actors"></a>**Template actors** (played 2026-10-27).
+    A template actor is a clone of its creature's stand-in, so it kept the
+    stand-in's ATKR, and FNV has no template flag for attack data, so TPTA
+    never takes it from the template. Jacobstown's nightstalkers (own rig,
+    template FNVNightstalkerRace) therefore pulled `MoleratRace`'s attacks,
+    whose events their graph lacks: in combat, seeing and facing the player
+    at 123 units, they never attacked, while `sae meleeStart_Left` bit.
+    `npcs.with_template` drops ATKR, so attacks come from the race the
+    template gives, as on the list-templated geckos (no ATKR) that bite;
+    confirmed in game. Single-variable tests that changed nothing first:
+    combat style circle/fallback, aggro radii, the attack offsets' sideways
+    motion, dodge chance, the gecko's whole style, the gecko's race.
+    The same pass gives a templated creature its own AI packages
+    (`npcs._packages`, `source` reading creature records): FNV's template
+    flags left Jacobstown's nightstalker its own sandbox package (349, no
+    Use AI Packages), which the creature path dropped.
 - <a id="creature-speed"></a>**Creature speed (built 2026-10-25, not yet
   built into a plugin or played).** `spike/creature_speed.py`: a converted
   creature's own SpeedMult (PRPS, AVIF 0x2DA; 3,015 vanilla NPCs list it)
@@ -1492,6 +1557,12 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
     DogDefault, NPCDefault), else the state the others extend (FeralGhoul
     over FeralGhoulSprint), else the only one. That order stands in for the
     graph's iState initial value, which needs a Havok 2014 reader.
+  - **Size (2026-10-27).** FNV's BNAM base scale (from the traits
+    template) multiplies the stand-in's height range (NAM6 min, NAM4 max,
+    added after NAM7 when missing), since the stand-in's body is sized for
+    itself; SpeedMult is computed at that size. On an own rig the body is
+    FNV's mesh, so height = base scale ÷ the race's height (its DATA's first
+    float, the template's copy) and SpeedMult is FNV's own multiplier.
   - **Not carried:** walk, side and back speeds and turning (one SpeedMult
     scales all four directions alike, and turning only lives in the MOVT
     yaw); FO4's clip-speed cap, which can hold a fast creature below its
@@ -1703,6 +1774,23 @@ ambient 87, 105, 138) and differ only in fog.
     sunset.
   - `NewVegasRegion` gives (255, 227, 170) by day; the inverted-daylight
     regions are black by day and white at night.
+
+<a id="refraction"></a>**Refraction surfaces (built 2026-10-27, not played).** An FNV lit
+shape whose `BSShaderPPLightingProperty` sets `sf_refraction` draws only a
+distortion of what is behind it (heat shimmer, gas, explosion waves, Mr.
+Handy jets). It used to fall through to an opaque BGSM of its texture: a
+solid blob (Vault 34b's `TrapGasFire01`, 2026-10-27: `fxparttinyglowy` at
+2x scale). No vanilla BGSM (6,616) or BGEM (283) sets refraction; vanilla's
+gas leak (`effects\gasleakanim.nif`) is a lighting shader with no material
+file, flags1 Refraction | z-test (`0x80008000`, plus vertex alpha with
+colours), flags2 Double_Sided and vertex colours, no z-write, and a
+refraction strength. `convert_static._refract_blocks` writes that, at FNV's
+`refraction_strength`, on FNV's diffuse and normal. FNV has 84 such shapes
+in 69 meshes (explosions, the glowing ones' burst, Mr. Handy and Mr. Gutsy
+jets, the ghoul body effects of Point Lookout and Dead Money, the Helios
+laser, Zeta shields, the gas traps); 47 have strength 0 and refract only by
+`sf_fire_refraction`'s animation, which is not carried, so in FO4 they
+draw nothing.
 
 <a id="glow"></a>**Glow maps** (lighting pass, step 3). FNV lights a lit shape's glow
 map (texture set slot 2) with the shape's `NiMaterialProperty` emissive
@@ -2714,6 +2802,79 @@ texture set, 2 decals.
 `static_scripts/fallout4/F3NV_AmmoCasings.psc`; export:
 `tes4_export/record_types/ammo_falloutnv.py`.
 
+**Projectile (creature guns played 2026-10-28).** A converted FNV ammo is
+FO4's 5.56 round (`Consumables.ammo`), and FO4 fires a gun's ammo's
+projectile unless a mod overrides it, so the securitron laser fired 5.56
+bullets. Ammo a creature's embedded gun fires now takes the projectile of
+its FO4 template's ammo (`fired_from`; the lowest FNV weapon FormID's when
+several do): the securitron's micro fusion cells fire `LaserRifleBeamRed`
+(`Protectron01LeftArmLaserGun`'s `AmmoFusionCell`), its rockets
+`MissileProjectile`. Ammo is written after every gun (`write_ammo`).
+Taking a human gun's template's ammo projectile was wrong (micro fusion
+cells got `RailwayRifleProjectile`, since `gun_choice` picks the FO4 gun
+by how it is held and fired, not what it shoots).
+
+<a id="nv-projectiles"></a>**Projectile (human guns, built 2026-10-28, not
+yet played).** `spike/projectiles.py`, `data/projectiles.json`. FNV names
+the projectile on the gun (WEAP `DNAM` +36), and one round feeds guns that
+fly different ones: micro fusion cells feed lasers, plasma rifles, the Gauss
+rifle, the tri-beam and the plasma caster. A round overrides its gun's only
+for subtypes (AMMO `DAT2` Projectile: 12/20 ga slugs, coin shot, bean bag,
+incendiary and HE grenades, HE/HV missiles; 8 rounds). Fallout 4 names it on
+the round (AMMO `DNAM`), and a gun overrides it in its own `FNAM`
+(`Override Projectile`, right after `# Projectiles`; 47 Fallout4.esm guns
+use it, among them the playable Institute laser and the minigun), and a mod
+through `OverrideProjectile` (property 80, 73 vanilla properties, all FORM
+SET with value 2 = 440). So:
+
+- The table maps each FNV projectile EditorID to a Fallout4.esm one (51
+  entries): bullets to the tracer of the nearest caliber, `AutoTracer` to
+  `AssaultRifleProjectile`, the minigun's to `MiniGunProjectile`, Gauss to
+  `GaussRifleProjectile`, buckshot and slugs to `ProjectileShotgun`; lasers
+  to `LaserRifleBeamRed` (the tri-beam to the splitter's
+  `LaserSmallBeamRed`, the pulse gun and Tesla cannon to blue beams);
+  plasma to `PlasmaProjectileLarge` (the pistol's `PlasmaProjectile02` to
+  `PlasmaProjectileSmall`); flamers to the flamer streams; 25/40 mm
+  grenades to `BroadsiderProjectile` (an arcing shell exploding on impact,
+  75 damage; FNV's are 50 and 100; FO4's frag grenade is a fused lobber,
+  its missile flies flat); missiles to `MissileProjectile`; the Fat Man to
+  `FatManProjectile`. A target Fallout4.esm lacks fails the build; an FNV
+  projectile left out is counted (`projectile not mapped`).
+- A converted gun whose template is playable takes its FNV projectile's as
+  its `FNAM` override and FNV's projectile count (`DNAM.ProjectileCount`)
+  as `FNAM`'s; vanilla's splitters and plasma shotgun barrels multiply that
+  count (MUL+ADD), so they still work. A default-combination part setting
+  `OverrideProjectile` would beat `FNAM`, so such a vanilla part becomes a
+  copy without it (`Guns.own_projectile`), and an `fnv`-mode part copy drops
+  it. Creature guns (template not playable) are left as above.
+- A round with its own FNV projectile has its ammo mod SET
+  `OverrideProjectile` to it, so slugs fly as slugs (a mod's property beats
+  the gun's `FNAM`). Swapping back to the plain round drops the mod.
+- The round itself (`write_ammo`) flies a creature gun's template's
+  projectile (above), else its own override's, else that of the
+  lowest-FormID FNV gun FNV does not mark Embedded (`DNAM` Flags1 0x20)
+  loading it first, else 5.56.
+
+Swapping a part at the workbench to a vanilla one with its own
+`OverrideProjectile` (a suppressor) flies that part's, as in Fallout 4.
+
+**Build check (2026-10-28).** GSDocMitchellHouse with every FNV gun in the
+test chest (a scratch harness): 134 WEAP, 82 AMMO, 68 ammo mods. 98 of
+the 110 guns on a playable template fly their FNV projectile's stand-in from `FNAM`
+(lasers, RCW, gatling `LaserRifleBeamRed`; plasma rifles and caster
+`PlasmaProjectileLarge`; plasma pistol, defender, multiplas
+`PlasmaProjectileSmall`; tri-beam `LaserSmallBeamRed` x3; shotguns
+`ProjectileShotgun` x7; grenade launchers `BroadsiderProjectile`; missile
+launchers `MissileProjectile`), and the three missile launchers include a
+copy of `mod_PlasmaGun_BarrelPlasma_Short_A` without its
+`PlasmaProjectileLarge`. Eight ammo mods carry a round's own projectile
+(slugs, coin shot, bean bag, HE/HV missiles, incendiary and HE grenades).
+The other 12 name no projectile (detonators, binoculars, the camera,
+Euclid's C-Finder) or an unmapped one (7, counted: the MS-22 film, the
+four Tesla chain effects, the Nellis artillery, the satellite strike;
+scripted effects, not carried). The sawed-off shotguns (14 pellets) match no FO4 gun and are
+skipped, as before.
+
 **Export.** FNV's AMMO `DAT2` past the weight (Consumed Ammo: the casing,
 and its chance in percent), `ONAM` (short name), `QNAM` (HUD abbreviation)
 and every `RCIL` (ammo effect) were dropped, and AMEF was dumped as sizes
@@ -2788,9 +2949,8 @@ ammo (`FNV_CasingAmmo`), casings, chances, each group's first ammo,
 member ranges, perk and multiplier. A group's perk is the FNV perk of
 entry point 57 for the skill of the first gun (lowest FormID) loading it.
 
-Not carried: FNV's ammo projectile overrides (incendiary, HE and HV
-missiles fly as the gun's projectile; their damage effects are carried),
-`QNAM` (Fallout 4's HUD shows no abbreviation), condition effects (no weapon
+Not carried: FNV's projectiles' own explosions and speeds (each flies its
+Fallout 4 stand-in's, [above](#nv-projectiles)), `QNAM` (Fallout 4's HUD shows no abbreviation), condition effects (no weapon
 condition), the bean bag's fatigue, `NPCAmmoList` on the mods, and casings
 for NPCs (FNV gives them to the player only). Swapping ammo needs the
 weapons workbench. Since 2026-10-22 no FNV weapon or round is a Fallout4.esm record itself

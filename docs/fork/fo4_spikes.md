@@ -1359,6 +1359,19 @@ topics (step 2b), the outro and two epilogue lines.
   `MS09LorenzoWeakenedTopic` in `MS09Branch` (DLBR: Player, Top-Level, a
   starting topic). The quest gets a branch and the five topics, with each
   line's responses, Say Once flag, conditions and converted fragment.
+- <a id="hello-goodbye"></a>**HELLO and GOODBYE** (FNV DIALs `000000D2` and
+  `000000D4`) are Conversation-type too, but FNV's engine plays them itself,
+  and no script Says them; as Custom topics they never played (the preflight
+  dialogue audit, [fo4_preflight.md](fo4_preflight.md#results)). Since
+  2026-10-25 each quest's HELLO is its FO4 Hello topic (SNAM `HELO`, DATA
+  0 7 0x52 0 as DialogueDiamondCity's; vanilla has one per quest, no branch,
+  360 quests) and its GOODBYE a Goodbye topic (SNAM `GBYE`, as
+  DialogueDrinkingBuddy's), outside the branch. A quest whose only Say
+  topics were these keeps no branch: on the whole-map build that removes 43
+  of 93 DLBRs (`GenericBranch`, `VDialogueNovacBranch`, ...), approved drift
+  2026-10-25. Not played yet; whether FO4 plays a
+  Goodbye when the player leaves a scene conversation is untested (vanilla
+  has 2 Goodbye topics).
 - Conditions: forms through the cell (Doc's NPC to his clone, the quest,
   references, the player). FNV's `GetQuestVariable VCG01 5` becomes FO4's
   `GetVMQuestVariable` (function 629): parameter 1 the quest, the variable
@@ -2946,10 +2959,12 @@ the receiver's WeaponMagazine/WeaponBolt/WeaponTrigger bones.
   FNV's, so the failures are in what FO4 does around the clips.
 - **Reverted;** guns stay on FO4's guns. Kept as findings:
   - FO4's AnimTextData id (`Meshes\AnimTextData\AnimationFileData\<id>.txt`,
-    one per subgraph entry's folder list and graph): CRC-32 of the
-    lower-case folder list joined by `|` (high half) and of the behaviour
-    graph's path (low half), zero start, no final inversion. It reproduces
-    vanilla's and DLC01's names.
+    one per subgraph entry's folder list and graph): CRC-32 of the folder
+    list joined by `|` as the race writes it (case kept; high half) and of
+    the behaviour graph's path in lower case (low half), zero start, no
+    final inversion. It reproduces vanilla's and DLC01's names (all six
+    MoleratRace entries checked 2026-10-25; an earlier note had the folder
+    list lower-cased, which matches none).
   - FO4's character skeletons carry the weapon bones (Weapon,
     WeaponMagazine, WeaponBolt, WeaponIKTargetL...); third person's left
     hand is IK'd to WeaponIKTargetL, which the gun's two-frame
@@ -3538,6 +3553,720 @@ as the NIF writer was. Parked with the modlist direction
 
 A community port (GrilledTurkey's, [candidate mods](fo4_replacements.md#candidate-mods))
 answers the same need as way 1 or 2 for the creatures it covers.
+
+### <a id="route-b"></a>Route B measured: the gecko on the deathclaw rig, and rigs for the rest (2026-10-25, offline)
+
+Way 2 above, tested without a build. The FO4 rig keeps its bone list and
+order (so its behaviour graph, ragdoll and attack events stay valid), its
+rest pose moves to FNV's proportions, and FNV's own clips are retargeted
+onto it with `clip_retarget` (the method `havok/human_clip.py` uses for
+the played standing idles). Since [combat styles](fo4_pipeline.md#combat-styles),
+[attacks](fo4_pipeline.md#creature-attacks) and [speed](fo4_pipeline.md#creature-speed)
+the creature also decides, attacks and runs as FNV's does; the 2026-10-10
+gecko-on-deathclaw failure (deathclaw motion, aggression, size) was all
+three.
+
+- **Motion transfer is exact.** Gecko → deathclaw by a hand map (spine 4 →
+  3 plus SpineControl, neck, head, jaw, both arms with every finger, legs,
+  tail 5 → 7 bones): with FO4's bones at FNV's rest positions every watched
+  bone (feet, hands, head, tail tip) lands on FNV's to 0.0% of leg length
+  on idle, walk, run and five attacks. Keeping the deathclaw's own
+  proportions at the gecko's size (scale 0.268) is 20–35% off at the feet,
+  15–45% at the hands, 41–56% at the head and 52–74% at the tail, idle
+  included: the upright gecko becomes a hunched deathclaw. The rest-pose
+  rewrite is what Route B buys.
+- **Clip coverage, gecko on the deathclaw graph (about 85 clips):** FNV
+  has idle and combat idle, walk and run forward (sprint can take the
+  run), turns, left/right/power-forward attacks, hit reactions for head,
+  torso and each limb (FO4's crit hits by the same parts), a get-up, hurt
+  walk and run (FO4's injured-legs states), and special idles for FO4's
+  idles and taunts. FNV has none for walking or running back, sideways or
+  on diagonals (FNV's gecko never moves that way; its style's circle and
+  fall-back are near 0), jumps, staggers beyond hit reactions, deaths
+  (ragdoll), and the 12 paired kill moves (to be left out). The horn ram,
+  tail combo and jump attacks would have no clip and come off the attack
+  list.
+- **Events map one to one:** FNV `Hit` → `HitFrame` (with `preHitFrame`
+  and `weaponSwing` before it; FO4 never picks an attack without one),
+  `Enum: Left`/`Right` footfalls → `FootLeft`/`FootRight` plus
+  `SyncLeft`/`SyncRight` on cycles, `Sound: X` → `SoundPlay.X`.
+- **The files.** The deathclaw `skeleton.hkx` (65 KB) holds the animation
+  skeleton (86 bones), the ragdoll's own skeleton, two skeleton mappers and
+  an `hknpRagdollData` (27 capsules, 8 convex shapes, a compressed mesh,
+  25 ragdoll and 2 hinge constraints). The animation rest pose is a fixed
+  array and patches in place (`anim_fo4` already locates it); the ragdoll
+  skeleton likewise; the mappers' transforms, the shapes and the
+  constraint pivots need their class layouts, which these files do not
+  carry (Behavior Graph Studio's MIT class tables have them, not in
+  `references/`). Unpatched, a dead gecko would ragdoll at deathclaw size.
+  `write_fo4_animation` writes the extracted-motion block as zeros; walk
+  and run need FNV's root travel in it. The mesh needs no vertex fit:
+  FO4's bones sit at FNV's positions, so FNV's skin weights only change
+  bone names (unmapped fins and eyes ride their parent).
+- **Rigs for the creatures FO4 lacks** (a chain matcher over 14 FNV
+  creatures and 36 FO4 rigs, base game and DLC; fit 1.0 = FNV against
+  itself; "FNV-prop error" is the Route B error, 0 when every chain has a
+  counterpart):
+
+  | FNV creature | Best rig | Animated bones mapped | Route B error idle/run | Fit |
+  |---|---|---|---|---|
+  | Gecko | deathclaw | 60/82 (head fins lost) | 0.1 / 1.2% | good |
+  | Spore carrier | deathclaw | 42/45 | 3 / 7% | good |
+  | Bighorner | dogmeat | 33/33 | 1.1 / 2.6% | good |
+  | Giant rat | deathclaw | 48/55 | 1.8 / 8.3% | good |
+  | Giant mantis | mirelurk hunter, fog crawler (DLCCoast) | 32–33/36 | 0.1 / 0.1% | good; wing stubs on arms |
+  | Night stalker | dogmeat | 36/47 | 5% | good, but FNV ships no walk or run clip |
+  | Giant ant | radroach | 25/33 | 15 / 15% | partial: abdomen unmatched |
+  | Queen ant | radscorpion | 38/45 | 4 / 5% | head on an arm: poor |
+  | Cazador | radscorpion | 50/56 | 23 / 4% | poor: no rig has 6 legs, 4 wings and a stinger |
+  | Securitron | mirelurk king, robobrain | 41–46/57 | 7–13 / 24–47% | poor: wheel, doors, screens |
+  | Centaur | robobrain, createabot | 48–50/53 | 14 / 25% | poor |
+  | Raven | mirelurk king | 23/27 | 13.5% | poor; 3 clips only |
+  | Spore plant | fog crawler, mirelurk | 26–29/48 | — | poor; never moves |
+  | Failed FEV subject | — | — | — | no skeleton file, no clips |
+
+  The matcher (scratch, not a tool yet) resolves siblings greedily, weighs
+  every bone alike, and checks topology only: a rig's own graph needs
+  (foot IK legs, head tracking, ragdoll bodies) are not measured.
+- **What it leaves for a build:** a skeleton patcher (animation pose now;
+  ragdoll with class layouts), root motion in the clip writer, the gecko
+  bone map, the clip table (FNV group → vanilla clip name) with event
+  mapping, a project folder of its own (the graph files copied unchanged;
+  AnimTextData by the CRC rule [found for guns](#spike-4-gun-clips)), a
+  race copy naming it, and the creature entry. The gun-clip spike's
+  failures (sights, hand IK on walk clips, no reload) came from what the
+  vanilla graph does around replaced clips; a creature graph has foot IK
+  and look-at instead, still to be seen in game.
+
+### <a id="own-rigs"></a>Own rigs: what IceStormNG's tutorial shows (2026-10-25, read)
+
+IceStormNG's *New Creatures from Scratch* (Nexus 56676, commissioned by
+VelvetGoat; three PDFs, two sample creatures as Havok XML, in
+`references/New Creatures Behavior and Implementation`) builds a creature
+with 3ds Max 2013, Havok Content Tools and the Havok Animation Tool. What
+it settles for a converter that has none of those:
+
+- **The ragdoll lives in `skeleton.nif`, not in a hand-written hknp file.**
+  Bethesda's exporter writes the ragdoll (one rigid body per controlling
+  bone, capsules first, compounds allowed), its constraints (ragdoll or
+  limited hinge only; n − 1 of them), a `CharacterController` (phantom)
+  and optional `CharacterBumper`, and a `BoundingBox` node for pathing;
+  Elric turns it into FO4 physics. Vanilla confirms it: the deathclaw's and
+  mole rat's `skeleton.nif` hold a `bhkRagdollSystem` (hknpRagdollData,
+  hknp capsules and convex shapes, hkp ragdoll and hinge constraint data)
+  beside `bhkNPCollisionObject`/`bhkPhysicsSystem`. FNV's skeletons carry
+  an authored ragdoll in the same terms (gecko: `bhkRigidBody(T)`, capsules
+  and boxes, `bhkRagdollConstraint`, `bhkLimitedHingeConstraint`), and
+  `nif/collision.py` already writes those constraints in FO4's pre-Elric
+  layout for statics.
+  - **Tested 2026-10-25 (offline): Elric builds the ragdoll.** FNV's gecko
+    `skeleton.nif` through `convert_static.convert` (25 `bhkRigidBody` on
+    bone nodes, 22 capsules, 3 boxes, 20 ragdoll and 4 limited-hinge
+    constraints) and Elric gives a `bhkRagdollSystem` holding
+    `hknpRagdollData`, its own `hkaSkeleton`, hknp capsule and convex
+    polytope shapes, mass properties, `hkpRagdollConstraintData`,
+    `hkpLimitedHingeConstraintData` and a position motor — vanilla's class
+    set — with a `bhkNPCollisionObject` on each of the 25 bones (pelvis,
+    spine, neck, head, jaw, tongue, arms, legs, tail). BSXFlags (0x82, 0x86,
+    vanilla's 0xC6) and the file's path made no difference.
+  - **Missing beside vanilla** (the mole rat): the `CharacterController`
+    and `CharacterBumper` nodes, whose bodies form vanilla's separate
+    `bhkPhysicsSystem` (FNV has no counterpart; the tutorial builds them as
+    phantom capsules), `BSBound` (FNV's skeleton has one), the bones without
+    a body (the static converter keeps only bodies and their parents;
+    a creature skeleton needs every bone), `BSBoneLODExtraData` and
+    `BSLagBoneController`. Not yet played: whether the game ragdolls it.
+    Probe: `elric_ragdoll_test.py` in the session scratch.
+  - **Controller and bumper, tested 2026-10-25 (offline).** The gecko
+    skeleton with every bone kept (88 FNV bones) plus two root children,
+    `CharacterController` (capsule through the `BSBound` centre, radius 0.8
+    × its smaller half width) and `CharacterBumper` (1.2 ×), on layer 30
+    (FO4_CHARCONTROLLER). Written either as a keyframed `bhkRigidBody` under
+    a `bhkCollisionObject` or as a `bhkSimpleShapePhantom` under a
+    `bhkSPCollisionObject`, Elric gives vanilla's split both ways: both
+    nodes point to one `bhkPhysicsSystem` (`hknpPhysicsSystemData`, hknp
+    capsules) and the bones to the separate `bhkRagdollSystem`, as the mole
+    rat's do. **The phantom form is vanilla's:** its physics system is
+    1,876 bytes like the mole rat's (the body form 2,100), its two layer-30
+    filter words sit at the same offsets (696, 792), and 375 of its 469
+    words are identical; the rest are the capsules' geometry and a few
+    words near 724–844 (vanilla 0.641 where ours is 0), not identified.
+    Probe: `elric_controller_test.py`, `controller_compare.py`.
+- **`skeleton.hkx` can be skeleton-only.** The tutorial's game export
+  (`ExportSkeleton`: align, create skeletons, prune, write AMD64 packfile)
+  has no ragdoll or mapper, which is what `anim_fo4.write_fo4_skeleton`
+  already writes. Vanilla's carry ragdoll data too; the tutorial's working
+  creatures do without. The ragdoll `.hkt` with hkp bodies and two
+  `hkaSkeletonMapper`s is only an input to the Havok Animation Tool.
+- **Behaviours as XML.** HAT exports TagXML; hkxpack packs it to FO4's
+  64-bit packfile (IceStorm ships a modified hkxpack that encodes certain
+  flags hkxpack 0.1.6 gets wrong). The character file needs its character
+  controller block replaced and `hkRootLevelContainer` moved first; the
+  project is a fixed template. Behaviours: a root (the
+  `BSBehaviorGraphSwapGenerator` subgraph entry and the ragdoll state) and
+  a core with everything else; the root carries every event and variable
+  the core uses. Bethesda node types (`BSIsActiveModifier`,
+  `BSiStateTaggingGenerator`, `BSAssignVariablesModifier`,
+  `BSDirectAtModifier`, `BSRagdollContactListenerModifier`,
+  `DynamicAnimationTaggingGenerator`…) are inserted by IceStorm's
+  HavokBehaviorPatcher, since HAT lacks them. A generator writing the XML
+  itself (as the Skyrim one writes Havok 2010 XML) needs neither tool.
+- **The engine contract** (variables): `bGraphDriven` (default; movement
+  from the clips' root motion), `bAnimationDriven` (attacks, evades, jumps;
+  Root moves in the plane, COM up and down), `bAllowRotation`,
+  `bEquipOk`, `IsAttackReady` (else `WeaponFire` does nothing),
+  `IsSprinting`, `iState` with `iState_<X>` constants naming movement
+  types, `iSyncTurnState` (Idle 1, Turn_Right 0, Turn_Left 2), `Speed`,
+  `SpeedSmoothed`, `TurnDeltaSmoothed` (−90 right to 90 left),
+  `weaponSpeedMult`, `bSupportedDeathAnim`, `bManualGraphChange`,
+  `bAimActive` with `camerafrom{x,y,z}`, `iIsInSneak`, hit-reaction twist
+  floats `<Prefix>{X,Y,Z}Twist`. Events: `HitFrame`, `PreHitFrame`,
+  `WeaponSwing`, `WeaponFire[.n]`, `WeaponDraw`/`WeaponSheathe`,
+  `ReloadComplete`, `SoundPlay.<EDID>`/`SoundStop`, `CullBone`/`UnCullBone`,
+  `StartAnimationDriven`, `AddRagdollToWorld`,
+  `RemoveCharacterControllerFromWorld`, `ReevaluateGraphState`; the engine
+  sends `startWalk`/`startRun`, `sprintStart`/`sprintStop`. Melee attack
+  events must begin `melee` (the Creation Kit's Update Events takes only
+  those). HavokScript is not implemented.
+- **Actor actions reach the graph through IDLE records** (Animation
+  Manager, under the behaviour file): `ActionMoveStart`/`Stop`,
+  `ActionDeath`/`ActionDeathWait`, `ActionRagdollInstant`,
+  `ActionDodge`/`Evade` (direction in `GetActionDataByte`: 0 right, 1 left,
+  2 back, 3 front), `ActionLargeMovementDelta` (in-place turns,
+  `MovementIdleMatches`), `ActionInitializeGraphToBaseState`, bleedout,
+  unconscious, limb and leg critical, draw and sheathe. An action with no
+  IDLE is treated as unsupported.
+- **Records:** body part data (a root part; `Head1`/`Head2` parts are the
+  creature's vision; part node, VATS target, segment index, actor value,
+  damage mult, health percent, to-hit chance; meat caps at sub-segment
+  102, robot sub-segment damage at health threshold + 2), race (skeleton
+  NIF, project path, skin armor, movement flags, `Base Movement Defaults`
+  left empty when `iState` is used, attack data by Update Events, combat
+  slots, subgraphs), skin ARMO/ARMA, weapons, movement types per `iState`
+  name, and AnimTextData from `CreationKit.exe -GenerateAnimInfo:<esp> Data
+  Data --speed --stance` (plugin name without spaces; empty output means a
+  broken graph or events).
+- **Skeleton rules:** `Skeleton` dummy → `Root` (origin) → `COM`; skin only
+  below Root; unique bone names; extra non-animated bones for VATS targets
+  and body parts; `WEAPON` (or named slots) with `ProjectileNode`; +Y
+  forward, +Z up; segments on every polygon.
+
+- **Behaviour files, tested 2026-10-25 (offline): a Python Havok 2014
+  reader and writer works.** Driven by hkxpack's MIT class descriptions
+  (`classxml/` in the tutorial's `hkxpack-core.jar`, read as data, the jar
+  not run: 910 classes with 64-bit member offsets, signatures, enums), it
+  rebuilds **785 of 786** vanilla behaviour, character and project files in
+  `Meshes` byte for byte in 2 s (every `.hkx` outside `animations\` and
+  `characterassets\`; the one miss is
+  `genericbehaviors\zsingleboneskeleton\singleboneskeleton.hkx`; the two
+  creature `skeleton.hkx` tried, with hknp ragdoll data, do not round-trip).
+  The packfile rules, measured against vanilla:
+  - Section headers at 0x40 plus the u16 at 0x3E; class names in
+    first-use order after `hkClass`, `hkClassMember`, `hkClassEnum`,
+    `hkClassEnumItem`; fixup tables padded with 0xFF to 16, no end marker.
+  - Objects in a depth-first walk from the root container over pointers in
+    member order, each 16-aligned; an object's size is its last member's end
+    rounded up to 16 (hkxpack gives no sizes).
+  - Each object is followed by its arrays (contents 16-aligned) and strings
+    in member order, recursing into struct elements. A member string pads to
+    16 after; strings of a string array are 2-aligned back to back, padded to
+    16 after the last.
+  - Every array, saved or not, has capacity `count | 0x80000000`.
+  - Local fixups in write order; global (pointer) fixups in member order, an
+    array's element pointers where the array member sits.
+- **A minimal gecko project written with it (offline, not played):**
+  - **Root:** the subgraph swap and a fully-ragdoll state (powered ragdoll,
+    no bone list, max force 0, entered with
+    `RemoveCharacterControllerFromWorld` and `AddRagdollToWorld`), carrying
+    every core event and variable, as vanilla's radroach root.
+  - **Core** (85 objects): noncombat and combat (`weapEquip`/`weapUnequip`,
+    entering with `weaponSheathe`/`weaponDraw`). Each holds standing (idle
+    and turns, synced to `iSyncTurnState`) and moving (FNV walk and run
+    blended on `Speed` at their root speeds, 62.5 and 578.6 units/s).
+    Combat sets `IsAttackReady` and `bEquipOk` and starts four attacks on
+    `meleeStart_Left`/`_Right`/`_Power`/`_ForwardPower`; FNV's `Hit` key
+    becomes `preHitFrame` (−0.2 s), `weaponSwing` (−0.1 s) and `HitFrame`,
+    as the deathclaw's clips space them, and `AttackEnd` returns.
+  - **Character and project:** the mole rat's, re-pointed (root behaviour,
+    10 clips, an 88-bone L/R mirror map).
+
+  Not in it yet: hit reactions, staggers, the get-up, dynamic idles, the fire
+  gecko's breath (`2hl*`, `Fire` → `WeaponFire`), head tracking, foot IK and
+  sprint. Also outside the files:
+  - the IDLE records that turn actor actions into these events (the
+    Animation Manager);
+  - the race's subgraph entry naming the core;
+  - the clips, skeleton and AnimTextData.
+
+  Probes: `hk2014.py`, `hk2014_write.py`, `hk_corpus.py`, `hkb_build.py`,
+  `gecko_graph.py` in the session scratch.
+- **The whole single-gecko test assembled (2026-10-25, offline, not
+  played).** `gecko_test.py` (session scratch) writes a 6.4 MB Data tree:
+  `FNVGeckoTest.esp` (Fallout4.esm master) and `Actors\FNVGecko\`.
+  - **Bones:** FNV's 87, the accumulation root `Bip01` as `Root`
+    (vanilla's bone 0; the mole rat has no `COM`), the same names in
+    `skeleton.hkx` (`anim_fo4.write_fo4_skeleton`, `Root` and
+    `Bip01 NonAccum` unlocked), the Elric `skeleton.nif` (ragdoll,
+    `CharacterController`/`CharacterBumper` phantoms, as tested above), the
+    clips and the body's skin.
+  - **Clips** (10, `anim_fo4.write_fo4_animation`, then the
+    `hkaDefaultAnimatedReferenceFrame` samples filled in place): FNV's
+    accumulation-root motion per frame as (x, y, z, yaw) since the first
+    frame, vanilla's form (the mole rat's walk moves 55 units in 0.47 s,
+    its turn 1.05 rad). Walk 50 units per 0.8 s cycle, run 231.5 per 0.4 s,
+    the forward power attack lunges 374. FNV's turn clips carry no root
+    rotation (FNV turned creatures itself), and vanilla creature graphs
+    start `bGraphDrivenRotation` 0 and `bGraphDrivenTranslation` 1 (27 of
+    the 30 root graphs read), so the engine turns the gecko, as FNV did.
+    Vanilla animations do not yet round-trip through `hk2014` (0 of 79
+    mole rat clips); `anim_fo4` writes them.
+  - **Body:** `nvgecko.nif`'s two skinned shapes (caps left out) as
+    BSSubIndexTriShapes on the gecko's own bones: pyffi's skin deformation
+    gives the rest-pose vertices, each bone's bind is the inverse of its
+    `skeleton.hkx` world pose (the FNV body's own bone nodes sit on it to
+    0.0 units); 4,056 vertices on 75 bones plus the tongue. Materials and
+    textures staged as the statics are.
+  - **Records:** `FNVGeckoRace` (MoleratRace with the gecko's skin,
+    skeleton, body parts, project, one subgraph entry `SGNM`
+    FNVGeckoCoreBehavior / `SAPT` `Actors\FNVGecko\Animations`, and four
+    attacks on the graph's melee events, normal weight 2.23 to power's 1
+    for FNV's power share 0.31), body part data on gecko bones (no limb
+    models, hit reactions only), skin and addon, `FNVGecko_Default_MT`
+    (forward walk 62.5, run 578.6, the graph's `iState_FNVGecko`), an NPC
+    (EncMolerat01Template on the race, SpeedMult FNV's 100), and 13 IDLEs.
+  - **Actions reach a graph through IDLEs parented to the AACT record**
+    (xEdit's `ANAM` parent is `[AACT, IDLE]`): the engine plays the IDLE
+    under the action whose `DNAM` is the actor's graph. The cat answers
+    each action itself (`ActionMoveStart` → `CatMoveStart` → `MoveStart`);
+    the mole rat leans on `SharedCoreBehavior.hkx`'s IDLEs, which its core
+    references. The gecko's IDLEs are the cat's kind: move start/stop, turn
+    left/right/stop, draw, force equip, sheathe, death, death wait, instant
+    ragdoll, initialize graph (instant too), unconditioned, each after its
+    action's last vanilla IDLE.
+  - **AnimTextData:** the file data (`3`, `1`, id, count, clip paths, LF)
+    and dynamic idle data (`Version 1`) are text and written. The speed
+    info and stance data are binary and Creation Kit made; installed
+    custom-creature mods (Mojave Geckos, Cazadores, Bighorners) ship them
+    for few or none of their entries.
+  - **Cross-check, 22 of 22 pass** (`gecko_check.py`): every path, event,
+    variable, bone and material one file names exists where it is
+    defined.
+  - **Creation Kit run (2026-10-26):** installed as MO2 mod `FNV Gecko
+    Test` in the `Spike` profile and run as `ModOrganizer.exe -p Spike run
+    -e "Creation Kit" -a "-GenerateAnimInfo:FNVGeckoTest.esp Data Data
+    --speed --stance"` (usage string: `-GenerateAnimInfo:<ESMFilename>
+    <DataFilepath> <OutputFilepath> [--speed] [--stance] [--forceAll]`),
+    the profile's `[custom_overwrites]` sending new files to mod `FNV Gecko
+    Test CK`. It generated data for both graphs in 9.6 s: AnimationFileData
+    (rewritten in place in the test mod: the same 10 clips in another
+    order), AnimationSpeedInfo (a `SpeedSampledAnimationSpeedContour` for
+    `NonCombatLocomotionSM` and `CombatLocomotionSM`: 62.5 and 578.64,
+    the clips' root speeds), AnimationStanceData, AnimationOffsets (also
+    root id 1834888878 and `PersistantSubgraphInfoAndOffsetData.txt`),
+    ClipGeneratorData and AnimEventInfo for both graphs, and a SyncAnimData
+    file. Its log (`ckpe.log`):
+    - "Invalid prev idle" on all 13 IDLEs: an IDLE directly under an
+      action has previous 0 (all vanilla ones, e.g. 17 of 17 under
+      ActionMoveStart; Mojave Geckos' too). Fixed; not rerun.
+    - an assertion that speed info had already been written, after which
+      it reported "Speed Info found" and wrote it.
+    - MO2 redirects only new files: the CK still edited existing files in
+      the game folder in place (`CreationKitPrefs.ini`, `ckpe.log`,
+      `Logs\BNet`, `Logs\CKPE`, `Logs\Script`).
+  - **Played 2026-10-26: frozen.** The gecko showed with the right body
+    and skin, was hostile on the compass and died with sounds, but held
+    its rest pose alive and dead (no ragdoll). Cause: its one subgraph
+    entry carried target keyword `AnimFurnMoleratAmbushShort`. A race's
+    subgraph entry is [`SAKD` actor keywords] `SGNM` [`SAPT`] [`STKD`
+    target keywords] `SRAF` (xEdit; `SRAF` closes it), so a `STKD` right
+    after an `SRAF` belongs to the next entry: MoleratRace's core entry has
+    none, its ambush and furniture entries carry AnimFurnMoleratAmbushShort,
+    AnimFurnMoleratSleep and so on (the Mojave Geckos mod's core likewise
+    none). The copy paired it with the core entry, so the gecko only had a
+    core graph in ambush furniture and its root's swap generator ran
+    nothing. Fixed (no keyword); **replayed: no change.** Next difference:
+    the Elric skeleton kept convert_static's BSXFlags 0x82 and no
+    `BSBound`, where every vanilla creature skeleton has the Ragdoll (0x4)
+    and Dynamic (0x40) bits (0xC6 on 28 of 33 actor skeletons, 0x46 on
+    the robot, Codsworth's create-a-bot and turret; none on the human and
+    power armor skeletons) and 30 of 33 a `BSBound` (the Mojave Geckos
+    skeleton too: 0xC6 and a bound). Set to 0xC6 with FNV's bound (centre
+    0, −11.2, 49.3; half sizes 40, 60, 50); **replayed: no change**, and
+    the AI never tried to attack (sounds on hit and death only): the graph
+    is not running at all. Next suspect: a `skeleton.nif` ragdoll with no
+    ragdoll or skeleton mappers in `skeleton.hkx`, which nothing vanilla
+    has (every NIF `bhkRagdollSystem` pairs with `hknpRagdollData` and two
+    `hkaSkeletonMapper`s in the hkx; the robot, whose hkx has neither, has
+    no ragdoll in `skeleton.nif` either, only the controller's
+    `bhkPhysicsSystem`; Mojave Geckos pairs both). Test installed: a
+    robot-shaped gecko `skeleton.nif` (bones, controller and bumper, no
+    ragdoll, BSXFlags 0x46); **replayed: no change.** Next difference:
+    no project file data. Besides the per-entry `<id>.txt` files, every
+    vanilla actor project has `AnimationFileData\<project name>.txt` (218
+    named files: `moleratproject.txt`, `cat.txt`, `deathclawproject.txt`;
+    the Mojave Geckos mod ships `geckoproject.txt`): `3`, `0`, the project
+    name, the count, its root behaviour, character, `CharacterAssets\
+    skeleton.hkx` and the root graph's clips, `0`, CRLF lines. The Creation
+    Kit's `-GenerateAnimInfo` (without `--forceAll`) did not write one.
+    Written by hand as `fnvgeckoproject.txt` (the robot-shaped skeleton
+    still installed, so this is the only change); **replayed: no change.**
+    Swap test installed: the race on MoleratRace's own project, six
+    subgraph entries and 20 attacks, our skeleton, body and NPC kept, to
+    split our project, graph and clips from the records and skeleton.
+    **Replayed: the gecko slid around and attacked, body unanimated** (the
+    mole rat graph names mole rat bones). Records, `skeleton.nif`, body
+    and AI are sound; the fault is in our project, character,
+    `skeleton.hkx`, graphs or clips. Bisect 1 installed: our plugin back,
+    our character's rig and ragdoll pointed at
+    `..\Molerat\CharacterAssets\Skeleton.hkt` with the mole rat's
+    39-entry mirror map (if the gecko then acts, our `skeleton.hkx` is the
+    fault). **Replayed: still frozen**, so `skeleton.hkx` is not the only
+    fault. Offline: the graphs' data bookkeeping matches vanilla's 147
+    actor graphs (values, event infos and character properties pair; an
+    empty bounds list in 40 of them; variableMode 0 in all), and the CK's
+    ClipGeneratorData and AnimEventInfo for our graphs are sane. Build-up
+    test 1 installed: our character back, the root graph cut to one
+    looping Idle clip (no state machine, ragdoll or subgraph). **Replayed:
+    the idle plays**, so project, character, `skeleton.hkx` and the clip
+    format work in game. Build-up test 2 installed: the original root
+    graph with the swap generator's `pDefaultGenerator` set to the Idle
+    clip (vanilla leaves it null). **Replayed: frozen**, so the root graph
+    itself never starts (not even its default idle). Build-up test 3
+    installed: that root with its Fully Ragdoll state playing a plain clip
+    instead of the modifier generator and powered-ragdoll modifier.
+    **Replayed: frozen.** The root's nodes match the radroach root's field
+    for field (start state, an instant blend and a looping clip aside), and
+    the CK's `PersistantSubgraphInfoAndOffsetData.txt` (an index of offset
+    files; vanilla ships none loose, each creature mod ships its own)
+    lists our core's id. Lead: the graph waits for the swapped-in
+    subgraph, so a core that never loads keeps the whole graph inactive.
+    Build-up test 4 installed: that root, the core cut to one looping
+    CombatIdle clip (combat idle pose: subgraph attaches; plain idle: root
+    runs, no subgraph; frozen: the subgraph load fails whatever the core
+    holds). **Replayed: frozen.** Own-folder cores are vanilla (the cat's
+    `Actors\Cat\Behaviors\CatCoreBehavior.hkx`, the turrets', Liberty
+    Prime's). Build-up test 5 installed: the root only the swap generator
+    with the Idle default (no state machine), the one-clip core kept
+    (frozen: the swap and subgraph load blocks; either idle: the state
+    machine was the fault). **Replayed: frozen**: a root of only the
+    swap generator blocks, a root of one clip plays, so the graph waits on
+    a subgraph load that never completes, whatever the core holds.
+    AnimTextData's 32-bit names are the raw CRC-32 (zero start, no final
+    inversion) of a lower-case path: `AnimationOffsets` and
+    `DynamicIdleData` of the project, `AnimEventInfo` (and
+    `ClipGeneratorData`) of each graph. The mole rat has
+    `DynamicIdleData\1693439668.txt` (its project) listing its dynamic
+    idles; 32 of the 33 race projects have one (the cat's only `Version
+    1`), the Mojave Geckos mod ships its own; the Creation Kit wrote none
+    for us. Added `DynamicIdleData\1834888878.txt` (`Version 1`) as the
+    only change. **Replayed: frozen.** Our project's AnimationOffsets
+    (the root path only) is the cat's form (`V4`, the root, zeros), so
+    not that either. Test 6 installed: our project with a swap-only root
+    carrying the mole rat root's 421 events and 93 variables, the race's
+    subgraph entries and attacks the mole rat's (acts: our subgraph entry,
+    core or its data is the fault; frozen: our project or root side).
+    **Replayed: the gecko moved and attacked** (mole rat clips on gecko
+    bones): our project and root work; the fault is on our core side.
+    A subgraph core's clips are found by name in the race's `SAPT` folder
+    (the mole rat core names `..\Bloatfly\Animations\TurnLeft.hkt`, its
+    file data loads `Actors\Molerat\Animations\TurnLeft.hkx`; the cat's
+    own core uses our `Animations\X.hkt` form), so not the clip names.
+    The working cat and mole rat cores have file data, speed info, stance
+    data and dynamic idle data but no AnimationOffsets file (vanilla writes
+    those for furniture and ambush entries); the CK gave our core one (693
+    B, our attack clips) and listed it in its
+    `PersistantSubgraphInfoAndOffsetData.txt`. Test 7 installed: test 5's
+    setup with that offsets file and its index line removed. **Replayed:
+    frozen** (restored). Test 8 installed: test 6's working setup (mole
+    rat subgraph entries and vanilla data) with our one-clip core
+    (playing the mole rat's IdleCombat, no variables or events) as a loose
+    override of `Actors\Shared\Behaviors\MoleratSharedCoreWrappingBehavior.hkx`
+    in the test mod: the vanilla entry and data with our graph file (a
+    distorted held pose: our graph file attaches, so our entry or its data
+    is the fault; gecko idle or frozen: our graph file is). **Replayed:
+    body still, but the gecko turned on the spot** (the engine turning an
+    actor whose graph runs; no fallback idle, so the core attached): our
+    graph file works as a subgraph; the fault is our entry or its data.
+    Lead: a subgraph's clips (its AnimationFileData list) load before it
+    attaches, and only Idle.hkx had been shown to load. Test 9 installed:
+    test 7's setup with our entry's file data listing only
+    `CombatIdle.hkx`. **Replayed: frozen, not turning.** Test 10
+    installed: the same with `Idle.hkx` (the one clip shown to load, in
+    test 1) as the core's clip and the only one listed. **Replayed:
+    frozen.** So the graphs and clips are not the fault; the difference
+    left is how our entry's AnimTextData reaches the game. Every vanilla
+    AnimTextData file is in a BA2, `animationfiledata\dirlist.txt`
+    indexes the per-id ones, and all 35 installed mods that ship
+    AnimTextData pack it in their BA2s (no loose file in any); ours was
+    loose, which a game that lists archives and indexes but cannot list
+    loose folders would never see. Test 11 installed: test 10's setup with
+    all 14 gecko AnimTextData files packed into `FNVGeckoTest - Main.ba2`
+    (Archive2, general, uncompressed) and no loose copies. **Replayed:
+    frozen.** Overlooked difference: in tests 6 and 8, which attached a
+    core, the root carried the mole rat root's 421 events and 93
+    variables; every frozen root carried only ours. A vanilla root carries
+    every name its possible subgraphs use (furniture, idle, dialogue
+    included); every one of the 28 vanilla roots has the events
+    `PickNewIdle`, `Ragdoll`, `SoundPlay`, `weapEquip`, `weaponDraw`,
+    `weaponSheathe` and the variables `bAnimationDriven`, `camerafrom
+    x/y/z` (ours lacked `PickNewIdle` and a plain `SoundPlay`). Test 12
+    installed: test 11 with the swap-only root carrying the mole rat
+    root's names plus ours (428 events, 97 variables). **Replayed: the
+    first gecko placed turned (the graph ran), then the game crashed;
+    after relaunching, every gecko froze.** Neither crash log
+    (`OneDrive\Documents\My Games\Fallout4\F4SE\crash-2026-10-26-08-5*`)
+    names the gecko: `Actor::AddFollower` from a patrol package on vanilla
+    actors, then `ExtraDataList::SaveGame`, both in DLCNukaWorld's Tunnels
+    cell and both reading `0x100000000` from a reference's extra data (a
+    damaged reference in that save or cell). **Replayed from the main menu
+    in `QASmoke` (no save): every gecko placed turns** — the graph runs on
+    our own subgraph entry. So the root's names were the blocker (whether
+    earlier tests in the damaged save were also affected is not
+    separated). Test 13 installed: the real root (state machine, ragdoll
+    state, swap with an Idle default) with the mole rat root's names
+    appended after ours (428 events, 97 variables; our ids unchanged), the
+    real core, the CK's 10-clip file data in the BA2, the robot-shaped
+    skeleton kept. **Played 5 times (launch, `coc QASmoke`, place):
+    frozen in runs 1, 3, 4 and 5; run 2 turned with a still body.** The
+    outcome varies between launches of the same files (FO4 loads graphs
+    and clips asynchronously), and when the graph does run, even the
+    gecko's own idle does not animate the body: our subgraph clips do not
+    arrive, while our root's clip did (test 1) and the mole rat's subgraph
+    clips did (test 6). Every working creature (vanilla, the Mojave mods)
+    ships all its actor files in BA2s; ours were loose but for the
+    AnimTextData. Test 14 installed: test 13's files unchanged, the whole
+    `Meshes\Actors\FNVGecko` folder (17 files) packed into
+    `FNVGeckoTest - Main.ba2` with the AnimTextData (31 files), no loose
+    copies. Since one launch no longer settles a test, each needs
+    several. **Played 5 times: 2 turned with a still body, 3 froze.**
+    Packaging is not it. Test 8 already showed the pattern: a clip played
+    from any core graph we write stays silent (the mole rat's IdleCombat,
+    which visibly moved the body under the mole rat's own core, did not),
+    while our root graphs play (test 1). ClipGeneratorData is not it
+    either: the Mojave Geckos core's lists only its single-play players
+    (attacks, dynamic idles), as ours does. Test 15 installed: no subgraph
+    swap at all; the root graph holds the whole creature (the core's
+    noncombat and combat machines beside the ragdoll state) with the mole
+    rat root's names after ours, the project file data listing the root,
+    character, skeleton and all 10 clips, everything in the BA2. **Played
+    3 times: the gecko's idle plays every time** (our graph and clips run
+    in game), one run also turned, but none walked or attacked. Movement
+    and attacks start from events the engine sends through the IDLE
+    records (`moveStart`, `weapEquip`, the `melee…` events). Next: the
+    console's `sae <event>` on a selected gecko, to split "the engine
+    sends nothing" from "the graph does not react". **Result:**
+    `weapEquip` switched to the combat idle; `moveStart`, `moveStop`,
+    `meleeStart_Left` and `meleeStart_Power` were "not processed by the
+    graph". The working one is a state's own transition; every ignored
+    one is a state machine's wildcard transition. Cause: every vanilla
+    wildcard transition carries `FLAG_IS_LOCAL_WILDCARD` (0x800; 842 alone,
+    321 with `ALLOW_SELF_TRANSITION_BY_TRANSITION_FROM_ANY_STATE`, 0xA00),
+    state transitions mostly 0 (2,210); our builder wrote 0 on wildcards,
+    so Havok never matched them (the root's `Ragdoll` wildcards included:
+    the gecko could never ragdoll). Fixed in the builder; test 15 rebuilt
+    with every wildcard at 0x800 (robot-shaped skeleton still installed).
+    **Replayed twice with the same files:** in one launch `moveStart` and
+    `moveStop` worked but the attacks were "not processed"; in the next
+    the gecko ran around and attacked on its own and every `sae` event
+    worked. So the graph content is right, and what varies between
+    launches is whether the actor finishes setting up. Lead: the race
+    still carried the subgraph entry for our old core, and the engine
+    loads a race's subgraphs when it sets up the actor, whether the root
+    uses them or not; loading our core as a subgraph was the step that
+    stalled at random in tests 5–14. (Vanilla attack wildcards mostly use
+    0x600, global plus self, 20 of 31; move and turn ones 0x800; the
+    launch that worked used 0x800 for the attacks too.) Test 16 installed:
+    the race with no subgraph entry, nothing else changed. **Played 6
+    launches: 4 idled without acting, 2 ran around without attacking, none
+    fully worked.** Not the subgraph entry. Next lead: the AnimTextData was
+    generated for the old layout (a small root plus a core subgraph); the
+    root now holds every clip player and attack event, but its
+    ClipGeneratorData and AnimEventInfo say it has none, and the speed
+    info names the old core's machines. Every working creature ships data
+    generated from its actual graphs. **CK rerun (2026-10-26)** on the
+    current files (the 12 stale files set aside first, the hand-written
+    project file data and project dynamic idle data kept): it wrote the
+    root graph's ClipGeneratorData (577 B) and AnimEventInfo (201 B), the
+    project's AnimationSpeedInfo and AnimationOffsets (`1834888878`), a
+    new offsets index and sync data; no stance data (vanilla writes that
+    per subgraph). Its log: "Could not find base MT/weapon graph for race
+    'FNVGeckoRace'" (the race no longer has a subgraph entry). Packed into
+    the BA2 (25 files), no loose copies. The CK again edited
+    `CreationKitPrefs.ini`, `ckpe.log` and its log folders in the game
+    folder in place. **Played 5 launches: 2 fully worked** (moved and
+    attacked on their own), the rest partly or frozen. Test 17: the race
+    given one base entry pointing at the root graph itself (`SGNM`
+    `Actors\FNVGecko\Behaviors\FNVGeckoRootBehavior.hkx`, `SAPT` our
+    animation folder, `SRAF` 1, the role vanilla creatures give their base
+    entry); the root has no swap generator, so nothing runs it as a second
+    graph. The CK's warning went, and it wrote that entry's file data,
+    offsets, speed info and stance data (id `536022380439387835`); a
+    per-entry `DynamicIdleData` (`Version 1`) added by hand as every
+    vanilla core entry has. Packed (30 files). **Played 6 launches: all
+    froze** (with the faults below still in the graph, so the entry is not
+    to blame; it is kept from test 25 on).
+    `animationfiledata\dirlist.txt` is a vanilla index of the per-id files
+    that mods do not ship, so the game looks files up by name. Body NIF root
+    flags 0xE are vanilla's commonest (1,113 bodies). Ruled out on the way:
+    a skeleton-only `skeleton.hkx` under a character that names it as the
+    ragdoll is vanilla (RobotCharacter does it). (An earlier note here said
+    our clips and skeleton matched vanilla's layout; they did not, see
+    below.)
+  - <a id="own-rig-graph-contract"></a>**What the graph must do, tests
+    18–23 (2026-10-26, each played; scripts in the session scratch):**
+    wildcard versus state transitions made no difference (18). Vanilla's
+    ragdoll state gets up by itself: `GetUpBegin` arms a 0.5 s
+    `hkbTimerModifier` raising `GetUpStart`, the get-up clip raises
+    `ReevaluateGraphState`, leaving raises `GetUpEnd` (19). `bEquipOk` is
+    bound to the core state machine's `isActive` and `IsAttackReady`
+    starts at 1 (20; a modifier binding that registers a variable first
+    fixes its initial value, so register the contract first). Every one of
+    328 vanilla graphs gives each clip generator a unique name (21). Every
+    re-entered machine starts where the game says: the normal/combat
+    machine syncs to `iCombatState` (`startStateMode` 1), both
+    standing/moving machines bind `startStateId` to `iSyncIdleLocomotion`,
+    both idle/turn machines to `iSyncTurnState` (22). Every attack state
+    raises `attackStop` and `startAnimationDriven` on exit and holds
+    `bAnimationDriven` while it plays (23): without `attackStop` the gecko
+    bit once and never again. The `sae` handler (`0x5D8740` in 1.11.240)
+    reports "not processed" only when the graph is inactive, busy, lacks
+    the event name, or Havok handled nothing.
+  - <a id="own-rig-clip-layout"></a>**The crash and most freezes were the
+    clip writer (tests 24–28, 2026-10-26, played).** A Papyrus trace on the
+    gecko (`GeckoTrace`, logging AI and graph state each second) showed a
+    frozen gecko is in combat with its weapon drawn and its graph accepting
+    events, but its AI never sets `Speed`; it still bites when the player
+    comes close. Every gecko in one world load behaved the same, a vanilla
+    mole rat in the same load moved, and leaving to the main menu crashed
+    (`BSAnimationDBData` teardown, `hkThreadMemory` free of a bad block) even
+    when the geckos worked. Bisect: the gecko on the mole rat's animation
+    project never crashed (27); our clips and `skeleton.hkx` rewritten in
+    vanilla's layout, values unchanged, never crashed in 8 runs and froze
+    in 1 (28; it had frozen 2 in 5 to 6 in 6). PyNifly's FO4 writer
+    (`external/pynifly_hkx/anim_fo4.py`) differed from vanilla in: the
+    clip's `hkMemoryResourceContainer` (80 bytes, null name; vanilla 64
+    bytes named `''`), an extra resource container in `skeleton.hkx`
+    (vanilla skeletons have none), unpadded member strings and fixup
+    tables, a 112-byte reference frame (vanilla 96), and `FF`-filled
+    section names. Which of these the game choked on is not isolated; the
+    writer now matches vanilla in all of them (fixed 2026-10-26; its output
+    equals the played files byte for byte apart from fixup order), guarded
+    by `tests/test_fo4_hkx_layout.py`. The same writer makes the build's
+    idle clips (`fo4_import/spike/idles.py`) and human clips
+    (`fo4_import/havok/human_clip.py`). Our behaviour, character and
+    project writer reproduces vanilla's mole rat, radroach and shared
+    graphs byte for byte. Still open: the occasional freeze left (closed
+    below).
+  - <a id="own-rig-movement-type"></a>**The freeze was our movement type's
+    `SPED` layout (tests 29–40, 2026-10-26, played).** Fallout4.exe's MOVT
+    loader (`0x620ce0`, `SPED` at `0x620e2b`) reads `SPED` by the record's
+    form version: 104 (`0x68`) and newer is 28 floats (left, right,
+    forward, back as `[0, walk, run, sprint]`, then 12 rotation rates);
+    60–103 is the old 17-float layout, which it upgrades (each rotation
+    rate written to two slots, forward sprint = run × 1.75 from
+    `0x24D1A00`). Our MOVT copied `Molerat_Default_MT`'s 17 floats (form
+    version 98) but was written at 131, so the forward slots got rotation
+    rates (3.14, 4.71): a top speed of about 4 units/s, the stray `Speed`
+    of 1.4–4.7 every frozen trace showed. Only 13 of Fallout4.esm's MOVTs
+    are version 131; the race, NPC and body part data we clone already
+    are. `fo4_import/spike/creature_speed.py` already documented the size
+    rule. It looked random because our root graph also carried the mole
+    rat's `iState_Molerat` (from the mole rat root's variable list):
+    Fallout4.exe (`0x139c0f0`) maps each `iState_<name>` variable's initial
+    value to the MOVT whose `MNAM` is `<name>`, so two links shared value 0
+    and the one the game took varied per launch, fixed until quit to
+    desktop. With only `iState_Molerat` the gecko moved in 10 of 10
+    launches; with only ours, frozen in 8 of 8; ours rewritten in the new
+    layout (forward 62.5 / 578.6 / 1012.6, the FNV clips' root speeds),
+    moved in 8 of 8 (test 40). Rules: write `SPED` in the layout of the
+    form version written, and give a creature graph only its own
+    `iState_` variable. Ruled out on the way, each by a freeze: the
+    subgraph entry, attack data, CK-generated AnimTextData, our clips and
+    skeleton, IDLE and action lookup (`PlayIdleAction` worked while
+    frozen), graph-driven movement. A Papyrus trace (`GeckoTrace`) and a
+    read-only live reader (actor by FormID, objects by RTTI) showed the
+    AI issuing combat path requests while the movement controller gave no
+    speed. A vanilla-structure two-graph layout (root with the swap node,
+    our creature as the core subgraph) still never attaches our core
+    (test 34). Four clean launches were too few to trust: at a freeze
+    rate near one in three that happens by chance about one time in five.
+  - <a id="own-rig-ragdoll"></a>**Death, knockdown and get-up work (tests
+    41–51, 2026-10-27, played).** What the working gecko has, each part
+    shown needed by a test without it:
+    - **The ragdoll only in `skeleton.nif`** (FNV's ragdoll through Elric),
+      with a skeleton-only `skeleton.hkx`, as IceStormNG's tutorial
+      creatures do. A ragdoll and two identity mappers built into
+      `skeleton.hkx` beside it (vanilla's file layout; tests 42–48) left
+      every plain death a corpse frozen in its last pose and floating:
+      `pushactoraway` did not move it, and the live reader showed the
+      model placed on the ragdoll's pelvis and posed by the animation.
+      Only a death that came with a knockdown (power attack) ragdolled.
+      Neither game units in that ragdoll (vanilla's `skeleton.hkx` holds
+      its ragdoll in game units, the NIF in Havok units ×69.99) nor joint
+      friction scaled from FNV's units (×7/69.99) changed it.
+    - **Fully Ragdoll on a `hkbPoseMatchingGenerator`**, as all 29 vanilla
+      organic creatures' graphs have (only turrets and the vertibird use a
+      plain clip). Under a looping clip the body played the clip (test
+      46); with the matcher it follows the ragdoll (47). One matcher is
+      shared by Fully Ragdoll and GetUpFromRagdoll: `startMatchingEventId`
+      `EnterFullyRagdoll`, `startPlayingEventId` `GetUpStart`, its child the
+      Idle clip raising `ReevaluateGraphState` at 0.433 s (the radroach's
+      `GetUp_Faceup`); matching bones in the mole rat's roles (pelvis,
+      chest, right upper arm; its character properties
+      `PelvisRagdollBone`, `SecondRagdollBone`, `ThirdRagdollBone`).
+    - **The radroach's layout around it:** root state `RagdollAndGetUp`
+      raising `GetUpEnd` on exit and holding Fully Ragdoll (enter
+      `RemoveCharacterControllerFromWorld`, `AddRagdollToWorld`,
+      `EnterFullyRagdoll`) and GetUpFromRagdoll. The engine re-evaluates the
+      graph on `ReevaluateGraphState`, so a `GetUpEnd` raised later by a
+      clip trigger never fires; then the actor never leaves its getting-up
+      state, has no AI, and saves that way (test 44). IDLEs for
+      `ActionKnockDown` → `Ragdoll` and `ActionGetUp` → `GetUpBegin`; with
+      no IDLE the action is unsupported and nothing happens.
+    - **A mole-rat death step.** Our race is the mole rat's, and the shared
+      death-wait IDLEs exclude `MoleratRace`. `ActionDeathWait` →
+      `DeathAnimation`, a root state that raises `AddRagdollToWorld`,
+      keyframes all 25 ragdoll bones (`hkbKeyframeBonesModifier`), holds
+      `bAnimationDriven` and `bSupportedDeathAnim` true
+      (`BSIsActiveModifier`) and raises `Ragdoll` from a clip trigger;
+      `ActionDeath` → `Ragdoll`. With `ActionDeathWait` → `Ragdoll` straight
+      into Fully Ragdoll, the radroach's way, the body froze with no
+      ragdoll (test 50). The gecko has no death clip, so the step holds
+      CombatIdle: 0.3 s showed as a freeze before the ragdoll (49), 0.05 s
+      does not (51).
+    Not settled: whether the friction scaling is needed now that the NIF
+    ragdoll is the one used, and the controller and bumper capsules (ours
+    reach about 99 units high; the mole rat's are low and long).
+  - <a id="own-rig-code"></a>**Converter code, stage 1 (2026-10-27): the
+    Havok 2014 files.** `fo4_import/havok/packfile.py` reads a 64-bit
+    hk_2014.1.0-r1 packfile into objects (`{'#', 'class', 'fields'}`;
+    pointers as object names, a shape's relative-array data past its class
+    size as `__tail__`); `packfile_write.py` writes them back; `graph.py`
+    builds behaviour graphs on them (nodes from class defaults, events and
+    variables by name). Behaviour, character and project files are laid out
+    depth first from the top object; skeleton files are not, so a read
+    skeleton is rewritten in its own order (`keep_order`), and animation
+    and skeleton files carry a 16-byte header extension (`0x14`, then
+    zeros). `tests/test_fo4_packfile.py` rebuilds six vanilla files byte
+    for byte (mole rat and radroach roots, the mole rat's shared core,
+    character, project and ragdoll skeleton). Class layouts come from
+    `fo4_import/data/hk2014_layouts.json`: member names, types, offsets
+    and sizes for the 279 classes the game's actor files use (131 named in
+    them, plus parents and struct types), generated by
+    `tools/generators/hk2014_layouts.py` from hkxpack-style class
+    descriptions. hkxpack is MIT, but its class descriptions are read from
+    the game and it does not ship them, so the repo keeps only the layout
+    table, not the descriptions.
+  - **Not done:** hit reactions, staggers, idles, the fire gecko's breath;
+    `BSBound` and the bone LOD and lag-bone extras on `skeleton.nif`;
+    stages 2 on: the gecko through a per-creature table, as a fourth mode
+    of `fo4_import/spike/creatures.py`.
+
+So a converter's own rig needs, from tools it lacks: nothing proprietary.
+The skeleton, clips and behaviour, character and project files are writable
+from Python; the ragdoll and controller come from FNV's own NIF ragdoll
+through Elric; AnimTextData from the Creation Kit's command line or the CRC
+rule. What is left is records and a play test.
 
 ## <a id="formids"></a>FormIDs: none counted
 

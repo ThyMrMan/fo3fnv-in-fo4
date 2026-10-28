@@ -18,6 +18,7 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.creatures import skeleton_folder
 from fo4_import.spike.equipment import default_entry
 from fo4_import.spike.gun_choice import GUN_TYPES
+from fo4_import.spike.replacements import creature_entry
 
 #: Replacement table category -> the source record types listed under it.
 CATEGORY_SIGS = {'weapon': ('WEAP',), 'armor': ('ARMO',), 'consumable': ('ALCH',), 'ammo': ('AMMO',),
@@ -31,7 +32,8 @@ STATS = {'damage': 'DATA.Damage', 'value': 'DATA.Value', 'weight': 'DATA.Weight'
 
 @dataclass(frozen=True)
 class SourceForm:
-    """One source form: category, record type, FormID, EditorID, name, model, placed count and its export record."""
+    """One source form: category, record type, FormID, EditorID, name, model, placed count, its export record and
+    the export's {spell FormID: EditorID} (a creature's abilities pick its rule)."""
     category: str
     sig: str
     form_id: int
@@ -40,6 +42,7 @@ class SourceForm:
     model: str
     placed: int
     record: dict = field(compare=False, hash=False, repr=False)
+    spells: dict = field(default_factory=dict, compare=False, hash=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -69,8 +72,10 @@ def placements(export_dir: Path) -> Counter:
 
 def source_forms(export_dir: Path, category: str, placed: Counter) -> list:
     """The export's forms of `category` with an EditorID, the most placed first."""
+    spells = {int(r['FormID'], 16): r.get('EditorID', '') for r in export_records(export_dir, 'SPEL')
+              } if category == 'creature' else {}
     forms = [SourceForm(category, sig, int(r['FormID'], 16), r['EditorID'], r.get('FULL', ''), source_model(r),
-                        placed.get(int(r['FormID'], 16), 0), r)
+                        placed.get(int(r['FormID'], 16), 0), r, spells)
              for sig in CATEGORY_SIGS[category] for r in export_records(export_dir, sig) if r.get('EditorID')]
     return sorted(forms, key=lambda f: (-f.placed, (f.name or f.edid).lower()))
 
@@ -95,10 +100,8 @@ def converted_mesh(form: SourceForm) -> str:
 def current(table, form: SourceForm) -> Current:
     """What stands in for `form` under `table` (replacements.load) and its rules (module notes)."""
     if form.sig == 'CREA':
-        if form.edid in table.creatures:
-            return Current(table.creatures[form.edid], 'table')
-        rule = table.rules.creature.get(skeleton_folder(form.model))
-        return Current(rule, 'rule') if rule else Current(None, 'none')
+        entry, _, how = creature_entry(table, form.record, skeleton_folder(form.model), form.spells)
+        return Current(entry, how)
     if form.edid in table:
         return Current(table[form.edid], 'table')
     rule = default_entry(form.record, table.rules) if form.sig in ('WEAP', 'ARMO') else None

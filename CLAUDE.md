@@ -63,10 +63,13 @@ caching, skipped record types, the export text format, and the directory layout.
   a bad track record as the reason to stop is still a stop.
 - **Report uncertainty at the end.** State the assumption you worked under,
   finish every unblocked part, and say what was blocked.
+- **Sub-agents are allowed without asking.** Use the `Agent` tool (`Explore`,
+  `Plan`, `general-purpose`) for broad searches and independent work you can
+  run in parallel. Their reports are leads, not results: verify a finding
+  yourself before acting on it or reporting it. They follow this file too.
 - **You may stop to ask only when:**
   - proceeding is unsafe or destructive (deleting data, force-pushing,
     [FormID drift](#formid-drift));
-  - you want to use the `Agent` tool (always ask first, including `Explore`);
   - a fix would make a feature need a runtime DLL (`tes_runtime/`) when it
     didn't before. A DLL is the last resort: first find the engine's own
     mechanism (records, Papyrus, what vanilla does);

@@ -18,9 +18,13 @@ _INFO_FRAGMENT = re.compile(r'^Function (Fragment_[01])\(ObjectReference akSpeak
 _PACKAGE_FRAGMENT = re.compile(r'^Function (Fragment_\d+)\(Actor akActor\)$')
 _PACKAGE_SUBJECT = '  ObjectReference akSpeakerRef = akActor'
 #: Actor events every FO4 actor script traces: opener -> the trace line opening it.
-_ACTOR_EVENTS = {'Event OnLoad()': '  TES4Polyfill.TraceLoad(Self)',
+_ACTOR_EVENTS = {'Event OnLoad()': '  TES4Polyfill.TraceLoad(Self)\n  TES4Polyfill.TraceAnimEvents(Self, Self)',
+                 'Event OnAnimationEvent(ObjectReference akSource, string asEventName)':
+                     '  TES4Polyfill.TraceAnim(akSource, asEventName)',
                  'Event OnDeath(Actor akKiller)': '  TES4Polyfill.TraceDeath(Self, akKiller)',
                  'Event OnPackageStart(Package akNewPackage)': '  TES4Polyfill.TracePackageStart(Self, akNewPackage)'}
+#: Actor events traced only where the script has them (adding one would change nothing worth a line).
+_OPENED_EVENTS = {'Event OnActivate(ObjectReference akActionRef)': '  TES4Polyfill.TraceActivate(Self, akActionRef)'}
 #: INFO fragment -> the moment it marks.
 _INFO_WHEN = {'Fragment_1': 'begin', 'Fragment_0': 'end'}
 #: A statement giving the player an item or taking one: indent, the call, the item, then the arguments after it.
@@ -76,11 +80,14 @@ def package(lines: list, script: str) -> list:
 
 def actor(lines: list, extends: str) -> list:
     """An actor script's lines with each _ACTOR_EVENTS event opened by its trace line, the event added when the
-    script has none (an opener target.event_opener already traced is left as it is)."""
+    script has none, and each _OPENED_EVENTS event it has opened by its own (an opener target.event_opener
+    already traced is left as it is)."""
     if not is_fallout4() or extends != 'Actor':
         return lines
-    for opener, trace in _ACTOR_EVENTS.items():
+    for opener, trace in {**_ACTOR_EVENTS, **_OPENED_EVENTS}.items():
         at = next((i for i, line in enumerate(lines) if line.startswith(opener)), None)
+        if at is None and opener in _OPENED_EVENTS:
+            continue
         if at is None:
             lines = lines + [opener, trace, 'EndEvent', '']
         elif trace.strip() not in lines[at]:

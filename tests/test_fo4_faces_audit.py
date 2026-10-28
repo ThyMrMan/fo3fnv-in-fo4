@@ -86,9 +86,9 @@ def _npcs(records: dict, lists: dict = None, creatures: dict = None) -> N.Npcs:
     npcs.records, npcs.lists, npcs.made = records, lists or {}, {}
     npcs.creatures = Creatures.__new__(Creatures)
     npcs.creatures.records = creatures or {}
-    npcs.creatures.by_edid, npcs.creatures.by_folder = {}, {}
+    npcs.creatures._entry = lambda rec: (None, '')
     npcs.races = {0x19: 'Caucasian', 0x3B3E: 'Ghoul'}
-    npcs.builder = SimpleNamespace(counts=collections.Counter())
+    npcs.builder = SimpleNamespace(counts=collections.Counter(), actor_ids={})
     npcs.export_dir, npcs.assets = EXPORT, None
     return npcs
 
@@ -197,8 +197,10 @@ def test_ck_timeout_scales_with_the_plugins_npcs(tmp_path):
 def test_ck_exports_facegen_for_64_bit_pc(monkeypatch):
     """The CK is asked for the X64 target: W32 writes hair cloth physics with 4-byte pointers."""
     calls = []
-    monkeypatch.setattr(FG.subprocess, 'run', lambda args, **_: calls.append(args) or SimpleNamespace(stdout=''))
-    monkeypatch.setattr(FG.time, 'sleep', lambda _: None)
+    monkeypatch.setattr(FG.creation_kit.subprocess, 'run',
+                        lambda args, **_: calls.append(args) or SimpleNamespace(stdout=''))
+    monkeypatch.setattr(FG.creation_kit.time, 'sleep', lambda _: None)
+    monkeypatch.setattr(FG.creation_kit, 'output_dir', lambda: FG.creation_kit.MO2 / 'overwrite')
     FG.run_ck('Spike.esp')
     assert calls[0][-1] == '-ExportFaceGenData:Spike.esp X64'
 

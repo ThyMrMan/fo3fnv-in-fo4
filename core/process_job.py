@@ -157,6 +157,8 @@ def _extended_limit_struct():
 # JOBOBJECT_EXTENDED_LIMIT_INFORMATION class for SetInformationJobObject.
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
+#: Lets a child that asks to leave the job (CREATE_BREAKAWAY_FROM_JOB) do so: MO2 starts the Creation Kit that way.
+_JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x00000800
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 # Rights a worker needs: set quota (assign) + terminate (be killed by the job).
 _PROCESS_SET_QUOTA = 0x0100
@@ -229,7 +231,7 @@ def create_pool_job(memory_limit: int = None) -> bool:
 
         limit = job_memory_limit_bytes() if memory_limit is None else memory_limit
         info = _extended_limit_struct()()
-        flags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        flags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | _JOB_OBJECT_LIMIT_BREAKAWAY_OK
         if limit:
             flags |= _JOB_OBJECT_LIMIT_JOB_MEMORY
             info.JobMemoryLimit = limit

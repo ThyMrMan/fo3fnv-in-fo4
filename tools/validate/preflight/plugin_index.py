@@ -18,11 +18,20 @@ _PERSISTENT = 0x400
 #: World units along one side of an exterior cell.
 _CELL_UNITS = 4096
 
+#: The file header's form version in a Fallout 4 plugin; Skyrim's is 44.
+FO4_FORM_VERSION = 131
+
+#: Fallout 4 records whose VMAD holds a fragment script after the script list: {signature: bytes before it}.
+FO4_FRAGMENT_AT = {'INFO': 2, 'PACK': 2, 'SCEN': 2, 'TERM': 1, 'QUST': 3}
+
 #: VMAD property types whose value is a fixed size: {type: bytes}.
 _FIXED_PROPERTY_SIZE = {3: 4, 4: 4, 5: 1}
 
 #: VMAD array property types: {type: bytes per element}; 12 (strings) is sized per element.
 _ARRAY_ELEMENT_SIZE = {11: 8, 13: 4, 14: 4, 15: 1}
+
+#: VMAD property type of an object array, whose elements are 8-byte object values.
+_OBJECT_ARRAY = 11
 
 
 def first(rec, sig: str) -> bytes:
@@ -57,7 +66,7 @@ def _object_fid(data: bytes, pos: int, obj_format: int) -> int:
 
 
 def _property_value(data: bytes, pos: int, ptype: int, obj_format: int) -> tuple:
-    """(FormID or None, next position) of one VMAD property value."""
+    """(FormID, [FormIDs] of an object array, or None; next position) of one VMAD property value."""
     if ptype == 1:
         return _object_fid(data, pos, obj_format), pos + 8
     if ptype == 2:
@@ -70,6 +79,8 @@ def _property_value(data: bytes, pos: int, ptype: int, obj_format: int) -> tuple
         for _ in range(count):
             pos = _wstring(data, pos)[1]
         return None, pos
+    if ptype == _OBJECT_ARRAY:
+        return [_object_fid(data, pos + 8 * i, obj_format) for i in range(count)], pos + 8 * count
     if ptype in _ARRAY_ELEMENT_SIZE:
         return None, pos + count * _ARRAY_ELEMENT_SIZE[ptype]
     raise ValueError(f'VMAD property type {ptype}')
@@ -89,32 +100,47 @@ def _script_properties(data: bytes, pos: int, version: int, obj_format: int) -> 
     return props, pos
 
 
-def vmad_scripts(data: bytes) -> list:
+def _script_entry(data: bytes, pos: int, version: int, obj_format: int) -> tuple:
+    """((script name lower, {property: FormID}), next position) of one VMAD script entry."""
+    name, pos = _wstring(data, pos)
+    pos += 1 if version >= 4 else 0
+    props, pos = _script_properties(data, pos, version, obj_format)
+    return (name.lower(), props), pos
+
+
+def vmad_scripts(data: bytes, fragment_at: int = 0) -> list:
     """[(script name lower, {property lower: FormID, None when not an object})] a VMAD attaches.
 
-    Parsing stops at the first value it cannot size, keeping the scripts read
-    so far; fragment data after the script list is not read.
+    With `fragment_at`, the Fallout 4 fragment script that many bytes after the
+    script list is read too. Parsing stops at the first value it cannot size,
+    keeping the scripts read so far.
     """
     out = []
     try:
         version, obj_format, count = struct.unpack_from('<hhH', data, 0)
         pos = 6
         for _ in range(count):
-            name, pos = _wstring(data, pos)
-            pos += 1 if version >= 4 else 0
-            props, pos = _script_properties(data, pos, version, obj_format)
-            out.append((name.lower(), props))
+            entry, pos = _script_entry(data, pos, version, obj_format)
+            out.append(entry)
+        if fragment_at and pos + fragment_at < len(data) and _wstring(data, pos + fragment_at)[0]:
+            out.append(_script_entry(data, pos + fragment_at, version, obj_format)[0])
     except (struct.error, ValueError, IndexError):
         pass
     return out
 
 
 class PluginIndex:
-    """A built plugin's records by type and FormID, and its script attachments."""
+    """A built plugin's records by type and FormID, and its script attachments.
 
-    def __init__(self, records: list, masters: tuple = ()):
+    `edid_prefix` is the prefix the build puts on its own EditorIDs (`FNV_`),
+    which `edid` drops so names compare with the source game's; `fo4` marks a
+    Fallout 4 plugin.
+    """
+
+    def __init__(self, records: list, masters: tuple = (), edid_prefix: str = '', fo4: bool = False):
         """Index `records` by type and FormID, and read every VMAD's scripts."""
         self.masters = tuple(masters)
+        self.edid_prefix, self.fo4 = edid_prefix, fo4
         self._grid = None
         self.by_type = defaultdict(list)
         self.by_fid = {}
@@ -126,7 +152,8 @@ class PluginIndex:
             self.by_type[rec.type].append(rec)
             self.by_fid[rec.form_id] = rec
             vmad = first(rec, 'VMAD')
-            for name, props in vmad_scripts(vmad) if vmad else ():
+            fragment_at = FO4_FRAGMENT_AT.get(rec.type, 0) if fo4 else 0
+            for name, props in vmad_scripts(vmad, fragment_at) if vmad else ():
                 self._attach(rec.form_id, name, props)
 
     def _attach(self, fid: int, script: str, props: dict) -> None:
@@ -134,14 +161,21 @@ class PluginIndex:
         self.attached[script].append(fid)
         self.bound[script] |= set(props)
         for prop, target in props.items():
-            if target:
+            if isinstance(target, list):
+                self.object_props += [(script, prop, t) for t in target if t]
+            elif target:
                 self.script_props[script][prop] = target
                 self.object_props.append((script, prop, target))
 
+    def name_of(self, rec) -> str:
+        """The EditorID of `rec` without the build's prefix."""
+        edid = zstring(first(rec, 'EDID'))
+        return edid[len(self.edid_prefix):] if self.edid_prefix and edid.startswith(self.edid_prefix) else edid
+
     def edid(self, fid: int) -> str:
-        """The EditorID of the record `fid`, or ''."""
+        """The EditorID of the record `fid` without the build's prefix, or ''."""
         rec = self.by_fid.get(fid)
-        return zstring(first(rec, 'EDID')) if rec else ''
+        return self.name_of(rec) if rec else ''
 
     def edid_types(self) -> tuple:
         """({EditorID lower: signature}, {EditorIDs two signatures share}).
@@ -151,7 +185,7 @@ class PluginIndex:
         """
         types, shared = {}, set()
         for rec in (r for recs in self.by_type.values() for r in recs):
-            edid = zstring(first(rec, 'EDID')).lower()
+            edid = self.name_of(rec).lower()
             for name in {edid, edid.lstrip('0123456789')} - {''}:
                 if types.setdefault(name, rec.type) != rec.type:
                     shared.add(name)
@@ -190,7 +224,8 @@ class PluginIndex:
         return {u32(first(r, 'NAME')) for r in self.by_type['ACHR']}
 
 
-def load_plugin(path: str) -> PluginIndex:
-    """Read and index the built plugin at `path`."""
+def load_plugin(path: str, edid_prefix: str = '') -> PluginIndex:
+    """Read and index the built plugin at `path`; its EditorIDs lose `edid_prefix`."""
     header, records, _localized = read_tes5_file(str(path))
-    return PluginIndex(records, [zstring(d) for d in every(header, 'MAST')])
+    return PluginIndex(records, [zstring(d) for d in every(header, 'MAST')], edid_prefix,
+                       header.form_version >= FO4_FORM_VERSION)

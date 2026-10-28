@@ -16,7 +16,7 @@ from dataclasses import replace
 from script_convert.blocks import (BLOCK_MAP, BLOCK_TYPE_GUARDS,
                                    block_filter_guard, block_header)
 from script_convert.constants import (
-    LAST_ACTIVATOR_VAR, MENU_ID_NAMES, MESSAGE_BOX_MENU_ID, UDF_CALLER_PARAM, UDF_RESULT_VAR,
+    DIALOGUE_MENU_ID, LAST_ACTIVATOR_VAR, MENU_ID_NAMES, MESSAGE_BOX_MENU_ID, UDF_CALLER_PARAM, UDF_RESULT_VAR,
     POLL_BLOCKS, REF_SPECIFICITY, TYPE_MAP, is_generated_script_type,
     safe_property_name, papyrus_script_name
 )
@@ -911,7 +911,7 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
         out += ['  If (!IsRunning())', '    Return', '  EndIf']
 
     out += _menu_hold(conv, tree)
-    out += _dialogue_gate(conv, extends, load_gated)
+    out += _dialogue_gate(conv, extends, load_gated, _dialogue_bodies(conv, tree, extends))
     out += _elapsed_prologue(conv, interval)
     out += _glide_prologue(sc)
 
@@ -1007,22 +1007,38 @@ def _arm(conv, secs: str, load_gated: bool, indent: str = '  ') -> list:
             f'{indent}EndIf']
 
 
-def _dialogue_gate(conv, extends: str, load_gated: bool) -> list:
-    """Skip this pass while the player is in a dialogue menu.
+def _dialogue_gate(conv, extends: str, load_gated: bool, bodies: list = ()) -> list:
+    """Skip this pass while the player is in a dialogue menu, running the dialogue-menu MenuMode `bodies` instead.
 
-    TES4 GameMode never ran while a menu was open.  Only scripts that SPEAK
+    TES4 GameMode never ran while a menu was open, and `begin MenuMode 1009`
+    ran on exactly those frames.  Only scripts that SPEAK or have such a block
     carry the gate; a poll that never speaks cannot cut a line.
 
     See: docs/commentary/script_convert.md#the-dialogue-poll-gate
     """
-    if not conv.sc.uses_say or extends not in ('Actor', 'Quest'):
+    if not (conv.sc.uses_say or bodies) or extends not in ('Actor', 'Quest'):
         return []
     test = ('IsInDialogueWithPlayer() || TES4Polyfill.PlayerIsInDialogue()'
             if extends == 'Actor' else 'TES4Polyfill.PlayerIsInDialogue()')
     return ([f'  If {test}  '
-             '; TES4 GameMode did not run while a menu was open']
+             '; TES4 GameMode did not run while a menu was open'] + list(bodies)
             + _arm(conv, '0.5', load_gated, indent='    ')
             + ['    Return', '  EndIf'])
+
+
+def _dialogue_bodies(conv, tree, extends: str) -> list:
+    """The `begin MenuMode 1009` (dialogue menu) bodies, for the dialogue gate (Fallout 4 only).
+    See: docs/commentary/script_convert.md#menumode-dialogue
+    """
+    if not is_fallout4():
+        return []
+    blocks = [b for b in (tree.blocks if tree else ()) if _is_dialogue_menu(b)]
+    return [line for b in blocks for line in _script.emit_body(conv, b.body, extends, 2)]
+
+
+def _is_dialogue_menu(block) -> bool:
+    """Whether a block is `begin MenuMode 1009`, the dialogue menu's."""
+    return block.btype.lower() == 'menumode' and str(block.filter or '').strip() == DIALOGUE_MENU_ID
 
 
 def _glide_prologue(sc) -> list:
@@ -1404,7 +1420,7 @@ def menu_blocks(conv, tree, extends: str) -> list:
               if b.btype.lower() == 'menumode' and _menumode_kind(b) == 'menu']
     out = message_box_closed(conv, blocks, extends)
     for block in blocks:
-        if conv.sc.msgbox_hook and _is_message_box(block):
+        if conv.sc.msgbox_hook and _is_message_box(block) or is_fallout4() and _is_dialogue_menu(block):
             continue
         label = ('MenuMode %s' % (block.filter or '')).strip()
         body = _script.emit_body(conv, block.body, extends, 1)

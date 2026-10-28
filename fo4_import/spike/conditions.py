@@ -33,6 +33,8 @@ FNV_AV_GAME_NAMES = {'Critical Chance': 'CritChance', 'Damage Resistance': 'Dama
 #: FNV name -> FO4's function doing the same: renamed, a note (an inventory item) counted, a map region's location.
 RENAMED = {'GetActorValue': 'GetValue', 'GetPermanentActorValue': 'GetPermanentValue', 'GetPCIsSex': 'GetIsSex', 'GetHasNote': 'GetItemCount',
            'PlayerInRegion': 'GetInCurrentLocation'}
+#: FNV functions reading one actor value, as FO4's GetValue of it: {function: FNV actor value index}.
+AS_VALUE = {'GetRadiationLevel': FNV_AV_NAMES.index('Rad Level')}
 #: FNV functions that test the player; FO4's counterpart runs on the player reference.
 ON_PLAYER = {'GetPCIsSex', 'GetHasNote', 'PlayerInRegion'}
 PLAYER_REF = 0x14

@@ -691,9 +691,12 @@ def mod_disposition(ctx, call) -> str:
 
 @command('pushactoraway')
 def push_actor_away(ctx, call) -> str:
-    """PushActorAway -- the pushed target must be Actor-typed."""
+    """PushActorAway -- the pushed target must be Actor-typed; on Fallout 4 the polyfill's, which staggers the
+    player instead (TES4Polyfill.PushActorAway)."""
     ref = ctx._resolve_objref_ref(call.ref, call.extends)
     target = _as_actor(ctx, call.arg(0)) if len(call) else 'Game.GetPlayer()'
+    if is_fallout4():
+        return f'TES4Polyfill.PushActorAway({ref}, {target}, {call.arg(1, "1.0")})'
     return f'{ref}.PushActorAway({target}, {call.arg(1, "1.0")})'
 
 

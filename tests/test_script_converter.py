@@ -2396,6 +2396,14 @@ class TestSingletonFixes:
         assert 'MarkerRef.PushActorAway((VictimRef as Actor), 30)' in result
         assert ';TODO' not in result
 
+    def test_pushactoraway_on_fallout4_is_the_polyfills(self, converter, monkeypatch):
+        """Fallout 4's push goes through TES4Polyfill, which staggers the player."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        converter._property_refs['MarkerRef'] = 'ObjectReference'
+        converter._property_refs['VictimRef'] = 'ObjectReference'
+        result = conv_line(converter, 'MarkerRef.pushActorAway VictimRef 30', 'ObjectReference')
+        assert 'TES4Polyfill.PushActorAway(MarkerRef, (VictimRef as Actor), 30)' in result
+
     def test_getarmorrating(self, converter):
         converter._property_refs['GuardRef'] = 'Actor'
         result = conv_line(converter, 'if GuardRef.GetArmorRating > 20',
