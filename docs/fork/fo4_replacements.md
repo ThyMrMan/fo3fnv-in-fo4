@@ -195,7 +195,7 @@ at the mod's record.
      Max 2013 with Bethesda's official exporter): Mojave Mantises 48442,
      Geckos 50275, the Securitron in the Capital Wasteland Robot Pack
      52147, Cazadores 57161, Bighorners 57991, Capital Wasteland Centaurs
-     59379. See the prior-art report `reports/FO4 custom creature rig prior art.md`.
+     59379. See the prior-art report [research/fo4_creature_rig_prior_art.md](research/fo4_creature_rig_prior_art.md).
 
 ## Defaults now
 

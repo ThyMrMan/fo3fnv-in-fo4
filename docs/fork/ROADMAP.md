@@ -15,7 +15,7 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | [performance.md](performance.md) | Rules for new systems, Papyrus runtime cost, FO3/FNV occlusion |
 | [kill_cams.md](kill_cams.md) | Kill cams and killmoves on converted weapons, per game |
 | [bink_movies.md](bink_movies.md) | Source-game Bink 1 movies on Fallout 4: census (36 movies), playback, plan, play test |
-| [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md), [Fallout 4 as the target](research/fo4_target.md), [dynamic collision for FO4 (parked mod idea)](research/fo4_dynamic_collision.md), [NVSE features for FO4](research/nvse_port.md) |
+| [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md), [Fallout 4 as the target](research/fo4_target.md), [dynamic collision for FO4 (parked mod idea)](research/fo4_dynamic_collision.md), [NVSE features for FO4](research/nvse_port.md), [FO4 creature rig prior art](research/fo4_creature_rig_prior_art.md) |
 | [done/](done/) | Plans that are built, kept as their design record: [preflight audits](done/preflight_audits.md) |
 | [fo4_spikes.md](fo4_spikes.md) | The spikes that showed FO3/FNV on Fallout 4 buildable (done), and the findings they made |
 | [fo4_pipeline.md](fo4_pipeline.md) | The plan from the spike to the whole of FNV: the base it grows on, what to build and research first, speed, stability, order |
