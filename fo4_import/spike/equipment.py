@@ -45,7 +45,7 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
 from fo4_import.pipeline.work_cache import cached
-from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_NOT_PLAYABLE, GUN_TYPES
+from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_AUTOMATIC, FO4_NOT_PLAYABLE, GUN_TYPES, fnv_wants
 from fo4_import.spike.guns import Guns
 from fo4_import.spike.weapon_mods import WeaponMods
 from fo4_import.spike.replacements import Replacement, Rules
@@ -249,21 +249,26 @@ class Equipment:
         return self.builder.writer.derive_formid('FLST', name) if name in WEAPON_ANIM_LISTS.values() else None
 
     def write_anim_lists(self) -> None:
-        """Write every animation type's list of the converted weapons, empty or not, so a property always binds.
+        """Write every animation type's list of the converted weapons, empty or not, so a property always binds;
+        and the subgraph race of the guns on FNV's clips (spike.guns.write_subgraphs).
         See: docs/commentary/script_convert.md#fallout-weapon-anim-type
         """
         for kind, name in WEAPON_ANIM_LISTS.items():
             body = pack_string_subrecord('EDID', name) + b''.join(
                 pack_subrecord('LNAM', struct.pack('<I', fid)) for fid in sorted(self.by_anim[kind]))
             self.builder.writer.add_record('FLST', pack_fo4_record('FLST', self.anim_list(name), 0, body))
+        self.guns.write_subgraphs()
 
     def _weapon(self, fnv: int, rec: dict) -> 'int | None':
-        """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`) on its table entry's target (an `fnv` gun on the
-        FO4 gun spike.gun_choice picks, when one matches); a gun the table leaves out is that FO4 gun itself, its
-        chosen parts, FNV's stats; None without either."""
+        """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`) on its table entry's target; a gun the table
+        leaves out converts as an `fnv` one (its own mesh and clips) on the FO4 gun spike.gun_choice picks, when one
+        matches; None without either.
+        See: docs/fork/fo4_spikes.md#spike-4-gun-clips
+        """
         entry = self._entry(rec)
         gun = int(rec.get('DNAM.FalloutAnimType', -1)) in GUN_TYPES and 'Model.MODL' in rec
-        chosen = self.guns.choose(rec) if gun and (entry is None or entry.mode == 'fnv') else None
+        chosen = self.guns.choose(rec, entry.edid if entry else None, entry.mods if entry else ()) if gun and (
+            entry is None or entry.mode == 'fnv') else None
         if entry is None and chosen is None:
             return None
         source = chosen[1] if chosen else self.vanilla[entry.edid]
@@ -272,18 +277,19 @@ class Equipment:
         struct.pack_into('<f', dnam, DNAM_WEIGHT, float(rec.get('DATA.Weight', 0.0)))
         struct.pack_into('<I', dnam, DNAM_VALUE, int(rec.get('DATA.Value', 0)))
         struct.pack_into('<H', dnam, DNAM_DAMAGE, int(rec.get('DATA.Damage', 0)))
+        if chosen:
+            flags = struct.unpack_from('<I', dnam, DNAM_FLAGS)[0] & ~FO4_AUTOMATIC
+            struct.pack_into('<I', dnam, DNAM_FLAGS, flags | (FO4_AUTOMATIC if fnv_wants(rec)[1] else 0))
         data, own = self._gun(fnv, rec, template, dnam) if dnam[DNAM_ANIM] == ANIM_GUN else ({}, None)
         data[b'DNAM'], marks = bytes(dnam), self.builder.type_keywords.of(fnv)
         if entry and entry.mode == 'fnv' and dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec:
             data.update(self._own_model(rec['Model.MODL'], int(rec.get('DNAM.FalloutAnimType', -1))))
             return self._write('WEAP', fnv, with_keywords(self._copy(rec, data, [], OWN_MODEL_DROPPED), marks))
-        if chosen and entry is None:
-            templates = self.guns.combination(source, chosen[0].includes)
-        else:
-            templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2], own is not None) if chosen
-                         else self.guns.with_mods(source, entry.mods) if entry.mods
-                         else self.guns.default_only(source))
+        templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2], own is not None) if chosen
+                     else self.guns.with_mods(source, entry.mods) if entry.mods
+                     else self.guns.default_only(source))
         templates = self.guns.own_projectile(fnv, rec, templates) if own is not None and templates else templates
+        data.update({**self.guns.anim_keywords(fnv, source), **self.guns.body(fnv)} if chosen else {})
         copy = self.weapon_mods.wire(fnv, self._copy(rec, data, templates, source=source))
         return self._write('WEAP', fnv, with_keywords(copy, marks))
 

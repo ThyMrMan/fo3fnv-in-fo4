@@ -219,7 +219,8 @@ def test_fnv_gun_hangs_on_the_receivers_bones_turned_and_trigger_aligned():
                   ('BSTriShape', _box_shape(src, '##Clip:1', (8, -6, 0), (10, 0, 0.5), 4)),
                   ('BSTriShape', _box_shape(src, 'Gun:0', (-5, 0, -1), (20, 3, 1), 4)),
                   ('BSLightingShaderProperty', C.lighting_shader(src, 'materials\\fnv\\gun.bgsm', -1, 0))]
-    out = F.read(G.gun(F.write(src), {'ProjectileNode': np.array([22.0, 1.5, 0.0])}, F.write(rec)))
+    nodes = {'ProjectileNode': np.array([22.0, 1.5, 0.0])}
+    out = F.read(G.gun(F.write(src), nodes, F.write(rec), G.placement(F.write(src), nodes, F.write(rec))))
     worlds = G.node_worlds(out)
     names = {out.strings[b['name']]: i for i, (k, b) in enumerate(out.blocks) if isinstance(b, dict) and 'name' in b}
     for old in ('OldTrigger:0', 'OldBody:0'):
@@ -230,6 +231,44 @@ def test_fnv_gun_hangs_on_the_receivers_bones_turned_and_trigger_aligned():
     assert names['##Clip:1'] in out.blocks[names['WeaponMagazine']][1]['children']
     assert np.ptp(placed['Gun:0'][:, 1]) == pytest.approx(25.0, abs=0.01)
     assert np.allclose(worlds[names["ProjectileNode"]][3, :3], (0.0, 30.0, 1.5), atol=0.01)
+
+
+def test_a_trigger_bone_with_nothing_drawn_does_not_move_the_gun():
+    """A receiver whose trigger another part draws (FO4's laser) keeps a placeholder bone far off the gun: the FNV
+    gun stays at its own origin, where both games put the hand."""
+    rec = F.NifFile()
+    rec.blocks = [('NiNode', _node(rec, 'WEAPON', children=[1, 2])),
+                  ('NiNode', _node(rec, 'WeaponTrigger', (-1.8, -8.6, -19.4))),
+                  ('BSTriShape', _box_shape(rec, 'Receiver:0', (-2, 0, 0), (2, 13, 6), 3)),
+                  ('BSLightingShaderProperty', C.lighting_shader(rec, 'materials\\old.bgsm', -1, 0))]
+    src = F.NifFile()
+    src.blocks = [('NiNode', _node(src, 'Gun', children=[1, 2])),
+                  ('BSTriShape', _box_shape(src, '##Trigger:0', (2, -2, 0), (2.5, 0, 0.2), 3)),
+                  ('BSTriShape', _box_shape(src, 'Gun:0', (-5, 0, -1), (20, 3, 1), 3)),
+                  ('BSLightingShaderProperty', C.lighting_shader(src, 'materials\\fnv\\gun.bgsm', -1, 0))]
+    assert np.allclose(G.placement(F.write(src), {}, F.write(rec))[3, :3], 0.0)
+
+
+def test_a_weapons_root_turn_is_left_out():
+    """The game puts a weapon's root on its bone as is (FO4's Missile Launcher root is turned 180 degrees)."""
+    nif = F.NifFile()
+    root = _node(nif, 'MissileLauncher', (5.0, 0.0, 0.0), [1])
+    root['rotation'] = (-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0)
+    nif.blocks = [('NiNode', root), ('NiNode', _node(nif, 'ProjectileNode', (0.0, 33.0, 11.0)))]
+    worlds = G.node_worlds(nif)
+    assert np.allclose(worlds[0], np.eye(4))
+    assert np.allclose(worlds[1][3, :3], (0.0, 33.0, 11.0))
+
+
+def test_a_hidden_backpack_is_not_drawn_on_the_gun():
+    """Hide Backpack: the converted gun's Backpack part is dropped, the rest kept."""
+    src = F.NifFile()
+    src.blocks = [('NiNode', _node(src, 'Flamer', children=[1, 2])),
+                  ('BSTriShape', _box_shape(src, '##FlamerGun:0', (0, 0, 0), (60, 4, 2), 3)),
+                  ('BSTriShape', _box_shape(src, 'Backpack:0', (0, -40, 0), (30, -10, 2), 3)),
+                  ('BSLightingShaderProperty', C.lighting_shader(src, 'materials\\fnv\\flamer.bgsm', -1, 0))]
+    out = F.read(G.without(F.write(src), G.BACKPACK))
+    assert [out.strings[out.blocks[c][1]['name']] for c in out.blocks[0][1]['children']] == ['##FlamerGun:0']
 
 
 def test_part_move_turns_and_stretches_a_bone_onto_fo4s():

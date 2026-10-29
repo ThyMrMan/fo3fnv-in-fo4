@@ -359,17 +359,25 @@ def _perp(v, axis) -> np.ndarray:
 
 
 def _chain_fix(chain: dict, src_world, dst_world, offset) -> tuple:
-    """(upper arm, forearm) world corrections putting the hand on the
-    source hand's position (+ `offset`), elbow on the source elbow's side.
+    """(upper arm, forearm) world corrections putting the hand on the source hand's position (+ `offset`), elbow
+    on the source elbow's side (two_bone)."""
+    su, sf, sh = chain['src']
+    elbow = _perp(src_world[sf][3, :3] - src_world[su][3, :3], src_world[sh][3, :3] - src_world[su][3, :3])
+    return two_bone(dst_world, chain['dst'], src_world[sh][3, :3] + offset, elbow)
+
+
+def two_bone(dst_world, chain, target, elbow) -> tuple:
+    """(upper arm, forearm) world corrections putting the hand of `chain` (target upper arm, forearm, hand
+    indices) on world point `target`, the elbow toward world direction `elbow` (off the shoulder-to-target line).
 
     Two-bone IK over the target's own segment lengths: bend the elbow to
     the reach, swing the chain onto the target, roll it about the
-    shoulder-to-hand line to the source's elbow direction.
+    shoulder-to-hand line to the elbow direction.
     See: docs/commentary/asset_convert_falloutnv.md#first-person-hands-spread
     """
-    (su, sf, sh), (du, df, dh) = chain['src'], chain['dst']
+    du, df, dh = chain
     S, E, H = (dst_world[i][3, :3] for i in (du, df, dh))
-    target = src_world[sh][3, :3] + offset - S
+    target = target - S
     a, b = E - S, H - E
     la, lb = np.linalg.norm(a), np.linalg.norm(b)
     reach = np.clip(np.linalg.norm(target), abs(la - lb) + 1e-4,
@@ -382,9 +390,7 @@ def _chain_fix(chain: dict, src_world, dst_world, offset) -> tuple:
                                  / (2 * la * lb), -1, 1))
         bend = axis_angle(n, want - cur)
     swing = rotation_between(a + b @ bend, target, n)
-    pole_src = _perp(_perp(src_world[sf][3, :3] - src_world[su][3, :3],
-                           src_world[sh][3, :3] - src_world[su][3, :3]),
-                     target)
+    pole_src = _perp(elbow, target)
     pole_cur = _perp(a @ swing, target)
     roll = np.eye(3)
     if np.linalg.norm(pole_src) > 1e-6 and np.linalg.norm(pole_cur) > 1e-6:

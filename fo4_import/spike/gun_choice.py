@@ -17,26 +17,35 @@ MUZZLE_WEIGHT); ties go to the lower FormID.
 See: docs/fork/fo4_spikes.md#spike-4-guns
 """
 
+import math
 import struct
 from dataclasses import dataclass
 
 import numpy as np
 
-from tes5_import.base.tes5_reader import subrecords, walk
+from asset_convert.havok.gun_vocabulary_falloutnv import FNV_AUTOMATIC
+from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 
 #: FNV WEAP animation type -> stance: one-handed pistols, two-handed rifles (xEdit's wbWeaponAnimTypeEnum).
 STANCES = {3: 'pistol', 4: 'pistol', 5: 'rifle', 6: 'rifle', 7: 'rifle'}
 #: FNV animation types that are guns (pistols to launchers).
 GUN_TYPES = range(3, 10)
-FNV_AUTOMATIC = 0x2
 #: FO4 WEAP: DNAM animation type Gun, flags offset and its Automatic, Not Playable and Embedded bits.
 ANIM_GUN, DNAM_ANIM, DNAM_FLAGS = 9, 54, 48
 FO4_AUTOMATIC, FO4_NOT_PLAYABLE, FO4_EMBEDDED = 0x8000, 0x100000, 0x80000
 NON_PLAYABLE_RECORD = 0x4
 #: OMOD DATA: include and property counts, the attach point; a property is 24 bytes, its kind at 8.
 DATA_ATTACH_POINT, PROPERTY_SIZE = 16, 24
+#: Where a property's first value sits in it.
+PROPERTY_VALUE = 12
 #: OMOD properties (xEdit's wbWeaponPropertyEnum): IsAutomatic, Keywords, NumProjectiles; FormID function REM.
 PROP_AUTOMATIC, PROP_KEYWORDS, PROP_PROJECTILES, FORM_REMOVE = 25, 31, 51, 1
+#: OMOD property ZoomData (xEdit's wbWeaponPropertyEnum 67): a scope's ZOOM record.
+PROP_ZOOM = 67
+#: FNV WEAP DNAM.Flags1's Has Scope and Don't Use 1st Person IS Anims: aims through its scope's view (0x4 alone: sights).
+FNV_SCOPE_VIEW = 0x44
+#: Fallout4.ini fDefaultWorldFOV, which a ZOOM's FOV multiplier divides.
+FO4_WORLD_FOV = 70.0
 #: FO4 WEAP FNAM: the projectile count byte.
 FNAM_PROJECTILES = 28
 POINTS = {'receiver': 'ap_gun_receiver', 'grip': 'ap_gun_Grip', 'scope': 'ap_gun_Scope'}
@@ -51,7 +60,7 @@ class Choice:
     model, and the receiver's layout (gun.receiver_layout)."""
     weapon: str
     includes: tuple
-    receiver: int
+    receiver: 'int | None'
     model: str
     layout: dict
 
@@ -74,6 +83,19 @@ def properties(data: bytes) -> list:
     return [struct.unpack_from('<B3xB3xH2x4s', data, start + PROPERTY_SIZE * i) for i in range(count)]
 
 
+def traded(data: bytes, replaces: dict) -> bytes:
+    """OMOD DATA `data` with each keyword its properties add or remove that `replaces` names swapped for the new."""
+    out = bytearray(data)
+    count = struct.unpack_from('<I', data, 4)[0]
+    for i in range(count):
+        at = len(data) - PROPERTY_SIZE * (count - i)
+        _, _, prop, value = struct.unpack_from('<B3xB3xH2x4s', data, at)
+        kw = struct.unpack('<I', value)[0]
+        if prop == PROP_KEYWORDS and kw in replaces:
+            struct.pack_into('<I', out, at + PROPERTY_VALUE, replaces[kw])
+    return bytes(out)
+
+
 def fnv_wants(rec: dict) -> tuple:
     """(stance or None, automatic, shotgun) of an FNV WEAP export record."""
     return (STANCES.get(int(rec.get('DNAM.FalloutAnimType', -1))), bool(int(rec.get('DNAM.Flags1', 0)) & FNV_AUTOMATIC),
@@ -90,6 +112,8 @@ class GunChoices:
         self.names = {fid: name for name, fid in keywords.items()}
         self.points = {kind: keywords[name] for kind, name in POINTS.items()}
         self.weapons, self.candidates = {}, []
+        self.zooms = {r.form_id: struct.unpack_from('<fII', first_sub(r.body, b'GNAM'))
+                      for r, _ in walk(fo4, b'ZOOM')}
         for rec, _ in walk(fo4, b'WEAP'):
             subs = list(subrecords(rec.body))
             self.weapons[_edid(subs)] = (rec.form_id, subs)
@@ -126,7 +150,7 @@ class GunChoices:
     def _variants(self, subs: list) -> list:
         """The default combination's includes, and with each receiver and grip any combination uses."""
         combos = [includes(b) for s, b in subs if s == b'OBTS']
-        default = next(includes(b) for s, b in subs if s == b'OBTS' and b[OBTS_DEFAULT])
+        default = _default(subs)
         used = {f for combo in combos for f in combo}
         out = []
         for receiver in self._of('receiver', used) or [None]:
@@ -135,15 +159,47 @@ class GunChoices:
                                        self._of('grip', default))))
         return sorted(set(out))
 
-    def _stance(self, subs: list, combo: tuple) -> 'str | None':
-        """'pistol', 'rifle' or None from the record's and parts' keywords."""
+    def _magnified(self, fid: int) -> 'tuple | None':
+        """(FOV multiplier, image space modifier) of the zoom mod `fid` sets, or None."""
+        zoom = self._property((fid,), PROP_ZOOM)
+        return (self.zooms[zoom][0], self.zooms[zoom][2]) if zoom in self.zooms else None
+
+    def scoped(self, subs: list, combo: tuple, sight_fov: float) -> tuple:
+        """`combo` with its scope part swapped for the scope a combination of the WEAP (`subs`) uses whose
+        zoom comes nearest FNV's `sight_fov` (degrees), a plain one before night vision or recon; unchanged
+        without one. FNV draws its scope in the gun's mesh; FO4's zoom and overlay come from the part.
+        See: docs/fork/fo4_spikes.md#spike-4-gun-clips
+        """
+        used = {f for s, b in subs if s == b'OBTS' for f in includes(b)}
+        scopes = [f for f in self._of('scope', used) if self._magnified(f)]
+        if not scopes or sight_fov <= 0:
+            return combo
+        wanted = FO4_WORLD_FOV / sight_fov
+        best = min(scopes, key=lambda f: (abs(math.log(self._magnified(f)[0] / wanted)), self._magnified(f)[1] != 0, f))
+        return tuple(_swap(combo, best, self._of('scope', combo)))
+
+    def keywords(self, subs: list, combo: tuple) -> set:
+        """The keyword FormIDs a WEAP (`subs`) carries in combination `combo`: its own, as its parts add and remove."""
         kwda = dict(subs).get(b'KWDA', b'')
-        names = {self.names.get(k, '') for k in struct.unpack(f'<{len(kwda) // 4}I', kwda)}
+        out = set(struct.unpack(f'<{len(kwda) // 4}I', kwda))
         for fid in combo:
             for vtype, func, prop, value in properties(dict(self.mods.get(fid, [])).get(b'DATA', bytes(8))):
                 if prop == PROP_KEYWORDS:
-                    name = self.names.get(struct.unpack('<I', value)[0], '')
-                    names = names - {name} if func == FORM_REMOVE else names | {name}
+                    kw = struct.unpack('<I', value)[0]
+                    out = out - {kw} if func == FORM_REMOVE else out | {kw}
+        return out
+
+    def clip_keywords(self, subs: list, combo: tuple) -> tuple:
+        """(keywords a gun's own may replace: the WEAP's (`subs`) in order, then those its parts in `combo` add,
+        every keyword it carries): gun_clips' template keywords."""
+        kwda = dict(subs).get(b'KWDA', b'')
+        own = list(struct.unpack(f'<{len(kwda) // 4}I', kwda))
+        carried = self.keywords(subs, combo)
+        return own + sorted(carried - set(own)), carried
+
+    def _stance(self, subs: list, combo: tuple) -> 'str | None':
+        """'pistol', 'rifle' or None from the record's and parts' keywords."""
+        names = {self.names.get(k, '') for k in self.keywords(subs, combo)}
         grip = [n for n in names if n.startswith('AnimsGrip')] or [n for n in names if n.startswith('WeaponType')]
         if any('Pistol' in n for n in grip):
             return 'pistol'
@@ -169,20 +225,33 @@ class GunChoices:
         return (auto == automatic and (count > 1) == shotgun
                 and (stance is None or self._stance(subs, combo) == stance))
 
-    def choose(self, rec: dict, layout: dict) -> 'Choice | None':
-        """The candidate for FNV gun `rec` (its layout from gun.fnv_layout); None when none matches."""
+    def choose(self, rec: dict, layout: dict, only: 'str | None' = None) -> 'Choice | None':
+        """The candidate for FNV gun `rec` (its layout from gun.fnv_layout); None when none matches. `only` (a
+        table entry's FO4 gun) is taken as named, in its default combination; one without a receiver (a launcher)
+        has its own model in the receiver's place (Choice.receiver None)."""
         wants, best = fnv_wants(rec), None
-        for name in self.candidates:
+        for name in [only] if only else self.candidates:
             fid, subs = self.weapons[name]
-            for combo in self._variants(subs):
-                receivers = self._of('receiver', combo)
-                if not receivers or not self._fits(subs, combo, wants):
+            for combo in [tuple(_default(subs))] if only else self._variants(subs):
+                receivers = self._of('receiver', combo) or ([None] if only else [])
+                if not receivers or not (only or self._fits(subs, combo, wants)):
                     continue
-                theirs = self.layouts(self.model(receivers[0]))
+                model = self.model(receivers[0]) if receivers[0] else weapon_model(subs)
+                theirs = self.layouts(model)
                 score = (_distance(layout, theirs), fid)
                 if best is None or score < best[0]:
-                    best = (score, Choice(name, combo, receivers[0], self.model(receivers[0]), theirs))
+                    best = (score, Choice(name, combo, receivers[0], model, theirs))
         return best[1] if best else None
+
+
+def weapon_model(subs: list) -> str:
+    """A WEAP's own model."""
+    return dict(subs).get(b'MODL', b'\0').rstrip(b'\0').decode('cp1252')
+
+
+def _default(subs: list) -> list:
+    """A WEAP's default combination's includes."""
+    return next(includes(b) for s, b in subs if s == b'OBTS' and b[OBTS_DEFAULT])
 
 
 def _swap(combo, new, olds: list) -> list:

@@ -2938,9 +2938,197 @@ The 9mm SMG and BB gun show FNV's meshes on their templates' animations
   mode, experimental. FNV-looking guns need per-gun tuning, new
   animations, or an existing port named in the table.
 
-### <a id="spike-4-gun-clips"></a>FNV's own gun clips on a vanilla graph (played 2026-10-19, reverted, parked)
+### <a id="spike-4-gun-clips"></a>FNV's own gun clips on a vanilla graph (built; played 2026-10-28/29; good enough, tweaks parked)
 
-Tried on the Varmint rifle (`2hr`, `2hrattack8`, `2hrreloadm`): the
+**Code:** `fo4_import/havok/gun_clips.py` (clips), `fo4_import/nif/gun.py`
+(mesh), `fo4_import/spike/guns.py` (records). A chart entry with
+`"as": "fnv"` builds the FNV gun on its FO4 template with FNV's own
+first-person clips. Played on one gun per FNV class: 9mm Pistol (`1hp`),
+Assault Carbine (`2ha`, full auto), Hunting Rifle (`2hr`), Flamer
+(`2hh`), Tesla Cannon (`2hl`).
+
+**The mesh.**
+- FNV guns lie along +X; launchers (Missile Launcher, Fat Man, Tesla
+  Cannon) along +Y. `axes_for` tips a launcher by its ProjectileNode's
+  side and picks the quarter-turn roll whose box best fits the template's.
+- The game ignores a weapon NIF's root transform (FO4's Missile Launcher
+  root is turned 180°; applied, its missiles would leave the back, and the
+  Tesla played reversed and mirrored). `node_worlds` leaves it out.
+  Vanilla roots are often junk: batons, flares and suppressors carry
+  turns, and the baton's world and first-person copies disagree.
+- A receiver-less template (Flamer, Missile Launcher) draws its body from
+  the WEAP's own MODL and its 1st-person model MOD4 (`Flamer_1.nif`); the
+  FNV mesh replaces both, or FO4's body draws in first person.
+- WEAP DNAM.Flags1 0x10 (Hide Backpack): the mesh's `Backpack` part is
+  worn on the back, not drawn on the gun (JIP's ReloadEquippedModels moves
+  it). It is dropped; the flamer's tank hung 40 units under the gun.
+
+**The clips** (PLAN): FNV's class clips under the vanilla names.
+- A shot is held to the vanilla clip's length: the graph leaves the fire
+  state by triggers timed back from the clip's end (WPNFireSingleReady:
+  initiateStart at end-0.5 s), so a shorter shot leaves before weaponFire.
+- Full auto (DNAM.Flags1 0x2 → WEAP DNAM 0x8000): `{cls}attackloop` tiled
+  to vanilla's 2.2 s, vanilla's events kept.
+- A class without iron-sight clips (`2hh`, `2hl`) plays its aim clip while
+  sighted, as FNV does; otherwise the template's own sighted clip shows
+  FO4's hold.
+- Spline clips use 48-bit quaternions; 40-bit made the idle jitter.
+
+**The hold.** The right hand holds the Weapon bone where vanilla's does.
+The gun stays where FNV's clip puts it relative to the camera, unless
+FNV's aim pose leaves none of it in FO4's view (80° first-person FOV,
+16:9). Then (`off_screen`, `anchor_for`) each clip starts where the
+template's matching vanilla clip starts, FNV's motion from there kept.
+- FNV's flamer has no clips of its own: `2hh` is the minigun's, aimed 23°
+  down at the hip (0% on FO4's screen) and lifted 35° to fire. One move
+  from the idle pointed every shot 30° up; per clip, the flamer fires
+  level as FO4's does.
+- The Tesla on FNV's own hold is 71% on screen and clears the eye by 3.5
+  units. Moving it to the Missile Launcher's hold put the barrel across the
+  camera and the left hand under the gun.
+- FNV's camera bone `Camera1st` is the eye: in `2hraimis`, `2haaimis` and
+  `1hpaimis` the gun's `##SightingNode` sits on its forward axis within
+  3.2 units. FNV draws first-person arms at fDefault1stPersonFOV 55; FO4
+  at 80.
+
+**The left hand.**
+- `1hp`: vanilla's grip and finger curl, eased over equip and unequip.
+- Others: FNV's hand (on the moved gun). Where it misses our mesh,
+  `left_reach` moves it straight to the nearest vertex until its middle
+  finger's base is as far from it as vanilla's is from the template's gun
+  (about 2 units). FNV's flamer hand reached for the minigun's top handle,
+  23 units above the flamer's side handle; it now lands 3-4 units off.
+- Reloads keep FNV's hand (it works the magazine).
+
+**FO4's additive layers.** The first-person graph plays, over the gun's
+clips, the template's additive layers (blend hint 2): pitch up and down,
+turn, constant motion, after-jiggle, jump, stagger, and
+`WPNIdleSightedWobble` (an 11.7 s sway while sighted). They are
+lossless-compressed, authored on FO4's own hold, and turn FO4's arm bones
+by FO4's amounts: on the Varmint Rifle looking down while sighted they put
+the left forearm across the camera (played 2026-10-29). FNV's first person
+has no such layers, so a converted gun writes each in its folder as a clip
+moving nothing, the vanilla length and events kept (`_neutral_layers`;
+`WPNJumpLandAdd`'s `JumpDown` stays). `Recoil` (blend hint 1, the
+deprecated additive) is left alone. `anim_fo4.fo4_animation_header` reads
+any clip's length, events and blend hint, compressed or not.
+
+**The right hand while aiming.** The right hand holds the gun as the
+template's clip holds its own (one grip for every clip: FO4's never changes
+it, sighted included), so the template decides where FO4's hand, bulkier than
+FNV's, sits against the sight line. On the pipe gun the Varmint Rifle's hand
+rose into view while sighted (played 2026-10-29); FNV's never shows.
+`gun_quick_convert` measures it (aim_hand: the right hand's vertices on a
+16:9 screen, FO4's 80° taken as measured on 4:3, so 96° across, the aiming
+camera lift applied; the Varmint on the pipe gun 23%, matching the played
+view). Across the 38 converted rifles the Hunting Rifle and Assault Rifle
+grips keep it at 0–9% (the carbine, played, 8%); the pipe gun, Railway
+Rifle and double-barrel grips at 16–57%. Table entries put semi-automatic
+and automatic rifles on the Assault Rifle and single-shot, pump, lever and
+bolt ones on the Hunting Rifle. Still 20–40% on any grip: the lever-actions,
+single and riot shotguns, BB guns, the .22 SMG. Rejected: lining up the
+palm instead of the trigger (the two skeletons' middle-finger bases differ
+by about 1.6 units, so the 9mm's hand slid to the bottom of its grip) and
+the wrist (offsets scattered).
+
+**Heavy guns (2026-10-29).** FNV's `2hh` class (the minigun's clips) holds
+every heavy gun off FO4's screen, so each takes its template's hold
+(off_screen); the Flamer, Minigun and Gatling Laser holds put the same share
+of the gun on screen (Grenade Machinegun 28–30%, Plasma Caster 11%,
+Incinerators 17–23%). The Grenade Machinegun, Mercy, Plasma Caster and both
+Incinerators go on the Flamer, as the played Flamer: FO4's Minigun and
+Gatling Laser graphs spin their barrels up before firing, which none of these
+does, and on the Gatling Laser the Plasma Caster's right elbow rose to the
+face. The Plasma Caster had been on the Assault Rifle (18% of the right hand
+in view while aiming; 0% on the Flamer).
+
+**Heavy-gun left hands.** FNV's `2hh` left fist grips the minigun's top
+handle; on the Incinerator that is 18 units above its vertical front post,
+and the left_reach drop put the fist palm-down on the post's top edge
+(played: it hovered). For a gun moved to its template's hold, vanilla's
+left grip (with its finger curl) is carried onto our handle instead
+(`handle_grip`): the template mesh piece nearest vanilla's left finger and
+ours nearest FNV's, each described by its centre and main directions
+(`handle_frame`, from `nif.gun.pieces`), the grip kept in that frame. Only
+for handles held the same way (long directions within 45°): the Flamer's
+post onto the Grenade Machinegun's top bar pointed the fist straight up, so
+that gun keeps FNV's fist and the reach. Incinerators: finger gap 6.0 → 0.8,
+on the post.
+
+**Scopes.** FO4 zooms through a scope part: its ZoomData property (OMOD
+property 67) names a ZOOM record, the FOV multiplier and the full-screen
+overlay. A converted gun keeps the template's default parts, iron sights
+included, so the scoped Sniper Rifle zoomed only as far as its sights
+(played 2026-10-29). FNV marks a gun that aims through its scope's view
+with DNAM.Flags1 0x44 (Has Scope plus Don't Use 1st Person IS Anims; 0x4
+alone is on the 9mm, the plain Varmint and Hunting Rifle, which aim down
+sights). Such a gun takes, in place of the default sights, the scope part
+one of its template's combinations uses whose magnification
+(fDefaultWorldFOV 70 / FNV's DNAM.SightFOV) comes nearest, a plain scope
+before night vision or recon (`GunChoices.scoped`). The part's copy drops
+its model (FNV's mesh draws the scope) and keeps the zoom. 0x40 alone also
+makes a gun aim with its unsighted clip, as FNV does (`fnv_stem`). The
+Anti-Materiel Rifles (Railway Rifle has no scope part) go on the Hunting
+Rifle and the Binoculars on the .44.
+
+**Third person** keeps the template's clips, so its hands hold the FO4
+gun's grips, not FNV's mesh (the carbine's left hand sits under it).
+Entries copy each template entry that targets the replaced keyword
+(third person, power armor) to the gun's own.
+
+**Which guns convert (2026-10-29).** An FNV gun with a near-identical
+FO4 gun stays on it (`"as": "stats"`: FO4's mesh, clips and hands, FNV's
+stats): 10mm, .44, laser and plasma pistols and rifles, Alien Blaster,
+Minigun, Gatling Laser, Missile Launcher, Fat Man, the double-barrel
+shotguns. A variant with its own mesh (Pew Pew, AER14, Q-35, Plasma
+Defender, Mysterious Magnum, CZ57 Avenger, Annabelle, Big Boomer)
+converts on its base's FO4 gun; one sharing the base's mesh follows the
+base. Every other gun converts (`"as": "fnv"`), and so does a gun the table
+leaves out, on the FO4 gun `gun_choice` picks: no external mod is needed.
+The converted laser pistol played fine but held lower on the grip than
+FNV's, the reason the near matches stay on FO4's own.
+
+**Modular templates.** A modular FO4 gun (pipe gun and revolver, laser,
+plasma) keys its clips on two keywords, neither on the WEAP alone: the
+grip mod's `AnimsGripPistol` plus its receiver's or grip's own
+(`AnimsRecieverHandmadeRevolver`, `AnimsLaserGripPistol`,
+`AnimsPlasmaPistol`). `template_entries` matches the most specific entry
+whose targets the gun carries with its default parts
+(`GunChoices.clip_keywords`) and replaces the target keying the fewest
+entries; when that keyword comes from a part, the gun's copy of that part
+(`Guns._part`, `gun_choice.traded`) adds the gun's own instead. A table
+entry's `mods` now apply to an `fnv` gun too (`Guns.choose`), so a laser
+rifle gets FO4's rifle grip, not the default pistol one.
+
+**Sweep (2026-10-29, offline, every playable FNV gun of a clip class).**
+99 of 101 convert (before the modular fix about 35 got no clips); the
+sawed-off shotguns find no template. Pistols, revolvers, plasma guns and
+most rifles hold with 60–99% of the gun on screen and the left finger
+2–5 units off. Flagged:
+- Laser pistols (fixed): the gun hung about 10 units below the empty right
+  hand. The laser receiver's WeaponTrigger is a placeholder 23 units off
+  the gun (19 below, 9 behind; the grip part draws the trigger), and the
+  FNV trigger was lined up on it. A trigger bone outside the receiver's
+  drawn shapes no longer moves the gun (the 10mm's sits inside its
+  receiver, by its `10mmTrigger` shape); the gun keeps its origin, which
+  both games put in the hand. Finger gap 8.8 → 2.7; laser rifles 4.1 →
+  4.0, more on screen; no other gun moved. The hand holds lower on the
+  grip than FNV's, as FO4's laser clips hold theirs.
+- Heavy guns moved to the Flamer's hold (Minigun, Incinerator, Plasma
+  Caster, Grenade Machinegun) show 10–30% of the gun; the build's own
+  choice put the Minigun on the Flamer and the Plasma Caster on the
+  Assault Rifle.
+- Launchers without a table entry go to the wrong FO4 gun (Fat Man and
+  Nellis artillery on the 10mm, Missile Launcher on the Plasma gun): the
+  hold matches FNV's, the record behaves as its template. They need table
+  entries.
+
+**Checking offline:** `tools/nif/gun_quick_convert.py` converts one
+gun's clips in seconds; `tools/nif/gun_pose_scene.py` and
+`blender_pose_scene.py` render FNV's hold, ours and vanilla's side by side
+([python_tools](../reference/python_tools.md)).
+
+**First tried** on the Varmint rifle (`2hr`, `2hrattack8`, `2hrreloadm`): the
 hunting rifle's behaviour graphs kept unchanged, FNV's clips retargeted
 onto FO4's human and first-person skeletons (arm IK on) and written under
 the vanilla clip names in a folder of the gun's own, reached through an
@@ -2957,7 +3145,7 @@ the receiver's WeaponMagazine/WeaponBolt/WeaponTrigger bones.
   the gun never reloaded, and FNV's mesh looks poor in FO4 as ported.
   Offline the hands landed within 0.05 units of FNV's and the gun on
   FNV's, so the failures are in what FO4 does around the clips.
-- **Reverted;** guns stay on FO4's guns. Kept as findings:
+- **Reverted then;** the findings below still hold:
   - FO4's AnimTextData id (`Meshes\AnimTextData\AnimationFileData\<id>.txt`,
     one per subgraph entry's folder list and graph): CRC-32 of the folder
     list joined by `|` as the race writes it (case kept; high half) and of

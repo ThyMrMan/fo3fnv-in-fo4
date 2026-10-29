@@ -189,7 +189,7 @@ def _guns(tmp_path) -> 'G.Guns':
                                    counts=collections.Counter(), keys=keys, written=written,
                                    writer=SimpleNamespace(add_record=lambda sig, rec: written.append(rec),
                                                           derive_formid=lambda site, key: keys.append(key) or 0x0300C0DE))
-    guns.strings = {}
+    guns.strings, guns.converted = {}, {}
     return guns
 
 
@@ -199,15 +199,17 @@ def test_choosing_a_gun_writes_none_of_its_fnv_assets_and_building_on_it_does(tm
     monkeypatch.setattr(G, 'cached_convert', lambda path, root, pose, animated: SimpleNamespace(nif='nif'))
     monkeypatch.setattr(G, 'nif_file', SimpleNamespace(write=lambda nif: b'static'))
     monkeypatch.setattr(G, 'gun', SimpleNamespace(fnv_nodes=lambda path: {}, fnv_layout=lambda static, nodes: {},
-                                                  gun=lambda static, nodes, receiver: b'gun'))
+                                                  placement=lambda static, nodes, receiver: np.eye(4),
+                                                  gun=lambda static, nodes, receiver, matrix: b'gun'))
     monkeypatch.setattr(G, 'write_assets', lambda root, model, data, animated: written.append(model) or (
         'fnv\\weapons\\pistol.nif', None))
     choice = Choice('10mm', (0x10,), 0x10, 'r.nif', {})
-    guns.choices = SimpleNamespace(choose=lambda rec, layout: choice, weapons={'10mm': (1, [])})
+    guns.choices = SimpleNamespace(choose=lambda rec, layout, only=None: choice, weapons={'10mm': (1, [])})
     chosen = guns.choose({'Model.MODL': 'Weapons\\Pistol.NIF'})
-    assert chosen[2][:2] == ('Weapons\\Pistol.NIF', b'static') and not written and not (tmp_path / 'data').exists()
+    assert (chosen[2][0], chosen[2][2]) == ('Weapons\\Pistol.NIF', b'static') and not written and not (tmp_path / 'data').exists()
     (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons').mkdir(parents=True)
     guns._read, guns._lift = lambda model: b'receiver', lambda layout, ch: 0.0
+    guns._clips = lambda fnv, rec, template, path, receiver, static: None
     guns._part = lambda fnv, rec, fid, path, lift, own: path and 0x0300C0DE
     obts = struct.pack('<I', 1) + bytes(10) + b'\1' + b'\0' + bytes(2) + struct.pack('<I', 0x10) + bytes(3)
     guns.templates(0x1234, {'EditorID': 'WeapX'}, choice, [(b'FULL', b'Default\0'), (b'OBTS', obts)], chosen[2], False)

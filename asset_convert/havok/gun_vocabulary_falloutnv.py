@@ -6,6 +6,10 @@ on these tables, and the asset side imports the import package.
 See: docs/commentary/asset_convert_falloutnv.md#gun-animations
 """
 
+#: FNV WEAP DNAM.Flags1's Is Automatic bit.
+FNV_AUTOMATIC = 0x2
+#: FNV WEAP DNAM.Flags1's Hide Backpack bit: the mesh's Backpack node is worn on the back, not drawn on the gun.
+FNV_BACKPACK = 0x10
 #: FO3/FNV WEAP DNAM anim type -> clip class; melee, thrown and mines are not guns.
 ANIM_TYPE_CLASS = {3: '1hp', 4: '1hp', 5: '2hr', 6: '2ha', 7: '2hr',
                    8: '2hh', 9: '2hl'}

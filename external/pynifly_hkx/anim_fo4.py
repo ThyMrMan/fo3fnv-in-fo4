@@ -791,8 +791,9 @@ def _read_null_string(data, abs_off):
         return ''
 
 
-def _parse_animation_hkx(data) -> Optional[AnimationData]:
-    """Parse hkaSplineCompressedAnimation from a binary HKX file."""
+def _parse_animation_hkx(data, header_only: bool = False) -> Optional[AnimationData]:
+    """Parse hkaSplineCompressedAnimation from a binary HKX file; `header_only`: any hka*Animation's length,
+    track count, annotations and binding (blend hint), no tracks."""
     if data[:4] != _HKX_MAGIC:
         return None
 
@@ -811,7 +812,8 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
     # Find hkaSplineCompressedAnimation
     anim_rel = None
     for rel, cls in objects:
-        if cls == 'hkaSplineCompressedAnimation':
+        if cls == 'hkaSplineCompressedAnimation' or (header_only and cls.startswith('hka')
+                                                      and cls.endswith('Animation')):
             anim_rel = rel
             break
     if anim_rel is None:
@@ -828,10 +830,10 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
     anim.block_duration = _f32(data, a + 0x48)
     anim.frame_duration = _f32(data, a + 0x50)
 
-    block_offsets = _read_hkarray_u32(data, data_abs, anim_rel, 0x58, fixups)
-    data_blob = _read_hkarray_u8(data, data_abs, anim_rel, 0x98, fixups)
+    block_offsets = None if header_only else _read_hkarray_u32(data, data_abs, anim_rel, 0x58, fixups)
+    data_blob = None if header_only else _read_hkarray_u8(data, data_abs, anim_rel, 0x98, fixups)
 
-    if not data_blob or not block_offsets:
+    if not header_only and (not data_blob or not block_offsets):
         return None
 
     # ── Parse annotation tracks (bone names) ──
@@ -873,6 +875,7 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
         if cls == 'hkaAnimationBinding':
             # bind_abs = data_abs + rel
             # +0x10: originalSkeletonName (string ptr)
+            anim.blend_hint = _u32(data, data_abs + rel + 0x50)
             skel_name_rel = fixups.get(rel + 0x10)
             if skel_name_rel is not None:
                 anim.original_skeleton_name = _read_null_string(data, data_abs + skel_name_rel)
@@ -887,6 +890,9 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
                     for i in range(idx_count)
                 ]
             break
+
+    if header_only:
+        return anim
 
     # ── Decompress spline data ──
     anim.tracks = _decompress_spline(
@@ -1128,6 +1134,11 @@ def parse_fo4_skeleton(raw: bytes) -> Optional[Skeleton]:
 def parse_fo4_animation(raw: bytes) -> Optional[AnimationData]:
     """A FO4 animation from binary HKX bytes (e.g. read from a BA2); None without one."""
     return _parse_animation_hkx(raw)
+
+
+def fo4_animation_header(raw: bytes) -> Optional[AnimationData]:
+    """Any FO4 animation's (lossless-compressed too) length, track count, annotations and blend hint, no tracks."""
+    return _parse_animation_hkx(raw, header_only=True) if raw[:4] == _HKX_MAGIC else None
 
 
 def load_fo4_skeleton(filepath: str) -> Optional[Skeleton]:
@@ -1880,8 +1891,7 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         align16()
         return off
 
-    # Compress the animation data (FO4 uses rot_quant=1, 40-bit quaternions)
-    spline_blob, block_offsets = _compress_all_blocks(anim, rot_quant=1)
+    spline_blob, block_offsets = _compress_all_blocks(anim)
 
     num_tracks = anim.num_tracks
     bone_names = anim.bone_names or [f"Bone{i}" for i in range(num_tracks)]
@@ -2081,7 +2091,8 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     struct.pack_into('<I', bind_hdr, 0x30 + 12, 0x80000000)
     # +0x40: partitionIndices (empty, flagged)
     struct.pack_into('<I', bind_hdr, 0x40 + 12, 0x80000000)
-    # +0x50: blendHint = 0
+    # +0x50: blendHint (0 normal, 2 additive)
+    struct.pack_into('<I', bind_hdr, 0x50, anim.blend_hint)
     write(bytes(bind_hdr))
     align16()
 

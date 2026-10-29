@@ -389,6 +389,33 @@ def slice_clip(clip, t0: float, t1: float, name: str = None,
         skipped_blocks=list(clip.skipped_blocks or []))
 
 
+def held_to(clip, length: float):
+    """`clip` (a new DecodedClip) lasting at least `length` seconds, its last pose held for the extra samples."""
+    step = float(clip.times[1] - clip.times[0]) if len(clip.times) > 1 else 1.0 / 30.0
+    extra = int(round((length - float(clip.times[-1])) / step))
+    if extra <= 0:
+        return clip
+    pick = np.r_[np.arange(len(clip.times)), np.full(extra, len(clip.times) - 1)]
+    tracks = [BoneTrack(bone=t.bone, **{k: None if getattr(t, k) is None else np.array(getattr(t, k)[pick])
+                                        for k in ('translations', 'rotations', 'scales')}) for t in clip.tracks]
+    times = np.r_[clip.times, clip.times[-1] + step * np.arange(1, extra + 1)]
+    return DecodedClip(name=clip.name, duration=float(times[-1] - times[0]), cycle_type=clip.cycle_type,
+                       frequency=clip.frequency, times=times, tracks=tracks, text_keys=list(clip.text_keys or []))
+
+
+def loop_clip(clip, length: float):
+    """A new DecodedClip playing looping `clip` (its last sample its first's repeat) over and over for `length`
+    seconds, at its sample rate; no text keys."""
+    period = max(len(clip.times) - 1, 1)
+    step = float(clip.times[1] - clip.times[0]) if len(clip.times) > 1 else 1.0 / 30.0
+    count = max(int(round(length / step)) + 1, 2)
+    pick = np.arange(count) % period
+    tracks = [BoneTrack(bone=t.bone, **{k: None if getattr(t, k) is None else np.array(getattr(t, k)[pick])
+                                        for k in ('translations', 'rotations', 'scales')}) for t in clip.tracks]
+    return DecodedClip(name=f'{clip.name}_loop', duration=step * (count - 1), cycle_type=clip.cycle_type,
+                       frequency=clip.frequency, times=np.arange(count) * step, tracks=tracks, text_keys=[])
+
+
 # Vanilla FireForget cast timing, measured from the real SSE atronachflame
 # animations (Mag_FF_RH_In 0.800s / _Loop 1.000s / _Out 1.267s, all 44 tracks
 # — read straight out of the hkaSplineCompressedAnimation headers). The Loop
