@@ -457,7 +457,7 @@ Function TraceAnimEvents(ScriptObject akListener, ObjectReference akRef) Global
   If !Tracing()
     Return
   EndIf
-  String[] names = new String[15]
+  String[] names = new String[18]
   names[0] = "rangedAttackStart"
   names[1] = "weaponFire"
   names[2] = "AttackState0"
@@ -473,6 +473,9 @@ Function TraceAnimEvents(ScriptObject akListener, ObjectReference akRef) Global
   names[12] = "AttackState2"
   names[13] = "AttackState3"
   names[14] = "AttackState4"
+  names[15] = "reloadComplete"
+  names[16] = "reloadEnd"
+  names[17] = "initiateStart"
   Int i = 0
   While i < names.Length
     akListener.RegisterForAnimationEvent(akRef, names[i])

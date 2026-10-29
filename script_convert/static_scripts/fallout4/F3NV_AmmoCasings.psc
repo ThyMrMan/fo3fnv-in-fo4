@@ -46,6 +46,7 @@ Function Listen()
   {Register for the player's weaponFire; it fails while the player's 3D is not loaded, so equipping a weapon retries.}
   Bool registered = RegisterForAnimationEvent(GetReference(), "weaponFire")
   Debug.Trace("TES4Casings|listen|" + registered)
+  TES4Polyfill.TraceAnimEvents(Self, GetReference())
 EndFunction
 
 Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)
@@ -55,6 +56,10 @@ Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)
 EndEvent
 
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+  TES4Polyfill.TraceAnim(akSource, asEventName)
+  If asEventName != "weaponFire"
+    Return
+  EndIf
   Weapon gun = GetActorReference().GetEquippedWeapon()
   If !gun
     Return
