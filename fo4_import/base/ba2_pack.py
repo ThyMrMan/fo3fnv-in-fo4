@@ -4,8 +4,9 @@ Fallout 4 streams a texture's mips from a BA2's chunks; a loose DDS can stay
 on a low mip, and past iTextureDegradeDistance the game drops a texture's top
 chunk (a 512 FNV texture to 256). Each texture is one chunk, as some vanilla
 ones are, so it always shows in full, as in FNV. Loose files under
-<data>/Textures move into <data>/_ba2/Textures (a folder the game does not
-read), and all of it becomes `<plugin> - Textures.ba2`, loaded with the
+<data>/Textures move into the Data folder's staging folder (staging_root,
+outside it, so neither the game nor MO2 lists it), and all of it becomes
+`<plugin> - Textures.ba2`, loaded with the
 plugin. Folders the archiver cannot take (uncompressed one-mip LUTs, which
 vanilla keeps in a general archive) stay loose. A build writes its textures
 through stage_texture(): once per run, and not at all while the staged copy
@@ -16,6 +17,7 @@ See: docs/fork/fo4_spikes.md#spike-4-exterior
 See: docs/fork/fo4_tool_audit.md#rebuild
 """
 
+import functools
 import hashlib
 import json
 import os
@@ -24,11 +26,13 @@ import subprocess
 from pathlib import Path
 
 from core.subprocess_flags import POPEN_FLAGS
+from fo4_import.base.ba2_write import write_general
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.pipeline.code_tag import ROOT
 
 ARCHIVE2 = FALLOUT4_DIR / 'Tools' / 'Archive2' / 'Archive2.exe'
-#: Folder under the Data folder holding every texture packed so far.
-STAGING = '_ba2'
+#: The staging folder's old place, under the Data folder (moved out by staging_root), and its new home.
+STAGING, STAGING_CACHE = '_ba2', ROOT / 'output' / 'fo4_cache' / 'ba2'
 #: Chunks per texture: one, so the game has no top mips to drop with distance.
 CHUNKS = 1
 #: The staging folder's record of its files at the last pack: {texture key: [size, mtime_ns, signature or None]}.
@@ -39,8 +43,6 @@ OWN = 'fnv/'
 TEXTURE_OPTIONS = ('-f=DDS', f'-maxChunkCount={CHUNKS}')
 #: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
 SOUND = 'Sound'
-#: Archive2's options for the Main archive.
-GENERAL_OPTIONS = ('-f=General', '-compression=None')
 #: Per resolved Data folder, this run's {'manifest': the last pack's record, 'staged': {key: signature}}.
 _RUNS = {}
 
@@ -55,6 +57,29 @@ def _run_key(data_dir: Path) -> str:
     return os.path.normcase(os.path.abspath(data_dir))
 
 
+def staging_root(data_dir: Path) -> Path:
+    """The folder staging `data_dir`'s archive files, in STAGING_CACHE (_staging)."""
+    return _staging(Path(STAGING_CACHE), _run_key(data_dir))
+
+
+@functools.cache
+def _staging(cache: Path, data_key: str) -> Path:
+    """staging_root() of normalized Data folder `data_key` under `cache`: outside the Data folder, so a deployed
+    mod folder carries no staging; an old <data>/_ba2 moves there on first use, or goes when the new one
+    exists.
+    See: docs/fork/fo4_pipeline.md#sound-archive
+    """
+    data = Path(data_key)
+    root = cache / f'{data.name}-{hashlib.sha1(data_key.encode()).hexdigest()[:12]}'
+    legacy = data / STAGING
+    if legacy.is_dir() and not root.exists():
+        root.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(legacy), str(root))
+    elif legacy.is_dir():
+        shutil.rmtree(legacy)
+    return root
+
+
 def _read_json(path: Path) -> dict:
     """The JSON object in `path`; {} when it is missing or unreadable."""
     try:
@@ -67,7 +92,7 @@ def _run(data_dir: Path) -> dict:
     """This run's texture record for `data_dir` (_RUNS), made on first use."""
     key = _run_key(data_dir)
     if key not in _RUNS:
-        _RUNS[key] = {'manifest': _read_json(Path(data_dir) / STAGING / MANIFEST), 'staged': {}}
+        _RUNS[key] = {'manifest': _read_json(staging_root(data_dir) / MANIFEST), 'staged': {}}
     return _RUNS[key]
 
 
@@ -93,7 +118,7 @@ def stage_texture(data_dir: Path, rel: str, plan) -> bool:
     signature, write = plan()
     run['staged'][key] = signature
     target = Path(data_dir) / 'Textures' / rel.replace('\\', '/')
-    if not target.exists() and _current(Path(data_dir) / STAGING / 'Textures' / key, run['manifest'].get(key),
+    if not target.exists() and _current(staging_root(data_dir) / 'Textures' / key, run['manifest'].get(key),
                                         signature):
         return False
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -127,29 +152,37 @@ def _staged_files(staged: Path, keep: set) -> dict:
     return out
 
 
-def _pack(staged: Path, root: Path, archive: Path, files: dict, options: tuple = TEXTURE_OPTIONS) -> None:
-    """Pack `staged` as `archive` with Archive2 (`options`) unless the record beside it shows the same `files`
-    packed."""
-    state = hashlib.sha1(json.dumps(files, sort_keys=True).encode()).hexdigest()
-    record = archive.with_name(archive.name + '.json')
-    packed = _read_json(record)
-    stat = archive.stat() if archive.exists() else None
-    if stat and packed.get('files') == state and packed.get('archive') == [stat.st_size, stat.st_mtime_ns]:
-        return
-    done = subprocess.run([str(ARCHIVE2), str(staged.resolve()), f'-c={archive.resolve()}', *options,
+def _archive2(staged: Path, root: Path, archive: Path, _kept: set) -> None:
+    """Pack `staged` as the texture archive `archive` (TEXTURE_OPTIONS), named from `root`, with Archive2."""
+    done = subprocess.run([str(ARCHIVE2), str(staged.resolve()), f'-c={archive.resolve()}', *TEXTURE_OPTIONS,
                            f'-r={root.resolve()}', '-q'],
                           capture_output=True, text=True, **POPEN_FLAGS)
     if done.returncode or not archive.exists():
         raise RuntimeError(f'Archive2 could not pack {archive} (absolute paths only): {done.stdout}{done.stderr}')
+
+
+def _pack(staged: Path, root: Path, archive: Path, files: dict, make=_archive2) -> None:
+    """Pack `staged` as `archive` with make(staged, root, archive, kept) unless the record beside it shows the same
+    `files` ({key: [size, mtime]}) packed; `kept` are the keys unchanged since the archive on disk was packed."""
+    state = hashlib.sha1(json.dumps(files, sort_keys=True).encode()).hexdigest()
+    record = archive.with_name(archive.name + '.json')
+    packed = _read_json(record)
+    stat = archive.stat() if archive.exists() else None
+    current = bool(stat) and packed.get('archive') == [stat.st_size, stat.st_mtime_ns]
+    if current and packed.get('files') == state:
+        return
+    before = packed.get('manifest', {}) if current else {}
+    make(staged, root, archive, {key for key, value in files.items() if before.get(key) == value})
     stat = archive.stat()
-    record.write_text(json.dumps({'files': state, 'archive': [stat.st_size, stat.st_mtime_ns]}), encoding='utf-8')
+    record.write_text(json.dumps({'files': state, 'archive': [stat.st_size, stat.st_mtime_ns], 'manifest': files}),
+                      encoding='utf-8')
 
 
 def pack_textures(data_dir: Path, plugin: str, keep_loose: tuple = ()) -> int:
     """Stage <data_dir>/Textures (but `keep_loose` folders), drop staged OWN textures this run neither wrote nor
     confirmed (stage_texture), and pack the staging as `<plugin stem> - Textures.ba2` when it changed since that
     archive was packed; the staged file count."""
-    root = data_dir / STAGING
+    root = staging_root(data_dir)
     run = _RUNS.pop(_run_key(data_dir), None) or {'manifest': _read_json(root / MANIFEST), 'staged': {}}
     moved = _move_loose(data_dir / 'Textures', root / 'Textures', keep_loose)
     paths = _staged_files(root / 'Textures', moved | set(run['staged']))
@@ -164,10 +197,8 @@ def pack_textures(data_dir: Path, plugin: str, keep_loose: tuple = ()) -> int:
 
 
 def sound_root(data_dir: Path) -> Path:
-    """Where sounds are written, as <it>/Sound/...: the staging folder.
-    See: docs/fork/fo4_pipeline.md#sound-archive
-    """
-    return Path(data_dir) / STAGING
+    """Where sounds are written, as <it>/Sound/...: the staging folder (staging_root)."""
+    return staging_root(data_dir)
 
 
 def stage_loose_sounds(data_dir: Path, own: tuple) -> int:
@@ -183,5 +214,10 @@ def pack_sounds(data_dir: Path, plugin: str) -> int:
     files = {p.relative_to(root).as_posix().lower(): [p.stat().st_size, p.stat().st_mtime_ns]
              for p in (root / SOUND).rglob('*') if p.is_file()} if (root / SOUND).is_dir() else {}
     if files:
-        _pack(root / SOUND, root, Path(data_dir) / f'{Path(plugin).stem} - Main.ba2', files, GENERAL_OPTIONS)
+        _pack(root / SOUND, root, Path(data_dir) / f'{Path(plugin).stem} - Main.ba2', files, _general)
     return len(files)
+
+
+def _general(staged: Path, root: Path, archive: Path, kept: set) -> None:
+    """write_general() of every file under `staged`, `kept` reused."""
+    write_general(root, sorted(p for p in staged.rglob('*') if p.is_file()), archive, kept)

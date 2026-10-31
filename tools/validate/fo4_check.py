@@ -19,21 +19,13 @@ import time
 from pathlib import Path
 
 from core.subprocess_flags import POPEN_FLAGS
-from fo4_import.base.install import FALLOUT4_DIR
-from tes5_import.base.tes5_reader import subrecords
+from fo4_import.base.install import FALLOUT4_DIR, file_masters
 
 ROOT = Path(__file__).resolve().parents[2]
 FO4EDIT = ROOT / 'references' / 'FO4Edit 4.1.5f' / 'FO4Edit.exe'
 SCRIPT = Path(__file__).with_name('fo4edit_check.pas')
 #: Seconds FO4Edit may take to load and check, unless --timeout says otherwise.
 TIMEOUT = 1200
-
-
-def masters(plugin: Path) -> list:
-    """The master file names in `plugin`'s header."""
-    raw = plugin.read_bytes()
-    size = int.from_bytes(raw[4:8], 'little')
-    return [d.rstrip(b'\0').decode('cp1252') for t, d in subrecords(raw[24:24 + size]) if t == b'MAST']
 
 
 def find(name: str, dirs: list) -> Path:
@@ -49,7 +41,7 @@ def stage(plugin: Path, dirs: list, work: Path) -> None:
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
-    names = masters(plugin)
+    names = file_masters(plugin)
     for name in names + [plugin.name]:
         source = plugin if name == plugin.name else find(name, [FALLOUT4_DIR / 'Data', plugin.parent, *dirs])
         os.link(source, work / name)

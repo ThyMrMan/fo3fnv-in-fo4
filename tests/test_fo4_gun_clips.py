@@ -8,11 +8,15 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from asset_convert.havok.clip_retarget import Skeleton
+from asset_convert.havok.clip_retarget import Skeleton, compose, mat_to_quat_wxyz, quat_wxyz_to_mat
 from asset_convert.havok.kf_decode import BoneTrack, DecodedClip
-from fo4_import.havok.gun_clips import (FNV_GRIP_FINGER, ROLE_WEAPON, Gun, GunClips, annotations, bolt_start, crc,
-                                        file_id, fnv_stem, handle_frame, left_reach, neutral_clip, on_screen, with_folder)
-from fo4_import.spike.gun_choice import PROP_KEYWORDS, properties, traded
+from external.pynifly_hkx.anim_fo4 import TrackData
+from fo4_import.havok.gun_clips import (FNV_GRIP_FINGER, IK_LEFT, ROLE_WEAPON, Gun, GunClips, annotations, bolt_start,
+                                        carried_target, crc, file_id, fnv_stem, handle_frame, left_reach, left_targets,
+                                        neutral_clip, on_screen, with_folder)
+from fo4_import.havok import kf_cache as KC
+from fo4_import.pipeline import work_cache as WC
+from fo4_import.spike.gun_choice import PROP_KEYWORDS, built_in_scope, properties, traded
 
 HUNTING_RIFLE = ['Actors\\Character\\Animations\\Weapon\\HuntingRifle',
                  'Actors\\Character\\Animations\\Weapon\\Rifle\\Neutral',
@@ -21,6 +25,36 @@ HUNTING_RIFLE = ['Actors\\Character\\Animations\\Weapon\\HuntingRifle',
 LIGHTNING_GUN = ['Actors\\DLC01\\Character\\Animations\\LightningGun',
                  'Actors\\Character\\Animations\\Weapon\\Rifle\\Neutral',
                  'Actors\\Character\\Animations\\Paired', 'Actors\\Character\\Animations']
+
+
+def test_third_persons_left_target_keeps_vanillas_offset_from_the_first_person_hand():
+    """Each frame's WeaponIKTargetL sits off our first-person left hand as vanilla's sits off vanilla's (hand-local);
+    a gun whose left hand writes no target (a pistol on vanilla's grip) gives none."""
+    def frame(at, turn):
+        """A row-vector 4x4 at `at` turned `turn` radians about z."""
+        return compose(np.array(at, float), quat_wxyz_to_mat((np.cos(turn / 2), 0.0, 0.0, np.sin(turn / 2))))
+    vanilla, ours, targets = frame((0, 10, 0), 0.0), frame((1, 12, -2), 0.6), [frame((-5, 15, -2), 0.1),
+                                                                                frame((-4, 16, -2), 0.2)]
+    track = TrackData(rotations=[list(mat_to_quat_wxyz(t[:3, :3])[1:]) + [mat_to_quat_wxyz(t[:3, :3])[0]] for t in targets],
+                      translations=[list(t[3, :3]) for t in targets])
+    carried_target(SimpleNamespace(tracks=[track]), 0, (vanilla, ours))
+    for f, before in enumerate(targets):
+        x, y, z, w = track.rotations[f]
+        after = compose(np.asarray(track.translations[f]), quat_wxyz_to_mat((w, x, y, z)))
+        assert np.allclose(after @ np.linalg.inv(ours), before @ np.linalg.inv(vanilla), atol=1e-5)
+    moved = SimpleNamespace(tracks=[BoneTrack(bone=IK_LEFT, rotations=np.array([[1.0, 0, 0, 0]]),
+                                              translations=np.array([[1.0, 2.0, 3.0]]))])
+    assert np.allclose(left_targets(moved, (vanilla, {}))[1][3, :3], (1, 2, 3))
+    assert left_targets(SimpleNamespace(tracks=[]), (vanilla, {})) is None
+
+
+def test_a_built_in_scope_has_the_scope_flag_and_not_scope_from_mod():
+    """The Bozar (Has Scope, iron-sight clips) and the Anti-Materiel Rifle are scoped; the Laser Rifle (scope from
+    a mod) and the 9mm are not."""
+    assert built_in_scope({'DNAM.Flags1': '6', 'DNAM.Flags2': '1032'})
+    assert built_in_scope({'DNAM.Flags1': '68', 'DNAM.Flags2': '8'})
+    assert not built_in_scope({'DNAM.Flags1': '68', 'DNAM.Flags2': '8200'})
+    assert not built_in_scope({'DNAM.Flags1': '0'})
 
 
 def test_file_ids_match_vanilla():
@@ -132,3 +166,19 @@ def test_a_handle_frame_follows_its_longest_direction_turned_to_the_gun_axes():
     assert np.allclose(frame[0, :3], (0.0, 0.0, 1.0), atol=1e-6)
     assert np.allclose(frame[3, :3], post.mean(0))
     assert handle_frame(post[:2]) is None
+
+
+def test_a_kf_is_decoded_once_and_each_caller_gets_its_own_copy(tmp_path, monkeypatch):
+    """decoded() decodes a .kf once per content: again this run from memory, a later run from the work cache;
+    changing what it returned changes no later copy."""
+    calls = []
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
+    monkeypatch.setattr(KC, 'decode_kf', lambda path, fps: calls.append(path) or [
+        DecodedClip('idle', 1.0, 0, 1.0, times=np.zeros(2), tracks=[BoneTrack('Bip01', np.zeros((2, 3)))])])
+    kf = tmp_path / 'idle.kf'
+    kf.write_bytes(b'kf')
+    first = KC.decoded(kf)
+    first[0].tracks[0].translations += 5.0
+    KC._pickled.cache_clear()
+    again, (clip, _) = KC.decoded(kf), KC.decoded_clip(kf, extract_motion=False)
+    assert len(calls) == 1 and not again[0].tracks[0].translations.any() and clip.name == 'idle'

@@ -13,8 +13,8 @@ later phase's state.
 import re
 from dataclasses import replace
 
-from script_convert.blocks import (BLOCK_MAP, BLOCK_TYPE_GUARDS,
-                                   block_filter_guard, block_header)
+from script_convert.blocks import (BLOCK_MAP, WEAPON_FIRE, block_filter_guard, block_header,
+                                   type_guard)
 from script_convert.constants import (
     DIALOGUE_MENU_ID, LAST_ACTIVATOR_VAR, MENU_ID_NAMES, MESSAGE_BOX_MENU_ID, UDF_CALLER_PARAM, UDF_RESULT_VAR,
     POLL_BLOCKS, REF_SPECIFICITY, TYPE_MAP, is_generated_script_type,
@@ -594,7 +594,8 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
     out = (_carried_read(conv, tree, extends, merged, order)
            + _record_last_activator(conv, merged, order)
            + _track_holder(conv, tree, merged, order)
-           + _trigger_repeat(merged, order))
+           + _trigger_repeat(merged, order)
+           + _listen_for_fire(tree, merged, order))
     for header in order:
         opener, closer = header
         if opener == BLOCK_MAP['ontrigger'][0]:
@@ -786,6 +787,22 @@ def _track_holder(conv, tree, merged: dict, order: list) -> list:
         merged[header][:0] = list(holder) + arm
         merged[header] += passes
     return [f'ObjectReference {_HOLDER_VAR}', '']
+
+
+def _listen_for_fire(tree, merged: dict, order: list) -> list:
+    """Fallout 4 OnFire: register for the wielder's weaponFire on equip, drop it on unequip; no declarations.
+
+    See: docs/fork/fo4_timing_audit.md#fixes
+    """
+    if not is_fallout4() or not any(b.btype.lower() == 'onfire' for b in (tree.blocks if tree else ())):
+        return []
+    for header, call in ((BLOCK_MAP['onequip'], 'RegisterForAnimationEvent'),
+                         (BLOCK_MAP['onunequip'], 'UnregisterForAnimationEvent')):
+        if header not in merged:
+            merged[header] = []
+            order.append(header)
+        merged[header][:0] = [f'  {call}(akActor, "{WEAPON_FIRE}")']
+    return []
 
 
 def helpers(conv) -> list:
@@ -1306,7 +1323,7 @@ def _guarded(conv, block, body: list) -> list:
     """
     btype = block.btype.lower()
     guard = block_filter_guard(conv, btype, block.filter or '')
-    state = BLOCK_TYPE_GUARDS.get(btype)
+    state = type_guard(btype)
     if state and guard is not None:
         guard = f'{state} && {guard}' if guard else state
 

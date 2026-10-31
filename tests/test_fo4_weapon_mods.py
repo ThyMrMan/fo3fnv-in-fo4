@@ -136,3 +136,18 @@ def test_effects_follow_fnv_semantics():
     assert floats(WM.RATE, 0.333, semi) == [(WM.ATTACK_DELAY, WM.MUL_ADD, round(-0.333 / 1.333, 4))]
     assert floats(WM.SPLIT_BEAM, 2.0, semi) == [(WM.ATTACK_DAMAGE, WM.MUL_ADD, round(1 / 3 - 1, 4))]
     assert mods._effect(WM.CONDITION, 75.0, semi) == []
+
+
+@needs_games
+def test_an_fnv_scope_takes_the_nearest_preset_and_fnvs_own_magnification(fo4):
+    """A 35-degree FNV scope (2x) takes ZM_Standard_Scope_x2 with FOV mult 2; a part's ZoomData and HasScope keyword
+    are replaced, not repeated."""
+    zooms = WM.zoom_presets(fo4.raw)
+    props = WM.scope_properties(zooms, fo4.keywords, 35.0, False)
+    found = {WM.PROPERTY.unpack(p)[2]: WM.PROPERTY.unpack(p) for p in props}
+    assert found[WM.ZOOM_DATA][3] == zooms['ZM_Standard_Scope_x2'][0]
+    assert struct.unpack('<f', props[2][12:16])[0] == pytest.approx(2.0)
+    old = WM.Part(b'\0' * 8, 1, [], b'', b'', [WM.prop(WM.FORM, WM.SET, WM.ZOOM_DATA, zooms['ZM_Standard_Scope_x10'][0], 441),
+                                               WM.prop(WM.FORM, WM.ADD, WM.KEYWORDS, fo4.keywords['HasScope'], 440)])
+    merged = WM.parse_part(WM.with_properties(WM.pack_part(old), props)).properties
+    assert len(merged) == len(props) and set(merged) == set(props)

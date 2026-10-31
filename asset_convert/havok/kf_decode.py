@@ -82,33 +82,29 @@ def knots(n_ctrl: int, degree: int = SPLINE_DEGREE) -> np.ndarray:
     return u
 
 
-def basis_weights(n_ctrl: int, v: float, u: np.ndarray,
-                   degree: int = SPLINE_DEGREE) -> np.ndarray:
-    """Cox–de Boor basis weights for all control points at parameter v.
+def basis_matrix(n_ctrl: int, v: np.ndarray, u: np.ndarray, degree: int = SPLINE_DEGREE) -> np.ndarray:
+    """Cox–de Boor basis weights of all control points at each parameter in `v`: (len(v), n_ctrl).
 
-    Bottom-up equivalent of NifSkope's recursive blend(); same zero-division
-    guards and the same half-open [u_k, u_k+1) base case.
+    Bottom-up equivalent of NifSkope's recursive blend(), over every parameter
+    at once; same zero-division guards and the same half-open [u_k, u_k+1)
+    base case.
     """
-    t = degree + 1
-    n = n_ctrl - 1
-    # order-1 basis over the n+t spans
-    b = np.zeros(n + t, dtype=np.float64)
-    for k in range(n + t):
-        b[k] = 1.0 if (u[k] <= v < u[k + 1]) else 0.0
-    # raise order
-    for order in range(2, t + 1):
-        nb = np.zeros(n + t, dtype=np.float64)
-        for k in range(n + t + 1 - order):
-            d1 = u[k + order - 1] - u[k]
-            d2 = u[k + order] - u[k + 1]
-            val = 0.0
-            if d1 != 0.0:
-                val += (v - u[k]) / d1 * b[k]
-            if d2 != 0.0:
-                val += (u[k + order] - v) / d2 * b[k + 1]
-            nb[k] = val
-        b = nb
-    return b[:n_ctrl]
+    spans = n_ctrl + degree
+    v = np.asarray(v, dtype=np.float64).reshape(-1, 1)
+    b = ((u[:spans] <= v) & (v < u[1:spans + 1])).astype(np.float64)
+    for order in range(2, degree + 2):
+        k = np.arange(spans + 1 - order)
+        d1, d2 = u[k + order - 1] - u[k], u[k + order] - u[k + 1]
+        left = np.where(d1 != 0.0, (v - u[k]) / np.where(d1 != 0.0, d1, 1.0) * b[:, k], 0.0)
+        right = np.where(d2 != 0.0, (u[k + order] - v) / np.where(d2 != 0.0, d2, 1.0) * b[:, k + 1], 0.0)
+        b = np.zeros_like(b)
+        b[:, :len(k)] = left + right
+    return b[:, :n_ctrl]
+
+
+def basis_weights(n_ctrl: int, v: float, u: np.ndarray, degree: int = SPLINE_DEGREE) -> np.ndarray:
+    """basis_matrix() at the one parameter `v`."""
+    return basis_matrix(n_ctrl, np.array([v]), u, degree)[0]
 
 
 def eval_bspline(ctrl: np.ndarray, v_params: np.ndarray,
@@ -121,15 +117,9 @@ def eval_bspline(ctrl: np.ndarray, v_params: np.ndarray,
     n_ctrl = ctrl.shape[0]
     if n_ctrl == 1:
         return np.repeat(ctrl, len(v_params), axis=0)
-    u = knots(n_ctrl, degree)
-    end = float(n_ctrl - degree)
-    out = np.empty((len(v_params), ctrl.shape[1]), dtype=np.float64)
-    for i, v in enumerate(v_params):
-        if v >= end:  # NifSkope end clamp: exactly the last control point
-            out[i] = ctrl[-1]
-        else:
-            w = basis_weights(n_ctrl, v, u, degree)
-            out[i] = w @ ctrl
+    v_params = np.asarray(v_params, dtype=np.float64)
+    out = basis_matrix(n_ctrl, v_params, knots(n_ctrl, degree), degree) @ ctrl
+    out[v_params >= n_ctrl - degree] = ctrl[-1]
     return out
 
 
@@ -148,12 +138,15 @@ def _normalize_quats(q: np.ndarray) -> np.ndarray:
 
 
 def _hemisphere_align(q: np.ndarray) -> np.ndarray:
-    """Flip quaternion signs so consecutive entries stay in one hemisphere."""
-    q = q.copy()
-    for i in range(1, len(q)):
-        if np.dot(q[i], q[i - 1]) < 0:
-            q[i] = -q[i]
-    return q
+    """Flip quaternion signs so consecutive entries stay in one hemisphere: each entry turned toward the one before
+    as already turned (a zero dot product keeps the entry as stored)."""
+    dots = np.einsum('ij,ij->i', q[1:], q[:-1])
+    signs = np.ones(len(q))
+    signs[1:] = np.where(dots < 0, -1.0, 1.0)
+    signs = np.cumprod(signs)
+    for i in np.flatnonzero(dots == 0) + 1:
+        signs[i:] *= signs[i]
+    return q * signs[:, None]
 
 
 def _sample_bspline(interp, times: np.ndarray):

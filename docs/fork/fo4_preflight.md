@@ -24,18 +24,19 @@ markers, and records that moved or changed.
 ## <a id="running"></a>Running it
 
 ```
-py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esp"
-py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esp" --audit quest --audit conditions
+py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esm"
+py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esm" --audit quest --audit conditions
 ```
 
 The source export is `export/<plugin stem>.esm` (`--fo4-source`), the
 converted sources `temp/fo4_scripts/<source>` (`--fo4-scripts`), the compiled
-scripts `<mod folder>/Scripts`. Audits: quest, start, dialogue, conditions,
+scripts `<mod folder>/Scripts`. Audits: quest, start, dialogue, conditions, timing ([timing audit](fo4_timing_audit.md#built)),
 packages, world, assets, build (68 s for all on the whole-map build). Script
 health and log triage stay Skyrim-only: `fo4_audit` checks FO4 script
 properties and `fo4_trace` reads FO4 play sessions. State and the report go to
 `output/preflight/<plugin>/`; finding keys use the plugin name
-(`quest|FalloutNV.esp|...`), apart from the Skyrim build's `FalloutNV.esm`.
+(`quest|FalloutNV.esm|...`). Since the FO4 plugin took the name `FalloutNV.esm` (2026-10-30) it shares
+the Skyrim build's folder name; run the two from their own checkouts.
 
 ## <a id="why"></a>Why the Skyrim audits missed the FO4 build
 

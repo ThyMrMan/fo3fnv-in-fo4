@@ -15,11 +15,11 @@ See: docs/fork/fo4_pipeline.md#locations
 import collections
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.interiors import by_cell
-from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: derive_formid site of the generated locations (key: the FNV region's or worldspace's FormID).
@@ -42,7 +42,7 @@ def inside(polygon: list, x: float, y: float) -> bool:
 def map_regions(world: int) -> list:
     """[(FormID, EditorID, map name, [polygon])] of FalloutNV.esm's regions in `world` that have a map name."""
     out = []
-    for rec, _ in walk(source_esm(), b'REGN'):
+    for rec, _ in source_walk(b'REGN'):
         subs = list(subrecords(rec.body))
         found = dict(subs)
         if b'RDMP' not in found or struct.unpack('<I', found.get(b'WNAM', bytes(4)))[0] != world:

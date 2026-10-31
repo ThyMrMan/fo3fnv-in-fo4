@@ -1,7 +1,7 @@
 """Quest-stage fragment scripts (`_QF_<quest>`) from a QUST's stage logs.
 
 One `Fragment_Stage_NNNN_Item_N` function per stage log entry that has
-journal text or a result script; the VMAD the importer writes names exactly
+journal text, a result script or the Complete Quest flag; the VMAD the importer writes names exactly
 these, so the set here must match `quest_stage_fragments` on the import side.
 
 See: docs/commentary/script_convert.md#quest-fragments
@@ -24,6 +24,16 @@ from script_convert.scro_refs import (
 from script_convert.symbols import property_declarations
 from script_convert.trace_points import items
 
+#: Stage log entry flag: finishing the stage completes the quest.
+LOG_COMPLETES_QUEST = 0x01
+
+
+def log_entry_has_fragment(rec: dict, prefix: str) -> bool:
+    """Whether a stage log entry needs a fragment (text, script, Complete Quest)."""
+    return bool(rec.get(prefix + 'Text') or (rec.get(prefix + 'ResultScript') or '').strip()
+                or int(rec.get(prefix + 'Flags') or 0) & LOG_COMPLETES_QUEST)
+
+
 #: Script-scope re-entrancy latch for the modal chargen menus.
 _CHARGEN_LATCH = 'Bool TES4_ChargenMenuBusy = False'
 
@@ -37,7 +47,7 @@ def stage_fragments(rec: dict) -> list:
             text = rec.get(f'Stage[{i}].Log[{j}].Text', '')
             script = rec.get(f'Stage[{i}].Log[{j}].ResultScript', '')
             flags = int(rec.get(f'Stage[{i}].Log[{j}].Flags', '0') or 0)
-            if text or script.strip():
+            if log_entry_has_fragment(rec, f'Stage[{i}].Log[{j}].'):
                 out.append((stage_idx, j, text, script, bool(flags & 0x01),
                             i, j))
     return out

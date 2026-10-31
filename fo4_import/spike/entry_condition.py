@@ -11,8 +11,8 @@ See: docs/fork/fo4_condition.md#entry-condition
 import struct
 from functools import lru_cache
 
-from fo4_import.base.install import source_esm
-from tes5_import.base.tes5_reader import subrecords, walk
+from fo4_import.base.install import source_walk
+from tes5_import.base.tes5_reader import subrecords
 
 #: The records whose entries carry a COED, by the entry subrecord before it.
 ENTRY_TAGS = {b'CONT': b'CNTO', b'NPC_': b'CNTO', b'CREA': b'CNTO', b'LVLI': b'LVLO', b'LVLN': b'LVLO',
@@ -25,7 +25,7 @@ CONDITION_AT = 8
 def entry_conditions() -> dict:
     """{FNV FormID: [condition or None, per entry in order]} of the records with an entry that has a COED."""
     out = {}
-    for rec, _ in walk(source_esm(), *ENTRY_TAGS):
+    for rec, _ in source_walk(*ENTRY_TAGS):
         tag, entries, found = ENTRY_TAGS[rec.sig], [], False
         for sub, data in subrecords(rec.body):
             if sub == tag:

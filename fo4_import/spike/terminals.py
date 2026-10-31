@@ -10,7 +10,10 @@ result (8). An item's script runs as the TERM's fragment
 FO4's (nif.terminal); the user stands where vanilla's desk terminal puts
 them relative to its screen, with the template's keywords and marker
 (DN054_ZekesTerminal). FNV locks the terminal on the base (difficulty,
-Leveled, Unlocked); FO4 on each reference (XLOC level, as vanilla's).
+Leveled, Unlocked); FO4 on each reference (XLOC level, as vanilla's). FNV's
+looping sound (the computer hum) is not written: Fallout4.exe's furniture
+loader, which terminals share (0x44B814), reads every SNAM as marker data,
+so a Looping Sound SNAM ahead of the markers crashes the game on load.
 
 See: docs/fork/fo4_pipeline.md#terminals
 """

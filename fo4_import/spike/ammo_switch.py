@@ -22,6 +22,8 @@ SITE = 'FNV ammo switch'
 SCRIPT, ITEM_SCRIPT = 'F3NV_AmmoSwitch', 'F3NV_AmmoSwitchItem'
 #: The F3NV plugin's natives for the Pip-Boy's ammo list (tes_runtime/fo4_condition/ammo.cpp).
 NATIVES = 'F3NV_PipboyAmmo'
+#: F3NV_AmmoSwitch's per-round arrays, one row per round, Starts[g] to Starts[g + 1] list g's.
+ROUND_COLUMNS = ('Rounds', 'Mods', 'Loaded', 'Notes')
 #: The hotkey item's name (FNV's own for the hotkey).
 ITEM_NAME = 'Ammo Type'
 #: The quest's messages: property, text.
@@ -55,6 +57,31 @@ def arrays(builder, mods, grouped: list) -> dict:
             out['Notes'].append(notes[ammo])
     out['Starts'].append(len(out['Rounds']))
     return {name: ('ints' if name == 'Starts' else 'objects', value) for name, value in out.items()}
+
+
+def _grouped_rows(values: dict) -> dict:
+    """{list keyword: [(round, mod, loaded keyword, note)]} of F3NV_AmmoSwitch's array properties `values`."""
+    starts, columns = values['Starts'][1], [values[c][1] for c in ROUND_COLUMNS]
+    return {keyword: list(zip(*(c[starts[g]:starts[g + 1]] for c in columns)))
+            for g, keyword in enumerate(values['Lists'][1])}
+
+
+def merge(game: dict, dlc: dict) -> dict:
+    """F3NV_AmmoSwitch's arrays as the game's lists, each with the DLC's new rounds after its own, then the DLC's
+    new lists (quest_merge)."""
+    merged = _grouped_rows(game)
+    for keyword, rows in _grouped_rows(dlc).items():
+        have = {row[0] for row in merged.setdefault(keyword, [])}
+        merged[keyword] += [row for row in rows if row[0] not in have]
+    out = {'Lists': [], 'Starts': [], **{c: [] for c in ROUND_COLUMNS}}
+    for keyword, rows in merged.items():
+        out['Lists'].append(keyword)
+        out['Starts'].append(len(out['Rounds']))
+        for row in rows:
+            for column, value in zip(ROUND_COLUMNS, row):
+                out[column].append(value)
+    out['Starts'].append(len(out['Rounds']))
+    return {name: (game[name][0], value) for name, value in out.items()}
 
 
 def write(builder, mods) -> None:

@@ -54,6 +54,19 @@ as `stats` does; the race comes from the rig table.
 - `creatures.py`: mode `rig` calls these once per skeleton folder and writes
   the NPC as `stats` does, on the rig's race.
 
+### <a id="body-parts"></a>Body part names (V.A.T.S.)
+
+A rig's BPTD is the template race's on the creature's bones (the table's
+`parts`). V.A.T.S. shows each part's name (BPTN), and until 2026-10-31 that
+name was the bone's (`Bip01 Head`): the template's is a Fallout4.esm string
+ID. Now each part takes the name of FNV's part covering its bone: FNV's
+BPTD on the rig's skeleton folder (its MODL) names each part (BPTN) and the
+node it starts at (BPNN), and a part covers that node's subtree, so the
+bone and its ancestors are searched nearest first (`part_name`; the gecko's
+Head sits on `Bip01 Neck1`). A bone no FNV part covers (Root, a pelvis
+above FNV's parts, all of the raven's and spore carrier's) takes the
+template's own name through Fallout4.esm's strings.
+
 ## <a id="anim-info"></a>AnimTextData from the Creation Kit
 
 The game reads a race's graphs through AnimTextData, mostly binary files
@@ -68,7 +81,14 @@ profile's plugins. MO2 sends the files the CK creates to the selected
 profile's custom overwrite for the Creation Kit, else to `overwrite`
 (`creation_kit.output_dir`), and the CK edits an existing file in place,
 so last run's files (listed in `<plugin>.animinfo.txt`) are deleted first
-and the new ones moved into the mod folder. The CK also edits
+and the new ones moved into the mod folder. *Deleting them from the build's
+folder is not enough once the build is deployed (found 2026-10-31):* the
+deployed MO2 mod holds the same files, the CK edits those in place, and
+nothing reached `overwrite`: two rebuilds collected 0 files, the build's
+folder lost its 17,892, the list came back empty, so the skip never held
+and the CK ran on every build (233 s). The files dated from the run's start
+are now collected from `overwrite` (moved) and from every enabled mod
+(copied, so the deployed copy stays): `creation_kit.written_since`. The CK also edits
 `CreationKitPrefs.ini`, `ckpe.log` and the `Logs` folders in the game
 folder in place.
 

@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[2]
 EXPORT_ROOT = REPO / 'export'
 #: Per source game: master, plugin built, start cell, main worldspace, test block center, whether the build supports it.
 GAMES = {
-    'falloutnv': {'master': 'FalloutNV.esm', 'plugin': 'FalloutNV.esp', 'cell': 'GSDocMitchellHouse',
+    'falloutnv': {'master': 'FalloutNV.esm', 'plugin': 'FalloutNV.esm', 'cell': 'GSDocMitchellHouse',
                   'world': 'WastelandNV', 'test_center': (-18, 0), 'built': True},
     'fallout3': {'master': 'Fallout3.esm', 'plugin': 'Fallout3.esp', 'cell': '', 'world': 'Wasteland',
                  'test_center': (0, 0), 'built': False},

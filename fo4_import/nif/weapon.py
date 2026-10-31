@@ -26,6 +26,7 @@ import numpy as np
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.convert_static import NifFormat, lighting_shader
+from fo4_import.pipeline.export_index import export_file
 
 #: Vanilla melee weapons' parent bone and BSXFlags.
 PARENT, BSX = 'WEAPON', 194
@@ -87,7 +88,7 @@ def held_pose(export_dir: Path, anim_type: int) -> dict:
     if anim_type not in HOLD_ANIMS:
         return {}
     data = NifFormat.Data()
-    with open(export_dir / 'meshes' / 'characters' / '_male' / HOLD_ANIMS[anim_type], 'rb') as f:
+    with open(export_file(export_dir, 'meshes', 'characters', '_male', HOLD_ANIMS[anim_type]), 'rb') as f:
         data.read(f)
     out = {}
     for seq in (b for b in data.roots if isinstance(b, NifFormat.NiControllerSequence)):

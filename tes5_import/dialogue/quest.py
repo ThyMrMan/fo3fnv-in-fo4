@@ -18,6 +18,7 @@ import struct
 from script_convert.constants import STAGE_PACKAGE_ALIAS_SCRIPT
 from ..packages.run_once import alias_run_once
 from script_convert.pipeline import build_vmad_quest_fragments
+from script_convert.quest_fragments import log_entry_has_fragment
 from ..base.constants import ENGINE_GLOBAL_FORMIDS
 from ..base.conditions import (CTDA_OR, CTDA_RUN_ON_TARGET,
                                 convert_ctda,
@@ -150,8 +151,8 @@ def _resolve_declared_properties(declared, well_known_props: dict = None) -> dic
 def quest_stage_fragments(rec: dict) -> list:
     """List (stage_index, log_index) tuples that need a Papyrus fragment.
 
-    A fragment is emitted for any stage log entry that has journal text or a
-    result script — the PSC generator emits Fragment_Stage_NNNN_Item_N for each,
+    A fragment is emitted for any stage log entry log_entry_has_fragment names (text,
+    a result script or the Complete Quest flag) -- the PSC generator emits Fragment_Stage_NNNN_Item_N for each,
     and the VMAD fragment list must match exactly or the function never fires.
     """
     frags = []
@@ -160,12 +161,8 @@ def quest_stage_fragments(rec: dict) -> list:
         stage_idx = get_int(rec, f'Stage[{i}].Index')
         log_count = get_int(rec, f'Stage[{i}].LogCount')
         if log_count > 0:
-            for j in range(log_count):
-                if (get_str(rec, f'Stage[{i}].Log[{j}].Text') or
-                        get_str(rec, f'Stage[{i}].Log[{j}].ResultScript').strip()):
-                    frags.append((stage_idx, j))
-        elif (get_str(rec, f'Stage[{i}].Text') or
-              get_str(rec, f'Stage[{i}].ResultScript').strip()):
+            frags += [(stage_idx, j) for j in range(log_count) if log_entry_has_fragment(rec, f'Stage[{i}].Log[{j}].')]
+        elif log_entry_has_fragment(rec, f'Stage[{i}].'):
             frags.append((stage_idx, 0))
     return frags
 

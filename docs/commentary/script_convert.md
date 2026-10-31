@@ -442,6 +442,11 @@ Nehrim has none.
 block type up and, on a miss, drops the block body and all. The rationale that
 used to sit as comments beside the table:
 
+**Fallout 4 events of their own (`FALLOUT4_BLOCK_MAP`).** FO3/FNV `OnFire`
+runs in `OnAnimationEvent` on the wielder's `weaponFire`, registered on equip;
+an actor's `OnActorEquip` is `OnItemEquipped`. Both were dropped or never
+fired before ([timing audit fixes](../fork/fo4_timing_audit.md#fixes)).
+
 **`OnTrigger` is per-frame, not an edge.** TES4 `Begin OnTrigger` runs EVERY
 FRAME an object is inside the volume -- Nehrim's Magieverbot (magic-ban)
 scripts count 25 and 100 *executions* in it, which is only meaningful under

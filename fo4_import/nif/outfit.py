@@ -57,6 +57,7 @@ from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
 from fo4_import.nif.headgear import BONE as HEAD_BONE, FNV_HEADS, NO_PARENT, HeadFit, head_fit, head_frame, shape_arrays
 from fo4_import.nif.retarget import Rig, bone_moves, retargeted
+from fo4_import.pipeline.export_index import export_file
 
 #: Per sex: FO4's body (in Fallout 4 - Meshes.ba2) and FNV's body (under the export's meshes).
 FO4_BODIES = {'male': 'meshes\\actors\\character\\characterassets\\malebody.nif',
@@ -302,9 +303,9 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
     bind = bone_data(body.blocks[data][1])
     skeleton = fo4_joints(nif_file.read(archives.read(FO4_SKELETON)))
     shift = np.mean([-rot.T @ t - skeleton[b] for b, (_, rot, t) in zip(bones, bind) if b in skeleton], axis=0)
-    moves = bone_moves(HUMAN, *fnv_skeleton(export_dir / 'meshes' / FNV_SKELETON), {name: pos + shift for name, pos in skeleton.items()})
+    moves = bone_moves(HUMAN, *fnv_skeleton(export_file(export_dir, 'meshes', FNV_SKELETON)), {name: pos + shift for name, pos in skeleton.items()})
     head = HeadPart(head_fit(export_dir, sex, archives), skeleton[HEAD_BONE] + shift, len(bones),
-                    export_dir / 'meshes' / FNV_HEADS[sex])
+                    export_file(export_dir, 'meshes', FNV_HEADS[sex]))
     _add_head(head, body, (bones, nodes, bind))
     points = np.array([v['position'] for v in shape['vertices']], float)
     tris = np.array(shape['triangles'])
@@ -316,7 +317,7 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
     fit = BodyFit(moves, np.zeros((0, 3)), np.zeros((0, 3)), body, bones, nodes, bind, weights, samples, tris,
                   shape['shader'], np.array([v['uv'] for v in shape['vertices']], float), points)
     fit.stretch = float(uv_stretch(points, fit.uv, tris).max())
-    fit.anchors, fit.offsets, fnv_body = _anchors(fit, export_dir / 'meshes' / FNV_BODIES[sex])
+    fit.anchors, fit.offsets, fnv_body = _anchors(fit, export_file(export_dir, 'meshes', FNV_BODIES[sex]))
     fit.seams = _seams(points, tris, fnv_body, fit.anchors)
     fit.head = head
     return fit

@@ -506,6 +506,20 @@ it to the firing weapon's `ProjectileNode` (the static-init string at
 0x185d4 for the global the lookup 0x286b00 uses), which the converted FNV
 gun meshes keep.
 
+### <a id="weapon-criticals"></a>V.A.T.S. AP cost and critical data (2026-10-29)
+
+The Fallout 4 build gives a converted gun FNV's own critical hits and AP
+cost, so WEAP also exports (wbDefinitionsFNV):
+
+- `DNAM.Flags2` (DNAM 56, u32): 0x8 is "Override - Action Points";
+- `DNAM.ActionPoints` (DNAM 68, float): the AP cost that flag selects;
+  without it FNV's engine uses the weapon class's
+  `fActionPointsAttack*` setting;
+- `CRDT.Damage` (CRDT 0, u16): damage a critical hit adds;
+- `CRDT.ChanceMult` (CRDT 4, float): the weapon's critical chance multiplier;
+- `CRDT.Flags` (CRDT 8, u8): 0x1 is "On Death" (the effect applies only on a kill);
+- `CRDT.Effect` (CRDT 12, SPEL): the critical effect spell.
+
 ## Navmesh: authored, not generated
 
 **Code:** `tes4_export/record_types/falloutnv.py` (`_emit_navm_deltas`,

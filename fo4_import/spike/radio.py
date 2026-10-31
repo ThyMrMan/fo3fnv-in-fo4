@@ -28,7 +28,7 @@ import functools
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.vmad import object_scripts
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
@@ -79,7 +79,7 @@ def pipboy_stations(export_dir: Path) -> dict:
 def radio_data() -> dict:
     """{FNV reference: (radius, range type, static %, position ref)}: FNV XRDO."""
     return {rec.form_id: struct.unpack_from('<fIfI', data)
-            for rec, _ in walk(source_esm(), b'REFR') for data in [first_sub(rec.body, b'XRDO')] if data}
+            for rec, _ in source_walk(b'REFR') for data in [first_sub(rec.body, b'XRDO')] if data}
 
 
 def placements(export_dir: Path, all_refs: list, world, interiors: bool) -> list:
@@ -154,7 +154,7 @@ class Radio:
             if int(ref.get('NAME', '0'), 16) in self.stations:
                 self.refs.setdefault(int(ref['NAME'], 16), []).append(ref['FormID'])
         self.sounds = {int(r['FormID'], 16): r.get('FNAM.Filename', '') for r in export_records(export_dir, 'SOUN')}
-        self.export_dir, self.stations_of = export_dir, fnv_links(source_esm(), b'ACTI', b'RNAM')
+        self.export_dir, self.stations_of = export_dir, fnv_links(None, b'ACTI', b'RNAM')
 
     def frequency(self, station: int) -> 'float | None':
         """A placed station's frequency: Pip-Boy slot, or a lounge one off the band."""

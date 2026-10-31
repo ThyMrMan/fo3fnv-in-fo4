@@ -4,19 +4,25 @@ behaviour, project file data and records; per FNV body (once) its body NIF and s
 See: docs/fork/fo4_own_rig.md#modules
 """
 
+import pickle
 from pathlib import Path
 
-from asset_convert.havok.kf_decode import decode_kf
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.havok import packfile_write
+from fo4_import.havok.kf_cache import decoded
+from fo4_import.pipeline.elric_cache import write_new
 from fo4_import.pipeline.mesh_cache import mesh_files
+from fo4_import.pipeline.work_cache import cached
 from fo4_import.rig import assets, behavior, records
 from fo4_import.spike.creature_attacks import power_share, with_attacks, with_spell
 from fo4_import.spike.statics import stage_files
+from fo4_import.pipeline.export_index import asset_root
 
 #: AnimTextData's project file data folder (the Creation Kit does not write a project's list).
 FILE_DATA = Path('Meshes') / 'AnimTextData' / 'AnimationFileData'
+#: The work cache sites of an own-rig body (its NIF and staged files) and of its skeleton.nif (and ragdoll bones).
+BODY_SITE, SKELETON_SITE = 'rig_body', 'rig_skeleton_nif'
 
 
 def project_file_data(rig) -> bytes:
@@ -33,7 +39,7 @@ def gun_nodes(rig, fnv_dir: Path) -> dict:
     (records.with_slots)."""
     bones, out = assets.skeleton_bones(fnv_dir / 'skeleton.nif'), {}
     for role, slot, _, node in rig.guns:
-        clip = decode_kf(str(fnv_dir / rig.clips[role]))[0]
+        clip = decoded(str(fnv_dir / rig.clips[role]))[0]
         at = (behavior.shot_times(clip.text_keys) or [behavior.ATTACK_BLEND])[0]
         out[slot] = node, assets.aim_turn(bones, clip, node, at)
     return out
@@ -66,21 +72,22 @@ class Rigs:
         if rig.folder in self.races:
             return self.races[rig.folder]
         rig = records.with_slots(rig, self.templates)
-        fnv_dir = self.export_dir / 'meshes' / rig.folder
+        fnv_dir = asset_root(self.export_dir, 'meshes', rig.folder)
         fires = gun_nodes(rig, fnv_dir)
         self.bones[rig.folder] = bones = assets.skeleton_bones(fnv_dir / 'skeleton.nif', fires.get(0, ()))
         assets.write_skeleton(self.out(rig, 'CharacterAssets', 'skeleton.hkx'), bones)
         for role, kf in rig.clips.items():
             assets.write_clip(fnv_dir / kf, self.out(rig, 'Animations', f'{role}.hkx'), bones,
                               (assets.WEAPON,) if 0 in fires else ())
-        ragdoll = assets.write_skeleton_nif(fnv_dir / 'skeleton.nif', self.out(rig, 'CharacterAssets', 'skeleton.nif'),
-                                            fires)
+        ragdoll = self.skeleton_nif(fnv_dir, rig, fires)
         self.sounds[rig.folder] = sounds
         maker = behavior.Builder(rig, fnv_dir, ragdoll, sounds, bones)
         self.write_behavior(rig, maker, [b.name for b in bones])
         body = self.write_body(rig, body_name(rec))
         made = {'name': rec.get('FULL', '') or rig.project, 'body': body, 'share': power_share(style),
                 'footsteps': not sounds.feet, 'talks': talks, 'kind': int(rec.get('DATA.CreatureType', 0) or 0),
+                'parents': {b.name: bones[b.parent].name for b in bones if b.parent >= 0},
+                'strings': self.builder.equipment.strings,
                 'speeds': (maker.root_speed('WalkForward'), maker.root_speed('RunForward'))}
         self.races[rig.folder] = race = records.write(self.builder.writer, rig, self.templates, made)
         self.skins[(rig.folder, body.lower())] = self.builder.writer.derive_formid(
@@ -104,14 +111,40 @@ class Rigs:
         listed.write_bytes(project_file_data(rig))
 
     def write_body(self, rig, body: str) -> str:
-        """FNV body `body` (a file in the skeleton folder) on the rig, with its materials and textures; its name."""
-        fnv_dir = self.export_dir / 'meshes' / rig.folder
-        parts = [fnv_dir / part for part in body_parts(body)]
-        statics, _ = assets.write_body(parts, fnv_dir / 'skeleton.nif', self.bones[rig.folder],
-                                       self.out(rig, 'CharacterAssets', body), self.export_dir)
-        for static in statics:
-            stage_files(self.export_dir, mesh_files(static), self.data_dir)
+        """FNV body `body` (a file in the skeleton folder) on the rig, with its materials and textures; its name. The
+        body and its files are kept in the work cache by its FNV meshes, bones and name (the textures it names are
+        FNV's export, not read again).
+        See: docs/fork/fo4_plugin_layout.md#stage-times
+        """
+        fnv_dir = asset_root(self.export_dir, 'meshes', rig.folder)
+        parts, target = [fnv_dir / part for part in body_parts(body)], self.out(rig, 'CharacterAssets', body)
+        inputs = (*(Path(str(p)).read_bytes() for p in parts), Path(str(fnv_dir / 'skeleton.nif')).read_bytes(),
+                  pickle.dumps(self.bones[rig.folder], protocol=5), target.name)
+        nif, files = cached(BODY_SITE, assets.__name__, inputs, lambda: self._body(parts, fnv_dir, rig, target))
+        write_new(target, nif)
+        for made in files:
+            stage_files(self.export_dir, made, self.data_dir)
         return body
+
+    def skeleton_nif(self, fnv_dir, rig, fires: dict) -> dict:
+        """assets.write_skeleton_nif's skeleton.nif and ragdoll bones, kept in the work cache by the FNV skeleton and
+        `fires` (Elric runs only when they change)."""
+        target = self.out(rig, 'CharacterAssets', 'skeleton.nif')
+        inputs = (Path(str(fnv_dir / 'skeleton.nif')).read_bytes(), repr(sorted(fires.items())))
+        nif, ragdoll = cached(SKELETON_SITE, assets.__name__, inputs, lambda: self._skeleton(fnv_dir, target, fires))
+        write_new(target, nif)
+        return ragdoll
+
+    @staticmethod
+    def _skeleton(fnv_dir, target: Path, fires: dict) -> tuple:
+        """(write_skeleton_nif's bytes at `target`, its ragdoll bones)."""
+        ragdoll = assets.write_skeleton_nif(fnv_dir / 'skeleton.nif', target, fires)
+        return target.read_bytes(), ragdoll
+
+    def _body(self, parts: list, fnv_dir, rig, target: Path) -> tuple:
+        """(write_body's bytes at `target`, its statics' mesh_files)."""
+        statics, _ = assets.write_body(parts, fnv_dir / 'skeleton.nif', self.bones[rig.folder], target, self.export_dir)
+        return target.read_bytes(), [mesh_files(static) for static in statics]
 
     def skin(self, rig, rec: dict) -> int:
         """The skin showing FNV creature `rec`'s body on its race, written once per body; its addon keeps the

@@ -10,6 +10,7 @@ See: docs/fork/fo4_pipeline.md#formid-ledger
 """
 
 import os
+import struct
 from pathlib import Path
 
 from fo4_import.base.writer import FO4PluginWriter
@@ -66,21 +67,59 @@ class LedgerWriter(FO4PluginWriter):
     """FO4PluginWriter whose generated FormIDs and stable numbers a Ledger keeps (an empty one until use_ledger)."""
 
     def __init__(self, *args, **kwargs):
-        """FO4PluginWriter's arguments; no ledger file yet."""
+        """FO4PluginWriter's arguments; no ledger file yet, no masters' ledgers."""
         super().__init__(*args, **kwargs)
-        self.ledger = Ledger()
+        self.ledger, self.masters_ledgers, self.from_masters, self.left_to_masters = Ledger(), {}, set(), 0
+        self.compare_masters = False
 
     def use_ledger(self, ledger: Ledger) -> None:
         """Keep `ledger`'s ids (reserved) and numbers; call after reserve_source_ids."""
         self.ledger = ledger
         self._derived_taken.update(self.own_index << 24 | oid for oid in ledger.values(ID))
 
+    def use_master_ledgers(self, ledgers: dict) -> None:
+        """Look keys up in `ledgers` ({master index: Ledger}) after the own."""
+        self.masters_ledgers = ledgers
+
+    def _from_master(self, site: str, key) -> 'int | None':
+        """The FormID a master's ledger keeps for `key` at `site` (that master's record); None if none."""
+        for index, ledger in sorted(self.masters_ledgers.items()):
+            oid = ledger.get(ID, site, key)
+            if oid is not None:
+                return index << 24 | oid
+        return None
+
+    def add_record(self, group_sig: str, record_bytes: bytes):
+        """Add a record unless it is a generated record a master already holds (from_masters), counted; with
+        `compare_masters` (a DLC build) every record is added, for master_overrides to compare."""
+        if (not self.compare_masters and record_bytes[:4] != b'GRUP'
+                and struct.unpack_from('<I', record_bytes, 12)[0] in self.from_masters):
+            self.left_to_masters += 1
+            return
+        super().add_record(group_sig, record_bytes)
+
+    def write(self, filepath: str):
+        """FO4PluginWriter.write() with each top group of plain records in FormID order (stable), so the plugin
+        does not depend on the order its makers ran in; a group holding GRUPs (cells, worlds, topics) keeps its own.
+        See: docs/fork/fo4_plugin_layout.md#shared-state
+        """
+        for sig, blobs in self._top_groups.items():
+            if all(b[:4] != b'GRUP' for b in blobs):
+                blobs.sort(key=lambda b: struct.unpack_from('<I', b, 12)[0])
+        super().write(filepath)
+
     def derive_formid(self, site: str, key, legacy=None) -> int:
-        """The FormID of generated record `key` at `site`: the ledger's for `key`, else the one it kept for `legacy`
-        (the key this one replaced; that entry moves to `key`), else the hash of `legacy` or `key`; then kept."""
+        """The FormID of generated record `key` at `site`: the ledger's for `key`, else a master's (that record,
+        not made again), else the one it kept for `legacy` (the key this one replaced; that entry moves to `key`),
+        else the hash of `legacy` or `key`; then kept."""
         if (site, key) in self._derived:
             return self._derived[site, key]
         kept = self.ledger.get(ID, site, key)
+        master = self._from_master(site, key) if kept is None else None
+        if master is not None:
+            self._derived[site, key] = master
+            self.from_masters.add(master)
+            return master
         if kept is None and legacy is not None:
             kept = self.ledger.pop(ID, site, legacy)
         fid = self.own_index << 24 | kept if kept is not None else super().derive_formid(

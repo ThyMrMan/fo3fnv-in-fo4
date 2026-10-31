@@ -211,9 +211,27 @@ def _emit_weap_fire(lines: list, rec: Record, dnam):
         emit_float(lines, "DNAM.ShotsPerSec", dnam, 88)
     if dnam and len(dnam.data) >= 108:
         lines.append(f"DNAM.Skill={struct.unpack_from('<i', dnam.data, 104)[0]}")
+    _emit_weap_crit(lines, rec, dnam)
     for sig in _WEAP_FORMIDS:
         emit_formid(lines, sig, get_subrecord(rec, sig))
     emit_string(lines, "NNAM", get_subrecord(rec, "NNAM"))
+
+
+def _emit_weap_crit(lines: list, rec: Record, dnam):
+    """V.A.T.S. and critical fields: DNAM 56 Flags2 (0x8 Override - Action Points), 68 the override's AP cost;
+    CRDT 0 Critical Damage (u16), 4 Crit % Mult, 8 Flags (0x1 On Death), 12 Effect (SPEL).
+    See: docs/commentary/tes4_export_falloutnv.md#weapon-criticals
+    """
+    if dnam and len(dnam.data) >= 72:
+        lines.append(f"DNAM.Flags2={struct.unpack_from('<I', dnam.data, 56)[0]}")
+        emit_float(lines, "DNAM.ActionPoints", dnam, 68)
+    crdt = get_subrecord(rec, "CRDT")
+    if crdt and len(crdt.data) >= 16:
+        d = crdt.data
+        lines.append(f"CRDT.Damage={struct.unpack_from('<H', d, 0)[0]}")
+        emit_float(lines, "CRDT.ChanceMult", crdt, 4)
+        lines.append(f"CRDT.Flags={d[8]}")
+        lines.append(f"CRDT.Effect={get_formid_str(struct.unpack_from('<I', d, 12)[0])}")
 
 
 def _emit_proj_deltas(lines: list, rec: Record):

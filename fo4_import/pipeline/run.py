@@ -1,7 +1,7 @@
 """Build an FNV interior cell (and a rectangle of a worldspace's cells) for Fallout 4: the scope's meshes converted in
 worker processes into the mesh cache, then the spike's records and assets (spike.cell.build).
 
-    py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FalloutNV.esp
+    py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FalloutNV.esm
         --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --region -19 -1 -17 1
         GSDocMitchellHouse
 
@@ -17,8 +17,9 @@ from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
 from fo4_import.app import settings
 from fo4_import.pipeline.converters import placed_types
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import export_file, export_records
 from fo4_import.pipeline.mesh_cache import warm
+from fo4_import.pipeline.stage_timer import report
 from fo4_import.spike import replacements
 from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
 from fo4_import.spike.exterior import Exterior
@@ -38,7 +39,7 @@ def scope_models(export_dir: Path, cell_edid: str, exteriors: tuple) -> list:
     recs = [rec for sig, rec in placed_bases(export_dir, used).values()
             if sig in placed_types('record', 'pickup', 'readable')]
     recs += [r for sig in placed_types('item') for r in export_records(export_dir, sig) if int(r['FormID'], 16) in used]
-    paths = {export_dir / 'meshes' / world_model(r).replace('/', '\\').lower() for r in recs if world_model(r)}
+    paths = {export_file(export_dir, 'meshes', world_model(r).replace('/', '\\').lower()) for r in recs if world_model(r)}
     return sorted(p for p in paths if p.exists())
 
 
@@ -142,6 +143,7 @@ def main():
     counts = build(args.export, args.out, args.data, args.cell, args.scripts, worlds, table, dirs, args.test_cell)
     for key, count in sorted(counts.items()):
         print(f'{key}: {count}')
+    print('\n'.join(report()))
     print(f'built in {time.time() - started:.1f}s')
 
 

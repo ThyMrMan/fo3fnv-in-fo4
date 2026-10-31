@@ -89,18 +89,20 @@ def limit_textures(mixes: dict, grassy: frozenset = frozenset()) -> dict:
     See: docs/fork/fo4_spikes.md#spike-4-exterior
     """
     kept = {(grid, q): kept_textures(mix, grassy) for grid, quads in mixes.items() for q, mix in quads.items()}
+    totals = {(grid, q, t): share.sum() for grid, quads in mixes.items() for q, mix in quads.items()
+              for t, share in mix.items()}
     allowed = {key: [set(textures)] * QUAD_POINTS for key, textures in kept.items()}
     fill = {key: [textures[0]] * QUAD_POINTS for key, textures in kept.items()}
     for members in _shared(mixes).values():
         common = set.intersection(*(set(kept[(grid, q)]) for grid, q, _ in members))
-        heaviest = max(sorted(common), key=lambda t: sum(mixes[g][q][t].sum() for g, q, _ in members), default=None)
+        heaviest = max(sorted(common), key=lambda t: sum(totals[g, q, t] for g, q, _ in members), default=None)
         for grid, q, pos in members:
             allowed[(grid, q)][pos] = common or set(kept[(grid, q)])
             fill[(grid, q)][pos] = heaviest or kept[(grid, q)][0]
     out = {}
     for (grid, q), textures in kept.items():
-        mix = mixes[grid][q]
-        shares = np.array([[mix[t][p] if t in allowed[(grid, q)][p] else 0.0 for p in range(QUAD_POINTS)]
+        mix, ok = mixes[grid][q], allowed[(grid, q)]
+        shares = np.array([np.where([t in ok[p] for p in range(QUAD_POINTS)], mix[t], 0.0)
                            for t in textures]).clip(0.0, 1.0)
         for p in np.flatnonzero(shares.sum(0) <= 0):
             shares[textures.index(fill[(grid, q)][p]), p] = 1.0
@@ -144,5 +146,7 @@ def blend_borders(mixes: dict) -> dict:
         average = {t: sum(mix[t][pos] for mix, pos in members if t in mix) / len(members) for t in textures}
         for mix, pos in members:
             for texture, share in average.items():
-                mix.setdefault(texture, np.zeros(QUAD_POINTS))[pos] = share
+                if texture not in mix:
+                    mix[texture] = np.zeros(QUAD_POINTS)
+                mix[texture][pos] = share
     return mixes

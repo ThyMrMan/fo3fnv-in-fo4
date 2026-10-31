@@ -24,13 +24,12 @@ See: docs/fork/fo4_gui.md#replacement-data
 """
 
 import json
-import struct
 from dataclasses import dataclass
 from pathlib import Path
 
 from core.mod_sources import find_file
-from fo4_import.base.install import FALLOUT4_DIR
-from tes5_import.base.tes5_reader import first_sub, subrecords, walk
+from fo4_import.base.install import FALLOUT4_DIR, file_masters, masters_of
+from tes5_import.base.tes5_reader import first_sub, walk
 
 BASE = 'Fallout4.esm'
 #: Fallout 4's official add-ons in the game's load order; as masters they come before any mod's plugin.
@@ -53,8 +52,6 @@ BIPED = {'Head': 0x1, 'Hair': 0x2, 'Upper Body': 0x4, 'Left Hand': 0x8, 'Right H
 #: Melee rule keys -> FNV WEAP DNAM animation type.
 MELEE_ANIMS = {'hand_to_hand': 0, 'one_hand': 1, 'two_hand': 2}
 BODY_KINDS = ('human_male', 'human_female', 'ghoul_male', 'ghoul_female')
-#: A FO4 plugin's file header is 24 bytes; its masters are MAST subrecords.
-HEADER = 24
 
 
 # ---------------------------------------------------------------------------
@@ -256,13 +253,6 @@ def presence(dirs: tuple):
     return present
 
 
-def file_masters(path: Path) -> list:
-    """A plugin file's master names, read from its header record only."""
-    with open(path, 'rb') as f:
-        head = f.read(HEADER)
-        return plugin_masters(head + f.read(struct.unpack_from('<I', head, 4)[0]))
-
-
 def _read(path: Path) -> dict:
     """A table layer's JSON."""
     return json.loads(Path(path).read_text(encoding='utf-8'))
@@ -277,13 +267,6 @@ def extra_masters(table: Table) -> list:
     named = {r.plugin.lower(): r.plugin for r in table.entries() if not r.base}
     dlc = [d for d in DLC if d.lower() in named]
     return dlc + sorted((p for k, p in named.items() if k not in {d.lower() for d in dlc}), key=str.lower)
-
-
-def plugin_masters(data: bytes) -> list:
-    """A plugin's master file names, from its file header."""
-    size = struct.unpack_from('<I', data, 4)[0]
-    return [body.rstrip(b'\0').decode('cp1252') for sig, body in subrecords(data[HEADER:HEADER + size])
-            if sig == b'MAST']
 
 
 def _find(plugin: str, dirs: list) -> Path:
@@ -319,7 +302,7 @@ def targets(entries: dict, fo4: bytes, masters: list, dirs: tuple, types: tuple)
                 wanted.setdefault(r.edid.lower(), []).append(key)
         base = plugin.lower() == BASE.lower()
         data = fo4 if base else _find(plugin, dirs).read_bytes()
-        theirs = [] if base else plugin_masters(data)
+        theirs = [] if base else masters_of(data)
         for rec, _ in walk(data, *types):
             for key in wanted.get((first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode('cp1252').lower(), ()):
                 out[key] = rec.form_id if base else _ours(rec.form_id, theirs, plugin, masters)

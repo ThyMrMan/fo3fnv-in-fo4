@@ -16,6 +16,7 @@ import pytest
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
+from fo4_import.base import ba2_pack
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.base.writer import pack_fo4_header, pack_fo4_record
@@ -226,11 +227,12 @@ def test_export_refuses_facegen_with_32_bit_cloth_physics(monkeypatch, tmp_path)
         FG.export('Spike.esp', tmp_path)
 
 
-def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_path):
+def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_path, monkeypatch):
     """A FaceGeom NIF of an NPC_ the plugin dropped goes with its textures; a texture an older export left (no NIF)
     goes, loose or staged; a current NPC_'s face stays."""
     geom, loose = (tmp_path / folder / 'Spike.esp' for folder in FG.FACEGEN_DIRS)
-    staged = tmp_path / FG.STAGING / FG.FACEGEN_DIRS[1] / 'Spike.esp'
+    monkeypatch.setattr(ba2_pack, 'STAGING_CACHE', tmp_path / 'cache')
+    staged = ba2_pack.staging_root(tmp_path) / FG.FACEGEN_DIRS[1] / 'Spike.esp'
     for folder in (geom, loose, staged):
         folder.mkdir(parents=True)
     for stem in ('00000801', '00000802'):

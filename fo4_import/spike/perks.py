@@ -29,7 +29,12 @@ from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
 #: FNV entry point -> the FO4 entry point of the same meaning (fo4_perks.md#census).
 ENTRY_POINTS = {0: 35, 1: 1, 2: 2, 4: 3, 6: 4, 8: 123, 9: 22, 11: 5, 12: 6, 23: 11, 25: 13, 31: 15, 32: 16, 34: 134,
-                36: 17, 40: 79, 59: 103, 72: 100}
+                36: 17, 40: 79, 58: 37, 59: 103, 72: 100}
+#: FNV DT perks on the attacker (58), whose function 1 is Subtract Value; FO4 Add Value; FNV Subtract Value.
+IGNORED_DT, ADD_VALUE, SUBTRACT_VALUE = 58, 2, 1
+#: FNV entry point on a stat -> (FO4 actor value, name or FormID; FO4 units per 1.0 of an FNV multiplier).
+STAT_ENTRIES = {37: (0x2D3, 1.0), 39: (0x2D8, 6.0), 42: ('SpeedMult', 100.0), 44: (0x2E9, -100.0),
+                56: ('DamageThreshold', 1.0)}
 #: FNV entry point -> (Fallout4.esm perk, its entry point) whose effect does the same in FO4.
 VANILLA_EFFECTS = {20: ('Hacker04', 127), 29: ('IronFist05', 155), 33: ('ConcentratedFire01', 109),
                    35: ('GrimReaperSprint01', 107)}
@@ -64,6 +69,8 @@ SKILL_GATES = ((62, 'Lockpick'), (98, 'Science'))
 GATE_SKILLS = (50.0, 75.0, 100.0)
 #: Entry point function Set Value, its float parameter type (EPFT), and CTDA's greater-or-equal.
 SET_VALUE, FLOAT_PARAM, AT_LEAST = 1, 1, 0x60
+#: The critical chance entry point (FNV's and FO4's) and the Multiply Value function (folded by spike.criticals).
+CRIT_CHANCE, MULTIPLY = 1, 3
 #: The skill gates perk: its EditorID and FormID key, and DATA (no trait or level, one rank, unplayable, hidden).
 GATES_EDID, GATES_KEY, GATES_DATA = 'FNV_SkillGates', 'PERK skill gates', struct.pack(PERK_DATA, 0, 0, 1, 0, 1)
 
@@ -206,21 +213,21 @@ class Perks:
             if int(rec.get(f'{key}.Rank', 0)) != rank:
                 continue
             kind = EFFECT_TYPES.get(rec.get(f'{key}.Type'))
+            kind = ABILITY if kind == ENTRY_POINT and int(rec.get(f'{key}.EntryPoint', -1)) in STAT_ENTRIES else kind
             if gate and kind != ENTRY_POINT:
                 self.builder.counts['companion perk effect left out (not an entry point)'] += 1
                 continue
             made = self._effect(rec, key, kind, off, f'{edid} {i}')
-            if made is None:
-                continue
-            data, tabs, params = made
-            if kind == ENTRY_POINT:
-                tabs = {**tabs, 0: off + tabs.get(0, b'')} if off else tabs
-                params, entry = _with_entry_id(params, entry), entry + 1
-            out.append((int(rec.get(f'{key}.Priority', 0)), kind, pack_effect(kind, data, tabs, params)))
+            for data, tabs, params in [] if made is None else made if isinstance(made, list) else [made]:
+                if kind == ENTRY_POINT:
+                    tabs = {**tabs, 0: off + tabs.get(0, b'')} if off else tabs
+                    params, entry = _with_entry_id(params, entry), entry + 1
+                out.append((int(rec.get(f'{key}.Priority', 0)), kind, pack_effect(kind, data, tabs, params)))
         return b''.join(e for _, _, e in sorted(out, key=lambda e: e[:2]))
 
     def _effect(self, rec: dict, key: str, kind: int, off: bytes, owner: str) -> 'tuple | None':
-        """(DATA, {tab: conditions}, parameters) of one FNV perk effect; None, counted, when it cannot convert."""
+        """(DATA, {tab: conditions}, parameters) of one FNV perk effect, or a list of them (a folded critical
+        chance multiplier); None, counted, when it cannot convert."""
         if kind == QUEST_STAGE:
             quest = self.forms.get(int(rec.get(f'{key}.Quest', '0'), 16))
             if quest is None:
@@ -228,13 +235,44 @@ class Perks:
                 return None
             return struct.pack('<IH', quest, int(rec.get(f'{key}.Stage', 0)) & STAGE_MASK), {}, []
         if kind == ABILITY:
-            spell = self._ability(int(rec.get(f'{key}.Ability', '0'), 16), off, owner)
+            spell = (self._stat_ability(rec, key, off, owner) if f'{key}.EntryPoint' in rec
+                     else self._ability(int(rec.get(f'{key}.Ability', '0'), 16), off, owner))
             return None if spell is None else (struct.pack('<I', spell), {}, [])
         return self._entry_point(rec, key)
 
+    def _stat_ability(self, rec: dict, key: str, off: bytes, owner: str) -> 'int | None':
+        """An FNV entry point on one of the actor's stats (STAT_ENTRIES) as an ability: a spell of one constant
+        effect on its FO4 actor value (Add Value as is, Multiply Value m as (m - 1) x its units), under the effect's
+        owner conditions and `off`; None, counted, when it tests another tab or a condition cannot convert.
+        See: docs/fork/fo4_perks.md#stat-abilities
+        """
+        name, units = STAT_ENTRIES[int(rec[f'{key}.EntryPoint'])]
+        function, tabs = int(rec[f'{key}.Function']), _tabs(rec, key)
+        conds = conditions_of(tabs.get(0, {}), self.forms, self.script_vars) if tabs.get(0) else b''
+        if conds is None or function not in (ADD_VALUE, MULTIPLY) or any(raws for t, raws in tabs.items() if t):
+            self.builder.counts['perk effect left out (stat entry: another tab or condition)'] += 1
+            return None
+        value = struct.unpack('<f', bytes.fromhex(rec[f'{key}.Value']))[0]
+        magnitude = value if function == ADD_VALUE else units * (value - 1.0)
+        fo4_av = name if isinstance(name, int) else actor_value_form(name, self.helper_index)
+        template = TEMPLATES[(False, True)]
+        effect = self.constants.get((fo4_av, False, True)) or self.constants.get((fo4_av, False, False))
+        if not effect and isinstance(name, int):
+            self.builder.counts['perk effect left out (stat entry: no FO4 effect)'] += 1
+            return None
+        effect = effect or self.effects.copy(template, name, 'copy', f'{template} {name}', f'FNV_{template}_{name}')
+        fid = self.builder.new_id(f'SPEL {owner} stat')
+        pair = pack_subrecord('EFID', struct.pack('<I', effect))
+        pair += pack_subrecord('EFIT', struct.pack('<fII', magnitude, 0, 0))
+        self.builder.writer.add_record('SPEL', pack_spell(fid, f'FNV_{owner.split()[0]}Stat{owner.split()[-1]}', '',
+                                                          self.vanilla[SPELL_TEMPLATE][1], pair + off + conds))
+        self.builder.counts['SPEL (perk stat ability)'] += 1
+        return fid
+
     def _entry_point(self, rec: dict, key: str) -> 'tuple | None':
-        """An FNV entry-point effect on FO4's (ENTRY_POINTS) or vanilla's (VANILLA_EFFECTS); None, counted, when
-        FO4 has neither, a condition cannot convert or it tests a tab FO4's entry point lacks."""
+        """An FNV entry-point effect on FO4's (ENTRY_POINTS) or vanilla's (VANILLA_EFFECTS), a critical chance
+        multiplier as additions (spike.criticals); None, counted, when FO4 has neither, a condition cannot convert
+        or it tests a tab FO4's entry point lacks."""
         ep, value_type = int(rec[f'{key}.EntryPoint']), int(rec.get(f'{key}.ValueType', 0))
         if ep in VANILLA_EFFECTS:
             perk, fo4 = VANILLA_EFFECTS[ep]
@@ -252,8 +290,13 @@ class Perks:
                 return None
             tabs[tab] = conds
         value = bytes.fromhex(rec.get(f'{key}.Value', ''))
+        function = int(rec[f'{key}.Function'])
+        if ep == CRIT_CHANCE and function == MULTIPLY and value_type == FLOAT_PARAM:
+            return self.builder.criticals.folded(tabs, struct.unpack('<f', value)[0])
+        if ep == IGNORED_DT and function == SUBTRACT_VALUE and value_type == FLOAT_PARAM:
+            function, value = ADD_VALUE, struct.pack('<f', -struct.unpack('<f', value)[0])
         params = [(b'EPFT', bytes([value_type]))] + ([(b'EPFD', value)] if value_type else [])
-        return bytes([fo4, int(rec[f'{key}.Function']), count]), tabs, params
+        return bytes([fo4, function, count]), tabs, params
 
     def _ability(self, fnv: int, off: bytes, owner: str) -> 'int | None':
         """The FO4 ability of FNV spell `fnv`, its effects off when `off` holds (an earlier rank's); None, counted,

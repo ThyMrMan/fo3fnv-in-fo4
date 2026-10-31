@@ -27,7 +27,8 @@ import shutil
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
+from fo4_import.base.quest_merge import appended, regrouped
 from fo4_import.base.support_records import pack_mesg
 from fo4_import.base.vmad import object_scripts, quest_fragments
 from fo4_import.base.writer import pack_fo4_record
@@ -38,7 +39,7 @@ from fo4_import.spike.ammo_mods import (ADD, ATTACK_DAMAGE, CONDITION, INT, MULT
                                         scaled, with_point)
 from fo4_import.spike.hotkey_items import hotkey_effect, hotkey_item
 from fo4_import.spike.type_tests import with_keywords
-from tes5_import.base.tes5_reader import first_sub, walk
+from tes5_import.base.tes5_reader import first_sub
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
 #: derive_formid site: quest, item, effect, keywords, 'tier <t>', 'armor tier <t>[ rating <r>]', messages, 'repair <FLST>'.
@@ -78,6 +79,37 @@ PLUGIN = Path(__file__).resolve().parents[2] / 'tes_runtime' / 'dist' / 'F3NV.dl
 PLUGIN_DIR = Path('F4SE') / 'Plugins'
 #: The plugin's name before 2026-10-23, deleted on rebuild: both would load and hook the Pip-Boy twice.
 LEGACY_PLUGIN = 'FalloutCondition.dll'
+#: F3NV_ConditionPlayer's parallel rows: per weapon, per armor, and per item of either for repair.
+WEAPON_COLUMNS, ARMOR_COLUMNS = ('Weapons', 'MaxHealth', 'JamTimes'), ('Armors', 'ArmorMax', 'ArmorGroup')
+REPAIR_ROWS = ('Item', 'RepairLists', 'JuryGroups')
+
+
+def _tier_groups(values: dict) -> list:
+    """F3NV_ConditionPlayer's armor tier groups: each group's eleven tier mods, by index."""
+    tiers = values['ArmorTiers'][1]
+    return [tuple(tiers[i:i + TENTHS + 1]) for i in range(0, len(tiers), TENTHS + 1)]
+
+
+def _repair_rows(values: dict, side: str) -> dict:
+    """F3NV_ConditionPlayer's repair rows of the `side` items ('Weapons' rows lead, 'Armors' follow), keyed 'Item'."""
+    weapons = len(values['Weapons'][1])
+    cut = slice(0, weapons) if side == 'Weapons' else slice(weapons, None)
+    return {'Item': values[side], **{name: (values[name][0], values[name][1][cut]) for name in REPAIR_ROWS[1:]}}
+
+
+def merge(game: dict, dlc: dict) -> dict:
+    """F3NV_ConditionPlayer's arrays as the game's items, rounds and perks then the DLC's new ones; the DLC's armor
+    tier groups renumbered onto the game's same eleven tiers (quest_merge)."""
+    tiers, index = regrouped(*(_tier_groups(v) for v in (game, dlc)))
+    out = {**appended(game, dlc, 'Weapons', WEAPON_COLUMNS), **appended(game, dlc, 'AmmoMarks', ('AmmoMarks', 'AmmoWear')),
+           **appended(game, dlc, 'WearPerks', ('WearPerks', 'WearPerkMults')),
+           **appended(game, dlc, 'Armors', ARMOR_COLUMNS, {'ArmorGroup': index})}
+    out['ArmorTiers'] = ('objects', [t for group in tiers for t in group])
+    weapon_rows, armor_rows = (appended(*(_repair_rows(v, side) for v in (game, dlc)), 'Item', REPAIR_ROWS)
+                               for side in ('Weapons', 'Armors'))
+    for name in ('RepairLists', 'JuryGroups'):
+        out[name] = (game[name][0], weapon_rows[name][1] + armor_rows[name][1])
+    return out
 
 
 def damage_factor(health: float) -> float:
@@ -142,7 +174,7 @@ def jam_times() -> dict:
     """{FNV WEAP FormID: its reload jam time in seconds (DNAM), or -1 with No Jam After Reload}, read from the
     source plugin. See: docs/fork/fo4_condition.md#jams"""
     out = {}
-    for rec, _ in walk(source_esm(), b'WEAP'):
+    for rec, _ in source_walk(b'WEAP'):
         dnam = first_sub(rec.body, b'DNAM') or b''
         if len(dnam) >= JAM_TIME_AT + 4:
             exempt = struct.unpack_from('<I', dnam, FLAGS2_AT)[0] & NO_JAM_AFTER_RELOAD
@@ -155,7 +187,7 @@ def jury_groups() -> dict:
     and skill, an armor's weight class and equipment type, as FalloutNV.exe compares them; non-playable items
     have none. See: docs/fork/fo4_condition.md#jury-rigging"""
     out = {}
-    for rec, _ in walk(source_esm(), b'WEAP', b'ARMO'):
+    for rec, _ in source_walk(b'WEAP', b'ARMO'):
         if rec.sig == b'WEAP':
             dnam = first_sub(rec.body, b'DNAM') or b''
             if len(dnam) >= SKILL_AT + 4 and not dnam[FLAGS1_AT] & NON_PLAYABLE_WEAPON:
@@ -178,7 +210,7 @@ def jury_rigging_perks(perks: list) -> list:
 def repair_lists() -> dict:
     """{FNV WEAP or ARMO FormID: its repair list's FLST FormID} (REPL), read from the source plugin."""
     out = {}
-    for rec, _ in walk(source_esm(), b'WEAP', b'ARMO'):
+    for rec, _ in source_walk(b'WEAP', b'ARMO'):
         repl = first_sub(rec.body, b'REPL')
         if repl:
             out[rec.form_id] = struct.unpack('<I', repl)[0]
@@ -210,8 +242,8 @@ class Condition:
         return with_point(with_keywords(subs, [self._keyword()]), self._point())
 
     def write(self, ammo_mods, data_dir: Path, helper_index: int) -> None:
-        """The condition quest, tiers, messages and Repair hotkey for the wired items, and the plugin DLL in
-        `data_dir`; nothing without a wired item."""
+        """The condition quest, tiers, messages and Repair hotkey for the wired items, and (the game build only)
+        the plugin DLL in `data_dir`; nothing without a wired item."""
         if not self.weapons and not self.armors:
             return
         writer = self.builder.writer
@@ -235,6 +267,8 @@ class Condition:
         self.builder.scripts.used += [SCRIPT, CALLS, NATIVES, ITEM_SCRIPT]
         self.builder.counts['condition weapons'], self.builder.counts['condition armor'] = (len(self.weapons),
                                                                                              len(self.armors))
+        if self.builder.built:
+            return
         (data_dir / PLUGIN_DIR).mkdir(parents=True, exist_ok=True)
         shutil.copy2(PLUGIN, data_dir / PLUGIN_DIR / PLUGIN.name)
         legacy = data_dir / PLUGIN_DIR / LEGACY_PLUGIN

@@ -19,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from asset_convert.game_paths import namespace_for
+from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import compile_folder, header_dirs
 from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import info_fragments, object_scripts, quest_fragments
@@ -140,30 +141,34 @@ def converted_prefix(scripts_dir: Path) -> str:
 
 def with_types(scripts_dir: Path, names, prefix: str) -> set:
     """`names` and every converted script (`prefix` names) they name, transitively: a script whose types are
-    missing does not link."""
+    missing does not link. Each script's named types are kept between builds by file stamp (file_stamps)."""
     known = {p.stem.upper(): p.stem for p in scripts_dir.glob(f'{prefix}*.psc')}
     converted = re.compile(rf'\b{re.escape(prefix)}\w+', re.I)
+    found = lambda path: sorted({t.upper() for t in converted.findall(path.read_text(encoding='utf-8'))})
+    stamps = Stamps(STAGE / f'types_{hashlib.sha1(f"{scripts_dir}|{prefix}".lower().encode()).hexdigest()[:12]}.json')
     todo, seen = list(names), set()
     while todo:
         name = todo.pop()
         if name in seen:
             continue
         seen.add(name)
-        text = (scripts_dir / f'{name}.psc').read_text(encoding='utf-8')
-        todo += [known[t.upper()] for t in converted.findall(text) if t.upper() in known]
+        todo += [known[t] for t in stamps.value(scripts_dir / f'{name}.psc', found) if t in known]
+    stamps.save()
     return seen
 
 
-def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = ()) -> str:
+def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = (), masters: tuple = ()) -> str:
     """Compile Doc's script (when the folder has it), `fragments`, the scripts they name and every static helper
     into <data_dir>/Scripts; a summary. Only what changed since the last build compiles
     (compile_papyrus.compile_fallout4), from a staging folder that stays put between builds and holds every
-    script the staged ones name."""
+    script the staged ones name. A dependent plugin's build compiles only its own folder's scripts, its masters'
+    folders `masters` imported: theirs ship with them."""
     scripts_dir, out = scripts_dir.resolve(), (data_dir / 'Scripts').resolve()
     out.mkdir(parents=True, exist_ok=True)
     prefix = converted_prefix(scripts_dir)
     roots = [DOC_SCRIPT] if (scripts_dir / f'{DOC_SCRIPT}.psc').exists() else []
-    wanted = with_types(scripts_dir, [*roots, *fragments], prefix)
+    own = [f for f in fragments if not masters or (scripts_dir / f'{f}.psc').exists()]
+    wanted = with_types(scripts_dir, [*roots, *own], prefix)
     keep = {p.name for p in scripts_dir.glob('*.psc') if p.stem in wanted or not p.stem.upper().startswith(prefix)}
     stage = STAGE / hashlib.sha1(str(out).encode()).hexdigest()[:12]
     stage.mkdir(parents=True, exist_ok=True)
@@ -174,7 +179,8 @@ def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = ()) -> str
         if not (stage / name).exists() or (stage / name).read_bytes() != (scripts_dir / name).read_bytes():
             shutil.copyfile(scripts_dir / name, stage / name)
     compiled, own, names = compile_fallout4(SimpleNamespace(src=str(stage), out=str(out), full=False, workers=WORKERS,
-                                                            headers=None))
+                                                            headers=';'.join([header_dirs(), *(str(Path(m).resolve()) for m in masters)])
+                                                            if masters else None))
     failed = sorted(n for n in names if n.lower() not in compiled)
     return f'{len(names) - len(failed)} of {len(names)} scripts compile' + ''.join(
         f'\n  {n}: {"; ".join(own.get(n, ["no error of its own (a script it uses failed, or the compiler did)"]))}'

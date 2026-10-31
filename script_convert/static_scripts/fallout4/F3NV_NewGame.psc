@@ -16,6 +16,22 @@ ImageSpaceModifier Property CharGenMirrorImod Auto Const
 {MQ101 stage 0's mirror camera effects: the camera one holds until removed (as MQ101PlayerScript removes it).}
 Perk Property SkillGates Auto Const
 {The hidden perk opening FO4's lock and terminal tiers by the source game's Lockpick and Science skills.}
+Perk Property CombatRules Auto Const
+{The hidden perk carrying the source game's combat rules: critical hit chance, weapon skill damage and spread.}
+ActorValue Property DamageResist Auto Const
+{The source game's damage resistance (a percentage; the helper plugin's FalloutDamageResist).}
+ActorValue Property DamageThreshold Auto Const
+{The source game's damage threshold (FO4's DamageResist).}
+ActorValue Property EnergyResist Auto Const
+{FO4's EnergyResist, whose damage the source game's threshold also stops.}
+Float Property MinDamage Auto Const
+{fMinDamMultiplier: the smallest share of a hit that gets through.}
+Float Property MaxResist Auto Const
+{fMaxArmorRating / 100: the damage resistance cap.}
+Spell Property PlayerRules Auto Const
+{The source game's base health and run speed against Fallout 4's, as an ability.}
+ActorValue Property CarryWeight Auto Const
+{Nudged when the ability is added, so the engine takes up the new SpeedMult.}
 ; MQ101QuestScript's timer re-disabling directional light, SSR and god rays each second until var_MirrorSequenceDone.
 Int MirrorTimer = 50
 
@@ -110,9 +126,20 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
 EndEvent
 
 Function GivePerks(Actor akPlayer)
-  {The player's always-on perks (SkillGates), given when this quest starts and on every load, so a save from before a perk existed gets it.}
+  {The player's always-on perks (SkillGates, CombatRules) and ability (PlayerRules), given when this quest starts and on every load, so a save from before a perk existed gets it; and the source game's damage rules handed to the F3NV plugin, which forgets them each session.}
+  If DamageThreshold
+    F3NV_Damage.SetRules(MinDamage, MaxResist, DamageResist, DamageThreshold, EnergyResist)
+  EndIf
   If SkillGates && !akPlayer.HasPerk(SkillGates)
     akPlayer.AddPerk(SkillGates)
+  EndIf
+  If CombatRules && !akPlayer.HasPerk(CombatRules)
+    akPlayer.AddPerk(CombatRules)
+  EndIf
+  If PlayerRules && !akPlayer.HasSpell(PlayerRules)
+    akPlayer.AddSpell(PlayerRules, False)
+    akPlayer.ModValue(CarryWeight, 1.0)
+    akPlayer.ModValue(CarryWeight, -1.0)
   EndIf
 EndFunction
 

@@ -31,9 +31,9 @@ See: docs/fork/fo4_pipeline.md#music
 import math
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import export_file, export_records
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -92,10 +92,10 @@ class Music:
     def __init__(self, builder):
         """Read FalloutNV.esm's media sets, controllers and audio markers, and the export's music types."""
         self.builder, self.made, self.tracks = builder, {}, {}
-        self.fnv = {r.form_id: list(subrecords(r.body)) for r, _ in walk(source_esm(), b'MSET', b'ALOC')}
+        self.fnv = {r.form_id: list(subrecords(r.body)) for r, _ in source_walk(b'MSET', b'ALOC')}
         self.musc = {int(r['FormID'], 16): r for r in export_records(builder.export_dir, 'MUSC')}
         self.markers = {}
-        for rec, stack in walk(source_esm(), b'REFR'):
+        for rec, stack in source_walk(b'REFR'):
             subs = dict(subrecords(rec.body))
             if b'MMRK' in subs and struct.unpack('<I', subs[b'NAME'])[0] == AUDIO_MARKER:
                 x, y = struct.unpack_from('<2f', subs[b'DATA'])
@@ -159,7 +159,7 @@ class Music:
     def _file_track(self, name: str, when: tuple) -> int:
         """The single track playing FNV music file `name` (under Data\\Music) under conditions `when`."""
         stem = name.rsplit('.', 1)[0].replace('/', '\\')
-        source = self.builder.export_dir / 'music' / name.replace('\\', '/')
+        source = export_file(self.builder.export_dir, 'music', name.replace('\\', '/'))
         self.builder.sounds.jobs.append((source, self.builder.data_dir / 'Music' / 'FNV' / f'{stem}.xwm', None))
         return self._track(f'{stem}|{when}', SINGLE, f'data\\Music\\FNV\\{stem}.wav', when)
 

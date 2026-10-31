@@ -7,7 +7,8 @@ half extents), XPOD (a portal's origin and destination rooms) or XRGD (the
 bone pose of a ragdolled object, such as a lying skeleton). Fallout 4 has
 all four in FNV's layout, so they are copied from the plugin itself, read
 once per build; a portal's rooms are renumbered as every reference is.
-A portal keeps no XMBO, as none of Fallout4.esm's 1,725 portals has one.
+A portal keeps no XMBO, as none of Fallout4.esm's 1,725 portals has one, and
+neither does a trigger box (an activator's primitive): none of its 5,335 do.
 An owner (XOWN, FNV's 4 bytes in FO4's 12) is its converted faction or NPC;
 an owner not converted is dropped with its faction rank (XRNK).
 
@@ -17,8 +18,8 @@ See: docs/fork/fo4_pipeline.md#rooms
 import functools
 import struct
 
-from fo4_import.base.install import source_esm
-from tes5_import.base.tes5_reader import subrecords, walk
+from fo4_import.base.install import source_walk
+from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: The subrecords copied, in FO4's REFR order.
@@ -43,13 +44,28 @@ INITIALLY_DISABLED = 0x800
 
 
 @functools.cache
+def _activators() -> frozenset:
+    """FNV FormIDs of the activators (ACTI, TACT), trigger boxes' bases."""
+    return frozenset(rec.form_id for rec, _ in source_walk(b'ACTI', b'TACT'))
+
+
+def _room_bound(subs: list) -> bool:
+    """Whether a reference's subrecords hold an XMBO not on a trigger box.
+    See: docs/fork/fo4_pipeline.md#rooms
+    """
+    tags = dict(subs)
+    return b'XMBO' in tags and (b'NAME' not in tags or struct.unpack('<I', tags[b'NAME'])[0] not in _activators())
+
+
+@functools.cache
 def _scan() -> tuple:
     """({FNV reference FormID: [(tag, data)]} of the references and actors holding any KEPT subrecord,
-    {FormID: record flags} of all of them), read once from FalloutNV.esm."""
+    {FormID: record flags} of all of them), read once from FalloutNV.esm; a trigger box's XMBO left out."""
     out, flags = {}, {}
-    for rec, _ in walk(source_esm(), b'REFR', b'ACHR', b'ACRE'):
+    for rec, _ in source_walk(b'REFR', b'ACHR', b'ACRE'):
         flags[rec.form_id] = rec.flags
-        found = [(tag, data) for tag, data in subrecords(rec.body) if tag in KEPT]
+        subs = list(subrecords(rec.body))
+        found = [(tag, data) for tag, data in subs if tag in KEPT and (tag != b'XMBO' or _room_bound(subs))]
         if found:
             out[rec.form_id] = found
     return out, flags
@@ -94,10 +110,11 @@ def open_rooms() -> frozenset:
     See: docs/fork/fo4_pipeline.md#rooms
     """
     rooms, open_cells = {}, set()
-    for rec, stack in walk(source_esm(), b'REFR'):
-        subs = dict(subrecords(rec.body))
+    for rec, stack in source_walk(b'REFR'):
+        listed = list(subrecords(rec.body))
+        subs = dict(listed)
         cell = next((g.label for g in reversed(stack.groups) if g.type in CELL_CHILDREN), None)
-        if b'XMBO' in subs or b'XPOD' in subs:
+        if _room_bound(listed) or b'XPOD' in subs:
             rooms.setdefault(cell, []).append(rec.form_id)
         if 0 in struct.unpack_from('<2I', subs.get(b'XPOD', b'\1' * 8)):
             open_cells.add(cell)

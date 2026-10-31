@@ -16,9 +16,11 @@ def test_the_new_game_quest_has_a_hand_start_stage(monkeypatch):
     written = []
     builder = SimpleNamespace(writer=SimpleNamespace(derive_formid=lambda site, key: 0x01000800,
                                                      add_record=lambda sig, rec: written.append((sig, rec))),
-                              perks=SimpleNamespace(gates=0x01000900), counts=Counter(),
+                              perks=SimpleNamespace(gates=0x01000900), combat=SimpleNamespace(fid=0x01000901, damage_rules=({}, {}), settings={}),
+                              counts=Counter(),
                               scripts=SimpleNamespace(used=[]))
     monkeypatch.setattr(new_game, 'start_special', lambda export_dir: [5.0] * 7)
+    monkeypatch.setattr(new_game, 'PlayerRules', lambda *args: SimpleNamespace(write=lambda: None))
     new_game.build(builder, Path('export/FalloutNV.esm'), {'VCG00': 0x0100A000})
     (sig, rec), = written
     subs = list(subrecords(rec[24:]))

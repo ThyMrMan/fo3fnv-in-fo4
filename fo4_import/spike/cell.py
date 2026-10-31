@@ -16,28 +16,29 @@ import struct
 import time
 from pathlib import Path
 
-from fo4_import.base.ba2_pack import pack_sounds, pack_textures, sound_root, stage_loose_sounds
-from fo4_import.base.bink import write_movies
-from fo4_import.base.dangling_scripts import clear_dangling
+from fo4_import.base.ba2_pack import sound_root, staging_root
+from fo4_import.spike.plugin_rename import drop_old_plugins, is_master, move_renamed, retarget_faces
+from fo4_import.base.master_overrides import held_by
+from fo4_import.base.source_ids import SourceIds, built_plugins, dependent_masters, master_ledgers
 from fo4_import.base.ledger import Ledger, LedgerWriter, ledger_path
-from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_esm, use_source
+from fo4_import.base.install import FALLOUT4_ESM, masters_of, source_esm, source_walk, use_source
 from fo4_import.base.source import source_plugin
 from fo4_import.base.support_records import pack_gmst
 from fo4_import.base.writer import pack_fo4_record, pack_quest
 from fo4_import.spike.consumables import Consumables
 from fo4_import.spike.creatures import Creatures
 from fo4_import.spike.combat_styles import CombatStyles
+from fo4_import.spike.combat_perk import combat_rules
 from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.projectiles import Projectiles
 from fo4_import.spike.scol import PART_SITE, Parts, compose
 from fo4_import.spike.emittance import Emittance
 from fo4_import.spike.lighting_template import resolved
-from fo4_import.spike.imagespace import (BASE_IMAGESPACE, DISPLAY_GAMMA, LUT_FOLDER, base_hdr, cinematic, pack_imgs,
+from fo4_import.spike.imagespace import (BASE_IMAGESPACE, DISPLAY_GAMMA, base_hdr, cinematic, pack_imgs,
                                          write_lut)
 from fo4_import.spike.activators import Activators
-from fo4_import.spike import ammo_casings, ammo_switch
 from fo4_import.spike.crafting import Crafting
-from fo4_import.spike import character, facegen, new_game, replacements, skeleton, terrain_lod
+from fo4_import.spike import character, facegen, new_game, replacements, terrain_lod
 from fo4_import.spike.attach import ObjectScripts
 from fo4_import.spike.conversation import Conversations, Hub, hub, speaker_index
 from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
@@ -48,26 +49,23 @@ from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.idle_markers import IdleMarkers
 from fo4_import.spike.interiors import by_cell, scope
 from fo4_import.spike.vendors import merchants, with_chests, write_vendors
-from fo4_import.spike.script_packages import PROPERTY as SCRIPT_PACKAGES, quest_id as script_packages_quest, write_script_packages
+from fo4_import.spike.script_packages import PROPERTY as SCRIPT_PACKAGES, quest_id as script_packages_quest
 from fo4_import.spike.placement import map_markers, open_rooms, place, placement, starts_disabled
 from fo4_import.spike.npcs import ACHR_KEY, NPC_KEY, Npcs
 from fo4_import.spike.packages import Packages, beds
 from fo4_import.spike.perks import Perks
 from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, TypeKeywords
 from fo4_import.spike.poses import Poses
-from fo4_import.spike.sounds import FOLDER as SOUND_FOLDER
 from fo4_import.spike.sounds import Sounds, looping_sounds
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.factions import write_all as write_factions
 from fo4_import.spike.globals import write_all as write_globals
 from fo4_import.spike.locations import Locations, encounter_zones
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
-from fo4_import.nif import weapon
 from fo4_import.spike import records as R
 from fo4_import.spike import voice
 from fo4_import.spike.dialogue import CELL_FO4
 from fo4_import.spike.say_topics import SayTopics, actor_values, conditions_of, script_vars
-from fo4_import.spike.script import compile_into
 from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS, objective_globals, quest_record, quest_var_globals
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.spike.quest_scope import QuestScope
@@ -75,10 +73,8 @@ from fo4_import.spike.named_refs import named_markers
 from fo4_import.spike.condition_forms import condition_forms
 from fo4_import.spike.locks import lock_vmad
 from fo4_import.spike.readiness import Readiness
-from fo4_import.spike.pipboy_tabs import remove_legacy_tabs
-from fo4_import.spike.reputation import write_page, write_reputations
+from fo4_import.spike.reputation import write_reputations
 from fo4_import.spike.standings import Standings
-from fo4_import.spike.karma_page import write_karma_page
 from fo4_import.spike.challenges import Challenges
 from fo4_import.spike.statics import tree_assets, write_assets
 from fo4_import.spike.readables import Readables
@@ -89,10 +85,10 @@ from fo4_import.spike.radiation import hazard_ref
 from fo4_import.spike.radio import Radio, placements as radio_placements
 from fo4_import.spike.acoustics import AcousticSpaces
 from fo4_import.spike.placeable_water import PlaceableWater
-from fo4_import.pipeline import elric_cache, stale_files
-from fo4_import.rig import anim_info
+from fo4_import.pipeline.stage_timer import charged, timed
+from fo4_import.spike.build_finish import VOICE_CACHE, finish
 from fo4_import.pipeline.converters import PLACED, placed_types
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import Layered, asset_root, export_file, export_records, held_types, own_records
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
 from script_convert.context_setup import load_records
 from tes5_import.base.tes5_reader import first_sub, records, sub_map, walk
@@ -110,8 +106,6 @@ PLAYER = 0x14
 HAND_STARTED = frozenset({'VCG00', 'VCG01', 'CGTutorial'})
 #: Record key and EditorID of the generated quest holding the shared greeting (_greetings).
 GREETINGS_KEY, GREETINGS_EDID = 'GREETINGS', 'Greetings'
-#: Voice recordings no built line uses, kept under the sound staging folder outside what is packed (voice-cache).
-VOICE_CACHE = 'VoiceCache'
 #: FO4's shortest padded length of a voiced line (2.5 s), set to a silent line's (fo4_spikes.md#silent-line).
 PADDED_SETTING = 'fDialoguePaddedAudioLengthMin'
 #: The script closing a door behind the NPC that opened it (docs/fork/fo4_pipeline.md#door-closer).
@@ -120,6 +114,8 @@ DOOR_CLOSER = 'F3NV_DoorCloser'
 TREE_SITE = 'FNV TREE'
 #: FormID site of a load door's static copy of an FNV DOOR (CellBuilder.load_door).
 LOAD_DOOR_SITE = 'FNV DOOR load'
+#: FormID site of a dependent build's copy of a master's record its built plugin left out (key: the FNV FormID).
+COPY_SITE = 'FNV master record copy'
 #: derive_formid site of a generated record (CellBuilder.new_id; key: its owner and count there).
 MADE_SITE = 'FNV made'
 #: The types whose engine objects FO4 may share.
@@ -174,7 +170,7 @@ def lighting(cell: dict, template: bytes) -> bytes:
     FNV's ambient colour also fills FO4's six directional ambient colours and
     its fog colour the far and both height-fog colours (FNV has no height fog);
     fog max is 1 (FNV's fog has no cap) and the clip distance 0, so past the
-    far distance only fog shows, as in FNV; other FO4-only fields keep `template`'s.
+    far distance only fog shows; other FO4-only fields keep `template`'s.
     Fog power is FNV's x 2.2: FO4 mixes fog in linear light, FNV in display colours.
     See: docs/fork/fo4_pipeline.md#interiors
     """
@@ -221,11 +217,15 @@ class CellBuilder:
         replacement table (spike.replacements; its other plugins become masters, found in `plugin_dirs`)."""
         self.export_dir, self.data_dir, self.bases = export_dir, data_dir, bases
         self.table, self.plugin_dirs = table if table is not None else replacements.load(), plugin_dirs
-        self.masters = MASTERS + replacements.extra_masters(self.table)
+        source_masters = masters_of(source_esm())
+        self.built = built_plugins(source_masters, (data_dir, *plugin_dirs))
+        self.masters = dependent_masters(self.built, replacements.extra_masters(self.table), MASTERS)
         self.writer = LedgerWriter(masters=self.masters, is_esm=False, description='FNV cell spike')
+        self.ids = SourceIds(source_masters, self.masters, self.writer.own_index)
         self.top, self.owned = ENGINE_IDS, collections.Counter()
-        own, self.fnv_types = self.writer.own_index << 24, {r.form_id: r.sig.decode() for r in records(source_esm(), bodies=())}
-        self.writer.reserve_source_ids({own | fid & 0xFFFFFF for fid in self.fnv_types})
+        self.fnv_types = {r.form_id: r.sig.decode() for r in (r for r, _ in source_walk(bodies=()))}
+        self.writer.reserve_source_ids({self.ids.fo4(fid) for fid in self.fnv_types if self.ids.is_own(fid)})
+        self.in_masters = held_by(self.built) if self.built else None
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.quest_vars, self.actor_refs = {}, {}
@@ -235,7 +235,7 @@ class CellBuilder:
         self.weather_ids, self.weather_templates, self.weather_regions, self.acoustics = {}, {}, None, None
         self.world_imagespace, self.weather_imagespaces = 0, {}
         self.hazards, self.music, self.decals, self.perks, self.forms = None, None, None, None, {}
-        self.radio = None
+        self.radio, self.land_textures = None, {}
         self.type_keywords = TypeKeywords(self.writer)
         self.started = time.time()
         self.fo4 = FALLOUT4_ESM.read_bytes()
@@ -243,14 +243,23 @@ class CellBuilder:
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
         self.furniture_idles, self.readiness = furniture_idles(export_records(export_dir, 'IDLE')), Readiness()
-        self.enter_motions = enter_motions(export_dir / 'meshes')
+        self.enter_motions = enter_motions(asset_root(export_dir, 'meshes'))
         self.counts, self.readables, self.mines, self.keyed = collections.Counter(), None, None, set()
 
     def fnv_id(self, fnv) -> int:
-        """FormID of FNV record `fnv` (int or hex) made 1:1: FNV's own object id."""
-        oid = (int(fnv, 16) if isinstance(fnv, str) else fnv) & 0xFFFFFF
-        self.top = max(self.top, oid + 1)
-        return self.writer.own_index << 24 | oid
+        """FormID of FNV record `fnv` (int or hex) made 1:1: its object id, in the FO4 plugin of the source plugin
+        owning it (source_ids); a master's record its built plugin left out is this build's copy, hashed from its
+        FNV FormID (COPY_SITE).
+        See: docs/fork/fo4_plugin_layout.md#dlc
+        """
+        fid = int(fnv, 16) if isinstance(fnv, str) else fnv
+        if self.ids.is_own(fid):
+            self.top = max(self.top, (fid & 0xFFFFFF) + 1)
+            return self.ids.fo4(fid)
+        fo4 = self.ids.fo4(fid)
+        if self.in_masters is None or fo4 in self.in_masters:
+            return fo4
+        return self.writer.derive_formid(COPY_SITE, f'{fid:08X}')
 
     def new_id(self, owner: str, key: 'str | None' = None) -> int:
         """A generated record's FormID: hashed from its authored `key`, or from its `owner` (FNV data) and count.
@@ -295,7 +304,8 @@ class CellBuilder:
             return self.items.shared.get(fnv_fid)
         if fnv_fid not in self.made:
             sig, rec = self.bases.get(fnv_fid) or self._item_base(fnv_fid)
-            self.made[fnv_fid] = getattr(self, PLACED[sig])(fnv_fid, sig, rec) if sig in PLACED else None
+            self.made[fnv_fid] = charged(f'base {sig}', getattr(self, PLACED[sig]), fnv_fid, sig, rec) \
+                if sig in PLACED else None
         return self.made[fnv_fid]
 
     def _item_base(self, fnv_fid: int) -> tuple:
@@ -369,8 +379,8 @@ class CellBuilder:
         if sig == 'LIGH':
             record = R.pack_ligh(fid, edid, _bounds(rec), model, light_data(rec), float(rec.get('FNAM.Fade', 1.0)),
                                  self.sounds.field(rec, 'SNAM.Sound'))
-        elif sig == 'FURN' and (marks := markers(str(self.export_dir / 'meshes'
-                                                     / world_model(rec).replace('/', '\\').lower()))):
+        elif sig == 'FURN' and (marks := markers(str(export_file(self.export_dir, 'meshes',
+                                                                 world_model(rec).replace('/', '\\').lower())))):
             record = furniture(fid, rec, model, bounds, marks, self.keywords,
                                self.furniture_idles.get(rec['FormID'].upper(), ()), self.enter_motions)
         elif sig == 'ACTI':
@@ -469,6 +479,7 @@ def _doors(builder: CellBuilder, door_refs: list, links: dict, ids: dict) -> tup
     return qa_refs, teleports
 
 
+@timed('doors')
 def _teleports(builder: CellBuilder, scoped: tuple, links: dict, ids: dict, chest) -> tuple:
     """(QASmoke's REFRs, {door ref: its teleport}) of the build's doors: `scoped` (interior, exterior references),
     each leading to its partner when built (`ids`). With the test chest's template `chest`, an interior door whose
@@ -501,11 +512,13 @@ def _built(builder: CellBuilder, refs: list) -> list:
             and builder.base(int(r['NAME'], 16)) is not None and int(r['FormID'], 16) not in open_rooms()]
 
 
+@timed('references')
 def _ref_ids(builder: CellBuilder, refs: list) -> dict:
     """{FNV reference: FO4 FormID} of `refs` _placed() writes."""
     return {r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, refs)}
 
 
+@timed('placed references')
 def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tuple:
     """(persistent, temporary) REFRs of the cell's converted references."""
     persistent, temporary, owners = b'', b'', {**builder.factions, **builder.npc_ids}
@@ -591,6 +604,7 @@ def _part_refs(builder: CellBuilder, ref: dict) -> bytes:
     return out
 
 
+@timed('vanilla records')
 def _vanilla(fo4: bytes, fids: set) -> dict:
     """{FormID: Record} of the Fallout4.esm records `fids` (CELL, IMGS, NPC_, CONT)."""
     return {rec.form_id: rec for rec, _ in walk(fo4, b'CELL', b'IMGS', b'NPC_', b'CONT')
@@ -612,6 +626,7 @@ def _imagespace(builder: CellBuilder, export_dir: Path, cell: dict, base_body: b
     return fid
 
 
+@timed('navmesh')
 def _navmesh(builder: CellBuilder, export_dir: Path, pathing: dict, ids: dict) -> dict:
     """{FNV cell: FO4 NAVM records} of the FNV navmeshes in `pathing`'s cells, linked and registered in NAVI;
     each door's navmesh triangle in `builder.door_links`."""
@@ -623,6 +638,7 @@ def _navmesh(builder: CellBuilder, export_dir: Path, pathing: dict, ids: dict) -
     return records
 
 
+@timed('form map')
 def _form_map(builder: CellBuilder, ref_ids: dict, recs: list, quests: dict) -> dict:
     """FNV to FO4 forms: references and placed actors, quests, player, objectives, globals, factions, reputations."""
     return {**builder.globals, **builder.factions, **builder.actor_refs, **{int(k, 16): v for k, v in ref_ids.items()},
@@ -631,6 +647,7 @@ def _form_map(builder: CellBuilder, ref_ids: dict, recs: list, quests: dict) -> 
             **{int(r['FormID'], 16): quests[r['EditorID']] for r in recs}}
 
 
+@timed('quests')
 def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, ref_ids: dict) -> None:
     """Write FNV quests `recs` (FO4 ids in `quests`) with their lines; `ref_ids` maps FNV references.
 
@@ -722,32 +739,7 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
     return built
 
 
-def _voice(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) -> None:
-    """The built lines' FNV recordings as .fuz under each NPC's converted voice type (voice_types), staged for
-    the Main BA2 (sound_root); files in any other folder of the plugin's voice directory are stale."""
-    voices = [(voice.fnv_folder(export_dir, fnv), fo4) for fo4, fnv in sorted(builder.npcs.voices.made.items())]
-    builder.counts['loose sound files staged'] = stage_loose_sounds(data_dir, (f'Voice/{plugin}', f'FX/{SOUND_FOLDER}'))
-    root = sound_root(data_dir)
-    todo = voice.jobs(builder.say.voiced, voices, root, plugin)
-    todo += voice.silent_jobs(builder.say.silent, sorted({fo4 for _, fo4 in voices}), root, plugin)
-    ours, cache = root / 'Sound' / 'Voice' / plugin, root / VOICE_CACHE / plugin
-    builder.counts['voice files kept aside'] = voice.remove_stale(todo, [p for p in ours.glob('*') if p.is_dir()],
-                                                                  cache)
-    builder.counts['voice files restored'] = voice.restore(todo, cache)
-    builder.counts['voice files written'] = voice.convert([job for job in todo if not job[1].exists()],
-                                                          FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
-
-
-def _sounds(builder: CellBuilder, export_dir: Path, data_dir: Path, plugin: str) -> None:
-    """Voices (_voice) and the sound records' files, packed into the plugin's Main BA2.
-    See: docs/fork/fo4_pipeline.md#sound-archive
-    """
-    _voice(builder, export_dir, data_dir, plugin)
-    todo = [job for job in dict.fromkeys(builder.sounds.jobs) if not job[1].exists()]
-    builder.counts['sound files'] = voice.convert(todo, FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator')
-    builder.counts['sound files packed'] = pack_sounds(data_dir, plugin)
-
-
+@timed('makers')
 def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | None', refs: list,
                    every: list) -> None:
     """Give `builder` its item, activator and package makers; `refs` are the cell's FNV references, `every` all
@@ -756,7 +748,8 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.factions, builder.faction_names = write_factions(builder, export_dir)
     builder.script_vars = script_vars(export_dir)
     records = index(export_dir, ITEM_TYPES)
-    builder.perks = Perks(builder, export_dir, HELPER_INDEX)
+    builder.perks, (builder.criticals, builder.combat) = Perks(builder, export_dir, HELPER_INDEX), combat_rules(
+        builder, HELPER_INDEX)
     builder.projectiles = Projectiles(builder)
     builder.consumables, builder.equipment = Consumables(builder, HELPER_INDEX), Equipment(builder)
     consumables, equipment = builder.consumables, builder.equipment
@@ -765,7 +758,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     stand_ins = replacements.items(builder.table, builder.fo4, builder.masters, builder.plugin_dirs)
     builder.items = Items(builder, records, shared_engine_ids(builder.fo4, {**builder.bases, **records},
                                                               SHARED_TYPES), makers, stand_ins)
-    builder.scripts = ObjectScripts(builder, export_dir, scripts_dir, HELPER_INDEX)
+    builder.scripts = ObjectScripts(builder, export_dir, _script_dirs(builder, scripts_dir), HELPER_INDEX)
     builder.scripts.named[SCRIPT_PACKAGES] = script_packages_quest(builder)
     reputations, builder.reputation_slots = write_reputations(builder, export_dir)
     builder.challenges = Challenges(builder, export_dir)
@@ -780,19 +773,21 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
                                                 for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
     builder.imods = ImageSpaces(builder)
-    furniture = [(place(r), str(export_dir / 'meshes' / world_model(builder.bases[int(r['NAME'], 16)][1]).lower()))
+    furniture = [(place(r), str(export_file(export_dir, 'meshes', world_model(builder.bases[int(r['NAME'], 16)][1]).lower())))
                  for r in refs if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
     builder.poses = Poses(builder, {r['EditorID']: place(r) for r in refs if r.get('EditorID')}, furniture)
     builder.idles = Idles(builder, export_dir)
 
 
+@timed('quest scope')
 def _cell_quests(builder: CellBuilder, export_dir: Path, refs: list, cell_of, cells: dict) -> tuple:
     """(the build's quest records (quest_scope), {EditorID: FO4 FormID}); before any base's script is filled,
     the scripts learn by name the quests, their scripted topics, factions, objective globals, `refs` whose base
     converts (items and containers too), the actors in built cells (`cell_of`) and their NPC bases, and the built
     `cells`."""
     placed_actors = [r for sig in ('ACHR', 'ACRE') for r in export_records(export_dir, sig) if cell_of(r)]
-    quest_recs = QuestScope(export_dir, builder.scripts.dir).included(builder.bases, refs, placed_actors)
+    held = {int(r['FormID'], 16) for r in own_records(export_dir, 'QUST')} if builder.built else set()
+    quest_recs = QuestScope(export_dir, builder.scripts.dir).included(builder.bases, refs, placed_actors, held)
     builder.counts['QUST in the build'] = len(quest_recs)
     quests = {r['EditorID']: builder.fnv_id(r['FormID']) for r in quest_recs}
     converts = builder.bases.keys() | {int(r['FormID'], 16) for sig in placed_types('item')
@@ -814,6 +809,7 @@ def _cell_quests(builder: CellBuilder, export_dir: Path, refs: list, cell_of, ce
     return quest_recs, quests
 
 
+@timed('rest of the build')
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
           scripts_dir: 'Path | None' = None, exteriors: tuple = (), table: 'dict | None' = None,
           plugin_dirs: tuple = (), test_cell: bool = True) -> collections.Counter:
@@ -832,6 +828,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     worlds = [Exterior(export_dir, all_refs, *spec) for spec in exteriors]
     interiors, every, outside, sold = _scoped(export_dir, all_refs, cell, worlds)
     builder = _builder(export_dir, data_dir, every + outside, (table, plugin_dirs), ledger_path(out))
+    _renamed(builder, data_dir, out.name)
     _object_makers(builder, export_dir, scripts_dir, refs, every + outside)
     builder.vendors = write_vendors(builder, export_dir, sold)
     quest_recs, quests = _cell_quests(builder, export_dir, every + outside, _in_build(interiors, worlds),
@@ -841,6 +838,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     actors = _people(builder, export_dir, (interiors, worlds),
                      {**_form_map(builder, {**ids, **ext_ids}, quest_recs, quests), **_cells(builder, interiors, worlds)},
                      {**ids, **ext_ids})
+    _held_content(builder, export_dir)
     qa_refs, teleports = _teleports(builder, (every, outside), links, {**ids, **ext_ids},
                                     vanilla[TEST_CHEST] if test_cell else None)
     builder.ref_ids = {**ids, **ext_ids, **builder.actor_ids}
@@ -849,15 +847,39 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     navmesh = _navmesh(builder, export_dir, {**pathing, **_world_pathing(builder, worlds)}, {**ids, **ext_ids})
     persistent, temporary = _placed(builder, refs, ids, teleports)
     _quests(builder, export_dir, quest_recs, quests, {**ids, **ext_ids, **builder.actor_ids})
-    builder.perks.write(builder.forms, builder.say.script_vars)
-    character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
-    Standings(builder, export_dir).build()
+    _rules(builder, export_dir, data_dir, out)
     _gameplay(builder, export_dir, quests)
     rooms = _rooms(builder, (interiors, every), (ids, teleports), navmesh, (persistent + builder.poses.placed, temporary),
                    actors)
     _cell_group(builder, export_dir, vanilla, rooms, qa_refs)
     _world_groups(builder, worlds, (lambda r: _placed(builder, r, ext_ids, teleports), data_dir, navmesh, actors))
-    return _finish(builder, export_dir, data_dir, out, scripts_dir)
+    return finish(builder, export_dir, data_dir, out, scripts_dir, HELPER_INDEX)
+
+
+def _script_dirs(builder: CellBuilder, scripts_dir: 'Path | None'):
+    """`scripts_dir`, layered over its masters' converted scripts beside it."""
+    if scripts_dir is None or not builder.built:
+        return scripts_dir
+    return Layered((Path(scripts_dir), *(Path(scripts_dir).parent / p.name for p in builder.built)))
+
+
+@timed('held content')
+def _held_content(builder: CellBuilder, export_dir: Path) -> None:
+    """In a build of a source with masters (a DLC), make every base and item its plugin holds, its own and its
+    overrides: a DLC's content is what it holds, not what its placed references reach. `builder.held` keeps the
+    FO4 FormIDs they are and were made as, the only master records it may override (master_overrides).
+    See: docs/fork/fo4_plugin_layout.md#dlc
+    """
+    builder.held = set()
+    for sig in held_types(export_dir) if builder.built else ():
+        for rec in own_records(export_dir, sig):
+            fid = int(rec['FormID'], 16)
+            builder.held.add(builder.ids.fo4(fid))
+            if sig in PLACED:
+                builder.bases.setdefault(fid, (sig, rec))
+            made = builder.base(fid) if sig in PLACED else builder.items.item(fid) if sig in ITEM_TYPES else None
+            builder.held.add(made)
+            builder.counts[f'held {sig} {"made" if made else "not made"}'] += sig in PLACED or sig in ITEM_TYPES
 
 
 def _world_pathing(builder: CellBuilder, worlds: list) -> dict:
@@ -865,6 +887,7 @@ def _world_pathing(builder: CellBuilder, worlds: list) -> dict:
     return {cell: path for world in worlds for cell, path in world.pathing(builder).items()}
 
 
+@timed('worlds')
 def _world_groups(builder: CellBuilder, worlds: list, placing: tuple) -> None:
     """Add each built worldspace's WRLD group: its bases made in placement order, then Exterior.group(`placing`:
     place, data folder, navmeshes, actors), and its terrain LOD (terrain_lod)."""
@@ -876,6 +899,22 @@ def _world_groups(builder: CellBuilder, worlds: list, placing: tuple) -> None:
                                                                  world.fo4_edid)
 
 
+@timed('renamed files')
+def _renamed(builder: CellBuilder, data_dir: Path, plugin: str) -> None:
+    """Write `plugin` as a master when it is an .esm; move the voice and FaceGen folders an older build filed
+    under its other extension, and drop that plugin file (plugin_rename).
+    See: docs/fork/fo4_plugin_layout.md#saves
+    """
+    builder.writer.is_esm = is_master(plugin)
+    staged, sounds = staging_root(data_dir), sound_root(data_dir)
+    parents = [data_dir / folder for folder in facegen.FACEGEN_DIRS] + [
+        staged / facegen.FACEGEN_DIRS[1], sounds / 'Sound' / 'Voice', sounds / VOICE_CACHE, data_dir / 'Sound' / 'Voice']
+    builder.counts['renamed plugin folders moved'] = move_renamed(plugin, parents)
+    builder.counts['renamed plugin files removed'] = drop_old_plugins(data_dir, plugin)
+    builder.counts['FaceGen NIFs retargeted to the plugin'] = retarget_faces(data_dir / facegen.FACEGEN_DIRS[0] / plugin, plugin)
+
+
+@timed('setup')
 def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledger: Path) -> CellBuilder:
     """The CellBuilder of the build placing FNV references `placed`: their bases and static collections' parts,
     `table` (replacement table, its plugin folders), its FormIDs kept by the ledger file `ledger`.
@@ -885,18 +924,23 @@ def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledge
     parts = Parts(used)
     builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), *table)
     builder.writer.use_ledger(Ledger(ledger))
+    builder.writer.use_master_ledgers(master_ledgers(builder.masters[:builder.writer.own_index],
+                                                     (data_dir, *table[1])))
+    builder.writer.compare_masters = bool(builder.built)
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
     water = builder.placeable_water = PlaceableWater(builder, export_dir)
     parts.parts.update({fid: water.parts(fid, rec) for fid, (sig, rec) in builder.bases.items() if sig == 'PWAT'})
     return builder
 
 
+@timed('gameplay')
 def _gameplay(builder: CellBuilder, export_dir: Path, quests: dict) -> None:
     """Crafting and the new game quest, after the items and quests exist."""
     builder.crafting.build()
     new_game.build(builder, export_dir, quests)
 
 
+@timed('rooms')
 def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, first: tuple, actors: dict) -> list:
     """[(cell, persistent, temporary)] of the interiors in `scoped` (cells, their references), each with its
     navmeshes and `actors` {FNV cell: (persistent, temporary)}: the first's references are `first`, the others'
@@ -910,6 +954,7 @@ def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, f
     return out
 
 
+@timed('scope')
 def _scoped(export_dir: Path, all_refs: list, cell: dict, worlds: list) -> tuple:
     """(interiors, their references, the worldspaces' references, the built vendors (vendors.merchants)) of a
     build from `cell`: interiors.scope() with the vendors' merchant containers, and each of `worlds` with the
@@ -946,6 +991,7 @@ def _cells(builder: CellBuilder, interiors: list, worlds: list) -> dict:
     return {int(c['FormID'], 16): builder.fnv_id(c['FormID']) for c in interiors + _exterior_cells(worlds)}
 
 
+@timed('people')
 def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dict, ids: dict) -> dict:
     """{FNV cell: (persistent, temporary)} actors in built cells `scoped` (_in_build); then the packages script
     properties reserved before the NPCs' forms were known."""
@@ -978,6 +1024,7 @@ def _in_build(interiors: list, worlds: list):
     return cell_of
 
 
+@timed('interiors')
 def _cell_group(builder: CellBuilder, export_dir: Path, vanilla: dict, rooms: list, qa_refs: bytes):
     """Add the CELL group: each FNV interior of `rooms` [(cell, persistent, temporary)] and, when it has any of
     `qa_refs` (stand-in doors, the test chest), QASmoke."""
@@ -988,6 +1035,7 @@ def _cell_group(builder: CellBuilder, export_dir: Path, vanilla: dict, rooms: li
     builder.writer.add_raw_group('CELL', R.pack_interior_cells(cells + qa_smoke))
 
 
+@timed('locations')
 def _places(builder: CellBuilder, export_dir: Path, worlds: list, scoped: tuple) -> None:
     """Write the encounter zones and each of `worlds`' locations; `builder.places` maps each interior to the
     location of the first worldspace leading into it, `builder.regions` FNV map regions to theirs. `scoped` is
@@ -1028,49 +1076,11 @@ def _acoustics(builder: CellBuilder) -> AcousticSpaces:
     return builder.acoustics
 
 
-def _write_plugin(builder: CellBuilder, out: Path, data_dir: Path) -> None:
-    """Write the plugin to `out`, clear script properties naming no written record, then, when it made an own-rig
-    creature, have the Creation Kit write their animation data (rig.anim_info) into `data_dir`."""
-    builder.writer.next_object_id = builder.top
-    out.parent.mkdir(parents=True, exist_ok=True)
-    builder.writer.write(str(out))
-    for key, count in clear_dangling(out, len(builder.writer.masters)).items():
-        builder.counts[f'script properties naming no written record ({key})'] = count
-    if builder.counts['own-rig creature races']:
-        builder.counts['own-rig animation data files (Creation Kit)'] = anim_info.generate(out, data_dir)
+@timed('perks and character')
+def _rules(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path) -> None:
+    """Perks, the character system and the standings."""
+    builder.perks.write(builder.forms, builder.say.script_vars)
+    character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
+    Standings(builder, export_dir).build()
 
 
-def _finish(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path, scripts_dir) -> collections.Counter:
-    """Collision, lowered skeletons, voices, sounds and movies, the texture BA2 and scripts, then the plugin; the
-    counts."""
-    failed = elric_cache.finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
-    builder.counts['meshes without collision (Elric failed)'] = len(failed)
-    for model in sorted(builder.weapons):
-        weapon.dress_file(data_dir / 'Meshes' / model)
-    builder.counts['weapon meshes'] = len(builder.weapons)
-    builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
-    _sounds(builder, export_dir, data_dir, out.name)
-    builder.counts['movies written'] = write_movies(export_dir, data_dir)
-    npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
-    builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
-    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
-    builder.counts['script packages'] = write_script_packages(builder)
-    ammo_casings.write(builder, builder.equipment.ammo_mods.loaded)
-    ammo_switch.write(builder, builder.equipment.ammo_mods)
-    builder.equipment.condition.write(builder.equipment.ammo_mods, data_dir, HELPER_INDEX)
-    write_karma_page(builder, export_dir, builder.reputation_slots)
-    write_page(builder)
-    builder.challenges.write()
-    builder.counts['Pip-Boy Tabs files removed'] = len(remove_legacy_tabs(data_dir, out.name))
-    if builder.scripts.used:
-        print(compile_into(scripts_dir, data_dir, builder.scripts.used))
-    builder.equipment.write_anim_lists()
-    builder.consumables.write_ammo()
-    builder.idles.write(data_dir)
-    _write_plugin(builder, out, data_dir)
-    builder.writer.ledger.save()
-    made = stale_files.made(data_dir, Path(export_dir.name).stem, builder.started)
-    builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
-    builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
-    print(f'readiness entries: {builder.readiness.write(out.name)}')
-    return builder.counts

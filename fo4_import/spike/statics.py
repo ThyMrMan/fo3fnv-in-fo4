@@ -34,6 +34,7 @@ from fo4_import.nif.terminal import with_screen
 from fo4_import.nif.tree import tree_mesh
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
+from fo4_import.pipeline.export_index import export_file
 from tes5_import.base.text_reader import parse_export_file
 
 MASTERS = ['Fallout4.esm']
@@ -47,7 +48,7 @@ def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None
     `_weapon`); a `load` door's static, as `<name>load.nif` (vanilla load door meshes' naming), or None when the
     mesh has no animation (the plain one serves)."""
     rel = model.replace('/', '\\').lower()
-    files = cached_files(export_dir / 'meshes' / rel, export_dir, pose, animated and not load)
+    files = cached_files(export_file(export_dir, 'meshes', rel), export_dir, pose, animated and not load)
     if load and not files.animatable:
         return None
     return write_files(export_dir, files, rel[:-4] + ('load' if load else suffix) + '.nif', data_dir)
@@ -57,7 +58,7 @@ def terminal_assets(export_dir: Path, model: str, data_dir: Path) -> 'tuple | No
     """(write_converted() of FNV terminal `model` with its screen made FO4's, as `<name>terminal.nif`, the screen's
     (centre, facing)); None when the mesh has no screen (nif.terminal)."""
     rel = model.replace('/', '\\').lower()
-    made = with_screen(cached_convert(export_dir / 'meshes' / rel, export_dir))
+    made = with_screen(cached_convert(export_file(export_dir, 'meshes', rel), export_dir))
     if made is None:
         return None
     return write_converted(export_dir, made[0], rel[:-4] + 'terminal.nif', data_dir), made[1]
@@ -97,7 +98,7 @@ def stage_files(export_dir: Path, files, data_dir: Path) -> None:
 
 def _source(export_dir: Path, fnv_texture: str) -> Path:
     """The export's file of FNV texture path `fnv_texture`."""
-    return export_dir / texture_source(fnv_texture).replace('\\', '/')
+    return export_file(export_dir, texture_source(fnv_texture).replace('\\', '/'))
 
 
 def stage_derived(data_dir: Path, rel: str, work, sources: tuple, *args) -> bool:
@@ -122,7 +123,7 @@ def swap_material(export_dir: Path, model: str, node: str, texture: str, data_di
     The swap material is the shape's BGSM with only the diffuse texture
     replaced; it and the texture are written into `data_dir`.
     """
-    converted = cached_convert(export_dir / 'meshes' / model.replace('/', '\\').lower(), export_dir)
+    converted = cached_convert(export_file(export_dir, 'meshes', model.replace('/', '\\').lower()), export_dir)
     nif = converted.nif
     shaders = [b['shader'] for kind, b in nif.blocks
                if kind == 'BSTriShape' and nif.strings[b['name']].lower() == node.lower() and b['shader'] >= 0]
@@ -169,7 +170,7 @@ def swapped_material(export_dir: Path, data_dir: Path, material: str, textures: 
 
 def _swapped_spec(export_dir: Path, data_dir: Path, mat: dict, normal: str) -> None:
     """Point `mat`'s specular map at one made from FNV `normal`'s alpha, at the glossiness of its own."""
-    source = export_dir / normal.replace('\\', '/')
+    source = export_file(export_dir, normal.replace('\\', '/'))
     if not mat['specular'] or not spec_mask.has_mask(source.read_bytes()):
         mat['specular'], mat['textures']['smooth_spec'] = False, ''
         return

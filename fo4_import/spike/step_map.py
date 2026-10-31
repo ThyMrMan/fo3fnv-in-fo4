@@ -31,6 +31,7 @@ from fo4_import.nif.file import NifFile
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import vanilla_cell
 from fo4_import.pipeline.mesh_cache import mesh_bounds
+from fo4_import.pipeline.export_index import export_file
 from pyffi.formats.nif import NifFormat
 from tes5_import.base.tes5_reader import subrecords
 
@@ -190,7 +191,7 @@ def stations(export_dir: Path) -> list:
     out += [(code, f'doorway, skirt {far:+} from the lip top', _ledge(far=far), 0.0)
             for code, far in (('FM4', -4.0), ('F00', 0.0), ('FP1', 1.0))]
     out += [('K10', 'doorway with a 1-thick solid lip (a top)', _ledge(thick=True), 0.0)]
-    caravan = C.mesh_triangles(str(export_dir / 'meshes' / TEMPLATE.replace('\\', '/')))
+    caravan = C.mesh_triangles(str(export_file(export_dir, 'meshes', TEMPLATE.replace('\\', '/'))))
     out += [(code, f'mobile home doorway cut from its collision{note}, X tilt {tilt}', _doorway(caravan, top), tilt)
             for code, note, top, tilt in (('D000', '', DOOR_HI[2], 0.0), ('D052', '', DOOR_HI[2], 0.5238),
                                           ('DNF000', ' below 70 (no frame)', FRAMELESS_TOP, 0.0),
@@ -242,7 +243,7 @@ def _nif(name: str, parts: list, look: str, template, materials: Archives) -> Ni
 def _template(export_dir: Path):
     """The FNV mobile home's root collision object (its body settings are every station's)."""
     data = NifFormat.Data()
-    with open(export_dir / 'meshes' / TEMPLATE.replace('\\', '/'), 'rb') as f:
+    with open(export_file(export_dir, 'meshes', TEMPLATE.replace('\\', '/')), 'rb') as f:
         data.read(f)
     return data.roots[0].collision_object
 

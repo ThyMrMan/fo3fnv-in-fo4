@@ -91,7 +91,7 @@ Stages, each scoped and cached on its own so a fix rebuilds only its stage:
 ## <a id="skeleton"></a>The skeleton (built 2026-10-10)
 
 ```bash
-py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FalloutNV.esp --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --around -18 0 --radius 1 GSDocMitchellHouse
+py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FalloutNV.esm --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV --around -18 0 --radius 1 GSDocMitchellHouse
 ```
 
 `fo4_import/pipeline/` runs the spike's converters (`spike.cell.build`)
@@ -1632,6 +1632,18 @@ converted NPCs speak none until FNV's own arrive with its dialogue.
       and `XRGD` from FalloutNV.esm itself.
   - Vanilla has the same layout: 1,725 portals are `NAME XPRM XPOD DATA`;
     601 room markers are `NAME XMBO XPRM DATA`.
+  - **Trigger boxes keep no XMBO (2026-10-31).** FNV's GECK writes `XMBO`
+    on trigger boxes too (873 activator primitives, Ringo's gas-station
+    trigger among them), and the copy carried it. In Fallout4.esm, none of
+    the 5,335 activator primitives has `XMBO`; the 1,817 references with
+    one are room markers (1,816) and a multibound marker. Ringo's trigger
+    never fired (no `OnTriggerEnter`: its script package never reached the
+    trace in a played Papyrus log), so he sat in his sandbox instead of
+    meeting the player at the door with his gun drawn. A reference on an
+    activator now keeps its `XPRM` but not its `XMBO`
+    (`placement._room_bound`). The same test keeps triggers out of
+    `open_rooms`: 126 of them sat in cells with an open portal and were
+    left out of the build as rooms.
 - **Corpses vanishing as the player walks up (fixed and played
   2026-10-18: Bison Steve's convicts).** The bodies stayed lootable but
   went undrawn. Bison Steve's two FNV rooms leave its lobby in no room;
@@ -2377,6 +2389,19 @@ each limb by 100).
   placeholder; 47 consumables changed; 6 MGEF copies added (Hydra), no
   FormID moved; FO4Edit 31 errors → 0.
 
+<a id="chem-addiction"></a>**Chem addiction (built 2026-10-29, not yet played).**
+`spike/addiction.py`. FNV's ALCH `ENIT` names a withdrawal spell and an
+addiction chance (the export drops both; read from FalloutNV.esm). FO4's
+chems carry three parts of one addiction: `ENIT`'s addiction spell
+(`AbAddictionJet`...) and chance, an `AddictionOdds*` effect raising that
+addiction's actor value (25 on Jet), and an `AddictionKeyword*` keyword
+(alcohol has none). FO4 has the same addictions as FNV for alcohol, Psycho,
+Jet, Mentats, Buffout and Med-X. A chem whose withdrawal is one of those
+takes the counterpart chem's spell, effect and keyword at FNV's chance:
+morphine counts as Med-X and Ultrajet as Jet. FNV's Hydra, Turbo, Steady,
+tobacco, ant nectar and Quantum withdrawals have no FO4 addiction and are
+counted (`ALCH addiction left out`). Fixer is its converted script.
+
 <a id="survival-needs"></a>**Survival needs (built 2026-10-23, not yet played).**
 `spike/survival_needs.py` feeds FNV's Hardcore need effects on consumables
 into FO4's Survival mode, kept as it is (decided 2026-10-22). FalloutNV.esm
@@ -2442,6 +2467,28 @@ What the build does:
   changed; one hidden potion added (extra caffeine; the plain one has no
   user in the region); no FormID moved; 1,786 of 1,786 scripts compile;
   FO4Edit 0 errors.
+
+## <a id="sex-change"></a>Sex change without Garden of Eden (built 2026-10-29, not yet played)
+
+FNV changes the player's sex in Doc Mitchell's intro (VCG01's message box),
+before every `ShowRaceMenu` (the converted race menu asks the sex first), and
+in six test-quest lines. FO4 Papyrus has no sex setter, so
+`TES4Polyfill.SetSex` ran the console's `sexchange` through Garden of
+Eden's `ExecuteConsoleCommandSilent`, the build's only use of that mod.
+
+The F3NV F4SE plugin now does it (`tes_runtime/fo4_condition/sex.cpp`):
+`F3NV_Sex.ChangeSex(actor)` queues the game's own `SexChange` script command
+on the main thread. In Fallout4.exe 1.11.240 the command is opcode 0x11E6 in
+F4SE's script command table (`g_firstObScriptCommand`), with two optional
+parameters (Sex, Integer) and its handler at 0x5C5B00. The handler reads its
+arguments with the engine's argument reader (0x5B3600), which takes a count
+of 0 as success. With no sex given it toggles: it reads the actor's sex
+(0xC5D930), flips the base's female flag (0x30A6F0 on `actorData`), rebuilds
+the head and resets the 3D (0xC742F0). It acts on the calling reference when
+that is an actor (form type 0x41), else on the player (`g_player`,
+0x32DD370). That is what the console's `sexchange` does, so the behavior is
+unchanged; `SetSex` still calls it only when the sex differs. The script
+compiler no longer reads Garden of Eden's sources.
 
 ## <a id="before"></a>Before the pipeline: build and research
 
@@ -2858,6 +2905,19 @@ SET with value 2 = 440). So:
 Swapping a part at the workbench to a vanilla one with its own
 `OverrideProjectile` (a suppressor) flies that part's, as in Fallout 4.
 
+<a id="projectile-copies"></a>**Projectile copies (built 2026-10-29, not yet played).**
+`spike/projectile_copies.py`. Each FNV projectile flies a copy of its
+stand-in (FormID hashed from FNV's) with FNV's range, which suits beams too.
+A stand-in that flies (Missile or Lobber: grenades, missiles, plasma, the
+Fat Man, the alien blaster) also takes FNV's speed and gravity. FO4's
+bullets and lasers are hitscan beams, and their speed means nothing. An
+explosion is copied when the stand-in has the Explosion flag and FNV's
+projectile has one. The copy takes FNV's force, damage and radius as the
+outer radius, the inner radius scaled with it: the 40 mm grenade does 100
+(the Broadsider shell 550), the missile 200. Plasma stand-ins carry
+`ExplosionMissileShell` without the flag, so they still don't explode.
+Models, lights, sounds and impacts stay the stand-in's.
+
 **Build check (2026-10-28).** GSDocMitchellHouse with every FNV gun in the
 test chest (a scratch harness): 134 WEAP, 82 AMMO, 68 ammo mods. 98 of
 the 110 guns on a playable template fly their FNV projectile's stand-in from `FNAM`
@@ -3172,6 +3232,270 @@ effect (condition 4, projectile speed 2, ammo regeneration 2); FO4Edit
 check 0 errors. The varmint rifle (on the pipe rifle) takes the pipe
 rifle's drum magazine (+3), its zoom scope (night vision preset, 15°)
 and its silencer.
+
+## <a id="weapon-criticals"></a>Weapon criticals and AP cost (built 2026-10-29, not yet played)
+
+A converted weapon is a copy of an FO4 weapon, so it carried that weapon's
+critical data and V.A.T.S. AP cost; the export did not carry FNV's
+([export](../commentary/tes4_export_falloutnv.md#weapon-criticals)).
+`spike/weapon_vats.py` now writes FNV's onto every copy (FNV stats on an FO4
+gun, and FNV guns on their own mesh):
+
+- **AP cost** (DNAM 112): FNV's own on the 203 of 261 weapons with "Override
+  - Action Points" (13 to 25 for most guns); the other 58 (creature guns,
+  fists) take their class's `fActionPointsAttack*` setting (unarmed 22, one-
+  and two-hand melee 15 and 30, pistol 20, rifle 25, handle 20, launcher 40,
+  grenade 35, mine 10, thrown the engine's default).
+- **Crit Damage Mult** (CRDT 0): FO4 multiplies a critical hit's damage by it
+  (the CK's definition; 251 of Fallout4.esm's 252 weapons use 2.0); FNV adds
+  its Critical Damage, so the multiplier is (damage + critical damage) /
+  damage. FNV: 117 weapons double (2.0), 46 add nothing (1.0), the uniques
+  between (1.07 to 3.0); 17 with no base damage keep the FO4 weapon's.
+- **Crit Charge Bonus** (CRDT 4): FO4's meter fill multiplier (1.0 on 244
+  vanilla weapons, 0 to 80 on the rest) takes FNV's Crit % Mult (1 on 150
+  weapons, 0 on 19 that never crit, up to 100).
+- **Crit Effect** (CRDT 8): FNV's 8 critical effects (on 64 weapons) are
+  self spells on the victim: laser, plasma and alien disintegration, two
+  flamer effects, the nuke, and two knockdowns (Rex's bite, the Victory
+  rifle). FO4's energy weapons carry their own disintegration effects, so a
+  weapon with an FNV effect keeps its FO4 weapon's effect and on-death flag;
+  one without has none. Drift: the two knockdowns, and FNV effects on a gun
+  whose FO4 weapon has none.
+
+FO4's V.A.T.S. meter still works as FO4's; FNV's random roll is the next
+section.
+
+<a id="random-criticals"></a>**FNV's random critical roll (built 2026-10-29, not yet played).**
+FalloutNV.exe (GOG 1.4.0.525) rolls a critical on every hit, each bullet
+of an automatic its own roll, at 0x9B7060: `rand() % 1000` against the
+chance x 10. The chance:
+
+1. the base (0x646D80): the CritChance actor value (14) divided by the
+   weapon's Fire Rate when it is automatic (Flags1 0x2; a rate of 0 counts
+   1), times its Crit % Mult (skipped below 0). No condition term: the
+   GECK wiki's `fWeaponConditionCriticalChanceMult` is Fallout 3's;
+2. the attacker's perks on entry point 1, Calculate My Critical Hit Chance
+   (`ApplyPerkModifiers` 0x5E58F0, with the weapon and the target), then the
+   target's on 0x24, Modify Enemy Critical Hit Chance;
+3. plus `fVATSCriticalChanceBonus` in V.A.T.S. (5 in FalloutNV.esm; the
+   wiki's 15 is Fallout 3's).
+
+CritChance is `fAVDCritLuckBase` + `fAVDCritLuckMult` x Luck (0 + 1 x
+Luck), plus abilities: Finesse +5, True Police Stories, Built to Destroy.
+FNV's entry point 1 perks: Laser Commander (+10), Set Lasers for Fun (+2,
++4), Ninja (x1.15, melee and unarmed).
+
+FO4 rolls every hit, in and out of V.A.T.S., on its own entry point 1, Mod
+Critical Chance, from 0: vanilla Overdrive's `FortifyCritChance25xChemPerk`
+adds 25 there (the "Critical Hits Outside of VATS" mod adds Luck x 1 the
+same way). `spike/criticals.py` makes the entries of the hidden perk
+`FNV_CombatRules` (`spike/combat_perk.py`, which also carries the [weapon
+skills](#weapon-skills)):
+
+- **Weapon factors.** Crit % Mult over Fire Rate when automatic, 32
+  distinct values in FalloutNV.esm (124 weapons at 1, 19 at 0, the assault
+  rifle's 1/8, uniques up to 100). `type_tests` stamps each weapon with
+  `FNV_CritFactored` and its factor's keyword (none at 1).
+- **The perk** adds, for each factor f (its keyword on the weapon tab; a
+  weapon without `FNV_CritFactored` counts 1): Luck x f x
+  `fAVDCritLuckMult`, the helper plugin's `CritChance` x f, and f x
+  `fAVDCritLuckBase` when it is not 0. Only additions, so FO4's order of
+  perk entries (priority, which the CK wiki leaves unclear) cannot change
+  the result.
+- **FNV's crit chance multipliers** (Ninja's x1.15) become, in their own
+  perk, additions of (multiplier - 1) x the same base, by factor; the
+  converted perk keeps its rank and weapon conditions. FNV's additions
+  (Laser Commander, Set Lasers for Fun) convert as they did.
+- **CritChance** is a new helper actor value (`FalloutHelpers.esl`, object
+  id 0x81F, appended), so FNV's crit chance abilities and consumables, which
+  were dropped for want of one, now convert onto it.
+- **Who holds it:** the player (F3NV_NewGame, on a new game and every load)
+  and every NPC and creature record the build writes (PRKR added before the
+  plugin is written; a templated actor's comes from its template).
+
+Left as FO4's: the V.A.T.S. meter (with FNV's charge rate per weapon,
+above). In V.A.T.S. the perk adds `fVATSCriticalChanceBonus` (5), as FNV
+does after the perks and whatever the weapon's factor; the owner tab tests
+`GetVATSMode` not 0, which no vanilla perk uses (not yet played).
+
+<a id="requirement-spread"></a>**Requirement spread (built 2026-10-29, not yet played).**
+`spike/requirement_spread.py`. FalloutNV.exe's gun spread (0x646910) is a
+sum: `fStandingSpreadPenalty` (0.1) unless crouched,
+`fUnaimedSpreadPenalty` (0.2) unless aiming, walking 0.1 and running 0.2
+divided by the perk-modified move mult, crippled arms 0.2-0.6, then
+`fWeapStrengthReqPenalty` (FalloutNV.esm 0.025) per point of Strength short
+of the weapon's requirement (WEAP `DNAM` +168) and the same per started 10
+points of its skill short of its skill requirement (+200). The sum is then
+scaled by the skill and floored at `fMinGunSpreadValue`. The caller
+(0x8B0F99) applies Calculate Gun Spread perks and stores it on the actor.
+FalloutNV.esm's 217 weapons need Strength 1-10 and skill 25, 50, 75 or 100.
+
+FO4's Mod Cone-of-fire Mult (134) only multiplies, so a shortfall
+multiplies the cone by 1 + penalty / `fStandingSpreadPenalty`: FNV's ratio
+for a standing, aimed shooter, 1.25 per point of Strength. Moving or
+hip-firing, FNV's ratio is smaller (drift). Weapons carry
+`FNV_StrengthReq_<n>` and `FNV_SkillReq_<n>` keywords (`type_tests`).
+`FNV_CombatRules` holds one Multiply Value entry per requirement and band:
+Strength exactly n short (owner `GetValue Strength ==`), and skill k steps
+short (two owner conditions, under and at least), whose weapon tab also
+tests the weapon's skill keyword. That is 45 Strength entries and about 160
+skill entries. They commute with the skill's multiply.
+
+<a id="sneak-attacks"></a>**Sneak attacks (built 2026-10-29, not yet played).**
+FalloutNV.exe flags a hit a sneak attack (0x400) when the attacker sneaks
+and the living target has not detected it (0x9B7060), then:
+
+- multiplies the critical chance, V.A.T.S. bonus included, by
+  `fCombatSneakAttackBonusMult` (100 in FalloutNV.esm): in practice a
+  critical hit, except with an automatic of small factor or a weapon that
+  never crits;
+- multiplies the hit's damage (0x9B73D0) by
+  `fCombatDamageBonusMeleeSneakingMult` (the engine's 5; FalloutNV.esm
+  leaves it) with no weapon or a hand-to-hand or melee one (animation
+  types 0-2, 0x6450C0), else by `fCombatDamageBonusSneakingMult` (1).
+  `fDamageSneakAttackMult` is registered but never read.
+
+FO4 multiplies a sneak attack's damage by its own `fCombatSneak*Mult` (guns
+2, melee and unarmed 3). `spike/sneak_attacks.py` gives `FNV_CombatRules`:
+
+- the critical part as additions, as Ninja's multiplier folds: the base
+  terms by factor and the V.A.T.S. bonus, each x (100 - 1), under owner tab
+  conditions vanilla's `FortifySneakAttackBonus2xChemPerk` uses (IsSneaking,
+  and GetDetected of the player run on the target equal to 0) plus
+  GetIsID Player. GetDetected names the player, so this is the player's;
+  FNV's perks' additions (Laser Commander) are not multiplied by it;
+- Mod Sneak Attack Mult (18), Set Value: FNV's 1 with a weapon of a ranged
+  FNV animation type (its keyword), else 5 (FO4's fists and creatures'
+  attacks carry no FNV keyword, and FNV counts no weapon as melee). This
+  replaces FO4's 2 and 3 for everyone holding the perk.
+
+<a id="weapon-poisons"></a>**Weapon poisons (built 2026-10-29, not yet played).** FNV counts an
+ingestible a poison when every effect is hostile (MGEF flag 0x4; JIP's
+`AlchemyItem::IsPoison`): Tremble, Mother Darkness, Silver Sting, Bleak
+Venom and the scorpion poison (and its dummy). FalloutNV.exe's Pip-Boy
+(0x95E6F0) puts one on the equipped weapon only when its skill is Melee
+Weapons (0x26) or Unarmed (0x2D), else shows `sPoisonNoWeaponMessage`; a
+weapon already poisoned is refused (`sPoisonAlreadyPoisonedMessage`, the
+exe's "The current weapon is already poisoned."); the weapon holds one
+poison (`ExtraPoison`, no charges), spent on its next hit. FO4 cannot coat
+a weapon, so these were converted with no effect. Now
+(`spike/weapon_poisons.py`):
+
+- the poison item carries one script effect, `F3NV_WeaponPoison`: with an
+  equipped weapon carrying FNV's Melee Weapons or Unarmed skill keyword and
+  no coat on (any perk of `FNV_WeaponPoisonCoats`), it gives the player the
+  poison's hidden coat perk; otherwise FNV's message shows and the item
+  comes back;
+- the coat perk casts the poison's spell on the actor hit (Apply Combat Hit
+  Spell, 51, Select Spell; its weapon tab tests the same keywords);
+- the spell is the poison's effects by touch on the victim, whatever FNV's
+  range (`attack_spells.poison`: detrimental value effects on FO4's poison
+  effects, script effects converted), plus `F3NV_PoisonSpent`, which takes
+  the coat perk from the attacker: one hit, as FNV.
+
+Drift: the coat is the player's, not the weapon's, so it stays through a
+switch to another melee or unarmed weapon; FNV's confirm box before
+applying (`sPoisonConfirmMessage`) is not shown.
+
+<a id="damage-threshold"></a>**Damage Threshold and Damage Resistance (built 2026-10-29, not yet played).**
+The hook approach is Zoltanite's "Modular Damage Threshold System - F4SE"
+(Nexus Fallout 4 mod 109168; credit Zoltanite as its creator; permissions
+and our analysis of it in
+[research](research/fo4_damage_threshold_reference.md)). Our code and
+formula are our own, from Fallout4.exe 1.11.240 and FalloutNV.exe.
+
+FalloutNV.exe (GOG 1.4.0.525) at 0x9B5A30, per hit: DR first, then DT, then
+the floor.
+
+1. DR: the target's DamageResist actor value (0x12) / 100, changed by the
+   ammo's DR effect, capped at `fMaxArmorRating` / 100 (85 in
+   FalloutNV.esm); damage x (1 - DR).
+2. DT: the target's DamageThreshold (0x4C), at least 0, changed by the
+   ammo's DT effect, less the attacker's perks' ignored DT (entry 58), plus
+   the target's DT perks (entry 0x38, 56), at least 0, divided by the
+   weapon's projectile count (a shotgun's pellets each face a share).
+3. damage - DT, at least `fMinDamMultiplier` (0.2) x the hit as it came.
+
+FO4 instead scales a hit by its resistance curve, `Fallout4.exe+0x6CB2E0`
+(actor value, damage, resistance; returns the share that gets through),
+called for physical damage at `+0xE38C3D` (the resistance after the
+attacker's Mod Target Damage Resistance perks, entry 37; the target in rsi)
+and per damage type at `+0xE3AF4A` (the target's object at [[rbx]]). The
+F3NV plugin (`tes_runtime/fo4_condition/damage.cpp`) points both calls at
+stubs that add the target and jump to `FalloutDamage`, which for physical
+damage and EnergyResist returns FNV's share: max(damage x (1 - DR) - DT,
+floor x damage) / damage, DT the physical resistance (energy: the target's
+DamageResist), DR the target's FalloutDamageResist. Radiation, fire, cryo
+and poison keep FO4's curve. It patches a call only while it still calls
+the curve, and stays off until `F3NV_NewGame` calls
+`F3NV_Damage.SetRules` (FNV's floor and cap, the three actor values) at a
+new game and each load.
+
+The data:
+
+- FO4's DamageResist carries FNV's DT: armor's rating is its DT (FNV
+  armor: 203 with DT; FO3 armor, which has no DT field, keeps its DR), and
+  FNV's DamageThreshold actor value is renamed to it, so DT abilities (20
+  spells, creatures' among them) and consumables (Whiskey and the other
+  `IncreaseDamageThreshold` items) convert onto it; they were dropped.
+- FNV's DamageResist (a percentage) is the helper's new
+  `FalloutDamageResist` (0x820): Med-X's and Psycho's DR effects are copies
+  of FO4's DR effects on it, and converted scripts and conditions reading
+  DamageResist read it. 9 FNV armors carry DR (8 of them with no DT, Fallout
+  3 leftovers); their DR is left out.
+- Ammo DT effects were already FO4's entry 37; FNV's attacker DT perks
+  (58: Piercing Strike 15, Shotgun Surgeon 10, the companion suite 10) now
+  are too, FNV's Set Value x as Add Value -x.
+- Converted actors' own stat lists replace their FO4 stand-ins' (1,151
+  Fallout4.esm NPCs carry DamageResist, up to 175 on sentry bots); a
+  stand-in race's small DamageResist (Brahmin 10, Bloatfly 5) stays.
+
+Not converted: the defender DT perks (56: Toughness 3/6, Stonewall 5 vs
+melee, Hit the Deck 25 vs explosives, the DT implant 4, Bonds of Steel 4,
+Kamikaze -2), which FO4 has no defender entry point for (abilities on
+DamageResist would carry the unconditioned ones); the per-pellet DT share;
+ammo DR effects.
+
+<a id="weapon-skills"></a>**Weapon skills in combat (built 2026-10-29, not yet played).**
+Read from FalloutNV.exe (GOG 1.4.0.525); the GECK wiki's formulas are
+Fallout 3's in places:
+
+- **Damage** (0x644CE0): every weapon but hand-to-hand (animation type
+  0) does base x (`fDamageSkillBase` + 0.01 x skill x `fDamageSkillMult` x
+  the condition penalty), then the attacker's Calculate Weapon Damage perks.
+  FalloutNV.esm sets 0.5 and 0.5: half damage at skill 0, full at 100. The
+  skill is the weapon's (its DNAM skill), 100 with no weapon. The condition
+  penalty scales only the skill part; the condition plugin's own damage
+  effect scales all of it (drift at low condition).
+- **Spread** (0x646910, the gun spread FNV's Calculate Gun Spread perks then
+  modify): standing, walking, running and unaimed penalties, the limbs, then
+  `fWeapStrengthReqPenalty` (FalloutNV.esm 0.025) per point of Strength
+  short of the weapon's requirement (at most 10), the same setting per
+  started 10 points of skill short of its skill requirement (weapon +0x1BC;
+  `fWeapSkillReqPenalty` is registered but never read), all of it x (1 -
+  `fWobbleToSkillConversion` (0.5) x skill / 100), at least
+  `fMinGunSpreadValue`. Fallout 3's `fGunSpreadSkillBase`/`Mult` are
+  registered but never read.
+
+FNV's 40 Calculate Weapon Damage perk effects are all multiplies, and of
+its 4 gun spread effects only Steady sets (to 0, whatever the order) and
+one penalty adds. `spike/weapon_skills.py` gives `FNV_CombatRules`, for
+each skill FalloutNV.esm's weapons use (its helper actor value), entries
+whose weapon tab tests the weapon's `FNV_WeaponSkill*` keyword and whose
+owner tab tests the skill above 0:
+
+- Mod Weapon Attack Damage (35), not on `FNV_WeaponAnimHandToHand`
+  weapons: Multiply Value `fDamageSkillBase`, then Multiply 1 + Actor Value
+  Mult by the skill x `fDamageSkillMult` / (100 x `fDamageSkillBase`); the
+  product is FNV's term, and multiplies commute with FNV's damage perks.
+- Mod Cone-of-fire Mult (134): Multiply 1 + Actor Value Mult by the skill x
+  -`fWobbleToSkillConversion` / 100.
+
+Converted NPCs carry their FNV skills (`npc_skills.py`), the player theirs
+through the character rules. Drift: creatures, which FNV gives one Combat
+skill instead, keep full damage and spread (their skill tests fail at 0);
+the Strength and skill requirement penalties are left out, being additions
+in FNV's spread units, which FO4's cone of fire does not share.
 
 ## <a id="audit-fixes"></a>Audit fixes (built 2026-10-17)
 
@@ -3523,6 +3847,41 @@ order of payoff:
 6. **Native code last.** numpy first (as the Skyrim mesh path did: 2.4x),
    C++ only for a measured hot loop.
 
+## <a id="caprica"></a>Caprica ahead of FO4's compiler (built 2026-10-31)
+
+**Why.** FO4's `PapyrusCompiler` takes about 0.25 s a script plus about
+3 s per batch (300 converted scripts in 75 s; 5 in 3.4 s); memory caps the
+parallel batches near 11 scripts a second, so the 17,425 converted scripts
+take 25–30 minutes on a first build. Caprica v0.3.0 (Orvid King, MIT,
+`external/caprica`, SHA-256 of the release 7z `0037E54C…4EE559`) compiled
+the same 299 in 2.1 s serial, 0.6 s parallel.
+
+**Equivalence (2026-10-31, 299 scripts).** Both compilers' .pex as
+Champollion assembly, case, temp numbers and declaration order folded: 12
+identical; the rest differ only in code generation read as equivalent:
+Caprica types `None` and constants (`0.0`, not a cast of `0`), assigns
+where FO4's compiler casts to the same type, drops unused temps, and its
+user-flag table lists only the flags used. It writes some type names with a
+lower-case first letter (`tES4Polyfill`); Papyrus names are not
+case-sensitive, not yet confirmed in game.
+
+**Differences handled (`fo4_import/base/caprica.py`):**
+- Header constructs Caprica rejects are patched in a copy of F4SE, Base and
+  LevelUpMenuEx (`safe_headers`, `output/fo4_cache/caprica_headers`): text
+  before `Scriptname` (5 vanilla sources, `TestKevinActivationScript`), a
+  struct member named `parent` (F4SE `ObjectReference.ConnectPoint`, now
+  `parentNode` in the copy) and `Var x = None` parameters (F4SE
+  `ScriptObject.RegisterForFurnitureEvent`). A script using what a patch
+  changed fails in Caprica and falls back.
+- Caprica stops at the first failing script, and its parallel mode crashes
+  there (exit 0xC0000409), so it runs serial: each run's failures are
+  dropped and the rest run again. What never compiles (all of it when a
+  header breaks Caprica) goes to FO4's compiler, whose messages stay the
+  diagnostics and the gate's (`compile_papyrus._compile_chunks`).
+  `--no-caprica` runs FO4's compiler only.
+- Caprica is stricter in places: `SunsetSarsparillaAddCap_1001` (a new
+  event on a non-native script) fails in both.
+
 ## <a id="stability"></a>Stability
 
 - **FormIDs never counted** ([FormIDs](fo4_spikes.md#formids)), guarded by
@@ -3720,12 +4079,54 @@ not hung: the main thread was in `ZwCreateFile` under MO2's
 so roughly 10 minutes for 179,414 files. After the last one the
 game went on to render. Vanilla keeps its voices in a BA2
 (`Fallout4 - Voices.ba2`). The build now writes voice and sound-effect
-files to the staging folder (`ba2_pack.sound_root`, `<data>/_ba2/Sound`)
+files to the staging folder (`ba2_pack.sound_root`, `<staging>/Sound`)
 and packs them as `<plugin> - Main.ba2` (`pack_sounds`; General,
 uncompressed, since .fuz and .xwm are already compressed), which the game
 loads with the plugin. A previous build's loose files in the plugin's own
 folders (`Sound/Voice/<plugin>`, `Sound/FX/FNV`) are moved into the
 staging folder first (`stage_loose_sounds`), so LipGenerator still skips them.
+
+**The staging folder lives outside the Data folder (2026-10-29).** It held
+292,898 files (9.3 GB: sounds 248,028, textures 12,897, the voice cache
+31,972) inside the mod folder, all already in the two BA2s. MO2 lists
+every file of an enabled mod in its virtual Data folder, so the Creation
+Kit sat at "Initializing Archive" and the game's launch paid the same.
+`ba2_pack.staging_root` now keeps it in `output/fo4_cache/ba2/<data folder
+name>-<hash>`; an old `<data>/_ba2` moves there on the next build (or goes
+when the new one exists), so a build into the mod folder leaves none.
+
+**We write the sound archive ourselves (2026-10-29).** A sampled whole-map
+build (128 min) spent 56 min in Archive2 packing the Main BA2: 248,028
+files, 5.9 GB, about 1 MB/s, all per-file overhead. One added, moved or
+restored voice file repacked all of it, so most rebuilds paid it.
+`base/ba2_write.write_general` writes the uncompressed general archive
+directly: version 8, flags `0x00100100`, the `0xBAADF00D` marker, data back
+to back, then the name table, with both name hashes CRC-32 without the
+starting or final inversion over the lowercase backslashed stem and folder.
+On that build's sounds it gave Archive2's archive exactly (same size, all
+248,028 entries and every file's bytes identical). The archive's record
+(`<archive>.json`) now keeps each file's size and time, and a repack copies
+the files unchanged since, in contiguous blocks, out of the previous
+archive, reading only the rest from disk, 16 at a time. Measured: a first
+pack from cold files 607 s (opening 248,028 files dominates); a pack with
+nothing changed is skipped after listing the files (21 s). The texture
+archive stays on Archive2 (DX10 chunking), and was not a measured cost.
+
+<a id="clip-cache"></a>**FNV clips decoded once (2026-10-29).** The same
+build spent about 12 min decoding FNV `.kf` clips (guns, idles, creature
+rigs), most of it the B-spline basis computed one sample at a time in pure
+Python. `kf_decode.basis_matrix` computes every sample's weights at once
+(the same recurrence, zero-division guards and half-open base case): 45 real
+clips (2,850 tracks) decode 4.7 times faster, the samples within 1.1e-13 of
+before. `fo4_import/havok/kf_cache.decoded` keeps each `.kf`'s decoded clips
+in the work cache by the file's bytes and the decoder's code tag, and the
+last 256 in memory (one gun reads its aim clip several times); each caller
+gets fresh copies, since `split_root_motion` works in place.
+
+Measured on the same whole-map build, rebuilt with both changes (clip cache
+filled during the run): 7,712 s to 2,046 s. Largest left: gun clip
+retargeting (430 s, the retarget math, not decoding), placed references
+(476 s), NPCs (291 s), worldspace groups (288 s).
 
 <a id="terrain-lod"></a>**Terrain LOD from FNV's own tiles (built 2026-10-24, not yet played).**
 FNV ships its terrain LOD prebuilt: per worldspace,
@@ -4037,7 +4438,7 @@ quick fix.
 | The saloon's night windows read flat yellow | FNV's own colour (1, 0.98, 0.29) × 3; total glow within vanilla windows' 0.05–0.26, so no global rescale | [glow](#glow) |
 | Placed guns lie wrong (the store's .22 stands on its grip) | FNV's reference rotation fits FNV's model, not the FO4 gun built in its place | [guns](fo4_spikes.md#spike-4-guns) |
 | FNV's guns on FO4 receivers; creatures with no FO4 rig | The replacement table and the modlist | [guns](fo4_spikes.md#spike-4-guns), [replacements](fo4_replacements.md) |
-| Terminal hum (FNV TERM looping sound) and Alternate Colors; FNV's 2 sound notes | Accepted drift ([fo4_drift.md](fo4_drift.md#recorded)). If wanted: write TERM's looping sound and test FO4 plays it, else a sound marker per terminal | [terminals](#terminals) |
+| Terminal Alternate Colors; FNV's 2 sound notes | Accepted drift ([fo4_drift.md](fo4_drift.md#recorded)). The hum stays out: TERM's Looping Sound crashed the game on load (2026-10-30). If wanted: a sound marker per terminal | [terminals](#terminals) |
 
 <a id="f3nv-names"></a>**Names (2026-10-23).** The Fallout 4 build's own names
 dropped the inherited "TES4":
@@ -4049,7 +4450,8 @@ dropped the inherited "TES4":
   object ids are unchanged.
 - The F4SE plugin is `F3NV.dll`, logging to `F3NV.log` (was
   `FalloutCondition.dll`).
-- The built plugin is `FalloutNV.esp` (was `FNVCellSpike.esp`). Its
+- The built plugin is `FalloutNV.esm` since 2026-10-30 ([layout](fo4_plugin_layout.md#layout)); it was
+  `FalloutNV.esp`, and `FNVCellSpike.esp` before that. Its
   ledger, voice and FaceGen folders are named after it, so they moved to
   the new name with it. Measured on the first renamed build: all 43,002
   records and the helper's 30 kept their FormIDs.

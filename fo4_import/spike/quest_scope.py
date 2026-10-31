@@ -73,9 +73,9 @@ class QuestScope:
                     todo.append(fid)
         return seen
 
-    def included(self, bases: dict, refs: list, actors: list) -> list:
+    def included(self, bases: dict, refs: list, actors: list, held: set = frozenset()) -> list:
         """FNV QUST records of a build placing `bases` {FormID: (type, record)}, references `refs` and actors
-        `actors` (ACHR/ACRE records), in FormID order."""
+        `actors` (ACHR/ACRE records), with quests `held` (a DLC's own) always in; in FormID order."""
         actor_bases = {int(a['NAME'], 16) for a in actors}
         where = {GET_IS_ID: actor_bases | bases.keys(), GET_IS_REFERENCE: {int(r['FormID'], 16) for r in refs + actors},
                  GET_IN_CELL: {int(r['ParentCELL'], 16) for r in refs + actors if r.get('ParentCELL')}}
@@ -86,7 +86,7 @@ class QuestScope:
             named |= self._actor(self.actors[fid])
         named |= {quest for quest, lines in self.lines.items() if any(_placed(line, where) for line in lines)}
         named |= {quest for quest, rec in self.quests.items() if self.lines.get(quest) and _placed(rec, where)}
-        named &= self.quests.keys()
+        named = (named | set(held)) & self.quests.keys()
         started = set().union(*(self._starts(self.quests[q]) for q in named)) & self.quests.keys()
         return [self.quests[q] for q in sorted(named | started)]
 

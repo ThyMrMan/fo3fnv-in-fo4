@@ -8,6 +8,7 @@ See: docs/fork/fo4_own_rig.md#modules
 import struct
 from dataclasses import replace
 
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.rig.behavior import fire_start
 from fo4_import.rig.table import weapon_node
@@ -176,28 +177,70 @@ def with_slots(rig, t: Templates):
     return replace(rig, guns=guns, slots=tuple(added))
 
 
-def body_parts(fid: int, rig, t: Templates) -> bytes:
-    """The template's body part data on the creature's bones: plain part names, no limb models, hit reactions only."""
+def fnv_part_names(folder: str) -> dict:
+    """{bone (lower case): part name} of FNV's body part data on skeleton folder `folder` (BPTN before its BPNN)."""
+    out = {}
+    for rec, _ in source_walk(b'BPTD'):
+        subs = list(subrecords(rec.body))
+        if text(dict(subs).get(b'MODL', b'')).lower().replace('/', '\\').rpartition('\\')[0] != folder.lower():
+            continue
+        name = ''
+        for tag, data in subs:
+            if tag == b'BPNN' and name:
+                out.setdefault(text(data).lower(), name)
+            name = text(data) if tag == b'BPTN' else '' if tag == b'BPNN' else name
+    return out
+
+
+def localized(data: bytes, strings: dict) -> str:
+    """A Fallout4.esm string field's text: its string ID's in `strings`, else itself."""
+    return strings.get(struct.unpack('<I', data)[0], b'').decode('cp1252', 'replace') if len(data) == 4 else text(data)
+
+
+def part_name(bone: str, names: dict, parents: dict) -> 'str | None':
+    """The name of the FNV part covering `bone`: the nearest of it and its ancestors (`parents`) that `names`
+    (fnv_part_names) holds; None when none does."""
+    while bone:
+        if bone.lower() in names:
+            return names[bone.lower()]
+        bone = parents.get(bone)
+    return None
+
+
+def body_parts(fid: int, rig, t: Templates, made: dict) -> bytes:
+    """The template's body part data on the creature's bones (`made`: write()'s parents and Fallout4.esm strings):
+    each part named as FNV names the part covering its bone (part_name), else as the template names it; no limb
+    models, hit reactions only.
+    See: docs/fork/fo4_own_rig.md#body-parts
+    """
     rec, subs = t.get(b'BPTD', rig.template['parts'])
     node = lambda d: rig.parts.get(text(d), rig.default_part) if text(d) else ''
+    names, template = fnv_part_names(rig.folder), ''
     blank = {b'NAM1': zstr('NAM1', ''), b'NAM5': pack_subrecord('NAM5', b''), b'DNAM': zstr('DNAM', ''),
              b'EDID': zstr('EDID', f'{rig.project}BodyPartData'),
              b'MODL': zstr('MODL', rig.path('CharacterAssets', 'skeleton.nif'))}
     out = b''
     for tag, data in subs:
         if tag == b'BPTN':
+            template = localized(data, made['strings'])
             continue
-        if tag == b'BPNN':
-            out += zstr('BPTN', node(data)) + zstr('BPNN', node(data))
-        elif tag in (b'BPNT', b'NAM4', b'ENAM', b'FNAM'):
-            out += zstr(tag.decode(), node(data))
-        elif tag == b'BPND':
-            nd = bytearray(data)
-            nd[BPND_FLAGS] &= PART_FLAGS_KEPT
-            out += pack_subrecord('BPND', bytes(nd))
-        else:
-            out += blank.get(tag) or pack_subrecord(tag.decode(), data)
+        shown = part_name(node(data), names, made['parents']) or template or node(data) if tag == b'BPNN' else ''
+        out += _part_field(tag, data, node, shown) or blank.get(tag) or pack_subrecord(tag.decode(), data)
     return pack_fo4_record('BPTD', fid, rec.flags, out)
+
+
+def _part_field(tag: bytes, data: bytes, node, shown: str) -> bytes:
+    """A template part's field on the creature: its node (BPNN, after the part's name `shown`) and the node
+    fields on its bones (`node`), its flags cut to hit reactions; b'' for any other field."""
+    if tag == b'BPNN':
+        return zstr('BPTN', shown) + zstr('BPNN', node(data))
+    if tag in (b'BPNT', b'NAM4', b'ENAM', b'FNAM'):
+        return zstr(tag.decode(), node(data))
+    if tag != b'BPND':
+        return b''
+    nd = bytearray(data)
+    nd[BPND_FLAGS] &= PART_FLAGS_KEPT
+    return pack_subrecord('BPND', bytes(nd))
 
 
 def body_path(rig, body: str) -> str:
@@ -303,13 +346,13 @@ def write_skin(writer, rig, t: Templates, race_fid: int, body: str, footsteps: b
 def write(writer, rig, t: Templates, made: dict) -> int:
     """Add the creature's race, body parts, default skin (its first body), movement type and IDLEs to `writer`;
     the race's FormID. `made` holds name, body, speeds ((walk, run) root speed), share (of power attacks),
-    footsteps (whether the skin keeps the template's footstep set), talks and kind (race())."""
+    footsteps (whether the skin keeps the template's footstep set), talks and kind (race()), parents (bones'), strings (Fallout4.esm's)."""
     ids = {k: writer.derive_formid(SITE, f'{rig.folder} {k}') for k in ('race', 'parts', 'movement', 'unarmed')}
     writer.add_record('WEAP', unarmed(ids['unarmed'], rig, t))
     ids['name'] = made['name']
     ids['skin'] = write_skin(writer, rig, t, ids['race'], made['body'], made['footsteps'])
     writer.add_record('MOVT', movement(ids['movement'], rig, t, *made['speeds']))
-    writer.add_record('BPTD', body_parts(ids['parts'], rig, t))
+    writer.add_record('BPTD', body_parts(ids['parts'], rig, t, made))
     writer.add_record('RACE', race(ids['race'], rig, t, ids, made))
     for action, event in ACTIONS.items():
         writer.add_record('IDLE', idle(writer.derive_formid(SITE, f'{rig.folder} IDLE {action}'), rig, t, action,

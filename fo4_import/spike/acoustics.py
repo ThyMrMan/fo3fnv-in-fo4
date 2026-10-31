@@ -16,7 +16,7 @@ See: docs/fork/fo4_pipeline.md#acoustic-spaces
 
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.records import pack_u32
 from fo4_import.spike.regions import regions_of
@@ -35,16 +35,15 @@ REVERBS = {
 }
 
 
-
 class AcousticSpaces:
     """FO4 ASPCs for FNV's, written once each, and the XCAS of FNV interiors."""
 
     def __init__(self, builder):
         """Read FalloutNV.esm's acoustic spaces and its interiors' XCAS, and Fallout4.esm's reverbs."""
         self.builder, self.made = builder, {}
-        self.fnv = {rec.form_id: list(subrecords(rec.body)) for rec, _ in walk(source_esm(), b'ASPC')}
+        self.fnv = {rec.form_id: list(subrecords(rec.body)) for rec, _ in source_walk(b'ASPC')}
         self.cells = {}
-        for rec, _ in walk(source_esm(), b'CELL'):
+        for rec, _ in source_walk(b'CELL'):
             subs = dict(subrecords(rec.body))
             if b'XCAS' in subs and b'XCLC' not in subs:
                 self.cells[rec.form_id] = struct.unpack('<I', subs[b'XCAS'])[0]

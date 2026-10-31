@@ -26,6 +26,7 @@ from fo4_import.spike import records as R
 from fo4_import.spike.entry_condition import condition_of
 from tes5_import.base.tes5_reader import first_sub, walk
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.stage_timer import charged
 
 #: FNV's engine objects sit below this FormID.
 ENGINE_IDS = 0x800
@@ -119,7 +120,8 @@ class Items:
             return self.shared[fnv_fid]
         if fnv_fid not in self.made:
             self.made[fnv_fid] = None
-            self.made[fnv_fid] = self._make(*self.records.get(fnv_fid, (None, None)))
+            sig, rec = self.records.get(fnv_fid, (None, None))
+            self.made[fnv_fid] = charged(f'item {sig}', self._make, sig, rec)
         return self.made[fnv_fid]
 
     def _make(self, sig: str, rec: dict) -> 'int | None':

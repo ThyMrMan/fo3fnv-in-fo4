@@ -26,9 +26,9 @@ See: docs/fork/fo4_radio.md#steps-model
 import functools
 import struct
 from collections import Counter, deque
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.support_records import pack_mesg
 from fo4_import.base.vmad import scene_fragments
 from fo4_import.base.writer import pack_topic
@@ -38,7 +38,8 @@ from fo4_import.spike.holotapes import TOPIC, pack_scene, speaker_npc
 from fo4_import.spike.say_topics import VM_QUEST_VARIABLE
 from fo4_import.spike.voice import fnv_folder, index_recordings
 from fo4_import.spike.voice_types import fnv_voice_types
-from tes5_import.base.tes5_reader import first_sub, walk
+from fo4_import.pipeline.export_index import export_file
+from tes5_import.base.tes5_reader import first_sub
 from tes5_import.base.writer import pack_string_subrecord
 
 #: FNV's radio topic every station's program starts at (RadioHello).
@@ -70,20 +71,21 @@ def recorded_voices(export_dir: Path) -> dict:
     return out
 
 
-def song_file(export_dir: Path, name: str) -> 'Path | None':
-    """The export's file of FNV sound file `name`: as named, else as FNV ships its songs (SONG_FILES); None if
-    none exists."""
+def song_file(export_dir: Path, name: str) -> 'str | None':
+    """FNV sound file `name` as the export holds it, under its sound folder: as named, else as FNV ships its
+    songs (SONG_FILES); None if none exists."""
     if not name:
         return None
-    path = export_dir / 'sound' / name.replace('\\', '/').lower()
-    return next((p for p in [path] + [path.with_name(path.stem + end) for end in SONG_FILES] if p.is_file()), None)
+    rel = PurePosixPath(name.replace('\\', '/').lower())
+    tried = [rel] + [rel.with_name(rel.stem + end) for end in SONG_FILES]
+    return next((r.as_posix() for r in tried if export_file(export_dir, 'sound', r).is_file()), None)
 
 
 @functools.cache
 def song_sounds() -> dict:
     """{FNV INFO FormID: its first response's sound (TRDT Sound)} of FalloutNV.esm's lines playing one."""
     out = {}
-    for rec, _ in walk(source_esm(), b'DIAL', b'INFO', bodies=(b'INFO',)):
+    for rec, _ in source_walk(b'DIAL', b'INFO', bodies=(b'INFO',)):
         trdt = first_sub(rec.body, b'TRDT') if rec.sig == b'INFO' else None
         sound = struct.unpack_from('<I', trdt, TRDT_SOUND)[0] if trdt and len(trdt) >= TRDT_SOUND + 4 else 0
         if sound:
@@ -218,7 +220,7 @@ class Program:
 
     def _song(self, line: dict, soun: int, path: Path) -> int:
         """The station's number of FNV `line`'s song, its SNDR (`songs`) playing `path`."""
-        sndr = self.builder.sounds.song(soun, path.relative_to(self.radio.export_dir / 'sound').as_posix())
+        sndr = self.builder.sounds.song(soun, path)
         self.songs[line['FormID']] = (len(self.songs) + 1, sndr)
         self.builder.counts['radio songs'] += 1
         return len(self.songs)

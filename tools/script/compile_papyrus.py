@@ -33,6 +33,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 from core.subprocess_flags import windows_cmd
 from core.memory_budget import memory_workers
+from fo4_import.base import caprica
+from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import compile_folder, header_dirs
 
 #: One FO4 compiler's peak memory: a fixed part, and a part per script in its batch (0.93 GB at 84, 1.02 at 300).
@@ -55,6 +57,9 @@ _DECLARATION = re.compile(r'^(?:scriptname|import|customevent|struct|endstruct'
 _MEMBER = re.compile(r'\b(?:function|event|property|customevent) (\w+)')
 #: Per-script results of the last Fallout 4 run, in --out, so the next run compiles only what changed.
 _STATE_FILE = 'compile_state.json'
+#: Stamp memos (file_stamps) of the sources' facts and headers' hashes, per --out, in the cache (a build deploys --out).
+_SOURCE_STAMPS, _HEADER_STAMPS = 'sources.json', 'headers.json'
+_STAMPS_CACHE = _PROJECT_ROOT / 'output' / 'fo4_cache' / 'compile_stamps'
 
 
 def find_compiler():
@@ -146,9 +151,31 @@ def _fo4_chunks(files: list, out_dir: Path, workers: int) -> list:
     return chunks
 
 
+def _facts(path: Path) -> list:
+    """[SHA-1 of a script's source, its declarations(), its sorted lower-case words]."""
+    text = path.read_text(encoding='utf-8', errors='replace')
+    return [hashlib.sha1(path.read_bytes()).hexdigest(), declarations(text), sorted(set(_WORD.findall(text.lower())))]
+
+
+def source_facts(files: list, memo: 'Path | None' = None) -> tuple:
+    """(source_hashes, source_declarations, source_words) of `files`, each file read only when its stamp changed
+    since the run that wrote `memo` (fo4_import.base.file_stamps; None: read every file)."""
+    stamps = Stamps(memo) if memo else None
+    facts = {f.stem.lower(): stamps.value(f, _facts) if stamps else _facts(f) for f in files}
+    if stamps:
+        stamps.save()
+    return ({n: f[0] for n, f in facts.items()}, {n: f[1] for n, f in facts.items()},
+            {n: set(f[2]) for n, f in facts.items()})
+
+
+def _stamps_memo(out_dir: Path, name: str) -> Path:
+    """Where output folder `out_dir`'s stamp memo `name` lives (_STAMPS_CACHE)."""
+    return _STAMPS_CACHE / hashlib.sha1(str(out_dir).lower().encode()).hexdigest()[:12] / name
+
+
 def source_hashes(files: list) -> dict:
     """{lower-case script name: SHA-1 of its source}."""
-    return {f.stem.lower(): hashlib.sha1(f.read_bytes()).hexdigest() for f in files}
+    return source_facts(files)[0]
 
 
 def declarations(text: str) -> list:
@@ -165,12 +192,12 @@ def declarations(text: str) -> list:
 
 def source_declarations(files: list) -> dict:
     """{lower-case script name: its declarations()}."""
-    return {f.stem.lower(): declarations(f.read_text(encoding='utf-8', errors='replace')) for f in files}
+    return source_facts(files)[1]
 
 
 def source_words(files: list) -> dict:
     """{lower-case script name: the lower-case words of its source}."""
-    return {f.stem.lower(): set(_WORD.findall(f.read_text(encoding='utf-8', errors='replace').lower())) for f in files}
+    return source_facts(files)[2]
 
 
 def users_index(words: dict, names: set) -> dict:
@@ -214,14 +241,19 @@ def needs_compile(hashes: dict, apis: dict, state: dict, users: dict, words: dic
     return changed | users_of(users, whole) | named | (users_of(users, redeclared) & failing) | unexplained
 
 
-def header_digest(imports: str, src_dir: Path) -> str:
-    """SHA-1 over the path and bytes of every .psc in the import folders other than `src_dir`."""
-    digest = hashlib.sha1()
+def header_digest(imports: str, src_dir: Path, memo: 'Path | None' = None) -> str:
+    """SHA-1 over the path and SHA-1 of every .psc in the import folders other than `src_dir`, a file read only
+    when its stamp changed since the run that wrote `memo` (None: every file)."""
+    digest, stamps = hashlib.sha1(), Stamps(memo) if memo else None
+    sha = lambda path: hashlib.sha1(path.read_bytes()).hexdigest()
     for folder in (Path(d).resolve() for d in imports.split(';') if d):
         if folder == src_dir:
             continue
         for path in sorted(folder.rglob('*.psc')):
-            digest.update(str(path.relative_to(folder)).lower().encode() + b'\0' + path.read_bytes())
+            digest.update(str(path.relative_to(folder)).lower().encode() + b'\0'
+                          + (stamps.value(path, sha) if stamps else sha(path)).encode())
+    if stamps:
+        stamps.save()
     return digest.hexdigest()
 
 
@@ -247,9 +279,16 @@ def remove_orphans(out_dir: Path, sources: set, listed: set) -> int:
     return gone
 
 
-def _compile_chunks(files: list, out_dir: Path, imports: str, workers: int) -> dict:
-    """{script: [error messages]} from compiling `files` in `workers` chunk folders, as many at once as free memory
-    holds (COMPILER_BYTES and COMPILER_SCRIPT_BYTES each, COMPILE_SPARE_BYTES left)."""
+def _compile_chunks(files: list, out_dir: Path, imports: str, workers: int, fast: bool = True) -> dict:
+    """{script: [error messages]} from compiling `files`: with Caprica first when `fast` and it is bundled
+    (fo4_import.base.caprica), the rest in `workers` chunk folders of FO4's compiler, as many at once as free memory
+    holds (COMPILER_BYTES and COMPILER_SCRIPT_BYTES each, COMPILE_SPARE_BYTES left).
+    See: docs/fork/fo4_pipeline.md#caprica
+    """
+    done = caprica.compile_files(files, out_dir, imports) if files and fast and caprica.available() else set()
+    if done:
+        print(f'Caprica compiled {len(done)} of {len(files)} files')
+    files = [f for f in files if f.stem.lower() not in done]
     if not files:
         return {}
     chunks = _fo4_chunks(files, out_dir, workers)
@@ -267,49 +306,46 @@ def _compile_chunks(files: list, out_dir: Path, imports: str, workers: int) -> d
     return {name.lower(): messages for name, messages in own.items()}
 
 
-def _compile_named(files: list, names: set, out_dir: Path, imports: str, workers: int) -> tuple:
+def _compile_named(files: list, names: set, out_dir: Path, imports: str, workers: int, fast: bool = True) -> tuple:
     """({script: [own errors]}, names with a .pex after) from compiling `names`, their old .pex deleted first."""
     for name in names:
         (out_dir / f'{name}.pex').unlink(missing_ok=True)
-    own = _compile_chunks([f for f in files if f.stem.lower() in names], out_dir, imports, workers)
+    own = _compile_chunks([f for f in files if f.stem.lower() in names], out_dir, imports, workers, fast)
     return own, {p.stem.lower() for p in out_dir.glob('*.pex')}
 
 
 def compile_fallout4(args) -> tuple:
-    """(compiled names, {file: [own error messages]}, source names) with FO4's compiler.
+    """(compiled names, {file: [own error messages]}, source names), Caprica first (_compile_chunks).
 
-    Compiles what needs_compile names, then the users of one that started or
-    stopped compiling, then again in one batch any that failed with no error of
-    their own (a compiler out of memory); the rest keep the saved result, which
-    other header folders or contents void. `--full` compiles everything. A
-    script's old .pex is deleted first, so one that stops compiling cannot pass
-    on a stale one, and so is every .pex remove_orphans finds.
+    Compiles what needs_compile names, then users of one that started or
+    stopped compiling, then once more any that failed with no error of their
+    own; the rest keep the saved result, which other headers void. `--full`
+    compiles everything. Old .pex files go first, as does every orphan.
     """
     src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
     imports = f'{args.headers or header_dirs()};{src_dir}'
     files = sorted(src_dir.glob('*.psc'))
-    hashes, apis = source_hashes(files), source_declarations(files)
-    headers = header_digest(imports, src_dir)
+    hashes, apis, words = source_facts(files, _stamps_memo(out_dir, _SOURCE_STAMPS))
+    headers = header_digest(imports, src_dir, _stamps_memo(out_dir, _HEADER_STAMPS))
     saved, listed = _load_state(out_dir, imports, headers)
     state = {} if args.full else saved
     removed = remove_orphans(out_dir, set(hashes), listed)
     if removed:
         print(f'{removed} .pex without a source removed')
-    words = source_words(files)
     users = users_index(words, set(hashes))
     todo = needs_compile(hashes, apis, state, users, words)
     print(f'{len(todo)} of {len(files)} scripts changed or use one whose declarations did')
-    own, pex = _compile_named(files, todo, out_dir, imports, args.workers)
+    own, pex = _compile_named(files, todo, out_dir, imports, args.workers, getattr(args, 'caprica', True))
     flipped = {n for n in todo if n in state and state[n].get('ok') != (n in pex)}
     more = users_of(users, flipped) - todo
     if more:
         print(f'{len(more)} more use one that started or stopped compiling')
-        extra, pex = _compile_named(files, more, out_dir, imports, args.workers)
+        extra, pex = _compile_named(files, more, out_dir, imports, args.workers, getattr(args, 'caprica', True))
         own, todo = {**own, **extra}, todo | more
     retry = {n for n in todo if n not in pex and n not in own}
     if retry:
         print(f'{len(retry)} failed with no error of their own; compiling them again in one batch')
-        extra, pex = _compile_named(files, retry, out_dir, imports, 1)
+        extra, pex = _compile_named(files, retry, out_dir, imports, 1, getattr(args, 'caprica', True))
         own = {**own, **extra}
     scripts = {n: {**(state[n] if n not in todo else {'ok': n in pex, 'own': own.get(n, [])}),
                    'sha': hashes[n], 'api': apis[n]} for n in hashes}
@@ -399,6 +435,8 @@ def main():
     parser.add_argument('--write-baseline', help='Fallout 4: record this run as the baseline JSON')
     parser.add_argument('--full', action='store_true',
                         help='Fallout 4: compile every script, not only those changed since the last run')
+    parser.add_argument('--no-caprica', dest='caprica', action='store_false',
+                        help="Fallout 4: FO4's own compiler only (default: Caprica first, FO4's for what it fails)")
     args = parser.parse_args()
     Path(args.out).mkdir(parents=True, exist_ok=True)
     sys.exit(report_fallout4(args) if args.game == 'fallout4' else report_skyrim(args))

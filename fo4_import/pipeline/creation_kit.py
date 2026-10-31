@@ -62,6 +62,28 @@ def modlist() -> list:
     return path.read_text(encoding='utf-8').splitlines() if path.is_file() else []
 
 
+def _roots() -> list:
+    """Where the CK's files can be: output_dir(), then the enabled mods."""
+    return list(dict.fromkeys([output_dir()] + [MO2 / 'mods' / line[1:] for line in modlist() if line.startswith('+')]))
+
+
+def holding(rel: Path) -> 'Path | None':
+    """The file at Data path `rel` in the first of _roots() that has it, or None."""
+    return next((root / rel for root in _roots() if (root / rel).is_file()), None)
+
+
+def written_since(rel: Path, since: float) -> list:
+    """[(file, its path under the Data folder, whether it is in output_dir)] of the files under `rel` the CK wrote
+    from `since` on: new ones in output_dir(), edited ones in the enabled mods holding them."""
+    out, found = output_dir(), []
+    for root in _roots():
+        folder = root / rel
+        for path in sorted(folder.rglob('*')) if folder.is_dir() else ():
+            if path.is_file() and path.stat().st_mtime >= since:
+                found.append((path, path.relative_to(root), root == out))
+    return found
+
+
 def output_dir() -> Path:
     """Where MO2 puts the files the CK creates: the selected profile's custom overwrite mod for it, else overwrite."""
     settings = configparser.ConfigParser(interpolation=None, strict=False)

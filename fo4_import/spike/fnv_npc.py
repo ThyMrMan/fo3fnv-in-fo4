@@ -21,7 +21,7 @@ from fo4_import.face import hair
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, coefficients, head
 from fo4_import.face.texture import fnv_texture
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import asset_root, export_file, export_records
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: FNV race head part index of the left eye mesh.
@@ -51,7 +51,7 @@ def record(export_dir: Path, kind: str, form_id: str) -> dict:
 
 def asset(export_dir: Path, folder: str, rel: str) -> Path:
     """An exported asset's path (lower case, forward slashes) under `folder`."""
-    return export_dir / folder / rel.replace(chr(92), '/').lower()
+    return export_file(export_dir, folder, rel.replace(chr(92), '/').lower())
 
 
 def npc_head(export_dir: Path, edid: str) -> tuple:
@@ -60,7 +60,7 @@ def npc_head(export_dir: Path, edid: str) -> tuple:
     race = record(export_dir, 'RACE', npc['RNAM.Race'])
     part = 'FemalePart[0]' if int(npc.get('ACBS.Flags', 0)) & 1 else 'MalePart[0]'
     model = first(race[part + '.Model'])
-    return head(export_dir / 'meshes', model, npc.get('FGGS', ''), npc.get('FGGA', '')), npc, race, part
+    return head(asset_root(export_dir, 'meshes'), model, npc.get('FGGS', ''), npc.get('FGGA', '')), npc, race, part
 
 
 def fnv_face(export_dir: Path, edid: str) -> tuple:

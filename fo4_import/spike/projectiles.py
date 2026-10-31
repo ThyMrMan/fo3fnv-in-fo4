@@ -9,7 +9,8 @@ each FNV one becomes. A converted gun carries its FNV projectile's as its
 FNAM override, beside FNV's projectile count (fnam); a round's mod carries
 its override's (override). A round itself flies its override's, else that
 of the lowest-FormID FNV gun FNV does not mark embedded loading it first
-(ammo). An FNV projectile the table leaves out is counted.
+(ammo). An FNV projectile the table leaves out is counted. Each flies a copy of its
+stand-in with FNV's numbers (spike.projectile_copies).
 
 See: docs/fork/fo4_pipeline.md#nv-ammo
 """
@@ -19,6 +20,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike.projectile_copies import ProjectileCopies
 from tes5_import.base.tes5_reader import first_sub, walk
 
 TABLE = Path(__file__).resolve().parents[1] / 'data' / 'projectiles.json'
@@ -52,8 +54,10 @@ class Projectiles:
         if missing:
             raise ValueError(f'projectiles.json names projectiles Fallout4.esm lacks: {missing}')
         export = builder.export_dir
-        self.names = {int(r['FormID'], 16): r['EditorID'] for r in export_records(export, 'PROJ')}
+        self.recs = {int(r['FormID'], 16): r for r in export_records(export, 'PROJ')}
+        self.names = {fid: r['EditorID'] for fid, r in self.recs.items()}
         self.mapped = {fid: fo4[table[edid]] for fid, edid in self.names.items() if edid in table}
+        self.copies = ProjectileCopies(builder, set(self.mapped.values()))
         self.overrides = {int(r['FormID'], 16): int(r.get('DAT2.Projectile', '0'), 16)
                           for r in export_records(export, 'AMMO')}
         lists = {int(r['FormID'], 16): r for r in export_records(export, 'FLST')}
@@ -64,13 +68,13 @@ class Projectiles:
                 self.first.setdefault(ammo, projectile)
 
     def of(self, fnv: int) -> 'int | None':
-        """The FO4 projectile for FNV projectile `fnv` (None for none); one left out is counted once."""
+        """The FO4 projectile (its stand-in's copy) for FNV projectile `fnv`; None for none, counted once."""
         if not fnv:
             return None
         if fnv not in self.mapped and fnv not in self.unmapped:
             self.unmapped.add(fnv)
             self.builder.counts[f'projectile not mapped ({self.names.get(fnv, f"{fnv:08X}")})'] += 1
-        return self.mapped.get(fnv)
+        return self.copies.copy(self.mapped[fnv], self.recs[fnv]) if fnv in self.mapped else None
 
     def gun(self, rec: dict) -> 'int | None':
         """The FO4 projectile FNV gun `rec` fires."""

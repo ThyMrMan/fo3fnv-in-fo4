@@ -1,6 +1,6 @@
 """Spike 2 step 4: FaceGen for the cell's NPCs, from the Creation Kit, with FNV face shapes baked in.
 
-    py -3.14 -m fo4_import.spike.facegen --export <FalloutNV.esm export> --data <mod folder> FalloutNV.esp
+    py -3.14 -m fo4_import.spike.facegen --export <FalloutNV.esm export> --data <mod folder> FalloutNV.esm
 
 Runs the CK's `-ExportFaceGenData:<plugin> X64` through MO2 (so it loads the
 profile's plugins), moves the FaceGeom NIFs and face tint textures it writes
@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from fo4_import.base.ba2_pack import STAGING
+from fo4_import.base.ba2_pack import staging_root
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.face.bake import bake, face_shape
 from fo4_import.face.sculpt import load_basis as sculpt_basis
@@ -99,7 +99,7 @@ def prune(plugin: str, data_dir: Path, npcs) -> int:
     nifs = list((data_dir / FACEGEN_DIRS[0] / plugin).glob('*'))
     stale = [p for p in nifs if p.stem.upper() not in names]
     faces = {p.stem.upper() for p in nifs} & names
-    for folder in (data_dir / FACEGEN_DIRS[1] / plugin, data_dir / STAGING / FACEGEN_DIRS[1] / plugin):
+    for folder in (data_dir / FACEGEN_DIRS[1] / plugin, staging_root(data_dir) / FACEGEN_DIRS[1] / plugin):
         stale += [p for p in folder.glob('*') if p.name[:8].upper() not in faces]
     for path in stale:
         path.unlink()

@@ -1705,8 +1705,10 @@ character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions))
   Me Up) keep FO4's mirror chargen and SPECIAL form, then skip ahead.
   Taken: FNV's way. VCG01's own message box picks the sex and
   `SexChange` becomes `TES4Polyfill.SetSex`, running `sexchange` through
-  Garden of Eden when the sex differs; the Reflectron stays mode 1 for the
-  face; the name is the SPECIAL menu's (the Vit-o-matic).
+  Garden of Eden when the sex differs (since 2026-10-29 the F3NV plugin
+  runs the game's `SexChange` itself, [sex change](fo4_pipeline.md#sex-change));
+  the Reflectron stays mode 1 for the face; the name is the SPECIAL menu's
+  (the Vit-o-matic).
 - **The ink blots** (`fo4_import/spike/swaps.py`; played 2026-10-07). FNV's `SwapTexture <ref> "<node>" "<texture>"` (242 sites,
   all FNV: 198 on `OnScreenSlideRef`, 41 on the psych test's card, 3 on
   the Pip-Boy screen) retextures one shape. FO4 swaps materials, and only
@@ -3059,22 +3061,69 @@ on the post.
 property 67) names a ZOOM record, the FOV multiplier and the full-screen
 overlay. A converted gun keeps the template's default parts, iron sights
 included, so the scoped Sniper Rifle zoomed only as far as its sights
-(played 2026-10-29). FNV marks a gun that aims through its scope's view
-with DNAM.Flags1 0x44 (Has Scope plus Don't Use 1st Person IS Anims; 0x4
-alone is on the 9mm, the plain Varmint and Hunting Rifle, which aim down
-sights). Such a gun takes, in place of the default sights, the scope part
+(played 2026-10-29). FNV marks a gun with a scope of its own by
+DNAM.Flags1 Has Scope (0x4) without DNAM.Flags2 Scope from Mod (0x2000):
+the 9mm, the plain Varmint, Hunting and Laser Rifle carry 0x4 with Scope
+from Mod and aim down sights until a scope mod goes on (`built_in_scope`).
+Don't Use 1st Person IS Anims (0x40) only skips the raise: the Bozar, Gauss
+Rifle, La Longue Carabine and Boone's rifle lack it and are still scoped
+(0x44 alone missed them and gave the Laser Rifle a scope, 2026-10-31).
+Unlisted, such a gun is matched among the FO4 guns with a scope part first
+(all of them when none fits), as the layout match put the Gauss rifles,
+Boone's rifle and La Longue Carabine on the scopeless Railway Rifle; they
+went to the Pipe Bolt-Action. Such a gun takes, in place of the default sights, the scope part
 one of its template's combinations uses whose magnification
 (fDefaultWorldFOV 70 / FNV's DNAM.SightFOV) comes nearest, a plain scope
 before night vision or recon (`GunChoices.scoped`). The part's copy drops
 its model (FNV's mesh draws the scope) and keeps the zoom. 0x40 alone also
 makes a gun aim with its unsighted clip, as FNV does (`fnv_stem`). The
 Anti-Materiel Rifles (Railway Rifle has no scope part) go on the Hunting
-Rifle and the Binoculars on the .44.
+Rifle and the Binoculars on the .44. The table keys on EditorID, so Gun
+Runners' Arsenal's `NVDLC05…Custom`/`…Unique` copies need rows of their
+own: without them they fell to the layout match, which put the AMR and the
+Medicine Stick on the Railway Rifle (no scope, its steam), the Tri-beam on
+the Combat Shotgun, the Assault Carbine and Bozar on the SMG, the Plasma
+Pistol and Hyperbreeder on the Pipe Gun. Each now takes its base gun's row;
+the Bozar takes the Assault Rifle for its scope part. That scope is 10x
+against FNV's 2x: no FO4 gun's combinations offer a scope under 4x, and the
+Combat Rifle (6x) has no default combination, so it can't be a template.
 
-**Third person** keeps the template's clips, so its hands hold the FO4
-gun's grips, not FNV's mesh (the carbine's left hand sits under it).
-Entries copy each template entry that targets the replaced keyword
-(third person, power armor) to the gun's own.
+**Third person** keeps the template's clips. Entries copy each template
+entry that targets the replaced keyword (third person, power armor) to the
+gun's own. Its left hand is IK'd to `WeaponIKTargetL`, a child of the Weapon
+bone that each gun folder's two-frame `WPNAssemblyPose` sets (196 of them in
+Fallout4 - Animations.ba2, player, NPC and synth copies), so the template's
+pose put it on the FO4 gun's fore-end (the carbine's left hand sat under
+ours). Since 2026-10-31 each human third-person entry searches first a
+folder of the gun's own (`Actors\FNV\Character\Animations\<gun>\<the
+vanilla folder's last two>`) holding a copy of that pose whose target is
+moved onto our gun (`_with_assembly`, `carried_target`): it keeps the
+hand-local offset vanilla's target has from vanilla's first-person left
+hand, applied to ours in `WPNIdleReady`. Measured on the Hunting Rifle: the
+two hands turn alike (about 2° apart) and sit 1.2–1.5 units apart, so the
+hand bones share axes and the offset is the third-person hand's own. A
+pistol on vanilla's grip writes no first-person target and keeps vanilla's
+pose; other skeletons (power armor) keep theirs. Not played.
+
+**Measured, not changed (2026-10-31):**
+- *The left hand going into aim.* FO4's first-person gun graph has no hand
+  IK (`LeftHandTarget` is a variable; only the Pip-Boy graph has
+  `hkbHandIkControlsModifier`), so ready to sighted is a local-space blend.
+  Blended halfway, the left middle finger moves off the gun by at most 1.6
+  units more than at either end on the Cowboy Repeater (5.7 → 7.3), none on
+  the Varmint Rifle, Service Rifle or Riot Shotgun; FNV's own `2hr` clips
+  drift 1.4 the same way. Too small to be the reported slip; its cause is
+  still open. Vanilla's idles are `hkaLosslessCompressedAnimation`, which
+  the reader cannot decode, so vanilla's own drift is unmeasured.
+- *Heavy guns low on screen.* Moving the gun so its body's centre sits where
+  the template's does (whole move, then only across the screen) raised the
+  share on screen (Flamer 32 → 46–48%, Plasma Caster 11 → 20–34%) but
+  folded the right upper arm across the camera in Blender: reverted.
+- *The Flamer's reload* is FNV's own (DNAM.ReloadAnim 1, `2hhreloadb`); the
+  minigun's is `2hhreloade`.
+- *The template's parts* (stock, barrel) left vanilla's left-finger gap
+  unchanged (Hunting Rifle 5.28, Assault Rifle 4.39): vanilla's finger is
+  nearest the receiver.
 
 **Which guns convert (2026-10-29).** An FNV gun with a near-identical
 FO4 gun stays on it (`"as": "stats"`: FO4's mesh, clips and hands, FNV's

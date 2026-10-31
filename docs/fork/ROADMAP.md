@@ -15,33 +15,50 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | [performance.md](performance.md) | Rules for new systems, Papyrus runtime cost, FO3/FNV occlusion |
 | [kill_cams.md](kill_cams.md) | Kill cams and killmoves on converted weapons, per game |
 | [bink_movies.md](bink_movies.md) | Source-game Bink 1 movies on Fallout 4: census (36 movies), playback, plan, play test |
-| [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md), [Fallout 4 as the target](research/fo4_target.md), [dynamic collision for FO4 (parked mod idea)](research/fo4_dynamic_collision.md), [NVSE features for FO4](research/nvse_port.md), [FO4 creature rig prior art](research/fo4_creature_rig_prior_art.md) |
+| [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md), [Fallout 4 as the target](research/fo4_target.md), [dynamic collision for FO4 (parked mod idea)](research/fo4_dynamic_collision.md), [NVSE features for FO4](research/nvse_port.md), [FO4 creature rig prior art](research/fo4_creature_rig_prior_art.md), [Damage Threshold reference (Zoltanite)](research/fo4_damage_threshold_reference.md) |
 | [done/](done/) | Plans that are built, kept as their design record: [preflight audits](done/preflight_audits.md) |
 | [fo4_spikes.md](fo4_spikes.md) | The spikes that showed FO3/FNV on Fallout 4 buildable (done), and the findings they made |
 | [fo4_pipeline.md](fo4_pipeline.md) | The plan from the spike to the whole of FNV: the base it grows on, what to build and research first, speed, stability, order |
 | [fo4_tool_audit.md](fo4_tool_audit.md) | The converter audit before the whole-map build (2026-10-15): bugs, speed, overlooked issues, with counts |
 | [fo4_preflight.md](fo4_preflight.md) | The preflight audits on the FO4 build (`--fo4`): scene dialogue model, assets, the condition differential, first results |
+| [fo4_timing_audit.md](fo4_timing_audit.md) | Plan: the progress timing audit (each fact's start value, writers and prerequisites against FNV's, so quests, stages, topics and options unlock no sooner or later than in FNV; first measurements) |
 | [fo4_menu_audit.md](fo4_menu_audit.md) | Plan: the dialogue menu audit (exact checks on the pieces the build adds to make menus: structure, one option per topic, option gates, effects; both games' rules from XDI and the exes; menus logged in play) |
 | [fo4_creature_audit.md](fo4_creature_audit.md) | Every FNV creature field through the export and each converter path into FO4: what is carried, dropped or left over from the cloned stand-in (audit 2026-10-27; void list entries, scripts on bases and the Unique leak fixed, built in F3NV Rig Test and played; template slots built and played; inventories built and played; placed-actor scale, No AI Acquire and actor links built, not played; template actors' own speed and size built and played; Base Data and death item chains, Invulnerable and Is Ghost built, not played; the stand-in leftover check built; ghouls: glowing ones on FO4 glowing ones, ghoul radiation healing and script-effect abilities built and played; refraction surfaces built, not played; FNV attack spells (EITM) built, deathclaw knockdown as a player stagger played; the whole map not rebuilt) |
 | [fo4_replacements.md](fo4_replacements.md) | The user-editable replacement table (items, then creatures: FO4 records, FNV stats, FNV meshes on FO4 rigs, other mods' records), its profiles and GUI, and the Wabbajack modlist as a soft requirement for the full experience |
 | [fo4_idles.md](fo4_idles.md) | FNV idle animations on Fallout 4: `.kf` clips retargeted to FO4's skeleton, IDLE records as dynamic idles, idle trees, seated idles |
 | [fo4_perks.md](fo4_perks.md) | FNV perks and traits on Fallout 4: the entry-point census, the plan, `HasPerk` |
 | [fo4_drift.md](fo4_drift.md) | Where play on Fallout 4 differs from FO3/FNV, and which game's system each area uses |
+| [fo4_build_next.md](fo4_build_next.md) | Plan: the items left on Fallout 4, in order, with what research found for each |
+| [fo4_plugin_layout.md](fo4_plugin_layout.md) | Plan: the plugin layout (game, rules, per-DLC, mod patch plugins), FormIDs across plugins, and incremental record builds |
 | [fo4_condition.md](fo4_condition.md) | Item condition: wear, repair, the Pip-Boy repair and ammo lists, jams, vendor repair (the F3NV F4SE plugin) |
 | [fo4_radio.md](fo4_radio.md) | FNV's radio stations as Fallout 4 radio |
 | [fo4_look.md](fo4_look.md) | The plan for FNV's look: grass (density, where it grows, flecks) and lighting (weather haze, clouds, night, glow, lights, tone) |
 | [fo4_pipboy_tabs.md](fo4_pipboy_tabs.md) | The Pip-Boy's SKILLS, REPUTATION, KARMA and CHALLENGES tabs, drawn by our plugin |
 | [fo4_gui.md](fo4_gui.md) | The FO3/FNV conversion app: user-chosen locations, mod sources from any folder (MO2 optional), the two-column Replacements screen with 3D previews, Windows/macOS/Linux |
 
-## <a id="fo4-systems"></a>Fallout 4: where each FNV system stands (2026-10-24)
+## <a id="fo4-systems"></a>Fallout 4: where each FNV system stands (2026-10-29)
 
-Built into `FalloutNV.esp` (MO2 mod "F3NV - Fallout New Vegas") and played in
-the Goodsprings to Primm region unless it says otherwise. The rows under the
-next heading are the history that led here.
+Built into `FalloutNV.esm` (MO2 mod "F3NV - Fallout New Vegas") and played in
+the Goodsprings to Primm region unless it says otherwise. Where play differs
+from FNV is in [fo4_drift.md](fo4_drift.md); what is left is
+[below](#fo4-next). The rows under the next heading are the history that led
+here.
+
+**Deployed build (2026-10-30 08:36):** the whole map with every change below and build-next items 1 to 4,
+a pure build (no other mods' records), not yet played. Committed: through
+`52c14e64` (guns, Papyrus tracing, rig research); everything since, from the
+sound archive writer on, is uncommitted.
 
 | System | Status |
 |---|---|
-| World, NPCs, dialogue, quests (region) | Built and played in the region. **Whole map built 2026-10-24, not played** ([whole map](fo4_pipeline.md#whole-map)): WastelandNV and every worldspace a door reaches (the Strip, Lucky 38, Freeside, the encounter holding pen and the rest) in 2 h, 637,564 records, 13,140 of 13,140 scripts compile, FO4Edit 76 unresolved condition references. 1,036 placed creatures of 121 kinds have no FO4 base yet (the replacement table's gap). Deployed to the MO2 mod folder 2026-10-24; the first launch took about 10 minutes opening 179k loose voice files, so sounds now go in `FalloutNV - Main.ba2` ([sound archive](fo4_pipeline.md#sound-archive)). **Terrain LOD from FNV's prebuilt tiles built 2026-10-24, not played** ([terrain LOD](fo4_pipeline.md#terrain-lod)): WastelandNV's 1,360 tiles; object LOD not started |
+| World, NPCs, dialogue, quests | Built and played in the region. **Whole map rebuilt 2026-10-29, deployed, not played** ([whole map](fo4_pipeline.md#whole-map)): WastelandNV and every worldspace a door reaches; 2,245 NPCs (910 template actors), 113,921 dialogue lines, 4,700 navmeshes, 13,511 of 13,511 scripts compile, a 438 MB plugin, 0 FormIDs moved against the morning's build. 47 placed creatures of 14 kinds are left out (super mutants, nightkin, REPCON ghouls; 1,036 of 121 kinds on 2026-10-24, before every creature had a rig): a converter bug, as they take their model from a template without its traits ([no base](fo4_build_next.md#no-base)). Sounds and voices in `FalloutNV - Main.ba2` ([sound archive](fo4_pipeline.md#sound-archive)). **Terrain LOD built 2026-10-24, not played** ([terrain LOD](fo4_pipeline.md#terrain-lod)); object LOD not started |
+| Build time | **128 → 34 min, 2026-10-29** for a whole-map rebuild: our own sound BA2 writer reusing unchanged files ([sound archive](fo4_pipeline.md#sound-archive)) and a decoded-clip cache ([clip cache](fo4_pipeline.md#clip-cache)); about 70 min when every script recompiles. The BA2 staging cache (293k files, 9.3 GB) moved out of the Data folder into `output/fo4_cache/ba2`, so MO2 no longer lists it and the Creation Kit's "Initializing Archive" wait should shrink (not yet timed) |
+| Replacements ([replacements](fo4_replacements.md)) | **Off for the pure build, 2026-10-29:** `replacements/falloutnv.json` empty, the earlier table kept as `falloutnv.with_mods.json` |
+| Required mods | F4SE, Address Library, LevelUpMenuEx, XDI; Garden of Eden no longer: `SexChange` is native in `F3NV.dll` ([sex change](fo4_pipeline.md#sex-change), deployed, not played) |
+| Combat rules | **Built 2026-10-29, deployed, not played**, on the hidden `FNV_CombatRules` perk every NPC and the player hold, and the F3NV plugin: FNV's random critical roll with each weapon's crit chance, damage, effect and V.A.T.S. AP cost ([weapon criticals](fo4_pipeline.md#weapon-criticals), [random criticals](fo4_pipeline.md#random-criticals)); weapon skill damage and spread ([weapon skills](fo4_pipeline.md#weapon-skills)); Strength and skill requirement spread ([requirement spread](fo4_pipeline.md#requirement-spread)); sneak attacks ([sneak attacks](fo4_pipeline.md#sneak-attacks)); weapon poisons ([weapon poisons](fo4_pipeline.md#weapon-poisons)); Damage Threshold through a DLL hook on FO4's resistance curve, credit to Zoltanite's reference ([damage threshold](fo4_pipeline.md#damage-threshold)); knockdown criticals as FNV's converted spells |
+| FNV combat feel ([plan](fo4_combat_feel.md)) | **First pass built 2026-10-29, deployed, not played** ([built](fo4_combat_feel.md#built)): each gun's aim model a fixed cone of FNV's Min Spread; FNV's player health formula and run speed; V.A.T.S. at 2% time, FNV's 0.75 damage taken, a skill term on the hit chance; difficulty already FNV's; sprint FO4's with its AP drain |
+| Consumables ([consumable effects](fo4_pipeline.md#consumable-effects)) | Played 2026-10-21. **Since 2026-10-29, deployed, not played:** effects FO4 has no match for run their converted FNV scripts (Cateye, antivenom, Steady, Super Stimpak, Stealth Boy), critical chance raises the roll's helper, and 27 chems carry FO4's addiction for their withdrawal ([chem addiction](fo4_pipeline.md#chem-addiction)) |
+| Projectiles ([projectile copies](fo4_pipeline.md#projectile-copies)) | Stand-ins since 2026-10-28; **since 2026-10-29, deployed, not played:** 49 copies with FNV's range, flying ones with its speed and gravity, 8 explosions with FNV's damage, force and radius |
 | Build checks ([reference check](../reference/python_tools.md#fo4-ref-check)) | Script properties naming a record never written are cleared after each build (`base/dangling_scripts.py`; 1,080 on the whole map). `tools/validate/fo4_ref_check.py` finds unresolved references headless in 5 s and matched FO4Edit's 76 on the whole map; FO4Edit (`fo4_check --timeout`) stays for structural checks and waits for its developer-message dialog when unattended |
 | Item condition ([condition](fo4_condition.md)) | **Played:** weapon and armor wear, the Pip-Boy CND line and repair list (G), transfer and barter CND, starting condition (COED), Jury Rigging, reload jams (briefly). **Not played:** vendor repair (no repairer in the region), the Pip-Boy ammo list (V). NPC weapon wear: FNV has none |
 | Pip-Boy tabs ([tabs](fo4_pipboy_tabs.md)) | SKILLS, REPUTATION, KARMA played; CHALLENGES not played. Pip-Boy Tabs dropped |
@@ -54,16 +71,59 @@ next heading are the history that led here.
 | Weapon mods ([weapon mods](fo4_pipeline.md#weapon-mods)) | Built, not played |
 | Combat styles ([combat styles](fo4_pipeline.md#combat-styles)) | Each FNV style converted to its own FO4 style from both exes' formulas: built 2026-10-25, not played |
 | Ammo subtypes, effects, casings, the Ammo Type hotkey ([ammo](fo4_pipeline.md#nv-ammo)) | Built, not played |
+| Guns ([gun clips](fo4_spikes.md#spike-4-gun-clips)) | FNV guns on their own meshes and first-person clips: played 2026-10-28/29, good enough for now; polish [parked](#parked) |
 | Gun and ammo projectiles from FNV data ([projectiles](fo4_pipeline.md#nv-projectiles)) | Built, not played |
 | Lockpicking and hacking on FNV's skills | Built, not played |
-| Perks, traits, teammate perks ([perks](fo4_perks.md)) | Built, not played |
+| Perks, traits, teammate perks ([perks](fo4_perks.md)) | Built, not played. Since 2026-10-29: reload speed, AP regeneration, run speed, Lead Belly and defender DT as abilities ([stat abilities](fo4_perks.md#stat-abilities)); attacker DT on FO4's target resistance |
+| Terminals ([terminals](fo4_pipeline.md#terminals)) | Played. FNV's computer hum left out: FO4 reads a terminal's Looping Sound field as marker data and crashed on load (2026-10-30; [drift](fo4_drift.md#recorded)) |
 | Radio ([radio](fo4_radio.md)) | Played: Mojave Music Radio, Radio New Vegas, Trudy's radio. Not played: Black Mountain, the lounges |
 | Idles ([idles](fo4_idles.md#standing)) | Standing idles played; seated ones only where listed |
 | Bink movies ([bink](bink_movies.md)) | Built; the FNV intro played |
-| Names ([names](fo4_pipeline.md#f3nv-names)) | `F3NV_` scripts, `FalloutHelpers.esl`, `F3NV.dll`, `FalloutNV.esp` (2026-10-23, 0 FormIDs moved) |
-| Not started | Casino games and Caravan; kill cams; the `[Speech 50]` tag; the rest of the look pass ([fo4_look.md](fo4_look.md)); Papyrus cost 2 to 4 |
+| Names ([names](fo4_pipeline.md#f3nv-names)) | `F3NV_` scripts, `FalloutHelpers.esl`, `F3NV.dll`, `FalloutNV.esp` (2026-10-23, 0 FormIDs moved); `FalloutNV.esm`, flagged master, since 2026-10-30 ([layout](fo4_plugin_layout.md#layout)) |
+| FNV DLC ([DLC build](fo4_plugin_layout.md#dlc-build)) | Gun Runners' Arsenal as `GunRunnersArsenal.esm` on FalloutNV.esm, its own data folder and MO2 mod (`F3NV - Gun Runners Arsenal`): built 2026-10-30, gaps closed 2026-10-31 (its own subgraph race; the Ammo Type, condition and challenges quests merged row by row), not played. Open: the build still writes 4,190 copies of the game's files (left out at deploy); two DLCs overriding one list or quest, the last wins |
+| Not started | See [what is left](#fo4-next) |
 | Look pass ([fo4_look.md](fo4_look.md)) | **Played 2026-10-23/24:** weathers graded by FNV's worldspace imagespace and weather tints, vanilla clouds in FNV's colours, exterior depth of field; night and noon match FNV after each weather's directional ambient took FNV's ambient ([night](fo4_look.md#night)); windows; the saloon's flickering "SAL" (looping activators made statics, no box from blended unlit tubes); the "ON" bulbs and the graveyard lantern ([lanterns](fo4_look.md#lanterns)). Glows follow vanilla's ranges per kind ([emissive](fo4_look.md#emissive)); neon ("O", OPEN) parked until the Strip is converted. **Built, not played:** grass density (1/16), grass placement (grassy textures kept past the 4-texture limit, [grass-ground](fo4_look.md#grass-ground)), soft light-ray cones. Open: the grass shards; FNV's horizon glow at night |
 | Needs one play test | The silent player voice; ambient two-NPC conversations |
+
+### <a id="fo4-next"></a>What is left (2026-10-29)
+
+**Play first.** Nothing from 2026-10-29 has been played. In the order a play
+test meets them: the new game (health 200 at Endurance 5, run speed), a
+gunfight (FNV's cone, criticals, Damage Threshold, sneak attacks, V.A.T.S. at
+2%), chems (addiction and withdrawal), poisons on a melee weapon, the perks
+picked at level 2. Then the rows above marked not played:
+challenges, reputation, disguises, weapon mods, combat styles, ammo,
+survival needs, lockpicking, vendor repair, the whole map itself.
+
+**Verify, cheaply, in that play test:** FO4's aim cone is a half-angle as
+FNV's (fire at a wall at a known distance); V.A.T.S. at 2% brings no stuck
+slow-motion audio; the CarryWeight nudge makes the SpeedMult take; the
+Creation Kit's archive wait is shorter.
+
+**Build next** (the plan, in order: [fo4_build_next.md](fo4_build_next.md#order)):
+
+| Item | Size | Notes |
+|---|---|---|
+| Items 1 to 4: creatures with no base, the `[Speech 50]` tag, creatures' Combat skill, scoped sway | — | **Built 2026-10-30**; the skill tag played 2026-10-31 (`[Barter 20]` on a Trudy line), the rest not yet ([no base](fo4_build_next.md#no-base), [speech tag](fo4_build_next.md#speech-tag), [creature skill](fo4_build_next.md#creature-skill), [sway](fo4_build_next.md#sway)) |
+| Built-in scopes at FNV's zoom | S | Built 2026-10-31, not played ([scope zoom](fo4_build_next.md#scope-zoom)) |
+| FNV's super mutant mesh on FO4's skeleton | S-M | After item 1 ([super mutants](fo4_build_next.md#super-mutants)) |
+| Object LOD | L | Not started; terrain LOD built |
+| Commit today's work | S | Everything after `52c14e64`, once played |
+| Dialogue menu audit phase 2, timing audit phases 3 to 6 | M | Planned ([menu](fo4_menu_audit.md), [timing](fo4_timing_audit.md)) |
+| Preflight findings | M | 801 errors and 128 to review on the 2026-10-25 build, none acted on ([preflight](fo4_preflight.md#results)) |
+| Casino games and Caravan | L | Not started |
+| Kill cams | M | Not started ([kill cams](kill_cams.md)) |
+| The rest of the look pass | M | Grass shards, FNV's horizon glow at night, neon on the Strip ([fo4_look.md](fo4_look.md)) |
+| Papyrus cost 2 to 4 | M | GameMode loops, dialogue state, patrol checks ([performance](performance.md#papyrus)) |
+| Conversion app phase 7 | M | MO2 setup, Play, modlist status ([phases](fo4_gui.md#phases)) |
+| Creature screens and the Lucky 38 elevator | M | Animated securitron and Mr. House screens ([own rig](#own-rig)) |
+
+**Known drift that could come back later** (each in [fo4_drift.md](fo4_drift.md)):
+attack and equip speed perks (Fast Shot, Slayer, Quick Draw; FO4 has no
+weapon-speed actor value, so a DLL), looting packages, packages that keep
+running in combat, placed corpses' poses (remap FNV's ragdoll bones by name),
+the per-pellet share of DT and ammo DR effects (the DLL hook), music beyond
+one stem, FNV's sleep amounts, Long Haul and Miss Fortune.
 
 ## <a id="fo4"></a>Fallout 4: how it got here
 
@@ -156,6 +216,22 @@ Carried over from the character plan's own status notes of 2026-09-28.
   on `fo4_trace`. No FNV game runs (wiki files, GECK, xEdit and
   `PrintNPCDialog` ruled out). Six phases; the first whole-map report comes at
   phase 2.
+- **[Progress timing audit](fo4_timing_audit.md):** phases 1 and 2 built
+  2026-10-29, not committed (`--audit timing`, about 60 s; [built](fo4_timing_audit.md#built)).
+  First run on the 2026-10-29 whole-map build: 13 errors, 104 to review. 3
+  topics show too soon (the Freeside vagrant's VMS49 "antique gun" topics), 2
+  too late (Regis, Mortimer); 3 quests never complete (VMS38, VMS22, VES34Vault:
+  Complete Quest flag dropped with flag-only log entries); 4 blocks dropped
+  (`OnFire` x3, Legate's OnActorEquip); 3 MenuMode stage sets on the timer
+  and 101 Choice or derived unlocks to review. Phases 3 to 6 not started.
+  **Converter fixes made 2026-10-29** ([fixes](fo4_timing_audit.md#fixes)):
+  flag-only Complete Quest stages, `OnFire` on weaponFire, an actor's
+  OnActorEquip on OnItemEquipped, Fallout Top-level topics never gated (FNV 41,
+  FO3 13), greeting-revealed topics kept gated when the greeting waits for more
+  (VMS49 x3); Oblivion's unlock plan unchanged. In another session's whole-map
+  build of 2026-10-29 22:54 (`temp/profile_data`): timing audit 0 errors, 88
+  to review; 0 FormIDs moved, 41 `TES4Unlock_` globals removed (the Top-level
+  topics). Not deployed or played. Euclid's C-Finder still needs PlaceAtReticle.
 - **[One option per topic](fo4_pipeline.md#one-option-per-topic):** built
   2026-10-26; **Jason Bright's pair played 2026-10-26** (one option at a
   time), Doc Mitchell's caps pair not yet. The whole-map build showed one FNV topic as two
@@ -203,7 +279,7 @@ Carried over from the character plan's own status notes of 2026-09-28.
 | Item | Why |
 |---|---|
 | [Bink movies](bink_movies.md) | Not parked for FNV any more (status above). **Built 2026-10-12** for the FO4 build ([as built](bink_movies.md#plan)): source movies shipped with their audio as tracks 1-5, `PlayBink` converted, calls to unshipped movies dropped. FNV: the intro converts, 3 dead calls dropped. FNV intro played 2026-10-14 (the new game). Open: FO3 intro, untested (no FO3 build path yet), other languages' track IDs |
-| [Gun hold tweaks](fo4_spikes.md#spike-4-gun-clips) | Converted guns work; visual polish only (2026-10-29): the left hand leaves the rifle for a moment going into aim; the right hand still shows while aiming the lever-actions, single and riot shotguns, BB guns and .22 SMG (20–40% by `gun_quick_convert`'s aim_hand); third person keeps the template's clips (the carbine's left hand under the gun); the Flamer's reload is the minigun's; heavy guns sit low on screen (11–30%) |
+| [Gun hold tweaks](fo4_spikes.md#spike-4-gun-clips) | Converted guns work; visual polish only (2026-10-29). 2026-10-31: third person's left hand put on our guns (each gun's own `WPNAssemblyPose`), not played; the Flamer's reload checked to be FNV's own. Still open: the left hand leaves the rifle for a moment going into aim (the local blend measures at most 1.6 units, so the cause is elsewhere); the right hand shows while aiming the lever-actions, single and riot shotguns, BB guns and .22 SMG (20–40% by `gun_quick_convert`'s aim_hand); heavy guns sit low on screen (11–32%; centring the body on the template's folded the arm into the camera, reverted) |
 | OBSE command coverage | Until the standalone Oblivion work is done; probe in `probes\obse_coverage` |
 | Nehrim | Deprioritized for the four main games |
 | [Graphics and OpenMW research](research/graphics_options.md) | Notes to revisit when the project is more mature |

@@ -16,11 +16,11 @@ See: docs/fork/fo4_pipeline.md#reference-fields
 
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif.convert_static import fo4_texture
 from fo4_import.spike.statics import copy_texture
-from tes5_import.base.tes5_reader import first_sub, walk
+from tes5_import.base.tes5_reader import first_sub
 from tes5_import.base.writer import pack_subrecord
 
 #: DODT: FO4's shininess, the flags kept (alpha blending, alpha testing, no subtextures).
@@ -46,7 +46,7 @@ class Decals:
     def __init__(self, builder):
         """Read FalloutNV.esm's decal data (DODT) by texture set."""
         self.builder = builder
-        self.dodt = {rec.form_id: first_sub(rec.body, b'DODT') for rec, _ in walk(source_esm(), b'TXST')}
+        self.dodt = {rec.form_id: first_sub(rec.body, b'DODT') for rec, _ in source_walk(b'TXST')}
 
     def record(self, fid: int, rec: dict) -> int:
         """Write FNV TXST export record `rec` as an FO4 decal texture set on `fid`, its textures staged; `fid`."""

@@ -27,6 +27,7 @@ from script_convert.constants_falloutnv import (
 )
 from script_convert.say_to_done import BLOCK_TYPE as SAY_TO_DONE_BLOCK
 from script_convert.say_to_done import block_header as say_to_done_header
+from script_convert.target import is_fallout4
 
 BLOCK_MAP = {
     'gamemode':           ('Event OnUpdate()', 'EndEvent'),
@@ -97,14 +98,36 @@ BLOCK_TYPE_GUARDS = {'onalarm': 'aeCombatState != 0',
                      **FALLOUT_COMBAT_STATE_GUARDS}
 
 
+#: The animation event a fired weapon sends on its wielder, which Fallout 4 OnFire listens for.
+WEAPON_FIRE = 'weaponFire'
+
+#: Fallout 4 events for blocks whose shared event never fires there (OnFire, an actor's OnActorEquip).
+FALLOUT4_BLOCK_MAP = {
+    'onfire': ('Event OnAnimationEvent(ObjectReference akSource, string asEventName)', 'EndEvent'),
+    'onactorequip': ('Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)', 'EndEvent'),
+}
+
+#: Fallout 4 filters and guards of FALLOUT4_BLOCK_MAP's events.
+FALLOUT4_FILTER_PARAM = {'onactorequip': ('akBaseObject', 'Form')}
+FALLOUT4_GUARDS = {'onfire': f'asEventName == "{WEAPON_FIRE}"'}
+
+
 def block_header(block) -> 'tuple | None':
     """(opener, closer) a block becomes: SayToDone a function, else an event.
 
     See: docs/commentary/script_convert.md#saytodone
     """
-    if block.btype.lower() == SAY_TO_DONE_BLOCK:
+    btype = block.btype.lower()
+    if btype == SAY_TO_DONE_BLOCK:
         return say_to_done_header(block)
-    return BLOCK_MAP.get(block.btype.lower())
+    if is_fallout4() and btype in FALLOUT4_BLOCK_MAP:
+        return FALLOUT4_BLOCK_MAP[btype]
+    return BLOCK_MAP.get(btype)
+
+
+def type_guard(btype: str) -> 'str | None':
+    """The test narrowing a block type's event to the TES4 block, or None."""
+    return FALLOUT4_GUARDS.get(btype) if is_fallout4() and btype in FALLOUT4_GUARDS else BLOCK_TYPE_GUARDS.get(btype)
 
 
 def _filter_property_type(param_type: str, rtype: str) -> 'str | None':
@@ -175,7 +198,8 @@ def block_filter_guard(conv, block_type: str,
     """
     if not block_filter:
         return ''
-    target = BLOCK_FILTER_PARAM.get(block_type)
+    target = (FALLOUT4_FILTER_PARAM if is_fallout4() and block_type in FALLOUT4_FILTER_PARAM
+              else BLOCK_FILTER_PARAM).get(block_type)
     if not target:
         return ''
     param, param_type = target

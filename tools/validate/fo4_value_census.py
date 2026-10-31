@@ -29,9 +29,8 @@ import struct
 import sys
 from pathlib import Path
 
-from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.install import FALLOUT4_ESM, file_masters
 from tes5_import.base.tes5_reader import subrecords, walk
-from tools.validate.fo4_check import masters
 
 #: Distinct values above which a vanilla word is a FormID, float or text, not a flag or enum field.
 WORD_VALUES = 64
@@ -144,7 +143,7 @@ def main() -> int:
     present = {rec.sig for rec, _ in walk(raw, bodies=())} - {b'TES4', b'GRUP'}
     sigs = {s.encode() for s in args.sigs} & present if args.sigs else present - HEAVY
     tags, flags, counts = census(sigs)
-    found = findings(raw, sigs, tags, flags, counts, len(masters(args.plugin)))
+    found = findings(raw, sigs, tags, flags, counts, len(file_masters(args.plugin)))
     report(found, args.examples)
     print(f'\n{len(found)} findings over {len(sigs)} record types')
     return 1 if found else 0

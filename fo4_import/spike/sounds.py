@@ -23,9 +23,9 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.ba2_pack import sound_root
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import export_file, export_records
 from fo4_import.spike.records import pack_u32
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
@@ -61,7 +61,7 @@ LOOP_FIELDS = {b'STAT': b'RNAM', b'MSTT': b'SNAM'}
 def looping_sounds() -> dict:
     """{FNV STAT or MSTT FormID: its looping SOUN} of FalloutNV.esm's (the export drops the field)."""
     out = {}
-    for rec, _ in walk(source_esm(), *LOOP_FIELDS):
+    for rec, _ in source_walk(*LOOP_FIELDS):
         value = dict(subrecords(rec.body)).get(LOOP_FIELDS[rec.sig])
         if value:
             out[rec.form_id] = struct.unpack('<I', value)[0]
@@ -133,9 +133,9 @@ class Sounds:
     def _files(self, rec: dict) -> list:
         """The FNV sound files of SOUN `rec` (paths under Data\\Sound): its file, or every file of its folder."""
         name = rec.get('FNAM.Filename', '').replace('\\', '/').strip('/')
-        source = self.export_dir / 'sound' / name.lower()
+        source = export_file(self.export_dir, 'sound', name.lower())
         if source.is_dir():
-            return sorted(p.relative_to(self.export_dir / 'sound').as_posix() for p in source.iterdir()
+            return sorted(f'{name.lower()}/{p.name}' for p in source.iterdir()
                           if p.suffix.lower() in AUDIO)
         return [name.lower()] if source.is_file() else []
 
@@ -158,7 +158,7 @@ class Sounds:
         for name in files:
             stem = str(Path(name).with_suffix('')).replace('/', '\\')
             subs += pack_subrecord('ANAM', f'data\\Sound\\FX\\{FOLDER}\\{stem}.wav'.encode('cp1252') + b'\0')
-            self.jobs.append((self.export_dir / 'sound' / name,
+            self.jobs.append((export_file(self.export_dir, 'sound', name),
                               sound_root(self.builder.data_dir) / 'Sound' / 'FX' / FOLDER / f'{stem}.xwm', None))
         subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[2:3] if k in template) + conditions
         subs += b''.join(pack_subrecord(k.decode(), template[k]) for k in KEPT[3:] if k in template)

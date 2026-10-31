@@ -39,6 +39,7 @@ from fo4_import.nif.glow_scale import fo4_glow
 from fo4_import.nif.shader_anim import GLOW_SUFFIX
 from fo4_import.spike.imagespace import DISPLAY_GAMMA
 from fo4_import.nif.collision import collision_nodes, moves, node_transform
+from fo4_import.pipeline.export_index import export_file
 
 PREFIX = 'fnv'
 #: BSVertexDesc of a vanilla static shape (ClutterGen, SetDressing): half positions, UV, normal, tangent.
@@ -285,7 +286,7 @@ def _specular(mat: dict, fnv_normal: str, props: dict, texture_root) -> 'tuple |
     Specular is off when the alpha carries no mask (spec_mask's rule, which
     ignores the mesh's material colour) or the map is not square.
     """
-    source = Path(texture_root) / texture_source(fnv_normal).replace('\\', '/') if texture_root and fnv_normal else None
+    source = export_file(texture_root, texture_source(fnv_normal).replace('\\', '/')) if texture_root and fnv_normal else None
     data = source.read_bytes() if source and source.exists() else b''
     if not spec_mask.has_mask(data) or not _square(data):
         mat['specular'] = False
@@ -415,7 +416,7 @@ def texel_peaks(root, texture_root) -> dict:
     for geom in (g for g in root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)):
         shader = next((p for p in geom.get_properties() if type(p).__name__ == 'BSShaderNoLightingProperty'), None)
         fnv = shader.file_name.decode('cp1252') if shader else ''
-        path = Path(texture_root) / texture_source(fnv).replace('\\', '/') if texture_root and fnv else None
+        path = export_file(texture_root, texture_source(fnv).replace('\\', '/')) if texture_root and fnv else None
         if path is None or not path.exists() or not geom.data.uv_sets:
             continue
         image = np.asarray(Image.open(path).convert('RGB'), np.float32) / 255
@@ -635,7 +636,7 @@ def _material(geom, texture_root=None, layer: bool = False) -> ShapeMaterial:
     flags = shader.shader_flags if shader else None
     decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass)) or \
         bool(blended and not glass and (layer or overlay_sheet(geom)))
-    texture = Path(texture_root) / texture_source(fnv[0]).replace('\\', '/') if texture_root and fnv[0] else None
+    texture = export_file(texture_root, texture_source(fnv[0]).replace('\\', '/')) if texture_root and fnv[0] else None
     cut_from_blend = bool(blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
     clear = _effect(fnv, alpha) if glass else _translucent(fnv, alpha, two_sided) if cut_from_blend else None
     splits = cut_from_blend or bool(glass and alpha.flags >> 5 & 0xF and texture and not translucent(texture))

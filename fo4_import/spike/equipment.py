@@ -40,17 +40,20 @@ from fo4_import.spike.type_tests import with_keywords
 from fo4_import.spike.ammo_mods import AmmoMods
 from fo4_import.spike.condition import Condition
 from fo4_import.base import strings
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
 from fo4_import.pipeline.work_cache import cached
 from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_AUTOMATIC, FO4_NOT_PLAYABLE, GUN_TYPES, fnv_wants
+from fo4_import.spike.aim_models import AimModels
+from fo4_import.spike.weapon_vats import WeaponVats
 from fo4_import.spike.guns import Guns
 from fo4_import.spike.weapon_mods import WeaponMods
 from fo4_import.spike.replacements import Replacement, Rules
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import swapped_material, write_assets
+from fo4_import.pipeline.export_index import export_file
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
@@ -140,14 +143,13 @@ def _alternates(body: bytes, sets: dict) -> list:
 
 def _fnv_fields() -> dict:
     """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0) and min/max range; an armor's
-    value, health, weight (DATA), rating (DNAM: DT, else DR) and alternate textures. An ammo form list (FLST)
+    value, health, weight (DATA), rating (DNAM: FNV's DT, FO3's DR) and alternate textures. An ammo form list (FLST)
     gives its first entry."""
-    raw = source_esm()
-    lists = {rec.form_id: first_sub(rec.body, b'LNAM') for rec, _ in walk(raw, b'FLST')}
+    lists = {rec.form_id: first_sub(rec.body, b'LNAM') for rec, _ in source_walk(b'FLST')}
     sets = {rec.form_id: tuple((first_sub(rec.body, t) or b'').rstrip(b'\0').decode('cp1252')
-                               for t in (b'TX00', b'TX01')) for rec, _ in walk(raw, b'TXST')}
+                               for t in (b'TX00', b'TX01')) for rec, _ in source_walk(b'TXST')}
     out = {}
-    for rec, _ in walk(raw, b'WEAP', b'ARMO'):
+    for rec, _ in source_walk(b'WEAP', b'ARMO'):
         ammo, data, dnam = (first_sub(rec.body, t) for t in (b'NAM0', b'DATA', b'DNAM'))
         if rec.sig == b'WEAP':
             fid = struct.unpack('<I', ammo)[0] if ammo else None
@@ -157,8 +159,8 @@ def _fnv_fields() -> dict:
             out.update({rec.form_id: fields} if fields else {})
         elif rec.sig == b'ARMO' and data and dnam:
             value, health, weight = struct.unpack_from('<iif', data)
-            dt = struct.unpack_from('<f', dnam, DT_AT)[0] if len(dnam) >= DT_AT + 4 else 0.0
-            rating = dt or struct.unpack_from('<h', dnam)[0] / DR_SCALE
+            fnv = len(dnam) >= DT_AT + 4
+            rating = struct.unpack_from('<f', dnam, DT_AT)[0] if fnv else struct.unpack_from('<h', dnam)[0] / DR_SCALE
             out[rec.form_id] = {'value': value, 'weight': weight, 'rating': rating, 'health': health,
                                 'alternates': {sig: _alternates(first_sub(rec.body, sig), sets)
                                                for sig in (FNV_MALE_SWAP, FNV_WORLD_SWAP, FNV_FEMALE_SWAP)
@@ -188,6 +190,7 @@ class Equipment:
             elif _edid(subs) in wanted:
                 self.vanilla[_edid(subs)] = subs
         self.ammo_mods, self.condition = AmmoMods(builder), Condition(builder)
+        self.vats, self.aims = WeaponVats(builder), AimModels(builder)
 
     def _entry(self, rec: dict):
         """FNV `rec`'s Fallout4.esm-copy entry (else its _default), or None."""
@@ -277,11 +280,15 @@ class Equipment:
         struct.pack_into('<f', dnam, DNAM_WEIGHT, float(rec.get('DATA.Weight', 0.0)))
         struct.pack_into('<I', dnam, DNAM_VALUE, int(rec.get('DATA.Value', 0)))
         struct.pack_into('<H', dnam, DNAM_DAMAGE, int(rec.get('DATA.Damage', 0)))
+        crdt = self.vats.apply(rec, dnam, template)
         if chosen:
             flags = struct.unpack_from('<I', dnam, DNAM_FLAGS)[0] & ~FO4_AUTOMATIC
             struct.pack_into('<I', dnam, DNAM_FLAGS, flags | (FO4_AUTOMATIC if fnv_wants(rec)[1] else 0))
         data, own = self._gun(fnv, rec, template, dnam) if dnam[DNAM_ANIM] == ANIM_GUN else ({}, None)
-        data[b'DNAM'], marks = bytes(dnam), self.builder.type_keywords.of(fnv)
+        data[b'DNAM'], data[b'CRDT'], marks = bytes(dnam), crdt, self.builder.type_keywords.of(fnv)
+        if dnam[DNAM_ANIM] == ANIM_GUN and len(template.get(b'WAMD', b'')) == 4:
+            aim = self.aims.of(fnv, rec['EditorID'], struct.unpack('<I', template[b'WAMD'])[0])
+            data[b'WAMD'] = struct.pack('<I', aim)
         if entry and entry.mode == 'fnv' and dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec:
             data.update(self._own_model(rec['Model.MODL'], int(rec.get('DNAM.FalloutAnimType', -1))))
             return self._write('WEAP', fnv, with_keywords(self._copy(rec, data, [], OWN_MODEL_DROPPED), marks))
@@ -346,7 +353,7 @@ class Equipment:
 
     def _fnv_path(self, model: str) -> Path:
         """FNV model `model`'s file in the export."""
-        return self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower()
+        return export_file(self.builder.export_dir, 'meshes', model.replace('\\', '/').lower())
 
     def _on_head(self, model: str, sex: str) -> tuple:
         """(whether FNV headgear `model` is drawn on `sex`'s head: rigid, or skinned to its head bone; the

@@ -23,6 +23,7 @@ from fo4_import.nif.blocks import NONE
 from fo4_import.nif.collision import material, mesh_collision
 from fo4_import.nif.convert_static import IDENTITY, NODE_FLAGS, Converted, emit, lit_material
 from fo4_import.nif.file import NifFile
+from fo4_import.pipeline.export_index import export_file
 
 apply_patches()
 from pyffi.formats.nif import NifFormat
@@ -49,7 +50,7 @@ class _Alpha:
 
 def tree_mesh(export_dir: Path, rec: dict) -> Converted:
     """The FO4 mesh of FNV TREE `rec` (its .spt under <export>/trees, its first seed, leaves from ICON)."""
-    spt = export_dir / 'trees' / Path(rec['Model.MODL'].replace('\\', '/')).name.lower()
+    spt = export_file(export_dir, 'trees', Path(rec['Model.MODL'].replace('\\', '/')).name.lower())
     tree = parse_spt(spt)
     geo = build_tree(tree, seed=int(rec['Seed[0]']) if 'Seed[0]' in rec else None)
     nif = NifFile()
@@ -61,7 +62,7 @@ def tree_mesh(export_dir: Path, rec: dict) -> Converted:
     root['extra'].append(1)
     bark = Path(tree.bark_texture.replace('\\', '/')).stem.lower()
     bark_textures = [f'textures\\trees\\branches\\{bark}.dds', f'textures\\trees\\branches\\{bark}_n.dds']
-    bark_mat = lit_material([t for t in bark_textures if (export_dir / t.replace('\\', '/')).exists()], {}, None, False,
+    bark_mat = lit_material([t for t in bark_textures if export_file(export_dir, t.replace('\\', '/')).exists()], {}, None, False,
                      False, export_dir)
     root['children'].append(_shape(nif, f'{rec["EditorID"]}:Bark', (geo.bark_verts, geo.bark_uvs, geo.bark_normals,
                                    geo.bark_colors), geo.bark_tris, bark_mat, BARK_FLAGS, out))
@@ -87,7 +88,7 @@ def _shape(nif: NifFile, name: str, arrays: tuple, tris, mat, flags: tuple, out:
 def _collision(nif: NifFile, export_dir: Path, geo) -> int:
     """The generated collision mesh (wood) on BODY_TEMPLATE's collision object, for the root (block 0)."""
     data = NifFormat.Data()
-    with open(export_dir / BODY_TEMPLATE, 'rb') as f:
+    with open(export_file(export_dir, BODY_TEMPLATE), 'rb') as f:
         data.read(f)
     template = next(b for b in data.blocks if isinstance(b, NifFormat.bhkCollisionObject))
     tris = [tuple(tuple(float(c) for c in verts[i]) for i in tri)

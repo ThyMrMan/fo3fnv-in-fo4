@@ -39,6 +39,7 @@ def test_an_outfit_copy_carries_fnv_s_own_script_after_its_editor_id():
     eq.table = {'WeapScripted': RP.Replacement('Fallout4.esm', 'BaseballBat', 'stats')}
     eq.weapon_mods = eq.ammo_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
+    eq.vats = SimpleNamespace(apply=lambda rec, dnam, template: template.get(b"CRDT", b""))
     eq.guns = SimpleNamespace(default_only=lambda subs: None)
     eq.weap(1, {'EditorID': 'WeapScripted', 'FULL': 'Bat', 'SCRI': '0012B03C'})
     subs = list(subrecords(written[0][1][24:]))

@@ -19,7 +19,9 @@ VERSION, OBJECT_FORMAT, BIND_DATA = 6, 2, 3
 #: INFO fragment flags: OnBegin, OnEnd; a scene's OnEnd, the same bit.
 INFO_BEGIN, INFO_END = 0x01, 0x02
 SCENE_END = INFO_END
-_PROP_OBJECT, _PROP_INT, _PROP_FLOAT, _PROP_BOOL, _PROP_OBJECTS = 1, 3, 4, 5, 11
+_PROP_OBJECT, _PROP_STRING, _PROP_INT, _PROP_FLOAT, _PROP_BOOL, _PROP_OBJECTS = 1, 2, 3, 4, 5, 11
+_PROP_STRINGS, _PROP_INTS, _PROP_FLOATS = 12, 13, 14
+_ARRAYS = (_PROP_STRINGS, _PROP_INTS, _PROP_FLOATS)
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +128,53 @@ def _property(data: bytes, pos: int) -> tuple:
         if any(alias != -1 for _, alias, _ in items):
             raise Unsupported('alias-bound object array')
         return 'objects', [fid for _, _, fid in items], pos + 4 + 8 * count
+    return _text_or_numbers(data, kind, pos)
+
+
+def _text_or_numbers(data: bytes, kind: int, pos: int) -> tuple:
+    """(kind, value, position after) of a string, string array, int array or float array property's payload."""
+    if kind == _PROP_STRING:
+        text, pos = read_wstring(data, pos)
+        return 'string', text, pos
+    count = struct.unpack_from('<I', data, pos)[0] if kind in _ARRAYS else 0
+    pos += 4
+    if kind == _PROP_STRINGS:
+        texts = []
+        for _ in range(count):
+            text, pos = read_wstring(data, pos)
+            texts.append(text)
+        return 'strings', texts, pos
+    if kind in (_PROP_INTS, _PROP_FLOATS):
+        fmt, name = ('i', 'ints') if kind == _PROP_INTS else ('f', 'floats')
+        return name, list(struct.unpack_from(f'<{count}{fmt}', data, pos)), pos + 4 * count
     raise Unsupported(f'property type {kind}')
+
+
+def _entries(data: bytes, pos: int) -> tuple:
+    """([script entry], position after) of a header (version, format, count) and its script entries."""
+    count, out = struct.unpack_from('<H', data, pos + 4)[0], []
+    pos += 6
+    for _ in range(count):
+        entry, pos = read_entry(data, pos)
+        out.append(entry)
+    return out, pos
+
+
+def read_quest(data: bytes) -> tuple:
+    """(scripts, aliases) of a QUST VMAD quest_fragments wrote without fragments, its arguments again: `scripts`
+    [(script, object props, value props)], `aliases` [(alias id, quest FormID, [script entry])]."""
+    scripts, pos = _entries(data, 0)
+    bind, stages = struct.unpack_from('<bH', data, pos)
+    fragment, pos = read_wstring(data, pos + 3)
+    if bind != BIND_DATA or stages or fragment:
+        raise Unsupported('quest stage fragments')
+    aliases, count = [], struct.unpack_from('<h', data, pos)[0]
+    pos += 2
+    for _ in range(count):
+        _, alias, quest = struct.unpack_from('<HhI', data, pos)
+        entries, pos = _entries(data, pos + 8)
+        aliases.append((alias, quest, entries))
+    return scripts, aliases
 
 
 def read_entry(data: bytes, pos: int) -> tuple:

@@ -27,6 +27,7 @@ from fo4_import.nif.headgear import shape_arrays
 from fo4_import.nif.outfit import (BodyFit, bone_data, copy_material, copy_skeleton, fnv_nif, fnv_skeleton, fnv_skin,
                                    fo4_joints, is_cap, originals, segments, shape_bones, skin_blocks, skinned_shape)
 from fo4_import.nif.retarget import Rig, bone_moves, retargeted
+from fo4_import.pipeline.export_index import export_file
 
 _DOG_BONES = {'Bip01 Pelvis': 'Dogmeat_Pelvis', 'Bip01 Spine2': 'Dogmeat_Spine3', 'Bip01 Neck': 'Dogmeat_Neck1',
               'Bip01 Neck1': 'Dogmeat_Neck2', 'Bip01 Head': 'Dogmeat_Head',
@@ -84,7 +85,7 @@ def creature_fit(export_dir: Path, folder: str, archives: Archives) -> BodyFit:
         parts.append((shape, [nodes.index(n) for n in shape_nodes]))
     points, tris, weights = _merged(parts, len(bones))
     skeleton = fo4_joints(nif_file.read(archives.read(pair.skeleton)))
-    moves = bone_moves(pair.rig, *fnv_skeleton(export_dir / 'meshes' / folder / 'skeleton.nif'), skeleton)
+    moves = bone_moves(pair.rig, *fnv_skeleton(export_file(export_dir, 'meshes', folder, 'skeleton.nif')), skeleton)
     return BodyFit(moves, np.zeros((0, 3)), np.zeros((0, 3)), body, bones, nodes, bind, weights,
                    surface(points, tris), tris, NONE)
 

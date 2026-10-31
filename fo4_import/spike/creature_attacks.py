@@ -23,6 +23,7 @@ See: docs/fork/fo4_pipeline.md#creature-attacks
 
 import re
 import struct
+from fo4_import.pipeline.export_index import asset_root
 from pathlib import Path
 
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -55,7 +56,7 @@ def kf_group(name: str) -> str:
 
 def fnv_groups(export_dir: Path, folder: str) -> frozenset:
     """The animation groups of skeleton folder `folder`'s .kf files."""
-    root = Path(export_dir) / 'meshes' / folder
+    root = asset_root(export_dir, 'meshes', folder)
     return frozenset(kf_group(p.name) for p in root.rglob('*.kf')) if root.is_dir() else frozenset()
 
 

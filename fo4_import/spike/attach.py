@@ -49,6 +49,32 @@ OBJECTIVE_GLOBAL = re.compile(r'TES4Obj(Done|Shown)_(.+)_(\d+)$')
 ITEM_TYPES = frozenset({'Potion', 'MiscObject', 'LeveledItem', 'Weapon', 'Armor', 'Ammo', 'Book', 'Key'})
 
 
+class NameMap(dict):
+    """A dict of form names that also keeps `lower`: {lower-case name: the value of the last name, in insertion
+    order, spelled that way ignoring case}, kept as names are set (a rebuild per lookup cost minutes).
+    See: docs/fork/fo4_plugin_layout.md#stage-times
+    """
+
+    def __init__(self, *args):
+        """As dict(*args)."""
+        super().__init__()
+        self.spellings, self.lower = {}, {}
+        self.update(*args)
+
+    def __setitem__(self, key, value):
+        """Set `key`, then its lower-case entry from the last spelling of it."""
+        new = key not in self
+        super().__setitem__(key, value)
+        spellings = self.spellings.setdefault(key.lower(), [])
+        spellings += [key] if new else []
+        self.lower[key.lower()] = dict.__getitem__(self, spellings[-1])
+
+    def update(self, *args, **kwargs):
+        """Set each pair through __setitem__, in order."""
+        for key, value in dict(*args, **kwargs).items():
+            self[key] = value
+
+
 class ObjectScripts:
     """Converted scripts for the cell's records; `used` lists those attached, `named` the cell's forms by FNV name."""
 
@@ -61,7 +87,7 @@ class ObjectScripts:
                              if r.get('EditorID')}
         self.forms, self.made_messages, self.globals = base_forms(helper_index), {}, {}
         self.effects = ScriptEffects(builder, export_dir)
-        self.named, self.talks = dict([PLAYER]), {}
+        self.named, self.talks = NameMap([PLAYER]), {}
         self.quest_ids = {r['EditorID'].lower(): r['FormID'] for r in export_records(export_dir, 'QUST')
                           if r.get('EditorID')}
 
@@ -87,8 +113,8 @@ class ObjectScripts:
                 **{prop: named[prop.lower()] for _, prop in declared if prop.lower() in named}}
 
     def named_lower(self) -> dict:
-        """`named` keyed by lower-case name."""
-        return {name.lower(): fid for name, fid in self.named.items()}
+        """`named` keyed by lower-case name (NameMap.lower; read only)."""
+        return self.named.lower
 
     def _made(self, kind: str, prop: str) -> 'int | None':
         """A property's form the spike converts on demand: material swaps, imagespace modifiers, poses, items,

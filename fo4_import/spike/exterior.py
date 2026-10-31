@@ -31,7 +31,7 @@ from fo4_import.spike.regions import imposters, regions_of
 from fo4_import.spike.weather_imagespace import world_imagespace
 from fo4_import.spike.weathers import climate
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_map_path
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import export_file, export_records
 from fo4_import.pipeline.work_cache import spec_map
 from fo4_import.spike.statics import copy_texture, stage_derived
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -89,7 +89,7 @@ class Exterior:
                 self.persistent.append(ref)
         self.refs = self.persistent + [r for refs in self.by_cell.values() for r in refs]
         self.land = {r['ParentCELL']: r for r in export_records(export_dir, 'LAND') if r['ParentCELL'] in own}
-        self.textures, self.made, self.heights = {}, {}, {}
+        self.textures, self.heights = {}, {}
         self.grasses = Grasses(export_dir)
 
     @property
@@ -214,17 +214,19 @@ class Exterior:
         return pack_fo4_record('LAND', builder.fnv_id(rec['FormID']), 0, subs)
 
     def _ltex(self, builder, fnv: 'str | None', data_dir: Path) -> int:
-        """The FO4 LTEX for FNV LTEX FormID `fnv`, made once; for none (0), FNV's default texture's (FO4's own
-        default is another texture). See: docs/fork/fo4_spikes.md#spike-4-exterior"""
+        """The FO4 LTEX for FNV LTEX FormID `fnv`, made once a build (`builder.land_textures`, shared by every
+        worldspace); for none (0), FNV's default texture's (FO4's own default is another texture).
+        See: docs/fork/fo4_spikes.md#spike-4-exterior"""
         if not fnv or int(fnv, 16) == 0:
             fnv = min((k for k, r in self._ltex_records().items() if r.get('ICON', '').lower() == DEFAULT_LAND_TEXTURE),
                       default=None)
             if fnv is None:
                 return 0
-        if fnv not in self.made:
+        made = builder.land_textures
+        if fnv not in made:
             rec = self.textures.get(fnv) or self._ltex_records().get(fnv)
-            self.made[fnv] = self._write_ltex(builder, rec, data_dir) if rec and rec.get('ICON') else 0
-        return self.made[fnv]
+            made[fnv] = self._write_ltex(builder, rec, data_dir) if rec and rec.get('ICON') else 0
+        return made[fnv]
 
     def _ltex_records(self) -> dict:
         """FNV's LTEX records by FormID, read once."""
@@ -282,13 +284,13 @@ def _landscape_textures(export_dir: Path, rec: dict, data_dir: Path) -> tuple:
     normal_rel = rel[:-4] + '_n.dds'
     out = []
     for src in (rel, normal_rel):
-        found = (export_dir / src.replace('\\', '/')).exists()
+        found = export_file(export_dir, src.replace('\\', '/')).exists()
         if found:
             copy_texture(export_dir, data_dir, src)
         out.append(fo4_texture(src) if found else '')
     if not out[1]:
         return out[0], '', ''
-    glossiness, normal = float(rec.get('SNAM.Specular', 30)), export_dir / normal_rel.replace('\\', '/')
+    glossiness, normal = float(rec.get('SNAM.Specular', 30)), export_file(export_dir, normal_rel.replace('\\', '/'))
     with open(normal, 'rb') as f:
         dxt1 = f.read(88)[84:88] == b'DXT1'
     specular = spec_map_path(normal_rel, glossiness)

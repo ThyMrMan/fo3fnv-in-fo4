@@ -26,6 +26,18 @@ def subs(*tags: str) -> bytes:
     return b''.join(pack_subrecord(t, struct.pack('<I', 1)) for t in tags)
 
 
+def test_a_parts_vats_name_is_fnvs_part_covering_its_bone():
+    """A bone takes the name of FNV's part on it or its nearest ancestor; above every part, none; a template's
+    localized name reads through the strings, a plain one as itself."""
+    parents = {'Bip01 Head': 'Bip01 Neck1', 'Bip01 Neck1': 'Bip01 Spine1', 'Bip01 Spine1': 'Root'}
+    names = {'bip01 neck1': 'Head', 'bip01 spine1': 'Torso'}
+    assert records.part_name('Bip01 Head', names, parents) == 'Head'
+    assert records.part_name('Bip01 Spine1', names, parents) == 'Torso'
+    assert records.part_name('Root', names, parents) is None
+    assert records.localized(struct.pack('<I', 7), {7: b'Head'}) == 'Head'
+    assert records.localized(b'Torso\0', {}) == 'Torso'
+
+
 def test_skin_goes_after_spells_and_before_the_attack_race():
     """WNAM lands where FO4's NPC_ keeps it; RNAM and ATKR name the rig's race."""
     out = list(subrecords(C._on_race(subs('EDID', 'RNAM', 'SPLO', 'ATKR', 'PRKZ'), 0x100, 0x200)))
@@ -67,14 +79,15 @@ def test_old_speeds_become_the_new_layout():
     assert new[16:] == [1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 5.0, 5.0, 6.0, 6.0]
 
 
-def test_anim_info_moves_this_runs_files_and_drops_last_runs(tmp_path, monkeypatch):
-    """Last run's listed files go first; files the CK wrote in this run move into the mod folder, older ones
-    stay in MO2's output folder; the list is saved."""
+def test_anim_info_moves_this_runs_files_and_keeps_last_runs(tmp_path, monkeypatch):
+    """Files the CK wrote in this run move into the mod folder, older ones stay in MO2's output folder; last run's
+    listed files stay (the CK writes only what changed) and the list holds both."""
     mod, mo2 = tmp_path / 'mod', tmp_path / 'overwrite'
     plugin = mod / 'Test.esp'
     old = mod / 'Meshes' / 'AnimTextData' / 'AnimationSpeedInfo' / '1.txt'
     old.parent.mkdir(parents=True)
     old.write_text('old')
+    plugin.write_bytes(b'')
     plugin.with_name(plugin.name + anim_info.LIST_SUFFIX).write_text('Meshes/AnimTextData/AnimationSpeedInfo/1.txt\n')
     stale = mo2 / 'Meshes' / 'AnimTextData' / 'AnimEventInfo' / 'stale.txt'
     stale.parent.mkdir(parents=True)
@@ -89,14 +102,93 @@ def test_anim_info_moves_this_runs_files_and_drops_last_runs(tmp_path, monkeypat
             new.write_text(arguments)
     monkeypatch.setattr(anim_info.creation_kit, 'run', fake_run)
     monkeypatch.setattr(anim_info.creation_kit, 'output_dir', lambda: mo2)
-    assert anim_info.generate(plugin, mod) == 3
-    assert not old.exists() and stale.exists()
+    monkeypatch.setattr(anim_info.creation_kit, 'modlist', lambda: [])
+    assert anim_info.generate(plugin, mod) == 4
+    assert old.exists() and stale.exists()
     moved = mod / 'Meshes' / 'AnimTextData' / 'AnimationSpeedInfo' / '2.txt'
     assert moved.read_text() == '-GenerateAnimInfo:Test.esp Data Data --speed --stance'
     assert (mod / 'Meshes' / 'AnimTextData' / 'DynamicIdleData' / '2.txt').read_bytes() == b'Version 1\n'
     assert plugin.with_name(plugin.name + anim_info.LIST_SUFFIX).read_text().splitlines() == [
-        'Meshes/AnimTextData/AnimationOffsets/2.txt', 'Meshes/AnimTextData/AnimationSpeedInfo/2.txt',
-        'Meshes/AnimTextData/DynamicIdleData/2.txt']
+        'Meshes/AnimTextData/AnimationSpeedInfo/1.txt', 'Meshes/AnimTextData/AnimationOffsets/2.txt',
+        'Meshes/AnimTextData/AnimationSpeedInfo/2.txt', 'Meshes/AnimTextData/DynamicIdleData/2.txt']
+
+
+def test_a_listed_file_missing_here_is_copied_back_from_the_mod_holding_it(tmp_path, monkeypatch):
+    """With unchanged inputs, a listed file gone from the build's folder but in the deployed mod is copied back and
+    the CK does not run."""
+    mod, mods = tmp_path / 'mod', tmp_path / 'mods'
+    plugin, rel = mod / 'Test.esp', 'Meshes/AnimTextData/AnimationOffsets/7.txt'
+    mod.mkdir()
+    plugin.write_bytes(b'')
+    deployed = mods / 'F3NV' / rel
+    deployed.parent.mkdir(parents=True)
+    deployed.write_text('kept')
+    monkeypatch.setattr(anim_info.creation_kit, 'output_dir', lambda: tmp_path / 'overwrite')
+    monkeypatch.setattr(anim_info.creation_kit, 'MO2', tmp_path)
+    monkeypatch.setattr(anim_info.creation_kit, 'modlist', lambda: ['+F3NV'])
+    monkeypatch.setattr(anim_info.creation_kit, 'run', lambda *args: (_ for _ in ()).throw(AssertionError('ran')))
+    plugin.with_name(plugin.name + anim_info.LIST_SUFFIX).write_text(f'{rel}\n')
+    plugin.with_name(plugin.name + anim_info.KEY_SUFFIX).write_text(anim_info.inputs_key(plugin, mod))
+    assert anim_info.generate(plugin, mod) == 1 and (mod / rel).read_text() == 'kept'
+
+
+def test_anim_info_copies_what_the_ck_edited_in_a_deployed_mod(tmp_path, monkeypatch):
+    """A file the CK edits where an enabled mod already holds it (MO2 writes it in place) is copied into the build's
+    folder and listed; the mod keeps its copy; a disabled mod's and an older file are left out."""
+    mod, mo2, mods = tmp_path / 'mod', tmp_path / 'overwrite', tmp_path / 'mods'
+    plugin = mod / 'Test.esp'
+    mod.mkdir()
+    plugin.write_bytes(b'')
+    deployed = mods / 'F3NV' / 'Meshes' / 'AnimTextData' / 'AnimationOffsets' / '7.txt'
+    old = mods / 'Other' / 'Meshes' / 'AnimTextData' / 'AnimationOffsets' / '8.txt'
+    for path in (deployed, old):
+        path.parent.mkdir(parents=True)
+        path.write_text('old')
+    os.utime(old, (time.time() - 3600, time.time() - 3600))
+    monkeypatch.setattr(anim_info.creation_kit, 'run', lambda *args: deployed.write_text('edited'))
+    monkeypatch.setattr(anim_info.creation_kit, 'output_dir', lambda: mo2)
+    monkeypatch.setattr(anim_info.creation_kit, 'MO2', tmp_path)
+    monkeypatch.setattr(anim_info.creation_kit, 'modlist', lambda: ['+F3NV', '+Other', '-Gone'])
+    assert anim_info.generate(plugin, mod) == 2
+    assert (mod / 'Meshes' / 'AnimTextData' / 'AnimationOffsets' / '7.txt').read_text() == 'edited'
+    assert deployed.read_text() == 'edited' and not (mod / 'Meshes' / 'AnimTextData' / 'AnimationOffsets' / '8.txt').exists()
+
+
+def test_the_ck_runs_only_for_a_race_naming_a_graph_the_build_wrote(tmp_path):
+    """A race whose subgraph entry names a behaviour graph in the data folder needs the CK; one naming a vanilla
+    graph (in the archives) does not."""
+    graph = tmp_path / 'Meshes' / 'Actors' / 'FNVGecko' / 'Behaviors' / 'FNVGeckoRootBehavior.hkx'
+    graph.parent.mkdir(parents=True)
+    graph.write_bytes(b'hkx')
+    race = lambda path: b'RACE' + bytes(20) + pack_subrecord('SGNM', path.encode() + b'\0')
+    assert anim_info.needed([race('Actors\\FNVGecko\\Behaviors\\FNVGeckoRootBehavior.hkx')], tmp_path)
+    assert not anim_info.needed([race('Actors\\Character\\Behaviors\\RaiderRootBehavior.hkx')], tmp_path)
+
+
+def test_anim_info_skips_the_ck_while_its_inputs_and_files_are_unchanged(tmp_path, monkeypatch):
+    """A second run on the same plugin records and actor files keeps last run's files without the CK; a changed
+    clip under Meshes/Actors, or a missing output file, runs it again."""
+    mod, mo2, runs = tmp_path / 'mod', tmp_path / 'overwrite', []
+    plugin, clip = mod / 'Test.esp', mod / 'Meshes' / 'Actors' / 'FNVGecko' / 'a.hkx'
+    clip.parent.mkdir(parents=True)
+    clip.write_bytes(b'one')
+    plugin.write_bytes(b'')
+
+    def fake_run(arguments, timeout, what):
+        """The CK's stand-in: one offsets file, counted."""
+        runs.append(arguments)
+        new = mo2 / 'Meshes' / 'AnimTextData' / 'AnimationOffsets' / '2.txt'
+        new.parent.mkdir(parents=True, exist_ok=True)
+        new.write_text('offsets')
+    monkeypatch.setattr(anim_info.creation_kit, 'run', fake_run)
+    monkeypatch.setattr(anim_info.creation_kit, 'output_dir', lambda: mo2)
+    monkeypatch.setattr(anim_info.creation_kit, 'modlist', lambda: [])
+    assert anim_info.generate(plugin, mod) == anim_info.generate(plugin, mod) == 2 and len(runs) == 1
+    clip.write_bytes(b'two')
+    anim_info.generate(plugin, mod)
+    (mod / 'Meshes' / 'AnimTextData' / 'AnimationOffsets' / '2.txt').unlink()
+    anim_info.generate(plugin, mod)
+    assert len(runs) == 3
 
 
 def test_spells_join_the_list_after_rnam():

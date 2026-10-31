@@ -551,7 +551,7 @@ EndFunction
 
 ; fallout4: new
 Function SetSex(ObjectReference akActor, String asSex) Global
-  {FO3/FNV SexChange [0/1]: FO4 Papyrus has no sex setter, so Garden of Eden runs the console's sexchange, which toggles; only when the sex differs. male/0, female/1, else toggle.}
+  {FO3/FNV SexChange [0/1]: FO4 Papyrus has no sex setter, so the F3NV plugin runs the game's SexChange, which toggles; only when the sex differs. male/0, female/1, else toggle.}
   Actor a = akActor as Actor
   If !a
     Return
@@ -563,7 +563,7 @@ Function SetSex(ObjectReference akActor, String asSex) Global
     target = 1
   EndIf
   If target < 0 || a.GetLeveledActorBase().GetSex() != target
-    GardenOfEden3.ExecuteConsoleCommandSilent("sexchange", a)
+    F3NV_Sex.ChangeSex(a)
   EndIf
 EndFunction
 

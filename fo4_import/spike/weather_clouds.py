@@ -13,6 +13,7 @@ See: docs/fork/fo4_look.md#lighting
 """
 
 import struct
+from fo4_import.pipeline.export_index import export_file
 
 #: FNV's cloud layer texture subrecords, layer 0 to 3, and the texture that draws nothing.
 FNV_LAYERS, EMPTY = (b'DNAM', b'CNAM', b'ANAM', b'BNAM'), 'sky\\alpha.dds'
@@ -41,7 +42,7 @@ def with_clouds(builder, template: list, source: dict, times: tuple) -> list:
     """Weather subrecords `template` [(tag, data)] with its clouds in FNV weather `source`'s colours, or all off
     when FNV draws none there (a layer whose texture FNV lacks draws nothing)."""
     drawn = [(i, t) for i, t in fnv_layers(source)
-             if (builder.export_dir / ('textures/' + t.replace('\\', '/').lower())).exists()]
+             if export_file(builder.export_dir, 'textures/' + t.replace('\\', '/').lower()).exists()]
     builder.counts['weather without FNV clouds'] += not drawn
     fields = {b'PNAM': cloud_colours(source, drawn[0][0], times)} if drawn else \
         {b'NAM1': struct.pack('<I', 0xFFFFFFFF)}

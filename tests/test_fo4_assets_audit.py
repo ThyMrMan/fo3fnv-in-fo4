@@ -13,6 +13,8 @@ from types import SimpleNamespace
 import pytest
 
 from fo4_import.base import ba2_pack as BP
+from fo4_import.base.ba2 import Archive
+from fo4_import.base.ba2_write import entry_names, write_general
 from fo4_import.nif import convert_static as C
 from fo4_import.nif import elric as E
 from fo4_import.nif import file as F
@@ -171,11 +173,12 @@ def test_a_texture_is_staged_once_per_run_and_not_rewritten_or_repacked_while_cu
     texture no build wrote is pruned, FaceGen kept; a changed source is written and repacked."""
     packs = []
     monkeypatch.setattr(BP.subprocess, 'run', lambda cmd, **_: fake_archive2(cmd, packs))
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
     data, source = tmp_path / 'data', tmp_path / 'src.dds'
     source.write_bytes(b'dds')
     plan = lambda: (f'copy {source.read_bytes()}', lambda target: target.write_bytes(source.read_bytes()))
     face = data / 'Textures' / 'Actors' / 'Character' / 'FaceCustomization' / 'P.esp' / 'x_d.dds'
-    stale = data / BP.STAGING / 'Textures' / 'fnv' / 'old.dds'
+    stale = BP.staging_root(data) / 'Textures' / 'fnv' / 'old.dds'
     for path in (face, stale):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b'x')
@@ -185,14 +188,15 @@ def test_a_texture_is_staged_once_per_run_and_not_rewritten_or_repacked_while_cu
     assert BP.pack_textures(data, 'P.esp') == 2 and len(packs) == 1
     source.write_bytes(b'new dds')
     assert BP.stage_texture(data, 'fnv\\a.dds', plan) and BP.pack_textures(data, 'P.esp') == 2 and len(packs) == 2
-    assert (data / BP.STAGING / 'Textures' / 'fnv' / 'a.dds').read_bytes() == b'new dds'
+    assert (BP.staging_root(data) / 'Textures' / 'fnv' / 'a.dds').read_bytes() == b'new dds'
 
 
 def test_loose_sounds_are_staged_and_packed_into_the_main_archive(tmp_path, monkeypatch):
     """An older build's loose voice moves to the staging folder (others' sounds stay); the staged sounds pack
-    once as `<plugin> - Main.ba2`, General and uncompressed, and not again while unchanged."""
+    once as `<plugin> - Main.ba2`, a general archive the reader reads back, and not again while unchanged."""
     packs = []
-    monkeypatch.setattr(BP.subprocess, 'run', lambda cmd, **_: fake_archive2(cmd, packs))
+    monkeypatch.setattr(BP, 'write_general', lambda *a: packs.append(a) or write_general(*a))
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
     data = tmp_path / 'data'
     ours, theirs = data / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.fuz', data / 'Sound' / 'Voice' / 'O.esp' / 'b.fuz'
     for path in (ours, theirs):
@@ -201,7 +205,25 @@ def test_loose_sounds_are_staged_and_packed_into_the_main_archive(tmp_path, monk
     assert BP.stage_loose_sounds(data, ('Voice/P.esp',)) == 1 and theirs.exists() and not ours.exists()
     assert (BP.sound_root(data) / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.fuz').is_file()
     assert BP.pack_sounds(data, 'P.esp') == 1 and BP.pack_sounds(data, 'P.esp') == 1 and len(packs) == 1
-    assert packs[0][2] == f'-c={(data / "P - Main.ba2").resolve()}' and '-f=General' in packs[0]
+    assert Archive(data / 'P - Main.ba2').read('Sound/Voice/P.esp/V/a.fuz') == b'x'
+
+
+def test_a_general_archive_matches_archive2_and_reuses_unchanged_files(tmp_path):
+    """Entries carry Archive2's hashes (measured on its own archive) and fields; a repack copies the files named
+    unchanged out of the previous archive (a's old byte, though its loose copy now differs), reads the rest."""
+    assert entry_names('Sound/FX/FNV/fx/sfx_boulder_roll_loop.xwm') == (0x26474121, b'xwm\0', 0xE268B1EF)
+    root = tmp_path / 'root'
+    files = [root / 'Sound' / f'{name}.fuz' for name in 'abcd']
+    for i, path in enumerate(files):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(bytes([i]) * (i + 1))
+    archive = tmp_path / 'P - Main.ba2'
+    write_general(root, files, archive)
+    files[2].write_bytes(b'new')
+    files[0].write_bytes(b'Z')
+    write_general(root, files, archive, {'sound/a.fuz', 'sound/b.fuz', 'sound/d.fuz'})
+    read = Archive(archive)
+    assert [read.read(f'Sound/{n}.fuz') for n in 'abcd'] == [b'\0', b'\1\1', b'new', b'\3\3\3\3']
 
 
 def test_write_assets_names_a_weapon_mesh_apart_and_keeps_load_doors(tmp_path, monkeypatch):
@@ -272,3 +294,18 @@ def test_a_havok_nif_reaches_disk_only_finished_and_an_unchanged_one_is_not_rewr
     monkeypatch.setattr(pathlib.Path, 'write_bytes', real)
     EC.write_mesh(plain, b'plain')
     assert plain.read_bytes() == b'plain'
+
+
+def test_an_old_staging_folder_moves_out_of_the_data_folder(tmp_path, monkeypatch):
+    """<data>/_ba2 moves to the cache on first use, files kept; a later one is dropped when the cache has one."""
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    data = tmp_path / 'mod'
+    old = data / BP.STAGING / 'Sound' / 'a.fuz'
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b'x')
+    root = BP.staging_root(data)
+    assert not (data / BP.STAGING).exists() and (root / 'Sound' / 'a.fuz').read_bytes() == b'x'
+    assert root.is_relative_to(tmp_path / 'cache')
+    BP._staging.cache_clear()
+    old.parent.mkdir(parents=True)
+    assert BP.staging_root(data) == root and not (data / BP.STAGING).exists()

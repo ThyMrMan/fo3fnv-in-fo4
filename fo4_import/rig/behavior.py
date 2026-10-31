@@ -13,9 +13,10 @@ import struct
 from collections import Counter
 from pathlib import Path
 
-from asset_convert.havok.kf_decode import decode_kf, split_root_motion
+from asset_convert.havok.kf_decode import split_root_motion
 from fo4_import.havok import graph as G
 from fo4_import.havok import packfile, packfile_write
+from fo4_import.havok.kf_cache import decoded
 
 #: The get-up clip raises ReevaluateGraphState here (the radroach's GetUp_Faceup).
 REEVALUATE_AT = 0.43333330750465393
@@ -76,7 +77,7 @@ class Builder:
         self.uses = Counter()
 
     def fnv(self, role: str):
-        return decode_kf(str(self.fnv_dir / self.rig.clips[role]))[0]
+        return decoded(str(self.fnv_dir / self.rig.clips[role]))[0]
 
     def root_speed(self, role: str) -> float:
         """Units per second the FNV clip's root travels; 0 for a clip with no root motion (an immobile creature's

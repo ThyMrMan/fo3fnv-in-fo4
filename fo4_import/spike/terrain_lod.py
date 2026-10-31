@@ -29,6 +29,7 @@ from fo4_import.face.texture import TEXCONV
 from fo4_import.nif import file as F
 from fo4_import.nif.blocks import SHADER_LOD_LAND
 from fo4_import.pipeline.work_cache import cached
+from fo4_import.pipeline.export_index import asset_root
 from pyffi.formats.nif import NifFormat
 
 apply_patches()
@@ -58,9 +59,9 @@ def tiles(export_dir: Path, world: str) -> list:
     ships a level-4 mesh at x-16 y-12 with none).
     See: docs/fork/fo4_pipeline.md#terrain-lod
     """
-    folder = Path(export_dir) / 'meshes' / 'landscape' / 'lod' / world.lower()
+    folder = asset_root(export_dir, 'meshes', 'landscape', 'lod', world.lower())
     found = ((TILE_RE.search(p.name), p) for p in folder.glob('*.nif')) if folder.is_dir() else ()
-    textures = Path(export_dir) / 'textures' / 'landscape' / 'lod' / world.lower()
+    textures = asset_root(export_dir, 'textures', 'landscape', 'lod', world.lower())
     return sorted((int(m[1]), int(m[2]), int(m[3]), p) for m, p in found if m and all(
         (textures / kind / f'{world.lower()}.n.level{m[1]}.x{m[2]}.y{m[3]}.dds').is_file()
         for kind in ('diffuse', 'normals')))
@@ -163,7 +164,7 @@ def _signature(path: Path) -> str:
 def _texture_jobs(export_dir: Path, world: str, fo4_world: str, tile: tuple) -> list:
     """[(rel under Textures, plan)] of one tile's diffuse and normal map (stage_texture plans)."""
     level, x, y, _ = tile
-    source = Path(export_dir) / 'textures' / 'landscape' / 'lod' / world.lower()
+    source = asset_root(export_dir, 'textures', 'landscape', 'lod', world.lower())
     name = f'{world.lower()}.n.level{level}.x{x}.y{y}.dds'
     stem = f'Terrain\\{fo4_world}\\{fo4_world}.{level}.{x}.{y}'
     diffuse, normals = source / 'diffuse' / name, source / 'normals' / name

@@ -19,10 +19,10 @@ import numpy as np
 from asset_convert.havok.clip_retarget import (Skeleton, compose, quat_wxyz_to_mat, retarget_clip, rotation_between,
                                                world_positions)
 from asset_convert.havok.hkx_anim import clip_to_animation_data
-from asset_convert.havok.kf_decode import decode_kf
 from external.pynifly_hkx.anim_fo4 import parse_fo4_skeleton, write_fo4_animation
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.havok.kf_cache import decoded
 
 FO4_SKELETON = 'meshes\\actors\\character\\characterassets\\skeleton.hkx'
 FNV_SKELETON = 'characters\\_male\\skeleton.nif'
@@ -89,7 +89,7 @@ class HumanClips:
 
     def write(self, kf: str, out: Path) -> None:
         """Convert the FNV clip at `kf` (relative to the meshes folder) to `out`."""
-        clip = decode_kf(str(self.meshes / kf))[0]
+        clip = decoded(str(self.meshes / kf))[0]
         moved = retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,))
         events = [(0.0, HEAD_TRACKING[0]), (float(clip.duration), HEAD_TRACKING[1])]
         anim = clip_to_animation_data(moved, self.fo4.names, self.pose, events)
@@ -102,7 +102,7 @@ class HumanClips:
 
         See: docs/fork/fo4_idles.md#furniture
         """
-        world, rest = world_positions(decode_kf(str(self.meshes / kf))[0], self.fnv, 0), self.fnv.world
+        world, rest = world_positions(decoded(str(self.meshes / kf))[0], self.fnv, 0), self.fnv.world
         pelvis = self.fnv.index['Bip01 Pelvis']
         drops = []
         for side in 'LR':

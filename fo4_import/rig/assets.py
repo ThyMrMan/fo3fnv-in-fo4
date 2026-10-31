@@ -16,9 +16,10 @@ import numpy as np
 
 from asset_convert.havok.hkx_anim import clip_to_animation_data
 from asset_convert.havok.hkx_skeleton import BONE_RENAMES, Bone, load_skeleton_bones, mat33_to_quat_xyzw
-from asset_convert.havok.kf_decode import decode_kf, split_root_motion
+from asset_convert.havok.kf_decode import split_root_motion
 from external.pynifly_hkx.anim_fo4 import BonePose, Skeleton, write_fo4_animation, write_fo4_skeleton
 from fo4_import.havok import packfile
+from fo4_import.havok.kf_cache import decoded
 from fo4_import.nif import convert_static as CS
 from fo4_import.nif import elric
 from fo4_import.nif import file as F
@@ -128,7 +129,7 @@ def write_clip(kf: Path, path: Path, bones: list, held: tuple = ()) -> dict:
     See: docs/fork/fo4_own_rig.md#ranged
     See: docs/commentary/asset_convert_falloutnv.md#accum-root-identity
     """
-    clip = decode_kf(str(kf))[0]
+    clip = decoded(str(kf))[0]
     motion = split_root_motion(clip)
     for track in clip.tracks:
         track.bone = fo4_name(BONE_RENAMES.get(track.bone, track.bone))

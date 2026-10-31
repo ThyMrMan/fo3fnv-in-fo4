@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QHe
 
 from core.mod_sources import PLUGIN_SUFFIXES, find_file, mo2_folders, mo2_layout
 from fo4_import.app.replacement_columns import fill
-from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.install import FALLOUT4_DIR, file_masters
 from fo4_import.spike import replacements as RP
 
 PROBLEM = QColor(200, 40, 40)
@@ -108,7 +108,7 @@ def survey(layers: list, dirs: list, sources: list) -> list:
     for key, (plugin, keys) in named(layers).items():
         path, disabled = find_file(plugin, roots), tuple(off.get(key, ()))
         file = path or (disabled[0].path if disabled else None)
-        missing = tuple((m, tuple(off.get(m.lower(), ()))) for m in (RP.file_masters(file) if file else ())
+        missing = tuple((m, tuple(off.get(m.lower(), ()))) for m in (file_masters(file) if file else ())
                         if not present(m))
         out.append(RequiredMod(plugin, len(keys), present(plugin), path, disabled, missing))
     return sorted(out, key=lambda m: (m.installed, -m.entries, m.plugin.lower()))

@@ -11,11 +11,11 @@ See: docs/fork/fo4_condition.md#vendor-repair
 import struct
 from functools import lru_cache
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike.conditions import fnv_av_name
 from fo4_import.spike.readables import FIRST_SKILL
-from tes5_import.base.tes5_reader import first_sub, subrecords, walk
+from tes5_import.base.tes5_reader import first_sub, subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: FNV NPC_ DNAM's skill count (values, then offsets) and the highest skill.
@@ -28,7 +28,7 @@ PRPS_BEFORE = (b'FTYP', b'NTRM', b'COCT', b'CNTO', b'AIDT')
 def npc_skills() -> dict:
     """{FNV NPC_ FormID: its 14 skills (value plus offset, at most 100)}, from the source plugin's DNAM."""
     out = {}
-    for rec, _ in walk(source_esm(), b'NPC_'):
+    for rec, _ in source_walk(b'NPC_'):
         dnam = first_sub(rec.body, b'DNAM') or b''
         if len(dnam) >= 2 * SKILLS:
             out[rec.form_id] = [min(MAX_SKILL, dnam[i] + dnam[SKILLS + i]) for i in range(SKILLS)]
@@ -56,5 +56,31 @@ def with_skills(fnv: int, helper_index: int):
     skills = npc_skills().get(fnv)
     pairs = {actor_value_form(fnv_av_name(FIRST_SKILL + i), helper_index): float(v)
              for i, v in enumerate(skills or ())}
+    pairs.pop(None, None)
+    return (lambda subs: merged_prps(subs, pairs)) if pairs else None
+
+
+#: FNV CREA DATA offset of Combat Skill (u8), and the skills FalloutNV.exe reads it for (0x5FA180, flag 0x400).
+COMBAT_AT, COMBAT_SKILLS = 1, ('EnergyWeapons', 'Explosives', 'MeleeWeapons', 'Guns', 'Unarmed')
+
+
+@lru_cache(maxsize=1)
+def creature_combat() -> dict:
+    """{FNV CREA FormID: Combat Skill}, from the source plugin's DATA (the export leaves it out)."""
+    out = {}
+    for rec, _ in source_walk(b'CREA'):
+        data = first_sub(rec.body, b'DATA') or b''
+        if len(data) > COMBAT_AT:
+            out[rec.form_id] = data[COMBAT_AT]
+    return out
+
+
+def with_creature_skills(fnv: int, helper_index: int):
+    """A record edit giving a converted creature FNV creature `fnv`'s Combat Skill as each COMBAT_SKILLS actor
+    value (PRPS), as FNV reads it for every combat skill; None when it has none.
+    See: docs/fork/fo4_build_next.md#creature-skill
+    """
+    combat = creature_combat().get(fnv & 0xFFFFFF)
+    pairs = {actor_value_form(name, helper_index): float(combat) for name in COMBAT_SKILLS} if combat else {}
     pairs.pop(None, None)
     return (lambda subs: merged_prps(subs, pairs)) if pairs else None

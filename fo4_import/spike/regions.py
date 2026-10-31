@@ -19,10 +19,10 @@ See: docs/fork/fo4_pipeline.md#region-weather
 import functools
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.weathers import fnv_weather
-from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: FNV/FO4 region data types: a weather list, a sound list; FNV's imposter list (RDID: references).
@@ -43,7 +43,7 @@ def imposters() -> frozenset:
     See: docs/fork/fo4_pipeline.md#imposters
     """
     out, kind = set(), None
-    for rec, _ in walk(source_esm(), b'REGN'):
+    for rec, _ in source_walk(b'REGN'):
         for tag, data in subrecords(rec.body):
             kind = struct.unpack_from('<I', data)[0] if tag == b'RDAT' else kind
             out.update(struct.unpack_from(f'<{len(data) // 4}I', data) if tag == b'RDID' and kind == IMPOSTER else ())
@@ -63,12 +63,12 @@ class Regions:
         """Read FalloutNV.esm's regions that carry weather or sounds and the region lists of its cells."""
         self.builder, self.made = builder, {}
         self.fnv = {}
-        for rec, _ in walk(source_esm(), b'REGN'):
+        for rec, _ in source_walk(b'REGN'):
             subs = list(subrecords(rec.body))
             if any(tag in DATA.values() for tag, _ in subs):
                 self.fnv[rec.form_id] = subs
         self.lists = {}
-        for rec, _ in walk(source_esm(), b'CELL'):
+        for rec, _ in source_walk(b'CELL'):
             xclr = dict(subrecords(rec.body)).get(b'XCLR')
             if xclr:
                 self.lists[rec.form_id] = [r for (r,) in struct.iter_unpack('<I', xclr) if r in self.fnv]

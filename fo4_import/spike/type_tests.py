@@ -13,10 +13,10 @@ See: docs/fork/fo4_perks.md#type-tests
 
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
-from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 SKILL, ANIM, CREATURE = 'IsWeaponSkillType', 'GetWeaponAnimType', 'GetIsCreatureType'
@@ -28,6 +28,12 @@ CREATURE_TYPES = ('Animal', 'MutatedAnimal', 'MutatedInsect', 'Abomination', 'Su
                   'Giant')
 #: FNV WEAP DNAM offsets of the animation type (u32) and skill (s32 actor value); CREA DATA offset of the type (u8).
 DNAM_ANIM, DNAM_SKILL, DATA_TYPE = 0, 104, 0
+#: FNV WEAP: CRDT's Crit % Mult (float at 4); DNAM's Flags1 (byte 12, 0x2 automatic) and Fire Rate (float at 64).
+CRDT_MULT, DNAM_FLAGS1, AUTOMATIC, DNAM_FIRE_RATE = 4, 12, 0x2, 64
+#: Keyword every weapon with a critical factor other than 1 carries; prefix of each factor's keyword.
+FACTORED, FACTOR_PREFIX = 'FNV_CritFactored', 'FNV_CritFactor_'
+#: FNV WEAP DNAM offsets of the Strength and skill requirements (u32), and their keywords' prefixes.
+DNAM_STRENGTH_REQ, DNAM_SKILL_REQ, STRENGTH_REQ, SKILL_REQ = 168, 200, 'FNV_StrengthReq_', 'FNV_SkillReq_'
 #: derive_formid site of the keywords (key: EditorID); vanilla WeaponType*/ActorType* keywords' TNAM.
 SITE, KIND = 'FNV type keyword', 0
 #: form_map key of the build's TypeKeywords (say_topics.conditions_of).
@@ -58,7 +64,7 @@ class TypeKeywords:
         """{FNV FormID: keyword EditorIDs} of the source plugin's weapons and creatures, read once."""
         if self.fields is None:
             self.fields = {}
-            for rec, _ in walk(source_esm(), b'WEAP', b'CREA'):
+            for rec, _ in source_walk(b'WEAP', b'CREA'):
                 subs = dict(subrecords(rec.body))
                 self.fields[rec.form_id] = weapon_names(subs) if rec.sig == b'WEAP' else creature_names(subs)
         return self.fields
@@ -69,13 +75,43 @@ class TypeKeywords:
 
 
 def weapon_names(subs: dict) -> tuple:
-    """Keyword EditorIDs of an FNV weapon's DNAM: its animation type and skill."""
+    """Keyword EditorIDs of an FNV weapon: its animation type and skill (DNAM), its critical factor (crit_factor)."""
     dnam = subs.get(b'DNAM', b'')
     if len(dnam) < DNAM_SKILL + 4:
         return ()
     anim, skill = struct.unpack_from('<I', dnam, DNAM_ANIM)[0], struct.unpack_from('<i', dnam, DNAM_SKILL)[0]
     out = (anim_keyword(anim),) if anim < len(ANIM_TYPES) else ()
-    return out + ((skill_keyword(skill),) if 0 <= skill < len(C.FNV_AV_NAMES) else ())
+    found = crit_factor(subs)
+    return out + ((skill_keyword(skill),) if 0 <= skill < len(C.FNV_AV_NAMES) else ()) + (
+        (FACTORED, found[0]) if found else ()) + requirement_names(dnam)
+
+
+def requirements(dnam: bytes) -> tuple:
+    """(Strength, skill) requirements of an FNV WEAP DNAM; 0s when short."""
+    if len(dnam) < DNAM_SKILL_REQ + 4:
+        return 0, 0
+    return struct.unpack_from('<I', dnam, DNAM_STRENGTH_REQ)[0], struct.unpack_from('<I', dnam, DNAM_SKILL_REQ)[0]
+
+
+def requirement_names(dnam: bytes) -> tuple:
+    """Keyword EditorIDs of a weapon's requirements: Strength above 1, skill above 0."""
+    strength, skill = requirements(dnam)
+    return ((f'{STRENGTH_REQ}{strength}',) if strength > 1 else ()) + ((f'{SKILL_REQ}{skill}',) if skill else ())
+
+
+def crit_factor(subs: dict) -> 'tuple | None':
+    """(keyword EditorID, factor) of FNV WEAP subrecords `subs`: Crit % Mult over Fire Rate when automatic, as
+    FNV's critical chance divides it; None without critical data or at a factor of 1.
+    See: docs/fork/fo4_pipeline.md#random-criticals
+    """
+    crdt, dnam = subs.get(b'CRDT', b''), subs.get(b'DNAM', b'')
+    if len(crdt) < CRDT_MULT + 4:
+        return None
+    mult = struct.unpack_from('<f', crdt, CRDT_MULT)[0]
+    rate = struct.unpack_from('<f', dnam, DNAM_FIRE_RATE)[0] if len(dnam) >= DNAM_FIRE_RATE + 4 else 0.0
+    rate = rate if len(dnam) > DNAM_FLAGS1 and dnam[DNAM_FLAGS1] & AUTOMATIC and rate > 0 else 1.0
+    factor = mult / rate
+    return None if factor == 1.0 else (f'{FACTOR_PREFIX}{mult:g}_{rate:g}'.replace('.', 'p'), factor)
 
 
 def creature_names(subs: dict) -> tuple:

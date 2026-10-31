@@ -13,11 +13,11 @@ See: docs/fork/fo4_spikes.md#spike-2-activators
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import plugin_walk
 from fo4_import.base.vmad import object_scripts, read_entry
 from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.spike import records as R
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import export_file, export_records
 from tes5_import.base.tes5_reader import first_sub, walk
 
 #: Vanilla sink whose drinkFromFountainScript (sounds, drinking idle) drinkable FNV activators take.
@@ -33,7 +33,7 @@ AUTO_LOOPS = ('Idle', 'SpecialIdle')
 
 def fnv_links(raw: bytes, sig: bytes, tag: bytes) -> dict:
     """{FormID: FormID} of FNV records of type `sig` with a FormID subrecord `tag`."""
-    return {r.form_id: struct.unpack('<I', v)[0] for r, _ in walk(raw, sig) for v in [first_sub(r.body, tag)] if v}
+    return {r.form_id: struct.unpack('<I', v)[0] for r, _ in plugin_walk(raw, sig) for v in [first_sub(r.body, tag)] if v}
 
 
 def auto_loops(nif) -> bool:
@@ -65,9 +65,8 @@ class Activators:
 
     def __init__(self, builder, export_dir: Path):
         """Activators made through `builder`."""
-        fnv = source_esm()
         self.builder, self.drink, self.export_dir = builder, drink_template(builder.fo4), export_dir
-        self.water, self.water_spell = fnv_links(fnv, b'ACTI', b'WNAM'), fnv_links(fnv, b'WATR', b'XNAM')
+        self.water, self.water_spell = fnv_links(None, b'ACTI', b'WNAM'), fnv_links(None, b'WATR', b'XNAM')
         self.spells = {int(r['FormID'], 16): r for r in export_records(export_dir, 'SPEL')}
         self.fo4_spells = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                            for r, _ in walk(builder.fo4, b'SPEL')}
@@ -90,7 +89,7 @@ class Activators:
             return False
         if fnv_fid in self.builder.radio.stations_of:
             return False
-        path = self.export_dir / 'meshes' / model.replace('/', '\\').lower()
+        path = export_file(self.export_dir, 'meshes', model.replace('/', '\\').lower())
         return path.exists() and auto_loops(cached_convert(path, self.export_dir).nif)
 
     def _drink(self, water: int) -> bytes:

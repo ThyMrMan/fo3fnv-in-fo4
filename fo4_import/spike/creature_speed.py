@@ -18,9 +18,11 @@ import re
 import struct
 from pathlib import Path
 
-from asset_convert.havok.kf_decode import decode_kf, split_root_motion
+from asset_convert.havok.kf_decode import split_root_motion
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.havok.kf_cache import decoded
+from fo4_import.pipeline.export_index import asset_root
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -57,12 +59,12 @@ def fnv_run_speed(export_dir: Path, folder: str, stats: dict, scale: float) -> '
 @functools.cache
 def run_clip_speeds(export_dir: Path, folder: str) -> tuple:
     """Root speeds (units/s) of skeleton folder `folder`'s FastForward clips, hurt variants left out."""
-    root = export_dir / 'meshes' / folder
+    root = asset_root(export_dir, 'meshes', folder)
     out = []
     for kf in sorted(root.rglob(f'*{RUN_GROUP}*.kf')) if root.is_dir() else ():
         if 'hurt' in (p.lower() for p in kf.parts):
             continue
-        for clip in decode_kf(str(kf)):
+        for clip in decoded(str(kf)):
             motion = split_root_motion(clip) if clip.name.lower().split('_', 1)[0] == RUN_GROUP else None
             if motion and motion['translations'] is not None and clip.duration > 0:
                 travel = motion['translations'][-1] - motion['translations'][0]

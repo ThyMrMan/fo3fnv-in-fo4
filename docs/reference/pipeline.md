@@ -16,7 +16,6 @@ from `conversion_config.json` on any OS (see
 python convert.py                          # full pipeline
 python convert.py -f Oblivion.esm          # single file, all stages
 python convert.py -f Oblivion.esm --export-only
-python convert.py -f Oblivion.esm --no-cache      # force re-export
 python convert.py -f Oblivion.esm --scripts-only  # Papyrus only
 python gui.py                              # GUI front-end
 ```
@@ -347,7 +346,9 @@ either way.
 - Export text is cached per record type in `export/<filename>/` (`ACTI.txt`,
   `NPC_.txt`, …).
 - Processing `Knights.esp` reuses the cached `Oblivion.esm` export.
-- `--no-cache` forces a re-export.
+- Any run that includes the export stage re-exports the plugin
+  (`--export-only` runs that stage alone); there is no flag to skip or
+  force it.
 
 ### Versioned stage artifacts
 

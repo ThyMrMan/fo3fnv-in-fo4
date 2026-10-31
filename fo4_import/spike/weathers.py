@@ -17,7 +17,7 @@ See: docs/fork/fo4_pipeline.md#weathers
 import functools
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.imagespace import DISPLAY_GAMMA
 from fo4_import.spike.weather_clouds import with_clouds
@@ -73,7 +73,7 @@ def fog_table(fo4_fnam: bytes, fnv_fnam: bytes) -> bytes:
 @functools.cache
 def _fnv_records() -> dict:
     """{FormID: {tag: data}} of FalloutNV.esm's climates and weathers."""
-    return {r.form_id: dict(subrecords(r.body)) for r, _ in walk(source_esm(), b'CLMT', b'WTHR')}
+    return {r.form_id: dict(subrecords(r.body)) for r, _ in source_walk(b'CLMT', b'WTHR')}
 
 
 def climate(builder, fnv: int) -> int:

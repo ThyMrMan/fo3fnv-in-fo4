@@ -17,6 +17,7 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
 from fo4_import.spike.character import SPECIAL
+from fo4_import.spike.combat_feel import PlayerRules
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS
 
 #: Source plugin -> (the quest whose stage opens its game, that stage).
@@ -41,10 +42,14 @@ def build(builder, export_dir: Path, quests: dict) -> None:
         return
     fid = builder.writer.derive_formid(SITE, export_dir.name)
     props = {'MQ101': MQ101, 'MQ102': MQ102, 'TimeScale': TIME_SCALE, 'StartQuest': quests[quest],
-             'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD, 'SkillGates': builder.perks.gates}
+             'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD, 'SkillGates': builder.perks.gates,
+             'CombatRules': builder.combat.fid, **builder.combat.damage_rules[0],
+             'CarryWeight': FALLOUT4_ACTOR_VALUE_IDS['CarryWeight']}
+    rules = PlayerRules(builder, export_dir, builder.combat.settings).write()
+    props.update({'PlayerRules': rules} if rules else {})
     values = {'OpeningQuests': ('objects', list(OPENING_QUESTS)), 'StartStage': ('int', stage),
               'Special': ('objects', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
-              'SpecialStart': ('floats', start_special(export_dir))}
+              'SpecialStart': ('floats', start_special(export_dir)), **builder.combat.damage_rules[1]}
     vmad = quest_fragments(FRAGMENTS, [(START_BY_HAND, 0, FRAGMENT)],
                            aliases=[(PLAYER_ALIAS, fid, [(ALIAS_SCRIPT, {}, {})])], scripts=[(SCRIPT, props, values)])
     builder.writer.add_record('QUST', R.pack_qust(fid, 'FNV_NewGame', '', 0, [START_BY_HAND], 'Player', PLAYER, vmad))

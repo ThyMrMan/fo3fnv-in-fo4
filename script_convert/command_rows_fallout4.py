@@ -35,8 +35,8 @@ def _menu(kind: str, value: str = '{f0}', **row) -> Cmd:
 #: TES4 command -> its Fallout 4 row, then keyed by the Skyrim row it replaces.
 FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'menumode': Cmd('TES4Polyfill.MenuMode({i0})', defaults={0: '0'}),
-    'getarmorrating': Cmd(f'{{ref}}.GetValue({av_property("DamageResist")})', ACTOR,
-                          self_type=_av('DamageResist'), flags='actor_only'),
+    'getarmorrating': Cmd(f'{{ref}}.GetValue({av_property("DamageThreshold")})', ACTOR,
+                          self_type=_av('DamageThreshold'), flags='actor_only'),
     'setcurrenthealth': Cmd(f'{{ref}}.SetValue({av_property("Health")}, {{a0}})', RAW,
                             self_type=_av('Health'), defaults={0: '0'}),
     'resethealth': Cmd(f'{{ref}}.RestoreValue({av_property("Health")}, 9999)', AV,

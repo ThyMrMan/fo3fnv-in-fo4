@@ -19,7 +19,8 @@ from fo4_import.base.strings import KINDS, parse
 from fo4_import.spike.actor_data import ACBS_TEMPLATE
 from fo4_import.spike.equipment import DNAM_AMMO, DNAM_CAPACITY, DNAM_DAMAGE, DNAM_VALUE, DNAM_WEIGHT
 from fo4_import.spike.gun_choice import OBTS_DEFAULT, includes
-from fo4_import.spike.replacements import BASE, DLC, plugin_masters
+from fo4_import.base.install import masters_of
+from fo4_import.spike.replacements import BASE, DLC
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: Replacement table category -> the record types it lists (fo4_import.spike.replacements.CATEGORIES).
@@ -79,7 +80,7 @@ def scan(path: Path, files=None, language: str = 'en') -> list:
     localized = bool(struct.unpack_from('<I', data, 8)[0] & LOCALIZED)
     names = plugin_strings(files, Path(path).stem, language) if localized and files else {}
     kinds = {sig: cat for cat, sigs in CATEGORY_TYPES.items() for sig in sigs} | LINKED
-    plugin = _Plugin(Path(path).name, plugin_masters(data), localized, names)
+    plugin = _Plugin(Path(path).name, masters_of(data), localized, names)
     return [plugin.entry(rec, kinds[rec.sig]) for rec, _ in walk(data, *kinds) if not rec.deleted
             and first_subs(rec.body).get(b'EDID')]
 

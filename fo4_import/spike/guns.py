@@ -30,6 +30,7 @@ See: docs/fork/fo4_spikes.md#spike-4-gun-clips
 
 import struct
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 
@@ -42,10 +43,13 @@ from fo4_import.nif import file as nif_file
 from fo4_import.nif import gun
 from fo4_import.pipeline.elric_cache import write_new
 from fo4_import.pipeline.mesh_cache import cached_convert
-from fo4_import.spike.gun_choice import (FNV_SCOPE_VIEW, INCLUDE_SIZE, OBTS_DEFAULT, PROPERTY_SIZE, Choice, GunChoices,
+from fo4_import.spike.gun_choice import (INCLUDE_SIZE, OBTS_DEFAULT, PROPERTY_SIZE, Choice, GunChoices, built_in_scope,
                                          includes, includes_at, properties, traded, weapon_model)
 from fo4_import.spike.records import pack_kywd
+from fo4_import.spike.weapon_mods import (FNV_NIGHT_VISION, ZOOM_Z, scope_preset, scope_properties, with_properties,
+                                          zoom_presets)
 from fo4_import.spike.statics import write_assets
+from fo4_import.pipeline.export_index import asset_root, export_file
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -61,11 +65,11 @@ CAMERA_Z = struct.Struct('<B3xB3xH2xfIf')
 FLOAT, ADD, PROP_CAMERA_Z = 1, 2, 72
 #: OMOD property OverrideProjectile (xEdit's wbWeaponPropertyEnum 80); a property's kind is at 8.
 PROP_OVERRIDE_PROJECTILE = 80
+#: Part properties that would rescale FNV's cone (aim_models): min, max, increase, sneak and iron-sights mults.
+CONE_PROPERTIES = frozenset({33, 34, 35, 38, 47})
 #: derive_formid sites of a gun's own Anims keyword (key: its FNV FormID) and of the one additive subgraph race.
 KEYWORD_SITE, RACE_SITE = 'FNV gun anims KYWD', 'FNV gun anims RACE'
 RACE_EDID = 'FNV_HumanRaceSubGraphDataAdditive'
-#: ZOOM GNAM: its camera offset's z (after FOV mult, overlay, imagespace modifier, x, y).
-ZOOM_CAMERA_Z = 20
 
 
 class Guns:
@@ -77,7 +81,7 @@ class Guns:
         self.mods = {rec.form_id: list(subrecords(rec.body)) for rec, _ in walk(builder.fo4, b'OMOD')}
         self.choices = GunChoices(builder.fo4, self.mods, builder.keywords, self._receiver_layout)
         self.edids = {dict(subs).get(b'EDID', b'').rstrip(b'\0').decode('cp1252'): fid for fid, subs in self.mods.items()}
-        self.clips, self.converted, self.bodies = None, {}, {}
+        self.clips, self.converted, self.bodies, self.zooms = None, {}, {}, zoom_presets(builder.fo4)
 
     def _read(self, model: str) -> bytes:
         """A vanilla mesh from the game's archives."""
@@ -96,7 +100,7 @@ class Guns:
         its default combination: modded), its record subrecords, the FNV mesh's model, path, converted NIF (not
         written) and layout); None when no FO4 gun matches."""
         model = rec['Model.MODL']
-        fnv_path = self.builder.export_dir / 'meshes' / model.replace('\\', '/').lower()
+        fnv_path = export_file(self.builder.export_dir, 'meshes', model.replace('\\', '/').lower())
         static = nif_file.write(cached_convert(fnv_path, self.builder.export_dir, None, False).nif)
         if int(rec.get('DNAM.Flags1', 0)) & FNV_BACKPACK:
             static = gun.without(static, gun.BACKPACK)
@@ -107,7 +111,7 @@ class Guns:
             return None
         subs = self.choices.weapons[choice.weapon][1]
         choice = self._modded_choice(choice, subs, mods) if mods else choice
-        if int(rec.get('DNAM.Flags1', 0)) & FNV_SCOPE_VIEW == FNV_SCOPE_VIEW:
+        if built_in_scope(rec):
             choice = replace(choice, includes=self.choices.scoped(subs, choice.includes,
                                                                     float(rec.get('DNAM.SightFOV', 0.0))))
         body = weapon_model(subs)
@@ -131,16 +135,18 @@ class Guns:
         if choice.receiver is None:
             self.bodies[fnv] = out_path
         out, start = bytearray(obts), includes_at(obts)
-        lift = self._lift(layout, choice) if clips is None else self._clip_lift(clips.lift, template)
+        scope, props, camera_z = self._fnv_scope(rec, choice.includes)
+        lift = self._lift(layout, choice) if clips is None else self._clip_lift(clips.lift, template, camera_z)
         for i, fid in enumerate(choice.includes):
-            made = self._part(fnv, rec, fid, out_path if fid == choice.receiver else None, lift, own)
+            made = self._part(fnv, rec, fid, (out_path if fid == choice.receiver else None, lift, own),
+                              props if fid == scope else ())
             struct.pack_into('<I', out, start + INCLUDE_SIZE * i, made)
         return self._block(name, bytes(out))
 
     def gun_clips(self) -> GunClips:
         """The clip converter, made on first use."""
         if self.clips is None:
-            self.clips = GunClips(self.builder.fo4, self.builder.export_dir / 'meshes', self.builder.data_dir)
+            self.clips = GunClips(self.builder.fo4, asset_root(self.builder.export_dir, 'meshes'), self.builder.data_dir)
         return self.clips
 
     def _clips(self, fnv: int, rec: dict, template: tuple, fnv_path, receiver: bytes, mesh: tuple):
@@ -163,15 +169,30 @@ class Guns:
         self.converted[fnv] = made
         return made
 
-    def _clip_lift(self, eye: 'float | None', template: list) -> float:
+    def _fnv_scope(self, rec: dict, combo: tuple) -> tuple:
+        """(the scope part in `combo`, the properties zooming it as FNV gun `rec`'s own scope does, that zoom's
+        camera offset z) for a gun with a built-in scope (built_in_scope) and a sight FOV; (None, (), None) else.
+        See: docs/fork/fo4_build_next.md#scope-zoom
+        """
+        fov, night = float(rec.get('DNAM.SightFOV', 0) or 0), bool(int(rec.get('DNAM.Flags2', 0)) & FNV_NIGHT_VISION)
+        scope = self.choices.magnified_scope(combo) if built_in_scope(rec) and fov > 0 else None
+        if scope is None:
+            return None, (), None
+        return scope, scope_properties(self.zooms, self.builder.keywords, fov, night), scope_preset(
+            self.zooms, fov, night)[2]
+
+    def _clip_lift(self, eye: 'float | None', template: list, camera_z: 'float | None' = None) -> float:
         """The camera lift putting FNV's eye point (`eye`, its height over the camera in the sighted clip) on the
-        camera, less what the template's zoom data already moves it; 0 without one."""
+        camera, less what the zoom data already moves it: `camera_z` (a scope's zoom) when given, else the
+        template's; 0 without one."""
         if eye is None:
             return 0.0
+        if camera_z is not None:
+            return eye - camera_z
         zoom = dict(template).get(b'WZMD')
         gnam = next((first_sub(r.body, b'GNAM') for r, _ in walk(self.builder.fo4, b'ZOOM')
                      if zoom and r.form_id == struct.unpack('<I', zoom)[0]), None)
-        return eye - (struct.unpack_from('<f', gnam, ZOOM_CAMERA_Z)[0] if gnam else 0.0)
+        return eye - (struct.unpack_from('<f', gnam, ZOOM_Z)[0] if gnam else 0.0)
 
     def body(self, fnv: int) -> dict:
         """MODL and MOD4 as gun `fnv`'s mesh when it is its FO4 gun's body, else {}."""
@@ -189,10 +210,15 @@ class Guns:
         return {b'KWDA': struct.pack(f'<{len(ids)}I', *ids)}
 
     def write_subgraphs(self) -> None:
-        """The additive race mapping every converted gun's keyword to its clips (none when no gun converted)."""
-        subs = self.clips.race(RACE_EDID) if self.clips else None
+        """The additive race mapping every converted gun's keyword to its clips (none when no gun converted). A
+        DLC's race is its own, beside the game's, mapping only its own keywords: the engine adds every SADD race.
+        See: docs/fork/fo4_plugin_layout.md#dlc-build"""
+        writer, built = self.builder.writer, self.builder.built
+        edid = f'{RACE_EDID}_{Path(self.builder.export_dir.name).stem}' if built else RACE_EDID
+        own = (lambda kw: kw >> 24 == writer.own_index) if built else None
+        subs = self.clips.race(edid, own) if self.clips else None
         if subs:
-            fid = self.builder.writer.derive_formid(RACE_SITE, RACE_EDID)
+            fid = writer.derive_formid(RACE_SITE, edid)
             self.builder.writer.add_record('RACE', pack_fo4_record('RACE', fid, 0, b''.join(
                 pack_subrecord(s.decode(), b) for s, b in subs)))
 
@@ -270,32 +296,36 @@ class Guns:
         return float(ours['sight'][2] - trigger_ours) - (sight - float(theirs['trigger'][2]))
 
     def _part_sub(self, sig: bytes, body: bytes, rec: dict, path: 'str | None', lift: float, own: bool) -> bytes:
-        """A copied mod's subrecord: EditorID with FNV's gun, model `path`, strings as text; DATA loses its
-        OverrideProjectile when `own`, and the receiver's (when `path`) gains the camera lift."""
+        """A copied mod's subrecord: EditorID with FNV's gun, model `path`, strings as text; DATA loses its cone
+        properties (CONE_PROPERTIES), its OverrideProjectile when `own`, and the receiver's (`path`) gains the lift."""
         if sig == b'EDID':
             return b'FNV_' + body.rstrip(b'\0') + f'_{rec["EditorID"]}\0'.encode()
         if sig == b'MODL':
             return (path + '\0').encode()
         if sig in LOCALIZED and len(body) == 4:
             return self.strings.get(struct.unpack('<I', body)[0], b'') + b'\0'
-        body = without_override(body) if sig == b'DATA' and own else body
+        body = without_override(body, CONE_PROPERTIES | ({PROP_OVERRIDE_PROJECTILE} if own else set())) \
+            if sig == b'DATA' else body
         if sig == b'DATA' and path:
             data = bytearray(body)
             struct.pack_into('<I', data, 4, struct.unpack_from('<I', data, 4)[0] + 1)
             return bytes(data) + CAMERA_Z.pack(FLOAT, ADD, PROP_CAMERA_Z, float(np.float32(lift)), 0, 0.0)
         return body
 
-    def _part(self, fnv: int, rec: dict, fid: int, path: 'str | None', lift: float, own: bool) -> int:
-        """The mod the converted gun includes for vanilla mod `fid`: a copy (the receiver's, `path` given,
-        showing it), another with a model losing it, one adding an Anims keyword the gun's clips replace taking
-        the gun's own (gun_choice.traded)), or `fid` itself for any other mod without a model."""
+    def _part(self, fnv: int, rec: dict, fid: int, placed: tuple, props: tuple = ()) -> int:
+        """The mod the converted gun includes for vanilla mod `fid` (`placed`: _part_sub's path, lift and own): a
+        copy (the receiver's, path given, showing it), another with a model losing it, one adding an Anims keyword
+        the gun's clips replace taking the gun's own (gun_choice.traded), one taking `props` (the scope's FNV
+        zoom: with_properties), or `fid` itself for any other mod without a model."""
         made = self.converted.get(fnv)
         trades = made.replaces if made else {}
-        if not self.choices.model(fid) and not self.choices.keywords([], (fid,)) & set(trades):
+        if not props and not self.choices.model(fid) and not self.choices.keywords([], (fid,)) & set(trades):
             return fid
-        out = [(sig, self._part_sub(sig, body, rec, path, lift, own)) for sig, body in self.mods.get(fid, [])
+        path = placed[0]
+        out = [(sig, self._part_sub(sig, body, rec, *placed)) for sig, body in self.mods.get(fid, [])
                if sig not in (LOOSE, b'MODT') and (sig != b'MODL' or path)]
-        return self._add_copy(fnv, fid, [(sig, traded(body, trades) if sig == b'DATA' else body) for sig, body in out])
+        data = lambda body: with_properties(traded(body, trades), list(props)) if props else traded(body, trades)
+        return self._add_copy(fnv, fid, [(sig, data(body) if sig == b'DATA' else body) for sig, body in out])
 
     def _add_copy(self, fnv: int, fid: int, out: list) -> int:
         """Write `out` as FNV gun `fnv`'s copy of vanilla mod `fid` (one per attach point); its FormID."""
@@ -323,12 +353,12 @@ def overrides_projectile(data: bytes) -> bool:
     return any(prop == PROP_OVERRIDE_PROJECTILE for _, _, prop, _ in properties(data))
 
 
-def without_override(data: bytes) -> bytes:
-    """An OMOD DATA without its OverrideProjectile properties (they end it)."""
+def without_override(data: bytes, dropped: frozenset = frozenset({PROP_OVERRIDE_PROJECTILE})) -> bytes:
+    """An OMOD DATA without its `dropped` properties (OverrideProjectile by default; properties end it)."""
     count = struct.unpack_from('<I', data, 4)[0]
     start = len(data) - PROPERTY_SIZE * count
     kept = [data[start + PROPERTY_SIZE * i:start + PROPERTY_SIZE * (i + 1)] for i in range(count)
-            if struct.unpack_from('<H', data, start + PROPERTY_SIZE * i + 8)[0] != PROP_OVERRIDE_PROJECTILE]
+            if struct.unpack_from('<H', data, start + PROPERTY_SIZE * i + 8)[0] not in dropped]
     head = bytearray(data[:start])
     struct.pack_into('<I', head, 4, len(kept))
     return bytes(head) + b''.join(kept)

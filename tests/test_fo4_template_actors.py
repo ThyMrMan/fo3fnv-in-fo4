@@ -299,3 +299,17 @@ def test_a_creature_takes_essential_and_ghost_from_base_data_and_its_level_mult_
     assert seen == [0x80 | 0x8, 0x2 | A.IS_GHOST | A.INVULNERABLE]
     flags = struct.unpack_from('<I', A.acbs(bytes(20), {'ACBS.Flags': str(seen[1])}, A.CREATURE_FLAGS))[0]
     assert flags == 0x2 | A.IS_GHOST | A.INVULNERABLE
+
+
+def test_a_creature_taking_its_model_from_its_template_takes_its_traits_too():
+    """Model/Animation from the template (BMRoadblock1Mutant's 0x3C0): a template actor whose FO4 flags add Traits,
+    so FO4's race and skin come with the model; an NPC's flags stay FNV's."""
+    npcs = N.Npcs.__new__(N.Npcs)
+    npcs.records = {0xA03: {'FormID': '00000A03', 'ACBS.TemplateFlags': '64', 'TPLT.Template': '00000A01'}}
+    npcs.creatures = SimpleNamespace(records={
+        0xC01: {'FormID': '00000C01'},
+        0xC05: {'FormID': '00000C05', 'ACBS.TemplateFlags': '960', 'TPLT.Template': '00000C01'}})
+    flags = npcs._template_flags(npcs.creatures.records[0xC05])
+    assert flags & N.USE_TRAITS and flags & 0x3C0 == 0x3C0
+    assert npcs._template_flags(npcs.records[0xA03]) == 0x40
+    assert N._model_templated(npcs.creatures.records[0xC05]) and not N._model_templated({'ACBS.TemplateFlags': '64'})

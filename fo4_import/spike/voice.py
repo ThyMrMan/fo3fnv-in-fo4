@@ -8,6 +8,8 @@ folder recorded it. Audio and lips come from the FO4 Creation Kit's own tools.
 See: docs/fork/fo4_spikes.md#spike-1-voice
 """
 
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -136,6 +138,30 @@ def _convert_shared(source: tuple, destinations: list, tools: tuple) -> int:
     fallback = first.with_suffix('.xwm')
     written = fallback if first.suffix.lower() == '.fuz' and fallback.is_file() else first
     return int(written == first) + sum(_copy_converted(written, first, dest) for dest in destinations[1:])
+
+
+def _attempt(job: tuple) -> str:
+    """A job's failure-record key: destination, source and transcript hashes."""
+    source, dest, text = job
+    return f'{dest.parent.name}/{dest.name}|{hashlib.sha1(Path(source).read_bytes()).hexdigest()}|' + \
+        hashlib.sha1((text or '').encode()).hexdigest()
+
+
+def convert_new(job_list: list, lipgen_dir: Path, record: Path) -> int:
+    """convert() of the jobs whose destination is missing, less those an earlier build already failed on with the
+    same recording, transcript and destination (`record`, a JSON list); each that fails now is recorded, so a
+    recording that never converts (silent, or LipGenerator fails) is not tried again every build.
+    See: docs/fork/fo4_plugin_layout.md#stage-times
+    """
+    failed = set(json.loads(record.read_text(encoding='utf-8'))) if record.is_file() else set()
+    missing = [job for job in job_list if not job[1].exists()]
+    keys = {id(job): _attempt(job) for job in missing}
+    todo = [job for job in missing if keys[id(job)] not in failed]
+    written = convert(todo, lipgen_dir) if todo else 0
+    now = {keys[id(job)] for job in missing if not job[1].exists()}
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps(sorted(now)), encoding='utf-8')
+    return written
 
 
 def convert(job_list: list, lipgen_dir: Path) -> int:

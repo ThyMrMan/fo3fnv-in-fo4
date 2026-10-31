@@ -29,14 +29,14 @@ import struct
 import sys
 from pathlib import Path
 
-from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.install import FALLOUT4_DIR, file_masters
 from fo4_import.base.vmad import Unsupported, read_entry, read_wstring
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.script import FRAGMENT_PREFIX, declared_properties
 from script_convert.atomic_adds import PREFIX as ADD_PREFIX
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.packages.scripts_falloutnv import package_flags
-from tools.validate.fo4_check import find, masters
+from tools.validate.fo4_check import find
 
 #: Fallout4.esm forms the checks name: HumanRace, MoleratRace, TurretTripodClass, Health, S.P.E.C.I.A.L.
 HUMAN_RACE, BURROWING_RACES, TURRET_CLASS = 0x13746, {0x1D810}, 0x123E22
@@ -73,7 +73,7 @@ class Plugin:
 
     def __init__(self, path: Path, dirs: list):
         """Read `path` and every master's FormIDs (from the game's Data, the plugin's folder or `dirs`)."""
-        names = masters(path)
+        names = file_masters(path)
         self.index, self.records, self.defined = len(names), {}, set(range(ENGINE_FORMS))
         for i, name in enumerate(names):
             raw = find(name, [FALLOUT4_DIR / 'Data', path.parent, *dirs]).read_bytes()
@@ -329,7 +329,7 @@ def main() -> int:
                 'fragments: package section not attached': check_fragments(plugin, args.export),
                 'persistence: package target lost Persistent': check_persistence(plugin, args.export),
                 'duplicates: unique actor placed again': check_duplicates(plugin, args.export),
-                **check_hazards(plugin, args.scripts, {*masters(args.plugin), args.plugin.name, *HELPER_FILES})}
+                **check_hazards(plugin, args.scripts, {*file_masters(args.plugin), args.plugin.name, *HELPER_FILES})}
     return 1 if report(findings, args.examples) else 0
 
 

@@ -15,6 +15,7 @@ import pytest
 from fo4_import.base.ba2 import Archives
 from fo4_import.base import strings as ST
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.source_ids import SourceIds
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.havok import human_clip as HC
 from fo4_import.nif import collision as CO
@@ -188,6 +189,7 @@ def test_weapon_copy_takes_fnv_stats_and_resolves_template_strings():
     eq.guns = SimpleNamespace(default_only=lambda subs: None)
     eq.ammo_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
+    eq.vats = SimpleNamespace(apply=lambda rec, dnam, template: template.get(b"CRDT", b""))
     eq.table = {'WeapBaseballBat': RP.Replacement('Fallout4.esm', 'BaseballBat', 'stats')}
     eq.strings = {1: b'Baseball Bat', 2: b'Swing it', 3: b'Default'}
     rec = {'EditorID': 'WeapBaseballBat', 'FULL': 'Bat', 'DATA.Weight': '3.0', 'DATA.Value': '250', 'DATA.Damage': '22'}
@@ -219,6 +221,7 @@ def test_melee_weapon_on_fnv_mesh_drops_template_model_and_mods():
     eq.by_anim = {}
     eq.ammo_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
+    eq.vats = SimpleNamespace(apply=lambda rec, dnam, template: template.get(b"CRDT", b""))
     eq.table = {'WeapRollingPin': RP.Replacement('Fallout4.esm', 'RollingPin', 'fnv')}
     eq.weap(1, {'EditorID': 'WeapRollingPin', 'FULL': 'Rolling Pin', 'Model.MODL': 'Weapons/RollingPin.NIF'})
     subs = list(subrecords(written[0][24:]))
@@ -332,7 +335,7 @@ def test_an_fnv_sound_keeps_its_own_volume_and_reach():
 def _ids():
     """A stand-in CellBuilder carrying only what fnv_id and new_id read."""
     builder = SimpleNamespace(writer=FO4PluginWriter(masters=['Fallout4.esm', 'A.esl', 'B.esm']), owned=Counter(),
-                              top=0x800, keyed=set(), counts=Counter())
+                              top=0x800, keyed=set(), counts=Counter(), ids=SourceIds([], [], 3))
     return builder, CellBuilder.fnv_id, CellBuilder.new_id
 
 
@@ -500,6 +503,14 @@ def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypa
     assert PL.placement(0x99, ids) == pack_subrecord('XRGD', b'r' * 28) and PL.placement(0x1, ids) == b''
 
 
+def test_a_trigger_box_keeps_its_primitive_but_no_room_bound(monkeypatch):
+    """An activator's reference (a trigger box) is no room: no XMBO; a room marker's keeps it."""
+    monkeypatch.setattr(PL, '_activators', lambda: frozenset({0xACAC}))
+    trigger = [(b'NAME', struct.pack('<I', 0xACAC)), (b'XMBO', b'b' * 12), (b'XPRM', b'p' * 32)]
+    room = [(b'NAME', struct.pack('<I', 0x1F)), (b'XMBO', b'b' * 12), (b'XPRM', b'p' * 32)]
+    assert not PL._room_bound(trigger) and PL._room_bound(room)
+
+
 def test_a_light_keeps_fnvs_falloff_and_fov_and_a_slow_flicker_moves_at_half_speed():
     """Falloff exponent and FOV are FNV's; flicker slow (0x40) doubles the period; a steady light does not move."""
     rec = {'DATA.Radius': '256', 'DATA.Color.R': '255', 'DATA.Color.G': '200', 'DATA.Color.B': '100',
@@ -533,13 +544,17 @@ def test_painted_layers_become_shares_that_never_pass_one():
 
 def test_texture_zero_draws_fnvs_default_land_texture_not_fo4s():
     """FNV draws DirtWasteland01 for texture 0 and a quadrant without a base; FO4's own default is the pale,
-    grassless CommonwealthDefault01. Texture 0 becomes the lowest FNV LTEX using FNV's default."""
+    grassless CommonwealthDefault01. Texture 0 becomes the lowest FNV LTEX using FNV's default; a second
+    worldspace reuses the first's LTEX instead of writing it again."""
     ext = EX.Exterior.__new__(EX.Exterior)
     ext.textures = {'00015457': {'ICON': 'DirtWasteland01.dds'}, '00000A8A': {'ICON': 'DirtWasteland01.dds'},
                     '00020524': {'ICON': 'DirtPathWasteland01.dds'}}
-    ext.made, written = {}, []
+    builder, written = SimpleNamespace(land_textures={}), []
     ext._write_ltex = lambda builder, rec, data_dir: written.append(rec) or 0x03000A8A
-    assert ext._ltex(None, '00000000', None) == 0x03000A8A and ext._ltex(None, None, None) == 0x03000A8A
+    assert ext._ltex(builder, '00000000', None) == 0x03000A8A and ext._ltex(builder, None, None) == 0x03000A8A
+    other = EX.Exterior.__new__(EX.Exterior)
+    other.textures, other._write_ltex = ext.textures, ext._write_ltex
+    assert other._ltex(builder, '00000A8A', None) == 0x03000A8A
     assert written == [ext.textures['00000A8A']]
 
 
@@ -938,7 +953,7 @@ def test_converted_clip_leaves_its_track_names_blank(monkeypatch, tmp_path):
     written = []
     clips = HC.HumanClips.__new__(HC.HumanClips)
     clips.meshes, clips.fnv, clips.fo4, clips.deltas, clips.pose = tmp_path, None, SimpleNamespace(names=['Root']), {}, {}
-    monkeypatch.setattr(HC, 'decode_kf', lambda path: [SimpleNamespace(duration=1.0)])
+    monkeypatch.setattr(HC, 'decoded', lambda path: [SimpleNamespace(duration=1.0)])
     monkeypatch.setattr(HC, 'retarget_clip', lambda *a, **k: None)
     monkeypatch.setattr(HC, 'clip_to_animation_data',
                         lambda *a: SimpleNamespace(num_tracks=2, bone_names=['Root', 'COM']))

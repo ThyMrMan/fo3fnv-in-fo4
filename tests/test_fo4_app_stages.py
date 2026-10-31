@@ -29,7 +29,7 @@ def test_build_arguments_follow_the_choices(tmp_path):
     cmd = ST.command(s, 'falloutnv', 'build', ST.Scope('region', (1, 2, 3, 4), 6), tmp_path / 'fo4_app.json')
     out = tmp_path / 'work' / 'output' / 'FalloutNV'
     assert cmd[1:3] == ['-m', 'fo4_import.pipeline.run']
-    assert cmd[cmd.index('--out') + 1] == str(out / 'FalloutNV.esp') and cmd[cmd.index('--data') + 1] == str(out)
+    assert cmd[cmd.index('--out') + 1] == str(out / 'FalloutNV.esm') and cmd[cmd.index('--data') + 1] == str(out)
     assert cmd[cmd.index('--region') + 1:cmd.index('--region') + 5] == ['1', '2', '3', '4']
     assert cmd[cmd.index('--profile') + 1] == 'look' and cmd[cmd.index('--workers') + 1] == '6'
     assert cmd[cmd.index('--mod-sources') + 1] == str(tmp_path / 'fo4_app.json')
@@ -68,7 +68,7 @@ def test_found_says_what_earlier_runs_left(tmp_path, monkeypatch):
     ST.plugin_path(s, 'falloutnv').parent.mkdir(parents=True)
     ST.plugin_path(s, 'falloutnv').write_text('x')
     built = ST.found(s, 'falloutnv', 'build')
-    assert built.text.startswith('FalloutNV.esp built') and not built.done
+    assert built.text.startswith('FalloutNV.esm built') and not built.done
 
 
 def test_export_reads_the_chosen_game_folder(tmp_path):
@@ -109,11 +109,11 @@ def test_zip_output_is_packaged(tmp_path):
     s = _settings(tmp_path)
     out = S.output_dir(s, 'falloutnv')
     out.mkdir(parents=True)
-    (out / 'FalloutNV.esp').write_bytes(b'x')
+    (out / 'FalloutNV.esm').write_bytes(b'x')
     assert ST.package(s, 'falloutnv') is None
     s['per_source']['falloutnv']['output']['kind'] = 'zip'
     made = ST.package(s, 'falloutnv')
-    assert made == out.with_suffix('.zip') and zipfile.ZipFile(made).namelist() == ['FalloutNV.esp']
+    assert made == out.with_suffix('.zip') and zipfile.ZipFile(made).namelist() == ['FalloutNV.esm']
 
 
 def test_runner_streams_and_stops_at_a_failure():

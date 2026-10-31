@@ -22,9 +22,9 @@ from pathlib import Path
 import numpy as np
 from pyffi.formats.nif import NifFormat
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import asset_root, export_records
 from fo4_import.spike.activators import irradiating
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
@@ -91,9 +91,9 @@ class PlaceableWater:
 
     def __init__(self, builder, export_dir: Path):
         """Index FNV's waters and Fallout4.esm's placeable water types, tile activators and spells."""
-        self.builder, self.meshes = builder, export_dir / 'meshes'
+        self.builder, self.meshes = builder, asset_root(export_dir, 'meshes')
         self.spells = {int(r['FormID'], 16): r for r in export_records(export_dir, 'SPEL')}
-        self.fnv = {r.form_id: dict(subrecords(r.body)) for r, _ in walk(source_esm(), b'WATR')}
+        self.fnv = {r.form_id: dict(subrecords(r.body)) for r, _ in source_walk(b'WATR')}
         actis = [r for r, _ in walk(builder.fo4, b'ACTI') if first_sub(r.body, b'WNAM')]
         placed = {struct.unpack('<I', first_sub(r.body, b'WNAM'))[0] for r in actis}
         self.fo4 = {r.form_id: r.body for r, _ in walk(builder.fo4, b'WATR')

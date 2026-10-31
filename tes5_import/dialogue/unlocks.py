@@ -46,6 +46,7 @@ from ..base.conditions import read_getisid_fids
 from ..base.text_reader import info_result_script
 from ..overrides.adoption import generated_formid
 from .follow_up_marks_falloutnv import follow_up_marks
+from .unlock_prerequisites_falloutnv import is_fallout, is_top_level, waits_longer
 
 _RE_ADDTOPIC = re.compile(r'\baddtopic[\s,]+(\w+)', re.IGNORECASE)
 
@@ -84,17 +85,35 @@ def _topic_speakers(infos: list, gated: dict) -> dict:
 
 
 def _ungate_bark_only_topics(gated: dict, bark_speakers: dict,
-                             convo_revealed: set, topic_speakers: dict) -> dict:
+                             convo_revealed: set, topic_speakers: dict, keep: set = frozenset()) -> dict:
     """Drop the gate on topics revealed ONLY by barks their own speakers say.
 
-    A topic stays gated when any NPC who speaks it never says a revealing bark.
+    A topic stays gated when any NPC who speaks it never says a revealing bark,
+    or when it is in `keep` (an FO3/FNV topic whose greetings wait for more).
 
     See: docs/commentary/tes5_import_dialogue.md#the-bark-ungating-exception
     """
     bark_only = {g for g, spk in bark_speakers.items()
-                 if g not in convo_revealed
+                 if g not in convo_revealed and g not in keep
                  and (None in spk or topic_speakers.get(g, set()) <= spk)}
     return {f: g for f, g in gated.items() if g not in bark_only}
+
+
+def _greetings_wait(infos: list, gated: dict, edid_to_fid24: dict, dial_by_fid24: dict, classify_topic) -> set:
+    """FO3/FNV gates whose revealing barks all need a fact some line of the topic does not (empty for Oblivion).
+
+    See: docs/fork/fo4_timing_audit.md#fixes
+    """
+    if not is_fallout(list(dial_by_fid24.values())):
+        return set()
+    barks, lines = defaultdict(list), defaultdict(list)
+    for rec in infos:
+        own = _low24(rec.get('ParentDIAL', ''))
+        lines[gated.get(own)].append(rec)
+        if _is_bark_topic(dial_by_fid24.get(own), classify_topic):
+            for gname in _info_explicit_globals(rec, gated, edid_to_fid24):
+                barks[gname].append(rec)
+    return {g for g, recs in barks.items() if waits_longer(recs, lines.get(g, []))}
 
 
 def _index_dials(dials: list) -> tuple:
@@ -200,7 +219,7 @@ def _build_gate_set(explicit_targets: set, dial_by_fid24: dict,
                     should_skip_dial, classify_topic) -> dict:
     """{topic fid24 -> global name} for every gateable explicit target.
 
-    Skipped and bark topics are excluded.
+    Skipped and bark topics are excluded, and FO3/FNV Top-level ones, listed from the start.
 
     See: docs/commentary/tes5_import_dialogue.md#addtopic-unlock-gates
     """
@@ -209,7 +228,7 @@ def _build_gate_set(explicit_targets: set, dial_by_fid24: dict,
         d = dial_by_fid24.get(fid24)
         if d is None or should_skip_dial(d):
             continue
-        if _is_bark_topic(d, classify_topic):
+        if _is_bark_topic(d, classify_topic) or is_top_level(d):
             continue
         gated[fid24] = _global_name(d.get('EditorID', ''), fid24, taken)
     return gated
@@ -439,8 +458,8 @@ def build_unlock_plan(by_type: dict, own_index: int = 0) -> dict:
         infos, gated, edid_to_fid24, dial_by_fid24, mention_re,
         names_to_global, classify_topic)
 
-    gated = _ungate_bark_only_topics(gated, bark_speakers, convo_revealed,
-                                     _topic_speakers(infos, gated))
+    gated = _ungate_bark_only_topics(gated, bark_speakers, convo_revealed, _topic_speakers(infos, gated),
+                                     _greetings_wait(infos, gated, edid_to_fid24, dial_by_fid24, classify_topic))
     kept = set(gated.values())
     info_reveals = {fid: sorted(gs & kept)
                     for fid, gs in info_reveals.items() if gs & kept}

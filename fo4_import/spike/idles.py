@@ -24,7 +24,7 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.havok.human_clip import HumanClips
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import asset_root, export_records
 from fo4_import.spike.say_topics import conditions_of
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
@@ -57,7 +57,7 @@ class Idles:
 
     def __init__(self, builder, export_dir: Path):
         """Idles of `export_dir`'s IDLE records for `builder`; `form_map` (FNV -> FO4 forms) is set before write."""
-        self.builder, self.meshes, self.plugin = builder, export_dir / 'meshes', Path(export_dir.name).stem
+        self.builder, self.meshes, self.plugin = builder, asset_root(export_dir, 'meshes'), Path(export_dir.name).stem
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'IDLE')}
         self.names = {r['EditorID'].lower(): fid for fid, r in self.records.items() if r.get('EditorID')}
         self.used, self.checked, self.counted, self.form_map, self.clips = {}, {}, set(), {}, None

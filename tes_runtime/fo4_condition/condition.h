@@ -195,4 +195,17 @@ void ResetPages();
 // Register F3NV_Pipboy's native SetTab.
 void RegisterPages(VirtualMachine *vm);
 
+// ---- Sex change (sex.cpp; docs/fork/fo4_pipeline.md#sex-change) ----
+
+// Register F3NV_Sex's native ChangeSex, run through F4SE's task interface `tasks`.
+void RegisterSex(VirtualMachine *vm, void *tasks);
+
+// ---- Damage Threshold (damage.cpp; docs/fork/fo4_pipeline.md#damage-threshold) ----
+
+// Point FO4's two resistance-curve calls at FNV's DT and DR, through g_branchTrampoline (set up); false when not both.
+bool HookDamage();
+
+// Register F3NV_Damage's native SetRules.
+void RegisterDamage(VirtualMachine *vm);
+
 }  // namespace condition

@@ -245,6 +245,31 @@ companion perks are written without effects and no NPC holds one.
 - **Attack speed and Damage Threshold.** These entry points come with the
   census's open rows.
 
+## <a id="stat-abilities"></a>Stat abilities (built 2026-10-29, not yet played)
+
+FNV entry points on the holder's own stats have no FO4 entry point; each
+becomes an ability, as FO4's own perks do it (`AbPerkQuickHands`). The
+perk's effect turns into a spell of one constant effect on the FO4 actor
+value, under the effect's owner conditions (`STAT_ENTRIES` in
+`fo4_import/spike/perks.py`):
+
+| FNV entry point | FO4 actor value | Multiply Value m becomes |
+|---|---|---|
+| 37 reload speed (Rapid Reload ×1.25) | ReloadSpeedMult (0x2D3) | m − 1 (Quick Hands writes 0.35) |
+| 39 AP regeneration (Nerves of Steel ×1.2) | ActionPointRate (0x2D8) | (m − 1) × 6 |
+| 42 run speed (Travel Light) | SpeedMult | (m − 1) × 100 |
+| 44 radiation consumed (Lead Belly) | RadResistIngestion (0x2E9) | −(m − 1) × 100 |
+| 56 defender Damage Threshold (Toughness, implants) | DamageResist (FNV DT) | Add Value as is |
+
+An Add Value keeps its value. The AP-rate units are inferred: Action Boy's
++25% writes 1.5, so FO4's base rate is taken as 6. The effect is
+Fallout4.esm's own on that value when one exists (`AbFortifyReloadSpeedMult`,
+`AbFortifyActionPointRate`); a value with none, given by FormID, is left out
+and counted. Effects that test the attacker or weapon tab (Stonewall, Hit the
+Deck) cannot be an ability and stay drift. The attacker's DT (58, Piercing
+Strike) becomes Mod Target Damage Resistance (37) Add −value, which the DT
+hook reads ([damage threshold](fo4_pipeline.md#damage-threshold)).
+
 ## <a id="census"></a>Census (2026-10-20)
 
 Sources: the FalloutNV.esm export (`export/FalloutNV.esm/PERK.txt`), FNV's

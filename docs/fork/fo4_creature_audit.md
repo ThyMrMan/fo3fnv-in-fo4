@@ -363,7 +363,7 @@ written (`checked`, in the three `Creatures` writers and
 | keep | DPLT, ECOR | every stand-in names FO4's generic `DefaultMasterPackageList` and `DefaultCombatMasterPackageList` (Dogmeat's own override is dropped with him); FNV has neither |
 | keep | KSIZ, KWDA | the stand-in's type keywords (NoStagger, ImmuneParalysis, HeavyKnocker); FNV's type keyword is added |
 | fnv | AIDT, SNAM, PKID, ZNAM, INAM, CNTO, COCT, PRPS | written from FNV; the stand-in's value surviving whole is a leftover |
-| drop | VMAD, CRIF, SHRT | the stand-in's scripts, crime faction and short name |
+| drop | VMAD, CRIF, SHRT, LTPT, LTPC | the stand-in's scripts, crime faction, short name, and legendary template and chance (FO4's feral ghouls; FNV has no legendaries) |
 | open | SPCT, SPLO, PRKZ, PRKR, CNAM | not decided: the stand-in's type abilities (the glowing one's `crGlowingOneCloak` aura and `crGlowingOneBurst`; FNV's are added beside them), immunity perks (ImmuneToRadiation, ImmuneToPoison, crNoFallDamage) next to FO4 damage tuning (crDamage15 on protectrons, crDamage125 on super mutants, crRangedDmgPerk), and the stand-in's class (BoSScribeClass on super mutants, the human Citizen class on template actors) |
 
 Known case: a stand-in whose whole inventory is its attack gear (the

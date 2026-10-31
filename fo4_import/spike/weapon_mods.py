@@ -20,7 +20,7 @@ import math
 import struct
 from dataclasses import dataclass
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import plugin_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike import records as R
 from fo4_import.spike.conditions import FO4
@@ -63,6 +63,8 @@ KEYWORD_VALUE2, ZOOM_VALUE2 = 440, 441
 SILENT, TRUE = 2, 1
 #: Fallout 4's default world field of view, which a zoom FOV mult divides.
 FO4_WORLD_FOV = 70.0
+#: ZOOM GNAM: its camera offset's z (after FOV mult, overlay, imagespace modifier, x, y).
+ZOOM_Z = 20
 ZOOMS = ('ZM_Standard_Scope_x2', 'ZM_Standard_Scope_x4', 'ZM_Standard_Scope_x6', 'ZM_Standard_Scope_x10')
 NIGHT_ZOOMS = ('ZM_Standard_Scope_x4_NightVision', 'ZM_Standard_Scope_x6_NightVision',
                'ZM_Standard_Scope_x10_NightVision')
@@ -126,10 +128,45 @@ def _key(entry: bytes) -> tuple:
     return (which, value1) if which == KEYWORDS else (which,)
 
 
+def with_properties(data: bytes, added: list) -> bytes:
+    """OMOD DATA `data`, `added` in place of the properties they replace."""
+    part, keys = parse_part(data), {_key(p) for p in added}
+    part.properties = [p for p in part.properties if _key(p) not in keys] + added
+    return pack_part(part)
+
+
+def zoom_presets(fo4: bytes) -> dict:
+    """{ZOOM EditorID: (FormID, FOV mult, camera offset z)} of Fallout4.esm `fo4`."""
+    out = {}
+    for rec, _ in walk(fo4, b'ZOOM'):
+        subs = dict(subrecords(rec.body))
+        mult, camera_z = struct.unpack_from('<f', subs[b'GNAM'])[0], struct.unpack_from('<f', subs[b'GNAM'], ZOOM_Z)[0]
+        out[_text(subs, b'EDID')] = (rec.form_id, mult, camera_z)
+    return out
+
+
+def scope_preset(zooms: dict, fov: float, night: bool) -> tuple:
+    """The zoom_presets entry nearest FNV's `fov` degrees (`night`: night vision)."""
+    mult = FO4_WORLD_FOV / fov
+    return min((zooms[n] for n in (NIGHT_ZOOMS if night else ZOOMS)), key=lambda z: abs(math.log(z[1] / mult)))
+
+
+def scope_properties(zooms: dict, keywords: dict, fov: float, night: bool) -> list:
+    """A scope showing FNV's `fov` degrees: scope_preset's zoom, its FOV mult set to Fallout 4's world FOV over
+    `fov`, HasScope and the scope keywords (`keywords` {EditorID: FormID}).
+    See: docs/fork/fo4_build_next.md#scope-zoom
+    """
+    names = SCOPE_KEYWORDS + ((NIGHT_KEYWORD,) if night else ())
+    return ([prop(BOOL, SET, HAS_SCOPE, TRUE, TRUE),
+             prop(FORM, SET, ZOOM_DATA, scope_preset(zooms, fov, night)[0], ZOOM_VALUE2),
+             prop(FLOAT, SET, FOV_MULT, FO4_WORLD_FOV / fov)]
+            + [prop(FORM, ADD, KEYWORDS, keywords[k], KEYWORD_VALUE2) for k in names])
+
+
 def fnv_guns(raw: bytes) -> tuple:
     """({FNV WEAP FormID: Gun} of the guns with mod slots, {IMOD FormID: {sig: body}}) read from plugin `raw`."""
     guns, imods = {}, {}
-    for rec, _ in walk(raw, b'WEAP', b'IMOD'):
+    for rec, _ in plugin_walk(raw, b'WEAP', b'IMOD'):
         subs = dict(subrecords(rec.body))
         if rec.sig == b'IMOD':
             imods[rec.form_id] = subs
@@ -157,14 +194,11 @@ class WeaponMods:
     def __init__(self, builder, mods: dict):
         """FNV's guns and IMODs; Fallout4.esm's OMODs `mods` {FormID: subrecords} as parts, its zoom presets."""
         self.builder, self.kw, self.mods = builder, builder.keywords, mods
-        self.guns, self.imods = fnv_guns(source_esm())
+        self.guns, self.imods = fnv_guns(None)
         self.parts = {fid: parse_part(dict(subs)[b'DATA']) for fid, subs in mods.items()}
         self.targets = {fid: set(_ids(dict(subs).get(b'MNAM', b''))) for fid, subs in mods.items()}
         self.vanilla_ma = {fid for name, fid in self.kw.items() if name.startswith('ma_')}
-        self.zooms, self.lock = {}, None
-        for rec, _ in walk(builder.fo4, b'ZOOM'):
-            subs = dict(subrecords(rec.body))
-            self.zooms[_text(subs, b'EDID')] = (rec.form_id, struct.unpack_from('<f', subs[b'GNAM'])[0])
+        self.zooms, self.lock = zoom_presets(builder.fo4), None
 
     def loose(self, fnv: int, rec: dict) -> int:
         """Item maker: the loose mod MISC (on FNV's FormID) for IMOD `fnv`, FNV's name, model, value and weight."""
@@ -305,22 +339,11 @@ class WeaponMods:
             return [prop(INT, ADD, NUM_PROJECTILES, round(value)),
                     prop(FLOAT, MUL_ADD, ATTACK_DAMAGE, 1.0 / (1.0 + round(value)) - 1.0)]
         if effect == ZOOM:
-            return self._scope(value, gun.night_vision)
+            return scope_properties(self.zooms, self.kw, value, gun.night_vision)
         if effect in (SILENCE, SUPPRESSOR):
             return [prop(ENUM, SET, SOUND_LEVEL, SILENT)] + [prop(FORM, ADD, KEYWORDS, self.kw[k], KEYWORD_VALUE2)
                                                              for k in SILENCER_KEYWORDS]
         return []
-
-    def _scope(self, fov: float, night: bool) -> list:
-        """A scope showing FNV's `fov` degrees: the vanilla zoom preset nearest it (night vision ones when `night`),
-        its FOV mult set to Fallout 4's world FOV over `fov`, HasScope and the scope keywords."""
-        mult = FO4_WORLD_FOV / fov
-        preset = min((self.zooms[n] for n in (NIGHT_ZOOMS if night else ZOOMS)),
-                     key=lambda z: abs(math.log(z[1] / mult)))[0]
-        names = SCOPE_KEYWORDS + ((NIGHT_KEYWORD,) if night else ())
-        return ([prop(BOOL, SET, HAS_SCOPE, TRUE, TRUE), prop(FORM, SET, ZOOM_DATA, preset, ZOOM_VALUE2),
-                 prop(FLOAT, SET, FOV_MULT, mult)]
-                + [prop(FORM, ADD, KEYWORDS, self.kw[k], KEYWORD_VALUE2) for k in names])
 
 
 def _ids(body: bytes) -> list:

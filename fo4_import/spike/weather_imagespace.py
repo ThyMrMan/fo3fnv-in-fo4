@@ -22,7 +22,7 @@ import functools
 import struct
 from dataclasses import replace
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.spike.imagespace import Cinematic, base_hdr, cinematic, own_tint, pack_imgs, write_lut
 from tes5_import.base.tes5_reader import subrecords, walk
 
@@ -34,7 +34,7 @@ TIMES = 4
 @functools.cache
 def _fnv(sig: bytes) -> dict:
     """{FormID: {tag: data}} of FalloutNV.esm's `sig` records (WRLD, IMGS, IMAD)."""
-    return {r.form_id: dict(subrecords(r.body)) for r, _ in walk(source_esm(), sig)}
+    return {r.form_id: dict(subrecords(r.body)) for r, _ in source_walk(sig)}
 
 
 def world_imagespace(world: int) -> int:

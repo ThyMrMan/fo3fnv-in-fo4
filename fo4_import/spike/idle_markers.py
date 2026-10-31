@@ -12,7 +12,7 @@ See: docs/fork/fo4_pipeline.md#audit-fixes
 
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import plugin_walk, source_esm
 from tes5_import.base.tes5_reader import first_sub, walk, zstr
 
 #: Fallout4.esm marker -> the FNV idles it plays the like of, by file name start (humans) or skeleton folder.
@@ -57,7 +57,7 @@ def stand_in(edid: str, idles: list) -> 'str | None':
 def idle_lists(fnv: bytes) -> dict:
     """{IDLM FormID: [plays() of each idle it lists]} of FNV plugin bytes `fnv` (the export leaves the list out)."""
     anims, lists = {}, {}
-    for rec, _ in walk(fnv, b'IDLE', b'IDLM'):
+    for rec, _ in plugin_walk(fnv, b'IDLE', b'IDLM'):
         if rec.sig == b'IDLE':
             anims[rec.form_id] = plays(zstr(first_sub(rec.body, b'MODL') or b''))
         else:
@@ -77,7 +77,7 @@ class IdleMarkers:
             edid = zstr(first_sub(rec.body, b'EDID') or b'')
             if edid in wanted:
                 self.vanilla[edid] = rec.form_id
-        self.idles = idle_lists(source_esm() if fnv is None else fnv)
+        self.idles = idle_lists(fnv)
 
     def of(self, rec: dict) -> tuple:
         """(FO4 FormID or None; FO4 marker, else what it plays most) for FNV IDLM `rec`."""

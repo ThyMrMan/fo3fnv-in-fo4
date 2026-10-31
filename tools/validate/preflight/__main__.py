@@ -6,7 +6,7 @@
     python -m tools.validate.preflight --mark "assets|*|outside|*" --as skip
     python -m tools.validate.preflight --accept-build --game Fallout3.esm
     python -m tools.validate.preflight --game Fallout3.esm --audit logs     # after a play-test
-    py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esp"  # a Fallout 4 build
+    py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esm"  # a Fallout 4 build
 
 Exit code 1 when any error is left that the ledger does not hide.
 See: docs/commentary/tools_preflight.md#running-it
@@ -19,7 +19,7 @@ from functools import partial
 from pathlib import Path
 
 from tools.validate.preflight import (asset_fo4, asset_load, build_diff, condition_diff, dialogue_loss, findings, log_triage, package_ai,
-                                      quest_progression, quest_start, script_health, world_links)
+                                      quest_progression, quest_start, script_health, timing, world_links)
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.ledger import ledger_path
 from fo4_import.spike.readiness import report_path
@@ -30,16 +30,17 @@ from tools.validate.preflight.quest_converted import load_scripts
 from tools.validate.preflight.quest_source import SourceGame
 
 #: The audits in the order they run and print.
-AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'scripts', 'packages', 'world', 'assets', 'build', 'logs')
+AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'timing', 'scripts', 'packages', 'world', 'assets', 'build',
+          'logs')
 
 #: The audits a Skyrim build runs.
-SKYRIM_AUDITS = tuple(a for a in AUDITS if a != 'conditions')
+SKYRIM_AUDITS = tuple(a for a in AUDITS if a not in ('conditions', 'timing'))
 
 #: The audits a plain run does; `logs` reads the last play session, so it runs only when asked.
 DEFAULT_AUDITS = SKYRIM_AUDITS[:-1]
 
 #: The audits a Fallout 4 build runs: fo4_audit checks its script properties and fo4_trace its play sessions.
-FO4_AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'packages', 'world', 'assets', 'build')
+FO4_AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'timing', 'packages', 'world', 'assets', 'build')
 
 
 def games(output: Path, export: Path, wanted: list) -> list:
@@ -88,14 +89,14 @@ class Fo4Game(Game):
         self.source = args.fo4_source or f'{self.plugin.stem}.esm'
         self.index = load_plugin(self.plugin, FO4_EDID_PREFIX)
         self._ctx, self.parts = None, {}
+        self.script_sources = args.fo4_scripts or Path('temp') / 'fo4_scripts' / self.source
 
     @property
     def ctx(self):
         """The QuestContext over the FO4 dialogue model and the ledger's line copies."""
         if self._ctx is None:
             source = SourceGame(str(self.args.export / self.source))
-            scripts = load_scripts(self.plugin.parent / 'Scripts',
-                                   self.args.fo4_scripts or Path('temp') / 'fo4_scripts' / self.source)
+            scripts = load_scripts(self.plugin.parent / 'Scripts', self.script_sources)
             self.parts = line_parts(self.index, ledger_path(self.plugin), source.infos)
             self._ctx = quest_progression.QuestContext(self.name, source, scripts, self.index,
                                                        dialogue=Fo4Dialogue(self.index), copies=line_copies(self.parts),
@@ -122,6 +123,12 @@ def run_conditions(game: Fo4Game) -> list:
     """The condition differential findings for one Fallout 4 build."""
     ctx = game.ctx
     return condition_diff.audit(ctx, game.parts, game.args.export / game.source, ledger_path(game.plugin))
+
+
+def run_timing(game: Fo4Game) -> list:
+    """The progress timing findings for one Fallout 4 build."""
+    ctx = game.ctx
+    return timing.audit(ctx, game.parts, game.args.export / game.source, ledger_path(game.plugin), game.script_sources)
 
 
 def run_packages(game: Game) -> list:
@@ -186,7 +193,7 @@ def print_counts(what: str, counts) -> None:
 
 #: Each audit's runner, keyed by its name.
 RUNNERS = {'quest': run_quest, 'start': run_start, 'dialogue': run_dialogue, 'conditions': run_conditions,
-           'scripts': run_scripts,
+           'timing': run_timing, 'scripts': run_scripts,
            'packages': run_packages, 'world': run_world, 'assets': run_assets, 'build': run_build,
            'logs': run_logs}
 

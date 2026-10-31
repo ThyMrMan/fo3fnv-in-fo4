@@ -286,7 +286,8 @@ sampling and marked review, with the count reported.
 
 ## <a id="effects"></a>Check 4: effects
 
-No state. For each FNV line, what its result scripts write, against what each
+Built as the line rows of the [timing audit's writers](fo4_timing_audit.md#writers),
+which compare every writer of a fact, not only lines. No state. For each FNV line, what its result scripts write, against what each
 of its copies writes, half by half (FNV's begin and end scripts; FO4's
 `Fragment_1` on begin and `Fragment_0` on end):
 

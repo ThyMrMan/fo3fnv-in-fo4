@@ -18,7 +18,6 @@ See: docs/fork/fo4_spikes.md#spike-2-furniture
 """
 
 import math
-from pathlib import Path
 
 from fo4_import.face.fnv_head import NifFormat
 from fo4_import.spike import conditions as C
@@ -101,7 +100,7 @@ def enter_motion(path: str) -> tuple:
 
 def enter_motions(meshes_dir) -> dict:
     """{marker slot: enter_motion()} of the ENTER_ANIMS under FNV's `meshes_dir`."""
-    paths = {slot: Path(meshes_dir) / anim for slot, anim in ENTER_ANIMS.items()}
+    paths = {slot: meshes_dir / anim for slot, anim in ENTER_ANIMS.items()}
     return {slot: enter_motion(str(path)) for slot, path in paths.items() if path.is_file()}
 
 

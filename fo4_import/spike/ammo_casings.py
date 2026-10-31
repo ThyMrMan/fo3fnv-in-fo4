@@ -16,11 +16,11 @@ See: docs/fork/fo4_pipeline.md#nv-ammo
 
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
 from fo4_import.base.vmad import quest_fragments
-from tes5_import.base.tes5_reader import first_sub, walk
+from tes5_import.base.tes5_reader import first_sub
 
 SITE, SCRIPT, PLAYER = 'FNV ammo casings', 'F3NV_AmmoCasings', 0x14
 #: FNV WEAP DNAM offset of its skill (xEdit's FNV WEAP DNAM); FNV entry point Modify Chance for Ammo Item, Multiply.
@@ -32,7 +32,7 @@ IS_WEAPON_SKILL, CTDA_FUNCTION, CTDA_PARAM = 109, 8, 12
 def fnv_skills() -> dict:
     """{FNV WEAP FormID: its skill actor value}, read from the source plugin (the export drops it)."""
     out = {}
-    for rec, _ in walk(source_esm(), b'WEAP'):
+    for rec, _ in source_walk(b'WEAP'):
         dnam = first_sub(rec.body, b'DNAM')
         if dnam and len(dnam) >= SKILL_AT + 4:
             out[rec.form_id] = struct.unpack_from('<i', dnam, SKILL_AT)[0]

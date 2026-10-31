@@ -21,6 +21,7 @@ See: docs/fork/fo4_pipeline.md#challenges
 
 from pathlib import Path
 
+from fo4_import.base.quest_merge import appended, regrouped
 from fo4_import.base.support_records import pack_avif, pack_global
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
@@ -185,6 +186,22 @@ class Filters:
     def marker(self, rec: dict) -> int:
         """Discovery challenges: the placed map marker (SNAM), else 0."""
         return self.builder.ref_ids.get(rec.get('SNAM'), 0) if _int(rec, 'DATA.Type') == DISCOVER else 0
+
+
+def _stat_groups(values: dict) -> list:
+    """F3NV_Challenges' stat groups: each group's tracked stat names, by index."""
+    names, groups = values['StatNames'][1], values['StatGroups'][1]
+    return [tuple(n for n, g in zip(names, groups) if g == i) for i in range(max(groups, default=-1) + 1)]
+
+
+def merge(game: dict, dlc: dict) -> dict:
+    """F3NV_Challenges' arrays as the game's challenges then the DLC's new ones, each stat group the DLC's rows
+    count renumbered onto the game's same group (quest_merge)."""
+    groups, index = regrouped(_stat_groups(game), _stat_groups(dlc))
+    out = appended(game, dlc, 'Rows', ('Rows', 'States', 'Names', *INT_COLUMNS, *FORM_COLUMNS), {'Groups': index})
+    out['StatNames'] = ('strings', [n for group in groups for n in group])
+    out['StatGroups'] = ('ints', [g for g, group in enumerate(groups) for _ in group])
+    return out
 
 
 class Challenges:

@@ -34,7 +34,7 @@ EFFECTS = {
     'NukaColaAddCap': ('NukaColaBottlecapAdder',), 'SunsetSarsparillaAddCap': ('NukaColaBottlecapAdder',),
     'IncreaseStrength': ('FortifyStrength',), 'IncreaseAgility': ('FortifyAgility',),
     'IncreaseCharisma': ('FortifyCharisma',), 'IncreaseActionPoints': ('FortifyActionPoints',),
-    'IncreaseDamageResistance': ('FortifyDamageResist',), 'IncreaseFireResistance': ('FortifyResistFire',),
+    'IncreaseDamageThreshold': ('FortifyDamageResist',), 'IncreaseFireResistance': ('FortifyResistFire',),
     'IncreasePoisonResistance': ('FortifyResistPoison',), 'NVIncreaseEnergyResistance': ('FortifyResistEnergyFood',),
     'IncreaseRadiationResistance': ('FortifyResistRadsRadX',),
     'ChemIncSTAlcohol': ('FortifyStrengthAlcohol',), 'ChemIncCHAlcohol': ('FortifyCharismaAlcohol',),
@@ -44,7 +44,6 @@ EFFECTS = {
     'ChemIncSTBuffout': ('FortifyStrengthBuff',), 'ChemIncENBuffout': ('FortifyEnduranceBuff',),
     'ChemIncHealthBuffout': ('FortifyHealthBuff',), 'ChemIncINMentats': ('FortifyIntelligenceMentats',),
     'ChemIncPEMentats': ('FortifyPerceptionMentats',), 'ChemIncCHMentats': ('FortifyCharismaMentats',),
-    'ChemIncDmgResistPsycho': ('FortifyDamageResistPsycho',),
     'ReduceStrength': ('ReduceStrength',), 'ReducePerception': ('ReducePerception',),
     'ReduceEndurance': ('ReduceEndurance',), 'ReduceCharisma': ('ReduceCharisma',),
     'ReduceIntelligence': ('ReduceIntelligence',), 'ReduceAgility': ('ReduceAgility',),
@@ -53,8 +52,11 @@ EFFECTS = {
 }
 #: FNV effect -> FO4 magnitude: Turbo's is an on/off flag (FO4 Jet's time scale), Psycho's and the limb script's.
 MAGNITUDES = {'TurboEffect': 0.3, 'PsychoMagicEffect': 25.0, 'RestoreAllLimbs': 100.0}
-#: FNV effect -> (Fallout4.esm effect copied, the FO4 actor values its copies change).
-RETARGETED = {'NVRestoreLimbs': ('RestoreHealthFood', LIMBS)}
+#: FNV effect -> (Fallout4.esm effect copied, the FO4 actor values its copies change); FNV's DR is FalloutDamageResist.
+RETARGETED = {'NVRestoreLimbs': ('RestoreHealthFood', LIMBS),
+              'IncreaseDamageResistance': ('FortifyDamageResist', ('FalloutDamageResist',)),
+              'ChemIncDmgResistPsycho': ('FortifyDamageResistPsycho', ('FalloutDamageResist',)),
+              'IncreaseCritChance': ('FortifyStrength', ('CritChance',))}
 SKILL_EFFECT_PREFIX, SKILL_TEMPLATE = 'IncreaseSkill', 'FortifyStrength'
 #: FNV engine effects the export cannot name (EFID ''): FalloutNV.esm uses only 0x14F, the addiction usage monitor.
 UNNAMED = 'UMON'
@@ -141,7 +143,8 @@ class Effects:
         return [(fid, MAGNITUDES.get(edid, magnitude)) for fid in self._fo4(edid, av)]
 
     def _fo4(self, edid: str, av: int) -> list:
-        """FormIDs of the FO4 effects for FNV effect `edid` (on FNV actor value index `av`); [] when FO4 has none."""
+        """FormIDs of the FO4 effects for FNV effect `edid` (on FNV actor value index `av`): a mapped, retargeted or
+        skill effect, else its converted script as a script effect; [] with none."""
         if edid in EFFECTS:
             return [self.vanilla[e][0] for e in EFFECTS[edid]]
         if edid in RETARGETED:
@@ -150,7 +153,8 @@ class Effects:
         if edid.startswith(SKILL_EFFECT_PREFIX) and 0 <= av < len(C.FNV_AV_NAMES):
             skill = C.FNV_AV_NAMES[av].replace(' ', '')
             return [self.copy(SKILL_TEMPLATE, skill, 'skill', skill, f'FNV_Fortify{skill}')]
-        return []
+        scripted = self.builder.scripts.effects.consumed(edid)
+        return [scripted] if scripted else []
 
     def copy(self, template: str, av: str, site: str, key: str, edid: str) -> int:
         """FormID of a copy of vanilla effect `template` changing FO4 actor value `av`; written on first use."""

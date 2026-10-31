@@ -36,6 +36,7 @@ from fo4_import.spike import records as R
 from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, hit_proof,
                                         with_actor_data)
 from fo4_import.spike.creature_sounds import USE_MODEL, CreatureSounds
+from fo4_import.spike.npc_skills import with_creature_skills
 from fo4_import.spike.attack_spells import AttackSpells
 from fo4_import.spike.creature_attacks import attack_list, fnv_groups, race_attacks, with_attacks
 from fo4_import.rig.build import Rigs
@@ -53,7 +54,7 @@ from fo4_import.spike.talking_machines import TalkingMachines
 from fo4_import.spike.voice import fnv_folder
 from fo4_import.spike.void_actors import copy_record
 from fo4_import.spike.voice_types import VoiceTypes, fnv_voice_types, with_voice
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import asset_root, export_records
 from fo4_import.pipeline.mesh_cache import cached_convert
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
@@ -72,7 +73,7 @@ USE_SPELLS = 0x8
 #: ACBS flag PC Level Mult: the level is a multiplier of the player's, not a number.
 PC_LEVEL_MULT = 0x80
 #: A stand-in's own ties a creature leaves out: scripts, factions (FNV's go in their place), short name (FNV has none).
-STAND_IN_TIES = frozenset({b'VMAD', b'SNAM', b'SHRT'})
+STAND_IN_TIES = frozenset({b'VMAD', b'SNAM', b'SHRT', b'LTPT', b'LTPC'})
 #: Vanilla DefaultSandboxEditorLocation, the package of a converted creature none of whose FNV packages convert.
 SANDBOX = 0x107AEA
 SITE = 'FNV CREA'
@@ -372,12 +373,14 @@ class Creatures:
         return self._sized(traits, self.npcs[entry.edid.lower()], stats)[1]
 
     def own_parts(self, rec: dict, templated: bool = False) -> tuple:
-        """Edits giving creature `rec` its stats, factions, death item, sounds and abilities: on a template actor
-        (`templated`) only the parts its template does not give (its script: Npcs._template_script); on a plain
-        copy, each from the FNV record its template chain takes it from, its script too."""
+        """Edits giving creature `rec` its stats and combat skill, factions, death item, sounds and abilities: on a
+        template actor (`templated`) only the parts its template does not give (its script:
+        Npcs._template_script); on a plain copy, each from the FNV record its template chain takes it from, its
+        script too."""
         if templated:
             inherited = int(rec.get('ACBS.TemplateFlags', 0)) if 'TPLT.Template' in rec else 0
             return (None if inherited & USE_STATS else with_stats(rec, self.race_health),
+                    None if inherited & USE_STATS else self._combat_skill(rec),
                     None if inherited & USE_STATS else self._own_speed(rec),
                     None if inherited & USE_FACTIONS else with_factions(faction_snams(rec, self.builder.factions)),
                     self._death_item({} if inherited & USE_TRAITS else rec),
@@ -385,10 +388,15 @@ class Creatures:
                     None if inherited & USE_SPELLS else self._spells(rec),
                     None if template_source(self.records, rec, USE_TRAITS)[1] else self._keywords(rec))
         factions = faction_snams(self.source(rec, USE_FACTIONS), self.builder.factions)
-        return (with_stats(self.source(rec, USE_STATS), self.race_health), with_factions(factions),
+        return (with_stats(self.source(rec, USE_STATS), self.race_health), self._combat_skill(self.source(rec, USE_STATS)),
+                with_factions(factions),
                 self._death_item(self.source(rec, USE_TRAITS)), self.sounds.edit(rec),
                 self._spells(self.source(rec, USE_SPELLS)),
                 with_script(self.builder.scripts, script_of(self.source(rec, USE_SCRIPT))))
+
+    def _combat_skill(self, rec: dict):
+        """FNV creature `rec`'s Combat Skill edit (npc_skills); None without."""
+        return with_creature_skills(int(rec['FormID'], 16), self.builder.scripts.helper_index)
 
     def _spells(self, rec: dict):
         """An edit adding `rec`'s abilities (Perks.ability); None without any."""
@@ -453,7 +461,7 @@ class Creatures:
         if rel not in self.meshes:
             if folder not in self.fits:
                 self.fits[folder] = creature_fit(self.export_dir, folder, self.archives)
-            meshes = self.export_dir / 'meshes' / folder
+            meshes = asset_root(self.export_dir, 'meshes', folder)
             parts = [(cached_convert(meshes / n, self.export_dir, animated=False), meshes / n) for n in names]
             body = creature_mesh(parts, self.fits[folder], PAIRS[folder].rig.root,
                                  skeleton_parents(meshes / 'skeleton.nif'))

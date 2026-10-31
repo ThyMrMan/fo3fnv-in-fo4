@@ -12,9 +12,9 @@ See: docs/fork/fo4_pipeline.md#voice-types
 import functools
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
-from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 
@@ -22,7 +22,7 @@ from tes5_import.base.writer import pack_subrecord
 def fnv_voice_types() -> dict:
     """{FormID: (EditorID, DNAM flags)} of FalloutNV.esm's voice types."""
     out = {}
-    for rec, _ in walk(source_esm(), b'VTYP'):
+    for rec, _ in source_walk(b'VTYP'):
         subs = dict(subrecords(rec.body))
         out[rec.form_id] = (subs.get(b'EDID', b'').rstrip(b'\0').decode(), subs.get(b'DNAM', b'\0')[0])
     return out

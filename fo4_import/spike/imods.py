@@ -12,9 +12,9 @@ See: docs/fork/fo4_spikes.md#spike-2-vcg01
 
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
-from tes5_import.base.tes5_reader import subrecords, walk, zstr
+from tes5_import.base.tes5_reader import subrecords, zstr
 from tes5_import.base.writer import pack_subrecord
 
 #: FNV pair slot -> FO4's: eye adapt speed, bloom blur radius, saturation, contrast, brightness.
@@ -74,7 +74,7 @@ class ImageSpaces:
         """FNV's IMADs indexed by EditorID (FalloutNV.esm)."""
         self.builder, self.made = builder, {}
         self.fnv = {}
-        for r, _ in walk(source_esm(), b'IMAD'):
+        for r, _ in source_walk(b'IMAD'):
             subs = subrecords(r.body)
             self.fnv[zstr(subs[0][1])] = r
 

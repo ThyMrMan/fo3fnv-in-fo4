@@ -29,13 +29,13 @@ See: docs/fork/fo4_pipeline.md#attack-spells
 
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import plugin_walk
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike import conditions as C
 from fo4_import.spike.consumable_effects import AV_AT, effect_pair
 from fo4_import.spike.perks import ATTACK_TEMPLATES, DETRIMENTAL, RECOVER, pack_spell
 from fo4_import.spike.script_effects import DELIVERY, FIRE_AND_FORGET
-from tes5_import.base.tes5_reader import first_sub, walk
+from tes5_import.base.tes5_reader import first_sub
 
 SHAPE, LOWERS, RECOVERS = ATTACK_TEMPLATES
 #: derive_formid site of an attack spell (key: the FNV spell's EditorID).
@@ -48,7 +48,7 @@ RELAY, RELAYED = 'F3NV_CastOnAttacker', 'AttackerSpell'
 
 def unarmed_effects(plugin: bytes) -> dict:
     """{FNV creature FormID: its EITM spell FormID} of `plugin`'s creatures."""
-    return {rec.form_id: struct.unpack('<I', data)[0] for rec, _ in walk(plugin, b'CREA')
+    return {rec.form_id: struct.unpack('<I', data)[0] for rec, _ in plugin_walk(plugin, b'CREA')
             if (data := first_sub(rec.body, b'EITM'))}
 
 
@@ -58,7 +58,7 @@ class AttackSpells:
     def __init__(self, builder):
         """For `builder`'s plugin; it reads the builder's perks and script effects."""
         self.builder, self.made = builder, {}
-        self.unarmed = unarmed_effects(source_esm())
+        self.unarmed = unarmed_effects(None)
 
     def of(self, rec: dict) -> int:
         """The FO4 attack spell of FNV creature `rec`'s unarmed attack effect (`rec` being its Spells chain's
@@ -68,13 +68,19 @@ class AttackSpells:
             self.made[fnv] = self._spell(self.builder.perks.spells.get(fnv))
         return self.made.get(fnv, 0)
 
-    def _spell(self, spell: 'dict | None') -> int:
-        """Write FNV spell `spell` as an attack spell; its FormID, 0 when no effect converts."""
+    def poison(self, rec: dict, extra: bytes) -> int:
+        """Poison ALCH `rec`'s spell on the actor hit, plus pairs `extra`; 0: none."""
+        return self._spell(rec, (True, extra, 'Poison'))
+
+    def _spell(self, spell: 'dict | None', poison: tuple = (False, b'', '')) -> int:
+        """Write FNV spell `spell` as an attack spell, or `poison` (victim, extra pairs, EditorID prefix) as a
+        poison's; its FormID, 0 when no effect converts."""
+        victim, extra, prefix = poison
         keys = [f'Effect[{i}]' for i in range(int((spell or {}).get('EffectCount', 0) or 0))]
-        on_self = bool(keys) and all(spell.get(f'{key}.Type') == SELF for key in keys)
+        on_self = not victim and bool(keys) and all(spell.get(f'{key}.Type') == SELF for key in keys)
         pairs = b''
         for key in keys:
-            effect = self._effect(spell, key, on_self)
+            effect = self._effect(spell, key, on_self, victim)
             if effect is None:
                 self.builder.counts[f'attack effect left out ({spell[f"{key}.EFID"]})'] += 1
                 continue
@@ -82,23 +88,23 @@ class AttackSpells:
                                  int(spell.get(f'{key}.Duration') or 0))
         if not pairs:
             return 0
-        fid = self.builder.writer.derive_formid(SITE, spell['EditorID'])
+        fid = self.builder.writer.derive_formid(SITE, prefix + spell['EditorID'])
         shape = self.builder.perks.vanilla[SHAPE][1]
         spit = bytearray(shape[b'SPIT'])
         struct.pack_into('<I', spit, DELIVERY_AT, DELIVERY[SELF if on_self else 'Touch'])
-        self.builder.writer.add_record('SPEL', pack_spell(fid, f'FNV_{spell["EditorID"]}', spell.get('FULL', ''),
-                                                          {**shape, b'SPIT': bytes(spit)}, pairs))
+        self.builder.writer.add_record('SPEL', pack_spell(fid, f'FNV_{prefix}{spell["EditorID"]}', spell.get('FULL', ''),
+                                                          {**shape, b'SPIT': bytes(spit)}, pairs + extra))
         self.builder.counts['SPEL (attack spell)'] += 1
         if not on_self:
             return fid
         vmad = self.builder.scripts.vmad(0, ((RELAY, {RELAYED: fid}, {}),))
         return self.builder.scripts.effects.vmad_spell(f'FNV_{spell["EditorID"]}OnHit', vmad, DELIVERY['Touch'])
 
-    def _effect(self, spell: dict, key: str, on_self: bool) -> 'int | None':
+    def _effect(self, spell: dict, key: str, on_self: bool, victim: bool = False) -> 'int | None':
         """The FO4 effect of FNV attack effect `key` of `spell`, on the attacker (`on_self`) or by touch; None when
-        it has none or FNV gives it the other range."""
+        it has none or FNV gives it the other range (any range on the `victim`)."""
         perks, edid = self.builder.perks, spell[f'{key}.EFID']
-        if (spell.get(f'{key}.Type') == SELF) != on_self:
+        if not victim and (spell.get(f'{key}.Type') == SELF) != on_self:
             return None
         scripted = self.builder.scripts.effects.effect(edid, FIRE_AND_FORGET, DELIVERY[SELF if on_self else 'Touch'])
         flags = int(perks.fnv_effects.get(edid, {}).get('DATA.Flags', 0) or 0)

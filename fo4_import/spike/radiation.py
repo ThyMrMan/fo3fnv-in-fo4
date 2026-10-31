@@ -16,7 +16,7 @@ import functools
 import re
 import struct
 
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
 from fo4_import.spike import records as R
 from fo4_import.spike.placement import place, starts_disabled
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
@@ -34,7 +34,7 @@ HAZARD_SITE = 'FNV radiation hazard'
 def radioactive() -> dict:
     """{FNV reference FormID: (rads a second, radius or None)} of FalloutNV.esm's references with XRAD."""
     out = {}
-    for rec, _ in walk(source_esm(), b'REFR'):
+    for rec, _ in source_walk(b'REFR'):
         subs = dict(subrecords(rec.body))
         if b'XRAD' in subs:
             radius = struct.unpack('<f', subs[b'XRDS'])[0] if b'XRDS' in subs else None

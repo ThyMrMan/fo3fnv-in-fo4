@@ -49,6 +49,7 @@ from fo4_import.spike.npcs import USE_FACTIONS, USE_TRAITS, template_source
 from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS
 from fo4_import.spike.readiness import CHOICE_UNANSWERED
 from fo4_import.spike.say_once import STAGE_DONE
+from fo4_import.spike.skill_tags import tagged
 from fo4_import.spike.say_topics import COMPARE, PART, PARTS, conditions_of, parsed, raws, settled_on, with_conditions
 from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX
 
@@ -320,7 +321,8 @@ class Conversations:
         shown += earlier + self._running(members[0]) + self._gate(dial)
         shown += self.say.once.unsaid([r['FormID'] for r in members]) if once else b''
         owner, take = f'INFO prompt {dial} {text}', self.say.builder.new_id
-        player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), once, (text,), shown, prompt=text))
+        label = tagged(text, members)
+        player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), once, (label,), shown, prompt=label))
         player += [R.pack_info(take(owner, key=f'{owner} at {place} pad {i}'), conditions=shown)
                    for i in range(1, len(answers))]
         npc += answers

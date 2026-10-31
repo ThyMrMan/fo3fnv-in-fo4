@@ -47,9 +47,11 @@ from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: Body subrecords a converted NPC leaves out: factions, crime faction, short name (subtitles), scripts (Jones').
-BODY_TIES = frozenset({b'SNAM', b'CRIF', b'SHRT', b'VMAD'})
+BODY_TIES = frozenset({b'SNAM', b'CRIF', b'SHRT', b'VMAD', b'LTPT', b'LTPC'})
 #: FNV ACBS template flags: traits (race, face, sex, voice), factions, AI packages, inventory, script.
 USE_TRAITS, USE_FACTIONS, USE_PACKAGES, USE_INVENTORY, USE_SCRIPT = 0x1, 0x4, 0x20, 0x100, 0x200
+#: FNV and FO4 template flag Model/Animation.
+USE_MODEL = 0x40
 #: FNV ACBS template flags: stats (level band), AI data, base data (essential, respawn).
 USE_STATS, USE_AI_DATA, USE_BASE_DATA = 0x2, 0x10, 0x80
 #: FNV's ten template parts (traits ... script), the same bits in FO4's ACBS; TPTA slots; ACBS byte (xEdit).
@@ -295,6 +297,11 @@ def _traits_templated(rec: dict) -> bool:
     return 'TPLT.Template' in rec and bool(int(rec.get('ACBS.TemplateFlags', 0)) & USE_TRAITS)
 
 
+def _model_templated(rec: dict) -> bool:
+    """Whether FNV actor record `rec` takes its model and animations from its template."""
+    return 'TPLT.Template' in rec and bool(int(rec.get('ACBS.TemplateFlags', 0)) & USE_MODEL)
+
+
 class Npcs:
     """FO4 NPCs for FNV NPC bases, each written once, and their placed actors."""
 
@@ -384,15 +391,17 @@ class Npcs:
         return template_source(records, rec, USE_TRAITS)
 
     def _template_flags(self, rec: dict) -> int:
-        """FO4 template flags of template actor `rec`: FNV's ten; with Traits, also Attack Data, Def Pack List and
-        Keywords, except a creature whose traits come from a creature keeps its own keywords (its sound set may be
-        its own: Creatures.own_parts writes them).
+        """FO4 template flags of template actor `rec`: FNV's ten, Traits too for a creature whose model comes from
+        its template (its race and skin do in FO4); with Traits, also Attack Data, Def Pack List and Keywords,
+        except a creature whose traits come from a creature keeps its own keywords (Creatures.own_parts).
         See: docs/fork/fo4_creature_audit.md#template-slots
         """
         flags = int(rec.get('ACBS.TemplateFlags', 0)) & TEMPLATE_PARTS
+        creature = int(rec['FormID'], 16) in self.creatures.records
+        flags |= USE_TRAITS if creature and flags & USE_MODEL else 0
         if not flags & USE_TRAITS:
             return flags
-        own = int(rec['FormID'], 16) in self.creatures.records and not self._traits(rec)[1]
+        own = creature and not self._traits(rec)[1]
         return flags | USE_ATTACKS | USE_DEF_PACKS | (0 if own else USE_KEYWORDS)
 
     def _template_script(self, rec: dict):
@@ -438,7 +447,7 @@ class Npcs:
             if fnv in self.lists:
                 listed = self._list(fnv)
                 self.made[fnv] = listed and self._template_actor(fnv, self.lists[fnv], listed, ALL_PARTS, ())
-            elif rec is not None and _traits_templated(rec):
+            elif rec is not None and (_traits_templated(rec) or _model_templated(rec) and not self.creatures.converts(fnv)):
                 self.made[fnv] = self._templated(fnv)
             else:
                 packages = (self.builder.packages.for_npc(self.creatures.source(rec, USE_PACKAGES), self.form_map)

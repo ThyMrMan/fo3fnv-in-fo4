@@ -109,7 +109,7 @@ void *g_tasks = nullptr;
 using MaxHealthFn = UInt32 (*)(TESForm *, TESObjectREFR *);
 RelocAddr<MaxHealthFn> MaxHealth(0x316940);
 RelocAddr<uintptr_t> SPAWN_HEALTH_CALL(0x271611);
-const size_t TRAMPOLINE_SIZE = 64;
+const size_t TRAMPOLINE_SIZE = 160;  // the spawn-health call, and damage.cpp's two calls and stubs
 
 UInt32 SpawnMaxHealth(TESForm *form, TESObjectREFR *ref) {
     UInt32 health = MaxHealth(form, ref);
@@ -259,6 +259,8 @@ void SetServiceRulesNative(StaticFunctionTag *, float skillBase, float skillMax,
 bool Register(VirtualMachine *vm) {
     RegisterPages(vm);
     RegisterAmmo(vm);
+    RegisterSex(vm, g_tasks);
+    RegisterDamage(vm);
     vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, float, TESObjectREFR *, TESForm *>(
         "GetHealth", SCRIPT, GetHealth, vm));
     vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, bool, TESObjectREFR *, TESForm *, float>(
@@ -322,7 +324,9 @@ __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se) {
     _MESSAGE("F3NV loaded, runtime %08X", f4se->runtimeVersion);
     g_tasks = f4se->QueryInterface(kInterface_Task);
     auto *messaging = static_cast<F4SEMessagingInterface *>(f4se->QueryInterface(kInterface_Messaging));
-    _MESSAGE("weapon starting condition %s", HookSpawnHealth(f4se) ? "hooked" : "not hooked");
+    bool trampoline = HookSpawnHealth(f4se);
+    _MESSAGE("weapon starting condition %s", trampoline ? "hooked" : "not hooked");
+    if (trampoline) HookDamage();
     InstallTransfer();
     if (!messaging || !g_tasks || !messaging->RegisterListener(g_handle, "F4SE", OnMessage))
         _MESSAGE("no Pip-Boy display (messaging %p, task %p)", messaging, g_tasks);

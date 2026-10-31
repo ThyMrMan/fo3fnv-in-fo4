@@ -22,6 +22,7 @@ from fo4_import.spike import guns as G
 from fo4_import.spike import items as I
 from fo4_import.spike import replacements as RP
 from fo4_import.spike.gun_choice import Choice
+from fo4_import.spike.weapon_mods import ZOOMS
 from tes5_import.base.tes5_reader import subrecords
 
 MESHES = Path('export/FalloutNV.esm/meshes')
@@ -210,7 +211,8 @@ def test_choosing_a_gun_writes_none_of_its_fnv_assets_and_building_on_it_does(tm
     (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons').mkdir(parents=True)
     guns._read, guns._lift = lambda model: b'receiver', lambda layout, ch: 0.0
     guns._clips = lambda fnv, rec, template, path, receiver, static: None
-    guns._part = lambda fnv, rec, fid, path, lift, own: path and 0x0300C0DE
+    guns._part = lambda fnv, rec, fid, placed, props=(): placed[0] and 0x0300C0DE
+    guns._fnv_scope = lambda rec, combo: (None, (), None)
     obts = struct.pack('<I', 1) + bytes(10) + b'\1' + b'\0' + bytes(2) + struct.pack('<I', 0x10) + bytes(3)
     guns.templates(0x1234, {'EditorID': 'WeapX'}, choice, [(b'FULL', b'Default\0'), (b'OBTS', obts)], chosen[2], False)
     assert written == ['Weapons\\Pistol.NIF']
@@ -222,8 +224,24 @@ def test_a_gun_part_copy_is_keyed_on_the_fnv_gun_and_its_attach_point(tmp_path):
     guns = _guns(tmp_path)
     guns.mods = {0x10: [(b'EDID', b'mod_Receiver\0'), (b'MODL', b'r.nif\0'), (b'DATA', bytes(24))]}
     guns.choices = SimpleNamespace(model=lambda fid: 'r.nif', attach=lambda fid: 0x99, names={0x99: 'ap_gun_receiver'})
-    assert guns._part(0x1234, {'EditorID': 'WeapX'}, 0x10, 'fnv\\x_gun.nif', 0.0, False) == 0x0300C0DE
+    assert guns._part(0x1234, {'EditorID': 'WeapX'}, 0x10, ('fnv\\x_gun.nif', 0.0, False)) == 0x0300C0DE
     assert guns.builder.keys == ['00001234 ap_gun_receiver'] and guns.builder.counts['OMOD'] == 1
+
+
+def test_a_built_in_scope_takes_fnvs_zoom_and_the_lift_its_camera_offset(tmp_path):
+    """A scoped FNV gun's scope part gets the props of FNV's own sight FOV and the lift subtracts that zoom's camera
+    z; an unscoped gun gets none and the lift falls back to the template's zoom data."""
+    guns = _guns(tmp_path)
+    guns.zooms = {name: (i, mult, 3.0 * i) for i, (name, mult) in enumerate(
+        zip(ZOOMS, (2.0, 4.0, 6.0, 10.0)), start=1)}
+    guns.builder.keywords, guns.builder.fo4 = {'HasScope': 7, 'dn_HasScope': 8}, b''
+    guns.choices = SimpleNamespace(magnified_scope=lambda combo: 0x55)
+    scoped = {'DNAM.Flags1': '68', 'DNAM.Flags2': '8', 'DNAM.SightFOV': '35.0'}
+    scope, props, camera_z = guns._fnv_scope(scoped, (0x55,))
+    assert scope == 0x55 and camera_z == 3.0 and len(props) == 5
+    assert guns._clip_lift(10.0, [], camera_z) == 7.0
+    assert guns._fnv_scope(dict(scoped, **{'DNAM.Flags2': '8200'}), (0x55,)) == (None, (), None)
+    assert guns._clip_lift(10.0, []) == 10.0
 
 
 def test_a_copy_keeps_only_its_default_mod_combination(tmp_path):

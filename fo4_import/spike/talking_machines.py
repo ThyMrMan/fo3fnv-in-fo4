@@ -28,6 +28,7 @@ from fo4_import.nif.outfit import fnv_nif
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import write_assets
 from fo4_import.spike.void_actors import invisible_race
+from fo4_import.pipeline.export_index import export_file
 from tes5_import.base.writer import pack_subrecord
 
 #: The talkable race the speaker copies; FO4 RACE flag Immobile.
@@ -78,8 +79,8 @@ class TalkingMachines:
         """The activators showing FNV creature `rec`'s body parts (its NIFZ) posed on its skeleton, written once."""
         folder = '\\'.join(rec['Model.MODL'].replace('/', '\\').split('\\')[:-1]).lower()
         names = [rec[f'NIFZ[{i}]'].lower() for i in range(int(rec.get('NIFZCount', 0) or 0))]
-        worlds = bone_worlds(self.export_dir / 'meshes' / folder / 'skeleton.nif')
-        present = [name for name in names if (self.export_dir / 'meshes' / folder / name).is_file()]
+        worlds = bone_worlds(export_file(self.export_dir, 'meshes', folder, 'skeleton.nif'))
+        present = [name for name in names if export_file(self.export_dir, 'meshes', folder, name).is_file()]
         self.builder.counts['talking machine part left out (no file)'] += len(names) - len(present)
         return [self._part(folder, name, worlds, rec.get('FULL', '')) for name in present]
 
@@ -87,7 +88,7 @@ class TalkingMachines:
         """The activator of body part `name` in skeleton folder `folder`, posed by `worlds`, named `full`."""
         model = f'{folder}\\{name}'
         if (model, full) not in self.parts:
-            pose = part_pose(self.export_dir / 'meshes' / model, worlds)
+            pose = part_pose(export_file(self.export_dir, 'meshes', model), worlds)
             written, bounds = write_assets(self.export_dir, model, self.data_dir, pose, suffix=SUFFIX)
             fid = self.parts[(model, full)] = self.builder.writer.derive_formid(SITE, f'{model} {full}')
             edid = f'FNV_{name[:-4]}{full.replace(" ", "").replace(".", "")}Speaker'

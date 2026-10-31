@@ -42,8 +42,8 @@ PROPERTY_VALUE = 12
 PROP_AUTOMATIC, PROP_KEYWORDS, PROP_PROJECTILES, FORM_REMOVE = 25, 31, 51, 1
 #: OMOD property ZoomData (xEdit's wbWeaponPropertyEnum 67): a scope's ZOOM record.
 PROP_ZOOM = 67
-#: FNV WEAP DNAM.Flags1's Has Scope and Don't Use 1st Person IS Anims: aims through its scope's view (0x4 alone: sights).
-FNV_SCOPE_VIEW = 0x44
+#: FNV WEAP DNAM.Flags1 Has Scope and DNAM.Flags2 Scope from Mod (xEdit's wbDefinitionsFNV WEAP DNAM).
+FNV_HAS_SCOPE, FNV_SCOPE_FROM_MOD = 0x4, 0x2000
 #: Fallout4.ini fDefaultWorldFOV, which a ZOOM's FOV multiplier divides.
 FO4_WORLD_FOV = 70.0
 #: FO4 WEAP FNAM: the projectile count byte.
@@ -100,6 +100,13 @@ def fnv_wants(rec: dict) -> tuple:
     """(stance or None, automatic, shotgun) of an FNV WEAP export record."""
     return (STANCES.get(int(rec.get('DNAM.FalloutAnimType', -1))), bool(int(rec.get('DNAM.Flags1', 0)) & FNV_AUTOMATIC),
             int(rec.get('DNAM.ProjectileCount', 1)) > 1)
+
+
+def built_in_scope(rec: dict) -> bool:
+    """Whether FNV gun `rec` has a scope of its own (Has Scope, not Scope from Mod).
+    See: docs/fork/fo4_spikes.md#spike-4-gun-clips
+    """
+    return bool(int(rec.get('DNAM.Flags1', 0)) & FNV_HAS_SCOPE and not int(rec.get('DNAM.Flags2', 0)) & FNV_SCOPE_FROM_MOD)
 
 
 class GunChoices:
@@ -164,14 +171,22 @@ class GunChoices:
         zoom = self._property((fid,), PROP_ZOOM)
         return (self.zooms[zoom][0], self.zooms[zoom][2]) if zoom in self.zooms else None
 
+    def magnified_scope(self, combo) -> 'int | None':
+        """The scope part with a zoom in a combination, or None."""
+        return next((f for f in self._of('scope', combo) if self._magnified(f)), None)
+
+    def _scopes(self, subs: list) -> list:
+        """The scope parts with a zoom that a WEAP's (`subs`) combinations use."""
+        used = {f for s, b in subs if s == b'OBTS' for f in includes(b)}
+        return [f for f in self._of('scope', used) if self._magnified(f)]
+
     def scoped(self, subs: list, combo: tuple, sight_fov: float) -> tuple:
         """`combo` with its scope part swapped for the scope a combination of the WEAP (`subs`) uses whose
         zoom comes nearest FNV's `sight_fov` (degrees), a plain one before night vision or recon; unchanged
         without one. FNV draws its scope in the gun's mesh; FO4's zoom and overlay come from the part.
         See: docs/fork/fo4_spikes.md#spike-4-gun-clips
         """
-        used = {f for s, b in subs if s == b'OBTS' for f in includes(b)}
-        scopes = [f for f in self._of('scope', used) if self._magnified(f)]
+        scopes = self._scopes(subs)
         if not scopes or sight_fov <= 0:
             return combo
         wanted = FO4_WORLD_FOV / sight_fov
@@ -228,9 +243,19 @@ class GunChoices:
     def choose(self, rec: dict, layout: dict, only: 'str | None' = None) -> 'Choice | None':
         """The candidate for FNV gun `rec` (its layout from gun.fnv_layout); None when none matches. `only` (a
         table entry's FO4 gun) is taken as named, in its default combination; one without a receiver (a launcher)
-        has its own model in the receiver's place (Choice.receiver None)."""
+        has its own model in the receiver's place (Choice.receiver None). A gun with a scope of its own
+        (built_in_scope) is matched among the candidates with a scope part first.
+        See: docs/fork/fo4_spikes.md#spike-4-gun-clips
+        """
+        if only:
+            return self._best(rec, layout, [only], only)
+        scoped = [n for n in self.candidates if self._scopes(self.weapons[n][1])] if built_in_scope(rec) else []
+        return (scoped and self._best(rec, layout, scoped)) or self._best(rec, layout, self.candidates)
+
+    def _best(self, rec: dict, layout: dict, names: list, only: 'str | None' = None) -> 'Choice | None':
+        """choose() among the candidates `names`: the nearest layout, lower FormID on ties."""
         wants, best = fnv_wants(rec), None
-        for name in [only] if only else self.candidates:
+        for name in names:
             fid, subs = self.weapons[name]
             for combo in [tuple(_default(subs))] if only else self._variants(subs):
                 receivers = self._of('receiver', combo) or ([None] if only else [])

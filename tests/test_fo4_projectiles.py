@@ -11,6 +11,7 @@ import pytest
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import guns, projectiles as P
+from fo4_import.spike import projectile_copies as C
 from tes5_import.base.tes5_reader import first_sub, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -28,12 +29,13 @@ EXPORT = {
     'WEAP': [{'FormID': '00000300', 'NAM0': f'{CELL:08X}', 'DNAM.Projectile': f'{LASER:08X}', 'DNAM.Flags1': '32'},
              {'FormID': '00000400', 'NAM0': '00000500', 'DNAM.Projectile': f'{PLASMA:08X}', 'DNAM.Flags1': '0'},
              {'FormID': '00000600', 'NAM0': f'{CELL:08X}', 'DNAM.Projectile': f'{LASER:08X}', 'DNAM.Flags1': '0'}],
+    'EXPL': [],
 }
 
 
 def _projectiles(monkeypatch, table: dict = TABLE) -> P.Projectiles:
     """Projectiles over EXPORT and a Fallout4.esm of the table's three targets."""
-    fo4 = [(SimpleNamespace(form_id=f, body=pack_subrecord('EDID', f'{e}\0'.encode())), None)
+    fo4 = [(SimpleNamespace(sig=b'PROJ', form_id=f, body=pack_subrecord('EDID', f'{e}\0'.encode())), None)
            for f, e in ((BEAM, 'LaserRifleBeamRed'), (BOLT, 'PlasmaProjectileLarge'), (SHOT, 'ProjectileShotgun'))]
     monkeypatch.setattr(P, 'walk', lambda raw, *sigs: fo4)
     monkeypatch.setattr(P, 'export_records', lambda export, sig: EXPORT[sig])
@@ -96,3 +98,21 @@ def test_the_table_names_real_projectiles():
     export = P.TABLE.parents[2] / 'export' / 'FalloutNV.esm'
     if (export / 'PROJ.txt').exists():
         assert set(table) <= {r['EditorID'] for r in export_records(export, 'PROJ')}
+
+
+def test_a_copy_flies_fnvs_range_and_speed_only_when_the_stand_in_flies():
+    """Range always; gravity and speed for a Missile or Lobber, not a hitscan Beam."""
+    rec = {'DATA.Range': '20000', 'DATA.Speed': '1550', 'DATA.Gravity': '1.5'}
+    missile, beam = bytearray(64), bytearray(64)
+    struct.pack_into('<HHfff', missile, 0, 0xA, 1, 0.0, 2500.0, 15000.0)
+    struct.pack_into('<HHfff', beam, 0, 0x1, 4, 0.0, 1000.0, 10000.0)
+    assert struct.unpack_from('<fff', C.flight(bytes(missile), rec), 4) == (1.5, 1550.0, 20000.0)
+    assert struct.unpack_from('<fff', C.flight(bytes(beam), rec), 4) == (0.0, 1000.0, 20000.0)
+
+
+def test_an_explosion_copy_takes_fnvs_force_damage_and_radius():
+    """FNV's force and damage; its radius as the outer, the inner scaled along."""
+    data = bytearray(64)
+    struct.pack_into('<ffff', data, C.FORCE_AT, 150.0, 550.0, 135.0, 500.0)
+    out = C.blast(bytes(data), {'DATA.Force': '450', 'DATA.Damage': '200', 'DATA.Radius': '1000'})
+    assert struct.unpack_from('<ffff', out, C.FORCE_AT) == (450.0, 200.0, 270.0, 1000.0)

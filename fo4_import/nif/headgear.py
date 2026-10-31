@@ -37,6 +37,7 @@ from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import DESC_SKINNED, NONE, SHADER_SKINNED, pack_tri_shape
 from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
+from fo4_import.pipeline.export_index import asset_root
 
 #: Per sex: FO4's base head (in Fallout 4 - Meshes.ba2) and FNV's human head (under the export's meshes).
 FO4_HEADS = {'male': 'meshes\\actors\\character\\characterassets\\basemalehead.nif',
@@ -149,7 +150,7 @@ def head_fit(export_dir: Path, sex: str, archives: Archives = None) -> HeadFit:
     nif = nif_file.read(archives.read(FO4_HEADS[sex]))
     face = next(b for kind, b in nif.blocks if kind == 'BSSubIndexTriShape')
     rear = next(b for kind, b in nif_file.read(archives.read(FO4_REARS[sex])).blocks if kind == 'BSSubIndexTriShape')
-    fnv = head(export_dir / 'meshes', FNV_HEADS[sex], '', '')
+    fnv = head(asset_root(export_dir, 'meshes'), FNV_HEADS[sex], '', '')
     fnv_surface = surface(fnv.mean, fnv.triangles)
     s, r, t = align(positions(face), fnv.mean, fnv_surface)
     anchors = (fnv.mean - t) @ r / s

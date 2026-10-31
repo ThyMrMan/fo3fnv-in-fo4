@@ -29,6 +29,7 @@ from fo4_import.nif.addons import addon_map
 from fo4_import.nif.convert_static import Converted, convert, texture_source
 from fo4_import.pipeline.code_tag import ROOT, code_tag
 from fo4_import.pipeline.work_cache import lookup, store
+from fo4_import.pipeline.export_index import export_file
 
 CACHE = ROOT / 'output' / 'fo4_cache' / 'meshes'
 #: OBND's range: six signed 16-bit coordinates.
@@ -79,7 +80,7 @@ def _stamps(converted: 'Converted | MeshFiles', texture_root) -> dict:
     used = set(converted.textures) | {normal for normal, _ in converted.spec_maps.values()}
     out = {}
     for texture in sorted(used):
-        path = Path(texture_root) / texture_source(texture).replace('\\', '/')
+        path = export_file(texture_root, texture_source(texture).replace('\\', '/'))
         out[texture] = (path.stat().st_size, path.stat().st_mtime_ns) if path.exists() else None
     return out
 

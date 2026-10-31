@@ -17,10 +17,12 @@ See: docs/fork/fo4_spikes.md#spike-4-exterior
 import struct
 
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.base.install import source_esm
+from fo4_import.base.install import source_walk
+from fo4_import.spike.addiction import COUNTERPARTS, Addictions
 from fo4_import.spike import survival_needs as S
 from fo4_import.spike.consumable_effects import NEEDS, WANTED, Effects, fnv_effects
 from fo4_import.spike.records import pack_keywords
+from fo4_import.spike.weapon_poisons import WeaponPoisons
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -50,7 +52,7 @@ class Consumables:
         wanted = {*WANTED, *S.WANTED, AMMO_TEMPLATE, *(t for t, _ in CATEGORIES.values()),
                   *(k for _, k in CATEGORIES.values() if k)}
         self.vanilla, self.fnv = {}, _fnv_consumables()
-        self.projectiles, self.pending, self.fired_by = {}, {}, {}
+        self.projectiles, self.pending, self.fired_by, chems, names = {}, {}, {}, {}, {}
         for rec, _ in walk(builder.fo4, b'MGEF', b'ALCH', b'AMMO', b'KYWD', b'BOOK', b'GLOB', b'QUST'):
             subs = dict(subrecords(rec.body))
             edid = subs.get(b'EDID', b'').rstrip(b'\0').decode()
@@ -58,8 +60,13 @@ class Consumables:
                 self.projectiles[rec.form_id] = subs[b'DNAM'][:PROJECTILE_SIZE]
             if edid in wanted:
                 self.vanilla[edid] = (rec.form_id, subs)
+            if rec.sig == b'ALCH' and edid in COUNTERPARTS.values():
+                chems[edid] = list(subrecords(rec.body))
+            names[rec.form_id] = edid
         needs = S.SurvivalNeeds(builder, self.vanilla, S.fnv_per_hour(builder.export_dir))
         self.effects = Effects(builder, helper_index, self.vanilla, needs)
+        self.poisons = WeaponPoisons(builder, builder.export_dir)
+        self.addictions = Addictions(builder, chems, names)
 
     def alch(self, fnv: int, rec: dict) -> 'int | None':
         """The FO4 consumable for FNV ALCH `rec` (FormID `fnv`); None without a model."""
@@ -68,16 +75,20 @@ class Consumables:
         model, bounds = self.builder.mesh(rec['Model.MODL'])
         fnv_flags = int(rec.get('ENIT.Flags', 0))
         flags = (fnv_flags & 0x3) | (FO4_MEDICINE if fnv_flags & FNV_MEDICINE else 0)
-        name, keyword = CATEGORIES[_category(*self.fnv.get(fnv, (None, '')))]
+        etyp, sound, withdrawal, chance = self.fnv.get(fnv, (None, '', '', 0.0))
+        name, keyword = CATEGORIES[_category(etyp, sound)]
+        addiction = self.addictions.apply(withdrawal, chance) or (bytes(8), None, b'')
         template = self.vanilla[name][1]
         body = pack_subrecord('EDID', f'FNV_{rec["EditorID"]}\0'.encode()) + _obnd(bounds, rec)
         body += _copied(template, PREVIEW) + pack_subrecord('FULL', (rec.get('FULL', '') + '\0').encode())
-        body += pack_keywords([self.vanilla[k][0] for k in (keyword, survival_keyword(rec)) if k])
+        keywords = [self.vanilla[k][0] for k in (keyword, survival_keyword(rec)) if k]
+        body += pack_keywords(keywords + [addiction[1]] if addiction[1] else keywords)
         body += pack_subrecord('MODL', (model + '\0').encode()) + _copied(template, SOUNDS)
         sound = template[b'ENIT'][16:20] if b'ENIT' in template else bytes(4)
         body += pack_subrecord('DATA', struct.pack('<f', float(rec.get('DATA.Weight', 0.0))))
-        body += pack_subrecord('ENIT', struct.pack('<iIIf', int(rec.get('ENIT.Value', 0)), flags, 0, 0.0) + sound)
-        body += self.effects.subs(rec)
+        body += pack_subrecord('ENIT', struct.pack('<iI', int(rec.get('ENIT.Value', 0)), flags) + addiction[0] + sound)
+        item = self.builder.writer.derive_formid(SITES['ALCH'], fnv)
+        body += (self.poisons.effects(rec, item) or self.effects.subs(rec)) + addiction[2]
         return self._write('ALCH', fnv, body)
 
     def ammo(self, fnv: int, rec: dict) -> 'int | None':
@@ -133,15 +144,17 @@ def _copied(template: dict, tags: tuple) -> bytes:
 
 
 def _fnv_consumables() -> dict:
-    """{FNV ALCH FormID: (ETYP, consume sound EditorID)}: fields the export drops, read from FalloutNV.esm."""
-    raw = source_esm()
-    sounds = {rec.form_id: (first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode() for rec, _ in walk(raw, b'SOUN')}
+    """{FNV ALCH FormID: (ETYP, consume sound EditorID, withdrawal spell EditorID, addiction chance)}: fields the
+    export drops, read from FalloutNV.esm."""
+    names = {rec.form_id: (first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode()
+             for rec, _ in source_walk(b'SOUN', b'SPEL')}
     out = {}
-    for rec, _ in walk(raw, b'ALCH'):
+    for rec, _ in source_walk(b'ALCH'):
         subs = dict(subrecords(rec.body))
         etyp = struct.unpack('<i', subs[b'ETYP'])[0] if b'ETYP' in subs else None
         enit = subs.get(b'ENIT', b'')
-        out[rec.form_id] = (etyp, sounds.get(struct.unpack_from('<I', enit, 16)[0], '') if len(enit) >= 20 else '')
+        withdrawal, chance, sound = struct.unpack_from('<IfI', enit, 8) if len(enit) >= 20 else (0, 0.0, 0)
+        out[rec.form_id] = (etyp, names.get(sound, ''), names.get(withdrawal, ''), chance)
     return out
 
 
