@@ -2625,7 +2625,34 @@ distinct part lists, nightkin included) on
   14.7 units from the wrist against FO4's 9-10, its fingertips at 24-26
   against 12-20, its finger axes are flipped, and its arm is 47.4 long
   against FO4's 56.9.
-- **FO4's body under FNV's head and armor (built 2026-11-01, not played).**
+- **FO4's body and head under FNV's armor (played 2026-11-02: armor, head
+  tint).** The first try (below) kept FNV's head on FO4's body. Played:
+  skin gaps under the jaw, then (with its cut edge sunk into the body) a
+  head sitting high with FO4's tinted neck showing beneath like a second
+  head. FO4's super mutant head (`SupermutantHead.nif`, the race's default
+  head part) is only a face plate, 15.5 x 12 x 24 units, filling an oval
+  hole on the front of the body; the skull and hump are the body's. FNV's
+  head is a whole head, 17 x 26 x 42, its top 15 units above FO4's body. So
+  the shapes can't be stitched. Now:
+  - The part holding FNV's bare skin (FNV's body: head, eyes, teeth, built-in
+    bands) drops whole; only the armor parts stay.
+  - Each armor vertex moves, by its share of head weight, from FNV's head
+    box (the bare skin's head-led vertices) onto FO4's (head-led body
+    vertices plus the face plate: `head_box`), then is pushed out of the
+    body as before. FNV's mutant armor has no helmets; the nightkin
+    goggles are the head gear this moves.
+  - The skin no longer covers slot 32, so the race's head shows. The NPC
+    names its own face set (FTST, before QNAM as vanilla's suiciders): a
+    copy of the race's `SkinSupermutantHead` (DFTM) whose MNAM is a tinted
+    copy of `SupermutantFGHead1.BGSM` (`creature_tint.tinted_materials`).
+    Three are built: `SM3D1024_D`, `SM_1_D`, `SM_2_D`.
+  - **The armor addon needs slots of its own.** With slot 32 gone, both
+    addons covered only slot 33 and the mutants played naked: FO4 drew the
+    body addon alone. All 34 vanilla skins with several addons give each
+    addon for one race its own slots (an FX addon on slot 59, 60 or 61, the
+    skin covering their union), so FNV's armor addon covers 33 and FX slot
+    61 (`FX_SLOT`), as does the skin. Played: armor shows.
+- **FO4's body under FNV's head and armor (built 2026-11-01, replaced).**
   `Pair.fo4_body`: the skin (a copy of `SkinSuperMutant`) lists two addons
   (INDX 0 each, as vanilla's multi-addon skins). The first is a copy of
   vanilla `SuperMutantBody`, mesh, weights, finger bones and dismemberment

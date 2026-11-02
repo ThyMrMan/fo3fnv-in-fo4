@@ -198,6 +198,15 @@ def test_a_later_prompt_hides_behind_an_earlier_line_said_through_an_intercom():
                                         (0x00, 0.0, C.FO4.index('IsInList'), flst, 0, R.RUN_TARGET)]
 
 
+def test_a_player_lines_text_is_html_escaped_and_an_npcs_is_not():
+    """XDI lists a player option's response text as HTML (`<Say nothing.>` showed blank, played 2026-11-02): a line
+    with a prompt escapes its prompt and its text; an NPC line without one keeps its text."""
+    player = {s.type: s.data for s in _subs(R.pack_info(1, 0, ('<Say nothing.>',), prompt='<Say nothing.>'))}
+    npc = {s.type: s.data for s in _subs(R.pack_info(2, 0, ('<Sigh> & so on.',)))}
+    assert player['RNAM'] == player['NAM1'] == b'&lt;Say nothing.&gt;\0'
+    assert npc['NAM1'] == b'<Sigh> & so on.\0' and 'RNAM' not in npc
+
+
 def test_a_prompt_behind_a_line_that_always_passes_never_shows():
     """A prompt behind an unconditional line gets NEVER; negated() flips a test."""
     earlier, _ = _earlier([_said('L1', 'Hello.', []), _said('L2', 'Hi again.', [])])

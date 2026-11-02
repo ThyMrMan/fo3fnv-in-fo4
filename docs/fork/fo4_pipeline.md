@@ -5042,3 +5042,28 @@ A rebuild deletes the old copies a mod folder still holds:
 
 Existing saves don't carry over: a save names its plugins, and the
 scripts on its running quests.
+
+
+<a id="xdi-html"></a>**XDI shows option text as HTML (played 2026-11-02).** The Black
+Mountain transceiver's `<Say nothing.>` showed as an exit icon with no text.
+XDI's `DialogueMenu.swf` lists each option's `response` (the player line's
+response text; it reads the `prompt` only for its own JSON settings) through
+`GlobalFunc.SetText(..., true)`, which sets `htmlText`, so `<...>` reads as an
+unknown tag and vanishes. `records.pack_info` escapes `&`, `<` and `>` in a
+player line's prompt and response text (a line with a prompt); NPC subtitle
+text is left as is. 111 FNV prompts are written in angle brackets
+(`<Watch Festus draw a card.>` x9 among them). Escaping the prompt alone
+changed nothing in play.
+
+<a id="templated-creature-guns"></a>**A templated creature's own guns (played
+2026-11-02).** The Freeside gate securitrons drew their weapons on the gate
+tourist and never fired: they had none. FNV's `VFSSecuritronGreeter` takes
+traits, stats, effects and AI data from its template (flags 27) but not its
+inventory, which holds its submachine gun and launcher. FO4 carries an NPC's
+object template (OBTS) with the Inventory slot (68 vanilla template actors
+using it carry no OBTS of their own; 69 not using it carry one), so these
+creatures needed their own. `Creatures.own_guns` arms a templated creature
+whose own inventory (not its template's) holds creature gun copies: the
+guns stay in its inventory and its APPR and default OBTS name their forced
+mods, as an own-rig creature's. Eight FNV creatures are affected, Victor
+and the Strip securitrons among them.

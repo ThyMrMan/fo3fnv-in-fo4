@@ -392,3 +392,18 @@ def test_fo4s_body_addon_wears_the_tint_swap_after_each_model(monkeypatch):
     tags = [t for t, _ in subrecords(arma[24:])]
     assert tags == [b'EDID', b'MOD2', b'MO2S', b'MOD3', b'MO3S']
     assert struct.unpack('<I', dict(subrecords(arma[24:]))[b'MO2S'])[0] == struct.unpack_from('<I', swap, 12)[0]
+
+
+def test_a_templated_creature_carrying_its_own_guns_is_armed_with_them():
+    """Freeside's gate securitron takes traits from a template but not its inventory (played 2026-11-02: no guns,
+    no fire): own_guns arms it with its own creature gun copies; one whose inventory is its template's is not."""
+    from fo4_import.spike import creatures as CR
+    creatures = CR.Creatures.__new__(CR.Creatures)
+    own = {'FormID': '00119790', 'ACBS.TemplateFlags': '27', 'TPLT.Template': '00158646'}
+    borrowed = {'FormID': '00119791', 'ACBS.TemplateFlags': str(0x100), 'TPLT.Template': '00158646'}
+    template = {'FormID': '00158646'}
+    creatures.records = {0x119790: own, 0x119791: borrowed, 0x158646: template}
+    creatures._guns = lambda rec: [(0x10A709, 0x0300_0001, 'slot')] if rec is not template else []
+    creatures.gun_mods = SimpleNamespace(edit=lambda guns: ('edit', tuple(guns)))
+    assert CR.Creatures.own_guns(creatures, own) == (True, ('edit', ((0x10A709, 0x0300_0001, 'slot'),)))
+    assert CR.Creatures.own_guns(creatures, borrowed) == (False, None)
