@@ -1,6 +1,5 @@
 """fo4_import.app.stages and runner: command lines from settings, what can run, packaging, running."""
 
-import os
 import sys
 import zipfile
 from pathlib import Path
@@ -46,25 +45,24 @@ def test_a_chosen_scripts_folder_is_used(tmp_path):
     build = ST.command(s, 'falloutnv', 'build', ST.Scope(), tmp_path / 'x.json')
     assert build[build.index('--scripts') + 1] == str(tmp_path / 'work' / 'scripts' / 'FalloutNV.esm')
     s['per_source']['falloutnv']['scripts'] = str(tmp_path / 'old')
-    assert ST.command(s, 'falloutnv', 'scripts', ST.Scope(), tmp_path / 'x.json')[-3] == str(tmp_path / 'old')
+    build = ST.command(s, 'falloutnv', 'build', ST.Scope(), tmp_path / 'x.json')
+    assert build[build.index('--scripts') + 1] == str(tmp_path / 'old')
+
+
+def test_the_build_converts_scripts_itself():
+    """No scripts stage: the build converts --scripts itself."""
+    assert 'scripts' not in dict(ST.ORDER) and 'scripts' not in ST.WINDOWS_TOOLS
 
 
 def test_found_says_what_earlier_runs_left(tmp_path, monkeypatch):
-    """The export is done; scripts are done only when newer than the export; built plugins are named."""
+    """The export is done; built plugins are named."""
     monkeypatch.setattr(ST, 'EXPORT_ROOT', tmp_path / 'export')
     s = _settings(tmp_path)
     assert [ST.found(s, 'falloutnv', k) for k, _ in ST.ORDER] == [None] * len(ST.ORDER)
     header = tmp_path / 'export' / 'FalloutNV.esm' / '_HEADER.txt'
     header.parent.mkdir(parents=True)
     header.write_text('x')
-    scripts = S.scripts_dir(s, 'falloutnv')
-    scripts.mkdir(parents=True)
-    (scripts / 'A.psc').write_text('x')
-    os.utime(scripts / 'A.psc', (header.stat().st_mtime - 60,) * 2)
     assert ST.found(s, 'falloutnv', 'export').done
-    assert not ST.found(s, 'falloutnv', 'scripts').done and 'older' in ST.found(s, 'falloutnv', 'scripts').text
-    os.utime(scripts / 'A.psc', (header.stat().st_mtime + 60,) * 2)
-    assert ST.found(s, 'falloutnv', 'scripts').done
     ST.plugin_path(s, 'falloutnv').parent.mkdir(parents=True)
     ST.plugin_path(s, 'falloutnv').write_text('x')
     built = ST.found(s, 'falloutnv', 'build')
@@ -84,7 +82,7 @@ def test_what_cannot_run_says_why(tmp_path):
     assert ST.unavailable(s, 'falloutnv', 'build', 'win32') == ''
     assert 'does not support' in ST.unavailable(s, 'fallout3', 'build', 'win32')
     assert ST.unavailable(s, 'fallout3', 'export', 'win32') == ''
-    assert 'Windows' in ST.unavailable(s, 'falloutnv', 'scripts', 'linux')
+    assert 'Windows' in ST.unavailable(s, 'falloutnv', 'build', 'linux')
     assert ST.unavailable(s, 'falloutnv', 'helpers', 'linux') == ''
     s['games']['fallout4'] = str(tmp_path / 'missing')
     assert 'Fallout 4' in ST.unavailable(s, 'falloutnv', 'check', 'win32')

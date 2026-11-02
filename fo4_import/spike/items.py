@@ -27,6 +27,7 @@ from fo4_import.spike.entry_condition import condition_of
 from tes5_import.base.tes5_reader import first_sub, walk
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.stage_timer import charged
+from script_convert.constants_falloutnv import ITEM_TYPE_CODES, ITEM_TYPE_LISTS
 
 #: FNV's engine objects sit below this FormID.
 ENGINE_IDS = 0x800
@@ -36,6 +37,8 @@ PORTAL_MARKER, PLANE_MARKER = 0x20, 0x17
 ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT', 'FLST', 'IMOD')
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
 CONTAINER_FLAGS = 0x2
+#: Item type list property -> its FO3/FNV type code (RemoveAllTypedItems).
+TYPE_LIST_CODES = {name: code for code, name in ITEM_TYPE_LISTS.items()}
 #: Cell builder maps {FNV FormID: FO4 FormID} of the non-item forms it has made, which a form list may hold.
 BUILT_MAPS = ('made', 'actor_refs', 'npc_ids', 'globals', 'factions')
 
@@ -96,7 +99,7 @@ class Items:
         (consumables, equipment); a type with no maker here or there is skipped.
         """
         self.builder, self.records, self.made, self.makers = builder, records, {}, makers or {}
-        self.messages = None
+        self.messages, self.type_lists = None, set()
         named = {rec.get('EditorID'): fid for fid, (_, rec) in records.items()}
         self.names = {name.lower(): fid for name, fid in named.items() if name}
         self.shared = {**shared, **{named[e]: fid for e, fid in (stand_ins or {}).items() if e in named}}
@@ -105,6 +108,23 @@ class Items:
         """item() of the FNV record named `edid` (any case), or None."""
         fid = self.names.get(edid.lower())
         return self.item(fid) if fid is not None else None
+
+    def type_list(self, name: str) -> 'int | None':
+        """Item type list `name`'s FormID (ITEM_TYPE_LISTS), written by write_type_lists; None for another name."""
+        if name not in TYPE_LIST_CODES:
+            return None
+        self.type_lists.add(name)
+        return self.builder.writer.derive_formid('FLST', name)
+
+    def write_type_lists(self) -> None:
+        """Write each type list a script names: the FO4 forms made for the FNV items of its type, made or shared.
+        See: docs/fork/script_markers.md#removealltypeditems
+        """
+        for name in sorted(self.type_lists):
+            sig = ITEM_TYPE_CODES[TYPE_LIST_CODES[name]]
+            forms = {self.made.get(fnv) or self.shared.get(fnv) for fnv, (s, _) in self.records.items() if s == sig}
+            self.builder.writer.add_record('FLST', R.pack_flst(self.type_list(name), name, sorted(forms - {None})))
+        self.builder.counts['item type lists'] = len(self.type_lists)
 
     def wearable(self, fnv_fid: int, seen: tuple = ()) -> bool:
         """Whether an FNV item is worn: armor, or a leveled list of worn items only."""

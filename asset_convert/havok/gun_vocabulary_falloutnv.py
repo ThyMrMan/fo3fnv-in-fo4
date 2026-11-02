@@ -16,6 +16,8 @@ ANIM_TYPE_CLASS = {3: '1hp', 4: '1hp', 5: '2hr', 6: '2ha', 7: '2hr',
 
 #: The prefix FNV gives weapon nodes its actor clips animate (##Clip, ##Slide).
 PART_PREFIX = '##'
+#: Arms whose hands reach FNV's camera-relative hand positions (IK).
+FIRST_PERSON_ARMS = tuple((f'Bip01 {s} UpperArm', f'Bip01 {s} Forearm', f'Bip01 {s} Hand') for s in 'RL')
 #: The classes in graph order: iGunClass is an index into this tuple.
 GUN_CLASSES = ('1hp', '2hr', '2ha', '2hh', '2hl')
 

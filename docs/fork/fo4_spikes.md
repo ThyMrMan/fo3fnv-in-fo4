@@ -2519,6 +2519,197 @@ since the saloon she lives in is not built.
   for Sunny.
 - The mouth takes Dogmeat's jaw and lip weights by surface, not FNV's jaw bone.
 
+**Super mutants and nightkin on FO4's super mutant (built 2026-10-31, not played).**
+The same way, by the outfits' `HUMAN` rig: FNV's `creatures\smspinebreaker`
+parts (a base body with its own head, plus an armor NIF: 91 records, 34
+distinct part lists, nightkin included) on
+`Actors\Supermutant\CharacterAssets\SupermutantBody.nif` and its
+`skeleton.nif`, whose bones carry the human names.
+
+- **Body space.** FO4's super mutant body skins in a space 140 units below
+  its skeleton (every bone's bind data in all three shapes agree, z -140;
+  Dogmeat's 0.2): its vertices run z -140.5 to 19.8. The fit moves FO4's
+  skeleton by that shift before retargeting (`outfit.skin_shift`, the human
+  body fit's same correction), so FNV's mesh lands in the body's own
+  space. Without it every vertex sat ~90 units off. With it the feet sit a
+  median 1.1 units from FO4's (soles at -140), boots 2.3, the four other
+  bodies checked (nightkin, Marcus, captain, vault) a median 3 to 7.
+- **Head.** FO4's body has no head (the race's `SupermutantHead` head part
+  draws it), FNV's base NIF has its own. FNV's head vertices take FO4's
+  `Head_skin` weight by nearest surface (the neck cap), all 1,421 headgear
+  vertices and every base-mesh vertex above the neck. The copied skin and
+  addon add slot 32 (FaceGen head) to their BOD2 (`SkinSuperMutant` and
+  `SuperMutantBody` cover only 33), as vanilla's whole-body skins do
+  (`FeralGhoulGlowingWhole` 0x0C, `AA_SynthGen1`), so the race's head part
+  is hidden. Dogmeat's race has no head parts, so the dog is unchanged.
+  FNV's head reaches z 35 to 40 against FO4's 17.7: FNV's taller head and
+  hunch are kept (drift: the race's capsule is FO4's).
+- **Records.** A unique target (Dogmeat, ACBS 0x20) loses its perks and
+  spells with its scripts and factions; a kind's template
+  (`EncSuperMutantTemplate`: `ImmuneToRadiation`, `crDamage125`) keeps
+  them, as the `stats` stand-in did. A template actor with its own base
+  scale gets a sized copy as in `stats` mode (`traits_variant`), sharing
+  the creature's skin (written once).
+- **Weights: FNV's own (fixed 2026-10-31, built 2026-11-01).** Played, the
+  first build's bodies stretched when dead (long thin arms and neck) and
+  armor pieces came away from the body. Taking FO4's body weights at the
+  nearest surface point, as the dog does, fails on a body shaped unlike
+  FO4's: FNV's bulky torso and armor lie nearest FO4's arms. In
+  `nightkinbare.nif`, 46 of 90 vertices in one armor shape took arm weights
+  and one 34-vertex piece took only the right arm. With the left arm raised
+  90 degrees at the shoulder, edges stretched up to 17.7x (nightkin) and
+  34.5x (captain). The pair now keeps FNV's own weights (`Pair.own_weights`):
+  each FNV bone goes on its rig bone in FO4's body, or that bone's `_skin`
+  helper (`Neck`, `HEAD`, `LLeg_Calf` and `LArm_ForeArm1` are skinned only
+  as `_skin`), and an unmapped bone (fingers, twists, ponytail) goes on its
+  nearest mapped ancestor's. The same pose now stretches at most 3.2x and
+  3.4x, against 4.0x for FO4's own super mutant body. The rig still
+  lengthens FNV's arms 1.2x and its neck 1.55x along themselves, to FO4's
+  bone lengths. The dog keeps the surface weights: its body has FO4's shape,
+  and they give it FO4's jaw and mouth bones.
+- **Nightkin stealth is the scripts', not the records'.** FNV's nightkin
+  have no invisibility ability: `CrNightkinSCRIPT`, `CrNightkinGunScript`
+  and `CrNightkinCloakUntilFireScript` add `StealthBoyInvisibilitySpell` on
+  load and remove it when `GetAnimAction` reads an attack. Nightkin without
+  a script are visible in FNV too: Jacobstown's, the dead ones,
+  `CrNightkinSniper`, and `BMNightkinTabithaMob`, whose template flags don't
+  inherit a script. In the build every scripted nightkin keeps its script.
+  The 2026-10-31 build's script converter read `GetAnimAction` as always
+  true, so those nightkin uncloaked every pass; by the 2026-11-01 build it
+  reads the actor's attack events. The spell's Chameleon effect is
+  vanilla's `AssaultronStealthEFFECT`, which `AssaultronHeadModStealthScript`
+  adds in combat with no sneaking, so the effect needs no sneak.
+  Played 2026-11-01 (00:24 build), still open, none of it the mesh:
+  - `CrNightkinGunScript` aborts every pass: its `NightkinCloakFXShader`
+    property is empty, because no FNV effect shader (EFSH) is in the build,
+    and the pass plays it before re-adding the spell. A gun nightkin that
+    uncloaks to fire never cloaks again. Fixed 2026-11-01, not rebuilt: every
+    script `EffectShader` property gets a Fallout4.esm shader, the nightkin's
+    vanilla's `StealthBoyInvisibilityEffect`
+    ([effect shaders](script_markers.md#effect-shaders)).
+  - The four `REPCONSuperMutantNightkinSCRIPT` nightkin (`RocketLabBasement`)
+    never loaded in that log: their packages ran unloaded all session. FNV's
+    script also calls `SetForceSneak 1` out of combat, which the conversion
+    drops; FNV uncloaks them on purpose within 400 units of a combat target.
+    Fixed 2026-11-01, not rebuilt: `SetForceSneak 1` is now `StartSneaking()`
+    ([SetForceSneak](script_markers.md#setforcesneak)).
+- **Weapons: a super mutant additive race (fixed 2026-11-01, not rebuilt).**
+  Played, nightkin hit only with FO4's `UnarmedSuperMutant` and loaded with
+  nothing equipped, the sniper too. `SuperMutantRace` picks weapon behaviour
+  by nine keywords. FNV's guns on their own clips trade theirs for a
+  per-gun one only the human additive race maps, and FNV's two-handed melee
+  carries the baseball bat's `Anims2hmWeapon`, which super mutants lack
+  (FO4's sledges carry `Anims2hmWideWeapon`). Of the 18 weapons the built
+  super mutants carry, only the minigun and missile launchers matched.
+  `spike.mutant_subgraphs` writes `FNV_SuperMutantRaceSubGraphDataAdditive`
+  (SADD on `SuperMutantRace`, as Wasteland Workshop's
+  `DLC02SupermutantRaceAdditive`), copying each class's super mutant
+  entries, crippled-limb variants included, for every gun's own keyword and
+  the vanilla keywords of kinds FO4 never gave super mutants (`NEAREST`:
+  flamers hold like the minigun, submachine guns like the assault rifle, the
+  Fat Man like the missile launcher, `Anims2hmWeapon` like the sledge). Run
+  against the built plugin, 15 of the 18 are now covered (560 entries); the
+  frag mine and dynamite are thrown, and the Multiplas rifle has no Anims
+  keyword ([drift](fo4_drift.md#recorded)).
+- **Played 2026-11-01 (13:25 build): hands and grip need FO4's body.**
+  Nightkin now fire their guns (the additive race works). Their hands
+  stretch and don't grip. Skinned under FO4's own super mutant rifle clips
+  (`wpnidleready`, `wpnfiresinglesighted`, `wpnequip`; validated to 0.05
+  units at rest), the FNV skin deforms like FO4's body (arm and hand edge
+  stretch p99 1.66-1.73 against 1.54-1.61; leader armor 2.32). But it
+  binds only Collarbone, UpperArm, ForeArm1_skin and Hand, where FO4's body
+  binds every finger (Finger11-53), the forearm twists (ForeArm1-3_skin)
+  and the upper-arm twists. The fingers never close: the palm stays 17.8
+  units from the hand bone in every frame, where FO4's curls from 13.2 to
+  11.0. FNV's hand can't take FO4's finger bones either: its knuckles sit
+  14.7 units from the wrist against FO4's 9-10, its fingertips at 24-26
+  against 12-20, its finger axes are flipped, and its arm is 47.4 long
+  against FO4's 56.9.
+- **FO4's body under FNV's head and armor (built 2026-11-01, not played).**
+  `Pair.fo4_body`: the skin (a copy of `SkinSuperMutant`) lists two addons
+  (INDX 0 each, as vanilla's multi-addon skins). The first is a copy of
+  vanilla `SuperMutantBody`, mesh, weights, finger bones and dismemberment
+  untouched, whose MO2S/MO3S name an MSWP putting a tinted copy of
+  `Supermutant1.bgsm` on it (`spike.creature_tint`: each color channel's
+  mean and spread of FO4's diffuse set to FNV's bare skin's; nightkin
+  `SM3D1024_D` averages 71/75/84 against FO4's 98/91/71; gore is left
+  as is). The second shows FNV's parts (`nif.creature`), cut:
+  - FNV's bare skin is the texture of the shape with the most
+    finger-weighted vertices (`skin_texture`). Of it only the triangles
+    whose three corners lead with a head or neck bone stay: head, neck,
+    teeth, neck bands. Body, arms, hands, legs and feet are FO4's.
+  - A triangle with two finger-weighted corners drops from any part.
+  - Armor is pushed 0.5 units outside FO4's body along the nearest outward
+    triangle (every one of the body's triangles winds outward); after
+    three passes no armor shape keeps over 2% of its vertices inside (the
+    arm braces' 2%, at most 0.5 deep). The head isn't pushed: its mouth
+    sits inside FO4's neck, and FO4's shoulders cover the base of its neck
+    (up to 5 units).
+  All 34 super mutant part lists resolve a bare skin (`SM3D1024_D`
+  nightkin and Lily, `SM_1_D`/`SM_2_D` the rest, the vault mutant's
+  `SMSpineBreaker`). The captain alone (one record) has skin and armor in
+  one shape, so `skin_texture` returns '' and it keeps FNV's whole body as
+  before. Hands and grip are vanilla's by construction (the rifle-clip
+  numbers above).
+- **Gun nightkin stay uncloaked: the converted GetAnimAction latches.**
+  FO4's rifle attack sends `WeaponFire`, `attackState` and back to
+  `readyState`, almost never `attackStop` or `AttackEnd` (one in 20 s of
+  firing), and `attackState` fires on leaving the attack too. So
+  `TES4_AnimAction` reads an attack from the first shot on and the gun
+  script never re-adds the cloak. The fix belongs in
+  `script_convert/anim_action_falloutnv.py`: drop `attackState` from
+  `ATTACK_STARTS` and add `readyState` to `ATTACK_ENDS`. The cloak shader
+  now plays (vanilla `StealthBoyInvisibilityEffect`); its only error is on
+  an unloaded nightkin. FO4's Stealth Boy and assaultron descriptions ("Invisible for 30
+  seconds", "Stealth Field for <dur> seconds") carry no sneak condition.
+- **Dead nightkin and ghouls T-posing are not the mesh.** The REPCON
+  corpses (`RocketLabMid`: three `FeralGhoulDEAD2`, two
+  `NightkinMeleeDEAD`) are placed Starts Dead (FNV's record flag 0x80000 on
+  FO4's ACHR 0x200), and the ghouls' `DeadGhoulGib` also calls `Kill()` in
+  `OnLoad`. The nightkin mesh skins only to bones FO4's super mutant
+  skeleton has (21 of them), and that skeleton carries its
+  `bhkRagdollSystem`. Weights only follow the bones; a T-pose is bones the
+  ragdoll never moved, and the ghouls are FO4's own body. The cause is the
+  missing ragdoll pose. FNV's corpses carry one (XRGD: 16 bones for the
+  nightkin, 18 for the ghouls, plus XRGB on the nightkin), but actor
+  placement drops it (`placement(..., pose=False)` in `spike.npcs`: FNV's
+  ragdoll bone indices aren't FO4's). FO4 settles a Starts Dead actor from
+  its stored pose (1,090 of Fallout4.esm's 1,188 have XRGD); none of the
+  build's 396 has one: 260 human, 39 brahmin, 30 ghoul, 12 super mutant,
+  the rest robots and creatures.
+- **Dead-at-start poses: converted (2026-11-01, not rebuilt).**
+  `spike.ragdoll_pose` writes FO4's XRGD from FNV's, after NAME as vanilla
+  orders it, and copies XRGB. Both games store one 28-byte entry per ragdoll
+  body in the skeleton NIF's tree order: the body's collision-filter part
+  number (FNV's bhkRigidBody filter; FO4's hknp `collisionFilterInfo >> 8`),
+  the node's rest offset, and its rotation relative to its skeleton parent
+  (the root's in the reference's space), with a reference's angles
+  (`Rx(-x)Ry(-y)Rz(-z)`, `spike.scol`). Bodiless nodes (clavicle, pelvis,
+  forearm twists) stay at rest. Checked against Fallout4.esm: 880 of its
+  1,090 posed corpses have exactly the derived part sequence (humans, feral
+  ghouls, brahmin, dogs, super mutants and 11 other skeletons), and each
+  converts onto its own skeleton unchanged. The other 210 are variants: 172
+  humans with a 19th entry, robots, and other body counts. Only this reading
+  lays FNV's corpses flat: 101 of 150 human corpses are flattest with it,
+  6 units ahead of the next.
+  Each FO4 body takes the turn its FNV bone (by name through the rig:
+  `HUMAN`, a pair's, the feral ghoul's own table `FERAL_GHOUL`, else the
+  same name) made from rest, on FO4's rest orientation; a body without a
+  source stays at rest under its parent. A pose is written when at least
+  three quarters of FO4's bodies have a source (`MAPPED_SHARE`). Of the
+  build's 396 dead actors:
+  - written: 298 (274 human, 12 super mutant, 7 feral ghoul, 4 nightstalker,
+    1 dog), lying as flat as in FNV (median joint-height spread 25.8 against
+    FNV's 23.7);
+  - no bone match: 57 left out (brahmin 37, mole rat 13, deathclaw 2, and one
+    each of gecko, radroach, eyebot, mirelurk king and radscorpion), whose
+    FO4 rigs share at most 10 of 20 to 49 bodies by name;
+  - no FO4 ragdoll in the skeleton: 19 robots (protectrons, Mister Gutsies,
+    sentry bots; FO4's robot skeleton has no `bhkRagdollSystem`);
+  - no pose in FNV: 22.
+  The build counts each as `ragdoll pose written` / `left out: <why>`.
+- FO4's animations, not FNV's; FNV's armor is part of the body.
+
 **Geckos: the deathclaw tried and dropped; a mole rat stands in (2026-10-10).**
 FNV's most placed creature with no FO4 counterpart ([census](#creature-census)).
 

@@ -85,7 +85,7 @@ class Standings:
                                                        object_scripts([(script, {'Standings': quest}, {})])))
             parent = EVENT_NODES[event]
             writer.add_record('SMQN', pack_story_node(node, f'FNV_Standings{name}Node', parent,
-                                                      last_child(self.builder.fo4, parent), fid))
+                                                      last_child(self.builder.fo4, parent), (fid,)))
         self.builder.scripts.used += [s for s in (SCRIPT, PLAYER_SCRIPT, KILL_SCRIPT, CRIME_SCRIPT)
                                       if s not in self.builder.scripts.used]
         self.builder.counts['standings quests'] = 3

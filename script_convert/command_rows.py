@@ -347,7 +347,8 @@ COMMAND_ROWS = {
     #: Bare literal, operand position. See: docs/commentary/script_convert.md#reads-skyrim-cannot-answer
     'getgamerestarted': Cmd(note='{f} has no Papyrus equivalent (read as 0)'),
     'getignorefriendlyhits': Cmd('{ref}.IsIgnoringFriendlyHits()', OBJREF, flags='bare_bool cmp_bool zero_arg'),
-    'getisalerted': Cmd(note='{f}', flags='zero_arg'),
+    #: Skyrim and Fallout 4 both declare Actor.IsAlerted.
+    'getisalerted': Cmd('{ref}.IsAlerted()', ACTOR, flags='actor_only bare_bool cmp_bool zero_arg'),
     #: The CK wiki names IsAlarmed as GetAlarmed's own Papyrus version.
     'getalarmed': Cmd('{ref}.IsAlarmed()', ACTOR,
                       flags='actor_only zero_arg cmp_bool'),
@@ -570,12 +571,15 @@ COMMAND_ROWS = {
 
     #: See: docs/commentary/script_convert.md#kill-takes-only-the-killer
     'kill': Cmd('Kill', MAP, max_args=1, flags='actor_only actor_arg'),
+    #: Kill's long name, which FO3/FNV scripts spell out. See: docs/fork/script_markers.md#killactor
+    'killactor': Cmd('Kill', MAP, max_args=1, flags='actor_only actor_arg'),
     'killandresurrect': Cmd('Kill', MAP), # then Resurrect manually
     'resurrect': Cmd('Resurrect', MAP, flags='actor_only drop_args'),
+    'resurrectactor': Cmd('Resurrect', MAP, flags='actor_only drop_args'),
     'getdead': Cmd('IsDead', MAP, flags='actor_only bare_bool cmp_bool zero_arg'),
     'isdead': Cmd('IsDead', MAP, flags='actor_only bare_bool cmp_bool zero_arg'),
     'isincombat': Cmd('IsInCombat', MAP, flags='actor_only bare_bool cmp_bool zero_arg'),
-    #: SetForceSneak is inert, so live sneak state is the closest read.
+    #: No engine reads a forced sneak, so live sneak state is the closest read.
     'getforcesneak': Cmd('IsSneaking', MAP, flags='actor_only bare_bool zero_arg'),
     #: TES4 knocked-down state ~ Skyrim's bleedout/recovery state.
     'getknockedstate': Cmd('IsBleedingOut', MAP, flags='actor_only bare_bool zero_arg'),

@@ -105,6 +105,8 @@ class ScriptContext:
     msgbox_hook: bool = False
     #: A `Message` converted to TES4_Notify, so the helper is due.
     uses_notify: bool = False
+    #: A GetAnimAction converted to TES4_AnimAction (Fallout 4), so its listener is due.
+    uses_anim_action: bool = False
 
     #: Chargen-menu call sites converted here, and whether the re-entrancy
     #: latch declaration is due.

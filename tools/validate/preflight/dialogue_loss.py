@@ -7,7 +7,8 @@ grouped by the named speaker, or by the line's quest when anyone may say it,
 so the NPCs who lost the most show first.
 
 Skyrim also honors one topic of each bark subtype per owning quest; a quest
-with two keeps only one of them speaking.
+with two keeps only one of them speaking. Vanilla Fallout 4 never writes two
+either, so its builds are checked the same way.
 
 See: docs/commentary/tools_preflight.md#dialogue-loss
 """
@@ -21,7 +22,7 @@ from tools.validate.preflight.plugin_index import first, u32, zstring
 from tools.validate.preflight.quest_source import required_speakers, speakable
 
 #: Topic subtypes a player picks or a scene plays, which the one-per-quest rule does not cover.
-_CHOSEN_SUBTYPES = ('CUST', 'SCEN', '')
+_CHOSEN_SUBTYPES = ('CUST', 'SCEN', 'SCCH', '')
 
 #: Source DIAL DATA.Type names, the same in Oblivion, Fallout 3 and New Vegas up to Radio.
 TOPIC_TYPES = {0: 'Topic', 1: 'Conversation', 2: 'Combat', 3: 'Persuasion', 4: 'Detection',
@@ -40,7 +41,7 @@ def bark_findings(game: str, index) -> list:
             groups[(u32(first(rec, 'QNAM')), subtype)].append(index.edid(rec.form_id) or f'{rec.form_id:08X}')
     return [Finding('dialogue', f'dialogue|{game}|bark|{index.edid(quest) or f"{quest:08X}"}|{subtype}', 'error',
                     f'{index.edid(quest) or f"{quest:08X}"} owns {len(topics)} {subtype} topics; '
-                    'Skyrim honors only one, so the others never speak', tuple(sorted(topics)[:SAMPLES]))
+                    'the engine plays only one, so the others never speak', tuple(sorted(topics)[:SAMPLES]))
             for (quest, subtype), topics in sorted(groups.items()) if len(topics) > 1]
 
 
@@ -91,8 +92,9 @@ def speaker_findings(ctx, lost: list) -> list:
 
 
 def audit(ctx) -> list:
-    """Lost lines, and on a Skyrim build unshown greeting replies and engine-rule findings."""
-    lost = speaker_findings(ctx, lost_lines(ctx))
+    """Lost lines and bark subtypes a quest repeats, and on a Skyrim build unshown greeting replies and
+    engine-rule findings."""
+    lost = speaker_findings(ctx, lost_lines(ctx)) + bark_findings(ctx.game, ctx.index)
     if ctx.index.fo4:
         return lost
-    return lost + bark_findings(ctx.game, ctx.index) + greeting_replies.audit(ctx) + dialogue_rules.audit(ctx)
+    return lost + greeting_replies.audit(ctx) + dialogue_rules.audit(ctx)

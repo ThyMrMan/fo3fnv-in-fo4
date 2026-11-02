@@ -1,17 +1,16 @@
 """The Convert screen's stages as the command lines they run, from the app's settings. No Qt here.
 
-Each stage is an existing command (docs/fork/fo4_pipeline.md): export (convert.py), scripts
-(script_convert.pipeline), the helper plugin, the build (fo4_import.pipeline.run), the reference check
+Each stage is an existing command (docs/fork/fo4_pipeline.md): export (convert.py), the helper plugin, the build
+(fo4_import.pipeline.run, which converts the scripts into the chosen scripts folder first), the reference check
 (tools.validate.fo4_ref_check) and, optional and off by default, FO4Edit's full check. Output
-goes to the source's output folder (fo4_import.app.settings.output_dir), which is the build's Data folder; the
-converted scripts go to the chosen scripts folder (an earlier run's can be reused). The export folder is still the
-repo's `export/` (convert.py fixes it); found() says what an earlier run already left for each stage. A stage that cannot run here says why: FO3 has no build path yet, and a stage needing a Windows-only tool
+goes to the source's output folder (fo4_import.app.settings.output_dir), which is the build's Data folder. The
+export folder is still the repo's `export/` (convert.py fixes it); found() says what an earlier run already left
+for each stage. A stage that cannot run here says why: FO3 has no build path yet, and a stage needing a Windows-only tool
 needs Windows.
 
 See: docs/fork/fo4_gui.md#app-shape
 """
 
-import os
 import shutil
 import sys
 import time
@@ -32,14 +31,12 @@ GAMES = {
                  'test_center': (0, 0), 'built': False},
 }
 #: Stage keys in run order, with their labels.
-ORDER = (('export', 'Export the source game'), ('scripts', 'Convert scripts'),
-         ('helpers', 'Helper plugin'), ('build', 'Build the plugin and assets'),
+ORDER = (('export', 'Export the source game'), ('helpers', 'Helper plugin'), ('build', 'Build the plugin and assets'),
          ('check', 'Check references (fast)'), ('fo4edit', "FO4Edit's full check (slow; may wait for a click)"))
 #: Stages left unticked unless the user ticks them: FO4Edit waits on its developer-message dialog when unattended.
 OPTIONAL = frozenset({'fo4edit'})
 #: Stages that run a Windows-only tool (the FO4 Papyrus compiler, Creation Kit tools, FO4Edit).
-WINDOWS_TOOLS = {'scripts': 'the FO4 Papyrus compiler', 'build': "the Creation Kit's Elric and LipGen",
-                 'fo4edit': 'FO4Edit'}
+WINDOWS_TOOLS = {'build': "the FO4 Papyrus compiler and the Creation Kit's Elric and LipGen", 'fo4edit': 'FO4Edit'}
 
 
 @dataclass(frozen=True)
@@ -63,30 +60,15 @@ class Found:
 
 
 def found(settings: dict, source: str, stage: str) -> 'Found | None':
-    """What `stage` already has: the export, converted scripts (done when newer than the export), the helper plugin
-    or the built plugin in the output; None when nothing (the checks leave nothing)."""
+    """What `stage` already has: the export, the helper plugin or the built plugin in the output; None when nothing
+    (the checks leave nothing)."""
     header = export_dir(source) / '_HEADER.txt'
     exported = header.stat().st_mtime if header.is_file() else 0
     if stage == 'export':
         return Found(f'export from {_when(exported)}', True) if exported else None
-    if stage == 'scripts':
-        times = [e.stat().st_mtime for e in _entries(S.scripts_dir(settings, source)) if e.name.endswith('.psc')]
-        if not times:
-            return None
-        stale = max(times) < exported
-        return Found(f'{len(times)} converted {_when(max(times))}' + (', older than the export' if stale else ''),
-                     not stale)
     made = {'helpers': S.output_dir(settings, source) / FALLOUT4_HELPER_PLUGIN,
             'build': plugin_path(settings, source)}.get(stage)
     return Found(f'{made.name} built {_when(made.stat().st_mtime)}') if made and made.is_file() else None
-
-
-def _entries(folder: Path) -> list:
-    """`folder`'s entries ([] when it is missing)."""
-    if not folder.is_dir():
-        return []
-    with os.scandir(folder) as entries:
-        return list(entries)
 
 
 def _when(stamp: float) -> str:
@@ -124,9 +106,6 @@ def command(settings: dict, source: str, stage: str, scope: Scope, settings_file
     if stage == 'export':
         return [py, str(REPO / 'convert.py'), '--export-only', '-f', game['master'],
                 '--data-dir', str(S.game_dir(settings, source) / 'Data')]
-    if stage == 'scripts':
-        return [py, '-m', 'script_convert.pipeline', str(export_dir(source)), '-o',
-                str(S.scripts_dir(settings, source)), '--target', 'fallout4']
     if stage == 'helpers':
         return [py, '-m', 'fo4_import.helpers_plugin', '--out', str(out / FALLOUT4_HELPER_PLUGIN)]
     if stage == 'build':

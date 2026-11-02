@@ -5,10 +5,13 @@ EditorID, else the rule for an ability of its own (`_rules.ability`), else
 the rule for its skeleton folder (`_rules.creature`), in one of three modes:
 
 - **`fnv`, FNV's body on its FO4 counterpart** (only where nif.creature.PAIRS
-  has the folder): a copy of the target NPC (Dogmeat for dogs) with Dogmeat's
-  scripts, factions, perks and spells left out and a sandbox package; its
-  skin is a copy of the target's skin (WNAM), whose addon (the skin's first
-  MODL) shows FNV's body (its NIFZ parts on the FO4 skeleton).
+  has the folder): a copy of the target NPC (Dogmeat for dogs, the super
+  mutant template for super mutants) with its scripts and factions left out,
+  a unique one's perks and spells too, and a sandbox package; its skin is a
+  copy of the target's skin (WNAM), whose addon (the skin's first MODL) shows
+  FNV's body (its NIFZ parts on the FO4 skeleton), head included. A pair worn
+  over FO4's own body (super mutants) lists FO4's body addon first, tinted to
+  FNV's skin (creature_tint, an MSWP), then FNV's head and armor.
 - **`stats`, an FO4 stand-in**: FO4's own kind (bloatfly, radscorpion,
   deathclaw, ghoul, brahmin, robots), else the nearest in size and role: a
   copy of the target creature under FNV's name, its own body, animations
@@ -24,18 +27,19 @@ Records are hashed from the FNV creature's FormID, so none moves.
 See: docs/fork/fo4_spikes.md#spike-4-creatures
 """
 
+import functools
 import struct
 from pathlib import Path
 
 from fo4_import.spike.type_tests import keywords_edit
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
-from fo4_import.base.writer import pack_fo4_record
-from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents
+from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents, skin_texture
 from fo4_import.spike import records as R
-from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, hit_proof,
+from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, UNIQUE, hit_proof,
                                         with_actor_data)
 from fo4_import.spike.creature_sounds import USE_MODEL, CreatureSounds
+from fo4_import.spike.creature_tint import tinted, tinted_materials
 from fo4_import.spike.npc_skills import with_creature_skills
 from fo4_import.spike.attack_spells import AttackSpells
 from fo4_import.spike.creature_attacks import attack_list, fnv_groups, race_attacks, with_attacks
@@ -57,10 +61,15 @@ from fo4_import.spike.voice_types import VoiceTypes, fnv_voice_types, with_voice
 from fo4_import.pipeline.export_index import asset_root, export_records
 from fo4_import.pipeline.mesh_cache import cached_convert
 from tes5_import.base.tes5_reader import subrecords, walk
-from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
+from tes5_import.base.writer import pack_subrecord
 
-#: Dogmeat's ties to his own quests and character, left out of a dog.
-DOGMEAT_TIES = frozenset({b'VMAD', b'SNAM', b'PRKZ', b'PRKR', b'SPCT', b'SPLO'})
+#: A unique target's (Dogmeat's) ties to its own quests and character, left out of an `fnv` creature.
+CHARACTER_TIES = frozenset({b'VMAD', b'SNAM', b'PRKZ', b'PRKR', b'SPCT', b'SPLO'})
+#: BOD2 bit of slot 32 (FaceGen head): FNV's body has its own head, so its skin hides the race's (as vanilla's do).
+HEAD_SLOT = 0x4
+#: BOD2 bit of slot 61 (FX): FNV's armor addon over FO4's body addon. A skin's addons for one race each need their own
+#: slots (all 34 vanilla multi-addon skins; same-slot ones drew FO4's body alone), so it takes FX, as vanilla's FX ones.
+FX_SLOT = 0x80000000
 #: FNV creature DATA stats as FO4 actor values (Fallout4.esm AVIF): Health, S.P.E.C.I.A.L., attack damage.
 STATS = {'DATA.Health': 0x2D4, 'DATA.Strength': 0x2C2, 'DATA.Perception': 0x2C3, 'DATA.Endurance': 0x2C4,
          'DATA.Charisma': 0x2C5, 'DATA.Intelligence': 0x2C6, 'DATA.Agility': 0x2C7, 'DATA.Luck': 0x2C8,
@@ -79,6 +88,8 @@ SANDBOX = 0x107AEA
 SITE = 'FNV CREA'
 #: A model's texture hash lists (MODT and the addon's MO2T-MO5T), which name the vanilla model's textures.
 MODEL_TEXTURES = frozenset({b'MODT', b'MO2T', b'MO3T', b'MO4T', b'MO5T'})
+#: An addon's model -> its material swap (MSWP) subrecord, which follows it.
+SWAPS = {b'MOD2': b'MO2S', b'MOD3': b'MO3S'}
 #: FO4 items a stand-in fights with (non-playable, record flag 0x4: WeapEyebot, MirelurkShield; not its loot lists).
 GEAR, NON_PLAYABLE = frozenset({b'WEAP', b'AMMO', b'ARMO'}), 0x4
 #: A ranged rig's ammo per gun when its FNV record lists none of the gun's own, as Fallout4.esm's EncEyeBot carries.
@@ -112,7 +123,8 @@ class Creatures:
         self.as_is = targets({k: e for k, e in keyed.items() if e.mode == 'item'}, builder.fo4, builder.masters,
                              builder.plugin_dirs, CREATURE_TYPES)
         self.archives = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2')
-        self.fits, self.meshes, self.made, self.sized = {}, {}, {}, {}
+        self.fits, self.meshes, self.made, self.sized, self.skins = {}, {}, {}, {}, {}
+        self.tint_archives, self.tinted, self.faces, self.face_sets = None, {}, {}, None
         self.rigs = None
         self.voices, self.race_attacks = VoiceTypes(builder), race_attacks(builder.fo4)
         self.speeds = Fo4Speeds(builder.fo4)
@@ -176,6 +188,12 @@ class Creatures:
         made = [(fnv, items.item(fnv)) for fnv in fnvs if items.records.get(fnv, (None,))[0] == 'WEAP']
         return [(fnv, gun, guns[fnv]) for fnv, gun in made if gun and fnv in guns]
 
+    def own_guns(self, rec: dict) -> tuple:
+        """(armed, gun-mod edit or None) of templated creature `rec`: armed when its own inventory, not its
+        template's (whose FO4 copy already lists them), holds creature gun copies."""
+        guns = self._guns(rec) if self.source(rec, USE_INVENTORY) is rec else []
+        return bool(guns), self.gun_mods.edit(guns) if guns else None
+
     def _ammo(self, rec: dict, fnv: int, gun: dict) -> list:
         """[(FO4 ammo, count, None)] for FNV creature `rec`'s gun `fnv` (`gun`): its FO4 copy's ammo, as many as `rec`
         carries of the gun's FNV ammo, else ARMED_AMMO; [] when the copy has none."""
@@ -235,7 +253,7 @@ class Creatures:
         if left or int(rec.get('ACBS.TemplateFlags', 0)) & USE_STATS or self._base_scale(rec) == self._base_scale(traits):
             return None
         fnv, entry = int(traits['FormID'], 16), self._entry(traits)[0]
-        if not self.converts(fnv) or entry.mode not in ('stats', 'rig'):
+        if not self.converts(fnv) or entry.mode not in ('stats', 'fnv', 'rig'):
             return None
         return self.base(fnv, (), self.source(rec, USE_STATS))
 
@@ -441,21 +459,78 @@ class Creatures:
 
     def _worn(self, fid: int, rec: dict, entry, packages: list, stats: dict = None) -> None:
         """Write FNV creature `rec` as a copy of its entry's target NPC on a skin showing FNV's body."""
-        npc, skin, addon = self.worn[entry.edid.lower()]
-        model, write = self._mesh(rec, skeleton_folder(rec['Model.MODL'])), self.builder.writer
-        key, edid = f'{int(rec["FormID"], 16):08X}', f'FNV_{rec["EditorID"]}'
-        arma, armo = (write.derive_formid(SITE, f'{key} {part}') for part in ('ARMA', 'ARMO'))
-        write.add_record('ARMA', copy_record(addon, arma, f'{edid}AA', {b'MOD2': _zstr(model), b'MOD3': _zstr(model)}, MODEL_TEXTURES))
-        write.add_record('ARMO', copy_record(skin, armo, f'{edid}Skin', {b'MODL': struct.pack('<I', arma)}, MODEL_TEXTURES))
+        npc, write, edid = self.worn[entry.edid.lower()][0], self.builder.writer, f'FNV_{rec["EditorID"]}'
+        armo = self._skin(int(rec['FormID'], 16), entry)
+        face = self.faces.get(int(rec['FormID'], 16))
         edit = composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
                         self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec),
-                        *self._sized(rec, npc, stats), self.inventory(rec, npc, False))
-        write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''), DOGMEAT_TIES,
+                        *self._sized(rec, npc, stats), self.inventory(rec, npc, False),
+                        with_face(face) if face else None)
+        unique = struct.unpack_from('<I', dict(subrecords(npc.body))[b'ACBS'])[0] & UNIQUE
+        write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''),
+                                             CHARACTER_TIES if unique else STAND_IN_TIES,
                                              edit=checked(self.builder.counts, npc.body, edid, lambda subs: _replaced(
                                                  edit(subs), {b'WNAM': struct.pack('<I', armo)}))))
 
-    def _mesh(self, rec: dict, folder: str) -> str:
-        """FNV creature `rec`'s body (its NIFZ parts) on its pair's skeleton, written once; its FO4 model path."""
+    def _skin(self, fnv: int, entry) -> int:
+        """The skin (ARMO) showing FNV creature `fnv`'s body: a copy of its entry's target's skin and addon, also
+        covering the head slot (_with_slot), unless the pair wears FO4's body (_fo4_body, listed first) and head
+        (its face set tinted in self.faces): FNV's addon then covers FX_SLOT; written once, as sized copies share it."""
+        if fnv not in self.skins:
+            rec, (npc, skin, addon), write = self.records[fnv], self.worn[entry.edid.lower()], self.builder.writer
+            folder, edid = skeleton_folder(rec['Model.MODL']), f'FNV_{rec["EditorID"]}'
+            model, bare = self._mesh(rec, folder)
+            head = functools.partial(_with_slot, slot=FX_SLOT if bare else HEAD_SLOT)
+            arma, armo = (write.derive_formid(SITE, f'{fnv:08X} {part}') for part in ('ARMA', 'ARMO'))
+            write.add_record('ARMA', copy_record(addon, arma, f'{edid}AA', {
+                b'MOD2': _zstr(model), b'MOD3': _zstr(model), **head(addon)}, MODEL_TEXTURES))
+            addons = ([self._fo4_body(addon, folder, bare)] if bare else []) + [arma]
+            self.faces.update({fnv: self._face(npc, bare)} if bare else {})
+            models = b''.join(pack_subrecord('INDX', bytes(2)) + pack_subrecord('MODL', struct.pack('<I', a))
+                              for a in addons)
+            write.add_record('ARMO', copy_record(skin, armo, f'{edid}Skin', head(skin), MODEL_TEXTURES | {b'INDX'},
+                                                 lambda tag, data: models if tag == b'MODL' else
+                                                 pack_subrecord(tag.decode(), data)))
+            self.skins[fnv] = armo
+        return self.skins[fnv]
+
+    def _fo4_body(self, addon, folder: str, bare: str) -> int:
+        """FO4's own body addon `addon` in FNV bare skin `bare`'s color (creature_tint, a copy wearing an MSWP), made
+        once per folder and skin."""
+        key = f'{folder} {bare} body'
+        if key not in self.tinted:
+            write, name = self.builder.writer, f'FNV_{Path(bare).stem}'
+            if self.tint_archives is None:
+                self.tint_archives = Archives(FALLOUT4_DIR / 'Data')
+            pairs = tinted(self.tint_archives, self.export_dir, self.data_dir, PAIRS[folder].body, bare)
+            swap, arma = write.derive_formid(SITE, f'{key} MSWP'), write.derive_formid(SITE, f'{key} ARMA')
+            write.add_record('MSWP', R.pack_mswp(swap, f'{name}_BodySwap', pairs))
+            ms = struct.pack('<I', swap)
+            write.add_record('ARMA', copy_record(addon, arma, f'{name}_BodyAA', drop=MODEL_TEXTURES, edit=lambda tag, data: (
+                pack_subrecord(tag.decode(), data) + (pack_subrecord(SWAPS[tag].decode(), ms) if tag in SWAPS else b''))))
+            self.tinted[key] = arma
+        return self.tinted[key]
+
+    def _face(self, npc, bare: str) -> int:
+        """A copy of target NPC `npc`'s race's default face set (DFTM) wearing its material in FNV bare skin
+        `bare`'s color (tinted_materials), made once per skin."""
+        key = f'{bare} face'
+        if key not in self.tinted:
+            if self.face_sets is None:
+                self.face_sets = {r.form_id: r for r, _ in walk(self.builder.fo4, b'RACE', b'TXST')}
+            race = self.face_sets[_form(npc, b'RNAM')]
+            txst = self.face_sets[_form(race, b'DFTM')]
+            material = 'materials\\' + dict(subrecords(txst.body))[b'MNAM'].rstrip(b'\0').decode().lower()
+            (_, copy), = tinted_materials(self.tint_archives, self.export_dir, self.data_dir, [material], bare)
+            fid, write = self.builder.writer.derive_formid(SITE, f'{key} TXST'), self.builder.writer
+            write.add_record('TXST', copy_record(txst, fid, f'FNV_{Path(bare).stem}_Face', {b'MNAM': _zstr(copy)}))
+            self.tinted[key] = fid
+        return self.tinted[key]
+
+    def _mesh(self, rec: dict, folder: str) -> tuple:
+        """FNV creature `rec`'s body (its NIFZ parts) on its pair's skeleton, written once: (its FO4 model path, FNV's
+        bare skin texture when it is worn over FO4's body, else None: a pair that doesn't, or a skin that is its
+        armor too)."""
         names = [rec[f'NIFZ[{i}]'].lower() for i in range(int(rec.get('NIFZCount', 0)))]
         rel = f'{folder}\\{"_".join(n.rsplit(".", 1)[0] for n in names)}.nif'
         if rel not in self.meshes:
@@ -463,9 +538,10 @@ class Creatures:
                 self.fits[folder] = creature_fit(self.export_dir, folder, self.archives)
             meshes = asset_root(self.export_dir, 'meshes', folder)
             parts = [(cached_convert(meshes / n, self.export_dir, animated=False), meshes / n) for n in names]
+            bare = (skin_texture([meshes / n for n in names]) or None) if PAIRS[folder].fo4_body else None
             body = creature_mesh(parts, self.fits[folder], PAIRS[folder].rig.root,
-                                 skeleton_parents(meshes / 'skeleton.nif'))
-            self.meshes[rel] = write_converted(self.export_dir, body, rel, self.data_dir)[0]
+                                 skeleton_parents(meshes / 'skeleton.nif'), bare)
+            self.meshes[rel] = write_converted(self.export_dir, body, rel, self.data_dir)[0], bare
         return self.meshes[rel]
 
 
@@ -536,6 +612,25 @@ def _on_race(subs: bytes, race: int, skin: int) -> bytes:
             continue
         out += pack_subrecord(tag.decode(), struct.pack('<I', race) if tag in (b'RNAM', b'ATKR') else data)
     return out if placed else out + pack_subrecord('WNAM', struct.pack('<I', skin))
+
+
+def with_face(txst: int):
+    """An NPC record edit naming face texture set `txst` (FTST), before QNAM as vanilla's super mutants have it."""
+    ftst = pack_subrecord('FTST', struct.pack('<I', txst))
+
+    def edit(subs: bytes) -> bytes:
+        """The subrecords with FTST set."""
+        kept = [(t, d) for t, d in subrecords(subs) if t != b'FTST']
+        at = next((i for i, (t, _) in enumerate(kept) if t == b'QNAM'), len(kept))
+        return b''.join(pack_subrecord(t.decode(), d) for t, d in kept[:at]) + ftst + b''.join(
+            pack_subrecord(t.decode(), d) for t, d in kept[at:])
+    return edit
+
+
+def _with_slot(rec, slot: int) -> dict:
+    """{BOD2: skin or addon `rec`'s slots plus `slot` (bits)}."""
+    data = dict(subrecords(rec.body))[b'BOD2']
+    return {b'BOD2': struct.pack('<I', struct.unpack_from('<I', data)[0] | slot) + data[4:]}
 
 
 def _replaced(subs: bytes, values: dict) -> bytes:

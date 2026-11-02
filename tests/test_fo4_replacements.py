@@ -22,7 +22,7 @@ def test_defaults_hold_every_rule():
             RP.BASE, 'EncMolerat01Template', 'rig', (), 'creature', 'default')
     assert table.rules.creature['creatures\\dog'].mode == 'fnv'
     assert table.rules.creature['creatures\\smspinebreaker'] == RP.Replacement(
-        RP.BASE, 'EncSuperMutantTemplate', 'stats', (), 'creature', 'default')
+        RP.BASE, 'EncSuperMutantTemplate', 'fnv', (), 'creature', 'default')
     assert {k: e.edid for k, e in table.rules.body.items()} == {
         'human_male': 'DocWeathers', 'human_female': 'DoctorAmari', 'ghoul_male': 'Jones', 'ghoul_female': 'Holly'}
     assert [(bits, e.edid) for bits, e in table.rules.armor] == [

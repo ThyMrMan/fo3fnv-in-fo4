@@ -23,7 +23,8 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.base.writer import pack_fo4_record, pack_quest, pack_topic
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
-from fo4_import.spike.say_topics import settled_on
+from fo4_import.spike import conditions as C
+from fo4_import.spike.say_topics import raws, settled_on
 from fo4_import.spike.voice_types import with_voice
 from tes5_import.base.tes5_reader import walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
@@ -38,6 +39,8 @@ TOPIC = (bytes([0, 2, 0x11, 0]), b'SCEN')
 SCENE_FLAGS, RADIO, NO_ACTOR = 0x104, 6, -2
 #: FNV NOTE DATA type of a voice note.
 FNV_VOICE = 3
+#: Conditions naming who says a line.
+SPEAKER_TESTS = ('GetIsID', 'GetIsVoiceType')
 
 
 def _zstr(sig: str, text: str) -> bytes:
@@ -97,8 +100,7 @@ class Holotapes:
         """The FO4 holotape of FNV voice note `rec` (its FormID); None when its lines or speaker cannot convert."""
         key, fnv = rec['FormID'].upper(), self.voices.get(int(rec.get('SNAM', '0'), 16))
         speaker = self._speaker(rec, fnv) if fnv else None
-        lines = [spoken_by(info, fnv) for info in self.infos.get(rec.get('TNAM.Topic', '').upper(), [])] if fnv else []
-        lines = [line for line in lines if line]
+        lines = note_lines(self.infos.get(rec.get('TNAM.Topic', '').upper(), []), fnv) if fnv else []
         if speaker is None or not lines or self.builder.say is None:
             self.builder.counts['holotape left out (no speaker, lines or dialogue)'] += 1
             return None
@@ -136,6 +138,18 @@ class Holotapes:
         """A stand-in for note `rec`'s FNV speaker `fnv` (SNAM), on its voice type."""
         return speaker_npc(self.builder, f'NPC_ holotape {rec["FormID"].upper()}', f'FNV_{fnv["EditorID"]}Holotape',
                            fnv.get('FULL', ''), int(fnv.get('VTCK.Voice', '0'), 16))
+
+
+def note_lines(infos: list, speaker: dict) -> list:
+    """The lines of a note's topic (`infos`) its speaker record `speaker` says (spoken_by). On a topic several
+    quests share (Jacobstown's audio log names GREETING), a line must also name the speaker (GetIsID or
+    GetIsVoiceType), as a line testing no speaker is anyone's.
+    See: docs/fork/fo4_pipeline.md#holotapes
+    """
+    shared = len({info.get('QSTI.Quest', '').upper() for info in infos}) > 1
+    ids = {int(speaker['FormID'], 16), int(speaker.get('VTCK.Voice', '0'), 16)}
+    named = lambda info: any(c['func'] in SPEAKER_TESTS and c['p1'] in ids for c in map(C.parse, raws(info)))
+    return [line for line in (spoken_by(info, speaker) for info in infos if not shared or named(info)) if line]
 
 
 def spoken_by(info: dict, speaker: dict) -> 'dict | None':

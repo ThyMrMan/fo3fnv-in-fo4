@@ -402,9 +402,11 @@ settled from its source ([rules](#rules)), the same as FNV's.
    Scene ends the talk.
 3. **An XDI menu** (Player Dialogue action): the player INFOs of its four
    player topics fall into ranges, a non-empty INFO and the empty ones after it
-   (the pads); each range shows as one option when an INFO of it passes
-   (tested with the player as Subject, the NPC as Target), and a passing pad
-   whose prompt fails shows blank; the option's answer is the first passing NPC
+   (the pads); each range shows as one option when its non-empty INFO passes
+   (tested with the player as Subject, the NPC as Target); a pad is never
+   listed, and a menu with no option left shows "dialogueentry" (settled from
+   XDI 1.4.4 on 2026-11-01:
+   [XDI menus](../commentary/tools_preflight.md#xdi-menus)); the option's answer is the first passing NPC
    INFO in its range; XDI lists an option without testing its answers; Say
    Once player and NPC INFOs drop once said. *Verify:* each part.
 4. **The build's own state:** an AddTopic line's fragment sets the topic's

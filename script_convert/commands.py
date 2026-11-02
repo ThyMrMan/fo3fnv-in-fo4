@@ -29,7 +29,8 @@ from script_convert.command_rows import (
     ACTOR_VALUE_READ_FUNCTIONS, Cmd, param_types
 )
 from script_convert.emit.commands import emit_row
-from script_convert.target import anim_event_call, av_call, controls_call, fallout4_av_name, is_fallout4, self_as_actor
+from script_convert.target import (anim_event_call, av_call, controls_call, fallout4_av_name, is_fallout4,
+                                   on_talking_activator, self_as_actor)
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
@@ -38,7 +39,7 @@ from script_convert.constants import typed_already
 from script_convert.constants_falloutnv import (FALLOUT_COMMAND_ALIASES,
                                                 FALLOUT_UNMAPPED_ACTOR_VALUES)
 from tes5_import.dialogue.say_topics import PLAYER_TOKENS
-from script_convert.constants import TALKING_LISTS_PROPERTY
+from script_convert.constants import FALLOUT4_GREETING_TALK, TALKING_ACTIVATOR, TALKING_LISTS_PROPERTY
 from tes5_import.actors.confidence import (
     FACTION_EDID as CONFIDENCE_FACTION, FLEE_SPELL_EDID as CONFIDENCE_FLEE_SPELL,
     MARGIN_FACTION_EDID as FLEE_MARGIN_FACTION, SCALE_EDID as FLEE_HEALTH_SCALE)
@@ -373,7 +374,7 @@ def _force_greet(ctx, ref: str, parts: list) -> str:
         return ''
     named = len(parts) >= 2 and parts[1].strip()
     if is_fallout4():
-        scene = FALLOUT4_TALK_PREFIX + (parts[1].strip().split()[0] if named else 'GREETING')
+        scene = FALLOUT4_TALK_PREFIX + parts[1].strip().split()[0] if named else FALLOUT4_GREETING_TALK
         ctx.sc.property_refs[scene] = 'Scene'
         return f'TES4Polyfill.StartConversation({scene}, {ref})'
     topic = parts[1].strip().split()[0].lower() if named else ''
@@ -1237,9 +1238,22 @@ def activate(ctx, call) -> str:
     target = f'{ref}.' if ref else ''
     if run_flag == '1':
         return f'{target}Activate({activator})'
+    if _talker(ctx, call):
+        ctx.sc.property_refs[FALLOUT4_GREETING_TALK] = 'Scene'
+        return f'TES4Polyfill.TalkerActivate({FALLOUT4_GREETING_TALK}, {ref or "Self"}, {activator})'
     if ctx.xref and ctx.xref.is_fallout() and (ref or call.extends in ('ObjectReference', 'Actor')):
         return f'TES4_TwoStateActivator.DefaultActivate({ref or "Self"}, {activator})'
     return f'{target}Activate({activator}, true)'
+
+
+def _talker(ctx, call) -> bool:
+    """Whether a Fallout 4 `activate` targets an FO3/FNV talking activator: the named reference's base, or the
+    record a bare call's script is attached to.
+    See: docs/fork/fo4_pipeline.md#talking-activators
+    """
+    if call.ref:
+        return is_fallout4() and bool(ctx.xref) and ctx.xref.get_base_signature(call.ref) == TALKING_ACTIVATOR
+    return call.extends == 'ObjectReference' and on_talking_activator(ctx)
 
 
 def _flag(src: str) -> str:
@@ -1788,7 +1802,7 @@ def _flagged_controls(call, disabling: bool) -> str:
     A flag left out takes the engine's preset (CONTROL_DEFAULTS); a Skyrim
     `false` leaves a control alone; movement and rollover text both stop
     activation, and the Pip-Boy is the menus and journal (Fallout 4: the journal alone; its menu flag is the
-    pause menu, which FO3/FNV never blocked).
+    pause menu, which FO3/FNV never blocked). A Fallout 4 disable leaves activation on: dialogue needs it.
     See: docs/commentary/script_convert.md#player-control-flags
     """
     defaults = CONTROL_DEFAULTS[disabling]
@@ -1796,6 +1810,7 @@ def _flagged_controls(call, disabling: bool) -> str:
     literal = {mov, roll} <= {'true', 'false'}
     activate = (str('true' in (mov, roll)).lower() if literal
                 else roll if mov == 'false' else mov if roll == 'false' else f'{mov} || {roll}')
+    activate = 'false' if disabling and is_fallout4() else activate
     return ', '.join((mov, fight, pov, look, sneak, 'false' if is_fallout4() else pip, activate, pip))
 
 

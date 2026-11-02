@@ -636,22 +636,107 @@ DOG = Path('export/FalloutNV.esm/meshes/creatures/dog')
 
 @pytest.mark.skipif(not (DOG / 'dogskin.nif').exists() or not (FALLOUT4_DIR / 'Data').exists(),
                     reason='needs the FalloutNV.esm export and Fallout 4')
-def test_fnvs_dog_sits_on_dogmeats_skeleton_with_its_eyes_level():
-    """Cheyenne's parts on Dogmeat: every shape skinned, the body on Dogmeat's surface, the eyes symmetric."""
-    fit = CR.creature_fit(Path('export/FalloutNV.esm'), 'creatures\\dog', Archives(FALLOUT4_DIR / 'Data'))
-    parts = [(C.convert(str(DOG / n), 'export/FalloutNV.esm', animated=False), DOG / n)
-             for n in ('dogskin.nif', 'eyessetblue.nif')]
-    nif = F.read(F.write(CR.creature_mesh(parts, fit, CR.DOG.root, CR.skeleton_parents(DOG / 'skeleton.nif')).nif))
+def _creature_shapes(folder: Path, parts: tuple, skin: str = None) -> tuple:
+    """(fit, {shape name: positions}, the NIF) of FNV creature `parts` in `folder` on its FO4 pair (over FO4's body
+    with FNV bare skin texture `skin`); every shape skinned, no dismemberment cap among them."""
+    key = f'creatures\\{folder.name}'
+    fit = CR.creature_fit(Path('export/FalloutNV.esm'), key, Archives(FALLOUT4_DIR / 'Data'))
+    converted = [(C.convert(str(folder / n), 'export/FalloutNV.esm', animated=False), folder / n) for n in parts]
+    nif = F.read(F.write(CR.creature_mesh(converted, fit, CR.PAIRS[key].rig.root,
+                                          CR.skeleton_parents(folder / 'skeleton.nif'), skin).nif))
     shapes = {}
     for kind, raw in nif.blocks:
         if kind == 'BSSubIndexTriShape':
             shape = K.read_tri_shape(K.Reader(raw))
             assert shape['skin'] != K.NONE
             shapes[nif.strings[shape['name']]] = np.array([v['position'] for v in shape['vertices']])
-    assert 'Dog' in shapes and not any(n.startswith('MeatCap') for n in shapes)
+    assert not any(n.startswith('MeatCap') for n in shapes)
+    return fit, shapes, nif
+
+
+@pytest.mark.skipif(not (DOG / 'dogskin.nif').exists() or not (FALLOUT4_DIR / 'Data').exists(),
+                    reason='needs the FalloutNV.esm export and Fallout 4')
+def test_fnvs_dog_sits_on_dogmeats_skeleton_with_its_eyes_level():
+    """Cheyenne's parts on Dogmeat: the body on Dogmeat's surface, the eyes symmetric."""
+    fit, shapes, _ = _creature_shapes(DOG, ('dogskin.nif', 'eyessetblue.nif'))
     assert np.median(cKDTree(fit.samples[0]).query(shapes['Dog'])[0]) < 1.0
     eyes = shapes['EyesBlue:0']
     assert abs(eyes[:, 0].min() + eyes[:, 0].max()) < 0.5 and 25 < eyes[:, 1].mean() < 35
+
+
+SUPER_MUTANT = Path('export/FalloutNV.esm/meshes/creatures/smspinebreaker')
+
+
+@pytest.mark.skipif(not (SUPER_MUTANT / 'nv_sm_v2_1_base.nif').exists() or not (FALLOUT4_DIR / 'Data').exists(),
+                    reason='needs the FalloutNV.esm export and Fallout 4')
+def test_fnvs_super_mutant_stands_in_fo4s_super_mutant_body_space():
+    """FO4's super mutant body skins 140 units below its skeleton: FNV's mutant and armor land on it, feet on its
+    soles."""
+    fit, shapes, _ = _creature_shapes(SUPER_MUTANT, ('nv_sm_v2_1_base.nif', 'smspinebreakerlight.nif'))
+    near = cKDTree(fit.samples[0])
+    assert np.median(near.query(shapes['New_UV_lo_lfeet:0'])[0]) < 2.0
+    assert np.median(near.query(shapes['Boots00:0'])[0]) < 3.0
+    assert abs(shapes['Boots00:0'][:, 2].min() - fit.samples[0][:, 2].min()) < 2.0
+
+
+def _arm_raised_stretch(nif, fit) -> float:
+    """The most any edge of `nif`'s shapes stretches with the left arm raised 90 degrees at the shoulder."""
+    _, rot, t = fit.bind[fit.bones.index('LArm_UpperArm')]
+    joint, turn = -rot.T @ t, np.array([[0.0, 0, -1], [0, 1, 0], [1, 0, 0]])
+    most = 0.0
+    for kind, raw in nif.blocks:
+        if kind != 'BSSubIndexTriShape':
+            continue
+        shape = K.read_tri_shape(K.Reader(raw))
+        names = [nif.strings[nif.blocks[n][1]['name']] for n in O.shape_bones(nif, shape)[0]]
+        arm = {i for i, n in enumerate(names) if n.startswith('LArm_') and 'Collarbone' not in n}
+        rest = np.array([v['position'] for v in shape['vertices']])
+        share = np.array([sum(w for w, b in zip(v['weights'], v['bones']) if b in arm) for v in shape['vertices']])
+        posed = rest + share[:, None] * ((rest - joint) @ turn.T + joint - rest)
+        edges = np.vstack([np.array(shape['triangles'])[:, pair] for pair in ((0, 1), (1, 2), (2, 0))])
+        before = np.linalg.norm(rest[edges[:, 0]] - rest[edges[:, 1]], axis=1)
+        after = np.linalg.norm(posed[edges[:, 0]] - posed[edges[:, 1]], axis=1)
+        most = max(most, float((after / np.maximum(before, 1e-4))[before > 1e-4].max()))
+    return most
+
+
+@pytest.mark.skipif(not (SUPER_MUTANT / 'nightkinbare.nif').exists() or not (FALLOUT4_DIR / 'Data').exists(),
+                    reason='needs the FalloutNV.esm export and Fallout 4')
+def test_fnvs_nightkin_keeps_its_own_weights_so_a_raised_arm_does_not_tear_its_armor():
+    """A raised arm stretches nightkin no more than FO4's own body (4x)."""
+    fit, _, nif = _creature_shapes(SUPER_MUTANT, ('nightkinbare.nif', 'nv_night_base.nif'))
+    assert _arm_raised_stretch(nif, fit) < 4.0
+
+
+def _inside_share(points: np.ndarray, fit) -> float:
+    """The share of `points` more than 0.05 units inside FO4's body (fit.points, fit.tris, wound outward)."""
+    corners = fit.points[fit.tris]
+    normal = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    samples, owner, _ = fit.samples
+    _, i = cKDTree(samples).query(points)
+    n = normal[owner[i]] / np.linalg.norm(normal[owner[i]], axis=1, keepdims=True)
+    return float(np.mean(np.einsum('ij,ij->i', points - samples[i], n) < -0.05))
+
+
+@pytest.mark.skipif(not (SUPER_MUTANT / 'nightkinbare.nif').exists() or not (FALLOUT4_DIR / 'Data').exists(),
+                    reason='needs the FalloutNV.esm export and Fallout 4')
+def test_nightkin_over_fo4s_body_and_head_keep_only_fnvs_armor():
+    """Over FO4's body and head: FNV's bare skin (SM3D1024_D) part drops whole (no NEW_UV_lo head, teeth or bands),
+    no shape binds a finger, and no armor shape has over 2% of its vertices inside FO4's body."""
+    parts = ('nightkinbare.nif', 'nv_night_base.nif')
+    skin = CR.skin_texture([SUPER_MUTANT / n for n in parts])
+    assert skin.endswith('sm3d1024_d.dds')
+    fit, shapes, nif = _creature_shapes(SUPER_MUTANT, parts, skin)
+    names = []
+    for kind, raw in nif.blocks:
+        if kind == 'BSSubIndexTriShape':
+            shape = K.read_tri_shape(K.Reader(raw))
+            name = nif.strings[shape['name']]
+            names.append(name)
+            bones = [nif.strings[nif.blocks[n][1]['name']] for n in O.shape_bones(nif, shape)[0]]
+            assert not any('Finger' in b for b in bones), name
+            assert _inside_share(shapes[name], fit) <= 0.02, name
+    assert names and not any(n.startswith('NEW_UV_lo') for n in names)
 
 
 def test_a_fire_addon_maps_to_fo4s_by_name_and_a_damage_stage_one_is_left_out():
@@ -677,6 +762,19 @@ def test_an_alpha_tested_glow_shape_keeps_its_cut_and_glows_through_an_additive_
     assert glow.kind == 'effect' and glow.alpha == C.NEON_ALPHA and glow.glow[0] == 'fnv\\a_a_e_cut64.dds'
     assert (glow.data['src_blend'], glow.data['dst_blend'], glow.data['decal']) == (6, 0, True)
     assert glow.shader[1][0] & C.DECAL_FLAGS == C.DECAL_FLAGS
+
+
+def test_a_lit_shape_without_a_diffuse_fnv_has_draws_white_under_its_vertex_colours(tmp_path):
+    """mountedbrahminhead01's plaque names grey.bmp, absent from FNV: vanilla's white, the untextured name, its
+    normal map still in slot 1; a texture swap names the material from the new diffuse."""
+    normal = tmp_path / 'textures' / 'a_n.dds'
+    normal.parent.mkdir(parents=True)
+    normal.write_bytes(b'')
+    mat = C.lit_material(['grey.bmp', 'textures\\a_n.dds'], {}, None, False, False, tmp_path)
+    assert mat.data['textures']['diffuse'] == C.WHITE_DIFFUSE and mat.path.startswith('materials\\fnv\\untextured')
+    assert mat.textures == ['', 'textures\\a_n.dds']
+    swapped = dict(mat.data, textures=dict(mat.data['textures'], diffuse='fnv/b.dds'))
+    assert C.retextured(mat.path, mat.data, swapped).startswith('materials\\fnv\\b')
 
 
 def test_a_glow_map_lights_the_material_with_fnvs_emissive_colour():

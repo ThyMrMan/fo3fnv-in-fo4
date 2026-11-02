@@ -32,15 +32,15 @@ def _said(fid: str, prompt: str, tests: list, flags: int = 0) -> dict:
     return {**rec, **{f'Condition[{i}].Raw': raw for i, raw in enumerate(tests)}}
 
 
-def _earlier(lines: list, actors: dict = None, unfixed: frozenset = frozenset()) -> tuple:
+def _earlier(lines: list, actors: dict = None, unfixed: frozenset = frozenset(), forms: dict = None) -> tuple:
     """({prompt: the CTDAs hiding its option behind earlier lines}, the conversation) for one topic's `lines`;
-    the Hub's actor records `actors` and script-changed factions `unfixed`."""
+    the Hub's actor records `actors`, script-changed factions `unfixed`, the form map `forms` (FORMS)."""
     say = SimpleNamespace(infos={'Q1': lines}, dials={'D1': {'FULL': 'Topic', 'DATA.Type': '0'}}, script_vars={},
                           once=SayOnce(), builder=SimpleNamespace(counts=Counter()))
     quest = {'FormID': 'Q1', 'EditorID': 'One'}
     shared = hub(say, [quest], {'One': 1}, set())
     shared.actors, shared.unfixed = actors or {}, unfixed
-    talk = Conversations(say, quest, 1, FORMS, 0, shared)
+    talk = Conversations(say, quest, 1, forms or FORMS, 0, shared)
     order = [((rec['Prompt'], 'Q1'), rec, named_speaker(rec)) for rec in lines]
     return {rec['Prompt']: talk._earlier((rec['Prompt'], 'Q1'), order) for rec in lines}, talk
 
@@ -117,6 +117,85 @@ def test_a_named_line_hides_a_generic_option_only_from_an_actor_who_can_say_it()
               for actors, unfixed in (({}, frozenset()), ({DOC: member}, frozenset()), ({DOC: outside}, frozenset({GOSSIP})))]
     assert hidden == [[(0x20, 1.0, C.FO4.index('GetIsID'), FORMS[DOC], 0, R.RUN_TARGET)]] * 3
     assert _earlier(lines, {DOC: outside})[0]['Gossip bye.'] == b''
+
+
+def test_a_say_once_option_drops_by_its_answers_markers_not_the_prompts_own_say_once():
+    """"What are Powder Gangers?", answered once by each of two NPCs: FO4's Say Once on the prompt would hide it
+    after the first answer while its pad still passed (a blank "dialogueentry" option); prompt and pad both read
+    the answers' markers instead."""
+    lines = [_said('L1', 'Gangers?', [_test('GetIsID', DOC)], 0x04), _said('L2', 'Gangers?', [_test('GetIsID', ADA)], 0x04)]
+    _, talk = _earlier(lines)
+    talk.say.builder.new_id = lambda owner, key=None: len(key or owner)
+    talk._line = lambda rec, continues, alias=None, place='': b'answer'
+    for name in ('_shared', '_either', '_speakers', '_running', '_gate'):
+        setattr(talk, name, lambda *args: b'')
+    player, npc = [], []
+    assert talk._prompt('D1', 'Gangers?', lines, (player, npc), False, 'place')
+    prompt, pad = (dict((s.type, s.data) for s in _subs(info)) for info in player)
+    assert struct.unpack('<H', prompt['ENAM'][:2])[0] & R.INFO_SAY_ONCE == 0
+    assert prompt['CTDA'] == pad['CTDA'] and struct.unpack_from('<H', prompt['CTDA'], 8)[0] == STAGE_DONE
+
+
+def test_the_greeting_starts_for_a_talker_in_a_speakers_talking_as_list():
+    """Tabitha's dish hut transceiver: activating it opens the Greeting, whose starter line passes for Tabitha
+    (GetIsID) or a talker in her talking-as list (IsInList), so her intercom greeting plays."""
+    tabitha, flst = 0x0E60F1, 0x0A000099
+    line = {**_line('T1', GREETING, 'Q1'), 'ConditionCount': '1', 'Condition[0].Raw': _test('GetIsID', tabitha)}
+    say = SimpleNamespace(infos={'Q1': [line]}, dials={GREETING: {'DATA.Type': '1'}}, script_vars={}, once=SayOnce(),
+                          silent=[], builder=SimpleNamespace(counts=Counter(), new_id=lambda owner, key=None: len(owner),
+                                                             scripts=SimpleNamespace(used=[])))
+    say.info = lambda rec, form_map, *args, **kwargs: b''
+    quest = {'FormID': 'Q1', 'EditorID': 'One'}
+    talk = Conversations(say, quest, 1, {tabitha: 0x0A000005, (C.TALKING_AS, tabitha): flst}, 0,
+                         hub(say, [quest], {'One': 1}, set()))
+    talk.greeting([])
+    ctdas = [c for c in _ctdas_in(talk.topics[-1])]
+    assert (C.FO4.index('GetIsID'), 0x0A000005) in ctdas and (C.FO4.index('IsInList'), flst) in ctdas
+
+
+def test_the_greeting_line_opens_its_scene_by_script_not_tsce():
+    """A GREETING scene left playing (a talk cut off, a save made mid-talk) made every later TSCE start fail, so
+    menus showed only "dialogueentry"; the starter line carries F3NV_Greeting, which stops it and starts it again."""
+    line = {**_line('T1', GREETING, 'Q1'), 'ConditionCount': '1', 'Condition[0].Raw': _test('GetIsID', DOC)}
+    say = SimpleNamespace(infos={'Q1': [line]}, dials={GREETING: {'DATA.Type': '1'}}, script_vars={}, once=SayOnce(),
+                          silent=[], builder=SimpleNamespace(counts=Counter(), new_id=lambda owner, key=None: len(owner),
+                                                             scripts=SimpleNamespace(used=[])))
+    say.info = lambda rec, form_map, *args, **kwargs: b''
+    quest = {'FormID': 'Q1', 'EditorID': 'One'}
+    talk = Conversations(say, quest, 1, FORMS, 0, hub(say, [quest], {'One': 1}, set()))
+    talk.greeting([])
+    starter = talk.topics[-1]
+    assert b'F3NV_Greeting' in starter and b'TSCE' not in starter and b'ALFA' not in starter
+    assert talk.say.builder.scripts.used == ['F3NV_Greeting']
+
+
+def _ctdas_in(blob: bytes) -> list:
+    """(function, param 1) of every CTDA in a packed topic blob."""
+    out, at = [], 0
+    while (at := blob.find(b'CTDA\x20\x00', at)) >= 0:
+        out.append(struct.unpack_from('<H2xI', blob, at + 6 + 8))
+        at += 6
+    return out
+
+
+def _subs(record: bytes) -> list:
+    """The subrecords of one packed FO4 record."""
+    out, at = [], 24
+    while at < len(record):
+        size = struct.unpack_from('<H', record, at + 4)[0]
+        out.append(SimpleNamespace(type=record[at:at + 4].decode(), data=record[at + 6:at + 6 + size]))
+        at += 6 + size
+    return out
+
+
+def test_a_later_prompt_hides_behind_an_earlier_line_said_through_an_intercom():
+    """Chris Haversam's intercom goodbyes: "Got it." passes for Chris or a talker in his talking-as list, so
+    "Sure." shows only while both fail: not Chris, or not in the list, each in its own OR-group."""
+    chris, flst = 0x0810E9, 0x0A000099
+    lines = [_said('L1', 'Got it.', [_test('GetIsID', chris)]), _said('L2', 'Sure.', [_test('GetIsID', chris)])]
+    earlier, _ = _earlier(lines, forms={chris: 0x0A000006, (C.TALKING_AS, chris): flst})
+    assert _ctdas(earlier['Sure.']) == [(0x20, 1.0, C.FO4.index('GetIsID'), 0x0A000006, 0, R.RUN_TARGET),
+                                        (0x00, 0.0, C.FO4.index('IsInList'), flst, 0, R.RUN_TARGET)]
 
 
 def test_a_prompt_behind_a_line_that_always_passes_never_shows():

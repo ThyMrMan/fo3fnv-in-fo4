@@ -5,7 +5,9 @@ Once lines step through a chain. FO4's Say does the same with a Custom topic
 (DATA 0, SNAM CUST) in a branch of its quest, as vanilla's MS09Branch. The
 quest's Conversation-type topics (FNV DIAL type 1) become such topics, but
 HELLO and GOODBYE, which FNV's engine plays itself, become the quest's FO4
-Hello and Goodbye topics, which FO4's engine plays the same way; each
+Hello and Goodbye topics, which FO4's engine plays the same way, as its
+other engine topics (Attack, AlertIdle, ...) become the quest's FO4 bark
+topics (barks.FNV_BARKS); each
 line keeps its responses, Say Once flag, conditions (forms through the cell;
 GetQuestVariable as GetVMQuestVariable on the converted property) and its
 converted result fragments. Lines with a condition that cannot convert are
@@ -14,10 +16,12 @@ left out and counted.
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
+import re
 from pathlib import Path
 
 from fo4_import.base.vmad import info_fragments, object_scripts
 from fo4_import.base.writer import pack_topic
+from fo4_import.spike.barks import ENGINE_BARKS
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form
@@ -26,14 +30,18 @@ from fo4_import.spike.say_once import SayOnce
 from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, translated
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import Layered, export_records
 from script_convert.constants import papyrus_script_name
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 
-#: FNV DIAL type of the topics scripts Say: Conversation.
-CONVERSATION = '1'
-#: FNV's Conversation topics the engine plays itself, HELLO and GOODBYE, and the FO4 topic kind it plays the same way.
-ENGINE_TOPICS = {'000000D2': R.TOPIC_HELLO, '000000D4': R.TOPIC_GOODBYE}
+#: FNV DIAL type of the topics scripts Say: Conversation; of player topics (Topic), and its Top-level flag.
+CONVERSATION, TOPIC_TYPE, TOP_LEVEL = '1', '0', 0x02
+#: A line's lists naming topics it leads to or reveals.
+REACHING = ('Choice', 'FollowUp', 'LinkFrom', 'AddTopic')
+#: A converted Say: TES4Polyfill.SayWhenFree(speaker, Topic, target).
+SAY_FREE = re.compile(r'SayWhenFree\([^,]+,\s*(\w+)\s*,')
+#: FNV topics the engine plays itself (HELLO, GOODBYE, the barks) -> the FO4 topic kind its engine plays the same way.
+ENGINE_TOPICS = {'000000D2': R.TOPIC_HELLO, '000000D4': R.TOPIC_GOODBYE, **ENGINE_BARKS}
 #: FNV INFO DATA flag Say Once.
 SAY_ONCE = 0x04
 #: Keys of a split line's part (conversation.part): its number and the line's count of parts.
@@ -57,6 +65,29 @@ SCRIPTED_BASES = ('NPC_', 'CREA', 'ACTI', 'TACT', 'CONT', 'DOOR', 'FURN', 'MISC'
 REPUTATION_FIRST_SLOT = {'GetReputation': 0, 'GetReputationThreshold': 2}
 
 
+def free_said(scripts_dir) -> set:
+    """Topic names (lower case) a converted script or package fragment in `scripts_dir` (a folder, a Layered one,
+    or None) says with TES4Polyfill.SayWhenFree."""
+    folders = [Path(f).joinpath(*scripts_dir.parts) for f in scripts_dir.folders] if isinstance(
+        scripts_dir, Layered) else [Path(scripts_dir)] if scripts_dir else []
+    return {m.group(1).lower() for folder in folders if folder.is_dir() for path in folder.glob('*.psc')
+            for m in SAY_FREE.finditer(path.read_text(encoding='utf-8', errors='replace'))}
+
+
+def said_only(dials: dict, infos: list, said: set, packages: list = ()) -> set:
+    """FNV FormIDs of the Topic-type topics in `dials` whose EditorID `said` names and that nothing else reaches:
+    not top-level, no line's Choice, Follow Up, Link From or AddTopic, no Dialogue package's topic (the greeting
+    builds those). Their lines are built as a script's.
+    See: docs/fork/fo4_pipeline.md#said-topics
+    """
+    reached = {r[f'{key}[{i}]'].upper() for r in infos for key in REACHING
+               for i in range(int(r.get(f'{key}Count', 0) or 0))}
+    reached |= {p['PKDD.Topic'].upper() for p in packages if p.get('PKDD.Topic')}
+    return {fid for fid, d in dials.items() if d.get('DATA.Type') == TOPIC_TYPE
+            and (d.get('EditorID') or '').lower() in said and fid.upper() not in reached
+            and not int(d.get('DATA.Flags', 0) or 0) & TOP_LEVEL}
+
+
 class SayTopics:
     """FO4 Custom topics for FNV quests' Conversation topics; `voiced` lists [(FO4 INFO, FNV INFO)], `silent`
     [(FO4 INFO, said by the player)] for the silent lines (voice.silent_jobs)."""
@@ -73,18 +104,22 @@ class SayTopics:
             quest = rec.get('QSTI.Quest', '').upper()
             self.infos.setdefault(quest, []).append(with_quest(rec, quests.get(quest, [])))
         self.script_vars = builder.script_vars
+        self.said = said_only(self.dials, export_records(export_dir, 'INFO'), free_said(builder.scripts.dir),
+                              export_records(export_dir, 'PACK'))
 
     def topics(self, quest: dict) -> list:
-        """FNV FormIDs of `quest`'s Conversation topics, in first-line order."""
+        """FNV FormIDs of `quest`'s Conversation topics, engine topics (ENGINE_TOPICS) and the Topic-type topics
+        only a script says (said_only), in first-line order."""
         seen = {}
         for rec in self.infos.get(quest['FormID'].upper(), []):
-            if self.dials.get(rec['ParentDIAL'], {}).get('DATA.Type') == CONVERSATION:
-                seen.setdefault(rec['ParentDIAL'], None)
+            dial = rec['ParentDIAL']
+            if self.dials.get(dial, {}).get('DATA.Type') == CONVERSATION or dial in self.said or dial in ENGINE_TOPICS:
+                seen.setdefault(dial, None)
         return list(seen)
 
     def build(self, quest: dict, quest_fid: int, topic_ids: dict, form_map: dict) -> tuple:
-        """(DLBR record, or None when every topic is HELLO or GOODBYE, and [topic blobs]) of `quest`'s topics
-        `topic_ids` ({FNV DIAL: FO4 FormID}, not empty); HELLO and GOODBYE are the engine's own (ENGINE_TOPICS).
+        """(DLBR record, or None when every topic is the engine's, and [topic blobs]) of `quest`'s topics
+        `topic_ids` ({FNV DIAL: FO4 FormID}, not empty); the engine's own (ENGINE_TOPICS) sit in no branch.
 
         `form_map` maps the FNV forms conditions name to FO4 ones.
         """
@@ -240,7 +275,8 @@ def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
     one never true in this build (conditions.without_absent), the first form it lacks."""
     conds = _settled(rec, form_map)
     if conds is None:
-        first = next((c['func'] for c in parsed(rec) if C.absent(c, form_map) is False), '')
+        first = next((c['func'] for c in C.talking_through(parsed(rec), form_map) if C.absent(c, form_map) is False),
+                     '')
         return f'{first}: never true in this build'
     for cond in conds:
         if _fo4_condition(cond, form_map, script_vars) is None:
@@ -249,8 +285,9 @@ def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
 
 
 def _settled(rec: dict, form_map: dict, item: bool = False) -> 'list | None':
-    """An FNV record's conditions settled (without_absent), translated; or None."""
-    conds = C.without_absent(parsed(rec), form_map)
+    """An FNV record's conditions with talking activators read (talking_through), settled (without_absent),
+    translated; or None."""
+    conds = C.without_absent(C.talking_through(parsed(rec), form_map), form_map)
     return None if conds is None else translated(conds, form_map.get(TYPE_KEYWORDS), item)
 
 

@@ -12,7 +12,8 @@ import os
 
 from script_convert.constants import (FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS,
                                       FALLOUT4_FALLOUT_AV_RENAMES, FALLOUT4_HELPER_AV_ALIASES,
-                                      FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_PLUGIN, FALLOUT4_MENU_NAMES)
+                                      FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_PLUGIN, FALLOUT4_MENU_NAMES,
+                                      TALKING_ACTIVATOR)
 
 SKYRIM, FALLOUT4 = 'skyrim', 'fallout4'
 TARGET_ENV = 'TES4SKYRIM_PAPYRUS_TARGET'
@@ -37,6 +38,16 @@ def set_target(name: str) -> None:
 def is_fallout4() -> bool:
     """True when this run emits Fallout 4 Papyrus."""
     return os.environ.get(TARGET_ENV) == FALLOUT4
+
+
+def on_talking_activator(conv) -> bool:
+    """Whether `conv`'s script is attached to an FO3/FNV talking activator, on Fallout 4, where the game's own
+    activation of one opens no greeting (TES4Polyfill.TalkerActivate does).
+    See: docs/fork/fo4_pipeline.md#talking-activators
+    """
+    xref, edid = conv.xref, conv.sc.edid
+    return is_fallout4() and bool(xref and edid) and any(
+        xref.record_type.get(fid) == TALKING_ACTIVATOR for fid in xref.script_owner_actors(edid))
 
 
 def event_opener(skyrim_opener: str) -> str:

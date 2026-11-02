@@ -224,6 +224,15 @@ from Fallout4.exe; fix played 2026-10-22).**
   (`TES4Radio|<time>|restart|<scene>`). With the fix, Mojave's scene ran
   from 45 s to 200 s, a whole song, and Trudy's radio played complete
   songs (played 2026-10-22).
+- **Unheard stations restart every 5 s** (measured in the four play-test
+  logs of 2026-10-31 and 2026-11-01). A station nobody is tuned to says
+  each line for about 17 ms. Its step ends at once (`short step`), and the
+  playlist's timer starts it again. On 2026-11-01 each such station logged
+  about 55 restarts in 12 minutes. Meanwhile, Mojave Music Radio, while
+  listened to, held one line for 228 s. The loop is therefore the failsafe
+  working as designed, not a fault, and silent intercoms are a separate
+  issue ([talking activators](fo4_pipeline.md#talking-activators)). Every
+  line said this way still runs its result script.
 
 <a id="steps-model"></a>**Every station as steps (built 2026-10-22; Radio
 New Vegas played 2026-10-22: news, sign-off, song intro and songs in

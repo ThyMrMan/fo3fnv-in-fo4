@@ -68,9 +68,8 @@ import numpy as np
 
 from asset_convert.havok.clip_retarget import (Skeleton, compose, mat_to_quat_wxyz, quat_wxyz_to_mat, retarget_clip,
                                                two_bone, world_positions)
-from asset_convert.havok.gun_anim_falloutnv import FIRST_PERSON_ARMS
-from asset_convert.havok.gun_vocabulary_falloutnv import (ANIM_TYPE_CLASS, ATTACK_ACTIONS, ATTACK_ANIMS, FNV_AUTOMATIC,
-                                                       RELOAD_LETTERS)
+from asset_convert.havok.gun_vocabulary_falloutnv import (ANIM_TYPE_CLASS, ATTACK_ACTIONS, ATTACK_ANIMS,
+                                                       FIRST_PERSON_ARMS, FNV_AUTOMATIC, RELOAD_LETTERS)
 from asset_convert.havok.hkx_anim import clip_to_animation_data, held_to, loop_clip, slice_clip
 from asset_convert.havok.kf_decode import BoneTrack, DecodedClip
 from fo4_import.havok.kf_cache import decoded_clip

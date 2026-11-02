@@ -452,6 +452,38 @@ Function TraceActivate(ObjectReference akRef, ObjectReference akActionRef) Globa
 EndFunction
 
 ; fallout4: new
+Function TraceTrigger(ObjectReference akRef, ObjectReference akActionRef) Global
+  {A scripted trigger's OnTriggerEnter: who entered, and how many references it holds.}
+  If Tracing()
+    TraceWrite("trigger", TraceName(akRef) + "|entered by " + TraceName(akActionRef) + "|inside " + akRef.GetTriggerObjectCount())
+  EndIf
+EndFunction
+
+; fallout4: new
+Function TraceTriggerAttach(ObjectReference akRef) Global
+  {A scripted trigger's cell attaching: how many references it holds and the player's distance, now and (TraceTriggerLater) 3 s later.}
+  If Tracing()
+    TraceWrite("trigger", TraceTriggerCount(akRef, "attached"))
+    Var[] args = new Var[1]
+    args[0] = akRef
+    Utility.CallGlobalFunctionNoWait("TES4Polyfill", "TraceTriggerLater", args)
+  EndIf
+EndFunction
+
+; fallout4: new
+Function TraceTriggerLater(ObjectReference akRef) Global
+  {TraceTriggerAttach's second sample, 3 s after the attach.}
+  Utility.Wait(3.0)
+  TraceWrite("trigger", TraceTriggerCount(akRef, "3 s later"))
+EndFunction
+
+; fallout4: new
+String Function TraceTriggerCount(ObjectReference akRef, String asWhen) Global
+  {A trace line's trigger, the references inside it, the player's distance and moment.}
+  Return TraceName(akRef) + "|" + asWhen + "|inside " + akRef.GetTriggerObjectCount() + "|player at " + Game.GetPlayer().GetDistance(akRef)
+EndFunction
+
+; fallout4: new
 Function TraceAnimEvents(ScriptObject akListener, ObjectReference akRef) Global
   {While tracing, `akListener` hears `akRef`'s combat graph events (TraceAnim): the attack, ready and fire events FO4 fires a gun on.}
   If !Tracing()
@@ -593,6 +625,17 @@ EndFunction
 
 
 ; fallout4: new
+Function TalkerActivate(Scene akGreeting, ObjectReference akTalker, ObjectReference akActionRef) Global
+  {FO3/FNV default activation of a talking activator (an intercom): by the player it opens the talker's GREETING, as StartConversation does, said as whoever SetTalkingActivatorActor named; by anyone else, the game's own activation. Fallout 4's own activation of a talking activator opens no greeting.}
+  If akActionRef == Game.GetPlayer()
+    StartConversation(akGreeting, akTalker)
+  Else
+    akTalker.Activate(akActionRef, true)
+  EndIf
+EndFunction
+
+
+; fallout4: new
 Function ShowBarterMenu(Actor akVendor) Global
   {FNV ShowBarterMenu, usually run as a line ends: the vendor's talk scene stopped (its dialogue menu closes), then the barter menu once that menu has closed (2 s at most), so barter does not open over the talk.}
   Scene talk = akVendor.GetCurrentScene()
@@ -605,4 +648,39 @@ Function ShowBarterMenu(Actor akVendor) Global
     waited += 0.1
   EndWhile
   akVendor.ShowBarterMenu()
+EndFunction
+
+
+; fallout4: new
+Function RemoveAllTypedItems(ObjectReference akFrom, ObjectReference akTo, Bool abKeepOwner, Bool abSilent, Int aiType, FormList akType, FormList akExcept) Global
+  {FNV RemoveAllTypedItems: akFrom's items of type code aiType (akType, the build's list of that type's items; type 0 is every item) move to akTo, or are destroyed without one, except akExcept's. The ownership flag holds only for type 0 (FO4's RemoveItem has none).}
+  If akFrom == None || (aiType != 0 && akType == None)
+    Return
+  EndIf
+  Int n = 0
+  If akExcept
+    n = Math.Min(akExcept.GetSize(), 128) as Int
+  EndIf
+  Int[] held = new Int[n]
+  Int i = 0
+  While i < n
+    held[i] = akFrom.GetItemCount(akExcept.GetAt(i))
+    i += 1
+  EndWhile
+  If aiType == 0
+    akFrom.RemoveAllItems(akTo, abKeepOwner)
+  Else
+    akFrom.RemoveItem(akType, -1, abSilent, akTo)
+  EndIf
+  i = 0
+  While i < n
+    Form kept = akExcept.GetAt(i)
+    Int taken = held[i] - akFrom.GetItemCount(kept)
+    If taken > 0 && akTo
+      akTo.RemoveItem(kept, taken, True, akFrom)
+    ElseIf taken > 0
+      akFrom.AddItem(kept, taken, True)
+    EndIf
+    i += 1
+  EndWhile
 EndFunction

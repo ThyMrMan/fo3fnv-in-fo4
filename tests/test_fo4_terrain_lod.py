@@ -18,6 +18,12 @@ def test_lod_settings_name_the_grid_from_the_top_level_tiles():
     assert struct.unpack('<hhIII', T.lod_settings(found)) == (-64, -64, 128, 4, 32)
 
 
+def test_lod_settings_round_the_grid_to_a_power_of_two_top_tiles_across():
+    """Freeside's 3 level-8 tiles across give a 32-cell grid (4 across), as vanilla's 8 or 1; Freeside's 24 crashed."""
+    found = [(8, x, y, None) for x in (-10, -2, 6) for y in (-8, 0, 8)]
+    assert struct.unpack('<hhIII', T.lod_settings(found)) == (-10, -8, 32, 4, 8)
+
+
 def test_a_tile_missing_a_texture_is_left_out(tmp_path):
     """Lucky38World ships tile meshes with no textures: a tile counts only with both its diffuse and normals."""
     meshes, textures = tmp_path / 'meshes/landscape/lod/w', tmp_path / 'textures/landscape/lod/w'

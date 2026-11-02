@@ -41,24 +41,45 @@ def pack_script_quest(fid: int, edid: str, vmad: bytes, stages: tuple = ()) -> b
     return pack_fo4_record('QUST', fid, 0, subs + pack_subrecord('ANAM', struct.pack('<I', 0)))
 
 
-def pack_event_quest(fid: int, edid: str, event: bytes, vmad: bytes) -> bytes:
-    """A quest the Story Manager starts on `event` (ENAM), as CA_PossibleMurder."""
-    subs = pack_string_subrecord('EDID', edid) + pack_subrecord('VMAD', vmad)
-    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0, 0, 0.0, 0)) + pack_subrecord('ENAM', event)
-    return pack_fo4_record('QUST', fid, 0, subs + pack_subrecord('NEXT', b'') + pack_subrecord('ANAM', struct.pack('<I', 0)))
+def pack_event_quest(fid: int, edid: str, event: bytes, vmad: bytes = b'', priority: int = 0,
+                     aliases: tuple = ()) -> bytes:
+    """A quest the Story Manager starts on `event` (ENAM), as CA_PossibleMurder; `aliases` [(id, packed alias)]."""
+    subs = pack_string_subrecord('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
+    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0, priority, 0.0, 0)) + pack_subrecord('ENAM', event)
+    subs += pack_subrecord('NEXT', b'') + pack_subrecord('ANAM', struct.pack('<I', max((a for a, _ in aliases), default=-1) + 1))
+    return pack_fo4_record('QUST', fid, 0, subs + b''.join(packed for _, packed in aliases))
 
 
-#: Story Manager node flag Shares Event: later nodes still get the event (vanilla's quest nodes' DNAM).
-SHARES_EVENT = 0x20000
+#: Quest alias flag Allow Reserved, and ALFD All: any reference of the event (vanilla's ADIA quests' aliases).
+ALLOW_RESERVED, EVENT_ALL = 0x200, 0x7FFFFFFF
 
 
-def pack_story_node(fid: int, edid: str, parent: int, previous: int, quest: int) -> bytes:
-    """A Story Manager quest node under `parent` after sibling `previous` (0: first), starting `quest`, sharing the
-    event, as vanilla's CA_PossibleMurder_QuestNode 00239BE4."""
+def pack_event_alias(alias: int, name: str, event: bytes, conditions: bytes) -> bytes:
+    """A reference alias filled from a reference of Story Manager `event` passing `conditions`, as vanilla
+    ConvDiamondCityGenericNPC03's EvenToned."""
+    subs = pack_subrecord('ALST', struct.pack('<I', alias)) + pack_string_subrecord('ALID', name)
+    subs += pack_subrecord('FNAM', struct.pack('<I', ALLOW_RESERVED)) + pack_subrecord('ALFE', event)
+    subs += pack_subrecord('ALFD', struct.pack('<I', EVENT_ALL)) + conditions
+    return subs + pack_subrecord('VTCK', struct.pack('<I', 0)) + pack_subrecord('ALED', b'')
+
+
+#: Story Manager quest node flags: Shares Event (later nodes still get the event), Num Quests To Run (MNAM).
+SHARES_EVENT, NUM_QUESTS_TO_RUN = 0x20000, 0x40000
+
+
+def pack_story_node(fid: int, edid: str, parent: int, previous: int, quests: tuple, flags: int = SHARES_EVENT,
+                    reset: float = 0.0) -> bytes:
+    """A Story Manager quest node under `parent` after sibling `previous` (0: first), trying `quests` in order with
+    DNAM `flags` (NUM_QUESTS_TO_RUN starts one, as AO_LightsNode), each waiting raw RNAM `reset` to run again;
+    as vanilla's CA_PossibleMurder_QuestNode 00239BE4."""
     subs = pack_string_subrecord('EDID', edid) + pack_subrecord('PNAM', struct.pack('<I', parent))
     subs += pack_subrecord('SNAM', struct.pack('<I', previous)) + pack_subrecord('CITC', struct.pack('<I', 0))
-    subs += pack_subrecord('DNAM', struct.pack('<I', SHARES_EVENT)) + pack_subrecord('XNAM', struct.pack('<I', 0))
-    subs += pack_subrecord('QNAM', struct.pack('<I', 1)) + pack_subrecord('NNAM', struct.pack('<I', quest))
+    subs += pack_subrecord('DNAM', struct.pack('<I', flags)) + pack_subrecord('XNAM', struct.pack('<I', 0))
+    subs += pack_subrecord('MNAM', struct.pack('<I', 1)) if flags & NUM_QUESTS_TO_RUN else b''
+    subs += pack_subrecord('QNAM', struct.pack('<I', len(quests)))
+    for quest in quests:
+        subs += pack_subrecord('NNAM', struct.pack('<I', quest))
+        subs += pack_subrecord('RNAM', struct.pack('<f', reset)) if reset else b''
     return pack_fo4_record('SMQN', fid, 0, subs)
 
 

@@ -65,9 +65,11 @@ def package_fragments(script: str, flags: int, object_props: dict = None, value_
     return _fragment_block(script, flags, names, object_props, value_props)
 
 
-def terminal_fragments(script: str, fragments: list, object_props: dict = None) -> bytes:
-    """A TERM's VMAD (xEdit wbVMADFragmentedPERK): `script`'s fragments [(menu item ID, function)], as vanilla's."""
-    out = _header() + struct.pack('<b', BIND_DATA) + script_entry(script, object_props, None)
+def terminal_fragments(script: str, fragments: list, object_props: dict = None, scripts: list = ()) -> bytes:
+    """A TERM's VMAD (xEdit wbVMADFragmentedPERK): plain `scripts`, then `script`'s fragments [(menu item ID,
+    function)], as vanilla's."""
+    out = _header(len(scripts)) + b''.join(script_entry(*s) for s in scripts)
+    out += struct.pack('<b', BIND_DATA) + script_entry(script, object_props, None)
     out += struct.pack('<H', len(fragments))
     return out + b''.join(struct.pack('<IB', index, 1) + pack_wstring(script) + pack_wstring(name)
                           for index, name in fragments)

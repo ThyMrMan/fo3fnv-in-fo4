@@ -4,6 +4,7 @@ See: docs/fork/fo4_preflight.md#why
 """
 import json
 import struct
+from types import SimpleNamespace
 
 from fo4_import.base.vmad import info_fragments, object_scripts, quest_fragments
 from tests.test_preflight_audits import export_file, zs
@@ -68,6 +69,29 @@ def test_a_scene_line_speaks_only_through_a_scene_that_starts():
     """A property starts scene 1, whose line starts scene 2; unnamed, neither plays."""
     assert Fo4Dialogue(scene_plugin(True)).reachable_info(OWN | 0x21) == ''
     assert 'in no scene that starts' in Fo4Dialogue(scene_plugin(False)).reachable_info(OWN | 0x21)
+
+
+def test_talking_through_an_activator_reads_0_on_the_fnv_side():
+    """FNV's IsActorTalkingThroughActivator is 0 in every sampled state, as no actor talks through one on FO4."""
+    cond = {'func': D.FNV.index('IsActorTalkingThroughActivator'), 'p1': 0, 'p2': 0, 'run_on': 0, 'ref': 0}
+    assert D.source_fact(cond, None, {}) == 0.0
+
+
+def test_a_talking_as_list_reads_0_on_the_built_side():
+    """A built IsInList on a talking-as list reads 0, as FNV's IsActorTalkingThroughActivator does."""
+    index = fo4_index([rec('FLST', OWN | 0x50, [('EDID', zs('TES4TalkingAs_00001234'))])])
+    cond = {'func': D.FO4.index('IsInList'), 'p1': OWN | 0x50, 'p2': 0, 'run_on': 0, 'ref': 0, 'text': ''}
+    assert D.built_fact(cond, SimpleNamespace(index=index)) == 0.0
+
+
+def test_a_voice_holotape_starts_its_scene():
+    """A voice NOTE (DNAM 1) naming scene 2 starts it, so scene 2's line can speak; a plain note does not."""
+    for dnam, verdict in ((1, ''), (0, 'in no scene that starts')):
+        plugin = scene_plugin(False)
+        note = rec('NOTE', OWN | 0x40, [('DNAM', bytes([dnam])), ('SNAM', u32(OWN | 0x31))])
+        index = fo4_index([*(r for recs in plugin.by_type.values() for r in recs), note])
+        assert verdict in Fo4Dialogue(index).reachable_info(OWN | 0x21) if verdict else \
+            Fo4Dialogue(index).reachable_info(OWN | 0x21) == ''
 
 
 def test_a_line_whose_first_response_is_not_built_has_no_copies(tmp_path):

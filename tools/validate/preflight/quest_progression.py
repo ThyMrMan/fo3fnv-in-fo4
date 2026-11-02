@@ -234,13 +234,29 @@ def owner_stage(site):
     return quest.lower(), int(stage)
 
 
-def reached_stages(sites: list, live) -> set:
-    """{(quest lower, stage)} reached by a fixed point over the sites `live` accepts."""
+def runs_in_quest(site, source):
+    """The quest (lower) whose quest script holds a script site, or None."""
+    return source.quest_script_of.get(site.owner.lower()) if site.kind == 'script' else None
+
+
+def waiting(site, reached: set, running: set, source) -> bool:
+    """Whether a site's container has not run yet: its stage is unreached or its quest script's quest not running."""
+    quest = runs_in_quest(site, source) if source else None
+    return bool(owner_stage(site) and owner_stage(site) not in reached
+                or quest and quest not in running | {q for q, _s in reached})
+
+
+def reached_stages(sites: list, live, source=None) -> set:
+    """{(quest lower, stage)} reached by a fixed point over the sites `live` accepts.
+
+    With `source`, a quest script's SetStage counts once its quest runs: start-enabled, or any stage of it reached.
+    """
     reached, pending, changed = set(), [s for s in sites if s.stage is not None], True
+    running = source.start_enabled if source else set()
     while changed:
         changed, rest = False, []
         for site in pending:
-            if owner_stage(site) and owner_stage(site) not in reached:
+            if waiting(site, reached, running, source):
                 rest.append(site)
             elif live(site):
                 reached.add((site.quest.lower(), site.stage))
@@ -292,9 +308,9 @@ def site_lines(stage_sites: list, verdicts: dict, ctx, reached: set) -> list:
 def graphs(ctx) -> tuple:
     """(verdicts, source reached, hopeful build reached, strict build reached) for one game."""
     verdicts = judge(ctx)
-    source = reached_stages([s for s in ctx.source.setters if source_live(s, ctx)], lambda s: True)
-    hopeful = reached_stages(list(verdicts), lambda s: verdicts[s][0] != 'lost')
-    strict = reached_stages(list(verdicts), lambda s: verdicts[s][0] == 'ok')
+    source = reached_stages([s for s in ctx.source.setters if source_live(s, ctx)], lambda s: True, ctx.source)
+    hopeful = reached_stages(list(verdicts), lambda s: verdicts[s][0] != 'lost', ctx.source)
+    strict = reached_stages(list(verdicts), lambda s: verdicts[s][0] == 'ok', ctx.source)
     return verdicts, source, hopeful, strict
 
 

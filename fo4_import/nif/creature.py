@@ -5,18 +5,31 @@ so a mesh moves across by position, as an outfit does (outfit.py): the
 creature's parts (its NIFZ list) are converted as statics (convert_static),
 each vertex is moved from FNV's skeleton onto the FO4 creature's (the
 pair's `Rig`, retarget.py), then takes the weights of the FO4 creature's
-own body at its nearest surface point, on its bones and bind data. A rigid
-part (eyes) moves with its parent node. Shapes are BSSubIndexTriShapes with
+own body at its nearest surface point, on its bones and bind data; a pair
+whose FNV body is shaped unlike FO4's (`own_weights`) keeps FNV's own
+weights instead, each FNV bone on its rig bone in FO4's body. A rigid part
+(eyes) moves with its parent node. Shapes are BSSubIndexTriShapes with
 one segment, as vanilla Dogmeat.nif's (an empty one, then every triangle);
 FNV's dismemberment caps are left out.
+
+A pair worn over FO4's own body and head (`fo4_body`: super mutants, whose
+FNV hands can't take FO4's finger bones, nor its head FO4's neck) keeps
+only FNV's armor. The part holding FNV's bare skin (the texture of the
+shape with the most finger-weighted vertices: FNV's body, head, eyes and
+teeth) drops; elsewhere a triangle with two finger-weighted corners drops.
+Each armor vertex then moves, by its share of head weight, from FNV's head
+box (the bare skin's head-led vertices) onto FO4's (`head_box`: FO4's
+head-led body and its face plate, `Pair.head`), and the armor is pushed
+PUSH_MARGIN outside FO4's body along its nearest triangle's normal.
 
 See: docs/fork/fo4_spikes.md#spike-4-creatures
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.face.bake import surface
@@ -24,8 +37,8 @@ from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import NONE, SHADER_SKINNED, Reader, pack_tri_shape, read_tri_shape
 from fo4_import.nif.convert_static import Converted, NifFormat
 from fo4_import.nif.headgear import shape_arrays
-from fo4_import.nif.outfit import (BodyFit, bone_data, copy_material, copy_skeleton, fnv_nif, fnv_skeleton, fnv_skin,
-                                   fo4_joints, is_cap, originals, segments, shape_bones, skin_blocks, skinned_shape)
+from fo4_import.nif.outfit import (HUMAN, NEIGHBOURS, SMOOTH_PASSES, BodyFit, bone_data, copy_material,
+                                   copy_skeleton, fnv_nif, fnv_skeleton, fnv_skin, fo4_joints, is_cap, originals, segments, shape_bones, skin_blocks, skin_shift, skinned_shape, strongest)
 from fo4_import.nif.retarget import Rig, bone_moves, retargeted
 from fo4_import.pipeline.export_index import export_file
 
@@ -55,15 +68,31 @@ DOG = Rig(_DOG_BONES, _DOG_ENDS, _DOG_FOLLOW, 'Bip01 Pelvis')
 
 @dataclass(frozen=True)
 class Pair:
-    """An FNV creature skeleton folder's FO4 counterpart: the rig, FO4's body and skeleton NIFs (in the archives)."""
+    """An FNV creature skeleton folder's FO4 counterpart: the rig, FO4's body and skeleton NIFs (in the archives),
+    whether its parts keep FNV's weights, and the head NIF (its race's default head part) of FO4's body when its
+    body and head are worn beneath them (the module notes)."""
     rig: Rig
     body: str
     skeleton: str
+    own_weights: bool = False
+    head: str = ''
+
+    @property
+    def fo4_body(self) -> bool:
+        """Whether FO4's body and head are worn beneath FNV's parts."""
+        return bool(self.head)
 
 
 #: FNV creature skeleton folder (under meshes) -> its FO4 counterpart.
 PAIRS = {'creatures\\dog': Pair(DOG, 'meshes\\actors\\dogmeat\\characterassets\\dogmeat.nif',
-                                'meshes\\actors\\dogmeat\\characterassets\\skeleton.nif')}
+                                'meshes\\actors\\dogmeat\\characterassets\\skeleton.nif'),
+         'creatures\\smspinebreaker': Pair(HUMAN, 'meshes\\actors\\supermutant\\characterassets\\supermutantbody.nif',
+                                           'meshes\\actors\\supermutant\\characterassets\\skeleton.nif', True,
+                                           'meshes\\actors\\supermutant\\characterassets\\supermutanthead.nif')}
+#: FO4 body bone name prefix (lower case) of the head's bones.
+HEAD_BONE = 'head'
+#: How far (game units) a part's surface is kept outside FO4's body, and the passes that settle it.
+PUSH_MARGIN, PUSH_PASSES = 0.5, 3
 
 
 def creature_fit(export_dir: Path, folder: str, archives: Archives) -> BodyFit:
@@ -85,9 +114,46 @@ def creature_fit(export_dir: Path, folder: str, archives: Archives) -> BodyFit:
         parts.append((shape, [nodes.index(n) for n in shape_nodes]))
     points, tris, weights = _merged(parts, len(bones))
     skeleton = fo4_joints(nif_file.read(archives.read(pair.skeleton)))
-    moves = bone_moves(pair.rig, *fnv_skeleton(export_file(export_dir, 'meshes', folder, 'skeleton.nif')), skeleton)
+    shift = skin_shift(bones, bind, skeleton)
+    joints, parents = fnv_skeleton(export_file(export_dir, 'meshes', folder, 'skeleton.nif'))
+    moves = bone_moves(pair.rig, joints, parents, {name: pos + shift for name, pos in skeleton.items()})
     return BodyFit(moves, np.zeros((0, 3)), np.zeros((0, 3)), body, bones, nodes, bind, weights,
-                   surface(points, tris), tris, NONE)
+                   surface(points, tris), tris, NONE, points=points,
+                   targets=_targets(pair.rig, parents, bones) if pair.own_weights else None,
+                   head_box=_fo4_head_box(archives, pair.head, points[head_share(weights, bones) > 0.5]))
+
+
+def _fo4_head_box(archives: Archives, head: str, led: np.ndarray) -> 'np.ndarray | None':
+    """[min, max] corners of FO4's head: body points `led` by the head and head NIF `head`'s; None without one."""
+    if not head:
+        return None
+    nif = nif_file.read(archives.read(head))
+    points = np.vstack([led] + [np.array([v['position'] for v in read_tri_shape(Reader(raw))['vertices']], float)
+                                for kind, raw in nif.blocks if kind == 'BSSubIndexTriShape'])
+    return np.array([points.min(0), points.max(0)])
+
+
+def _targets(rig: Rig, parents: dict, bones: list) -> dict:
+    """{FNV bone: index in FO4 body `bones`} of its rig bone or its nearest ancestor's, by name or as that bone's
+    `_skin` helper."""
+    index = {b.lower(): i for i, b in enumerate(bones)}
+    out = {}
+    for bone in [rig.root, *parents]:
+        up = bone
+        while up not in rig.bones and up in parents:
+            up = parents[up]
+        name = rig.bones.get(up, rig.bones[rig.root]).lower()
+        out[bone] = index.get(name, index.get(name + '_skin'))
+    return out
+
+
+def _own_dense(targets: dict, root: str, weights: list, n_bones: int) -> np.ndarray:
+    """FNV per-vertex weights {bone: share} on their `targets` (`root`'s else), one column per FO4 body bone."""
+    dense = np.zeros((len(weights), n_bones))
+    for i, w in enumerate(weights):
+        for bone, share in (w or {root: 1.0}).items():
+            dense[i, targets.get(bone, targets[root])] += share
+    return dense
 
 
 def _merged(parts: list, n_bones: int) -> tuple:
@@ -144,27 +210,107 @@ def skeleton_parents(path: Path) -> dict:
     return out
 
 
-def creature_mesh(parts: list, fit: BodyFit, root_bone: str, skeleton: dict) -> Converted:
+def diffuse(geom) -> str:
+    """An FNV shape's diffuse texture path (lower case), '' without one."""
+    for prop in geom.get_properties():
+        textures = getattr(prop, 'texture_set', None)
+        if textures is not None and textures.num_textures:
+            return textures.textures[0].decode('cp1252').lower()
+    return ''
+
+
+def skin_texture(paths: list) -> str:
+    """The diffuse of FNV's bare skin among part NIFs `paths`: the shape's with the most vertices weighted mostly to
+    a finger; '' without one, or when every shape shares it (the skin is the armor too)."""
+    best, out, seen = 0, '', set()
+    for path in paths:
+        root = fnv_nif(path)
+        for geom in root.tree():
+            if isinstance(geom, NifFormat.NiTriBasedGeom) and geom.skin_instance and not is_cap(geom):
+                seen.add(diffuse(geom))
+                fingers = sum(1 for w in fnv_skin(geom, root)[2] if w and 'Finger' in max(w, key=w.get))
+                if fingers > best:
+                    best, out = fingers, diffuse(geom)
+    return out if seen - {out} else ''
+
+
+@dataclass
+class _Shape:
+    """A converted FNV part shape on a fit's skeleton: its static mesh and block, FNV geometry, retargeted points
+    and normals, UVs, triangles, FNV per-vertex weights, and weights on FO4's body bones (one column each)."""
+    static: object
+    shape: dict
+    geom: object
+    points: np.ndarray
+    normals: np.ndarray
+    uv: np.ndarray
+    tris: np.ndarray
+    weights: list
+    dense: np.ndarray
+
+
+def _normals(fit: BodyFit) -> np.ndarray:
+    """Unit outward normal of each of FO4's body triangles (fit.points, fit.tris)."""
+    corners = fit.points[fit.tris]
+    normal = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    return normal / np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
+
+
+def pushed(points: np.ndarray, fit: BodyFit) -> np.ndarray:
+    """`points` moved out of FO4's body (fit.points, fit.tris, wound outward) to PUSH_MARGIN along the nearest
+    triangle's normal, each move first smoothed over the nearest points."""
+    normal = _normals(fit)
+    samples, owner, _ = fit.samples
+    tree = cKDTree(samples)
+
+    def push(at):
+        """Each point's move out to PUSH_MARGIN, zero for one already there."""
+        _, i = tree.query(at)
+        n = normal[owner[i]]
+        depth = PUSH_MARGIN - np.einsum('ij,ij->i', at - samples[i], n)
+        return np.maximum(depth, 0.0)[:, None] * n
+    move = push(points)
+    if len(points) > NEIGHBOURS:
+        _, near = cKDTree(points).query(points, k=NEIGHBOURS)
+        for _ in range(SMOOTH_PASSES):
+            move = move[near].mean(1)
+    points = points + move
+    for _ in range(PUSH_PASSES):
+        points = points + push(points)
+    return points
+
+
+def head_share(dense: np.ndarray, bones: list) -> np.ndarray:
+    """Each row's share of weights `dense` (one column per bone of `bones`) on bones named for the head."""
+    head = [i for i, b in enumerate(bones) if b.lower().startswith(HEAD_BONE)]
+    return dense[:, head].sum(1) / np.maximum(dense.sum(1), 1e-9)
+
+
+def creature_mesh(parts: list, fit: BodyFit, root_bone: str, skeleton: dict, skin: 'str | None' = None) -> Converted:
     """One FO4 creature body from converted FNV parts [(Converted static, FNV NIF path)] on `fit`'s skeleton
-    (`skeleton`: skeleton_parents(), placing rigid parts); its materials and textures are the parts'."""
+    (`skeleton`: skeleton_parents(), placing rigid parts); its materials and textures are the parts'. With FO4's body
+    and head worn beneath, `skin` is FNV's bare skin texture (skin_texture()) and the rest is fitted over them
+    (_over_body)."""
     nif = nif_file.NifFile()
     nif.blocks.append(('NiNode', {'name': nif.string('BASE'), 'extra': [], 'controller': NONE, 'flags': 0xE,
                                   'translation': (0.0, 0.0, 0.0), 'rotation': (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0),
                                   'scale': 1.0, 'collision': NONE, 'children': []}))
-    nodes, out = copy_skeleton(nif, fit), Converted(nif)
+    nodes, out, found = copy_skeleton(nif, fit), Converted(nif), []
     for converted, path in parts:
         for name, value in (('materials', converted.materials), ('effects', converted.effects),
                             ('spec_maps', converted.spec_maps), ('glow_maps', converted.glow_maps)):
             getattr(out, name).update(value)
         out.textures |= converted.textures
-        _add_part(nif, converted.nif, fnv_nif(path), (fit, nodes, root_bone, skeleton))
+        found.append(list(_part_shapes(converted.nif, fnv_nif(path), (fit, root_bone, skeleton))))
+    for shape in _over_body(found, fit, skin) if skin is not None else [s for shapes in found for s in shapes]:
+        _add_shape(nif, shape, fit, nodes)
     return out
 
 
-def _add_part(nif, static, fnv_root, fitting: tuple) -> None:
-    """Append static mesh `static`'s shapes (of FNV part `fnv_root`) moved and skinned by `fitting` (fit, copied
-    skeleton nodes, FNV root bone, FNV skeleton nodes)."""
-    fit, nodes, root_bone, skeleton = fitting
+def _part_shapes(static, fnv_root, fitting: tuple):
+    """The _Shapes of static mesh `static` (of FNV part `fnv_root`) placed by `fitting` (fit, FNV root bone, FNV
+    skeleton nodes)."""
+    fit, root_bone, skeleton = fitting
     fnv = {g.name.decode('cp1252'): g for g in fnv_root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)}
     for shape in [static.blocks[i][1] for i in static.blocks[0][1]['children'] if static.blocks[i][0] == 'BSTriShape']:
         geom = fnv.get(static.strings[shape['name']])
@@ -174,14 +320,48 @@ def _add_part(nif, static, fnv_root, fitting: tuple) -> None:
         own = fnv_skin(geom, fnv_root, 'rigid')
         fnv_pos, fnv_nrm, fnv_weights, _ = _fnv_part(geom, fnv_root, skeleton)
         near = originals((pos, uv, nrm), (own[0], own[3], own[1]))
-        points, normals = retargeted(fit.moves, root_bone, fnv_pos[near], fnv_nrm[near], [fnv_weights[i] for i in near])
-        made = skinned_shape((points, normals, uv), tris, fit.skin(points), [0, len(tris)])
-        index = len(nif.blocks)
-        nif.blocks.append(None)
-        shader, alpha = copy_material(nif, static, shape)
-        nif.blocks[shader][1]['flags1'] |= SHADER_SKINNED
-        skin = skin_blocks(nif, fit, nodes, made.used, made.points, made.local, made.weights)
-        fields = dict(shape, **made.fields, name=nif.string(static.strings[shape['name']]), shader=shader,
-                      alpha_property=alpha, skin=skin)
-        nif.blocks[index] = ('BSSubIndexTriShape', pack_tri_shape(fields) + segments(made.counts))
-        nif.blocks[0][1]['children'].append(index)
+        weights = [fnv_weights[i] for i in near]
+        points, normals = retargeted(fit.moves, root_bone, fnv_pos[near], fnv_nrm[near], weights)
+        dense = _own_dense(fit.targets, root_bone, weights, len(fit.bones)) if fit.targets else fit.dense(points)
+        yield _Shape(static, shape, geom, points, normals, uv, tris, weights, dense)
+
+
+def _head_box(found: list, fit: BodyFit, skin: str) -> np.ndarray:
+    """[min, max] corners of FNV's head: the bare skin `skin`'s vertices led by the head; fit.head_box without."""
+    heads = [s.points[head_share(s.dense, fit.bones) > 0.5] for shapes in found for s in shapes
+             if diffuse(s.geom) == skin]
+    heads = np.vstack(heads) if heads else np.zeros((0, 3))
+    return np.array([heads.min(0), heads.max(0)]) if len(heads) else fit.head_box
+
+
+def _over_body(found: list, fit: BodyFit, skin: str) -> list:
+    """The _Shapes of parts `found` [[_Shape]] worn over FO4's body and head (the module notes)."""
+    base = {id(shapes) for shapes in found if any(diffuse(s.geom) == skin for s in shapes)}
+    fnv_box = _head_box(found, fit, skin)
+    scale = (fit.head_box[1] - fit.head_box[0]) / np.maximum(fnv_box[1] - fnv_box[0], 1e-6)
+    out = []
+    for s in (s for shapes in found if id(shapes) not in base for s in shapes):
+        finger = np.array([bool(w) and 'Finger' in max(w, key=w.get) for w in s.weights])
+        tris = s.tris[finger[s.tris].sum(1) < 2]
+        if not len(tris):
+            continue
+        moved = (s.points - fnv_box[0]) * scale + fit.head_box[0]
+        share = head_share(s.dense, fit.bones)[:, None]
+        out.append(replace(s, points=pushed(s.points + share * (moved - s.points), fit), tris=tris))
+    return out
+
+
+def _add_shape(nif, s: _Shape, fit: BodyFit, nodes: list) -> None:
+    """Append _Shape `s` to `nif`, skinned on `fit`'s bones (copied skeleton `nodes`), with its static's material."""
+    made = skinned_shape((s.points, s.normals, s.uv), s.tris, strongest(s.dense), [0, len(s.tris)])
+    index = len(nif.blocks)
+    nif.blocks.append(None)
+    shader, alpha = copy_material(nif, s.static, s.shape)
+    nif.blocks[shader][1]['flags1'] |= SHADER_SKINNED
+    skin = skin_blocks(nif, fit, nodes, made.used, made.points, made.local, made.weights)
+    fields = dict(s.shape, **made.fields, name=nif.string(s.static.strings[s.shape['name']]), shader=shader,
+                  alpha_property=alpha, skin=skin)
+    nif.blocks[index] = ('BSSubIndexTriShape', pack_tri_shape(fields) + segments(made.counts))
+    nif.blocks[0][1]['children'].append(index)
+
+

@@ -5,6 +5,7 @@ See: docs/commentary/tools_preflight.md#overview
 import os
 import struct
 import sys
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -14,8 +15,8 @@ from tools.validate.preflight import (asset_load, build_diff, dialogue_loss, dia
                                       script_health, world_links)
 from tools.validate.preflight.plugin_index import PluginIndex, vmad_scripts
 from tools.validate.preflight.quest_converted import ConvertedDialogue, Script, load_scripts, parse_script
-from tools.validate.preflight.quest_source import (SourceGame, SourceInfo, addressed_elsewhere, find_setters,
-                                                   required_speakers)
+from tools.validate.preflight.quest_source import (Setter, SourceGame, SourceInfo, addressed_elsewhere,
+                                                   find_setters, required_speakers)
 from tools.validate.vmad_property_typecheck import binding_problem, reference_problem
 
 
@@ -282,6 +283,37 @@ def test_a_greeting_reply_behind_a_hello_is_never_shown(tmp_path):
     assert greeting_replies.audit(ctx) == []
 
 
+def test_a_conversation_topic_plays_only_from_hello_a_script_or_a_link_and_never_past_goodbye():
+    """HELLO's Choice is reachable; an unnamed Conversation topic is not; a Goodbye line offers no Choice and lets
+    no LinkFrom in; a package topic is a root."""
+    game = SourceGame.__new__(SourceGame)
+    game.dials = {0x10: ('HELLO', 1, 0), 0x11: ('Reply', 1, 0), 0x12: ('Unused', 1, 0), 0x13: ('Speech4', 1, 0),
+                  0x14: ('Speech5', 1, 0), 0x15: ('Speech6', 1, 0), 0x16: ('Packaged', 1, 0)}
+    game.infos = {1: SourceInfo(1, 0x10, 0, [], [0x11], []), 2: SourceInfo(2, 0x13, 0, [], [0x14], [], 0x01),
+                  3: SourceInfo(3, 0x15, 0, [], [], [0x13])}
+    game.present, game.external_topics, game.said_topics = set(), {0x13, 0x16}, set()
+    assert game.reachable_topics() == {0x10, 0x11, 0x13, 0x16}
+
+
+def test_a_topic_only_say_plays_opens_nothing_and_an_unused_packages_topic_is_not_a_root():
+    """Cachino's execution: SayTo plays Execution1 but no LinkFrom follows it; Meyers's speech package is given
+    to no actor, so its topic stays unplayed, while a listed or script-named package's topic plays."""
+    game = SourceGame.__new__(SourceGame)
+    game.dials = {0x20: ('Execution1', 1, 0), 0x21: ('Execution2', 1, 0), 0x22: ('Speech', 1, 0),
+                  0x23: ('Listed', 1, 0), 0x24: ('Scripted', 1, 0)}
+    game.infos = {1: SourceInfo(1, 0x20, 0, [], [], []), 2: SourceInfo(2, 0x21, 0, [], [], [0x20])}
+    game.texts = ['begin SayToDone\n  BigSalRef.sayto CachinoRef Execution1 ; addtopic Execution2\n'
+                  'npcref.addscriptpackage ScriptedPack']
+    game.packages = {'0000A001': {'EditorID': 'SpeechPack'}, '0000A002': {'EditorID': 'ListedPack'},
+                     '0000A003': {'EditorID': 'ScriptedPack'}}
+    game.package_topics = {'0000A001': {0x22}, '0000A002': {0x23}, '0000A003': {0x24, 0}}
+    game.package_texts, game.present, game.external_topics = {}, set(), set()
+    game._use_packages({'0000A002'})
+    game._topics_named_by_scripts()
+    assert game.said_topics == {0x20} and game.external_topics == {0x23, 0x24}
+    assert game.reachable_topics() == {0x20, 0x23, 0x24}
+
+
 def test_two_hello_topics_in_one_quest_are_flagged():
     """Skyrim honors one topic per bark subtype per quest."""
     quest = struct.pack('<I', 0x100)
@@ -291,6 +323,15 @@ def test_two_hello_topics_in_one_quest_are_flagged():
                          rec('DIAL', 0x202, [('EDID', zs('C')), ('SNAM', b'CUST'), ('QNAM', quest)])])
     [f] = dialogue_loss.bark_findings('G', index)
     assert f.key == 'dialogue|G|bark|Q|HELO' and f.detail == ('A', 'B')
+
+
+def test_scene_choice_topics_may_repeat_in_a_quest():
+    """SCCH is a scene's player choice, which vanilla Fallout 4 repeats in a quest; it is not a bark."""
+    quest = struct.pack('<I', 0x100)
+    index = PluginIndex([rec('QUST', 0x100, [('EDID', zs('Q'))]),
+                         rec('DIAL', 0x200, [('EDID', zs('A')), ('SNAM', b'SCCH'), ('QNAM', quest)]),
+                         rec('DIAL', 0x201, [('EDID', zs('B')), ('SNAM', b'SCCH'), ('QNAM', quest)])])
+    assert dialogue_loss.bark_findings('G', index) == []
 
 
 def pldt(kind, value):
@@ -450,3 +491,14 @@ def test_a_say_once_reply_tree_collects_the_stages_below_it():
                0x10: [line]}
     own = {1: {('Q', 5)}, 3: {('Q', 23)}}
     assert dialogue_rules.tree_stages(line, replies, own) == {('Q', 23)}
+
+
+def test_a_quest_scripts_setstage_counts_only_while_its_quest_runs():
+    """A quest script's SetStage reaches its stage once its quest is start-enabled or reached, never before."""
+    site = Setter('script', 'LockdownScript', 'GameMode', 'Entrance', 15, 'SetStage Entrance 15')
+    starter = Setter('info', '00000001', '', 'Lockdown', 10, 'SetStage Lockdown 10')
+    source = SimpleNamespace(quest_script_of={'lockdownscript': 'lockdown'}, start_enabled=set())
+    assert quest_progression.reached_stages([site], lambda s: True, source) == set()
+    assert ('entrance', 15) in quest_progression.reached_stages([site, starter], lambda s: True, source)
+    source.start_enabled = {'lockdown'}
+    assert quest_progression.reached_stages([site], lambda s: True, source) == {('entrance', 15)}

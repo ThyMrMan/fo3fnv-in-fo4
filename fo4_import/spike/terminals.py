@@ -23,7 +23,7 @@ import re
 import struct
 from pathlib import Path
 
-from fo4_import.base.vmad import terminal_fragments
+from fo4_import.base.vmad import object_scripts, terminal_fragments
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.say_topics import conditions_of
@@ -173,14 +173,16 @@ class Terminals:
         return rec.get('TNAM.Text', '')
 
     def _vmad(self, rec: dict) -> bytes:
-        """The VMAD binding FNV terminal `rec`'s converted item scripts as its fragments; b'' without any."""
+        """The VMAD attaching FNV terminal `rec`'s own script and binding its converted item scripts as its
+        fragments; b'' without either."""
         scripts, name = self.builder.scripts, TERMINAL_PREFIX + rec['FormID'].upper()
+        plain = scripts.entries(int(rec.get('SCRI', '0'), 16))
         items = fragment_items(rec)
         if not items or not scripts.dir or not (scripts.dir / f'{name}.psc').exists():
             self.builder.counts['terminal fragments not converted'] += bool(items)
-            return b''
+            return pack_subrecord('VMAD', object_scripts(plain)) if plain else b''
         scripts.used.append(name)
-        vmad = terminal_fragments(name, [(i + 1, fragment_name(i)) for i in items], scripts.properties(name))
+        vmad = terminal_fragments(name, [(i + 1, fragment_name(i)) for i in items], scripts.properties(name), plain)
         return pack_subrecord('VMAD', vmad)
 
     def lock_of(self, ref: dict) -> 'tuple | None':

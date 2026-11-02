@@ -145,6 +145,21 @@ from `standalone` touching those files re-converts every mesh and refits
 every face: hours at whole-game scale. Cut the chains (a function-level
 import, or a narrower module) or let `code_tag` skip named modules.
 
+*Two more cut (2026-11-01).* Whole builds swung from 1,835 s to 3,250 s
+with nothing changed in the stages. Some of it was real: 7,633 new
+dialogue lines (35 more quests in scope) took the voice stage to 2,069 s,
+once. But the gun clips' key covered 475 files because `gun_clips` took
+one constant, `FIRST_PERSON_ARMS`, from `gun_anim_falloutnv`, which pulls
+in the Skyrim creature pipeline and with it `script_convert`. So every
+script-conversion edit re-recorded every gun (`item WEAP` 29 s → 478 s).
+The constant now lives in `gun_vocabulary_falloutnv`: 78 files. Far-LOD
+reductions were keyed on `spike.object_lod` (550 files, the record
+writers and dialogue among them), so a dialogue fix redid every
+reduction. They are now keyed on the reducer's module `lod_far_gen`
+(28 files). Outfits are keyed on `nif.outfit` by design: an edit there
+re-fits every outfit (`item ARMO` 574 s). Check a key's reach with
+`code_tag.tagged_files(module)`.
+
 **Caches are never pruned.** V: `output/fo4_cache/meshes` is 6.5 GB in
 45,869 entries, about 28 copies of the region's 1,630 meshes; at whole-game
 scale one generation is ~1 GB. Prune entries not read by the last build.

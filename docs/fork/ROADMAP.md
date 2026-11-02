@@ -13,8 +13,9 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | [character.md](character.md) | Attributes, skills, leveling, perks, standings and the stats menu, for all four games |
 | [standalone_play.md](standalone_play.md) | Setup, MO2 integration, per-world profiles, launcher, world picker |
 | [performance.md](performance.md) | Rules for new systems, Papyrus runtime cost, FO3/FNV occlusion |
-| [kill_cams.md](kill_cams.md) | Kill cams and killmoves on converted weapons, per game |
+| [kill_cams.md](kill_cams.md) | Kill cams and killmoves on converted weapons in Skyrim; a play-test check for Fallout 4 |
 | [bink_movies.md](bink_movies.md) | Source-game Bink 1 movies on Fallout 4: census (36 movies), playback, plan, play test |
+| [script_markers.md](script_markers.md) | FNV functions the script converter left as `;NE:` markers: census (2,156 markers, 134 functions), ranking by gameplay effect, the 19 now converted (built 2026-10-31, not played), what is left |
 | [research/](research/) | Findings and notes that are not plans: [character findings](research/character_findings.md), [graphics options](research/graphics_options.md), [Fallout 4 as the target](research/fo4_target.md), [dynamic collision for FO4 (parked mod idea)](research/fo4_dynamic_collision.md), [NVSE features for FO4](research/nvse_port.md), [FO4 creature rig prior art](research/fo4_creature_rig_prior_art.md), [Damage Threshold reference (Zoltanite)](research/fo4_damage_threshold_reference.md) |
 | [done/](done/) | Plans that are built, kept as their design record: [preflight audits](done/preflight_audits.md) |
 | [fo4_spikes.md](fo4_spikes.md) | The spikes that showed FO3/FNV on Fallout 4 buildable (done), and the findings they made |
@@ -51,7 +52,7 @@ sound archive writer on, is uncommitted.
 
 | System | Status |
 |---|---|
-| World, NPCs, dialogue, quests | Built and played in the region. **Whole map rebuilt 2026-10-29, deployed, not played** ([whole map](fo4_pipeline.md#whole-map)): WastelandNV and every worldspace a door reaches; 2,245 NPCs (910 template actors), 113,921 dialogue lines, 4,700 navmeshes, 13,511 of 13,511 scripts compile, a 438 MB plugin, 0 FormIDs moved against the morning's build. 47 placed creatures of 14 kinds are left out (super mutants, nightkin, REPCON ghouls; 1,036 of 121 kinds on 2026-10-24, before every creature had a rig): a converter bug, as they take their model from a template without its traits ([no base](fo4_build_next.md#no-base)). Sounds and voices in `FalloutNV - Main.ba2` ([sound archive](fo4_pipeline.md#sound-archive)). **Terrain LOD built 2026-10-24, not played** ([terrain LOD](fo4_pipeline.md#terrain-lod)); object LOD not started |
+| World, NPCs, dialogue, quests | Built and played in the region. **Whole map rebuilt 2026-10-29, deployed, not played** ([whole map](fo4_pipeline.md#whole-map)): WastelandNV and every worldspace a door reaches; 2,245 NPCs (910 template actors), 113,921 dialogue lines, 4,700 navmeshes, 13,511 of 13,511 scripts compile, a 438 MB plugin, 0 FormIDs moved against the morning's build. 47 placed creatures of 14 kinds are left out (super mutants, nightkin, REPCON ghouls; 1,036 of 121 kinds on 2026-10-24, before every creature had a rig): a converter bug, as they take their model from a template without its traits ([no base](fo4_build_next.md#no-base)). Sounds and voices in `FalloutNV - Main.ba2` ([sound archive](fo4_pipeline.md#sound-archive)). **Terrain LOD built 2026-10-24, not played** ([terrain LOD](fo4_pipeline.md#terrain-lod)); object LOD in the 2026-10-31 build; its glowing rocks and the Freeside crash fixed, not rebuilt ([object LOD](fo4_pipeline.md#object-lod)) |
 | Build time | **128 → 34 min, 2026-10-29** for a whole-map rebuild: our own sound BA2 writer reusing unchanged files ([sound archive](fo4_pipeline.md#sound-archive)) and a decoded-clip cache ([clip cache](fo4_pipeline.md#clip-cache)); about 70 min when every script recompiles. The BA2 staging cache (293k files, 9.3 GB) moved out of the Data folder into `output/fo4_cache/ba2`, so MO2 no longer lists it and the Creation Kit's "Initializing Archive" wait should shrink (not yet timed) |
 | Replacements ([replacements](fo4_replacements.md)) | **Off for the pure build, 2026-10-29:** `replacements/falloutnv.json` empty, the earlier table kept as `falloutnv.with_mods.json` |
 | Required mods | F4SE, Address Library, LevelUpMenuEx, XDI; Garden of Eden no longer: `SexChange` is native in `F3NV.dll` ([sex change](fo4_pipeline.md#sex-change), deployed, not played) |
@@ -80,7 +81,7 @@ sound archive writer on, is uncommitted.
 | Idles ([idles](fo4_idles.md#standing)) | Standing idles played; seated ones only where listed |
 | Bink movies ([bink](bink_movies.md)) | Built; the FNV intro played |
 | Names ([names](fo4_pipeline.md#f3nv-names)) | `F3NV_` scripts, `FalloutHelpers.esl`, `F3NV.dll`, `FalloutNV.esp` (2026-10-23, 0 FormIDs moved); `FalloutNV.esm`, flagged master, since 2026-10-30 ([layout](fo4_plugin_layout.md#layout)) |
-| FNV DLC ([DLC build](fo4_plugin_layout.md#dlc-build)) | Gun Runners' Arsenal as `GunRunnersArsenal.esm` on FalloutNV.esm, its own data folder and MO2 mod (`F3NV - Gun Runners Arsenal`): built 2026-10-30, gaps closed 2026-10-31 (its own subgraph race; the Ammo Type, condition and challenges quests merged row by row), not played. Open: the build still writes 4,190 copies of the game's files (left out at deploy); two DLCs overriding one list or quest, the last wins |
+| FNV DLC ([DLC build](fo4_plugin_layout.md#dlc-build)) | Gun Runners' Arsenal as `GunRunnersArsenal.esm` on FalloutNV.esm, its own data folder and MO2 mod (`F3NV - Gun Runners Arsenal`): built 2026-10-30, gaps closed 2026-10-31 (its own subgraph race; the Ammo Type, condition and challenges quests merged row by row), not played. Since 2026-10-31 the build leaves out the game's own files ([master copies](fo4_plugin_layout.md#master-copies)), not rebuilt yet. Open: two DLCs overriding one list or quest, the last wins |
 | Not started | See [what is left](#fo4-next) |
 | Look pass ([fo4_look.md](fo4_look.md)) | **Played 2026-10-23/24:** weathers graded by FNV's worldspace imagespace and weather tints, vanilla clouds in FNV's colours, exterior depth of field; night and noon match FNV after each weather's directional ambient took FNV's ambient ([night](fo4_look.md#night)); windows; the saloon's flickering "SAL" (looping activators made statics, no box from blended unlit tubes); the "ON" bulbs and the graveyard lantern ([lanterns](fo4_look.md#lanterns)). Glows follow vanilla's ranges per kind ([emissive](fo4_look.md#emissive)); neon ("O", OPEN) parked until the Strip is converted. **Built, not played:** grass density (1/16), grass placement (grassy textures kept past the 4-texture limit, [grass-ground](fo4_look.md#grass-ground)), soft light-ray cones. Open: the grass shards; FNV's horizon glow at night |
 | Needs one play test | The silent player voice; ambient two-NPC conversations |
@@ -106,13 +107,15 @@ Creation Kit's archive wait is shorter.
 |---|---|---|
 | Items 1 to 4: creatures with no base, the `[Speech 50]` tag, creatures' Combat skill, scoped sway | — | **Built 2026-10-30**; the skill tag played 2026-10-31 (`[Barter 20]` on a Trudy line), the rest not yet ([no base](fo4_build_next.md#no-base), [speech tag](fo4_build_next.md#speech-tag), [creature skill](fo4_build_next.md#creature-skill), [sway](fo4_build_next.md#sway)) |
 | Built-in scopes at FNV's zoom | S | Built 2026-10-31, not played ([scope zoom](fo4_build_next.md#scope-zoom)) |
-| FNV's super mutant mesh on FO4's skeleton | S-M | After item 1 ([super mutants](fo4_build_next.md#super-mutants)) |
-| Object LOD | L | Not started; terrain LOD built |
+| FNV's super mutant mesh on FO4's skeleton | S-M | Built and played 2026-10-31: super mutants and nightkin wear FNV's body and armor on FO4's super mutant. The stretched bodies and loose armor are fixed by keeping FNV's own weights (built 2026-11-01). Nightkin fighting unarmed is fixed by a super mutant additive subgraph race (built 2026-11-01). Played: FNV's hands can't grip FO4's weapons, so super mutants now wear FO4's own body (tinted to FNV's skin) under FNV's head and armor, not rebuilt. Still open: the gun nightkin's empty cloak shader (no FNV EFSH built), not the mesh. Dead-at-start actors take FNV's ragdoll pose (XRGD) on FO4's skeleton, not rebuilt: 298 of 396; brahmin, mole rats and 7 other creatures (57) have no bone match and robots (19) no FO4 ragdoll ([super mutants](fo4_build_next.md#super-mutants), [mesh](fo4_spikes.md#spike-4-creatures)) |
+| Gun animation: grip, third person, FNV feel | M-L | Planned 2026-10-31 ([plan](fo4_gun_animation.md#order)): measure fall-through clips first, then FNV's own third-person clips, every entry variant and power armor, left-hand IK in the other third-person states, AnimTextData from the CK, FNV's on-screen size, records from FNV data. Clips only, no edited base graphs |
+| Object LOD | L | **In the 2026-10-31 build; play-test fixes (mirror-lit distant rocks, Freeside crash on a level-16 tile) not yet rebuilt** ([object LOD](fo4_pipeline.md#object-lod)): STATs keep the distant flag and `MNAM`; the build writes LODGen's list and runs it headless in FO4 mode with an atlas, cached and time-bounded. A scratch WastelandNV run made 399 `.bto` in vanilla's layout. Trees later |
 | Commit today's work | S | Everything after `52c14e64`, once played |
+| Bark lines in generic quests | M | FNV's engine barks build as FO4 barks since 2026-10-31, not yet built into the game ([barks](fo4_pipeline.md#barks)). The generic quests that pick speakers by faction or voice type (nightkin, super mutants, `CreatureHits`, the NCR, Legion and Freeside greetings) are in quest scope since 2026-11-01: 37 quests, 2,369 lines, not yet in a game build ([closed](fo4_pipeline.md#barks-open), [speaker tests](fo4_pipeline.md#quest-scope)). `GenericPlayer` stays out |
 | Dialogue menu audit phase 2, timing audit phases 3 to 6 | M | Planned ([menu](fo4_menu_audit.md), [timing](fo4_timing_audit.md)) |
 | Preflight findings | M | 801 errors and 128 to review on the 2026-10-25 build, none acted on ([preflight](fo4_preflight.md#results)) |
 | Casino games and Caravan | L | Not started |
-| Kill cams | M | Not started ([kill cams](kill_cams.md)) |
+| Kill cams and finishers | — | Nothing planned: [kill_cams.md](kill_cams.md) is Skyrim-only. For FO4, a play-test check that converted weapons get FO4's kill cam and V.A.T.S. finishers as FNV did ([check](kill_cams.md#fallout4)) |
 | The rest of the look pass | M | Grass shards, FNV's horizon glow at night, neon on the Strip ([fo4_look.md](fo4_look.md)) |
 | Papyrus cost 2 to 4 | M | GameMode loops, dialogue state, patrol checks ([performance](performance.md#papyrus)) |
 | Conversion app phase 7 | M | MO2 setup, Play, modlist status ([phases](fo4_gui.md#phases)) |
@@ -252,9 +255,11 @@ Carried over from the character plan's own status notes of 2026-09-28.
     emulators;
   - audit 6 doesn't check that quest actors have a package bringing them to
     their scenes.
-- **[Kill cams and killmoves](kill_cams.md):** not started. Killmoves misfire
-  on converted weapons (FO3/FNV's baton plays a sword killmove). Options
-  recorded; first step is the census of the vanilla killmove conditions.
+- **[Kill cams and killmoves](kill_cams.md) (Skyrim target):** not started.
+  Skyrim's killmoves misfire on converted weapons (FO3/FNV's baton plays a
+  sword killmove). Options recorded; the first step is the census of the
+  vanilla killmove conditions. Fallout 4 has no such issue known, only a
+  play-test check ([Fallout 4](kill_cams.md#fallout4)).
 
 ## <a id="performance"></a>Performance
 

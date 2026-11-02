@@ -19,7 +19,7 @@ from fo4_import.spike.say_topics import blocker, conditions_of
 from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
 from fo4_import.spike.records import pack_flst
 from fo4_import.spike.script import PACKAGE_PREFIX
-from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS
+from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_CHAT_PREFIX
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.packages.scripts_falloutnv import package_flags
@@ -30,7 +30,7 @@ from tes5_import.record_types.navm_falloutnv import parse_vertices
 #: Vanilla instances copied per template, inputs in its order at its defaults; their conditions give way to FNV's.
 INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGreet': 0x1BEAD3, 'Sleep': 0x1B9EB0,
              'Eat': 0x1AE26C, 'HoldPosition': 0x2491F8, 'Patrol': 0x248492, 'FollowNPC': 0x232257,
-             'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388}
+             'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388, 'UseWeapon': 0x19632E}
 #: A copy's first input from FNV: its location, its target, its location as a Patrol start, or the template's.
 PLACE, TARGET, START, KEEP = 'place', 'target', 'start', 'keep'
 #: FNV PKDT type: (FO4 template, first input). Wander sandboxes; Guard holds its position; Patrol walks linked refs.
@@ -38,6 +38,15 @@ PLANS = {'1': ('FollowNPC', TARGET), '7': ('FollowNPC', TARGET), '3': ('Eat', PL
          '6': ('Travel', PLACE), '8': ('Sit', TARGET), '12': ('Sandbox', PLACE), '13': ('Patrol', START),
          '14': ('HoldPosition', PLACE), '15': ('ForceGreet', PLACE)}
 FNV_SLEEP, FNV_TRAVEL, FNV_DIALOGUE, FNV_FLEE, FNV_AMBUSH, FNV_GUARD = '4', '6', '15', '10', '9', '14'
+#: FNV PKDT type Use Weapon: weapon in PTDT, target in PTD2, firing in PKW3; FO4's UseWeapon inputs 1 and 2.
+FNV_USE_WEAPON, WEAPON_INPUT, SHOT_INPUT = '16', 1, 2
+#: PTDA target types naming an object by form or by type (the same codes in both games).
+TARGET_OBJECT, TARGET_TYPE = 1, 2
+#: FNV object type codes for weapons (any, ranged, melee, none) as FO4's (xEdit wbObjectTypeEnum of each game).
+WEAPON_TYPES = {'12': 11, '21': 20, '22': 19, '23': 18}
+#: FO4 UseWeapon Bool inputs and the FNV PKW3 flag each copies.
+WEAPON_FLAGS = {'Always Hit?': 0x1, 'Do No Damage?': 0x100, 'Crouch Reload?': 0x10000,
+                'Hold When Blocked?': 0x1000000}
 #: FNV Ambush type flag Hide While Ambushing (xEdit wbDefinitionsFNV), and the general flag both games call Always Sneak.
 HIDE_WHILE_AMBUSHING, ALWAYS_SNEAK = 0x1, 0x20000
 #: FO4 PLDT location type near the package's start location (FNV's near current location, the same code).
@@ -46,6 +55,8 @@ NEAR_START = 2
 COWER_SCRIPT = 'F3NV_CowerPackage'
 #: Its fragment flags: OnBegin and OnEnd.
 COWER_FRAGMENTS = 0x01 | 0x02
+#: Fragments of a Dialogue package aimed at an NPC: its arrival plays the topic's chat scene; and their flags.
+DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS = 'F3NV_DialoguePackage', 0x01 | 0x02
 #: FNV PLDT location type "in cell", and FO4's near reference.
 IN_CELL, NEAR_REFERENCE = '1', 0
 #: Record flag Persistent; an FO4 package's place stays loaded only on a persistent reference.
@@ -71,6 +82,8 @@ SHARED_LOCATIONS = ('0', '1', '2', '3', '6')
 NAMED_LOCATIONS = ('0', '1')
 #: ForceGreet's Target Trigger Location: its second location input (after the NPC Wait Location).
 TRIGGER_INPUT = 1
+#: FNV's standard Activate Distance, iActivatePickLength (GECK Dialogue Package), where PTDT's count is 0.
+ACTIVATE_DISTANCE = 150
 #: PKDT general flags FNV and FO4 define alike (xEdit wbPackageFlags), e.g. Weapons Unequipped 0x200000; not 0x200.
 SHARED_FLAGS = 0x1 | 0x4 | 0x40 | 0x80 | 0x400 | 0x20000 | 0x40000 | 0x200000 | 0x800000 | 0x8000000
 #: PKDT interrupt override byte and None: vanilla's 1,872 NPC-list packages have 0, its 1,499 combat overrides 4.
@@ -111,10 +124,11 @@ class Packages:
             self.navmeshes.setdefault(rec.get('DATA.Cell'), []).append(rec)
         self.why, self.pending, self.scripted = {}, set(), set()
         self.packs = {r['FormID']: r for r in export_records(export_dir, 'PACK')}
+        self.topic_names = {r['FormID'].upper(): r.get('EditorID') for r in export_records(export_dir, 'DIAL')}
         self.by_name = {r['EditorID'].lower(): fid for fid, r in self.packs.items() if r.get('EditorID')}
         packs ={r.form_id: r.body for r, _ in walk(builder.fo4, b'PACK')}
         self.vanilla = {name: packs[fid] for name, fid in INSTANCES.items()}
-        self.slots = {name: value_slots(self.vanilla[name], packs) for name in ('Sandbox', 'FollowNPC')}
+        self.slots = {name: value_slots(self.vanilla[name], packs) for name in ('Sandbox', 'FollowNPC', 'UseWeapon')}
 
     def named(self, name: str) -> 'int | None':
         """The FO4 package for a script property naming FNV package `name`: made now once the NPCs' forms are known,
@@ -190,9 +204,10 @@ class Packages:
         (CONTINUE_DURING_COMBAT) also gets a combat override copy, without fragments. The copy's FormID."""
         template, fid = plan[0], self.builder.fnv_id(fnv)
         values = {0: plan[2]} if len(plan) > 2 else self._values(rec, template)
-        inputs = self._trigger(rec, form_map) if template == 'ForceGreet' else {}
+        inputs = {'ForceGreet': self._trigger, 'UseWeapon': self._weapon}.get(template, lambda *_: {})(rec, form_map)
         args = (self.vanilla[template], plan[1], conditions)
-        self.builder.writer.add_record('PACK', pack_package(fid, rec, *args, self._fragments(rec), values, inputs))
+        self.builder.writer.add_record('PACK', pack_package(fid, rec, *args, self._fragments(rec, form_map), values,
+                                                            inputs))
         self.builder.counts[f'PACK {template}'] += 1
         if rec.get('PKDT.Type') == FNV_GUARD and fnv_flags(rec) & CONTINUE_DURING_COMBAT:
             self.combat[fnv] = held = self.builder.writer.derive_formid(COMBAT_SITE, int(fnv, 16))
@@ -205,8 +220,37 @@ class Packages:
         return fid
 
     def _values(self, rec: dict, template: str) -> dict:
-        """{value slot: CNAM} of `rec`'s `template` copy: Sandbox Allows, FollowNPC radii."""
-        return {'Sandbox': self._allows, 'FollowNPC': self._radii}.get(template, lambda _: {})(rec)
+        """{value slot: CNAM} of `rec`'s `template` copy (Allows, radii, firing)."""
+        return {'Sandbox': self._allows, 'FollowNPC': self._radii, 'UseWeapon': self._firing}.get(
+            template, lambda _: {})(rec)
+
+    def _firing(self, rec: dict) -> dict:
+        """{value slot: CNAM} of FNV Use Weapon `rec`'s firing (PKW3): its flags, volley fire, the pause between
+        volleys, how many (Repeat Fire: 0, without end) and the shots in each.
+        See: docs/fork/fo4_pipeline.md#use-weapon
+        """
+        slots, flags = self.slots['UseWeapon'], int(rec.get('PKW3.Flags', 0) or 0)
+        repeat = rec.get('PKW3.FireCount') == '1'
+        values = {name: bytes([bool(flags & bit)]) for name, bit in WEAPON_FLAGS.items()}
+        values.update({'Volley Fire?': bytes([rec.get('PKW3.FireRate') == '1']),
+                       'Volley Wait Min': struct.pack('<f', float(rec.get('PKW3.PauseMin', 0) or 0)),
+                       'Volley Wait Max': struct.pack('<f', float(rec.get('PKW3.PauseMax', 0) or 0)),
+                       'Volleys To Fire': struct.pack('<i', 0 if repeat else int(rec.get('PKW3.Bursts', 0) or 0)),
+                       'Volley Shots Min': struct.pack('<i', int(rec.get('PKW3.ShotsMin', 0) or 0)),
+                       'Volley Shots Max': struct.pack('<i', int(rec.get('PKW3.ShotsMax', 0) or 0))})
+        return {slots[name]: value for name, value in values.items() if name in slots}
+
+    def _weapon(self, rec: dict, form_map: dict) -> dict:
+        """{input: PTDA} of FNV Use Weapon `rec`: the weapon by form or type (unconverted: the template's ranged
+        weapon) and the reference or linked reference it shoots at (_plan checked it is built)."""
+        kind, weapon = rec.get('PTDT.Type'), int(rec.get('PTDT.Target', '0') or '0', 16)
+        fo4 = self.builder.items.item(weapon) if kind == str(TARGET_OBJECT) else None
+        out = {WEAPON_INPUT: struct.pack('<iIi', TARGET_OBJECT, fo4, 0)} if fo4 else {}
+        if kind == str(TARGET_TYPE) and rec['PTDT.Target'].lstrip('0') in WEAPON_TYPES:
+            out[WEAPON_INPUT] = struct.pack('<iIi', TARGET_TYPE, WEAPON_TYPES[rec['PTDT.Target'].lstrip('0')], 0)
+        shot = int(rec.get('PTD2.Target', '0') or '0', 16)
+        out[SHOT_INPUT] = struct.pack('<iIi', int(rec['PTD2.Type']), form_map.get(shot, 0), 0)
+        return out
 
     def _allows(self, rec: dict) -> dict:
         """{value slot: Bool} of an FNV Sandbox or Wander `rec`'s copy: each FO4 Allow input from FNV's No flag.
@@ -230,24 +274,35 @@ class Packages:
         return {slots['Min Radius']: struct.pack('<f', distance), slots['Max Radius']: struct.pack('<f', far)}
 
     def _trigger(self, rec: dict, form_map: dict) -> dict:
-        """{TRIGGER_INPUT: PLDT} of FNV Dialogue `rec`'s Trigger Location (PLD2), {} without one (the template's).
-        A trigger box (XPRM) with radius 0 reaches its smaller half extent.
+        """{TRIGGER_INPUT: PLDT} of FNV Dialogue `rec`'s Trigger Location (PLD2); without one, near the player
+        (FNV heads for the target at once), its Activate Distance (PTDT count, else ACTIVATE_DISTANCE) the radius;
+        {} when PLD2's location does not convert (the template's). A trigger box (XPRM) with radius 0 reaches its
+        smaller half extent.
         See: docs/fork/fo4_pipeline.md#greet-trigger
         """
         place, ref = rec.get('PLD2.Type'), int(rec.get('PLD2.Location', '0') or '0', 16)
+        if place is None:
+            reach = int(rec.get('PTDT.Count', 0) or 0) or ACTIVATE_DISTANCE
+            return {TRIGGER_INPUT: struct.pack('<iIi', NEAR_REFERENCE, int(PLAYER_TARGET, 16), reach)}
         if place not in SHARED_LOCATIONS or place in NAMED_LOCATIONS and ref not in form_map:
             return {}
         radius = int(rec.get('PLD2.Radius', 0) or 0) or round(self.boxes.get(ref, 0))
         return {TRIGGER_INPUT: struct.pack('<iIi', int(place), form_map.get(ref, 0), radius)}
 
-    def _fragments(self, rec: dict) -> bytes:
-        """VMAD binding FNV package `rec`'s converted PF_ script, filled; a cower's (cowers()) COWER_SCRIPT; b''
-        without either."""
+    def _fragments(self, rec: dict, form_map: dict) -> bytes:
+        """VMAD binding FNV package `rec`'s converted PF_ script, filled; a cower's (cowers()) COWER_SCRIPT; a
+        Dialogue with an NPC's DIALOGUE_SCRIPT, its topic's chat scene and target; b'' without any."""
         flags, name, scripts = package_flags(rec), PACKAGE_PREFIX + rec['FormID'].upper(), self.builder.scripts
         if cowers(rec) and not flags:
             self.builder.counts['cower package'] += 1
             return pack_subrecord('VMAD', package_fragments(COWER_SCRIPT, COWER_FRAGMENTS,
                                                             {'Confidence': FALLOUT4_ACTOR_VALUE_IDS['Confidence']}))
+        if talks_to_npc(rec) and not flags:
+            self.builder.counts['dialogue package with an NPC'] += 1
+            chat = scripts.talk(FALLOUT4_CHAT_PREFIX + self.topic_names[rec['PKDD.Topic'].upper()])
+            target = form_map[int(rec['PTDT.Target'], 16)]
+            return pack_subrecord('VMAD', package_fragments(DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS,
+                                                            {'Chat': chat, 'Target': target}))
         if not flags or not scripts.dir or not (scripts.dir / f'{name}.psc').exists():
             return b''
         scripts.used.append(name)
@@ -263,10 +318,12 @@ class Packages:
         if kind == FNV_AMBUSH:
             template = 'HoldPosition' if not int(rec.get('PLDT.Radius', 0) or 0) else 'Sandbox'
             return self._at(rec, kind, template, form_map)
+        if kind == FNV_USE_WEAPON:
+            return self._use_weapon(rec, form_map)
         if kind not in PLANS:
             return f'type {FNV_TYPES.get(kind, kind)}'
-        if kind == FNV_DIALOGUE and rec.get('PTDT.Target') != PLAYER_TARGET:
-            return 'dialogue not with the player'
+        if talks_to_npc(rec):
+            return self._talk_to(rec, form_map)
         template, first = PLANS[kind]
         if first == PLACE:
             bed = self._bed(rec, npc) if kind == FNV_SLEEP else None
@@ -275,6 +332,31 @@ class Packages:
         if first == START:
             return self._start(rec, template, form_map)
         return self._aimed(rec, template, form_map) if first == TARGET else (template, b'')
+
+    def _use_weapon(self, rec: dict, form_map: dict) -> 'tuple | str':
+        """(UseWeapon, PLDT payload) at FNV Use Weapon `rec`'s location, shooting at its built target reference
+        or linked reference (_weapon); why not, otherwise.
+        See: docs/fork/fo4_pipeline.md#use-weapon
+        """
+        shot = int(rec.get('PTD2.Target', '0') or '0', 16)
+        if rec.get('PTD2.Type') not in (str(TARGET_REFERENCE), str(TARGET_LINKED)):
+            return 'no weapon target'
+        if rec['PTD2.Type'] == str(TARGET_REFERENCE) and shot not in form_map:
+            return 'weapon target not built'
+        return self._at(rec, FNV_USE_WEAPON, 'UseWeapon', form_map)
+
+    def _talk_to(self, rec: dict, form_map: dict) -> 'tuple | str':
+        """(Travel, PLDT payload) near the reference FNV Dialogue `rec` talks to, within its distance (PTDT count;
+        0 keeps the template's radius); its arrival plays the topic (_fragments). Why not, otherwise.
+        See: docs/fork/fo4_pipeline.md#packages
+        """
+        ref, distance = int(rec.get('PTDT.Target', '0') or '0', 16), int(rec.get('PTDT.Count', 0) or 0)
+        if rec.get('PTDT.Type') != str(TARGET_REFERENCE) or ref not in form_map:
+            return 'dialogue target not built'
+        if not self.topic_names.get(rec.get('PKDD.Topic', '').upper()):
+            return 'dialogue topic not named'
+        near = struct.pack('<iI', NEAR_REFERENCE, form_map[ref])
+        return 'Travel', near + (struct.pack('<i', distance) if distance else b'')
 
     def _start(self, rec: dict, template: str, form_map: dict) -> tuple:
         """(template, PTDA payload) of a Patrol starting at FNV package `rec`'s location reference; the actor's
@@ -374,6 +456,11 @@ def beds(builder, refs: list) -> dict:
 def listed(npc: dict) -> list:
     """The FNV packages actor record `npc` lists, in its order."""
     return [npc[f'AIPackage[{i}]'] for i in range(int(npc.get('AIPackageCount', 0) or 0))]
+
+
+def talks_to_npc(rec: dict) -> bool:
+    """True for a Dialogue package aimed at a reference other than the player."""
+    return rec.get('PKDT.Type') == FNV_DIALOGUE and rec.get('PTDT.Target') != PLAYER_TARGET
 
 
 def cowers(rec: dict) -> bool:

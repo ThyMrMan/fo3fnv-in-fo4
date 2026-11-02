@@ -310,8 +310,14 @@ comes from what actually solved 46 recent bugs
   down, say so. Test scripts print as they go and write each result as computed;
   on timeout, use what was written — never re-run the same sweep smaller. This
   limit does not apply to real pipeline runs.
-- **Builds queue themselves; launch them without checking the load.** `convert.py`
-  and `create_lod.py` take a machine-wide lock
+- 🛑 **Only the main session starts a Fallout 4 game build.** A sub-session or
+  agent edits, runs its targeted tests, then reports "ready" to the main
+  session (with any extra step the build needs) and waits; it never writes
+  `temp/profile_data` or deploys. Before using a built plugin, check its
+  `<plugin>.build.json` says `finished`
+  ([build stamp](docs/fork/fo4_pipeline.md#build-stamp)).
+- **Builds queue themselves; launch them without checking the load.** `convert.py`,
+  `create_lod.py` and `fo4_import.pipeline.run` take a machine-wide lock
   ([heavy_lock](docs/commentary/performance.md#one-heavy-job-at-a-time)), so a
   build that prints "Waiting for the running heavy job" is queued, not hung.
   Targeted tests first, then builds. While yours runs, wait for its completion

@@ -74,6 +74,7 @@ def _new_scan_out() -> dict:
         # BOOK FormIDs carrying an ENAM: the importer writes these as SCRL, not
         # BOOK, so a property typed from the source signature would not bind.
         'enchanted_books': set(),
+        'trigger_blocks': {},
     }
 
 
@@ -160,6 +161,8 @@ def _index_move_speed(tables: dict, sig: str, formid: str, low: str, rec: dict) 
 
 #: An OBSE `begin Function` header at a line start, in raw or export-escaped (`\n`) SCTX text.
 _UDF_BLOCK_RE = re.compile(r'(?:^|\\n)(?:\s|\\t)*begin\s+function\b', re.I | re.M)
+#: A trigger block header (OnTriggerEnter or OnTrigger) in raw or export-escaped SCTX text.
+_TRIGGER_BLOCK_RE = re.compile(r'(?:^|\\n)(?:\s|\\t)*begin\s+(ontriggerenter|ontrigger)\b', re.I | re.M)
 
 #: SCHR.Type of a quest script.
 QUEST_SCRIPT_TYPE = 1
@@ -168,6 +171,11 @@ QUEST_SCRIPT_TYPE = 1
 def is_function_script(sctx: str) -> bool:
     """True for an OBSE user-function script (raw or export-escaped SCTX)."""
     return bool(_UDF_BLOCK_RE.search(sctx or ''))
+
+
+def authored_trigger_blocks(sctx: str) -> frozenset:
+    """The trigger blocks a script authors: 'ontriggerenter' and/or 'ontrigger'."""
+    return frozenset(b.lower() for b in _TRIGGER_BLOCK_RE.findall(sctx or ''))
 
 
 def hosted_script_type(schr_type: int, sctx: str) -> int:
@@ -192,13 +200,16 @@ def _int_field(rec: dict, key: str, base: int = 10):
 
 
 def _scan_scpt(rec: dict, formid: str, edid: str, out: dict) -> None:
-    """A script's EditorID and hosting type."""
+    """A script's EditorID, hosting type and authored trigger blocks."""
     if edid:
         out['script_formid_to_edid'][formid] = edid
     schr_type = _int_field(rec, 'SCHR.Type')
     if schr_type is not None:
         out['script_formid_to_type'][formid] = hosted_script_type(
             schr_type, rec.get('SCTX', ''))
+    blocks = authored_trigger_blocks(rec.get('SCTX', ''))
+    if edid and blocks:
+        out['trigger_blocks'][edid.lower()] = blocks
 
 
 def _scan_cell(rec: dict, formid: str, _edid: str, out: dict) -> None:
@@ -326,6 +337,8 @@ class CrossRefGraph:
         self.cell_geom: dict[str, tuple] = {}
         # BOOK records with an ENAM: written as SCRL, so `Book` would not bind.
         self.enchanted_books: set[str] = set()
+        #: script EditorID (lower) -> the trigger blocks it authors ('ontriggerenter', 'ontrigger').
+        self.trigger_blocks: dict[str, frozenset] = {}
         self.record_base: dict[str, str] = {}  # placed ref FormID -> base record FormID (NAME)
         # base FormID (upper) -> its ONE placed ref FormID; lazily inverted
         # from record_base by unique_placed_ref().
@@ -455,6 +468,7 @@ class CrossRefGraph:
         self.record_model.update(out['record_model'])
         self.cell_geom.update(out['cell_geom'])
         self.enchanted_books.update(out['enchanted_books'])
+        self.trigger_blocks.update(out['trigger_blocks'])
         self.quest_edids.update(out['quest_edids'])
         self.npc_formids.update(out['npc_formids'])
         self.mgef_shaders.update(out['mgef_shaders'])
@@ -817,35 +831,23 @@ class CrossRefGraph:
                    for rec_fid, scri in self.record_scri.items()
                    if scri == script_fid)
 
-    def get_record_script_type(self, name: str) -> str:
-        """Get the Papyrus script class name for any record with an attached script.
-        For placed references (ACHR/ACRE/REFR), follows the NAME chain to the
-        base record to find the attached script.
-        Returns '' if the record has no attached script."""
+    def record_script_edid(self, name: str) -> str:
+        """EditorID of the script on record `name` (a placed ref falls back to its base's); '' for none.
+
+        The player is a converter keyword (`Game.GetPlayer()`), never a bound
+        property, so it never takes a script even where its base NPC_ has one.
+        """
         low = name.lower()
-        # `player`/`playerref` is a converter KEYWORD emitted as
-        # `Game.GetPlayer()`, never a bound property — so it must never take a
-        # script type, even though the player's base NPC_ has EditorID "Player"
-        # and CAN carry a SCRI (Nehrim's GlobalplayerScript).  Typing it made
-        # every caller declare `TES4_GlobalplayerScript Property Player`, which
-        # then failed to convert to ObjectReference at each use.
         if low in ('player', 'playerref'):
             return ''
         fid = self.edid_to_formid.get(low, '')
-        if not fid:
-            return ''
-        scri_fid = self.record_scri.get(fid, '')
-        # For placed refs without own SCRI, follow base form chain
-        if not scri_fid:
-            base_fid = self.record_base.get(fid, '')
-            if base_fid:
-                scri_fid = self.record_scri.get(base_fid, '')
-        if not scri_fid:
-            return ''
-        script_edid = self.script_formid_to_edid.get(scri_fid, '')
-        if not script_edid:
-            return ''
-        return papyrus_script_name(script_edid)
+        scri_fid = self.record_scri.get(fid, '') or self.record_scri.get(self.record_base.get(fid, ''), '')
+        return self.script_formid_to_edid.get(scri_fid, '') if scri_fid else ''
+
+    def get_record_script_type(self, name: str) -> str:
+        """The Papyrus script class attached to record `name`, '' when it has none."""
+        script_edid = self.record_script_edid(name)
+        return papyrus_script_name(script_edid) if script_edid else ''
 
     def build_ref_as_int_map(self, scpt_path: str):
         """Scan all SCPT SCTX sources to find ref variables used only as integers.

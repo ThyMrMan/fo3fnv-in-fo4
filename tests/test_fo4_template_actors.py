@@ -54,6 +54,22 @@ def test_a_templated_creature_takes_packages_from_itself_unless_flagged():
     assert npcs.source(0xD00, N.USE_PACKAGES) is None
 
 
+def test_an_npc_with_its_own_traits_takes_its_listed_parts_from_the_lists_copy():
+    """Freeside's vaporized tourist (flags 392: inventory, base data, actor effects; traits its own) gets a
+    template on the squatter list's copy for those three parts; an NPC with nothing listed gets none."""
+    npcs = N.Npcs.__new__(N.Npcs)
+    npcs.records = {0xA01: {'FormID': '00000A01', 'ACBS.TemplateFlags': '392', 'TPLT.Template': '00000B01'},
+                    0xA02: {'FormID': '00000A02'}}
+    npcs.creatures, npcs.lists = SimpleNamespace(records={}), {0xB01: {}}
+    npcs.builder = SimpleNamespace(counts={'NPC_ with a listed template': 0})
+    npcs._template = lambda hex_id: 0x0300B001 if hex_id == '00000B01' else None
+    body = b''.join(pack_subrecord(t, d) for t, d in (('ACBS', bytes(20)), ('RNAM', struct.pack('<I', 0x13746))))
+    out = dict(subrecords(npcs._listed_template(0xA01)(body)))
+    assert struct.unpack_from('<H', out[b'ACBS'], N.ACBS_TEMPLATE)[0] == 392
+    assert struct.unpack('<I', out[b'TPLT'])[0] == 0x0300B001
+    assert npcs._listed_template(0xA02) is None and npcs.builder.counts['NPC_ with a listed template'] == 1
+
+
 def _void_npcs() -> N.Npcs:
     """An Npcs over a void creature, a list holding it (made), a creature templated on that list (own script,
     no Use Script), one with Use Script, and a plain coyote; scripts.vmad records its calls."""
@@ -313,3 +329,66 @@ def test_a_creature_taking_its_model_from_its_template_takes_its_traits_too():
     assert flags & N.USE_TRAITS and flags & 0x3C0 == 0x3C0
     assert npcs._template_flags(npcs.records[0xA03]) == 0x40
     assert N._model_templated(npcs.creatures.records[0xC05]) and not N._model_templated({'ACBS.TemplateFlags': '64'})
+
+
+def test_an_fnv_creatures_skin_shows_fo4s_head_over_fo4s_body_and_is_written_once_for_its_sized_copies():
+    """FNV's armor over FO4's body: the skin and addon add FX (61), not the head, so the race's head shows, and the
+    creature gets the tinted face set; the skin lists FO4's tinted body addon first, then FNV's; a sized copy
+    reuses the skin. Without FO4's body (no bare skin) both add FaceGen head (32), hiding the race's head."""
+    from fo4_import.spike import creatures as CR
+    added = []
+
+    def vanilla(sig: str, *subs: tuple) -> SimpleNamespace:
+        """A vanilla record of `subs` [(tag, data)]."""
+        return SimpleNamespace(sig=sig.encode(), flags=0, body=b''.join(pack_subrecord(t, d) for t, d in subs))
+    skin = vanilla('ARMO', ('EDID', b'SkinSuperMutant\0'), ('BOD2', struct.pack('<I', 0x8)), ('MODL', bytes(4)))
+    addon = vanilla('ARMA', ('EDID', b'SuperMutantBody\0'), ('BOD2', struct.pack('<I', 0x8)), ('MOD2', b'x.nif\0'))
+    creatures = CR.Creatures.__new__(CR.Creatures)
+    creatures.skins, creatures.faces, creatures.worn = {}, {}, {'encsupermutanttemplate': (None, skin, addon)}
+    creatures.records = {fid: {'FormID': f'{fid:08X}', 'EditorID': f'Cr{fid:X}',
+                               'Model.MODL': 'Creatures\\SMSpineBreaker\\Skeleton.nif'} for fid in (0x3A147, 0x3A148)}
+    creatures._mesh = lambda rec, folder: ('body.nif', 'textures\\skin.dds' if rec['FormID'] == '0003A147' else None)
+    creatures._fo4_body = lambda vanilla_addon, folder, bare: 0x0300_1234
+    creatures._face = lambda npc, bare: 0x0300_5555
+    creatures.builder = SimpleNamespace(writer=SimpleNamespace(
+        derive_formid=lambda site, key: 0x0300_0000 + len(key) + int(key[:8], 16) % 7,
+        add_record=lambda sig, data: added.append(data)))
+    entry = SimpleNamespace(edid='EncSuperMutantTemplate')
+    assert creatures._skin(0x3A147, entry) == creatures._skin(0x3A147, entry) and len(added) == 2
+    creatures._skin(0x3A148, entry)
+    slots = [struct.unpack('<I', dict(subrecords(record[24:]))[b'BOD2'])[0] for record in added]
+    assert slots == [0x8 | CR.FX_SLOT, 0x8 | CR.FX_SLOT, 0x8 | CR.HEAD_SLOT, 0x8 | CR.HEAD_SLOT]
+    assert creatures.faces == {0x3A147: 0x0300_5555}
+    arma = struct.unpack_from('<I', added[0], 12)[0]
+    models = [struct.unpack('<I', d)[0] for t, d in subrecords(added[1][24:]) if t == b'MODL']
+    assert models == [0x0300_1234, arma]
+
+
+def test_with_face_puts_ftst_before_qnam():
+    """with_face sets FTST once, right before QNAM, as vanilla's super mutants have it."""
+    from fo4_import.spike import creatures as CR
+    subs = pack_subrecord('DPLT', bytes(4)) + pack_subrecord('FTST', bytes(4)) + pack_subrecord('QNAM', bytes(16))
+    out = CR.with_face(0x0300_5555)(subs)
+    assert [t for t, _ in subrecords(out)] == [b'DPLT', b'FTST', b'QNAM']
+    assert dict(subrecords(out))[b'FTST'] == struct.pack('<I', 0x0300_5555)
+
+
+def test_fo4s_body_addon_wears_the_tint_swap_after_each_model(monkeypatch):
+    """_fo4_body writes an MSWP of the tinted pairs and a copy of the vanilla addon with MO2S/MO3S naming it right
+    after MOD2/MOD3, once per folder and skin."""
+    from fo4_import.spike import creatures as CR
+    added = []
+    addon = SimpleNamespace(sig=b'ARMA', flags=0, form_id=0x1A000, body=b''.join(pack_subrecord(t, d) for t, d in (
+        ('EDID', b'SuperMutantBody\0'), ('MOD2', b'm.nif\0'), ('MO2T', bytes(4)), ('MOD3', b'f.nif\0'))))
+    monkeypatch.setattr(CR, 'tinted', lambda *args: [('actors\\a.bgsm', 'fnv\\tinted\\a.bgsm')])
+    creatures = CR.Creatures.__new__(CR.Creatures)
+    creatures.tinted, creatures.tint_archives, creatures.export_dir, creatures.data_dir = {}, object(), None, None
+    creatures.builder = SimpleNamespace(writer=SimpleNamespace(
+        derive_formid=lambda site, key: 0x0300_0000 + len(key), add_record=lambda sig, data: added.append((sig, data))))
+    first = creatures._fo4_body(addon, 'creatures\\smspinebreaker', 'textures\\skin.dds')
+    assert creatures._fo4_body(addon, 'creatures\\smspinebreaker', 'textures\\skin.dds') == first
+    (sig_a, swap), (sig_b, arma) = added
+    assert (sig_a, sig_b) == ('MSWP', 'ARMA') and struct.unpack_from('<I', arma, 12)[0] == first
+    tags = [t for t, _ in subrecords(arma[24:])]
+    assert tags == [b'EDID', b'MOD2', b'MO2S', b'MOD3', b'MO3S']
+    assert struct.unpack('<I', dict(subrecords(arma[24:]))[b'MO2S'])[0] == struct.unpack_from('<I', swap, 12)[0]

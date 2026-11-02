@@ -185,6 +185,44 @@ the lowest priority of the four.
 Items 1 and 2 need `--scripts-only` for each game; item 3 rebuilds every
 game's scripts together.
 
+### <a id="poll-overlap"></a>Poll passes no longer overlap (2026-10-31)
+
+Every converted poll arms a 5 s insurance timer at the top of its pass. That
+way, a pass aborted by an error still runs again. A pass that blocks longer
+than 5 s therefore starts a second pass beside it. A Papyrus call out of the
+script releases its lock, so the second pass runs the same body again.
+
+- **Seen in game.** In a save at the Goodsprings gas station, the Papyrus
+  log dumped 837 suspended stacks:
+  - 373 were `vCasinoCompsGomorrah` and `vCasinoCompsUltraLuxe` OnTimer
+    passes waiting their turn;
+  - most of the rest were those passes inside `F3NV_ScriptPackages.Add`.
+- **Why the casino passes piled up.** Each pass adds the floor manager's
+  dialogue package, then sets the flag that stops it doing so again. The
+  winnings-level condition guarding that is a TODO, so it is always true.
+  `Add` took more than 5 s:
+  - `Release` called RemoveRef on every one of the ~100 aliases, one frame
+    each;
+  - with tracing on, it waited 1 s more.
+
+  So each new pass found the flag still unset and called `Add` again.
+- **The cost.** Ringo's trigger fired (the new trigger trace shows the
+  player entering it), but its `Add` call queued behind the pile and never
+  ran in the session. He stayed seated.
+- **Fixes:**
+  - `TES4_PassStarted` (`assemble._pass_guard`): a Fallout 4 pass that
+    starts while the last one runs returns at once. A mark older than 60 s
+    counts as an aborted pass. Every return out of the pass clears the mark:
+    the re-arm prefix, the menu hold, the dialogue gate and the end.
+  - `F3NV_ScriptPackages`:
+    - it records the alias each actor stands in, so `Release` touches only
+      that alias (an actor it has no record of, as in an older save, still
+      gets the full search);
+    - adding a package the actor's alias already holds only re-evaluates
+      the actor;
+    - the traced second sample runs off the caller's stack
+      (`CallFunctionNoWait`).
+
 ## <a id="occlusion"></a>FO3/FNV occlusion planes, rooms and portals
 
 Noted 2026-09-28 for the Skyrim path, not started there; nothing below is measured. The Fallout 4 build copies FNV's

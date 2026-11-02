@@ -1064,6 +1064,19 @@ reader takes the 20-byte layout and resolves the FormID to its MGEF EditorID —
 which is what `tes5_import` keys `_code_to_fid` on, so the existing import path
 then works unchanged.
 
+### <a id="master-effects"></a>A DLC's effects name its master's MGEF (2026-10-31)
+
+**Code:** `tes4_export/export_falloutnv.py` `prepare_source`, `_index`
+
+The MGEF index (and the TXST one LTEX reads) held only the exported plugin's
+own records, so a DLC effect naming FalloutNV.esm's `RestoreHealth` exported
+`EFID=` blank: Gun Runners' Arsenal's and the Classic Pack's (the Vault 13
+canteen's heal) among them, and the FO4 build could not convert those
+spells. The index now reads each master beside the source file first, its
+own records renumbered to the master's index in the plugin's MAST list (a
+FNV DLC's one master reads as 00, as its records name it); the plugin's own
+records are indexed last and win.
+
 ### A CTDA belongs to the effect it follows
 
 FO3/FNV conditions an INDIVIDUAL effect; TES4 has no such field. **508 effect

@@ -3,12 +3,14 @@
 See: docs/fork/fo4_pipeline.md#skeleton
 """
 
+import json
 import os
 import time
 from types import SimpleNamespace
 
 from fo4_import.nif.convert_static import Converted
 from fo4_import.nif.file import NifFile
+from fo4_import.pipeline import build_steps as BS
 from fo4_import.pipeline import code_tag as CT
 from fo4_import.pipeline import converters as CV
 from fo4_import.pipeline import elric_cache as EC
@@ -114,6 +116,66 @@ def test_a_region_is_its_two_corners_and_around_is_its_square():
     assert RUN.scope_cells(SimpleNamespace(region=None, around=(-18, 0), radius=1, whole=False)) == (
         (-19, -1), (-17, 1))
     assert RUN.scope_cells(SimpleNamespace(region=[-17, 1, -19, -1], whole=True)) == (None, None)
+
+
+def test_a_build_takes_the_heavy_job_lock_before_any_work(monkeypatch):
+    """main() queues behind any other heavy job before it starts the build's processes."""
+    calls = []
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace())
+    monkeypatch.setattr(RUN, 'hold_heavy_lock', lambda label: calls.append(label))
+
+    def stop():
+        """The first step after the lock: end the run here."""
+        calls.append('work')
+        raise SystemExit
+    monkeypatch.setattr(RUN, 'configure_multiprocessing', stop)
+    monkeypatch.setattr(RUN.sys, 'argv', ['run.py', '--out', 'x.esm'])
+    try:
+        RUN.main()
+    except SystemExit:
+        pass
+    assert calls == ['fo4_import.pipeline.run --out x.esm', 'work']
+
+
+def test_the_stamp_says_running_then_finished_or_failed(tmp_path, monkeypatch):
+    """The stamp beside the plugin reads running during the build, finished after it, failed when it raises."""
+    out = tmp_path / 'FalloutNV.esm'
+    seen = []
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out))
+    for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
+        monkeypatch.setattr(RUN, name, lambda *a: None)
+    monkeypatch.setattr(RUN, 'source_state', lambda: {'commit': 'abc', 'changed files': ['x.py']})
+    stamp = BS.stamp_path(out)
+    monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(json.loads(stamp.read_text())['status']))
+    RUN.main()
+    body = json.loads(stamp.read_text())
+    assert (seen, body['status'], body['commit'], body['changed files']) == (['running'], 'finished', 'abc', ['x.py'])
+
+    def fails(args, started):
+        """A build that dies part way."""
+        raise RuntimeError('boom')
+    monkeypatch.setattr(RUN, 'build_all', fails)
+    try:
+        RUN.main()
+    except RuntimeError:
+        pass
+    assert json.loads(stamp.read_text())['status'] == 'failed'
+
+
+def test_a_build_with_scripts_converts_them_first(monkeypatch):
+    """--scripts converts the export's scripts into that folder before anything else runs."""
+    calls = []
+    monkeypatch.setattr(RUN, 'convert_scripts', lambda export, scripts: calls.append((export, scripts)))
+
+    def stop(args):
+        """The step after the conversion: end the run here."""
+        raise SystemExit
+    monkeypatch.setattr(RUN, 'exteriors', stop)
+    try:
+        RUN.build_all(SimpleNamespace(scripts='s', export='e'), 0.0)
+    except SystemExit:
+        pass
+    assert calls == [('e', 's')]
 
 
 def test_the_first_world_takes_the_rectangle_and_the_rest_are_whole():

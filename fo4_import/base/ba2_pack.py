@@ -92,8 +92,21 @@ def _run(data_dir: Path) -> dict:
     """This run's texture record for `data_dir` (_RUNS), made on first use."""
     key = _run_key(data_dir)
     if key not in _RUNS:
-        _RUNS[key] = {'manifest': _read_json(staging_root(data_dir) / MANIFEST), 'staged': {}}
+        _RUNS[key] = {'manifest': _read_json(staging_root(data_dir) / MANIFEST), 'staged': {}, 'masters': (),
+                         'shared': set()}
     return _RUNS[key]
+
+
+def share_masters(data_dir: Path, masters: list) -> None:
+    """stage_texture() skips what a `masters` data folder packed alike.
+    See: docs/fork/fo4_plugin_layout.md#dlc-build
+    """
+    _run(data_dir)['masters'] = tuple(_read_json(staging_root(m) / MANIFEST) for m in masters)
+
+
+def _in_master(run: dict, key: str, signature) -> bool:
+    """Whether a master of `run` packed texture `key` with `signature`."""
+    return signature is not None and any((m.get(key) or [None] * 3)[2] == signature for m in run['masters'])
 
 
 def _current(staged: Path, recorded, signature: str) -> bool:
@@ -113,9 +126,12 @@ def stage_texture(data_dir: Path, rel: str, plan) -> bool:
     signature names everything the file is made from (a copy's source, size and time; a derived map's work-cache
     key). Paths name contents (convert_static), so a second call this run is skipped unplanned."""
     run, key = _run(data_dir), texture_key(rel)
-    if key in run['staged']:
+    if key in run['staged'] or key in run['shared']:
         return False
     signature, write = plan()
+    if _in_master(run, key, signature):
+        run['shared'].add(key)
+        return False
     run['staged'][key] = signature
     target = Path(data_dir) / 'Textures' / rel.replace('\\', '/')
     if not target.exists() and _current(staging_root(data_dir) / 'Textures' / key, run['manifest'].get(key),

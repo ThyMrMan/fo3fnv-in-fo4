@@ -960,6 +960,27 @@ End
         assert 'BlockActivation' not in result
         assert 'DefaultActivate(Self' in result.split('Event OnActivate', 1)[0]
 
+    def test_a_talkers_activation_opens_its_greeting_on_fallout4(self, converter, monkeypatch):
+        """An intercom's bare Activate and a trigger's `<intercom>.activate player` open the GREETING talk scene."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        xref = converter.xref
+        xref._is_fallout = True
+        xref.record_type.update({'000A0001': 'TACT', '000A0002': 'REFR'})
+        xref.record_scri['000A0001'] = '000A0003'
+        xref.script_formid_to_edid['000A0003'] = 'IntercomScript'
+        xref.edid_to_formid['lobbyintercom'] = '000A0002'
+        xref.record_base['000A0002'] = '000A0001'
+        intercom = converter.convert_standalone('IntercomScript', 'ScriptName IntercomScript\nBegin OnActivate\n'
+                                                '  SetTalkingActivatorActor ChrisRef\n  Activate\nEnd\n',
+                                                'ObjectReference', 'IntercomScript')
+        assert 'TES4Polyfill.TalkerActivate(TES4Talk_GREETING, Self, akActionRef)' in intercom
+        assert 'BlockActivation(true)' in intercom
+        trigger = converter.convert_standalone('EnterScript', 'ScriptName EnterScript\nBegin OnTriggerEnter player\n'
+                                               '  LobbyIntercom.activate player\nEnd\n', 'ObjectReference',
+                                               'EnterScript')
+        assert 'TES4Polyfill.TalkerActivate(TES4Talk_GREETING, LobbyIntercom, ' in trigger
+        assert 'Scene Property TES4Talk_GREETING Auto' in trigger
+
     def test_gamemode_oninit_not_duplicated(self, converter):
         """A script with its own OnInit must not get a second one."""
         source = """ScriptName UpdateScript
@@ -2477,8 +2498,21 @@ End
                                               'TestRaceMenu')
         assert 'Event OnMenuClose(String TES4_MenuName)' in result
         assert 'RegisterForMenu("RaceSex Menu")' in result
-        assert 'If TES4_MenuName != "RaceSex Menu"' in result
+        assert 'If TES4_MenuName == "RaceSex Menu"' in result
         assert ';  stage = 40' not in result, 'body must EXECUTE, not comment'
+
+    def test_fallout4_pipboy_and_vats_blocks_share_one_menu_listener(self, converter, monkeypatch):
+        """FNV `MenuMode 1` (the Pip-Boy) maps on Fallout 4 (CGTutorial's stages 52 and 212); with a VATS block
+        beside it, both bodies run from one listener, each on its own menu."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        src = ('Scriptname TestTutorial\n\nshort stage\n\n'
+               'Begin MenuMode 1\nset stage to 52\nEnd\n\n'
+               'Begin MenuMode 1056\nset stage to 72\nEnd\n')
+        result = converter.convert_standalone('TestTutorial', src, 'Quest', 'TestTutorial')
+        menus = [line for line in result.splitlines() if 'Menu' in line]
+        assert sum('Event OnMenu' in line for line in menus) == 1, menus
+        assert 'If TES4_MenuName == "PipboyMenu"' in result and 'If TES4_MenuName == "VATSMenu"' in result
+        assert 'RegisterForMenuOpenCloseEvent("PipboyMenu")' in result and ';  stage = 52' not in result
 
     def test_non_sleep_bare_menumode_stays_commented(self, converter):
         src = ('Scriptname TestNoSleep\n\nshort x\n\n'
@@ -6295,7 +6329,16 @@ class TestFalloutQuestStageSubject:
         flagged = conv_lines(converter, 'DisablePlayerControls 0 1 1 0 0 0 0', 'Quest')
         assert '.Disable(false, true, false, false, false, false, false, true)' in flagged
         bare = conv_lines(converter, 'DisablePlayerControls', 'Quest')
-        assert '.Disable(true, true, false, false, false, false, true, true)' in bare
+        assert '.Disable(true, true, false, false, false, false, false, true)' in bare
+
+    def test_fallout4_disable_leaves_activation_for_dialogue(self, converter, monkeypatch):
+        """FO4 opens no conversation while activation is off (the Tops greeter): a disable leaves it, an enable
+        still restores it."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        assert '.Disable(true, true, false, false, true, false, false, true)' in conv_lines(
+            converter, 'DisablePlayerControls 1 1 1 0 0 1 1', 'Quest')
+        assert '.Enable(true, true, true, true, true, false, true, true)' in conv_lines(
+            converter, 'EnablePlayerControls', 'Quest')
 
     def test_is_anim_playing_is_zero_on_fallout4(self, converter, monkeypatch):
         """FO4 cannot ask a NIF sequence; the graph-variable read only errored (Lucky38LightScript)."""

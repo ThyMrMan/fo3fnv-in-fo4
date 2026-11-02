@@ -25,8 +25,8 @@ from tes5_import.base.writer import pack_subrecord
 #: The subrecords copied, in FO4's REFR order.
 KEPT = (b'XMBO', b'XPRM', b'XPOD', b'XORD', b'XOCP', b'XRGD', b'XRDS', b'XAPD', b'XAPR', b'XOWN', b'XRNK', b'XESP', b'XCNT', b'XPRD',
         b'ONAM', b'XMRK', b'FNAM', b'FULL', b'TNAM')
-#: Patrol data after XPRD as all 7,684 vanilla points write it: flag, no idle, no topic (no PDTO crashes FO4).
-PATROL_REST = pack_subrecord('XPPA', b'') + pack_subrecord('INAM', bytes(4)) + pack_subrecord('PDTO', bytes(8))
+#: Patrol data after XPRD as all 7,684 vanilla points write it: flag, no idle, then a PDTO (none crashes FO4).
+PATROL_REST = pack_subrecord('XPPA', b'') + pack_subrecord('INAM', bytes(4))
 #: A map marker's fields, kept only on a reference with XMRK (FNV uses TNAM and XRDS elsewhere too).
 MARKER = (b'XRDS', b'FNAM', b'FULL', b'TNAM')
 #: FNV map marker type -> FO4's of the same kind (FNV's None, unused, as Natural Landmark).
@@ -147,14 +147,19 @@ def _field(tag: bytes, data: bytes, ids: dict, owner: 'bytes | None') -> 'bytes 
     return data
 
 
-def placement(fnv_fid: int, ids: dict, owners: dict = None, pose: bool = True) -> bytes:
+def _patrol_rest(fnv_fid: int, arrivals: dict) -> bytes:
+    """XPPA, INAM and a PDTO naming the point's `arrivals` topic (else 0)."""
+    return PATROL_REST + pack_subrecord('PDTO', struct.pack('<II', 0, arrivals.get(fnv_fid, 0)))
+
+
+def placement(fnv_fid: int, ids: dict, owners: dict = None, pose: bool = True, arrivals: dict = None) -> bytes:
     """FO4 subrecords of FNV reference `fnv_fid`'s KEPT fields, references through `ids` {FNV hex: FO4}.
 
-    A portal's rooms are renumbered; an enable or activate parent that is not built is dropped; an owner maps
-    through `owners` {FNV FormID: FO4}, and without one so is its rank; a map marker keeps its flags, name,
-    type (MARKER_TYPES) and discovery radius. Without `pose` the ragdoll pose (XRGD) is dropped: a placed
-    actor's indexes FNV's skeleton's ragdoll bones, not FO4's.
+    Portal rooms are renumbered; an enable or activate parent not built is dropped; an owner maps through
+    `owners` {FNV FormID: FO4}, else it and its rank drop; a map marker keeps its flags, name, type and
+    radius. Without `pose` XRGD drops (FNV ragdoll bones). A patrol point's PDTO is its `arrivals` topic.
     See: docs/fork/fo4_pipeline.md#parents
+    See: docs/fork/fo4_pipeline.md#patrol-points
     """
     found = fields().get(fnv_fid, [])
     owner, portal = owned(found, owners or {}), any(t == b'XPOD' for t, _ in found)
@@ -163,7 +168,7 @@ def placement(fnv_fid: int, ids: dict, owners: dict = None, pose: bool = True) -
         skip = tag == b'XMBO' and portal or tag in MARKER and not marker or tag == b'XRGD' and not pose
         kept = None if skip else _field(tag, data, ids, owner)
         out += pack_subrecord(tag.decode(), kept) if kept is not None else b''
-        out += PATROL_REST if tag == b'XPRD' else b''
+        out += _patrol_rest(fnv_fid, arrivals or {}) if tag == b'XPRD' else b''
     return out
 
 

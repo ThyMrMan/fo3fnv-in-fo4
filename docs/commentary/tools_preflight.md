@@ -136,7 +136,10 @@ quest and the stage.
 A site is **live in the source** when its container runs there:
 - a dialogue line needs a reachable topic and a placed actor who passes its
   GetIsID conditions;
-- a script needs a record that uses it;
+- a script needs a record that uses it; a quest's script also needs that
+  quest running (start-enabled or any of its stages reached), since a quest
+  script runs only while its quest does. FNV's VMQHouseLockdown and CG00
+  are never started, so their scripts' SetStages reach nothing;
 - a stage result needs its own stage reached;
 - packages always count as live.
 
@@ -321,6 +324,28 @@ Each reason names the source topic's type (Conversation, Radio, Topic and so
 on). A lost line reached in the source only through LinkFrom (TCLF) says so;
 the importer never reads LinkFrom.
 
+**What the source reaches** (`SourceGame.reachable_topics`). Of the
+Conversation topics only HELLO and GOODBYE play by themselves: every random
+conversation starts with a HELLO and follows its links (GECK wiki,
+Conversation Tab). Any other Conversation topic needs a script, a package (its
+Dialogue topic or a section's topic), a patrol marker (its topic or script),
+or a link from a reachable line. A Goodbye line ends the conversation, so its
+Choices, and LinkFroms naming its topic, lead nowhere. Counting every
+Conversation topic as playable made 178 of the FO4 build's 267 "never played"
+losses (unused lines such as Mr. House's `vDialogueMrHouse*Pissed`).
+
+A package counts only when an actor lists it (`AIPackage`) or a script names
+it (`AddScriptPackage`); its topics and section scripts are otherwise dead
+(`SourceGame._use_packages`). FNV's `PrimmMeyersSpeechPackage`,
+`PrimmFindMcGee` and `VCG00BennyTravelToPlayer` are given to no one, and
+Rex's rat hunt only by a line FNV commented out. `Say` and `SayTo` play one
+line of a topic and open no conversation, so a topic only they name offers
+no Choices and lets no LinkFrom in (`said_topics`): Cachino's execution
+(`sayto ... VMS21CachinoExecution1`) never reaches Execution2 and 3, nor
+Captain Curtis's radio chain its linked lines. On the 2026-10-31 10:51 PM
+build the two rules took "never played" from 27 to 13 lines and dialogue
+from 162 to 153 findings.
+
 Losses are grouped by speaker, one error each, most lines first:
 - a line bound to named NPCs counts against each of them;
 - a line anyone may say counts against its quest ("lines anyone may say in
@@ -330,9 +355,12 @@ Losses are grouped by speaker, one error each, most lines first:
 subtype per owning quest
 ([bark rule](tes5_import_dialogue.md#qust-records-journal)). The audit
 reports every (quest, subtype) that owns two or more topics, for any subtype
-other than CUST and SCEN. A census of vanilla Skyrim.esm found no quest owning
-two topics of the same subtype, across all 70 such subtypes, which supports
-applying the rule beyond Hello.
+other than CUST, SCEN and SCCH (a scene's player choice). A census of vanilla
+Skyrim.esm found no quest owning two topics of the same subtype, across all 70
+such subtypes, which supports applying the rule beyond Hello. Fallout4.esm
+agrees (no quest owns two of any bark subtype; only CUST, SCEN and SCCH
+repeat), so FO4 builds run the check too
+([FO4 barks](../fork/fo4_pipeline.md#barks)).
 
 ### Greeting replies
 <a id="greeting-replies"></a>
@@ -397,6 +425,45 @@ On 2026-09-30:
   none opened.
 - Say Once findings: FO3 12 quests, FNV 29, Oblivion 12.
 - Scene originals: none outside IDAT or CUST.
+
+### XDI menus
+<a id="xdi-menus"></a>
+`xdi_menus.audit` (part of `--audit dialogue`, Fallout 4 builds) finds every
+XDI menu that can open showing only "dialogueentry", the bug that reached
+play-tests on 2026-10-24, 2026-10-31 and 2026-11-01. Its rules come from the
+installed XDI, not from play:
+- **"dialogueentry" is a fallback.** XDI's `DialogueMenu.swf` (decompiled
+  with FFDec) keeps the options XDI returns that are enabled and have a
+  response (`populateArray`). With none left, `populateList` lists the
+  engine's button strings. Those are plain strings with no `text`, so each
+  list entry keeps its text field's authored text, "dialogueentry". The text
+  is in the SWF only, not in Fallout4.exe, XDI.dll or our plugin. A lone
+  "dialogueentry" therefore means no option passed.
+- **What XDI lists.** XDI 1.4.4 (the unofficial port for game 1.11.240, which
+  binary-patches the official DLL; its options code was disassembled at RVA
+  0x3910 and 0x4d60) matches the public source (`reg2k/xdi`
+  `DialogueEx.cpp`). It lists one option per player line that has responses
+  or a shared line, skips empty lines (pads) outright, and enables each
+  option by its own conditions. The menu labels an option with the line's
+  response text, and skips one whose response is empty or that is disabled.
+  The earlier reading that "a passing pad shows blank" was wrong: a pad can
+  never be listed.
+
+| Rule | Finding |
+|---|---|
+| A menu whose player lines have no content | error (review when nothing starts its scene) |
+| A listed player line whose response text is empty | error: it never shows |
+| A listed player line with FO4's Say Once | error: dropped once said, it can leave the menu empty (the 2026-10-31 "What are Powder Gangers?" case) |
+| A line starting the menu's scene names a speaker (GetIsID alone in its group) that no option's GetIsID on the Target admits | error: the menu opens with no option for that NPC |
+| A Greeting-topic line starts its scene by TSCE | error: a run left playing blocks the start, so every later talk opens with no menu ([greeting scene](../fork/fo4_pipeline.md#greeting-scene)) |
+
+On the 2026-11-01 13:25 build:
+- The shared starter line 033AA035 opens the GREETING scene by TSCE: the
+  general cause, which every NPC hit.
+- Gomorrah's bartender opens a menu whose one topic (`vGOMEntranceGreeting`)
+  only the entrance guard answers.
+- 9 empty menus are started by nothing (review).
+- Ringo's own menu passes the menu rules: its one option admits Ringo.
 
 ## Script health
 <a id="script-health"></a>

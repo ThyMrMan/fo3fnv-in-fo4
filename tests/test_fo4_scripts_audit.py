@@ -74,6 +74,28 @@ def test_a_fallout4_quest_poll_counts_its_live_delay_after_a_pause(fallout4):
             in out)
 
 
+def test_a_poll_pass_skips_while_the_last_runs_and_every_return_ends_it(fallout4):
+    """A pass that starts while the last still runs returns after the insurance arm; the body's return and the
+    menu hold and the end of the pass all clear the mark. See docs/fork/performance.md#poll-overlap."""
+    src = 'scn T\nshort b\nbegin GameMode\n  if b\n    return\n  endif\n  set b to 1\nend\n'
+    out = ScriptConverter(CrossRefGraph()).convert_standalone('T', src, 'Quest', 'T')
+    event = out.split('Event OnTimer(')[1].split('EndEvent')[0]
+    assert event.index('StartTimer(5.0)') < event.index('If TES4_PassStarted > 0.0') < event.index('b = 1')
+    assert event.count('TES4_PassStarted = 0.0') == 3
+    assert 'Float TES4_PassStarted = 0.0' in out
+
+
+def test_a_trigger_traces_who_enters_and_what_it_holds_when_its_cell_attaches(fallout4):
+    """A reference script with OnTriggerEnter opens it with TraceTrigger and gains an OnCellAttach trace."""
+    src = 'scn T\nshort b\nbegin OnTriggerEnter player\n  set b to 1\nend\n'
+    out = ScriptConverter(CrossRefGraph()).convert_standalone('T', src, 'ObjectReference', 'T')
+    assert ('Event OnTriggerEnter(ObjectReference akActionRef)\n  TES4Polyfill.TraceTrigger(Self, akActionRef)\n'
+            in out)
+    assert 'Event OnCellAttach()\n  TES4Polyfill.TraceTriggerAttach(Self)\nEndEvent' in out
+    plain = ScriptConverter(CrossRefGraph()).convert_standalone('T', 'scn T\nbegin OnLoad\nend\n', 'ObjectReference', 'T')
+    assert 'TraceTrigger' not in plain
+
+
 @pytest.mark.parametrize('extends,game', [('Quest', 'skyrim'), ('ObjectReference', FALLOUT4)])
 def test_other_polls_keep_the_interval_literal(extends, game, monkeypatch):
     """S3: a Skyrim quest and a Fallout 4 object script keep the interval literal."""

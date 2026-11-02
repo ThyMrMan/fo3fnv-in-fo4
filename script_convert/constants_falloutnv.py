@@ -61,7 +61,15 @@ FALLOUT_UNMAPPED_ACTOR_VALUES = frozenset({
 })
 
 #: FO3/FNV spellings of shared handlers: alias -> the handler's TES4 name.
-FALLOUT_COMMAND_ALIASES = {'cios': 'cast', 'castimmediateonself': 'cast'}
+FALLOUT_COMMAND_ALIASES = {'cios': 'cast', 'castimmediateonself': 'cast',
+                           #: The fade is the player's screen; the move is MoveTo. See: docs/fork/script_markers.md#moves
+                           'movetomarkerwithfade': 'moveto', 'movetofade': 'moveto'}
+
+#: FO3/FNV form type code (xNVSE kFormType) of each inventory record type -> its export type, for RemoveAllTypedItems.
+ITEM_TYPE_CODES = {24: 'ARMO', 25: 'BOOK', 26: 'CLOT', 29: 'INGR', 30: 'LIGH', 31: 'MISC', 40: 'WEAP', 41: 'AMMO',
+                   46: 'KEYM', 47: 'ALCH', 49: 'NOTE', 103: 'IMOD', 108: 'CHIP', 115: 'CCRD'}
+#: Type code -> the FormList property of its items, which the Fallout 4 build writes (spike.items.type_list).
+ITEM_TYPE_LISTS = {code: f'TES4ItemType{code}' for code in ITEM_TYPE_CODES}
 
 #: The FormList of factions whose player-enemy flag converted scripts set (TES4_FalloutCrime keeps it).
 _ENEMIES = ('TES4PlayerEnemyFactions', 'FormList')
@@ -218,4 +226,26 @@ FALLOUT_COMMAND_ROWS = {
                                   flags='bare_bool cmp_bool'),
     'getobjectivefailed': dict(emit='IsObjectiveFailed', subj='MAP', bare=True,
                                flags='bare_bool cmp_bool'),
+    #: Formerly ;NE: markers. See: docs/fork/script_markers.md#built
+    'setplayerteammate': dict(emit='{ref}.SetPlayerTeammate({b0})', subj='ACTOR', defaults={0: '1'},
+                              flags='actor_only'),
+    'openteammatecontainer': dict(emit='{ref}.OpenInventory(True)', subj='ACTOR', flags='actor_only'),
+    'removefromallfactions': dict(emit='{ref}.RemoveFromAllFactions()', subj='ACTOR',
+                                  flags='actor_only zero_arg'),
+    'sendtrespassalarm': dict(emit='{ref}.SendTrespassAlarm({a0})', subj='ACTOR', types={0: 'Actor'},
+                              defaults={0: 'Game.GetPlayer()'}, flags='actor_only'),
+    'addformtoformlist': dict(emit='{p0}.AddForm({p1})', types={0: 'FormList', 1: 'Form'}),
+    'damageobject': dict(emit='{ref}.DamageObject({f0})', subj='OBJREF', defaults={0: '0.0'}),
+    'do': dict(emit='{ref}.DamageObject({f0})', subj='OBJREF', defaults={0: '0.0'}),
+    'resetquest': dict(emit='{p0}.Reset()', types={0: 'Quest'}),
+    #: The weapon the actor holds is in the list. GetEquippedWeapon is None bare-handed; HasForm(None) is False.
+    'isweaponinlist': dict(emit='({p0}.HasForm({ref}.GetEquippedWeapon()) as Int)', subj='ACTOR',
+                           types={0: 'FormList'}, flags='actor_only'),
+    #: Base plus permanent modifiers: the AV handler reads it as the base value. See: docs/fork/script_markers.md#permanent-av
+    'getpermanentactorvalue': dict(emit='GetBaseActorValue', subj='MAP', flags='actor_only av av_read'),
+    'getpermav': dict(emit='GetBaseActorValue', subj='MAP', flags='actor_only av av_read'),
+    #: No casino game runs in a converted build, so no casino ever owes a comp. See: docs/fork/script_markers.md#casino
+    'getcasinowinningslevel': dict(emit='0'),
+    #: MoveToMarkerWithFade converts to MoveTo, so the fade it waited on never plays. See: docs/fork/script_markers.md#moves
+    'isimagespaceactive': dict(emit='0'),
 }

@@ -6,6 +6,7 @@ are copied from vanilla Fallout4.esm records named in each docstring.
 See: docs/fork/fo4_spikes.md#spike-1
 """
 
+import html
 import re
 import struct
 
@@ -23,6 +24,8 @@ SILENT_LINE = ''
 INITIALLY_DISABLED = 0x800
 #: Quest alias flag Uses Stored Text: the alias's display name (ALDN) names it, as a radio station's Host.
 USES_STORED_TEXT = 0x4000
+#: Quest alias flag Allow Disabled (xEdit's wbQUSTAliasFlags): a disabled reference fills it.
+ALLOW_DISABLED = 0x80
 #: ACTI FNAM flag Is a Radio: a receiver, its RADR naming the frequency.
 IS_A_RADIO = 0x10
 #: FO4 CTDA Run On values.
@@ -56,6 +59,8 @@ NPC_SCENE_FLAGS = 0x14
 ACTOR_OPTIONAL = 0x2
 #: SCEN FNAM Prevent Player Exit Dialogue (84 vanilla player-dialogue scenes).
 SCENE_NO_EXIT = 0x40
+#: Bytes of each of a STAT MNAM's four LOD mesh paths (xEdit's wbStringForward 260; vanilla's 3,436 are 1,040 bytes).
+LOD_PATH = 260
 #: Object id in XDI.esm of the keyword that marks a scene's menu for XDI.
 XDI_KEYWORD = 0x800
 #: SCEN ACTV (Dialogue Distance Override); the menu scene also ends past it, as 127 vanilla phases end on GetDistance.
@@ -140,7 +145,8 @@ def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b
               vmad: bytes = b'', idles: tuple = (), speaker: int = 0) -> bytes:
     """An INFO in vanilla's field order (DialogueDiamondCity 00199516).
 
-    lines: response texts (none: padding), shown() as the prompt; stages are the
+    lines: response texts (none: padding), shown(), HTML-escaped with the prompt
+    on a player line (XDI lists them as HTML: `<Say nothing.>` vanished); stages are the
     quest stages set on begin and on end (TIQS); scene/phase start a scene,
     at phase_index (INTV, which the engine reads, not the NAM0 name);
     forced_alias (ALFA) puts the speaker into that alias; vmad is its fragments;
@@ -150,12 +156,13 @@ def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b
     subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_subrecord('ENAM', struct.pack('<HH', flags, 0))
     for number, text in enumerate(lines, 1):
         subs += pack_subrecord('TRDA', struct.pack('<iBIBHii', -1, number, 0, 1, 0, -1, -1))
-        subs += _zstr('NAM1', shown(text)) + _zstr('NAM2', notes) + _zstr('NAM3', '') + _zstr('NAM4', '')
+        said = html.escape(shown(text), quote=False) if prompt else shown(text)
+        subs += _zstr('NAM1', said) + _zstr('NAM2', notes) + _zstr('NAM3', '') + _zstr('NAM4', '')
         said, heard = idles[number - 1] if number <= len(idles) else (0, 0)
         subs += (pack_u32('SNAM', said) if said else b'') + (pack_u32('LNAM', heard) if heard else b'')
     subs += conditions
     if prompt:
-        subs += _zstr('RNAM', shown(prompt))
+        subs += _zstr('RNAM', html.escape(shown(prompt), quote=False))
     if scene:
         subs += pack_u32('TSCE', scene) + (_s32('INTV', phase_index) if phase_index else b'')
     if forced_alias is not None:
@@ -228,16 +235,19 @@ def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
 
 
 def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display: int = 0, voices: int = 0) -> bytes:
-    """A reference alias forced to `ref`, or optional and empty when None; given `packages`, an empty collection
-    alias running them (ALPC), in vanilla's order (CZ_Arena's Crowd); a `display` name message (ALDN) sets Uses
-    Stored Text, as RadioDiamondCity's Host; `voices` (VTCK: an NPC or list) voices a non-actor, as RadioSubway's."""
-    collection = packages is not None
+    """A reference alias forced to `ref` (Allow Disabled, as vanilla sets on 73 of its 89 required forced aliases on
+    disabled references), or optional and empty when None; given `packages` (ALPC), it runs them: without a
+    `ref`, an empty collection alias (CZ_Arena's Crowd); a `display` name message (ALDN) sets Uses Stored Text
+    (RadioDiamondCity's Host); `voices` (VTCK: an NPC or list) voices a non-actor, as RadioSubway's.
+    See: docs/fork/fo4_preflight.md#results
+    """
+    collection = packages is not None and ref is None
     subs = (pack_u32('ALCS', alias) + pack_subrecord('ALMI', b'\0') if collection else b'') + pack_u32('ALST', alias)
-    flags = 2 if ref is None else USES_STORED_TEXT if display else 0
+    flags = 2 if ref is None else ALLOW_DISABLED | (USES_STORED_TEXT if display else 0)
     subs += _zstr('ALID', name) + pack_u32('FNAM', flags) + (b'' if ref is None else pack_u32('ALFR', ref))
     subs += pack_u32('ALDN', display) if display else b''
     subs += b''.join(pack_u32('ALPC', package) for package in packages or ())
-    subs += pack_u32('VTCK', voices) if voices or collection else b''
+    subs += pack_u32('VTCK', voices) if voices or packages is not None else b''
     return subs + pack_subrecord('ALED', b'')
 
 
@@ -294,10 +304,15 @@ def without_object_templates(subs: bytes) -> bytes:
     return out
 
 
-def pack_stat(fid: int, edid: str, model: str, bounds: tuple) -> bytes:
-    """A static: bounds, model under Meshes, ClutterGenShelfA's DNAM."""
-    subs = _bounded(edid, bounds) + _zstr('MODL', model)
-    return pack_fo4_record('STAT', fid, 0, subs + pack_subrecord('DNAM', struct.pack('<fIff', 90.0, 0, 1.0, 1.0)))
+def pack_stat(fid: int, edid: str, model: str, bounds: tuple, flags: int = 0, lods: tuple = ()) -> bytes:
+    """A static: record `flags`, bounds, model under Meshes, ClutterGenShelfA's DNAM, and its distant LOD meshes
+    `lods` (levels 4, 8, 16, 32; '' for none) as MNAM.
+    See: docs/fork/fo4_pipeline.md#object-lod
+    """
+    subs = _bounded(edid, bounds) + _zstr('MODL', model) + pack_subrecord('DNAM', struct.pack('<fIff', 90.0, 0, 1.0, 1.0))
+    if lods:
+        subs += pack_subrecord('MNAM', b''.join(m.encode('cp1252').ljust(LOD_PATH, b'\0') for m in lods))
+    return pack_fo4_record('STAT', fid, flags, subs)
 
 
 def pack_mstt(fid: int, edid: str, model: str, bounds: tuple, sound: int = 0) -> bytes:

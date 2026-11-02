@@ -25,6 +25,11 @@ _ACTOR_EVENTS = {'Event OnLoad()': '  TES4Polyfill.TraceLoad(Self)\n  TES4Polyfi
                  'Event OnPackageStart(Package akNewPackage)': '  TES4Polyfill.TracePackageStart(Self, akNewPackage)'}
 #: Actor events traced only where the script has them (adding one would change nothing worth a line).
 _OPENED_EVENTS = {'Event OnActivate(ObjectReference akActionRef)': '  TES4Polyfill.TraceActivate(Self, akActionRef)'}
+#: The opener marking a trigger script.
+_TRIGGER_ENTER = 'Event OnTriggerEnter(ObjectReference akActionRef)'
+#: Trigger events traced: opener -> the trace line opening it.
+_TRIGGER_EVENTS = {_TRIGGER_ENTER: '  TES4Polyfill.TraceTrigger(Self, akActionRef)',
+                   'Event OnCellAttach()': '  TES4Polyfill.TraceTriggerAttach(Self)'}
 #: INFO fragment -> the moment it marks.
 _INFO_WHEN = {'Fragment_1': 'begin', 'Fragment_0': 'end'}
 #: A statement giving the player an item or taking one: indent, the call, the item, then the arguments after it.
@@ -84,9 +89,25 @@ def actor(lines: list, extends: str) -> list:
     already traced is left as it is)."""
     if not is_fallout4() or extends != 'Actor':
         return lines
-    for opener, trace in {**_ACTOR_EVENTS, **_OPENED_EVENTS}.items():
+    return _opened(lines, _ACTOR_EVENTS, _OPENED_EVENTS)
+
+
+def trigger(lines: list, extends: str) -> list:
+    """A trigger script's lines (a reference script with OnTriggerEnter) with _TRIGGER_EVENTS opened by their
+    trace lines, OnCellAttach added when the script has none.
+    See: docs/fork/fo4_pipeline.md#trace
+    """
+    if not is_fallout4() or extends != 'ObjectReference' or not any(l.startswith(_TRIGGER_ENTER) for l in lines):
+        return lines
+    return _opened(lines, _TRIGGER_EVENTS, {})
+
+
+def _opened(lines: list, added: dict, opened: dict) -> list:
+    """`lines` with each event of `added` and `opened` opened by its trace line; one of `added` the script lacks
+    is added."""
+    for opener, trace in {**added, **opened}.items():
         at = next((i for i, line in enumerate(lines) if line.startswith(opener)), None)
-        if at is None and opener in _OPENED_EVENTS:
+        if at is None and opener in opened:
             continue
         if at is None:
             lines = lines + [opener, trace, 'EndEvent', '']

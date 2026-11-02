@@ -646,8 +646,9 @@ def generate_far_nif(src_path: Path, dst_path: Path,
                      tex_roots=None, overlays=None) -> bool:
     """Generate dst_path (_far.nif) by decimating each shape in src_path.
 
-    Only processes NIFs already in Skyrim format (v20.2.0.7).
-    Each shape retains its original BSLightingShaderProperty (correct flags
+    Only processes v20.2.0.7 NIFs (Skyrim, Fallout 3 and New Vegas); their
+    uncontrolled strips become shapes first (shapes_from_strips).
+    Each shape retains its original shader property (correct flags
     and textures).  Returns True on success, False on skip/failure.
 
     A marker file <dst_path>.generated is written alongside the NIF so the
@@ -660,9 +661,24 @@ def generate_far_nif(src_path: Path, dst_path: Path,
     nif_data = _read_skyrim_nif(src_path)
     if nif_data is None:
         return False
+    shapes_from_strips(nif_data)
     return _decimate_and_write(nif_data, src_path.stem, dst_path,
                                decimate_ratio, cap, max_dev_frac,
                                tex_roots, overlays)
+
+
+def shapes_from_strips(nif_data) -> int:
+    """Replace each uncontrolled NiTriStrips child in the tree with its NiTriShape (the decimator reads only
+    shapes); the count replaced."""
+    done = 0
+    for block in list(nif_data.blocks):
+        if not isinstance(block, NifFormat.NiNode):
+            continue
+        for i, child in enumerate(block.children):
+            if isinstance(child, NifFormat.NiTriStrips) and child.controller is None:
+                block.children[i] = child.get_interchangeable_tri_shape()
+                done += 1
+    return done
 
 
 def _read_skyrim_nif(src_path: Path):

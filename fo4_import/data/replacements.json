@@ -182,7 +182,7 @@
       "creatures\\nvpenthouemaincomputer": {"use": "Fallout4.esm|EncProtectron01Template", "as": "speaker"},
       "creatures\\nvmrhouse": {"use": "Fallout4.esm|EncProtectron01Template", "as": "speaker"},
       "creatures\\nvfestus": {"use": "Fallout4.esm|EncProtectron01Template", "as": "speaker"},
-      "creatures\\smspinebreaker": {"use": "Fallout4.esm|EncSuperMutantTemplate", "as": "stats"},
+      "creatures\\smspinebreaker": {"use": "Fallout4.esm|EncSuperMutantTemplate", "as": "fnv"},
       "creatures\\smbehemoth": {"use": "Fallout4.esm|EncSMBehemoth01Template", "as": "stats"},
       "dlc05\\creatures": {"use": "Fallout4.esm|encAlien", "as": "stats"},
       "creatures\\mistergutsy": {"use": "Fallout4.esm|encMrGutsy01Template", "as": "stats"},

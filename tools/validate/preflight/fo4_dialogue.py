@@ -27,6 +27,8 @@ _SCENE_PLAYED = ('SCEN', 'CUST')
 
 #: SCEN FNAM flag: the scene begins when its quest starts.
 _BEGIN_ON_QUEST_START = 0x01
+#: NOTE DNAM of a voice holotape, which plays its scene (SNAM) when the player plays it.
+_VOICE_NOTE = 1
 
 #: Scene action types whose DATA is a topic: Dialogue and Radio.
 _DATA_TOPIC_ACTIONS = (0, 6)
@@ -67,10 +69,13 @@ class Fo4Dialogue:
         self.scenes, self.live = self._reachable()
 
     def _seeds(self) -> tuple:
-        """(scenes, topics) reachable before any link: quest-start scenes, engine topics, script properties."""
+        """(scenes, topics) reachable before any link: quest-start scenes, a voice holotape's scene (NOTE SNAM),
+        engine topics, script properties."""
         named = {target for _script, _prop, target in self.index.object_props}
         scenes = {r.form_id for r in self.index.by_type['SCEN'] if u32(first(r, 'FNAM')) & _BEGIN_ON_QUEST_START}
         scenes |= named & set(self.actions)
+        scenes |= {u32(first(r, 'SNAM')) for r in self.index.by_type['NOTE']
+                   if first(r, 'DNAM')[:1] == bytes([_VOICE_NOTE]) and first(r, 'SNAM')} & set(self.actions)
         topics = {fid for fid, sub in self.subtype.items() if sub not in _SCENE_PLAYED}
         return scenes, topics | (named & set(self.subtype))
 

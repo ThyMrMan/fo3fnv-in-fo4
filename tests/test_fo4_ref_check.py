@@ -88,4 +88,7 @@ def test_field_layouts():
     assert rc.field_formids(b'PACK', b'PDTO', struct.pack('<II', 0, 9)) == [9]
     assert rc.field_formids(b'PACK', b'PDTO', struct.pack('<I4s', 1, b'GREE')) == []
     assert rc.field_formids(b'PACK', b'CNAM', struct.pack('<I', 9)) == []
+    assert rc.field_formids(b'RACE', b'ZNAM', b'WEAPON\0') == []
+    assert rc.field_formids(b'LSCR', b'ZNAM', struct.pack('<2f', -1.0, 1.0)) == []
+    assert rc.field_formids(b'ARMO', b'ZNAM', struct.pack('<I', 9)) == [9]
     assert 0x14 in rc.HARDCODED and 0x2BC in rc.HARDCODED and 0x15 not in rc.HARDCODED

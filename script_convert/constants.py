@@ -675,6 +675,9 @@ MENU_ID_NAMES = {
     '1036': 'RaceSex Menu', '1056': 'VATS Menu',
 }
 
+#: FO3/FNV `begin MenuMode <id>` -> Fallout 4 menu (GECK MenuMode): 1 the Pip-Boy, 1008 a container, 1012 sleep/wait.
+FALLOUT4_MENU_ID_NAMES = {'1': 'PipboyMenu', '1008': 'ContainerMenu', '1012': 'SleepWaitMenu'}
+
 #: `begin MenuMode 1001`, the script's own message box; docs/commentary/script_convert.md#menumode-message-box
 MESSAGE_BOX_MENU_ID = '1001'
 #: `begin MenuMode 1009`, the dialogue menu: run in the poll's dialogue gate; script_convert.md#menumode-dialogue
@@ -771,6 +774,10 @@ FALLOUT4_HELPER_MESSAGES = {'TES4ChooseSexMessage': (0xB00, 'Choose Sex', ('Male
 FALLOUT4_HELPER_QUEST_MESSAGES = {'F3NV_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'}}
 #: Prefix of the Scene property `StartConversation Player [topic]` starts on Fallout 4 (topic, else GREETING).
 FALLOUT4_TALK_PREFIX = 'TES4Talk_'
+#: The Scene property that opens a speaker's GREETING on Fallout 4: `StartConversation Player`, a talker's activation.
+FALLOUT4_GREETING_TALK = FALLOUT4_TALK_PREFIX + 'GREETING'
+#: Record signature of an FO3/FNV talking activator (intercoms, radios), whose activation by the player opens dialogue.
+TALKING_ACTIVATOR = 'TACT'
 #: Prefix of the Scene property an NPC-to-NPC `StartConversation <actor> <topic>` starts on Fallout 4.
 FALLOUT4_CHAT_PREFIX = 'TES4Chat_'
 #: Prefix of the MatSwap property a Fallout 4 `SwapTexture` applies (fallout4_swap_property).

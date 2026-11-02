@@ -2,12 +2,39 @@
 
 Design only; status is in the [roadmap](ROADMAP.md#stability).
 
+**Target: the Skyrim converter only.** Everything below is about Skyrim:
+`Skyrim.esm`'s killmove idles, Skyrim's kill cam settings, SKSE and the
+1.6.1170 exe. None of it applies to the Fallout 4 build. For that build see
+[Fallout 4](#fallout4): an open check, not a plan.
+
+- [Fallout 4](#fallout4)
 - [The problem](#problem)
 - [Two features, two controls](#features)
 - [Options](#options)
 - [Suggested order](#order)
 
-## <a id="problem"></a>The problem
+## <a id="fallout4"></a>Fallout 4: an open check (2026-10-31)
+
+The Skyrim problem rests on a gap the Fallout 4 build doesn't have. Skyrim
+adds finishers that FO3 and FNV never had. Fallout 4 is close to FNV: both
+have a V.A.T.S. kill cam, and both run melee finishers through V.A.T.S. So
+there is no known Fallout 4 issue, and no Fallout 4 work is planned. Unknown:
+whether FO4's own kill cam and finishers behave well with converted weapons.
+
+**To settle it, in a play test:**
+1. Kill with converted guns, in and out of V.A.T.S.
+2. Kill with a converted melee weapon, in and out of V.A.T.S. (the baton, a
+   two-handed weapon, unarmed).
+
+For each, compare against FNV: does a kill cam or finisher fire where FNV's
+would, and does its animation fit the weapon?
+
+**Where to look if it doesn't:** the converted weapon's FO4 animation type
+and keywords (`spike/guns.py`, `weapon_mods.py`, and the replacement table's
+template), against the FO4 template weapon it copies. Write findings here
+before planning any fix.
+
+## <a id="problem"></a>The problem (Skyrim)
 
 Skyrim's finishing moves fire on converted weapons that were never made for
 them. FO3/FNV's police baton converts as a one-handed sword, passes the sword

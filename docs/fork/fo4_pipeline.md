@@ -260,6 +260,99 @@ another worldspace, or into exterior cells outside the block, are not
 followed. A door that leads out of the build still leads to a stand-in in
 QASmoke.
 
+**Interiors a script reaches (2026-10-31).** The Lucky 38's Control Room
+(Mr. House's screen) and basement have no door in: the elevator doors' script
+(`Lucky38ElevatorDoorScript`) MoveTos markers there, and the casino's trigger
+script names the Control Room. They were left out, and with them
+`NVCRMrHouseSCRIPT` and `Lucky38UpgradeSecuritronsSCRIPT` (VDialogueMrHouse
+20, VMQ02 15, VMQHouseFail 1, VMQYesMan01 80 unreachable in the preflight).
+A placed object whose base's script names a reference (SCRO) in another
+interior now leads there as a door does (`interiors.script_links`). The
+whole map gains 8 interiors: the Control Room and basement, Hoover Dam,
+Gomorrah's second floor, a sewer, and three holding cells scripts move
+actors into and out of (`RandomEncounterNPCs`, `FreesideNPCDump`,
+`DummyVESVEFRCell`). Nothing leads into `Lucky38Penthouse`.
+
+**Interiors a quest moves the player into (2026-10-31).** The ending slides'
+`Endgame` cell has no door and no placed object naming it: the VEnding quest's
+script runs `player.MoveTo PlayerSlideshowMarker`. Left out, it took
+`NarratorRef` and its `NarratorScript` with it, so none of the 37 `VEnding*`
+narrations could play. A `player.MoveTo` in script text tied to no placed
+object (a quest or effect script, a quest stage or line result) now seeds its
+marker's interior, reached from anywhere (`interiors.moved_to`). Of the 26
+interiors FNV moves the player into, only `Endgame` was missing.
+
+<a id="said-topics"></a>**Player topics only a script says (2026-10-31).**
+A package's begin or end topic and a script's `Say` become
+`TES4Polyfill.SayWhenFree` with a Topic property, which resolves only to a
+topic the build gave an id: the quests' Conversation topics. A player
+(Topic-type) topic said that way, and reached by nothing else, had no id,
+so its lines were never built: the Vault 21 tour stopped after its second
+stop (each stop's end topic gives Sarah the next package; VVault21Tour 20
+unreachable). Such a topic now joins its quest's scripted topics
+(`say_topics.said_only`): said with SayWhenFree in a converted script or
+fragment, not top-level, no line's Choice, Follow Up, Link From or
+AddTopic, and no Dialogue package's topic (the greeting builds those).
+129 topics, 345 lines, none built another way before: the tour, Arcade's
+and Lily's remarks, Black Mountain, Vault 11's chamber.
+
+<a id="barks"></a>**Engine topics as FO4 barks (2026-10-31).** FNV's engine
+plays its reserved topics itself, from every running quest's lines: Combat
+(`Attack`, `Hit`, `Death`, `GuardTrespass`, …), Detection (`AlertIdle`,
+`NormalToCombat`, …), Service, Miscellaneous, `IdleChatter`, and the
+Topic-type `PLAYER*` reactions (`PLAYERINIRONSITES`, `000000D0`). None were
+built: the 2026-10-31 preflight counted 1,595 Combat and 1,079 Detection lines
+lost. Each quest's lines of such a topic now become that quest's FO4 topic of
+the matching subtype, in no branch, as HELLO and GOODBYE already did
+(`barks.FNV_BARKS`, merged into `say_topics.ENGINE_TOPICS`).
+
+- **The subtype table is CreationKit.exe's**: a 125-row array of (name,
+  category, SNAM code, number), stride 0x28, its `AlertToCombat` row at file
+  offset 0x3BB8698 (`AlertToCombat`, 5, `ALTC`, 69). xEdit's names match it;
+  its numbers do not hold for vanilla data.
+- **SNAM decides, DATA is well-formed.** Vanilla stores several numbers for
+  one code (HELO: 89 records say 0x56, 81 say 0x58, 68 say 0x52), so the
+  engine keys on SNAM, as Skyrim's does. A bark's DATA is flags 0, the
+  category, and the table's number.
+- **One topic per subtype per quest, no branch.** In Fallout4.esm every bark
+  subtype (ATCK 55 topics, DETH 69, HELO 360, IDLE 73, PIRN 2, …) is owned at
+  most once per quest, and none has a BNAM; only CUST, SCEN and SCCH (scene
+  choice) repeat. FNV gives each quest one set of lines per engine topic, and
+  no two FNV topics map to one FO4 code, so each built quest keeps the rule.
+  The preflight's bark check (`dialogue_loss.bark_findings`) now runs on FO4
+  builds too.
+- **Mapping.** By name for most (`Attack`→ATCK, `AlertIdle`→ALIL,
+  `PLAYERINIRONSITES`→PIRN, `PLAYERFIREWEAPON`→FIWE "ShootBow").
+  Renamed ones: `FireExplosive`→THGR (ThrowGrenade), `GuardTrespass`→TRES,
+  `TrespassNoCrime`→TRAN, `*NoCrime`→the `*NC` codes, `CombatIdleChatter`→TAUT
+  (Taunt, FO4's combat chatter), `Corpse`→NOTI, `IdleChatter`→IDLE (it was
+  built as a custom topic no script says).
+- **Left out, no FO4 subtype:** `PLAYERTHROWGRENADE` (43 lines),
+  `PLAYERLAYMINE` (44), `SpeechChallengeFailure` (3), `GroupStrategy` (0),
+  the persuasion topics (0). Not engine-reserved and not built here: the
+  `*Response` topics (`DeathResponse` 77 lines, `StartCombatResponse` 53, …)
+  and the companion status barks (`HealthQuarter`, `NoAmmo`, `Crippled`, …,
+  `0015BCAE`–`0015BCBC`).
+- **Expected recovery, measured on the 2026-10-31 build (5,732 lost lines):**
+  2,503 are lines of the mapped topics; 1,798 of them are in quests the
+  build holds and now get built, less any whose conditions do not convert.
+  The other 705 are in quests the build leaves out (`vDialogueNightkin`,
+  `vDialogueSuperMutant`, `CreatureHits`, `GenericPlayer`, …): generic
+  quests that pick their speakers by voice type, race or faction, which
+  [quest scope](#quest-scope) does not follow.
+- <a id="barks-open"></a>**Closed (2026-11-01): the 705 bark lines in
+  generic quests the build left out.** Quest scope took a quest only when
+  its lines named a placed actor's base or reference (GetIsID,
+  GetIsReference) or a built cell. These quests' lines test voice type,
+  race or faction instead. Of the 2,503 bark lines, by quest: GenericRobot
+  345, VNPCFollowers 355, VFreeformGoodsprings 481 (all built);
+  vDialogueNightkin 134, vDialogueSuperMutant 91,
+  vDialogueSuperMutantFirstGen 82, CreatureHits 8, GenericPlayer 27 and
+  others (not built). Quest scope now follows those speaker tests to the
+  placed actors that pass them ([speaker tests](#quest-scope)). That brings
+  in every one of these quests except `GenericPlayer`, whose speaker is the
+  player, along with their HELLO and GREETING lines.
+
 Each interior gets:
 - its references;
 - FNV's lighting and imagespace (one FO4 imagespace per FNV one, shared);
@@ -493,6 +586,42 @@ vFreeformTheStreet02 (the three Victor quests); 3,203 new FormIDs (2,239
 topics, 489 scenes, 270 lines, 174 globals), none moved. VCG01's unfilled
 properties drop from 74 to 3, the intended Pip-Boy glove and hand-over idle.
 
+*Speaker tests (built 2026-11-01, not yet in a game build).* FNV's generic
+dialogue quests pick speakers by faction, voice type or class, not by a
+placed actor, so none came in: the 2026-10-31 preflight lost 2,529 lines in
+31 such quests. `QuestScope._spoken` now also takes a quest when one of its
+lines (its quest's conditions ANDed in) has a Subject GetInFaction,
+GetIsVoiceType, GetIsRace, GetIsClass or IsInList that a placed actor passes
+by having the form (`== 1`, `!= 0`), and the line's other speaker tests do
+not rule that actor out. A form list parameter stands for its entries. The
+facts come from the authored base (`speakers()`): its voice type, race and
+class from where the Use Traits template flag takes them, its factions
+(rank ≥ 0) from where Use Factions does, and every entry of a leveled list
+a placed actor or template names. A fact the base does not author stays
+open. A negated test alone (`GetInFaction(X) == 0`) pulls nothing in: it
+would pass for nearly everyone.
+
+Measured over all FNV placed actors (the whole-map build is close to that):
+37 more quests (290 → 327, the one-step started quests included) holding
+2,369 lines. Among them `vDialogueNCRCivilian` 331, `VDialogueBrotherhoodOfSteelFaction`
+235, `vDialogueFreeside` 224, `vDialogueSecuritron` 163, `vDialogueMojaveCivilian` 159,
+`GenericFiend` 158, `vDialogueNightkin` 145, `vDialogueNCRMilitary` 137,
+`vDialogueSuperMutant` 96 and `vDialogueSuperMutantFirstGen` 86 (voice type
+`CreatureLowIntSM`), `vDialogueCaesarsLegionMilitary` 75, `CreatureHits` 8.
+They hold 2,212 of the 2,529 lost lines. Still out, correctly: Fallout 3
+leftovers no placed actor belongs to (`WaterBeggars`, `HD00RobotsDialog`,
+`Vault108DialogueShell`, `UniqueFriendlyFire`, `DialogueCrimeKarma`),
+`VDialogueTEST`, `GenericIdleChatter` (its lines test `FemaleAdult07` both
+`== 1` and `== 0`), and `GenericPlayer` (the player is not a placed actor).
+The added lines' conditions, run through `conditions_of` with the
+2026-10-31 build's forms as the form map, convert 1,799 of 2,369. The rest
+are mostly the stand-in form map's own gaps (reputation and quest variable
+mirrors, 483 lines; the built quests `vDialogueTheStrip` and `vDialogueKings`
+show the same pattern). About 90 hit converter limits: `Exists` 15,
+`GetDisposition` 12, `GetIsID` of an unbuilt actor 7, and a few more.
+New quests take hashed FormIDs (`derive_formid`), so none should move; the
+build's diff confirms.
+
 The shared greeting and the scenes it leads to belonged to the highest
 priority built quest and were keyed on it, so a higher-priority quest
 joining moved all of them (917 topics and 208 scenes when VMS38 joined).
@@ -526,7 +655,15 @@ Sit ([drift](fo4_drift.md#recorded)).
 
 <a id="dialogue-conditions"></a>**Dialogue conditions (built 2026-10-14).**
 Lines were left out when a condition named something the build lacks.
-Three fixes (`conditions.without_absent`, `spike/condition_forms.py`):
+Three fixes (`conditions.without_absent`, `spike/condition_forms.py`), and a
+fourth (2026-10-31):
+- *Fixed in this build.* `IsActorTalkingThroughActivator` has no FO4
+  counterpart (FO4's `IsTalkingActivatorActor` runs on the activator), so
+  every line testing it was left out (77 in the preflight, Benny's Tops
+  greeting `001194B3` among them, which cut off his whole VMQTops
+  conversation and stage 20). A line naming an actor some talker speaks as
+  now reads the [talking-as lists](#talking-activators); on any other line
+  the test reads 0 (`conditions.FIXED`).
 - *Settled when the form is not in the build.* A test of an actor, voice
   type, cell, worldspace, quest (stage, variable, objective, running,
   completed), script variable, perk or casino the build leaves out reads 0
@@ -587,6 +724,41 @@ FO4 shows a topic's first player line that passes; when the prompt's
 conditions failed (a topic not yet unlocked), the pad passed instead and
 showed blank. Cliff's choice topic holds 11 prompts and their pads. Each
 pad now carries its prompt's conditions.
+- *Say Once prompts (2026-10-31, after a lone "dialogueentry" option in
+  play).* A prompt whose answers were all Say Once also carried FO4's own Say
+  Once flag, which the pads did not. Picked once, FO4 dropped the prompt for
+  good while its pads, reading the answers' markers, still passed for the
+  answers not yet said: a blank option, alone if it was the menu's only one.
+  An example is "What are Powder Gangers?", answered by two NPCs. FNV's Say
+  Once belongs to the NPC's line, as the markers model it, so prompts no
+  longer carry the flag. 383 built options had this shape.
+- *Corrected 2026-11-01.* XDI never lists a pad: its DLL skips a player line
+  with no response, and "dialogueentry" is the menu's fallback text when no
+  option is left at all. So both reports above were menus with no passing
+  option. Cliff's prompt failed, and the Say Once prompt dropped once said.
+  Neither was a pad showing. The rules and the audit that now checks every
+  menu for them are in
+  [tools_preflight.md](../commentary/tools_preflight.md#xdi-menus).
+
+<a id="greeting-scene"></a>**The greeting opens by script (2026-11-01, after play: every NPC's
+talk showed only "dialogueentry" on the 00:24 and 13:25 builds).** Every
+NPC's talk runs the one shared GREETING scene. The silent starter line in the
+shared Greeting topic used to start it through TSCE, with ALFA putting the
+speaker into the Speaker alias. TSCE does nothing to a scene already playing.
+A GREETING scene left playing (a talk cut off, a force greeter that never
+arrived, or a save made mid-talk, since saves keep a scene running) made every
+later talk open the dialogue menu with no menu scene behind it. XDI then
+returns no option, and the menu shows its fallback text
+([XDI menus](../commentary/tools_preflight.md#xdi-menus)). The REPCONN
+intercom still worked because `StartConversation` starts the scene from
+Papyrus. Every record of the dialogue path matched the 2026-10-31 build that
+played well, so the cause was this runtime state, not a record.
+
+The starter line now carries `F3NV_Greeting` (no TSCE, no ALFA). As the line
+begins, the script stops the GREETING scene if it is playing, then calls
+`TES4Polyfill.StartConversation`, which forces the speaker into the Speaker
+alias and starts the scene, as the intercom's path does. A greeting step
+placed past a scene's first phase keeps TSCE. Not yet played.
 
 <a id="one-option-per-topic"></a>**One option per topic (built 2026-10-26; Jason Bright's pair played 2026-10-26, Doc Mitchell's not yet).** FNV
 shows a topic once, with the prompt of its first passing line. The build
@@ -611,6 +783,17 @@ pass together.
   lines sit before and after four other prompts). A line whose conditions
   always pass leaves the option a never-true test (GetIsID of the player's
   base on the NPC), as FNV never reaches it.
+- *Lines said through a talker (2026-11-01, after play: Chris Haversam's
+  intercom showed "Got it.", "Sure." and "All right." at once).* The three
+  are one FNV topic's lines, a Random pile that tests only GetIsID Chris.
+  Through his intercom the speaker is the talker, which passes as
+  `GetIsID(Chris) OR IsInList(his talking-as list)`
+  ([talking activators](#talking-activators)). "Got it.'s line fails" had
+  negated only the GetIsID, which is true for the talker, so the later
+  prompts showed. A talked-through speaker test is now a two-test group:
+  one "fails" clause per branch (`_clauses`), so the line fails only when
+  the speaker is neither Chris nor in his list. FNV picks one of the pile at
+  random; the build always shows the first prompt (drift).
 - *Which lines count.* Only a line that can pass for the same actor
   (`_together`): the same speaker by a lone GetIsID, or a named speaker
   whose fixed facts let the other line pass (`speaker_facts`: its GetIsID,
@@ -648,6 +831,62 @@ pass together.
   it shows with no answer passing. Options' tests: 476,319 before (27.9
   MB), 1,242,864 after (57.1 MB, 95% GOODBYE); the plugin went from 403 to
   432 MB.
+
+<a id="actor-dialogue"></a>**NPC-to-NPC chats as Actor Dialogue quests (built 2026-10-31, not yet played).**
+`spike/actor_dialogue.py`. FNV starts a random conversation when an NPC
+greets another with a HELLO line whose Link From is blank and which offers
+Choices: the other NPC (the Target) answers from those topics, and later
+lines alternate as in any chat. Examples: a Kings voice greets Cass in
+Freeside (`vDialogueKings` HELLO 00156407..00159769, Cass answers
+`VCassFreesideSass*`), a King asks another about the Wrangler
+(`WranglerResponses`), Rex growls and Boone calms him
+(`VDialogueCraigBooneRexCalm`), Jack meets Janet at Nellis
+(`VFreeformNellisNellisJackTopic022` and on). The build put these HELLO
+lines in FO4 Hello topics and nothing played their Choices, so the
+answers were "never played": 26 of the 89 lost lines on the
+2026-10-31 build (Cass 17, the Kings 3, Boone 2, Jack and Janet 4).
+Fallout 4 runs such chats as Story Manager Actor Dialogue (`ADIA`) event
+quests: 297 in Fallout4.esm, e.g. `ConvDiamondCityGenericNPC03` 00021E6B.
+- **Which lines.** Each HELLO line of the cell quests with Link From blank
+  and a Choice into a non-engine topic that has lines. Its engine Choices
+  (`HELLO`, `GOODBYE`) are dropped, and so is its Goodbye flag: most of
+  these HELLOs carry it (Cass's DATA flags 3), yet the Target answers.
+- **The quest** (`FNV_Chat<HELLO FormID>`, not start-game enabled, FNV
+  quest priority, ENAM ADIA). Two aliases filled from the event (ALFE
+  ADIA, ALFD All, Allow Reserved), as vanilla's: Speaker (0) on the
+  HELLO's condition groups that test no Target; Listener (1000) on its
+  groups that test only the Target, made Subject tests, plus one OR-group
+  of the answers' named speakers (GetIsID) when every answer names one.
+  Neither alias takes the player (GetIsID 00000007 == 0). A group testing
+  both actors stays on the line alone.
+- **The scene** is the chat scene StartConversation between NPCs already
+  gets (`Conversations`, `TES4Chat_`): the HELLO said by the Speaker, then
+  the answers by the Listener, its Target tests on the Listener alias. It
+  begins on quest start and stops the quest at its end (FNAM 0x03, as
+  `ConvDiamondCityGenericNPC03Scene`'s 0x17). Where some lines of a chat
+  step end it and the rest lead on to one step, the scene runs on into
+  that step and the ending lines end it (INFO End Running Scene), rather
+  than handing the rest to a second scene by TSCE: the first scene's end
+  would stop the quest and cut the second. Vanilla's only multi-scene ADIA
+  quest (`DogReactionDistaste`) agrees: its handing-off scene does not stop
+  the quest (FNAM 0x5), only the scenes it starts do (0x6). Seen on the
+  Kings' `KingsUpTo` (HELLO 00163C76): three answers end the chat, two
+  ask on into a reply.
+- **The node.** One quest node `FNV_ActorDialogueNode` under Fallout4.esm's
+  ADIA event node 00021E65, after its last child (RandomConversations
+  00021E66), tries the quests highest FNV priority first and starts one
+  (Num Quests To Run, MNAM 1, as `AO_LightsNode`), not sharing the event.
+  Each quest waits a day before it runs again (raw RNAM 576, as
+  `DmndGenericNPCConversations`), where FNV repeats a HELLO whenever its
+  conditions pass: accepted drift.
+- **Preflight.** A scene beginning on quest start is reachable, so
+  `--audit dialogue` counts the answers as played without a change.
+- **Open.** Only HELLO lines with Choices become chats; a HELLO line that
+  tests its Target as another NPC but offers no Choices (the Strip's 28
+  `vDialogueTheStrip` remarks to a faction member) stays in a Hello topic.
+  A chat whose lines lead on to two different steps still needs a second
+  scene, which the first scene's end would stop: the build counts these
+  (`actor dialogue in several scenes`, 0 expected on FalloutNV.esm).
 
 <a id="say-once"></a>**Say Once across copies (built 2026-10-15; markers moved to their own quest 2026-10-19).**
 In FNV, Say Once belongs to the NPC's line. Once it's said, the topic
@@ -1031,8 +1270,11 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
   for male humans only, so women and ghouls keep their body's face.
 - **Templates.** FNV's template flags (ACBS) are followed per part:
   traits (race, face, sex), factions, AI packages, script. An NPC whose
-  traits come from a leveled list (LVLN) is left out until leveled NPCs
-  convert.
+  traits come from a leveled list (LVLN) is a template actor on the list's
+  copy. One that keeps its own traits but takes other parts from a list
+  (46 in FNV, 26 of them their inventory, as Freeside's vaporized tourist,
+  flags 392) gets a template on the list's copy for just those parts
+  (`_listed_template`); before, it lost them and the tourist ran naked.
 - **Placement.** Every ACHR in a built cell, persistent as in FNV, with
   its parents, ownership and linked reference. The ids keep the spike's
   keys (`NPC_ <FNV id> STH`, `ACHR <FNV id> STH`), so Doc's moved
@@ -1188,7 +1430,14 @@ matching FO4 template per FNV type (`PLANS`): Travel (a seat: Sit),
 Sandbox, Wander (as Sandbox), Sleep, Eat, Guard (HoldPosition), Patrol,
 Follow (FollowNPC), UseItemAt a seat (Sit), Dialogue with the player
 (ForceGreet). The copy takes FNV's first input, schedule, conditions and
-shared PKDT flags, and drops its owner quest and scripts. The build log
+shared PKDT flags, and drops its owner quest and scripts. A Dialogue package
+aimed at another NPC (2026-10-31: Captain Parker arresting Keith, Jerry's
+poetry, Jean-Baptiste greeting Cass) becomes a Travel near its target, within
+FNV's distance (PTDT count; 0 keeps the template's radius). Its fragments
+(`F3NV_DialoguePackage`) start the topic's chat scene (`TES4Chat_<topic>`,
+built as a script's StartConversation is) when the actor arrives. They do so
+once per package start, as FO4 repeats a current package's OnEnd. These had
+been left out ("dialogue not with the player"). The build log
 counts each left-out package by reason. In the region 45 of 110 convert;
 49 wait on quests not built (VFreeformGoodsprings, VMS16, nVPrimmDeputyConv:
 Trudy, Joe Cobb, Ringo, Sunny, McGee).
@@ -1247,6 +1496,42 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   smaller half extent (1,875): he runs out once the player is within it.
   The leash (player, 5,000) and the greet distance (player, 200) stay
   vanilla's.
+  - *No trigger location (built 2026-11-01, not yet played).* 200 of FNV's
+    293 player Dialogue packages have no PLD2: FNV then sends the actor
+    for the target at once, once at its Wait Location (GECK Dialogue
+    Package). They kept the template's trigger, near the actor's editor
+    location within 250, so the greet waited for the player to come that
+    close: Ringo (`GSRingoDialoguePackage`, editor spot 270 units inside
+    the gas station door) sat on while the player stood at the door. The
+    trigger is now near the player (always met), its radius FNV's Activate
+    Distance, or 150 (iActivatePickLength) where that is 0. Vanilla's own
+    force greets use moving triggers too (21 near self of 217).
+- <a id="greet-hold"></a>**Held at their placed spot until the script's
+  greet (built 2026-11-01, not yet played).** In FNV, Ringo stands at his
+  editor spot facing the gas station door when the player walks in; on
+  FO4 his 6-22h sandbox put him in a chair, and the greet's walk from there
+  read as nothing happening. 54 FNV Dialogue packages wait near the
+  actor's editor location (PLDT 3); scripts add 2 of them by
+  AddScriptPackage (Ringo's `GSRingoDialogueTriggerScript`, the Fort's
+  `FortArrivalTriggerScript` greeter). Three more calls
+  (`HouseOuterSecret02SCRIPT`, `VFSOrrisThugScript`,
+  `VFSLocalVictimScript`) are commented out and are skipped.
+  - `script_packages.held_actors` finds them with the Skyrim side's
+    `build_script_assigned_packages` (SCPT, INFO and quest stage scripts,
+    comments stripped; a bare call names the script's own actor) and maps
+    each through `actor_refs`; an actor outside the build is counted
+    (`held actor outside the build`).
+  - Each gets a forced reference alias on `FNV_TES4ScriptPackages`, after
+    its package aliases, running Fallout4.esm's `DefaultStayAtEditorLocation`
+    (00003641: Travel near the editor location, radius 0, no conditions;
+    vanilla's "stay at editor location" packages are 39 such Travels). No
+    new record.
+  - `F3NV_ScriptPackages.Add` and `Remove` clear the actor's hold
+    (`Unhold`, over the `Holds` aliases) before its script package runs.
+  - Drift: FNV's own packages (Ringo's sandbox and sleep) run until the
+    trigger; here the actor stands at the spot from game start. The Fort
+    greeter's own sandbox already stays within 128 of his. A save made
+    before this build keeps the quest without the new aliases.
   - *Greet distance (tried and reverted 2026-10-19).* FNV's Dialogue
     package keeps its Activate Distance in PTDT's count ("how close to
     the target the actor needs to be before initiating dialogue", GECK;
@@ -1326,6 +1611,25 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   FNV's distance is farther (`Packages._radii`). Vanilla's 26 FollowNPC
   packages pair them with no fixed ratio (200/500 most often). In the
   region 5 FollowNPCs change (128 to 512).
+- <a id="use-weapon"></a>**Use Weapon (built 2026-11-01, not yet played).**
+  FNV's 82 Use Weapon packages (PKDT type 16: the Novac nightkin shooting
+  McBride's brahmin, Boone's and the Securitrons' scripted shots, the
+  Misfits' grenades) were left out as "type UseWeapon". They now copy
+  Fallout4.esm's `BoSSceneUseWeapon_PATest` (0x19632E), an instance of
+  FO4's UseWeapon template (55 vanilla instances). Inputs: Location from
+  FNV's PLDT (`_at`); Weapon to Use from PTDT, a weapon form through
+  `items.item()` or a weapon object type (FNV 12/21/22/23 → FO4
+  11/20/19/18, each game's xEdit `wbObjectTypeEnum`), else the instance's
+  Weapons: Ranged; target from PTD2 (reference or linked reference; a
+  reference not built leaves the package out). PKW3 fills the Bools Always
+  Hit, Do No Damage, Crouch Reload, Hold When Blocked (FNV flags 0x1,
+  0x100, 0x10000, 0x1000000), Volley Fire (Fire Rate 1), Volley Wait
+  Min/Max (pause), Volley Shots Min/Max, and Volleys To Fire (bursts, or 0
+  for FNV's Repeat Fire). Drift: 0 as "fire without end" follows vanilla's
+  gun range packages (Volleys To Fire 0, 75–100 shots), not a documented
+  meaning; Head-track stays on as in the instance. The packages are often
+  given by script (`AddScriptPackage`), which already builds a package a
+  script property names (`Packages.named`).
 - <a id="combat-styles"></a>**Combat styles (built 2026-10-25, not yet
   played; replaced the 2026-10-19 vanilla-style-by-weapon-restriction
   mapping).** `spike/combat_styles.py`: each FNV CSTY becomes its own FO4
@@ -1579,6 +1883,36 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   PLDT near reference, e.g. Victor's circuit marker). The FO4 copy's
   Patrol Start is that reference; before, it was the actor's linked
   reference, which Victor doesn't have, so he never ran his circuit.
+- <a id="patrol-points"></a>**Patrol points (built 2026-11-01, untested in
+  game).** FNV has 1,347 patrol points. 106 run a script on the patroller
+  that reaches them, and 14 make it say a topic. Mr. Janitor's route uses
+  these: he says his cleaning comments, collects caps and parts from the trash,
+  and shuts down at the end. So do the Strip escort's `EscortHome` lines, the
+  REPCON tour and the Tops performers' cues. FO4's REFR patrol data keeps the
+  topic a patroller says on arrival (`PDTO`, Topic Ref; xEdit
+  `wbDefinitionsFO4`), and a said line runs its INFO's fragments on the
+  speaker. This is the Skyrim converter's mechanism
+  ([patrol points](../commentary/tes5_import_package.md#patrol-points)).
+  `spike/patrol_topics.py` gives each point with a script or topic its own
+  arrival topic (`FNV_TES4PatrolTopic_<FormID>`, CUST) under the start-game
+  quest `FNV_TES4PatrolTopics`, and `placement` writes that topic into the
+  point's `PDTO`. The topic's one line is blank. When it ends it runs the
+  point's converted script `FALLOUTNV_PM__<FormID>`, which says the point's
+  topic last. A point with only a topic runs `F3NV_PatrolSay` instead, which
+  says it. If neither converted, the line runs nothing, but the `PDTO` still
+  names a topic that exists. Every FormID is hashed from the point. A
+  patrol point whose idle marker has no FO4 stand-in was dropped with the
+  marker, breaking its patroller's route. Such a marker is now FO4's
+  `EmptyIdleMarker` when it is a patrol point's base (`CellBuilder.idle`,
+  `patrol_bases`). That covers 5 of the 33 left-out marker types and
+  brings back 67 patrol points: `DefaultRobotIdleMarker` 48, Mr. Janitor's
+  `SSHQMrJanitorWorkingIdleMarker` 15, and 4 others. It also places that
+  robot marker's 7 references that are not patrol points. Of the 113 points
+  with a script or topic, the previous build placed 93. To check
+  in game: no vanilla FO4 point sets a `PDTO` topic (all 7,684 write 0), and
+  a blank line must still run its fragments. Mr. Janitor's route is the
+  first test. If FO4 ignores `PDTO`, the fallback is a script on each point
+  that watches for its patroller.
 - **Force greets to a topic (played 2026-10-17: the Primm trooper warns
   the player).** An FNV Dialogue package that opens a named
   topic, not GREETING (114 in FNV, e.g. the Primm trooper's warning),
@@ -2220,6 +2554,61 @@ not a true equivalent. A skill book instead runs `F3NV_SkillBook`
 plugin's skill actor value + 3, and the copy removed. Comprehension is
 not converted, so its extra point is missing.
 
+<a id="talking-activators"></a>**Talking activators** (`spike/talking_activators.py`,
+built 2026-10-31, not yet played). FNV's intercoms, loudspeakers and
+radios are TACTs (87); the stations are radio transmitters, and the rest
+had been left out, so no line could play through one. FNV's
+`[talker.]SetTalkingActivatorActor <actor>` lets the talker pass the actor's
+GetIsID in the actor's voice; `IsActorTalkingThroughActivator` tells the two
+apart (91 FNV lines, 43 FO3: Ramos's and Benny's intercoms, Chris
+Haversam, Black Mountain's radio, Tenpenny's intercom). Fallout 4 has
+neither (its `IsTalkingActivatorActor` has no setter and no vanilla use);
+vanilla intercoms are TACTs carrying the speaker's voice type (43 bases,
+e.g. DmndEntranceIntercom with Danny Sullivan's), said through a quest alias.
+- **The record.** EDID VMAD OBND FULL MODL PNAM FNAM VNAM, vanilla's order.
+  The voice type is that of the actors the talker speaks as when they share
+  one (FNV's HVIntercomUseless has none of its own), else the talker's own.
+- **Talking as.** The Skyrim path's design
+  ([tes5_import_dialogue.md](../commentary/tes5_import_dialogue.md#fallout-talking-activators)):
+  `scan_pairs` pairs each talker with the actors its call sites name; each
+  actor gets a FLST of its own base (`TES4TalkingAs_<actor>`, all in
+  `TES4TalkingAsLists`), and `TES4Polyfill.SetTalkingActivatorActor` moves
+  the talker's base into the actor's list. A talker speaking as one actor is
+  written into that list already: FNV's intercom scripts end in a plain
+  `Activate`, which converts to letting the activation through, so FO4
+  would open the dialogue before OnActivate moved the base.
+- **Conditions** (`conditions.talking_through`). A Subject
+  `GetIsID(actor) == 1` becomes `GetIsID(actor) OR IsInList(list)`.
+  `IsActorTalkingThroughActivator == v` (or `!= v`) becomes
+  `GetIsID(actor) == 1 - v`: given the line passes, the speaker is the
+  actor or its talker, so "through a talker" is "not the actor". Ramos's
+  intercom lines need `== 1` and Benny's face-to-face greetings `== 0`, so
+  neither plays from the wrong side.
+- **The greeting** (2026-10-31, after play: Tabitha's dish hut transceiver
+  stayed silent). An intercom's lines are GREETING lines, which play in the
+  shared greeting scene. Its starter line passed only for the NPCs those lines
+  name (GetIsID), never for a talker. It now also passes for a talker in such
+  an NPC's talking-as list (`IsInList`, `Conversations.greeting`).
+- **Activation opens the greeting** (2026-11-01, after play: the REPCONN
+  lobby intercom stayed silent). FO4's own activation of a TACT opens no
+  Greeting. Vanilla starts its intercoms' lines from scenes. On the
+  2026-11-01 00:24 build, `REPCONEnterScript` ran
+  `SetTalkingActivatorActor ChrisHaversamREF` and then
+  `REPCONLobbyIntercom.activate player` (VMS01 stage 15 traced). After that,
+  the intercom said only FNV_GenericAdult's HELLO bark "Hey." (0017529D),
+  which its voice type passes. It never said Chris's GREETING 000CD87D. A
+  player's activation of a TACT is now `TES4Polyfill.TalkerActivate`. Given
+  the `TES4Talk_GREETING` scene, it calls `StartConversation` with the talker
+  as Speaker, so the first passing GREETING line plays as whoever the talker
+  speaks as. Anyone else gets the game's activation. This applies to a named
+  reference whose base is a TACT, or a bare `Activate` in a script on one.
+  A TACT's OnActivate always consumes activation, so the bare `Activate` is
+  kept rather than dropped as a passthrough. FNV has 10 sites: 8 TACT
+  scripts (Chris's, Ramos's two, Benny's, the Tops waiter's, Tabitha's
+  dish-hut radio, CG02's diner intercom, Hoover Dam's override box) and 2
+  trigger lines (`REPCONEnterScript`, `VTopsAmbushTriggerSCRIPT`).
+  Not yet played.
+
 <a id="terminals"></a>**Terminals** (`spike/terminals.py`). Field by field
 against FNV's TERM:
 - **Text.** DESC is FNV's welcome text, shown above the menu of that
@@ -2244,6 +2633,12 @@ against FNV's TERM:
   extends Terminal`): the item's script converts as a TopicInfo fragment
   whose subject is the terminal, and Add Note adds the note. FalloutNV.esm:
   140 TERMs have one.
+- **The terminal's own script.** FNV's TERM SCRI (20 of 344, e.g.
+  Lucky38MainframeSCRIPT, which sets vfreeformlucky38 20) attaches as a
+  plain script ahead of the fragment block; wbVMADFragmentedPERK makes the
+  fragment block optional, so a terminal with only its own script writes
+  just that. Vanilla puts plain scripts beside fragments on 5 of its 207
+  scripted TERMs.
 - **The user's spot.** A FO4 terminal is furniture: vanilla's carry
   keywords (AnimFurnDeskTerminal, PlayerPathToFurniture,
   FurnitureForce1stPerson), MNAM `0x40000001`, a marker model and one
@@ -2294,7 +2689,17 @@ against FNV's TERM:
 - **Left out:** FNV's looping sound (FO4's TERM field is unused by vanilla),
   Alternate Colors, the server type.
 
-<a id="holotapes"></a>**Holotapes** (`spike/holotapes.py`). FO4 plays a
+<a id="holotapes"></a>*A note on a shared topic (fixed 2026-10-31).* A
+note's lines are its topic's lines its speaker passes; a line with no
+speaker test passes for anyone. Jacobstown's audio log (`JacobstownAudioLog01`)
+names GREETING, which 209 quests share, so its holotape played 2,125 FNV
+greetings (1,490 built topics, among them VMS01REPCONGhouls' 0008D218), where
+FNV plays one line (`0013DBBF`, GetIsID its speaker). On a topic several
+quests share, a line must now name the speaker by GetIsID or GetIsVoiceType
+(`holotapes.note_lines`); the 33 other voice notes have topics of their own
+and keep every line.
+
+**Holotapes** (`spike/holotapes.py`). FO4 plays a
 voice holotape (NOTE DNAM 1) by starting its scene (SNAM). Vanilla's
 (DN150_BonnieHolotape in HolotapesQuest) has one phase per line, an actor
 of none (alias -2), and Radio actions (type 6) naming each line's topic
@@ -2568,13 +2973,49 @@ Papyrus log into a timeline.
   - each `SayWhenFree`: asked, started, not started, or dropped as a
     duplicate;
   - each package fragment: actor, fragment, current package;
-  - each scripted OnDeath: who died, and the killer.
+  - each scripted OnDeath: who died, and the killer;
+  - each scripted trigger's OnTriggerEnter: who entered, and how many
+    references it holds; and its cell attaching: the count and the player's
+    distance, then again 3 s later. Added 2026-10-31 for Ringo's gas-station
+    trigger, whose box holds the door's arrival point (156 door arrivals in
+    FalloutNV.esm land inside a scripted box, 773 in Fallout4.esm). It never
+    fired, and the log could not tell whether Fallout 4 sends
+    OnTriggerEnter to a player who arrives inside.
 - **Reader.** `tools/validate/fo4_trace.py` prints the timeline, filtered
   with `--grep` and `--kind`. It flags:
   - a stage not set, or one that goes back;
   - a Say that never started or was dropped;
   - a line begun twice within 30 s;
   - a counter that skips or goes back.
+
+## <a id="build-stamp"></a>Who builds, and the build stamp (2026-10-31)
+
+Parallel sessions share one checkout, one build folder (`temp/profile_data`),
+one MO2 mod folder and one CPU. On 2026-10-31 two whole-map builds ran at
+once (30 min instead of 17), a stopped build looked finished to a session
+waiting on it, and a MenuMode fix needed the scripts converted again by
+hand.
+
+- **Only the main session starts a game build.** Sub-sessions and agents edit
+  and run their targeted tests. Then they tell the main session "ready", with
+  anything the build must do. The main session starts one build with
+  everyone's work and tells them when it ends. DLC packs, GRA and preflight
+  run after it, each writing only its own folder.
+- **One heavy job at a time.** `fo4_import.pipeline.run` takes the machine's
+  heavy-job lock ([performance.md](../commentary/performance.md#one-heavy-job-at-a-time))
+  before any work, so a second build queues instead of sharing the CPU.
+- **The build converts its scripts.** With `--scripts`, it runs
+  `script_convert.pipeline` into that folder first (about 22 s, counted as
+  the `script conversion` stage). The compile goes by each script's text, so
+  only the scripts that changed recompile.
+- **The stamp.** `<plugin>.build.json` sits beside the plugin
+  (`build_steps.write_stamp`). It records:
+  - `status`: `running`, `finished` or `failed`;
+  - when the build started and ended, and its command;
+  - the commit it started from, and the files that then differed from it.
+
+  Check it before building on a plugin, preflighting it or deploying it: only
+  `finished` is a whole build.
 
 ## <a id="formid-ledger"></a>FormID ledger (built 2026-10-17)
 
@@ -4144,7 +4585,13 @@ Project Mojave:
 - `Textures/Terrain/<world>/<world>.<L>.<X>.<Y>.dds` and `_msn.dds`.
 - `LODSettings/<world>.lod`, 16 bytes: south-west cell (two int16), size
   in cells, lowest and highest level (Commonwealth -96, -96, 256, 4, 32;
-  Mojave -50, -50, 128, 4, 32).
+  Mojave -50, -50, 128, 4, 32). The size is a power-of-two count of
+  top-level tiles across in every vanilla grid (Commonwealth 8, Diamond
+  City 1), however many tiles exist (Commonwealth fills 6 x 6 of its 8 x 8
+  level-32 slots). Freeside's three worlds came out 24 cells at top level
+  8, 3 across, and crashed the game in `BGSBtrDB` `FlushReleases` on
+  load; `lod_settings` rounds up (Freeside to 32), confirmed in game
+  2026-11-01.
 - The WRLD record needs nothing for it: Mojave's has no field ours lacks
   but `MHDT` and `ICON`.
 
@@ -4202,6 +4649,120 @@ how the Strip's skyline shows from Black Mountain without doubling up
 close. FO4 has no region-gated references, so `regions.imposters()` reads
 the lists from FalloutNV.esm and `Exterior` leaves those references out;
 the distant skyline is object LOD's job.
+
+<a id="object-lod"></a>**Object LOD from FNV's LOD meshes (built 2026-10-31, not yet played).**
+FO4's layout, read from vanilla (`Fallout4 - Meshes.ba2`: 497 `.bto`,
+Commonwealth 344 level 4, 97 level 8, 20 level 16, 4 level 32) and
+Project Mojave (79 for its Mojave worldspace, levels 4 to 16):
+- `Meshes/Terrain/<world>/Objects/<world>.<L>.<X>.<Y>.bto`: a root
+  `NiNode` "obj", per texture a `BSMultiBoundNode` holding a
+  `BSSubIndexTriShape` whose lighting shader (flags 0x80400001, 5) names
+  the atlas, `BSMultiBound`, `BSMultiBoundAABB`.
+- The atlas `Textures/Terrain/<world>/Objects/<world>.Objects.dds` with
+  `_n` and `_s` (Commonwealth 4096 x 2048, BC1, BC5, BC5; Diamond City
+  2048 x 2048). Project Mojave's `.bto` name the same files in lower case.
+- The STAT keeps Has Distant LOD (0x8000) and `MNAM`: four 260-byte,
+  zero-padded mesh paths under `Meshes`, levels 4, 8, 16 and 32. Of
+  Fallout4.esm's 3,449 flagged statics, 3,436 carry one; 2,215 name one
+  mesh at levels 4 and 8 only (median size 496 units), 229 the same at
+  4, 8 and 16 (median 1,040). Project Mojave: 84 of 94 at 4 and 8.
+
+What we write:
+1. **The STAT** (`spike/object_lod.py` `ObjectLod.stat`): FNV's flag on
+   469 of 6,785 statics (Fallout 3: 344 of 5,803) kept, `MNAM` naming the
+   converted `_lod.nif` at levels 4 and 8, and 16 for a static at least
+   `LOD16_MIN_SIZE` (1,200 units, `lod_gen`'s gate) across. Every flagged
+   FNV static ships a `_lod.nif` (692 files); Fallout 3 lacks one for 6
+   (Megaton's destroyed walls, 1,415 to 4,842 units), and a flagged static
+   at least `LOD8_MIN_SIZE` (800) across without one gets `lod_far_gen`'s
+   reduction of its full model, converted the same way. The LOD meshes go
+   through the static mesh path (`builder.mesh`), so Elric and the stale
+   file list see them like any other mesh.
+2. **The input list** (`ObjectLod.add`, `ObjectLod.write`): every
+   reference `_placed` and `_part_refs` write in a worldspace whose base
+   has `MNAM`, with the FormID, flags, position and rotation the REFR got,
+   in xEdit's FO4 row layout (`wbLOD.pas`: reference, flags, position,
+   rotation in degrees, scale, base EditorID, flags, material, full model,
+   four LOD models, enable parent, material swaps, part transform). A
+   reference that starts disabled is left out unless it is flagged
+   Visible When Distant itself, as xEdit does. Written to
+   `output/fo4_cache/object_lod/<Data folder key>/<world>.txt`, outside the
+   Data folder.
+3. **The pass** (`pipeline/object_lod.py`, in the build after Elric and
+   before the texture archive): per worldspace with terrain LOD (its
+   `LODSettings` gives the cell grid), the atlas (`pipeline/lod_atlas.py`),
+   then `LODGenx64.exe` with `GameMode=FO4` through `lod_gen.run_lodgen`.
+   The run is cached: its key is the list, the LOD meshes and materials
+   they name, the atlas map and the worldspace's `.btr` (LODGen drops faces
+   under the land); a hit copies the kept `.bto` back.
+
+**Scratch run (2026-10-31, WastelandNV, no game build):** the build's pieces
+driven on a scratch Data folder (references through `pack_refr` into
+`ObjectLod.add`, terrain `.btr` from the work cache, Elric, then
+`bake_all`): 15,664 reference rows, all 469 flagged statics with a LOD
+mesh, 0 Elric failures, LODGen in 12 s, 123 s in all (96 s of it the scratch terrain tiles). 399 tiles: 289 at
+level 4 (FNV ships the same 289 level-4 blocks), 84 at 8, 26 at 16. Every
+tile has vanilla's layout (root `obj`, `BSMultiBoundNode` →
+`BSSubIndexTriShape`, shader flags 0x80400001 with 5 or 21 for a cut-out
+with `NiAlphaProperty` 4844/128), the atlas named as Project Mojave names
+its own (`Data\textures\terrain\fnv_wastelandnv\objects\...objects.dds`).
+The atlas holds 112 textures at 2048 x 2048. Drift from vanilla:
+- 172 shapes keep their own texture (UVs past 1.5, over 512 texels, or not
+  ours); LODGen draws them with it, from the texture archive.
+- 18 tiles carry a `BSEffectShaderProperty` shape, from LOD meshes the
+  static path gives an effect shader (glass, neon); vanilla's have none.
+
+**Play-test fixes (2026-10-31, the 8:28 PM build):**
+- *Glowing white blobs on distant hillsides.* LODGen leaves slot 7 (the
+  specular map) empty for a shape whose LOD mesh names none, yet writes
+  vanilla's specular flag and smoothness 1.0; with no map, FO4 lit it as a
+  mirror and the sun showed on every distant rock (354 of 417 atlas
+  shapes in WastelandNV). Every vanilla tile names the atlas `_s`. The
+  converter turns specular off for those materials (normal map without a
+  mask, or not square, as `nv_rockcanyonlod_n.dds`, 512 x 256), but LODGen
+  never reads the `.bgsm`. Now `with_specular` finishes each tile as
+  `install` copies it: an atlas shape without a map names the atlas `_s`; a
+  shape of its own texture without one gets the specular flag cleared. The
+  atlas puts a specular tile only where the LOD mesh names a map, black
+  elsewhere. It runs at install, not after LODGen, because a kept run made
+  before the pass existed shares the current key: the 2026-11-01 build
+  installed 390 atlas shapes still without `_s` from such a run.
+- *Tiles above a world's top level.* LODGen writes levels 4, 8 and 16
+  whatever the world, but our terrain LOD gives small worlds a shorter
+  tree (Freeside: levels 4 to 8; Boulder City: level 4 only). `install`
+  copies only tiles within the world's `LODSettings` levels. This was
+  first blamed for the Freeside crash; removing them did not stop it. The
+  crash was the terrain grid's size ([terrain LOD](#terrain-lod)).
+
+Remaining drift: 18 tiles carry a `BSEffectShaderProperty` shape (the
+Nellis hangar and Westside liquor store LOD meshes), unlit with lighting
+influence 0; vanilla's tiles have none.
+
+<a id="lod-atlas"></a>**The atlas.** As xEdit's `wbBuildAtlasFromTexturesList`:
+each diffuse a LOD mesh shape uses, its UVs within 1.5 (`AtlasTolerance`
+0.5) and at most 512 texels a side, packed into one image; the normal map
+beside it (`_n`, flat when missing) and a specular map from it
+(`spec_image` at FNV's default glossiness) at the same place, black where
+the LOD mesh names no specular map. The map file
+LODGen reads has per texture its path, size, place, the atlas path and the
+atlas size.
+
+<a id="lodgen-unattended"></a>**LODGen runs unattended.** This machine
+registers `vsjitdebugger` for native and .NET crashes, so a crashing
+LODGen could leave a dialog waiting and hang the build. `run_unattended`
+(`core/unattended.py`) starts it with the error mode that asks no crash
+dialog (`SEM_NOGPFAULTERRORBOX`, which the child inherits, so Windows Error
+Reporting is never asked), puts it in a job object of its own with
+`DIE_ON_UNHANDLED_EXCEPTION` (forcing that mode on every process in the
+job), and ends the job at the timeout (`TIMEOUT`, 900 s per worldspace), as
+`fo4_check.py` bounds FO4Edit. `run_lodgen` reports a timeout and the
+worldspace keeps no tiles. It is its own module, not `process_job.py`,
+because the gun clip cache's code tag covers `process_job.py`: editing it
+would rerun every clip (430 s of a build). Tested with a .NET program that
+throws unhandled (exit 0xE0434352 at once, no WerFault or vsjitdebugger
+left) and one that hangs (ended at its 5 s limit); on this machine the same
+crash without the guard also closed with no dialog, so the guard is a
+safety net here rather than a measured fix.
 
 <a id="outfit-slots"></a>**One item per slot in an outfit (built 2026-10-25, not yet played).**
 Red Lucy wore FO4's sleepwear stand-in: her FNV inventory holds both
@@ -4397,6 +4958,19 @@ material and FO4 drew them purple. `_material` now takes the
 NiTexturingProperty's base texture as the diffuse. (The door's other two
 shader-less shapes, `door_temp10` and `Object281`, carry FNV's hidden
 flag and were already left out.)
+
+<a id="no-diffuse"></a>**A lit shape with no diffuse FNV has (built 2026-10-31, not yet played).**
+Black Mountain's mounted brahmin head (`clutter\dukovs\mountedbrahminhead01.nif`,
+STAT `FNV_MountedBrahminhead01`) drew its plaque purple. The plaque
+(`MountedBrahminhead01:0`) is textured the old way with `grey.bmp`, which
+FNV's data doesn't have. `drawable` drops it, but a BGSM with an empty
+diffuse also draws purple in FO4. A lit material with no diffuse now uses
+vanilla's `shared\flatwhite01_d.dds` (`WHITE_DIFFUSE`), so the shape's vertex
+colors shade it (here 0.625 grey, as `grey.bmp` intended). Its material keeps
+the `untextured` name, and a texture swap names it from the swapped diffuse.
+The texture list also keeps FNV's slot order. Before this, a shape whose
+diffuse was dropped while its normal map stayed put the normal map in the
+diffuse slot.
 
 <a id="world-map"></a>**The Pip-Boy world map (built 2026-10-24, not yet played).** The
 Pip-Boy showed the Commonwealth's map with FNV's markers, Freeside East

@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
-from fo4_import.base.vmad import read_entry
+from fo4_import.base.vmad import read_entry, terminal_fragments
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike import locks as L
 from fo4_import.spike import records as R
@@ -82,3 +82,12 @@ def test_the_lock_script_declares_every_property_the_converter_fills():
     """Each property lock_vmad fills is declared in the script with a matching type."""
     declared = dict((name, kind) for kind, name in re.findall(r'^(\w+) Property (\w+) Auto', SCRIPT.read_text(), re.M))
     assert declared == {'Skill': 'ActorValue', 'IsTerminal': 'Bool', 'Password': 'Form'}
+
+
+def test_a_terminals_own_script_comes_before_its_item_fragments():
+    """A TERM VMAD lists the terminal's plain script, then the fragment block naming the item script."""
+    vmad = terminal_fragments('Items', [(1, 'Fragment_0')], {}, [('Own', {'Q': 7}, {})])
+    assert struct.unpack_from('<HHH', vmad)[2] == 1
+    entry, pos = read_entry(vmad, 6)
+    assert entry == ('Own', {'Q': 7}, {}) and vmad[pos] == 3
+    assert read_entry(vmad, pos + 1)[0][0] == 'Items'

@@ -1485,12 +1485,12 @@ class ScriptConverter:
         `as Int` while casting just the right operand, so the sum stays Float.
         """
         text = expr.strip()
-        if (re.search(rf'\bas\s+{ptype}\s*$', text, re.IGNORECASE)
-                and not _needs_parens(text)):
+        if text == 'Self' and ptype == 'Actor':
+            return self_as_actor()
+        if re.search(rf'\bas\s+{ptype}\s*$', text, re.IGNORECASE) and not _needs_parens(text):
             return text
-        if _needs_parens(text) or re.search(r'\bas\s+\w+\s*$', text, re.IGNORECASE):
-            return f'({text}) as {ptype}'
-        return f'{text} as {ptype}'
+        wrap = _needs_parens(text) or re.search(r'\bas\s+\w+\s*$', text, re.IGNORECASE)
+        return f'({text}) as {ptype}' if wrap else f'{text} as {ptype}'
 
     # The hour-boundary guard these scripts use: `GameHour >= X.98` /
     # `GameHour <= X.02`, i.e. a window HALF_WINDOW_GAME_HOURS wide either

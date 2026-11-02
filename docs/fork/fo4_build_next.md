@@ -37,7 +37,7 @@ xEdit's definitions. Addresses are FalloutNV.exe's unless they start `0x14`.
 | 3 | [Creatures' Combat skill](#creature-skill) | S | Pairs with the weapon-skill rules already built |
 | 4 | [Gun sway](#sway) | S-M | Corrects the combat-feel drift; one play test with 3 |
 | 5 | [Audits](#audits) | M | Find what the play test can't; run after each build from here |
-| 6 | [Super mutants on FNV's mesh](#super-mutants) | S-M | Optional look upgrade after 1 |
+| 6 | [Super mutants on FNV's mesh](#super-mutants) | S-M | Built 2026-10-31: FNV's body and armor on FO4's super mutant |
 | 7 | [Screens and the elevator](#screens) | M | Victor, Yes Man and Mr. House are on the main quest path |
 | 8 | [Papyrus cost 2 to 4](#papyrus) | M | Before the whole map gets long play sessions |
 | 9 | [Look pass](#look) | M | Polish; each step is one play test |
@@ -211,6 +211,19 @@ over FNV's unless the skin covers the head slot; FNV's armor is merged into
 the body; FO4's animations, not FNV's. An own rig (as the geckos) keeps
 FNV's motion but is L and FO4's graph already fits.
 
+As built, two more than the pair: FO4's super mutant body skins 140 units
+below its skeleton, which the fit now corrects as the human body fit does,
+and the skin adds the head slot. Play-tested in the 2026-10-31 build (Black
+Mountain): bodies stretched when dead and armor came apart, fixed by keeping
+FNV's own weights; some nightkin uncloaked, a script conversion bug
+(`GetAnimAction`), not this change. Played again in the 2026-11-01 build:
+nightkin fought unarmed, because `SuperMutantRace` has no subgraph for
+FNV's gun and melee keywords. Fixed by a super mutant additive race
+(`spike.mutant_subgraphs`). FNV's hands can't hold FO4's weapons (their joints are FNV's), so super mutants now wear FO4's own body, tinted, under FNV's head and armor (not rebuilt). Still open, not this change:
+`CrNightkinGunScript`'s cloak shader is empty (no FNV EFSH is built), and
+REPCON's corpses T-pose (Starts Dead placements; the ghouls are also killed
+on load). Findings: [creatures](fo4_spikes.md#spike-4-creatures).
+
 ## <a id="screens"></a>7. Securitron and Mr. House screens, the Lucky 38 elevator
 
 **Found:** a securitron's screen is a rigid body part
@@ -283,6 +296,15 @@ normals; `lod_far_gen.py` decimates `_far` meshes), and LODGenx64 knows FO4
 The cheap fallback, FNV's 289 level-4 blocks straight to BTO as terrain LOD
 reuses FNV's tiles, gives level 4 only: the skyline ends there.
 
+**As built (2026-10-31, not yet in a build or played):** steps 1 to 3, plus
+the atlas, as [fo4_pipeline.md](fo4_pipeline.md#object-lod) describes. The
+build writes LODGen's input list itself from the references it places (no
+plugin rescan), and `pipeline/object_lod.py` runs `LODGenx64.exe` headless
+in FO4 mode inside the build, after Elric and before the texture archive,
+cached and bounded ([unattended](fo4_pipeline.md#lodgen-unattended)). Trees
+are not in it: FO4 has no tree LOD and FNV's are SpeedTrees; crossed cards
+from FNV's billboards come after.
+
 ## <a id="app"></a>11. Conversion app phase 7
 
 [fo4_gui.md](fo4_gui.md#phases): opt-in MO2 mod and profile setup, a Play
@@ -350,23 +372,124 @@ the match stays until a play test shows it does.
 
 ## <a id="casino"></a>13. Casino games and Caravan
 
-**Found:** FNV runs them as engine menus opened by script commands:
-`ShowBlackjackMenuParams` and `ShowRouletteMenuParams` (5 casinos each),
-`ShowSlotMachineMenuParams` (4), `ShowCaravanMenu <deck> <0|1> <ratio>` (27
-line scripts). The data is in CSNO (5: shuffle, payouts, reel stops, decks,
-max winnings, chip, winnings quest, soft 17), CCRD (270 cards), CDCK (13
-decks), CHIP (5), CMNY (6); the export prints them as unknown types, and the
-converter turns the commands into TODO comments. FO4 has no card or casino
-engine; no FO4 blackjack or Caravan mod was found.
+**Found (researched 2026-10-31):** FNV runs all four as engine menus with
+hard-coded rules. FO4 has no card or casino engine, and no FO4 blackjack,
+roulette or Caravan mod exists.
 
-**Build:**
+- **Openers:**
+  - 14 object scripts call `ShowBlackjackMenuParams`,
+    `ShowRouletteMenuParams` (5 casinos each) and `ShowSlotMachineMenuParams`
+    (4: no slots at the Ultra-Luxe) as `<cmd> <CSNO> 1 <max> 0`. Blackjack
+    and roulette max out at 200; slots at 25, 40, 60 or 75.
+  - 17 INFO records (23 calls) run `ShowCaravanMenu <CDCK> <0|1> <max bet
+    share>`, for 11 players. The KlamathBob and Melissa decks are unused.
+  - Each game is gated on the casino quest's `bFloorManagerIncoming`, or
+    `Banned` at the Atomic Wrangler.
+- **Records:** layouts are in `wbDefinitionsFNV.pas` 8196-8360. The export
+  prints all five types as unknown, so they need decoding.
+  - CSNO (5, plus 1 in Dead Money): reshuffle share, blackjack payout,
+    7 reel stops, decks, max winnings, chip, winnings quest, and a soft-17
+    flag. It also names table NIFs, chip models, slot symbols and card backs.
+  - CCRD (270, five 54-card sets): suit and value (Joker 5/15), face and
+    back textures, and `CardAddToPlayerScript`.
+  - CDCK (13): the list of cards; its DATA count is wrong in 6 decks.
+  - CHIP (5) and CMNY (6, the Caravan bills and coins).
+- **Results never pass through script.** The engine moves chips, caps and
+  pots itself, and counts misc stats 37/38 (Caravan won/lost) and 40-42
+  (roulette, blackjack, slots). Those stats feed the challenges: Caravan
+  3/27 wins and 5 losses; 10 games of each casino game.
+  - Comps poll `GetCasinoWinningsLevel <CSNO>` at levels 1-4 (SmallFry,
+    BigWinner, Whale, Banned). The levels fit net winnings of 25, 50, 75
+    and 100% of the CSNO max (guide figures; inferred). The engine enforces
+    the ban (`sGamblingBannedText`).
+  - Achievement 29 fires when the Tops, Ultra-Luxe and Gomorrah have all
+    banned the player.
+- **FNV's UI:**
+  - The panels are XML in `Fallout - Misc.bsa\menus\`: `black_jack_menu`,
+    `roulette_menu`, `slot_machine_menu`, and `caravan_menu` with its bet,
+    deck-building, game and results sub-menus.
+  - The playing surfaces are custom 3D scenes the menu renders live
+    (`meshes\terminals\nv_*`, 102 NIFs), not screenshots:
+    - each table NIF carries its own `NiCamera` (the fixed slanted view),
+      an `NiPointLight` and `NiControllerSequence` animations;
+    - named spots (`Players_Discard`, `Dealers_Discard`, `Hand1_Arrow`)
+      place the separate card, chip, dealer, hand, reel and money NIFs;
+    - the materials have normal and environment maps, lit in real time.
+  - **Textures:**
+    - The blackjack felt (`NV_Blackjack-Table03`, 2048×512) is a flat
+      top-down painting, stored upside down for its UV. It reads "INSURANCE
+      PAYS 2 TO 1", which FNV doesn't offer, so it was likely copied from a
+      real layout (inferred).
+    - The Caravan top (`NV_Caravan-Table01`, 2048²) is a photo-sourced
+      railroad-tie wood.
+    - Roulette and slots are UV atlases for their models.
+  - The minigame NIFs are their own files. Whether the casino furniture
+    shares them is not checked.
+  - Art: 336 card faces (128×256 DXT1, in sets B, G, L, T and U), 8 slot
+    symbols, table textures, and 41 `GAME*` sounds (114 WAVs).
+- **Rules:**
+  - Caravan: three caravans sold at 21-26; suit and direction rules; Jack,
+    Queen, King and Joker effects; a 30-card minimum deck; bidding.
+  - Blackjack: hit, stay, double on the first two cards, split, surrender
+    for half; no insurance; Luck biases the deal.
+  - Roulette: American wheel, FNV's payouts, 0 never pays (an FNV bug).
+  - Slots: FNV's payout table; Luck biases the reels.
 
-1. Decode the five record types in `tes4_export` (layouts in xEdit's
-   `wbDefinitionsFNV.pas`).
-2. Write them as data: a struct per casino and deck, cards and chips as
-   misc items, the winnings stage wired as FNV's.
-3. FO4 command rows calling one `F3NV_Casino` helper quest, which opens a
-   new Scaleform menu through F4SE (as the character menus do).
-4. In order: slots and roulette (random and payout, S each), blackjack
-   (S-M), Caravan (a rules engine and an opponent, deck building from CMNY
-   and CCRD, results feeding the challenges: L).
+  Sources: `references\FalloutWiki` and the Prima guide.
+
+**FO4 has the pieces for a new menu, but this project has never made one.**
+Every FO4 menu change so far edits vanilla menus while they run (F3NV.dll's
+open/close sink, `enterFrame` and key hooks, `SendExternalEvent`), or comes
+from a dependency (LevelUpMenuEx, XDI). The earlier note that the character
+menus are custom Scaleform menus was wrong.
+
+- **Opening a menu:** F4SE's `UI.RegisterCustomMenu(name, path, root,
+  MenuData)` loads `Interface\<path>.swf` as a real IMenu. Its flags cover
+  pausing the game, the cursor, modality, gamepad handling and HUD color.
+  Flash calls back with `root.f4se.SendExternalEvent`, and Papyrus calls in
+  with `UI.Invoke`, `Set` and `Get`. CommonLibF4's `UI::RegisterMenu` is
+  the DLL-side alternative.
+- **Card art at run time:** `f4se.MountImage(menu, texturePath, name)`
+  loads any texture (loose or BA2), and AS3 then loads `img://<name>`. So
+  the conversion can copy the user's FNV card, symbol and table DDS files to
+  `Textures\F3NV\Casino\`, and the SWF needs no art of its own.
+- **Missing:** an AS3 compile step. FFDec (Java 8) can compile AS3, but the
+  project has only used it to decompile. Apache Flex `mxmlc` is not
+  installed. The inherited Python SWF writer handles only AS2 or movies with
+  no script.
+
+**Design (proposed, not built):**
+
+1. **One movie, `F3NV_Casino.swf`, holding the game screens:**
+   - one screen each for blackjack, roulette and slots;
+   - Caravan's bet, deck, game and results screens.
+
+   It's a flat 2D table, not FNV's 3D scenes. The backgrounds are the
+   felt and wood, which are already top-down (the felt flipped); the cards,
+   chips, slot symbols and wheel go on top as flat images. FO4 can render
+   3D inside a menu (the lockpicking menu does), but redrawing FNV's scenes
+   would need F3NV.dll to load the converted NIF and its camera, light and
+   animations: a possible later upgrade, not a first step. It is written from our own
+   AS3 source, with no Bethesda art or decompiled `Shared.*` classes, and
+   built by a tool in `tools/` from the source in the repo. It takes FO4's
+   own fonts by name and the HUD color.
+2. **Game rules in F3NV.dll**, as native functions added to the movie on open
+   (the `pipboy.cpp` pattern). The rules cover the deal, the RNG with
+   FNV's Luck bias, payouts, the Caravan engine and the opponent.
+   - Write a greedy Caravan opponent from the rules. Open-source players
+     exist, but the clearest (r3w0p/caravan) is GPL-3.0; MIT ones exist
+     (jackklassen, kairaSahin) if code is wanted.
+3. **Papyrus (`F3NV_Casino` quest):**
+   - the converted openers (the casino or deck, max bet);
+   - chip and cap transfers;
+   - net winnings per casino behind `GetCasinoWinningsLevel`, and the ban;
+   - the misc stats and challenge counters.
+4. **Records:**
+   - decode the five types;
+   - cards, chips and Caravan money become MISC items; the player's
+     Caravan cards stay inventory items, which the deck builder reads;
+   - the `GAME*` sounds become SNDR.
+5. **Order:**
+   - the AS3 tool and the menu shell (S-M);
+   - slots (S), then roulette (M: the betting board), then blackjack (M);
+   - Caravan (L: rules, opponent, deck building, bidding).

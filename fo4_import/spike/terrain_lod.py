@@ -68,11 +68,14 @@ def tiles(export_dir: Path, world: str) -> list:
 
 
 def lod_settings(found: list) -> bytes:
-    """The LODSettings file of tiles `found` (tiles()): south-west cell, size in cells, lowest and highest level."""
+    """The LODSettings file of tiles `found` (tiles()): south-west cell, size in cells (a power-of-two count of
+    top-level tiles across, as every vanilla grid), lowest and highest level.
+    See: docs/fork/fo4_pipeline.md#terrain-lod
+    """
     top = max(level for level, *_ in found)
     xs, ys = [x for level, x, _, _ in found if level == top], [y for level, _, y, _ in found if level == top]
-    size = max(max(xs) - min(xs), max(ys) - min(ys)) + top
-    return struct.pack('<hhIII', min(xs), min(ys), size, MIN_LEVEL, top)
+    across = (max(max(xs) - min(xs), max(ys) - min(ys)) + top) // top
+    return struct.pack('<hhIII', min(xs), min(ys), top * (1 << (across - 1).bit_length()), MIN_LEVEL, top)
 
 
 def land_shape(path: Path) -> tuple:

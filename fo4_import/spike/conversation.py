@@ -13,7 +13,7 @@ prevents the player's exit (Prevent Player Exit Dialogue, as 84 vanilla
 scenes), so leaving mid-conversation cannot strand a quest whose next line
 is Say Once, unless its conversation can never end (no step from it ends or
 returns to the Hub), when it keeps `[Leave]`. While every line of a step leads to the same
-next step, the scene runs on into it; lines leading apart start their own
+next step (in a chat, those ending it aside), the scene runs on into it; lines leading apart start their own
 scene by TSCE once said, as vanilla lines do. A line with several
 responses and a result script is split into one FO4 line per response, each
 a step (Fallout 4 runs a line's Begin fragment once per response, and 94% of
@@ -40,6 +40,7 @@ import re
 import struct
 from dataclasses import dataclass, field
 
+from fo4_import.base.vmad import object_scripts
 from fo4_import.base.writer import pack_topic
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
@@ -66,6 +67,10 @@ OR, PLAYER_ACTIVATED, CURRENT_PACKAGE = 0x01, C.FO4.index('GetPlayerActivated'),
 SPEAKER_TEST = 'GetIsID'
 IS_ID, QUEST_RUNNING, GLOBAL_VALUE = C.FO4.index(SPEAKER_TEST), C.FO4.index('GetQuestRunning'), C.FO4.index(
     'GetGlobalValue')
+#: FO4 IsInList: a talker in an actor's talking-as list (talking_activators) speaks as that actor.
+IN_LIST = C.FO4.index('IsInList')
+#: The script the Greeting line carries: it opens the GREETING scene with its speaker, stopping one left playing.
+GREETING_SCRIPT = 'F3NV_Greeting'
 #: _joined's answer when a step's lines lead to different steps.
 MIXED = ('mixed',)
 #: The player's base form (NPC_), which vanilla's player Hello lines test with GetIsID.
@@ -156,9 +161,9 @@ class Conversations:
         return sorted((i for _, i in self.hub.by_topic.get(GREETING, ())),
                       key=lambda i: -self._priority(self.hub.lines[i]))
 
-    def scene(self, step: tuple, fid: int = 0) -> tuple:
+    def scene(self, step: tuple, fid: int = 0, flags: int = 0) -> tuple:
         """(scene, phase name, phase index) where `step` plays: ('line', FNV lines) said first passing, or
-        ('menu', FNV topics).
+        ('menu', FNV topics); a new scene gets FNAM `flags` too.
 
         A new scene starts at `step` and runs on, a phase per step, while every
         line of a step leads to the same next step not yet placed.
@@ -179,7 +184,7 @@ class Conversations:
             step = nxt if continues else None
         listener = LISTENER_ALIAS if first[0] == 'chat' else None
         self.scenes.append(R.pack_scen(fid, edid, self.fid, SPEAKER_ALIAS, actions, self.keyword if menu else 0,
-                                       tuple(phases), R.SCENE_NO_EXIT if locked else 0, listener))
+                                       tuple(phases), (R.SCENE_NO_EXIT if locked else 0) | flags, listener))
         return self.placed[first]
 
     def _key(self, step: tuple) -> str:
@@ -254,8 +259,13 @@ class Conversations:
         return True
 
     def _joined(self, step: tuple):
-        """The step all of `step`'s lines lead to: None if they end, MIXED if they differ."""
+        """The step all of `step`'s lines lead to: None if they end, MIXED if they differ; a chat's lines that end
+        it (End Scene) leave the others' step, so a quest stopped at its scene's end keeps its next lines.
+        See: docs/fork/fo4_pipeline.md#actor-dialogue
+        """
         nexts = {self._next(r, _chat_alias(step)) for r in self._members(step)}
+        if step[0] == 'chat' and len(nexts) > 1:
+            nexts.discard(None)
         return nexts.pop() if len(nexts) == 1 else (MIXED if nexts else None)
 
     def _action(self, step: tuple, place: tuple, edid: str, continues: bool) -> bytes:
@@ -305,8 +315,9 @@ class Conversations:
     def _prompt(self, dial: str, text: str, members: list, menu: tuple, continues: bool, place: str,
                 earlier: bytes = b'') -> bool:
         """Add one option of FNV topic `dial` with prompt `text` answered by `members` to `menu` (player, npc),
-        its pads (one per further answer) on the prompt's conditions; False when no line of it converts.
-        `place` (step, topic, quest) keys its FormIDs; `earlier` CTDAs hide it while a line FNV tries first passes.
+        its pads (one per further answer) on the prompt's conditions; False when no line of it converts. All Say
+        Once answers hide it by their markers once all are said, never by FO4's Say Once on the prompt, which pads
+        outlive (a blank option). `place` keys its FormIDs; `earlier` CTDAs hide it while a line FNV tries first passes.
         See: docs/fork/fo4_pipeline.md#blank-choices
         """
         player, npc = menu
@@ -317,12 +328,12 @@ class Conversations:
         if len(members) == 1:
             shown = conditions_of(members[0], self.form_map, self.say.script_vars, swap=True) or b''
         else:
-            shown = self._shared(members) + self._either(members) + self._speakers(members)
+            shown = self._shared(members) + self._either(members) + self.speakers(members)
         shown += earlier + self._running(members[0]) + self._gate(dial)
         shown += self.say.once.unsaid([r['FormID'] for r in members]) if once else b''
         owner, take = f'INFO prompt {dial} {text}', self.say.builder.new_id
         label = tagged(text, members)
-        player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), once, (label,), shown, prompt=label))
+        player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), 0, (label,), shown, prompt=label))
         player += [R.pack_info(take(owner, key=f'{owner} at {place} pad {i}'), conditions=shown)
                    for i in range(1, len(answers))]
         npc += answers
@@ -331,7 +342,7 @@ class Conversations:
     def _shared(self, members: list) -> bytes:
         """CTDAs (from the player's side) of the condition OR-groups every line in `members` has, besides a lone
         speaker test; b'' when one does not convert."""
-        each = [_groups(r) for r in members]
+        each = [or_groups(r) for r in members]
         common = [raw for group in each[0] if all(group in other for other in each[1:])
                   and not (len(group) == 1 and C.parse(group[0])['func'] == SPEAKER_TEST) for raw in group]
         shared = {f'Condition[{i}].Raw': raw for i, raw in enumerate(common)}
@@ -344,7 +355,7 @@ class Conversations:
         line adds nothing (it always answers).
         See: docs/fork/fo4_pipeline.md#dialogue-conditions
         """
-        each = [_groups(r) for r in members]
+        each = [or_groups(r) for r in members]
         rest = [[g for g in groups if not all(g in other for other in each)
                  and not (len(g) == 1 and C.parse(g[0])['func'] == SPEAKER_TEST)] for groups in each]
         if not all(rest):
@@ -356,9 +367,9 @@ class Conversations:
         either = {f'Condition[{i}].Raw': raw for i, raw in enumerate(ored)}
         return conditions_of(either, self.form_map, self.say.script_vars, swap=True) or b''
 
-    def _speakers(self, members: list) -> bytes:
-        """One OR-group of the lines' speakers (GetIsID), run on the player line's target; b'' when a line has
-        none (anyone may answer). A line whose speaker is not built is left out with its speaker."""
+    def speakers(self, members: list, run_on: int = R.RUN_TARGET) -> bytes:
+        """One OR-group of the lines' speakers (GetIsID), run on `run_on` (the player line's target); b'' when a
+        line has none (anyone may answer). A line whose speaker is not built is left out with its speaker."""
         tests = []
         for rec in members:
             found = [c['p1'] for c in parsed(rec) if c['func'] == SPEAKER_TEST and c['value'] == 1.0
@@ -367,7 +378,7 @@ class Conversations:
                 return b''
             if found[0] in self.form_map and self.form_map[found[0]] not in tests:
                 tests.append(self.form_map[found[0]])
-        return b''.join(R.pack_ctda(OR if i < len(tests) - 1 else 0, 1.0, IS_ID, npc, run_on=R.RUN_TARGET)
+        return b''.join(R.pack_ctda(OR if i < len(tests) - 1 else 0, 1.0, IS_ID, npc, run_on=run_on)
                         for i, npc in enumerate(tests))
 
     def _earlier(self, key: tuple, order: list) -> bytes:
@@ -425,19 +436,34 @@ class Conversations:
         """
         key = ('fails', rec['FormID'])
         if key not in self.memo:
-            groups = _groups(rec)
+            groups = or_groups(rec)
             picks = list(itertools.product(*groups)) if math.prod(len(g) for g in groups) <= MAX_CLAUSES else []
-            clauses = [self._clause(rec, pick) for pick in picks]
+            clauses = [clause for pick in picks for clause in self._clauses(pick)]
+            clauses = [self._clause(rec, tests, lists) for tests, lists in clauses]
             self.memo[key] = None if not picks or None in clauses else [c for c in clauses if c]
         return self.memo[key]
 
-    def _clause(self, rec: dict, pick: tuple) -> 'bytes | None':
-        """One OR-group (player's side): a test in `pick` (a raw test from each condition group of FNV line `rec`)
-        fails, or `rec` is held back (_held); b'' when it always holds, None when a test does not convert."""
-        fnv = self._tests(rec, [negated(raw, i < len(pick) - 1) for i, raw in enumerate(pick)])
+    def _clauses(self, pick: tuple) -> list:
+        """[(raw tests, talking-as lists)] of `pick`, one per branch of each talked-through speaker test in it: its
+        GetIsID, or its actor's talking-as list, so a line an intercom says as that actor fails only when both do.
+        See: docs/fork/fo4_pipeline.md#one-option-per-topic
+        """
+        branches = []
+        for raw in pick:
+            flst = C.talking_list(C.parse(raw), self.form_map)
+            branches.append([(raw, 0)] + ([('', flst)] if flst else []))
+        return [(tuple(raw for raw, _ in combo if raw), [flst for _, flst in combo if flst])
+                for combo in itertools.product(*branches)]
+
+    def _clause(self, rec: dict, pick: tuple, lists: list) -> 'bytes | None':
+        """One OR-group (player's side): a test in `pick` (raw tests of FNV line `rec`) fails, the speaker is in
+        none of the talking-as `lists`, or `rec` is held back (_held); b'' when it always holds, None when a test
+        does not convert."""
+        fnv = self._tests(rec, [negated(raw, i < len(pick) - 1) for i, raw in enumerate(pick)]) if pick else NEVER
         if not fnv:
             return fnv
-        return _any_of([R.pack_ctda(0, value, func, p1, p2) for func, value, p1, p2 in self._held(rec)] + [fnv])
+        off = [R.pack_ctda(0, 0.0, IN_LIST, flst, run_on=R.RUN_TARGET) for flst in lists]
+        return _any_of([R.pack_ctda(0, value, func, p1, p2) for func, value, p1, p2 in self._held(rec)] + [fnv] + off)
 
     def _passing(self, rec: dict) -> 'list | None':
         """OR-groups (player's side) all holding while FNV line `rec` passes here: its condition groups that can
@@ -445,7 +471,7 @@ class Conversations:
         convert."""
         key = ('passes', rec['FormID'])
         if key not in self.memo:
-            groups = [self._tests(rec, list(group)) for group in _groups(rec)]
+            groups = [self._tests(rec, list(group)) for group in or_groups(rec)]
             held = [R.pack_ctda(0, 1.0 - value, func, p1, p2) for func, value, p1, p2 in self._held(rec)]
             self.memo[key] = None if None in groups else [NEVER] if NEVER in groups else [g for g in groups if g] + held
         return self.memo[key]
@@ -489,40 +515,45 @@ class Conversations:
         package = self.packaged.get(rec['FormID'].upper()) if rec.get(PART, 1) == 1 else None
         extra += R.pack_ctda(0, 1.0, CURRENT_PACKAGE, package) if package else b''
         said = {'extra': extra, 'target': target, 'owner': self.fid, 'place': place}
-        if continues:
-            return self.say.info(rec, self.form_map, **said)
         nxt = self._next(rec, alias)
         if nxt is None:
             return self.say.info(rec, self.form_map, flags=R.INFO_END_SCENE, **said)
+        if continues:
+            return self.say.info(rec, self.form_map, **said)
         return self.say.info(rec, self.form_map, self.scene(nxt), flags=R.INFO_START_ON_END, **said)
 
     def greeting(self, greets: list, topics: 'dict | None' = None) -> None:
-        """A Greeting topic whose silent line starts the GREETING talk scene, for activation or force greets `greets`.
+        """A Greeting topic whose silent line starts the GREETING talk scene, on activation or force greets `greets`.
 
-        The scene's lines are those of the topics force greets name (`topics`, {FNV topic: FO4 package}), each
-        needing its package current, then _greetings(). Its SILENT_LINE puts its speaker in the
-        Speaker alias and needs GetPlayerActivated or a running force greet
-        and a speaker the GREETING lines name; the lines stay in the scene, so
-        each Say Once line exists once.
-        See: docs/fork/fo4_spikes.md#spike-1-force-greet
+        The scene's lines: those of the topics force greets name (`topics`, {FNV topic: FO4 package}), each
+        needing its package current, then _greetings(). Its SILENT_LINE needs GetPlayerActivated or a running
+        force greet, and a speaker the GREETING lines name or a talker in its talking-as list (an intercom); its
+        GREETING_SCRIPT opens the scene (TSCE past its first phase).
+        See: docs/fork/fo4_pipeline.md#greeting-scene
         """
         self.packaged = {i: (topics or {})[r['ParentDIAL'].upper()] for i, r in self.hub.lines.items()
                          if r['ParentDIAL'].upper() in (topics or {})}
         infos = list(self.packaged) + self._greetings()
         if not infos:
             return
-        speakers = sorted({self.form_map[c['p1']] for i in infos for c in parsed(self.hub.lines[i])
-                           if c['func'] == SPEAKER_TEST and c['p1'] in self.form_map})
+        named = {c['p1'] for i in infos for c in parsed(self.hub.lines[i]) if c['func'] == SPEAKER_TEST}
+        speakers = sorted({self.form_map[p] for p in named if p in self.form_map})
+        talkers = sorted({self.form_map[(C.TALKING_AS, p)] for p in named if (C.TALKING_AS, p) in self.form_map})
         opened = _any([(PLAYER_ACTIVATED, 0)] + [(CURRENT_PACKAGE, p) for p in greets])
-        opened += _any([(IS_ID, npc) for npc in speakers])
+        opened += _any([(IS_ID, npc) for npc in speakers] + [(IN_LIST, flst) for flst in talkers])
         step = ('line', tuple(infos))
         if step not in self.labels:
             self.labels[step], self.legacy[step] = 'greeting', repr(step)
         scene, phase, index = self.scene(step)
         greet = self.say.builder.new_id(f'INFO greeting {self.quest["FormID"]}')
         self.say.silent.append((greet, False))
-        line = R.pack_info(greet, 0, (R.SILENT_LINE,), opened, scene=scene, phase=phase, phase_index=index,
-                           notes='FNV GREETING', forced_alias=SPEAKER_ALIAS)
+        if index:
+            line = R.pack_info(greet, 0, (R.SILENT_LINE,), opened, scene=scene, phase=phase, phase_index=index,
+                               notes='FNV GREETING', forced_alias=SPEAKER_ALIAS)
+        else:
+            self.say.builder.scripts.used.append(GREETING_SCRIPT)
+            line = R.pack_info(greet, 0, (R.SILENT_LINE,), opened, notes='FNV GREETING',
+                               vmad=object_scripts([(GREETING_SCRIPT, {'Greeting': scene}, {})]))
         fid = self.say.builder.new_id(f'DIAL greeting {self.quest["FormID"]}')
         dial = R.pack_dial(fid, f'FNV_{self.quest["EditorID"]}_Greeting', self.fid, R.TOPIC_GREETING, 1)
         self.topics.append(pack_topic(dial, fid, [line]))
@@ -591,7 +622,7 @@ def negated(raw: str, or_next: bool) -> str:
 
 def named_speaker(rec: dict) -> 'int | None':
     """The NPC FNV line `rec` names alone in a condition group (GetIsID == 1 on the subject); None: anyone."""
-    for group in _groups(rec):
+    for group in or_groups(rec):
         cond = C.parse(group[0])
         if len(group) == 1 and cond['func'] == SPEAKER_TEST and cond['value'] == 1.0 and cond['run_on'] == R.RUN_SUBJECT \
                 and not cond['op_flags'] & COMPARE:
@@ -640,7 +671,7 @@ def _chained(tests: bytes) -> bytes:
     return tests[:last + 6] + bytes([tests[last + 6] | OR]) + tests[last + 7:] if last >= 0 else tests
 
 
-def _groups(rec: dict) -> list:
+def or_groups(rec: dict) -> list:
     """FNV line `rec`'s condition OR-groups, each a tuple of raw hex."""
     out, cur = [], []
     for raw in raws(rec):

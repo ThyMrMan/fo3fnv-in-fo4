@@ -49,6 +49,7 @@ from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_AUTOMATIC, FO4_NOT_PLAYA
 from fo4_import.spike.aim_models import AimModels
 from fo4_import.spike.weapon_vats import WeaponVats
 from fo4_import.spike.guns import Guns
+from fo4_import.spike.mutant_subgraphs import write_mutant_subgraphs
 from fo4_import.spike.weapon_mods import WeaponMods
 from fo4_import.spike.replacements import Replacement, Rules
 from fo4_import.spike import records as R
@@ -253,7 +254,8 @@ class Equipment:
 
     def write_anim_lists(self) -> None:
         """Write every animation type's list of the converted weapons, empty or not, so a property always binds;
-        and the subgraph race of the guns on FNV's clips (spike.guns.write_subgraphs).
+        the subgraph race of the guns on FNV's clips (spike.guns.write_subgraphs), and super mutants' for FNV
+        weapons (spike.mutant_subgraphs).
         See: docs/commentary/script_convert.md#fallout-weapon-anim-type
         """
         for kind, name in WEAPON_ANIM_LISTS.items():
@@ -261,6 +263,7 @@ class Equipment:
                 pack_subrecord('LNAM', struct.pack('<I', fid)) for fid in sorted(self.by_anim[kind]))
             self.builder.writer.add_record('FLST', pack_fo4_record('FLST', self.anim_list(name), 0, body))
         self.guns.write_subgraphs()
+        write_mutant_subgraphs(self.builder, self.guns)
 
     def _weapon(self, fnv: int, rec: dict) -> 'int | None':
         """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`) on its table entry's target; a gun the table

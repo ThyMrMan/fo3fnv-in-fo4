@@ -106,6 +106,15 @@ class Effects:
 
     def subs(self, rec: dict) -> bytes:
         """EFID/EFIT pairs for FNV consumable `rec`; NO_EFFECT at magnitude 0 when none carries."""
+        out = self.pairs(rec)
+        if not out:
+            self.builder.counts['ALCH with no effect (placeholder)'] += 1
+            out = effect_pair(self.vanilla[NO_EFFECT][0], 0.0, 0, 0)
+        return out
+
+    def pairs(self, rec: dict) -> bytes:
+        """EFID/EFIT pairs (with perk tests) of the effects of FNV `rec` (a consumable, a spell) FO4 carries; b''
+        when none does."""
         out = b''
         for edid, magnitude, area, duration, av, perks in fnv_effects(rec):
             fo4 = self._targets(edid, av, magnitude)
@@ -117,9 +126,6 @@ class Effects:
                 continue
             for fid, value in fo4:
                 out += effect_pair(fid, value, area, duration) + tests
-        if not out:
-            self.builder.counts['ALCH with no effect (placeholder)'] += 1
-            out = effect_pair(self.vanilla[NO_EFFECT][0], 0.0, 0, 0)
         return out
 
     def _perk_tests(self, perks: list) -> 'bytes | None':

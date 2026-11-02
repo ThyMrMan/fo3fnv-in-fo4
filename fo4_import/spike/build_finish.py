@@ -14,7 +14,7 @@ from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.master_overrides import drop_unchanged
 from fo4_import.nif import weapon
-from fo4_import.pipeline import elric_cache, stale_files
+from fo4_import.pipeline import elric_cache, master_copies, object_lod, stale_files
 from fo4_import.pipeline.stage_timer import charged, timed
 from fo4_import.rig import anim_info
 from fo4_import.spike import ammo_casings, ammo_switch, challenges, condition, facegen, skeleton, voice
@@ -56,7 +56,11 @@ def _sounds(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
     See: docs/fork/fo4_pipeline.md#sound-archive
     """
     _voice(builder, export_dir, data_dir, plugin)
-    todo = [job for job in dict.fromkeys(builder.sounds.jobs) if not job[1].exists()]
+    masters = master_copies.master_dirs(builder)
+    jobs = [job for job in dict.fromkeys(builder.sounds.jobs)
+            if not master_copies.master_sound(job, export_dir, data_dir, masters)]
+    builder.counts["sound files left to the master's archive"] = len(dict.fromkeys(builder.sounds.jobs)) - len(jobs)
+    todo = [job for job in jobs if not job[1].exists()]
     builder.counts['sound files'] = voice.convert(todo, LIP_GENERATOR)
     builder.counts['sound files packed'] = pack_sounds(data_dir, plugin)
 
@@ -90,6 +94,12 @@ def _collision(builder, data_dir: Path) -> None:
     builder.counts['weapon meshes'] = len(builder.weapons)
 
 
+@timed('object LOD')
+def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
+    """Built worldspaces' object LOD (after Elric, before the texture BA2)."""
+    builder.counts.update(object_lod.bake_all(export_dir, data_dir, builder.object_lod.worlds))
+
+
 @timed('assets')
 def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
     """Lowered skeletons, voices, sounds and movies, stale FaceGen pruned, the texture BA2; counted."""
@@ -106,7 +116,8 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
     """Compile the build's scripts (none without `scripts_dir`)."""
     if builder.scripts.used and scripts_dir is not None:
         print(compile_into(scripts_dir, data_dir, builder.scripts.used, tuple(Path(scripts_dir).parent / p.name
-                                                                              for p in builder.built)))
+                                                                              for p in builder.built),
+                           tuple(Path(p).parent / 'Scripts' for p in builder.built)))
 
 
 @timed('closing records')
@@ -125,8 +136,9 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
 
 @timed('closing records')
 def _lists(builder, data_dir: Path) -> None:
-    """Weapon lists and the gun race, ammo, poisons, idles, combat settings."""
+    """Weapon and item type lists and the gun race, ammo, poisons, idles, combat settings."""
     builder.equipment.write_anim_lists()
+    builder.items.write_type_lists()
     builder.consumables.write_ammo()
     builder.consumables.poisons.write()
     builder.idles.write(data_dir)
@@ -136,15 +148,18 @@ def _lists(builder, data_dir: Path) -> None:
 
 @timed('ledger and cleanup')
 def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, helper: int) -> collections.Counter:
-    """Collision, assets, the records written from everything made, scripts, then the plugin, its ledger and
-    the stale files pruned; `builder`'s counts (`helper`: the helper plugin's master index)."""
+    """Collision, object LOD, assets, the records written from everything made, scripts, then the plugin, its
+    ledger and the stale files pruned; `builder`'s counts (`helper`: the helper plugin's master index)."""
     _collision(builder, data_dir)
+    _object_lod(builder, export_dir, data_dir)
     _assets(builder, export_dir, data_dir, out)
     _closing_records(builder, export_dir, data_dir, out, helper)
     _compile(builder, data_dir, scripts_dir)
     _lists(builder, data_dir)
     _write_plugin(builder, out, data_dir)
     builder.writer.ledger.save()
+    builder.counts["files left to the master's folder"] = master_copies.drop_loose(data_dir,
+                                                                                    master_copies.master_dirs(builder))
     made = stale_files.made(data_dir, Path(export_dir.name).stem, builder.started)
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)

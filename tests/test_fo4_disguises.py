@@ -97,13 +97,21 @@ def test_the_disguise_pulse_becomes_a_fire_and_forget_touch_script_spell():
     assert spell[b'EFID'] == mgef[12:16]
 
 
-def test_a_spell_with_another_effect_is_left_out():
-    """Only spells whose every effect is a converted script effect convert; others are counted, not made."""
-    written = []
-    builder = SimpleNamespace(counts=collections.Counter(), writer=_writer(written),
-                              scripts=SimpleNamespace(name=lambda scpt: 'X'), fnv_id=lambda fid: int(fid, 16))
-    assert _effects(builder).spell('RestoreHealth') is None and not written
-    assert builder.counts['SPEL left out (not all unconditioned script effects)'] == 1
+def test_a_spell_with_another_effect_converts_as_a_consumables_unless_an_ability():
+    """An ability with any other effect is left out; a plain spell takes its effects as a consumable's (fire and
+    forget, on self); one none of whose effects converts is counted, not made."""
+    written, pairs = [], {'RestoreHealth': b'EFIDheal'}
+    effects = SimpleNamespace(pairs=lambda rec: pairs.get(rec['EditorID'], b''))
+    builder = SimpleNamespace(counts=collections.Counter(), writer=_writer(written), consumables=SimpleNamespace(
+        effects=effects), scripts=SimpleNamespace(name=lambda scpt: 'X'), fnv_id=lambda fid: 0x02000000 | int(fid, 16))
+    fx = _effects(builder)
+    fx.spells['ability'] = {**fx.spells['restorehealth'], 'EditorID': 'Ability', 'SPIT.Type': '4'}
+    fx.spells['nothing'] = {**fx.spells['restorehealth'], 'EditorID': 'Nothing'}
+    assert fx.spell('Ability') is None and builder.counts['SPEL left out (not all unconditioned script effects)'] == 1
+    assert fx.spell('Nothing') is None and builder.counts['SPEL left out (no effect converts)'] == 1
+    assert fx.spell('RestoreHealth') == 0x021413D1 and written[-1][1].endswith(b'EFIDheal')
+    spit = written[-1][1][written[-1][1].index(b'SPIT') + 6:][:36]
+    assert struct.unpack('<IIIfII', spit[:24])[4:] == (SE.FIRE_AND_FORGET, SE.DELIVERY['Self'])
 
 
 def test_dropme_drops_the_scripted_item():

@@ -184,6 +184,20 @@ built. The cell argument is the DLC's own interior.
   (`FNV_HumanRaceSubGraphDataAdditive_<plugin>`) holding only entries for its
   own guns' keywords (`guns.write_subgraphs`); the game's 6,767 stay its
   own.
+- <a id="master-copies"></a>**What the game mod ships stays out of the DLC's
+  folder** (`pipeline.master_copies`, 2026-10-31). A DLC build remakes the
+  game meshes, materials, gun clips, animation data, textures and sounds its
+  records reach. Once the build is done, a loose file byte-identical to the
+  game data folder's file at the same path is deleted (`drop_loose`). A
+  texture the game's last pack staged with the same signature (source path,
+  size and time, or work-cache key) is not staged
+  (`ba2_pack.share_masters`). A sound from the game's export that the game
+  converted is not converted, and an old copy is deleted (`master_sound`).
+  Files that differ stay, such as GRA's own `1hp` aim clips. Measured on the
+  2026-10-31 GRA folder before the change: 10,549 loose files identical to
+  the game build's (5,327 animation data, 3,666 actor clips, 890 meshes, 662
+  materials), 1,610 of 1,631 shared textures with the game's signature, and
+  115 sounds.
 - **The game plugin's files stay the game's.** Only the game build writes
   LevelUpMenuEx's ini (a second one would point the level-up menu at the
   DLC's copy of the lists) and copies `F3NV.dll`.
@@ -199,14 +213,56 @@ sacks (its 3 new items each), 32 form lists merged, Ninja and the combat
 rules perk (supersets), and the three quests merged (2026-10-31): the Ammo
 Type hotkey 20 → 21 lists and 68 → 96 rounds, condition 197 → 235 weapons and
 20 → 27 round wear marks, challenges 61 → 78 (GRA's 17). Its own subgraph
-race: 2,285 entries, all on GRA's 35 gun keywords. Its folder also holds
-4,190 loose files identical to the game mod's, remade on the way (open: the
-build should not write them; deployed without them), and 179 first-person
+race: 2,285 entries, all on GRA's 35 gun keywords. Its folder also held
+4,190 loose files identical to the game mod's, remade on the way (left out
+since 2026-10-31, [master copies](#master-copies); not rebuilt yet), and 179 first-person
 pistol poses that differ on purpose: GRA ships its own `1hp` aim clips,
 which FNV loads over the game's. Left out: the 94
 references in `TestMentats`, a debug cell the game never built. Voice files
 still read `sound/voice/falloutnv.esm`; GRA has none, the story DLC will.
 Not played.
+
+### <a id="courier-packs"></a>The courier packs (built 2026-10-31)
+
+Caravan, Classic, Mercenary and Tribal: 5 to 19 records each, built as
+four plugins in their own folders (`temp/profile_data_<pack>`):
+
+```bash
+py -3.14 convert.py --export-only -f CaravanPack.esm --data-dir <FNV>/Data
+py -3.14 -c "from asset_convert.sources.bsa_extract import extract_assets_for_file; extract_assets_for_file('CaravanPack.esm', '<FNV>/Data', 'export')"
+py -3.14 -m script_convert.pipeline export/CaravanPack.esm -o temp/fo4_scripts/CaravanPack.esm --target fallout4
+py -3.14 -m fo4_import.pipeline.run --export export/CaravanPack.esm --out <pack data>/CaravanPack.esm --data <pack data> --scripts temp/fo4_scripts/CaravanPack.esm --plugin-dirs <game data> --mod-sources <app settings> --no-test-cell --replacements <table>
+```
+
+(`extract_assets_for_file` takes the export ROOT; it also copies FNV's
+loose music, 522 MB, which a pack does not need.)
+
+- **No cell.** A pack places nothing; `run.py`'s cell argument is optional
+  and `cell.build(None)` builds only what the plugin holds: `interiors.reached`
+  starts from no cell, `_rooms` places every interior as an ordinary one, and
+  no CELL group is written when it would hold none.
+- **Records in FalloutNV.esm's range.** Each pack's records carry master byte
+  00 (the export calls them overrides) but FalloutNV.esm holds only one of
+  them, `VDLCPackQuest` (the given-items flags). They build as the pack's own
+  copies (`COPY_SITE`), as GRA's did. `VDLCPackQuest` too: the game build
+  never reached it, so each pack carries its own copy, its flags its own.
+- **Adopted scripts.** A game script a pack uses that no built master's
+  Scripts folder holds (`FALLOUTNV_VDLCPackQuestSCRIPT`: its quest only a
+  pack reaches) compiles into the pack's (`script.adopted_scripts`); before,
+  the pack's quest named a script that existed nowhere and its `GameMode`
+  check would never give the items.
+- **Meshes FNV never shipped.** Classic Pack's 10mm pistol names seven
+  mod-variant statics whose meshes are in no archive; a base whose model no
+  export layer holds is left out, counted (`CellBuilder.record`), not a crash.
+- **Effects on the master's MGEF.** The export left every DLC effect naming a
+  FalloutNV.esm effect blank (`EFID=`); fixed in the exporter
+  ([master effects](../commentary/tes4_export_falloutnv.md#master-effects)),
+  which also fills GRA's 34.
+- **Plain spells.** A script's Spell property naming a spell that is no
+  ability and not all script effects (the Vault 13 canteen's heal, cast every
+  5 minutes while carried) converts as a fire-and-forget spell on self, its
+  effects a consumable's (`ScriptEffects._plain_spell`); it was left out.
+  The base game's scripts gain these too.
 
 ## <a id="mods"></a>Part B: mod patch plugins
 

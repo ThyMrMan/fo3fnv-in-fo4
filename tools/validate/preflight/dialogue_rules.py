@@ -16,6 +16,7 @@ import struct
 from collections import defaultdict
 
 from tes5_import.dialogue.say_once import SAY_ONCE
+from tools.validate.preflight import xdi_menus
 from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.plugin_index import every, first, u32
 from tools.validate.preflight.quest_source import decode_condition, speakable
@@ -116,7 +117,7 @@ def reply_topic_findings(ctx) -> list:
     quests, opened = _topic_quests(ctx), defaultdict(list)
     for fid, (edid, dtype, flags) in src.dials.items():
         if (dtype == _PLAYER_TOPIC and not flags & _TOP_LEVEL and edid.upper() != _GREETING
-                and fid not in src.external_topics and fid in ctx.source_topics
+                and fid not in src.external_topics | src.said_topics and fid in ctx.source_topics
                 and ctx.built_fid(f'{fid:08X}') in ctx.dialogue.open_starts):
             for quest in quests.get(fid, {'no quest'}):
                 opened[quest].append(edid or f'{fid:08X}')
@@ -177,6 +178,7 @@ def say_once_tree_findings(ctx) -> list:
 
 
 def audit(ctx) -> list:
-    """The dialogue engine rule findings for one game."""
+    """The dialogue engine rule findings, with XDI's menus on a Fallout 4 build."""
+    menus = xdi_menus.audit(ctx.game, ctx.index) if ctx.index.fo4 else []
     return (scene_original_findings(ctx.game, ctx.index, ctx.dialogue) + greeting_gate_findings(ctx)
-            + reply_topic_findings(ctx) + say_once_tree_findings(ctx))
+            + reply_topic_findings(ctx) + say_once_tree_findings(ctx) + menus)

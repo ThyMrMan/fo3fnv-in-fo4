@@ -12,11 +12,19 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
 from fo4_import.base.bink import movie_key
-from script_convert.constants import FALLOUT4_POSE_PREFIX, fallout4_swap_property, safe_property_name, typed_already
+from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_swap_property, papyrus_script_name,
+                                      safe_property_name, typed_already)
+from script_convert.anim_action_falloutnv import anim_action
+from script_convert.command_rows import ACTOR, Cmd
+from script_convert.constants_falloutnv import ITEM_TYPE_LISTS
+from script_convert.emit.commands import emit_row
 from script_convert.message_menus import authored_site
 from script_convert.target import (CHARACTER_PROPERTY, CHARACTER_SCRIPT, CONTROLS_PROPERTY, CONTROLS_SCRIPT, arm_update,
                                    av_property, fallout4_av_name, is_fallout4)
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
+
+#: The row a forced sneak's start renders: the actor's native StartSneaking.
+START_SNEAKING = Cmd('{ref}.StartSneaking()', ACTOR, flags='actor_only')
 
 
 def faction_relation(ctx, call):
@@ -249,6 +257,16 @@ def get_open_state(ctx, call):
     return f'TES4_TwoStateActivator.OpenState({_open_state_target(ctx, call)})'
 
 
+def force_sneak(ctx, call):
+    """FNV `SetForceSneak 1` on Fallout 4: StartSneaking(); else declines (the note).
+
+    See: docs/fork/script_markers.md#setforcesneak
+    """
+    if not is_fallout4() or call.arg(0).strip() != '1':
+        return None
+    return emit_row(ctx, START_SNEAKING, call.ref, call.raw_name, '', call.extends)
+
+
 def set_open_state(ctx, call):
     """FO3/FNV SetOpenState, two-state activators included; declines elsewhere."""
     if not (ctx.xref and ctx.xref.is_fallout()):
@@ -335,7 +353,66 @@ def play_bink(ctx, call):
     return f'Game.PlayBink("{movie.replace(chr(92), chr(92) * 2)}", {flags})'
 
 
+def enter_trigger(ctx, call):
+    """`<trigger>.EnterTrigger <actor>`: the trigger script's OnTriggerEnter, called with the actor.
+
+    Only for a script that authors OnTriggerEnter and no OnTrigger: an OnTrigger
+    body becomes a loop that waits for a leave event a forced entry never sends.
+    See: docs/fork/script_markers.md#entertrigger
+    """
+    edid = ctx.xref.record_script_edid(call.ref or '') if ctx.xref else ''
+    if not edid or ctx.xref.trigger_blocks.get(edid.lower()) != frozenset({'ontriggerenter'}):
+        return ctx.note(f'TODO: {call.written()} - no script with only an OnTriggerEnter block')
+    actor, src = call.arg(0, 'None'), call.source(0, '').strip()
+    if src.isidentifier() and actor == src:
+        ctx.sc.property_refs.setdefault(src, 'ObjectReference')
+    ref = ctx._resolve_objref_ref(call.ref, call.extends)
+    return f'({ref} as {papyrus_script_name(edid)}).OnTriggerEnter({actor})'
+
+
+def _form_list_arg(ctx, call, n: int) -> str:
+    """Argument `n` as a FormList: a property named by its EditorID (declared), a local as converted, None absent."""
+    src = call.source(n, '').strip()
+    if not src:
+        return 'None'
+    if ctx.sc.var_types.get(src.lower()):
+        return call.arg(n)
+    prop = safe_property_name(src)
+    ctx.sc.property_refs.setdefault(prop, 'FormList')
+    return prop
+
+
+def remove_all_typed_items(ctx, call):
+    """FO3/FNV `[from.]RemoveAllTypedItems <to> [keepOwner] [silent] [type] [except]` on Fallout 4.
+
+    TES4Polyfill.RemoveAllTypedItems moves the build's list of the type code's
+    items (ITEM_TYPE_LISTS), all items for type 0, minus the except list.
+    A type code that is not a literal inventory type stays a note; declines
+    off Fallout 4, which has no type lists.
+    See: docs/fork/script_markers.md#removealltypeditems
+    """
+    if not is_fallout4() or not len(call):
+        return None
+    code = call.source(3, '0').strip()
+    if not code.isdigit() or (int(code) and int(code) not in ITEM_TYPE_LISTS):
+        return ctx.note(f'{call.written()} - type {code} is not an inventory type code')
+    types = 'None'
+    if int(code):
+        types = ITEM_TYPE_LISTS[int(code)]
+        ctx.sc.property_refs[types] = 'FormList'
+    target, src = call.arg(0, 'None'), call.source(0, '').strip()
+    if src.isidentifier() and target == src:
+        ctx.sc.property_refs.setdefault(src, 'ObjectReference')
+    source = ctx._resolve_objref_ref(call.ref, call.extends)
+    return (f'TES4Polyfill.RemoveAllTypedItems({source}, {target}, {_flag(call, 1, "0")}, {_flag(call, 2, "0")}, '
+            f'{int(code)}, {types}, {_form_list_arg(ctx, call, 4)})')
+
+
 FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
+                    'removealltypeditems': remove_all_typed_items,
+                    'entertrigger': enter_trigger,
+                    'getanimaction': anim_action,
+                    'setforcesneak': force_sneak,
                     'playbink': play_bink,
                     'isplayertagskill': tag_skill,
                     'setplayertagskill': tag_skill,

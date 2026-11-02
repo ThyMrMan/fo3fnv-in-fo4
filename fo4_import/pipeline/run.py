@@ -9,38 +9,42 @@ See: docs/fork/fo4_pipeline.md#skeleton
 """
 
 import argparse
+import sys
 import time
 from pathlib import Path
 
+from core.heavy_lock import hold_heavy_lock
 from core.mod_sources import data_dirs
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
 from fo4_import.app import settings
+from fo4_import.pipeline.build_steps import convert_scripts, source_state, write_stamp
 from fo4_import.pipeline.converters import placed_types
 from fo4_import.pipeline.export_index import export_file, export_records
 from fo4_import.pipeline.mesh_cache import warm
-from fo4_import.pipeline.stage_timer import report
+from fo4_import.pipeline.stage_timer import charged, report
 from fo4_import.spike import replacements
 from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
 from fo4_import.spike.exterior import Exterior
 from fo4_import.spike.interiors import scope
+from fo4_import.spike.object_lod import lod_sources
 
 #: Record types whose scripts name forms (SCRO): scripts, and quests' stage result scripts.
 SCRIPTED = ('SCPT', 'QUST')
 
 
-def scope_models(export_dir: Path, cell_edid: str, exteriors: tuple) -> list:
-    """The FNV mesh files of the bases placed in cell `cell_edid`, the `exteriors` (build()'s) and the interiors
-    their doors reach, as build() makes them first (convert() with its defaults)."""
+def scope_models(export_dir: Path, cell_edid: 'str | None', exteriors: tuple) -> list:
+    """The FNV mesh files of the bases placed in cell `cell_edid` (None: no named cell), the `exteriors`
+    (build()'s) and the interiors their doors reach, and their LOD meshes, as build() makes them first."""
     all_refs = export_records(export_dir, 'REFR')
     outside = [r for spec in exteriors for r in Exterior(export_dir, all_refs, *spec).refs]
-    used = {int(r['NAME'], 16) for r in scope(export_dir, all_refs, find_cell(export_dir, cell_edid), outside)[1]
-            + outside}
+    start = find_cell(export_dir, cell_edid) if cell_edid else None
+    used = {int(r['NAME'], 16) for r in scope(export_dir, all_refs, start, outside)[1] + outside}
     recs = [rec for sig, rec in placed_bases(export_dir, used).values()
             if sig in placed_types('record', 'pickup', 'readable')]
     recs += [r for sig in placed_types('item') for r in export_records(export_dir, sig) if int(r['FormID'], 16) in used]
     paths = {export_file(export_dir, 'meshes', world_model(r).replace('/', '\\').lower()) for r in recs if world_model(r)}
-    return sorted(p for p in paths if p.exists())
+    return sorted(p for p in paths | lod_sources(export_dir, recs) if p.exists())
 
 
 def scope_cells(args: argparse.Namespace) -> tuple:
@@ -101,7 +105,8 @@ def arguments() -> argparse.Namespace:
     ap.add_argument('--export', required=True, type=Path, help='FalloutNV.esm export folder')
     ap.add_argument('--out', required=True, type=Path, help='Plugin to write')
     ap.add_argument('--data', required=True, type=Path, help='Data folder for meshes, materials and textures')
-    ap.add_argument('--scripts', type=Path, help='Converted FNV scripts (script_convert.pipeline --target fallout4)')
+    ap.add_argument('--scripts', type=Path,
+                    help='Folder for the FNV scripts, converted there first (script_convert.pipeline --target fallout4)')
     ap.add_argument('--world', nargs='*', default=[],
                     help='FNV worldspace editor IDs to build (all: every one; reached: every one a load door or script '
                          'reaches); the first takes --region or --around, the rest are built whole')
@@ -122,17 +127,35 @@ def arguments() -> argparse.Namespace:
                     help="The app's settings file (fo4_import.app.settings); its mod sources are searched for "
                          'plugins after --plugin-dirs')
     ap.add_argument('--workers', type=int, default=0, help='Mesh conversion processes (default: all CPUs but one)')
-    ap.add_argument('cell', help='FNV interior cell editor ID')
+    ap.add_argument('cell', nargs='?', help='FNV interior cell editor ID (none: a DLC with no cell of its own)')
     return ap.parse_args()
 
 
 def main():
-    """Build the plugin and assets; print the counts and each stage's time."""
+    """Build the plugin and assets once any other heavy job on the machine has finished, its stamp saying
+    running, then finished or failed.
+    See: docs/fork/fo4_pipeline.md#build-stamp
+    """
     args = arguments()
+    hold_heavy_lock(' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]))
     configure_multiprocessing()
     create_pool_job()
-    worlds = exteriors(args)
     started = time.time()
+    extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), **source_state()}
+    write_stamp(args.out, 'running', started, extra)
+    try:
+        build_all(args, started)
+    except BaseException:
+        write_stamp(args.out, 'failed', started, extra)
+        raise
+    write_stamp(args.out, 'finished', started, extra)
+
+
+def build_all(args: argparse.Namespace, started: float) -> None:
+    """The scripts converted (with --scripts), the plugin and assets built; the counts and each stage's time."""
+    if args.scripts:
+        charged('script conversion', convert_scripts, args.export, args.scripts)
+    worlds = exteriors(args)
     models = scope_models(args.export, args.cell, worlds)
     warm(models, args.export, args.workers)
     print(f'mesh cache: {len(models)} meshes ready in {time.time() - started:.1f}s')

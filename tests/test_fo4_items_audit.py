@@ -71,6 +71,25 @@ def test_a_form_list_whose_every_entry_drops_is_not_made_but_an_authored_empty_o
     assert items.item(0x21) == 0x03000021 and len(builder.written) == 1
 
 
+def test_an_item_type_list_holds_the_forms_made_for_its_types_items_and_only_named_lists_are_written():
+    """RemoveAllTypedItems' weapon list: the weapons made and a shared stand-in, not one never made nor armor; a
+    list no script names is not written.
+    See: docs/fork/script_markers.md#removealltypeditems"""
+    builder = _list_builder()
+    builder.writer.derive_formid = lambda site, key: hash((site, key)) & 0xFFFFFF
+    records = {0x10: ('WEAP', {'FormID': '00000010'}), 0x11: ('WEAP', {'FormID': '00000011'}),
+               0x12: ('WEAP', {'FormID': '00000012'}), 0x13: ('ARMO', {'FormID': '00000013'})}
+    items = I.Items(builder, records, {0x12: 0x0001F669}, {'WEAP': lambda fid, rec: 0x03000000 | fid,
+                                                            'ARMO': lambda fid, rec: 0x03000000 | fid})
+    items.item(0x10), items.item(0x13)
+    fid = items.type_list('TES4ItemType40')
+    assert items.type_list('TES4WeapAnimType1') is None
+    items.write_type_lists()
+    lnam = [struct.unpack('<I', b)[0] for s, b in subrecords(builder.written[-1][24:]) if s == b'LNAM']
+    assert struct.unpack('<I', builder.written[-1][12:16])[0] == fid
+    assert lnam == [0x0001F669, 0x03000010] and builder.counts['item type lists'] == 1
+
+
 @pytest.mark.skipif(not SKINNED_FEDORA.exists(), reason='needs the FalloutNV.esm export')
 def test_skinned_fnv_headgear_moves_into_the_frame_rigid_headgear_is_drawn_in():
     """The gambler fedora (skinned to Bip01 Head) lands where the rigid suit hat sits on FNV's head mesh; a

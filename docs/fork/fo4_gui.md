@@ -119,13 +119,13 @@ what exists. Not played in game yet.
 - **Stages** (`stages.py`, no Qt) build the existing command lines from the
   settings:
   - Export: `convert.py --export-only -f <master> --data-dir <game>/Data`.
-  - Scripts: into the chosen scripts folder (Setup, per game), else
-    `<work>/scripts/<master>`. Pointing it at an earlier run's folder, such
-    as the command line's `temp/fo4_scripts/FalloutNV.esm`, reuses those
-    scripts.
   - Helper plugin and Build: into the output folder, which is the build's
     Data. The build gets `--mod-sources <settings file>`, the profile, and
     the replacement file when it exists.
+  - Scripts: the build converts them itself (`--scripts`, see
+    `fo4_import/pipeline/build_steps.py`) into the chosen scripts folder
+    (Setup, per game), else `<work>/scripts/<master>`. The separate Scripts
+    stage was dropped on 2026-10-31.
   - Check: the fast reference check (`tools.validate.fo4_ref_check`, about
     1 s on the region plugin, 5 s on the whole map), with the output folder
     and mod sources as plugin folders. It runs on any OS.
@@ -162,7 +162,7 @@ what exists. Not played in game yet.
 ### Convert screen
 
 - **Stages:** each is an existing command line tool, ticked on or off: Export,
-  Scripts, Helper plugin, Build, Check (`fo4_ref_check`), and FO4Edit's full
+  Helper plugin, Build (which converts the scripts), Check (`fo4_ref_check`), and FO4Edit's full
   check (`fo4_check`, unticked by default). FaceGen, LOD and BA2
   packing are added when they exist.
 - **Scope:** test cell, worlds, region or whole. Also a worker count and a
@@ -172,10 +172,8 @@ what exists. Not played in game yet.
 - <a id="earlier-runs"></a>**What earlier runs left** (`stages.found`, added
   2026-10-24), from the app or the command line, shown beside each stage:
   - Export: the export with its date (`_HEADER.txt`).
-  - Scripts: how many `.psc` files are in the scripts folder and when they
-    were converted, flagged when older than the export.
   - Helper plugin and Build: the plugin in the output folder with its date.
-  - The export, and scripts newer than it, count as done and start
+  - The export counts as done and starts
     unticked. The status line says so. A stage is ticked or unticked only
     when its done state changes, so a stage the user ticks again stays
     ticked.
@@ -209,7 +207,7 @@ what exists. Not played in game yet.
 
   | Tool | Used by | Without it (to confirm) |
   |---|---|---|
-  | FO4 Papyrus compiler (Creation Kit) | Scripts | no compiled scripts |
+  | FO4 Papyrus compiler (Creation Kit) | Build, scripts | no compiled scripts |
   | LipGen (Creation Kit) | Build, voice | lines play with no lip movement |
   | Creation Kit FaceGen | FaceGen | faces fall back to the face-fit pass only |
   | Elric (Creation Kit) | Build, collision | no FO4 collision for converted meshes |

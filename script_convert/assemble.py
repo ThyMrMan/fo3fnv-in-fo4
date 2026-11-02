@@ -16,20 +16,20 @@ from dataclasses import replace
 from script_convert.blocks import (BLOCK_MAP, WEAPON_FIRE, block_filter_guard, block_header,
                                    type_guard)
 from script_convert.constants import (
-    DIALOGUE_MENU_ID, LAST_ACTIVATOR_VAR, MENU_ID_NAMES, MESSAGE_BOX_MENU_ID, UDF_CALLER_PARAM, UDF_RESULT_VAR,
+    DIALOGUE_MENU_ID, FALLOUT4_MENU_ID_NAMES, LAST_ACTIVATOR_VAR, MENU_ID_NAMES, MESSAGE_BOX_MENU_ID, UDF_CALLER_PARAM, UDF_RESULT_VAR,
     POLL_BLOCKS, REF_SPECIFICITY, TYPE_MAP, is_generated_script_type,
     safe_property_name, papyrus_script_name
 )
 from script_convert.command_rows import (
     COMMAND_ROWS, ACTOR_ONLY_FUNCTIONS, OBJREF_SHARED_FUNCTIONS
 )
-from script_convert import atomic_adds as _adds, quest_var_mirrors as _quest_vars, symbols as _symbols, \
-    trace_points as _trace
+from script_convert import anim_action_falloutnv as _anim, atomic_adds as _adds, quest_var_mirrors as _quest_vars, \
+    symbols as _symbols, trace_points as _trace
 from script_convert.poll_motion import relative_sets
 from script_convert.poll_interval import MIN_INTERVAL, QUEST_DEFAULT, QUEST_DELAY_VAR, float_literal
 from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
-                                   is_hit_event, menu_close_guard, menu_registration, run_update_now,
-                                   sleep_registration, target_menu_name)
+                                   is_hit_event, menu_close_guard, menu_registration, on_talking_activator,
+                                   run_update_now, sleep_registration, target_menu_name)
 from script_convert.emit import script as _script
 from script_convert.tes4 import nodes as N
 
@@ -56,7 +56,8 @@ def build(conv, name: str, source: str, extends: str, editor_id: str) -> str:
     body += door_relock(conv, tree, extends)
     body += lifecycle(conv, tree, extends)
     body = block_activation(conv, tree, extends, body)
-    body = _adds.own_reads(_trace.items(_trace.actor(fall_damage(conv, extends, body), extends)))
+    body = _adds.own_reads(_trace.items(_trace.trigger(_trace.actor(fall_damage(conv, extends, body), extends),
+                                                       extends)))
     body += helpers(conv)
     body += chargen_latch(conv)
     body += stage_latches(conv)
@@ -595,7 +596,7 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
            + _record_last_activator(conv, merged, order)
            + _track_holder(conv, tree, merged, order)
            + _trigger_repeat(merged, order)
-           + _listen_for_fire(tree, merged, order))
+           + _listen_for_fire(tree, merged, order) + _anim.listen(conv, merged, order))
     for header in order:
         opener, closer = header
         if opener == BLOCK_MAP['ontrigger'][0]:
@@ -807,12 +808,8 @@ def _listen_for_fire(tree, merged: dict, order: list) -> list:
 
 def helpers(conv) -> list:
     """The synthesised helpers this script's own conversions asked for."""
-    out = []
-    out += conv.get_cell_family_helpers()
-    out += conv._emit_button_helpers()
-    out += notify_helper(conv)
-    out += _adds.adders(conv, _quest_vars.GLOBALS)
-    return out
+    return (conv.get_cell_family_helpers() + conv._emit_button_helpers() + notify_helper(conv)
+            + _adds.adders(conv, _quest_vars.GLOBALS))
 
 
 #: Seconds a Skyrim notification stays up: hudmenu.swf's MessageText clip is 80 frames at 24 fps.
@@ -872,6 +869,7 @@ def poll(conv, tree, extends: str) -> list:
         # not appear in the VMAD.
         out += [f'Float TES4_SecondsPassed = {interval}',
                 'Float TES4_LastTick = 0.0', '']
+    out += _pass_mark()
     out.append(event_opener('Event OnUpdate()'))
     rearm = interval
     if _delayed_quest(extends):
@@ -896,25 +894,54 @@ def poll(conv, tree, extends: str) -> list:
     # fragments of 1-2s lines running 19-24s late.  A 5s insurance arm bounds
     # the overlap to one extra stack per 5s of blocking, and any pass that
     # finishes replaces it with the real interval.
-    out += _arm(conv, _INSURANCE_SECS, load_gated)
+    out += _arm(conv, _INSURANCE_SECS, load_gated) + _pass_guard()
 
     passes = _menu_passes(conv, tree)
     sc.poll_return_prefix = _return_arm(conv, rearm, load_gated, passes)
     body = _poll_body(conv, tree, extends, rearm, load_gated)
     sc.poll_return_prefix = ''
     sc.glide_secs = ''
-    arm = _arm(conv, rearm, load_gated)
+    arm = _pass_clear('  ') + _arm(conv, rearm, load_gated)
     if not passes:
         return out + body + arm + ['EndEvent', '']
     return (out + [f'  {_POLL_PASS}()'] + arm + ['EndEvent', '', f'Function {_POLL_PASS}()']
             + body + ['EndFunction', ''] + _menu_pass_loop(interval))
 
 
+#: When the running poll pass began (real seconds), 0.0 when none runs (Fallout 4).
+_PASS_STARTED = 'TES4_PassStarted'
+#: Seconds a pass that never finished (aborted by an error) holds off the next.
+_PASS_HOLD = '60.0'
+
+
+def _pass_mark() -> list:
+    """Fallout 4: the variable holding when the running pass began."""
+    return [f'Float {_PASS_STARTED} = 0.0', ''] if is_fallout4() else []
+
+
+def _pass_guard() -> list:
+    """Fallout 4: a pass that starts while the last still runs (the insurance arm fired) does nothing; one held
+    over _PASS_HOLD is taken as aborted.
+    See: docs/fork/performance.md#poll-overlap
+    """
+    if not is_fallout4():
+        return []
+    return ['  Float TES4_PassNow = Utility.GetCurrentRealTime()',
+            f'  If {_PASS_STARTED} > 0.0 && TES4_PassNow >= {_PASS_STARTED} && '
+            f'TES4_PassNow - {_PASS_STARTED} < {_PASS_HOLD}',
+            '    Return', '  EndIf', f'  {_PASS_STARTED} = TES4_PassNow']
+
+
+def _pass_clear(indent: str) -> list:
+    """Fallout 4: the line ending a pass, at `indent`."""
+    return [f'{indent}{_PASS_STARTED} = 0.0'] if is_fallout4() else []
+
+
 def _return_arm(conv, interval: str, load_gated: bool, passes: bool) -> str:
     """A poll `return`'s re-arm; none when the pass is a function (OnUpdate re-arms)."""
     if passes:
         return ''
-    return '\n'.join(_arm(conv, interval, load_gated, indent='')) + '\n'
+    return '\n'.join(_pass_clear('') + _arm(conv, interval, load_gated, indent='')) + '\n'
 
 
 def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> list:
@@ -1039,7 +1066,7 @@ def _dialogue_gate(conv, extends: str, load_gated: bool, bodies: list = ()) -> l
             if extends == 'Actor' else 'TES4Polyfill.PlayerIsInDialogue()')
     return ([f'  If {test}  '
              '; TES4 GameMode did not run while a menu was open'] + list(bodies)
-            + _arm(conv, '0.5', load_gated, indent='    ')
+            + _pass_clear('    ') + _arm(conv, '0.5', load_gated, indent='    ')
             + ['    Return', '  EndIf'])
 
 
@@ -1216,10 +1243,11 @@ def door_relock(conv, tree, extends: str) -> list:
 
 
 def _consumes_activation(conv, tree) -> bool:
-    """Does this script's OnActivate REPLACE default activation?"""
+    """Does this script's OnActivate REPLACE default activation? Always on a Fallout 4 talking activator, whose
+    bare Activate opens its greeting (on_talking_activator)."""
     blocks = [(b.btype.lower(), b.filter, b.body)
               for b in (tree.blocks if tree else ())]
-    return conv._onactivate_consumes(blocks)
+    return on_talking_activator(conv) or conv._onactivate_consumes(blocks)
 
 
 def gate_capture(tree, extends: str) -> list:
@@ -1421,41 +1449,41 @@ def menu_name(block) -> str:
 
     See: docs/commentary/script_convert.md#menumode-with-a-menu-id
     """
-    return MENU_ID_NAMES.get(str(block.filter or '').strip(), '')
+    menu_id = str(block.filter or '').strip()
+    fallout4 = FALLOUT4_MENU_ID_NAMES.get(menu_id) if is_fallout4() else None
+    return fallout4 or MENU_ID_NAMES.get(menu_id, '')
 
 
 def menu_blocks(conv, tree, extends: str) -> list:
     """Menu-ID MenuMode bodies.
 
-    A MAPPED id becomes a real OnMenuClose listener: TES4 ran the body every
-    frame that menu was up, and the observable Skyrim moment is the close, so
-    the body runs once there. The message box runs when this script's own box
-    closes (message_box_closed). An UNMAPPED id keeps the comment treatment --
-    converted so a hand-port only supplies the hook, but never executed.
+    MAPPED ids become one OnMenuClose listener with an arm per block: TES4 ran
+    a body every frame its menu was up, and the observable moment is the
+    close, so the body runs once there (one event, as a script may hold two
+    mapped blocks: CGTutorial's Pip-Boy and VATS). The message box runs when
+    this script's own box closes (message_box_closed). An UNMAPPED id keeps the
+    comment treatment, never executed.
+    See: docs/commentary/script_convert.md#menumode-with-a-menu-id
     """
     blocks = [b for b in (tree.blocks if tree else ())
               if b.btype.lower() == 'menumode' and _menumode_kind(b) == 'menu']
-    out = message_box_closed(conv, blocks, extends)
+    out, arms = message_box_closed(conv, blocks, extends), []
     for block in blocks:
         if conv.sc.msgbox_hook and _is_message_box(block) or is_fallout4() and _is_dialogue_menu(block):
             continue
-        label = ('MenuMode %s' % (block.filter or '')).strip()
-        body = _script.emit_body(conv, block.body, extends, 1)
-        menu = menu_name(block)
+        label, menu = ('MenuMode %s' % (block.filter or '')).strip(), menu_name(block)
+        body = _script.emit_body(conv, block.body, extends, 2 if menu else 1)
         if not menu:
-            out.append('; --- TES4 `begin %s` - no Skyrim equivalent; '
-                       'body preserved but NOT executed ---' % label)
-            out += [';  %s' % ln.strip() for ln in body if ln.strip()]
-            out.append('')
+            out.append('; --- TES4 `begin %s` - no Skyrim equivalent; body preserved but NOT executed ---' % label)
+            out += [';  %s' % ln.strip() for ln in body if ln.strip()] + ['']
             continue
-        out.append('; --- TES4 `begin %s` - runs when %s closes ---'
-                   % (label, menu))
-        out += [event_opener('Event OnMenuClose(String TES4_MenuName)')] + menu_close_guard()
-        if extends == 'Quest':
-            out += ['  If (!IsRunning())', '    Return', '  EndIf']
-        out += [f'  If TES4_MenuName != "{target_menu_name(menu)}"', '    Return', '  EndIf']
-        out += body + ['EndEvent', '']
-    return out
+        arms += [f'  ; TES4 `begin {label}` - runs when {menu} closes',
+                 f'  If TES4_MenuName == "{target_menu_name(menu)}"'] + body + ['  EndIf']
+    if not arms:
+        return out
+    out += [event_opener('Event OnMenuClose(String TES4_MenuName)')] + menu_close_guard()
+    out += ['  If (!IsRunning())', '    Return', '  EndIf'] if extends == 'Quest' else []
+    return out + arms + ['EndEvent', '']
 
 
 def _is_message_box(block) -> bool:

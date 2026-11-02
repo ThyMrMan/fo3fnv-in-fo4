@@ -29,7 +29,7 @@ from fo4_import.spike.script_effects import ScriptEffects
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_string_subrecord
 from script_convert.constants import (FALLOUT4_CHAT_PREFIX, FALLOUT4_POSE_PREFIX, FALLOUT4_SWAP_PREFIX,
-                                      FALLOUT4_TALK_PREFIX, papyrus_script_name)
+                                      FALLOUT4_TALK_PREFIX, TALKING_LISTS_PROPERTY, papyrus_script_name)
 
 SCRIPT_PREFIX = 'FALLOUTNV_'
 #: The player reference, which converted scripts name `Player`.
@@ -47,6 +47,9 @@ OBJECTIVE_PREFIX = 'TES4Obj'
 OBJECTIVE_GLOBAL = re.compile(r'TES4Obj(Done|Shown)_(.+)_(\d+)$')
 #: Papyrus types of the item properties the cell's item converter fills by FNV name.
 ITEM_TYPES = frozenset({'Potion', 'MiscObject', 'LeveledItem', 'Weapon', 'Armor', 'Ammo', 'Book', 'Key'})
+#: Papyrus type -> (builder attribute, its method) that makes or finds a property's form from the property name.
+NAMED_MAKERS = {'ImageSpaceModifier': ('imods', 'modifier'), 'Package': ('packages', 'named'),
+                'Idle': ('idles', 'named'), 'EffectShader': ('effect_shaders', 'of')}
 
 
 class NameMap(dict):
@@ -118,11 +121,12 @@ class ObjectScripts:
 
     def _made(self, kind: str, prop: str) -> 'int | None':
         """A property's form the spike converts on demand: material swaps, imagespace modifiers, poses, items,
-        weapon animation type lists, packages, idles; a Form-typed item (a note: paper or holotape)."""
+        weapon animation type lists, packages, idles, effect shaders; a Form-typed item (a note: paper or holotape)."""
         if kind == 'MatSwap' and prop.startswith(FALLOUT4_SWAP_PREFIX):
             return self.builder.swaps.swap(prop)
-        if kind == 'ImageSpaceModifier':
-            return self.builder.imods.modifier(prop)
+        if kind in NAMED_MAKERS:
+            owner, maker = NAMED_MAKERS[kind]
+            return getattr(getattr(self.builder, owner), maker)(prop)
         if kind == 'GlobalVariable':
             if prop.startswith(DIALOGUE_GLOBALS):
                 return self.global_(prop)
@@ -131,13 +135,10 @@ class ObjectScripts:
         if kind == 'ObjectReference' and prop.startswith(FALLOUT4_POSE_PREFIX):
             return self.builder.poses.pose(prop)
         if kind == 'FormList':
-            return self.builder.equipment.anim_list(prop) or self.form_list(prop) or self.builder.items.by_name(prop)
-        if kind == 'Package':
-            return self.builder.packages.named(prop)
+            return (self.builder.equipment.anim_list(prop) or self.builder.items.type_list(prop)
+                    or self.form_list(prop) or self.builder.items.by_name(prop))
         if kind == 'Spell':
             return self.effects.spell(prop) or (self.builder.perks and self.builder.perks.named_ability(prop))
-        if kind == 'Idle':
-            return self.builder.idles.named(prop)
         return self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None
 
     def mirror_global(self, name: str) -> 'int | None':
@@ -169,7 +170,10 @@ class ObjectScripts:
         return self.globals[name]
 
     def form_list(self, name: str) -> 'int | None':
-        """The helper FormList `name` (DESTROYED_LIST), written once and empty; None for other names."""
+        """The helper FormList `name` (DESTROYED_LIST), written once and empty, or the talking-as lists'
+        (talking_activators); None for other names."""
+        if name == TALKING_LISTS_PROPERTY:
+            return self.builder.talkers.all_lists
         if name != DESTROYED_LIST:
             return None
         if name not in self.globals:
@@ -185,13 +189,17 @@ class ObjectScripts:
             self.talks[prop] = same or self.builder.new_id(f'SCEN {prop}')
         return self.talks[prop]
 
-    def vmad(self, scpt: int, extra: tuple = ()) -> bytes:
-        """The VMAD attaching FNV script `scpt`'s conversion (0: none), filled, beside `extra` (name, object
-        properties, value properties) entries; b'' with neither."""
+    def entries(self, scpt: int) -> list:
+        """[(name, object properties, value properties)] attaching FNV script `scpt`'s conversion (0: none), filled."""
         name = self.name(scpt) if scpt else None
         self.builder.counts['script not attached'] += 1 if scpt and name is None else 0
         self.used += [name] if name else []
-        entries = ([(name, self.properties(name), {})] if name else []) + list(extra)
+        return [(name, self.properties(name), {})] if name else []
+
+    def vmad(self, scpt: int, extra: tuple = ()) -> bytes:
+        """The VMAD attaching FNV script `scpt`'s conversion (0: none), filled, beside `extra` (name, object
+        properties, value properties) entries; b'' with neither."""
+        entries = self.entries(scpt) + list(extra)
         return object_scripts(entries) if entries else b''
 
     def message(self, edid: str) -> int:

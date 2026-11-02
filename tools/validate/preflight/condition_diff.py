@@ -21,6 +21,7 @@ from itertools import product
 from pathlib import Path
 
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike.talking_activators import LIST_PREFIX
 from tools.dialog.tes4_ctda_dump import xedit_table
 from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.fo4_dialogue import scene_actions
@@ -93,6 +94,8 @@ SAMPLES = 256
 #: Lines listed per finding.
 SHOWN = 6
 
+#: FNV functions read at one value: no actor talks through an activator (the build's talking-as lists read the same).
+FIXED_IN_BUILD = {'IsActorTalkingThroughActivator': 0.0}
 #: Markers a condition reads into instead of a fact: always true, or not pairable.
 TRUE, UNJUDGED = 'true', 'unjudged'
 
@@ -207,6 +210,8 @@ def source_fact(cond: dict, names: Names, script_vars: dict):
     name = FNV.name(cond['func'])
     if name in UNPAIRED:
         return UNJUDGED
+    if name in FIXED_IN_BUILD:
+        return FIXED_IN_BUILD[name]
     if name == 'GetQuestVariable':
         quest = names.source_quest(cond['p1'])
         var = script_vars.get(cond['p1'], {}).get(cond['p2'])
@@ -249,6 +254,8 @@ def built_fact(cond: dict, names: Names):
         return UNJUDGED if quest == UNJUDGED or not var else (('qvar', quest, var), None)
     if name == 'GetStageDone' and names.index.edid(cond['p1']).lower() == SAY_ONCE_QUEST:
         return TRUE
+    if name == 'IsInList' and names.index.edid(cond['p1']).startswith(LIST_PREFIX):
+        return FIXED_IN_BUILD['IsActorTalkingThroughActivator']
     return _fact(name, _run_on(cond, names.built_form, False), _params(FO4, cond['func'], cond, names.built_form))
 
 

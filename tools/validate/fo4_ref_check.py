@@ -32,6 +32,8 @@ HARDCODED = frozenset(i for start, end in HARDCODED_RANGES for i in range(start,
 ONE = (0, (0,))
 #: A field that is an array of FormIDs.
 ARRAY = (4, (0,))
+#: A field a COMMON tag names that this record defines as data instead (no offsets read).
+NOT_FORMID = (0, ())
 
 #: {subrecord: (stride or 0 for once, offsets)} that are FormIDs on any record: xEdit's shared helpers (wbCNTO...).
 COMMON = {
@@ -99,6 +101,8 @@ FORMID_SUBS = {
     b'WATR': {b'INAM': ONE, b'SNAM': ONE, b'TNAM': ONE, b'XNAM': ONE, b'YNAM': ONE},
     b'WTHR': {b'GNAM': ONE, b'MNAM': ONE, b'NNAM': ONE, b'TNAM': ONE},
     b'SMQN': {b'NNAM': ONE, b'PNAM': ONE, b'SNAM': ONE},
+    b'RACE': {b'ZNAM': NOT_FORMID},
+    b'LSCR': {b'ZNAM': NOT_FORMID},
 }
 
 #: {subrecord: u32 type values at offset 0 for which offset 4 is a FormID} (wbPDTO, wbPLDT, wbPLVD, wbTargetData).

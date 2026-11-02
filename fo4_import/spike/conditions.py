@@ -43,6 +43,10 @@ ABSENT_ZERO = frozenset({'GetIsID', 'GetIsReference', 'GetIsVoiceType', 'GetInCe
                          'GetDeadCount', 'HasPerk', 'GetQuestCompleted', 'GetQuestRunning', 'GetStage',
                          'GetStageDone', 'GetObjectiveCompleted', 'GetObjectiveDisplayed', 'GetQuestVariable',
                          'GetScriptVariable', 'GetCasinoWinningStage'})
+#: FNV functions fixed in an FO4 build: talking through an activator on a line naming no actor a talker speaks as.
+FIXED = {'IsActorTalkingThroughActivator': 0.0}
+#: FNV's test of a talker speaking as the line's actor, and the form map key head of an actor's talking-as list.
+THROUGH, TALKING_AS = 'IsActorTalkingThroughActivator', 'talking_as'
 #: FormIDs below this are the engine's own forms, the same in both games (the player's base 0x7 and reference 0x14).
 ENGINE_FORMS = 0x800
 #: Condition flag (both games): OR with the next condition.
@@ -133,10 +137,12 @@ def simplify(conds: list, settle):
 
 
 def absent(cond: dict, form_map: dict) -> 'bool | None':
-    """Outcome of an ABSENT_ZERO test of a form the build lacks, or of any test run on a reference it lacks (both
-    read 0); else None. See: docs/fork/fo4_pipeline.md#dialogue-conditions"""
+    """Outcome of a FIXED function's test, of an ABSENT_ZERO test of a form the build lacks, or of any test run on
+    a reference it lacks (both read 0); else None. See: docs/fork/fo4_pipeline.md#dialogue-conditions"""
     if cond['op_flags'] & USE_GLOBAL:
         return None
+    if cond['func'] in FIXED:
+        return compare(cond, FIXED[cond['func']])
     if unbuilt_reference(cond, form_map):
         return compare(cond, 0.0)
     if cond['func'] not in ABSENT_ZERO or cond['p1'] < ENGINE_FORMS:
@@ -154,6 +160,41 @@ def _mirrored(cond: dict, form_map: dict) -> bool:
     """True when a quest variable or objective test has a mirror global."""
     p1, p2 = cond['p1'], cond['p2']
     return ('qvar', p1, p2) in form_map or any((p1, p2, state) in form_map for state in OBJECTIVE_STATES)
+
+
+def _talked(cond: dict, form_map: dict) -> bool:
+    """True for a Subject `GetIsID(actor) == 1` whose actor has a talking-as list in `form_map`."""
+    return (cond['func'] == 'GetIsID' and cond['run_on'] == RUN_SUBJECT and not cond['op_flags'] & 0xE4
+            and cond['value'] == 1.0 and (TALKING_AS, cond['p1']) in form_map)
+
+
+def talking_list(cond: dict, form_map: dict) -> 'int | None':
+    """The talking-as list a talked-through GetIsID also passes for, or None."""
+    return form_map[(TALKING_AS, cond['p1'])] if _talked(cond, form_map) else None
+
+
+def _through(cond: dict, actor: int) -> dict:
+    """IsActorTalkingThroughActivator `== v` on a line that `actor` or its talker passes: GetIsID(actor) `== 1 - v`."""
+    return {**cond, 'func': 'GetIsID', 'p1': actor, 'p2': 0, 'value': 1.0 - cond['value']}
+
+
+def talking_through(conds: list, form_map: dict) -> list:
+    """`conds` with each talked-through GetIsID OR'd with IsInList of its actor's talking-as list, and
+    IsActorTalkingThroughActivator (== or != 0 or 1) as that actor's GetIsID negated.
+    See: docs/fork/fo4_pipeline.md#talking-activators
+    """
+    actors = [cond['p1'] for cond in conds if _talked(cond, form_map)]
+    out = []
+    for cond in conds:
+        if _talked(cond, form_map):
+            out += [{**cond, 'op_flags': cond['op_flags'] | OR_NEXT},
+                    {**cond, 'func': 'IsInList', 'p1': (TALKING_AS, cond['p1']), 'p2': 0}]
+        elif (cond['func'] == THROUGH and actors and cond['run_on'] == RUN_SUBJECT
+              and not cond['op_flags'] & 0xC4 and cond['value'] in (0.0, 1.0)):
+            out.append(_through(cond, actors[0]))
+        else:
+            out.append(cond)
+    return out
 
 
 def without_absent(conds: list, form_map: dict) -> 'list | None':

@@ -29,7 +29,8 @@ from asset_convert.lod.esm_scan import (FLAG_DISTANT_LOD, parse_esm,
 from asset_convert import paths
 
 sys.path.insert(0, str(paths.REPO))
-from core.subprocess_flags import run_streamed, windows_cmd
+from core.unattended import run_unattended
+from core.subprocess_flags import windows_cmd
 
 #: LODGen 3.0.36.0; 2.2.0.0 let one bad model kill the process. See run_lodgen().
 LODGEN_EXE = paths.LODGEN
@@ -936,15 +937,16 @@ _LODGEN_TILE_RE = _re.compile(r'Finished LOD level \d+ coord ')
 _LODGEN_FATAL = 'NullReferenceException'
 
 
-def run_lodgen(lodgen_input: Path, output_dir: Path) -> bool:
+def run_lodgen(lodgen_input: Path, output_dir: Path, timeout: 'float | None' = None) -> bool:
     """Invoke LODGen to bake the worldspace's object-LOD .bto tiles.
 
-    Success is judged by tiles produced, never the exit code: 3.x returns
-    nonzero whenever any object failed even on a complete bake. A run killed
-    by `NullReferenceException` loses every unwritten tile, so it is retried
-    with the faulting models stripped from the input; False means the bake is
-    still incomplete.
+    Success is judged by tiles produced, never the exit code (3.x returns
+    nonzero when any object failed). A run killed by `NullReferenceException`
+    is retried without the faulting models; False means the bake is still
+    incomplete, or a run took over `timeout` seconds (None: no limit) and was
+    killed.
     See: docs/commentary/asset_convert_terrain.md#lodgen-nullreference-retry
+    See: docs/fork/fo4_pipeline.md#lodgen-unattended
     """
     if not LODGEN_EXE.exists():
         print(f"  ERROR: LODGen not found at {LODGEN_EXE}")
@@ -952,7 +954,10 @@ def run_lodgen(lodgen_input: Path, output_dir: Path) -> bool:
 
     banned: set = set()
     for attempt in range(_LODGEN_MAX_ATTEMPTS):
-        out, code = _invoke_lodgen(lodgen_input)
+        out, code, timed_out = _invoke_lodgen(lodgen_input, timeout)
+        if timed_out:
+            print(f"  ERROR: LODGen ran past {timeout:.0f} s and was killed; object LOD not written")
+            return False
         skipped = sorted(set(_LODGEN_ERR_RE.findall(out)))
         if skipped:
             print(f"  WARNING: LODGen could not process {len(skipped)} "
@@ -986,8 +991,8 @@ def run_lodgen(lodgen_input: Path, output_dir: Path) -> bool:
 _LODGEN_MAX_ATTEMPTS = 4
 
 
-def _invoke_lodgen(lodgen_input: Path):
-    """Run LODGen once; return (combined stdout+stderr, exit code).
+def _invoke_lodgen(lodgen_input: Path, timeout: 'float | None'):
+    """Run LODGen once, unattended (run_unattended); (combined stdout+stderr, exit code, timed out).
 
     PathOutput is embedded in the input file, so LODGen reads it from there.
     Output is streamed, not captured: a bake runs for minutes.
@@ -1000,7 +1005,7 @@ def _invoke_lodgen(lodgen_input: Path):
         "--removeUnseenFaces",
     ]
     print(f"  Running: {' '.join(cmd)}")
-    return run_streamed(windows_cmd(cmd), cwd=str(LODGEN_EXE.parent))
+    return run_unattended(windows_cmd(cmd), timeout, cwd=str(LODGEN_EXE.parent))
 
 
 def _drop_lodgen_refs(lodgen_input: Path, banned: set) -> bool:

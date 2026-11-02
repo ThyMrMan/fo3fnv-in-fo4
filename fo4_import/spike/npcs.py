@@ -25,7 +25,7 @@ from pathlib import Path
 
 from core.process_job import join_pool_job
 from fo4_import.base.ba2 import Archives
-from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
+from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.face import hair, sculpt, tint
 from fo4_import.face.sculpt import FACE_SHAPE
@@ -42,7 +42,9 @@ from fo4_import.spike.placement import place, placement, starts_disabled
 from fo4_import.spike.stand_in_fields import checked
 from fo4_import.spike.voice_types import with_voice
 from fo4_import.spike.void_actors import VOID_FOLDER, VoidActors
-from fo4_import.spike.actor_data import ACBS_TEMPLATE, CREATURE_FLAGS, NPC_FLAGS, UNIQUE, hit_proof, starts_dead, with_actor_data
+from fo4_import.spike.actor_data import (ACBS_TEMPLATE, NPC_FLAGS, STARTS_DEAD, UNIQUE, hit_proof, starts_dead,
+                                         with_actor_data)
+from fo4_import.spike.ragdoll_pose import Poses, ragdolls
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -315,7 +317,7 @@ class Npcs:
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
-        self.voids, self.void_lists = VoidActors(builder), set()
+        self.voids, self.void_lists, self.poses = VoidActors(builder), set(), None
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
         """The NPC or creature `fnv` takes part `flag` from (template_source); None if a list."""
@@ -345,10 +347,23 @@ class Npcs:
             composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
                      self.builder.combat_styles.edit(traits), with_perks(self.builder.perks.teammates.held_by(fnv)),
-                     self._skills(fnv), with_script(self.builder.scripts, script_of(self.source(fnv, USE_SCRIPT))))))
+                     self._skills(fnv), with_script(self.builder.scripts, script_of(self.source(fnv, USE_SCRIPT))),
+                     self._listed_template(fnv))))
         self.builder.counts['NPC_'] += 1
         self.builder.npc_ids[fnv] = fid
         return fid
+
+    def _listed_template(self, fnv: int):
+        """with_template for the parts FNV NPC `fnv`, its traits its own, takes from a leveled list (source() None),
+        its template being the list's FO4 copy; None when no part is listed or the template is not built.
+        See: docs/fork/fo4_pipeline.md#npcs
+        """
+        npc = self.records[fnv]
+        flags = int(npc.get('ACBS.TemplateFlags', 0)) & TEMPLATE_PARTS
+        listed = sum(bit for bit in (1 << i for i in range(TEMPLATE_SLOTS)) if flags & bit and self.source(fnv, bit) is None)
+        template = self._template(npc['TPLT.Template']) if listed else None
+        self.builder.counts['NPC_ with a listed template'] += bool(template)
+        return with_template(template, listed) if template else None
 
     def _kind(self, traits: dict) -> tuple:
         """(ghoul, female, fitted: a human whose sex has both bases) of `traits`."""
@@ -366,12 +381,13 @@ class Npcs:
             self.builder.counts['NPC_ skipped (template not built)'] += 1
             return None
         body = None if fnv in self.records else self.creatures.stand_in(fnv)
+        armed, guns = (False, None) if fnv in self.records else self.creatures.own_guns(npc)
         parts = (with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
                  self._actor_data(fnv), self._skills(fnv)) if fnv in self.records else (
                      None if body else without_keywords, self.creatures.actor_data(npc, npc, npc),
-                     self._packages(fnv), *self.creatures.own_parts(npc, templated=True),
+                     self._packages(fnv), *self.creatures.own_parts(npc, templated=True), guns,
                      self.creatures.inventory(npc, body or self.bodies[body_kind(False, False)],
-                                              bool(body) and self.creatures.keeps_look(fnv)))
+                                              bool(body) and self.creatures.keeps_look(fnv), armed))
         parts += (self._template_style(npc), self._template_script(npc))
         traits = 0 if fnv in self.records else self.creatures.traits_variant(npc) or 0
         fid = self._template_actor(fnv, npc, template, self._template_flags(npc), parts, body, traits)
@@ -657,7 +673,8 @@ class Npcs:
 
     def _actor(self, ref: dict, base: int, ids: dict, owners: dict) -> bytes:
         """The FO4 ACHR of FNV actor `ref` on `base` (its FormID from placed()), with its script, parents and linked
-        reference through `ids` (actors included), No AI Acquire and scale."""
+        reference through `ids` (actors included), No AI Acquire and scale; one placed dead takes FNV's ragdoll
+        pose on its FO4 skeleton (spike.ragdoll_pose)."""
         fnv = int(ref['NAME'], 16)
         achr = self.builder.actor_ids[ref['FormID']]
         self.builder.scripts.named[ref.get('EditorID', '')] = achr
@@ -670,11 +687,19 @@ class Npcs:
         flags = int(ref['RecordFlags']) & (PERSISTENT | NO_AI_ACQUIRE)
         flags |= R.INITIALLY_DISABLED if starts_disabled(ref, ids) else 0
         flags |= starts_dead(self.records.get(fnv) or self.creatures.records.get(fnv) or {})
+        extra = (self._pose(int(ref['FormID'], 16), fnv, base) if flags & STARTS_DEAD else b'') + extra
         pos, rot = place(ref)
         pos, scale = self.lift(ref, pos), float(ref.get('XSCL.Scale', 1.0) or 1.0)
         look = self.creatures.speaker_look(fnv, achr, ref['FormID'], (pos, rot, scale, bool(flags & PERSISTENT),
                                                                       bool(flags & R.INITIALLY_DISABLED)))
         return R.pack_achr(achr, base, pos, rot, vmad, extra, flags, scale) + look
+
+    def _pose(self, fnv_ref: int, fnv_base: int, base: int) -> bytes:
+        """XRGD and XRGB of dead FNV reference `fnv_ref` (base `fnv_base`) on FO4 `base` (Poses, made once)."""
+        if self.poses is None:
+            fnv = {**self.lists, **self.creatures.records, **self.records}
+            self.poses = Poses(self.builder, fnv, ragdolls(source_walk(b'ACHR', b'ACRE')))
+        return self.poses.subrecords(fnv_ref, fnv_base, base)
 
 
 def _tint_edit(fitted, female: bool, options: frozenset):

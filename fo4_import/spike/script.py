@@ -157,27 +157,44 @@ def with_types(scripts_dir: Path, names, prefix: str) -> set:
     return seen
 
 
-def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = (), masters: tuple = ()) -> str:
+def adopted_scripts(names: list, masters: tuple, shipped: tuple) -> list:
+    """The masters' converted sources (in `masters`) of `names` that no master's Scripts folder (`shipped`)
+    holds compiled."""
+    out = []
+    for name in names:
+        source = next((Path(m) / f'{name}.psc' for m in masters if (Path(m) / f'{name}.psc').is_file()), None)
+        if source and not any((Path(s) / f'{name}.pex').is_file() for s in shipped):
+            out.append(source)
+    return out
+
+
+def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = (), masters: tuple = (),
+                 shipped: tuple = ()) -> str:
     """Compile Doc's script (when the folder has it), `fragments`, the scripts they name and every static helper
-    into <data_dir>/Scripts; a summary. Only what changed since the last build compiles
-    (compile_papyrus.compile_fallout4), from a staging folder that stays put between builds and holds every
-    script the staged ones name. A dependent plugin's build compiles only its own folder's scripts, its masters'
-    folders `masters` imported: theirs ship with them."""
+    into <data_dir>/Scripts; a summary. Only what changed since the last build compiles, from a staging folder
+    kept between builds. A dependent plugin's build compiles only its own folder's scripts, its masters'
+    folders `masters` imported (theirs ship with them), and any of theirs it uses that no master's Scripts
+    folder `shipped` holds compiled (adopted_scripts).
+    See: docs/fork/fo4_plugin_layout.md#dlc-build
+    """
     scripts_dir, out = scripts_dir.resolve(), (data_dir / 'Scripts').resolve()
     out.mkdir(parents=True, exist_ok=True)
     prefix = converted_prefix(scripts_dir)
     roots = [DOC_SCRIPT] if (scripts_dir / f'{DOC_SCRIPT}.psc').exists() else []
     own = [f for f in fragments if not masters or (scripts_dir / f'{f}.psc').exists()]
+    adopted = adopted_scripts([f for f in fragments if f not in own], masters, shipped)
     wanted = with_types(scripts_dir, [*roots, *own], prefix)
     keep = {p.name for p in scripts_dir.glob('*.psc') if p.stem in wanted or not p.stem.upper().startswith(prefix)}
+    keep |= {path.name for path in adopted}
+    sources = {**{name: scripts_dir / name for name in keep}, **{path.name: path for path in adopted}}
     stage = STAGE / hashlib.sha1(str(out).encode()).hexdigest()[:12]
     stage.mkdir(parents=True, exist_ok=True)
     for old in stage.glob('*.psc'):
         if old.name not in keep:
             old.unlink()
     for name in sorted(keep):
-        if not (stage / name).exists() or (stage / name).read_bytes() != (scripts_dir / name).read_bytes():
-            shutil.copyfile(scripts_dir / name, stage / name)
+        if not (stage / name).exists() or (stage / name).read_bytes() != sources[name].read_bytes():
+            shutil.copyfile(sources[name], stage / name)
     compiled, own, names = compile_fallout4(SimpleNamespace(src=str(stage), out=str(out), full=False, workers=WORKERS,
                                                             headers=';'.join([header_dirs(), *(str(Path(m).resolve()) for m in masters)])
                                                             if masters else None))

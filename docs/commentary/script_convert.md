@@ -1226,6 +1226,19 @@ copied verbatim from `SkyrimSE.exe` (note the space in `RaceSex Menu`):
 |---|---|---|
 | 1036 | `RaceSex Menu` | FNV stage 36 calls `ShowRaceMenu`; Nehrim's block feeds `LongInCharacterDesigner` |
 
+**Fallout 4 only** (`FALLOUT4_MENU_ID_NAMES`, 2026-10-31), from the GECK's
+MenuMode list; Oblivion's ids mean other menus, so Skyrim output is unchanged:
+
+| FNV id | Fallout 4 menu | FNV blocks |
+|---|---|---|
+| 1 (the Pip-Boy) | `PipboyMenu` | 2: CGTutorial's and VCGTutorial's "open your Pip-Boy" stages (52, 212), unreachable while commented |
+| 1008 (container) | `ContainerMenu` | 3: Boone's beret and Veronica's dress reactions, the Mojave Express box |
+| 1012 (sleep/wait) | `SleepWaitMenu` | 6: wait-timer bookkeeping (Lily's medicine, Kimball's speech); runs after the wait, not during it |
+
+A script's mapped blocks share **one** listener with an arm per menu
+(`If TES4_MenuName == "..."`): two `OnMenuClose` events in one script do not
+compile, and the tutorials hold a Pip-Boy block beside their VATS one.
+
 #### <a id="menumode-dialogue"></a>`begin MenuMode 1009` runs in the dialogue gate (Fallout 4)
 
 1009 is the dialogue menu. FNV opens it for every conversation, a one-line
@@ -6647,6 +6660,31 @@ map to (movement, fighting, cam switch, looking, sneaking, menu, activate,
 journal tabs) = (movement, fighting, POV, looking, sneaking, Pip-Boy,
 movement or rollover, Pip-Boy). A call that leaves movement alone does not
 touch `TES4ControlsDisabled`. Oblivion's calls take no flags and are unchanged.
+
+<a id="fo4-disable-keeps-activation"></a>**Fallout 4: a disable leaves
+activation on (2026-10-31).** Fallout 4 opens no conversation while the
+player's activation is disabled. The Tops showed it:
+- **The freeze.** The exterior door runs `DisablePlayerControls`; only the
+  greeter's greeting line runs `EnablePlayerControls`.
+- **The bug.** The greeter walked up and never spoke, so the player stayed
+  frozen.
+- **Vanilla.** It freezes the player for an NPC talk with
+  `abActivate = False` (QF_MS07c stage 220 "Freeze player in place",
+  QF_RR01's Desdemona intro), and FFGoodneighbor01 deletes its layer before
+  Irma's force greet.
+
+FNV's rollover-text flag hid the activate prompt but never blocked an
+NPC-started conversation. So a converted disable no longer disables
+activation, while an enable still enables it, which also frees a player on
+a save from an older build. Census of FNV's 151 disables (76 scripts, 66
+INFO and 9 quest result scripts): none relies on blocked activation.
+- **Doors.** The 9 next to a door or `Activate` are the casino and Hoover
+  Dam door freezes waiting on a greeter (Tops, Gomorrah, Ultra-Luxe, Benny's
+  floor, the Presidential suite, Oliver's and the Legate's doors).
+- **The Auto-Doc.** VMS35's marks itself destroyed first.
+- **Jack.** His lines only stock his vendor container.
+
+Drift: a frozen player can activate what is in reach.
 
 ## <a id="terminals"></a>FO3/FNV terminals (2026-09-30, untested in game)
 

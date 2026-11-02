@@ -123,6 +123,8 @@ DECAL_FLAGS = 0x0C000000
 SHEET_DEPTH = 0.5
 #: Vanilla's plain white texture: an untextured unlit shape with falloff draws through it (fo4_pipeline.md#falloff-panes).
 WHITE = 'textures\\shared\\flatwhite01_d.dds'
+#: WHITE as a BGSM path: a lit shape's diffuse where FNV has none (fo4_pipeline.md#no-diffuse).
+WHITE_DIFFUSE = 'shared/flatwhite01_d.dds'
 #: Vanilla's solid black (hitextawindowadmg01black.nif's backing): its material, textures and lighting shader flags.
 BLACK_FLAT = 'materials\\shared\\black flat.bgsm'
 BLACK_TEXTURES = ('textures\\shared\\black01_d.dds', 'textures\\shared\\black01_n.dds')
@@ -508,10 +510,14 @@ def _lit_alpha(alpha, decal: bool) -> 'tuple | None':
 
 
 def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, texture_root) -> ShapeMaterial:
-    """A lit FNV shape's BGSM: its textures, spec map, sidedness and alpha as FO4 draws it (_lit_alpha)."""
+    """A lit FNV shape's BGSM: its textures (WHITE_DIFFUSE for a diffuse FNV lacks), spec map, sidedness and
+    alpha as FO4 draws it (_lit_alpha); its texture list keeps FNV's slot order.
+    See: docs/fork/fo4_pipeline.md#no-diffuse
+    """
     mat = dict(MATERIAL, root_material='', two_sided=two_sided, decal=decal,
                textures={**dict.fromkeys(BGSM_TEXTURES, '')})
     mat.update(GRASS_LIGHTING if 'TallGrassShaderProperty' in props else {})
+    fnv = drawable(fnv, texture_root)
     mat['textures']['diffuse'] = fo4_texture(fnv[0]).replace('\\', '/')
     mat['textures']['normal'] = fo4_texture(fnv[1] if len(fnv) > 1 else '').replace('\\', '/')
     spec = _specular(mat, fnv[1] if len(fnv) > 1 else '', props, texture_root)
@@ -521,14 +527,25 @@ def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, te
     if part is not None:
         mat.update(_alpha_fields_of(*part))
         suffix += f'_a{part[0]:x}_{part[1]}'
-    stem = mat['textures']['diffuse'].replace('/', '\\').rsplit('.', 1)[0] or f'{PREFIX}\\untextured'
-    textures = list(fnv[:GLOW_SLOT + 1]) if mat['glowmap'] else [t for t in fnv[:2] if t]
+    mat['textures']['diffuse'] = mat['textures']['diffuse'] or WHITE_DIFFUSE
+    path = f'materials\\{_diffuse_stem(mat)}{suffix}{lit_tags(mat)}.bgsm'
     glow = (glow_map_path(fnv[0], fnv[GLOW_SLOT]), (fnv[0], fnv[GLOW_SLOT], None)) if mat['glowmap'] and fnv[0] \
         else None
     overlay = _glow_overlay(fnv, props, two_sided, part[1]) if cut and len(fnv) > GLOW_SLOT and fnv[GLOW_SLOT] \
         and fnv[0] else None
-    return ShapeMaterial('lit', f'materials\\{stem}{suffix}{lit_tags(mat)}.bgsm', mat, textures, part, spec,
+    return ShapeMaterial('lit', path, mat, list(fnv[:GLOW_SLOT + 1 if mat['glowmap'] else 2]), part, spec,
                          flags1=DECAL_FLAGS if decal else 0, glow=glow, overlay=overlay)
+
+
+def drawable(fnv: list, texture_root) -> list:
+    """FNV texture set `fnv` with its diffuse and normal map dropped where `texture_root` (FNV's textures) lacks the
+    file, as FNV could not draw it either and FO4 shows a missing texture purple; unchanged without a root.
+    See: docs/fork/fo4_preflight.md#results
+    """
+    if not texture_root:
+        return fnv
+    have = lambda path: bool(path) and export_file(texture_root, texture_source(path).replace('\\', '/')).exists()
+    return [path if i > 1 or have(path) else '' for i, path in enumerate(fnv)]
 
 
 def lit_tags(mat: dict) -> str:
@@ -536,7 +553,7 @@ def lit_tags(mat: dict) -> str:
     (_beside; `_n<hash>`), a glow map other than the bake of its `_g` (`_l<hash>`), the specular map's glossiness
     tag (`_g<tag>`), a decal (`_decal`). Specular itself follows the normal map."""
     tex = mat['textures']
-    stem = tex['diffuse'].rsplit('.', 1)[0]
+    stem = _named_diffuse(mat).rsplit('.', 1)[0]
     glow = f'{stem}_{_beside(stem.rsplit("/", 1)[-1], "_g")}.dds' if mat['glowmap'] else ''
     gloss = gloss_tag(spec_glossiness(tex['smooth_spec'])) if tex['smooth_spec'] else ''
     return (_hashed('n', tex['normal'], _beside(stem, '_n.dds')) + _hashed('l', tex['glow'], glow)
@@ -550,8 +567,14 @@ def retextured(path: str, old: dict, new: dict) -> str:
 
 
 def _diffuse_stem(mat: dict) -> str:
-    """BGSM `mat`'s diffuse path without its extension, with backslashes."""
-    return mat['textures']['diffuse'].rsplit('.', 1)[0].replace('/', '\\')
+    """BGSM `mat`'s named diffuse without its extension, with backslashes; `<PREFIX>\\untextured` for none."""
+    return _named_diffuse(mat).rsplit('.', 1)[0].replace('/', '\\') or f'{PREFIX}\\untextured'
+
+
+def _named_diffuse(mat: dict) -> str:
+    """BGSM `mat`'s diffuse as its name counts it: '' for none or the WHITE_DIFFUSE stand-in."""
+    diffuse = mat['textures']['diffuse']
+    return '' if diffuse == WHITE_DIFFUSE else diffuse
 
 
 def _emission(props: dict) -> tuple:
@@ -862,6 +885,7 @@ def _lit_blocks(nif: NifFile, mat: ShapeMaterial, index: int) -> list:
     """
     shader = lighting_shader(nif, mat.path, index + 2, mat.flags1)
     slots = _texture_slots(mat)
+    slots[0] = slots[0] or WHITE
     if mat.spec:
         slots[SLOT_SPECULAR] = f'textures\\{mat.spec[0]}'
     if mat.data.get('glowmap'):

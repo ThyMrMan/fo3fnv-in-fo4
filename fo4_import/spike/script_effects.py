@@ -93,8 +93,11 @@ class ScriptEffects:
         return bool(rec) and not _number(effect[5]) and bool(self.builder.scripts.name(int(rec['DATA.AssocItem'], 16)))
 
     def _spell(self, rec: dict) -> 'int | None':
-        """Write FNV spell `rec` as FO4's; its FormID, or None (counted) unless every effect _converts."""
+        """Write FNV spell `rec` as FO4's; its FormID, or None (counted) unless every effect _converts or, for a
+        spell that is no ability, its effects convert as a consumable's (_plain_spell)."""
         effects = _effects(rec)
+        if effects and not all(self._converts(e) for e in effects) and _number(rec.get('SPIT.Type')) != ABILITY:
+            return self._plain_spell(rec)
         if not effects or not all(self._converts(e) for e in effects):
             self.builder.counts['SPEL left out (not all unconditioned script effects)'] += 1
             return None
@@ -106,6 +109,21 @@ class ScriptEffects:
         flags = MANUAL_COST | sum(fo4 for fnv, fo4 in SPELL_FLAGS.items() if fnv_flags & fnv)
         fid = self.builder.fnv_id(rec['FormID'])
         self._write_spell(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), (kind, flags, cast, delivery), pairs)
+        return fid
+
+    def _plain_spell(self, rec: dict) -> 'int | None':
+        """FNV spell `rec` (no ability) as an FO4 fire-and-forget spell on self, its effects a consumable's
+        (consumable_effects.Effects.pairs: the Vault 13 canteen's heal and thirst); None, counted, when none
+        converts.
+        See: docs/fork/fo4_plugin_layout.md#courier-packs
+        """
+        pairs = self.builder.consumables.effects.pairs(rec)
+        if not pairs:
+            self.builder.counts['SPEL left out (no effect converts)'] += 1
+            return None
+        fid = self.builder.fnv_id(rec['FormID'])
+        self._write_spell(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''),
+                          (_number(rec.get('SPIT.Type')), MANUAL_COST, FIRE_AND_FORGET, DELIVERY['Self']), pairs)
         return fid
 
     def script_spell(self, scpt: int, edid: str) -> 'int | None':

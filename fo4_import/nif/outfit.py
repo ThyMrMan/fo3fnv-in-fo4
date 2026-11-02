@@ -217,7 +217,9 @@ class HeadPart:
 class BodyFit:
     """FNV bone moves onto FO4's skeleton; FNV body vertices moved (`anchors`) and their offsets onto FO4's
     body; FO4's body (its NIF, bones, bind data, per-vertex weights, positions and UVs, surface samples, most
-    UV stretch of a triangle, its edges where hands and head join with FNV's) and its skin shader block index."""
+    UV stretch of a triangle, its edges where hands and head join with FNV's), its skin shader block index, and
+    for a creature weighted by FNV's own skin, {FNV bone: FO4 body bone index} (`targets`) and, worn over FO4's
+    head, that head's [min, max] corners (`head_box`, nif.creature)."""
     moves: dict
     anchors: np.ndarray
     offsets: np.ndarray
@@ -234,6 +236,8 @@ class BodyFit:
     stretch: float = 0.0
     seams: list = None
     head: HeadPart = None
+    targets: dict = None
+    head_box: np.ndarray = None
 
     def retargeted(self, points: np.ndarray, normals: np.ndarray, weights: list) -> tuple:
         """retarget.retargeted() of FNV root-space points by the fit's moves."""
@@ -278,18 +282,27 @@ class BodyFit:
                 extra.append(_affine_uv(points[v], self.points[body_tri], self.uv[body_tri]))
         return np.array(source), new_tris, np.vstack([uv] + extra) if extra else uv
 
+    def dense(self, points: np.ndarray) -> np.ndarray:
+        """FO4's body weights at each point's nearest surface point, one column per body bone."""
+        points_s, owner, bary = self.samples
+        idx = cKDTree(points_s).query(points)[1]
+        return (bary[idx][:, :, None] * self.weights[self.tris[owner[idx]]]).sum(1)
+
     def skin(self, points: np.ndarray, on_head: np.ndarray = None) -> tuple:
         """(weights, body bone indices), WEIGHTS_PER_VERTEX each, of FO4's body at its nearest surface points;
         each point's `on_head` share goes to HEAD instead."""
-        points_s, owner, bary = self.samples
-        idx = cKDTree(points_s).query(points)[1]
-        dense = (bary[idx][:, :, None] * self.weights[self.tris[owner[idx]]]).sum(1)
+        dense = self.dense(points)
         if on_head is not None:
             dense *= (1.0 - on_head)[:, None]
             dense[:, self.head.index] += on_head
-        top = np.argsort(-dense, axis=1)[:, :WEIGHTS_PER_VERTEX]
-        w = np.take_along_axis(dense, top, axis=1)
-        return w / np.maximum(w.sum(1, keepdims=True), 1e-9), top
+        return strongest(dense)
+
+
+def strongest(dense: np.ndarray) -> tuple:
+    """(weights, bone indices) of each row's WEIGHTS_PER_VERTEX largest shares."""
+    top = np.argsort(-dense, axis=1)[:, :WEIGHTS_PER_VERTEX]
+    w = np.take_along_axis(dense, top, axis=1)
+    return w / np.maximum(w.sum(1, keepdims=True), 1e-9), top
 
 
 def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
@@ -302,7 +315,7 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
     bones = [body.strings[body.blocks[i][1]['name']] for i in nodes]
     bind = bone_data(body.blocks[data][1])
     skeleton = fo4_joints(nif_file.read(archives.read(FO4_SKELETON)))
-    shift = np.mean([-rot.T @ t - skeleton[b] for b, (_, rot, t) in zip(bones, bind) if b in skeleton], axis=0)
+    shift = skin_shift(bones, bind, skeleton)
     moves = bone_moves(HUMAN, *fnv_skeleton(export_file(export_dir, 'meshes', FNV_SKELETON)), {name: pos + shift for name, pos in skeleton.items()})
     head = HeadPart(head_fit(export_dir, sex, archives), skeleton[HEAD_BONE] + shift, len(bones),
                     export_file(export_dir, 'meshes', FNV_HEADS[sex]))
@@ -321,6 +334,11 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
     fit.seams = _seams(points, tris, fnv_body, fit.anchors)
     fit.head = head
     return fit
+
+
+def skin_shift(bones: list, bind: list, skeleton: dict) -> np.ndarray:
+    """An FO4 body's vertex space less its skeleton's, by its bones' bind data."""
+    return np.mean([-rot.T @ t - skeleton[b] for b, (_, rot, t) in zip(bones, bind) if b in skeleton], axis=0)
 
 
 def _add_head(head: HeadPart, body, rig: tuple) -> None:

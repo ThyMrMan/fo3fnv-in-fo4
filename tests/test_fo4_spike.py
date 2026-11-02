@@ -40,7 +40,9 @@ from fo4_import.spike import weathers as WT
 from fo4_import.spike import exterior as EX
 from fo4_import.spike import land_layers as LL
 from fo4_import.spike import locations as LO
+from fo4_import.spike import holotapes as HT
 from fo4_import.spike import interiors as IN
+from fo4_import.spike import say_topics as SAY
 from fo4_import.spike import navmesh as NM
 from fo4_import.spike import actor_data as AD
 from fo4_import.spike import idles as ID
@@ -384,6 +386,67 @@ def test_interiors_reached_follow_doors_from_the_block_and_through_interiors():
             {'FormID': 'r', 'ParentCELL': 'FAR'}]
     found = IN.reached(cells, refs, cells['DOC'], [refs[0]])
     assert [c['FormID'] for c in found] == ['DOC', 'CELLAR', 'SALOON']
+
+
+def test_an_interior_a_placed_objects_script_names_is_reached_too():
+    """The casino's elevator door names a marker in the control room (its script's SCRO): the control room is
+    reached, and a door there is followed in turn; an interior nothing names stays out."""
+    cells = {c: {'FormID': c} for c in ('DOC', 'CASINO', 'CONTROL', 'SUITE', 'FAR')}
+    door = lambda fid, cell, to: {'FormID': fid, 'ParentCELL': cell, 'XTEL.Door': to}
+    refs = [door('d1', 'BLOCK', 'd2'), door('d2', 'CASINO', 'd1'), {'FormID': 'lift', 'ParentCELL': 'CASINO'},
+            {'FormID': 'marker', 'ParentCELL': 'CONTROL'}, door('d3', 'CONTROL', 'd4'), door('d4', 'SUITE', 'd3'),
+            {'FormID': 'r', 'ParentCELL': 'FAR'}]
+    found = IN.reached(cells, refs, cells['DOC'], [refs[0]], {'lift': {'CONTROL'}})
+    assert [c['FormID'] for c in found] == ['DOC', 'CASINO', 'CONTROL', 'SUITE']
+
+
+def test_an_interior_a_quest_moves_the_player_into_is_reached(tmp_path):
+    """VEnding's quest script moves the player to a marker in Endgame, which no door reaches; an object's script
+    and an unlinked cell are not seeds."""
+    rows = [('00000001', '1', 'player.MoveTo SlideMarker'), ('00000002', '0', 'player.MoveTo FarMarker')]
+    (tmp_path / 'SCPT.txt').write_text(''.join(
+        f'---RECORD_BEGIN---\nSignature=SCPT\nFormID={f}\nSCHR.Type={t}\nSCTX={s}\n---RECORD_END---\n' for f, t, s in rows),
+        encoding='utf-8')
+    refs = [{'FormID': 'm', 'EditorID': 'SlideMarker', 'ParentCELL': 'END'},
+            {'FormID': 'f', 'EditorID': 'FarMarker', 'ParentCELL': 'FAR'}]
+    seeds = IN.moved_to(tmp_path, refs)
+    cells = {c: {'FormID': c} for c in ('DOC', 'END', 'FAR')}
+    assert seeds == {'END'} and [c['FormID'] for c in IN.reached(cells, refs, cells['DOC'], [], {}, seeds)] == [
+        'DOC', 'END']
+
+
+def test_a_note_on_a_shared_topic_keeps_only_lines_naming_its_speaker():
+    """On a note's own topic a line with no speaker test is the note's; on a topic two quests share (GREETING)
+    only a line naming the speaker by GetIsID is."""
+    is_id = CD.FNV.index('GetIsID')
+    raw = lambda who: struct.pack('<B3xfIIIII', 0, 1.0, is_id, who, 0, 0, 0).hex()
+    speaker = {'FormID': '0013DBEC', 'VTCK.Voice': '00000000'}
+    own = [{'FormID': 'A', 'QSTI.Quest': 'Q1', 'ConditionCount': '0'}]
+    shared = [{'FormID': 'B', 'QSTI.Quest': 'Q1', 'ConditionCount': '1', 'Condition[0].Raw': raw(0x13DBEC)},
+              {'FormID': 'C', 'QSTI.Quest': 'Q2', 'ConditionCount': '0'}]
+    assert [line['FormID'] for line in HT.note_lines(own, speaker)] == ['A']
+    assert [line['FormID'] for line in HT.note_lines(shared, speaker)] == ['B']
+
+
+def test_talking_through_an_activator_reads_0_in_an_fo4_build():
+    """IsActorTalkingThroughActivator == 0 drops out of a line's conditions; == 1 never passes."""
+    talking = CD.FNV.index('IsActorTalkingThroughActivator')
+    raw = lambda value: struct.pack('<B3xfIIIII', 0, value, talking, 0, 0, 0, 0).hex()
+    rec = lambda value: {'ConditionCount': '1', 'Condition[0].Raw': raw(value)}
+    assert CD.without_absent([CD.parse(rec(0.0)['Condition[0].Raw'])], {}) == []
+    assert CD.without_absent([CD.parse(rec(1.0)['Condition[0].Raw'])], {}) is None
+
+
+def test_a_topic_only_a_script_says_is_built_as_a_scripted_topic():
+    """A player topic a script says with SayWhenFree and nothing else reaches is picked; one a line's Choice
+    reaches, a top-level one and a Dialogue package's are not."""
+    dials = {'T1': {'DATA.Type': '0', 'EditorID': 'TourStop'}, 'T2': {'DATA.Type': '0', 'EditorID': 'Chosen'},
+             'T3': {'DATA.Type': '0', 'EditorID': 'Top', 'DATA.Flags': '2'},
+             'T4': {'DATA.Type': '0', 'EditorID': 'Greeted'}, 'T5': {'DATA.Type': '0', 'EditorID': 'Unsaid'}}
+    infos = [{'ChoiceCount': '1', 'Choice[0]': 't2'}]
+    said = {'tourstop', 'chosen', 'top', 'greeted'}
+    assert SAY.said_only(dials, infos, said, [{'PKDD.Topic': 'T4'}]) == {'T1'}
+    assert SAY.SAY_FREE.findall('TES4Polyfill.SayWhenFree(akSpeakerRef, TourStop, None)') == ['TourStop']
 
 
 def test_a_global_property_takes_fallout4s_engine_global_beside_the_helper_globals():
@@ -765,7 +828,7 @@ def test_a_guard_held_through_combat_gets_a_combat_override_list():
     packages.builder = SimpleNamespace(writer=writer, fnv_id=lambda fnv: int(fnv, 16), counts=Counter())
     packages.vanilla = {'HoldPosition': pack_subrecord('EDID', b'V\0') + pack_subrecord('PKDT', bytes(12))}
     packages.combat, packages.combat_lists, packages.greets, packages.topics = {}, {}, [], {}
-    packages._fragments = lambda rec: b''
+    packages._fragments = lambda rec, form_map: b''
     rec = {'EditorID': 'Guard', 'PKDT.Type': '14', 'PKDT.Flags': str(PK.CONTINUE_DURING_COMBAT), 'PSDT.Month': '-1',
            'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '-1', 'PSDT.Duration': '0'}
     assert packages._write('00000010', rec, ('HoldPosition', b''), b'', {}) == 0x10
@@ -780,8 +843,46 @@ def test_a_guard_held_through_combat_gets_a_combat_override_list():
     assert dict(subrecords(writer.added[4][1][24:]))[b'LNAM'] == struct.pack('<I', 0x900)
 
 
+def test_a_dialogue_package_with_an_npc_travels_to_it_and_plays_the_topics_chat():
+    """Captain Parker's arrest of Keith: a Travel near Keith within 128 units whose fragments play the
+    TES4Chat_CaptainParkerArrest scene with Keith; an unbuilt target is left out."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.topic_names = {'0014D99A': 'CaptainParkerArrest'}
+    talks = {}
+    scripts = SimpleNamespace(talk=lambda prop: talks.setdefault(prop, 0x77))
+    packages.builder = SimpleNamespace(scripts=scripts, counts=Counter())
+    rec = {'FormID': '0000ABCD', 'PKDT.Type': '15', 'PTDT.Type': '0', 'PTDT.Target': '000F83A5', 'PTDT.Count': '128',
+           'PKDD.Topic': '0014D99A'}
+    assert packages._plan(rec, {0xF83A5: 0x55}, 0) == ('Travel', struct.pack('<iIi', 0, 0x55, 128))
+    assert packages._plan(rec, {}, 0) == 'dialogue target not built'
+    vmad = packages._fragments(rec, {0xF83A5: 0x55})
+    assert b'F3NV_DialoguePackage' in vmad and talks == {'TES4Chat_CaptainParkerArrest': 0x77}
+    assert struct.pack('<I', 0x77) in vmad and struct.pack('<I', 0x55) in vmad
+
+
+def test_a_use_weapon_package_shoots_its_target_with_fnvs_weapon_and_firing():
+    """The Novac nightkin's brahmin shot: UseWeapon at its start, its target and weapon in inputs 1 and 2,
+    PKW3 into the firing values; an unbuilt target is left out, a weapon type converts to FO4's."""
+    packages = PK.Packages.__new__(PK.Packages)
+    names = ('Always Hit?', 'Volley Fire?', 'Do No Damage?', 'Volley Wait Min', 'Volleys To Fire', 'Volley Shots Max')
+    packages.slots = {'UseWeapon': {name: slot for slot, name in enumerate(names)}}
+    packages.builder = SimpleNamespace(items=SimpleNamespace(item={0x1234: 0x88}.get))
+    rec = {'PKDT.Type': '16', 'PTDT.Type': '1', 'PTDT.Target': '00001234', 'PTD2.Type': '0', 'PTD2.Target': '000B9A00',
+           'PKW3.Flags': '257', 'PKW3.FireRate': '1', 'PKW3.FireCount': '0', 'PKW3.Bursts': '3', 'PKW3.ShotsMin': '1',
+           'PKW3.ShotsMax': '2', 'PKW3.PauseMin': '1.5', 'PKW3.PauseMax': '2.0'}
+    assert packages._plan(rec, {0xB9A00: 0x55}, 0) == ('UseWeapon', struct.pack('<iIi', 2, 0, 0))
+    assert packages._plan(rec, {}, 0) == 'weapon target not built'
+    assert packages._weapon(rec, {0xB9A00: 0x55}) == {1: struct.pack('<iIi', 1, 0x88, 0), 2: struct.pack('<iIi', 0, 0x55, 0)}
+    typed = packages._weapon({**rec, 'PTDT.Type': '2', 'PTDT.Target': '21'}, {0xB9A00: 0x55})
+    assert typed[1] == struct.pack('<iIi', 2, 20, 0)
+    assert packages._firing(rec) == {0: b'\x01', 1: b'\x01', 2: b'\x01', 3: struct.pack('<f', 1.5),
+                                     4: struct.pack('<i', 3), 5: struct.pack('<i', 2)}
+    assert packages._firing({**rec, 'PKW3.FireCount': '1'})[4] == struct.pack('<i', 0)
+
+
 def test_a_force_greet_takes_fnvs_trigger_location():
-    """The Primm trooper's trigger box (radius 0) reaches its smaller half extent; no PLD2 keeps vanilla's."""
+    """The Primm trooper's trigger box (radius 0) reaches its smaller half extent; an unbuilt one keeps vanilla's.
+    Ringo's (no PLD2) is near the player, so he heads for the player at once, as FNV does."""
     packages = PK.Packages.__new__(PK.Packages)
     packages.boxes = {0x172555: 1874.9}
     rec = {'PLD2.Type': '0', 'PLD2.Location': '00172555', 'PLD2.Radius': '0'}
@@ -789,7 +890,10 @@ def test_a_force_greet_takes_fnvs_trigger_location():
     assert trigger == {PK.TRIGGER_INPUT: struct.pack('<iIi', 0, 0x0B172555, 1875)}
     wide = packages._trigger({**rec, 'PLD2.Radius': '300'}, {0x172555: 1})
     assert wide[PK.TRIGGER_INPUT][-4:] == struct.pack('<i', 300)
-    assert packages._trigger({}, {}) == {} and packages._trigger(rec, {}) == {}
+    assert packages._trigger(rec, {}) == {}
+    ringo = packages._trigger({'PTDT.Count': '512'}, {})
+    assert ringo == {PK.TRIGGER_INPUT: struct.pack('<iIi', PK.NEAR_REFERENCE, 0x14, 512)}
+    assert packages._trigger({}, {})[PK.TRIGGER_INPUT][-4:] == struct.pack('<i', PK.ACTIVATE_DISTANCE)
 
 
 def test_a_package_copy_replaces_later_location_inputs_by_ordinal():
@@ -847,6 +951,37 @@ def test_quest_scope_counts_writes_to_a_quests_variables():
             'VDoctors.Start()\nIf Generic.Cost == 3\nx = VFreeformNellis.State\n')
     found = {n for m in QS.STARTS.finditer(text) for n in m.groups() if n}
     assert found == {'VCG01Test', 'VMS01', 'VCG02', 'VDoctors'}
+
+
+def test_quest_scope_follows_speaker_tests_to_placed_actors():
+    """A generic quest comes in when a placed actor passes its line's faction or voice type test by having the form,
+    through templates, leveled lists and form lists (vDialogueNCRCivilian, vDialogueSuperMutant); a negated test,
+    tests no one passes together, or a faction no placed actor has, keep it out."""
+    def cond(func: str, form: int, value: float = 1.0) -> str:
+        """An FNV Subject condition `func(form) == value`, raw hex."""
+        return struct.pack('<B3xfIIIII', 0, value, CD.FNV.index(func), form, 0, 0, 0).hex()
+
+    def line(*conds: str) -> dict:
+        """An FNV INFO with conditions `conds`."""
+        return {f'Condition[{i}].Raw': c for i, c in enumerate(conds)}
+
+    scope = QS.QuestScope.__new__(QS.QuestScope)
+    scope.quests = {q: {'EditorID': f'Q{q:X}', **({'Condition[0].Raw': cond('GetIsVoiceType', 0x70)} if q == 0x101 else {})}
+                    for q in range(0x100, 0x105)}
+    scope.lines = {0x100: [line(cond('GetInFaction', 0x50))], 0x101: [line()],
+                   0x102: [line(cond('GetInFaction', 0x51, 0.0))],
+                   0x103: [line(cond('GetIsVoiceType', 0x80), cond('GetInFaction', 0x50))],
+                   0x104: [line(cond('GetInFaction', 0x52))]}
+    scope.actors = {0x1: {'FormID': '00000001', 'ACBS.TemplateFlags': str(QS.USE_FACTIONS), 'TPLT.Template': '00000060',
+                          'VTCK.Voice': '00000081'},
+                    0x2: {'FormID': '00000002', 'FactionCount': '1', 'Faction[0].FormID': '00000050',
+                          'Faction[0].Rank': '0', 'VTCK.Voice': '00000081'},
+                    0x3: {'FormID': '00000003', 'VTCK.Voice': '00000080'}}
+    scope.leveled = {0x60: [0x2], 0x61: [0x3]}
+    scope.form_lists = {0x70: frozenset({0x80})}
+    assert scope._spoken({0x1, 0x61}, set()) == {0x100, 0x101}
+    assert scope._spoken({0x1, 0x61}, {0x100}) == {0x101}
+    assert scope._spoken({0x2}, set()) == {0x100}
 
 
 def test_say_once_markers_live_in_their_own_quest_and_ride_on_the_line():
@@ -1056,7 +1191,7 @@ def test_standings_quests_hang_off_vanillas_event_nodes_after_their_last_child()
     from tes5_import.base.tes5_reader import subrecords
 
     def node(fid, parent, previous):
-        return pack_story_node(fid, f'N{fid}', parent, previous, 0x99)
+        return pack_story_node(fid, f'N{fid}', parent, previous, (0x99,))
     raw = b''.join(node(fid, 0x50, prev) for fid, prev in ((0x51, 0), (0x52, 0x51), (0x53, 0x52)))
     raw += node(0x60, 0x70, 0)
     assert ST.last_child(raw, 0x50) == 0x53 and ST.last_child(raw, 0x80) == 0

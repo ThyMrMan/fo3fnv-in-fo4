@@ -50,12 +50,18 @@ def lookup(site: str, module: str, inputs: tuple, default=None):
 
 
 def store(site: str, module: str, inputs: tuple, value):
-    """Keep `value` for `site`, `module` and `inputs`; `value`."""
+    """Keep `value` for `site`, `module` and `inputs`; `value`. When another process holds the entry open (two
+    mesh workers making the same map), its copy stands: an entry's key fixes its value."""
     entry = _entry(site, module, inputs)
     entry.parent.mkdir(parents=True, exist_ok=True)
     partial = entry.with_suffix(f'.{os.getpid()}.tmp')
     partial.write_bytes(pickle.dumps(value))
-    partial.replace(entry)
+    try:
+        partial.replace(entry)
+    except PermissionError:
+        if not entry.exists():
+            raise
+        partial.unlink(missing_ok=True)
     return value
 
 

@@ -29,6 +29,16 @@ from fo4_import.spike import statics as ST
 DAY = 86400
 
 
+def test_a_texture_fnv_lacks_is_left_out_of_the_material(tmp_path):
+    """A diffuse or normal map missing from FNV's textures goes (FO4 would show it purple); one present stays, and
+    a glow map is not checked."""
+    (tmp_path / 'textures' / 'a').mkdir(parents=True)
+    (tmp_path / 'textures' / 'a' / 'b.dds').write_bytes(b'dds')
+    assert C.drawable(['a\\b.dds', 'a\\b_n.dds', 'a\\b_g.dds'], tmp_path) == ['a\\b.dds', '', 'a\\b_g.dds']
+    assert C.drawable(['grey.bmp', 'map #164_sampled.nif'], tmp_path) == ['', '']
+    assert C.drawable(['grey.bmp'], None) == ['grey.bmp']
+
+
 def _lit(diffuse='fnv/a.dds', normal='fnv/a_n.dds', decal=False, spec='') -> dict:
     """A BGSM dict with the given diffuse, normal, decal flag and specular map."""
     mat = dict(C.MATERIAL, decal=decal, textures=dict.fromkeys(C.BGSM_TEXTURES, ''))
