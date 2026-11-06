@@ -189,12 +189,13 @@ became the built design: `fnv`-mode entries on `fragGrenade`.
   WEAP, not STAT (174 in FalloutNV.esm).
 - `message button not gated` no longer lists
   `TrapComputerRearmGrenadeTypeMsg`.
-- 0 FormIDs moved: a thrown or placed weapon (FNV animation type 10 to 13)
-  is written on FNV's object id (`equipment._thrown`), where every other
-  WEAP takes a hashed one. The statics they replace were written under that
-  id (`STAT FNV_WeapGrenadeFrag` 0x004330), so a save holding a placed
-  static gets a weapon there. The first build (2026-11-06) hashed them and
-  moved 34 ids; the drift check caught it before deploy.
+- 0 item FormIDs moved. A thrown weapon takes a hashed id like every WEAP;
+  the static it replaces (`STAT FNV_WeapGrenadeFrag`, on FNV's id) is gone.
+  The drift check lists those 34 EditorIDs as moved, but no save holds a
+  static base: it holds the placed reference, which keeps FNV's id and now
+  places the weapon. Putting thrown weapons on FNV's id instead (tried
+  2026-11-06) moved 4 weapons already built as WEAP (frag and bottlecap
+  mines, dynamite, powder charge), which a player can carry.
 - Play: pick up a frag grenade at Goodsprings or Primm, throw it, check its
   damage against FNV's 125; an NCR trooper or Legionary throws grenades;
   plasma and pulse grenades show their FO4 effects; a placed frag mine

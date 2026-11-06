@@ -38,7 +38,7 @@ from pathlib import Path
 
 from fo4_import.spike.type_tests import with_keywords
 from fo4_import.spike.ammo_mods import AmmoMods
-from fo4_import.spike.condition import NO_WEAR, Condition
+from fo4_import.spike.condition import Condition
 from fo4_import.base import strings
 from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
@@ -114,11 +114,6 @@ def default_entry(rec: dict, rules: Rules) -> 'Replacement | None':
         return rules.melee.get(int(rec.get('DNAM.FalloutAnimType', -1)))
     covers = int(rec.get('BMDT.BipedFlags', 0)) if rec.get('Signature') == 'ARMO' else 0
     return next((entry for bits, entry in rules.armor if covers & bits), None)
-
-
-def _thrown(rec: dict) -> bool:
-    """Whether FNV weapon `rec` is thrown or placed (NO_WEAR): it keeps FNV's id."""
-    return int(rec.get('DNAM.FalloutAnimType', -1)) in NO_WEAR
 
 
 def _sex_suffix(sex: str) -> str:
@@ -338,14 +333,14 @@ class Equipment:
         if entry and entry.mode == 'fnv' and not is_gun and 'Model.MODL' in rec:
             data.update(self._own_model(rec['Model.MODL'], int(rec.get('DNAM.FalloutAnimType', -1))))
             copy = self._hit_effect(rec, self._copy(rec, data, [], OWN_MODEL_DROPPED))
-            return self._write('WEAP', fnv, with_keywords(copy, marks), _thrown(rec))
+            return self._write('WEAP', fnv, with_keywords(copy, marks))
         templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2], own is not None) if chosen
                      else self.guns.with_mods(source, entry.mods) if entry.mods
                      else self.guns.default_only(source))
         templates = self.guns.own_projectile(fnv, rec, templates) if own is not None and templates else templates
         data.update({**self.guns.anim_keywords(fnv, source), **self.guns.body(fnv)} if chosen else {})
         copy = self._hit_effect(rec, self.weapon_mods.wire(fnv, self._copy(rec, data, templates, source=source)))
-        return self._write('WEAP', fnv, with_keywords(copy, marks), _thrown(rec))
+        return self._write('WEAP', fnv, with_keywords(copy, marks))
 
     def _gun(self, fnv: int, rec: dict, template: dict, dnam: bytearray) -> tuple:
         """({sig: body}, FO4 projectile or None) of gun copy `dnam` (filled in): FNV's magazine, ammo, projectile.
@@ -559,11 +554,9 @@ class Equipment:
             out += [(made, 1)] + ([(items.item(ammo), rounds)] if ammo and items.item(ammo) else [])
         return out + self.weapon_mods.test_items()
 
-    def _write(self, sig: str, fnv: int, subs: list, own_id: bool = False) -> int:
-        """Add a `sig` record of `subs` on its hashed FormID, or FNV's (`own_id`); the FormID.
-        See: docs/fork/fo4_thrown_weapons.md#checks
-        """
-        fid = self.builder.fnv_id(fnv) if own_id else self.builder.writer.derive_formid(SITES[sig], fnv)
+    def _write(self, sig: str, fnv: int, subs: list) -> int:
+        """Add a `sig` record of `subs` on its hashed FormID; the FormID."""
+        fid = self.builder.writer.derive_formid(SITES[sig], fnv)
         if sig == 'WEAP':
             subs = self.condition.wire(fnv, fid, self.ammo_mods.wire(fnv, subs))
             fnam = dict(subs).get(b'FNAM', b'')
