@@ -9,6 +9,9 @@ importer uses that module only in the function named, which no FO4
 converter calls (they read exports with parse_export_file and get_hex_bytes).
 Sources are hashed with CRLF read as LF, so a CRLF checkout of the same code
 (a git worktree) keeps the tag; native extensions are hashed as they are.
+A process whose tagged files changed after it started runs older code than
+they hold, so its tag is its own (`-stale-<pid>`): it neither reads nor
+fills entries other builds share.
 
 See: docs/fork/fo4_tool_audit.md#rebuild
 """
@@ -16,8 +19,13 @@ See: docs/fork/fo4_tool_audit.md#rebuild
 import ast
 import functools
 import hashlib
+import os
 import sysconfig
+import time
 from pathlib import Path
+
+#: When this process loaded its code; a tagged file changed later is not the code it runs.
+STARTED = time.time()
 
 ROOT = Path(__file__).resolve().parents[2]
 NATIVE = ROOT / 'native' / 'dist'
@@ -83,4 +91,5 @@ def code_tag(module: str) -> str:
     for name in sorted(files):
         data = files[name].read_bytes()
         digest.update(name.encode() + b'\0' + (data.replace(b'\r\n', b'\n') if files[name].suffix == '.py' else data))
-    return digest.hexdigest()
+    stale = any(path.stat().st_mtime > STARTED for path in files.values())
+    return digest.hexdigest() + (f'-stale-{os.getpid()}' if stale else '')

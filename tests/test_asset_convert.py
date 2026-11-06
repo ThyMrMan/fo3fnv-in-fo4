@@ -285,23 +285,6 @@ class TestFullPipelineInMemory:
 class TestBsaExtract:
     """Test BSA extraction logic."""
 
-    def test_should_extract_nif(self):
-        from asset_convert.sources.bsa_extract import should_extract_file
-        assert should_extract_file('meshes\\armor\\iron\\cuirass.nif')
-        assert should_extract_file('meshes\\furniture\\chair.nif')
-
-    def test_should_extract_dds(self):
-        from asset_convert.sources.bsa_extract import should_extract_file
-        assert should_extract_file('textures\\armor\\iron\\cuirass.dds')
-
-    def test_should_extract_wav(self):
-        from asset_convert.sources.bsa_extract import should_extract_file
-        assert should_extract_file('sound\\fx\\explosion.wav')
-
-    def test_should_skip_lip(self):
-        from asset_convert.sources.bsa_extract import should_extract_file
-        assert not should_extract_file('sound\\voice\\test.lip')
-
     def test_asset_category(self):
         from asset_convert.sources.bsa_extract import get_asset_category
         assert get_asset_category('meshes\\armor\\test.nif') == 'meshes'

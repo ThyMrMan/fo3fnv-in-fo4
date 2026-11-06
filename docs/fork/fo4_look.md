@@ -1,6 +1,15 @@
-# FNV's look on Fallout 4: grass and lighting (plan, 2026-10-23)
+# FNV's look on Fallout 4: grass and lighting
 
-**Code:** not built. Status lives in [ROADMAP.md](ROADMAP.md).
+**Code:** `fo4_import/spike/grass.py`, `land_layers.py`, `weathers.py`,
+`weather_imagespace.py`; `fo4_import/nif/glow_scale.py`, `shader_anim.py`.
+
+**Status:** partly built. Played 2026-10-23/24: night brightness, windows,
+animated signs and lanterns. Built, not played: grass density (step 1) and
+where grass grows (step 2). Not done: grass flecks, colour and sway; FNV's
+cloud layers; the overall tone. The weather modifier carries only its tint
+([night](#night)). Neon is parked until the
+Strip converts. Status also lives in [ROADMAP.md](ROADMAP.md). The design
+below was written as a plan on 2026-10-23.
 
 The converted region plays right but doesn't look like FNV. The user's
 matching shots (2026-10-23: the Prospector Saloon at noon and midnight, the
@@ -29,8 +38,8 @@ This plan replaces those piecemeal items with one pass.
 - **One change per play-test,** so each shot shows one cause.
 - **Values come from the games, not from tuning.** A number is either
   FNV's authored value, FO4's engine default, or derived from both shaders'
-  formulas. The current grass density factor (× 0.25, chosen over three
-  plays) is the example to remove.
+  formulas. The old grass density factor (× 0.25, chosen over three
+  plays) was the example; [step 1](#grass-density) replaced it.
 - **Kept as FO4's:** the grass fade distance (`fGrassStartFadeDistance`
   7000; decided 2026-10-23), and anything that is a player setting in an
   ini.
@@ -291,11 +300,11 @@ The steps run from the widest effect to the narrowest.
      bulbs) keep it, since their ×7.5 only clips to white.
    - FO4 keeps the energy and tone-maps and blooms it, so the same window
      is a solid, saturated yellow block.
-   - A flat rescale was tried and reverted. The plan is to derive each
-     shape's emittance from both pipelines: the FO4 value whose output
+   - A flat rescale was tried and reverted. The first plan was to derive
+     each shape's emittance from both pipelines: the FO4 value whose output
      through FO4's tone curve equals FNV's clipped display colour, at the
-     exposure FO4 uses for that scene. Built after step 3, since exposure
-     feeds it.
+     exposure FO4 uses for that scene. The FO4 route above (`glow_scale`,
+     decided 2026-10-23) replaced it.
 5. **Lights** (the lantern lighting the whole ground). Compare the
    lantern's LIGH (radius, fade, colour) and its emittance against FNV's.
    FO4's falloff already matches FNV's in linear light
@@ -312,6 +321,10 @@ The steps run from the widest effect to the narrowest.
   the whole Mojave (and LOD) covers it.
 
 ## <a id="order"></a>Order
+
+The planned order. Grass 1 and 2 are built, not played; grass 3 is not
+done. Lighting 3 and 4 are played (neon parked); lighting 1 carries only
+the tint; lighting 2 and 6 are not done.
 
 1. Grass 1 (density) and 3 (flecks): small; one play-test each.
 2. Grass 2 (where it grows): measure, read both exes, then fix.

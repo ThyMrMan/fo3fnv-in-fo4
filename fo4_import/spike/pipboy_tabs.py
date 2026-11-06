@@ -24,6 +24,16 @@ TAB_SITE = 'FNV Pip-Boy tab'
 LEGACY_FOLDER, LEGACY_NAMES = 'PBT', ('Karma', 'Reputation')
 
 
+def tab_edid(name: str) -> str:
+    """Tab `name`'s quest EditorID."""
+    return f'TES4PipboyTab{name.title()}'
+
+
+def tab_formid(builder, name: str) -> int:
+    """Tab `name`'s quest FormID at TAB_SITE (tab_quest's, given no `fid`)."""
+    return builder.writer.derive_formid(TAB_SITE, tab_edid(name))
+
+
 def tab_quest(builder, name: str, rows: int, values: list = (), shown: int = 0, script: str = TAB_SCRIPT,
               props: tuple = (None, None), fid: int = None) -> int:
     """Write tab `name`'s start-game quest (on `fid`, else one hashed at TAB_SITE) running `script`
@@ -34,8 +44,8 @@ def tab_quest(builder, name: str, rows: int, values: list = (), shown: int = 0, 
     vals = {'TabName': ('string', name), 'Order': ('int', ORDER[name]), **(extra or {})}
     if values:
         vals['Values'] = ('strings', list(values))
-    edid = f'TES4PipboyTab{name.title()}'
-    fid = fid or builder.writer.derive_formid(TAB_SITE, edid)
+    edid = tab_edid(name)
+    fid = fid or tab_formid(builder, name)
     vmad = quest_fragments('', [], scripts=[(script, props, vals)])
     builder.writer.add_record('QUST', R.pack_fnv_quest(fid, edid, '', 0, vmad, [], [], [], True))
     builder.scripts.used += [script, TAB_SCRIPT, NATIVES]

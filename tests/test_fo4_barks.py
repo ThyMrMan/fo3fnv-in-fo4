@@ -24,6 +24,8 @@ def _say(dials: dict, lines: list) -> SAY.SayTopics:
     """A SayTopics over FNV `dials` and quest Q's `lines`, each line built as b'I'."""
     say = SAY.SayTopics.__new__(SAY.SayTopics)
     say.dials, say.infos, say.said = dials, {'Q': lines}, set()
+    say.engine = {**SAY.ENGINE_TOPICS, **B.named_barks(dials)}
+    say.replies = B.replies(dials, lines, say.engine)
     say.builder = SimpleNamespace(new_id=lambda key: 0x900)
     say.info = lambda rec, form_map, owner=0, place='': b'I'
     return say
@@ -63,6 +65,34 @@ def test_a_quest_of_only_barks_writes_no_branch():
                [{'ParentDIAL': '000000EF', 'FormID': '00000001'}])
     branch, [blob] = say.build({'FormID': 'Q', 'EditorID': 'Q'}, 0x800, {'000000EF': 0x801}, {})
     assert branch is None and b'SNAM\x04\x00DETH' in blob
+
+
+def test_a_named_bark_takes_its_fo4_subtype():
+    """FNV's DeathResponse, outside the reserved range, becomes the quest's AllyKilled topic (category 3, 36)."""
+    dials = {'0001FB51': {'EditorID': 'DeathResponse', 'DATA.Type': '2'}}
+    say = _say(dials, [{'ParentDIAL': '0001FB51', 'FormID': '00000001'}])
+    assert say.topics({'FormID': 'q'}) == ['0001FB51']
+    branch, [blob] = say.build({'FormID': 'Q', 'EditorID': 'Q'}, 0x800, {'0001FB51': 0x801}, {})
+    assert branch is None and b'SNAM\x04\x00ALKL' in blob and bytes([0, 3, 36, 0]) in blob
+    assert {row[0] for row in B.NAMED_BARKS.values()}.isdisjoint(row[1] for row in B.FNV_BARKS.values())
+
+
+def test_a_reply_joins_each_bark_that_chooses_it():
+    """StartCombatResponse, chosen by NormalToCombat and AlertToCombat lines, has no FO4 subtype: its lines follow
+    each trigger's own in that trigger's topic, and it builds no topic of its own."""
+    dials = {'000000EE': {'EditorID': 'NormalToCombat', 'DATA.Type': '4'},
+             '000000F3': {'EditorID': 'AlertToCombat', 'DATA.Type': '4'},
+             '00080D81': {'EditorID': 'StartCombatResponse', 'DATA.Type': '4'}}
+    lines = [{'ParentDIAL': '000000EE', 'FormID': '00000001', 'ChoiceCount': '1', 'Choice[0]': '00080D81'},
+             {'ParentDIAL': '000000F3', 'FormID': '00000002', 'ChoiceCount': '1', 'Choice[0]': '00080D81'},
+             {'ParentDIAL': '00080D81', 'FormID': '00000003'}]
+    say = _say(dials, lines)
+    assert say.replies == {'00080D81': ('000000EE', '000000F3')}
+    assert say.topics({'FormID': 'q'}) == ['000000EE', '000000F3']
+    assert [r['FormID'] for r in say._lines({'FormID': 'q'}, '000000EE')] == ['00000001', '00000003']
+    only_reply = _say(dials, lines[2:])
+    only_reply.replies = say.replies
+    assert only_reply.topics({'FormID': 'q'}) == ['000000EE', '000000F3']
 
 
 @pytest.mark.skipif(not (FNV_EXPORT / 'DIAL.txt').is_file(), reason='no FalloutNV.esm export')

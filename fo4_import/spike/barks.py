@@ -70,6 +70,17 @@ FNV_BARKS = {
 }
 
 
+#: FNV topics found by EditorID, not reserved FormID, that FO4 has a subtype for -> (SNAM, category, number).
+NAMED_BARKS = {
+    'DeathResponse': ('ALKL', 3, 36),
+    'Crippled': ('CRIL', 3, 44),
+    'KOed': ('BLED', 3, 30),
+}
+
+#: FNV DIAL types of the topics a bark line's Choice answers with: Combat, Detection.
+REPLY_TYPES = ('2', '4')
+
+
 def kind(snam: str, category: int, number: int) -> tuple:
     """(DATA, SNAM) of an FO4 topic of subtype `snam`, as records.pack_dial takes them."""
     return struct.pack('<BBH', 0, category, number), snam.encode('ascii')
@@ -77,3 +88,23 @@ def kind(snam: str, category: int, number: int) -> tuple:
 
 #: FNV engine topic -> (DATA, SNAM) of the FO4 bark topic a quest's lines of it become.
 ENGINE_BARKS = {fid: kind(*row[1:]) for fid, row in FNV_BARKS.items()}
+
+
+def named_barks(dials: dict) -> dict:
+    """{FNV DIAL: (DATA, SNAM)} of the `dials` topics NAMED_BARKS names."""
+    return {fid: kind(*NAMED_BARKS[d['EditorID']]) for fid, d in dials.items() if d.get('EditorID') in NAMED_BARKS}
+
+
+def replies(dials: dict, infos, engine: dict) -> dict:
+    """{reply topic: (trigger topics)}: the Combat and Detection topics outside `engine` (FNV DIAL: FO4 kind) that
+    a line of an `engine` topic chooses, each with the engine topics whose lines choose it, in FormID order.
+    See: docs/fork/fo4_pipeline.md#bark-replies
+    """
+    out = {}
+    for rec in infos:
+        trigger = rec['ParentDIAL'].upper()
+        for i in range(int(rec.get('ChoiceCount', 0) or 0) if trigger in engine else 0):
+            reply = rec[f'Choice[{i}]'].upper()
+            if reply not in engine and dials.get(reply, {}).get('DATA.Type') in REPLY_TYPES:
+                out.setdefault(reply, set()).add(trigger)
+    return {reply: tuple(sorted(triggers)) for reply, triggers in out.items()}

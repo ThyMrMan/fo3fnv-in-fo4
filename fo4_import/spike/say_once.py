@@ -38,9 +38,14 @@ class SayOnce:
     ledger (None: kept for the build only)."""
 
     def __init__(self, writer=None):
-        """No markers yet."""
-        self.stages, self.writer = {}, writer
+        """No markers yet; a plugin whose master holds the marker quest has one of its own (stages cannot stack).
+        See: docs/fork/fo4_plugin_layout.md#dlc-say-once
+        """
+        self.stages, self.writer, self.edid = {}, writer, EDID
         self.quest = writer.derive_formid(SITE, EDID) if writer else 0
+        if writer and self.quest >> 24 != writer.own_index:
+            self.quest = writer.derive_formid(SITE, f'{EDID} plugin')
+            self.edid = f'{EDID}_{self.quest & 0xFFFFFF:06X}'
 
     def stage(self, line: str) -> int:
         """The marker stage of FNV line `line` (FormID hex): the ledger's, else its hash moved up one while taken.
@@ -73,4 +78,4 @@ class SayOnce:
     def record(self) -> bytes:
         """The marker quest: start game enabled, holding every marker stage made."""
         stages = [(stage, 0) for stage in sorted(self.stages.values())]
-        return R.pack_fnv_quest(self.quest, EDID, '', 0, quest_fragments('', []), stages, [], [], True)
+        return R.pack_fnv_quest(self.quest, self.edid, '', 0, quest_fragments('', []), stages, [], [], True)

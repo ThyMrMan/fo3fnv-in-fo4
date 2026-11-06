@@ -267,6 +267,15 @@ def _load_state(out_dir: Path, imports: str, headers: str) -> tuple:
     return (scripts if same else {}), set(scripts)
 
 
+def missing_pex(state: dict, out_dir: Path) -> set:
+    """Scripts the last run compiled whose .pex is gone (a stopped run deletes a .pex before recompiling it);
+    a stopped run's chunk folders go too.
+    See: docs/fork/fo4_pipeline.md#missing-pex"""
+    shutil.rmtree(out_dir / '_chunks', ignore_errors=True)
+    present = {p.stem.lower() for p in out_dir.glob('*.pex')}
+    return {n for n, s in state.items() if s.get('ok') and n not in present}
+
+
 def remove_orphans(out_dir: Path, sources: set, listed: set) -> int:
     """Delete each .pex in out_dir that the last run listed and `sources` no longer has (another plugin's
     scripts in the same folder are never touched); the count."""
@@ -333,7 +342,7 @@ def compile_fallout4(args) -> tuple:
     if removed:
         print(f'{removed} .pex without a source removed')
     users = users_index(words, set(hashes))
-    todo = needs_compile(hashes, apis, state, users, words)
+    todo = needs_compile(hashes, apis, state, users, words) | missing_pex(state, out_dir)
     print(f'{len(todo)} of {len(files)} scripts changed or use one whose declarations did')
     own, pex = _compile_named(files, todo, out_dir, imports, args.workers, getattr(args, 'caprica', True))
     flipped = {n for n in todo if n in state and state[n].get('ok') != (n in pex)}

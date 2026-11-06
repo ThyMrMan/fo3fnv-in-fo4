@@ -112,6 +112,9 @@ class Names:
                     for r in export_records(export_dir, sig) if r.get('EditorID')}
         self.fnv_names = set(self.fnv.values())
         self.built = {index.edid(fid).lower() for fid in index.by_fid if index.is_own(fid)} - {''}
+        self.objectives = {int(r['FormID'], 16): frozenset(int(v) for k, v in r.items() if k.startswith('Objective[')
+                                                           and k.endswith('].Index'))
+                           for r in export_records(export_dir, 'QUST')}
 
     def source(self, fid: int):
         """The identity of FNV form `fid`, or None when the build left it out."""
@@ -218,7 +221,8 @@ def source_fact(cond: dict, names: Names, script_vars: dict):
         return UNJUDGED if var is None else (None if quest is None else (('qvar', quest, var.lower()), None))
     if name in OBJECTIVES:
         quest = names.source_quest(cond['p1'])
-        return None if quest is None else ((OBJECTIVES[name], quest, cond['p2']), None)
+        authored = cond['p2'] in names.objectives.get(cond['p1'], {cond['p2']})
+        return None if quest is None or not authored else ((OBJECTIVES[name], quest, cond['p2']), None)
     if name == 'GetGlobalValue':
         glob = names.source(cond['p1'])
         return None if glob is None else (('glob', glob), None)

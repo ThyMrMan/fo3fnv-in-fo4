@@ -6,6 +6,8 @@ sent by the script declaring it, so converted scripts call Menu().}
 
 CustomEvent CharacterMenu
 
+Message Property SpecialPoint Auto Const
+{Intense Training's box: one button per SPECIAL stat, in SpecialStats' order (the "addspecial" menu).}
 ActorValue[] Property Suggested Auto Hidden
 {Skills SetPlayerTagSkill tagged ahead of the next tag menu (the psych test's picks); the rules clear it after.}
 

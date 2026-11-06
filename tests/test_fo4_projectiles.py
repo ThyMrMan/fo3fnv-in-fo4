@@ -12,9 +12,12 @@ from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import guns, projectiles as P
 from fo4_import.spike import projectile_copies as C
-from tes5_import.base.tes5_reader import first_sub, walk
+from fo4_import.spike.attack_spells import ENIT_EXPLOSION, pack_explosion_ench
+from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
+#: FalloutNV.esm and the DLCs whose projectiles the table names.
+FNV_PLUGINS = ('FalloutNV', 'GunRunnersArsenal', 'DeadMoney', 'HonestHearts', 'OldWorldBlues', 'LonesomeRoad')
 LASER, PLASMA, SLUG_PROJ, ODD = 0x14B0F, 0x15C2E, 0x157B5A, 0x99
 BEAM, BOLT, SHOT = 0x9C663, 0x125C9B, 0x1F674
 CELL, SLUG = 0x14B0E, 0x157B59
@@ -90,14 +93,14 @@ def test_without_override_drops_only_override_projectile():
 
 @pytest.mark.skipif(not FALLOUT4_ESM.exists(), reason='needs Fallout4.esm')
 def test_the_table_names_real_projectiles():
-    """Every target is a Fallout4.esm projectile; every key an FNV one (when the export is here)."""
+    """Every target is a Fallout4.esm projectile; every key an FNV or FNV DLC one (when the exports are here)."""
     fo4 = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode('cp1252') for r, _ in walk(FALLOUT4_ESM.read_bytes(),
                                                                                                     b'PROJ')}
     table = P.load_table()
     assert set(table.values()) <= fo4
-    export = P.TABLE.parents[2] / 'export' / 'FalloutNV.esm'
-    if (export / 'PROJ.txt').exists():
-        assert set(table) <= {r['EditorID'] for r in export_records(export, 'PROJ')}
+    exports = [P.TABLE.parents[2] / 'export' / f'{name}.esm' for name in FNV_PLUGINS]
+    if all((export / 'PROJ.txt').exists() for export in exports):
+        assert set(table) <= {r['EditorID'] for export in exports for r in export_records(export, 'PROJ')}
 
 
 def test_a_copy_flies_fnvs_range_and_speed_only_when_the_stand_in_flies():
@@ -116,3 +119,57 @@ def test_an_explosion_copy_takes_fnvs_force_damage_and_radius():
     struct.pack_into('<ffff', data, C.FORCE_AT, 150.0, 550.0, 135.0, 500.0)
     out = C.blast(bytes(data), {'DATA.Force': '450', 'DATA.Damage': '200', 'DATA.Radius': '1000'})
     assert struct.unpack_from('<ffff', out, C.FORCE_AT) == (450.0, 200.0, 270.0, 1000.0)
+
+
+def _stand_in(flags: int, explosion: int = 0x55) -> bytes:
+    """A 36-byte FO4 PROJ DNAM head: `flags`, Lobber, fuse 50 / 2 s, `explosion`."""
+    return struct.pack('<HHfffIIffI', flags, 2, 1.0, 900.0, 500.0, 0, 0, 50.0, 2.0, explosion)
+
+
+def test_a_thrown_copy_takes_fnv_fuse_or_the_table_and_drops_a_missing_explosion():
+    """FNV's Alt. Trigger fuse on a stand-in with one; C4's from the table; a spear (no Explosion flag) none."""
+    head = _stand_in(C.EXPLODES | C.ALT_TRIGGER)
+    mine = {'DATA.Flags': str(C.EXPLODES | C.ALT_TRIGGER), 'DATA.AltTriggerProximity': '100', 'DATA.AltTriggerTimer': '3'}
+    assert struct.unpack_from('<ff', C.thrown(head, mine, {}), C.FUSE_AT) == (100.0, 3.0)
+    c4 = {'EditorID': 'C4Projectile', 'DATA.Flags': str(C.EXPLODES)}
+    assert struct.unpack_from('<ff', C.thrown(head, c4, {'C4Projectile': (0.0, 15.0)}), C.FUSE_AT) == (0.0, 15.0)
+    spear = C.thrown(head, {'DATA.Flags': str(C.ALT_TRIGGER)}, {})
+    assert not struct.unpack_from('<H', spear)[0] & C.EXPLODES and struct.unpack_from('<I', spear, C.EXPLOSION_AT)[0] == 0
+    assert C.thrown(_stand_in(C.EXPLODES), mine, {}) == _stand_in(C.EXPLODES)
+
+
+def test_the_fuse_table_names_fnv_projectiles_the_projectile_table_maps():
+    """Every fuse is for a mapped FNV projectile (a stand-in copy carries it)."""
+    assert set(P.load_fuses()) <= set(P.load_table()) and P.load_fuses()['C4Projectile'] == (0.0, 15.0)
+
+
+def test_an_inert_thrown_copy_shows_fnvs_model_and_takes_its_pickup_and_pinning():
+    """A spear's copy: FNV's Pins Limbs and Can Be Picked Up, the stand-in's Muzzle Flash gone; its model and
+    bounds replaced in place, the stand-in's texture hashes dropped."""
+    spear = {'DATA.Flags': str(0x144)}
+    flags = struct.unpack_from('<H', C.thrown(_stand_in(0x108), spear, {}))[0]
+    assert flags & C.THROWN_FLAGS == 0x140 and C.inert(spear) and not C.inert({'DATA.Flags': '6'})
+    subs = [(b'EDID', b'x\0'), (b'OBND', bytes(12)), (b'FULL', b''), (b'MODL', b'old\0'), (b'MODT', b'h'), (b'DNAM', b'')]
+    out = C.with_model(subs, 'Weapons\\spear.nif', (1, 2, 3, 4, 5, 6))
+    assert [t for t, _ in out] == [b'EDID', b'OBND', b'FULL', b'MODL', b'DNAM']
+    assert dict(out)[b'MODL'] == b'Weapons\\spear.nif\0' and dict(out)[b'OBND'] == struct.pack('<6h', 1, 2, 3, 4, 5, 6)
+
+
+def test_an_explosion_copy_takes_fnvs_enchantment_only_when_the_stand_in_has_none(monkeypatch):
+    """FNV's converted enchantment goes in as EITM before MNAM; a stand-in with its own object effect keeps it."""
+    copies = C.ProjectileCopies.__new__(C.ProjectileCopies)
+    copies.builder, copies.enchantments = None, {0x14DDDD: {'EditorID': 'EnchStunGrenadeEffect'}}
+    copies.spells = SimpleNamespace(explosion=lambda ench: 0xABC)
+    rec = {'EITM': '0014DDDD'}
+    plain = [(b'EDID', b''), (b'MODL', b''), (b'MNAM', b''), (b'DATA', b'')]
+    out = copies._effect(plain, rec)
+    assert [t for t, _ in out] == [b'EDID', b'MODL', b'EITM', b'MNAM', b'DATA'] and dict(out)[b'EITM'] == struct.pack('<I', 0xABC)
+    own = [(b'EDID', b''), (b'EITM', b'\1\0\0\0'), (b'DATA', b'')]
+    assert copies._effect(own, rec) == own and copies._effect(plain, {}) == plain
+
+
+def test_an_explosion_enchantment_is_laid_out_as_vanillas():
+    """EDID, OBND, the plasma grenade's ENIT, then the effect pairs."""
+    subs = subrecords(pack_explosion_ench(0x800, 'FNV_X', b'')[24:])
+    assert [t for t, _ in subs] == [b'EDID', b'OBND', b'ENIT'] and dict(subs)[b'ENIT'] == ENIT_EXPLOSION
+    assert ENIT_EXPLOSION.hex() == '000000000000000001000000000000000100000006000000' + '00' * 12

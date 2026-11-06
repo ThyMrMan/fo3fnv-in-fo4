@@ -36,6 +36,8 @@ Event F3NV_CharacterEvents.CharacterMenu(F3NV_CharacterEvents akSender, Var[] ak
   String kind = akArgs[0] as String
   If kind == "special"
     Game.ShowSPECIALMenu()
+  ElseIf kind == "addspecial"
+    AddSpecialPoints((akArgs[1] as Float) as Int)
   ElseIf kind == "tags"
     OpenTags((akArgs[1] as Float) as Int)
   ElseIf kind == "traits"
@@ -136,6 +138,48 @@ Function TraceSpecial(Bool abOpening)
     i += 1
   EndWhile
   TES4Polyfill.TraceWrite("special", text)
+EndFunction
+
+Function AddSpecialPoints(Int aiPoints)
+  {FO3/FNV AddSpecialPoints (Intense Training): for each point, the player picks a SPECIAL stat below 10 in the
+  SpecialPoint box and its base rises by 1, raising the skills it governs by 2 (and every skill when Luck's half,
+  rounded up, rises), as their starting value (SetSkillBases) counts it. See docs/fork/fo4_pipeline.md#intense-training}
+  Actor player = Game.GetPlayer()
+  Message box = TES4CharacterEvents.SpecialPoint
+  While aiPoints > 0 && box
+    Int pick = box.Show()
+    ActorValue stat = SpecialStats.GetAt(pick) as ActorValue
+    Float before = player.GetBaseValue(stat)
+    If stat && before < 10.0
+      player.SetValue(stat, before + 1.0)
+      RaiseSkills(pick, before)
+      aiPoints -= 1
+    EndIf
+  EndWhile
+EndFunction
+
+Function RaiseSkills(Int aiStat, Float afBefore)
+  {The skills stat `aiStat` governs up 2, and on a Luck rise every skill by its half's change, rounded up.}
+  Actor player = Game.GetPlayer()
+  Float luck = 0.0
+  If aiStat == 6
+    luck = Math.Ceiling((afBefore + 1.0) / 2.0) - Math.Ceiling(afBefore / 2.0)
+  EndIf
+  Int i = 0
+  While i < GovernedSkills.GetSize()
+    FormList governed = GovernedSkills.GetAt(i) as FormList
+    Float gain = luck
+    If i == aiStat
+      gain += 2.0
+    EndIf
+    Int k = 0
+    While k < governed.GetSize() && gain > 0.0
+      ActorValue skill = governed.GetAt(k) as ActorValue
+      player.SetValue(skill, player.GetBaseValue(skill) + gain)
+      k += 1
+    EndWhile
+    i += 1
+  EndWhile
 EndFunction
 
 Function SetSkillBases()

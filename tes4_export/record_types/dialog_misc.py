@@ -35,10 +35,39 @@ def _emit_formid_list(lines: list, rec: Record, sig: str, name: str):
             lines.append(f"{name}[{i}]={get_formid_str(struct.unpack_from('<I', sub.data, 0)[0])}")
 
 
+def _emit_shared_infos(lines: list, rec: Record):
+    """`SharedInfo[i].Quest/.Info/.Index` for each INFC (and its INFX) under a QSTI: FO3/FNV DIAL Shared Infos.
+    See: docs/fork/fo4_pipeline.md#shared-infos
+    """
+    shared, quest = [], None
+    for sub in rec.subrecords:
+        quest = _shared_step(shared, quest, sub)
+    if shared:
+        lines.append(f"SharedInfoCount={len(shared)}")
+    for i, (owner, info, index) in enumerate(shared):
+        lines += [f"SharedInfo[{i}].Quest={get_formid_str(owner)}", f"SharedInfo[{i}].Info={get_formid_str(info)}"]
+        lines += [f"SharedInfo[{i}].Index={index}"] if index is not None else []
+
+
+def _shared_step(shared: list, quest, sub) -> 'int | None':
+    """The quest after DIAL subrecord `sub`: a QSTI names it, an INFC adds [quest, info, None] to `shared`, an INFX
+    gives the last one its index; any other subrecord ends the quest's list."""
+    value = struct.unpack_from('<I', sub.data, 0)[0] if len(sub.data) >= 4 else None
+    if sub.type == "QSTI":
+        return value
+    if sub.type == "INFC" and quest is not None and value is not None:
+        shared.append([quest, value, None])
+    if sub.type == "INFX" and shared and shared[-1][2] is None and value is not None:
+        shared[-1][2] = struct.unpack_from('<i', sub.data, 0)[0]
+    return quest if sub.type in ("INFC", "INFX") else None
+
+
 def export_DIAL(rec: Record) -> list:
+    """DIAL: EditorID, quests, shared infos, FULL, DATA type and flags."""
     lines = []
     emit_string(lines, "EditorID", get_subrecord(rec, "EDID"))
     _emit_formid_list(lines, rec, "QSTI", "Quest")
+    _emit_shared_infos(lines, rec)
     emit_string(lines, "FULL", get_subrecord(rec, "FULL"))
     data = get_subrecord(rec, "DATA")
     if data and len(data.data) >= 1:

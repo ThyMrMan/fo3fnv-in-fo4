@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 
 from fo4_import.nif import file as nif_file
+from fo4_import.pipeline.build_inputs import MASTERS
 from fo4_import.pipeline.export_index import export_file
 from fo4_import.spike.scol import angles, rotation
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -253,13 +254,24 @@ class Poses:
         self.archives = Archives(FALLOUT4_DIR / 'Data')
         self.vanilla = {r.form_id: (sig, list(subrecords(r.body))) for sig in (b'NPC_', b'LVLN', b'RACE')
                         for r, _ in walk(builder.fo4, sig)}
-        self.built, self.built_at, self.skeletons = {}, -1, {}
+        self.built, self.built_at, self.skeletons, self.mastered = {}, -1, {}, None
+
+    def _master(self, fid: int) -> 'tuple | None':
+        """(signature, subrecords) of FO4 record `fid` in a built master plugin (builder.built), read once.
+        See: docs/fork/fo4_plugin_layout.md#dlc-poses
+        """
+        if self.mastered is None:
+            self.mastered = {r.form_id: (r.sig, r.body) for path in self.builder.built
+                             for r, _ in walk(Path(path).read_bytes(), b'NPC_', b'LVLN', b'RACE')}
+        sig, body = self.mastered.get(fid, (b'NPC_', None))
+        MASTERS.record(fid, sig, body)
+        return (sig, list(subrecords(body))) if body is not None else None
 
     def _lookup(self, fid: int) -> 'tuple | None':
-        """(signature, subrecords) of FO4 record `fid`: Fallout4.esm's, else the plugin's own so far."""
+        """(signature, subrecords) of FO4 record `fid`: Fallout4.esm's, a built master's, else the plugin's own."""
         writer = self.builder.writer
         if fid >> 24 != writer.own_index:
-            return self.vanilla.get(fid)
+            return self.vanilla.get(fid) or self._master(fid)
         if fid not in self.built and self.built_at != writer._record_count:
             self.built_at = writer._record_count
             for blob in writer.top_records():
@@ -279,8 +291,9 @@ class Poses:
                     path = export_file(self.builder.export_dir, 'meshes', model.replace('\\', '/').lower())
                     self.skeletons[key] = fnv_skeleton(path) if path.exists() else None
                 else:
-                    loose = self.builder.data_dir / 'Meshes' / model
-                    raw = loose.read_bytes() if loose.exists() else self.archives.read('meshes\\' + model.lower())
+                    dirs = (self.builder.data_dir, *(Path(p).parent for p in self.builder.built))
+                    loose = next((d / 'Meshes' / model for d in dirs if (d / 'Meshes' / model).exists()), None)
+                    raw = loose.read_bytes() if loose else self.archives.read('meshes\\' + model.lower())
                     self.skeletons[key] = fo4_skeleton(raw)
             except KeyError:
                 self.skeletons[key] = None

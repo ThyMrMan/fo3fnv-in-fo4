@@ -27,7 +27,7 @@ from script_convert import commands as _commands
 from script_convert.context import ScriptContext
 from script_convert.implicit_subject import stage_subject as implicit_stage_subject
 from script_convert.poll_interval import quest_delay_arm, update_interval
-from script_convert.target import av_call, self_as_actor
+from script_convert.target import av_call, script_as_actor, self_as_actor
 from script_convert.emit import dispatch as _dispatch
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.tes4.parser import (
@@ -2048,16 +2048,7 @@ class ScriptConverter:
                     if self.sc.var_types.get(low_canon) == 'ObjectReference':
                         self.sc.var_types[low_canon] = 'Actor'
                 elif is_generated_script_type(cur):
-                    # The property is typed as the SCRIPT attached to the record
-                    # it names (_add_scro_ref prefers that so cross-script
-                    # variable reads work).  That type is not an Actor, so an
-                    # actor-only call on it does not compile — but the object it
-                    # binds to IS one, so cast at the call site rather than
-                    # retyping the property and breaking the variable reads.
-                    # (`KreoRef.EvaluatePackage()`, `MelvinTotRef.SetGhost()`,
-                    # `NQ05Soldat01Ref.StartCombat()` — all actors carrying a
-                    # converted script.)
-                    return f'({canon} as Actor)'
+                    return script_as_actor(canon)
                 elif self.sc.var_types.get(canon.lower(), '')                         == 'ObjectReference':
                     # A script-LOCAL `ref` is declared ObjectReference, not
                     # Actor, and a local is not in `property_refs` at all --

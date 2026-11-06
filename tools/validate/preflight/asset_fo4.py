@@ -3,8 +3,9 @@
 Every model a player can meet (asset_load.model_users: placed, carried, worn,
 rolled) must exist, and so must every material (BGSM, BGEM) and texture it
 names, and every texture its materials name. Files resolve as the game finds
-them: loose before archived, the plugin's mod folder first, then the mod
-folders holding its masters, then Fallout 4's Data.
+them: loose before archived, the plugin's mod folder first, then its texture
+staging folder, then the mod folders holding its masters, then Fallout 4's
+Data. Every NIF the build wrote also has its shader names checked (asset_nif).
 
 See: docs/fork/fo4_preflight.md#assets
 """
@@ -14,7 +15,9 @@ from collections import defaultdict
 from pathlib import Path
 
 from fo4_import.app.files import Files
+from fo4_import.base.ba2_pack import STAGING, staging_root
 from fo4_import.nif import bgem, bgsm
+from tools.validate.preflight import asset_nif
 from tools.validate.preflight.asset_load import model_users, norm, textures_in, users_detail
 from tools.validate.preflight.findings import Finding
 
@@ -26,10 +29,12 @@ _SHOWN = 3
 
 
 def data_dirs(plugin: Path, masters: tuple, game_data: Path) -> list:
-    """The plugin's folder, sibling mods holding its masters, then the game's Data."""
+    """The plugin's folder, its texture staging (when moved out of it), sibling mods holding its masters, then
+    the game's Data."""
     folder = Path(plugin).parent
     siblings = sorted(d for d in folder.parent.iterdir() if d.is_dir() and d != folder)
-    return [folder, *(d for d in siblings if any((d / m).is_file() for m in masters)), Path(game_data)]
+    staged = [] if (folder / STAGING).exists() else [staging_root(folder)]
+    return [folder, *staged, *(d for d in siblings if any((d / m).is_file() for m in masters)), Path(game_data)]
 
 
 def material_textures(path: str, data: bytes):
@@ -84,6 +89,7 @@ def audit(game: str, index, plugin: Path, game_data: Path, source_dir: Path) -> 
     """The asset findings for one Fallout 4 build."""
     files = Files(data_dirs(plugin, index.masters, game_data))
     out, materials, textures = mesh_findings(game, model_users(index), files, source_dir)
+    out += asset_nif.audit(game, Files([Path(plugin).parent]), materials, textures)
     out += material_findings(game, materials, textures, files)
     return out + [Finding('assets', f'assets|{game}|texture|{tex}', 'error',
                           f'{tex} is not in the build, its masters or Fallout 4: the surface shows purple',

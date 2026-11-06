@@ -106,8 +106,11 @@ class Readables:
                                                          self._look(rec)))
 
     def _image(self, rec: dict) -> str:
-        """An image note's text: its FNV image (copied into the data folder) in an img tag."""
-        source = texture_source(rec.get('XNAM', ''))
+        """An image note's text: its FNV image (copied into the data folder) in an img tag; empty for a note
+        authored with no image (Honest Hearts' Grand Staircase note)."""
+        if not rec.get('XNAM'):
+            return ''
+        source = texture_source(rec['XNAM'])
         copy_texture(self.builder.export_dir, self.builder.data_dir, source)
         return f"<p align='center'><img src='img://Textures/{fo4_texture(source).replace(chr(92), '/')}'></p>"
 

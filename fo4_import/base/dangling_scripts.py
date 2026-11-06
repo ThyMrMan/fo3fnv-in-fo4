@@ -19,7 +19,7 @@ See: docs/fork/fo4_pipeline.md#dangling-script-properties
 import struct
 from pathlib import Path
 
-from tes5_import.base.tes5_reader import REC_HDR, walk
+from tes5_import.base.tes5_reader import FLAG_COMPRESSED, REC_HDR, walk
 
 #: Property types (Papyrus VMAD v6): object, string, int, float, bool, variable, struct, and their arrays (+10).
 OBJECT, STRING, INT, FLOAT, BOOL, VARIABLE, STRUCT = 1, 2, 3, 4, 5, 6, 7
@@ -105,7 +105,10 @@ def object_offsets(sig: bytes, vmad: bytes) -> list:
 
 
 def _vmads(raw: bytes, record) -> list:
-    """(file offset of the payload, payload) of each VMAD subrecord of `record` in plugin bytes `raw`."""
+    """(file offset of the payload, payload) of each VMAD subrecord of `record` in plugin bytes `raw`; none for a
+    compressed record (land, navmesh: no scripts), whose bytes are not subrecords."""
+    if record.flags & FLAG_COMPRESSED:
+        return []
     out, pos, end, pending = [], record.offset + REC_HDR, record.end, None
     while pos + 6 <= end:
         tag, size = raw[pos:pos + 4], struct.unpack_from('<H', raw, pos + 4)[0]

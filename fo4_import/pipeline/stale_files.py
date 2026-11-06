@@ -1,7 +1,8 @@
 """Meshes, materials and idle clips a plugin's build no longer makes, removed from the data folder.
 
-Every writer under ROOTS rewrites its file or, when it already holds those
-bytes, touches it (elric_cache.write_new), so the files there dated from the
+Every writer under roots() (ROOTS, plus DLC_ROOTS in a DLC's own data
+folder) rewrites its file or, when it already holds those bytes, touches it
+(elric_cache.write_new), so the files there dated from the
 build's start on are what this build made. They are listed beside the plugin
 (`<plugin>.files.txt`). The next build of that plugin deletes what its last
 list named and its new one does not, unless another plugin's list in the
@@ -16,17 +17,31 @@ from pathlib import Path
 
 #: Data-folder folders only this converter writes: meshes, materials, and a plugin's idle clips ({clips}).
 ROOTS = ('Meshes/fnv', 'Materials/fnv', 'Meshes/Actors/Character/Animations/{clips}')
+#: More folders a DLC build (its own data folder) rewrites every build: rigs, LOD, loose textures.
+DLC_ROOTS = ('Meshes/Actors', 'Meshes/Terrain', 'Textures/Terrain', 'Textures/fnv', 'Textures/Effects', 'LODSettings')
 #: A plugin's file list's suffix, beside the plugin.
 LIST_SUFFIX = '.files.txt'
 #: Seconds of slack for file times against the build's start.
 SLACK = 2.0
 
 
-def made(data_dir: Path, clips: str, started: float) -> set:
-    """Paths (relative to `data_dir`, '/'-separated) under ROOTS dated from `started` on."""
+def roots(clips: str, dlc: bool) -> tuple:
+    """A build's listed folders: ROOTS (clip folder `clips`), and DLC_ROOTS if `dlc`.
+    See: docs/fork/fo4_pipeline.md#stale-files
+    """
+    return tuple(r.format(clips=clips) for r in ROOTS) + (DLC_ROOTS if dlc else ())
+
+
+def listed(plugin: Path) -> set:
+    """The paths `plugin`'s file list names (empty when it has none)."""
+    return _listed(plugin.with_name(plugin.name + LIST_SUFFIX))
+
+
+def made(data_dir: Path, clips: str, started: float, dlc: bool = False) -> set:
+    """Paths (relative to `data_dir`, '/'-separated) under roots() dated from `started` on."""
     out = set()
-    for root in ROOTS:
-        folder = data_dir / root.format(clips=clips)
+    for root in roots(clips, dlc):
+        folder = data_dir / root
         files = (p for p in folder.rglob('*') if p.is_file()) if folder.is_dir() else ()
         out |= {p.relative_to(data_dir).as_posix() for p in files if p.stat().st_mtime >= started - SLACK}
     return out

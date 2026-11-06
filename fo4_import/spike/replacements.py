@@ -27,8 +27,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.mod_sources import find_file
-from fo4_import.base.install import FALLOUT4_DIR, file_masters, masters_of
+from fo4_import.base.install import file_masters, masters_of
+from fo4_import.pipeline.mod_dirs import find
 from tes5_import.base.tes5_reader import first_sub, walk
 
 BASE = 'Fallout4.esm'
@@ -247,7 +247,7 @@ def presence(dirs: tuple):
         key = plugin.lower()
         if key not in known:
             known[key] = False
-            found = find_file(plugin, [FALLOUT4_DIR / 'Data', *dirs])
+            found = find(plugin, dirs)
             known[key] = found is not None and all(present(m) for m in file_masters(found))
         return known[key]
     return present
@@ -271,7 +271,7 @@ def extra_masters(table: Table) -> list:
 
 def _find(plugin: str, dirs: list) -> Path:
     """`plugin`'s file (any case) in the game's Data folder or one of `dirs`."""
-    found = find_file(plugin, [FALLOUT4_DIR / 'Data', *dirs])
+    found = find(plugin, dirs)
     if not found:
         raise FileNotFoundError(f'{plugin} not in the Data folder or {dirs}')
     return found

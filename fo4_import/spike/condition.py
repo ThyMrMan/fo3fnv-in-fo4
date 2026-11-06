@@ -28,8 +28,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.install import source_walk
-from fo4_import.base.quest_merge import appended, regrouped
-from fo4_import.base.support_records import pack_mesg
+from fo4_import.base.support_records import pack_mesg, pack_script_quest
 from fo4_import.base.vmad import object_scripts, quest_fragments
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.helpers_plugin import actor_value_form
@@ -42,10 +41,12 @@ from fo4_import.spike.type_tests import with_keywords
 from tes5_import.base.tes5_reader import first_sub
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
-#: derive_formid site: quest, item, effect, keywords, 'tier <t>', 'armor tier <t>[ rating <r>]', messages, 'repair <FLST>'.
+#: derive_formid site: quest, sources, plugin rows, item, effect, keywords, tiers, messages, 'repair <FLST>'.
 SITE = 'FNV condition'
 SCRIPT, CALLS, NATIVES, ITEM_SCRIPT = ('F3NV_ConditionPlayer', 'F3NV_ConditionCalls', 'F3NV_Condition',
                                        'F3NV_ConditionRepairItem')
+#: Each plugin's rows (the game's on its condition quest, a DLC's on a quest of its own); see Condition.write.
+SOURCE_SCRIPT = 'F3NV_ConditionSource'
 #: Our condition attach point (attach point keyword) and the keyword every converted item takes its mods by.
 POINT_EDID, KEYWORD_EDID, ATTACH_POINT, MOD_ASSOCIATION = 'FNV_ap_Condition', 'FNV_ma_Condition', 2, 5
 #: FNV weapon animation types that never wear: grenade throw, land mine, mine drop, thrown.
@@ -79,37 +80,6 @@ PLUGIN = Path(__file__).resolve().parents[2] / 'tes_runtime' / 'dist' / 'F3NV.dl
 PLUGIN_DIR = Path('F4SE') / 'Plugins'
 #: The plugin's name before 2026-10-23, deleted on rebuild: both would load and hook the Pip-Boy twice.
 LEGACY_PLUGIN = 'FalloutCondition.dll'
-#: F3NV_ConditionPlayer's parallel rows: per weapon, per armor, and per item of either for repair.
-WEAPON_COLUMNS, ARMOR_COLUMNS = ('Weapons', 'MaxHealth', 'JamTimes'), ('Armors', 'ArmorMax', 'ArmorGroup')
-REPAIR_ROWS = ('Item', 'RepairLists', 'JuryGroups')
-
-
-def _tier_groups(values: dict) -> list:
-    """F3NV_ConditionPlayer's armor tier groups: each group's eleven tier mods, by index."""
-    tiers = values['ArmorTiers'][1]
-    return [tuple(tiers[i:i + TENTHS + 1]) for i in range(0, len(tiers), TENTHS + 1)]
-
-
-def _repair_rows(values: dict, side: str) -> dict:
-    """F3NV_ConditionPlayer's repair rows of the `side` items ('Weapons' rows lead, 'Armors' follow), keyed 'Item'."""
-    weapons = len(values['Weapons'][1])
-    cut = slice(0, weapons) if side == 'Weapons' else slice(weapons, None)
-    return {'Item': values[side], **{name: (values[name][0], values[name][1][cut]) for name in REPAIR_ROWS[1:]}}
-
-
-def merge(game: dict, dlc: dict) -> dict:
-    """F3NV_ConditionPlayer's arrays as the game's items, rounds and perks then the DLC's new ones; the DLC's armor
-    tier groups renumbered onto the game's same eleven tiers (quest_merge)."""
-    tiers, index = regrouped(*(_tier_groups(v) for v in (game, dlc)))
-    out = {**appended(game, dlc, 'Weapons', WEAPON_COLUMNS), **appended(game, dlc, 'AmmoMarks', ('AmmoMarks', 'AmmoWear')),
-           **appended(game, dlc, 'WearPerks', ('WearPerks', 'WearPerkMults')),
-           **appended(game, dlc, 'Armors', ARMOR_COLUMNS, {'ArmorGroup': index})}
-    out['ArmorTiers'] = ('objects', [t for group in tiers for t in group])
-    weapon_rows, armor_rows = (appended(*(_repair_rows(v, side) for v in (game, dlc)), 'Item', REPAIR_ROWS)
-                               for side in ('Weapons', 'Armors'))
-    for name in ('RepairLists', 'JuryGroups'):
-        out[name] = (game[name][0], weapon_rows[name][1] + armor_rows[name][1])
-    return out
 
 
 def damage_factor(health: float) -> float:
@@ -243,30 +213,34 @@ class Condition:
 
     def write(self, ammo_mods, data_dir: Path, helper_index: int) -> None:
         """The condition quest, tiers, messages and Repair hotkey for the wired items, and (the game build only)
-        the plugin DLL in `data_dir`; nothing without a wired item."""
+        the plugin DLL in `data_dir`; a plugin whose master holds the quest writes only its own rows' quest
+        (source_quest); nothing without a wired item.
+        See: docs/fork/fo4_condition.md#sources
+        """
         if not self.weapons and not self.armors:
             return
-        writer = self.builder.writer
-        quest, item, effect = (writer.derive_formid(SITE, key) for key in ('quest', 'item', 'effect'))
+        writer, repair = self.builder.writer, actor_value_form('Repair', helper_index) or 0
+        quest, sources = writer.derive_formid(SITE, 'quest'), writer.derive_formid(SITE, 'sources')
+        self.builder.scripts.used += [SOURCE_SCRIPT, NATIVES]
+        self.builder.counts['condition weapons'], self.builder.counts['condition armor'] = (len(self.weapons),
+                                                                                             len(self.armors))
+        if quest >> 24 != writer.own_index:
+            self._source_quest(ammo_mods, sources, repair)
+            return
+        writer.add_record('FLST', R.pack_flst(sources, 'FNV_ConditionSources', []))
+        item, effect = (writer.derive_formid(SITE, key) for key in ('item', 'effect'))
         player = {name: self._message(name, text) for name, text in MESSAGES}
-        player.update(RepairHotkey=item, DamageResist=DAMAGE_RESIST, Repair=actor_value_form('Repair', helper_index) or 0,
-                      **JAM_FORMS)
-        values = self._values(ammo_mods)
-        items = sorted(self.weapons) + sorted(self.armors)
-        groups = jury_groups()
-        values['RepairLists'] = ('objects', self._repair_lists(items))
-        values['JuryGroups'] = ('ints', [groups.get((self.weapons.get(i) or self.armors[i])[0], 0) for i in items])
+        player.update(RepairHotkey=item, DamageResist=DAMAGE_RESIST, Repair=repair, Sources=sources, **JAM_FORMS)
         jury = [self.builder.perks.first.get(f) for f in jury_rigging_perks(export_records(self.builder.export_dir,
                                                                                             'PERK'))]
         player['JuryRigging'] = next((perk for perk in jury if perk), 0)
-        vmad = quest_fragments('', [], aliases=[(0, quest, [(SCRIPT, player, values)])])
+        rows = (SOURCE_SCRIPT, {'Repair': repair, 'Sources': sources}, self._rows(ammo_mods, lambda fid: True))
+        vmad = quest_fragments('', [], aliases=[(0, quest, [(SCRIPT, player, self._values())])], scripts=[rows])
         writer.add_record('QUST', R.pack_qust(quest, 'FNV_Condition', '', 0, [], 'Player', 0x14, vmad))
         hotkey_effect(self.builder, effect, 'FNV_ConditionRepairEffect', REPAIR_NAME,
                       object_scripts([(ITEM_SCRIPT, {'Hotkey': item, 'Owner': quest}, {})]))
         hotkey_item(self.builder, item, 'FNV_ConditionRepairHotkey', REPAIR_NAME, effect)
-        self.builder.scripts.used += [SCRIPT, CALLS, NATIVES, ITEM_SCRIPT]
-        self.builder.counts['condition weapons'], self.builder.counts['condition armor'] = (len(self.weapons),
-                                                                                             len(self.armors))
+        self.builder.scripts.used += [SCRIPT, CALLS, ITEM_SCRIPT]
         if self.builder.built:
             return
         (data_dir / PLUGIN_DIR).mkdir(parents=True, exist_ok=True)
@@ -275,31 +249,47 @@ class Condition:
         if legacy.exists():
             legacy.unlink()
 
-    def _values(self, ammo_mods) -> dict:
-        """F3NV_ConditionPlayer's value properties."""
-        export = self.builder.export_dir
-        perks = [(self.builder.perks.first.get(fnv), mult) for fnv, mult in wear_perks(export_records(export, 'PERK'))]
-        perks = [(p, m) for p, m in perks if p]
-        rounds = self._ammo_wear(ammo_mods)
+    def _source_quest(self, ammo_mods, sources: int, repair: int) -> None:
+        """A start-game quest of this plugin holding its own wired items' rows (F3NV_ConditionSource), which adds
+        itself to the master's registry `sources` as it starts."""
+        writer = self.builder.writer
+        fid, own = writer.derive_formid(SITE, 'plugin rows'), writer.own_index
+        rows = self._rows(ammo_mods, lambda form: form >> 24 == own)
+        vmad = quest_fragments('', [], scripts=[(SOURCE_SCRIPT, {'Repair': repair, 'Sources': sources}, rows)])
+        writer.add_record('QUST', pack_script_quest(fid, f'FNV_Condition_{Path(self.builder.export_dir.name).stem}', vmad))
+
+    def _values(self) -> dict:
+        """F3NV_ConditionPlayer's value properties: the game's wear settings, jam chances and weapon tiers."""
         wanted = {edid for edid, _ in SETTINGS.values()} | {f'{RELOAD_JAM}{i}' for i in range(1, 11)}
-        gmst = {r['EditorID']: float(r['DATA.Value']) for r in export_records(export, 'GMST') if r.get('EditorID') in wanted}
-        weapons = sorted(self.weapons)
+        gmst = {r['EditorID']: float(r['DATA.Value']) for r in export_records(self.builder.export_dir, 'GMST')
+                if r.get('EditorID') in wanted}
         out = {name: ('float', gmst.get(edid, default)) for name, (edid, default) in SETTINGS.items()}
         out['MaxAbsorb'] = ('float', out['MaxAbsorb'][1] / 100.0)
-        jams = jam_times()
-        out['JamTimes'] = ('floats', [jams.get(self.weapons[w][0], -1.0) for w in weapons])
         out['JamChances'] = ('floats', [gmst.get(f'{RELOAD_JAM}{i}', chance)
                                         for i, chance in enumerate(RELOAD_JAM_DEFAULTS, start=1)])
-        out.update({'Weapons': ('objects', weapons), 'MaxHealth': ('floats', [self.weapons[w][1] for w in weapons]),
-                    'Tiers': ('objects', [self._tier(t) for t in range(TENTHS + 1)]),
-                    'AmmoMarks': ('objects', [k for k, _ in rounds]), 'AmmoWear': ('floats', [m for _, m in rounds]),
-                    'WearPerks': ('objects', [p for p, _ in perks]), 'WearPerkMults': ('floats', [m for _, m in perks])})
-        out.update(self._armor_values())
+        out['Tiers'] = ('objects', [self._tier(t) for t in range(TENTHS + 1)])
         return out
 
-    def _armor_values(self) -> dict:
-        """F3NV_ConditionPlayer's armor properties: each armor's health and tier group, and the groups' tiers."""
-        armors = sorted(self.armors)
+    def _rows(self, ammo_mods, kept) -> dict:
+        """F3NV_ConditionSource's rows for the wired items, rounds and perks `kept(FormID)` admits."""
+        perks = [(self.builder.perks.first.get(fnv), mult)
+                 for fnv, mult in wear_perks(export_records(self.builder.export_dir, 'PERK'))]
+        perks = [(p, m) for p, m in perks if p and kept(p)]
+        rounds = [(k, m) for k, m in self._ammo_wear(ammo_mods) if kept(k)]
+        weapons, armors, jams = sorted(w for w in self.weapons if kept(w)), [a for a in self.armors if kept(a)], jam_times()
+        out = {'Weapons': ('objects', weapons), 'MaxHealth': ('floats', [self.weapons[w][1] for w in weapons]),
+               'JamTimes': ('floats', [jams.get(self.weapons[w][0], -1.0) for w in weapons]),
+               'AmmoMarks': ('objects', [k for k, _ in rounds]), 'AmmoWear': ('floats', [m for _, m in rounds]),
+               'WearPerks': ('objects', [p for p, _ in perks]), 'WearPerkMults': ('floats', [m for _, m in perks]),
+               **self._armor_values(armors)}
+        items, groups = weapons + sorted(armors), jury_groups()
+        out['RepairLists'] = ('objects', self._repair_lists(items))
+        out['JuryGroups'] = ('ints', [groups.get((self.weapons.get(i) or self.armors[i])[0], 0) for i in items])
+        return out
+
+    def _armor_values(self, kept: list) -> dict:
+        """F3NV_ConditionSource's armor rows for armors `kept`: each one's health and tier group, the groups' tiers."""
+        armors = sorted(kept)
         ratings = sorted({self.armors[a][2] for a in armors})
         tiers = [self._armor_tier(t, r) for r in ratings for t in range(TENTHS + 1)]
         return {'Armors': ('objects', armors), 'ArmorMax': ('floats', [self.armors[a][1] for a in armors]),

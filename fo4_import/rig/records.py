@@ -5,6 +5,8 @@ an IDLE per actor action the graph answers.
 See: docs/fork/fo4_own_rig.md#modules
 """
 
+import functools
+import operator
 import struct
 from dataclasses import replace
 
@@ -54,6 +56,8 @@ DROPPED_TAGS = (b'ZNAM', b'WKMV')
 #: Template keyword prefixes the rig's race leaves out: actor types (keywords()) and the template's anim set.
 TEMPLATE_KEYWORDS = ('ActorType', 'Anims')
 ATTACK_TAGS = (b'ATKD', b'ATKE', b'ATKT', b'ATKW', b'ATKS')
+#: BOD2's bit 0 biped slot; the slot a face screen takes (Eyes), so an equipped screen armor replaces the skin's.
+FIRST_SLOT, SCREEN_SLOT = 30, 47
 
 
 def text(d: bytes) -> str:
@@ -248,20 +252,56 @@ def body_path(rig, body: str) -> str:
     return rig.path('CharacterAssets', body)
 
 
-def skin(ids: tuple, race_fid: int, rig, t: Templates, body: str, footsteps: bool = True) -> tuple:
-    """(ARMO, ARMA): the template's skin and its addon on the creature's race and body `body` (a file name in its
-    CharacterAssets), the addon's footstep set (SNDD) kept only with `footsteps`; `ids` is (skin, addon) FormIDs."""
-    fid, addon = ids
-    model, suffix = body_path(rig, body), body.rsplit('.', 1)[0]
+def skin(ids: tuple, race_fid: int, rig, t: Templates, body: str, footsteps: bool = True,
+         screen: str = None) -> tuple:
+    """(ARMO, [ARMA]): the template's skin and its addon on the creature's race and body `body` (a file name in its
+    CharacterAssets), the addon's footstep set (SNDD) kept only with `footsteps`; with a `screen` (its face screen's
+    file), a second addon showing it on SCREEN_SLOT. `ids` is (skin, addon[, screen addon]) FormIDs.
+
+    See: docs/fork/fo4_own_rig.md#expressions
+    """
+    suffix = body.rsplit('.', 1)[0]
+    addons = [addon(ids[1], race_fid, rig, t, (body_path(rig, body), f'{suffix}AA', None), footsteps)]
+    if screen:
+        addons.append(addon(ids[2], race_fid, rig, t, (body_path(rig, screen), f'{suffix}ScreenAA', SCREEN_SLOT)))
+    return wearable(ids[0], race_fid, rig, t, f'Skin{suffix}', addons), [arma for _, arma in addons]
+
+
+def addon(fid: int, race_fid: int, rig, t: Templates, shown: tuple, footsteps: bool = False) -> tuple:
+    """((FormID, BOD2 slot mask), ARMA) of the template's addon on the race showing `shown`: (model path, EditorID,
+    its one slot or None for the template's), its footstep set kept with `footsteps`."""
+    model, edid, slot = shown
     arma_rec, arma_subs = t.get(b'ARMA', rig.template['addon'])
-    arma_new = {b'EDID': zstr('EDID', f'{suffix}AA'), b'RNAM': u32('RNAM', race_fid),
-                b'MOD2': zstr('MOD2', model), b'MOD3': zstr('MOD3', model)}
-    arma = b''.join(arma_new.get(tag) or pack_subrecord(tag.decode(), data) for tag, data in arma_subs
+    mask = struct.unpack('<I', dict(arma_subs)[b'BOD2'][:4])[0] if slot is None else 1 << (slot - FIRST_SLOT)
+    new = {b'EDID': zstr('EDID', edid), b'RNAM': u32('RNAM', race_fid), b'BOD2': u32('BOD2', mask),
+           b'MOD2': zstr('MOD2', model), b'MOD3': zstr('MOD3', model)}
+    arma = b''.join(new.get(tag) or pack_subrecord(tag.decode(), data) for tag, data in arma_subs
                     if tag not in (b'MO2T', b'MO3T') and (footsteps or tag != b'SNDD'))
+    return (fid, mask), pack_fo4_record('ARMA', fid, arma_rec.flags, arma)
+
+
+def wearable(fid: int, race_fid: int, rig, t: Templates, edid: str, addons: list) -> bytes:
+    """The template's skin ARMO as `edid` on the race, listing `addons` (addon()'s) and covering their slots."""
     armo_rec, armo_subs = t.get(b'ARMO', rig.template['skin'])
-    armo_new = {b'EDID': zstr('EDID', f'Skin{suffix}'), b'RNAM': u32('RNAM', race_fid), b'MODL': u32('MODL', addon)}
-    armo = b''.join(armo_new.get(tag) or pack_subrecord(tag.decode(), data) for tag, data in armo_subs)
-    return pack_fo4_record('ARMO', fid, armo_rec.flags, armo), pack_fo4_record('ARMA', addon, arma_rec.flags, arma)
+    listed = b''.join(pack_subrecord('INDX', bytes(2)) + u32('MODL', f) for (f, _), _ in addons)
+    new = {b'EDID': zstr('EDID', edid), b'RNAM': u32('RNAM', race_fid), b'MODL': listed,
+           b'BOD2': u32('BOD2', functools.reduce(operator.or_, (m for (_, m), _ in addons)))}
+    armo = b''.join(new.get(tag) or pack_subrecord(tag.decode(), data) for tag, data in armo_subs if tag != b'INDX')
+    return pack_fo4_record('ARMO', fid, armo_rec.flags, armo)
+
+
+def screen_armor(writer, rig, t: Templates, model: str, name: str) -> int:
+    """Add the armor showing face screen file `model` (in the creature's CharacterAssets) on SCREEN_SLOT, as
+    `FNV_SecuritronScreen_<name>`, on the rig's race; its FormID.
+
+    See: docs/fork/fo4_own_rig.md#expressions
+    """
+    race_fid = writer.derive_formid(SITE, f'{rig.folder} race')
+    fid, arma_fid = (writer.derive_formid(SITE, f'{rig.folder} screen {name} {k}') for k in ('armor', 'addon'))
+    made = addon(arma_fid, race_fid, rig, t, (body_path(rig, model), f'FNV_SecuritronScreen_{name}AA', SCREEN_SLOT))
+    writer.add_record('ARMA', made[1])
+    writer.add_record('ARMO', wearable(fid, race_fid, rig, t, f'FNV_SecuritronScreen_{name}', [made]))
+    return fid
 
 
 def sped(old: list, walk: float, run: float) -> list:
@@ -333,12 +373,14 @@ def unarmed(fid: int, rig, t: Templates) -> bytes:
     return copy_record(weapon, fid, f'{rig.project}Unarmed', impact)
 
 
-def write_skin(writer, rig, t: Templates, race_fid: int, body: str, footsteps: bool) -> int:
-    """Add the skin and addon showing body `body` (a CharacterAssets file name) on the race, with the template's
-    footstep set when `footsteps`; the skin's FormID."""
-    ids = tuple(writer.derive_formid(SITE, f'{rig.folder} {body.lower()} {k}') for k in ('skin', 'addon'))
-    armo, arma = skin(ids, race_fid, rig, t, body, footsteps)
-    writer.add_record('ARMA', arma)
+def write_skin(writer, rig, t: Templates, race_fid: int, body: str, footsteps: bool, screen: str = None) -> int:
+    """Add the skin and addons showing body `body` (a CharacterAssets file name) and its face `screen` on the
+    race, with the template's footstep set when `footsteps`; the skin's FormID."""
+    ids = tuple(writer.derive_formid(SITE, f'{rig.folder} {body.lower()} {k}')
+                for k in ('skin', 'addon') + (('screen',) if screen else ()))
+    armo, armas = skin(ids, race_fid, rig, t, body, footsteps, screen)
+    for arma in armas:
+        writer.add_record('ARMA', arma)
     writer.add_record('ARMO', armo)
     return ids[0]
 
@@ -346,11 +388,12 @@ def write_skin(writer, rig, t: Templates, race_fid: int, body: str, footsteps: b
 def write(writer, rig, t: Templates, made: dict) -> int:
     """Add the creature's race, body parts, default skin (its first body), movement type and IDLEs to `writer`;
     the race's FormID. `made` holds name, body, speeds ((walk, run) root speed), share (of power attacks),
-    footsteps (whether the skin keeps the template's footstep set), talks and kind (race()), parents (bones'), strings (Fallout4.esm's)."""
+    footsteps (whether the skin keeps the template's footstep set), screen (its face screen's file or None), talks
+    and kind (race()), parents (bones'), strings (Fallout4.esm's)."""
     ids = {k: writer.derive_formid(SITE, f'{rig.folder} {k}') for k in ('race', 'parts', 'movement', 'unarmed')}
     writer.add_record('WEAP', unarmed(ids['unarmed'], rig, t))
     ids['name'] = made['name']
-    ids['skin'] = write_skin(writer, rig, t, ids['race'], made['body'], made['footsteps'])
+    ids['skin'] = write_skin(writer, rig, t, ids['race'], made['body'], made['footsteps'], made.get('screen'))
     writer.add_record('MOVT', movement(ids['movement'], rig, t, *made['speeds']))
     writer.add_record('BPTD', body_parts(ids['parts'], rig, t, made))
     writer.add_record('RACE', race(ids['race'], rig, t, ids, made))

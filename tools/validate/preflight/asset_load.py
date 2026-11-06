@@ -40,8 +40,8 @@ _USERS_SHOWN = 3
 
 
 def norm(path: str, root: str) -> str:
-    """`path` lower-cased with backslashes, under `root` (meshes or textures)."""
-    p = path.strip().lower().replace('/', '\\').lstrip('\\')
+    """`path` lower-cased with backslashes, under `root`; a leading `data\\` goes."""
+    p = path.strip().lower().replace('/', '\\').lstrip('\\').removeprefix('data\\')
     return p if p.startswith(root + '\\') else f'{root}\\{p}'
 
 

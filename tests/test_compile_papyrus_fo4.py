@@ -103,3 +103,11 @@ def test_a_lost_function_recompiles_only_users_naming_it(tmp_path):
     gone = CORPUS['Helper'].replace('Int Function Get(Int a = 1)\n  Return a\nEndFunction', '')
     hashes, apis, users, words = _corpus(tmp_path, dict(sources, Helper=gone))
     assert CP.needs_compile(hashes, apis, state, users, words) == {'helper', 'caller'}
+
+
+def test_a_compiled_script_whose_pex_is_gone_compiles_again(tmp_path):
+    """A stopped run deleted a .pex its saved results still call compiled; failures and present .pex stay."""
+    (tmp_path / 'kept.pex').write_bytes(b'')
+    (tmp_path / '_chunks' / '0').mkdir(parents=True)
+    state = {'kept': {'ok': True}, 'gone': {'ok': True}, 'failed': {'ok': False}}
+    assert CP.missing_pex(state, tmp_path) == {'gone'} and not (tmp_path / '_chunks').exists()

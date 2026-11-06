@@ -12,6 +12,10 @@ See: docs/fork/fo4_spikes.md#spike-2-nif
 import struct
 
 NONE = -1
+#: The largest half float: a BSVertexData UV past it does not fit and is clamped.
+HALF_MAX = 65504.0
+#: How many vertices pack_vertex has clamped a UV of, this process ('uv').
+CLAMPED = {'uv': 0}
 #: BSVertexDesc attribute bits (nif.xml VertexAttribute).
 VA_VERTEX, VA_UV, VA_NORMAL, VA_TANGENT, VA_COLOR, VA_SKINNED, VA_FULL_PRECISION = 0x1, 0x2, 0x8, 0x10, 0x20, 0x40, 0x400
 #: Vanilla Raider02MaskM.nif's vertex descriptor: half positions, UV, normal, tangent, skin (32 bytes).
@@ -243,6 +247,15 @@ def read_vertex(r: Reader, attrs: int) -> dict:
     return v
 
 
+def half_uv(uv) -> tuple:
+    """`uv` with each component held in ±HALF_MAX, counted in CLAMPED when one was not.
+    See: docs/fork/fo4_pipeline.md#uv-clamp
+    """
+    held = tuple(min(max(float(c), -HALF_MAX), HALF_MAX) for c in uv)
+    CLAMPED['uv'] += held != tuple(float(c) for c in uv)
+    return held
+
+
 def pack_vertex(v: dict, attrs: int) -> bytes:
     """One BSVertexData's bytes; normals and tangents stay in their stored bytes (0..255)."""
     out = b''
@@ -252,7 +265,7 @@ def pack_vertex(v: dict, attrs: int) -> bytes:
         fmt = ('f' if full else 'e') if attrs & VA_TANGENT else ('I' if full else 'H')
         out += struct.pack('<' + fmt, v['bitangent_x'])
     if attrs & VA_UV:
-        out += struct.pack('<2e', *v['uv'])
+        out += struct.pack('<2e', *half_uv(v['uv']))
     if attrs & VA_NORMAL:
         out += bytes(v['normal']) + bytes([v['bitangent_y']])
         if attrs & VA_TANGENT:

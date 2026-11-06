@@ -1052,6 +1052,8 @@ class PluginWriter:
         Writes to a .tmp sibling first so that a locked output file (e.g. held
         open by xEdit or Skyrim) gives a clear error rather than corrupting an
         existing plugin.  On success, the .tmp is renamed to the final path.
+        LCTN reference arrays come from the serialized CELL/WRLD bytes, so they
+        are filled here (resizing LCTN), then _finish_groups runs last.
         """
         import os
         tmp_path = filepath + '.tmp'
@@ -1085,11 +1087,7 @@ class PluginWriter:
 
         header = self._pack_header(total_count, overridden, group_blobs)
 
-        # LCTN's reference arrays are derived from the CELL/WRLD bytes, so they
-        # are built here rather than in locations.py (which runs before any ref
-        # is serialized, and in the parent process only).  This RESIZES LCTN
-        # records, so anything depending on final byte offsets must run after it.
-        group_blobs = _fill_location_refs(group_blobs)
+        group_blobs = self._finish_groups(_fill_location_refs(group_blobs))
 
         try:
             with open(tmp_path, 'wb') as f:
@@ -1117,6 +1115,10 @@ class PluginWriter:
                 f"Cannot write to '{filepath}': file is locked (is it open in xEdit or Skyrim?). "
                 f"Original error: {e}"
             ) from e
+
+    def _finish_groups(self, group_blobs: list) -> list:
+        """The top-level groups as written; another game's writer overrides it."""
+        return group_blobs
 
     def _pack_header(self, total_count: int, overridden: list, group_blobs: list) -> bytes:
         """The file header record; a writer for another game overrides this."""

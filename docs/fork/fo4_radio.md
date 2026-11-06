@@ -42,8 +42,8 @@ Saloon, which she asks the player to fix) playing them.
   (its sound model, frequency, volume, flags): `RadioDiamondCityReceiverOff`,
   `RadioSilverShroudReceiver`.
 - **What plays** is dialogue too: a station quest whose scenes speak lines
-  through the transmitter (Diamond City Radio). How vanilla picks the next
-  song (scene phases or a script) is to be read in step 2.
+  through the transmitter (Diamond City Radio). Vanilla picks the next
+  song with scene phases (read in step 2, [below](#programming)).
 
 ## <a id="transmitters"></a>Step 1: transmitters (built 2026-10-21, played 2026-10-21)
 
@@ -123,7 +123,7 @@ conditions read), then one phase per song gated on `CurrentSong` plays
 the song's sound (`sound/fx/mus/radio/diamondcity/*.xwm`). Travis's lines
 name him as speaker (INFO ANAM, NPC 00002F26) for the voice type.
 
-**Design (proposed).** Per station: a quest with alias Host forced to the
+**Design (proposed 2026-10-21; built, then removed, below).** Per station: a quest with alias Host forced to the
 transmitter (display name the station's); a speaker NPC copying the
 holotape speaker with the station's voice type (as holotapes do); the
 program as a repeating scene of Radio actions on Host, one phase per
@@ -135,7 +135,8 @@ on radio lines are not the player's; whether the engine follows the first
 passing choice or picks one at random decides between that fixed order
 and a script choosing the next topic.
 
-**Built (2026-10-21, not yet played).** `Radio.program`, called as each
+**Built (2026-10-21; played in tests 3 and 4, then the per-topic scenes
+were removed).** `Radio.program`, called as each
 build quest is written:
 - **Which quests.** Quest scope now also takes a quest whose own
   conditions name a placed base (a station quest's GetIsID on its
@@ -175,7 +176,8 @@ build quest is written:
 
 <a id="playlist"></a>**Playlist: a songs-only station on vanilla's model
 (built 2026-10-21, played 2026-10-21: Mojave Music Radio lists in the
-Pip-Boy and plays, with no lag).** A station whose radio lines all play
+Pip-Boy and plays, with no lag; replaced 2026-10-22 by the
+[steps model](#steps-model)).** A station whose radio lines all play
 a song (Mojave Music Radio's 15) is built like Diamond City Radio's music
 scene (`DiamondCityRadioMusicScene`):
 - **Pick topic.** FNV's lines become one topic, with their conditions (no
@@ -337,10 +339,23 @@ station becomes an FO4 receiver (`Radio.receiver`, `pack_acti`).
 - **In the region.** 12 placed receivers:
   - Trudy's radio, 2 jukeboxes and 7 start-on radios, on
     Mojave Music Radio.
-  - 2 on Radio New Vegas and 1 on Black Mountain, which play since every
-    station runs as steps ([steps model](#steps-model)).
+  - 2 on Radio New Vegas and 1 on Black Mountain, which have programs
+    since every station runs as steps ([steps model](#steps-model)); only
+    Radio New Vegas's program has been played.
   - Radios naming a Non-Pipboy station (the casino and Tops lounges) stay
     plain activators.
+
+<a id="broadcast-state"></a>**Broadcast state (built 2026-11-04, not yet
+played).** FNV's `GetBroadcastState` and `SetBroadcastState` read and
+switch a station reference's broadcast. Dead Money's three radio scripts
+(`NVDLC01RadioDogSCRIPT`, `NVDLC01RadioDeanQuestSCRIPT`,
+`NVDLC01RadioChristineSCRIPT`) switch each companion's station off while
+the companion is near. The converter emitted the read as a property and
+dropped the write, so the scripts did not compile. On Fallout 4 both are
+now `TES4Polyfill` calls (`commands_falloutnv.broadcast_state`): the state
+is the reference's enabled state, since a disabled transmitter broadcasts
+nothing. A station the build leaves out is None: it reads 0 and a set does
+nothing.
 
 ## <a id="steps"></a>Steps
 
@@ -360,5 +375,6 @@ station becomes an FO4 receiver (`Radio.receiver`, `pack_acti`).
    Trudy's radio in the Prospector Saloon plays once it is repaired.
    Played: ask Trudy about it, fix it, turn it on.
 
-**Size:** M. Open to settle in step 1: FO4's XRDO and RADR fields (xEdit),
-and the frequencies (FNV has none; one per station, clear of FO4's own).
+**Size:** M. Settled in steps 1 and 3: FO4's XRDO and RADR fields (xEdit),
+and the frequencies (FNV has none; one per station, clear of FO4's own:
+`FREQUENCIES`).

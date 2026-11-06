@@ -28,6 +28,7 @@ from pathlib import Path
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.ba2_write import write_general
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.pipeline.build_inputs import MASTERS
 from fo4_import.pipeline.code_tag import ROOT
 
 ARCHIVE2 = FALLOUT4_DIR / 'Tools' / 'Archive2' / 'Archive2.exe'
@@ -37,8 +38,8 @@ STAGING, STAGING_CACHE = '_ba2', ROOT / 'output' / 'fo4_cache' / 'ba2'
 CHUNKS = 1
 #: The staging folder's record of its files at the last pack: {texture key: [size, mtime_ns, signature or None]}.
 MANIFEST = 'manifest.json'
-#: Texture keys (lowercase, under Textures) a build writes itself; only these are pruned (FaceGen is not).
-OWN = 'fnv/'
+#: Texture key prefixes a build writes itself (its textures, its worldspaces' LOD); only these are pruned, not FaceGen.
+OWN = ('fnv/', 'terrain/fnv_')
 #: Archive2's options for the texture archive: DDS, CHUNKS chunks per texture.
 TEXTURE_OPTIONS = ('-f=DDS', f'-maxChunkCount={CHUNKS}')
 #: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
@@ -101,12 +102,17 @@ def share_masters(data_dir: Path, masters: list) -> None:
     """stage_texture() skips what a `masters` data folder packed alike.
     See: docs/fork/fo4_plugin_layout.md#dlc-build
     """
+    for master in masters:
+        MASTERS.cover('manifest', staging_root(master) / MANIFEST)
     _run(data_dir)['masters'] = tuple(_read_json(staging_root(m) / MANIFEST) for m in masters)
 
 
 def _in_master(run: dict, key: str, signature) -> bool:
-    """Whether a master of `run` packed texture `key` with `signature`."""
-    return signature is not None and any((m.get(key) or [None] * 3)[2] == signature for m in run['masters'])
+    """Whether a master of `run` packed texture `key` with `signature` (the masters' answers logged)."""
+    packed = [(m.get(key) or [None] * 3)[2] for m in run['masters']]
+    if packed:
+        MASTERS.texture(key, packed)
+    return signature is not None and signature in packed
 
 
 def _current(staged: Path, recorded, signature: str) -> bool:
@@ -224,13 +230,16 @@ def stage_loose_sounds(data_dir: Path, own: tuple) -> int:
 
 
 def pack_sounds(data_dir: Path, plugin: str) -> int:
-    """Pack the staged sounds (sound_root) as `<plugin stem> - Main.ba2` when they changed since it was packed;
-    the file count."""
-    root = sound_root(data_dir)
+    """Pack the staged sounds (sound_root) as `<plugin stem> - Main.ba2` when they changed since it was packed, or
+    delete that archive and its record when none are staged (an earlier build's would ship its stale sounds); the
+    file count."""
+    root, archive = sound_root(data_dir), Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
     files = {p.relative_to(root).as_posix().lower(): [p.stat().st_size, p.stat().st_mtime_ns]
              for p in (root / SOUND).rglob('*') if p.is_file()} if (root / SOUND).is_dir() else {}
     if files:
-        _pack(root / SOUND, root, Path(data_dir) / f'{Path(plugin).stem} - Main.ba2', files, _general)
+        _pack(root / SOUND, root, archive, files, _general)
+    for stale in () if files else (archive, archive.with_name(archive.name + '.json')):
+        stale.unlink(missing_ok=True)
     return len(files)
 
 

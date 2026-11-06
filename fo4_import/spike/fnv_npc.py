@@ -21,7 +21,7 @@ from fo4_import.face import hair
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, coefficients, head
 from fo4_import.face.texture import fnv_texture
-from fo4_import.pipeline.export_index import asset_root, export_file, export_records
+from fo4_import.pipeline.export_index import asset_root, export_chain, export_file, export_records
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: FNV race head part index of the left eye mesh.
@@ -87,10 +87,18 @@ def _esm_records(esm_path: str) -> tuple:
 
 
 def head_parts(export_dir: Path, form_id: int) -> list:
-    """[(EditorID, model)] of FNV NPC `form_id`'s head parts (PNAM) that have a model."""
-    esm = Path(source_registry.directory_for(export_dir.parent, export_dir.name)) / export_dir.name
-    npcs, parts = _esm_records(str(esm))
-    return [parts[p] for p in npcs.get(form_id, []) if parts.get(p, ('', ''))[1]]
+    """Sorted [(EditorID, model)] of FNV NPC `form_id`'s head parts (PNAM) that have a model, from the newest
+    plugin of `export_dir`'s master chain holding it (a DLC build fits its masters' NPCs too), its parts from any
+    of them. Sorted, as FNV draws them as a set: PNAM order changes no fit.
+    See: docs/fork/fo4_pipeline.md#face-fit-head-parts
+    """
+    chain = [_esm_records(str(Path(source_registry.directory_for(f.parent, f.name)) / f.name))
+             for f in map(Path, export_chain(export_dir))]
+    owned = next((npcs[form_id] for npcs, _ in chain if form_id in npcs), [])
+    parts = {}
+    for _, held in chain:
+        parts = {**held, **parts}
+    return sorted(parts[p] for p in owned if parts.get(p, ('', ''))[1])
 
 
 def eye_mesh(export_dir: Path, race: dict, part: str) -> Path:

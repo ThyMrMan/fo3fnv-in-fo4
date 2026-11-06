@@ -11,13 +11,16 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.havok import packfile_write
 from fo4_import.havok.kf_cache import decoded
+from fo4_import.nif import file as nif_file
 from fo4_import.pipeline.elric_cache import write_new
+from fo4_import.pipeline.master_copies import master_dirs
 from fo4_import.pipeline.mesh_cache import mesh_files
 from fo4_import.pipeline.work_cache import cached
 from fo4_import.rig import assets, behavior, records
 from fo4_import.spike.creature_attacks import power_share, with_attacks, with_spell
 from fo4_import.spike.statics import stage_files
-from fo4_import.pipeline.export_index import asset_root
+from fo4_import.pipeline.export_index import asset_root, export_file
+from fo4_import.rig.table import rigs
 
 #: AnimTextData's project file data folder (the Creation Kit does not write a project's list).
 FILE_DATA = Path('Meshes') / 'AnimTextData' / 'AnimationFileData'
@@ -53,7 +56,8 @@ class Rigs:
         self.builder, self.export_dir, self.data_dir = builder, export_dir, data_dir
         self.templates = records.Templates(builder.fo4)
         self.game = Archives(FALLOUT4_DIR / 'Data')
-        self.races, self.skins, self.bones, self.sounds = {}, {}, {}, {}
+        self.races, self.skins, self.bones, self.sounds, self.armors = {}, {}, {}, {}, {}
+        self.masters = master_dirs(builder)
 
     def out(self, rig, *parts: str) -> Path:
         return self.data_dir / 'Meshes' / rig.actor_dir / Path(*parts)
@@ -71,20 +75,20 @@ class Rigs:
         (creature_sounds.RigSounds) the graph's sound events; `talks`: one of its creatures may talk."""
         if rig.folder in self.races:
             return self.races[rig.folder]
+        bones = self.rig_bones(rig)
         rig = records.with_slots(rig, self.templates)
         fnv_dir = asset_root(self.export_dir, 'meshes', rig.folder)
-        fires = gun_nodes(rig, fnv_dir)
-        self.bones[rig.folder] = bones = assets.skeleton_bones(fnv_dir / 'skeleton.nif', fires.get(0, ()))
-        assets.write_skeleton(self.out(rig, 'CharacterAssets', 'skeleton.hkx'), bones)
-        for role, kf in rig.clips.items():
-            assets.write_clip(fnv_dir / kf, self.out(rig, 'Animations', f'{role}.hkx'), bones,
-                              (assets.WEAPON,) if 0 in fires else ())
-        ragdoll = self.skeleton_nif(fnv_dir, rig, fires)
+        shipped = self.shipped(rig)
+        ragdoll = (assets.ragdoll_bones(nif_file.read(shipped.read_bytes())) if shipped
+                   else self.write_rig(rig, fnv_dir, bones))
         self.sounds[rig.folder] = sounds
         maker = behavior.Builder(rig, fnv_dir, ragdoll, sounds, bones)
-        self.write_behavior(rig, maker, [b.name for b in bones])
-        body = self.write_body(rig, body_name(rec))
-        made = {'name': rec.get('FULL', '') or rig.project, 'body': body, 'share': power_share(style),
+        if not shipped:
+            self.write_behavior(rig, maker, [b.name for b in bones])
+        self.builder.counts["own-rig files left to the master's folder" if shipped else 'own-rig files written'] += 1
+        body = body_name(rec)
+        made = {'name': rec.get('FULL', '') or rig.project, 'body': body, 'screen': self.write_body(rig, body),
+                'share': power_share(style),
                 'footsteps': not sounds.feet, 'talks': talks, 'kind': int(rec.get('DATA.CreatureType', 0) or 0),
                 'parents': {b.name: bones[b.parent].name for b in bones if b.parent >= 0},
                 'strings': self.builder.equipment.strings,
@@ -94,6 +98,22 @@ class Rigs:
             records.SITE, f'{rig.folder} {body.lower()} skin')
         self.builder.counts['own-rig creature races'] += 1
         return race
+
+    def shipped(self, rig, name: str = 'skeleton.nif') -> 'Path | None':
+        """A built master's file `name` in `rig`'s CharacterAssets (left to it); None.
+        See: docs/fork/fo4_own_rig.md#ragdoll-order
+        """
+        found = (d / self.out(rig, 'CharacterAssets', name).relative_to(self.data_dir) for d in self.masters)
+        return next((p for p in found if p.is_file()), None)
+
+    def write_rig(self, rig, fnv_dir: Path, bones: list) -> dict:
+        """`rig`'s skeleton.hkx, clips and skeleton.nif (skeleton_nif); its ragdoll bones."""
+        fires = gun_nodes(rig, fnv_dir)
+        assets.write_skeleton(self.out(rig, 'CharacterAssets', 'skeleton.hkx'), bones)
+        for role, kf in rig.clips.items():
+            assets.write_clip(fnv_dir / kf, self.out(rig, 'Animations', f'{role}.hkx'), bones,
+                              (assets.WEAPON,) if 0 in fires else ())
+        return self.skeleton_nif(fnv_dir, rig, fires)
 
     def write_behavior(self, rig, maker, bone_names: list) -> None:
         """The root graph, character, project and the project's AnimationFileData list."""
@@ -110,21 +130,68 @@ class Rigs:
         listed.parent.mkdir(parents=True, exist_ok=True)
         listed.write_bytes(project_file_data(rig))
 
-    def write_body(self, rig, body: str) -> str:
-        """FNV body `body` (a file in the skeleton folder) on the rig, with its materials and textures; its name. The
-        body and its files are kept in the work cache by its FNV meshes, bones and name (the textures it names are
-        FNV's export, not read again).
-        See: docs/fork/fo4_plugin_layout.md#stage-times
+    def write_body(self, rig, body: str) -> 'str | None':
+        """FNV body `body` (a file in the skeleton folder) on the rig, with its materials and textures, its face
+        screen part (assets.screen_part) apart as its own model; the screen's file name, or None.
+
+        See: docs/fork/fo4_own_rig.md#expressions
         """
         fnv_dir = asset_root(self.export_dir, 'meshes', rig.folder)
-        parts, target = [fnv_dir / part for part in body_parts(body)], self.out(rig, 'CharacterAssets', body)
-        inputs = (*(Path(str(p)).read_bytes() for p in parts), Path(str(fnv_dir / 'skeleton.nif')).read_bytes(),
-                  pickle.dumps(self.bones[rig.folder], protocol=5), target.name)
-        nif, files = cached(BODY_SITE, assets.__name__, inputs, lambda: self._body(parts, fnv_dir, rig, target))
+        parts = [fnv_dir / part for part in body_parts(body)]
+        screen = assets.screen_part(parts)
+        self.model(rig, [p for p in parts if p != screen], body)
+        if screen:
+            self.model(rig, [screen], screen.name)
+        return screen.name if screen else None
+
+    def model(self, rig, parts: list, name: str, textures: dict = None) -> None:
+        """FNV body parts `parts` as the rig's model `name` (in CharacterAssets), with its materials and textures,
+        `textures` retexturing shapes (assets.write_body); none of it when a built master ships the model
+        (shipped). It and its files are kept in the work cache by its FNV meshes, bones, name and textures (the
+        textures it names are FNV's export, not read again).
+        See: docs/fork/fo4_plugin_layout.md#stage-times
+        """
+        if self.shipped(rig, name):
+            self.builder.counts["own-rig bodies left to the master's folder"] += 1
+            return
+        fnv_dir, target = asset_root(self.export_dir, 'meshes', rig.folder), self.out(rig, 'CharacterAssets', name)
+        inputs = (*(Path(str(p)).read_bytes() for p in parts + idle_clip(rig, fnv_dir)),
+                  Path(str(fnv_dir / 'skeleton.nif')).read_bytes(), pickle.dumps(self.rig_bones(rig), protocol=5),
+                  target.name, repr(sorted((textures or {}).items())))
+        nif, files = cached(BODY_SITE, assets.__name__, inputs,
+                            lambda: self._body(parts, fnv_dir, rig, (target, textures)))
         write_new(target, nif)
         for made in files:
             stage_files(self.export_dir, made, self.data_dir)
-        return body
+
+    def rig_bones(self, rig) -> list:
+        """`rig`'s skeleton bones (assets.skeleton_bones with its main gun's fire node), read once."""
+        if rig.folder not in self.bones:
+            rig = records.with_slots(rig, self.templates)
+            fnv_dir = asset_root(self.export_dir, 'meshes', rig.folder)
+            self.bones[rig.folder] = assets.skeleton_bones(fnv_dir / 'skeleton.nif', gun_nodes(rig, fnv_dir).get(0, ()))
+        return self.bones[rig.folder]
+
+    def screen_armor(self, face: str, expression: str) -> int:
+        """The armor showing securitron face `face` (FNV's spelling) with `expression` (Neutral, Alert): the first
+        rig's face screen part, retextured as SetSecuritronExpression does, made once; 0 without one or its texture.
+
+        See: docs/fork/fo4_own_rig.md#expressions
+        """
+        key = (face.lower(), expression.lower())
+        if key not in self.armors:
+            texture = assets.SCREEN_TEXTURE.format(*key)
+            found = next(((rig, part) for rig in rigs().values() for part in screen_parts(self.export_dir, rig)), None)
+            self.armors[key] = 0
+            if found and export_file(self.export_dir, texture.replace('\\', '/')).exists():
+                rig, part = found
+                model = f'Screen_{key[0]}_{key[1]}.nif'
+                self.model(rig, [part], model, {assets.SCREEN_SHAPE: texture})
+                self.armors[key] = records.screen_armor(self.builder.writer, rig, self.templates, model,
+                                                        f'{face}_{expression}')
+            self.builder.counts['securitron screen armor' if self.armors[key] else
+                                f'securitron screen without a rig or texture: {face} {expression}'] += 1
+        return self.armors[key]
 
     def skeleton_nif(self, fnv_dir, rig, fires: dict) -> dict:
         """assets.write_skeleton_nif's skeleton.nif and ragdoll bones, kept in the work cache by the FNV skeleton and
@@ -141,25 +208,39 @@ class Rigs:
         ragdoll = assets.write_skeleton_nif(fnv_dir / 'skeleton.nif', target, fires)
         return target.read_bytes(), ragdoll
 
-    def _body(self, parts: list, fnv_dir, rig, target: Path) -> tuple:
-        """(write_body's bytes at `target`, its statics' mesh_files)."""
-        statics, _ = assets.write_body(parts, fnv_dir / 'skeleton.nif', self.bones[rig.folder], target, self.export_dir)
+    def _body(self, parts: list, fnv_dir, rig, written: tuple) -> tuple:
+        """(write_body's bytes at `written`'s target, its statics' mesh_files); `written` is (target, textures)."""
+        target, textures = written
+        statics, _ = assets.write_body(parts, fnv_dir / 'skeleton.nif', self.rig_bones(rig), target, self.export_dir,
+                                       (next(iter(idle_clip(rig, fnv_dir)), None), textures))
         return target.read_bytes(), [mesh_files(static) for static in statics]
 
     def skin(self, rig, rec: dict) -> int:
-        """The skin showing FNV creature `rec`'s body on its race, written once per body; its addon keeps the
-        template's footstep set only when the rig plays no FNV foot sounds."""
+        """The skin showing FNV creature `rec`'s body (and face screen) on its race, written once per body; its addon
+        keeps the template's footstep set only when the rig plays no FNV foot sounds."""
         body = body_name(rec)
         key = (rig.folder, body.lower())
         if key not in self.skins:
-            self.write_body(rig, body)
+            screen = self.write_body(rig, body)
             self.skins[key] = records.write_skin(self.builder.writer, rig, self.templates, self.races[rig.folder],
-                                                 body, not self.sounds[rig.folder].feet)
+                                                 body, not self.sounds[rig.folder].feet, screen)
         return self.skins[key]
 
 
 #: Between the parts' stems in a several-part body's name.
 PART_JOIN = '+'
+
+
+def screen_parts(export_dir: Path, rig) -> list:
+    """`rig`'s FNV parts holding a face screen (screen_part), by name."""
+    folder = asset_root(export_dir, 'meshes', rig.folder)
+    found = sorted(Path(str(folder)).glob('*.nif'), key=lambda p: p.name.lower()) if Path(str(folder)).is_dir() else []
+    return [p for p in found if assets.SCREEN_SHAPE.encode() in p.read_bytes() and assets.screen_part([p])]
+
+
+def idle_clip(rig, fnv_dir) -> list:
+    """[`rig`'s FNV idle clip, whose shader channels its body loops], or []."""
+    return [fnv_dir / rig.clips['Idle']] if 'Idle' in rig.clips else []
 
 
 def body_name(rec: dict) -> str:

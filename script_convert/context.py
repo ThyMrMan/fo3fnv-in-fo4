@@ -49,6 +49,8 @@ class ScriptContext:
     uses_say_timer: bool = False
     #: An event without an action ref read the last activator; OnActivate records it.
     uses_last_activator: bool = False
+    #: events() declared and recorded the last activator (assemble._record_last_activator).
+    records_last_activator: bool = False
     #: A poll block calls SetPos/SetAngle: TES4 per-frame motion.
     moves_in_poll: bool = False
     #: Poll SetPos/SetAngle calls stepping from their own axis read -> (axis, step, sign) (poll_motion.relative_sets).

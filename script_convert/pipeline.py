@@ -1,12 +1,20 @@
-"""Pipeline orchestration — convert all scripts, VMAD helpers, CLI."""
+"""Pipeline orchestration — convert all scripts, VMAD helpers, CLI. Run inside a recorded Fallout 4 build
+(F3NV_BUILD_INPUTS set), this process and its workers record what they read and run.
+
+See: docs/fork/fo4_plugin_layout.md#build-plan
+"""
 
 import argparse
 import collections
 import hashlib
+import importlib
 import json
 import os
 import re
 import struct
+
+if os.environ.get('F3NV_BUILD_INPUTS'):
+    importlib.import_module('fo4_import.pipeline')
 
 from core.worker_budget import worker_count
 
@@ -47,6 +55,8 @@ from script_convert.say_durations import scan_voice_durations
 from script_convert.speech_challenges_falloutnv import reroll_line, speech_helper
 from tes5_import.dialogue.speech_chance_falloutnv import NEED_GLOBALS, rerolls
 from script_convert.force_greet_lines import in_menu_only, menu_only_infos
+from script_convert.talked_to_pc import greeted
+from script_convert.weapon_hits import as_effect
 from script_convert.say_to_done import (fragment_calls, say_to_done_hooks,
                                         say_to_done_topics)
 from script_convert.scro_refs import (preload_scro_refs, resolve_scro_aliases,
@@ -622,7 +632,7 @@ def _scpt_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: dict
             continue
 
         try:
-            extends = xref.get_extends_class(formid)
+            extends, sctx = as_effect(xref, formid, sctx, xref.get_extends_class(formid))
             conv = ScriptConverter(xref)
             preload_scro_refs(conv, rec, xref)
             # Recover names the source text spells staler than the SCRO table
@@ -805,7 +815,7 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
         out_lines += property_declarations(dict(conv.sc.property_refs), declared)
     if declared:
         out_lines.append('')
-    out_lines += _info_begin_fragment(body_lines, seq_gate, length, begin_lines, reveals)
+    out_lines += _info_begin_fragment(body_lines, seq_gate, length, [*begin_lines, *greeted(rec)], reveals)
     done = (_WORKER_CTX.get('say_to_done') or {}).get((rec.get('ParentDIAL') or '').upper(), ())
     out_lines += _info_end_fragment(body_lines, seq_gate, service_kind, length,
                                     fragment_calls(done) + ([reroll_line()] if speech else []))
@@ -813,7 +823,7 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
         out_lines.extend(conv.get_cell_family_helpers())
     if target.is_fallout4() and radio_lines.is_radio(rec):
         out_lines = radio_lines.gated(out_lines)
-    return script_name, '\n'.join(_trace.items(_trace.info(out_lines, rec['FormID'])))
+    return script_name, '\n'.join(_trace.items(_trace.info(out_lines, rec['FormID'], _trace.goodbye(rec))))
 
 
 def _info_length(formid: str) -> float:

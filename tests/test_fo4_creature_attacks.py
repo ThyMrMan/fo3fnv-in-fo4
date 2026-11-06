@@ -12,7 +12,7 @@ from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: A style that power attacks in every direction and rushes.
-STYLE = {'CSTD.PowerAttackChance': '50', 'CSTD.RushingAttackChance': '50', 'CSTD.Flags': '0'}
+STYLE = {'CSTD.PowerAttackChance': '50', 'CSTD.RushingAttackChance': '50', 'CSTD.FalloutFlags': '0'}
 #: The deathclaw's FNV groups: left and right swipes, left, right and forward power attacks.
 DEATHCLAW = frozenset({'attackleft', 'attackright', 'attackleftpower', 'attackrightpower', 'attackforwardpower'})
 
@@ -33,7 +33,7 @@ def test_power_directions_follow_the_groups_and_the_styles_chance():
     """No power attack chance, none; Choose Attack using % Chance drops zero-weight directions."""
     assert CA.power_directions(DEATHCLAW, STYLE) == {'Left', 'Right', 'Forward'}
     assert CA.power_directions(DEATHCLAW, {**STYLE, 'CSTD.PowerAttackChance': '0'}) == frozenset()
-    weighted = {**STYLE, 'CSTD.Flags': '1', 'CSTD.PowerAttackLeft': '30', 'CSTD.PowerAttackRight': '0',
+    weighted = {**STYLE, 'CSTD.FalloutFlags': '1', 'CSTD.PowerAttackLeft': '30', 'CSTD.PowerAttackRight': '0',
                 'CSTD.PowerAttackForward': '40'}
     assert CA.power_directions(DEATHCLAW, weighted) == {'Left', 'Forward'}
 

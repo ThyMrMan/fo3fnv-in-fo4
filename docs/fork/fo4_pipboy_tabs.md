@@ -5,7 +5,7 @@
 - `script_convert/static_scripts/fallout4/F3NV_Pipboy.psc`, `F3NV_PipboyTab.psc`, `F3NV_KarmaPage.psc`
 - `fo4_import/spike/pipboy_tabs.py`, `karma_page.py`, `reputation.py`, `character.py`
 
-**Status:** built and played 2026-10-23: the three tabs show, switch, and stay after leaving STAT and coming back. It replaces the Pip-Boy Tabs
+**Status:** SKILLS, REPUTATION and KARMA built and played 2026-10-23: they show, switch, and stay after leaving STAT and coming back. CHALLENGES built 2026-10-23, not played. It replaces the Pip-Boy Tabs
 mod (PipboyTabs, Nexus 29568), which drew the same three tabs before.
 
 ## What Pip-Boy Tabs did for us

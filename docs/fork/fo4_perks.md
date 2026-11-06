@@ -1,12 +1,12 @@
 # FNV perks on Fallout 4
 
-**Status:** census done 2026-10-20; PERK records (step 2), the level-up list (step 3) and real `HasPerk` (step 4) built 2026-10-20/21, not played. Next: the play-test (step 5).
+**Status:** census done 2026-10-20; PERK records (step 2), the level-up list (step 3) and real `HasPerk` (step 4) built 2026-10-20/21, not played; skill gates built 2026-10-21, teammate perks 2026-10-22, stat abilities 2026-10-29, not played (played so far: Companion Suite out of the perk list 2026-10-22, the nightstalkers' script ability 2026-10-27). Next: the play-test (step 5).
 
-Today no FNV perk converts. The level-up menu's perk list (`FNV_Perks` in
-LevelUpMenuEx's ini) is empty, FO4's perk chart is off, the 10 traits are
-perks with a name and description only, and every `HasPerk` condition counts
-as false, so perk-gated dialogue never shows and consumable effects that need
-a perk are left out ([character menus](fo4_spikes.md#spike-2-vcg01)).
+Before step 2 no FNV perk converted. The level-up menu's perk list (`FNV_Perks` in
+LevelUpMenuEx's ini) was empty, FO4's perk chart is off, the 10 traits were
+perks with a name and description only, and every `HasPerk` condition counted
+as false, so perk-gated dialogue never showed and consumable effects that need
+a perk were left out ([character menus](fo4_spikes.md#spike-2-vcg01)).
 
 ## <a id="plan"></a>Plan
 
@@ -194,7 +194,7 @@ results, on 6 perks:
 | Hand of Vengeance | Cass | Guns damage ×1.15 (entry point 0) | Mod Weapon Attack Damage (35) |
 | Old Vaquero | Raul | attack speed ×1.33 (43) | left out: no FO4 counterpart ([census](#census)) |
 | Causeless Rebel | Veronica | attack speed ×1.3 (43) | left out, as Old Vaquero |
-| Bonds of Steel | Veronica | DT +4 (56) | left out: Damage Threshold waits on the armor rules |
+| Bonds of Steel | Veronica | DT +4 (56) | left out when built (2026-10-22); entry 56 has been a DamageResist ability since 2026-10-29 ([stat abilities](#stat-abilities)) |
 | Companion Suite | Cass | Shotgun Surgeon's target DT (58), an ability | left out: DT; the ability, as below |
 | Calm Heart | Cass (wiki) | an ability: `CalmHeartScript` sets Health base +50 | left out: a script effect, and no companion named |
 
@@ -314,8 +314,10 @@ explosion radius 72 → Mod Player Explosion Scale 100.
 - Damage Threshold: defender (56, 7 effects: Toughness, Stonewall, Hit the
   Deck, implants) and attacker (58, 3: Piercing Strike, Shotgun Surgeon).
   FO4 has no Damage Threshold; the nearest are Mod Armor Rating (85) or Mod
-  Incoming Weapon Damage (36), and Mod Target Damage Resistance (37). Drift,
-  decided with the armor rules.
+  Incoming Weapon Damage (36), and Mod Target Damage Resistance (37). Built
+  2026-10-29, not played: the defender's (56) as an ability on DamageResist,
+  the attacker's (58) as Mod Target Damage Resistance (37)
+  ([stat abilities](#stat-abilities)); Stonewall and Hit the Deck stay drift.
 - Activate (27, 5: Cannibal, Mister Sandman, Robotics Expert, Ghastly
   Scavenger) → FO4's Activate (14): the activation choice runs a script
   fragment, from FNV's result script.

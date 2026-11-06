@@ -18,7 +18,7 @@ from fo4_import.spike.dialogue import GREETING
 from fo4_import.spike.say_topics import blocker, conditions_of
 from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
 from fo4_import.spike.records import pack_flst
-from fo4_import.spike.script import PACKAGE_PREFIX
+from fo4_import.spike.script import PACKAGE_PREFIX, QUEST_PREFIX, declared_properties
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_CHAT_PREFIX
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -82,8 +82,14 @@ SHARED_LOCATIONS = ('0', '1', '2', '3', '6')
 NAMED_LOCATIONS = ('0', '1')
 #: ForceGreet's Target Trigger Location: its second location input (after the NPC Wait Location).
 TRIGGER_INPUT = 1
+#: ForceGreet's Forcegreet Distance (the NPC must get within it to greet): its third location input.
+GREET_INPUT = 2
+#: FO4 PLDT location type Near Self (xEdit), and FNV's loaded area: uGridsToLoad 5, two 4,096-unit cells each side.
+NEAR_SELF, FNV_LOADED_REACH = 12, 8192
 #: FNV's standard Activate Distance, iActivatePickLength (GECK Dialogue Package), where PTDT's count is 0.
 ACTIVATE_DISTANCE = 150
+#: The farthest a force greeter stops: 122 of vanilla's 217 use 225, inside fAIInDialogueModeWithPlayerDistance 250.
+TALK_REACH = 225
 #: PKDT general flags FNV and FO4 define alike (xEdit wbPackageFlags), e.g. Weapons Unequipped 0x200000; not 0x200.
 SHARED_FLAGS = 0x1 | 0x4 | 0x40 | 0x80 | 0x400 | 0x20000 | 0x40000 | 0x200000 | 0x800000 | 0x8000000
 #: PKDT interrupt override byte and None: vanilla's 1,872 NPC-list packages have 0, its 1,499 combat overrides 4.
@@ -140,6 +146,19 @@ class Packages:
             self.pending |= {fnv} - {None}
             return self.builder.fnv_id(fnv) if fnv else None
         return self.package(fnv, npcs.form_map) or None
+
+    def named_by_quests(self, scripts, quests: list) -> None:
+        """Make now the Dialogue packages the scripts and stage fragments of FNV `quests` name, whose properties
+        fill with the quest record, after the greeting takes the force greets' topics (self.topics).
+        See: docs/fork/fo4_pipeline.md#greeting-scene
+        """
+        names = [scripts.name(int(q['SCRI'], 16)) for q in quests if q.get('SCRI')]
+        names += [f'{QUEST_PREFIX}{q["EditorID"]}' for q in quests]
+        for path in (scripts.dir / f'{n}.psc' for n in names if n and scripts.dir):
+            props = declared_properties(path.read_text(encoding='utf-8')) if path.exists() else []
+            for prop in (p for _, p in props if self.packs.get(self.by_name.get(p.lower()), {}).get('PKDT.Type')
+                         == FNV_DIALOGUE):
+                self.named(prop)
 
     def scripted_made(self) -> list:
         """[(FNV EditorID, FO4 package)] scripts named that were written."""
@@ -274,20 +293,22 @@ class Packages:
         return {slots['Min Radius']: struct.pack('<f', distance), slots['Max Radius']: struct.pack('<f', far)}
 
     def _trigger(self, rec: dict, form_map: dict) -> dict:
-        """{TRIGGER_INPUT: PLDT} of FNV Dialogue `rec`'s Trigger Location (PLD2); without one, near the player
-        (FNV heads for the target at once), its Activate Distance (PTDT count, else ACTIVATE_DISTANCE) the radius;
-        {} when PLD2's location does not convert (the template's). A trigger box (XPRM) with radius 0 reaches its
-        smaller half extent.
+        """{location input: PLDT} of FNV Dialogue `rec`'s ForceGreet copy: its Trigger Location (PLD2), else near the
+        actor within FNV's loaded area (FNV_LOADED_REACH), and its Forcegreet Distance, near the player within FNV's
+        Activate Distance (PTDT count, else ACTIVATE_DISTANCE) but no farther than TALK_REACH, as FO4 talks only
+        within its dialogue range. A PLD2 that does not convert keeps the template's
+        trigger. A trigger box (XPRM) with radius 0 reaches its smaller half extent.
         See: docs/fork/fo4_pipeline.md#greet-trigger
         """
+        reach = min(int(rec.get('PTDT.Count', 0) or 0) or ACTIVATE_DISTANCE, TALK_REACH)
+        greet = {GREET_INPUT: struct.pack('<iIi', NEAR_REFERENCE, int(PLAYER_TARGET, 16), reach)}
         place, ref = rec.get('PLD2.Type'), int(rec.get('PLD2.Location', '0') or '0', 16)
         if place is None:
-            reach = int(rec.get('PTDT.Count', 0) or 0) or ACTIVATE_DISTANCE
-            return {TRIGGER_INPUT: struct.pack('<iIi', NEAR_REFERENCE, int(PLAYER_TARGET, 16), reach)}
+            return {TRIGGER_INPUT: struct.pack('<iIi', NEAR_SELF, 0, FNV_LOADED_REACH), **greet}
         if place not in SHARED_LOCATIONS or place in NAMED_LOCATIONS and ref not in form_map:
-            return {}
+            return greet
         radius = int(rec.get('PLD2.Radius', 0) or 0) or round(self.boxes.get(ref, 0))
-        return {TRIGGER_INPUT: struct.pack('<iIi', int(place), form_map.get(ref, 0), radius)}
+        return {TRIGGER_INPUT: struct.pack('<iIi', int(place), form_map.get(ref, 0), radius), **greet}
 
     def _fragments(self, rec: dict, form_map: dict) -> bytes:
         """VMAD binding FNV package `rec`'s converted PF_ script, filled; a cower's (cowers()) COWER_SCRIPT; a
@@ -367,8 +388,12 @@ class Packages:
         return template, struct.pack('<iIi', TARGET_REFERENCE, form_map[ref], 0)
 
     def _at(self, rec: dict, kind: str, template: str, form_map: dict) -> 'tuple | str':
-        """(template, PLDT payload) at FNV package `rec`'s location (none: where it starts, as FNV runs it); a
-        Travel to a seat sits in it."""
+        """(template, PLDT payload) at FNV package `rec`'s location (none: where it starts, as FNV runs it, but a
+        Dialogue's waits where the actor is, as FNV sends it for its target at once); a Travel to a seat sits in it.
+        See: docs/fork/fo4_pipeline.md#greet-wait
+        """
+        if kind == FNV_DIALOGUE and 'PLDT.Type' not in rec:
+            return template, struct.pack('<iIi', NEAR_SELF, 0, 0)
         place = rec.get('PLDT.Type', str(NEAR_START))
         ref = int(rec.get('PLDT.Location', '0') or '0', 16)
         if place not in SHARED_LOCATIONS:

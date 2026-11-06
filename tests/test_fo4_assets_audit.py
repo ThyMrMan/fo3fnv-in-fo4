@@ -319,3 +319,30 @@ def test_an_old_staging_folder_moves_out_of_the_data_folder(tmp_path, monkeypatc
     BP._staging.cache_clear()
     old.parent.mkdir(parents=True)
     assert BP.staging_root(data) == root and not (data / BP.STAGING).exists()
+
+
+def test_a_build_with_no_sounds_left_deletes_its_old_sound_archive(tmp_path, monkeypatch):
+    """A plugin whose staged sounds are all gone (a pack's stale silent lines set aside) loses its old
+    `<plugin> - Main.ba2` and its record, which would ship those sounds."""
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    data = tmp_path / 'data'
+    staged = BP.sound_root(data) / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.xwm'
+    staged.parent.mkdir(parents=True)
+    data.mkdir()
+    staged.write_bytes(b'x')
+    assert BP.pack_sounds(data, 'P.esp') == 1 and (data / 'P - Main.ba2').is_file()
+    staged.unlink()
+    assert BP.pack_sounds(data, 'P.esp') == 0
+    assert not (data / 'P - Main.ba2').exists() and not (data / 'P - Main.ba2.json').exists()
+
+
+def test_a_worldspace_lod_texture_no_longer_written_is_dropped_from_the_staging(tmp_path):
+    """_staged_files: an own texture or own worldspace LOD texture this run did not keep goes; one it kept and a
+    texture outside both (FaceGen) stay."""
+    staged = tmp_path / 'Textures'
+    keys = ('fnv/a.dds', 'terrain/fnv_wastelandnv/objects/x.dds', 'terrain/fnv_zion/z.dds', 'actors/facegen/f.dds')
+    for key in keys:
+        (staged / key).parent.mkdir(parents=True, exist_ok=True)
+        (staged / key).write_bytes(b'x')
+    kept = BP._staged_files(staged, {'terrain/fnv_zion/z.dds'})
+    assert sorted(kept) == ['actors/facegen/f.dds', 'terrain/fnv_zion/z.dds']

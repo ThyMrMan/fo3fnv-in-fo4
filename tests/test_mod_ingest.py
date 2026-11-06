@@ -221,13 +221,14 @@ def test_categorize_matches_bsa_layout(path, expect):
     assert bsa_extract.categorize(path) == expect
 
 
-def test_lip_files_excluded_like_bsa(tmp_path, capsys):
+def test_lip_files_kept_like_bsa(tmp_path, capsys):
+    """A mod's .lip lands beside its recordings, as BSA extraction keeps them (Fallout 4 reuses them)."""
     entries = _mod_entries()
     entries['Sound/voice/line.lip'] = b'LIP'
     arc = _zip(tmp_path / 'mod.zip', entries)
     export = tmp_path / 'export'
     mod_ingest.ingest(arc, export, log=lambda *a: None)
-    assert not list(source_registry.asset_root(export, 'MyMod.esp').rglob('*.lip'))
+    assert (source_registry.asset_root(export, 'MyMod.esp') / 'sound' / 'voice' / 'line.lip').read_bytes() == b'LIP'
     assert (source_registry.asset_root(export, 'MyMod.esp')
             / 'sound' / 'fx' / 'noise.wav').is_file()
 

@@ -279,8 +279,9 @@ top or bottom (check where FNV's topic list puts GOODBYE before choosing). Later
 give both the same name; they keep different names while testing, so a
 play-test shows which one appeared.
 
-Not covered yet: voice, the player's own "Hi" before a greeting, and the force
-greet (Doc's menu conversation has none).
+Not covered when 1a was built (all since built): voice ([voice](#spike-1-voice)),
+the player's own "Hi" before a greeting ([silent lines](#silent-line)), and the
+force greet ([greet trigger](fo4_pipeline.md#greet-trigger)).
 
 ## <a id="spike-3"></a>Spike 3: one script
 
@@ -375,8 +376,9 @@ script uses, so Doc compiles while helper bodies still fail. Compiled alone,
 | `TES4_BoundItemEffect` | SKSE `GetEquippedArmorInSlot` |
 | `TES4_Terminal` | one actor-value read |
 
-Not yet done: the pipeline's FO4 VMAD, filling `TES4AV_*`,
-`TES4PlayerControls` and `TES4CharacterEvents`.
+Then still to do, since built: the pipeline's FO4 VMAD ([FO4 VMAD](#spike-3-vmad)),
+filling `TES4AV_*` and `TES4PlayerControls` ([end to end](#spike-3-end-to-end))
+and `TES4CharacterEvents` ([helper plugin](#spike-3-helper-plugin)).
 
 ### <a id="spike-3-helpers"></a>The Fallout 4 helper set
 
@@ -898,7 +900,8 @@ references, 427 are placed:
   template and imagespace, are QASmoke's.
 - **Objects:** every base with a mesh becomes a static of that mesh (204),
   whatever its FNV type (STAT, MISC, FURN, CONT, ACTI, MSTT, items).
-  Containers, furniture and pick-ups come later.
+  Containers, furniture and pick-ups came next ([items](#spike-2-items),
+  [furniture](#spike-2-furniture)).
 - **Markers:** FNV's engine statics below 0x800 are editor markers. The
   three Fallout4.esm shares by FormID and EditorID (COCMarkerHeading,
   XMarkerHeading, XMarker) keep their base, and the rest are dropped
@@ -1234,12 +1237,15 @@ and model:
   `DocMitchellREF`, FNV-only items (Steady, Rebound, the 9mm SMG) and
   `TES4DestroyedRefs` (`TES4Polyfill.SetDestroyed` skips a missing list).
   So the chemistry set, SMG and game-mode note work; the quest-driven ones
-  bind and do nothing until VCG01 is converted.
+  bound and did nothing until VCG01 was converted ([VCG01](#spike-2-vcg01)).
 - **Messages.** A script's `Message` property makes the FNV MESG it names:
   title, text, buttons, and the Message Box flag (FNV's bit 1 is Auto
   Display, FO4's Delay Initial Display, so it is dropped); a notification
   gets vanilla's default 2 seconds. The export has no button conditions
-  (the chemistry set's "Science 25"), so every button shows.
+  (the chemistry set's "Science 25"), so every button showed. Since
+  2026-11-05 the export writes them and buttons are gated (9 of the base
+  game's 136 still ungated; built, not played:
+  [message buttons](fo4_pipeline.md#message-buttons)).
 - **Triggers.** FO4 trigger references are NAME, XPRM, DATA (8,832
   vanilla), their bases plain ACTIs (EDID, VMAD, OBND, PNAM, FNAM:
   `DefaultSetStageTrigger` and the like). XPRM is the same 32 bytes in both
@@ -1255,7 +1261,8 @@ and model:
 - **Export gaps.** The shared export has no ACTI VNAM (activation sound, 100
   activators), WNAM (water, 31), XATO (prompt, 59), RNAM (radio, 24) or INAM
   (3), and no WATR XNAM; the spike reads WNAM and XNAM from FalloutNV.esm
-  (`install.FALLOUTNV_ESM`). Sounds are not converted yet.
+  (`install.FALLOUTNV_ESM`). Sounds were converted later
+  ([sounds](#spike-4-sounds), played 2026-10-10).
 
 ### <a id="spike-2-navmesh"></a>Navmesh (played 2026-10-06)
 
@@ -1338,7 +1345,7 @@ idles and imagespace modifiers.
   carries his FNV script and doors theirs. Doc is one clone now (STH).
 - Unfilled: `VCG00`, `VMQ01`, `VCG04`, `CGTutorial`, `VictorREF`, the
   topics (step 2), packages (step 3), imagespace modifiers, `PipBoy`,
-  `GameHour`, `TES4DestroyedRefs`.
+  `TES4DestroyedRefs` (and `GameHour` until the engine-globals fix above).
 
 Without Doc's lines the quest stops at stage 3 (stage 5 is set by his
 line's result).
@@ -1835,8 +1842,8 @@ walking). Each is a type 6 package whose only content is a special idle
   between "needlework" (its end sets 30) and "How'd I do?" (stage 35), so
   `poses.LINE_IDLES` gave "How'd I do?" (`00104BF8`) that speaker idle.
   Replaced 2026-10-19: FNV's own clips play as FO4 dynamic idles, and
-  "How'd I do?" carries FNV's own speaker idle, `VCG01DocGiveMirror`
-  ([idles](fo4_idles.md#records)).
+  `VCG01DocGiveMirror` plays FNV's own clip, from the stage-30 script
+  only: seated clips stay off lines ([seated idles](fo4_idles.md#furniture)).
 - **Played:** the blur and fade work; the player sits on the bed's edge,
   out of Doc's way, through the Reflectron and until they walk off.
   Getting there:
@@ -1856,7 +1863,7 @@ walking). Each is a type 6 package whose only content is a special idle
 
 **Played (2b, 3):** Doc walks to his chair and sits, the word association
 starts, and the whole test runs through to its end and Doc's walk to the
-door; the outro there is next.
+door; the outro there came next (played 2026-10-07, above).
 
 **Seen once, not reproduced (2026-10-19): no controls after the
 Vit-o-matic.** After the SPECIAL menu closed, the player could not move or
@@ -1942,8 +1949,10 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   groups are labelled (y, x) in int16s: block = coordinate ÷ 32, sub-block
   ÷ 8 (vanilla cell (-89, 7) is block (0, -3), sub-block (0, -12)).
 - Static collections carry their merged mesh (`SCOL\…`), placed as
-  statics. Trees are SpeedTree (`.spt`): not converted. No grass, LOD or
-  exterior navmesh yet.
+  statics. Trees are SpeedTree (`.spt`), converted later ([trees](#spike-4-trees)).
+  Grass came later (below), as did the exterior navmesh
+  ([exterior navmesh](fo4_pipeline.md#exterior-navmesh)) and object LOD
+  ([object LOD](fo4_build_next.md#object-lod)).
 - **Played (2026-10-08):** in good shape. Open:
   - **Trees:** the block's 43 trees are not converted (since done:
     [trees](#spike-4-trees)).
@@ -2519,7 +2528,7 @@ since the saloon she lives in is not built.
   for Sunny.
 - The mouth takes Dogmeat's jaw and lip weights by surface, not FNV's jaw bone.
 
-**Super mutants and nightkin on FO4's super mutant (built 2026-10-31, not played).**
+**Super mutants and nightkin on FO4's super mutant (built 2026-10-31, played 2026-11-01 and 2026-11-02).**
 The same way, by the outfits' `HUMAN` rig: FNV's `creatures\smspinebreaker`
 parts (a base body with its own head, plus an armor NIF: 91 records, 34
 distinct part lists, nightkin included) on
@@ -2583,7 +2592,9 @@ distinct part lists, nightkin included) on
   - `CrNightkinGunScript` aborts every pass: its `NightkinCloakFXShader`
     property is empty, because no FNV effect shader (EFSH) is in the build,
     and the pass plays it before re-adding the spell. A gun nightkin that
-    uncloaks to fire never cloaks again. Fixed 2026-11-01, not rebuilt: every
+    uncloaks to fire never cloaks again. Fixed 2026-11-01 (the shader plays
+    in the next build, below; re-cloaking needed the `GetAnimAction` fix, also
+    2026-11-01, not yet seen in play): every
     script `EffectShader` property gets a Fallout4.esm shader, the nightkin's
     vanilla's `StealthBoyInvisibilityEffect`
     ([effect shaders](script_markers.md#effect-shaders)).
@@ -2593,7 +2604,7 @@ distinct part lists, nightkin included) on
     drops; FNV uncloaks them on purpose within 400 units of a combat target.
     Fixed 2026-11-01, not rebuilt: `SetForceSneak 1` is now `StartSneaking()`
     ([SetForceSneak](script_markers.md#setforcesneak)).
-- **Weapons: a super mutant additive race (fixed 2026-11-01, not rebuilt).**
+- **Weapons: a super mutant additive race (fixed 2026-11-01, played 2026-11-01: nightkin fire their guns).**
   Played, nightkin hit only with FO4's `UnarmedSuperMutant` and loaded with
   nothing equipped, the sniper too. `SuperMutantRace` picks weapon behaviour
   by nine keywords. FNV's guns on their own clips trade theirs for a
@@ -2683,9 +2694,10 @@ distinct part lists, nightkin included) on
   `readyState`, almost never `attackStop` or `AttackEnd` (one in 20 s of
   firing), and `attackState` fires on leaving the attack too. So
   `TES4_AnimAction` reads an attack from the first shot on and the gun
-  script never re-adds the cloak. The fix belongs in
-  `script_convert/anim_action_falloutnv.py`: drop `attackState` from
-  `ATTACK_STARTS` and add `readyState` to `ATTACK_ENDS`. The cloak shader
+  script never re-adds the cloak. Fixed 2026-11-01 in
+  `script_convert/anim_action_falloutnv.py` (in every build since, not yet
+  seen in play): `attackState` is no start, `readyState` an end, and an
+  attack with no end event ends 2 s after its last start. The cloak shader
   now plays (vanilla `StealthBoyInvisibilityEffect`); its only error is on
   an unloaded nightkin. FO4's Stealth Boy and assaultron descriptions ("Invisible for 30
   seconds", "Stealth Field for <dur> seconds") carry no sneak condition.
@@ -2735,7 +2747,59 @@ distinct part lists, nightkin included) on
     sentry bots; FO4's robot skeleton has no `bhkRagdollSystem`);
   - no pose in FNV: 22.
   The build counts each as `ragdoll pose written` / `left out: <why>`.
-- FO4's animations, not FNV's; FNV's armor is part of the body.
+- FO4's animations, not FNV's; FNV's armor is its own addon over FO4's body
+  (slots 33 and 61, above).
+
+<a id="dead-money-humans"></a>**Dead Money's Ghost People and holograms on FO4's human (built 2026-11-02, not played).**
+Both stand on FNV's own human skeleton (`nvdlc01\creatures\ghosts`, `...\hologram`: the
+`_male` bones plus arm twists, `MeleeWeapon`, `ProjectileNode_Beam`), so they
+take the super mutants' way on FO4's human: a copy of `EncRaider01Template`
+(no template, its own skin) wearing FNV's body as its skin
+(`Pair.human`).
+
+- **Folders.** `skeleton_folder` is the folder holding the skeleton. It used to be the
+  first two path parts, which put both DLC folders (and FO3's `dlc05` alien,
+  whose rule moved with it) under `nvdlc01\creatures`. Base-game creature keys are
+  unchanged.
+- **Mesh.** FNV's weights on the `HUMAN` rig (`own_weights`). FO4's
+  `malebody.nif` skins no `HEAD`, which left FNV's head bone with no target. It
+  then spread over every bone, putting the hood on the chest, belly and arms. `creature_fit`
+  adds each rig bone the body lacks (neither the bone nor its `_skin` helper)
+  at the skeleton's rest frame, as outfits add `HEAD`. The super mutant and dog fits lack none.
+  Ghost hood centre 6 units from `HEAD`, gloves 10 from the wrists.
+  FNV's fingers ride the hand.
+- **Slots.** The skin covers hair 30-31, head 32 and face 46-50, as vanilla
+  `AAArmorHazmatSuitHat` and the raider hoods (17 vanilla human head
+  covers), so the raider's head and hair don't show.
+- **Voice.** Neither has a VTCK; their sound sets (`AudioTemplateGhostSeeker`,
+  `AudioTemplateHologram`) speak `VoiceDoNotRecordF`. On FO4's human the
+  creature takes that voice type recorded or not, so it says nothing. Without this, it
+  would speak the raider's combat lines. Dogs (105 also on `VoiceDoNotRecordF`)
+  keep Dogmeat's.
+- **Guns.** A human holds its creature guns: `NVDLC01HologramBeam` (embedded,
+  no model, fired from `ProjectileNode_Beam`) is FO4's laser pistol in hand.
+  Drift: FNV's beam leaves the skeleton's node with nothing held.
+- FO4's human animations and combat; FNV's play-dead and special idles are
+  not carried.
+
+<a id="old-world-blues-creatures"></a>**Old World Blues' creatures (rules added 2026-11-03, not built).**
+OWB placed 9 actors on folders with no rule, and their records are still used:
+98 Mobius dialogue conditions and the X-42 turret package point at them.
+
+- `nvdlc03\creatures\hologram` is Dead Money's hologram again (same parts,
+  `nvdlc01hologramoutfit`), so it takes the same human pair.
+- `brainbot` (the Think Tank: Klein, Dala, Borous, 8, O, Mobius) are hovering,
+  armed, talking robots. They become FO4's Mr. Handy (`encMrGutsy01Template`,
+  stats), as FNV's Mr. Gutsy does. Their records are template actors on
+  leveled lists, so the count names the record, not the folder.
+- `roboscorpion` becomes FO4's radscorpion (stats), sized by FNV's base scale.
+- `braintank` (no packages, a talking idle and no walk clips) is a speaker
+  like Mr. House: FNV's parts are placed beside an unseen talker.
+- Drift: the stand-ins keep FO4's bodies, animations and attacks.
+
+Lonesome Road's ED-E and its medical and repair eyebot clones all sit in
+`nvdlc04\creatures\nvdlc04edeclone` (`skeleton_Low.nif`). The folder takes
+the base-game eyebot's rule (`EncEyeBot`, stats).
 
 **Geckos: the deathclaw tried and dropped; a mole rat stands in (2026-10-10).**
 FNV's most placed creature with no FO4 counterpart ([census](#creature-census)).
@@ -3076,7 +3140,7 @@ per sex. Pre-War Casualwear was played first (2026-10-08), then the rest
   template's slots (33 and armor slots 41 to 45, so no armor goes over it)
   and shows FNV's ground model.
 
-### <a id="spike-4-guns"></a>Guns on FNV's own meshes (played twice 2026-10-08, parked)
+### <a id="spike-4-guns"></a>Guns on FNV's own meshes (played twice 2026-10-08, parked; superseded by [FNV's own gun clips](#spike-4-gun-clips))
 
 The 9mm SMG and BB gun show FNV's meshes on their templates' animations
 (`fo4_import/nif/gun.py`, `fo4_import/spike/guns.py`).
@@ -3153,10 +3217,28 @@ The 9mm SMG and BB gun show FNV's meshes on their templates' animations
   steam, and fired once without reloading. Each is the chosen gun's own
   animation or effect: automatic choice fits only as far as a FO4 gun's
   layout and action match FNV's.
-- **Parked:** guns default to FO4's guns again (`stats` in the
-  [replacement table](fo4_replacements.md)); this path stays as the `fnv`
-  mode, experimental. FNV-looking guns need per-gun tuning, new
-  animations, or an existing port named in the table.
+- **Parked then:** guns went back to FO4's guns (`stats` in the
+  [replacement table](fo4_replacements.md)). Since 2026-10-29 the `fnv`
+  mode carries FNV's own clips and is the default for every gun without a
+  near FO4 match ([which guns convert](#spike-4-gun-clips)).
+
+### <a id="placed-guns"></a>Placed guns lie as FNV's (built 2026-11-06, not played)
+
+FNV's reference rotation fits FNV's model, which lies along +X with +Y up;
+the FO4 weapon in its place lies along +Y with +Z up (the store's .22 stood
+on its grip). A placed reference of a converted gun now takes back the turn
+its mesh was given (`guns.turned`, in `cell._placed_at`):
+- a gun on FNV's own mesh, its `gun.placement` matrix (the axes turn, a
+  launcher's tip and roll, the trigger offset onto the receiver's);
+- a gun shown on an FO4 model, FO4's axes alone (`gun.AXES`), no offset:
+  both games put a gun's origin in the hand.
+
+The reference's rotation becomes FNV's times the mesh's turn, and its
+position moves back by the offset, turned and scaled as the reference is,
+so every point of FNV's model lands where FNV put it
+(`tests/test_fo4_placed_guns.py`). Counted as `placed guns turned as their
+mesh`. Melee and thrown weapons are not turned: FNV and FO4 build them
+along the same axis.
 
 ### <a id="spike-4-gun-clips"></a>FNV's own gun clips on a vanilla graph (built; played 2026-10-28/29; good enough, tweaks parked)
 
@@ -4004,7 +4086,8 @@ that hold physics or mapper data. The route, when option 3 resumes: a
 Python Havok 2014 reader and writer built on its class tables (with the
 MIT notices), proved by rebuilding every vanilla behaviour byte for byte,
 as the NIF writer was. Parked with the modlist direction
-([direction](fo4_replacements.md#direction)).
+([direction](fo4_replacements.md#direction)) until 2026-10-25; resumed as
+[own rigs](#own-rigs) and [fo4_own_rig.md](fo4_own_rig.md).
 
 A community port (GrilledTurkey's, [candidate mods](fo4_replacements.md#candidate-mods))
 answers the same need as way 1 or 2 for the creatures it covers.
@@ -4130,7 +4213,8 @@ it settles for a converter that has none of those:
     phantom capsules), `BSBound` (FNV's skeleton has one), the bones without
     a body (the static converter keeps only bodies and their parents;
     a creature skeleton needs every bone), `BSBoneLODExtraData` and
-    `BSLagBoneController`. Not yet played: whether the game ragdolls it.
+    `BSLagBoneController`. Whether the game ragdolls it was played later:
+    it does ([ragdoll](#own-rig-ragdoll), 2026-10-27).
     Probe: `elric_ragdoll_test.py` in the session scratch.
   - **Controller and bumper, tested 2026-10-25 (offline).** The gecko
     skeleton with every bone kept (88 FNV bones) plus two root children,
@@ -4713,9 +4797,10 @@ it settles for a converter that has none of those:
     the game and it does not ship them, so the repo keeps only the layout
     table, not the descriptions.
   - **Not done:** hit reactions, staggers, idles, the fire gecko's breath;
-    `BSBound` and the bone LOD and lag-bone extras on `skeleton.nif`;
-    stages 2 on: the gecko through a per-creature table, as a fourth mode
-    of `fo4_import/spike/creatures.py`.
+    the bone LOD and lag-bone extras on `skeleton.nif` (`BSBound` is now
+    written: [modules](fo4_own_rig.md#modules)). Stage 2, the gecko through
+    a per-creature table as mode `rig`, is wired since 2026-10-27
+    ([parity](fo4_own_rig.md#parity)).
 
 So a converter's own rig needs, from tools it lacks: nothing proprietary.
 The skeleton, clips and behaviour, character and project files are writable

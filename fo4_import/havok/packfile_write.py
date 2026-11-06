@@ -41,6 +41,10 @@ class Writer:
         self.buf, self.local, self.glob, self.virtual, self.pos = bytearray(), [], [], [], {}
         self.order, self.sink, self.pending = [], self.glob, {}
         self._walk(top)
+        for name in self.order:
+            o = self.by[name]
+            for ref in self._fixed_refs(o['class'], o['fields']):
+                self._walk(ref)
         if keep_order:
             reached = set(self.order)
             self.order = [o['#'] for o in objects if o['#'] in reached]
@@ -58,6 +62,20 @@ class Writer:
         """The object names a `cls` value points to, in member order."""
         return [ref for m in self.cl.members(cls) if not m.ignored and not m.arrsize
                 for ref in self._value_refs(m, fields[m.name])]
+
+    def _fixed_refs(self, cls: str, fields: dict) -> list:
+        """The object names a `cls` value points to from inside fixed-size arrays (a ragdoll constraint's motors),
+        which _refs leaves out; walked after it, so files without them keep their order."""
+        out = []
+        for m in (m for m in self.cl.members(cls) if not m.ignored):
+            value = fields[m.name]
+            if m.arrsize:
+                out += [ref for v in value for ref in self._value_refs(m.single(), v)]
+            if m.vtype == 'TYPE_STRUCT':
+                out += [ref for v in (value if m.arrsize else [value]) for ref in self._fixed_refs(m.ctype, v)]
+            elif m.vtype in ARRAYS and m.sub == 'TYPE_STRUCT':
+                out += [ref for v in value for ref in self._fixed_refs(m.ctype, v)]
+        return out
 
     def _value_refs(self, m, value) -> list:
         """The object names one member value points to."""

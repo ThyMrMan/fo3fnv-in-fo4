@@ -4,13 +4,15 @@ A build of a source plugin with masters (an FNV DLC on FalloutNV.esm) converts t
 makers also remake master records they reach (a base-game gun in a DLC leveled list, the game-wide settings). A
 top-level record whose FormID is a built master's is kept when it differs from the latest built master plugin's
 copy and the DLC changed it: the DLC holds that record (its override in the source), or it names one of the DLC's
-own records (DLC content flowing into it: a base gun's ammo mods once GRA adds ammo to its ammo list). Such a
-record built over the whole game (a list of every gun) is remade from what this build reached, so a form list is
-merged (the master's entries, then the DLC's) and any other kind is kept only if it loses none of the master's
-subrecords, else dropped and counted. One
+own records (DLC content flowing into it: a base gun's ammo mods once GRA adds ammo to its ammo list). A form
+list the DLC only adds to is not overridden: its additions are made at run time (F3NV_FormListAdds), which
+stack across plugins. Any other kind is kept only if it loses none of the master's subrecords, else dropped and
+counted. One
 identical to it is dropped; so is one the master plugin does not hold (the source master's record its build left
 out: nothing to override), and one that differs without either (the dependent build's context changed it, not
-the DLC). A record of a master the build did not make (Fallout4.esm) no built master overrides is kept.
+the DLC). A record of a master the build did not make (Fallout4.esm) no built master overrides is kept. Records
+inside a group (a quest's topics, lines and scenes) are judged alike; a master record heading a kept children
+group (the game quest and topic a DLC line sits under) stays, as the master's own copy when it changes nothing.
 
 See: docs/fork/fo4_plugin_layout.md#dlc
 """
@@ -20,16 +22,14 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.install import file_masters
-from fo4_import.base.quest_merge import merged_quest
 from fo4_import.base.writer import pack_fo4_record
-from tes5_import.base.tes5_reader import FLAG_COMPRESSED, decompress, subrecords, walk
-from tes5_import.base.writer import pack_subrecord
+from fo4_import.pipeline.build_inputs import MASTERS, Held
+from tes5_import.base.tes5_reader import FLAG_COMPRESSED, decompress, subrecords, walk, zstr
 
 #: A record's header size; its data size, flags and FormID offsets.
 REC_HDR, SIZE_AT, FLAGS_AT, FID_AT = 24, 4, 8, 12
-#: The kinds of master record a dependent build keeps, and the types it may write merged.
-KEPT = ('override', 'override naming DLC records', 'form list merged', 'quest rows merged', 'new override')
-MERGED = ('FLST', 'QUST')
+#: The kinds of master record a dependent build keeps.
+KEPT = ('override', 'override naming DLC records', 'new override')
 
 
 def _header(blob: bytes) -> tuple:
@@ -37,15 +37,25 @@ def _header(blob: bytes) -> tuple:
     return (blob[:4],) + struct.unpack_from('<3I', blob, SIZE_AT)
 
 
-def _master_group(blob: bytes, held: bool, indexes: tuple, counts: collections.Counter) -> bool:
-    """Whether a record with its children (a quest and its dialogue) is all a built master's (`indexes`: own
-    index, built masters' indexes) and its record not `held`: the build made it, not the DLC; counted."""
-    own, built = indexes
-    fids = [rec.form_id for rec, _ in walk(blob, bodies=(), span=(0, len(blob)))]
-    if held or fids[0] >> 24 not in built or any(f >> 24 >= own for f in fids):
-        return False
-    counts[f'master record groups changed by the build alone ({blob[:4].decode()})'] += 1
-    return True
+def _pruned(data: bytes, keep) -> bytes:
+    """`data` (records and groups at one level) with each record as `keep(record, heads)` gives it (b'' drops it;
+    `heads`: its children group survived, so it must stay) and each group pruned alike, gone when emptied."""
+    items, pos = [], 0
+    while pos < len(data):
+        sig, size = struct.unpack_from('<4sI', data, pos)
+        end = pos + (size if sig == b'GRUP' else REC_HDR + size)
+        items.append((sig == b'GRUP', data[pos:end]))
+        pos = end
+    groups = [_pruned(blob[REC_HDR:], keep) if group else b'' for group, blob in items]
+    out = []
+    for i, (group, blob) in enumerate(items):
+        if group:
+            inner = groups[i]
+            out.append(blob[:SIZE_AT] + struct.pack('<I', REC_HDR + len(inner)) + blob[FLAGS_AT:REC_HDR] + inner
+                       if inner else b'')
+        else:
+            out.append(keep(blob, i + 1 < len(items) and items[i + 1][0] and bool(groups[i + 1])))
+    return b''.join(out)
 
 
 def _own_ids(writer) -> frozenset:
@@ -60,8 +70,8 @@ def _names_any(body: bytes, ids: frozenset) -> bool:
 
 
 def held_by(paths: list) -> frozenset:
-    """The FormIDs of every record in built master plugins `paths`."""
-    return frozenset(rec.form_id for path in paths for rec, _ in walk(Path(path).read_bytes(), bodies=()))
+    """The FormIDs of every record in built master plugins `paths` (each question asked of it logged: Held)."""
+    return Held(rec.form_id for path in paths for rec, _ in walk(Path(path).read_bytes(), bodies=()))
 
 
 def master_records(paths: list, wanted: dict, masters: list) -> dict:
@@ -72,64 +82,137 @@ def master_records(paths: list, wanted: dict, masters: list) -> dict:
         theirs = file_masters(path)
         if masters[:len(theirs) + 1] != theirs + [path.name]:
             raise ValueError(f'{path.name} masters {theirs} do not lead the build masters {masters}')
-        for rec, _ in walk(path.read_bytes(), *set(wanted.values())):
-            if rec.form_id in wanted:
+        for rec, _ in walk(path.read_bytes(), bodies=frozenset(wanted.values())):
+            if wanted.get(rec.form_id) == rec.sig:
                 out[rec.form_id] = (rec.flags & ~FLAG_COMPRESSED, rec.body)
+    for fid, sig in wanted.items():
+        MASTERS.record(fid, sig, out[fid][1] if fid in out else None)
     return out
 
 
-def drop_unchanged(writer, paths: list, held: set, rules: 'dict | None' = None) -> collections.Counter:
-    """Remove `writer`'s top-level master records that change nothing in the built master plugins `paths`; `held`
-    are the FO4 FormIDs of the records the DLC holds (module notes), `rules` quest_merge's script rules; counts by
-    kind and signature."""
-    own, built = writer.own_index, {writer.masters.index(Path(p).name) for p in paths}
-    candidates = {}
-    for blob in writer.top_records():
-        sig, size, _, fid = _header(blob)
-        if fid >> 24 < own and len(blob) == REC_HDR + size:
-            candidates[fid] = sig
+def _candidates(writer) -> dict:
+    """{FormID: signature} of `writer`'s master records, groups included."""
+    return {rec.form_id: rec.sig for blob in (*writer.top_records(), *writer.raw_groups())
+            for rec, _ in walk(blob, bodies=(), span=(0, len(blob))) if rec.form_id >> 24 < writer.own_index}
+
+
+def drop_unchanged(writer, paths: list, held: set, adds: 'dict | None' = None) -> collections.Counter:
+    """Remove `writer`'s master records, top-level, nested, or in a pre-built group (worldspaces, cells: placed
+    refs, navmeshes), that change nothing in the built master plugins `paths`; one whose children group keeps a
+    record stays as the master's copy. A master form list or perk the DLC only adds to goes too, its additions
+    in `adds` ({FormID: (signature, EditorID, [forms or perk entries])}) for list_adds. `held`: FormIDs of the
+    records the DLC holds. Counts by kind and signature.
+    See: docs/fork/fo4_plugin_layout.md#dlc-dialogue
+    """
+    candidates = _candidates(writer)
     found = master_records(paths, candidates, writer.masters)
-    counts, dlc = collections.Counter(), _own_ids(writer)
+    counts, adds = collections.Counter(), {} if adds is None else adds
+    context = (held, {writer.masters.index(Path(p).name) for p in paths}, _own_ids(writer), writer.own_index)
 
     def unwanted(blob: bytes) -> bool:
-        """Whether a top-level record changes nothing in the masters; counted."""
-        sig, size, flags, fid = _header(blob)
-        if len(blob) != REC_HDR + size:
-            return _master_group(blob, fid in held, (own, built), counts)
+        """Whether a record changes nothing in the masters; counted, a list's or perk's additions kept in `adds`."""
+        sig, _, flags, fid = _header(blob)
         if candidates.get(fid) != sig:
             return False
-        kept, body = found.get(fid), decompress(blob[REC_HDR:], flags)
-        if kept is None:
-            kind = 'not in its master' if fid >> 24 in built else 'new override'
-        elif kept == (flags & ~FLAG_COMPRESSED, body):
-            kind = 'same as master'
-        elif fid in held:
-            kind = 'override'
-        elif not _names_any(body, dlc):
-            kind = 'changed by the build alone'
-        else:
-            kind, merged[fid] = _carrying(sig, fid, body, kept, rules or {})
+        kind, items = _kind(sig, fid, (flags, decompress(blob[REC_HDR:], flags)), found.get(fid), context)
+        if items:
+            edid = zstr(dict(subrecords(found[fid][1])).get(b'EDID', b''))
+            known = adds.setdefault(fid, (sig, edid, []))[2]
+            known += [item for item in items if item not in known]
         counts[f'master records {kind} ({sig.decode()})'] += 1
         return kind not in KEPT
-    merged = {}
-    writer.remove_records(unwanted)
-    for sig in MERGED:
-        writer.patch_records(sig, lambda blob: merged.get(_header(blob)[3]) or blob)
+
+    def keep(blob: bytes, heads: bool) -> bytes:
+        """A record as written (b'': dropped); one heading kept children stays, as the master's copy if unwanted."""
+        sig, _, _, fid = _header(blob)
+        if not unwanted(blob):
+            return blob
+        if heads and fid in found:
+            return pack_fo4_record(sig.decode(), fid, *found[fid])
+        return blob if heads else b''
+    for sig in {_header(blob)[0].decode() for blob in writer.top_records()}:
+        writer.patch_records(sig, lambda blob: _pruned(blob, keep))
+    writer.remove_records(lambda blob: not blob)
+    writer.patch_groups(lambda blob: _pruned(blob, keep))
     return counts
 
 
-def _carrying(sig: bytes, fid: int, body: bytes, kept: tuple, rules: dict) -> tuple:
-    """(kind, merged record or None) of master record `fid` naming DLC records, `kept` the master's (flags, body):
-    a form list as the master's entries then the DLC's new ones; a quest with its scripts' rows merged
-    (quest_merge); another kind kept only when it loses none of the master's subrecords (a whole-record override
-    would drop what the dependent build did not remake)."""
-    mine, theirs = subrecords(body), subrecords(kept[1])
-    if sig == b'FLST':
-        old = {data for tag, data in theirs if tag == b'LNAM'}
-        new = [pack_subrecord('LNAM', data) for tag, data in mine if tag == b'LNAM' and data not in old]
-        return 'form list merged', pack_fo4_record('FLST', fid, kept[0], kept[1] + b''.join(new))
-    quest = merged_quest(kept[1], body, rules) if sig == b'QUST' else None
-    if quest is not None:
-        return 'quest rows merged', pack_fo4_record('QUST', fid, kept[0], quest)
-    lost = collections.Counter(theirs) - collections.Counter(mine)
-    return ('override naming DLC records' if not lost else 'dropped: would lose master entries'), None
+def _kind(sig: bytes, fid: int, record: tuple, kept: 'tuple | None', context: tuple) -> tuple:
+    """(kind, additions) of master record `fid` as written, `record` (flags, body), against the master's `kept`
+    (flags, body) or None; `context` (held FormIDs, built master indexes, own FormIDs as bytes, own index)."""
+    held, built, dlc, own = context
+    flags, body = record
+    if kept is None:
+        return ('not in its master' if fid >> 24 in built else 'new override'), []
+    if kept == (flags & ~FLAG_COMPRESSED, body):
+        return 'same as master', []
+    forms = added_forms(body, kept[1], (own, dlc)) if sig == b'FLST' else []
+    if forms:
+        return 'list entries added at run time', forms
+    entries = added_perk_entries(body, kept[1]) if sig == b'PERK' else []
+    if entries:
+        return "perk entries moved to the plugin's own perk", entries
+    if fid in held:
+        return 'override', []
+    return ('changed by the build alone' if not _names_any(body, dlc) else _carrying(body, kept)), []
+
+
+def added_forms(body: bytes, master: bytes, ours: tuple = (None, frozenset())) -> list:
+    """The FormIDs form list `body` adds to the master's `master` (new LNAMs, in order), none of plugin `ours` (load
+    byte, written FormIDs as 4 bytes) it never wrote; [] unless every other subrecord matches.
+    See: docs/fork/fo4_plugin_layout.md#dlc-lists
+    """
+    mine, theirs = subrecords(body), subrecords(master)
+    if [s for s in mine if s[0] != b'LNAM'] != [s for s in theirs if s[0] != b'LNAM']:
+        return []
+    have = {data for tag, data in theirs if tag == b'LNAM'}
+    new = dict.fromkeys(d for t, d in mine if t == b'LNAM' and d not in have and not _unwritten(d, ours))
+    return [struct.unpack('<I', d)[0] for d in new]
+
+
+def perk_entries(subs: list) -> tuple:
+    """(head subrecords, [entry]) of a perk's subrecords `subs`: an entry is a PRKE through its PRKF, as a tuple."""
+    first = next((i for i, (tag, _) in enumerate(subs) if tag == b'PRKE'), len(subs))
+    entries, current = [], []
+    for sub in subs[first:]:
+        current.append(sub)
+        if sub[0] == b'PRKF':
+            entries.append(tuple(current))
+            current = []
+    return tuple(subs[:first]), entries + ([tuple(current)] if current else [])
+
+
+def added_perk_entries(body: bytes, master: bytes) -> list:
+    """The entries (perk_entries) perk `body` adds to the master's `master`, in order; [] unless its head matches and
+    it keeps every master entry.
+    See: docs/fork/fo4_plugin_layout.md#dlc-perks
+    """
+    (head, mine), (their_head, theirs) = perk_entries(subrecords(body)), perk_entries(subrecords(master))
+    left = collections.Counter(_numberless(e) for e in theirs)
+    if head != their_head or left - collections.Counter(_numberless(e) for e in mine):
+        return []
+    out = []
+    for entry in mine:
+        if left[_numberless(entry)]:
+            left[_numberless(entry)] -= 1
+        else:
+            out.append(entry)
+    return out
+
+
+def _numberless(entry: tuple) -> tuple:
+    """Perk `entry` without EPFB, its number, which additions shift."""
+    return tuple(sub for sub in entry if sub[0] != b'EPFB')
+
+
+def _unwritten(data: bytes, ours: tuple) -> bool:
+    """Whether `data` is a FormID of plugin `ours` (byte, written) not written."""
+    return len(data) == 4 and data[3] == ours[0] and data not in ours[1]
+
+
+def _carrying(body: bytes, kept: tuple) -> str:
+    """A master record naming DLC records: kept unless it loses a `kept` subrecord."""
+    lost = collections.Counter(subrecords(kept[1])) - collections.Counter(subrecords(body))
+    return 'override naming DLC records' if not lost else 'dropped: would lose master entries'
+
+

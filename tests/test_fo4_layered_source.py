@@ -5,6 +5,7 @@ import pytest
 from fo4_import.base import install as I
 from fo4_import.base.writer import pack_fo4_header, pack_fo4_record
 from fo4_import.pipeline import export_index as X
+from fo4_import.spike.say_topics import dlc_lines
 from tes5_import.base.writer import pack_group, pack_subrecord
 from tools.validate.export_master_refs import check
 
@@ -36,6 +37,26 @@ def test_a_dlc_export_reads_its_own_records_then_its_masters_it_does_not_overrid
     assert names == ['RifleDlc', 'Gun', 'Pistol'] and len(X.export_records(tmp_path / 'Game.esm', 'WEAP')) == 2
     found = check(tmp_path / 'Dlc.esm')
     assert (found['master'], found['own'], sum(found['missing'].values())) == (1, 0, 1)
+
+
+def _records(folder, sig: str, records: list) -> None:
+    """Write `folder`'s `sig`.txt of `records` (dicts of KEY=VALUE)."""
+    blocks = [''.join(f'{k}={v}\n' for k, v in {'Signature': sig, **r}.items()) for r in records]
+    (folder / f'{sig}.txt').write_text(''.join(f'---RECORD_BEGIN---\n{b}---RECORD_END---\n' for b in blocks),
+                                       encoding='utf-8')
+
+
+def test_a_master_reference_the_dlc_deletes_stays_disabled_and_other_deleted_records_go(tmp_path):
+    """A deleted game reference reads as the game's, Initially Disabled; a deleted game gun is gone."""
+    _export(tmp_path / 'Game.esm', [], {PISTOL: ('Pistol', AMMO)})
+    _export(tmp_path / 'Dlc.esm', ['Game.esm'], {})
+    _records(tmp_path / 'Game.esm', 'REFR', [{'FormID': '00003000', 'NAME': '00001000', 'RecordFlags': '0'}])
+    _records(tmp_path / 'Dlc.esm', 'REFR', [{'FormID': '00003000', 'RecordFlags': '32'}])
+    _records(tmp_path / 'Dlc.esm', 'WEAP', [{'FormID': f'{PISTOL:08X}', 'RecordFlags': '32'}])
+    X.export_masters.cache_clear()
+    refs = X.export_records(tmp_path / 'Dlc.esm', 'REFR')
+    assert [(r['NAME'], r['RecordFlags']) for r in refs] == [('00001000', str(X.DISABLED))]
+    assert X.export_records(tmp_path / 'Dlc.esm', 'WEAP') == ()
 
 
 def test_a_dlc_export_with_its_master_missing_says_so(tmp_path):
@@ -76,3 +97,23 @@ def test_a_dlc_asset_is_its_own_file_else_its_masters(tmp_path):
     (tmp_path / 'Game.esm' / 'meshes' / 'sub' / 'deep.nif').write_bytes(b'x')
     (dlc / 'meshes' / 'sub').mkdir()
     assert str(X.asset_root(dlc, 'meshes') / 'sub' / 'deep.nif') == str(tmp_path / 'Game.esm' / 'meshes' / 'sub' / 'deep.nif')
+
+
+def _infos(folder, masters: list, infos: dict) -> None:
+    """Write an export folder with `masters` and INFO.txt of {FormID: (previous line, text)}."""
+    folder.mkdir()
+    (folder / '_HEADER.txt').write_text(''.join(f'Master[{i}]={m}\n' for i, m in enumerate(masters)), encoding='utf-8')
+    blocks = [f'Signature=INFO\nFormID={fid:08X}\nPNAM.PrevInfo={prev:08X}\nResponse[0].ResponseText={text}\n'
+              for fid, (prev, text) in infos.items()]
+    (folder / 'INFO.txt').write_text('\n'.join(f'---RECORD_BEGIN---\n{b}---RECORD_END---\n' for b in blocks),
+                                     encoding='utf-8')
+
+
+def test_a_dlcs_lines_are_its_own_and_its_overrides_changing_more_than_their_place(tmp_path):
+    """Its own line and a game line it rewords are the DLC's; a game line it only moved (PNAM) stays the game's;
+    a plugin without masters has no such filter."""
+    root = tmp_path
+    _infos(root / 'Game.esm', [], {0x10: (0, 'Hi'), 0x11: (0x10, 'Bye')})
+    _infos(root / 'Dlc.esm', ['Game.esm'], {0x10: (0x01000800, 'Hi'), 0x11: (0x10, 'Later'), 0x01000800: (0, 'New')})
+    assert dlc_lines(root / 'Dlc.esm') == {'00000011', '01000800'}
+    assert dlc_lines(root / 'Game.esm') is None

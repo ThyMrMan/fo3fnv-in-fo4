@@ -692,6 +692,7 @@ and against `references/Skyrim.esm/MESG.txt`:
 | `INAM` | **required** | vestigial icon, always `00000000` in vanilla |
 | `DNAM` | **required** | flags: bit0 Message Box, bit1 Auto Display |
 | `ITXT` | array | one per button (612 across FNV) |
+| `CTDA` | after an `ITXT` | the conditions that show that button, exported as `Button[i].Condition[j].Raw` (FalloutNV.esm: 259 on 136 buttons, such as the Bison Steve elevator's Repair 35; see [message buttons](../fork/fo4_pipeline.md#message-buttons)) |
 
 `TNAM` (display time) is FNV-only in practice and Skyrim defaults it, so it is
 not written. Vanilla writes `DNAM=1` on every help message.

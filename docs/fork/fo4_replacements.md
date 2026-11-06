@@ -1,8 +1,9 @@
-# Replacements: the user-editable table and the modlist (plan, step 1 built)
+# Replacements: the user-editable table and the modlist (plan, steps 1 and 3a built)
 
 Status: step 1 built 2026-10-08 (the table and its modes for items, in the
-cell spike). Creature entries, profiles, the GUI and the modlist below are
-designed, not built. Status lives in [ROADMAP.md](ROADMAP.md).
+cell spike); creature entries (3a) built and played 2026-10-10, with the
+`rig` mode since ([fo4_own_rig.md](fo4_own_rig.md)). Profiles, the GUI and
+the modlist below are designed, not built. Status lives in [ROADMAP.md](ROADMAP.md).
 
 ## <a id="direction"></a>Direction: the modlist is a soft requirement (2026-10-10)
 
@@ -17,7 +18,8 @@ profile. Without it the game runs; with it, it looks and plays as FNV.
 
 Why the split: the work that does not automate is open-ended. Guns were
 tried twice and parked (FO4's animations fit only FO4's layouts,
-[guns](fo4_spikes.md#spike-4-guns)); a creature with no FO4 counterpart
+[guns](fo4_spikes.md#spike-4-guns)), until FNV's own clips made them
+convert ([gun clips](fo4_spikes.md#spike-4-gun-clips), 2026-10-29); a creature with no FO4 counterpart
 needs a skeleton, ragdoll and behaviour graph made for it
 ([option 3](fo4_spikes.md#creature-option3)). Mod authors have already
 hand-made many of these. The converter keeps what scales (dialogue,
@@ -115,7 +117,8 @@ EditorID, under its category (since phase 2 of the [app](fo4_gui.md#replacement-
   - `fnv` writes a copy showing FNV's own mesh: melee weapons, headgear and
     the pre-war outfits by default; on an outfit it moves the mesh onto FO4's body
     ([outfits](fo4_spikes.md#spike-4-outfits)); on a gun it builds the mesh on the FO4 gun
-    `spike.gun_choice` picks (experimental: hands and reload do not fit).
+    `spike.gun_choice` picks, with FNV's own clips since 2026-10-29
+    ([gun clips](fo4_spikes.md#spike-4-gun-clips)).
 - `mods`: OMOD EditorIDs that replace a gun's default parts at the same
   attach points; with them only the default combination is kept, so a
   leveled list cannot hand out a variant with the old part. The BB gun
@@ -137,7 +140,7 @@ itself: the converted plugin's leveled lists, containers and placed
 references name the converted record. The table entry is what points them
 at the mod's record.
 
-## Later steps (designed)
+## <a id="later-steps-designed"></a>Later steps (designed; 3a built)
 
 1. **Profiles.** Named tables (`vanilla-fo4`, `fnv-look`, a modlist's)
    that ship beside the defaults, picked at conversion time; the user's
@@ -156,7 +159,9 @@ at the mod's record.
 4. **Copy mode for mods' records.** `stats` on another plugin's record
    needs its FormID fields renumbered (field layouts from xEdit's
    definitions); worth it only if users want FNV stats on a mod's model.
-5. <a id="bodyslide"></a>**CBBE and BodySlide.** FNV's outfits are cut for
+5. <a id="bodyslide"></a>**CBBE and BodySlide** (an opt-in body choice
+   since 2026-11-02: [human clothing](fo4_build_next.md#human-clothing)).
+   FNV's outfits are cut for
    FNV's body, and FO4's base body carries painted underwear
    ([outfits](fo4_spikes.md#spike-4-outfits)). CBBE, the common FO4 body
    replacer, brings its own body, textures without underwear, and
@@ -199,8 +204,9 @@ at the mod's record.
 
 ## Defaults now
 
-- Guns: FO4's guns (`stats`), the 9mm SMG on the submachine gun, the BB gun
-  on the pipe bolt-action with a full stock.
+- Guns: since 2026-10-29, FO4's gun (`stats`) for an FNV gun with a near
+  match (10mm, .44, laser and plasma, Minigun...); every other gun on
+  FNV's mesh and clips (`fnv`) ([which guns convert](fo4_spikes.md#spike-4-gun-clips)).
 - Melee weapons (bat, rolling pin, switchblade, tire iron) and headgear
   (hockey mask, pre-war hat, reading glasses): FNV's meshes (`fnv`).
 - Outfits: the 12 pre-war outfits on FNV's meshes (`fnv`), their variants
@@ -212,7 +218,81 @@ at the mod's record.
   on ClothesPrewarShortSleeves, head, headband or hat on
   ClothesMobsterhat, eyeglasses on ClothesEyeGlasses, mask or mouth on
   Clothes_Raider_SurgicalMask); a gun is the FO4 gun gun_choice picks for
-  it, with the parts it matched, under FNV's name and stats (`stats`); a
+  it, with the parts it matched, under FNV's name (`fnv` since 2026-10-29); a
   melee weapon by its animation type (`_rules.melee`): hand to hand on
   FO4's Knuckles, one-handed on FNV's mesh on the TireIron, two-handed on
   the BaseballBat. A table entry still wins.
+
+## <a id="fallout34"></a>Prior art: Fallout 34's stand-ins (read 2026-11-06)
+
+Fallout 34 (Cobalt Mods, [Nexus 110254](https://www.nexusmods.com/fallout4/mods/110254))
+converts FO3, NV and every DLC into Fallout 4 on the user's machine, as we
+do. Its converter is closed source: a Nuitka-compiled `f34conv.exe`, with
+the `.py` files left as empty placeholders. What is below comes from the
+31 annotated JSON tables, `pipeline.ini` and `installer.ini` that ship in
+installer v0.9.33 (`references/Fallout34 Installer 110254 0.9.33 …/payload/app/mappings`).
+**Ideas only:** their code and tables carry no licence, so nothing of
+theirs is copied into this repo. The exception is their Havok helper
+`f34havok`, which is GPL-3 with its source on GitHub.
+
+**Direction.** Their tables lean toward a Fallout 4 look (FO4 forms,
+terrain, weathers, armor visuals and behaviour graphs). Ours keep FNV's
+look and leave Fallout 4 stand-ins to the user's table and profile. Their
+tables are fixed, decided by their author; ours are user-editable
+([how](#how)). They avoid Fallout 4 DLC masters (the FO3 robobrain becomes
+a protectron because DLCRobot.esm is not a master); our table can name DLC
+and mod forms.
+
+### Creatures
+
+| | Fallout 34 | Us |
+|---|---|---|
+| Has a Fallout 4 equivalent | FO4 donor NPC (57 skeleton folders, `*` default mole rat); picks almost the same as `_rules.creature` | `stats` |
+| No equivalent, own model | 13 creatures keep their FO3/NV mesh and `.kf` clips. The donor's vanilla behaviour graph, character, project and ragdoll stay byte-identical; each donor bone is driven by one FO3 bone, and clips are baked into those bones. FO3 bones beyond the donor's bone count follow their nearest mapped parent bone (gecko tails and tongue use the hound's spare face bones). Donor by body type: FEV hound (gecko, trog, nightstalker, giant rat, spore carrier, centaur), radroach (ants, mantis), feral ghoul (abomination, swamp folk), brahmin (bighorner) | `rig` ([fo4_own_rig.md](fo4_own_rig.md)): the FNV skeleton and our own written graph, all on mole-rat template records; ranged on the securitron, ants, centaurs and spore plants ([ranged](fo4_own_rig.md#ranged)) |
+| Securitron | Plain Mr. Gutsy; their swap onto the robot's parts is switched off (the last attempt was invisible) | Own rig on ProtectronRace, SMG and launcher played |
+| Mr. House, penthouse computer | Set piece: an invisible protectron plus the pod model as a static | `speaker` |
+| Robots with their own model | Zeta drone and securitron clips re-baked from `.kf` onto the Mr. Gutsy rig | none yet |
+| Stats | FO3 health ×2, capped at 1.25× the strongest vanilla FO4 NPC of the donor race; attack damage ×0.5; DR% ×2 replaces the donor's armor | FNV's own stats |
+
+The trade-off between the two creature approaches: theirs gets every state
+the donor graph has (stagger, injured locomotion, get-up, death) without
+writing one, but caps the bone count at the donor's. Ours keeps every FNV
+bone and builds each state.
+
+**AnimTextData without the CK.** Their table notes state that the engine
+finds an AnimTextData chunk by `BSCRC32(race SAPT folders, lower case,
+joined by '|') << 32 | BSCRC32(race behaviour path, lower case)`, and that
+they write the file data, speed info and stance sections themselves. This
+is a fact about the file format, so it can be checked against the CK's
+output for our rigs; if it holds, it replaces the CK step
+([anim-info](fo4_own_rig.md#anim-info), 1,231 s on the whole-map build of
+2026-10-31).
+
+### Items
+
+| | Fallout 34 | Us |
+|---|---|---|
+| Weapons | About 200 mapped onto 67 FO4 templates. Three policies: becomes the FO4 form, FO4 look, or FO3 mesh lined up on the template. Damage = template's FO4 damage × FO3 weapon ÷ the FO3 weapon named as the template's counterpart | 108 entries plus gun_choice with matched parts; melee on FNV meshes |
+| Armor | Their note says FO3 outfit meshes cannot be converted yet. Each outfit is an FO4 ARMO layered from FO4 pieces (fatigues plus combat-armor pieces), 235 entries; DR ×2.5, rad resist ×4 | FNV's meshes on FO4 bodies (`fnv`), by biped slot |
+| Shared items | Automatic: an FO3 item with the same display name as an FO4 item becomes that item, unless it is a quest item, has a script, or the FO4 target has one; a reviewed list covers differing names, an exclude list blocks matches. Clutter statics using the same model take the FO4 mesh | 7 consumables by hand |
+| Aid | 49 substitutions, foods on templates by type, a table mapping effects | per record |
+
+### World and looks
+
+| | Fallout 34 | Us |
+|---|---|---|
+| Terrain | 50 land textures mapped to FO4's | FNV's textures and blending |
+| Trees | 9 FO3 trees become FO4 trees, scaled to size; shrubs on open ground rebuilt as clusters fitted to the slope | FNV's own |
+| Water, climate, weather, imagespace | Mapped to FO4 forms (54 water types) | FNV's converted; FNV's grading baked into an FO4 LUT |
+| Hair | FO3 hair meshes ported; 15 mapped to FO4 hair, 57 beard combinations | FO4 hair matched by coverage ([hair](fo4_spikes.md#spike-2-hair)) |
+| Lighting | Added fills, lamp halos and god rays, tuned live per named area | FNV's lights and lighting templates |
+
+### Ideas worth taking
+
+- **The automatic shared-item matcher** (same name, no script, not a quest
+  item, reviewed exceptions), as a `_rules` entry beside the table.
+- **Reusing a donor's behaviour graph as-is** for creatures whose body type
+  fits a vanilla one, as a cheaper alternative to writing our own graph.
+- **The AnimTextData key** above, to drop the CK from own-rig builds.
+- Their per-creature placement offsets (the ceiling turret's measured
+  height) are heuristics: fork only, never in an upstream PR.

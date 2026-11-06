@@ -16,8 +16,11 @@ from urllib.parse import quote
 
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.pipeline.build_inputs import asked
 
 MO2 = Path(r'C:\Modlists\fo3fnv-in-fo4')
+#: The questions the build asks MO2 (build_inputs.asked): which mod holds a Data file, where the CK's files land.
+HOLDING, OUTPUT = 'mo2 holding', 'mo2 output'
 CK_EXECUTABLE, CK_PROCESS = 'Creation Kit', 'CreationKit.exe'
 #: Where CKPE writes a zipped crash log and dump when the CK crashes.
 CK_CRASHES = FALLOUT4_DIR / 'Logs' / 'CKPE' / 'Crashes'
@@ -67,9 +70,23 @@ def _roots() -> list:
     return list(dict.fromkeys([output_dir()] + [MO2 / 'mods' / line[1:] for line in modlist() if line.startswith('+')]))
 
 
+def _files() -> tuple:
+    """MO2's ini, and the selected profile's mod list and settings."""
+    profile = profile_dir()
+    return MO2 / 'ModOrganizer.ini', profile / 'modlist.txt', profile / 'settings.ini'
+
+
 def holding(rel: Path) -> 'Path | None':
-    """The file at Data path `rel` in the first of _roots() that has it, or None."""
-    return next((root / rel for root in _roots() if (root / rel).is_file()), None)
+    """Data path `rel` in the first of _roots() holding it, or None; logged."""
+    found = next((root / rel for root in _roots() if (root / rel).is_file()), None)
+    asked(HOLDING, Path(rel).as_posix(), str(found) if found else None, _files())
+    return found
+
+
+def ask(kind: str, arg: str) -> 'str | None':
+    """Logged question `kind` (HOLDING or OUTPUT) about `arg`, answered now."""
+    found = holding(Path(arg)) if kind == HOLDING else output_dir()
+    return str(found) if found else None
 
 
 def written_since(rel: Path, since: float) -> list:
@@ -85,9 +102,12 @@ def written_since(rel: Path, since: float) -> list:
 
 
 def output_dir() -> Path:
-    """Where MO2 puts the files the CK creates: the selected profile's custom overwrite mod for it, else overwrite."""
+    """Where MO2 puts the files the CK creates: the selected profile's custom overwrite mod for it, else overwrite;
+    logged as a build input."""
     settings = configparser.ConfigParser(interpolation=None, strict=False)
     settings.optionxform = str
     settings.read(profile_dir() / 'settings.ini', encoding='utf-8')
     custom = settings.get('custom_overwrites', quote(CK_EXECUTABLE), fallback='')
-    return MO2 / 'mods' / custom if custom else MO2 / 'overwrite'
+    out = MO2 / 'mods' / custom if custom else MO2 / 'overwrite'
+    asked(OUTPUT, '', str(out), _files())
+    return out

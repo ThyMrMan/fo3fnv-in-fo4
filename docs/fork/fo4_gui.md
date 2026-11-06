@@ -1,7 +1,9 @@
 # The FO4 conversion app: setup choices, mod sources, two-column replacements
 
-Design only; status is in the [roadmap](ROADMAP.md#fo4-app). Each phase lands as
-its own branch, useful on its own.
+Phases 1–6 built 2026-10-24, not played ([where things stand](#where-it-stands));
+phase 7 is later. The design text stays as the design record; overall status is
+in the [roadmap](ROADMAP.md#fo4-app). Each phase lands as its own branch, useful
+on its own.
 
 Goal: a user converts Fallout 3 or New Vegas to Fallout 4 without typing a
 command, decides where every file lives, swaps any temporary FO4 stand-in for a
@@ -112,7 +114,7 @@ what exists. Not played in game yet.
     file beside the app or in the OS config folder and removes the other
     copy, so a stale one is never read.
   - **Convert** (`convert_view.py`).
-  - **Replacements** is a placeholder until phase 6.
+  - **Replacements** (phase 6, [as built](#replacements-screen)).
   - **Finished** (`finished_view.py`) shows each stage's result and time, the
     warning lines (replacement fallbacks, errors), the output folder with
     Open folder, and install notes for MO2, Vortex and manual installs.
@@ -232,8 +234,9 @@ sets them and Setup edits them later.
 | Replacement profile | `vanilla-fo4`, `fnv-look`, or a modlist's ([profiles](#replacement-data)) |
 | External tools | Wine or Proton prefix (macOS, Linux); NifSkope path (optional) |
 
-`run.py` and `spike/facegen.py` read these settings instead of their
-constants.
+`run.py` reads these settings instead of its constants. `spike/facegen.py`
+should too, but its MO2 path is still hard-coded
+([where things stand](#where-it-stands)).
 
 ## <a id="mod-sources"></a>Mod sources
 
@@ -646,7 +649,8 @@ the repo already reads every format involved. Only a renderer is new.
   `mesh_cache.cached_convert`.
 - **Guns:** a FO4 weapon record's model is a receiver "dummy" with no
   geometry, because guns are assembled from their mods' parts. The
-  Replacements screen needs to assemble them from the default OMODs.
+  Replacements screen assembles them from the default OMODs
+  (`preview/assembly.py`, above).
 - **Checked:** on the RTX 5070 Ti, the vanilla 10mm pistol, Dogmeat, a
   converted pre-war outfit and the converted coyote on Dogmeat's rig rendered
   off screen. The Qt window painted the outfit on an OpenGL 3.3 core context.
@@ -685,8 +689,9 @@ the repo already reads every format involved. Only a renderer is new.
   - Estimated at 400–800 lines. The look is an approximation of FO4's, not
     in-game parity ([drift](fo4_drift.md)).
 - **Later:**
-  - creatures and NPCs built from several parts, and weapons with their OMOD
-    parts, which are just more shapes;
+  - guns and robots are now assembled from their OMOD parts and an NPC's skin
+    addons are drawn (above); still later: human NPCs' FaceGen heads and
+    outfits, and robots mixing parts from different skeletons;
   - an "Open in NifSkope" button when the user has set a NifSkope path.
 
 ## <a id="finished"></a>The Finished screen

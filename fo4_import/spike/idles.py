@@ -13,10 +13,14 @@ vanilla's seated scripted idles do, when a script's Idle property names it.
 A line's seated idle is left out: as SNAM it crashed on both graphs, and
 played by script as each line began it crashed later in a plain graph update.
 
+FNV's ambient idle tree is built whole (fo4_idles.md#trees): its root under
+FO4's ActionIdle, its group nodes as vanilla's (graph and conditions only).
+
 See: docs/fork/fo4_idles.md#records
 """
 
 import struct
+from collections import defaultdict
 from pathlib import Path
 
 from external.pynifly_hkx.anim_fo4 import parse_fo4_animation, write_fo4_animation
@@ -25,7 +29,8 @@ from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.havok.human_clip import HumanClips
 from fo4_import.pipeline.export_index import asset_root, export_records
-from fo4_import.spike.say_topics import conditions_of
+from fo4_import.spike import conditions as C
+from fo4_import.spike.say_topics import conditions_of, parsed
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
 #: Seated idles a script may play, each played safely in game; other seated idles stay out (fo4_idles.md#standing).
@@ -50,6 +55,10 @@ FNV_HUMAN = 'characters\\_male\\'
 FO4_CLIPS = 'Actors\\Character\\Animations'
 #: The FNV response keys naming a line's idles: the speaker's and the listener's.
 LINE_IDLE_KEYS = ('SpeakerIdle', 'ListenerIdle')
+#: FNV's ambient idle tree (its root's EditorID); Fallout4.esm's ActionIdle, the action its ambient trees hang under.
+AMBIENT_ROOT, ACTION_IDLE = 'GeneralIdles', 0x00013002
+#: FNV's drawn-weapon test: its idles play on FO4's weapon graph (vanilla WeaponAltIdleRoot), not built.
+WEAPON_OUT = 'IsWeaponOut'
 
 
 class Idles:
@@ -61,6 +70,9 @@ class Idles:
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'IDLE')}
         self.names = {r['EditorID'].lower(): fid for fid, r in self.records.items() if r.get('EditorID')}
         self.used, self.checked, self.counted, self.form_map, self.clips = {}, {}, set(), {}, None
+        self.kids, self.tree, self.groups, self.root = defaultdict(list), {}, set(), None
+        for fid, rec in self.records.items():
+            self.kids[int(rec.get('ANAM.Parent', '0'), 16)].append(fid)
 
     def idle(self, fnv: int, scripted: bool = False) -> 'int | None':
         """The FO4 FormID of FNV idle `fnv`, played by a script when `scripted`; None when it is left out (the
@@ -99,23 +111,80 @@ class Idles:
                  for i in range(int(rec.get('ResponseCount', 0) or 0))]
         return tuple(tuple(self.idle(int(v, 16)) or 0 if v else 0 for v in pair) for pair in named)
 
+    def ambient_records(self) -> list:
+        """FNV's ambient idle tree's records, root first, if this plugin owns it."""
+        root = self.names.get(AMBIENT_ROOT.lower())
+        return [] if root is None or not self.builder.ids.is_own(root) else self._subtree(root)
+
+    def _subtree(self, fnv: int) -> list:
+        """FNV idle `fnv`'s record and every one below it."""
+        return [self.records[fnv], *(rec for kid in self.kids.get(fnv, ()) for rec in self._subtree(kid))]
+
+    def _ambient_tree(self) -> None:
+        """Hand out FNV's ambient idle tree, its root under FO4's ActionIdle (_branch).
+        See: docs/fork/fo4_idles.md#trees
+        """
+        records = self.ambient_records()
+        if records:
+            self.root = int(records[0]['FormID'], 16)
+            self.tree_map = {**self.form_map, **{fnv: self.builder.fnv_id(fnv)
+                                                 for fnv in (int(r['FormID'], 16) for r in records)}}
+            self._branch(self.root)
+
+    def _branch(self, fnv: int) -> bool:
+        """Hand out ambient tree node `fnv` when its conditions convert, it does not need the weapon drawn, and it
+        plays a clip (idle) or holds a node that does; whether it is kept."""
+        rec = self.records[fnv]
+        conditions = None if needs_weapon(rec) else conditions_of(rec, self.tree_map, self.builder.script_vars)
+        if conditions is None:
+            self.builder.counts['ambient idle left out (conditions)'] += 1
+            return False
+        group = not rec.get('Model.MODL', '').lower().endswith('.kf')
+        if not any([kid for kid in self.kids.get(fnv, ()) if self._branch(kid)] if group else [self.idle(fnv)]):
+            return False
+        self.tree[fnv] = conditions
+        if group:
+            self.groups.add(fnv)
+            self.used.setdefault(fnv, self.tree_map[fnv])
+        return True
+
+    def _links(self, fnv: int) -> tuple:
+        """(parent, previous) FO4 idles of FNV idle `fnv`: built ones (a left-out previous skipped to the one before
+        it); the ambient root's ActionIdle."""
+        if fnv == self.root:
+            return ACTION_IDLE, 0
+        rec, seen = self.records[fnv], set()
+        previous = int(rec.get('ANAM.Previous', '0'), 16)
+        while previous and previous not in self.used and previous not in seen:
+            seen.add(previous)
+            previous = int(self.records.get(previous, {}).get('ANAM.Previous', '0'), 16)
+        return self.used.get(int(rec.get('ANAM.Parent', '0'), 16), 0), self.used.get(previous, 0)
+
     def write(self, data_dir: Path) -> None:
-        """Convert every handed-out idle's clip into `data_dir` and add its IDLE record."""
+        """Convert every handed-out idle's clip into `data_dir` and add its IDLE record, the ambient tree's
+        (_ambient_tree) among them."""
+        self._ambient_tree()
         for fnv, fid in sorted(self.used.items()):
             rec = self.records[fnv]
-            clip = Path(FO4_CLIPS, self.plugin, rec['Model.MODL'][len(FNV_HUMAN):]).with_suffix('.hkx')
-            if PROBE.get(rec['EditorID']):
-                clip = self._probe(*PROBE[rec['EditorID']], data_dir)
-            else:
-                self.clips.write(rec['Model.MODL'], data_dir / 'Meshes' / clip)
-            conditions = conditions_of(rec, self.form_map, self.builder.script_vars)
+            group = fnv in self.groups
+            conditions = self.tree[fnv] if fnv in self.tree else conditions_of(rec, self.form_map,
+                                                                                self.builder.script_vars)
             if conditions is None:
                 self.builder.counts['idle conditions not converted'] += 1
-            graph = FURNITURE_GRAPH if self.checked[fnv] == SEATED else ROOT_GRAPH
-            self.builder.writer.add_record('IDLE', pack_idle(fid, rec, conditions or b'', (graph, str(clip)),
-                                                             self.used))
-            self.builder.counts['IDLE' + (' (seated, scripted)' if graph == FURNITURE_GRAPH else '')] += 1
+            graph = FURNITURE_GRAPH if self.checked.get(fnv) == SEATED else ROOT_GRAPH
+            clip = '' if group else str(self._clip(rec, data_dir))
+            self.builder.writer.add_record('IDLE', pack_idle(fid, rec, conditions or b'', (graph, clip),
+                                                             self._links(fnv)))
+            kind = ' (ambient tree)' if fnv in self.tree else ' (seated, scripted)' if graph == FURNITURE_GRAPH else ''
+            self.builder.counts['IDLE' + kind] += 1
 
+    def _clip(self, rec: dict, data_dir: Path) -> Path:
+        """Convert FNV idle `rec`'s clip into `data_dir` (PROBE's when it names `rec`); its path under Meshes."""
+        if PROBE.get(rec['EditorID']):
+            return self._probe(*PROBE[rec['EditorID']], data_dir)
+        clip = Path(FO4_CLIPS, self.plugin, rec['Model.MODL'][len(FNV_HUMAN):]).with_suffix('.hkx')
+        self.clips.write(rec['Model.MODL'], data_dir / 'Meshes' / clip)
+        return clip
 
     def _probe(self, vanilla: str, encoded: bool, seconds: 'float | None', data_dir: Path) -> Path:
         """The clip a PROBE idle plays: vanilla's own path, or its clip decoded and written by our encoder,
@@ -145,15 +214,20 @@ def trimmed(anim, seconds: float):
     return anim
 
 
-def pack_idle(fid: int, rec: dict, conditions: bytes, clip: tuple, built: dict) -> bytes:
-    """FO4 IDLE `fid` of FNV idle `rec` playing `clip` (behavior graph, clip path), its parent and previous idles
-    among `built` {FNV: FO4}."""
-    loops = (int(rec.get('DATA.LoopMin', 0)), int(rec.get('DATA.LoopMax', 0)))
-    parent, previous = (built.get(int(rec.get(f'ANAM.{k}', '0'), 16), 0) for k in ('Parent', 'Previous'))
-    data = struct.pack('<BBBBH', *(loops if loops == FOREVER else (0, 0)), 0 if parent else LOOSE, 0,
-                       int(rec.get('DATA.ReplayDelay', 0)))
+def needs_weapon(rec: dict) -> bool:
+    """Whether FNV idle `rec` needs the weapon drawn (IsWeaponOut == 1, no OR)."""
+    return any(len(group) == 1 and group[0]['func'] == WEAPON_OUT and not group[0]['op_flags'] & 0xE0
+               and group[0]['value'] == 1 for group in C.groups(parsed(rec)))
+
+
+def pack_idle(fid: int, rec: dict, conditions: bytes, clip: tuple, links: tuple) -> bytes:
+    """FO4 IDLE `fid` of FNV idle `rec` playing `clip` (behavior graph, clip path; a group node's empty: no event,
+    no clip) under `links` (FO4 parent, previous)."""
+    loops = (int(rec.get('DATA.LoopMin', 0) or 0), int(rec.get('DATA.LoopMax', 0) or 0))
+    data = struct.pack('<BBBBH', *(loops if loops == FOREVER else (0, 0)), 0 if links[0] else LOOSE, 0,
+                       int(rec.get('DATA.ReplayDelay', 0) or 0))
     subs = pack_string_subrecord('EDID', rec['EditorID']) + conditions
     subs += pack_string_subrecord('DNAM', clip[0])
-    subs += pack_string_subrecord('ENAM', PLAY_LOOPED if loops == FOREVER else PLAY_ONCE)
-    subs += pack_subrecord('ANAM', struct.pack('<II', parent, previous)) + pack_subrecord('DATA', data)
-    return pack_fo4_record('IDLE', fid, 0, subs + pack_string_subrecord('GNAM', clip[1]))
+    subs += pack_string_subrecord('ENAM', PLAY_LOOPED if loops == FOREVER else PLAY_ONCE) if clip[1] else b''
+    subs += pack_subrecord('ANAM', struct.pack('<II', *links)) + pack_subrecord('DATA', data)
+    return pack_fo4_record('IDLE', fid, 0, subs + (pack_string_subrecord('GNAM', clip[1]) if clip[1] else b''))

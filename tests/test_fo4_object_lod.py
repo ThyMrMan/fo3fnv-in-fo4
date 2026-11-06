@@ -4,6 +4,7 @@ pass's input, the far mesh reduction of strips, and the unattended runner."""
 import collections
 import struct
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from fo4_import.nif import convert_static as S
 from fo4_import.nif import file as F
 from fo4_import.pipeline import lod_atlas as A
 from fo4_import.pipeline import object_lod as P
+from fo4_import.spike import cell as C
 from fo4_import.spike import object_lod as O
 from fo4_import.spike import records as R
 from tes5_import.base.tes5_reader import first_sub
@@ -178,3 +180,21 @@ def test_unattended_run_returns_the_exit_code():
     """A child ending on its own: its code, not timed out."""
     _, code, timed_out = run_unattended([sys.executable, '-c', 'raise SystemExit(3)'], 30)
     assert code == 3 and not timed_out
+
+
+def test_a_dlc_build_leaves_a_master_worldspace_to_the_masters_lod(monkeypatch):
+    """_world_groups: the plugin's own worldspace writes its LOD lists; a master's worldspace writes its group only."""
+    log = []
+    monkeypatch.setattr(C.terrain_lod, 'write', lambda *args: log.append(('terrain', args[3])) or 1)
+    lod = types.SimpleNamespace(begin=lambda w: log.append(('begin', w)), write=lambda d: log.append(('write',)) or 0)
+    builder = types.SimpleNamespace(base=lambda fid: None, object_lod=lod, counts=collections.Counter(),
+                                    ids=types.SimpleNamespace(is_own=lambda fid: fid >> 24 >= 1),
+                                    writer=types.SimpleNamespace(add_raw_group=lambda sig, g: log.append(('group', g))))
+
+    def world(fid: str, edid: str):
+        """A built worldspace stand-in."""
+        return types.SimpleNamespace(placement_order=list, world={'FormID': fid, 'EditorID': edid}, fo4_edid=edid,
+                                     export_dir=None, group=lambda b, *p: edid)
+    C._world_groups(builder, [world('000DA726', 'Mojave'), world('01000800', 'Zion')], (None, None))
+    assert log == [('group', 'Mojave'), ('begin', 'Zion'), ('group', 'Zion'), ('write',), ('terrain', 'Zion')]
+    assert builder.counts["master worldspaces left to the master's LOD"] == 1

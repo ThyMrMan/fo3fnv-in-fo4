@@ -26,7 +26,7 @@ from pathlib import Path
 from fo4_import.base.vmad import object_scripts, terminal_fragments
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.spike.say_topics import conditions_of
+from fo4_import.spike.say_topics import conditions_of, conditions_under
 from fo4_import.spike.statics import terminal_assets
 from script_convert.terminal_fragments import fragment_items, fragment_name
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -71,12 +71,6 @@ def item_type(rec: dict, item: int, shown: bool) -> int:
     if _BACK.search(rec.get(f'Item[{item}].Script') or ''):
         return TOP_LEVEL
     return REDRAW if int(rec.get(f'Item[{item}].Flags') or 0) & FORCE_REDRAW else DISPLAY
-
-
-def item_conditions(rec: dict, item: int) -> dict:
-    """An item's conditions as a record of their own, for conditions_of."""
-    prefix = f'Item[{item}].'
-    return {key[len(prefix):]: value for key, value in rec.items() if key.startswith(prefix + 'Condition[')}
 
 
 def _zstr(sig: str, text: str) -> bytes:
@@ -150,7 +144,7 @@ class Terminals:
 
     def _item(self, rec: dict, item: int) -> 'bytes | None':
         """One menu item (ID item + 1); None when its conditions cannot convert."""
-        conditions = conditions_of(item_conditions(rec, item), self.form_map(), self.builder.script_vars)
+        conditions = conditions_of(conditions_under(rec, f'Item[{item}].'), self.form_map(), self.builder.script_vars)
         if conditions is None:
             return None
         prefix, shown = f'Item[{item}].', self._shown(rec.get(f'Item[{item}].Note', ''))

@@ -23,8 +23,10 @@ recordings.
 
 ## <a id="order"></a>Suggested order
 
-1. **Today's play-test, uncommitted changes:** watch the Goodbye and other
-   repeated options ([#6](#fix-first)). S2 and S3 (the new quest poll
+1. **The 2026-10-15 play-test, uncommitted changes:** watch the Goodbye and other
+   repeated options ([#6](#fix-first)). Since 2026-10-26 `_earlier` shows one
+   option per topic, but GOODBYE's options hit the 16-group cap, so some still
+   show beside another ([menu audit](fo4_menu_audit.md#pieces)). S2 and S3 (the new quest poll
    delay) and #11 (form lists) touch nothing in today's build (checked
    against its quests and lists), so they can wait for the fixes below.
 2. **The save contract, before the whole-game build becomes the baseline:**

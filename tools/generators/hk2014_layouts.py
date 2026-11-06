@@ -2,7 +2,8 @@
 
 Reads hkxpack-style class descriptions (one XML per class, from a classxml folder the user supplies) and keeps the
 classes named in the `__classnames__` sections of the game's actor .hkx files (behaviors, characters, projects,
-skeletons, a sample of clips), plus their parents and member struct types. Each class keeps its parent, signature
+skeletons, a sample of clips) and every shape, constraint data and motor class (Elric's ragdolls), plus their
+parents and member struct types. Each class keeps its parent, signature
 and members (name, offset, type, subtype, struct type, fixed array size, flags).
 
     python tools/generators/hk2014_layouts.py <classxml folder> [-o fo4_import/data/hk2014_layouts.json]
@@ -55,6 +56,12 @@ def vanilla_classes() -> set:
     return found
 
 
+def physics_classes(raw: dict) -> set:
+    """Shape, constraint data and motor classes (any may be in an Elric ragdoll)."""
+    return {c for c in raw if c.startswith('hknp') and c.endswith('Shape')
+            or c.startswith('hkp') and c.endswith(('ConstraintData', 'ConstraintMotor'))}
+
+
 def layout(e) -> dict:
     """One class description as the JSON entry."""
     members = [[m.get('name'), int(m.get('offset')), m.get('vtype'), m.get('vsubtype'), m.get('ctype'),
@@ -84,7 +91,7 @@ def main():
     for path in sorted(args.classxml.glob('*.xml')):
         e = ET.fromstring(path.read_text(encoding='utf-8', errors='replace'))
         raw[e.get('name')] = e
-    wanted = vanilla_classes()
+    wanted = vanilla_classes() | physics_classes(raw)
     table = closure(raw, wanted)
     args.out.write_text(json.dumps(table, indent=0, separators=(',', ':')) + '\n', encoding='utf-8')
     missing = sorted(wanted - set(raw))

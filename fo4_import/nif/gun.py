@@ -266,7 +266,42 @@ def _copy_block(dst, src, index: int) -> int:
     if isinstance(block, dict) and block.get('texture_set', NONE) >= 0:
         block['texture_set'] = _copy_block(dst, src, block['texture_set'])
     dst.blocks.append((kind, block))
-    return len(dst.blocks) - 1
+    at = len(dst.blocks) - 1
+    if isinstance(block, dict) and 'controller' in block:
+        block['controller'] = _copy_chain(dst, src, block['controller'], at)
+    return at
+
+
+def _copy_chain(dst, src, index: int, owner: int) -> int:
+    """Append copies of `src`'s controller `index` and those after it, with their interpolators and key data,
+    driving `dst` block `owner`; the first copy's index (NONE when none: a controller or interpolator this
+    reader keeps as raw bytes is left out, as its links cannot be moved).
+    See: docs/fork/fo4_pipeline.md#gun-controllers
+    """
+    if index < 0 or not isinstance(src.blocks[index][1], dict):
+        return NONE
+    kind, block = copy.deepcopy(src.blocks[index])
+    interp = block.get('interpolator', NONE)
+    if interp >= 0 and not isinstance(src.blocks[interp][1], dict):
+        return _copy_chain(dst, src, block.get('next', NONE), owner)
+    dst.blocks.append((kind, block))
+    at = len(dst.blocks) - 1
+    block['target'] = owner
+    if interp >= 0:
+        block['interpolator'] = _copy_keyed(dst, src, interp)
+    block['next'] = _copy_chain(dst, src, block.get('next', NONE), owner)
+    return at
+
+
+def _copy_keyed(dst, src, index: int) -> int:
+    """Append a copy of `src`'s interpolator `index`, then its key data; the interpolator's index."""
+    kind, block = copy.deepcopy(src.blocks[index])
+    dst.blocks.append((kind, block))
+    at = len(dst.blocks) - 1
+    if block.get('data', NONE) >= 0:
+        dst.blocks.append(copy.deepcopy(src.blocks[block['data']]))
+        block['data'] = len(dst.blocks) - 1
+    return at
 
 
 def _merge_shape(dst, src, index: int, points: np.ndarray, normals: np.ndarray) -> int:
@@ -285,7 +320,9 @@ def _merge_shape(dst, src, index: int, points: np.ndarray, normals: np.ndarray) 
         if shape[key] >= 0:
             shape[key] = _copy_block(dst, src, shape[key])
     dst.blocks.append(('BSTriShape', shape))
-    return len(dst.blocks) - 1
+    at = len(dst.blocks) - 1
+    shape['controller'] = _copy_chain(dst, src, shape['controller'], at)
+    return at
 
 
 def _emptied(nif) -> None:

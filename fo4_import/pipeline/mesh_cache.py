@@ -1,15 +1,17 @@
 """convert_static.convert() through an on-disk cache, and many meshes converted at once in worker processes.
 
 An entry is keyed by the source NIF's bytes, the call's pose and animated
-flag, the ADDN mapping (nif.addons), the winding-repair switch and the
-converter's code_tag(); it keeps the size and modification time of every FNV
-texture the mesh uses, and a texture that changed since makes it a miss. The
-cache is this machine's only (it is never shared, so a file's time may stand
-for its contents). An entry's time is when a build last used it (prune()).
-cached_files() keeps the bytes a mesh is written as in the work cache under
-the same key, checked the same way.
+flag, the ADDN mapping (nif.addons) and the winding-repair switch; it keeps
+the size and modification time of every FNV texture the mesh uses, and
+beside it (`.ran`) the identity of every repo function that ran converting
+it. A changed texture or function makes it a miss. The cache is this
+machine's only (a file's time may stand for its contents). An entry's time
+is when a build last used it (prune()). cached_files() keeps the bytes a mesh
+is written as in the work cache, keyed by the same key and that conversion's
+code record.
 
 See: docs/fork/fo4_pipeline.md#skeleton
+See: docs/fork/fo4_plugin_layout.md#code-identity
 """
 
 import concurrent.futures
@@ -23,12 +25,13 @@ import numpy as np
 
 from core.collision_options import WINDING_FIX_ENV_VAR
 from core.process_job import join_pool_job
-from fo4_import.nif import bgem, bgsm
+from fo4_import.nif import bgem, bgsm, blocks
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.addons import addon_map
 from fo4_import.nif.convert_static import Converted, convert, texture_source
-from fo4_import.pipeline.code_tag import ROOT, code_tag
-from fo4_import.pipeline.work_cache import lookup, store
+from fo4_import.pipeline.code_tag import ROOT
+from fo4_import.pipeline.ran_code import ran_while
+from fo4_import.pipeline.work_cache import current_ran, lookup, ran_path, store, write_ran
 from fo4_import.pipeline.export_index import export_file
 
 CACHE = ROOT / 'output' / 'fo4_cache' / 'meshes'
@@ -46,6 +49,12 @@ class MeshFiles(NamedTuple):
     spec_maps: dict
     glow_maps: dict
     animatable: bool
+    #: How many vertices had a UV past the half-float range (nif.blocks.half_uv).
+    clamped: int = 0
+
+
+#: {mesh path: MeshFiles.clamped} of the meshes cached_files gave this process, for the build's count.
+CLAMPED = {}
 
 
 def mesh_bounds(nif) -> 'tuple | None':
@@ -62,14 +71,16 @@ def mesh_files(converted: Converted) -> MeshFiles:
     """The files converted mesh `converted` is written as."""
     materials = [(p, bgsm.write(m)) for p, m in converted.materials.items()]
     materials += [(p, bgem.write(m)) for p, m in converted.effects.items()]
-    return MeshFiles(nif_file.write(converted.nif), tuple(materials), mesh_bounds(converted.nif), converted.textures,
-                     converted.spec_maps, converted.glow_maps, converted.animatable)
+    before = blocks.CLAMPED['uv']
+    nif = nif_file.write(converted.nif)
+    return MeshFiles(nif, tuple(materials), mesh_bounds(converted.nif), converted.textures, converted.spec_maps,
+                     converted.glow_maps, converted.animatable, blocks.CLAMPED['uv'] - before)
 
 
 def _key(source: bytes, pose: 'dict | None', animated: bool, addons: dict) -> str:
     """The cache key of one convert() call (the module notes)."""
-    parts = (code_tag('fo4_import.nif.convert_static'), repr(sorted((pose or {}).items())), str(animated),
-             os.environ.get(WINDING_FIX_ENV_VAR, ''), repr(sorted(addons.items())))
+    parts = (repr(sorted((pose or {}).items())), str(animated), os.environ.get(WINDING_FIX_ENV_VAR, ''),
+             repr(sorted(addons.items())))
     return hashlib.sha1(source + '\0'.join(parts).encode()).hexdigest()
 
 
@@ -96,29 +107,35 @@ def cached_files(path, texture_root=None, pose: dict = None, animated: bool = Tr
     """mesh_files() of cached_convert(path, texture_root, pose, animated), kept in the work cache under the mesh
     key with its texture stamps; a current one marks its mesh entry used, so prune() keeps the Converted too."""
     entry, addons = _entry(path, texture_root, pose, animated, None)
-    kept = lookup('mesh_files', __name__, (entry.stem,))
+    made_by = current_ran(entry)
+    kept = lookup('mesh_files', __name__, (entry.stem, made_by)) if made_by else None
     if kept is not None and kept[0] == _stamps(kept[1], texture_root):
         if entry.exists():
             os.utime(entry)
+        CLAMPED[str(path)] = kept[1].clamped
         return kept[1]
-    files = mesh_files(cached_convert(path, texture_root, pose, animated, addons))
-    return store('mesh_files', __name__, (entry.stem,), (_stamps(files, texture_root), files))[1]
+    files, ran = ran_while(lambda: mesh_files(cached_convert(path, texture_root, pose, animated, addons)))
+    CLAMPED[str(path)] = files.clamped
+    return store('mesh_files', __name__, (entry.stem, current_ran(entry)), (_stamps(files, texture_root), files),
+                 ran)[1]
 
 
 def cached_convert(path, texture_root=None, pose: dict = None, animated: bool = True, addons: dict = None) -> Converted:
     """convert(path, texture_root, pose, animated) with `texture_root`'s ADDN mapping (addon_map() unless given),
-    from the cache when its entry is current (module notes)."""
+    from the cache when its entry and the code that made it are current (module notes)."""
     entry, addons = _entry(path, texture_root, pose, animated, addons)
-    if entry.exists():
+    if entry.exists() and current_ran(entry):
         stamps, converted = pickle.loads(entry.read_bytes())
         if stamps == _stamps(converted, texture_root):
             os.utime(entry)
+            os.utime(ran_path(entry))
             return converted
-    converted = convert(str(path), texture_root, pose, animated, addons)
+    converted, ran = ran_while(lambda: convert(str(path), texture_root, pose, animated, addons))
     entry.parent.mkdir(parents=True, exist_ok=True)
     partial = entry.with_suffix(f'.{os.getpid()}.tmp')
     partial.write_bytes(pickle.dumps((_stamps(converted, texture_root), converted)))
     partial.replace(entry)
+    write_ran(entry, ran)
     return converted
 
 

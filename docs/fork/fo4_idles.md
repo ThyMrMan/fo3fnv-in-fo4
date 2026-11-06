@@ -98,9 +98,9 @@ on FNV's own FormID (a new record; nothing already built moves).
 
 - **Used:** a converted script's `Idle` property (by EditorID, through
   `attach`) and a line's speaker and listener idles (`pack_info` writes
-  `SNAM`/`LNAM` per response, as FNV has them). `VCG01DocGiveMirror` now
-  rides "How'd I do?" as FNV's own speaker idle, replacing the earlier
-  stand-in (`DialogueGiveItem`).
+  `SNAM`/`LNAM` per response, as FNV has them). `VCG01DocGiveMirror`
+  replaced the earlier stand-in (`DialogueGiveItem`); being seated, it plays
+  only from VCG01's stage-30 script, not on "How'd I do?" ([seated](#furniture)).
 - **Fields:** `DNAM` the root graph (seated clips are left out,
   [seated](#furniture)), `ENAM` `dyn_Activation`
   (`dyn_ActivationLoop` with 255/255 seconds when FNV loops forever),
@@ -111,15 +111,68 @@ on FNV's own FormID (a new record; nothing already built moves).
   other than "forever" play once.
 - **Left out:** an idle whose clip is missing (2 of Doc's) or is not a
   human clip.
-- **Idle trees (planned, not built).** FNV's conditioned idles (the 1,098)
-  are trees whose roots have no parent; FO4 hangs its ambient idles under
-  actions (`ActionIdle` `00013002`, 27 vanilla children; the graph
-  initialise, stagger, death and flinch actions hold the rest). The tree
-  build converts every human FNV idle tree under `ActionIdle`, keeping
-  parent, previous and conditions, so the engine's own idle selection
-  plays them; the run order of siblings follows FNV's `Previous` chain.
-  Each tree's root group (FNV's `AnimGroupSection`) decides whether it is
-  an ambient, dialogue or furniture tree.
+- **Idle trees:** only the ambient one is built ([trees](#trees)).
+
+## <a id="trees"></a>Ambient idle tree (built 2026-11-06, not played)
+
+`Idles._ambient_tree`. FNV's 1,098 conditioned idles sit in 109 trees,
+but most of them are not ambient:
+
+- 394 furniture idles (seated; they crashed in October, [seated](#furniture));
+- 160 dialogue gestures, 60 hit reactions and 44 V.A.T.S. melee moves,
+  which FO4's own graphs already play.
+
+The FNV root's `AnimGroupSection` does not tell them apart (hit reactions
+and `GeneralIdles` both read 135), so the ambient root is named by EditorID:
+`GeneralIdles` (Fallout3.esm uses the same name). It is built only by the
+plugin owning it; DLC exports carry their master's idles.
+
+**What vanilla does.** `ActionIdle` (AACT `00013002`) has 27 children:
+one root per creature graph, plus three human ones.
+
+- `WeaponAltIdleRoot` names `WeaponBehavior.hkx`, `MeleeAltIdleRoot` names
+  `MeleeBehavior.hkx`, and `FurnitureIdleRoot` names `FurnitureBehavior.hkx`.
+  So the engine runs `ActionIdle` for humans, picking roots by graph.
+- A group node holds only EDID, conditions, DNAM (the graph), ANAM and DATA:
+  no event (ENAM), no clip (GNAM), not loose.
+- The roots' parent is `ActionIdle`, and each root's previous is 0.
+
+No vanilla root names the human root graph (`RaiderRootBehavior.hkx`), so
+whether the engine plays this tree is untested. If it doesn't, nothing else
+changes.
+
+**What is built.** FNV's root goes under `ActionIdle`, with group nodes
+shaped as vanilla's. Leaves are the standing dynamic idles ([records](#records)),
+each played once. Each node keeps FNV's conditions and replay delay; its
+previous is FNV's, skipping left-out siblings. A node is left out, with
+everything below it, when:
+
+- its conditions don't convert (counted `ambient idle left out
+  (conditions)`);
+- it needs the weapon drawn (`IsWeaponOut == 1`, not ORed). FO4 plays those
+  on the weapon graph (`WeaponAltIdleRoot`), and FNV's weapon-type values
+  don't map;
+- it is a group with nothing kept below it.
+
+The tree's own idles are in the form map, for `IsLastIdlePlayed`. Its
+form-list tests (`GetEquipped`, for example `FistWeaponsList`) are made the
+way a line's are ([condition forms](fo4_pipeline.md#dialogue-conditions)).
+
+Expected from FNV's 31 nodes:
+
+| Branch | Result |
+|---|---|
+| Drunk walk ×3 (`NVDrunks`, `NVBuzzed`) | Built |
+| Smoking (`SmokerFaction`) | Built |
+| Swatting, scratching ×2, nose-picking ×2, nail-biting (`GeneralIdleFaction`) | Built |
+| Pip-Boy (`GetStageDone` on no quest) | Left out: it never passes in FNV either |
+| Weapon loiters (2hr, 2ha) | Left out: they need the weapon drawn |
+| `PlayerOrNPCIdles` / `SIRelaxed` | Left out: `GetArmorRating` has no FO4 function |
+
+**Unverified.** The tree passes `GetCurrentAIProcedure != 4 / != 10` (FNV:
+dialogue, eat) through unchanged. Those values come from the Oblivion
+lineage. Vanilla FO4 tests only 47 and 50, and no FO4 value list exists
+offline.
 
 ## <a id="furniture"></a>3. Seated idles (Doc's chair)
 
@@ -200,8 +253,8 @@ tracks (skeleton.hkx's bone scales are off 1 by up to 4e-5), which vanilla
 clips never have. Fixed in code (`human_clip.UNIT_SCALE`); the track masks
 now match vanilla's shape. That it was the cause is unproven.
 
-`idles.CONVERT` is off: builds write no IDLE, clip or line idle, as before
-this work. Next test, one change: a vanilla clip re-encoded by our writer
+`idles.CONVERT` was off then (removed 2026-10-21: [standing](#standing)):
+builds wrote no IDLE, clip or line idle, as before this work. Next test, one change: a vanilla clip re-encoded by our writer
 played as the mirror (isolates the encoder), then the scale-fixed FNV clip.
 
 ## <a id="encoder-test"></a>Encoder test (built 2026-10-19, played 2026-10-21)
@@ -324,5 +377,6 @@ watching for the gestures and for any crash.
 ## <a id="spike"></a>Spike: Doc's idles in the Goodsprings-Primm build
 
 Built 2026-10-19: the region build converts the idles its scripts and
-lines use. Doc's to check in game: the card points and shrug through the
-psych test, "Whoa there", and the mirror hand-over on "How'd I do?".
+lines use. Of Doc's, the card points, shrug and "Whoa there" are seated and
+left out of lines, and the mirror hand-over plays from the stage-30 script
+([seated](#furniture)); his standing idles played 2026-10-21 ([standing](#standing)).

@@ -855,20 +855,16 @@ def parse(source: str, mode: Mode = Mode.SCRIPT, else_takes_condition: bool = Tr
 
 
 def _hoist_block_vars(script: Script, seen_vars: set) -> None:
-    """Move every declaration inside a block into `script.variables`.
-
-    A TES4 variable is script-global wherever it is written, including nested
-    inside an `if`, so the walk has to be recursive -- a hoist over a block's
-    immediate statements alone leaves the nested name undeclared and every
-    assignment to it fails the checker.
+    """Move every declaration inside a block, or nested in a fragment's statements (a package's OnChange declares
+    `Short bRand` inside an `if`), into `script.variables`, at any depth.
     See: docs/commentary/script_convert.md#declarations-nest-at-any-depth
     """
-    for block in script.blocks:
-        for stmt in walk_stmts(block.body):
-            if isinstance(stmt, VarDecl) \
-                    and stmt.name.lower() not in seen_vars:
+    for stmts in [block.body for block in script.blocks] + [script.body]:
+        for stmt in walk_stmts(stmts):
+            if isinstance(stmt, VarDecl) and stmt.name.lower() not in seen_vars:
                 seen_vars.add(stmt.name.lower())
                 script.variables.append(stmt)
+    for block in script.blocks:
         block.body = [s for s in block.body if not isinstance(s, VarDecl)]
 
 

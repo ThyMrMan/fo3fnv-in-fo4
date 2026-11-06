@@ -50,11 +50,11 @@ def skull(assets: hair.Fo4Assets, baseline: bytes) -> tuple:
     return positions(face), hair.head_depths(points)
 
 
-def _drawn_coverage(mesh: Path, drawn: np.ndarray, at: fnv_npc.Frame, depths: list) -> np.ndarray:
-    """Coverage of an FNV hair or facial hair mesh drawn with RGBA `drawn`."""
+def _drawn(mesh: Path, drawn: np.ndarray, at: fnv_npc.Frame) -> tuple:
+    """hair.coverage's (points, opacity) of an FNV hair mesh drawn with RGBA `drawn`."""
     points, tris, uv, _ = hair.fnv_shape(mesh)
     spread, spread_uv = hair.samples(at.to_fo4(points), tris, uv)
-    return hair.coverage([(spread, hair.texels(drawn, spread_uv)[:, 3] / 255)], depths)
+    return spread, hair.texels(drawn, spread_uv)[:, 3] / 255
 
 
 def _hair(choice: HeadChoice, assets, export_dir: Path, at: fnv_npc.Frame, depths: list) -> None:
@@ -63,7 +63,7 @@ def _hair(choice: HeadChoice, assets, export_dir: Path, at: fnv_npc.Frame, depth
         return
     record = fnv_npc.record(export_dir, 'HAIR', at.npc['HNAM.Hair'])
     drawn = fnv_npc.hair_rgb(fnv_npc.asset(export_dir, 'textures', record['ICON']), at.npc)
-    target = _drawn_coverage(fnv_npc.asset(export_dir, 'meshes', record['Model.MODL']), drawn, at, depths)
+    target = hair.coverage([_drawn(fnv_npc.asset(export_dir, 'meshes', record['Model.MODL']), drawn, at)], depths)
     female = bool(int(at.npc.get('ACBS.Flags', 0)) & FEMALE)
     choice.hair, choice.distances['hair'] = hair.best_part(assets, hair.HAIR, female, target, depths)
     _, material = assets.shapes(choice.hair)[0]
@@ -79,10 +79,11 @@ def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes)
     choice = HeadChoice()
     _hair(choice, assets, export_dir, at, depths)
     facial, _, choice.unmapped = fnv_npc.sorted_parts(export_dir, at)
-    for mesh in facial:
-        drawn = hair.image(fnv_npc.mesh_texture(export_dir, mesh)).astype(float)
+    if facial:
+        target = hair.coverage([_drawn(m, hair.image(fnv_npc.mesh_texture(export_dir, m)).astype(float), at)
+                                for m in facial], depths)
         choice.facial_hair, choice.distances['facial hair'] = hair.best_part(
-            assets, hair.FACIAL_HAIR, False, _drawn_coverage(mesh, drawn, at, depths), depths)
+            assets, hair.FACIAL_HAIR, False, target, depths)
     if 'ENAM.Eyes' not in at.npc:
         return choice
     eye_points, eye_tris, eye_uv, _ = hair.fnv_shape(fnv_npc.eye_mesh(export_dir, at.race, at.part))

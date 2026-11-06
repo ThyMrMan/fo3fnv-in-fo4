@@ -15,6 +15,7 @@ from fo4_import.base.support_records import pack_global
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
+from fo4_import.spike.conditions import AUTHORED
 from fo4_import.spike.readiness import TARGET_NOT_BUILT
 from fo4_import.spike.script import QUEST_PREFIX, stage_fragments
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
@@ -91,10 +92,13 @@ def objective_key(quest: str, index: int, state: str) -> str:
 def objective_globals(builder, recs: list) -> dict:
     """Mirror globals of FNV quests `recs`' objective states, written and named for scripts.
 
-    Returns {(FNV quest FormID, objective index, state): global}, the keys conditions_of looks up.
+    Returns {(FNV quest FormID, objective index, state): global}, the keys conditions_of looks up, and
+    {(AUTHORED, FNV quest FormID): its objective indexes}.
     """
     out = {}
     for rec in recs:
+        out[(AUTHORED, int(rec['FormID'], 16))] = frozenset(
+            int(rec[f'Objective[{i}].Index']) for i in _numbered(rec, 'Objective'))
         for i in _numbered(rec, 'Objective'):
             for state in OBJECTIVE_FUNCS.values():
                 index = int(rec[f'Objective[{i}].Index'])
@@ -102,7 +106,7 @@ def objective_globals(builder, recs: list) -> dict:
                 name = objective_global_name(rec['EditorID'], index, state)
                 builder.writer.add_record('GLOB', pack_global(fid, name))
                 out[(int(rec['FormID'], 16), index, state)] = builder.scripts.named[name] = fid
-    builder.counts['GLOB'] += len(out)
+    builder.counts['GLOB'] += sum(key[0] != AUTHORED for key in out)
     return out
 
 

@@ -226,8 +226,7 @@ class Spike:
             return True
         if cond['func'] == 'GetActorValue':
             return self.av(cond['p1']) is None
-        slots = C.FNV.form_slots.get(C.FNV.index(cond['func']), set())
-        return any(s in slots and p not in self.form_map for s, p in ((1, cond['p1']), (2, cond['p2'])))
+        return C.unmapped_form(cond, self.form_map)
 
     def settle(self, cond: dict):
         """True/False when the test world fixes a condition, else None.

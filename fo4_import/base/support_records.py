@@ -15,19 +15,21 @@ from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 MESSAGE_TIME = 2
 
 
-def pack_mesg(fid: int, edid: str, title: str, text: str, flags: int, buttons: list) -> bytes:
-    """A message: text, title, DNAM flags (1: message box), button texts."""
+def pack_mesg(fid: int, edid: str, title: str, text: str, flags: int, buttons: list, shows: tuple = ()) -> bytes:
+    """A message: text, title, DNAM flags (1: message box), button texts, each followed by its CTDAs in `shows`."""
     subs = pack_string_subrecord('EDID', edid) + pack_string_subrecord('DESC', text)
     subs += pack_string_subrecord('FULL', title) + pack_subrecord('INAM', struct.pack('<I', 0))
     subs += pack_subrecord('DNAM', struct.pack('<I', flags))
     subs += b'' if flags & 1 else pack_subrecord('TNAM', struct.pack('<I', MESSAGE_TIME))
-    return pack_fo4_record('MESG', fid, 0, subs + b''.join(pack_string_subrecord('ITXT', b) for b in buttons))
+    gates = list(shows) + [b''] * (len(buttons) - len(shows))
+    return pack_fo4_record('MESG', fid, 0, subs + b''.join(pack_string_subrecord('ITXT', b) + gate
+                                                           for b, gate in zip(buttons, gates)))
 
 
-def pack_avif(fid: int, edid: str, name: str, desc: str = '') -> bytes:
-    """A plugin actor value, shaped like vanilla CA_Affinity 000A1B80 (default 0)."""
+def pack_avif(fid: int, edid: str, name: str, desc: str = '', default: float = 0.0) -> bytes:
+    """A plugin actor value, shaped like vanilla CA_Affinity 000A1B80, its default (NAM0) `default`."""
     subs = pack_string_subrecord('EDID', edid) + pack_string_subrecord('FULL', name)
-    subs += pack_string_subrecord('DESC', desc) + pack_subrecord('NAM0', struct.pack('<f', 0.0))
+    subs += pack_string_subrecord('DESC', desc) + pack_subrecord('NAM0', struct.pack('<f', default))
     subs += pack_subrecord('AVFL', struct.pack('<I', 0x400)) + pack_subrecord('NAM1', struct.pack('<I', 8))
     return pack_fo4_record('AVIF', fid, 0, subs)
 

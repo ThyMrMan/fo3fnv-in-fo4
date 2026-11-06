@@ -8,8 +8,11 @@ spell uses it: an ability is a constant effect, any other spell fire and
 forget, delivered at the effect's range. The spell keeps FNV's FormID, name,
 type, magnitudes, areas and durations. A spell with any other effect, an
 effect condition or a script that did not convert is left out, counted.
+Every copy of one FNV effect carries its family keyword (`TES4FX_<effect>`),
+which a converted HasMagicEffect or IsSpellTarget tests.
 
 See: docs/fork/fo4_pipeline.md#disguises
+See: docs/commentary/tes5_import_magic.md#effect-families
 """
 
 import struct
@@ -19,6 +22,8 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.consumable_effects import effect_pair
 from fo4_import.spike.perks import pack_spell
+from fo4_import.spike.records import pack_keywords, pack_kywd
+from script_convert.constants import mgef_family_keyword_name
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
@@ -36,6 +41,8 @@ ABILITY, CONSTANT, FIRE_AND_FORGET = 4, 0, 1
 FLAGS_AT, CAST_AT = 0x00, 0x50
 #: derive_formid site of an effect (key: FNV EditorID, casting type, delivery).
 SITE = 'FNV script effect'
+#: derive_formid site of an effect's family keyword (key: FNV EditorID, lower case).
+FAMILY_SITE = 'FNV effect family'
 #: Export keys of one FNV spell effect.
 EFFECT_KEYS = ('EFID', 'Magnitude', 'Area', 'Duration', 'Type', 'ConditionCount')
 
@@ -62,6 +69,8 @@ class ScriptEffects:
                         if r.get('EditorID') and r.get('DATA.AssocItem') in scripts}
         self.spells = {r['EditorID'].lower(): r for r in export_records(export_dir, 'SPEL') if r.get('EditorID')}
         self.ids = {int(r['FormID'], 16): edid for edid, r in self.spells.items()}
+        self.by_family = {mgef_family_keyword_name(edid).lower(): r for edid, r in self.effects.items()}
+        self.families = {}
 
     def spell(self, edid: str) -> 'int | None':
         """The FO4 spell of FNV spell `edid` (any case), written once; None for another name or one left out."""
@@ -82,6 +91,23 @@ class ScriptEffects:
         if rec is None or not self.builder.scripts.name(int(rec['DATA.AssocItem'], 16)):
             return None
         return self._effect(rec, cast, delivery)
+
+    def family(self, edid: str) -> int:
+        """The family keyword every copy of FNV effect `edid` carries, written once."""
+        name = mgef_family_keyword_name(edid)
+        if name not in self.families:
+            self.families[name] = fid = self.builder.writer.derive_formid(FAMILY_SITE, edid.lower())
+            self.builder.writer.add_record('KYWD', pack_kywd(fid, name, 0))
+            self.builder.counts['KYWD (effect families)'] += 1
+        return self.families[name]
+
+    def family_named(self, prop: str) -> 'int | None':
+        """family() of the FNV script effect a `TES4FX_<effect>` property names; None for another effect or one
+        whose script did not convert (no copy can carry it)."""
+        rec = self.by_family.get(prop.lower())
+        if rec is None or not self.builder.scripts.name(int(rec['DATA.AssocItem'], 16)):
+            return None
+        return self.family(rec['EditorID'])
 
     def consumed(self, edid: str) -> 'int | None':
         """effect() of FNV effect `edid` on a consumable: fire and forget, on self."""
@@ -165,13 +191,14 @@ class ScriptEffects:
             fnv_flags = _number(rec.get('DATA.Flags'))
             struct.pack_into('<I', data, FLAGS_AT, sum(1 << fo4 for fnv, fo4 in FLAGS.items() if fnv_flags >> fnv & 1))
             self._write_effect(fid, f'FNV_{rec["EditorID"]}_{cast}{delivery}', rec.get('FULL', ''),
-                               self.builder.scripts.vmad(int(rec['DATA.AssocItem'], 16)), bytes(data))
+                               self.builder.scripts.vmad(int(rec['DATA.AssocItem'], 16)), bytes(data),
+                               (self.family(rec['EditorID']),))
         return self.made_effects[key]
 
-    def _write_effect(self, fid: int, edid: str, name: str, vmad: bytes, data: bytes) -> None:
-        """Write Script-archetype effect `edid` carrying `vmad`, its DATA `data`."""
+    def _write_effect(self, fid: int, edid: str, name: str, vmad: bytes, data: bytes, keywords: tuple = ()) -> None:
+        """Write Script-archetype effect `edid` carrying `vmad` and `keywords`, its DATA `data`."""
         body = pack_string_subrecord('EDID', edid) + pack_subrecord('VMAD', vmad)
-        body += pack_string_subrecord('FULL', name) + pack_subrecord('DATA', data)
+        body += pack_string_subrecord('FULL', name) + pack_keywords(keywords) + pack_subrecord('DATA', data)
         body += pack_subrecord('SNDD', b'') + pack_subrecord('DNAM', b'\0')
         self.builder.writer.add_record('MGEF', pack_fo4_record('MGEF', fid, 0, body))
         self.builder.counts['MGEF (script effects)'] += 1

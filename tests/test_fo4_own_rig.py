@@ -11,6 +11,11 @@ import pytest
 from fo4_import.rig import anim_info, assets, behavior, build, records
 from fo4_import.rig import gun_mods
 from fo4_import.rig.table import Rig, rigs, weapon_node
+from fo4_import.nif.blocks import Reader, read_tri_shape
+from fo4_import.spike.talking_machines import bone_worlds, part_pose
+from script_convert.converter import ScriptConverter
+from script_convert.cross_ref import CrossRefGraph
+from tests.test_script_converter import conv_lines
 from fo4_import.spike.ammo_mods import ADD, FORM, FORM_VALUE2, omod_data, prop
 from fo4_import.spike import creatures as C
 from tes5_import.base.tes5_reader import subrecords
@@ -319,3 +324,156 @@ def test_a_gun_node_aims_level_ahead_at_the_shot():
                                    assets.Bone('Head', 0, (0.0, 1.0, 0.0), (half, 0.0, 0.0, half), 1.0)])['Head'][0]
     assert head @ np.array(turn).reshape(3, 3) == pytest.approx(np.eye(3))
     assert behavior.shot_times([(0.367, 'Fire'), (0.733, 'Loop'), (1.0, 'Hit')]) == [0.367, 1.0]
+
+
+SECURITRON = EXPORT_MESHES / 'creatures' / 'nvsecuritron'
+
+
+@pytest.mark.skipif(not SECURITRON.exists(), reason='needs the FalloutNV.esm export')
+def test_a_rigid_part_rides_its_prn_bone_where_fnv_attaches_it(tmp_path):
+    """Victor's face screen (no skin, `Prn` Bip01 Screen10) is skinned fully to that bone, its vertices where the
+    posed static conversion puts them, its shader keeping its free-running controllers."""
+    part, skeleton = SECURITRON / 'nvsecuritronvictorscreen01.nif', SECURITRON / 'skeleton.nif'
+    _, summary = assets.write_body([part], skeleton, assets.skeleton_bones(skeleton), tmp_path / 'body.nif',
+                                   EXPORT_MESHES.parent)
+    assert summary['Screen01:0']['bones'] == 1
+    nif = assets.F.read((tmp_path / 'body.nif').read_bytes())
+    shapes = {nif.strings[s['name']]: s for s in (read_tri_shape(Reader(b)) for k, b in nif.blocks
+                                                  if k == 'BSSubIndexTriShape')}
+    screen = shapes['Screen01:0']
+    skin = nif.blocks[screen['skin']][1]
+    bone = struct.unpack_from('<i', skin, 12)[0]
+    assert nif.strings[nif.blocks[bone][1]['name']] == 'Bip01 Screen10'
+    posed = assets.CS.convert(str(part), pose=part_pose(part, bone_worlds(skeleton))).nif
+    want = next(b for k, b in posed.blocks if k == 'BSTriShape' and posed.strings[b['name']] == 'Screen01:0')
+    mean = np.mean([v['position'] for v in screen['vertices']], axis=0)
+    assert mean == pytest.approx(np.mean([v['position'] for v in want['vertices']], axis=0), abs=0.01)
+    shader = nif.blocks[screen['shader']][1]
+    assert nif.blocks[shader['controller']][0].startswith('BSEffectShaderProperty')
+    assert shader['name'] == -1
+
+
+@pytest.mark.skipif(not SECURITRON.exists(), reason='needs the FalloutNV.esm export')
+def test_the_idle_clips_screen_channels_loop_on_the_body(tmp_path):
+    """mtidle.kf's screen channels become loops over its 13.33 s on the screen's shader: four UV channels and its
+    B-spline emissive colour, sampled and shown as FNV does (colour x30 emittance, clipped to 1)."""
+    part, skeleton = SECURITRON / 'nvsecuritronvictorscreen01.nif', SECURITRON / 'skeleton.nif'
+    assets.write_body([part], skeleton, assets.skeleton_bones(skeleton), tmp_path / 'body.nif', EXPORT_MESHES.parent,
+                      (SECURITRON / 'mtidle.kf',))
+    nif = assets.F.read((tmp_path / 'body.nif').read_bytes())
+    screen = next(s for s in (read_tri_shape(Reader(b)) for k, b in nif.blocks if k == 'BSSubIndexTriShape')
+                  if nif.strings[s['name']] == 'Screen01:0')
+    loops, at = {}, nif.blocks[screen['shader']][1]['controller']
+    while at >= 0:
+        kind, block = nif.blocks[at]
+        keys = nif.blocks[nif.blocks[block['interpolator']][1]['data']][1]['keys']['keys']
+        loops[(kind[-15:], block['variable'])] = (block['flags'], round(block['stop'], 2), keys)
+        at = block['next']
+    assert set(loops) == {('ColorController', 0)} | {('FloatController', v) for v in (6, 7, 8, 9)}
+    assert {flags for flags, _, _ in loops.values()} == {0x48} and {s for _, s, _ in loops.values()} == {13.33}
+    colors = [k[1] for k in loops[('ColorController', 0)][2]]
+    assert len(colors) == 401 and 0.6 < min(colors) and max(colors) == 1.0
+
+
+@pytest.mark.skipif(not SECURITRON.exists(), reason='needs the FalloutNV.esm export')
+def test_an_expression_screen_is_the_face_screen_showing_its_face_texture(tmp_path):
+    """screen_part picks the part holding Screen01:0; retexturing it shows `<face>_<expression>.dds` as
+    SetSecuritronExpression does."""
+    parts = [SECURITRON / p for p in ('nvsecuritron.nif', 'nvsecuritronvoicebox.nif', 'nvsecuritronvictorscreen01.nif')]
+    screen = assets.screen_part(parts)
+    assert screen == parts[2]
+    texture = assets.SCREEN_TEXTURE.format('infantry', 'neutral')
+    skeleton = SECURITRON / 'skeleton.nif'
+    statics, _ = assets.write_body([screen], skeleton, assets.skeleton_bones(skeleton), tmp_path / 's.nif',
+                                   EXPORT_MESHES.parent, (None, {assets.SCREEN_SHAPE: texture}))
+    nif = assets.F.read((tmp_path / 's.nif').read_bytes())
+    shape = next(s for s in (read_tri_shape(Reader(b)) for k, b in nif.blocks if k == 'BSSubIndexTriShape')
+                 if nif.strings[s['name']] == assets.SCREEN_SHAPE)
+    assert nif.blocks[shape['shader']][1]['source_texture'].lower().endswith('securitron\\infantry_neutral.dds')
+    assert texture in statics[0].textures
+
+
+class _Templates:
+    """A stand-in for records.Templates holding a template skin and addon as Fallout4.esm lays them out."""
+
+    def get(self, sig: bytes, edid: str) -> tuple:
+        """(record with flags, subrecords) of the stand-in skin or addon."""
+        if sig == b'ARMO':
+            return type('Rec', (), {'flags': 4})(), [
+                (b'EDID', b'Skin\0'), (b'BOD2', struct.pack('<I', 8)), (b'RNAM', bytes(4)), (b'INDX', bytes(2)),
+                (b'MODL', bytes(4)), (b'DATA', bytes(12))]
+        return type('Rec', (), {'flags': 0})(), [
+            (b'EDID', b'AA\0'), (b'BOD2', struct.pack('<I', 8)), (b'RNAM', bytes(4)), (b'MOD2', b'm\0'),
+            (b'MO2T', b'x'), (b'MOD3', b'm\0'), (b'SNDD', bytes(4))]
+
+
+def _subs(record: bytes) -> list:
+    """A packed record's subrecords (its 24-byte header skipped)."""
+    return subrecords(record[24:])
+
+
+def test_a_skin_with_a_face_screen_lists_both_addons_and_covers_both_slots():
+    """Without a screen the skin keeps one addon on the template's slot (33); with one, a second addon on the Eyes
+    slot (47) shows it and the skin covers both, listed as INDX/MODL pairs as vanilla's SkinNaked."""
+    rig = Rig(folder='creatures\\x', project='FNVX', template={'skin': 'S', 'addon': 'A'}, clips={}, attacks={},
+              parts={}, default_part='', pose_bones=())
+    armo, armas = records.skin((1, 2), 9, rig, _Templates(), 'body.nif')
+    assert len(armas) == 1 and [t for t, _ in _subs(armo)] == [b'EDID', b'BOD2', b'RNAM', b'INDX', b'MODL', b'DATA']
+    armo, armas = records.skin((1, 2, 3), 9, rig, _Templates(), 'body.nif', screen='screen.nif')
+    subs = _subs(armo)
+    assert struct.unpack('<I', dict(subs)[b'BOD2'])[0] == 8 | 1 << (records.SCREEN_SLOT - records.FIRST_SLOT)
+    assert [struct.unpack('<I', d)[0] for t, d in subs if t == b'MODL'] == [2, 3]
+    screen = dict(_subs(armas[1]))
+    assert screen[b'MOD2'].rstrip(b'\0').endswith(b'screen.nif') and b'SNDD' not in screen
+
+
+def test_set_securitron_expression_equips_that_faces_screen_armor(monkeypatch):
+    """`SetSecuritronExpression <ref> <face> <expression>` equips the armor property its face and expression name."""
+    monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+    xref = CrossRefGraph()
+    xref._is_fallout = True
+    out = conv_lines(ScriptConverter(xref), 'SetSecuritronExpression rSelf Infantry Neutral', 'ObjectReference')
+    assert out == '(rSelf as Actor).EquipItem(TES4Screen_Infantry_Neutral, true, true)'
+
+
+RAT = EXPORT_MESHES / 'creatures' / 'nvgiantrat' / 'skeleton.nif'
+
+
+@pytest.mark.skipif(not RAT.exists() or not assets.elric.ELRIC.exists(), reason='needs the FalloutNV.esm export and Elric')
+@pytest.mark.parametrize('folder', ['nvgiantrat', 'centaur', 'nvcazadores'])
+def test_an_elric_skeleton_comes_out_byte_identical_its_ragdoll_in_node_order(tmp_path, folder):
+    """Elric numbers ragdoll bodies differently each run; in_node_order makes two runs' skeleton.nif identical,
+    bodies in node order: capsules (rat), a sphere shape (centaur), constraints sharing one motor through fixed
+    arrays (cazador)."""
+    skeleton = EXPORT_MESHES / 'creatures' / folder / 'skeleton.nif'
+    first = assets.write_skeleton_nif(skeleton, tmp_path / 'a' / 'skeleton.nif')
+    second = assets.write_skeleton_nif(skeleton, tmp_path / 'b' / 'skeleton.nif')
+    assert (tmp_path / 'a' / 'skeleton.nif').read_bytes() == (tmp_path / 'b' / 'skeleton.nif').read_bytes()
+    assert first == second
+    nif = assets.F.read((tmp_path / 'a' / 'skeleton.nif').read_bytes())
+    system = next(i for i, (k, _) in enumerate(nif.blocks) if k == 'bhkRagdollSystem')
+    bodies = [struct.unpack_from('<iHiI', nif.blocks[b['collision']][1])[3] for k, b in nif.blocks
+              if k == 'NiNode' and b['collision'] >= 0
+              and struct.unpack_from('<iHiI', nif.blocks[b['collision']][1])[2] == system]
+    assert bodies == list(range(len(bodies)))
+
+
+def test_a_dlc_build_leaves_a_rig_its_master_ships_to_the_master(tmp_path):
+    """A master folder holding the rig's skeleton.nif keeps its rig files (Rigs.shipped), and one holding a body
+    keeps that body (Rigs.model writes nothing); a body the master lacks (Honest Hearts' green gecko) is the DLC's."""
+    rig = rigs()[GECKO]
+    shipped, other, own = tmp_path / 'game', tmp_path / 'other', tmp_path / 'dlc'
+    path = shipped / 'Meshes' / rig.actor_dir / 'CharacterAssets' / 'skeleton.nif'
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'nif')
+    made = build.Rigs.__new__(build.Rigs)
+    made.data_dir, made.masters = own, [other, shipped]
+    assert made.shipped(rig) == path
+    body = path.with_name('NVGecko.nif')
+    body.write_bytes(b'nif')
+    assert made.shipped(rig, 'NVGecko.nif') == body and made.shipped(rig, 'NVDLC02GreenGecko.nif') is None
+    made.builder = type('B', (), {'counts': __import__('collections').Counter()})()
+    made.model(rig, [], 'NVGecko.nif')
+    assert made.builder.counts["own-rig bodies left to the master's folder"] == 1
+    made.masters = [other]
+    assert made.shipped(rig) is None

@@ -14,14 +14,14 @@ import time
 from pathlib import Path
 
 from core.heavy_lock import hold_heavy_lock
-from core.mod_sources import data_dirs
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
-from fo4_import.app import settings
+from fo4_import.pipeline import build_inputs
 from fo4_import.pipeline.build_steps import convert_scripts, source_state, write_stamp
 from fo4_import.pipeline.converters import placed_types
 from fo4_import.pipeline.export_index import export_file, export_records
 from fo4_import.pipeline.mesh_cache import warm
+from fo4_import.pipeline.mod_dirs import plugin_dirs
 from fo4_import.pipeline.stage_timer import charged, report
 from fo4_import.spike import replacements
 from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
@@ -93,12 +93,6 @@ def exteriors(args: argparse.Namespace) -> tuple:
     return tuple([(name, *scope_cells(args)) for name in names[:1]] + [(name, None, None) for name in names[1:]])
 
 
-def plugin_dirs(args: argparse.Namespace) -> tuple:
-    """Folders searched for the table's plugins: --plugin-dirs, then --mod-sources'."""
-    sources = settings.mod_sources(settings.load(args.mod_sources)) if args.mod_sources else []
-    return (*map(Path, args.plugin_dirs), *data_dirs(sources))
-
-
 def arguments() -> argparse.Namespace:
     """The command line (the module notes)."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -143,8 +137,10 @@ def main():
     started = time.time()
     extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), **source_state()}
     write_stamp(args.out, 'running', started, extra)
+    build_inputs.start(args.out.with_name(args.out.name + build_inputs.RECORD_SUFFIX))
     try:
         build_all(args, started)
+        build_inputs.write(args.out, args.data, sys.argv[1:])
     except BaseException:
         write_stamp(args.out, 'failed', started, extra)
         raise
@@ -159,7 +155,7 @@ def build_all(args: argparse.Namespace, started: float) -> None:
     models = scope_models(args.export, args.cell, worlds)
     warm(models, args.export, args.workers)
     print(f'mesh cache: {len(models)} meshes ready in {time.time() - started:.1f}s')
-    dirs = plugin_dirs(args)
+    dirs = plugin_dirs(args.plugin_dirs, args.mod_sources)
     table = replacements.load(args.replacements, args.profile, dirs)
     for warning in table.warnings:
         print(f'replacements: {warning}')

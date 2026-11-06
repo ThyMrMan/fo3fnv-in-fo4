@@ -19,6 +19,7 @@ import struct
 from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif.convert_static import fo4_texture
+from fo4_import.pipeline.export_index import export_file
 from fo4_import.spike.statics import copy_texture
 from tes5_import.base.tes5_reader import first_sub
 from tes5_import.base.writer import pack_subrecord
@@ -54,8 +55,10 @@ class Decals:
         bounds = tuple(int(rec.get(f'OBND.{k}', 0)) for k in ('X1', 'Y1', 'Z1', 'X2', 'Y2', 'Z2'))
         subs += pack_subrecord('OBND', struct.pack('<6h', *bounds))
         for slot in SLOTS:
-            if rec.get(slot):
-                source = 'textures\\' + rec[slot].replace('/', '\\').lower()
+            source = 'textures\\' + rec[slot].replace('/', '\\').lower() if rec.get(slot) else None
+            if source and not export_file(self.builder.export_dir, source.replace('\\', '/')).is_file():
+                self.builder.counts['decal textures in no archive (left out)'] += 1
+            elif source:
                 copy_texture(self.builder.export_dir, self.builder.data_dir, source)
                 subs += pack_subrecord(slot, (fo4_texture(source) + '\0').encode('cp1252'))
         dodt = self.dodt.get(int(rec['FormID'], 16))

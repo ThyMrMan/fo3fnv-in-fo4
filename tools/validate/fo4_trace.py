@@ -3,8 +3,8 @@
     py -3.14 -m tools.validate.fo4_trace [--log Papyrus.0.log] [--grep TEXT ...] [--kind KIND ...] [--quiet]
 
 The converted scripts write `TES4TRACE|<real time>|<kind>|...` lines to the
-Papyrus log while the helper global is on (`set TES4Trace to 1` in the
-console; script_convert/trace_points.py). Kinds: stage (quest, stage asked,
+Papyrus log while F3NV_Trace.esl is enabled (the MO2 mod F3NV - Trace;
+script_convert/trace_points.py). Kinds: stage (quest, stage asked,
 set, stage after), value (owner, variable, new value), global (global, value),
 line (speaker, FNV INFO, begin/end), say (speaker, topic, asked/started/not
 started/dropped), package (actor, fragment, current package), death (dead,
@@ -171,7 +171,7 @@ def main() -> int:
         return 2
     events = read(args.log)
     if not events:
-        print(f'{args.log}: no TES4TRACE lines (is the trace on? console: set TES4Trace to 1)')
+        print(f'{args.log}: no TES4TRACE lines (is the trace on? enable F3NV_Trace.esl in MO2)')
         return 2
     start = events[0][0]
     shown = [e for e in events if (not args.kind or e[1] in args.kind)

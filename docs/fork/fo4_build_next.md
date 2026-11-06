@@ -26,6 +26,7 @@ xEdit's definitions. Addresses are FalloutNV.exe's unless they start `0x14`.
 - [12. Kill cams on Fallout 4](#kill-cams)
 - [13. Casino games and Caravan](#casino)
 - [14. Built-in scopes at FNV's zoom](#scope-zoom)
+- [15. Human clothing on FO4's body](#human-clothing)
 
 ## <a id="order"></a>Order
 
@@ -37,7 +38,7 @@ xEdit's definitions. Addresses are FalloutNV.exe's unless they start `0x14`.
 | 3 | [Creatures' Combat skill](#creature-skill) | S | Pairs with the weapon-skill rules already built |
 | 4 | [Gun sway](#sway) | S-M | Corrects the combat-feel drift; one play test with 3 |
 | 5 | [Audits](#audits) | M | Find what the play test can't; run after each build from here |
-| 6 | [Super mutants on FNV's mesh](#super-mutants) | S-M | Built 2026-10-31: FNV's body and armor on FO4's super mutant |
+| 6 | [Super mutants on FNV's mesh](#super-mutants) | S-M | Played 2026-11-02: FO4's body, head and hands, tinted, under FNV's armor |
 | 7 | [Screens and the elevator](#screens) | M | Victor, Yes Man and Mr. House are on the main quest path |
 | 8 | [Papyrus cost 2 to 4](#papyrus) | M | Before the whole map gets long play sessions |
 | 9 | [Look pass](#look) | M | Polish; each step is one play test |
@@ -46,6 +47,7 @@ xEdit's definitions. Addresses are FalloutNV.exe's unless they start `0x14`.
 | 12 | [Kill cams](#kill-cams) | M | Needs an FO4 census first |
 | 13 | [Casino and Caravan](#casino) | L | The largest; nearly all new UI |
 | 14 | [Built-in scopes at FNV's zoom](#scope-zoom) | S | Built 2026-10-31: scoped guns zoom as FNV's (2–2.8x), not FO4's 6–10x |
+| 15 | [Human clothing on FO4's body](#human-clothing) | S-M | FNV's own weights for clothes (the super mutants' fix), wrists, dismemberment; CBBE as an opt-in |
 
 Items 1 to 4 fit one build and one play test. Items 6 to 13 do not depend on
 each other.
@@ -59,6 +61,8 @@ cone's half-angle, V.A.T.S. audio at 2%, the speed taking, the Creation Kit's
 archive wait) each settle a guess in the built code.
 
 ## <a id="no-base"></a>1. Creatures with no FO4 base (a converter bug)
+
+**Built 2026-10-30, not played.**
 
 **Found:** the 47 placed creatures of 14 kinds counted `ACRE skipped (no FO4
 base)` are not missing a rig or a counterpart. The rules already map
@@ -97,6 +101,8 @@ Black Mountain roadblocks and REPCON's ghouls stand in game.
 
 ## <a id="speech-tag"></a>2. The `[Speech 50]` tag
 
+**Built 2026-10-30, played 2026-10-31.**
+
 **Found:** FNV's engine writes the tag from the line's condition; the
 authored text has none (28 topic texts and 1 prompt carry a bracket). The
 dialogue menu's strings sit after "TopicsList(): has a topic without
@@ -125,6 +131,8 @@ option per topic; Doc Mitchell's and Sunny Smiles' checks in game.
 
 ## <a id="creature-skill"></a>3. Creatures' Combat skill
 
+**Built 2026-10-30, not played.**
+
 **Found:** FNV reads CREA Combat Skill at +0x12D (0x5F8F70), plus level ×
 `fCreatureCalcCombat` (2) when a base-data flag is set (0x461560, probably
 the level-mult flag). TESCreature's actor-value getter (0x5FA180) returns it
@@ -147,6 +155,8 @@ creature without a weapon is unaffected, as in FNV.
 FNV's feel in play.
 
 ## <a id="sway"></a>4. Gun sway from FNV's skill
+
+**Built 2026-10-30, not played.**
 
 **Found, correcting [combat feel](fo4_combat_feel.md#base-accuracy):**
 `Actor::GetSpread` mode 3 (0x7F14CA, ×`fNPCMaxGunWobbleAngle`) is the
@@ -211,20 +221,27 @@ over FNV's unless the skin covers the head slot; FNV's armor is merged into
 the body; FO4's animations, not FNV's. An own rig (as the geckos) keeps
 FNV's motion but is L and FO4's graph already fits.
 
-As built, two more than the pair: FO4's super mutant body skins 140 units
+As first built, two more than the pair: FO4's super mutant body skins 140 units
 below its skeleton, which the fit now corrects as the human body fit does,
-and the skin adds the head slot. Play-tested in the 2026-10-31 build (Black
+and the skin added the head slot (since dropped: the race's head shows). Play-tested in the 2026-10-31 build (Black
 Mountain): bodies stretched when dead and armor came apart, fixed by keeping
 FNV's own weights; some nightkin uncloaked, a script conversion bug
 (`GetAnimAction`), not this change. Played again in the 2026-11-01 build:
 nightkin fought unarmed, because `SuperMutantRace` has no subgraph for
 FNV's gun and melee keywords. Fixed by a super mutant additive race
-(`spike.mutant_subgraphs`). FNV's hands can't hold FO4's weapons (their joints are FNV's), so super mutants now wear FO4's own body, tinted, under FNV's head and armor (not rebuilt). Still open, not this change:
-`CrNightkinGunScript`'s cloak shader is empty (no FNV EFSH is built), and
-REPCON's corpses T-pose (Starts Dead placements; the ghouls are also killed
-on load). Findings: [creatures](fo4_spikes.md#spike-4-creatures).
+(`spike.mutant_subgraphs`). FNV's hands can't hold FO4's weapons (their joints are FNV's), so super mutants now wear FO4's own body, tinted, under FNV's armor, with FO4's head (played 2026-11-02: [creatures](fo4_spikes.md#spike-4-creatures)). Not this change, and since addressed in
+[creatures](fo4_spikes.md#spike-4-creatures): `CrNightkinGunScript`'s cloak
+shader now plays (a Fallout4.esm shader; the converted `GetAnimAction` still
+latches, so gun nightkin don't re-cloak), and REPCON's corpses (Starts Dead
+placements; the ghouls are also killed on load) get FNV's ragdoll poses
+(converted 2026-11-01, not rebuilt). Findings: [creatures](fo4_spikes.md#spike-4-creatures).
 
 ## <a id="screens"></a>7. Securitron and Mr. House screens, the Lucky 38 elevator
+
+**Steps 1 to 4 built 2026-11-02, not played:** [rigid parts](fo4_own_rig.md#rigid-parts),
+[clip shader channels](fo4_own_rig.md#screen-clips),
+[free controllers](fo4_pipeline.md#free-controllers),
+[expressions](fo4_own_rig.md#expressions).
 
 **Found:** a securitron's screen is a rigid body part
 (`NVSecuritronVictorScreen01.NIF` on `Bip01 Screen10`, `Victor_Neutral.dds`)
@@ -493,3 +510,83 @@ menus are custom Scaleform menus was wrong.
    - the AS3 tool and the menu shell (S-M);
    - slots (S), then roulette (M: the betting board), then blackjack (M);
    - Caravan (L: rules, opponent, deck building, bidding).
+
+## <a id="human-clothing"></a>15. Human clothing on FO4's body (planned 2026-11-02)
+
+**Where it stands.**
+- **Clothes:** every FNV item covering the upper body shows FNV's mesh (the
+  replacement table's `_rules.armor`, `"as": "fnv"`). Each mesh is
+  retargeted from FNV's skeleton to FO4's and moved onto FO4's body by the
+  offsets between the two bodies (`fo4_import/nif/outfit.py`,
+  [outfits](fo4_spikes.md#spike-4-outfits)).
+- **Weights:** every vertex takes FO4's body weights at its nearest
+  surface point (`BodyFit.skin`).
+- **Body, head and hands:** FO4's own. Bare skin inside an FNV outfit
+  keeps FNV's shape on FO4's body texture and skin shader.
+- **Animations:** humans use FO4's skeleton, graphs and movement; FNV's
+  idles and gun clips are retargeted onto it.
+- **Known flaws:**
+  - FO4's hand is larger than FNV's forearm, so the wrist seam shows.
+  - FO4's female body texture has painted underwear, and it shows where
+    FNV clothes leave skin bare.
+  - Loose cloth sits off the body (the dress hem up to 13 units).
+  - Dismemberment does not cut the outfits.
+
+**What the super mutants showed** ([super mutants](#super-mutants),
+[mesh](fo4_spikes.md#spike-4-creatures)). FNV's super mutant body on FO4's
+super mutant skeleton was built and played twice, 2026-10-31 to 11-02:
+- **Weights.** Nearest-surface weights fail on anything shaped unlike FO4's
+  body: armor lying nearest FO4's arms took arm weights and stretched up to
+  34.5x with an arm raised. FNV's own weights, each FNV bone on its mapped
+  FO4 bone (`creature.Pair.own_weights`), brought that to 3.4x, against 4.0x
+  for FO4's own super mutant.
+- **Hands.** FNV's hands can't hold FO4's weapons: their finger joints are
+  FNV's.
+- **Head.** FNV's head on FO4's body left a gap and a second head showing,
+  because FO4's head part is built for its own neck.
+- **The result.** Super mutants now wear FO4's body, head and hands,
+  tinted, with FNV's armor pushed outside FO4's body (`fo4_body`) — the
+  layout humans already have.
+
+**Options weighed.**
+- **A. Keep FO4's body, head and hands; fix how FNV clothes sit on them.**
+  Chosen.
+- **B. FNV's body and hands on FO4's skeleton.** Dropped: the hands fail
+  (point 2), and a human must keep FO4's head for FaceGen, hair and
+  LooksMenu, so the neck seam that failed (point 3) would come back.
+- **C. BodySlide projects for CBBE.** Kept as an opt-in user option (below).
+
+**Build (A):**
+1. **FNV's own weights for clothes.** Each outfit vertex keeps its FNV
+   weights, each FNV bone on its `HUMAN` rig bone in FO4's body or that
+   bone's `_skin` helper, an unmapped bone (fingers, twists) on its nearest
+   mapped ancestor: the super mutant `_targets` rule, shared rather than
+   copied. Check first whether vertices that touch skin (cuffs, collars,
+   waistbands, the skin shapes) stay closer to FO4's body under its own
+   weights. If so, blend from FO4's surface weights at the body to FNV's
+   farther out. Measure as the super mutants were: edge stretch with an arm
+   raised 90 degrees and a leg forward, on the dress, a duster
+   (`BountyHunterDuster`), leather armor and a vault suit. Old against new;
+   the skirts and coat tails should stop splitting between the legs.
+2. **Wrists.** The seam step already joins a sleeve's or bare forearm's edge
+   to FO4's wrist edge. Also taper the last few units of forearm toward
+   FO4's wrist, so the step to FO4's larger hand shrinks.
+3. **Dismemberment segments.** Give each outfit the cut data FO4's body
+   carries, so a severed limb takes its sleeve or leg with it.
+4. **Painted underwear** stays: a body texture replacer the player
+   installs covers it, as does option C.
+
+Step 1 is played on its own first, since it changes every outfit; 2 and 3
+can share a play test.
+
+**C, as a user option.** A "Body" choice in the app and the replacement
+profiles: FO4's body (A, the default) or CBBE with BodySlide.
+- **With C:** the converter fits each outfit onto CBBE's body, read from
+  the player's install and never shipped, instead of FO4's. It writes a
+  BodySlide project per outfit, with slider data made as Outfit Studio's
+  conform makes it, and the player batch-builds with their own preset.
+- **What carries over:** A's weights and seams apply to C unchanged.
+- **The app:** finds CBBE and BodySlide in the mod folders it reads, and
+  greys the option out without them.
+- **Open:** CBBE's permissions for generated conversions
+  ([CBBE and BodySlide](fo4_replacements.md#bodyslide)).

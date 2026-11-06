@@ -29,8 +29,8 @@ from script_convert.command_rows import (
     ACTOR_VALUE_READ_FUNCTIONS, Cmd, param_types
 )
 from script_convert.emit.commands import emit_row
-from script_convert.target import (anim_event_call, av_call, controls_call, fallout4_av_name, is_fallout4,
-                                   on_talking_activator, self_as_actor)
+from script_convert.target import (anim_event_call, av_call, controls_call, fallout4_actor_values, fallout4_av_name,
+                                   is_fallout4, on_talking_activator, self_as_actor)
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
@@ -342,10 +342,12 @@ def start_conversation(ctx, call) -> str:
     """StartConversation -- the topic's lines play (as a Say chain, or a Fallout 4 scene); no topic is GREETING.
 
     On Fallout 4 the speaker stays an ObjectReference, as the polyfill and Say
-    take one: a talking object (Hoover Dam's control panel) is no actor.
+    take one: a talking object (Hoover Dam's control panel) is no actor. A bare
+    call in a line's or package's fragment (TopicInfo) speaks as akSpeakerRef.
     See: docs/commentary/tes5_import_dialogue.md#script-started-conversation-chains
     """
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=not is_fallout4())
+    ref = 'akSpeakerRef' if ref == 'Self' and call.extends == 'TopicInfo' else ref
     parts = ctx.arg_srcs()
     greet = _force_greet(ctx, ref, parts) or _npc_chat(ctx, ref, call, parts)
     if greet:
@@ -1040,7 +1042,16 @@ def cast(ctx, call) -> str:
     # and the spell was never cast.
     source = ctx._resolve_objref_ref(call.ref, call.extends)
     target = call.arg(1) if len(call) > 1 else source
+    if cur == 'Potion' and is_fallout4():
+        return _potion_cast(call.arg(0, 'None'), target)
     return f'{spell}.Cast({source}, {target})'
+
+
+def _potion_cast(potion: str, target: str) -> str:
+    """Fallout 4: an ingestible cast (CIOS Stimpak) as `target` consuming it.
+    See: docs/fork/fo4_pipeline.md#script-casts
+    """
+    return f'({target} as Actor).EquipItem({potion}, False, True)'
 
 
 @command('isinfaction')
@@ -1314,7 +1325,7 @@ def move_to(ctx, call) -> str:
     if parts and parts[0].strip().isidentifier() and target == parts[0].strip():
         ctx.sc.property_refs.setdefault(parts[0].strip(), 'ObjectReference')
     ref = ctx._resolve_objref_ref(call.ref, call.extends)
-    offsets = ', '.join(p.strip() for p in parts[1:4])
+    offsets = ', '.join(call.arg(i) for i in range(1, min(len(parts), 4)))
     return f'{ref}.MoveTo({target}, {offsets})' if offsets \
         else f'{ref}.MoveTo({target})'
 
@@ -1381,7 +1392,7 @@ def dispel(ctx, call) -> str:
                         f'no Skyrim Spell to dispel')
     arg = call.arg(0)
     ctx.sc.property_refs[raw] = 'Spell'
-    ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
+    ref = _actor_subject(ctx._resolve_self_ref(call.ref, call.extends, actor_func=True), call.extends)
     return f'{ref}.DispelSpell({arg})'
 
 
@@ -1574,13 +1585,14 @@ def _actor_subject(ref: str, extends: str) -> str:
 
 
 def _unmapped_actor_value(ctx, call, raw: str) -> str:
-    """An FO3/FNV actor value Skyrim's table lacks: an inert read, or a dropped write.
+    """An FO3/FNV actor value the target game lacks: an inert read, or a dropped write.
 
     See: docs/commentary/script_convert.md#fallout-actor-value-names
     """
+    game = 'Fallout 4' if is_fallout4() else 'Skyrim'
     if call.name in ACTOR_VALUE_READ_FUNCTIONS:
-        return ctx.note(f'{call.raw_name} {raw} - Skyrim has no {raw} actor value')
-    return f';Fallout actor value {raw} has no Skyrim equivalent -- write dropped'
+        return ctx.note(f'{call.raw_name} {raw} - {game} has no {raw} actor value')
+    return f';Fallout actor value {raw} has no {game} equivalent -- write dropped'
 
 
 #: FO3/FNV karma, kept in a global conditions also read.
@@ -1603,6 +1615,37 @@ def _karma_call(ctx, call) -> str:
     return f'{_KARMA}.{"SetValue" if call.name in _AV_SET else "Mod"}({call.arg(1)})'
 
 
+#: Fallout 4's FO3/FNV Fatigue: the helper actor value, and TES4Polyfill.ChangeFatigue's operation per AV native.
+_FATIGUE, _FATIGUE_OPS = 'Fatigue', {'SetActorValue': 0, 'ModActorValue': 1, 'DamageActorValue': 2,
+                                     'RestoreActorValue': 3, 'ForceActorValue': 4}
+
+
+def _fatigue_call(ctx, call) -> str:
+    """Fallout 4 Fatigue: a read of the helper actor value; a write through TES4Polyfill.ChangeFatigue, which
+    knocks the actor out at 0 or below and wakes it once Fatigue recovers.
+    See: docs/fork/fo4_pipeline.md#fatigue
+    """
+    native = _av_papyrus(call)
+    read, props = av_call('GetBaseActorValue' if native == 'GetBaseActorValue' else 'GetActorValue', _FATIGUE)
+    ctx.sc.property_refs.update(props)
+    actor = _av_actor(ctx, call)
+    if native not in _FATIGUE_OPS:
+        return read if actor == 'Self' else f'{actor}.{read}'
+    if len(call) < 2:
+        return ''
+    return f'TES4Polyfill.ChangeFatigue({actor}, {next(iter(props))}, {_FATIGUE_OPS[native]}, {call.arg(1)})'
+
+
+def _night_eye_call(ctx, call, raw: str) -> str:
+    """Fallout 4 Night Eye: a Set or Force is TES4Polyfill.SetNightEye (Night Person's night vision on the
+    player); any other access has no Fallout 4 value.
+    See: docs/fork/fo4_pipeline.md#night-eye
+    """
+    if _av_papyrus(call) not in ('SetActorValue', 'ForceActorValue') or len(call) < 2:
+        return _unmapped_actor_value(ctx, call, raw)
+    return f'TES4Polyfill.SetNightEye({_av_actor(ctx, call)}, {call.arg(1)})'
+
+
 @command(*sorted(ACTOR_VALUE_FUNCTIONS))
 def actor_value(ctx, call) -> str:
     """Get/Set/Mod ActorValue with the AV name quoted; attributes through TES4Polyfill.
@@ -1619,6 +1662,8 @@ def actor_value(ctx, call) -> str:
     av = _av_name(raw, call)
     if av.lower() == 'confidence' and call.name in _AV_PAPYRUS:
         return _confidence(ctx, call)
+    if is_fallout4() and av.lower() not in fallout4_actor_values():
+        return _unmapped_actor_value(ctx, call, raw)
     value = ()
     if len(call) > 1:
         scaled = (ctx._scale_enum_av(av, call.source(1))
@@ -1646,6 +1691,10 @@ def _special_actor_value(ctx, call, raw: str) -> 'str | None':
         return _unmapped_actor_value(ctx, call, raw)
     if low == 'karma':
         return _karma_call(ctx, call)
+    if low == 'fatigue' and is_fallout4():
+        return _fatigue_call(ctx, call)
+    if low == 'nighteye' and is_fallout4():
+        return _night_eye_call(ctx, call, raw)
     return None
 
 

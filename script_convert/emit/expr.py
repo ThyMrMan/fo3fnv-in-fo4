@@ -20,8 +20,9 @@ from __future__ import annotations
 
 from script_convert.constants import (
     BASE_FORM_TYPES, EVENT_REF_PARAMS, MISMATCH_TYPES, OP_MAP,
-    PAPYRUS_BOOL_FUNCTIONS, SELF_NAMES, is_generated_script_type
+    PAPYRUS_BOOL_FUNCTIONS, PLACED_REF_SIGS, SELF_NAMES, is_generated_script_type
 )
+from script_convert.resolve import resolve_property_formid
 from script_convert.command_rows import PAPYRUS_VALUE_TYPES
 from script_convert.emit.commands import (
     BOOL_TEMPLATE_COMMANDS, COMPARISON_COMMANDS, INERT_COMMANDS,
@@ -339,10 +340,6 @@ def _form_typed(conv, node: N.Expr) -> bool:
     return t in MISMATCH_TYPES or is_generated_script_type(t)
 
 
-def _is_number(node: N.Expr) -> bool:
-    return isinstance(node, N.Literal) and not node.is_string
-
-
 def _mismatch(conv, a, b, node, extends):
     """A form compared directly against a number.
 
@@ -351,10 +348,28 @@ def _mismatch(conv, a, b, node, extends):
     fire the branch.  This reproduces what the TES4 runtime did with the
     form-vs-number pun, so the note is `;NE:`, not `;TODO:`.
     """
-    if not (_is_number(b) and _form_typed(conv, a)):
+    if not (_is_number(b) and (_form_typed(conv, a) or _placed_ref_pun(conv, a, b, node))):
         return None
     conv._line_comments.append(f';NE: Type mismatch fix ({emit_source(node)})')
     return 'True' if node.op == '!=' else 'False'
+
+
+def _placed_ref_pun(conv, name: N.Expr, number: N.Expr, cmp: N.BinOp) -> bool:
+    """Is a placed reference's name tested `==`/`!=` against a number other than 0 or 1 (never a null test)?
+    See: docs/commentary/script_convert.md#ref-compared-to-a-number
+    """
+    if cmp.op not in ('==', '!=') or not isinstance(name, N.Ident) or not conv.xref:
+        return False
+    try:
+        if float(emit_source(number).replace(' ', '')) in (0.0, 1.0):
+            return False
+    except ValueError:
+        return False
+    low = name.name.lower()
+    if conv.sc.var_types.get(low) or low in conv.sc.local_vars:
+        return False
+    fid = resolve_property_formid(conv.xref, name.name)
+    return bool(fid) and conv.xref.record_type.get(fid, '') in PLACED_REF_SIGS
 
 
 def _base_object(conv, ref, base, node, extends):

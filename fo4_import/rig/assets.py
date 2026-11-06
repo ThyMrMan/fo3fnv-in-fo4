@@ -24,12 +24,15 @@ from fo4_import.nif import convert_static as CS
 from fo4_import.nif import elric
 from fo4_import.nif import file as F
 from fo4_import.nif.animation import add_nodes
+from fo4_import.nif.ragdoll_order import in_node_order
 from fo4_import.nif.blocks import NONE, SHADER_SKINNED, pack_tri_shape
 from fo4_import.nif.collision import character_controller
 from fo4_import.nif.convert_static import NifFormat
 from fo4_import.nif.headgear import shape_arrays
 from fo4_import.rig.table import WEAPON, weapon_node
-from fo4_import.nif.outfit import copy_material, fnv_nif, fnv_skin, is_cap, originals, segments, skin_blocks, skinned_shape
+from fo4_import.nif.outfit import copy_material, fnv_nif, fnv_skin, is_cap, originals, prn_bone, segments, skin_blocks, skinned_shape
+from fo4_import.nif.clip_shaders import clip_channels
+from fo4_import.nif.shader_anim import add_running, emit_multi, free_controllers, free_running, shape_entry
 
 FNV_ROOT, ROOT = 'Bip01', 'Root'
 #: A bone pose (translation, rotation w x y z, scale) unmoved: FNV plays a clip's accumulation root so.
@@ -44,6 +47,8 @@ UNLOCKED = {ROOT, 'Bip01 NonAccum'}
 WEIGHTS = 4
 #: Vanilla creature skeleton.nif BSXFlags (Havok, Ragdoll, Dynamic, Articulated): 28 of 33 actor skeletons.
 SKELETON_BSX = 0xC6
+#: The shape FNV's SetSecuritronExpression retextures, and its texture by (face, expression) (FalloutNV.exe's).
+SCREEN_SHAPE, SCREEN_TEXTURE = 'Screen01:0', 'textures\\creatures\\securitron\\{}_{}.dds'
 
 
 def fo4_name(name: str) -> str:
@@ -159,8 +164,8 @@ def bound(fnv_skeleton: Path) -> tuple:
 def write_skeleton_nif(fnv_skeleton: Path, path: Path, fires: dict = None) -> dict:
     """skeleton.nif: every FNV bone (Bip01 as Root), FNV's ragdoll and a CharacterController/Bumper, through Elric;
     BSXFlags 0xC6 and FNV's BSBound; each equip slot's gun node on its FNV fire node, turned (`fires` {slot: (node,
-    turn)}, add_fire_node). {bone name: ragdoll bone index} (Elric orders the bodies differently from run to run,
-    so the graph takes its ragdoll indices from this)."""
+    turn)}, add_fire_node), its ragdoll in node order (ragdoll_order). {bone name: ragdoll bone index}, which the
+    graph takes its ragdoll indices from."""
     pre = CS.convert(str(fnv_skeleton), animated=False, every_bone=True).nif
     pre.strings = [ROOT if s == FNV_ROOT else s for s in pre.strings]
     for slot, (under, turn) in (fires or {}).items():
@@ -170,7 +175,7 @@ def write_skeleton_nif(fnv_skeleton: Path, path: Path, fires: dict = None) -> di
     out = elric.process({'skeleton.nif': F.write(pre)}).get('skeleton.nif')
     if not out:
         raise RuntimeError(f'Elric made no skeleton.nif from {fnv_skeleton}')
-    nif = finish_skeleton(F.read(out), center, half)
+    nif = finish_skeleton(in_node_order(F.read(out)), center, half)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(F.write(nif))
     return ragdoll_bones(nif)
@@ -277,45 +282,105 @@ def body_skeleton(nif, fnv_skeleton: Path, bones: list) -> tuple:
     by_name = {n.name.decode('cp1252'): made[id(n)] for n in order}
     frames = skeleton_frames(bones)
     bind = [(None, frames[b.name][0].T, -frames[b.name][0].T @ frames[b.name][1]) for b in bones]
-    fit = SimpleNamespace(bind=bind, nodes=list(range(len(bones))))
+    fit = SimpleNamespace(bind=bind, nodes=list(range(len(bones))), frames=frames)
     return fit, {i: by_name[b.name] for i, b in enumerate(bones) if b.name in by_name}
 
 
-def write_body(fnv_parts: list, fnv_skeleton: Path, bones: list, path: Path, export_dir: Path):
-    """The FNV body parts `fnv_parts` as one body on their own bones: one BSSubIndexTriShape per skinned FNV shape,
-    caps and rigid shapes left out. The static conversions (convert_static: their materials and textures, for the
-    caller to stage) and a per-shape summary."""
+def screen_part(parts: list) -> 'Path | None':
+    """The part among `parts` holding SCREEN_SHAPE, or None."""
+    return next((p for p in parts if any(isinstance(g, NifFormat.NiTriBasedGeom) and g.name.decode('cp1252')
+                                         == SCREEN_SHAPE for g in fnv_nif(p).tree())), None)
+
+
+def retextured(static, name: str, texture: str) -> None:
+    """Show FNV texture `texture` on converted mesh `static`'s unlit shape `name` (an effect shader's own texture)."""
+    for kind, shape in static.nif.blocks:
+        if kind == 'BSTriShape' and static.nif.strings[shape['name']] == name:
+            static.nif.blocks[shape['shader']][1]['source_texture'] = f'textures\\{CS.fo4_texture(texture)}'
+    static.textures = set(static.textures) | {texture}
+
+
+def write_body(fnv_parts: list, fnv_skeleton: Path, bones: list, path: Path, export_dir: Path, looks: tuple = ()):
+    """The FNV body parts `fnv_parts` as one body on their own bones (add_part), caps left out. `looks` is (idle
+    clip, {shape name: FNV texture}): its shapes loop the idle's shader channels, and the named ones show those
+    textures (retextured). The static conversions (convert_static: their materials and textures, for the caller to
+    stage) and a per-shape summary."""
+    idle, textures = (tuple(looks) + (None, None))[:2]
+    looped = clip_channels(idle) if idle else None
     nif = F.NifFile()
     nif.blocks.append(('NiNode', {'name': nif.string(path.name), 'extra': [], 'controller': NONE,
                                   'flags': CS.NODE_FLAGS, 'translation': (0.0, 0.0, 0.0), 'rotation': CS.IDENTITY,
                                   'scale': 1.0, 'collision': NONE, 'children': []}))
     fit, nodes = body_skeleton(nif, fnv_skeleton, bones)
-    index = {b.name: i for i, b in enumerate(bones)}
+    rig = (fit, nodes, {b.name: i for i, b in enumerate(bones)})
     statics, summary = [], {}
     for part in fnv_parts:
-        static, fnv_root = CS.convert(str(part), export_dir), fnv_nif(part)
+        static = CS.convert(str(part), export_dir)
+        for name, texture in (textures or {}).items():
+            retextured(static, name, texture)
         statics.append(static)
-        fnv = {g.name.decode('cp1252'): g for g in fnv_root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)}
-        for shape in [static.nif.blocks[i][1] for i in static.nif.blocks[0][1]['children']
-                      if static.nif.blocks[i][0] == 'BSTriShape']:
-            name = static.nif.strings[shape['name']]
-            geom = fnv.get(name)
-            if geom is not None and not is_cap(geom) and geom.skin_instance:
-                summary[name] = add_skinned(nif, static, shape, (geom, fnv_root), (fit, nodes, index))
+        summary.update(add_part(nif, static, fnv_nif(part), rig, (export_dir, looped)))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(F.write(nif))
     return statics, summary
 
 
-def add_skinned(nif, static, shape: dict, fnv: tuple, rig: tuple) -> dict:
+def add_part(nif, static, fnv_root, rig: tuple, looks: tuple) -> dict:
+    """Append FNV body part `fnv_root`'s converted shapes (`static`) as BSSubIndexTriShapes on the body's bones
+    (`rig`, add_skinned's): a skinned shape on its own bones, a rigid one weighted fully to the bone its part
+    attaches to (`Prn`), each animated as animate() does with `looks` (texture root, idle clip channels). A
+    summary per shape.
+
+    See: docs/fork/fo4_own_rig.md#rigid-parts
+    """
+    prn = prn_bone(fnv_root)
+    rigid = prn if prn and fo4_name(prn) in rig[2] else ''
+    fnv = {g.name.decode('cp1252'): g for g in fnv_root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)}
+    summary, made = {}, {}
+    for shape in [static.nif.blocks[i][1] for i in static.nif.blocks[0][1]['children']
+                  if static.nif.blocks[i][0] == 'BSTriShape']:
+        name = static.nif.strings[shape['name']]
+        geom = fnv.get(name)
+        if geom is not None and not is_cap(geom) and (geom.skin_instance or rigid):
+            summary[name], made[name] = add_skinned(nif, static, shape, (geom, fnv_root, rigid), rig)
+    animate(nif, fnv_root, made, looks)
+    return summary
+
+
+def animate(nif, fnv_root, made: dict, looks: tuple) -> None:
+    """Give body shapes `made` (shape_entry by FNV name, from part `fnv_root`) the idle clip's shader channels as
+    loops and their own free-running controllers on the other channels; `looks` is (texture root, clip_channels()
+    of the idle or None).
+
+    See: docs/fork/fo4_own_rig.md#screen-clips
+    """
+    texture_root, looped = looks
+    when, clip = looped or (None, [])
+    baked = [c for c in clip if c[0] in made]
+    keys = {(c[0], c[1]) for c in baked}
+    found = [f for f in free_controllers(fnv_root) if f[0] in made and (f[0], f[2]) not in keys]
+    if not found and not baked:
+        return
+    at = {'shapes': made, 'peaks': CS.texel_peaks(fnv_root, texture_root)}
+    free_running(nif, found, at['peaks'], made)
+    materials = {g.name.decode('cp1252'): g for g in fnv_root.tree() if isinstance(g, NifFormat.NiTriBasedGeom)}
+    for name, entry, source, fnv_type in baked:
+        material = next((p for p in materials[name].get_properties() if isinstance(p, NifFormat.NiMaterialProperty)),
+                        None)
+        add_running(nif, at, (name, entry, source), (fnv_type, when, emit_multi(material)))
+
+
+def add_skinned(nif, static, shape: dict, fnv: tuple, rig: tuple) -> tuple:
     """Append converted `shape` as a skinned BSSubIndexTriShape on the body's bones: FNV `fnv` (geometry, its
-    root) gives rest positions and weights, `rig` is (skin fit, bone nodes, bone index). A summary."""
-    geom, fnv_root = fnv
+    root, the bone a rigid geometry is weighted to) gives rest positions and weights, `rig` is (skin fit, bone
+    nodes, bone index). (A summary, its shape_entry)."""
+    geom, fnv_root, rigid = fnv
     fit, nodes, index = rig
     pos, uv, nrm, tris = shape_arrays(shape)
-    own = fnv_skin(geom, fnv_root)
+    own = fnv_skin(geom, fnv_root, '' if geom.skin_instance else rigid)
     near = originals((pos, uv, nrm), (own[0], own[3], own[1]))
-    rest, rest_nrm = rest_shape(geom, fnv_root)
+    rest, rest_nrm = rest_shape(geom, fnv_root) if geom.skin_instance else \
+        attached(own[0], own[1], fit.frames[fo4_name(rigid)])
     weights, bone_index = skin_arrays([own[2][i] for i in near], index)
     made = skinned_shape((rest[near], rest_nrm[near], uv), tris, (weights, bone_index), [0, len(tris)])
     at = len(nif.blocks)
@@ -327,4 +392,12 @@ def add_skinned(nif, static, shape: dict, fnv: tuple, rig: tuple) -> dict:
                   alpha_property=alpha, skin=skin)
     nif.blocks[at] = ('BSSubIndexTriShape', pack_tri_shape(fields) + segments(made.counts))
     nif.blocks[0][1]['children'].append(at)
-    return {'vertices': len(made.points), 'triangles': len(tris), 'bones': len(made.used)}
+    return ({'vertices': len(made.points), 'triangles': len(tris), 'bones': len(made.used)},
+            shape_entry(nif, at, shader, alpha))
+
+
+def attached(pos: np.ndarray, nrm: np.ndarray, frame: tuple) -> tuple:
+    """Part-root `pos`, `nrm` in skeleton space, the root at bone `frame`."""
+    rotation, translation = frame
+    moved = nrm @ rotation.T
+    return pos @ rotation.T + translation, moved / np.maximum(np.linalg.norm(moved, axis=1, keepdims=True), 1e-9)

@@ -19,7 +19,7 @@ SETTINGS = {'fBlockScoreNoShieldMult': 0.5, 'fCombatMaxHoldScore': 30.0, 'fAIDod
 #: An FNV style with DefaultCombatstyle's melee values.
 STYLE = {'EditorID': 'CSTest', 'CSTD.AttackChance': '40', 'CSTD.BlockChance': '30', 'CSTD.DodgeChance': '75',
          'CSTD.LeftRightChance': '50', 'CSTD.PowerAttackChance': '25', 'CSTD.RecoilStaggerBonusToAttack': '5.0',
-         'CSTD.RecoilStaggerBonusToPowerAttack': '5.0', 'CSTD.Flags': '449',
+         'CSTD.RecoilStaggerBonusToPowerAttack': '5.0', 'CSTD.FalloutFlags': '449',
          'CSAD.AttackSkillModifierMult': '20.0', 'CSAD.BlockSkillModifierMult': '20.0',
          'CSAD.AttackNotUnderAttackMult': '1.0', 'CSAD.AttackWhileUnderAttackMult': '0.75',
          'CSAD.BlockNotUnderAttackMult': '1.0', 'CSAD.BlockWhileUnderAttackMult': '2.0',
@@ -92,7 +92,7 @@ def test_range_mult_inverts_fo4s_three_point_interpolation():
 
 def test_ignore_threats_turns_off_avoiding_and_evading():
     """Flag 0x10 writes avoid and evade 0; without it they keep FO4's default."""
-    assert {'avoid': 0.0, 'evade': 0.0}.items() <= CS.converted_values({**STYLE, 'CSTD.Flags': '273'},
+    assert {'avoid': 0.0, 'evade': 0.0}.items() <= CS.converted_values({**STYLE, 'CSTD.FalloutFlags': '273'},
                                                                        SETTINGS).items()
     assert 'avoid' not in CS.converted_values(STYLE, SETTINGS)
 

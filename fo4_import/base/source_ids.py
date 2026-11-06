@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fo4_import.base.install import file_masters
 from fo4_import.base.ledger import Ledger, ledger_path
+from fo4_import.pipeline.build_inputs import MASTERS
 
 #: FormID master byte and object id.
 MASTER_SHIFT, OBJECT_ID = 24, 0xFFFFFF
@@ -54,6 +55,7 @@ def built_plugins(source_masters: list, dirs: tuple) -> list:
         found = next((Path(d) / name for d in dirs if (Path(d) / name).is_file()), None)
         if found is None:
             raise SystemExit(f'{name} is not built in {[str(d) for d in dirs]}: build it before its dependents')
+        MASTERS.cover('plugin', found)
         out.append(found)
     return out
 
@@ -65,6 +67,7 @@ def dependent_masters(built: list, extras: list, base: list) -> list:
     """
     order = list(base)
     for path in built:
+        MASTERS.header(path, file_masters(path))
         order += file_masters(path) + [path.name]
     return list(dict.fromkeys(order + list(extras)))
 
@@ -75,5 +78,6 @@ def master_ledgers(masters: list, dirs: tuple) -> dict:
     for index, name in enumerate(masters):
         found = next((p for p in (ledger_path(Path(d) / name) for d in dirs) if p.is_file()), None)
         if found:
+            MASTERS.cover(f'ledger:{index}', found)
             out[index] = Ledger(found)
     return out

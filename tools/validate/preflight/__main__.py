@@ -18,8 +18,10 @@ import sys
 from functools import partial
 from pathlib import Path
 
-from tools.validate.preflight import (asset_fo4, asset_load, build_diff, condition_diff, dialogue_loss, findings, log_triage, package_ai,
-                                      quest_progression, quest_start, script_health, timing, world_links)
+from tools.validate.preflight import (asset_fo4, asset_load, build_diff, build_history, built_masters, condition_diff,
+                                      dialogue_loss, dlc_overrides, findings, log_triage, package_ai, quest_progression,
+                                      quest_start, quest_targets, script_health, script_props, timing,
+                                      world_links)
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.ledger import ledger_path
 from fo4_import.spike.readiness import report_path
@@ -30,17 +32,18 @@ from tools.validate.preflight.quest_converted import load_scripts
 from tools.validate.preflight.quest_source import SourceGame
 
 #: The audits in the order they run and print.
-AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'timing', 'scripts', 'packages', 'world', 'assets', 'build',
-          'logs')
+AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'targets', 'timing', 'scripts', 'properties', 'packages', 'world',
+          'assets', 'build', 'dlc', 'logs')
 
 #: The audits a Skyrim build runs.
-SKYRIM_AUDITS = tuple(a for a in AUDITS if a not in ('conditions', 'timing'))
+SKYRIM_AUDITS = tuple(a for a in AUDITS if a not in ('conditions', 'targets', 'timing', 'properties', 'dlc'))
 
 #: The audits a plain run does; `logs` reads the last play session, so it runs only when asked.
 DEFAULT_AUDITS = SKYRIM_AUDITS[:-1]
 
-#: The audits a Fallout 4 build runs: fo4_audit checks its script properties and fo4_trace its play sessions.
-FO4_AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'timing', 'packages', 'world', 'assets', 'build')
+#: The audits a Fallout 4 build runs (fo4_trace reads its play sessions).
+FO4_AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'targets', 'timing', 'properties', 'packages', 'world', 'assets',
+              'build', 'dlc')
 
 
 def games(output: Path, export: Path, wanted: list) -> list:
@@ -90,6 +93,7 @@ class Fo4Game(Game):
         self.index = load_plugin(self.plugin, FO4_EDID_PREFIX)
         self._ctx, self.parts = None, {}
         self.script_sources = args.fo4_scripts or Path('temp') / 'fo4_scripts' / self.source
+        self.masters = built_masters.master_paths(self.plugin, self.index.masters, args.plugin_dirs)
 
     @property
     def ctx(self):
@@ -129,6 +133,22 @@ def run_timing(game: Fo4Game) -> list:
     """The progress timing findings for one Fallout 4 build."""
     ctx = game.ctx
     return timing.audit(ctx, game.parts, game.args.export / game.source, ledger_path(game.plugin), game.script_sources)
+
+
+def run_targets(game: Fo4Game) -> list:
+    """The quest-stage and actor target findings for one Fallout 4 build."""
+    return quest_targets.audit(game.name, game.index, game.masters, game.args.export / game.source, game.script_sources)
+
+
+def run_dlc(game: Fo4Game) -> list:
+    """The DLC override findings for one Fallout 4 build with built masters."""
+    return dlc_overrides.audit(game.name, game.index, game.plugin, game.masters, game.args.export / game.source)
+
+
+def run_properties(game: Fo4Game) -> list:
+    """The unfilled script property findings for one Fallout 4 build."""
+    dirs = [p.parent for p in game.masters] + list(game.args.plugin_dirs) + built_masters.stamp_dirs(game.plugin)
+    return script_props.audit(game.name, game.plugin, dirs, game.script_sources, game.args.export / game.source)
 
 
 def run_packages(game: Game) -> list:
@@ -176,24 +196,21 @@ def run_build(game: Game) -> list:
     was, now = build_diff.load_baseline(hashes), build_diff.contents(game.index)
     out = build_diff.audit(game.name, before, after)
     if before is not None:
-        print_counts('added', build_diff.added(before, after))
+        build_diff.print_counts('added', build_diff.added(before, after))
     if before is not None and was is not None:
-        print_counts('changed', build_diff.changed(was, now, after))
+        build_diff.print_counts('changed', build_diff.changed(was, now, after))
     if before is None or not out or args.accept_build:
         build_diff.save_baseline(path, after)
         build_diff.save_baseline(hashes, now)
+    if game.index.fo4:
+        out += build_history.audit(game.name, path.parent, game.plugin, after, now)
     return [] if args.accept_build else out
-
-
-def print_counts(what: str, counts) -> None:
-    """One line: the records the build `what` since the baseline, by type."""
-    print(f'  build: {sum(counts.values())} records {what} since the baseline'
-          + (f' ({", ".join(f"{n} {s}" for s, n in counts.most_common(6))})' if counts else ''))
 
 
 #: Each audit's runner, keyed by its name.
 RUNNERS = {'quest': run_quest, 'start': run_start, 'dialogue': run_dialogue, 'conditions': run_conditions,
-           'timing': run_timing, 'scripts': run_scripts,
+           'targets': run_targets, 'dlc': run_dlc,
+           'timing': run_timing, 'scripts': run_scripts, 'properties': run_properties,
            'packages': run_packages, 'world': run_world, 'assets': run_assets, 'build': run_build,
            'logs': run_logs}
 
@@ -233,6 +250,8 @@ def parse_args(argv=None):
     ap.add_argument('--logs', type=Path, help='the Papyrus log folder for --audit logs (default: the game\'s)')
     ap.add_argument('--fo4', action='append', default=[], type=Path, help='a built Fallout 4 plugin to audit')
     ap.add_argument('--fo4-source', help='its source export folder name (default: the plugin stem + .esm)')
+    ap.add_argument('--plugin-dirs', nargs='+', type=Path, default=[],
+                    help='folders holding the built masters (default: the build stamp\'s --plugin-dirs)')
     ap.add_argument('--fo4-scripts', type=Path, help='its converted .psc folder (default: temp/fo4_scripts/<source>)')
     args = ap.parse_args(argv)
     args.audit = args.audit or (['build'] if args.accept_build else None)

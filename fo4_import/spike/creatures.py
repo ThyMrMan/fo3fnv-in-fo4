@@ -55,7 +55,7 @@ from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.stand_in_fields import checked
 from fo4_import.spike.statics import write_converted
 from fo4_import.spike.talking_machines import TalkingMachines
-from fo4_import.spike.voice import fnv_folder
+from fo4_import.spike.voice import fnv_folders, recorded
 from fo4_import.spike.void_actors import copy_record
 from fo4_import.spike.voice_types import VoiceTypes, fnv_voice_types, with_voice
 from fo4_import.pipeline.export_index import asset_root, export_records
@@ -65,10 +65,7 @@ from tes5_import.base.writer import pack_subrecord
 
 #: A unique target's (Dogmeat's) ties to its own quests and character, left out of an `fnv` creature.
 CHARACTER_TIES = frozenset({b'VMAD', b'SNAM', b'PRKZ', b'PRKR', b'SPCT', b'SPLO'})
-#: BOD2 bit of slot 32 (FaceGen head): FNV's body has its own head, so its skin hides the race's (as vanilla's do).
-HEAD_SLOT = 0x4
-#: BOD2 bit of slot 61 (FX): FNV's armor addon over FO4's body addon. A skin's addons for one race each need their own
-#: slots (all 34 vanilla multi-addon skins; same-slot ones drew FO4's body alone), so it takes FX, as vanilla's FX ones.
+#: BOD2 bit of slot 61 (FX), FNV's armor addon's own slot over FO4's body addon (fo4_spikes.md#spike-4-creatures).
 FX_SLOT = 0x80000000
 #: FNV creature DATA stats as FO4 actor values (Fallout4.esm AVIF): Health, S.P.E.C.I.A.L., attack damage.
 STATS = {'DATA.Health': 0x2D4, 'DATA.Strength': 0x2C2, 'DATA.Perception': 0x2C3, 'DATA.Endurance': 0x2C4,
@@ -106,8 +103,9 @@ def fnv_gear(sig: 'str | None', rec: dict) -> bool:
 
 
 def skeleton_folder(model: str) -> str:
-    """An FNV creature model path's skeleton folder (`creatures\\dog`)."""
-    return '\\'.join(model.replace('/', '\\').lower().split('\\')[:2])
+    """The folder holding FNV skeleton `model` (`creatures\\dog`); a bare name as is."""
+    parts = model.replace('/', '\\').lower().split('\\')
+    return '\\'.join(parts[:-1] or parts)
 
 
 class Creatures:
@@ -189,8 +187,7 @@ class Creatures:
         return [(fnv, gun, guns[fnv]) for fnv, gun in made if gun and fnv in guns]
 
     def own_guns(self, rec: dict) -> tuple:
-        """(armed, gun-mod edit or None) of templated creature `rec`: armed when its own inventory, not its
-        template's (whose FO4 copy already lists them), holds creature gun copies."""
+        """(armed, gun-mod edit or None): whether `rec`'s own items hold creature guns."""
         guns = self._guns(rec) if self.source(rec, USE_INVENTORY) is rec else []
         return bool(guns), self.gun_mods.edit(guns) if guns else None
 
@@ -238,9 +235,9 @@ class Creatures:
             rec = {**rec, 'EditorID': f'{stats["EditorID"]}Traits'} if stats else rec
             write = {'stats': self._stand_in, 'fnv': self._worn, 'rig': self._own_rig,
                      'speaker': self._speaker}[entry.mode]
+            made[made_key] = fid
             write(fid, rec, entry, list(packages) or [SANDBOX], stats)
             self.builder.counts['creatures' if not stats else 'creature traits sized as a template actor'] += 1
-            made[made_key] = fid
         return made[made_key]
 
     def traits_variant(self, rec: dict) -> 'int | None':
@@ -284,6 +281,11 @@ class Creatures:
         rec = self.records.get(fnv)
         entry = self._entry(rec)[0] if rec is not None else None
         return self.talking.look(achr, rec, ref_key, placed) if entry is not None and entry.mode == 'speaker' else b''
+
+    def screen_armor(self, face: str, expression: str) -> int:
+        """Rigs.screen_armor: a securitron face's screen armor (0 without one)."""
+        self.rigs = self.rigs or Rigs(self.builder, self.export_dir, self.data_dir)
+        return self.rigs.screen_armor(face, expression)
 
     def _own_rig(self, fid: int, rec: dict, entry, packages: list, stats: dict = None) -> None:
         """Write FNV creature `rec` on its own rig (fo4_import.rig): a copy of its entry's target NPC under FNV's
@@ -455,16 +457,25 @@ class Creatures:
         """`rec`'s FNV voice type (VTCK edit) if recorded; None keeps the body's."""
         fnv = int(rec.get('VTCK.Voice', '0'), 16)
         edid = fnv_voice_types().get(fnv, ('',))[0]
-        return with_voice(self.voices.of(fnv)) if edid and fnv_folder(self.export_dir, edid).is_dir() else None
+        return with_voice(self.voices.of(fnv)) if edid and recorded(fnv_folders(self.export_dir, edid)) else None
+
+    def _own_voice(self, rec: dict):
+        """`rec`'s or its sound set's FNV voice type (VTCK edit), recorded or not."""
+        voiced = rec if 'VTCK.Voice' in rec else self.sounds.source(rec) or {}
+        fnv = int(voiced.get('VTCK.Voice', '0'), 16)
+        return with_voice(self.voices.of(fnv)) if fnv in fnv_voice_types() else None
 
     def _worn(self, fid: int, rec: dict, entry, packages: list, stats: dict = None) -> None:
-        """Write FNV creature `rec` as a copy of its entry's target NPC on a skin showing FNV's body."""
+        """Write FNV creature `rec` as a copy of its entry's target NPC on a skin showing FNV's body; on FO4's human
+        (Pair.human) it speaks with FNV's voice type (_own_voice) and holds its guns."""
         npc, write, edid = self.worn[entry.edid.lower()][0], self.builder.writer, f'FNV_{rec["EditorID"]}'
         armo = self._skin(int(rec['FormID'], 16), entry)
         face = self.faces.get(int(rec['FormID'], 16))
-        edit = composed(R.packages_edit(packages), self._actor_data(rec), self._voice(rec), self._keywords(rec),
+        human = PAIRS[skeleton_folder(rec['Model.MODL'])].human
+        edit = composed(R.packages_edit(packages), self._actor_data(rec),
+                        self._own_voice(rec) if human else self._voice(rec), self._keywords(rec),
                         self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec),
-                        *self._sized(rec, npc, stats), self.inventory(rec, npc, False),
+                        *self._sized(rec, npc, stats), self.inventory(rec, npc, False, human),
                         with_face(face) if face else None)
         unique = struct.unpack_from('<I', dict(subrecords(npc.body))[b'ACBS'])[0] & UNIQUE
         write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''),
@@ -480,7 +491,7 @@ class Creatures:
             rec, (npc, skin, addon), write = self.records[fnv], self.worn[entry.edid.lower()], self.builder.writer
             folder, edid = skeleton_folder(rec['Model.MODL']), f'FNV_{rec["EditorID"]}'
             model, bare = self._mesh(rec, folder)
-            head = functools.partial(_with_slot, slot=FX_SLOT if bare else HEAD_SLOT)
+            head = functools.partial(_with_slot, slot=FX_SLOT if bare else PAIRS[folder].head_slots)
             arma, armo = (write.derive_formid(SITE, f'{fnv:08X} {part}') for part in ('ARMA', 'ARMO'))
             write.add_record('ARMA', copy_record(addon, arma, f'{edid}AA', {
                 b'MOD2': _zstr(model), b'MOD3': _zstr(model), **head(addon)}, MODEL_TEXTURES))

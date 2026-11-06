@@ -523,7 +523,7 @@ def export_SKIL(rec: Record) -> list:
 
 
 #: TES4 CSTD fields as (offset, struct format, key), per xEdit wbDefinitionsTES4.
-_CSTD_FIELDS = (
+CSTD_FIELDS = (
     (0, 'B', 'DodgeChance'), (1, 'B', 'LeftRightChance'),
     (4, 'f', 'DodgeLRTimerMin'), (8, 'f', 'DodgeLRTimerMax'),
     (12, 'f', 'DodgeForwardTimerMin'), (16, 'f', 'DodgeForwardTimerMax'),
@@ -545,7 +545,7 @@ _CSTD_FIELDS = (
 )
 
 #: TES4 CSAD (Advanced) fields, all floats, in record order.
-_CSAD_FIELDS = (
+CSAD_FIELDS = (
     'DodgeFatigueModMult', 'DodgeFatigueModBase', 'EncumberedSpeedModBase',
     'EncumberedSpeedModMult', 'DodgeWhileUnderAttackMult', 'DodgeNotUnderAttackMult',
     'DodgeBackWhileUnderAttackMult', 'DodgeBackNotUnderAttackMult',
@@ -557,7 +557,7 @@ _CSAD_FIELDS = (
 )
 
 
-def _emit_fields(lines: list, prefix: str, data: bytes, fields) -> None:
+def emit_fields(lines: list, prefix: str, data: bytes, fields) -> None:
     """Emit each (offset, format, key) field that fits inside `data`."""
     for off, fmt, key in fields:
         if off + struct.calcsize(fmt) <= len(data):
@@ -570,11 +570,11 @@ def export_CSTY(rec: Record) -> list:
     emit_string(lines, "EditorID", get_subrecord(rec, "EDID"))
     cstd = get_subrecord(rec, "CSTD")
     if cstd:
-        _emit_fields(lines, "CSTD", cstd.data, _CSTD_FIELDS)
+        emit_fields(lines, "CSTD", cstd.data, CSTD_FIELDS)
     csad = get_subrecord(rec, "CSAD")
     if csad:
-        _emit_fields(lines, "CSAD", csad.data,
-                     [(4 * i, 'f', key) for i, key in enumerate(_CSAD_FIELDS)])
+        emit_fields(lines, "CSAD", csad.data,
+                     [(4 * i, 'f', key) for i, key in enumerate(CSAD_FIELDS)])
     return lines
 
 

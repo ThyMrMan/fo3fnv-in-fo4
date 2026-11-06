@@ -1,20 +1,11 @@
 ScriptName F3NV_ConditionPlayer extends ReferenceAlias Hidden
-{FO3/FNV item condition for the player, on the condition quest's player alias. Each shot (weaponFire) or melee swing (HitFrame) wears the equipped weapon by WearPerShot (FNV's fDamageToWeaponValue) times the loaded round's condition effect (AmmoWear, its AmmoMarks keyword on the gun) times each held wear perk (WearPerkMults), over the weapon's FNV health (MaxHealth[i] for Weapons[i]). Each weapon hit taken wears every worn armor piece by the hit's damage times the share the armor stopped (Absorbed) times ArmorWear (fDamageToArmorPercentage), over its FNV health (ArmorMax). An item carries the condition mod of its condition in tenths (FNV's damage, DT and value curves), changed as it crosses a tenth. A weapon at 0 breaks and is unequipped, and a broken weapon cannot be equipped; armor at 0 stays on at half DT. Equipping shows the condition. The player is given the Repair hotkey item once. Seen/SeenTier keep the tier last attached to each item, recorded before attaching: attaching re-equips the item, and that equip must find it done.}
+{FO3/FNV item condition for the player, on the condition quest's player alias. The items, their FNV health, rounds and perks come from every plugin's rows (F3NV_ConditionSource), registered in Sources. Each shot (weaponFire) or melee swing (HitFrame) wears the equipped weapon by WearPerShot (FNV's fDamageToWeaponValue) times the loaded round's condition effect times each held wear perk, over the weapon's FNV health. Each weapon hit taken wears every worn armor piece by the hit's damage times the share the armor stopped (Absorbed) times ArmorWear (fDamageToArmorPercentage), over its FNV health. An item carries the condition mod of its condition in tenths (FNV's damage, DT and value curves), changed as it crosses a tenth. A weapon at 0 breaks and is unequipped, and a broken weapon cannot be equipped; armor at 0 stays on at half DT. Equipping shows the condition. The player is given the Repair hotkey item once. Seen/SeenTier keep the tier last attached to each item, recorded before attaching: attaching re-equips the item, and that equip must find it done.}
 
-Form[] Property Weapons Auto Const
-Float[] Property MaxHealth Auto Const
+FormList Property Sources Auto Const
+{Every plugin's condition rows (F3NV_ConditionSource quests), each added by its quest as it starts.}
 Form[] Property Tiers Auto Const
 {Eleven weapon condition mods: Tiers[t] for t tenths of condition, Tiers[10] (whole) with no effect.}
 Float Property WearPerShot = 0.2 Auto Const
-Form[] Property AmmoMarks Auto Const
-Float[] Property AmmoWear Auto Const
-Form[] Property WearPerks Auto Const
-Float[] Property WearPerkMults Auto Const
-Form[] Property Armors Auto Const
-Float[] Property ArmorMax Auto Const
-Int[] Property ArmorGroup Auto Const
-{Armors[i]'s condition mods are ArmorTiers[ArmorGroup[i] * 11 + t].}
-Form[] Property ArmorTiers Auto Const
 Float Property ArmorWear = 0.35 Auto Const
 Float Property MaxAbsorb = 0.85 Auto Const
 {The largest share of a hit armor wears for (FNV's fMaxArmorRating, as a fraction).}
@@ -26,14 +17,7 @@ Message Property ConditionNote Auto Const
 Message Property BrokenNote Auto Const
 Potion Property RepairHotkey Auto Const
 {The Repair hotkey item, given once.}
-Form[] Property RepairLists Auto Const
-{Each item's repair list (a FormList, or None): Weapons' first, then Armors'.}
-ActorValue Property Repair Auto Const
-Int[] Property JuryGroups Auto Const
-{Each item's Jury Rigging group (FNV's weapon animation type and skill, armor weight class and equipment type), parallel to RepairLists; 0 for none.}
 Perk Property JuryRigging Auto Const
-Float[] Property JamTimes Auto Const
-{Each weapon's FNV reload jam time in seconds, parallel to Weapons; -1 for one that never jams (No Jam After Reload).}
 Float[] Property JamChances Auto Const
 {FNV's reload jam chance by condition index (fWeaponConditionReloadJam1..10).}
 Idle Property JamInterrupt1st Auto Const
@@ -74,10 +58,16 @@ Event OnPlayerLoadGame()
 EndEvent
 
 Function ListenPipboy()
-  {Give the plugin the items that wear (it forgets them each game start) and hear the Pip-Boy's repair requests.}
-  F3NV_Condition.Track(Weapons)
-  F3NV_Condition.Track(Armors)
-  F3NV_Condition.TrackRepair(Weapons, Armors, RepairLists, JuryGroups, Repair)
+  {Register every plugin's rows again (the plugin forgets their items each game start; the game's own rows are on this quest) and hear the Pip-Boy's repair requests.}
+  (GetOwningQuest() as F3NV_ConditionSource).Register()
+  Int k = 0
+  While k < Sources.GetSize()
+    F3NV_ConditionSource rows = Sources.GetAt(k) as F3NV_ConditionSource
+    If rows
+      rows.Register()
+    EndIf
+    k += 1
+  EndWhile
   F3NV_Condition.SetServiceRules(RepairSkillBase, RepairSkillMax, RepairCostMult)
   TellJuryRigging()
   RegisterForMenuOpenCloseEvent("PipboyMenu")
@@ -135,7 +125,7 @@ Function RepairFromHotkey()
   If !Repairable(item, -1)
     item = None
     Float lowest = 1.0
-    Form[] worn = F3NV_ConditionCalls.WornOf(player, Armors)
+    Form[] worn = Worn(player)
     Int k = 0
     While k < worn.Length
       Float health = F3NV_ConditionCalls.Whole(F3NV_Condition.GetHealth(player, worn[k]))
@@ -170,7 +160,7 @@ EndFunction
 Bool Function Repairable(Form akItem, Int aiStack)
   {Whether akItem wears, is below whole and the player carries a spare for it.}
   Actor player = GetActorReference()
-  If !akItem || (Weapons.Find(akItem) < 0 && Armors.Find(akItem) < 0)
+  If !akItem || (!WeaponSource(akItem) && !ArmorSource(akItem))
     Return False
   EndIf
   If F3NV_ConditionCalls.Whole(F3NV_Condition.GetStackHealth(player, akItem, aiStack)) >= 1.0
@@ -196,7 +186,7 @@ EndFunction
 Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)
   Actor player = GetActorReference()
   Weapon gun = akBaseObject as Weapon
-  If gun && Weapons.Find(gun) >= 0
+  If gun && WeaponSource(gun)
     Listen()
     Float health = Health(player, gun)
     If health <= 0.0
@@ -206,7 +196,7 @@ Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)
     Refresh(gun)
     Note(gun, health)
     F3NV_Condition.PipboyRefresh()
-  ElseIf Armors.Find(akBaseObject) >= 0
+  ElseIf ArmorSource(akBaseObject)
     Refresh(akBaseObject)
     Note(akBaseObject, Health(player, akBaseObject))
     F3NV_Condition.PipboyRefresh()
@@ -215,7 +205,7 @@ EndEvent
 
 Event OnItemUnequipped(Form akBaseObject, ObjectReference akReference)
   {An item that wears coming off: the Pip-Boy redraws its lines' equipped marks.}
-  If Weapons.Find(akBaseObject) >= 0 || Armors.Find(akBaseObject) >= 0
+  If WeaponSource(akBaseObject) || ArmorSource(akBaseObject)
     F3NV_Condition.PipboyRefresh()
   EndIf
 EndEvent
@@ -230,11 +220,11 @@ Event OnAnimationEvent(ObjectReference akSource, String asEventName)
   EndIf
   Actor player = GetActorReference()
   Weapon gun = player.GetEquippedWeapon()
-  Int i = Weapons.Find(gun)
-  If !gun || i < 0
+  F3NV_ConditionSource rows = WeaponSource(gun)
+  If !rows
     Return
   EndIf
-  Float health = Health(player, gun) - Wear(player) / MaxHealth[i]
+  Float health = Health(player, gun) - Wear(player) / rows.WeaponMax(gun)
   If health <= 0.0
     F3NV_Condition.SetHealth(player, gun, 0.0)
     Break(player, gun)
@@ -252,10 +242,10 @@ Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource
   EndIf
   Actor player = GetActorReference()
   Float wear = damage * Absorbed(damage, player.GetValue(DamageResist)) * ArmorWear
-  Form[] worn = F3NV_ConditionCalls.WornOf(player, Armors)
+  Form[] worn = Worn(player)
   Int k = 0
   While k < worn.Length
-    Float health = Health(player, worn[k]) - wear / ArmorMax[Armors.Find(worn[k])]
+    Float health = Health(player, worn[k]) - wear / ArmorSource(worn[k]).ArmorHealth(worn[k])
     F3NV_Condition.SetHealth(player, worn[k], Math.Max(health, 0.0))
     Refresh(worn[k], False)
     k += 1
@@ -305,10 +295,10 @@ Function Refresh(Form akItem, Bool abNow = True)
     EndIf
     Return
   EndIf
-  Int i = Armors.Find(akItem)
-  If i >= 0
-    Apply(player, akItem, t, ArmorTiers[ArmorGroup[i] * 11 + t])
-  ElseIf Weapons.Find(akItem) >= 0
+  F3NV_ConditionSource rows = ArmorSource(akItem)
+  If rows
+    Apply(player, akItem, t, rows.ArmorTier(akItem, t))
+  ElseIf WeaponSource(akItem)
     Apply(player, akItem, t, Tiers[t])
   EndIf
 EndFunction
@@ -337,12 +327,12 @@ Function Reloading()
   EndIf
   Actor player = GetActorReference()
   Weapon gun = player.GetEquippedWeapon()
-  Int i = Weapons.Find(gun)
-  If !gun || i < 0 || JamTimes[i] < 0.0
+  F3NV_ConditionSource rows = WeaponSource(gun)
+  If !rows || rows.JamTime(gun) < 0.0
     Return
   EndIf
   If Utility.RandomFloat(0.0, 1.0) < JamChance(Health(player, gun))
-    Jam(player, JamTimes[i])
+    Jam(player, rows.JamTime(gun))
   EndIf
 EndFunction
 
@@ -397,24 +387,64 @@ Float Function Health(Actor akPlayer, Form akItem)
 EndFunction
 
 Float Function Wear(Actor akPlayer)
-  {One shot's or swing's wear in health points: the loaded round's and the held perks' multipliers applied.}
+  {One shot's or swing's wear in health points: every plugin's loaded-round and held-perk multipliers applied.}
   Float wear = WearPerShot
-  Int i = 0
-  While i < AmmoMarks.Length
-    If akPlayer.WornHasKeyword(AmmoMarks[i] as Keyword)
-      wear *= AmmoWear[i]
-      i = AmmoMarks.Length
+  Int k = 0
+  While k < Sources.GetSize()
+    F3NV_ConditionSource rows = Sources.GetAt(k) as F3NV_ConditionSource
+    If rows
+      wear *= rows.WearOf(akPlayer)
     EndIf
-    i += 1
-  EndWhile
-  i = 0
-  While i < WearPerks.Length
-    If akPlayer.HasPerk(WearPerks[i] as Perk)
-      wear *= WearPerkMults[i]
-    EndIf
-    i += 1
+    k += 1
   EndWhile
   Return wear
+EndFunction
+
+F3NV_ConditionSource Function WeaponSource(Form akItem)
+  {The plugin rows holding weapon akItem; None when it does not wear.}
+  Int k = 0
+  While akItem && k < Sources.GetSize()
+    F3NV_ConditionSource rows = Sources.GetAt(k) as F3NV_ConditionSource
+    If rows && rows.Weapons.Find(akItem) >= 0
+      Return rows
+    EndIf
+    k += 1
+  EndWhile
+  Return None
+EndFunction
+
+F3NV_ConditionSource Function ArmorSource(Form akItem)
+  {The plugin rows holding armor akItem; None when it does not wear.}
+  Int k = 0
+  While akItem && k < Sources.GetSize()
+    F3NV_ConditionSource rows = Sources.GetAt(k) as F3NV_ConditionSource
+    If rows && rows.Armors.Find(akItem) >= 0
+      Return rows
+    EndIf
+    k += 1
+  EndWhile
+  Return None
+EndFunction
+
+Form[] Function Worn(Actor akPlayer)
+  {The armor akPlayer wears that wears out, from every plugin's rows.}
+  Form[] out = new Form[0]
+  Int k = 0
+  While k < Sources.GetSize()
+    F3NV_ConditionSource rows = Sources.GetAt(k) as F3NV_ConditionSource
+    If rows
+      Form[] worn = F3NV_ConditionCalls.WornOf(akPlayer, rows.Armors)
+      Int j = 0
+      While j < worn.Length
+        If out.Find(worn[j]) < 0
+          out.Add(worn[j])
+        EndIf
+        j += 1
+      EndWhile
+    EndIf
+    k += 1
+  EndWhile
+  Return out
 EndFunction
 
 Function Apply(Actor akPlayer, Form akItem, Int aiTier, Form akMod)

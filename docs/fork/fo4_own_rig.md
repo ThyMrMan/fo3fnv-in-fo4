@@ -3,8 +3,9 @@
 A fourth creature mode beside `fnv`, `stats` and `item`
 ([fo4_replacements.md](fo4_replacements.md)): the FNV creature keeps its own
 skeleton, body, clips and behaviour, written as Fallout 4 files, on a race
-copied from a vanilla template. The gecko is the first and only one played
-([fo4_spikes.md#own-rigs](fo4_spikes.md#own-rigs), tests 18–51). Everything
+copied from a vanilla template. The gecko was the first played
+([fo4_spikes.md#own-rigs](fo4_spikes.md#own-rigs), tests 18–51); the mantis,
+cazador, securitron and the ranged rigs followed (below). Everything
 the played gecko needed, and why, is in
 [fo4_spikes.md#own-rig-ragdoll](fo4_spikes.md#own-rig-ragdoll) and the
 notes before it.
@@ -14,8 +15,10 @@ notes before it.
 1. **Havok 2014 files** (done): `fo4_import/havok/packfile.py`,
    `packfile_write.py`, `graph.py`
    ([fo4_spikes.md#own-rig-code](fo4_spikes.md#own-rig-code)).
-2. **The gecko through a rig table**, as mode `rig` in `creatures.py`.
-3. More creatures: each a table entry plus whatever its body plan needs.
+2. **The gecko through a rig table**, as mode `rig` in `creatures.py`
+   (done 2026-10-27: [parity](#parity)).
+3. More creatures: each a table entry plus whatever its body plan needs
+   (12 rigs built: [remaining](#remaining)).
 
 ## <a id="table"></a>The rig table
 
@@ -49,8 +52,8 @@ as `stats` does; the race comes from the rig table.
   version's `SPED` layout) and the action IDLEs, on the template's records.
 - `fo4_import/rig/anim_text.py`: AnimTextData's text files (project file
   data, the entry's file data by the CRC rule, dynamic idle data). The
-  Creation Kit's binary speed and stance data is not written; whether a
-  creature needs it is settled by a play test.
+  binary speed and stance data come from the Creation Kit run
+  ([below](#anim-info)).
 - `creatures.py`: mode `rig` calls these once per skeleton folder and writes
   the NPC as `stats` does, on the rig's race.
 
@@ -144,18 +147,18 @@ copy does: ATKR its race, the race's attacks at its combat style's
 power-attack share, each casting its spell (`Rigs.attacks`,
 `creature_attacks.with_spell`; [attack spells](fo4_pipeline.md#attack-spells)).
 
-## <a id="remaining"></a>The remaining creatures (built 2026-10-27, not played)
+## <a id="remaining"></a>The remaining creatures (built 2026-10-27; ants', centaurs' and spore plants' ranged attacks played 2026-10-28)
 
 Every FNV creature folder with no rule, decided by body plan and attack:
 
 | Folder | Mode | Why | Pose bones |
 |---|---|---|---|
 | `nvgiantrat` | rig | the gecko's clip set, a ground biter | `Spine0`, `Spine3`, `R UpperArm` |
-| `giantant` | rig | the gecko's clip set; the fire ant's breath (`2hl`, `ProjectileNode_Fire`) is ranged and not carried, so fire ants bite | `Spine`, `Head`, `R UpperArm` |
+| `giantant` | rig | the gecko's clip set; the fire ant's breath (`2hl`, `ProjectileNode_Fire`) is a creature gun ([ranged](#ranged)) | `Spine`, `Head`, `R UpperArm` |
 | `queenant` | rig | three attacks (no forward power); her body hangs off a tail chain under the root | `Spine1`, `Head`, `R Thigh Front` |
 | `nvsporecarrier` | rig | a biped; turns in `locomotion\` | `Bip`, `Spine1`, `R UpperArm` |
-| `centaur` | rig | power attacks `h2hattackleft/rightpower`; front legs `L/R Thigh`, back legs `L2/R2 Thigh`; its spit is ranged, not carried | `Spine`, `Neck`, `R UpperArm` |
-| `nvsporeplant` | rig, immobile | every movement role its idle (root speed 0: `Builder.root_speed`), the melee lash `h2hattackright` only; its spore spit is ranged, not carried | `Spine02`, `Neck02`, `LeafR1 01` |
+| `centaur` | rig | power attacks `h2hattackleft/rightpower`; front legs `L/R Thigh`, back legs `L2/R2 Thigh`; its spit is a creature gun ([ranged](#ranged)) | `Spine`, `Neck`, `R UpperArm` |
+| `nvsporeplant` | rig, immobile | every movement role its idle (root speed 0: `Builder.root_speed`), the melee lash `h2hattackright`; its spore spit is a creature gun ([ranged](#ranged)) | `Spine02`, `Neck02`, `LeafR1 01` |
 | `nvraven` | rig, immobile | only `mtidle.kf`; no attacks | `RigPelvis`, `RigTorso`, `RigTail02` |
 | `sentryturret`, `minisentryturret` | stats on `EncTurretBubbleLaserTemplate` | FO4's own ceiling/wall turret, its own weapon; the other bubble turrets are template actors on it | |
 | `robobrain` | stats on `EncProtectron01Template` | a gun user (the rig is melee only); FO4's robobrain is DLCRobot's | |
@@ -171,10 +174,11 @@ which the layout table lacks: `packfile.read(only=...)`). Stand-in copies
 now drop the stand-in's short name too (SHRT: the turret's and
 protectron's, which the leftover check caught).
 
-Not creatures and not converted: the `marker_creature.nif` records (33
-Fallout 3 leftovers, none placed in FNV) and FNV's talking machines (Mr.
-House's screen 365 lines, Yes Man's mainframe 134, Festus 91, Mr. House's
-pod 10: no ragdoll, two to seven body parts).
+Not creatures and not rigs: the `marker_creature.nif` records (33
+Fallout 3 leftovers, none placed in FNV, not converted) and FNV's talking
+machines (Mr. House's screen 365 lines, Yes Man's mainframe 134, Festus 91,
+Mr. House's pod 10: no ragdoll, two to seven body parts), which convert as
+mode `speaker` ([talking machines](fo4_creature_audit.md#talking-machines)).
 
 ## <a id="ranged"></a>Ranged attacks (securitron SMG and launcher played 2026-10-28)
 
@@ -329,8 +333,8 @@ the body. The table has one clip per slot: `RangedAttack` (slot 0,
 `RangedAttackMissile` (slot 3, `2hhattackleft`, its body motion outside
 the arm layer). Its body
 is several NIFZ parts merged into one (`build.body_name` joins them with
-`+`); rigid parts are not yet carried on a rig body, so its face screen is
-missing.
+`+`); its face screen, a rigid part, was missing until
+[rigid parts](#rigid-parts) (built 2026-11-02, not played).
 
 ## <a id="talk"></a>Talking (played 2026-10-28: Victor talks in Goodsprings)
 
@@ -375,6 +379,137 @@ rig's entry, its equip slot nodes (`ZNAM`) and movement type (`WKMV`) are
 left out, its `Anims*` keywords go with its `ActorType*` ones, and an
 own-rig NPC's height is taken against the template race (the protectron is
 0.93 tall, the mole rat 1.0).
+
+## <a id="rigid-parts"></a>Rigid parts (built 2026-11-02, not yet played)
+
+A securitron showed no face: its screen is a rigid body part, and the body
+kept only skinned shapes. An FNV body part with no skin names the bone it
+attaches to in a `Prn` string extra data (`prn_bone`). FNV puts the part's
+root there with no offset.
+
+`assets.add_part` now carries each such shape as a BSSubIndexTriShape
+weighted fully to that bone. FO4 draws an actor skin's unskinned shape at
+the actor's root, not on a bone. Its rest position is the part's geometry
+with its root at the bone's skeleton frame (`attached`), matching
+`convert_static.posed`'s placement for the talking machines to 0.01 units.
+The shape's free-running shader controllers
+([free controllers](fo4_pipeline.md#free-controllers)) go on its shader, as
+vanilla's `deathclaw_albino.nif` skin runs its own.
+
+Census of the 12 rig folders' bodies (CREA NIFZ):
+- Only the securitron (50 records over 17 part sets) has rigid parts.
+  The other 11 rigs' 16 body NIFs are all skinned.
+- A securitron gains:
+  - its face screen (`Screen01:0` and the lit `Screenreflection01:0` on
+    `Bip01 Screen10`), from one of 8 files: Victor, Yes Man, police,
+    infantry, Jane, Marilyn, Mr. House, blank. Three records list none
+    (`SecuritronDead`, `VaultSecuritron`, `GSVictorDisabled`);
+  - the static overlay (`ScreenStatic:0`, `whitenoise01.dds`, on
+    `Bip01 ScreenStatic`);
+  - the voice box (`##VoiceBox_talk:0` on `Bip01 Spin02`).
+- Not carried: `nvsecuritronsmoketrail.nif` on `Bip01 WheelFork` holds
+  only a particle system (`##PCloud02Smoke`). A part's `…Root:0` strip has
+  no shader and is not converted.
+
+## <a id="screen-clips"></a>Clip shader channels (built 2026-11-02, not yet played)
+
+FNV's creature clips key shapes as well as bones. The securitron's
+`mtidle.kf` (`Idle`, 13.33 s, loop) keys these channels:
+- `Screen01:0`: four texture transforms (the UV glitch near 2 s) and its
+  emissive colour, a compressed B-spline (`NiBSplineCompPoint3Interpolator`,
+  220 control points, 0.023 to 0.042);
+- `ScreenStatic:0`: UV scale, offset and rotation drift;
+- `##VoiceBox_talk:0`: emissive colour, held at 0.
+
+FO4 plays creature clips through Havok, which drives bones only. So
+`clip_shaders.clip_channels` reads the rig's idle clip (the table's `Idle`),
+and `assets.animate` writes its channels as controllers on the body shapes.
+They use vanilla's free loop flags (0x48) over the clip's span, and take the
+place of the shape's own controller on the same channel. B-spline channels
+are sampled at 30 keys per second (`shader_anim.spline`, the B-spline
+evaluator in `kf_decode`). The emissive keys go through
+[unlit emissive](fo4_pipeline.md#unlit-emissive).
+
+Only the securitron's idle has shader channels; the other 11 rigs' idles key
+bones only. The body's work-cache key now includes the idle clip.
+
+Left out (drift):
+- texture rotation (FO4 has no shader variable for it);
+- the clips that play on events: `talking.kf` pulses the screen's and voice
+  box's emissive, and the special idles (fidgets, `screentransition1`)
+  replay the glitch. A loop baked into the NIF can't wait for an event.
+
+## <a id="expressions"></a>Securitron expressions (built 2026-11-02, not yet played)
+
+**What FNV does.** `SetSecuritronExpression <ref> <face> <expression>`
+retextures the shape `Screen01:0` with
+`Textures\creatures\Securitron\%s_%s.dds` (face, expression) and keeps the
+face on the reference (`ExtraSecuritronFace`). These are FalloutNV.exe's
+own strings. The textures exist for 7 faces × Neutral and Alert. Two live
+scripts call it, all with `Infantry Neutral`: `VFSSecuritronSCRIPT` (on load,
+once securitrons are upgraded) and `SVMainConsoleScript` (6 Fort
+securitrons). `Lucky38UpgradeSecuritronsSCRIPT`'s calls are commented out.
+
+**Vanilla's way: screens as armor swapped by equip.**
+- The body part holding `Screen01:0` (`assets.screen_part`) is no longer
+  merged into the body. It is its own model (`CharacterAssets\<part file>`)
+  and the skin's second addon, on biped slot 47 (Eyes). The template skin
+  covers only 33. The skin lists both addons as INDX/MODL pairs over both
+  slots, as vanilla's `SkinNaked` does (`records.skin`).
+- An expression is an armor `FNV_SecuritronScreen_<face>_<expression>` on
+  slot 47 (`records.screen_armor`, `Rigs.screen_armor`). Its addon is the
+  rig's first screen part, sorted by name, retextured as FNV does
+  (`assets.retextured`; all face screens share one geometry). Equipping it
+  replaces the skin's screen.
+- The script converter writes
+  `(<ref> as Actor).EquipItem(TES4Screen_<face>_<expression>, true, true)`
+  (`commands_falloutnv.securitron_expression`). The importer makes the
+  armor when it fills that property (`attach._made`). One with no rig
+  screen or no texture is left empty and counted.
+
+New records only: the screen addon per securitron body, and one
+armor and addon per expression used. The skin and body FormIDs keep their
+keys.
+
+## <a id="ragdoll-order"></a>Ragdoll order and DLC builds (built 2026-11-02)
+
+**Elric's ragdoll order is random.** Three Elric runs of the giant rat's skeleton
+on the same input gave three body orders. The ragdoll's skeleton, motions and
+constraints follow that order, and so does each node's
+`bhkNPCollisionObject` body id. The root behaviour takes its ragdoll indices
+from it, so any rebuild that missed the work cache wrote new bytes. This was
+measured after build_1102g. Dead Money's skeleton.nif for the rat differed
+from the game's in 7,772 bytes and its behaviour in 4.
+
+`nif/ragdoll_order.in_node_order` renumbers the bodies in the skeleton.nif's
+own node order (parents first) after Elric, and moves everything that follows
+them. The packfile is rewritten depth first, which reproduces an unmoved
+Elric blob byte for byte. Two runs now give identical files.
+
+All 12 own-rig skeletons pass: each comes out identical across two runs, and
+each raw Elric ragdoll is read and written back byte for byte. Two gaps showed
+up beyond the rat. The fix for these was first built and tested on the rat only, and build_1102h crashed.
+- **A class the table lacked.** The centaur gets an `hknpSphereShape`. The
+  layout table (`tools/generators/hk2014_layouts.py`) now also keeps every
+  hkxpack shape, constraint-data and motor class: 89 added, the 279 existing
+  ones unchanged. A ragdoll that still names an undescribed class keeps
+  Elric's bytes (`ragdoll_order.described`).
+- **Pointers in fixed-size arrays.** The cazador, raven and spore plant's ragdoll
+  constraints all point at one shared `hkpPositionConstraintMotor`, but only
+  through `motors[3]` in their atoms. The writer's depth-first walk skipped
+  fixed-size arrays, so even a plain round trip failed. `packfile_write`
+  now walks those objects after the rest. A file without them keeps its order and bytes.
+
+**A DLC build leaves a master's rig to the master.** A DLC places base-game
+creatures too (Dead Money: rats, mantises, nightstalkers, securitrons). It wrote
+those rigs again, and `drop_loose` only drops byte-identical files. Now `Rigs.shipped`
+finds the rig's skeleton.nif in a built master's folder. The build then writes none of the rig's shared
+files (skeleton, clips, behaviour, character, project, file list) and reads
+the ragdoll bones from the master's skeleton.nif. A body model the master ships is left to it too
+(`Rigs.model`, `own-rig bodies left to the master's folder`). Honest Hearts
+had written the game's five securitron face screens. The DLC still writes the race record and any body the
+master lacks (Honest Hearts' `NVDLC02GreenGecko.nif`). Counted as
+`own-rig files left to the master's folder`.
 
 ## <a id="sounds"></a>Creature sounds (every mode; the graph on an own rig)
 
@@ -441,4 +576,5 @@ Built for `creatures\nvgecko` and compared with test 51's files:
   loads for about 15 minutes, and without `--forceAll` it writes nothing for
   a race whose AnimTextData the load order already has (the test plugin's
   archive did), so a build's own files must be gone first (they are: last
-  run's list is deleted before the run). A full build with it is not run.
+  run's list is deleted before the run). Builds now run it
+([AnimTextData](#anim-info)).

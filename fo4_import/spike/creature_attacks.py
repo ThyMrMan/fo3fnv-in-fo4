@@ -65,7 +65,7 @@ def power_directions(groups: frozenset, style: dict) -> frozenset:
     none when the style's power-attack chance is 0."""
     if int(style.get('CSTD.PowerAttackChance', 0) or 0) <= 0:
         return frozenset()
-    by_chance = int(style.get('CSTD.Flags', 0) or 0) & CHOOSE_BY_CHANCE
+    by_chance = int(style.get('CSTD.FalloutFlags', 0) or 0) & CHOOSE_BY_CHANCE
     return frozenset(d for g, d in POWER_GROUPS.items()
                      if g in groups and (not by_chance or int(style.get(f'CSTD.PowerAttack{d}', 0) or 0) > 0))
 

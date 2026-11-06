@@ -46,6 +46,7 @@ from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.spike.gun_choice import (INCLUDE_SIZE, OBTS_DEFAULT, PROPERTY_SIZE, Choice, GunChoices, built_in_scope,
                                          includes, includes_at, properties, traded, weapon_model)
 from fo4_import.spike.records import pack_kywd
+from fo4_import.spike.scol import angles, rotation
 from fo4_import.spike.weapon_mods import (FNV_NIGHT_VISION, ZOOM_Z, scope_preset, scope_properties, with_properties,
                                           zoom_presets)
 from fo4_import.spike.statics import write_assets
@@ -72,6 +73,16 @@ KEYWORD_SITE, RACE_SITE = 'FNV gun anims KYWD', 'FNV gun anims RACE'
 RACE_EDID = 'FNV_HumanRaceSubGraphDataAdditive'
 
 
+def turned(position: tuple, angle: tuple, scale: float, matrix: np.ndarray) -> tuple:
+    """(position, angles) of a placed gun whose mesh `matrix` (Guns.turn) moved off FNV's model, so it lies as
+    FNV's did at `position`, `angle` and `scale`.
+    See: docs/fork/fo4_spikes.md#placed-guns
+    """
+    turn = rotation(angle) @ matrix[:3, :3]
+    at = np.array(position) - scale * turn @ matrix[3, :3]
+    return tuple(at.tolist()), angles(turn)
+
+
 class Guns:
     """FO4 object template subrecords that put FNV guns on their own meshes, each part copy written once."""
 
@@ -82,6 +93,16 @@ class Guns:
         self.choices = GunChoices(builder.fo4, self.mods, builder.keywords, self._receiver_layout)
         self.edids = {dict(subs).get(b'EDID', b'').rstrip(b'\0').decode('cp1252'): fid for fid, subs in self.mods.items()}
         self.clips, self.converted, self.bodies, self.zooms = None, {}, {}, zoom_presets(builder.fo4)
+        self.turns = {}
+
+    def turn(self, fnv: int) -> np.ndarray:
+        """The row-vector 4x4 FNV gun `fnv`'s mesh was put in FO4's frame by (gun.placement); FO4's axes
+        (gun.AXES) for a gun shown on an FO4 model.
+        See: docs/fork/fo4_spikes.md#placed-guns
+        """
+        out = np.eye(4)
+        out[:3, :3] = gun.AXES
+        return self.turns.get(fnv, out)
 
     def _read(self, model: str) -> bytes:
         """A vanilla mesh from the game's archives."""
@@ -128,7 +149,7 @@ class Guns:
         path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
         out_path = path[:-len('.nif')] + GUN_SUFFIX
         receiver = self._read(choice.model)
-        matrix = gun.placement(static, nodes, receiver)
+        matrix = self.turns[fnv] = gun.placement(static, nodes, receiver)
         made = gun.gun(static, nodes, receiver, matrix)
         clips = self._clips(fnv, rec, (template, choice.includes), fnv_path, receiver, (made, matrix))
         write_new(self.builder.data_dir / 'Meshes' / out_path, made)

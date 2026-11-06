@@ -177,22 +177,28 @@ void Describe(GFxMovieRoot *movie, GFxValue &page) {
     field.SetMember("text", &text);
 }
 
+// `list`'s FormIDs: its authored entries, then those scripts added (FormList.AddForm, a DLC's rows); none for None.
+std::vector<UInt32> ListIds(BGSListForm *list) {
+    std::vector<UInt32> ids;
+    for (UInt32 i = 0; list && i < list->forms.count; i++) {
+        TESForm *form = nullptr;
+        list->forms.GetNthItem(i, form);
+        ids.push_back(form ? form->formID : 0);
+    }
+    for (UInt32 i = 0; list && list->tempForms && i < list->tempForms->count; i++) {
+        UInt32 id = 0;
+        list->tempForms->GetNthItem(i, id);
+        ids.push_back(id);
+    }
+    return ids;
+}
+
 // Papyrus: give the Pip-Boy's STAT page tab `name` (placed by `order` among ours): `rows`' values on the player
 // (actor values) or their own (globals), each picking from `values` (none: the number), shown while its global
-// in `shown` (None: always) is at least 1.
+// in `shown` (None: always) is at least 1. Rows a script added to the lists (a DLC's) follow the authored ones.
 void SetTab(StaticFunctionTag *, BSFixedString name, SInt32 order, BGSListForm *rows, VMArray<BSFixedString> values,
             BGSListForm *shown) {
-    Tab tab{name.c_str() ? name.c_str() : "", order, {}, {}, {}};
-    for (UInt32 i = 0; rows && i < rows->forms.count; i++) {
-        TESForm *form = nullptr;
-        rows->forms.GetNthItem(i, form);
-        tab.rows.push_back(form ? form->formID : 0);
-    }
-    for (UInt32 i = 0; shown && i < shown->forms.count; i++) {
-        TESForm *form = nullptr;
-        shown->forms.GetNthItem(i, form);
-        tab.shown.push_back(form ? form->formID : 0);
-    }
+    Tab tab{name.c_str() ? name.c_str() : "", order, ListIds(rows), ListIds(shown), {}};
     for (UInt32 i = 0; i < values.Length(); i++) {
         BSFixedString value;
         values.Get(&value, i);

@@ -79,6 +79,7 @@
 - [`Kill` takes only the killer](#kill-takes-only-the-killer)
 - [An inert read must never FIRE a guard](#an-inert-read-must-never-fire)
 - [A ref tested against `1` is still a null test](#ref-compared-to-one)
+- [A placed ref tested against another number is its FormID](#ref-compared-to-a-number)
 - [A declaration can nest at ANY depth](#declarations-nest-at-any-depth)
 - [Not every INFO needs a fragment — the dialogue stutter](#info-fragment-stutter)
 
@@ -4973,6 +4974,31 @@ would DECIDE a guard the inert-operand path exists to drop. The first attempt
 skipped that distinction and broke `GetCrimeKnown ... == 1`, whose whole `||`
 chain is supposed to collapse — caught by
 `test_an_or_chain_that_loses_every_term_stays_shut`.
+
+### A placed ref tested against another number is its FormID
+<a id="ref-compared-to-a-number"></a>
+
+Old World Blues' `NVDLC03X8CodeBoxSCRIPT` writes `If (X8SchoolDoor02 != 3)`
+before `X8SchoolDoor02.SetOpenState 0`, almost certainly meaning `GetOpenState`.
+FNV compiles it as the reference itself, read as its FormID, which is never 3,
+so the test always passes. Papyrus rejects `ObjectReference != Int`, so the
+whole script failed to compile.
+
+`_mismatch` already folded a form compared with a number for doors that have a
+script of their own (their type is the generated script). A plain door's
+property was not yet registered at its first use, and `_base_record_type`
+answers '' for placed references by design, so nothing caught it.
+`_placed_ref_pun` now covers a name whose record is a REFR, ACHR or ACRE,
+compared with `==` or `!=` against a number other than 0 or 1: `!=` becomes
+`True` and `==` becomes `False`. 0 and 1 stay null tests
+([above](#ref-compared-to-one)), and so does every ordering comparison.
+Adding `ObjectReference` to `MISMATCH_TYPES` instead would have pre-empted the
+null tests, because `_mismatch` runs before them.
+
+Census (2026-11-03): 15 sites, all in that one Old World Blues script; none in
+FalloutNV, Fallout 3, the other DLCs or Oblivion. The same pass converts
+`GetInCharGen` to 0 (four Old World Blues scripts), matching `SetInCharGen`,
+which converts to nothing.
 
 ### A declaration can nest at ANY depth
 <a id="declarations-nest-at-any-depth"></a>

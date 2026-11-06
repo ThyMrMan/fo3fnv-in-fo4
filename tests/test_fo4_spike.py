@@ -57,6 +57,7 @@ from fo4_import.spike import skeleton as S
 from fo4_import.spike import voice as V
 from fo4_import.spike.voice_types import with_voice
 from fo4_import.spike import cell as CB
+from fo4_import.spike import condition_forms as CF
 from fo4_import.spike.cell import CellBuilder
 from fo4_import import record_routes as RT
 from tools.esm import fo4_record_census as C
@@ -113,9 +114,42 @@ def test_voice_job_names_the_fuz_by_plugin_voice_type_and_info(tmp_path):
     (folder / 'vfreeformg_vfreeformgoodsp_00107495_1.ogg').write_bytes(b'')
     rec = {'FormID': '00107495', 'ResponseCount': '1', 'Response[0].ResponseNumber': '1',
            'Response[0].ResponseText': '[SUCCEEDED] Of course.'}
-    jobs = V.jobs([(0x02000869, rec)], [(folder, 'NPCMDocWeathers')], tmp_path / 'Data', 'Spike.esp')
+    jobs = V.jobs([(0x02000869, rec)], [((folder,), 'NPCMDocWeathers')], tmp_path / 'Data', 'Spike.esp')
     assert [(j[1].relative_to(tmp_path).as_posix(), j[2]) for j in jobs] == [
         ('Data/Sound/Voice/Spike.esp/NPCMDocWeathers/00000869_1.fuz', ' Of course.')]
+
+
+def test_a_dlc_line_is_found_under_the_plugin_holding_its_info(tmp_path):
+    """fnv_folders(): the game's folder, then the DLC's; a line's master byte picks the folder its file is in."""
+    game, dlc = tmp_path / 'FalloutNV.esm', tmp_path / 'HonestHearts.esm'
+    game.mkdir()
+    dlc.mkdir()
+    (dlc / '_HEADER.txt').write_text('Master[0]=FalloutNV.esm\n')
+    folders = V.fnv_folders(dlc, 'MaleUniqueJoshua')
+    assert [f.relative_to(tmp_path).as_posix() for f in folders] == [
+        'FalloutNV.esm/sound/voice/falloutnv.esm/maleuniquejoshua',
+        'HonestHearts.esm/sound/voice/honesthearts.esm/maleuniquejoshua']
+    for folder, name in zip(folders, ('a_b_000101f6_1.ogg', 'a_b_000101f6_2.ogg')):
+        folder.mkdir(parents=True)
+        (folder / name).write_bytes(b'')
+    assert {key: path.parent.parent.name for key, path in V.index_recordings(folders).items()} == {
+        (0x000101F6, 1): 'falloutnv.esm', (0x010101F6, 2): 'honesthearts.esm'}
+
+
+def test_a_stale_silent_line_is_set_aside_like_a_stale_recording(tmp_path):
+    """remove_stale(): a .fuz and a silent .xwm no job writes go to the cache; a job's file stays."""
+    folder, cache = tmp_path / 'Voice' / 'FNV_RobotUniqueRex', tmp_path / 'cache'
+    folder.mkdir(parents=True)
+    for name in ('00000800_1.fuz', '00000801_1.xwm', '00000802_1.xwm'):
+        (folder / name).write_bytes(b'x')
+    assert V.remove_stale([(None, folder / '00000802_1.xwm', None)], [folder], cache) == 2
+    assert sorted(p.name for p in folder.iterdir()) == ['00000802_1.xwm']
+    assert sorted(p.name for p in (cache / folder.name).iterdir()) == ['00000800_1.fuz', '00000801_1.xwm']
+
+
+def test_a_dlc_build_voices_only_the_infos_it_holds():
+    """own_lines() keeps the plugin's own INFOs (byte 1), not the master's."""
+    assert V.own_lines([(0x00001234, 'game'), (0x01000800, 'dlc')], 1) == [(0x01000800, 'dlc')]
 
 
 def test_a_silent_line_plays_a_short_silent_recording(tmp_path):
@@ -187,7 +221,7 @@ def test_weapon_copy_takes_fnv_stats_and_resolves_template_strings():
     eq = E.Equipment.__new__(E.Equipment)
     eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.builder, eq.fnv, eq.vanilla = builder, {}, {'BaseballBat': template}
-    eq.by_anim = {}
+    eq.by_anim, eq.fired = {}, {}
     eq.guns = SimpleNamespace(default_only=lambda subs: None)
     eq.ammo_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
@@ -220,7 +254,7 @@ def test_melee_weapon_on_fnv_mesh_drops_template_model_and_mods():
     eq.weapon_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.builder, eq.fnv, eq.vanilla, eq.strings = builder, {}, {'RollingPin': template}, {1: b'Rolling Pin'}
     eq.poses = {}
-    eq.by_anim = {}
+    eq.by_anim, eq.fired = {}, {}
     eq.ammo_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
     eq.vats = SimpleNamespace(apply=lambda rec, dnam, template: template.get(b"CRDT", b""))
@@ -437,6 +471,49 @@ def test_talking_through_an_activator_reads_0_in_an_fo4_build():
     assert CD.without_absent([CD.parse(rec(1.0)['Condition[0].Raw'])], {}) is None
 
 
+def test_exists_reads_1_and_a_test_of_no_form_reads_0():
+    """Exists == 1 drops out; GetQuestVariable on no quest == 0 drops out, == 1 never passes; the player stays."""
+    test = lambda func, value, p1=0: CD.parse(struct.pack('<B3xfIIIII', 0, value, CD.FNV.index(func), p1, 1, 0, 0).hex())
+    assert CD.without_absent([test('Exists', 1.0)], {}) == []
+    assert CD.without_absent([test('GetQuestVariable', 0.0)], {}) == []
+    assert CD.without_absent([test('GetQuestVariable', 1.0)], {}) is None
+    assert CD.absent(test('GetIsID', 1.0, 0x7), {}) is None
+
+
+def test_a_line_testing_a_form_list_makes_the_list():
+    """IsInList's form list (BoomerKidGiftList, which a script fills) is made on demand, as an item test's is."""
+    made = {}
+    builder = SimpleNamespace(cell_ids={}, regions={}, counts=Counter(),
+                              items=SimpleNamespace(item=lambda fid: made.setdefault(fid, 0x900000 | fid & 0xFFFF)))
+    in_list = struct.pack('<B3xfIIIII', 0, 1.0, CD.FNV.index('IsInList'), 0x106182, 0, 0, 0).hex()
+    out = CF.condition_forms(builder, [{'ConditionCount': '1', 'Condition[0].Raw': in_list}])
+    assert out == {0x106182: 0x906182}
+
+
+def test_a_line_testing_a_package_names_the_package_written():
+    """The dialogue form map holds each written package; one left out (0) is absent, so GetIsCurrentPackage of it
+    reads 0."""
+    builder = SimpleNamespace(globals={}, factions={}, actor_refs={}, objectives={}, quest_vars={},
+                              reputation_slots={}, packages=SimpleNamespace(made={'000F631E': 0x0F631E, '000F631D': 0}))
+    form_map = CB._form_map(builder, {}, [], {})
+    assert form_map[0x0F631E] == 0x0F631E and 0x0F631D not in form_map
+    running = CD.FNV.index('GetIsCurrentPackage')
+    cond = CD.parse(struct.pack('<B3xfIIIII', 0, 1.0, running, 0x0F631D, 0, 0, 0).hex())
+    assert CD.absent(cond, form_map) is False
+
+
+def test_an_objective_its_built_quest_does_not_author_is_never_displayed():
+    """GetObjectiveDisplayed 30 == 1 on a built quest authoring 10 and 20 never passes and == 0 always does; an
+    authored objective, or a quest the form map lists no objectives for, stays to convert."""
+    shown = CD.FNV.index('GetObjectiveDisplayed')
+    test = lambda index, value: CD.parse(struct.pack('<B3xfIIIII', 0, value, shown, 0x1638F0, index, 0, 0).hex())
+    form_map = {0x1638F0: 0x801, (CD.AUTHORED, 0x1638F0): frozenset({10, 20})}
+    assert CD.without_absent([test(30, 1.0)], form_map) is None
+    assert CD.without_absent([test(30, 0.0)], form_map) == []
+    assert CD.absent(test(20, 1.0), form_map) is None
+    assert CD.absent(test(30, 1.0), {0x1638F0: 0x801}) is None
+
+
 def test_a_topic_only_a_script_says_is_built_as_a_scripted_topic():
     """A player topic a script says with SayWhenFree and nothing else reaches is picked; one a line's Choice
     reaches, a top-level one and a Dialogue package's are not."""
@@ -447,6 +524,17 @@ def test_a_topic_only_a_script_says_is_built_as_a_scripted_topic():
     said = {'tourstop', 'chosen', 'top', 'greeted'}
     assert SAY.said_only(dials, infos, said, [{'PKDD.Topic': 'T4'}]) == {'T1'}
     assert SAY.SAY_FREE.findall('TES4Polyfill.SayWhenFree(akSpeakerRef, TourStop, None)') == ['TourStop']
+
+
+def test_a_test_of_the_player_names_fallout4s_own_player():
+    """Target GetIsID Player == 1 (a HELLO for the player only) converts with no form map entry, as vanilla's 56
+    such lines; an unbuilt actor's GetIsID still does not."""
+    player = CD.parse('000000000000803f480000000700000000000000010000000000000000000000')
+    assert SAY._fo4_condition(player, {}, {}) == (CD.FO4.index('GetIsID'), 0x7, 0, '', '')
+    rec = {'Condition[0].Raw': '000000000000803f480000000700000000000000010000000000000000000000'}
+    assert SAY.conditions_of(rec, {}, {}) == R.pack_ctda(0, 1.0, CD.FO4.index('GetIsID'), 0x7, 0, R.RUN_TARGET, 0, -1)
+    other = CD.parse('000000000000803f4800000099990100000000000000000000000000')
+    assert SAY._fo4_condition(other, {}, {}) is None
 
 
 def test_a_global_property_takes_fallout4s_engine_global_beside_the_helper_globals():
@@ -771,6 +859,21 @@ def test_packages_go_right_after_aidt_in_place_of_the_bodys():
     assert [struct.unpack('<I', d)[0] for t, d in tags if t == b'PKID'] == [7, 8]
 
 
+def test_a_force_greet_only_a_quest_script_names_is_made_before_the_greeting(tmp_path):
+    """VMS40's quest script names Markland's Dialogue package, filled only with the quest record: it is made
+    first, so the greeting takes its topic; the script's other properties are left to the fill."""
+    (tmp_path / 'FALLOUTNV_VMS40TimerSCRIPT.psc').write_text(
+        'Package Property VBSLtMarklandTrainingGreet Auto\nPackage Property VMS40Sandbox Auto\n', encoding='utf-8')
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.packs = {'00142AB1': {'PKDT.Type': '15'}, '00142AB2': {'PKDT.Type': '12'}}
+    packages.by_name = {'vbsltmarklandtraininggreet': '00142AB1', 'vms40sandbox': '00142AB2'}
+    made = []
+    packages.named = made.append
+    scripts = SimpleNamespace(dir=tmp_path, name=lambda scpt: 'FALLOUTNV_VMS40TimerSCRIPT')
+    packages.named_by_quests(scripts, [{'EditorID': 'VMS40', 'SCRI': '00139B8E'}])
+    assert made == ['VBSLtMarklandTrainingGreet']
+
+
 def test_an_in_cell_sleep_goes_to_the_npcs_own_bed_else_an_unowned_one():
     """Chet's sleep in his store takes the mattress he owns; another NPC takes the unowned bed."""
     packages = PK.Packages.__new__(PK.Packages)
@@ -880,20 +983,31 @@ def test_a_use_weapon_package_shoots_its_target_with_fnvs_weapon_and_firing():
     assert packages._firing({**rec, 'PKW3.FireCount': '1'})[4] == struct.pack('<i', 0)
 
 
-def test_a_force_greet_takes_fnvs_trigger_location():
+def test_a_force_greet_takes_fnvs_trigger_location_and_activate_distance():
     """The Primm trooper's trigger box (radius 0) reaches its smaller half extent; an unbuilt one keeps vanilla's.
-    Ringo's (no PLD2) is near the player, so he heads for the player at once, as FNV does."""
+    Without PLD2 (Ringo, Sunny, Oscar Velasco in his cave) the trigger is near the actor within FNV's loaded area, so
+    no one crosses the map for the player. The greet distance is FNV's Activate Distance (150 where it is 0), at most
+    TALK_REACH: the trooper's 1,024 left him standing out of talking range."""
     packages = PK.Packages.__new__(PK.Packages)
     packages.boxes = {0x172555: 1874.9}
     rec = {'PLD2.Type': '0', 'PLD2.Location': '00172555', 'PLD2.Radius': '0'}
+    near_player = lambda reach: struct.pack('<iIi', PK.NEAR_REFERENCE, 0x14, reach)
     trigger = packages._trigger(rec, {0x172555: 0x0B172555})
-    assert trigger == {PK.TRIGGER_INPUT: struct.pack('<iIi', 0, 0x0B172555, 1875)}
+    assert trigger == {PK.TRIGGER_INPUT: struct.pack('<iIi', 0, 0x0B172555, 1875),
+                       PK.GREET_INPUT: near_player(PK.ACTIVATE_DISTANCE)}
     wide = packages._trigger({**rec, 'PLD2.Radius': '300'}, {0x172555: 1})
     assert wide[PK.TRIGGER_INPUT][-4:] == struct.pack('<i', 300)
-    assert packages._trigger(rec, {}) == {}
-    ringo = packages._trigger({'PTDT.Count': '512'}, {})
-    assert ringo == {PK.TRIGGER_INPUT: struct.pack('<iIi', PK.NEAR_REFERENCE, 0x14, 512)}
-    assert packages._trigger({}, {})[PK.TRIGGER_INPUT][-4:] == struct.pack('<i', PK.ACTIVATE_DISTANCE)
+    assert packages._trigger(rec, {}) == {PK.GREET_INPUT: near_player(PK.ACTIVATE_DISTANCE)}
+    oscar = packages._trigger({'PTDT.Count': '1024'}, {})
+    assert oscar == {PK.TRIGGER_INPUT: struct.pack('<iIi', PK.NEAR_SELF, 0, PK.FNV_LOADED_REACH),
+                     PK.GREET_INPUT: near_player(PK.TALK_REACH)}
+
+
+def test_a_force_greet_without_a_location_waits_where_its_actor_is():
+    """A Dialogue package without a location waits near self; a wander, at its start."""
+    packages = PK.Packages.__new__(PK.Packages)
+    assert packages._at({}, PK.FNV_DIALOGUE, 'ForceGreet', {}) == ('ForceGreet', struct.pack('<iIi', PK.NEAR_SELF, 0, 0))
+    assert packages._at({}, '5', 'Sandbox', {}) == ('Sandbox', struct.pack('<iIi', PK.NEAR_START, 0, 0))
 
 
 def test_a_package_copy_replaces_later_location_inputs_by_ordinal():

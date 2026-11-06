@@ -24,8 +24,8 @@ SILENT_LINE = ''
 INITIALLY_DISABLED = 0x800
 #: Quest alias flag Uses Stored Text: the alias's display name (ALDN) names it, as a radio station's Host.
 USES_STORED_TEXT = 0x4000
-#: Quest alias flag Allow Disabled (xEdit's wbQUSTAliasFlags): a disabled reference fills it.
-ALLOW_DISABLED = 0x80
+#: Quest alias flags Optional (it may be empty) and Allow Disabled (a disabled reference fills it), xEdit's.
+ALIAS_OPTIONAL, ALLOW_DISABLED = 0x2, 0x80
 #: ACTI FNAM flag Is a Radio: a receiver, its RADR naming the frequency.
 IS_A_RADIO = 0x10
 #: FO4 CTDA Run On values.
@@ -53,6 +53,10 @@ DIALOGUE_ACTION_FLAGS = 0x28000
 SCENE_FLAGS = 0x1024
 #: Dialogue action FNAM Face Target of 1,031 vanilla actions in scenes of NPCs only; the target is its HTID actor.
 NPC_ACTION_FLAGS = 0x8000
+#: Dialogue action FNAM Looping (69 vanilla actions): the action says its topic again after a DMIN-DMAX delay.
+ACTION_LOOPING = 0x10000
+#: (DMIN, DMAX) seconds between a looping action's lines: vanilla's most common (12 of 69); others' unused pair.
+LOOP_DELAY, NO_LOOP_DELAY = (5.0, 10.0), (1.0, 10.0)
 #: SCEN FNAM of NPC-only scenes: Show All Text, Interruptible (the 256 vanilla 0x17 less their quest start/stop).
 NPC_SCENE_FLAGS = 0x14
 #: SCEN actor LNAM Optional: the scene runs with the alias empty (a monologue's listener).
@@ -184,21 +188,25 @@ def pack_player_dialogue(index: int, alias: int, player_topics: tuple, npc_topic
     return subs + _s32('DTGT', alias) + pack_subrecord('ANAM', b'')
 
 
-def pack_dialogue_action(index: int, alias: int, topic: int, phase: int = 0, listener: 'int | None' = None) -> bytes:
+def pack_dialogue_action(index: int, alias: int, topic: int, phase: int = 0, listener: 'int | None' = None,
+                         looping: bool = False) -> bytes:
     """A Dialogue scene action in `phase`: `alias` says `topic` (PastorGreetScene's flags and distances); facing
-    and headtracking alias `listener` instead of the player when given (NPC_ACTION_FLAGS, HTID)."""
-    flags = DIALOGUE_ACTION_FLAGS if listener is None else NPC_ACTION_FLAGS
+    and headtracking alias `listener` instead of the player when given (NPC_ACTION_FLAGS, HTID); saying it again
+    every LOOP_DELAY when `looping`."""
+    flags = (DIALOGUE_ACTION_FLAGS if listener is None else NPC_ACTION_FLAGS) | (ACTION_LOOPING if looping else 0)
+    low, high = LOOP_DELAY if looping else NO_LOOP_DELAY
     subs = pack_subrecord('ANAM', struct.pack('<H', 0)) + _zstr('NAM0', '') + _s32('ALID', alias)
     subs += pack_u32('INAM', index) + pack_u32('FNAM', flags) + pack_u32('SNAM', phase) + pack_u32('ENAM', phase)
-    subs += pack_u32('DATA', topic) + pack_subrecord('DMAX', struct.pack('<f', 10.0))
-    subs += pack_subrecord('DMIN', struct.pack('<f', 1.0)) + (b'' if listener is None else _s32('HTID', listener))
+    subs += pack_u32('DATA', topic) + pack_subrecord('DMAX', struct.pack('<f', high))
+    subs += pack_subrecord('DMIN', struct.pack('<f', low)) + (b'' if listener is None else _s32('HTID', listener))
     return subs + pack_subrecord('ANAM', b'')
 
 
 def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keyword: int,
-              phases: tuple = ('Menu',), flags: int = 0, listener: 'int | None' = None) -> bytes:
+              phases: tuple = ('Menu',), flags: int = 0, listener: 'int | None' = None, vmad: bytes = b'') -> bytes:
     """A scene of named `phases` in order with actor `alias` and `actions` (indices 1..n), tagged with `keyword`
-    (0: none), FNAM SCENE_FLAGS plus `flags`; with a `listener` actor too, an NPC-only scene (NPC_SCENE_FLAGS).
+    (0: none), FNAM SCENE_FLAGS plus `flags`; with a `listener` actor too, an NPC-only scene (NPC_SCENE_FLAGS);
+    `vmad` its fragments.
 
     A one-phase scene also completes once the alias is farther than
     DIALOGUE_DISTANCE from the player; with several phases each completes
@@ -207,7 +215,8 @@ def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keywor
     """
     walked_off = b'' if len(phases) > 1 else pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
                                                        run_on=RUN_QUEST_ALIAS, param3=alias)
-    subs = _zstr('EDID', edid) + pack_u32('FNAM', (SCENE_FLAGS if listener is None else NPC_SCENE_FLAGS) | flags)
+    subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
+    subs += pack_u32('FNAM', (SCENE_FLAGS if listener is None else NPC_SCENE_FLAGS) | flags)
     for phase in phases:
         subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'') + walked_off
         subs += pack_subrecord('NEXT', b'') + pack_u32('WNAM', 350) + pack_subrecord('HNAM', b'')
@@ -234,17 +243,19 @@ def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
     return pack_fo4_record('QUST', fid, 0, subs + pack_u32('ANAM', 1) + _alias(0, alias_name, alias_ref))
 
 
-def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display: int = 0, voices: int = 0) -> bytes:
-    """A reference alias forced to `ref` (Allow Disabled, as vanilla sets on 73 of its 89 required forced aliases on
-    disabled references), or optional and empty when None; given `packages` (ALPC), it runs them: without a
-    `ref`, an empty collection alias (CZ_Arena's Crowd); a `display` name message (ALDN) sets Uses Stored Text
-    (RadioDiamondCity's Host); `voices` (VTCK: an NPC or list) voices a non-actor, as RadioSubway's.
+def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display: int = 0, voices: int = 0,
+           keywords: tuple = (), optional: bool = False) -> bytes:
+    """A reference alias forced to `ref` (Allow Disabled; `optional`: also Optional, so a script may clear it), or
+    optional and empty when None; given `packages` (ALPC), it runs them: without a `ref`, an empty collection
+    alias (CZ_Arena's Crowd); `keywords` (KWDA) go on whoever fills it; a `display` name message (ALDN) sets
+    Uses Stored Text (RadioDiamondCity's Host); `voices` (VTCK: an NPC or list) voices a non-actor.
     See: docs/fork/fo4_preflight.md#results
     """
     collection = packages is not None and ref is None
     subs = (pack_u32('ALCS', alias) + pack_subrecord('ALMI', b'\0') if collection else b'') + pack_u32('ALST', alias)
-    flags = 2 if ref is None else ALLOW_DISABLED | (USES_STORED_TEXT if display else 0)
-    subs += _zstr('ALID', name) + pack_u32('FNAM', flags) + (b'' if ref is None else pack_u32('ALFR', ref))
+    flags = ALIAS_OPTIONAL if ref is None else ALLOW_DISABLED | (USES_STORED_TEXT if display else 0)
+    subs += _zstr('ALID', name) + pack_u32('FNAM', flags | (ALIAS_OPTIONAL if optional else 0))
+    subs += (b'' if ref is None else pack_u32('ALFR', ref)) + pack_keywords(keywords)
     subs += pack_u32('ALDN', display) if display else b''
     subs += b''.join(pack_u32('ALPC', package) for package in packages or ())
     subs += pack_u32('VTCK', voices) if voices or packages is not None else b''

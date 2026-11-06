@@ -2,8 +2,10 @@
 
 **Code:** `tools/validate/preflight/` (`fo4_dialogue.py`, `asset_fo4.py`,
 `condition_diff.py`, the FO4 parts of `__main__.py`, `plugin_index.py`,
-`quest_progression.py`, `quest_start.py`, `package_ai.py`, `build_diff.py`);
-tests in `tests/test_preflight_fo4.py`. Status goes in [ROADMAP.md](ROADMAP.md).
+`quest_progression.py`, `quest_start.py`, `package_ai.py`, `build_diff.py`,
+`asset_nif.py`, `build_history.py`, `quest_targets.py`, `built_masters.py`,
+`dlc_overrides.py`); tests in `tests/test_preflight_fo4.py` and
+`tests/test_preflight_fo4_builds.py`. Status goes in [ROADMAP.md](ROADMAP.md).
 
 The preflight audits ([tools_preflight.md](../commentary/tools_preflight.md))
 run on the Fallout 4 plugin after every build, with no game: quests that can
@@ -16,7 +18,11 @@ markers, and records that moved or changed.
 - [Running it](#running)
 - [Why the Skyrim audits missed the FO4 build](#why)
 - [The FO4 dialogue model](#fo4-dialogue)
-- [Assets](#assets)
+- [Assets](#assets) and [shader names](#materials)
+- [The previous build](#previous-build)
+- [Quest-stage and actor targets](#targets)
+- [DLC overrides](#dlc-overrides)
+- [Script properties](#script-properties)
 - [The condition differential](#condition-diff)
 - [First results](#results)
 - [What it does not see](#limits)
@@ -26,14 +32,17 @@ markers, and records that moved or changed.
 ```
 py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esm"
 py -3.14 -m tools.validate.preflight --fo4 "<mod folder>/FalloutNV.esm" --audit quest --audit conditions
+py -3.14 -m tools.validate.preflight --fo4 temp/profile_data_hh/HonestHearts.esm --audit targets --audit dlc
 ```
 
 The source export is `export/<plugin stem>.esm` (`--fo4-source`), the
 converted sources `temp/fo4_scripts/<source>` (`--fo4-scripts`), the compiled
-scripts `<mod folder>/Scripts`. Audits: quest, start, dialogue, conditions, timing ([timing audit](fo4_timing_audit.md#built)),
-packages, world, assets, build (68 s for all on the whole-map build). Script
-health and log triage stay Skyrim-only: `fo4_audit` checks FO4 script
-properties and `fo4_trace` reads FO4 play sessions. State and the report go to
+scripts `<mod folder>/Scripts`. Audits: quest, start, dialogue, conditions, targets, timing ([timing audit](fo4_timing_audit.md#built)),
+packages, world, assets, build, dlc, properties ([script properties](#script-properties)) (68 s for all but the four added on 2026-11-02; assets now 41 s,
+targets 26 s with build on the whole map; targets and dlc on a DLC build 10 to 18 s). A DLC build's
+built masters come from its stamp's `--plugin-dirs` unless `--plugin-dirs` names them. Script
+health and log triage stay Skyrim-only: FO4 script properties are the
+`properties` audit (`fo4_audit.check_properties`) and `fo4_trace` reads FO4 play sessions. State and the report go to
 `output/preflight/<plugin>/`; finding keys use the plugin name
 (`quest|FalloutNV.esm|...`). Since the FO4 plugin took the name `FalloutNV.esm` (2026-10-30) it shares
 the Skyrim build's folder name; run the two from their own checkouts.
@@ -94,6 +103,173 @@ Fallout 4's Data. Block types are not checked: the FO4 NIF writer rebuilds
 vanilla byte for byte. On the whole-map build it reads 6,049 models, 2,708
 materials and 5,655 NIF texture paths in about 57 s.
 
+### <a id="materials"></a>Shader names and every built NIF
+
+`asset_nif.py` reads every NIF in the build's own folder (loose or archived)
+block by block with the converter's reader (`fo4_import.nif.file.read_header`,
+`blocks.read_texture_set`, `read_effect`), not only the models a record uses:
+
+- A shader property's name (BSLightingShaderProperty, BSEffectShaderProperty)
+  is empty or a `.bgsm`/`.bgem`; any other name is an error
+  (`assets|<plugin>|shader-name|<name>`). FO4 reads the name as the material
+  path, so a name like `BSX` draws purple while every file exists. That was the
+  securitron face screens, Tesla armor, the advanced power armor glows and
+  `NVGiantRat.nif` (`Lambcaps:2`): a string index -1 read as Python's last
+  string (fixed in `outfit.text`).
+- An effect shader never names a `.bgsm` (`effect-bgsm`); vanilla has 2,062
+  skinned actor effect shaders and none names anything but a `.bgem`.
+- Every material named this way, and every texture a texture set or an effect
+  shader names, joins the material and texture checks above. The build's
+  texture staging folder (`output/fo4_cache/ba2/<data folder>-<hash>/`,
+  `ba2_pack.staging_root`) resolves like a Data folder, after the mod folder.
+- A texture path's leading `Data\` goes, as the game drops it: FaceGen meshes
+  name `Data\Textures\Actors\Character\FaceCustomization\...`.
+
+Checked on the pre-fix meshes still in the work cache
+(`output/fo4_cache/work/outfit_worn`, 13,524 worn NIFs of all code versions):
+42 name an effect shader `BSX`, 1,386 `UpperBody8:1`, 204 `UpperBody2:0`. The
+whole-map build has none.
+
+## <a id="previous-build"></a>The previous build
+
+The drift baseline moves only on `--accept-build`, and the FormID ledger is
+cumulative, so a record the latest build stopped writing showed nowhere: the
+ledger said "0 moved" while 1,282 pad INFOs and 17 SCEN were gone. The build
+audit therefore also compares each Fallout 4 build with the one before it
+(`build_history.py`). Per run it keeps the build it saw in
+`output/preflight/<plugin>/build_seen.json` (the stamp, and per record its
+signature, EditorID and a CRC of its subrecords: about 40 MB for the whole
+map, no plugin copies) and the build before that in `build_seen_before.json`. A new
+build (another stamp `ended`) is compared with the last one; a build already
+seen, with the one before it, so running the audit twice changes nothing.
+
+- Printed: records added and records whose bytes changed, per signature.
+- Review findings: records gone (`build|<plugin>|previous-removed|<SIG>`),
+  FormIDs now holding another type (`previous-retyped`) and EditorIDs that
+  moved to another FormID (`previous-moved`), each with sample FormIDs.
+
+It also prints the code-tagged caches the build's code invalidated: every
+`cached`/`lookup`/`store`/`code_tag` call in `fo4_import` whose module
+argument it can name (a string, `__name__`, `<module>.__name__`,
+`<function>.__module__`; a variable means the repo modules the file names as
+strings, as `face_fits.FIT_SITES` does), against `code_tag.tagged_files()` of
+that module. The changed files are the stamp's `changed files` plus, when the
+commit moved since the previous build, `git diff --name-only` between the two
+commits and the previous stamp's own list. An edit to `convert_static.py`
+shows as the mesh cache (`mesh_cache.py`) going, which made one build take 2 h
+instead of 20 min.
+
+## <a id="targets"></a>Quest-stage and actor targets
+
+`--audit targets` (`quest_targets.py`). FO4Edit found 866 "Quest Stage not
+found in FNV_TES4SayOnce" in a DLC build that no audit caught: Honest Hearts'
+say-once lines tested stages its copy of the game quest had dropped.
+
+- **Stages.** Every `GetStageDone` condition, every `GetStage == N` (N above
+  0, which means "not started"; not against a global) and every `SetStage`,
+  `GetStageDone` or `IsStageDone` call in an attached script whose quest is a
+  property of the script (`Quest.SetStage(N)`, `X.TES4SetStage(Quest as T, N)`,
+  `TES4Polyfill.SetStage(Quest, N)`) names a stage. The quest's stages (QUST
+  INDX) are those of its last copy in load order: the build's own override
+  wins over the built master's. A missing stage is an error
+  (`targets|<plugin>|stage|<quest>|<stage>`), or a review when the source
+  game's quest of that EditorID lacks it too. A quest FormID in the build's or
+  a built master's id space that no QUST holds is an error (`quest`).
+- **Actors.** A `GetIsID` naming an NPC_ the build places nowhere (no ACHR, no
+  placed leveled list giving it at any depth, no script property) is an error
+  when the source game places it (ACHR or ACRE), else a review (`actor`).
+- **Masters.** A DLC build reads its built masters from the folders its stamp's
+  `--plugin-dirs` names (or preflight's own `--plugin-dirs`), each kept only
+  when its own masters lead the build's, so FormIDs read alike
+  (`built_masters.py`). Fallout4.esm has no built plugin; its quests are not
+  judged.
+
+## <a id="dlc-overrides"></a>DLC overrides
+
+`--audit dlc` (`dlc_overrides.py`) runs on a build with built masters and
+flags what is its master's (each a finding with samples):
+
+- `identical|<SIG>`: an override byte-identical to the master's record (flags
+  without compression, then the data), as `master_overrides.master_records`
+  reads it. One that heads a children group still holding a record (the game
+  quest or topic a DLC line sits under) is kept as the master's copy and only
+  counted. One the DLC's source overrides too is a review
+  (`identical-authored`).
+- `copied-lines`: an own INFO whose ledger key (`INFO <source FormID> ...`)
+  names a master's source line that the DLC's source does not change
+  (`say_topics.dlc_lines`).
+- `voice`: a file under `Sound/Voice/<plugin>/` (loose or in the plugin's
+  archives) whose object id is no INFO the plugin owns.
+- `master-files`: copies of a master's own-rig files (a path under
+  `Meshes/Actors/<rig>` the master's folder ships too, where that folder holds
+  `CharacterAssets/skeleton.nif` and Fallout 4 ships no skeleton: `Character`
+  is FO4's; a DLC's own mesh there, such as HH's green gecko, is not one) or
+  files of a master worldspace's LOD
+  (`LODSettings/<world>.lod`, `Meshes/Terrain/<world>/`,
+  `Textures/Terrain/<world>/`).
+- `shared|<other plugin>|<SIG>`: a master record this build and another
+  finished DLC build beside it (a sibling profile or mod folder whose stamp
+  says finished) both override. Overrides do not stack: the plugin loaded last
+  wins, which is how every DLC but Honest Hearts (loaded last) lost its
+  condition rows in play when all 8 overrode `FNV_Condition`,
+  `FNV_AmmoSwitch`, `FNV_Challenges` and about 32 form lists. A review
+  (`shared-authored`) when both DLCs' sources override the record, as FNV's
+  DLCs do, and a review (`shared-identical`) when both copies are the
+  master's own bytes: load order loses nothing there. Those are the game
+  quests and topics FO4 needs as parents of a DLC's lines (HH and DM both carry
+  FalloutNV's Greetings and TES4PatrolTopics QUST and 8 Greetings DIALs).
+- Master records come from `master_overrides.master_records`, which walks
+  every group: a filtered `walk(raw, b'DIAL')` skips topics nested in a
+  quest's children group (type 10), and until 2026-11-02 that hid every
+  master's nested DIAL, INFO and SCEN from it and from `drop_unchanged`.
+- `stale`: a file under the folders a build lists (`stale_files.roots`) that
+  no `*.files.txt` beside the plugin names and that predates the build's
+  start. Newer unlisted files are a review (`unlisted`): the build made them
+  but no later build prunes them.
+
+## <a id="script-properties"></a>Script properties
+
+`--audit properties` (`script_props.py`, built 2026-11-04) reports each
+converted script's object properties that a build leaves unfilled. There is
+one finding per script property, with its records as samples. It runs
+`fo4_audit.check_properties`, which until then ran only when someone called
+`fo4_audit` by hand. A master no folder holds (XDI.esm, which the build only
+names) is left unread, and its FormIDs count as defined.
+
+- `timer` (error): the script's OnTimer pass names the property, so every
+  pass that reaches it fails and writes a stack to the Papyrus log. In the
+  user's 2026-11-04 log, Lonesome Road's `NVDLC04DivideSupport` (authored
+  0.1 s delay) failed this way 4,266 times in 12 minutes on two `ActorBase`
+  properties (see
+  [DLC script bases](fo4_plugin_layout.md#dlc-script-bases)).
+- `helper` (error): a form the converter itself names, a `TES4…` property or
+  one on a build script (`F3NV_…`), such as `TES4ConfidenceFaction` or
+  `F3NV_SurvivalNeed.Caffeine`. The build should always make these.
+- `fnv-form` (review): an FNV form of that name exists in the export's
+  master chain, but the build has no FO4 form for it.
+- `no-fnv-form` (review): no FNV form has that name.
+- `dangling` (error): a property filled with a FormID no file defines.
+
+First run, on the deployed Lonesome Road (before the `ActorBase` fix):
+403 unfilled on records, made of 170 `timer`, 24 `helper`, 140 `fnv-form`
+and 9 `no-fnv-form` script properties. The base game: 2,660 on records,
+made of 221 `timer`, 322 `helper`, 569 `fnv-form` and 124 `no-fnv-form`.
+After the fixes below (build of 2026-11-04): 2,001 on records, made of 209
+`timer`, 23 `helper`, 564 `fnv-form` and 124 `no-fnv-form`.
+
+What the base game's `helper` findings turned out to be:
+
+| Group | Count | Cause, and what was done |
+|---|---|---|
+| `TES4Swap_*` | 200 | `Swaps` mapped only the starting cell's references to models (`_object_makers`' `refs`), so SwapTexture worked only in Doc Mitchell's house. The ending slideshow's 198 swaps on `OnScreenSlideRef` (Endgame cell) had none. Fixed: every built reference. |
+| `TES4PlayerEnemyFactions` | 19 | Never written for Fallout 4. `SetPCEnemyOfFaction` still worked (native `SetPlayerEnemy`), but `GetPCEnemyOfFaction` was always false. Fixed: written empty, as `TES4DestroyedRefs` is (`attach.RUNTIME_LISTS`). |
+| Confidence and flee (`TES4ConfidenceFaction`, `TES4FleeMarginFaction`, `TES4FleeHealthScale`, `TES4ConfidenceFlee`) | 44 | Oblivion's emulation. An FO3/FNV actor's Confidence is the engine's tier, and `GetConfidence` reads it when the faction is None. Not a defect: added to `fo4_audit.OPTIONAL_PROPERTIES`. |
+| `TES4FX_*` | 22 | Effect family keywords: no Fallout 4 MGEF carried one, so `HasMagicEffectWithKeyword` checks were skipped. Fixed for script effects: each copy `script_effects.ScriptEffects` writes carries `TES4FX_<effect>` (KSIZ and KWDA before DATA, as vanilla's 17 scripted MGEFs with keywords), and `attach` fills the property (`family_named`). That covers the 17 `TES4FX_disguisefactionpulseeffect`: the Legion ear sniffer, the Fort's praetorians and Kimball's guards now see a faction disguise pulse. The 5 `TES4FX_flamermagiceffect` (gas traps igniting) stay open: the built flamer wears Fallout 4's `FlamerFXEnchFireHit`, and no gun carries its FNV object effect yet. |
+| `TES4AV_*` | 14 | No Fallout 4 actor value. Fatigue (11, written as Skyrim's `Stamina`) is now a helper actor value with FNV's knockout ([fatigue](fo4_pipeline.md#fatigue)). `NightEye` (Cateye, Dead Money's Ghost Sight) is now Night Person's night vision, and `MeleeDamage` (two lines upgrading Rex) is a dropped write, as is any actor value Fallout 4 lacks ([night eye](fo4_pipeline.md#night-eye)). |
+| `TES4Scene_*` | 10 | Speak-as scenes (Vault 11's chamber, the monorail, Curtis's radio). Open. |
+| `TES4ForceFlees` | 7 | The force-flee package pool. Open. |
+| `F3NV_*` scripts | 5 | None by design, so `fo4_audit.OPTIONAL_SCRIPT_PROPERTIES` skips them. `FalloutLock.Password` is set only on locks a password note opens (the 87 are Easy locks without one), and `SurvivalNeed.Caffeine` only on the sleep need (the 30 are hunger and thirst effects). `PipboyTab.Shown` None shows every row. `ScriptPackages.Hub` is None on the game's own quest, which is the hub. `VoidActor.VoidRace` is None on the void actor itself. |
+
 ## <a id="condition-diff"></a>The condition differential
 
 The quest audit checks structure; it trusts that a converted condition means
@@ -114,7 +290,10 @@ states, and a state where they disagree is a review finding.
 - **What a line needs.** FNV says a line only while its quest runs and its
   quest's own conditions pass, so the FNV side holds both. The copy plays in
   its hub quest's scene, so that quest counts as running.
-- **Fixed parts.** A form the build left out reads 0. The build's own state
+- **Fixed parts.** A form the build left out reads 0, and so does an
+  objective test of an index its FNV quest does not author (it reads 0 in
+  FNV; 9 lines testing VFreeformCampGolf 50, VMS41 11 or VMS29a 42 read as
+  "the build says it where FNV cannot" before). The build's own state
   (`TES4Unlock_`, `TES4FollowUpFrom_`/`Said_` and Say Once marks) counts as
   true. Yes/no functions take 0 or 1, counts never go below 0, and identity
   functions (GetIsID, GetIsVoiceType and the like) take one value at a time.
@@ -147,7 +326,7 @@ Whole-map build of 2026-10-25 04:12 (541,179 records):
 | Audit | Errors | Review | Since 2026-10-25 |
 |---|---|---|---|
 | quest | 13 | 1 | 189 → 13. Left: stages set from scripts attached to no record (Mr. House's `NVCRMrHouseSCRIPT` for VDialogueMrHouse 20, VMQ02 15, VMQHouseFail 1; `Lucky38MainframeSCRIPT`; `Lucky38UpgradeSecuritronsSCRIPT`; `VMQHouseLockdownSCRIPT`), package OnEnd fragments never compiled (VCG00 14, VVault21Tour 20), `MenuMode` blocks kept as comments (CGTutorial 52, 212), and lines whose topic sits in a scene nothing starts (Benny in VMQTops 20, Poindexter in VFreeformCampGolf 30) |
-| start | 170 | 87 | 87 quests the build does not hold; about 80 "required alias never fills", each a quest target alias forced onto a reference that starts disabled (VMQ01, VMS02, VMS04 and others). Not settled whether FO4 refuses that fill: no wiki says, and vanilla leans toward it filling (DN050's quest fragment enables its markers through required forced aliases on disabled references, no Allow Disabled). But vanilla sets Allow Disabled (FNAM 0x80) on 73 of its 89 required forced aliases on disabled references, so every forced alias we write now does too (`records._alias`, 2026-10-31): vanilla's practice, and safe either way |
+| start | 170 | 87 | 87 quests the build does not hold; about 80 "required alias never fills", each a quest target alias forced onto a reference that starts disabled (VMQ01, VMS02, VMS04 and others). Not settled at this rerun whether FO4 refuses that fill (the third rerun below clears these; play had already settled it: [timing audit](fo4_timing_audit.md#measured), VCG02 on 2026-10-29): no wiki says, and vanilla leans toward it filling (DN050's quest fragment enables its markers through required forced aliases on disabled references, no Allow Disabled). But vanilla sets Allow Disabled (FNAM 0x80) on 73 of its 89 required forced aliases on disabled references, so every forced alias we write now does too (`records._alias`, 2026-10-31): vanilla's practice, and safe either way |
 | dialogue | 248 | 0 | 465 → 248 findings. By line: combat and detection barks never converted (1,595 and 1,079), topics in no scene that starts (850), conversation lines missing (693), radio lines no placed actor passes GetIsID for (461), reputation conditions (201) |
 | timing | 0 | 88 | New audit since: mostly build writes unlocking a topic where FNV only offers it as a Choice of the line |
 | packages | 0 | 3 | A waiter package needing a GetIsID no holder passes; two packages into cells with no navmesh |
@@ -207,8 +386,8 @@ line (Jason Bright's speech 5–9). Festus's and Jason's chains do play, through
 their chat scenes' own topic copies. With the fix, 89 remain:
 
 - 44 `PLAYERINIRONSITES`, an engine bark (FO4 has a Player In Iron Sights
-  subtype). Barks are not converted yet: Combat and Detection topics lose
-  thousands of lines.
+  subtype). Barks were not converted yet: Combat and Detection topics lost
+  thousands of lines. Converted since: see the fifth rerun below.
 - About 30 random NPC-to-NPC conversations: a HELLO line to another NPC whose
   Choice that NPC answers (Cass's Freeside replies, the Kings, Boone and Rex,
   Nellis's Jack): 26 lines. FO4 runs these as Story Manager Actor Dialogue
@@ -262,6 +441,48 @@ What is left:
   script-given Use Weapon packages, [converted since](fo4_pipeline.md#use-weapon)),
   and one Veronica HELLO, not traced.
 
+### <a id="results-2026-11-02"></a>The four audits added on 2026-11-02
+
+Game build of 2026-11-02 17:40, Honest Hearts of 18:00, Dead Money of the same
+evening:
+
+- **Assets** (game 41 s): no shader name is wrong in any built NIF of the
+  game, HH, DM or the seven other profile folders. 7 textures the build's
+  meshes or materials name were never converted, though FNV has them: the
+  Lucky 38 and Ultra-Luxe light meshes' `...wl.dds`, `metalbasepanel_imposter`,
+  and generated glow maps (`lucky38sign_m`, `windowquad_g_cut128`,
+  `..._lod_g_cut70`). No record places those meshes. DM: the heated spear's
+  generated glow `nvdlc01_knifespear_..._g.dds` is missing, and
+  `effects\fwspark.dds` is missing from FNV's Dead Money too.
+- **Previous build**: saved game builds 1102d → 2026-11-02 17:40: 738,236 →
+  738,780 records, 544 SCEN added, 9,797 changed (6,863 INFO, 2,415 DIAL, 517
+  SCEN, 2 NPC_), none gone; between the saved 1102d, e, f and g the same 544 and
+  9,795, then nothing, then 2 NPC_. None of the saved builds holds the 1,282
+  pad INFOs that went, so the gone report is checked by its test only. Ten code-tagged caches were invalidated by the
+  uncommitted code (convert_static, outfit, shader_anim and export_index edits):
+  the mesh cache, gun clips, headgear, outfits, rigs, object and terrain LOD,
+  face fits and head parts.
+- **Targets**: game 6 reviews (stages FNV's quests lack too: VMQ01 110,
+  Doctors 10, VMS29a 1, VMS44 37; GetIsID of VFSFollowersGuard and
+  VStreetTopsPromoter02, which FNV places nowhere). HH: the 14 `NVDLC02MQ04
+  30` tests (a review, FNV's quest lacks it). DM: 9 reviews, all stages FNV's
+  Dead Money quests lack. No errors: the say-once quest gap is fixed in these
+  builds.
+- **DLC**: HH writes 33,357 REFR, 969 ACHR, 69 NAVM and 2 PHZD overrides
+  byte-identical to the game plugin's, while HH's source overrides only 94
+  REFR and 3 ACHR of FNV's (DM: 30,352 REFR, 938 ACHR, 63 NAVM, 2 PHZD, plus
+  14 REFR its source authors). 13 HH voice files under
+  `Sound/Voice/HonestHearts.esm/FNV_RobotUniqueRex` belong to no HH INFO:
+  left in the staging folder by a 14:02 build and packed again; so are 3
+  WastelandNV object LOD textures in HH's texture archive. No copied lines.
+  Shared with the other finished DLC builds: HH and DM both override 28,834
+  REFR, 943 ACHR, 42 CELL, 21 FLST and the game's Condition, TES4SayOnce,
+  TES4PatrolTopics and Greetings quests; HH and GRA 24 FLST, Condition,
+  AmmoSwitch and NVChallengeKaboomPowWeapons; every pack 2 to 5 FLST and
+  Condition. One PERK both HH's and DM's sources override is a review. 1,115 HH files (987 DM) the build made
+  are on no file list: these builds ran before `stale_files.DLC_ROOTS` was
+  added, so the next build lists them.
+
 ## <a id="limits"></a>What it does not see
 
 - Run-on: alias run-ons (chat scenes' Target tests) are not paired.
@@ -271,3 +492,9 @@ What is left:
   script runs.
 - The asset audit reads the mod folder as it stands when it runs; a build or
   pack writing there at the same time changes its result.
+- Targets: a stage call through a local variable, `GetOwningQuest()` or a
+  property the VMAD does not fill is not read, and Fallout4.esm's quests are
+  not judged. A missing texture is an error even when no record places the
+  mesh naming it.
+- DLC: a master's file the DLC ships at the same path outside an own-rig or
+  LOD folder is not flagged.

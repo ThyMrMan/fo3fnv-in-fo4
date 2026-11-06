@@ -6,7 +6,9 @@ from types import SimpleNamespace
 
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
-from fo4_import.spike.conversation import GREETING, NEVER, Conversations, hub, named_speaker, negated, one_each
+from fo4_import.spike import say_topics as SAY
+from fo4_import.spike.conversation import (GREETING, NEVER, Conversations, hub, hub_key, named_speaker, negated,
+                                           one_each)
 from fo4_import.spike.say_once import STAGE_DONE, SayOnce
 
 #: FNV NPCs and their FO4 copies; FNV's caps (an engine form, kept as it is); a faction.
@@ -61,6 +63,33 @@ def test_topic_index_keeps_hub_order_and_greetings_sort_by_priority():
     shared = hub(say, quests, {'One': 1, 'Two': 2}, set())
     assert shared.by_topic == {GREETING: [(0, 'A1'), (2, 'B1'), (3, 'B2')], '00000001': [(1, 'A2')]}
     assert Conversations(say, quests[0], 1, {}, 0, shared)._greetings() == ['B1', 'B2', 'A1']
+
+
+def test_a_shared_info_answers_the_player_topic_borrowing_it():
+    """Player topic T1 has no lines but borrows Q1's line A2 (DIAL SharedInfo): the Hub lists T1 and holds a copy
+    of A2 as T1's line, keyed 'A2 via T1'; a share for a quest outside the build, or into GREETING, is not taken."""
+    infos = {'Q1': [_line('A1', GREETING, 'Q1'), _line('A2', '00000001', 'Q1')]}
+    borrow = {'SharedInfoCount': '2', 'SharedInfo[0].Quest': 'Q1', 'SharedInfo[0].Info': 'A2',
+              'SharedInfo[1].Quest': 'Q9', 'SharedInfo[1].Info': 'A1'}
+    dials = {'T1': {'DATA.Type': '0', 'DATA.Flags': '2', **borrow},
+             GREETING: {'DATA.Type': '0', 'SharedInfoCount': '1', 'SharedInfo[0].Quest': 'Q1',
+                        'SharedInfo[0].Info': 'A2'}}
+    shared = hub(SimpleNamespace(infos=infos, dials=dials), [{'FormID': 'Q1', 'EditorID': 'One'}], {'One': 1}, set())
+    assert shared.by_topic['T1'] == [(2, 'A2 via T1')] and shared.topics == ('T1',)
+    assert shared.lines['A2 via T1']['ParentDIAL'] == 'T1' and shared.by_topic[GREETING] == [(0, 'A1')]
+    assert hub_key(shared.lines['A2 via T1']) == 'A2 via T1' and hub_key(infos['Q1'][1]) == 'A2'
+
+
+def test_a_shared_copy_takes_its_own_formid_owner():
+    """A shared info's copy is keyed 'INFO <line> 1 via <topic>', so its count never meets the line's own copies."""
+    keys = []
+    say = SAY.SayTopics.__new__(SAY.SayTopics)
+    say.builder = SimpleNamespace(counts=Counter(), readiness=SimpleNamespace(add=lambda *a: None),
+                                  new_id=lambda line, key=None: keys.append((line, key)) or 0x900,
+                                  idles=SimpleNamespace(line=lambda rec: b''), scripts=SimpleNamespace(dir=None, used=[]))
+    say.script_vars, say.voiced, say.once = {}, [], SayOnce()
+    say.info({**_line('00000A02', 'T1', 'Q1'), SAY.SHARED: 'T1'}, {}, place='P')
+    assert keys == [('INFO 00000A02 1 via T1', 'INFO 00000A02 1 via T1 at P')]
 
 
 def test_one_each_takes_the_group_most_lines_share():
@@ -136,6 +165,10 @@ def test_a_say_once_option_drops_by_its_answers_markers_not_the_prompts_own_say_
     assert prompt['CTDA'] == pad['CTDA'] and struct.unpack_from('<H', prompt['CTDA'], 8)[0] == STAGE_DONE
 
 
+#: A writer giving every hashed FormID one value (the script-package quest's).
+WRITER = SimpleNamespace(derive_formid=lambda site, key: 0x0A00F000, own_index=0x0A)
+
+
 def test_the_greeting_starts_for_a_talker_in_a_speakers_talking_as_list():
     """Tabitha's dish hut transceiver: activating it opens the Greeting, whose starter line passes for Tabitha
     (GetIsID) or a talker in her talking-as list (IsInList), so her intercom greeting plays."""
@@ -143,7 +176,7 @@ def test_the_greeting_starts_for_a_talker_in_a_speakers_talking_as_list():
     line = {**_line('T1', GREETING, 'Q1'), 'ConditionCount': '1', 'Condition[0].Raw': _test('GetIsID', tabitha)}
     say = SimpleNamespace(infos={'Q1': [line]}, dials={GREETING: {'DATA.Type': '1'}}, script_vars={}, once=SayOnce(),
                           silent=[], builder=SimpleNamespace(counts=Counter(), new_id=lambda owner, key=None: len(owner),
-                                                             scripts=SimpleNamespace(used=[])))
+                                                             scripts=SimpleNamespace(used=[]), writer=WRITER))
     say.info = lambda rec, form_map, *args, **kwargs: b''
     quest = {'FormID': 'Q1', 'EditorID': 'One'}
     talk = Conversations(say, quest, 1, {tabitha: 0x0A000005, (C.TALKING_AS, tabitha): flst}, 0,
@@ -159,7 +192,7 @@ def test_the_greeting_line_opens_its_scene_by_script_not_tsce():
     line = {**_line('T1', GREETING, 'Q1'), 'ConditionCount': '1', 'Condition[0].Raw': _test('GetIsID', DOC)}
     say = SimpleNamespace(infos={'Q1': [line]}, dials={GREETING: {'DATA.Type': '1'}}, script_vars={}, once=SayOnce(),
                           silent=[], builder=SimpleNamespace(counts=Counter(), new_id=lambda owner, key=None: len(owner),
-                                                             scripts=SimpleNamespace(used=[])))
+                                                             scripts=SimpleNamespace(used=[]), writer=WRITER))
     say.info = lambda rec, form_map, *args, **kwargs: b''
     quest = {'FormID': 'Q1', 'EditorID': 'One'}
     talk = Conversations(say, quest, 1, FORMS, 0, hub(say, [quest], {'One': 1}, set()))
@@ -167,6 +200,23 @@ def test_the_greeting_line_opens_its_scene_by_script_not_tsce():
     starter = talk.topics[-1]
     assert b'F3NV_Greeting' in starter and b'TSCE' not in starter and b'ALFA' not in starter
     assert talk.say.builder.scripts.used == ['F3NV_Greeting']
+
+
+def test_a_step_two_lines_lead_to_starts_its_own_scene():
+    """A follows up with B, which follows up with C; D (another quest's line) also follows up with C. B runs on in
+    A's scene, but C, a join, starts a scene of its own, so building D's path first or last places C the same."""
+    follow = lambda fid, nxt: {**_line(fid, '00000001', 'Q1'), 'FollowUpCount': '1', 'FollowUp[0]': nxt}
+    infos = {'Q1': [follow('A', 'B'), follow('B', 'C'), _line('C', '00000001', 'Q1')], 'Q2': [follow('D', 'C')]}
+    ids = {}
+    say = SimpleNamespace(infos=infos, dials={}, script_vars={}, once=SayOnce(), silent=[],
+                          builder=SimpleNamespace(counts=Counter(),
+                                                  new_id=lambda owner, key=None: ids.setdefault(key or owner, len(ids) + 1)))
+    say.info = lambda rec, form_map, *args, **kwargs: b''
+    quest = {'FormID': 'Q1', 'EditorID': 'One'}
+    talk = Conversations(say, quest, 1, FORMS, 0, hub(say, [quest], {'One': 1}, set()))
+    assert talk.hub.joins == {('line', ('C',))}
+    scene = talk.scene(('line', ('A',)))[0]
+    assert talk.placed[('line', ('B',))][0] == scene != talk.placed[('line', ('C',))][0]
 
 
 def _ctdas_in(blob: bytes) -> list:
@@ -212,3 +262,22 @@ def test_a_prompt_behind_a_line_that_always_passes_never_shows():
     earlier, _ = _earlier([_said('L1', 'Hello.', []), _said('L2', 'Hi again.', [])])
     assert earlier == {'Hello.': b'', 'Hi again.': NEVER}
     assert negated('60' + '00' * 27, True)[:2] == '81' and negated('21' + '00' * 27, False)[:2] == '00'
+
+
+def test_a_menu_keeps_only_the_lines_its_speakers_can_say():
+    """Doc's line leads to a menu: its speakers are {Doc}. Ada's line and a faction Doc is not in leave it, a line
+    naming no one stays; a menu a generic line leads to keeps everything."""
+    lead = {**_said('L1', 'Lead', [_test('GetIsID', DOC)]), 'ParentDIAL': 'D0', 'ChoiceCount': '1', 'Choice[0]': 'D1'}
+    generic = {**_said('L2', 'Any', []), 'ParentDIAL': 'D0', 'ChoiceCount': '1', 'Choice[0]': 'D2'}
+    options = [_said('A1', 'Ada bye.', [_test('GetIsID', ADA)]), _said('G1', 'Gossip bye.', [_test('GetInFaction', GOSSIP)]),
+               _said('X1', 'Bye.', [])]
+    say = SimpleNamespace(infos={'Q1': [lead, generic] + options}, dials={'D1': {'FULL': 'Topic', 'DATA.Type': '0'}},
+                          script_vars={}, once=SayOnce(), builder=SimpleNamespace(counts=Counter()))
+    quest = {'FormID': 'Q1', 'EditorID': 'One'}
+    shared = hub(say, [quest], {'One': 1}, set())
+    shared.actors = {DOC: {'FormID': f'{DOC:08X}'}}
+    talk = Conversations(say, quest, 1, FORMS, 0, shared)
+    assert shared.speakers[('menu', ('D1',))] == frozenset({DOC}) and shared.speakers[('menu', ('D2',))] is None
+    kept = [r['FormID'] for r in talk._sayable('D1', shared.speakers[('menu', ('D1',))])]
+    assert kept == ['X1'] and say.builder.counts['menu lines no speaker of the menu can say'] == 2
+    assert [r['FormID'] for r in talk._sayable('D1', None)] == ['A1', 'G1', 'X1']

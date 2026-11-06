@@ -32,6 +32,8 @@ _TRIGGER_EVENTS = {_TRIGGER_ENTER: '  TES4Polyfill.TraceTrigger(Self, akActionRe
                    'Event OnCellAttach()': '  TES4Polyfill.TraceTriggerAttach(Self)'}
 #: INFO fragment -> the moment it marks.
 _INFO_WHEN = {'Fragment_1': 'begin', 'Fragment_0': 'end'}
+#: FO3/FNV INFO DATA flag Goodbye: the line ends the conversation.
+FNV_GOODBYE = 0x01
 #: A statement giving the player an item or taking one: indent, the call, the item, then the arguments after it.
 _PLAYER_ITEM = re.compile(r'^(\s*)(?:Game\.GetPlayer\(\)|PlayerREF|Player)\.(AddItem|RemoveItem)\((\w+)(\s*,\s*([^,)]*))?')
 
@@ -56,8 +58,14 @@ def stage_suffix() -> str:
     return '\n  TES4Polyfill.TraceStage(akQuest, aiStage, TES4_StageSet)' if is_fallout4() else ''
 
 
-def info(lines: list, info_id: str) -> list:
-    """An INFO fragment script's lines with a TraceLine opening each fragment (begin, end)."""
+def goodbye(rec: dict) -> bool:
+    """Whether FO3/FNV INFO `rec` is a Goodbye line (DATA flag 0x01)."""
+    return bool(int(rec.get('DATA.Flags', 0) or 0) & FNV_GOODBYE)
+
+
+def info(lines: list, info_id: str, goodbye: bool = False) -> list:
+    """An INFO fragment script's lines with a TraceLine opening each fragment (begin, end; `end goodbye` for an FNV
+    Goodbye line)."""
     if not is_fallout4():
         return lines
     out = []
@@ -65,7 +73,8 @@ def info(lines: list, info_id: str) -> list:
         out.append(line)
         m = _INFO_FRAGMENT.match(line)
         if m:
-            out.append(f'  TES4Polyfill.TraceLine(akSpeakerRef, "{info_id}", "{_INFO_WHEN[m[1]]}")')
+            when = _INFO_WHEN[m[1]] + (' goodbye' if goodbye and m[1] == 'Fragment_0' else '')
+            out.append(f'  TES4Polyfill.TraceLine(akSpeakerRef, "{info_id}", "{when}")')
     return out
 
 

@@ -14,6 +14,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.writer import FO4PluginWriter
+from fo4_import.pipeline.build_inputs import MASTERS
 
 ID, NUMBER = 'id', 'n'
 
@@ -70,6 +71,7 @@ class LedgerWriter(FO4PluginWriter):
         """FO4PluginWriter's arguments; no ledger file yet, no masters' ledgers."""
         super().__init__(*args, **kwargs)
         self.ledger, self.masters_ledgers, self.from_masters, self.left_to_masters = Ledger(), {}, set(), 0
+        self.masters_hold = None
         self.compare_masters = False
 
     def use_ledger(self, ledger: Ledger) -> None:
@@ -77,17 +79,24 @@ class LedgerWriter(FO4PluginWriter):
         self.ledger = ledger
         self._derived_taken.update(self.own_index << 24 | oid for oid in ledger.values(ID))
 
-    def use_master_ledgers(self, ledgers: dict) -> None:
-        """Look keys up in `ledgers` ({master index: Ledger}) after the own."""
-        self.masters_ledgers = ledgers
+    def use_master_ledgers(self, ledgers: dict, hold: 'frozenset | None' = None) -> None:
+        """Read `ledgers` ({index: Ledger}) after the own; `hold`: _from_master."""
+        self.masters_ledgers, self.masters_hold = ledgers, hold
 
     def _from_master(self, site: str, key) -> 'int | None':
-        """The FormID a master's ledger keeps for `key` at `site` (that master's record); None if none."""
+        """The FormID a master's ledger keeps for `key` at `site` (that master's record); None if none, or if the
+        built master no longer holds it (the build's own copy, then).
+        See: docs/fork/fo4_plugin_layout.md#dlc-stale-ids
+        """
+        answer = None
         for index, ledger in sorted(self.masters_ledgers.items()):
             oid = ledger.get(ID, site, key)
-            if oid is not None:
-                return index << 24 | oid
-        return None
+            if oid is not None and (self.masters_hold is None or index << 24 | oid in self.masters_hold):
+                answer = index << 24 | oid
+                break
+        if self.masters_ledgers:
+            MASTERS.ledger(site, key, answer)
+        return answer
 
     def add_record(self, group_sig: str, record_bytes: bytes):
         """Add a record unless it is a generated record a master already holds (from_masters), counted; with

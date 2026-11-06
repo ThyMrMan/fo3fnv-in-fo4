@@ -5,7 +5,7 @@
 decision is in [drift](fo4_drift.md#candidates). Mods read for method: [Armor and Weapon Condition](research/fo4_target.md#awc)
 and [NV Ammo Crafting](research/fo4_target.md#nv-ammo).
 
-Fallout 4 keeps no condition on weapons or armor, except power armor. This plan rebuilds FNV's condition
+Fallout 4 keeps no condition on weapons or armor, except power armor. The build rebuilds FNV's condition
 from FNV's own data: each item's health, wear per shot or hit, the
 effects of low condition, NPCs' worn gear, and repair.
 
@@ -159,6 +159,38 @@ gives (`-DF4SE_STATIC_LIB=ON`), under `TOOLS_EXT`
 (default `C:\Coding\tes4skyrim\tools_ext`). Its addresses are F4SE 0.7.9's, so the
 DLL loads on Fallout4.exe 1.11.240 only.
 
+## <a id="sources"></a>Every plugin's items: sources gathered at run time
+
+**Bug (play test, 2026-11-02):** with FalloutNV, Gun Runners' Arsenal, the four
+courier packs, Dead Money and Honest Hearts loaded, no DLC item had condition
+(Mercenary's Grenade Rifle, Caravan's Sturdy Caravan Shotgun, every DLC armor).
+Each DLC build overrode the game's `FNV_Condition` quest with the game's items
+plus its own (FalloutNV 197 weapons; Mercenary Pack 198; Honest Hearts 231, none
+of Mercenary's). Overrides do not stack, so the last plugin loaded, Honest
+Hearts, decided. The Ammo Type hotkey and challenges were merged the same way
+and broke the same way.
+
+**Built (no DLL change):** a plugin's items are its own quest's.
+- `F3NV_ConditionSource` (on a start-game quest) holds one plugin's rows:
+  weapons, their FNV health and jam times, round wear marks, wear perks,
+  armors, their health and tier groups and tiers, repair lists and Jury
+  Rigging groups. The game's are on `FNV_Condition` itself, a DLC's on
+  `FNV_Condition_<plugin>` (`Condition.write` writes only that when its master
+  holds the quest).
+- As it starts, it adds itself to `FNV_ConditionSources`, an empty game form
+  list (`FormList.AddForm`, kept by the save; additions stack for any number
+  of plugins, in any load order), and gives the DLL its items:
+  `Track`/`TrackRepair` add to what the DLL holds.
+- `F3NV_ConditionPlayer` finds an item's rows through that list
+  (`WeaponSource`, `ArmorSource`), multiplies every source's wear marks and
+  perks, and gathers worn armor from each. On every game load it registers
+  every source again (the DLL forgets its items).
+- The ammo hotkey (`F3NV_AmmoSwitchSource`,
+  [ammo switch](fo4_pipeline.md#ammo-switch-sources)) and challenges
+  (`F3NV_ChallengeSource`, [challenges](fo4_pipeline.md#challenges)) work the
+  same way; game form lists a DLC adds to get its entries at run time
+  ([lists](fo4_plugin_layout.md#dlc-lists)).
+
 ## <a id="armor"></a>Armor, built 2026-10-22, played
 
 - **Records** (`condition.py`, `wire_armor`):
@@ -217,7 +249,7 @@ The log gave each entry's members: `favorite`, `taggedForSearch`,
 - Each match is logged.
 - In the Pip-Boy a failed repair shows a message box.
 
-Not yet played.
+Played in the fourth play-test, 2026-10-23 (below).
 
 <a id="repair-choice"></a>Asked for: choose what gets repaired, and show condition in the Pip-Boy.
 FNV repairs the item highlighted in the Pip-Boy. Built with no new mod: the
@@ -281,7 +313,7 @@ the same alias code (`RepairFromHotkey`).
   - a native `keyUp` listener on the menu (Flash key code 71), which sends
     `FNVConditionRepair`.
   A second request within 0.3 s is ignored. Menu events, keys and each send
-  are logged. Not yet played.
+  are logged. Played in the fifth play-test (below).
 
 **Fifth play-test, 2026-10-23:**
 - G reached the repair: the trace showed "Pip-Boy repair … stack 0".
@@ -325,7 +357,8 @@ the same alias code (`RepairFromHotkey`).
 - Papyrus `OnKeyDown` never fired in the Pip-Boy (no key trace). The
   native key listener carries G.
 
-Not yet played.
+Not played on their own; the next build, with the repair list below, was
+played 2026-10-23.
 
 <a id="repair-list"></a>**The repair list (built 2026-10-23; played the same day: it repairs).** FNV's repair menu
 lists every spare with its condition bar, previews the gain and shows the
@@ -615,7 +648,7 @@ An NPC's weapon keeps the condition it spawned with (its entry's COED,
 [#entry-condition](#entry-condition)), so there is nothing to build.
 
 Next: none for condition. The plugin also draws the Pip-Boy's SKILLS,
-REPUTATION and KARMA tabs ([fo4_pipboy_tabs.md](fo4_pipboy_tabs.md)), which
+REPUTATION, KARMA and CHALLENGES tabs ([fo4_pipboy_tabs.md](fo4_pipboy_tabs.md)), which
 replaced Pip-Boy Tabs.
 
 ## <a id="drift"></a>Expected drift

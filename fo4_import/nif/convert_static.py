@@ -36,7 +36,7 @@ from asset_convert.collision.collision_falloutnv import latch_source
 from fo4_import.nif.animation import add_nodes, animatable, controllers, kept_nodes, manager_of, skin, with_parents
 from fo4_import.nif.particles import add_system, systems as particle_systems, wanted_nodes
 from fo4_import.nif.glow_scale import fo4_glow
-from fo4_import.nif.shader_anim import GLOW_SUFFIX
+from fo4_import.nif.shader_anim import GLOW_SUFFIX, free_controllers, free_running
 from fo4_import.spike.imagespace import DISPLAY_GAMMA
 from fo4_import.nif.collision import collision_nodes, moves, node_transform
 from fo4_import.pipeline.export_index import export_file
@@ -394,10 +394,10 @@ def _alpha_part(alpha) -> 'tuple | None':
 def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool, material=None) -> ShapeMaterial:
     """An FNV BSShaderNoLightingProperty shape: its texture, vertex alpha, blend, sidedness and view falloff.
 
-    One that fades by vertex alpha (`fades`: some vertex alpha below 1, sf_vertex_alpha) blends with no
-    NiAlphaProperty, as FNV's baked soft shadows do; an untextured one that fades has only its vertex
+    One fading by vertex alpha (`fades`: some vertex alpha below 1, sf_vertex_alpha) blends with no
+    NiAlphaProperty, as FNV's soft shadows; an untextured one that fades has only its vertex
     alpha to blend by, flagged or not. A shape with `normals` keeps FNV's view falloff (angle cosines,
-    opacities). Its `material`'s alpha scales its opacity.
+    opacities). Its `material`'s alpha scales its opacity, and blends it when it fades by it.
     See: docs/fork/fo4_pipeline.md#effects
     """
     fnv = shader.file_name.decode('cp1252')
@@ -407,8 +407,22 @@ def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool, material=
     data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided, 'falloff': falloff,
             'external': bool(shader.shader_flags.sf_external_emittance),
             'alpha': material.alpha if material is not None else 1.0}
-    part = _alpha_part(alpha) or (VERTEX_ALPHA_BLEND if vertex_alpha and fades else None)
+    blend = vertex_alpha and fades or material_fades(material)
+    part = _alpha_part(alpha) or (VERTEX_ALPHA_BLEND if blend else None)
     return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], part, None)
+
+
+def material_fades(material) -> bool:
+    """Whether FNV fades a shape by its NiMaterialProperty `material`: alpha below 1, or an NiAlphaController.
+
+    See: docs/fork/fo4_pipeline.md#free-controllers
+    """
+    if material is None:
+        return False
+    controller = material.controller
+    while controller is not None and type(controller).__name__ != 'NiAlphaController':
+        controller = controller.next_controller
+    return material.alpha < 1 or controller is not None
 
 
 def texel_peaks(root, texture_root) -> dict:
@@ -424,7 +438,8 @@ def texel_peaks(root, texture_root) -> dict:
         image = np.asarray(Image.open(path).convert('RGB'), np.float32) / 255
         height, width, _ = image.shape
         data = geom.data
-        texels = np.array([image[int(uv.v % 1 * height), int(uv.u % 1 * width)] for uv in data.uv_sets[0]])
+        texels = np.array([image[int(uv.v % 1 * height) % height, int(uv.u % 1 * width) % width]
+                           for uv in data.uv_sets[0]])
         if data.has_vertex_colors:
             texels *= np.array([(c.r, c.g, c.b) for c in data.vertex_colors], np.float32)
         out[geom.name.decode('cp1252')] = float(texels.max()) if len(texels) else 1.0
@@ -567,12 +582,12 @@ def retextured(path: str, old: dict, new: dict) -> str:
 
 
 def _diffuse_stem(mat: dict) -> str:
-    """BGSM `mat`'s named diffuse without its extension, with backslashes; `<PREFIX>\\untextured` for none."""
+    """BGSM `mat`'s named diffuse, no extension; `<PREFIX>\\untextured` for none."""
     return _named_diffuse(mat).rsplit('.', 1)[0].replace('/', '\\') or f'{PREFIX}\\untextured'
 
 
 def _named_diffuse(mat: dict) -> str:
-    """BGSM `mat`'s diffuse as its name counts it: '' for none or the WHITE_DIFFUSE stand-in."""
+    """BGSM `mat`'s diffuse for its name: '' for none or WHITE_DIFFUSE."""
     diffuse = mat['textures']['diffuse']
     return '' if diffuse == WHITE_DIFFUSE else diffuse
 
@@ -660,7 +675,7 @@ def _material(geom, texture_root=None, layer: bool = False) -> ShapeMaterial:
     decal = bool(flags and (flags.sf_decal_single_pass or flags.sf_dynamic_decal_single_pass)) or \
         bool(blended and not glass and (layer or overlay_sheet(geom)))
     texture = export_file(texture_root, texture_source(fnv[0]).replace('\\', '/')) if texture_root and fnv[0] else None
-    cut_from_blend = bool(blended and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
+    cut_from_blend = bool(blended and not glass and not decal and not alpha.flags & ALPHA_TEST_BIT and texture)
     clear = _effect(fnv, alpha) if glass else _translucent(fnv, alpha, two_sided) if cut_from_blend else None
     splits = cut_from_blend or bool(glass and alpha.flags >> 5 & 0xF and texture and not translucent(texture))
     if clear and not splits or splits and translucent(texture):
@@ -698,12 +713,19 @@ def _blended_lit(geom) -> bool:
     return 'BSShaderPPLightingProperty' in props and alpha is not None and bool(alpha.flags & 1)
 
 
+def _alpha_tested(geom) -> bool:
+    """Whether an FNV shape's NiAlphaProperty alpha-tests (ALPHA_TEST_BIT)."""
+    alpha = next((p for p in geom.get_properties() if type(p).__name__ == 'NiAlphaProperty'), None)
+    return alpha is not None and bool(alpha.flags & ALPHA_TEST_BIT)
+
+
 def overlay_layers(shapes: list, root) -> frozenset:
     """ids of `shapes`' blended lit shapes lying on the mesh's opaque ones (OVERLAY_SHARE of their area within
-    OVERLAY_GAP): a grime or plaster layer, a decal in FO4.
+    OVERLAY_GAP): a grime or plaster layer, a decal in FO4. An alpha-tested shape is cut-out geometry, never one.
     See: docs/fork/fo4_pipeline.md#overlay-layers
     """
-    layers, solid = [g for g in shapes if _blended_lit(g)], [_geometry(g, root) for g in shapes if not _blended_lit(g)]
+    layers = [g for g in shapes if _blended_lit(g) and not _alpha_tested(g)]
+    solid = [_geometry(g, root) for g in shapes if not _blended_lit(g)]
     if not layers or not solid:
         return frozenset()
     surface = np.concatenate([g[0][g[4]] for g in solid])
@@ -820,7 +842,7 @@ def opaque(colors: np.ndarray) -> np.ndarray:
 
 
 def is_grass(geom) -> bool:
-    """Whether an FNV shape draws as grass (TallGrassShaderProperty): its vertex alpha anchors the blades.
+    """Whether an FNV shape draws as grass (TallGrassShaderProperty).
     See: docs/fork/fo4_spikes.md#spike-4-exterior
     """
     return any(isinstance(p, NifFormat.TallGrassShaderProperty) for p in geom.get_properties())
@@ -988,13 +1010,10 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     out.animatable = manager is not None and animatable(manager)
     _shapes(nif, root, nodes, out, texture_root)
     made = _particles(nif, root, found, nodes, out, texture_root)
+    free = free_controllers(root)
+    running = free_running(nif, free, texel_peaks(root, texture_root)) if free else 0
     added = _addon_nodes(nif, root, addons or {})
-    bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
-    bodies = [b for b in data.blocks if isinstance(b, NifFormat.bhkRigidBody)]
-    bsx &= ~BSX_DYNAMIC if bodies and not any(moves(b) for b in bodies) else ~0
-    bsx |= BSX_ADDON if added else 0
-    bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK or joined else 0
-    bsx |= BSX_ANIMATED if animate or found else 0
+    bsx = _bsx(data, added, joined, animate or found or running)
     if bsx:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))
         node['extra'].append(len(nif.blocks) - 1)
@@ -1002,6 +1021,18 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
         controllers(nif, root, manager, nodes, made, texel_peaks(root, texture_root))
     collision_nodes(nif, root, 0, NODE_FLAGS, nodes)
     return out
+
+
+def _bsx(data, added: bool, joined: bool, animated) -> int:
+    """The FO4 BSXFlags of FNV mesh `data`: FNV's kept bits, not dynamic when no body moves, add-on nodes
+    (`added`), articulated, `animated`."""
+    root = data.roots[0]
+    bsx = sum(int(e.integer_data) for e in root.get_extra_datas() if isinstance(e, NifFormat.BSXFlags)) & BSX_KEPT
+    bodies = [b for b in data.blocks if isinstance(b, NifFormat.bhkRigidBody)]
+    bsx &= ~BSX_DYNAMIC if bodies and not any(moves(b) for b in bodies) else ~0
+    bsx |= BSX_ADDON if added else 0
+    bsx |= BSX_ARTICULATED if bsx & (BSX_HAVOK | BSX_COMPLEX) == BSX_HAVOK or joined else 0
+    return bsx | (BSX_ANIMATED if animated else 0)
 
 
 def _bones(root, bones: list, found: list) -> list:

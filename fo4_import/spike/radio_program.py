@@ -36,7 +36,7 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.holotapes import TOPIC, pack_scene, speaker_npc
 from fo4_import.spike.say_topics import VM_QUEST_VARIABLE
-from fo4_import.spike.voice import fnv_folder, index_recordings
+from fo4_import.spike.voice import fnv_folders, index_recordings
 from fo4_import.spike.voice_types import fnv_voice_types
 from fo4_import.pipeline.export_index import export_file
 from tes5_import.base.tes5_reader import first_sub
@@ -64,8 +64,7 @@ def recorded_voices(export_dir: Path) -> dict:
     """{FNV INFO FormID: the FNV voice type whose recordings folder holds its first response}."""
     out = {}
     for fnv, (edid, _) in fnv_voice_types().items():
-        folder = fnv_folder(export_dir, edid)
-        for info, number in index_recordings(folder) if folder.is_dir() else ():
+        for info, number in index_recordings(fnv_folders(export_dir, edid)):
             if number == 1:
                 out.setdefault(info, fnv)
     return out

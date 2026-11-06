@@ -138,18 +138,23 @@ def test_a_build_takes_the_heavy_job_lock_before_any_work(monkeypatch):
 
 
 def test_the_stamp_says_running_then_finished_or_failed(tmp_path, monkeypatch):
-    """The stamp beside the plugin reads running during the build, finished after it, failed when it raises."""
+    """The stamp beside the plugin reads running during the build (recording its inputs), its inputs record is
+    written before it reads finished, and it reads failed when the build raises."""
     out = tmp_path / 'FalloutNV.esm'
     seen = []
-    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out))
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path))
     for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
         monkeypatch.setattr(RUN, name, lambda *a: None)
     monkeypatch.setattr(RUN, 'source_state', lambda: {'commit': 'abc', 'changed files': ['x.py']})
     stamp = BS.stamp_path(out)
-    monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(json.loads(stamp.read_text())['status']))
+    status = lambda: json.loads(stamp.read_text())['status']
+    monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(start=lambda folder: seen.append('record'),
+                                                             write=lambda *a: seen.append(f'inputs {status()}')))
+    monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(status()))
     RUN.main()
     body = json.loads(stamp.read_text())
-    assert (seen, body['status'], body['commit'], body['changed files']) == (['running'], 'finished', 'abc', ['x.py'])
+    assert (seen, body['status'], body['commit'], body['changed files']) == (
+        ['record', 'running', 'inputs running'], 'finished', 'abc', ['x.py'])
 
     def fails(args, started):
         """A build that dies part way."""
@@ -183,6 +188,19 @@ def test_the_first_world_takes_the_rectangle_and_the_rest_are_whole():
     args = SimpleNamespace(export=None, world=['A', 'B'], region=[0, 0, 1, 1], whole=False)
     assert RUN.exteriors(args) == (('A', (0, 0), (1, 1)), ('B', None, None))
     assert RUN.exteriors(SimpleNamespace(export=None, world=[], region=None, whole=False)) == ()
+
+
+def test_a_dlc_builds_list_also_covers_its_rigs_and_lod_and_a_game_builds_does_not(tmp_path):
+    """made(): a DLC build lists fresh files under DLC_ROOTS too; the game build's list is ROOTS alone."""
+    for name in ('Meshes/fnv/a.nif', 'Meshes/Actors/FNVGecko/CharacterAssets/skeleton.nif',
+                 'Meshes/Terrain/FNV_Zion/Objects/FNV_Zion.4.0.0.bto', 'LODSettings/FNV_Zion.lod', 'Scripts/A.pex'):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_bytes(b'x')
+    started = time.time() - 1
+    assert SF.made(tmp_path, 'HonestHearts', started) == {'Meshes/fnv/a.nif'}
+    assert SF.made(tmp_path, 'HonestHearts', started, dlc=True) == {
+        'Meshes/fnv/a.nif', 'Meshes/Actors/FNVGecko/CharacterAssets/skeleton.nif',
+        'Meshes/Terrain/FNV_Zion/Objects/FNV_Zion.4.0.0.bto', 'LODSettings/FNV_Zion.lod'}
 
 
 def test_stale_files_are_what_the_last_list_named_and_no_list_names_now(tmp_path):

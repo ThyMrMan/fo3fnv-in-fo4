@@ -168,6 +168,13 @@ def adopted_scripts(names: list, masters: tuple, shipped: tuple) -> list:
     return out
 
 
+def stage_dir(data_dir: Path) -> Path:
+    """The folder of the sources `data_dir`'s last compile_into compiled.
+    See: docs/fork/fo4_hotfix.md#how-it-works
+    """
+    return STAGE / hashlib.sha1(str((data_dir / 'Scripts').resolve()).encode()).hexdigest()[:12]
+
+
 def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = (), masters: tuple = (),
                  shipped: tuple = ()) -> str:
     """Compile Doc's script (when the folder has it), `fragments`, the scripts they name and every static helper
@@ -187,7 +194,7 @@ def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = (), master
     keep = {p.name for p in scripts_dir.glob('*.psc') if p.stem in wanted or not p.stem.upper().startswith(prefix)}
     keep |= {path.name for path in adopted}
     sources = {**{name: scripts_dir / name for name in keep}, **{path.name: path for path in adopted}}
-    stage = STAGE / hashlib.sha1(str(out).encode()).hexdigest()[:12]
+    stage = stage_dir(data_dir)
     stage.mkdir(parents=True, exist_ok=True)
     for old in stage.glob('*.psc'):
         if old.name not in keep:

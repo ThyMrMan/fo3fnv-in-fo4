@@ -189,6 +189,22 @@ item keeps.
   3. **`slsf_1_soft_effect` was never set anywhere.** Without it a blended FX quad intersecting solid geometry is hard-cut along the intersection line, so the billboard shows **its own quad edge** — the reported rectangle. Vanilla census (1,198 BSEffectShaderProperty shapes across meshes/effects + meshes/dungeons): additive `0x100d` → soft_effect=1 in **417/470**, blended `0x10ed` → **224/362**, *no* NiAlphaProperty → soft_effect=0 in **322/332**. So the rule is **blended FX gets the fade, unblended does not**; `soft_falloff_depth` = **100.0** (the commonest value, 250/521 on mist/smoke/fog geometry, and what vanilla uses for ambient room fog).
 - **`lighting_mode == 0` is NOT the only unlit indicator — ADDITIVE BLENDING IS THE SECOND (same fix)**: the FX/lit discriminator was `NiVertexColorProperty.lighting_mode == LIGHTING_E`, but **many Oblivion FX meshes ship no `NiVertexColorProperty` at all**, so the mode defaulted to "lit" and genuine FX geometry took `BSLightingShaderProperty` — lit, normal-mapped, no soft fade. `fxmistgroundeffect01` (the Ayleid-ruin ground mist the user saw in Vilverin) is exactly this: additively-blended AtmosphereCloud01 planes with no vertex-color property, so **all 30 shapes** were misrouted. Across Oblivion's own FX directories **76 of 179** blended shapes declare no lighting_mode. A surface whose NiAlphaProperty sets **dst=ONE** adds its color to the framebuffer and therefore cannot be lit geometry (lighting it double-counts the light it already contributes). Vanilla agrees without exception: of 64 additively-blended shapes sampled, **64/64 use BSEffectShaderProperty, 0 use the lighting shader**. **Plain alpha blending is deliberately excluded** — the same census shows 3 legitimate BSLightingShaderProperty cases (glass/ice), so widening the rule to all blending would misroute real lit geometry. Blast radius measured before shipping: across a 250-mesh sample of architecture/clutter/dungeons only 10 shapes newly reroute, all `textures\effects\` blood decals and FlameTower quads.
 
+### <a id="mesh-emitter-template"></a>A mesh emitter can emit from another particle system
+
+pyffi 2.2.3's nif.xml types `NiPSysMeshEmitter`'s Emitter Meshes as
+`Ref<NiTriBasedGeom>`; the current nif.xml (NifSkope's) types them as
+`Ptr<NiAVObject>`. Lonesome Road's `nvdlc04_wastelandnukeexp.nif` (STAT
+`NVDLC04NukeExplosionFX`) emits from an `NiParticleSystem`, so pyffi refused
+the whole file ("expected NiTriBasedGeom, got NiParticleSystem"), and the
+DLC build crashed. Patch 17 (`pyffi_monkey_patch._install_mesh_emitter_template`)
+takes the current definition. The type has to become a `Ptr`, not just a wider
+`Ref`: a `Ref` is a child link, and the emitter's own system loops back to it,
+so pyffi's `get_refs` recursed without end. That mesh was the only failure among
+Lonesome Road's 1,123 own world-model meshes. FO4's mesh emitter
+emits from triangle corners (a `BSPositionData` under a hidden `BSTriShape`), so
+`fo4_import.nif.particles._shape` leaves out an emitter mesh with no triangles
+(accepted drift; the rest of the effect converts).
+
 ## Rewriting the particle modifier chain
 <a id="psys-modifier-vocabulary"></a>
 

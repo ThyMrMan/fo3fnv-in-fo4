@@ -1,4 +1,11 @@
-# Plan: the plugin layout, DLC, mod patches and incremental builds (2026-10-30)
+# The plugin layout, DLC, mod patches and incremental builds (2026-10-30)
+
+Built: phases 1–4 (the game plugin as `FalloutNV.esm`, master-aware
+FormIDs, layered export, Gun Runners' Arsenal and the courier packs) and
+phase 5a ([part E](#which-builds)); the game and DLC plugins are not
+played as built (only the renamed faces were, 2026-10-30). Not built: mod
+patches, incremental records, the story DLC and the rules plugin
+([phases](#phases)).
 
 How the converted game is split into plugins so FNV's DLC and other mods'
 content convert on top of it, and how a build remakes only the records a
@@ -13,6 +20,7 @@ change touches. Status lives in the ROADMAP; this file holds the design.
 - [Part B: mod patch plugins](#mods)
 - [Part C: the rules plugin](#rules)
 - [Part D: incremental records](#incremental)
+- [Part E: which plugins need a build](#which-builds)
 - [Phases](#phases)
 - [Save games](#saves)
 - [Considered and left out](#left-out)
@@ -20,7 +28,10 @@ change touches. Status lives in the ROADMAP; this file holds the design.
 
 ## <a id="now"></a>Where things stand
 
-Measured on the 2026-10-30 whole-map build:
+Measured on the 2026-10-30 whole-map build, before this plan's phases.
+Since then the game plugin is `FalloutNV.esm`, a DLC builds on a layered
+source ([part A](#dlc)), and builds cache more work ([stage
+times](#stage-times)); records are still not cached.
 
 - **One plugin**, `FalloutNV.esp` (438 MB): 694,264 records, all but 19
   its own (the 19 are overrides of Fallout4.esm settings). Largest kinds:
@@ -198,12 +209,161 @@ built. The cell argument is the DLC's own interior.
   the game build's (5,327 animation data, 3,666 actor clips, 890 meshes, 662
   materials), 1,610 of 1,631 shared textures with the game's signature, and
   115 sounds.
+- <a id="dlc-deleted"></a>**A record the DLC deletes.** FNV DLC delete game
+  records with a bare Deleted (0x20) stub: Honest Hearts deletes 10
+  references in `NorthernPassageINT` (its invisible cave door, a collision
+  marker and 8 lamps). FO4 mishandles a plugin's deleted master reference,
+  so the layered export reads such a placed reference as the game's, with
+  Initially Disabled (0x800) set, which is xEdit's "undelete and disable"; the
+  cell build then writes a disabled override. Any other deleted record is
+  gone from the export view (`export_index._layered`).
+- <a id="dlc-voice"></a>**Voice files by the plugin holding the line.** FNV
+  files a line under `sound/voice/<plugin holding its INFO>/<voice type>/`,
+  naming it by the INFO's FormID with the load-order byte 0: Honest Hearts'
+  Joshua line `010101F6` is `honesthearts.esm/.../..._000101f6_1.ogg`, while a
+  game line it changes stays in `falloutnv.esm`. `voice.fnv_folders` gives a
+  voice type's folder in each plugin of the export in master-byte order, and
+  `index_recordings` keys each file by its folder's byte. FO4 looks a line up
+  under the plugin owning its INFO too, so a DLC build voices only its own
+  INFOs (`voice.own_lines`); the master INFOs its builder carries are the game
+  build's. Without that filter the first Honest Hearts build re-converted about
+  180,000 of the game's lines under `Voice/HonestHearts.esm`.
+- <a id="dlc-dialogue"></a>**Dialogue: only the DLC's lines.** A DLC build
+  builds the lines its plugin holds (`say_topics.dlc_lines`): its own INFOs,
+  and its overrides of game INFOs that change more than `PNAM` (the line
+  before it, which FNV rewrites on a game line when a DLC inserts one beside
+  it). Game quests the build reaches keep their scope and script names, but
+  their lines, topics and scenes are the game build's. Honest Hearts holds
+  1,238 INFOs: 1,236 its own (629 of them in 79 game topics such as Attack or
+  PLAYERFIREWEAPON, all under its own quests) and 2 GREETING lines of
+  `VDialogueMrHouse` that differ from the game's only in `PNAM`. Before this,
+  the build rebuilt 6 game quests whole: 37,510 INFO and 18,199 DIAL
+  overrides, plus 17,744 game lines minted again under DLC ids.
+  `drop_unchanged` judges records inside a group as it does top-level ones
+  (it used to keep a whole quest group as soon as one DLC record was in it).
+  A game record whose children group keeps a DLC record stays, as the game
+  plugin's own bytes when it changes nothing: the build's greeting and patrol
+  quests and their topics hold the DLC's lines under the game's ids, the way
+  an FO4 plugin adds a line to a master topic. The topic's TIFC count is
+  left as the game's; xEdit compares it with `cpIgnore`. Left open: an ally's
+  reply to a DLC bark ([bark replies](fo4_pipeline.md#bark-replies)) that
+  only game quests answer is not copied, since the copy would hold the game's
+  line under its game id. Honest Hearts has 6 such barks (3 Flee →
+  FleeResponse, 3 AvoidThreat → AvoidThreatResponse).
+- <a id="dlc-placed"></a>**Game refs in the DLC's worldspace and cell groups.**
+  The cell builder adds worldspaces and cells as pre-built groups
+  (`add_raw_group`), which `top_records` and `patch_records` skip, so
+  `drop_unchanged` never judged a placed ref, navmesh or LAND. Honest Hearts
+  shipped 33,357 REFR, 969 ACHR, 69 NAVM and 2 PHZD overrides identical to
+  FalloutNV.esm's, and Dead Money 30,352 REFR and 938 ACHR (found by
+  `preflight --audit dlc`), though their sources override 94 REFR and 3 ACHR,
+  and 165 REFR. `FO4PluginWriter.raw_groups` and `patch_groups` let it prune
+  those groups like nested records: a game cell or worldspace heading a kept
+  ref stays as the game's own copy. A masterless build never calls it.
+- <a id="dlc-stale-ids"></a>**A master ledger id the master no longer holds.**
+  A game ledger keeps every id an earlier game build derived, including ones
+  for records it no longer writes: `FNV AMMO 1469274`
+  (`AmmoSmallEnergyCellTurret`) keeps `EC9262`, but FalloutNV.esm no longer
+  holds that ammo. Dead Money took that id, then `drop_unchanged` dropped its
+  record as "not in its master", leaving 3 references dangling.
+  `LedgerWriter.use_master_ledgers` now takes the built masters' FormIDs
+  (`CellBuilder.in_masters`), and a master id only counts while its master
+  holds it. Otherwise the key hashes to the DLC's own copy, as `fnv_id` does.
+  No shipped id moves: the master never held the record, and a masterless
+  build passes no FormID set.
+- <a id="dlc-poses"></a>**A dead actor on a game base.** A DLC's placed corpse
+  can use a game NPC or creature (a dead wastelander, a molerat). Its ragdoll
+  pose needs the base's race skeleton, so `ragdoll_pose.Poses` also reads the
+  built masters' NPC_, LVLN and RACE records (`_master`), and looks for a race's
+  loose skeleton in their data folders too (a game own-rig race such as the
+  nightstalker). Before this, Dead Money left out 41 poses as "no FO4 ragdoll":
+  33 human, 3 molerat, 3 nightstalker, 1 Mister Gutsy, 1 sentry bot.
+- <a id="dlc-lod"></a>**No LOD for a master's worldspace.** A DLC build that
+  places refs in a game worldspace (Honest Hearts' Northern Passage corner of
+  WastelandNV, built as a region) writes no object or terrain LOD for it
+  (`cell._world_groups`). Its bake covered only the region, and the same tile
+  names replaced the game build's whole-world tiles: Honest Hearts' 3
+  WastelandNV object tiles were 3–8 times smaller than the game's. The DLC's
+  own objects there get no distant LOD. Its own worldspaces (Zion) bake as usual.
+  The texture staging prunes worldspace LOD textures a build no longer writes
+  (`ba2_pack.OWN` includes `terrain/fnv_`); before, Honest Hearts' 3 old
+  WastelandNV object-LOD textures stayed staged and packed into its
+  `Textures.ba2` (`preflight --audit dlc`, master-files).
+- <a id="dlc-lists"></a>**A game form list the DLC adds to.** Two plugins
+  overriding one record do not stack: the last loaded wins, and the other's
+  entries are gone. A play test found every DLC's weapons and armor without
+  condition, because Honest Hearts (last in the load order) overrode the
+  game's condition quest with only the game's and its own items
+  ([the fix](fo4_condition.md#sources)). So a DLC build overrides no game form
+  list it only adds to. `master_overrides.added_forms` finds the new entries
+  (every other subrecord alike; kind "list entries added at run time", also
+  for a list the DLC holds in its source), and `spike.list_adds` writes one
+  start-game quest per DLC (`FNV_FormListAdds_<plugin>`) whose
+  `F3NV_FormListAdds` script puts each one in its list (`FormList.AddForm`,
+  kept by the save, stacking across plugins). An added entry naming a record
+  of the DLC that the build never wrote is left out: Honest Hearts' copy of
+  `FNV_StandingsCrimeFactions` names 4 game factions the game build left
+  out, as copy ids the DLC build never makes. A list's added entries are not
+  its authored ones (`BGSListForm::tempForms`, not `forms`), so native code
+  must read both; the F3NV DLL's Pip-Boy tabs do (`pages.cpp` `ListIds`).
+- <a id="dlc-perks"></a>**A game perk the DLC adds entries to.** Perk entries
+  cannot be added at run time. Honest Hearts, Dead Money and Gun Runners'
+  Arsenal each overrode `FNV_Ninja` and `FNV_CombatRules` with their own
+  weapons' entries added (40 to 80 subrecords), and the last loaded won
+  (`preflight --audit dlc`, shared PERK). Now a perk whose DLC copy keeps its
+  head and every game entry and only adds entries
+  (`master_overrides.added_perk_entries`, whole PRKE…PRKF blocks) is not
+  overridden. `list_adds` writes a hidden perk of the plugin's own
+  (`<EditorID>_<plugin>`) with those entries. Each entry gets `HasPerk <game
+  perk>` first in its perk-owner tab (tab 0), so it applies exactly when the
+  game perk would; FO4 evaluates OR before AND, so an AND-ed first condition
+  gates the whole chain. The list-adds quest gives the player that perk at
+  start.
+- <a id="dlc-script-bases"></a>**An actor base a script names.** A script's
+  `ActorBase` property (`GetDeadCount` on a spawn's base) was filled only
+  from the bases the build had made when the property was filled. Honest
+  Hearts' `NVDLC02MS02QuestSCRIPT` names five bighorner bases its build makes
+  later, so all five were None. The quest is Start Game Enabled, as in FNV,
+  and its five-second timer ran in Goodsprings, failing about 1,500 times in
+  23 minutes of the user's log. `attach.ObjectScripts.actor_base` makes the
+  named NPC or creature base on demand.
+  - **First version.** It made the base through `builder.base`, as for a
+    placed object. That never worked: `CellBuilder.base` makes only the
+    `PLACED` types, and no NPC_ or CREA is among them. Its test stubbed
+    `builder.base`. The user's 2026-11-04 log still showed `MS02` failing,
+    plus Lonesome Road's Start Game Enabled `NVDLC04DivideSupport`. Its
+    authored 0.1 s delay calls `GetDeadCount` on two templated tunneler
+    creatures (`NVDLC04DivideCaveTBrute`, `...TVenom`) every pass: 4,266
+    errors in 12 minutes. The script engine ran 0.5 to 1.9 s behind (a 3 s
+    `Wait` came back after 3.5 and 4.9 s), and each talk paused about as
+    long before the greeting's `OnBegin` started its scene.
+  - **Now.** It makes the base through `Npcs.actor_form`, as a template
+    does: an NPC's base, a creature's (a templated creature's template
+    actor) or a leveled list's. A base that is already made keeps its
+    FormID. A property filled before the people stage makes its Npcs stays
+    None, counted in the build log (`ActorBase property filled before the
+    people stage`).
+  - `NVDLC02MS01`'s `GhostOfSheREF` and duplicates stay None while HH's yao
+    guai creatures (`nvdlc02\creatures\yaoguai`) have no FO4 base: that is
+    creature coverage.
+- <a id="dlc-say-once"></a>**Say Once markers.** Quest stages cannot be added
+  at run time, so a DLC whose master holds the Say Once marker quest
+  (`FNV_TES4SayOnce`) gets its own (`say_once.SayOnce`: key
+  `FNV_TES4SayOnce plugin`, EditorID `FNV_TES4SayOnce_<id>`), holding its
+  lines' stages. Before this, each DLC overrode the game's quest with its
+  stages merged in, and only the last-loaded DLC's lines kept their markers.
+  (Before the merge, Honest Hearts' copy was dropped and FO4Edit found 866
+  Say Once conditions naming a stage that never shipped.)
 - **The game plugin's files stay the game's.** Only the game build writes
   LevelUpMenuEx's ini (a second one would point the level-up menu at the
   DLC's copy of the lists) and copies `F3NV.dll`.
 - **Two DLCs overriding one record** (a form list, a merged quest): the one
-  loading last wins, each holding the game's entries and its own. Not met
-  yet with one DLC built.
+  loading last wins, each holding the game's entries and its own. Met in play
+  with seven DLCs and packs loaded: condition, the Ammo Type hotkey and
+  challenges kept only Honest Hearts' items. Those systems now gather every
+  plugin's rows at run time ([condition](fo4_condition.md#sources),
+  [form lists](#dlc-lists), [Say Once](#dlc-say-once)), and no DLC overrides
+  their quests or lists.
 
 **Gun Runners' Arsenal, measured:** 979 records (38 guns, 160 weapon mods, 27
 ammo, 131 leveled lists, 51 recipes, the vendor chest cell with 23
@@ -218,8 +378,9 @@ race: 2,285 entries, all on GRA's 35 gun keywords. Its folder also held
 since 2026-10-31, [master copies](#master-copies); not rebuilt yet), and 179 first-person
 pistol poses that differ on purpose: GRA ships its own `1hp` aim clips,
 which FNV loads over the game's. Left out: the 94
-references in `TestMentats`, a debug cell the game never built. Voice files
-still read `sound/voice/falloutnv.esm`; GRA has none, the story DLC will.
+references in `TestMentats`, a debug cell the game never built. GRA has no
+voice files; voice is now filed by the plugin holding the line
+([voice](#dlc-voice)).
 Not played.
 
 ### <a id="courier-packs"></a>The courier packs (built 2026-10-31)
@@ -254,6 +415,9 @@ loose music, 522 MB, which a pack does not need.)
 - **Meshes FNV never shipped.** Classic Pack's 10mm pistol names seven
   mod-variant statics whose meshes are in no archive; a base whose model no
   export layer holds is left out, counted (`CellBuilder.record`), not a crash.
+  A light or activator is made without the model instead, so it still works:
+  Honest Hearts' hot plate (`NVDLC02CraftingOven01`) wears Dead Money's mesh,
+  which only `DeadMoney - Main.bsa` ships.
 - **Effects on the master's MGEF.** The export left every DLC effect naming a
   FalloutNV.esm effect blank (`EFID=`); fixed in the exporter
   ([master effects](../commentary/tes4_export_falloutnv.md#master-effects)),
@@ -560,6 +724,164 @@ measure it again once the units cache.
 rebuilds that maker's units and replays the rest. A rules change, units
 untouched, replays everything.
 
+## <a id="which-builds"></a>Part E: which plugins need a build, and code keys by what ran (built 2026-11-03)
+
+Part D makes a build faster once it runs. Two things decide whether a build
+should run at all, and both are guessed today.
+
+**Measured, 2026-11-03.**
+- *Base game:* of the last 13 whole-map builds (1101 to 1102m), 10 took
+  18–38 min. Three took 105–119 min (1102c, 1102k, 1102m), all from caches
+  thrown away: `people` 4,239–4,365 s against 196–317 s (face fits), and
+  `item WEAP` 455–623 s against 43–81 s (gun clips).
+- *Why the caches were thrown away:* every cache's `code_tag` hashes its
+  whole import tree, and `fo4_import/nif/blocks.py` is in 12 of the 13
+  trees (face fits: 36 files, gun clips 78, rig assets 79). One edit to the
+  NIF block writer before 1102m (the screen glare fix) refit every face.
+  This is [the audit's](fo4_tool_audit.md#rebuild) "cache keys too broad"
+  finding, still open after the gun-clip and LOD cuts.
+- *DLCs:* a base-game fix (the Ringo force greet) was followed by
+  rebuilding all nine DLCs and packs. None of them writes the records the
+  fix changed: `FNV_TES4ScriptPackages` and the greeting line are
+  FalloutNV.esm's alone (a DLC's copy derives the master's FormID and
+  `drop_unchanged` drops it). Seven of the nine rebuilds, about 50 min,
+  changed nothing. Nothing records what a DLC build read from its master,
+  so whoever starts the builds has to guess, and guesses wide.
+- *At scale:* the app builds a plugin per mod. With 100 mods, guessing wide
+  means a change to mod 52 rebuilds everything that loads after it.
+
+**1. A build records what it depended on.** Beside the stamp,
+`<plugin>.inputs.json` lists everything the build's output is a function of:
+- *Files it opened*, from a `sys.addaudithook` `open` hook in the build
+  process and each pool worker: the export files, Fallout4.esm, the
+  replacement table, mod sources, static `.psc`, headers, native `.pyd`.
+  Size, time and SHA-1 each.
+- *Programs it ran*, from the hook's `subprocess.Popen` event: Caprica,
+  Archive2, Elric, the Creation Kit, LODGen. Their exe hashes.
+- *Its masters' builds, narrowed to what it asked.* A built master plugin
+  is opened whole, so its file hash would change on every base fix. The
+  reads Part D lists go through `held_by`, `master_records`,
+  `master_ledgers` and the master's Scripts folder. Those log the FormIDs
+  asked about and the answer each got (held or not, the record body's
+  hash, the ledger id), and the master headers compiled against.
+- *Code that ran,* by function (below).
+
+**2. Code keys by what ran, not what was imported.** Python 3.12's
+`sys.monitoring` (PEP 669) raises `PY_START` the first time each code object
+runs. Return `DISABLE` and that function is never reported again, so the
+cost is one event per function per process. The build keeps
+`{module:qualname: SHA-1 of the function's source}` for every function that
+ran. Module and class bodies run at import, so a changed constant counts.
+The same record replaces `code_tag` for the work caches: a face fit's key
+holds the functions that ran during a fit, recorded on the first fit and
+checked on the next. An edit to an unrelated block writer in `blocks.py`
+then leaves every face fit valid. A new function can only start running
+when a caller that ran changes, or when data changes, so the record cannot
+miss one.
+
+**3. A build plan before any build.** `python -m fo4_import.pipeline.plan`
+walks the plugins in master order. For each it re-hashes the recorded
+functions and files, and re-asks the recorded master questions of the
+masters' current builds. Then it prints *build* (with the first changed
+input) or *current*. After a base-game fix that touches no DLC record,
+every DLC prints current. After a code fix, only the plugins whose builds
+ran the changed function print build. For an end user, the app's code is
+fixed per release, so a change to mod 52 builds mod 52, then only those
+later mods whose recorded questions get a different answer.
+
+**Correctness, as in Part D.** Determinism makes a check possible: a plugin
+the plan calls current, rebuilt clean, must come out byte for byte the
+same. A test does that on the Rig Test region and one pack, and a
+`--verify` option rebuilds one random current plugin per run and diffs it.
+A difference means an input the record missed, which is a bug. Until the
+check has passed on every plugin, the plan reports and the main session
+decides.
+
+### <a id="code-identity"></a>Code identity and what ran (built 2026-11-03)
+
+- **`pipeline/code_identity.py`.** A function's identity is a SHA-1 of its
+  syntax tree, leaving out positions, docstrings and the bodies of functions
+  defined inside it, which run as code objects of their own. It also hashes
+  the module-level definitions the function names:
+  - every statement binding or changing that name (`X = ...`, `X += ...`,
+    `X.update(...)`);
+  - a class's body, with its methods' bodies left out;
+  - a decorated function, since a `functools.cache` may answer without
+    running it.
+
+  Names are followed through imports, up to 4 definitions deep. The calls in
+  an assignment's value count too, since `TABLE = make()` runs `make` at
+  import. A key is `<repo path>::<qualname>`. A file edited after the process
+  started gives no identity, because the code running is not the code on
+  disk.
+- **Tested:** a docstring, an unread constant or another function in the same
+  module leave the identity alone. The function's body, a constant it reads,
+  a class's fields, an import-time call it reads, or a constant imported from
+  another module change it.
+- **`pipeline/ran_code.py`.** It uses `sys.monitoring` tool 4 and `PY_START`,
+  returning `DISABLE` from each report, so it costs one event per function
+  per process. `capture()` re-arms the reports with `restart_events()` and
+  collects the keys that start inside it. Lambdas, comprehensions and module
+  bodies are left out: the function around them ran, and the definitions they
+  name are in its identity.
+
+### <a id="build-plan"></a>The inputs record and the plan (built 2026-11-03)
+
+- **`pipeline/build_inputs.py`.** A recorded build calls `start(folder)`; each
+  worker process resumes from the `F3NV_BUILD_INPUTS` variable and writes
+  `<pid>.json` at exit. A `sys.addaudithook` hook notes `open` (read or
+  written, by mode or flags), `os.listdir`, `os.scandir` and
+  `subprocess.Popen`. `write()` merges the processes' records into
+  `<plugin>.inputs.json`. Left out of it:
+  - files the build wrote;
+  - the build's data folder, the record folder, `output/fo4_cache` and
+    Python's own folders;
+  - `.py` files, which are covered by code identity;
+  - folders the build wrote below.
+
+  Files are kept by size and mtime, plus a SHA-1 up to 64 MB, so a master's
+  script rewritten with the same text is no change. The record also keeps
+  the native `.pyd` files loaded, Python's and third-party packages'
+  versions, and the command.
+- **`MasterLog`.** It keeps the questions the build asked its masters and
+  the answers it got:
+  - held FormIDs, through `Held`, the frozenset `held_by` returns;
+  - ledger answers;
+  - record bodies by SHA-1;
+  - each master plugin's masters;
+  - textures a master packed;
+  - master scripts compiled against (`master_scripts`: the `.psc` files the
+    compiled scripts name, followed through the ones those name).
+
+  The plugin, ledger and manifest files behind those answers are left out of
+  the file record, so a base rebuild that answers every question the same
+  way leaves a DLC current.
+- **Questions about mods** (`asked`). The app settings, MO2's ini and the
+  profile's mod list are answered the same way: each plugin looked up and
+  the file found, each Creation Kit file and the mod holding it
+  ([MO2 answers](fo4_mod_builds.md#mo2-answers)).
+- **`pipeline/build_plan.py`.** It orders plugins by the masters their records
+  read. For each it checks the finished stamp, then code, environment, files,
+  folders, programs, then the master questions, asked again of the masters'
+  current builds. It prints `current`, `build (first change)` or
+  `after <master>`. `--run` builds the first plugin needing it, then checks
+  again, until none needs a build. `--verify` rebuilds one current plugin and
+  compares its plugin and ledger bytes.
+- **Tested** (`tests/test_fo4_build_plan.py`):
+  - a DLC stays current after the game gains a record and changes one it did
+    not read;
+  - it needs a build after the game changes the record it read, or drops the
+    one it asked about;
+  - the plan puts it after a game that needs a build.
+
+**Where the time goes after both** (estimates from the numbers above):
+- *A base-game fix:* 18–38 min, not 105–119 min when a shared mesh file
+  changed.
+- *The DLCs:* those whose recorded reads changed, often none, against about
+  60 min for all nine.
+- *Part D:* still what takes a needed build from tens of minutes to
+  minutes.
+
 ## <a id="phases"></a>Phases
 
 | # | Work | Done when | Size |
@@ -567,8 +889,9 @@ untouched, replays everything.
 | 1 | The game plugin as `FalloutNV.esm`, flagged master (built 2026-10-30, not played): voice and FaceGen folders filed under the old name move once, and the FaceGen meshes' face texture paths (the CK writes the plugin name into them; purple faces when stale, played 2026-10-30) follow (`spike/plugin_rename.py`) | The game plays as before | S |
 | 2 | Master-aware FormIDs and ledgers read from masters (built 2026-10-30: `base/source_ids.py`; `LedgerWriter` reuses a master's generated id and leaves its record to the master; each FO4 plugin takes its source plugin's name) | The game rebuilt with 0 FormIDs moved; a unit test of a two-plugin build | M |
 | 3 | Layered export and binary source (built 2026-10-30; [part A](#dlc)) | A DLC export resolves every FalloutNV.esm reference | M |
-| 4 | Gun Runners' Arsenal (built 2026-10-30, FO4Edit clean, not played; [as built](#dlc-build)), then the courier packs | Built, FO4Edit clean, played | M |
+| 4 | Gun Runners' Arsenal (built 2026-10-30, FO4Edit clean, not played; [as built](#dlc-build)), then the courier packs (built 2026-10-31, no play recorded; [as built](#courier-packs)) | Built, FO4Edit clean, played | M |
 | 5 | Proxy records and mod patch plugins; the app builds patches | The with-mods table as patches; the game plugin byte-identical with and without them | M-L |
+| 5a | [Part E](#which-builds) (built 2026-11-03; `--verify` not yet passed on every plugin): each build's inputs record, code keys by functions that ran, the build plan | After a base-only fix the plan calls every DLC current, and rebuilding one clean matches byte for byte; an edit to an unrelated part of `blocks.py` refits no face | M |
 | 6 | Incremental records: the recorder and journal, one unit kind (bases) | Rig Test incremental = clean, byte for byte | L |
 | 7 | Incremental for every unit kind | Whole map incremental = clean; a one-maker fix rebuilds in minutes | M |
 | 8 | Honest Hearts, Dead Money, Old World Blues, Lonesome Road | Each built and played, with its own mechanics | L each |
@@ -607,5 +930,5 @@ A save names records by plugin filename and object id. So:
 - One combined mod patch or one per mod source? One per source lets a
   user drop a mod by dropping its patch; one combined is simpler to load.
 - Does a DLC build need more of the game build than FormIDs and the
-  ledger give (phase 3 measures it), and does the ledger ship beside the
-  plugin or in the app's work folder?
+  ledger give (phase 3 measures it)? (The ledger ships beside the plugin;
+  see [FormIDs](#formids).)

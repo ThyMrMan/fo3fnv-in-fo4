@@ -79,6 +79,17 @@ _WHAT = {'removed': 'records were removed', 'retyped': 'FormIDs now hold another
          'moved': 'EditorIDs moved to a new FormID'}
 
 
+def sample(rows: list) -> tuple:
+    """The first SAMPLES rows, and a count of the rest."""
+    return tuple(rows[:SAMPLES] + ([f'... {len(rows) - SAMPLES} more'] if len(rows) > SAMPLES else []))
+
+
+def print_counts(what: str, counts, since: str = 'the baseline') -> None:
+    """One line: the records the build `what` since `since`, by type."""
+    print(f'  build: {sum(counts.values())} records {what} since {since}'
+          + (f' ({", ".join(f"{n} {s}" for s, n in counts.most_common(6))})' if counts else ''))
+
+
 def audit(game: str, before, after: dict) -> list:
     """Drift findings for one game, one per kind and signature; none on a first run."""
     if before is None:
@@ -86,8 +97,6 @@ def audit(game: str, before, after: dict) -> list:
     out = []
     for kind, by_sig in drift(before, after).items():
         for sig, rows in sorted(by_sig.items()):
-            detail = rows[:SAMPLES] + ([f'... {len(rows) - SAMPLES} more'] if len(rows) > SAMPLES else [])
             out.append(Finding('build', f'build|{game}|{kind}|{sig}', 'error',
-                               f'{len(rows)} {sig} {_WHAT[kind]}; approve with --accept-build',
-                               tuple(detail)))
+                               f'{len(rows)} {sig} {_WHAT[kind]}; approve with --accept-build', sample(rows)))
     return out

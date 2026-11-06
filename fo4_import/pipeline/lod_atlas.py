@@ -24,7 +24,7 @@ from fo4_import.base.ba2_pack import stage_texture
 from fo4_import.nif import file as F
 from fo4_import.nif.convert_static import GLOSSINESS, PREFIX, SLOT_SPECULAR, smoothness, spec_image
 from fo4_import.pipeline.export_index import export_file
-from fo4_import.pipeline.work_cache import cached, key
+from fo4_import.pipeline.work_cache import signature
 
 #: UVs a texture's shapes may reach and still go on the atlas (xEdit's AtlasTextureUVRange; AtlasTolerance is 0.5).
 UV_RANGE = 1.5
@@ -166,9 +166,10 @@ def _inputs(found: dict, side: int, places: dict) -> tuple:
                         normals[name].read_bytes() if normals[name] else b'') for name in sorted(places))
 
 
-def _plan(signature: str, get) -> tuple:
-    """stage_texture's (signature, writer of get()'s bytes)."""
-    return signature, lambda target: target.write_bytes(get())
+def _plan(site: str, inputs: tuple, make) -> tuple:
+    """stage_texture's (signature, writer) of work-cached `make`."""
+    sign, get = signature(site, __name__, inputs, make)
+    return sign, lambda target: target.write_bytes(get())
 
 
 def build(export_dir: Path, data_dir: Path, world: str, meshes: list) -> list:
@@ -180,6 +181,6 @@ def build(export_dir: Path, data_dir: Path, world: str, meshes: list) -> list:
         return []
     inputs, made = _inputs(found, *packed), functools.cache(functools.partial(compose, found, *packed))
     for index, (suffix, site) in enumerate(MAPS):
-        get = functools.partial(cached, site, __name__, inputs, functools.partial(lambda i: made()[i], index))
-        stage_texture(data_dir, atlas_path(world, suffix), functools.partial(_plan, key(site, __name__, inputs), get))
+        make = functools.partial(lambda i: made()[i], index)
+        stage_texture(data_dir, atlas_path(world, suffix), functools.partial(_plan, site, inputs, make))
     return map_lines(world, found, *packed)

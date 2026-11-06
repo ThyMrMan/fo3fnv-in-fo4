@@ -142,6 +142,19 @@ command line.
     another plugin's list names it (a DLC build shares these folders). No
     earlier list, nothing deleted. FaceGen and voice keep their own
     pruning; scripts and textures are not covered.
+    A DLC build, in its own data folder, also covers `DLC_ROOTS`:
+    `Meshes/Actors` (its rigs and 1st-person clips), `Meshes/Terrain`,
+    `Textures/Terrain`, `Textures/fnv`, `Textures/Effects` and
+    `LODSettings`. Two Dead Money and Honest Hearts builds rewrote every
+    file there; only `Scripts`, the sound archive and `Music` kept older
+    files. Before this, files a DLC build stopped writing stayed and got
+    deployed: game creature rigs (before `Rigs.shipped`) and Honest Hearts'
+    region-only WastelandNV LOD (before
+    [no master LOD](fo4_plugin_layout.md#dlc-lod)). The game build keeps
+    `ROOTS` alone: its `Meshes/Actors` and `Meshes/AnimTextData` hold
+    thousands of files a build does not rewrite (the Creation Kit's
+    animation data is regenerated only when its key changes).
+    `tools.release.fo4_deploy --plugin` deploys a DLC from its list.
 - **Scripts compiled only when changed.** `script.compile_into` stages the
   needed scripts in a folder that stays put
   (`output/fo4_cache/script_stage`) and compiles through the corpus gate's
@@ -193,8 +206,9 @@ The census tool's new `Placed` column reads the same table, so it can't
 disagree with the code. A type gets its own converter by adding a builder
 method and pointing its entry at it; a stand-in type leaves
 `STATIC_STAND_INS` when it does. The record types that aren't placed
-(quests, dialogue, packages, NPCs) are next. They are still built for the
-spike's cell quests and stand-ins only.
+(quests, dialogue, packages, NPCs) came next, built for the spike's cell
+quests and stand-ins only until [quest scope](#quest-scope) and
+[NPCs](#npcs).
 
 **Region scope.** `--region X0 Y0 X1 Y1` builds any rectangle of a
 worldspace's cells (`exterior.Exterior` takes the two corners).
@@ -329,10 +343,8 @@ the matching subtype, in no branch, as HELLO and GOODBYE already did
   built as a custom topic no script says).
 - **Left out, no FO4 subtype:** `PLAYERTHROWGRENADE` (43 lines),
   `PLAYERLAYMINE` (44), `SpeechChallengeFailure` (3), `GroupStrategy` (0),
-  the persuasion topics (0). Not engine-reserved and not built here: the
-  `*Response` topics (`DeathResponse` 77 lines, `StartCombatResponse` 53, …)
-  and the companion status barks (`HealthQuarter`, `NoAmmo`, `Crippled`, …,
-  `0015BCAE`–`0015BCBC`).
+  the persuasion topics (0). The topics outside the reserved range are
+  [below](#bark-replies).
 - **Expected recovery, measured on the 2026-10-31 build (5,732 lost lines):**
   2,503 are lines of the mapped topics; 1,798 of them are in quests the
   build holds and now get built, less any whose conditions do not convert.
@@ -352,6 +364,58 @@ the matching subtype, in no branch, as HELLO and GOODBYE already did
   placed actors that pass them ([speaker tests](#quest-scope)). That brings
   in every one of these quests except `GenericPlayer`, whose speaker is the
   player, along with their HELLO and GREETING lines.
+- <a id="bark-replies"></a>**Barks outside the reserved range (built
+  2026-11-02; in the 2026-11-05 build, not played).** The 2026-11-01 preflight lost 321
+  Combat and Detection lines in built quests, all of topics with no
+  reserved FormID, so `say_topics` never collected them. Two kinds:
+  - *Named barks.* FalloutNV.exe holds the companion status topics' names
+    (`HealthQuarter`, `NoAmmo`, `KOed`, …, `0015BCAE`–`0015BCBC`), so its
+    engine finds them by EditorID. Three have an FO4 subtype in
+    CreationKit.exe's table and become the quest's topic of it
+    (`barks.NAMED_BARKS`): `DeathResponse` → AllyKilled (ALKL, 3, 36),
+    `Crippled` → CrippledLimb (CRIL, 3, 44), `KOed` → BleedOut (BLED, 3,
+    30). Fallout4.esm uses each (14, 21 and 25 topics). 91 lines.
+  - *Replies.* The other `*Response` topics are what an ally answers a bark
+    with: the bark line's Choice (`NormalToCombat` "Hey!" chooses
+    `StartCombatResponse`). FO4 has no reply bark, so a reply's lines join
+    the quest's topic of each bark choosing it, after that topic's own
+    (`barks.replies`): `StartCombatResponse` follows `NormalToCombat`,
+    `AlertToCombat` and `LostToCombat`; `AvoidThreatResponse` follows
+    `AvoidThreat` and `FireExplosive`; `AttackResponse`, `FleeResponse` and
+    `NormalToAlertResponse` their own. The ally now says it as its own bark
+    instead of in answer. 62 lines (169 INFOs).
+  - *No FO4 subtype:* the other status barks, 168 lines
+    (`HealthQuarter` 25, `WeaponIneffective` 20, `Wake` 19, `WeaponBroke`
+    17, `NoAmmo` 17, `HealthHalf` 16, `UsedDoctorBag` 14, `Regenerating`
+    13, `Poisoned` 12, `ArmorIneffective` 11, …), all in `VNPCFollowers`,
+    each line naming its companion (Cass 49, Raul 32, Lily 29, Boone 21,
+    Arcade 20, Veronica 18). 77 are now said by a script
+    ([companion barks](#companion-barks)); the rest are still lost.
+  - <a id="companion-barks"></a>*Companion status barks (built 2026-11-06,
+    not played).* `companion_barks.py`, `F3NV_CompanionBarks.psc`. The four
+    topics with a state FO4 reads are built as custom topics of
+    `VNPCFollowers` (`say_topics` collects them as a script's):
+    `HealthHalf`, `HealthQuarter`, `Wake` and `NoAmmo`. A start-game quest
+    per plugin (`FNV_CompanionBarks_<plugin>`, written only when those
+    topics were built) carries them as properties. Every second its script
+    checks `Game.GetPlayerFollowers()`, and each follower says a topic when
+    its state has just crossed into it:
+    - `HealthHalf` / `HealthQuarter`: health below half or a quarter of full,
+      in combat (once per drop; healing above resets it);
+    - `Wake`: it stops bleeding out (FO4's essential companions bleed out
+      where FNV's were knocked out);
+    - `NoAmmo`: in combat, its gun's ammo type is not in its inventory (once
+      per fight).
+
+    `Say` picks the line by its own conditions (the companion's `GetIsID`,
+    `VNPCFollowers` variables). Left out, since FO4 tracks no matching
+    state: `WeaponBroke` (no weapon condition on companions'
+    guns), `WeaponIneffective` / `ArmorIneffective` (the engine's damage
+    judgment), `UsedDoctorBag`, `Regenerating`, `Poisoned`, `OnFire`,
+    `Frenzy`, `KnockedBack`.
+  - *Not losses:* `Vault108DialogueShell` (23 Combat and Detection lines)
+    gates on `Vault108GaryFaction`, which no FNV NPC, creature or script
+    gives: a Fallout 3 leftover.
 
 Each interior gets:
 - its references;
@@ -360,7 +424,8 @@ Each interior gets:
   default until WATR converts);
 - its navmesh.
 
-Actors and quests are still the named cell's only.
+Actors and quests were then the named cell's only; [quest scope](#quest-scope)
+and [NPCs](#npcs) later took them from every built cell.
 
 **Height fog.** FO4's XCLL has height fog FNV lacks: a second pair of fog
 colors (bytes 100–107) blended in with height (near height 0, range
@@ -535,18 +600,18 @@ Found and left for their step (counts for Goodsprings to Primm):
 | Gap | Count | Step |
 |---|---|---|
 | Idle markers (IDLM): placed as vanilla markers by what they play, 2026-10-17 ([audit fixes](#audit-fixes)); 12 protectron markers left out | 185 | 3 (NPCs) |
-| Actors | 206 creatures, 153 NPCs | 3 |
-| Ownership (XOWN) on references and cells | 87 + 14 | 2 |
-| Map markers (XMRK, TNAM, FULL) | 15 | 2 |
+| Actors: NPCs played 2026-10-12 ([NPCs](#npcs)), creature stats played 2026-10-21 ([creature stats](#creature-stats)) | 206 creatures, 153 NPCs | 3 |
+| Ownership (XOWN) on references and cells: played 2026-10-12 ([ownership](#ownership)) | 87 + 14 | 2 |
+| Map markers (XMRK, TNAM, FULL): played 2026-10-12 ([ownership](#ownership)) | 15 | 2 |
 | Consumable effects with no FO4 effect: done 2026-10-14 ([consumable effects](#consumable-effects)); 20 kinds left are recorded drift | 20 kinds | 2 |
 | Leveled-list chance-none globals (LVLG) | 18 | 2 |
-| Door navmesh links (XNDP), patrol data (INAM, SCHR, XPPA, XPRD) | 70, 68 | 3 |
+| Door navmesh links (XNDP), not done ([exterior navmesh](#exterior-navmesh)); patrol data (INAM, SCHR, XPPA, XPRD): patrol point topics built 2026-11-01, not played ([patrol points](#patrol-points)) | 70, 68 | 3 |
 | Placeable water (PWAT): built 2026-10-19 as FO4's water tiles ([placeable water](#placeable-water)) | 13 | world gaps |
 | Placed mines (PGRE): built 2026-10-19 on FO4's mine projectiles ([placed mines](#placed-mines)) | 11 | world gaps |
 | Music zones: FNV audio markers name a media location controller (ALOC, MMRK): built 2026-10-19 ([music](#music)) | 45 | world gaps |
 | Looping sounds: statics (RNAM), movable statics and lights (SNAM), doors (BNAM): built 2026-10-19 ([looping sounds](#looping-sounds)) | 256, 13, 6, 3 | world gaps |
 | Cell acoustic space (XCAS): interiors built 2026-10-19 ([acoustic spaces](#acoustic-spaces)); cell music (XCMO) built 2026-10-19 ([music](#music)) | 275, 27 | world gaps |
-| The Goodsprings store radio (TACT) | 1 | 4 (quests) |
+| The Goodsprings store radio (TACT): talking activators built 2026-10-31, not played ([talking activators](#talking-activators)) | 1 | 4 (quests) |
 | Radiation on references (XRAD): built 2026-10-19 as vanilla hazards ([radiation](#radiation)) | 6 | world gaps |
 | Doors open by default (ONAM), item counts (XCNT), occlusion planes (base 0x17), blood decals (TXST): built 2026-10-19 ([reference fields](#reference-fields)) | 3, 1, 3, 2 | world gaps |
 | Billboard nodes (4 glow and dust meshes), the school globe's hinge, heat shimmer controllers | 4, 1, 4 | parked |
@@ -586,7 +651,7 @@ vFreeformTheStreet02 (the three Victor quests); 3,203 new FormIDs (2,239
 topics, 489 scenes, 270 lines, 174 globals), none moved. VCG01's unfilled
 properties drop from 74 to 3, the intended Pip-Boy glove and hand-over idle.
 
-*Speaker tests (built 2026-11-01, not yet in a game build).* FNV's generic
+*Speaker tests (built 2026-11-01; in the 2026-11-05 build, not played).* FNV's generic
 dialogue quests pick speakers by faction, voice type or class, not by a
 placed actor, so none came in: the 2026-10-31 preflight lost 2,529 lines in
 31 such quests. `QuestScope._spoken` now also takes a quest when one of its
@@ -670,7 +735,15 @@ fourth (2026-10-31):
   here, as FNV reads an unrun quest's variable as 0: `GetIsID Other == 0`
   holds and drops out, `== 1` never holds and the line goes. OR groups
   settle as a whole (an always-true member satisfies its group). The
-  engine's own forms (below 0x800, the player) are never settled.
+  engine's own forms (0x1 to 0x7FF, the player) are never settled. A test
+  of no form at all (0) reads 0 too (2026-11-06): five lines test
+  `GetQuestVariable` on no quest, among them Papa Khan's `0014B595`.
+- <a id="exists"></a>*`Exists` (2026-11-06).* FNV's `Exists` reads 1 when
+  the line's subject and target differ: combat chatter checks there is a
+  second person to answer (GECK wiki). FO4 has no such function, and an FO4
+  line always has a listener, so the test reads 1 (`conditions.FIXED`). This
+  brings back 19 lines (`GenericKids`, the combat-chatter quests). Drift: a
+  line FNV kept for when a group member is near can play when none is.
   A test **run on** a reference the build does not write reads 0 the same
   way (`conditions.unbuilt_reference`); before, it kept FNV's raw FormID,
   which names whatever Fallout4.esm form has that id. One compared with a
@@ -687,6 +760,40 @@ fourth (2026-10-31):
 - *Renamed.* PlayerInRegion is GetInCurrentLocation on the player, of the
   location made from that map region (a cell takes the region holding its
   centre, so it is cell-grained where FNV tests the polygon).
+  GetBaseActorValue is FO4's GetBaseValue (both index 277) of the converted
+  actor value, as GetPermanentActorValue is GetPermanentValue: 15 of Dr.
+  Usanagi's lines (2026-11-02).
+- *More left out than needed (2026-11-02; in the 2026-11-05 build, not played).* Of the
+  2026-11-01 preflight's 239 lines left out by a condition:
+  - The player's base (0x7) and reference (0x14) have the same FormIDs in
+    FO4, but a form parameter was checked against the form map only, which
+    has no player base: no line testing `GetIsID Player` or `IsOwner Player`
+    ever built (90 + 14 in the preflight, mostly HELLOs FNV says only to the
+    player, `Target GetIsID Player == 1`; Fallout4.esm has 56 such lines).
+    `conditions.unmapped_form`, now the one copy of that check
+    (`say_topics` and `dialogue.unconvertible` had one each), takes them as
+    they are.
+  - A test of an objective its built quest does not author reads 0, as in
+    FNV (`VFreeformCampGolf` lines test objectives 30 and 50, which it lacks).
+    `quest.objective_globals` records each built quest's authored indexes
+    under `(conditions.AUTHORED, quest)`; a form map without that key (the
+    package one) settles nothing.
+  - GetIsCurrentPackage converts: the dialogue form map holds the packages
+    written (`cell._form_map`), and one the build does not write reads 0
+    (`ABSENT_ZERO`), as no actor can run it. No line testing it had built.
+  - IsInList's form list is made on demand like an item test's
+    (`condition_forms.ITEM_TESTS`), empty when a script fills it
+    (`BoomerKidGiftList`); 207 lines in the build log were left out by it.
+  - Measured from the preflight: 69 lines lose their only blocker, about 46
+    more if their quest variable tests convert. Still out: CMNY money and
+    casino chips (GetItemCount; no caravan or casino system yet), Lily's
+    child-race tests (FNV's ethnic races have no FO4 counterpart),
+    GetDisposition (no FO4 function), `GetCasinoWinningStage`.
+  - The 92 "topic in no scene that starts" lines are the same losses one
+    step on. Every one sits behind a line its condition left out (Mrs.
+    Weathers' `00136DFA`, GetItemCount; Cass's `0015C795`, IsSpellTarget),
+    and the scene of that line's Choices is built with nothing to start
+    it. 58 of them are behind the blockers above.
 - *Quest conditions.* An FNV quest's own conditions gate all its dialogue
   (vDialogueEDE: `GetIsID` ED-E; Doctors: DoctorsDialogueFaction, not Doc
   Mitchell's voice type). `say_topics.with_quest` ANDs them into each line,
@@ -714,7 +821,7 @@ fourth (2026-10-31):
   one most lines share (`conversation.one_each`): looser than the full
   spread, but false whenever no line could pass.
 
-<a id="blank-choices"></a>**Blank choices (fixed 2026-10-24, not yet played).** On the whole
+<a id="blank-choices"></a>**Blank choices (2026-10-24; diagnosis corrected 2026-11-01, below).** On the whole
 map, Cliff Briscoe offered one choice reading "dialogueentry" (FO4's
 text for a choice with no prompt) and Manny Vargas an empty one. A
 choice is a player line with the prompt and the answers' conditions
@@ -759,6 +866,40 @@ begins, the script stops the GREETING scene if it is playing, then calls
 `TES4Polyfill.StartConversation`, which forces the speaker into the Speaker
 alias and starts the scene, as the intercom's path does. A greeting step
 placed past a scene's first phase keeps TSCE. Not yet played.
+
+*Force greets a quest script names (2026-11-02; in the 2026-11-05 build, not played).*
+The greeting takes the force greets' topics (`Packages.topics`) when it is
+built, but a Dialogue package that only a quest script or stage fragment
+names (`AddScriptPackage`) was written when that property filled, with
+the quest record, after the greeting. Its topic's lines never joined the
+greeting: Vikki and Vance's floor manager (4 lines), Jack's lesson (2, and
+the 4 its Choices lead to), Sarah's tour start, Lt. Markland's training.
+`Packages.named_by_quests` now makes those packages first.
+
+<a id="shared-infos"></a>**Shared infos (2026-11-02; in the 2026-11-05 build, not played).** An FO3/FNV
+DIAL lists, under each of its quests (QSTI), lines of other topics it also
+answers with: INFC (the INFO) and INFX (its place in the topic's list),
+xEdit's "Shared Infos". The export dropped them. In FalloutNV.esm there are
+2,607 such links, and 1,738 topics have no lines of their own, only shared
+ones. Each line belongs to the borrowing quest itself, and 1,007 of the 1,033
+lines were built under their own topic. The build lost the **player's
+option**, though: a Choice of such a topic had no line in the Hub, so the menu
+dropped it (readiness "choice without a line": 1,624 topics, 4,070
+placements). The export now dumps `SharedInfo[i].Quest`, `.Info` and
+`.Index` (`dialog_misc._emit_shared_infos`); only DIAL.txt changed, every
+other line identical. The Hub (`conversation.shared_lines`) adds, after the
+built quests' own lines, a copy of each shared line a player topic (Topic
+type, not GREETING) borrows for a built quest: its ParentDIAL is the
+borrowing topic and its Hub key `<INFO> via <topic>`, so the option shows the
+borrowing topic's prompt (2,495 of the 2,607 lines have none of their own)
+and answers with the line, its voice, fragments and Say Once mark. A copy's
+FormID owner is `INFO <line> 1 via <topic>` (`say_topics.SHARED`), so its
+count never meets the line's own copies: 4 shared lines hold bare
+`INFO <line> N` ledger keys an ordinary copy could have taken over. INFX is
+dumped but unused: shared lines follow a topic's own, in file order.
+Measured on the 2026-11-02 09:20 build: 2,306 copies give 1,854 topics lines,
+which answers 1,624 of its 1,686 unanswered Choice topics (4,074 of 4,233
+placements).
 
 <a id="one-option-per-topic"></a>**One option per topic (built 2026-10-26; Jason Bright's pair played 2026-10-26, Doc Mitchell's not yet).** FNV
 shows a topic once, with the prompt of its first passing line. The build
@@ -962,6 +1103,34 @@ the tab, filling its rows each time it shows
 ([fo4_pipboy_tabs.md](fo4_pipboy_tabs.md#how)), so that no longer
 applies.
 
+<a id="reputation-messages"></a>**What a change shows (2026-11-04, after
+play: no message after Ghost Town Gunfight; not yet played).** FalloutNV.exe's
+reputation change (0x615730, GOG) does two things.
+- **Every change:** a 2 s HUD message, `"%s\n%s"` of the reputation's name
+  and `sRepPositiveGain` / `sRepPositiveLoss` / `sRepNegativeGain` /
+  `sRepNegativeLoss`. FalloutNV.esm sets these to "Fame Gained!", "Fame
+  Reduced", "Infamy Gained!" and "Infamy Reduced".
+- **A title change:** a message box (0x6155f0) with the new title and its
+  description and an OK button. It plays `sRepChangePosSound`
+  (UIRepGood) after a fame change and `sRepChangeNegSound` (UIRepBad)
+  after an infamy change. While a menu is open it waits until the menu
+  closes.
+
+The FO4 build:
+- `TES4_Reputation.Set` (an override) hands the change to `Announce`, off
+  the caller's stack. It shows `Debug.Notification("<name>: <text>")`.
+  On a title change, once no menu or dialogue is open, it plays the sound
+  and shows `Debug.MessageBox("<name>\n<title>")`.
+- Its data sits on the REPUTATION tab's quest (`F3NV_ReputationTab`,
+  extending F3NV_PipboyTab). The titles are the tab's `Values`, the four
+  texts come from FalloutNV.esm's settings, and the two SOUNs are
+  converted by `Sounds.descriptor`.
+- Each reputation's list holds that quest at slot 8; the name is its page
+  actor value's (slot 6).
+- Drift: the box shows no description. FalloutNV.esm sets one of the 16
+  (`sRepTitlePosTwoNegThreeDesc`); the rest are FalloutNV.exe defaults,
+  which the export does not have. The HUD line has no icon.
+
 <a id="standings"></a>**Karma and infamy from kills and crimes (built
 2026-10-22; kill karma played 2026-10-22: Powder Ganger kills raised karma).** `spike/standings.py`. FNV's engine scores
 these itself. FalloutNV.exe's rules were read for the Skyrim build's
@@ -1064,7 +1233,18 @@ such ([drift](fo4_drift.md#candidates)):
 `spike/challenges.py`, `F3NV_Challenges`, `F3NV_ChallengesPlayer`. FNV's
 engine counts its 105 challenges (CHAL) itself; on FO4 a start-game quest
 does, and they show on a CHALLENGES tab on STAT after KARMA
-([tabs](fo4_pipboy_tabs.md#data)).
+([tabs](fo4_pipboy_tabs.md#data)). Every plugin's challenges are its own
+(2026-11-02, [why](fo4_condition.md#sources)): `F3NV_ChallengeSource` holds
+one plugin's rows and does their counting, on the game's quest and on a DLC's
+`FNV_Challenges_<plugin>`. As it starts it adds itself to
+`FNV_ChallengeSources`. `F3NV_Challenges` tracks the stats and hands each
+event to every source. A row's stat group is its index in `STAT_GROUPS`, one
+fixed table, so every plugin numbers alike. A DLC's source also adds its
+rows and state globals to the game's tab lists (`FNV_ChallengesRows`,
+`FNV_ChallengesStates`) as it starts, so every challenge shows on the one
+CHALLENGES tab, as in FNV. The F3NV DLL's `SetTab` reads a list's
+script-added entries after its authored ones (`pages.cpp` `ListIds`: F4SE's
+`BGSListForm::tempForms`); with no DLC the game's tab is as before.
 - **The record.** DATA is type, threshold, flags (start disabled,
   recurring, show zero progress), interval (a progress message every
   so many), then two u16 and a u32 whose meaning depends on the type; SNAM
@@ -1166,7 +1346,7 @@ export keeps rank numbers but not their titles).
   unused in FO4.
 - DATA: FNV's two flag bytes become FO4's u32: hidden (`0x1`), special
   combat (`0x2`), track crime (`0x40`). Evil (karma) and Allow Sell
-  have no FO4 bit; vendors come with merchants (step 3).
+  have no FO4 bit; vendors get their own factions ([vendors](#vendors)).
 - FO4 requires crime values (CRVA) and vendor values (VENV). Vanilla's 699
   factions: 556 use "arrest, attack on sight, no gold", while
   crime-tracking ones mostly use "attack on sight, no arrest" (123), and
@@ -1208,11 +1388,11 @@ Both are copied from FalloutNV.esm by `spike/placement.py`, like the room
 fields.
 - **Ownership.** FNV's XOWN is the owner's FormID (4 bytes); FO4's is 12
   (owner, 4 unused, a No Crime byte, 3 unused), as all 5,909 of vanilla's.
-  The owner maps to its converted faction or NPC (today only the stand-in
-  clones); an owner not converted is dropped with its rank (XRNK, the same
+  The owner maps to its converted faction or NPC (at first only the
+  stand-in clones; FNV's NPCs since [NPCs](#npcs)); an owner not converted is dropped with its rank (XRNK, the same
   in both). Interior cells take their owner too (`pack_cell`). Goodsprings
   to Primm: 74 of 87 owned references and 11 of 14 owned cells; the rest
-  are NPCs' (step 3).
+  were NPCs', owned once [NPCs](#npcs) were built.
 - **Map markers.** Both games mark one with an empty XMRK, then FNAM flags
   (visible, can travel, "show all" hidden: the same bits), FULL and a
   2-byte TNAM whose first byte is the type. FNV's types map to FO4's of
@@ -1248,11 +1428,12 @@ on them. `spike/locations.py` builds them from what FNV authored:
   maximum level are 0. Cells keep their XEZN (84 in FalloutNV.esm, all
   interiors; Bison Steve's and Vikki and Vance's in the region).
 
-<a id="npcs"></a>**NPCs (step 3, in progress).** `spike/npcs.py` replaces the
+<a id="npcs"></a>**NPCs (step 3; first played 2026-10-12, whole map built 2026-10-24).** `spike/npcs.py` replaces the
 spike's stand-in actors with every FNV NPC placed in the built cells.
 - **The body.** Each FNV NPC base becomes a copy of a vanilla NPC for its
   race and sex (the replacement table's `_rules.body`: DocWeathers, DoctorAmari, the ghouls Jones and
-  Holly), keeping that NPC's outfit, class and voice for now. FNV's name,
+  Holly), keeping that NPC's class (its outfit and voice are replaced: below
+  and [voice types](#voice-types)). FNV's name,
   factions (SNAM with rank, through the converted factions), AI packages
   and script replace the copy's; its factions and crime faction are left
   out.
@@ -1264,10 +1445,12 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
   81 of the region's 84 NPCs wear FNV's clothes and 46 weapons convert
   (3 skipped). Caravan cards and money (CCRD, CMNY: 342 entries) wait for
   the Caravan system.
-- **The face.** A male human takes FNV's face fitted to FO4's sculpt
+- **The face.** A human takes FNV's face fitted to FO4's sculpt
   regions, tints and head parts, as Doc's was. Each fit is cached
-  (work_cache), since the tint fit takes about 8 s. The fits are calibrated
-  for male humans only, so women and ghouls keep their body's face.
+  (work_cache), since the tint fit takes about 8 s. The fits were
+  calibrated for male humans first, female ones on 2026-10-12
+  ([published face fits](#published-face-fits)); ghouls keep their body's
+  face.
 - **Templates.** FNV's template flags (ACBS) are followed per part:
   traits (race, face, sex), factions, AI packages, script. An NPC whose
   traits come from a leveled list (LVLN) is a template actor on the list's
@@ -1339,6 +1522,25 @@ the first. `RemoveScriptPackage` takes it away.
   complete" at the next re-evaluation. Here it stays until replaced or
   removed: a Travel package's actor keeps standing at its destination
   until the script moves it on.
+- <a id="script-package-release"></a>**Searching every alias (2026-11-04,
+  after play; not yet played).** `Release` takes an actor the quest has no
+  record of out of every package alias, one `RemoveRef` per alias; each
+  call on another object waits a frame, so the game's 449 aliases cost
+  about 10 s. VMS16 stage 100 removes the script packages of four
+  Goodsprings settlers who have none, then gives Ringo his thank-you talk
+  and ends Sunny's gunfight travel: those lines ran 40 s late (293.4 s,
+  then 333.1 s), and both kept walking their gunfight travel routes in
+  the meantime. `Talked`, which every clicked talk runs as it opens
+  (F3NV_Greeting), likewise checked each of the 114 Dialogue packages'
+  aliases (`Find`) for a speaker with none, about 2 s before the talk
+  started. Now every package alias carries the quest's keyword
+  (`F3NV_InScriptPackage`, KWDA; 34 of Fallout4.esm's collection aliases
+  carry keywords), the script's `InPackage`: an actor without it is in no
+  package alias, and `Release` and `TalkedHere` return at once.
+  F3NV_Greeting also starts the talk before it ends the script package.
+  The hold aliases (#greet-hold) are now Optional: `Unhold`'s `Clear()`
+  failed on them ("Cannot clear a non-optional alias"), so Ringo stayed
+  held at his placed spot.
 
 <a id="overlay-decals"></a>**Overlays as decals (built 2026-10-16, played 2026-10-21).**
 FNV's graffiti, posters, stains, grave text and blood splats are blended,
@@ -1438,9 +1640,10 @@ FNV's distance (PTDT count; 0 keeps the template's radius). Its fragments
 built as a script's StartConversation is) when the actor arrives. They do so
 once per package start, as FO4 repeats a current package's OnEnd. These had
 been left out ("dialogue not with the player"). The build log
-counts each left-out package by reason. In the region 45 of 110 convert;
-49 wait on quests not built (VFreeformGoodsprings, VMS16, nVPrimmDeputyConv:
-Trudy, Joe Cobb, Ringo, Sunny, McGee).
+counts each left-out package by reason. In the first region build 45 of
+110 converted; 49 waited on quests not built (VFreeformGoodsprings, VMS16,
+nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
+[quest scope](#quest-scope) now builds.
 - **The month.** Form version 122+ records store PSDT's month one higher
   (xEdit `wbPackagePSDTMonthValueToStr`): Any is 0, as in all vanilla
   packages of that version; −1 in older ones. Writing FNV's −1 made every
@@ -1506,6 +1709,20 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
     trigger is now near the player (always met), its radius FNV's Activate
     Distance, or 150 (iActivatePickLength) where that is 0. Vanilla's own
     force greets use moving triggers too (21 near self of 217).
+  - <a id="greet-wait"></a>*Wait where the actor is (2026-11-04, not yet
+    played).* The same packages kept their NPC Wait Location (the first
+    input) at the template's near package start location. Ringo's last
+    line runs `SunnyRef.MoveTo SunnySpawnMarker`, then
+    `AddScriptPackage SunnyTriggerGunfightDialoguePackage`; the package
+    started (207.56 s) before she loaded inside the gas station (207.69 s),
+    so its start location was outside. Her first greet inside opened no
+    talk (initiateStart at 214.09 s with no greeting line), and the force
+    greet walked her back out to that spot, where she greeted the player.
+    FNV sends such an actor for its target at once, so the wait location
+    of an FNV Dialogue package with no PLDT is now near self, radius 0
+    (`Packages._at`), as 8 of Fallout4.esm's 217 force greets set it. Why
+    her first greet opened nothing is not known: the trace shows no starter
+    line beginning.
 - <a id="greet-hold"></a>**Held at their placed spot until the script's
   greet (built 2026-11-01, not yet played).** In FNV, Ringo stands at his
   editor spot facing the gas station door when the player walks in; on
@@ -1543,6 +1760,12 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
     actor at that distance but starts the conversation only once the
     player is in talking range. FNV pulls the player into dialogue from
     the activate distance; FO4 does not, so the template's 200 stays.
+    *Repeated and fixed 2026-11-04.* FNV's count came back as the greet
+    distance (so Sunny would greet from FNV's 512), and the trooper again
+    ran up and stopped (played). The distance is now FNV's count capped at
+    225 (`packages.TALK_REACH`: 122 of vanilla's 217 force greets; FO4's
+    `fAIInDialogueModeWithPlayerDistance` is 250, `fAIDialogueDistance`
+    170). Not yet played.
 - <a id="hit-proof"></a>**Actors a script keeps alive (built 2026-10-19,
   played 2026-10-21).** Six FNV scripts reset their actor's health in an
   OnHit block (`ResetHealth`), used by 7 actors: Sunny's Well 3 geckos and
@@ -1630,6 +1853,22 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   meaning; Head-track stays on as in the instance. The packages are often
   given by script (`AddScriptPackage`), which already builds a package a
   script property names (`Packages.named`).
+- <a id="combat-style-export"></a>**The export had no combat style values
+  (found 2026-11-04 after play; exported, in the 2026-11-05 build, not
+  played).** A Goodsprings
+  Cave coyote fled and came back. Every one of the 84 FalloutNV.esm styles
+  (and the DLCs' 48) exported with its EditorID alone: the Oblivion CSTY
+  lines are dropped for FO3/FNV (`superseded_keys`, as FNV lays CSTD out
+  differently) and nothing wrote FNV's layout. So every converted style came
+  from zeros: Offensive and Defensive 0.0 (FO4's least), Avoid Threat at
+  FO4's 0.8. `tes4_export/record_types/combat_style_falloutnv.py` now
+  writes CSTD (Oblivion's fields up to byte 80, then FNV's 16-bit flags as
+  `CSTD.FalloutFlags`, acrobatic dodge, rushing attack chance and distance),
+  CSAD and CSSD (xEdit wbDefinitionsFNV). The flags take their own key
+  because the Skyrim side reads `CSTD.Flags` with Oblivion's meanings.
+  CSCoyote now converts to Offensive 0.49, Defensive 0.37, Avoid Threat 0
+  (FNV's Ignore Threats). Re-exported with `--types CSTY` for FalloutNV.esm
+  and the four DLCs that have styles; Fallout3.esm's export is unchanged.
 - <a id="combat-styles"></a>**Combat styles (built 2026-10-25, not yet
   played; replaced the 2026-10-19 vanilla-style-by-weapon-restriction
   mapping).** `spike/combat_styles.py`: each FNV CSTY becomes its own FO4
@@ -1760,7 +1999,8 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
     rejects; entries uniform within each kind, as FNV's variants are.
   - **Not carried:** FNV's power-attack direction weights (FO4's numbered
     events name no direction), the left/right foot rule, rushing attack
-    chance and reach (the next step, with movement speeds), FO4-only front
+    chance and reach ([creature speed](#creature-speed) did not take
+    them up), FO4-only front
     attacks that look like nothing FNV has (the deathclaw's horn ram and
     tail combo pass every test). Unverified: whether converted creatures
     have action points for power attacks.
@@ -1829,8 +2069,8 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
     (`npcs._packages`, `source` reading creature records): FNV's template
     flags left Jacobstown's nightstalker its own sandbox package (349, no
     Use AI Packages), which the creature path dropped.
-- <a id="creature-speed"></a>**Creature speed (built 2026-10-25, not yet
-  built into a plugin or played).** `spike/creature_speed.py`: a converted
+- <a id="creature-speed"></a>**Creature speed (built 2026-10-25; in the
+  2026-11-05 build, not played).** `spike/creature_speed.py`: a converted
   creature's own SpeedMult (PRPS, AVIF 0x2DA; 3,015 vanilla NPCs list it)
   makes its FO4 forward run FNV's.
   - **FNV's side** (FalloutNV.exe; a subagent's trace, the run formula
@@ -1925,6 +2165,23 @@ Trudy, Joe Cobb, Ringo, Sunny, McGee).
   become FO4 floor beds (`AnimFurnFloorBedAnims`, `MarkerSleep01.nif`),
   their marker facing along the mattress as vanilla's (heading 0 where a
   bed's is π/2).
+  - <a id="floor-bed-sides"></a>*Getting up on the open side (2026-11-04,
+    after play; in the 2026-11-05 build, not played).* Lt. Hayes rose from a Primm tent mattress
+    into the tent wall. Our floor beds kept the bed's side: the FNV `L`
+    mattress (`BedMattress01FloorL`) had its marker at x −20 entered from the
+    Left, the `R` one at +20 from the Right. Every vanilla floor bed pairs
+    them the other way: `NpcBedGroundSleep01` and its workshop and double
+    copies at x −20 with Right, `WorkshopNpcBedGroundSleep02NoEdit` at +20
+    with Left (10 vanilla floor beds; the rest are centred, both sides).
+    `furniture.floor_beds` now sets the side from where the marker lies
+    across its turned heading: Right left of the middle, Left right of it,
+    both within 5 units (`FLOOR_MIDDLE`). Of FNV's 10 floor bed markers,
+    6 had the wrong side (both mattresses, both super mutant beds, both
+    bedrolls), `FloorSleepL` and its Dead Money copy were already right, and
+    `OasisBed01` and the dying soldier are centred and now take both. A
+    plain swap would have broken the two `FloorSleepL`. Read as vanilla
+    pairs them, the old sides of the Primm tent's three mattresses led out
+    of the tent's bounds (into its walls) and the new ones lead into it.
 
 <a id="voice-types"></a>**Voice types (played 2026-10-12: NPCs speak in
 their FNV voices).** `spike/voice_types.py` writes each FNV voice type an
@@ -1936,7 +2193,8 @@ found under its own voice type; `cell._voice` converts the built lines for
 every such type (region: 21 types, 610 files; Doc's 197 moved from
 `NPCMDocWeathers`). Every other folder in the plugin's voice directory is
 swept as stale. FO4's generic barks are tied to vanilla voice types, so
-converted NPCs speak none until FNV's own arrive with its dialogue.
+converted NPCs speak FNV's own barks instead ([barks](#barks), built
+2026-10-31).
 
 **Two mesh faults found at this size.**
 - `traps/beartrap01.nif` is the only mesh in the region with a Havok
@@ -2107,7 +2365,7 @@ ambient 87, 105, 138) and differ only in fog.
   - FO4: vanilla uses it on 8,456 lights.
 - Dropping `XEMI` left those lights on their pale base colors. It now
   points at the emittance light's FO4 LIGH.
-- **Region emittance (daylight; in test).** FO4's 7,797 sunlight-region
+- **Region emittance (daylight; built, not played).** FO4's 7,797 sunlight-region
   lights point at `FXLightRegionSunlightWhite` (or its bounce variant).
   That region has one weather, `FXWthrSunlightWhite`, which holds only a
   Sunlight and an Effect Lighting color per time of day.
@@ -2203,7 +2461,8 @@ the texture's presence is what turns it on.
 - The converter kept a mesh's animation only when every channel moved a
   node, so any effect channel dropped the whole animation.
 - It now keeps every node motion and every shader channel FO4 has
-  (`nif/shader_anim.py`), and leaves out the rest (particles, for now).
+  (`nif/shader_anim.py`), and leaves out the rest (particles were added
+  later: [particles](#particles)).
   FO4 drives the same values on the shape's shader property, as vanilla
   `sentrybotfacelight.nif` and `ashpile01.nif` do: a
   `BS{Effect,Lighting}ShaderProperty{Float,Color}Controller` on the
@@ -2307,7 +2566,7 @@ dust, and drew nothing; the whirlwind's dust puffs went missing.
   crashed entering Goodsprings looking it up
   (`NiPSysModifierActiveCtlr::InterpTargetIsCorrectType`, null modifier).
 
-<a id="parents"></a>**Enable and activate parents (in test).** FNV's `XESP` (enable
+<a id="parents"></a>**Enable and activate parents (built; fallback fixed 2026-10-25, not played).** FNV's `XESP` (enable
 parent: reference, flags) and `XAPD`/`XAPR` (parent-activate-only flag,
 then reference and delay, repeating) have FO4's layout. They are copied
 from FalloutNV.esm like the room fields.
@@ -2323,8 +2582,8 @@ from FalloutNV.esm like the room fields.
   10 enabled. Actor-to-actor parents are still dropped (the actors' ids
   are not in the map yet); those children now take the same fallback.
 - FalloutNV.esm has 2,484 references and 647 actors with an enable
-  parent, and 216 references with activate parents. Actors (here only
-  the stand-in speakers) do not carry theirs yet.
+  parent, and 216 references with activate parents. Placed actors do not
+  carry theirs yet.
 
 <a id="lighting-colors"></a>**Cell lighting colors stay as authored** (Vikki and Vance washed
 out against FNV).
@@ -2346,7 +2605,8 @@ out against FNV).
   little less fog than in FNV. In the casino, the mid-ground's contrast
   was half FNV's (std. dev. 10–13 against 19–24) with blacks lifted to 23;
   the haze was gone in play after the change. Doc's house stays foggy
-  because its lights come out dimmer than FNV's (next step).
+  because its lights came out dimmer than FNV's (fixed by
+  [emittance](#emittance)).
 
 <a id="color-drift"></a>**Colour drift from FNV (parked, noted 2026-10-11).** Side by side,
 the converted region reads less warm and yellow than FNV, and more
@@ -2367,10 +2627,12 @@ player option to match FNV's look more closely.
   not the cause: where we draw the road above 0.5 (1,390 vertices), FNV
   paints it at 0.75 and we write 0.79. A colour-tinted test build showed
   the path is `LDirtPathWasteland01`; ground smoothness at vanilla's 0.17
-  changed nothing. The exterior uses the Commonwealth's climate (and so
-  FO4's weather imagespaces: eye adaptation, contrast, LUT), not FNV's;
-  interiors get FNV's grading. Converting the exterior weathers and
-  imagespaces is the first thing to try.
+  changed nothing. The exterior then used the Commonwealth's climate (and
+  so FO4's weather imagespaces: eye adaptation, contrast, LUT), not FNV's;
+  interiors get FNV's grading. The weathers are FNV's since
+  ([weathers](#weathers), [region weather](#region-weather)), so the road
+  needs a re-check; FNV's weather imagespace modifiers are still not
+  converted.
 - **Reference: Project Mojave** (`mods/Project Mojave/ProjectMojave.esm`,
   master Fallout4.esm). Its Mojave worldspace has its own climate
   (`00DCMojaveClimate`: `00DCNVWastelandClear`, `00DCOrangeColouredSky01`).
@@ -2498,8 +2760,8 @@ could not be taken).
   `pack_keym`, laid out as 134 of vanilla's 177 keys (preview
   KeyChainsAlt, the most common), made by `Items` like a misc item.
 
-<a id="lock-script"></a>**Skill gates and the lock script (built 2026-10-22,
-not yet played).** FNV opens a lock of level L (0 to 100) at Lockpick L and
+<a id="lock-script"></a>**Skill gates and the lock script (built 2026-10-22; a locked
+terminal played 2026-11-05 and fixed below, not replayed; locks not played).** FNV opens a lock of level L (0 to 100) at Lockpick L and
 a terminal at Science L. FO4's lockpicking and hacking keep their own
 minigames; their tiers are held by the hidden `FNV_SkillGates` perk
 ([fo4_perks.md](fo4_perks.md#skill-gates)): Advanced (50), Expert (75) and
@@ -2525,9 +2787,99 @@ minigame. FNV has no leveled locks (0 of 426), so the live lock level is
 FNV's. The note is whatever the note converted to: a paper note (BOOK) or a
 holotape (NOTE), both inventory items.
 
+**Locked terminals threw the player out (fixed 2026-11-05).** At The Bison
+Steve Hotel's terminal (`DefaultUnlockTermDESK1Easy`, Easy), the player
+started to use it and stood back up. The record, the mesh
+(`terminaldesk01terminal.nif`, byte-identical to the 2026-10-25 build) and
+the terminal's own script had not changed: this was the first locked
+terminal played. A terminal is used in two steps. The player's activation
+walks them into it like furniture, then the game activates the terminal
+again to open the hacking or terminal menu. `Activate(ref, true)` let the
+first step past the block, but the second met it, so the player was sent
+out. No vanilla script passes a terminal's activation on this way; vanilla
+uses that pattern on chairs that open their own menu (`HaircutScript`,
+`SurgeonScript`), traps and doors. Now a terminal is unblocked and activated
+normally (the repeated `OnActivate` returns at once, as it is no longer
+blocked). It is blocked again in `OnExitFurniture` while still locked; a
+successful hack unblocks it through `OnLockStateChanged`. Locks keep
+`Activate(ref, true)`.
+
 Drift: a password note opens the terminal on activation rather than showing
 FNV's password menu entry; an Easy lock shows FO4's Novice prompt and is
 refused by a notification, not greyed out.
+
+<a id="message-buttons"></a>**Message box buttons keep their conditions (built 2026-11-05, not yet
+played).** The Bison Steve Hotel's broken elevator asks to be repaired
+(`BisonElevatorMessage`, "Repair 35 or higher required"). The player, below
+Repair 35, chose Repair Elevator and the elevator was repaired. Deputy Beagle
+then took it to the second floor. In FalloutNV.esm the button's ITXT is
+followed by a CTDA, GetActorValue Repair (39) >= 35, which hides it below
+that. The export kept only button texts, so every button showed. Now
+`export_MESSAGE` writes each button's CTDAs as
+`Button[i].Condition[j].Raw` by position. The build converts them with
+`say_topics.conditions_of` against the readables' form map, and `pack_mesg`
+writes them after the button's ITXT, FO4's 'Menu Button' layout (xEdit
+`wbRecord(MESG)`). A hidden button keeps its index, so the scripts reading the
+button pressed are unchanged.
+
+Scripts make their messages before the dialogue's form map exists (mirror
+globals for quest variables, objectives, reputation and karma), so the first
+build left 41 FalloutNV.esm buttons ungated. A message with gated buttons is
+now written once that map is known, beside the perks (`cell._rules`,
+`ObjectScripts.write_gated_messages`), with the items and notes its
+conditions name made by `condition_forms`. One requested later is written at
+once. Two cases are settled first (`say_topics.settled_by`):
+- `IsHardcore` is off, as for consumables, so Dead Money's autodoc "cure
+  exhaustion" is hidden.
+- A button whose conditions never pass in this build (`never_true`: they test
+  a form it lacks) gets `NEVER_SHOWN`, a test that is always false (the
+  player is not the player's base).
+
+A button whose conditions still cannot convert shows always, counted as
+`message button not gated: <function> (<message>)`. Left on the 2026-11-05
+whole build, 9 of FalloutNV.esm's 136:
+- 6 on the NCR emergency radio (`VEFR01NCREmergencyRadioMSG`):
+  `PlayerInRegion vMapCanSupportPCHere`, a region the build does not convert.
+- 3 on the trap computer's grenade rearm (`TrapComputerRearmGrenadeTypeMsg`):
+  `GetItemCount` of the frag, pulse and plasma grenades, which converted as
+  statics in that build (thrown weapons are weapons since 2026-11-06, not
+  deployed or played: [thrown weapons](fo4_thrown_weapons.md#built)). Gated buttons
+(conditions): FalloutNV.esm 136 (259), Dead Money 18 (28), Honest Hearts 11
+(14), Old World Blues 47 (100), Lonesome Road 14 (18). Gun Runners' Arsenal and
+the courier packs have none. `say_topics.conditions_under` picks one button's
+or terminal item's conditions out of the record (terminals used their own
+copy).
+
+<a id="destroyed-doors"></a>**A destroyed door blocks the way (hotfixed 2026-11-05, not yet
+played).** FNV's destroyed door cannot be used, by the player or by NPCs'
+paths: the hotel elevator's two load doors are destroyed on load by
+`GenericDestroyOnLoad` triggers (`linkedref.SetDestroyed 1`) until the player
+repairs them. FO4's `SetDestroyed` sets a flag a door ignores, so the elevator
+stayed usable. The FO4 `TES4Polyfill.SetDestroyed` now also locks a destroyed
+door that is unlocked at level 254, Inaccessible (xEdit's FO4 lock levels),
+and unlocks a door locked at that level when it is no longer destroyed. FNV
+locks run 0 to 100 and 255, so 254 marks this lock alone.
+
+<a id="restrained"></a>**Freeing a restrained actor (hotfixed 2026-11-05, not yet played).**
+Deputy Beagle stayed sitting on the floor of The Bison Steve Hotel after the
+player freed him. His trace shows the freeing line
+(`000E501C`) ran to its end: `BeagleFollow` and `BeagleCaptured` went to 1
+and stage 25 was set. His records (the three packages, his base, his seat
+`FFCaptiveMarker`, the quest and its aliases) and his scripts match the
+October builds. The one gap found is order: FNV's line re-evaluates first
+(`PrimmDeputyRef.evp`), then unrestrains (`setrestrained 0`), so nothing
+re-evaluates his packages once he is free. Vanilla FO4 always frees a
+captive the other way round (`DefaultCaptiveActor`,
+`DefaultCaptiveAlias`, `REPrisonerScript`: `SetRestrained(false)`, then
+`EvaluatePackage()`). `setrestrained` now converts to
+`TES4Polyfill.Restrain`, which sets FO4's restrained state and, when the
+state changed, re-evaluates the actor's packages. 61 of the 237 converted
+calls sit in GameMode blocks (`OnTimer`) that re-assert the state every pass,
+such as the crucified victims'. A call that changes nothing re-evaluates
+nothing, so they are not disturbed. While tracing, each change logs
+`restrained` with the package chosen and the sit state, so a failure still
+shows its cause. The mechanism is not confirmed; if he still
+sits, the `restrained` line names the package he is running.
 
 <a id="readables"></a>**Books, notes and terminals (built 2026-10-14, played 2026-10-21).**
 They were statics of their meshes. `spike/readables.py` now makes each
@@ -2895,6 +3247,221 @@ that is an actor (form type 0x41), else on the player (`g_player`,
 unchanged; `SetSex` still calls it only when the sex differs. The script
 compiler no longer reads Garden of Eden's sources.
 
+## <a id="record-compression"></a>Land and navmesh stored compressed (2026-11-04, not yet built)
+
+Load times grew with the plugin: FalloutNV.esm reached 480 MB (Fallout4.esm:
+331 MB), and nothing in it was compressed. Fallout4.esm stores every LAND
+(37,019 of 37,020) and every NAVM (7,894) compressed: flag 0x40000, the body's
+length (u32), then zlib at level 9 (header 78 DA). Ours had 29,180 LAND
+(244 MB) and 4,715 NAVM (25 MB) raw.
+
+`fo4_import/base/record_compression.py` compresses them as the writer writes
+the file (`FO4PluginWriter._finish_groups`), after every in-memory step that
+reads or compares records. Readers already decompress
+(`tes5_reader.decompress`: Fallout4.esm's own records); `clear_dangling`,
+which patches the written file's VMADs in place, skips compressed records.
+
+Measured on the 2026-11-04 plugin, compressing a copy:
+- **Size:** 480 MB to 379 MB; the 33,895 records go from 268 MB to 167 MB.
+  Our LAND compresses less than vanilla's (vanilla 15.6 KB to 8.8 KB).
+- **Time added to a build:** 1.6 s (bodies deflated on threads, as zlib
+  releases the GIL), with a build running beside it.
+- **Correctness:** all 738,901 records read back byte-identical.
+
+zlib is deterministic, so the plugin stays byte-reproducible.
+
+## <a id="menu-speakers"></a>A menu offers only what its speakers can say (2026-11-04, not yet built)
+
+The dialogue lines were 146 MB of the 480 MB plugin: 241,104 INFO (FNV has
+23,247; Fallout4.esm 78,087), 580 bytes each against vanilla's 161, and 92 MB of
+that was 2.43 million conditions (vanilla: under one per line).
+- **The copies are the design.** XDI needs each menu to hold its options and
+  answers, so a line FNV reuses in many Choices lists is copied into each:
+  4,399 menus against FNV's 4,546 distinct Choices lists.
+- **The conditions were not.** `Conversations._option` put every Hub line of
+  a menu's topics into every menu, whichever speaker the menu belongs to.
+  GOODBYE (`000000D4`) has variants from every quest ("Goodbye.",
+  `<Log Off>`, generic voice-type farewells); each later variant carries the
+  negation of every earlier one (`_earlier`, FNV's first passing line), so
+  41,538 Goodbye options in 4,399 menus held 1,537,441 conditions, 63% of
+  all, about 37 each. Their voice-type tests alone made 906,355 GetIsVoiceType
+  conditions, against FNV's 16,833.
+- **The fix.** `menu_speakers` records, per Choices menu, the FNV actors the
+  lines leading to it name (as `joined_steps` finds joins), or None when a
+  line names no one. `_option` keeps only the lines one of them can say by
+  its fixed facts (`_can_say`: GetIsID, voice type, factions no script
+  changes); the Hub's topic list, said by many, keeps all. A line left out
+  could never pass in that menu, so no option a player could see goes.
+  Counted as `menu lines no speaker of the menu can say`.
+
+## <a id="intense-training"></a>Intense Training (2026-11-04, after play; not yet built)
+
+Taking the perk gave nothing. FNV's perk sets stage 100 + rank on `Generic`
+(000038B2) through a Quest Stage effect. The export reads that one-byte stage
+as two bytes (52581 for 101), but `perks.py` already masks it. Stage 101's
+script is `AddSpecialPoints 1`, which had no row and converted to a TODO
+comment.
+
+Now `AddSpecialPoints n` is the character menu `addspecial`.
+`F3NV_CharacterRules.AddSpecialPoints` shows FalloutHelpers.esl's
+`TES4SpecialPointMessage` (0xB01), one button per SPECIAL stat, once per
+point:
+- A pick below 10 raises that stat's base by 1. Its governed skills rise by
+  2, and on a Luck rise every skill rises by the change in Luck's half,
+  rounded up, as the starting values (`SetSkillBases`) count them.
+- A pick already at 10 shows the box again. FO4 message buttons carry no
+  conditions, and LevelUpMenuEx adds perk and skill points but not SPECIAL
+  ones.
+
+## <a id="fatigue"></a>Fatigue and knockouts (built 2026-11-04, not yet played)
+
+FO3/FNV knock an actor out when its Fatigue drops to 0 or below. Fatigue
+then returns 1 a second (`fFatigueReturnBase` 1, `fFatigueReturnMult` 0)
+toward its base, and the actor gets up once it is above 0. Fallout 4 has no
+Fatigue, and the shared converter wrote it as Skyrim's `Stamina`, which
+Fallout 4 lacks too. So 14 script properties (`TES4AV_Stamina`) were
+unfilled, and every knockout FNV scripts with it did nothing:
+- gas grenades and the Sleepytime dog treat;
+- the boxing gloves, tape and cattle prod;
+- Orris's staged ambush (VMS19);
+- the Legion warehouse in Freeside;
+- Carlyle St. Clair (VMS18);
+- the check for whether Hidden Valley's Legion sniper is out (VMQ03a).
+
+Now:
+- **The helper actor value.** `FalloutHelpers.esl` holds `TES4Fatigue`
+  (`FALLOUT4_HELPER_AVS`, object id 0x821). Its default is 200, an average
+  FNV NPC's: `fAVDNPCFatigueBase` 90, plus Endurance 5 × 20, plus level 1
+  × 10 (`FALLOUT4_HELPER_AV_DEFAULTS`). A read is a plain `GetValue` or
+  `GetBaseValue`.
+- **Writes go through the polyfill** (`commands._fatigue_call`) as
+  `TES4Polyfill.ChangeFatigue(actor, fatigue, op, value)`. The op is 0 for
+  SetAV (the base value), 1 for ModAV, 2 for DamageAV, 3 for RestoreAV and
+  4 for ForceAV.
+- **ForceAV keeps the base.** It sets only the current value, by damaging
+  or restoring the difference. Orris's thugs get up through
+  `ForceAV fatigue -310`, then `SetAV fatigue 280`, then
+  `ForceAV fatigue -1`: base 280, current -1. Treating ForceAV as SetAV
+  would leave them down for good.
+- **The knockout.** At 0 or below, `ChangeFatigue` calls
+  `SetUnconscious(True)` and starts `RecoverFatigue` (no wait). That
+  restores 1 a second while the base is above 0, then wakes the actor. A
+  base at or below 0 keeps the actor down until a script sets or restores
+  Fatigue.
+- **Drift.** Every actor starts at 200, not its own FNV value from
+  Endurance and level.
+- **The boxing gloves, tape and cattle prod** did nothing until 2026-11-06:
+  their scripts name the target through `GetOwnerLastTarget`, which converted
+  to None. Fixed by [weapon hits](#weapon-hits).
+
+### <a id="weapon-hits"></a>Weapon on-hit scripts (built 2026-11-06, not played)
+
+FNV runs a weapon's `OnHit` block when the weapon hits, `GetOwnerLastTarget`
+naming the actor hit. Six weapons have one: the boxing gloves (three),
+the boxing tape and the cattle prod (Fatigue damage, Health on the player),
+and the Zap Gloves (`imod ZapGloveISFX`). The converter made them
+`ObjectReference` scripts registering hits on themselves, so they ran only
+when a dropped weapon was struck, on a target of None.
+
+Fallout 4 sends a weapon no hit; it runs a weapon's object effect on what
+the weapon hits (EITM: 30 vanilla weapons, the Cryolator's
+`EnchCryoFreeze` among them). So on Fallout 4:
+- a script attached only to weapons with an `OnHit` block converts as an
+  effect script: the block is its `ScriptEffectStart`, `GetOwnerLastTarget`
+  its target (`script_convert/weapon_hits.py`);
+- the weapon carries no script; its object effect is an enchantment of one
+  script effect running it, touch-delivered, laid out as `EnchCryoFreeze`
+  (ENIT flags 0x4), EITM before ETYP (`equipment._hit_effect`).
+
+Not converted: the boxing gloves' `GetIsCreatureType 6` (robots take Health
+damage in FNV) is still dropped, so a robot takes the Fatigue damage.
+
+### <a id="ai-procedure"></a>Native reads in script guards (built 2026-11-06, not played)
+
+Three FNV reads dropped out of `&&` guards, so the guard passed early
+([script markers](script_markers.md#native-read-follow-ups)):
+- **`GetCurrentAIProcedure`** (8 Camp Golf package end fragments wait for
+  every Misfit to reach 17, Done; 3 more scripts test 8 Sleep, 21 Get Up and
+  43). Fallout 4 has no procedure read. `TES4Polyfill.AIProcedure` answers
+  17 while the package whose end fragment last ran for the actor is still
+  its current one (Fallout 4 keeps a finished package current;
+  `PackageEndRepeats`, which every converted end fragment calls, records it
+  in the helper quest `F3NV_PackageState`, `FalloutHelpers.esl` 0x902, the
+  oldest of 128 actors giving way); 8 while `GetSleepState` is 3 or 4; 21
+  while `GetSitState` is 4; else -1. A package with no end fragment records
+  nothing, so its actor never reads Done.
+- **`IsLimbGone <n>`** (the giant mantis, Cook-Cook, Nephi, Violet): no row
+  at all before. `TES4Polyfill.LimbGone` maps FNV's body-part numbers
+  (GetHitLocation: 0 Torso to 13 Brain) to Fallout 4's names for
+  `Actor.IsDismembered`, the same names.
+- **`GetTalkedToPC`** in scripts (VMS07's Anders, Arcade's Caesar rant, the
+  Racket lines): reads the `TalkedToPC` helper value
+  ([first-meeting greetings](#talked-to-pc)).
+
+## <a id="const-properties"></a>Form properties are Auto Const (built 2026-11-04, not yet played)
+
+Fallout 4 stores an `Auto` property's value in the save once a script
+instance exists, and loading the save keeps that value over the plugin's.
+So a property a later build fills stayed None in every save that had
+already run the script. The play-test of 2026-11-04 loaded such a save:
+Lonesome Road's `NVDLC04DivideSupport` still failed `GetDeadCount` about
+1,100 times in 5 minutes, although the deployed plugin filled both tunneler
+bases.
+
+The external forms a converted script names (`conv.sc.property_refs`: a
+quest, a faction, a reference, an actor value) are now declared
+`Auto Const` on Fallout 4 (`assemble._declare`). The game reads a Const
+property from the plugin on every load and never saves it, so each fill
+reaches existing saves. A script never assigns these: they name an
+EditorID's form, not a variable. The script's own variables stay `Auto`:
+- value types (Int, Float, Bool) carry `Conditional`, so conditions can
+  read them (GetVMScriptVariable);
+- a Float starts at 0.0, because an unset Float property is None.
+
+## <a id="script-casts"></a>DLC scripts that did not compile (fixed 2026-11-04, not yet played)
+
+Every build until 2026-11-04 compiled all but 16 DLC scripts: 11 in Dead
+Money, 1 in Honest Hearts and 4 in Lonesome Road. Caprica, then FO4's own
+compiler, rejected them, so they did nothing in game. Each was a
+converter gap:
+
+| Scripts | Error | Fix |
+|---|---|---|
+| Dead Money's kitchen and back doors (3), Lonesome Road's wreckage door | `TES4_LastActivator` undefined | A message box's `MenuMode 1001` (`TES4_MessageBoxClosed`) activates for the last activator. That block converts after `events()` has decided whether to record it. `assemble.late_last_activator` now declares the variable and records it first in OnActivate when a later block reads it. |
+| Dead Money's three companion radios | `GetBroadcastState` read as a property | `TES4Polyfill.Get/SetBroadcastState` ([broadcast state](fo4_radio.md#broadcast-state)). |
+| Dead Money's casino switch, Lonesome Road's silo reveal code | a script type cast to `Actor` | A script attached to an NPC and an activator (`NVDLC01RouletteScript`) extends ObjectReference, and Papyrus casts no sibling type. On Fallout 4 a script-typed property becomes an Actor through ObjectReference (`target.script_as_actor`). The cast is at the call site because the property's script type is what lets other scripts read its variables (`KreoRef.EvaluatePackage()`). |
+| Lonesome Road's auto-inject quest and radiation-heal trigger | a Potion cast to `Spell` | FNV casts an ingestible (`CastImmediateOnSelf` on a stimpak). On Fallout 4 the target equips it silently, which applies it, adding one when the actor has none (`commands._potion_cast`). |
+| Dead Money's ghost people | `IsActorRefEssential` undefined | `Actor.IsEssential()` (`commands_falloutnv.is_essential`). |
+| Dead Money's hologram worship trigger | `GetIsCreature` missing | It was left out of the Fallout 4 polyfill as unused. Now it is a Fallout 4 override: no ActorTypeNPC (HumanRace, GhoulRace) and no ActorTypeSuperMutant (FO3/FNV super mutants are NPCs) on the actor's race. |
+| Lonesome Road's wreckage door | `DispelSpell` on a door | The script's bare `Dispel` dispels from the door, as in FNV. The subject is cast as other actor-only calls are (`_actor_subject`), so it compiles and, as in FNV, removes nothing. |
+| Dead Money package `01002E23` | `bRand` undefined | Its OnChange declares `Short bRand` inside an `if`. `parser._hoist_block_vars` now hoists nested declarations in a fragment's statements too, not only in blocks. |
+| Dead Money package `01012BDD` | `Self` (the package) passed as the speaker | Package fragments convert as TopicInfo fragments, and a bare `StartConversation` there spoke as `Self`. It now speaks as `akSpeakerRef`, the package's actor or the line's speaker (`commands.start_conversation`). Of the built fragments, only this one used it. |
+| Dead Money's casino switch (second site) | a script type cast to `Actor` | `emit/dispatch.py` held a second copy of the script-type cast for command rows (`SetGhost`). It now uses `target.script_as_actor` too. |
+| Honest Hearts' rain | a GlobalVariable passed as a Float | `MoveTo`'s offsets were copied from the source unconverted (`moveto player 0 0 NVDLC02zRain`). They now convert like every other argument (the global's `GetValue()`). |
+
+## <a id="night-eye"></a>Night Eye, and actor values Fallout 4 lacks (built 2026-11-04, not yet played)
+
+- **Night Eye.** FNV's Cateye and Dead Money's Ghost Sight set the player's
+  `NightEye` to 1 as the effect starts and to 0 as it ends. Fallout 4 has
+  no such value. Its `FortifyNightEye` (00046998) is a Peak Value Modifier
+  with no image space modifier, and no vanilla spell uses it. On Fallout 4,
+  a SetAV or ForceAV of `NightEye` becomes `TES4Polyfill.SetNightEye`
+  (`commands._night_eye_call`). For the player it plays the Night Person
+  perk's night vision the way vanilla's `PerkNightPersonEffectScript` does:
+  `NightPersonperkImodOn` (001E5DC3), after 0.83 s popped to
+  `NightPersonperkImod` (001D16EA), and on 0, `NightPersonperkImodOff`
+  (001E5DC2). It reads them with `GetFormFromFile`, so no property is
+  needed.
+- **Other actor values.** On Fallout 4, an actor value that neither
+  `Fallout4.esm` nor `FalloutHelpers.esl` has (`fallout4_actor_values`) is
+  an inert read or a dropped write, with a note. Before, it was a
+  `TES4AV_` property no build could fill, which failed on every use. In
+  the converted scripts of 2026-11-04 that was `NightEye` (4 scripts,
+  handled above) and `MeleeDamage` (2). The two `MeleeDamage` lines both
+  upgrade Rex. FNV raises his `UnarmedDamage` by the same 5 on the next
+  line, and Fallout 4 keeps that half; melee weapons have no Fallout 4
+  actor value.
+
 ## <a id="before"></a>Before the pipeline: build and research
 
 In order. **Built** marks what is done.
@@ -2909,13 +3476,13 @@ In order. **Built** marks what is done.
 3. **Exterior navmesh across cells.** **Built 2026-10-10** ([exterior navmesh](#exterior-navmesh)). The spike converted one interior
    cell's navmesh. Exteriors need FNV's authored edge links (NVEX) carried
    into FO4's NVNM, and NAVI entries for every navmesh. The parsing is
-   already in `navm_falloutnv.py`; FO4's edge-link and NAVI layout still
-   needs to be read out of xEdit's definitions.
+   in `navm_falloutnv.py`, and FO4's edge-link and NAVI layout is written
+   from xEdit's definitions.
 4. **Persistent references and the worldspace layout.** FO4's persistent
    cell, cell blocks and sub-blocks at full size, and which references
    must stay persistent (quest aliases, doors, map markers, enable
    parents).
-5. **Map markers, locations, encounter zones.** **Built 2026-10-12** ([locations](#locations)); the worldspace map art is not.
+5. **Map markers, locations, encounter zones.** **Built 2026-10-12** ([locations](#locations)); WastelandNV's map art built 2026-10-24, not played ([world map](#world-map)).
    - FO4 quests and aliases lean on LCTN records; FNV has none.
    - Design location records from FNV's map markers, encounter zones
      (ECZN) and interior ownership.
@@ -2926,7 +3493,7 @@ In order. **Built** marks what is done.
    FNV areas once they exist (Freeside, the Strip, Novac), before deciding
    whether the precombine/previs stage is needed for the first release.
    FNV's world is sparser than the Commonwealth.
-8. **LOD.** Terrain through xLODGen (FO4 supported) or our own terrain LOD
+8. **LOD.** **Built:** terrain LOD 2026-10-24 ([terrain LOD](#terrain-lod)), object LOD 2026-10-31 ([object LOD](#object-lod)). Planned as: terrain through xLODGen (FO4 supported) or our own terrain LOD
    generator with an FO4 BTR writer; object LOD from FNV's own LOD meshes
    ([fnv-to-fo4](research/fo4_target.md#fnv-to-fo4) renamed them).
 9. **NPCs in general.** **Built from 2026-10-12** ([npcs](#npcs)). Real FNV NPCs, not stand-ins:
@@ -2951,6 +3518,52 @@ gets `TES4Add_<v>(by)`, which also keeps the variable's mirror global in
 step. Each caller's write becomes a call to it, which Papyrus runs one at a
 time per object.
 
+<a id="dialogue-trace"></a>**Dialogue steps in the trace (built 2026-11-05, played 2026-11-05: its traces diagnosed Dawes, [below](#talked-to-pc)).**
+Meyers started his greeting again 10 s after a talk the player closed with a
+Goodbye option. The log showed his lines' begin and end and the greeting
+scene's start, but no scene end, no phase, and not the option the player
+chose, so it could not show what replayed the greeting. Three trace points
+now cover a talk:
+- `line`: a converted line's begin and end also give the speaker's current
+  scene (`Actor.GetCurrentScene`) and `talking` (`IsInDialogueWithPlayer`).
+  A line FNV flags Goodbye (INFO DATA 0x01, `trace_points.goodbye`) ends as
+  `end goodbye`.
+- `choice`: each line the build writes with no converted script, namely the
+  player's menu prompts, their pads, `[Leave]` and the silent Tab exit line,
+  carries the shared `F3NV_TraceTopicInfo` (OnBegin:
+  `TES4Polyfill.TraceTopicInfo`). It logs the FO4 INFO, its speaker and the
+  speaker's scene. The INFO is FO4's FormID; the ledger names it.
+- `scenestep`: each dialogue scene (`R.pack_scen`, every scene
+  `Conversations` builds) carries the shared `F3NV_TraceScene`: begin, end,
+  and each phase's start and completion (`TES4Polyfill.TraceScene`). The
+  fragments sit in vanilla's layout (`vmad.scene_fragments`, checked against
+  Fallout4.esm's `SF_JoeQuestScene_00123714`: phase index from 0, its
+  function `Fragment_Phase_NN_Begin` or `_End` counting from 1). The script
+  has 48 phases' fragments; the largest built dialogue scene has 42.
+Every fragment checks the trace switch first, so with tracing off each costs
+one call.
+
+<a id="talked-to-pc"></a>**First-meeting greetings (built 2026-11-05, not played).**
+Dawes (NCRCF, `NCRCFGuardDialogPackage`) walked up and greeted the player
+again 0.4 s after every talk, from a fresh save too. His Dialogue package
+runs while `VFreeformNCRCF.MetDawes` is 0, and only his first-meeting lines
+(`000D6F48`/`49`, `GetTalkedToPC == 0`) set it; the trigger script that
+also does is on no FNV object. The trace showed his first talk opening on
+his later greeting (`000D6F4B`), with both first-meeting lines ahead of it
+in both greeting topics and every other condition passing. Every FO4 talk
+opens with the silent line `F3NV_Greeting`, which is itself a line to the
+player, so Fallout 4's talked-to flag is already set when the FNV greeting
+is chosen: none of the 54 FNV GREETING lines testing `GetTalkedToPC == 0`
+appeared in four sessions' logs. Now:
+- `GetTalkedToPC` converts to `GetValue` of the helper actor value
+  `TalkedToPC` (`FalloutHelpers.esl` 0x822) on the same actor
+  (`say_topics.TALKED`).
+- Every FNV GREETING line's begin fragment calls `TES4Polyfill.Greeted`,
+  which sets it on the speaker (`script_convert/talked_to_pc.py`), after the
+  engine chose the line, as FNV counts talks, not barks.
+- Not covered: the 6 converted script lines reading `GetTalkedToPC`
+  ([script markers](script_markers.md#native-read-follow-ups)).
+
 ## <a id="trace"></a>Session trace (built 2026-10-13)
 
 Quest bugs in the opening chain showed in game only as "she stands there".
@@ -2959,17 +3572,30 @@ old save. Each needed a play-through and console checks to narrow down. The
 converted scripts now trace what they do, and a reader turns a session's
 Papyrus log into a timeline.
 
-- **Switch.** `TES4Trace`, a global in FalloutHelpers.esl (object id 0xA01),
-  off by default. Turn it on with `set TES4Trace to 1` in the console. While
-  it is off, each trace point costs one call and one global read, and builds
-  no text.
+- **Switch (since 2026-11-04).** The empty light plugin `F3NV_Trace.esl`
+  (no records, no masters, so no load-order slot), in the MO2 mod
+  `F3NV - Trace`: tracing is on while it is enabled
+  (`Game.IsPluginInstalled`). Write it with
+  `fo4_import.helpers_plugin --trace-switch --out <path>`. While it is
+  off, each trace point costs one call and builds no text.
+  - *Why not the console.* It was `TES4Trace`, a global in
+    FalloutHelpers.esl (0xA01), set with `set TES4Trace to 1`. Typed at the
+    main menu, the command froze the game for 1 min 25 s, longer as the
+    plugin grew. No script runs then, so the console's own lookup is the
+    likely cost (not measured further). A save also keeps a global's value,
+    so tracing stayed on in every later session of that save, and a value
+    set at the main menu gave way to the loaded save's. The global is kept,
+    unread, so no form a save names goes missing.
 - **Trace points** (`script_convert/trace_points.py`, TES4Polyfill
   `Trace*`):
   - every converted SetStage: the quest, the stage asked, whether it was
     set, and the stage it ends at;
   - every atomic add: owner, variable, new value;
   - every mirror global write;
-  - each converted line's begin and end: speaker and FNV INFO;
+  - each converted line's begin and end: speaker and FNV INFO, the
+    speaker's current scene and whether it is in dialogue with the player,
+    and `end goodbye` on an FNV Goodbye line ([dialogue trace](#dialogue-trace));
+  - each menu choice and dialogue scene step ([dialogue trace](#dialogue-trace));
   - each `SayWhenFree`: asked, started, not started, or dropped as a
     duplicate;
   - each package fragment: actor, fragment, current package;
@@ -3070,8 +3696,9 @@ persistent cell, root location and map-region locations.
   its stand-in doors and the test chest are left out. Without the switch,
   region builds keep them as before.
 - **Interiors.** Every interior a built worldspace's doors reach is built.
-  Today's single-worldspace build leaves out 109 of FNV's 388 interiors
-  (44,498 references) and the Strip, Lucky 38 and Freeside worldspaces.
+  A WastelandNV-only build leaves out 109 of FNV's 388 interiors (44,498
+  references) and the Strip, Lucky 38 and Freeside worldspaces; the whole
+  build takes them in ([`--world reached`](#reached-worlds)).
 
 ## <a id="source-plugin"></a>The source plugin (built 2026-10-17)
 
@@ -3230,6 +3857,30 @@ Also fixed: two FNV sounds naming the same file queued the same converted
 file twice, and the second copy failed on itself (`voice.convert`). Region
 sounds were the first to share files.
 
+## <a id="remove-me"></a>RemoveMe on an item in an inventory (2026-11-04, after play)
+
+FNV's `RemoveMe` takes the scripted item out of the inventory holding it (into
+its optional container argument). The shared row made it `Delete()`, which
+FO4 ignores for an item inside a container. FalloutNV.esm's ammo boxes
+(`38SpecialAmmoAddScript` and the other `*AmmoAddScript` box scripts) give
+the player their rounds and then `RemoveMe`. In play the .38 Special box
+stayed in the inventory as "Item 2 in container playerRef" and paid 50 rounds
+on each GameMode pass: 149 times in 3.7 minutes, with the item-added sound
+and notification each time.
+
+The Fallout 4 row is `TES4Polyfill.RemoveMe(Self, <container or None>)`:
+`GetContainer().RemoveItem(Self, 1, True, target)` for an item in an
+inventory, as vanilla's `PAFramePurchaseScript` removes itself; otherwise the
+item moves into the target or is deleted. FNV and its DLC call `RemoveMe` in
+about 100 script lines (FalloutNV.esm 92, Dead Money 5, Old World Blues 4,
+Lonesome Road 2).
+
+The same log showed the box's script running on `[None]` after the player
+dropped it: a carried item's poll re-armed while its last holder was live
+(`assemble._gate`), even once the item itself was gone. It now re-arms on
+the holder only while `Self != None`, so a removed or deleted box's script
+stops. Shipped by script hotfix (fo4_hotfix.md); not played.
+
 ## <a id="log-noise"></a>Papyrus log noise (2026-10-19)
 
 Played 2026-10-19 with some stutter: Papyrus.0.log had 28,266 lines in five
@@ -3282,9 +3933,23 @@ the same layout in both games), with three changes. Shininess is FO4's
 1.0). Flags keep alpha blending, alpha testing and no subtextures (FNV's
 bit 0 is parallax, FO4's POM shadows). FNV's two junk bytes are 0. The
 references place as any reference, enable parent included. Region: 1
-texture set, 2 decals.
+texture set, 2 decals. A slot whose texture no export layer holds is left
+out and counted (`decal textures in no archive (left out)`): Old World
+Blues' energy-cell decal names `nvdlc03\weapons\1handpistol\…`, which no
+archive ships (the game's copy is under `weapons\1handpistol`), and the
+build used to stop on it.
 
-## <a id="nv-ammo"></a>Ammo subtypes, ammo effects and casings (built 2026-10-22, not yet played)
+<a id="uv-clamp"></a>**UVs past the half-float range (2026-11-03).** A
+BSTriShape's vertex UVs are half floats, at most ±65,504. FNV's
+`architecture\suburban\hospital.nif` and `hospital02.nif` have a shape
+(`Hospital:8`) with UVs near 55,130,300, garbage FNV tolerates; Lonesome Road
+reaches them, and the writer stopped (`OverflowError`). `nif.blocks.half_uv`
+clamps each component into range in `pack_vertex`, so every writer gets it.
+The vertices clamped travel with the cached mesh (`MeshFiles.clamped`), and the
+build log counts them: `mesh vertices with a UV clamped to the half-float
+range`.
+
+## <a id="nv-ammo"></a>Ammo subtypes, ammo effects and casings (built 2026-10-22, not played; creature-gun projectiles played 2026-10-28)
 
 `spike/ammo_mods.py`, `spike/ammo_casings.py`,
 `static_scripts/fallout4/F3NV_AmmoCasings.psc`; export:
@@ -3469,6 +4134,18 @@ rounds. 167 records added, none of the deployed build's 42,227 FormIDs
 moved (its ledger seeded the build). FO4 check: 0 errors; 1,790 of 1,790
 scripts compile.
 
+<a id="ammo-switch-sources"></a>**Every plugin's ammo lists (2026-11-02).** Each
+plugin's lists are on its own start-game quest (`F3NV_AmmoSwitchSource`: the
+game's on `FNV_AmmoSwitch`, a DLC's on `FNV_AmmoSwitch_<plugin>`, holding only
+its own rounds; [why](fo4_condition.md#sources)). As it starts, it adds itself
+to `FNV_AmmoSwitchSources` (a game form list) and asks `F3NV_AmmoSwitch` to
+gather again. `Gather()` (also at start and on each game load) merges every
+source by list keyword into the arrays `Cycle()` and the Pip-Boy use: a DLC's
+new rounds of a game list (GRA's 10mm loads) follow the game's. The DLL's
+`SetLists` takes one set and `TakeChoice` an index into it, so the merge is in
+script arrays, at most 128 rounds (game 68, Gun Runners' Arsenal 28, Honest
+Hearts 4); rounds past that are left out of the hotkey and logged.
+
 <a id="ammo-switch"></a>**The Ammo Type hotkey** (`spike/ammo_switch.py`,
 `F3NV_AmmoSwitch.psc`, `F3NV_AmmoSwitchItem.psc`; built 2026-10-22, not yet
 played).
@@ -3582,14 +4259,26 @@ before, it was an unknown record type. The cell build reads PGRE with REFR,
 and `pack_refr` writes the record type it is given.
 `fo4_import/spike/mines.py` takes the FNV weapon that throws the projectile
 (WEAP DNAM), converts it through the replacement table, and places the FO4
-weapon's projectile (WEAP FNAM, byte 29). Table entries: frag mine →
+weapon's projectile (WEAP FNAM, byte 29).
+
+**Regression fixed 2026-11-05.** No placed mine was written in any whole-map
+build after 2026-10-24 (FalloutNV.esm: 174 references, `skipped PROJ: 174`;
+the user found Primm's mines gone). On 2026-10-24 the mine entries moved into
+`data/replacements.json` in `stats` mode, which writes a copy of the FO4 mine
+under the build's own FormID. `Mines` looked the projectile up among
+Fallout4.esm's weapons only, so every mine projectile was "left out: its
+weapon is not a Fallout4.esm one". `Equipment._write` now records each
+written weapon's FNAM projectile (`Equipment.fired`), and `Mines` reads it
+when the weapon is the build's copy. Table entries: frag mine →
 `fragMine`, bottlecap mine → `BottlecapMine`, powder charge → `fragMine`
 (FO4 has none). Two FNV items naming the same `item` target used to keep
 only the last one (`replacements.items`); both now get it.
 
 Region: 11 frag mines at the Powder Ganger camps. Whole game: 174 placed
 (frag 131, powder charge 33, bottlecap 3). The 7 C4 charges at Hoover Dam
-are left out, because no weapon throws their projectile.
+were left out, because no converted weapon threw their projectile; C4
+converts since the thrown weapons (built 2026-11-06, not deployed;
+[thrown weapons](fo4_thrown_weapons.md#built)).
 
 ## <a id="weapon-mods"></a>Weapon mods (built 2026-10-22, not yet played)
 
@@ -3935,8 +4624,9 @@ owner tab tests the skill above 0:
 Converted NPCs carry their FNV skills (`npc_skills.py`), the player theirs
 through the character rules. Drift: creatures, which FNV gives one Combat
 skill instead, keep full damage and spread (their skill tests fail at 0);
-the Strength and skill requirement penalties are left out, being additions
-in FNV's spread units, which FO4's cone of fire does not share.
+the Strength and skill requirement penalties are additions in FNV's spread
+units, which FO4's cone of fire does not share, so they are multipliers here
+([requirement spread](#requirement-spread)).
 
 ## <a id="audit-fixes"></a>Audit fixes (built 2026-10-17)
 
@@ -4025,6 +4715,32 @@ building and dialogue are above ([ledger](#formid-ledger),
   `configure_multiprocessing` pins child processes to one OpenBLAS thread,
   so the face pool starts its workers with the count the main process
   loaded with (`npcs.MAIN_BLAS_THREADS`).
+- <a id="face-fit-head-parts"></a>*Head parts across the master chain.* The
+  tint fit draws the NPC's own FNV brows, and the head-part choice reads its
+  beards, from its PNAM head parts (`fnv_npc.head_parts`). They used to be
+  read only from the plugin being built, but a DLC build also fits faces for
+  the bases it reaches in FalloutNV.esm (leveled lists, templates). Those
+  NPCs then had no head parts, so they got no brows and no beard. The work
+  cache keys a fit by the NPC's face fields, not by the build, so the base
+  game reused a fit a DLC build had made first. This changed 210 base NPCs
+  between builds (2026-11-03). `head_parts` now looks the NPC up in the
+  newest plugin of the export's master chain that holds it, and its parts
+  in any of them.
+  The key (`face_fits.fit_key`) also holds those head parts. Without them,
+  NPCs that share FaceGen but not brows or beards shared one fit, made by
+  whichever NPC was fitted first. In FalloutNV.esm, 32 keys covering 96 NPCs
+  listed different PNAMs, most only in another order. With the sorted head
+  parts in the key, its 2,239 face keys become 2,253;
+  computing them takes under 1 s per build. A DLC override that changes
+  an NPC's head parts also gets its own fit this way. `head_parts` returns
+  the parts sorted, because FNV draws them as a set. In the first build with
+  the new key, PNAM order alone gave two NPCs a different FO4 beard from
+  look-alikes with the same parts (1EDeadGuy and Fiend3MeleeAMNV: BigBeard02
+  where theirs had BigBeard18). The real cause was in `head_parts.choose`.
+  It matched each FNV facial-hair mesh on its own, and each match replaced
+  the one before, so only the last mesh counted. It now matches one FO4 beard
+  against all of them drawn together. Mustache plus goatee gives BigBeard03
+  and mustache plus chin strip gives BigBeard05, in either order.
 - *The CK FaceGen timeout* is 2 s per NPC_ record, at least 900 s (the
   region measured 0.43 s per record).
 - *Stale FaceGen.* Each build deletes the plugin's FaceGen files it no
@@ -4148,7 +4864,8 @@ py -3.14 -m fo4_import.spike.face_fits install face_fits.json.gz  # -> output/fo
   edit to the fit's files changes it, as the navmesh cache's source tag),
   each sex's basis hash (`basis_hash`: a SHA-1 of the basis arrays' names,
   types, shapes and values, never the arrays) and, per sex, each face under
-  a SHA-1 of its `FIT_FIELDS` values (no FNV data in the file).
+  a SHA-1 of its `FIT_FIELDS` values and FNV head parts (`face_id`: the
+  work-cache key but the basis files; no FNV data in the file).
 - **Only our numbers and Fallout4.esm FormIDs.** Gzipped JSON, read without
   pickle, so a downloaded file runs no code. A sculpt fit is its FMRI region
   numbers and seven controls each (`encode_sculpt` refuses any other
@@ -4192,6 +4909,8 @@ py -3.14 -m fo4_import.spike.face_fits install face_fits.json.gz  # -> output/fo
   Republish after any edit that changes `fit_code`.
 
 ## <a id="census"></a>Record census (2026-10-10)
+
+*Superseded: see the later sections; this is the 2026-10-10 snapshot.*
 
 `fo4_import/record_routes.py` routes every FO3/FNV record type to its
 Fallout 4 type; the pipeline dispatches from it. Run the census with
@@ -4273,7 +4992,7 @@ order of payoff:
    paths or worker counts in the key.
 2. **An Elric cache.** Elric's physics is keyed by the pre-Elric NIF's
    bytes and Elric's version, so Elric runs only on meshes whose collision
-   input changed. Today it runs once a build over every mesh.
+   input changed. Before the cache it ran once a build over every mesh.
 3. **Parallel work.**
    - Mesh, texture and tree conversion run in a process pool (pure
      Python, `cpu_count() - 1` workers).
@@ -4323,6 +5042,22 @@ case-sensitive, not yet confirmed in game.
 - Caprica is stricter in places: `SunsetSarsparillaAddCap_1001` (a new
   event on a non-native script) fails in both.
 
+### <a id="missing-pex"></a>A compiled script whose .pex is gone (built 2026-11-05, not played)
+
+A compile deletes each script's old .pex before compiling it, but saves
+its per-script results (`compile_state.json`) only when it ends. A build
+stopped mid-compile therefore leaves the last saved results saying
+"compiled", with no .pex behind them. The next build compiled only what
+changed, so it shipped without them: the 2026-11-05 FalloutNV.esm build
+had 6,417 .pex for 16,031 sources (`F3NV_Greeting` among those missing),
+and the deploy dry run listed 9,647 deployed scripts as stale.
+`compile_papyrus.missing_pex` now also compiles every script whose saved
+result is "compiled" and whose .pex is missing. The stopped run also left
+its last chunk folder (`Scripts/_chunks/0`, 13,805 .psc) in the build,
+which the deploy would have shipped; FO4's compiler clears `_chunks` only
+when it runs, and a run Caprica finishes never starts it, so the same
+function clears `_chunks` first.
+
 ## <a id="stability"></a>Stability
 
 - **FormIDs never counted** ([FormIDs](fo4_spikes.md#formids)), guarded by
@@ -4354,7 +5089,7 @@ case-sensitive, not yet confirmed in game.
 
 Of [before the pipeline](#before): 1–3 are built, and 6 partly
 ([climate and weathers](#weathers); not regions or water). 4, 5, 7, 8
-and 9 were not started then; 3, 5, 6 and 9 are built since (see
+and 9 were not started then; 5, 8 and 9 are built since, and 6 is finished (see
 [before](#before)).
 
 **What happened instead.** From 2026-10-10 to 2026-10-11, each region
@@ -4381,8 +5116,8 @@ add-ons, land texture blending and weathers (sections above).
 
 **The new order.**
 1. **Close the region's world** (short).
-   - Measure frame rate in Goodsprings and Primm, and the build's time
-     and memory.
+   - Frame rate in Goodsprings and Primm, and the build's time and
+     memory: measured 2026-10-11 ([measured](#region-measured)).
    - The two pieces still in test (enable parents, region emittance)
      ride along with the next play-test.
    - From here on, triage each play-test finding: fix a crash, a blocker
@@ -4459,6 +5194,21 @@ becomes None, in place (the size does not change). On run 8's plugin:
 whose subject is an unbuilt actor or reference: Black Mountain radio
 lines, two terminals, one package), from 1,001.
 
+<a id="worldspace-properties"></a>**Worldspace and cell script properties
+(2026-11-03).** A script property naming a worldspace (`WorldSpace` type) was
+left unfilled: the EditorID map that fills Cell properties (`cell._cell_names`)
+held only interiors and exterior cells. Old World Blues showed it.
+`NVDLC03RadarFenceSCRIPT` compares `GetWorldSpace()` with its `NVDLC03BigMT`
+property. With the property None, an interior (where `GetWorldSpace()` is also
+None) passed the check, so walking into the Mojave Outpost saloon raised the
+Perimeter Warning and moved the player to Big MT's start marker. The map now holds
+the built worldspaces, and in a DLC build also the masters' named cells and
+worldspaces that the built master plugin holds (`_master_places`), so Lonesome
+Road's properties for `Lucky38World`, `TheFortWorld` and `GreenhouseWorld01`
+fill too. Scripts with a worldspace property: FalloutNV 43, Dead Money 5, Honest Hearts 3,
+Lonesome Road 4, Old World Blues 7. No FormIDs moved; confirmed in game on Old
+World Blues.
+
 <a id="reached-worlds"></a>**`--world reached` (2026-10-25).** A whole build from the app passed
 only `--world WastelandNV`. When it ran into the MO2 folder, it replaced
 the 12-world deploy with WastelandNV alone (285 MB against 383), and
@@ -4489,13 +5239,15 @@ a 361 MB plugin, a 1.3 GB texture archive, 179,299 voice files; 13,140 of
 13,140 scripts compile; 1,080 dangling properties cleared. Dialogue lines
 dropped as never true (`GetIsID` on an unbuilt speaker) fell from 24,531
 to 3,274, doors leading out of the build from 52 to 0, packages for an
-unbuilt location from 58 to 3. Still left out: 1,036 placed creatures of
-121 kinds with no FO4 base (the replacement table's gap).
+unbuilt location from 58 to 3. Still left out then: 1,036 placed creatures of
+121 kinds with no FO4 base (the replacement table's gap; 341 since the
+2026-10-25 defaults, [audit fixes](#audit-fixes)).
 
 **Where the time goes.** About an hour of each run is LipGenerator, once
 per voice line. A voice file is skipped when it already exists, so a
 rebuild into the same Data folder skips it; these runs cleared the
-folder each time.
+folder each time. *Since 2026-11-06 a line with its own `.lip` skips
+LipGenerator* ([lips](research/lip_format.md#built)).
 
 <a id="voice-cache"></a>**Voice files kept aside, not deleted (2026-10-25).** Each whole build
 ran about 80,000 lines back through LipGenerator: 81,370 voice files
@@ -4510,7 +5262,10 @@ and the next build to need them converted them again. `voice.remove_stale`
 now moves such a file to `_ba2/VoiceCache/<plugin>/<voice type>/`,
 outside what the Main BA2 packs, and `voice.restore` moves it back when a
 line needs it. Build log: `voice files kept aside`, `voice files
-restored`.
+restored`. Silent lines' `.xwm` files ([silent line](fo4_spikes.md#silent-line))
+are set aside the same way; at first only `.fuz` were, so Honest Hearts'
+silent `FNV_RobotUniqueRex` lines from a build that still placed Rex
+stayed staged and packed (13 files, found by `preflight --audit dlc`).
 
 <a id="sound-archive"></a>**Sounds go in the Main BA2 (2026-10-24).** The
 first launch of the full build sat on a black screen at 1% CPU. It was
@@ -4526,6 +5281,11 @@ uncompressed, since .fuz and .xwm are already compressed), which the game
 loads with the plugin. A previous build's loose files in the plugin's own
 folders (`Sound/Voice/<plugin>`, `Sound/FX/FNV`) are moved into the
 staging folder first (`stage_loose_sounds`), so LipGenerator still skips them.
+
+A plugin that stages no sound at all (each courier pack, once its stale
+silent lines are set aside) loses its old `<plugin> - Main.ba2` and record
+(`ba2_pack.pack_sounds`, 2026-11-03); the old archive used to stay and
+ship 2 stale player voice files per pack.
 
 **The staging folder lives outside the Data folder (2026-10-29).** It held
 292,898 files (9.3 GB: sounds 248,028, textures 12,897, the voice cache
@@ -4569,7 +5329,7 @@ filled during the run): 7,712 s to 2,046 s. Largest left: gun clip
 retargeting (430 s, the retarget math, not decoding), placed references
 (476 s), NPCs (291 s), worldspace groups (288 s).
 
-<a id="terrain-lod"></a>**Terrain LOD from FNV's own tiles (built 2026-10-24, not yet played).**
+<a id="terrain-lod"></a>**Terrain LOD from FNV's own tiles (built 2026-10-24, played; the Freeside grid fix played 2026-11-01; the texture half-turn not played).**
 FNV ships its terrain LOD prebuilt: per worldspace,
 `meshes/landscape/lod/<world>/<world>.level<L>.x<X>.y<Y>.nif` (1,360 for
 WastelandNV: 1,024 level-4, 256 level-8, 64 level-16, 16 level-32, the
@@ -4650,7 +5410,7 @@ close. FO4 has no region-gated references, so `regions.imposters()` reads
 the lists from FalloutNV.esm and `Exterior` leaves those references out;
 the distant skyline is object LOD's job.
 
-<a id="object-lod"></a>**Object LOD from FNV's LOD meshes (built 2026-10-31, not yet played).**
+<a id="object-lod"></a>**Object LOD from FNV's LOD meshes (built 2026-10-31, played on the 2026-10-31 8:28 PM build; its play-test fixes not played).**
 FO4's layout, read from vanilla (`Fallout4 - Meshes.ba2`: 497 `.bto`,
 Commonwealth 344 level 4, 97 level 8, 20 level 16, 4 level 32) and
 Project Mojave (79 for its Mojave worldspace, levels 4 to 16):
@@ -4871,7 +5631,7 @@ the windows read as empty. With base colour white at scale 1 the Madrid
 glass looked right in game (2026-10-25). `_effect` now keeps the beaker's
 tint only for glass with no texture of its own.
 
-<a id="falloff-panes"></a>**Black window panes (built 2026-10-25, not yet played).** FNV fills a
+<a id="falloff-panes"></a>**Black window panes (built 2026-10-25, played 2026-10-25: no change; superseded by [black fills](#black-fill)).** FNV fills a
 broken shop window with an untextured, black, blended unlit pane whose
 view falloff makes it opaque face-on (`BldgCorner04_NV:5`: vertex colour
 0.03, falloff 1.0 / 0 / 1.0 / 0): pure black behind the shards, the wires
@@ -4923,6 +5683,15 @@ the three grime shells 1.0, 0.91 and 0.99 of their area within 4 units;
 free-standing blended shapes 0 (an NCR flag; the building's own glass,
 `ApartmentPre01c`) and 0.03 (REPCONN's pod window glass).
 
+*Alpha-tested shapes are not layers (2026-11-04, after play; not yet
+built).* Jean's Sky Diving (`NVShackVictor`, `NV_ShackVictor:2`, the
+`MobileHome02NV` planks and post) is blended **and** alpha-tested (0x12ED,
+threshold 100) and lies mostly against the walls, so it became a decal, and
+its free-standing post vanished from some angles. The grime shells only blend
+(0x10ED, no test, all three measured meshes); alpha test marks cut-out
+geometry. `overlay_layers` now passes over a tested shape, which converts
+as before the rule: an alpha-tested BGSM (`mobilehome02nv_a12ec_100`).
+
 <a id="wall-lean"></a>**Wall leans face the wall (built 2026-10-24, not yet played).** NPCs
 leaned on air facing the wall (Freeside, 001381D2 and others). All 352
 FNV wall leans use FURN `WallMarker`: one marker, heading 0, slot 19
@@ -4947,6 +5716,71 @@ the converted NiAlphaController drives). 26 FNV meshes have an alpha-0
 shape, used by 62 DOOR, ACTI and STAT records: the force-field impact and
 glow meshes, vault gear doors, the Lucky 38 lights, the Freeside welcome
 sign. The material's emissive tint (the field's cyan) is still dropped.
+
+<a id="gun-controllers"></a>**A gun part's controllers come with it (fixed 2026-11-05).** The game
+crashed (`NiProperty::Update`, an access violation) when an actor holding the
+Incinerator loaded in The Bison Steve Hotel. `nif/gun.py` builds a gun from
+the FO4 receiver plus copies of the FNV parts' shapes, shaders and alpha
+properties (`_copy_block`, `_merge_shape`). The copy kept each block's
+`controller` link as the FNV mesh's block number, without copying the
+controller. In `incinerator_gun.nif`, the pilot light's effect shader
+pointed at block 20, the `WeaponOptics2` node, and the game ran that node as
+its controller. `_copy_chain` now copies the controller and every one after
+it (`next`), each with its interpolator and key data, re-pointed at the copy.
+A controller or interpolator the reader keeps as raw bytes is left out, since
+its links cannot be moved. Before the fix, 38 built guns had a controller
+link to a block that is not a controller, some past the end of the file:
+plasma defender, laser RCW, gatling laser, missile launchers, plasma rifle,
+recharger guns, Tesla cannon (once in each of five plugins), Holorifle, the
+sonic guns, Red Glare and others. A fixed Incinerator keeps its pilot-light
+flicker (`BSEffectShaderPropertyFloatController`, its `NiFloatInterpolator`
+and keys).
+
+<a id="free-controllers"></a>**Controllers with no manager (built 2026-11-02, not yet played).**
+Mr. House's penthouse screen showed no image. `nvdefaultscreen.nif` and
+`nvhousecomputerscreen.nif` stack his face, Connection Lost and Yes Man as
+coplanar unlit layers. None has a controller manager. Each layer's
+material and texturing properties carry their own controllers: alpha,
+texture transform, emissive color and emittance, flags 0x48 or 0x4C
+(active, loop or clamp, the manager bit 0x20 unset). Their alpha keys
+show House (1) and hide the rest (0). Two things were lost:
+- The static conversion kept controllers only under a manager.
+  `shader_anim.free_controllers` now finds every shader-channel controller
+  without the manager bit. `free_running` writes each as the FO4 shader
+  controller `shader_block` maps it to, with its own keyed interpolator and
+  FNV's flags. BSX gains its animated bit. That is how vanilla runs free
+  effect controllers (flags 72 and 76 with a plain `NiFloatInterpolator`,
+  in `terminalbar01.nif`, `laserbeamloopltblue.nif` and others; the meshes
+  carry BSX bit 0).
+- The layers have no `NiAlphaProperty`, so FO4 drew the alpha-0 layers
+  solid over the face. In vanilla, all 393 free alpha controllers on
+  effect shapes sit on a blending alpha property. FNV fades a shape by its
+  material alpha alone. So an unlit shape that fades by its material
+  (`material_fades`: alpha below 1, or an `NiAlphaController`) now gets
+  the src-alpha blend (`0x10ED`) that vertex-alpha fades already get.
+
+Blast radius over the 14,909 FNV meshes:
+- 428 gain free controllers (1,411 in all). Most are effects (muzzle
+  flashes, impacts, ambient), weapon glows, consoles and robots. None of
+  those controllers is also driven by a sequence. 91 hold a single key.
+- 16 newly blend a layer. These are the three penthouse screens, the six
+  Lucky 38 light meshes and `bldgcorner01windows.nif` (whose sequences fade
+  alpha to 0, the [rest-alpha](#rest-alpha) case, which needs the blend to
+  hide), plus `terminal01.nif` and `mainframe01.nif` (keyed at 1 over an
+  opaque texture, so they look the same) and four effects.
+
+<a id="unlit-emissive"></a>**An unlit shape's animated emissive colour (built 2026-11-02, not yet
+played).** FNV draws a no-lighting shape at its emissive colour times its
+emittance multiplier. A securitron's face is 0.051 × 30 ≈ 1.5, and Yes Man's
+is × 45. The static conversion draws such a shape at white × 1, so it treats
+that product as clipped to 1. `SELF_ILLUM` keys on an unlit shape went
+straight into the effect shader's base colour, without the multiplier.
+That is harmless near 1 (the penthouse layers' 0.93), but it would draw a
+securitron's face at 3 to 5%. `shader_anim.unlit_emissive` now writes each
+key as min(1, colour × multiplier). Victor's idle (0.023 to 0.042, × 30)
+dims his face between 69% and 100%. This covers free-running and baked
+controllers. A sequence's channel (`shader_block`) is unchanged, since its
+shapes' emissive colours sit near 1 or drive neon overlays.
 
 <a id="old-texturing"></a>**Shapes textured the old way (built 2026-10-24, not yet played).** A
 purple part on the East Central Sewers' door (`utldoor01.nif`) and on a
@@ -5000,7 +5834,6 @@ quick fix.
 |---|---|---|
 | Overall warmth: FO4's tone curve and LUT against FNV's clipped display colours | Not measured; a candidate player option ("FNV look") | [color drift](#color-drift) |
 | FNV's weather imagespace modifier: the amber tint (`NVWastelandIS`, 39%) and brightness × 1.3 | Values read; not converted | [weathers](#weathers) |
-| Region weathers: Goodsprings' thicker fog (`NVWastelandGS`) | Built 2026-10-19, played 2026-10-21 | [region weather](#region-weather) |
 | Grass reads green, FNV's dry yellow | Not measured | [color drift](#color-drift) |
 | Bright dirt road | Re-check now that the weathers are FNV's | [color drift](#color-drift) |
 | Bright lamps blown out (the Goodsprings lantern) | FNV multiplies an emissive shape by 15 with HDR on (`0xBC6FE0`) and then clips; FO4 blooms the same energy. A rescale was tried and reverted. Tied to the tone question | [emittance](#emittance) |
@@ -5010,7 +5843,6 @@ quick fix.
 | Damage stages (car fires) and smoke add-ons with no FO4 namesake | Left out | [add-ons](#addons) |
 | NPCs catch on steps (Vikki and Vance's front steps, about 30 s, 2 of 6) | Lead: FNV's stepped collision against FO4's ramped stairs; not measured | [packages](#packages) |
 | The saloon's night windows read flat yellow | FNV's own colour (1, 0.98, 0.29) × 3; total glow within vanilla windows' 0.05–0.26, so no global rescale | [glow](#glow) |
-| Placed guns lie wrong (the store's .22 stands on its grip) | FNV's reference rotation fits FNV's model, not the FO4 gun built in its place | [guns](fo4_spikes.md#spike-4-guns) |
 | FNV's guns on FO4 receivers; creatures with no FO4 rig | The replacement table and the modlist | [guns](fo4_spikes.md#spike-4-guns), [replacements](fo4_replacements.md) |
 | Terminal Alternate Colors; FNV's 2 sound notes | Accepted drift ([fo4_drift.md](fo4_drift.md#recorded)). The hum stays out: TERM's Looping Sound crashed the game on load (2026-10-30). If wanted: a sound marker per terminal | [terminals](#terminals) |
 
@@ -5067,3 +5899,40 @@ whose own inventory (not its template's) holds creature gun copies: the
 guns stay in its inventory and its APPR and default OBTS name their forced
 mods, as an own-rig creature's. Eight FNV creatures are affected, Victor
 and the Strip securitrons among them.
+
+
+<a id="scene-loops"></a>**Scenes that loop on themselves (built 2026-11-02, not played).**
+Saves and loads slowed to a crawl: each save's Papyrus log dumped tens of
+thousands of waiting calls (82,291 in one 15-minute session), nearly all the
+fragments of Jerry the Punk's poetry line (`FALLOUTNV_TIF__001589F0`,
+`VRRCJerryIdle`'s `JerryPoetryBarks`) queued on his script. FNV's poetry
+lines name their own topic next, so he keeps muttering, paced by each
+line's audio. The scene builder made each such line restart its own scene
+(TSCE to an earlier phase). FO4 ends a line at once for an actor out of
+earshot, so with nobody near the scene restarted as fast as Papyrus ran,
+and every waiting call went into the save. 58 lines in 4 scenes did this:
+the Tops stage performances (47, each step leading to itself), Jerry (7)
+and one Vegas East chat (4), whose steps bounce between two speakers.
+Now a step said without the player whose lines lead back to itself is one
+looping dialogue action (FNAM Looping, `ACTION_LOOPING`), saying its topic
+again every 5 to 10 s (DMIN/DMAX: vanilla's most common pair, 12 of its 69
+looping actions); a line leading back to an earlier step of its own scene
+ends the scene, which its trigger (a package, a greeting) starts again. A
+player menu that loops (Victor's) is unchanged: the player paces it.
+
+<a id="scene-joins"></a>**A step two lines lead to starts its own scene (built 2026-11-02, in the 2026-11-05 build, not played).**
+A scene ran on into any next step not yet placed, so which steps got a
+scene of their own depended on which path the build walked first. When
+[shared infos](#shared-infos) added paths, 17 scenes (keyed on their first
+step) were no longer written: a shared answer's scene reached their step
+first and took it as a later phase. Their steps' topics and lines kept
+their ids. Now a step that more than one FNV line leads to, counted over the
+whole export by FormID (`conversation.joined_steps`), and the topic list
+always start a scene of their own (`Conversations._starts_own`), whatever
+else joins the build. On the 2026-11-02 09:20 build there are 875 such
+steps, and the change splits 172 of them out of 154 scenes (12 get back
+the SCEN id an earlier build gave them) plus one topic-list menu. The
+scenes they leave keep their ids; the lines ending there start the new
+scene by TSCE. The 1,282 `[Leave]`/exit pads the same build dropped did not
+move: they key on the menu's authored Choices, and the build stops writing
+them once a shared answer lets the menu's talk end (`_leaves`).

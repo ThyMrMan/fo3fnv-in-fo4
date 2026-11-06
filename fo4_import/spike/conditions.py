@@ -32,19 +32,21 @@ FNV_AV_GAME_NAMES = {'Critical Chance': 'CritChance', 'Damage Resistance': 'Dama
                      'Energy Resistance': 'EnergyResist', 'EMP Resistance': 'EmpResist'}
 #: FNV name -> FO4's function doing the same: renamed, a note (an inventory item) counted, a map region's location.
 RENAMED = {'GetActorValue': 'GetValue', 'GetPermanentActorValue': 'GetPermanentValue', 'GetPCIsSex': 'GetIsSex', 'GetHasNote': 'GetItemCount',
-           'PlayerInRegion': 'GetInCurrentLocation'}
+           'PlayerInRegion': 'GetInCurrentLocation', 'GetBaseActorValue': 'GetBaseValue'}
 #: FNV functions reading one actor value, as FO4's GetValue of it: {function: FNV actor value index}.
 AS_VALUE = {'GetRadiationLevel': FNV_AV_NAMES.index('Rad Level')}
 #: FNV functions that test the player; FO4's counterpart runs on the player reference.
 ON_PLAYER = {'GetPCIsSex', 'GetHasNote', 'PlayerInRegion'}
 PLAYER_REF = 0x14
+#: The player's base and reference: forms FNV and FO4 both own at these FormIDs, so a condition names them as is.
+PLAYER_FORMS = frozenset({0x7, PLAYER_REF})
 #: FNV functions reading 0 for a form the build leaves out (fo4_pipeline.md#dialogue-conditions).
 ABSENT_ZERO = frozenset({'GetIsID', 'GetIsReference', 'GetIsVoiceType', 'GetInCell', 'GetInWorldspace',
                          'GetDeadCount', 'HasPerk', 'GetQuestCompleted', 'GetQuestRunning', 'GetStage',
                          'GetStageDone', 'GetObjectiveCompleted', 'GetObjectiveDisplayed', 'GetQuestVariable',
-                         'GetScriptVariable', 'GetCasinoWinningStage'})
-#: FNV functions fixed in an FO4 build: talking through an activator on a line naming no actor a talker speaks as.
-FIXED = {'IsActorTalkingThroughActivator': 0.0}
+                         'GetScriptVariable', 'GetCasinoWinningStage', 'GetIsCurrentPackage'})
+#: FNV functions fixed in an FO4 build: talking through an activator, Exists (fo4_pipeline.md#exists).
+FIXED = {'IsActorTalkingThroughActivator': 0.0, 'Exists': 1.0}
 #: FNV's test of a talker speaking as the line's actor, and the form map key head of an actor's talking-as list.
 THROUGH, TALKING_AS = 'IsActorTalkingThroughActivator', 'talking_as'
 #: FormIDs below this are the engine's own forms, the same in both games (the player's base 0x7 and reference 0x14).
@@ -53,6 +55,8 @@ ENGINE_FORMS = 0x800
 OR_NEXT = 0x01
 #: The objective states a mirror global keeps (form map key: (quest, objective, state)).
 OBJECTIVE_STATES = tuple(OBJECTIVE_FUNCS.values())
+#: Form map key head of a built quest's authored objective indexes: (AUTHORED, quest) -> frozenset.
+AUTHORED = 'objectives'
 #: Condition flag (both games): compare against a global's value; the value field holds the global's FormID.
 USE_GLOBAL = 0x04
 _OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,
@@ -137,17 +141,33 @@ def simplify(conds: list, settle):
 
 
 def absent(cond: dict, form_map: dict) -> 'bool | None':
-    """Outcome of a FIXED function's test, of an ABSENT_ZERO test of a form the build lacks, or of any test run on
-    a reference it lacks (both read 0); else None. See: docs/fork/fo4_pipeline.md#dialogue-conditions"""
+    """Outcome of a FIXED function's test, of an ABSENT_ZERO test of a form the build lacks, of an objective its
+    quest does not author, or of any test run on a reference it lacks (all read 0); else None.
+    See: docs/fork/fo4_pipeline.md#dialogue-conditions"""
     if cond['op_flags'] & USE_GLOBAL:
         return None
     if cond['func'] in FIXED:
         return compare(cond, FIXED[cond['func']])
     if unbuilt_reference(cond, form_map):
         return compare(cond, 0.0)
-    if cond['func'] not in ABSENT_ZERO or cond['p1'] < ENGINE_FORMS:
+    if cond['func'] not in ABSENT_ZERO or 0 < cond['p1'] < ENGINE_FORMS:
         return None
+    if _unauthored(cond, form_map):
+        return compare(cond, 0.0)
     return None if cond['p1'] in form_map or _mirrored(cond, form_map) else compare(cond, 0.0)
+
+
+def _unauthored(cond: dict, form_map: dict) -> bool:
+    """True for an objective test of one its built quest lacks (reads 0)."""
+    authored = form_map.get((AUTHORED, cond['p1']))
+    return FNV.index(cond['func']) in OBJECTIVE_FUNCS and authored is not None and cond['p2'] not in authored
+
+
+def unmapped_form(cond: dict, form_map: dict) -> bool:
+    """True when a form parameter is neither in `form_map` nor the player's."""
+    slots = FNV.form_slots.get(FNV.index(cond['func']), set())
+    return any(s in slots and p not in form_map and p not in PLAYER_FORMS
+               for s, p in ((1, cond['p1']), (2, cond['p2'])))
 
 
 def unbuilt_reference(cond: dict, form_map: dict) -> bool:

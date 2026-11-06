@@ -1,10 +1,11 @@
-# FNV combat feel on Fallout 4 (plan, 2026-10-29)
+# FNV combat feel on Fallout 4 (2026-10-29)
 
 FO4's combat is faster and more about the player's own aim. FNV's is slower
-and decided more by the character's stats. This plan lists what already
+and decided more by the character's stats. This file lists what already
 carries FNV's rules, what is still FO4's, and a first pass that changes
-data only (settings, records, perks), with no DLL work. Status lives in
-[ROADMAP.md](ROADMAP.md).
+data only (settings, records, perks), with no DLL work. The first pass
+(plan steps 1–6) is built 2026-10-29, not played ([as built](#built));
+steps 7–8 wait on the play test. Status lives in [ROADMAP.md](ROADMAP.md).
 
 ## <a id="done"></a>Already converted
 
@@ -59,7 +60,10 @@ search).
 
 ## <a id="plan"></a>Plan
 
-A first pass, all data, built and played together:
+The design record. Steps 1–6 are built ([as built](#built); step 3 wrote
+nothing, since FO4's defaults already are FNV's, and step 5 kept FO4's
+sprint, the user's choice); not played. A first pass, all data, built and
+played together:
 
 1. **Base accuracy from FNV's spread.** Find in FalloutNV.exe (spread
    0x646910 down to the projectile's angle) what unit FNV's spread is in.

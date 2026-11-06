@@ -509,8 +509,6 @@ def _place_payload(staged_root, plugin_dir, counts, log, index=None,
         for fn in sorted(files):
             full = Path(dirpath) / fn
             rel = full.relative_to(staged_root).as_posix()
-            if not bsa_extract.should_extract_file(rel):
-                continue
             ext = os.path.splitext(rel)[1].lower()
             # Plugins and BSAs are handled separately; they are not assets.
             if ext in PLUGIN_EXTS or ext == '.bsa':

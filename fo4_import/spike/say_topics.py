@@ -21,16 +21,18 @@ from pathlib import Path
 
 from fo4_import.base.vmad import info_fragments, object_scripts
 from fo4_import.base.writer import pack_topic
-from fo4_import.spike.barks import ENGINE_BARKS
+from fo4_import.spike.barks import ENGINE_BARKS, named_barks, replies
+from fo4_import.spike.companion_barks import status_barks
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike.readiness import LINE, LINE_LEFT_OUT
+from fo4_import.spike.region_watch import REGION_KEY
 from fo4_import.spike.say_once import SayOnce
 from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, translated
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
-from fo4_import.pipeline.export_index import Layered, export_records
+from fo4_import.pipeline.export_index import Layered, export_masters, export_records, own_records
 from script_convert.constants import papyrus_script_name
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 
@@ -42,10 +44,14 @@ REACHING = ('Choice', 'FollowUp', 'LinkFrom', 'AddTopic')
 SAY_FREE = re.compile(r'SayWhenFree\([^,]+,\s*(\w+)\s*,')
 #: FNV topics the engine plays itself (HELLO, GOODBYE, the barks) -> the FO4 topic kind its engine plays the same way.
 ENGINE_TOPICS = {'000000D2': R.TOPIC_HELLO, '000000D4': R.TOPIC_GOODBYE, **ENGINE_BARKS}
+#: FNV INFO key of the line before it in its topic: a DLC inserting lines rewrites it on the master's.
+ORDER = 'PNAM.PrevInfo'
 #: FNV INFO DATA flag Say Once.
 SAY_ONCE = 0x04
 #: Keys of a split line's part (conversation.part): its number and the line's count of parts.
 PART, PARTS = '_part', '_parts'
+#: Key of a shared info's copy naming the topic that borrows it (conversation.shared_lines).
+SHARED = '_shared'
 FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
 #: CTDA operator bits: the comparison, OR with the next, use a global as the value.
 COMPARE, OR = 0xE0, 0x01
@@ -61,6 +67,10 @@ GLOBAL_VALUE = 'GetGlobalValue'
 #: FNV base types a script runs on when placed (SCRI), for GetScriptVariable on their references.
 SCRIPTED_BASES = ('NPC_', 'CREA', 'ACTI', 'TACT', 'CONT', 'DOOR', 'FURN', 'MISC', 'BOOK', 'NOTE', 'TERM', 'LIGH',
                   'ARMO', 'WEAP', 'ALCH', 'AMMO', 'KEYM')
+#: FNV GetTalkedToPC, read as the helper actor value TES4Polyfill.Greeted sets (fo4_pipeline.md#talked-to-pc).
+TALKED, TALKED_AV, TALKED_KEY = 'GetTalkedToPC', 'TalkedToPC', ('av', 'TalkedToPC')
+#: FNV PlayerInRegion, read as the region's watch global when watched (region_watch; fo4_regions.md#built).
+IN_REGION = 'PlayerInRegion'
 #: FNV reputation tests -> the reputation slot of their parameter 2's 0 (reputation.SLOT_KEY form map entries).
 REPUTATION_FIRST_SLOT = {'GetReputation': 0, 'GetReputationThreshold': 2}
 
@@ -72,6 +82,24 @@ def free_said(scripts_dir) -> set:
         scripts_dir, Layered) else [Path(scripts_dir)] if scripts_dir else []
     return {m.group(1).lower() for folder in folders if folder.is_dir() for path in folder.glob('*.psc')
             for m in SAY_FREE.finditer(path.read_text(encoding='utf-8', errors='replace'))}
+
+
+def dlc_lines(export_dir) -> 'frozenset | None':
+    """FormIDs (upper case) of the INFOs a plugin with masters (a DLC) holds that are its lines: its own, and its
+    overrides changing a master's line beyond its place in the topic (PNAM); None for a plugin without masters.
+    See: docs/fork/fo4_plugin_layout.md#dlc-dialogue
+    """
+    masters = export_masters(str(export_dir))
+    if not masters:
+        return None
+    theirs = {r['FormID'].upper(): r for folder in masters for r in export_records(folder, 'INFO')}
+    return frozenset(r['FormID'].upper() for r in own_records(export_dir, 'INFO')
+                     if r['FormID'].upper() not in theirs or _unordered(r) != _unordered(theirs[r['FormID'].upper()]))
+
+
+def _unordered(rec: dict) -> dict:
+    """FNV INFO `rec` without its place in the topic (ORDER)."""
+    return {k: v for k, v in rec.items() if k != ORDER}
 
 
 def said_only(dials: dict, infos: list, said: set, packages: list = ()) -> set:
@@ -93,48 +121,60 @@ class SayTopics:
     [(FO4 INFO, said by the player)] for the silent lines (voice.silent_jobs)."""
 
     def __init__(self, builder, export_dir: Path):
-        """Index FNV topics and lines, each line carrying its quest's dialogue conditions (with_quest); topics are
-        written through `builder` (its script_vars() names)."""
+        """Index FNV topics and lines (a DLC's: only dlc_lines), each line carrying its quest's dialogue conditions
+        (with_quest); topics are written through `builder` (its script_vars() names)."""
         self.builder, self.voiced, self.once = builder, [], SayOnce(builder.writer)
         self.silent = []
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
-        self.infos = {}
+        self.infos, own = {}, dlc_lines(export_dir)
         for rec in export_records(export_dir, 'INFO'):
+            if own is not None and rec['FormID'].upper() not in own:
+                continue
             quest = rec.get('QSTI.Quest', '').upper()
             self.infos.setdefault(quest, []).append(with_quest(rec, quests.get(quest, [])))
+        self.engine = {**ENGINE_TOPICS, **named_barks(self.dials)}
+        self.replies = replies(self.dials, export_records(export_dir, 'INFO'), self.engine)
         self.script_vars = builder.script_vars
         self.said = said_only(self.dials, export_records(export_dir, 'INFO'), free_said(builder.scripts.dir),
-                              export_records(export_dir, 'PACK'))
+                              export_records(export_dir, 'PACK')) | status_barks(self.dials)
 
     def topics(self, quest: dict) -> list:
-        """FNV FormIDs of `quest`'s Conversation topics, engine topics (ENGINE_TOPICS) and the Topic-type topics
-        only a script says (said_only), in first-line order."""
+        """FNV FormIDs of `quest`'s Conversation topics, engine topics (self.engine), the topics a reply of its
+        answers (barks.replies) and the Topic-type topics only a script says (said_only), in first-line order."""
         seen = {}
         for rec in self.infos.get(quest['FormID'].upper(), []):
             dial = rec['ParentDIAL']
-            if self.dials.get(dial, {}).get('DATA.Type') == CONVERSATION or dial in self.said or dial in ENGINE_TOPICS:
+            if self.dials.get(dial, {}).get('DATA.Type') == CONVERSATION or dial in self.said or dial in self.engine:
                 seen.setdefault(dial, None)
+            seen.update(dict.fromkeys(t for t in self.replies.get(dial.upper(), ()) if t not in seen))
         return list(seen)
 
     def build(self, quest: dict, quest_fid: int, topic_ids: dict, form_map: dict) -> tuple:
         """(DLBR record, or None when every topic is the engine's, and [topic blobs]) of `quest`'s topics
-        `topic_ids` ({FNV DIAL: FO4 FormID}, not empty); the engine's own (ENGINE_TOPICS) sit in no branch.
+        `topic_ids` ({FNV DIAL: FO4 FormID}, not empty); the engine's own (self.engine) sit in no branch, and hold
+        the quest's replies to them after their own lines.
 
         `form_map` maps the FNV forms conditions name to FO4 ones.
         """
         branch, blobs = self.builder.new_id(f'DLBR {quest["FormID"]}'), []
-        custom = [fid for dial, fid in topic_ids.items() if dial not in ENGINE_TOPICS]
+        custom = [fid for dial, fid in topic_ids.items() if dial not in self.engine]
         for dial, fid in topic_ids.items():
-            lines = [rec for rec in self.infos[quest['FormID'].upper()] if rec['ParentDIAL'] == dial]
+            lines = self._lines(quest, dial)
             infos = [i for i in (self.info(rec, form_map, owner=quest_fid, place=f'{quest["FormID"]} topic {dial}')
                                  for rec in lines) if i]
-            kind = ENGINE_TOPICS.get(dial, R.TOPIC_CUSTOM)
+            kind = self.engine.get(dial, R.TOPIC_CUSTOM)
             record = R.pack_dial(fid, f'FNV_{self.dials[dial]["EditorID"]}', quest_fid, kind, len(infos),
-                                 0 if dial in ENGINE_TOPICS else branch)
+                                 0 if dial in self.engine else branch)
             blobs.append(pack_topic(record, fid, infos))
         dlbr = R.pack_dlbr(branch, f'FNV_{quest["EditorID"]}Branch', quest_fid, custom[0]) if custom else None
         return dlbr, blobs
+
+    def _lines(self, quest: dict, dial: str) -> list:
+        """`quest`'s lines of `dial`, then of the replies answering it (barks.replies)."""
+        lines = self.infos[quest['FormID'].upper()]
+        own = [rec for rec in lines if rec['ParentDIAL'] == dial]
+        return own + [rec for rec in lines if dial in self.replies.get(rec['ParentDIAL'].upper(), ())]
 
     def _vmad(self, rec: dict, first: bool, last: bool, marked: list) -> bytes:
         """FNV line `rec`'s VMAD: the `marked` helper scripts (its Say Once marker), then its
@@ -166,7 +206,7 @@ class SayTopics:
             self.builder.readiness.add(LINE_LEFT_OUT, quest, f'{rec["FormID"].upper()} (condition: {why})')
             return b''
         self.builder.readiness.add(LINE, quest, rec['FormID'].upper())
-        line = f'INFO {rec["FormID"]} {rec.get(PART, 1)}'
+        line = f'INFO {rec["FormID"]} {rec.get(PART, 1)}' + (f' via {rec[SHARED]}' if rec.get(SHARED) else '')
         fid = self.builder.new_id(line, key=f'{line} at {place}' if place else None)
         once = first and int(rec.get('DATA.Flags', 0)) & SAY_ONCE
         marked = [self.once.script(rec['FormID'])] if once and owner else []
@@ -185,7 +225,7 @@ class SayTopics:
 
 def actor_values(helper_index: int) -> dict:
     """{('av', FNV actor value index): FO4 actor value} for a form map; one FO4 lacks is left out."""
-    out = {}
+    out = {TALKED_KEY: actor_value_form(TALKED_AV, helper_index)}
     for index in range(len(C.FNV_AV_NAMES)):
         fid = actor_value_form(C.fnv_av_name(index), helper_index)
         if fid is not None:
@@ -216,9 +256,23 @@ def script_vars(export_dir: Path) -> dict:
 
 def _unmapped(cond: dict, form_map: dict) -> bool:
     """True when a condition names an FNV form or global `form_map` lacks."""
-    slots = C.FNV.form_slots.get(C.FNV.index(cond['func']), set())
-    return C.fo4_value(cond, form_map) is None or any(
-        s in slots and p not in form_map for s, p in ((1, cond['p1']), (2, cond['p2'])))
+    return C.fo4_value(cond, form_map) is None or C.unmapped_form(cond, form_map)
+
+
+def _form_value(func: str, cond: dict, form_map: dict, state) -> 'tuple | None':
+    """(FO4 function, form) of an FNV condition the build answers from a form of its own: a region's watch global,
+    the TalkedToPC value, karma, an objective (`state`) or reputation global, the form None when the build lacks it;
+    None for any other condition."""
+    key = ((REGION_KEY, cond['p1']) if func == IN_REGION else TALKED_KEY if func == TALKED
+           else KARMA_KEY if func == 'GetActorValue' and cond['p1'] == KARMA_AV else None)
+    if key is not None and key in form_map:
+        return C.FO4.index('GetValue' if func == TALKED else GLOBAL_VALUE), form_map[key]
+    if state:
+        return C.FO4.index(GLOBAL_VALUE), form_map.get((cond['p1'], cond['p2'], state))
+    if func in REPUTATION_FIRST_SLOT:
+        slot = REPUTATION_FIRST_SLOT[func] + cond['p2']
+        return C.FO4.index(GLOBAL_VALUE), form_map.get((REPUTATION_KEY, cond['p1'], slot))
+    return None
 
 
 def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | None':
@@ -244,14 +298,9 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
         if func == SCRIPT_VARIABLE:
             return C.FO4.index(VM_SCRIPT_VARIABLE), 0, 0, script, f'::{variable}_var'
         return C.FO4.index(VM_QUEST_VARIABLE), form_map[cond['p1']], 0, '', f'::{variable}_var'
-    if state:
-        glob = form_map.get((cond['p1'], cond['p2'], state))
-        return (C.FO4.index(GLOBAL_VALUE), glob, 0, '', '') if glob else None
-    if func == 'GetActorValue' and cond['p1'] == KARMA_AV and KARMA_KEY in form_map:
-        return C.FO4.index(GLOBAL_VALUE), form_map[KARMA_KEY], 0, '', ''
-    if func in REPUTATION_FIRST_SLOT:
-        glob = form_map.get((REPUTATION_KEY, cond['p1'], REPUTATION_FIRST_SLOT[func] + cond['p2']))
-        return (C.FO4.index(GLOBAL_VALUE), glob, 0, '', '') if glob else None
+    found = _form_value(func, cond, form_map, state)
+    if found:
+        return (*found, 0, '', '') if found[1] else None
     index = C.FO4.index(C.RENAMED.get(func, func))
     if index < 0 or _unmapped(cond, form_map):
         return None
@@ -301,7 +350,18 @@ def with_quest(rec: dict, quest: list) -> dict:
 def settled_on(rec: dict, known: dict) -> 'dict | None':
     """FNV record `rec` with its tests of one speaker's fixed facts `known` (conditions.speaker_settle) settled, OR
     flags redone; None when its conditions never pass for that speaker."""
-    kept = C.simplify([{**C.parse(raw), 'raw': raw} for raw in raws(rec)], C.speaker_settle(known))
+    return settled_by(rec, C.speaker_settle(known))
+
+
+def never_true(rec: dict, form_map: dict) -> bool:
+    """Whether FNV record `rec`'s conditions never pass in this build (they test forms it lacks: without_absent)."""
+    return _settled(rec, form_map) is None
+
+
+def settled_by(rec: dict, settle) -> 'dict | None':
+    """FNV record `rec` with the tests `settle` fixes (True, False, or None to keep) settled, OR flags redone; None
+    when its conditions never pass."""
+    kept = C.simplify([{**C.parse(raw), 'raw': raw} for raw in raws(rec)], settle)
     if kept is None:
         return None
     return with_conditions(rec, [f'{int(c["raw"][:2], 16) & ~OR | (OR if i < len(g) - 1 else 0):02x}{c["raw"][2:]}'
@@ -335,6 +395,11 @@ def _count(rec: dict) -> int:
     while f'Condition[{i}].Raw' in rec:
         i += 1
     return i
+
+
+def conditions_under(rec: dict, prefix: str) -> dict:
+    """`rec`'s conditions under `prefix` (`Item[2].`, `Button[1].`) as a record."""
+    return {key[len(prefix):]: value for key, value in rec.items() if key.startswith(prefix + 'Condition[')}
 
 
 def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = False,

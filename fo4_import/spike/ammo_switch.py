@@ -13,17 +13,20 @@ the player one. Each round shows its FNV name as a notification.
 See: docs/fork/fo4_pipeline.md#ammo-switch
 """
 
+from pathlib import Path
+
 from fo4_import.base.support_records import pack_mesg, pack_script_quest
 from fo4_import.base.vmad import object_scripts, quest_fragments
+from fo4_import.spike import records as R
 from fo4_import.spike.hotkey_items import hotkey_effect, hotkey_item
 
-#: derive_formid site (keys: 'quest', 'item', 'effect', a message's name, 'note <FNV ammo FormID>').
+#: derive_formid site (keys: 'quest', 'sources', 'plugin rounds', 'item', 'effect', a message's name, 'note <ammo>').
 SITE = 'FNV ammo switch'
 SCRIPT, ITEM_SCRIPT = 'F3NV_AmmoSwitch', 'F3NV_AmmoSwitchItem'
+#: Each plugin's ammo lists (the game's on its ammo switch quest, a DLC's on a quest of its own); see write.
+SOURCE_SCRIPT = 'F3NV_AmmoSwitchSource'
 #: The F3NV plugin's natives for the Pip-Boy's ammo list (tes_runtime/fo4_condition/ammo.cpp).
 NATIVES = 'F3NV_PipboyAmmo'
-#: F3NV_AmmoSwitch's per-round arrays, one row per round, Starts[g] to Starts[g + 1] list g's.
-ROUND_COLUMNS = ('Rounds', 'Mods', 'Loaded', 'Notes')
 #: The hotkey item's name (FNV's own for the hotkey).
 ITEM_NAME = 'Ammo Type'
 #: The quest's messages: property, text.
@@ -37,12 +40,17 @@ def groups(made: dict) -> list:
     return [(keyword, mods) for _, (keyword, mods) in sorted(made.items()) if keyword and len(mods) > 1]
 
 
-def arrays(builder, mods, grouped: list) -> dict:
-    """F3NV_AmmoSwitch's array properties {name: (kind, value)} for `grouped` (groups()); each round's message
-    written once."""
+def arrays(builder, mods, grouped: list, kept=None) -> dict:
+    """F3NV_AmmoSwitchSource's array properties {name: (kind, value)} for `grouped` (groups()): a list whose keyword
+    `kept` admits whole, another only with the rounds whose FO4 FormID it admits (all by default: no `kept`); each
+    round's message written once."""
     out = {'Lists': [], 'Starts': [], 'Rounds': [], 'Mods': [], 'Loaded': [], 'Notes': []}
     notes = {}
     for keyword, members in grouped:
+        members = [(ammo, mod) for ammo, mod in members
+                   if kept is None or kept(keyword) or kept(builder.items.item(ammo))]
+        if not members:
+            continue
         out['Lists'].append(keyword)
         out['Starts'].append(len(out['Rounds']))
         for ammo, mod in members:
@@ -59,47 +67,36 @@ def arrays(builder, mods, grouped: list) -> dict:
     return {name: ('ints' if name == 'Starts' else 'objects', value) for name, value in out.items()}
 
 
-def _grouped_rows(values: dict) -> dict:
-    """{list keyword: [(round, mod, loaded keyword, note)]} of F3NV_AmmoSwitch's array properties `values`."""
-    starts, columns = values['Starts'][1], [values[c][1] for c in ROUND_COLUMNS]
-    return {keyword: list(zip(*(c[starts[g]:starts[g + 1]] for c in columns)))
-            for g, keyword in enumerate(values['Lists'][1])}
-
-
-def merge(game: dict, dlc: dict) -> dict:
-    """F3NV_AmmoSwitch's arrays as the game's lists, each with the DLC's new rounds after its own, then the DLC's
-    new lists (quest_merge)."""
-    merged = _grouped_rows(game)
-    for keyword, rows in _grouped_rows(dlc).items():
-        have = {row[0] for row in merged.setdefault(keyword, [])}
-        merged[keyword] += [row for row in rows if row[0] not in have]
-    out = {'Lists': [], 'Starts': [], **{c: [] for c in ROUND_COLUMNS}}
-    for keyword, rows in merged.items():
-        out['Lists'].append(keyword)
-        out['Starts'].append(len(out['Rounds']))
-        for row in rows:
-            for column, value in zip(ROUND_COLUMNS, row):
-                out[column].append(value)
-    out['Starts'].append(len(out['Rounds']))
-    return {name: (game[name][0], value) for name, value in out.items()}
-
-
 def write(builder, mods) -> None:
-    """The Ammo Type hotkey for AmmoMods `mods`: quest, messages, script effect and aid item; nothing without lists."""
+    """The Ammo Type hotkey for AmmoMods `mods`: quest, registry, messages, script effect and aid item; a plugin
+    whose master holds the quest writes only its own rounds' quest (F3NV_AmmoSwitchSource); nothing without lists.
+    See: docs/fork/fo4_pipeline.md#ammo-switch-sources
+    """
     grouped = groups(mods.made)
     if not grouped:
         return
-    quest, item, effect = (builder.writer.derive_formid(SITE, key) for key in ('quest', 'item', 'effect'))
+    writer = builder.writer
+    quest, sources = (writer.derive_formid(SITE, key) for key in ('quest', 'sources'))
+    builder.scripts.used += [SOURCE_SCRIPT, SCRIPT, NATIVES]
+    builder.counts['ammo switch lists'] = len(grouped)
+    links = {'Sources': sources, 'Switch': quest}
+    if quest >> 24 != writer.own_index:
+        rows = arrays(builder, mods, grouped, lambda form: form is not None and form >> 24 == writer.own_index)
+        fid = writer.derive_formid(SITE, 'plugin rounds')
+        vmad = quest_fragments('', [], scripts=[(SOURCE_SCRIPT, links, rows)])
+        writer.add_record('QUST', pack_script_quest(fid, f'FNV_AmmoSwitch_{Path(builder.export_dir.name).stem}', vmad))
+        return
+    item, effect = (writer.derive_formid(SITE, key) for key in ('item', 'effect'))
+    writer.add_record('FLST', R.pack_flst(sources, 'FNV_AmmoSwitchSources', []))
     messages = {}
     for name, text in MESSAGES:
-        messages[name] = builder.writer.derive_formid(SITE, name)
-        builder.writer.add_record('MESG', pack_mesg(messages[name], f'FNV_AmmoSwitch{name}', '', text, 0, []))
-    props = {**messages, 'Hotkey': item}
-    vmad = quest_fragments('', [], scripts=[(SCRIPT, props, arrays(builder, mods, grouped))])
-    builder.writer.add_record('QUST', pack_script_quest(quest, 'FNV_AmmoSwitch', vmad))
+        messages[name] = writer.derive_formid(SITE, name)
+        writer.add_record('MESG', pack_mesg(messages[name], f'FNV_AmmoSwitch{name}', '', text, 0, []))
+    hub = (SCRIPT, {**messages, 'Hotkey': item, 'Sources': sources}, {})
+    vmad = quest_fragments('', [], scripts=[hub, (SOURCE_SCRIPT, links, arrays(builder, mods, grouped))])
+    writer.add_record('QUST', pack_script_quest(quest, 'FNV_AmmoSwitch', vmad))
     hotkey_effect(builder, effect, 'FNV_AmmoSwitchEffect', ITEM_NAME,
                   object_scripts([(ITEM_SCRIPT, {'Switch': quest, 'Hotkey': item}, {})]))
     hotkey_item(builder, item, 'FNV_AmmoSwitchHotkey', ITEM_NAME, effect)
-    builder.scripts.used += [SCRIPT, ITEM_SCRIPT, NATIVES]
-    builder.counts['ammo switch lists'] = len(grouped)
+    builder.scripts.used += [ITEM_SCRIPT]
 

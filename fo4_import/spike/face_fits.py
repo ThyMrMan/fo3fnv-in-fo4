@@ -11,6 +11,8 @@ the arrays) and, per sex, each face keyed by a SHA-1 of its FIT_FIELDS values
 with its three fits as numbers and Fallout4.esm FormIDs only. A build takes a
 face from the installed file only when the code version and its sex's basis
 hash match this machine's (warm_faces counts each face it takes or fits).
+A face's key also holds its FNV head parts (fit_key), so NPCs sharing FaceGen
+but not brows or beards keep their own fits.
 
 See: docs/fork/fo4_pipeline.md#published-face-fits
 """
@@ -32,6 +34,7 @@ from fo4_import.face import sculpt, tint
 from fo4_import.pipeline.code_tag import code_tag
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.work_cache import lookup, store
+from fo4_import.spike.fnv_npc import head_parts
 from fo4_import.spike.head_parts import HeadChoice
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
@@ -60,15 +63,21 @@ def bases(female: bool) -> tuple:
     return tuple(p.read_bytes() for p in (sculpt.basis_path(female), tint.basis_path(female)) if p.exists())
 
 
-def fit_key(npc: dict, female: bool) -> 'tuple | None':
-    """The work-cache inputs of FNV NPC `npc`'s face fits; None uncalibrated."""
+def fit_key(export_dir: Path, npc: dict, female: bool) -> 'tuple | None':
+    """The work-cache inputs of FNV NPC `npc`'s face fits: its FIT_FIELDS values, its head parts as `export_dir`
+    resolves them (fnv_npc.head_parts) and its sex's two basis files; None uncalibrated.
+    See: docs/fork/fo4_pipeline.md#face-fit-head-parts
+    """
     found = bases(female)
-    return tuple(npc.get(k, '') for k in FIT_FIELDS) + found if len(found) == 2 else None
+    if len(found) < 2:
+        return None
+    parts = tuple(head_parts(export_dir, int(npc['FormID'], 16)))
+    return tuple(npc.get(k, '') for k in FIT_FIELDS) + (parts,) + found
 
 
-def face_id(npc: dict) -> str:
-    """The file's key of FNV NPC `npc`'s face: a SHA-1 of its FIT_FIELDS values."""
-    return hashlib.sha1(repr(tuple(npc.get(k, '') for k in FIT_FIELDS)).encode()).hexdigest()
+def face_id(key: tuple) -> str:
+    """The file's key of a face: a SHA-1 of its fit_key `key` but the basis files."""
+    return hashlib.sha1(repr(key[:-2]).encode()).hexdigest()
 
 
 @functools.cache
@@ -203,10 +212,10 @@ def collect(export_dir: Path) -> dict:
     faces, missing = {sex: {} for sex in SEXES.values()}, object()
     for npc in export_records(export_dir, 'NPC_'):
         female = bool(int(npc.get('ACBS.Flags', 0)) & 1)
-        key = fit_key(npc, female)
+        key = fit_key(export_dir, npc, female)
         values = tuple(lookup(*site, key, missing) for site in FIT_SITES) if key else (missing,)
         if missing not in values:
-            faces[SEXES[female]][face_id(npc)] = encode(values)
+            faces[SEXES[female]][face_id(key)] = encode(values)
     return faces
 
 
@@ -245,12 +254,12 @@ def installed() -> 'dict | None':
     return read(INSTALLED) if INSTALLED.exists() else None
 
 
-def take(npc: dict, female: bool, key: tuple, wanted: list) -> tuple:
-    """(taken, build log count): store FNV NPC `npc`'s `wanted` FIT_SITES values under work-cache key `key`
-    from the installed file when it can give them."""
+def take(female: bool, key: tuple, wanted: list) -> tuple:
+    """(taken, build log count): store a face's `wanted` FIT_SITES values under its work-cache key `key` from
+    the installed file when it can give them."""
     data = installed()
     reason = 'none installed' if data is None else unusable(data, female)
-    values = None if reason else data['faces'][SEXES[female]].get(face_id(npc))
+    values = None if reason else data['faces'][SEXES[female]].get(face_id(key))
     if values is None:
         return False, f'faces fitted locally (published fits: {reason or "face not in file"})'
     for i in wanted:

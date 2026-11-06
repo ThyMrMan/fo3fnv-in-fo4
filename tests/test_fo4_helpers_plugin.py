@@ -4,11 +4,12 @@ See: docs/fork/fo4_spikes.md#spike-3-helper-plugin
 """
 
 import struct
+from pathlib import Path
 
 from fo4_import import helpers_plugin as H
 from script_convert import target
 from script_convert.constants import (FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_MESSAGES,
-                                      FALLOUT4_HELPER_QUESTS)
+                                      FALLOUT4_HELPER_QUESTS, FALLOUT4_TRACE_PLUGIN)
 from script_convert.helpers_fallout4 import av_function
 from tes5_import.base.tes5_reader import walk
 
@@ -33,6 +34,19 @@ def test_plugin_is_a_light_master_with_every_record(tmp_path):
     assert (b'MESG', FALLOUT4_HELPER_MESSAGES['TES4ChooseSexMessage'][0]) in got
     assert len(got) == (len(FALLOUT4_HELPER_AVS) + len(FALLOUT4_HELPER_QUESTS) + len(FALLOUT4_HELPER_GLOBALS)
                         + len(FALLOUT4_HELPER_MESSAGES))
+
+
+def test_the_trace_switch_is_an_empty_light_plugin_tracing_names(tmp_path):
+    """F3NV_Trace.esl holds no record and no master, so enabling it costs no load-order slot; Tracing() checks
+    for that file by name."""
+    out = tmp_path / FALLOUT4_TRACE_PLUGIN
+    H.build_trace_switch(out)
+    raw = out.read_bytes()
+    assert struct.unpack_from('<I', raw, 8)[0] & 0x201 == 0x201
+    assert not list(walk(raw)) and b'MAST' not in raw
+    polyfill = (Path(H.__file__).parents[1] / 'script_convert' / 'static_scripts' / 'fallout4' / 'overrides'
+                / 'TES4Polyfill.psc').read_text(encoding='utf-8')
+    assert f'Game.IsPluginInstalled("{FALLOUT4_TRACE_PLUGIN}")' in polyfill
 
 
 def test_actor_values_resolve_in_any_case_and_by_skyrim_alias():

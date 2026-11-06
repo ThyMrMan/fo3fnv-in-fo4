@@ -235,9 +235,8 @@ EndFunction
 
 ; fallout4: new
 Bool Function Tracing() Global
-  {Whether FalloutHelpers.esl's TES4Trace global is on (console: set TES4Trace to 1): the Trace* functions below write only then.}
-  GlobalVariable g = Game.GetFormFromFile(0xA01, "FalloutHelpers.esl") as GlobalVariable
-  Return g && g.GetValue() > 0.0
+  {Whether the empty F3NV_Trace.esl is enabled (MO2's F3NV - Trace mod): the Trace* functions below write only then. Not the TES4Trace global: setting it from the console froze the main menu 85 s, and a save keeps its value. See docs/fork/fo4_pipeline.md#trace}
+  Return Game.IsPluginInstalled("F3NV_Trace.esl")
 EndFunction
 
 ; fallout4: new
@@ -382,9 +381,55 @@ EndFunction
 
 ; fallout4: new
 Function TraceLine(ObjectReference akSpeaker, String asInfo, String asWhen) Global
-  {A converted line beginning or ending: the speaker and the FNV INFO's FormID.}
+  {A converted line beginning or ending (asWhen: begin, end, or end goodbye for an FNV Goodbye line): the speaker, the FNV INFO's FormID, the speaker's current scene and whether it is in dialogue with the player.
+  See: docs/fork/fo4_pipeline.md#dialogue-trace}
   If Tracing()
-    TraceWrite("line", TraceName(akSpeaker) + "|" + asInfo + "|" + asWhen)
+    Actor a = akSpeaker as Actor
+    String talk = ""
+    If a
+      talk = "|scene " + a.GetCurrentScene() + "|talking " + a.IsInDialogueWithPlayer()
+    EndIf
+    TraceWrite("line", TraceName(akSpeaker) + "|" + asInfo + "|" + asWhen + talk)
+  EndIf
+EndFunction
+
+; fallout4: new
+Bool Function InRegion(GlobalVariable akRegion) Global
+  {FO3/FNV IsPlayerInRegion: the region's global, which F3NV_RegionWatch keeps at 1 while the player is inside its polygons; False for a region not watched.
+  See: docs/fork/fo4_regions.md#built}
+  Return akRegion && akRegion.GetValue() != 0.0
+EndFunction
+
+; fallout4: new
+Function Greeted(ObjectReference akSpeaker) Global
+  {An FO3/FNV GREETING line beginning: its speaker has now talked to the player (helper actor value TalkedToPC, which converted GetTalkedToPC conditions read). Fallout 4's own flag is already set by the silent line opening the talk.
+  See: docs/fork/fo4_pipeline.md#talked-to-pc}
+  Actor a = akSpeaker as Actor
+  If a && a.GetValue(AV("talkedtopc")) == 0.0
+    a.SetValue(AV("talkedtopc"), 1.0)
+  EndIf
+EndFunction
+
+; fallout4: new
+Function TraceTopicInfo(TopicInfo akInfo, ObjectReference akSpeaker) Global
+  {A line with no converted script beginning: a player's menu choice (its prompt INFO), a pad, or the Tab exit line; the INFO, its speaker and the speaker's current scene.
+  See: docs/fork/fo4_pipeline.md#dialogue-trace}
+  If Tracing()
+    Actor a = akSpeaker as Actor
+    String playing = ""
+    If a
+      playing = "|scene " + a.GetCurrentScene()
+    EndIf
+    TraceWrite("choice", akInfo + "|" + TraceName(akSpeaker) + playing)
+  EndIf
+EndFunction
+
+; fallout4: new
+Function TraceScene(Scene akScene, String asWhen) Global
+  {A dialogue scene beginning, ending, or one of its phases starting or completing (asWhen: begin, end, phase N start, phase N done).
+  See: docs/fork/fo4_pipeline.md#dialogue-trace}
+  If Tracing()
+    TraceWrite("scenestep", akScene + "|" + asWhen)
   EndIf
 EndFunction
 
@@ -400,6 +445,7 @@ EndFunction
 Bool Function PackageEndRepeats(Package akPackage, Actor akActor, Actor[] akEnded, Float[] afEndedAt) Global
   {A package end fragment run again for akActor within 1 s while it stays on akPackage. FO4 ends a finished package again on every AI update while it stays current (Continue if PC near), where FNV ended it once. Stamps akActor's time in the arrays either way.}
   Float now = Utility.GetCurrentRealTime()
+  PackageState().Ended(akActor, akPackage)
   Int i = akEnded.Find(akActor)
   If i < 0
     akEnded.Add(akActor)
@@ -409,6 +455,50 @@ Bool Function PackageEndRepeats(Package akPackage, Actor akActor, Actor[] akEnde
   Bool again = now - afEndedAt[i] < 1.0 && akActor.GetCurrentPackage() == akPackage
   afEndedAt[i] = now
   Return again
+EndFunction
+
+; fallout4: new
+Bool Function LimbGone(Actor akActor, Int aiLimb) Global
+  {FO3/FNV IsLimbGone: whether akActor's body part aiLimb (FNV's GetHitLocation numbers, 0 Torso to 13 Brain) is dismembered, as Fallout 4's body part of that name.
+  See: docs/fork/fo4_pipeline.md#ai-procedure}
+  String[] parts = new String[14]
+  parts[0] = "Torso"
+  parts[1] = "Head1"
+  parts[2] = "Head2"
+  parts[3] = "LeftArm1"
+  parts[4] = "LeftArm2"
+  parts[5] = "RightArm1"
+  parts[6] = "RightArm2"
+  parts[7] = "LeftLeg1"
+  parts[8] = "LeftLeg2"
+  parts[9] = "LeftLeg3"
+  parts[10] = "RightLeg1"
+  parts[11] = "RightLeg2"
+  parts[12] = "RightLeg3"
+  parts[13] = "Brain"
+  Return akActor && aiLimb >= 0 && aiLimb < 14 && akActor.IsDismembered(parts[aiLimb])
+EndFunction
+
+; fallout4: new
+F3NV_PackageState Function PackageState() Global
+  {The helper plugin's package state quest (F3NV_PackageState).}
+  Return Game.GetFormFromFile(0x902, "FalloutHelpers.esl") as F3NV_PackageState
+EndFunction
+
+; fallout4: new
+Int Function AIProcedure(Actor akActor) Global
+  {FO3/FNV GetCurrentAIProcedure, as far as Fallout 4 can tell: 17 (Done) while the package whose end fragment last ran is still akActor's current one, 8 (Sleep) while asleep, 21 (Get Up) while getting out of a seat, else -1.
+  See: docs/fork/fo4_pipeline.md#ai-procedure}
+  If !akActor
+    Return -1
+  ElseIf PackageState().Done(akActor)
+    Return 17
+  ElseIf akActor.GetSleepState() >= 3
+    Return 8
+  ElseIf akActor.GetSitState() == 4
+    Return 21
+  EndIf
+  Return -1
 EndFunction
 
 ; fallout4: new
@@ -581,6 +671,53 @@ Function SwapMaterial(ObjectReference akRef, MatSwap akSwap) Global
   EndIf
 EndFunction
 
+; fallout4: replaces SetDestroyed f6bdab428e21960a27fdcf1a055b2e7cf85edc33
+Function SetDestroyed(ObjectReference akRef, FormList akDestroyed, Bool abDestroyed = True) Global
+  {FO3/FNV SetDestroyed: FO4's destroyed state and the destroyed list GetDestroyed reads. FNV's destroyed door cannot be used, by the player or by NPCs' paths; FO4's still opens, so a destroyed unlocked door is also locked Inaccessible, and a door locked that way unlocks when it is no longer destroyed.
+  See: docs/fork/fo4_pipeline.md#destroyed-doors}
+  If akRef == None
+    Return
+  EndIf
+  akRef.SetDestroyed(abDestroyed)
+  If akRef.GetBaseObject() as Door
+    If abDestroyed && !akRef.IsLocked()
+      akRef.SetLockLevel(254)
+      akRef.Lock(true)
+    ElseIf !abDestroyed && akRef.IsLocked() && akRef.GetLockLevel() == 254
+      akRef.Lock(false)
+    EndIf
+  EndIf
+  If akDestroyed == None
+    Return
+  EndIf
+  If abDestroyed
+    If !akDestroyed.HasForm(akRef)
+      akDestroyed.AddForm(akRef)
+    EndIf
+  Else
+    While akDestroyed.HasForm(akRef)
+      akDestroyed.RemoveAddedForm(akRef)
+    EndWhile
+  EndIf
+EndFunction
+
+; fallout4: new
+Function Restrain(ObjectReference akActor, Bool abRestrained) Global
+  {FO3/FNV SetRestrained: FO4's, then, when the state changed, the actor re-evaluates its packages, which FO4 does not do by itself (vanilla frees a captive with SetRestrained(false), then EvaluatePackage); a GameMode block repeating it changes nothing. Traced with whether the state changed, the package chosen and the sit state.
+  See: docs/fork/fo4_pipeline.md#restrained}
+  Actor a = akActor as Actor
+  If !a
+    Return
+  EndIf
+  Bool changed = a.SetRestrained(abRestrained)
+  If changed
+    a.EvaluatePackage()
+  EndIf
+  If changed && Tracing()
+    TraceWrite("restrained", TraceName(a) + "|" + abRestrained + "|changed " + changed + "|" + a.GetCurrentPackage() + "|sit " + a.GetSitState())
+  EndIf
+EndFunction
+
 ; fallout4: new
 Function SetSex(ObjectReference akActor, String asSex) Global
   {FO3/FNV SexChange [0/1]: FO4 Papyrus has no sex setter, so the F3NV plugin runs the game's SexChange, which toggles; only when the sex differs. male/0, female/1, else toggle.}
@@ -596,6 +733,119 @@ Function SetSex(ObjectReference akActor, String asSex) Global
   EndIf
   If target < 0 || a.GetLeveledActorBase().GetSex() != target
     F3NV_Sex.ChangeSex(a)
+  EndIf
+EndFunction
+
+; fallout4: new
+Function ChangeFatigue(Actor akActor, ActorValue akFatigue, Int aiOp, Float afValue) Global
+  {FO3/FNV Fatigue, a helper actor value on Fallout 4: aiOp 0 sets its base (SetAV), 1 mods it, 2 damages it, 3 restores it, 4 forces its current value, base kept (ForceAV: the thugs' get-up trick, ForceAV -1 under a base of 280). At 0 or below the actor is knocked out and recovers 1 a second (fFatigueReturnBase) toward its base, as FO3/FNV's engine does; above 0 it wakes. See docs/fork/fo4_pipeline.md#fatigue}
+  If !akActor || !akFatigue || akActor.IsDead()
+    Return
+  EndIf
+  If aiOp == 0
+    akActor.SetValue(akFatigue, afValue)
+  ElseIf aiOp == 1
+    akActor.ModValue(akFatigue, afValue)
+  ElseIf aiOp == 2
+    akActor.DamageValue(akFatigue, afValue)
+  ElseIf aiOp == 3
+    akActor.RestoreValue(akFatigue, afValue)
+  ElseIf afValue < akActor.GetValue(akFatigue)
+    akActor.DamageValue(akFatigue, akActor.GetValue(akFatigue) - afValue)
+  Else
+    akActor.RestoreValue(akFatigue, afValue - akActor.GetValue(akFatigue))
+  EndIf
+  If akActor.GetValue(akFatigue) > 0.0
+    If akActor.IsUnconscious()
+      akActor.SetUnconscious(False)
+    EndIf
+  ElseIf !akActor.IsUnconscious()
+    akActor.SetUnconscious(True)
+    Var[] args = new Var[2]
+    args[0] = akActor
+    args[1] = akFatigue
+    Utility.CallGlobalFunctionNoWait("TES4Polyfill", "RecoverFatigue", args)
+  EndIf
+EndFunction
+
+; fallout4: replaces GetIsCreature 16dd36686d4329c258758ec7ad2f645bac82d363
+Bool Function GetIsCreature(Actor akActor) Global
+  {FO3/FNV GetIsCreature: whether akActor is a creature, not a person. Fallout 4 marks people's races ActorTypeNPC (HumanRace, GhoulRace) and super mutants', NPCs in FO3/FNV, ActorTypeSuperMutant; a creature's race carries neither. See docs/fork/fo4_pipeline.md#script-casts}
+  If akActor == None
+    Return False
+  EndIf
+  Keyword npc = Game.GetFormFromFile(0x13794, "Fallout4.esm") as Keyword
+  Keyword mutant = Game.GetFormFromFile(0x6D7B6, "Fallout4.esm") as Keyword
+  Return !akActor.HasKeyword(npc) && !akActor.HasKeyword(mutant)
+EndFunction
+
+; fallout4: new
+Int Function GetBroadcastState(ObjectReference akStation) Global
+  {FNV GetBroadcastState on a radio station: 1 while its reference is enabled (a disabled transmitter broadcasts nothing), else 0. See docs/fork/fo4_radio.md#broadcast-state}
+  If akStation && !akStation.IsDisabled()
+    Return 1
+  EndIf
+  Return 0
+EndFunction
+
+; fallout4: new
+Function SetBroadcastState(ObjectReference akStation, Bool abOn) Global
+  {FNV SetBroadcastState on a radio station: enables its reference to broadcast, disables it to stop. See docs/fork/fo4_radio.md#broadcast-state}
+  If !akStation
+    Return
+  ElseIf abOn
+    akStation.Enable()
+  Else
+    akStation.Disable()
+  EndIf
+EndFunction
+
+; fallout4: new
+Function SetNightEye(Actor akActor, Float afValue) Global
+  {FO3/FNV SetAV NightEye on the player (Cateye, Dead Money's Ghost Sight): Fallout 4 has no Night Eye, so above 0 it plays the Night Person perk's night vision as that perk's effect does (NightPersonperkImodOn, then NightPersonperkImod), and 0 or below ends it (NightPersonperkImodOff). Nothing for another actor. See docs/fork/fo4_pipeline.md#night-eye}
+  If akActor != Game.GetPlayer()
+    Return
+  EndIf
+  ImageSpaceModifier intro = Game.GetFormFromFile(0x1E5DC3, "Fallout4.esm") as ImageSpaceModifier
+  ImageSpaceModifier vision = Game.GetFormFromFile(0x1D16EA, "Fallout4.esm") as ImageSpaceModifier
+  ImageSpaceModifier outro = Game.GetFormFromFile(0x1E5DC2, "Fallout4.esm") as ImageSpaceModifier
+  If !intro || !vision || !outro
+    Return
+  EndIf
+  intro.Remove()
+  If afValue > 0.0
+    vision.Remove()
+    outro.Remove()
+    intro.Apply(1.0)
+    Utility.Wait(0.83)
+    intro.PopTo(vision, 1.0)
+  Else
+    vision.PopTo(outro, 1.0)
+  EndIf
+EndFunction
+
+; fallout4: new
+Function RemoveMe(ObjectReference akItem, ObjectReference akTarget = None) Global
+  {FO3/FNV RemoveMe: a scripted item leaves the inventory holding it (into akTarget when given), as vanilla's PAFramePurchaseScript removes itself; one placed in the world is deleted, or moved into akTarget. Delete alone leaves an inventory item in place, so FNV's ammo boxes paid out every pass. See docs/fork/fo4_pipeline.md#remove-me}
+  ObjectReference holder = akItem.GetContainer()
+  If holder
+    holder.RemoveItem(akItem, 1, True, akTarget)
+  ElseIf akTarget
+    akTarget.AddItem(akItem, 1, True)
+  Else
+    akItem.Delete()
+  EndIf
+EndFunction
+
+; fallout4: new
+Function RecoverFatigue(Actor akActor, ActorValue akFatigue) Global
+  {A knocked-out actor's Fatigue returning 1 a second until it is above 0, then the actor wakes; while its base is 0 or below (a script's SetAV) it stays down until a script restores or sets it.}
+  While akActor && !akActor.IsDead() && akActor.IsUnconscious() && akActor.GetValue(akFatigue) <= 0.0 && akActor.GetBaseValue(akFatigue) > 0.0
+    Utility.Wait(1.0)
+    akActor.RestoreValue(akFatigue, 1.0)
+  EndWhile
+  If akActor && !akActor.IsDead() && akActor.IsUnconscious() && akActor.GetValue(akFatigue) > 0.0
+    akActor.SetUnconscious(False)
   EndIf
 EndFunction
 

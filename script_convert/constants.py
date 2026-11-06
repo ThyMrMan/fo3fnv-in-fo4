@@ -732,7 +732,7 @@ FALLOUT4_EVENTS = {
 #: Static helpers, or `Script.Function`s, FO3/FNV on Fallout 4 never use. See: docs/fork/fo4_spikes.md#spike-3-helpers
 FALLOUT4_UNUSED_HELPERS = frozenset({
     'TES4_DialoguePause', 'TES4_DayClock', 'TES4_BoundItemEffect', 'TES4Polyfill.MirrorPlayerFactionRelation',
-    'TES4Polyfill.GetIsCreature', 'TES4Polyfill.IsGuard', 'TES4Polyfill.GetDayOfWeek'})
+    'TES4Polyfill.IsGuard', 'TES4Polyfill.GetDayOfWeek'})
 #: The helpers' own Skyrim natives -> Fallout 4's (their update loop).
 FALLOUT4_HELPER_NATIVES = {'RegisterForSingleUpdate(': 'StartTimer(', 'UnregisterForUpdate()': 'CancelTimer()'}
 #: Skyrim menu name -> Fallout 4's (UI.IsMenuOpen comes from F4SE there).
@@ -751,27 +751,34 @@ FALLOUT4_ACTOR_VALUE_IDS = {
 }
 #: The plugin every converted FO3/FNV plugin masters for the records no source plugin has.
 FALLOUT4_HELPER_PLUGIN = 'FalloutHelpers.esl'
+#: The empty plugin whose being enabled turns the session trace on (TES4Polyfill.Tracing); see fo4_pipeline.md#trace.
+FALLOUT4_TRACE_PLUGIN = 'F3NV_Trace.esl'
 #: Actor values FO4 lacks -> object id in FALLOUT4_HELPER_PLUGIN; ids are a save contract, append only.
 FALLOUT4_HELPER_AVS = {
     **{f'Variable{n:02d}': 0x800 + n - 1 for n in range(1, 11)},
     'Barter': 0x810, 'BigGuns': 0x811, 'EnergyWeapons': 0x812, 'Explosives': 0x813, 'Lockpick': 0x814,
     'Medicine': 0x815, 'MeleeWeapons': 0x816, 'Repair': 0x817, 'Science': 0x818, 'Guns': 0x819,
     'SmallGuns': 0x81A, 'Sneak': 0x81B, 'Speech': 0x81C, 'Survival': 0x81D, 'Unarmed': 0x81E,
-    'CritChance': 0x81F, 'FalloutDamageResist': 0x820,
+    'CritChance': 0x81F, 'FalloutDamageResist': 0x820, 'Fatigue': 0x821, 'TalkedToPC': 0x822,
 }
+#: Helper actor values whose default is not 0: Fatigue, an average FNV NPC's (docs/fork/fo4_pipeline.md#fatigue).
+FALLOUT4_HELPER_AV_DEFAULTS = {'Fatigue': 200.0}
 #: FO3/FNV actor value -> Fallout 4's of the same meaning; FO4's DamageResist is FNV's DT, FNV's DR the helper's.
 FALLOUT4_FALLOUT_AV_RENAMES = {'RadiationRads': 'Rads', 'XP': 'Experience', 'RadResist': 'RadResistExposure',
                                'DamageThreshold': 'DamageResist', 'DamageResist': 'FalloutDamageResist'}
 #: Skyrim skill names the shared helpers use -> the FO3/FNV skill they read on Fallout 4.
 FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair'}
 #: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.
-FALLOUT4_HELPER_QUESTS = {'F3NV_PlayerControls': 0x900, 'F3NV_CharacterEvents': 0x901}
+FALLOUT4_HELPER_QUESTS = {'F3NV_PlayerControls': 0x900, 'F3NV_CharacterEvents': 0x901, 'F3NV_PackageState': 0x902}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
 FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00, 'TES4Trace': 0xA01}
 #: Message boxes -> (object id in FALLOUT4_HELPER_PLUGIN, title and text, buttons); ids append only.
-FALLOUT4_HELPER_MESSAGES = {'TES4ChooseSexMessage': (0xB00, 'Choose Sex', ('Male', 'Female'))}
+FALLOUT4_HELPER_MESSAGES = {'TES4ChooseSexMessage': (0xB00, 'Choose Sex', ('Male', 'Female')),
+                            'TES4SpecialPointMessage': (0xB01, 'Intense Training', (
+                                'Strength', 'Perception', 'Endurance', 'Charisma', 'Intelligence', 'Agility', 'Luck'))}
 #: Helper quest script -> {property: helper message} it is given.
-FALLOUT4_HELPER_QUEST_MESSAGES = {'F3NV_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'}}
+FALLOUT4_HELPER_QUEST_MESSAGES = {'F3NV_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'},
+                                  'F3NV_CharacterEvents': {'SpecialPoint': 'TES4SpecialPointMessage'}}
 #: Prefix of the Scene property `StartConversation Player [topic]` starts on Fallout 4 (topic, else GREETING).
 FALLOUT4_TALK_PREFIX = 'TES4Talk_'
 #: The Scene property that opens a speaker's GREETING on Fallout 4: `StartConversation Player`, a talker's activation.
@@ -784,6 +791,15 @@ FALLOUT4_CHAT_PREFIX = 'TES4Chat_'
 FALLOUT4_SWAP_PREFIX = 'TES4Swap_'
 #: Prefix of the seat (ObjectReference) the player's Fallout 4 `AddScriptPackage <package>` seats them in.
 FALLOUT4_POSE_PREFIX = 'TES4Pose_'
+
+
+#: Prefix of the Armor property a Fallout 4 `SetSecuritronExpression` equips (fallout4_screen_property).
+FALLOUT4_SCREEN_PREFIX = 'TES4Screen_'
+
+
+def fallout4_screen_property(face: str, expression: str) -> str:
+    """The Armor property `SetSecuritronExpression <ref> <face> <expression>` equips."""
+    return FALLOUT4_SCREEN_PREFIX + re.sub(r'\W', '_', f'{face}_{expression}')
 
 
 def fallout4_swap_property(node: str, texture: str) -> str:

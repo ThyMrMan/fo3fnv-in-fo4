@@ -141,7 +141,7 @@ re-measured on FalloutNV.esm; the same gaps on NPC_/ACHR):
 | CREA | DEST destructible | 55 | turrets, robots |
 | CREA | LNAM melee weapon list, CNAM impact data, NAM4 impact material, NAM5 sound level | 475, 793, 1,578, 24 | impacts, weapons |
 | ACRE | XLCM level modifier | 119 | difficulty |
-| ACRE | XRGD / XRGB ragdoll pose | 109 / 14 | placed corpses' poses |
+| ACRE | XRGD / XRGB ragdoll pose | 109 / 14 | placed corpses' poses (since 2026-11-01 read from FalloutNV.esm: [dead-at-start poses](fo4_spikes.md#spike-4-creatures)) |
 | ACRE | XEZN encounter zone | 11 | level range |
 | ACRE | XMRC merchant container | 1 | the Vendortron |
 
@@ -284,8 +284,11 @@ unarmed attack effect):
   on 7, ED-E's `EDERadioBroadcast` on 3) were left out; `Perks.ability`
   now hands them to `script_effects`. The glow scripts play an FNV effect
   shader (`GlowingOneFXShader`, `DLC03GhoulFXShader`) and the build
-  converts no EFSH, so those properties stay empty (one Papyrus error per
-  spawn) and reavers do not glow.
+  converts no EFSH, so those properties were empty (one Papyrus error per
+  spawn) and reavers did not glow. Since 2026-11-01 every script
+  `EffectShader` property gets a Fallout4.esm shader
+  ([effect shaders](script_markers.md#effect-shaders), via
+  [creatures](fo4_spikes.md#spike-4-creatures)).
 - `GhoulRadHeal` (all 71: heal 10 a second while Rad Level > 1, remove 100
   rads a second while above 0) was written empty: its conditions test
   `GetRadiationLevel`, which FO4 lacks. It is now `GetValue Rads`
@@ -300,7 +303,8 @@ unarmed attack effect):
 
 <a id="talking-machines"></a>**FNV's talking machines (mode `speaker`, built 2026-10-27; played in the
 Lucky 38 penthouse: the screen and console stand, no protectron, activating
-them opens Mr. House's dialogue; the screen shows no image).**
+them opens Mr. House's dialogue; the screen showed no image, fix built
+2026-11-02, not played).**
 Mr. House's screen (`MrHouse`, 365 dialogue lines by GetIsID; `MrHouseOFFLINE`
 and `NVCRPenthousemaincomputer` share its model), Yes Man's mainframe (134),
 Festus (91) and Mr. House's pod (`NVCRMrHouse`, 10) are FNV creatures with
@@ -340,9 +344,11 @@ file (`MrHouseOFFLINE`'s `NVPentHouseMainComputer_HouseScreen.NIF`) is
 left out, counted. Lost: the skinned parts' idle and talking motion, and
 the screens' animation: their controllers sit on nodes and properties with
 no controller manager, which the static conversion keeps only under one.
-In game the penthouse screen shows no image at all (its face layers are
-effect shapes whose alpha and texture controllers set what shows), so the
-screen waits on carrying those controllers.
+In game the penthouse screen showed no image at all (its face layers are
+effect shapes whose alpha and texture controllers set what shows). Those
+controllers are now kept, and the layers blend
+([free controllers](fo4_pipeline.md#free-controllers), built 2026-11-02, not
+yet played).
 
 ## <a id="leftover-check"></a>The leftover check
 

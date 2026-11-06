@@ -100,7 +100,7 @@ def add_system(nif, system, owner: int, shader: tuple, scene: dict) -> dict:
     data = _data(nif, system.data)
     supported = [m for m in system.modifiers if type(m).__name__ in SPECS or type(m).__name__ in WRITTEN
                  or _grow_fade(m)]
-    for geom in (g for m in supported for g in getattr(m, 'emitter_meshes', []) if g is not None):
+    for geom in (g for m in supported for g in getattr(m, 'emitter_meshes', []) if _shape(g)):
         _emitter(nif, geom, scene)
     chain, first = [c for m in supported for c in colliders(m)], len(nif.blocks) + len(supported)
     refs = {**scene, 'system': index, 'modifiers': {id(m): len(nif.blocks) + i for i, m in enumerate(supported)},
@@ -160,7 +160,7 @@ def _modifier(nif, mod, refs: dict, life: float) -> tuple:
     if kind == 'NiPSysMeshEmitter':
         fields = {name: _value(nif, name, getattr(mod, name), refs) for name, _ in EMITTER_BASE}
         tail = {name: _value(nif, name, getattr(mod, attr), refs) for name, attr in MESH_EMITTER_FIELDS.items()}
-        return kind, {**fields, **tail, 'meshes': [_emitter(nif, m, refs) for m in mod.emitter_meshes if m is not None]}
+        return kind, {**fields, **tail, 'meshes': [_emitter(nif, m, refs) for m in mod.emitter_meshes if _shape(m)]}
     return kind, _fields(nif, mod, refs)
 
 
@@ -168,6 +168,13 @@ def _fields(nif, block, refs: dict) -> dict:
     """FO4 values of FNV `block`'s SPECS fields, read by their pyffi names."""
     return {name: _value(nif, name, getattr(block, ALIASES.get(name, name)), refs)
             for name, _ in SPECS[type(block).__name__]}
+
+
+def _shape(geom) -> bool:
+    """Whether emitter mesh `geom` has triangles (not a particle system).
+    See: docs/commentary/asset_convert_nif.md#mesh-emitter-template
+    """
+    return geom is not None and hasattr(geom.data, 'get_triangles')
 
 
 def _emitter(nif, geom, refs: dict) -> int:

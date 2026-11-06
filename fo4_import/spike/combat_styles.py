@@ -131,7 +131,7 @@ def converted_values(rec: dict, settings: dict) -> dict:
 def _maneuvers(rec: dict, settings: dict) -> dict:
     """Dodge, circle and fall back from FNV's melee dodges (none for a Ranged Only style, whose actors FNV never
     puts in its melee procedure); avoiding and evading threats off under Ignore Threats."""
-    out = {'avoid': 0.0, 'evade': 0.0} if int(_f(rec, 'CSTD.Flags')) & IGNORE_THREATS else {}
+    out = {'avoid': 0.0, 'evade': 0.0} if int(_f(rec, 'CSTD.FalloutFlags')) & IGNORE_THREATS else {}
     if rec.get('CSSD.WeaponRestrictions') == RANGED_ONLY:
         return {**out, 'dodge': 0.0, 'circle': 0.0, 'fallback': 0.0}
     back, side = dodge_shares(rec, settings, True)

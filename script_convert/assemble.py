@@ -51,7 +51,7 @@ def build(conv, name: str, source: str, extends: str, editor_id: str) -> str:
     body += poll(conv, tree, extends)
     body += events(conv, tree, extends, skip_poll=True)
     body += sleep_listener(conv, tree, extends)
-    body += menu_blocks(conv, tree, extends)
+    body = late_last_activator(conv, body + menu_blocks(conv, tree, extends))
     body += trap_hit(conv, tree, extends)
     body += door_relock(conv, tree, extends)
     body += lifecycle(conv, tree, extends)
@@ -372,7 +372,10 @@ def properties(conv, tree) -> list:
 
     The external ones -- a quest, a faction, a sound -- are discovered WHILE
     the body converts rather than from the declarations; missing them left the
-    emitted name undefined and failed the whole script to compile.
+    emitted name undefined and failed the whole script to compile. On Fallout 4
+    they are `Auto Const`: the game reads them from the plugin, so a fixed fill
+    reaches a save that already ran the script.
+    See: docs/fork/fo4_pipeline.md#const-properties
     """
     kept = variable_properties(conv, tree)
     out = [_declare(name, ptype) for name, ptype in kept]
@@ -382,7 +385,7 @@ def properties(conv, tree) -> list:
         if low in seen or not prop.isidentifier():
             continue
         seen.add(low)
-        out.append(_declare(prop, ptype))
+        out.append(_declare(prop, ptype, const=is_fallout4()))
     if out:
         out.append('')
     return out
@@ -438,18 +441,12 @@ def _quest_delay(conv, script: str) -> list:
             'EndFunction']
 
 
-def _declare(name: str, ptype: str) -> str:
-    """One auto-property declaration.
-
-    Value types carry `Conditional` so the engine's condition system can read
-    the backing `::<name>_var` (GetVMScriptVariable 629/630); without it every
-    converted GetScriptVariable condition silently fails.
-
-    A Float is INITIALISED.  Papyrus defaults an uninitialised Float property
-    to None rather than 0.0, so arithmetic on one before its first write reads
-    as a type error -- TES4 started every declared variable at 0.
+def _declare(name: str, ptype: str, const: bool = False) -> str:
+    """One auto-property: value types Conditional, a Float at 0.0, a form `Auto Const` with `const`.
+    See: docs/fork/fo4_pipeline.md#const-properties
     """
-    flag = ' Conditional' if ptype in ('Int', 'Float', 'Bool') else ''
+    value = ptype in ('Int', 'Float', 'Bool', 'String')
+    flag = ' Conditional' if ptype in ('Int', 'Float', 'Bool') else ' Const' if const and not value else ''
     init = ' = 0.0' if ptype == 'Float' else ''
     return f'{ptype} Property {name}{init} Auto{flag}'
 
@@ -689,7 +686,21 @@ def _record_last_activator(conv, merged: dict, order: list) -> list:
         merged[header] = []
         order.append(header)
     merged[header][:0] = [f'  {LAST_ACTIVATOR_VAR} = akActionRef']
+    conv.sc.records_last_activator = True
     return [f'ObjectReference {LAST_ACTIVATOR_VAR}', '']
+
+
+def late_last_activator(conv, body: list) -> list:
+    """`body` recording the last activator first in OnActivate when a block emitted after events() read it (a
+    message box's MenuMode 1001, TES4_MessageBoxClosed); else `body`.
+    See: docs/commentary/script_convert.md#last-activator
+    """
+    opener = BLOCK_MAP['onactivate'][0]
+    if not conv.sc.uses_last_activator or conv.sc.records_last_activator or opener not in body:
+        return body
+    conv.sc.records_last_activator = True
+    at = body.index(opener) + 1
+    return [f'ObjectReference {LAST_ACTIVATOR_VAR}', ''] + body[:at] + [f'  {LAST_ACTIVATOR_VAR} = akActionRef'] + body[at:]
 
 
 #: Container holding a carried object, None while it lies in the world.
@@ -1028,11 +1039,13 @@ def _carried(conv) -> bool:
 
 
 def _gate(conv) -> str:
-    """The poll gate: the reference is live, or a carried one's holder is."""
+    """The poll gate: the reference is live, or a carried one still exists and its holder is live.
+    See: docs/fork/fo4_pipeline.md#remove-me
+    """
     if not _carried(conv):
         return conv._GAMEMODE_GATE
     return (f'{conv._GAMEMODE_GATE} || '
-            f'TES4Polyfill.SafeGameModeGate({_HOLDER_VAR})')
+            f'Self != None && TES4Polyfill.SafeGameModeGate({_HOLDER_VAR})')
 
 
 def _delayed_quest(extends: str) -> bool:

@@ -66,3 +66,15 @@ def test_a_wall_lean_marker_moves_to_where_fnvs_enter_animation_ends():
     """The enter motion moves the marker 31.2 forward and turns it."""
     placed = F.entered([(0.0, 0.0, 0.0, 0.0, F.WALL_LEAN)], 1, (0.0, 31.2, math.pi))
     assert [tuple(round(v, 3) for v in p[:4]) for p in placed] == [(0.0, 31.2, 0.0, round(math.pi, 3))]
+
+
+def test_floor_beds_take_vanilla_sides_from_where_the_marker_lies():
+    """Left of the middle: Right; right of it: Left; middle: both (vanilla's ground beds). FNV's bare floor sleep,
+    at heading 270, keeps its Left; other bits stay."""
+    turn = math.pi / 2
+    bed = [(-20.0, 0.0, -6.0, turn, F.UNUSED_ENTRY | F.LEFT), (20.0, -4.0, -6.0, turn, F.UNUSED_ENTRY | F.RIGHT),
+           (1.0, 0.0, 0.0, turn + 3 * math.pi / 2, F.UNUSED_ENTRY | F.LEFT),
+           (0.0, 36.0, 0.0, turn + 3 * math.pi / 2, F.UNUSED_ENTRY | F.LEFT)]
+    out = F.floor_beds(bed)
+    assert [e & (F.RIGHT | F.LEFT) for *_, e in out] == [F.RIGHT, F.LEFT, F.RIGHT | F.LEFT, F.LEFT]
+    assert all(e & F.UNUSED_ENTRY == F.UNUSED_ENTRY for *_, e in out) and abs(out[0][3]) < 1e-9

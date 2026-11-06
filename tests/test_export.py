@@ -883,6 +883,19 @@ class TestFalloutTopicLinks(unittest.TestCase):
         self.assertIn('DATA.Flags=2', export_DIAL(self._record('DIAL', ('DATA', b'\x00\x02'))))
         self.assertNotIn('DATA.Flags', ''.join(export_DIAL(self._record('DIAL', ('DATA', b'\x00')))))
 
+    def test_dial_shared_infos_keep_their_quest(self):
+        """Each INFC (and its INFX) is dumped under the QSTI before it; an INFC after the quests (xEdit's
+        unused ones) is not."""
+        from tes4_export.record_types.dialog_misc import export_DIAL
+        u32 = lambda v: struct.pack('<I', v)
+        lines = export_DIAL(self._record('DIAL', ('QSTI', u32(0x10)), ('QSTI', u32(0x20)), ('INFC', u32(0x99)),
+                                         ('INFX', u32(3)), ('INFC', u32(0x98)), ('FULL', b'Hi\0'),
+                                         ('INFC', u32(0x97))))
+        self.assertEqual([line for line in lines if line.startswith('Shared')],
+                         ['SharedInfoCount=2', 'SharedInfo[0].Quest=00000020', 'SharedInfo[0].Info=00000099',
+                          'SharedInfo[0].Index=3', 'SharedInfo[1].Quest=00000020', 'SharedInfo[1].Info=00000098'])
+        self.assertIn('QuestCount=2', lines)
+
     def test_info_prompt(self):
         """INFO RNAM becomes Prompt."""
         from tes4_export.record_types.dialog_misc import export_INFO

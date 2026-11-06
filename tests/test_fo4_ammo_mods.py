@@ -4,6 +4,7 @@ See: docs/fork/fo4_pipeline.md#nv-ammo
 """
 import struct
 import zlib
+from pathlib import Path
 from collections import Counter
 from types import SimpleNamespace
 
@@ -57,9 +58,9 @@ def test_ammo_effect_exports_type_operation_and_value():
 class _Writer:
     """A plugin writer keeping what is written."""
 
-    def __init__(self):
-        """No records yet."""
-        self.records, self.keys = [], []
+    def __init__(self, own_index: int = 1):
+        """No records yet; this plugin's load byte is `own_index`."""
+        self.records, self.keys, self.own_index = [], [], own_index
 
     def derive_formid(self, site: str, key: str) -> int:
         """A FormID from the site and key."""
@@ -300,8 +301,39 @@ def test_the_ammo_type_hotkey_lists_each_round_with_its_mod_keyword_and_name(mon
     builder.scripts = SimpleNamespace(used=[], effects=SimpleNamespace(effect_data=lambda cast, delivery: bytes(8)))
     ammo_switch.write(builder, mods)
     written = Counter(sig for sig, _ in builder.writer.records[before:])
-    assert written == {'MESG': 3 + 3, 'QUST': 1, 'MGEF': 1, 'ALCH': 1}
-    assert builder.scripts.used == [ammo_switch.SCRIPT, ammo_switch.ITEM_SCRIPT, ammo_switch.NATIVES]
+    assert written == {'MESG': 3 + 3, 'QUST': 1, 'MGEF': 1, 'ALCH': 1, 'FLST': 1}
+    assert builder.scripts.used == [ammo_switch.SOURCE_SCRIPT, ammo_switch.SCRIPT, ammo_switch.NATIVES,
+                                    ammo_switch.ITEM_SCRIPT]
     item = _subs(next(d for s, d in builder.writer.records if s == 'ALCH'))
     assert item[b'FULL'] == b'Ammo Type\0' and item[b'EFID'] == struct.pack('<I', builder.writer.derive_formid(
         ammo_switch.SITE, 'effect'))
+
+
+def test_a_dlc_whose_master_holds_the_switch_writes_only_its_own_rounds_quest(monkeypatch):
+    """A plugin (load byte 2) whose master (byte 1) holds the switch quest: one quest of its own registering its
+    rounds with the master's registry and switch quest; no hotkey, messages or registry of its own."""
+    mods = _mods(monkeypatch)
+    mods.wire(GUN, _gun())
+    builder = mods.builder
+    builder.writer.own_index, before = 2, len(builder.writer.records)
+    builder.export_dir = Path('DeadMoney.esm')
+    builder.scripts = SimpleNamespace(used=[], effects=None)
+    ammo_switch.write(builder, mods)
+    written = [(sig, data) for sig, data in builder.writer.records[before:]]
+    assert Counter(sig for sig, _ in written) == {'MESG': 3, 'QUST': 1}
+    quest = _subs(next(d for s, d in written if s == 'QUST'))
+    assert quest[b'EDID'] == b'FNV_AmmoSwitch_DeadMoney\0'
+    assert builder.scripts.used == [ammo_switch.SOURCE_SCRIPT, ammo_switch.SCRIPT, ammo_switch.NATIVES]
+
+
+def test_a_dlcs_own_list_keeps_the_games_round_and_a_game_list_only_its_own():
+    """arrays(kept): a list whose keyword is the plugin's keeps every round (GRA's mini nuke list keeps the game's
+    plain round); a game list keeps only the plugin's rounds."""
+    own = 0x02
+    builder = SimpleNamespace(items=SimpleNamespace(item=lambda ammo: ammo), writer=_Writer(),
+                              counts=Counter())
+    mods = SimpleNamespace(ammo={a: {'EditorID': f'A{a:X}'} for a in (0x01000001, 0x02000002)}, mark=lambda a: 0)
+    grouped = [(0x02000100, [(0x01000001, 0x10), (0x02000002, 0x11)]), (0x01000200, [(0x01000001, 0x12), (0x02000002, 0x13)])]
+    values = ammo_switch.arrays(builder, mods, grouped, lambda form: form >> 24 == own)
+    assert values['Lists'][1] == [0x02000100, 0x01000200] and values['Starts'][1] == [0, 2, 3]
+    assert values['Rounds'][1] == [0x01000001, 0x02000002, 0x02000002]

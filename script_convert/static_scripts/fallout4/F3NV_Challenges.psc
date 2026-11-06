@@ -1,5 +1,5 @@
 ScriptName F3NV_Challenges extends Quest Hidden
-{FNV's challenges: counts each one's event into its progress actor value on the player, shows it (its state global) and casts its reward on completion. State: -2/-1 locked (hidden/shown once unlocked), 0 counting but hidden, 1 shown, 2 shown and no longer recurring, 3 and 4 as 1 and 2 once completed. See docs/fork/fo4_pipeline.md#challenges}
+{FNV's challenges: hears each event (its player alias's kills, uses and crippled limbs, Fallout 4's tracked stats, completions) and hands it to every plugin's challenges (F3NV_ChallengeSource, the game's on this quest), registered in Sources; each counts it into its progress actor value on the player, shows it (its state global) and casts its reward on completion. State: -2/-1 locked (hidden/shown once unlocked), 0 counting but hidden, 1 shown, 2 shown and no longer recurring, 3 and 4 as 1 and 2 once completed. See docs/fork/fo4_pipeline.md#challenges}
 
 Int Property KillEvent = 0 AutoReadOnly
 Int Property StatEvent = 1 AutoReadOnly
@@ -8,23 +8,10 @@ Int Property MarkerEvent = 3 AutoReadOnly
 Int Property CrippledEvent = 4 AutoReadOnly
 Int Property CompletedEvent = 5 AutoReadOnly
 
-ActorValue[] Property Rows Auto Const
-GlobalVariable[] Property States Auto Const
-String[] Property Names Auto Const
-Int[] Property Events Auto Const
-Int[] Property Thresholds Auto Const
-Int[] Property Intervals Auto Const
-Int[] Property Recurring Auto Const
-Int[] Property Groups Auto Const
-{The stat group a stat or marker challenge counts (-1: none).}
-FormList[] Property Weapons Auto Const
-{The weapons a kill or critical must be made with (None: any).}
-FormList[] Property Victims Auto Const
-FormList[] Property Items Auto Const
-ObjectReference[] Property Markers Auto Const
-Spell[] Property Rewards Auto Const
+FormList Property Sources Auto Const
+{Every plugin's challenges (F3NV_ChallengeSource quests), each added by its quest as it starts.}
 String[] Property StatNames Auto Const
-{The Fallout 4 tracked stats counted, each in group StatGroups[k].}
+{The Fallout 4 tracked stats counted, each in group StatGroups[k] (one fixed numbering for every plugin).}
 Int[] Property StatGroups Auto Const
 Weapon Property Fists Auto Const
 String Property CompletedText Auto Const
@@ -33,6 +20,18 @@ String Property ProgressText Auto Const
 Int[] Seen
 
 Event OnQuestInit()
+  Ready()
+EndEvent
+
+Function Ready()
+  {Have this quest's own challenges registered and every stat of StatNames tracked; a save from before either (the quest already running) catches up here.}
+  F3NV_ChallengeSource own = (Self as Quest) as F3NV_ChallengeSource
+  If own && Sources.Find(own) < 0
+    Sources.AddForm(own)
+  EndIf
+  If Seen && Seen.Length == StatNames.Length
+    Return
+  EndIf
   Seen = new Int[StatNames.Length]
   Int k = 0
   While k < StatNames.Length
@@ -40,9 +39,10 @@ Event OnQuestInit()
     RegisterForTrackedStatsEvent(StatNames[k], Seen[k] + 1)
     k += 1
   EndWhile
-EndEvent
+EndFunction
 
 Event OnTrackedStatsEvent(String asStat, Int aiStatValue)
+  Ready()
   Int k = StatNames.Find(asStat)
   If k < 0
     Return
@@ -59,90 +59,32 @@ Event OnTrackedStatsEvent(String asStat, Int aiStatValue)
 EndEvent
 
 Function Note(Int aiEvent, Int aiGroup, Int aiAmount, Actor akVictim, Form akItem)
-  {Add aiAmount to every challenge counting aiEvent (a stat event: of group aiGroup) whose filters match the player's weapon, akVictim and akItem.}
+  {Hand aiEvent (a stat event: of group aiGroup) to every plugin's challenges, with the player's weapon (fists when none), akVictim and akItem.}
+  Ready()
   Weapon held = Game.GetPlayer().GetEquippedWeapon()
   If !held
     held = Fists
   EndIf
-  Int i = Events.Find(aiEvent)
-  While i >= 0
-    If (aiEvent != StatEvent || Groups[i] == aiGroup) && Matches(i, held, akVictim, akItem)
-      Add(i, aiAmount)
+  Int k = 0
+  While k < Sources.GetSize()
+    F3NV_ChallengeSource rows = Sources.GetAt(k) as F3NV_ChallengeSource
+    If rows
+      rows.Note(aiEvent, aiGroup, aiAmount, akVictim, akItem, held)
     EndIf
-    i = Events.Find(aiEvent, i + 1)
+    k += 1
   EndWhile
-EndFunction
-
-Bool Function Matches(Int i, Weapon akHeld, Actor akVictim, Form akItem)
-  {Whether challenge i's weapon, victim and item lists (None: any) hold akHeld, akVictim's base and akItem.}
-  If Weapons[i] && !Weapons[i].HasForm(akHeld)
-    Return False
-  EndIf
-  If Items[i] && !Items[i].HasForm(akItem)
-    Return False
-  EndIf
-  Return !Victims[i] || (akVictim && (Victims[i].HasForm(akVictim.GetLeveledActorBase()) || Victims[i].HasForm(akVictim.GetActorBase())))
 EndFunction
 
 Function CheckMarkers()
-  {Count each discovery challenge whose map marker the player can now travel to.}
-  Actor player = Game.GetPlayer()
-  Int i = Events.Find(MarkerEvent)
-  While i >= 0
-    If Markers[i] && Markers[i].CanFastTravelToMarker() && player.GetValue(Rows[i]) == 0
-      Add(i, 1)
+  {Count each plugin's discovery challenges whose map marker the player can now travel to.}
+  Int k = 0
+  While k < Sources.GetSize()
+    F3NV_ChallengeSource rows = Sources.GetAt(k) as F3NV_ChallengeSource
+    If rows
+      rows.CheckMarkers()
     EndIf
-    i = Events.Find(MarkerEvent, i + 1)
+    k += 1
   EndWhile
-EndFunction
-
-Function Add(Int i, Int aiAmount)
-  {Add aiAmount to challenge i's progress unless it is locked or done; show it, report progress each interval and complete it at each threshold (once unless recurring).}
-  Float level = States[i].GetValue()
-  Actor player = Game.GetPlayer()
-  Int before = player.GetValue(Rows[i]) as Int
-  Int goal = Thresholds[i]
-  Bool repeats = Recurring[i] && level != 2 && level != 4
-  If level < 0 || (!repeats && before >= goal)
-    Return
-  EndIf
-  Int after = before + aiAmount
-  If !repeats && after > goal
-    after = goal
-  EndIf
-  player.SetValue(Rows[i], after as Float)
-  If level == 0
-    States[i].SetValue(1)
-  EndIf
-  Int done = 0
-  If goal > 0
-    done = after / goal - before / goal
-  EndIf
-  If done > 0
-    While done > 0
-      Complete(i)
-      done -= 1
-    EndWhile
-  ElseIf Intervals[i] > 0 && after / Intervals[i] > before / Intervals[i]
-    Int shown = after
-    If repeats && goal > 0
-      shown = after % goal
-    EndIf
-    Debug.Notification(ProgressText + ": " + Names[i] + " " + shown + "/" + goal)
-  EndIf
-EndFunction
-
-Function Complete(Int i)
-  {Mark challenge i completed (state 1 or 2 becomes 3 or 4), report it, cast its reward on the player and count it for the challenges counting completions.}
-  Float level = States[i].GetValue()
-  If level == 1 || level == 2
-    States[i].SetValue(level + 2)
-  EndIf
-  Debug.Notification(CompletedText + ": " + Names[i])
-  If Rewards[i]
-    Rewards[i].Cast(Game.GetPlayer(), Game.GetPlayer())
-  EndIf
-  Note(CompletedEvent, -1, 1, None, None)
 EndFunction
 
 Function Unlock(GlobalVariable akState) Global

@@ -24,7 +24,7 @@ import struct
 import numpy as np
 
 from fo4_import.nif.convert_static import ATTACH, NifFormat
-from fo4_import.nif.outfit import fnv_nif
+from fo4_import.nif.outfit import fnv_nif, prn_bone
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import write_assets
 from fo4_import.spike.void_actors import invisible_race
@@ -53,11 +53,8 @@ def bone_worlds(skeleton) -> dict:
 
 
 def part_pose(part, worlds: dict) -> dict:
-    """posed()'s ATTACH of `part` at its `Prn` bone's world (FNV attaches it there); {} for a skinned or
-    unparented part."""
-    root = fnv_nif(part)
-    prn = next((e.string_data.decode('cp1252') for e in root.get_extra_datas()
-                if isinstance(e, NifFormat.NiStringExtraData) and e.name == b'Prn'), None)
+    """posed()'s ATTACH of `part` at its `Prn` bone's world; {} for none."""
+    prn = prn_bone(fnv_nif(part))
     return {ATTACH: worlds[prn]} if prn in worlds else {}
 
 
@@ -85,14 +82,15 @@ class TalkingMachines:
         return [self._part(folder, name, worlds, rec.get('FULL', '')) for name in present]
 
     def _part(self, folder: str, name: str, worlds: dict, full: str) -> int:
-        """The activator of body part `name` in skeleton folder `folder`, posed by `worlds`, named `full`."""
+        """The activator of body part `name` in skeleton folder `folder`, posed by `worlds`, named `full`; a part
+        with no triangles (a particle spray) is bounded by zeros."""
         model = f'{folder}\\{name}'
         if (model, full) not in self.parts:
             pose = part_pose(export_file(self.export_dir, 'meshes', model), worlds)
             written, bounds = write_assets(self.export_dir, model, self.data_dir, pose, suffix=SUFFIX)
             fid = self.parts[(model, full)] = self.builder.writer.derive_formid(SITE, f'{model} {full}')
             edid = f'FNV_{name[:-4]}{full.replace(" ", "").replace(".", "")}Speaker'
-            self.builder.writer.add_record('ACTI', R.pack_acti(fid, edid, full, written, bounds, b'', PROMPT))
+            self.builder.writer.add_record('ACTI', R.pack_acti(fid, edid, full, written, bounds or (0,) * 6, b'', PROMPT))
             self.builder.counts['talking machine part'] += 1
         return self.parts[(model, full)]
 

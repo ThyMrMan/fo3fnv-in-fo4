@@ -7,7 +7,8 @@ through `self_type`; behavior-graph events go through PlayAnimation. Where
 Fallout 4 has FO3/FNV's own feature the row uses it (RewardXP is the native
 RewardPlayerXP); the character menus, which Skyrim sends as SKSE mod events,
 become one custom event from the F3NV_CharacterEvents helper. IsAnimPlaying
-is 0: FO4 cannot ask a NIF sequence, and the graph read errored (fo4_pipeline.md#log-noise).
+is 0: FO4 cannot ask a NIF sequence, and the graph read errored (fo4_pipeline.md#log-noise). IsPlayerInRegion reads
+the region's watch global (fo4_regions.md#built); GetTalkedToPC the TalkedToPC helper value (fo4_pipeline.md#talked-to-pc).
 
 See: docs/fork/fo4_spikes.md#spike-3-target
 """
@@ -52,13 +53,14 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'playidle': Cmd('{ref}.PlayIdle({p0})', ACTOR, types={0: 'Idle'}),
     'rewardxp': Cmd('Game.RewardPlayerXP({i0})'),
     'isanimplaying': Cmd('0'),
-    'setrestrained': Cmd('{ref}.SetRestrained({b0})', ACTOR, defaults={0: '0'}),
+    'setrestrained': Cmd('TES4Polyfill.Restrain({ref}, {b0})', ACTOR, defaults={0: '0'}),
     'getlos': Cmd('HasDetectionLOS', MAP, flags='actor_only'),
     'removeallitems': Cmd('RemoveAllItems', MAP, flags='actor_only objref_shared', max_args=2),
     'enablefasttravel': Cmd(f'{CONTROLS_PROPERTY}.FastTravel({{b0}})', self_type=_CONTROLS, defaults={0: '1'}),
     'setcanfasttravelfromworld': Cmd(f'{CONTROLS_PROPERTY}.FastTravel({{b1}})', self_type=_CONTROLS,
                                      defaults={1: '1'}),
     'setspecialpoints': _menu('special'),
+    'addspecialpoints': _menu('addspecial'),
     'showlovetestermenuparams': _menu('special'),
     'showspecialbookmenu': _menu('special', defaults={0: '40'}),
     'ssbmp': _menu('special', defaults={0: '40'}),
@@ -85,4 +87,13 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'modweaponhealthperc': Cmd('F3NV_ConditionCalls.ModWeaponPercent({ref}, {f0})', ACTOR, flags='actor_only'),
     'additemhealthpercent': Cmd('F3NV_ConditionCalls.AddWithHealth({ref}, {p0}, {i1}, {f2}, {b3})', OBJREF,
                                 types={0: 'Form'}, defaults={1: '1', 2: '1.0', 3: '0'}),
+    'removeme': Cmd('TES4Polyfill.RemoveMe({ref}, {a0})', OBJREF, types={0: 'ObjectReference'},
+                    defaults={0: 'None'}),
+    'isplayerinregion': Cmd('TES4Polyfill.InRegion({p0})', types={0: 'GlobalVariable'}, flags='cmp_bool'),
+    'getcurrentaiprocedure': Cmd('TES4Polyfill.AIProcedure({ref})', ACTOR, flags='actor_only zero_arg'),
+    'islimbgone': Cmd('TES4Polyfill.LimbGone({ref}, {i0})', ACTOR, flags='actor_only cmp_bool'),
+    'gettalkedtopc': Cmd(f'({{ref}}.GetValue({av_property("TalkedToPC")}) != 0.0)', ACTOR,
+                         self_type=_av('TalkedToPC'), flags='actor_only zero_arg cmp_bool'),
+    'gettalkedtopcp': Cmd(f'({{ref}}.GetValue({av_property("TalkedToPC")}) != 0.0)', ACTOR,
+                          self_type=_av('TalkedToPC'), flags='actor_only zero_arg cmp_bool'),
 }.items()}

@@ -129,6 +129,9 @@ FALLOUT_COMMAND_ROWS = {
     'ishardcore': dict(
         emit='0', note='{f} - Skyrim has no hardcore mode (read as 0)',
         flags='zero_arg'),
+    'getinchargen': dict(
+        emit='0', note='{f} - SetInCharGen converts to nothing, so never in CharGen (read as 0)',
+        flags='zero_arg'),
     'getweaponhealthperc': dict(
         emit='0', note='{f} - Skyrim has no weapon condition (read as 0)',
         flags='zero_arg'),
@@ -167,6 +170,10 @@ FALLOUT_COMMAND_ROWS = {
     'ispc1stperson': dict(emit='0', note='{f} - camera state is not a vanilla native (read as 0)',
                           flags='zero_arg'),
     'isps3': dict(emit='0', note='{f} - platform check (read as 0)', flags='zero_arg'),
+    #: Radio broadcast state and the essential flag: Fallout 4's handlers (commands_falloutnv); else inert.
+    'getbroadcaststate': dict(emit='0', note='{f} - a station broadcast state (read as 0)', flags='zero_arg'),
+    'setbroadcaststate': dict(emit='0', note='{f} - a station broadcast state'),
+    'isactorrefessential': dict(emit='0', note='{f} - the essential flag (read as 0)', flags='zero_arg'),
     'resetai': dict(emit='{ref}.EvaluatePackage()', subj='ACTOR',
                     flags='actor_only zero_arg'),
     'hasloaded3d': dict(emit='{ref}.Is3DLoaded()', subj='OBJREF', flags='zero_arg cmp_bool'),
@@ -183,6 +190,8 @@ FALLOUT_COMMAND_ROWS = {
                               flags='actor_only zero_arg cmp_bool'),
     'rewardxp': dict(emit='Game.GetPlayer().SendModEvent("TESCharacterXP", "", {f0})'),
     'setspecialpoints': dict(emit='Game.GetPlayer().SendModEvent("TESCharacterMenu", "special", {f0})'),
+    #: Intense Training's `AddSpecialPoints 1`: points to add to the SPECIAL stats the player picks.
+    'addspecialpoints': dict(emit='Game.GetPlayer().SendModEvent("TESCharacterMenu", "addspecial", {f0})'),
     'showlovetestermenuparams': dict(emit='Game.GetPlayer().SendModEvent("TESCharacterMenu", "special", {f0})'),
     #: FO3's baby book. Takes no parameter; CG01's `ssbmp 40` writes the 40-point total, the default.
     'showspecialbookmenu': dict(emit='Game.GetPlayer().SendModEvent("TESCharacterMenu", "special", {f0})',
@@ -211,6 +220,7 @@ FALLOUT_COMMAND_ROWS = {
     'getreputationthreshold': dict(emit='TES4_Reputation.Threshold({p0}, {i1})', types={0: 'FormList'}),
     'rewardkarma': dict(emit='TES4Karma.Mod({f0})', self_type=('TES4Karma', 'GlobalVariable')),
     'isplayerinregion': dict(emit='0', note='{f} {a} - Skyrim has no region query (read as 0)'),
+    'islimbgone': dict(emit='0', note='{f} {a} - Skyrim has no dismemberment query (read as 0)'),
     #: Challenges exist on Fallout 4 only (command_rows_fallout4, F3NV_Challenges).
     'unlockchallenge': dict(note='{f} {a} - Skyrim has no challenges'),
     'removerecurringfromchallenge': dict(note='{f} {a} - Skyrim has no challenges'),

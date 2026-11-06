@@ -45,8 +45,13 @@ HEALTH, SPECIAL = 0x2D4, tuple(range(0x2C2, 0x2C9))
 USE_STATS, USE_FACTIONS, USE_AI_DATA = 0x2, 0x4, 0x10
 #: Papyrus property types that hold no form.
 VALUE_TYPES = frozenset({'int', 'float', 'bool', 'string'})
-#: Properties a polyfill does without when unfilled: a player seat, the combat-approach queue.
-OPTIONAL_PROPERTIES = ('TES4Pose_', 'TES4CombatApproaches')
+#: Property prefixes a polyfill does without: a player seat, combat approaches, Oblivion's confidence emulation.
+OPTIONAL_PROPERTIES = ('TES4Pose_', 'TES4CombatApproaches', 'TES4ConfidenceFaction', 'TES4FleeMarginFaction',
+                       'TES4FleeHealthScale', 'TES4ConfidenceFlee')
+#: (script, property), lower case, that the build's own scripts leave None by design (fo4_preflight.md).
+OPTIONAL_SCRIPT_PROPERTIES = frozenset({('f3nv_falloutlock', 'password'), ('f3nv_pipboytab', 'shown'),
+                                        ('f3nv_scriptpackages', 'hub'), ('f3nv_survivalneed', 'caffeine'),
+                                        ('f3nv_voidactor', 'voidrace')})
 PERSISTENT = 0x400
 #: Fallout4.esm FormIDs below this are forms the engine makes itself (the player 0x14, Aggression 0x2BC).
 ENGINE_FORMS = 0x800
@@ -72,11 +77,16 @@ class Plugin:
     """A plugin's records {FormID (load-order adjusted): (sig, flags, [(tag, data)])} and the forms of its masters."""
 
     def __init__(self, path: Path, dirs: list):
-        """Read `path` and every master's FormIDs (from the game's Data, the plugin's folder or `dirs`)."""
+        """Read `path` and every master's FormIDs (from the game's Data, the plugin's folder or `dirs`); a master
+        none holds (XDI.esm, which the build only names) is `unread`, its FormIDs taken as defined."""
         names = file_masters(path)
-        self.index, self.records, self.defined = len(names), {}, set(range(ENGINE_FORMS))
+        self.index, self.records, self.defined, self.unread = len(names), {}, set(range(ENGINE_FORMS)), set()
         for i, name in enumerate(names):
-            raw = find(name, [FALLOUT4_DIR / 'Data', path.parent, *dirs]).read_bytes()
+            try:
+                raw = find(name, [FALLOUT4_DIR / 'Data', path.parent, *dirs]).read_bytes()
+            except FileNotFoundError:
+                self.unread.add(i)
+                continue
             self.defined |= {i << 24 | r.form_id & 0xFFFFFF for r, _ in walk(raw, bodies=())}
         for rec, _ in walk(path.read_bytes()):
             fid = self.index << 24 | rec.form_id & 0xFFFFFF if rec.form_id >> 24 >= self.index else rec.form_id
@@ -161,9 +171,11 @@ def check_properties(plugin: Plugin, scripts: Path) -> tuple:
             text = source(scripts, script)
             declared[script] = [n for t, n in declared_properties(text) if t.lower() not in VALUE_TYPES
                                 and not t.endswith('[]') and not assigned(text, n)
-                                and not n.startswith(OPTIONAL_PROPERTIES)]
+                                and not n.startswith(OPTIONAL_PROPERTIES)
+                                and (script.lower(), n.lower()) not in OPTIONAL_SCRIPT_PROPERTIES]
         unfilled += [(plugin.edid(fid), script, n) for n in declared[script] if n not in objects]
-        dangling += [(plugin.edid(fid), script, n) for n, v in objects.items() if v and v not in plugin.defined]
+        dangling += [(plugin.edid(fid), script, n) for n, v in objects.items()
+                     if v and v not in plugin.defined and v >> 24 not in plugin.unread]
     return unfilled, dangling
 
 

@@ -30,6 +30,8 @@ See: docs/fork/fo4_pipeline.md#attack-spells
 import struct
 
 from fo4_import.base.install import plugin_walk
+from fo4_import.base.writer import pack_fo4_record
+from tes5_import.base.writer import pack_subrecord
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike import conditions as C
 from fo4_import.spike.consumable_effects import AV_AT, effect_pair
@@ -44,6 +46,23 @@ SITE = 'FNV attack spell'
 SELF, DELIVERY_AT = 'Self', 20
 #: The touch relay's script and its property naming the self spell it casts on the attacker.
 RELAY, RELAYED = 'F3NV_CastOnAttacker', 'AttackerSpell'
+#: derive_formid site of an explosion's object effect (key: the FNV enchantment's EditorID).
+EXPLOSION_SITE = 'FNV explosion enchantment'
+#: ENIT of an explosion's object effect: Fallout4.esm's EnchPlasmaGrenadeEnergyDmg's (Fire and Forget, Touch, type 6).
+ENIT_EXPLOSION = struct.pack('<IIIiII', 0, 0, 1, 0, 1, 6) + bytes(12)
+#: ENIT of a weapon's object effect: Fallout4.esm's EnchCryoFreeze's (as the explosion's, flags 0x4).
+ENIT_WEAPON = struct.pack('<IIIiII', 0, 4, 1, 0, 1, 6) + bytes(12)
+
+
+def _keys(spell: 'dict | None') -> list:
+    """FNV spell or enchantment `spell`'s effect keys (Effect[i])."""
+    return [f'Effect[{i}]' for i in range(int((spell or {}).get('EffectCount', 0) or 0))]
+
+
+def pack_explosion_ench(fid: int, edid: str, pairs: bytes, enit: bytes = ENIT_EXPLOSION) -> bytes:
+    """An explosion's or (ENIT_WEAPON) weapon's object effect of `pairs`."""
+    body = pack_subrecord('EDID', f'{edid}\0'.encode()) + pack_subrecord('OBND', bytes(12))
+    return pack_fo4_record('ENCH', fid, 0, body + pack_subrecord('ENIT', enit) + pairs)
 
 
 def unarmed_effects(plugin: bytes) -> dict:
@@ -76,16 +95,9 @@ class AttackSpells:
         """Write FNV spell `spell` as an attack spell, or `poison` (victim, extra pairs, EditorID prefix) as a
         poison's; its FormID, 0 when no effect converts."""
         victim, extra, prefix = poison
-        keys = [f'Effect[{i}]' for i in range(int((spell or {}).get('EffectCount', 0) or 0))]
+        keys = _keys(spell)
         on_self = not victim and bool(keys) and all(spell.get(f'{key}.Type') == SELF for key in keys)
-        pairs = b''
-        for key in keys:
-            effect = self._effect(spell, key, on_self, victim)
-            if effect is None:
-                self.builder.counts[f'attack effect left out ({spell[f"{key}.EFID"]})'] += 1
-                continue
-            pairs += effect_pair(effect, float(spell[f'{key}.Magnitude'] or 0), int(spell.get(f'{key}.Area') or 0),
-                                 int(spell.get(f'{key}.Duration') or 0))
+        pairs = self.effect_pairs(spell, on_self, victim)
         if not pairs:
             return 0
         fid = self.builder.writer.derive_formid(SITE, prefix + spell['EditorID'])
@@ -99,6 +111,34 @@ class AttackSpells:
             return fid
         vmad = self.builder.scripts.vmad(0, ((RELAY, {RELAYED: fid}, {}),))
         return self.builder.scripts.effects.vmad_spell(f'FNV_{spell["EditorID"]}OnHit', vmad, DELIVERY['Touch'])
+
+    def effect_pairs(self, spell: dict, on_self: bool, victim: bool) -> bytes:
+        """EFID/EFIT pairs of FNV `spell`'s effects (_effect: on the attacker when `on_self`, any range on the
+        `victim`), FNV's magnitudes, areas and durations; one left out is counted."""
+        pairs = b''
+        for key in _keys(spell):
+            effect = self._effect(spell, key, on_self, victim)
+            if effect is None:
+                self.builder.counts[f'attack effect left out ({spell[f"{key}.EFID"]})'] += 1
+                continue
+            pairs += effect_pair(effect, float(spell[f'{key}.Magnitude'] or 0), int(spell.get(f'{key}.Area') or 0),
+                                 int(spell.get(f'{key}.Duration') or 0))
+        return pairs
+
+    def explosion(self, ench: dict) -> int:
+        """FNV explosion enchantment `ench` as an FO4 explosion's object effect (ENCH, as Fallout4.esm's 24 explosion
+        effects are): its effects on the actors caught, as a poison's; 0 when none converts, written once.
+        See: docs/fork/fo4_thrown_weapons.md#effects
+        """
+        key = EXPLOSION_SITE, ench['EditorID']
+        if key not in self.made:
+            pairs = self.effect_pairs(ench, False, True)
+            self.made[key] = self.builder.writer.derive_formid(*key) if pairs else 0
+            if pairs:
+                self.builder.writer.add_record('ENCH', pack_explosion_ench(self.made[key], f'FNV_{ench["EditorID"]}',
+                                                                           pairs))
+                self.builder.counts['ENCH (explosion effect)'] += 1
+        return self.made[key]
 
     def _effect(self, spell: dict, key: str, on_self: bool, victim: bool = False) -> 'int | None':
         """The FO4 effect of FNV attack effect `key` of `spell`, on the attacker (`on_self`) or by touch; None when

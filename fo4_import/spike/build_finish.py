@@ -14,10 +14,11 @@ from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.master_overrides import drop_unchanged
 from fo4_import.nif import weapon
-from fo4_import.pipeline import elric_cache, master_copies, object_lod, stale_files
+from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
+from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
 from fo4_import.pipeline.stage_timer import charged, timed
 from fo4_import.rig import anim_info
-from fo4_import.spike import ammo_casings, ammo_switch, challenges, condition, facegen, skeleton, voice
+from fo4_import.spike import ammo_casings, ammo_switch, companion_barks, facegen, list_adds, skeleton, voice
 from fo4_import.spike.combat_feel import write_settings
 from fo4_import.spike.imagespace import LUT_FOLDER
 from fo4_import.spike.karma_page import write_karma_page
@@ -32,21 +33,25 @@ VOICE_CACHE = 'VoiceCache'
 LIP_GENERATOR = FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator'
 #: The record of voice jobs that failed (voice.convert_new), per plugin, under the sound staging root.
 VOICE_FAILED = 'VoiceFailed'
+#: The stamp of how a plugin's built lips were made (voice.relip_once), per plugin, under the sound staging root.
+VOICE_LIPS = 'VoiceLips'
 
 
 @timed('voice')
 def _voice(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
     """The built lines' FNV recordings as .fuz under each NPC's converted voice type (voice_types), staged for
     the Main BA2 (sound_root); files in any other folder of the plugin's voice directory are stale."""
-    voices = [(voice.fnv_folder(export_dir, fnv), fo4) for fo4, fnv in sorted(builder.npcs.voices.made.items())]
+    voices = [(voice.fnv_folders(export_dir, fnv), fo4) for fo4, fnv in sorted(builder.npcs.voices.made.items())]
     builder.counts['loose sound files staged'] = stage_loose_sounds(data_dir, (f'Voice/{plugin}', f'FX/{SOUND_FOLDER}'))
-    root = sound_root(data_dir)
-    todo = voice.jobs(builder.say.voiced, voices, root, plugin)
-    todo += voice.silent_jobs(builder.say.silent, sorted({fo4 for _, fo4 in voices}), root, plugin)
+    root, own = sound_root(data_dir), len(builder.writer.masters)
+    todo = voice.jobs(voice.own_lines(builder.say.voiced, own), voices, root, plugin)
+    todo += voice.silent_jobs(voice.own_lines(builder.say.silent, own), sorted({fo4 for _, fo4 in voices}), root,
+                              plugin)
     ours, cache = root / 'Sound' / 'Voice' / plugin, root / VOICE_CACHE / plugin
     builder.counts['voice files kept aside'] = voice.remove_stale(todo, [p for p in ours.glob('*') if p.is_dir()],
                                                                   cache)
     builder.counts['voice files restored'] = voice.restore(todo, cache)
+    builder.counts['voice lips redone'] = voice.relip_once(todo, root / VOICE_LIPS / f'{plugin}.txt')
     builder.counts['voice files written'] = voice.convert_new(todo, LIP_GENERATOR, root / VOICE_FAILED / f'{plugin}.json')
 
 
@@ -72,9 +77,9 @@ def _write_plugin(builder, out: Path, data_dir: Path) -> None:
     graph of its own (anim_info.needed), have the Creation Kit write their animation data into `data_dir`."""
     builder.writer.next_object_id = builder.top
     if builder.built:
-        builder.counts.update(drop_unchanged(builder.writer, builder.built, builder.held, {
-            ammo_switch.SCRIPT: ammo_switch.merge, challenges.SCRIPT: challenges.merge,
-            condition.SCRIPT: condition.merge}))
+        adds = {}
+        builder.counts.update(drop_unchanged(builder.writer, builder.built, builder.held, adds))
+        builder.counts['master form list entries added at run time'] = list_adds.write(builder, adds)
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.write(str(out))
     for key, count in clear_dangling(out, len(builder.writer.masters)).items():
@@ -89,6 +94,7 @@ def _collision(builder, data_dir: Path) -> None:
     """Elric's collision for every written mesh, then the weapon meshes dressed; counted."""
     failed = elric_cache.finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
+    builder.counts['mesh vertices with a UV clamped to the half-float range'] = sum(mesh_cache.CLAMPED.values())
     for model in sorted(builder.weapons):
         weapon.dress_file(data_dir / 'Meshes' / model)
     builder.counts['weapon meshes'] = len(builder.weapons)
@@ -113,11 +119,15 @@ def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
 
 @timed('script compile')
 def _compile(builder, data_dir: Path, scripts_dir) -> None:
-    """Compile the build's scripts (none without `scripts_dir`)."""
+    """Compile the build's scripts (none without `scripts_dir`); the masters' scripts they name logged
+    (build_inputs.master_scripts)."""
     if builder.scripts.used and scripts_dir is not None:
-        print(compile_into(scripts_dir, data_dir, builder.scripts.used, tuple(Path(scripts_dir).parent / p.name
-                                                                              for p in builder.built),
+        masters = tuple(Path(scripts_dir).parent / p.name for p in builder.built)
+        print(compile_into(scripts_dir, data_dir, builder.scripts.used, masters,
                            tuple(Path(p).parent / 'Scripts' for p in builder.built)))
+        own = [Path(scripts_dir) / f'{name}.psc' for name in builder.scripts.used]
+        for path in master_scripts(own, masters) if masters else ():
+            MASTERS.script(path)
 
 
 @timed('closing records')
@@ -131,7 +141,11 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
     write_karma_page(builder, export_dir, builder.reputation_slots)
     write_page(builder)
     builder.challenges.write()
+    builder.region_watch.write()
+    companion_barks.write(builder)
     builder.counts['Pip-Boy Tabs files removed'] = len(remove_legacy_tabs(data_dir, out.name))
+    if builder.built:
+        builder.scripts.used += [list_adds.SCRIPT]
 
 
 @timed('closing records')
@@ -160,7 +174,7 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     builder.writer.ledger.save()
     builder.counts["files left to the master's folder"] = master_copies.drop_loose(data_dir,
                                                                                     master_copies.master_dirs(builder))
-    made = stale_files.made(data_dir, Path(export_dir.name).stem, builder.started)
+    made = stale_files.made(data_dir, Path(export_dir.name).stem, builder.started, bool(builder.built))
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')

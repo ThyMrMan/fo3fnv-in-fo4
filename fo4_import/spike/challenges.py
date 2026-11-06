@@ -21,8 +21,7 @@ See: docs/fork/fo4_pipeline.md#challenges
 
 from pathlib import Path
 
-from fo4_import.base.quest_merge import appended, regrouped
-from fo4_import.base.support_records import pack_avif, pack_global
+from fo4_import.base.support_records import pack_avif, pack_global, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
@@ -33,6 +32,8 @@ from tes5_import.base.tes5_reader import first_sub, walk
 SITE = 'FNV challenge'
 #: The counting quest's script and its player alias's.
 SCRIPT, PLAYER_SCRIPT = 'F3NV_Challenges', 'F3NV_ChallengesPlayer'
+#: Each plugin's challenges (the game's on its counting quest, a DLC's on a quest of its own); see Challenges.write.
+SOURCE_SCRIPT = 'F3NV_ChallengeSource'
 #: The player reference (alias forced to it).
 PLAYER = 0x14
 #: The events F3NV_Challenges counts (its Events property).
@@ -67,6 +68,8 @@ FO4_STATS = {**{name: (name,) for name in SAME_STATS}, 'Books Read': ('Skill Boo
 STAT_EVENTS = {'Total Things Killed': KILL, 'Have Limbs Crippled': CRIPPLED, 'Challenges Completed': COMPLETED}
 #: The FO4 stat a critical hit raises, and the one a map marker's discovery does.
 CRITICALS, DISCOVERIES = ('Critical Strikes',), ('Locations Discovered',)
+#: Every stat group a challenge can count, in one fixed order: the group numbers every plugin's rows share.
+STAT_GROUPS = tuple(sorted({*FO4_STATS.values(), CRITICALS, DISCOVERIES}))
 #: CHAL DATA.Flags.
 START_DISABLED, RECURRING, SHOW_ZERO = 1, 2, 4
 #: FNV's Unarmed skill (actor value) and the hand-to-hand weapon type (Value3: animation type 0 + 1).
@@ -188,22 +191,6 @@ class Filters:
         return self.builder.ref_ids.get(rec.get('SNAM'), 0) if _int(rec, 'DATA.Type') == DISCOVER else 0
 
 
-def _stat_groups(values: dict) -> list:
-    """F3NV_Challenges' stat groups: each group's tracked stat names, by index."""
-    names, groups = values['StatNames'][1], values['StatGroups'][1]
-    return [tuple(n for n, g in zip(names, groups) if g == i) for i in range(max(groups, default=-1) + 1)]
-
-
-def merge(game: dict, dlc: dict) -> dict:
-    """F3NV_Challenges' arrays as the game's challenges then the DLC's new ones, each stat group the DLC's rows
-    count renumbered onto the game's same group (quest_merge)."""
-    groups, index = regrouped(_stat_groups(game), _stat_groups(dlc))
-    out = appended(game, dlc, 'Rows', ('Rows', 'States', 'Names', *INT_COLUMNS, *FORM_COLUMNS), {'Groups': index})
-    out['StatNames'] = ('strings', [n for group in groups for n in group])
-    out['StatGroups'] = ('ints', [g for g, group in enumerate(groups) for _ in group])
-    return out
-
-
 class Challenges:
     """FNV's challenges, written through a cell builder: `named()` before scripts are filled, `write()` at the end."""
 
@@ -225,17 +212,34 @@ class Challenges:
         """{challenge EditorID: its state global}, for the converted scripts' properties."""
         return {rec['EditorID']: self.state(rec) for rec, _, _ in self.kept}
 
-    def write(self) -> int:
-        """Write the kept challenges, their counting quest and the CHALLENGES tab; the tab quest's FormID."""
+    def write(self) -> 'int | None':
+        """Write the kept challenges, their quest and the CHALLENGES tab; the tab quest's FormID. A plugin whose
+        master holds the counting quest writes only its own challenges, on a quest of its own adding them to the
+        master's quest and tab as it starts; None (no tab of its own).
+        See: docs/fork/fo4_pipeline.md#challenges
+        """
+        writer = self.builder.writer
+        quest, sources, tab_rows, tab_shown = (writer.derive_formid(SITE, key)
+                                               for key in ('quest', 'sources', 'rows', 'states'))
+        mine = quest >> 24 == writer.own_index
+        kept = [k for k in self.kept if mine or self.builder.ids.is_own(int(k[0]['FormID'], 16))]
         columns = {k: [] for k in ('Rows', 'States', 'Names', *INT_COLUMNS, *FORM_COLUMNS)}
-        groups = sorted({stats for _, _, stats in self.kept if stats})
         filters = Filters(self.builder, self.export_dir)
-        for rec, event, stats in self.kept:
-            for key, value in self._columns(rec, event, groups.index(stats) if stats else -1, filters).items():
+        for rec, event, stats in kept:
+            for key, value in self._columns(rec, event, STAT_GROUPS.index(stats) if stats else -1, filters).items():
                 columns[key].append(value)
-        self._quest(columns, groups)
-        self.builder.counts['CHAL kept'] = len(self.kept)
-        return tab_quest(self.builder, 'CHALLENGES', form_list(self.builder, 'rows', 'FNV_ChallengesRows', columns['Rows']),
+        links = {'Sources': sources, 'Hub': quest, 'TabRows': tab_rows, 'TabShown': tab_shown}
+        rows = (SOURCE_SCRIPT, links, self._values(columns))
+        self.builder.scripts.used += [s for s in (SOURCE_SCRIPT, SCRIPT) if s not in self.builder.scripts.used]
+        self.builder.counts['CHAL kept'] = len(kept)
+        if not mine:
+            writer.add_record('QUST', pack_script_quest(
+                writer.derive_formid(SITE, 'plugin quest'), f'FNV_Challenges_{Path(self.export_dir.name).stem}',
+                quest_fragments('', [], scripts=[rows])))
+            return None
+        self._quest(quest, sources, rows)
+        return tab_quest(self.builder, 'CHALLENGES', form_list(self.builder, 'rows', 'FNV_ChallengesRows',
+                                                                 columns['Rows']),
                          shown=form_list(self.builder, 'states', 'FNV_ChallengesStates', columns['States']))
 
     def _columns(self, rec: dict, event: int, group: int, filters: Filters) -> dict:
@@ -266,17 +270,23 @@ class Challenges:
         self.builder.writer.add_record('GLOB', pack_global(fid, f'FNV_{rec["EditorID"]}', 'f', float(value)))
         return fid
 
-    def _quest(self, columns: dict, groups: list) -> None:
-        """Write the start-game quest running F3NV_Challenges on `columns` (one entry per challenge) and the stat
-        `groups`, its player alias running F3NV_ChallengesPlayer."""
-        quest = self.builder.writer.derive_formid(SITE, 'quest')
-        stat_names = [(name, i) for i, stats in enumerate(groups) for name in stats]
+    @staticmethod
+    def _values(columns: dict) -> dict:
+        """F3NV_ChallengeSource's value properties for `columns` (one entry per challenge)."""
         values = {key: ('ints', columns[key]) for key in INT_COLUMNS}
         values.update({key: ('objects', columns[key]) for key in ('Rows', 'States', *FORM_COLUMNS)})
-        values.update(Names=('strings', columns['Names']), StatNames=('strings', [n for n, _ in stat_names]),
-                      StatGroups=('ints', [g for _, g in stat_names]), CompletedText=('string', COMPLETE_TEXT),
-                      ProgressText=('string', PROGRESS_TEXT))
-        vmad = quest_fragments('', [], aliases=[(0, quest, [(PLAYER_SCRIPT, {}, {})])],
-                               scripts=[(SCRIPT, {'Fists': fo4_weapon(self.builder.fo4, FISTS)}, values)])
+        values['Names'] = ('strings', columns['Names'])
+        return values
+
+    def _quest(self, quest: int, sources: int, rows: tuple) -> None:
+        """Write the game's start-game counting quest: F3NV_Challenges over every STAT_GROUPS stat and registry
+        `sources`, the game's challenges (`rows`, F3NV_ChallengeSource), its player alias running
+        F3NV_ChallengesPlayer."""
+        self.builder.writer.add_record('FLST', R.pack_flst(sources, 'FNV_ChallengeSources', []))
+        stat_names = [(name, i) for i, stats in enumerate(STAT_GROUPS) for name in stats]
+        values = {'StatNames': ('strings', [n for n, _ in stat_names]), 'StatGroups': ('ints', [g for _, g in stat_names]),
+                  'CompletedText': ('string', COMPLETE_TEXT), 'ProgressText': ('string', PROGRESS_TEXT)}
+        hub = (SCRIPT, {'Fists': fo4_weapon(self.builder.fo4, FISTS), 'Sources': sources}, values)
+        vmad = quest_fragments('', [], aliases=[(0, quest, [(PLAYER_SCRIPT, {}, {})])], scripts=[hub, rows])
         self.builder.writer.add_record('QUST', R.pack_qust(quest, 'FNV_Challenges', '', 0, [], 'Player', PLAYER, vmad))
-        self.builder.scripts.used += [s for s in (SCRIPT, PLAYER_SCRIPT) if s not in self.builder.scripts.used]
+        self.builder.scripts.used += [PLAYER_SCRIPT] if PLAYER_SCRIPT not in self.builder.scripts.used else []

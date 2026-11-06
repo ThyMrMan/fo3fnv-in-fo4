@@ -779,7 +779,7 @@ End
         assert 'TES4_Holder = akNewContainer' in changed
         assert 'RegisterForSingleUpdate' in changed
         assert ('TES4Polyfill.SafeGameModeGate(Self) || '
-                'TES4Polyfill.SafeGameModeGate(TES4_Holder)') in result
+                'Self != None && TES4Polyfill.SafeGameModeGate(TES4_Holder)') in result
 
     def test_carried_menumode_runs_from_the_equip_event(self, converter):
         """A carried item's bare MenuMode runs in-event while a menu is open.

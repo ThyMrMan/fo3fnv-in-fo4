@@ -46,12 +46,15 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import LEAVE, NEGATE, menu_action
+from fo4_import.spike.dialogue_trace import CHOICE_VMAD, scene_vmad
 from fo4_import.spike.npcs import USE_FACTIONS, USE_TRAITS, template_source
 from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS
 from fo4_import.spike.readiness import CHOICE_UNANSWERED
 from fo4_import.spike.say_once import STAGE_DONE
+from fo4_import.spike.script_packages import quest_id
 from fo4_import.spike.skill_tags import tagged
-from fo4_import.spike.say_topics import COMPARE, PART, PARTS, conditions_of, parsed, raws, settled_on, with_conditions
+from fo4_import.spike.say_topics import (COMPARE, PART, PARTS, SHARED, conditions_of, parsed, raws, settled_on,
+                                         with_conditions)
 from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX
 
 #: FNV INFO DATA flags.
@@ -95,7 +98,8 @@ class Hub:
     sets}, `quests` {FNV quest: (FO4 quest, FNV priority)}, `by_topic` {FNV
     topic: [(position in `lines`, INFO)] in that order}, `actors` {FNV actor
     FormID: its NPC_ or CREA record} and `unfixed` the factions scripts change,
-    for speakers' fixed facts (speaker_index, speaker_facts).
+    for speakers' fixed facts (speaker_index, speaker_facts); `joins` the steps
+    more than one FNV line leads to (joined_steps).
     """
 
     lines: dict = field(default_factory=dict)
@@ -105,12 +109,41 @@ class Hub:
     by_topic: dict = field(default_factory=dict)
     actors: dict = field(default_factory=dict)
     unfixed: frozenset = frozenset()
+    joins: frozenset = frozenset()
+    speakers: dict = field(default_factory=dict)
+
+
+def menu_speakers(infos: dict) -> dict:
+    """{Choices menu step (_next): the FNV actors the lines leading to it name (named_speaker)}, of `infos`
+    ({quest: lines}, every quest); None for a menu a line naming no one leads to (anyone may speak it).
+    See: docs/fork/fo4_pipeline.md#menu-speakers
+    """
+    leads = collections.defaultdict(set)
+    for rec in (r for lines in infos.values() for r in lines):
+        step = _next(rec)
+        if step and step[0] == 'menu':
+            leads[step].add(named_speaker(rec))
+    return {step: None if None in found else frozenset(found) for step, found in leads.items()}
+
+
+def joined_steps(infos: dict) -> frozenset:
+    """The steps (_next) more than one FNV line in `infos` ({quest: lines}, every quest) leads to, by FormID: each
+    starts a scene of its own, so a line added on another path never folds it into that path's scene.
+    See: docs/fork/fo4_pipeline.md#scene-joins
+    """
+    leads = collections.defaultdict(set)
+    for rec in (r for lines in infos.values() for r in lines):
+        step = _next(rec)
+        if step:
+            leads[step].add(rec['FormID'].upper())
+    return frozenset(step for step, lines in leads.items() if len(lines) > 1)
 
 
 def hub(say, quests: list, quest_fids: dict, added: set) -> Hub:
     """The Hub of FNV quests `quests` (FO4 ids in `quest_fids` by EditorID), its gates not yet set; `added` the
     FNV topics (low 24 bits) anything AddTopics."""
     lines = {r['FormID'].upper(): r for q in quests for r in say.infos.get(q['FormID'].upper(), [])}
+    lines.update(shared_lines(say, lines))
     topics, by_topic = [], {}
     for position, (line, rec) in enumerate(lines.items()):
         dial, info = rec['ParentDIAL'].upper(), say.dials.get(rec['ParentDIAL'], {})
@@ -119,7 +152,29 @@ def hub(say, quests: list, quest_fids: dict, added: set) -> Hub:
         if dial != GREETING and info.get('DATA.Type') == TOPIC and listed and dial not in topics:
             topics.append(dial)
     owners = {q['FormID'].upper(): (quest_fids[q['EditorID']], int(q.get('DATA.Priority', 0) or 0)) for q in quests}
-    return Hub(lines, tuple(topics), {}, owners, by_topic)
+    return Hub(lines, tuple(topics), {}, owners, by_topic, joins=joined_steps(say.infos),
+               speakers=menu_speakers(say.infos))
+
+
+def hub_key(rec: dict) -> str:
+    """The Hub's key of FNV line `rec`: FormID, plus a shared copy's topic."""
+    return rec['FormID'].upper() + (f' via {rec[SHARED]}' if rec.get(SHARED) else '')
+
+
+def shared_lines(say, lines: dict) -> dict:
+    """{Hub key: copy} of the shared infos (DIAL SharedInfo) of `lines` that a player topic borrows for their own
+    quest: each a line of that topic (ParentDIAL), marked SHARED, after the topic's own lines.
+    See: docs/fork/fo4_pipeline.md#shared-infos
+    """
+    quests, out = {r.get('QSTI.Quest', '').upper() for r in lines.values()}, {}
+    for dial, rec in say.dials.items():
+        if rec.get('DATA.Type') != TOPIC or dial.upper() == GREETING:
+            continue
+        for i in range(int(rec.get('SharedInfoCount', 0) or 0)):
+            info, quest = rec[f'SharedInfo[{i}].Info'].upper(), rec[f'SharedInfo[{i}].Quest'].upper()
+            copy = {**lines[info], 'ParentDIAL': dial.upper(), SHARED: dial.upper()} if info in lines else None
+            out.update({hub_key(copy): copy} if copy and quest in quests else {})
+    return out
 
 
 def _fids(rec: dict, key: str) -> list:
@@ -135,7 +190,7 @@ class Conversations:
         self.say, self.quest, self.fid, self.form_map, self.keyword = say, quest, quest_fid, form_map, keyword
         self.lines = {r['FormID'].upper(): r for r in say.infos.get(quest['FormID'].upper(), [])}
         self.hub, self.topics, self.scenes, self.placed, self.labels = shared, [], [], {}, {}
-        self.packaged, self.legacy, self.memo = {}, {}, {}
+        self.packaged, self.legacy, self.memo, self.building = {}, {}, {}, 0
 
     def has_lines(self) -> bool:
         """True when the quest has lines (said from its Speaker and Listener)."""
@@ -166,26 +221,39 @@ class Conversations:
         ('menu', FNV topics); a new scene gets FNAM `flags` too.
 
         A new scene starts at `step` and runs on, a phase per step, while every
-        line of a step leads to the same next step not yet placed.
+        line of a step leads to the same next step not yet placed and not
+        _starts_own. A step said without the player whose lines lead back to
+        it loops; one leading back to an earlier step ends the scene (_line).
+        See: docs/fork/fo4_pipeline.md#scene-loops
         """
         if step in self.placed:
             return self.placed[step]
         fid, first = fid or self._owned('SCEN', step), step
         edid, phases, actions, menu = f'FNV_{self.quest["EditorID"]}_Scene{len(self.placed)}', [], [], False
-        locked = False
+        locked, outer, self.building = False, self.building, fid
         while step is not None and step not in self.placed:
             self.placed[step] = (fid, f'Phase{len(phases)}', len(phases))
             phases.append(self.placed[step][1])
             nxt = self._joined(step)
-            continues = nxt not in (None, MIXED) and nxt not in self.placed
-            actions.append(self._action(step, (len(actions) + 1, len(phases) - 1), edid, continues))
+            loops = nxt == step and step[0] != 'menu'
+            continues = loops or (nxt not in (None, MIXED) and nxt not in self.placed and not self._starts_own(nxt))
+            actions.append(self._action(step, (len(actions) + 1, len(phases) - 1), edid, continues, loops))
             menu |= step[0] == 'menu'
             locked |= step[0] == 'menu' and not self._leaves(step)
-            step = nxt if continues else None
+            step = nxt if continues and not loops else None
+        self.building = outer
         listener = LISTENER_ALIAS if first[0] == 'chat' else None
         self.scenes.append(R.pack_scen(fid, edid, self.fid, SPEAKER_ALIAS, actions, self.keyword if menu else 0,
-                                       tuple(phases), (R.SCENE_NO_EXIT if locked else 0) | flags, listener))
+                                       tuple(phases), (R.SCENE_NO_EXIT if locked else 0) | flags, listener,
+                                       scene_vmad(len(phases))))
         return self.placed[first]
+
+    def _starts_own(self, step: tuple) -> bool:
+        """Whether `step` (a chat's inner step) is the topic list or a join.
+        See: docs/fork/fo4_pipeline.md#scene-joins
+        """
+        inner = step[2] if step[0] == 'chat' else step
+        return inner == ('menu', self.hub.topics) or inner in self.hub.joins
 
     def _key(self, step: tuple) -> str:
         """The FormID key of `step`: what FNV authored, not the lines found today (the Hub's topic list and a
@@ -226,7 +294,7 @@ class Conversations:
         line names itself next (FNV Next Speaker Self); None after neither.
         """
         if rec.get(PART, 1) < rec.get(PARTS, 1):
-            nxt = 'part', rec['FormID'].upper(), rec[PART] + 1
+            nxt = 'part', hub_key(rec), rec[PART] + 1
             return nxt if alias is None else ('chat', alias, nxt)
         nxt = _next(rec)
         if alias is not None and nxt is not None:
@@ -268,20 +336,23 @@ class Conversations:
             nexts.discard(None)
         return nexts.pop() if len(nexts) == 1 else (MIXED if nexts else None)
 
-    def _action(self, step: tuple, place: tuple, edid: str, continues: bool) -> bytes:
-        """The scene action playing `step` at `place` (index, phase); its lines run on when `continues`."""
+    def _action(self, step: tuple, place: tuple, edid: str, continues: bool, looping: bool = False) -> bytes:
+        """The scene action playing `step` at `place` (index, phase); its lines run on when `continues`; a line
+        step said again and again when `looping`."""
         name, owner = f'{edid}_{place[1]}', f'{self.quest["FormID"]} {self._key(step)}'
         take = self.say.builder.new_id
         if step[0] == 'menu':
             player, npc = [], []
+            speakers = None if step[1] == self.hub.topics else self.hub.speakers.get(step)
             for dial in step[1]:
-                self._option(dial, (player, npc), continues, owner)
+                self._option(dial, (player, npc), continues, owner, speakers)
             if self._leaves(step):
                 self.say.builder.counts['[Leave] on a never-ending Choices menu'] += step[1] != self.hub.topics
-                player.append(R.pack_info(take(f'INFO leave {owner}'), 0, (LEAVE,), prompt=LEAVE))
+                player.append(R.pack_info(take(f'INFO leave {owner}'), 0, (LEAVE,), prompt=LEAVE, vmad=CHOICE_VMAD))
                 exit_fid = take(f'INFO exit {owner}')
                 self.say.silent.append((exit_fid, False))
-                npc.append(R.pack_info(exit_fid, R.INFO_END_SCENE, (R.SILENT_LINE,), notes='FNV Tab exit'))
+                npc.append(R.pack_info(exit_fid, R.INFO_END_SCENE, (R.SILENT_LINE,), notes='FNV Tab exit',
+                                       vmad=CHOICE_VMAD))
             slots = iter(range(MENU_TOPICS))
             topics, action = menu_action(lambda: take(f'DIAL {owner}', key=f'DIAL {owner} slot {next(slots)}'),
                                          (name, self.fid, SPEAKER_ALIAS), player, npc, place)
@@ -292,15 +363,18 @@ class Conversations:
         topic = self._owned('DIAL', step)
         self.topics.append(pack_topic(R.pack_dial(topic, name, self.fid, R.TOPIC_SCENE, len(lines)), topic, lines))
         if alias is None:
-            return R.pack_dialogue_action(place[0], SPEAKER_ALIAS, topic, place[1])
-        return R.pack_dialogue_action(place[0], alias, topic, place[1], _other(alias))
+            return R.pack_dialogue_action(place[0], SPEAKER_ALIAS, topic, place[1], looping=looping)
+        return R.pack_dialogue_action(place[0], alias, topic, place[1], _other(alias), looping)
 
-    def _option(self, dial: str, menu: tuple, continues: bool, owner: str) -> None:
+    def _option(self, dial: str, menu: tuple, continues: bool, owner: str, speakers: 'frozenset | None' = None) -> None:
         """Add FNV topic `dial` to menu `menu` (player, npc) of step `owner`: an option per prompt and quest among its
         lines (FNV shows the first passing line's; a quest's conditions scope its speakers), each padded to its
-        answers and hidden while a line FNV tries first passes (_earlier)."""
+        answers and hidden while a line FNV tries first passes (_earlier). Given the menu's `speakers`
+        (menu_speakers), a line none of them can say (_can_say) is left out.
+        See: docs/fork/fo4_pipeline.md#menu-speakers
+        """
         prompts, order = {}, []
-        for rec in (self.hub.lines[i] for _, i in self.hub.by_topic.get(dial, ())):
+        for rec in self._sayable(dial, speakers):
             key = (rec.get('Prompt') or self.say.dials[dial].get('FULL', ''), rec.get('QSTI.Quest', ''))
             prompts.setdefault(key, []).append(part(rec, 1))
             order.append((key, rec, named_speaker(rec)))
@@ -311,6 +385,15 @@ class Conversations:
             self.say.builder.counts['choice without a line in the quest'] += 1
             self.say.builder.readiness.add(CHOICE_UNANSWERED, self.quest['FormID'],
                                            f'{self.say.dials[dial].get("EditorID", dial)} ({dial})')
+
+    def _sayable(self, dial: str, speakers: 'frozenset | None') -> list:
+        """The Hub's lines of FNV topic `dial` one of `speakers` can say (all when None); those left out counted."""
+        lines = [self.hub.lines[i] for _, i in self.hub.by_topic.get(dial, ())]
+        if speakers is None:
+            return lines
+        kept = [rec for rec in lines if any(self._can_say(actor, rec) for actor in speakers)]
+        self.say.builder.counts['menu lines no speaker of the menu can say'] += len(lines) - len(kept)
+        return kept
 
     def _prompt(self, dial: str, text: str, members: list, menu: tuple, continues: bool, place: str,
                 earlier: bytes = b'') -> bool:
@@ -333,8 +416,9 @@ class Conversations:
         shown += self.say.once.unsaid([r['FormID'] for r in members]) if once else b''
         owner, take = f'INFO prompt {dial} {text}', self.say.builder.new_id
         label = tagged(text, members)
-        player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), 0, (label,), shown, prompt=label))
-        player += [R.pack_info(take(owner, key=f'{owner} at {place} pad {i}'), conditions=shown)
+        player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), 0, (label,), shown, prompt=label,
+                                  vmad=CHOICE_VMAD))
+        player += [R.pack_info(take(owner, key=f'{owner} at {place} pad {i}'), conditions=shown, vmad=CHOICE_VMAD)
                    for i in range(1, len(answers))]
         npc += answers
         return True
@@ -512,15 +596,21 @@ class Conversations:
         """FNV line `rec` as the speaker's INFO (said by chat `alias`, its Target tests on the other actor) at
         `place` (its step): the scene runs on (`continues`), or it starts what follows once said, or ends."""
         extra, target = self._running(rec), None if alias is None else _other(alias)
-        package = self.packaged.get(rec['FormID'].upper()) if rec.get(PART, 1) == 1 else None
+        package = self.packaged.get(hub_key(rec)) if rec.get(PART, 1) == 1 else None
         extra += R.pack_ctda(0, 1.0, CURRENT_PACKAGE, package) if package else b''
         said = {'extra': extra, 'target': target, 'owner': self.fid, 'place': place}
         nxt = self._next(rec, alias)
-        if nxt is None:
-            return self.say.info(rec, self.form_map, flags=R.INFO_END_SCENE, **said)
-        if continues:
+        if continues and nxt is not None:
             return self.say.info(rec, self.form_map, **said)
+        if nxt is None or self._back(nxt):
+            return self.say.info(rec, self.form_map, flags=R.INFO_END_SCENE, **said)
         return self.say.info(rec, self.form_map, self.scene(nxt), flags=R.INFO_START_ON_END, **said)
+
+    def _back(self, step: tuple) -> bool:
+        """Whether non-menu `step` is already a phase of the scene being built.
+        See: docs/fork/fo4_pipeline.md#scene-loops
+        """
+        return step[0] != 'menu' and self.placed.get(step, (None,))[0] == self.building
 
     def greeting(self, greets: list, topics: 'dict | None' = None) -> None:
         """A Greeting topic whose silent line starts the GREETING talk scene, on activation or force greets `greets`.
@@ -553,7 +643,7 @@ class Conversations:
         else:
             self.say.builder.scripts.used.append(GREETING_SCRIPT)
             line = R.pack_info(greet, 0, (R.SILENT_LINE,), opened, notes='FNV GREETING',
-                               vmad=object_scripts([(GREETING_SCRIPT, {'Greeting': scene}, {})]))
+                               vmad=object_scripts([(GREETING_SCRIPT, {'Greeting': scene, 'ScriptPackages': quest_id(self.say.builder)}, {})]))
         fid = self.say.builder.new_id(f'DIAL greeting {self.quest["FormID"]}')
         dial = R.pack_dial(fid, f'FNV_{self.quest["EditorID"]}_Greeting', self.fid, R.TOPIC_GREETING, 1)
         self.topics.append(pack_topic(dial, fid, [line]))

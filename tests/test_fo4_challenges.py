@@ -32,7 +32,7 @@ def _chal(kind: int, value1: int = 0, value2: int = 0, value3: int = 0, **extra)
 def _builder(written: list) -> SimpleNamespace:
     """A builder stand-in keeping (signature, record) in `written`; FormIDs from the key's length."""
     writer = SimpleNamespace(derive_formid=lambda site, key: 0x01000000 + len(str(key)),
-                             add_record=lambda sig, rec: written.append((sig, rec)))
+                             add_record=lambda sig, rec: written.append((sig, rec)), own_index=1)
     return SimpleNamespace(writer=writer, counts=collections.Counter(), fnv_id=lambda f: 0x02000000 | int(f, 16),
                            scripts=SimpleNamespace(used=[], names={0x15EAAA: 'ChallengeLowXPSCRIPT'},
                                                    effects=SimpleNamespace(script_spell=lambda s, e: 0x0300)))
@@ -146,6 +146,29 @@ def test_a_kept_challenge_gets_its_row_state_quest_and_tab(monkeypatch):
     quest = next(rec for sig, rec in written if sig == 'QUST' and pack_wstring(C.SCRIPT) in rec)
     assert pack_wstring('Locks Picked') in quest and pack_wstring(C.PLAYER_SCRIPT) in quest
     assert T.ORDER['CHALLENGES'] > T.ORDER['KARMA'] and builder.counts['CHAL kept'] == 2
+
+
+def test_a_dlc_writes_only_its_own_challenges_adding_them_to_the_games_tab(monkeypatch):
+    """A plugin (load byte 2) whose master holds the counting quest: only its own challenge is kept, on its own
+    quest (F3NV_ChallengeSource) naming the master's tab lists; no tab or list of its own; the stat group is the
+    fixed table's number."""
+    written = []
+    builder = _builder(written)
+    builder.writer.own_index, builder.fo4 = 2, b''
+    builder.ids = SimpleNamespace(is_own=lambda fid: fid >> 24 == 1)
+    monkeypatch.setattr(C, 'Filters', lambda b, e: SimpleNamespace(weapons=lambda r: 0, victims=lambda r: 0,
+                                                                   items=lambda r: 0, marker=lambda r: 0))
+    own, game = _chal(11, 4, FormID='01000900'), _chal(11, 5, FormID='00165779')
+    chal = C.Challenges.__new__(C.Challenges)
+    chal.builder, chal.export_dir = builder, Path('DeadMoney.esm')
+    chal.kept = [(own, C.STAT, ('Locks Picked',)), (game, C.STAT, ('Computers Hacked',))]
+    assert chal.write() is None
+    quests = [rec for sig, rec in written if sig == 'QUST']
+    assert builder.counts['CHAL kept'] == 1 and len(quests) == 1 and not [s for s, _ in written if s == 'FLST']
+    assert pack_wstring(C.SOURCE_SCRIPT) in quests[0] and pack_wstring(C.SCRIPT) not in quests[0]
+    assert b'FNV_Challenges_DeadMoney\0' in quests[0] and pack_wstring('TabRows') in quests[0]
+    assert struct.pack('<I', builder.writer.derive_formid(C.SITE, 'rows')) in quests[0]
+    assert struct.pack('<i', C.STAT_GROUPS.index(('Locks Picked',))) in quests[0]
 
 
 def test_a_reward_script_becomes_a_self_fire_and_forget_spell():

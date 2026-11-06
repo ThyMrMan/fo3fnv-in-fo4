@@ -4,6 +4,7 @@ See: docs/fork/fo4_condition.md#built
 """
 import struct
 from collections import Counter
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 from fo4_import.spike import condition as C, records as R
 from fo4_import.spike.ammo_mods import ATTACK_DAMAGE, PROPERTY
 from fo4_import.spike.npc_skills import merged_prps
+from script_convert.pipeline import pack_wstring
 from script_convert.symbols import STATIC_SCRIPT_CLASSES
 from tes5_import.base.writer import pack_subrecord
 from tes5_import.base.tes5_reader import subrecords
@@ -134,3 +136,29 @@ def test_npc_skills_join_prps_or_come_before_its_successor():
 def test_fallout4_static_scripts_count_as_declared():
     """Fallout 4's static scripts are known, so their calls are kept."""
     assert {'f3nv_conditioncalls', 'f3nv_condition', 'tes4polyfill'} <= STATIC_SCRIPT_CLASSES
+
+
+def test_a_dlc_whose_master_holds_the_condition_quest_writes_only_its_own_rows(monkeypatch):
+    """A plugin (load byte 4) whose master (byte 3) holds the condition quest: one quest of its own
+    (F3NV_ConditionSource) with only its own items, pointing at the master's registry; no hotkey or messages."""
+    written = []
+
+    def derive(site: str, key: str) -> int:
+        """The master's FormID for its keys, this plugin's for 'plugin rows'."""
+        return 0x04000900 if key == 'plugin rows' else 0x03000000 | hash((site, key)) & 0xFFFF
+    monkeypatch.setattr(C, 'export_records', lambda *a: [])
+    for name in ('jam_times', 'jury_groups', 'repair_lists'):
+        monkeypatch.setattr(C, name, dict)
+    monkeypatch.setattr(C, 'actor_value_form', lambda name, index: 0)
+    builder = SimpleNamespace(writer=SimpleNamespace(derive_formid=derive, own_index=4,
+                                                     add_record=lambda sig, rec: written.append((sig, rec))),
+                              counts=Counter(), scripts=SimpleNamespace(used=[]), export_dir=Path('DeadMoney.esm'),
+                              perks=SimpleNamespace(first={}), built=['FalloutNV.esm'])
+    cond = C.Condition(builder)
+    cond.weapons = {0x03000100: (0x100, 200.0), 0x04000200: (0x200, 300.0)}
+    cond.write(SimpleNamespace(marks={}, ammo={}, effects={}), Path('.'), 0)
+    quests = [rec for sig, rec in written if sig == 'QUST']
+    assert len(quests) == 1 and b'FNV_Condition_DeadMoney\0' in quests[0]
+    assert pack_wstring(C.SOURCE_SCRIPT) in quests[0] and pack_wstring(C.SCRIPT) not in quests[0]
+    assert struct.pack('<I', 0x04000200) in quests[0] and struct.pack('<I', 0x03000100) not in quests[0]
+    assert not [sig for sig, _ in written if sig in ('MESG', 'ALCH', 'MGEF', 'FLST')]

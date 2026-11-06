@@ -64,7 +64,7 @@ def test_quest_scope_follows_what_actors_and_containers_carry():
 def _effects(builder) -> SE.ScriptEffects:
     """ScriptEffects over FNV's disguise pulse (DisguiseFactionPulseActorEffect) and a non-script effect."""
     fx = SE.ScriptEffects.__new__(SE.ScriptEffects)
-    fx.builder, fx.made, fx.made_effects = builder, {}, {}
+    fx.builder, fx.made, fx.made_effects, fx.families = builder, {}, {}, {}
     fx.templates = ({b'DATA': bytes(152), b'ETYP': b'\x44\x3f\x01\x00'}, {b'ETYP': b'\x44\x3f\x01\x00'})
     fx.effects = {'DisguiseFactionPulseEffect': {'EditorID': 'DisguiseFactionPulseEffect', 'FormID': '001411A2',
                                                  'DATA.Flags': '7', 'DATA.AssocItem': '001411A4', 'FULL': 'Pulse'}}
@@ -74,6 +74,7 @@ def _effects(builder) -> SE.ScriptEffects:
              'Effect[0].ConditionCount': '0'}
     fx.spells = {'disguisefactionpulseactoreffect': pulse,
                  'restorehealth': {**pulse, 'Effect[0].EFID': 'RestoreHealth', 'EditorID': 'RestoreHealth'}}
+    fx.by_family = {'tes4fx_disguisefactionpulseeffect': fx.effects['DisguiseFactionPulseEffect']}
     return fx
 
 
@@ -86,8 +87,11 @@ def test_the_disguise_pulse_becomes_a_fire_and_forget_touch_script_spell():
                               fnv_id=lambda fid: 0x02000000 | int(fid, 16))
     fx = _effects(builder)
     assert fx.spell('DisguiseFactionPulseActorEffect') == 0x021413D1 == fx.spell('disguisefactionpulseactoreffect')
-    (_, mgef), (_, spel) = written
+    (_, kywd), (_, mgef), (_, spel) = written
     effect = dict(subrecords(mgef[24:]))
+    assert dict(subrecords(kywd[24:]))[b'EDID'] == b'TES4FX_disguisefactionpulseeffect\0'
+    assert effect[b'KWDA'] == kywd[12:16] and fx.family_named('TES4FX_DisguiseFactionPulseEffect') == fx.family(
+        'DisguiseFactionPulseEffect')
     assert effect[b'VMAD'] == b'vmad' and struct.unpack_from('<I', effect[b'DATA'])[0] == 0x7
     assert struct.unpack_from('<II', effect[b'DATA'], SE.CAST_AT) == (SE.FIRE_AND_FORGET, SE.DELIVERY['Touch'])
     spell = dict(subrecords(spel[24:]))

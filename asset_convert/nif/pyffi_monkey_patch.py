@@ -156,6 +156,21 @@ def _apply_nifformat_patches(NifFormat):
     # ------------------------------------------------------------------
     _install_sse_havok_layouts(NifFormat)
 
+    # ------------------------------------------------------------------
+    # Patch 17: NiPSysMeshEmitter emits from any NiAVObject
+    # ------------------------------------------------------------------
+    _install_mesh_emitter_template(NifFormat)
+
+
+def _install_mesh_emitter_template(NifFormat):
+    """NiPSysMeshEmitter's Emitter Meshes are Ptrs to any NiAVObject (current nif.xml), not Refs to NiTriBasedGeom.
+    See: docs/commentary/asset_convert_nif.md#mesh-emitter-template
+    """
+    for attr in NifFormat.NiPSysMeshEmitter._attrs:
+        if attr.name == 'emitter_meshes':
+            attr.type_, attr.template = NifFormat.Ptr, NifFormat.NiAVObject
+    _refresh_attribute_caches(NifFormat, (NifFormat.NiPSysMeshEmitter,))
+
 
 #: Block types that are a bare NiNode with no extra fields (nif.xml 0.9/0.10).
 _LEGACY_NINODE_BLOCKS = ('NiCollisionSwitch',)

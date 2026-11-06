@@ -18,6 +18,8 @@ from fo4_import.spike.head_parts import HeadChoice
 from tes5_import.base.writer import pack_subrecord
 
 NPC = {'FormID': '00000801', 'EditorID': 'Npc801', 'RNAM.Race': '00000019', 'FGGS': 'ab cd', 'HCLR.R': '12'}
+#: Work-cache keys of two faces as fit_key builds them: fields, head parts, the two basis files.
+KEY, OTHER = ('ab cd', (('EyebrowM', 'brow.nif'),), b'sculpt', b'tint'), ('ef', (), b'sculpt', b'tint')
 
 
 def _fits() -> tuple:
@@ -78,7 +80,7 @@ def test_a_file_with_anything_but_numbers_where_numbers_go_does_not_read(entry):
 
 def test_the_file_is_the_same_bytes_every_time(machine):
     """Writing the same faces twice gives the same file (no gzip time), keyed by sex and face_id."""
-    faces = {'male': {F.face_id(NPC): F.encode(_fits())}, 'female': {}}
+    faces = {'male': {F.face_id(KEY): F.encode(_fits())}, 'female': {}}
     F.write(machine / 'a.gz', faces)
     F.write(machine / 'b.gz', faces)
     assert (machine / 'a.gz').read_bytes() == (machine / 'b.gz').read_bytes()
@@ -87,17 +89,27 @@ def test_the_file_is_the_same_bytes_every_time(machine):
 
 def test_a_build_takes_a_face_only_with_the_same_code_and_basis(machine, monkeypatch):
     """take() stores the file's fits under the local key when code and basis match; else it says why not."""
-    assert F.take(NPC, False, ('key',), [0, 1, 2]) == (False, 'faces fitted locally (published fits: none installed)')
-    F.write(F.INSTALLED, {'male': {F.face_id(NPC): F.encode(_fits())}, 'female': {}})
+    assert F.take(False, KEY, [0, 1, 2]) == (False, 'faces fitted locally (published fits: none installed)')
+    F.write(F.INSTALLED, {'male': {F.face_id(KEY): F.encode(_fits())}, 'female': {}})
     F.installed.cache_clear()
-    assert F.take(NPC, False, ('key',), [1, 2]) == (True, F.TAKEN)
-    assert work_cache.lookup(*F.FIT_SITES[0], ('key',)) is None
-    assert F.same(work_cache.lookup(*F.FIT_SITES[1], ('key',)), _fits()[1])
-    assert F.take({**NPC, 'FGGS': 'ef'}, False, ('other',), [0])[1].endswith('face not in file)')
+    assert F.take(False, KEY, [1, 2]) == (True, F.TAKEN)
+    assert work_cache.lookup(*F.FIT_SITES[0], KEY) is None
+    assert F.same(work_cache.lookup(*F.FIT_SITES[1], KEY), _fits()[1])
+    assert F.take(False, OTHER, [0])[1].endswith('face not in file)')
     monkeypatch.setattr(F, 'basis_hash', lambda female: 'recalibrated')
-    assert F.take(NPC, False, ('key',), [0])[1].endswith('male basis differs)')
+    assert F.take(False, KEY, [0])[1].endswith('male basis differs)')
     monkeypatch.setattr(F, 'fit_code', lambda: 'edited')
-    assert F.take(NPC, False, ('key',), [0])[1].endswith('fit code differs)')
+    assert F.take(False, KEY, [0])[1].endswith('fit code differs)')
+
+
+def test_one_facegen_with_other_head_parts_is_another_face(monkeypatch):
+    """Two NPCs sharing every FIT_FIELDS value but not their FNV head parts get their own keys and file ids."""
+    parts = {0x801: [('EyebrowM', 'brow.nif')], 0x802: [('EyebrowM', 'brow.nif'), ('Beard', 'beard.nif')]}
+    monkeypatch.setattr(F, 'bases', lambda female: (b'sculpt', b'tint'))
+    monkeypatch.setattr(F, 'head_parts', lambda export_dir, form_id: parts[form_id])
+    one, two = (F.fit_key(None, {**NPC, 'FormID': f}, False) for f in ('00000801', '00000802'))
+    assert one[:-3] == two[:-3] and one != two and F.face_id(one) != F.face_id(two)
+    assert one[-3] == (('EyebrowM', 'brow.nif'),) and one[-2:] == (b'sculpt', b'tint')
 
 
 def test_warm_faces_fits_none_the_published_file_gives(monkeypatch):
@@ -105,9 +117,9 @@ def test_warm_faces_fits_none_the_published_file_gives(monkeypatch):
     npcs = N.Npcs.__new__(N.Npcs)
     npcs.export_dir, npcs.builder = None, SimpleNamespace(counts=collections.Counter())
     monkeypatch.setattr(npcs, '_faces', lambda fnvs: {1: (NPC, False)}, raising=False)
-    monkeypatch.setattr(N, 'fit_key', lambda npc, female: ('key',))
+    monkeypatch.setattr(N, 'fit_key', lambda export_dir, npc, female: KEY)
     monkeypatch.setattr(N, 'lookup', lambda site, module, key, default: default)
-    monkeypatch.setattr(N, 'take', lambda npc, female, key, wanted: (True, F.TAKEN))
+    monkeypatch.setattr(N, 'take', lambda female, key, wanted: (True, F.TAKEN))
     monkeypatch.setattr(N, 'ProcessPoolExecutor', None)
     assert npcs.warm_faces([1]) == 0
     assert npcs.builder.counts == {F.TAKEN: 1}

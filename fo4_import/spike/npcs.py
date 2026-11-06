@@ -30,6 +30,7 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.face import hair, sculpt, tint
 from fo4_import.face.sculpt import FACE_SHAPE
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.ran_code import ran_while
 from fo4_import.pipeline.work_cache import cached, lookup, store
 from fo4_import.spike.face_fits import FIT_SITES, bases, fit_key, take
 from fo4_import.spike import records as R
@@ -90,7 +91,7 @@ def face_work(export_dir: Path, edid: str, female: bool, assets) -> tuple:
 
 def fit_face(export_dir: Path, npc: dict, female: bool, assets) -> 'tuple | None':
     """(sculpt fit, tint fit, head part choice) of FNV NPC `npc` through the work cache; None uncalibrated."""
-    key = fit_key(npc, female)
+    key = fit_key(export_dir, npc, female)
     if key is None:
         return None
     return tuple(cached(site, module, key, make)
@@ -124,12 +125,12 @@ def _start_face_worker() -> None:
 
 
 def _fit_in_worker(job: tuple) -> 'dict | None':
-    """{FIT_SITES index: value} of the fits `job` = (export dir, NPC record, female, indices) asks for; None
-    when one fails, left to fail where the build uses it."""
+    """{FIT_SITES index: (value, code that ran making it)} of the fits `job` = (export dir, NPC record, female,
+    indices) asks for; None when one fails, left to fail where the build uses it."""
     export_dir, npc, female, wanted = job
     makers = face_work(export_dir, npc['EditorID'], female, _worker['assets'])
     try:
-        return {i: makers[i]() for i in wanted}
+        return {i: ran_while(makers[i]) for i in wanted}
     except Exception:
         return None
 
@@ -340,7 +341,7 @@ class Npcs:
         ghoul, female, face = self._kind(traits)
         body = self.bodies[body_kind(ghoul, female)]
         morphs, edit = (self._face(traits, female) if face else (b'', None))
-        fid = self.builder.new_id(NPC_KEY.format(fnv))
+        fid = self.made[fnv] = self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
             (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
@@ -361,7 +362,7 @@ class Npcs:
         npc = self.records[fnv]
         flags = int(npc.get('ACBS.TemplateFlags', 0)) & TEMPLATE_PARTS
         listed = sum(bit for bit in (1 << i for i in range(TEMPLATE_SLOTS)) if flags & bit and self.source(fnv, bit) is None)
-        template = self._template(npc['TPLT.Template']) if listed else None
+        template = self.actor_form(npc['TPLT.Template']) if listed else None
         self.builder.counts['NPC_ with a listed template'] += bool(template)
         return with_template(template, listed) if template else None
 
@@ -374,12 +375,15 @@ class Npcs:
     def _templated(self, fnv: int) -> 'int | None':
         """Write FNV NPC or creature `fnv`, whose traits come from a leveled list or a template, as an FO4 template
         actor: the male body with FNV's template flags and template (with_template), an NPC's own parts where FNV
-        keeps them."""
+        keeps them. Its FormID is in `made` before its parts are, so its script naming its own base gets it.
+        See: docs/fork/fo4_plugin_layout.md#dlc-script-bases
+        """
         npc = self.records.get(fnv) or self.creatures.records[fnv]
-        template = self._template(npc.get('TPLT.Template', '0'))
+        template = self.actor_form(npc.get('TPLT.Template', '0'))
         if template is None:
             self.builder.counts['NPC_ skipped (template not built)'] += 1
             return None
+        reserved = self.made[fnv] = self.builder.new_id(NPC_KEY.format(fnv))
         body = None if fnv in self.records else self.creatures.stand_in(fnv)
         armed, guns = (False, None) if fnv in self.records else self.creatures.own_guns(npc)
         parts = (with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
@@ -390,7 +394,7 @@ class Npcs:
                                               bool(body) and self.creatures.keeps_look(fnv), armed))
         parts += (self._template_style(npc), self._template_script(npc))
         traits = 0 if fnv in self.records else self.creatures.traits_variant(npc) or 0
-        fid = self._template_actor(fnv, npc, template, self._template_flags(npc), parts, body, traits)
+        fid = self._template_actor(fnv, npc, template, self._template_flags(npc), parts, body, traits, reserved)
         self.builder.npc_ids[fnv] = fid
         return fid
 
@@ -443,12 +447,12 @@ class Npcs:
         return _traits_templated(rec) and self._draws_void(int(rec['TPLT.Template'], 16))
 
     def _template_actor(self, fnv: int, rec: dict, template: int, flags: int, parts: tuple, body=None,
-                        traits: int = 0) -> int:
+                        traits: int = 0, fid: int = 0) -> int:
         """Write a template actor for FNV form `fnv` (`rec`) on `template` with `flags`, then `parts` edits; a copy
         of `body` (a creature's stand-in, whose class and combat style it keeps), else the male NPC body; its
-        Traits slot naming `traits` when given (with_template)."""
+        Traits slot naming `traits` when given (with_template); on `fid` when the caller reserved it."""
         male = self.bodies[body_kind(False, False)]
-        body, fid = body or male, self.builder.new_id(NPC_KEY.format(fnv))
+        body, fid = body or male, fid or self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), BODY_TIES, b'',
             checked(self.builder.counts, body.body, rec['EditorID'],
@@ -471,7 +475,7 @@ class Npcs:
                 self.made[fnv] = self.creatures.base(fnv, packages) if self.creatures.converts(fnv) else None
         return self.made[fnv]
 
-    def _template(self, fnv_hex: str) -> 'int | None':
+    def actor_form(self, fnv_hex: str) -> 'int | None':
         """The FO4 form of FNV template `fnv_hex`: an NPC (base()) or a leveled list (_list()); None if neither."""
         fnv = int(fnv_hex, 16)
         if fnv in self.records:
@@ -485,7 +489,7 @@ class Npcs:
         if fnv not in self.made_lists:
             rec, fid = self.lists[fnv], self.builder.fnv_id(f'{fnv:08X}')
             self.made_lists[fnv] = fid
-            entries = [(level, self._template(form), count) for level, form, count in _entries(rec)]
+            entries = [(level, self.actor_form(form), count) for level, form, count in _entries(rec)]
             entries = [e for e in entries if e[1] is not None]
             if any(self._draws_void(int(form, 16)) for _, form, _ in _entries(rec)):
                 self.void_lists.add(fnv)
@@ -592,9 +596,9 @@ class Npcs:
         jobs, keys = [], []
         for npc, female in sorted(self._faces(fnvs).values(), key=lambda f: (f[1], f[0].get('RNAM.Race', ''),
                                                                                f[0]['FormID'])):
-            key, missing = fit_key(npc, female), object()
+            key, missing = fit_key(self.export_dir, npc, female), object()
             wanted = [i for i, site in enumerate(FIT_SITES) if lookup(*site, key, missing) is missing]
-            taken, count = take(npc, female, key, wanted) if wanted else (True, '')
+            taken, count = take(female, key, wanted) if wanted else (True, '')
             if not taken:
                 jobs.append((self.export_dir, npc, female, wanted))
                 keys.append(key)
@@ -606,8 +610,8 @@ class Npcs:
         with _blas_threads(MAIN_BLAS_THREADS), ProcessPoolExecutor(max_workers=workers,
                                                                    initializer=_start_face_worker) as pool:
             for key, made in zip(keys, pool.map(_fit_in_worker, jobs, chunksize=1)):
-                for i, value in (made or {}).items():
-                    store(*FIT_SITES[i], key, value)
+                for i, (value, ran) in (made or {}).items():
+                    store(*FIT_SITES[i], key, value, ran)
         self.builder.counts['faces fitted in worker processes'] += len(jobs)
         return len(jobs)
 

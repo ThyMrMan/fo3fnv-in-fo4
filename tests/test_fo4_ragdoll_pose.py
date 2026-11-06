@@ -1,6 +1,7 @@
 """A placed dead actor's ragdoll pose, FNV's onto FO4's skeleton (fo4_import.spike.ragdoll_pose)."""
 
 import struct
+import types
 from pathlib import Path
 
 import numpy as np
@@ -8,9 +9,11 @@ import pytest
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR, source_walk
+from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.spike import ragdoll_pose as P
 from fo4_import.spike.scol import angles, rotation
 from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.writer import pack_subrecord
 
 FALLOUT4_ESM = FALLOUT4_DIR / 'Data' / 'Fallout4.esm'
 EXPORT = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
@@ -110,3 +113,17 @@ def test_a_race_skeleton_follows_a_traits_template_and_a_lists_first_entry():
             3: (b'NPC_', [(b'ACBS', acbs(0)), (b'RNAM', struct.pack('<I', 4))]),
             4: (b'RACE', [(b'ANAM', b'nope\0'), (b'MNAM', b''), (b'ANAM', b'Actors\\X\\skeleton.nif\0')])}
     assert P.race_skeleton(recs.get, 1) == 'Actors\\X\\skeleton.nif'
+
+
+def test_a_dlc_corpse_on_a_game_base_reads_the_built_game_plugins_race(tmp_path):
+    """_lookup: a FormID of the built game plugin (byte 3) resolves from that plugin's records, read once."""
+    game = FO4PluginWriter(masters=['Fallout4.esm', 'FalloutHelpers.esl', 'XDI.esm'], is_esm=True)
+    anam = b'Actors/G/skeleton.nif\0'
+    game.add_record('RACE', pack_fo4_record('RACE', 0x03000801, 0, pack_subrecord('ANAM', anam)))
+    path = tmp_path / 'FalloutNV.esm'
+    game.write(str(path))
+    poses = object.__new__(P.Poses)
+    poses.builder = types.SimpleNamespace(built=[path], writer=types.SimpleNamespace(own_index=4))
+    poses.vanilla, poses.mastered = {}, None
+    assert poses._lookup(0x03000801) == (b'RACE', [(b'ANAM', anam)])
+    assert poses._lookup(0x03000802) is None

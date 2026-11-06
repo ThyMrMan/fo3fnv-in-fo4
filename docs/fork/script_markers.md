@@ -32,6 +32,10 @@ for an object script the records carrying it (`ACTI:`, `NPC_:`, `CREA:`).
 [Measuring again](#measuring) reproduces the table and the full per-function
 script lists.
 
+Built after this census, so not in its "After" column:
+[GetAnimAction](#getanimaction) (all 5 markers) and `SetForceSneak 1`
+([SetForceSneak](#setforcesneak)); only the `0` form stays a note.
+
 | Function | Markers | After | Scripts | In a condition | Where | Quests or records (first 6) |
 |---|---:|---:|---:|---:|---|---|
 | removealltypeditems | 273 | 0 | 36 | 0 | obj 173 TIF 92 QS 8 | ACTI:TopsFriskingTrigger, ArcadeRetrieveArmorTimer, CREA:FortLupaGladiator, NPC_:vFortGladiatorSlaveAAM, NPC_:vFortGladiatorSlaveCM, VDialogueArcadeGannon (+4) |
@@ -411,21 +415,26 @@ scripts dropped a term from an `&&`:
 | GetObjectiveCompleted, IsHardcore | 1 each |
 
 <a id="native-read-follow-ups"></a>**Follow-ups: native reads, one at a time.**
-Each of these drops out of a guard today and needs its own Fallout 4 read:
-- **GetCurrentAIProcedure** (8 lines): Camp Golf's shooting range starts
-  once Poindexter, O'Hanrahan and Razz all reach procedure 17, but today it
-  starts when any one arrives.
+Each of these dropped out of a guard and needed its own Fallout 4 read. All
+five are built 2026-11-06, not played:
+- **GetCurrentAIProcedure** (8 lines): Camp Golf's shooting range started
+  when any one Misfit arrived, not once all reach procedure 17
+  ([AI procedure](fo4_pipeline.md#ai-procedure)).
 - **IsPlayerInRegion** (3 lines, plus Cass's barks): the Legion
-  messenger comes anywhere outdoors, and Victor's Boulder City scene isn't
-  tied to Boulder City.
-- **Cass's region barks** (`VCassTimerGeneralBarkScript`, 26 branches that drop their region test, such as
+  messenger came anywhere outdoors, and Victor's Boulder City scene wasn't
+  tied to Boulder City ([regions](fo4_regions.md#built)).
+- **Cass's region barks** (`VCassTimerGeneralBarkScript`, 26 branches that dropped their region test, such as
   `bCassBarked == 0 && IsPlayerInRegion <region> == 1`): the first branch
-  always passes, so she says the Goodsprings line wherever she is.
-- **GetTalkedToPC** (6 lines): VMS07 sets `AndersSpokenTo` on its first
-  poll, Arcade's Caesar rant needs no talk with Caesar, and the Racket TIF
-  checks pass.
-- **IsLimbGone** (2 lines): the giant mantis marks each leg gone on its
-  first pass.
+  always passed, so she said the Goodsprings line wherever she was
+  ([regions](fo4_regions.md#built)).
+- **GetTalkedToPC** (6 lines): VMS07 set `AndersSpokenTo` on its first
+  poll, Arcade's Caesar rant needed no talk with Caesar, and the Racket TIF
+  checks passed ([AI procedure](fo4_pipeline.md#ai-procedure)).
+- **IsLimbGone** (2 lines): the giant mantis marked each leg gone on its
+  first pass ([AI procedure](fo4_pipeline.md#ai-procedure)).
+
+Still dropped: `GetIsCreatureType` and `IsDLCInstalled` in scripts (the
+`;NE: TODO:` row of the census above).
 
 ## <a id="not-built"></a>Not built
 

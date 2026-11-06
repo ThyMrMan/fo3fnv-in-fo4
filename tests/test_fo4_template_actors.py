@@ -3,10 +3,13 @@
 See: docs/fork/fo4_pipeline.md#template-actors
 """
 
+import collections
 import struct
 from types import SimpleNamespace
 
+from fo4_import.nif.creature import HEAD_SLOT
 from fo4_import.spike import npcs as N
+from fo4_import.spike.creatures import skeleton_folder
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
@@ -45,6 +48,26 @@ def _npcs() -> N.Npcs:
     return npcs
 
 
+def test_a_template_actors_script_naming_its_own_base_gets_its_reserved_formid():
+    """A templated creature's script property naming that creature's base (ActorBase) gets the FormID the creature
+    is being written on, not a second making of it (which recursed until Python stopped it)."""
+    npcs = N.Npcs.__new__(N.Npcs)
+    rec = {'FormID': '00008E70', 'EditorID': 'Brute', 'TPLT.Template': '000086D3', 'ACBS.TemplateFlags': '1'}
+    npcs.records, npcs.made, npcs.lists, npcs.bodies = {}, {}, {}, {N.body_kind(False, False): 'male body'}
+    npcs.creatures = SimpleNamespace(records={0x8E70: rec}, stand_in=lambda fnv: None, own_guns=lambda r: (False, None),
+                                     actor_data=lambda *a: None, own_parts=lambda r, templated: (),
+                                     inventory=lambda *a: None, keeps_look=lambda fnv: False, traits_variant=lambda r: 0,
+                                     label=lambda fnv: 'creatures\tunneler')
+    npcs.builder = SimpleNamespace(new_id=lambda key: 0x04118A44 if key == N.NPC_KEY.format(0x8E70) else 1,
+                                   counts=collections.Counter(), npc_ids={})
+    real, seen = npcs.actor_form, []
+    npcs.actor_form = lambda hex_id: 0x0300AAAA if hex_id == '000086D3' else real(hex_id)
+    npcs._packages, npcs._template_style, npcs._template_flags = (lambda fnv: None), (lambda r: None), (lambda r: 1)
+    npcs._template_script = lambda r: seen.append(npcs.actor_form('00008E70'))
+    npcs._template_actor = lambda fnv, r, template, flags, parts, body, traits, fid: fid
+    assert npcs._creature(0x8E70) == 0x04118A44 and seen == [0x04118A44]
+
+
 def test_a_templated_creature_takes_packages_from_itself_unless_flagged():
     """Jacobstown's nightstalker (flags 349, no Use AI Packages) keeps its own; with 0x20, its template's."""
     npcs = _npcs()
@@ -62,7 +85,7 @@ def test_an_npc_with_its_own_traits_takes_its_listed_parts_from_the_lists_copy()
                     0xA02: {'FormID': '00000A02'}}
     npcs.creatures, npcs.lists = SimpleNamespace(records={}), {0xB01: {}}
     npcs.builder = SimpleNamespace(counts={'NPC_ with a listed template': 0})
-    npcs._template = lambda hex_id: 0x0300B001 if hex_id == '00000B01' else None
+    npcs.actor_form = lambda hex_id: 0x0300B001 if hex_id == '00000B01' else None
     body = b''.join(pack_subrecord(t, d) for t, d in (('ACBS', bytes(20)), ('RNAM', struct.pack('<I', 0x13746))))
     out = dict(subrecords(npcs._listed_template(0xA01)(body)))
     assert struct.unpack_from('<H', out[b'ACBS'], N.ACBS_TEMPLATE)[0] == 392
@@ -91,10 +114,10 @@ def _void_npcs() -> N.Npcs:
 
 
 def test_a_void_creature_is_the_void_actor_and_its_lists_and_templates_draw_it():
-    """_template gives the void actor for a void creature; a list holding one, and a creature templated on that
+    """actor_form gives the void actor for a void creature; a list holding one, and a creature templated on that
     list, draw the void; a plain creature does not."""
     npcs = _void_npcs()
-    assert npcs._template('00000E01') == 0x0300F00D
+    assert npcs.actor_form('00000E01') == 0x0300F00D
     assert npcs._draws_void(0xE01) and npcs._draws_void(0xE02) and npcs._draws_void(0xE03)
     assert not npcs._draws_void(0xE05)
 
@@ -357,7 +380,7 @@ def test_an_fnv_creatures_skin_shows_fo4s_head_over_fo4s_body_and_is_written_onc
     assert creatures._skin(0x3A147, entry) == creatures._skin(0x3A147, entry) and len(added) == 2
     creatures._skin(0x3A148, entry)
     slots = [struct.unpack('<I', dict(subrecords(record[24:]))[b'BOD2'])[0] for record in added]
-    assert slots == [0x8 | CR.FX_SLOT, 0x8 | CR.FX_SLOT, 0x8 | CR.HEAD_SLOT, 0x8 | CR.HEAD_SLOT]
+    assert slots == [0x8 | CR.FX_SLOT, 0x8 | CR.FX_SLOT, 0x8 | HEAD_SLOT, 0x8 | HEAD_SLOT]
     assert creatures.faces == {0x3A147: 0x0300_5555}
     arma = struct.unpack_from('<I', added[0], 12)[0]
     models = [struct.unpack('<I', d)[0] for t, d in subrecords(added[1][24:]) if t == b'MODL']
@@ -407,3 +430,24 @@ def test_a_templated_creature_carrying_its_own_guns_is_armed_with_them():
     creatures.gun_mods = SimpleNamespace(edit=lambda guns: ('edit', tuple(guns)))
     assert CR.Creatures.own_guns(creatures, own) == (True, ('edit', ((0x10A709, 0x0300_0001, 'slot'),)))
     assert CR.Creatures.own_guns(creatures, borrowed) == (False, None)
+
+
+def test_a_dlc_creatures_skeleton_folder_is_the_one_holding_its_skeleton():
+    """Dead Money keeps its creatures a level deeper (nvdlc01/creatures/ghosts): each folder keys its own rule."""
+    assert skeleton_folder(r'Creatures\Dog\Skeleton.nif') == r'creatures\dog'
+    assert skeleton_folder(r'NVDLC01\Creatures\Ghosts\skeleton.nif') == r'nvdlc01\creatures\ghosts'
+    assert skeleton_folder('NVDLC01/Creatures/Hologram/skeleton.nif') == r'nvdlc01\creatures\hologram'
+    assert skeleton_folder('marker_creature.nif') == 'marker_creature.nif'
+
+
+def test_a_creature_on_fo4s_human_speaks_with_its_sound_sets_unrecorded_voice():
+    """A ghost has no VTCK; its sound set (CSCR) speaks VoiceDoNotRecordF, which FNV never recorded: on FO4's human
+    it takes that voice type, silent, not the raider body's."""
+    from fo4_import.spike import creatures as CR
+    creatures = CR.Creatures.__new__(CR.Creatures)
+    ghost, audio = {'FormID': '01000BAD'}, {'FormID': '01012177', 'VTCK.Voice': '00094EED'}
+    creatures.sounds = SimpleNamespace(source=lambda rec: audio)
+    creatures.voices = SimpleNamespace(of=lambda fnv: 0x0300_0000 | fnv)
+    subs = pack_subrecord('VTCK', struct.pack('<I', 0x1234))
+    voiced = creatures._own_voice(ghost)(subs)
+    assert struct.unpack('<I', dict(subrecords(voiced))[b'VTCK'])[0] == 0x0309_4EED

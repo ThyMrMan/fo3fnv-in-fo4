@@ -12,6 +12,7 @@ See: docs/fork/research/fo4_target.md#formats
 
 import struct
 
+from fo4_import.base.record_compression import compress_group
 from tes5_import.base.writer import (
     PluginWriter, pack_group, pack_record, pack_string_subrecord, pack_subrecord,
 )
@@ -121,6 +122,27 @@ class FO4PluginWriter(PluginWriter):
         interior = sum(count_records(b, b'CELL') for b in group_blobs if b[8:12] == b'CELL')
         return pack_fo4_header(self.masters, total_count, self._high_water_id(), interior,
                                self.author, self.description, flags, overridden)
+
+    def _finish_groups(self, group_blobs: list) -> list:
+        """The top-level groups with land and navmesh stored compressed.
+        See: docs/fork/fo4_pipeline.md#record-compression
+        """
+        return [compress_group(blob) for blob in group_blobs]
+
+    def raw_groups(self):
+        """Yield every pre-built GRUP (add_raw_group: worldspaces, cells, topics)."""
+        for blobs in self._top_groups.values():
+            yield from (b for b in blobs if b[:4] == b'GRUP')
+
+    def patch_groups(self, patch) -> int:
+        """Replace each pre-built GRUP with `patch(bytes)`, dropping one patched to b''; how many changed."""
+        changed = 0
+        with self._lock:
+            for blobs in self._top_groups.values():
+                new = [patch(b) if b[:4] == b'GRUP' else b for b in blobs]
+                changed += sum(a != b for a, b in zip(new, blobs))
+                blobs[:] = [b for b in new if b]
+        return changed
 
     def _group_order(self) -> list:
         """FO4_GROUP_ORDER, then any other signature present, in insertion order."""

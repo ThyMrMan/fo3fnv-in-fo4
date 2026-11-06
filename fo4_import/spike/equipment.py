@@ -38,7 +38,7 @@ from pathlib import Path
 
 from fo4_import.spike.type_tests import with_keywords
 from fo4_import.spike.ammo_mods import AmmoMods
-from fo4_import.spike.condition import Condition
+from fo4_import.spike.condition import NO_WEAR, Condition
 from fo4_import.base import strings
 from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
@@ -50,6 +50,11 @@ from fo4_import.spike.aim_models import AimModels
 from fo4_import.spike.weapon_vats import WeaponVats
 from fo4_import.spike.guns import Guns
 from fo4_import.spike.mutant_subgraphs import write_mutant_subgraphs
+from fo4_import.spike.projectiles import FNAM_OVERRIDE
+from fo4_import.spike.attack_spells import ENIT_WEAPON, pack_explosion_ench
+from fo4_import.spike.consumable_effects import effect_pair
+from fo4_import.spike.script_effects import DELIVERY
+from script_convert.weapon_hits import EFFECT
 from fo4_import.spike.weapon_mods import WeaponMods
 from fo4_import.spike.replacements import Replacement, Rules
 from fo4_import.spike import records as R
@@ -61,12 +66,14 @@ from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
 #: derive_formid sites (key: FNV FormID).
 SITES = {'WEAP': 'FNV WEAP', 'ARMO': 'FNV ARMO', 'ARMA': 'FNV ARMA', 'MSWP': 'FNV MSWP'}
+#: derive_formid site of a weapon's on-hit enchantment (key: the FNV weapon's EditorID).
+HIT_SITE = 'FNV weapon hit'
 #: FO4 WEAP DNAM offsets: ammo, capacity, animation type, weight, value, base damage.
 DNAM_AMMO, DNAM_CAPACITY, DNAM_ANIM, DNAM_WEIGHT, DNAM_VALUE, DNAM_DAMAGE = 0, 52, 54, 59, 63, 67
 #: FO4 WEAP DNAM Min Range, Max Range (two floats: damage falloff); FNV WEAP DNAM's, which its AI picks a gun by.
 DNAM_RANGES, FNV_DNAM_RANGES = 16, 44
-#: FO4 WEAP DNAM animation type of a gun.
-ANIM_GUN = 9
+#: FO4 WEAP DNAM animation type of a gun; of a grenade and a mine.
+ANIM_GUN, ANIM_THROWN = 9, (10, 11)
 #: Template subrecords a copy leaves out: scripts, armor's resistances, naming rules (they add words to FNV's name).
 DROPPED = (b'VMAD', b'DAMA', b'INRD')
 #: A piece on FNV's own mesh drops the template's model data (an armor's female world model too) and mod templates.
@@ -107,6 +114,11 @@ def default_entry(rec: dict, rules: Rules) -> 'Replacement | None':
         return rules.melee.get(int(rec.get('DNAM.FalloutAnimType', -1)))
     covers = int(rec.get('BMDT.BipedFlags', 0)) if rec.get('Signature') == 'ARMO' else 0
     return next((entry for bits, entry in rules.armor if covers & bits), None)
+
+
+def _thrown(rec: dict) -> bool:
+    """Whether FNV weapon `rec` is thrown or placed (NO_WEAR): it keeps FNV's id."""
+    return int(rec.get('DNAM.FalloutAnimType', -1)) in NO_WEAR
 
 
 def _sex_suffix(sex: str) -> str:
@@ -179,7 +191,7 @@ class Equipment:
         self.guns = Guns(builder, self.strings)
         self.weapon_mods = WeaponMods(builder, self.guns.mods)
         self.by_anim = {kind: set() for kind in WEAPON_ANIM_LISTS}
-        self.weapon_ammo, self.creature_guns = {}, {}
+        self.weapon_ammo, self.creature_guns, self.fired = {}, {}, {}
         rules = self.table.rules
         wanted = {r.edid for r in [*self.table.values(), *(e for _, e in rules.armor), *rules.melee.values()]
                   if r.base and r.mode != 'item'}
@@ -235,11 +247,41 @@ class Equipment:
         return out
 
     def _script(self, rec: dict) -> list:
-        """[(VMAD, FNV `rec`'s converted script attached and filled)]; [] without one.
+        """[(VMAD, FNV `rec`'s converted script attached and filled)]; [] without one, or for a weapon's on-hit
+        script, which its enchantment runs (_hit_effect).
         See: docs/fork/fo4_pipeline.md#disguises
         """
+        if self._on_hit(rec):
+            return []
         vmad = self.builder.scripts.vmad(int(rec['SCRI'], 16)) if rec.get('SCRI') else b''
         return [(b'VMAD', vmad)] if vmad else []
+
+    def _on_hit(self, rec: dict) -> 'str | None':
+        """The converted script FNV weapon `rec` runs on what it hits (an effect script: weapon_hits); None."""
+        if not rec.get('SCRI') or rec.get('Signature') != 'WEAP':
+            return None
+        scripts = self.builder.scripts
+        name = scripts.name(int(rec['SCRI'], 16))
+        head = (scripts.dir / f'{name}.psc').read_text(encoding='utf-8').split('\n', 1)[0] if name else ''
+        return name if head.endswith(f'extends {EFFECT}') else None
+
+    def _hit_effect(self, rec: dict, subs: list) -> list:
+        """Weapon copy `subs` with FNV weapon `rec`'s on-hit script as its object effect (EITM, before ETYP, as
+        Fallout4.esm's Cryolator): an enchantment of one script effect running it on what the weapon hits.
+        See: docs/fork/fo4_pipeline.md#weapon-hits
+        """
+        name = self._on_hit(rec)
+        if name is None:
+            return subs
+        scripts, key = self.builder.scripts, f'FNV_{rec["EditorID"]}Hit'
+        effect = scripts.effects.vmad_effect(key, scripts.vmad(int(rec['SCRI'], 16)), DELIVERY['Touch'])
+        ench = self.builder.writer.derive_formid(HIT_SITE, rec['EditorID'])
+        self.builder.writer.add_record('ENCH', pack_explosion_ench(ench, key, effect_pair(effect, 0.0, 0, 0),
+                                                                   ENIT_WEAPON))
+        self.builder.counts['weapon on-hit enchantment'] += 1
+        subs = [(sig, body) for sig, body in subs if sig != b'EITM']
+        at = next((i for i, (sig, _) in enumerate(subs) if sig in (b'ETYP', b'DNAM')), len(subs))
+        return subs[:at] + [(b'EITM', struct.pack('<I', ench))] + subs[at:]
 
     def weap(self, fnv: int, rec: dict) -> 'int | None':
         """The FO4 weapon for FNV WEAP `rec` (_weapon), listed under its FNV animation type (anim_lists)."""
@@ -287,21 +329,23 @@ class Equipment:
         if chosen:
             flags = struct.unpack_from('<I', dnam, DNAM_FLAGS)[0] & ~FO4_AUTOMATIC
             struct.pack_into('<I', dnam, DNAM_FLAGS, flags | (FO4_AUTOMATIC if fnv_wants(rec)[1] else 0))
-        data, own = self._gun(fnv, rec, template, dnam) if dnam[DNAM_ANIM] == ANIM_GUN else ({}, None)
+        is_gun = dnam[DNAM_ANIM] == ANIM_GUN
+        data, own = self._gun(fnv, rec, template, dnam) if is_gun else (self._thrown(rec, template, dnam), None)
         data[b'DNAM'], data[b'CRDT'], marks = bytes(dnam), crdt, self.builder.type_keywords.of(fnv)
         if dnam[DNAM_ANIM] == ANIM_GUN and len(template.get(b'WAMD', b'')) == 4:
             aim = self.aims.of(fnv, rec['EditorID'], struct.unpack('<I', template[b'WAMD'])[0])
             data[b'WAMD'] = struct.pack('<I', aim)
-        if entry and entry.mode == 'fnv' and dnam[DNAM_ANIM] < ANIM_GUN and 'Model.MODL' in rec:
+        if entry and entry.mode == 'fnv' and not is_gun and 'Model.MODL' in rec:
             data.update(self._own_model(rec['Model.MODL'], int(rec.get('DNAM.FalloutAnimType', -1))))
-            return self._write('WEAP', fnv, with_keywords(self._copy(rec, data, [], OWN_MODEL_DROPPED), marks))
+            copy = self._hit_effect(rec, self._copy(rec, data, [], OWN_MODEL_DROPPED))
+            return self._write('WEAP', fnv, with_keywords(copy, marks), _thrown(rec))
         templates = (self.guns.templates(fnv, rec, chosen[0], source, chosen[2], own is not None) if chosen
                      else self.guns.with_mods(source, entry.mods) if entry.mods
                      else self.guns.default_only(source))
         templates = self.guns.own_projectile(fnv, rec, templates) if own is not None and templates else templates
         data.update({**self.guns.anim_keywords(fnv, source), **self.guns.body(fnv)} if chosen else {})
-        copy = self.weapon_mods.wire(fnv, self._copy(rec, data, templates, source=source))
-        return self._write('WEAP', fnv, with_keywords(copy, marks))
+        copy = self._hit_effect(rec, self.weapon_mods.wire(fnv, self._copy(rec, data, templates, source=source)))
+        return self._write('WEAP', fnv, with_keywords(copy, marks), _thrown(rec))
 
     def _gun(self, fnv: int, rec: dict, template: dict, dnam: bytearray) -> tuple:
         """({sig: body}, FO4 projectile or None) of gun copy `dnam` (filled in): FNV's magazine, ammo, projectile.
@@ -324,6 +368,15 @@ class Equipment:
             struct.pack_into('<I', dnam, DNAM_AMMO, made)
         self.weapon_ammo[fnv] = struct.unpack_from('<I', dnam, DNAM_AMMO)[0]
         return data, own
+
+    def _thrown(self, rec: dict, template: dict, dnam: bytearray) -> dict:
+        """{FNAM: FNV weapon `rec`'s projectile thrown (projectiles.thrown)} for a grenade or mine copy `dnam`; {}
+        for another weapon.
+        See: docs/fork/fo4_thrown_weapons.md#projectiles
+        """
+        if dnam[DNAM_ANIM] not in ANIM_THROWN or b'FNAM' not in template:
+            return {}
+        return {b'FNAM': self.builder.projectiles.thrown(template[b'FNAM'], rec)}
 
     def _own_model(self, model: str, anim_type: int) -> dict:
         """{sig: body} pointing a weapon's world and first-person models (FNV uses one mesh) at FNV `model`,
@@ -506,11 +559,16 @@ class Equipment:
             out += [(made, 1)] + ([(items.item(ammo), rounds)] if ammo and items.item(ammo) else [])
         return out + self.weapon_mods.test_items()
 
-    def _write(self, sig: str, fnv: int, subs: list) -> int:
-        """Add a `sig` record of `subs` on its hashed FormID; the FormID."""
-        fid = self.builder.writer.derive_formid(SITES[sig], fnv)
+    def _write(self, sig: str, fnv: int, subs: list, own_id: bool = False) -> int:
+        """Add a `sig` record of `subs` on its hashed FormID, or FNV's (`own_id`); the FormID.
+        See: docs/fork/fo4_thrown_weapons.md#checks
+        """
+        fid = self.builder.fnv_id(fnv) if own_id else self.builder.writer.derive_formid(SITES[sig], fnv)
         if sig == 'WEAP':
             subs = self.condition.wire(fnv, fid, self.ammo_mods.wire(fnv, subs))
+            fnam = dict(subs).get(b'FNAM', b'')
+            self.fired.update({fid: struct.unpack_from('<I', fnam, FNAM_OVERRIDE)[0]}
+                              if len(fnam) >= FNAM_OVERRIDE + 4 else {})
         elif sig == 'ARMO':
             subs = self.condition.wire_armor(fnv, fid, subs, self.fnv.get(fnv, {}))
         body = b''.join(pack_subrecord(s.decode(), b) for s, b in subs)

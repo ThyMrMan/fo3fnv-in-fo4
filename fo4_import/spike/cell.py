@@ -31,7 +31,9 @@ from fo4_import.spike.combat_styles import CombatStyles
 from fo4_import.spike.combat_perk import combat_rules
 from fo4_import.spike.equipment import Equipment
 from fo4_import.spike.projectiles import Projectiles
+from fo4_import.spike.region_watch import RegionWatch
 from fo4_import.spike.effect_shaders import EffectShaders
+from fo4_import.spike.guns import turned
 from fo4_import.spike.scol import PART_SITE, Parts, compose
 from fo4_import.spike.emittance import Emittance
 from fo4_import.spike.lighting_template import resolved
@@ -69,6 +71,7 @@ from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_
 from fo4_import.spike import records as R
 from fo4_import.spike import voice
 from fo4_import.spike.dialogue import CELL_FO4
+from fo4_import.spike.dialogue_trace import register as register_trace
 from fo4_import.spike.say_topics import SayTopics, actor_values, conditions_of, script_vars
 from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS, objective_globals, quest_record, quest_var_globals
 from fo4_import.base.vmad import quest_fragments
@@ -241,7 +244,7 @@ class CellBuilder:
         self.weather_ids, self.weather_templates, self.weather_regions, self.acoustics = {}, {}, None, None
         self.world_imagespace, self.weather_imagespaces = 0, {}
         self.hazards, self.music, self.decals, self.perks, self.forms = None, None, None, None, {}
-        self.radio, self.land_textures = None, {}
+        self.radio, self.land_textures, self.region_watch = None, {}, None
         self.type_keywords = TypeKeywords(self.writer)
         self.started = time.time()
         self.fo4 = FALLOUT4_ESM.read_bytes()
@@ -362,10 +365,14 @@ class CellBuilder:
 
     def record(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
         """Converter: `rec`'s FO4 record (_make); None for no mesh, light or script, or a model no export layer
-        holds (counted: Classic Pack's statics name mod-variant meshes FNV never shipped)."""
-        if sig not in ('LIGH', 'ACTI') and world_model(rec) and not export_file(
+        holds (counted: Classic Pack's statics name mod-variant meshes FNV never shipped); a light or activator
+        with such a model is made without it (Honest Hearts' hot plate wears Dead Money's)."""
+        if world_model(rec) and not export_file(
                 self.export_dir, 'meshes', world_model(rec).replace('/', '\\').lower()).is_file():
-            self.counts[f'{sig} left out (its mesh is in no archive)'] += 1
+            kept = sig in ('LIGH', 'ACTI')
+            self.counts[f'{sig} {"made without" if kept else "left out for"} its mesh (in no archive)'] += 1
+            rec = {k: v for k, v in rec.items() if k != 'Model.MODL'} if kept else None
+        if rec is None:
             return None
         return self._make(sig, rec, self.fnv_id(fnv_fid)) if sig in ('LIGH', 'ACTI') or world_model(rec) else None
 
@@ -575,12 +582,18 @@ def _base_type(builder: CellBuilder, fnv: int) -> str:
 
 def _placed_at(builder: CellBuilder, ref: dict) -> tuple:
     """(position, rotation) of FNV reference `ref`; a terminal's heading takes back its mesh's turn (Terminals.turn;
-    a tilted one, counted, only about Z)."""
+    a tilted one, counted, only about Z), a converted gun its mesh's (guns.turned).
+    See: docs/fork/fo4_spikes.md#placed-guns
+    """
     pos, rot = place(ref)
     readables = getattr(builder, 'readables', None)
     turn = readables.terminals.turn(ref) if readables else 0.0
     builder.counts['terminal tilted, turned about Z only'] += bool(turn and (rot[0] or rot[1]))
-    return pos, (rot[0], rot[1], rot[2] + turn)
+    fnv, equipment = int(ref['NAME'], 16), getattr(builder, 'equipment', None)
+    if equipment is None or fnv not in equipment.weapon_ammo:
+        return pos, (rot[0], rot[1], rot[2] + turn)
+    builder.counts['placed guns turned as their mesh'] += 1
+    return turned(pos, rot, float(ref.get('XSCL.Scale', 1.0)), equipment.guns.turn(fnv))
 
 
 def _lock(builder: CellBuilder, ref: dict) -> bytes:
@@ -660,9 +673,11 @@ def _navmesh(builder: CellBuilder, export_dir: Path, pathing: dict, ids: dict) -
 
 @timed('form map')
 def _form_map(builder: CellBuilder, ref_ids: dict, recs: list, quests: dict) -> dict:
-    """FNV to FO4 forms: references and placed actors, quests, player, objectives, globals, factions, reputations."""
+    """FNV to FO4 forms: references and placed actors, quests, player, objectives, globals, factions, reputations,
+    the packages written."""
+    packages = {int(k, 16): v for k, v in builder.packages.made.items() if v} if builder.packages else {}
     return {**builder.globals, **builder.factions, **builder.actor_refs, **{int(k, 16): v for k, v in ref_ids.items()},
-            PLAYER: PLAYER,
+            **packages, PLAYER: PLAYER,
             **builder.objectives, **builder.quest_vars, **builder.reputation_slots,
             **{int(r['FormID'], 16): quests[r['EditorID']] for r in recs}}
 
@@ -679,8 +694,10 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     say = builder.say
     lines = [line for rec in recs for line in say.infos.get(rec['FormID'].upper(), [])]
     form_map = {**builder.items.shared, **actor_values(HELPER_INDEX), **_form_map(builder, ref_ids, recs, quests),
-                **builder.npc_ids, **builder.creatures.made, **condition_forms(builder, lines),
-                **builder.perks.form_map(), **builder.radio.form_map(), TYPE_KEYWORDS: builder.type_keywords}
+                **builder.npc_ids, **builder.creatures.made,
+                **condition_forms(builder, [*lines, *builder.idles.ambient_records()]),
+                **builder.perks.form_map(), **builder.radio.form_map(), **builder.region_watch.form_map(),
+                TYPE_KEYWORDS: builder.type_keywords}
     form_map.update(builder.talkers.form_map(form_map))
     builder.idles.form_map = builder.forms = form_map
     shared = _hub(builder, export_dir, say, recs, quests, form_map)
@@ -693,6 +710,7 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
         talks = Conversations(say, rec, fid, form_map, XDI_KEYWORD, shared)
         radio = builder.radio.program(rec, fid, form_map, ref_ids) or ((), [], [], ())
         done.append((fid, rec, [branch] if branch else [], blobs + radio[1], talks, radio))
+    builder.packages.named_by_quests(builder.scripts, recs)
     built = _greetings(builder, say, form_map, shared)
     for fid, rec, branches, blobs, talks, radio in done:
         built |= {prop for prop, scene in list(builder.scripts.talks.items())
@@ -760,6 +778,7 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
                               quest_fragments('', []), [], [], aliases, True)
     builder.writer.add_record('QUST', pack_quest(record, fid, [], talks.topics, talks.scenes))
     builder.counts['SCEN'] += len(talks.scenes)
+    register_trace(builder.scripts)
     return built
 
 
@@ -789,6 +808,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.scripts.named.update({**reputations, **builder.perks.named(), **builder.challenges.named()})
     builder.activators, builder.crafting = Activators(builder, export_dir), Crafting(builder, export_dir, HELPER_INDEX, every)
     builder.radio, builder.talkers = Radio(builder, export_dir), Talkers(builder, export_dir)
+    builder.region_watch = RegionWatch(builder, export_dir)
     builder.patrols = PatrolTopics(builder, export_dir)
     builder.combat_styles = CombatStyles(builder, export_dir)
     builder.creatures = Creatures(builder, export_dir, builder.data_dir)
@@ -796,7 +816,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in seats}, beds(builder, seats),
                                 every)
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
-                                                for r in refs if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
+                                                for r in every if r.get('EditorID') and int(r['NAME'], 16) in builder.bases})
     builder.imods = ImageSpaces(builder)
     furniture = [(place(r), str(export_file(export_dir, 'meshes', world_model(builder.bases[int(r['NAME'], 16)][1]).lower())))
                  for r in refs if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
@@ -857,7 +877,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     _object_makers(builder, export_dir, scripts_dir, refs, every + outside)
     builder.vendors = write_vendors(builder, export_dir, sold)
     quest_recs, quests = _cell_quests(builder, export_dir, every + outside, _in_build(interiors, worlds),
-                                      _cell_names(builder, interiors, worlds))
+                                      _cell_names(builder, export_dir, interiors, worlds))
     ids, ext_ids = _ref_ids(builder, every), _ref_ids(builder, outside)
     vanilla = _vanilla(builder.fo4, {CELL_FO4, BASE_IMAGESPACE, TEST_CHEST})
     actors = _people(builder, export_dir, (interiors, worlds),
@@ -915,12 +935,20 @@ def _world_pathing(builder: CellBuilder, worlds: list) -> dict:
 @timed('worlds')
 def _world_groups(builder: CellBuilder, worlds: list, placing: tuple) -> None:
     """Add each built worldspace's WRLD group: its bases made in placement order, then Exterior.group(`placing`:
-    place, data folder, navmeshes, actors), its object LOD input list (object_lod) and its terrain LOD."""
+    place, data folder, navmeshes, actors), and for a worldspace the plugin owns its object LOD input list
+    (object_lod) and its terrain LOD; a master's worldspace keeps the master build's.
+    See: docs/fork/fo4_plugin_layout.md#dlc-lod
+    """
     for world in worlds:
         for ref in world.placement_order():
             builder.base(int(ref['NAME'], 16))
-        builder.object_lod.begin(world.fo4_edid)
+        owned = builder.ids.is_own(int(world.world['FormID'], 16))
+        if owned:
+            builder.object_lod.begin(world.fo4_edid)
         builder.writer.add_raw_group('WRLD', world.group(builder, *placing))
+        if not owned:
+            builder.counts["master worldspaces left to the master's LOD"] += 1
+            continue
         builder.counts['object LOD references'] += builder.object_lod.write(placing[1])
         builder.counts['terrain LOD tiles'] += terrain_lod.write(world.export_dir, placing[1], world.world['EditorID'],
                                                                  world.fo4_edid)
@@ -952,7 +980,7 @@ def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledge
     builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), *table)
     builder.writer.use_ledger(Ledger(ledger))
     builder.writer.use_master_ledgers(master_ledgers(builder.masters[:builder.writer.own_index],
-                                                     (data_dir, *table[1])))
+                                                     (data_dir, *table[1])), builder.in_masters)
     builder.writer.compare_masters = bool(builder.built)
     master_copies.share(builder)
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
@@ -1009,13 +1037,26 @@ def _exterior_cells(worlds: list) -> list:
     return [c for world in worlds for c in world.cells.values()]
 
 
-def _cell_names(builder: CellBuilder, interiors: list, worlds: list) -> dict:
-    """{EditorID: FO4 cell} of the built interiors and named exterior cells; every built cell and worldspace, by
-    FNV FormID, in `builder.cell_ids`."""
-    cells = interiors + _exterior_cells(worlds)
-    whole = cells + [c for w in worlds for c in (w.world, {'FormID': w.persistent_cell})]
+def _cell_names(builder: CellBuilder, export_dir: Path, interiors: list, worlds: list) -> dict:
+    """{EditorID: FO4 form} of the built interiors, named exterior cells and worldspaces, over the masters' ones
+    their built plugins hold (Cell and WorldSpace script properties); every built cell and worldspace, by FNV
+    FormID, in `builder.cell_ids`.
+    See: docs/fork/fo4_pipeline.md#worldspace-properties
+    """
+    cells = interiors + _exterior_cells(worlds) + [w.world for w in worlds]
+    whole = cells + [{'FormID': w.persistent_cell} for w in worlds]
     builder.cell_ids = {int(c['FormID'], 16): builder.fnv_id(c['FormID']) for c in whole}
-    return {c['EditorID']: builder.fnv_id(c['FormID']) for c in cells if c.get('EditorID')}
+    own = {c['EditorID']: builder.fnv_id(c['FormID']) for c in cells if c.get('EditorID')}
+    return {**_master_places(builder, export_dir), **own}
+
+
+def _master_places(builder: CellBuilder, export_dir: Path) -> dict:
+    """{EditorID: FO4 form} of the masters' named cells and worldspaces their built plugins hold; none without."""
+    if builder.in_masters is None:
+        return {}
+    found = ((r['EditorID'], builder.ids.fo4(int(r['FormID'], 16))) for sig in ('CELL', 'WRLD')
+             for r in export_records(export_dir, sig) if r.get('EditorID') and not builder.ids.is_own(int(r['FormID'], 16)))
+    return {edid: fid for edid, fid in found if fid in builder.in_masters}
 
 
 def _cells(builder: CellBuilder, interiors: list, worlds: list) -> dict:
@@ -1113,6 +1154,7 @@ def _acoustics(builder: CellBuilder) -> AcousticSpaces:
 def _rules(builder: CellBuilder, export_dir: Path, data_dir: Path, out: Path) -> None:
     """Perks, the character system and the standings."""
     builder.perks.write(builder.forms, builder.say.script_vars)
+    builder.scripts.write_gated_messages(builder.forms, builder.say.script_vars)
     character.build(builder, export_dir, data_dir, out.name, HELPER_INDEX)
     Standings(builder, export_dir).build()
 

@@ -129,6 +129,12 @@ def fnv_nif(path: Path):
     return data.roots[0]
 
 
+def prn_bone(root) -> 'str | None':
+    """The bone FNV body part `root` attaches to (`Prn` extra data), or None."""
+    return next((e.string_data.decode('cp1252') for e in root.get_extra_datas()
+                 if isinstance(e, NifFormat.NiStringExtraData) and e.name == b'Prn'), None)
+
+
 def is_cap(geom) -> bool:
     """Whether an FNV skinned shape is all dismemberment caps."""
     parts = [p.body_part for p in getattr(geom.skin_instance, 'partitions', [])]
@@ -160,7 +166,12 @@ def fnv_skin(geom, root, rigid: str = '') -> tuple:
 
 
 def fo4_joints(skeleton) -> dict:
-    """{name: world position} of an FO4 skeleton NIF's nodes (nif rotations act on column vectors)."""
+    """{name: world position} of an FO4 skeleton NIF's nodes."""
+    return {name: pos for name, (_, pos) in fo4_frames(skeleton).items()}
+
+
+def fo4_frames(skeleton) -> dict:
+    """{name: (world rotation, position)} of an FO4 skeleton NIF's nodes (nif rotations act on column vectors)."""
     parent = {c: i for i, (_, b) in enumerate(skeleton.blocks) if isinstance(b, dict) and 'children' in b
               for c in b['children']}
     world = {}
@@ -176,7 +187,7 @@ def fo4_joints(skeleton) -> dict:
             world[i] = rot, pos
         return world[i]
 
-    return {skeleton.strings[b['name']]: place(i)[1] for i, (_, b) in enumerate(skeleton.blocks)
+    return {skeleton.strings[b['name']]: place(i) for i, (_, b) in enumerate(skeleton.blocks)
             if isinstance(b, dict) and 'children' in b}
 
 
@@ -283,7 +294,7 @@ class BodyFit:
         return np.array(source), new_tris, np.vstack([uv] + extra) if extra else uv
 
     def dense(self, points: np.ndarray) -> np.ndarray:
-        """FO4's body weights at each point's nearest surface point, one column per body bone."""
+        """FO4's body weights at each point's nearest surface point, per bone."""
         points_s, owner, bary = self.samples
         idx = cKDTree(points_s).query(points)[1]
         return (bary[idx][:, :, None] * self.weights[self.tris[owner[idx]]]).sum(1)
@@ -607,11 +618,16 @@ def skinned_shape(arrays: tuple, tris: np.ndarray, skin: tuple, counts: list) ->
     return WornShape(fields, counts, used, points, local, weights)
 
 
+def text(nif, index: int) -> str:
+    """`nif`'s string `index`; '' for -1 (unset), not the last string."""
+    return nif.strings[index] if index >= 0 else ''
+
+
 def copy_material(nif, static, shape: dict) -> tuple:
     """Append copies of static shape `shape`'s shader (and texture set) and alpha property; (shader, alpha)."""
     kind, shader = static.blocks[shape['shader']]
     index = len(nif.blocks)
-    shader = dict(shader, name=nif.string(static.strings[shader['name']]), extra=[], controller=NONE)
+    shader = dict(shader, name=nif.string(text(static, shader['name'])), extra=[], controller=NONE)
     nif.blocks.append((kind, shader))
     if kind == 'BSLightingShaderProperty':
         shader.update(root_material=nif.empty_string(), texture_set=index + 1)
@@ -628,9 +644,9 @@ def _body_material(nif, fit: BodyFit) -> int:
     body = fit.body
     shader = body.blocks[fit.skin_shader][1]
     index = len(nif.blocks)
-    root = body.strings[shader['root_material']] if shader['root_material'] >= 0 else ''
+    root = text(body, shader['root_material'])
     nif.blocks.append(('BSLightingShaderProperty', dict(
-        shader, name=nif.string(body.strings[shader['name']]), extra=[], controller=NONE, texture_set=index + 1,
+        shader, name=nif.string(text(body, shader['name'])), extra=[], controller=NONE, texture_set=index + 1,
         root_material=nif.string(root) if root else nif.empty_string())))
     nif.blocks.append(body.blocks[shader['texture_set']])
     return index

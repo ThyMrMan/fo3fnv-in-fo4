@@ -43,6 +43,8 @@ BED_KEYWORDS = ('IsSleepFurniture', 'AnimFurnBedAnims')
 FLOOR_BED_KEYWORDS = ('IsSleepFurniture', 'AnimFurnFloorBedAnims')
 #: A floor bed's marker turned from a bed's: vanilla floor beds face along the mattress (0), beds across it (pi/2).
 FLOOR_TURN = math.pi / 2
+#: Distance across its heading within which a floor bed marker is middle, entered from both sides (vanilla: 0 or 20).
+FLOOR_MIDDLE = 5.0
 #: The marker models vanilla beds and floor beds name.
 BED_MARKER, FLOOR_BED_MARKER = 'Markers\\SleepBed.nif', 'Markers\\MarkerSleep01.nif'
 #: How far behind its front edge vanilla puts a chair's seat marker (median of 129 sit markers).
@@ -260,6 +262,21 @@ def furniture_idles(idles: list) -> dict:
     return out
 
 
+def floor_beds(placed: list) -> list:
+    """Bed markers `placed` as floor bed markers: turned along the mattress (FLOOR_TURN), entered as every vanilla
+    floor bed is by where its marker lies across its heading: Right on the left of the middle, Left on the right,
+    both within FLOOR_MIDDLE of it.
+    See: docs/fork/fo4_pipeline.md#floor-bed-sides
+    """
+    out = []
+    for x, y, z, h, e in placed:
+        heading = (h - FLOOR_TURN) % math.tau
+        across = x * math.cos(heading) - y * math.sin(heading)
+        side = RIGHT if across < -FLOOR_MIDDLE else LEFT if across > FLOOR_MIDDLE else RIGHT | LEFT
+        out.append((x, y, z, heading, e & ~(RIGHT | LEFT) | side))
+    return out
+
+
 def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keyword_ids: dict,
               idles: tuple = (), motions: dict = None) -> bytes:
     """The FO4 FURN of FNV furniture `rec` with converted `model` and `bounds` and its mesh's `marks`; a stool,
@@ -271,7 +288,7 @@ def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keywo
     slotted = None if bed else slot_seats(marks, active, motions or {})
     placed = bed or (slotted[0] if slotted else seats(marks, active, bounds))
     floor = any(m[4] in SLEEP_FLOOR for m in marks)
-    placed = [(x, y, z, (h - FLOOR_TURN) % math.tau, e) for x, y, z, h, e in placed] if bed and floor else placed
+    placed = floor_beds(placed) if bed and floor else placed
     flags = (SLEEP | MUST_EXIT_TO_TALK) if bed else SIT
     words, marker = ((FLOOR_BED_KEYWORDS, FLOOR_BED_MARKER) if floor else (BED_KEYWORDS, BED_MARKER)) if bed \
         else slotted[1:] if slotted else (SEAT_KEYWORDS, '')

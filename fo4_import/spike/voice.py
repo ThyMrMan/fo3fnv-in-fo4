@@ -3,7 +3,8 @@
 FO4 finds a line at Sound/Voice/<plugin>/<voice type>/<INFO id, load-order byte 0>_<n>.fuz,
 by the speaker's voice type. Each speaker maps its FNV voice folder to its
 stand-in's FO4 voice type; a line gets a file under every stand-in whose FNV
-folder recorded it. Audio and lips come from the FO4 Creation Kit's own tools.
+folder recorded it. Audio comes from the FO4 Creation Kit's xWMAEncode; lips from the recording's own .lip
+(lip.from_fnv), else the Creation Kit's LipGenerator.
 
 See: docs/fork/fo4_spikes.md#spike-1-voice
 """
@@ -13,12 +14,15 @@ import json
 import os
 import re
 import shutil
+import struct
 import tempfile
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from asset_convert.audio.audio_converter import SilentSource, convert_file_to_xwm, find_ffmpeg
+from asset_convert.audio.audio_converter import SilentSource, convert_file_to_xwm, find_ffmpeg, pack_fuz
+from fo4_import.base import lip
+from fo4_import.pipeline.export_index import export_masters
 
 #: FNV voice file name: <quest>_<topic>_<INFO id>_<response number>.ogg.
 _FILE_RE = re.compile(r'_([0-9a-f]{8})_(\d+)\.ogg$', re.I)
@@ -28,36 +32,55 @@ _TAG_RE = re.compile(r'\[[^\]]*\]')
 PLAYER_VOICES = ('PlayerVoiceMale01', 'PlayerVoiceFemale01')
 #: Seconds a silent line's recording lasts, and its sample rate (as converted voice).
 SILENT_SECONDS, SILENT_RATE = 0.2, 44100
+#: How built .fuz lips are made; a staging root stamped with another value has its lips redone (relip_once).
+LIP_SCHEME = 'fnv-lip-1'
 
 
-def fnv_folder(export_dir: Path, voice_type: str) -> Path:
-    """The export's recordings folder of FNV voice type EditorID `voice_type`."""
-    return export_dir / 'sound' / 'voice' / 'falloutnv.esm' / voice_type.lower()
+def fnv_folders(export_dir: Path, voice_type: str) -> tuple:
+    """`voice_type`'s recordings folder in each export plugin, in master-byte order.
+    See: docs/fork/fo4_plugin_layout.md#dlc-voice
+    """
+    plugins = (*map(Path, export_masters(str(export_dir))), Path(export_dir))
+    return tuple(p / 'sound' / 'voice' / p.name.lower() / voice_type.lower() for p in plugins)
 
 
-def index_recordings(folder: Path) -> dict:
-    """{(INFO id, response number): path} for one FNV voice-type folder."""
+def recorded(folders: tuple) -> bool:
+    """Whether any of fnv_folders()'s `folders` exists."""
+    return any(folder.is_dir() for folder in folders)
+
+
+def index_recordings(folders: tuple) -> dict:
+    """{(FNV INFO FormID, response number): path} over fnv_folders()'s `folders`, each folder's index its
+    master byte (a file names its INFO with byte 0)."""
     out = {}
-    for path in folder.glob('*.ogg'):
-        m = _FILE_RE.search(path.name)
-        if m:
-            out[(int(m.group(1), 16), int(m.group(2)))] = path
+    for byte, folder in enumerate(folders):
+        for path in folder.glob('*.ogg'):
+            m = _FILE_RE.search(path.name)
+            if m:
+                out[(byte << 24 | int(m.group(1), 16) & 0xFFFFFF, int(m.group(2)))] = path
     return out
+
+
+def own_lines(lines: list, own: int) -> list:
+    """The `lines` [(FO4 INFO FormID, ...)] whose INFO has load byte `own`.
+    See: docs/fork/fo4_plugin_layout.md#dlc-voice
+    """
+    return [line for line in lines if line[0] >> 24 == own]
 
 
 def jobs(lines: list, voices: list, data_dir: Path, plugin: str) -> list:
     """(source .ogg, destination .fuz, transcript) for every recorded response of every line.
 
-    lines: (FO4 INFO FormID, FNV INFO record); voices: (FNV voice folder, FO4 voice type EditorID).
+    lines: (FO4 INFO FormID, FNV INFO record); voices: (fnv_folders(), FO4 voice type EditorID).
     """
     out = []
-    for folder, voice_type in voices:
-        recorded = index_recordings(folder)
+    for folders, voice_type in voices:
+        found = index_recordings(folders)
         dest = data_dir / 'Sound' / 'Voice' / plugin / voice_type
         for fid, rec in lines:
             source = int(rec['FormID'], 16)
             for i in range(int(rec.get('ResponseCount', 0) or 0)):
-                path = recorded.get((source, int(rec.get(f'Response[{i}].ResponseNumber') or i + 1)))
+                path = found.get((source, int(rec.get(f'Response[{i}].ResponseNumber') or i + 1)))
                 if path:
                     text = _TAG_RE.sub('', rec[f'Response[{i}].ResponseText'])
                     out.append((path, dest / f'{fid & 0xFFFFFF:08X}_{i + 1}.fuz', text))
@@ -88,14 +111,15 @@ def silent_jobs(lines: list, voice_types: list, data_dir: Path, plugin: str) -> 
 
 
 def remove_stale(job_list: list, folders: list, cache: Path) -> int:
-    """Move the .fuz files in `folders` no job writes into `cache` (<voice type>/<file>); how many.
+    """Move the .fuz and silent .xwm files in `folders` no job writes into `cache` (<voice type>/<file>); how many.
 
     A line that is gone, or whose voice type no built NPC uses, would otherwise be packed; restore() brings
     it back when a later build needs it, saving its LipGenerator run.
     See: docs/fork/fo4_pipeline.md#voice-cache
     """
     keep = {job[1] for job in job_list}
-    stale = [p for folder in folders if folder.is_dir() for p in folder.glob('*.fuz') if p not in keep]
+    stale = [p for folder in folders if folder.is_dir() for p in folder.iterdir()
+             if p.suffix.lower() in ('.fuz', '.xwm') and p not in keep]
     for path in stale:
         target = cache / path.parent.name / path.name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -104,15 +128,53 @@ def remove_stale(job_list: list, folders: list, cache: Path) -> int:
 
 
 def restore(job_list: list, cache: Path) -> int:
-    """Move back from `cache` each job's missing .fuz an earlier remove_stale kept; how many."""
-    restored = 0
-    for _, dest, _ in job_list:
+    """Move back from `cache` each job's missing .fuz an earlier remove_stale kept, its lip redone (relip); how
+    many."""
+    restored = []
+    for job in job_list:
+        dest = job[1]
         kept = cache / dest.parent.name / dest.name
         if not dest.exists() and kept.is_file():
             dest.parent.mkdir(parents=True, exist_ok=True)
             os.replace(kept, dest)
-            restored += 1
-    return restored
+            restored.append(job)
+    relip(restored)
+    return len(restored)
+
+
+def own_lip(recording: Path) -> 'bytes | None':
+    """The Fallout 4 lip of `recording`'s own .lip beside it (lip.from_fnv), or None when it has none.
+    See: docs/fork/research/lip_format.md#conversion
+    """
+    path = Path(recording).with_suffix('.lip')
+    try:
+        return lip.from_fnv(path.read_bytes()) if path.is_file() else None
+    except (ValueError, struct.error):
+        return None
+
+
+def relip(job_list: list) -> int:
+    """Give each job's built .fuz its recording's own lip (own_lip) where it holds another; how many changed."""
+    changed = 0
+    for source, dest, _ in job_list:
+        made = own_lip(source) if dest.suffix.lower() == '.fuz' and dest.is_file() else None
+        fuz = dest.read_bytes() if made else b''
+        if made and lip.fuz_lip(fuz) != made:
+            dest.write_bytes(lip.with_lip(fuz, made))
+            changed += 1
+    return changed
+
+
+def relip_once(job_list: list, stamp: Path) -> int:
+    """relip() every job unless `stamp` already names LIP_SCHEME, then stamp it; how many changed.
+    See: docs/fork/research/lip_format.md#conversion
+    """
+    if stamp.is_file() and stamp.read_text(encoding='utf-8') == LIP_SCHEME:
+        return 0
+    changed = relip(job_list)
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(LIP_SCHEME, encoding='utf-8')
+    return changed
 
 
 def _copy_converted(written: Path, first: Path, dest: Path) -> bool:
@@ -126,12 +188,30 @@ def _copy_converted(written: Path, first: Path, dest: Path) -> bool:
     return target == dest
 
 
+def _convert_own_lip(recording: Path, fuz: Path, made: bytes, tools: tuple) -> bool:
+    """`recording` as .xwm, packed with its own lip `made` into `fuz`; whether it was written."""
+    audio = fuz.with_suffix('.xwm')
+    if not convert_file_to_xwm(recording, audio, *tools[:2]):
+        return False
+    fuz.write_bytes(pack_fuz(made, audio.read_bytes()))
+    audio.unlink()
+    return True
+
+
+def _convert_one(source: tuple, first: Path, tools: tuple) -> bool:
+    """`source` (recording, transcript) converted to `first`, with the recording's own lip when it has one."""
+    made = own_lip(source[0]) if first.suffix.lower() == '.fuz' else None
+    if made:
+        return _convert_own_lip(source[0], first, made, tools)
+    return convert_file_to_xwm(source[0], first, *tools, source[1])
+
+
 def _convert_shared(source: tuple, destinations: list, tools: tuple) -> int:
-    """`source` (recording, transcript) converted once to the first of `destinations`, then copied to the rest;
-    how many destinations were written (none when it fails or decodes to silence)."""
+    """`source` (recording, transcript) converted once to the first of `destinations` (_convert_one), then copied
+    to the rest; how many destinations were written (none when it fails or decodes to silence)."""
     first = destinations[0]
     try:
-        if not convert_file_to_xwm(source[0], first, *tools, source[1]):
+        if not _convert_one(source, first, tools):
             return 0
     except SilentSource:
         return 0
@@ -141,10 +221,12 @@ def _convert_shared(source: tuple, destinations: list, tools: tuple) -> int:
 
 
 def _attempt(job: tuple) -> str:
-    """A job's failure-record key: destination, source and transcript hashes."""
+    """A job's failure-record key: destination, source and transcript hashes, and its own lip's when it has one."""
     source, dest, text = job
+    own = Path(source).with_suffix('.lip')
+    lip_hash = '|' + hashlib.sha1(own.read_bytes()).hexdigest() if own.is_file() else ''
     return f'{dest.parent.name}/{dest.name}|{hashlib.sha1(Path(source).read_bytes()).hexdigest()}|' + \
-        hashlib.sha1((text or '').encode()).hexdigest()
+        hashlib.sha1((text or '').encode()).hexdigest() + lip_hash
 
 
 def convert_new(job_list: list, lipgen_dir: Path, record: Path) -> int:

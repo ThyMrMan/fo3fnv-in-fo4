@@ -1,6 +1,8 @@
 # Plan: the dialogue menu audit
 
-**Status:** planned 2026-10-25, not built; revised the same day after an
+**Status:** planned 2026-10-25, not built, except that check 4 is partly built
+(2026-10-29) as the [timing audit's writers](fo4_timing_audit.md#built), which do not
+yet read quest variables, globals, items or factions; revised the same day after an
 audit of the plan: exact checks on the pieces the build adds, in place of
 trying every state; a per-line effect check in place of conversation walks;
 skill checks and reputation paired first; FO4's rules from XDI's source and
@@ -58,7 +60,7 @@ current build's records:
 | Option shows on the wrong NPC | Doctor topics on every NPC before quest conditions were added |
 | Blank or duplicate option | Cliff Briscoe's "dialogueentry" choice ([blank choices](fo4_pipeline.md#blank-choices)); "Goodbye." seven times ([tool audit #6](fo4_tool_audit.md#fix-first)) |
 | Option stays after it should drop | Sunny's Say Once topic in a second menu ([say once](fo4_pipeline.md#say-once)) |
-| One FNV topic shown as two options | Found in the records 2026-10-25, fixed 2026-10-26, Jason Bright's pair played ([one option per topic](fo4_pipeline.md#one-option-per-topic)): Jason Bright offers "Sorry. Not interested." and "Like I said, not interested." together before the first is said; Doc Mitchell offers "Okay, fix me. Here's 100 caps." beside "Sorry, I don't have 100 caps." to a player holding 100 caps ([check 2](#exclusion)) |
+| One FNV topic shown as two options | Found in the records 2026-10-25, fixed 2026-10-26, Jason Bright's pair played ([one option per topic](fo4_pipeline.md#one-option-per-topic)): before the fix, Jason Bright offered "Sorry. Not interested." and "Like I said, not interested." together before the first was said; Doc Mitchell offered "Okay, fix me. Here's 100 caps." beside "Sorry, I don't have 100 caps." to a player holding 100 caps ([check 2](#exclusion)) |
 
 Plus kinds no play-test has caught yet, because they look normal:
 
@@ -79,7 +81,7 @@ source:
 | Cause | Example | Trusted source |
 |---|---|---|
 | **Translation:** a condition, flag, choice, priority or unlock lost or changed on the way to FO4 | An option's "some answer passes" test missing | The FNV records themselves (`export/FalloutNV.esm`), compared against the built records |
-| **FNV's rules:** how FNV builds a menu from its records | Order across quests, which line wins, Say Once per actor | The FNV engine: `FalloutNV.exe` (GOG, DRM-free), read by disassembly |
+| **FNV's rules:** how FNV builds a menu from its records | Order across quests, which line wins, Say Once per actor | The FNV engine: `FalloutNV.exe` (GOG, DRM-free), read in the [source decompilation](research/fnv_decomp.md) first, then by disassembly |
 | **FO4's rules:** how XDI and Fallout 4 play the built records | Which INFO of a range shows, when a Say Once mark lands | XDI's source (`reg2k/xdi`), `Fallout4.exe.unpacked.exe`, then the [play log](#play-log) |
 
 Sources checked and ruled out (2026-10-25), because each re-reads the same
@@ -408,7 +410,8 @@ settled from its source ([rules](#rules)), the same as FNV's.
    XDI 1.4.4 on 2026-11-01:
    [XDI menus](../commentary/tools_preflight.md#xdi-menus)); the option's answer is the first passing NPC
    INFO in its range; XDI lists an option without testing its answers; Say
-   Once player and NPC INFOs drop once said. *Verify:* each part.
+   Once player and NPC INFOs drop once said. *Verify:* each part except the pads
+   and the blank menu, which are settled.
 4. **The build's own state:** an AddTopic line's fragment sets the topic's
    `TES4Unlock_` global; a Say Once copy's `F3NV_SayOnce` OnBegin sets its
    marker stage; Follow Up marks set `TES4FollowUpFrom_`/`Said_` globals.
@@ -485,8 +488,9 @@ whether the story reaches it is not checked ([limits](#limits)).
 Each check is tried against something independent before its findings are
 trusted:
 
-1. **The live bugs.** On the current build, check 2 must report Jason Bright's
-   and Doc Mitchell's pairs before any fix, and none of them after.
+1. **The live bugs.** On a build from before the 2026-10-26 fix, check 2 must
+   report Jason Bright's and Doc Mitchell's pairs, and none of them on a build
+   after it.
 2. **Known bugs come back.** The play-test bugs in the
    [table](#catches), replayed by mutating a current build's menus the way
    each bug looked (a pad without conditions, an option without its "some
@@ -515,8 +519,8 @@ trusted:
 | 6 | [Check 5](#play-log): the missing log points and the replay | One play session replayed with no false findings |
 
 Phases 1 to 3 are independent and can run in parallel; phase 2 runs on the
-*verify* rules and re-runs as phase 3 settles them. Phase 2 already finds the
-two-options bug; phases 2 and 4 together cover every translation bug in the
+*verify* rules and re-runs as phase 3 settles them. Phase 2 would find the
+two-options bug (a scratch version of check 2 found it, [check 2](#exclusion)); phases 2 and 4 together cover every translation bug in the
 [table](#catches).
 
 ## <a id="left-out"></a>Considered and left out

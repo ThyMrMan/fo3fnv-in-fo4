@@ -26,7 +26,7 @@ from script_convert.command_rows import (
 )
 from script_convert.emit.commands import emit_row, target_row
 from script_convert.implicit_subject import stage_subject as implicit_stage_subject
-from script_convert.target import self_as_actor
+from script_convert.target import script_as_actor, self_as_actor
 from script_convert.tes4 import nodes as N
 
 #: A mapped name that is already a GLOBAL call has nowhere to put a receiver.
@@ -197,10 +197,7 @@ def _receiver(conv, call, ref_name, papyrus_func: str, extends: str) -> str:
     if cur == '' and conv._is_bindable_property(ref):
         conv.sc.property_refs[ref] = 'Actor'
     elif is_generated_script_type(cur):
-        # Typed as the SCRIPT attached to the record it names (see
-        # _resolve_self_ref): cast at the call site so the cross-script
-        # variable reads that need that type keep working.
-        return f'({ref} as Actor)'
+        return script_as_actor(ref)
     return ref
 
 

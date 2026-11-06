@@ -2,7 +2,8 @@
 
 A line may count or check worn an item no reference places (GetItemCount,
 GetEquipped, GetHasNote, which counts the note: FNV's notes are inventory
-items on Fallout 4), or a form list of them; those are converted on demand,
+items on Fallout 4), or a form list of them, or test a form list's members
+(IsInList, of a list a script may fill); those are converted on demand,
 as script properties are. A line may also test a voice type, a map region
 (PlayerInRegion, its location) or a cell or worldspace the build has. What
 none of these covers is settled as never there (conditions.without_absent).
@@ -12,8 +13,8 @@ See: docs/fork/fo4_pipeline.md#dialogue-conditions
 
 from fo4_import.spike import conditions as C
 
-#: FNV functions whose first parameter is an inventory item (or a form list of items) the player may carry.
-ITEM_TESTS = frozenset({'GetItemCount', 'GetEquipped', 'GetHasNote'})
+#: FNV functions whose first parameter is an item or form list, made on demand (IsInList's may be script-filled).
+ITEM_TESTS = frozenset({'GetItemCount', 'GetEquipped', 'GetHasNote', 'IsInList'})
 
 
 def condition_forms(builder, lines: list) -> dict:

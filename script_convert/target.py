@@ -156,6 +156,13 @@ def self_as_actor() -> str:
     return '((Self as ObjectReference) as Actor)' if is_fallout4() else '(Self as Actor)'
 
 
+def script_as_actor(name: str) -> str:
+    """`name`, a property typed as a converted script, cast to Actor.
+    See: docs/fork/fo4_pipeline.md#script-casts
+    """
+    return f'(({name} as ObjectReference) as Actor)' if is_fallout4() else f'({name} as Actor)'
+
+
 def run_update_now() -> str:
     """Run one poll pass right away: the poll event called as a function."""
     return 'OnTimer(0)' if is_fallout4() else 'OnUpdate()'

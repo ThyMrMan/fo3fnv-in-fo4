@@ -55,6 +55,43 @@ def test_casino_comp_guard_reads_no_winnings(converter):
     assert out.startswith('If 0 == 1 && SmallFry == 0')
 
 
+def test_in_chargen_reads_never(converter):
+    """GetInCharGen reads 0, matching SetInCharGen converting to nothing, so a bark guard stays open."""
+    out = _lines(converter, 'if ( GetInCharGen == 1 )\nreturn\nendif', 'Quest')
+    assert 'GetInCharGen' not in out.split(';')[0] and out.startswith('If ')
+
+
+def _placed_graph() -> CrossRefGraph:
+    """A graph where `DoorREF` is a placed reference and `DoorCount` a global."""
+    xref = CrossRefGraph()
+    xref.edid_to_formid.update({'doorref': '00000B02', 'doorcount': '00000B03'})
+    xref.record_type.update({'00000B02': 'REFR', '00000B03': 'GLOB'})
+    return xref
+
+
+@pytest.mark.parametrize('source, papyrus', [
+    ('if DoorREF != 3\nendif', 'If (True)'),
+    ('if DoorREF == 3\nendif', 'If (False)'),
+    ('if 3 != DoorREF\nendif', 'If (True)'),
+    ('if DoorREF != -1\nendif', 'If (True)'),
+])
+def test_a_placed_ref_against_a_number_is_its_formid(monkeypatch, source, papyrus):
+    """FNV reads a reference as its FormID, never 3: `!= 3` always passes, `== 3` never does."""
+    monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+    out = _lines(ScriptConverter(_placed_graph()), source)
+    assert out.replace('(', '').replace(')', '').startswith(papyrus.replace('(', '').replace(')', ''))
+    assert 'Type mismatch fix' in out
+
+
+@pytest.mark.parametrize('source', ['if DoorREF == 0\nendif', 'if DoorREF != 1\nendif', 'if DoorCount == 3\nendif',
+                                    'if active == -1\nendif'])
+def test_a_null_test_or_a_global_is_not_a_formid_pun(monkeypatch, source):
+    """`ref == 0`, `ref != 1` stay null tests and a global keeps its comparison."""
+    monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+    out = _lines(ScriptConverter(_placed_graph()), source)
+    assert 'Type mismatch fix' not in out
+
+
 def test_permanent_special_reads_the_actor_value(converter):
     """A bobblehead's `< 10` check reads the player's SPECIAL rather than going inert."""
     out = _lines(converter, 'if Player.GetPermanentActorValue Strength < 10\nendif')

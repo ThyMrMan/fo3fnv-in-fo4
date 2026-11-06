@@ -110,11 +110,23 @@ def mo2_layout(instance: Path) -> tuple:
     return ini.get('General', {}), folders
 
 
+def _modlist(general: dict, folders: dict, profile: str) -> Path:
+    """`profile`'s mod list ('' = the selected one) in a mo2_layout instance."""
+    return folders['profiles'] / (profile or general.get('selected_profile', '')) / 'modlist.txt'
+
+
+def source_files(source: ModSource) -> list:
+    """The files and folders mod_folders reads to answer for `source` (not the mods' own files)."""
+    if source.kind == 'mo2_profile':
+        general, folders = mo2_layout(source.folder)
+        return [source.folder / 'ModOrganizer.ini', _modlist(general, folders, source.profile)]
+    return [source.folder] if source.kind == 'folder_of_mods' else []
+
+
 def mo2_folders(instance: Path, profile: str = '') -> list:
     """An MO2 instance's Data-like folders for `profile` ('' = its selected profile), lowest priority first."""
     general, folders = mo2_layout(instance)
-    chosen = profile or general.get('selected_profile', '')
-    enabled = enabled_mods(folders['profiles'] / chosen / 'modlist.txt')
+    enabled = enabled_mods(_modlist(general, folders, profile))
     game = [Path(general['gamePath']) / 'Data'] if general.get('gamePath') else []
     return game + [folders['mods'] / name for name in reversed(enabled)] + [folders['overwrite']]
 

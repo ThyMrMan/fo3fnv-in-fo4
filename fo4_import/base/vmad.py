@@ -18,7 +18,9 @@ from script_convert.pipeline import pack_wstring, script_entry
 VERSION, OBJECT_FORMAT, BIND_DATA = 6, 2, 3
 #: INFO fragment flags: OnBegin, OnEnd; a scene's OnEnd, the same bit.
 INFO_BEGIN, INFO_END = 0x01, 0x02
-SCENE_END = INFO_END
+SCENE_BEGIN, SCENE_END = INFO_BEGIN, INFO_END
+#: A scene phase fragment's flag: when the phase starts, when it completes.
+PHASE_START, PHASE_DONE = 0x01, 0x02
 _PROP_OBJECT, _PROP_STRING, _PROP_INT, _PROP_FLOAT, _PROP_BOOL, _PROP_OBJECTS = 1, 2, 3, 4, 5, 11
 _PROP_STRINGS, _PROP_INTS, _PROP_FLOATS = 12, 13, 14
 _ARRAYS = (_PROP_STRINGS, _PROP_INTS, _PROP_FLOATS)
@@ -54,9 +56,13 @@ def info_fragments(script: str, object_props: dict = None, value_props: dict = N
     return _fragment_block(script, flags, [f for f in (begin, end) if f], object_props, value_props, scripts)
 
 
-def scene_fragments(script: str, end: str) -> bytes:
-    """A SCEN's VMAD: `script`'s `end` fragment (OnEnd), no phase fragments."""
-    return _fragment_block(script, SCENE_END, [end], None, None) + struct.pack('<H', 0)
+def scene_fragments(script: str, end: 'str | None' = None, begin: 'str | None' = None, phases: tuple = ()) -> bytes:
+    """A SCEN's VMAD: `script`'s `begin` (OnBegin) and `end` (OnEnd) fragments (None: none), then `phases`
+    [(PHASE_START or PHASE_DONE, 0-based phase index, fragment)], as vanilla's (SF_JoeQuestScene_00123714)."""
+    flags = (SCENE_BEGIN if begin else 0) | (SCENE_END if end else 0)
+    out = _fragment_block(script, flags, [f for f in (begin, end) if f], None, None) + struct.pack('<H', len(phases))
+    return out + b''.join(struct.pack('<BIb', flag, index, 1) + pack_wstring(script) + pack_wstring(name)
+                          for flag, index, name in phases)
 
 
 def package_fragments(script: str, flags: int, object_props: dict = None, value_props: dict = None) -> bytes:

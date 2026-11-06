@@ -37,8 +37,8 @@ from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import NONE, SHADER_SKINNED, Reader, pack_tri_shape, read_tri_shape
 from fo4_import.nif.convert_static import Converted, NifFormat
 from fo4_import.nif.headgear import shape_arrays
-from fo4_import.nif.outfit import (HUMAN, NEIGHBOURS, SMOOTH_PASSES, BodyFit, bone_data, copy_material,
-                                   copy_skeleton, fnv_nif, fnv_skeleton, fnv_skin, fo4_joints, is_cap, originals, segments, shape_bones, skin_blocks, skin_shift, skinned_shape, strongest)
+from fo4_import.nif.outfit import (FO4_BODIES, FO4_SKELETON, HUMAN, NEIGHBOURS, SMOOTH_PASSES, BodyFit, bone_data, copy_material,
+                                   copy_skeleton, fnv_nif, fnv_skeleton, fnv_skin, fo4_frames, is_cap, originals, segments, shape_bones, skin_blocks, skin_shift, skinned_shape, strongest)
 from fo4_import.nif.retarget import Rig, bone_moves, retargeted
 from fo4_import.pipeline.export_index import export_file
 
@@ -66,16 +66,25 @@ for _side in 'LR':
 DOG = Rig(_DOG_BONES, _DOG_ENDS, _DOG_FOLLOW, 'Bip01 Pelvis')
 
 
+#: BOD2 bits of slot 32 (FaceGen head): FNV's body has its own head, so its skin hides the race's (as vanilla's do).
+HEAD_SLOT = 0x4
+#: BOD2 bits a full hood covers on a human, as vanilla AAArmorHazmatSuitHat's: hair 30-31, head 32, face 46-50.
+HOOD_SLOTS = 0x7 | 0x1F << 16
+
+
 @dataclass(frozen=True)
 class Pair:
     """An FNV creature skeleton folder's FO4 counterpart: the rig, FO4's body and skeleton NIFs (in the archives),
-    whether its parts keep FNV's weights, and the head NIF (its race's default head part) of FO4's body when its
-    body and head are worn beneath them (the module notes)."""
+    whether its parts keep FNV's weights, the head NIF (its race's default head part) of FO4's body when its body
+    and head are worn beneath them (the module notes), the slots (BOD2 bits) FNV's head covers on FO4's race, and
+    whether that race is FO4's human, whose own voice speaks words and who holds FNV's creature guns in hand."""
     rig: Rig
     body: str
     skeleton: str
     own_weights: bool = False
     head: str = ''
+    head_slots: int = HEAD_SLOT
+    human: bool = False
 
     @property
     def fo4_body(self) -> bool:
@@ -88,7 +97,9 @@ PAIRS = {'creatures\\dog': Pair(DOG, 'meshes\\actors\\dogmeat\\characterassets\\
                                 'meshes\\actors\\dogmeat\\characterassets\\skeleton.nif'),
          'creatures\\smspinebreaker': Pair(HUMAN, 'meshes\\actors\\supermutant\\characterassets\\supermutantbody.nif',
                                            'meshes\\actors\\supermutant\\characterassets\\skeleton.nif', True,
-                                           'meshes\\actors\\supermutant\\characterassets\\supermutanthead.nif')}
+                                           'meshes\\actors\\supermutant\\characterassets\\supermutanthead.nif'),
+         **{folder: Pair(HUMAN, FO4_BODIES['male'], FO4_SKELETON, True, head_slots=HOOD_SLOTS, human=True)
+            for folder in ('nvdlc01\\creatures\\ghosts', 'nvdlc01\\creatures\\hologram', 'nvdlc03\\creatures\\hologram')}}
 #: FO4 body bone name prefix (lower case) of the head's bones.
 HEAD_BONE = 'head'
 #: How far (game units) a part's surface is kept outside FO4's body, and the passes that settle it.
@@ -112,15 +123,36 @@ def creature_fit(export_dir: Path, folder: str, archives: Archives) -> BodyFit:
                 bones.append(body.strings[body.blocks[node][1]['name']])
                 bind.append(b)
         parts.append((shape, [nodes.index(n) for n in shape_nodes]))
-    points, tris, weights = _merged(parts, len(bones))
-    skeleton = fo4_joints(nif_file.read(archives.read(pair.skeleton)))
+    frames = fo4_frames(nif_file.read(archives.read(pair.skeleton)))
+    skeleton = {name: pos for name, (_, pos) in frames.items()}
     shift = skin_shift(bones, bind, skeleton)
+    if pair.own_weights:
+        _add_rig_bones(body, pair.rig, frames, shift, (bones, nodes, bind))
+    points, tris, weights = _merged(parts, len(bones))
     joints, parents = fnv_skeleton(export_file(export_dir, 'meshes', folder, 'skeleton.nif'))
     moves = bone_moves(pair.rig, joints, parents, {name: pos + shift for name, pos in skeleton.items()})
     return BodyFit(moves, np.zeros((0, 3)), np.zeros((0, 3)), body, bones, nodes, bind, weights,
                    surface(points, tris), tris, NONE, points=points,
                    targets=_targets(pair.rig, parents, bones) if pair.own_weights else None,
                    head_box=_fo4_head_box(archives, pair.head, points[head_share(weights, bones) > 0.5]))
+
+
+def _add_rig_bones(body, rig: Rig, frames: dict, shift: np.ndarray, fit: tuple) -> None:
+    """Add each FO4 bone `rig` maps to that body NIF `body` skins neither by name nor as its `_skin` helper (FO4's
+    human body has no HEAD) to its nodes and to `fit` (bones, their nodes, bind data), at its skeleton rest frame in
+    `frames` moved by `shift`."""
+    bones, nodes, bind = fit
+    have = {b.lower() for b in bones}
+    for name in sorted(n for n in set(rig.bones.values()) if not {n.lower(), n.lower() + '_skin'} & have):
+        rot, pos = frames[name]
+        at = pos + shift
+        body.blocks.append(('NiNode', {'name': body.string(name), 'extra': [], 'controller': NONE, 'flags': 0xE,
+                                       'translation': tuple(map(float, at)), 'rotation': tuple(map(float, rot.ravel())),
+                                       'scale': 1.0, 'collision': NONE, 'children': []}))
+        body.blocks[0][1]['children'].append(len(body.blocks) - 1)
+        nodes.append(len(body.blocks) - 1)
+        bind.append(((0.0,) * 4, rot.T, -rot.T @ at))
+        bones.append(name)
 
 
 def _fo4_head_box(archives: Archives, head: str, led: np.ndarray) -> 'np.ndarray | None':
@@ -281,7 +313,7 @@ def pushed(points: np.ndarray, fit: BodyFit) -> np.ndarray:
 
 
 def head_share(dense: np.ndarray, bones: list) -> np.ndarray:
-    """Each row's share of weights `dense` (one column per bone of `bones`) on bones named for the head."""
+    """Each row of `dense` (a column per bone of `bones`): its share on head bones."""
     head = [i for i, b in enumerate(bones) if b.lower().startswith(HEAD_BONE)]
     return dense[:, head].sum(1) / np.maximum(dense.sum(1), 1e-9)
 

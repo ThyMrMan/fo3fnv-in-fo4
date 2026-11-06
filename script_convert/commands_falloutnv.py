@@ -12,8 +12,8 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
 from fo4_import.base.bink import movie_key
-from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_swap_property, papyrus_script_name,
-                                      safe_property_name, typed_already)
+from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_screen_property, fallout4_swap_property,
+                                      papyrus_script_name, safe_property_name, typed_already)
 from script_convert.anim_action_falloutnv import anim_action
 from script_convert.command_rows import ACTOR, Cmd
 from script_convert.constants_falloutnv import ITEM_TYPE_LISTS
@@ -25,6 +25,8 @@ from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
 #: The row a forced sneak's start renders: the actor's native StartSneaking.
 START_SNEAKING = Cmd('{ref}.StartSneaking()', ACTOR, flags='actor_only')
+#: Fallout 4's FNV IsActorRefEssential: the reference's essential flag, as SetActorRefEssential sets it.
+IS_ESSENTIAL = Cmd('{ref}.IsEssential()', ACTOR, flags='actor_only zero_arg cmp_bool')
 
 
 def faction_relation(ctx, call):
@@ -276,6 +278,28 @@ def set_open_state(ctx, call):
     return f'TES4_TwoStateActivator.SetOpenState({_open_state_target(ctx, call)}, {state})'
 
 
+def is_essential(ctx, call):
+    """FNV IsActorRefEssential on Fallout 4: IsEssential(); declines elsewhere."""
+    if not is_fallout4():
+        return None
+    return emit_row(ctx, IS_ESSENTIAL, call.ref, call.raw_name, '', call.extends)
+
+
+def broadcast_state(ctx, call):
+    """FNV Get/SetBroadcastState on a radio station on Fallout 4: TES4Polyfill's, the station reference's enabled
+    state (a disabled transmitter broadcasts nothing); declines elsewhere.
+    See: docs/fork/fo4_radio.md#broadcast-state
+    """
+    if not is_fallout4():
+        return None
+    target = _open_state_target(ctx, call)
+    if call.name == 'getbroadcaststate':
+        return f'TES4Polyfill.GetBroadcastState({target})'
+    if not len(call):
+        return None
+    return f'TES4Polyfill.SetBroadcastState({target}, ({call.arg(0)}) != 0)'
+
+
 def swap_texture(ctx, call):
     """FNV `SwapTexture <ref> "<node>" "<texture>"` on Fallout 4: TES4Polyfill.SwapMaterial (F4SE) with its MatSwap.
 
@@ -289,6 +313,21 @@ def swap_texture(ctx, call):
     prop = fallout4_swap_property(call.source(first).strip('"'), call.source(first + 1).strip('"'))
     ctx.sc.property_refs[prop] = 'MatSwap'
     return f'TES4Polyfill.SwapMaterial({ref}, {prop})'
+
+
+def securitron_expression(ctx, call):
+    """FNV `SetSecuritronExpression <ref> <face> <expression>` on Fallout 4: the reference equips that face's screen
+    armor (the importer makes it from the property's name, fallout4_screen_property); declines elsewhere.
+
+    See: docs/fork/fo4_own_rig.md#expressions
+    """
+    first = 0 if call.ref else 1
+    if not is_fallout4() or len(call) < first + 2:
+        return None
+    ref = _open_state_target(ctx, call) if call.ref else call.arg(0)
+    prop = fallout4_screen_property(call.source(first).strip('"'), call.source(first + 1).strip('"'))
+    ctx.sc.property_refs[prop] = 'Armor'
+    return f'({ref} as Actor).EquipItem({prop}, true, true)'
 
 
 def player_package(ctx, call):
@@ -423,6 +462,10 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'getweaponanimtype': weapon_anim_type,
                     'showmessage': show_message,
                     'swaptexture': swap_texture,
+                    'getbroadcaststate': broadcast_state,
+                    'isactorrefessential': is_essential,
+                    'setbroadcaststate': broadcast_state,
+                    'setsecuritronexpression': securitron_expression,
                     'setcellownership': cell_ownership,
                     **{name: quest_call for name in _QUEST_CALLS},
                     **{name: quest_native for name in _QUEST_NATIVES}}

@@ -231,3 +231,9 @@ def test_radiation_level_is_fo4s_rads_value():
     cond = C.parse('4000000000000000F701000000000000000000000000000000000000')
     form_map = {('av', C.AS_VALUE['GetRadiationLevel']): 0x2E1}
     assert ST._fo4_condition(cond, form_map, {}) == (C.FO4.index('GetValue'), 0x2E1, 0, '', '')
+
+
+def test_base_actor_value_is_fo4s_base_value():
+    """GetBaseActorValue (FNV 277) is FO4's GetBaseValue of the converted actor value."""
+    cond = C.parse(struct.pack('<B3xfIIIII', 0x60, 50.0, C.FNV.index('GetBaseActorValue'), 5, 0, 0, 0).hex())
+    assert ST._fo4_condition(cond, {('av', 5): 0x2C5}, {}) == (C.FO4.index('GetBaseValue'), 0x2C5, 0, '', '')

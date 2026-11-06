@@ -16,6 +16,10 @@ from tes5_import.base.text_reader import parse_export_file
 
 #: A `_HEADER.txt` master line.
 MASTER_LINE = re.compile(r'^Master\[\d+\]=(.+)$')
+#: Record flags: Deleted, and the Initially Disabled a deleted master reference is placed with instead.
+DELETED, DISABLED = 0x20, 0x800
+#: Placed types a plugin's deletion of its master's record undeletes and disables (dlc-deleted).
+PLACED = frozenset({'REFR', 'ACHR', 'ACRE', 'PGRE', 'PMIS', 'PBEA', 'PFLA', 'PCBE'})
 
 
 @functools.cache
@@ -39,14 +43,21 @@ def export_masters(export_dir: str) -> tuple:
 
 @functools.cache
 def _layered(export_dir: str, sig: str) -> tuple:
-    """Type `sig`'s records of `export_dir` and then of its masters, each FormID once (the newest)."""
-    out, seen = [], set()
+    """Type `sig`'s records of `export_dir` and then of its masters, each FormID once (the newest); one the plugin
+    deletes is gone, but a master's placed reference stays, disabled (FO4 mishandles a deleted master reference).
+    See: docs/fork/fo4_plugin_layout.md#dlc-deleted
+    """
     own = _parsed(str(Path(export_dir) / f'{sig}.txt'))
-    for records in (own, *(export_records(folder, sig) for folder in export_masters(export_dir))):
-        for rec in records:
-            if rec['FormID'] not in seen:
-                seen.add(rec['FormID'])
+    deleted = {rec['FormID'] for rec in own if int(rec.get('RecordFlags', '0')) & DELETED}
+    out, seen = [rec for rec in own if rec['FormID'] not in deleted], set(r['FormID'] for r in own)
+    for folder in export_masters(export_dir):
+        for rec in export_records(folder, sig):
+            if rec['FormID'] in deleted and sig in PLACED:
+                deleted.discard(rec['FormID'])
+                out.append({**rec, 'RecordFlags': str(int(rec.get('RecordFlags', '0')) | DISABLED)})
+            elif rec['FormID'] not in seen:
                 out.append(rec)
+            seen.add(rec['FormID'])
     return tuple(out)
 
 

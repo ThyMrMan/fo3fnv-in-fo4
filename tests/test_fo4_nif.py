@@ -249,6 +249,33 @@ def test_a_trigger_bone_with_nothing_drawn_does_not_move_the_gun():
     assert np.allclose(G.placement(F.write(src), {}, F.write(rec))[3, :3], 0.0)
 
 
+def test_a_gun_parts_shader_controller_comes_with_it():
+    """An FNV part's shader controller, interpolator and keys are copied with its shader onto the gun, driving the
+    copy (they kept the FNV mesh's block number, a node in the gun, and the game crashed on it).
+    See: docs/fork/fo4_pipeline.md#gun-controllers
+    """
+    rec = F.NifFile()
+    rec.blocks = [('NiNode', _node(rec, 'WEAPON', children=[1])),
+                  ('BSTriShape', _box_shape(rec, 'Receiver:0', (-2, 0, 0), (2, 13, 6), 2)),
+                  ('BSLightingShaderProperty', C.lighting_shader(rec, 'materials\\old.bgsm', -1, 0))]
+    src = F.NifFile()
+    shader = {**C.lighting_shader(src, 'materials\\fnv\\gun.bgsm', -1, 0), 'controller': 3}
+    src.blocks = [('NiNode', _node(src, 'Gun', children=[1])),
+                  ('BSTriShape', _box_shape(src, 'Gun:0', (-5, 0, -1), (20, 3, 1), 2)),
+                  ('BSLightingShaderProperty', shader),
+                  ('BSLightingShaderPropertyFloatController', {'next': -1, 'flags': 72, 'frequency': 1.0, 'phase': 0.0,
+                                                               'start': 0.0, 'stop': 1.0, 'target': 2,
+                                                               'interpolator': 4, 'variable': 11}),
+                  ('NiFloatInterpolator', {'value': (0.0,), 'data': 5}),
+                  ('NiFloatData', {'keys': {'kind': 1, 'keys': [(0.0, 0.0), (1.0, 1.0)]}})]
+    out = F.read(G.gun(F.write(src), {}, F.write(rec), G.placement(F.write(src), {}, F.write(rec))))
+    shape = next(b for k, b in out.blocks if k == 'BSTriShape' and out.strings[b['name']] == 'Gun:0')
+    kind, ctl = out.blocks[out.blocks[shape['shader']][1]['controller']]
+    assert kind == 'BSLightingShaderPropertyFloatController' and ctl['target'] == shape['shader']
+    interp = out.blocks[ctl['interpolator']]
+    assert interp[0] == 'NiFloatInterpolator' and out.blocks[interp[1]['data']][0] == 'NiFloatData'
+
+
 def test_a_weapons_root_turn_is_left_out():
     """The game puts a weapon's root on its bone as is (FO4's Missile Launcher root is turned 180 degrees)."""
     nif = F.NifFile()
@@ -639,9 +666,10 @@ DOG = Path('export/FalloutNV.esm/meshes/creatures/dog')
 def _creature_shapes(folder: Path, parts: tuple, skin: str = None) -> tuple:
     """(fit, {shape name: positions}, the NIF) of FNV creature `parts` in `folder` on its FO4 pair (over FO4's body
     with FNV bare skin texture `skin`); every shape skinned, no dismemberment cap among them."""
-    key = f'creatures\\{folder.name}'
-    fit = CR.creature_fit(Path('export/FalloutNV.esm'), key, Archives(FALLOUT4_DIR / 'Data'))
-    converted = [(C.convert(str(folder / n), 'export/FalloutNV.esm', animated=False), folder / n) for n in parts]
+    export = next(p for p in folder.parents if p.suffix == '.esm')
+    key = '\\'.join(folder.relative_to(export / 'meshes').parts)
+    fit = CR.creature_fit(export, key, Archives(FALLOUT4_DIR / 'Data'))
+    converted = [(C.convert(str(folder / n), str(export), animated=False), folder / n) for n in parts]
     nif = F.read(F.write(CR.creature_mesh(converted, fit, CR.PAIRS[key].rig.root,
                                           CR.skeleton_parents(folder / 'skeleton.nif'), skin).nif))
     shapes = {}
@@ -677,6 +705,24 @@ def test_fnvs_super_mutant_stands_in_fo4s_super_mutant_body_space():
     assert np.median(near.query(shapes['New_UV_lo_lfeet:0'])[0]) < 2.0
     assert np.median(near.query(shapes['Boots00:0'])[0]) < 3.0
     assert abs(shapes['Boots00:0'][:, 2].min() - fit.samples[0][:, 2].min()) < 2.0
+
+
+GHOSTS = Path('export/DeadMoney.esm/meshes/nvdlc01/creatures/ghosts')
+
+
+@pytest.mark.skipif(not (GHOSTS / 'nvdlc01ghost.nif').exists() or not (FALLOUT4_DIR / 'Data').exists(),
+                    reason='needs the DeadMoney.esm export and Fallout 4')
+def test_a_ghost_person_wears_its_suit_on_fo4s_human_its_hood_on_the_head_bone():
+    """Dead Money's ghost suit on FO4's human body (no HEAD of its own, so the fit adds the skeleton's): the hood
+    turns with HEAD, the gloves sit at the wrists."""
+    fit, shapes, nif = _creature_shapes(GHOSTS, ('nvdlc01ghost.nif', 'nvdlc01glovel.nif', 'nvdlc01glover.nif'))
+    assert 'HEAD' in fit.bones
+    joint = {b: -r.T @ t for b, (_, r, t) in zip(fit.bones, fit.bind)}
+    assert np.linalg.norm(shapes['ghosthelmet:0'].mean(0) - joint['HEAD']) < 10
+    assert np.linalg.norm(shapes['leftglove'].mean(0) - joint['LArm_Hand']) < 15
+    hood = next(K.read_tri_shape(K.Reader(raw)) for kind, raw in nif.blocks if kind == 'BSSubIndexTriShape'
+                and nif.strings[K.read_tri_shape(K.Reader(raw))['name']] == 'ghosthelmet:1')
+    assert [nif.strings[nif.blocks[n][1]['name']] for n in O.shape_bones(nif, hood)[0]] == ['HEAD']
 
 
 def _arm_raised_stretch(nif, fit) -> float:
@@ -849,3 +895,44 @@ def test_attaching_moves_the_roots_children_and_a_named_root_moves_alone():
     assert (child.translation.x, child.translation.z, root.translation.z) == (1.0, 5.0, 0.0)
     C.posed(root, {'HeartRoot': ((0.0, 0.0, 2.0), None)})
     assert (child.translation.z, root.translation.z) == (5.0, 2.0)
+
+
+HOUSE_SCREEN = Path('export/FalloutNV.esm/meshes/creatures/nvpenthouemaincomputer/nvdefaultscreen.nif')
+
+
+@pytest.mark.skipif(not HOUSE_SCREEN.exists(), reason='needs the FalloutNV.esm export')
+def test_free_running_screen_layers_keep_their_controllers_and_fade_by_blending():
+    """Mr. House's screen has no controller manager: each layer's alpha controller runs on its own with FNV's
+    flags and keys, and the layers blend so their alpha hides the Lost and Yes Man faces behind House's."""
+    nif = F.read(F.write(C.convert(str(HOUSE_SCREEN), 'export/FalloutNV.esm').nif))
+    shapes = {nif.strings[b['name']]: b for k, b in nif.blocks if k == 'BSTriShape'}
+    alpha = {}
+    for kind, block in nif.blocks:
+        if kind == 'BSEffectShaderPropertyFloatController' and block['variable'] == 5:
+            owner = next(n for n, s in shapes.items() if s['shader'] == block['target'])
+            keys = nif.blocks[nif.blocks[block['interpolator']][1]['data']][1]['keys']['keys']
+            alpha[owner] = (block['flags'], round(keys[-1][1]))
+    assert alpha == {'##ConnectionLost:0': (76, 1), '##HouseScree:0': (76, 0), '##YesMan:0': (76, 0)}
+    for name in alpha:
+        assert nif.blocks[shapes[name]['alpha_property']][1]['alpha_flags'] == C.VERTEX_ALPHA_BLEND[0]
+    assert [b['value'] & 1 for k, b in nif.blocks if k == 'BSXFlags'] == [1]
+
+
+def test_texel_peaks_wraps_a_uv_a_hair_below_zero(tmp_path):
+    """A UV of -1e-17 is 1.0 after Python's `% 1`: the texel lookup wraps it to the first texel, not one past the
+    image (Old World Blues crashed on it)."""
+    from PIL import Image
+    Image.new('RGB', (4, 4), (51, 102, 255)).save(tmp_path / 'glow.dds', format='PNG')
+    shape, data = C.NifFormat.NiTriShape(), C.NifFormat.NiTriShapeData()
+    data.num_vertices, data.num_uv_sets, data.has_vertex_colors = 1, 1, False
+    data.uv_sets.update_size()
+    data.uv_sets[0][0].u, data.uv_sets[0][0].v = -1e-17, -1e-17
+    shader = C.NifFormat.BSShaderNoLightingProperty()
+    shader.file_name = b'glow.dds'
+    shape.data, shape.name = data, b'Glow'
+    shape.add_property(shader)
+    root = C.NifFormat.NiNode()
+    root.add_child(shape)
+    (tmp_path / 'textures').mkdir()
+    (tmp_path / 'glow.dds').rename(tmp_path / 'textures' / 'glow.dds')
+    assert C.texel_peaks(root, tmp_path) == {'Glow': pytest.approx(1.0)}

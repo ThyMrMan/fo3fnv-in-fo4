@@ -32,6 +32,20 @@ def test_the_look_is_each_part_placed_with_the_speaker_and_enable_parented_to_it
     assert all(TM.LOOK_SCRIPT.encode() in d[b'VMAD'] and str(0x0C01).encode() in d[b'VMAD'] for _, _, d in refs)
 
 
+def test_a_part_with_no_triangles_is_still_an_activator_bounded_by_zeros(monkeypatch):
+    """A particle spray part (OWB's brain tank) has no triangles, so no bounds: its activator's OBND is zeros."""
+    machines = TM.TalkingMachines.__new__(TM.TalkingMachines)
+    added = []
+    writer = SimpleNamespace(derive_formid=lambda site, key: 0x0D01, add_record=lambda sig, raw: added.append(raw))
+    machines.builder, machines.parts = SimpleNamespace(writer=writer, counts=Counter()), {}
+    machines.export_dir = machines.data_dir = None
+    monkeypatch.setattr(TM, 'part_pose', lambda part, worlds: {})
+    monkeypatch.setattr(TM, 'export_file', lambda *parts: None)
+    monkeypatch.setattr(TM, 'write_assets', lambda *args, **kw: ('fnv\\spray_speaker.nif', None))
+    assert machines._part('nvdlc03\\creatures\\braintank', 'spray01.nif', {}, 'Brain') == 0x0D01
+    assert dict(subrecords(added[0][24:]))[b'OBND'] == bytes(12)
+
+
 def test_without_object_templates_drops_the_whole_block():
     """A robot's object template block (OBTE ... STOP, its FULLs too) goes; the NPC's own FULL stays."""
     rows = [('EDID', b'X\0'), ('OBTE', bytes(4)), ('OBTF', b''), ('FULL', b'Arms\0'), ('OBTS', b'\0'), ('STOP', b''),

@@ -135,22 +135,6 @@ def get_bsa_files(data_path, source_file):
     return candidates
 
 
-def should_extract_file(filepath):
-    """Check if a file from BSA is an asset we want to extract.
-
-    We extract: meshes (.nif), textures (.dds), sounds (.wav, .mp3),
-    and misc assets (.kf animations, .tri face data, .egt eye glow).
-    We skip: lip files.
-    """
-    fp = str(filepath).lower()
-
-    # Skip lip files
-    if fp.endswith('.lip'):
-        return False
-
-    return True
-
-
 # The top-level asset folders that keep their own name under export/<plugin>/.
 # Anything else is filed under misc/ (Oblivion's DistantLOD\, Docs\, ...).
 ASSET_CATEGORIES = ('meshes', 'trees', 'textures', 'sound', 'music')
@@ -310,6 +294,33 @@ def _open_archive(bsa_path):
     return iter_bsa(bsa_path)
 
 
+def _write_entry(base_dir: Path, filepath: str, data: bytes) -> None:
+    """Write archive entry `filepath` (either slash, any host OS) under `base_dir` by category. An existing file is
+    unlinked first, never truncated: mod ingest seeds a merge by hard-linking the base export
+    (mod_ingest.seed_from_export), and truncating would rewrite the base through the link."""
+    category, rest = split_category(filepath)
+    out_path = base_dir.joinpath(category, *rest.replace('/', '\\').split('\\'))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if out_path.is_file():
+        out_path.unlink()
+    out_path.write_bytes(data)
+
+
+def _extract_lips_only(bsa_path, base_dir, manifest, bsa_key) -> dict:
+    """Write only the .lip files of a BSA extracted before lips were kept (Fallout 4 reuses FO3/FNV's); record
+    their count in `manifest`.
+    See: docs/fork/research/lip_format.md#conversion
+    """
+    with open(bsa_path, 'rb') as fh:
+        lips = {e[0].lower() for e in read_bsa_directory(fh)[2] if e[0].lower().endswith('.lip')}
+    for filepath, data in iter_bsa(bsa_path, lips) if lips else ():
+        _write_entry(base_dir, filepath, data)
+    manifest['extracted_bsas'][bsa_key]['lips'] = len(lips)
+    save_manifest(base_dir, manifest)
+    print(f"  {bsa_key}: added {len(lips)} lip files to the earlier extraction")
+    return {'total_files': len(lips), 'extracted': len(lips), 'skipped_cached': False, 'skipped': 0, 'errors': 0}
+
+
 def extract_bsa(bsa_path, extract_dir, force=False, source_name=None):
     """Extract assets from a single BSA file.
 
@@ -336,6 +347,8 @@ def extract_bsa(bsa_path, extract_dir, force=False, source_name=None):
     if not force and bsa_key in manifest['extracted_bsas']:
         prev = manifest['extracted_bsas'][bsa_key]
         if prev.get('size') == bsa_size and prev.get('path', str(bsa_path)) == str(bsa_path):
+            if 'lips' not in prev and not is_morrowind_bsa(bsa_path):
+                return _extract_lips_only(bsa_path, base_dir, manifest, bsa_key)
             print(f"  Skipping {bsa_key} (already extracted, {prev['file_count']} files)")
             return {'total_files': 0, 'extracted': 0, 'skipped_cached': True,
                     'skipped': 0, 'errors': 0}
@@ -351,37 +364,12 @@ def extract_bsa(bsa_path, extract_dir, force=False, source_name=None):
         print(f"    ERROR opening BSA {bsa_key}: {e}")
         return stats
 
+    lips = 0
     for filepath, file_data in file_iter:
         stats['total_files'] += 1
-
-        if not should_extract_file(filepath):
-            stats['skipped'] += 1
-            continue
-
-        category, rest = split_category(filepath)
-
-        # BSA internal paths are always Bethesda/Windows-style backslash-
-        # separated, regardless of host OS -- os.sep is '/' on Linux, so a
-        # plain '/'-only replace leaves every inner backslash as a literal
-        # character in one flat filename instead of real subdirectories.
-        # Split explicitly and rejoin with Path so every segment becomes a
-        # real path component on any platform.
-        out_path = base_dir / category
-        for part in rest.replace('/', '\\').split('\\'):
-            out_path = out_path / part
-
+        lips += str(filepath).lower().endswith('.lip')
         try:
-            os.makedirs(out_path.parent, exist_ok=True)
-            # UNLINK first, never truncate in place.  An ordered merge seeds
-            # its base by HARD-LINKING (mod_ingest.seed_from_export), so an
-            # extracted file can share an inode with the base export tree --
-            # `write_bytes` alone would truncate through the link and rewrite
-            # export/<base>/ with this mod's content.  Breaking the link is
-            # what the tree's other two writers already do (_place_payload,
-            # _link_or_copy); this one has to match them.
-            if out_path.is_file():
-                out_path.unlink()
-            out_path.write_bytes(file_data)
+            _write_entry(base_dir, filepath, file_data)
             stats['extracted'] += 1
         except Exception as e:
             stats['errors'] += 1
@@ -393,6 +381,7 @@ def extract_bsa(bsa_path, extract_dir, force=False, source_name=None):
         'size': bsa_size,
         'file_count': stats['extracted'],
         'total_in_bsa': stats['total_files'],
+        'lips': lips,
     }
     save_manifest(base_dir, manifest)
 

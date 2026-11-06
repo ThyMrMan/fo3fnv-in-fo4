@@ -1,16 +1,21 @@
 ScriptName F3NV_AmmoSwitch extends Quest Hidden
-{FNV's Ammo Type hotkey on Fallout 4. Cycle() loads the equipped gun's next round of its FNV ammo list that the player carries, wrapping around, by attaching that round's ammo mod to the gun (AttachModToInventoryItem, vanilla Papyrus), and shows the round's name. A group is one ammo list: Lists[g] the keyword its guns carry, Rounds/Mods/Loaded/Notes[Starts[g]] to [Starts[g + 1] - 1] its rounds, their mods, the keyword each mod adds (the loaded round) and its notification. The quest gives the player the hotkey item once, and hands the lists to the F3NV plugin for the Pip-Boy's ammo list (F3NV_PipboyAmmo), whose choice it loads.}
+{FNV's Ammo Type hotkey on Fallout 4. Cycle() loads the equipped gun's next round of its FNV ammo list that the player carries, wrapping around, by attaching that round's ammo mod to the gun (AttachModToInventoryItem, vanilla Papyrus), and shows the round's name. The lists come from every plugin's rows (F3NV_AmmoSwitchSource, the game's on this quest), registered in Sources; Gather() merges them by list keyword into Lists/Starts/Rounds/Mods/Loaded/Notes (a group g's rounds are Rounds[Starts[g]] to [Starts[g + 1] - 1]) at start, on each game load and when a plugin registers. The quest gives the player the hotkey item once, and hands the lists to the F3NV plugin for the Pip-Boy's ammo list (F3NV_PipboyAmmo), whose choice it loads. See docs/fork/fo4_pipeline.md#ammo-switch-sources}
 
-Form[] Property Lists Auto Const
-Int[] Property Starts Auto Const
-Form[] Property Rounds Auto Const
-Form[] Property Mods Auto Const
-Form[] Property Loaded Auto Const
-Form[] Property Notes Auto Const
+FormList Property Sources Auto Const
+{Every plugin's ammo lists (F3NV_AmmoSwitchSource quests), each added by its quest as it starts.}
 Message Property NoOtherAmmo Auto Const
 Message Property SingleAmmo Auto Const
 Message Property TwoCopies Auto Const
 Potion Property Hotkey Auto Const
+Int Property MaxRounds = 128 AutoReadOnly
+{The most rounds a script array holds; rounds past it are left out of the hotkey, logged.}
+
+Form[] Lists
+Int[] Starts
+Form[] Rounds
+Form[] Mods
+Form[] Loaded
+Form[] Notes
 
 Event OnQuestInit()
   Actor player = Game.GetPlayer()
@@ -18,17 +23,76 @@ Event OnQuestInit()
     player.AddItem(Hotkey, 1, True)
   EndIf
   RegisterForRemoteEvent(player, "OnPlayerLoadGame")
-  ListenPipboy()
+  RegisterForExternalEvent("FNVAmmoSwitch", "OnPipboyAmmo")
+  Gather()
 EndEvent
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
-  ListenPipboy()
+  RegisterForExternalEvent("FNVAmmoSwitch", "OnPipboyAmmo")
+  Gather()
 EndEvent
 
-Function ListenPipboy()
-  {Give the plugin the ammo lists (it forgets them each game start) and hear the Pip-Boy ammo list's choices.}
+Function Gather()
+  {Merge every registered plugin's lists (this quest's own first) by list keyword, and give them to the plugin (it forgets them each game start).}
+  F3NV_AmmoSwitchSource own = (Self as Quest) as F3NV_AmmoSwitchSource
+  If own && Sources.Find(own) < 0
+    Sources.AddForm(own)
+  EndIf
+  Form[] keywords = new Form[0]
+  Int k = 0
+  While k < Sources.GetSize()
+    F3NV_AmmoSwitchSource rows = Sources.GetAt(k) as F3NV_AmmoSwitchSource
+    Int g = 0
+    While rows && g < rows.Lists.Length
+      If keywords.Find(rows.Lists[g]) < 0 && keywords.Length < MaxRounds
+        keywords.Add(rows.Lists[g])
+      EndIf
+      g += 1
+    EndWhile
+    k += 1
+  EndWhile
+  Lists = new Form[0]
+  Starts = new Int[0]
+  Rounds = new Form[0]
+  Mods = new Form[0]
+  Loaded = new Form[0]
+  Notes = new Form[0]
+  Int i = 0
+  While i < keywords.Length
+    Lists.Add(keywords[i])
+    Starts.Add(Rounds.Length)
+    GatherList(keywords[i])
+    i += 1
+  EndWhile
+  Starts.Add(Rounds.Length)
   F3NV_PipboyAmmo.SetLists(Lists, Starts, Rounds, Mods)
-  RegisterForExternalEvent("FNVAmmoSwitch", "OnPipboyAmmo")
+EndFunction
+
+Function GatherList(Form akList)
+  {Append every plugin's rounds of list akList, each round once, up to MaxRounds.}
+  Int k = 0
+  While k < Sources.GetSize()
+    F3NV_AmmoSwitchSource rows = Sources.GetAt(k) as F3NV_AmmoSwitchSource
+    Int g = -1
+    If rows
+      g = rows.Lists.Find(akList)
+    EndIf
+    If g >= 0
+      Int m = rows.Starts[g]
+      While m < rows.Starts[g + 1]
+        If Rounds.Length >= MaxRounds
+          Debug.Trace("TES4AmmoSwitch|over " + MaxRounds + " rounds; " + rows.Rounds[m] + " left out")
+        ElseIf Rounds.Find(rows.Rounds[m], Starts[Starts.Length - 1]) < 0
+          Rounds.Add(rows.Rounds[m])
+          Mods.Add(rows.Mods[m])
+          Loaded.Add(rows.Loaded[m])
+          Notes.Add(rows.Notes[m])
+        EndIf
+        m += 1
+      EndWhile
+    EndIf
+    k += 1
+  EndWhile
 EndFunction
 
 Function OnPipboyAmmo()
@@ -79,13 +143,13 @@ Function Load(Actor player, Weapon gun, Int m)
 EndFunction
 
 Int Function ListOf(Weapon gun)
-  {The group of `gun` (the list keyword on its weapon record), or -1; -1 for no gun.}
-  If !gun
+  {The group of `gun` (the list keyword on its weapon record), or -1; -1 for no gun or a list with one round.}
+  If !gun || !Lists
     Return -1
   EndIf
   Int g = 0
   While g < Lists.Length
-    If gun.HasKeyword(Lists[g] as Keyword)
+    If gun.HasKeyword(Lists[g] as Keyword) && Starts[g + 1] - Starts[g] > 1
       Return g
     EndIf
     g += 1

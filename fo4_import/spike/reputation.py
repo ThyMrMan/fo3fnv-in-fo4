@@ -21,7 +21,7 @@ from pathlib import Path
 from fo4_import.base.support_records import pack_global
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.spike.pipboy_tabs import tab_quest
+from fo4_import.spike.pipboy_tabs import tab_formid, tab_quest
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV, KARMA_GLOBAL, SLOTS
 
@@ -35,6 +35,13 @@ SLOT_KEY = 'rep'
 KARMA_KEY = ('av global', KARMA_AV)
 #: The page rows' actor value layout, as the REPUTATION mod's RPTN_PBT_FirstAV_*: default 0, AVFL, NAM1.
 AV_FLAGS, AV_KIND = 0x400, 8
+#: F3NV_ReputationTab's texts and the FalloutNV.esm game settings holding them.
+CHANGE_TEXTS = {'FameGained': 'sRepPositiveGain', 'FameReduced': 'sRepPositiveLoss',
+                'InfamyGained': 'sRepNegativeGain', 'InfamyReduced': 'sRepNegativeLoss'}
+#: F3NV_ReputationTab's title sounds: FalloutNV.exe's sRepChangePosSound and sRepChangeNegSound (SOUN EditorIDs).
+TITLE_SOUNDS = {'TitleUp': 'UIRepGood', 'TitleDown': 'UIRepBad'}
+#: The REPUTATION tab's script, which also holds what a reputation change shows.
+TAB_SCRIPT = 'F3NV_ReputationTab'
 #: FNV's titles by infamy range * 4 + fame range (TES4_Reputation.Range).
 TITLES = ('Neutral', 'Accepted', 'Liked', 'Idolized', 'Shunned', 'Mixed', 'Smiling Troublemaker', 'Good-Natured Rascal',
           'Hated', 'Sneering Punk', 'Unpredictable', 'Dark Hero', 'Vilified', 'Merciful Thug', 'Soft-Hearted Devil',
@@ -44,8 +51,9 @@ TITLES = ('Neutral', 'Accepted', 'Liked', 'Idolized', 'Shunned', 'Mixed', 'Smili
 def write_reputations(builder, export_dir: Path) -> tuple:
     """({REPU EditorID: FO4 FormList}, {('rep', REPU FormID, slot): FO4 global}) of every FNV reputation, written,
     and the karma global (TES4Karma, KARMA_KEY) the scripts' RewardKarma sets; the page's row lists (actor
-    values, shown globals) in `builder.reputation_page`."""
-    names, slots, rows, shown = {}, {}, [], []
+    values, shown globals) and change_messages() in `builder.reputation_page`; each list also holds the
+    REPUTATION tab's quest."""
+    names, slots, rows, shown, tab = {}, {}, [], [], tab_formid(builder, 'REPUTATION')
     for rec in export_records(export_dir, 'REPU'):
         if not rec.get('EditorID'):
             continue
@@ -54,11 +62,12 @@ def write_reputations(builder, export_dir: Path) -> tuple:
         rows.append(actor_value(builder, f'TES4RepTitle_{rec["EditorID"]}', rec.get('FULL') or rec['EditorID']))
         shown.append(_global(builder, PAGE_SITE, f'TES4RepShown_{rec["EditorID"]}', 0.0))
         fid = builder.fnv_id(rec['FormID'])
-        builder.writer.add_record('FLST', _form_list(fid, f'FNV_{rec["EditorID"]}', globs + [rows[-1], shown[-1]]))
+        builder.writer.add_record('FLST', _form_list(fid, f'FNV_{rec["EditorID"]}',
+                                                     globs + [rows[-1], shown[-1], tab]))
         names[rec['EditorID']] = fid
         slots.update({(SLOT_KEY, int(rec['FormID'], 16), i): g for i, g in enumerate(globs)})
     builder.reputation_page = [page_list(builder, 'TES4RepPageRows', rows),
-                               page_list(builder, 'TES4RepPageShown', shown)]
+                               page_list(builder, 'TES4RepPageShown', shown), change_messages(builder, export_dir)]
     builder.counts['reputations'] = len(names)
     names[KARMA_GLOBAL] = slots[KARMA_KEY] = _global(builder, GLOBAL_SITE, KARMA_GLOBAL, 0.0)
     return names, slots
@@ -95,7 +104,19 @@ def _form_list(fid: int, edid: str, forms: list) -> bytes:
     return pack_fo4_record('FLST', fid, 0, subs)
 
 
+def change_messages(builder, export_dir: Path) -> tuple:
+    """({TAB_SCRIPT sound property: FO4 SNDR}, {text property: ('string', FalloutNV.esm's text)}) of what a
+    reputation change shows; a sound or text FNV lacks is left out.
+    See: docs/fork/fo4_pipeline.md#reputation-messages
+    """
+    settings = {r.get('EditorID'): r.get('DATA.Value', '') for r in export_records(export_dir, 'GMST')}
+    texts = {prop: ('string', settings[edid]) for prop, edid in CHANGE_TEXTS.items() if settings.get(edid)}
+    by_edid = {r.get('EditorID'): fnv for fnv, r in builder.sounds.records.items()}
+    sounds = {prop: builder.sounds.descriptor(by_edid.get(edid, 0)) for prop, edid in TITLE_SOUNDS.items()}
+    return {prop: fid for prop, fid in sounds.items() if fid}, texts
+
+
 def write_page(builder) -> int:
-    """Write the REPUTATION tab (pipboy_tabs); its quest's FormID."""
-    rows, shown = builder.reputation_page
-    return tab_quest(builder, 'REPUTATION', rows, TITLES, shown)
+    """Write the REPUTATION tab on TAB_SCRIPT, with what a change shows; its FormID."""
+    rows, shown, messages = builder.reputation_page
+    return tab_quest(builder, 'REPUTATION', rows, TITLES, shown, TAB_SCRIPT, messages)

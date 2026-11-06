@@ -77,6 +77,16 @@ def test_talking_through_an_activator_reads_0_on_the_fnv_side():
     assert D.source_fact(cond, None, {}) == 0.0
 
 
+def test_an_objective_its_quest_does_not_author_reads_0_on_the_fnv_side():
+    """GetObjectiveDisplayed 50 of a quest authoring 10 and 30 is a left-out fact (reads 0), as in FNV; an authored
+    one is the objective's fact."""
+    shown = D.FNV.index('GetObjectiveDisplayed')
+    names = SimpleNamespace(source_quest=lambda fid: ('form', 'q'), objectives={0x10431C: frozenset({10, 30})})
+    cond = lambda index: {'func': shown, 'p1': 0x10431C, 'p2': index, 'run_on': 0, 'ref': 0}
+    assert D.source_fact(cond(50), names, {}) is None
+    assert D.source_fact(cond(30), names, {}) == (('objshown', ('form', 'q'), 30), None)
+
+
 def test_a_talking_as_list_reads_0_on_the_built_side():
     """A built IsInList on a talking-as list reads 0, as FNV's IsActorTalkingThroughActivator does."""
     index = fo4_index([rec('FLST', OWN | 0x50, [('EDID', zs('TES4TalkingAs_00001234'))])])
@@ -180,11 +190,13 @@ def test_changed_records_are_counted_by_type():
 
 
 def test_a_mesh_naming_a_missing_material_is_reported(tmp_path):
-    """A placed mesh is found in the mod folder; the material it names is in no folder."""
+    """A placed mesh is found in the mod folder; the material it names is in no folder; the fake NIF is one the
+    shader-name check cannot read."""
     mod = tmp_path / 'mods' / 'M'
     (mod / 'meshes').mkdir(parents=True)
     (mod / 'meshes' / 'a.nif').write_bytes(b'\0\0materials\\fnv\\x.bgsm\0')
     (tmp_path / 'Data').mkdir()
     index = fo4_index([rec('STAT', OWN | 1, [('MODL', zs('a.nif'))]), rec('REFR', OWN | 2, [('NAME', u32(OWN | 1))])])
-    [finding] = asset_fo4.audit('P.esp', index, mod / 'P.esp', tmp_path / 'Data', tmp_path / 'export')
-    assert finding.key == 'assets|P.esp|material|materials\\fnv\\x.bgsm'
+    found = asset_fo4.audit('P.esp', index, mod / 'P.esp', tmp_path / 'Data', tmp_path / 'export')
+    assert {f.key: f.severity for f in found} == {'assets|P.esp|material|materials\\fnv\\x.bgsm': 'error',
+                                                   'assets|P.esp|unreadable|meshes\\a.nif': 'review'}

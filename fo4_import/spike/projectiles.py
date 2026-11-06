@@ -35,6 +35,12 @@ def load_table(path: Path = TABLE) -> dict:
     return json.loads(path.read_text(encoding='utf-8'))['projectiles']
 
 
+def load_fuses(path: Path = TABLE) -> dict:
+    """{FNV projectile EditorID: (proximity, timer)} of the fuses table."""
+    return {edid: tuple(fuse) for edid, fuse in json.loads(path.read_text(encoding='utf-8')).get('fuses', {}).items()
+            if not edid.startswith('_')}
+
+
 def first_ammo(rec: dict, lists: dict) -> int:
     """An export WEAP's ammo: its NAM0, or that list's first entry; 0 for none."""
     source = int(rec.get('NAM0', '0'), 16)
@@ -57,7 +63,7 @@ class Projectiles:
         self.recs = {int(r['FormID'], 16): r for r in export_records(export, 'PROJ')}
         self.names = {fid: r['EditorID'] for fid, r in self.recs.items()}
         self.mapped = {fid: fo4[table[edid]] for fid, edid in self.names.items() if edid in table}
-        self.copies = ProjectileCopies(builder, set(self.mapped.values()))
+        self.copies = ProjectileCopies(builder, set(self.mapped.values()), load_fuses())
         self.overrides = {int(r['FormID'], 16): int(r.get('DAT2.Projectile', '0'), 16)
                           for r in export_records(export, 'AMMO')}
         lists = {int(r['FormID'], 16): r for r in export_records(export, 'FLST')}
@@ -67,14 +73,15 @@ class Projectiles:
             if ammo and projectile and not int(rec.get('DNAM.Flags1', 0)) & FNV_EMBEDDED:
                 self.first.setdefault(ammo, projectile)
 
-    def of(self, fnv: int) -> 'int | None':
-        """The FO4 projectile (its stand-in's copy) for FNV projectile `fnv`; None for none, counted once."""
+    def of(self, fnv: int, is_thrown: bool = False) -> 'int | None':
+        """The FO4 projectile (its stand-in's copy; a thrown weapon's when `is_thrown`) for FNV projectile `fnv`;
+        None for none, counted once."""
         if not fnv:
             return None
         if fnv not in self.mapped and fnv not in self.unmapped:
             self.unmapped.add(fnv)
             self.builder.counts[f'projectile not mapped ({self.names.get(fnv, f"{fnv:08X}")})'] += 1
-        return self.copies.copy(self.mapped[fnv], self.recs[fnv]) if fnv in self.mapped else None
+        return self.copies.copy(self.mapped[fnv], self.recs[fnv], is_thrown) if fnv in self.mapped else None
 
     def gun(self, rec: dict) -> 'int | None':
         """The FO4 projectile FNV gun `rec` fires."""
@@ -89,10 +96,20 @@ class Projectiles:
         return self.override(ammo) or self.of(self.first.get(ammo, 0))
 
     def fnam(self, fnam: bytes, rec: dict) -> bytes:
-        """A gun copy's FNAM with FNV gun `rec`'s projectile count and its projectile as the override."""
+        """Gun copy FNAM with FNV gun `rec`'s projectile count and projectile."""
         out = bytearray(fnam)
         out[FNAM_COUNT] = min(max(int(rec.get('DNAM.ProjectileCount', 1)), 1), 255)
-        projectile = self.gun(rec)
-        if projectile is not None:
-            struct.pack_into('<I', out, FNAM_OVERRIDE, projectile)
-        return bytes(out)
+        return _overridden(out, self.gun(rec))
+
+    def thrown(self, fnam: bytes, rec: dict) -> bytes:
+        """Thrown weapon FNAM overriding with FNV `rec`'s projectile, thrown.
+        See: docs/fork/fo4_thrown_weapons.md#projectiles
+        """
+        return _overridden(bytearray(fnam), self.of(int(rec.get('DNAM.Projectile', '0'), 16), True))
+
+
+def _overridden(fnam: bytearray, projectile: 'int | None') -> bytes:
+    """FNAM `fnam` with `projectile` as its Override Projectile; unchanged for None."""
+    if projectile is not None:
+        struct.pack_into('<I', fnam, FNAM_OVERRIDE, projectile)
+    return bytes(fnam)

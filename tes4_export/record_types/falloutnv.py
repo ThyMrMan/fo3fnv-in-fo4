@@ -15,6 +15,7 @@ from ..tes4_reader import (Record, get_all_subrecords,
                            get_subrecord)
 from .ammo_falloutnv import AMMO_EXPORTERS, emit_ammo_deltas
 from .challenge_falloutnv import CHALLENGE_EXPORTERS
+from .combat_style_falloutnv import emit_combat_style_deltas
 from .character_falloutnv import CHARACTER_EXPORTERS, emit_class_deltas
 from .recipe_falloutnv import RECIPE_EXPORTERS
 from .package_falloutnv import emit_package_deltas, emit_patrol_data
@@ -559,6 +560,7 @@ _DELTA_DISPATCH = {
     "CLAS": emit_class_deltas,
     "PACK": emit_package_deltas,
     "IDLE": _emit_idle_deltas,
+    "CSTY": emit_combat_style_deltas,
 }
 
 #: Types carrying an OBND that TES4 has no field for; Skyrim reads it natively.
@@ -680,7 +682,8 @@ def export_NAVMESH(rec: Record) -> list:
 def export_MESSAGE(rec: Record) -> list:
     """A FO3/FNV MESG, which Skyrim carries as the same record type.
 
-    DESC/INAM/DNAM are required on the TES5 side; ITXT repeats once per button.
+    DESC/INAM/DNAM are required on the TES5 side; ITXT repeats once per button,
+    each followed by the CTDAs that show it (Button[i].Condition[j].Raw).
 
     See: docs/commentary/tes4_export_falloutnv.md#mesg-export
     """
@@ -689,8 +692,15 @@ def export_MESSAGE(rec: Record) -> list:
     emit_string(lines, "DESC", get_subrecord(rec, "DESC"))
     emit_string(lines, "FULL", get_subrecord(rec, "FULL"))
     emit_u32(lines, "DNAM", get_subrecord(rec, "DNAM"))
-    for i, sub in enumerate(get_all_subrecords(rec, "ITXT")):
-        emit_string(lines, f"Button[{i}].Text", sub)
+    conditions = []
+    for sub in rec.subrecords:
+        if sub.type == "ITXT":
+            emit_string(lines, f"Button[{len(conditions)}].Text", sub)
+            conditions.append([])
+        elif sub.type == "CTDA" and conditions:
+            conditions[-1].append(sub.data)
+    for i, raws in enumerate(conditions):
+        lines += [f"Button[{i}].Condition[{j}].Raw={raw.hex().upper()}" for j, raw in enumerate(raws)]
     return lines
 
 

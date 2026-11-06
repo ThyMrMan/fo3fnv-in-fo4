@@ -1,6 +1,7 @@
 """FalloutHelpers.esl: the records every converted FO3/FNV plugin masters and no source plugin has.
 
     py -3.14 -m fo4_import.helpers_plugin --out <Data>/FalloutHelpers.esl
+    py -3.14 -m fo4_import.helpers_plugin --trace-switch --out "<MO2 mods>/F3NV - Trace/F3NV_Trace.esl"
 
 Actor values FO4 lacks (Variable01-10, the FO3/FNV skills), the start-game
 quests running the helper quest scripts, and the helpers' globals; one copy
@@ -17,9 +18,9 @@ from pathlib import Path
 from fo4_import.base.support_records import pack_avif, pack_global, pack_mesg, pack_script_quest
 from fo4_import.base.vmad import object_scripts
 from fo4_import.base.writer import FO4PluginWriter
-from script_convert.constants import (FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_MESSAGES,
-                                      FALLOUT4_HELPER_PLUGIN, FALLOUT4_HELPER_QUEST_MESSAGES,
-                                      FALLOUT4_HELPER_QUESTS)
+from script_convert.constants import (FALLOUT4_HELPER_AV_DEFAULTS, FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS,
+                                      FALLOUT4_HELPER_MESSAGES, FALLOUT4_HELPER_PLUGIN,
+                                      FALLOUT4_HELPER_QUEST_MESSAGES, FALLOUT4_HELPER_QUESTS, FALLOUT4_TRACE_PLUGIN)
 from script_convert.target import fallout4_actor_values
 
 MASTERS = ['Fallout4.esm']
@@ -57,7 +58,8 @@ def helper_forms(index: int) -> dict:
 
 def records() -> list:
     """[(signature, record)] of everything the helper plugin holds, in object id order."""
-    out = [('AVIF', pack_avif(own_id(oid), EDID_PREFIX + name, re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name)))
+    out = [('AVIF', pack_avif(own_id(oid), EDID_PREFIX + name, re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name), '',
+                              FALLOUT4_HELPER_AV_DEFAULTS.get(name, 0.0)))
            for name, oid in FALLOUT4_HELPER_AVS.items()]
     out += [('QUST', pack_script_quest(own_id(oid), script, object_scripts([(script, _messages(script), {})])))
             for script, oid in FALLOUT4_HELPER_QUESTS.items()]
@@ -87,11 +89,25 @@ def build(out: Path) -> int:
     return len(made)
 
 
+def build_trace_switch(out: Path) -> None:
+    """Write FALLOUT4_TRACE_PLUGIN to `out`: an empty light plugin, no masters, which turns the trace on while enabled.
+    See: docs/fork/fo4_pipeline.md#trace
+    """
+    w = FO4PluginWriter(masters=[], is_esm=True, is_esl=True, description='Turns the F3NV session trace on')
+    out.parent.mkdir(parents=True, exist_ok=True)
+    w.write(str(out))
+
+
 def main():
-    """Build the helper plugin."""
+    """Build the helper plugin, or with --trace-switch the trace switch plugin."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--out', required=True, help=f'Plugin to write ({FALLOUT4_HELPER_PLUGIN})')
+    ap.add_argument('--out', required=True, help=f'Plugin to write ({FALLOUT4_HELPER_PLUGIN}, or {FALLOUT4_TRACE_PLUGIN})')
+    ap.add_argument('--trace-switch', action='store_true', help=f'write the empty {FALLOUT4_TRACE_PLUGIN} instead')
     args = ap.parse_args()
+    if args.trace_switch:
+        build_trace_switch(Path(args.out))
+        print(f'{args.out}: the trace switch')
+        return
     print(f'{args.out}: {build(Path(args.out))} records')
 
 
