@@ -1,6 +1,7 @@
 # Casino games and Caravan on Fallout 4 (plan)
 
-**Status:** planned 2026-11-04, nothing built. Status lines live only in
+**Status:** planned 2026-11-04; phases 0-2 built 2026-11-08 (see each
+phase's "Built" note). Status lines live only in
 [ROADMAP.md](ROADMAP.md#fo4-next). This plan replaces the design sketch in
 [fo4_build_next.md item 13](fo4_build_next.md#casino); its findings are
 folded in here and checked against the data.
@@ -269,6 +270,24 @@ and nothing more.
   - 50 `*Chip` (cashier and boss TIF fragments);
   - 1 `RandomCaravanBaseCards` (its LVLI holds only cards, so it is empty);
   - 4 `GAMESlots*` sounds and 2 `RouletteDealerPackage1` (timer pass).
+- <a id="items-built"></a>**Cards, money and chips as items (built
+  2026-11-06, not played).** Phase 1's record rows for CCRD, CMNY and CHIP
+  ([design](#design)): each is a MISC with FNV's name, model, bounds, script
+  and value (a chip has none), carrying `F3NV_CaravanCard`,
+  `F3NV_CaravanMoney` or `F3NV_CasinoChip` (`items.CASINO_ITEMS`). The export
+  holds these types' field sizes only, so the build reads them from the
+  plugin (`source_walk`). Before, they were the build's 281 `item skipped
+  (not exported)`: FNV's inventories, lists and recipes name cards 324
+  times (`RandomCaravanBaseCards` 270, `CaravanSpareDeck` 54) and money 116
+  times (NCR dollars and Legion coins in loot lists, containers, 3 NPCs, a
+  recipe). They place too (`converters.PLACED`): Dead Money's placed chips
+  and cards. A form that is no item type is now counted by its type
+  (`item skipped (not an item: <type>)`). `RandomCaravanBaseCards` lists
+  270 cards, past FO4's 255 (LLCT is a byte), so a list that long becomes
+  equal parts (two of 135, `FNV_<list>_Part<n>`, FNV's flags) the list
+  names once each (`items._parts`): a pick-one list still picks every card
+  alike. The decks (CDCK), casinos (CSNO)
+  and the games are still to build.
 - **Dead Money** (`F3NV - Dead Money`, built 2026-11-04): the Sierra Madre
   casino converts as a place, with its scripts; its games are the same
   markers, and no SM chip record exists, so the vending machines' chip
@@ -660,6 +679,91 @@ shell.
 - **In game:** the user opens the test menu from the console, clicks the
   button, sees the card, closes it, and walks and activates normally after.
 
+<a id="toolchain-found"></a>**Built 2026-11-08, not played.** The compiler
+is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
+- FFDec's `-importScript` only *replaces* classes already in a movie; it
+  cannot add one, and has no option to. So `fo4_import/casino/movie.py`
+  writes the skeleton itself: an uncompressed AS3 SWF (FileAttributes AS3,
+  DoABC2, SymbolClass of the document class) whose ABC holds an empty
+  `Object` subclass per `.as` file under `fo4_import/casino/as3/`
+  (`abc_shells`, about 60 lines). FFDec then compiles the real sources over
+  the shells, rebuilding each script initializer with the right scope chain
+  (checked in its p-code: `MovieClip`'s seven ancestors pushed before
+  `newclass`). Two builds give identical bytes.
+- FFDec exits 0 even on a compile error; the error is a `SEVERE` log line,
+  which the build turns into a failure. Its parser is lenient: `var x:int = ;`
+  compiles without a word, so a test can't rely on every typo failing.
+- The build compiles the movie once per source hash into
+  `temp/fo4_casino/<hash>/` and copies it to `Interface/F3NV_Casino.swf`
+  (`casino menu movie installed`); without FFDec it counts `casino menu
+  movie missing (no FFDec)` and the rest of the build is unaffected. The
+  app has no FFDec, so a release ships the built movie
+  (`tools/generators/gen_fo4_casino_swf.py`).
+- F4SE 0.7.9's source (`tools_ext/f4se_src`): `UI.RegisterCustomMenu`'s
+  default `MenuData` is menu flags 0x801849D (pauses, cursor, menu context,
+  modal, disables the pause menu, custom rendering), movie flags 3 and
+  extended flags 3 (inherit the HUD color through the menu's shader, drop
+  the cursor when a gamepad is in use). The movie gets `root.f4se` through
+  `onF4SEObjCreated(codeObject)`; `MountImage(menu, path, name)` loads a
+  DDS with the game's texture loader and serves it as `img://name`; mounted
+  images are dropped when the menu closes. `MountImage` is AS3-only (not in
+  `UI.psc`).
+- **The spike screen** (`as3/F3NV_Casino.as`): title, status line, one
+  image, Ping and Close buttons. Papyrus `F3NV_Casino.Spike()` on the bank
+  quest `FNV_Casino` (no separate spike quest: the bank quest registers the
+  menu anyway) opens it and passes a card face (`cardt_c01.dds`, staged at
+  `Textures/fnv/terminals/nv_playingcards/deckt/`) under three path
+  spellings; the screen shows which one mounted. Esc/Tab (stage keys) and
+  FO4's `Cancel` control close it through Papyrus (`F3NV_CasinoClose` →
+  `UI.CloseMenu`); Enter, `Accept` or the button pings. Every key and
+  control seen is written to the Papyrus log (`F3NV_Casino: input ...`), so
+  one session answers which input paths reach a custom menu.
+- **Played 2026-11-08 (build 1108b):** the menu opened, the font rendered
+  and the image mounted, but the screen drew only in a box around the
+  cursor: the black backdrop showed as a square around the arrow, and the
+  status text appeared only under the mouse. Cause: F4SE's default flags
+  include Custom Rendering (0x8000) and Assign Cursor To Renderer
+  (0x10000), which draw the menu through the game's shader target
+  (`CustomMenu.cpp` pushes the stage's filter holder to `shaderFXObjects`)
+  and that only redrew the cursor's area. `F3NV_Casino.Register` now passes
+  menu flags 0x800049D (the default without those two) and extended flags 2.
+  Cost: no HUD-color tint (it needs that shader); the menu is white on
+  black. A changed registration needs a game restart, not a save reload
+  (F4SE keeps the first registration for the session).
+- **Played 2026-11-08 (build 1108c):** the screen drew whole, but no
+  image showed, and the log had three faults. Fixed, not yet played:
+  - **Every event five times.** F4SE keeps one registration per object and
+    script (`EventRegistration::operator<`), so repeated `Register()`
+    calls were not the cause. Five plugins each shipped a bank quest:
+    FalloutNV, Dead Money, Gun Runners, Honest Hearts and Tribal Pack.
+    `source_walk` also yields the master's CSNO and CDCK. A DLC's own
+    ledger had kept ids from builds made before FalloutNV had the casino,
+    and `derive_formid` reads the own ledger before the masters'. So
+    Honest Hearts copied all 5 casinos, 13 decks and the bank.
+    `Casino._forms` now gives a master's casino and deck the master's id
+    (`LedgerWriter.from_master`). The bank is made only by the masterless
+    build. A DLC writes only its own (Dead Money's Sierra Madre).
+  - **"Type mismatch for argument 1".** F4SE turns an AS3 `int` into a
+    Papyrus Int (`ConvertScaleformValue`), so `OnMenuPing(Float)` failed;
+    `OnMenuRound(Float)` would too. Both now take Int.
+  - **"[object Object]" and no image.** `UI.Invoke` passes each item of a
+    `VarArrayToVar` array as `{__var__: value}`. The path became
+    "[object Object]", and `MountImage` still returned true: the game's
+    texture loader returns a stand-in for a missing file, so "mounted"
+    does not prove the file was found. `Ui.plain` unwraps every array the
+    movie gets: the spike's paths, slots' stops, symbols and texts, and the
+    self-test's seeds. The spike now loads every path form side by side
+    (`Textures/<path>`, `<path>`, `Data/Textures/<path>`). The log names
+    which form loaded and at what size (`image img://F3NV_Spike0 shown WxH`).
+- **Played 2026-11-08 (build 1108d):** the card image loaded only as the
+  bare path under Textures (`fnv/terminals/nv_playingcards/deckt/cardt_c01.dds`).
+  So `MountImage` takes the path without the `Textures/` folder. `MountAll`
+  (slot symbols) and the spike now mount the bare path, as the records
+  store it (`records.fo4_path`).
+- **In-game check:** `cqf FNV_Casino Spike`; then click Ping, press Enter,
+  Esc, and a gamepad's A/B if one is connected; read
+  `F3NV_Casino:` lines in `Papyrus.0.log`.
+
 ### <a id="phase-1"></a>Phase 1. Records and the bank (M)
 
 - **Export:** decode CSNO, CHIP, CMNY, CCRD and CDCK in
@@ -687,6 +791,71 @@ shell.
   Pip-Boy, cash out; pick up a Caravan card (it leaves the inventory);
   NCR dollars show their value.
 
+<a id="records-built"></a>**Built 2026-11-08, not played** (`fo4_import/casino/records.py`,
+`F3NV_Casino.psc`, `F3NV_CasinoData.psc`, `F3NV_CasinoPlayer.psc`):
+- **No re-export.** CSNO, CDCK and CCRD are read from the plugin with
+  `source_walk`, as the chip, money and card items already are
+  ([items built](#items-built)); `tes4_export` stays a pure dump. Counts
+  from FalloutNV.esm match [1.1](#inv-records): 5 CSNO, 13 CDCK, 270 CCRD
+  (tests). DATA unpacks as `<ff7IIIIII` (56 bytes).
+- **Per casino:** a start-game quest `FNV_<edid>` running `F3NV_CasinoData`
+  (name, decks, reshuffle share, payout, soft-17 flag, reel stops, max
+  winnings, chip MISC, winnings quest, slot symbol and deck back texture
+  paths) and a global `FNV_<edid>Level`. The script keeps earnings and level;
+  `AddResult(net)` raises the level at 25/50/75/100% of max winnings (never
+  lowers it, a big win can skip one), sets the global and starts the comps
+  quest if it isn't running (vCasinoCompsTheTops starts disabled).
+- **Conditions:** `GetCasinoWinningStage <casino>` (the 37 floor-manager
+  lines) is `GetGlobalValue` of that global (`say_topics._form_value`).
+- **Decks:** each CDCK is a FormList `FNV_<edid>` of its card MISCs.
+  **The player's cards are two FormLists, not containers** (drift from
+  [4.5](#design-persist)): `F3NV_CaravanOwned` and `F3NV_CaravanDeck`, filled
+  with `AddForm`, which the save keeps. They are FNV's two lists exactly;
+  the card item leaves the inventory through FNV's own `RemoveMe`, so no
+  hidden container or holding cell is needed.
+- **Script rows** (`command_rows_fallout4`): `ShowBlackjackMenuParams`,
+  `ShowRouletteMenuParams`, `ShowSlotMachineMenuParams` →
+  `TES4Casino.Open(1|2|3, <casino>, min, max, min won)` with the casino
+  property typed `F3NV_CasinoData`; `GetCasinoWinningsLevel <casino>` →
+  `<casino>.GetLevel()`; `<ref>.ShowCaravanMenu <deck> <mode> <ante>` →
+  `TES4Casino.OpenCaravan(ref, deck, mode, ante)`; `AddCardToPlayer` →
+  `TES4Casino.AddCard(<ref>)`. FNV calls them 4/5/5 times (slots, roulette,
+  blackjack openers), 20 times (comps polls), 23 Caravan calls in 17 INFOs,
+  2 card scripts.
+- **`GetContainer != <ref>` is real on Fallout 4** (`emit/expr._container`):
+  FO4 has `ObjectReference.GetContainer()`, so on a reference script the
+  comparison is kept instead of neutralized to `False`/`True`. Before, the
+  card script's `if GetContainer != player return else AddCardToPlayer`
+  read `If False`, so every container move (a vendor chest restocking)
+  would have collected the card. Blast radius: 4 scripts, FalloutNV's and
+  Dead Money's `CardAddToPlayerScript`, and Dead Money's
+  `NVDLC01PassEntertainerSCRIPT`/`NVDLC01PassMaintenanceSCRIPT`, whose
+  `GetContainer == Player` read always-true and now only fires for the
+  player, as authored.
+- **The bank's openers** run FNV's refusals in its order (blackjack
+  `@fnv 0x00733630`): the anti-cheat wait after a load (per-game text and
+  the seconds left), the ban (level 4), too few chips, too little won
+  (`sGamblingMinWinText`; every FNV opener passes 0). Until a game's screen
+  exists the opener shows the casino's name and "This game is not playable
+  on Fallout 4 yet." Caravan refuses under 30 cards (`sCardCountText`), then
+  shows the same. `Settle(casino, net)` moves chips and adds the earnings;
+  a new level closes the menu.
+- **Texts** are FalloutNV.exe's (GOG exe, `oblivion_engine_extract.py
+  --settings`, run under Python 3.13): `sGamblingBannedText`,
+  `sGamblingBrokeText`, `sGamblingMinWinText`, `sCardCountText`,
+  `sAntiCheatTimeRemainingText`, `s{Blackjack,Roulette,Slot}AntiCheatText`,
+  `iAntiCheatDuration` 60; a FalloutNV.esm GMST would override.
+- **Art staged:** every texture the CSNOs (symbols, deck backs) and CCRDs
+  (faces, backs) name, from the export, under `Textures/fnv/...` in the
+  texture BA2. The felt and Caravan wood are named only by the minigame
+  NIFs; they come with the blackjack and Caravan screens.
+- **Not in phase 1:** the card table (suit, value, texture per card) comes
+  with Caravan (phase 5), its only reader. Counting games for the
+  challenges comes with each game's screen.
+- **New records, no drift:** FalloutNV.esm gains 26 (5 data quests, 5
+  globals, 13 deck lists, the bank quest, 2 card lists), Dead Money 2 (the
+  Sierra Madre's quest and global); all on new keys, nothing existing moves.
+
 ### <a id="phase-2"></a>Phase 2. Slots (S)
 
 - Screen: three reels, bet buttons, payout list, earnings, chips.
@@ -699,6 +868,58 @@ shell.
 - **In game:** play Gomorrah's slots, win and lose, leave and see the chip
   count right; win past 2,250 and the floor manager comes; reload a save
   and get refused for a minute.
+
+<a id="slots-built"></a>**Built 2026-11-08, not played** (`as3/f3nv/casino/Slots.as`,
+`SlotsScreen.as`, `Rng.as`, `Ui.as`; `tests/casino/model.py`):
+- **Rules, read again in the decompile** (`slotmachinemenu.cpp`), sharper
+  than [3.4](#rules-slots):
+  - A reel value is 2 × symbol, odd for the blank after it; 12 is the wild
+    (the CSNO's 7th icon), 13 its blank. `InitReels` fills 28 stops round
+    by round; a spin lands each reel on one of the first 2 × kinds stops
+    (`0x007c56e0`), so with the authored stops (2 each) every reel is
+    uniform over 7 symbols and 7 blanks.
+  - Classes (`0x007c5760`): three equal non-blank values; else exactly two
+    wilds; else one wild; else a pair (only feeds Luck); else nothing. A win
+    adds bet × its multiple (the bet is not also taken), a loss takes the
+    bet. Three wilds and three cherries pay ×10, then ×20, ×30, ×40, ×60,
+    ×100 by symbol; two wilds ×5; one wild ×2.
+  - **The house keeps 25.95% at Luck 5**: exactly (1479 − 2191) / 2744 of a
+    bet a spin (the model's 60,000-spin run agrees within 3%).
+  - **Luck** (`AdjustReels 0x007c58f0`): a nudge happens with chance
+    |Luck − 5| × 10%. Above 5: nothing → spin again (and roll again); a
+    pair or two wilds → the odd reel joins when (difference)² ≤ Luck; one
+    wild → its neighbors equalized when within Luck (FNV's neighbor choice
+    kept, quirks and all: it can't make three of a kind, only the lucky
+    text). Below 5: three of a kind → all three moved to the next value up
+    (a blank, or cherries from the high symbols); wilds → blanks. A nudge
+    above 5 shows `sLuckyWinText`, below 5 `sUnluckyLoseText`.
+  - Spinning adds misc stat 42 (`FUN_004d5c60(42)`), "One Armed Bandit"'s
+    counter; **not counted yet** (the challenge system leaves FNV's casino
+    misc stats out; see what's left below).
+- **One RNG**, xorshift32 (shifts and xors only, so AS3's `uint` math and
+  Python agree exactly), seeded from `Utility.RandomInt` per opening.
+- **The screen:** three reel panels showing the casino's mounted symbols
+  (`img://F3NV_Symbol<i>`; a blank shows an empty panel), a payout list
+  with the symbols, chips, bet and earnings, and `-`, `+`, Bet Max, Spin,
+  Exit. Keys: Enter or Space spin, Left/Right bet, Esc/Tab leave; FO4's
+  `Accept`/`Left`/`Right`/`Cancel` controls the same. Labels are FNV's
+  settings (`SLOT_TEXTS`, the screen's index order is checked by a test).
+  No reel animation or sounds yet (phase 6).
+- **The loop:** a converted opener → `Open(3, ...)` → refusals → the menu
+  opens → `OpenSlots` hands it the casino name, chips held, bet range,
+  earnings, Luck (`Game.GetLuckAV()`), a seed, the reel stops, symbol
+  paths and texts → each spin sends `F3NV_CasinoRound(net)` → `Settle`
+  moves the chips (silently; drift: FNV showed the total on leaving) and
+  adds the earnings → a new level closes the menu and starts the comps
+  quest.
+- **Self-test:** `cqf FNV_Casino SelfTest 5` (or another Luck) logs
+  `F3NV_Casino: selftest slots <luck> a,b,c ...` (seeds 1-3, 20 spins
+  each). Pasting that text after `selftest ` into
+  `tests/casino/slots_selftest.txt` (one line per Luck) makes
+  `test_the_movies_spins_match_the_model` compare it with the model.
+- **What's left in phase 2:** counting games for the challenges (misc stat
+  42, and 40/41/37/38 later): FNV's casino misc stats are left out of
+  `challenges.FO4_STATS`; they need a casino event in `F3NV_Challenges`.
 
 ### <a id="phase-3"></a>Phase 3. Roulette (M)
 
@@ -818,6 +1039,21 @@ To record in [fo4_drift.md](fo4_drift.md) as each piece is built:
    mouse and keyboard enough until phase 6?
 8. **Lucky Horseshoes** (Festus at Sunset Sarsaparilla) is not one of the
    engine's games; leave it out of this plan?
+
+<a id="answers-taken"></a>**Taken for now (2026-11-08), until the user says otherwise:**
+1. FFDec; it works ([toolchain](#toolchain-found)), no Flex SDK.
+2. Rules in the menu's AS3, Papyrus the bank, no new F3NV.dll code.
+3. Authored scripts kept as they are (Vikki & Vance's slots still check
+   Gomorrah's floor manager); the engine bugs our menu re-implements get
+   fixed when that game is built (roulette's 0, Caravan's opening discard).
+4. FNV's Luck help kept exactly (slots built that way).
+5. Hidden, as FNV: and as two FormLists rather than containers
+   ([records](#records-built)); the card leaves the inventory when picked up.
+6. Items at their cap value; vendors don't count them as money.
+7. Mouse and keyboard first; FO4's own controls are wired (`Accept`,
+   `Cancel`, `Left`, `Right`), so a gamepad may already work. The spike
+   logs which inputs arrive.
+8. Left out.
 
 ---
 

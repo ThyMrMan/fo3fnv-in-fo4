@@ -1,0 +1,345 @@
+"""FNV's casino on Fallout 4: the menu movie's toolchain, the bank's Papyrus, the casino records and script rows.
+
+See: docs/fork/fo4_casino_plan.md#phases
+"""
+
+import re
+import shutil
+import struct
+import zlib
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from asset_convert.ui.swf import Swf
+from fo4_import.base.papyrus import FO4_COMPILER, compile_folder, header_dirs
+from fo4_import.casino import movie as M
+from fo4_import.casino import records as R
+from fo4_import.base.install import source_walk, use_source
+from fo4_import.base.source import source_plugin
+from fo4_import.spike import conditions as C
+from fo4_import.spike import say_topics as ST
+from script_convert.converter import ScriptConverter
+from script_convert.cross_ref import CrossRefGraph
+from script_convert.target import FALLOUT4, TARGET_ENV
+from tes5_import.base.tes5_reader import subrecords
+from tests.casino import model
+
+STATIC = Path(__file__).resolve().parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
+needs_ffdec = pytest.mark.skipif(not M.FFDEC.is_file(), reason='FFDec is not installed')
+needs_compiler = pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
+
+
+# ---------------------------------------------------------------------------
+# Phase 0: the menu movie and the bank's scripts
+# ---------------------------------------------------------------------------
+
+
+def _tags(raw: bytes) -> dict:
+    """{tag code: payload} of a SWF's top-level tags (the last of each code)."""
+    return {tag.code: tag.data for tag in Swf.parse(raw).tags}
+
+
+def test_the_skeleton_is_an_as3_movie_whose_document_class_is_the_first_shell():
+    """FileAttributes says AS3, DoABC2 holds an ABC 46.16 naming every class, SymbolClass makes the first the root."""
+    tags = _tags(M.skeleton(['F3NV_Casino', 'f3nv.casino.Rng']))
+    assert struct.unpack('<I', tags[M.FILE_ATTRIBUTES])[0] & M.AS3_FLAG
+    abc = tags[M.DO_ABC2][5:]
+    assert struct.unpack_from('<HH', abc) == (16, 46)
+    assert b'F3NV_Casino' in abc and b'f3nv.casino' in abc and b'Rng' in abc
+    assert tags[M.SYMBOL_CLASS] == struct.pack('<HH', 1, 0) + b'F3NV_Casino\x00'
+
+
+def test_u30_writes_seven_bits_a_byte_low_first():
+    """ABC's variable-length integers."""
+    assert (M.u30(0), M.u30(0x7F), M.u30(0x80), M.u30(300)) == (b'\x00', b'\x7f', b'\x80\x01', b'\xac\x02')
+
+
+def test_the_document_class_comes_first_and_packages_are_dotted(tmp_path):
+    """class_names: as3/F3NV_Casino.as first, as3/f3nv/x/Y.as as f3nv.x.Y."""
+    (tmp_path / 'f3nv' / 'x').mkdir(parents=True)
+    for rel in ('A.as', 'F3NV_Casino.as', 'f3nv/x/Y.as'):
+        (tmp_path / rel).write_text('', encoding='utf-8')
+    assert M.class_names(tmp_path) == ['F3NV_Casino', 'A', 'f3nv.x.Y']
+
+
+@needs_ffdec
+def test_the_movie_builds_to_the_same_bytes_twice_with_its_entry_points(tmp_path):
+    """Two builds of the sources are identical, and the root class carries what F4SE and Papyrus call."""
+    first, second = M.compile_movie(tmp_path / 'a.swf'), M.compile_movie(tmp_path / 'b.swf')
+    raw = first.read_bytes()
+    assert raw == second.read_bytes()
+    body = zlib.decompress(raw[8:]) if raw[:3] == b'CWS' else raw
+    for name in (b'F3NV_Casino', b'onF4SEObjCreated', b'ProcessUserEvent', b'SendExternalEvent', b'MountImage'):
+        assert name in body
+
+
+@needs_ffdec
+def test_a_source_that_does_not_compile_fails_the_build(tmp_path):
+    """FFDec's compile error is raised, not shipped as an empty shell."""
+    (tmp_path / 'src').mkdir()
+    source = 'package { public class F3NV_Casino { public function f():void { var a:int = 1; a++ +; } } }'
+    (tmp_path / 'src' / 'F3NV_Casino.as').write_text(source, encoding='utf-8')
+    with pytest.raises(RuntimeError, match='FFDec failed'):
+        M.compile_movie(tmp_path / 'out.swf', tmp_path / 'src')
+
+
+@needs_compiler
+def test_the_casino_scripts_compile(tmp_path):
+    """F3NV_Casino*.psc compile against Fallout 4's and F4SE's headers."""
+    src, out = tmp_path / 'src', tmp_path / 'out'
+    src.mkdir()
+    out.mkdir()
+    names = sorted(p.stem for p in STATIC.glob('F3NV_Casino*.psc'))
+    for name in names:
+        shutil.copy(STATIC / f'{name}.psc', src)
+    log = compile_folder(src, out, f'{src};{header_dirs()}')
+    assert sorted(p.stem for p in out.glob('*.pex')) == names, log
+
+
+#: F4SE menu flags: pauses, uses cursor, modal; Custom Rendering and Assign Cursor To Renderer.
+PAUSES, CURSOR, MODAL, CUSTOM_RENDERING, CURSOR_TO_RENDERER = 0x1, 0x4, 0x10, 0x8000, 0x10000
+
+
+def test_the_menu_registers_without_the_shader_render_path():
+    """The menu draws through Scaleform itself: Custom Rendering redrew only around the cursor (played)."""
+    source = (STATIC / 'F3NV_Casino.psc').read_text(encoding='utf-8')
+    flags = int(re.search(r'Int Property MenuFlags = (0x[0-9A-Fa-f]+)', source)[1], 16)
+    assert 'data.menuFlags = MenuFlags' in source
+    assert flags & (PAUSES | CURSOR | MODAL) == PAUSES | CURSOR | MODAL
+    assert not flags & (CUSTOM_RENDERING | CURSOR_TO_RENDERER)
+
+
+def test_the_menu_events_match_what_as3_sends():
+    """AS3 ints arrive as Papyrus Ints (a Float callback logged "Type mismatch for argument 1"), and every Papyrus
+    array the movie reads is unwrapped from F4SE's {__var__: value} (it showed "[object Object]")."""
+    source = (STATIC / 'F3NV_Casino.psc').read_text()
+    assert 'Function OnMenuPing(Int ' in source and 'Function OnMenuRound(Int ' in source
+    document = (Path(M.SOURCES) / 'F3NV_Casino.as').read_text()
+    for array in ('paths', 'stops', 'symbols', 'texts', 'seeds'):
+        assert f'Ui.plain({array})' in document, array
+
+
+def test_images_mount_by_their_path_under_textures():
+    """MountImage loads the bare path under Textures (played 1108d): the records, MountAll and the spike use it."""
+    assert R.fo4_path(R.SPIKE_TEXTURE) == 'fnv/terminals/nv_playingcards/deckt/cardt_c01.dds'
+    document = (Path(M.SOURCES) / 'F3NV_Casino.as').read_text()
+    assert 'f4se.MountImage(MENU, paths[i], name)' in document and 'Textures/' not in document
+    assert 'Textures/' not in (STATIC / 'F3NV_Casino.psc').read_text()
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: records, conditions and script rows
+# ---------------------------------------------------------------------------
+
+EXPORT = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
+
+
+def _source_records() -> dict:
+    """{signature: [(FormID, subrecords)]} of FalloutNV.esm's casino records; skipped without the plugin."""
+    try:
+        use_source(source_plugin(EXPORT))
+    except SystemExit:
+        pytest.skip('no FalloutNV.esm registered for the export')
+    return {sig: [(rec.form_id, subrecords(rec.body)) for rec, _ in source_walk(sig)]
+            for sig in (b'CSNO', b'CDCK', b'CCRD')}
+
+
+def test_falloutnv_has_five_casinos_thirteen_decks_and_270_cards():
+    """FalloutNV.esm's casino records, counted from the plugin."""
+    found = _source_records()
+    assert [len(found[sig]) for sig in (b'CSNO', b'CDCK', b'CCRD')] == [5, 13, 270]
+
+
+def test_casino_fields_read_the_house_rules():
+    """The Atomic Wrangler pays blackjack 6:5 from one deck and bans at 5,000; Gomorrah's dealer hits soft 17."""
+    casinos = {fid: R.casino_fields(subs) for fid, subs in _source_records()[b'CSNO']}
+    wrangler, gomorrah = casinos[0x00144C42], casinos[0x00140521]
+    assert (wrangler['decks'], round(wrangler['payout'], 2), wrangler['max']) == (1, 1.2, 5000)
+    assert (wrangler['chip'], wrangler['quest'], wrangler['soft17_stays']) == (0x00144C3E, 0x001614E9, True)
+    assert round(wrangler['share'], 2) == 0.35 and wrangler['stops'] == [2] * 7
+    assert (gomorrah['decks'], gomorrah['max'], gomorrah['soft17_stays']) == (3, 9000, False)
+    assert len(wrangler['symbols']) == 7 and len(wrangler['backs']) == 4
+
+
+def test_deck_cards_count_the_card_list_not_the_data_count():
+    """No-bark's deck lists 41 cards; Lacey's 60."""
+    decks = {fid: R.deck_cards(subs) for fid, subs in _source_records()[b'CDCK']}
+    assert (len(decks[0x0017B41B]), len(decks[0x0016ACE9])) == (41, 60)
+    assert all(len(cards) == len(set(cards)) for cards in decks.values())
+
+
+def test_every_card_names_a_face_and_a_back():
+    """Each CCRD has TX00 and TX01."""
+    assert all(len(R.card_textures(subs)) == 2 for _, subs in _source_records()[b'CCRD'])
+
+
+def test_a_casino_stage_condition_reads_its_level_global():
+    """GetCasinoWinningStage <casino> == 2 is GetGlobalValue of the casino's level global."""
+    level = 0x05000123
+    cond = {'func': 'GetCasinoWinningStage', 'p1': 0x00140521, 'p2': 0, 'op_flags': 0, 'value': 2.0}
+    found = ST._form_value(cond['func'], cond, {(ST.CASINO_KEY, 0x00140521): level}, None)
+    assert found == (C.FO4.index(ST.GLOBAL_VALUE), level)
+
+
+def _convert(monkeypatch, body: str, extends: str = 'ObjectReference') -> str:
+    """A one-block FNV script as its Fallout 4 conversion."""
+    monkeypatch.setenv(TARGET_ENV, FALLOUT4)
+    return ScriptConverter(CrossRefGraph()).convert_standalone('T', f'scn T\n{body}\n', extends, 'T')
+
+
+def test_the_openers_call_the_bank_with_the_casinos_data_quest(monkeypatch):
+    """ShowSlotMachineMenuParams/ShowBlackjackMenuParams/ShowRouletteMenuParams open games 3, 1 and 2."""
+    out = _convert(monkeypatch, 'begin OnActivate\nShowSlotMachineMenuParams GomorrahCasinoData 1 60 0\n'
+                                'ShowBlackjackMenuParams GomorrahCasinoData 1 200 0\n'
+                                'ShowRouletteMenuParams GomorrahCasinoData 1 200 0\nend')
+    assert 'F3NV_CasinoData Property GomorrahCasinoData' in out and 'F3NV_Casino Property TES4Casino' in out
+    for game, top in ((3, 60), (1, 200), (2, 200)):
+        assert f'TES4Casino.Open({game}, GomorrahCasinoData, 1, {top}, 0)' in out
+
+
+def test_the_comp_level_is_the_casinos_own(monkeypatch):
+    """GetCasinoWinningsLevel <casino> reads the data quest's level."""
+    out = _convert(monkeypatch, 'short x\nbegin GameMode\nif GetCasinoWinningsLevel GomorrahCasinoData == 1\n'
+                                'set x to 1\nendif\nend', 'Quest')
+    assert 'GomorrahCasinoData.GetLevel() == 1' in out
+
+
+def test_a_picked_up_card_joins_the_collection_only_from_the_player(monkeypatch):
+    """CardAddToPlayerScript: AddCardToPlayer is the bank's AddCard, and GetContainer != player is FO4's own."""
+    out = _convert(monkeypatch, 'begin OnAdd\nif GetContainer != player\nreturn\nelse\nAddCardToPlayer\nRemoveMe\n'
+                                'endif\nend')
+    assert 'TES4Casino.AddCard(Self)' in out and '(GetContainer() != Game.GetPlayer())' in out
+    assert 'If False' not in out
+
+
+def test_caravan_is_played_against_the_speaker_with_the_opponents_deck(monkeypatch):
+    """ShowCaravanMenu <deck> <mode> <ante> -> OpenCaravan(ref, deck, mode, ante)."""
+    out = _convert(monkeypatch, 'begin OnActivate\nGSRingoREF.ShowCaravanMenu CaravanDeckRingo 0 .25\nend')
+    assert 'FormList Property CaravanDeckRingo' in out
+    assert 'TES4Casino.OpenCaravan(GSRingoREF, CaravanDeckRingo, 0, 0.25' in out
+
+
+def test_the_bank_names_its_forms_for_converted_scripts():
+    """named(): the bank quest as TES4Casino and each casino and deck by its FNV EditorID; form_map: the level."""
+    casino = R.Casino.__new__(R.Casino)
+    casino.quest, casino.quests, casino.decks = 0x05000001, {0x00140521: 0x05000002}, {0x0015D7A2: 0x05000003}
+    casino.levels = {0x00140521: 0x05000004}
+    casino.edids = {0x00140521: 'GomorrahCasinoData', 0x0015D7A2: 'CaravanDeckRingo'}
+    assert casino.named() == {'TES4Casino': 0x05000001, 'GomorrahCasinoData': 0x05000002,
+                              'CaravanDeckRingo': 0x05000003}
+    assert casino.form_map()[(ST.CASINO_KEY, 0x00140521)] == 0x05000004
+
+
+def test_a_dlc_uses_its_masters_casinos_and_bank():
+    """A DLC build's own casino is derived; FalloutNV's casino and the bank are the master's ids, never copies
+    (five banks registered every menu event five times, played 2026-11-08)."""
+    master = {(R.SITE, 'GomorrahCasinoData'): 0x03000002, (R.SITE, R.QUEST): 0x03000001}
+    writer = SimpleNamespace(own_index=5, from_master=lambda site, key: master.get((site, key)),
+                             derive_formid=lambda site, key: 0x05000000 | len(key))
+    casino = R.Casino.__new__(R.Casino)
+    casino.builder = SimpleNamespace(writer=writer, built=['FalloutNV.esm'],
+                                     ids=SimpleNamespace(is_own=lambda fid: fid >> 24 == 1))
+    casino.records = {b'CSNO': [(0x00140521, []), (0x01000ABC, [])]}
+    casino.edids = {0x00140521: 'GomorrahCasinoData', 0x01000ABC: 'SierraMadreCasinoData'}
+    assert casino._forms(b'CSNO', '') == {0x00140521: 0x03000002, 0x01000ABC: 0x05000015}
+    assert casino._forms(b'CSNO', 'Level') == {0x01000ABC: 0x0500001A}
+    assert casino._form(False, R.QUEST) == 0x03000001 and not casino.mine(0x03000001)
+
+
+def test_the_texts_are_falloutnvs_engine_defaults():
+    """FalloutNV.esm sets no casino text: the bank gets the exe's, and 60 s."""
+    values = R.texts(EXPORT)
+    assert values['BannedText'] == ('string', 'You have been banned from gambling at this casino.')
+    assert values['AntiCheatSeconds'] == ('float', 60.0) and len(values['AntiCheatTexts'][1]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: slots (the reference model, and the AS3 and Papyrus that follow it)
+# ---------------------------------------------------------------------------
+
+AS3 = Path(M.SOURCES)
+
+
+def test_xorshift32_gives_the_textbook_sequence():
+    """Seed 1 gives the textbook numbers; seed 0 is replaced (it never leaves 0)."""
+    rng = model.Rng(1)
+    assert [rng.next() for _ in range(3)] == [270369, 67634689, 2647435461]
+    assert model.Rng(0).state == model.SEED_ZERO
+
+
+def test_a_reel_is_fnvs_symbol_and_blank_pairs_round_by_round():
+    """Stops 2 each: the 14 values twice; a kind with no stops is skipped."""
+    assert model.reel([2] * 7) == list(range(14)) * 2
+    assert model.reel([1, 0, 1, 0, 0, 0, 0]) == [0, 1, 4, 5]
+
+
+@pytest.mark.parametrize('values, kind, times', [
+    ([12, 12, 12], model.THREE, 10), ([0, 0, 0], model.THREE, 10), ([10, 10, 10], model.THREE, 100),
+    ([12, 12, 3], model.TWO_WILDS, 5), ([4, 12, 7], model.ONE_WILD, 2), ([4, 4, 7], model.PAIR, 0),
+    ([1, 1, 1], model.NOTHING, 0), ([0, 2, 4], model.NOTHING, 0)])
+def test_slot_results_pay_as_fnv(values, kind, times):
+    """Three of a kind by symbol, two wilds x5, one wild x2; blanks never count."""
+    assert (model.classify(values), model.pays(values)) == (kind, times)
+
+
+def test_bet_steps_follow_fnv():
+    """+1 below 10, +5 below 40, +10 below 100, +25 below 500, then +100; down retraces."""
+    bets = [1]
+    while bets[-1] < 700:
+        bets.append(model.bet_up(bets[-1]))
+    assert bets[9:12] == [10, 15, 20] and bets[-2:] == [600, 700]
+    assert all(model.bet_down(b) == a for a, b in zip(bets, bets[1:]))
+
+
+def _mean_net(luck: int, spins: int = 60000) -> float:
+    """The mean net (in bets) of `spins` spins at `luck`, seeded."""
+    slots = model.Slots([2] * 7, luck, model.Rng(luck * 7919 + 1))
+    total = 0
+    for _ in range(spins):
+        values, _lucky = slots.spin()
+        times = model.pays(values)
+        total += times if times else -1
+    return total / spins
+
+
+def test_the_house_keeps_about_a_quarter_at_luck_5_and_luck_moves_it():
+    """Luck 5 returns -0.2595 a bet (exact: (1479 - 2191) / 2744); 1 less, 10 more."""
+    fair = _mean_net(5)
+    assert abs(fair - (1479 - 2191) / 2744) < 0.03
+    assert _mean_net(1) < fair < _mean_net(10)
+
+
+def test_the_as3_rules_carry_the_models_numbers():
+    """Slots.as's pay table and constants are the model's (the AS3 can't run in the suite)."""
+    source = (AS3 / 'f3nv' / 'casino' / 'Slots.as').read_text(encoding='utf-8')
+    table = [model.THREE_PAYS.get(v, 0) for v in range(model.WILD + 1)]
+    assert f'[{", ".join(map(str, table))}]' in source
+    for name in ('WILD', 'WILD_BLANK', 'NOTHING', 'PAIR', 'ONE_WILD', 'TWO_WILDS', 'THREE', 'FAIR_LUCK'):
+        assert f'public static const {name}:int = {getattr(model, name)};' in source
+
+
+def test_the_slot_texts_are_in_the_screens_order():
+    """records.SLOT_TEXTS has one text per SlotsScreen index, the last index its last."""
+    source = (AS3 / 'f3nv' / 'casino' / 'SlotsScreen.as').read_text(encoding='utf-8')
+    indexes = [int(n) for n in re.findall(r'public static const [A-Z_]+:int = (\d+);', source)]
+    assert indexes == list(range(len(R.SLOT_TEXTS)))
+
+
+#: A Papyrus.0.log line of `cqf FNV_Casino SelfTest <luck>`, pasted after "selftest " (absent until captured).
+CAPTURED = Path(__file__).resolve().parent / 'casino' / 'slots_selftest.txt'
+
+
+def test_the_self_test_line_is_the_models_per_seed_spins():
+    """slot_trace: 'slots <luck>' then 20 spins a seed, three values each."""
+    line = model.slot_trace((1, 2, 3), 20, 5).split(' ')
+    assert line[:2] == ['slots', '5'] and len(line) == 62 and all(len(s.split(',')) == 3 for s in line[2:])
+
+
+@pytest.mark.skipif(not CAPTURED.is_file(), reason='no in-game self-test captured yet')
+def test_the_movies_spins_match_the_model():
+    """Each captured SelfTest line is the model's for seeds 1-3, at its Luck."""
+    for line in CAPTURED.read_text(encoding='utf-8').split('\n'):
+        if line.strip():
+            assert line.strip() == model.slot_trace((1, 2, 3), 20, int(line.split(' ')[1]))
