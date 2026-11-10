@@ -70,10 +70,10 @@ def test_found_says_what_earlier_runs_left(tmp_path, monkeypatch):
 
 
 def test_export_reads_the_chosen_game_folder(tmp_path):
-    """Export runs convert.py on the source master with the chosen game's Data folder."""
+    """Export runs convert.py, archives too, with the game Data folder."""
     cmd = ST.command(_settings(tmp_path), 'falloutnv', 'export', ST.Scope(), tmp_path / 'x.json')
-    assert cmd[2:5] == ['--export-only', '-f', 'FalloutNV.esm']
-    assert cmd[-1] == str(tmp_path / 'falloutnv' / 'Data')
+    assert cmd[2:] == ['--export-only', '--extract-only', '--data-dir', str(tmp_path / 'falloutnv' / 'Data'), '-f',
+                       'FalloutNV.esm']
 
 
 def test_what_cannot_run_says_why(tmp_path):
@@ -99,7 +99,7 @@ def test_check_is_the_fast_reference_check_and_fo4edit_is_optional(tmp_path):
     assert check[3] == str(ST.plugin_path(s, 'falloutnv')) and check[4] == '--plugin-dirs'
     assert ST.unavailable(s, 'falloutnv', 'check', 'linux') == ''
     assert 'Windows' in ST.unavailable(s, 'falloutnv', 'fo4edit', 'linux')
-    assert ST.OPTIONAL == {'fo4edit'} and [k for k, _ in ST.ORDER][-2:] == ['check', 'fo4edit']
+    assert ST.OPTIONAL == {'classic', 'faces', 'fo4edit'} and [k for k, _ in ST.ORDER][-3:] == ['classic', 'check', 'fo4edit']
 
 
 def test_zip_output_is_packaged(tmp_path):

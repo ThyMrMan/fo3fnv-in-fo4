@@ -28,9 +28,9 @@ class Result:
 class Runner:
     """Runs a stage plan (fo4_import.app.stages.plan); stop() ends the running stage."""
 
-    def __init__(self, plan: list):
-        """A runner for `plan` [(key, label, argv)]."""
-        self.plan, self.process, self.stopped, self.warnings = plan, None, False, []
+    def __init__(self, plan: list, env: 'dict | None' = None):
+        """Runs `plan` [(key, label, argv or a function giving it)] with `env` added."""
+        self.plan, self.process, self.stopped, self.warnings, self.env = plan, None, False, [], env or {}
 
     def run(self, on_line) -> list:
         """Run each stage in order, calling `on_line(text)` per output line; the Results, up to a failure."""
@@ -38,7 +38,7 @@ class Runner:
         for key, label, argv in self.plan:
             on_line(f'=== {label}')
             started = time.time()
-            code = self._one(argv, on_line)
+            code = self._one(argv() if callable(argv) else argv, on_line)
             results.append(Result(key, label, code, time.time() - started))
             on_line(f'=== {label}: ' + ('stopped' if code is None else 'done' if code == 0 else f'failed ({code})'))
             if code != 0:
@@ -49,7 +49,7 @@ class Runner:
         """Run one command, streaming its output; its exit code, or None when stopped."""
         if self.stopped:
             return None
-        env = {**os.environ, 'PYTHONUNBUFFERED': '1', 'PYTHONIOENCODING': 'utf-8'}
+        env = {**os.environ, **self.env, 'PYTHONUNBUFFERED': '1', 'PYTHONIOENCODING': 'utf-8'}
         self.process = subprocess.Popen(argv, cwd=REPO, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                         text=True, encoding='utf-8', errors='replace', **POPEN_FLAGS)
         for line in self.process.stdout:

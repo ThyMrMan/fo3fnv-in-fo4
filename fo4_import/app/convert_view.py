@@ -1,6 +1,8 @@
 """The Convert screen: which stages run, what the build covers, Start and Stop, and the live log.
 
-A stage that cannot run here is shown disabled with the reason (fo4_import.app.stages.unavailable). Beside each
+What it converts is chosen above the stages (fo4_import.app.target_box): the game, a DLC or an added mod; a DLC
+or mod builds what it changes, so the test block is off for one. A stage that cannot run here is shown disabled
+with the reason (fo4_import.app.stages.unavailable). Beside each
 stage is what an earlier run (the app's or the command line's) left (stages.found); the export and up-to-date
 scripts start unticked. The stages
 run on a QThread through fo4_import.app.runner; a zip is made afterwards when the user chose zip output.
@@ -14,12 +16,14 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QGroupBox, 
                                QPlainTextEdit, QPushButton, QRadioButton, QSpinBox, QVBoxLayout, QWidget)
 
 from fo4_import.app import stages
+from fo4_import.app.mo2_setup import environment
 from fo4_import.app.runner import Runner
+from fo4_import.app.target_box import TargetBox
 
 #: Lines the log keeps.
 LOG_LINES = 20000
 SCOPES = (('test', 'Test block (3x3 cells around the start, plus its interiors)'), ('region', 'Region (grid corners)'),
-          ('world', 'Whole game (every worldspace a door or script reaches)'))
+          ('world', 'Whole (the game: every worldspace a door or script reaches; a DLC or mod: all it changes)'))
 
 
 class StageThread(QThread):
@@ -30,7 +34,7 @@ class StageThread(QThread):
     def __init__(self, plan: list, settings: dict, source: str):
         """A thread running `plan` for `source` with `settings` (for zip output)."""
         super().__init__()
-        self.runner, self.settings, self.source = Runner(plan), settings, source
+        self.runner, self.settings, self.source = Runner(plan, environment(settings)), settings, source
 
     def run(self) -> None:
         """Run the plan, then zip the output if every stage succeeded and zip was chosen."""
@@ -59,6 +63,7 @@ class ConvertView(QWidget):
         self.start.clicked.connect(self._start)
         self.stop.clicked.connect(self._stop)
         self.stop.setEnabled(False)
+        self.target, self.settings = TargetBox(lambda: self.refresh(self.settings)), None
         self.status, self.log = QLabel('Ready.'), QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(LOG_LINES)
@@ -95,6 +100,7 @@ class ConvertView(QWidget):
             controls.addWidget(widget)
         controls.addStretch(1)
         box = QVBoxLayout(self)
+        box.addWidget(self.target)
         box.addLayout(top)
         box.addLayout(controls)
         box.addWidget(self.log, 1)
@@ -102,6 +108,10 @@ class ConvertView(QWidget):
     def refresh(self, settings: dict) -> None:
         """Enable the stages that can run for the chosen game, naming why the others cannot, and show what earlier
         runs left; a stage that became done (or stopped being done) is unticked (or ticked, unless OPTIONAL) once."""
+        if settings is not self.settings:
+            self.settings = settings
+            self.target.show_settings(settings)
+        self._addon_scopes(not stages.target(settings, settings['source']).game)
         done = []
         for key, label in stages.ORDER:
             why = stages.unavailable(settings, settings['source'], key)
@@ -117,6 +127,13 @@ class ConvertView(QWidget):
         if done and not self.stop.isEnabled():
             self.status.setText(f"Already done, so unticked: {', '.join(done)}. Tick a stage to run it again.")
 
+    def _addon_scopes(self, addon: bool) -> None:
+        """Turn the test block off for a DLC or mod (it builds what it changes), choosing the whole scope."""
+        test = next(b for b in self.scopes.buttons() if b.property('scope') == 'test')
+        test.setEnabled(not addon)
+        if addon and test.isChecked():
+            next(b for b in self.scopes.buttons() if b.property('scope') == 'world').setChecked(True)
+
     def scope(self) -> stages.Scope:
         """The chosen scope."""
         kind = self.scopes.checkedButton().property('scope')
@@ -124,6 +141,7 @@ class ConvertView(QWidget):
 
     def _start(self) -> None:
         """Save the settings and run the chosen stages that can run."""
+        self.target.write()
         settings, settings_file = self.get_settings()
         chosen = [k for k, c in self.checks.items() if c.isChecked() and c.isEnabled()]
         plan = stages.plan(settings, settings['source'], chosen, self.scope(), settings_file)

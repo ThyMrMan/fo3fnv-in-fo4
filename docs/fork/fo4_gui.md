@@ -145,10 +145,11 @@ what exists. Not played in game yet.
   afterwards.
 - **Not yet chosen by the user:** the export folder (convert.py fixes it to
   the repo's `export/`) and a Wine prefix.
-- **Not built by the app yet:** the F3NV F4SE plugin
-  (`tes_runtime/fo4_condition`), Bink movies (`spike.bink`), CK FaceGen, and
-  installing published face fits. The Finished screen says to install
-  `F3NV.dll` separately.
+- **Since phase 7** ([extra stages](#extra-stages)): the F4SE plugin and the
+  Creation Kit's FaceGen are stages. The source movies were never missing:
+  every build writes them (`build_finish`, `base.bink.write_movies`;
+  `spike.bink` is only the play test). Not built: installing published face
+  fits.
 - **Checked 2026-10-24:**
   - The app was driven off screen: Start on Convert ran Scripts, Helper
     plugin, Build and Check for the test block into a scratch output folder,
@@ -185,6 +186,47 @@ what exists. Not played in game yet.
     scripts in `temp/fo4_scripts/FalloutNV.esm` were found in 0.04 s.
     `FalloutHelpers.esl` and `FalloutNV.esp` were found with the MO2 mod
     folder as output.
+
+### <a id="addons"></a>DLC and mods (built 2026-11-10, not run from the app yet)
+
+The Convert screen's **What to convert** box picks the game, a DLC or pack
+found in its Data folder (a plugin whose header lists the game's master), or
+a mod folder the user adds (**Add a mod folder...**; a mod with several
+plugins asks which). The choice is saved per source game (`addons`:
+plugin, mod folder, output folder; `target`) by `fo4_import/app/addons.py`
+and `target_box.py`.
+
+- **Output.** An add-on builds into its own folder, editable in the box; by
+  default the folder beside the game's output that holds its build stamp
+  (`<plugin>.build.json`), so the command-line builds' folders such as
+  `F3NV - Honest Hearts` are found, else `F3NV - <plugin stem>` there.
+  Its masters' built plugins are
+  read from their outputs (`--plugin-dirs`), so a master not built yet blocks
+  the Build stage with its name.
+- **Stages.** A mod adds **Import the mod folder** (`convert.py
+  --import-mod`). Export runs `--export-only --extract-only` for the game
+  and DLC, so their archives reach the export too (the game's Export stage
+  did not extract before this); a mod's import already extracted its files.
+  The helper plugin and the Classic Look are the game's only. Scripts go
+  beside the game's scripts folder, under the plugin's name.
+- **Scope** (`addons.build_scope`), from the add-on's own export when its
+  Build starts (the runner takes a command or a function giving it):
+  - the worldspaces it adds that a door or script reaches
+    (`run.reached_worlds`) and that have grid cells, whole (Dead Money's 7,
+    not its test maps);
+  - the master worldspaces whose grid cells it changes: the one with the
+    most cells first, as a region around those cells (or the user's region
+    corners), the others whole. A worldspace's persistent cell (record flag
+    0x400) is not a grid cell: Honest Hearts and Better Brotherhood override
+    WastelandNV's, which would stretch the region to (0, 0);
+  - with neither, its own first interior as the start cell, new ones first
+    (Gun Runners' Arsenal's vendor chest cell); a pack gets neither.
+  The test block is off for an add-on. Checked on the exports: Dead Money,
+  Honest Hearts, Gun Runners' Arsenal and the four packs come out as the
+  command-line builds of 2026-11-09 were run. Old World Blues and Lonesome
+  Road come out larger: they change 32 and 13 WastelandNV cells across the
+  map (regions -26 -31 22 17 and -22 -26 22 3) and one or two Freeside
+  worldspace cells, which the hand-made builds' entrance regions left out.
 
 ## <a id="cross-platform"></a>Cross-platform rules
 
@@ -307,7 +349,8 @@ A new, game-agnostic module, `core/mod_sources.py`:
     `encFeralGhoulGlowing01`, so FNV's glowing ones (the ferals, the
     glowing troopers, the Vault 34 guards, Jason Bright: 14 records owning
     their look, their template actors through them) look and act as FO4's;
-  - `body`: `human_male`, `human_female`, `ghoul_male`, `ghoul_female` (was
+  - `body`: `human_male`, `human_female`, `ghoul_male`, `ghoul_female`,
+    `child_male`, `child_female` ([children](fo4_pipeline.md#child-bodies)) (was
     `npcs.BODIES`). These must be Fallout4.esm NPCs. Face calibration
     (`spike/sculpt_calibration.py`) is still measured on the default humans;
   - `armor`: a list of `{covers: [FNV biped slot names], use, as}`, where the
@@ -703,7 +746,45 @@ the repo already reads every format involved. Only a renderer is new.
   (`QDesktopServices.openUrl`, which works on every OS);
 - short install notes for MO2, Vortex and a manual install.
 
-A Play button and MO2 profile setup come later.
+Its buttons (phase 7, built 2026-11-10, not clicked against the real MO2
+instance or game yet):
+
+- <a id="install-status"></a>**Install status** (`status_view.py`): the
+  lines of `tools/validate/fo4_install_check.py` for the app's settings
+  (`machine_from`), problems in red: the game and its version, F4SE, the
+  Creation Kit, MO2 and its F4SE and Creation Kit executables, each required
+  mod where the game sees it (or in an MO2 mod the profile leaves off, or
+  missing), New Vegas and its DLC, RAM and disk, and after a conversion each
+  converted plugin in its own enabled MO2 mod with `F3NV.dll`. The
+  replacement table's own mods stay on the Replacements screen's
+  [Required mods](#required-mods) list.
+- <a id="mo2-setup"></a>**Set up in MO2** (`mo2_setup.py`). With the
+  target's output folder a mod folder of the MO2 mod source's instance, it
+  enables that mod in the profile's `modlist.txt` (an absent one added at the
+  top, under MO2's header) and its plugins in `plugins.txt` (ticked, or
+  appended) and `loadorder.txt` (appended): the game's plugin, helper plugin
+  and Classic Look when built, or an add-on's plugin, so a DLC set up after
+  the game loads after it. It asks first, backs each changed list up as
+  `<list>.f3nv-backup`, and refuses while Mod Organizer runs, since MO2
+  rewrites its lists when it closes. An output elsewhere is still copied in
+  by hand.
+- **Play:** MO2's executable running `f4se_loader.exe`, for the profile
+  (`ModOrganizer.exe -p <profile> run -e <title>`); without an MO2 source,
+  the game folder's `f4se_loader.exe`.
+
+### <a id="extra-stages"></a>Faces and the F4SE plugin (phase 7)
+
+- **Install the F4SE plugin** (`app/runtime_dll.py`): copies the committed
+  `tes_runtime/dist/F3NV.dll` into the game output's `F4SE/Plugins`, so the
+  output is a complete MO2 mod. The game target only; the DLC and mods use
+  the game's.
+- **Faces** (`spike.facegen` on the built plugin, any target): the Creation
+  Kit's FaceGen through MO2, the FNV face fits refined and baked in.
+  Optional and unticked: about 2 s per NPC. It needs the MO2 mod source:
+  the stages run with `F3NV_MO2` set to its instance, which
+  `pipeline.creation_kit` reads in place of the developer's
+  `C:\Modlists\fo3fnv-in-fo4` (the build's own Creation Kit steps follow it
+  too). The CK loads MO2's selected profile, not necessarily the source's.
 
 ## <a id="phases"></a>Phases
 
@@ -715,7 +796,7 @@ A Play button and MO2 profile setup come later.
 | 4 | Preview renderer as a standalone viewer window | `fo4_import/app/preview/` |
 | 5 | **Alpha app:** first-run wizard, Setup, Convert, Finished (loose-folder output) | `fo4_app.py`, `fo4_import/app/` |
 | 6 | Replacements screen (two columns, previews) | `fo4_import/app/replacements_view.py` |
-| 7 | Later, opt-in: MO2 mod and profile setup, a Play button, modlist status (each required mod installed, wrong version or missing), Wabbajack | `core/mod_sources.py`, `fo4_import/app/` |
+| 7 | MO2 mod and profile setup, a Play button, install status (each required mod installed, wrong version or missing), the F4SE plugin and faces as stages (built 2026-11-10); later: Wabbajack | `fo4_import/app/mo2_setup.py`, `status_view.py`, `runtime_dll.py` |
 
 Phase 5 needs phases 1 and 3; phase 6 needs 2 to 5. Phases 1 to 4 do not
 depend on each other.

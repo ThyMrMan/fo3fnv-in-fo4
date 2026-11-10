@@ -36,7 +36,7 @@ def defaults() -> dict:
         'tools': {'wine': '', 'nifskope': ''},
         'per_source': {source: {'output': {'kind': 'folder', 'path': ''},
                                 'replacements': {'where': 'app', 'path': ''},
-                                'scripts': '', 'profile': ''} for source in SOURCES},
+                                'scripts': '', 'profile': '', 'addons': [], 'target': ''} for source in SOURCES},
     }
 
 

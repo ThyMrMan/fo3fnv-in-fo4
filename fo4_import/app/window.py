@@ -18,6 +18,7 @@ from fo4_import.app.finished_view import FinishedView
 from fo4_import.app.preview.viewer import surface_format
 from fo4_import.app.replacements_view import ReplacementsView
 from fo4_import.app.setup_view import SetupView
+from fo4_import.app.stages import target
 from fo4_import.app.wizard import FirstRunWizard
 
 TITLE = 'FO3/FNV to Fallout 4'
@@ -40,7 +41,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(TITLE)
         self.settings_file = settings_file
-        self.setup, self.finished = SetupView(), FinishedView()
+        self.setup = SetupView()
+        self.finished = FinishedView(self.setup.collect)
         self.setup.load(settings, str(settings_file), settings_file.parent == S.APP_DIR)
         self.convert = ConvertView(self.save)
         self.convert.finished.connect(self._finished)
@@ -83,7 +85,7 @@ class MainWindow(QMainWindow):
     def _finished(self, results: list, warnings: list, made_zip: str) -> None:
         """Show the run's outcome on the Finished screen."""
         settings = self.setup.collect()
-        self.finished.show_outcome(results, warnings, S.output_dir(settings, settings['source']), made_zip)
+        self.finished.show_outcome(results, warnings, target(settings, settings['source']).output, made_zip)
         self.tabs.setCurrentWidget(self.finished)
 
 
