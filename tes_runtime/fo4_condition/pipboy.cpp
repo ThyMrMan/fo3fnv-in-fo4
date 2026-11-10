@@ -548,6 +548,12 @@ private:
 
 const char *TRANSFER_MENUS[] = {"ContainerMenu", "BarterMenu"};
 
+// A menu opened: give the HUD Hardcore's needs on the UI thread, if it has none yet (hardcore.cpp).
+class HudHookTask : public ITaskDelegate {
+public:
+    void Run() override { HookHud(); }
+};
+
 class OpenSink : public BSTEventSink<MenuOpenCloseEvent> {
 public:
     EventResult ReceiveEvent(MenuOpenCloseEvent *evn, void *) override {
@@ -555,6 +561,7 @@ public:
         const char *name = evn && evn->isOpen ? evn->menuName.c_str() : nullptr;
         if (!name || !g_tasks) return kEvent_Continue;
         if (!strcmp(name, MENU)) g_tasks->AddUITask(new HookTask);
+        g_tasks->AddUITask(new HudHookTask);
         for (const char *transfer : TRANSFER_MENUS)
             if (!strcmp(name, transfer)) g_tasks->AddUITask(new TransferHookTask(transfer));
         return kEvent_Continue;

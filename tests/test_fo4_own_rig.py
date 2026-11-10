@@ -8,6 +8,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from fo4_import.havok import graph as G
+from fo4_import.havok import packfile, packfile_write
 from fo4_import.rig import anim_info, assets, behavior, build, records
 from fo4_import.rig import gun_mods
 from fo4_import.rig.table import Rig, rigs, weapon_node
@@ -18,6 +20,7 @@ from script_convert.cross_ref import CrossRefGraph
 from tests.test_script_converter import conv_lines
 from fo4_import.spike.ammo_mods import ADD, FORM, FORM_VALUE2, omod_data, prop
 from fo4_import.spike import creatures as C
+from fo4_import.spike import idles as ID
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
@@ -64,6 +67,21 @@ def test_project_file_data_lists_root_character_skeleton_and_clips():
     assert lines[:3] == ['3', '0', 'FNVGeckoProject'] and lines[3] == str(3 + len(rig.clips))
     assert lines[4:7] == ['Behaviors\\FNVGeckoRootBehavior.hkx', 'Characters\\FNVGeckoCharacter.hkx',
                           'CharacterAssets\\skeleton.hkx'] and lines[-2:] == ['0', '']
+
+
+def test_a_long_body_name_gets_a_short_stable_file_name():
+    """A short model name is its own file; a long many-part one is its first stem and a hash, distinct per name, and
+    the skin's model path names the same file."""
+    parts = ['nvdlc03_brainbot', 'nvdlc03_brainbot_brain', 'nvdlc03_brainbot_eyel_m', 'nvdlc03_brainbot_eyer_sm',
+             'nvdlc03_brainbot_gunlens', 'nvdlc03_brainbot_mouth_lg', 'nvdlc03_brainbot_shell_white']
+    long = '+'.join(parts) + '.nif'
+    other = long.replace('white', 'blue')
+    assert records.model_file('a+b.nif') == 'a+b.nif'
+    short = records.model_file(long)
+    assert short.startswith('nvdlc03_brainbot+') and short == records.model_file(long)
+    assert len(short) <= records.MODEL_NAME_MAX and short.endswith('.nif') and short != records.model_file(other)
+    rig = rigs()['nvdlc03\\creatures\\brainbot']
+    assert records.body_path(rig, long).endswith('\\' + short)
 
 
 def test_body_name_takes_the_one_body_part_or_joins_several():
@@ -243,6 +261,39 @@ def test_a_shot_names_its_slot_and_the_attack_ends_after_it(monkeypatch):
     assert ranged_builder(monkeypatch, [0.03], 0.6).ranged_end('Gun')[0] == pytest.approx(0.4)
 
 
+def test_a_dynamic_idle_plays_on_a_tagging_generator_and_returns_to_idle():
+    """dynamicAnim and dynamicAnimLooping enter states on a DynamicAnimationTaggingGenerator over a stand-in Idle
+    clip (the once one raising returnToDefault 0.2 s before its end); both go back to Idle (1); it writes and reads."""
+    maker = behavior.Builder(type('Rig', (), {'project': 'Test'})(), Path('.'), {}, None)
+    g = maker.g
+    states, wildcard = maker.dynamic(g.blend_effect('Fx', 0.2))
+    assert wildcard == [('dynamicAnim', 5), ('dynamicAnimLooping', 6)]
+    once = g.get(states[0])
+    tagged = g.get(once['generator'])
+    clip = g.get(tagged['pDefaultGenerator'])
+    assert (once['name'], clip['animationName'], clip['mode']) == ('DynamicAnim', 'Animations\\Idle.hkt', G.SINGLE)
+    trigger = g.get(clip['triggers'])['triggers'][0]
+    assert (trigger['localTime'], trigger['relativeToEndOfClip'], g.events[trigger['event']['id']]) == (
+        -0.2, 1, 'returnToDefault')
+    back = g.get(once['transitions'])['transitions']
+    assert {g.events[t['eventId']] for t in back} == {'returnToDefault', *behavior.TALK_END}
+    assert {t['toStateId'] for t in back} == {1}
+    looped = g.get(g.get(g.get(states[1])['generator'])['pDefaultGenerator'])
+    assert looped['mode'] == G.LOOPING and looped['triggers'] is None
+    read = packfile.read(packfile_write.write(g.objects, once['generator']))
+    assert [o['class'] for o in read.objects][:2] == ['DynamicAnimationTaggingGenerator', 'hkbClipGenerator']
+
+
+def test_an_idle_in_a_rig_folder_plays_on_that_rig_with_the_creature_events():
+    """A Think Tank special idle belongs to its rig and sends vanilla creatures' dynamicAnim; a human clip has no
+    rig; a forever loop sends the looping event."""
+    assert ID.rig_of('NVDLC03\\Creatures\\BrainBot\\idleanims\\mtspecialidle_angry.kf').project == 'FNVBrainBot'
+    assert ID.rig_of('characters\\_male\\idleanims\\talk.kf') is None
+    rec = {'EditorID': 'X', 'DATA.LoopMin': '255', 'DATA.LoopMax': '255'}
+    subs = dict(subrecords(ID.pack_idle(1, rec, b'', ('G.hkx', 'C.hkx', ID.RIG_EVENTS), (0, 0))[24:]))
+    assert subs[b'ENAM'].rstrip(b'\0') == b'dynamicAnimLooping' and subs[b'DNAM'].rstrip(b'\0') == b'G.hkx'
+
+
 def test_each_gun_has_a_fire_idle_on_its_slot():
     """Per fire action: a root IDLE with no event, then one child per gun under it, chained by previous sibling,
     sending fire_start(slot) on GetActionDataByte == slot."""
@@ -326,6 +377,28 @@ def test_a_gun_node_aims_level_ahead_at_the_shot():
     assert behavior.shot_times([(0.367, 'Fire'), (0.733, 'Loop'), (1.0, 'Hit')]) == [0.367, 1.0]
 
 
+def test_a_weapon_nodes_children_stay_in_place_when_it_moves_onto_one():
+    """The Think Tank's WEAPON (turned 90° about Z, 7 up) holds its fire node 1 along its X: the fire node is lifted
+    onto WEAPON's parent at (0, 1, 7), in the animation skeleton and the skeleton.nif alike, and WEAPON hangs on it."""
+    half = 2 ** -0.5
+    bones = [assets.Bone('Root', -1, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), 1.0),
+             assets.Bone('WEAPON', 0, (0.0, 0.0, 7.0), (0.0, 0.0, half, half), 1.0),
+             assets.Bone('Fire', 1, (1.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), 1.0)]
+    moved = assets.move_weapon(bones, 'Fire', (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+    world = assets.skeleton_frames(moved)
+    assert [(b.name, moved[b.parent].name) for b in moved[1:]] == [('Fire', 'Root'), ('WEAPON', 'Fire')]
+    assert world['Fire'][1] == pytest.approx((0.0, 1.0, 7.0))
+    assert world['Fire'][0] == pytest.approx(assets.skeleton_frames(bones)['Fire'][0])
+    nif = type('Nif', (), {'blocks': [
+        ('NiNode', {'translation': (0.0, 0.0, 7.0), 'rotation': (0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+                    'scale': 1.0, 'children': [1]}),
+        ('NiNode', {'translation': (1.0, 0.0, 0.0), 'rotation': (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+                    'scale': 1.0, 'children': []})]})()
+    assert assets.lift_nif_children(nif, 0) == [1] and nif.blocks[0][1]['children'] == []
+    assert nif.blocks[1][1]['translation'] == pytest.approx((0.0, 1.0, 7.0))
+    assert nif.blocks[1][1]['rotation'] == pytest.approx((0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0))
+
+
 SECURITRON = EXPORT_MESHES / 'creatures' / 'nvsecuritron'
 
 
@@ -373,6 +446,24 @@ def test_the_idle_clips_screen_channels_loop_on_the_body(tmp_path):
     assert {flags for flags, _, _ in loops.values()} == {0x48} and {s for _, s, _ in loops.values()} == {13.33}
     colors = [k[1] for k in loops[('ColorController', 0)][2]]
     assert len(colors) == 401 and 0.6 < min(colors) and max(colors) == 1.0
+
+
+BRAINBOT = EXPORT_MESHES.parents[1] / 'OldWorldBlues.esm' / 'meshes' / 'nvdlc03' / 'creatures' / 'brainbot'
+
+
+@pytest.mark.skipif(not BRAINBOT.exists(), reason='needs the OldWorldBlues.esm export')
+def test_an_idle_clips_float_spline_channels_loop_as_sampled_keys(tmp_path):
+    """mtidle.kf drives Think Tank shader floats with compressed float splines; each becomes a looping float
+    controller whose key data was sampled from the spline."""
+    parts = [BRAINBOT / f'nvdlc03_brainbot_{p}.nif' for p in ('eyel_m', 'eyer_m', 'mouth_m', 'gunlens', 'brain')]
+    skeleton = BRAINBOT / 'skeleton.nif'
+    assets.write_body(parts, skeleton, assets.skeleton_bones(skeleton), tmp_path / 'body.nif', EXPORT_MESHES.parent,
+                      (BRAINBOT / 'mtidle.kf',))
+    nif = assets.F.read((tmp_path / 'body.nif').read_bytes())
+    floats = [b for k, b in nif.blocks if k.endswith('FloatController')]
+    assert floats
+    keys = [nif.blocks[nif.blocks[b['interpolator']][1]['data']][1]['keys']['keys'] for b in floats]
+    assert max(len(k) for k in keys) > 2
 
 
 @pytest.mark.skipif(not SECURITRON.exists(), reason='needs the FalloutNV.esm export')

@@ -283,11 +283,15 @@ topics and songs, whose lines choose what follows (FNV INFO Choices):
   program. As a safety net, `SceneEnded` does not chain a step that ended
   within 1 s of its line starting (traced `short step`); the 5 s timer
   restarts the station.
-- **Topics only scripts say.** 15 lines in the region are reached by no
+- <a id="script-topics"></a>**Topics only scripts say (built 2026-11-08, not played).** 15 lines in the region are reached by no
   line's Choices; FNV's scripts say them at story moments: Black
   Mountain's music intros, Segment 12 and three event lines (GetHim,
-  Static, DontTakeMyRaul), and NCR Emergency's RadioGoodbye. They are left
-  out, counted.
+  Static, DontTakeMyRaul), and NCR Emergency's RadioGoodbye. After the
+  steps from RadioHello, each such topic starts steps of its own (in line
+  order, then along its lines' Choices), so a converted
+  `StartRadioConversation <topic>` finds it in `StepTopics`
+  (`RadioBMDontTakeMyRaul`, Raul's hiring line). Existing steps keep their
+  order and keys.
 
 **Non-Pipboy stations (built 2026-10-22, not yet played).** FNV's 13
 stations flagged Non-Pipboy are the casino and Tops lounges, Hanlon's
@@ -311,6 +315,77 @@ stations do, so a playlist's song history keeps up. Heard checks that the
 radio is on, the player is in range, and the player is tuned to the
 transmitter's frequency, which comes from the `F3NV_RadioStation` script
 on the transmitter base.
+
+<a id="line-stations"></a>**A station its lines name (2026-11-07, not yet
+built).** A program went only to a quest whose own condition names its
+station (`GetIsID <TACT>`). Three FNV quests have no conditions and name the
+station on each radio line instead: `VCampGolfHanlon` (Hanlon's suicide
+broadcast, 8 lines), `vDialogueLily` (her grandkids' recording, 7) and
+`VMSTopsPerformances` (4 lines over three Tops show radios). `station_of` now
+falls back to the one station a quest's radio lines name, which covers the
+first two; the Tops quest names three, and one quest holds one program, so
+its 4 lines stay out.
+
+<a id="stage-acts"></a>**The Tops stage acts (2026-11-07, not yet built).**
+`VMSTopsPerformances` holds the radio lines of three talking activators:
+the Lonesome Drifter (`TopsLonesomeDrifterRadio`, 3 songs and a closing
+line), Bruce Isaac and the Rad Pack (a song and a closing line each). Its
+script switches an act on (`SetBroadcastState 1`) and starts it
+(`StartRadioConversation RadioHello`); the act's Goodbye line ("a null line
+no one will ever see") ends it. Two changes reach them:
+- **An act per quest.** F3NV_RadioPlaylist's state (`Said`, `CurrentSong`)
+  is per quest, so one quest cannot run three programs. A quest whose radio
+  lines name several stations and whose own conditions name none gives each
+  station its own start-enabled quest (`Radio._acts`): its lines, Host
+  alias, step scenes and playlist. Its forms are keyed by the quest's FormID
+  plus the station's (`QUST radio <quest> <station>`, and the program's own
+  keys with that suffix), so every existing program keeps its FormIDs.
+- **A radio line by its topic.** The Drifter's three songs and Bruce's are
+  typed Conversation on the line (INFO DialogType 1) under RadioHello, a
+  Radio topic; programs took only lines typed Radio. They now take every line
+  in a Radio topic (`radio_lines`). FNV has no other such lines; Fallout 3's
+  `RadioEnclavePA` has 6.
+
+<a id="start-radio-conversation"></a>**Programs a script starts (2026-11-07, not yet built).**
+In FNV an act plays only when `TopsPerformerActivatorSCRIPT` calls
+`StartRadioConversation RadioHello` as the performer walks on stage (its
+`SetBroadcastState 1` calls are commented out), and its Goodbye line ends
+it. The act is heard from its talking activator on stage; its "radio" is an
+audio marker (`TopsDrifterRadioSpeaker` and the like, `marker_audio.nif`, no
+script) that FNV never switches on. FNV scripts start eight stations this
+way: the three acts, Hanlon's suicide broadcast, Lily's grandkids'
+recording, Repcon, the NCR emergency radio, the FFEU07 beacon, and Black
+Mountain at `RadioBMDontTakeMyRaul`. The converter left every call a `TODO`.
+- **The call.** On Fallout 4, `StartRadioConversation <topic>` becomes
+  `TES4Polyfill.StartRadioConversation(station, "<topic>")` (RadioHello with
+  no topic). The station's transmitter carries `F3NV_RadioStation`, which
+  its program's playlist names itself on at quest start (`Playlist`, through
+  the Host alias); the polyfill asks that playlist to start at the step whose
+  first topic has that EditorID (`StepTopics`). It stops any step running
+  first. A topic that starts no step is traced and does nothing.
+- **On demand.** A program whose station a script starts (a live call, not
+  a commented one), which the Pip-Boy does not list (Non-Pipboy), and which
+  holds a Goodbye line does not start with its quest and is not restarted by
+  the timer (`OnDemand`). FNV has five: the three acts and Hanlon's and
+  Lily's recordings; Fallout 3 has none. Without the Non-Pipboy test, FO3's
+  Galaxy News Radio (a script starts it once its relay is fixed, and it has
+  a RadioGoodbye line) and the Vault 101 PA would have stopped looping. Its Goodbye lines end the run
+  (`NextStep` 0) instead of returning to RadioHello. Starting it switches
+  its receivers on (`Receivers`, `SetRadioOn`), since an FO4 transmitter is
+  heard only through one: the acts' stage markers, Hanlon's Camp Golf
+  loudspeaker.
+- <a id="npc-radio"></a>**An NPC as the radio (built 2026-11-08, not played).** Lily's recording has
+  no placed radio: after the player rests with her, `LilyMedicineTimerSCRIPT`
+  starts it and `LilyREF.SetNPCRadio 1 VLilyGrandkidsRecordingREF` plays it
+  through Lily (ED-E's effect does the same for his station). A station a
+  live SetNPCRadio names gets one receiver activator on its frequency, an
+  invisible `markers\MarkerDummy01.nif` as vanilla's
+  `DN070_JamaicaPlainDummyRadio` (`Radio.npc_receiver`, the playlist's
+  `NPCReceiver`). The call becomes `TES4Polyfill.SetNPCRadio(actor, on,
+  station)`: the playlist places that receiver at the actor and switches it
+  on (off deletes it). It stays where she stood, not following her.
+- **Always on.** Every other program runs as before; a script's start
+  restarts it at the step named, without touching receivers.
 
 ## <a id="receivers"></a>Step 3: placed radios (built 2026-10-21, played: Trudy's radio)
 

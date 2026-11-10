@@ -36,6 +36,10 @@ FIRE = 'weaponFire'
 TALK, TALK_EVENTS = 'Talk', (('dyn_talkGeneric', ()), ('dyn_Talk', ('StartVoice', 'PCapEnter')))
 #: The events that end a talk state (DialogueBehavior's DynamicAnim and PCapDynamicAnim).
 TALK_END = ('00NextClip', 'idleStop', 'InstantExitClip')
+#: Vanilla creatures' dynamic idle events (IDLE ENAM: played once, looped), states and the once clip's end event.
+DYNAMIC = (('dynamicAnim', 'DynamicAnim', 5, G.SINGLE), ('dynamicAnimLooping', 'DynamicAnimLooping', 6, G.LOOPING))
+#: The once clip raises DYNAMIC_DONE this long before its end (vanilla's creature shared core).
+DYNAMIC_DONE, DYNAMIC_LEAD = 'returnToDefault', -0.2
 #: The engine's variables, registered first so their initial values stick.
 CONTRACT = [('bGraphDriven', G.BOOL, 1), ('bGraphDrivenTranslation', G.BOOL, 1), ('bGraphDrivenRotation', G.BOOL, 0),
             ('bAnimationDriven', G.BOOL, 0), ('bAllowRotation', G.BOOL, 0), ('bEquipOk', G.BOOL, 1),
@@ -115,7 +119,7 @@ class Builder:
 
     def standing(self, prefix: str, idle: str, talks: bool = False) -> str:
         """Idle and in-place turns (TurnRight 0, Idle 1, TurnLeft 2), starting where iSyncTurnState says; with
-        `talks`, the talk states (talking())."""
+        `talks`, the talk states (talking()) and the dynamic idle states (dynamic())."""
         g = self.g
         fx = g.blend_effect(f'{prefix}TurnBlend', 0.2)
         states = [g.state(0, 'TurnRight', self.clip('TurnRight', G.LOOPING), to=[('turnStop', 1), ('turnLeft', 2)],
@@ -124,8 +128,24 @@ class Builder:
                   g.state(2, 'TurnLeft', self.clip('TurnLeft', G.LOOPING), to=[('turnStop', 1), ('turnRight', 0)],
                           effect=fx)]
         talk, wildcard = self.talking(idle, fx) if talks else ([], ())
+        dyn, dyn_wildcard = self.dynamic(fx) if talks else ([], ())
         start = g.bindings([('startStateId', ('iSyncTurnState', G.INT32, 1))])
-        return g.machine(f'{prefix}StandingSM', states + talk, 1, wildcard=wildcard, effect=fx, binding=start)
+        return g.machine(f'{prefix}StandingSM', states + talk + dyn, 1, wildcard=[*wildcard, *dyn_wildcard],
+                         effect=fx, binding=start)
+
+    def dynamic(self, fx: str) -> tuple:
+        """(states, wildcard transitions) of the dynamic idle states (DYNAMIC), as vanilla's creature shared core:
+        a DynamicAnimationTaggingGenerator over a stand-in Idle clip, which the engine swaps for the IDLE's (GNAM);
+        the once state raises DYNAMIC_DONE before its end; both go back to Idle on it or TALK_END.
+        See: docs/fork/fo4_own_rig.md#idles
+        """
+        g, states = self.g, []
+        for event, name, sid, mode in DYNAMIC:
+            done = [(DYNAMIC_LEAD, DYNAMIC_DONE, True)] if mode == G.SINGLE else []
+            tagged = g.add('DynamicAnimationTaggingGenerator', name=f'{name}Gen', userData=1,
+                           pDefaultGenerator=g.clip(name, 'Animations\\Idle.hkt', mode, done))
+            states.append(g.state(sid, name, tagged, to=[(end, 1) for end in (DYNAMIC_DONE, *TALK_END)], effect=fx))
+        return states, [(event, sid) for event, _, sid, _ in DYNAMIC]
 
     def talking(self, idle: str, fx: str) -> tuple:
         """(states, wildcard transitions) of the talk states, as the robots' DialogueBehavior: dyn_talkGeneric

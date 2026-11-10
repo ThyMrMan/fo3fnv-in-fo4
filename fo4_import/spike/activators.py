@@ -14,6 +14,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.install import plugin_walk
+from fo4_import.base.source_fault import without_fault
 from fo4_import.base.vmad import object_scripts, read_entry
 from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.spike import records as R
@@ -71,26 +72,30 @@ class Activators:
         self.fo4_spells = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                            for r, _ in walk(builder.fo4, b'SPEL')}
 
-    def record(self, fid: int, rec: dict, model: str, bounds: tuple) -> bytes:
-        """The FO4 ACTI of FNV activator `rec` with converted `model` ('' for a trigger) and `bounds`."""
+    def record(self, fid: int, rec: dict, model: str, bounds: tuple, dest: bytes = b'') -> bytes:
+        """The FO4 ACTI of FNV activator `rec` with converted `model` ('' for a trigger), `bounds` and destruction
+        subrecords `dest`."""
         fnv_fid, vmad, prompt = int(rec['FormID'], 16), b'', ''
         if fnv_fid in self.water:
             vmad, prompt = self._drink(self.water[fnv_fid]), DRINK_PROMPT
         elif 'SCRI' in rec:
             vmad = self.builder.scripts.vmad(int(rec['SCRI'], 16))
         return R.pack_acti(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds, vmad, prompt,
-                           self.builder.sounds.field(rec, 'SNAM'), self.builder.radio.receiver(fnv_fid))
+                           self.builder.sounds.field(rec, 'SNAM'), self.builder.radio.receiver(fnv_fid), dest)
 
     def ambient(self, rec: dict, model: str) -> bool:
         """Whether FNV activator `rec` only plays its mesh's own loop: no script, name, water or station, and FNV
-        `model` converted (the mesh cache) holds an AUTO_LOOPS sequence. See: docs/fork/fo4_look.md#emissive"""
+        `model` converted (the mesh cache) holds an AUTO_LOOPS sequence; not for a model missing or with a source
+        fault (counted). See: docs/fork/fo4_look.md#emissive"""
         fnv_fid = int(rec['FormID'], 16)
         if 'SCRI' in rec or rec.get('FULL') or not model or fnv_fid in self.water:
             return False
         if fnv_fid in self.builder.radio.stations_of:
             return False
         path = export_file(self.export_dir, 'meshes', model.replace('/', '\\').lower())
-        return path.exists() and auto_loops(cached_convert(path, self.export_dir).nif)
+        converted = without_fault(cached_convert, path, self.export_dir) if path.exists() else None
+        self.builder.counts['activator loop not read (a source fault)'] += path.exists() and converted is None
+        return converted is not None and auto_loops(converted.nif)
 
     def _drink(self, water: int) -> bytes:
         """The drinking script VMAD for FNV water type `water`."""

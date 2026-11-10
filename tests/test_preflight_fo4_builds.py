@@ -11,6 +11,7 @@ import time
 from collections import defaultdict
 from types import SimpleNamespace
 
+from fo4_import.base.ba2_write import write_general
 from fo4_import.nif.blocks import pack_effect, pack_texture_set
 from fo4_import.nif.file import NifFile, write
 from tests.test_preflight_fo4 import OWN, fo4_index, rec, u32
@@ -146,6 +147,21 @@ def test_dlc_voice_and_files(tmp_path):
         (tmp_path / 'Meshes' / 'fnv' / name).write_bytes(b'')
     os.utime(tmp_path / 'Meshes' / 'fnv' / 'old.nif', (0, 0))
     assert dlc_overrides.unlisted_files(plugin) == (['Meshes/fnv/old.nif'], ['Meshes/fnv/new.nif'])
+
+
+def test_master_rigs_are_found_loose_or_in_the_main_archive(tmp_path):
+    """master_prefixes: a master's own-rig skeleton counts whether loose or packed in its Main BA2 (a deployed
+    build); one Fallout 4 ships does not."""
+    master = tmp_path / 'g' / 'G.esm'
+    loose = tmp_path / 'g' / 'Meshes' / 'Actors' / 'FNVRat' / 'CharacterAssets' / 'skeleton.nif'
+    loose.parent.mkdir(parents=True)
+    loose.write_bytes(b'x')
+    master.write_bytes(b'')
+    write_general({'Meshes/Actors/FNVGecko/CharacterAssets/skeleton.nif': loose,
+                   'Meshes/Actors/Dog/CharacterAssets/skeleton.nif': loose}, tmp_path / 'g' / 'G - Main.ba2')
+    game = SimpleNamespace(where=lambda path: 'vanilla' if '\\dog\\' in path else None)
+    rigs, lods = dlc_overrides.master_prefixes([master], game)
+    assert rigs == ('meshes\\actors\\fnvgecko\\', 'meshes\\actors\\fnvrat\\') and lods == ()
 
 
 def record(sig: bytes, fid: int, body: bytes = b'') -> bytes:

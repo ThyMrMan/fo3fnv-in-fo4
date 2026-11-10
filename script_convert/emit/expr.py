@@ -29,7 +29,7 @@ from script_convert.emit.commands import (
 )
 from script_convert import resolve_name as _resolve
 from script_convert import symbols as _symbols
-from script_convert.target import self_as_actor
+from script_convert.target import is_fallout4, self_as_actor
 from script_convert.tes4 import lexer as L, nodes as N
 
 # Papyrus binds `as` tighter than the arithmetic operators, so a cast applied
@@ -123,12 +123,12 @@ def _is_ref_variable(conv, node: N.Expr) -> bool:
 
 
 def emit_bare(conv, node: N.Expr) -> str:
-    """Name of a node without conversion -- for building a lookup key."""
+    """Name of a node without conversion -- for building a lookup key; a lowered (Raw) owner's Papyrus."""
     if isinstance(node, N.Ident):
         return node.name
     if isinstance(node, N.Member):
         return f'{emit_bare(conv, node.owner)}.{node.name}'
-    return ''
+    return node.text if isinstance(node, N.Raw) else ''
 
 
 def emit_source(node: N.Expr) -> str:
@@ -244,8 +244,7 @@ def emit(conv, node: N.Expr, extends: str) -> str:
         # OBSE `$x` is a string cast, not an operator Papyrus knows.
         if node.op == '$':
             return f'({inner} as String)'
-        # `- (a + b)` needs its parens; `-x` does not.
-        if isinstance(node.operand, N.BinOp) and node.operand.op in _ARITH:
+        if isinstance(node.operand, N.BinOp) and (node.operand.op in _ARITH or node.op == '!'):
             inner = f'({inner})'
         return f'{node.op}{inner}'
 
@@ -445,15 +444,19 @@ def _container(conv, a, b, node, extends):
     """`GetContainer == 0` -> "am I lying in the world?".
 
     TES4Polyfill.IsInContainer answers that exactly.  Any other comparison
-    (`GetContainer != SomeRef` -- "is a PARTICULAR actor holding me") has no
-    Papyrus equivalent, so it is neutralised to the value that does not fire
-    the branch and left as a TODO rather than compiled into a lie.
+    (`GetContainer != SomeRef` -- "is a PARTICULAR actor holding me") is
+    Fallout 4's native GetContainer() on a reference script; elsewhere it has
+    no Papyrus equivalent, so it is neutralised to the value that does not
+    fire the branch and left as a TODO rather than compiled into a lie.
+    See: docs/fork/fo4_casino_plan.md#records-built
     """
     if not _names_get_container(a):
         return None
     if _is_zero(b):
         call = 'TES4Polyfill.IsInContainer(Self)'
         return f'!{call}' if node.op == '==' else call
+    if is_fallout4() and extends == 'ObjectReference':
+        return f'(GetContainer() {node.op} {emit(conv, b, extends)})'
     conv._line_comments.append(
         f';TODO: GetContainer has no Papyrus equivalent ({emit_source(node)})')
     return 'False' if node.op == '!=' else 'True'

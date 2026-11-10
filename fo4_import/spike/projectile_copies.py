@@ -25,6 +25,8 @@ from tes5_import.base.writer import pack_subrecord
 FLAGS_AT, TYPE_AT, GRAVITY_AT, SPEED_AT, RANGE_AT, EXPLOSION_AT = 0, 2, 4, 8, 12, 32
 #: FO4 PROJ DNAM Explosion - Alt. Trigger - Proximity, then its Timer (floats).
 FUSE_AT = 24
+#: FO4 PROJ DNAM Default Weapon Source: the weapon a disarmed or picked-up projectile gives (xEdit's FO4 PROJ).
+SOURCE_AT = 60
 #: PROJ flags Explosion and Alt. Trigger (the same bits in FNV and FO4); the types that fly (Missile, Lobber, Arrow).
 EXPLODES, ALT_TRIGGER, FLYING = 0x2, 0x4, (1, 2, 0x40)
 #: PROJ flags an inert thrown copy takes from FNV's (the same bits): Muzzle Flash, Can Be Picked Up, Pins Limbs.
@@ -86,19 +88,25 @@ def blast(data: bytes, rec: dict) -> bytes:
     return bytes(out)
 
 
-def _with(subs: list, edid: str, tag: bytes, data: bytes) -> bytes:
-    """`subs` packed with EditorID `edid` and `tag`'s data set to `data`."""
-    swap = {b'EDID': f'{edid}\0'.encode(), tag: data}
-    return b''.join(pack_subrecord(t.decode(), swap.get(t, d)) for t, d in subs)
+def _with(subs: list, rec: dict, tag: bytes, data: bytes) -> bytes:
+    """`subs` packed as FNV `rec`'s copy: its EditorID and name (FULL, else none), `tag`'s data set to `data`.
+    See: docs/fork/fo4_thrown_weapons.md#names
+    """
+    name = rec.get('FULL')
+    swap = {b'EDID': f'FNV_{rec["EditorID"]}\0'.encode(), b'FULL': f'{name}\0'.encode('cp1252', 'replace'),
+            tag: data}
+    return b''.join(pack_subrecord(t.decode(), swap.get(t, d)) for t, d in subs if t != b'FULL' or name)
 
 
 class ProjectileCopies:
     """The stand-in copies of one build, each written once through its writer."""
 
-    def __init__(self, builder, stand_ins: set, fuses: 'dict | None' = None):
+    def __init__(self, builder, stand_ins: set, fuses: 'dict | None' = None, own_models: frozenset = frozenset()):
         """Index the `stand_ins` (Fallout4.esm PROJ FormIDs) and their explosions, and FNV's explosions; `fuses`
-        {FNV EditorID: (proximity, timer)} for thrown projectiles FNV sets off another way."""
+        {FNV EditorID: (proximity, timer)} for thrown projectiles FNV sets off another way; `own_models`, the FNV
+        explosions (EditorIDs) shown on their own model."""
         self.builder, self.made, self.vanilla, self.fuses = builder, {}, {}, fuses or {}
+        self.own_models = own_models
         for rec, _ in walk(builder.fo4, b'PROJ', b'EXPL'):
             if rec.sig == b'EXPL' or rec.form_id in stand_ins:
                 self.vanilla[rec.form_id] = list(subrecords(rec.body))
@@ -121,9 +129,10 @@ class ProjectileCopies:
         at = next(i for i, (tag, _) in enumerate(subs) if tag in (b'MNAM', b'DATA'))
         return subs[:at] + [(b'EITM', struct.pack('<I', fid))] + subs[at:]
 
-    def copy(self, stand_in: int, rec: dict, is_thrown: bool = False) -> int:
-        """The copy of `stand_in` flying FNV PROJ `rec` (a thrown weapon's when `is_thrown`: thrown()), written
-        once; the stand-in when it has no DNAM."""
+    def copy(self, stand_in: int, rec: dict, is_thrown: bool = False, own_model: bool = False, source: int = 0) -> int:
+        """The copy of `stand_in` flying FNV PROJ `rec` (a thrown weapon's when `is_thrown`: thrown(), on FNV's
+        model when inert or `own_model`; weapon `source` its default source), written once; the stand-in when it
+        has no DNAM."""
         fnv = int(rec['FormID'], 16)
         subs = self.vanilla.get(stand_in, [])
         found = dict(subs)
@@ -134,26 +143,36 @@ class ProjectileCopies:
             dnam = bytearray(thrown(dnam, rec, self.fuses)) if is_thrown else dnam
             explosion = self._explosion(struct.unpack_from('<I', dnam, EXPLOSION_AT)[0], rec, dnam)
             struct.pack_into('<I', dnam, EXPLOSION_AT, explosion)
+            if source and len(dnam) >= SOURCE_AT + 4:
+                struct.pack_into('<I', dnam, SOURCE_AT, source)
             fid = self.made[fnv] = self.builder.writer.derive_formid(SITES['PROJ'], fnv)
-            if is_thrown and inert(rec) and rec.get('Model.MODL'):
+            if is_thrown and (inert(rec) or own_model) and rec.get('Model.MODL'):
                 subs = with_model(subs, *self.builder.mesh(rec['Model.MODL']))
-            body = _with(subs, f'FNV_{rec["EditorID"]}', b'DNAM', bytes(dnam))
+            body = _with(subs, rec, b'DNAM', bytes(dnam))
             self.builder.writer.add_record('PROJ', pack_fo4_record('PROJ', fid, 0, body))
             self.builder.counts['PROJ (stand-in copy)'] += 1
         return self.made[fnv]
 
     def _explosion(self, stand_in: int, rec: dict, dnam: bytes) -> int:
-        """The explosion the copy carries: a copy of `stand_in` with FNV's numbers when both explode, else it."""
+        """The copy's explosion: explosion() when both explode, else `stand_in`."""
         fnv = int(rec.get('DATA.Explosion') or '0', 16)
         exploding = struct.unpack_from('<H', dnam, FLAGS_AT)[0] & EXPLODES
-        if not (exploding and fnv in self.explosions and stand_in in self.vanilla):
+        return self.explosion(stand_in, fnv) if exploding else stand_in
+
+    def explosion(self, stand_in: int, fnv: int) -> int:
+        """The copy of Fallout4.esm explosion `stand_in` with FNV explosion `fnv`'s numbers, enchantment and (when
+        listed) model, written once; `stand_in` itself when either is unknown."""
+        if not (fnv in self.explosions and stand_in in self.vanilla):
             return stand_in
         key = (SITES['EXPL'], fnv, stand_in)
         if key not in self.made:
             subs = self._effect(self.vanilla[stand_in], self.explosions[fnv])
-            data = blast(dict(subs)[b'DATA'], self.explosions[fnv])
+            own = self.explosions[fnv]
+            if own['EditorID'] in self.own_models and own.get('Model.MODL'):
+                subs = with_model(subs, *self.builder.mesh(own['Model.MODL']))
+            data = blast(dict(subs)[b'DATA'], own)
             fid = self.made[key] = self.builder.writer.derive_formid(SITES['EXPL'], f'{fnv:08X} {stand_in:08X}')
-            body = _with(subs, f'FNV_{self.explosions[fnv]["EditorID"]}', b'DATA', data)
+            body = _with(subs, self.explosions[fnv], b'DATA', data)
             self.builder.writer.add_record('EXPL', pack_fo4_record('EXPL', fid, 0, body))
             self.builder.counts['EXPL (stand-in copy)'] += 1
         return self.made[key]

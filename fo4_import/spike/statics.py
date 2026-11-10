@@ -23,7 +23,8 @@ from pathlib import Path
 
 from fo4_import.base.ba2_pack import stage_texture
 from fo4_import.base.writer import FO4PluginWriter
-from fo4_import.nif import bgsm
+from fo4_import.nif import bgsm, elric
+from fo4_import.nif import file as nif_file
 from asset_convert.texture import spec_mask
 from fo4_import.nif.convert_static import (PREFIX, fo4_texture, retextured, smoothness, spec_glossiness, spec_map_path,
                                            texture_source)
@@ -52,6 +53,19 @@ def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None
     if load and not files.animatable:
         return None
     return write_files(export_dir, files, rel[:-4] + ('load' if load else suffix) + '.nif', data_dir)
+
+
+def prop_assets(export_dir: Path, model: str, data_dir: Path, pose: dict, bone: str) -> tuple:
+    """write_assets() of FNV idle prop `model` in `pose`, unanimated, as `<name>_prop.nif` hung from FO4 bone `bone`
+    (`Prn`); one with Havok input gets its collision from Elric at once."""
+    rel = model.replace('/', '\\').lower()
+    files = cached_files(export_file(export_dir, 'meshes', rel), export_dir, pose, False)
+    nif = nif_file.read(files.nif)
+    nif_file.hang_from(nif, bone)
+    made = write_files(export_dir, files._replace(nif=nif_file.write(nif)), rel[:-4] + '_prop.nif', data_dir)
+    if elric.has_havok(files.nif):
+        finish([data_dir / 'Meshes' / made[0]])
+    return made
 
 
 def terminal_assets(export_dir: Path, model: str, data_dir: Path) -> 'tuple | None':

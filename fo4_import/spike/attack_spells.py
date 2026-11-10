@@ -52,6 +52,8 @@ EXPLOSION_SITE = 'FNV explosion enchantment'
 ENIT_EXPLOSION = struct.pack('<IIIiII', 0, 0, 1, 0, 1, 6) + bytes(12)
 #: ENIT of a weapon's object effect: Fallout4.esm's EnchCryoFreeze's (as the explosion's, flags 0x4).
 ENIT_WEAPON = struct.pack('<IIIiII', 0, 4, 1, 0, 1, 6) + bytes(12)
+#: ENIT of an armor's object effect: all 28 Fallout4.esm armor enchantments' (Constant Effect, Self, type 6).
+ENIT_ARMOR = struct.pack('<IIIiII', 0, 0, 0, 0, 0, 6) + bytes(12)
 
 
 def _keys(spell: 'dict | None') -> list:
@@ -60,7 +62,7 @@ def _keys(spell: 'dict | None') -> list:
 
 
 def pack_explosion_ench(fid: int, edid: str, pairs: bytes, enit: bytes = ENIT_EXPLOSION) -> bytes:
-    """An explosion's or (ENIT_WEAPON) weapon's object effect of `pairs`."""
+    """The ENCH of `pairs`: an explosion's, or by `enit` a weapon's or armor's."""
     body = pack_subrecord('EDID', f'{edid}\0'.encode()) + pack_subrecord('OBND', bytes(12))
     return pack_fo4_record('ENCH', fid, 0, body + pack_subrecord('ENIT', enit) + pairs)
 

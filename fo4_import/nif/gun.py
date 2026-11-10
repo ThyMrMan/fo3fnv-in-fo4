@@ -27,6 +27,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from fo4_import.nif import file as nif_file
+from fo4_import.nif import fnv_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
@@ -99,9 +100,7 @@ def bone_for(part: str, bones: 'dict | None' = None) -> 'str | None':
 
 def fnv_nodes(path: Path) -> dict:
     """{node name: world position} of an FNV gun's nodes (ProjectileNode, ##SightingNode...)."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(path)
     root = data.roots[0]
     return {n.name.decode('cp1252'): np.array(n.get_transform(root).as_list())[3, :3]
             for n in root.tree() if isinstance(n, NifFormat.NiNode)}

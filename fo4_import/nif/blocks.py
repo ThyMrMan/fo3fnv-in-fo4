@@ -111,6 +111,18 @@ def pack_value_node(b: dict) -> bytes:
     return pack_node(b) + struct.pack('<IB', b['value'], b.get('value_flags', 0))
 
 
+def read_range_node(r: Reader) -> dict:
+    """BSRangeNode (blast, debris, damage stage): a NiNode, (min, max, current)."""
+    out = read_node(r)
+    out['range'] = (r.take('B'), r.take('B'), r.take('B'))
+    return out
+
+
+def pack_range_node(b: dict) -> bytes:
+    """BSRangeNode's bytes."""
+    return pack_node(b) + bytes(b['range'])
+
+
 def read_bsx(r: Reader) -> dict:
     """BSXFlags: a name and an integer."""
     return {'name': r.take('i'), 'value': r.take('I')}
@@ -309,6 +321,7 @@ def pack_tri_shape(b: dict) -> bytes:
 BLOCKS = {
     'NiNode': (read_node, pack_node), 'BSFadeNode': (read_node, pack_node), 'BSLeafAnimNode': (read_node, pack_node),
     'BSValueNode': (read_value_node, pack_value_node),
+    **dict.fromkeys(('BSRangeNode', 'BSBlastNode', 'BSDamageStage', 'BSDebrisNode'), (read_range_node, pack_range_node)),
     'BSXFlags': (read_bsx, pack_bsx), 'NiAlphaProperty': (read_alpha, pack_alpha),
     'BSShaderTextureSet': (read_texture_set, pack_texture_set),
     'BSLightingShaderProperty': (read_lighting, pack_lighting),

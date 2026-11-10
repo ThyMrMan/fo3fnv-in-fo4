@@ -1,4 +1,5 @@
-"""Pack a Data folder's loose textures into the plugin's texture BA2 with the CK's Archive2.
+"""Pack a Data folder's loose textures into the plugin's texture BA2 with the CK's Archive2, and its sounds,
+meshes and materials into its Main BA2 (pack_main).
 
 Fallout 4 streams a texture's mips from a BA2's chunks; a loose DDS can stay
 on a low mip, and past iTextureDegradeDistance the game drops a texture's top
@@ -44,6 +45,8 @@ OWN = ('fnv/', 'terrain/fnv_')
 TEXTURE_OPTIONS = ('-f=DDS', f'-maxChunkCount={CHUNKS}')
 #: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
 SOUND = 'Sound'
+#: Data folders the build writes loose and the Main archive also holds (Scripts stay loose, so hotfixes still win).
+PACKED = ('Meshes', 'Materials')
 #: Per resolved Data folder, this run's {'manifest': the last pack's record, 'staged': {key: signature}}.
 _RUNS = {}
 
@@ -174,7 +177,7 @@ def _staged_files(staged: Path, keep: set) -> dict:
     return out
 
 
-def _archive2(staged: Path, root: Path, archive: Path, _kept: set) -> None:
+def _archive2(staged: Path, root: Path, archive: Path) -> None:
     """Pack `staged` as the texture archive `archive` (TEXTURE_OPTIONS), named from `root`, with Archive2."""
     done = subprocess.run([str(ARCHIVE2), str(staged.resolve()), f'-c={archive.resolve()}', *TEXTURE_OPTIONS,
                            f'-r={root.resolve()}', '-q'],
@@ -183,9 +186,9 @@ def _archive2(staged: Path, root: Path, archive: Path, _kept: set) -> None:
         raise RuntimeError(f'Archive2 could not pack {archive} (absolute paths only): {done.stdout}{done.stderr}')
 
 
-def _pack(staged: Path, root: Path, archive: Path, files: dict, make=_archive2) -> None:
-    """Pack `staged` as `archive` with make(staged, root, archive, kept) unless the record beside it shows the same
-    `files` ({key: [size, mtime]}) packed; `kept` are the keys unchanged since the archive on disk was packed."""
+def _pack(archive: Path, files: dict, make) -> None:
+    """Pack `archive` with make(kept) unless the record beside it shows the same `files` ({key: [size, mtime]})
+    packed; `kept` are the keys unchanged since the archive on disk was packed."""
     state = hashlib.sha1(json.dumps(files, sort_keys=True).encode()).hexdigest()
     record = archive.with_name(archive.name + '.json')
     packed = _read_json(record)
@@ -194,7 +197,7 @@ def _pack(staged: Path, root: Path, archive: Path, files: dict, make=_archive2) 
     if current and packed.get('files') == state:
         return
     before = packed.get('manifest', {}) if current else {}
-    make(staged, root, archive, {key for key, value in files.items() if before.get(key) == value})
+    make({key for key, value in files.items() if before.get(key) == value})
     stat = archive.stat()
     record.write_text(json.dumps({'files': state, 'archive': [stat.st_size, stat.st_mtime_ns], 'manifest': files}),
                       encoding='utf-8')
@@ -212,8 +215,9 @@ def pack_textures(data_dir: Path, plugin: str, keep_loose: tuple = ()) -> int:
     for key, path in paths.items():
         stat = path.stat()
         files[key] = [stat.st_size, stat.st_mtime_ns, run['staged'].get(key)]
-    _pack(root / 'Textures', root, data_dir / f'{Path(plugin).stem} - Textures.ba2',
-          {key: value[:2] for key, value in files.items()})
+    archive = data_dir / f'{Path(plugin).stem} - Textures.ba2'
+    _pack(archive, {key: value[:2] for key, value in files.items()},
+          lambda _kept: _archive2(root / 'Textures', root, archive))
     (root / MANIFEST).write_text(json.dumps(files, sort_keys=True), encoding='utf-8')
     return len(files)
 
@@ -229,20 +233,36 @@ def stage_loose_sounds(data_dir: Path, own: tuple) -> int:
     return sum(len(_move_loose(Path(data_dir) / SOUND / folder, root / folder, ())) for folder in own)
 
 
-def pack_sounds(data_dir: Path, plugin: str) -> int:
-    """Pack the staged sounds (sound_root) as `<plugin stem> - Main.ba2` when they changed since it was packed, or
-    delete that archive and its record when none are staged (an earlier build's would ship its stale sounds); the
-    file count."""
-    root, archive = sound_root(data_dir), Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
-    files = {p.relative_to(root).as_posix().lower(): [p.stat().st_size, p.stat().st_mtime_ns]
-             for p in (root / SOUND).rglob('*') if p.is_file()} if (root / SOUND).is_dir() else {}
-    if files:
-        _pack(root / SOUND, root, archive, files, _general)
-    for stale in () if files else (archive, archive.with_name(archive.name + '.json')):
+def _tree(base: Path, folder: str) -> dict:
+    """{name relative to `base`, '/'-separated: path} of every file under `base`/`folder`."""
+    out = {}
+    for top, _dirs, names in os.walk(Path(base) / folder):
+        for name in names:
+            path = Path(top, name)
+            out[path.relative_to(base).as_posix()] = path
+    return out
+
+
+def main_files(data_dir: Path) -> dict:
+    """{archive name: path} of what `<plugin> - Main.ba2` holds: the staged sounds (sound_root) and the loose
+    PACKED folders of `data_dir`."""
+    named = _tree(sound_root(data_dir), SOUND)
+    for folder in PACKED:
+        named.update(_tree(Path(data_dir), folder))
+    return named
+
+
+def pack_main(data_dir: Path, plugin: str) -> int:
+    """Pack main_files() as `<plugin stem> - Main.ba2` when they changed since it was packed, or delete that archive
+    and its record when there are none (an earlier build's would ship stale files); the file count. Loose PACKED
+    files stay for the build; the deploy ships the archive in their place.
+    See: docs/fork/fo4_pipeline.md#main-archive
+    """
+    named, archive = main_files(data_dir), Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
+    if named:
+        stats = {name.lower(): path.stat() for name, path in named.items()}
+        _pack(archive, {key: [st.st_size, st.st_mtime_ns] for key, st in stats.items()},
+              lambda kept: write_general(named, archive, kept))
+    for stale in () if named else (archive, archive.with_name(archive.name + '.json')):
         stale.unlink(missing_ok=True)
-    return len(files)
-
-
-def _general(staged: Path, root: Path, archive: Path, kept: set) -> None:
-    """write_general() of every file under `staged`, `kept` reused."""
-    write_general(root, sorted(p for p in staged.rglob('*') if p.is_file()), archive, kept)
+    return len(named)

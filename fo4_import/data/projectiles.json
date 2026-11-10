@@ -95,5 +95,9 @@
   "fuses": {
     "_about": "The fuse (Alt. Trigger proximity, timer in seconds) of a thrown FNV projectile FNV sets off another way, as its copy's: C4 waits for FNV's detonator, which Fallout 4 lacks, so it counts down as the time bombs do (proximity 0, 15 s). See docs/fork/fo4_thrown_weapons.md#timers.",
     "C4Projectile": [0.0, 15.0]
+  },
+  "own_models": {
+    "_about": "FNV explosions (EditorID) whose copy shows FNV's own model, not its stand-in's: effects that are not a blast (gas and smoke clouds, the stun grenade's spray, the flashbang), which the frag stand-in would draw as a short blast. See docs/fork/fo4_thrown_weapons.md#explosion-models.",
+    "explosions": ["GrenadeGasExplosion", "NVDLC01GhostGasBombExplosion", "GrenadeStunExplosion", "NVDLC04FlashBangExplosion"]
   }
 }

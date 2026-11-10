@@ -23,7 +23,7 @@ GREETING_CODES = {R.TOPIC_HELLO[1], R.TOPIC_GOODBYE[1]}
 def _say(dials: dict, lines: list) -> SAY.SayTopics:
     """A SayTopics over FNV `dials` and quest Q's `lines`, each line built as b'I'."""
     say = SAY.SayTopics.__new__(SAY.SayTopics)
-    say.dials, say.infos, say.said = dials, {'Q': lines}, set()
+    say.dials, say.infos, say.said, say.borrowed = dials, {'Q': lines}, set(), {}
     say.engine = {**SAY.ENGINE_TOPICS, **B.named_barks(dials)}
     say.replies = B.replies(dials, lines, say.engine)
     say.builder = SimpleNamespace(new_id=lambda key: 0x900)

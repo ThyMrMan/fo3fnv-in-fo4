@@ -16,6 +16,8 @@ out. Each record keeps its FNV FormID.
 See: docs/fork/fo4_pipeline.md#readables
 """
 
+import struct
+
 from fo4_import.base.vmad import object_scripts
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.nif.convert_static import fo4_texture, texture_source
@@ -23,6 +25,7 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
 from fo4_import.spike.conditions import fnv_av_name
 from fo4_import.spike.holotapes import FNV_VOICE, Holotapes
+from fo4_import.spike.perks import ADD_VALUE
 from fo4_import.spike.say_topics import actor_values
 from fo4_import.spike.statics import copy_texture
 from fo4_import.spike.terminals import TEXT_NOTE, Terminals
@@ -33,6 +36,8 @@ IMAGE_NOTE = 2
 FIRST_SKILL = 32
 #: The FO4 script a skill book runs, and FNV's book skill bonus setting (3 points, as FNV's in-game count).
 SKILL_SCRIPT, SKILL_SETTING = 'F3NV_SkillBook', 'fBookPerkBonus'
+#: FNV/FO3 entry point Adjust Book Skill Points (Comprehension adds 1), as the export writes it.
+BOOK_POINTS = '11'
 #: BOOK DNAM flag Can't Be Taken (FNV DATA flag 0x2, FO4 DNAM 0x2).
 CANT_BE_TAKEN = 0x2
 PLAYER = 0x14
@@ -48,7 +53,7 @@ class Readables:
 
     def __init__(self, builder):
         """Readables written through cell builder `builder`."""
-        self.builder, self.made, self.forms = builder, {}, None
+        self.builder, self.made, self.forms, self.bonuses = builder, {}, None, None
         export_dir = builder.export_dir
         self.terminals = Terminals(builder, export_dir, self.form_map)
         self.holotapes = Holotapes(builder, export_dir, self.form_map)
@@ -122,6 +127,16 @@ class Readables:
         return self._write(rec, lambda fid: R.pack_book(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''),
                                                          rec.get('DESC', ''), self._look(rec), worth, vmad, dnam))
 
+    def book_bonuses(self) -> tuple:
+        """([FO4 perk], [points]) of FNV's Adjust Book Skill Points Add Value perks (Comprehension), found once."""
+        if self.bonuses is None:
+            perks = self.builder.perks
+            found = [(perks.first[int(r['FormID'], 16)], struct.unpack('<f', bytes.fromhex(r[f'{k}.Value']))[0])
+                     for r in perks.records for k in (f'Effect[{i}]' for i in range(int(r.get('EffectCount', 0) or 0)))
+                     if r.get(f'{k}.EntryPoint') == BOOK_POINTS and r.get(f'{k}.Function') == str(ADD_VALUE)]
+            self.bonuses = ([p for p, _ in found], [v for _, v in found])
+        return self.bonuses
+
     def _book_scripts(self, rec: dict) -> bytes:
         """The VMAD of a book's converted FNV script and, for a skill book, SKILL_SCRIPT; b'' with neither."""
         scripts, entries = self.builder.scripts, []
@@ -132,6 +147,8 @@ class Readables:
         skill = int(rec.get('DATA.Teaches', -1))
         av = actor_value_form(fnv_av_name(FIRST_SKILL + skill), scripts.helper_index) if 0 <= skill < 0x80 else None
         if av is not None:
-            entries.append((SKILL_SCRIPT, {'Skill': av}, {'Points': ('float', self.points)}))
+            perks, extra = self.book_bonuses()
+            entries.append((SKILL_SCRIPT, {'Skill': av}, {'Points': ('float', self.points),
+                                                         'BonusPerks': ('objects', perks), 'Bonuses': ('floats', extra)}))
             self.builder.counts['skill books'] += 1
         return object_scripts(entries) if entries else b''

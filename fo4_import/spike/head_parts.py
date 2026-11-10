@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fo4_import.face import hair
+from fo4_import.face import hair, hair_styles
 from fo4_import.face.bake import positions, triangles, uvs
 from fo4_import.face.memo import digest
 from fo4_import.nif import file as nif_file
@@ -58,17 +58,17 @@ def _drawn(mesh: Path, drawn: np.ndarray, at: fnv_npc.Frame) -> tuple:
 
 
 def _hair(choice: HeadChoice, assets, export_dir: Path, at: fnv_npc.Frame, depths: list) -> None:
-    """Choose the hair and the hair colour; none for a bald NPC (no HNAM)."""
+    """Choose the hair (among hair_styles.candidates) and the hair colour; none for a bald NPC (no HNAM)."""
     if 'HNAM.Hair' not in at.npc:
         return
     record = fnv_npc.record(export_dir, 'HAIR', at.npc['HNAM.Hair'])
     drawn = fnv_npc.hair_rgb(fnv_npc.asset(export_dir, 'textures', record['ICON']), at.npc)
     target = hair.coverage([_drawn(fnv_npc.asset(export_dir, 'meshes', record['Model.MODL']), drawn, at)], depths)
     female = bool(int(at.npc.get('ACBS.Flags', 0)) & FEMALE)
-    choice.hair, choice.distances['hair'] = hair.best_part(assets, hair.HAIR, female, target, depths)
+    among, _ = hair_styles.candidates(assets, record, female)
+    choice.hair, choice.distances['hair'] = hair.best_part(assets, hair.HAIR, female, target, depths, among)
     _, material = assets.shapes(choice.hair)[0]
-    choice.colour = hair.best_hair_colour(assets, assets.texture(material['textures']['diffuse']), material,
-                                          hair.fnv_hair_colour(drawn))
+    choice.colour = hair.best_hair_colour(assets, material, hair.fnv_hair_colour(drawn))
 
 
 def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes) -> HeadChoice:

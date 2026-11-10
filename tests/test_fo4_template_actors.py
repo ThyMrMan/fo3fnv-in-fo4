@@ -9,7 +9,9 @@ from types import SimpleNamespace
 
 from fo4_import.nif.creature import HEAD_SLOT
 from fo4_import.spike import npcs as N
+from fo4_import.spike import void_actors as VA
 from fo4_import.spike.creatures import skeleton_folder
+from script_convert.constants import FALLOUT4_HELPER_CREATURE_KEYWORD
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
@@ -94,17 +96,22 @@ def test_an_npc_with_its_own_traits_takes_its_listed_parts_from_the_lists_copy()
 
 
 def _void_npcs() -> N.Npcs:
-    """An Npcs over a void creature, a list holding it (made), a creature templated on that list (own script,
-    no Use Script), one with Use Script, and a plain coyote; scripts.vmad records its calls."""
+    """An Npcs over a void creature, a list holding it and a coyote, a creature templated on that list (own
+    script, no Use Script), one with Use Script, one templated on the void itself, and the plain coyote;
+    scripts.vmad records its calls."""
     npcs = N.Npcs.__new__(N.Npcs)
     folders = {0xE01: 'creatures\\nvvoid', 0xE03: 'creatures\\coyote', 0xE04: 'creatures\\coyote',
-               0xE05: 'creatures\\coyote'}
-    npcs.records, npcs.lists, npcs.void_lists = {}, {0xE02: {'FormID': '00000E02'}}, {0xE02}
+               0xE05: 'creatures\\coyote', 0xE06: 'creatures\\coyote'}
+    entry = lambda i, form: {f'Entry[{i}].Level': '1', f'Entry[{i}].FormID': form, f'Entry[{i}].Count': '1'}
+    npcs.records, npcs.lists = {}, {0xE02: {'FormID': '00000E02', 'EditorID': 'L', 'EntryCount': '2',
+                                            **entry(0, '00000E01'), **entry(1, '00000E05')}}
     npcs.creatures = SimpleNamespace(records={
         0xE01: {'FormID': '00000E01'},
         0xE03: {'FormID': '00000E03', 'ACBS.TemplateFlags': '1', 'TPLT.Template': '00000E02', 'SCRI': '00000F0A'},
         0xE04: {'FormID': '00000E04', 'ACBS.TemplateFlags': '513', 'TPLT.Template': '00000E02'},
-        0xE05: {'FormID': '00000E05'}}, label=folders.get)
+        0xE05: {'FormID': '00000E05'},
+        0xE06: {'FormID': '00000E06', 'ACBS.TemplateFlags': '1', 'TPLT.Template': '00000E01', 'SCRI': '00000F0B'}},
+        label=folders.get)
     calls = []
     npcs.builder = SimpleNamespace(scripts=SimpleNamespace(vmad=lambda scpt, extra=(): calls.append((scpt, extra))
                                                            or b'vmad'))
@@ -113,29 +120,51 @@ def _void_npcs() -> N.Npcs:
     return npcs
 
 
-def test_a_void_creature_is_the_void_actor_and_its_lists_and_templates_draw_it():
-    """actor_form gives the void actor for a void creature; a list holding one, and a creature templated on that
-    list, draw the void; a plain creature does not."""
+def test_a_void_share_follows_lists_and_traits_templates():
+    """The void is 1, its half of a two-entry list 0.5, a creature whose traits come from that list 0.5 too; a
+    plain coyote 0. Only a template on the void alone always draws it."""
     npcs = _void_npcs()
     assert npcs.actor_form('00000E01') == 0x0300F00D
-    assert npcs._draws_void(0xE01) and npcs._draws_void(0xE02) and npcs._draws_void(0xE03)
-    assert not npcs._draws_void(0xE05)
+    assert [npcs.void_share(f) for f in (0xE01, 0xE02, 0xE03, 0xE05, 0xE06)] == [1.0, 0.5, 0.5, 0.0, 1.0]
+    assert npcs._draws_void(0xE06) and not npcs._draws_void(0xE02) and not npcs._draws_void(0xE03)
 
 
-def test_a_template_actor_runs_its_own_script_and_the_void_check_unless_it_takes_the_templates():
-    """Without Use Script: VMAD of its own script plus the void check, after EDID; with it: no edit (FO4's
-    Script slot gives the template's)."""
+def test_a_list_leaves_out_its_void_entries():
+    """FO4 draws each template part on its own, so a void entry would mix into the coyote: only the coyote stays."""
+    npcs = _void_npcs()
+    written = []
+    npcs.made_lists = {}
+    npcs.builder = SimpleNamespace(fnv_id=lambda hex_id: 0x0300E002, counts=collections.Counter(),
+                                   writer=SimpleNamespace(add_record=lambda sig, rec: written.append(rec)))
+    npcs.actor_form = lambda hex_id: {'00000E01': 0x0300F00D, '00000E05': 0x0300E005}[hex_id]
+    assert npcs._list(0xE02) == 0x0300E002
+    assert struct.pack('<I', 0x0300E005) in written[0] and struct.pack('<I', 0x0300F00D) not in written[0]
+
+
+def test_a_template_actor_runs_its_own_script_and_the_void_check_only_on_the_void_itself():
+    """Without Use Script: VMAD of its own script after EDID, plus the void check when its template is the void
+    itself (a list holds none); with Use Script: no edit (FO4's Script slot gives the template's)."""
     npcs = _void_npcs()
     rec = npcs.creatures.records
     edit = npcs._template_script(rec[0xE03])
     out = edit(pack_subrecord('EDID', b'X\0') + pack_subrecord('OBND', bytes(12)))
     assert [t for t, _ in subrecords(out)] == [b'EDID', b'VMAD', b'OBND']
-    assert npcs.calls == [(0xF0A, (('F3NV_VoidActor', {'VoidRace': 7}, {}),))]
+    npcs._template_script(rec[0xE06])
+    assert npcs.calls == [(0xF0A, ()), (0xF0B, (('F3NV_VoidActor', {'VoidRace': 7}, {}),))]
     assert npcs._template_script(rec[0xE04]) is None
 
 
+def test_a_placed_actor_rolls_its_bases_void_share():
+    """chance: the roll script with the share as a float, marked used once; nothing at 0."""
+    voids = VA.VoidActors(SimpleNamespace(scripts=SimpleNamespace(used=[])))
+    assert voids.chance(0.0) == ()
+    assert voids.chance(0.25) == ((VA.CHANCE_SCRIPT, {}, {'Chance': ('float', 0.25)}),)
+    voids.chance(0.5)
+    assert voids.builder.scripts.used == [VA.CHANCE_SCRIPT]
+
+
 def test_the_void_actor_is_the_copy_on_its_race_with_its_script_and_nothing_of_the_copys():
-    """The void copy: VMAD after EDID, race and skin replaced, template flags and aggression 0, factions,
+    """The void copy: VMAD after EDID, race and skin replaced, a ghost, template flags and aggression 0, factions,
     packages, items and attack race left out."""
     from fo4_import.spike import void_actors as V
     calls = []
@@ -153,7 +182,18 @@ def test_the_void_actor_is_the_copy_on_its_race_with_its_script_and_nothing_of_t
     assert found[b'EDID'] == b'FNV_VoidActor\0' and found[b'VMAD'] == b'V'
     assert struct.unpack('<I', found[b'RNAM'])[0] == 0x0300AAAA and struct.unpack('<I', found[b'WNAM'])[0] == 0x0300CCCC
     assert found[b'ACBS'][14:16] == b'\0\0' and found[b'AIDT'][0] == 0
+    assert struct.unpack_from('<I', found[b'ACBS'])[0] & V.GHOST
     assert calls == [(0, ((V.SCRIPT, {}, {}),))]
+
+
+def test_an_invisible_race_has_no_attacks():
+    """The race copy keeps everything but its attack data, so the void actor cannot hurt anyone."""
+    from fo4_import.spike import void_actors as V
+    race = b''.join(pack_subrecord(tag, data) for tag, data in (
+        ('EDID', b'MoleratRace\0'), ('ATKD', bytes(8)), ('ATKE', b'bite\0'), ('DATA', bytes(40))))
+    record = V.copy_record(SimpleNamespace(sig=b'RACE', body=race, flags=0), 0x0300AAAA, 'FNV_VoidRace',
+                           drop=V.ATTACKS)
+    assert [t for t, _ in subrecords(record[24:])] == [b'EDID', b'DATA']
 
 
 def test_traits_bring_fo4s_three_extra_slots_but_a_creature_on_a_creature_keeps_its_keywords():
@@ -210,7 +250,7 @@ def test_a_creature_keeps_its_stand_ins_attack_gear_and_carries_fnvs_loot():
     from fo4_import.spike import creatures as CR
     made = {0xF01: 0x0300F001}
     creatures = CR.Creatures.__new__(CR.Creatures)
-    creatures.gear = {0x7001}
+    creatures.gear, creatures.ranged = {0x7001}, {}
     creatures.records = {0xC01: {'FormID': '00000C01', 'ItemCount': '2', 'Item[0].FormID': '00000F01',
                                  'Item[0].Count': '3', 'Item[1].FormID': '00000F02', 'Item[1].Count': '1'}}
     creatures.builder = SimpleNamespace(counts=__import__('collections').Counter(), items=SimpleNamespace(
@@ -222,6 +262,28 @@ def test_a_creature_keeps_its_stand_ins_attack_gear_and_carries_fnvs_loot():
         out = list(subrecords(creatures.inventory(creatures.records[0xC01], body, outfit)(body.body)))
         assert [d for t, d in out if t == b'CNTO'] == [struct.pack('<Ii', 0x7001, 1), struct.pack('<Ii', 0x0300F001, 3)]
         assert (b'DOFT' in dict(out)) is outfit
+
+
+def test_a_stand_ins_ranged_gear_stays_only_with_a_ranged_fnv_creature():
+    """A deathclaw's dirt throw (ranged gear and its ammo) goes when FNV's creature has no ranged weapon; melee gear
+    stays; an FNV creature with a ranged weapon (animation type 3+) keeps it all.
+    See: docs/fork/fo4_creature_audit.md#deathclaws
+    """
+    from fo4_import.spike import creatures as CR
+    creatures = CR.Creatures.__new__(CR.Creatures)
+    creatures.gear, creatures.ranged = {0x7001, 0x7003, 0x7004}, {0x7001: 0x7003}
+    creatures.records = {0xC01: {'FormID': '00000C01', 'ItemCount': '0'},
+                         0xC02: {'FormID': '00000C02', 'ItemCount': '1', 'Item[0].FormID': '00000F02',
+                                 'Item[0].Count': '1'}}
+    laser = {'DNAM.Flags1': '160', 'DNAM.FalloutAnimType': '3'}
+    creatures.builder = SimpleNamespace(counts=collections.Counter(), items=SimpleNamespace(
+        records={0xF02: ('WEAP', laser)}, item=lambda fnv: None))
+    body = SimpleNamespace(body=b''.join(pack_subrecord('CNTO', struct.pack('<Ii', f, 1)) for f in (0x7001, 0x7003, 0x7004)) + pack_subrecord("AIDT", bytes(24)))
+    kept = {}
+    for fnv, rec in creatures.records.items():
+        out = subrecords(creatures.inventory(rec, body, False)(body.body))
+        kept[fnv] = [struct.unpack_from('<I', d)[0] for t, d in out if t == b'CNTO']
+    assert kept == {0xC01: [0x7004], 0xC02: [0x7001, 0x7003, 0x7004]}
 
 
 def test_an_armed_creature_keeps_its_fnv_gun_with_the_copys_ammo():
@@ -255,7 +317,9 @@ def test_a_placed_actor_links_to_an_actor_placed_after_it_and_keeps_no_ai_acquir
     npcs.records, ids = {}, iter(range(0x0300A000, 0x0300B000))
     npcs.creatures = SimpleNamespace(records={}, as_is={}, speaker_look=lambda *_: b"")
     npcs.builder = SimpleNamespace(counts=__import__('collections').Counter(), actor_ids={},
-                                   new_id=lambda key: next(ids), scripts=SimpleNamespace(named={}))
+                                   new_id=lambda key: next(ids),
+                                   scripts=SimpleNamespace(named={}, vmad=lambda scpt, extra=(): b''))
+    npcs.lists, npcs.voids = {}, SimpleNamespace(chance=lambda share: ())
     npcs.warm_faces = lambda bases: None
     npcs._base_of = lambda fnv: None if fnv == 0xB03 else 0x03000B00 | fnv
     npcs._unbuilt = lambda ref: 'unbuilt'
@@ -451,3 +515,33 @@ def test_a_creature_on_fo4s_human_speaks_with_its_sound_sets_unrecorded_voice():
     subs = pack_subrecord('VTCK', struct.pack('<I', 0x1234))
     voiced = creatures._own_voice(ghost)(subs)
     assert struct.unpack('<I', dict(subrecords(voiced))[b'VTCK'])[0] == 0x0309_4EED
+
+
+def test_a_creature_standing_in_on_a_tunneling_race_never_tunnels():
+    """A mole rat stand-in (and its template actors) gets DisableTunnelingKeyword, a protectron the helper robot
+    keyword; a speaker or a brahmin neither.
+    See: docs/fork/fo4_creature_audit.md#race-abilities
+    """
+    from fo4_import.spike import creatures as CR
+    creatures = CR.Creatures.__new__(CR.Creatures)
+    creatures.records = {
+        0xE01: {'FormID': '00000E01', 'EditorID': 'Rat', 'Model.MODL': 'rat'},
+        0xE02: {'FormID': '00000E02', 'EditorID': 'Pup', 'ACBS.TemplateFlags': '1', 'TPLT.Template': '00000E01'},
+        0xE03: {'FormID': '00000E03', 'EditorID': 'Cow', 'Model.MODL': 'cow'},
+        0xE04: {'FormID': '00000E04', 'EditorID': 'Box', 'Model.MODL': 'box'},
+        0xE05: {'FormID': '00000E05', 'EditorID': 'Bot', 'Model.MODL': 'bot'}}
+    entries = {'rat': ('stats', 'EncMolerat01Template'), 'cow': ('stats', 'EncBrahminTemplate'),
+               'box': ('speaker', 'EncMolerat01Template'), 'bot': ('stats', 'EncProtectron01Template')}
+    creatures._entry = lambda rec: (SimpleNamespace(mode=entries[rec['Model.MODL']][0],
+                                                    edid=entries[rec['Model.MODL']][1]), rec['Model.MODL'])
+    races = {'encmolerat01template': 0x1D810, 'encbrahmintemplate': 0x1BF08, 'encprotectron01template': 0xDFB33}
+    creatures.npcs = {k: SimpleNamespace(body=pack_subrecord('RNAM', struct.pack('<I', v))) for k, v in races.items()}
+    creatures.builder = SimpleNamespace(type_keywords=SimpleNamespace(of=lambda fnv: [7]),
+                                        scripts=SimpleNamespace(helper_index=2))
+    ids = {}
+    for fid, rec in creatures.records.items():
+        kwda = dict(subrecords(creatures._keywords(rec)(pack_subrecord('KWDA', b''))))[b'KWDA']
+        ids[fid] = struct.unpack(f'<{len(kwda) // 4}I', kwda)
+    robot = 2 << 24 | FALLOUT4_HELPER_CREATURE_KEYWORD
+    assert ids == {0xE01: (7, CR.DISABLE_TUNNELING), 0xE02: (7, CR.DISABLE_TUNNELING), 0xE03: (7,), 0xE04: (7,),
+                   0xE05: (7, robot)}

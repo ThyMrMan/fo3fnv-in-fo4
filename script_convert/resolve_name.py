@@ -143,7 +143,7 @@ def resolve(conv, expr: str, extends: str) -> str:
         from script_convert.emit import dispatch as _dispatch
         return _dispatch.emit_command(conv, None, expr, extends)
 
-    record = _record(conv, expr, low)
+    record = _record(conv, expr)
     if record is not None:
         return record
 
@@ -306,7 +306,7 @@ def _quoted(conv, inner: str, extends: str) -> str:
         return conv.sc.var_renames.get(low, inner)
     if low in ('player', 'playerref'):
         return 'Game.GetPlayer()'
-    resolved = _record(conv, inner, low)
+    resolved = _record(conv, inner)
     return resolved if resolved is not None else '"%s"' % inner
 
 
@@ -335,7 +335,39 @@ def script_type_binds(xref, ptype: str, fid: str) -> bool:
             and bool(xref.unique_placed_ref(fid)))
 
 
-def _record(conv, expr: str, low: str):
+def record_formid(conv, name: str) -> tuple:
+    """(FormID, the EditorID it was found under) of the record `name` names; ('', name) when none does.
+
+    A leading-digit EditorID arrives stripped (no Papyrus name starts with a digit), and a stale source
+    spelling is recovered from the record's SCRO table (register_scro_alias_pool).
+    """
+    low = name.lower()
+    fid = conv.xref.edid_to_formid.get(low, '') or digit_stripped_formid(conv.xref, low)
+    alias = '' if fid else conv._scro_alias_for(name)
+    if alias:
+        name, fid = alias, conv.xref.edid_to_formid.get(alias.lower(), '')
+    return fid, name
+
+
+def record_property(conv, name: str) -> str:
+    """The property for the record `name` names, registered with its type; '' when no record has that name.
+
+    A more specific type already registered (an Actor from an actor-only call) is never downgraded to a
+    generic ObjectReference.
+    """
+    fid, name = record_formid(conv, name)
+    if not fid:
+        return ''
+    canon = conv.xref.formid_to_edid.get(fid, name)
+    ptype = conv._record_property_type(fid, canon)
+    safe = safe_property_name(canon)
+    current, generic = conv.sc.property_refs.get(safe, ''), ('', 'ObjectReference')
+    if not current or ptype not in generic or current in generic:
+        conv.sc.property_refs[safe] = ptype
+    return safe
+
+
+def _record(conv, expr: str):
     """A record the plugin defines, as a typed property.  None if unknown."""
     xref = conv.xref
     if xref is None:
@@ -343,19 +375,9 @@ def _record(conv, expr: str, low: str):
 
     if _FORMID_RE.fullmatch(expr) and (not expr.isdigit()
                                        or expr.startswith('0')):
-        edid = xref.formid_to_edid.get(expr.upper().zfill(8), '')
-        if edid:
-            expr, low = edid, edid.lower()
+        expr = xref.formid_to_edid.get(expr.upper().zfill(8), '') or expr
 
-    fid = xref.edid_to_formid.get(low, '')
-    if not fid:
-        fid = digit_stripped_formid(xref, low)
-    if not fid:
-        # Stale source spelling -- recover it from this record's SCRO table.
-        alias = conv._scro_alias_for(expr)
-        if alias:
-            expr, low = alias, alias.lower()
-            fid = xref.edid_to_formid.get(low, '')
+    fid, expr = record_formid(conv, expr)
     if not fid:
         return None
 

@@ -26,10 +26,14 @@ from pathlib import Path
 from external.pynifly_hkx.anim_fo4 import parse_fo4_animation, write_fo4_animation
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.source import plugin_stem
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.havok.human_clip import HumanClips
 from fo4_import.pipeline.export_index import asset_root, export_records
+from fo4_import.rig.table import rigs
 from fo4_import.spike import conditions as C
+from fo4_import.spike import records as R
+from fo4_import.spike.idle_props import IdleProps
 from fo4_import.spike.say_topics import conditions_of, parsed
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
@@ -44,8 +48,8 @@ ROOT_GRAPH = 'Actors\\Character\\Behaviors\\RaiderRootBehavior.hkx'
 FURNITURE_GRAPH = 'Actors\\Character\\Behaviors\\FurnitureBehavior.hkx'
 #: Why a seated clip is left out of a line (and the mark of one a script plays on the furniture graph).
 SEATED = 'seated'
-#: FO4 dynamic-idle events: played once, and looped until stopped.
-PLAY_ONCE, PLAY_LOOPED = 'dyn_Activation', 'dyn_ActivationLoop'
+#: FO4 dynamic-idle events (played once, and looped until stopped): the human graphs', and vanilla creatures' (ENAM).
+HUMAN_EVENTS, RIG_EVENTS = ('dyn_Activation', 'dyn_ActivationLoop'), ('dynamicAnim', 'dynamicAnimLooping')
 #: FNV loop counts (min, max) meaning "forever", FO4's looping seconds meaning the same.
 FOREVER = (255, 255)
 #: FO4 IDLE DATA flag of an idle with no parent.
@@ -59,6 +63,12 @@ LINE_IDLE_KEYS = ('SpeakerIdle', 'ListenerIdle')
 AMBIENT_ROOT, ACTION_IDLE = 'GeneralIdles', 0x00013002
 #: FNV's drawn-weapon test: its idles play on FO4's weapon graph (vanilla WeaponAltIdleRoot), not built.
 WEAPON_OUT = 'IsWeaponOut'
+#: GetSitting == 0, first on a standing idle's conditions (as vanilla's CreateABotTalkRoot): a sitter never stands.
+STANDING = R.pack_ctda(0, 0.0, C.FO4.index('GetSitting'))
+#: How often an idle FNV actor retries its idle tree (fAIIdleWaitTime, FalloutNV.exe default), in seconds.
+FNV_IDLE_WAIT = 1.0
+#: FNV's random test and its "less than" comparison (CTDA op bits).
+RANDOM, LESS = 'GetRandomPercent', 0x80
 
 
 class Idles:
@@ -66,7 +76,8 @@ class Idles:
 
     def __init__(self, builder, export_dir: Path):
         """Idles of `export_dir`'s IDLE records for `builder`; `form_map` (FNV -> FO4 forms) is set before write."""
-        self.builder, self.meshes, self.plugin = builder, asset_root(export_dir, 'meshes'), Path(export_dir.name).stem
+        self.builder, self.meshes, self.plugin = builder, asset_root(export_dir, 'meshes'), plugin_stem(export_dir)
+        self.export_dir, self.props = export_dir, None
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'IDLE')}
         self.names = {r['EditorID'].lower(): fid for fid, r in self.records.items() if r.get('EditorID')}
         self.used, self.checked, self.counted, self.form_map, self.clips = {}, {}, set(), {}, None
@@ -94,7 +105,9 @@ class Idles:
         return self.checked[fnv]
 
     def _left_out(self, model: str) -> str:
-        """Why an idle playing `model` is left out; '' when it converts."""
+        """Why an idle playing `model` is left out; '' when it converts (a human clip, or one in an own rig's folder)."""
+        if rig_of(model) and (self.meshes / model).is_file():
+            return ''
         if not model.lower().startswith(FNV_HUMAN) or not (self.meshes / model).is_file():
             return 'no human clip'
         self.clips = self.clips or HumanClips(self.meshes)
@@ -124,12 +137,28 @@ class Idles:
         """Hand out FNV's ambient idle tree, its root under FO4's ActionIdle (_branch).
         See: docs/fork/fo4_idles.md#trees
         """
-        records = self.ambient_records()
+        records, self.delays = self.ambient_records(), {}
         if records:
             self.root = int(records[0]['FormID'], 16)
             self.tree_map = {**self.form_map, **{fnv: self.builder.fnv_id(fnv)
                                                  for fnv in (int(r['FormID'], 16) for r in records)}}
             self._branch(self.root)
+            for group in self.groups:
+                self._space(group)
+
+    def _space(self, group: int) -> None:
+        """Give each kept leaf of `group` a replay delay: its group's FNV mean gap (FNV_IDLE_WAIT over the chance of
+        the random tests on the group and its parents) times its kept leaves, or FNV's own delay if longer.
+        See: docs/fork/fo4_idles.md#trees
+        """
+        leaves = [kid for kid in self.kids.get(group, ()) if kid in self.tree and kid not in self.groups]
+        chance, node = 1.0, group
+        while node in self.tree:
+            chance *= random_chance(self.records[node])
+            node = int(self.records[node].get('ANAM.Parent', '0'), 16)
+        gap = round(FNV_IDLE_WAIT / chance * len(leaves)) if chance else 0
+        for leaf in leaves:
+            self.delays[leaf] = min(max(gap, int(self.records[leaf].get('DATA.ReplayDelay', 0) or 0)), 0xFFFF)
 
     def _branch(self, fnv: int) -> bool:
         """Hand out ambient tree node `fnv` when its conditions convert, it does not need the weapon drawn, and it
@@ -171,19 +200,38 @@ class Idles:
                                                                                 self.builder.script_vars)
             if conditions is None:
                 self.builder.counts['idle conditions not converted'] += 1
-            graph = FURNITURE_GRAPH if self.checked.get(fnv) == SEATED else ROOT_GRAPH
-            clip = '' if group else str(self._clip(rec, data_dir))
-            self.builder.writer.add_record('IDLE', pack_idle(fid, rec, conditions or b'', (graph, clip),
-                                                             self._links(fnv)))
-            kind = ' (ambient tree)' if fnv in self.tree else ' (seated, scripted)' if graph == FURNITURE_GRAPH else ''
+            played, links = self._played(fnv, rec, group, data_dir), self._links(fnv)
+            standing = fnv == self.root or not links[0] and played[0] == ROOT_GRAPH and played[1]
+            conditions = (STANDING if standing else b'') + (conditions or b'')
+            rec = {**rec, 'DATA.ReplayDelay': str(self.delays[fnv])} if fnv in self.delays else rec
+            self.builder.writer.add_record('IDLE', pack_idle(fid, rec, conditions, played, links))
+            kind = ' (ambient tree)' if fnv in self.tree else ' (seated, scripted)' if played[0] == FURNITURE_GRAPH \
+                else ' (own rig)' if played[2] == RIG_EVENTS else ''
             self.builder.counts['IDLE' + kind] += 1
+
+    def _played(self, fnv: int, rec: dict, group: bool, data_dir: Path) -> tuple:
+        """(behavior graph, clip under Meshes, (once, looped) events) of handed-out idle `fnv`: a group node plays
+        no clip; a clip in an own rig's folder plays on that rig (Rigs.idle_clip), a human one on the human root or
+        chair graph.
+        See: docs/fork/fo4_own_rig.md#idles
+        """
+        rig = None if group else rig_of(rec.get('Model.MODL', ''))
+        if rig:
+            name = rec['Model.MODL'][len(rig.folder) + 1:]
+            clip = self.builder.creatures.own_rigs().idle_clip(rig, self.meshes / rec['Model.MODL'], name)
+            return rig.path('Behaviors', f'{rig.project}RootBehavior.hkx'), clip, RIG_EVENTS
+        graph = FURNITURE_GRAPH if self.checked.get(fnv) == SEATED else ROOT_GRAPH
+        return graph, '' if group else str(self._clip(rec, data_dir)), HUMAN_EVENTS
 
     def _clip(self, rec: dict, data_dir: Path) -> Path:
         """Convert FNV idle `rec`'s clip into `data_dir` (PROBE's when it names `rec`); its path under Meshes."""
         if PROBE.get(rec['EditorID']):
             return self._probe(*PROBE[rec['EditorID']], data_dir)
         clip = Path(FO4_CLIPS, self.plugin, rec['Model.MODL'][len(FNV_HUMAN):]).with_suffix('.hkx')
-        self.clips.write(rec['Model.MODL'], data_dir / 'Meshes' / clip)
+        self.props = self.props or IdleProps(self.builder, self.export_dir, self.clips)
+        props = self.props.get(int(rec['FormID'], 16))
+        self.clips.write(rec['Model.MODL'], data_dir / 'Meshes' / clip, props)
+        self.builder.counts['idle clip with a prop'] += bool(props)
         return clip
 
     def _probe(self, vanilla: str, encoded: bool, seconds: 'float | None', data_dir: Path) -> Path:
@@ -220,14 +268,30 @@ def needs_weapon(rec: dict) -> bool:
                and group[0]['value'] == 1 for group in C.groups(parsed(rec)))
 
 
+def random_chance(rec: dict) -> float:
+    """The chance FNV idle `rec`'s lone `GetRandomPercent < N` tests pass (1.0 without one)."""
+    chance = 1.0
+    for group in C.groups(parsed(rec)):
+        test = group[0]
+        if len(group) == 1 and test['func'] == RANDOM and test['op_flags'] & 0xE0 == LESS:
+            chance *= min(max(test['value'], 0.0), 100.0) / 100
+    return chance
+
+
+def rig_of(model: str):
+    """The own rig (rig.table) whose FNV folder holds clip `model`, or None."""
+    low = model.lower()
+    return next((rig for folder, rig in rigs().items() if low.startswith(folder + '\\')), None)
+
+
 def pack_idle(fid: int, rec: dict, conditions: bytes, clip: tuple, links: tuple) -> bytes:
-    """FO4 IDLE `fid` of FNV idle `rec` playing `clip` (behavior graph, clip path; a group node's empty: no event,
-    no clip) under `links` (FO4 parent, previous)."""
+    """FO4 IDLE `fid` of FNV idle `rec` playing `clip` (behavior graph, clip path, (once, looped) events; a group
+    node's clip empty: no event, no clip) under `links` (FO4 parent, previous)."""
     loops = (int(rec.get('DATA.LoopMin', 0) or 0), int(rec.get('DATA.LoopMax', 0) or 0))
     data = struct.pack('<BBBBH', *(loops if loops == FOREVER else (0, 0)), 0 if links[0] else LOOSE, 0,
                        int(rec.get('DATA.ReplayDelay', 0) or 0))
     subs = pack_string_subrecord('EDID', rec['EditorID']) + conditions
     subs += pack_string_subrecord('DNAM', clip[0])
-    subs += pack_string_subrecord('ENAM', PLAY_LOOPED if loops == FOREVER else PLAY_ONCE) if clip[1] else b''
+    subs += pack_string_subrecord('ENAM', clip[2][loops == FOREVER]) if clip[1] else b''
     subs += pack_subrecord('ANAM', struct.pack('<II', *links)) + pack_subrecord('DATA', data)
     return pack_fo4_record('IDLE', fid, 0, subs + (pack_string_subrecord('GNAM', clip[1]) if clip[1] else b''))

@@ -20,6 +20,7 @@ from pathlib import Path
 
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.source_fault import SourceFault, count
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import BLOCKS, NONE
 from fo4_import.nif.file import NifFile
@@ -80,7 +81,7 @@ def _renumber(block: dict, start: int, moved: dict) -> None:
 
 def graft(ours: NifFile, processed: NifFile) -> NifFile:
     """`ours` with its Havok input replaced by Elric's FO4 physics, matched to our nodes by name, in order
-    (ignoring case: Elric writes a node named Head as HEAD).
+    (ignoring case: Elric writes a node named Head as HEAD); SourceFault for a body on a node `ours` lacks.
 
     Each node keeps its transform: Elric's body holds local vertices, and FO4 places it by the node (its
     body position only copies the node's). Every collision object shares Elric's one bhkPhysicsSystem,
@@ -96,6 +97,8 @@ def graft(ours: NifFile, processed: NifFile) -> NifFile:
             continue
         target, flags, data, body_id = struct.unpack('<iHiI', raw)
         name = processed.strings[processed.blocks[target][1]['name']].lower()
+        if name not in names:
+            raise SourceFault(None, f'collision node {name!r} matches no node of the mesh')
         owner = owners.pop(names.index(name))
         names.remove(name)
         if data not in systems:
@@ -132,21 +135,32 @@ def process(sources: dict) -> dict:
     return done
 
 
-def finish(paths: list, run=None) -> list:
+def finish(paths: list, run=None, names: list = None) -> list:
     """Replace the Havok input in each NIF at `paths` with Elric's physics (from `run`, process() by default),
-    one file at a time; the paths left without collision."""
+    one file at a time; the paths left without collision. One whose physics cannot be grafted (a SourceFault) is
+    left without it and its fault counted under its name in `names` (default: `paths`)."""
     inputs, sources = {}, {}
     for i, path in enumerate(paths):
         raw = Path(path).read_bytes()
         nif = nif_file.read(raw)
         if havok_start(nif) is not None:
-            inputs[f'{i:05d}.nif'], sources[f'{i:05d}.nif'] = (Path(path), raw), nif_file.write(nif)
+            inputs[f'{i:05d}.nif'] = Path(path), raw, (names or paths)[i]
+            sources[f'{i:05d}.nif'] = nif_file.write(nif)
     done = (run or process)(sources)
     sources.clear()
     failed = []
-    for name, (path, raw) in inputs.items():
-        nif = nif_file.read(raw)
+    for name, (path, raw, shown) in inputs.items():
         out = done.pop(name, None)
-        path.write_bytes(nif_file.write(graft(nif, nif_file.read(out)) if out else without_havok(nif)))
-        failed += [] if out else [path]
+        grafted = _grafted(raw, out, shown) if out else None
+        path.write_bytes(nif_file.write(without_havok(nif_file.read(raw)) if grafted is None else grafted))
+        failed += [path] if grafted is None else []
     return failed
+
+
+def _grafted(raw: bytes, out: bytes, shown) -> 'NifFile | None':
+    """graft() of NIF `raw` with Elric's `out`; None after counting its SourceFault as `shown`'s."""
+    try:
+        return graft(nif_file.read(raw), nif_file.read(out))
+    except SourceFault as fault:
+        count(fault.at(shown))
+        return None

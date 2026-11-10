@@ -291,3 +291,36 @@ checks and play test are not reported yet.
   - **Gas** (`WeapGrenadeGas`): its explosion (`GrenadeGasExplosion`, 0
     damage, radius 128) names no enchantment in FNV either, so it stays a
     harmless puff.
+
+### <a id="first-play"></a>After the first play (2026-11-06, rebuilt, not yet played)
+
+- <a id="names"></a>**Names.** An armed mine's prompt read `%` and two
+  boxes: the projectile and explosion copies kept Fallout4.esm's `FULL`, a
+  4-byte string ID, in a plugin that is not localized. A scan of the built
+  plugins found 37 such projectile names (FNV 21, DM 4, GRA 6, HH 1, OWB 3,
+  LR 2). A copy now takes FNV's own name, or none when FNV gives none
+  (`projectile_copies._with`; FNV names 90 of 95 projectiles). The same
+  scan found hidden ones on other copies of Fallout4.esm records (the base
+  game: 89 creature skin descriptions, 11 creature unarmed weapons, 9 water
+  types, 6 race fields, the void actor; the DLCs alike). Every such copy
+  (`void_actors.copy_record`, the own-rig skins, water types, both additive
+  races) now writes its `FULL` and `DESC` as text through
+  `base.strings.as_text`, which reads Fallout4.esm's strings once per run.
+- **Dynamite.** `WeapNVDynamite`, `WeapNVLongFuseDynamite` and
+  `WeapNVDynamiteNoDrop` were `stats` entries on `fragGrenade`, so both the
+  weapon and its lit projectile showed FO4's frag grenade. They are now
+  `fnv` entries (FNV's mesh in hand), and a thrown copy takes FNV's
+  projectile model (`dynamiteThrown.nif`) when the weapon is `fnv`, not only
+  when the projectile is inert (`equipment._thrown`, `Projectiles.thrown`).
+  No FormID moves: the weapon and projectile ids are hashed from FNV's.
+- <a id="explosion-models"></a>**Explosion models.** FNV's gas grenade
+  explosion is a smoke cloud (`effects\fxsmokemed01.nif`, 0 damage); its copy
+  on `fragGrenadeExplosion` drew FO4's short frag blast instead. Fallout4.esm
+  has no plain lingering-smoke explosion (only the signal-flare smokes, an
+  MSTT placed by `ArtillerySmokeFlareExplosion` and
+  `BoSVertibirdGrenadeExplosion`). The `own_models` list in
+  `projectiles.json` names the FNV explosions whose copy shows FNV's own
+  model, converted with its particles like a static (`builder.mesh`): gas,
+  the ghost gas bomb (`fxgastrapblast.nif`), stun (`explosionfireextiquisher01.nif`)
+  and flashbang (`fxflashbangexplosion.nif`). To check in game: the cloud's
+  size and how long it lasts, which come from FNV's mesh.

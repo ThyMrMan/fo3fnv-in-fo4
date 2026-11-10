@@ -15,16 +15,19 @@ FNV weapon match none:
 This race adds copies of the super mutant entries of each such keyword's
 class. The class is the vanilla keyword a gun's own keyword replaced, or
 the nearest super mutant class for a kind FO4 never gave super mutants
-(NEAREST): flamers hold like the minigun, submachine guns like the assault
-rifle, the Fat Man like the missile launcher. A copy keeps the entry's
+(NEAREST): flamers and the gatling laser hold like the minigun, submachine
+guns like the assault rifle, the Fat Man like the missile launcher,
+one-handed pistols like the pipe gun, plasma rifles, shotguns and the
+railway rifle's kind like the hunting rifle. A copy keeps the entry's
 actor keywords (its crippled-limb variants), graph and clips, and targets
 the one keyword.
 See: docs/fork/fo4_spikes.md#spike-4-creatures
 """
 
 import struct
-from pathlib import Path
 
+from fo4_import.base.source import plugin_stem
+from fo4_import.base.strings import as_text
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.havok.gun_clips import HEAD, HUMAN_SUBGRAPHS, ROLE_WEAPON, entry_subrecords, subgraph_entries
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -34,7 +37,10 @@ from tes5_import.base.writer import pack_subrecord
 SUPER_MUTANT = 0x1A009
 #: Anims keyword of a weapon kind SuperMutantRace has no entry for -> the super mutant class it holds like.
 NEAREST = {'Anims2hmWeapon': 'Anims2hmWideWeapon', 'AnimsFlamer': 'AnimsMinigun',
-           'AnimsSubmachineGun': 'AnimsGripRifleAssault', 'AnimsFatMan': 'AnimsMissileLauncher'}
+           'AnimsSubmachineGun': 'AnimsGripRifleAssault', 'AnimsFatMan': 'AnimsMissileLauncher',
+           'AnimsGripPistol': 'AnimsRecieverHandmadePipe', 'AnimsPlasmaRifle': 'AnimsHuntingRifle',
+           'animsDoubleBarrelShotgun': 'AnimsHuntingRifle', 'AnimsGatlingLaser': 'AnimsMinigun',
+           'AnimsRailwayRifle': 'AnimsHuntingRifle'}
 #: derive_formid site and EditorID of the additive race.
 RACE_SITE, RACE_EDID = 'FNV super mutant anims RACE', 'FNV_SuperMutantRaceSubGraphDataAdditive'
 
@@ -64,15 +70,15 @@ def keyword_classes(replaced: dict, keywords: dict, vanilla: bool) -> dict:
     return out
 
 
-def additive_race(edid: str, head_from: list, entries: list) -> list:
+def additive_race(edid: str, head_from: list, entries: list, target: int = SUPER_MUTANT) -> list:
     """The additive race's subrecords: the head the human gun race uses (HEAD, filled from `head_from`), SADD on
-    SuperMutantRace, then `entries`."""
+    race `target`, then `entries`."""
     seen, out = {}, []
     for sig in HEAD:
         k = seen[sig] = seen.get(sig, -1) + 1
         body = (edid + '\0').encode() if sig == 'EDID' else [b for s, b in head_from if s == sig.encode()][k]
-        out.append((sig.encode(), body))
-    out.append((b'SADD', struct.pack('<I', SUPER_MUTANT)))
+        out.append((sig.encode(), as_text(sig.encode(), body)))
+    out.append((b'SADD', struct.pack('<I', target)))
     for entry in entries:
         out += entry_subrecords(entry)
     return out
@@ -90,7 +96,7 @@ def write_mutant_subgraphs(builder, guns) -> None:
                                                                                   not built))
     if not entries:
         return
-    edid = f'{RACE_EDID}_{Path(builder.export_dir.name).stem}' if built else RACE_EDID
+    edid = f'{RACE_EDID}_{plugin_stem(builder.export_dir)}' if built else RACE_EDID
     subs = additive_race(edid, races[HUMAN_SUBGRAPHS], entries)
     writer.add_record('RACE', pack_fo4_record('RACE', writer.derive_formid(RACE_SITE, edid), 0, b''.join(
         pack_subrecord(s.decode(), b) for s, b in subs)))

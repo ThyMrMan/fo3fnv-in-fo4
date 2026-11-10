@@ -144,8 +144,7 @@ def main(argv=None) -> int:
     if qust:
         pipeline._merge_stats(stats, pipeline._script_worker_run(('qust', qust)))
     pipeline._WORKER_CTX.clear()
-    pipeline._fix_udf_call_arg_types(out, stats['udf_sigs'],
-                                     stats['udf_callers'])
+    pipeline.finish_udf_calls(out, stats)
     print(f'  wrote {len(scpt)} SCPT / {len(info)} INFO / {len(qust)} QUST -> {out}')
     for e in stats['errors'][:20]:
         print('  ERR', e)

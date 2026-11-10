@@ -53,16 +53,14 @@ from fo4_import.spike.readiness import CHOICE_UNANSWERED
 from fo4_import.spike.say_once import STAGE_DONE
 from fo4_import.spike.script_packages import quest_id
 from fo4_import.spike.skill_tags import tagged
-from fo4_import.spike.say_topics import (COMPARE, PART, PARTS, SHARED, conditions_of, parsed, raws, settled_on,
-                                         with_conditions)
+from fo4_import.spike.say_topics import (COMPARE, GREETING, PART, PARTS, SHARED, conditions_of, parsed, raws,
+                                         settled_on, with_conditions)
 from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX
 
 #: FNV INFO DATA flags.
 GOODBYE, SAY_ONCE = 0x01, 0x04
 #: FNV INFO DATA Next Speaker Self (0 Target, 2 Either: the other actor answers).
 NEXT_SELF = 1
-#: FNV's GREETING topic.
-GREETING = '000000C8'
 #: FNV DIAL: the Topic type, and the Top-level flag (listed without an AddTopic).
 TOPIC, TOP_LEVEL = '0', 0x02
 #: CTDA OR-with-next bit; FO4 GetPlayerActivated, GetIsCurrentPackage, GetIsID, GetQuestRunning, GetGlobalValue.
@@ -99,7 +97,9 @@ class Hub:
     topic: [(position in `lines`, INFO)] in that order}, `actors` {FNV actor
     FormID: its NPC_ or CREA record} and `unfixed` the factions scripts change,
     for speakers' fixed facts (speaker_index, speaker_facts); `joins` the steps
-    more than one FNV line leads to (joined_steps).
+    more than one FNV line leads to (joined_steps); `authored` the FNV topics with a line of their own or shared,
+    in any quest; `outside` and `outside_topics` the masters' lines the build does not write, as `lines` and
+    `by_topic` (outside_lines).
     """
 
     lines: dict = field(default_factory=dict)
@@ -111,6 +111,25 @@ class Hub:
     unfixed: frozenset = frozenset()
     joins: frozenset = frozenset()
     speakers: dict = field(default_factory=dict)
+    authored: frozenset = frozenset()
+    outside: dict = field(default_factory=dict)
+    outside_topics: dict = field(default_factory=dict)
+
+
+def outside_lines(say, lines: dict) -> tuple:
+    """({Hub key: line}, {FNV topic: [(position, key)]}) of the lines the game has beside the build's `lines`:
+    its masters' (say.outside) and the shared copies they bring (shared_lines); empty for a build without masters.
+    Only _leaves reads them: they are never written.
+    See: docs/fork/fo4_plugin_layout.md#dlc-dialogue
+    """
+    if not say.outside:
+        return {}, {}
+    whole = {**{r['FormID'].upper(): r for r in say.outside}, **lines}
+    whole.update(shared_lines(say, whole))
+    found, by_topic = {key: rec for key, rec in whole.items() if key not in lines}, {}
+    for position, (key, rec) in enumerate(found.items()):
+        by_topic.setdefault(rec['ParentDIAL'].upper(), []).append((position, key))
+    return found, by_topic
 
 
 def menu_speakers(infos: dict) -> dict:
@@ -152,8 +171,10 @@ def hub(say, quests: list, quest_fids: dict, added: set) -> Hub:
         if dial != GREETING and info.get('DATA.Type') == TOPIC and listed and dial not in topics:
             topics.append(dial)
     owners = {q['FormID'].upper(): (quest_fids[q['EditorID']], int(q.get('DATA.Priority', 0) or 0)) for q in quests}
+    authored = {r['ParentDIAL'].upper() for found in say.infos.values() for r in found}
+    authored |= {d.upper() for d, rec in say.dials.items() if int(rec.get('SharedInfoCount', 0) or 0)}
     return Hub(lines, tuple(topics), {}, owners, by_topic, joins=joined_steps(say.infos),
-               speakers=menu_speakers(say.infos))
+               speakers=menu_speakers(say.infos), authored=frozenset(authored))
 
 
 def hub_key(rec: dict) -> str:
@@ -163,7 +184,8 @@ def hub_key(rec: dict) -> str:
 
 def shared_lines(say, lines: dict) -> dict:
     """{Hub key: copy} of the shared infos (DIAL SharedInfo) of `lines` that a player topic borrows for their own
-    quest: each a line of that topic (ParentDIAL), marked SHARED, after the topic's own lines.
+    quest: each a line of that topic (ParentDIAL), marked SHARED, after the topic's own lines. A topic sharing
+    its own line takes no copy: the line already answers it, and a copy would answer it twice.
     See: docs/fork/fo4_pipeline.md#shared-infos
     """
     quests, out = {r.get('QSTI.Quest', '').upper() for r in lines.values()}, {}
@@ -172,7 +194,9 @@ def shared_lines(say, lines: dict) -> dict:
             continue
         for i in range(int(rec.get('SharedInfoCount', 0) or 0)):
             info, quest = rec[f'SharedInfo[{i}].Info'].upper(), rec[f'SharedInfo[{i}].Quest'].upper()
-            copy = {**lines[info], 'ParentDIAL': dial.upper(), SHARED: dial.upper()} if info in lines else None
+            own = info in lines and lines[info]['ParentDIAL'].upper() == dial.upper()
+            copy = {**lines[info], 'ParentDIAL': dial.upper(), SHARED: dial.upper()} if info in lines and not own \
+                else None
             out.update({hub_key(copy): copy} if copy and quest in quests else {})
     return out
 
@@ -274,16 +298,19 @@ class Conversations:
             return self.say.builder.new_id(key)
         return self.say.builder.new_id(f'{kind} {self.quest["FormID"]} {self.legacy[step]}', key=key)
 
-    def _members(self, step: tuple) -> list:
+    def _members(self, step: tuple, whole: bool = False) -> list:
         """The FNV lines of `step` (a split line's first part): its lines, every line of its menu's topics, or
-        a split line's later part; a chat step's are its inner step's."""
+        a split line's later part; a chat step's are its inner step's. `whole` adds the masters' lines the build
+        does not write (Hub.outside)."""
         if step[0] == 'chat':
-            return self._members(step[2])
+            return self._members(step[2], whole)
+        lines = collections.ChainMap(self.hub.lines, self.hub.outside) if whole else self.hub.lines
+        topics = (self.hub.by_topic, self.hub.outside_topics) if whole else (self.hub.by_topic,)
         if step[0] == 'part':
-            return [part(self.hub.lines[step[1]], step[2])]
+            return [part(lines[step[1]], step[2])]
         if step[0] == 'line':
-            return [part(self.hub.lines[i], 1) for i in step[1] if i in self.hub.lines]
-        return [part(self.hub.lines[i], 1) for _, i in heapq.merge(*(self.hub.by_topic.get(d, ()) for d in step[1]))]
+            return [part(lines[i], 1) for i in step[1] if i in lines]
+        return [part(lines[i], 1) for _, i in heapq.merge(*(found.get(d, ()) for found in topics for d in step[1]))]
 
     def _next(self, rec: dict, alias: 'int | None' = None):
         """The step after FNV line `rec`: a split line's next part; its Follow Ups or Choices; the Hub's
@@ -309,7 +336,8 @@ class Conversations:
     def _leaves(self, step: tuple) -> bool:
         """Whether menu `step` offers `[Leave]` (FNV's Tab): the topic list does, and a Choices menu whose
         conversation can never end (no step reached from it ends or returns to the topic list: Victor's loop);
-        any other keeps the player in (SCENE_NO_EXIT), so leaving cannot strand a quest.
+        any other keeps the player in (SCENE_NO_EXIT), so leaving cannot strand a quest. Judged on the whole
+        conversation, the masters' lines included.
         See: docs/fork/fo4_spikes.md#spike-2-vcg01
         """
         if step[1] == self.hub.topics:
@@ -317,7 +345,7 @@ class Conversations:
         seen, todo = {step}, [step]
         while todo:
             here = todo.pop()
-            for rec in self._members(here):
+            for rec in self._members(here, True):
                 nxt = self._next(rec, _chat_alias(here))
                 if nxt is None or nxt == ('menu', self.hub.topics):
                     return False
@@ -382,9 +410,22 @@ class Conversations:
                               self._earlier(key, order))
                  for key, members in prompts.items()]
         if not any(added):
-            self.say.builder.counts['choice without a line in the quest'] += 1
-            self.say.builder.readiness.add(CHOICE_UNANSWERED, self.quest['FormID'],
-                                           f'{self.say.dials[dial].get("EditorID", dial)} ({dial})')
+            self._unanswered(dial, bool(prompts))
+
+    def _unanswered(self, dial: str, sayable: bool) -> None:
+        """Record FNV topic `dial` left with no option: when FNV never answers it either (no line at all, or none
+        the menu's speakers can say), only a count; else a CHOICE_UNANSWERED entry with its cause (`not built`: its
+        lines' quests are not in the build; `condition`: no line converts, see their LINE_LEFT_OUT entries).
+        See: docs/fork/fo4_plan_dialogue_reach.md#framework
+        """
+        counts, has = self.say.builder.counts, bool(self.hub.by_topic.get(dial))
+        if not sayable and (has or dial not in self.hub.authored):
+            counts[f'choice FNV never answers ({"speaker-filter" if has else "no line"})'] += 1
+            return
+        counts['choice without a line in the quest'] += 1
+        self.say.builder.readiness.add(CHOICE_UNANSWERED, self.quest['FormID'],
+                                       f'{self.say.dials[dial].get("EditorID", dial)} ({dial}): '
+                                       f'{"condition" if has else "not built"}')
 
     def _sayable(self, dial: str, speakers: 'frozenset | None') -> list:
         """The Hub's lines of FNV topic `dial` one of `speakers` can say (all when None); those left out counted."""
@@ -434,22 +475,32 @@ class Conversations:
 
     def _either(self, members: list) -> bytes:
         """OR-groups (from the player's side) holding when some line in `members` passes what it adds to the groups
-        they share: the lines' groups distributed, one OR-group per pick of a group from each line, so the option
-        needs an answer that passes; past MAX_CLAUSES, one OR-group of a group per line (one_each); b'' when a
-        line adds nothing (it always answers).
+        they share, its speaker test and a Say Once line's unsaid marker counted as groups: the groups distributed,
+        one OR-group per pick of a group from each line, so the option needs an answer that can play for this
+        speaker; past MAX_CLAUSES, one OR-group of a group per line (one_each); b'' when a line adds nothing (it
+        always answers).
         See: docs/fork/fo4_pipeline.md#dialogue-conditions
         """
         each = [or_groups(r) for r in members]
-        rest = [[g for g in groups if not all(g in other for other in each)
-                 and not (len(g) == 1 and C.parse(g[0])['func'] == SPEAKER_TEST)] for groups in each]
+        rest = [[g for g in groups if not all(g in other for other in each)]
+                + ([((SAY_ONCE, r['FormID']),)] if int(r.get('DATA.Flags', 0)) & SAY_ONCE else [])
+                for groups, r in zip(each, members)]
         if not all(rest):
             return b''
         picks = itertools.product(*rest) if math.prod(len(r) for r in rest) <= MAX_CLAUSES else [one_each(rest)]
-        clauses = dict.fromkeys(tuple(dict.fromkeys(t for g in pick for t in g)) for pick in picks)
-        ored = [f'{int(raw[:2], 16) & ~OR | (OR if i < len(tests) - 1 else 0):02x}{raw[2:]}'
-                for tests in clauses for i, raw in enumerate(tests)]
-        either = {f'Condition[{i}].Raw': raw for i, raw in enumerate(ored)}
-        return conditions_of(either, self.form_map, self.say.script_vars, swap=True) or b''
+        clauses = [self._or_group(tests) for tests in dict.fromkeys(
+            tuple(dict.fromkeys(t for g in pick for t in g)) for pick in picks)]
+        return b'' if None in clauses else b''.join(clauses)
+
+    def _or_group(self, tests: tuple) -> 'bytes | None':
+        """One OR-group of FNV raw tests and (SAY_ONCE, line) unsaid markers as FO4 CTDAs from the player's side;
+        b'' when it always passes, None when its tests do not convert."""
+        found = [t for t in tests if isinstance(t, str)]
+        ored = {f'Condition[{i}].Raw': f'{int(raw[:2], 16) & ~OR | (OR if i < len(found) - 1 else 0):02x}{raw[2:]}'
+                for i, raw in enumerate(found)}
+        fnv = conditions_of(ored, self.form_map, self.say.script_vars, swap=True) if found else NEVER
+        lines = [t[1] for t in tests if not isinstance(t, str)]
+        return fnv and _any_of([fnv, self.say.once.unsaid(lines) if lines else b''])
 
     def speakers(self, members: list, run_on: int = R.RUN_TARGET) -> bytes:
         """One OR-group of the lines' speakers (GetIsID), run on `run_on` (the player line's target); b'' when a
@@ -612,13 +663,13 @@ class Conversations:
         """
         return step[0] != 'menu' and self.placed.get(step, (None,))[0] == self.building
 
-    def greeting(self, greets: list, topics: 'dict | None' = None) -> None:
+    def greeting(self, greets: list, topics: 'dict | None' = None, greet_list: int = 0) -> None:
         """A Greeting topic whose silent line starts the GREETING talk scene, on activation or force greets `greets`.
 
         The scene's lines: those of the topics force greets name (`topics`, {FNV topic: FO4 package}), each
-        needing its package current, then _greetings(). Its SILENT_LINE needs GetPlayerActivated or a running
-        force greet, and a speaker the GREETING lines name or a talker in its talking-as list (an intercom); its
-        GREETING_SCRIPT opens the scene (TSCE past its first phase).
+        needing its package current, then _greetings(). Its SILENT_LINE needs activation or a running force
+        greet, and a speaker the GREETING lines name or a talker in its talking-as list; its GREETING_SCRIPT
+        opens the scene and marks a force greet in `greet_list` spoken (greet_once).
         See: docs/fork/fo4_pipeline.md#greeting-scene
         """
         self.packaged = {i: (topics or {})[r['ParentDIAL'].upper()] for i, r in self.hub.lines.items()
@@ -643,7 +694,7 @@ class Conversations:
         else:
             self.say.builder.scripts.used.append(GREETING_SCRIPT)
             line = R.pack_info(greet, 0, (R.SILENT_LINE,), opened, notes='FNV GREETING',
-                               vmad=object_scripts([(GREETING_SCRIPT, {'Greeting': scene, 'ScriptPackages': quest_id(self.say.builder)}, {})]))
+                               vmad=object_scripts([(GREETING_SCRIPT, {'Greeting': scene, 'ScriptPackages': quest_id(self.say.builder), 'Greets': greet_list}, {})]))
         fid = self.say.builder.new_id(f'DIAL greeting {self.quest["FormID"]}')
         dial = R.pack_dial(fid, f'FNV_{self.quest["EditorID"]}_Greeting', self.fid, R.TOPIC_GREETING, 1)
         self.topics.append(pack_topic(dial, fid, [line]))

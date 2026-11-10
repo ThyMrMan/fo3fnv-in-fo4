@@ -21,6 +21,13 @@ from tools.script import compile_papyrus as CP
 FLICKER = 'ScriptName FlickerScript\n\nfloat timer\n\nBegin GameMode\n  set timer to timer + GetSecondsPassed\nEnd\n'
 
 
+@pytest.fixture(autouse=True)
+def memos_in_tmp(tmp_path, monkeypatch):
+    """Keep compile_fallout4's stamp memos out of the real cache."""
+    monkeypatch.setattr(CP, '_STAMPS_CACHE', tmp_path / 'stamps')
+    monkeypatch.setattr(CP, '_HEADER_MEMOS', tmp_path / 'stamps' / 'headers')
+
+
 @pytest.fixture
 def fallout4(monkeypatch):
     """Emit Fallout 4 Papyrus for the test."""

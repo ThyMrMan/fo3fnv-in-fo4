@@ -10,6 +10,7 @@ length-prefixed (and zero-terminated) in the other two.
 See: docs/fork/fo4_spikes.md#spike-4-equipment
 """
 
+import functools
 import struct
 
 from fo4_import.base.ba2 import Archives
@@ -17,6 +18,8 @@ from fo4_import.base.install import FALLOUT4_DIR
 
 #: String file extensions, and whether their entries start with a length.
 KINDS = (('strings', False), ('dlstrings', True), ('ilstrings', True))
+#: Subrecords a Fallout4.esm record holds as string IDs.
+LOCALIZED = (b'FULL', b'DESC')
 
 
 def parse(raw: bytes, sized: bool) -> dict:
@@ -35,3 +38,18 @@ def load(plugin: str = 'fallout4', language: str = 'en') -> dict:
     for ext, sized in KINDS:
         out.update(parse(archives.read(f'strings\\{plugin}_{language}.{ext}'), sized))
     return out
+
+
+@functools.cache
+def fallout4() -> dict:
+    """Fallout4.esm's strings (load()), read once per run."""
+    return load()
+
+
+def as_text(tag: bytes, data: bytes) -> bytes:
+    """Fallout4.esm subrecord `tag`'s `data` with a string ID (LOCALIZED) as its text; else unchanged.
+    See: docs/fork/fo4_thrown_weapons.md#names
+    """
+    if tag not in LOCALIZED or len(data) != 4:
+        return data
+    return fallout4().get(struct.unpack('<I', data)[0], b'') + b'\0'

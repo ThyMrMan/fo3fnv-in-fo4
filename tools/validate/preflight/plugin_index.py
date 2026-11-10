@@ -15,6 +15,9 @@ from tools.esm.tes5_esm_reader import read_tes5_file
 #: Record flag of a worldspace's persistent cell, whose references stand in grid cells of their own.
 _PERSISTENT = 0x400
 
+#: Base types a placed reference of speaks: talking activators and activators.
+TALKERS = ('TACT', 'ACTI')
+
 #: World units along one side of an exterior cell.
 _CELL_UNITS = 4096
 
@@ -222,6 +225,13 @@ class PluginIndex:
     def placed_bases(self) -> set:
         """Base FormIDs of every placed actor (ACHR)."""
         return {u32(first(r, 'NAME')) for r in self.by_type['ACHR']}
+
+    def placed_speakers(self) -> set:
+        """Bases of placed actors and activators: who a line's GetIsID can name.
+        See: docs/commentary/tools_preflight.md#dialogue-loss
+        """
+        bases = {u32(first(r, 'NAME')) for r in self.by_type['REFR']}
+        return self.placed_bases() | {fid for fid in bases if getattr(self.by_fid.get(fid), 'type', '') in TALKERS}
 
 
 def load_plugin(path: str, edid_prefix: str = '') -> PluginIndex:

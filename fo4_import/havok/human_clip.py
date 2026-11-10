@@ -32,6 +32,8 @@ COM = 'COM'
 HEAD_TRACKING = ('HeadTrackingOff', 'HeadTrackingOn')
 #: Every track's scale: vanilla clips carry none (skeleton.hkx's are off 1 by up to 4e-5, which would write a channel).
 UNIT_SCALE = 1.0
+#: The kind of FNV text key (`Sound: <EditorID>`, lower case) a furniture pose plays as a sound event.
+SOUND_KEY = 'sound'
 #: Every annotation track's name: vanilla leaves them blank (all 1,500 clips surveyed in fo4_idles.md#encoder-test).
 TRACK_NAME = ''
 #: A seated first frame: each thigh's drop over its length below [0], the pelvis below [1] of its rest height.
@@ -87,11 +89,31 @@ class HumanClips:
         self.fnv = Skeleton.from_nif(str(export_meshes / FNV_SKELETON))
         self.deltas = matching_pose(self.fnv, self.fo4)
 
-    def write(self, kf: str, out: Path) -> None:
-        """Convert the FNV clip at `kf` (relative to the meshes folder) to `out`."""
+    def write(self, kf: str, out: Path, props=()) -> None:
+        """Convert the FNV clip at `kf` (relative to the meshes folder) to `out`, showing `props` (anim_props.Prop
+        or fnv_props.ConvertedProp)."""
         clip = decoded(str(self.meshes / kf))[0]
         moved = retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,))
         events = [(0.0, HEAD_TRACKING[0]), (float(clip.duration), HEAD_TRACKING[1])]
+        for prop in props:
+            events += prop.events(clip.text_keys, float(clip.duration))
+            moved.tracks.append(prop.track(clip, self.fnv))
+        self._save(moved, list(dict.fromkeys(events)), out)
+
+    def write_pose(self, kf: str, out: Path, sound) -> None:
+        """Convert FNV furniture clip `kf` to `out` as a furniture pose in FNV's marker frame (the marker is FNV's),
+        no head tracking (vanilla's furniture clips carry no events), each `Sound: <EditorID>` key played by
+        `sound(EditorID)` (an event or None).
+        See: docs/fork/fo4_pipeline.md#crucifix
+        """
+        clip = decoded(str(self.meshes / kf))[0]
+        moved = retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,))
+        keys = [(float(t), key.partition(':')) for t, key in clip.text_keys]
+        events = [(t, sound(name.strip())) for t, (kind, _, name) in keys if kind.strip().lower() == SOUND_KEY]
+        self._save(moved, [e for e in events if e[1]], out)
+
+    def _save(self, moved, events: list, out: Path) -> None:
+        """Write retargeted clip `moved` with `events` [(time, text)] to `out`, its tracks unnamed."""
         anim = clip_to_animation_data(moved, self.fo4.names, self.pose, events)
         anim.bone_names = [TRACK_NAME] * anim.num_tracks
         out.parent.mkdir(parents=True, exist_ok=True)

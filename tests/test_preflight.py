@@ -284,7 +284,7 @@ def test_pytest_is_not_an_end_user_dependency():
 def test_committed_binaries_are_not_listed_as_things_to_install():
     """Bundled tools ship in the repo -- telling users to install them is wrong."""
     readme = open(os.path.join(ROOT, 'README.md'), encoding='utf-8').read()
-    table = readme.split('## Quick start', 1)[1].split('\n## ', 1)[0]
+    table = readme.split('### What you need', 1)[1].split('\n### ', 1)[0]
     for name in ('BSArch', 'LODGenx64', 'hkxcmd', 'papyrus.exe',
                  'dovah_hkp_mesh_mopp_bridge'):
         assert name not in table, \

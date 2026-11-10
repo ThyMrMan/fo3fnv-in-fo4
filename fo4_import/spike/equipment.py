@@ -41,17 +41,18 @@ from fo4_import.spike.ammo_mods import AmmoMods
 from fo4_import.spike.condition import Condition
 from fo4_import.base import strings
 from fo4_import.base.install import source_walk
+from fo4_import.base.source_fault import SourceFault, count
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
-from fo4_import.pipeline.work_cache import cached
+from fo4_import.pipeline.work_cache import cached, versioned
 from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_AUTOMATIC, FO4_NOT_PLAYABLE, GUN_TYPES, fnv_wants
 from fo4_import.spike.aim_models import AimModels
 from fo4_import.spike.weapon_vats import WeaponVats
 from fo4_import.spike.guns import Guns
 from fo4_import.spike.mutant_subgraphs import write_mutant_subgraphs
 from fo4_import.spike.projectiles import FNAM_OVERRIDE
-from fo4_import.spike.attack_spells import ENIT_WEAPON, pack_explosion_ench
+from fo4_import.spike.attack_spells import ENIT_ARMOR, ENIT_WEAPON, pack_explosion_ench
 from fo4_import.spike.consumable_effects import effect_pair
 from fo4_import.spike.script_effects import DELIVERY
 from script_convert.weapon_hits import EFFECT
@@ -59,7 +60,7 @@ from fo4_import.spike.weapon_mods import WeaponMods
 from fo4_import.spike.replacements import Replacement, Rules
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import swapped_material, write_assets
-from fo4_import.pipeline.export_index import export_file
+from fo4_import.pipeline.export_index import export_file, export_records
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
@@ -68,6 +69,12 @@ from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 SITES = {'WEAP': 'FNV WEAP', 'ARMO': 'FNV ARMO', 'ARMA': 'FNV ARMA', 'MSWP': 'FNV MSWP'}
 #: derive_formid site of a weapon's on-hit enchantment (key: the FNV weapon's EditorID).
 HIT_SITE = 'FNV weapon hit'
+#: derive_formid site of an armor's DR enchantment (key: the FNV armor's FormID); the actor value carrying FNV's DR.
+RESIST_SITE, FNV_DR = 'FNV armor DR', 'FalloutDamageResist'
+#: derive_formid site of the object effect of an armor with FNV's own effects but no DR (key: its FNV FormID).
+EFFECT_SITE = 'FNV armor effect'
+#: FO4 ARMO subrecords before its object effect (EITM).
+BEFORE_EITM = (b'EDID', b'VMAD', b'OBND', b'PTRN', b'FULL')
 #: FO4 WEAP DNAM offsets: ammo, capacity, animation type, weight, value, base damage.
 DNAM_AMMO, DNAM_CAPACITY, DNAM_ANIM, DNAM_WEIGHT, DNAM_VALUE, DNAM_DAMAGE = 0, 52, 54, 59, 63, 67
 #: FO4 WEAP DNAM Min Range, Max Range (two floats: damage falloff); FNV WEAP DNAM's, which its AI picks a gun by.
@@ -83,6 +90,8 @@ WORLD_MODEL_DATA = (b'MO2T', b'MO2S')
 TEMPLATES = (b'OBTE', b'STOP')
 #: Armor addon subrecords copied from the template's: race, priorities, additional races.
 ADDON_KEPT = (b'RNAM', b'DNAM')
+#: Armor addon subrecords naming a race it draws on: the race, each additional race.
+ADDON_RACES = (b'RNAM', b'MODL')
 SEXES = ('male', 'female')
 #: FNV biped flag of the upper body (an outfit).
 UPPER_BODY = 0x4
@@ -151,8 +160,8 @@ def _alternates(body: bytes, sets: dict) -> list:
 
 def _fnv_fields() -> dict:
     """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0) and min/max range; an armor's
-    value, health, weight (DATA), rating (DNAM: FNV's DT, FO3's DR) and alternate textures. An ammo form list (FLST)
-    gives its first entry."""
+    value, health, weight (DATA), rating (DNAM: FNV's DT, FO3's DR), FNV's DR beside its DT (resist), object effect
+    (ench: EITM, 0 without) and alternate textures. An ammo form list (FLST) gives its first entry."""
     lists = {rec.form_id: first_sub(rec.body, b'LNAM') for rec, _ in source_walk(b'FLST')}
     sets = {rec.form_id: tuple((first_sub(rec.body, t) or b'').rstrip(b'\0').decode('cp1252')
                                for t in (b'TX00', b'TX01')) for rec, _ in source_walk(b'TXST')}
@@ -167,9 +176,11 @@ def _fnv_fields() -> dict:
             out.update({rec.form_id: fields} if fields else {})
         elif rec.sig == b'ARMO' and data and dnam:
             value, health, weight = struct.unpack_from('<iif', data)
-            fnv = len(dnam) >= DT_AT + 4
-            rating = struct.unpack_from('<f', dnam, DT_AT)[0] if fnv else struct.unpack_from('<h', dnam)[0] / DR_SCALE
+            fnv, dr = len(dnam) >= DT_AT + 4, struct.unpack_from('<h', dnam)[0] / DR_SCALE
+            rating = struct.unpack_from('<f', dnam, DT_AT)[0] if fnv else dr
+            eitm = first_sub(rec.body, b'EITM')
             out[rec.form_id] = {'value': value, 'weight': weight, 'rating': rating, 'health': health,
+                                'resist': dr if fnv else 0.0, 'ench': struct.unpack('<I', eitm)[0] if eitm else 0,
                                 'alternates': {sig: _alternates(first_sub(rec.body, sig), sets)
                                                for sig in (FNV_MALE_SWAP, FNV_WORLD_SWAP, FNV_FEMALE_SWAP)
                                                if first_sub(rec.body, sig)}}
@@ -181,8 +192,9 @@ class Equipment:
 
     def __init__(self, builder):
         """Index the Fallout4.esm templates the table names, their strings and FNV's dropped fields."""
-        self.builder, self.fnv, self.strings, self.table = builder, _fnv_fields(), strings.load(), builder.table
+        self.builder, self.fnv, self.strings, self.table = builder, _fnv_fields(), strings.fallout4(), builder.table
         self.fits, self.statics, self.poses, self.bodies, self.worn_paths = {}, {}, {}, {}, {}
+        self.body_inputs = {}
         self.guns = Guns(builder, self.strings)
         self.weapon_mods = WeaponMods(builder, self.guns.mods)
         self.by_anim = {kind: set() for kind in WEAPON_ANIM_LISTS}
@@ -199,11 +211,23 @@ class Equipment:
                 self.vanilla[_edid(subs)] = subs
         self.ammo_mods, self.condition = AmmoMods(builder), Condition(builder)
         self.vats, self.aims = WeaponVats(builder), AimModels(builder)
+        self.enchantments = {int(r['FormID'], 16): r for r in export_records(builder.export_dir, 'ENCH')}
+        self.unwritten, self.perks_written = [], False
 
     def _entry(self, rec: dict):
         """FNV `rec`'s Fallout4.esm-copy entry (else its _default), or None."""
         entry = self.table.get(rec.get('EditorID')) or default_entry(rec, self.table.rules)
         return entry if entry and entry.base and entry.mode != 'item' and entry.edid in self.vanilla else None
+
+    def draws_on(self, rec: dict, race: int) -> bool:
+        """Whether FNV armor `rec`'s FO4 copy has an addon for FO4 `race`: its template's addon races (RNAM, MODL),
+        which every copy keeps; False for no copy (none, or an `item` stand-in).
+        See: docs/fork/fo4_pipeline.md#child-bodies
+        """
+        entry = self._entry(rec)
+        addons = [struct.unpack('<I', b)[0] for s, b in self.vanilla[entry.edid] if s == b'MODL'] if entry else []
+        return any(sig in ADDON_RACES and struct.unpack('<I', body)[0] == race
+                   for addon in addons for sig, body in self.addons.get(addon, ()))
 
     def _template(self, rec: dict) -> 'dict | None':
         """{sig: body} of the Fallout4.esm record FNV `rec` is written on, or None."""
@@ -365,21 +389,25 @@ class Equipment:
         return data, own
 
     def _thrown(self, rec: dict, template: dict, dnam: bytearray) -> dict:
-        """{FNAM: FNV weapon `rec`'s projectile thrown (projectiles.thrown)} for a grenade or mine copy `dnam`; {}
-        for another weapon.
+        """{FNAM: FNV weapon `rec`'s projectile thrown (projectiles.thrown), on FNV's model when the weapon is,
+        naming this copy its weapon source} for a grenade or mine copy `dnam`; {} for another weapon.
         See: docs/fork/fo4_thrown_weapons.md#projectiles
         """
         if dnam[DNAM_ANIM] not in ANIM_THROWN or b'FNAM' not in template:
             return {}
-        return {b'FNAM': self.builder.projectiles.thrown(template[b'FNAM'], rec)}
+        own = self._entry(rec).mode == 'fnv' and 'Model.MODL' in rec
+        source = self.builder.writer.derive_formid(SITES['WEAP'], int(rec['FormID'], 16))
+        return {b'FNAM': self.builder.projectiles.thrown(template[b'FNAM'], rec, own, source)}
 
     def _own_model(self, model: str, anim_type: int) -> dict:
         """{sig: body} pointing a weapon's world and first-person models (FNV uses one mesh) at FNV `model`,
-        posed as FNV holds a weapon of `anim_type` (nif.weapon.held_pose)."""
+        posed as FNV holds a weapon of `anim_type` (nif.weapon.held_pose); {} (the template's) for a source fault."""
         if anim_type not in self.poses:
             self.poses[anim_type] = weapon.held_pose(self.builder.export_dir, anim_type)
         path, bounds = self.builder.weapon_mesh(model, self.poses[anim_type])
-        out = {b'MODL': (path + '\0').encode(), b'MOD4': (path + '\0').encode()}
+        if not path:
+            return {}
+        out ={b'MODL': (path + '\0').encode(), b'MOD4': (path + '\0').encode()}
         if bounds:
             out[b'OBND'] = struct.pack('<6h', *bounds)
         return out
@@ -394,17 +422,67 @@ class Equipment:
         fnam = bytearray(template[b'FNAM'])
         struct.pack_into('<H', fnam, 0, round(fields['rating']))
         subs = {b'DATA': data, b'FNAM': bytes(fnam)}
-        own = (self._headgear(fnv, rec, template) or self._outfit(fnv, rec, template)
-               if self._entry(rec).mode == 'fnv' else None)
-        if own is None and self._entry(rec).mode == 'fnv':
-            self.builder.counts[f"ARMO on the template's models ({_on_template(rec)})"] += 1
+        own = self._own_models(fnv, rec, template) if self._entry(rec).mode == 'fnv' else None
         subs.update(own or {})
         dropped = tuple(s for s in OWN_MODEL_DROPPED if b'MOD2' in subs or s not in WORLD_MODEL_DATA) if own else ()
-        return self._write('ARMO', fnv, self._copy(rec, subs, [] if own else None, dropped))
+        return self._write('ARMO', fnv, self._enchant(fnv, rec, self._copy(rec, subs, [] if own else None, dropped)))
+
+    def _own_models(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
+        """_headgear() or _outfit() of FNV ARMO `rec`; None, counted by why (_on_template, or a source fault, which
+        is counted too), when it keeps the template's models."""
+        why = None
+        try:
+            own = self._headgear(fnv, rec, template) or self._outfit(fnv, rec, template)
+        except SourceFault as fault:
+            count(fault)
+            own, why = None, 'a source fault'
+        if own is None:
+            self.builder.counts[f"ARMO on the template's models ({why or _on_template(rec)})"] += 1
+        return own
+
+    def _enchant(self, fnv: int, rec: dict, subs: list) -> list:
+        """Armor copy `subs` with FNV ARMO `rec`'s own object effect (EITM) in place of the template's, which is
+        always dropped: an enchantment raising FNV_DR by its DR plus its FNV enchantment's effects FO4 has
+        (perks.constant_target), written by write_enchantments; no EITM with neither.
+        See: docs/fork/fo4_pipeline.md#damage-threshold
+        """
+        if any(sig == b'EITM' for sig, _ in subs):
+            self.builder.counts['ARMO template enchantment dropped'] += 1
+        subs = [(sig, body) for sig, body in subs if sig != b'EITM']
+        fields = self.fnv.get(fnv, {})
+        spell = self.enchantments.get(fields.get('ench', 0))
+        keys = [f'Effect[{i}]' for i in range(int(spell.get('EffectCount', 0) or 0))] if spell else []
+        resist = fields.get('resist', 0.0)
+        if not resist and not any(self.builder.perks.constant_target(spell, k) for k in keys):
+            return subs
+        ench = self.builder.writer.derive_formid(RESIST_SITE if resist else EFFECT_SITE, fnv)
+        self.unwritten.append((ench, f'FNV_{rec["EditorID"]}Ench', resist, spell))
+        if self.perks_written:
+            self.write_enchantments()
+        at = next((i for i, (sig, _) in enumerate(subs) if sig not in BEFORE_EITM), len(subs))
+        return subs[:at] + [(b'EITM', struct.pack('<I', ench))] + subs[at:]
+
+    def write_enchantments(self) -> None:
+        """Write the armor enchantments _enchant named, and from now on each as it is named; after perks.write,
+        whose form map the effects' conditions read (perks.constant_effect)."""
+        perks, self.perks_written = self.builder.perks, True
+        for ench, edid, resist, spell in self.unwritten:
+            pairs = effect_pair(perks.raising(FNV_DR), resist, 0, 0) if resist else b''
+            for i in range(int(spell.get('EffectCount', 0) or 0) if spell else 0):
+                made = perks.constant_effect(spell, f'Effect[{i}]')
+                left_out = f'armor effect left out ({spell[f"Effect[{i}].EFID"]})'
+                self.builder.counts['armor effect' if made else left_out] += 1
+                pairs += made[0] + made[1] if made else b''
+            self.builder.writer.add_record('ENCH', pack_explosion_ench(ench, edid, pairs, ENIT_ARMOR))
+            self.builder.counts['ENCH (armor)'] += 1
+        self.unwritten.clear()
 
     def _fnv_path(self, model: str) -> Path:
-        """FNV model `model`'s file in the export."""
-        return export_file(self.builder.export_dir, 'meshes', model.replace('\\', '/').lower())
+        """FNV model `model`'s file in the export; SourceFault when no export layer holds it."""
+        path = export_file(self.builder.export_dir, 'meshes', model.replace('\\', '/').lower())
+        if not path.is_file():
+            raise SourceFault(path, 'missing model (in no export layer)')
+        return path
 
     def _on_head(self, model: str, sex: str) -> tuple:
         """(whether FNV headgear `model` is drawn on `sex`'s head: rigid, or skinned to its head bone; the
@@ -445,6 +523,8 @@ class Equipment:
             self.builder.counts["ARMO on the template's world model (FNV has none)"] += 1
             return out
         path, bounds = self.builder.mesh(world)
+        if not path:
+            return out
         out[b'MOD2'] = (path + '\0').encode()
         if bounds:
             out[b'OBND'] = struct.pack('<6h', *bounds)
@@ -513,10 +593,13 @@ class Equipment:
         path, static = self._static(model)
         stem = path[:-len('.nif')] + _sex_suffix(sex)
         fnv_path = self._fnv_path(model)
+        if sex not in self.body_inputs:
+            self.body_inputs[sex] = outfit.body_reads(self.builder.export_dir, sex)
         out = []
         for name, first in ((f'{stem}.nif', False), (f'{stem}_1stperson.nif', True)):
-            write_new(self.builder.data_dir / 'Meshes' / name, cached(
-                'outfit_worn', 'fo4_import.nif.outfit', (static, fnv_path.read_bytes(), sex, first),
+            inputs = outfit.worn_key(static, fnv_path, sex, first, self.body_inputs[sex])
+            write_new(self.builder.data_dir / 'Meshes' / name, versioned(
+                outfit.WORN_SITE, outfit.OUTFIT_VERSION, inputs,
                 lambda: outfit.worn(static, fnv_path, self._body(sex), first)))
             out.append(name)
         self.worn_paths[model, sex] = tuple(out)

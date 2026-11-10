@@ -1,7 +1,8 @@
-"""FNV vendors as Fallout 4's: a vendor faction per vendor NPC, stocked from FNV's merchant container.
+"""FNV vendors as Fallout 4's: a vendor faction per vendor NPC or creature, stocked from FNV's merchant container.
 
-FNV names a vendor's merchant container on its placed reference (ACHR
-XMRC; the chests stand in a holding cell, NVVendorChestsCell) and what it
+FNV names a vendor's merchant container on its placed reference (ACHR or
+ACRE XMRC, read from the source plugin as the export keeps no creature's;
+the chests stand in a holding cell, NVVendorChestsCell) and what it
 trades in its AI services (AIDT.Services, its template's when it takes AI
 data from one). FO4 keeps both on a vendor
 faction, built in vanilla's shape (57 of 92 vendor factions): the merchant
@@ -15,15 +16,17 @@ chest, and only it, in the holding cell.
 See: docs/fork/fo4_pipeline.md#vendors
 """
 
+import functools
 import struct
 from pathlib import Path
 
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.factions import CAN_BE_OWNER, CRIME_VALUES
 from fo4_import.spike.interiors import INTERIOR
 from fo4_import.spike.npcs import USE_AI_DATA, template_source
-from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: FNV AI services bits of consumables -> the FO4 keywords of what they cover (wbServiceFlags, FO3/FNV names).
@@ -42,10 +45,17 @@ SITE = 'FNV vendor'
 
 def merchants(export_dir: Path, cell_of) -> list:
     """[(FNV actor reference, its merchant container REFR)] of the actors `cell_of` places in the build."""
-    refs = {r['FormID']: r for r in export_records(export_dir, 'REFR')}
-    return [(actor, refs[actor['XMRC.MerchantContainer']]) for sig in ('ACHR', 'ACRE')
+    refs, chests = {int(r['FormID'], 16): r for r in export_records(export_dir, 'REFR')}, merchant_chests()
+    return [(actor, refs[chests[int(actor['FormID'], 16)]]) for sig in ('ACHR', 'ACRE')
             for actor in export_records(export_dir, sig)
-            if actor.get('XMRC.MerchantContainer') in refs and cell_of(actor)]
+            if chests.get(int(actor['FormID'], 16)) in refs and cell_of(actor)]
+
+
+@functools.cache
+def merchant_chests() -> dict:
+    """{FNV actor reference: its XMRC merchant container}, from the source plugin."""
+    return {rec.form_id: struct.unpack('<I', data)[0] for rec, _ in source_walk(b'ACHR', b'ACRE')
+            for data in [first_sub(rec.body, b'XMRC')] if data}
 
 
 def with_chests(export_dir: Path, interiors: list, every: list, chests: list) -> tuple:
@@ -60,8 +70,8 @@ def with_chests(export_dir: Path, interiors: list, every: list, chests: list) ->
 
 
 def write_vendors(builder, export_dir: Path, sold: list) -> dict:
-    """{FNV NPC base: FO4 vendor faction} of `sold` (merchants()), each faction written once."""
-    npcs = {int(r['FormID'], 16): r for r in export_records(export_dir, 'NPC_')}
+    """{FNV NPC or creature base: FO4 vendor faction} of `sold` (merchants()), each faction written once."""
+    npcs = {int(r['FormID'], 16): r for sig in ('NPC_', 'CREA') for r in export_records(export_dir, sig)}
     lists, out = _vanilla(builder.fo4), {}
     for actor, chest in sold:
         base = npcs.get(int(actor['NAME'], 16))

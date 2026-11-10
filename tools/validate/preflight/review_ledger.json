@@ -1,0 +1,30 @@
+{
+ "version": 1,
+ "entries": {
+  "properties|FalloutNV.esm|helper|F3NV_RadioStation.Playlist": {
+   "status": "ok",
+   "note": "Set at run time: each station's F3NV_RadioPlaylist names itself on its transmitter at quest start (fo4_radio.md#start-radio-conversation).",
+   "date": "2026-11-07"
+  },
+  "quest|FalloutNV.esm|VCG00|14": {
+   "status": "ok",
+   "note": "False positive: VCG00BennyTravelToPlayer is named by nothing (fo4_preflight results 2026-11-02)",
+   "date": "2026-11-08"
+  },
+  "start|FalloutNV.esm|unbuilt|CG02": {
+   "status": "ok",
+   "note": "Fallout 3's Butch birthday quest left in FalloutNV.esm; its triggers and radroach are FO3 leftovers",
+   "date": "2026-11-08"
+  },
+  "start|FalloutNV.esm|unbuilt|ControlRumble": {
+   "status": "ok",
+   "note": "Controller rumble helper; sets only its own stage 0, nothing for the player",
+   "date": "2026-11-08"
+  },
+  "start|FalloutNV.esm|unbuilt|VT74": {
+   "status": "ok",
+   "note": "Vault 74 is the GECK tutorial vault, cut from FNV: no door leads into Vault74a",
+   "date": "2026-11-08"
+  }
+ }
+}

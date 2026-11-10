@@ -1,5 +1,5 @@
 ScriptName F3NV_WeaponPoison extends ActiveMagicEffect
-{FO3/FNV weapon poison: using it coats the equipped melee or unarmed weapon (FNV's Melee Weapons or Unarmed skill, its keyword) for one hit, as FNV's Pip-Boy does, by giving the poison's coat perk; with no such weapon, or a coat already on, FNV's message shows and the item comes back.
+{FO3/FNV weapon poison: using it coats the equipped melee or unarmed weapon (FNV's Melee Weapons or Unarmed skill, its keyword) for one hit, as FNV's Pip-Boy does, by giving the poison's coat perk once the player answers Yes to FNV's confirmation (No gives the item back); with no such weapon, or a coat already on, FNV's message shows and the item comes back.
 See: docs/fork/fo4_pipeline.md#weapon-poisons}
 
 Perk Property Coat Auto Const
@@ -14,14 +14,20 @@ String Property NoWeapon Auto Const
 {FNV's sPoisonNoWeaponMessage.}
 String Property Already Auto Const
 {FNV's sPoisonAlreadyPoisonedMessage.}
+Message Property Confirm Auto Const
+{FNV's sPoisonConfirmMessage, Yes then No.}
 
 Event OnEffectStart(Actor akTarget, Actor akCaster)
+  Perk myCoat = Coat
+  Potion item = Poison
   If !Takes(akTarget.GetEquippedWeapon())
     Refuse(akTarget, NoWeapon)
   ElseIf Coated(akTarget)
     Refuse(akTarget, Already)
+  ElseIf Confirm.Show() == 0
+    akTarget.AddPerk(myCoat)
   Else
-    akTarget.AddPerk(Coat)
+    akTarget.AddItem(item, 1, True)
   EndIf
 EndEvent
 

@@ -23,6 +23,7 @@ import re
 import struct
 from pathlib import Path
 
+from fo4_import.base.source_fault import without_fault
 from fo4_import.base.vmad import object_scripts, terminal_fragments
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
@@ -107,9 +108,10 @@ class Terminals:
         return screen[2] if screen else 0.0
 
     def _look(self, model: str) -> tuple:
-        """((FO4 model, bounds), screen) of FNV terminal mesh `model`, converted once; screen None without one."""
+        """((FO4 model, bounds), screen) of FNV terminal mesh `model`, converted once; screen None without one. A
+        source fault falls to builder.mesh(), which leaves the terminal without the model (('', None))."""
         if model not in self.looks:
-            made = terminal_assets(self.export_dir, model, self.builder.data_dir)
+            made = without_fault(terminal_assets, self.export_dir, model, self.builder.data_dir)
             if made is not None:
                 self.builder.meshes[f'{model}#terminal'] = made[0]
             self.looks[model] = made or (self.builder.mesh(model), None)

@@ -18,6 +18,8 @@ import numpy as np
 from scipy.spatial import ConvexHull
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
+from fo4_import.base.source_fault import SourceFault
+from fo4_import.nif import fnv_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.file import NifFile
 from fo4_import.nif.stairs import stairs
@@ -84,6 +86,10 @@ CHARCONTROLLER = 30
 CONTROLLER_RADII = (('CharacterController', 0.8), ('CharacterBumper', 1.2))
 #: An empty hkWorldObjectCinfo::Property (data, size, capacity and flags).
 EMPTY_PROPERTY = struct.pack('<3I', 0, 0, 0x80000000)
+#: A phantom's identity transform (its shape carries any offset).
+IDENTITY_44 = struct.pack('<16f', 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+#: FNV's water collision layer: placeable water's phantoms, converted on their own (fo4_pipeline.md#placeable-water).
+FNV_WATER = 11
 
 
 def is_mesh(shape) -> bool:
@@ -336,9 +342,7 @@ def _mesh_soup(body, node, root, grow: float) -> 'tuple | None':
 
 def mesh_triangles(path: str) -> tuple:
     """(triangles in game units, FO4 materials) of the FNV NIF at `path`'s root mesh collision, as converted."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(path)
     root = data.roots[0]
     tris, materials, _ = _mesh_soup(root.collision_object.body, root, root, 1.0)
     return [tuple(tuple(c * GAME_PER_HAVOK for c in v) for v in tri) for tri in tris], materials
@@ -366,6 +370,13 @@ def _rigid_body(blocks: _Blocks, body, node) -> 'int | None':
     return None if shape is None else _body_block(blocks, shape, body, baked)
 
 
+def _motion(fnv: int) -> int:
+    """MOTIONS[`fnv`]; SourceFault for one Havok does not define."""
+    if fnv not in MOTIONS:
+        raise SourceFault(None, f'Havok motion system {fnv} is not defined')
+    return MOTIONS[fnv]
+
+
 def _body_block(blocks: _Blocks, shape: int, body, baked: bool, filt: bytes = None) -> int:
     """FNV `body` around block `shape` with the 2014 body info; lengths scaled, inertia by the square; its
     filter, or `filt`.
@@ -387,7 +398,7 @@ def _body_block(blocks: _Blocks, shape: int, body, baked: bool, filt: bytes = No
     info += struct.pack('<12f', *(t * SCALE * SCALE for t in tensor)) + struct.pack('<4f', *_vec(body.center))
     info += struct.pack('<9f', body.mass, body.linear_damping, body.angular_damping, 1.0, body.friction, 0.0,
                         body.restitution, body.max_linear_velocity, body.max_angular_velocity)
-    motion = KEYFRAMED if blocks.animated and body.motion_system == FNV_KEYFRAMED else MOTIONS[body.motion_system]
+    motion = KEYFRAMED if blocks.animated and body.motion_system == FNV_KEYFRAMED else _motion(body.motion_system)
     motion = motion if moves(body) or motion == KEYFRAMED else FIXED
     info += struct.pack('<4Bff4xBBHBBBBB3x', motion, body.deactivator_type, body.solver_deactivation, 0,
                         body.penetration_depth * SCALE, 1.0, body.collision_response, 0,
@@ -430,31 +441,29 @@ def node_transform(node, root) -> tuple:
 
 
 def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int, kept: dict = None) -> None:
-    """Give the FO4 root FNV's collision: the root's own, and a NiNode per child node that has one; a node
-    already kept (`kept`: {id(FNV node): FO4 index}, an animated one) carries its own.
+    """Give the FO4 root FNV's collision: the root's own, and a NiNode per child node that has one; a `kept`
+    node ({id(FNV node): FO4 index}, an animated one) carries its own.
 
-    The NiNodes come first and every Havok block after them, so the Havok
-    blocks are the file's tail (elric.graft swaps that tail for FO4's).
-    Elric ignores a node's scale, so the node gets 1.0 and its shapes the scale.
-    Only rigid bodies convert: a phantom (a trigger volume, not solid) is left out.
+    NiNodes first, every Havok block after them (elric.graft swaps that tail).
+    Elric ignores a node's scale, so the node gets 1.0 and its shapes the scale. Rigid bodies and trigger
+    phantoms (a trap's volume) convert; water phantoms are left out.
     See: docs/fork/fo4_spikes.md#spike-4-exterior
+    See: docs/fork/fo4_pipeline.md#trap-triggers
     """
-    owners = []
+    owners, phantoms = [], []
     for node in fnv_root.tree():
         co = getattr(node, 'collision_object', None)
-        if co is None or co.body is None or not type(co.body).__name__.startswith('bhkRigidBody'):
+        kind = type(co.body).__name__ if co is not None and co.body is not None else ''
+        trigger = kind == 'bhkSimpleShapePhantom' and int(co.body.havok_col_filter.layer) != FNV_WATER
+        if not trigger and not kind.startswith('bhkRigidBody'):
             continue
-        index, scale = (kept or {}).get(id(node), root_index), 1.0
-        if node is not fnv_root and id(node) not in (kept or {}):
-            translation, rotation, scale = node_transform(node, fnv_root)
-            index = len(nif.blocks)
-            nif.blocks.append(('NiNode', {
-                'name': nif.string(node.name.decode('cp1252')), 'extra': [], 'controller': NONE,
-                'flags': node_flags, 'translation': translation, 'rotation': rotation, 'scale': 1.0,
-                'collision': NONE, 'children': []}))
-            nif.blocks[root_index][1]['children'].append(index)
-        owners.append((index, co, node, scale))
+        index, scale = _collision_node(nif, node, fnv_root, root_index, node_flags, kept or {})
+        (phantoms if trigger else owners).append((index, co, node, scale))
     soups, ramps = _stair_ramps(nif, owners, root_index, node_flags, fnv_root, kept or {})
+    for index, co, _, scale in phantoms:
+        blocks = _Blocks(nif, scale)
+        nif.blocks[index][1]['collision'] = _phantom(blocks, index, blocks.shape(co.body.shape),
+                                                     havok_filter(co.body.havok_col_filter))
     bodies = {}
     for index, co, node, scale in owners:
         nif.blocks[index][1]['collision'] = collision_object(nif, co, index, node, scale, fnv_root,
@@ -465,6 +474,27 @@ def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int, ke
     for index, ramp, co in ramps:
         nif.blocks[index][1]['collision'] = _ramp_object(nif, index, ramp, co)
     joints(nif, bodies)
+
+
+def _collision_node(nif: NifFile, node, fnv_root, root_index: int, node_flags: int, kept: dict) -> tuple:
+    """(FO4 block index, scale) carrying FNV `node`'s collision: the root, a `kept` node, or a new NiNode under
+    the root at the node's place."""
+    if node is fnv_root or id(node) in kept:
+        return kept.get(id(node), root_index), 1.0
+    translation, rotation, scale = node_transform(node, fnv_root)
+    nif.blocks.append(('NiNode', {
+        'name': nif.string(node.name.decode('cp1252')), 'extra': [], 'controller': NONE,
+        'flags': node_flags, 'translation': translation, 'rotation': rotation, 'scale': 1.0,
+        'collision': NONE, 'children': []}))
+    nif.blocks[root_index][1]['children'].append(len(nif.blocks) - 1)
+    return len(nif.blocks) - 1, scale
+
+
+def _phantom(blocks: '_Blocks', node: int, shape: int, filt: bytes) -> int:
+    """A bhkSPCollisionObject on `node` holding a phantom of `shape`, filter `filt`."""
+    head = struct.pack('<i', shape) + filt + struct.pack('<4xB3x', 1) + EMPTY_PROPERTY
+    phantom = blocks.add('bhkSimpleShapePhantom', head + bytes(8) + IDENTITY_44)
+    return blocks.add('bhkSPCollisionObject', struct.pack('<iHi', node, 1 | SYNC_ON_UPDATE, phantom))
 
 
 def _stair_ramps(nif: NifFile, owners: list, root_index: int, node_flags: int, fnv_root, kept: dict) -> tuple:
@@ -554,7 +584,6 @@ def character_controller(nif: NifFile, center: tuple, half: tuple, node_flags: i
     See: docs/fork/fo4_spikes.md#own-rigs
     """
     filt = struct.pack('<BBH', CHARCONTROLLER, 0, 0)
-    matrix = struct.pack('<16f', 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
     blocks = _Blocks(nif, animated=True)
     for name, grow in CONTROLLER_RADII:
         nif.blocks.append(('NiNode', {'name': nif.string(name), 'extra': [], 'controller': NONE, 'flags': node_flags,
@@ -563,10 +592,7 @@ def character_controller(nif: NifFile, center: tuple, half: tuple, node_flags: i
         node = len(nif.blocks) - 1
         nif.blocks[0][1]['children'].append(node)
         shape = blocks._bhkCapsuleShape(_standing_capsule(center, half, grow))
-        head = struct.pack('<i', shape) + filt + struct.pack('<4xB3x', 1) + EMPTY_PROPERTY
-        phantom = blocks.add('bhkSimpleShapePhantom', head + bytes(8) + matrix)
-        nif.blocks[node][1]['collision'] = blocks.add('bhkSPCollisionObject',
-                                                      struct.pack('<iHi', node, 1 | SYNC_ON_UPDATE, phantom))
+        nif.blocks[node][1]['collision'] = _phantom(blocks, node, shape, filt)
 
 
 def _standing_capsule(center: tuple, half: tuple, grow: float) -> SimpleNamespace:

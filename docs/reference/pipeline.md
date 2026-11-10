@@ -675,6 +675,21 @@ Two consequences worth knowing:
 
 `tools/esm/migrate_group_layout.py` moves mods imported under the old layout.
 
+#### <a id="master-index-maps"></a>A master's ids are stated in its own numbering
+
+Each export keeps the FormIDs its plugin authored: the top byte counts through
+that plugin's own master list, and its own records sit one past the end. A DLC
+whose only master is the game writes its records as `01xxxxxx`; a mod that
+lists the game and five DLCs names the same record `04xxxxxx`. Whoever merges
+several masters' records must restate each master's ids in the dependent's
+numbering first, or sibling masters overwrite each other.
+
+`chain_index_maps(record_dir)` returns, for every transitive master, its folder
+and the byte map (`master_index_map`). A master the dependent does not list
+itself (a master's master) gets a slot past the dependent's own, so its records
+stay distinct and the ids its lister names still resolve. Ids below `0x800`
+in slot 0 are the engine's own forms and are never moved.
+
 ### `output/Finished Mods/`
 
 `output/` is a workspace, not a delivery folder: per-plugin working folders, the

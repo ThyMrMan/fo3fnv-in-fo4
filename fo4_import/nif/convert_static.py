@@ -26,6 +26,7 @@ from PIL import Image
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from asset_convert.texture import spec_mask
+from fo4_import.nif import fnv_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.file import NifFile
 
@@ -63,6 +64,10 @@ BSX_HAVOK, BSX_COMPLEX, BSX_DYNAMIC, BSX_ARTICULATED = 0x2, 0x8, 0x40, 0x80
 BSX_ANIMATED = 0x1
 #: BSXFlags Addon: set on vanilla meshes with add-on nodes (WorkstationWoodCookingFire 0x29B, BarrelTank 0x5B).
 BSX_ADDON = 0x10
+#: Range nodes FNV and FO4 share: a damage stage (children shown at its stages), a blast node, a debris node.
+RANGE_NODES = ('BSDamageStage', 'BSBlastNode', 'BSDebrisNode')
+#: Flags of 226 of vanilla's 243 range nodes (Coupe01_Postwar's): hidden until the engine shows its stage.
+RANGE_FLAGS = 0x2000000F
 BGSM_TEXTURES = ('diffuse', 'normal', 'smooth_spec', 'greyscale', 'envmap', 'glow', 'inner_layer', 'wrinkles',
                  'displacement')
 #: Vanilla ChemistrySetBeaker01's effect shader: flags, lighting influence, falloff, base colour, env map scale.
@@ -137,8 +142,10 @@ OVERLAY_GAP, OVERLAY_SHARE = 4.0, 0.5
 GLOSSINESS = 10.0
 #: (blend bits, alpha test ref) of most FNV glass and see-through surfaces: blend, src alpha, inverse src alpha.
 EFFECT_ALPHA = (0xED, 0)
-#: FNV grass (TallGrassShaderProperty) lit as vanilla grass is, its most common setting (fo4_spikes.md#spike-4-exterior).
-GRASS_LIGHTING = {'subsurface': True, 'subsurface_rolloff': 4.0, 'backlight_power': 12.5}
+#: FNV grass lit as vanilla grass's commonest setting, its texture clamped as FNV's TallGrassShader does (tile_flags 0).
+GRASS_MATERIAL = {'subsurface': True, 'subsurface_rolloff': 4.0, 'backlight_power': 12.5, 'tile_flags': 0}
+#: Lighting shader flags2 Vertex_Colors: every vanilla grass mesh with vertex colours sets it (sway weight, tint).
+VERTEX_COLORS = 0x20
 #: The most common value of every field over Fallout4.esm's 6,616 BGSMs, textures and root material aside.
 MATERIAL = {
     'version': 2, 'tile_flags': 3, 'uv_offset': (0.0, 0.0), 'uv_scale': (1.0, 1.0), 'alpha': 1.0,
@@ -336,10 +343,12 @@ def glow_map_path(fnv_diffuse: str, fnv_glow: str, cut: 'int | None' = None) -> 
 
 def glow_image(diffuse_dds: bytes, glow_dds: bytes, cut: 'int | None' = None) -> Image.Image:
     """FNV's glow as FO4's: the diffuse colour times the glow map's, at the diffuse's size. With a `cut` (the neon
-    overlay) it is black where the diffuse's alpha is below `cut` (FNV's alpha test), raised so its brightest texel
-    is white, as vanilla's neon tubes are, and stored as linear light (^ DISPLAY_GAMMA), as the effect shader shows it.
+    overlay) it is black where the diffuse's alpha is below `cut` (FNV's alpha test), raised so its brightest
+    texel is white, as vanilla's neon tubes are near white, and stored as linear light (^ DISPLAY_GAMMA), so
+    faint glow stays faint.
 
     See: docs/fork/fo4_look.md#emissive
+    See: docs/fork/fo4_look.md#route-neon
     """
     source = Image.open(io.BytesIO(diffuse_dds)).convert('RGBA')
     glow = Image.open(io.BytesIO(glow_dds)).convert('RGB').resize(source.size, Image.BILINEAR)
@@ -359,7 +368,7 @@ class ShapeMaterial:
     material file (path ''; data holds its texture and vertex alpha), 'refract' a lighting shader with no
     material file drawing only refraction (data: strength), 'black' vanilla's BLACK_FLAT. An
     effect's `shader` is its NIF shader's values and flags (vanilla beaker
-    glass when None); `flags1` is added to a lit shader's flags1; `split` is
+    glass when None); `flags1` and `flags2` are added to a lit shader's flags; `split` is
     (translucent material, texture) for a cut-out's see-through triangles.
     """
     kind: str
@@ -373,6 +382,7 @@ class ShapeMaterial:
     split: 'tuple | None' = None
     glow: 'tuple | None' = None
     overlay: 'ShapeMaterial | None' = None
+    flags2: int = 0
 
 
 def _alpha_fields_of(flags: int, threshold: int) -> dict:
@@ -394,11 +404,11 @@ def _alpha_part(alpha) -> 'tuple | None':
 def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool, material=None) -> ShapeMaterial:
     """An FNV BSShaderNoLightingProperty shape: its texture, vertex alpha, blend, sidedness and view falloff.
 
-    One fading by vertex alpha (`fades`: some vertex alpha below 1, sf_vertex_alpha) blends with no
-    NiAlphaProperty, as FNV's soft shadows; an untextured one that fades has only its vertex
-    alpha to blend by, flagged or not. A shape with `normals` keeps FNV's view falloff (angle cosines,
-    opacities). Its `material`'s alpha scales its opacity, and blends it when it fades by it.
+    One fading by vertex alpha (`fades`, sf_vertex_alpha) blends with no NiAlphaProperty, as FNV's soft
+    shadows; an untextured one that fades blends by vertex alpha, flagged or not. `normals` keeps FNV's view
+    falloff; `material`'s alpha scales opacity. Blended with animated emission above 1: a neon tube.
     See: docs/fork/fo4_pipeline.md#effects
+    See: docs/fork/fo4_look.md#route-neon
     """
     fnv = shader.file_name.decode('cp1252')
     vertex_alpha = bool(shader.shader_flags.sf_vertex_alpha) or (not fnv and fades)
@@ -409,20 +419,26 @@ def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool, material=
             'alpha': material.alpha if material is not None else 1.0}
     blend = vertex_alpha and fades or material_fades(material)
     part = _alpha_part(alpha) or (VERTEX_ALPHA_BLEND if blend else None)
+    color, mult = _emission({} if material is None else {'NiMaterialProperty': material})
+    if alpha is not None and alpha.flags & 1 and mult > 1 and _controlled(material, 'BSMaterialEmittanceMultController'):
+        part, data['neon'] = NEON_ALPHA, (color, fo4_glow('tube', mult))
     return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], part, None)
 
 
 def material_fades(material) -> bool:
-    """Whether FNV fades a shape by its NiMaterialProperty `material`: alpha below 1, or an NiAlphaController.
+    """Whether FNV fades a shape by `material`: alpha below 1, an NiAlphaController.
 
     See: docs/fork/fo4_pipeline.md#free-controllers
     """
-    if material is None:
-        return False
-    controller = material.controller
-    while controller is not None and type(controller).__name__ != 'NiAlphaController':
+    return material is not None and (material.alpha < 1 or _controlled(material, 'NiAlphaController'))
+
+
+def _controlled(material, kind: str) -> bool:
+    """Whether NiMaterialProperty `material` has a controller of type name `kind`."""
+    controller = material.controller if material is not None else None
+    while controller is not None and type(controller).__name__ != kind:
         controller = controller.next_controller
-    return material.alpha < 1 or controller is not None
+    return controller is not None
 
 
 def texel_peaks(root, texture_root) -> dict:
@@ -531,14 +547,15 @@ def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, te
     """
     mat = dict(MATERIAL, root_material='', two_sided=two_sided, decal=decal,
                textures={**dict.fromkeys(BGSM_TEXTURES, '')})
-    mat.update(GRASS_LIGHTING if 'TallGrassShaderProperty' in props else {})
+    grass = 'TallGrassShaderProperty' in props
+    mat.update(GRASS_MATERIAL if grass else {})
     fnv = drawable(fnv, texture_root)
     mat['textures']['diffuse'] = fo4_texture(fnv[0]).replace('\\', '/')
     mat['textures']['normal'] = fo4_texture(fnv[1] if len(fnv) > 1 else '').replace('\\', '/')
     spec = _specular(mat, fnv[1] if len(fnv) > 1 else '', props, texture_root)
     part = _lit_alpha(alpha, decal)
     cut = bool(part and part[0] & ALPHA_TEST_BIT)
-    suffix = ('_2s' if two_sided else '') + ('' if cut else _glow(mat, fnv, props))
+    suffix = ('_2s' if two_sided else '') + ('_grass' if grass else '') + ('' if cut else _glow(mat, fnv, props))
     if part is not None:
         mat.update(_alpha_fields_of(*part))
         suffix += f'_a{part[0]:x}_{part[1]}'
@@ -549,7 +566,8 @@ def lit_material(fnv: list, props: dict, alpha, two_sided: bool, decal: bool, te
     overlay = _glow_overlay(fnv, props, two_sided, part[1]) if cut and len(fnv) > GLOW_SLOT and fnv[GLOW_SLOT] \
         and fnv[0] else None
     return ShapeMaterial('lit', path, mat, list(fnv[:GLOW_SLOT + 1 if mat['glowmap'] else 2]), part, spec,
-                         flags1=DECAL_FLAGS if decal else 0, glow=glow, overlay=overlay)
+                         flags1=DECAL_FLAGS if decal else 0, glow=glow, overlay=overlay,
+                         flags2=VERTEX_COLORS if grass else 0)
 
 
 def drawable(fnv: list, texture_root) -> list:
@@ -881,10 +899,12 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
 
     Flags: z-test always; z-write unless it blends; vertex colours and vertex
     alpha when the shape has colours (and FNV used their alpha); two-sided; FNV's falloff when it has one, and
-    soft when also two-sided (a beam, faded where it meets geometry); coloured by the reference's emittance (XEMI).
+    soft when also two-sided and blended (a beam, faded where it meets geometry; an alpha-tested bulb would fade
+    under its threshold); coloured by the reference's emittance (XEMI).
     """
     data = mat.data
-    beam = bool(data['falloff'] and data['two_sided'])
+    beam = bool(data['falloff'] and data['two_sided'] and mat.alpha and mat.alpha[0] & 1)
+    color, scale = data.get('neon', ((1.0, 1.0, 1.0), 1.0))
     flags1 = (UNLIT_FLAGS[0] | (UNLIT_VERTEX_ALPHA if has_colors and data['vertex_alpha'] else 0)
               | (USE_FALLOFF if data['falloff'] else 0) | (SOFT_EFFECT if beam else 0)
               | (EXTERNAL_EMITTANCE if data['external'] else 0))
@@ -895,7 +915,7 @@ def _unlit_shader(nif: NifFile, mat: ShapeMaterial, has_colors: bool) -> dict:
             'source_texture': f'textures\\{data["texture"]}' if data['texture'] else WHITE if data['falloff'] else '',
             'clamp': 3,
             'lighting_influence': 0, 'env_min_lod': 0, 'unused': 0, 'falloff': data['falloff'] or (1.0, 1.0, 1.0, 1.0),
-            'base_color': (1.0, 1.0, 1.0, data['alpha']), 'base_color_scale': 1.0,
+            'base_color': (*color, data['alpha']), 'base_color_scale': scale,
             'soft_depth': SOFT_DEPTH if beam else 100.0, 'greyscale': '',
             'env_map': '', 'normal': '', 'env_mask': '', 'env_map_scale': 1.0}
 
@@ -906,6 +926,7 @@ def _lit_blocks(nif: NifFile, mat: ShapeMaterial, index: int) -> list:
     See: docs/fork/fo4_pipeline.md#glow
     """
     shader = lighting_shader(nif, mat.path, index + 2, mat.flags1)
+    shader.update(flags2=shader['flags2'] | mat.flags2, clamp=mat.data.get('tile_flags', shader['clamp']))
     slots = _texture_slots(mat)
     slots[0] = slots[0] or WHITE
     if mat.spec:
@@ -989,9 +1010,7 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     out). An animated mesh keeps its animated nodes, skins and controllers (nif.animation) unless not
     `animated` (a weapon, animated by its behaviour graph; a load door, never opened). `every_bone` keeps
     every node (a creature skeleton)."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(path)
     latch_source(data)
     root = data.roots[0]
     posed(root, pose or {})
@@ -1007,12 +1026,13 @@ def convert(path: str, texture_root=None, pose: dict = None, animated: bool = Tr
     found = particle_systems(root)
     bones = _bones(root, kept or _skeleton_nodes(root, joined, every_bone), found)
     nodes = add_nodes(nif, bones, root, NODE_FLAGS) if bones else {id(root): 0}
+    placed = range_nodes(nif, root, nodes)
     out.animatable = manager is not None and animatable(manager)
-    _shapes(nif, root, nodes, out, texture_root)
-    made = _particles(nif, root, found, nodes, out, texture_root)
+    _shapes(nif, root, nodes, placed, out, texture_root)
+    made = _particles(nif, root, found, placed, out, texture_root)
     free = free_controllers(root)
     running = free_running(nif, free, texel_peaks(root, texture_root)) if free else 0
-    added = _addon_nodes(nif, root, addons or {})
+    added = _addon_nodes(nif, root, addons or {}, placed)
     bsx = _bsx(data, added, joined, animate or found or running)
     if bsx:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': bsx}))
@@ -1056,11 +1076,39 @@ def _particles(nif: NifFile, root, found: list, nodes: dict, out: Converted, tex
     return made
 
 
-def _addon_nodes(nif: NifFile, root, addons: dict) -> bool:
-    """FNV `root`'s shown add-on nodes as FO4 BSValueNodes on the root in its space, each ADDN index mapped by
+def range_nodes(nif: NifFile, root, nodes: dict) -> dict:
+    """`nodes` ({id(FNV node): FO4 index}) and FNV `root`'s range nodes (RANGE_NODES) as FO4's of the same type,
+    range (min, max, current) and name: a kept one made its type in place, another added under its nearest kept or
+    range ancestor in that one's space. What sits under a stage then goes under it, shown at its damage stages.
+
+    See: docs/fork/fo4_pipeline.md#damage-stages
+    """
+    placed = dict(nodes)
+    for node in root.tree():
+        kind = type(node).__name__
+        if kind not in RANGE_NODES or node is root:
+            continue
+        if id(node) not in placed:
+            owner = _owner(node, root, placed)
+            translation, rotation, scale = node_transform(node, owner)
+            placed[id(node)] = len(nif.blocks)
+            nif.blocks.append(('NiNode', {
+                'name': nif.string(node.name.decode('cp1252')), 'extra': [], 'controller': NONE,
+                'translation': translation, 'rotation': rotation, 'scale': scale, 'collision': NONE, 'children': []}))
+            nif.blocks[placed[id(owner)]][1]['children'].append(placed[id(node)])
+        block = nif.blocks[placed[id(node)]][1]
+        block['flags'] = RANGE_FLAGS
+        block['range'] = (int(node.unknown_byte_1), int(node.unknown_short_2) & 0xFF, int(node.unknown_short_2) >> 8)
+        nif.blocks[placed[id(node)]] = (kind, block)
+    return placed
+
+
+def _addon_nodes(nif: NifFile, root, addons: dict, placed: dict) -> bool:
+    """FNV `root`'s shown add-on nodes as FO4 BSValueNodes, each under its nearest `placed` ancestor (a kept or
+    range node: a damage stage shows it once damaged; else the root) in that one's space, its ADDN index mapped by
     `addons` and named for it as vanilla's (AddOnNode04, a repeat AddOnNode04@#0); whether any was written.
 
-    One under a hidden node (a vehicle's damage stage, shown once damaged) is left out.
+    One under a hidden node other than a range node is left out.
     See: docs/fork/fo4_pipeline.md#addons
     """
     parents = {id(c): n for n in root.tree() if hasattr(n, 'children') for c in n.children if c is not None}
@@ -1070,18 +1118,20 @@ def _addon_nodes(nif: NifFile, root, addons: dict) -> bool:
         while at is not None:
             chain.append(at)
             at = parents.get(id(at))
-        shown = type(node).__name__ == 'BSValueNode' and not any(n.flags & 1 for n in chain)
+        shown = type(node).__name__ == 'BSValueNode' and not any(
+            n.flags & 1 for n in chain if type(n).__name__ not in RANGE_NODES)
         index = addons.get(int(node.value)) if shown else None
         if index is None:
             continue
-        translation, rotation, scale = node_transform(node, root)
+        owner = _owner(node, root, placed)
+        translation, rotation, scale = node_transform(node, owner)
         name = f'AddOnNode{index:02d}' + (f'@#{seen[index] - 1}' if seen[index] else '')
         seen[index] += 1
         nif.blocks.append(('BSValueNode', {
             'name': nif.string(name), 'extra': [], 'controller': NONE, 'flags': NODE_FLAGS,
             'translation': translation, 'rotation': rotation, 'scale': scale, 'collision': NONE, 'children': [],
             'value': index, 'value_flags': 0}))
-        nif.blocks[0][1]['children'].append(len(nif.blocks) - 1)
+        nif.blocks[placed[id(owner)]][1]['children'].append(len(nif.blocks) - 1)
     return bool(seen)
 
 
@@ -1101,16 +1151,16 @@ def _has_body(node) -> bool:
     return co is not None and type(getattr(co, 'body', None)).__name__.startswith('bhkRigidBody')
 
 
-def _shapes(nif: NifFile, root, nodes: dict, out: Converted, texture_root) -> None:
-    """Append FNV `root`'s visible shapes under their kept `nodes` (a skinned one under the root, skinned to
-    them)."""
+def _shapes(nif: NifFile, root, nodes: dict, placed: dict, out: Converted, texture_root) -> None:
+    """Append FNV `root`'s visible shapes under their nearest `placed` node (a kept or range one; a skinned shape
+    under the root, skinned to the kept `nodes`)."""
     shapes = _visible_shapes(root)
     layers = overlay_layers(shapes, root)
     for g in shapes:
         skinned = len(nodes) > 1 and g.skin_instance is not None
-        owner = root if skinned else _owner(g, root, nodes)
+        owner = root if skinned else _owner(g, root, placed)
         made = _shape_blocks(nif, g, owner, out, texture_root, id(g) in layers)
-        nif.blocks[nodes[id(owner)]][1]['children'] += made
+        nif.blocks[placed[id(owner)]][1]['children'] += made
         if skinned:
             skin(nif, made, g, root, nodes)
 

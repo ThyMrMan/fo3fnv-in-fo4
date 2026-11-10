@@ -18,6 +18,9 @@ to the string path for now; R4 moves the command layer and those follow.
 
 from __future__ import annotations
 
+import dataclasses
+
+from script_convert import nvse_falloutnv as nvse
 from script_convert.emit import expr as E
 from script_convert.tes4 import nodes as N
 
@@ -33,32 +36,56 @@ def emit(conv, stmt: N.Stmt, extends: str) -> str:
         return stmt.text
     if isinstance(stmt, N.Blank):
         return ''
-    if isinstance(stmt, N.VarDecl):
-        # Declarations are hoisted to properties by the script assembler, so
-        # the line itself emits nothing.
+    handler = _EMITTERS.get(type(stmt))
+    return handler(conv, stmt, extends) if handler else ''
+
+
+def _declaration(conv, stmt: N.VarDecl, extends: str) -> str:
+    """Nothing (the script assembler hoists declarations), or xNVSE `int i = 5`'s assignment where it stands."""
+    if stmt.value is None:
         return ''
-    if isinstance(stmt, N.If):
-        return _if(conv, stmt, extends)
-    if isinstance(stmt, N.While):
-        return f'While {emit_condition(conv, stmt.cond, extends)}'
-    if isinstance(stmt, N.Assign):
-        return conv.emit_assignment(stmt, extends)
-    if isinstance(stmt, N.ExprStmt):
-        # A bare command in STATEMENT position is not the same as in value
-        # position: `disableLinkedPathPoints` as a value is `0`, but as a
-        # statement it is `;NE: disableLinkedPathPoints`.  The difference is
-        # made by the line wrapper, which folds a `0` result plus the
-        # accumulated `;NE:` notes into a comment -- so route through it.
-        return conv.emit_command_statement(stmt.expr, extends)
-    if isinstance(stmt, N.Return):
-        return conv.emit_return(stmt, extends)
-    if isinstance(stmt, N.SetFunctionValue):
-        return conv.emit_set_function_value(stmt, extends)
-    if isinstance(stmt, (N.Label, N.Goto)):
-        return conv.emit_jump(stmt, extends)
-    if isinstance(stmt, N.Raw):
-        return stmt.text
-    return ''
+    target = N.Ident(stmt.name, line=stmt.line)
+    return _assignment(conv, N.Assign(target=target, value=stmt.value, is_let=True, line=stmt.line), extends)
+
+
+def _assignment(conv, stmt: N.Assign, extends: str) -> str:
+    """`set`/`let`, an xNVSE array write as its own text."""
+    got = nvse.assignment(conv, stmt, extends)
+    return got if isinstance(got, str) else conv.emit_assignment(got, extends)
+
+
+def _command(conv, stmt: N.ExprStmt, extends: str) -> str:
+    """A bare command; the line wrapper folds a `0` and its notes to a comment."""
+    return conv.emit_command_statement(nvse.lower(conv, stmt.expr, extends), extends)
+
+
+def _function_value(conv, stmt: N.SetFunctionValue, extends: str) -> str:
+    """OBSE `SetFunctionValue`, its value's xNVSE parts lowered."""
+    return conv.emit_set_function_value(dataclasses.replace(stmt, value=nvse.lower(conv, stmt.value, extends)),
+                                        extends)
+
+
+def _stray_jump(_conv, stmt, _extends: str) -> str:
+    """A Break/Continue no loop owns, which xNVSE ignores."""
+    return f';{type(stmt).__name__}  ;NE: outside any loop'
+
+
+#: Statement node -> `(conv, stmt, extends) -> text`.
+_EMITTERS = {
+    N.Comment: lambda _c, stmt, _e: stmt.text,
+    N.Blank: lambda _c, _s, _e: '',
+    N.VarDecl: _declaration,
+    N.If: lambda conv, stmt, extends: _if(conv, stmt, extends),
+    N.While: lambda conv, stmt, extends: f'While {emit_condition(conv, stmt.cond, extends)}',
+    N.Assign: _assignment,
+    N.ExprStmt: _command,
+    N.Return: lambda conv, stmt, extends: conv.emit_return(stmt, extends),
+    N.SetFunctionValue: _function_value,
+    N.Label: lambda conv, stmt, extends: conv.emit_jump(stmt, extends),
+    N.Goto: lambda conv, stmt, extends: conv.emit_jump(stmt, extends),
+    N.Break: _stray_jump,
+    N.Continue: _stray_jump,
+}
 
 
 def _if(conv, stmt: N.If, extends: str) -> str:
@@ -85,7 +112,7 @@ def emit_condition(conv, cond: N.Expr, extends: str) -> str:
     parens are recorded on the node precisely so this is a node question, not
     a re-scan of the source text.
     """
-    text = E.emit(conv, cond, extends)
+    text = E.emit(conv, nvse.lower(conv, cond, extends, 'Bool'), extends)
     if (getattr(cond, 'parenthesised', False)
             and not text.startswith(('(', ';'))):
         return f'({text})'

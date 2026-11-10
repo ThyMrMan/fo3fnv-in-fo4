@@ -24,9 +24,10 @@ def _exports(tmp_path, monkeypatch) -> tuple:
     base.mkdir()
     dlc.mkdir()
     (dlc / '_HEADER.txt').write_text('Master[0]=FalloutNV.esm\n', encoding='utf-8')
-    export_index.export_masters.cache_clear()
-    monkeypatch.setattr(fnv_npc.source_registry, 'directory_for', lambda _parent, name: 'data')
-    monkeypatch.setattr(fnv_npc, '_esm_records', lambda path: ESMS[Path(path).name])
+    for cached in (export_index.export_masters, export_index.master_names, export_index.master_map):
+        cached.cache_clear()
+    monkeypatch.setattr(export_index, 'source_plugin', lambda export: Path('data') / Path(export).name)
+    monkeypatch.setattr(fnv_npc, '_esm_records', lambda path, _mapping, _game: ESMS[Path(path).name])
     return base, dlc
 
 

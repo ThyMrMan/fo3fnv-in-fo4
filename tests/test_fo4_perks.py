@@ -189,9 +189,9 @@ def _ability_perks(flags: int) -> P.Perks:
 
 def test_an_ability_effect_keeps_fnvs_recover_kind():
     """Recover: vanilla's fortify; no Recover (heal per second): the restore copy."""
-    assert _ability_perks(P.RECOVER)._target(_ability_perks(0).spells[0xAB0], 'Effect[0]') == 0x55
+    assert _ability_perks(P.RECOVER).constant_target(_ability_perks(0).spells[0xAB0], 'Effect[0]') == 0x55
     healing = _ability_perks(0)
-    assert healing._target(healing.spells[0xAB0], 'Effect[0]') == 0x77 and healing.copies == [P.RESTORE]
+    assert healing.constant_target(healing.spells[0xAB0], 'Effect[0]') == 0x77 and healing.copies == [P.RESTORE]
 
 
 def test_an_actor_ability_is_named_now_and_written_with_the_perks():
@@ -210,7 +210,7 @@ def test_a_stealth_boy_ability_cloaks_with_vanillas_constant_chameleon():
     perks.vanilla = {'AssaultronStealthEFFECT': (0x1CFB16, {})}
     perks.spells[0xAB2] = cloak
     perks.abilities = {'stealthboyinvisibilityspell': cloak}
-    assert perks._target(cloak, 'Effect[0]') == 0x1CFB16
+    assert perks.constant_target(cloak, 'Effect[0]') == 0x1CFB16
     assert perks.named_ability('STEALTHBOYINVISIBILITYSPELL') == 0x0B000AB2 and 0xAB2 in perks.pending
     assert perks.named_ability('Heal') is None
 

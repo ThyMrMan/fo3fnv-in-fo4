@@ -80,10 +80,10 @@ class LedgerWriter(FO4PluginWriter):
         self._derived_taken.update(self.own_index << 24 | oid for oid in ledger.values(ID))
 
     def use_master_ledgers(self, ledgers: dict, hold: 'frozenset | None' = None) -> None:
-        """Read `ledgers` ({index: Ledger}) after the own; `hold`: _from_master."""
+        """Read `ledgers` ({index: Ledger}) after the own; `hold`: from_master."""
         self.masters_ledgers, self.masters_hold = ledgers, hold
 
-    def _from_master(self, site: str, key) -> 'int | None':
+    def from_master(self, site: str, key) -> 'int | None':
         """The FormID a master's ledger keeps for `key` at `site` (that master's record); None if none, or if the
         built master no longer holds it (the build's own copy, then).
         See: docs/fork/fo4_plugin_layout.md#dlc-stale-ids
@@ -124,7 +124,7 @@ class LedgerWriter(FO4PluginWriter):
         if (site, key) in self._derived:
             return self._derived[site, key]
         kept = self.ledger.get(ID, site, key)
-        master = self._from_master(site, key) if kept is None else None
+        master = self.from_master(site, key) if kept is None else None
         if master is not None:
             self._derived[site, key] = master
             self.from_masters.add(master)

@@ -801,6 +801,28 @@ Function SetBroadcastState(ObjectReference akStation, Bool abOn) Global
 EndFunction
 
 ; fallout4: new
+Function StartRadioConversation(ObjectReference akStation, String asTopic) Global
+  {FO3/FNV StartRadioConversation on a radio station: its program (the playlist that named itself on the station) starts at the step whose first topic is asTopic. See docs/fork/fo4_radio.md#start-radio-conversation}
+  F3NV_RadioStation station = akStation as F3NV_RadioStation
+  If station && station.Playlist
+    station.Playlist.StartAt(asTopic)
+  Else
+    Debug.Trace("TES4Radio|no program|" + akStation + "|" + asTopic)
+  EndIf
+EndFunction
+
+; fallout4: new
+Function SetNPCRadio(Actor akActor, Bool abOn, ObjectReference akStation) Global
+  {FO3/FNV SetNPCRadio: akActor plays akStation's program (a receiver placed at the actor), or stops. See docs/fork/fo4_radio.md#npc-radio}
+  F3NV_RadioStation station = akStation as F3NV_RadioStation
+  If station && station.Playlist
+    station.Playlist.SetNPCRadio(akActor, abOn)
+  Else
+    Debug.Trace("TES4Radio|no program|" + akStation + "|SetNPCRadio")
+  EndIf
+EndFunction
+
+; fallout4: new
 Function SetNightEye(Actor akActor, Float afValue) Global
   {FO3/FNV SetAV NightEye on the player (Cateye, Dead Money's Ghost Sight): Fallout 4 has no Night Eye, so above 0 it plays the Night Person perk's night vision as that perk's effect does (NightPersonperkImodOn, then NightPersonperkImod), and 0 or below ends it (NightPersonperkImodOff). Nothing for another actor. See docs/fork/fo4_pipeline.md#night-eye}
   If akActor != Game.GetPlayer()
@@ -902,6 +924,22 @@ EndFunction
 
 
 ; fallout4: new
+Function RemoveNativeTyped(ObjectReference akFrom, ObjectReference akTo, Bool abSilent, Int aiType) Global
+  {The rest of RemoveAllTypedItems for a weapon (40) or ammo (41) code: every item of that Papyrus type akFrom holds, whatever plugin made it (a pack's weapon, Fallout 4's own), as FNV's command takes every WEAP or AMMO. See docs/fork/script_markers.md#removealltypeditems}
+  If aiType != 40 && aiType != 41
+    Return
+  EndIf
+  Form[] items = akFrom.GetInventoryItems()
+  Int i = 0
+  While items && i < items.Length
+    If aiType == 40 && items[i] as Weapon || aiType == 41 && items[i] as Ammo
+      akFrom.RemoveItem(items[i], -1, abSilent, akTo)
+    EndIf
+    i += 1
+  EndWhile
+EndFunction
+
+; fallout4: new
 Function RemoveAllTypedItems(ObjectReference akFrom, ObjectReference akTo, Bool abKeepOwner, Bool abSilent, Int aiType, FormList akType, FormList akExcept) Global
   {FNV RemoveAllTypedItems: akFrom's items of type code aiType (akType, the build's list of that type's items; type 0 is every item) move to akTo, or are destroyed without one, except akExcept's. The ownership flag holds only for type 0 (FO4's RemoveItem has none).}
   If akFrom == None || (aiType != 0 && akType == None)
@@ -921,6 +959,7 @@ Function RemoveAllTypedItems(ObjectReference akFrom, ObjectReference akTo, Bool 
     akFrom.RemoveAllItems(akTo, abKeepOwner)
   Else
     akFrom.RemoveItem(akType, -1, abSilent, akTo)
+    RemoveNativeTyped(akFrom, akTo, abSilent, aiType)
   EndIf
   i = 0
   While i < n

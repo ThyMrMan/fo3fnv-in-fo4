@@ -46,15 +46,25 @@ Function Note(Int aiEvent, Int aiGroup, Int aiAmount, Actor akVictim, Form akIte
     If (aiEvent != counter.StatEvent || Groups[i] == aiGroup) && Matches(i, akHeld, akVictim, akItem)
       Add(i, aiAmount)
     EndIf
-    i = Events.Find(aiEvent, i + 1)
+    i = FindAfter(aiEvent, i)
   EndWhile
+EndFunction
+
+Int Function FindAfter(Int aiEvent, Int i)
+  {The next index after i whose event is aiEvent, else -1 (Find logs an error when its start is past the end).}
+  If i + 1 >= Events.Length
+    Return -1
+  EndIf
+  Return Events.Find(aiEvent, i + 1)
 EndFunction
 
 Bool Function Matches(Int i, Weapon akHeld, Actor akVictim, Form akItem)
   {Whether challenge i's weapon, victim and item lists (None: any) hold akHeld, akVictim's base and akItem.}
-  If Weapons[i] && !Weapons[i].HasForm(akHeld)
-    Return False
-  EndIf
+  Return (!Weapons[i] || Weapons[i].HasForm(akHeld)) && Fits(i, akVictim, akItem)
+EndFunction
+
+Bool Function Fits(Int i, Actor akVictim, Form akItem)
+  {Whether challenge i's victim and item lists (None: any) hold akVictim's base and akItem.}
   If Items[i] && !Items[i].HasForm(akItem)
     Return False
   EndIf
@@ -69,7 +79,7 @@ Function CheckMarkers()
     If Markers[i] && Markers[i].CanFastTravelToMarker() && player.GetValue(Rows[i]) == 0
       Add(i, 1)
     EndIf
-    i = Events.Find((Hub as F3NV_Challenges).MarkerEvent, i + 1)
+    i = FindAfter((Hub as F3NV_Challenges).MarkerEvent, i)
   EndWhile
 EndFunction
 

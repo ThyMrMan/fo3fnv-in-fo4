@@ -16,12 +16,14 @@ branch -- the lowercased name, the first argument's source, the authored
 argument text -- so those are properties of the CALL and live on it.
 """
 
+import re
+
 from script_convert import resolve_name as _resolve_name
 from script_convert.constants import (
     ANIM_GROUP_EVENTS, ATTRIBUTE_POLYFILL, ATTRIBUTE_STUB_VALUE, AV_ARGUMENT_NAMES, CASTABLE,
     FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX, FORCE_FLEE_QUEST, FORCE_GREET_QUEST, PLACED_REF_SIGS, PRIMARY_STATS,
     TES4_ASSAULT_BOUNTY, TES4_MISC_STAT_NAMES, TES4_MURDER_BOUNTY, TES4_SCRIPT_OWNED_MISC_STATS,
-    TES4_STEAL_BOUNTY, is_generated_script_type, mgef_family_keyword_name,
+    TES4_STEAL_BOUNTY, UDF_CALLER_PARAM, is_generated_script_type, mgef_family_keyword_name,
     record_type_to_papyrus, safe_property_name, papyrus_script_name
 )
 from script_convert.command_rows import (
@@ -32,6 +34,7 @@ from script_convert.emit.commands import emit_row
 from script_convert.target import (anim_event_call, av_call, controls_call, fallout4_actor_values, fallout4_av_name,
                                    is_fallout4, on_talking_activator, self_as_actor)
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
+from script_convert.anim_playing_falloutnv import played
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
 from script_convert.emit import expr as _expr
@@ -271,17 +274,24 @@ def udf_call(ctx, call) -> str:
     The property is typed as the callee script and keyed on its CANONICAL
     EditorID, so two spellings of one script never declare two properties.
     The calling reference is the function's `Self`; a quest script has none.
+    On Fallout 4 the function is Global, so the call names the script itself.
     See: docs/commentary/script_convert.md#udf-calling-reference
+    See: docs/fork/nvse_script_language.md#functions
     """
     target = call.source(0).strip().rstrip(',')
     if not target:
         return None
+    if not re.fullmatch(r'\w+', target):
+        return ctx.note(f'Call {target} - a function chosen at run time')
     fid = ctx.xref.edid_to_formid.get(target.lower(), '') if ctx.xref else ''
     canon = ctx.xref.formid_to_edid.get(fid, target) if fid else target
-    prop = safe_property_name(canon)
-    ctx.sc.property_refs[prop] = papyrus_script_name(canon)
+    prop = papyrus_script_name(canon) if is_fallout4() else safe_property_name(canon)
+    if not is_fallout4():
+        ctx.sc.property_refs[prop] = papyrus_script_name(canon)
     caller = ctx._resolve_objref_ref(call.ref, call.extends)
-    if caller == 'Self' and call.extends == 'Quest' and not ctx.sc.in_udf:
+    if caller == 'Self' and ctx.sc.in_udf:
+        caller = UDF_CALLER_PARAM
+    elif caller == 'Self' and call.extends == 'Quest':
         caller = 'None'
     args = [caller] + [call.arg(i) for i in range(1, len(call))]
     ctx.sc.udf_calls.append((prop, tuple(args)))
@@ -514,8 +524,10 @@ def play_group(ctx, call) -> str:
            else ctx._implicit_self(call.extends))
     play = (f'{obj}.PlayGamebryoAnimation("{anim}")' if is_fallout4()
             else f'{obj}.PlayAnimation("{anim.capitalize()}")')
-    return (f'{play}\n  TES4Polyfill.ReleaseBreakaway({obj})'
-            if _needs_havok_release(ctx, call) else play)
+    lines = [play] + ([f'TES4Polyfill.ReleaseBreakaway({obj})'] if _needs_havok_release(ctx, call) else [])
+    if is_fallout4():
+        lines = [f'If {obj}.Is3DLoaded()'] + [f'  {line}' for line in lines + played(ctx, call, obj, anim)] + ['EndIf']
+    return '\n  '.join(lines)
 
 
 def _needs_havok_release(ctx, call) -> bool:
@@ -880,6 +892,13 @@ def sv_construct(ctx, call) -> str:
     if arg.startswith('"') and arg.endswith('"') and arg.count('"') == 2:
         return arg
     return call.arg(0)
+
+
+@command('sv_destruct')
+def sv_destruct(ctx, call) -> str:
+    """`sv_Destruct a b`: each string emptied, as a destroyed string reads."""
+    names = [call.arg(i) for i in range(len(call))]
+    return '\n'.join(f'{name} = ""' for name in names) or ctx.note('sv_Destruct - nothing named')
 
 
 @command('streammusic')

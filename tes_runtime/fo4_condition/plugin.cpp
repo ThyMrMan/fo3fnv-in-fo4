@@ -9,6 +9,7 @@
 
 #include "f4se/PluginAPI.h"
 #include "f4se/GameRTTI.h"
+#include "f4se/GameSettings.h"
 #include "f4se/PapyrusArgs.h"
 #include "f4se/PapyrusNativeFunctions.h"
 #include "f4se/PapyrusVM.h"
@@ -109,7 +110,7 @@ void *g_tasks = nullptr;
 using MaxHealthFn = UInt32 (*)(TESForm *, TESObjectREFR *);
 RelocAddr<MaxHealthFn> MaxHealth(0x316940);
 RelocAddr<uintptr_t> SPAWN_HEALTH_CALL(0x271611);
-const size_t TRAMPOLINE_SIZE = 160;  // the spawn-health call, and damage.cpp's two calls and stubs
+const size_t TRAMPOLINE_SIZE = 192;  // the spawn-health call, damage.cpp's four calls and two stubs, hardcore.cpp's call
 
 UInt32 SpawnMaxHealth(TESForm *form, TESObjectREFR *ref) {
     UInt32 health = MaxHealth(form, ref);
@@ -125,9 +126,25 @@ bool HookSpawnHealth(const F4SEInterface *f4se) {
     return g_branchTrampoline.Write5Call(SPAWN_HEALTH_CALL.GetUIntPtr(), uintptr_t(SpawnMaxHealth));
 }
 
+// ---- No combat sprint (docs/fork/fo4_pipeline.md#combat-sprint) ----
+// FO3/FNV actors never sprint; FO4's approach controller (0x1008c20) sprints at a far target while the INI setting
+// bCombatPathSprinting:Combat (its Setting at 0x2F38A98, read at 0x1008f12) is on. Turned off for every actor, as
+// FNV plays; set at load and again once the game has loaded, after the INI files are read.
+RelocAddr<Setting *> COMBAT_PATH_SPRINTING(0x2F38A98);
+const char *SPRINT_SETTING = "bCombatPathSprinting:Combat";
+
+void NoCombatSprint() {
+    auto *setting = reinterpret_cast<Setting *>(COMBAT_PATH_SPRINTING.GetUIntPtr());
+    bool found = setting->name && !strcmp(setting->name, SPRINT_SETTING);
+    if (found) setting->data.u8 = 0;
+    _MESSAGE("combat approach sprint %s", found ? "off" : "left on (setting not found)");
+}
+
 // F4SE messages: hook the Pip-Boy once the game has loaded (the UI exists then).
 void OnMessage(F4SEMessagingInterface::Message *msg) {
-    if (msg->type == F4SEMessagingInterface::kMessage_GameLoaded) InstallPipboy(g_tasks);
+    if (msg->type != F4SEMessagingInterface::kMessage_GameLoaded) return;
+    NoCombatSprint();
+    InstallPipboy(g_tasks);
 }
 
 
@@ -261,6 +278,7 @@ bool Register(VirtualMachine *vm) {
     RegisterAmmo(vm);
     RegisterSex(vm, g_tasks);
     RegisterDamage(vm);
+    RegisterHardcore(vm);
     vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, float, TESObjectREFR *, TESForm *>(
         "GetHealth", SCRIPT, GetHealth, vm));
     vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, bool, TESObjectREFR *, TESForm *, float>(
@@ -326,8 +344,9 @@ __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se) {
     auto *messaging = static_cast<F4SEMessagingInterface *>(f4se->QueryInterface(kInterface_Messaging));
     bool trampoline = HookSpawnHealth(f4se);
     _MESSAGE("weapon starting condition %s", trampoline ? "hooked" : "not hooked");
-    if (trampoline) HookDamage();
+    if (trampoline) HookDamage(), HookAmmoWeight();
     InstallTransfer();
+    NoCombatSprint();
     if (!messaging || !g_tasks || !messaging->RegisterListener(g_handle, "F4SE", OnMessage))
         _MESSAGE("no Pip-Boy display (messaging %p, task %p)", messaging, g_tasks);
     return papyrus->Register(Register);

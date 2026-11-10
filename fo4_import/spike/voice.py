@@ -22,6 +22,7 @@ from pathlib import Path
 
 from asset_convert.audio.audio_converter import SilentSource, convert_file_to_xwm, find_ffmpeg, pack_fuz
 from fo4_import.base import lip
+from fo4_import.base.source import asset_dirs, plugin_name
 from fo4_import.pipeline.export_index import export_masters
 
 #: FNV voice file name: <quest>_<topic>_<INFO id>_<response number>.ogg.
@@ -41,7 +42,7 @@ def fnv_folders(export_dir: Path, voice_type: str) -> tuple:
     See: docs/fork/fo4_plugin_layout.md#dlc-voice
     """
     plugins = (*map(Path, export_masters(str(export_dir))), Path(export_dir))
-    return tuple(p / 'sound' / 'voice' / p.name.lower() / voice_type.lower() for p in plugins)
+    return tuple(asset_dirs(p)[-1] / 'sound' / 'voice' / plugin_name(p).lower() / voice_type.lower() for p in plugins)
 
 
 def recorded(folders: tuple) -> bool:

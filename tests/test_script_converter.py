@@ -981,6 +981,45 @@ End
         assert 'TES4Polyfill.TalkerActivate(TES4Talk_GREETING, LobbyIntercom, ' in trigger
         assert 'Scene Property TES4Talk_GREETING Auto' in trigger
 
+    def test_a_talker_saying_in_its_own_voice_says_when_free_on_fallout4(self, converter, monkeypatch):
+        """A placed talker's `SayTo player <topic>` says the topic itself on Fallout 4, with no speak-as scene."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        xref = converter.xref
+        xref._is_fallout = True
+        xref.record_type.update({'000A0001': 'TACT', '000A0002': 'REFR', '000A0004': 'DIAL'})
+        xref.edid_to_formid.update({'chamberref': '000A0002', 'chambertopic': '000A0004'})
+        xref.formid_to_edid['000A0001'] = 'ChamberSpeaker'
+        xref.record_base['000A0002'] = '000A0001'
+        result = converter.convert_standalone('ChamberScript', 'ScriptName ChamberScript\nBegin OnActivate\n'
+                                              '  ChamberRef.SayTo player ChamberTopic\nEnd\n',
+                                              'ObjectReference', 'ChamberScript')
+        assert 'TES4Polyfill.SayWhenFree(ChamberRef, ChamberTopic, ' in result
+        assert 'SpeakAs' not in result and 'TES4Scene_' not in result
+
+    def test_start_radio_conversation_starts_the_stations_program_on_fallout4(self, converter, monkeypatch):
+        """`<station>.StartRadioConversation <topic>` names the topic by EditorID; with no topic, RadioHello."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        converter.xref._is_fallout = True
+        result = converter.convert_standalone('ShowScript', 'ScriptName ShowScript\nBegin OnActivate\n'
+                                              '  DrifterRadioREF.StartRadioConversation RadioHello\n'
+                                              '  BeaconREF.StartRadioConversation\nEnd\n',
+                                              'ObjectReference', 'ShowScript')
+        assert 'TES4Polyfill.StartRadioConversation(DrifterRadioREF, "RadioHello")' in result
+        assert 'TES4Polyfill.StartRadioConversation(BeaconREF, "RadioHello")' in result
+
+    def test_set_npc_radio_plays_the_station_at_the_actor_on_fallout4(self, converter, monkeypatch):
+        """`<actor>.SetNPCRadio <flag> <station>` (Lily's recording) passes the actor, the flag and the station."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        converter.xref._is_fallout = True
+        result = converter.convert_standalone('LilyTimer', 'ScriptName LilyTimer\nBegin GameMode\n'
+                                              '  LilyREF.SetNPCRadio 1 VLilyGrandkidsRecordingREF\nEnd\n',
+                                              'Quest', 'LilyTimer')
+        assert 'TES4Polyfill.SetNPCRadio(LilyREF, true, VLilyGrandkidsRecordingREF)' in result
+        assert 'ObjectReference Property VLilyGrandkidsRecordingREF' in result and 'TODO' not in result
+        effect = converter.convert_standalone('EDEEffect', 'scn EDEEffect\nbegin ScriptEffectFinish\n'
+                                              '  SetNPCRadio 0 EDERadioREF\nend\n', 'ActiveMagicEffect', 'EDEEffect')
+        assert 'TES4Polyfill.SetNPCRadio(' in effect and ', false, EDERadioREF)' in effect, effect
+
     def test_gamemode_oninit_not_duplicated(self, converter):
         """A script with its own OnInit must not get a second one."""
         source = """ScriptName UpdateScript
@@ -6323,6 +6362,16 @@ class TestFalloutQuestStageSubject:
         out = conv_lines(converter, 'PlayGroup SpecialIdle 0', 'ObjectReference')
         assert 'PlayGamebryoAnimation("SpecialIdle")' in out and 'PlayAnimation(' not in out
 
+    def test_playgroup_skips_an_unloaded_object_on_fallout4(self, converter, monkeypatch):
+        """FNV ignores PlayGroup on an unloaded object; FO4 logs an error each time, so the call needs 3D; a
+        script reading no IsAnimPlaying records nothing."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        out = conv_lines(converter, 'PlayGroup Forward 0', 'ObjectReference').splitlines()
+        guard = next((i for i, line in enumerate(out) if 'Is3DLoaded()' in line), None)
+        assert guard is not None, out
+        assert out[guard].strip().startswith('If ') and 'PlayGamebryoAnimation("Forward")' in out[guard + 1]
+        assert [line.strip() for line in out[guard + 2:]].index("EndIf") == 0
+
     def test_fallout4_pipboy_flag_is_the_journal_not_the_pause_menu(self, converter, monkeypatch):
         """FNV's Pip-Boy flag blocks FO4's journal (the Pip-Boy) only: FO4's menu flag is the pause menu."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
@@ -6340,11 +6389,14 @@ class TestFalloutQuestStageSubject:
         assert '.Enable(true, true, true, true, true, false, true, true)' in conv_lines(
             converter, 'EnablePlayerControls', 'Quest')
 
-    def test_is_anim_playing_is_zero_on_fallout4(self, converter, monkeypatch):
-        """FO4 cannot ask a NIF sequence; the graph-variable read only errored (Lucky38LightScript)."""
+    def test_is_anim_playing_reads_the_sequence_this_script_played_on_fallout4(self, converter, monkeypatch):
+        """FO4 cannot ask a NIF sequence: PlayGroup records the reference, group and end, IsAnimPlaying reads it
+        (Lucky38LightScript)."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
-        out = conv_lines(converter, 'if IsAnimPlaying != 1\n  PlayGroup Left 1\nendif', 'ObjectReference')
-        assert 'bAnimPlaying' not in out and out.startswith('If 0 != 1')
+        converter.sc.uses_anim_playing = True
+        out = conv_lines(converter, 'if IsAnimPlaying Left != 1\n  PlayGroup Left 1\nendif', 'ObjectReference')
+        assert 'bAnimPlaying' not in out and out.startswith('If TES4_AnimPlaying(Self, "Left") != 1')
+        assert 'TES4_AnimRef = Self' in out and 'TES4_AnimGroup = "Left"' in out and 'TES4_AnimEnd = ' in out
 
     def test_radiation_rads_is_fallout4_rads(self, converter, monkeypatch):
         """On Fallout 4, RestoreAV RadiationRads heals FO4's Rads, as vanilla doctors do."""

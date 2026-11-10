@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from fo4_import.base import source_fault as SF
 from fo4_import.face import bake as B
 from fo4_import.nif import convert_static as C
 from fo4_import.nif import file as F
@@ -58,6 +59,42 @@ def test_a_form_list_keeps_items_and_forms_the_build_made_and_counts_the_rest():
     lnam = [struct.unpack('<I', b)[0] for s, b in subrecords(builder.written[0][24:]) if s == b'LNAM']
     assert lnam == [0x03000010, 0x0300AAAA, 0x0300BBBB, 0x03000050]
     assert builder.counts['form list entry dropped (EXPL)'] == 1 and builder.counts['FLST'] == 1
+
+
+def test_a_caravan_card_is_a_misc_with_fnvs_name_value_and_keyword(monkeypatch):
+    """A Caravan card (CCRD) is a MISC: FNV's name, model and value, its card keyword; a form that is no item
+    type is counted by its type.
+    See: docs/fork/fo4_casino_plan.md#items-built"""
+    card = SimpleNamespace(form_id=0x70, body=b''.join(
+        struct.pack('<4sH', tag, len(data)) + data for tag, data in (
+            (b'EDID', b'CardClubs2b\0'), (b'OBND', struct.pack('<6h', -1, -2, 0, 1, 2, 0)),
+            (b'FULL', b'2 of Clubs\0'), (b'MODL', b'Caravan\\Card.nif\0'), (b'DATA', struct.pack('<I', 2)))))
+    monkeypatch.setattr(I, 'source_walk', lambda *sigs: [(card, ())])
+    builder = _list_builder(mesh=lambda path: (path, (-1, -2, 0, 1, 2, 0)), fnv_types={0x71: 'CSNO'},
+                            type_keywords=SimpleNamespace(keyword=lambda edid: 0x0300C000 if edid == 'F3NV_CaravanCard'
+                                                          else 0))
+    items = I.Items(builder, {0x70: ('CCRD', {'FormID': '00000070', 'EditorID': 'CardClubs2b',
+                                              'Signature': 'CCRD'})}, {})
+    assert items.item(0x70) == 0x03000070 and items.item(0x71) is None
+    subs = dict(subrecords(builder.written[0][24:]))
+    assert subs[b'FULL'] == b'2 of Clubs\0' and struct.unpack('<If', subs[b'DATA']) == (2, 0.0)
+    assert subs[b'KWDA'] == struct.pack('<I', 0x0300C000)
+    assert builder.counts['item skipped (not an item: CSNO)'] == 1
+
+
+def test_a_leveled_list_past_255_entries_lists_equal_parts():
+    """FNV's 270-card list: two parts of 135 cards each, the list naming both (FO4's entry count is a byte).
+    See: docs/fork/fo4_casino_plan.md#items-built"""
+    builder = _list_builder()
+    builder.writer.derive_formid = lambda site, key: 0x0300F000 + int(key.split()[1])
+    listed = {'FormID': '00000020', 'EditorID': 'RandomCaravanBaseCards'}
+    listed.update({k: v for i in range(270) for k, v in ((f'Entry[{i}].Level', '1'), (f'Entry[{i}].Count', '1'),
+                                                         (f'Entry[{i}].FormID', f'{0x100 + i:08X}'))})
+    records = {0x20: ('LVLI', listed), **{0x100 + i: ('MISC', {'FormID': f'{0x100 + i:08X}'}) for i in range(270)}}
+    items = I.Items(builder, records, {}, {'MISC': lambda fid, rec: 0x03000000 | fid})
+    assert items.item(0x20) == 0x03000020
+    counts = [sum(1 for tag, _ in subrecords(rec[24:]) if tag == b'LVLO') for rec in builder.written]
+    assert counts == [135, 135, 2]
 
 
 def test_a_form_list_whose_every_entry_drops_is_not_made_but_an_authored_empty_one_is():
@@ -182,6 +219,7 @@ def test_an_armor_fnv_gives_no_world_model_wears_its_own_mesh_on_the_templates_w
     eq.builder = SimpleNamespace(counts=collections.Counter(), writer=SimpleNamespace(
         derive_formid=lambda site, key: 0x0300F00D, add_record=lambda sig, rec: written.append(rec)))
     eq.fnv, eq.strings, eq.vanilla = {1: {'value': 5, 'weight': 1.0, 'rating': 2.0}}, {}, {'ClothesMobsterhat': template}
+    eq.enchantments = {}
     eq.table = {'HatX': RP.Replacement(RP.BASE, 'ClothesMobsterhat', 'fnv')}
     eq._headgear = lambda fnv, rec, tpl: {b'BOD2': b'\1\0\0\0', **E.Equipment._world(eq, fnv, rec, 0x0300ABCD)}
     eq.armo(1, {'EditorID': 'HatX', 'Male.BipedModel.MODL': 'hat.nif'})
@@ -209,7 +247,7 @@ def _guns(tmp_path) -> 'G.Guns':
                                    counts=collections.Counter(), keys=keys, written=written,
                                    writer=SimpleNamespace(add_record=lambda sig, rec: written.append(rec),
                                                           derive_formid=lambda site, key: keys.append(key) or 0x0300C0DE))
-    guns.strings, guns.converted = {}, {}
+    guns.strings, guns.converted, guns.turns, guns.guesses, guns.taken = {}, {}, {}, {}, {}
     return guns
 
 
@@ -229,13 +267,61 @@ def test_choosing_a_gun_writes_none_of_its_fnv_assets_and_building_on_it_does(tm
     assert (chosen[2][0], chosen[2][2]) == ('Weapons\\Pistol.NIF', b'static') and not written and not (tmp_path / 'data').exists()
     (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons').mkdir(parents=True)
     guns._read, guns._lift = lambda model: b'receiver', lambda layout, ch: 0.0
-    guns._clips = lambda fnv, rec, template, path, receiver, static: None
+    guns._clips = lambda fnv, rec, template, path, receiver, static, guessed=None: None
     guns._part = lambda fnv, rec, fid, placed, props=(): placed[0] and 0x0300C0DE
     guns._fnv_scope = lambda rec, combo: (None, (), None)
     obts = struct.pack('<I', 1) + bytes(10) + b'\1' + b'\0' + bytes(2) + struct.pack('<I', 0x10) + bytes(3)
     guns.templates(0x1234, {'EditorID': 'WeapX'}, choice, [(b'FULL', b'Default\0'), (b'OBTS', obts)], chosen[2], False)
     assert written == ['Weapons\\Pistol.NIF']
     assert (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons' / 'pistol_gun.nif').read_bytes() == b'gun'
+
+
+def _guessing_guns(tmp_path, monkeypatch, calls: collections.Counter) -> 'G.Guns':
+    """A _guns whose conversion (a source fault for a path with 'bad'), choice, build and clip key count in
+    `calls`; the pool makes nothing."""
+    def convert(path, root, pose, animated):
+        """A conversion counted in `calls`; a SourceFault for a 'bad' path."""
+        calls['convert'] += 1
+        if 'bad' in str(path):
+            raise SF.SourceFault(path, 'broken')
+        return SimpleNamespace(nif='nif')
+    guns = _guns(tmp_path)
+    monkeypatch.setattr(G, 'cached_convert', convert)
+    monkeypatch.setattr(G, 'warm', lambda jobs, meshes: calls.update(jobs=len(jobs)) or 0)
+    monkeypatch.setattr(G, 'nif_file', SimpleNamespace(write=lambda nif: b'static'))
+    monkeypatch.setattr(G, 'gun', SimpleNamespace(
+        fnv_nodes=lambda path: {}, fnv_layout=lambda static, nodes: {}, receiver_bones=lambda receiver: {},
+        placement=lambda static, nodes, receiver: calls.update(['built']) or np.eye(4), pieces=lambda nif: (),
+        gun=lambda static, nodes, receiver, matrix: b'gun'))
+    choice = Choice('10mm', (0x10,), 0x10, 'r.nif', {})
+    guns.choices = SimpleNamespace(choose=lambda rec, layout, only=None: calls.update(['chosen']) or choice,
+                                   weapons={'10mm': (1, [])}, clip_keywords=lambda subs, combo: ((), ()))
+    guns.clips = SimpleNamespace(key=lambda *args: calls.update(['key']) or ('key',), export_meshes=None)
+    guns._read, guns.warmed = lambda model: b'receiver', False
+    return guns
+
+
+def test_a_guessed_gun_is_chosen_and_built_once_and_its_fault_counted_by_the_real_pass(tmp_path, monkeypatch):
+    """choose() and templates() take _warm_clips' guess of a gun (no second conversion, choice, build or key); a
+    mesh's source fault the guess met is counted by choose() alone, once."""
+    calls, taken = collections.Counter(), []
+    monkeypatch.setattr(SF, 'FAULTS', {})
+    guns = _guessing_guns(tmp_path, monkeypatch, calls)
+    good, bad = {'FormID': '1', 'Model.MODL': 'pistol.nif'}, {'FormID': '2', 'Model.MODL': 'bad.nif'}
+    guns._predicted = lambda: [(1, good, None, ()), (2, bad, None, ())]
+    guns._warm_clips()
+    assert calls == {'convert': 2, 'chosen': 1, 'built': 1, 'key': 1, 'jobs': 1} and not SF.FAULTS
+    chosen = guns.choose(good)
+    assert guns.choose(bad) is None and calls['convert'] == 2 and calls['chosen'] == 1
+    assert len(SF.FAULTS) == 1 and guns.builder.counts['guns not on their FNV mesh (a source fault)'] == 1
+    (tmp_path / 'data' / 'Meshes' / 'fnv').mkdir(parents=True)
+    monkeypatch.setattr(G, 'write_assets', lambda root, model, data, animated: ('fnv\\pistol.nif', None))
+    guns._clips = lambda fnv, rec, template, path, receiver, mesh, guessed=None: taken.append(guessed)
+    guns._lift, guns._fnv_scope = lambda layout, ch: 0.0, lambda rec, combo: (None, (), None)
+    guns._part = lambda fnv, rec, fid, placed, props=(): 0x0300C0DE
+    obts = struct.pack('<I', 1) + bytes(10) + b'\1' + b'\0' + bytes(2) + struct.pack('<I', 0x10) + bytes(3)
+    guns.templates(1, good, chosen[0], [(b'FULL', b'Default\0'), (b'OBTS', obts)], chosen[2], False)
+    assert calls['built'] == 1 and calls['key'] == 1 and taken[0][1] == ('key',)
 
 
 def test_a_gun_part_copy_is_keyed_on_the_fnv_gun_and_its_attach_point(tmp_path):

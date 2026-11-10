@@ -2,11 +2,15 @@
 
 A converted station copies a vanilla workbench FURN whose model carries its
 furniture markers; an FNV model carries none, so the copy's marker sits at the
-model's origin (inside the bench, or behind it against a wall). Its marker
-(SNAM: offset, heading, entry sides) is instead put just outside the model's
-bounds on the side FNV leaves walkable: for each of the model's four sides,
-how many of its FNV placements have FNV navmesh under that point; the best
-side wins, the player facing the bench.
+model's origin, facing a side that may be against a wall. Its marker (SNAM:
+offset, heading) is instead put on a side FNV leaves walkable: for each of
+the model's four sides, how many of its FNV placements have FNV navmesh just
+outside it. The best side is the front; a placement whose front is blocked
+(a bench turned to the wall) gets its own best open side, so every placement
+has one marker it can reach, the player facing the bench (FO4 may take any
+marker a record has, so each side is its own record). A marker sits the
+caller's inset from that edge. Its keyword and entry sides stay the vanilla
+template's.
 """
 
 import math
@@ -18,17 +22,15 @@ from fo4_import.spike.navmesh import read
 CLEARANCE = 40.0
 #: Height above or below the bench's foot within which navmesh counts as the floor there.
 FLOOR_REACH = 64.0
-#: SNAM entry sides: front only (the marker faces the bench).
-FRONT = 0x01
 #: An exterior cell's width in units.
 CELL_SIZE = 4096
 
 
-def sides(bounds: tuple) -> list:
-    """[(local x, y, heading to the bench)] outside each side of `bounds`."""
+def sides(bounds: tuple, reach: float = CLEARANCE) -> list:
+    """[(local x, y, heading to the bench)] `reach` outside each side of `bounds`."""
     x1, y1, _, x2, y2, _ = bounds
-    return [(0.0, y2 + CLEARANCE, math.pi), (0.0, y1 - CLEARANCE, 0.0),
-            (x2 + CLEARANCE, 0.0, -math.pi / 2), (x1 - CLEARANCE, 0.0, math.pi / 2)]
+    return [(0.0, y2 + reach, math.pi), (0.0, y1 - reach, 0.0),
+            (x2 + reach, 0.0, -math.pi / 2), (x1 - reach, 0.0, math.pi / 2)]
 
 
 def world(ref: dict, x: float, y: float) -> tuple:
@@ -70,16 +72,24 @@ def cell_of(ref: dict, grid: dict) -> str:
     return grid.get(key, ref.get('ParentCELL'))
 
 
-def spot(bounds: tuple, placements: list, triangles: dict, grid: dict) -> 'bytes | None':
-    """The SNAM of a station with model `bounds` placed at FNV `placements`: its marker on the side with
-    navmesh at the most placements (cells by cell_of), at the model's foot, facing it; None when none has any."""
-    best, score = None, 0
-    for x, y, heading in sides(bounds):
-        hits = sum(on_navmesh(world(ref, x, y), float(ref['PosZ']) + bounds[2], triangles.get(cell_of(ref, grid), ()))
-                   for ref in placements)
-        if hits > score:
-            best, score = (x, y, heading), hits
-    if best is None:
-        return None
-    x, y, heading = best
-    return struct.pack('<4fIB3x', x, y, float(bounds[2]), heading, 0, FRONT)
+def spots(bounds: tuple, placements: list, triangles: dict, grid: dict, inset: float = -CLEARANCE) -> list:
+    """[(side index, SNAM placement (offset, heading), the `placements` it serves)] for model `bounds` placed at FNV
+    `placements`: `inset` units inside the side open (navmesh outside it, cells by cell_of) at the most placements,
+    then the best open side of each placement where that one is not; at the model's foot, facing it. Each placement
+    is served by the first such side open there, one open nowhere by the first. Empty when no side is ever open.
+    See: docs/fork/fo4_pipeline.md#station-entry
+    """
+    open_at = [[on_navmesh(world(ref, x, y), float(ref['PosZ']) + bounds[2], triangles.get(cell_of(ref, grid), ()))
+                for x, y, _ in sides(bounds)] for ref in placements]
+    score = [sum(row[side] for row in open_at) for side in range(4)]
+    chosen = []
+    for row in sorted(open_at, key=lambda row: not row[max(range(4), key=score.__getitem__)]):
+        if any(row) and not any(row[side] for side in chosen):
+            chosen.append(max((side for side in range(4) if row[side]), key=score.__getitem__))
+    served = [[] for _ in chosen]
+    for ref, row in zip(placements, open_at):
+        if chosen:
+            served[next((i for i, side in enumerate(chosen) if row[side]), 0)].append(ref)
+    marks = sides(bounds, -inset)
+    return [(side, struct.pack('<4f', marks[side][0], marks[side][1], float(bounds[2]), marks[side][2]), refs)
+            for side, refs in zip(chosen, served)]

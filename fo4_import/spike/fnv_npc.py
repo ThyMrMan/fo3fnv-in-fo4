@@ -16,12 +16,13 @@ from pathlib import Path
 
 import numpy as np
 
-from asset_convert.sources import source_registry
 from fo4_import.face import hair
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, coefficients, head
 from fo4_import.face.texture import fnv_texture
-from fo4_import.pipeline.export_index import asset_root, export_chain, export_file, export_records
+from fo4_import.pipeline.export_index import asset_root, export_file, export_records, plugin_sources
+from fo4_import.pipeline.master_plugin import renumbered
+from fo4_import.pipeline.master_space import identity
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: FNV race head part index of the left eye mesh.
@@ -72,10 +73,10 @@ def fnv_face(export_dir: Path, edid: str) -> tuple:
 
 
 @cache
-def _esm_records(esm_path: str) -> tuple:
-    """({NPC FormID: [PNAM head part FormIDs]}, {HDPT FormID: (EditorID, model)}) of an FNV master."""
-    npcs, parts = {}, {}
-    for rec, _ in walk(Path(esm_path).read_bytes(), b'NPC_', b'HDPT'):
+def _esm_records(esm_path: Path, mapping: tuple, game: str) -> tuple:
+    """({NPC: [PNAM head parts]}, {HDPT: (EditorID, model)}) of an FNV plugin, FormIDs through `mapping`."""
+    npcs, parts, raw = {}, {}, Path(esm_path).read_bytes()
+    for rec, _ in walk(renumbered(raw, mapping, game) if mapping and not identity(mapping) else raw, b'NPC_', b'HDPT'):
         subs = list(subrecords(rec.body))
         if rec.sig == b'NPC_':
             npcs[rec.form_id] = [struct.unpack('<I', d)[0] for t, d in subs if t == b'PNAM']
@@ -92,8 +93,7 @@ def head_parts(export_dir: Path, form_id: int) -> list:
     of them. Sorted, as FNV draws them as a set: PNAM order changes no fit.
     See: docs/fork/fo4_pipeline.md#face-fit-head-parts
     """
-    chain = [_esm_records(str(Path(source_registry.directory_for(f.parent, f.name)) / f.name))
-             for f in map(Path, export_chain(export_dir))]
+    chain = [_esm_records(*source) for source in plugin_sources(export_dir)]
     owned = next((npcs[form_id] for npcs, _ in chain if form_id in npcs), [])
     parts = {}
     for _, held in chain:

@@ -13,8 +13,8 @@ the player one. Each round shows its FNV name as a notification.
 See: docs/fork/fo4_pipeline.md#ammo-switch
 """
 
-from pathlib import Path
 
+from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_mesg, pack_script_quest
 from fo4_import.base.vmad import object_scripts, quest_fragments
 from fo4_import.spike import records as R
@@ -84,7 +84,7 @@ def write(builder, mods) -> None:
         rows = arrays(builder, mods, grouped, lambda form: form is not None and form >> 24 == writer.own_index)
         fid = writer.derive_formid(SITE, 'plugin rounds')
         vmad = quest_fragments('', [], scripts=[(SOURCE_SCRIPT, links, rows)])
-        writer.add_record('QUST', pack_script_quest(fid, f'FNV_AmmoSwitch_{Path(builder.export_dir.name).stem}', vmad))
+        writer.add_record('QUST', pack_script_quest(fid, f'FNV_AmmoSwitch_{plugin_stem(builder.export_dir)}', vmad))
         return
     item, effect = (writer.derive_formid(SITE, key) for key in ('item', 'effect'))
     writer.add_record('FLST', R.pack_flst(sources, 'FNV_AmmoSwitchSources', []))

@@ -27,6 +27,13 @@ def test_object_script_with_form_and_int_properties():
     assert built == OBJECT
 
 
+def test_an_empty_array_property_is_left_unset():
+    """Empty arrays are not written; the property count drops with them."""
+    empty = {'Events': ('ints', []), 'Rows': ('objects', []), 'Names': ('strings', [])}
+    built = V.object_scripts([('defaultrefondeath', {'myQuest': 0x0019D218}, {'StageToSet': ('int', 90), **empty})])
+    assert built == OBJECT
+
+
 def test_info_fragment_embeds_the_script_entry():
     """Bind data 3, OnEnd only, and the fragment script's own properties inside the block."""
     built = V.info_fragments('Fragments:TopicInfos:TIF_MQ207_00057089', {'MUSReveal': 0x0005221E},

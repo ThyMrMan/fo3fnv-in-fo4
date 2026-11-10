@@ -27,12 +27,13 @@ from fo4_import.spike.grass import Grasses
 from fo4_import.spike.land_layers import blend_borders, limit_textures, quadrant_mix
 from fo4_import.spike.navmesh import grid_parent
 from fo4_import.spike.music import music_of
+from fo4_import.spike.glow_cards import glow_cards
 from fo4_import.spike.regions import imposters, regions_of
 from fo4_import.spike.weather_imagespace import world_imagespace
 from fo4_import.spike.weathers import climate
-from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_map_path
+from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_map_path, texture_source
 from fo4_import.pipeline.export_index import export_file, export_records
-from fo4_import.pipeline.work_cache import spec_map
+from fo4_import.pipeline.work_cache import reframed_map, spec_map
 from fo4_import.spike.statics import copy_texture, stage_derived
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_group, pack_subrecord
@@ -47,6 +48,22 @@ WORLD_TEMPLATE = 0x3C
 WORLD_COPIED = (b'CNAM', b'NAM2', b'NAM3', b'NAM4', b'DNAM', b'ICON', b'MNAM', b'ONAM', b'NAMA', b'DATA', b'XWEM')
 #: FNV's world map cell bounds (MNAM): north-west then south-east cell, as FO4 writes them after its two zeros.
 MAP_CELLS = ('NWCellX', 'NWCellY', 'SECellX', 'SECellY')
+#: Cells added around the world map's bounds: the Pip-Boy pans no further than the image's edge, under its bar.
+MAP_MARGIN = 4
+#: FNV's world map marks a place FNV_MAP_INSET plus FNV_MAP_SCALE of the way across its bounds (FalloutNV.exe 0x79C380).
+FNV_MAP_INSET, FNV_MAP_SCALE = 0.1015625, 0.796875
+#: The Pip-Boy's world map gutters (WorldMapHolder's default), (left, right) and (top, bottom): fractions of the image.
+PIPBOY_GUTTERS = ((0.02685546875, 0.0283203125), (0.02685546875, 0.0283203125))
+#: World map image side in pixels: the Commonwealth's WorldMap_d.dds; the Pip-Boy draws the image at its own size.
+MAP_SIDE = 2048
+#: FNV parent flags (PNAM) FO4 shares: use land, LOD, map, water and climate data. FNV's image space bit has none.
+PARENT_FLAGS = 0x1F
+#: PNAM flags Use Land Data and Use LOD Data: a child sharing either is linked to its parent (WNAM).
+SHARED_GROUND = 0x3
+#: PNAM flag Use Map Data: the worldspace shows its parent's map.
+USE_MAP = 0x4
+#: FNV's world map offset (ONAM) fields and defaults: scale, cell X and Y offsets; FO4 adds a Z offset.
+MAP_OFFSET = (('Scale', 1.0), ('CellXOffset', 0.0), ('CellYOffset', 0.0))
 #: Smallest share written: a texture or vertex below it is left out.
 MIN_SHARE = 1e-4
 #: BTXT layer of a base texture: vanilla's -1 (every one of the 2,000+ sampled), never an alpha layer's index.
@@ -68,18 +85,20 @@ class Exterior:
     every reference placed, `locations` its spike.locations.Locations once made."""
 
     def __init__(self, export_dir: Path, all_refs: list, world: str, lo: 'tuple | None' = None,
-                 hi: 'tuple | None' = None):
-        """The cells of FNV worldspace `world` from grid `lo` to `hi` (x, y; both included); every cell without."""
+                 hi: 'tuple | None' = None, extra: frozenset = frozenset()):
+        """The cells of FNV worldspace `world` from grid `lo` to `hi` (x, y; both included) and grids `extra`;
+        every cell without `lo`."""
         self.export_dir, self.locations = export_dir, None
         self.world = next(r for r in export_records(export_dir, 'WRLD') if r.get('EditorID') == world)
         cells = [r for r in export_records(export_dir, 'CELL')
                  if r.get('ParentWRLD') == self.world['FormID']]
         self.persistent_cell = next(r['FormID'] for r in cells if int(r['RecordFlags']) & PERSISTENT)
-        self.cells = {(int(r['XCLC.X']), int(r['XCLC.Y'])): r for r in cells if 'XCLC.X' in r and not
-                      int(r['RecordFlags']) & PERSISTENT and _within(int(r['XCLC.X']), int(r['XCLC.Y']), lo, hi)}
+        self.cells = {grid: r for r, grid in ((r, (int(r['XCLC.X']), int(r['XCLC.Y']))) for r in cells
+                                              if 'XCLC.X' in r and not int(r['RecordFlags']) & PERSISTENT)
+                      if _within(*grid, lo, hi) or grid in extra}
         self.own = own = {r['FormID']: grid for grid, r in self.cells.items()}
         self.by_cell = {grid: [] for grid in self.cells}
-        self.persistent, shown_far = [], imposters()
+        self.persistent, shown_far = [], imposters() - glow_cards(export_dir)
         for ref in all_refs:
             if int(ref['FormID'], 16) in shown_far:
                 continue
@@ -182,17 +201,38 @@ class Exterior:
             kept[b'CNAM'] = struct.pack('<I', fnv_climate)
         kept.update(_heights(self.world, kept))
         kept.update(_world_map(self.world, self.export_dir, builder.data_dir))
+        kept = self._parented(builder, kept)
         xs, ys = [g[0] for g in self.cells], [g[1] for g in self.cells]
         bounds = (struct.pack('<2f', min(xs) * CELL_UNITS, min(ys) * CELL_UNITS),
                   struct.pack('<2f', (max(xs) + 1) * CELL_UNITS, (max(ys) + 1) * CELL_UNITS))
         subs = pack_subrecord('EDID', f'{self.fo4_edid}\0'.encode())
         subs += pack_subrecord('FULL', (self.world.get('FULL', self.world['EditorID']) + '\0').encode('cp1252'))
         subs += pack_subrecord('XLCN', struct.pack('<I', self.locations.root))
+        subs += b''.join(pack_subrecord(t.decode(), kept[t]) for t in (b'WNAM', b'PNAM') if t in kept)
         subs += b''.join(pack_subrecord(t.decode(), kept[t]) for t in WORLD_COPIED[:-2] if t in kept)
         subs += pack_subrecord('DATA', kept[b'DATA']) + pack_subrecord('NAM0', bounds[0])
         subs += pack_subrecord('NAM9', bounds[1]) + pack_subrecord('ZNAM', struct.pack('<I', music_of(builder).silence()))
         subs += pack_subrecord('XWEM', kept[b'XWEM']) if b'XWEM' in kept else b''
         return pack_fo4_record('WRLD', fid, 0, subs)
+
+    def _parented(self, builder, kept: dict) -> dict:
+        """`kept` with the world's built parent: linked (_linked) when it shares the parent's land or LOD; else
+        unlinked, with Use Map Data the parent's map image and its bounds in this world's cells (child_map).
+        See: docs/fork/fo4_pipeline.md#world-map
+        """
+        parent = self.world.get('WNAM.Parent', '0')
+        flags = int(self.world.get('PNAM.Flags', 0))
+        if int(parent, 16) not in builder.built_worlds:
+            return kept
+        if flags & SHARED_GROUND:
+            return _linked(self.world, kept, builder.fnv_id(parent))
+        if not flags & USE_MAP:
+            return kept
+        source = next(r for r in export_records(self.export_dir, 'WRLD') if r['FormID'] == parent)
+        shown = _world_map(source, self.export_dir, builder.data_dir)
+        if b'MNAM' in shown:
+            shown[b'MNAM'] = child_map(self.world, shown[b'MNAM'])
+        return {**kept, **shown}
 
     def _land(self, builder, rec: dict, mix: dict, data_dir: Path) -> bytes:
         """The FO4 LAND of FNV LAND `rec`: its vertex data and, per quadrant, its limited `mix` (land_layers): the
@@ -256,16 +296,65 @@ class Exterior:
 
 def _world_map(world: dict, export_dir: Path, data_dir: Path) -> dict:
     """{ICON, MNAM}: FNV worldspace `world`'s map image (staged for the texture BA2) and its cell bounds, each
-    where FNV has one; the Pip-Boy shows the image and places markers by the bounds.
+    where FNV has one; the Pip-Boy shows the image and places markers by the bounds. With both, the bounds grow
+    MAP_MARGIN cells a side and the image is resampled so each place shows where FO4 puts its marker (map_axis).
     See: docs/fork/fo4_pipeline.md#world-map
     """
     out = {}
+    cells = [int(world[f'MNAM.{k}']) for k in MAP_CELLS] if all(f'MNAM.{k}' in world for k in MAP_CELLS) else None
+    grown = [c + g for c, g in zip(cells or (), (-MAP_MARGIN, MAP_MARGIN, MAP_MARGIN, -MAP_MARGIN))]
     if world.get('ICON'):
-        copy_texture(export_dir, data_dir, world['ICON'])
-        out[b'ICON'] = f"{fo4_texture(world['ICON'])}\0".encode('cp1252')
-    if all(f'MNAM.{k}' in world for k in MAP_CELLS):
-        out[b'MNAM'] = struct.pack('<ii4h', 0, 0, *(int(world[f'MNAM.{k}']) for k in MAP_CELLS))
+        source = texture_source(world['ICON'])
+        if cells:
+            across = map_axis((grown[0], grown[2]), (cells[0], cells[2] + 1), PIPBOY_GUTTERS[0])
+            down = map_axis((grown[1], grown[3]), (cells[1] + 1, cells[3]), PIPBOY_GUTTERS[1])
+            stage_derived(data_dir, fo4_texture(source), reframed_map,
+                          (export_file(export_dir, source.replace('\\', '/')),), across, down, MAP_SIDE)
+        else:
+            copy_texture(export_dir, data_dir, source)
+        out[b'ICON'] = f'{fo4_texture(source)}\0'.encode('cp1252')
+    if cells:
+        out[b'MNAM'] = struct.pack('<ii4h', 0, 0, *grown)
     return out
+
+
+def map_axis(fo4: tuple, fnv: tuple, gutters: tuple) -> tuple:
+    """(a, b): the fraction a * p + b along FNV's map image showing the place FO4 marks at fraction p along its
+    image, on one axis. FO4 marks a place between its MNAM corner cells' origins `fo4` (cells; the far edge's
+    gutter left) inside `gutters` (near, far); FNV between the edges `fnv` (its SE cell included) at
+    FNV_MAP_INSET plus FNV_MAP_SCALE of the way.
+    See: docs/fork/fo4_pipeline.md#world-map
+    """
+    near, far = gutters
+    span = (fo4[1] - fo4[0]) / (1 - near - far)
+    scale = FNV_MAP_SCALE / (fnv[1] - fnv[0])
+    return scale * span, FNV_MAP_INSET + scale * (fo4[0] - fnv[0] - near * span)
+
+
+def child_map(world: dict, mnam: bytes) -> bytes:
+    """Parent map bounds `mnam` (MNAM) in FNV child worldspace `world`'s cells: each map edge through the inverse
+    of FO4's map offset (parent = (child - centre) * scale + centre + offset; the centre is NAM0/NAM9's).
+    See: docs/fork/fo4_pipeline.md#world-map
+    """
+    scale, dx, dy = (float(world.get(f'ONAM.{k}', default)) for k, default in MAP_OFFSET)
+    cx = (float(world.get('NAM0.MinX', 0)) + float(world.get('NAM9.MaxX', 0))) / 2
+    cy = (float(world.get('NAM0.MinY', 0)) + float(world.get('NAM9.MaxY', 0))) / 2
+    width, height, west, north, east, south = struct.unpack('<ii4h', mnam)
+    x = lambda edge: round(((edge * CELL_UNITS - dx - cx) / scale + cx) / CELL_UNITS)
+    y = lambda edge: round(((edge * CELL_UNITS - dy - cy) / scale + cy) / CELL_UNITS)
+    return struct.pack('<ii4h', width, height, x(west), y(north + 1) - 1, x(east + 1) - 1, y(south))
+
+
+def _linked(world: dict, kept: dict, parent: int) -> dict:
+    """`kept` with FNV worldspace `world`'s parent link: WNAM `parent` (its FO4 FormID), the PARENT_FLAGS of its
+    PNAM and its map offset (ONAM, Z 0); with Use Map Data, without a map image and bounds of its own.
+    See: docs/fork/fo4_pipeline.md#world-map
+    """
+    flags = int(world.get('PNAM.Flags', 0)) & PARENT_FLAGS
+    out = {t: d for t, d in kept.items() if not flags & USE_MAP or t not in (b'ICON', b'MNAM')}
+    offset = [float(world.get(f'ONAM.{k}', default)) for k, default in MAP_OFFSET]
+    return {**out, b'WNAM': struct.pack('<I', parent), b'PNAM': struct.pack('<H', flags),
+            b'ONAM': struct.pack('<4f', *offset, 0.0)}
 
 
 def _grass_count(rec: dict) -> int:

@@ -263,10 +263,12 @@ bone and builds each state.
 finds an AnimTextData chunk by `BSCRC32(race SAPT folders, lower case,
 joined by '|') << 32 | BSCRC32(race behaviour path, lower case)`, and that
 they write the file data, speed info and stance sections themselves. This
-is a fact about the file format, so it can be checked against the CK's
-output for our rigs; if it holds, it replaces the CK step
-([anim-info](fo4_own_rig.md#anim-info), 1,231 s on the whole-map build of
-2026-10-31).
+is a fact about the file format. Checked against the CK's output and every
+vanilla file (2026-11-06): it holds for entries with two or more folders,
+but one folder is hashed in its authored case
+([ids](research/anim_text_data.md#ids)). 98% of what the CK step writes is gun
+entries, not our rigs; what replacing it takes is in
+[anim_text_data](research/anim_text_data.md#writer).
 
 ### Items
 

@@ -50,10 +50,11 @@ as `stats` does; the race comes from the rig table.
   and project from the template's files in the game archives.
 - `fo4_import/rig/records.py`: RACE, BPTD, ARMO/ARMA, MOVT (the form
   version's `SPED` layout) and the action IDLEs, on the template's records.
-- `fo4_import/rig/anim_text.py`: AnimTextData's text files (project file
-  data, the entry's file data by the CRC rule, dynamic idle data). The
-  binary speed and stance data come from the Creation Kit run
-  ([below](#anim-info)).
+- `fo4_import/rig/build.py` (`project_file_data`) and
+  `fo4_import/rig/anim_info.py` (`dynamic_idles`): AnimTextData's text files
+  (the project's file data, dynamic idle data). The rest comes from the
+  Creation Kit run ([below](#anim-info); id rule and formats:
+  [anim_text_data](research/anim_text_data.md#ids)).
 - `creatures.py`: mode `rig` calls these once per skeleton folder and writes
   the NPC as `stats` does, on the rig's race.
 
@@ -69,6 +70,24 @@ bone and its ancestors are searched nearest first (`part_name`; the gecko's
 Head sits on `Bip01 Neck1`). A bone no FNV part covers (Root, a pelvis
 above FNV's parts, all of the raven's and spore carrier's) takes the
 template's own name through Fallout4.esm's strings.
+
+### <a id="model-names"></a>Body model file names
+
+A body is named after its FNV parts joined by `+` (`build.body_name`), and
+that name keys the skin's FormIDs and EditorIDs. The Think Tank's bodies
+join seven parts, up to 197 characters. Under
+`F3NV - Old World Blues\Meshes\Actors\FNVBrainBot\CharacterAssets\` six of
+them reached 292 characters, past Windows' 260-character path limit. With
+the DLC enabled the game crashed within a second of launch, before the crash
+logger wrote anything; it booted with the DLC off (2026-11-07). Before that
+fix, every other mod folder's longest path was 214 characters, in the base
+game.
+
+So the file is `records.model_file(name)`: the name itself up to 64
+characters, else the first part's stem, `+` and 12 hex digits of the SHA-1
+of the lowercased name. `build.model` writes that file and `records.body_path`
+names it, so the mesh and its ARMA agree. The skin's EditorID and FormID
+still come from the full name, so nothing moves.
 
 ## <a id="anim-info"></a>AnimTextData from the Creation Kit
 
@@ -94,6 +113,10 @@ are now collected from `overwrite` (moved) and from every enabled mod
 (copied, so the deployed copy stays): `creation_kit.written_since`. The CK also edits
 `CreationKitPrefs.ini`, `ckpe.log` and the `Logs` folders in the game
 folder in place.
+
+The CK's run also covers every converted gun's subgraph entry: 98% of what
+it writes. Since 2026-11-06 the third-person gun entries' files are copied
+from vanilla after it runs ([writer](research/anim_text_data.md#writer)).
 
 ## <a id="nightstalker"></a>Second creature: the nightstalker (2026-10-27)
 
@@ -549,6 +572,81 @@ actor sounds (`CS2K`), by anim archetype. Every other creature sound is a
 - **Not carried:** Hit, Idle and Aware have no `Enum:` keys in the gecko's
   clips and FO4 has no hook for them outside a graph state; the movement
   loop (type 10) has no FO4 actor-sound slot.
+
+## <a id="think-tank"></a>The Think Tank (built 2026-11-06, not yet played)
+
+Old World Blues' Think Tanks (`nvdlc03\creatures\brainbot`, 37 creatures,
+none placed directly: all through leveled lists such as
+`NVDLC03DoctorKleinLVL`) stood in as FO4's Mr. Gutsy (`stats`). They are now
+a rig, the first one whose FNV files exist only in a DLC export
+(`asset_root` finds them).
+
+- **Template:** the securitron's: race `ProtectronRace` so
+  they can talk ([talk](#talk)), the mole rat's parts, skin, movement and
+  graph files, `UnarmedProtectron`.
+- **Clips:** `mtidle`, turns and walk/run from `locomotion\`, combat idle
+  `1hpaim`, talk `talking.kf`. FNV's attack clips `1hpattackright` and
+  `2hrattackright` (0.7 s, `Hit` at 0.033 s) hold the pose and move no bone.
+- **Ragdoll and pose bones:** FNV's ragdoll covers the pelvis, the three
+  arms (joints 1-3 and each `MonitorLean`) and the three gun joints; the shell
+  and head have none. Pose bones: `Bip01 Pelvis`, `Bip01 Gun Joint01`,
+  `Bip01 ArmR Joint01`.
+- **Parts:** FNV's BPTD (`NVDLC03BrainBotbodypartdata`) has six parts: the
+  three monitors, brain, shell and gun; [part names](#body-parts) come from
+  it. The template's head is the brain bone, its legs the three arms.
+- **Body:** each record's 7 NIFZ parts. Only `nvdlc03_brainbot.nif` (and
+  Mobius's `nvdlc03_mobius.nif`) is skinned; shell, eyes, mouth, brain and
+  gun lens are rigid parts on their `Prn` bones ([rigid parts](#rigid-parts)).
+- **Guns:** every Think Tank carries `NVDLC03BrainBeam1HPRight` (animation
+  type 3, 38 damage) and `NVDLC03BrainMesmetron` (type 5). Neither has a
+  model, so each needs a weapon rule: the beam on
+  `Protectron01RightArmLaserGun` (right hand, `1hpattackright`), the
+  Mesmetron on `Protectron01LeftArmLaserGunBlue` (left hand,
+  `2hrattackright`). Both play over the gun's subtree (`Bip01 Gun Joint01`).
+- **Fire node.** FNV takes a weapon's fire node from its `NNAM`, else
+  `ProjectileNode` (FalloutNV.exe `0x00525700`, then `##ProjectileNode`).
+  Both name `Weapon`: the skeleton's own WEAPON node, 7.09 units out from
+  `Gun Joint03`, with `ProjectileNode_Right` under it at its origin.
+  The table names `ProjectileNode_Right`. Moving WEAPON onto its own child
+  would loop, so its children first move onto its parent in place
+  (`assets.lift_children` for the animation skeleton, `lift_nif_children`
+  for skeleton.nif). Then WEAPON moves onto the fire node as the
+  securitron's does. A WEAPON without children (every other rig) is
+  unchanged.
+
+## <a id="idles"></a>Creature idles on a rig (built 2026-11-06, not yet played)
+
+FNV creature IDLE records (special idles, line speaker idles) were left out
+as `no human clip`: 31 in FalloutNV.esm, 12 in Dead Money, 7 in Honest
+Hearts, 44 in Old World Blues and 19 in Lonesome Road. The Think Tanks' 24
+special idles are used by 847 lines.
+
+**Vanilla.** A creature's IDLE names its root graph (DNAM), the event
+`DynamicAnim` (ENAM, 17 brahmin idles; `dynamicAnimMirrored` and
+`dynamicAnimLooping` too) and the clip (GNAM,
+`Actors\Brahmin\Animations\DynamicAnimation\IdleMooRight.hkx`). The
+creature shared core (`moleratsharedcorewrappingbehavior.hkx`) enters a
+`DynamicAnim` machine on that event from any state. Its states are a
+`DynamicAnimationTaggingGenerator` over a stand-in clip
+(`..\Bloatfly\Animations\Idle.hkt`), which the engine swaps for the IDLE's
+clip. A trigger 0.2 s before the clip's end raises `returnToDefault`.
+
+**The rig.**
+- **Graph** (`behavior.Builder.dynamic`): the non-combat standing machine
+  gets `DynamicAnim` (5, played once, `returnToDefault` 0.2 s before the
+  end) and `DynamicAnimLooping` (6), both entered from any state there.
+  Each is a tagging generator over the rig's Idle clip, and both go back to
+  Idle on `returnToDefault` or the talk states' end events. Every rig's
+  graph changes.
+- **Records** (`idles.Idles._played`): an idle whose clip is under a rig
+  table folder (`rig_of`) converts. Its IDLE names the rig's root graph and
+  sends `dynamicAnim` (`dynamicAnimLooping` for FNV's forever loop). The
+  clip goes onto the rig's skeleton (`Rigs.idle_clip`, WEAPON's keys
+  dropped as for the rig's own clips) in
+  `Actors\<project>\Animations\DynamicAnimation\<FNV path>.hkx`. It is
+  counted `IDLE (own rig)`.
+- Not built: an idle while the creature moves or fights (the states are in
+  the non-combat standing machine only); mirrored idles (FNV has none).
 
 ## <a id="parity"></a>Stage 2 against the played gecko (2026-10-27)
 

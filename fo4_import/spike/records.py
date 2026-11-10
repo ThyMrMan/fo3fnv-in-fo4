@@ -22,6 +22,10 @@ _DIRECTION = re.compile(r"{[^}]*}")
 SILENT_LINE = ''
 #: Record flag Initially Disabled, the same bit in FO3/FNV and FO4.
 INITIALLY_DISABLED = 0x800
+#: REFR record flag Is Full LOD: drawn at any distance (Fallout4.esm's GSCraterClouds01 glow).
+FULL_LOD = 0x10000
+#: QUST flag Allow Repeated Stages (a done stage runs again when set), the same bit in FO3/FNV and FO4.
+REPEATED_STAGES = 0x0008
 #: Quest alias flag Uses Stored Text: the alias's display name (ALDN) names it, as a radio station's Host.
 USES_STORED_TEXT = 0x4000
 #: Quest alias flags Optional (it may be empty) and Allow Disabled (a disabled reference fills it), xEdit's.
@@ -229,8 +233,9 @@ def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keywor
 
 
 def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
-              alias_name: str, alias_ref, vmad: bytes = b'') -> bytes:
-    """A start-game-enabled quest with plain stages and one alias (id 0), scripts and fragments in `vmad`.
+              alias_name: str, alias_ref, vmad: bytes = b'', spells: tuple = ()) -> bytes:
+    """A start-game-enabled quest with plain stages and one alias (id 0), scripts and fragments in `vmad`, the
+    alias giving `spells` (ALSP) to whoever fills it.
 
     alias_ref None: an optional, empty alias that forced-alias lines fill, as
     vanilla DialogueGenericDoctors' 'Doctor' (FNAM 2).
@@ -240,15 +245,17 @@ def pack_qust(fid: int, edid: str, name: str, priority: int, stages: list,
     subs += pack_subrecord('NEXT', b'')
     for stage in sorted(stages):
         subs += pack_subrecord('INDX', struct.pack('<HBB', stage, 0, 0)) + pack_subrecord('QSDT', b'\x00')
-    return pack_fo4_record('QUST', fid, 0, subs + pack_u32('ANAM', 1) + _alias(0, alias_name, alias_ref))
+    return pack_fo4_record('QUST', fid, 0, subs + pack_u32('ANAM', 1) + _alias(0, alias_name, alias_ref,
+                                                                                spells=spells))
 
 
 def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display: int = 0, voices: int = 0,
-           keywords: tuple = (), optional: bool = False) -> bytes:
+           keywords: tuple = (), optional: bool = False, spells: tuple = ()) -> bytes:
     """A reference alias forced to `ref` (Allow Disabled; `optional`: also Optional, so a script may clear it), or
     optional and empty when None; given `packages` (ALPC), it runs them: without a `ref`, an empty collection
-    alias (CZ_Arena's Crowd); `keywords` (KWDA) go on whoever fills it; a `display` name message (ALDN) sets
-    Uses Stored Text (RadioDiamondCity's Host); `voices` (VTCK: an NPC or list) voices a non-actor.
+    alias (CZ_Arena's Crowd); `keywords` (KWDA) and `spells` (ALSP) go on whoever fills it; a `display` name
+    message (ALDN) sets Uses Stored Text (RadioDiamondCity's Host); `voices` (VTCK: an NPC or list) voices a
+    non-actor.
     See: docs/fork/fo4_preflight.md#results
     """
     collection = packages is not None and ref is None
@@ -257,6 +264,7 @@ def _alias(alias: int, name: str, ref, packages: 'tuple | None' = None, display:
     subs += _zstr('ALID', name) + pack_u32('FNAM', flags | (ALIAS_OPTIONAL if optional else 0))
     subs += (b'' if ref is None else pack_u32('ALFR', ref)) + pack_keywords(keywords)
     subs += pack_u32('ALDN', display) if display else b''
+    subs += b''.join(pack_u32('ALSP', spell) for spell in spells)
     subs += b''.join(pack_u32('ALPC', package) for package in packages or ())
     subs += pack_u32('VTCK', voices) if voices or packages is not None else b''
     return subs + pack_subrecord('ALED', b'')
@@ -274,13 +282,14 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'', ex
 
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
               teleport: tuple = None, persistent: bool = True, placement: bytes = b'', disabled: bool = False,
-              linked: int = 0, edid: str = '', door_link: tuple = None, sig: str = 'REFR', vmad: bytes = b'') -> bytes:
+              linked: int = 0, edid: str = '', door_link: tuple = None, sig: str = 'REFR', vmad: bytes = b'',
+              full_lod: bool = False) -> bytes:
     """A placed object: base, `placement` (packed XMBO/XPRM/XPOD/XRGD, spike.placement), light radius (XRDS),
     teleport (door, position, rotation), scale.
 
     `disabled` sets Initially Disabled (0x800), as FO3/FNV's flag; `linked` is its linked reference (XLKR, no keyword);
     `edid` names the reference; `door_link` is a teleport door's (navmesh, triangle) (XNDP); `sig` is the record
-    type (PGRE for a placed projectile); `vmad` its scripts.
+    type (PGRE for a placed projectile); `vmad` its scripts; `full_lod` sets Is Full LOD (0x10000).
     """
     subs = (_zstr('EDID', edid) if edid else b'') + (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_u32('NAME', base) + placement
     if radius is not None:
@@ -295,7 +304,8 @@ def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, r
     if scale != 1.0:
         subs += pack_subrecord('XSCL', struct.pack('<f', scale))
     subs += pack_subrecord('DATA', struct.pack('<6f', *pos, *rot))
-    return pack_fo4_record(sig, fid, (0x400 if persistent else 0) | (INITIALLY_DISABLED if disabled else 0), subs)
+    flags = (0x400 if persistent else 0) | (INITIALLY_DISABLED if disabled else 0) | (FULL_LOD if full_lod else 0)
+    return pack_fo4_record(sig, fid, flags, subs)
 
 
 def _bounded(edid: str, bounds: tuple, vmad: bytes = b'') -> bytes:
@@ -326,9 +336,9 @@ def pack_stat(fid: int, edid: str, model: str, bounds: tuple, flags: int = 0, lo
     return pack_fo4_record('STAT', fid, flags, subs)
 
 
-def pack_mstt(fid: int, edid: str, model: str, bounds: tuple, sound: int = 0) -> bytes:
-    """A movable static: bounds, model, looping sound (SNDR, 0: none)."""
-    subs = _bounded(edid, bounds) + _zstr('MODL', model) + pack_subrecord('DATA', b'\0')
+def pack_mstt(fid: int, edid: str, model: str, bounds: tuple, sound: int = 0, dest: bytes = b'') -> bytes:
+    """A movable static: bounds, model, destruction `dest`, looping sound (SNDR)."""
+    subs = _bounded(edid, bounds) + _zstr('MODL', model) + dest + pack_subrecord('DATA', b'\0')
     return pack_fo4_record('MSTT', fid, 0, subs + (pack_u32('SNAM', sound) if sound else b''))
 
 
@@ -347,15 +357,17 @@ def _sounds(sigs: tuple, sounds: tuple) -> bytes:
 
 
 def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, stages: list, objectives: list,
-                   aliases: list, start: bool = False) -> bytes:
+                   aliases: list, start: bool = False, repeats: bool = False) -> bytes:
     """A quest: scripts, stages [(index, log flags)], objectives [(index, text, [alias ids])], aliases.
 
     Aliases are [(alias id, name, reference or None)] (see _alias), as an
     objective targets an alias in FO4, not a reference. `start`: start game
-    enabled, with pack_qust's flags.
+    enabled, with pack_qust's flags; `repeats`: REPEATED_STAGES.
+    See: docs/fork/fo4_pipeline.md#intense-training
     """
+    flags = (0x0011 if start else 0) | (REPEATED_STAGES if repeats else 0)
     subs = _zstr('EDID', edid) + pack_subrecord('VMAD', vmad) + _zstr('FULL', name)
-    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', 0x0011 if start else 0, priority, 0.0, 0))
+    subs += pack_subrecord('DNAM', struct.pack('<HBxfB3x', flags, priority, 0.0, 0))
     subs += pack_subrecord('NEXT', b'')
     for index, log_flags in sorted(stages):
         subs += pack_subrecord('INDX', struct.pack('<HBB', index, 0, 0)) + pack_subrecord('QSDT', bytes([log_flags]))
@@ -393,26 +405,26 @@ def pack_book(fid: int, edid: str, name: str, text: str, look: tuple = (NOTE_MOD
 
 
 def pack_acti(fid: int, edid: str, name: str, model: str, bounds: tuple, vmad: bytes, prompt: str,
-              loop: int = 0, receiver: bytes = b'') -> bytes:
-    """An activator: scripts, bounds, name, model (none for a trigger), vanilla's marker colour, looping sound
-    (an SNDR, 0 for none), activate prompt; a `receiver` (RADR data) makes it a radio (FNAM Is a Radio), as
-    RadioDiamondCityReceiverOff."""
+              loop: int = 0, receiver: bytes = b'', dest: bytes = b'') -> bytes:
+    """An activator: scripts, bounds, name, model (none for a trigger), destruction subrecords `dest`, vanilla's
+    marker colour, looping sound (an SNDR, 0 for none), activate prompt; a `receiver` (RADR data) makes it a radio
+    (FNAM Is a Radio), as RadioDiamondCityReceiverOff."""
     subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
     subs += pack_subrecord('OBND', struct.pack('<6h', *bounds)) + (_zstr('FULL', name) if name else b'')
-    subs += (_zstr('MODL', model) if model else b'') + pack_subrecord('PNAM', MARKER_COLOR)
+    subs += (_zstr('MODL', model) if model else b'') + dest + pack_subrecord('PNAM', MARKER_COLOR)
     subs += _sounds(('SNAM',), (loop,))
     subs += (_zstr('ATTX', prompt) if prompt else b'') + pack_subrecord('FNAM', struct.pack('<H', IS_A_RADIO if receiver else 0))
     return pack_fo4_record('ACTI', fid, 0, subs + (pack_subrecord('RADR', receiver) if receiver else b''))
 
 
 def pack_furn(fid: int, edid: str, name: str, model: str, bounds: tuple, keywords: list, record_flags: int,
-              active: int, marker_model: str, markers: list) -> bytes:
-    """A furniture: bounds, name, model, keywords, MNAM `active` markers and flags, SNAM `markers`.
+              active: int, marker_model: str, markers: list, vmad: bytes = b'') -> bytes:
+    """A furniture: scripts, bounds, name, model, keywords, MNAM `active` markers and flags, SNAM `markers`.
 
     Each marker is (x, y, z, heading, entry byte); PNAM, FNAM and WBDT are
     vanilla's most common (zero).
     """
-    subs = _bounded(edid, bounds) + _zstr('FULL', name) + _zstr('MODL', model) + pack_u32('KSIZ', len(keywords))
+    subs = _bounded(edid, bounds, vmad) + _zstr('FULL', name) + _zstr('MODL', model) + pack_u32('KSIZ', len(keywords))
     subs += pack_subrecord('KWDA', struct.pack(f'<{len(keywords)}I', *keywords)) + pack_subrecord('PNAM', bytes(4))
     subs += pack_subrecord('FNAM', bytes(2)) + pack_u32('MNAM', active) + pack_subrecord('WBDT', bytes(1))
     subs += _zstr('XMRK', marker_model) if marker_model else b''
@@ -463,13 +475,14 @@ def pack_leveled(sig: str, fid: int, edid: str, chance_none: int, flags: int, en
 
 
 def pack_cont(fid: int, edid: str, name: str, model: str, bounds: tuple, items: list, flags: int,
-              weight: float, sounds: tuple = (0, 0), vmad: bytes = b'') -> bytes:
+              weight: float, sounds: tuple = (0, 0), vmad: bytes = b'', dest: bytes = b'') -> bytes:
     """A container: scripts, bounds, name, model, items [(FormID, count[, condition])] (COCT, CNTO, a COED after
-    an item with a condition), DATA flags and weight, open and close sounds (SNDRs, 0 for none)."""
+    an item with a condition), destruction subrecords `dest`, DATA flags and weight, open and close sounds (SNDRs,
+    0 for none)."""
     subs = _bounded(edid, bounds, vmad) + _zstr('FULL', name) + (_zstr('MODL', model) if model else b'')
     subs += pack_u32('COCT', len(items)) + b''.join(pack_subrecord('CNTO', struct.pack('<Ii', i[0], i[1])) +
                                                  pack_coed(i[2] if len(i) > 2 else None) for i in items)
-    subs += pack_subrecord('DATA', struct.pack('<Bf', flags, weight)) + _sounds(('SNAM', 'QNAM'), sounds)
+    subs += dest + pack_subrecord('DATA', struct.pack('<Bf', flags, weight)) + _sounds(('SNAM', 'QNAM'), sounds)
     return pack_fo4_record('CONT', fid, 0, subs)
 
 

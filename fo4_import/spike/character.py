@@ -85,7 +85,7 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     values = {'SkillPointsBase': ('int', SKILL_POINTS_BASE), 'SkillPointsPerIntelligence': ('float', per_int),
               'LevelsPerPerk': ('int', per_perk), 'TagBonus': ('int', int(float(settings['fAVDTagSkillBonus']))),
               'TraitCount': ('int', int(settings.get('iTraitMenuMaxNumTraits', 0))),
-              'SkillBase': ('float', float(settings['fAVDSkillBarterBase']))}
+              'SkillBase': ('float', float(settings['fAVDSkillBarterBase'])), **stage_properties(builder.perks)}
     quest = builder.new_id('QUST FNV_CharacterRules')
     builder.writer.add_record('QUST', pack_script_quest(
         quest, 'FNV_CharacterRules', quest_fragments('', [], scripts=[(RULES_SCRIPT, objects, values)])))
@@ -95,6 +95,16 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     if not builder.built:
         write_ini(data_dir / 'PRKF' / f'{Path(plugin).stem}.ini', plugin, perks, skill_list)
     tab_quest(builder, 'SKILLS', skill_list)
+
+
+def stage_properties(perks) -> dict:
+    """The rules' StagePerks, StageQuests, StageIndexes and StageScripts (each quest's fragment script): `perks`'
+    quest stage effects, one per index.
+    See: docs/fork/fo4_pipeline.md#intense-training
+    """
+    ranks, quests, stages, scripts = zip(*perks.stage_effects) if perks.stage_effects else ((), (), (), ())
+    return {'StagePerks': ('objects', list(ranks)), 'StageQuests': ('objects', list(quests)),
+            'StageIndexes': ('ints', list(stages)), 'StageScripts': ('strings', list(scripts))}
 
 
 def write_ini(path: Path, plugin: str, perks: int, skills: int) -> None:

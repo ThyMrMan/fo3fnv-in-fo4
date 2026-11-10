@@ -111,8 +111,7 @@ def change_messages(builder, export_dir: Path) -> tuple:
     """
     settings = {r.get('EditorID'): r.get('DATA.Value', '') for r in export_records(export_dir, 'GMST')}
     texts = {prop: ('string', settings[edid]) for prop, edid in CHANGE_TEXTS.items() if settings.get(edid)}
-    by_edid = {r.get('EditorID'): fnv for fnv, r in builder.sounds.records.items()}
-    sounds = {prop: builder.sounds.descriptor(by_edid.get(edid, 0)) for prop, edid in TITLE_SOUNDS.items()}
+    sounds = {prop: builder.sounds.named(edid) for prop, edid in TITLE_SOUNDS.items()}
     return {prop: fid for prop, fid in sounds.items() if fid}, texts
 
 

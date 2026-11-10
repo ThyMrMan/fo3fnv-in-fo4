@@ -23,6 +23,7 @@ import struct
 
 import numpy as np
 
+from fo4_import.base.source_fault import without_fault
 from fo4_import.nif.convert_static import ATTACH, NifFormat
 from fo4_import.nif.outfit import fnv_nif, prn_bone
 from fo4_import.spike import records as R
@@ -79,15 +80,21 @@ class TalkingMachines:
         worlds = bone_worlds(export_file(self.export_dir, 'meshes', folder, 'skeleton.nif'))
         present = [name for name in names if export_file(self.export_dir, 'meshes', folder, name).is_file()]
         self.builder.counts['talking machine part left out (no file)'] += len(names) - len(present)
-        return [self._part(folder, name, worlds, rec.get('FULL', '')) for name in present]
+        made = [self._part(folder, name, worlds, rec.get('FULL', '')) for name in present]
+        self.builder.counts['talking machine part left out (a source fault)'] += made.count(None)
+        return [fid for fid in made if fid is not None]
 
-    def _part(self, folder: str, name: str, worlds: dict, full: str) -> int:
+    def _part(self, folder: str, name: str, worlds: dict, full: str) -> 'int | None':
         """The activator of body part `name` in skeleton folder `folder`, posed by `worlds`, named `full`; a part
-        with no triangles (a particle spray) is bounded by zeros."""
+        with no triangles (a particle spray) is bounded by zeros; None for one with a source fault."""
         model = f'{folder}\\{name}'
         if (model, full) not in self.parts:
             pose = part_pose(export_file(self.export_dir, 'meshes', model), worlds)
-            written, bounds = write_assets(self.export_dir, model, self.data_dir, pose, suffix=SUFFIX)
+            made = without_fault(write_assets, self.export_dir, model, self.data_dir, pose, suffix=SUFFIX)
+            if made is None:
+                self.parts[(model, full)] = None
+                return None
+            written, bounds = made
             fid = self.parts[(model, full)] = self.builder.writer.derive_formid(SITE, f'{model} {full}')
             edid = f'FNV_{name[:-4]}{full.replace(" ", "").replace(".", "")}Speaker'
             self.builder.writer.add_record('ACTI', R.pack_acti(fid, edid, full, written, bounds or (0,) * 6, b'', PROMPT))

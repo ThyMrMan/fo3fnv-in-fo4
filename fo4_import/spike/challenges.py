@@ -19,8 +19,8 @@ script (SCRI, an effect script) cast on the player as a spell, one per script.
 See: docs/fork/fo4_pipeline.md#challenges
 """
 
-from pathlib import Path
 
+from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_avif, pack_global, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
@@ -222,6 +222,7 @@ class Challenges:
         quest, sources, tab_rows, tab_shown = (writer.derive_formid(SITE, key)
                                                for key in ('quest', 'sources', 'rows', 'states'))
         mine = quest >> 24 == writer.own_index
+        own_quest = quest if mine else writer.derive_formid(SITE, 'plugin quest')
         kept = [k for k in self.kept if mine or self.builder.ids.is_own(int(k[0]['FormID'], 16))]
         columns = {k: [] for k in ('Rows', 'States', 'Names', *INT_COLUMNS, *FORM_COLUMNS)}
         filters = Filters(self.builder, self.export_dir)
@@ -234,7 +235,7 @@ class Challenges:
         self.builder.counts['CHAL kept'] = len(kept)
         if not mine:
             writer.add_record('QUST', pack_script_quest(
-                writer.derive_formid(SITE, 'plugin quest'), f'FNV_Challenges_{Path(self.export_dir.name).stem}',
+                own_quest, f'FNV_Challenges_{plugin_stem(self.export_dir)}',
                 quest_fragments('', [], scripts=[rows])))
             return None
         self._quest(quest, sources, rows)

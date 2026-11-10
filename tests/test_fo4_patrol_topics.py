@@ -7,9 +7,7 @@ import struct
 from collections import Counter
 from types import SimpleNamespace
 
-from fo4_import.spike import cell as CB
 from fo4_import.spike import patrol_topics as PT
-from fo4_import.spike.idle_markers import EMPTY
 from fo4_import.spike import placement as PL
 from tes5_import.base.tes5_reader import subrecords
 
@@ -61,17 +59,6 @@ def test_each_built_patrol_point_gets_an_arrival_topic_running_its_script_or_say
     assert patrols.builder.scripts.used == ['FALLOUTNV_PM__00000900']
     assert patrols.builder.counts['patrol arrival topics'] == 3
     assert patrols.builder.counts['patrol point with nothing to run'] == 1
-
-
-def test_an_idle_marker_fo4_plays_nothing_like_is_kept_empty_only_as_a_patrol_points_base(monkeypatch):
-    """A patrol point's marker with no FO4 stand-in is the empty marker; any other such marker is left out."""
-    builder = object.__new__(CB.CellBuilder)
-    builder.counts, builder.export_dir = Counter(), 'export'
-    builder.idle_markers = SimpleNamespace(of=lambda rec: (None, 'robot'), vanilla={EMPTY: 0x0001E1B0})
-    monkeypatch.setattr(CB, 'patrol_bases', lambda export_dir: frozenset({0x106905}))
-    assert builder.idle(0x106905, 'IDLM', {'FormID': '00106905'}) == 0x0001E1B0
-    assert builder.idle(0x106906, 'IDLM', {'FormID': '00106906'}) is None
-    assert builder.counts['idle marker placed'] == 1 and builder.counts['idle marker left out: robot'] == 1
 
 
 def test_only_a_patrol_point_with_a_script_or_topic_acts():

@@ -247,6 +247,11 @@ def _headings(doc: Path) -> set:
     return out
 
 
+def checkout_root(path: Path) -> Path:
+    """The checkout holding `path`: its nearest folder with a `.git`, else ROOT."""
+    return next((p for p in Path(path).resolve().parents if (p / '.git').exists()), ROOT)
+
+
 def _citation_sites(path: Path, text: str) -> list:
     """`docs/` citations whose file or anchor does not exist.
 
@@ -254,13 +259,13 @@ def _citation_sites(path: Path, text: str) -> list:
     is how a citation to a file that is really `Script_Conversion_Plan.md`
     survived unnoticed.
     """
-    hits = []
+    hits, root = [], checkout_root(path)
     for num, line in enumerate(text.split('\n'), 1):
         if not REFERENCE.search(line):
             continue
         for ref in CITATION.findall(line):
             rel, _, anchor = ref.partition('#')
-            target = ROOT / rel
+            target = root / rel
             real = target.parent.exists() and target.name in os.listdir(
                 target.parent) if target.parent.exists() else False
             if not real:
@@ -374,14 +379,15 @@ def gate_file(path: Path, limit: int = 10) -> int:
 
 
 def _git(path: Path, *args) -> tuple:
-    """`(ok, stdout)` for a git command about `path`."""
+    """`(ok, stdout)` for a git command about `path`, run beside it so a worktree answers from its own branch."""
+    where = path.resolve()
     try:
-        rel = path.resolve().relative_to(ROOT).as_posix()
+        where.relative_to(ROOT)
     except ValueError:
         return False, ''
     try:
-        got = subprocess.run(['git'] + [a.replace('{}', rel) for a in args],
-                             cwd=ROOT, capture_output=True, text=True,
+        got = subprocess.run(['git'] + [a.replace('{}', f'./{where.name}') for a in args],
+                             cwd=where.parent, capture_output=True, text=True,
                              encoding='utf-8', errors='replace', timeout=30)
     except Exception:
         return False, ''

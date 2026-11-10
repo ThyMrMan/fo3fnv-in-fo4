@@ -23,6 +23,7 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.consumable_effects import AV_AT, Effects
 from fo4_import.spike.say_topics import conditions_of
+from fo4_import.spike.script import QUEST_PREFIX
 from fo4_import.spike.teammates import Teammates, companion_gate
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
@@ -90,6 +91,9 @@ class Perks:
         self.ids = {int(r['FormID'], 16): self._rank_ids(r) for r in self.records}
         self.first = {fnv: ids[0] for fnv, ids in self.ids.items()}
         self.constants, self.tabs, self.vanilla, self.written, self.pending = {}, {}, {}, set(), set()
+        #: [(FO4 perk rank, quest, stage, fragment script)] of every converted quest stage effect, for the rules.
+        self.stage_effects = []
+        self.quest_names = {int(r['FormID'], 16): r.get('EditorID', '') for r in export_records(export_dir, 'QUST')}
         self._index_vanilla()
         self.effects = Effects(builder, helper_index, self.vanilla)
         self.gates = builder.new_id(GATES_KEY, key=GATES_KEY)
@@ -152,6 +156,8 @@ class Perks:
                 after = ids[rank + 1] if rank + 1 < len(ids) else 0
                 edid = f'FNV_{rec["EditorID"]}' + (f'_Rank{rank + 1}' if rank else '')
                 effects = b'' if teammates else self._effects(rec, rank, after, edid)
+                if not teammates:
+                    self._stages(rec, rank, fid)
                 self.builder.writer.add_record('PERK', pack_perk(fid, (edid, rec.get('FULL', ''), rec.get('DESC', '')),
                                                                  needs or b'', _data(rec, len(ids), bool(teammates)),
                                                                  after, effects))
@@ -163,12 +169,25 @@ class Perks:
         for fnv in sorted(self.pending):
             self._ability(fnv, b'', '') or self._empty(fnv)
 
+    def _stages(self, rec: dict, rank: int, fid: int) -> None:
+        """Add rank `rank` (FO4 perk `fid`) of FNV perk `rec`'s quest stage effects on a built quest to
+        stage_effects.
+        See: docs/fork/fo4_pipeline.md#intense-training
+        """
+        for i in range(int(rec.get('EffectCount', 0) or 0)):
+            key = f'Effect[{i}]'
+            fnv = int(rec.get(f'{key}.Quest', '0'), 16)
+            quest = self.forms.get(fnv)
+            if rec.get(f'{key}.Type') == 'QuestStage' and int(rec.get(f'{key}.Rank', 0)) == rank and quest:
+                stage = int(rec.get(f'{key}.Stage', 0)) & STAGE_MASK
+                self.stage_effects.append((fid, quest, stage, f'{QUEST_PREFIX}{self.quest_names.get(fnv, '')}'))
+
     def ability(self, fnv: int) -> 'int | None':
         """The FO4 ability of FNV spell `fnv` (an actor's), written with the perks (its conditions need their
         form map); a script-effect ability (the glowing one's glow) is ScriptEffects'; None, counted, when no
         effect has an FO4 counterpart."""
         spell = self.spells.get(fnv)
-        if spell is None or not any(self._target(spell, f'Effect[{j}]')
+        if spell is None or not any(self.constant_target(spell, f'Effect[{j}]')
                                     for j in range(int(spell.get('EffectCount', 0) or 0))):
             scripted = spell and self.builder.scripts.effects.spell(spell['EditorID'])
             self.builder.counts['actor ability left out' if not scripted else 'actor ability (script effect)'] += 1
@@ -254,13 +273,10 @@ class Perks:
             return None
         value = struct.unpack('<f', bytes.fromhex(rec[f'{key}.Value']))[0]
         magnitude = value if function == ADD_VALUE else units * (value - 1.0)
-        fo4_av = name if isinstance(name, int) else actor_value_form(name, self.helper_index)
-        template = TEMPLATES[(False, True)]
-        effect = self.constants.get((fo4_av, False, True)) or self.constants.get((fo4_av, False, False))
-        if not effect and isinstance(name, int):
+        effect = self._vanilla_raise(name) if isinstance(name, int) else self.raising(name)
+        if not effect:
             self.builder.counts['perk effect left out (stat entry: no FO4 effect)'] += 1
             return None
-        effect = effect or self.effects.copy(template, name, 'copy', f'{template} {name}', f'FNV_{template}_{name}')
         fid = self.builder.new_id(f'SPEL {owner} stat')
         pair = pack_subrecord('EFID', struct.pack('<I', effect))
         pair += pack_subrecord('EFIT', struct.pack('<fII', magnitude, 0, 0))
@@ -268,6 +284,15 @@ class Perks:
                                                           self.vanilla[SPELL_TEMPLATE][1], pair + off + conds))
         self.builder.counts['SPEL (perk stat ability)'] += 1
         return fid
+
+    def _vanilla_raise(self, fo4_av: int) -> 'int | None':
+        """Fallout4.esm's effect raising AV form `fo4_av` (recovering first), or None."""
+        return self.constants.get((fo4_av, False, True)) or self.constants.get((fo4_av, False, False))
+
+    def raising(self, name: str) -> int:
+        """The effect raising actor value `name`: vanilla's, else a RAISE copy."""
+        return (self._vanilla_raise(actor_value_form(name, self.helper_index))
+                or self.effects.copy(RAISE, name, 'copy', f'{RAISE} {name}', f'FNV_{RAISE}_{name}'))
 
     def _entry_point(self, rec: dict, key: str) -> 'tuple | None':
         """An FNV entry-point effect on FO4's (ENTRY_POINTS) or vanilla's (VANILLA_EFFECTS), a critical chance
@@ -310,7 +335,7 @@ class Perks:
             return fid
         effects = b''
         for j in range(int(spell.get('EffectCount', 0) or 0)):
-            made = self._spell_effect(spell, f'Effect[{j}]')
+            made = self.constant_effect(spell, f'Effect[{j}]')
             if made is None:
                 self.builder.counts[f'ability effect left out ({spell.get(f"Effect[{j}].EFID")})'] += 1
                 continue
@@ -324,19 +349,19 @@ class Perks:
         self.builder.counts['SPEL (perk ability)'] += 1
         return fid
 
-    def _spell_effect(self, spell: dict, key: str) -> 'tuple | None':
+    def constant_effect(self, spell: dict, key: str) -> 'tuple | None':
         """(EFID and EFIT, conditions) of an FNV ability effect on an FO4 constant effect; None when it cannot."""
         raws = {f'Condition[{c}].Raw': spell[f'{key}.Condition[{c}].Raw']
                 for c in range(int(spell.get(f'{key}.ConditionCount', 0) or 0))}
         conds = conditions_of(raws, self.forms, self.script_vars)
-        effect = self._target(spell, key)
+        effect = self.constant_target(spell, key)
         if effect is None or conds is None:
             return None
         fit = struct.pack('<fII', float(spell[f'{key}.Magnitude']), int(spell.get(f'{key}.Area', 0)),
                           int(spell.get(f'{key}.Duration', 0)))
         return pack_subrecord('EFID', struct.pack('<I', effect)) + pack_subrecord('EFIT', fit), conds
 
-    def _target(self, spell: dict, key: str) -> 'int | None':
+    def constant_target(self, spell: dict, key: str) -> 'int | None':
         """The FO4 constant effect of FNV ability effect `key`: vanilla's on its actor value that lowers and
         recovers as FNV's does, else a copy of that kind's template; None without either. An effect FO4 has by
         archetype, not actor value, is CONSTANT_EFFECTS'."""

@@ -29,6 +29,7 @@ import numpy as np
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.nif import fnv_file
 from scipy.spatial import cKDTree
 
 from fo4_import.face.bake import align, positions, surface, triangles
@@ -76,19 +77,15 @@ def slots(biped_flags: int) -> 'tuple | None':
 
 
 def rigid(path: Path) -> bool:
-    """Whether the FNV mesh at `path` has no skinned shape, as headgear drawn in the head's frame."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    """Whether the FNV mesh at `path` has no skinned shape (drawn in the head's frame)."""
+    data = fnv_file.read(path)
     return not any(isinstance(b, NifFormat.NiGeometry) and b.skin_instance for b in data.blocks)
 
 
 def _head_skin(path: Path) -> 'tuple | None':
     """(world transform, Bip01 Head skin transform) as 4x4 row-vector matrices of the first shape of the FNV mesh at
     `path` skinned to Bip01 Head; None without one."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(path)
     for geom in (b for b in data.blocks if isinstance(b, NifFormat.NiGeometry) and b.skin_instance):
         skin = geom.skin_instance
         for bone, bone_data in zip(skin.bones, skin.data.bone_list):

@@ -146,15 +146,16 @@ class Rigs:
 
     def model(self, rig, parts: list, name: str, textures: dict = None) -> None:
         """FNV body parts `parts` as the rig's model `name` (in CharacterAssets), with its materials and textures,
-        `textures` retexturing shapes (assets.write_body); none of it when a built master ships the model
-        (shipped). It and its files are kept in the work cache by its FNV meshes, bones, name and textures (the
-        textures it names are FNV's export, not read again).
+        `textures` retexturing shapes (assets.write_body), in file records.model_file; none of it when a built master
+        ships the model (shipped). It and its files are kept in the work cache by its FNV meshes, bones, name and
+        textures (the textures it names are FNV's export, not read again).
         See: docs/fork/fo4_plugin_layout.md#stage-times
         """
-        if self.shipped(rig, name):
+        file = records.model_file(name)
+        if self.shipped(rig, file):
             self.builder.counts["own-rig bodies left to the master's folder"] += 1
             return
-        fnv_dir, target = asset_root(self.export_dir, 'meshes', rig.folder), self.out(rig, 'CharacterAssets', name)
+        fnv_dir, target = asset_root(self.export_dir, 'meshes', rig.folder), self.out(rig, 'CharacterAssets', file)
         inputs = (*(Path(str(p)).read_bytes() for p in parts + idle_clip(rig, fnv_dir)),
                   Path(str(fnv_dir / 'skeleton.nif')).read_bytes(), pickle.dumps(self.rig_bones(rig), protocol=5),
                   target.name, repr(sorted((textures or {}).items())))
@@ -171,6 +172,16 @@ class Rigs:
             fnv_dir = asset_root(self.export_dir, 'meshes', rig.folder)
             self.bones[rig.folder] = assets.skeleton_bones(fnv_dir / 'skeleton.nif', gun_nodes(rig, fnv_dir).get(0, ()))
         return self.bones[rig.folder]
+
+    def idle_clip(self, rig, kf: Path, name: str) -> str:
+        """FNV idle clip `kf` (`name` under `rig`'s folder) on the rig's skeleton, in its DynamicAnimation folder as
+        vanilla's creature idles; its path under Meshes.
+        See: docs/fork/fo4_own_rig.md#idles
+        """
+        clip = rig.path('Animations', 'DynamicAnimation', str(Path(name).with_suffix('.hkx')))
+        held = (assets.WEAPON,) if 0 in records.with_slots(rig, self.templates).fire_nodes else ()
+        assets.write_clip(kf, self.data_dir / 'Meshes' / clip, self.rig_bones(rig), held)
+        return clip
 
     def screen_armor(self, face: str, expression: str) -> int:
         """The armor showing securitron face `face` (FNV's spelling) with `expression` (Neutral, Alert): the first
@@ -227,10 +238,6 @@ class Rigs:
         return self.skins[key]
 
 
-#: Between the parts' stems in a several-part body's name.
-PART_JOIN = '+'
-
-
 def screen_parts(export_dir: Path, rig) -> list:
     """`rig`'s FNV parts holding a face screen (screen_part), by name."""
     folder = asset_root(export_dir, 'meshes', rig.folder)
@@ -245,15 +252,16 @@ def idle_clip(rig, fnv_dir) -> list:
 
 def body_name(rec: dict) -> str:
     """FNV creature `rec`'s body NIF as a file name with a lower-case extension: its one NIFZ part's name, or
-    its parts' stems joined by PART_JOIN (body_parts reads them back)."""
+    its parts' stems joined by records.PART_JOIN (body_parts reads them back)."""
     parts = [rec[f'NIFZ[{i}]'] for i in range(int(rec.get('NIFZCount', 0) or 0))]
     if not parts:
         raise ValueError(f'{rec.get("EditorID")}: an own rig needs a body NIF, it has none')
     stem, _, ext = parts[0].rpartition('.')
-    return f'{stem}.{ext.lower()}' if len(parts) == 1 else PART_JOIN.join(p.rsplit('.', 1)[0] for p in parts) + '.nif'
+    return f'{stem}.{ext.lower()}' if len(parts) == 1 else \
+        records.PART_JOIN.join(p.rsplit('.', 1)[0] for p in parts) + '.nif'
 
 
 def body_parts(body: str) -> list:
     """The FNV part files of body name `body` (body_name)."""
-    stems = body[:-4].split(PART_JOIN)
+    stems = body[:-4].split(records.PART_JOIN)
     return [body] if len(stems) == 1 else [f'{stem}.nif' for stem in stems]

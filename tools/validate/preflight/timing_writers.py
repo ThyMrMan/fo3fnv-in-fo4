@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import papyrus_script_name
+from script_convert.weapon_hits import EFFECT
 from tools.validate.preflight.quest_converted import strip_papyrus_comment
 from tools.validate.preflight.quest_progression import converted_name, fragment_scope
 from tools.validate.preflight.quest_source import START, script_lines, strip_comment
@@ -38,6 +39,9 @@ _SET_ONE = re.compile(r'\b(\w+)\.SetValue\(\s*1(?:\.0)?\s*\)')
 
 #: A converted SetObjective call the converter left as a comment, and why.
 _INERT_OBJECTIVE = re.compile(r';NE:\s*setobjective(displayed|completed)\s+(\w+)\s+(\d+)(.*)', re.I)
+
+#: A converted script's header when it extends weapon_hits.EFFECT, the type an FNV weapon OnHit script becomes.
+_HIT_EFFECT = re.compile(rf'^\s*scriptname\s+\w+\s+extends\s+{EFFECT}\b', re.I | re.M)
 
 #: The header the converter writes over a source block it keeps only as comments.
 _DEAD_BLOCK = re.compile(r'tes4\s*`\s*begin\s+(\w+)', re.I)
@@ -249,9 +253,15 @@ def blocks(text: str) -> list:
 
 
 def block_state(kind: str, text: str) -> str:
-    """'handler' when a converted script has a function for FNV block `kind`, 'comment' when kept as comments, else ''."""
+    """'handler' when a converted script has a function for FNV block `kind`, 'comment' when kept as comments, else
+    ''; a weapon's OnHit converted to an effect (weapon_hits) runs in OnEffectStart.
+    See: docs/fork/fo4_pipeline.md#weapon-hits
+    """
     functions = {m.group(1).lower() for m in map(_FUNCTION.match, text.splitlines()) if m}
-    if any(f.startswith(n) for f in functions for n in BLOCK_EVENTS.get(kind, ())):
+    events = BLOCK_EVENTS.get(kind, ())
+    if kind == 'onhit' and _HIT_EFFECT.search(text):
+        events += BLOCK_EVENTS['scripteffectstart']
+    if any(f.startswith(n) for f in functions for n in events):
         return 'handler'
     if kind == 'menumode' and (MENU_BRANCH in text.lower() or 'ontimer' in functions):
         return 'handler'

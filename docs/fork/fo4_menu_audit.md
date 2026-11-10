@@ -1,6 +1,7 @@
 # Plan: the dialogue menu audit
 
-**Status:** planned 2026-10-25, not built, except that check 4 is partly built
+**Status:** planned 2026-10-25. Phase 2 (checks 1 and 2) built 2026-11-08 as
+`--audit menus` ([built](#built)); check 3 built 2026-11-09 ([check 3](#built-gates)); check 4 is partly built
 (2026-10-29) as the [timing audit's writers](fo4_timing_audit.md#built), which do not
 yet read quest variables, globals, items or factions; revised the same day after an
 audit of the plan: exact checks on the pieces the build adds, in place of
@@ -43,6 +44,7 @@ can be right on its own while the menu comes out wrong.
 - [Findings](#findings)
 - [Proving it works](#validation)
 - [Phases](#phases)
+- [Built: checks 1 and 2](#built)
 - [Considered and left out](#left-out)
 - [Open questions](#open)
 - [What it will not see](#limits)
@@ -512,9 +514,9 @@ trusted:
 | # | Work | Done when |
 |---|---|---|
 | 1 | [Step 0](#vocabulary): actor values, karma, reputation and GetHasNote paired in `condition_diff.py` | The conditions audit judges the ~2,300 lines it skipped; its findings triaged |
-| 2 | Checks [1](#structure) and [2](#exclusion); `--audit menus` in the preflight runner; ledger keys | Jason Bright and Doc found; first whole-map report; under a minute |
+| 2 | Checks [1](#structure) and [2](#exclusion); `--audit menus` in the preflight runner; ledger keys | Jason Bright and Doc found; first whole-map report; under a minute. **Built 2026-11-08** ([built](#built)); check 1's parts listed there are left |
 | 3 | [Rules](#rules): FNV's from `FalloutNV.exe`, FO4's from XDI's source and `Fallout4.exe` | Each rule written with its address or source line, a fixture and a record check |
-| 4 | [Check 3](#gates) | Nash and Torini mutations found; the count of gates past the limit |
+| 4 | [Check 3](#gates) | Nash and Torini mutations found; the count of gates past the limit. **Built 2026-11-09** ([check 3](#built-gates)); the mutations not yet run |
 | 5 | [Check 4](#effects) | Mutation rate above 95% |
 | 6 | [Check 5](#play-log): the missing log points and the replay | One play session replayed with no false findings |
 
@@ -522,6 +524,128 @@ Phases 1 to 3 are independent and can run in parallel; phase 2 runs on the
 *verify* rules and re-runs as phase 3 settles them. Phase 2 would find the
 two-options bug (a scratch version of check 2 found it, [check 2](#exclusion)); phases 2 and 4 together cover every translation bug in the
 [table](#catches).
+
+## <a id="built"></a>Built: checks 1 and 2
+
+`tools/validate/preflight/menus.py`, run as
+`py -3.14 -m tools.validate.preflight --fo4 <plugin> --audit menus` (also in
+a plain `--fo4` run). It reads the built plugin, its FormID ledger (prompt
+keys `INFO prompt <topic> ...` name each option's FNV topic and quest; line
+keys name each answer's FNV line) and the FNV export. Each Player Dialogue
+action is a menu: an option is a listed player line, its pads the empty ones
+after it, its answers the NPC topic's INFOs at the same positions.
+
+Check 1 finds, per menu and FNV topic: `answers misaligned` (player and NPC
+counts differ), `pad gate` (a pad's conditions differ from its option's),
+`answer of another topic`, `answer repeated` (one FNV line copied twice into
+one option), `answers out of order` (the topic's own lines against FNV's
+export order; a shared line's place is a [rule](#open) and not compared),
+`prompt differs` (option text against the line's prompt, else the topic's
+name, both cp1252), `say once unmarked` (a Say Once answer without
+`F3NV_SayOnce`), and edges for unsplit answers: `goes on where FNV ends`,
+`next step differs` (Choices against Follow Ups), `choices differ` (a menu
+offering a topic outside the line's Choices), and `ends where FNV goes on`
+(review: scene loops end by design).
+
+Check 2 reads each option's gate as the built plugin states it (no FNV
+pairing; Say Once markers, unlock globals and mirrors are facts) and
+searches for a state passing two options of one FNV topic, or two topics'
+options with one prompt (`duplicate prompt`). The search is a backtracking
+one over the condition differential's domains, the speaker first: a named
+NPC's voice type and factions are settled from its built record unless it
+has a template or a script changes the faction (`speaker_index`). Each
+finding lists the NPCs the pair holds for. A pair past 200,000 states is a
+review (`, too many states`). Gates repeated across menus are solved once.
+
+Not built from check 1: line order of greeting and Follow Up steps, the
+topic list's contents and unlock gates, Random chains, `[Leave]`, Link From
+as a Choice, and Say Once lines more than one NPC says. The cause summary
+([dialogue reach](fo4_plan_dialogue_reach.md#phases) phase 1) is not built
+yet, so the report has no cause section.
+
+Runs (2026-11-08, about a minute each including the plugin read):
+
+| Build | Menus | Options | two options | duplicate prompt | Other |
+|---|---|---|---|---|---|
+| 2026-10-25 (`temp/whole`, before the fix) | 10,957 | 57,081 | 1,178 menus in 163 topics | 24 in 6 | none |
+| 2026-11-08 (`temp/profile_data`) | 11,615 | 54,046 | 145 in 16 (85 GOODBYE) | 104 in 17 | `answer repeated` 146 in 36; `ends where FNV goes on` 26 in 6; `DoctorMedical` past the budget, 5 menus |
+
+The old build reports Jason Bright's pair (`JasonBrightNightkinNo`, "Sorry.
+Not interested." beside "Like I said, not interested." while marker 40185
+is not done) and Doc Mitchell's (`DoctorMedical33YES`, "Okay, fix me.
+Here's 100 caps." beside "Sorry, I don't have 100 caps." with 100 caps, for
+DocMitchell among five doctors); the current build reports neither. The
+new `answer repeated` rows are the shared-infos copy: a topic listing its
+own line as a shared info answers it twice (own copy, then `via` copy).
+Several `duplicate prompt` rows offer a Yes Man topic ("What is this
+place?", `YesManLab`) to other speakers.
+
+2026-11-09: those Yes Man rows were the audit's own. A speaker test that a
+talker can pass reads `IsInList(TES4TalkingAs_<actor>)`, and the search
+left it free for a named NPC; scripts put only talking activators in those
+lists, so `Speakers.settled` now reads a named NPC's membership from the
+list's `LNAM`s. On the 11-08 build `duplicate prompt` drops from 104 menus
+in 17 topics to 34 in 3, all FNV's own pairs of one speaker's topics with
+one text (Old Ben's Black Widow and Confirmed Bachelor lines, Caesar's
+"Why did the Legion lose the first battle?", Benny's "Give me one good
+reason not to kill you."). The `answer repeated` rows are fixed in the
+converter, not built ([dialogue reach](fo4_plan_dialogue_reach.md#done-1109)).
+
+## <a id="built-gates"></a>Built: check 3 (2026-11-09)
+
+In `tools/validate/preflight/menus.py`, run with checks 1 and 2. It uses check
+2's search over the built plugin's own facts, extended with chain lists that
+must fail (`together(..., fails=)`). An answer's conditions are read from its
+option's side: subject and target swap, and a quest test drops its run-on
+(`UNACTORED`). For each option of an aligned menu:
+
+- *empty:* the option's gate passes and every answer fails. This is the
+  Vulpes bug ([say once](fo4_pipeline.md#say-once-either)). An option whose
+  answers' extra groups pass `MAX_CLAUSES` picks is gated by `one_each` on
+  purpose; it is marked `(one_each gate)` and is a review.
+- *hidden:* an answer passes for a speaker the option names (its lone
+  speaker chains), the topic is known (the `TES4Unlock_` chain left out) and
+  no option of the topic shows.
+- *wrong prompt:* the option shows while a line of another option of the
+  same topic and quest, earlier in FNV's order than each passing line of its
+  own, passes, and that other option is hidden. Cross-quest order is a
+  [rule](#rules) and is not compared.
+
+The search also settles two facts: `GetIsSex` takes exactly one of its two
+values, and a talking-as list holds only its `LNAM` actors for any speaker
+(as the conditions audit reads it).
+
+**First run, the 2026-11-09 build** (about a minute with checks 1 and 2):
+
+| Kind | Errors | Review |
+|---|---|---|
+| empty | 233 (206 on options whose answers belong to several speakers) | 267 `one_each`, 44 past the budget |
+| hidden | 0 | 55 past the budget |
+| wrong prompt | 10 (all several-speaker options) | 5 past the budget |
+
+Triage:
+- **The speaker-blind gate, a converter bug (206 empty, 10 wrong prompt).**
+  `Conversations._either` leaves a line's lone speaker test out of the
+  groups it distributes. The option's speaker test is a separate OR-group,
+  so a line with no further test makes "some answer passes" hold for every
+  speaker. Examples: Big Sal's "Tell me about the plan." (Nero's answer has
+  no test, Sal's needs `iSalInfo == 0`); Rex's "All right, you're good."
+  (Arcade's answer has none, Rex's needs `RexHired`). Choosing such an
+  option ends the talk. **Fixed 2026-11-09, built, not played:** each
+  line's speaker test is distributed with its groups. Rerun on that build:
+  empty errors 233 → 10, wrong prompt 10 → 5. The `one_each` reviews grow
+  262 → 387: 125 several-speaker options now pass `MAX_CLAUSES` picks and
+  fall back to the loose gate, which can still show with nothing to play.
+  Left as errors: Caesar's "Goodbye." (5 menus), Mags's McCredie prompt
+  (5, wrong prompt), Ramos's three passwords, one Chris Haversam line, one
+  Tabitha line.
+- **Lines FNV never plays (some of the 27 one-speaker empty).** Cannibal
+  Johnson's Remnants answer for `ArcadeHired == 0` also tests that the
+  player is Johnson (GetIsID on the target). FNV hides the topic; the build
+  shows it.
+- **Audit mistakes fixed before this run:** a state with neither sex; any
+  actor passing a talking-as list; answers playing for a speaker the
+  option's scene never has (Yes Man's "Let's talk about something else.").
 
 ## <a id="left-out"></a>Considered and left out
 

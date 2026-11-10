@@ -9,6 +9,7 @@ See: docs/fork/fo4_own_rig.md#anim-info
 """
 
 import configparser
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -18,7 +19,8 @@ from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.pipeline.build_inputs import asked
 
-MO2 = Path(r'C:\Modlists\fo3fnv-in-fo4')
+#: The MO2 instance the CK runs through: F3NV_MO2 (the app sets it from its MO2 mod source), else the developer's.
+MO2 = Path(os.environ.get('F3NV_MO2') or r'C:\Modlists\fo3fnv-in-fo4')
 #: The questions the build asks MO2 (build_inputs.asked): which mod holds a Data file, where the CK's files land.
 HOLDING, OUTPUT = 'mo2 holding', 'mo2 output'
 CK_EXECUTABLE, CK_PROCESS = 'Creation Kit', 'CreationKit.exe'

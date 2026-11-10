@@ -44,8 +44,10 @@ from tes5_import.base.writer import pack_string_subrecord
 
 #: FNV's radio topic every station's program starts at (RadioHello).
 RADIO_HELLO = '00000126'
-#: FNV dialog type Radio; INFO flags Random and Random End, which FO4's ENAM has at the same bits.
-RADIO_LINE, RANDOM_FLAGS = '7', 0x22
+#: FNV topic type Radio; INFO flags Random and Random End, which FO4's ENAM has at the same bits.
+RADIO_TOPIC, RANDOM_FLAGS = '7', 0x22
+#: FNV INFO flag Goodbye: the line ends its station's run.
+GOODBYE = 0x01
 #: The station quest's transmitter alias; step scene flags (RadioSilverShroudQuest_Music's, started by script).
 HOST_ALIAS, PLAYLIST_FLAGS = 2000, 0x104
 #: The station quest's script, a line's script, and the step scenes' end fragment script and function.
@@ -97,6 +99,19 @@ def quest_var(quest: int, variable: str, value: int) -> bytes:
     return R.pack_ctda(0, float(value), C.FO4.index(VM_QUEST_VARIABLE), quest) + pack_string_subrecord('CIS2', variable)
 
 
+def radio_lines(say, rec: dict) -> list:
+    """FNV quest `rec`'s lines (in `say`, a SayTopics) whose topic is a Radio one.
+    See: docs/fork/fo4_radio.md#stage-acts
+    """
+    return [r for r in say.infos.get(rec['FormID'].upper(), [])
+            if say.dials.get(r['ParentDIAL'].upper(), {}).get('DATA.Type') == RADIO_TOPIC]
+
+
+def ends_run(line: dict) -> bool:
+    """Whether FNV radio `line` is flagged Goodbye (it ends its station's run)."""
+    return bool(int(line.get('DATA.Flags', 0) or 0) & GOODBYE)
+
+
 def choices(line: dict, topics: dict) -> tuple:
     """FNV `line`'s Choices the station has lines in; RadioHello for none."""
     picked = tuple(c for c in (line.get(f'Choice[{i}]', '').upper() for i in range(int(line.get('ChoiceCount', 0) or 0)))
@@ -105,15 +120,18 @@ def choices(line: dict, topics: dict) -> tuple:
 
 
 def steps(topics: dict) -> list:
-    """The station's steps (tuples of FNV topics) reached from RadioHello along its lines' Choices, first-found
-    order, RadioHello's first."""
-    found, queue = [], deque([(RADIO_HELLO,)] if RADIO_HELLO in topics else [])
-    while queue:
-        step = queue.popleft()
-        if step in found:
-            continue
-        found.append(step)
-        queue.extend(choices(line, topics) for topic in step for line in topics[topic])
+    """The station's steps (tuples of FNV topics) along its lines' Choices, first-found order: from RadioHello, then
+    from each topic no line chooses (one only a script starts) in line order; none without RadioHello lines.
+    See: docs/fork/fo4_radio.md#script-topics
+    """
+    found = []
+    for seed in [RADIO_HELLO, *topics] if RADIO_HELLO in topics else []:
+        queue = deque([] if any(seed in step for step in found) else [(seed,)])
+        while queue:
+            step = queue.popleft()
+            if step not in found:
+                found.append(step)
+                queue.extend(choices(line, topics) for topic in step for line in topics[topic])
     return found
 
 
@@ -145,12 +163,13 @@ class Speakers:
 class Program:
     """One FNV station quest's program on its FO4 quest: topics, lines, songs and step scenes."""
 
-    def __init__(self, radio, rec: dict, quest: int, station: dict):
-        """Station quest `rec` (FO4 `quest`) of `station` (its TACT record), through `radio` (a radio.Radio); its
-        default voice is the station's VNAM, else its lines' most common recorded one (Black Mountain has none)."""
+    def __init__(self, radio, rec: dict, quest: int, station: dict, lines: list, on_demand: bool = False):
+        """Station `station`'s (its TACT record) radio `lines` on FO4 `quest`, through `radio` (a radio.Radio);
+        `rec`'s FormID and EditorID name the program's forms; `on_demand`: only a script starts it. Its default
+        voice is the station's VNAM, else its lines' most common recorded one (Black Mountain has none)."""
         self.radio, self.builder, self.rec, self.quest = radio, radio.builder, rec, quest
+        self.on_demand = on_demand
         self.speakers, self.songs = Speakers(self.builder, rec, station), {}
-        lines = [r for r in self.builder.say.infos.get(rec['FormID'].upper(), []) if r.get('DATA.DialogType') == RADIO_LINE]
         self.topics = {}
         for line in lines:
             self.topics.setdefault(line['ParentDIAL'].upper(), []).append(line)
@@ -162,9 +181,10 @@ class Program:
         self.builder.counts['radio line left out (topic not reached from RadioHello)'] += sum(
             len(v) for k, v in self.topics.items() if k not in reached)
 
-    def build(self, form_map: dict, host: int, station: dict) -> 'tuple | None':
+    def build(self, form_map: dict, host: int, station: dict, receivers: tuple = ((), 0)) -> 'tuple | None':
         """(aliases, topic blobs, scenes, quest scripts): the Host alias, a topic per FNV topic reached, a scene per
-        step and F3NV_RadioPlaylist; None when no line converts."""
+        step and F3NV_RadioPlaylist; `receivers` is (references its on-demand program switches on, the receiver
+        activator SetNPCRadio places or 0). None when no line converts."""
         ids = [self.builder.new_id(self._scene_key(step)) for step in self.steps]
         reached = list(dict.fromkeys(topic for step in self.steps for topic in step))
         made = {topic: blob for topic in reached for blob in [self._topic(topic, form_map)] if blob}
@@ -175,7 +195,12 @@ class Program:
                                       if s not in self.builder.scripts.used]
         self.builder.counts['radio programs'] += 1
         host_alias = (HOST_ALIAS, 'Host', host, None, self._display(station), self.speakers.voices())
-        runner = (PLAYLIST_SCRIPT, {'Program': ids[0]}, {'Steps': ('objects', ids)})
+        names = [self.builder.say.dials.get(step[0], {}).get('EditorID', step[0]) for step in self.steps]
+        values = {'Steps': ('objects', ids), 'StepTopics': ('strings', names)}
+        placed, npc = receivers
+        if self.on_demand:
+            values.update(OnDemand=('bool', True), Receivers=('objects', list(placed)))
+        runner = (PLAYLIST_SCRIPT, {'Program': ids[0], **({'NPCReceiver': npc} if npc else {})}, values)
         return [host_alias], [blob for blob, _ in made.values()], scenes, [runner]
 
     def _scene_key(self, step: tuple) -> str:
@@ -207,10 +232,13 @@ class Program:
             self.builder.counts['radio line left out (no voice type)'] += 1
             return b''
         song = self._song(line, soun, path) if path else 0
-        nxt = self.steps.index(choices(line, self.topics)) + 1
-        tells = ((LINE_SCRIPT, {'Playlist': self.quest}, {'Song': ('int', song), 'NextStep': ('int', nxt)}),)
+        tells = ((LINE_SCRIPT, {'Playlist': self.quest}, {'Song': ('int', song), 'NextStep': ('int', self.next_step(line))}),)
         return self.builder.say.info(line, form_map, flags=int(line.get('DATA.Flags', 0)) & RANDOM_FLAGS,
                                      speaker=speaker, owner=self.quest, place=f'radio {line["FormID"]}', helpers=tells)
+
+    def next_step(self, line: dict) -> int:
+        """The 1-based step `line` leads to; 0 for an on-demand Goodbye line."""
+        return 0 if self.on_demand and ends_run(line) else self.steps.index(choices(line, self.topics)) + 1
 
     def _song_file(self, line: dict) -> tuple:
         """(SOUN, export file) of `line`'s song; the file None when spoken or missing."""

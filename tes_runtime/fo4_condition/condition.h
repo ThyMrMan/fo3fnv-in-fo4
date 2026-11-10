@@ -202,10 +202,23 @@ void RegisterSex(VirtualMachine *vm, void *tasks);
 
 // ---- Damage Threshold (damage.cpp; docs/fork/fo4_pipeline.md#damage-threshold) ----
 
-// Point FO4's two resistance-curve calls at FNV's DT and DR, through g_branchTrampoline (set up); false when not both.
+// Point FO4's two resistance-curve calls at FNV's DT and DR, and count a projectile hit's pellets, through
+// g_branchTrampoline (set up); false when not all of them.
 bool HookDamage();
 
 // Register F3NV_Damage's native SetRules.
 void RegisterDamage(VirtualMachine *vm);
+
+// ---- FNV Hardcore (hardcore.cpp; docs/fork/fo4_hardcore.md#dll) ----
+
+// Weigh ammo while Hardcore is on: FO4's ammo weight test, through g_branchTrampoline (set up); false when not.
+bool HookAmmoWeight();
+
+// Give the open HUD its needs fields and their frame listener, once per HUD movie; on the UI thread. Run on every
+// menu opening, so a HUD opened before the listener still gets them.
+void HookHud();
+
+// Register F3NV_Hardcore's native Track.
+void RegisterHardcore(VirtualMachine *vm);
 
 }  // namespace condition

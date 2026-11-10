@@ -17,19 +17,20 @@ from script_convert.blocks import (BLOCK_MAP, WEAPON_FIRE, block_filter_guard, b
                                    type_guard)
 from script_convert.constants import (
     DIALOGUE_MENU_ID, FALLOUT4_MENU_ID_NAMES, LAST_ACTIVATOR_VAR, MENU_ID_NAMES, MESSAGE_BOX_MENU_ID, UDF_CALLER_PARAM, UDF_RESULT_VAR,
-    POLL_BLOCKS, REF_SPECIFICITY, TYPE_MAP, is_generated_script_type,
+    POLL_BLOCKS, REF_SPECIFICITY, is_generated_script_type,
     safe_property_name, papyrus_script_name
 )
 from script_convert.command_rows import (
     COMMAND_ROWS, ACTOR_ONLY_FUNCTIONS, OBJREF_SHARED_FUNCTIONS
 )
-from script_convert import anim_action_falloutnv as _anim, atomic_adds as _adds, quest_var_mirrors as _quest_vars, \
-    symbols as _symbols, trace_points as _trace
+from script_convert import anim_action_falloutnv as _anim, anim_playing_falloutnv as _anim_playing, \
+    atomic_adds as _adds, quest_var_mirrors as _quest_vars, symbols as _symbols, trace_points as _trace, \
+    udf_fallout4 as _udf4
 from script_convert.poll_motion import relative_sets
 from script_convert.poll_interval import MIN_INTERVAL, QUEST_DEFAULT, QUEST_DELAY_VAR, float_literal
 from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
                                    is_hit_event, menu_close_guard, menu_registration, on_talking_activator,
-                                   run_update_now, sleep_registration, target_menu_name)
+                                   run_update_now, sleep_registration, target_menu_name, variable_type)
 from script_convert.emit import script as _script
 from script_convert.tes4 import nodes as N
 
@@ -175,7 +176,7 @@ def _load_symbols(conv, tree, editor_id: str) -> None:
         sc.local_vars.add(vname.lower())
         sc.local_vars.add(safe.lower())
 
-        ptype = TYPE_MAP.get(vtype.lower(), 'Int')
+        ptype = variable_type(vtype)
         # A `ref` the export proved is used as an integer is an Int here: TES4
         # let a script store either in the same slot.
         # BOTH spellings: the graph keys on the AUTHORED name while the
@@ -260,6 +261,7 @@ def _load_facts(conv, tree) -> None:
     _load_time_facts(sc, tree, called, btypes)
     sc.uses_timer = 'timer' in names
     sc.uses_say = bool(called & {'say', 'sayto', 'startconversation'})
+    sc.uses_anim_playing = 'isanimplaying' in called
     sc.uses_say_timer = any(
         isinstance(st, N.Assign)
         and any(e.called in ('say', 'sayto')
@@ -377,6 +379,8 @@ def properties(conv, tree) -> list:
     reaches a save that already ran the script.
     See: docs/fork/fo4_pipeline.md#const-properties
     """
+    if _udf4.is_global(tree):
+        return []
     kept = variable_properties(conv, tree)
     out = [_declare(name, ptype) for name, ptype in kept]
     seen = {name.lower() for name, _t in kept} | _udf_param_names(tree)
@@ -402,7 +406,7 @@ def quest_restart(conv, tree, extends: str, name: str) -> list:
     See: docs/commentary/script_convert.md#setstage-start-keeps-variables
     See: docs/commentary/script_convert.md#setstage-re-evaluates-alias-packages
     """
-    if extends != 'Quest':
+    if extends != 'Quest' or _udf4.is_global(tree):
         return []
     kept = variable_properties(conv, tree)
     script = papyrus_script_name(name)
@@ -492,9 +496,11 @@ def udf(conv, tree, extends: str) -> list:
                     + ['%s %s' % (ptype, safe_property_name(name))
                        for name, ptype in zip(params, types)])
     conv.sc.udf_signature = ['ObjectReference'] + types
-    if not conv.sc.udf_returns:
-        return ['Function TES4Call(%s)' % sig] + lines + ['EndFunction', '']
-    return _returning_udf(conv.sc.udf_return_type, sig, lines)
+    if conv.sc.udf_returns:
+        lines = _returning_udf(conv.sc.udf_return_type, sig, lines)
+    else:
+        lines = ['Function TES4Call(%s)' % sig] + lines + ['EndFunction', '']
+    return _udf4.function(conv, variable_properties(conv, tree), lines) if _udf4.is_global(tree) else lines
 
 
 #: `Self` as a whole word, which in a user function's body is its calling reference.
@@ -593,7 +599,7 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
            + _record_last_activator(conv, merged, order)
            + _track_holder(conv, tree, merged, order)
            + _trigger_repeat(merged, order)
-           + _listen_for_fire(tree, merged, order) + _anim.listen(conv, merged, order))
+           + _listen_for_fire(tree, merged, order) + _anim.listen(conv, merged, order) + _anim_playing.declare(conv))
     for header in order:
         opener, closer = header
         if opener == BLOCK_MAP['ontrigger'][0]:

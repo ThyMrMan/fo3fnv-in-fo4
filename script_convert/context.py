@@ -81,6 +81,8 @@ class ScriptContext:
     refwalk_var: str = ''
     refwalk_labels: set = field(default_factory=set)
     block_depth: int = 0
+    #: Loops given generated locals (a ForEach's array and index, Break/Continue flags), numbering their names.
+    loop_locals: int = 0
 
     udf_returns: bool = False
     #: Set while a user function's body converts: its `Self` is the calling reference.
@@ -94,6 +96,8 @@ class ScriptContext:
     #: signature is unknown until every script has converted, so the casts are
     #: applied afterwards from this list rather than by re-reading the file.
     udf_calls: list = field(default_factory=list)
+    #: Fallout 4: [(form, type)] a Global TES4Call takes after its parameters (udf_fallout4); None otherwise.
+    udf_forms: list = None
 
     #: Cleared per script: a leaked True would append a RestoreFallDamage to
     #: an unrelated script's teardown event.
@@ -109,6 +113,8 @@ class ScriptContext:
     uses_notify: bool = False
     #: A GetAnimAction converted to TES4_AnimAction (Fallout 4), so its listener is due.
     uses_anim_action: bool = False
+    #: A sequence played or IsAnimPlaying read (Fallout 4), so the play record and TES4_AnimPlaying are due.
+    uses_anim_playing: bool = False
 
     #: Chargen-menu call sites converted here, and whether the re-entrancy
     #: latch declaration is due.

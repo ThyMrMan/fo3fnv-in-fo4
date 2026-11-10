@@ -15,6 +15,8 @@ from fo4_import.spike import skill_tags as ST
 from fo4_import.spike import sneak_attacks as SA
 from fo4_import.spike import weapon_poisons as WP
 from fo4_import.spike import perks as PK
+from fo4_import.spike import attack_spells as AS
+from fo4_import.spike import equipment as EQ
 from script_convert.target import fallout4_actor_values
 from fo4_import.spike.type_tests import FACTORED, crit_factor, requirement_names, weapon_names
 from tes5_import.base.tes5_reader import subrecords
@@ -132,6 +134,20 @@ def test_a_poison_is_an_ingestible_whose_every_effect_is_hostile():
     assert not poisons.is_poison({'EffectCount': '0'})
 
 
+def test_the_poison_confirmation_is_a_yes_no_box_with_fnvs_text():
+    """write() adds FNV's sPoisonConfirmMessage (the exe default) as a message box, Yes then No."""
+    written = []
+    poisons = WP.WeaponPoisons.__new__(WP.WeaponPoisons)
+    poisons.builder = SimpleNamespace(writer=SimpleNamespace(add_record=lambda sig, data: written.append((sig, data))))
+    poisons.coats, poisons.list_fid, poisons.confirm_fid = [], 0x10, 0x11
+    poisons.messages = {WP.CONFIRM: WP.DEFAULTS[WP.CONFIRM]}
+    poisons.write()
+    sig, data = written[-1]
+    subs = list(subrecords(data[24:]))
+    assert sig == 'MESG' and dict(subs)[b'DESC'] == b'Do you want to poison the weapon?\x00'
+    assert dict(subs)[b'DNAM'] == struct.pack('<I', 1) and [d for t, d in subs if t == b'ITXT'] == [b'Yes\x00', b'No\x00']
+
+
 def test_fnv_damage_threshold_is_fo4_damage_resist_and_fnv_dr_the_helpers():
     """FNV DT is FO4 DamageResist; FNV DR is the helper's FalloutDamageResist."""
     values = fallout4_actor_values()
@@ -173,6 +189,84 @@ def test_a_stat_entry_point_is_an_ability_on_fo4s_own_effect_in_its_units():
     perks.constants = {}
     assert perks._stat_ability(rec, 'Effect[0]', b'', 'PERK 1') is None
     assert perks.builder.counts['perk effect left out (stat entry: no FO4 effect)'] == 1
+
+
+def test_raising_an_actor_value_takes_vanillas_constant_effect_else_a_copy(monkeypatch):
+    """raising(): Fallout4.esm's raise of the actor value when it has one, else a copy of RAISE on it."""
+    monkeypatch.setattr(PK, 'actor_value_form', lambda name, index: 0x01000820 if name == 'FalloutDamageResist' else 0x2C2)
+    perks, _ = _stat_perks({(0x2C2, False, True): 0xAAA})
+    copies = []
+    perks.effects = SimpleNamespace(copy=lambda *args: copies.append(args) or 0xBBB)
+    assert perks.raising('Strength') == 0xAAA and perks.raising('FalloutDamageResist') == 0xBBB
+    assert copies == [(PK.RAISE, 'FalloutDamageResist', 'copy', f'{PK.RAISE} FalloutDamageResist',
+                       f'FNV_{PK.RAISE}_FalloutDamageResist')]
+
+
+def _armor_record(fid: int, dnam: bytes) -> SimpleNamespace:
+    """An FNV ARMO of FormID `fid` with DATA and `dnam`, as source_walk yields it."""
+    body = pack_subrecord('DATA', struct.pack('<iif', 10, 100, 1.0)) + pack_subrecord('DNAM', dnam)
+    return SimpleNamespace(sig=b'ARMO', form_id=fid, body=body)
+
+
+def test_fnv_armor_dr_is_read_only_beside_a_dt_field(monkeypatch):
+    """FNV's DNAM (DR x100, then DT): its DR is `resist` and its DT the rating; FO3's (DR only) keeps DR as rating."""
+    recs = [_armor_record(1, struct.pack('<hhfI', 300, 0, 0.0, 0)), _armor_record(2, struct.pack('<hh', 300, 0))]
+    monkeypatch.setattr(EQ, 'source_walk', lambda *sigs: [(r, None) for r in recs if r.sig in sigs])
+    fields = EQ._fnv_fields()
+    assert (fields[1]['resist'], fields[1]['rating']) == (3.0, 0.0)
+    assert (fields[2]['resist'], fields[2]['rating']) == (0.0, 3.0)
+
+
+_ARMOR_SUBS = [(b'EDID', b'A\0'), (b'OBND', bytes(12)), (b'FULL', b'A\0'), (b'MOD2', b'm\0')]
+#: An FNV apparel enchantment: Perception +1 (FO4 constant effect 0xDDD, with a condition) and an effect FO4 lacks.
+_LUCKY = {'EffectCount': '2', 'Effect[0].EFID': 'IncreasePerception', 'Effect[1].EFID': 'WaterBreathing'}
+
+
+def _enchanting_equipment(written: list) -> 'EQ.Equipment':
+    """An Equipment whose perks raise FalloutDamageResist (0xCCC) and give _LUCKY's first effect, condition 'C'."""
+    perks = SimpleNamespace(raising={'FalloutDamageResist': 0xCCC}.get,
+                            constant_target=lambda spell, key: 0xDDD if key == 'Effect[0]' else None,
+                            constant_effect=lambda spell, key: (CE.effect_pair(0xDDD, 1.0, 0, 0), b'C')
+                            if key == 'Effect[0]' else None)
+    equipment = EQ.Equipment.__new__(EQ.Equipment)
+    equipment.fnv = {1: {'resist': 3.0}, 2: {'resist': 0.0}, 3: {'resist': 0.0, 'ench': 0x77}}
+    equipment.enchantments, equipment.unwritten, equipment.perks_written = {0x77: _LUCKY}, [], False
+    equipment.builder = SimpleNamespace(
+        counts=Counter(), perks=perks,
+        writer=SimpleNamespace(derive_formid=lambda site, key: {EQ.RESIST_SITE: 0x300, EQ.EFFECT_SITE: 0x400}[site],
+                               add_record=lambda sig, data: written.append((sig, dict(subrecords(data[24:]))))))
+    return equipment
+
+
+def test_an_armors_dr_is_a_constant_enchantment_raising_fnvs_dr():
+    """An armor with a DR gets an EITM after FULL, in place of the template's own: a Constant Effect, Self
+    enchantment raising FalloutDamageResist by it, written once perks are."""
+    written = []
+    equipment = _enchanting_equipment(written)
+    enchanted = _ARMOR_SUBS[:3] + [(b'EITM', bytes(4))] + _ARMOR_SUBS[3:]
+    out = equipment._enchant(1, {'EditorID': 'VaultSuit11'}, enchanted)
+    assert [s for s, _ in out] == [b'EDID', b'OBND', b'FULL', b'EITM', b'MOD2']
+    assert dict(out)[b'EITM'] == struct.pack('<I', 0x300) and not written
+    equipment.write_enchantments()
+    sig, ench = written[0]
+    assert sig == 'ENCH' and ench[b'ENIT'] == AS.ENIT_ARMOR and ench[b'EFID'] == struct.pack('<I', 0xCCC)
+    assert struct.unpack_from('<f', ench[b'EFIT'])[0] == 3.0 and ench[b'EDID'] == b'FNV_VaultSuit11Ench\0'
+
+
+def test_a_stand_in_drops_fo4s_clothing_bonus_and_carries_fnvs_own_effects():
+    """The template's EITM (EnchClothingLuck) goes without a replacement when FNV gives none; an FNV enchantment's
+    convertible effects, conditions kept, make the armor's own; once perks are written it is written at once."""
+    written = []
+    equipment = _enchanting_equipment(written)
+    enchanted = _ARMOR_SUBS[:3] + [(b'EITM', bytes(4))] + _ARMOR_SUBS[3:]
+    assert equipment._enchant(2, {'EditorID': 'Plain'}, enchanted) == _ARMOR_SUBS
+    equipment.write_enchantments()
+    out = equipment._enchant(3, {'EditorID': 'LuckyShades'}, enchanted)
+    assert dict(out)[b'EITM'] == struct.pack('<I', 0x400)
+    (sig, ench), = written
+    assert ench[b'EFID'] == struct.pack('<I', 0xDDD) and ench[b'EDID'] == b'FNV_LuckyShadesEnch\0'
+    assert equipment.builder.counts['armor effect left out (WaterBreathing)'] == 1
+    assert equipment.builder.counts['ARMO template enchantment dropped'] == 2
 
 
 def test_a_consumable_effect_with_no_fo4_match_falls_back_to_its_converted_script():

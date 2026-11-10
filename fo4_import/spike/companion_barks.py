@@ -7,8 +7,8 @@ script's), and `F3NV_CompanionBarks` on this quest says them for each follower.
 See: docs/fork/fo4_pipeline.md#companion-barks
 """
 
-from pathlib import Path
 
+from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 
@@ -28,7 +28,7 @@ def write(builder) -> None:
     topics = {name: builder.scripts.named[name] for name in STATUS_BARKS if name in builder.scripts.named}
     if not topics:
         return
-    plugin = Path(builder.export_dir.name).stem
+    plugin = plugin_stem(builder.export_dir)
     fid = builder.writer.derive_formid(QUEST_SITE, plugin)
     vmad = quest_fragments('', [], scripts=[(SCRIPT, topics, {})])
     builder.writer.add_record('QUST', pack_script_quest(fid, f'FNV_CompanionBarks_{plugin}', vmad))

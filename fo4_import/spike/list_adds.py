@@ -14,8 +14,8 @@ See: docs/fork/fo4_plugin_layout.md#dlc-lists
 """
 
 import struct
-from pathlib import Path
 
+from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.base.writer import pack_fo4_record
@@ -41,7 +41,7 @@ def write(builder, adds: dict) -> int:
     rows = {'Lists': ('objects', [fid for fid, _ in pairs]), 'Forms': ('objects', [form for _, form in pairs]),
             'Perks': ('objects', perks)}
     vmad = quest_fragments('', [], scripts=[(SCRIPT, {}, rows)])
-    edid = f'FNV_FormListAdds_{Path(builder.export_dir.name).stem}'
+    edid = f'FNV_FormListAdds_{plugin_stem(builder.export_dir)}'
     builder.writer.add_record('QUST', pack_script_quest(builder.writer.derive_formid(SITE, 'quest'), edid, vmad))
     return len(pairs) + sum(len(entries) for sig, _, entries in adds.values() if sig == b'PERK')
 
@@ -50,7 +50,7 @@ def _perk(builder, master: int, edid: str, entries: list) -> int:
     """Write the plugin's hidden perk holding master perk `master`'s (EditorID `edid`) added `entries`; its FormID."""
     fid = builder.writer.derive_formid(SITE, f'perk {master:08X}')
     gate = R.pack_ctda(0, 1.0, C.FO4.index('HasPerk'), master)
-    body = pack_string_subrecord('EDID', f'{edid}_{Path(builder.export_dir.name).stem}')
+    body = pack_string_subrecord('EDID', f'{edid}_{plugin_stem(builder.export_dir)}')
     body += pack_subrecord('DATA', HIDDEN_PERK)
     body += b''.join(pack_subrecord(tag.decode(), data) for entry in entries for tag, data in gated(entry, gate))
     builder.writer.add_record('PERK', pack_fo4_record('PERK', fid, 0, body))

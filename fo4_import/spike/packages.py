@@ -14,7 +14,9 @@ import struct
 
 from fo4_import.base.vmad import package_fragments
 from fo4_import.base.writer import pack_fo4_record
+from fo4_import.spike.condition_forms import condition_items
 from fo4_import.spike.dialogue import GREETING
+from fo4_import.spike.greet_once import GreetOnce
 from fo4_import.spike.say_topics import blocker, conditions_of
 from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
 from fo4_import.spike.records import pack_flst
@@ -30,7 +32,7 @@ from tes5_import.record_types.navm_falloutnv import parse_vertices
 #: Vanilla instances copied per template, inputs in its order at its defaults; their conditions give way to FNV's.
 INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGreet': 0x1BEAD3, 'Sleep': 0x1B9EB0,
              'Eat': 0x1AE26C, 'HoldPosition': 0x2491F8, 'Patrol': 0x248492, 'FollowNPC': 0x232257,
-             'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388, 'UseWeapon': 0x19632E}
+             'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388, 'UseWeapon': 0x19632E, 'EscortPlayer': 0x112EED}
 #: A copy's first input from FNV: its location, its target, its location as a Patrol start, or the template's.
 PLACE, TARGET, START, KEEP = 'place', 'target', 'start', 'keep'
 #: FNV PKDT type: (FO4 template, first input). Wander sandboxes; Guard holds its position; Patrol walks linked refs.
@@ -38,6 +40,8 @@ PLANS = {'1': ('FollowNPC', TARGET), '7': ('FollowNPC', TARGET), '3': ('Eat', PL
          '6': ('Travel', PLACE), '8': ('Sit', TARGET), '12': ('Sandbox', PLACE), '13': ('Patrol', START),
          '14': ('HoldPosition', PLACE), '15': ('ForceGreet', PLACE)}
 FNV_SLEEP, FNV_TRAVEL, FNV_DIALOGUE, FNV_FLEE, FNV_AMBUSH, FNV_GUARD = '4', '6', '15', '10', '9', '14'
+#: FNV PKDT type Escort: lead its target (PTDT) to its location; FO4 EscortPlayer's Target to Escort input.
+FNV_ESCORT, ESCORTED_INPUT = '2', 1
 #: FNV PKDT type Use Weapon: weapon in PTDT, target in PTD2, firing in PKW3; FO4's UseWeapon inputs 1 and 2.
 FNV_USE_WEAPON, WEAPON_INPUT, SHOT_INPUT = '16', 1, 2
 #: PTDA target types naming an object by form or by type (the same codes in both games).
@@ -66,8 +70,8 @@ SANDBOX_TYPES = ('5', '12')
 #: FO4 Sandbox Allow inputs and the FNV type-specific No flag each negates (No Furniture covers both seats).
 ALLOWS = {'Allow Eating': 0x1, 'Allow Sleeping': 0x2, 'Allow Conversation': 0x4, 'Allow Idle Markers': 0x8,
           'Allow Sitting': 0x10, 'Allow Special Furniture': 0x10, 'Allow Wandering': 0x20}
-#: FNV PLDT location type near a reference, as the export writes it.
-NEAR_LOCATION = '0'
+#: FNV PLDT location types near a reference and near the actor's linked reference, as the export writes them.
+NEAR_LOCATION, NEAR_LINKED = '0', '6'
 #: FNV FURN MNAM flag of sleep furniture.
 SLEEP_FURNITURE = 0x80000000
 #: FNV PKDT package type names (xEdit's wbPackageTypeEnum), for the build's counts.
@@ -117,10 +121,13 @@ DROPPED = (b'QNAM', b'VMAD', b'CTDA', b'CIS1', b'CIS2')
 class Packages:
     """FO4 copies of FNV packages; `package` writes one through the builder, `greets` lists the force greets."""
 
-    def __init__(self, builder, export_dir, furniture: set, cell_beds: dict, refs: list):
+    def __init__(self, builder, export_dir, furniture: set, cell_beds: dict, refs: list, helper_index: int):
         """Index FNV packages and read the vanilla instances; `furniture` holds the FNV references that are seats,
-        `cell_beds` each cell's beds (beds()), `refs` the build's references (in-cell places, _in_cell)."""
-        self.builder, self.furniture, self.beds, self.made, self.greets = builder, furniture, cell_beds, {}, []
+        `cell_beds` each cell's beds (beds()), `refs` the build's references (in-cell places, _in_cell),
+        `helper_index` the helper plugin's master index (GreetOnce)."""
+        self.builder, self.furniture, self.beds, self.made = builder, furniture, cell_beds, {}
+        self.once = GreetOnce(builder, helper_index)
+        self.greets = self.once.greets
         self.topics, self.cell_refs, self.navmeshes, self.combat, self.combat_lists = {}, {}, {}, {}, {}
         for ref in refs:
             self.cell_refs.setdefault(ref.get('ParentCELL'), []).append(ref)
@@ -132,9 +139,11 @@ class Packages:
         self.packs = {r['FormID']: r for r in export_records(export_dir, 'PACK')}
         self.topic_names = {r['FormID'].upper(): r.get('EditorID') for r in export_records(export_dir, 'DIAL')}
         self.by_name = {r['EditorID'].lower(): fid for fid, r in self.packs.items() if r.get('EditorID')}
+        self.links = linked_by_package(export_dir)
         packs ={r.form_id: r.body for r, _ in walk(builder.fo4, b'PACK')}
         self.vanilla = {name: packs[fid] for name, fid in INSTANCES.items()}
-        self.slots = {name: value_slots(self.vanilla[name], packs) for name in ('Sandbox', 'FollowNPC', 'UseWeapon')}
+        self.slots = {name: value_slots(self.vanilla[name], packs)
+                      for name in ('Sandbox', 'FollowNPC', 'UseWeapon', 'EscortPlayer')}
 
     def named(self, name: str) -> 'int | None':
         """The FO4 package for a script property naming FNV package `name`: made now once the NPCs' forms are known,
@@ -178,7 +187,7 @@ class Packages:
         total = len(listed(npc))
         for fnv in listed(npc):
             fid = self.package(fnv, form_map, int(npc['FormID'], 16))
-            out += [fid] if fid else []
+            out += [fid, self.once.parked[fnv]] if fnv in self.once.parked else [fid] if fid else []
             lost += [] if fid else [fnv]
         for fnv in lost:
             detail = f'{self.packs[fnv].get("EditorID")} ({self.why[fnv]}; keeps {len(out)} of {total})'
@@ -188,15 +197,18 @@ class Packages:
 
     def package(self, fnv: str, form_map: dict, npc: int = 0) -> int:
         """The FO4 package for FNV package `fnv` (made once, for the first NPC `npc` that runs it), 0 when it
-        does not convert. Its id is taken before it is written, so a fragment script naming it (or a package
-        naming it back) resolves to it instead of writing it again."""
+        does not convert, then counted and recorded in the readiness report by why. Items its conditions test
+        are made and added to `form_map`. Its id is taken before it is written, so a fragment script naming it
+        (or a package naming it back) resolves to it instead of writing it again."""
         if fnv not in self.made:
             rec = self.packs[fnv]
             plan = self._plan(rec, form_map, npc)
+            form_map.update({} if isinstance(plan, str) else condition_items(self.builder, [rec], form_map))
             conditions = conditions_of(rec, form_map, self.builder.script_vars)
             if isinstance(plan, str) or conditions is None:
                 why = plan if isinstance(plan, str) else f'condition {blocker(rec, form_map, self.builder.script_vars)}'
                 self.builder.counts[f'package left out ({why})'] += 1
+                self.builder.readiness.add(PACKAGE_LEFT_OUT, fnv, f'{rec.get("EditorID", fnv)} ({why})')
                 self.made[fnv], self.why[fnv] = 0, why
             else:
                 self.made[fnv] = self.builder.fnv_id(fnv)
@@ -220,11 +232,14 @@ class Packages:
 
     def _write(self, fnv: str, rec: dict, plan: tuple, conditions: bytes, form_map: dict) -> int:
         """Write FNV package `rec`'s copy by `plan` (_plan) with `conditions`; an FNV Guard kept through combat
-        (CONTINUE_DURING_COMBAT) also gets a combat override copy, without fragments. The copy's FormID."""
+        (CONTINUE_DURING_COMBAT) also gets a combat override copy, without fragments; a ForceGreet is numbered and
+        parked (GreetOnce). The copy's FormID."""
         template, fid = plan[0], self.builder.fnv_id(fnv)
+        number = self.once.number(fid) if template == 'ForceGreet' else 0
         values = {0: plan[2]} if len(plan) > 2 else self._values(rec, template)
-        inputs = {'ForceGreet': self._trigger, 'UseWeapon': self._weapon}.get(template, lambda *_: {})(rec, form_map)
-        args = (self.vanilla[template], plan[1], conditions)
+        inputs = {'ForceGreet': self._trigger, 'UseWeapon': self._weapon, 'EscortPlayer': self._escorted}.get(
+            template, lambda *_: {})(rec, form_map)
+        args = (self.vanilla[template], plan[1], conditions + (self.once.unspoken(number) if number else b''))
         self.builder.writer.add_record('PACK', pack_package(fid, rec, *args, self._fragments(rec, form_map), values,
                                                             inputs))
         self.builder.counts[f'PACK {template}'] += 1
@@ -233,15 +248,24 @@ class Packages:
             self.builder.writer.add_record('PACK', pack_package(held, {**rec, 'EditorID': rec['EditorID'] + 'Combat'},
                                                                 *args, b'', values, inputs, COMBAT_OVERRIDE))
             self.builder.counts['PACK HoldPosition (combat override)'] += 1
-        self.greets += [fid] if template == 'ForceGreet' else []
+        if number:
+            self._park(fnv, rec, number, conditions)
         topic = int(rec.get('PKDD.Topic', '0'), 16)
         self.topics.update({f'{topic:08X}': fid} if template == 'ForceGreet' and topic != GREETING else {})
         return fid
 
+    def _park(self, fnv: str, rec: dict, number: int, conditions: bytes) -> None:
+        """Write ForceGreet `number`'s parked copy (GreetOnce.park): FNV package `rec`'s schedule and `conditions`."""
+        def copy(fid, suffix, template, first, extra, vmad):
+            """Write copy `fid` of vanilla `template`, from `first`, with `extra` conditions."""
+            self.builder.writer.add_record('PACK', pack_package(fid, {**rec, 'EditorID': rec['EditorID'] + suffix},
+                                                                self.vanilla[template], first, conditions + extra, vmad))
+        self.once.park(fnv, number, copy)
+
     def _values(self, rec: dict, template: str) -> dict:
         """{value slot: CNAM} of `rec`'s `template` copy (Allows, radii, firing)."""
-        return {'Sandbox': self._allows, 'FollowNPC': self._radii, 'UseWeapon': self._firing}.get(
-            template, lambda _: {})(rec)
+        return {'Sandbox': self._allows, 'FollowNPC': self._radii, 'UseWeapon': self._firing,
+                'EscortPlayer': self._escort_wait}.get(template, lambda _: {})(rec)
 
     def _firing(self, rec: dict) -> dict:
         """{value slot: CNAM} of FNV Use Weapon `rec`'s firing (PKW3): its flags, volley fire, the pause between
@@ -270,6 +294,19 @@ class Packages:
         shot = int(rec.get('PTD2.Target', '0') or '0', 16)
         out[SHOT_INPUT] = struct.pack('<iIi', int(rec['PTD2.Type']), form_map.get(shot, 0), 0)
         return out
+
+    def _escorted(self, rec: dict, form_map: dict) -> dict:
+        """{input: PTDA} of FNV Escort `rec`'s Target to Escort, its built target."""
+        return {ESCORTED_INPUT: struct.pack('<iIi', TARGET_REFERENCE, form_map[int(rec['PTDT.Target'], 16)], 0)}
+
+    def _escort_wait(self, rec: dict) -> dict:
+        """{value slot: Float} of FNV Escort `rec`'s distance (PTDT count) as FO4's Distance to Wait for Followers;
+        none at 0, where the template's stays.
+        See: docs/fork/fo4_pipeline.md#escort
+        """
+        distance = int(rec.get('PTDT.Count', 0) or 0)
+        slot = self.slots['EscortPlayer']['Distance to Wait for Followers']
+        return {slot: struct.pack('<f', distance)} if distance else {}
 
     def _allows(self, rec: dict) -> dict:
         """{value slot: Bool} of an FNV Sandbox or Wander `rec`'s copy: each FO4 Allow input from FNV's No flag.
@@ -332,7 +369,10 @@ class Packages:
 
     def _plan(self, rec: dict, form_map: dict, npc: int) -> 'tuple | str':
         """(template, first input payload[, second input payload]) for FNV package `rec` run by NPC `npc`; why it
-        does not convert otherwise."""
+        does not convert otherwise. A Travel to the linked reference sits in it when every placed actor running
+        it links to a seat (self.links).
+        See: docs/fork/fo4_pipeline.md#packages
+        """
         kind = rec.get('PKDT.Type')
         if kind == FNV_FLEE:
             return self._flee(rec, form_map)
@@ -341,6 +381,8 @@ class Packages:
             return self._at(rec, kind, template, form_map)
         if kind == FNV_USE_WEAPON:
             return self._use_weapon(rec, form_map)
+        if kind == FNV_ESCORT:
+            return self._escort(rec, form_map)
         if kind not in PLANS:
             return f'type {FNV_TYPES.get(kind, kind)}'
         if talks_to_npc(rec):
@@ -348,8 +390,10 @@ class Packages:
         template, first = PLANS[kind]
         if first == PLACE:
             bed = self._bed(rec, npc) if kind == FNV_SLEEP else None
-            return ('Sleep', struct.pack('<iIi', NEAR_REFERENCE, form_map[bed], 0)) if bed in form_map \
-                else self._at(rec, kind, template, form_map)
+            if bed in form_map:
+                return 'Sleep', struct.pack('<iIi', NEAR_REFERENCE, form_map[bed], 0)
+            return ('Sit', struct.pack('<iIi', TARGET_LINKED, 0, 0)) if kind == FNV_TRAVEL and rec.get('PLDT.Type') == NEAR_LINKED \
+                and self.links.get(rec['FormID'], {0}) <= self.furniture else self._at(rec, kind, template, form_map)
         if first == START:
             return self._start(rec, template, form_map)
         return self._aimed(rec, template, form_map) if first == TARGET else (template, b'')
@@ -365,6 +409,15 @@ class Packages:
         if rec['PTD2.Type'] == str(TARGET_REFERENCE) and shot not in form_map:
             return 'weapon target not built'
         return self._at(rec, FNV_USE_WEAPON, 'UseWeapon', form_map)
+
+    def _escort(self, rec: dict, form_map: dict) -> 'tuple | str':
+        """(EscortPlayer, PLDT payload) leading FNV Escort `rec`'s built target reference to its location; why not,
+        otherwise.
+        See: docs/fork/fo4_pipeline.md#escort
+        """
+        if rec.get('PTDT.Type') != str(TARGET_REFERENCE) or int(rec.get('PTDT.Target', '0') or '0', 16) not in form_map:
+            return 'escort target not built'
+        return self._at(rec, FNV_ESCORT, 'EscortPlayer', form_map)
 
     def _talk_to(self, rec: dict, form_map: dict) -> 'tuple | str':
         """(Travel, PLDT payload) near the reference FNV Dialogue `rec` talks to, within its distance (PTDT count;
@@ -475,6 +528,16 @@ def beds(builder, refs: list) -> dict:
         if int(builder.bases[int(ref['NAME'], 16)][1].get('MNAM.Flags', 0)) & SLEEP_FURNITURE:
             out.setdefault(int(ref['ParentCELL'], 16), []).append(
                 (int(ref['FormID'], 16), int(ref.get('XOWN.Owner', '0'), 16)))
+    return out
+
+
+def linked_by_package(export_dir) -> dict:
+    """{FNV package: the linked references (0: none) of every placed actor whose base lists it}."""
+    bases = {r['FormID']: listed(r) for sig in ('NPC_', 'CREA') for r in export_records(export_dir, sig)}
+    out = {}
+    for actor in (r for sig in ('ACHR', 'ACRE') for r in export_records(export_dir, sig)):
+        for pack in bases.get(actor['NAME'], ()):
+            out.setdefault(pack, set()).add(int(actor.get('XLKR.LinkedRef', '0') or '0', 16))
     return out
 
 

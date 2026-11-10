@@ -28,6 +28,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.install import source_walk
+from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_mesg, pack_script_quest
 from fo4_import.base.vmad import object_scripts, quest_fragments
 from fo4_import.base.writer import pack_fo4_record
@@ -256,7 +257,7 @@ class Condition:
         fid, own = writer.derive_formid(SITE, 'plugin rows'), writer.own_index
         rows = self._rows(ammo_mods, lambda form: form >> 24 == own)
         vmad = quest_fragments('', [], scripts=[(SOURCE_SCRIPT, {'Repair': repair, 'Sources': sources}, rows)])
-        writer.add_record('QUST', pack_script_quest(fid, f'FNV_Condition_{Path(self.builder.export_dir.name).stem}', vmad))
+        writer.add_record('QUST', pack_script_quest(fid, f'FNV_Condition_{plugin_stem(self.builder.export_dir)}', vmad))
 
     def _values(self) -> dict:
         """F3NV_ConditionPlayer's value properties: the game's wear settings, jam chances and weapon tiers."""

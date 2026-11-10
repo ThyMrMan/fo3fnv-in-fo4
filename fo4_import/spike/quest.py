@@ -157,5 +157,6 @@ def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = Fa
         scripts.builder.readiness.add(TARGET_NOT_BUILT, rec['FormID'], target)
     aliases = [(SPEAKER_ALIAS, 'Speaker', None)] * speaker + aliases + [(LISTENER_ALIAS, 'Listener', None)] * speaker
     aliases += list(more)
+    flags = int(rec.get('DATA.Flags', 0))
     return R.pack_fnv_quest(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), int(rec.get('DATA.Priority', 0)),
-                            vmad, stages, goals, aliases, start and int(rec.get('DATA.Flags', 0)) & START_GAME)
+                            vmad, stages, goals, aliases, start and flags & START_GAME, bool(flags & R.REPEATED_STAGES))

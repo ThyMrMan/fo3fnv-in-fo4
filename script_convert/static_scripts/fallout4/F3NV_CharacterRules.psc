@@ -16,7 +16,15 @@ Int Property LevelsPerPerk = 1 Auto
 Int Property TagBonus = 15 Auto
 Int Property TraitCount = 2 Auto
 Float Property SkillBase = 2.0 Auto
+Perk[] Property StagePerks Auto
+{Each perk rank with a quest stage effect, once per effect; StageQuests and StageIndexes give its quest and stage.}
+Quest[] Property StageQuests Auto
+Int[] Property StageIndexes Auto
+String[] Property StageScripts Auto
+{Each stage's quest fragment script, whose Fragment_Stage_NNNN_Item_0 runs a stage already done.}
 
+Bool[] HeldAtOpen
+Bool[] StageSeen
 Int LastLevel
 Int LastPP
 Int LastSP
@@ -53,11 +61,85 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     SetSkillBases()
   ElseIf asMenuName == "LevelUpMenu" && abOpening
     TopUp()
+    WatchStages()
   ElseIf asMenuName == "LevelUpMenu"
     LastPP = PRKF:PRKF.GetPP()
     LastSP = PRKF:PRKF.GetSP()
+    RunPerkStages()
   EndIf
 EndEvent
+
+Function WatchStages()
+  {As the level-up menu opens: which stage perks the player holds, and a watch on their quests' stages, so
+  RunPerkStages knows a perk taken in the menu whose stage did not run.}
+  If !StagePerks
+    Return
+  EndIf
+  Actor player = Game.GetPlayer()
+  HeldAtOpen = new Bool[StagePerks.Length]
+  StageSeen = new Bool[StagePerks.Length]
+  Int i = 0
+  While i < StagePerks.Length
+    HeldAtOpen[i] = player.HasPerk(StagePerks[i])
+    RegisterForRemoteEvent(StageQuests[i], "OnStageSet")
+    i += 1
+  EndWhile
+EndFunction
+
+Event Quest.OnStageSet(Quest akSender, int auiStageID, int auiItemID)
+  Int i = 0
+  While StageSeen && i < StageSeen.Length && i < StageQuests.Length
+    If StageQuests[i] == akSender && StageIndexes[i] == auiStageID
+      StageSeen[i] = True
+    EndIf
+    i += 1
+  EndWhile
+EndEvent
+
+Function RunPerkStages()
+  {Once the game resumes after the level-up menu, each held perk rank's quest stage effect runs if the engine
+  skipped it: a stage not done is set; a perk taken in the menu whose stage was already done (and so not rerun, as
+  on a save whose quest lacks repeated stages) runs its fragment. See docs/fork/fo4_pipeline.md#intense-training}
+  Utility.Wait(1.0)
+  Actor player = Game.GetPlayer()
+  Int i = 0
+  While StagePerks && i < StagePerks.Length
+    If player.HasPerk(StagePerks[i])
+      Bool done = StageQuests[i].GetStageDone(StageIndexes[i])
+      Bool taken = HeldAtOpen && i < HeldAtOpen.Length && !HeldAtOpen[i] && !StageSeen[i]
+      If TES4Polyfill.Tracing() && (!done || taken)
+        TES4Polyfill.TraceWrite("perkstage", "" + StagePerks[i] + "|" + StageQuests[i] + "|" + StageIndexes[i] + "|" + done)
+      EndIf
+      If !done
+        StageQuests[i].SetStage(StageIndexes[i])
+      ElseIf taken
+        RunFragment(i)
+      EndIf
+    EndIf
+    i += 1
+  EndWhile
+  HeldAtOpen = None
+EndFunction
+
+Function RunFragment(Int i)
+  {Stage effect `i`'s stage fragment, called on its quest's fragment script.}
+  If !StageScripts || i >= StageScripts.Length
+    Return
+  EndIf
+  ScriptObject fragments = StageQuests[i].CastAs(StageScripts[i])
+  Int stage = StageIndexes[i]
+  String pad = ""
+  If stage < 10
+    pad = "000"
+  ElseIf stage < 100
+    pad = "00"
+  ElseIf stage < 1000
+    pad = "0"
+  EndIf
+  If fragments
+    fragments.CallFunction("Fragment_Stage_" + pad + stage + "_Item_0", new Var[0])
+  EndIf
+EndFunction
 
 Function OpenTags(Int count)
   {The tag menu for `count` skills in all. Skills SetPlayerTagSkill suggested are already tagged and count toward
@@ -141,21 +223,38 @@ Function TraceSpecial(Bool abOpening)
 EndFunction
 
 Function AddSpecialPoints(Int aiPoints)
-  {FO3/FNV AddSpecialPoints (Intense Training): for each point, the player picks a SPECIAL stat below 10 in the
-  SpecialPoint box and its base rises by 1, raising the skills it governs by 2 (and every skill when Luck's half,
-  rounded up, rises), as their starting value (SetSkillBases) counts it. See docs/fork/fo4_pipeline.md#intense-training}
+  {FO3/FNV AddSpecialPoints (Intense Training): once every menu, the Pip-Boy included, has closed, for each point the
+  player picks a SPECIAL stat below 10 in the SpecialPoint box and its base rises by 1, raising the skills it governs
+  by 2 (and every skill when Luck's half, rounded up, rises), as their starting value (SetSkillBases) counts it.
+  See docs/fork/fo4_pipeline.md#intense-training}
   Actor player = Game.GetPlayer()
   Message box = TES4CharacterEvents.SpecialPoint
+  If TES4Polyfill.Tracing()
+    TES4Polyfill.TraceWrite("addspecial", "" + aiPoints + "|" + box)
+  EndIf
   While aiPoints > 0 && box
+    WaitOutOfMenus()
     Int pick = box.Show()
     ActorValue stat = SpecialStats.GetAt(pick) as ActorValue
     Float before = player.GetBaseValue(stat)
+    If TES4Polyfill.Tracing()
+      TES4Polyfill.TraceWrite("addspecial", "pick " + pick + "|" + stat + "|" + before)
+    EndIf
     If stat && before < 10.0
       player.SetValue(stat, before + 1.0)
       RaiseSkills(pick, before)
       aiPoints -= 1
     EndIf
   EndWhile
+EndFunction
+
+Function WaitOutOfMenus()
+  {Returns once no menu is open and the Pip-Boy (the level-up menu's host) has finished closing; a box shown while it
+  closes never appears. See docs/fork/fo4_pipeline.md#intense-training}
+  While Utility.IsInMenuMode() || UI.IsMenuOpen("PipboyMenu")
+    Utility.WaitMenuMode(0.25)
+  EndWhile
+  Utility.Wait(0.5)
 EndFunction
 
 Function RaiseSkills(Int aiStat, Float afBefore)

@@ -5,7 +5,8 @@ scene and custom), when a script property names it, or when a reachable
 scene's action names it. A scene is reachable when it begins on quest start,
 when a script property names it, when a reachable line starts it (TSCE), or
 when a reachable scene's Start Scene action names it. A line speaks when its
-topic is reachable and a placed actor passes its GetIsID tests.
+topic is reachable and a placed actor or talking activator (a radio
+transmitter) passes its GetIsID tests.
 
 The FormID ledger maps each source line to its built copies.
 
@@ -60,7 +61,7 @@ class Fo4Dialogue:
     def __init__(self, index):
         """Read topics, scenes, lines and placed actors from a PluginIndex, then solve reachability."""
         self.index = index
-        self.present = index.placed_bases()
+        self.present = index.placed_speakers()
         self.subtype = {r.form_id: zstring(first(r, 'SNAM'))[:4] for r in index.by_type['DIAL']}
         self.actions = {r.form_id: scene_actions(r) for r in index.by_type['SCEN']}
         self.starts = defaultdict(list)

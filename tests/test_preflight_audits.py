@@ -16,7 +16,7 @@ from tools.validate.preflight import (asset_load, build_diff, dialogue_loss, dia
 from tools.validate.preflight.plugin_index import PluginIndex, vmad_scripts
 from tools.validate.preflight.quest_converted import ConvertedDialogue, Script, load_scripts, parse_script
 from tools.validate.preflight.quest_source import (Setter, SourceGame, SourceInfo, addressed_elsewhere,
-                                                   find_setters, required_speakers)
+                                                   find_setters, never_passes, required_speakers, speakable)
 from tools.validate.vmad_property_typecheck import binding_problem, reference_problem
 
 
@@ -131,6 +131,14 @@ def test_build_drift_separates_moved_removed_and_retyped():
     keys = {f.key for f in build_diff.audit('G', before, after)}
     assert keys == {'build|G|moved|NPC_', 'build|G|removed|MISC', 'build|G|retyped|STAT'}
     assert build_diff.audit('G', None, after) == []
+
+
+def test_build_drift_reads_a_renumbered_name_as_a_rename():
+    """A counter-numbered name passed to a FormID the last build had: the old record removed, nothing moved."""
+    before = {'01000001': 'SCEN|Scene1', '01000002': 'SCEN|Scene2', '01000003': 'SCEN|Scene3'}
+    after = {'01000002': 'SCEN|Scene1', '01000003': 'SCEN|Scene2'}
+    out = build_diff.drift(before, after)
+    assert not out['moved'] and out['removed'] == {'SCEN': ['01000001 Scene1']}
 
 
 def nif(types):
@@ -253,6 +261,22 @@ def test_only_an_all_getisid_or_chain_binds_the_speaker():
     assert required_speakers([ctda(72, 5), ctda(72, 6)]) == []
 
 
+def test_a_line_requiring_and_ruling_out_its_speaker_is_never_said():
+    """Red Lucy's "Two." answer: GetIsID Lucy == 1 AND GetIsID Lucy != 1; ruling out another speaker leaves it."""
+    lucy, other = 5, 6
+    assert not speakable([ctda(72, lucy), (0x20, 1.0, 72, lucy, 0)], {lucy})
+    assert not speakable([ctda(72, lucy), (0x00, 0.0, 72, lucy, 0)], {lucy})
+    assert speakable([ctda(72, lucy), (0x20, 1.0, 72, other, 0)], {lucy})
+    assert never_passes([ctda(71, 9), (0x00, 0.0, 71, 9, 0)]) and not never_passes([ctda(71, 9, 1), (0, 0.0, 71, 9, 0)])
+
+
+def test_a_placed_activator_can_speak():
+    """A radio line's talking activator speaks when placed (a REFR), not otherwise."""
+    acti, placed = rec('ACTI', 0x10), rec('REFR', 0x20, [('NAME', struct.pack('<I', 0x10))])
+    assert PluginIndex([acti, placed], fo4=True).placed_speakers() == {0x10}
+    assert PluginIndex([acti], fo4=True).placed_speakers() == set()
+
+
 def test_a_line_said_to_an_npc_is_addressed_elsewhere():
     """A target GetIsID naming an NPC addresses the line away from the player; the player or no target does not."""
     said_to = [ctda(72, 7), (0, 1.0, 72, 0x300E7, 1)]
@@ -293,6 +317,29 @@ def test_a_conversation_topic_plays_only_from_hello_a_script_or_a_link_and_never
                   3: SourceInfo(3, 0x15, 0, [], [], [0x13])}
     game.present, game.external_topics, game.said_topics = set(), {0x13, 0x16}, set()
     assert game.reachable_topics() == {0x10, 0x11, 0x13, 0x16}
+
+
+def test_a_speech_challenge_outcome_follows_only_a_challenged_topic():
+    """Ranger Andy's failure line links from a topic with no challenge, so it never plays; one linked from a
+    challenged topic does (FO3's random speech checks)."""
+    game = SourceGame.__new__(SourceGame)
+    game.dials = {0x30: ('Plain', 0, 0x02), 0x31: ('Challenged', 0, 0x02),
+                  0x32: ('SpeechChallengeFailure', 0, 0), 0x33: ('SpeechChallengeSuccess', 0, 0)}
+    game.infos = {1: SourceInfo(1, 0x30, 0, [], [], []), 2: SourceInfo(2, 0x31, 0, [], [], [], challenge=4),
+                  3: SourceInfo(3, 0x32, 0, [], [], [0x30]), 4: SourceInfo(4, 0x33, 0, [], [], [0x31])}
+    game.present, game.external_topics, game.said_topics = set(), set(), set()
+    assert game.reachable_topics() == {0x30, 0x31, 0x33}
+
+
+def test_a_station_plays_only_the_radio_topics_its_own_lines_choose():
+    """Repcon's RadioGoodbye line never plays: Repcon's lines choose only its music, though another station's
+    lines choose RadioGoodbye."""
+    game = SourceGame.__new__(SourceGame)
+    game.dials = {0x40: ('RadioHello', 7, 0), 0x41: ('RadioGoodbye', 7, 0), 0x42: ('RepconMusic', 7, 0)}
+    game.infos = {1: SourceInfo(1, 0x40, 0xA, [], [0x42], []), 2: SourceInfo(2, 0x42, 0xA, [], [], []),
+                  3: SourceInfo(3, 0x41, 0xA, [], [], []), 4: SourceInfo(4, 0x40, 0xB, [], [0x41], []),
+                  5: SourceInfo(5, 0x41, 0xB, [], [], [])}
+    assert game.radio_lines() == {1, 2, 4, 5}
 
 
 def test_a_topic_only_say_plays_opens_nothing_and_an_unused_packages_topic_is_not_a_root():

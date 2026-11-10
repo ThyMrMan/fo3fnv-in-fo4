@@ -4,7 +4,8 @@ Each FNV NPC base becomes a copy of a vanilla body for its race and sex
 (the replacement table's body rules), with FNV's name, factions, AI packages, script, outfit (its worn
 items) and inventory (the rest); a human whose sex has a calibration (both
 are measured by sculpt_calibration) also takes FNV's face fitted to FO4's
-sculpt regions, tints and head parts. A template (TPLT) is followed for
+sculpt regions, tints and head parts; a child (its race's child flag) takes the child body and its face,
+and wears only what draws on the child race. A template (TPLT) is followed for
 each part its flags take from it; an NPC whose traits come from a leveled
 list becomes an FO4 template actor on the converted list. Every actor
 placed in a built cell is written in that cell, with FNV's persistent and
@@ -23,6 +24,7 @@ import struct
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+from core.memory_budget import memory_workers
 from core.process_job import join_pool_job
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_walk
@@ -30,10 +32,9 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.face import hair, sculpt, tint
 from fo4_import.face.sculpt import FACE_SHAPE
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.pipeline.ran_code import ran_while
-from fo4_import.pipeline.work_cache import cached, lookup, store
-from fo4_import.spike.face_fits import FIT_SITES, bases, fit_key, take
+from fo4_import.spike.face_fits import FIT_SITES, basis_hash, fit_key, fitted, keep, kept, take
 from fo4_import.spike import records as R
+from fo4_import.spike.packages import listed
 from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
@@ -46,13 +47,15 @@ from fo4_import.spike.void_actors import VOID_FOLDER, VoidActors
 from fo4_import.spike.actor_data import (ACBS_TEMPLATE, NPC_FLAGS, STARTS_DEAD, UNIQUE, hit_proof, starts_dead,
                                          with_actor_data)
 from fo4_import.spike.ragdoll_pose import Poses, ragdolls
-from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: Body subrecords a converted NPC leaves out: factions, crime faction, short name (subtitles), scripts (Jones').
 BODY_TIES = frozenset({b'SNAM', b'CRIF', b'SHRT', b'VMAD', b'LTPT', b'LTPC'})
 #: FNV ACBS template flags: traits (race, face, sex, voice), factions, AI packages, inventory, script.
 USE_TRAITS, USE_FACTIONS, USE_PACKAGES, USE_INVENTORY, USE_SCRIPT = 0x1, 0x4, 0x20, 0x100, 0x200
+#: Fallout4.esm's DefaultStayAtEditorLocation: an NPC FNV gives no package stands where it is placed.
+STAY_AT_EDITOR = 0x3641
 #: FNV and FO4 template flag Model/Animation.
 USE_MODEL = 0x40
 #: FNV ACBS template flags: stats (level band), AI data, base data (essential, respawn).
@@ -73,12 +76,18 @@ VMAD_BEFORE = (b'OBND',)
 OUTFIT_SITE = 'FNV OTFT'
 #: FNV ACBS flag Female; reference record flags Persistent and No AI Acquire (the same bits in FO4's ACHR).
 FEMALE, PERSISTENT, NO_AI_ACQUIRE = 0x1, 0x400, 0x2000000
+#: FNV RACE DATA flag Child.
+CHILD_RACE = 0x4
+#: FNV ARMO biped flag Upper Body: a worn piece that clothes the body.
+UPPER_BODY = 0x4
 #: new_id keys of a converted NPC and its placed actor (the spike's, kept so no FormID moves).
 NPC_KEY, ACHR_KEY = 'NPC_ {:08X} STH', 'ACHR {} STH'
-#: Face-fit worker processes at most: each holds about 1.26 GB, and BLAS already spreads one fit over every core.
-FACE_WORKERS = 6
-#: OpenBLAS threads this process loaded with, which face workers start with too (docs/fork/fo4_pipeline.md#audit-fixes).
-MAIN_BLAS_THREADS = os.environ.get('OPENBLAS_NUM_THREADS') or str(os.cpu_count() or 1)
+#: Bytes one face-fit worker process holds at most (0.84 GB measured), and bytes of free memory the pool leaves alone.
+FACE_WORKER_BYTES, FACE_SPARE_BYTES = 1 << 30, 2 << 30
+#: Faces a face worker needs to be worth starting: its head-part candidates for both sexes cost about as many fits.
+FACES_PER_WORKER = 25
+#: OpenBLAS threads of a face worker: one, as a fit's heavy algebra is done once per worker and sex (BrowFits).
+WORKER_BLAS_THREADS = '1'
 #: A face worker process's head part assets (_start_face_worker).
 _worker = {}
 
@@ -94,8 +103,15 @@ def fit_face(export_dir: Path, npc: dict, female: bool, assets) -> 'tuple | None
     key = fit_key(export_dir, npc, female)
     if key is None:
         return None
-    return tuple(cached(site, module, key, make)
-                 for (site, module), make in zip(FIT_SITES, face_work(export_dir, npc['EditorID'], female, assets)))
+    return tuple(fitted(i, key, make) for i, make in enumerate(face_work(export_dir, npc['EditorID'], female, assets)))
+
+
+def face_workers(jobs: int) -> int:
+    """Workers for `jobs` faces: FACES_PER_WORKER each, half the cores, free memory.
+    See: docs/fork/fo4_build_speed.md#face-pool
+    """
+    wanted = max(1, min(jobs // FACES_PER_WORKER, (os.cpu_count() or 2) // 2))
+    return memory_workers(wanted, FACE_WORKER_BYTES, FACE_SPARE_BYTES)
 
 
 def head_assets(esm) -> hair.Fo4Assets:
@@ -125,12 +141,12 @@ def _start_face_worker() -> None:
 
 
 def _fit_in_worker(job: tuple) -> 'dict | None':
-    """{FIT_SITES index: (value, code that ran making it)} of the fits `job` = (export dir, NPC record, female,
-    indices) asks for; None when one fails, left to fail where the build uses it."""
+    """{FIT_SITES index: value} of the fits `job` = (export dir, NPC record, female, indices) asks for; None when
+    one fails, left to fail where the build uses it."""
     export_dir, npc, female, wanted = job
     makers = face_work(export_dir, npc['EditorID'], female, _worker['assets'])
     try:
-        return {i: ran_while(makers[i]) for i in wanted}
+        return {i: makers[i]() for i in wanted}
     except Exception:
         return None
 
@@ -143,6 +159,12 @@ def faction_snams(rec: dict, factions: dict) -> bytes:
         if faction:
             out += pack_subrecord('SNAM', struct.pack('<Ib', faction, int(rec[f'Faction[{i}].Rank'])))
     return out
+
+
+def vendor_snam(builder, fnv: int) -> bytes:
+    """The rank-0 SNAM of FNV actor base `fnv`'s vendor faction; b'' without."""
+    vendor = getattr(builder, 'vendors', {}).get(fnv)
+    return pack_subrecord('SNAM', struct.pack('<Ib', vendor, 0)) if vendor else b''
 
 
 def with_class(subs: bytes) -> bytes:
@@ -162,10 +184,10 @@ def with_factions(snams: bytes):
     return edit
 
 
-def with_inventory(outfit: int, carried: list):
-    """A record edit replacing the body's default outfit with `outfit` (0: none) and its inventory with `carried`
-    [(item, count, condition or None)], a COED after an item with a condition; a body without items gets them
-    before AIDT, as vanilla orders them."""
+def with_inventory(outfit: int, carried: list, keep: bool = False):
+    """A record edit replacing the body's default outfit with `outfit` (0: none, or the body's when `keep`) and
+    its inventory with `carried` [(item, count, condition or None)], a COED after an item with a condition; a body
+    without items gets them before AIDT, as vanilla orders them."""
     block = (pack_subrecord('COCT', struct.pack('<I', len(carried))) + b''.join(
         pack_subrecord('CNTO', struct.pack('<Ii', item, count)) + R.pack_coed(condition)
         for item, count, condition in carried)) if carried else b''
@@ -177,8 +199,8 @@ def with_inventory(outfit: int, carried: list):
         out = b''
         for tag, data in found:
             out += block if tag == at else b''
-            if tag == b'DOFT' and outfit:
-                out += pack_subrecord('DOFT', struct.pack('<I', outfit))
+            if tag == b'DOFT' and (outfit or keep):
+                out += pack_subrecord('DOFT', struct.pack('<I', outfit) if outfit else data)
             elif tag not in (b'COCT', b'CNTO', b'COED', b'DOFT'):
                 out += pack_subrecord(tag.decode(), data)
         return out
@@ -260,9 +282,9 @@ def _entries(rec: dict) -> list:
             for i in range(int(rec.get('EntryCount', 0) or 0))]
 
 
-def body_kind(ghoul: bool, female: bool) -> str:
-    """The body rule key (replacements.BODY_KINDS) of a ghoul or human."""
-    return f"{'ghoul' if ghoul else 'human'}_{'female' if female else 'male'}"
+def body_kind(ghoul: bool, female: bool, child: bool = False) -> str:
+    """The body rule key (replacements.BODY_KINDS) of a child, ghoul or human."""
+    return f"{'child' if child else 'ghoul' if ghoul else 'human'}_{'female' if female else 'male'}"
 
 
 def bodies(fo4: bytes, rules: dict) -> dict:
@@ -313,12 +335,14 @@ class Npcs:
         makes the placed creatures' bases."""
         self.builder, self.export_dir, self.form_map, self.creatures = builder, export_dir, form_map, creatures
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'NPC_')}
-        self.races = {int(r['FormID'], 16): r.get('EditorID', '') for r in export_records(export_dir, 'RACE')}
+        races = export_records(export_dir, 'RACE')
+        self.races = {int(r['FormID'], 16): r.get('EditorID', '') for r in races}
+        self.child_races = {int(r['FormID'], 16) for r in races if int(r.get('DATA.Flags', 0)) & CHILD_RACE}
         self.bodies = bodies(builder.fo4, builder.table.rules.body)
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
-        self.voids, self.void_lists, self.poses = VoidActors(builder), set(), None
+        self.voids, self.poses = VoidActors(builder), None
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
         """The NPC or creature `fnv` takes part `flag` from (template_source); None if a list."""
@@ -338,14 +362,16 @@ class Npcs:
         npc, traits = self.records[fnv], self.source(fnv, USE_TRAITS)
         if traits is None:
             return self._templated(fnv)
-        ghoul, female, face = self._kind(traits)
-        body = self.bodies[body_kind(ghoul, female)]
+        kind, female, face = self._kind(traits)
+        body = self.bodies[kind]
+        child = first_sub(body.body, b'RNAM') if kind.startswith('child') else b''
         morphs, edit = (self._face(traits, female) if face else (b'', None))
         fid = self.made[fnv] = self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
             (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
-            composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv), self._inventory(fnv),
+            composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv),
+                     self._inventory(fnv, struct.unpack('<I', child)[0] if child else 0),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
                      self.builder.combat_styles.edit(traits), with_perks(self.builder.perks.teammates.held_by(fnv)),
                      self._skills(fnv), with_script(self.builder.scripts, script_of(self.source(fnv, USE_SCRIPT))),
@@ -367,10 +393,12 @@ class Npcs:
         return with_template(template, listed) if template else None
 
     def _kind(self, traits: dict) -> tuple:
-        """(ghoul, female, fitted: a human whose sex has both bases) of `traits`."""
-        ghoul = 'ghoul' in self.races.get(int(traits.get('RNAM.Race', '0'), 16), '').lower()
+        """(body kind, female, fitted: an adult human whose sex has both bases) of `traits`; a child keeps its
+        body's face, as FNV's face bases are adult."""
+        race = int(traits.get('RNAM.Race', '0'), 16)
         female = bool(int(traits.get('ACBS.Flags', 0)) & FEMALE)
-        return ghoul, female, not ghoul and len(bases(female)) == 2
+        kind = body_kind('ghoul' in self.races.get(race, '').lower(), female, race in self.child_races)
+        return kind, female, kind.startswith('human') and basis_hash(female) is not None
 
     def _templated(self, fnv: int) -> 'int | None':
         """Write FNV NPC or creature `fnv`, whose traits come from a leveled list or a template, as an FO4 template
@@ -435,16 +463,25 @@ class Npcs:
         return with_script(self.builder.scripts, script_of(rec), void)
 
     def _draws_void(self, fnv: int) -> bool:
-        """Whether FNV form `fnv` (a template or list entry) can give a void creature's traits: a void creature,
-        a list holding one (made by _list), or a creature whose traits come from such a form."""
+        """Whether FNV template `fnv`, not a list, is all void (void_share 1)."""
+        return fnv not in self.lists and self.void_share(fnv) >= 1
+
+    def void_share(self, fnv: int, seen: tuple = ()) -> float:
+        """The share of FNV form `fnv`'s draws that are a void creature: 1 for one, a list's entries' mean, a
+        template actor's traits template's; 0 otherwise. _list drops pure void entries, and a placed actor rolls
+        this share instead (VoidActors.chance): FO4 draws each template part from a list on its own.
+        See: docs/fork/fo4_creature_audit.md#void
+        """
         if fnv in self.lists:
-            return fnv in self.void_lists
-        rec = self.creatures.records.get(fnv)
-        if rec is None or fnv in self.records:
-            return False
-        if self.creatures.label(fnv) == VOID_FOLDER:
-            return True
-        return _traits_templated(rec) and self._draws_void(int(rec['TPLT.Template'], 16))
+            entries = [] if fnv in seen else _entries(self.lists[fnv])
+            shares = [self.void_share(int(form, 16), seen + (fnv,)) for _, form, _ in entries]
+            return sum(shares) / len(shares) if shares else 0.0
+        rec = self.creatures.records.get(fnv) or self.records.get(fnv)
+        if rec is None:
+            return 0.0
+        if fnv in self.creatures.records and self.creatures.label(fnv) == VOID_FOLDER:
+            return 1.0
+        return self.void_share(int(rec['TPLT.Template'], 16), seen) if _traits_templated(rec) else 0.0
 
     def _template_actor(self, fnv: int, rec: dict, template: int, flags: int, parts: tuple, body=None,
                         traits: int = 0, fid: int = 0) -> int:
@@ -485,14 +522,14 @@ class Npcs:
         return self._list(fnv) if fnv in self.lists else None
 
     def _list(self, fnv: int) -> 'int | None':
-        """FNV leveled NPC list `fnv` as an FO4 LVLN of its entries that convert, on FNV's FormID; None if none do."""
+        """FNV leveled NPC list `fnv` as an FO4 LVLN of its entries that convert and are not void (void_share), on
+        FNV's FormID; None if none are."""
         if fnv not in self.made_lists:
             rec, fid = self.lists[fnv], self.builder.fnv_id(f'{fnv:08X}')
             self.made_lists[fnv] = fid
-            entries = [(level, self.actor_form(form), count) for level, form, count in _entries(rec)]
+            entries = [(level, self.actor_form(form), count) for level, form, count in _entries(rec)
+                       if self.void_share(int(form, 16)) < 1]
             entries = [e for e in entries if e[1] is not None]
-            if any(self._draws_void(int(form, 16)) for _, form, _ in _entries(rec)):
-                self.void_lists.add(fnv)
             self.made_lists[fnv] = fid if entries else None
             if entries:
                 self.builder.writer.add_record('LVLN', R.pack_leveled(
@@ -517,12 +554,12 @@ class Npcs:
 
     def _factions(self, fnv: int) -> bytes:
         """FO4 SNAMs of FNV NPC `fnv`'s (or template's) factions and vendor one."""
-        vendor = getattr(self.builder, 'vendors', {}).get(fnv)
-        own = pack_subrecord('SNAM', struct.pack('<Ib', vendor, 0)) if vendor else b''
-        return faction_snams(self.source(fnv, USE_FACTIONS) or {}, self.builder.factions) + own
+        own = faction_snams(self.source(fnv, USE_FACTIONS) or {}, self.builder.factions)
+        return own + vendor_snam(self.builder, fnv)
 
-    def _inventory(self, fnv: int):
-        """The edit giving FNV NPC `fnv` (or its template) its worn items as an outfit, the rest as inventory."""
+    def _inventory(self, fnv: int, child_race: int = 0):
+        """The edit giving FNV NPC `fnv` (or its template) its worn items as an outfit, the rest as inventory; a
+        child (on FO4 `child_race`) wears only what draws on it (_child_worn)."""
         rec, items = self.source(fnv, USE_INVENTORY) or {}, self.builder.items
         worn, carried = [], []
         for i in range(int(rec.get('ItemCount', 0))):
@@ -533,8 +570,21 @@ class Npcs:
             elif made is not None:
                 carried.append((made, *entry))
         dressed = self._dressed([item for item, _, _ in worn])
+        dressed = self._child_worn(dressed, child_race) if child_race else dressed
         carried += [(made, *entry) for item, made, entry in worn if item not in dressed]
-        return with_inventory(self._outfit(fnv, [made for item, made, _ in worn if item in dressed]), carried)
+        outfit = self._outfit(fnv, [made for item, made, _ in worn if item in dressed])
+        return with_inventory(outfit, carried, keep=bool(child_race))
+
+    def _child_worn(self, dressed: set, race: int) -> set:
+        """The armor of `dressed` whose FO4 copy draws on `race` (Equipment.draws_on), or none when none of it
+        clothes the body: the child body's own outfit stays then. A leveled list is never drawn.
+        See: docs/fork/fo4_pipeline.md#child-bodies
+        """
+        records, equipment = self.builder.items.records, self.builder.equipment
+        drawn = {i for i in dressed if records[i][0] == 'ARMO' and equipment.draws_on(records[i][1], race)}
+        body = any(int(records[i][1].get('BMDT.BipedFlags', 0) or 0) & UPPER_BODY for i in drawn)
+        self.builder.counts['child NPC in child clothes' if body else 'child NPC on the child body outfit'] += 1
+        return drawn if body else set()
 
     def _dressed(self, items: list) -> set:
         """The FNV items of `items` an NPC wears, as FNV equips them: per biped slot the armor with the best
@@ -564,11 +614,16 @@ class Npcs:
         return fid
 
     def _packages(self, fnv: int):
-        """The edit giving FNV NPC `fnv` its (or its template's) AI packages and combat override list."""
+        """The edit giving FNV NPC `fnv` its (or its template's) AI packages, STAY_AT_EDITOR when it lists none, and
+        combat override list.
+        See: docs/fork/fo4_pipeline.md#no-packages
+        """
         rec, packages = self.source(fnv, USE_PACKAGES) or {}, self.builder.packages
-        listed = R.packages_edit(packages.for_npc(rec, self.form_map))
+        made = packages.for_npc(rec, self.form_map) if listed(rec) else [STAY_AT_EDITOR]
+        self.builder.counts['NPC with no packages (stays at its placed spot)'] += not listed(rec)
+        listed_edit = R.packages_edit(made)
         combat = packages.combat_list(rec)
-        return composed(listed, R.with_sub(b'ECOR', struct.pack('<I', combat) if combat else b'', ECOR_BEFORE))
+        return composed(listed_edit, R.with_sub(b'ECOR', struct.pack('<I', combat) if combat else b'', ECOR_BEFORE))
 
     def _head_assets(self) -> hair.Fo4Assets:
         """Fallout4.esm's head parts and the game's archives (hair.Fo4Assets), read once."""
@@ -587,17 +642,17 @@ class Npcs:
                                                  head_parts_edit(chosen, self.assets))
 
     def warm_faces(self, fnvs: list, workers: int = 0) -> int:
-        """Fit in `workers` processes (FACE_WORKERS at most by default) the faces the bases of FNV forms `fnvs`
-        need (_faces) that the work cache lacks and the installed published fits can't give (face_fits.take),
-        stored under its keys so base() only reads them; how many.
-        See: docs/fork/fo4_pipeline.md#audit-fixes
+        """Fit in `workers` processes (face_workers by default), each on one BLAS thread, the faces the bases of FNV
+        forms `fnvs` need (_faces) that the work cache lacks and the installed published fits can't give
+        (face_fits.take), kept under its keys so base() only reads them; how many.
+        See: docs/fork/fo4_build_speed.md#faces
         See: docs/fork/fo4_pipeline.md#published-face-fits
         """
         jobs, keys = [], []
         for npc, female in sorted(self._faces(fnvs).values(), key=lambda f: (f[1], f[0].get('RNAM.Race', ''),
                                                                                f[0]['FormID'])):
             key, missing = fit_key(self.export_dir, npc, female), object()
-            wanted = [i for i, site in enumerate(FIT_SITES) if lookup(*site, key, missing) is missing]
+            wanted = [i for i in range(len(FIT_SITES)) if kept(i, key, missing) is missing]
             taken, count = take(female, key, wanted) if wanted else (True, '')
             if not taken:
                 jobs.append((self.export_dir, npc, female, wanted))
@@ -606,12 +661,12 @@ class Npcs:
                 self.builder.counts[count] += 1
         if not jobs:
             return 0
-        workers = min(len(jobs), workers or max(1, min(FACE_WORKERS, (os.cpu_count() or 2) - 1)))
-        with _blas_threads(MAIN_BLAS_THREADS), ProcessPoolExecutor(max_workers=workers,
-                                                                   initializer=_start_face_worker) as pool:
+        workers = min(len(jobs), workers) or face_workers(len(jobs))
+        with _blas_threads(WORKER_BLAS_THREADS), ProcessPoolExecutor(max_workers=workers,
+                                                                     initializer=_start_face_worker) as pool:
             for key, made in zip(keys, pool.map(_fit_in_worker, jobs, chunksize=1)):
-                for i, (value, ran) in (made or {}).items():
-                    store(*FIT_SITES[i], key, value, ran)
+                for i, value in (made or {}).items():
+                    keep(i, key, value)
         self.builder.counts['faces fitted in worker processes'] += len(jobs)
         return len(jobs)
 
@@ -678,12 +733,13 @@ class Npcs:
     def _actor(self, ref: dict, base: int, ids: dict, owners: dict) -> bytes:
         """The FO4 ACHR of FNV actor `ref` on `base` (its FormID from placed()), with its script, parents and linked
         reference through `ids` (actors included), No AI Acquire and scale; one placed dead takes FNV's ragdoll
-        pose on its FO4 skeleton (spike.ragdoll_pose)."""
+        pose on its FO4 skeleton (spike.ragdoll_pose); one whose base can draw the void rolls it (void_share)."""
         fnv = int(ref['NAME'], 16)
         achr = self.builder.actor_ids[ref['FormID']]
         self.builder.scripts.named[ref.get('EditorID', '')] = achr
         vanilla = fnv in self.creatures.records and base in self.creatures.as_is.values()
-        vmad = self.builder.scripts.vmad(script_of(self.creatures.records[fnv])) if vanilla else b''
+        own = script_of(self.creatures.records[fnv]) if vanilla else 0
+        vmad = self.builder.scripts.vmad(own, self.voids.chance(self.void_share(fnv)))
         linked = ids.get(ref.get('XLKR.LinkedRef'), 0)
         extra = placement(int(ref['FormID'], 16), ids, owners, pose=False)
         extra += pack_subrecord('XLKR', struct.pack('<II', 0, linked)) if linked else b''

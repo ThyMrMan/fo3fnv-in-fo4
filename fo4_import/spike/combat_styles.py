@@ -112,11 +112,14 @@ def dodge_shares(rec: dict, settings: dict, under_attack: bool) -> tuple:
 def converted_values(rec: dict, settings: dict) -> dict:
     """{FIELDS name: FO4 value} for FNV style `rec`; the fields it leaves out keep FO4's default.
 
+    FO4 has one attack chance: Offensive is FNV's with or without its target attacking, whichever is higher.
     Defensive is capped at Offensive for a style that attacks: FO4 reads Defensive - Offensive as a stance
     (0x101b1a0) that holds melee actors off, and FNV has none.
+    See: docs/fork/fo4_pipeline.md#combat-styles
     """
-    attack, _ = melee_shares(rec, settings, False)
-    staggered, _ = melee_shares(rec, settings, False, staggered=True)
+    under = melee_shares(rec, settings, True)[0] > melee_shares(rec, settings, False)[0]
+    attack, _ = melee_shares(rec, settings, under)
+    staggered, _ = melee_shares(rec, settings, under, staggered=True)
     _, block = melee_shares(rec, settings, True)
     power = _f(rec, 'CSTD.PowerAttackChance') + _f(rec, 'CSAD.PowerAttackFatigueModBase')
     offensive = max(0.0, mult(attack, ATTACK))

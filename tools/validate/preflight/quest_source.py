@@ -10,10 +10,12 @@ See: docs/commentary/tools_preflight.md#source-setters
 import os
 import re
 import struct
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
 from tes5_import.base.text_reader import get_int, get_str, info_result_script, parse_export_file
+from tools.validate.preflight.plugin_index import TALKERS
 
 #: `SetStage Quest Stage`, with the space or comma separators FO3 allows.
 SETSTAGE = re.compile(r'\bsetstage\s*[\s,]\s*(\w+)\s*[\s,]\s*([^\s;,]+)', re.I)
@@ -38,8 +40,12 @@ PACKAGE_SECTIONS = ('OnBegin', 'OnEnd', 'OnChange')
 PACKAGE_TOPICS = ('PKDD.Topic',) + tuple(f'{section}.Topic' for section in PACKAGE_SECTIONS)
 #: DIAL type Conversation; of its topics only these start a conversation on their own (the random ones).
 CONVERSATION, ENGINE_CONVERSATIONS = 1, frozenset({'HELLO', 'GOODBYE'})
+#: The Radio topic type; a station plays its RadioHello and the topics its lines choose.
+RADIO, RADIO_HELLO = 7, 'RADIOHELLO'
 #: INFO DATA flag Goodbye: the conversation ends after the line, its Choices unoffered.
 INFO_GOODBYE = 0x01
+#: The topics the engine says after a speech challenge (DNAM) passes or fails, from the line linking from the topic.
+CHALLENGE_OUTCOMES = frozenset({'SPEECHCHALLENGESUCCESS', 'SPEECHCHALLENGEFAILURE'})
 
 #: CTDA function index of GetIsID, the same in every game.
 GET_IS_ID = 72
@@ -91,6 +97,7 @@ class SourceInfo:
     link_from: list
     flags: int = 0
     raw: tuple = ()
+    challenge: int = 0
 
 
 def strip_comment(line: str) -> str:
@@ -168,10 +175,37 @@ def addressed_elsewhere(conditions: list) -> list:
     return [] if any(fid & 0xFFFFFF in PLAYER for fid in listeners) else listeners
 
 
+def _truth(condition: tuple) -> 'bool | None':
+    """True for `F == 1` (or `!= 0`), False for `F == 0` (or `!= 1`), else None."""
+    ctype, comp = condition[0] >> 5, condition[1]
+    return {(0, 1.0): True, (1, 0.0): True, (0, 0.0): False, (1, 1.0): False}.get((ctype, comp))
+
+
+def never_passes(conditions: list) -> bool:
+    """Whether two lone tests require one function, parameter and subject both true and false (Red Lucy's "Two."
+    answer: GetIsID Lucy == 1 AND != 1; VDialogueTEST's quest: GetInFaction == 1 AND == 0).
+    See: docs/commentary/tools_preflight.md#dialogue-loss
+    """
+    seen = {}
+    for (cond,) in (g for g in or_groups(conditions) if len(g) == 1):
+        truth, key = _truth(cond), cond[2:]
+        if truth is not None and seen.setdefault(key, truth) != truth:
+            return True
+    return False
+
+
+def _linked(info: SourceInfo, opened: set, links: dict) -> bool:
+    """Whether an `opened` topic links to `info` (a challenge outcome: from `links`).
+    See: docs/commentary/tools_preflight.md#dialogue-loss
+    """
+    sources = links.get(info.dial)
+    return any(t in opened and (sources is None or t in sources) for t in info.link_from)
+
+
 def speakable(conditions: list, present: set) -> bool:
-    """False when no placed actor is a base the line's GetIsID conditions allow."""
+    """False when no placed actor passes the GetIsID tests, or they never pass."""
     required = required_speakers(conditions)
-    return required is None or any(fid in present for fid in required)
+    return not never_passes(conditions) and (required is None or any(fid in present for fid in required))
 
 
 def _fids(rec: dict, prefix: str) -> list:
@@ -229,9 +263,12 @@ class SourceGame:
             for section in PACKAGE_SECTIONS:
                 self._add('package', fid, section, rec.get(f'{section}.Script', ''))
             self.package_topics[fid] = {int(rec.get(key) or '0', 16) for key in PACKAGE_TOPICS}
+        talkers = {int(r['FormID'], 16): get_str(r, 'EditorID') for sig in TALKERS for r in _records(export_dir, sig)}
+        self.actor_names.update(talkers)
         for rec in _records(export_dir, 'REFR'):
             self.texts.append(rec.get('Patrol.Script', ''))
             self.external_topics.add(int(rec.get('Patrol.Topic') or '0', 16))
+            self.present |= {int(rec.get('NAME') or '0', 16)} & talkers.keys()
         named, script_names = referenced_fids(export_dir), {}
         for rec in _records(export_dir, 'SCPT'):
             self._add('script', get_str(rec, 'EditorID'), '', rec.get('SCTX', ''))
@@ -293,7 +330,8 @@ class SourceGame:
                     if rec.get(f'Condition[{i}].Raw'))
         self.infos[fid] = SourceInfo(fid, int(rec.get('ParentDIAL', '0'), 16),
                                      int(rec.get('QSTI.Quest', '0') or '0', 16), [decode_condition(d) for d in raw],
-                                     _fids(rec, 'Choice'), _fids(rec, 'LinkFrom'), get_int(rec, 'DATA.Flags'), raw)
+                                     _fids(rec, 'Choice'), _fids(rec, 'LinkFrom'), get_int(rec, 'DATA.Flags'), raw,
+                                     get_int(rec, 'DNAM.SpeechChallenge'))
         self.external_topics.update(_fids(rec, 'AddTopic'))
 
     def _topics_named_by_scripts(self) -> None:
@@ -311,18 +349,20 @@ class SourceGame:
     def reachable_topics(self) -> set:
         """Topics a player can reach in the source game, by a fixed point over links.
 
-        A topic starts reachable when it is a bark (neither Topic nor
-        Conversation), is top-level, is GREETING, HELLO or GOODBYE, or is named
-        by AddTopic, a used package, a patrol marker or a script. Choices from a
+        A topic starts reachable as a bark (not Topic, Conversation or Radio),
+        RadioHello, top-level, GREETING, HELLO or GOODBYE, or named by AddTopic,
+        a used package, a patrol marker or a script. Choices from a
         speakable line in a reachable topic, and links from such a topic, make
-        that topic reachable; a Goodbye line ends the conversation, so it
-        offers neither, nor does a topic only Say or SayTo plays.
+        that topic reachable; not from a Goodbye line, nor a topic only Say or
+        SayTo plays, nor to a challenge outcome unchallenged.
         See: docs/commentary/tools_preflight.md#dialogue-loss
         """
         live = {fid for fid, (edid, dtype, flags) in self.dials.items()
-                if dtype not in (0, CONVERSATION) or flags & 0x02
-                or edid.upper() == 'GREETING' or edid.upper() in ENGINE_CONVERSATIONS}
+                if dtype not in (0, CONVERSATION, RADIO) or flags & 0x02
+                or edid.upper() in ('GREETING', RADIO_HELLO) or edid.upper() in ENGINE_CONVERSATIONS}
         live |= self.external_topics
+        challenged = {info.dial for info in self.infos.values() if info.challenge}
+        links = {fid: challenged for fid, (edid, _t, _f) in self.dials.items() if edid.upper() in CHALLENGE_OUTCOMES}
         opened, changed = set(), True
         while changed:
             before = len(live) + len(opened)
@@ -330,7 +370,30 @@ class SourceGame:
                 if info.dial in live and speakable(info.conditions, self.present) and not info.flags & INFO_GOODBYE:
                     live.update(info.choices)
                     opened.add(info.dial)
-                if info.dial not in live and any(t in opened for t in info.link_from):
+                if info.dial not in live and _linked(info, opened, links):
                     live.add(info.dial)
             changed = len(live) + len(opened) != before
         return live | self.said_topics
+
+    def radio_lines(self) -> set:
+        """FormIDs of the Radio lines a station plays: its quest's RadioHello lines, then the lines of each topic a
+        played line of that quest chooses.
+        See: docs/commentary/tools_preflight.md#dialogue-loss
+        """
+        by_quest = defaultdict(lambda: defaultdict(list))
+        for info in self.infos.values():
+            if self.dials.get(info.dial, ('', 0))[1] == RADIO:
+                by_quest[info.quest][info.dial].append(info)
+        hello = {fid for fid, (edid, _t, _f) in self.dials.items() if edid.upper() == RADIO_HELLO}
+        played = set()
+        for topics in by_quest.values():
+            queue = [t for t in topics if t in hello]
+            reached = set(queue)
+            while queue:
+                lines = topics[queue.pop()]
+                played.update(line.fid for line in lines)
+                nxt = {c for line in lines for c in line.choices if c in topics} - reached
+                reached |= nxt
+                queue += nxt
+        return played
+

@@ -20,11 +20,13 @@ See: docs/fork/fo4_spikes.md#spike-2-items
 See: docs/fork/fo4_tool_audit.md#fix-first
 """
 
+import struct
 from pathlib import Path
 
+from fo4_import.base.install import source_walk
 from fo4_import.spike import records as R
 from fo4_import.spike.entry_condition import condition_of
-from tes5_import.base.tes5_reader import first_sub, walk
+from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.stage_timer import charged
 from script_convert.constants_falloutnv import ITEM_TYPE_CODES, ITEM_TYPE_LISTS
@@ -33,8 +35,13 @@ from script_convert.constants_falloutnv import ITEM_TYPE_CODES, ITEM_TYPE_LISTS
 ENGINE_IDS = 0x800
 #: FNV's engine portal and plane markers (no FalloutNV.esm record), Fallout4.esm's PortalMarker and PlaneMarker.
 PORTAL_MARKER, PLANE_MARKER = 0x20, 0x17
+#: FNV casino item types FO4 lacks, each made a MISC carrying its keyword (EditorID).
+CASINO_ITEMS = {'CCRD': 'F3NV_CaravanCard', 'CMNY': 'F3NV_CaravanMoney', 'CHIP': 'F3NV_CasinoChip'}
+#: FO4's leveled list entry count (LLCT) is a byte; the derive_formid site of a longer list's parts (key: FormID, part).
+MAX_ENTRIES, PART_SITE = 255, 'FNV LVLI part'
 #: FNV record types an inventory may name, indexed for conversion (the rest are skipped).
-ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT', 'FLST', 'IMOD')
+ITEM_TYPES = ('MISC', 'LVLI', 'ALCH', 'WEAP', 'ARMO', 'AMMO', 'BOOK', 'KEYM', 'NOTE', 'CONT', 'FLST', 'IMOD',
+              *CASINO_ITEMS)
 #: FO4 container DATA flags kept from FNV (same bit): Respawns.
 CONTAINER_FLAGS = 0x2
 #: Item type list property -> its FO3/FNV type code (RemoveAllTypedItems).
@@ -99,7 +106,7 @@ class Items:
         (consumables, equipment); a type with no maker here or there is skipped.
         """
         self.builder, self.records, self.made, self.makers = builder, records, {}, makers or {}
-        self.messages, self.type_lists = None, set()
+        self.messages, self.type_lists, self.casino = None, set(), None
         named = {rec.get('EditorID'): fid for fid, (_, rec) in records.items()}
         self.names = {name.lower(): fid for name, fid in named.items() if name}
         self.shared = {**shared, **{named[e]: fid for e, fid in (stand_ins or {}).items() if e in named}}
@@ -141,20 +148,24 @@ class Items:
         if fnv_fid not in self.made:
             self.made[fnv_fid] = None
             sig, rec = self.records.get(fnv_fid, (None, None))
+            if sig is None:
+                self.builder.counts[f'item skipped (not an item: {self._type(fnv_fid)})'] += 1
+                return None
             self.made[fnv_fid] = charged(f'item {sig}', self._make, sig, rec)
         return self.made[fnv_fid]
 
     def _make(self, sig: str, rec: dict) -> 'int | None':
         """Write the FO4 record of a convertible FNV record; its FormID, or None (counted as skipped)."""
         maker = {'MISC': self._misc, 'KEYM': self._key, 'LVLI': self._leveled, 'CONT': self._container,
-                 'NOTE': self._readable, 'BOOK': self._readable, 'FLST': self._form_list}.get(sig)
+                 'NOTE': self._readable, 'BOOK': self._readable, 'FLST': self._form_list,
+                 **dict.fromkeys(CASINO_ITEMS, self._casino)}.get(sig)
         if sig in self.makers:
             made = self.makers[sig](int(rec['FormID'], 16), rec)
             if made is None:
                 self.builder.counts[f'item skipped ({sig})'] += 1
             return made
         if maker is None:
-            self.builder.counts[f'item skipped ({sig or "not exported"})'] += 1
+            self.builder.counts[f'item skipped ({sig})'] += 1
             return None
         return maker(rec)
 
@@ -177,6 +188,24 @@ class Items:
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), int(rec.get('DATA.Value', 0)),
             float(rec.get('DATA.Weight', 0.0)), self._vmad(rec)), rec)
 
+    def _casino(self, rec: dict) -> int:
+        """A Caravan card, Caravan money or casino chip as a MISC with its CASINO_ITEMS keyword: FNV's name, model,
+        bounds, script and value (DATA; a chip has none), read from the plugin, as the export holds their sizes only.
+        See: docs/fork/fo4_casino_plan.md#items-built
+        """
+        if self.casino is None:
+            sigs = (sig.encode() for sig in CASINO_ITEMS)
+            self.casino = {r.form_id: dict(subrecords(r.body)) for r, _ in source_walk(*sigs)}
+        subs, text = self.casino[int(rec['FormID'], 16)], lambda tag: subs.get(tag, b'').rstrip(b'\0').decode('cp1252')
+        model, bounds = self.builder.mesh(text(b'MODL')) if b'MODL' in subs else ('', None)
+        data, script = subs.get(b'DATA', b''), subs.get(b'SCRI')
+        value = struct.unpack_from('<I', data)[0] if len(data) >= 4 else 0
+        vmad = self.builder.scripts.vmad(struct.unpack('<I', script)[0]) if script else b''
+        keyword = self.builder.type_keywords.keyword(CASINO_ITEMS[rec['Signature']])
+        return self._write('MISC', lambda fid: R.pack_misc(
+            fid, f'FNV_{rec["EditorID"]}', text(b'FULL'), model, bounds or struct.unpack('<6h', subs[b'OBND']), value,
+            0.0, vmad, (keyword,)), rec)
+
     def _vmad(self, rec: dict) -> bytes:
         """The VMAD attaching FNV item `rec`'s converted script; b'' without one."""
         return self.builder.scripts.vmad(int(rec['SCRI'], 16)) if 'SCRI' in rec else b''
@@ -188,9 +217,26 @@ class Items:
         entries = [e for e in entries if e[1] is not None]
         if not entries:
             return None
+        flags = int(rec.get('LVLF.Flags', 0))
         return self._write('LVLI', lambda fid: R.pack_leveled(
-            'LVLI', fid, f'FNV_{rec["EditorID"]}', int(rec.get('LVLD.ChanceNone', 0)), int(rec.get('LVLF.Flags', 0)),
-            entries), rec)
+            'LVLI', fid, f'FNV_{rec["EditorID"]}', int(rec.get('LVLD.ChanceNone', 0)), flags,
+            self._parts(rec, entries, flags)), rec)
+
+    def _parts(self, rec: dict, entries: list, flags: int) -> list:
+        """FNV list `rec`'s `entries`; past MAX_ENTRIES, equal sub-lists of them (FNV's `flags`), one entry each.
+        See: docs/fork/fo4_casino_plan.md#items-built
+        """
+        if len(entries) <= MAX_ENTRIES:
+            return entries
+        count = -(-len(entries) // MAX_ENTRIES)
+        size, out = -(-len(entries) // count), []
+        for i in range(count):
+            fid = self.builder.writer.derive_formid(PART_SITE, f'{rec["FormID"]} {i}')
+            self.builder.writer.add_record('LVLI', R.pack_leveled(
+                'LVLI', fid, f'FNV_{rec["EditorID"]}_Part{i}', 0, flags, entries[i * size:(i + 1) * size]))
+            out.append((1, fid, 1))
+        self.builder.counts['LVLI split (over 255 entries)'] += 1
+        return out
 
     def _container(self, rec: dict) -> 'int | None':
         """A container with the contents that convert."""
@@ -205,7 +251,7 @@ class Items:
             fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds or _bounds(rec), contents,
             int(rec.get('DATA.Flags', 0)) & CONTAINER_FLAGS, float(rec.get('DATA.Weight', 0.0)),
             (self.builder.sounds.field(rec, 'SNAM.OpenSound'), self.builder.sounds.field(rec, 'QNAM.CloseSound')),
-            self._vmad(rec)), rec)
+            self._vmad(rec), self.builder.destruction.of(fnv)), rec)
 
     def _readable(self, rec: dict) -> 'int | None':
         """A book or note: the cell builder's record of it (spike.readables)."""

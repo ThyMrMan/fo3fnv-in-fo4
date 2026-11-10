@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from fo4_import.base.ba2_write import write_general
 from tools.release import fo4_deploy as D
 
 #: A build stamp's start time (the deploy clears hotfixes older than it).
@@ -100,6 +101,22 @@ def test_a_dlc_deploys_only_the_files_its_list_names_under_its_listed_folders(tm
     assert (mod / 'Meshes/Actors/FNVGecko/skeleton.nif').read_text() == 'old'
     out = capsys.readouterr().out
     assert '1 build files under its listed folders' in out and '1 stale files' in out and 'FNVGecko' in out
+
+
+def test_loose_files_an_archive_holds_ship_only_in_it(tmp_path, capsys):
+    """A build mesh the Main archive holds is not copied, and the mod folder's loose copy (which would hide the
+    archived one) is deleted even without --delete-stale; the archive and a loose script ship."""
+    build, mod = _folders(tmp_path)
+    (build / 'Meshes' / 'fnv').mkdir(parents=True)
+    (build / 'Meshes' / 'fnv' / 'Cup.nif').write_text('cup')
+    write_general({'Meshes/fnv/Cup.nif': build / 'Meshes' / 'fnv' / 'Cup.nif'}, build / 'FalloutNV - Main.ba2')
+    (mod / 'meshes' / 'fnv').mkdir(parents=True)
+    (mod / 'meshes' / 'fnv' / 'cup.nif').write_text('old')
+    assert _run(build, mod, '--dry-run') == 0 and (mod / 'meshes' / 'fnv' / 'cup.nif').is_file()
+    assert _run(build, mod) == 0
+    assert not (mod / 'meshes').exists() and (mod / 'FalloutNV - Main.ba2').is_file()
+    assert (mod / 'Scripts' / 'a.pex').read_text() == 'new' and (mod / 'Old' / 'Gone.dds').is_file()
+    assert '1 loose files in the mod folder that the archives hold' in capsys.readouterr().out
 
 
 def test_a_dlc_without_a_file_list_is_refused(tmp_path):

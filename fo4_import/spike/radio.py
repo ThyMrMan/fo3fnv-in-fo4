@@ -25,15 +25,18 @@ See: docs/fork/fo4_radio.md#transmitters
 """
 
 import functools
+import re
 import struct
 from pathlib import Path
 
 from fo4_import.base.install import source_walk
-from fo4_import.base.vmad import object_scripts
-from fo4_import.base.writer import pack_fo4_record
+from fo4_import.base.vmad import object_scripts, quest_fragments
+from fo4_import.base.writer import pack_fo4_record, pack_quest
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.spike import records as R
 from fo4_import.spike.activators import fnv_links
-from fo4_import.spike.radio_program import Program
+from fo4_import.spike.quest import START_GAME
+from fo4_import.spike.radio_program import Program, ends_run, radio_lines
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
@@ -57,6 +60,12 @@ RECEIVER_OUTPUT = 0x23E390
 POSITION = ('PosX', 'PosY', 'PosZ')
 #: FNV condition GetIsID (a station quest's own condition names its talking activator).
 GET_IS_ID = 72
+#: `<ref>.StartRadioConversation` in a script line's code (before any `;` comment).
+START_CALL = re.compile(r'^[^;\n]*?\b(\w+)\.startradioconversation\b', re.I | re.M)
+#: `SetNPCRadio <flag> <station ref>` in a script line's code: an NPC plays the station.
+NPC_RADIO_CALL = re.compile(r'^[^;\n]*?\bsetnpcradio\s+\S+\s+(\w+)', re.I | re.M)
+#: The receiver SetNPCRadio places at an actor: DN070_JamaicaPlainDummyRadio's invisible marker model and bounds.
+NPC_RECEIVER_MODEL, NPC_RECEIVER_BOUNDS = 'markers\\MarkerDummy01.nif', (-66, -66, -66, 66, 66, 66)
 
 
 def radio_stations(export_dir: Path) -> dict:
@@ -126,16 +135,35 @@ def xrdo_data(frequency: float, radio: tuple) -> bytes:
     return struct.pack('<3fI', frequency, radius * (1.0 - static / 100.0), radius, 0)
 
 
-def station_of(quest: dict, stations: dict) -> 'int | None':
-    """The station whose lines FNV quest `quest` holds: its quest condition GetIsID's talking activator."""
-    i = 0
-    while f'Condition[{i}].Raw' in quest:
-        raw = bytes.fromhex(quest[f'Condition[{i}].Raw'])
+def _named_stations(rec: dict, stations: dict) -> list:
+    """The stations FNV record `rec`'s GetIsID conditions name, in order."""
+    out, i = [], 0
+    while f'Condition[{i}].Raw' in rec:
+        raw = bytes.fromhex(rec[f'Condition[{i}].Raw'])
         i += 1
         func, form = struct.unpack_from('<II', raw, 8) if len(raw) >= 16 else (0, 0)
-        if func == GET_IS_ID and form in stations:
-            return form
-    return None
+        out += [form] if func == GET_IS_ID and form in stations else []
+    return out
+
+
+def lines_by_station(lines: list, stations: dict) -> dict:
+    """{station: its lines} of radio `lines` whose GetIsID conditions name exactly one of `stations`."""
+    out = {}
+    for line in lines:
+        named = set(_named_stations(line, stations))
+        if len(named) == 1:
+            out.setdefault(named.pop(), []).append(line)
+    return out
+
+
+def station_of(quest: dict, stations: dict, lines: list = ()) -> 'int | None':
+    """The station whose lines FNV quest `quest` holds: its quest condition GetIsID's talking activator, else the
+    one station its radio `lines` name (Hanlon's recording, Lily's grandkids').
+    See: docs/fork/fo4_radio.md#line-stations
+    """
+    own = _named_stations(quest, stations)
+    named = {form for line in lines for form in _named_stations(line, stations)}
+    return own[0] if own else (named.pop() if len(named) == 1 else None)
 
 
 class Radio:
@@ -149,12 +177,19 @@ class Radio:
         self.builder, self.stations, self.made = builder, radio_stations(export_dir), set()
         self.template = next(subrecords(r.body) for r, _ in walk(builder.fo4, b'ACTI')
                              if (first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode() == TRANSMITTER)
-        self.refs = {}
-        for ref in export_records(export_dir, 'REFR'):
-            if int(ref.get('NAME', '0'), 16) in self.stations:
-                self.refs.setdefault(int(ref['NAME'], 16), []).append(ref['FormID'])
-        self.sounds = {int(r['FormID'], 16): r.get('FNAM.Filename', '') for r in export_records(export_dir, 'SOUN')}
+        self.refs, self.receivers, named = {}, {}, {}
         self.export_dir, self.stations_of = export_dir, fnv_links(None, b'ACTI', b'RNAM')
+        for ref in export_records(export_dir, 'REFR'):
+            base = int(ref.get('NAME', '0'), 16)
+            if base in self.stations:
+                self.refs.setdefault(base, []).append(ref['FormID'])
+                named[(ref.get('EditorID') or '').lower()] = base
+            elif base in self.stations_of:
+                self.receivers.setdefault(self.stations_of[base], []).append(ref['FormID'])
+        texts = [r.get('SCTX', '') for r in export_records(export_dir, 'SCPT')]
+        self.started, self.npc_radios = ({named[m.lower()] for text in texts for m in call.findall(text)
+                                          if m.lower() in named} for call in (START_CALL, NPC_RADIO_CALL))
+        self.sounds = {int(r['FormID'], 16): r.get('FNAM.Filename', '') for r in export_records(export_dir, 'SOUN')}
 
     def frequency(self, station: int) -> 'float | None':
         """A placed station's frequency: Pip-Boy slot, or a lounge one off the band."""
@@ -169,7 +204,29 @@ class Radio:
         if station not in self.refs:
             return b''
         self.builder.counts['radio receivers'] += 1
+        return self._radr(station)
+
+    def _radr(self, station: int) -> bytes:
+        """RADR on `station`'s frequency, off until switched on, jukebox sound."""
         return struct.pack('<IffBB', RECEIVER_OUTPUT, self.frequency(station), RECEIVER_VOLUME, 0, 0)
+
+    def npc_receiver(self, station: int) -> int:
+        """The receiver activator a script's SetNPCRadio places at an actor to play placed `station` (an invisible
+        marker, as vanilla's dummy radios); 0 when no script names the station so.
+        See: docs/fork/fo4_radio.md#npc-radio
+        """
+        if station not in self.npc_radios:
+            return 0
+        rec = self.stations[station]
+        fid = self.builder.new_id(f'ACTI radio npc receiver {station:08X}')
+        if fid in self.made:
+            return fid
+        self.made.add(fid)
+        self.builder.writer.add_record('ACTI', R.pack_acti(
+            fid, f'FNV_{rec["EditorID"]}NPCReceiver', '', NPC_RECEIVER_MODEL, NPC_RECEIVER_BOUNDS, b'', '', 0,
+            self._radr(station)))
+        self.builder.counts['radio NPC receivers'] += 1
+        return fid
 
     def form_map(self) -> dict:
         """{FNV station: its FO4 transmitter base} for the lines' GetIsID on their station."""
@@ -177,12 +234,48 @@ class Radio:
 
     def program(self, rec: dict, quest: int, form_map: dict, ref_ids: dict) -> 'tuple | None':
         """(aliases, topic blobs, scenes, quest scripts) adding FNV quest `rec`'s radio program (radio_program) to its
-        FO4 quest `quest` when it is a built station's; None otherwise."""
-        station = station_of(rec, self.stations)
-        host = next((ref_ids[r] for r in self.refs.get(station, ()) if r in ref_ids), None) if station else None
+        FO4 quest `quest` when it is a built station's; None otherwise. A quest whose lines name several stations
+        writes each its own quest instead (_acts)."""
+        lines = radio_lines(self.builder.say, rec)
+        station = station_of(rec, self.stations, lines)
+        if station is None:
+            self._acts(rec, lines, form_map, ref_ids)
+            return None
+        return self._built(rec, quest, station, lines, form_map, ref_ids)
+
+    def _built(self, rec: dict, quest: int, station: int, lines: list, form_map: dict, ref_ids: dict):
+        """Program.build of `station`'s `lines` on FO4 `quest`, hosted by its built reference; None without one.
+        It is on demand, with its built receivers, when a script starts the station, the Pip-Boy does not list it
+        and a line ends its run; it has an NPC receiver when a script's SetNPCRadio names the station.
+        See: docs/fork/fo4_radio.md#start-radio-conversation
+        """
+        host = next((ref_ids[r] for r in self.refs.get(station, ()) if r in ref_ids), None)
         if host is None:
             return None
-        return Program(self, rec, quest, self.stations[station]).build(form_map, host, self.stations[station])
+        on_demand = (station in self.started and not pipboy(self.stations[station])
+                     and any(ends_run(line) for line in lines))
+        receivers = [ref_ids[r] for r in self.receivers.get(station, ()) if r in ref_ids] if on_demand else []
+        self.builder.counts['radio programs on demand'] += on_demand
+        return Program(self, rec, quest, self.stations[station], lines, on_demand).build(
+            form_map, host, self.stations[station], (receivers, self.npc_receiver(station)))
+
+    def _acts(self, rec: dict, lines: list, form_map: dict, ref_ids: dict) -> None:
+        """A start-enabled quest per station FNV quest `rec`'s radio `lines` name (the Tops stage acts), its forms
+        keyed by the quest's FormID and the station's.
+        See: docs/fork/fo4_radio.md#stage-acts
+        """
+        for station, own in sorted(lines_by_station(lines, self.stations).items()):
+            act = {**rec, 'FormID': f'{rec["FormID"]} {station:08X}',
+                   'EditorID': f'{rec["EditorID"]}_{self.stations[station]["EditorID"]}'}
+            quest = self.builder.new_id(f'QUST radio {act["FormID"]}')
+            built = self._built(act, quest, station, own, form_map, ref_ids)
+            if built:
+                aliases, topics, scenes, runners = built
+                vmad = quest_fragments('', [], scripts=list(runners))
+                record = R.pack_fnv_quest(quest, f'FNV_{act["EditorID"]}', '', 0, vmad, [], [], aliases,
+                                          start=bool(int(rec.get('DATA.Flags', 0)) & START_GAME))
+                self.builder.writer.add_record('QUST', pack_quest(record, quest, [], topics, scenes))
+                self.builder.counts['radio act quests'] += 1
 
     def base(self, fnv: int, rec: dict) -> 'int | None':
         """The FO4 transmitter of FNV station `rec` (FormID `fnv`), written once; None, counted, for another

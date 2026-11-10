@@ -85,11 +85,128 @@ one track per FO4 bone (`anim_fo4.write_fo4_animation`).
 - **Round trip.** The writer's output reads back through the vendored
   reader with rotation error under 1e-7 (vanilla `Hancock_PlayingKnife`
   and `IdleSitFemaleReactingToViolence`).
-- **Not covered yet:** FNV's props (the Reflectron mirror rides on
-  `Weapon` and a dummy node; FO4 shows props through ANIO and
-  `AnimObjLoad`/`AnimObjDraw` events), creature clips (18 of the 115 line
+- **Not covered yet:** a prop's motion below its chain and its visibility
+  keys ([converted props](#converted-props)), creature clips (18 of the 115 line
   idles), female-only clips, and root motion (FO4's dynamic idle plays in
   place; the clip's root track is dropped).
+
+### <a id="props"></a>Props
+
+FNV pairs a prop mesh with an idle through an ANIO record (`DATA.Idle`);
+the smoking idles (`NPCSmokingIdle`, `WallLeanSmoking`,
+`LooseSmokingStanding`) show `AnimObjects\aoCigarette.NIF`, hung from
+`Bip01 R Hand` (its `Prn`). The clips themselves name no prop.
+
+FO4 loads a prop by events in the clip that name its ANIO's EditorID.
+Vanilla `to_smoking.hkx` carries `AnimObjLoad.AnimObjectCigarette` at 0,
+`cigOn` and `AnimObjDraw.AnimObjectCigarette` at 0.67 s, and `cigDrag` on
+a puff (the prop's own graph lights the tip). `to_normal.hkx` carries
+`AnimObjUnequip`, the ANIO's unload event. The prop hangs from
+`AnimObjectR1`, a bone under `RArm_Hand` at rest on the hand. Every vanilla
+smoking clip holds it at t (11.01, 0, -1.34), turned -35° about z.
+
+`havok/anim_props.py` plays FNV's prop as vanilla's own object
+(`data/anim_props.json`), with no ANIO record or mesh converted. A
+converted clip whose idle has a listed prop gets:
+
+- the load and draw events at its start, plus the object's start events;
+- FNV text keys turned into the object's events (the inhale sound
+  `NPCIdleSmokingIn` → `cigDrag`);
+- `AnimObjUnequip` at its end;
+- the prop bone held as the table's vanilla clip holds it, read at the
+  frame that clip draws the object (frame 0 when it never does);
+- every prop its ANIO records name, one per prop bone (the scientist
+  terminal idles show a clipboard in the left hand and a pencil in the
+  right) with a single `AnimObjUnequip`.
+
+**Finding a vanilla object:** `tools/creature/vanilla_anim_props.py` scans
+`Fallout4 - Animations.ba2` for `AnimObjLoad.<object>`. For each object it
+lists the model and the bone its mesh's `Prn` names, then the clips that
+load it, earliest draw first, and the events beside the draw. A row's
+bone must be on the same hand as the FNV mesh's `Prn`. A vanilla mesh
+hangs from its own bone, so a left-hand object can't stand in for a
+right-hand FNV one. Most events beside the draw belong to the actor
+(`HeadTrackingOff`, `PathTweenerEnd`). Only the object's own (`cigOn`,
+`On`) go in `start`.
+
+| FNV mesh | FO4 object | Bone | Idles |
+|---|---|---|---|
+| `aoCigarette`, `Benny_cigarette` | `AnimObjectCigarette` | R1 | smoking |
+| `RepairTool01` | `AnimObjectWrench` | R1 | repair floor/wall, workbench |
+| `aoSyringe` | `AnimObjectMedX` | R1 | doctor heal, revive |
+| `Stempax` | `AnimObjectStimpak` | L1 | `3rdPSpecialIdleStimpak` |
+| `aoScientistClipboard` | `AnimObjectClipboardLeftHand` | L1 | scientist inspect terminal |
+| `aoExamPencil` | `AnimObjectPencil` | R1 | exams, inspect terminal |
+| `aoChalk` | `AnimObjectChalk` | R1 | blackboard |
+| `aoBarDishRag`, `BarKeepRag` | `AnimObjectDishRag` | R1 | bartender wipes |
+| `SandManKnife` | `AnimObjectSandmanKnife` | R1 | Mister Sandman kills |
+
+These have no vanilla stand-in and are converted instead:
+
+- `aoTestPaper`: it's a right-hand prop, and FO4's `AnimObjectPaper` is
+  left-hand only.
+- `aoBarGlassEmpty`: it's a left-hand prop, and `AnimObjectDishRag_glass`
+  is right-hand only.
+- `BlacksmithHammer`: `AnimObjectBlacksmithForgeHammer`
+  (`AnimObjectHammer_Wall.nif`) is loaded by no clip, so there's no hold to
+  copy.
+
+A prop with no entry in the table is converted instead ([converted props](#converted-props)).
+
+### <a id="converted-props"></a>Converted props
+
+`havok/fnv_props.py` and `spike/idle_props.py` convert an FNV prop the table
+has no vanilla stand-in for. It needs its mesh in the export and a `Prn`
+naming an FNV skeleton bone.
+
+**How FNV places a prop.** FNV hangs a prop's mesh from that skeleton bone.
+An idle's clip can also move the mesh's own nodes:
+- Doc's Reflectron, the Pip-Boy, the Rorschach cards, the guitar and Benny's
+  9mm all move this way;
+- the test papers, chalk, meals and drinks hold still.
+
+**How FO4 places a prop.** FO4 hangs a prop from a prop bone that the clip
+moves. `AnimObjectR1` and `L1` rest exactly on the hands (identity under
+`RArm_Hand`/`LArm_Hand`). `AnimObjectA` rests on `Root`.
+
+**What the conversion does.**
+
+- **Record:** an FO4 ANIO on FNV's FormID and EditorID. Its model is the
+  converted mesh, and BNAM is `AnimObjUnequip`. Record flag `0x200` comes
+  from Fallout4.esm, where all 145 ANIO records carry it.
+- **Mesh:** `<name>_prop.nif`, converted with its chain flattened. The chain
+  runs from the root down to the node that holds every shape. The mesh is
+  hung (`Prn`) from the FO4 prop bone: R1 or L1 for an FNV hand, A for
+  anything else. It is hung as it is written (`statics.prop_assets`),
+  because idles are written after the build's Elric pass; a prop with Havok
+  input runs through Elric right then.
+- **Clip:** the prop bone's track carries the chain's transform on every
+  frame, with FNV's clip channels where the clip moves a chain node.
+  - On a hand, the transform is turned from FNV's hand frame into FO4's, by
+    the same fixed rotation the retarget gives the hand.
+  - That rotation is about a half-turn about the hand's long axis, plus a
+    3.5° tilt.
+  - On another bone (the guitar's pelvis), the transform is in the clip's
+    root space, following that FNV bone.
+
+Lost: motion below the chain's end, such as a single card's own swap or the
+9mm slide, and visibility keys (the Pip-Boy is hidden for a tenth of
+`GivePipBoy` in FNV).
+
+Not converted: a prop whose `Prn` is missing. Benny's two
+`weapons\1handpistol\9mm.nif` ANIOs are like this, and the same idle shows
+`nv_9mm.nif` on the right hand.
+
+**Checked offline:** in 2026-11-07, the built idles had six props converted:
+- the test paper and the Rorschach card are held still;
+- the Pip-Boy sits 10 units off the left hand;
+- the guitar is on the root at hip height (79 to 83 units up);
+- Doc's mirror is within 5 units of the hand for most of the clip, and 183
+  units away before he picks it up, where FNV puts it too;
+- Benny's 9mm sits 9 units off the hand.
+
+On every sampled frame, each one's world turn matches FNV's
+(`tests/test_fo4_idle_props.py`). None has been played in game.
 
 ## <a id="records"></a>2. Records: FNV IDLE as an FO4 dynamic idle
 
@@ -109,8 +226,10 @@ on FNV's own FormID (a new record; nothing already built moves).
   dialogue's form map), `ANAM` FNV's parent and previous when they are
   built (else 0, loose flag 0x01), FNV's replay delay. FNV's loop counts
   other than "forever" play once.
-- **Left out:** an idle whose clip is missing (2 of Doc's) or is not a
-  human clip.
+- **Left out:** an idle whose clip is missing (2 of Doc's) or is neither a
+  human clip nor in an own rig's folder. A rig's idles play on that rig's
+  graph with vanilla creatures' `dynamicAnim` events
+  ([rig idles](fo4_own_rig.md#idles), built 2026-11-06).
 - **Idle trees:** only the ambient one is built ([trees](#trees)).
 
 ## <a id="trees"></a>Ambient idle tree (built 2026-11-06, not played)
@@ -153,6 +272,34 @@ everything below it, when:
   on the weapon graph (`WeaponAltIdleRoot`), and FNV's weapon-type values
   don't map;
 - it is a group with nothing kept below it.
+
+**Sitters stay seated.** FO4 played the tree on seated NPCs: they stood
+up, played the idle and sat down again. FNV's root has no sitting test,
+because FNV's engine never offered that tree to a sitter. Vanilla FO4 gates
+its standing talk roots with `GetSitting == 0` (`CreateABotTalkRoot`,
+`PowerArmorTalkWeaponRoot`). The root and every loose idle on the standing
+graph (a line's speaker or listener idle) now carry that test first, ahead
+of FNV's own conditions so their OR groups stay intact (`idles.STANDING`).
+
+**Retry rate (2026-11-08, after play: Captain Parker and Bert Gunnarsson
+in Aerotech swatted and scratched every 2–10 s, initiateStart in the trace).**
+An idle actor retries its idle tree every `fAIIdleWaitTime`: 1.0 s in FNV
+(the `fld1` default where FalloutNV.exe registers it, setting object
+`0x11CDD30` per JIP's `settings_enum.h`), 0.1 s in FO4 (Fallout4.esm GMST).
+FNV's own throttle is a `GetRandomPercent < 1` on `NPCGeneralIdles`, sized
+for one try a second, so FO4 passed it ten times as often.
+- *A second random gate failed (1108d, played 2026-11-09).* A
+  `GetRandomPercent < 10` on the root left the gaps unchanged (Bert: 5.2,
+  3.9, 4.8 s before; 2–10 s after). A random test cannot space FO4's idles:
+  its tries are too frequent, or the tests share one draw.
+- *Replay delays instead (built 2026-11-09, not played).* Vanilla spaces
+  ambient-tree leaves by Replay Delay (`FeralGhoulSitIdle` 21 s,
+  `DogIdleFlavorDefault_PoseASit` 25 s; humans have no random ambient tree).
+  `Idles._space` gives each kept leaf of a group FNV's mean gap for that
+  group, `FNV_IDLE_WAIT` over the chance of the `GetRandomPercent <` tests on
+  it and its parents, times its kept leaves, or FNV's own delay if longer.
+  `NPCGeneralIdles` (1%, 6 leaves): 600 s each, so at most six general
+  idles per 10 minutes, against FNV's mean of one per 100 s.
 
 The tree's own idles are in the form map, for `IsLastIdlePlayed`. Its
 form-list tests (`GetEquipped`, for example `FistWeaponsList`) are made the

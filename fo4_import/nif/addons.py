@@ -4,7 +4,8 @@ FNV attaches particle effects (the fire on a burning barrel's light) by a
 BSValueNode whose value is an ADDN record's DATA index; FO4 does the same.
 The indices differ (FNV's MPSFireSmall01 is 14, FO4's is 4), so the FNV
 index's ADDN EditorID picks Fallout4.esm's ADDN of that name and its index.
-An add-on with no same-named FO4 ADDN is left out. The mapping is data the
+FNV's ambient smoke has no FO4 namesake and takes STAND_INS' (drift); any
+other add-on with no same-named FO4 ADDN is left out. The mapping is data the
 mesh cache keys on, passed into convert_static.convert.
 
 See: docs/fork/fo4_pipeline.md#addons
@@ -17,6 +18,10 @@ from pathlib import Path
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import first_sub, walk
+
+
+#: FNV ADDN EditorID -> the Fallout4.esm ADDN standing in: FO4's car damage stages smoke with MPSSmokeFireMed01.
+STAND_INS = {'MPSSmokeMed01': 'MPSSmokeFireMed01', 'MPSSmokeSmall01': 'MPSSmokeFireMed01'}
 
 
 @functools.cache
@@ -32,7 +37,8 @@ def _fo4_by_name() -> dict:
 
 @functools.cache
 def addon_map(export_dir: str) -> dict:
-    """{FNV ADDN index: Fallout4.esm's ADDN index of the same EditorID}, if any."""
+    """{FNV ADDN index: Fallout4.esm's ADDN index of the same EditorID, or of its STAND_INS entry}, if any."""
     fo4 = _fo4_by_name()
-    names = {int(r['DATA.Index']): r['EditorID'] for r in export_records(Path(export_dir), 'ADDN')}
+    names = {int(r['DATA.Index']): STAND_INS.get(r['EditorID'], r['EditorID'])
+             for r in export_records(Path(export_dir), 'ADDN')}
     return {index: fo4[name] for index, name in sorted(names.items()) if name in fo4}

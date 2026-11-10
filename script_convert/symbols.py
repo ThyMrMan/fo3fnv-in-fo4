@@ -111,7 +111,7 @@ def type_of_expr(node, lookup) -> str:
             return 'Float'
         return ''
     if isinstance(node, N.Unary):
-        return type_of_expr(node.operand, lookup)
+        return 'Bool' if node.op == '!' else type_of_expr(node.operand, lookup)
     if isinstance(node, N.BinOp):
         if node.op in ('==', '!=', '>', '<', '>=', '<=', '&&', '||', '<>'):
             return 'Bool'
@@ -183,14 +183,14 @@ def scan_var_usage(stmts, names, lookup):
             owner = _bare(node.owner).lower()
             if owner in usage:
                 usage[owner].ref_usage = True
-                if _needs_actor(node.name):
+                if needs_actor(node.name):
                     usage[owner].actor_usage = True
         elif isinstance(node, N.Call):
             if node.receiver is not None:
                 recv = _bare(node.receiver).lower()
                 if recv in usage:
                     usage[recv].ref_usage = True
-                    if _needs_actor(node.name):
+                    if needs_actor(node.name):
                         usage[recv].actor_usage = True
             actor_arg = node.name.lower() in ACTOR_ARG_FUNCTIONS
             for a in node.args:
@@ -437,7 +437,7 @@ def _mixed_record_type(use, record_type_of) -> str:
     return ''
 
 
-def _needs_actor(name: str) -> bool:
+def needs_actor(name: str) -> bool:
     """Does calling `name` on a receiver require that receiver to be an Actor?
 
     Two authorities agree on this and both are consulted: the

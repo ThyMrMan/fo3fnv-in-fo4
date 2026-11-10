@@ -11,8 +11,8 @@ Nothing in Fallout4.esm is overridden.
 See: docs/fork/fo4_pipeline.md#new-game
 """
 
-from pathlib import Path
 
+from fo4_import.base.source import plugin_name
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
@@ -37,10 +37,10 @@ START_BY_HAND, FRAGMENTS, FRAGMENT = 10, 'F3NV_NewGameStart', 'Fragment_Stage_00
 
 def build(builder, export_dir: Path, quests: dict) -> None:
     """Write the new game quest when the source game's opening quest is in `quests` {EditorID: FO4 FormID}."""
-    quest, stage = START.get(export_dir.name, (None, 0))
+    quest, stage = START.get(plugin_name(export_dir), (None, 0))
     if quest not in quests:
         return
-    fid = builder.writer.derive_formid(SITE, export_dir.name)
+    fid = builder.writer.derive_formid(SITE, plugin_name(export_dir))
     props = {'MQ101': MQ101, 'MQ102': MQ102, 'TimeScale': TIME_SCALE, 'StartQuest': quests[quest],
              'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD, 'SkillGates': builder.perks.gates,
              'CombatRules': builder.combat.fid, **builder.combat.damage_rules[0],

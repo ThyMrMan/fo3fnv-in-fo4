@@ -50,3 +50,26 @@ def test_before_the_people_stage_the_property_is_counted(monkeypatch):
     builder = SimpleNamespace(counts=collections.Counter())
     assert _scripts(monkeypatch, builder).actor_base('NVDLC04DivideCaveTBrute') is None
     assert sum(builder.counts.values()) == 1
+
+
+def test_a_base_typed_property_names_a_placed_base_its_own_too():
+    """Nero's couch script names its own base: a Form, Activator or other base-typed property naming an FNV placed
+    base by EditorID (any case) gets that base, made on demand (counted when first made); while the couch is
+    written its own script reads its FNV-derived FormID, so making it does not recurse."""
+    from fo4_import.spike import cell as CL
+    builder = CL.CellBuilder.__new__(CL.CellBuilder)
+    builder.counts, builder.made = collections.Counter(), {}
+    builder.bases = {0x11C245: ('FURN', {'EditorID': 'VMS21NeroCouch'}), 0x2000: ('ACTI', {'EditorID': 'FXSparks'})}
+    builder.fnv_id = lambda fid: 0x03000000 | fid
+    scripts = A.ObjectScripts.__new__(A.ObjectScripts)
+    scripts.builder, scripts.base_names = builder, None
+    seen = []
+
+    def record(fnv_fid, sig, rec):
+        """A converter whose base's script names the couch while the base is written."""
+        seen.append(scripts._base('vms21nerocouch'))
+        return builder.fnv_id(fnv_fid)
+    builder.record = record
+    assert scripts._base('VMS21NeroCouch') == 0x0311C245 and seen == [0x0311C245]
+    assert scripts._base('FXSparks') == 0x03002000 and scripts._base('NoSuchBase') is None
+    assert builder.counts['base made for a script property'] == 2

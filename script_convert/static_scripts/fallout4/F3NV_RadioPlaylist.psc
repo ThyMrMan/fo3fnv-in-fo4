@@ -9,15 +9,33 @@ Scene Property Program Auto Const
 {The first step's scene (RadioHello).}
 Scene[] Property Steps Auto Const
 {Every step's scene, in step order (Program first).}
+String[] Property StepTopics Auto Const
+{The FO3/FNV EditorID of each step's first topic, in step order: where StartRadioConversation starts.}
+Bool Property OnDemand Auto Const
+{Only a script starts the program (StartRadioConversation); it neither starts with its quest nor restarts.}
+ObjectReference[] Property Receivers Auto Const
+{An on-demand program's receivers, switched on as it starts: an FO4 transmitter is heard only through one.}
+Activator Property NPCReceiver Auto Const
+{A receiver on the station's frequency (an invisible marker) that SetNPCRadio places at an actor: FO3/FNV plays a station through an NPC (Lily's recording, ED-E).}
+
+ObjectReference NPCRadio = None
 
 Int NextStep = 0
 Float Restart = 5.0
 Float LineStart = 0.0
 Float MinStep = 1.0
 
+Int HostAlias = 2000
+
 Event OnQuestInit()
-  Begin()
-  StartTimer(Restart)
+  F3NV_RadioStation station = (GetAlias(HostAlias) as ReferenceAlias).GetReference() as F3NV_RadioStation
+  If station
+    station.Playlist = Self
+  EndIf
+  If !OnDemand
+    Begin()
+    StartTimer(Restart)
+  EndIf
 EndEvent
 
 Event OnTimer(int aiTimerID)
@@ -33,6 +51,43 @@ Function Begin()
   Said = 0
   CurrentSong = 0
   Program.Start()
+EndFunction
+
+Function StartAt(String asTopic)
+  {Start the program at the step whose first topic is asTopic (StartRadioConversation), stopping any step running; an on-demand program switches its receivers on first.}
+  int step = StepTopics.Find(asTopic)
+  If step < 0
+    Debug.Trace("TES4Radio|" + Utility.GetCurrentRealTime() + "|no step|" + asTopic + "|" + Program)
+    Return
+  EndIf
+  int i = 0
+  While Receivers && i < Receivers.Length
+    Receivers[i].SetRadioOn(True)
+    i += 1
+  EndWhile
+  i = 0
+  While i < Steps.Length
+    Steps[i].Stop()
+    i += 1
+  EndWhile
+  Said = 0
+  CurrentSong = 0
+  Steps[step].Start()
+EndFunction
+
+Function SetNPCRadio(Actor akActor, Bool abOn)
+  {FO3/FNV SetNPCRadio: the station plays at akActor through an NPCReceiver placed there and switched on; off removes it. A new call replaces the last one's.}
+  If NPCRadio
+    NPCRadio.SetRadioOn(False)
+    NPCRadio.Delete()
+    NPCRadio = None
+  EndIf
+  If !abOn || !akActor || !NPCReceiver
+    Return
+  EndIf
+  NPCRadio = akActor.PlaceAtMe(NPCReceiver)
+  NPCRadio.SetRadioOn(True)
+  Debug.Trace("TES4Radio|" + Utility.GetCurrentRealTime() + "|npc radio|" + akActor + "|" + Program)
 EndFunction
 
 Bool Function Playing()

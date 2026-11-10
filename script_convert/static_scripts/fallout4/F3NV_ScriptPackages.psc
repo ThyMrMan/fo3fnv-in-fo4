@@ -135,19 +135,20 @@ Function Remove(Actor akActor)
   akActor.EvaluatePackage()
 EndFunction
 
-Function Talked(Actor akActor)
-  {`akActor` opens a talk (F3NV_Greeting): its script package ends in whichever plugin's quest runs it (TalkedHere).}
+Bool Function Talked(Actor akActor)
+  {`akActor` opens a talk (F3NV_Greeting): its script package ends in whichever plugin's quest runs it (TalkedHere); whether one did.}
   If akActor == None
-    Return
+    Return False
   EndIf
   F3NV_ScriptPackages[] quests = Quests()
   Int q = 0
   While q < quests.Length
     If quests[q].TalkedHere(akActor)
-      Return
+      Return True
     EndIf
     q += 1
   EndWhile
+  Return False
 EndFunction
 
 Bool Function TalkedHere(Actor akActor)

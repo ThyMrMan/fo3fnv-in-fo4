@@ -236,6 +236,8 @@ latches, so gun nightkin don't re-cloak), and REPCON's corpses (Starts Dead
 placements; the ghouls are also killed on load) get FNV's ragdoll poses
 (converted 2026-11-01, not rebuilt). Findings: [creatures](fo4_spikes.md#spike-4-creatures).
 
+**Pistols and the Multiplas (built 2026-11-08, not played):** `NEAREST` now maps `AnimsGripPistol` to the pipe gun's `AnimsRecieverHandmadePipe` (FO4's own pipe pistols carry both, so super mutants already fire them with the PipeRifle set) and `AnimsPlasmaRifle` (the Multiplas's grip keyword, which its own replaces) to `AnimsHuntingRifle`, the rifle set every super mutant rifle class falls back on. Against the 2026-11-08 build, guns a super mutant can fire go from 66 to 103 of 119; still none: shotguns, the gatling laser, grenade launchers, the Fat Man.
+
 ## <a id="screens"></a>7. Securitron and Mr. House screens, the Lucky 38 elevator
 
 **Steps 1 to 4 built 2026-11-02, not played:** [rigid parts](fo4_own_rig.md#rigid-parts),

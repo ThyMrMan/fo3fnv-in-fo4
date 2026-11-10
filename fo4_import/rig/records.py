@@ -6,11 +6,13 @@ See: docs/fork/fo4_own_rig.md#modules
 """
 
 import functools
+import hashlib
 import operator
 import struct
 from dataclasses import replace
 
 from fo4_import.base.install import source_walk
+from fo4_import.base.strings import as_text
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.rig.behavior import fire_start
 from fo4_import.rig.table import weapon_node
@@ -21,6 +23,10 @@ from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 SITE = 'FNV RIG'
+#: Between the parts' stems in a several-part body's name (build.body_name).
+PART_JOIN = '+'
+#: A model file name's longest length kept as is, and the stem and hash lengths of a shortened one (model_file).
+MODEL_NAME_MAX, MODEL_STEM, MODEL_HASH = 64, 40, 12
 #: The vanilla graphs whose IDLEs lend their DATA, first wins: the cat's, eyebot's, turrets' (fire single, auto).
 IDLE_GRAPHS = ('catrootbehavior.hkx', 'eyebotrootbehavior.hkx', 'turretsharedbehavior.hkx')
 #: The actions a ranged rig adds (FO4 fires a creature's gun, automatic or not, from these, not attack data).
@@ -248,8 +254,19 @@ def _part_field(tag: bytes, data: bytes, node, shown: str) -> bytes:
 
 
 def body_path(rig, body: str) -> str:
-    """The FO4 model path of body `body` (its file name) in the creature's folder."""
-    return rig.path('CharacterAssets', body)
+    """FO4 model path of body name `body` (model_file) in the creature's folder."""
+    return rig.path('CharacterAssets', model_file(body))
+
+
+def model_file(name: str) -> str:
+    """Own-rig model `name`'s file name: itself up to MODEL_NAME_MAX characters, else its first part's stem and a
+    hash of the whole name, so a many-part body's path stays inside Windows' 260-character limit.
+    See: docs/fork/fo4_own_rig.md#model-names
+    """
+    if len(name) <= MODEL_NAME_MAX:
+        return name
+    digest = hashlib.sha1(name.lower().encode('utf-8')).hexdigest()[:MODEL_HASH]
+    return f'{name.split(PART_JOIN)[0][:MODEL_STEM]}{PART_JOIN}{digest}.nif'
 
 
 def skin(ids: tuple, race_fid: int, rig, t: Templates, body: str, footsteps: bool = True,
@@ -286,7 +303,8 @@ def wearable(fid: int, race_fid: int, rig, t: Templates, edid: str, addons: list
     listed = b''.join(pack_subrecord('INDX', bytes(2)) + u32('MODL', f) for (f, _), _ in addons)
     new = {b'EDID': zstr('EDID', edid), b'RNAM': u32('RNAM', race_fid), b'MODL': listed,
            b'BOD2': u32('BOD2', functools.reduce(operator.or_, (m for (_, m), _ in addons)))}
-    armo = b''.join(new.get(tag) or pack_subrecord(tag.decode(), data) for tag, data in armo_subs if tag != b'INDX')
+    armo = b''.join(new.get(tag) or pack_subrecord(tag.decode(), as_text(tag, data)) for tag, data in armo_subs
+                    if tag != b'INDX')
     return pack_fo4_record('ARMO', fid, armo_rec.flags, armo)
 
 

@@ -8,11 +8,13 @@ import collections
 import struct
 from pathlib import Path
 
-from fo4_import.base.ba2_pack import pack_sounds, pack_textures, sound_root, stage_loose_sounds
+from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
 from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.master_overrides import drop_unchanged
+from fo4_import.base.source import plugin_stem
+from fo4_import.havok import gun_anim_text
 from fo4_import.nif import weapon
 from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
@@ -57,7 +59,7 @@ def _voice(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
 
 @timed('sounds')
 def _sounds(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
-    """Voices (_voice) and the sound records' files, packed into the plugin's Main BA2.
+    """Voices (_voice) and the sound records' files, staged for the plugin's Main BA2 (_main_archive).
     See: docs/fork/fo4_pipeline.md#sound-archive
     """
     _voice(builder, export_dir, data_dir, plugin)
@@ -67,7 +69,14 @@ def _sounds(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
     builder.counts["sound files left to the master's archive"] = len(dict.fromkeys(builder.sounds.jobs)) - len(jobs)
     todo = [job for job in jobs if not job[1].exists()]
     builder.counts['sound files'] = voice.convert(todo, LIP_GENERATOR)
-    builder.counts['sound files packed'] = pack_sounds(data_dir, plugin)
+
+
+@timed('main archive')
+def _main_archive(builder, data_dir: Path, plugin: str) -> None:
+    """The Main BA2 (pack_main), after every writer and the stale prune.
+    See: docs/fork/fo4_pipeline.md#main-archive
+    """
+    builder.counts['files packed into the Main archive'] = pack_main(data_dir, plugin)
 
 
 @timed('plugin write')
@@ -84,9 +93,24 @@ def _write_plugin(builder, out: Path, data_dir: Path) -> None:
     builder.writer.write(str(out))
     for key, count in clear_dangling(out, len(builder.writer.masters)).items():
         builder.counts[f'script properties naming no written record ({key})'] = count
-    if anim_info.needed((r for r in builder.writer.top_records() if r[:4] == b'RACE'), data_dir):
+    races = [r for r in builder.writer.top_records() if r[:4] == b'RACE']
+    if anim_info.needed(races, data_dir):
         builder.counts['own-rig animation data files (Creation Kit)'] = charged(
             'own-rig animation data (Creation Kit)', anim_info.generate, out, data_dir)
+    _gun_anim_text(builder, races, data_dir)
+
+
+@timed('gun animation data')
+def _gun_anim_text(builder, races: list, data_dir: Path) -> None:
+    """Third-person gun entries' animation data copied from vanilla (gun_anim_text), after the Creation Kit so
+    those files are ours whatever it wrote; counted.
+    See: docs/fork/research/anim_text_data.md#writer
+    """
+    vanilla = gun_anim_text.load_vanilla(FALLOUT4_DIR / 'Data')
+    copies = gun_anim_text.copied_entries(races, data_dir, vanilla)
+    builder.counts['gun animation data files copied from vanilla'] = len(gun_anim_text.write(data_dir, copies, vanilla))
+    builder.counts['ids added to the persistent subgraph list'] = gun_anim_text.merge_persistent(
+        data_dir, copies, vanilla, master_copies.master_dirs(builder))
 
 
 @timed('collision')
@@ -133,7 +157,7 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
 @timed('closing records')
 def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helper: int) -> None:
     """The records written from everything made: script packages, ammo, condition (helper plugin index
-    `helper`), the Pip-Boy pages, challenges."""
+    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino."""
     builder.counts['script packages'] = write_script_packages(builder)
     ammo_casings.write(builder, builder.equipment.ammo_mods.loaded)
     ammo_switch.write(builder, builder.equipment.ammo_mods)
@@ -141,7 +165,10 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
     write_karma_page(builder, export_dir, builder.reputation_slots)
     write_page(builder)
     builder.challenges.write()
+    builder.imposter_gate.write()
     builder.region_watch.write()
+    builder.hardcore.write(builder.consumables.effects)
+    builder.casino.write(data_dir)
     companion_barks.write(builder)
     builder.counts['Pip-Boy Tabs files removed'] = len(remove_legacy_tabs(data_dir, out.name))
     if builder.built:
@@ -150,12 +177,13 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
 
 @timed('closing records')
 def _lists(builder, data_dir: Path) -> None:
-    """Weapon and item type lists and the gun race, ammo, poisons, idles, combat settings."""
+    """Weapon and item type lists and the gun race, ammo, poisons, idles, furniture poses, combat settings."""
     builder.equipment.write_anim_lists()
     builder.items.write_type_lists()
     builder.consumables.write_ammo()
     builder.consumables.poisons.write()
     builder.idles.write(data_dir)
+    builder.furniture_poses.write(data_dir)
     builder.combat.write()
     write_settings(builder, builder.combat.settings)
 
@@ -174,8 +202,9 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     builder.writer.ledger.save()
     builder.counts["files left to the master's folder"] = master_copies.drop_loose(data_dir,
                                                                                     master_copies.master_dirs(builder))
-    made = stale_files.made(data_dir, Path(export_dir.name).stem, builder.started, bool(builder.built))
+    made = stale_files.made(data_dir, plugin_stem(export_dir), builder.started, bool(builder.built))
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
+    _main_archive(builder, data_dir, out.name)
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')
     return builder.counts

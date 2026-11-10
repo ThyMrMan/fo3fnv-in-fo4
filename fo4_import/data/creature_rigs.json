@@ -844,5 +844,69 @@
         "ProjectileNode_Missle"
       ]
     }
+  },
+  "nvdlc03\\creatures\\brainbot": {
+    "project": "FNVBrainBot",
+    "template": {
+      "race": "ProtectronRace",
+      "parts": "MoleratBodyPartData",
+      "skin": "SkinMoleratWhole",
+      "addon": "MoleratWholeAA",
+      "movement": "Molerat_Default_MT",
+      "behavior": "meshes\\actors\\molerat\\behaviors\\moleratrootbehavior.hkx",
+      "character": "meshes\\actors\\molerat\\characters\\moleratcharacter.hkx",
+      "project": "meshes\\actors\\molerat\\moleratproject.hkx",
+      "unarmed": "UnarmedProtectron"
+    },
+    "clips": {
+      "Idle": "mtidle.kf",
+      "TurnLeft": "locomotion\\mtturnleft.kf",
+      "TurnRight": "locomotion\\mtturnright.kf",
+      "WalkForward": "locomotion\\mtforward.kf",
+      "RunForward": "locomotion\\mtfastforward.kf",
+      "CombatIdle": "1hpaim.kf",
+      "RangedAttack": "1hpattackright.kf",
+      "RangedAttackLeft": "2hrattackright.kf",
+      "Talk": "talking.kf"
+    },
+    "attacks": {},
+    "parts": {
+      "Root": "Root",
+      "Pelvis": "Bip01 Pelvis",
+      "SPINE1": "Bip01 Shell",
+      "SPINE2": "Bip01 Gun Joint01",
+      "Chest": "Bip01 Gun Joint02",
+      "Head": "Bip01 BrainBone",
+      "Front_LLeg1": "Bip01 ArmL Joint01",
+      "Front_LLeg2": "Bip01 ArmL Joint02",
+      "Front_LLegAnkle": "Bip01 ArmL Joint03",
+      "Back_LLeg1": "Bip01 ArmB Joint01",
+      "Front_RLeg1": "Bip01 ArmR Joint01",
+      "Front_RLeg2": "Bip01 ArmR Joint02",
+      "Front_RLegAnkle": "Bip01 ArmR Joint03",
+      "Back_RLeg1": "Bip01 ArmB Joint02"
+    },
+    "default_part": "Bip01 Pelvis",
+    "pose_bones": [
+      "Bip01 Pelvis",
+      "Bip01 Gun Joint01",
+      "Bip01 ArmR Joint01"
+    ],
+    "guns": {
+      "RangedAttack": [
+        "RightHand",
+        [
+          "Bip01 Gun Joint01"
+        ],
+        "ProjectileNode_Right"
+      ],
+      "RangedAttackLeft": [
+        "LeftHand",
+        [
+          "Bip01 Gun Joint01"
+        ],
+        "ProjectileNode_Right"
+      ]
+    }
   }
 }

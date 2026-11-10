@@ -69,6 +69,7 @@ def move_weapon(bones: list, fire: str, turn: tuple) -> list:
     sits on its Laser bone in line with its ProjectileNode: FO4 fires a gun from the model it hangs there.
     See: docs/fork/fo4_own_rig.md#ranged
     """
+    bones = lift_children(bones, WEAPON)
     names = [b.name for b in bones]
     kept = [b for b in bones if b.name != WEAPON]
     index = {b.name: i for i, b in enumerate(kept)}
@@ -77,6 +78,24 @@ def move_weapon(bones: list, fire: str, turn: tuple) -> list:
     m = NifFormat.Matrix33()
     (m.m_11, m.m_12, m.m_13, m.m_21, m.m_22, m.m_23, m.m_31, m.m_32, m.m_33) = turn
     return out + [Bone(WEAPON, index[fire], (0.0, 0.0, 0.0), mat33_to_quat_xyzw(m), 1.0)]
+
+
+def lift_children(bones: list, name: str) -> list:
+    """`bones` with bone `name`'s children moved, in place, onto its parent.
+    See: docs/fork/fo4_own_rig.md#think-tank
+    """
+    at = next((i for i, b in enumerate(bones) if b.name == name), None)
+    return bones if at is None else [lifted(bones[at], b) if b.parent == at else b for b in bones]
+
+
+def lifted(parent, child):
+    """Bone `child` (under Bone `parent`) on `parent`'s parent, in the same place."""
+    r, t = skeleton_frames([Bone(parent.name, -1, parent.translation, parent.quat_xyzw, parent.scale),
+                            Bone(child.name, 0, child.translation, child.quat_xyzw, child.scale)])[child.name]
+    scale = parent.scale * child.scale
+    m = NifFormat.Matrix33()
+    (m.m_11, m.m_12, m.m_13, m.m_21, m.m_22, m.m_23, m.m_31, m.m_32, m.m_33) = (r / scale).T.flatten()
+    return Bone(child.name, parent.parent, tuple(float(v) for v in t), mat33_to_quat_xyzw(m), scale)
 
 
 def aim_turn(bones: list, clip, node: str, at: float) -> tuple:
@@ -194,6 +213,7 @@ def add_fire_node(nif, under: str, name: str, turn: tuple) -> None:
     for kind, block in nif.blocks:
         if kind == 'NiNode' and weapon in block['children']:
             block['children'].remove(weapon)
+            block['children'] += lift_nif_children(nif, weapon)
     nif.blocks[nodes[under]][1]['children'].append(weapon)
     nif.blocks[weapon][1].update(translation=(0.0, 0.0, 0.0), rotation=turn, scale=1.0)
     nif.blocks.append(('NiNode', {**nif.blocks[weapon][1], 'name': nif.string(FIRE_NODE), 'extra': [],
@@ -204,6 +224,22 @@ def add_fire_node(nif, under: str, name: str, turn: tuple) -> None:
 
 #: The one class ragdoll_bones decodes, so a ragdoll's shapes need no layout (the centaur's spheres).
 RAGDOLL_DATA = frozenset({'hknpRagdollData'})
+
+
+def lift_nif_children(nif, node: int) -> list:
+    """Block `node`'s children, each put in its parent's frame where it is (its transform composed with the node's,
+    rotations row-vector); the indices, which the node no longer holds.
+    See: docs/fork/fo4_own_rig.md#think-tank
+    """
+    w = nif.blocks[node][1]
+    sw = np.array(w['rotation']).reshape(3, 3)
+    for child in w['children']:
+        b = nif.blocks[child][1]
+        t = np.array(w['translation']) + w['scale'] * sw.T @ np.array(b['translation'])
+        b.update(translation=tuple(float(v) for v in t), scale=w['scale'] * b['scale'],
+                 rotation=tuple(float(v) for v in (np.array(b['rotation']).reshape(3, 3) @ sw).flatten()))
+    lifted_ids, w['children'] = w['children'], []
+    return lifted_ids
 
 
 def ragdoll_bones(nif) -> dict:

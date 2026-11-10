@@ -21,8 +21,8 @@ See: docs/fork/fo4_pipeline.md#standings
 """
 
 import struct
-from pathlib import Path
 
+from fo4_import.base.source import plugin_name
 from fo4_import.base.support_records import pack_event_quest, pack_story_node
 from fo4_import.base.vmad import object_scripts, quest_fragments
 from fo4_import.pipeline.export_index import export_records
@@ -68,7 +68,7 @@ class Standings:
         """The character data of `export_dir`'s game, for `builder`."""
         self.builder, self.game = builder, game_of(str(export_dir))
         by_type = {sig: list(export_records(export_dir, sig)) for sig in DATA_TYPES}
-        self.doc = character_data(by_type, [], export_dir.name, self.game)
+        self.doc = character_data(by_type, [], plugin_name(export_dir), self.game)
 
     def build(self) -> None:
         """Write the lists, the rules quest and its player alias, the event quests and their Story Manager nodes."""

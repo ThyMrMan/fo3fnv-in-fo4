@@ -26,6 +26,8 @@ ANIM_TYPES = ('HandToHand', 'Melee1Hand', 'Melee2Hand', 'PistolBallistic', 'Pist
               'RifleAutomatic', 'RifleEnergy', 'Handle', 'Launcher', 'GrenadeThrow', 'LandMine', 'MineDrop', 'Thrown')
 CREATURE_TYPES = ('Animal', 'MutatedAnimal', 'MutatedInsect', 'Abomination', 'SuperMutant', 'FeralGhoul', 'Robot',
                   'Giant')
+#: EditorID prefix of the creature type keywords (also the converted scripts' property names).
+CREATURE_TYPE_PREFIX = 'FNV_CreatureType'
 #: FNV WEAP DNAM offsets of the animation type (u32) and skill (s32 actor value); CREA DATA offset of the type (u8).
 DNAM_ANIM, DNAM_SKILL, DATA_TYPE = 0, 104, 0
 #: FNV WEAP: CRDT's Crit % Mult (float at 4); DNAM's Flags1 (byte 12, 0x2 automatic) and Fire Rate (float at 64).
@@ -132,7 +134,7 @@ def skill_keyword(skill: int) -> str:
 
 def creature_keyword(kind: int) -> str:
     """EditorID of the keyword of FNV creature type `kind`."""
-    return f'FNV_CreatureType{CREATURE_TYPES[kind]}'
+    return f'{CREATURE_TYPE_PREFIX}{CREATURE_TYPES[kind]}'
 
 
 def with_keywords(subs: list, keywords: list) -> list:

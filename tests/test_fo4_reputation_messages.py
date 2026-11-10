@@ -37,8 +37,7 @@ class _Writer:
 
 def _builder():
     """A builder with FNV's UIRepGood sound (UIRepBad missing) and nothing else."""
-    sounds = SimpleNamespace(records={0x11F404: {'EditorID': 'UIRepGood'}},
-                             descriptor=lambda fnv: 0x0ABC if fnv == 0x11F404 else 0)
+    sounds = SimpleNamespace(named=lambda edid: 0x0ABC if edid == 'UIRepGood' else 0)
     return SimpleNamespace(writer=_Writer(), sounds=sounds, counts=Counter(), fnv_id=lambda fid: int(fid, 16),
                            scripts=SimpleNamespace(used=[]))
 

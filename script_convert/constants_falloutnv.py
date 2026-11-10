@@ -74,6 +74,9 @@ ITEM_TYPE_LISTS = {code: f'TES4ItemType{code}' for code in ITEM_TYPE_CODES}
 #: The FormList of factions whose player-enemy flag converted scripts set (TES4_FalloutCrime keeps it).
 _ENEMIES = ('TES4PlayerEnemyFactions', 'FormList')
 
+#: FNV's IsAlwaysHardcore (short name behemoth): the ending's Hardcore reward test.
+_ALWAYS_HARDCORE = dict(emit='0', note='{f} - Skyrim has no hardcore mode, nor its reward (read as 0)', flags='zero_arg')
+
 #: FO3/FNV commands as COMMAND_ROWS specs (Cmd keyword arguments); 'MAP'/'ACTOR' name constants.MAP/ACTOR.
 FALLOUT_COMMAND_ROWS = {
     'setenemy': dict(emit='{p0}.SetEnemy({p1}, {b2}, {b3})',
@@ -129,6 +132,10 @@ FALLOUT_COMMAND_ROWS = {
     'ishardcore': dict(
         emit='0', note='{f} - Skyrim has no hardcore mode (read as 0)',
         flags='zero_arg'),
+    #: Hardcore mode exists on Fallout 4 only (command_rows_fallout4, F3NV_Hardcore).
+    'isalwayshardcore': _ALWAYS_HARDCORE,
+    'behemoth': _ALWAYS_HARDCORE,
+    'sethardcore': dict(note='{f} {a} - Skyrim has no hardcore mode'),
     'getinchargen': dict(
         emit='0', note='{f} - SetInCharGen converts to nothing, so never in CharGen (read as 0)',
         flags='zero_arg'),
@@ -254,8 +261,13 @@ FALLOUT_COMMAND_ROWS = {
     #: Base plus permanent modifiers: the AV handler reads it as the base value. See: docs/fork/script_markers.md#permanent-av
     'getpermanentactorvalue': dict(emit='GetBaseActorValue', subj='MAP', flags='actor_only av av_read'),
     'getpermav': dict(emit='GetBaseActorValue', subj='MAP', flags='actor_only av av_read'),
-    #: No casino game runs in a converted build, so no casino ever owes a comp. See: docs/fork/script_markers.md#casino
+    #: Skyrim has no casino: no game opens, no comp is owed (FO4 rows exist). See: docs/fork/script_markers.md#casino
     'getcasinowinningslevel': dict(emit='0'),
+    'showblackjackmenuparams': dict(note='{f} {a} - Skyrim has no casino games'),
+    'showroulettemenuparams': dict(note='{f} {a} - Skyrim has no casino games'),
+    'showslotmachinemenuparams': dict(note='{f} {a} - Skyrim has no casino games'),
+    'showcaravanmenu': dict(note='{f} {a} - Skyrim has no Caravan', subj='ACTOR'),
+    'addcardtoplayer': dict(note='{f} - Skyrim has no Caravan'),
     #: MoveToMarkerWithFade converts to MoveTo, so the fade it waited on never plays. See: docs/fork/script_markers.md#moves
     'isimagespaceactive': dict(emit='0'),
 }

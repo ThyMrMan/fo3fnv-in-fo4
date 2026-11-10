@@ -315,7 +315,31 @@ Fallout build, they would measure state and numbering differences rather than
 what the conversion lost.
 
 A line counts when the source can say it: its topic is reachable and a placed
-actor can speak it (see [source setters](#source-setters)). It is lost when:
+actor can speak it (see [source setters](#source-setters)). A line never
+passes when two lone tests require one function, parameter and subject both
+true and false, in its own conditions or its quest's (`never_passes`). FNV
+authors such dead lines: Red Lucy's answers "Two." and "Three." (`00159565`,
+`001595B7`) require her and rule her out, so FNV never says them or the 18
+lines after them, and the converter's `_can_say` leaves them out too; Big Sal's
+`{Placeholder for top level topics}` GREETING (`00119455`); and every line of
+`VDialogueTEST`, whose quest conditions test one faction both ways.
+On a Fallout 4 build, a placed activator counts as a speaker: radio lines name
+their station's talking activator (`RadioNewVegasTA`, placed twice), which says
+them ([radio dialogue](../fork/fo4_radio.md#radio-dialogue)).
+
+Two topics are reached per case, not globally:
+- **Radio:** a station plays its own RadioHello lines and the topics its own
+  lines choose (`radio_lines`), as the build's `steps()` does. RadioGoodbye is
+  chosen by some stations, but Repcon's and the NCR emergency radio's lines
+  never choose it, so their RadioGoodbye lines never play.
+- **Speech challenge outcomes:** SpeechChallengeSuccess and
+  SpeechChallengeFailure lines follow a topic by Link From only when that
+  topic holds a challenged line (`DNAM.SpeechChallenge`, FO3's random checks;
+  798 in Fallout3.esm). FNV's checks are conditions with their own [FAILED]
+  lines; its three failure lines (Ranger Andy, Chris Haversam, No-bark)
+  link from unchallenged topics and never play.
+
+A line is lost when:
 - the built INFO is missing;
 - its built topic is unreachable in Skyrim;
 - no placed actor passes its built GetIsID conditions.
@@ -680,8 +704,12 @@ Every model path on those records (MODL to MOD5) is checked:
 A snapshot maps every FormID to `SIG|EditorID`. Compared with the baseline in
 `output/preflight/<game>/build_baseline.json`, it reports three kinds of
 drift, one finding per kind and signature:
-- **moved**: an EditorID now sits on a new FormID;
-- **removed**: a FormID vanished;
+- **moved**: an EditorID now sits on a FormID the baseline did not have;
+- **removed**: a FormID vanished. When its EditorID now sits on a FormID the
+  baseline already had, that is a rename, not a move: generated scene and
+  topic names end in a counter (`Greetings_Scene3734`), so removing one scene
+  renumbers every name after it while each record keeps its FormID (the
+  2026-11-07 build: 29,520 DIAL and 12,403 SCEN renamed, 76 misread as moved);
 - **retyped**: a FormID now holds another signature.
 
 The first run only saves a baseline. After that, the baseline advances by

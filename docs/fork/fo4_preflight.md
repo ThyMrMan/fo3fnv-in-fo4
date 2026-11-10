@@ -38,7 +38,9 @@ py -3.14 -m tools.validate.preflight --fo4 temp/profile_data_hh/HonestHearts.esm
 The source export is `export/<plugin stem>.esm` (`--fo4-source`), the
 converted sources `temp/fo4_scripts/<source>` (`--fo4-scripts`), the compiled
 scripts `<mod folder>/Scripts`. Audits: quest, start, dialogue, conditions, targets, timing ([timing audit](fo4_timing_audit.md#built)),
-packages, world, assets, build, dlc, properties ([script properties](#script-properties)) (68 s for all but the four added on 2026-11-02; assets now 41 s,
+packages, world, assets, build, dlc, properties ([script properties](#script-properties)),
+behavior (left-out AI packages by cause, actors with no package; [NPC behavior](fo4_plan_npc_behavior.md#phase-1)),
+menus (menu structure and one option per FNV topic; [menu audit](fo4_menu_audit.md#built)) (68 s for all but the four added on 2026-11-02; assets now 41 s,
 targets 26 s with build on the whole map; targets and dlc on a DLC build 10 to 18 s). A DLC build's
 built masters come from its stamp's `--plugin-dirs` unless `--plugin-dirs` names them. Script
 health and log triage stay Skyrim-only: FO4 script properties are the
@@ -482,6 +484,89 @@ evening:
   Condition. One PERK both HH's and DM's sources override is a review. 1,115 HH files (987 DM) the build made
   are on no file list: these builds ran before `stale_files.DLC_ROOTS` was
   added, so the next build lists them.
+
+### <a id="results-2026-11-07"></a>Rerun on 2026-11-07
+
+Game build of 2026-11-07 08:14 (commit 09d64d37), every audit; Honest Hearts
+with `dlc` and `targets`. Changes since the runs above:
+
+- **Fixed:** HH's 33k byte-identical REFR/ACHR/NAVM overrides are gone (HH
+  `dlc` 0 errors, 11 reviews: DIAL and PERK records HH and DM both override).
+  Dialogue errors fell from 153 to 70; script properties from 2,001 unfilled
+  (2026-11-04) to 138 errors and 583 reviews. Targets: 0 errors (game 5
+  reviews, HH 1).
+- **Still open:** quest 1 error (VCG00 stage 14, its fragment on no record);
+  start 3 errors (CG02, ControlRumble, VT74 not built) and 86 reviews; the
+  same 7 missing textures; dialogue's top losses are the radio quests
+  (RadioNewVegas 216, RadioBlackMountain 186), VDialogueTEST 64,
+  vNCREmergencyRadio 33, Cass 31, GenericPlayer 27 and, new, VMS38RedLucy 20.
+  Properties left are mostly timer and swap ones (`CRBrahminScript`'s push
+  idle on 9 brahmin, `EDEScript.rLogBlocker`, `TES4FX_*` keywords,
+  `EuclidsCFinderSCRIPT`'s `TES4Swap_*`). Conditions 23 reviews, packages 6,
+  world 2.
+- **Timing, 5 new errors, false:** the cattle prod, Zap ISM and three boxing
+  `FatigueOnHit` scripts are FNV weapon scripts whose `Begin OnHit` is
+  converted to an effect's `OnEffectStart` ([weapon hits](fo4_pipeline.md#weapon-hits)).
+  The audit now reads that mapping (`block_state`): timing 0 errors.
+- **Dialogue, 70 → 57 errors after audit fixes** (same build):
+  - *Audit, fixed:* 461 radio lines named their station's talking
+    activator, which the audit did not count as a speaker; 64 VDialogueTEST
+    lines and Red Lucy's 20 bet answers [never pass in FNV](../commentary/tools_preflight.md#dialogue-loss).
+  - *Converter, fixed, not yet built:* Cato Hostilius 18 ([talk order](fo4_pipeline.md#talk-order)),
+    Big Sal 10 ([furniture scripts](fo4_pipeline.md#furniture-scripts)).
+  - *Known, no FO4 state or not built:* companion status barks
+    (WeaponIneffective, WeaponBroke, UsedDoctorBag, …: Cass, Raul, Lily,
+    Boone, Arcade, Veronica), GenericPlayer's 27 barks, the casino
+    (`GetCasinoWinningStage`), GetItemCount (the Weathers family), GetIsRace
+    (Lily), GetDisposition (GenericKids), GetIsClass.
+  - *Audit, not real:* Vault108DialogueShell's 23 (a faction no FNV actor
+    joins); VES08CampGolf's 13 (its speakers stand in `2EOCasHiHotelLobby01`,
+    which no door reaches; the audit counts every placed actor).
+  - *Second pass, 63 → 59:* the audit now follows each radio station's own
+    topics and plays speech challenge outcomes only after a challenged topic
+    ([dialogue loss](../commentary/tools_preflight.md#dialogue-loss)); Black
+    Mountain fell from 14 lost lines to 3, which have no recording. Six
+    speakers show as new only because talking activators are now named by
+    EditorID (Hanlon's and Lily's recordings, the Vault 11 chamber, three Tops
+    radios). Vault 11's 4 lines and the Curtis and monorail recordings are a
+    converter fix, not yet built ([talker says](fo4_pipeline.md#talker-says)).
+    The three Tops radios' 8 lines (one quest holding three stage acts) are
+    a converter fix, not yet built ([stage acts](fo4_radio.md#stage-acts)),
+    started by the converted `StartRadioConversation`
+    ([programs a script starts](fo4_radio.md#start-radio-conversation)).
+  - *Silent in FNV, still counted:* the Strip and Goodsprings radios'
+    RadioHello songs are placeholder tracks FNV never shipped
+    (`temp_bluemoon_strip.mp3`, `_nv_temp_billy_the_kid.mp3`), and Repcon's
+    RepconMusic line has neither recording nor sound. The audit can't tell,
+    because the export does not write a response's sound (TRDT).
+  - *Not looked at:* about 25 single lines (Mr. House, Benny, the Khan
+    messenger, JeannieMay, YesMan 068).
+- **Previous build** (against 2026-11-04 09:09): 738,898 → 657,099 records.
+  83,370 INFO, 91 DIAL and 19 SCEN gone are the
+  [menu speakers](fo4_pipeline.md#menu-speakers) change; 8 STAT gone are the
+  thrown-weapon stand-ins. No FormID moved. The first run reported 60 DIAL and
+  16 SCEN as moved: scene EditorIDs end in a counter (`Greetings_Scene3734`),
+  so removing scenes renumbers the names after them, and the check matched by
+  EditorID. It now counts a move only onto a FormID the earlier build lacked
+  ([build diff](../commentary/tools_preflight.md#build-diff)), and those 76 are
+  among the removed. This build is accepted as the baseline (`--accept-build`).
+
+### <a id="results-2026-11-08"></a>Rerun on 2026-11-08
+
+Game build 1108a (the casino build), `quest` and `start` only. Quest: 1
+error, VCG00 14. Start: 3 errors and 86 reviews, as on 2026-11-07. All four
+errors are reviewed and marked ok in the ledger:
+
+- **VCG00 14:** the false positive above (`VCG00BennyTravelToPlayer` is
+  named by nothing).
+- **CG02:** Fallout 3's birthday quest, left in FalloutNV.esm with its cake
+  trigger and radroach scripts.
+- **ControlRumble:** a controller-rumble helper; its script sets only its
+  own stage 0.
+- **VT74:** "Exploring Vault 74", the GECK tutorial vault. Its cell
+  `Vault74a` holds 197 references and both triggers, but no door leads in.
+
+Poindexter's scene, open in earlier runs, no longer appears.
 
 ## <a id="limits"></a>What it does not see
 

@@ -1,420 +1,209 @@
-> [!NOTE]
-> **fo3fnv-in-fo4** converts **Fallout 3** and **Fallout: New Vegas** to run in
-> **Fallout 4**. It is derived from
-> [bryantmh/tes4skyrim](https://github.com/bryantmh/tes4skyrim) (TES Auto-Convert),
-> by way of the [ThyMrMan/tes4skyrim](https://github.com/ThyMrMan/tes4skyrim)
-> fork. The converter it starts from is upstream's work.
->
-> **Why Fallout 4.** Converting the Fallout games into Skyrim means rebuilding
-> guns, VATS, crippled limbs, radiation, terminals, the Pip-Boy and radio by
-> hand. Fallout 4 has them natively. Morrowind and Oblivion stay with the
-> Skyrim converter in ThyMrMan/tes4skyrim.
->
-> **Where it stands (2026-10-05): investigation.** Nothing converts to
-> Fallout 4 yet. Everything below this note, and the code, is still the Skyrim
-> converter it was copied from. The findings and the proposed first steps are in
-> [docs/fork/research/fo4_target.md](docs/fork/research/fo4_target.md).
->
-> **Planned requirements:**
-> - Fallout 4 1.11.240 with F4SE 0.7.9.
-> - Fallout 3 and/or New Vegas.
-> - The Fallout 4 Creation Kit (precombines, FaceGen, lip files).
-> - [Extended Dialogue Interface](https://www.nexusmods.com/fallout4/mods/27216),
->   bundled.
-> - Possibly [LevelUpMenuEx](https://www.nexusmods.com/fallout4/mods/28822).
-> - No Skyrim.
+# fo3fnv-in-fo4
 
-<p align="center">
-  <img src="docs/assets/banner.svg" alt="TES Auto-Convert — Gamebryo to Skyrim Conversion" width="720">
-</p>
+**Fallout: New Vegas, converted to run in Fallout 4.** The whole Mojave,
+its DLC and add-on packs: quests, dialogue and voices, NPCs and creatures,
+FNV's guns, perks, skills, reputation, karma, Hardcore mode and radio. All of
+it is rebuilt from your own copy of New Vegas on your own machine.
 
-<p align="center">
-  A complete pipeline for converting <b>Morrowind</b>, <b>Oblivion</b>,
-  <b>Fallout 3</b> and <b>Fallout: New Vegas</b> into
-  <b>Skyrim Special Edition</b>: records, meshes, textures, collision,
-  animations, sounds, dialogue, and scripts.
-</p>
-
-<p align="center">
-  <img src="docs/assets/readme_img.png" alt="An Oblivion Vista" width="720">
-</p>
-
-
----
-
-**This project is pre-alpha. Expect issues.** Conversions are incomplete, and some features are only half implemented. Bugs are common across every stage, and output can change or break between releases. Updates will likely break your saves from converted games, so expect to start a new game after updating. Back up your saves before installing converted content.
-
----
+> [!WARNING]
+> **Alpha.** The game is playable from Doc Mitchell's house onward, and
+> nearly every system is built. Much of it has never been played start to
+> finish, so expect bugs, and expect updates to need a new game. Back up your
+> saves. Fallout 3 is not supported yet.
 
 > [!IMPORTANT]
-> **No Bethesda assets are included in this repository.** This project ships only
-> code. It reads the game data you already own, on your own machine,
-> and performs every conversion locally. **Do not redistribute converted Bethesda
-> assets.** If you want the converted mod, download this project and run it against
-> your own legally-owned copies of the games.
+> **No Bethesda assets are included.** This project ships only code. It reads
+> the games you own and converts them locally. **Don't redistribute the
+> converted files.**
+
+This project began as a fork of [bryantmh/tes4skyrim](https://github.com/bryantmh/tes4skyrim)
+(TES Auto-Convert), by way of [ThyMrMan/tes4skyrim](https://github.com/ThyMrMan/tes4skyrim),
+which converts Morrowind and Oblivion to Skyrim. The Fallouts moved to
+Fallout 4 because Fallout 4 already has guns, V.A.T.S., crippled limbs,
+radiation, terminals, the Pip-Boy and radio, which Skyrim would need rebuilt
+by hand. The inherited Skyrim converter is still in this repository. Use
+ThyMrMan/tes4skyrim for it.
 
 ---
 
-## What it does
+## What you get
 
-This is a full data-conversion pipeline. It takes an `.esm`/`.esp` (plus its BSA or loose file assets) and produces a working Skyrim mod. Plugin, meshes, animations, everything. Ready to drop into your `Data` folder. It's in early alpha with a long bug list, but every part of the conversion is handled in one package.
-
-### Which games
-
-Four source games are supported: **Morrowind**, **Oblivion**, **Fallout 3** and **Fallout: New Vegas**. Total conversions such as **Nehrim** and **Arktwend** are also supported.
-
-Morrowind is the odd one out and has [its own section](#morrowind) below.
-
-- **Record conversion** — Every record type is remapped to its Skyrim equivalent, with all the structural fixups Skyrim
-  requires and the companion records it expects alongside them.
-- **Creatures** — Creature records become real Skyrim actors: skeletons and skinned meshes are ported, animations are recompiled to Havok `.hkx`, and, since the source games have no equivalent, a full Havok **behavior graph is generated from scratch** per creature (locomotion state machine, ragdoll, attack events, foot IK) based on the original data instead of reusing a donor from Skyrim. There are still a lot of bugs here.
-- **Mesh conversion** — Source NIFs → Skyrim NIFs (v20.2.0.7): NiTriStrips→NiTriShape, shader system upgrade, texture path rewriting, bone remapping, and root-node conversion. Only a handful of meshes are currently unsupported or buggy.
-- **Havok collision** — Full rigid-body, constraint, and mesh-collision conversion with real MOPP generation via a bundled Havok bridge. No crash-prone collision like the original Skyblivion generator.
-- **Skeleton retargeting** — Armor and clothing meshes are re-posed from the source
-  skeleton onto the Skyrim skeleton using an animation-corpus + optimization solver. Weapons, armor, and clothing (including pants/greaves) are fully functional and wearable alongside your existing Skyrim outfits without major clipping — a few meshes still clip slightly, and the torso/legs can currently go invisible when only one is equipped.
-- **Navmesh generation** — Skyrim has no equivalent to the older games' pathgrids, so navmeshes are built from scratch:  Collision is voxelized and triangulated per-cell into Skyrim `NAVM`/`NAVI` data using the original pathgrid as a guide so NPCs can actually path around the world. Could use a bit more refinement, but it mostly works well.
-- **Particles, fire & animated objects** — Particle systems, flame nodes, flip-book fire, and keyframed collision are all converted to their Skyrim equivalents.
-- **SpeedTree conversion** — `.spt` trees are procedurally rebuilt as Skyrim flora NIFs. The converter hooks directly into your Oblivion.exe so they are faithful replicas, but with leaves in an X shape instead of billboards.
-- **Dialogue & quests** — Converted into Skyrim's branch/voice-type architecture, including voice-file renaming, topic/quest restructuring so NPCs greet and respond correctly, and barter/training menu hookup.
-- **Scripts** — Source scripts are transpiled to Papyrus (`.psc`) source and compiled,
-  which combined with the dialogue work means many quests are already playable.
-- **Guns (Fallout)** — Guns get a purpose-built animation graph using faithfully converted animations.
-- **Sounds** — Voice and sound files are converted (via ffmpeg + xWMAEncode), and lip-sync
-  tracks are generated for every transcribed line using the Creation Kit's LipGenerator
-  (voice ships as `.fuz`). Expect the occasional silent line.
-
-In short, this project aims to be nothing less than a complete, faithful conversion of these
-games into Skyrim, and it's getting closer all the time. Contributions are very welcome, see
-`TODO.txt` for the current bug list and roadmap.
-
----
-
-## Morrowind
-
-Morrowind converts from its own files like any other game here, with two differences.
-
-**Dialogue runs natively.** Morrowind's conversation system is a searchable topic list with
-its own filtering, journal and scripting language, none of which Skyrim can represent.
-Rather than flatten it and lose most of it, this project runs the real thing: a port of the
-[OpenMW](https://openmw.org/) dialogue engine and script interpreter, shipped as a game
-plugin (`MorrowindRuntime.dll`) with a Morrowind-style menu. It is set up automatically.
-
-**Morroblivion mode.** The converter can be made to use Morroblivion as a base instead of Morrowind so you can use all of its upgraded assets and worldspace.
-
-| Mode | Objects come from |
+| Plugin | What it holds |
 |---|---|
-| **Vanilla** | Your own converted `Morrowind.esm`, `Tribunal.esm` and `Bloodmoon.esm`. |
-| **Morroblivion + patch** | [Morroblivion](https://morroblivion.com/), the fan remake of Morrowind in Oblivion, converted through the normal Oblivion path. |
+| `FalloutNV.esm` | The base game: the Mojave and every interior, 2,000+ NPCs, about 114,000 dialogue lines, every quest script (all compile) |
+| `FalloutHelpers.esl` | Shared helper records (actor values, globals, keywords) |
+| `FalloutNV - Classic Look.esl` | Optional: FNV's original flat lighting and color (see [Classic Look](#classic-look)) |
+| `DeadMoney.esm`, `HonestHearts.esm`, `OldWorldBlues.esm`, `LonesomeRoad.esm`, `GunRunnersArsenal.esm` | The DLC, each on `FalloutNV.esm`, in its own mod folder |
+| `CaravanPack.esm`, `ClassicPack.esm`, `MercenaryPack.esm`, `TribalPack.esm` | The add-on packs |
+| `F3NV.dll` | The project's F4SE plugin: FNV rules Fallout 4 has no way to express (Damage Threshold, item condition, the Pip-Boy's SKILLS, REPUTATION, KARMA and CHALLENGES tabs, Hardcore's ammo weight and HUD) |
 
-Morroblivion mode needs a compatibility patch. Choosing **Settings ▸ Morrowind source ▸ Morroblivion + patch** builds it
-for you from your Morrowind `Data Files` if it doesn't exist yet (convert `Morrowind_ob.esm` first). If the patch already
-exists, it asks whether to rebuild it.
+**Converted as FNV has them:**
+- **The world:** terrain, objects, interiors, terrain and object LOD, FNV's
+  weathers and the Pip-Boy world map.
+- **Characters:** NPCs with FNV faces and outfits; creatures on their own FNV
+  skeletons and animations (geckos, cazadores, nightstalkers, securitrons and
+  more); FNV's leveled spawns.
+- **Dialogue and quests:** FNV's own voices and lip sync, through Extended
+  Dialogue Interface; scripts converted to Papyrus.
+- **Your character:** SPECIAL, the 13 skills, 200+ perks and traits, FNV's
+  level-up through LevelUpMenuEx, reputation, karma, challenges, Hardcore
+  mode, chem addiction.
+- **Combat:** FNV's guns, ammo subtypes and the Ammo Type hotkey, weapon mods,
+  item condition and repair, critical hits, Damage Threshold, sneak attacks,
+  grenades and mines, V.A.T.S. tuned toward FNV's.
+- **Also:** FNV's radio stations, terminals, lockpicking and hacking by skill,
+  and FNV's own intro movie.
 
----
+Where play differs from FNV, on purpose or not, is listed in
+[docs/fork/fo4_drift.md](docs/fork/fo4_drift.md).
 
-## Quick start
+### <a id="classic-look"></a>Classic Look
 
-### Setting up
+`FalloutNV - Classic Look.esl` switches between two looks for the same
+world. It changes only lighting and color, nothing in gameplay or quests.
+You can turn it on or off at any time, mid-playthrough, without starting
+a new save.
 
-1. **Install the Skyrim Special Edition Creation Kit**, free on Steam.
-2. **Install [SKSE](https://skse.silverlock.org/)** by copying its files straight into your Skyrim folder.
-3. **Install the [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444)** with your mod manager.
-4. **Download the converter:** on the latest [release](https://github.com/bryantmh/tes4skyrim/releases), click **Source code (zip)**, then unzip it somewhere like your Documents folder (not `Program Files`).
-5. **Double-click `TES Auto-Convert.cmd`** in the unzipped folder.
+| | Disabled (default) | Enabled |
+|---|---|---|
+| **Shadows** | The main light in each room (FNV's "Key" lights, up to 6 per cell) casts shadows, so interiors have depth, like Fallout 4's. | No light casts a shadow, as in FNV. Rooms look flatter, the way they did in the original game. |
+| **Color and contrast** | FNV's colors drawn through Fallout 4's camera curve: richer contrast, deeper darks, brighter highlights. | FNV's own straight color curve: the softer, washed contrast New Vegas had. Overall brightness stays the same. |
 
-The first time, it sets itself up. That needs internet and takes a few minutes, and it asks to download a free
-Microsoft tool used for voice lines; say yes. After that, double-clicking it just opens the converter.
+Everything else is the same either way: where lights are, their color and
+reach, the weather, glowing signs and neon.
 
-You'll want a strong PC: it was tested with 32 GB of RAM, and converting Oblivion uses about 16 GB.
+## Not done yet
 
-### Converting
+- **Casino games and Caravan:** blackjack, roulette, slots and Caravan are
+  being built now ([plan](docs/fork/fo4_casino_plan.md)). Until then the
+  tables do nothing.
+- **Fallout 3:** not converted yet.
+- **Known gaps:** a few hundred dialogue lines whose conditions Fallout 4
+  can't check, some creature animations (hit reactions and staggers on FNV's
+  own rigs), FNV's third-person gun animations, precombines in the densest
+  areas (Freeside, the Strip), and maps for Freeside and the Strip.
 
-1. **Convert a game.** Your Oblivion install is found automatically; add Morrowind and Fallout installs with `+`
-   under **Source**. Pick the game, leave the steps on **Default**, and click **Run Selected Steps**. If anything is missing, the
-   converter tells you what to install.
-2. **Click each of these buttons once** (click them again after converting another game or updating the converter):
-   - **Pack SKSE Mod**: the converter's SKSE plugins. Converted games don't work without it.
-   - **Pack Start Mod**: the new-game menu where you pick which world to start in.
-   - **Body Slot Patch**: splits Skyrim's body into torso, legs and each hand, so converted armor pieces like
-     greaves or a single gauntlet hide only the part they cover.
-   - **Create LOD**, then **Pack LOD**: the distant view of the converted worlds.
-3. **Install everything in `output/Finished Mods/`** with your mod manager.
-4. **Start the game through SKSE** (`skse64_loader.exe`, or your mod manager's SKSE button) and pick your world
-   from the new-game menu.
-
-Also in the converter:
-
-- **Build ▸ Quest Journal Stage Text** makes a quest's objectives clickable in Skyrim's journal: clicking
-  one shows the journal text the quest had when that objective appeared, and clicking it again returns to
-  the current text. It works for every quest, converted or not. It patches whichever journal you run
-  (vanilla, SkyUI or Quest Journal Overhaul) into `output/Finished Mods/Quest Journal Stage Text.zip`;
-  install that after your UI mod. Needs **MorrowindRuntime.dll**, and covers objectives that appear after
-  it is installed.
-
-If you'd like to use modded source-game models or textures, run the **Extract** step
-first, then copy your modded files into `export/<plugin name>/`, overwriting what's there.
-
-The Import step downloads a [prebuilt navmesh cache](https://github.com/bryantmh/tes4skyrim/releases)
-automatically, which turns minutes of work into seconds. It only saves time and
-never changes the result. To skip the download, untick **Settings ▸ Download
-navmesh cache**. Offline, drop the release's `.zip` into `navmesh_cache/`.
-
-### Converting a downloaded mod
-
-Drag a `.zip` / `.7z` / `.rar` onto the left panel, or use **Plugins ▸ Import Mod
-Archive…**, and it becomes a source like any folder in the list. Loose files,
-BSAs and nested archives are all handled; nothing is written to your game
-install. A mod with no plugin (a texture pack) imports too — the steps that need
-one are greyed out.
-
-A copy of the archive is kept under `export/<plugin>/_source/` so steps can be
-re-run after you delete the download. **Plugins ▸ Manage Imported Mods…** removes
-them. If a master has not been converted yet, the import says so.
-
-### What to install
-
-Everything you install ends up in **`output/Finished Mods/`**. Install these with
-your mod manager:
-
-- One `.zip` per converted game or mod, from **Run Selected Steps**
-- `TESRuntime.zip`, from **Pack SKSE Mod**, required (see [TESRuntime](#tesruntime-skse-plugin)). It needs
-  [SKSE](https://skse.silverlock.org/) and the
-  [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444)
-  installed, and the game launched through SKSE (`skse64_loader.exe`, or your mod
-  manager's SKSE entry). Without them the runtime DLLs never load.
-- `TESGameSelect.zip`, from **Pack Start Mod**: the new-game menu (see [Starting a converted game](#starting-a-converted-game))
-- `Body Slots Patch.zip`, from **Body Slot Patch**
-- `AutoConvertLOD.zip`, from **Create LOD** then **Pack LOD**: the distant view. Install it after the mods it covers.
-
-The rest of `output/` is working space. Don't install anything from it directly.
-
-### Upgrading
-
-Paste a new download over your existing folder. The **Upgrade** button ticks only
-the steps that changed since your last conversion. If you're already current it
-says **Up to date**. If it can't tell, it selects every step.
-
-### Starting a converted game
-
-The intended way in is the **TESGameSelect** plugin (*Threads of Prophecy*), a
-small standalone Skyrim SE plugin built separately from the conversion itself.
-It takes over Skyrim's opening quest so that starting a **new game** shows a
-menu asking which world to begin in: Skyrim, Cyrodiil, Vvardenfell, Nehrim,
-the Mojave or Morrowind.
-Choosing Skyrim runs the vanilla Helgen opening untouched; choosing a converted
-game hands off to that game's own character generation, with its real starting
-equipment and start location. Games whose plugin is not in your load order are
-detected at runtime and simply never appear in the menu, so any subset works.
-
-Build it with the **Pack Start Mod** button (or `python
-tools/release/package_start_mod.py`) to get
-`output/Finished Mods/TESGameSelect.zip`, then install it like any other
-converted mod and enable `TESGameSelect.esp`.
-Because it overrides `MQ101`, it conflicts with other alternate-start mods
-(Live Another Life, Skyrim Unbound, Alternate Perspective) — use one at a time.
-See [TESGameSelect/README.md](TESGameSelect/README.md) for how it works,
-configuring it, and rebuilding.
-
-Without the plugin, you can start a converted game from the console instead:
-
-```bash
-setstage Charactergen 5
-```
-or simply teleport to the worldspace with a command like
-
-```bash
-cow tes4tamriel 20 20
-```
-
-### TESRuntime (SKSE plugin)
-
-`TESRuntime.zip` holds the converter's own SKSE plugins, one DLL each. They need
-[SKSE](https://skse.silverlock.org/) and the
-[Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444);
-HavokWorldSize alone needs only SKSE.
-
-- **TESRuntime.dll**, needed by every converted game: sends an arrested player to
-  the nearest jail as the source games do, and lets a clicked quest objective
-  show the journal text it came with.
-- **CreatureRuntime.dll**: registers converted creatures' animations, so several
-  mods can each add creatures without fighting over Skyrim's animation cache.
-- **FalloutRuntime.dll**: the Fallout 3 / New Vegas gun handling Skyrim has no
-  equivalent for.
-- **HavokWorldSize.dll** (below).
-- **MorrowindRuntime.dll**: runs Morrowind's dialogue and scripts.
-
-Each logs to `Documents\My Games\Skyrim Special Edition\SKSE\<name>.log`.
-See [tes_runtime/README.md](tes_runtime/README.md) for the details and for
-building them yourself. Build the zip with the **Package SKSE Mod** button, or
-`python tools/release/package_runtime_dll.py`.
-
-#### HavokWorldSize
-
-`HavokWorldSize.dll` stands on its own and is useful with any large worldspace. Skyrim's
-physics only works within 64 cells of the world center — past that, NPCs bounce
-in and out of the ground and you can't open doors or hit anything. Big
-worldspaces like Tamriel Rebuilt go well beyond that, so this widens the limit.
-Edit `Data\SKSE\Plugins\HavokWorldSize.ini` to change it (128 by default; use the
-smallest that fits your worldspace).
-
-#### Changing the gun reload key
-
-The reload key defaults to **mouse button 4** and the iron-sight (zoom) key to
-**right mouse**. To change either, create
-`Data\SKSE\Plugins\FalloutRuntime\FalloutRuntime.ini` and give it a `[Guns]`
-section with the [virtual-key code](https://learn.microsoft.com/windows/win32/inputdev/virtual-key-codes)
-of the key you want, in decimal:
-
-```ini
-[Guns]
-ReloadKey=82
-ZoomKey=2
-```
-
-`82` is 0x52, so that example moves reload onto the **R** key and
-leaves zoom on right mouse. The file is read once at startup, so restart the
-game after editing it. Omit a key, or the file entirely, to keep the default.
+The full list (broken, missing, and built but not yet played) is in
+[docs/fork/ROADMAP.md](docs/fork/ROADMAP.md#fo4-state). Please report what you
+find in [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
 
 ---
 
-## Command line
+## Install
 
-Open a terminal in this folder and run `.venv\Scripts\activate` first, so `python`
-is the converter's own.
+### What you need
 
-### Run the full pipeline
+- **Windows.** The conversion app also starts on macOS and Linux, but the
+  build runs Windows-only tools.
+- **Fallout 4**, current Steam version (1.11.240), and the **Fallout 4
+  Creation Kit**, free on Steam. The build runs the Creation Kit for
+  animation data.
+- **Fallout: New Vegas** (Steam or GOG), with any DLC you want converted.
+- **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)**
+  (recommended: the build runs the Creation Kit through it, and every step
+  below assumes it).
+- These Fallout 4 mods, installed in MO2:
+  - [F4SE](https://f4se.silverlock.org/) for 1.11.240;
+  - [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327);
+  - [Extended Dialogue Interface](https://www.nexusmods.com/fallout4/mods/27216);
+  - [LevelUpMenuEx](https://www.nexusmods.com/fallout4/mods/28822);
+  - [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497);
+  - [Black Landscape Fix](https://www.nexusmods.com/fallout4/mods/108574)
+    (F4SE version): without it, a Fallout 4 engine bug turns some patches
+    of the Mojave's bare ground black.
+- **A strong PC:** 32 GB of RAM is recommended. Allow about 100 GB of free
+  disk: the New Vegas export is about 10 GB, the build caches grow to about
+  70 GB, and the output is about 10 GB. The first build converts every mesh
+  and sound, so it takes far longer than a rebuild, which takes about 40
+  minutes.
 
-```bash
-python convert.py -f Oblivion.esm
-```
+**Check your setup** (after step 2 below, and again after adding the output
+to MO2): `.venv\Scripts\python.exe -m tools.validate.fo4_install_check`
+prints one line per item above, with what to do for anything missing.
 
-With no `--*-only` flag, the default pipeline runs:
+### Convert
 
-> **Export → Extract → Meshes → SpeedTrees → Creatures → Import → Sounds → Scripts**
+1. **Download** this repository (the green **Code** button, then **Download
+   ZIP**), and unzip it somewhere outside `Program Files`.
+2. **Set up Python once:** double-click `TES Auto-Convert.cmd`. It installs
+   Python 3.14 if needed and the packages the converter uses, then opens the
+   old Skyrim app. Close that window.
+3. **Start the Fallout 4 app:** in that folder, run
+   ```bash
+   .venv\Scripts\python.exe fo4_app.py
+   ```
+   The first time, a wizard asks for:
+   - the game (New Vegas);
+   - your New Vegas and Fallout 4 folders (both are detected);
+   - your MO2 instance and profile;
+   - where the converted files should go.
+4. **Convert:** on the **Convert** screen, tick **Export**, **Helper
+   plugin**, **Build**, **Install the F4SE plugin** and **Check**, choose
+   **Whole**, and click **Start**. Tick **Faces** too for NPC faces made by
+   the Creation Kit (slow: hours for the whole game). The **Finished**
+   screen shows what was built and any warnings; **Install status** checks
+   everything listed above.
 
-### Run a single step
+The **Replacements** screen can swap converted items and creatures for
+Fallout 4's own or other mods' versions. By default the conversion uses
+FNV's own.
 
-Each `--*-only` flag runs exactly that step and nothing else:
+**The DLC and mods** convert after the base game, each into its own folder:
+pick one under **What to convert** on the Convert screen (a DLC is listed
+from your New Vegas Data folder; **Add a mod folder...** adds a mod), then
+run **Export**, **Build** and **Check** as above. A mod also runs **Import
+the mod folder** first.
 
-```bash
-python convert.py -f Oblivion.esm --export-only        # Parse TES4 binary → text cache
-python convert.py -f Oblivion.esm --import-only        # Build TES5 ESM/ESP from text cache
-python convert.py -f Oblivion.esm --extract-only       # Extract assets from BSA archives
-python convert.py -f Oblivion.esm --meshes-only        # Convert NIFs + copy textures
-python convert.py -f Oblivion.esm --speedtrees-only    # Convert SpeedTree (.spt) files
-python convert.py -f Oblivion.esm --creatures-only     # Convert creature models & animations
-python convert.py -f Oblivion.esm --sounds-only        # Copy/convert sound files
-python convert.py -f Oblivion.esm --scripts-only       # Transpile scripts → Papyrus
-python convert.py -f Oblivion.esm --pack-only          # Pack output assets into Skyrim BSAs
-python convert.py -f Oblivion.esm --pack-zip-only      # Zip plugin + BSAs → output/Finished Mods/
-python convert.py --modify-body-meshes                 # Build ARMA slot-44 patch (takes no -f)
-python tools/release/create_lod.py                             # Bake ALL LOD once (takes no -f)
-python tools/release/pack_lod.py                               # Zip the baked LOD mod
-python tools/release/package_start_mod.py                      # Zip the TESGameSelect starter mod
-python convert.py -f Oblivion.esm --mesh-bounds-only   # Rescan mesh bounds → OBND cache
-```
+### Add it to Mod Organizer
 
-### Common options
+The easy way: choose output folders inside your MO2 instance's `mods`
+folder (for example **F3NV - Fallout New Vegas**; each DLC gets its own,
+such as **F3NV - Dead Money**). Then, with MO2 closed, click **Set up in
+MO2** on the Finished screen after each conversion: it enables the mod and
+its plugins in your profile, in the right order, and backs up the lists
+first.
 
-| Flag | Description |
-|------|-------------|
-| `-f, --files FILE…` | Plugin(s) to process (default: all listed in the config) |
-| `--output-dir PATH` | Output directory (default: `output/`) |
-| `--config PATH` | Path to `conversion_config.json` |
-| `--mesh-subdirs SUB…` | Limit mesh conversion to folders or single meshes under `meshes/` (e.g. `architecture dungeons/caves/triggers`) |
-| `--skip-hair` | Skip the hair baking pass after mesh conversion |
+By hand:
 
-### Running individual tools directly
+1. In MO2, make an empty mod (for example **F3NV - Fallout New Vegas**) and
+   copy the app's output folder into it. Give each DLC its own mod
+   (**F3NV - Dead Money** and so on).
+2. The **Install the F4SE plugin** stage put `F3NV.dll` in the output's
+   `F4SE/Plugins/` folder; if you skipped it, copy `tes_runtime/dist/F3NV.dll`
+   there.
+3. Enable the mods and their plugins. `FalloutNV.esm` and `FalloutHelpers.esl`
+   go after Fallout 4's own plugins, and the DLC after `FalloutNV.esm`.
 
-```bash
-# Mesh conversion only
-python -m asset_convert.nif.nif_converter path/to/meshes/ path/to/output/
+### Play
 
-# BSA extraction only
-python -m asset_convert.sources.bsa_extract Oblivion.esm --data-path "C:/path/to/Oblivion/Data"
+Start Fallout 4 through F4SE (**Play** on the Finished screen, MO2's F4SE
+entry, or `f4se_loader.exe`) and choose **New**. Fallout 4's intro and character creation run first. Then the
+game moves you to Doc Mitchell's house in Goodsprings and plays FNV's intro.
+Make your character there as in FNV. If the opening doesn't start, open the
+console and type `setstage FNV_NewGame 10`.
 
-# Tests
-python -m pytest tests/ -v
-```
-
-### Development dependencies
-
-Only needed to run the test suite — a conversion never uses these, so end users
-can skip this entirely.
-
-| Dependency | Purpose | Install |
-|------------|---------|---------|
-| **[pytest](https://pytest.org/)** | Test runner | `pip install pytest` |
-
-A few `tools/` analysis scripts need extras nothing else does: `pefile` and
-`capstone` (exe disassembly), and `pywin32` for `game_bridge/test_protocol.py`.
-Install those only if you run those scripts.
-
----
-
-## Pipeline phases
-
-These are the steps as presented (and run) by the GUI, in order:
-
-| # | Phase | What happens |
-|---|-------|--------------|
-| 1 | **Export** | Parse the source binary into a per-record-type KEY=VALUE text cache (`export/<name>/`). A pure dump — no transformation. |
-| 2 | **Extract** | Pull meshes, textures, and sounds out of the source game's BSA archives (cached via a manifest). |
-| 3 | **Meshes** | Convert source NIFs → Skyrim NIFs and copy textures. |
-| 4 | **SpeedTrees** | Procedurally rebuild `.spt` trees as Skyrim flora NIFs. |
-| 5 | **Creatures** | Convert creature models and animations (skeletons, ragdolls, behavior graphs). |
-| 6 | **Import** | Read the text cache and write the Skyrim binary ESM/ESP — all record transformations happen here. |
-| 7 | **Sounds** | Convert voice files to XWM and copy sound files. |
-| 8 | **Scripts** | Transpile source scripts to Papyrus and compile. |
-| 9 | **Pack BSAs** | *(opt-in, off by default)* Pack the converted assets into Skyrim BSA archives. |
-| 10 | **Pack Mod Zip** | Zip the plugin(s) and BSAs into a single archive for installation. |
-
-LOD is **not** in that list. LOD tiles sit on a fixed grid shared by every plugin
-that edits a worldspace, so baking them per plugin would generate each contested
-tile once per plugin and then throw all but one away. It is a Global action
-instead, baked once for the whole load order.
-
-Some actions belong to **no single plugin**, so they are buttons under
-**Global** in the sidebar rather than numbered steps. Each runs once and covers
-everything you have converted:
-
-| Action | What happens |
-|--------|--------------|
-| **Create LOD** | Generate all object and terrain LOD in one pass, into a standalone `output/AutoConvertLOD/` mod. The button opens a panel choosing which plugins and worldspaces to include; the plugin order decides which one wins a contested tile (defaults to your `plugins.txt` order). **Install it after the mods it covers.** |
-| **Pack LOD** | Zip `output/AutoConvertLOD/` into `output/Finished Mods/AutoConvertLOD.zip` for installation. |
-| **Body Slot Patch** | Build the ARMA slot-44 body patch for your whole Skyrim load order (*select plugins...* chooses which), as `output/Finished Mods/Body Slots Patch.zip`. |
-| **Start Mod** | Zip the prebuilt TESGameSelect starter mod (see *Starting a converted game*) to `output/Finished Mods/TESGameSelect.zip`. |
-| **Package SKSE Mod** | Zip the five runtime plugins (see *TESRuntime*) to `output/Finished Mods/TESRuntime.zip`. |
-| **Convert to Master** | Flag converted plugins as masters. A non-master plugin has every reference treated as always-active, and the engine hangs on the main menu past about a million of them. Applies to a whole master chain at once. |
-| **Convert Oblivion UI** | *(Build menu)* Build a standalone mod that reskins Skyrim's message boxes and cursor with Oblivion's artwork, read from your Oblivion install. |
-
-> **Design principle:** the export is a *pure* dump of TES4 data — no type mapping, no path
-> prefixing, no derived fields. **All** transformations live in the import and asset steps.
+**Updating:** download the new version over the old folder, convert again and
+replace the mod folders. FormIDs stay stable between builds, but expect an
+update to need a new game.
 
 ---
 
-## Project structure
+## For developers
 
+The pipeline, every system's design and its measurements are in
+[docs/fork/](docs/fork/). Start with:
+- [fo4_pipeline.md](docs/fork/fo4_pipeline.md): how the build works;
+- [ROADMAP.md](docs/fork/ROADMAP.md): status;
+- [fo4_gui.md](docs/fork/fo4_gui.md): the app.
+
+[CLAUDE.md](CLAUDE.md) holds the working rules. The command-line build of the
+whole map is:
+
+```bash
+py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FalloutNV.esm --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV reached --whole --no-test-cell GSDocMitchellHouse
 ```
-TESConversion/
-├── convert.py            # Pipeline orchestrator (all phases, CLI)
-├── gui.py                # GUI frontend
-├── tes4_export/          # TES4 binary → KEY=VALUE text export
-├── tes5_import/          # KEY=VALUE text → TES5 binary import (all record transforms)
-├── asset_convert/        # Asset conversion pipeline
-│   ├── nif_converter.py  #   NIF mesh conversion (strips, shaders, bones, collision, skin)
-│   ├── collision.py      #   Havok collision conversion
-│   ├── cms_builder.py    #   Compressed-mesh collision + MOPP generation
-│   ├── skin_retarget.py  #   Source → Skyrim skeleton retargeting
-│   ├── spt_converter.py  #   SpeedTree (.spt) → Skyrim flora NIF
-│   ├── bsa_extract.py    #   BSA extraction with caching
-│   └── asset_pipeline.py #   Extract → convert → output orchestrator
-├── external/             # Third-party binaries & vendored code (see License below)
-├── tools/                # Debug/analysis utilities (NIF/ESM dumpers, sanity checkers)
-├── tests/                # Pytest suite
-├── docs/                 # Format notes and reference docs
-└── conversion_config.json
-```
+
+Tests: `py -3.14 -m pytest tests/test_fo4_*.py`.
 
 ---
 
@@ -440,7 +229,7 @@ covered by this project's MIT license.
 | [OpenMW](https://openmw.org/) | The Morrowind dialogue engine and MWScript interpreter, vendored into `external/openmw/` and linked into `MorrowindRuntime.dll` | **GPL-3.0** — see the GPL note below. Vendored by `tools/generators/vendor_openmw.py`; license text in `external/openmw/LICENSE` |
 | [figment — hkxcmd](https://github.com/figment/hkxcmd) | Havok packfile XML↔binary compiler, `external/hkxcmd/hkxcmd.exe`, used to build skeleton/behavior/animation `.hkx` | **BSD-3-Clause** for hkxcmd's own sources (© 2011; text in `external/hkxcmd/LICENSE.TXT`). **Statically links Havok** — see the Havok note below |
 | [Monitor221hz — HKX2-Enhanced-Library](https://github.com/Monitor221hz/HKX2-Enhanced-Library) | Skyrim SE 64-bit Havok packfile ↔ XML, `external/hkxconv/hkxconv.exe`, used to patch the vanilla humanoid behavior graphs (`hkxcmd` cannot read 64-bit files). Forked from [ret2end](https://github.com/ret2end/HKX2Library), in turn from [katalash](https://github.com/katalash/DSMapStudio) / [krenyy](https://gitlab.com/HKX2/HKX2Library); bundles `BinaryReaderEx` from [JKAnderson — SoulsFormats](https://github.com/JKAnderson/SoulsFormats) | **No stated license** anywhere in that chain (no LICENSE file upstream) — community project, publicly distributed and freely forked; redistributed here on that basis. Full chain and rebuild steps in `external/hkxconv/README.md` |
-| [Microsoft DirectX SDK (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=6812) | `external/xwmaencode/xWMAEncode.exe`, xWMA voice compression | Microsoft — **not redistributed**; the launcher fetches it from Microsoft (see [Quick start](#quick-start)) |
+| [Microsoft DirectX SDK (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=6812) | `external/xwmaencode/xWMAEncode.exe`, xWMA voice compression | Microsoft — **not redistributed**; the launcher fetches it from Microsoft (see [Convert](#convert)) |
 | [FFmpeg](https://ffmpeg.org/) | `external/ffmpeg/ffmpeg.exe`, decoding MP3/WAV voice and sound files | **LGPL v2.1 or later** — redistributed; license text in `external/ffmpeg/COPYING.LGPLv2.1`. See the LGPL note below |
 | Oblivion banner font ([dafont](https://www.dafont.com/oblivion.font)) | Project banner | *Free for personal use only*, based on Bethesda's trademarked logo. **Not** bundled in this repo; the banner ships as pre-rendered vector outlines. |
 

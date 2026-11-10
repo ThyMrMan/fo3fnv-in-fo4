@@ -23,6 +23,7 @@ import numpy as np
 from pyffi.formats.nif import NifFormat
 
 from fo4_import.base.install import source_walk
+from fo4_import.base.strings import as_text
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import asset_root, export_records
 from fo4_import.spike.activators import irradiating
@@ -156,5 +157,5 @@ def retyped(body: bytes, edid: str, spells: tuple) -> bytes:
             out += pack_subrecord('XNAM', struct.pack('<I', spells[0]))
             out += pack_subrecord('YNAM', struct.pack('<I', spells[1])) if spells[1] else b''
         elif tag != b'YNAM':
-            out += pack_subrecord(tag.decode(), data)
+            out += pack_subrecord(tag.decode(), as_text(tag, data))
     return out

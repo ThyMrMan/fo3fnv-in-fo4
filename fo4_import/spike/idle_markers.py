@@ -4,7 +4,7 @@ FNV's idle marker (IDLM) lists FNV idles, which FO4 does not have. As FNV
 plays one of them at random, a placed one becomes a reference to the
 Fallout4.esm IDLM or FURN playing the like of what most of them play
 (PLAYS); one with no idles becomes FO4's empty marker, and MARKERS keeps
-two earlier choices. A marker none of whose idles FO4 plays is left out.
+two earlier choices. A marker none of whose idles FO4 plays is the empty one too (spike.cell.idle).
 A patrol point's pause time stays on the reference (placement.KEPT).
 
 See: docs/fork/fo4_pipeline.md#audit-fixes

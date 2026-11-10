@@ -35,6 +35,8 @@ CHANNELS = {
 EMISSIVE = ('NiMaterialColorController', 'BSMaterialEmittanceMultController')
 #: FNV's emittance multiplier (dropped on blended unlit shapes) and NiAlphaProperty's blend bit.
 EMITTANCE, ALPHA_BLEND = 'BSMaterialEmittanceMultController', 1
+#: NiAlphaProperty destination factor ONE: an additive blend (NEON_ALPHA, a neon tube).
+ADDITIVE = 0
 #: The neon overlay's name suffix (convert_static's cut-out glow).
 GLOW_SUFFIX = 'Glow'
 #: A controller's idle blend interpolator, as vanilla's: manager-controlled flag, size 2, value unset (-FLT_MAX).
@@ -200,20 +202,27 @@ def _target(nif, fnv_type: str, found: tuple, name: str, at: dict) -> 'tuple | N
 
 
 def _emittance_keys(nif, fnv_type: str, interp: int, name: str, at: dict) -> None:
-    """Rank emittance keys (`interp`, shape `name`) into vanilla's glow range."""
+    """Rank emittance keys (`interp`, shape `name`) into vanilla's glow range: a glow overlay as neon, an
+    additive unlit shape as a tube, others as lit glow by their brightest texel."""
     if fnv_type == EMITTANCE:
-        neon = name.endswith(GLOW_SUFFIX)
-        map_keys(nif, interp, 'neon' if neon else 'lit', 1.0 if neon else at['peaks'].get(name, 1.0))
+        _, _, shader_kind, alpha = at['shapes'][name]
+        kind = 'neon' if name.endswith(GLOW_SUFFIX) else 'tube' if _blend(nif, alpha, shader_kind) == ADDITIVE else 'lit'
+        map_keys(nif, interp, kind, at['peaks'].get(name, 1.0) if kind == 'lit' else 1.0)
+
+
+def _blend(nif, alpha: int, shader_kind: str) -> 'int | None':
+    """An unlit shape's blend destination factor; None when lit or not blending."""
+    if shader_kind != 'Effect' or alpha < 0 or not nif.blocks[alpha][1]['alpha_flags'] & ALPHA_BLEND:
+        return None
+    return nif.blocks[alpha][1]['alpha_flags'] >> 5 & 0xF
 
 
 def blended_unlit(nif, alpha: int, name: str, shader_kind: str) -> bool:
-    """Whether shape `name` (alpha `alpha`) is unlit, not a glow overlay, and blends.
+    """Whether shape `name` is unlit, not a glow overlay, and blends over (not adds).
 
     See: docs/fork/fo4_look.md#emissive
     """
-    if shader_kind != 'Effect' or name.endswith(GLOW_SUFFIX) or alpha < 0:
-        return False
-    return bool(nif.blocks[alpha][1]['alpha_flags'] & ALPHA_BLEND)
+    return not name.endswith(GLOW_SUFFIX) and _blend(nif, alpha, shader_kind) not in (None, ADDITIVE)
 
 
 def timing(controller) -> dict:
@@ -265,12 +274,10 @@ def spline(nif, interp) -> int:
     """Append FNV compressed B-spline float or point channel `interp` as FO4's plain interpolator with linear keys
     sampled at SPLINE_FPS over its span (its value alone when it has no control points); its index."""
     kind, data_kind, width = INTERPOLATORS[type(interp).__name__]
-    floats = [float(f) for f in interp.unknown_floats]
-    handle = struct.unpack('<I', struct.pack('<f', floats[width]))[0]
-    offset, half_range = floats[width + 1:width + 3]
+    value, handle, offset, half_range = spline_fields(interp, width)
     index = len(nif.blocks)
     if handle == NO_HANDLE:
-        nif.blocks.append((kind, {'value': floats[0] if width == 1 else tuple(floats[:3]), 'data': NONE}))
+        nif.blocks.append((kind, {'value': value[0] if width == 1 else value, 'data': NONE}))
         return index
     count = interp.basis_data.num_control_points
     points = np.array(list(interp.spline_data.get_comp_data(handle, count, width, offset, half_range)))
@@ -282,6 +289,15 @@ def spline(nif, interp) -> int:
     nif.blocks.append((data_kind, {'keys': {'kind': LINEAR, 'keys': [
         (float(t), *map(float, v)) for t, v in zip(times, values)]}}))
     return index
+
+
+def spline_fields(interp, width: int) -> tuple:
+    """Compressed spline `interp`'s (value, control-point handle, offset, half range); pyffi names the float
+    channel's fields and packs the point channel's into one float array."""
+    if width == 1:
+        return (float(interp.base),), int(interp.offset), float(interp.bias), float(interp.multiplier)
+    floats = [float(f) for f in interp.unknown_floats]
+    return tuple(floats[:3]), struct.unpack('<I', struct.pack('<f', floats[3]))[0], floats[4], floats[5]
 
 
 def key_group(group, width: int) -> dict:

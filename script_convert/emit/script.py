@@ -18,9 +18,12 @@ each statement's trailing source comment.
 
 from __future__ import annotations
 
+import dataclasses
+
+from script_convert import loop_jumps, nvse_falloutnv as nvse
 from script_convert.constants import safe_property_name
 from script_convert.stage_latch import guard_stage_timer
-from script_convert.emit import stmt as S
+from script_convert.emit import expr as E, stmt as S
 from script_convert.tes4 import nodes as N
 from script_convert.tes5.blocks import hoist_quest_start_above_writes
 
@@ -75,8 +78,10 @@ def emit_stmt(conv, st: N.Stmt, extends: str, depth: int) -> list[str]:
     if isinstance(st, N.If):
         return _if(conv, st, extends, depth)
     if isinstance(st, N.While):
-        return ([pad + _text(conv, st, extends)]
-                + emit_body(conv, st.body, extends, depth + 1)
+        jumps = loop_jumps.lower(conv, st.body)
+        head = dataclasses.replace(st, cond=jumps.condition(st.cond))
+        return ([pad + line for line in jumps.declare] + [pad + _text(conv, head, extends)]
+                + emit_body(conv, jumps.body, extends, depth + 1)
                 + [pad + 'EndWhile'])
     if isinstance(st, N.ForEach):
         return _foreach(conv, st, extends, depth)
@@ -160,15 +165,23 @@ def _comment(line: str) -> str:
 
 
 def _foreach(conv, st: N.ForEach, extends: str, depth: int) -> list[str]:
-    """An OBSE `forEach ... loop` block, kept whole but commented out.
+    """An xNVSE array `ForEach` as an index loop; any other (a container's items, a string's characters,
+    or OBSE on Skyrim) kept whole but commented out, which leaves every statement after it live.
 
-    Papyrus has no OBSE container iterator, so the body cannot run; commenting
-    the BLOCK (not a running span) leaves every statement after it live.
+    See: docs/fork/nvse_script_language.md#loops
     """
-    pad = INDENT * depth
-    lines = ([pad + _text(conv, st, extends)]
-             + emit_body(conv, st.body, extends, depth + 1) + [pad + 'loop'])
-    return [_comment(line) for line in lines]
+    pad, inner = INDENT * depth, INDENT * (depth + 1)
+    head = nvse.foreach_head(conv, st, extends)
+    if head is None:
+        lines = ([f'{pad};ForEach {st.var} <- {E.emit_source(st.source)}  ;NE: not an xNVSE array loop']
+                 + emit_body(conv, st.body, extends, depth + 1) + [pad + 'loop'])
+        return [_comment(line) for line in lines]
+    before, cond, first, last = head
+    jumps = loop_jumps.lower(conv, st.body)
+    loop = _text(conv, N.While(cond=jumps.condition(N.Raw(cond, line=st.line)), line=st.line, comment=st.comment),
+                 extends)
+    return ([pad + line for line in before + jumps.declare] + [pad + loop, inner + first]
+            + emit_body(conv, jumps.body, extends, depth + 1) + [inner + last, pad + 'EndWhile'])
 
 
 # ---------------------------------------------------------------------------

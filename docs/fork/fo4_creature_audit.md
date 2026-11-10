@@ -18,6 +18,8 @@ Counts are FalloutNV.esm's unless marked as the build's.
 - [Findings, by effect in game](#findings)
 - [Lost in the export](#export)
 - [Fixed this audit](#fixed)
+- [Mole rats and radscorpions don't burrow](#molerat-burrowing)
+- [Race abilities FNV's creatures lack (robots, deathclaws, behemoths, kings)](#race-abilities)
 - [The leftover check](#leftover-check)
 - [Not measured](#open)
 
@@ -169,7 +171,42 @@ sometimes come up empty as in FNV):
   runs the check, by race: a leveled actor's base is a generated record, but
   its race is the drawn entry's. Region build: 6 lists hold the void actor;
   their template actors take scripts from the list (flags 991), so none
-  needs the check there.
+  needs the check there. Vanilla relies on the same: 294 Fallout4.esm
+  template actors on a leveled list take its entry's script (Use Script, no
+  VMAD of their own).
+  *Hardened 2026-11-07 (not played):* invisible hostile attackers at
+  Ivanpah's dry lake twice (a red compass marker, melee, killed by
+  `killall`; 103 spawns around it can draw the void), and the delete
+  script writes no trace to tell whether it ran. The void actor is now Is
+  Ghost (nothing hits it, so nothing provokes it) and its race
+  (`invisible_race`, shared with the talking-machine speaker) keeps no
+  attack data, so a void that outlives its script can neither be hit nor
+  hurt anyone. Confirmed in game the same day: the user killed the
+  invisible attacker and its body was named "Mole Rat" (FNV has none, so
+  it was the void copy), so the script had missed it. `F3NV_VoidActor`
+  now also vanishes on `OnInit`, since an actor spawned into an
+  already-loaded cell gets no `OnCellAttach`.
+  *Rebuilt 2026-11-07 (not played): the void leaves the lists.* In the
+  1107h build, Crescent Canyon West's "Golden Gecko Hunter"
+  (`VSpawnSpecialTier3GoldenGeckoMedCrescentPatrol75`, its list three
+  geckos and one void) was in combat, could be targeted in VATS with the
+  gecko's body parts at 0%, drew nothing even from below the ground, and
+  console clicks found only "Picked Non Ref AV Object". After
+  `disable`/`enable` it showed as a gecko but stood still and took no
+  damage: a gecko body with the void's empty packages and ghost flag. The
+  "Mole Rat" before it had the void's name and body with a hostile
+  entry's behavior. FO4 draws each template part from a list on its own,
+  so a void entry mixes into its neighbors' actors, and no script or flag
+  on the void can fix that. Now `Npcs._list` leaves out every entry whose
+  `void_share` is 1, and each placed actor whose base could draw the void
+  runs `F3NV_VoidChance` on its own reference. That script disables the
+  actor at that share (`Chance`) when it starts and on each reset. The
+  share counts every list entry once (FNV's names agree: "75" lists roll
+  0.25, "50" lists 3/7). FNV: 154 lists lose 327 void entries, and 1,157
+  placed actors roll (425 at 0.25, 556 at 3/7, 127 at 2/3). Not covered:
+  a template actor a script places (`PlaceAtMe`) always spawns, and a
+  reference with an enable parent cannot be disabled by its script. A
+  template on the void alone keeps the void actor and its check.
 - **Scripts on bases** (finding 2): an NPC's or creature's FNV script is its
   base NPC_'s VMAD (its script chain's on a plain base, its own on a template
   actor without Use Script), as FNV keeps it on the base; an ACHR carries one
@@ -349,6 +386,170 @@ effect shapes whose alpha and texture controllers set what shows). Those
 controllers are now kept, and the layers blend
 ([free controllers](fo4_pipeline.md#free-controllers), built 2026-11-02, not
 yet played).
+
+## <a id="molerat-burrowing"></a>Mole rats and radscorpions don't burrow (2026-11-07, built in code, not yet played)
+
+FNV mole rats are a `stats` copy of `EncMolerat01Template`, so they used
+FO4's `MoleratRace` and graph and tunneled in combat like FO4's. FNV's
+never did.
+
+**FNV's mole rat (V).** `CrMoleRat` (0001CF9F): level 4, Health 35, bite
+30, SpeedMult 100, reach 25, Aggression 2 (very aggressive), Confidence 2,
+Assistance 1 (helps allies), aggro radius 1500. Its packages are
+`DefaultPatrolCasual` and `DefaultSandboxEditorLocation512`. The template
+variants are the pup `VCrTier1MoleRatSmall` (level 2, Health 18, bite 15,
+SpeedMult 80, scale 0.6, aggro 700) and the large `VCrTier2MoleRatLarge*`
+(level 6, Health 60, bite 30, scale 1.5). Combat style `CSMolerat`: dodge
+75, attack 40, power attack 25 (forward 40, normal 30, back 30), rushing
+attack 25, take cover 0. Its clips (`meshes/creatures/molerat/`) are walk,
+run and back (plus hurt versions), turns, four attacks (`h2hattackleft`,
+`right`, `power`, `forwardpower`), combat idles (`alarmcry`, `growl`,
+`pawground`), hit reactions, get-ups and three idles. It has no dig clip.
+The FNV wiki says they "usually charge"; the FO4 wiki calls tunneling
+unique to the Commonwealth. The Prima guide gives only stats.
+
+**What drives FO4's tunneling (V).**
+- **Engine:** combat pathing searches tunnel routes
+  (`CombatNavmeshSearchTunnel<…>` for charge, flank, withdraw, flee and
+  others; `CombatTunnelPathController`; `fCombatPathingTunnel*` settings).
+  `Can Tunnel` is a combat behavior-tree node, not a race flag. The graph
+  plays it through `ActionTunnel` (AACT 000AE4B5) and the `bTunneling`
+  variable.
+- **Graph:** only three vanilla root graphs hold `TunnelEnter` and
+  `TunnelExit`: mole rat, radscorpion and mirelurk hunter (with
+  `moleratsharedcorewrappingbehavior.hkx` and the radscorpion shared
+  cores; `bIsTunneling`, `TunnelExitExplode`). The dirt bursts are
+  `MoleratDigExplosion` and `RadScorpionDigExplosion`.
+- **Switch:** default object `KeywordDisableTunneling_DO` (DFOB 0022FC81),
+  which Fallout4.exe describes as "Keyword used to disable tunneling for an
+  actor", names `DisableTunnelingKeyword` (KYWD 0022FC80). Vanilla gives it
+  to one actor, `LvlMoleratBomb` (NPC_ KWDA; its template flags leave out
+  Keywords, so the keyword is the NPC's own). No RACE, CSTY, package or
+  MGEF field turns tunneling off.
+
+**Built.** `Creatures._keywords` adds `DisableTunnelingKeyword` when the
+stand-in NPC of the creature's traits source is on `MoleratRace`,
+`RadScorpionRace` or `MirelurkHunterRace` (`TUNNELING_RACES`); template
+actors that keep their own keywords get it too. It reaches FNV mole rats,
+radscorpions (including bark scorpions) and Old World Blues roboscorpions.
+It also reaches the 13 own-rig entries copied from `EncMolerat01Template`.
+Their graphs have no tunnel states, so there it is only a guard.
+`Fallout4.esm`'s own mole rats are untouched. Test:
+`test_a_creature_standing_in_on_a_tunneling_race_never_tunnels`.
+
+**Not yet seen in game:** whether a mole rat whose target is out of
+reach, such as on a car roof, now waits or withdraws on foot. That is
+what `LvlMoleratBomb` does.
+
+**Other options, least to most work.**
+1. *Race copy.* There is no race flag to copy, so it adds nothing for
+   burrowing.
+2. *Combat style.* This is already FNV's: the stand-in's ZNAM is
+   `CSMolerat`, converted (`CombatStyles.edit`). Its attacks are already
+   limited to the groups FNV's clips have
+   ([creature attacks](fo4_pipeline.md#creature-attacks)).
+3. *A graph copy without `Tunnel_SM`.* This works, but it ships an edited
+   copy of a vanilla graph, and the keyword already does the job. Not
+   needed.
+4. *FNV's own clips on the own-rig path* (`creature_rigs.json`, as the
+   gecko does; [fo4_own_rig.md](fo4_own_rig.md#table)): FNV's model, gait,
+   four attacks and combat idles. That means one rig table entry (clips,
+   attacks, body parts, pose bones) plus the skeleton, ragdoll and sound
+   work each rig has needed. Risk: the rig path's known gaps (no idle while
+   moving or fighting) and losing FO4's more polished mole rat. Worth it
+   only if play shows FO4's jump attacks or gait read wrong for FNV.
+
+**Recommendation.** Use the keyword (built) and keep FO4's rig. Consider
+option 4 only after play-testing.
+
+## <a id="race-abilities"></a>Race abilities FNV's creatures lack (2026-11-07, built in code, not yet played)
+
+A `stats` creature is a copy of an FO4 creature on its race, so it runs
+that race's ability (RACE SPLO). Most are FO4's look or the legendary
+hook; six do what FNV's creature never did.
+
+**Robots.** FNV's protectrons, Mister Gutsy and Handy, robobrains and
+sentry bots use `ProtectronRace`, `HandyRace` and `SentryBotRace`. Each
+race's ability (`AbRaceProtectron`, `AbRaceMrHandy`, `AbRaceSentryBot`)
+runs a script effect (`abProtectronRaceEffect`, `abMrHandyRaceEffect`,
+`abSentryBotRaceEffect`) extending `RobotSelfDestructScript`:
+
+- a robot left with no weapon and both attack limbs crippled equips the
+  fake `SelfDestructBot` weapon, sets SpeedMult 200, rushes its target and
+  explodes 10 s later in a radiation cloak;
+- below 50% health a crippled limb sets it on fire (1 in 4);
+- the sentry bot explodes on death (`onDeathExplosionFX`);
+- a crippled combat inhibitor (`BrainCondition`) frenzies it
+  (`StartFrenzyAttack(0.1, 5.0)` with `PRobotFrenzyFXS` and
+  `PFrenzyFXSLightVE`).
+
+FNV robots only frenzy. FalloutNV.esm has no frenzy effect for it (the
+only frenzy records are MS13's and the turret's script), so the frenzy is
+the engine's.
+
+**Deathclaws.** `DeathclawRace`'s ability (`AbRaceDeathclaw`,
+`abDeathclawRaceEffect`, `deathclawRaceScript`) places
+`DeathclawIntimidateExplosion` on the graph's `Intimidate` event: its
+enchantment `crEnchDeathclawIntimidate` casts
+`crDeathclawIntimidateMagEffect` on everyone in 768 units for 5 s
+(magnitude 21 to 99 by level). The same script rumbles the camera on each
+footstep and gibs a human it kills on `GibTarget`. FNV's deathclaws have
+none of it.
+
+**Behemoths and lakelurk kings.** `AbRaceBehemoth` (`abBehemothRaceEffect`,
+`BehemothSlamsFXScript`) places `BehemothSlamExplosion` and
+`BehemothStompExplosion` on the `slamFX` and `stompFX` events: damage 25,
+force 500, radius 300 to 600. FO3's behemoth only swings its hydrant.
+`AbMirelurkKingCloakSpell` (`crMirelurkKingBlurCloakEffect`,
+`MirelurkKingBlurScript`, and `crMirelurkKingBlurCloakScriptEffect`,
+`MirelurkKingBlurTimer`) blurs a mirelurk king partly invisible on a timer.
+FNV's lakelurk kings and FO3's mirelurk kings, which stand in on
+`MirelurkKingRace`, never blur.
+
+The vanilla effects are gated only by IsEssential and IsProtected; the
+protectron's also by `DN070_SecurityProtectron`, and its ability by
+`if_Protectron_DrinkingBuddy`. No vanilla keyword turns any of them off.
+
+**Built.** `FalloutHelpers.esl` (`fo4_import/helpers_races.py`, shared so
+the FO3 and FNV plugins don't override the same records) holds the keyword
+`F3NV_FalloutCreature` (0xC00) and the effect `F3NV_RobotFrenzyEffect`
+(0xC01, a copy of `abSentryBotRaceEffect` running `F3NV_RobotFrenzy` with
+its frenzy forms and no conditions). It overrides the six race abilities:
+
+- each scripted effect gets `HasKeyword F3NV_FalloutCreature == 0` as its
+  first condition, so it ANDs with the effect's own (the king's);
+- Mister Handy's water walking stays as it was;
+- the three robot abilities add `F3NV_RobotFrenzyEffect` with
+  `HasKeyword F3NV_FalloutCreature == 1`.
+
+`F3NV_RobotFrenzy` frenzies on the inhibitor's cripple and at combat start
+with it already at 0, as vanilla does. `Creatures._race_keywords` gives the
+keyword to every creature whose stand-in is on one of the six races
+(`GATED_RACES`). Vanilla creatures carry no such keyword and keep FO4's
+behaviour. These are the plugins' only overrides of Fallout4.esm records
+apart from the game settings and the navmesh info map. Tests:
+`test_a_creature_standing_in_on_a_tunneling_race_never_tunnels`,
+`test_race_abilities_gate_fo4_only_effects_by_keyword`.
+
+### <a id="deathclaws"></a>Deathclaws' dirt throw
+
+FO4's deathclaw carries `DeathclawDirtThrow` (a non-playable Gun, flagged
+Secondary Weapon) and its ammo `AmmoDeathclawThrow`, which the converter
+kept as the stand-in's attack gear ([inventory](#inventory)), so FNV's
+deathclaws threw dirt at range. FNV's carry no weapon. `Creatures.inventory`
+now keeps a stand-in's ranged gear (a non-playable WEAP whose animation type
+is Bow, Staff, Gun, Grenade or Mine, and the ammo it names) only when the
+FNV creature's inventory holds a ranged weapon of its own (FNV animation
+type 3 or more, as the eyebot's `EyeBot1HP`). Melee gear (the behemoth's
+`FireHydrantBat`) and shields (`MirelurkShield`) stay. Test:
+`test_a_stand_ins_ranged_gear_stays_only_with_a_ranged_fnv_creature`.
+
+Left as FO4's: the race's `MeleeAttackStartFlipCar` attack, which needs a
+car to flip.
+
+**Not yet seen in game:** a robot frenzy after crippling the inhibitor, no
+self-destruct after crippling both arms, no roar fear, no dirt throw, no
+slam explosion, no king blur.
 
 ## <a id="leftover-check"></a>The leftover check
 

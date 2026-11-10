@@ -318,6 +318,7 @@ _RECORD_TYPE_PAPYRUS = {
     'WEAP': 'Weapon', 'ARMO': 'Armor', 'BOOK': 'Book',
     'ALCH': 'Potion', 'INGR': 'Ingredient', 'LIGH': 'Light',
     'MISC': 'MiscObject', 'KEYM': 'Key', 'AMMO': 'Ammo', 'NOTE': 'Book', 'REPU': 'FormList',
+    'CHIP': 'MiscObject', 'CMNY': 'MiscObject', 'CCRD': 'MiscObject',
     # TES4-only item types, typed by what the IMPORTER writes them as (measured
     # over Morrowind_ob: 565 CLOT -> ARMO, 22 APPA -> MISC).  Leaving them
     # unmapped fell through to the 'ObjectReference' default, which is not a
@@ -760,14 +761,16 @@ FALLOUT4_HELPER_AVS = {
     'Medicine': 0x815, 'MeleeWeapons': 0x816, 'Repair': 0x817, 'Science': 0x818, 'Guns': 0x819,
     'SmallGuns': 0x81A, 'Sneak': 0x81B, 'Speech': 0x81C, 'Survival': 0x81D, 'Unarmed': 0x81E,
     'CritChance': 0x81F, 'FalloutDamageResist': 0x820, 'Fatigue': 0x821, 'TalkedToPC': 0x822,
+    'Dehydration': 0x823, 'Hunger': 0x824, 'SleepDeprivation': 0x825, 'DialogueDone': 0x826,
 }
 #: Helper actor values whose default is not 0: Fatigue, an average FNV NPC's (docs/fork/fo4_pipeline.md#fatigue).
 FALLOUT4_HELPER_AV_DEFAULTS = {'Fatigue': 200.0}
 #: FO3/FNV actor value -> Fallout 4's of the same meaning; FO4's DamageResist is FNV's DT, FNV's DR the helper's.
 FALLOUT4_FALLOUT_AV_RENAMES = {'RadiationRads': 'Rads', 'XP': 'Experience', 'RadResist': 'RadResistExposure',
                                'DamageThreshold': 'DamageResist', 'DamageResist': 'FalloutDamageResist'}
-#: Skyrim skill names the shared helpers use -> the FO3/FNV skill they read on Fallout 4.
-FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair'}
+#: Skyrim skill names the shared helpers use, and FNV's other need spellings -> the helper actor value they read.
+FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair',
+                              'SleepDeprevation': 'SleepDeprivation', 'Starvation': 'Hunger'}
 #: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.
 FALLOUT4_HELPER_QUESTS = {'F3NV_PlayerControls': 0x900, 'F3NV_CharacterEvents': 0x901, 'F3NV_PackageState': 0x902}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
@@ -776,6 +779,8 @@ FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00, 'TES4Trace': 0xA01}
 FALLOUT4_HELPER_MESSAGES = {'TES4ChooseSexMessage': (0xB00, 'Choose Sex', ('Male', 'Female')),
                             'TES4SpecialPointMessage': (0xB01, 'Intense Training', (
                                 'Strength', 'Perception', 'Endurance', 'Charisma', 'Intelligence', 'Agility', 'Luck'))}
+#: The converted-creature keyword and FNV's robot frenzy effect -> object id in FALLOUT4_HELPER_PLUGIN.
+FALLOUT4_HELPER_CREATURE_KEYWORD, FALLOUT4_HELPER_ROBOT_FRENZY = 0xC00, 0xC01
 #: Helper quest script -> {property: helper message} it is given.
 FALLOUT4_HELPER_QUEST_MESSAGES = {'F3NV_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'},
                                   'F3NV_CharacterEvents': {'SpecialPoint': 'TES4SpecialPointMessage'}}

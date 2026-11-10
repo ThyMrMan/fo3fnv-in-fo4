@@ -84,7 +84,7 @@ def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_pat
     failed flag back."""
     runs = []
 
-    def fake(paths, run):
+    def fake(paths, run, names):
         """Stand in for elric.finish: append b'+' to each mesh; 'b' fails."""
         runs.append(sorted(p.read_bytes() for p in paths))
         failed = [p for p in paths if p.read_bytes() == b'b']
@@ -148,7 +148,8 @@ def test_the_stamp_says_running_then_finished_or_failed(tmp_path, monkeypatch):
     monkeypatch.setattr(RUN, 'source_state', lambda: {'commit': 'abc', 'changed files': ['x.py']})
     stamp = BS.stamp_path(out)
     status = lambda: json.loads(stamp.read_text())['status']
-    monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(start=lambda folder: seen.append('record'),
+    monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(RECORD_SUFFIX='.inputs',
+                                                             start=lambda folder: seen.append('record'),
                                                              write=lambda *a: seen.append(f'inputs {status()}')))
     monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(status()))
     RUN.main()
@@ -183,10 +184,11 @@ def test_a_build_with_scripts_converts_them_first(monkeypatch):
     assert calls == [('e', 's')]
 
 
-def test_the_first_world_takes_the_rectangle_and_the_rest_are_whole():
-    """--world A B: A's cells in --region, B's all."""
+def test_the_first_world_takes_the_rectangle_and_the_rest_are_whole(monkeypatch):
+    """--world A B: A's cells in --region plus its edited cells, B's all."""
+    monkeypatch.setattr(RUN, 'edited_cells', lambda export, world: frozenset({(5, 5)}))
     args = SimpleNamespace(export=None, world=['A', 'B'], region=[0, 0, 1, 1], whole=False)
-    assert RUN.exteriors(args) == (('A', (0, 0), (1, 1)), ('B', None, None))
+    assert RUN.exteriors(args) == (('A', (0, 0), (1, 1), frozenset({(5, 5)})), ('B', None, None))
     assert RUN.exteriors(SimpleNamespace(export=None, world=[], region=None, whole=False)) == ()
 
 

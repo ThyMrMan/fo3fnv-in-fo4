@@ -13,6 +13,7 @@ See: docs/fork/fo4_own_rig.md#screen-clips
 
 from pathlib import Path
 
+from fo4_import.nif import fnv_file
 from fo4_import.nif.convert_static import NifFormat
 from fo4_import.nif.shader_anim import channel
 
@@ -23,9 +24,7 @@ LOOP_FLAGS = 0x48
 def clip_channels(kf: Path) -> tuple:
     """(loop timing, [(shape name, CHANNELS entry, FNV interpolator, FNV controller type)]) of the shader channels
     in KF `kf`'s sequence."""
-    data = NifFormat.Data()
-    with open(kf, 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(kf)
     seq = next(r for r in data.roots if isinstance(r, NifFormat.NiControllerSequence))
     when = {'flags': LOOP_FLAGS, 'frequency': float(seq.frequency), 'phase': 0.0, 'start': float(seq.start_time),
             'stop': float(seq.stop_time)}

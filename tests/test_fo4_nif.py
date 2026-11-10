@@ -397,6 +397,25 @@ def test_seam_moves_the_edge_on_fnvs_body_edge_onto_fo4s_and_fades_inward():
     assert np.allclose(out[8:], pts[8:])
 
 
+def _ring(z: float, segments: int = 8) -> np.ndarray:
+    """`segments` points on a radius-4 circle at height `z`."""
+    a = np.linspace(0.0, 2 * np.pi, segments, endpoint=False)
+    return np.stack([4 * np.cos(a), 4 * np.sin(a), np.full(segments, z)], axis=1)
+
+
+def test_a_skin_loop_near_fnvs_body_edge_moves_whole():
+    """A tube's bottom rim 1.0 from FNV's neck edge (past SEAM_REACH, within LOOP_REACH) lands on FO4's edge when
+    the shape is skin, and stays when it is cloth; its top rim, 4 up, stays."""
+    pts, n = np.vstack([_ring(0.0), _ring(4.0)]), 8
+    tris = np.array([t for i in range(n) for t in ((i, (i + 1) % n, n + i), ((i + 1) % n, n + (i + 1) % n, n + i))])
+    fo4_ring = _ring(-3.0, 64)
+    fo4 = (fo4_ring, np.roll(fo4_ring, -1, axis=0))
+    fit = O.BodyFit({}, None, None, None, [], [], [], None, None, None, 0, seams=[(_ring(-1.0), fo4)])
+    skin, cloth = fit.seamed(pts, pts, tris, skin=True), fit.seamed(pts, pts, tris)
+    assert np.allclose(skin[:n, 2], -3.0, atol=0.01) and np.allclose(skin[n:], pts[n:])
+    assert np.allclose(cloth, pts)
+
+
 def test_a_body_edge_fnv_lacks_gets_no_seam():
     """FO4's wrists and neck against FNV's wrists alone: each wrist pairs with its own, the neck with none (it
     took the left wrist on a tie, pulling left sleeves onto the neck)."""
@@ -785,17 +804,39 @@ def test_nightkin_over_fo4s_body_and_head_keep_only_fnvs_armor():
     assert names and not any(n.startswith('NEW_UV_lo') for n in names)
 
 
-def test_a_fire_addon_maps_to_fo4s_by_name_and_a_damage_stage_one_is_left_out():
-    """Barrel02fireLight's AddOnNode14 (FNV MPSFireSmall01) becomes FO4's index 4; car03's fires sit under hidden
-    damage stages and stay out; a BSValueNode survives a write and read."""
+def test_a_fire_addon_maps_to_fo4s_by_name_and_damage_stages_keep_theirs():
+    """Barrel02fireLight's AddOnNode14 (FNV MPSFireSmall01) becomes FO4's index 4. car03's six fires stay under
+    FO4 damage stages (hidden, FNV's ranges) beside its blast nodes, as vanilla Coupe01_Postwar; all survive a
+    write and read."""
     export = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
     if not export.exists():
         pytest.skip('no FNV export')
     addons = addon_map(str(export))
-    values = [[b['value'] for k, b in F.read(F.write(C.convert(str(export / 'meshes' / m), str(export),
-                                                               addons=addons).nif)).blocks
-               if k == 'BSValueNode'] for m in ('clutter/barrel02firelight.nif', 'vehicles/car03.nif')]
-    assert values == [[4], []]
+    barrel, car = (F.read(F.write(C.convert(str(export / 'meshes' / m), str(export), addons=addons).nif))
+                   for m in ('clutter/barrel02firelight.nif', 'vehicles/car03.nif'))
+    assert [b['value'] for k, b in barrel.blocks if k == 'BSValueNode'] == [4]
+    ranges = {car.strings[b['name']]: (k, b['range'], b['flags'],
+                                       sorted(car.blocks[c][1]['value'] for c in b['children']))
+              for k, b in car.blocks if k in C.RANGE_NODES}
+    assert ranges == {
+        'DamageStage3': ('BSDamageStage', (3, 3, 0), C.RANGE_FLAGS, [5]),
+        'DamageStage2-3': ('BSDamageStage', (2, 3, 0), C.RANGE_FLAGS, [5, 5, 5]),
+        'DamageStage1-3': ('BSDamageStage', (1, 3, 0), C.RANGE_FLAGS, [4, 4]),
+        'BlastNode2': ('BSBlastNode', (2, 2, 0), C.RANGE_FLAGS, []),
+        'BlastNode4': ('BSBlastNode', (4, 4, 0), C.RANGE_FLAGS, [])}
+    assert all(i in car.blocks[0][1]['children'] for i, (k, _) in enumerate(car.blocks) if k in C.RANGE_NODES)
+
+
+def test_shapes_under_a_damage_stage_go_under_it():
+    """VertibirdHulk's debris shapes (VBDebris-28, -30) sit under its third DamageStage3, not the root."""
+    export = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
+    if not export.exists():
+        pytest.skip('no FNV export')
+    nif = C.convert(str(export / 'meshes' / 'vehicles' / 'vertibirdhulk.nif'), str(export)).nif
+    parent = {c: k for k, b in nif.blocks if isinstance(b, dict) for c in b.get('children', [])}
+    debris = [i for i, (k, b) in enumerate(nif.blocks) if k == 'BSTriShape'
+              and nif.strings[b['name']].startswith(('VBDebris-28', 'VBDebris-30'))]
+    assert debris and {parent[i] for i in debris} == {'BSDamageStage'}
 
 
 def test_an_alpha_tested_glow_shape_keeps_its_cut_and_glows_through_an_additive_decal_overlay():

@@ -78,7 +78,8 @@ def test_marker_without_idles_is_the_empty_marker_and_markers_keep_earlier_choic
 
 def _engineer_and_robot() -> IM.IdleMarkers:
     """IdleMarkers over plugin bytes: an engineer's terminal and fidget idles, a protectron's turn-on idle."""
-    fo4 = _plugin(('IDLM', 0x14B737, pack_string_subrecord('EDID', 'NPCStandingExamineIdleMarker')))
+    fo4 = _plugin(('IDLM', 0x14B737, pack_string_subrecord('EDID', 'NPCStandingExamineIdleMarker')),
+                  ('IDLM', 0x01E1B0, pack_string_subrecord('EDID', IM.EMPTY)))
     fnv = _plugin(_idle(0x10, 'Characters\\_Male\\IdleAnims\\ScientistInspectTerminalA.kf'),
                   _idle(0x11, 'Characters\\_Male\\IdleAnims\\LookingAround.kf'),
                   _idle(0x12, 'Characters\\_Male\\IdleAnims\\SpecialIdle_Swatting.kf'),
@@ -94,12 +95,13 @@ def test_idle_markers_read_fnv_idle_lists_and_say_what_is_left_out():
     assert markers.of(ROBOT) == (None, 'creatures\\protectron')
 
 
-def test_cell_builder_counts_a_left_out_marker_by_what_it_plays():
-    """The converter returns the stand-in and counts it placed; a marker without one by what it plays."""
-    builder = SimpleNamespace(idle_markers=_engineer_and_robot(), counts=Counter())
+def test_a_marker_fo4_plays_nothing_like_is_the_empty_marker_counted_by_what_it_plays(tmp_path):
+    """The converter returns the stand-in, else the empty marker, as packages, patrol routes and scripts name
+    the spot."""
+    builder = SimpleNamespace(idle_markers=_engineer_and_robot(), counts=Counter(), export_dir=tmp_path)
     assert CellBuilder.idle(builder, 0x20, 'IDLM', ENGINEER) == 0x14B737
-    assert CellBuilder.idle(builder, 0x21, 'IDLM', ROBOT) is None
-    assert builder.counts == {'idle marker placed': 1, 'idle marker left out: creatures\\protectron': 1}
+    assert CellBuilder.idle(builder, 0x21, 'IDLM', ROBOT) == 0x01E1B0
+    assert builder.counts == {'idle marker placed': 1, 'idle marker placed empty: creatures\\protectron': 1}
 
 
 @pytest.mark.skipif(not (FALLOUT4_ESM.exists() and FALLOUTNV_ESM.exists()), reason='needs both game masters')

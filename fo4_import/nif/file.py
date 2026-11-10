@@ -128,3 +128,11 @@ def write(nif: NifFile) -> bytes:
     out += struct.pack('<II', len(nif.strings), longest) + b''.join(_sized(s) for s in nif.strings)
     out += struct.pack('<I', 0) + b''.join(bodies)
     return out + struct.pack(f'<I{len(nif.roots)}i', len(nif.roots), *nif.roots)
+
+
+def hang_from(nif: NifFile, bone: str) -> None:
+    """Hang the NIF from `bone`: `Prn` string extra data, first on the root."""
+    nif.blocks.append(('NiStringExtraData', struct.pack('<ii', nif.string('Prn'), nif.string(bone))))
+    root = nif.blocks[0][1]
+    root['extra'] = [len(nif.blocks) - 1] + root['extra']
+

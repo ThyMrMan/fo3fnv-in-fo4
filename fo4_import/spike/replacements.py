@@ -51,7 +51,7 @@ BIPED = {'Head': 0x1, 'Hair': 0x2, 'Upper Body': 0x4, 'Left Hand': 0x8, 'Right H
          'Mouth Object': 0x10000, 'Body AddOn 1': 0x20000, 'Body AddOn 2': 0x40000, 'Body AddOn 3': 0x80000}
 #: Melee rule keys -> FNV WEAP DNAM animation type.
 MELEE_ANIMS = {'hand_to_hand': 0, 'one_hand': 1, 'two_hand': 2}
-BODY_KINDS = ('human_male', 'human_female', 'ghoul_male', 'ghoul_female')
+BODY_KINDS = ('human_male', 'human_female', 'ghoul_male', 'ghoul_female', 'child_male', 'child_female')
 
 
 # ---------------------------------------------------------------------------

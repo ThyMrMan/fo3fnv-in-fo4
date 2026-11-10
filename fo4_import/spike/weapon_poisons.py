@@ -16,6 +16,7 @@ See: docs/fork/fo4_pipeline.md#weapon-poisons
 
 import struct
 
+from fo4_import.base.support_records import pack_mesg
 from fo4_import.base.vmad import object_scripts
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
@@ -36,9 +37,13 @@ POISONABLE = ('Melee Weapons', 'Unarmed')
 HIT_SPELL, SELECT_SPELL, HIT_TABS, WEAPON_TAB, SPELL_PARAM = 51, 10, 3, 1, 5
 #: The coat perk's DATA (no trait or level, one rank, unplayable, hidden).
 COAT_DATA = struct.pack(PERK_DATA, 0, 0, 1, 0, 1)
-#: FNV's two refusals and FalloutNV.exe's text for one FalloutNV.esm leaves at the default.
-NO_WEAPON, ALREADY = 'sPoisonNoWeaponMessage', 'sPoisonAlreadyPoisonedMessage'
-DEFAULTS = {ALREADY: 'The current weapon is already poisoned.'}
+#: FNV's two refusals, its confirmation and FalloutNV.exe's text for those FalloutNV.esm leaves at the default.
+NO_WEAPON, ALREADY, CONFIRM = 'sPoisonNoWeaponMessage', 'sPoisonAlreadyPoisonedMessage', 'sPoisonConfirmMessage'
+DEFAULTS = {ALREADY: 'The current weapon is already poisoned.', CONFIRM: 'Do you want to poison the '}
+#: FalloutNV.exe 0x95E8A2 shows sPoisonConfirmMessage + the weapon's name + '?'; a MESG has no name argument.
+CONFIRM_TAIL = 'weapon?'
+#: The confirmation's DNAM (message box) and buttons (FNV's Yes, No).
+MESSAGE_BOX, BUTTONS = 1, ['Yes', 'No']
 #: CTDA operators equal, with the OR flag.
 EQUAL, OR = 0x00, 0x01
 
@@ -50,8 +55,9 @@ class WeaponPoisons:
         """FNV's refusal messages, read once."""
         self.builder, self.coats, self.spells = builder, [], None
         gmst = {r.get('EditorID'): r.get('DATA.Value') for r in export_records(export_dir, 'GMST')}
-        self.messages = {key: gmst.get(key) or DEFAULTS.get(key, '') for key in (NO_WEAPON, ALREADY)}
+        self.messages = {key: gmst.get(key) or DEFAULTS.get(key, '') for key in (NO_WEAPON, ALREADY, CONFIRM)}
         self.list_fid = builder.writer.derive_formid(SITE, 'coats')
+        self.confirm_fid = builder.writer.derive_formid(SITE, 'confirm')
 
     def is_poison(self, rec: dict) -> bool:
         """Whether FNV ALCH `rec`'s every effect is hostile."""
@@ -76,7 +82,8 @@ class WeaponPoisons:
         self._coat(coat, edid, spell)
         values = {'Poisonable': ('objects', self._keywords()), 'NoWeapon': ('string', self.messages[NO_WEAPON]),
                   'Already': ('string', self.messages[ALREADY])}
-        vmad = object_scripts([(APPLY, {'Coat': coat, 'Coats': self.list_fid, 'Poison': item}, values)])
+        objects = {'Coat': coat, 'Coats': self.list_fid, 'Poison': item, 'Confirm': self.confirm_fid}
+        vmad = object_scripts([(APPLY, objects, values)])
         return effect_pair(scripts.effects.vmad_effect(f'FNV_{edid}Apply', vmad, DELIVERY['Self']), 0.0, 0, 0)
 
     def _keywords(self) -> list:
@@ -96,5 +103,8 @@ class WeaponPoisons:
         self.builder.counts['weapon poison'] += 1
 
     def write(self) -> None:
-        """Write the list of every coat perk written (F3NV_WeaponPoison's Coats)."""
+        """Write the list of every coat perk written (F3NV_WeaponPoison's Coats) and FNV's confirmation box."""
         self.builder.writer.add_record('FLST', R.pack_flst(self.list_fid, 'FNV_WeaponPoisonCoats', self.coats))
+        text = self.messages[CONFIRM] + CONFIRM_TAIL
+        self.builder.writer.add_record('MESG', pack_mesg(self.confirm_fid, 'FNV_WeaponPoisonConfirm', '', text,
+                                                         MESSAGE_BOX, BUTTONS))

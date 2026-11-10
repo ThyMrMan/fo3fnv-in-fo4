@@ -18,7 +18,7 @@ del /q obj\*.obj 2>nul
 
 echo [build] compiling F3NV...
 cl /nologo /c /EHsc /std:c++17 /O2 /MT /W3 /DNDEBUG /DRUNTIME /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
-   /I"%F4SE_ROOT%" /I"%COMMON_ROOT%\include" /FI"common/IPrefix.h" plugin.cpp pipboy.cpp repair.cpp transfer.cpp vendor.cpp pages.cpp ammo.cpp sex.cpp damage.cpp /Fo:obj\
+   /I"%F4SE_ROOT%" /I"%COMMON_ROOT%\include" /FI"common/IPrefix.h" plugin.cpp pipboy.cpp repair.cpp transfer.cpp vendor.cpp pages.cpp ammo.cpp sex.cpp damage.cpp hardcore.cpp /Fo:obj\
 if errorlevel 1 (
     echo [build] ERROR: F3NV compilation failed
     exit /b 1

@@ -19,7 +19,8 @@ from collections import Counter, defaultdict
 from tools.validate.preflight import dialogue_rules, greeting_replies
 from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.plugin_index import first, u32, zstring
-from tools.validate.preflight.quest_source import required_speakers, speakable
+from tools.validate.preflight.quest_source import (RADIO, decode_condition, never_passes, required_speakers,
+                                                   speakable)
 
 #: Topic subtypes a player picks or a scene plays, which the one-per-quest rule does not cover.
 _CHOSEN_SUBTYPES = ('CUST', 'SCEN', 'SCCH', '')
@@ -51,9 +52,9 @@ def lost_lines(ctx) -> list:
     The reason names the source topic's type, so a whole type the converter
     drops (conversations, radio) reads as one cause.
     """
-    out = []
+    out, radio = [], ctx.source.radio_lines()
     for info in ctx.source.infos.values():
-        if info.dial not in ctx.source_topics or not speakable(info.conditions, ctx.source.present):
+        if not _source_says(ctx, info, radio):
             continue
         reason = ctx.info_reason(f'{info.fid:08X}')
         if reason:
@@ -61,6 +62,15 @@ def lost_lines(ctx) -> list:
             via = ', which the source reaches through LinkFrom' if info.link_from and 'topic' in reason else ''
             out.append((info, f'{reason}{via} (source {kind} topic)'))
     return out
+
+
+def _source_says(ctx, info, radio: set) -> bool:
+    """Whether the source can say `info`: a reachable topic (a Radio line: one its station plays, of `radio`), a
+    present speaker, and quest conditions that can pass."""
+    quest = [decode_condition(d) for d in ctx.source.quest_conditions.get(info.quest, ())]
+    station = ctx.source.dials.get(info.dial, ('', 0))[1] != RADIO or info.fid in radio
+    return (info.dial in ctx.source_topics and station and speakable(info.conditions, ctx.source.present)
+            and not never_passes(quest))
 
 
 def _speakers(info, ctx) -> list:

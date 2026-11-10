@@ -433,8 +433,20 @@ five are built 2026-11-06, not played:
 - **IsLimbGone** (2 lines): the giant mantis marked each leg gone on its
   first pass ([AI procedure](fo4_pipeline.md#ai-procedure)).
 
-Still dropped: `GetIsCreatureType` and `IsDLCInstalled` in scripts (the
-`;NE: TODO:` row of the census above).
+<a id="creature-type"></a>**The last two, built 2026-11-06, not played** (the
+`;NE: TODO:` row of the census above):
+- **GetIsCreatureType** (3 lines: the boxing gloves and tape,
+  `GetIsCreatureType 6 != 1`): their knockout hit robots too. It is now
+  `<actor>.HasKeyword(FNV_CreatureType<type>)`, the keyword the build stamps
+  on every converted creature for dialogue's type tests
+  ([type tests](fo4_perks.md#type-tests)); the script property is filled
+  with that keyword (`attach._type_keyword`). A creature in a DLC plugin
+  carries the DLC's copy of the keyword, so a base-game script tests the
+  base copy only.
+- **IsDLCInstalled** (8 lines, the packs' `VDLCPackQuestSCRIPT`): every
+  "installed" branch read 0, so the pack items were never marked given. It
+  is now `Game.IsPluginInstalled("<name>.esm")`, the name with its spaces
+  dropped ("Tribal Pack" is `TribalPack.esm`, as the packs build).
 
 ## <a id="not-built"></a>Not built
 
@@ -443,10 +455,9 @@ Still dropped: `GetIsCreatureType` and `IsDLCInstalled` in scripts (the
 
 ## <a id="measuring"></a>Measuring again
 
-Reconvert into a scratch folder and count; the census script is
-`temp/script_marker_census.py`:
+Reconvert into a scratch folder and count with the census tool:
 
 ```bash
 python -m script_convert.pipeline export/FalloutNV.esm -o <scratch> --target fallout4
-python temp/script_marker_census.py <scratch> export/FalloutNV.esm census.json
+python -m tools.audit.script_marker_census <scratch> export/FalloutNV.esm --json census.json
 ```

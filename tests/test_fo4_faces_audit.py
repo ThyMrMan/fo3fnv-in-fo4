@@ -5,7 +5,6 @@ See: docs/fork/fo4_tool_audit.md#rebuild
 """
 
 import collections
-import pickle
 import shutil
 import struct
 from pathlib import Path
@@ -13,25 +12,26 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from PIL import Image
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
 from fo4_import.base import ba2_pack
 from fo4_import.base.ba2 import Archives
-from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.install import FALLOUT4_ESM, FALLOUTNV_ESM, use_source
 from fo4_import.base.writer import pack_fo4_header, pack_fo4_record
 from fo4_import.face import memo
 from fo4_import.face import texture as TX
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, head
 from fo4_import.nif import file as nif_file
-from fo4_import.pipeline import work_cache
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import asset_root
 from fo4_import.spike import facegen as FG
 from fo4_import.spike import npcs as N
 from fo4_import.spike import vendors as VE
 from fo4_import.spike import voice as V
-from fo4_import.spike.creatures import Creatures
+from fo4_import.spike.creatures import USE_SPELLS, Creatures
+from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_group, pack_subrecord
 
 EXPORT = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
@@ -88,7 +88,7 @@ def _npcs(records: dict, lists: dict = None, creatures: dict = None) -> N.Npcs:
     npcs.creatures = Creatures.__new__(Creatures)
     npcs.creatures.records = creatures or {}
     npcs.creatures._entry = lambda rec: (None, '')
-    npcs.races = {0x19: 'Caucasian', 0x3B3E: 'Ghoul'}
+    npcs.races, npcs.child_races = {0x19: 'Caucasian', 0x3B3E: 'Ghoul'}, set()
     npcs.builder = SimpleNamespace(counts=collections.Counter(), actor_ids={})
     npcs.export_dir, npcs.assets = EXPORT, None
     return npcs
@@ -147,15 +147,18 @@ def test_face_texture_is_unchanged_by_the_shared_texel_map():
 @pytest.mark.skipif(not (EXPORT / 'meshes' / 'characters' / 'head' / 'headhuman.nif').exists(),
                     reason='needs the FNV export')
 def test_fnv_head_mesh_is_read_once():
-    """Two NPCs on one head mesh share its read-only mean; each gets its own face."""
+    """Two NPCs on one head mesh share its read-only mean, under a plain folder or a new layered one each time
+    (asset_root); each gets its own face."""
     one, two = (head(EXPORT / 'meshes', 'Characters\\Head\\HeadHuman.NIF', '', '') for _ in range(2))
     assert one.mean is two.mean and not one.mean.flags.writeable and one.npc is not two.npc
     assert np.array_equal(one.npc, one.mean)
+    layered = [head(asset_root(EXPORT, 'meshes'), 'Characters\\Head\\HeadHuman.NIF', '', '') for _ in range(2)]
+    assert layered[0].mean is layered[1].mean is one.mean
 
 
 def test_faces_follow_templates_and_lists(monkeypatch):
     """The faces warm_faces fits: an NPC's own, its traits template's, a leveled list entry's; no ghoul's."""
-    monkeypatch.setattr(N, 'bases', lambda female: (b'sculpt', b'tint'))
+    monkeypatch.setattr(N, 'basis_hash', lambda female: 'basis')
     records = {1: _rec(1), 2: _rec(2, **{'ACBS.TemplateFlags': '1', 'TPLT.Template': '00000003'}),
                3: _rec(3, **{'ACBS.Flags': '1'}), 4: _rec(4, **{'ACBS.TemplateFlags': '1', 'TPLT.Template': '00000010'}),
                5: _rec(5), 6: _rec(6, **{'RNAM.Race': '00003B3E'})}
@@ -165,25 +168,13 @@ def test_faces_follow_templates_and_lists(monkeypatch):
     assert {fid: female for fid, (_, female) in faces.items()} == {1: False, 3: True, 5: False}
 
 
-@pytest.mark.skipif(not (EXPORT / 'NPC_.txt').exists() or not FALLOUT4_ESM.exists()
-                    or not N.tint.basis_path(True).exists(), reason='needs the FNV export, Fallout4.esm and the bases')
-def test_warm_faces_stores_what_the_serial_fit_makes(monkeypatch, tmp_path):
-    """A face fitted in a worker process is stored as base()'s serial fit makes it, byte for byte (even when the
-    build has pinned child processes to one BLAS thread), and the serial pass then only reads it."""
-    npcs = _npcs({int(r['FormID'], 16): r for r in export_records(EXPORT, 'NPC_')})
-    npcs.builder.fo4 = FALLOUT4_ESM.read_bytes()
-    npc = next(r for r in npcs.records.values() if r.get('EditorID') == 'PrimmNCRTrooper1')
-    monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'serial')
-    N.fit_face(EXPORT, npc, False, npcs._head_assets())
-    monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'pool')
-    monkeypatch.setenv('OPENBLAS_NUM_THREADS', '1')
-    assert npcs.warm_faces([int(npc['FormID'], 16)], workers=1) == 1
-    assert npcs.warm_faces([int(npc['FormID'], 16)], workers=1) == 0
-    for name in ('sculpt_fit', 'tint_fit', 'choose'):
-        monkeypatch.setattr(N, name, _fail)
-    pooled = pickle.dumps(N.fit_face(EXPORT, npc, False, npcs.assets))
-    monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'serial')
-    assert pooled == pickle.dumps(N.fit_face(EXPORT, npc, False, npcs.assets))
+def test_face_workers_follow_the_faces_the_cores_and_free_memory(monkeypatch):
+    """One worker per FACES_PER_WORKER faces, at most half the logical cores, as many as free memory holds."""
+    monkeypatch.setattr(N.os, 'cpu_count', lambda: 16)
+    monkeypatch.setattr(N, 'memory_workers', lambda wanted, each, spare: wanted)
+    assert [N.face_workers(n) for n in (1, 2 * N.FACES_PER_WORKER, 10 ** 6)] == [1, 2, 8]
+    monkeypatch.setattr(N, 'memory_workers', lambda wanted, each, spare: min(wanted, 4))
+    assert N.face_workers(10 ** 6) == 4
 
 
 def test_ck_timeout_scales_with_the_plugins_npcs(tmp_path):
@@ -335,6 +326,41 @@ def test_template_chain_is_one_rule_for_npcs_creatures_and_vendors():
     assert npcs.creatures.source(records[3], N.USE_AI_DATA) is records[3]
 
 
+def test_a_creature_merchant_takes_its_chest_from_the_source_plugin(tmp_path):
+    """A placed creature's XMRC, which the export drops, is read from the source plugin, as an NPC's is."""
+    plugin = tmp_path / 'Source.esm'
+    plugin.write_bytes(_plugin(('ACRE', 0x30, pack_subrecord('NAME', struct.pack('<I', 0x20))
+                                + pack_subrecord('XMRC', struct.pack('<I', 0x40))),
+                               ('ACHR', 0x31, pack_subrecord('NAME', struct.pack('<I', 0x21)))))
+    blocks = {'REFR': 'Signature=REFR\nFormID=00000040\n', 'ACRE': 'Signature=ACRE\nFormID=00000030\nNAME=00000020\n',
+              'ACHR': 'Signature=ACHR\nFormID=00000031\nNAME=00000021\n'}
+    for sig, block in blocks.items():
+        (tmp_path / f'{sig}.txt').write_text(f'---RECORD_BEGIN---\n{block}---RECORD_END---\n', encoding='utf-8')
+    VE.merchant_chests.cache_clear()
+    use_source(plugin)
+    try:
+        sold = VE.merchants(tmp_path, lambda actor: True)
+    finally:
+        use_source(FALLOUTNV_ESM)
+        VE.merchant_chests.cache_clear()
+    assert [(a['FormID'], c['FormID']) for a, c in sold] == [('00000030', '00000040')]
+
+
+def test_a_creature_vendor_wears_its_vendor_faction():
+    """A creature base with a vendor faction gets its SNAM, rank 0, after its own factions."""
+    creatures = Creatures.__new__(Creatures)
+    creatures.builder = SimpleNamespace(vendors={0x20: 0xABC}, factions={0x5: 0x123})
+    creatures.records, creatures.sounds = {}, SimpleNamespace(source=lambda rec: None)
+    creatures._death_item = creatures._spells = lambda rec: None
+    flags = N.USE_STATS | N.USE_TRAITS | N.USE_MODEL | USE_SPELLS
+    rec = _rec(0x20, **{'ACBS.TemplateFlags': str(flags), 'TPLT.Template': '00000099', 'FactionCount': '1',
+                        'Faction[0].FormID': '00000005', 'Faction[0].Rank': '1'})
+    edit = creatures.own_parts(rec, templated=True)[3]
+    snams = [data for tag, data in subrecords(edit(pack_subrecord('ACBS', b''))) if tag == b'SNAM']
+    assert snams == [struct.pack('<Ib', 0x123, 1), struct.pack('<Ib', 0xABC, 0)]
+    assert N.vendor_snam(creatures.builder, 0x21) == b''
+
+
 def test_placed_creatures_without_a_base_are_counted():
     """A placed creature whose base converts to nothing counts under its skeleton folder, else its EditorID."""
     creatures = {0x20: {'FormID': '00000020', 'EditorID': 'NightStalker', 'Model.MODL': 'Creatures\\NightStalker\\x.nif'},
@@ -345,3 +371,10 @@ def test_placed_creatures_without_a_base_are_counted():
     assert npcs.placed(refs, lambda ref: ref['ParentCELL'], {}, {}) == {}
     assert npcs.builder.counts == {'ACRE skipped (no FO4 base): creatures\\nightstalker': 2,
                                    'ACRE skipped (no FO4 base): Floater': 1}
+
+
+def test_a_race_head_without_an_egt_gets_no_colour_offset(tmp_path):
+    """A head texture whose model ships no .egt keeps its own colours."""
+    Image.fromarray(np.full((4, 8, 3), 90, np.uint8)).save(tmp_path / 'head.png')
+    base, offset = TX.fnv_texture(tmp_path / 'head.png', tmp_path / 'head.egt', np.ones(50))
+    assert base.shape == offset.shape == (4, 8, 3) and not offset.any()

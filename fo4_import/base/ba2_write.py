@@ -98,11 +98,12 @@ def _contents(files: list, names: list, sizes: list, archive: Path, kept: set):
                 yield block
 
 
-def write_general(root: Path, files: list, archive: Path, kept: set = frozenset()) -> None:
-    """Write `files` (paths under `root`, named in the archive relative to it with forward slashes) as the
-    uncompressed general BA2 `archive`, through a temporary file replaced at the end; files whose lowercase names
-    are in `kept` are unchanged since `archive` was written and are copied out of it."""
-    names = [Path(p).relative_to(root).as_posix() for p in files]
+def write_general(named: dict, archive: Path, kept: set = frozenset()) -> None:
+    """Write `named` ({archive name, forward slashes: path}) as the uncompressed general BA2 `archive`, in
+    lowercase name order, through a temporary file replaced at the end; files whose lowercase names are in `kept`
+    are unchanged since `archive` was written and are copied out of it."""
+    names = sorted(named, key=str.lower)
+    files = [named[name] for name in names]
     sizes = [Path(p).stat().st_size for p in files]
     offset = HEADER.size + ENTRY.size * len(files)
     temporary = archive.with_name(archive.name + '.tmp')

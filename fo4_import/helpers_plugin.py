@@ -15,12 +15,15 @@ import argparse
 import re
 from pathlib import Path
 
+from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.support_records import pack_avif, pack_global, pack_mesg, pack_script_quest
 from fo4_import.base.vmad import object_scripts
 from fo4_import.base.writer import FO4PluginWriter
+from fo4_import.helpers_races import race_records
 from script_convert.constants import (FALLOUT4_HELPER_AV_DEFAULTS, FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS,
                                       FALLOUT4_HELPER_MESSAGES, FALLOUT4_HELPER_PLUGIN,
-                                      FALLOUT4_HELPER_QUEST_MESSAGES, FALLOUT4_HELPER_QUESTS, FALLOUT4_TRACE_PLUGIN)
+                                      FALLOUT4_HELPER_QUEST_MESSAGES, FALLOUT4_HELPER_QUESTS, FALLOUT4_HELPER_ROBOT_FRENZY,
+                                      FALLOUT4_TRACE_PLUGIN)
 from script_convert.target import fallout4_actor_values
 
 MASTERS = ['Fallout4.esm']
@@ -56,8 +59,9 @@ def helper_forms(index: int) -> dict:
     return out
 
 
-def records() -> list:
-    """[(signature, record)] of everything the helper plugin holds, in object id order."""
+def records(fo4: bytes = None) -> list:
+    """[(signature, record)] of everything the helper plugin holds, in object id order; `fo4` is Fallout4.esm's
+    bytes (read from the install when None), whose FO4-only race abilities are gated (helpers_races)."""
     out = [('AVIF', pack_avif(own_id(oid), EDID_PREFIX + name, re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', name), '',
                               FALLOUT4_HELPER_AV_DEFAULTS.get(name, 0.0)))
            for name, oid in FALLOUT4_HELPER_AVS.items()]
@@ -66,7 +70,7 @@ def records() -> list:
     out += [('GLOB', pack_global(own_id(oid), edid)) for edid, oid in FALLOUT4_HELPER_GLOBALS.items()]
     out += [('MESG', pack_mesg(own_id(oid), edid, text, text, MESSAGE_BOX, list(buttons)))
             for edid, (oid, text, buttons) in FALLOUT4_HELPER_MESSAGES.items()]
-    return out
+    return out + race_records(fo4 or (FALLOUT4_DIR / 'Data' / 'Fallout4.esm').read_bytes(), own_id)
 
 
 def _messages(script: str) -> dict:
@@ -82,7 +86,7 @@ def build(out: Path) -> int:
     for sig, record in made:
         w.add_record(sig, record)
     ids = [*FALLOUT4_HELPER_AVS.values(), *FALLOUT4_HELPER_QUESTS.values(), *FALLOUT4_HELPER_GLOBALS.values(),
-           *(oid for oid, _, _ in FALLOUT4_HELPER_MESSAGES.values())]
+           *(oid for oid, _, _ in FALLOUT4_HELPER_MESSAGES.values()), FALLOUT4_HELPER_ROBOT_FRENZY]
     w.next_object_id = own_id(max(ids) + 1)
     out.parent.mkdir(parents=True, exist_ok=True)
     w.write(str(out))

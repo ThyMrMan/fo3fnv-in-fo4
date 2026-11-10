@@ -7,11 +7,13 @@ import struct
 from pathlib import Path
 
 from fo4_import import helpers_plugin as H
+from fo4_import import helpers_races as HR
 from script_convert import target
 from script_convert.constants import (FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_MESSAGES,
-                                      FALLOUT4_HELPER_QUESTS, FALLOUT4_TRACE_PLUGIN)
+                                      FALLOUT4_HELPER_QUESTS, FALLOUT4_HELPER_ROBOT_FRENZY, FALLOUT4_HELPER_CREATURE_KEYWORD,
+                                      FALLOUT4_TRACE_PLUGIN)
 from script_convert.helpers_fallout4 import av_function
-from tes5_import.base.tes5_reader import walk
+from tes5_import.base.tes5_reader import subrecords, walk
 
 
 def test_ids_are_unique_and_fit_a_light_plugin():
@@ -32,8 +34,33 @@ def test_plugin_is_a_light_master_with_every_record(tmp_path):
     assert (b'QUST', FALLOUT4_HELPER_QUESTS['F3NV_PlayerControls']) in got
     assert (b'GLOB', FALLOUT4_HELPER_GLOBALS['TES4ControlsDisabled']) in got
     assert (b'MESG', FALLOUT4_HELPER_MESSAGES['TES4ChooseSexMessage'][0]) in got
-    assert len(got) == (len(FALLOUT4_HELPER_AVS) + len(FALLOUT4_HELPER_QUESTS) + len(FALLOUT4_HELPER_GLOBALS)
-                        + len(FALLOUT4_HELPER_MESSAGES))
+    own = {(sig, fid) for sig, fid in got if fid >= 0x800 and sig != b'SPEL'}
+    assert len(own) == (len(FALLOUT4_HELPER_AVS) + len(FALLOUT4_HELPER_QUESTS) + len(FALLOUT4_HELPER_GLOBALS)
+                        + len(FALLOUT4_HELPER_MESSAGES) + 2)
+    assert sum(sig == b'SPEL' for sig, _ in got) == len(HR.GATED_ABILITIES)
+
+
+def test_race_abilities_gate_fo4_only_effects_by_keyword():
+    """Each gated race ability runs FO4's script effects only without the creature keyword (its first condition);
+    a robot's adds the frenzy, on only with it; Mister Handy's water walking keeps no keyword condition.
+    See: docs/fork/fo4_creature_audit.md#race-abilities
+    """
+    made = {struct.unpack_from('<I', rec, 12)[0]: rec for sig, rec in H.records() if sig == 'SPEL'}
+    keyword, frenzy = H.own_id(FALLOUT4_HELPER_CREATURE_KEYWORD), H.own_id(FALLOUT4_HELPER_ROBOT_FRENZY)
+    assert len(made) == len(HR.GATED_ABILITIES)
+    robots = 0
+    for rec in made.values():
+        effects = []
+        for tag, data in subrecords(rec[24:]):
+            if tag == b'EFID':
+                effects.append([struct.unpack('<I', data)[0], []])
+            elif tag == b'CTDA' and effects:
+                effects[-1][1].append((struct.unpack_from('<f', data, 4)[0], struct.unpack_from('<HxxI', data, 8)))
+        gated = [conds[0][0] for _, conds in effects if conds and conds[0][1] == (HR.HAS_KEYWORD, keyword)]
+        robot = effects[-1][0] == frenzy
+        robots += robot
+        assert gated[-1:] == [1.0] if robot else set(gated) == {0.0}
+    assert robots == sum(HR.GATED_ABILITIES.values())
 
 
 def test_the_trace_switch_is_an_empty_light_plugin_tracing_names(tmp_path):

@@ -16,8 +16,10 @@ its FNV bone (by name through the actor's rig, else the same name) made
 from rest, applied to FO4's rest orientation. A body without a source
 stays at rest relative to its parent. XRGB (biped rotation) is copied.
 See: docs/fork/fo4_spikes.md#spike-4-creatures
+See: docs/fork/fo4_spikes.md#creature-poses
 """
 
+import collections
 import functools
 import struct
 import zlib
@@ -26,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
+from fo4_import.base.master_overrides import built_bytes
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline.build_inputs import MASTERS
 from fo4_import.pipeline.export_index import export_file
@@ -41,8 +44,28 @@ for _side in 'LR':
     FERAL_GHOUL.update({f'Bip01 {_side} Thigh': f'{_side}THIGH', f'Bip01 {_side} Calf': f'{_side}CALF',
                         f'Bip01 {_side} Foot': f'{_side}FOOT', f'Bip01 {_side} UpperArm': f'{_side}UPPERARM',
                         f'Bip01 {_side} Forearm': f'{_side}ForeArm1', f'Bip01 {_side} Hand': f'{_side}HAND'})
+#: FO4's brahmin skeleton: FNV's Bip01 bone -> its (two necks and heads, legs, tail, sack).
+BRAHMIN = {'Bip01 Spine0': 'Pelvis', 'Bip01 Spine': 'SPINE1', 'Bip01 Spine1': 'SPINE2', 'Bip01 Neck': 'Spine4',
+           'Bip01 Neck1': 'HubSpine', 'Bip01 Sack': 'Sack', **{f'Bip01 Tail{i}': f'Tail{i}' for i in range(1, 5)}}
+#: FO4's mole rat skeleton: FNV's Bip01 bone -> its (FNV's arms are its front legs).
+MOLERAT = {'Bip01 Spine0': 'Pelvis', 'Bip01 Spine': 'SPINE1', 'Bip01 Spine1': 'SPINE2', 'Bip01 Spine2': 'Spine3',
+           'Bip01 Spine3': 'Spine4', 'Bip01 Neck': 'Neck', 'Bip01 Head': 'HEAD', 'Bip01_Jaw': 'Jaw',
+           'Bip01 Tail': 'Tail1', 'Bip01 Tail1': 'Tail2', 'Bip01 Tail2': 'Tail3'}
+for _side in 'LR':
+    BRAHMIN.update({f'Bip01 Neck2{_side}': f'{_side}Neck1', f'Bip01 Neck3{_side}': f'{_side}Neck2',
+                    f'Bip01 Head{_side}': f'{_side}Head', f'Bip01 Head{_side}Jaw': f'{_side}Jaw',
+                    f'Bip01 {_side} UpperArm': f'{_side}Arm1', f'Bip01 {_side} Forearm': f'{_side}Arm2',
+                    f'Bip01 {_side} Hand': f'{_side}Arm3', f'Bip01 {_side} Finger0': f'{_side}ArmPalm',
+                    f'Bip01 {_side} Thigh': f'{_side}Leg1', f'Bip01 {_side} Calf': f'{_side}Leg2',
+                    f'Bip01 {_side} Foot': f'{_side}Leg3', f'Bip01 {_side} Toe0': f'{_side}LegToe'})
+    MOLERAT.update({f'Bip01 {_side} UpperArm': f'Front_{_side}Leg1', f'Bip01 {_side} Forearm': f'Front_{_side}Leg2',
+                    f'Bip01 {_side} Hand': f'Front_{_side}LegAnkle', f'Bip01 {_side} Finger0': f'Front_{_side}LegToe1',
+                    f'Bip01 {_side} Thigh': f'Back_{_side}Leg1', f'Bip01 {_side} Calf': f'Back_{_side}Leg2',
+                    f'Bip01 {_side} Foot': f'Back_{_side}LegAnkle', f'Bip01 {_side} Toe0': f'Back_{_side}LegToe1'})
 #: FO4 skeleton (lower case) -> the FNV-to-FO4 bone names for it that no rig holds.
-SKELETON_BONES = {'actors\\feralghoul\\characterassets\\skeleton.nif': FERAL_GHOUL}
+SKELETON_BONES = {'actors\\feralghoul\\characterassets\\skeleton.nif': FERAL_GHOUL,
+                  'actors\\brahmin\\characterassets\\skeleton.nif': BRAHMIN,
+                  'actors\\molerat\\characterassets\\skeleton.nif': MOLERAT}
 #: The share of FO4's ragdoll bodies that must have an FNV source for a pose to be written.
 MAPPED_SHARE = 0.75
 #: FO4 hknp collisionFilterInfo bits holding the body part number (FNV's filter keeps it in its low 5 bits).
@@ -242,6 +265,43 @@ def convert(fnv: Skeleton, fo4: Skeleton, bones: dict, xrgd: bytes) -> 'bytes | 
     return out
 
 
+#: FO4 ACHR record flag Starts Dead.
+STARTS_DEAD = 0x200
+
+
+def vanilla_corpses(refs, lookup) -> dict:
+    """{FO4 skeleton (lower case): [(FormID, XRGD, XRGB or None)]} of `refs`' (walk's (record, stack)) posed Starts
+    Dead actors placed upright (DATA's x and y angles 0); `lookup` as race_skeleton's."""
+    out = collections.defaultdict(list)
+    for rec, _ in refs:
+        tags = dict(subrecords(rec.body)) if rec.flags & STARTS_DEAD else {}
+        if b'XRGD' in tags and not any(struct.unpack_from('<2f', tags[b'DATA'], 12)):
+            skeleton = race_skeleton(lookup, struct.unpack('<I', tags[b'NAME'])[0])
+            if skeleton:
+                out[skeleton.lower()].append((rec.form_id, tags[b'XRGD'], tags.get(b'XRGB')))
+    return out
+
+
+def flattest(skeleton: Skeleton, corpses: list) -> 'tuple | None':
+    """(XRGD, XRGB or None) of the corpse in `corpses` (vanilla_corpses') lying flattest on `skeleton`: its entries
+    in the skeleton's part order, the least height between its highest and lowest body; None without one."""
+    parts = bytes(p for _, p in skeleton.bodies)
+
+    def spread(xrgd):
+        """`xrgd`'s highest less lowest body height; None when it does not fit."""
+        posed = decode(skeleton, xrgd) if xrgd[::ENTRY.size] == parts else None
+        return None if posed is None else float(np.ptp([posed[n][1][2] for n, _ in skeleton.bodies]))
+    fits = [(s, fid, xrgd, xrgb) for fid, xrgd, xrgb in corpses if (s := spread(xrgd)) is not None]
+    return min(fits)[2:] if fits else None
+
+
+def pack(pose: 'tuple | None') -> bytes:
+    """XRGD and XRGB subrecords of `pose` (XRGD, XRGB or None); b'' for None."""
+    if pose is None:
+        return b''
+    return pack_subrecord('XRGD', pose[0]) + (pack_subrecord('XRGB', pose[1]) if pose[1] else b'')
+
+
 class Poses:
     """Converted ragdoll poses for one build's placed dead actors: skeletons read once, each outcome counted."""
 
@@ -254,7 +314,23 @@ class Poses:
         self.archives = Archives(FALLOUT4_DIR / 'Data')
         self.vanilla = {r.form_id: (sig, list(subrecords(r.body))) for sig in (b'NPC_', b'LVLN', b'RACE')
                         for r, _ in walk(builder.fo4, sig)}
-        self.built, self.built_at, self.skeletons, self.mastered = {}, -1, {}, None
+        self.built, self.built_at, self.skeletons, self.mastered, self.fallbacks = {}, -1, {}, None, {}
+
+    @functools.cached_property
+    def corpses(self) -> dict:
+        """vanilla_corpses of Fallout4.esm, read once."""
+        return vanilla_corpses(walk(self.builder.fo4, b'ACHR'), self.vanilla.get)
+
+    def _fallback(self, target: 'str | None') -> 'tuple | None':
+        """(XRGD, XRGB or None) of Fallout4.esm's flattest corpse on FO4 skeleton `target` (flattest), found once;
+        None when that skeleton has no ragdoll or no such corpse."""
+        fo4 = self._skeleton(('fo4', target)) if target else None
+        if fo4 is None:
+            return None
+        key = target.lower()
+        if key not in self.fallbacks:
+            self.fallbacks[key] = flattest(fo4, self.corpses.get(key, []))
+        return self.fallbacks[key]
 
     def _master(self, fid: int) -> 'tuple | None':
         """(signature, subrecords) of FO4 record `fid` in a built master plugin (builder.built), read once.
@@ -262,7 +338,7 @@ class Poses:
         """
         if self.mastered is None:
             self.mastered = {r.form_id: (r.sig, r.body) for path in self.builder.built
-                             for r, _ in walk(Path(path).read_bytes(), b'NPC_', b'LVLN', b'RACE')}
+                             for r, _ in walk(built_bytes(path, self.builder.masters), b'NPC_', b'LVLN', b'RACE')}
         sig, body = self.mastered.get(fid, (b'NPC_', None))
         MASTERS.record(fid, sig, body)
         return (sig, list(subrecords(body))) if body is not None else None
@@ -300,25 +376,30 @@ class Poses:
         return self.skeletons[key]
 
     def subrecords(self, fnv_ref: int, fnv_base: int, base: int) -> bytes:
-        """XRGD (and FNV's XRGB) for FNV reference `fnv_ref` of FNV base `fnv_base` placed on FO4 `base`; b''
-        when FNV has no pose or it does not map (counted by reason)."""
+        """XRGD (and XRGB) for FNV reference `fnv_ref` of FNV base `fnv_base` placed on FO4 `base`: FNV's pose
+        mapped, else (FNV has none) a vanilla corpse's on the same skeleton (_fallback, counted apart); b'' when
+        neither (counted by reason). XRGD lies in the reference's own space, so a copied pose needs no moving.
+        See: docs/fork/fo4_spikes.md#fallback-pose
+        """
         found = self.ragdolls.get(fnv_ref)
         model, target = fnv_model(self.fnv_records, fnv_base), race_skeleton(self._lookup, base)
-        fnv = self._skeleton(('fnv', model)) if found and model else None
+        label = target or model or f'{fnv_base:08X}'
+        if not found:
+            fallback = self._fallback(target)
+            self.builder.counts[f'ragdoll pose {"written (fallback)" if fallback else "left out: no FNV pose"}: '
+                                f'{label}'] += 1
+            return pack(fallback)
+        fnv = self._skeleton(('fnv', model)) if model else None
         fo4 = self._skeleton(('fo4', target)) if fnv and target else None
-        why = ('no FNV pose' if not found else 'no FNV skeleton' if fnv is None else
-               'no FO4 ragdoll' if fo4 is None else None)
+        why = 'no FNV skeleton' if fnv is None else 'no FO4 ragdoll' if fo4 is None else None
         pose = None
         if why is None:
             bones = bone_map(model, target)
             mapped = len(sources(fnv, fo4, bones)) / len(fo4.bodies)
             pose = convert(fnv, fo4, bones, found[0]) if mapped >= MAPPED_SHARE else None
             why = 'bones not matched' if mapped < MAPPED_SHARE else 'entries not FNV bodies' if pose is None else None
-        label = target or model or f'{fnv_base:08X}'
         self.builder.counts[f'ragdoll pose {"written" if why is None else "left out: " + why}: {label}'] += 1
-        if why is not None:
-            return b''
-        return pack_subrecord('XRGD', pose) + (pack_subrecord('XRGB', found[1]) if found[1] else b'')
+        return pack((pose, found[1]) if why is None else None)
 
 
 def bone_map(model: str, target: str) -> dict:

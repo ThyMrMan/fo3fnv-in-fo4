@@ -3,14 +3,17 @@
 See: docs/fork/fo4_spikes.md#spike-1b
 """
 
+import math
 import struct
 import wave
 from collections import Counter
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.base import strings as ST
@@ -38,6 +41,7 @@ from fo4_import.spike import lighting_template as LT
 from fo4_import.spike import emittance as EM
 from fo4_import.spike import weathers as WT
 from fo4_import.spike import exterior as EX
+from fo4_import.pipeline import work_cache as WC
 from fo4_import.spike import land_layers as LL
 from fo4_import.spike import locations as LO
 from fo4_import.spike import holotapes as HT
@@ -47,6 +51,7 @@ from fo4_import.spike import navmesh as NM
 from fo4_import.spike import actor_data as AD
 from fo4_import.spike import idles as ID
 from fo4_import.spike import packages as PK
+from fo4_import.spike import readiness as RD
 from fo4_import.spike import npcs as N
 from fo4_import.spike import placement as PL
 from fo4_import.spike import poses as P
@@ -411,6 +416,71 @@ def test_an_exterior_pathing_cell_stores_y_then_x():
     assert struct.pack('<I', NM.grid_parent(-18, 3)) == struct.pack('<hh', 3, -18)
 
 
+def test_the_world_maps_bounds_grow_and_its_image_is_reframed_to_match(monkeypatch):
+    """FNV's -35,35 to 25,-25 grows MAP_MARGIN cells a side; the image is staged resampled by map_axis, across
+    from FNV's west edge to the east edge of its SE cell, down from the north edge of its NW cell."""
+    staged = []
+    monkeypatch.setattr(EX, 'stage_derived', lambda data, rel, work, sources, *args: staged.append((rel, args)))
+    monkeypatch.setattr(EX, 'export_file', lambda root, rel: Path(root) / rel)
+    world = {'ICON': 'interface\\worldmap\\map.dds', 'MNAM.NWCellX': '-35', 'MNAM.NWCellY': '35',
+             'MNAM.SECellX': '25', 'MNAM.SECellY': '-25'}
+    out = EX._world_map(world, Path('export'), Path('data'))
+    m = EX.MAP_MARGIN
+    assert struct.unpack('<ii4h', out[b'MNAM'])[2:] == (-35 - m, 35 + m, 25 + m, -25 - m)
+    across = EX.map_axis((-35 - m, 25 + m), (-35, 26), EX.PIPBOY_GUTTERS[0])
+    down = EX.map_axis((35 + m, -25 - m), (36, -25), EX.PIPBOY_GUTTERS[1])
+    assert staged == [(EX.fo4_texture('interface\\worldmap\\map.dds'), (across, down, EX.MAP_SIDE))]
+
+
+def test_a_place_shows_on_the_image_where_fo4_marks_it():
+    """Where FO4 marks a cell position (between its corner cells' origins, inside the gutters), the reframed image
+    shows FNV's picture of it (FNV_MAP_INSET plus FNV_MAP_SCALE across FNV's bounds, SE cell included)."""
+    fo4, fnv, (near, far) = (39, -29), (36, -25), EX.PIPBOY_GUTTERS[1]
+    a, b = EX.map_axis(fo4, fnv, (near, far))
+    for cell in (36.0, -13.0, -25.0, 0.5):
+        p = near + (1 - near - far) * (cell - fo4[0]) / (fo4[1] - fo4[0])
+        q = EX.FNV_MAP_INSET + EX.FNV_MAP_SCALE * (cell - fnv[0]) / (fnv[1] - fnv[0])
+        assert math.isclose(a * p + b, q, abs_tol=1e-12)
+
+
+def test_a_reframed_map_samples_its_source_and_fills_outside_it_black():
+    """A 64-pixel map white on the left half, shown from a quarter across with half the width: white then black
+    across; shown from below its bottom: black."""
+    half = Image.new('RGBA', (64, 64), (0, 0, 0, 255))
+    half.paste((255, 255, 255, 255), (0, 0, 32, 64))
+    raw = BytesIO()
+    half.save(raw, 'PNG')
+    out = Image.open(BytesIO(WC.reframed_dds(raw.getvalue(), (0.5, 0.25), (1.0, 0.0), 64))).convert('RGB')
+    assert out.size == (64, 64) and min(out.getpixel((8, 32))) > 240 and max(out.getpixel((56, 32))) < 16
+    below = Image.open(BytesIO(WC.reframed_dds(raw.getvalue(), (1.0, 0.0), (1.0, 1.5), 64))).convert('RGB')
+    assert below.getpixel((8, 32)) == (0, 0, 0)
+
+
+def test_a_child_world_sharing_its_parents_ground_names_its_parent():
+    """A Diamond City-like child (LOD, map, climate; FNV's image space bit dropped): WNAM, PNAM, ONAM with Z 0."""
+    world = {'WNAM.Parent': '000DA726', 'PNAM.Flags': str(0x36), 'ONAM.Scale': '0.5',
+             'ONAM.CellXOffset': '-16000.0', 'ONAM.CellYOffset': '103000.0'}
+    out = EX._linked(world, {b'ICON': b'map\0', b'MNAM': bytes(16), b'NAMA': b'x'}, 0xDA726)
+    assert struct.unpack('<I', out[b'WNAM'])[0] == 0xDA726 and struct.unpack('<H', out[b'PNAM'])[0] == 0x16
+    assert struct.unpack('<4f', out[b'ONAM']) == (0.5, -16000.0, 103000.0, 0.0)
+    assert b'ICON' not in out and b'MNAM' not in out and out[b'NAMA'] == b'x'
+
+
+def test_a_child_map_moves_the_parents_map_bounds_by_the_map_offset():
+    """Offset (-16400, 90000), scale 1: the bounds move 4 cells east, 22 south."""
+    world = {'ONAM.Scale': '1.0', 'ONAM.CellXOffset': '-16400.0', 'ONAM.CellYOffset': '90000.0'}
+    out = EX.child_map(world, struct.pack('<ii4h', 0, 0, -39, 39, 29, -29))
+    assert struct.unpack('<ii4h', out) == (0, 0, -35, 17, 33, -51)
+
+
+def test_a_child_map_scales_the_parents_map_bounds_about_the_world_centre():
+    """Scale 0.5 about the centre of NAM0/NAM9 (0, 0): the parent's -2..1 cells become -4..3."""
+    world = {'ONAM.Scale': '0.5', 'NAM0.MinX': '-8192.0', 'NAM0.MinY': '-8192.0', 'NAM9.MaxX': '8192.0',
+             'NAM9.MaxY': '8192.0'}
+    out = EX.child_map(world, struct.pack('<ii4h', 0, 0, -2, 1, 1, -2))
+    assert struct.unpack('<ii4h', out)[2:] == (-4, 3, 3, -4)
+
+
 def test_interiors_reached_follow_doors_from_the_block_and_through_interiors():
     """Block door -> saloon -> cellar is reached; a door into another worldspace and an unlinked cell are not."""
     cells = {c: {'FormID': c} for c in ('DOC', 'SALOON', 'CELLAR', 'FAR')}
@@ -494,7 +564,9 @@ def test_a_line_testing_a_package_names_the_package_written():
     """The dialogue form map holds each written package; one left out (0) is absent, so GetIsCurrentPackage of it
     reads 0."""
     builder = SimpleNamespace(globals={}, factions={}, actor_refs={}, objectives={}, quest_vars={},
-                              reputation_slots={}, packages=SimpleNamespace(made={'000F631E': 0x0F631E, '000F631D': 0}))
+                              reputation_slots={}, hardcore=SimpleNamespace(form_map=dict),
+                              casino=SimpleNamespace(form_map=dict),
+                              packages=SimpleNamespace(made={'000F631E': 0x0F631E, '000F631D': 0}))
     form_map = CB._form_map(builder, {}, [], {})
     assert form_map[0x0F631E] == 0x0F631E and 0x0F631D not in form_map
     running = CD.FNV.index('GetIsCurrentPackage')
@@ -514,16 +586,35 @@ def test_an_objective_its_built_quest_does_not_author_is_never_displayed():
     assert CD.absent(test(30, 1.0), {0x1638F0: 0x801}) is None
 
 
-def test_a_topic_only_a_script_says_is_built_as_a_scripted_topic():
-    """A player topic a script says with SayWhenFree and nothing else reaches is picked; one a line's Choice
-    reaches, a top-level one and a Dialogue package's are not."""
-    dials = {'T1': {'DATA.Type': '0', 'EditorID': 'TourStop'}, 'T2': {'DATA.Type': '0', 'EditorID': 'Chosen'},
-             'T3': {'DATA.Type': '0', 'EditorID': 'Top', 'DATA.Flags': '2'},
-             'T4': {'DATA.Type': '0', 'EditorID': 'Greeted'}, 'T5': {'DATA.Type': '0', 'EditorID': 'Unsaid'}}
-    infos = [{'ChoiceCount': '1', 'Choice[0]': 't2'}]
-    said = {'tourstop', 'chosen', 'top', 'greeted'}
-    assert SAY.said_only(dials, infos, said, [{'PKDD.Topic': 'T4'}]) == {'T1'}
+def test_a_topic_a_script_says_is_built_as_a_scripted_topic():
+    """Every topic a script says with SayWhenFree is picked, a top-level or Detection one too; GREETING (the
+    greeting scene's) and a topic no script says are not."""
+    dials = {'T1': {'DATA.Type': '0', 'EditorID': 'TourStop'}, 'T3': {'DATA.Type': '0', 'EditorID': 'Top', 'DATA.Flags': '2'},
+             'T4': {'DATA.Type': '4', 'EditorID': 'StartCombatResponse'}, 'T5': {'DATA.Type': '0', 'EditorID': 'Unsaid'},
+             '000000C8': {'DATA.Type': '0', 'EditorID': 'GREETING'}}
+    said = {'tourstop', 'top', 'startcombatresponse', 'greeting'}
+    assert SAY.script_said(dials, said) == {'T1', 'T3', 'T4'}
     assert SAY.SAY_FREE.findall('TES4Polyfill.SayWhenFree(akSpeakerRef, TourStop, None)') == ['TourStop']
+
+
+def test_a_said_topic_borrows_its_shared_lines_into_their_quest():
+    """ArcadeThreeCard's only line is a GREETING line it shares: the copy is ArcadeThreeCard's, in that line's
+    quest; a shared info that is the topic's own is not copied again."""
+    dials = {'00168AD3': {'SharedInfoCount': '2', 'SharedInfo[0].Info': '001676c8', 'SharedInfo[1].Info': '00000001'}}
+    lines = {'001676C8': {'FormID': '001676C8', 'ParentDIAL': '000000C8', 'QSTI.Quest': '0016117f'},
+             '00000001': {'FormID': '00000001', 'ParentDIAL': '00168ad3', 'QSTI.Quest': '0016117F'}}
+    copies = SAY.borrowed_lines(dials, {'00168AD3'}, lines)
+    assert copies == {'0016117F': [{'FormID': '001676C8', 'ParentDIAL': '00168AD3', 'QSTI.Quest': '0016117f',
+                                    SAY.SHARED: '00168AD3'}]}
+
+
+def test_a_scripts_topic_property_names_the_topics_quests():
+    """A player or Conversation topic names its DIAL quests; GREETING and a Radio topic name none."""
+    dials = [{'FormID': '00126763', 'EditorID': 'NCRSnifferChallengePlayer', 'DATA.Type': '0', 'QuestCount': '1',
+              'Quest[0]': '00126760'},
+             {'FormID': '000000C8', 'EditorID': 'GREETING', 'DATA.Type': '0', 'QuestCount': '1', 'Quest[0]': '1'},
+             {'FormID': '00000126', 'EditorID': 'RadioHello', 'DATA.Type': '7', 'QuestCount': '1', 'Quest[0]': '2'}]
+    assert QS.topic_quests(dials) == {'ncrsnifferchallengeplayer': {0x126760}}
 
 
 def test_a_test_of_the_player_names_fallout4s_own_player():
@@ -569,9 +660,10 @@ def test_still_collision_gets_both_sides_once_and_moving_collision_keeps_one():
     assert CO.both_sides(soup, SimpleNamespace(motion_system=1)) == soup
 
 
-def test_a_phantom_trigger_volume_is_left_out_of_the_collision():
-    """The bear trap's bhkSimpleShapePhantom (its pressure-plate trigger) adds no block."""
-    phantom = SimpleNamespace(collision_object=SimpleNamespace(body=type('bhkSimpleShapePhantom', (), {})()))
+def test_a_water_phantom_is_left_out_of_the_collision():
+    """A bhkSimpleShapePhantom on FNV's water layer (placeable water converts on its own) adds no block."""
+    body = type('bhkSimpleShapePhantom', (), {'havok_col_filter': SimpleNamespace(layer=CO.FNV_WATER)})()
+    phantom = SimpleNamespace(collision_object=SimpleNamespace(body=body))
     root = SimpleNamespace(collision_object=None, tree=lambda: [root, phantom])
     nif = SimpleNamespace(blocks=[('BSFadeNode', {'children': []})])
     CO.collision_nodes(nif, root, 0, 0)
@@ -633,13 +725,25 @@ def test_a_region_emittance_weather_takes_fnvs_sunlight_at_each_fo4_time_of_day(
     assert out[:4 * 32] == (bytes(range(256)) * 2)[:4 * 32]
 
 
-def test_a_fixed_exposure_shows_exposed_colours_as_fnvs_straight_display():
-    """Vikki and Vance washed out under 0.5-15x auto exposure; pinned exposure plus the LUT show c as c^(1/2.2)."""
+def test_a_fixed_exposure_shows_middle_grey_and_shadows_as_fnv_and_rolls_highlights_off():
+    """FO4's curve at the pinned exposure: middle grey at FNV's 0.459, shadows close, white under 1 for bloom."""
     tonemap_e, grey = 0.02, 0.18
     exposure = IM.fixed_exposure(tonemap_e, grey)
-    c = np.array([0.01, 0.05, 0.18, 0.5])
-    shown = IM.fnv_tone(IM.fo4_display(exposure * c, tonemap_e), tonemap_e, grey)
-    assert exposure == pytest.approx(1.40, abs=0.01) and shown == pytest.approx(c ** (1 / 2.2), abs=1e-4)
+    shown = IM.fo4_display(exposure * np.array([0.01, 0.18, 1.0]), tonemap_e)
+    assert exposure == pytest.approx(1.46, abs=0.01)
+    assert shown == pytest.approx([0.13, 0.459, 0.80], abs=0.01)
+
+
+def test_the_lut_grades_only_saturation_and_tint(tmp_path):
+    """An FNV cinematic with every flag set: contrast and brightness don't reach the LUT; grey takes the tint."""
+    dnam = bytearray(152)
+    struct.pack_into('<8fI', dnam, IM.CINEMATIC, 0.5, 0.2, 2.0, 3.0, 1.0, 0.5, 0.0, 0.5, 15)
+    grading = IM.cinematic(bytes(dnam))
+    assert grading == IM.Cinematic(0.5, (1.0, 0.5, 0.0), 0.5)
+    grey = IM.grade(np.array([0.4, 0.4, 0.4]), grading)
+    assert grey == pytest.approx([0.4, 0.3, 0.2])
+    rel = IM.write_lut(grading, 'Test', tmp_path)
+    assert (tmp_path / 'Textures' / rel.replace('\\', '/')).stat().st_size == 128 + 16 * 256 * 3
 
 
 def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypatch):
@@ -1003,6 +1107,62 @@ def test_a_force_greet_takes_fnvs_trigger_location_and_activate_distance():
                      PK.GREET_INPUT: near_player(PK.TALK_REACH)}
 
 
+def test_a_travel_to_a_linked_seat_sits_in_it():
+    """Nipton's crucified: a Travel to the linked crucifix sits there (linked target); a linked non-seat travels."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.furniture, packages.links = {0x1375D8}, {'001384AB': {0x1375D8}, '00000500': {0x1375D8, 0x77}}
+    rec = {'FormID': '001384AB', 'PKDT.Type': PK.FNV_TRAVEL, 'PLDT.Type': PK.NEAR_LINKED, 'PLDT.Location': '0',
+           'PLDT.Radius': '0'}
+    assert packages._plan(rec, {}, 0) == ('Sit', struct.pack('<iIi', PK.TARGET_LINKED, 0, 0))
+    assert packages._plan({**rec, 'FormID': '00000500'}, {}, 0) == ('Travel', struct.pack('<iIi', 6, 0, 0))
+
+
+def test_an_escort_leads_its_built_target_to_its_location():
+    """Orris's VFSOrrisLeadPlayerPackage: EscortPlayer to its marker, the player as Target to Escort, its count as
+    the wait distance; an unbuilt target leaves it out."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.furniture, packages.slots = set(), {'EscortPlayer': {'Distance to Wait for Followers': 1}}
+    rec = {'FormID': '0011BEE1', 'PKDT.Type': PK.FNV_ESCORT, 'PLDT.Type': '0', 'PLDT.Location': '0011BEDE',
+           'PLDT.Radius': '0', 'PTDT.Type': '0', 'PTDT.Target': '00000014', 'PTDT.Count': '256'}
+    forms = {0x11BEDE: 0x55, 0x14: 0x14}
+    assert packages._plan(rec, forms, 0) == ('EscortPlayer', struct.pack('<iIi', 0, 0x55, 0))
+    assert packages._plan(rec, {0x11BEDE: 0x55}, 0) == 'escort target not built'
+    assert packages._escorted(rec, forms) == {PK.ESCORTED_INPUT: struct.pack('<iIi', 0, 0x14, 0)}
+    assert packages._values(rec, 'EscortPlayer') == {1: struct.pack('<f', 256)}
+    assert packages._values({**rec, 'PTDT.Count': '0'}, 'EscortPlayer') == {}
+
+
+def _packages_for(packs: dict, made: dict) -> PK.Packages:
+    """Packages over FNV `packs` whose builder makes items from `made` and records readiness; _write gives 0x77."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.packs, packages.made, packages.why, packages.furniture = packs, {}, {}, set()
+    packages.builder = SimpleNamespace(counts=Counter(), script_vars={}, readiness=RD.Readiness(),
+                                       fnv_id=lambda fnv: int(fnv, 16),
+                                       items=SimpleNamespace(item=made.get))
+    packages._write = lambda *_: 0x77
+    return packages
+
+
+def test_a_left_out_package_is_in_the_readiness_report_and_a_tested_item_is_made():
+    """A Find is left out with a readiness entry of its own (no NPC needed); a Travel testing GetItemCount of an
+    item no reference places makes the item and converts."""
+    item = struct.pack('<B3xfIIIII', 0x60, 1.0, CD.FNV.index('GetItemCount'), 0x500, 0, 0, 0).hex()
+    packs = {'00000101': {'FormID': '00000101', 'EditorID': 'NellisFindJanet', 'PKDT.Type': '0'},
+             '00000102': {'FormID': '00000102', 'EditorID': 'VMS49ChaserPackage', 'PKDT.Type': PK.FNV_TRAVEL,
+                          'ConditionCount': '1', 'Condition[0].Raw': item}}
+    packages, forms = _packages_for(packs, {0x500: 0x900500}), {}
+    assert packages.package('00000101', forms) == 0
+    assert packages.builder.readiness.entries == [
+        {'kind': RD.PACKAGE_LEFT_OUT, 'owner': '00000101', 'detail': 'NellisFindJanet (type Find)'}]
+    assert packages.package('00000102', forms) == 0x77 and forms == {0x500: 0x900500}
+
+
+def test_a_faction_enemy_test_asks_whether_the_actor_is_hostile_to_the_player():
+    """GetActorFactionPlayerEnemy is FO4's IsHostileToActor of the player."""
+    cond = CD.parse(struct.pack('<B3xfIIIII', 0, 1.0, CD.FNV.index('GetActorFactionPlayerEnemy'), 0, 0, 0, 0).hex())
+    assert SAY._fo4_condition(cond, {}, {}) == (CD.FO4.index('IsHostileToActor'), CD.PLAYER_REF, 0, '', '')
+
+
 def test_a_force_greet_without_a_location_waits_where_its_actor_is():
     """A Dialogue package without a location waits near self; a wander, at its start."""
     packages = PK.Packages.__new__(PK.Packages)
@@ -1241,6 +1401,114 @@ def test_only_radio_stations_the_pipboy_lists_become_transmitters(monkeypatch):
     assert list(RA.pipboy_stations(Path('x'))) == [1]
 
 
+def test_a_quest_naming_no_station_takes_the_one_its_radio_lines_name():
+    """Hanlon's recording quest has no conditions; its lines GetIsID one station. Lines naming two give none."""
+    from fo4_import.spike import radio as RA
+
+    def named(form):
+        return {'Condition[0].Raw': (bytes(8) + struct.pack('<II', RA.GET_IS_ID, form) + bytes(12)).hex()}
+    stations = {7: {}, 8: {}}
+    assert RA.station_of(named(8), stations, [named(7)]) == 8
+    assert RA.station_of({}, stations, [named(7), named(7)]) == 7
+    assert RA.station_of({}, stations, [named(7), named(8)]) is None
+
+
+def test_a_quest_with_several_stage_acts_gives_each_its_own_quest():
+    """The Tops acts: a quest whose radio lines name three stations writes a start-enabled quest per station,
+    keyed by the quest's FormID and the station's, holding that station's lines and the playlist script; a line
+    typed Conversation in a Radio topic is a radio line."""
+    from fo4_import.spike import radio as RA
+    from fo4_import.spike import radio_program as RP
+
+    def line(fid, dial, form, kind='7'):
+        raw = (bytes(8) + struct.pack('<II', RA.GET_IS_ID, form) + bytes(12)).hex()
+        return {'FormID': fid, 'ParentDIAL': dial, 'DATA.DialogType': kind, 'Condition[0].Raw': raw}
+    lines = [line('A1', RP.RADIO_HELLO, 7, '1'), line('A2', '0000D001', 7), line('B1', RP.RADIO_HELLO, 8),
+             line('C1', '0000D002', 9)]
+    say = SimpleNamespace(infos={'00000100': lines}, dials={RP.RADIO_HELLO: {'DATA.Type': '7'},
+                                                            '0000D001': {'DATA.Type': '7'}})
+    rec = {'FormID': '00000100', 'EditorID': 'Shows', 'DATA.Flags': '21'}
+    assert [r['FormID'] for r in RP.radio_lines(say, rec)] == ['A1', 'A2', 'B1']
+    radio = RA.Radio.__new__(RA.Radio)
+    written, keys, built = [], [], []
+    radio.builder = SimpleNamespace(say=say, counts=Counter(), new_id=lambda key: keys.append(key) or len(keys),
+                                    writer=SimpleNamespace(add_record=lambda sig, data: written.append((sig, data))))
+    radio.stations = {7: {'EditorID': 'Drifter'}, 8: {'EditorID': 'Bruce'}, 9: {'EditorID': 'RadPack'}}
+    radio._built = lambda act, quest, station, own, *_: built.append((act['EditorID'], quest, own)) or (
+        [], [], [], [(RP.PLAYLIST_SCRIPT, {}, {})])
+    assert radio.program(rec, 0x900, {}, {}) is None
+    assert keys == ['QUST radio 00000100 00000007', 'QUST radio 00000100 00000008']
+    assert [(name, quest, [r['FormID'] for r in own]) for name, quest, own in built] == [
+        ('Shows_Drifter', 1, ['A1', 'A2']), ('Shows_Bruce', 2, ['B1'])]
+    assert [sig for sig, _ in written] == ['QUST', 'QUST'] and radio.builder.counts['radio act quests'] == 2
+    assert all(b'F3NV_RadioPlaylist' in data and b'FNV_Shows_' in data for _, data in written)
+
+
+def test_a_station_a_script_starts_whose_line_ends_the_run_plays_on_demand(monkeypatch):
+    """A script's live `<ref>.StartRadioConversation` (not a commented one) marks the station; its program is on
+    demand only off the Pip-Boy (FO3's Galaxy News is started too) and with a Goodbye line, and only then gets its
+    built receivers."""
+    from fo4_import.spike import radio as RA
+    text = 'begin gamemode\n  ;QuietREF.StartRadioConversation RadioHello\n  ShowREF.StartRadioConversation RadioHello\n'
+    assert RA.START_CALL.findall(text) == ['ShowREF']
+    made = []
+
+    class Fake:
+        """Records what the program is given."""
+
+        def __init__(self, *args):
+            made.append(args[-1])
+
+        def build(self, *args):
+            made.append(args[-1])
+            return 'built'
+    monkeypatch.setattr(RA, 'Program', Fake)
+    radio = RA.Radio.__new__(RA.Radio)
+    radio.builder = SimpleNamespace(counts=Counter())
+    lounge = {'RecordFlags': str(RA.RADIO_STATION | RA.NON_PIPBOY)}
+    radio.stations, radio.started = {7: lounge, 8: lounge, 9: {'RecordFlags': str(RA.RADIO_STATION)}}, {7, 8, 9}
+    radio.refs, radio.receivers = {7: ['R7'], 8: ['R8'], 9: ['R9']}, {7: ['S7', 'unbuilt'], 8: ['S8'], 9: ['S9']}
+    radio.npc_radios = set()
+    ref_ids = {'R7': 0x70, 'R8': 0x80, 'R9': 0x90, 'S7': 0x71, 'S8': 0x81, 'S9': 0x91}
+    assert radio._built({}, 1, 7, [{'DATA.Flags': '1'}], {}, ref_ids) == 'built'
+    assert radio._built({}, 1, 8, [{'DATA.Flags': '2'}], {}, ref_ids) == 'built'
+    assert radio._built({}, 1, 9, [{'DATA.Flags': '1'}], {}, ref_ids) == 'built'
+    assert made == [True, ([0x71], 0), False, ([], 0), False, ([], 0)]
+    assert radio.builder.counts['radio programs on demand'] == 1
+
+
+def test_a_station_an_npc_plays_gets_one_invisible_receiver_on_its_frequency():
+    """A live `SetNPCRadio <flag> <station>` (Lily's recording; not a commented one) gives the station one receiver
+    activator, written once on vanilla's dummy-radio marker model and the station's frequency; others get none."""
+    from fo4_import.spike import radio as RA
+    from tes5_import.base.tes5_reader import subrecords
+    text = '  ;EDE.SetNPCRadio 1 QuietREF\n  LilyREF.SetNPCRadio 1 VLilyGrandkidsRecordingREF\n'
+    assert RA.NPC_RADIO_CALL.findall(text) == ['VLilyGrandkidsRecordingREF']
+    radio, written = RA.Radio.__new__(RA.Radio), []
+    radio.builder = SimpleNamespace(counts=Counter(), new_id=lambda key: 0x500 + len(key),
+                                    writer=SimpleNamespace(add_record=lambda sig, data: written.append(data)))
+    lounge = {'RecordFlags': str(RA.RADIO_STATION | RA.NON_PIPBOY), 'EditorID': 'Lily'}
+    radio.stations, radio.refs, radio.npc_radios, radio.made = {7: lounge, 8: lounge}, {7: ['a'], 8: ['b']}, {7}, set()
+    assert radio.npc_receiver(8) == 0 and radio.npc_receiver(7) == radio.npc_receiver(7) != 0
+    subs = dict(subrecords(written[0][24:]))
+    assert len(written) == 1 and subs[b'MODL'] == RA.NPC_RECEIVER_MODEL.encode() + b'\0'
+    assert struct.unpack('<IffBB', subs[b'RADR'])[1] == RA.LOUNGE_FREQUENCIES[0]
+
+
+def test_an_on_demand_programs_goodbye_line_ends_the_run():
+    """The act's closing line (Goodbye) leads to no step on demand; on an always-on station it returns to
+    RadioHello as before."""
+    from fo4_import.spike import radio_program as RP
+    program = RP.Program.__new__(RP.Program)
+    program.topics = {RP.RADIO_HELLO: [{}]}
+    program.steps = RP.steps(program.topics)
+    bye, song = {'DATA.Flags': '1'}, {'DATA.Flags': '2'}
+    program.on_demand = True
+    assert (program.next_step(bye), program.next_step(song)) == (0, 1)
+    program.on_demand = False
+    assert program.next_step(bye) == 1
+
+
 def test_a_step_scene_plays_each_song_on_its_own_gated_phase():
     """A step scene: its first topic's phase, later topics only while Said is 0, then each song phase only on its
     CurrentSong, playing its SNDR through a Radio action's sound (HTID), as DiamondCityRadioMusicScene's songs; its
@@ -1267,7 +1535,8 @@ def test_a_step_scene_plays_each_song_on_its_own_gated_phase():
 def test_a_stations_steps_follow_its_lines_choices_from_radiohello():
     """Steps are the topic sets lines choose from, RadioHello first; a line without Choices (or naming a topic the
     station has no lines in) returns to RadioHello. Black Mountain's shape: a song, then one of its segments, each
-    segment line leading to the segment again or back to RadioHello."""
+    segment line leading to the segment again or back to RadioHello. A topic no line chooses (one a script starts)
+    starts steps of its own after those; a station without RadioHello lines has none."""
     from fo4_import.spike import radio_program as RP
     hello, seg_a, seg_b, other = RP.RADIO_HELLO, '0000A001', '0000A002', '0000FFFF'
 
@@ -1276,6 +1545,10 @@ def test_a_stations_steps_follow_its_lines_choices_from_radiohello():
     topics = {hello: [line(seg_a, seg_b)], seg_a: [line(seg_a), line(hello)], seg_b: [line(other)]}
     assert RP.steps(topics) == [(hello,), (seg_a, seg_b), (seg_a,)]
     assert RP.choices(line(other), topics) == (hello,) and RP.choices(line(), topics) == (hello,)
+    raul, intro, music = '0000B001', '0000B002', '0000B003'
+    scripted = {**topics, raul: [line()], intro: [line(music)], music: [line()]}
+    assert RP.steps(scripted) == [(hello,), (seg_a, seg_b), (seg_a,), (raul,), (intro,), (music,)]
+    assert RP.steps({raul: [line()]}) == []
 
 
 def test_a_radio_activator_becomes_a_receiver_on_its_stations_frequency():

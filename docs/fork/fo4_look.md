@@ -11,6 +11,12 @@ cloud layers; the overall tone. The weather modifier carries only its tint
 Strip converts. Status also lives in [ROADMAP.md](ROADMAP.md). The design
 below was written as a plan on 2026-10-23.
 
+**Direction changed 2026-11-09:** FO4's rendering, FNV's colours and art
+([FO4 route](#fo4-route); drift recorded in
+[fo4_drift.md](fo4_drift.md#candidates)). The work left follows that
+section's plan; parts A and B below stay as the record of what was
+measured and built.
+
 The converted region plays right but doesn't look like FNV. The user's
 matching shots (2026-10-23: the Prospector Saloon at noon and midnight, the
 cemetery lantern at night) are described in
@@ -36,13 +42,240 @@ This plan replaces those piecemeal items with one pass.
   saturation and hue of fixed boxes (sky, wall, ground, window), measured
   by a small script, not by eye alone.
 - **One change per play-test,** so each shot shows one cause.
-- **Values come from the games, not from tuning.** A number is either
-  FNV's authored value, FO4's engine default, or derived from both shaders'
-  formulas. The old grass density factor (× 0.25, chosen over three
-  plays) was the example; [step 1](#grass-density) replaced it.
+- **Values come from the games, not from tuning.** Colours, textures and
+  timing are FNV's authored values. Brightness, exposure, bloom and
+  material response follow FO4's conventions: FO4's engine default, or
+  vanilla's range for the same kind of thing (a census by kind, as
+  `glow_scale` does), never a number chosen over plays. The old grass
+  density factor (× 0.25, chosen over three plays) was the example;
+  [step 1](#grass-density) replaced it.
+- **Judge hue and mood against FNV, brightness against vanilla FO4.**
+  `shot_boxes.py`'s hue and saturation compare with FNV's shot; its
+  luminance compares with a vanilla Commonwealth shot at the same hour and
+  clear weather, so a scene lands where FO4's own scenes do.
 - **Kept as FO4's:** the grass fade distance (`fGrassStartFadeDistance`
   7000; decided 2026-10-23), and anything that is a player setting in an
   ini.
+
+## <a id="fo4-route"></a>The FO4 route (decided 2026-11-09)
+
+Reproducing FNV's flat, clipped display pixels through FO4's renderer is
+what kept failing: the neon "O" dim at every bake, the hazy OPEN panel,
+lamps blowing out. Each fix moved the trade-off rather than closing it,
+and the clipped target stops FO4's bloom from firing. So the look now
+keeps FO4's rendering and carries FNV's colours and art.
+
+| Kept as FO4's | Carried from FNV |
+|---|---|
+| The filmic curve, bloom (exposure stays pinned: [tone](#route-tone)) | Grading: the worldspace imagespace's and weather modifier's tint and saturation, in each imagespace's LUT |
+| Glow and light brightness, by vanilla's range per kind | Light colours, placement, radius; emittance sources |
+| Neon built as vanilla's (lit letter, additive tube) | Each sign's textures, colours and flicker keys |
+| Shadows, god rays, material response | Fog, sky, sun, ambient (DALC) and cloud colours |
+| Cloud layers (FNV's textures seam on FO4's dome) | Grass textures and vertex colour |
+
+### <a id="fo4-route-today"></a>What is built today
+
+- **Tone (until 2026-11-09):** every imagespace's LUT was
+  `grade(fnv_tone(identity))`, undoing FO4's Hable curve for FNV's
+  straight one, with exposure pinned at 1.40. Interiors
+  (`BASE_IMAGESPACE`) and weathers (`weather_imagespace`) both go through
+  `imagespace.py`. Step 1 below replaced it.
+- **Night and noon brightness** come from the weathers' DALC taking FNV's
+  ambient ([night](#night)). That is FNV's light colour in FO4's own
+  field, so it stays.
+- **Glow strengths** already follow the FO4 route (`glow_scale`, decided
+  2026-10-23; windows, lanterns and bulbs played right).
+- **Clouds** already are FO4's layers in FNV's colours (`weather_clouds`).
+- **Lights:** `records.pack_ligh` carries FNV's radius, colour, flags,
+  falloff and fade (FNAM) on vanilla's commonest omni light's DATA.
+
+### <a id="fo4-route-plan"></a>Plan
+
+Each step is one change and one play-test (or none), with shots at the
+[comparison spots](fo4_plan_world_look.md#spots). No step adds or moves a
+FormID, and none needs a new save: imagespaces, LUTs, lights and
+materials are read when a cell loads.
+
+1. **<a id="route-tone"></a>Tone: FO4's curve and bloom, FNV's grading**
+   (built 2026-11-09, not played).
+   - `write_lut` writes `grade(identity(), grading)`; `fnv_tone` is gone,
+     so FO4's Hable curve and the template's bloom act. `Cinematic` holds
+     only saturation and tint: FNV's contrast and brightness are tone, now
+     FO4's.
+   - **Exposure stays pinned.** FO4's auto exposure (0.5–15× in
+     `BASE_IMAGESPACE`) washed out Vikki and Vance on 2026-10-10: FNV
+     does not brighten a dark room ([exposure](fo4_spikes.md#spike-2-imagespace)).
+     Vanilla rarely pins (6 of Fallout4.esm's 292 IMGS) but mostly keeps
+     narrow ranges (1–2×, 1–3.5×, 1.75–3×). `fixed_exposure` now solves
+     FO4's own curve so middle grey shows at FNV's 0.459: 1.46 (Tonemap
+     E 0.02). Shadows stay close (exposed 0.01 shows 0.13 against FNV's
+     0.12), so the night and noon matches ([night](#night)) hold; white
+     shows 0.80 instead of clipping, leaving room for bloom.
+   - Tests: `tests/test_fo4_spike.py` (exposure, LUT grading),
+     `tests/test_fo4_weather_imagespace.py`, `tests/test_lut_preview.py`.
+   - **Offline grading:** FO4 applies the LUT last, to display colours.
+     `tools/validate/lut_preview.py neutral` writes identity LUTs under
+     the built LUTs' names; installed as a loose-file mod over
+     `Textures\Effects\LUTs\FNV`, shots show FO4's frame before grading.
+     `lut_preview.py apply` puts any LUT on such a shot exactly, so a
+     grading change is judged on images; a chosen LUT ships as loose
+     files to confirm in game.
+   - Play check: saloon at 12 and 0, cemetery at 0, one interior (Doc
+     Mitchell's). Hue and saturation against FNV, luminance against a
+     vanilla Sanctuary shot at the same hours in clear weather. Also the
+     saloon window at night: on the old tone (2026-11-09) no longer blown
+     out but still far too yellow; the graveyard lantern looks right.
+     FO4's shoulder compresses bright channels, so check the window here
+     before touching its glow.
+2. **<a id="route-neon"></a>Neon, starting at Goodsprings** (built
+   2026-11-09, not played). The saloon's OPEN sign never looked right and,
+   with the flashing "SAL", read dim, not lit. Found by running
+   `convert_static.convert` on the meshes (ref 0016B5E6
+   `NV_Open-24-Hours_Sign.NIF`; ref 0016B5E4
+   `NV_ProspectorSaloon-Neon_Lights.NIF`):
+   - **SAL** (`Shape05:0`, `:1`): unlit tubes, a normal alpha blend
+     (0x10ED), emissive 0.955 × 7.5 animated (7.5 for 2.3 s, then 1). We
+     drew them as a normal blend at scale 1 and dropped the emittance
+     channel (`shader_anim.blended_unlit`): about 0.77 in one channel at
+     most. Vanilla's tubes (`neonsign-animatedopen.nif`, NeonRed01 ×2,
+     Mackie's ×4.75) are additive near-white texels × a coloured base at
+     ×2 or more, about 1.6 linear, enough to bloom.
+   - **OPEN and `Shape1:2`:** the overlay bake was stored as linear (^ 2.2),
+     taking its median texel to 0.40; × 1.53 × the flicker's 0.51 average is
+     about 0.32 linear.
+   - **Built:** an unlit shape whose alpha property blends and whose
+     emission above 1 is animated (a BSMaterialEmittanceMultController) is
+     vanilla's tube: additive (`NEON_ALPHA`), FNV's emissive colour, scale
+     `fo4_glow('neon', ×)` (×7.5 → 9), its emittance keys on the neon curve
+     (`convert_static._unlit`, `shader_anim._emittance_keys`). Mr. House's
+     screen faces (no alpha property, they fade) and its additive scanline
+     (emission not animated) are untouched. `glow_image` keeps the alpha
+     cut and the raise to white but no longer linearises. The overlay stays
+     a decal over the letter's own triangles (vanilla's tube is its own
+     shape; without the decal flags the copy may z-fight, untested).
+   - Risk to judge: faint glow texels can show again (the old OPEN haze,
+     the box around the tubes). Judged at the saloon at 0 for colour and
+     pop, against a vanilla Diamond City night shot; then North Gate and
+     the Strip.
+   - **Played 2026-11-09, against an FNV night shot:**
+     - *The "ON" bulbs dark* (fixed, not built). The second O and the N are
+       lit by `Bulbs_135:0`–`:2`, unlit alpha-tested shapes (threshold 70)
+       with FNV's default falloff, two-sided. The light-cone fix made every
+       two-sided falloff shape soft (soft depth 150). The bulbs sit 4–7
+       units in front of the letter, so the fade put them under their alpha
+       test. Soft_Effect now needs a blend too (`_unlit_shader`). Of 376
+       candidate meshes, 30 shapes in 7 meshes change: the bulb signs
+       (`nv_prospectorsaloon-neon_lights`, `lucky38entsignglow`,
+       `lucky38signglow`, `nv_thetops-sign_lights`) and 3 opaque effects.
+     - *OPEN's box* (cause found, not fixed). 13 triangles of
+       `Object02:0` (about 107 × 64 units) map a faint full copy of the
+       sign (bake median 0.071, 90th 0.133, alpha 255). The bake without
+       the ^2.2 shows them at 0.36–0.67 linear at ×5, against 0.015–0.06
+       before. The fix wants a floor that keeps the tubes' 0.4–1 cores;
+       pick it from authored data first.
+     - *SAL's box* (not found). Its texture is ruled out: the tube band's
+       alpha is 173–255 and the tubes are thin ribbons. The flash peaks at
+       about 4.4–8.6 linear red against vanilla tubes' ~1.6, so bloom is
+       the lead.
+     - *Windows:* FNV's are pale yellow-green too, with the grime of the
+       glass visible; ours read flatter and brighter. Brightness and lost
+       detail, not hue.
+3. **<a id="route-horizon"></a>The night horizon glow** (built 2026-11-09,
+   not played).
+   - **Found:** FNV draws it with placed cards, not a weather colour or
+     LOD: in WastelandNV's persistent cell, `NVStripLightsPollition` (×2),
+     `…Dim`, `…RoundDim` (flat vertical cards up to 122k × 50k units,
+     unlit, alpha-blended, vertex colour (0.89, 0.75, 0.60) at alpha 0.12
+     fading to 0) and four `FXGlowSimpleFillHalf01Imposter` sheets. Every
+     base runs `Lucky38LightScript` (0011B039): from 20:00 to 06:00 it
+     plays `Left` (lit), else `Right` (alpha 0). All are region imposters
+     (`StripImposterBlackMountain` and others), which the build left out
+     with the skyline copies ([imposters](fo4_pipeline.md#imposters)).
+   - **Built:** `spike/glow_cards.py` keeps an imposter whose mesh is only
+     light (every shape unlit and alpha-blended) and places it Is Full LOD
+     (REFR 0x10000) with persistent, as Fallout4.esm's `GSCraterClouds01`
+     glow (0x10400; 1,309 vanilla refs are Full LOD). 38 of FNV's 290
+     imposters qualify: the 8 glow cards in WastelandNV, their Dim copies
+     in the Freeside and North Gate worlds, and 22 casino light overlays
+     (Ultra-Luxe window glows, Tops and Gomorrah lights). The overlays'
+     lit skyline buildings stay out, so their lights may float at night
+     where FNV shows the building; judge from Freeside, North Gate and
+     Black Mountain at 0. FO4 has no region gating, so the cards also show
+     close by (FNV's `StripImposterClose` already lists Dim and RoundDim).
+   - Suspected: a far Full LOD ref's script may skip its animation when
+     its 3D is not loaded (`Is3DLoaded`), leaving it at its day state.
+   - **Played 2026-11-09:** the Strip's glow from afar looks right. Close
+     to Freeside the cards show as floating yellow lights and a solid
+     yellow sheet (`FXGlowSimpleFillHalf01Imposter`, refs `001711BB` to
+     `001711C2`): the "also show close by" above. Object LOD cannot stand
+     in, since it is baked and cannot follow the night animation.
+   - **The gate (built 2026-11-09, not played):** `spike/imposter_gate.py`.
+     A card some region lists starts disabled. Cards listed by the same
+     regions form a group (12 for FalloutNV.esm's 38). Each group gets a
+     player ability of two `F3NV_ImposterGate` effects: one enables the
+     group while one of its regions' watch globals is 1, the other disables
+     it while all are 0, so a save made with the cards on corrects itself.
+     The globals are [the region watch's](fo4_regions.md#built), polled
+     from FNV's polygons; the 11 regions add 89 points. A start-game
+     quest's player alias gives the abilities (ALSP). FNV's own cell region
+     lists name the same regions, but the region watch is the build's one
+     region mechanism. Also open, the user's call:
+     FNV hid the distant view in fog at a shorter view distance; ours shows
+     plain, low-detail object LOD instead. Either distance fog or better
+     LOD.
+4. **<a id="route-lights"></a>Modern lighting, with a Classic switch**
+   (built 2026-11-09, not played).
+   - **Found (census 2026-11-09).** None of FNV's 8,376 placed lights
+     casts a shadow or is a spotlight (`cell.light_data` carries FNV's
+     flags, so every one converts as a non-shadow omni light), which is
+     much of why interiors look flat beside vanilla. FNV's EditorIDs name
+     each light's role: Amb 2,174 placed, Key 1,527, Fill 1,498, Kicker
+     772, other 2,405 (fire, barrel, lamplight, neon, office, sewer…);
+     warm 2,582 and cool 1,434 name the mood. Fallout4.esm's 801 LIGH:
+     595 without shadow, 112 shadow spot, 86 shadow omni, 8 shadow hemi;
+     non-specular 141, no rim 88, ambient only 6 (flag names from
+     xEdit's `wbDefinitionsFO4.pas`). Vanilla's fill, bounce and ambient
+     lights are nearly all plain shadowless lights (bounce: 67 of 74 no
+     shadow, 9 non-specular). Shadowed lights per lit interior
+     (Fallout4.esm, 442 cells): median 1, 75th percentile 4, 90th 6, max
+     34; FNV's Key lights per interior: median 1, 75th 4, 90th 9, 95th 17.
+   - **Built (`spike/light_roles.py`):** each Key light (a word "Key" in
+     its EditorID) gets a copy casting an omni shadow (Shadow
+     OmniDirectional 0x1000, `<EditorID>_Shadow`, FormID site `FNV shadow
+     light`). In each cell the 6 widest Key references (a reference's own
+     radius first; vanilla's 90th percentile) place the copy; the rest,
+     and every Fill, Amb and Kicker light, keep FNV's shadowless light as
+     vanilla's fills are. Colour, radius, position and fade stay FNV's.
+     New records only; no existing FormID moves.
+   - **Later, separately:** a small non-shadow light at glowing objects
+     with no light of their own (vending machines, neon signs; Fallout 34
+     does the machines by hand), and FO4's fire add-on effects for FNV's
+     flame cards and particles.
+   - **The switch (built):** `py -3.14 -m fo4_import.classic_look
+     --plugin <built FalloutNV.esm> --out <folder>` writes
+     `FalloutNV - Classic Look.esl`, also the converter app's optional
+     "Classic Look plugin" stage. Its masters are the built plugin's
+     masters then the plugin, so it overrides on the built FormIDs:
+     - every `_Shadow` light with its shadow flags cleared;
+     - every FNV imagespace (TX00 under `Effects\LUTs\FNV`) on a
+       Classic LUT (`Effects\LUTs\FNVClassic`): the built LUT after
+       FNV's straight curve (`classic_look.fnv_tone`), exposure pinned at
+       the old 1.40 (`classic_exposure`).
+     FNV's interior contrast and brightness, which the old LUTs carried,
+     are not restored. Ticking it on or off needs no new save.
+   - **Checks:** the Prospector Saloon and Doc Mitchell's at night, the
+     Lucky 38 casino and Vault 34 (dense lights), each Modern against
+     Classic and FNV; frame rate on the same routes as the
+     [speed gate](fo4_plan_world_look.md#goal).
+   - Fallout 34 for contrast: interior knobs tuned by eye (light colour
+     strength, ambient, per-cell exposure), fill "bounce" lights, and an
+     optional Reactor ENB preset.
+5. **<a id="route-grass"></a>Grass** (built 2026-11-09, not played): the
+   flecks and the tip triangle ([grass 3](#grass-flecks)), colour and
+   sway (grass 4 and 5). FO4's grass lighting (subsurface, backlight)
+   stays.
+6. The "flat New Vegas" look as a player choice is the Classic switch in
+   [step 4](#route-lights).
 
 ## <a id="grass"></a>Part A: grass
 
@@ -99,23 +332,48 @@ amount, where grass can grow, and what a tuft looks like can match.
    against FNV's 16,908; 4.4% of all share moves; 22 quadrants still
    lose a grassy texture. Neither exe was read: keeping FNV's shares
    holds under either pick rule.
-3. **<a id="grass-flecks"></a>Dark flecks on the grass.** Black,
-   triangle-shaped bits hang on some tufts and have been there all along.
-   - Already ruled out: the atlas texture (FNV's own file, unchanged) and
-     the alpha-test threshold (FNV's 92, 100 and 128, carried).
-   - Next: the grass meshes' vertex colour and alpha. FNV's
-     `TallGrassShaderProperty` cuts triangles with vertex alpha. FO4 reads
-     vertex alpha as sway weight and multiplies vertex colour into the
-     blade, so triangles FNV hides, or darkens to black, can show. Read the
-     17 grass meshes' vertex data and FNV's grass shader (`shaderpackage`).
-     Carry FNV's meaning: drop or cut those triangles, and keep vertex
-     alpha for placement as it is now
-     ([floating grass](fo4_spikes.md#spike-4-exterior)).
-4. **Grass colour** (FNV's dry yellow reads green). Judge it after 1 to 3
-   and part B's weather work, since lighting tints it too. Then compare
-   vertex colour, the colour range, and our subsurface and backlight
-   settings (`convert_static.GRASS_LIGHTING`).
-5. **Sway.** FNV's grass sway is not carried. Later, after the rest.
+3. **<a id="grass-flecks"></a>Dark flecks and the tip triangle** (built
+   2026-11-09, not played).
+   - **FNV's grass shader** (`GRASS2000.vso`, `GRASS2001.pso`,
+     `shaderpackage019.sdp`): vertex alpha only weights sway (sin × wind ×
+     alpha², sideways); vertex RGB scales the sunlight term only; the pixel
+     shader never reads vertex alpha. So FNV draws every triangle; the
+     old lead (vertex alpha cuts triangles) was wrong.
+   - **Cause: FNV clamps the grass texture, we wrapped it.**
+     `TallGrassShader` (FNV decomp, `tallgrassshader.cpp` 0x00bac160)
+     sets stage 0 to address pair 0, filled with D3DTADDRESS_CLAMP (3) in
+     both directions; our grass BGSMs tiled (tile_flags 3) and the shader
+     wrapped (clamp 3). UVs just past 0–1 then sample another grass in the
+     atlas. The tip triangle is `GrassWasteland02.nif` (GrassWasteland02,
+     02b): each of its 6 single-triangle blades has tip v = −0.013, so
+     the top ~5% sampled the atlas's dark bottom row (140 opaque texels per
+     blade, mean (77, 63, 33); clamped: 0). Also GrassWasteland04 (81
+     texels, 18 of 54 triangles), 07 (140, orange), NVGrassGolf02.
+   - **Built:** grass BGSMs `tile_flags` 0 and the shader `clamp` 0
+     (`convert_static.GRASS_MATERIAL`, `_lit_blocks`), as vanilla's
+     driedgrassobj01 and meadowgrassobj01 (20 vanilla BGSMs tile in
+     neither direction; 16 of 81 vanilla grass shaders clamp 0). Grass
+     BGSMs now carry `_grass` in their path, so no other shape shares one.
+4. **Grass colour** (FNV's dry yellow reads green).
+   - Not the textures (same as FNV's; wasteland atlas mean (115, 96, 66)),
+     not which grass grows (40 of 52 ground links use the brown atlas),
+     not GRAS colour range (a per-tuft brightness in FNV's shader).
+   - FNV's vertex colour is warm and dark (red/blue 1.08–1.15, bases to
+     0.18). Our grass lacked the lighting shader's Vertex_Colors flag
+     (flags2 0x20), which every vanilla grass mesh with vertex colours sets
+     (0x31, 0x21, 0x20000031); **built:** `VERTEX_COLORS` on grass shapes.
+     FO4 then tints all light by it where FNV tinted sunlight only, so
+     shaded bases come out a little darker (drift).
+   - The rest is the tone: judge after [step 1](#route-tone).
+5. **Sway.** GRAS wave period is already carried (`grass.pack_data`;
+   FNV 10–100, vanilla 8–200). The Vertex_Colors flag lets FO4 read the
+   colour stream for the sway weight. Whether FO4 weights by alpha or
+   alpha² (FNV's) is unread (`Fallout4 - Shaders.ba2`); alpha stays as is.
+   Vanilla grass with FNV-like shapes (MeadowGrassObj01, DriedGrassObj01…)
+   was weighed as a replacement and rejected: GRAS colour range only
+   scales brightness, recolouring means shipping altered Bethesda
+   textures, and FNV's shrubs, stalks, lawn and golf grasses have no
+   match.
 
 ## <a id="lighting"></a>Part B: lighting and colour
 
@@ -311,8 +569,9 @@ The steps run from the widest effect to the narrowest.
    ([emittance](fo4_pipeline.md#emittance)), so a difference points at
    intensity, or at night exposure (step 3).
 6. **The overall tone.** FO4's filmic curve and LUT against FNV's straight,
-   clipped display colours. Decided last, once steps 1 to 5 are in: either
-   a converted LUT per weather, or a player option ("FNV look").
+   clipped display colours. Decided 2026-11-09: FO4's curve and exposure
+   stay, FNV's grading rides in the LUT ([tone](#route-tone)); the old
+   flat look returns as the Classic switch ([lights](#route-lights)).
 
 ## <a id="found"></a>Also in the shots
 
@@ -322,7 +581,8 @@ The steps run from the widest effect to the narrowest.
 
 ## <a id="order"></a>Order
 
-The planned order. Grass 1 and 2 are built, not played; grass 3 is not
+Superseded 2026-11-09 for lighting by the [FO4 route plan](#fo4-route-plan);
+grass 1 to 3 below stand. The original order, kept for the record. Grass 1 and 2 are built, not played; grass 3 is not
 done. Lighting 3 and 4 are played (neon parked); lighting 1 carries only
 the tint; lighting 2 and 6 are not done.
 

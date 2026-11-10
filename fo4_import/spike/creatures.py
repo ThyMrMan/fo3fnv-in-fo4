@@ -31,9 +31,12 @@ import functools
 import struct
 from pathlib import Path
 
+from fo4_import.helpers_plugin import form_id
 from fo4_import.spike.type_tests import keywords_edit
+from script_convert.constants import FALLOUT4_HELPER_CREATURE_KEYWORD
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.source_fault import without_fault
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents, skin_texture
 from fo4_import.spike import records as R
 from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, UNIQUE, hit_proof,
@@ -49,8 +52,8 @@ from fo4_import.rig.table import rigs
 from fo4_import.spike.creature_speed import Fo4Speeds, fnv_run_speed, heights, with_height, with_speed_mult
 from fo4_import.spike.replacements import CREATURE_TYPES, creature_entry, targets
 from fo4_import.spike.npcs import (USE_AI_DATA, USE_BASE_DATA, USE_FACTIONS, USE_INVENTORY, USE_SCRIPT, USE_STATS,
-                                   USE_TRAITS, composed, faction_snams, script_of, template_source, with_factions,
-                                   with_inventory, with_script)
+                                   USE_TRAITS, composed, faction_snams, script_of, template_source, vendor_snam,
+                                   with_factions, with_inventory, with_script)
 from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.stand_in_fields import checked
 from fo4_import.spike.statics import write_converted
@@ -82,6 +85,12 @@ PC_LEVEL_MULT = 0x80
 STAND_IN_TIES = frozenset({b'VMAD', b'SNAM', b'SHRT', b'LTPT', b'LTPC'})
 #: Vanilla DefaultSandboxEditorLocation, the package of a converted creature none of whose FNV packages convert.
 SANDBOX = 0x107AEA
+#: Fallout4.esm races whose graphs tunnel in combat: MoleratRace, RadScorpionRace, MirelurkHunterRace.
+TUNNELING_RACES = frozenset({0x1D810, 0x636AB, 0x64C60})
+#: Fallout4.esm DisableTunnelingKeyword (default object KeywordDisableTunneling_DO), as on LvlMoleratBomb.
+DISABLE_TUNNELING = 0x22FC80
+#: Fallout4.esm Protectron, Handy, SentryBot, Deathclaw, SupermutantBehemoth, MirelurkKing races (helpers_races).
+GATED_RACES = frozenset({0xDFB33, 0x359F4, 0xAE0B7, 0x1DB4A, 0xBB7D9, 0xB7F91})
 SITE = 'FNV CREA'
 #: A model's texture hash lists (MODT and the addon's MO2T-MO5T), which name the vanilla model's textures.
 MODEL_TEXTURES = frozenset({b'MODT', b'MO2T', b'MO3T', b'MO4T', b'MO5T'})
@@ -93,6 +102,15 @@ GEAR, NON_PLAYABLE = frozenset({b'WEAP', b'AMMO', b'ARMO'}), 0x4
 ARMED_AMMO = 100
 #: FNV WEAP DNAM Flags1 Embedded Weapon (0x20) and Non-Playable (0x80); FNV AMMO DATA Non-Playable (0x2).
 FNV_WEAPON_GEAR, FNV_AMMO_NON_PLAYABLE = 0x20 | 0x80, 0x2
+#: FO4 WEAP DNAM animation type byte and its first ranged type (Bow; then Staff, Gun, Grenade, Mine).
+FO4_ANIM_TYPE, FO4_FIRST_RANGED = 54, 7
+#: FNV WEAP DNAM animation type of its first ranged weapon (one-handed pistol; 0-2 are hand to hand and melee).
+FNV_FIRST_RANGED = 3
+
+
+def fnv_ranged(sig: 'str | None', rec: dict) -> bool:
+    """Whether FNV item `rec` is a ranged weapon."""
+    return sig == 'WEAP' and int(rec.get('DNAM.FalloutAnimType', 0) or 0) >= FNV_FIRST_RANGED
 
 
 def fnv_gear(sig: 'str | None', rec: dict) -> bool:
@@ -117,7 +135,7 @@ class Creatures:
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'CREA')}
         table = builder.table
         keyed = {**table.rules.creature, **table.rules.ability, **table.creatures}
-        self.npcs, self.worn, self.race_health, self.gear = self._index(builder.fo4, keyed)
+        self.npcs, self.worn, self.race_health, self.gear, self.ranged = self._index(builder.fo4, keyed)
         self.as_is = targets({k: e for k, e in keyed.items() if e.mode == 'item'}, builder.fo4, builder.masters,
                              builder.plugin_dirs, CREATURE_TYPES)
         self.archives = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2')
@@ -133,11 +151,13 @@ class Creatures:
     @staticmethod
     def _index(fo4: bytes, keyed: dict) -> tuple:
         """({EditorID lowercased: NPC_} of the Fallout4.esm targets in `keyed`, {EditorID: (NPC_, skin ARMO,
-        addon ARMA)} of its `fnv` targets, {RACE: starting Health}, {its non-playable WEAP, AMMO, ARMO})."""
+        addon ARMA)} of its `fnv` targets, {RACE: starting Health}, {its non-playable WEAP, AMMO, ARMO}, {its
+        non-playable ranged WEAP: the AMMO it fires, 0 for none})."""
         wanted = {e.edid.lower() for e in keyed.values() if e.base}
-        npcs, armor, race_health, gear = {}, {}, {}, set()
+        npcs, armor, race_health, gear, ranged = {}, {}, {}, set(), {}
         for rec, _ in walk(fo4, b'NPC_', b'ARMO', b'ARMA', b'RACE', b'WEAP', b'AMMO'):
             gear.update({rec.form_id} if rec.sig in GEAR and rec.flags & NON_PLAYABLE else set())
+            ranged.update(_ranged_gear(rec) if rec.sig == b'WEAP' and rec.flags & NON_PLAYABLE else {})
             if rec.sig == b'RACE':
                 race_health[rec.form_id] = _health(rec.body)
             elif rec.sig in (b'ARMO', b'ARMA'):
@@ -149,19 +169,28 @@ class Creatures:
         for edid in {e.edid.lower() for e in keyed.values() if e.base and e.mode == 'fnv'} & set(npcs):
             skin = armor[_form(npcs[edid], b'WNAM')]
             worn[edid] = (npcs[edid], skin, armor[_form(skin, b'MODL')])
-        return npcs, worn, race_health, gear
+        return npcs, worn, race_health, gear, ranged
 
     def inventory(self, rec: dict, body, outfit: bool, armed: bool = False):
         """The inventory edit of FNV creature `rec` on clone `body`: the body's attack gear (its non-playable
-        items) and the playable items of `rec`'s Inventory chain (its FNV guns too when `armed`: a ranged rig);
-        the body's default outfit only when `outfit` (stats mode, which keeps FO4's look).
-        See: docs/fork/fo4_creature_audit.md#inventory
+        items; its ranged weapon and ammo only when `rec` has a ranged weapon of its own) and the playable items of
+        `rec`'s Inventory chain (its FNV guns too when `armed`: a ranged rig); the body's default outfit only when
+        `outfit` (stats mode, which keeps FO4's look).
+        See: docs/fork/fo4_creature_audit.md#inventory, docs/fork/fo4_creature_audit.md#deathclaws
         """
         found = list(subrecords(body.body))
+        source = self.source(rec, USE_INVENTORY)
+        dropped = set() if self._shoots(source) else {*self.ranged, *self.ranged.values()}
         gear = [(*struct.unpack_from('<Ii', d), None) for t, d in found
-                if t == b'CNTO' and struct.unpack_from('<I', d)[0] in self.gear]
+                if t == b'CNTO' and struct.unpack_from('<I', d)[0] in self.gear - dropped]
         doft = next((struct.unpack('<I', d)[0] for t, d in found if t == b'DOFT'), 0)
-        return with_inventory(doft if outfit else 0, gear + self._carried(self.source(rec, USE_INVENTORY), armed))
+        return with_inventory(doft if outfit else 0, gear + self._carried(source, armed))
+
+    def _shoots(self, rec: dict) -> bool:
+        """Whether FNV creature `rec`'s inventory holds a ranged weapon (fnv_ranged)."""
+        items = self.builder.items.records
+        return any(fnv_ranged(*items.get(int(rec[f'Item[{i}].FormID'], 16), (None, {})))
+                   for i in range(int(rec.get('ItemCount', 0) or 0)))
 
     def _carried(self, rec: dict, armed: bool = False) -> list:
         """[(FO4 item, count, condition)] of FNV creature `rec`'s items that convert, its attack gear (FNV's
@@ -284,8 +313,12 @@ class Creatures:
 
     def screen_armor(self, face: str, expression: str) -> int:
         """Rigs.screen_armor: a securitron face's screen armor (0 without one)."""
+        return self.own_rigs().screen_armor(face, expression)
+
+    def own_rigs(self) -> Rigs:
+        """The build's own-rig writer, made on first use."""
         self.rigs = self.rigs or Rigs(self.builder, self.export_dir, self.data_dir)
-        return self.rigs.screen_armor(face, expression)
+        return self.rigs
 
     def _own_rig(self, fid: int, rec: dict, entry, packages: list, stats: dict = None) -> None:
         """Write FNV creature `rec` on its own rig (fo4_import.rig): a copy of its entry's target NPC under FNV's
@@ -295,7 +328,7 @@ class Creatures:
         when it has one (Rigs.attacks).
         See: docs/fork/fo4_own_rig.md#modules
         """
-        self.rigs = self.rigs or Rigs(self.builder, self.export_dir, self.data_dir)
+        self.own_rigs()
         rig = rigs()[skeleton_folder(rec['Model.MODL'])]
         members = [r for r in self.records.values() if skeleton_folder(r.get('Model.MODL', '')) == rig.folder]
         style = self.builder.combat_styles.record(self.source(rec, USE_TRAITS))
@@ -359,8 +392,20 @@ class Creatures:
         return with_height(low, high), with_speed_mult(round(value, 1)) if value else None
 
     def _keywords(self, rec: dict):
-        """The clone edit marking FNV creature `rec`'s type (type_tests)."""
-        return keywords_edit(self.builder.type_keywords.of(int(rec['FormID'], 16)))
+        """FNV creature `rec`'s type keyword and its _race_keywords."""
+        return keywords_edit(self.builder.type_keywords.of(int(rec['FormID'], 16)) + self._race_keywords(rec))
+
+    def _race_keywords(self, rec: dict) -> list:
+        """The keywords turning FO4-only race behaviour off for `rec`'s traits creature: DisableTunnelingKeyword on
+        a tunneling race, the helper creature keyword on a race whose ability helpers_races gates.
+        See: docs/fork/fo4_creature_audit.md#molerat-burrowing, docs/fork/fo4_creature_audit.md#race-abilities
+        """
+        entry = self._entry(self.source(rec, USE_TRAITS))[0]
+        npc = self.npcs.get(entry.edid.lower()) if entry is not None and entry.mode != 'speaker' else None
+        found = dict(subrecords(npc.body)) if npc is not None else {}
+        race = struct.unpack('<I', found[b'RNAM'])[0] if b'RNAM' in found else 0
+        gated = form_id(FALLOUT4_HELPER_CREATURE_KEYWORD, self.builder.scripts.helper_index)
+        return [DISABLE_TUNNELING] if race in TUNNELING_RACES else [gated] if race in GATED_RACES else []
 
     def label(self, fnv: int) -> str:
         """FNV creature `fnv`'s skeleton folder, else its EditorID."""
@@ -393,21 +438,23 @@ class Creatures:
         return self._sized(traits, self.npcs[entry.edid.lower()], stats)[1]
 
     def own_parts(self, rec: dict, templated: bool = False) -> tuple:
-        """Edits giving creature `rec` its stats and combat skill, factions, death item, sounds and abilities: on a
-        template actor (`templated`) only the parts its template does not give (its script:
+        """Edits giving creature `rec` its stats and combat skill, factions (its vendor one too), death item, sounds
+        and abilities: on a template actor (`templated`) only the parts its template does not give (its script:
         Npcs._template_script); on a plain copy, each from the FNV record its template chain takes it from, its
         script too."""
+        vendor = vendor_snam(self.builder, int(rec['FormID'], 16))
         if templated:
             inherited = int(rec.get('ACBS.TemplateFlags', 0)) if 'TPLT.Template' in rec else 0
+            factions = faction_snams(rec, self.builder.factions) + vendor
             return (None if inherited & USE_STATS else with_stats(rec, self.race_health),
                     None if inherited & USE_STATS else self._combat_skill(rec),
                     None if inherited & USE_STATS else self._own_speed(rec),
-                    None if inherited & USE_FACTIONS else with_factions(faction_snams(rec, self.builder.factions)),
+                    None if inherited & USE_FACTIONS else with_factions(factions),
                     self._death_item({} if inherited & USE_TRAITS else rec),
                     self.sounds.edit(rec) if self.sounds.source(rec) or not inherited & USE_MODEL else None,
                     None if inherited & USE_SPELLS else self._spells(rec),
                     None if template_source(self.records, rec, USE_TRAITS)[1] else self._keywords(rec))
-        factions = faction_snams(self.source(rec, USE_FACTIONS), self.builder.factions)
+        factions = faction_snams(self.source(rec, USE_FACTIONS), self.builder.factions) + vendor
         return (with_stats(self.source(rec, USE_STATS), self.race_health), self._combat_skill(self.source(rec, USE_STATS)),
                 with_factions(factions),
                 self._death_item(self.source(rec, USE_TRAITS)), self.sounds.edit(rec),
@@ -481,16 +528,22 @@ class Creatures:
         write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''),
                                              CHARACTER_TIES if unique else STAND_IN_TIES,
                                              edit=checked(self.builder.counts, npc.body, edid, lambda subs: _replaced(
-                                                 edit(subs), {b'WNAM': struct.pack('<I', armo)}))))
+                                                 edit(subs), {b'WNAM': struct.pack('<I', armo)} if armo else {}))))
 
-    def _skin(self, fnv: int, entry) -> int:
+    def _skin(self, fnv: int, entry) -> 'int | None':
         """The skin (ARMO) showing FNV creature `fnv`'s body: a copy of its entry's target's skin and addon, also
         covering the head slot (_with_slot), unless the pair wears FO4's body (_fo4_body, listed first) and head
-        (its face set tinted in self.faces): FNV's addon then covers FX_SLOT; written once, as sized copies share it."""
+        (its face set tinted in self.faces): FNV's addon then covers FX_SLOT; written once, as sized copies share it.
+        None, the target's own skin kept as a stand-in's is, when FNV's body has a source fault (counted)."""
         if fnv not in self.skins:
             rec, (npc, skin, addon), write = self.records[fnv], self.worn[entry.edid.lower()], self.builder.writer
             folder, edid = skeleton_folder(rec['Model.MODL']), f'FNV_{rec["EditorID"]}'
-            model, bare = self._mesh(rec, folder)
+            made = without_fault(self._mesh, rec, folder)
+            if made is None:
+                self.builder.counts["creatures on their target's skin (a source fault)"] += 1
+                self.skins[fnv] = None
+                return None
+            model, bare = made
             head = functools.partial(_with_slot, slot=FX_SLOT if bare else PAIRS[folder].head_slots)
             arma, armo = (write.derive_formid(SITE, f'{fnv:08X} {part}') for part in ('ARMA', 'ARMO'))
             write.add_record('ARMA', copy_record(addon, arma, f'{edid}AA', {
@@ -593,6 +646,13 @@ def with_spells(spells: list):
         return b''.join(pack_subrecord(t.decode(), d) + (block if t == b'RNAM' else b'')
                         for t, d in found if t not in (b'SPCT', b'SPLO'))
     return edit
+
+
+def _ranged_gear(rec) -> dict:
+    """{WEAP `rec`: its AMMO (0: none)} for a ranged animation type; else {}."""
+    dnam = dict(subrecords(rec.body)).get(b'DNAM', b'')
+    ranged = len(dnam) > FO4_ANIM_TYPE and dnam[FO4_ANIM_TYPE] >= FO4_FIRST_RANGED
+    return {rec.form_id: struct.unpack_from('<I', dnam)[0]} if ranged else {}
 
 
 def _health(body: bytes) -> float:

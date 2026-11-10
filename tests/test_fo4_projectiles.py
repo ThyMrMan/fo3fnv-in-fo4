@@ -168,6 +168,55 @@ def test_an_explosion_copy_takes_fnvs_enchantment_only_when_the_stand_in_has_non
     assert copies._effect(own, rec) == own and copies._effect(plain, {}) == plain
 
 
+def test_a_copy_takes_fnvs_name_never_the_stand_ins_string_id():
+    """FULL becomes FNV's text; a copy of an unnamed FNV record has none.
+    See: docs/fork/fo4_thrown_weapons.md#names
+    """
+    subs = [(b'EDID', b'x\0'), (b'FULL', b'\x25\x8f\x01\x00'), (b'DNAM', b'old')]
+    named = dict(subrecords(C._with(subs, {'EditorID': 'MineFragProjectile', 'FULL': 'Frag Mine'}, b'DNAM', b'new')))
+    assert named == {b'EDID': b'FNV_MineFragProjectile\0', b'FULL': b'Frag Mine\0', b'DNAM': b'new'}
+    assert b'FULL' not in dict(subrecords(C._with(subs, {'EditorID': 'X'}, b'DNAM', b'new')))
+
+
+def _copies(made_mesh: list) -> C.ProjectileCopies:
+    """ProjectileCopies over one frag stand-in (PROJ 0x10 exploding as EXPL 0x20) and a recording mesh()."""
+    copies = C.ProjectileCopies.__new__(C.ProjectileCopies)
+    writer = SimpleNamespace(derive_formid=lambda site, key: 0x800, add_record=lambda sig, body: made_mesh.append(sig))
+    copies.builder = SimpleNamespace(writer=writer, counts=Counter(),
+                                     mesh=lambda model: made_mesh.append(model) or (f'FNV\\{model}', None))
+    copies.made, copies.fuses, copies.enchantments, copies.spells = {}, {}, {}, None
+    copies.own_models = frozenset({'GrenadeGasExplosion'})
+    copies.vanilla = {0x10: [(b'EDID', b'\0'), (b'MODL', b'frag.nif\0'), (b'DNAM', _stand_in(C.EXPLODES, 0x20))],
+                      0x20: [(b'EDID', b'\0'), (b'MODL', b'blast.nif\0'), (b'DATA', bytes(64))]}
+    copies.explosions = {0x30: {'EditorID': 'GrenadeGasExplosion', 'Model.MODL': 'smoke.nif', 'DATA.Radius': '128'},
+                         0x40: {'EditorID': 'GrenadeFragExplosion', 'Model.MODL': 'frag.nif', 'DATA.Radius': '900'}}
+    return copies
+
+
+def test_a_thrown_copy_takes_fnvs_model_when_its_weapon_does():
+    """Lit dynamite (an fnv-mode weapon) flies FNV's projectile mesh; a stats-mode frag keeps the stand-in's.
+    See: docs/fork/fo4_thrown_weapons.md#first-play
+    """
+    made = []
+    dynamite = {'FormID': '00000001', 'EditorID': 'D', 'Model.MODL': 'dynamiteThrown.nif', 'DATA.Flags': '6'}
+    _copies(made).copy(0x10, dynamite, True, own_model=True)
+    frag = {'FormID': '00000002', 'EditorID': 'F', 'Model.MODL': 'GrenadeFrag.nif', 'DATA.Flags': '6'}
+    _copies(made).copy(0x10, frag, True)
+    assert 'dynamiteThrown.nif' in made and 'GrenadeFrag.nif' not in made
+
+
+def test_a_listed_explosion_shows_fnvs_own_model():
+    """The gas cloud keeps FNV's smoke mesh; an unlisted frag blast keeps the stand-in's.
+    See: docs/fork/fo4_thrown_weapons.md#explosion-models
+    """
+    made = []
+    copies = _copies(made)
+    copies._explosion(0x20, {'DATA.Explosion': '00000030'}, _stand_in(C.EXPLODES, 0x20))
+    copies._explosion(0x20, {'DATA.Explosion': '00000040'}, _stand_in(C.EXPLODES, 0x20))
+    assert 'smoke.nif' in made and 'frag.nif' not in made
+    assert P.load_own_models() >= {'GrenadeGasExplosion'}
+
+
 def test_an_explosion_enchantment_is_laid_out_as_vanillas():
     """EDID, OBND, the plasma grenade's ENIT, then the effect pairs."""
     subs = subrecords(pack_explosion_ench(0x800, 'FNV_X', b'')[24:])

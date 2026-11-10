@@ -32,14 +32,14 @@ from fo4_import.spike.say_once import SayOnce
 from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, translated
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
-from fo4_import.pipeline.export_index import Layered, export_masters, export_records, own_records
+from fo4_import.pipeline.export_index import Layered, export_masters, export_records, master_records, own_records
 from script_convert.constants import papyrus_script_name
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 
-#: FNV DIAL type of the topics scripts Say: Conversation; of player topics (Topic), and its Top-level flag.
-CONVERSATION, TOPIC_TYPE, TOP_LEVEL = '1', '0', 0x02
-#: A line's lists naming topics it leads to or reveals.
-REACHING = ('Choice', 'FollowUp', 'LinkFrom', 'AddTopic')
+#: FNV DIAL type of the topics scripts Say: Conversation; of player topics (Topic).
+CONVERSATION, TOPIC_TYPE = '1', '0'
+#: FNV's GREETING topic: the greeting scene says it (conversation.greeting), never a quest's scripted topic.
+GREETING = '000000C8'
 #: A converted Say: TES4Polyfill.SayWhenFree(speaker, Topic, target).
 SAY_FREE = re.compile(r'SayWhenFree\([^,]+,\s*(\w+)\s*,')
 #: FNV topics the engine plays itself (HELLO, GOODBYE, the barks) -> the FO4 topic kind its engine plays the same way.
@@ -71,6 +71,10 @@ SCRIPTED_BASES = ('NPC_', 'CREA', 'ACTI', 'TACT', 'CONT', 'DOOR', 'FURN', 'MISC'
 TALKED, TALKED_AV, TALKED_KEY = 'GetTalkedToPC', 'TalkedToPC', ('av', 'TalkedToPC')
 #: FNV PlayerInRegion, read as the region's watch global when watched (region_watch; fo4_regions.md#built).
 IN_REGION = 'PlayerInRegion'
+#: FNV IsHardcore, read as the Hardcore global (hardcore; fo4_hardcore.md#built): its form map key.
+HARDCORE, HARDCORE_KEY = 'IsHardcore', ('hardcore', 'IsHardcore')
+#: FNV GetCasinoWinningStage, read as the casino's level global (casino.records): its form map key head.
+CASINO_STAGE, CASINO_KEY = 'GetCasinoWinningStage', 'casino level'
 #: FNV reputation tests -> the reputation slot of their parameter 2's 0 (reputation.SLOT_KEY form map entries).
 REPUTATION_FIRST_SLOT = {'GetReputation': 0, 'GetReputationThreshold': 2}
 
@@ -92,7 +96,7 @@ def dlc_lines(export_dir) -> 'frozenset | None':
     masters = export_masters(str(export_dir))
     if not masters:
         return None
-    theirs = {r['FormID'].upper(): r for folder in masters for r in export_records(folder, 'INFO')}
+    theirs = {r['FormID'].upper(): r for folder in masters for r in master_records(str(export_dir), folder, 'INFO')}
     return frozenset(r['FormID'].upper() for r in own_records(export_dir, 'INFO')
                      if r['FormID'].upper() not in theirs or _unordered(r) != _unordered(theirs[r['FormID'].upper()]))
 
@@ -102,18 +106,28 @@ def _unordered(rec: dict) -> dict:
     return {k: v for k, v in rec.items() if k != ORDER}
 
 
-def said_only(dials: dict, infos: list, said: set, packages: list = ()) -> set:
-    """FNV FormIDs of the Topic-type topics in `dials` whose EditorID `said` names and that nothing else reaches:
-    not top-level, no line's Choice, Follow Up, Link From or AddTopic, no Dialogue package's topic (the greeting
-    builds those). Their lines are built as a script's.
+def script_said(dials: dict, said: set) -> set:
+    """FNV topics `said` names (EditorID), not Conversation ones or GREETING.
     See: docs/fork/fo4_pipeline.md#said-topics
     """
-    reached = {r[f'{key}[{i}]'].upper() for r in infos for key in REACHING
-               for i in range(int(r.get(f'{key}Count', 0) or 0))}
-    reached |= {p['PKDD.Topic'].upper() for p in packages if p.get('PKDD.Topic')}
-    return {fid for fid, d in dials.items() if d.get('DATA.Type') == TOPIC_TYPE
-            and (d.get('EditorID') or '').lower() in said and fid.upper() not in reached
-            and not int(d.get('DATA.Flags', 0) or 0) & TOP_LEVEL}
+    return {fid for fid, d in dials.items() if (d.get('EditorID') or '').lower() in said
+            and d.get('DATA.Type') != CONVERSATION and fid.upper() != GREETING}
+
+
+def borrowed_lines(dials: dict, said: set, lines: dict) -> dict:
+    """{FNV quest: [copies]} of the shared infos (DIAL SharedInfo) each `said` topic borrows from another topic,
+    of `lines` ({FNV INFO: record}): each copy a line of the borrowing topic, marked SHARED.
+    See: docs/fork/fo4_pipeline.md#said-topics
+    """
+    out = {}
+    for dial in sorted(said):
+        rec = dials.get(dial, {})
+        for i in range(int(rec.get('SharedInfoCount', 0) or 0)):
+            line = lines.get(rec[f'SharedInfo[{i}].Info'].upper())
+            if line and line['ParentDIAL'].upper() != dial.upper():
+                copy = {**line, 'ParentDIAL': dial, SHARED: dial.upper()}
+                out.setdefault(line.get('QSTI.Quest', '').upper(), []).append(copy)
+    return out
 
 
 class SayTopics:
@@ -121,29 +135,32 @@ class SayTopics:
     [(FO4 INFO, said by the player)] for the silent lines (voice.silent_jobs)."""
 
     def __init__(self, builder, export_dir: Path):
-        """Index FNV topics and lines (a DLC's: only dlc_lines), each line carrying its quest's dialogue conditions
-        (with_quest); topics are written through `builder` (its script_vars() names)."""
+        """Index FNV topics and lines (a DLC's: only dlc_lines, its masters' kept apart in `outside`), each line
+        carrying its quest's dialogue conditions (with_quest); topics are written through `builder` (its
+        script_vars() names)."""
         self.builder, self.voiced, self.once = builder, [], SayOnce(builder.writer)
-        self.silent = []
+        self.silent, self.outside = [], []
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
-        self.infos, own = {}, dlc_lines(export_dir)
+        self.infos, own, by_id = {}, dlc_lines(export_dir), {}
         for rec in export_records(export_dir, 'INFO'):
             if own is not None and rec['FormID'].upper() not in own:
+                self.outside.append(rec)
                 continue
             quest = rec.get('QSTI.Quest', '').upper()
-            self.infos.setdefault(quest, []).append(with_quest(rec, quests.get(quest, [])))
+            by_id[rec['FormID'].upper()] = line = with_quest(rec, quests.get(quest, []))
+            self.infos.setdefault(quest, []).append(line)
         self.engine = {**ENGINE_TOPICS, **named_barks(self.dials)}
         self.replies = replies(self.dials, export_records(export_dir, 'INFO'), self.engine)
         self.script_vars = builder.script_vars
-        self.said = said_only(self.dials, export_records(export_dir, 'INFO'), free_said(builder.scripts.dir),
-                              export_records(export_dir, 'PACK')) | status_barks(self.dials)
+        self.said = script_said(self.dials, free_said(builder.scripts.dir)) | status_barks(self.dials)
+        self.borrowed = borrowed_lines(self.dials, self.said, by_id)
 
     def topics(self, quest: dict) -> list:
         """FNV FormIDs of `quest`'s Conversation topics, engine topics (self.engine), the topics a reply of its
-        answers (barks.replies) and the Topic-type topics only a script says (said_only), in first-line order."""
+        answers (barks.replies) and the topics a script says (script_said), in first-line order."""
         seen = {}
-        for rec in self.infos.get(quest['FormID'].upper(), []):
+        for rec in self._quest_lines(quest):
             dial = rec['ParentDIAL']
             if self.dials.get(dial, {}).get('DATA.Type') == CONVERSATION or dial in self.said or dial in self.engine:
                 seen.setdefault(dial, None)
@@ -170,9 +187,14 @@ class SayTopics:
         dlbr = R.pack_dlbr(branch, f'FNV_{quest["EditorID"]}Branch', quest_fid, custom[0]) if custom else None
         return dlbr, blobs
 
+    def _quest_lines(self, quest: dict) -> list:
+        """`quest`'s own lines, then the copies its said topics borrow (borrowed_lines)."""
+        key = quest['FormID'].upper()
+        return self.infos.get(key, []) + self.borrowed.get(key, [])
+
     def _lines(self, quest: dict, dial: str) -> list:
         """`quest`'s lines of `dial`, then of the replies answering it (barks.replies)."""
-        lines = self.infos[quest['FormID'].upper()]
+        lines = self._quest_lines(quest)
         own = [rec for rec in lines if rec['ParentDIAL'] == dial]
         return own + [rec for rec in lines if dial in self.replies.get(rec['ParentDIAL'].upper(), ())]
 
@@ -261,9 +283,11 @@ def _unmapped(cond: dict, form_map: dict) -> bool:
 
 def _form_value(func: str, cond: dict, form_map: dict, state) -> 'tuple | None':
     """(FO4 function, form) of an FNV condition the build answers from a form of its own: a region's watch global,
-    the TalkedToPC value, karma, an objective (`state`) or reputation global, the form None when the build lacks it;
+    the TalkedToPC value, karma, a casino's level, an objective (`state`) or reputation global, the form None when
+    the build lacks it;
     None for any other condition."""
     key = ((REGION_KEY, cond['p1']) if func == IN_REGION else TALKED_KEY if func == TALKED
+           else HARDCORE_KEY if func == HARDCORE else (CASINO_KEY, cond['p1']) if func == CASINO_STAGE
            else KARMA_KEY if func == 'GetActorValue' and cond['p1'] == KARMA_AV else None)
     if key is not None and key in form_map:
         return C.FO4.index('GetValue' if func == TALKED else GLOBAL_VALUE), form_map[key]
@@ -282,12 +306,15 @@ def _fo4_condition(cond: dict, form_map: dict, script_vars: dict) -> 'tuple | No
     `script_vars` names ({quest or ref: (script, {index: name})}), or a
     mirror global: `form_map[('qvar', quest, index)]` for a mirrored
     variable, `form_map[(quest, index, state)]` for an objective. An actor
-    value param is `form_map[('av', index)]`, None without one.
+    value param is `form_map[('av', index)]`, None without one. A
+    TOWARD_PLAYER function asks the player.
     """
     cond = {**cond, 'func': 'GetActorValue', 'p1': C.AS_VALUE[cond['func']]} if cond['func'] in C.AS_VALUE else cond
     func, state = cond['func'], OBJECTIVE_FUNCS.get(C.FNV.index(cond['func']))
     if C.fo4_value(cond, form_map) is None or C.unbuilt_reference(cond, form_map):
         return None
+    if func in C.TOWARD_PLAYER:
+        return C.FO4.index(C.TOWARD_PLAYER[func]), C.PLAYER_REF, 0, '', ''
     if func == QUEST_VARIABLE and ('qvar', cond['p1'], cond['p2']) in form_map:
         return C.FO4.index(GLOBAL_VALUE), form_map[('qvar', cond['p1'], cond['p2'])], 0, '', ''
     if func in (QUEST_VARIABLE, SCRIPT_VARIABLE):

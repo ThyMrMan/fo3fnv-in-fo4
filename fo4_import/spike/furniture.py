@@ -63,16 +63,20 @@ IDLE_KEYWORDS = {'BarKeeping': ('FurnitureScaleActorToOne', 'AnimFurnBartender',
 ANY_ENTRY = 0xFF
 #: FNV marker slots (FNV's GetFurnitureMarkerID idles): stool sitting, floor sitting, restrained sitting.
 SIT_STOOL, FLOOR_SIT, RESTRAINED_SIT = 15, 17, 18
+#: FNV marker slot of the crucifix (NVCrucifixFurniture): its own pose (furniture_poses), else a restrained sit.
+CRUCIFIED = 10
 #: Their FO4 (keywords, marker model), as vanilla's NpcStoolDinerIntSit01, NPCInvGroundSit, NPCPrisonerFloorSit.
 SLOT_SEATS = {SIT_STOOL: (('AnimFurnBarStool', 'AnimFurnAllowEating', 'FurnitureClassRelaxation',
                            'FurnitureScaleActorToOne'), 'Markers\\MarkerBarHeight.nif'),
               FLOOR_SIT: (('AnimFurnGroundSitAnims', 'FurnitureClassRelaxation'), 'Markers\\MarkerGroundSit01.nif'),
               RESTRAINED_SIT: (('AnimFurnPrisonerFloorSit',), 'Markers\\MarkerPrisonerFloorSit.nif')}
+SLOT_SEATS[CRUCIFIED] = SLOT_SEATS[RESTRAINED_SIT]
 #: The FNV animation (under meshes) that takes an actor from each slot's marker onto the seat.
 ENTER_ANIMS = {SIT_STOOL: 'characters\\_male\\idleanims\\stoolenter.kf',
                FLOOR_SIT: 'characters\\_male\\idleanims\\sitfloorenter.kf',
                RESTRAINED_SIT: 'characters\\_male\\idleanims\\restrainedsitenter.kf',
-               WALL_LEAN: 'characters\\_male\\idleanims\\wallfrontentry.kf'}
+               WALL_LEAN: 'characters\\_male\\idleanims\\wallfrontentry.kf',
+               CRUCIFIED: 'characters\\_male\\idleanims\\specialidle_nvcrucifixenter.kf'}
 #: FNV furniture animations turn the actor in quarter turns; the seated pose adds a few degrees of twist.
 QUARTER = math.pi / 2
 
@@ -87,17 +91,35 @@ def markers(path: str) -> list:
 
 
 def enter_motion(path: str) -> tuple:
-    """(right, forward, turn) an FNV enter animation moves the actor from its marker: Bip01's travel in the
-    actor's frame and Bip01 NonAccum's turn, to the nearest quarter turn."""
+    """(right, forward, turn) an FNV enter animation moves the actor from its marker (motion())."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
-    nodes = {cb.get_node_name().decode(): cb.interpolator for b in data.roots
-             if isinstance(b, NifFormat.NiControllerSequence) for cb in b.controlled_blocks}
+    return motion({cb.get_node_name().decode(): cb.interpolator for b in data.roots
+                   if isinstance(b, NifFormat.NiControllerSequence) for cb in b.controlled_blocks})
+
+
+def motion(nodes: dict) -> tuple:
+    """(right, forward, turn) of an animation's {node: interpolator}: Bip01's travel in the actor's frame and Bip01
+    NonAccum's turn, to the nearest quarter turn. A held pose without Bip01 (the crucifix) moves only the body:
+    the actor stays at its marker.
+    See: docs/fork/fo4_pipeline.md#crucifix
+    """
+    if 'Bip01' not in nodes:
+        return 0.0, 0.0, 0.0
     moves, turns = list(nodes['Bip01'].get_translations()), list(nodes['Bip01 NonAccum'].get_rotations())
-    yaws = [math.atan2(*_rotated(q, (0.0, 1.0, 0.0))[:2]) for q in (turns[0], turns[-1])]
     return (moves[-1][0] - moves[0][0], moves[-1][1] - moves[0][1],
-            round((yaws[1] - yaws[0]) / QUARTER) * QUARTER % math.tau)
+            _quarter(forward_yaw(turns[-1]) - forward_yaw(turns[0])))
+
+
+def forward_yaw(q: tuple) -> float:
+    """The yaw of +Y turned by quaternion `q` (w, x, y, z)."""
+    return math.atan2(*_rotated(q, (0.0, 1.0, 0.0))[:2])
+
+
+def _quarter(angle: float) -> float:
+    """`angle` to the nearest quarter turn, in [0, tau)."""
+    return round(angle / QUARTER) * QUARTER % math.tau
 
 
 def enter_motions(meshes_dir) -> dict:
@@ -215,15 +237,18 @@ def across(point: tuple, facing: float) -> float:
     return point[0] * math.sin(facing) + point[1] * math.cos(facing)
 
 
-def slot_seats(marks: list, active: int, motions: dict) -> 'tuple | None':
+def slot_seats(marks: list, active: int, motions: dict, poses=None) -> 'tuple | None':
     """(seat markers, keywords, marker model) of FNV furniture whose markers are all one SLOT_SEATS slot: each
     active marker moved and turned as the slot's enter animation (`motions`, enter_motions()) moves the actor,
-    entered from every side as vanilla's; None for other furniture."""
+    entered from every side as vanilla's; the slot's own pose keyword (`poses.keyword`) when it has one; None for
+    other furniture."""
     slots = {m[4] for m in marks}
     slot = slots.pop() if len(slots) == 1 else None
     if slot not in SLOT_SEATS or slot not in motions:
         return None
-    return (entered(marks, active, motions[slot]),) + SLOT_SEATS[slot]
+    own = poses.keyword(slot) if poses else None
+    words, marker = SLOT_SEATS[slot]
+    return entered(marks, active, motions[slot]), (own,) if own else words, marker
 
 
 def entered(marks: list, active: int, motion: tuple) -> list:
@@ -278,14 +303,14 @@ def floor_beds(placed: list) -> list:
 
 
 def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keyword_ids: dict,
-              idles: tuple = (), motions: dict = None) -> bytes:
-    """The FO4 FURN of FNV furniture `rec` with converted `model` and `bounds` and its mesh's `marks`; a stool,
-    floor sit or restrained sit takes slot_seats() by the enter `motions` (enter_motions()); standing furniture
-    (standing()) keeps each active marker where FNV has it, entered from any side, or where its slot's enter
-    animation takes the actor (a wall lean: entered())."""
+              idles: tuple = (), motions: dict = None, vmad: bytes = b'', poses=None) -> bytes:
+    """The FO4 FURN of FNV furniture `rec` with converted `model` and `bounds`, its mesh's `marks` and its script
+    `vmad`; a stool, floor sit or restrained sit takes slot_seats() by the enter `motions` (enter_motions());
+    standing furniture (standing()) keeps each active marker where FNV has it, entered from any side, or where its
+    slot's enter animation takes the actor (a wall lean: entered()); `poses` gives a slot's own pose."""
     active = int(rec.get('MNAM.Flags', 0))
     bed = sleepers(marks, active, bounds)
-    slotted = None if bed else slot_seats(marks, active, motions or {})
+    slotted = None if bed else slot_seats(marks, active, motions or {}, poses)
     placed = bed or (slotted[0] if slotted else seats(marks, active, bounds))
     floor = any(m[4] in SLEEP_FLOOR for m in marks)
     placed = floor_beds(placed) if bed and floor else placed
@@ -297,4 +322,4 @@ def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keywo
         placed, words = entered(marks, active, (motions or {}).get(marks[0][4], (0.0, 0.0, 0.0))), stand
     return R.pack_furn(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds,
                        [keyword_ids[k] for k in words], BED_RECORD_FLAGS if bed else 0,
-                       flags | (1 << len(placed)) - 1, marker, placed)
+                       flags | (1 << len(placed)) - 1, marker, placed, vmad)

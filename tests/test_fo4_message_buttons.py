@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from fo4_import.base.support_records import pack_mesg
 from fo4_import.spike import conditions as C
 from fo4_import.spike.attach import NEVER_SHOWN, ObjectScripts
-from fo4_import.spike.say_topics import conditions_under
+from fo4_import.spike.say_topics import HARDCORE_KEY, conditions_under
 from tes4_export.record_types.falloutnv import export_MESSAGE
 from tes4_export.tes4_reader import Record, Subrecord
 from tes5_import.base.tes5_reader import subrecords
@@ -59,16 +59,24 @@ def test_a_gated_message_waits_for_the_builds_condition_forms():
     assert len(written) == 2
 
 
-def test_a_button_that_never_passes_is_hidden():
-    """Dead Money's autodoc 'cure exhaustion' (IsHardcore == 1) is hidden, FO4 having no Hardcore mode;
-    IsHardcore == 0 is settled true and shows always."""
+def test_a_hardcore_button_reads_the_hardcore_global():
+    """Dead Money's autodoc 'cure exhaustion' (IsHardcore == 1) shows while the Hardcore global is 1
+    (fo4_hardcore.md#built)."""
     hardcore = '000000000000803F4A020000'.ljust(56, '0')
-    off = '00000000000000004A020000'.ljust(56, '0')
     scripts = SimpleNamespace(builder=SimpleNamespace(counts=Counter()))
     gate = ObjectScripts._gate.__get__(scripts)
     assert C.parse(hardcore)['func'] == 'IsHardcore'
-    assert gate('M', {'Condition[0].Raw': hardcore}, {}, {}) == NEVER_SHOWN
-    assert gate('M', {'Condition[0].Raw': off}, {}, {}) == b''
+    ctda = gate('M', {'Condition[0].Raw': hardcore}, {HARDCORE_KEY: 0x05000A00}, {})
+    assert struct.unpack_from('<B3xfH2xI', ctda, 6) == (0, 1.0, C.FO4.index('GetGlobalValue'), 0x05000A00)
+
+
+def test_a_button_that_never_passes_is_hidden():
+    """A button testing a quest the build lacks never shows."""
+    missing = '00000000000080403A00000099990000'.ljust(56, '0')
+    scripts = SimpleNamespace(builder=SimpleNamespace(counts=Counter()))
+    gate = ObjectScripts._gate.__get__(scripts)
+    assert C.parse(missing)['func'] == 'GetStage'
+    assert gate('M', {'Condition[0].Raw': missing}, {}, {}) == NEVER_SHOWN
 
 
 def test_fo4_writes_each_buttons_conditions_after_its_text():

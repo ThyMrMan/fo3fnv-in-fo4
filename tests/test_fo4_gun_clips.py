@@ -3,20 +3,39 @@
 See: docs/fork/fo4_spikes.md#spike-4-gun-clips
 """
 
+import collections
+import functools
 import struct
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from asset_convert.havok.clip_retarget import Skeleton, compose, mat_to_quat_wxyz, quat_wxyz_to_mat
 from asset_convert.havok.kf_decode import BoneTrack, DecodedClip
 from external.pynifly_hkx.anim_fo4 import TrackData
-from fo4_import.havok.gun_clips import (FNV_GRIP_FINGER, IK_LEFT, ROLE_WEAPON, Gun, GunClips, annotations, bolt_start,
-                                        carried_target, crc, file_id, fnv_stem, handle_frame, left_reach, left_targets,
-                                        neutral_clip, on_screen, with_folder)
+from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.havok.gun_clips import (CLIP_SITE, FNV_GRIP_FINGER, GUN_CLIPS_VERSION, IK_LEFT, ROLE_WEAPON, VIEWS,
+                                        Converted, Gun, GunClips, annotations, bolt_start, carried_target, crc,
+                                        file_id, fnv_stem, handle_frame, is_kept, keep, kept, left_reach, left_targets,
+                                        neutral_clip, on_screen, owned, placeholder, with_folder)
 from fo4_import.havok import kf_cache as KC
+from fo4_import.havok.gun_clip_pool import warm
+from fo4_import.pipeline import mesh_cache as MC
 from fo4_import.pipeline import work_cache as WC
+from fo4_import.pipeline.code_tag import ROOT
+from fo4_import.pipeline.export_index import Layered, asset_root, export_records
 from fo4_import.spike.gun_choice import PROP_KEYWORDS, built_in_scope, properties, traded
+from fo4_import.spike.guns import Guns
+from tes5_import.base.tes5_reader import first_sub, walk
+from tests.fo4_versions import check
+
+#: The FNV export the reference guns come from, and those guns: a two-handed bolt rifle and a one-handed pistol.
+EXPORT = ROOT / 'export' / 'FalloutNV.esm'
+REFERENCE_GUNS = ('WeapNVVarmintRifle', 'WeapNV9mmPistol')
+#: A rifle's record fields (anim type 5: class 2hr) for keys over test layers.
+RIFLE = {'EditorID': 'WeapX', 'DNAM.FalloutAnimType': '5', 'DNAM.AttackAnim': '68', 'DNAM.ReloadAnim': '12',
+         'DNAM.Flags1': '4'}
 
 HUNTING_RIFLE = ['Actors\\Character\\Animations\\Weapon\\HuntingRifle',
                  'Actors\\Character\\Animations\\Weapon\\Rifle\\Neutral',
@@ -182,3 +201,81 @@ def test_a_kf_is_decoded_once_and_each_caller_gets_its_own_copy(tmp_path, monkey
     KC._pickled.cache_clear()
     again, (clip, _) = KC.decoded(kf), KC.decoded_clip(kf, extract_motion=False)
     assert len(calls) == 1 and not again[0].tracks[0].translations.any() and clip.name == 'idle'
+
+
+def _layer(root, files: dict):
+    """Export layer `root` holding {path under the first-person clip folder: bytes}; `root`."""
+    for name, data in files.items():
+        path = root / 'meshes' / VIEWS[0].fnv.replace('\\', '/') / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    return root
+
+
+def _rifle_key(tmp_path, *layers) -> tuple:
+    """GunClips.key of RIFLE over export `layers` (first searched first)."""
+    clips = GunClips.__new__(GunClips)
+    clips.export_meshes = Layered(layers, 'meshes')
+    gun_path = tmp_path / 'gun.nif'
+    gun_path.write_bytes(b'gun')
+    return clips.key(RIFLE, ([1, 2], {3}), gun_path, {'Weapon': np.eye(4)}, np.eye(4), ((), ()))
+
+
+def test_a_master_holding_none_of_a_guns_files_leaves_its_key(tmp_path):
+    """A gun's key follows each file it reads to the layer holding it: a master with other clips leaves it; a
+    master replacing its aim clip, or adding the sighted aim its class lacked, changes it."""
+    game = _layer(tmp_path / 'game', {'skeleton.nif': b'skeleton', '2hraim.kf': b'aim', '2hrequip.kf': b'equip'})
+    key = _rifle_key(tmp_path, game)
+    unrelated = _layer(tmp_path / 'unrelated', {'1hpaim.kf': b'pistol', 'locomotion/2hrrun.kf': b'run'})
+    assert _rifle_key(tmp_path, unrelated, game) == key
+    assert _rifle_key(tmp_path, _layer(tmp_path / 'aim', {'2hraim.kf': b'other aim'}), game) != key
+    assert _rifle_key(tmp_path, _layer(tmp_path / 'sighted', {'2hraimis.kf': b'sights'}), game) != key
+
+
+def test_a_kept_gun_holds_placeholders_and_one_copy_of_each_file(tmp_path, monkeypatch):
+    """keep() stores each written file once by its bytes; the entry's own-keyword placeholders take any plugin's
+    FormIDs (owned); a file gone from the cache makes the entry a miss."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
+    entry = {'target': [7, placeholder(5)], 'actor': [], 'paths': [], 'flags': bytes(4)}
+    made = Converted({5: placeholder(5)}, None, {})
+    keep(('a',), (made, [entry], {'x/a.hkx': b'clip', 'x/b.hkx': b'clip'}))
+    keep(('b',), (made, [], {'y/a.hkx': b'clip'}))
+    assert len(list((tmp_path / 'work' / 'gun_clip_files').rglob('*.ran'))) == 1 and is_kept(('a',))
+    found = kept(('a',))
+    assert found[2] == {'x/a.hkx': b'clip', 'x/b.hkx': b'clip'}
+    assert owned(found[1][0], {5: 0x0300ABCD})['target'] == [7, 0x0300ABCD]
+    for blob in (tmp_path / 'work' / 'gun_clip_files').rglob('*'):
+        if blob.is_file():
+            blob.unlink()
+    assert kept(('a',)) is None and not is_kept(('a',))
+
+
+def test_the_pool_starts_only_for_guns_not_kept(tmp_path, monkeypatch):
+    """warm() makes nothing, and starts no worker, when every job's clips are kept."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
+    keep(('kept',), (None, [], {}))
+    assert warm([(('kept',), None)], tmp_path) == 0
+
+
+def _reference_gun(guns: Guns, clips: GunClips, rec: dict) -> tuple:
+    """(GunClips.key, maker of GunClips.recorded) of FNV gun `rec`, chosen and built as a build does."""
+    choice, subs, mesh = guns.choose(rec)
+    receiver, matrix, made = guns.built(choice, mesh)
+    args = guns.clip_args(rec, (subs, choice.includes), mesh[1], receiver, (made, matrix))
+    return clips.key(*args), functools.partial(clips.recorded, args)
+
+
+@pytest.mark.skipif(not (EXPORT / 'WEAP.txt').is_file() or not FALLOUT4_ESM.is_file(),
+                    reason='needs the FNV export and Fallout 4')
+def test_gun_clips_version_is_honest(tmp_path, monkeypatch):
+    """REFERENCE_GUNS' clips made cold (work and mesh caches under tmp_path) match their digests recorded under
+    GUN_CLIPS_VERSION (tests/fo4_versions.py)."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
+    monkeypatch.setattr(MC, 'CACHE', tmp_path / 'meshes')
+    fo4 = FALLOUT4_ESM.read_bytes()
+    keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id for r, _ in walk(fo4, b'KYWD')}
+    builder = SimpleNamespace(fo4=fo4, keywords=keywords, export_dir=EXPORT, data_dir=tmp_path / 'data',
+                              counts=collections.Counter())
+    guns, clips = Guns(builder, {}), GunClips(fo4, asset_root(EXPORT, 'meshes'), tmp_path / 'data')
+    recs = {r['EditorID']: r for r in export_records(EXPORT, 'WEAP') if r['EditorID'] in REFERENCE_GUNS}
+    check(CLIP_SITE, GUN_CLIPS_VERSION, {edid: _reference_gun(guns, clips, recs[edid]) for edid in REFERENCE_GUNS})

@@ -75,7 +75,7 @@ class Sounds:
         """Index FNV's SOUNs; the templates come from `builder`'s Fallout4.esm."""
         self.builder, self.export_dir, self.jobs, self.made, self.markers = builder, export_dir, [], {}, {}
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'SOUN')}
-        self.templates = {}
+        self.templates, self.by_name = {}, None
         for rec, _ in walk(builder.fo4, b'SNDR'):
             subs = dict(subrecords(rec.body))
             name = subs.get(b'EDID', b'').rstrip(b'\0').decode()
@@ -106,6 +106,14 @@ class Sounds:
             files = self._files(rec) if rec else []
             self.made[fnv] = self._write(fnv, rec, files) if files else 0
         return self.made[fnv]
+
+    def named(self, edid: str) -> int:
+        """descriptor() of the FNV SOUN named `edid` (any case); 0 for none.
+        See: docs/fork/fo4_pipeline.md#sound-properties
+        """
+        if self.by_name is None:
+            self.by_name = {r['EditorID'].lower(): fnv for fnv, r in self.records.items() if r.get('EditorID')}
+        return self.descriptor(self.by_name.get(edid.lower(), 0))
 
     def layer(self, fnv: int, key: str, edid: str, conditions: bytes) -> int:
         """SOUN `fnv`'s descriptor copied as `edid` under `conditions`; 0 if none."""

@@ -38,9 +38,12 @@ def save_baseline(path: Path, snap: dict) -> None:
 
 
 def drift(before: dict, after: dict) -> dict:
-    """{kind: {signature: [description]}} for removed, retyped and moved records."""
+    """{kind: {signature: [description]}} for removed, retyped and moved records; an EditorID passed to a FormID
+    `before` already had is a rename, its old record removed.
+    See: docs/commentary/tools_preflight.md#build-diff
+    """
     out = {'removed': defaultdict(list), 'retyped': defaultdict(list), 'moved': defaultdict(list)}
-    new_home = {v: fid for fid, v in after.items() if v.split('|', 1)[1]}
+    new_home = {v: fid for fid, v in after.items() if v.split('|', 1)[1] and fid not in before}
     for fid, was in before.items():
         sig, edid = was.split('|', 1)
         now, home = after.get(fid), new_home.get(was) if edid else None

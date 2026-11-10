@@ -13,17 +13,22 @@ out: nothing to override), and one that differs without either (the dependent bu
 the DLC). A record of a master the build did not make (Fallout4.esm) no built master overrides is kept. Records
 inside a group (a quest's topics, lines and scenes) are judged alike; a master record heading a kept children
 group (the game quest and topic a DLC line sits under) stays, as the master's own copy when it changes nothing.
+A built master is read in the build's FormID numbering (built_bytes): a mod on several DLC lists them after the
+game, so each DLC's own index moves (master_space.byte_map; its bodies by data/fo4_subrecord_formids.json).
 
 See: docs/fork/fo4_plugin_layout.md#dlc
 """
 
 import collections
+import functools
 import struct
 from pathlib import Path
 
 from fo4_import.base.install import file_masters
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.build_inputs import MASTERS, Held
+from fo4_import.pipeline.master_plugin import renumbered
+from fo4_import.pipeline.master_space import byte_map, identity
 from tes5_import.base.tes5_reader import FLAG_COMPRESSED, decompress, subrecords, walk, zstr
 
 #: A record's header size; its data size, flags and FormID offsets.
@@ -69,20 +74,32 @@ def _names_any(body: bytes, ids: frozenset) -> bool:
     return any(body[i:i + 4] in ids for i in range(len(body) - 3))
 
 
-def held_by(paths: list) -> frozenset:
-    """The FormIDs of every record in built master plugins `paths` (each question asked of it logged: Held)."""
-    return Held(rec.form_id for path in paths for rec, _ in walk(Path(path).read_bytes(), bodies=()))
+@functools.cache
+def _built(path: str, masters: tuple) -> bytes:
+    """built_bytes, cached per plugin and master list."""
+    mapping = byte_map(list(masters), Path(path).name, file_masters(Path(path)))
+    raw = Path(path).read_bytes()
+    return raw if identity(mapping) else renumbered(raw, mapping, 'fo4')
+
+
+def built_bytes(path, masters: list) -> bytes:
+    """A built master's bytes, FormIDs as a build mastering `masters` reads them.
+    See: docs/fork/fo4_plugin_layout.md#multi-master
+    """
+    return _built(str(path), tuple(masters))
+
+
+def held_by(paths: list, masters: list) -> frozenset:
+    """FormIDs (build numbering) of every record in built master plugins `paths` (questions logged: Held)."""
+    return Held(rec.form_id for path in paths for rec, _ in walk(built_bytes(path, masters), bodies=()))
 
 
 def master_records(paths: list, wanted: dict, masters: list) -> dict:
     """{FormID: (flags, body)} of the `wanted` records ({FormID: signature}) in built master plugins `paths`, the
-    last one holding each; each plugin's masters must lead the build's `masters`, so its FormIDs read alike."""
+    last one holding each, read in the numbering of the build's `masters` (built_bytes)."""
     out = {}
     for path in paths:
-        theirs = file_masters(path)
-        if masters[:len(theirs) + 1] != theirs + [path.name]:
-            raise ValueError(f'{path.name} masters {theirs} do not lead the build masters {masters}')
-        for rec, _ in walk(path.read_bytes(), bodies=frozenset(wanted.values())):
+        for rec, _ in walk(built_bytes(path, masters), bodies=frozenset(wanted.values())):
             if wanted.get(rec.form_id) == rec.sig:
                 out[rec.form_id] = (rec.flags & ~FLAG_COMPRESSED, rec.body)
     for fid, sig in wanted.items():

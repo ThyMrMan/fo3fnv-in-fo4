@@ -13,9 +13,9 @@ See: docs/fork/fo4_look.md#emissive
 
 import math
 
-#: Per kind: (FNV median, FNV 90th percentile, FO4 median, FO4 90th, FO4 min, FO4 max). FNV: 14,909 meshes' shapes
-#: (1,224 alpha-tested glows, 1,853 lit glows); FO4 + DLC: 24 additive and 150 lit glow material families.
+#: Per kind: (FNV median, FNV 90th, FO4 median, FO4 90th, FO4 min, FO4 max), from the fo4_look.md#emissive census.
 CURVES = {'neon': (1.1, 2.0, 1.8, 5.0, 0.39, 9.0),
+          'tube': (1.0, 7.0, 1.8, 5.0, 0.39, 9.0),
           'lit': (1.0, 10.0, 0.8, 1.7, 0.05, 10.0)}
 
 

@@ -34,7 +34,7 @@ from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
 from fo4_import.spike.conditions import FO4, fnv_av_name, parse
-from fo4_import.spike.station_spot import cell_of, spot, triangles_by_cell
+from fo4_import.spike.station_spot import CLEARANCE, cell_of, spots, triangles_by_cell
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -42,6 +42,8 @@ from tes5_import.base.writer import pack_subrecord
 STATIONS = {'CampfireRecipes': ('WorkbenchCookingFire', 0x102152),
             'WorkbenchRecipes': ('WorkbenchChemistryA', 0x102158),
             'ReloadingBenchRecipes': ('WorkbenchChemistryA', 0x102158)}
+#: Units inside the open edge a template's marker stands: a bench's on its model's bounds (others outside the edge).
+INSETS = {'WorkbenchChemistryA': 0.0}
 #: KYWD TNAM types: none (a workbench keyword), recipe filter (a crafting menu tab).
 PLAIN, RECIPE_FILTER = 0, 9
 #: Condition comparison >= and the function a skill requirement and a note test become.
@@ -54,6 +56,8 @@ REPLACED = frozenset({b'EDID', b'OBND', b'FULL', b'MODL', b'MODT', b'KWDA'})
 _MENU = re.compile(r'showrecipemenu\s+(\w+)', re.IGNORECASE)
 #: FormID sites: a recipe's token and outputs list (keyed by its FNV FormID), the quest and its lists (by name).
 TOKEN_SITE, OUTPUTS_SITE, QUEST_SITE = 'FNV recipe token', 'FNV recipe outputs', 'FNV recipe outputs quest'
+#: FormID site of a station's further open side (key: FNV FormID and side name); station_spot.sides' order.
+SIDE_SITE, SIDE_NAMES = 'FNV station side', ('Back', 'Front', 'Right', 'Left')
 #: LVLF Use All: the list gives every entry. The player reference, and the script swapping tokens.
 USE_ALL, PLAYER, OUTPUTS_SCRIPT = 0x04, 0x14, 'F3NV_RecipeOutputs'
 
@@ -75,7 +79,7 @@ class Crafting:
             if category and self.categories[category]['EditorID'] in STATIONS:
                 self.menus[int(rec['FormID'], 16)] = category
         bases = {int(r['FormID'], 16) for r in export_records(export_dir, 'ACTI') if self.station_of(r)}
-        self.placements, self.triangles, self.grid, self.export_dir = {}, None, {}, export_dir
+        self.placements, self.triangles, self.grid, self.export_dir, self.sides = {}, None, {}, export_dir, {}
         for ref in refs:
             if int(ref.get('NAME', '0'), 16) in bases:
                 self.placements.setdefault(int(ref['NAME'], 16), []).append(ref)
@@ -88,19 +92,39 @@ class Crafting:
         return self.menus.get(int(rec.get('SCRI', '0'), 16))
 
     def station(self, fid: int, rec: dict, model: str, bounds: tuple) -> bytes:
-        """FNV activator `rec` as a copy of its category's vanilla workbench furniture on `fid`."""
+        """FNV activator `rec` as a copy of its category's vanilla workbench furniture on `fid`, its one marker on
+        the side most placements open to; each other open side is a further copy on its own FormID, which the
+        placements it serves use (base_of).
+        See: docs/fork/fo4_pipeline.md#station-entry
+        """
+        marks = self._spots(rec, bounds) or [(0, None, [])]
+        for side, mark, refs in marks[1:]:
+            own = self.builder.writer.derive_formid(SIDE_SITE, f'{rec["FormID"]} {SIDE_NAMES[side]}')
+            self.builder.writer.add_record('FURN', self._copy(own, f'{rec["EditorID"]}_{SIDE_NAMES[side]}', rec,
+                                                              (model, bounds), mark))
+            self.sides.update(dict.fromkeys((r['FormID'] for r in refs), own))
+            self.builder.counts['crafting station sides (own record)'] += 1
+        self.builder.counts['crafting stations'] += 1
+        return self._copy(fid, rec['EditorID'], rec, (model, bounds), marks[0][1])
+
+    def base_of(self, ref: dict, base: int) -> int:
+        """The station record `ref` places: its open side's copy, else `base`."""
+        return self.sides.get(ref['FormID'], base)
+
+    def _copy(self, fid: int, edid: str, rec: dict, mesh: tuple, mark: 'bytes | None') -> bytes:
+        """Station `rec` as its vanilla template on `fid` named FNV_`edid`, marked at `mark` (template's if None)."""
         category = self.station_of(rec)
         template, bench = STATIONS[self.categories[category]['EditorID']]
-        subs = b''.join(self._part(tag, data, rec, (model, bounds), (category, bench))
-                        for tag, data in self.templates[template])
-        self.builder.counts['crafting stations'] += 1
-        return pack_fo4_record('FURN', fid, 0, subs)
+        own = (edid, mark)
+        return pack_fo4_record('FURN', fid, 0, b''.join(self._part(tag, data, rec, (mesh, own), (category, bench))
+                                                        for tag, data in self.templates[template]))
 
-    def _part(self, tag: bytes, data: bytes, rec: dict, mesh: tuple, bench: tuple) -> bytes:
-        """One template subrecord of station `rec` (mesh: model, bounds; bench: category, vanilla keyword)."""
-        model, bounds = mesh
+    def _part(self, tag: bytes, data: bytes, rec: dict, made: tuple, bench: tuple) -> bytes:
+        """One template subrecord of station `rec` (made: (model, bounds), (EditorID, marker); bench: category,
+        vanilla keyword)."""
+        (model, bounds), (edid, mark) = made
         if tag == b'EDID':
-            return (pack_subrecord('EDID', f'FNV_{rec["EditorID"]}\0'.encode('cp1252'))
+            return (pack_subrecord('EDID', f'FNV_{edid}\0'.encode('cp1252'))
                     + pack_subrecord('OBND', struct.pack('<6h', *bounds))
                     + pack_subrecord('FULL', f'{rec.get("FULL", "")}\0'.encode('cp1252'))
                     + pack_subrecord('MODL', f'{model}\0'.encode('cp1252')))
@@ -108,16 +132,18 @@ class Crafting:
             ids = [self.keyword(bench[0]) if k == bench[1] else k for k in struct.unpack(f'<{len(data) // 4}I', data)]
             return pack_subrecord('KWDA', struct.pack(f'<{len(ids)}I', *ids))
         if tag == b'SNAM':
-            return pack_subrecord('SNAM', self._spot(rec, bounds) or data)
+            return pack_subrecord('SNAM', mark + data[len(mark):] if mark else data)
         return b'' if tag in REPLACED else pack_subrecord(tag.decode(), data)
 
-    def _spot(self, rec: dict, bounds: tuple) -> 'bytes | None':
-        """The marker of station `rec` on its model's open side (station_spot); None if none measures."""
+    def _spots(self, rec: dict, bounds: tuple) -> list:
+        """The markers of station `rec` on its model's open sides (station_spot.spots); empty if none measures."""
         if self.triangles is None:
             self.triangles, self.grid = self._navmesh()
-        marker = spot(bounds, self.placements.get(int(rec['FormID'], 16), []), self.triangles, self.grid)
-        self.builder.counts['station spots ' + ('on the open side' if marker else 'left at the origin')] += 1
-        return marker
+        template = STATIONS[self.categories[self.station_of(rec)]['EditorID']][0]
+        marks = spots(bounds, self.placements.get(int(rec['FormID'], 16), []), self.triangles, self.grid,
+                      INSETS.get(template, -CLEARANCE))
+        self.builder.counts[f'station spots: {len(marks)} open side(s)' if marks else 'station spots left at the origin'] += 1
+        return marks
 
     def _navmesh(self) -> tuple:
         """({cell: navmesh triangles}, {(world, x, y): cell}) of the cells the stations stand in."""

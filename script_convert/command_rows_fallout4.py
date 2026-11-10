@@ -6,9 +6,11 @@ Actor values are ActorValue form properties (`target.av_property`) declared
 through `self_type`; behavior-graph events go through PlayAnimation. Where
 Fallout 4 has FO3/FNV's own feature the row uses it (RewardXP is the native
 RewardPlayerXP); the character menus, which Skyrim sends as SKSE mod events,
-become one custom event from the F3NV_CharacterEvents helper. IsAnimPlaying
-is 0: FO4 cannot ask a NIF sequence, and the graph read errored (fo4_pipeline.md#log-noise). IsPlayerInRegion reads
-the region's watch global (fo4_regions.md#built); GetTalkedToPC the TalkedToPC helper value (fo4_pipeline.md#talked-to-pc).
+become one custom event from the F3NV_CharacterEvents helper. IsAnimPlaying is the
+anim_playing_falloutnv handler's, not a row. IsPlayerInRegion reads
+the region's watch global (fo4_regions.md#built); GetTalkedToPC the TalkedToPC helper value (fo4_pipeline.md#talked-to-pc);
+IsHardcore, IsAlwaysHardcore and SetHardcore the game's Hardcore quest (fo4_hardcore.md#built); the casino
+openers, GetCasinoWinningsLevel and AddCardToPlayer the casino bank (fo4_casino_plan.md#records-built).
 
 See: docs/fork/fo4_spikes.md#spike-3-target
 """
@@ -26,6 +28,16 @@ def _av(name: str) -> tuple:
 _CHARACTER = (CHARACTER_PROPERTY, CHARACTER_SCRIPT)
 #: The FO4 helper quest holding the shared InputEnableLayer (controls, fast travel).
 _CONTROLS = (CONTROLS_PROPERTY, CONTROLS_SCRIPT)
+#: FNV's Hardcore mode: the game plugin's quest (fo4_import/spike/hardcore.py), filled by name.
+_HARDCORE = ('TES4Hardcore', 'F3NV_Hardcore')
+#: FNV's casino bank (fo4_import/casino/records.py), filled by name; a casino (CSNO) is its F3NV_CasinoData quest.
+_CASINO, _CASINO_DATA = ('TES4Casino', 'F3NV_Casino'), {0: 'F3NV_CasinoData'}
+
+
+def _casino_game(game: int) -> Cmd:
+    """An FNV casino opener as the bank's Open(`game`, casino, min, max, min won)."""
+    return Cmd(f'{_CASINO[0]}.Open({game}, {{p0}}, {{i1}}, {{i2}}, {{i3}})', types=_CASINO_DATA, self_type=_CASINO,
+               defaults={1: '1', 2: '200', 3: '0'})
 
 
 def _menu(kind: str, value: str = '{f0}', **row) -> Cmd:
@@ -52,7 +64,6 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'pickidle': Cmd('{ref}.PlayAnimation("{s0}")', ACTOR, defaults={0: 'IdleForceDefaultState'}, flags='zero_arg'),
     'playidle': Cmd('{ref}.PlayIdle({p0})', ACTOR, types={0: 'Idle'}),
     'rewardxp': Cmd('Game.RewardPlayerXP({i0})'),
-    'isanimplaying': Cmd('0'),
     'setrestrained': Cmd('TES4Polyfill.Restrain({ref}, {b0})', ACTOR, defaults={0: '0'}),
     'getlos': Cmd('HasDetectionLOS', MAP, flags='actor_only'),
     'removeallitems': Cmd('RemoveAllItems', MAP, flags='actor_only objref_shared', max_args=2),
@@ -92,6 +103,17 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'isplayerinregion': Cmd('TES4Polyfill.InRegion({p0})', types={0: 'GlobalVariable'}, flags='cmp_bool'),
     'getcurrentaiprocedure': Cmd('TES4Polyfill.AIProcedure({ref})', ACTOR, flags='actor_only zero_arg'),
     'islimbgone': Cmd('TES4Polyfill.LimbGone({ref}, {i0})', ACTOR, flags='actor_only cmp_bool'),
+    'ishardcore': Cmd(f'{_HARDCORE[0]}.IsOn()', self_type=_HARDCORE, flags='zero_arg cmp_bool'),
+    'isalwayshardcore': Cmd(f'{_HARDCORE[0]}.IsAlways()', self_type=_HARDCORE, flags='zero_arg cmp_bool'),
+    'behemoth': Cmd(f'{_HARDCORE[0]}.IsAlways()', self_type=_HARDCORE, flags='zero_arg cmp_bool'),
+    'sethardcore': Cmd(f'{_HARDCORE[0]}.SetHardcore({{b0}})', self_type=_HARDCORE, defaults={0: '1'}),
+    'showblackjackmenuparams': _casino_game(1),
+    'showroulettemenuparams': _casino_game(2),
+    'showslotmachinemenuparams': _casino_game(3),
+    'getcasinowinningslevel': Cmd('{p0}.GetLevel()', types=_CASINO_DATA),
+    'showcaravanmenu': Cmd(f'{_CASINO[0]}.OpenCaravan({{ref}}, {{p0}}, {{i1}}, {{f2}})', ACTOR, types={0: 'FormList'},
+                           self_type=_CASINO, defaults={1: '0', 2: '0.0'}, flags='actor_only'),
+    'addcardtoplayer': Cmd(f'{_CASINO[0]}.AddCard({{ref}})', OBJREF, self_type=_CASINO, flags='zero_arg'),
     'gettalkedtopc': Cmd(f'({{ref}}.GetValue({av_property("TalkedToPC")}) != 0.0)', ACTOR,
                          self_type=_av('TalkedToPC'), flags='actor_only zero_arg cmp_bool'),
     'gettalkedtopcp': Cmd(f'({{ref}}.GetValue({av_property("TalkedToPC")}) != 0.0)', ACTOR,

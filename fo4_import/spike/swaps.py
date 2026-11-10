@@ -12,6 +12,7 @@ See: docs/fork/fo4_spikes.md#spike-2-vcg01
 import re
 from pathlib import Path
 
+from fo4_import.base.source_fault import without_fault
 from fo4_import.spike import records as R
 from fo4_import.spike.statics import swap_material
 from fo4_import.pipeline.export_index import export_records
@@ -56,10 +57,11 @@ class Swaps:
         return self.made[prop]
 
     def _pair(self, prop: str) -> 'tuple | None':
-        """(shape's material, swap material) of `prop`, written once (statics.swap_material)."""
+        """(shape's material, swap material) of `prop`, written once (statics.swap_material); None, as for no
+        such shape, when its model has a source fault."""
         if prop not in self.pairs:
             ref, node, texture = self.targets.get(prop, ('', '', ''))
             model = self.models.get(ref.lower())
-            self.pairs[prop] = swap_material(self.export_dir, model, node, texture, self.builder.data_dir) \
-                if model else None
+            self.pairs[prop] = without_fault(swap_material, self.export_dir, model, node, texture,
+                                             self.builder.data_dir) if model else None
         return self.pairs[prop]

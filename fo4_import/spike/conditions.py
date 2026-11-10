@@ -38,6 +38,8 @@ AS_VALUE = {'GetRadiationLevel': FNV_AV_NAMES.index('Rad Level')}
 #: FNV functions that test the player; FO4's counterpart runs on the player reference.
 ON_PLAYER = {'GetPCIsSex', 'GetHasNote', 'PlayerInRegion'}
 PLAYER_REF = 0x14
+#: FNV functions with no parameter that FO4 asks of the player reference: the subject's faction hates the player.
+TOWARD_PLAYER = {'GetActorFactionPlayerEnemy': 'IsHostileToActor'}
 #: The player's base and reference: forms FNV and FO4 both own at these FormIDs, so a condition names them as is.
 PLAYER_FORMS = frozenset({0x7, PLAYER_REF})
 #: FNV functions reading 0 for a form the build leaves out (fo4_pipeline.md#dialogue-conditions).

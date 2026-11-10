@@ -11,6 +11,8 @@ import struct
 from pathlib import Path
 
 from core.game_dirs import find
+from fo4_import.pipeline.master_plugin import renumbered
+from fo4_import.pipeline.master_space import identity
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: Steam's default Windows library, used when detection finds nothing.
@@ -21,12 +23,12 @@ FALLOUTNV_ESM = (find('falloutnv') or STEAM_COMMON / 'Fallout New Vegas') / 'Dat
 #: A plugin file's header: its record header size.
 HEADER = 24
 #: The plugin the running build converts (use_source).
-_SOURCE = {'plugin': FALLOUTNV_ESM}
+_SOURCE = {'plugin': FALLOUTNV_ESM, 'masters': ()}
 
 
-def use_source(plugin: Path) -> None:
-    """Make `plugin` (the build's source plugin) the one source_esm() reads."""
-    _SOURCE['plugin'] = Path(plugin)
+def use_source(plugin: Path, masters: tuple = ()) -> None:
+    """Read `plugin` as the source; `masters`: (file, FormID map, game), newest first."""
+    _SOURCE['plugin'], _SOURCE['masters'] = Path(plugin), tuple((Path(f), tuple(m), g) for f, m, g in masters)
 
 
 def source_esm() -> bytes:
@@ -55,18 +57,25 @@ def file_masters(path: Path) -> list:
 
 
 def source_stack() -> list:
-    """The bytes of the source plugin, then of its master (found beside it): one master with none of its own,
-    so its FormIDs already read as the source's; anything deeper raises.
-    See: docs/fork/fo4_plugin_layout.md#dlc
+    """The bytes of the source plugin, then of use_source's masters newest first, each in the source's FormID
+    numbering (master_plugin). Without them, the one master beside it, which must have none of its own.
+    See: docs/fork/fo4_plugin_layout.md#multi-master
     """
     plugin = _SOURCE['plugin']
+    if _SOURCE['masters']:
+        return [_read(plugin), *(_master(*source) for source in _SOURCE['masters'])]
     names = masters_of(_read(plugin))
-    if len(names) > 1:
-        raise SystemExit(f'{plugin.name}: sources with more than one master ({names}) are not supported yet')
-    stack = [_read(plugin)] + [_read(plugin.parent / name) for name in names]
-    if any(masters_of(raw) for raw in stack[1:]):
-        raise SystemExit(f'{plugin.name}: a master with masters of its own is not supported yet')
+    stack = [_read(plugin)] + [_read(plugin.parent / n) for n in names]
+    if len(names) > 1 or any(masters_of(raw) for raw in stack[1:]):
+        raise SystemExit(f'{plugin.name}: a source with several masters needs them named (use_source)')
     return stack
+
+
+@functools.cache
+def _master(path: Path, mapping: tuple, game: str) -> bytes:
+    """Master file `path`'s bytes through FormID map `mapping`."""
+    raw = _read(path)
+    return raw if not mapping or identity(mapping) else renumbered(raw, mapping, game)
 
 
 def plugin_walk(plugin: 'bytes | None', *sigs: bytes, bodies=None):

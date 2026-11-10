@@ -10,7 +10,8 @@ GetIsVoiceType, GetIsRace, GetIsClass, IsInList), in a line's conditions or
 its quest's own, which FNV adds to every line (a radio station's quest names
 its talking activator; vDialogueNCRCivilian's lines name its dialogue faction). A
 quest is named by a converted script's property of its name (attach.py
-fills properties by FNV EditorID) or by a condition on it. Each such quest
+fills properties by FNV EditorID) or of one of its topics (a Say needs
+the topic's quest built), or by a condition on it. Each such quest
 adds the quests its own scripts (quest script, stage results, its lines'
 results) start, set a stage on or write a variable of, one step: those run
 or keep state when it does (VCG01's psych test answers tally in
@@ -31,7 +32,7 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike.items import ITEM_TYPES
 from fo4_import.spike.npcs import USE_FACTIONS, USE_INVENTORY, USE_TRAITS
 from fo4_import.spike.records import RUN_SUBJECT
-from fo4_import.spike.say_topics import raws
+from fo4_import.spike.say_topics import CONVERSATION, GREETING, TOPIC_TYPE, raws
 from fo4_import.spike.script import FRAGMENT_PREFIX, PACKAGE_PREFIX, QUEST_PREFIX, declared_properties
 from script_convert.constants import papyrus_script_name
 
@@ -77,6 +78,7 @@ class QuestScope:
                         for sig in LEVELED_ACTORS for r in export_records(export_dir, sig)}
         self.form_lists = {int(r['FormID'], 16): frozenset(int(v, 16) for k, v in r.items() if k.startswith('LNAM['))
                            for r in export_records(export_dir, 'FLST')}
+        self.topic_quests = topic_quests(export_records(export_dir, 'DIAL'))
 
     def _held(self, start: set) -> set:
         """What the records `start` hold, at any depth: inventories, leveled entries, inventory templates."""
@@ -211,11 +213,22 @@ class QuestScope:
         if script not in self.read:
             path = self.dir / f'{script}.psc' if self.dir else None
             text = path.read_text(encoding='utf-8') if path and path.exists() else ''
-            named = {self.names[p.lower()] for _, p in declared_properties(text) if p.lower() in self.names}
+            declared = declared_properties(text)
+            named = {self.names[p.lower()] for _, p in declared if p.lower() in self.names}
+            named |= {q for kind, p in declared if kind == 'Topic' for q in self.topic_quests.get(p.lower(), ())}
             started = {self.names[n.lower()] for m in STARTS.finditer(text) for n in m.groups()
                        if n and n.lower() in self.names}
             self.read[script] = (named, started)
         return self.read[script]
+
+
+def topic_quests(dials) -> dict:
+    """{EditorID (lower): DIAL quests} of player/Conversation `dials`, not GREETING.
+    See: docs/fork/fo4_pipeline.md#said-topics
+    """
+    return {d['EditorID'].lower(): {int(d[f'Quest[{i}]'], 16) for i in range(int(d.get('QuestCount', 0) or 0))}
+            for d in dials if d.get('EditorID') and d.get('DATA.Type') in (TOPIC_TYPE, CONVERSATION)
+            and d['FormID'].upper() != GREETING}
 
 
 def _placed(line: dict, where: dict) -> bool:

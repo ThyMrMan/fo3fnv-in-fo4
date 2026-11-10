@@ -35,7 +35,7 @@ BGS is the most capable open FO4 Havok codebase found. It is MIT-licensed C#/.NE
   - FO4 NIF skin weights: `src/Nif/*`
   — [repo tree via GitHub API](https://github.com/G-A-R-D-E-N/BGS/tree/main/src/Hkx)
 - In 1.3.0, skeleton authoring covers bone names, reference transforms, translation locks, reparenting, and validated save and reopen. "Standalone skeletons support bone addition/removal and reordering. Dependent rigs refuse edits that need animation, mapper or physics index remapping." NIF skin-weight saving targets FO4 BSVersion 130 and writes only the weight and index slots — [RELEASE-NOTES.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/RELEASE-NOTES.md); [guide/rig-authoring.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/guide/rig-authoring.md)
-- Havok 2015.1.0 tagfiles (Fallout 76) are readable for evidence, and "Havok 2018 support is incomplete" — [docs/havok-tagfiles.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/docs/havok-tagfiles.md)
+- Havok 2015.1.0 tagfiles (Fallout 76) are readable for evidence, and "Havok 2018 support is incomplete" — [havok-tagfiles.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/docs/havok-tagfiles.md)
 
 **The HavokClassTypes.json class tables**
 - `src/Hkx/HavokClassTypes.json` declares `"havokVersion":"hk_2014.1.0-r1"`. Its embedded note says:
@@ -65,8 +65,8 @@ BGS is the most capable open FO4 Havok codebase found. It is MIT-licensed C#/.NE
   - does not derive pairs from bone names (the caller must supply the pairing);
   - does not create chain mappings;
   - "Writing the rows back into a packfile is not implemented."
-  The doc also reports "Fallout 4 performs no validation at load time" on mappers — [docs/skeleton-mapping-authoring.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/docs/skeleton-mapping-authoring.md)
-- Ragdoll: it is a "read-only engineering preview… It does not add HKX authoring, serialized physics edits, body-to-body collision, or a production Havok solver." In 1.3.0, the physics settings stay in the preview window and "do not write HKX physics data". Compound and mesh hull geometry are refused — [docs/ragdoll-preview-engineering.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/docs/ragdoll-preview-engineering.md); [guide/rig-authoring.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/guide/rig-authoring.md)
+  The doc also reports "Fallout 4 performs no validation at load time" on mappers — [skeleton-mapping-authoring.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/docs/skeleton-mapping-authoring.md)
+- Ragdoll: it is a "read-only engineering preview… It does not add HKX authoring, serialized physics edits, body-to-body collision, or a production Havok solver." In 1.3.0, the physics settings stay in the preview window and "do not write HKX physics data". Compound and mesh hull geometry are refused — [ragdoll-preview-engineering.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/docs/ragdoll-preview-engineering.md); [guide/rig-authoring.md](https://github.com/G-A-R-D-E-N/BGS/blob/main/guide/rig-authoring.md)
 - Open issues (snapshot 2026-10-25):
   - #60 "Write hknp ragdoll physics to skeleton.hkx"
   - #61 "Write the skeleton mapper back to skeleton.hkx"
@@ -128,8 +128,8 @@ Everything else is either Skyrim hk_2010 only (hkxcmd, ck-cmd, HKX2, hkxconv, Pa
   - `localFrames` and `partitions` are "not preserved";
   - hkxcmd support for FO4 is "None (64-bit only)";
   - the doc describes only skeleton-only files, with no ragdoll, mapper or hknp content.
-  — [docs/hkx_skeleton_format_fo4.md](https://github.com/BadDogSkyrim/PyNifly/blob/main/docs/hkx_skeleton_format_fo4.md)
-- A separate doc covers the hknp packfile embedded in NIF `bhkPhysicsSystem` blocks: hknpPhysicsSystemData plus ConvexPolytope, CompressedMesh, Sphere and DynamicCompound shapes — [docs/fo4_havok_packfile_format.md](https://github.com/BadDogSkyrim/PyNifly/blob/main/docs/fo4_havok_packfile_format.md)
+  — [hkx_skeleton_format_fo4.md](https://github.com/BadDogSkyrim/PyNifly/blob/main/docs/hkx_skeleton_format_fo4.md)
+- A separate doc covers the hknp packfile embedded in NIF `bhkPhysicsSystem` blocks: hknpPhysicsSystemData plus ConvexPolytope, CompressedMesh, Sphere and DynamicCompound shapes — [fo4_havok_packfile_format.md](https://github.com/BadDogSkyrim/PyNifly/blob/main/docs/fo4_havok_packfile_format.md)
 
 **Skyrim-only tools (hk_2010; precedent only)**
 - hkxcmd (figment): built on the Havok 2010.2.0 SDK, converting HKX to XML or KF. Licence NOASSERTION; last push 2017-08. Per PyNifly, it reads 32-bit LE files only and has no FO4 support — [hkxcmd](https://github.com/figment/hkxcmd); [PyNifly doc](https://github.com/BadDogSkyrim/PyNifly/blob/main/docs/hkx_skeleton_format_fo4.md)

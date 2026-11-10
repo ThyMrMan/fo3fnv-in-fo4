@@ -24,7 +24,8 @@ def test_defaults_hold_every_rule():
     assert table.rules.creature['creatures\\smspinebreaker'] == RP.Replacement(
         RP.BASE, 'EncSuperMutantTemplate', 'fnv', (), 'creature', 'default')
     assert {k: e.edid for k, e in table.rules.body.items()} == {
-        'human_male': 'DocWeathers', 'human_female': 'DoctorAmari', 'ghoul_male': 'Jones', 'ghoul_female': 'Holly'}
+        'human_male': 'DocWeathers', 'human_female': 'DoctorAmari', 'ghoul_male': 'Jones', 'ghoul_female': 'Holly',
+        'child_male': 'DiamondCitySchoolChildM03', 'child_female': 'DiamondCitySchoolChildF01'}
     assert [(bits, e.edid) for bits, e in table.rules.armor] == [
         (0x4, 'ClothesPrewarShortSleeves'), (0x1 | 0x200 | 0x400, 'ClothesMobsterhat'), (0x800, 'ClothesEyeGlasses'),
         (0x4000 | 0x10000, 'Clothes_Raider_SurgicalMask')]

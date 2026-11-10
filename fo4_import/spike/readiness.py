@@ -1,6 +1,6 @@
 """What a build left out of each FNV quest, and of each NPC, for the per-quest readiness report.
 
-Each entry is a kind, its owner (the FNV quest's FormID, or the NPC's for a
+Each entry is a kind, its owner (the FNV quest's FormID, the NPC's or the package's for a
 package) and a detail. The build writes them as JSON beside its other work
 files; tools/validate/fo4_quest_readiness.py joins them with the plugin's unfilled
 script properties and prints them by quest.

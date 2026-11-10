@@ -36,6 +36,21 @@ def test_a_flamer_on_fnvs_clips_holds_like_the_minigun_and_vanillas_bat_keyword_
     assert M.keyword_classes(replaced, kw, True) == {0x100: 2, 0x101: 3, 1: 2, 4: 5}
 
 
+def test_pistols_hold_like_the_pipe_gun_and_the_multiplas_like_the_hunting_rifle():
+    """Pistol and plasma rifle keywords, own and vanilla, map to mutant classes."""
+    kw = {'AnimsGripPistol': 1, 'AnimsRecieverHandmadePipe': 2, 'AnimsPlasmaRifle': 3, 'AnimsHuntingRifle': 4}
+    out = M.keyword_classes({0x100: 1, 0x101: 3}, kw, True)
+    assert out == {0x100: 2, 0x101: 4, 1: 2, 3: 4}
+
+
+def test_shotguns_and_the_grenade_launcher_hold_like_the_hunting_rifle_and_the_gatling_laser_like_the_minigun():
+    """Fallout4.esm's lower-case animsDoubleBarrelShotgun, AnimsRailwayRifle and AnimsGatlingLaser map to classes."""
+    kw = {'animsDoubleBarrelShotgun': 1, 'AnimsRailwayRifle': 2, 'AnimsGatlingLaser': 3, 'AnimsHuntingRifle': 4,
+          'AnimsMinigun': 5}
+    out = M.keyword_classes({0x100: 1, 0x101: 2, 0x102: 3}, kw, True)
+    assert out == {0x100: 4, 0x101: 4, 0x102: 5, 1: 4, 2: 4, 3: 5}
+
+
 @pytest.mark.skipif(not FALLOUT4_ESM.exists(), reason='needs Fallout 4')
 def test_fnvs_sledges_and_flamers_get_super_mutant_entries_in_a_race_added_to_supermutantrace():
     """Every NEAREST keyword is Fallout4.esm's and its class keys SuperMutantRace entries (else the table names a

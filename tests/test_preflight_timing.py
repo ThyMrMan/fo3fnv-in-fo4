@@ -132,6 +132,13 @@ def test_a_block_with_code_and_no_handler_is_dropped_but_a_plain_activate_is_not
     assert W.block_state('gamemode', 'Event OnTimer(int aiTimerID)\nEndEvent\n') == 'handler'
 
 
+def test_a_weapon_onhit_converted_to_an_effect_runs_in_its_effect_start():
+    """An OnHit turned effect script runs in OnEffectStart; an object's does not."""
+    body = 'Event OnEffectStart(Actor akTarget, Actor akCaster)\nEndEvent\n'
+    assert W.block_state('onhit', 'ScriptName X extends ActiveMagicEffect\n' + body) == 'handler'
+    assert W.block_state('onhit', 'ScriptName X extends ObjectReference\n' + body) == ''
+
+
 def test_a_stage_flagged_complete_quest_writes_the_quest_complete(tmp_path):
     """FNV's Complete Quest log flag is a write of its stage; the quest's authored objectives are kept."""
     export_file(tmp_path, 'QUST', [{'FormID': '00001000', 'EditorID': 'VQ', 'Objective[0].Index': 10,

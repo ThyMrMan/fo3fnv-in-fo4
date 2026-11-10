@@ -48,6 +48,15 @@ def test_attack_and_block_are_fnvs_shares_of_its_one_roll():
     assert values['defensive'] == pytest.approx(40 / 107)
 
 
+def test_a_counter_attacker_takes_its_under_attack_share():
+    """FNV's ant worker attacks at 0.1x unless its target attacks (0.9x): Offensive is the under-attack share."""
+    worker = {**STYLE, 'CSTD.AttackChance': '85', 'CSAD.AttackNotUnderAttackMult': '0.1',
+              'CSAD.AttackWhileUnderAttackMult': '0.9'}
+    attack, _ = CS.melee_shares(worker, SETTINGS, True)
+    assert CS.converted_values(worker, SETTINGS)['offensive'] == pytest.approx(CS.mult(attack, CS.ATTACK))
+    assert CS.converted_values(STYLE, SETTINGS)['offensive'] == pytest.approx(0.475 / 0.975)
+
+
 def test_dodge_is_the_roll_times_the_chance_a_direction_is_taken():
     """Dodge 75 passes rand() % 100 <= 75 76 times in 100; back wins 49 of the 125 draws (back >= forward,
     back > side), the rest go to the side on a 51-in-100 left/right roll."""

@@ -9,7 +9,7 @@ import pytest
 from fo4_import.spike import weather_clouds as C, weather_imagespace as W
 from fo4_import.spike.imagespace import Cinematic
 
-BASE = Cinematic(saturation=0.9, pivot=0.2, contrast=1.1, brightness=1.0, tint=(0.5, 0.5, 0.5), tint_amount=0.2)
+BASE = Cinematic(saturation=0.9, tint=(0.5, 0.5, 0.5), tint_amount=0.2)
 
 
 #: NVDefaultExterior's own tint (orange at 0.33, its flags off).
@@ -31,7 +31,7 @@ def test_night_tint_averages_to_near_neutral():
 def test_only_the_tint_carries():
     """A modifier's brightness is ignored; no tint keeps the own one."""
     graded = W.tinted(BASE, OWN, {bytes([0x14]) + b'IAD': struct.pack('<2f', 0, 1.3)})
-    assert (graded.saturation, graded.contrast, graded.brightness) == (0.9, 1.1, 1.0)
+    assert graded.saturation == 0.9
     assert graded.tint == pytest.approx(OWN[0]) and graded.tint_amount == pytest.approx(0.33)
 
 

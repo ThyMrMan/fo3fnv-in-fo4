@@ -130,13 +130,16 @@ def unbound() -> list:
 
 
 def unindexed() -> list:
-    """Docs missing a row in `docs/README.md`, which is the index."""
-    index = DOCS / 'README.md'
+    """Docs missing a row in their index: the fork roadmap for `fork/`, the docs README for the rest.
+
+    See: docs/README.md#fork
+    """
+    index, roadmap = DOCS / 'README.md', DOCS / 'fork' / 'ROADMAP.md'
     if not index.exists():
         return []
-    listed = index.read_text(encoding='utf-8', errors='replace')
+    listed = {i: i.read_text(encoding='utf-8', errors='replace') if i.exists() else '' for i in (index, roadmap)}
     return [d for d in sorted(DOCS.rglob('*.md'))
-            if d != index and d.name not in listed]
+            if d not in listed and d.name not in listed[roadmap if roadmap.parent in d.parents else index]]
 
 
 def main(argv=None) -> int:

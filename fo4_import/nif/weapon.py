@@ -18,7 +18,6 @@ See: docs/fork/fo4_spikes.md#spike-4-melee
 """
 
 import copy
-import struct
 from pathlib import Path
 
 import numpy as np
@@ -110,8 +109,7 @@ def dress(nif) -> None:
     if not flags:
         nif.blocks.append(('BSXFlags', {'name': nif.string('BSX'), 'value': BSX}))
         root['extra'].append(len(nif.blocks) - 1)
-    nif.blocks.append(('NiStringExtraData', struct.pack('<ii', nif.string('Prn'), nif.string(PARENT))))
-    root['extra'] = [len(nif.blocks) - 1] + root['extra']
+    nif_file.hang_from(nif, PARENT)
 
 
 def dress_file(path) -> None:

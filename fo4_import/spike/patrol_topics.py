@@ -11,7 +11,6 @@ for a point with only a topic, F3NV_PatrolSay saying that topic.
 See: docs/fork/fo4_pipeline.md#patrol-points
 """
 
-import functools
 
 from fo4_import.base.vmad import info_fragments, quest_fragments
 from fo4_import.base.writer import pack_quest, pack_topic
@@ -27,12 +26,6 @@ EDID = 'FNV_TES4PatrolTopics'
 SCRIPT_PREFIX, SAY_SCRIPT = 'FALLOUTNV_PM__', 'F3NV_PatrolSay'
 #: The export key every FNV patrol point carries (its idle time).
 PATROL_KEY = 'Patrol.IdleTime'
-
-
-@functools.cache
-def patrol_bases(export_dir) -> frozenset:
-    """FNV FormIDs of the bases placed as patrol points."""
-    return frozenset(int(r['NAME'], 16) for r in export_records(export_dir, 'REFR') if PATROL_KEY in r)
 
 
 def _acts(rec: dict) -> bool:

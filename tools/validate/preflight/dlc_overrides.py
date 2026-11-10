@@ -41,6 +41,9 @@ HEADED_GROUPS = (1, 6, 7, 8, 9, 10)
 #: A voice file: `<INFO object id>_<response>.fuz` (or .xwm, .lip).
 VOICE = re.compile(r'sound\\voice\\[^\\]+\\[^\\]+\\([0-9a-f]{8})_\d+\.\w+$')
 
+#: An own-rig skeleton's Data path, loose or archived (the Main BA2 holds a deployed build's meshes); group 1 the rig.
+SKELETON = re.compile(r'meshes\\actors\\([^\\]+)\\characterassets\\skeleton\.nif')
+
 #: Folders holding a worldspace's LOD, by its EditorID.
 LOD_FOLDERS = ('lodsettings\\{}.lod', 'meshes\\terrain\\{}\\', 'textures\\terrain\\{}\\')
 
@@ -190,9 +193,9 @@ def master_prefixes(masters: list, game: Files) -> tuple:
     LOD)."""
     rigs, lods = [], []
     for path in masters:
-        actors = Path(path).parent / 'Meshes' / 'Actors'
-        names = (p.parent.parent.name.lower() for p in actors.glob('*/CharacterAssets/skeleton.nif'))
-        rigs += [f'meshes\\actors\\{r}\\' for r in names
+        own = Files([Path(path).parent])
+        names = {m.group(1) for p in {*own.loose(), *own.archived()} for m in [SKELETON.fullmatch(p)] if m}
+        rigs += [f'meshes\\actors\\{r}\\' for r in sorted(names)
                  if game.where(f'meshes\\actors\\{r}\\characterassets\\skeleton.nif') is None]
         worlds = {rec.string(b'EDID').lower() for rec, _ in walk(Path(path).read_bytes(), b'WRLD')} - {''}
         lods += [f.format(w) for w in worlds for f in LOD_FOLDERS]

@@ -22,6 +22,8 @@ from tools.validate.preflight import (asset_fo4, asset_load, build_diff, build_h
                                       dialogue_loss, dlc_overrides, findings, log_triage, package_ai, quest_progression,
                                       quest_start, quest_targets, script_health, script_props, timing,
                                       world_links)
+from tools.validate.preflight import behavior
+from tools.validate.preflight import menus
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.ledger import ledger_path
 from fo4_import.spike.readiness import report_path
@@ -32,18 +34,19 @@ from tools.validate.preflight.quest_converted import load_scripts
 from tools.validate.preflight.quest_source import SourceGame
 
 #: The audits in the order they run and print.
-AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'targets', 'timing', 'scripts', 'properties', 'packages', 'world',
-          'assets', 'build', 'dlc', 'logs')
+AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'menus', 'targets', 'timing', 'scripts', 'properties', 'packages',
+          'behavior', 'world', 'assets', 'build', 'dlc', 'logs')
 
 #: The audits a Skyrim build runs.
-SKYRIM_AUDITS = tuple(a for a in AUDITS if a not in ('conditions', 'targets', 'timing', 'properties', 'dlc'))
+SKYRIM_AUDITS = tuple(a for a in AUDITS
+                      if a not in ('conditions', 'targets', 'timing', 'properties', 'dlc', 'behavior', 'menus'))
 
 #: The audits a plain run does; `logs` reads the last play session, so it runs only when asked.
 DEFAULT_AUDITS = SKYRIM_AUDITS[:-1]
 
 #: The audits a Fallout 4 build runs (fo4_trace reads its play sessions).
-FO4_AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'targets', 'timing', 'properties', 'packages', 'world', 'assets',
-              'build', 'dlc')
+FO4_AUDITS = ('quest', 'start', 'dialogue', 'conditions', 'menus', 'targets', 'timing', 'properties', 'packages',
+              'behavior', 'world', 'assets', 'build', 'dlc')
 
 
 def games(output: Path, export: Path, wanted: list) -> list:
@@ -129,6 +132,11 @@ def run_conditions(game: Fo4Game) -> list:
     return condition_diff.audit(ctx, game.parts, game.args.export / game.source, ledger_path(game.plugin))
 
 
+def run_menus(game: Fo4Game) -> list:
+    """The dialogue menu findings (checks 1 and 2) for one Fallout 4 build."""
+    return menus.audit(game.name, game.index, ledger_path(game.plugin), game.args.export / game.source)
+
+
 def run_timing(game: Fo4Game) -> list:
     """The progress timing findings for one Fallout 4 build."""
     ctx = game.ctx
@@ -154,6 +162,12 @@ def run_properties(game: Fo4Game) -> list:
 def run_packages(game: Game) -> list:
     """The package and AI findings for one game."""
     return package_ai.audit(game.name, game.index)
+
+
+def run_behavior(game: Fo4Game) -> list:
+    """The left-out package findings for one Fallout 4 build."""
+    return behavior.audit(game.name, game.index, game.args.export / game.source, report_path(game.plugin),
+                          game.script_sources)
 
 
 def run_world(game: Game) -> list:
@@ -212,7 +226,7 @@ RUNNERS = {'quest': run_quest, 'start': run_start, 'dialogue': run_dialogue, 'co
            'targets': run_targets, 'dlc': run_dlc,
            'timing': run_timing, 'scripts': run_scripts, 'properties': run_properties,
            'packages': run_packages, 'world': run_world, 'assets': run_assets, 'build': run_build,
-           'logs': run_logs}
+           'behavior': run_behavior, 'menus': run_menus, 'logs': run_logs}
 
 
 def audit_game(game: Game, args, ledger: dict) -> int:

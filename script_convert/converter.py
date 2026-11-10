@@ -8,7 +8,7 @@ from script_convert.tes4 import nodes as _tes4_nodes
 from script_convert.blocks import BLOCK_FILTER_PARAM
 from script_convert.constants import (
     COMBAT_APPROACH_QUEST, FALL_DAMAGE_SPELL, KNOWN_GLOBALS, LAST_ACTIVATOR_VAR, LOOSE_OPS, UDF_RESULT_VAR, PAPYRUS_BOOL_FUNCTIONS, PLACED_REF_SIGS,
-    PLAYER_ALIAS_EXTENDS, RETURN_TYPES, SELF_NAMES, TYPE_MAP, _REF_TYPES,
+    PLAYER_ALIAS_EXTENDS, RETURN_TYPES, SELF_NAMES, _REF_TYPES,
     _canonical_global, digit_stripped_formid, _record_type_to_base_papyrus,
     generated_script_stem, is_generated_script_type, safe_property_name, papyrus_script_name,
     resolve_property_formid,
@@ -27,7 +27,8 @@ from script_convert import commands as _commands
 from script_convert.context import ScriptContext
 from script_convert.implicit_subject import stage_subject as implicit_stage_subject
 from script_convert.poll_interval import quest_delay_arm, update_interval
-from script_convert.target import av_call, script_as_actor, self_as_actor
+from script_convert.target import av_call, is_fallout4, script_as_actor, self_as_actor, variable_type
+from script_convert import nvse_falloutnv as nvse
 from script_convert.emit import dispatch as _dispatch
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.tes4.parser import (
@@ -582,7 +583,7 @@ class ScriptConverter:
             return []
         for var in tree.variables:
             self.sc.local_vars.add(var.name.lower())
-            self.sc.var_types[var.name.lower()] = TYPE_MAP.get(var.vtype.lower(), 'Int')
+            self.sc.var_types[var.name.lower()] = variable_type(var.vtype)
         body = _script.emit_body(self, tree.body, extends, 1)
         return [_script.fragment_local(self, v) for v in tree.variables] + body
 
@@ -1155,13 +1156,14 @@ class ScriptConverter:
 
         TES4's third `Say` argument is the identity the line belongs to; the
         receiver only emits the sound.  The importer places a TACT at the
-        emitter and a one-action scene per topic whose INFOs name that NPC as
-        their speaker, registered under the SAME name derived here from the same
-        authored tokens (tes5_import/dialogue/speak_as.py).
+        emitter and a one-action scene per topic, registered under the SAME
+        name derived here (tes5_import/dialogue/speak_as.py). On Fallout 4 a
+        talker in its own voice says the topic itself (SayWhenFree).
         See: docs/commentary/tes5_import_dialogue.md#speaker-activator-construction
+        See: docs/fork/fo4_pipeline.md#talker-says
         """
         parsed = _speak_as_tokens(pparts, fname_low) if ref_name else None
-        if parsed is None and ref_name:
+        if parsed is None and ref_name and not is_fallout4():
             parsed = self._talker_says(ref_name, pparts, fname_low)
         elif parsed and not self._is_speak_as_identity(*parsed):
             parsed = None
@@ -1559,7 +1561,10 @@ class ScriptConverter:
         `as_receiver` marks the name as the target of a method call.  A local
         variable can shadow the `player` keyword in a VALUE position but never
         as a receiver — a `Short` has no methods — so the keyword wins there.
+        An xNVSE array read is already Papyrus (nvse_falloutnv.lower).
         """
+        if name.startswith(f'({nvse.ARRAY}.'):
+            return name
         # Oblivion's parser accepts quotes around any EditorID, and Nehrim's
         # authors use them constantly (173 sites: `SetStage "MQ01Tate" 20`,
         # `GetStage "NQ00Karick"`, `StartQuest "NQ05"`,
@@ -1607,45 +1612,7 @@ class ScriptConverter:
             self.sc.property_refs[safe] = self.xref.get_quest_script_type(name)
             return safe
 
-        # Local variables take precedence over game form EditorIDs (name collision)
-        if low in self.sc.local_vars or low in self.sc.var_types:
-            return safe_property_name(name)
-
-        # Check if this is any known EditorID from the export.
-        #
-        # A Papyrus identifier may not begin with a digit, so a TES4 script that
-        # names a record with a leading digit — Morroblivion names almost
-        # everything `0<name>` — reaches here already stripped
-        # (`dwemerUshieldUbattleUunique` for `0dwemerUshieldUbattleUunique`).
-        # The direct lookup misses, no property gets DECLARED, and the name then
-        # survives into the body as an undefined identifier that fails the whole
-        # script.  resolve_property_formid already reverses the strip when
-        # BINDING the VMAD, so without the same reversal here the two disagreed:
-        # the binder had a FormID for a property the script never declared.
-        fid = self.xref.edid_to_formid.get(low, '')
-        if not fid:
-            fid = digit_stripped_formid(self.xref, low)
-        if not fid:
-            # Stale source spelling: recover the record the ORIGINAL compiler
-            # bound, from this record's SCRO table (see register_scro_alias_pool).
-            alias = self._scro_alias_for(name)
-            if alias:
-                name, low = alias, alias.lower()
-                fid = self.xref.edid_to_formid.get(low, '')
-        if fid:
-            # Use canonical EditorID (original case) as key to match _add_scro_ref
-            canon_edid = self.xref.formid_to_edid.get(fid, name)
-            ptype = self._record_property_type(fid, canon_edid)
-            safe = safe_property_name(canon_edid)
-            # Don't downgrade a more specific type (e.g., Actor from
-            # _resolve_self_ref) back to a generic one (ObjectReference).
-            cur = self.sc.property_refs.get(safe, '')
-            _generic = ('', 'ObjectReference')
-            if not cur or ptype not in _generic or cur in _generic:
-                self.sc.property_refs[safe] = ptype
-            return safe
-
-        return safe_property_name(name)
+        return _resolve_name.record_property(self, name) or safe_property_name(name)
 
     def _record_property_type(self, fid: str, canon_edid: str) -> str:
         """Property type for record `fid`: its attached script class when that binds, else its record type.

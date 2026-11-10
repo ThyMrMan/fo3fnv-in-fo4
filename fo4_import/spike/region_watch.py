@@ -11,8 +11,8 @@ See: docs/fork/fo4_regions.md#built
 
 import re
 import struct
-from pathlib import Path
 
+from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_global, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
@@ -90,7 +90,7 @@ class RegionWatch:
         props = self.properties(watched)
         if not props:
             return
-        plugin = Path(self.builder.export_dir.name).stem
+        plugin = plugin_stem(self.builder.export_dir)
         fid = self.builder.writer.derive_formid(QUEST_SITE, plugin)
         vmad = quest_fragments('', [], scripts=[(SCRIPT, {}, props)])
         self.builder.writer.add_record('QUST', pack_script_quest(fid, f'FNV_RegionWatch_{plugin}', vmad))

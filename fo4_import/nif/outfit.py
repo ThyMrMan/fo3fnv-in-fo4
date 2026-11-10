@@ -16,7 +16,9 @@ outfit is carried across in three steps:
   nearest it, so the outfit meets FO4's head, hands and feet where FNV's
   met FNV's. An outfit edge lying on FNV's body edge (where hands and head
   join: within SEAM_REACH) is moved onto FO4's matching body edge, the move
-  fading out over SEAM_BLEND, so bare skin meets FO4's hands.
+  fading out over SEAM_BLEND, so bare skin meets FO4's hands; a skin
+  shape's open loop wholly within LOOP_REACH of it moves whole (female
+  necks cut off FNV's edge), so its neck meets FO4's head.
 - **Skin.** Each vertex takes the weights of FO4's body at its nearest
   surface point (four largest), on the body's bones and their bind data;
   the body's skeleton nodes come along. Each triangle goes to the body-part
@@ -41,6 +43,8 @@ See: docs/fork/fo4_spikes.md#spike-4-outfits
 """
 
 import collections
+import hashlib
+import os
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,13 +56,16 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.face.bake import surface
 from fo4_import.nif import file as nif_file
+from fo4_import.nif import fnv_file
 from fo4_import.nif.blocks import DESC_SKINNED, NONE, SHADER_SKINNED, Reader, pack_tri_shape, read_tri_shape
 from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
 from fo4_import.nif.headgear import BONE as HEAD_BONE, FNV_HEADS, NO_PARENT, HeadFit, head_fit, head_frame, shape_arrays
 from fo4_import.nif.retarget import Rig, bone_moves, retargeted
-from fo4_import.pipeline.export_index import export_file
+from fo4_import.pipeline.export_index import asset_root, export_file
 
+#: The work cache site of worn outfits and its hand-bumped version: raise it whenever worn() makes other bytes.
+WORN_SITE, OUTFIT_VERSION = 'versioned_outfit_worn', 1
 #: Per sex: FO4's body (in Fallout 4 - Meshes.ba2) and FNV's body (under the export's meshes).
 FO4_BODIES = {'male': 'meshes\\actors\\character\\characterassets\\malebody.nif',
               'female': 'meshes\\actors\\character\\characterassets\\femalebody.nif'}
@@ -101,6 +108,8 @@ MATCH_UV, MATCH_NORMAL = 100.0, 10.0
 WEIGHTS_PER_VERTEX = 4
 #: FNV units: an outfit edge this close to FNV's body edge is a seam (FNV's skin edges sit 0.27-0.28 from it).
 SEAM_REACH = 0.5
+#: FNV units: a skin shape's open loop wholly this close to FNV's body edge is that edge (female necks: up to 1.56).
+LOOP_REACH = 2.0
 #: FO4 units over which a seam's move fades out inward (face.bake's neck blend).
 SEAM_BLEND = 3.0
 #: Decimals positions are welded at when finding open edges (vertices split along UV seams).
@@ -123,9 +132,7 @@ def segment_of(bone: str) -> int:
 
 def fnv_nif(path: Path):
     """An FNV NIF's root (pyffi)."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(path)
     return data.roots[0]
 
 
@@ -261,13 +268,19 @@ class BodyFit:
         share = 1.0 / np.maximum(dist, 1e-6)
         return points + (self.offsets[near] * share[:, :, None]).sum(1) / share.sum(1)[:, None], normals
 
-    def seamed(self, points: np.ndarray, fnv_points: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    def seamed(self, points: np.ndarray, fnv_points: np.ndarray, tris: np.ndarray, skin: bool = False) -> np.ndarray:
         """Placed `points` (FNV originals `fnv_points`) with their open edges that lie on one of FNV's body edges
-        moved onto FO4's matching edge, the move fading out over SEAM_BLEND."""
-        edge = np.unique(open_edges(points, tris))
+        moved onto FO4's matching edge, the move fading out over SEAM_BLEND; a `skin` shape's open loop lying
+        wholly within LOOP_REACH of the edge moves whole.
+        See: docs/fork/fo4_spikes.md#spike-4-outfits
+        """
+        open_pairs = open_edges(points, tris)
+        edge, loops = np.unique(open_pairs), [np.unique(loop) for loop in _loops(open_pairs)] if skin else []
         moves, at = [], []
         for fnv_edge, fo4_segments in self.seams or ():
-            on = edge[cKDTree(fnv_edge).query(fnv_points[edge])[0] < SEAM_REACH]
+            tree = cKDTree(fnv_edge)
+            whole = [loop for loop in loops if tree.query(fnv_points[loop])[0].max() < LOOP_REACH]
+            on = np.unique(np.concatenate([edge[tree.query(fnv_points[edge])[0] < SEAM_REACH], *whole]))
             moves += [_nearest_on_segments(points[v], *fo4_segments) - points[v] for v in on]
             at += list(on)
         if not at:
@@ -345,6 +358,23 @@ def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
     fit.seams = _seams(points, tris, fnv_body, fit.anchors)
     fit.head = head
     return fit
+
+
+def body_reads(export_dir: Path, sex: str) -> tuple:
+    """((FNV path, SHA-1 or None), ...) of the export files body_fit reads for `sex`, each found as it finds it:
+    skeleton and body (export_file), head (head_fit's layered asset root) and the .egm beside that head.
+    See: docs/fork/fo4_build_speed.md#keys
+    """
+    head = Path(os.fspath(asset_root(export_dir, 'meshes') / FNV_HEADS[sex].replace('\\', '/').lower()))
+    found = {model: export_file(export_dir, 'meshes', model) for model in (FNV_SKELETON, FNV_BODIES[sex])}
+    found.update({FNV_HEADS[sex]: head, FNV_HEADS[sex][:-len('.nif')] + '.egm': head.with_suffix('.egm')})
+    return tuple((model, hashlib.sha1(path.read_bytes()).hexdigest() if path.is_file() else None)
+                 for model, path in found.items())
+
+
+def worn_key(static: bytes, fnv_path: Path, sex: str, first_person: bool, reads: tuple) -> tuple:
+    """worn()'s WORN_SITE work-cache inputs (`reads`: body_reads)."""
+    return static, Path(fnv_path).read_bytes(), sex, first_person, reads
 
 
 def skin_shift(bones: list, bind: list, skeleton: dict) -> np.ndarray:
@@ -562,10 +592,11 @@ def _segment_order(segment: np.ndarray, first_person: bool) -> tuple:
     return kept, [int((segment[kept] == s).sum()) for s in range(n)]
 
 
-def _fitted(shape: dict, fit: BodyFit, fnv: tuple, frame: 'np.ndarray | None') -> tuple:
+def _fitted(shape: dict, fit: BodyFit, fnv: tuple, frame: 'np.ndarray | None', skin: bool = False) -> tuple:
     """(positions, normals, UVs, triangles, share on FNV's head per vertex) of static shape `shape` (of FNV shape
-    `fnv`: positions, normals, weights, UVs) moved onto FO4's body, its edges on FNV's body edges onto FO4's; the
-    head's share placed as headgear (HeadPart.placed through `frame`: head_frame) and blended in."""
+    `fnv`: positions, normals, weights, UVs) moved onto FO4's body, its edges on FNV's body edges onto FO4's
+    (BodyFit.seamed, `skin`); the head's share placed as headgear (HeadPart.placed through `frame`: head_frame)
+    and blended in."""
     pos, uv, nrm, tris = shape_arrays(shape)
     fnv_pos, fnv_nrm, fnv_weights, fnv_uv = fnv
     near = originals((pos, uv, nrm), (fnv_pos, fnv_uv, fnv_nrm))
@@ -578,7 +609,7 @@ def _fitted(shape: dict, fit: BodyFit, fnv: tuple, frame: 'np.ndarray | None') -
         points = points + share[:, None] * (head - points)
         normals = normals + share[:, None] * (head_normals - normals)
         normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-9)
-    return fit.seamed(points, fnv_pos[near], tris), normals, uv, tris, share
+    return fit.seamed(points, fnv_pos[near], tris, skin), normals, uv, tris, share
 
 
 def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: bool = False,
@@ -586,7 +617,7 @@ def worn_shape(shape: dict, fit: BodyFit, fnv: tuple, first_person: bool, skin: 
     """Static shape `shape` (of FNV shape `fnv`) skinned on FO4's body, its share on FNV's head on HEAD (moved
     by `frame`: _fitted), its triangles in body-part segments (arms only in first person), on FO4's body texture
     when `skin`; None when nothing is left of it."""
-    points, normals, uv, tris, share = _fitted(shape, fit, fnv, frame)
+    points, normals, uv, tris, share = _fitted(shape, fit, fnv, frame, skin)
     if skin:
         source, tris, uv = fit.on_body_texture(points, tris)
         points, normals, share = points[source], normals[source], share[source]

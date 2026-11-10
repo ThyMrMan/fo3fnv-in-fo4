@@ -30,27 +30,30 @@ See: docs/fork/fo4_spikes.md#spike-4-gun-clips
 
 import struct
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 
 from asset_convert.havok.gun_vocabulary_falloutnv import FNV_BACKPACK
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.source import plugin_stem
+from fo4_import.base.source_fault import SourceFault, count, without_fault
+from fo4_import.base.strings import as_text
 from fo4_import.base.writer import pack_fo4_record
+from fo4_import.havok.gun_clip_pool import warm
 from fo4_import.havok.gun_clips import GunClips
 from fo4_import.nif import file as nif_file
 from fo4_import.nif import gun
 from fo4_import.pipeline.elric_cache import write_new
 from fo4_import.pipeline.mesh_cache import cached_convert
-from fo4_import.spike.gun_choice import (INCLUDE_SIZE, OBTS_DEFAULT, PROPERTY_SIZE, Choice, GunChoices, built_in_scope,
-                                         includes, includes_at, properties, traded, weapon_model)
+from fo4_import.spike.gun_choice import (GUN_TYPES, INCLUDE_SIZE, OBTS_DEFAULT, PROPERTY_SIZE, Choice, GunChoices,
+                                         built_in_scope, includes, includes_at, properties, traded, weapon_model)
 from fo4_import.spike.records import pack_kywd
 from fo4_import.spike.scol import angles, rotation
 from fo4_import.spike.weapon_mods import (FNV_NIGHT_VISION, ZOOM_Z, scope_preset, scope_properties, with_properties,
                                           zoom_presets)
 from fo4_import.spike.statics import write_assets
-from fo4_import.pipeline.export_index import asset_root, export_file
+from fo4_import.pipeline.export_index import asset_root, export_file, own_records
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -73,6 +76,11 @@ KEYWORD_SITE, RACE_SITE = 'FNV gun anims KYWD', 'FNV gun anims RACE'
 RACE_EDID = 'FNV_HumanRaceSubGraphDataAdditive'
 
 
+def _fnv_path(export_dir, rec: dict):
+    """FNV gun `rec`'s mesh file in the export."""
+    return export_file(export_dir, 'meshes', rec['Model.MODL'].replace('\\', '/').lower())
+
+
 def turned(position: tuple, angle: tuple, scale: float, matrix: np.ndarray) -> tuple:
     """(position, angles) of a placed gun whose mesh `matrix` (Guns.turn) moved off FNV's model, so it lies as
     FNV's did at `position`, `angle` and `scale`.
@@ -93,7 +101,7 @@ class Guns:
         self.choices = GunChoices(builder.fo4, self.mods, builder.keywords, self._receiver_layout)
         self.edids = {dict(subs).get(b'EDID', b'').rstrip(b'\0').decode('cp1252'): fid for fid, subs in self.mods.items()}
         self.clips, self.converted, self.bodies, self.zooms = None, {}, {}, zoom_presets(builder.fo4)
-        self.turns = {}
+        self.turns, self.warmed, self.guesses, self.taken = {}, False, {}, {}
 
     def turn(self, fnv: int) -> np.ndarray:
         """The row-vector 4x4 FNV gun `fnv`'s mesh was put in FO4's frame by (gun.placement); FO4's axes
@@ -119,10 +127,33 @@ class Guns:
     def choose(self, rec: dict, only: 'str | None' = None, mods: tuple = ()) -> 'tuple | None':
         """(the FO4 gun to build FNV gun `rec` on (FO4 EditorID `only` when given, with the table's `mods` in
         its default combination: modded), its record subrecords, the FNV mesh's model, path, converted NIF (not
-        written) and layout); None when no FO4 gun matches."""
+        written) and layout); None when no FO4 gun matches or the FNV mesh has a source fault (counted). A gun
+        and table entry _warm_clips guessed is taken as it chose (and built) it, once."""
+        held = self.guesses.pop((rec.get('FormID'), only, tuple(mods)), None)
+        if held is not None and held[0] == rec:
+            return self._guessed(*held[1:])
+        fnv_path = _fnv_path(self.builder.export_dir, rec)
+        converted = without_fault(cached_convert, fnv_path, self.builder.export_dir, None, False)
+        if converted is None:
+            self.builder.counts['guns not on their FNV mesh (a source fault)'] += 1
+            return None
+        return self._choice(rec, only, mods, fnv_path, converted)
+
+    def _guessed(self, chosen, made: tuple) -> 'tuple | None':
+        """choose()'s answer from _warm_clips' `chosen` (its SourceFault counted now), with `made` (built(), and
+        (clip_args, key)) kept for templates()."""
+        if isinstance(chosen, SourceFault):
+            count(chosen)
+            self.builder.counts['guns not on their FNV mesh (a source fault)'] += 1
+            return None
+        if chosen is not None:
+            self.taken[id(chosen[2])] = (chosen[2], chosen[0], *made)
+        return chosen
+
+    def _choice(self, rec: dict, only: 'str | None', mods: tuple, fnv_path, converted) -> 'tuple | None':
+        """choose() of FNV gun `rec` whose mesh at `fnv_path` converted as `converted`."""
         model = rec['Model.MODL']
-        fnv_path = export_file(self.builder.export_dir, 'meshes', model.replace('\\', '/').lower())
-        static = nif_file.write(cached_convert(fnv_path, self.builder.export_dir, None, False).nif)
+        static = nif_file.write(converted.nif)
         if int(rec.get('DNAM.Flags1', 0)) & FNV_BACKPACK:
             static = gun.without(static, gun.BACKPACK)
         nodes = gun.fnv_nodes(fnv_path)
@@ -148,10 +179,11 @@ class Guns:
         model, fnv_path, static, nodes, layout = fnv_mesh
         path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
         out_path = path[:-len('.nif')] + GUN_SUFFIX
-        receiver = self._read(choice.model)
-        matrix = self.turns[fnv] = gun.placement(static, nodes, receiver)
-        made = gun.gun(static, nodes, receiver, matrix)
-        clips = self._clips(fnv, rec, (template, choice.includes), fnv_path, receiver, (made, matrix))
+        held = self.taken.pop(id(fnv_mesh), None)
+        held = held[2:] if held is not None and held[0] is fnv_mesh and held[1] is choice else (None, None)
+        receiver, matrix, made = held[0] or self.built(choice, fnv_mesh)
+        self.turns[fnv] = matrix
+        clips = self._clips(fnv, rec, (template, choice.includes), fnv_path, receiver, (made, matrix), held[1])
         write_new(self.builder.data_dir / 'Meshes' / out_path, made)
         if choice.receiver is None:
             self.bodies[fnv] = out_path
@@ -170,15 +202,77 @@ class Guns:
             self.clips = GunClips(self.builder.fo4, asset_root(self.builder.export_dir, 'meshes'), self.builder.data_dir)
         return self.clips
 
-    def _clips(self, fnv: int, rec: dict, template: tuple, fnv_path, receiver: bytes, mesh: tuple):
-        """FNV gun `rec`'s clips (`mesh`: its FO4 mesh and placement, on `receiver`) written
-        on `template`'s graph (its subrecords and default combination) and its own Anims keyword records
-        (gun_clips), or None when they do not convert."""
+    def built(self, choice: Choice, fnv_mesh: tuple) -> tuple:
+        """(receiver NIF bytes, placement, FO4 gun NIF bytes) of choose()'s `fnv_mesh` built on `choice`'s receiver
+        (nif.gun.placement, nif.gun.gun)."""
+        _, _, static, nodes, _ = fnv_mesh
+        receiver = self._read(choice.model)
+        matrix = gun.placement(static, nodes, receiver)
+        return receiver, matrix, gun.gun(static, nodes, receiver, matrix)
+
+    def clip_args(self, rec: dict, template: tuple, fnv_path, receiver: bytes, mesh: tuple) -> tuple:
+        """GunClips.key's args for gun `rec` (`mesh`: FO4 mesh, placement) on `template`."""
         subs, combo = template
+        return (rec, self.choices.clip_keywords(subs, combo), fnv_path, gun.receiver_bones(receiver), mesh[1],
+                (gun.pieces(mesh[0]), gun.pieces(receiver)))
+
+    def _predicted(self) -> list:
+        """[(FNV FormID, WEAP record, FO4 EditorID or None, mods)] of the plugin's own guns not built yet that a build
+        puts on their FNV mesh: a gun type with a model whose table entry, if any, says `fnv`. A guess: one it
+        misses converts in its turn; one it adds costs its guess and pool time only."""
+        out = []
+        for rec in own_records(self.builder.export_dir, 'WEAP'):
+            entry, fnv = self.builder.table.get(rec.get('EditorID')), int(rec['FormID'], 16)
+            if int(rec.get('DNAM.FalloutAnimType', -1)) in GUN_TYPES and 'Model.MODL' in rec \
+                    and fnv not in self.turns and (entry is None or entry.mode == 'fnv'):
+                out.append((fnv, rec, entry.edid if entry else None, entry.mods if entry else ()))
+        return out
+
+    def _warm_clips(self) -> int:
+        """Make the clips of every _predicted gun not kept yet in worker processes (gun_clip_pool), each gun chosen
+        and built as templates() will, quietly: no count, fault or FormID, each kept in `guesses` for choose(); how
+        many were made.
+        See: docs/fork/fo4_build_speed.md#keys
+        """
+        jobs = []
+        for _, rec, only, mods in self._predicted():
+            guess = self._guess(rec, only, mods)
+            if guess is not None:
+                self.guesses[(rec.get('FormID'), only, tuple(mods))] = (rec, *guess)
+            if guess is not None and guess[1] is not None:
+                args, key = guess[1][1]
+                jobs.append((key, args))
+        return warm(jobs, self.gun_clips().export_meshes)
+
+    def _guess(self, rec: dict, only: 'str | None', mods: tuple) -> 'tuple | None':
+        """(choose()'s answer for gun `rec` or its mesh's SourceFault, (built(), (clip_args, key)) or None), quietly;
+        None when choosing faults past the mesh."""
+        fnv_path = _fnv_path(self.builder.export_dir, rec)
+        try:
+            converted = cached_convert(fnv_path, self.builder.export_dir, None, False)
+        except SourceFault as fault:
+            return fault, None
+        try:
+            chosen = self._choice(rec, only, mods, fnv_path, converted)
+        except SourceFault:
+            return None
+        if chosen is None:
+            return None, None
+        choice, subs, fnv_mesh = chosen
+        receiver, matrix, made = self.built(choice, fnv_mesh)
+        args = self.clip_args(rec, (subs, choice.includes), fnv_path, receiver, (made, matrix))
+        return chosen, ((receiver, matrix, made), (args, self.gun_clips().key(*args)))
+
+    def _clips(self, fnv: int, rec: dict, template: tuple, fnv_path, receiver: bytes, mesh: tuple, guessed=None):
+        """FNV gun `rec`'s clips (clip_args, or the (clip_args, key) `guessed` for it) written on `template`'s graph
+        and its own Anims keyword records (gun_clips), or None when they do not convert. The first gun to get here
+        makes every predicted gun's clips in the pool first (_warm_clips)."""
+        if not self.warmed:
+            self.warmed = True
+            self.builder.counts['guns whose clips were made in the pool'] += self._warm_clips()
         own = lambda old: self.builder.writer.derive_formid(KEYWORD_SITE, f'{fnv:08X} {old:08X}')
-        keywords = self.choices.clip_keywords(subs, combo)
-        made = self.gun_clips().convert(rec, keywords, own, fnv_path,
-                                  gun.receiver_bones(receiver), mesh[1], (gun.pieces(mesh[0]), gun.pieces(receiver)))
+        args, key = guessed or (self.clip_args(rec, template, fnv_path, receiver, mesh), None)
+        made = self.gun_clips().convert(args[0], args[1], own, *args[2:], inputs=key)
         if made is None:
             return None
         olds = {r.form_id: r for r, _ in walk(self.builder.fo4, b'KYWD') if r.form_id in made.replaces}
@@ -235,13 +329,13 @@ class Guns:
         DLC's race is its own, beside the game's, mapping only its own keywords: the engine adds every SADD race.
         See: docs/fork/fo4_plugin_layout.md#dlc-build"""
         writer, built = self.builder.writer, self.builder.built
-        edid = f'{RACE_EDID}_{Path(self.builder.export_dir.name).stem}' if built else RACE_EDID
+        edid = f'{RACE_EDID}_{plugin_stem(self.builder.export_dir)}' if built else RACE_EDID
         own = (lambda kw: kw >> 24 == writer.own_index) if built else None
         subs = self.clips.race(edid, own) if self.clips else None
         if subs:
             fid = writer.derive_formid(RACE_SITE, edid)
             self.builder.writer.add_record('RACE', pack_fo4_record('RACE', fid, 0, b''.join(
-                pack_subrecord(s.decode(), b) for s, b in subs)))
+                pack_subrecord(s.decode(), as_text(s, b)) for s, b in subs)))
 
     def own_projectile(self, fnv: int, rec: dict, block: list) -> list:
         """Object template `block` of FNV gun `rec` with each vanilla part setting OverrideProjectile a copy without it,

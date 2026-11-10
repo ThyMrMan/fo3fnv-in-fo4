@@ -6,9 +6,9 @@ where FO4 has the mechanism but not the effect (RETARGETED, and every skill
 boost IncreaseSkill* on its FNV skill), or nothing: drift, counted per effect.
 Magnitude and duration stay FNV's, except where FNV's magnitude is a flag or
 lives in a script (MAGNITUDES). An effect conditioned on a perk carries the
-perk test (perks.Perks); one conditioned on Hardcore mode counts as without it
-(UNCONVERTED), except Hardcore's need effects (NEEDS), which go to Survival mode
-(survival_needs) and count it as on. An item left without effects
+perk test (perks.Perks); one conditioned on Hardcore mode (HARDCORE) carries that test as a read of the
+Hardcore global (hardcore.Hardcore.test), so both variants of an effect are kept; Hardcore's need effects
+(NEEDS) go to FNV's Hardcore needs (hardcore.Hardcore.need_effects). An item left without effects
 carries NO_EFFECT at magnitude 0, as vanilla's do.
 
 See: docs/fork/fo4_pipeline.md#consumable-effects
@@ -60,12 +60,12 @@ RETARGETED = {'NVRestoreLimbs': ('RestoreHealthFood', LIMBS),
 SKILL_EFFECT_PREFIX, SKILL_TEMPLATE = 'IncreaseSkill', 'FortifyStrength'
 #: FNV engine effects the export cannot name (EFID ''): FalloutNV.esm uses only 0x14F, the addiction usage monitor.
 UNNAMED = 'UMON'
-#: FNV condition functions counted as false (true on NEEDS): FO4 has no Hardcore mode. HasPerk is written as FO4's.
-UNCONVERTED = {'IsHardcore'}
-#: FNV Hardcore need effect -> (Survival need, 1 when it lowers the need, -1 when it raises it).
-NEEDS = {'RestoreStarvationLevel': ('hunger', 1), 'DamageStarvationLevel': ('hunger', -1),
-         'RestoreDehydrationLevel': ('thirst', 1), 'DamageDehydrationLevel': ('thirst', -1),
-         'RestoreSleepDeprivationLevel': ('sleep', 1), 'DamageSleepDeprivationLevel': ('sleep', -1)}
+#: FNV's Hardcore test, written as a read of the Hardcore global (hardcore.Hardcore.test). HasPerk is written as FO4's.
+HARDCORE = 'IsHardcore'
+#: FNV Hardcore need effect -> (need: 0 Dehydration, 1 Hunger, 2 Sleep Deprivation; 1 raises it, -1 lowers it).
+NEEDS = {'RestoreDehydrationLevel': (0, -1), 'DamageDehydrationLevel': (0, 1),
+         'RestoreStarvationLevel': (1, -1), 'DamageStarvationLevel': (1, 1),
+         'RestoreSleepDeprivationLevel': (2, -1), 'DamageSleepDeprivationLevel': (2, 1)}
 PERK_TEST, HAS_PERK = 'HasPerk', C.FO4.index('HasPerk')
 #: A CTDA's comparison bits.
 COMPARE = 0xE0
@@ -81,27 +81,25 @@ WANTED = {*(e for fo4 in EFFECTS.values() for e in fo4), *(t for t, _ in RETARGE
 
 
 def fnv_effects(rec: dict) -> list:
-    """[(FNV effect EditorID, magnitude, area, duration, actor value index, its HasPerk tests)] FO4 can run
-    (UNCONVERTED false, true on NEEDS)."""
+    """[(FNV effect EditorID, magnitude, area, duration, actor value index, its HasPerk tests, its HARDCORE
+    tests)]."""
     out = []
     for i in range(int(rec.get('EffectCount', 0))):
         key = f'Effect[{i}]'
         edid = rec[f'{key}.EFID'] or UNNAMED
         conds = [C.parse(rec[f'{key}.Condition[{j}].Raw']) for j in range(int(rec.get(f'{key}.ConditionCount', 0)))]
-        if any(c['func'] in UNCONVERTED and not C.compare(c, float(edid in NEEDS)) for c in conds):
-            continue
         out.append((edid, float(rec[f'{key}.Magnitude']), int(rec[f'{key}.Area']),
                     int(rec[f'{key}.Duration']), int(rec[f'{key}.ActorValue']),
-                    [c for c in conds if c['func'] == PERK_TEST]))
+                    [c for c in conds if c['func'] == PERK_TEST], [c for c in conds if c['func'] == HARDCORE]))
     return out
 
 
 class Effects:
     """FO4 effects for FNV consumables; copies are written once through the cell builder."""
 
-    def __init__(self, builder, helper_index: int, vanilla: dict, needs=None):
-        """`vanilla`: {EditorID: (FormID, data)}; `needs`: a SurvivalNeeds or None."""
-        self.builder, self.helper_index, self.vanilla, self.needs = builder, helper_index, vanilla, needs
+    def __init__(self, builder, helper_index: int, vanilla: dict, hardcore=None):
+        """`vanilla`: {EditorID: (FormID, data)}; `hardcore`: a hardcore.Hardcore."""
+        self.builder, self.helper_index, self.vanilla, self.hardcore = builder, helper_index, vanilla, hardcore
         self.copies = {}
 
     def subs(self, rec: dict) -> bytes:
@@ -113,14 +111,16 @@ class Effects:
         return out
 
     def pairs(self, rec: dict) -> bytes:
-        """EFID/EFIT pairs (with perk tests) of the effects of FNV `rec` (a consumable, a spell) FO4 carries; b''
-        when none does."""
+        """EFID/EFIT pairs (with Hardcore and perk tests) of the effects of FNV `rec` (a consumable, a spell) FO4
+        carries; b'' when none does."""
         out = b''
-        for edid, magnitude, area, duration, av, perks in fnv_effects(rec):
-            fo4 = self._targets(edid, av, magnitude)
+        for edid, magnitude, area, duration, av, perks, hardcore in fnv_effects(rec):
+            fo4 = self.targets(edid, av, magnitude)
             if not fo4:
                 self.builder.counts[f'effect dropped ({edid})'] += 1
-            tests = self._perk_tests(perks)
+            tests = self._hardcore_tests(hardcore)
+            perk_tests = self._perk_tests(perks)
+            tests = None if tests is None or perk_tests is None else tests + perk_tests
             if tests is None:
                 self.builder.counts['effect dropped (perk not in the build)'] += 1
                 continue
@@ -142,10 +142,16 @@ class Effects:
         self.builder.counts['effect perk tests'] += len(perks)
         return out
 
-    def _targets(self, edid: str, av: int, magnitude: float) -> list:
+    def _hardcore_tests(self, conds: list) -> 'bytes | None':
+        """Tests of HARDCORE `conds`; with no mode, settled as off (None: fails)."""
+        if self.hardcore and self.hardcore.on:
+            return b''.join(self.hardcore.test(c) for c in conds)
+        return None if any(not C.compare(c, 0.0) for c in conds) else b''
+
+    def targets(self, edid: str, av: int, magnitude: float) -> list:
         """[(FO4 effect FormID, magnitude)] for FNV effect `edid`; [] when none."""
         if edid in NEEDS:
-            return self.needs.effects(edid, magnitude) if self.needs else []
+            return self.hardcore.need_effects(edid, magnitude) if self.hardcore and self.hardcore.on else []
         return [(fid, MAGNITUDES.get(edid, magnitude)) for fid in self._fo4(edid, av)]
 
     def _fo4(self, edid: str, av: int) -> list:

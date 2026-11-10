@@ -1,23 +1,15 @@
-"""An FNV imagespace as an FO4 one: FO4's interior HDR, FNV's colour grading baked into its LUT.
+"""An FNV imagespace as an FO4 one: FO4's tone curve and bloom, FNV's colours in its LUT.
 
-FNV grades in display space after a linear exposure (ISHDRBLENDINSHADERCIN):
-with Y = dot(c, FNV_LUMA), c = lerp(Y, c, saturation), then
-lerp(c, Y x tint colour, tint amount), then (c x brightness - pivot) x
-contrast + pivot. IMGS DNAM's cinematic block has a flags word after the tint
-(saturation 1, contrast 2, tint 4, brightness 8); an unset value is not
-applied. FO4 tonemaps (Hable curve), applies its own cinematic, then looks
-the gamma-encoded colour up in a 16^3 LUT (TX00, 16 slices across a 256 x 16
-texture) and writes the result. The FO4 imagespace is BASE_IMAGESPACE (the
-common vanilla interior one) with its cinematic left neutral and its LUT
-holding FNV's tone and grading over the identity.
+FNV's cinematic pass grades display colours: with Y = dot(c, FNV_LUMA),
+c = lerp(Y, c, saturation), then lerp(c, Y x tint colour, tint amount). IMGS
+DNAM's cinematic block flags which apply (saturation 1, tint 4). FO4
+tonemaps (Hable curve), applies its own cinematic, then looks the
+gamma-encoded colour up in a 16^3 LUT (TX00) and writes the result. The FO4
+imagespace keeps its template's curve and bloom, its cinematic neutral, and
+a LUT of FNV's saturation and tint over the identity. Exposure is pinned
+(fixed_exposure): FNV does not brighten a dark room.
 
-FNV lights in gamma space and shows the exposed colour clamped, so against
-FO4's linear exposed colour c it shows c^(1/2.2), clipped; FO4 shows
-(Hable(2c) / Hable(FO4_WHITE))^(1/2.2). The LUT undoes FO4's curve and
-applies FNV's straight one anchored where FO4 shows middle grey, keeping
-FO4's exposure (adaptation to the base imagespace's middle grey).
-
-See: docs/fork/fo4_spikes.md#spike-2-imagespace
+See: docs/fork/fo4_look.md#route-tone
 """
 
 import struct
@@ -33,9 +25,11 @@ from tes5_import.base.writer import pack_subrecord
 #: Fallout4.esm DefaultImageSpaceF4LUT: the imagespace of 180 of 317 vanilla interior cells that name one.
 BASE_IMAGESPACE = 0x17161E
 LUT_SIZE = 16
+#: Header size of an uncompressed DDS (magic and DDS_HEADER).
+DDS_HEADER = 128
 #: FNV's cinematic luminance weights (its shader's dot product).
 FNV_LUMA = np.array([0.299, 0.587, 0.114])
-SATURATION, CONTRAST, TINT, BRIGHTNESS = 1, 2, 4, 8
+SATURATION, TINT = 1, 4
 #: Offset of the cinematic block in an FNV IMGS DNAM: 132-byte records lack the skin dimmer.
 OLD_DNAM, OLD_CINEMATIC, CINEMATIC = 132, 96, 100
 #: Where generated LUTs go, under Textures (TX00 is relative to Textures).
@@ -48,21 +42,17 @@ CURVE_SAMPLES = 20001
 
 @dataclass
 class Cinematic:
-    """FNV's colour grading, with unflagged parts neutral."""
+    """FNV's colour grading (saturation and tint), with unflagged parts neutral."""
     saturation: float
-    pivot: float
-    contrast: float
-    brightness: float
     tint: tuple
     tint_amount: float
 
 
 def cinematic(dnam: bytes) -> Cinematic:
-    """The cinematic block of an FNV IMGS DNAM."""
+    """The saturation and tint of an FNV IMGS DNAM's cinematic block."""
     offset = OLD_CINEMATIC if len(dnam) == OLD_DNAM else CINEMATIC
-    sat, pivot, con, bri, r, g, b, amount, flags = struct.unpack_from('<8fI', dnam, offset)
-    return Cinematic(sat if flags & SATURATION else 1.0, pivot, con if flags & CONTRAST else 1.0,
-                     bri if flags & BRIGHTNESS else 1.0, (r, g, b), amount if flags & TINT else 0.0)
+    sat, _, _, _, r, g, b, amount, flags = struct.unpack_from('<8fI', dnam, offset)
+    return Cinematic(sat if flags & SATURATION else 1.0, (r, g, b), amount if flags & TINT else 0.0)
 
 
 def own_tint(dnam: bytes) -> tuple:
@@ -77,7 +67,6 @@ def grade(rgb: np.ndarray, c: Cinematic) -> np.ndarray:
     y = (rgb @ FNV_LUMA)[..., None]
     out = y + c.saturation * (rgb - y)
     out = out + c.tint_amount * (y * np.asarray(c.tint) - out)
-    out = (out * c.brightness - c.pivot) * c.contrast + c.pivot
     return np.clip(out, 0.0, 1.0)
 
 
@@ -89,15 +78,6 @@ def hable(x: np.ndarray, e: float) -> np.ndarray:
 def fo4_display(c: np.ndarray, e: float) -> np.ndarray:
     """The display colour FO4 shows for exposed linear colour `c`."""
     return np.clip(hable(2 * c, e) / hable(FO4_WHITE, e), 0.0, 1.0) ** (1 / DISPLAY_GAMMA)
-
-
-def fnv_tone(display: np.ndarray, tonemap_e: float, middle_grey: float) -> np.ndarray:
-    """FO4 display colours re-toned with FNV's straight curve, anchored where FO4 shows `middle_grey`; not clipped
-    at 1, since FNV grades (grade) before its output clips. See: docs/fork/fo4_look.md#night"""
-    scene = np.linspace(0.0, FO4_WHITE / 2, CURVE_SAMPLES)
-    exposed = np.interp(display, fo4_display(scene, tonemap_e), scene)
-    anchor = fo4_display(np.array(middle_grey), tonemap_e)
-    return anchor * (exposed / middle_grey) ** (1 / DISPLAY_GAMMA)
 
 
 def base_hdr(base_body: bytes) -> tuple:
@@ -123,28 +103,50 @@ def lut_dds(rgb: np.ndarray) -> bytes:
     return header + pixels.tobytes()
 
 
-def write_lut(grading: Cinematic, edid: str, data_dir: Path, hdr: tuple) -> str:
-    """Write imagespace `edid`'s LUT (FNV's tone over FO4's `hdr`, from base_hdr; FNV `grading`); TX00 path."""
+def read_lut(dds: bytes) -> np.ndarray:
+    """A 24-bit LUT DDS (lut_dds's layout) as [green, blue, red, 3] in 0..1."""
+    height, width = struct.unpack_from('<2I', dds, 12)
+    pixels = np.frombuffer(dds, np.uint8, height * width * 3, DDS_HEADER).reshape(height, width, 3)[..., ::-1]
+    return (pixels / 255.0).reshape(LUT_SIZE, LUT_SIZE, LUT_SIZE, 3)
+
+
+def apply_lut(rgb: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    """Display colours `rgb` (0..1, [..., 3]) looked up in `lut` (read_lut) with trilinear filtering."""
+    scaled = np.clip(rgb, 0, 1) * (LUT_SIZE - 1)
+    low = np.minimum(scaled.astype(int), LUT_SIZE - 2)
+    frac = scaled - low
+    out = np.zeros(rgb.shape, dtype=float)
+    for corner in np.ndindex(2, 2, 2):
+        r, g, b = (low[..., i] + corner[i] for i in range(3))
+        weight = np.prod([frac[..., i] if corner[i] else 1 - frac[..., i] for i in range(3)], axis=0)
+        out += weight[..., None] * lut[g, b, r]
+    return out
+
+
+def write_lut(grading: Cinematic, edid: str, data_dir: Path) -> str:
+    """Write imagespace `edid`'s LUT (FNV `grading` of the identity); its TX00 path."""
     rel = f'{LUT_FOLDER}\\{edid}.dds'
     path = data_dir / 'Textures' / rel.replace(chr(92), '/')
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(lut_dds(grade(fnv_tone(identity(), *hdr), grading)))
+    path.write_bytes(lut_dds(grade(identity(), grading)))
     return rel
 
 
 def fixed_exposure(tonemap_e: float, middle_grey: float) -> float:
-    """The exposure at which FO4 under fnv_tone's LUT shows c as FNV does.
+    """The exposure at which FO4's curve shows `middle_grey` as FNV does (^ 1/2.2).
 
-    See: docs/fork/fo4_spikes.md#spike-2-imagespace
+    See: docs/fork/fo4_look.md#route-tone
     """
-    return middle_grey / float(fo4_display(np.array(middle_grey), tonemap_e)) ** DISPLAY_GAMMA
+    scene = np.linspace(0.0, FO4_WHITE / 2, CURVE_SAMPLES)
+    exposed = np.interp(middle_grey ** (1 / DISPLAY_GAMMA), fo4_display(scene, tonemap_e), scene)
+    return float(exposed) / middle_grey
 
 
 def pack_imgs(fid: int, edid: str, base_body: bytes, lut: str) -> bytes:
     """An FO4 IMGS: the base imagespace's subrecords under a new EditorID, cinematic neutral, LUT `lut`.
 
     Auto exposure is pinned to fixed_exposure (FNV's exposure does not follow the scene).
-    See: docs/fork/fo4_spikes.md#spike-2-imagespace
+    See: docs/fork/fo4_look.md#route-tone
     """
     neutral = {b'CNAM': struct.pack('<3f', 1.0, 1.0, 1.0), b'TNAM': struct.pack('<4f', 0.0, 1.0, 1.0, 1.0)}
     subs, placed = b'', False

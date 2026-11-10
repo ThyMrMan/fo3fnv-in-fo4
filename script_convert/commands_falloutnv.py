@@ -12,10 +12,12 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
 from fo4_import.base.bink import movie_key
+from fo4_import.spike.type_tests import CREATURE_TYPES, creature_keyword
 from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_screen_property, fallout4_swap_property,
                                       papyrus_script_name, safe_property_name, typed_already)
 from script_convert.anim_action_falloutnv import anim_action
-from script_convert.command_rows import ACTOR, Cmd
+from script_convert.anim_playing_falloutnv import anim_playing
+from script_convert.command_rows import ACTOR, OBJREF, Cmd
 from script_convert.constants_falloutnv import ITEM_TYPE_LISTS
 from script_convert.emit.commands import emit_row
 from script_convert.message_menus import authored_site
@@ -27,6 +29,9 @@ from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 START_SNEAKING = Cmd('{ref}.StartSneaking()', ACTOR, flags='actor_only')
 #: Fallout 4's FNV IsActorRefEssential: the reference's essential flag, as SetActorRefEssential sets it.
 IS_ESSENTIAL = Cmd('{ref}.IsEssential()', ACTOR, flags='actor_only zero_arg cmp_bool')
+#: Fallout 4's FNV `SetNPCRadio <flag> <station>`: the actor plays the station's program.
+NPC_RADIO = Cmd('TES4Polyfill.SetNPCRadio({ref}, {b0}, {p1})', ACTOR, types={1: 'ObjectReference'},
+                flags='actor_only')
 
 
 def faction_relation(ctx, call):
@@ -44,6 +49,8 @@ def faction_relation(ctx, call):
                     f'faction-toward-actor reaction (read as 0)')
 
 
+#: The radio topic a station's program starts at (StartRadioConversation without a topic).
+RADIO_HELLO = 'RadioHello'
 #: Quest natives FO4 ignores on a quest not running, where FO3/FNV kept the objective (StartForObjective first).
 _OBJECTIVE_SETTERS = ('SetObjectiveDisplayed', 'SetObjectiveCompleted')
 #: FO3/FNV command -> Quest native it becomes, the quest argument as receiver.
@@ -278,6 +285,32 @@ def set_open_state(ctx, call):
     return f'TES4_TwoStateActivator.SetOpenState({_open_state_target(ctx, call)}, {state})'
 
 
+def creature_type(ctx, call):
+    """FNV `GetIsCreatureType <n>` on Fallout 4: the actor's creature type keyword (HasKeyword, as the build
+    stamps it); declines elsewhere or for a type number the enum lacks.
+    See: docs/fork/script_markers.md#creature-type
+    """
+    kind = call.arg(0).strip()
+    if not is_fallout4() or not kind.isdigit() or int(kind) >= len(CREATURE_TYPES):
+        return None
+    keyword = creature_keyword(int(kind))
+    row = Cmd(f'{{ref}}.HasKeyword({keyword})', ACTOR, self_type=(keyword, 'Keyword'),
+              flags='actor_only cmp_bool', max_args=0)
+    return emit_row(ctx, row, call.ref, call.raw_name, '', call.extends)
+
+
+def dlc_installed(ctx, call):
+    """FNV `IsDLCInstalled "<name>"` on Fallout 4: Game.IsPluginInstalled of the name's plugin (spaces dropped,
+    `.esm`: "Tribal Pack" is TribalPack.esm); declines elsewhere or without a name.
+    See: docs/fork/script_markers.md#creature-type
+    """
+    name = call.arg(0).strip().strip('"').replace(' ', '')
+    if not is_fallout4() or not name:
+        return None
+    row = Cmd(f'Game.IsPluginInstalled("{name}.esm")', flags='cmp_bool', max_args=0)
+    return emit_row(ctx, row, call.ref, call.raw_name, '', call.extends)
+
+
 def is_essential(ctx, call):
     """FNV IsActorRefEssential on Fallout 4: IsEssential(); declines elsewhere."""
     if not is_fallout4():
@@ -298,6 +331,27 @@ def broadcast_state(ctx, call):
     if not len(call):
         return None
     return f'TES4Polyfill.SetBroadcastState({target}, ({call.arg(0)}) != 0)'
+
+
+def start_radio_conversation(ctx, call):
+    """FO3/FNV StartRadioConversation on a radio station on Fallout 4: its program starts at the topic, named by
+    its EditorID (RadioHello when none); declines elsewhere.
+    See: docs/fork/fo4_radio.md#start-radio-conversation
+    """
+    if not is_fallout4():
+        return None
+    parts = ctx.arg_srcs()
+    topic = parts[0].strip().split()[0] if parts and parts[0].strip() else RADIO_HELLO
+    return f'TES4Polyfill.StartRadioConversation({_open_state_target(ctx, call)}, "{topic}")'
+
+
+def npc_radio(ctx, call):
+    """FO3/FNV SetNPCRadio on Fallout 4: the actor plays the station (a receiver placed at it); declines elsewhere.
+    See: docs/fork/fo4_radio.md#npc-radio
+    """
+    if not is_fallout4() or len(call) < 2:
+        return None
+    return emit_row(ctx, NPC_RADIO, call.ref, call.raw_name, '', call.extends)
 
 
 def swap_texture(ctx, call):
@@ -447,10 +501,27 @@ def remove_all_typed_items(ctx, call):
             f'{int(code)}, {types}, {_form_list_arg(ctx, call, 4)})')
 
 
+#: FNV AddItem with a form list on Fallout 4: every form in the list (FO4's AddItem rejects lists).
+ADD_LIST = Cmd('F3NV_Items.AddList({ref}, {p0}, {i1}, {b2})', OBJREF, types={0: 'FormList'},
+               defaults={1: '1', 2: '0'})
+
+
+def add_item(ctx, call):
+    """FNV `AddItem <list> <count>` on Fallout 4: F3NV_Items.AddList; declines for any other item or game.
+    See: docs/fork/fo4_pipeline.md#form-list-items
+    """
+    item = call.source(0, '').strip()
+    if not is_fallout4() or not item or ctx.xref.get_base_signature(item) != 'FLST':
+        return None
+    return emit_row(ctx, ADD_LIST, call.ref, call.raw_name, '', call.extends)
+
+
 FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
+                    'additem': add_item,
                     'removealltypeditems': remove_all_typed_items,
                     'entertrigger': enter_trigger,
                     'getanimaction': anim_action,
+                    'isanimplaying': anim_playing,
                     'setforcesneak': force_sneak,
                     'playbink': play_bink,
                     'isplayertagskill': tag_skill,
@@ -464,7 +535,11 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'swaptexture': swap_texture,
                     'getbroadcaststate': broadcast_state,
                     'isactorrefessential': is_essential,
+                    'getiscreaturetype': creature_type,
+                    'isdlcinstalled': dlc_installed,
                     'setbroadcaststate': broadcast_state,
+                    'startradioconversation': start_radio_conversation,
+                    'setnpcradio': npc_radio,
                     'setsecuritronexpression': securitron_expression,
                     'setcellownership': cell_ownership,
                     **{name: quest_call for name in _QUEST_CALLS},

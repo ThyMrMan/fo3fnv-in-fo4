@@ -31,6 +31,7 @@ from fo4_import.spike.say_topics import blocker, conditions_of, conditions_under
 from script_convert.quest_var_mirrors import PREFIX as QVAR_PREFIX
 from fo4_import.spike.script import base_forms, declared_properties, fill
 from fo4_import.spike.script_effects import ScriptEffects
+from fo4_import.spike.type_tests import CREATURE_TYPE_PREFIX
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_string_subrecord
 from tes5_import.record_types.crime_falloutnv import ENEMY_LIST_EDID
@@ -60,13 +61,16 @@ OBJECTIVE_PREFIX = 'TES4Obj'
 OBJECTIVE_GLOBAL = re.compile(r'TES4Obj(Done|Shown)_(.+)_(\d+)$')
 #: Papyrus types of the item properties the cell's item converter fills by FNV name.
 ITEM_TYPES = frozenset({'Potion', 'MiscObject', 'LeveledItem', 'Weapon', 'Armor', 'Ammo', 'Book', 'Key'})
+#: Papyrus types of placed bases a property may name by its FNV EditorID (VMS21NeroCouchScript's own couch).
+BASE_TYPES = frozenset({'Form', 'Activator', 'Furniture', 'Door', 'Light', 'Static', 'MovableStatic'})
 #: Papyrus type -> (builder attribute, its method) that makes or finds a property's form from the property name.
 NAMED_MAKERS = {'ImageSpaceModifier': ('imods', 'modifier'), 'Package': ('packages', 'named'),
-                'Idle': ('idles', 'named'), 'EffectShader': ('effect_shaders', 'of')}
+                'Idle': ('idles', 'named'), 'EffectShader': ('effect_shaders', 'of'), 'Sound': ('sounds', 'named')}
 
 #: (Papyrus type, name prefix) -> the ObjectScripts method making such a property's form.
 PREFIXED_MAKERS = {('MatSwap', FALLOUT4_SWAP_PREFIX): '_swap', ('Armor', FALLOUT4_SCREEN_PREFIX): '_screen',
-                   ('ObjectReference', FALLOUT4_POSE_PREFIX): '_pose', ('Keyword', FAMILY_PREFIX): '_family'}
+                   ('ObjectReference', FALLOUT4_POSE_PREFIX): '_pose', ('Keyword', FAMILY_PREFIX): '_family',
+                   ('Keyword', CREATURE_TYPE_PREFIX): '_type_keyword'}
 #: Papyrus type -> the ObjectScripts method making a property of that type by its name.
 TYPED_MAKERS = {'GlobalVariable': '_global_form', 'FormList': '_list_form', 'Spell': '_spell_form',
                 'ActorBase': 'actor_base'}
@@ -98,9 +102,9 @@ class NameMap(dict):
             self[key] = value
 
 
-def _hardcore_off(cond: dict) -> 'bool | None':
-    """IsHardcore settled as off (FO4 has no Hardcore mode); others kept."""
-    return C.compare(cond, 0.0) if cond['func'] == 'IsHardcore' else None
+def _kept(_cond: dict) -> None:
+    """No test settled up front: each converts or blocks."""
+    return None
 
 
 class ObjectScripts:
@@ -119,7 +123,7 @@ class ObjectScripts:
         self.named, self.talks = NameMap([PLAYER]), {}
         self.quest_ids = {r['EditorID'].lower(): r['FormID'] for r in export_records(export_dir, 'QUST')
                           if r.get('EditorID')}
-        self.export_dir, self.actor_bases = export_dir, None
+        self.export_dir, self.actor_bases, self.base_names = export_dir, None, None
 
     def name(self, scpt: int) -> 'str | None':
         """The converted script of FNV script `scpt`; None when it was not converted."""
@@ -156,7 +160,21 @@ class ObjectScripts:
         if kind in NAMED_MAKERS:
             owner, maker = NAMED_MAKERS[kind]
             return getattr(getattr(self.builder, owner), maker)(prop)
-        return self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None
+        item = self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None
+        return item or (self._base(prop) if kind in BASE_TYPES else None)
+
+    def _base(self, prop: str) -> 'int | None':
+        """The FO4 base of the FNV placed base whose EditorID is `prop` (any case), made if need be (CellBuilder.base).
+        See: docs/fork/fo4_pipeline.md#base-properties
+        """
+        if self.base_names is None:
+            self.base_names = {rec['EditorID'].lower(): fid for fid, (_sig, rec) in self.builder.bases.items()
+                               if rec.get('EditorID')}
+        fid = self.base_names.get(prop.lower())
+        if fid is None:
+            return None
+        self.builder.counts['base made for a script property'] += fid not in self.builder.made
+        return self.builder.base(fid)
 
     def _swap(self, prop: str) -> int:
         """A `TES4Swap_` material swap (swaps.Swaps)."""
@@ -174,6 +192,10 @@ class ObjectScripts:
         """A `TES4FX_` effect family keyword (script_effects.ScriptEffects.family_named)."""
         return self.effects.family_named(prop)
 
+    def _type_keyword(self, prop: str) -> int:
+        """An `FNV_CreatureType<type>` keyword (type_tests.TypeKeywords)."""
+        return self.builder.type_keywords.keyword(prop)
+
     def _global_form(self, prop: str) -> 'int | None':
         """A GlobalVariable property: a dialogue global, a quest-variable or objective mirror, FNV's, else a tested
         region's watch global (region_watch)."""
@@ -189,8 +211,10 @@ class ObjectScripts:
                 or self.form_list(prop) or self.builder.items.by_name(prop))
 
     def _spell_form(self, prop: str) -> 'int | None':
-        """A Spell property: a script-effect spell, else a perk's named ability."""
-        return self.effects.spell(prop) or (self.builder.perks and self.builder.perks.named_ability(prop))
+        """A Spell property: script-effect spell, perk ability, else FO4 addiction."""
+        consumables = getattr(self.builder, 'consumables', None)
+        return (self.effects.spell(prop) or (self.builder.perks and self.builder.perks.named_ability(prop))
+                or (consumables and consumables.addictions.spell(prop)))
 
     def actor_base(self, name: str) -> 'int | None':
         """The FO4 base of FNV NPC or creature `name` (EditorID, any case), made on demand by the people stage's
@@ -315,9 +339,9 @@ class ObjectScripts:
         self._write_message(edid, [self._gate(edid, gate, known, script_vars) for gate in gates])
 
     def _gate(self, edid: str, gate: dict, known: dict, script_vars: dict) -> bytes:
-        """One button's FO4 CTDAs: NEVER_SHOWN when its conditions never pass (Hardcore is off; a form the build
-        lacks), b'' to show it always when they cannot convert (counted, with message `edid`)."""
-        settled = settled_by(gate, _hardcore_off)
+        """One button's FO4 CTDAs: NEVER_SHOWN when its conditions never pass (a form the build lacks), b'' to show
+        it always when they cannot convert (counted, with message `edid`)."""
+        settled = settled_by(gate, _kept)
         if settled is None or never_true(settled, known):
             return NEVER_SHOWN
         show = conditions_of(settled, known, script_vars)

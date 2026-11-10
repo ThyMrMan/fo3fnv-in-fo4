@@ -1,11 +1,10 @@
 """FNV consumables (ALCH) and ammunition (AMMO) as FO4 records, for the cell spike.
 
 A consumable keeps its name, model, value, weight and kind (food, medicine),
-the effects FO4 has (consumable_effects) and its Hardcore needs as Survival's
-(survival_needs). Its category (food, drink, stimpak,
+the effects FO4 has (consumable_effects) and its Hardcore needs (hardcore). Its category (food, drink, stimpak,
 chem, alcohol, magazine), from FNV's equipment type and consume sound, gives
 it a vanilla item's Pip-Boy preview, sounds and keyword (CATEGORIES). Ammunition keeps its name, model,
-value, weight and short name on FO4's 5.56 round (its casing); ammo a creature's
+value, weight (F3NV.dll weighs it in Hardcore) and short name on FO4's 5.56 round (its casing); ammo a creature's
 gun fires takes the projectile of that gun's FO4 template's ammo (the lowest FNV
 weapon FormID's when several do), other ammo the one FNV's data gives it (spike.projectiles),
 so ammunition is written last (write_ammo). FormIDs are
@@ -18,9 +17,8 @@ import struct
 
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.base.install import source_walk
-from fo4_import.spike.addiction import COUNTERPARTS, Addictions
-from fo4_import.spike import survival_needs as S
-from fo4_import.spike.consumable_effects import NEEDS, WANTED, Effects, fnv_effects
+from fo4_import.spike.addiction import COUNTERPARTS, SHAPES, Addictions
+from fo4_import.spike.consumable_effects import WANTED, Effects
 from fo4_import.spike.records import pack_keywords
 from fo4_import.spike.weapon_poisons import WeaponPoisons
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
@@ -49,11 +47,11 @@ class Consumables:
     def __init__(self, builder, helper_index: int):
         """Index Fallout4.esm's records the conversions draw on."""
         self.builder = builder
-        wanted = {*WANTED, *S.WANTED, AMMO_TEMPLATE, *(t for t, _ in CATEGORIES.values()),
+        wanted = {*WANTED, AMMO_TEMPLATE, *(t for t, _ in CATEGORIES.values()),
                   *(k for _, k in CATEGORIES.values() if k)}
         self.vanilla, self.fnv = {}, _fnv_consumables()
-        self.projectiles, self.pending, self.fired_by, chems, names = {}, {}, {}, {}, {}
-        for rec, _ in walk(builder.fo4, b'MGEF', b'ALCH', b'AMMO', b'KYWD', b'BOOK', b'GLOB', b'QUST'):
+        self.projectiles, self.pending, self.fired_by, chems, names, shapes = {}, {}, {}, {}, {}, {}
+        for rec, _ in walk(builder.fo4, b'MGEF', b'ALCH', b'AMMO', b'KYWD', b'BOOK', b'GLOB', b'QUST', b'SPEL', b'AVIF'):
             subs = dict(subrecords(rec.body))
             edid = subs.get(b'EDID', b'').rstrip(b'\0').decode()
             if rec.sig == b'AMMO':
@@ -62,11 +60,12 @@ class Consumables:
                 self.vanilla[edid] = (rec.form_id, subs)
             if rec.sig == b'ALCH' and edid in COUNTERPARTS.values():
                 chems[edid] = list(subrecords(rec.body))
+            if edid in SHAPES:
+                shapes[edid] = list(subrecords(rec.body))
             names[rec.form_id] = edid
-        needs = S.SurvivalNeeds(builder, self.vanilla, S.fnv_per_hour(builder.export_dir))
-        self.effects = Effects(builder, helper_index, self.vanilla, needs)
+        self.effects = Effects(builder, helper_index, self.vanilla, builder.hardcore)
         self.poisons = WeaponPoisons(builder, builder.export_dir)
-        self.addictions = Addictions(builder, chems, names)
+        self.addictions = Addictions(builder, chems, names, shapes)
 
     def alch(self, fnv: int, rec: dict) -> 'int | None':
         """The FO4 consumable for FNV ALCH `rec` (FormID `fnv`); None without a model."""
@@ -81,7 +80,7 @@ class Consumables:
         template = self.vanilla[name][1]
         body = pack_subrecord('EDID', f'FNV_{rec["EditorID"]}\0'.encode()) + _obnd(bounds, rec)
         body += _copied(template, PREVIEW) + pack_subrecord('FULL', (rec.get('FULL', '') + '\0').encode())
-        keywords = [self.vanilla[k][0] for k in (keyword, survival_keyword(rec)) if k]
+        keywords = [self.vanilla[keyword][0]] if keyword else []
         body += pack_keywords(keywords + [addiction[1]] if addiction[1] else keywords)
         body += pack_subrecord('MODL', (model + '\0').encode()) + _copied(template, SOUNDS)
         sound = template[b'ENIT'][16:20] if b'ENIT' in template else bytes(4)
@@ -101,7 +100,7 @@ class Consumables:
         name = (rec.get('FULL', '') + '\0').encode()
         body = pack_subrecord('EDID', f'FNV_{rec["EditorID"]}\0'.encode()) + _obnd(bounds, rec)
         body += pack_subrecord('FULL', name) + pack_subrecord('MODL', (model + '\0').encode())
-        body += b''.join(pack_subrecord(t.decode(), template[t]) for t in (b'YNAM', b'ZNAM', b'KSIZ', b'KWDA'))
+        body += _copied(template, (b'YNAM', b'ZNAM')) + pack_keywords(_keywords(template))
         body += pack_subrecord('DATA', struct.pack('<If', int(rec.get('DATA.Value', 0)),
                                                    float(rec.get('DATA.Weight', 0.0))))
         short = (rec.get('ONAM') or rec.get('FULL', '')) + '\0'
@@ -133,9 +132,10 @@ class Consumables:
         return fid
 
 
-def survival_keyword(rec: dict) -> 'str | None':
-    """S.IGNORE_AS_FOOD when consumable `rec` has FNV need effects, else None."""
-    return S.IGNORE_AS_FOOD if any(e[0] in NEEDS for e in fnv_effects(rec)) else None
+def _keywords(template: dict) -> list:
+    """The template's KWDA keywords."""
+    data = template.get(b'KWDA', b'')
+    return list(struct.unpack(f'<{len(data) // 4}I', data))
 
 
 def _copied(template: dict, tags: tuple) -> bytes:

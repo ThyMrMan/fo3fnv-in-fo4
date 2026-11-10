@@ -6,6 +6,7 @@ See: docs/fork/fo4_spikes.md#spike-2-furniture
 import collections
 import math
 import struct
+from types import SimpleNamespace
 
 from fo4_import.spike import furniture as F
 from tes5_import.base.tes5_reader import subrecords
@@ -25,6 +26,14 @@ def test_bar_and_wall_markers_take_vanilla_standing_keywords():
     assert F.standing([(0, 0, 0, 0, F.WALL_LEAN)], ()) == F.SLOT_KEYWORDS[F.WALL_LEAN]
     assert F.standing([(0, 0, 0, 0, F.SPECIAL)], ('CookingStove',)) == ()
     assert F.standing([(0, 0, 0, 0, F.SIT_FRONT)], ()) is None
+
+
+def test_scripted_furniture_keeps_its_script():
+    """Nero's couch adds Big Sal's force greet when sat on: its VMAD comes right after the EDID, as vanilla's does."""
+    record = F.furniture(1, {'EditorID': 'T', 'MNAM.Flags': '1'}, 'm.nif', (-20, -20, 0, 20, 20, 40),
+                         [(0.0, 0.0, 0.0, 0.0, F.SPECIAL)], collections.defaultdict(int), vmad=b'script')
+    assert [tag for tag, _ in subrecords(record[24:])][:3] == [b'EDID', b'VMAD', b'OBND']
+    assert b'VMAD' not in _furn([(0.0, 0.0, 0.0, 0.0, F.SPECIAL)])
 
 
 def test_standing_furniture_keeps_fnv_marker_as_vanilla_lays_it_out():
@@ -78,3 +87,17 @@ def test_floor_beds_take_vanilla_sides_from_where_the_marker_lies():
     out = F.floor_beds(bed)
     assert [e & (F.RIGHT | F.LEFT) for *_, e in out] == [F.RIGHT, F.LEFT, F.RIGHT | F.LEFT, F.LEFT]
     assert all(e & F.UNUSED_ENTRY == F.UNUSED_ENTRY for *_, e in out) and abs(out[0][3]) < 1e-9
+
+
+def test_a_held_pose_without_bip01_leaves_the_actor_at_its_marker():
+    """The crucifix pose moves only the body; the actor stays at its marker."""
+    pose = SimpleNamespace(translation=SimpleNamespace(x=3.6, y=59.4, z=179.4),
+                           rotation=SimpleNamespace(w=0.0, x=0.0, y=0.0, z=1.0))
+    assert F.motion({'Bip01 NonAccum': pose}) == (0.0, 0.0, 0.0)
+
+
+def test_the_crucifix_is_a_restrained_sit_at_fnvs_marker():
+    """Slot 10: a prisoner floor sit at FNV's marker, entered from every side."""
+    seats, words, marker = F.slot_seats([(0.0, 0.0, 0.0, 0.0, F.CRUCIFIED)], 1, {F.CRUCIFIED: (0.0, 0.0, 0.0)})
+    assert seats == [(0.0, 0.0, 0.0, 0.0, F.ANY_ENTRY)]
+    assert (words, marker) == (('AnimFurnPrisonerFloorSit',), 'Markers' + chr(92) + 'MarkerPrisonerFloorSit.nif')

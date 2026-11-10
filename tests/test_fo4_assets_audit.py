@@ -214,8 +214,33 @@ def test_loose_sounds_are_staged_and_packed_into_the_main_archive(tmp_path, monk
         path.write_bytes(b'x')
     assert BP.stage_loose_sounds(data, ('Voice/P.esp',)) == 1 and theirs.exists() and not ours.exists()
     assert (BP.sound_root(data) / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.fuz').is_file()
-    assert BP.pack_sounds(data, 'P.esp') == 1 and BP.pack_sounds(data, 'P.esp') == 1 and len(packs) == 1
+    assert BP.pack_main(data, 'P.esp') == 1 and BP.pack_main(data, 'P.esp') == 1 and len(packs) == 1
     assert Archive(data / 'P - Main.ba2').read('Sound/Voice/P.esp/V/a.fuz') == b'x'
+
+
+def test_meshes_and_materials_join_the_sounds_in_the_main_archive_and_stay_loose(tmp_path, monkeypatch):
+    """pack_main: loose meshes and materials pack with the staged sounds and stay loose (the build reads them);
+    scripts stay out; one changed mesh repacks, copying the rest out of the old archive."""
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    data = tmp_path / 'data'
+    files = {'Meshes/fnv/Cup.nif': b'cup', 'Meshes/Actors/Rig/skeleton.nif': b'rig', 'Materials/fnv/a.bgsm': b'm',
+             'Scripts/A.pex': b'pex'}
+    for name, payload in files.items():
+        (data / name).parent.mkdir(parents=True, exist_ok=True)
+        (data / name).write_bytes(payload)
+    sound = BP.sound_root(data) / 'Sound' / 'FX' / 'b.xwm'
+    sound.parent.mkdir(parents=True)
+    sound.write_bytes(b'snd')
+    assert BP.pack_main(data, 'P.esm') == 4 and all((data / name).is_file() for name in files)
+    read = Archive(data / 'P - Main.ba2')
+    assert sorted(read.entries) == ['materials\\fnv\\a.bgsm', 'meshes\\actors\\rig\\skeleton.nif',
+                                    'meshes\\fnv\\cup.nif', 'sound\\fx\\b.xwm']
+    (data / 'Meshes/fnv/Cup.nif').write_bytes(b'new cup')
+    kept = []
+    monkeypatch.setattr(BP, 'write_general', lambda *a: kept.append(a[2]) or write_general(*a))
+    assert BP.pack_main(data, 'P.esm') == 4 and len(kept[0]) == 3 and 'meshes/fnv/cup.nif' not in kept[0]
+    read = Archive(data / 'P - Main.ba2')
+    assert read.read('Meshes/fnv/Cup.nif') == b'new cup' and read.read('Sound/FX/b.xwm') == b'snd'
 
 
 def test_a_general_archive_matches_archive2_and_reuses_unchanged_files(tmp_path):
@@ -228,10 +253,11 @@ def test_a_general_archive_matches_archive2_and_reuses_unchanged_files(tmp_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(bytes([i]) * (i + 1))
     archive = tmp_path / 'P - Main.ba2'
-    write_general(root, files, archive)
+    named = {path.relative_to(root).as_posix(): path for path in files}
+    write_general(named, archive)
     files[2].write_bytes(b'new')
     files[0].write_bytes(b'Z')
-    write_general(root, files, archive, {'sound/a.fuz', 'sound/b.fuz', 'sound/d.fuz'})
+    write_general(named, archive, {'sound/a.fuz', 'sound/b.fuz', 'sound/d.fuz'})
     read = Archive(archive)
     assert [read.read(f'Sound/{n}.fuz') for n in 'abcd'] == [b'\0', b'\1\1', b'new', b'\3\3\3\3']
 
@@ -290,8 +316,8 @@ def test_a_havok_nif_reaches_disk_only_finished_and_an_unchanged_one_is_not_rewr
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
     monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
     monkeypatch.setattr(EC.elric, 'has_havok', lambda data: data != b'plain')
-    monkeypatch.setattr(EC.elric, 'finish', lambda paths, run: [p.write_bytes(p.read_bytes() + b'+') for p in paths]
-                        and [])
+    monkeypatch.setattr(EC.elric, 'finish', lambda paths, run, names: [p.write_bytes(p.read_bytes() + b'+')
+                                                                       for p in paths] and [])
     path, plain = tmp_path / 'a.nif', tmp_path / 'b.nif'
     EC.write_mesh(path, b'one')
     assert not path.exists() and EC.mesh_bytes(path) == b'one'
@@ -330,9 +356,9 @@ def test_a_build_with_no_sounds_left_deletes_its_old_sound_archive(tmp_path, mon
     staged.parent.mkdir(parents=True)
     data.mkdir()
     staged.write_bytes(b'x')
-    assert BP.pack_sounds(data, 'P.esp') == 1 and (data / 'P - Main.ba2').is_file()
+    assert BP.pack_main(data, 'P.esp') == 1 and (data / 'P - Main.ba2').is_file()
     staged.unlink()
-    assert BP.pack_sounds(data, 'P.esp') == 0
+    assert BP.pack_main(data, 'P.esp') == 0
     assert not (data / 'P - Main.ba2').exists() and not (data / 'P - Main.ba2.json').exists()
 
 

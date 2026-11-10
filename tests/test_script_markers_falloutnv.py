@@ -49,10 +49,10 @@ def test_open_teammate_container_opens_the_speakers_inventory(converter):
     assert '(akSpeakerRef as Actor).OpenInventory(True)' in out
 
 
-def test_casino_comp_guard_reads_no_winnings(converter):
-    """GetCasinoWinningsLevel reads 0, so a comp guard stays false."""
+def test_casino_comp_guard_reads_the_casino_bank(converter):
+    """GetCasinoWinningsLevel reads the casino's winnings level from its casino-bank quest."""
     out = _lines(converter, 'if GetCasinoWinningsLevel GomorrahCasinoData == 1 && SmallFry == 0\nendif')
-    assert out.startswith('If 0 == 1 && SmallFry == 0')
+    assert out.startswith('If GomorrahCasinoData.GetLevel() == 1 && SmallFry == 0')
 
 
 def test_in_chargen_reads_never(converter):
@@ -126,6 +126,16 @@ def test_remove_all_typed_items_moves_the_type_list(converter, source, papyrus, 
     assert {p for p, kind in converter.sc.property_refs.items() if kind == 'FormList'} == lists
 
 
+def test_add_item_with_a_form_list_adds_every_form(converter, monkeypatch):
+    """AddItem of a FLST goes through F3NV_Items.AddList (FO4's AddItem rejects lists); other items stay AddItem.
+    See: docs/fork/fo4_pipeline.md#form-list-items
+    """
+    lists = {'nvlilyweapons': 'FLST', 'weap10mmpistol': 'WEAP'}
+    monkeypatch.setattr(converter.xref, 'get_base_signature', lambda name: lists.get(name.lower(), ''))
+    assert _lines(converter, 'LilyREF.AddItem NVLilyWeapons 1') == 'F3NV_Items.AddList(LilyREF, NVLilyWeapons, 1, false)'
+    assert 'AddList' not in _lines(converter, 'LilyREF.AddItem Weap10mmPistol 1')
+
+
 def test_remove_all_typed_items_unknown_type_stays_a_marker(converter):
     """A type code with no inventory list stays a note."""
     out = _lines(converter, 'player.RemoveAllTypedItems LockerREF 1 0 99')
@@ -175,6 +185,20 @@ def test_force_sneak_on_starts_sneaking(converter, source, extends, papyrus):
 def test_force_sneak_off_stays_a_marker(converter):
     """FO4 has no native that ends a sneak: SetForceSneak 0 stays a note."""
     assert _lines(converter, 'refvar.SetForceSneak 0', 'Actor').startswith(';NE: ')
+
+
+def test_creature_type_stays_in_an_and_guard(converter):
+    """The boxing gloves' robot test keeps its place in the guard, as the type keyword (FNV_CreatureTypeRobot)."""
+    source = 'If (BoxRef != PlayerRef) && (BoxRef.GetIsCreatureType 6 != 1)\nendif'
+    out = _lines(converter, source, 'ActiveMagicEffect')
+    assert 'BoxRef.HasKeyword(FNV_CreatureTypeRobot)' in out and ';NE:' not in out
+    assert converter.sc.property_refs['FNV_CreatureTypeRobot'] == 'Keyword'
+
+
+def test_dlc_installed_asks_for_the_plugin(converter):
+    """IsDLCInstalled "Tribal Pack" asks whether TribalPack.esm is loaded."""
+    out = _lines(converter, 'if (Once && IsDLCInstalled "Tribal Pack" != 1)\nendif', 'Quest')
+    assert 'Game.IsPluginInstalled("TribalPack.esm")' in out and ';NE:' not in out
 
 
 def _trigger_graph(sctx: str) -> CrossRefGraph:

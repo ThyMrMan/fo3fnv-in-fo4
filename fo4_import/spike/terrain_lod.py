@@ -7,6 +7,9 @@ FNV lays its tile textures out mirrored on both axes (u = 1 - x, v = y),
 FO4 as u = x, v = 1 - y, and reads a tile's normal map by name; both
 textures turn half a turn and the UVs follow. The normal map is model space
 in both games, FNV's x, y, z in RGB and FO4's x, z, y, so green and blue swap.
+The tile's LOD water (its unshaded shapes) becomes vanilla's WATER node: one
+flat, effect-shaded shape, cut by cell into 16 segments at level 4 so the
+engine hides the loaded cells' water, as Commonwealth tiles are laid out.
 LODSettings/<FO4 world>.lod names the tile grid.
 
 See: docs/fork/fo4_pipeline.md#terrain-lod
@@ -27,7 +30,7 @@ from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.ba2_pack import stage_texture
 from fo4_import.face.texture import TEXCONV
 from fo4_import.nif import file as F
-from fo4_import.nif.blocks import SHADER_LOD_LAND
+from fo4_import.nif.blocks import SHADER_LOD_LAND, pack_tri_shape
 from fo4_import.pipeline.work_cache import cached
 from fo4_import.pipeline.export_index import asset_root
 from pyffi.formats.nif import NifFormat
@@ -52,6 +55,18 @@ SHADER = {'extra': [], 'controller': -1, 'flags1': 0x80401000, 'flags2': 3, 'uv_
           'backlight_power': 0.0, 'grayscale_scale': 1.0, 'fresnel_power': 5.0, 'wetness': (-1.0,) * 6}
 #: The node and shape flags of every vanilla tile.
 FLAGS = 14
+#: Every vanilla tile's water vertex layout: half-float position (unused W) only, 8 bytes.
+WATER_DESC = 0x100000000002
+#: Vanilla's LOD water effect shader (every Commonwealth tile's WATER shape's), the name string empty.
+WATER_SHADER = {'name': 2, 'extra': [], 'controller': -1, 'flags1': 0x80000000, 'flags2': 1, 'uv_offset': (0.0, 0.0),
+                'uv_scale': (1.0, 1.0), 'source_texture': '', 'clamp': 3, 'lighting_influence': 255, 'env_min_lod': 0,
+                'unused': 0, 'falloff': (0.0, 0.0, 0.0, 0.0), 'base_color': (1.0, 1.0, 1.0, 1.0),
+                'base_color_scale': 1.0, 'soft_depth': 100.0, 'greyscale': '', 'env_map': '', 'normal': '',
+                'env_mask': '', 'env_map_scale': 1.0}
+#: Cells across a lowest-level tile; its water is cut into this many squared segments, one per cell.
+SEGMENT_CELLS = 4
+#: A segment's parent array index when it has none.
+NO_PARENT = 0xFFFFFFFF
 
 
 def tiles(export_dir: Path, world: str) -> list:
@@ -78,20 +93,46 @@ def lod_settings(found: list) -> bytes:
     return struct.pack('<hhIII', min(xs), min(ys), top * (1 << (across - 1).bit_length()), MIN_LEVEL, top)
 
 
-def land_shape(path: Path) -> tuple:
-    """(positions, uvs, triangles) as arrays of the FNV tile at `path`'s land: its shaded shape (the other, a
-    BSSegmentedTriShape with no properties, is the tile's LOD water).
-    See: docs/fork/fo4_pipeline.md#terrain-lod
-    """
+def read_tile(path: Path):
+    """The pyffi data of the FNV tile at `path`."""
     data = NifFormat.Data()
     with open(path, 'rb') as f:
         data.read(f)
-    land = next(b for b in data.blocks if isinstance(b, NifFormat.NiTriShape)
-                and any(isinstance(p, NifFormat.BSShaderPPLightingProperty) for p in b.get_properties()))
+    return data
+
+
+def _shaded(block) -> bool:
+    """Whether shape `block` has a BSShaderPPLightingProperty (a tile's land)."""
+    return any(isinstance(p, NifFormat.BSShaderPPLightingProperty) for p in block.get_properties())
+
+
+def land_shape(data) -> tuple:
+    """(positions, uvs, triangles) as arrays of FNV tile `data`'s (read_tile) land: its shaded shape (the others,
+    with no properties, are the tile's LOD water).
+    See: docs/fork/fo4_pipeline.md#terrain-lod
+    """
+    land = next(b for b in data.blocks if isinstance(b, NifFormat.NiTriShape) and _shaded(b))
     shape = land.data
     return (np.array([(v.x, v.y, v.z) for v in shape.vertices], float),
             np.array([(t.u, t.v) for t in shape.uv_sets[0]], float),
             np.array([(t.v_1, t.v_2, t.v_3) for t in shape.triangles], int))
+
+
+def water_shape(data) -> tuple:
+    """(positions, triangles) of FNV tile `data`'s (read_tile) LOD water, its unshaded shapes joined, in the tile's frame
+    as the land's, without the skirts (walls with no area seen from above); only the vertices kept triangles use.
+    See: docs/fork/fo4_pipeline.md#distant-water
+    """
+    pos, tris = [np.zeros((0, 3))], [np.zeros((0, 3), int)]
+    for block in data.blocks:
+        if isinstance(block, NifFormat.NiTriShape) and not _shaded(block) and block.data.num_triangles:
+            tris.append(np.array([(t.v_1, t.v_2, t.v_3) for t in block.data.triangles], int) + sum(map(len, pos)))
+            pos.append(np.array([(v.x, v.y, v.z) for v in block.data.vertices], float))
+    pos, tris = np.concatenate(pos), np.concatenate(tris)
+    flat = np.pad(pos[:, :2], ((0, 0), (0, 1)))
+    seen = np.cross(flat[tris[:, 1]] - flat[tris[:, 0]], flat[tris[:, 2]] - flat[tris[:, 0]])[:, 2]
+    used, tris = np.unique(tris[seen != 0], return_inverse=True)
+    return pos[used], tris.reshape(-1, 3)
 
 
 def without_skirts(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
@@ -115,33 +156,86 @@ def tile_units(pos: np.ndarray, tris: np.ndarray, level: int) -> tuple:
     return local, tris[area > 0]
 
 
-def _multi_bound_node(child: int, bound: int) -> bytes:
-    """A BSMultiBoundNode named 'chunk' (string 0) holding `child`, its multi-bound `bound`, culling 1."""
-    head = F.BLOCKS['NiNode'][1]({'name': 0, 'extra': [], 'controller': -1, 'flags': FLAGS,
+def _multi_bound_node(name: int, children: list, bound: int) -> bytes:
+    """A BSMultiBoundNode named string `name` holding `children`, its multi-bound `bound`, culling 1."""
+    head = F.BLOCKS['NiNode'][1]({'name': name, 'extra': [], 'controller': -1, 'flags': FLAGS,
                                   'translation': (0.0, 0.0, 0.0), 'rotation': (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0),
-                                  'scale': 1.0, 'collision': -1, 'children': [child]})
+                                  'scale': 1.0, 'collision': -1, 'children': children})
     return head + struct.pack('<iI', bound, 1)
 
 
+def _shape(name: int, local: np.ndarray, tris: np.ndarray, level: int, shader: int, vertices: tuple) -> dict:
+    """A tile BSTriShape's fields: (vertex layout, vertex dicts) `vertices` at `local` positions (tile units)
+    scaled by `level`."""
+    lo, hi = local.min(axis=0), local.max(axis=0)
+    return {'name': name, 'extra': [], 'controller': -1, 'flags': FLAGS, 'translation': (0.0, 0.0, 0.0),
+            'rotation': (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), 'scale': float(level), 'collision': -1,
+            'bound': (*(lo + hi) / 2, float(np.linalg.norm((hi - lo) / 2))), 'skin': -1, 'shader': shader,
+            'alpha_property': -1, 'vertex_desc': vertices[0], 'triangles': [tuple(map(int, t)) for t in tris],
+            'vertices': vertices[1]}
+
+
+def _aabb(local: np.ndarray, level: int) -> bytes:
+    """A BSMultiBoundAABB of `local` positions at `level`, in world units."""
+    lo, hi = local.min(axis=0), local.max(axis=0)
+    return struct.pack('<6f', *((lo + hi) / 2 * level), *((hi - lo) / 2 * level))
+
+
+def by_cell(local: np.ndarray, tris: np.ndarray, level: int) -> tuple:
+    """(`tris` ordered by segment, triangles per segment): one per cell (module notes).
+    See: docs/fork/fo4_pipeline.md#distant-water
+    """
+    cell = np.clip(local[tris].mean(axis=1)[:, :2] * level // 4096, 0, SEGMENT_CELLS - 1).astype(int)
+    segment = cell[:, 0] * SEGMENT_CELLS + cell[:, 1]
+    return tris[np.argsort(segment, kind='stable')], np.bincount(segment, minlength=SEGMENT_CELLS ** 2)
+
+
+def segments(counts: np.ndarray) -> bytes:
+    """A BSSubIndexTriShape trailer of segments of `counts` triangles; an empty one starts at 0.
+    See: docs/fork/fo4_pipeline.md#distant-water
+    """
+    starts = np.concatenate([[0], np.cumsum(counts)[:-1]]) * 3
+    out = struct.pack('<3I', int(counts.sum()), len(counts), len(counts))
+    return out + b''.join(struct.pack('<4I', int(s) if n else 0, int(n), NO_PARENT, 0) for s, n in zip(starts, counts))
+
+
+def _water_blocks(data, level: int, first: int) -> list:
+    """The WATER node's blocks (node, shape, effect shader, multi-bound, AABB) of FNV tile `data`, the node at
+    block `first`; [] when the tile has no water. Level 4's shape is cut into segments by cell."""
+    pos, tris = water_shape(data)
+    local, tris = tile_units(pos, tris, level)
+    if not len(tris):
+        return []
+    used, tris = np.unique(tris, return_inverse=True)
+    local, tris = local[used], tris.reshape(-1, 3)
+    if level == MIN_LEVEL:
+        tris, counts = by_cell(local, tris, level)
+    fields = _shape(2, local, tris, level, first + 2, (WATER_DESC, [{'position': tuple(p), 'bitangent_x': 0}
+                                                                    for p in local]))
+    shape = ('BSSubIndexTriShape', pack_tri_shape(fields) + segments(counts)) if level == MIN_LEVEL \
+        else ('BSTriShape', fields)
+    return [('BSMultiBoundNode', _multi_bound_node(3, [first + 1], first + 3)), shape,
+            ('BSEffectShaderProperty', dict(WATER_SHADER)), ('BSMultiBound', struct.pack('<i', first + 4)),
+            ('BSMultiBoundAABB', _aabb(local, level))]
+
+
 def btr(path: Path, level: int, textures: tuple) -> bytes:
-    """The .btr of the FNV tile at `path` of `level`, textured by (diffuse, normal) Data paths."""
-    pos, uv, tris = land_shape(path)
+    """The .btr of the FNV tile at `path` of `level`, textured by (diffuse, normal) Data paths: the land, then the
+    WATER node when the tile has water, in vanilla's block order."""
+    data = read_tile(path)
+    pos, uv, tris = land_shape(data)
     local, tris = tile_units(pos, without_skirts(pos, tris), level)
     uv = 1 - uv
-    lo, hi = local.min(axis=0), local.max(axis=0)
-    centre, half = (lo + hi) / 2, (hi - lo) / 2
-    nif = F.NifFile(strings=['chunk', 'Land', ''])
-    shape = {'name': 1, 'extra': [], 'controller': -1, 'flags': FLAGS, 'translation': (0.0, 0.0, 0.0),
-             'rotation': (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), 'scale': float(level), 'collision': -1,
-             'bound': (*centre, float(np.linalg.norm(half))), 'skin': -1, 'shader': 2, 'alpha_property': -1,
-             'vertex_desc': VERTEX_DESC, 'triangles': [tuple(map(int, t)) for t in tris],
-             'vertices': [{'position': tuple(p), 'bitangent_x': 0, 'uv': tuple(t)} for p, t in zip(local, uv)]}
-    nif.blocks = [('BSMultiBoundNode', _multi_bound_node(1, 4)), ('BSTriShape', shape),
+    water = _water_blocks(data, level, 4)
+    nif = F.NifFile(strings=['chunk', 'Land', ''] + ['WATER'] * bool(water))
+    land = _shape(1, local, tris, level, 2, (VERTEX_DESC, [{'position': tuple(p), 'bitangent_x': 0, 'uv': tuple(t)}
+                                                           for p, t in zip(local, uv)]))
+    bound = 4 + len(water)
+    nif.blocks = [('BSMultiBoundNode', _multi_bound_node(0, [1] + [4] * bool(water), bound)), ('BSTriShape', land),
                   ('BSLightingShaderProperty', {**SHADER, 'shader_type': SHADER_LOD_LAND, 'name': 2, 'texture_set': 3,
                                                 'root_material': 2}),
-                  ('BSShaderTextureSet', {'textures': [*textures] + [''] * 8}),
-                  ('BSMultiBound', struct.pack('<i', 5)),
-                  ('BSMultiBoundAABB', struct.pack('<6f', *(centre * level), *(half * level)))]
+                  ('BSShaderTextureSet', {'textures': [*textures] + [''] * 8}), *water,
+                  ('BSMultiBound', struct.pack('<i', bound + 1)), ('BSMultiBoundAABB', _aabb(local, level))]
     return F.write(nif)
 
 

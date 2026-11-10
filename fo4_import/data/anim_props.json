@@ -1,0 +1,82 @@
+{
+  "_about": "FNV animated objects (ANIO model path, lowercase) played as a vanilla Fallout4.esm one: its EditorID, the FO4 prop bone its mesh hangs from (on the same hand as the FNV mesh's), a vanilla clip holding that bone as vanilla does (read at the frame it draws the object), the object's own events at the clip's start, and FNV text keys turned into its events. tools/creature/vanilla_anim_props.py lists the candidates. See docs/fork/fo4_idles.md#props.",
+  "props": {
+    "animobjects\\aocigarette.nif": {
+      "object": "AnimObjectCigarette",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\MT\\Neutral\\Smoking\\PoseA_Idle1.hkx",
+      "start": ["cigOn"],
+      "keys": {"Sound: NPCIdleSmokingIn": "cigDrag"}
+    },
+    "animobjects\\benny_cigarette.nif": {
+      "object": "AnimObjectCigarette",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\MT\\Neutral\\Smoking\\PoseA_Idle1.hkx",
+      "start": ["cigOn"],
+      "keys": {}
+    },
+    "animobjects\\repairtool01.nif": {
+      "object": "AnimObjectWrench",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\Furniture\\FixFurniture\\Kneel_Wrench_Horizontal\\PoseA_Idle1.hkx",
+      "start": [],
+      "keys": {}
+    },
+    "animobjects\\aosyringe.nif": {
+      "object": "AnimObjectMedX",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\Furniture\\DoctorUseSyringe\\Activate.hkx",
+      "start": [],
+      "keys": {}
+    },
+    "animobjects\\stempax.nif": {
+      "object": "AnimObjectStimpak",
+      "bone": "AnimObjectL1",
+      "hold": "Actors\\Character\\Animations\\Common\\UseStimpackOnSelf.hkx",
+      "start": [],
+      "keys": {}
+    },
+    "animobjects\\aoscientistclipboard.nif": {
+      "object": "AnimObjectClipboardLeftHand",
+      "bone": "AnimObjectL1",
+      "hold": "Actors\\Character\\Animations\\Furniture\\ClipboardWithPen\\EnterFromStand.hkx",
+      "start": [],
+      "keys": {}
+    },
+    "animobjects\\aoexampencil.nif": {
+      "object": "AnimObjectPencil",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\Furniture\\SchoolDesk\\PoseA_IdleFlavor5.hkx",
+      "start": [],
+      "keys": {}
+    },
+    "animobjects\\aochalk.nif": {
+      "object": "AnimObjectChalk",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\Furniture\\KidSittingChalkDrawing\\PoseA_IdleFlavor2.hkx",
+      "start": [],
+      "keys": {}
+    },
+    "animobjects\\aobardishrag.nif": {
+      "object": "AnimObjectDishRag",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\Furniture\\BarShopKeep\\Neutral\\PoseA_IdleFlavor1.hkx",
+      "start": [],
+      "keys": {}
+    },
+    "animobjects\\barkeeprag.nif": {
+      "object": "AnimObjectDishRag",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\Furniture\\BarShopKeep\\Neutral\\PoseA_IdleFlavor1.hkx",
+      "start": [],
+      "keys": {}
+    },
+    "animobjects\\sandmanknife.nif": {
+      "object": "AnimObjectSandmanKnife",
+      "bone": "AnimObjectR1",
+      "hold": "Actors\\Character\\Animations\\Furniture\\Butcher\\PoseA_Idle1.hkx",
+      "start": [],
+      "keys": {}
+    }
+  }
+}

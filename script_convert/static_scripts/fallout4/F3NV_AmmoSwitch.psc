@@ -82,7 +82,7 @@ Function GatherList(Form akList)
       While m < rows.Starts[g + 1]
         If Rounds.Length >= MaxRounds
           Debug.Trace("TES4AmmoSwitch|over " + MaxRounds + " rounds; " + rows.Rounds[m] + " left out")
-        ElseIf Rounds.Find(rows.Rounds[m], Starts[Starts.Length - 1]) < 0
+        ElseIf Starts[Starts.Length - 1] >= Rounds.Length || Rounds.Find(rows.Rounds[m], Starts[Starts.Length - 1]) < 0
           Rounds.Add(rows.Rounds[m])
           Mods.Add(rows.Mods[m])
           Loaded.Add(rows.Loaded[m])

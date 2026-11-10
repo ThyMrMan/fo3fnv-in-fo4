@@ -17,6 +17,8 @@ See: docs/fork/fo4_pipeline.md#exterior-navmesh
 import math
 import struct
 
+import numpy as np
+
 from fo4_import.base.writer import pack_fo4_record
 from tes5_import.base.tes5_reader import first_sub, walk
 from tes5_import.base.text_reader import get_hex_bytes
@@ -34,6 +36,12 @@ FNV_TRIANGLE = struct.Struct('<3H3hHH')
 FO4_TRIANGLE = struct.Struct('<3H3hfBHH')
 #: Clearance of a triangle with nothing above it, as vanilla writes it.
 NO_CEILING = struct.unpack('<f', b'\xff\xff\x7f\x7f')[0]
+#: Rise above a triangle's center at which an overlapping triangle is another floor, not a step.
+NEXT_FLOOR = 128.0
+#: What a Height leaves under the floor above: vanilla's Height falls short of it by 65 to 75 at the median.
+FLOOR_GAP = 64.0
+#: Triangles whose centers are tested against every triangle of their cell at once.
+CHUNK = 128
 #: Triangle flag bits marking an edge that holds an edge-link index (edges 0-1, 1-2, 2-0).
 EDGE_LINK_BITS = (0x1, 0x2, 0x4)
 #: FNV door link (NVDP): door reference, triangle.
@@ -125,12 +133,36 @@ def _grid(verts: list, tris: list) -> bytes:
     return out
 
 
-def pack_nvnm(pathing: tuple, verts: list, tris: list, links: list, doors: list) -> bytes:
-    """An NVNM in pathing cell `pathing` (world, parent): vertices, triangles, FO4 edge links, `doors`
-    [(triangle, door)], no cover or waypoints."""
+def heights(meshes: list) -> list:
+    """Each triangle's Height for navmeshes `meshes` [(vertices, triangles)] of one cell: the rise to the
+    lowest other floor over its center less FLOOR_GAP, NO_CEILING with none.
+    See: docs/fork/fo4_pipeline.md#navmesh-height
+    """
+    corners = np.concatenate([np.asarray(v, float)[np.asarray([t[:3] for t in tris])] for v, tris in meshes])
+    centers, out = corners.mean(1), np.full(len(corners), NO_CEILING)
+    for start in range(0, len(corners), CHUNK):
+        center = centers[start:start + CHUNK]
+        rise = centers[None, :, 2] - center[:, None, 2]
+        over = _covers(center, corners) & (rise > NEXT_FLOOR)
+        rise = np.where(over, rise, np.inf).min(1)
+        out[start:start + CHUNK] = np.where(np.isfinite(rise), rise - FLOOR_GAP, NO_CEILING)
+    return np.split(out, np.cumsum([len(tris) for _, tris in meshes])[:-1])
+
+
+def _covers(points: np.ndarray, corners: np.ndarray) -> np.ndarray:
+    """[point, triangle] True where triangle `corners` covers the point in x, y."""
+    sides = [(points[:, None, 0] - b[None, :, 0]) * (a[None, :, 1] - b[None, :, 1])
+             - (a[None, :, 0] - b[None, :, 0]) * (points[:, None, 1] - b[None, :, 1])
+             for a, b in ((corners[:, i], corners[:, (i + 1) % 3]) for i in range(3))]
+    return np.logical_and.reduce([s >= 0 for s in sides]) | np.logical_and.reduce([s <= 0 for s in sides])
+
+
+def pack_nvnm(pathing: tuple, verts: list, tris: list, links: list, doors: list, height: list) -> bytes:
+    """An NVNM in pathing cell `pathing` (world, parent): vertices, triangles with their `height`, FO4 edge
+    links, `doors` [(triangle, door)], no cover or waypoints."""
     out = struct.pack('<4I', NVNM_VERSION, PATHING_CELL_CRC, *pathing)
     out += struct.pack('<I', len(verts)) + b''.join(struct.pack('<3f', *v) for v in verts)
-    out += struct.pack('<I', len(tris)) + b''.join(FO4_TRIANGLE.pack(*t[:6], NO_CEILING, 0, *t[6:]) for t in tris)
+    out += struct.pack('<I', len(tris)) + b''.join(FO4_TRIANGLE.pack(*t[:6], h, 0, *t[6:]) for t, h in zip(tris, height))
     out += struct.pack('<I', len(links)) + b''.join(FO4_EDGE.pack(*link) for link in links)
     out += struct.pack('<I', len(doors)) + b''.join(struct.pack('<hII', t, PATHING_DOOR_CRC, d) for t, d in doors)
     return out + struct.pack('<3I', 0, 0, 0) + _grid(verts, tris)
@@ -145,12 +177,16 @@ def navmeshes(recs: list, pathing: dict, ids: dict, fid_of) -> tuple:
     """
     recs = {r['FormID']: r for r in recs}
     meshes = linked({fid: m for fid, m in ((fid, read(r)) for fid, r in recs.items()) if m[0] and m[1]})
-    records, infos, at_door = {}, b'', {}
+    records, infos, at_door, cells = {}, b'', {}, {}
+    for fnv in meshes:
+        cells.setdefault(recs[fnv]['DATA.Cell'], []).append(fnv)
+    height = {fnv: h for group in cells.values()
+              for fnv, h in zip(group, heights([meshes[fnv][:2] for fnv in group]))}
     for fnv, (verts, tris, links) in meshes.items():
         rec, fid = recs[fnv], fid_of(fnv)
         cell, doors = pathing[rec['DATA.Cell']], door_links(get_hex_bytes(rec, 'NVDP'), ids)
         fo4_links = [(kind, fid_of(other), tri, edge) for kind, other, tri, edge in links]
-        nvnm = pack_nvnm(cell, verts, tris, fo4_links, doors)
+        nvnm = pack_nvnm(cell, verts, tris, fo4_links, doors, height[fnv])
         for tri, door in doors:
             at_door.setdefault(door, (fid, tri))
         records[rec['DATA.Cell']] = records.get(rec['DATA.Cell'], b'') + pack_fo4_record(

@@ -9,6 +9,8 @@ also removes the folders that leaves empty; MO2's meta.ini is never touched. Ref
 the build's stamp (<plugin>.build.json) says running or failed; deleting also needs a finished stamp. With
 --plugin (a DLC build in its own folder), a file under the folders its list covers (stale_files.roots) counts as
 built only when <plugin>.files.txt names it, so a file an earlier build left there is neither copied nor kept.
+A loose build file that an archive at the top of the build folder holds (the meshes and materials in
+`<plugin> - Main.ba2`) is not copied, and the mod folder's copy is deleted on every run: loose wins over archived.
 A deploy also clears the F3NV - Hotfix mod's scripts (fo4_hotfix) of each plugin whose build began after them.
 
 See: docs/reference/python_tools.md#fo4-deploy
@@ -24,6 +26,7 @@ import sys
 import time
 from pathlib import Path
 
+from fo4_import.base.ba2 import Archive
 from fo4_import.pipeline import stale_files
 from fo4_import.pipeline.build_inputs import RECORD_SUFFIX, SUFFIX
 from fo4_import.pipeline.build_steps import STAMP_SUFFIX
@@ -98,6 +101,27 @@ def shipped(files: dict) -> dict:
         top = key.split('/', 1)[0]
         return top.endswith(RECORD_SUFFIX) and top != key or top == key and key.endswith(SUFFIX)
     return {key: entry for key, entry in files.items() if not record(key)}
+
+
+def archived(build_dir: Path) -> set:
+    """The lowercase '/'-separated paths the archives at the top of `build_dir` hold."""
+    return {name.replace(chr(92), '/') for path in build_dir.glob('*.ba2') for name in Archive(path).entries}
+
+
+def remove_shadowing(args: argparse.Namespace, mod: dict, packed: set) -> None:
+    """Delete (unless --dry-run) the mod folder's loose copies of `packed` files: a loose file wins over an
+    archive, so an old one would hide the archived file. They leave `mod`.
+    See: docs/fork/fo4_pipeline.md#main-archive
+    """
+    shadowing = sorted(key for key in mod if key in packed)
+    print(f'{len(shadowing)} loose files in the mod folder that the archives hold'
+          f'{": would delete" if args.dry_run else ": deleting"} ({sum(mod[k][1] for k in shadowing) / 1e6:.1f} MB)')
+    for key in shadowing:
+        if not args.dry_run:
+            mod[key][0].unlink()
+        del mod[key]
+    if shadowing and not args.dry_run:
+        print(f'removed {remove_empty_dirs(args.mod)} empty folders')
 
 
 def listed_only(build_dir: Path, build: dict, plugin: str) -> tuple:
@@ -218,7 +242,8 @@ def report_stale(args: argparse.Namespace, mod: dict, stale: list) -> None:
 
 
 def main(argv=None) -> int:
-    """Check, copy what changed, then list (and with --delete-stale delete) the stale files."""
+    """Check, copy what changed (loose files the build's archives hold stay behind), delete the mod folder's loose
+    copies of those, then list (and with --delete-stale delete) the stale files."""
     args = parse(argv)
     why = refusal(args)
     if why:
@@ -227,13 +252,16 @@ def main(argv=None) -> int:
     if args.plugin:
         build, unlisted = listed_only(args.build, build, args.plugin)
         print(f'{unlisted} build files under its listed folders that {args.plugin}.files.txt does not name: left out')
-    copy, stale = plan(build, mod)
+    packed = archived(args.build)
+    build = {key: entry for key, entry in build.items() if key not in packed}
+    copy = plan(build, mod)[0]
     print(f'{len(build)} build files, {len(mod)} in the mod folder; {"would copy" if args.dry_run else "copying"} '
           f'{len(copy)} ({sum(build[k][1] for k in copy) / 1e6:.1f} MB)')
     if not args.dry_run:
         copy_files(args, build, mod, copy)
         clear_built_hotfixes(args)
-    report_stale(args, mod, stale)
+    remove_shadowing(args, mod, packed)
+    report_stale(args, mod, plan(build, mod)[1])
     return 0
 
 

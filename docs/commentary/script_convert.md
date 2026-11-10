@@ -6555,6 +6555,23 @@ build's leftovers once. A name two plugins both write is reported; the one
 converted last wins, as `Data\Scripts` would resolve it.
 (`script_convert/ownership.py`)
 
+**In a shared folder an unchanged source is not rewritten.** Deleting the
+plugin's sources first and writing them all again gave every `.psc` a new
+time on every conversion (the Fallout 4 game build: 17,440 files for 59
+changed), so every size-and-time stamp kept of them missed and their first
+read was slow (17,507 fresh files hash in 68 s, 1.4 s after). The start of
+a run now removes only the plugin's old `.pex`; `write_psc` leaves a file
+that already holds the same bytes; and the run's end
+(`pipeline._record_ownership`) deletes the sources the last list named that
+this run did not write and no sibling claims. The folder ends as before:
+the plugin's sources are exactly what the run wrote. Nothing reads a
+source's time as "written this run": the Fallout 4 build's input record
+matches by time or SHA-1 (`build_plan.same_file`), and both compile steps
+go by content or by the owned list. A run that stops midway leaves the old
+sources until the next one. A script the later passes edit
+(`finish_udf_calls`) is rewritten each run, as its file differs from what
+`write_psc` is given. An unshared folder is still wiped whole.
+
 A directory another process holds open (an Explorer window or a shell sitting
 in `scripts/source`) empties but cannot be removed: Windows refuses the final
 `rmdir` with WinError 32. The wipe keeps that empty directory rather than
@@ -6585,6 +6602,84 @@ master's fresh copy on the compile header path (Translation.esp's Aug-1
 TES4Polyfill had no ReleaseBreakaway, so every script calling it failed to
 compile), and the stale `.pex` ships under the same script name as the
 master's.
+
+### <a id="master-ids-rekeyed"></a>A master's FormIDs are restated in the plugin's numbering
+
+**Code:** `script_convert/cross_ref.py` (`_master_rekeys`, `_rekey_scan`,
+`CrossRefGraph._merge_scans`), `core/plugin_masters.py` (`chain_index_maps`);
+test `tests/test_script_master_ids.py`.
+
+An override plugin's own export holds only the records it authors, so every
+EditorID it merely references (a master's GLOBs, quests and refs) is absent
+from it, and the name would be emitted as a bare identifier the compiler
+rejects (`undefined identifier SetGewitter`). `load_from_export` therefore
+scans the masters' exports too, transitively and masters first, and merges
+them into one graph, last wins, so a plugin's own version of a record is the
+one reported. The scan is line matching over about 2 GB of text, split into
+record-aligned byte ranges across a process pool.
+
+Each export states FormIDs in its own plugin's numbering
+([pipeline.md](../reference/pipeline.md#master-index-maps)), and every FNV DLC
+numbers its own records `01`. Merged as they were, a mod that lists several
+DLCs got one table in which the DLCs overwrote each other, and in which the
+mod's own override of a DLC record (`03009D49` in a mod listing Old World
+Blues fourth) sat beside the DLC's copy (`01009D49`) instead of replacing it.
+The lookups then answered for the wrong record:
+
+| Lookup | What the mod's script got |
+|---|---|
+| `record_scri` of an overridden quest names `03009D4C`; the script is known as `01009D4C` | property typed `Quest`, so its script variables are unresolved identifiers |
+| `record_type` of a DLC potion or global, overwritten by a later DLC's placed reference | `ObjectReference` property; `set Global to` becomes an assignment (`No implicit conversion from 'int' to 'ObjectReference'`, `cannot assign to the const property`) |
+| `record_scri`/`record_type` of the actor a script hangs on | `extends ObjectReference`, so `OnDeath` is a new event |
+| a name whose record now reads as a STAT | no property at all (`Unresolved identifier`) |
+
+Each master's scan result is now moved into the plugin's numbering before the
+merge: keys, and the id fields a record carries (SCRI, NAME, the package list,
+a cell's worldspace, a magic effect's shaders), because the graph chains them.
+A master numbered the same way as the plugin (the game, or a DLC seen from a
+plugin whose only masters are the game and that DLC) is not touched, so the
+game's and the DLCs' own conversions take the same path as before. The
+importer's hand-built graph already re-keys
+([Phase 0](tes5_import_pipeline.md#phase-0-xref-mirrors-cli-scan)); the CLI
+scan did not.
+
+Measured 2026-11-10 with Caprica on the mods' own sources. The bug was hidden
+until then because Bethesda's compiler found the master's same-named `.psc`
+first on the import path and compiled that.
+
+| | Before | After |
+|---|---|---|
+| Records typed in YUP's graph | 522,379 | 587,755 |
+| AguaFria.esm: used scripts failing (of 11) | 5 | 0 |
+| YUP - Base Game + All DLC.esm: used scripts failing | 98 | 12 |
+| YUP converted `.psc` that changed | | 176 of 4,624 |
+| DeadMoney.esm converted `.psc` that changed | | 0 of 1,405 |
+| Graph build for YUP (five masters) | 2.4 s | 2.4 s |
+
+YUP's counts are its whole staged set (3,665 scripts) compiled as one batch,
+the masters' sources after it on the import path. Of the 98, 87 overrode a
+script a master also has; 81 of those now compile. The 12 left:
+
+- **Two read a master's copy of a script YUP overrides.** `VPitFighterDeath`
+  (`fApplause`) and `TIF__010103DF` (`bAutodocScars`) name a variable YUP adds
+  to `VPitFightScript` / `NVDLC01ChristineDialogueScript`. YUP's copy declares
+  the property; the compiler resolved the type to the master's same-named
+  source. Each compiles when YUP's copy of the script it calls is in the same
+  batch. This is the import-order problem, not a conversion one.
+- **Ten are conversion gaps of other kinds:** `GoodspringsRadioScript` and two
+  package fragments (`d15F316`, `d10F57E`: references with no EditorID),
+  `TM__01013B31` (`TES4_AnimPlaying`), `PM__00177BD8` (`GetParentCell` on a
+  package fragment), `NVDLC03StripeWildWastel_9C1E` (a string into an
+  `ObjectReference`), and four `*FatigueOnCrit*` effect scripts (`Cannot
+  convert from` the script to `Actor`).
+
+**Still master-blind, not fixed:** the per-run plans `build_script_context`
+derives from `by_type` (quest-variable mirror globals, atomic adds, the button
+MessageBox plan) read the plugin's own records only. Of YUP's 4,283 scripts
+that share a name with a master's copy, 1,074 lack a `TES4QVar_*`, `TES4Add_*`
+or `TES4_TakeMsgButton` use the master's copy has (`GoodspringsRadioScript`
+reads `Button = -1` where the game's copy calls `TES4_TakeMsgButton()`). These
+compile; whether each one changes behavior is not checked.
 
 ## <a id="quest-fragments"></a>Quest-stage fragment scripts
 

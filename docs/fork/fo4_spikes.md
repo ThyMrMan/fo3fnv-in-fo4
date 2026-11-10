@@ -747,7 +747,13 @@ property or custom event recompiles only the users that also name it
 (removing those two reached 16,959 scripts before); a changed header,
 import or struct line reaches every user. Each compiled script's old
 `.pex` is deleted first: before, a script that stopped compiling still
-counted as compiled through the `.pex` an earlier run left.
+counted as compiled through the `.pex` an earlier run left. The scripts'
+own folder leads the import list; the state's `imports` text keeps the
+older order (own folder last) so earlier results still load, and
+`own_first` marks a state made under the new one
+([own source first](fo4_pipeline.md#own-source-first)). A script's saved
+errors are FO4's compiler's or, for a source error Caprica found,
+Caprica's ([whose failure](fo4_pipeline.md#caprica-errors)).
 
 **First full run (2026-10-05):** 19,552 scripts converted with 0 errors
 (17,697 files); **16,640 compile (94.0%)**. All 1,057 failures are their own
@@ -1623,7 +1629,13 @@ with no topic (FNV: the GREETING), force-greets at the exit marker.
     (VES01VictorGSMyBodyguard) loops menu to menu. Each menu's third choice
     is "Goodbye.", a topic with no line, so FNV shows two options and the
     player leaves by Tab; on FO4 the player was held in until walking off.
-    Doc's farewell still ends in a Goodbye, so it stays held.
+    Doc's farewell still ends in a Goodbye, so it stays held. A build with
+    masters (a DLC, a mod) judges this on the whole conversation: its own
+    lines plus the masters' lines it does not write (`Hub.outside`,
+    `conversation.outside_lines`, read only by `_leaves`). Judged on its
+    own lines alone, a menu whose answers are all the game's reached
+    nothing and kept `[Leave]`: YUP got it on 682 menus, 0 with the
+    masters' lines ([DLC dialogue](fo4_plugin_layout.md#dlc-dialogue)).
   - **Starting a scene at a phase needs INTV.** Played: from Bandit's menu
     "Light." came with Bandit's answers again, then "Light." and the right
     ones; "First one. Conflict..." was said twice. Every jump had started
@@ -2194,7 +2206,7 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
     Materials\\Landscape\\Grass, 26 set subsurface lighting and 22 a
     backlight power, the commonest setting (6) subsurface rolloff 4.0 and
     backlight 12.5. A TallGrassShaderProperty shape (every FNV grass mesh,
-    17 of 17) now takes that (`convert_static.GRASS_LIGHTING`). Vanilla
+    17 of 17) now takes that (`convert_static.GRASS_MATERIAL`). Vanilla
     grass also sways through Tree_Anim and vertex alpha; FNV's sway is
     still not carried.
 - **Steps.** The saloon's front step is `WoodSteps01NV`: FNV material 0
@@ -2620,8 +2632,9 @@ distinct part lists, nightkin included) on
   flamers hold like the minigun, submachine guns like the assault rifle, the
   Fat Man like the missile launcher, `Anims2hmWeapon` like the sledge). Run
   against the built plugin, 15 of the 18 are now covered (560 entries); the
-  frag mine and dynamite are thrown, and the Multiplas rifle has no Anims
-  keyword ([drift](fo4_drift.md#recorded)).
+  frag mine and dynamite are thrown, and the Multiplas rifle's grip keyword
+  (its own over `AnimsPlasmaRifle`) had no class, mapped since 2026-11-08 with
+  pistols ([super mutants](fo4_build_next.md#super-mutants), [drift](fo4_drift.md#recorded)).
 - **Played 2026-11-01 (13:25 build): hands and grip need FO4's body.**
   Nightkin now fire their guns (the additive race works). Their hands
   stretch and don't grip. Skinned under FO4's own super mutant rifle clips
@@ -2747,6 +2760,37 @@ distinct part lists, nightkin included) on
     sentry bots; FO4's robot skeleton has no `bhkRagdollSystem`);
   - no pose in FNV: 22.
   The build counts each as `ragdoll pose written` / `left out: <why>`.
+  <a id="creature-poses"></a>**Brahmin and mole rats (built 2026-11-06, not
+  played):** FO4's brahmin and mole rat skeletons get their own tables
+  (`BRAHMIN`, `MOLERAT`), as the feral ghoul's: FNV's spine, two necks and
+  heads (`Bip01 HeadL` is `LHead`), legs (the mole rat's arms are its front
+  legs), tail and sack by name. They find a source for 33 of the brahmin's 39
+  bodies (the ears and each third neck bone stay at rest) and all 20 of the
+  mole rat's, so FNV's 37 brahmin and 13 mole rat corpses take their pose.
+  Measured on 8 of them: the mole rats' lowest joint sits within 7 units of
+  FNV's below the root; the brahmin's 20 to 30 lower, partly because FO4's
+  brahmin has a toe body below the foot that FNV's lacks. To check in game:
+  whether a dead brahmin sinks into the ground. Deathclaws, the gecko,
+  radroach, eyebot, mirelurk king and radscorpion (one or two each) stay
+  out.
+  <a id="fallback-pose"></a>**No FNV pose: a vanilla corpse's (2026-11-08, not
+  built):** FNV gives 22 dead actors no XRGD (the Freeside vagrant
+  `VMS49VagrantREF` stood in an A-pose). Each now takes the XRGD and XRGB
+  of Fallout4.esm's flattest posed Starts Dead corpse on the same FO4
+  skeleton: placed upright (DATA x and y angles 0), entries in the
+  skeleton's part order, least height between its highest and lowest body
+  (human `00043F3B`, 10 units; brahmin `0007815B`, 43.5). XRGD is in the
+  reference's own space (the root entry's position is its rest offset: median
+  0 over the 1,090, against a median 32,276 units from the corpse's DATA), so
+  the copy lies at the new reference's place and heading unchanged. 18 of the
+  22 get one (16 human, 2 brahmin); a protectron (no FO4 ragdoll) and three
+  ED-E eyebots (no vanilla eyebot corpse) stay out. Counted as
+  `ragdoll pose written (fallback)`.
+  Fallout4.esm's 98 Starts Dead actors without XRGD differ from the vagrant:
+  26 stand on ragdoll-less turret and robot skeletons, 83 are leveled
+  `Lvl*` bases (with XLCM), and the 6 persistent ones are all turrets or
+  protectrons. No vanilla persistent corpse on a ragdolled skeleton lacks a
+  pose; 14 of the 16 FNV humans here are persistent.
 - FO4's animations, not FNV's; FNV's armor is its own addon over FO4's body
   (slots 33 and 61, above).
 
@@ -3077,6 +3121,20 @@ per sex. Pre-War Casualwear was played first (2026-10-08), then the rest
     nearest (`_seams`); the male neck pairs with none, the female body's
     neck edge still pairs with FO4's. After: longest edges 4.8 (leather)
     and 4.2 (settler 02).
+  - *Whole skin loops (fixed 2026-11-09, not built: Jacklyn's neck, 1108d).*
+    Some female outfits cut their neck skin off FNV's body edge: the Raider
+    Badlands armor's `Arms01` neck rim sits a median 1.0 (max 1.34) from
+    it, so 4 of its 24 vertices snapped and the rest stayed up to 2.4 off
+    FO4's neck edge, a jagged rim crossing in and out of FO4's head neck
+    (skin on body texture against the head's face texture). A skin shape's
+    open loop wholly within 2.0 (LOOP_REACH) of an FNV body edge now moves
+    whole; that rim then lies within 0.004 of FO4's neck edge. Census of
+    FalloutNV.esm's upper-body outfits: 16 skin loops change (6 female
+    necks, among them `ArmorRaider03`, `ArmorMetal`, Legion, Great Khan and
+    Powder Ganger battle armors; 9 female wrists, 8 of them partly snapped
+    before and Raider 04's not at all; BirthSkirt's male wrist). Cloth keeps the per-vertex rule (collars sit near the
+    neck). Male necks still have no seam (FNV's male body has no neck edge);
+    their skin rims sit 0.82 from FO4's, tucked inside the head's neck.
 - **Weights:** FO4's body's at each vertex's nearest surface point
   (barycentric), the four largest, normalized. Each shape's skin instance
   lists the body bones it uses; their bind data is the body's, with
@@ -3868,6 +3926,35 @@ baked). Re-exported with X64, the region's 167 FaceGeom NIFs hold 7 cloth
 hairs (HairFemale04 ×4, HairFemale01 ×3, all women), all 8-byte. Each one's
 packfile is byte for byte the hair mesh's own. HairFemale13 has no cloth.
 
+<a id="hair-styles"></a>**Hair by name, then style (2026-11-07).** Coverage
+alone lost Sgt Kilborn's crop: FNV's HairAfricanAmericanBase is a solid
+short crop, and coverage picked HairMale17, a shaved stubble. Both games name
+their hairs (FNV HAIR FULL, FO4 HDPT FULL as a Fallout4.esm string), and many
+FO4 names are Fallout 3's, which FNV keeps. `fo4_import/face/hair_styles.py`
+narrows the candidates before coverage picks:
+
+1. **Name.** An FO4 hair of the NPC's sex whose name equals the FNV hair's
+   (lower case, letters and digits only). Male and female hairs can share a
+   name (Blast Back), so the sex filter comes first. Checked side by side on
+   the FO4 head: Warhawk, Blast Back, Pompadour, Bedraggled, Balding, Shaggy
+   Suave, Waster, Combover; female Wendy the Welder, No Nonsense, Unladylike,
+   Rude Ridge, Fairy Tails, Frazzled, Rough Nite, The Sophisticate.
+2. **Style.** `fo4_import/data/hair_styles.json` maps each FNV hair with no
+   name match (by EditorID) to a group of FO4 hairs drawn in its style,
+   grouped by eye from front and side renders of both games' hairs on the FO4
+   head. FO4's Megaton and Hornet's Nest render oddly there and are in no
+   group.
+3. **Coverage** over every hair of the sex, as before, for a hair in neither.
+
+Over the 2,670 FNV NPCs with a hair: 732 by name, 1,870 by style, 68 by
+coverage alone (children's and ghouls' hairs, and NPCs wearing the other
+sex's hair). Buzz Saw (527) and Buzz Cut (219, Kilborn's) became Short Crop,
+The Unsettler Bedraggled, Clean Cut Heavyweight, Tunnel Snake Rebel.
+
+Coverage still picks within a name match (one hair) or a group. The hair
+choice is part of the face fit's code tag, so a change here makes the
+published `face_fits.json.gz` stale until it is re-exported.
+
 ### <a id="spike-2-imagespace"></a>Imagespace: FNV's colour grading and tone (played 2026-10-06)
 
 The cell used QASmoke's imagespace, so its colour and tone were FO4's.
@@ -3924,6 +4011,10 @@ middle grey / fo4_display(middle grey)^2.2 = 0.18 / 0.393^2.2 = 1.40. With the
 LUT, FO4 then shows exposed colour c as c^(1/2.2), FNV's display, at every
 level (0.01 / 0.05 / 0.18 / 0.5 → 0.123 / 0.256 / 0.459 / 0.730 on both).
 Cells without an FNV imagespace keep QASmoke's.
+
+**Superseded 2026-11-09:** the LUT no longer carries FNV's curve; FO4's
+curve and bloom act, with exposure pinned at 1.46 so middle grey still
+shows where FNV shows it ([tone](fo4_look.md#route-tone)).
 
 ## <a id="scene-census"></a>Scripted sequences as FO4 scenes (census 2026-10-07)
 
@@ -4081,7 +4172,7 @@ vanilla behaviour graphs parse; 15,320 animations rebuild byte for byte;
 add, remove and rename edits go through its native writer). Not covered:
 ragdoll physics (its physics tab is a preview and writes no HKX physics),
 skeleton-mapper write-back (unfinished; its mapper math is documented in
-`docs/skeleton-mapping-authoring.md`), and bone-index edits in skeletons
+BGS's `skeleton-mapping-authoring.md`), and bone-index edits in skeletons
 that hold physics or mapper data. The route, when option 3 resumes: a
 Python Havok 2014 reader and writer built on its class tables (with the
 MIT notices), proved by rebuilding every vanilla behaviour byte for byte,

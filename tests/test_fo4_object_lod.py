@@ -2,11 +2,13 @@
 pass's input, the far mesh reduction of strips, and the unattended runner."""
 
 import collections
+import io
 import struct
 import sys
 import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from asset_convert.lod.lod_far_gen import generate_far_nif, shapes_from_strips
@@ -22,6 +24,7 @@ from fo4_import.spike import records as R
 from tes5_import.base.tes5_reader import first_sub
 from pyffi.formats.nif import NifFormat
 
+FO3_TREE_TYPES = Path('export/Fallout3.esm/meshes/landscape/lod/wasteland/trees/treetypes.lst')
 MEGATON_WALL = Path('export/Fallout3.esm/meshes/architecture/megaton/megatonextwall02dest.nif')
 
 
@@ -198,3 +201,74 @@ def test_a_dlc_build_leaves_a_master_worldspace_to_the_masters_lod(monkeypatch):
     C._world_groups(builder, [world('000DA726', 'Mojave'), world('01000800', 'Zion')], (None, None))
     assert log == [('group', 'Mojave'), ('begin', 'Zion'), ('group', 'Zion'), ('write',), ('terrain', 'Zion')]
     assert builder.counts["master worldspaces left to the master's LOD"] == 1
+
+
+def _tree_lod(monkeypatch, made: list):
+    """An ObjectLod whose card conversion is recorded in `made` (rel, card) instead of run."""
+    monkeypatch.setattr(O, 'card_nif', lambda export_dir, texture, rect, card: (texture, rect, card))
+    monkeypatch.setattr(O, 'keep', lambda rel, card: made.append((rel, card)) or Path(rel))
+    monkeypatch.setattr(O.ObjectLod, '_converted', lambda self, rel, source: f'fnv\\{rel[:-4]}_lod.nif')
+    return O.ObjectLod(Builder())
+
+
+def test_a_tree_lod_static_gets_fallout_3_s_card_and_the_flag(monkeypatch):
+    """Has Tree LOD without Visible When Distant: a TREE_CARDS model gets its atlas card at levels 4 and 8, the
+    Has Distant LOD flag and a row base; one with no card and no _lod.nif, or neither flag, gets nothing."""
+    made = []
+    lod = _tree_lod(monkeypatch, made)
+    dead = {'RecordFlags': str(O.HAS_TREE_LOD | 0x200), 'Model.MODL': 'Landscape\\Trees\\TreeDead03.NIF'}
+    flags, lods = lod.stat(0x10, dead, 'FNV_TreeDead03', 'fnv\\landscape\\trees\\treedead03.nif')
+    assert flags == O.VISIBLE_DISTANT and lods == ('fnv\\landscape\\trees\\treedead03_lod.nif',) * 2 + ('', '')
+    card = O.TREE_CARDS['landscape\\trees\\treedead03.nif']
+    assert made == [('landscape\\trees\\treedead03.nif', (O.TREE_ATLAS, *card))]
+    assert lod.bases[0x10].startswith('FNV_TreeDead03\t00008000\t\tmeshes\\fnv\\landscape\\trees\\treedead03.nif\t')
+    assert lod.stat(0x11, dict(dead, **{'Model.MODL': 'Landscape\\Trees\\TreeDead01.NIF'}), 'D1', 'm') == (0, ())
+    assert lod.stat(0x12, dict(dead, RecordFlags='512'), 'D3', 'm') == (0, ()) and 0x12 not in lod.bases
+
+
+def test_a_tree_gets_a_card_of_its_billboard_at_its_billboard_size(monkeypatch, tmp_path):
+    """A TREE's card is its .spt name's billboard in textures\\trees\\billboards, whole, at BNAM's width and
+    height; none without the billboard."""
+    made = []
+    lod = _tree_lod(monkeypatch, made)
+    lod.builder.export_dir = tmp_path
+    rec = {'Model.MODL': '\\WastelandShrub01.spt', 'BNAM.BillboardWidth': '175.0', 'BNAM.BillboardHeight': '175.0'}
+    assert lod.tree(0x20, rec, 'FNV_WastelandShrub01', 'fnv\\trees\\x.nif') == (0, ())
+    (tmp_path / 'textures' / 'trees' / 'billboards').mkdir(parents=True)
+    (tmp_path / 'textures' / 'trees' / 'billboards' / 'wastelandshrub01.dds').write_bytes(b'')
+    flags, lods = lod.tree(0x20, rec, 'FNV_WastelandShrub01', 'fnv\\trees\\x.nif')
+    assert flags == O.VISIBLE_DISTANT and lods[:2] == ('fnv\\trees\\wastelandshrub01_lod.nif',) * 2
+    assert made == [('trees\\wastelandshrub01.nif', ('trees\\billboards\\wastelandshrub01.dds', O.WHOLE,
+                                                    (175.0, 175.0)))]
+
+
+@pytest.mark.skipif(not O.export_file(Path('export/FalloutNV.esm'), O.CARD_TEMPLATE).is_file(),
+                    reason='needs the FalloutNV.esm export')
+def test_a_card_is_two_crossed_quads_on_the_template_s_properties():
+    """Two crossed quads standing on 0, UVs the rect with v0 at the top, the atlas named with no normal map (FNV
+    ships none), and the template's alpha test and two-sided stencil kept."""
+    raw = O.card_nif(Path('export/FalloutNV.esm'), O.TREE_ATLAS, (0.5, 0.1, 0.6, 0.5), (160.0, 750.0))
+    data = NifFormat.Data()
+    data.read(io.BytesIO(raw))
+    shape = data.roots[0].children[0]
+    pos = np.array([(v.x, v.y, v.z) for v in shape.data.vertices])
+    uv = np.array([(t.u, t.v) for t in shape.data.uv_sets[0]])
+    assert isinstance(shape, NifFormat.NiTriShape) and shape.data.num_triangles == 4
+    assert pos[:, 2].min() == 0 and pos[:, 2].max() == 750 and np.abs(pos[:, :2]).max() == 80
+    assert np.allclose(uv[pos[:, 2] == 750][:, 1], 0.1) and np.allclose(uv[pos[:, 2] == 0][:, 1], 0.5)
+    assert np.allclose(sorted(set(uv[:, 0].round(4))), (0.5, 0.6))
+    kinds = {type(p).__name__ for p in shape.properties}
+    assert {'NiAlphaProperty', 'NiStencilProperty', 'BSShaderPPLightingProperty'} <= kinds
+    slots = next(p for p in shape.properties if isinstance(p, NifFormat.BSShaderPPLightingProperty)).texture_set
+    assert slots.textures[0] == b'textures\\landscape\\trees\\treedeadlod.dds' and slots.textures[1] == b''
+
+
+@pytest.mark.skipif(not FO3_TREE_TYPES.is_file(), reason='needs the Fallout3.esm export')
+def test_tree_cards_are_fallout_3_s_tree_types():
+    """Every TREE_CARDS entry is one of the 8 types Fallout 3's Wasteland treetypes.lst lists (index, width,
+    height, u0, v0, u1, v1, 0), to float precision."""
+    raw = FO3_TREE_TYPES.read_bytes()
+    types = [struct.unpack_from('<I6fI', raw, 4 + 32 * i) for i in range(struct.unpack_from('<I', raw)[0])]
+    listed = [(t[3:7], t[1:3]) for t in types]
+    for rect, card in O.TREE_CARDS.values():
+        assert any(np.allclose(rect, r, atol=1e-6) and np.allclose(card, c, atol=1e-3) for r, c in listed)

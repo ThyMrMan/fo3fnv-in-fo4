@@ -13,7 +13,7 @@ import os
 from script_convert.constants import (FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_AV_NATIVES, FALLOUT4_EVENTS,
                                       FALLOUT4_FALLOUT_AV_RENAMES, FALLOUT4_HELPER_AV_ALIASES,
                                       FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_PLUGIN, FALLOUT4_MENU_NAMES,
-                                      TALKING_ACTIVATOR)
+                                      TALKING_ACTIVATOR, TYPE_MAP)
 
 SKYRIM, FALLOUT4 = 'skyrim', 'fallout4'
 TARGET_ENV = 'TES4SKYRIM_PAPYRUS_TARGET'
@@ -38,6 +38,18 @@ def set_target(name: str) -> None:
 def is_fallout4() -> bool:
     """True when this run emits Fallout 4 Papyrus."""
     return os.environ.get(TARGET_ENV) == FALLOUT4
+
+
+#: An xNVSE `array_var` on Fallout 4. See: docs/fork/nvse_script_language.md#arrays
+ARRAY_TYPE = 'Var[]'
+
+
+def variable_type(vtype: str) -> str:
+    """The Papyrus type of a TES4 declaration `vtype`; an `array_var` is ARRAY_TYPE on Fallout 4."""
+    low = vtype.lower()
+    if low == 'array_var' and is_fallout4():
+        return ARRAY_TYPE
+    return TYPE_MAP.get(low, 'Int')
 
 
 def on_talking_activator(conv) -> bool:

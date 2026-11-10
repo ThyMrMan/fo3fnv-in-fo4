@@ -41,6 +41,11 @@ def load_fuses(path: Path = TABLE) -> dict:
             if not edid.startswith('_')}
 
 
+def load_own_models(path: Path = TABLE) -> frozenset:
+    """FNV explosion EditorIDs whose copy shows FNV's own model."""
+    return frozenset(json.loads(path.read_text(encoding='utf-8')).get('own_models', {}).get('explosions', ()))
+
+
 def first_ammo(rec: dict, lists: dict) -> int:
     """An export WEAP's ammo: its NAM0, or that list's first entry; 0 for none."""
     source = int(rec.get('NAM0', '0'), 16)
@@ -63,7 +68,7 @@ class Projectiles:
         self.recs = {int(r['FormID'], 16): r for r in export_records(export, 'PROJ')}
         self.names = {fid: r['EditorID'] for fid, r in self.recs.items()}
         self.mapped = {fid: fo4[table[edid]] for fid, edid in self.names.items() if edid in table}
-        self.copies = ProjectileCopies(builder, set(self.mapped.values()), load_fuses())
+        self.copies = ProjectileCopies(builder, set(self.mapped.values()), load_fuses(), load_own_models())
         self.overrides = {int(r['FormID'], 16): int(r.get('DAT2.Projectile', '0'), 16)
                           for r in export_records(export, 'AMMO')}
         lists = {int(r['FormID'], 16): r for r in export_records(export, 'FLST')}
@@ -73,15 +78,15 @@ class Projectiles:
             if ammo and projectile and not int(rec.get('DNAM.Flags1', 0)) & FNV_EMBEDDED:
                 self.first.setdefault(ammo, projectile)
 
-    def of(self, fnv: int, is_thrown: bool = False) -> 'int | None':
-        """The FO4 projectile (its stand-in's copy; a thrown weapon's when `is_thrown`) for FNV projectile `fnv`;
-        None for none, counted once."""
+    def of(self, fnv: int, is_thrown: bool = False, own_model: bool = False, source: int = 0) -> 'int | None':
+        """The FO4 projectile (its stand-in's copy; a thrown weapon's when `is_thrown`, on FNV's model when
+        `own_model`, from weapon `source`) for FNV projectile `fnv`; None for none, counted once."""
         if not fnv:
             return None
         if fnv not in self.mapped and fnv not in self.unmapped:
             self.unmapped.add(fnv)
             self.builder.counts[f'projectile not mapped ({self.names.get(fnv, f"{fnv:08X}")})'] += 1
-        return self.copies.copy(self.mapped[fnv], self.recs[fnv], is_thrown) if fnv in self.mapped else None
+        return self.copies.copy(self.mapped[fnv], self.recs[fnv], is_thrown, own_model, source) if fnv in self.mapped             else None
 
     def gun(self, rec: dict) -> 'int | None':
         """The FO4 projectile FNV gun `rec` fires."""
@@ -101,11 +106,12 @@ class Projectiles:
         out[FNAM_COUNT] = min(max(int(rec.get('DNAM.ProjectileCount', 1)), 1), 255)
         return _overridden(out, self.gun(rec))
 
-    def thrown(self, fnam: bytes, rec: dict) -> bytes:
-        """Thrown weapon FNAM overriding with FNV `rec`'s projectile, thrown.
+    def thrown(self, fnam: bytes, rec: dict, own_model: bool = False, source: int = 0) -> bytes:
+        """FNAM with `rec`'s projectile, thrown by `source` (FNV's model: `own_model`).
         See: docs/fork/fo4_thrown_weapons.md#projectiles
         """
-        return _overridden(bytearray(fnam), self.of(int(rec.get('DNAM.Projectile', '0'), 16), True))
+        return _overridden(bytearray(fnam), self.of(int(rec.get('DNAM.Projectile', '0'), 16), True, own_model,
+                                                      source))
 
 
 def _overridden(fnam: bytearray, projectile: 'int | None') -> bytes:

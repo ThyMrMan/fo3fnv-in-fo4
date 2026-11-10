@@ -10,9 +10,9 @@ amounts, and the larger amount applies (the GECK's rule). That matches
 FNV's measured hues: amber by day, near-neutral grey at night. The
 modifiers' saturation, contrast and brightness do not carry (FNV's measured
 levels fit without them). Each pair (imagespace, modifier) becomes one FO4
-imagespace through imagespace.py: FNV's tone and that grading in a LUT,
-exposure fixed, on the vanilla weather's own imagespace for that time
-(exterior depth of field). FNV's IMGS and IMAD values are read from
+imagespace through imagespace.py: that grading in a LUT, exposure pinned,
+on the vanilla weather's own imagespace for that time (its curve, bloom
+and depth of field). FNV's IMGS and IMAD values are read from
 FalloutNV.esm (the export keeps IMAD's sizes only).
 
 See: docs/fork/fo4_look.md#weather-imagespace
@@ -23,7 +23,7 @@ import struct
 from dataclasses import replace
 
 from fo4_import.base.install import source_walk
-from fo4_import.spike.imagespace import Cinematic, base_hdr, cinematic, own_tint, pack_imgs, write_lut
+from fo4_import.spike.imagespace import Cinematic, cinematic, own_tint, pack_imgs, write_lut
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: derive_formid site of a weather imagespace (key: (FNV imagespace FormID, FNV modifier FormID)).
@@ -69,7 +69,7 @@ def _imagespace(builder, base: int, imad: int, template: int) -> int:
         modifier = _fnv(b'IMAD').get(imad, {})
         edid = 'FNV_' + '_'.join(r[b'EDID'].rstrip(b'\0').decode() for r in (source, modifier) if r)
         grading = tinted(cinematic(source[b'DNAM']), own_tint(source[b'DNAM']), modifier)
-        lut = write_lut(grading, edid, builder.data_dir, base_hdr(body))
+        lut = write_lut(grading, edid, builder.data_dir)
         fid = builder.writer.derive_formid(SITE, key)
         builder.writer.add_record('IMGS', pack_imgs(fid, edid, body, lut))
         builder.weather_imagespaces[key] = fid

@@ -4,8 +4,9 @@ Fallout 4 draws a terminal's menu onto its shape named `Screen:0` (the name
 the exe's terminal menu code looks up), lit by a lighting shader naming
 Materials\\Interface\\PipScreenTerminals.BGSM, as vanilla TerminalOn.nif's
 screen. FNV draws its terminal menu over the whole view, so its meshes mark no
-screen: the screen is the largest unlit, textured shape (the glass FNV
-textures with its screen texture). The menu fills UV 0 to 1, laid out as
+screen: the screen is the largest unlit shape FNV textures (the glass it
+textures with its screen texture); an untextured glare pane, which the
+conversion draws through WHITE, is not one. The menu fills UV 0 to 1, laid out as
 vanilla's: u left to right and v top to bottom for a viewer facing it.
 
 See: docs/fork/fo4_pipeline.md#terminals
@@ -17,7 +18,7 @@ import math
 import numpy as np
 
 from fo4_import.nif.blocks import NONE
-from fo4_import.nif.convert_static import DESC_PLAIN, lighting_shader, vertices
+from fo4_import.nif.convert_static import DESC_PLAIN, WHITE, lighting_shader, vertices
 
 SCREEN = 'Screen:0'
 SCREEN_MATERIAL = 'Materials\\Interface\\PipScreenTerminals.BGSM'
@@ -54,11 +55,11 @@ def _placements(nif) -> dict:
 
 
 def _unlit(nif, block: dict) -> bool:
-    """Whether a shape has an unlit effect shader (no material file) with a texture."""
+    """Whether a shape has an unlit effect shader (no material file) with FNV's own texture, not WHITE."""
     if block['shader'] < 0:
         return False
     kind, shader = nif.blocks[block['shader']]
-    return kind == 'BSEffectShaderProperty' and shader['name'] < 0 and bool(shader['source_texture'])
+    return kind == 'BSEffectShaderProperty' and shader['name'] < 0 and shader['source_texture'] not in ('', WHITE)
 
 
 def _area(points: np.ndarray, triangles: list) -> float:
