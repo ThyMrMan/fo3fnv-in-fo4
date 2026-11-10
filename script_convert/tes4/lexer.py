@@ -62,8 +62,8 @@ class Token:
 
 #: Operators, LONGEST FIRST. See: docs/commentary/script_convert.md#operator-table
 _OPERATORS = (
-    '==', '!=', '<>', '<=', '>=', '&&', '||', ':=', '->',
-    '+=', '-=', '*=', '/=',
+    '==', '!=', '<>', '<=', '>=', '&&', '||', ':=', '->', '<<', '>>',
+    '+=', '-=', '*=', '/=', '^=',
     '<', '>', '=', '+', '-', '*', '/', '%', '$',
     '(', ')', '[', ']', ',', '.', ':',
 )
@@ -73,14 +73,18 @@ BLANK = frozenset(' \t') | frozenset(map(chr, (*range(32), 127))) - {'\n'}
 #: One game's operator spelling -> the TES4 form the tree speaks.
 _OPERATOR_ALIASES = {'->': '.'}
 
-#: Binary precedence, loosest tier first; parser binds and emitter parens by it.
+#: Binary precedence, loosest first, xNVSE's order (nvse_script_language.md#operators); parser binds, emitter parens.
 PRECEDENCE = (
     ('||',),
     ('&&',),
     ('==', '!=', '<>'),
     ('<', '>', '<=', '>='),
+    ('|',),
+    ('&',),
+    ('<<', '>>'),
     ('+', '-'),
     ('*', '/', '%'),
+    ('^',),
 )
 
 #: op -> tier index; absent ops (unary, calls, literals) bind tightest of all.
@@ -104,6 +108,8 @@ _IDENT_RE = re.compile(r'[^\W\d][\w]*', re.UNICODE)
 # swallowing the next token.
 _NUMBER_RE = re.compile(r'(?:\d+\.\d*|\.\d+|\d+)')
 
+#: xNVSE's hex and binary integer literals, `0xB7E7` and `0b101`, lexed to their decimal value.
+_BASED_RE = re.compile(r'0(?:[xX]([0-9a-fA-F]+)|[bB]([01]+))(?![\w])')
 
 
 def _number_or_ident(out: list, text: str, i: int, n: int,
@@ -114,6 +120,11 @@ def _number_or_ident(out: list, text: str, i: int, n: int,
     OPERATOR rather than absorbed into the name.
     See: docs/commentary/script_convert.md#digit-leading-member-names
     """
+    based = _BASED_RE.match(text, i)
+    if based:
+        hexa, binary = based.groups()
+        out.append(Token(T.NUMBER, str(int(hexa, 16) if hexa else int(binary, 2)), line, col))
+        return based.end()
     m = _NUMBER_RE.match(text, i)
     j = m.end()
     if j < n and (text[j].isalpha() or text[j] == '_'):

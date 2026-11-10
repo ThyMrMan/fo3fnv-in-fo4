@@ -149,10 +149,13 @@ class VarDecl(Stmt):
 
     TES4 variables are script-global no matter where they are declared, which
     is why the parser hoists these to Script.variables rather than leaving
-    them in the block they appear in.
+    them in the block they appear in.  xNVSE adds `int i = 5` (`value`, which
+    stays in place as the assignment) and `int a, b` (`more` names).
     """
     vtype: str = ''
     name: str = ''
+    value: Expr = None
+    more: tuple = ()
 
 
 @dataclass
@@ -200,9 +203,22 @@ class While(Stmt):
 
 
 @dataclass
-class ForEach(ExprStmt):
-    """OBSE `forEach <it> <- <container> ... loop`; `expr` is the header command."""
+class ForEach(Stmt):
+    """`ForEach [type] <var> <- <source> ... Loop`; `vtype` is set when the header declares `var`."""
+    var: str = ''
+    vtype: str = ''
+    source: Expr = None
     body: list = field(default_factory=list)
+
+
+@dataclass
+class Break(Stmt):
+    """xNVSE `Break`: leave the innermost While/ForEach."""
+
+
+@dataclass
+class Continue(Stmt):
+    """xNVSE `Continue`: start the innermost loop's next pass."""
 
 
 @dataclass
@@ -321,7 +337,7 @@ def walk_stmts(body) -> Iterator[Stmt]:
 def walk_exprs_in(body) -> Iterator[Expr]:
     """Every expression node reachable from a list of statements."""
     for st in walk_stmts(body):
-        for attr in ('expr', 'cond', 'value', 'target'):
+        for attr in ('expr', 'cond', 'value', 'target', 'source'):
             yield from walk_expr(getattr(st, attr, None))
         for entry in getattr(st, 'elifs', None) or ():
             yield from walk_expr(entry[0])

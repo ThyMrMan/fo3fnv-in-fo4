@@ -309,14 +309,62 @@ adds one point: for converted **mods**, as against FNV itself, Hydra is close
 to an NVSE stand-in, so depending on it behind our wrapper would save the
 most work.
 
-## <a id="next-steps"></a>Next steps (not started)
+## <a id="usage-survey"></a>Usage survey (2026-11-09)
 
-1. **Usage survey.** Collect the SCTX of a set of candidate FNV mods (quest,
-   companion and gameplay mods, not UI or animation). Count every command
-   name against the xNVSE, JIP, JohnnyGuitar and ShowOff command lists.
-   This decides what the converter and F3NV.dll actually need. Scratch
-   lists from this research: xNVSE command → header map, F4SE signature
-   list (in the 2026-10-23 session's scratchpad; regenerate from source).
+**Sample:** the Viva New Vegas Extended profile (`C:\Modlists\VNV`,
+42 plugins). Scripts in 16 non-vanilla plugins call NVSE or JIP. The
+survey reads every SCTX (script source text). Any identifier that also
+appears in the vanilla FNV and DLC scripts is dropped. What remains is
+counted against command names taken from the xNVSE source (695 names and
+aliases) and the JIP source (1,244). Scripts:
+`temp/nvse_survey/commands.py` and `survey.py`; full results in
+`survey.json`.
+
+**Result:** 436 distinct commands, 10,970 calls. 153 are xNVSE, 283 JIP.
+265 are used by a single mod, 171 by two or more, and 92 by three or
+more. Calls are lopsided: JustAssortedMods makes 4,623 of them, Enhanced
+Movement 1,292, Agua Fria 952. YUP's 3,775 scripts call none. Not
+counted: JohnnyGuitar and ShowOff, which VNV installs but whose source we
+don't have. Their names show up among the leftover identifiers, e.g.
+`SetJohnnyOnCompleteQuestEventHandler` (3 mods), `SendStealingAlarm`
+(4), `TapControl` (3), and MCM's `SetMCMFloat`/`SetMCMString`.
+
+The main commands among the 92 used by three or more mods, by route:
+
+| Group | Commands (mods using it) | Route |
+|---|---|---|
+| Script language | `eval` (14), `Function` (12), `Call` (9), `while`/`loop` (9), `Let` (6), `ForEach`, `continue`, `break`, `SetFunctionValue`, `ar_*` (`ar_Null` 9, `ar_Find` 7, `ar_Size` 6, `ar_List`), `sv_Construct`/`sv_Destruct` | Converter lowering |
+| Load and mod checks | `IsModLoaded` (11), `GetGameRestarted` (7), `GetGameLoaded`, `IsFormValid`, `GetFormFromMod`, `GetModIndex`, `GetSourceModIndex`, `GetPluginVersion`, `GetOptionalPatch`, `IsReference` | Vanilla `Game.IsPluginInstalled`/`GetFormFromFile` plus an `OnPlayerLoadGame` alias |
+| Events and delays | `SetEventHandler` (11), `SetEventHandlerAlt`, `RemoveEventHandler`, `CallAfterSeconds` (6), `CallWhen` (6), `CallAfterFrames`, `SetGameMainLoopCallback`, `SetOnMenuOpen/CloseEventHandler`, `SetOnUseAidItemEventHandler` | Timers; global events from the extender, F3NV.dll hooks for the rest ([events](#events)) |
+| Settings files | `GetINIFloat` (7 mods, 453 calls), `FileExists`, `GetNumericIniSetting` | Extender INI functions, or F3NV.dll |
+| Form lists and items | `ListAddForm`, `ListGetCount`, `ListGetNthForm`, `GetListForms`, `IsRefInList`, `AddItemAlt`, `EquipItemAlt`, `BaseRemoveItem`, `GetEquippedObject`, `GetBaseObject`, `GetArmorClass`, `GetItemRefCurrentHealth`, `GetWeaponItemMod*` | Mostly vanilla FormList/ObjectReference and F4SE; condition from `F3NV_Condition` |
+| Record fields | `SetNthPerkEntryValue1` (4 mods, 110 calls), `GetPerkModifier`, `Get/SetNumericGameSetting`, `Get/SetFormDescription`, `SetName`, `SetNthEffectTraitNumeric`, `GetNumEffects`, `GetNthEffectBase`, `HasKeyword`, `SetSpeedMult` | F4SE and the extender's form setters; perk entry edits have no Papyrus route |
+| Input | `IsKeyPressed`, `EnableControl`/`DisableControl` | F4SE key events, `InputEnableLayer` |
+| Interface | `GetUIFloat` (4), `SetUIFloat` (3 mods, 980 calls), `GetActiveMenuMode`, `GetMenuTargetRef`, `RefreshItemsList`, `MessageExAlt` | [Not portable](#not-portable), except `MessageExAlt` → a message |
+| Game state | `ToggleHardcoreTracking`, `SetGameHour`, `IsPlayerSwimming`, `GetWaterImmersionPerc`, `GetCrosshairRef`, `GetDistance3D`, `GetMaxOf`/`GetMinOf`, `SetBit`, `IsSpellTargetAlt`, `SetWeaponOut`, `GetAutoMove` | Vanilla, math, or our hardcore emulation |
+
+JIP's per-reference storage is heavily used where it appears:
+`AuxiliaryVariable*` calls come from 4 mods (Enhanced Movement,
+JustAssortedMods, Unofficial Patch NVSE Plus, Bad Touch), 1,044 calls in
+all, 643 of them `AuxiliaryVariableGetFloat`. So
+[the F3NV.dll store](#aux-storage) stays first on the DLL list.
+
+**What it means:**
+- The script language comes first. `eval`, user functions, loops and
+  arrays are in nearly every scripted mod, and no command works without
+  them.
+- After the language, load checks and timers are vanilla Papyrus, so most
+  of the top group needs no extender.
+- The extender decision rests on events, INI files and form setters. INI
+  alone is 7 of 16 mods.
+- `SetUIFloat`-style interface scripting is concentrated in a few mods
+  (Vanilla UI Plus, JustAssortedMods, MCM). They stay out of scope.
+
+## <a id="next-steps"></a>Next steps
+
+1. **Usage survey.** Done on VNV ([above](#usage-survey)). Rerun the
+   scripts on any other mod list. Add JohnnyGuitar's and ShowOff's command
+   names once we have their source.
 2. **A converter test corpus** from xNVSE's `unit_tests/*_compiler/*.txt`.
 3. **Decide the extender dependency**, then write the wrapper script the
    converter calls.

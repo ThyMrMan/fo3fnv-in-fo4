@@ -31,8 +31,10 @@ from script_convert.tes4.nodes import (
     BinOp,
     Blank,
     Block,
+    Break,
     Call,
     Comment,
+    Continue,
     Expr,
     ExprStmt,
     ForEach,
@@ -71,6 +73,15 @@ VAR_TYPES = frozenset({
     'short', 'long', 'int', 'float', 'ref', 'reference',
     'string_var', 'array_var',
 })
+
+#: Prefix operators: sign, `$` (to string), and xNVSE's `!`, `#` (to number), `*` (unbox), `&` (box).
+UNARY_OPS = ('-', '+', '$', '!', '#', '*', '&')
+
+#: Assignment operators of `let`, and of xNVSE's bare `x = y` (which it compiles as a `let`).
+ASSIGN_OPS = frozenset({'=', ':=', '+=', '-=', '*=', '/=', '^='})
+
+#: The Raw text an unconverted xNVSE lambda leaves, named in the line's note.
+LAMBDA_TEXT = 'xNVSE lambda'
 
 
 
@@ -117,6 +128,7 @@ class Parser:
         self.i = 0
         self.saw_leading_comma = False
         self.else_takes_condition = else_takes_condition
+        self.declared = set()
 
     # -- token helpers -----------------------------------------------------
 
@@ -226,12 +238,12 @@ class Parser:
             self.i = j
 
     def _parse_unary(self) -> Expr:
-        # OBSE's `$x` is a string CAST, written as a prefix on the operand:
-        # `let sTime := "0" + $ihour + ":"`.  Parsed as an ordinary unary so
-        # the emitter can turn it into `(x as String)`; left as a stray
-        # operator it reached Papyrus verbatim and the scanner rejected the
-        # `$` outright, failing the script and the three that import it.
-        tok = self.accept_op('-', '+', '$')
+        """A prefixed operand: sign, OBSE/xNVSE `$` (to string), and xNVSE `!`, `#` (to number), `*` (unbox), `&` (box).
+
+        A prefix can only open an operand, so `*` and `&` here are never the binary operators.
+        See: docs/fork/nvse_script_language.md#operators
+        """
+        tok = self.accept_op(*UNARY_OPS)
         if tok:
             return Unary(tok.text, self._parse_unary(), line=tok.line)
         return self._parse_postfix()
@@ -264,31 +276,42 @@ class Parser:
         return expr
 
     def _parse_primary(self) -> Expr:
+        """A literal, a name, a parenthesised expression (marked `parenthesised` so the emitter echoes it), or Raw.
+
+        A quoted name followed by `.` is an EditorID in Oblivion's optional quotes (`"NQ16"."NQ16CountVar"`).
+        Anything else -- a stray operator, MG09Script's backtick -- is consumed as Raw so no caller can spin.
+        """
         tok = self.cur
+        self.advance()
         if tok.kind is T.NUMBER:
-            self.advance()
             return Literal(tok.text, line=tok.line)
+        if tok.kind is T.STRING and self.cur.is_op('.'):
+            return Ident(_unquote(tok.text), line=tok.line)
         if tok.kind is T.STRING:
-            self.advance()
-            # A quoted name FOLLOWED BY `.` is an EditorID with Oblivion's
-            # optional quotes, not a string value: `"NQ16"."NQ16CountVar"`.
-            if self.cur.is_op('.'):
-                return Ident(_unquote(tok.text), line=tok.line)
             return Literal(tok.text, is_string=True, line=tok.line)
         if tok.kind is T.IDENT:
-            self.advance()
             return Ident(tok.text, line=tok.line)
+        if tok.is_op('(') and self.cur.is_ident('begin'):
+            return self._skip_lambda(tok.line)
         if tok.is_op('('):
-            self.advance()
             inner = self.parse_expression()
             self.accept_op(')')
-            # Record that the author parenthesised this, so the emitter can
-            # echo it.  Frozen dataclass, so replace rather than mutate.
             return dataclasses.replace(inner, parenthesised=True)
-        # Anything else (a stray operator, the MG09Script backtick) is not an
-        # expression; consume it so the caller cannot loop forever.
-        self.advance()
         return Raw(tok.text, line=tok.line)
+
+    def _skip_lambda(self, line: int) -> Expr:
+        """An xNVSE lambda `(begin function {...} ... end)`, consumed whole: lambdas are not converted yet.
+
+        See: docs/fork/nvse_script_language.md#not-converted
+        """
+        depth = 0
+        while not self.at_end():
+            tok = self.advance()
+            depth += tok.is_ident('begin') - tok.is_ident('end')
+            if depth <= 0:
+                break
+        self.accept_op(')')
+        return Raw(LAMBDA_TEXT, line=line)
 
     def _parse_call_args(self, name: str = '', *,
                          arithmetic: bool = False) -> tuple[Expr, ...]:
@@ -489,12 +512,21 @@ class Parser:
     def _keyword_stmt(self, tok, low: str) -> Stmt | None:
         """A declaration or keyword statement, or None when `low` opens neither."""
         if low in VAR_TYPES and self.toks[self.i + 1].kind is T.IDENT:
-            self.advance()
-            name = self.advance()
-            return VarDecl(vtype=low, name=name.text, line=tok.line,
-                           comment=self.take_line_end())
+            return self._declaration(low, tok.line)
         handler = _KEYWORD_PARSERS.get(low)
         return handler(self, tok, tok.line, self.i) if handler else None
+
+    def _declaration(self, vtype: str, line: int) -> Stmt:
+        """`short foo`, and xNVSE's `int a, b` and `int i = 5` (its value stays in place as the assignment)."""
+        self.advance()
+        names = [self.advance().text]
+        while self.cur.is_op(',') and self.toks[self.i + 1].kind is T.IDENT:
+            self.advance()
+            names.append(self.advance().text)
+        value = self.parse_expression() if self.accept_op('=', ':=') else None
+        self.declared.update(name.lower() for name in names)
+        return VarDecl(vtype=vtype, name=names[0], more=tuple(names[1:]), value=value,
+                       line=line, comment=self.take_line_end())
 
     def _unmatched_closer(self, tok, line: int) -> Stmt:
         """A closer nothing opened, dropped (the engine ignored it)."""
@@ -523,16 +555,33 @@ class Parser:
         return node_cls(number=num.text, line=line, comment=self.take_line_end())
 
     def _command_stmt(self, tok, low: str) -> Stmt:
-        """A command call -- also with a quoted receiver, `"Ref".AddItem` -- else the raw line."""
+        """xNVSE's bare `x = y`, a command call -- also with a quoted receiver, `"Ref".AddItem` -- else the raw line."""
         line, start = tok.line, self.i
+        assign = self._bare_assign(line) if low else None
+        if assign is not None:
+            return assign
         if tok.kind is T.IDENT or (tok.kind is T.STRING
                                    and self.toks[self.i + 1].is_op('.')):
             call = self._parse_command_stmt(start)
-            if call is not None and low == 'foreach':
-                return self._parse_foreach(call, line)
             if call is not None:
                 return ExprStmt(expr=call, line=line, comment=self.take_line_end())
         return self._raw_stmt(start, line)
+
+    def _bare_assign(self, line: int) -> Stmt | None:
+        """xNVSE `x = y` / `x := y` / `x += y`, which it compiles as a `let`; None, nothing consumed, otherwise."""
+        start = self.i
+        target = self._parse_postfix()
+        if self.cur.kind is T.OP and self.cur.text in ASSIGN_OPS:
+            return self._assignment(target, line)
+        self.i = start
+        return None
+
+    def _assignment(self, target: Expr, line: int) -> Stmt:
+        """The `let` from its assignment operator on: `op` is '' for `=`/`:=`, else the compound's operator."""
+        op = self.advance().text
+        value = self.parse_expression()
+        return Assign(target=target, value=value, op=op[:-1].lstrip(':'), is_let=True,
+                      line=line, comment=self.take_line_end())
 
     def _parse_set(self, line: int, start: int) -> Stmt:
         """`set <target> to <value>`."""
@@ -547,20 +596,11 @@ class Parser:
 
     def _parse_let(self, line: int, start: int) -> Stmt:
         """OBSE `let <target> := <value>` / `let x += 1`."""
-        self.advance()  # 'let'
+        self.advance()
         target = self._parse_postfix()
-        op = ''
-        if self.accept_op(':='):
-            pass
-        elif self.cur.kind is T.OP and self.cur.text in ('+=', '-=', '*=', '/='):
-            op = self.advance().text[0]
-        elif self.accept_op('='):
-            pass
-        else:
-            return self._raw_stmt(start, line)
-        value = self.parse_expression()
-        return Assign(target=target, value=value, op=op, is_let=True,
-                      line=line, comment=self.take_line_end())
+        if self.cur.kind is T.OP and self.cur.text in ASSIGN_OPS:
+            return self._assignment(target, line)
+        return self._raw_stmt(start, line)
 
     def _absorb_args(self, value: Expr) -> Expr:
         """Fold bare following tokens into `value` as a command's arguments.
@@ -588,16 +628,14 @@ class Parser:
         after `else` to nothing, `else if` included: it goes to `else_dropped`.
         See: docs/fork/fo4_spikes.md#spike-3-else-text
         """
-        self.advance()  # 'if' / 'elseif'
-        cond = self.parse_expression()
+        cond = self._condition()
         comment = self.take_line_end()
         node = If(cond=cond, line=line, comment=comment)
 
         node.body = self._parse_body(_IF_TERMINATORS)
         while self.cur.is_ident('elseif'):
             elif_line = self.cur.line
-            self.advance()
-            econd = self.parse_expression()
+            econd = self._condition()
             self.take_line_end()
             ebody = self._parse_body(_IF_TERMINATORS)
             node.elifs.append((econd, ebody, elif_line))
@@ -623,34 +661,53 @@ class Parser:
             self.take_line_end()
         return node
 
+    def _condition(self) -> Expr:
+        """The condition after `if`/`elseif`/`while`, past xNVSE's `eval` unless the script declares a variable Eval."""
+        self.advance()
+        if self.cur.is_ident('eval') and 'eval' not in self.declared:
+            self.advance()
+        return self.parse_expression()
+
     def _parse_while(self, line: int) -> Stmt:
-        self.advance()  # 'while'
-        cond = self.parse_expression()
-        comment = self.take_line_end()
-        node = While(cond=cond, line=line, comment=comment)
+        """`while <cond> ... loop` (OBSE and xNVSE; `endwhile` also closes)."""
+        node = While(cond=self._condition(), line=line, comment=self.take_line_end())
         node.body = self._parse_body(_WHILE_TERMINATORS)
+        self._close_loop()
+        return node
+
+    def _close_loop(self) -> None:
+        """Consume a loop's closing `loop` / `endwhile` line, when present."""
         if self.cur.is_ident('loop', 'endwhile'):
             self.advance()
             self.take_line_end()
+
+    def _parse_foreach(self, line: int, start: int) -> Stmt:
+        """`ForEach [type] <var> <- <source>`, the header optionally parenthesised, through its `Loop`.
+
+        A header of any other shape is kept as the raw line.
+        """
+        self.advance()
+        paren = self.accept_op('(')
+        vtype = ''
+        if self.cur.kind is T.IDENT and self.cur.text.lower() in VAR_TYPES \
+                and self.toks[self.i + 1].kind is T.IDENT:
+            vtype = self.advance().text.lower()
+        name = self.advance()
+        if name.kind is not T.IDENT or not (self.cur.is_op('<') and self.toks[self.i + 1].is_op('-')):
+            return self._raw_stmt(start, line)
+        self.i += 2
+        source = self.parse_expression()
+        if paren:
+            self.accept_op(')')
+        node = ForEach(var=name.text, vtype=vtype, source=source, line=line, comment=self.take_line_end())
+        node.body = self._parse_body(_WHILE_TERMINATORS)
+        self._close_loop()
         return node
 
-    def _parse_foreach(self, header: Expr, line: int) -> Stmt:
-        """OBSE `forEach <it> <- <container>` through its closing `loop`, as one block."""
-        node = ForEach(expr=header, line=line, comment=self.take_line_end())
-        node.body = self._parse_body(_WHILE_TERMINATORS)
-        if self.cur.is_ident('loop'):
-            self.advance()
-            self.take_line_end()
-        return node
-
-    def _parse_foreach(self, header: Expr, line: int) -> Stmt:
-        """OBSE `forEach <it> <- <container>` through its closing `loop`, as one block."""
-        node = ForEach(expr=header, line=line, comment=self.take_line_end())
-        node.body = self._parse_body(_WHILE_TERMINATORS)
-        if self.cur.is_ident('loop'):
-            self.advance()
-            self.take_line_end()
-        return node
+    def _parse_jump_word(self, node_cls, line: int) -> Stmt:
+        """xNVSE `Break` / `Continue`."""
+        self.advance()
+        return node_cls(line=line, comment=self.take_line_end())
 
     def _parse_body(self, terminators: frozenset) -> list:
         """Statements until a terminator keyword or EOF, minus unreachable ones.
@@ -709,6 +766,9 @@ _KEYWORD_PARSERS = {
     'setfunctionvalue': lambda p, _tok, line, _i: p._parse_set_function_value(line),
     'label': lambda p, _tok, line, _i: p._parse_jump(line, Label),
     'goto': lambda p, _tok, line, _i: p._parse_jump(line, Goto),
+    'foreach': lambda p, _tok, line, i: p._parse_foreach(line, i),
+    'break': lambda p, _tok, line, _i: p._parse_jump_word(Break, line),
+    'continue': lambda p, _tok, line, _i: p._parse_jump_word(Continue, line),
 }
 
 _IF_TERMINATORS = frozenset({'elseif', 'else', 'endif', 'end'})
@@ -836,13 +896,10 @@ def parse(source: str, mode: Mode = Mode.SCRIPT, else_takes_condition: bool = Tr
             p.advance()
             continue
 
-        # TES4 variables are script-global wherever they are declared, so
-        # hoist every declaration and de-duplicate by name.
         if isinstance(stmt, VarDecl):
-            if stmt.name.lower() not in seen_vars:
-                seen_vars.add(stmt.name.lower())
-                script.variables.append(stmt)
-            continue
+            _hoist(script, seen_vars, stmt)
+            if stmt.value is None:
+                continue
 
         if isinstance(stmt, (Comment, Blank)) and not in_body \
                 and not script.body:
@@ -850,8 +907,24 @@ def parse(source: str, mode: Mode = Mode.SCRIPT, else_takes_condition: bool = Tr
         else:
             script.body.append(stmt)
 
+    _typed_params(script, seen_vars)
     _hoist_block_vars(script, seen_vars)
     return script
+
+
+def _typed_params(script: Script, seen_vars: set) -> None:
+    """Declare xNVSE's typed function parameters (`begin Function {ref a, int b}`), leaving the filter names only."""
+    for block in script.blocks:
+        if block.btype != 'function':
+            continue
+        names = []
+        for piece in block.filter.strip().strip('{}').split(','):
+            words = piece.split()
+            typed = len(words) == 2 and words[0].lower() in VAR_TYPES
+            if typed:
+                _hoist(script, seen_vars, VarDecl(vtype=words[0].lower(), name=words[1], line=block.line))
+            names += words[1:] if typed else words
+        block.filter = '{%s}' % ', '.join(names)
 
 
 def _hoist_block_vars(script: Script, seen_vars: set) -> None:
@@ -861,11 +934,20 @@ def _hoist_block_vars(script: Script, seen_vars: set) -> None:
     """
     for stmts in [block.body for block in script.blocks] + [script.body]:
         for stmt in walk_stmts(stmts):
-            if isinstance(stmt, VarDecl) and stmt.name.lower() not in seen_vars:
-                seen_vars.add(stmt.name.lower())
-                script.variables.append(stmt)
+            if isinstance(stmt, VarDecl):
+                _hoist(script, seen_vars, stmt)
+            elif isinstance(stmt, ForEach) and stmt.vtype:
+                _hoist(script, seen_vars, VarDecl(vtype=stmt.vtype, name=stmt.var, line=stmt.line))
     for block in script.blocks:
-        block.body = [s for s in block.body if not isinstance(s, VarDecl)]
+        block.body = [s for s in block.body if not isinstance(s, VarDecl) or s.value is not None]
+
+
+def _hoist(script: Script, seen_vars: set, decl: VarDecl) -> None:
+    """Declare each name `decl` declares on the script, once per name: TES4 variables are script-global."""
+    for name in (decl.name, *decl.more):
+        if name.lower() not in seen_vars:
+            seen_vars.add(name.lower())
+            script.variables.append(VarDecl(vtype=decl.vtype, name=name, line=decl.line, comment=decl.comment))
 
 
 def is_self_contained(expr: str) -> bool:
