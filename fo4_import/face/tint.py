@@ -17,6 +17,7 @@ so one brow (or none) is chosen at full value.
 See: docs/fork/fo4_spikes.md#spike-2-tints
 """
 
+import functools
 import struct
 
 import numpy as np
@@ -24,6 +25,7 @@ from PIL import Image
 from scipy.optimize import lsq_linear
 
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
+from fo4_import.face.memo import frozen
 from fo4_import.face.sculpt import CACHE
 from fo4_import.face.texture import shared_texel_points
 from tes5_import.base.tes5_reader import subrecords
@@ -168,21 +170,54 @@ def captured_share(predicted: np.ndarray, target: np.ndarray, mask: np.ndarray) 
     return 1.0 - float(((predicted - target)[mask] ** 2).sum() / (target[mask] ** 2).sum())
 
 
-def fit_with_brow(effects: np.ndarray, target: np.ndarray, mask: np.ndarray, brow_rows: list) -> tuple:
-    """(value per option, fraction captured): each brow (rows of `effects`) at full value, or none, with the
-    other options fitted to the rest; the best."""
-    free = np.setdiff1d(np.arange(len(effects)), brow_rows)
-    best = None
-    for brow in [None] + list(brow_rows):
-        fixed = effects[brow] if brow is not None else 0.0
-        values = np.zeros(len(effects))
-        values[free] = fit(effects[free], target - fixed, mask)[0]
-        if brow is not None:
-            values[brow] = 1.0
-        captured = captured_share(np.tensordot(values, effects, 1), target, mask)
-        if best is None or captured > best[1]:
-            best = (values, captured)
-    return best
+class BrowFits:
+    """The fits of any target with each brow at full value, or none, and the other options fitted to the rest:
+    the free options' effects under one face mask are factored once (QR) and each brow's effect projected onto
+    them, so a target costs one product with the factor and a small bounded fit per brow. Each brow goes
+    through the same arithmetic, so two brows with one effect tie exactly.
+
+    See: docs/fork/fo4_build_speed.md#faces
+    """
+
+    def __init__(self, effects: np.ndarray, mask: np.ndarray, brow_rows: list):
+        """Factor the free rows of `effects` under `mask`; project each brow's (rows `brow_rows`)."""
+        self.mask, self.brows = mask, list(brow_rows)
+        self.free = np.setdiff1d(np.arange(len(effects)), self.brows)
+        under = effects[:, mask].reshape(len(effects), -1).astype(np.float64)
+        self.q, self.r = np.linalg.qr(under[self.free].T)
+        self.fixed = under[self.brows]
+        self.seen, self.sizes = [self.q.T @ f for f in self.fixed], [f @ f for f in self.fixed]
+
+    def best(self, target: np.ndarray) -> tuple:
+        """(value per option, fraction captured) of the best of those fits of `target`; the first on a tie."""
+        b = target[self.mask].ravel().astype(np.float64)
+        seen, total, best = self.q.T @ b, b @ b, None
+        for k, brow in enumerate([None] + self.brows, -1):
+            rest = seen if brow is None else seen - self.seen[k]
+            size = total if brow is None else total - 2.0 * (self.fixed[k] @ b) + self.sizes[k]
+            fitted = lsq_linear(self.r, rest, bounds=(0.0, 1.0)).x
+            values = np.zeros(len(self.free) + len(self.brows))
+            values[self.free] = fitted
+            if brow is not None:
+                values[brow] = 1.0
+            captured = float(1.0 - (((self.r @ fitted - rest) ** 2).sum() + size - rest @ rest) / total)
+            if best is None or captured > best[1]:
+                best = (values, captured)
+        return best
+
+
+def brow_fits(female: bool, mask: np.ndarray) -> BrowFits:
+    """One sex's BrowFits under face mask `mask`, kept per process."""
+    path = basis_path(female)
+    return _factored(path, path.stat().st_mtime_ns, mask.tobytes())
+
+
+@functools.lru_cache(maxsize=2)
+def _factored(path, stamp: int, mask: bytes) -> BrowFits:
+    """brow_fits()'s value for one basis file state and mask bytes."""
+    effects, options, _, brows = _loaded(path, stamp)
+    return BrowFits(effects, np.frombuffer(mask, bool).reshape(WORK_SIZE, WORK_SIZE),
+                    [options.index(b) for b in brows])
 
 
 def refine(effects: np.ndarray, values: np.ndarray, target: np.ndarray, actual: np.ndarray, mask, free) -> tuple:
@@ -214,8 +249,12 @@ def basis_path(female: bool = False):
 def load_basis(female: bool = False):
     """(effects, options, baseline face texture RGBA, brow options) cached, or None."""
     path = basis_path(female)
-    if not path.exists():
-        return None
-    d = np.load(path)
-    return (d['effects'].astype(np.float32), [int(o) for o in d['options']], d['baseline'],
-            [int(o) for o in d['brows']])
+    return _loaded(path, path.stat().st_mtime_ns) if path.exists() else None
+
+
+@functools.lru_cache(maxsize=2)
+def _loaded(path, stamp: int) -> tuple:
+    """load_basis() of the file at `path` as of `stamp`: once per process, read-only."""
+    with np.load(path) as d:
+        return frozen((d['effects'].astype(np.float32), [int(o) for o in d['options']], d['baseline'],
+                       [int(o) for o in d['brows']]))

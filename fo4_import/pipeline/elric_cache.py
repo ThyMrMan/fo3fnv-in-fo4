@@ -20,9 +20,11 @@ import os
 import tempfile
 from pathlib import Path
 
+from fo4_import.base.source_fault import faulted
 from fo4_import.nif import elric
 from fo4_import.pipeline import mesh_cache, work_cache
 from fo4_import.pipeline.code_tag import ROOT
+from fo4_import.pipeline.ran_code import ran_while
 from fo4_import.pipeline.work_cache import UNUSED_DAYS, lookup, prune, store
 
 CACHE = ROOT / 'output' / 'fo4_cache' / 'elric'
@@ -71,9 +73,11 @@ def mesh_bytes(path: Path) -> bytes:
 
 
 def finish(paths: list) -> list:
-    """elric.finish() through work_cache (a NIF finished before, same bytes, Elric and code, comes from the cache)
-    on each path's mesh_bytes(), run on staged copies; each finished NIF written with write_new(). The paths left
-    without collision."""
+    """elric.finish() through work_cache (a NIF finished before, same bytes, Elric and the code that ran finishing
+    it, comes from the cache) on each path's mesh_bytes(), run on staged copies; each finished NIF written with
+    write_new(), one with a source fault not cached. The paths left without collision.
+    See: docs/fork/fo4_build_speed.md#keys
+    """
     failed, todo = [], {}
     for path in dict.fromkeys(Path(p) for p in paths):
         data = _HELD.pop(os.path.normcase(str(path)), None) or path.read_bytes()
@@ -88,10 +92,12 @@ def finish(paths: list) -> list:
         staged = {path: Path(tmp) / f'{i:05d}.nif' for i, path in enumerate(todo)}
         for path, (_, data) in todo.items():
             staged[path].write_bytes(data)
-        newly = set(elric.finish(list(staged.values()), process) if todo else ())
+        finished = functools.partial(elric.finish, list(staged.values()), process, list(todo))
+        failed_now, ran = ran_while(finished) if todo else ((), {})
         for path, (inputs, _) in todo.items():
-            ok, data = staged[path] not in newly, staged[path].read_bytes()
-            store('elric_finish', 'fo4_import.nif.elric', inputs, (ok, data))
+            ok, data = staged[path] not in failed_now, staged[path].read_bytes()
+            if not faulted(path):
+                store('elric_finish', 'fo4_import.nif.elric', inputs, (ok, data), ran)
             write_new(path, data)
             failed += [] if ok else [path]
     return failed

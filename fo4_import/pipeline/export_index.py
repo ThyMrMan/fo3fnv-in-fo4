@@ -1,17 +1,21 @@
 """The export, each type file parsed once a run and shared by every reader.
 
-An export whose plugin has masters (an FNV DLC on FalloutNV.esm; `_HEADER.txt` lists them as `Master[i]`) is
-read with theirs, the exports of the same names beside it: a type's records are the plugin's own, then each
-master's it does not override (by FormID), so every reference into a master resolves.
+An export whose plugin has masters (an FNV DLC on FalloutNV.esm, a mod on it and the DLCs; `_HEADER.txt` lists
+them all as `Master[i]`) is read with theirs: a type's records are the plugin's own, then each master's own it
+does not override (by FormID), the last master first, each renumbered into the plugin's FormID numbering
+(master_space), so every reference into a master resolves.
 
 See: docs/fork/fo4_pipeline.md#skeleton
 See: docs/fork/fo4_plugin_layout.md#dlc
 """
 
 import functools
+import os
 import re
 from pathlib import Path
 
+from fo4_import.base.source import GAME_PLUGINS, asset_dirs, plugin_name, record_dir, source_plugin
+from fo4_import.pipeline.master_space import byte_map, identity, renumber_record
 from tes5_import.base.text_reader import parse_export_file
 
 #: A `_HEADER.txt` master line.
@@ -20,6 +24,8 @@ MASTER_LINE = re.compile(r'^Master\[\d+\]=(.+)$')
 DELETED, DISABLED = 0x20, 0x800
 #: Placed types a plugin's deletion of its master's record undeletes and disables (dlc-deleted).
 PLACED = frozenset({'REFR', 'ACHR', 'ACRE', 'PGRE', 'PMIS', 'PBEA', 'PFLA', 'PCBE'})
+#: Environment variable naming asset overlay folders (os.pathsep-separated), searched before every export.
+OVERLAY_ENV = 'F3NV_OVERLAYS'
 
 
 @functools.cache
@@ -29,12 +35,17 @@ def _parsed(path: str) -> tuple:
 
 
 @functools.cache
-def export_masters(export_dir: str) -> tuple:
-    """The export folders of `export_dir`'s plugin's masters, in its order; raise for one not exported."""
+def master_names(export_dir: str) -> tuple:
+    """The master file names `export_dir`'s _HEADER.txt lists, in order."""
     header = Path(export_dir) / '_HEADER.txt'
     lines = header.read_text(encoding='utf-8').splitlines() if header.is_file() else []
-    names = [m.group(1).strip() for m in map(MASTER_LINE.match, lines) if m]
-    folders = tuple(str(Path(export_dir).parent / name) for name in names)
+    return tuple(m.group(1).strip() for m in map(MASTER_LINE.match, lines) if m)
+
+
+@functools.cache
+def export_masters(export_dir: str) -> tuple:
+    """The export folders of `export_dir`'s plugin's masters, in its order; raise for one not exported."""
+    folders = tuple(str(record_dir(export_dir, name)) for name in master_names(export_dir))
     missing = [f for f in folders if not Path(f).is_dir()]
     if missing:
         raise SystemExit(f'{Path(export_dir).name}: export its masters first: {missing}')
@@ -47,18 +58,47 @@ def _layered(export_dir: str, sig: str) -> tuple:
     deletes is gone, but a master's placed reference stays, disabled (FO4 mishandles a deleted master reference).
     See: docs/fork/fo4_plugin_layout.md#dlc-deleted
     """
-    own = _parsed(str(Path(export_dir) / f'{sig}.txt'))
-    deleted = {rec['FormID'] for rec in own if int(rec.get('RecordFlags', '0')) & DELETED}
-    out, seen = [rec for rec in own if rec['FormID'] not in deleted], set(r['FormID'] for r in own)
-    for folder in export_masters(export_dir):
-        for rec in export_records(folder, sig):
-            if rec['FormID'] in deleted and sig in PLACED:
-                deleted.discard(rec['FormID'])
-                out.append({**rec, 'RecordFlags': str(int(rec.get('RecordFlags', '0')) | DISABLED)})
-            elif rec['FormID'] not in seen:
-                out.append(rec)
-            seen.add(rec['FormID'])
+    layers = (own_records(export_dir, sig), *(master_records(export_dir, f, sig)
+                                              for f in reversed(export_masters(export_dir))))
+    out, seen, deleted = [], set(), set()
+    for depth, rec in ((depth, rec) for depth, layer in enumerate(layers) for rec in layer):
+        fid = rec['FormID']
+        if fid in deleted and sig in PLACED:
+            deleted.discard(fid)
+            out.append({**rec, 'RecordFlags': str(int(rec.get('RecordFlags', '0')) | DISABLED)})
+        elif fid not in seen and depth < len(layers) - 1 and int(rec.get('RecordFlags', '0')) & DELETED:
+            deleted.add(fid)
+        elif fid not in seen:
+            out.append(rec)
+        seen.add(fid)
     return tuple(out)
+
+
+@functools.cache
+def master_records(export_dir: str, folder: str, sig: str) -> tuple:
+    """own_records() of master export `folder` in `export_dir`'s FormID numbering (master_space)."""
+    mapping, recs = master_map(export_dir, folder), own_records(folder, sig)
+    if identity(mapping):
+        return recs
+    return tuple(renumber_record(rec, mapping, source_game(export_dir)) for rec in recs)
+
+
+@functools.cache
+def master_map(export_dir: str, folder: str) -> tuple:
+    """master_space.byte_map of master export `folder` into `export_dir`'s numbering."""
+    return byte_map(master_names(export_dir), plugin_name(folder), master_names(folder))
+
+
+def source_game(export_dir) -> str:
+    """'fo3' for an export on Fallout3.esm, else 'fnv'."""
+    return 'fo3' if root_export(export_dir).name.lower() == 'fallout3.esm' else 'fnv'
+
+
+def plugin_sources(export_dir) -> tuple:
+    """(plugin file, FormID map, game) of the plugin, then its masters newest first."""
+    folder, game = str(export_dir), source_game(export_dir)
+    masters = ((source_plugin(m), master_map(folder, m), game) for m in reversed(export_masters(folder)))
+    return ((source_plugin(folder), (), game), *masters)
 
 
 def export_records(export_dir, sig: str) -> tuple:
@@ -70,17 +110,43 @@ def export_records(export_dir, sig: str) -> tuple:
 
 
 def export_chain(export_dir) -> tuple:
-    """`export_dir`, then its masters' exports: the order a lookup layers them."""
+    """asset_dirs(`export_dir`), then its masters' exports: a lookup's layer order."""
     if not (Path(export_dir) / '_HEADER.txt').is_file():
         return (Path(export_dir),)
-    return (Path(export_dir), *(f for m in export_masters(str(export_dir)) for f in export_chain(m)))
+    chain = (*asset_dirs(export_dir), *(f for m in export_masters(str(export_dir)) for f in export_chain(m)))
+    return tuple(dict.fromkeys(chain))
+
+
+@functools.cache
+def _asset_chain(export_dir: str) -> tuple:
+    """export_chain(), then, for a plugin with masters, the exports of its game's own plugins (GAME_PLUGINS) it
+    leaves out: New Vegas finds a model in any archive it loads, not only its masters'.
+    See: docs/fork/fo4_build_speed.md#faults
+    """
+    chain = export_chain(export_dir)
+    if not export_masters(export_dir):
+        return chain
+    game = (record_dir(export_dir, name) for name in GAME_PLUGINS[source_game(export_dir)])
+    return tuple(dict.fromkeys((*chain, *(folder for folder in game if folder.is_dir()))))
+
+
+def asset_chain(export_dir) -> tuple:
+    """_asset_chain(): an asset lookup's layer order (not records')."""
+    return _asset_chain(str(export_dir))
 
 
 def export_file(export_dir, *parts) -> Path:
-    """`parts` in the first export of export_chain() holding it (Layered.path).
+    """`parts` in the first of overlays() and asset_chain() holding it (Layered.path).
     See: docs/fork/fo4_plugin_layout.md#dlc
     """
-    return Layered(export_chain(export_dir), *parts).path()
+    return Layered((*overlays(), *asset_chain(export_dir)), *parts).path()
+
+
+def overlays() -> tuple:
+    """The asset overlay folders OVERLAY_ENV names, first searched first.
+    See: docs/fork/fo4_plugin_layout.md#asset-overlays
+    """
+    return tuple(Path(p) for p in os.environ.get(OVERLAY_ENV, '').split(os.pathsep) if p)
 
 
 class Layered:
@@ -113,8 +179,8 @@ class Layered:
 
 
 def asset_root(export_dir, *parts) -> Layered:
-    """`parts` under `export_dir`, layered over its masters' exports."""
-    return Layered(export_chain(export_dir), *parts)
+    """`parts` under `export_dir`, layered over asset_chain()."""
+    return Layered(asset_chain(export_dir), *parts)
 
 
 def own_records(export_dir, sig: str) -> tuple:

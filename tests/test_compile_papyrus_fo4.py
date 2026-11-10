@@ -4,6 +4,8 @@ See: docs/fork/fo4_spikes.md#spike-3-gate
 """
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 from tools.script import compile_papyrus as CP
 
@@ -103,6 +105,102 @@ def test_a_lost_function_recompiles_only_users_naming_it(tmp_path):
     gone = CORPUS['Helper'].replace('Int Function Get(Int a = 1)\n  Return a\nEndFunction', '')
     hashes, apis, users, words = _corpus(tmp_path, dict(sources, Helper=gone))
     assert CP.needs_compile(hashes, apis, state, users, words) == {'helper', 'caller'}
+
+
+def _build(tmp_path, monkeypatch, sources: dict, caprica=None) -> tuple:
+    """(compile_fallout4's args for a `sources` folder against a header folder holding Shared.psc, [(names FO4's
+    compiler was given, its import folders)]). `caprica` stands in for Caprica's compile_files (None: no Caprica);
+    the memos go under tmp_path."""
+    head, src, out = tmp_path / 'head', tmp_path / 'src', tmp_path / 'out'
+    for folder in (head, src, out):
+        folder.mkdir()
+    (head / 'Shared.psc').write_text('ScriptName Shared ; the master', encoding='utf-8')
+    for name, text in sources.items():
+        (src / f'{name}.psc').write_text(text, encoding='utf-8')
+    batches = []
+
+    def compile_folder(folder, out_dir, imports):
+        """Every script of the batch compiles."""
+        batches.append((sorted(p.stem for p in folder.glob('*.psc')), imports.split(';')))
+        for psc in folder.glob('*.psc'):
+            (out_dir / f'{psc.stem}.pex').write_bytes(b'pex')
+        return ''
+    monkeypatch.setattr(CP, 'compile_folder', compile_folder)
+    monkeypatch.setattr(CP, '_STAMPS_CACHE', tmp_path / 'stamps')
+    monkeypatch.setattr(CP, '_HEADER_MEMOS', tmp_path / 'stamps' / 'headers')
+    monkeypatch.setattr(CP.caprica, 'available', lambda: caprica is not None)
+    monkeypatch.setattr(CP.caprica, 'compile_files', caprica)
+    return SimpleNamespace(src=str(src), out=str(out), headers=str(head), full=False, workers=1), batches
+
+
+OVERRIDE = {'Shared': 'ScriptName Shared ; the mod', 'User': 'ScriptName User\nShared Property S Auto',
+            'Alone': 'ScriptName Alone'}
+
+
+def test_a_scripts_own_source_comes_before_a_masters_of_the_same_name(tmp_path, monkeypatch):
+    """Both compilers get the scripts' own folder first in the import list, ahead of the master's folder holding
+    a script of the same name."""
+    given = []
+
+    def caprica(files, out_dir, imports, workers):
+        """Record the import list; compile nothing."""
+        given.append(imports.split(';'))
+        return set(), {}, 1
+    args, batches = _build(tmp_path, monkeypatch, OVERRIDE, caprica)
+    CP.compile_fallout4(args)
+    own, master = str((tmp_path / 'src').resolve()), str(tmp_path / 'head')
+    assert given == [[own, master]] and batches[0][1] == [own, master]
+
+
+def test_results_saved_under_the_old_import_order_recompile_only_overrides_and_their_users(tmp_path, monkeypatch):
+    """A compile_state.json from before the own folder came first keeps its results, except for the script a
+    master also names and the script using it; the next run compiles nothing."""
+    args, batches = _build(tmp_path, monkeypatch, OVERRIDE)
+    CP.compile_fallout4(args)
+    path = tmp_path / 'out' / 'compile_state.json'
+    state = json.loads(path.read_text(encoding='utf-8'))
+    assert state['imports'] == f"{tmp_path / 'head'};{(tmp_path / 'src').resolve()}" and state.pop('own_first')
+    path.write_text(json.dumps(state), encoding='utf-8')
+    del batches[:]
+    CP.compile_fallout4(args)
+    assert sorted(name for names, _ in batches for name in names) == ['Shared', 'User']
+    del batches[:]
+    CP.compile_fallout4(args)
+    assert batches == []
+
+
+def test_capricas_source_error_is_kept_and_not_sent_to_fo4s_compiler(tmp_path, monkeypatch):
+    """Caprica compiles Alone, reports Shared's own error and gets nowhere with User (a crash): only User goes to
+    FO4's compiler, Shared's error is its recorded result, and the next run compiles nothing."""
+    error = "Unresolved identifier 'nGone'!"
+
+    def caprica(files, out_dir, imports, workers):
+        """Alone compiles, Shared has a source error, User is in neither result."""
+        (out_dir / 'alone.pex').write_bytes(b'pex')
+        return {'alone'}, {'shared': [error]}, 3
+    args, batches = _build(tmp_path, monkeypatch, OVERRIDE, caprica)
+    compiled, own, _names = CP.compile_fallout4(args)
+    assert [names for names, _ in batches] == [['User']]
+    assert compiled == {'alone', 'user'} and own == {'Shared': [error]}
+    assert CP.fo4_summary(compiled, own, list(OVERRIDE))['kinds'] == {error: 1}
+    del batches[:]
+    monkeypatch.setattr(CP.caprica, 'compile_files', lambda *a: (set(), {}, 0))
+    assert CP.compile_fallout4(args)[1] == {'Shared': [error]} and batches == []
+
+
+def test_header_hashes_are_kept_per_header_folder_for_every_output_folder(tmp_path, monkeypatch):
+    """A second plugin (another output folder) importing the same header folder reads none of its files: the
+    memo is the header folder's, not the output folder's."""
+    args, _batches = _build(tmp_path, monkeypatch, OVERRIDE)
+    read, plain = [], Path.read_bytes
+    monkeypatch.setattr(Path, 'read_bytes', lambda path: read.append(path.parent.name) or plain(path))
+    CP.compile_fallout4(args)
+    assert read.count('head') == 1
+    del read[:]
+    (tmp_path / 'out2').mkdir()
+    CP.compile_fallout4(SimpleNamespace(**{**vars(args), 'out': str(tmp_path / 'out2')}))
+    assert 'head' not in read and 'src' in read
+    assert [p.suffix for p in (tmp_path / 'stamps' / 'headers').iterdir()] == ['.json']
 
 
 def test_a_compiled_script_whose_pex_is_gone_compiles_again(tmp_path):

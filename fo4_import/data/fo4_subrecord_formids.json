@@ -1,0 +1,5583 @@
+{
+ "AACT": {
+  "CNAM": "none",
+  "DATA": {
+   "at": [
+    0
+   ]
+  },
+  "DNAM": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "TNAM": "none"
+ },
+ "ACHR": {
+  "DATA": "none",
+  "EDID": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "MNAM": "none",
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "ONAM": "none",
+  "PDTO": "complex",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "XACT": "none",
+  "XAPD": "none",
+  "XAPR": {
+   "at": [
+    0
+   ]
+  },
+  "XATP": "none",
+  "XATR": {
+   "at": [
+    0
+   ]
+  },
+  "XCNT": "none",
+  "XEMI": {
+   "at": [
+    0
+   ]
+  },
+  "XESP": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XFVC": "none",
+  "XHLT": "none",
+  "XHTW": "none",
+  "XIBS": "none",
+  "XIS2": "none",
+  "XLCM": "none",
+  "XLCN": {
+   "at": [
+    0
+   ]
+  },
+  "XLKR": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "XLKT": "none",
+  "XLOC": {
+   "at": [
+    4
+   ]
+  },
+  "XLRL": {
+   "at": [
+    0
+   ]
+  },
+  "XLRT": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "XLTW": {
+   "at": [
+    0
+   ]
+  },
+  "XLYR": {
+   "at": [
+    0
+   ]
+  },
+  "XMBR": {
+   "at": [
+    0
+   ]
+  },
+  "XMSP": {
+   "at": [
+    0
+   ]
+  },
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XPLK": {
+   "at": [
+    0
+   ]
+  },
+  "XPPA": "none",
+  "XPRD": "none",
+  "XPWR": {
+   "at": [
+    0
+   ]
+  },
+  "XRDS": "none",
+  "XRFG": {
+   "at": [
+    0
+   ]
+  },
+  "XRGB": "none",
+  "XRGD": "none",
+  "XRNK": "none",
+  "XSCL": "none",
+  "XWCN": "none",
+  "XWCU": "none"
+ },
+ "ACTI": {
+  "ATTX": "none",
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CTDA": "condition",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FTYP": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "KNAM": {
+   "at": [
+    0
+   ]
+  },
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NTRM": {
+   "at": [
+    0
+   ]
+  },
+  "NVNM": "complex",
+  "OBND": "none",
+  "PNAM": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "RADR": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "STCP": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "VNAM": {
+   "at": [
+    0
+   ]
+  },
+  "WNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ADDN": {
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "AECH": {
+  "DNAM": "none",
+  "EDID": "none",
+  "KNAM": "none"
+ },
+ "ALCH": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "CUSD": {
+   "at": [
+    0
+   ]
+  },
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DESC": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DNAM": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "EFID": {
+   "at": [
+    0
+   ]
+  },
+  "EFIT": "none",
+  "ENIT": {
+   "at": [
+    8,
+    16
+   ]
+  },
+  "ETYP": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "ICON": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MICO": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "AMDL": {
+  "DNAM": "none",
+  "EDID": "none"
+ },
+ "AMMO": {
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DESC": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "OBND": "none",
+  "ONAM": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ANIO": {
+  "BNAM": "none",
+  "EDID": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none"
+ },
+ "AORU": {
+  "AOR2": "none",
+  "EDID": "none"
+ },
+ "ARMA": {
+  "BOD2": "none",
+  "BSMB": "none",
+  "BSMP": "none",
+  "BSMS": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "MO2C": "none",
+  "MO2F": "none",
+  "MO2S": {
+   "at": [
+    0
+   ]
+  },
+  "MO2T": "none",
+  "MO3C": "none",
+  "MO3F": "none",
+  "MO3S": {
+   "at": [
+    0
+   ]
+  },
+  "MO3T": "none",
+  "MO4C": "none",
+  "MO4F": "none",
+  "MO4S": {
+   "at": [
+    0
+   ]
+  },
+  "MO4T": "none",
+  "MO5C": "none",
+  "MO5F": "none",
+  "MO5S": {
+   "at": [
+    0
+   ]
+  },
+  "MO5T": "none",
+  "MOD2": "none",
+  "MOD3": "none",
+  "MOD4": "none",
+  "MOD5": "none",
+  "MODL": {
+   "at": [
+    0
+   ]
+  },
+  "NAM0": {
+   "at": [
+    0
+   ]
+  },
+  "NAM1": {
+   "at": [
+    0
+   ]
+  },
+  "NAM2": {
+   "at": [
+    0
+   ]
+  },
+  "NAM3": {
+   "at": [
+    0
+   ]
+  },
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNDD": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ARMO": {
+  "APPR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "BAMT": {
+   "at": [
+    0
+   ]
+  },
+  "BIDS": {
+   "at": [
+    0
+   ]
+  },
+  "BOD2": "none",
+  "DAMA": "complex",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DESC": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "EITM": {
+   "at": [
+    0
+   ]
+  },
+  "ETYP": {
+   "at": [
+    0
+   ]
+  },
+  "FNAM": "none",
+  "FULL": "none",
+  "ICO2": "none",
+  "ICON": "none",
+  "INDX": "none",
+  "INRD": {
+   "at": [
+    0
+   ]
+  },
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MIC2": "none",
+  "MICO": "none",
+  "MO2S": {
+   "at": [
+    0
+   ]
+  },
+  "MO2T": "none",
+  "MO4S": {
+   "at": [
+    0
+   ]
+  },
+  "MO4T": "none",
+  "MOD2": "none",
+  "MOD4": "none",
+  "MODC": "none",
+  "MODL": {
+   "at": [
+    0
+   ]
+  },
+  "OBND": "none",
+  "OBTE": "none",
+  "OBTF": "none",
+  "OBTS": "complex",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": {
+   "at": [
+    0
+   ]
+  },
+  "STOP": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ARTO": {
+  "DNAM": "none",
+  "EDID": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ASPC": {
+  "BNAM": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "OBND": "none",
+  "RDAT": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "WNAM": "none",
+  "XTRI": "none"
+ },
+ "ASTP": {
+  "DATA": "none",
+  "EDID": "none",
+  "FCHT": "none",
+  "FPRT": "none",
+  "MCHT": "none",
+  "MPRT": "none"
+ },
+ "AVIF": {
+  "ANAM": "none",
+  "AVFL": "none",
+  "DESC": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "NAM0": "none",
+  "NAM1": "none"
+ },
+ "BNDS": {
+  "DNAM": "none",
+  "EDID": "none",
+  "OBND": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "BOOK": {
+  "CNAM": "none",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DNAM": "complex",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FIMD": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "ICON": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MICO": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "BPTD": {
+  "BNAM": {
+   "at": [
+    0
+   ]
+  },
+  "BPND": "complex",
+  "BPNN": "none",
+  "BPNT": "none",
+  "BPTN": "none",
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DNAM": "none",
+  "EDID": "none",
+  "ENAM": "none",
+  "FNAM": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "JNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM1": "none",
+  "NAM2": {
+   "at": [
+    0
+   ]
+  },
+  "NAM4": "none",
+  "NAM5": "none"
+ },
+ "CAMS": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DATA": "none",
+  "EDID": "none",
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none"
+ },
+ "CELL": {
+  "CNAM": "none",
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "LTMP": {
+   "at": [
+    0
+   ]
+  },
+  "MHDT": "none",
+  "PCMB": "none",
+  "RVIS": {
+   "at": [
+    0
+   ]
+  },
+  "TVDT": "none",
+  "VISI": "none",
+  "XCAS": {
+   "at": [
+    0
+   ]
+  },
+  "XCCM": {
+   "at": [
+    0
+   ]
+  },
+  "XCIM": {
+   "at": [
+    0
+   ]
+  },
+  "XCLC": "none",
+  "XCLL": "none",
+  "XCLR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "XCLW": "none",
+  "XCMO": {
+   "at": [
+    0
+   ]
+  },
+  "XCRI": "complex",
+  "XCWT": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XGDR": {
+   "at": [
+    0
+   ]
+  },
+  "XILL": {
+   "at": [
+    0
+   ]
+  },
+  "XILW": {
+   "at": [
+    0
+   ]
+  },
+  "XLCN": {
+   "at": [
+    0
+   ]
+  },
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XPRI": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "XRNK": "none",
+  "XWCN": "none",
+  "XWCU": "none",
+  "XWEM": "none",
+  "ZNAM": "none"
+ },
+ "CLAS": {
+  "DATA": "none",
+  "DESC": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  }
+ },
+ "CLFM": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CNAM": "none",
+  "CTDA": "condition",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none"
+ },
+ "CLMT": {
+  "EDID": "none",
+  "FNAM": "none",
+  "GNAM": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "TNAM": "none",
+  "WLST": {
+   "at": [
+    0,
+    8
+   ],
+   "start": 0,
+   "stride": 12
+  }
+ },
+ "CMPO": {
+  "CUSD": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "OBND": "none"
+ },
+ "COBJ": {
+  "ANAM": {
+   "at": [
+    0
+   ]
+  },
+  "BNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CIS1": "none",
+  "CIS2": "none",
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CTDA": "condition",
+  "DESC": "none",
+  "EDID": "none",
+  "FNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "FVPA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "INTV": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "NAM3": "none",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "COLL": {
+  "BNAM": "none",
+  "CNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "DESC": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "GNAM": "none",
+  "INTV": "none",
+  "MNAM": "none"
+ },
+ "CONT": {
+  "CNTO": {
+   "at": [
+    0
+   ]
+  },
+  "COCT": "none",
+  "COED": "owner_data",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FTYP": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NTRM": {
+   "at": [
+    0
+   ]
+  },
+  "OBND": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "QNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex"
+ },
+ "CPTH": {
+  "ANAM": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DATA": "none",
+  "EDID": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "CSTY": {
+  "CSCR": "none",
+  "CSCV": "none",
+  "CSFL": "none",
+  "CSGD": "none",
+  "CSLR": "none",
+  "CSMD": "none",
+  "CSME": "none",
+  "CSRA": "none",
+  "DATA": "none",
+  "EDID": "none"
+ },
+ "DEBR": {
+  "DATA": "none",
+  "EDID": "none",
+  "MODT": "none"
+ },
+ "DFOB": {
+  "DATA": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none"
+ },
+ "DIAL": {
+  "BNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "INFC": {
+   "at": [
+    0
+   ]
+  },
+  "INOA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "INOM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "KNAM": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": "none",
+  "QNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": "none",
+  "TIFC": "none"
+ },
+ "DLBR": {
+  "DNAM": "none",
+  "EDID": "none",
+  "QNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": "none"
+ },
+ "DLVW": {
+  "BNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DNAM": "none",
+  "EDID": "none",
+  "ENAM": "none",
+  "QNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "DMGT": {
+  "DNAM": "complex",
+  "EDID": "none"
+ },
+ "DOBJ": {
+  "DNAM": {
+   "at": [
+    4
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "EDID": "none"
+ },
+ "DOOR": {
+  "ANAM": {
+   "at": [
+    0
+   ]
+  },
+  "BNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CNAM": "none",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NTRM": {
+   "at": [
+    0
+   ]
+  },
+  "OBND": "none",
+  "ONAM": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex"
+ },
+ "DUAL": {
+  "DATA": {
+   "at": [
+    0,
+    4,
+    8,
+    12,
+    16
+   ]
+  },
+  "EDID": "none",
+  "OBND": "none"
+ },
+ "ECZN": {
+  "DATA": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "EDID": "none"
+ },
+ "EFSH": {
+  "DATA": "none",
+  "DNAM": "complex",
+  "EDID": "none",
+  "ICO2": "none",
+  "ICON": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM7": "none",
+  "NAM8": "none",
+  "NAM9": "none"
+ },
+ "ENCH": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "EDID": "none",
+  "EFID": {
+   "at": [
+    0
+   ]
+  },
+  "EFIT": "none",
+  "ENIT": {
+   "at": [
+    28,
+    32
+   ]
+  },
+  "FULL": "none",
+  "OBND": "none"
+ },
+ "EQUP": {
+  "ANAM": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": "none",
+  "EDID": "none",
+  "PNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  }
+ },
+ "EXPL": {
+  "DATA": {
+   "at": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20
+   ]
+  },
+  "EDID": "none",
+  "EITM": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "EYES": {
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none"
+ },
+ "FACT": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CRGR": {
+   "at": [
+    0
+   ]
+  },
+  "CRVA": "none",
+  "CTDA": "condition",
+  "DATA": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "INAM": "none",
+  "JAIL": {
+   "at": [
+    0
+   ]
+  },
+  "JOUT": {
+   "at": [
+    0
+   ]
+  },
+  "MNAM": "none",
+  "PLCN": {
+   "at": [
+    0
+   ]
+  },
+  "PLVD": "complex",
+  "RNAM": "none",
+  "STOL": {
+   "at": [
+    0
+   ]
+  },
+  "VENC": {
+   "at": [
+    0
+   ]
+  },
+  "VEND": {
+   "at": [
+    0
+   ]
+  },
+  "VENV": "none",
+  "WAIT": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "FLOR": {
+  "ATTX": "none",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PFIG": {
+   "at": [
+    0
+   ]
+  },
+  "PFPC": "none",
+  "PNAM": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex"
+ },
+ "FLST": {
+  "EDID": "none",
+  "FULL": "none",
+  "LNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "FSTP": {
+  "ANAM": "none",
+  "DATA": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none"
+ },
+ "FSTS": {
+  "DATA": "complex",
+  "EDID": "none",
+  "XCNT": "none"
+ },
+ "FURN": {
+  "APPR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "ATTX": "none",
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CNTO": {
+   "at": [
+    0
+   ]
+  },
+  "COCT": "none",
+  "COED": "owner_data",
+  "CTDA": "condition",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "ENAM": "none",
+  "FNAM": "none",
+  "FNPR": "none",
+  "FTYP": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MNAM": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM0": "none",
+  "NAM1": {
+   "at": [
+    0
+   ]
+  },
+  "NTRM": {
+   "at": [
+    0
+   ]
+  },
+  "NVNM": "complex",
+  "OBND": "none",
+  "OBTE": "none",
+  "OBTF": "none",
+  "OBTS": "complex",
+  "PNAM": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": "complex",
+  "STOP": "none",
+  "VMAD": "complex",
+  "WBDT": "none",
+  "WNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XMRK": "none"
+ },
+ "GDRY": {
+  "DATA": "none",
+  "EDID": "none"
+ },
+ "GLOB": {
+  "EDID": "none",
+  "FLTV": "none",
+  "FNAM": "none"
+ },
+ "GMST": {
+  "DATA": "none",
+  "EDID": "none"
+ },
+ "GRAS": {
+  "DATA": "none",
+  "EDID": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "HAZD": {
+  "DNAM": {
+   "at": [
+    24,
+    28,
+    32,
+    36
+   ]
+  },
+  "EDID": "none",
+  "FULL": "none",
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "HDPT": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CTDA": "condition",
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "HNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM0": "none",
+  "NAM1": "none",
+  "PNAM": "none",
+  "RNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "IDLE": {
+  "ANAM": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "ENAM": "none",
+  "GNAM": "none"
+ },
+ "IDLM": {
+  "EDID": "none",
+  "IDLA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "IDLB": "none",
+  "IDLC": "none",
+  "IDLF": "none",
+  "IDLT": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "QNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "IMAD": {
+  "\u0000IAD": "none",
+  "\u0001IAD": "none",
+  "\u0002IAD": "none",
+  "\u0003IAD": "none",
+  "\u0004IAD": "none",
+  "\u0005IAD": "none",
+  "\u0006IAD": "none",
+  "\u0007IAD": "none",
+  "\bIAD": "none",
+  "\tIAD": "none",
+  "\nIAD": "none",
+  "\u000bIAD": "none",
+  "\fIAD": "none",
+  "\rIAD": "none",
+  "\u000eIAD": "none",
+  "\u000fIAD": "none",
+  "\u0010IAD": "none",
+  "\u0011IAD": "none",
+  "\u0012IAD": "none",
+  "\u0013IAD": "none",
+  "\u0014IAD": "none",
+  "@IAD": "none",
+  "AIAD": "none",
+  "BIAD": "none",
+  "BNAM": "none",
+  "CIAD": "none",
+  "DIAD": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "EIAD": "none",
+  "FIAD": "none",
+  "GIAD": "none",
+  "HIAD": "none",
+  "IIAD": "none",
+  "JIAD": "none",
+  "KIAD": "none",
+  "LIAD": "none",
+  "MIAD": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "NAM3": "none",
+  "NAM4": "none",
+  "NIAD": "none",
+  "OIAD": "none",
+  "PIAD": "none",
+  "QIAD": "none",
+  "RIAD": "none",
+  "RNAM": "none",
+  "SIAD": "none",
+  "SNAM": "none",
+  "TIAD": "none",
+  "TNAM": "none",
+  "UNAM": "none",
+  "VNAM": "none",
+  "WNAM": "none",
+  "XNAM": "none",
+  "YNAM": "none"
+ },
+ "IMGS": {
+  "CNAM": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "ENAM": "none",
+  "HNAM": "none",
+  "TNAM": "none",
+  "TX00": "none"
+ },
+ "INFO": {
+  "ALFA": "none",
+  "ANAM": {
+   "at": [
+    0
+   ]
+  },
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DNAM": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "ENAM": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "GREE": "none",
+  "INAM": "none",
+  "INCC": "none",
+  "INTV": "none",
+  "IOVR": "none",
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODQ": {
+   "at": [
+    0
+   ]
+  },
+  "NAM0": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "NAM3": "none",
+  "NAM4": "none",
+  "NAM9": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SRAF": {
+   "at": [
+    0
+   ]
+  },
+  "TIQS": "none",
+  "TNAM": "none",
+  "TPIC": {
+   "at": [
+    0
+   ]
+  },
+  "TRDA": {
+   "at": [
+    0,
+    5
+   ]
+  },
+  "TSCE": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "WZMD": "none"
+ },
+ "INGR": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "EFID": {
+   "at": [
+    0
+   ]
+  },
+  "EFIT": "none",
+  "ENIT": "none",
+  "ETYP": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "ICON": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MICO": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "INNR": {
+  "EDID": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "UNAM": "none",
+  "VNAM": "none",
+  "WNAM": "none",
+  "XNAM": "none",
+  "YNAM": "none"
+ },
+ "IPCT": {
+  "DATA": "none",
+  "DNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DODT": "none",
+  "EDID": "none",
+  "ENAM": {
+   "at": [
+    0
+   ]
+  },
+  "FNAM": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM1": {
+   "at": [
+    0
+   ]
+  },
+  "NAM2": {
+   "at": [
+    0
+   ]
+  },
+  "NAM3": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "IPDS": {
+  "EDID": "none",
+  "PNAM": {
+   "at": [
+    0,
+    4
+   ]
+  }
+ },
+ "KEYM": {
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MICO": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "KSSM": {
+  "DNAM": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "ENAM": {
+   "at": [
+    0
+   ]
+  },
+  "KNAM": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": {
+   "at": [
+    4
+   ]
+  },
+  "TNAM": "none",
+  "VNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "KYWD": {
+  "CNAM": "none",
+  "DATA": {
+   "at": [
+    0
+   ]
+  },
+  "DNAM": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "NNAM": "none",
+  "TNAM": "none"
+ },
+ "LAND": {
+  "ATXT": {
+   "at": [
+    0
+   ]
+  },
+  "BTXT": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": "none",
+  "MPCD": "none",
+  "VCLR": "none",
+  "VHGT": "none",
+  "VNML": "none",
+  "VTXT": "none"
+ },
+ "LAYR": {
+  "EDID": "none",
+  "PNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "LCRT": {
+  "CNAM": "none",
+  "EDID": "none",
+  "TNAM": "none"
+ },
+ "LCTN": {
+  "ACEC": {
+   "at": [
+    0
+   ]
+  },
+  "ACEP": {
+   "at": [
+    0,
+    4
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "ACID": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "ACPR": {
+   "at": [
+    0,
+    4
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "ACSR": {
+   "at": [
+    0,
+    4,
+    8
+   ],
+   "start": 0,
+   "stride": 16
+  },
+  "ACUN": {
+   "at": [
+    0,
+    4,
+    8
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "ANAM": "none",
+  "CNAM": "none",
+  "EDID": "none",
+  "FNAM": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "LCEC": {
+   "at": [
+    0
+   ]
+  },
+  "LCEP": {
+   "at": [
+    0,
+    4
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "LCID": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "LCPR": {
+   "at": [
+    0,
+    4
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "LCSR": {
+   "at": [
+    0,
+    4,
+    8
+   ],
+   "start": 0,
+   "stride": 16
+  },
+  "LCUN": {
+   "at": [
+    0,
+    4,
+    8
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAM1": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "RCEC": {
+   "at": [
+    0
+   ]
+  },
+  "RCPR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "RCSR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "RCUN": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "RNAM": "none"
+ },
+ "LENS": {
+  "CNAM": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "LFSD": "none",
+  "LFSP": "none"
+ },
+ "LGTM": {
+  "DALC": "none",
+  "DATA": "none",
+  "EDID": "none",
+  "WGDR": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "LIGH": {
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MICO": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM0": "none",
+  "OBND": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "WGDR": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "LSCR": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DESC": "none",
+  "EDID": "none",
+  "MOD2": "none",
+  "NNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ONAM": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": "none"
+ },
+ "LTEX": {
+  "EDID": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "HNAM": "none",
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "LVLI": {
+  "COED": "owner_data",
+  "EDID": "none",
+  "LLCT": "none",
+  "LLKC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "LVLD": "none",
+  "LVLF": "none",
+  "LVLG": {
+   "at": [
+    0
+   ]
+  },
+  "LVLM": "none",
+  "LVLO": {
+   "at": [
+    4
+   ]
+  },
+  "LVSG": {
+   "at": [
+    0
+   ]
+  },
+  "OBND": "none",
+  "ONAM": "none"
+ },
+ "LVLN": {
+  "COED": "owner_data",
+  "EDID": "none",
+  "LLCT": "none",
+  "LLKC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "LVLD": "none",
+  "LVLF": "none",
+  "LVLG": {
+   "at": [
+    0
+   ]
+  },
+  "LVLM": "none",
+  "LVLO": {
+   "at": [
+    4
+   ]
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "LVSP": {
+  "EDID": "none",
+  "LLCT": "none",
+  "LVLD": "none",
+  "LVLF": "none",
+  "LVLM": "none",
+  "LVLO": {
+   "at": [
+    4
+   ]
+  },
+  "OBND": "none"
+ },
+ "MATO": {
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none"
+ },
+ "MATT": {
+  "ANAM": "none",
+  "BNAM": "none",
+  "CNAM": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "HNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MNAM": "none",
+  "MODT": "none",
+  "PNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "MESG": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DESC": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "ITXT": "none",
+  "NNAM": "none",
+  "QNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": "none",
+  "TNAM": "none"
+ },
+ "MGEF": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DATA": {
+   "at": [
+    8,
+    16,
+    24,
+    32,
+    36,
+    68,
+    72,
+    76,
+    88,
+    92,
+    96,
+    100,
+    108,
+    116,
+    120,
+    124,
+    128,
+    132,
+    136
+   ]
+  },
+  "DNAM": "none",
+  "EDID": "none",
+  "ESCE": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MDOB": {
+   "at": [
+    0
+   ]
+  },
+  "SNDD": {
+   "at": [
+    4
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "VMAD": "complex"
+ },
+ "MISC": {
+  "CDIX": "none",
+  "CVPA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FIMD": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "ICON": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MICO": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "MOVT": {
+  "EDID": "none",
+  "INAM": "none",
+  "JNAM": "none",
+  "LNAM": "none",
+  "MNAM": "none",
+  "SPED": "none"
+ },
+ "MSTT": {
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex"
+ },
+ "MSWP": {
+  "BNAM": "none",
+  "CNAM": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "SNAM": "none"
+ },
+ "MUSC": {
+  "EDID": "none",
+  "FNAM": "none",
+  "PNAM": "none",
+  "TNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "WNAM": "none"
+ },
+ "MUST": {
+  "ANAM": "none",
+  "BNAM": "none",
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CNAM": "none",
+  "CTDA": "condition",
+  "DNAM": "none",
+  "EDID": "none",
+  "FLTV": "none",
+  "FNAM": "none",
+  "LNAM": "none",
+  "SNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  }
+ },
+ "NAVI": {
+  "EDID": "none",
+  "NVER": "none",
+  "NVMI": "complex",
+  "NVPP": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "NVSI": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  }
+ },
+ "NAVM": {
+  "EDID": "none",
+  "MNAM": "complex",
+  "NNAM": "none",
+  "NVNM": "complex",
+  "ONAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "PNAM": "none"
+ },
+ "NOCM": {
+  "DATA": "none",
+  "EDID": "none",
+  "INDX": "none",
+  "INTV": "none",
+  "NAM1": "none"
+ },
+ "NOTE": {
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PNAM": "none",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": "complex",
+  "VMAD": "complex",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "NPC_": {
+  "ACBS": "none",
+  "AIDT": "none",
+  "ANAM": {
+   "at": [
+    0
+   ]
+  },
+  "APPR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "ATKD": {
+   "at": [
+    8
+   ]
+  },
+  "ATKE": "none",
+  "ATKR": {
+   "at": [
+    0
+   ]
+  },
+  "ATKS": {
+   "at": [
+    0
+   ]
+  },
+  "ATKT": "none",
+  "ATKW": {
+   "at": [
+    0
+   ]
+  },
+  "ATTX": "none",
+  "BCLF": {
+   "at": [
+    0
+   ]
+  },
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CNTO": {
+   "at": [
+    0
+   ]
+  },
+  "COCT": "none",
+  "COED": "owner_data",
+  "CRIF": {
+   "at": [
+    0
+   ]
+  },
+  "CS2D": {
+   "at": [
+    0
+   ]
+  },
+  "CS2E": "none",
+  "CS2F": "none",
+  "CS2H": "none",
+  "CS2K": {
+   "at": [
+    0
+   ]
+  },
+  "CSCR": {
+   "at": [
+    0
+   ]
+  },
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DNAM": "none",
+  "DOFT": {
+   "at": [
+    0
+   ]
+  },
+  "DPLT": {
+   "at": [
+    0
+   ]
+  },
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "ECOR": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "FCPL": {
+   "at": [
+    0
+   ]
+  },
+  "FMIN": "none",
+  "FMRI": "none",
+  "FMRS": "none",
+  "FTST": {
+   "at": [
+    0
+   ]
+  },
+  "FTYP": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "GWOR": {
+   "at": [
+    0
+   ]
+  },
+  "HCLF": {
+   "at": [
+    0
+   ]
+  },
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "LTPC": {
+   "at": [
+    0
+   ]
+  },
+  "LTPT": {
+   "at": [
+    0
+   ]
+  },
+  "MRSV": "none",
+  "MSDK": "none",
+  "MSDV": "none",
+  "MWGT": "none",
+  "NAM4": "none",
+  "NAM5": "none",
+  "NAM6": "none",
+  "NAM7": "none",
+  "NAM8": "none",
+  "NTRM": {
+   "at": [
+    0
+   ]
+  },
+  "OBND": "none",
+  "OBTE": "none",
+  "OBTF": "none",
+  "OBTS": "complex",
+  "OCOR": {
+   "at": [
+    0
+   ]
+  },
+  "PFRN": {
+   "at": [
+    0
+   ]
+  },
+  "PKID": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "PRKR": {
+   "at": [
+    0
+   ]
+  },
+  "PRKZ": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "QNAM": "none",
+  "RCLR": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SHRT": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SOFT": {
+   "at": [
+    0
+   ]
+  },
+  "SPCT": "none",
+  "SPLO": {
+   "at": [
+    0
+   ]
+  },
+  "SPOR": {
+   "at": [
+    0
+   ]
+  },
+  "STCP": {
+   "at": [
+    0
+   ]
+  },
+  "STOP": "none",
+  "TEND": "none",
+  "TETI": "none",
+  "TPLT": {
+   "at": [
+    0
+   ]
+  },
+  "TPTA": {
+   "at": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    28,
+    32,
+    36,
+    40,
+    44,
+    48
+   ]
+  },
+  "VMAD": "complex",
+  "VTCK": {
+   "at": [
+    0
+   ]
+  },
+  "WNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "OMOD": {
+  "DATA": "complex",
+  "DESC": "none",
+  "EDID": "none",
+  "FLTR": "none",
+  "FNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "FULL": "none",
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM1": "none"
+ },
+ "OTFT": {
+  "EDID": "none",
+  "INAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  }
+ },
+ "OVIS": {
+  "DATA": "none",
+  "EDID": "none",
+  "INDX": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "PACK": {
+  "ANAM": "none",
+  "BNAM": "none",
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CNAM": "complex",
+  "CTDA": "condition",
+  "EDID": "none",
+  "FNAM": "none",
+  "IDLA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "IDLB": "none",
+  "IDLC": "none",
+  "IDLF": "none",
+  "IDLT": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "PDTO": "complex",
+  "PFO2": "none",
+  "PFOR": "none",
+  "PKC2": "none",
+  "PKCU": {
+   "at": [
+    4
+   ]
+  },
+  "PKDT": "none",
+  "PLDT": "complex",
+  "PNAM": "none",
+  "POBA": "none",
+  "POCA": "none",
+  "POEA": "none",
+  "PRCB": "none",
+  "PSDT": "none",
+  "PTDA": "complex",
+  "QNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TPIC": {
+   "at": [
+    0
+   ]
+  },
+  "UNAM": "none",
+  "VMAD": "complex",
+  "XNAM": "none"
+ },
+ "PERK": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DATA": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      0
+     ]
+    },
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      1
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 1,
+    "sub": "PRKE"
+   }
+  },
+  "DESC": "none",
+  "EDID": "none",
+  "EPF2": "none",
+  "EPF3": "none",
+  "EPFB": "none",
+  "EPFD": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      3
+     ]
+    },
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      4
+     ]
+    },
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      5
+     ]
+    },
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      8
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 1,
+    "sub": "EPFT"
+   }
+  },
+  "EPFT": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "NNAM": {
+   "at": [
+    0
+   ]
+  },
+  "PRKC": "none",
+  "PRKE": "none",
+  "PRKF": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex"
+ },
+ "PKIN": {
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "FLTR": "none",
+  "OBND": "none",
+  "VNAM": "none"
+ },
+ "PLYR": {
+  "EDID": "none",
+  "PLYR": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "PROJ": {
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DNAM": {
+   "at": [
+    16,
+    20,
+    32,
+    36,
+    52,
+    56,
+    60,
+    80,
+    84,
+    89
+   ]
+  },
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "OBND": "none",
+  "VNAM": "none"
+ },
+ "QUST": {
+  "ALCA": "none",
+  "ALCC": "none",
+  "ALCL": "none",
+  "ALCO": {
+   "at": [
+    0
+   ]
+  },
+  "ALCS": "none",
+  "ALDI": {
+   "at": [
+    0
+   ]
+  },
+  "ALDN": {
+   "at": [
+    0
+   ]
+  },
+  "ALEA": "none",
+  "ALED": "none",
+  "ALEQ": {
+   "at": [
+    0
+   ]
+  },
+  "ALFA": "none",
+  "ALFC": {
+   "at": [
+    0
+   ]
+  },
+  "ALFD": "none",
+  "ALFE": "none",
+  "ALFI": "none",
+  "ALFL": {
+   "at": [
+    0
+   ]
+  },
+  "ALFR": {
+   "at": [
+    0
+   ]
+  },
+  "ALFV": {
+   "at": [
+    0
+   ]
+  },
+  "ALID": "none",
+  "ALLA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "ALLS": "none",
+  "ALMI": "none",
+  "ALNA": "none",
+  "ALNT": "none",
+  "ALPC": {
+   "at": [
+    0
+   ]
+  },
+  "ALRT": {
+   "at": [
+    0
+   ]
+  },
+  "ALSP": {
+   "at": [
+    0
+   ]
+  },
+  "ALST": "none",
+  "ALUA": {
+   "at": [
+    0
+   ]
+  },
+  "ANAM": "none",
+  "CIS1": "none",
+  "CIS2": "none",
+  "CNAM": "none",
+  "CNTO": {
+   "at": [
+    0
+   ]
+  },
+  "COCT": "none",
+  "COED": "owner_data",
+  "CTDA": "condition",
+  "DNAM": "none",
+  "ECOR": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "ENAM": "none",
+  "FLTR": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "GWOR": {
+   "at": [
+    0
+   ]
+  },
+  "INDX": "none",
+  "KNAM": {
+   "at": [
+    0
+   ]
+  },
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAM0": {
+   "at": [
+    0
+   ]
+  },
+  "NAM2": "none",
+  "NEXT": "none",
+  "NNAM": "none",
+  "OCOR": {
+   "at": [
+    0
+   ]
+  },
+  "QOBJ": "none",
+  "QSDT": "none",
+  "QSTA": "none",
+  "QTGL": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": "none",
+  "SPOR": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "VTCK": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "RACE": {
+  "AHCF": {
+   "at": [
+    0
+   ]
+  },
+  "AHCM": {
+   "at": [
+    0
+   ]
+  },
+  "ANAM": "none",
+  "APPR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "ATKD": {
+   "at": [
+    8
+   ]
+  },
+  "ATKE": "none",
+  "ATKR": {
+   "at": [
+    0
+   ]
+  },
+  "ATKS": {
+   "at": [
+    0
+   ]
+  },
+  "ATKT": "none",
+  "ATKW": {
+   "at": [
+    0
+   ]
+  },
+  "BMMP": "none",
+  "BOD2": "none",
+  "BSMB": "none",
+  "BSMP": "none",
+  "BSMS": "none",
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": "complex",
+  "DESC": "none",
+  "DFTF": {
+   "at": [
+    0
+   ]
+  },
+  "DFTM": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "FLMV": {
+   "at": [
+    0
+   ]
+  },
+  "FMRI": "none",
+  "FMRN": "none",
+  "FNAM": "none",
+  "FTSF": {
+   "at": [
+    0
+   ]
+  },
+  "FTSM": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "HCLF": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "HEAD": {
+   "at": [
+    0
+   ]
+  },
+  "HLTX": "none",
+  "HNAM": "none",
+  "ICON": "none",
+  "INDX": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MLSI": "none",
+  "MNAM": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "MPGN": "none",
+  "MPGS": "none",
+  "MPPC": "none",
+  "MPPF": "none",
+  "MPPI": "none",
+  "MPPK": "none",
+  "MPPM": "none",
+  "MPPN": "none",
+  "MPPT": {
+   "at": [
+    0
+   ]
+  },
+  "MSID": "none",
+  "MSM0": "none",
+  "MSM1": "none",
+  "MTNM": "none",
+  "MTYP": {
+   "at": [
+    0
+   ]
+  },
+  "NAM0": "none",
+  "NAM1": "none",
+  "NAM2": "complex",
+  "NAM3": "none",
+  "NAM4": {
+   "at": [
+    0
+   ]
+  },
+  "NAM5": {
+   "at": [
+    0
+   ]
+  },
+  "NAM7": {
+   "at": [
+    0
+   ]
+  },
+  "NAM8": {
+   "at": [
+    0
+   ]
+  },
+  "NAME": "none",
+  "NNAM": "none",
+  "NTOP": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "PHTN": "none",
+  "PHWT": "none",
+  "PNAM": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTOP": "none",
+  "QNAM": {
+   "at": [
+    0
+   ]
+  },
+  "QSTI": {
+   "at": [
+    0
+   ]
+  },
+  "RBPC": "complex",
+  "RNAM": {
+   "at": [
+    0
+   ]
+  },
+  "RPRF": {
+   "at": [
+    0
+   ]
+  },
+  "RPRM": {
+   "at": [
+    0
+   ]
+  },
+  "SADD": {
+   "at": [
+    0
+   ]
+  },
+  "SAKD": {
+   "at": [
+    0
+   ]
+  },
+  "SAPT": "none",
+  "SGNM": "none",
+  "SNMV": {
+   "at": [
+    0
+   ]
+  },
+  "SPCT": "none",
+  "SPED": "none",
+  "SPLO": {
+   "at": [
+    0
+   ]
+  },
+  "SRAC": {
+   "at": [
+    0
+   ]
+  },
+  "SRAF": "none",
+  "STCP": {
+   "at": [
+    0
+   ]
+  },
+  "STKD": {
+   "at": [
+    0
+   ]
+  },
+  "SWMV": {
+   "at": [
+    0
+   ]
+  },
+  "TINL": "none",
+  "UNAM": "none",
+  "UNWP": {
+   "at": [
+    0
+   ]
+  },
+  "VNAM": "none",
+  "VTCK": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "WKMV": {
+   "at": [
+    0
+   ]
+  },
+  "WMAP": "none",
+  "WNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": "none"
+ },
+ "REFR": {
+  "DATA": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MNAM": "none",
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "ONAM": "none",
+  "PDTO": "complex",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "XACT": "none",
+  "XALP": "none",
+  "XAMC": "none",
+  "XAPD": "none",
+  "XAPR": {
+   "at": [
+    0
+   ]
+  },
+  "XASP": {
+   "at": [
+    0
+   ]
+  },
+  "XATP": "none",
+  "XATR": {
+   "at": [
+    0
+   ]
+  },
+  "XBSD": "none",
+  "XCNT": "none",
+  "XCVL": "none",
+  "XCVR": "none",
+  "XCZA": "none",
+  "XCZC": {
+   "at": [
+    0
+   ]
+  },
+  "XCZR": {
+   "at": [
+    0
+   ]
+  },
+  "XEMI": {
+   "at": [
+    0
+   ]
+  },
+  "XESP": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XFVC": "none",
+  "XHLT": "none",
+  "XHTW": "none",
+  "XIS2": "none",
+  "XLCM": "none",
+  "XLCN": {
+   "at": [
+    0
+   ]
+  },
+  "XLIB": {
+   "at": [
+    0
+   ]
+  },
+  "XLIG": "none",
+  "XLKR": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "XLKT": "none",
+  "XLOC": {
+   "at": [
+    4
+   ]
+  },
+  "XLOD": "none",
+  "XLRL": {
+   "at": [
+    0
+   ]
+  },
+  "XLRM": {
+   "at": [
+    0
+   ]
+  },
+  "XLRT": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "XLTW": {
+   "at": [
+    0
+   ]
+  },
+  "XLYR": {
+   "at": [
+    0
+   ]
+  },
+  "XMBO": "none",
+  "XMBP": "none",
+  "XMBR": {
+   "at": [
+    0
+   ]
+  },
+  "XMRK": "none",
+  "XMSP": {
+   "at": [
+    0
+   ]
+  },
+  "XNDP": {
+   "at": [
+    0
+   ]
+  },
+  "XOCP": "none",
+  "XORD": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XPDD": "none",
+  "XPLK": {
+   "at": [
+    0
+   ]
+  },
+  "XPOD": {
+   "at": [
+    0,
+    4
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "XPPA": "none",
+  "XPRD": "none",
+  "XPRM": "none",
+  "XPTL": "none",
+  "XPWR": {
+   "at": [
+    0
+   ]
+  },
+  "XRDO": "none",
+  "XRDS": "none",
+  "XRFG": {
+   "at": [
+    0
+   ]
+  },
+  "XRGB": "none",
+  "XRGD": "none",
+  "XRMR": "none",
+  "XRNK": "none",
+  "XSCL": "none",
+  "XSPC": {
+   "at": [
+    0
+   ]
+  },
+  "XTEL": {
+   "at": [
+    0,
+    32
+   ]
+  },
+  "XTNM": {
+   "at": [
+    0
+   ]
+  },
+  "XTRI": "none",
+  "XWCN": "none",
+  "XWCU": "none",
+  "XWPG": "none",
+  "XWPN": {
+   "at": [
+    0,
+    4,
+    8
+   ]
+  }
+ },
+ "REGN": {
+  "ANAM": "none",
+  "EDID": "none",
+  "ICON": "none",
+  "RCLR": "none",
+  "RDAT": "none",
+  "RDGS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "RDMO": {
+   "at": [
+    0
+   ]
+  },
+  "RDMP": "none",
+  "RDOT": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 52
+  },
+  "RDSD": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "RDWT": {
+   "at": [
+    0,
+    8
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "RLDM": "none",
+  "RPLD": "none",
+  "RPLI": "none",
+  "WNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "RELA": {
+  "DATA": {
+   "at": [
+    0,
+    4,
+    12
+   ]
+  },
+  "EDID": "none"
+ },
+ "REVB": {
+  "ANAM": "none",
+  "DATA": "none",
+  "EDID": "none"
+ },
+ "RFCT": {
+  "DATA": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "EDID": "none"
+ },
+ "RFGP": {
+  "EDID": "none",
+  "NNAM": "none",
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "SCCO": {
+  "EDID": "none",
+  "QNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VNAM": "none",
+  "XNAM": "none"
+ },
+ "SCEN": {
+  "ACTV": "none",
+  "ALID": "none",
+  "ANAM": "none",
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CNAM": "none",
+  "CRIS": "none",
+  "CTDA": "condition",
+  "DALC": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": {
+   "at": [
+    0
+   ]
+  },
+  "DEMO": "none",
+  "DEVA": "none",
+  "DMAX": "none",
+  "DMIN": "none",
+  "DNAM": "none",
+  "DTGT": "none",
+  "DTID": "none",
+  "EDID": "none",
+  "ENAM": "none",
+  "FNAM": "none",
+  "HNAM": "none",
+  "HTID": "complex",
+  "INAM": "none",
+  "INTT": "none",
+  "JOUT": {
+   "at": [
+    0
+   ]
+  },
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "LCEP": {
+   "at": [
+    0
+   ]
+  },
+  "LNAM": "none",
+  "NAM0": "none",
+  "NETO": {
+   "at": [
+    0
+   ]
+  },
+  "NEXT": "none",
+  "NNAM": "none",
+  "NNGS": {
+   "at": [
+    0
+   ]
+  },
+  "NNGT": {
+   "at": [
+    0
+   ]
+  },
+  "NNUS": {
+   "at": [
+    0
+   ]
+  },
+  "NNUT": {
+   "at": [
+    0
+   ]
+  },
+  "NPOS": {
+   "at": [
+    0
+   ]
+  },
+  "NPOT": {
+   "at": [
+    0
+   ]
+  },
+  "NQUS": {
+   "at": [
+    0
+   ]
+  },
+  "NQUT": {
+   "at": [
+    0
+   ]
+  },
+  "NTOP": {
+   "at": [
+    0
+   ]
+  },
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "PLVD": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "PTOP": {
+   "at": [
+    0
+   ]
+  },
+  "QTOP": {
+   "at": [
+    0
+   ]
+  },
+  "SCQS": "none",
+  "SNAM": "none",
+  "SSPN": "none",
+  "STSC": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": "complex",
+  "VENC": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "VNAM": "none",
+  "WNAM": "none",
+  "XNAM": "none"
+ },
+ "SCOL": {
+  "DATA": "none",
+  "EDID": "none",
+  "FLTR": "none",
+  "FULL": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "SCSN": {
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "PNAM": "none"
+ },
+ "SMBN": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CTDA": "condition",
+  "DNAM": "none",
+  "EDID": "none",
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": "none"
+ },
+ "SMEN": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CTDA": "condition",
+  "DNAM": "none",
+  "EDID": "none",
+  "ENAM": "none",
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": "none"
+ },
+ "SMQN": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CITC": "none",
+  "CTDA": "condition",
+  "DNAM": "none",
+  "EDID": "none",
+  "HNAM": "none",
+  "MNAM": "none",
+  "NNAM": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "QNAM": "none",
+  "RNAM": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": "none"
+ },
+ "SNCT": {
+  "CNAM": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "MNAM": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "UNAM": "none",
+  "VNAM": "none"
+ },
+ "SNDR": {
+  "ANAM": "none",
+  "BNAM": "complex",
+  "CIS1": "none",
+  "CIS2": "none",
+  "CNAM": "none",
+  "CTDA": "condition",
+  "DNAM": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "FNAM": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "INTV": "none",
+  "ITMC": "none",
+  "ITME": "none",
+  "ITMS": "none",
+  "LNAM": "none",
+  "NNAM": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "SOPM": {
+  "ATTN": "none",
+  "EDID": "none",
+  "ENAM": {
+   "at": [
+    0
+   ]
+  },
+  "MNAM": "none",
+  "NAM1": "none",
+  "ONAM": "none",
+  "VNAM": "none"
+ },
+ "SOUN": {
+  "EDID": "none",
+  "OBND": "none",
+  "REPT": "none",
+  "SDSC": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "SPEL": {
+  "CIS1": "none",
+  "CIS2": "none",
+  "CTDA": "condition",
+  "DESC": "none",
+  "EDID": "none",
+  "EFID": {
+   "at": [
+    0
+   ]
+  },
+  "EFIT": "none",
+  "ETYP": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "OBND": "none",
+  "SPIT": {
+   "at": [
+    32
+   ]
+  }
+ },
+ "SPGD": {
+  "DATA": "none",
+  "EDID": "none",
+  "MNAM": "none"
+ },
+ "STAG": {
+  "EDID": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "STAT": {
+  "DNAM": {
+   "at": [
+    4
+   ]
+  },
+  "EDID": "none",
+  "FTYP": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "MNAM": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NVNM": "complex",
+  "OBND": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex"
+ },
+ "TACT": {
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PNAM": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex",
+  "VNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "TERM": {
+  "ANAM": "none",
+  "BSIZ": "none",
+  "BTXT": "none",
+  "CIS1": "none",
+  "CIS2": "none",
+  "CNTO": {
+   "at": [
+    0
+   ]
+  },
+  "COCT": "none",
+  "CTDA": "condition",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "ISIZ": "none",
+  "ITID": "none",
+  "ITXT": "none",
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "MNAM": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM0": "none",
+  "OBND": "none",
+  "PNAM": "none",
+  "PRPS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": "none",
+  "SNAM": "complex",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "UNAM": "none",
+  "VMAD": "complex",
+  "VNAM": "none",
+  "WBDT": "none",
+  "WNAM": "none",
+  "XMRK": "none"
+ },
+ "TES4": {
+  "CNAM": "none",
+  "DATA": "none",
+  "DELE": "none",
+  "HEDR": "none",
+  "INCC": "none",
+  "INTV": "none",
+  "MAST": "none",
+  "OFST": "none",
+  "ONAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "SCRN": "none",
+  "SNAM": "none",
+  "TNAM": "complex"
+ },
+ "TREE": {
+  "CNAM": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "OBND": "none",
+  "PFIG": {
+   "at": [
+    0
+   ]
+  },
+  "PFPC": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VMAD": "complex"
+ },
+ "TRNS": {
+  "DATA": "none",
+  "EDID": "none"
+ },
+ "TXST": {
+  "DNAM": "none",
+  "DODT": "none",
+  "EDID": "none",
+  "MNAM": "none",
+  "OBND": "none",
+  "TX00": "none",
+  "TX01": "none",
+  "TX02": "none",
+  "TX03": "none",
+  "TX04": "none",
+  "TX05": "none",
+  "TX06": "none",
+  "TX07": "none"
+ },
+ "VTYP": {
+  "DNAM": "none",
+  "EDID": "none"
+ },
+ "WATR": {
+  "ANAM": "none",
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "GNAM": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAM0": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "NAM3": "none",
+  "NAM4": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "WEAP": {
+  "APPR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "BAMT": {
+   "at": [
+    0
+   ]
+  },
+  "BIDS": {
+   "at": [
+    0
+   ]
+  },
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CRDT": {
+   "at": [
+    8
+   ]
+  },
+  "DAMA": "complex",
+  "DAMC": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "DESC": "none",
+  "DEST": "none",
+  "DMDC": "none",
+  "DMDL": "none",
+  "DMDS": {
+   "at": [
+    0
+   ]
+  },
+  "DMDT": "none",
+  "DNAM": {
+   "at": [
+    0,
+    40,
+    44,
+    73,
+    77,
+    81,
+    85,
+    89,
+    93,
+    97,
+    101
+   ]
+  },
+  "DSTA": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EAMT": "none",
+  "EDID": "none",
+  "EITM": {
+   "at": [
+    0
+   ]
+  },
+  "ETYP": {
+   "at": [
+    0
+   ]
+  },
+  "FLTR": "none",
+  "FNAM": {
+   "at": [
+    29
+   ]
+  },
+  "FULL": "none",
+  "ICON": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "INRD": {
+   "at": [
+    0
+   ]
+  },
+  "KSIZ": "none",
+  "KWDA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MASE": "none",
+  "MICO": "none",
+  "MO4C": "none",
+  "MO4F": "none",
+  "MO4S": {
+   "at": [
+    0
+   ]
+  },
+  "MO4T": "none",
+  "MOD4": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NNAM": {
+   "at": [
+    0
+   ]
+  },
+  "OBND": "none",
+  "OBTE": "none",
+  "OBTF": "none",
+  "OBTS": "complex",
+  "PTRN": {
+   "at": [
+    0
+   ]
+  },
+  "STCP": {
+   "at": [
+    0
+   ]
+  },
+  "STOP": "none",
+  "VMAD": "complex",
+  "WAMD": {
+   "at": [
+    0
+   ]
+  },
+  "WZMD": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "WRLD": {
+  "CLSZ": "none",
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "LTMP": {
+   "at": [
+    0
+   ]
+  },
+  "MHDT": "none",
+  "MNAM": "none",
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "NAM0": "none",
+  "NAM2": {
+   "at": [
+    0
+   ]
+  },
+  "NAM3": {
+   "at": [
+    0
+   ]
+  },
+  "NAM4": "none",
+  "NAM9": "none",
+  "NAMA": "none",
+  "NNAM": "none",
+  "OFST": "none",
+  "ONAM": "none",
+  "PNAM": "none",
+  "RNAM": {
+   "at": [
+    4
+   ]
+  },
+  "TNAM": "none",
+  "UNAM": "none",
+  "WCTR": "none",
+  "WLEV": "none",
+  "WNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XLCN": {
+   "at": [
+    0
+   ]
+  },
+  "XWEM": "none",
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "WTHR": {
+  "00TX": "none",
+  "10TX": "none",
+  "20TX": "none",
+  "30TX": "none",
+  "40TX": "none",
+  "50TX": "none",
+  "60TX": "none",
+  "70TX": "none",
+  "80TX": "none",
+  "90TX": "none",
+  ":0TX": "none",
+  ";0TX": "none",
+  "<0TX": "none",
+  "=0TX": "none",
+  ">0TX": "none",
+  "?0TX": "none",
+  "@0TX": "none",
+  "A0TX": "none",
+  "ANAM": "none",
+  "B0TX": "none",
+  "BNAM": "none",
+  "C0TX": "none",
+  "CNAM": "none",
+  "D0TX": "none",
+  "DALC": "none",
+  "DATA": "none",
+  "DNAM": "none",
+  "E0TX": "none",
+  "EDID": "none",
+  "F0TX": "none",
+  "FNAM": "none",
+  "G0TX": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "H0TX": "none",
+  "I0TX": "none",
+  "IMSP": {
+   "at": [
+    0,
+    4,
+    8,
+    12
+   ]
+  },
+  "J0TX": "none",
+  "JNAM": "none",
+  "K0TX": "none",
+  "L0TX": "none",
+  "LNAM": "none",
+  "M0TX": "none",
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODC": "none",
+  "MODF": "none",
+  "MODL": "none",
+  "MODS": {
+   "at": [
+    0
+   ]
+  },
+  "MODT": "none",
+  "N0TX": "none",
+  "NAM0": "none",
+  "NAM1": "none",
+  "NAM4": "none",
+  "NNAM": {
+   "at": [
+    0
+   ]
+  },
+  "O0TX": "none",
+  "ONAM": "none",
+  "PNAM": "none",
+  "QNAM": "none",
+  "RNAM": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "UNAM": "complex",
+  "VNAM": "none",
+  "WGDR": {
+   "at": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    28
+   ]
+  },
+  "WNAM": "none"
+ },
+ "ZOOM": {
+  "EDID": "none",
+  "GNAM": {
+   "at": [
+    8
+   ]
+  }
+ }
+}

@@ -1,0 +1,3262 @@
+{
+ "ACHR": {
+  "DATA": "none",
+  "EDID": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XAPD": "none",
+  "XAPR": {
+   "at": [
+    0
+   ]
+  },
+  "XCLP": "none",
+  "XCNT": "none",
+  "XDCR": {
+   "at": [
+    0
+   ]
+  },
+  "XEMI": {
+   "at": [
+    0
+   ]
+  },
+  "XESP": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XHLP": "none",
+  "XIBS": "none",
+  "XLCM": "none",
+  "XLKR": {
+   "at": [
+    0
+   ]
+  },
+  "XMBR": {
+   "at": [
+    0
+   ]
+  },
+  "XMRC": {
+   "at": [
+    0
+   ]
+  },
+  "XPPA": "none",
+  "XPRD": "none",
+  "XRDS": "none",
+  "XRGB": "none",
+  "XRGD": "none",
+  "XSCL": "none"
+ },
+ "ACRE": {
+  "DATA": "none",
+  "EDID": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XAPD": "none",
+  "XAPR": {
+   "at": [
+    0
+   ]
+  },
+  "XCLP": "none",
+  "XCNT": "none",
+  "XDCR": {
+   "at": [
+    0
+   ]
+  },
+  "XEMI": {
+   "at": [
+    0
+   ]
+  },
+  "XESP": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XHLP": "none",
+  "XIBS": "none",
+  "XLCM": "none",
+  "XLKR": {
+   "at": [
+    0
+   ]
+  },
+  "XMBR": {
+   "at": [
+    0
+   ]
+  },
+  "XMRC": {
+   "at": [
+    0
+   ]
+  },
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XPPA": "none",
+  "XPRD": "none",
+  "XRDS": "none",
+  "XRGB": "none",
+  "XRGD": "none",
+  "XRNK": "none",
+  "XSCL": "none"
+ },
+ "ACTI": {
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "RNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VNAM": {
+   "at": [
+    0
+   ]
+  },
+  "WNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ADDN": {
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ALCH": {
+  "CTDA": "condition",
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "EFID": {
+   "at": [
+    0
+   ]
+  },
+  "EFIT": "none",
+  "ENIT": {
+   "at": [
+    8,
+    16
+   ]
+  },
+  "ETYP": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "AMMO": {
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "ONAM": "none",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ANIO": {
+  "DATA": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none"
+ },
+ "ARMA": {
+  "BMDT": "none",
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "ETYP": "none",
+  "FULL": "none",
+  "ICO2": "none",
+  "ICON": "none",
+  "MIC2": "none",
+  "MICO": "none",
+  "MO2S": "alt_textures",
+  "MO2T": "none",
+  "MO3S": "alt_textures",
+  "MO3T": "none",
+  "MO4S": "alt_textures",
+  "MO4T": "none",
+  "MOD2": "none",
+  "MOD3": "none",
+  "MOD4": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "MOSD": "none",
+  "OBND": "none"
+ },
+ "ARMO": {
+  "BIPL": {
+   "at": [
+    0
+   ]
+  },
+  "BMCT": "none",
+  "BMDT": "none",
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DNAM": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "EITM": {
+   "at": [
+    0
+   ]
+  },
+  "ETYP": "none",
+  "FULL": "none",
+  "ICO2": "none",
+  "ICON": "none",
+  "MIC2": "none",
+  "MICO": "none",
+  "MO2S": "alt_textures",
+  "MO2T": "none",
+  "MO3S": "alt_textures",
+  "MO3T": "none",
+  "MO4S": "alt_textures",
+  "MO4T": "none",
+  "MOD2": "none",
+  "MOD3": "none",
+  "MOD4": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "MOSD": "none",
+  "OBND": "none",
+  "REPL": {
+   "at": [
+    0
+   ]
+  },
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ASPC": {
+  "ANAM": "none",
+  "EDID": "none",
+  "OBND": "none",
+  "RDAT": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "AVIF": {
+  "ANAM": "none",
+  "DESC": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none"
+ },
+ "BOOK": {
+  "DATA": "none",
+  "DESC": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "BPTD": {
+  "BPND": {
+   "at": [
+    12,
+    16,
+    32,
+    36,
+    68,
+    72
+   ]
+  },
+  "BPNI": "none",
+  "BPNN": "none",
+  "BPNT": "none",
+  "BPTN": "none",
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "NAM1": "none",
+  "NAM4": "none",
+  "NAM5": "none",
+  "RAGA": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "CAMS": {
+  "DATA": "none",
+  "EDID": "none",
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none"
+ },
+ "CELL": {
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "IMPF": "none",
+  "LNAM": "none",
+  "LTMP": {
+   "at": [
+    0
+   ]
+  },
+  "XCAS": {
+   "at": [
+    0
+   ]
+  },
+  "XCCM": {
+   "at": [
+    0
+   ]
+  },
+  "XCET": "none",
+  "XCIM": {
+   "at": [
+    0
+   ]
+  },
+  "XCLC": "none",
+  "XCLL": "none",
+  "XCLR": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "XCLW": "none",
+  "XCMO": {
+   "at": [
+    0
+   ]
+  },
+  "XCMT": "none",
+  "XCWT": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": "none",
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XRNK": "none"
+ },
+ "CLAS": {
+  "ATTR": "none",
+  "DATA": "none",
+  "DESC": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none"
+ },
+ "CLMT": {
+  "EDID": "none",
+  "FNAM": "none",
+  "GNAM": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "TNAM": "none",
+  "WLST": {
+   "at": [
+    0,
+    8
+   ],
+   "start": 0,
+   "stride": 12
+  }
+ },
+ "COBJ": {
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "CONT": {
+  "CNTO": {
+   "at": [
+    0
+   ]
+  },
+  "COED": "owner_data",
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "QNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "CPTH": {
+  "ANAM": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "CTDA": "condition",
+  "DATA": "none",
+  "EDID": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "CREA": {
+  "ACBS": "none",
+  "AIDT": "none",
+  "BNAM": "none",
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CNTO": {
+   "at": [
+    0
+   ]
+  },
+  "COED": "owner_data",
+  "CSCR": {
+   "at": [
+    0
+   ]
+  },
+  "CSDC": "none",
+  "CSDI": {
+   "at": [
+    0
+   ]
+  },
+  "CSDT": "none",
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EAMT": "none",
+  "EDID": "none",
+  "EITM": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "KFFZ": "none",
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "NAM4": "none",
+  "NAM5": "none",
+  "NIFT": "none",
+  "NIFZ": "none",
+  "OBND": "none",
+  "PKID": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SPLO": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": "none",
+  "TPLT": {
+   "at": [
+    0
+   ]
+  },
+  "VTCK": {
+   "at": [
+    0
+   ]
+  },
+  "WNAM": "none",
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "CSTY": {
+  "CSAD": "none",
+  "CSSD": "none",
+  "CSTD": "none",
+  "EDID": "none"
+ },
+ "DEBR": {
+  "DATA": "none",
+  "EDID": "none",
+  "MODT": "none"
+ },
+ "DIAL": {
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "INFC": {
+   "at": [
+    0
+   ]
+  },
+  "INOA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "INOM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "PNAM": "none",
+  "QSTI": {
+   "at": [
+    0
+   ]
+  },
+  "QSTR": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "DOBJ": {
+  "DATA": {
+   "at": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    28,
+    32,
+    36,
+    40,
+    44,
+    48,
+    52,
+    56,
+    60,
+    64,
+    68,
+    72,
+    76,
+    80
+   ]
+  },
+  "EDID": "none"
+ },
+ "DOOR": {
+  "ANAM": {
+   "at": [
+    0
+   ]
+  },
+  "BNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "ECZN": {
+  "DATA": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none"
+ },
+ "EFSH": {
+  "DATA": {
+   "at": [
+    244
+   ]
+  },
+  "EDID": "none",
+  "ICO2": "none",
+  "ICON": "none",
+  "NAM7": "none"
+ },
+ "ENCH": {
+  "CTDA": "condition",
+  "EDID": "none",
+  "EFID": {
+   "at": [
+    0
+   ]
+  },
+  "EFIT": "none",
+  "ENIT": "none",
+  "FULL": "none"
+ },
+ "EXPL": {
+  "DATA": {
+   "at": [
+    12,
+    16,
+    28,
+    32
+   ]
+  },
+  "EDID": "none",
+  "EITM": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "MNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "EYES": {
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none"
+ },
+ "FACT": {
+  "CNAM": "none",
+  "DATA": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "INAM": "none",
+  "MNAM": "none",
+  "RNAM": "none",
+  "XNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "FLST": {
+  "EDID": "none",
+  "LNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "FURN": {
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "MNAM": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "GLOB": {
+  "EDID": "none",
+  "FLTV": "none",
+  "FNAM": "none"
+ },
+ "GMST": {
+  "DATA": "none",
+  "EDID": "none"
+ },
+ "GRAS": {
+  "DATA": "none",
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "HAIR": {
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none"
+ },
+ "HDPT": {
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "HNAM": {
+   "at": [
+    0
+   ]
+  },
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none"
+ },
+ "IDLE": {
+  "ANAM": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "CTDA": "condition",
+  "DATA": "none",
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none"
+ },
+ "IDLM": {
+  "EDID": "none",
+  "IDLA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "IDLB": "none",
+  "IDLC": "none",
+  "IDLF": "none",
+  "IDLT": "none",
+  "OBND": "none"
+ },
+ "IMAD": {
+  "\u0000IAD": "none",
+  "\u0001IAD": "none",
+  "\u0002IAD": "none",
+  "\u0003IAD": "none",
+  "\u0004IAD": "none",
+  "\u0005IAD": "none",
+  "\u0006IAD": "none",
+  "\u0007IAD": "none",
+  "\bIAD": "none",
+  "\tIAD": "none",
+  "\nIAD": "none",
+  "\u000bIAD": "none",
+  "\fIAD": "none",
+  "\rIAD": "none",
+  "\u000eIAD": "none",
+  "\u000fIAD": "none",
+  "\u0010IAD": "none",
+  "\u0011IAD": "none",
+  "\u0012IAD": "none",
+  "\u0013IAD": "none",
+  "\u0014IAD": "none",
+  "@IAD": "none",
+  "AIAD": "none",
+  "BIAD": "none",
+  "BNAM": "none",
+  "CIAD": "none",
+  "DIAD": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "EIAD": "none",
+  "FIAD": "none",
+  "GIAD": "none",
+  "HIAD": "none",
+  "IIAD": "none",
+  "JIAD": "none",
+  "KIAD": "none",
+  "LIAD": "none",
+  "MIAD": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "NAM3": "none",
+  "NAM4": "none",
+  "NIAD": "none",
+  "OIAD": "none",
+  "PIAD": "none",
+  "QIAD": "none",
+  "RIAD": "none",
+  "RNAM": "none",
+  "SIAD": "none",
+  "SNAM": "none",
+  "TIAD": "none",
+  "TNAM": "none",
+  "UNAM": "none",
+  "VNAM": "none",
+  "WNAM": "none",
+  "XNAM": "none",
+  "YNAM": "none"
+ },
+ "IMGS": {
+  "DNAM": "none",
+  "EDID": "none"
+ },
+ "INFO": {
+  "ANAM": {
+   "at": [
+    0
+   ]
+  },
+  "CTDA": "condition",
+  "DATA": "none",
+  "DNAM": "none",
+  "KNAM": {
+   "at": [
+    0
+   ]
+  },
+  "LNAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAM1": "none",
+  "NAM2": "none",
+  "NAM3": "none",
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "NEXT": "none",
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "QSTI": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": "none",
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNDD": {
+   "at": [
+    0
+   ]
+  },
+  "TCLF": {
+   "at": [
+    0
+   ]
+  },
+  "TCLT": {
+   "at": [
+    0
+   ]
+  },
+  "TPIC": {
+   "at": [
+    0
+   ]
+  },
+  "TRDT": {
+   "at": [
+    16
+   ]
+  }
+ },
+ "INGR": {
+  "CTDA": "condition",
+  "DATA": "none",
+  "EDID": "none",
+  "EFID": {
+   "at": [
+    0
+   ]
+  },
+  "EFIT": "none",
+  "ENIT": "none",
+  "ETYP": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "IPCT": {
+  "DATA": "none",
+  "DNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DODT": "none",
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "NAM1": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "IPDS": {
+  "DATA": {
+   "at": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    28,
+    32,
+    36,
+    40,
+    44
+   ]
+  },
+  "EDID": "none"
+ },
+ "KEYM": {
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "LAND": {
+  "ATXT": {
+   "at": [
+    0
+   ]
+  },
+  "BTXT": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": "none",
+  "VCLR": "none",
+  "VHGT": "none",
+  "VNML": "none",
+  "VTXT": "none"
+ },
+ "LGTM": {
+  "DATA": "none",
+  "EDID": "none"
+ },
+ "LIGH": {
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "LSCR": {
+  "DESC": "none",
+  "EDID": "none",
+  "ICON": "none",
+  "LNAM": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "MICO": "none"
+ },
+ "LTEX": {
+  "EDID": "none",
+  "GNAM": {
+   "at": [
+    0
+   ]
+  },
+  "HNAM": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "SNAM": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "LVLC": {
+  "COED": "owner_data",
+  "EDID": "none",
+  "LVLD": "none",
+  "LVLF": "none",
+  "LVLO": {
+   "at": [
+    4
+   ]
+  },
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "LVLI": {
+  "COED": "owner_data",
+  "EDID": "none",
+  "LVLD": "none",
+  "LVLF": "none",
+  "LVLG": {
+   "at": [
+    0
+   ]
+  },
+  "LVLO": {
+   "at": [
+    4
+   ]
+  },
+  "OBND": "none"
+ },
+ "LVLN": {
+  "COED": "owner_data",
+  "EDID": "none",
+  "LVLD": "none",
+  "LVLF": "none",
+  "LVLO": {
+   "at": [
+    4
+   ]
+  },
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "MESG": {
+  "CTDA": "condition",
+  "DESC": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "ITXT": "none",
+  "NAM0": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "NAM3": "none",
+  "NAM4": "none",
+  "NAM5": "none",
+  "NAM6": "none",
+  "NAM7": "none",
+  "NAM8": "none",
+  "NAM9": "none",
+  "TNAM": "none"
+ },
+ "MGEF": {
+  "DATA": {
+   "at": [
+    8,
+    24,
+    32,
+    36,
+    40,
+    44,
+    48,
+    52
+   ]
+  },
+  "DESC": "none",
+  "EDID": "none",
+  "ESCE": {
+   "at": [
+    0
+   ]
+  },
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none"
+ },
+ "MICN": {
+  "EDID": "none",
+  "ICON": "none",
+  "MICO": "none"
+ },
+ "MISC": {
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "MSTT": {
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "MUSC": {
+  "EDID": "none",
+  "FNAM": "none"
+ },
+ "NAVI": {
+  "EDID": "none",
+  "NVCI": {
+   "at": [
+    0,
+    4,
+    8,
+    12
+   ]
+  },
+  "NVER": "none",
+  "NVMI": {
+   "at": [
+    4,
+    8
+   ]
+  }
+ },
+ "NAVM": {
+  "DATA": {
+   "at": [
+    0
+   ]
+  },
+  "EDID": "none",
+  "NVCA": "none",
+  "NVDP": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "NVER": "none",
+  "NVEX": {
+   "at": [
+    4
+   ],
+   "start": 0,
+   "stride": 10
+  },
+  "NVGD": "none",
+  "NVTR": "none",
+  "NVVX": "none"
+ },
+ "NOTE": {
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      3
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 1,
+    "sub": "DATA"
+   }
+  },
+  "XNAM": "none",
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "NPC_": {
+  "ACBS": "none",
+  "AIDT": "none",
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CNTO": {
+   "at": [
+    0
+   ]
+  },
+  "COED": "owner_data",
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DNAM": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EAMT": "none",
+  "EDID": "none",
+  "EITM": {
+   "at": [
+    0
+   ]
+  },
+  "ENAM": {
+   "at": [
+    0
+   ]
+  },
+  "FGGA": "none",
+  "FGGS": "none",
+  "FGTS": "none",
+  "FULL": "none",
+  "HCLR": "none",
+  "HNAM": {
+   "at": [
+    0
+   ]
+  },
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "KFFZ": "none",
+  "LNAM": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "NAM4": "none",
+  "NAM5": "none",
+  "NAM6": "none",
+  "NAM7": "none",
+  "OBND": "none",
+  "PKID": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "SPLO": {
+   "at": [
+    0
+   ]
+  },
+  "TPLT": {
+   "at": [
+    0
+   ]
+  },
+  "VTCK": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "PACK": {
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "CTDA": "condition",
+  "EDID": "none",
+  "IDLA": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "IDLB": "none",
+  "IDLC": "none",
+  "IDLF": "none",
+  "IDLT": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "PKAM": "none",
+  "PKDD": {
+   "at": [
+    4
+   ]
+  },
+  "PKDT": "none",
+  "PKE2": "none",
+  "PKED": "none",
+  "PKFD": "none",
+  "PKPT": "none",
+  "PKW3": "none",
+  "PLD2": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      0
+     ]
+    },
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      1
+     ]
+    },
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      4
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 4
+   }
+  },
+  "PLDT": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      0
+     ]
+    },
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      1
+     ]
+    },
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      4
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 4
+   }
+  },
+  "POBA": "none",
+  "POCA": "none",
+  "POEA": "none",
+  "PSDT": "none",
+  "PTD2": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      0
+     ]
+    },
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      1
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 4
+   }
+  },
+  "PTDT": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      0
+     ]
+    },
+    {
+     "at": [
+      4
+     ],
+     "in": [
+      1
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 4
+   }
+  },
+  "PUID": "none",
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "PBEA": {
+  "DATA": "none",
+  "EDID": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XAPD": "none",
+  "XAPR": {
+   "at": [
+    0
+   ]
+  },
+  "XCLP": "none",
+  "XCNT": "none",
+  "XDCR": {
+   "at": [
+    0
+   ]
+  },
+  "XEMI": {
+   "at": [
+    0
+   ]
+  },
+  "XESP": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XHLP": "none",
+  "XIBS": "none",
+  "XLKR": {
+   "at": [
+    0
+   ]
+  },
+  "XMBR": {
+   "at": [
+    0
+   ]
+  },
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XPPA": "none",
+  "XPRD": "none",
+  "XPWR": {
+   "at": [
+    0
+   ]
+  },
+  "XRDS": "none",
+  "XRGB": "none",
+  "XRGD": "none",
+  "XRNK": "none",
+  "XSCL": "none"
+ },
+ "PERK": {
+  "CTDA": "condition",
+  "DATA": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      0
+     ]
+    },
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      1
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 1,
+    "sub": "PRKE"
+   }
+  },
+  "DESC": "none",
+  "EDID": "none",
+  "EPF2": "none",
+  "EPF3": "none",
+  "EPFD": {
+   "at": [],
+   "cases": [
+    {
+     "at": [
+      0
+     ],
+     "in": [
+      3
+     ]
+    }
+   ],
+   "select": {
+    "at": 0,
+    "size": 1,
+    "sub": "EPFT"
+   }
+  },
+  "EPFT": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "PRKC": "none",
+  "PRKE": "none",
+  "PRKF": "none",
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none"
+ },
+ "PGRE": {
+  "DATA": "none",
+  "EDID": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XAPD": "none",
+  "XAPR": {
+   "at": [
+    0
+   ]
+  },
+  "XCLP": "none",
+  "XCNT": "none",
+  "XDCR": {
+   "at": [
+    0
+   ]
+  },
+  "XEMI": {
+   "at": [
+    0
+   ]
+  },
+  "XESP": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XHLP": "none",
+  "XIBS": "none",
+  "XLKR": {
+   "at": [
+    0
+   ]
+  },
+  "XMBR": {
+   "at": [
+    0
+   ]
+  },
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XPPA": "none",
+  "XPRD": "none",
+  "XPWR": {
+   "at": [
+    0
+   ]
+  },
+  "XRDS": "none",
+  "XRGB": "none",
+  "XRGD": "none",
+  "XRNK": "none",
+  "XSCL": "none"
+ },
+ "PLYR": {
+  "EDID": "none",
+  "PLYR": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "PMIS": {
+  "DATA": "none",
+  "EDID": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XAPD": "none",
+  "XAPR": {
+   "at": [
+    0
+   ]
+  },
+  "XCLP": "none",
+  "XCNT": "none",
+  "XDCR": {
+   "at": [
+    0
+   ]
+  },
+  "XEMI": {
+   "at": [
+    0
+   ]
+  },
+  "XESP": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XHLP": "none",
+  "XIBS": "none",
+  "XLKR": {
+   "at": [
+    0
+   ]
+  },
+  "XMBR": {
+   "at": [
+    0
+   ]
+  },
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XPPA": "none",
+  "XPRD": "none",
+  "XPWR": {
+   "at": [
+    0
+   ]
+  },
+  "XRDS": "none",
+  "XRGB": "none",
+  "XRGD": "none",
+  "XRNK": "none",
+  "XSCL": "none"
+ },
+ "PROJ": {
+  "DATA": {
+   "at": [
+    16,
+    20,
+    36,
+    40,
+    56,
+    60,
+    64
+   ]
+  },
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "OBND": "none",
+  "VNAM": "none"
+ },
+ "PWAT": {
+  "DNAM": {
+   "at": [
+    4
+   ]
+  },
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "QUST": {
+  "CNAM": "none",
+  "CTDA": "condition",
+  "DATA": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "INDX": "none",
+  "MICO": "none",
+  "NAM0": {
+   "at": [
+    0
+   ]
+  },
+  "NNAM": "none",
+  "QOBJ": "none",
+  "QSDT": "none",
+  "QSTA": {
+   "at": [
+    0
+   ]
+  },
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none"
+ },
+ "RACE": {
+  "ATTR": "none",
+  "CNAM": "none",
+  "DATA": "none",
+  "DESC": "none",
+  "DNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "EDID": "none",
+  "ENAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "FGGA": "none",
+  "FGGS": "none",
+  "FGTS": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "HEAD": {
+   "at": [
+    0
+   ]
+  },
+  "HNAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "ICON": "none",
+  "INDX": "none",
+  "MICO": "none",
+  "MNAM": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "NAM0": "none",
+  "NAM1": "none",
+  "NAM2": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  },
+  "PNAM": "none",
+  "SNAM": "none",
+  "UNAM": "none",
+  "VTCK": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "XNAM": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "RADS": {
+  "DATA": {
+   "at": [
+    4
+   ]
+  },
+  "EDID": "none"
+ },
+ "REFR": {
+  "DATA": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "NAME": {
+   "at": [
+    0
+   ]
+  },
+  "ONAM": "none",
+  "RCLR": "none",
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XACT": "none",
+  "XAMC": "none",
+  "XAMT": {
+   "at": [
+    0
+   ]
+  },
+  "XAPD": "none",
+  "XAPR": {
+   "at": [
+    0
+   ]
+  },
+  "XCHG": "none",
+  "XCLP": "none",
+  "XCNT": "none",
+  "XDCR": {
+   "at": [
+    0
+   ]
+  },
+  "XEMI": {
+   "at": [
+    0
+   ]
+  },
+  "XESP": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XHLP": "none",
+  "XIBS": "none",
+  "XLCM": "none",
+  "XLKR": {
+   "at": [
+    0
+   ]
+  },
+  "XLOC": {
+   "at": [
+    4
+   ]
+  },
+  "XLOD": "none",
+  "XLRM": {
+   "at": [
+    0
+   ]
+  },
+  "XLTW": {
+   "at": [
+    0
+   ]
+  },
+  "XMBO": "none",
+  "XMBP": "none",
+  "XMBR": {
+   "at": [
+    0
+   ]
+  },
+  "XMRK": "none",
+  "XNDP": {
+   "at": [
+    0
+   ]
+  },
+  "XOCP": "none",
+  "XORD": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "XOWN": {
+   "at": [
+    0
+   ]
+  },
+  "XPOD": {
+   "at": [
+    0,
+    4
+   ]
+  },
+  "XPPA": "none",
+  "XPRD": "none",
+  "XPRM": "none",
+  "XPTL": "none",
+  "XPWR": {
+   "at": [
+    0
+   ]
+  },
+  "XRAD": "none",
+  "XRDO": {
+   "at": [
+    12
+   ]
+  },
+  "XRDS": "none",
+  "XRGB": "none",
+  "XRGD": "none",
+  "XRMR": "none",
+  "XRNK": "none",
+  "XSCL": "none",
+  "XSED": "none",
+  "XSRD": "none",
+  "XSRF": "none",
+  "XTEL": {
+   "at": [
+    0
+   ]
+  },
+  "XTRG": {
+   "at": [
+    0
+   ]
+  },
+  "XTRI": "none"
+ },
+ "REGN": {
+  "ANAM": "none",
+  "EDID": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "RCLR": "none",
+  "RDAT": "none",
+  "RDGS": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 8
+  },
+  "RDMD": "none",
+  "RDMO": {
+   "at": [
+    0
+   ]
+  },
+  "RDMP": "none",
+  "RDOT": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 52
+  },
+  "RDSD": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "RDWT": {
+   "at": [
+    0,
+    8
+   ],
+   "start": 0,
+   "stride": 12
+  },
+  "RPLD": "none",
+  "RPLI": "none",
+  "WNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "RGDL": {
+  "ANAM": "none",
+  "DATA": "none",
+  "EDID": "none",
+  "NVER": "none",
+  "RAFB": "none",
+  "RAFD": "none",
+  "RAPS": "none",
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "SCOL": {
+  "DATA": "none",
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "ONAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "SCPT": {
+  "EDID": "none",
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none"
+ },
+ "SOUN": {
+  "ANAM": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "GNAM": "none",
+  "HNAM": "none",
+  "OBND": "none",
+  "SNDD": "none",
+  "SNDX": "none"
+ },
+ "SPEL": {
+  "CTDA": "condition",
+  "EDID": "none",
+  "EFID": {
+   "at": [
+    0
+   ]
+  },
+  "EFIT": "none",
+  "FULL": "none",
+  "SPIT": "none"
+ },
+ "STAT": {
+  "EDID": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none"
+ },
+ "TACT": {
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "TERM": {
+  "ANAM": "none",
+  "CTDA": "condition",
+  "DESC": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DNAM": "none",
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "ITXT": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "PNAM": {
+   "at": [
+    0
+   ]
+  },
+  "RNAM": "none",
+  "SCDA": "none",
+  "SCHR": "none",
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SCRO": {
+   "at": [
+    0
+   ]
+  },
+  "SCRV": "none",
+  "SCTX": "none",
+  "SCVR": "none",
+  "SLSD": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "TES4": {
+  "CNAM": "none",
+  "DATA": "none",
+  "DELE": "none",
+  "HEDR": "none",
+  "MAST": "none",
+  "OFST": "none",
+  "ONAM": {
+   "at": [
+    0
+   ],
+   "start": 0,
+   "stride": 4
+  },
+  "SCRN": "none",
+  "SNAM": "none"
+ },
+ "TREE": {
+  "BNAM": "none",
+  "CNAM": "none",
+  "EDID": "none",
+  "ICON": "none",
+  "MICO": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "OBND": "none",
+  "SNAM": "none"
+ },
+ "TXST": {
+  "DNAM": "none",
+  "DODT": "none",
+  "EDID": "none",
+  "OBND": "none",
+  "TX00": "none",
+  "TX01": "none",
+  "TX02": "none",
+  "TX03": "none",
+  "TX04": "none",
+  "TX05": "none"
+ },
+ "VTYP": {
+  "DNAM": "none",
+  "EDID": "none"
+ },
+ "WATR": {
+  "ANAM": "none",
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "FNAM": "none",
+  "FULL": "none",
+  "GNAM": "none",
+  "MNAM": "none",
+  "NNAM": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "WEAP": {
+  "BIPL": {
+   "at": [
+    0
+   ]
+  },
+  "CRDT": {
+   "at": [
+    12
+   ]
+  },
+  "DATA": "none",
+  "DEST": "none",
+  "DMDL": "none",
+  "DMDT": "none",
+  "DNAM": {
+   "at": [
+    36
+   ]
+  },
+  "DSTD": {
+   "at": [
+    8,
+    12
+   ]
+  },
+  "DSTF": "none",
+  "EAMT": "none",
+  "EDID": "none",
+  "EFSD": {
+   "at": [
+    0
+   ]
+  },
+  "EITM": {
+   "at": [
+    0
+   ]
+  },
+  "ETYP": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "MICO": "none",
+  "MO2S": "alt_textures",
+  "MO2T": "none",
+  "MO3S": "alt_textures",
+  "MO3T": "none",
+  "MO4S": "alt_textures",
+  "MO4T": "none",
+  "MOD2": "none",
+  "MOD3": "none",
+  "MOD4": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "NAM0": {
+   "at": [
+    0
+   ]
+  },
+  "NAM6": {
+   "at": [
+    0
+   ]
+  },
+  "NAM7": {
+   "at": [
+    0
+   ]
+  },
+  "NAM8": {
+   "at": [
+    0
+   ]
+  },
+  "NAM9": {
+   "at": [
+    0
+   ]
+  },
+  "NNAM": "none",
+  "OBND": "none",
+  "REPL": {
+   "at": [
+    0
+   ]
+  },
+  "SCRI": {
+   "at": [
+    0
+   ]
+  },
+  "SNAM": {
+   "at": [
+    0
+   ]
+  },
+  "TNAM": {
+   "at": [
+    0
+   ]
+  },
+  "UNAM": {
+   "at": [
+    0
+   ]
+  },
+  "VNAM": "none",
+  "WNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": {
+   "at": [
+    0
+   ]
+  },
+  "YNAM": {
+   "at": [
+    0
+   ]
+  },
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "WRLD": {
+  "CNAM": {
+   "at": [
+    0
+   ]
+  },
+  "DATA": "none",
+  "DNAM": "none",
+  "EDID": "none",
+  "FULL": "none",
+  "ICON": "none",
+  "IMPF": "none",
+  "IMPS": {
+   "at": [
+    4,
+    8
+   ]
+  },
+  "INAM": {
+   "at": [
+    0
+   ]
+  },
+  "MICO": "none",
+  "MNAM": "none",
+  "NAM0": "none",
+  "NAM2": {
+   "at": [
+    0
+   ]
+  },
+  "NAM3": {
+   "at": [
+    0
+   ]
+  },
+  "NAM4": "none",
+  "NAM9": "none",
+  "NNAM": "none",
+  "OFST": "none",
+  "ONAM": "none",
+  "PNAM": "none",
+  "WNAM": {
+   "at": [
+    0
+   ]
+  },
+  "XEZN": {
+   "at": [
+    0
+   ]
+  },
+  "XNAM": "none",
+  "ZNAM": {
+   "at": [
+    0
+   ]
+  }
+ },
+ "WTHR": {
+  "\u0000IAD": {
+   "at": [
+    0
+   ]
+  },
+  "\u0001IAD": {
+   "at": [
+    0
+   ]
+  },
+  "\u0002IAD": {
+   "at": [
+    0
+   ]
+  },
+  "\u0003IAD": {
+   "at": [
+    0
+   ]
+  },
+  "00TX": "none",
+  "10TX": "none",
+  "20TX": "none",
+  "30TX": "none",
+  "40TX": "none",
+  "50TX": "none",
+  "60TX": "none",
+  "70TX": "none",
+  "80TX": "none",
+  "90TX": "none",
+  ":0TX": "none",
+  ";0TX": "none",
+  "<0TX": "none",
+  "=0TX": "none",
+  ">0TX": "none",
+  "?0TX": "none",
+  "@0TX": "none",
+  "A0TX": "none",
+  "ANAM": "none",
+  "B0TX": "none",
+  "BNAM": "none",
+  "C0TX": "none",
+  "CNAM": "none",
+  "D0TX": "none",
+  "DATA": "none",
+  "DNAM": "none",
+  "E0TX": "none",
+  "EDID": "none",
+  "F0TX": "none",
+  "FNAM": "none",
+  "G0TX": "none",
+  "H0TX": "none",
+  "I0TX": "none",
+  "INAM": "none",
+  "J0TX": "none",
+  "K0TX": "none",
+  "L0TX": "none",
+  "LNAM": "none",
+  "M0TX": "none",
+  "MODB": "none",
+  "MODD": "none",
+  "MODL": "none",
+  "MODS": "alt_textures",
+  "MODT": "none",
+  "N0TX": "none",
+  "NAM0": "none",
+  "O0TX": "none",
+  "ONAM": "none",
+  "PNAM": "none",
+  "QNAM": "none",
+  "RNAM": "none",
+  "SNAM": {
+   "at": [
+    0
+   ]
+  }
+ }
+}

@@ -1,0 +1,37 @@
+{
+ "references": {
+  "ArmorLeatherReinforced female": {
+   "inputs": "c17f28261b8d371a70b02453635732a51898ff24",
+   "result": "b3b87acd2efab877ff5dcda84eca48011a64abd9"
+  },
+  "ArmorLeatherReinforced female 1st person": {
+   "inputs": "76530422e034f34ed3475f82c099172b061d77c1",
+   "result": "9174bc08e027f340d8e59caaee393b1194e05bac"
+  },
+  "ArmorLeatherReinforced male": {
+   "inputs": "65172a65f3a65b7132a900f7d09056dd0a99c0d8",
+   "result": "7efb20d250d2ce9ed8cb5d68ee839b5679f9caf2"
+  },
+  "ArmorLeatherReinforced male 1st person": {
+   "inputs": "975a8e5e72f9f718fe4b374937a40693d738ca47",
+   "result": "6d9ae515649dd6970c1a5cb794d86c4256f0910c"
+  },
+  "VaultSuit21 female": {
+   "inputs": "2d7773779c4320f61ab398adc904cc91c5e61041",
+   "result": "bbbd68b6b200c88e85228656d040d207f35e0117"
+  },
+  "VaultSuit21 female 1st person": {
+   "inputs": "9041e38f4ae005583387e374a4cb875454128dbd",
+   "result": "a846e498188eb24220b1870af0d67a7810722ec0"
+  },
+  "VaultSuit21 male": {
+   "inputs": "94d12655be95ba936d5e3807cad5bf471dd31270",
+   "result": "3c9577a26ff981dd97cb449ac7f632fc14c051cb"
+  },
+  "VaultSuit21 male 1st person": {
+   "inputs": "379bd2e47affbd003471d8c46cc9928a7b3f1871",
+   "result": "e870df26d1dfe892b7c6a88651fdc8dba92d7f9e"
+  }
+ },
+ "version": 1
+}

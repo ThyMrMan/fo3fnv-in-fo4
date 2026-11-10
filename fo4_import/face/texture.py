@@ -64,8 +64,10 @@ def _resized(image: np.ndarray, shape: tuple) -> np.ndarray:
 
 
 def fnv_texture(base_path: Path, egt_path: Path, fgts: np.ndarray) -> tuple:
-    """(race head texture, the NPC's colour offset at its size), both float RGB."""
+    """(race head texture, the NPC's colour offset at its size: zero for a head with no .egt), both float RGB."""
     base = np.asarray(Image.open(base_path).convert('RGB'), float)
+    if not egt_path.is_file():
+        return base, np.zeros(base.shape)
     return base, _resized(egt_offset(egt_path.read_bytes(), fgts), base.shape[:2])
 
 
@@ -128,23 +130,30 @@ def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple) -> tuple:
     return rows, cols, fnv_uv, (np.nonzero(pad), (near_r[pad], near_c[pad]))
 
 
-def face_texture(fo4_rgba: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
-    """(FO4's face texture `fo4_rgba` with `variant`'s FNV colour, the skin tone scale it needs).
+def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
+    """(FO4's face texture `fo4_image` (RGB or RGBA, any size) as floats with `variant`'s FNV colour on its face
+    texels, the skin tone scale it needs, texel_map's padding).
 
-    The game tints the face, like the body and hairline, by the NPC's skin
-    tone at runtime (the CK's face texture does not change with it), so the
-    colour's overall shift goes into the tone: the texture is scaled back,
-    per channel, to FO4's median over the face, and the scale returned is
-    what the tone must be multiplied by. pieces = (race texture, NPC offset).
+    The game tints the face by the NPC's skin tone at runtime (the CK's face
+    texture does not change with it), so the colour's overall shift goes into
+    the tone: the texture is scaled back, per channel, to FO4's median over
+    the face, and the scale returned multiplies the tone.
+    pieces = (race texture, NPC offset).
     """
     base, offset = pieces
     source = offset if variant == 'T1' else base + offset
-    rows, cols, fnv_uv, (pad, near) = texel_map(fo4, (fnv.mean, fnv.triangles, fnv.uvs), fo4_rgba.shape[:2])
-    out = fo4_rgba.astype(float)
+    rows, cols, fnv_uv, edge = texel_map(fo4, (fnv.mean, fnv.triangles, fnv.uvs), fo4_image.shape[:2])
+    out = fo4_image.astype(float)
     fo4_median = np.median(out[rows, cols, :3], 0)
     out[rows, cols, :3] = bilinear(source, fnv_uv) + (out[rows, cols, :3] if variant == 'T1' else 0.0)
     tone = np.median(out[rows, cols, :3], 0) / fo4_median
     out[rows, cols, :3] /= tone
+    return out, tone, edge
+
+
+def face_texture(fo4_rgba: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
+    """(face_colours' texture, padded past its face texels, as bytes; its tone scale)."""
+    out, tone, (pad, near) = face_colours(fo4_rgba, fo4, fnv, pieces, variant)
     out[pad[0], pad[1], :3] = out[near[0], near[1], :3]
     return np.clip(out, 0, 255).astype(np.uint8), tone
 

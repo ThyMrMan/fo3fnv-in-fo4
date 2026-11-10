@@ -12,6 +12,7 @@ import copy
 import functools
 import hashlib
 import os
+import time
 from pathlib import Path
 
 from fo4_import.pipeline.code_tag import ROOT, STARTED, module_file
@@ -215,6 +216,15 @@ def identity(key: str) -> 'str | None':
     if any((ROOT / f).stat().st_mtime > STARTED for f in walk.files):
         return None
     return digest.hexdigest()
+
+
+def rebase() -> None:
+    """Take the code on disk now as this process's (it runs none of it: the build plan); identities afresh.
+    See: docs/fork/fo4_plugin_layout.md#build-plan
+    """
+    global STARTED
+    STARTED = time.time()
+    identity.cache_clear()
 
 
 def module_keys(rel: str) -> list:

@@ -14,6 +14,7 @@ the target vertex moves.
 See: docs/fork/fo4_spikes.md#spike-2-sculpt
 """
 
+import functools
 import struct
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from scipy.optimize import lsq_linear
 
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.face.bake import face_shape
+from fo4_import.face.memo import frozen
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
@@ -102,12 +104,17 @@ def measure(nifs: dict, regions: list) -> np.ndarray:
 
 
 def fit(basis: np.ndarray, target: np.ndarray) -> tuple:
-    """(controls [region, CONTROLS] within +/-BOUND best moving the face by `target`, fraction captured)."""
+    """(controls [region, CONTROLS] within +/-BOUND best moving the face by `target`, fraction captured); a
+    control the basis gives no effect (it moves no face vertex) stays 0.
+    See: docs/fork/fo4_build_speed.md#faces
+    """
     a = basis.reshape(len(basis), -1).T
     b = target.ravel()
-    result = lsq_linear(a, b, bounds=(-BOUND, BOUND))
-    captured = 1.0 - float(((a @ result.x - b) ** 2).sum() / (b ** 2).sum())
-    return result.x.reshape(-1, CONTROLS), captured
+    live = a.any(0)
+    values = np.zeros(a.shape[1])
+    values[live] = lsq_linear(a[:, live], b, bounds=(-BOUND, BOUND)).x
+    captured = 1.0 - float(((a @ values - b) ** 2).sum() / (b ** 2).sum())
+    return values.reshape(-1, CONTROLS), captured
 
 
 def refine(basis: np.ndarray, values: np.ndarray, target: np.ndarray, actual: np.ndarray) -> tuple:
@@ -122,9 +129,13 @@ def basis_path(female: bool = False) -> Path:
 
 
 def load_basis(female: bool = False):
-    """(basis, regions, baseline FaceGeom NIF bytes) from the cache, or None when not measured yet."""
+    """(basis, regions, baseline FaceGeom NIF bytes) cached; None when not measured."""
     path = basis_path(female)
-    if not path.exists():
-        return None
-    data = np.load(path)
-    return data['basis'], [int(r) for r in data['regions']], data['baseline'].tobytes()
+    return _loaded(path, path.stat().st_mtime_ns) if path.exists() else None
+
+
+@functools.lru_cache(maxsize=2)
+def _loaded(path: Path, stamp: int) -> tuple:
+    """load_basis() of the file at `path` as of `stamp`: once per process, read-only."""
+    with np.load(path) as data:
+        return frozen((data['basis'], [int(r) for r in data['regions']], data['baseline'].tobytes()))

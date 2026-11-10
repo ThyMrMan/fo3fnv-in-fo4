@@ -24,7 +24,7 @@ from fo4_import.base.ledger import ID, Ledger
 from fo4_import.pipeline import creation_kit, mod_dirs
 from fo4_import.pipeline.build_inputs import SUFFIX, listing, stamp
 from fo4_import.pipeline.build_steps import stamp_path
-from fo4_import.pipeline.code_identity import changed
+from fo4_import.pipeline.code_identity import changed, rebase
 from fo4_import.pipeline.code_tag import ROOT
 from tes5_import.base.tes5_reader import walk
 
@@ -185,7 +185,11 @@ def ordered(plugins: list) -> list:
 
 
 def plan(plugins: list) -> list:
-    """[(plugin, verdict, reason)] for `plugins`, masters first; a plugin whose master needs a build waits (AFTER)."""
+    """[(plugin, verdict, reason)] for `plugins`, masters first; a plugin whose master needs a build waits (AFTER).
+    Code is read as it is now on disk, each call afresh.
+    See: docs/fork/fo4_plugin_layout.md#build-plan
+    """
+    rebase()
     out, building = [], set()
     for plugin in ordered(plugins):
         waiting = [m for m in masters_of(plugin) if m.resolve() in building]

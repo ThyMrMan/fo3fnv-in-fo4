@@ -33,6 +33,7 @@ from fo4_import.face.memo import digest, frozen
 from fo4_import.face.texture import shared_texel_points
 from fo4_import.nif import bgsm
 from fo4_import.nif import file as nif_file
+from fo4_import.nif import fnv_file
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: HDPT PNAM part types, and DATA flag bits.
@@ -212,10 +213,10 @@ def part_coverages(assets: Fo4Assets, kind: int, female: bool, depths: list) -> 
     return assets.kept_value(('coverage', kind, female, digest(depths)), make)
 
 
-def best_part(assets: Fo4Assets, kind: int, female: bool, target: np.ndarray, depths: list) -> tuple:
-    """(FormID, coverage distance) of the part of `kind` drawn most like `target`."""
+def best_part(assets: Fo4Assets, kind: int, female: bool, target: np.ndarray, depths: list, among=None) -> tuple:
+    """(FormID, distance) of the part drawn most like `target`, of `among` (None: all)."""
     distance, fid = min((coverage_distance(target, drawn), fid)
-                        for drawn, fid in part_coverages(assets, kind, female, depths))
+                        for drawn, fid in part_coverages(assets, kind, female, depths) if among is None or fid in among)
     return fid, distance
 
 
@@ -259,9 +260,7 @@ def best_eyes(assets: Fo4Assets, female: bool, target: np.ndarray) -> int:
 def fnv_shape(path) -> tuple:
     """(points, triangles, UVs, base texture) of an FNV head part mesh's shape (the hatless one); read once per
     process, its arrays read-only."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(path)
     shape = next(b for b in data.blocks if isinstance(b, NifFormat.NiTriBasedGeom) and b.name != b'Hat')
     texture_set = next((b for b in data.blocks if isinstance(b, NifFormat.BSShaderTextureSet)), None)
     base = texture_set.textures[0].decode() if texture_set else ''
@@ -296,14 +295,25 @@ def onto_face(face: tuple, size: int, points: np.ndarray, rgba: np.ndarray) -> n
     return out
 
 
-def best_hair_colour(assets: Fo4Assets, diffuse: np.ndarray, material: dict, target: np.ndarray) -> int:
-    """The hair colour form (CLFM) whose gradient row, read at `diffuse`'s grey, is nearest `target` (Lab)."""
-    gradient = image(assets.archives.read(HAIR_GRADIENT))[..., :3]
-    grey = diffuse[..., 0][diffuse[..., 3] >= material['alpha_test_ref']] * material['grayscale_scale']
-    cols = np.clip((grey / 255 * (gradient.shape[1] - 1)).round().astype(int), 0, gradient.shape[1] - 1)
-    scored = []
-    for fid, subs in assets.colours.items():
-        if b'FNAM' in subs and subs[b'FNAM'][0][0] & HAIR_COLOUR_FLAGS == HAIR_COLOUR_FLAGS:
-            row = min(int(struct.unpack('<f', subs[b'CNAM'][0])[0] * gradient.shape[0]), gradient.shape[0] - 1)
-            scored.append((float(np.linalg.norm(lab(gradient[row, cols]).mean(0) - target)), fid))
-    return min(scored)[1]
+def hair_colours(assets: Fo4Assets, material: dict) -> list:
+    """[(mean Lab colour, FormID)] of each hair colour form (CLFM): its gradient row read at the grey of the
+    diffuse of a hair's `material`; worked out once per `assets` and material."""
+    def make() -> list:
+        """Every hair colour form's colour on this hair."""
+        gradient = image(assets.archives.read(HAIR_GRADIENT))[..., :3]
+        diffuse = assets.texture(material['textures']['diffuse'])
+        grey = diffuse[..., 0][diffuse[..., 3] >= material['alpha_test_ref']] * material['grayscale_scale']
+        cols = np.clip((grey / 255 * (gradient.shape[1] - 1)).round().astype(int), 0, gradient.shape[1] - 1)
+        out = []
+        for fid, subs in assets.colours.items():
+            if b'FNAM' in subs and subs[b'FNAM'][0][0] & HAIR_COLOUR_FLAGS == HAIR_COLOUR_FLAGS:
+                row = min(int(struct.unpack('<f', subs[b'CNAM'][0])[0] * gradient.shape[0]), gradient.shape[0] - 1)
+                out.append((lab(gradient[row, cols]).mean(0), fid))
+        return out
+    seen = (material['textures']['diffuse'], material['alpha_test_ref'], material['grayscale_scale'])
+    return assets.kept_value(('hair colours', *seen), make)
+
+
+def best_hair_colour(assets: Fo4Assets, material: dict, target: np.ndarray) -> int:
+    """The hair colour form (CLFM) drawing `material`'s hair nearest `target` (Lab)."""
+    return min((float(np.linalg.norm(colour - target)), fid) for colour, fid in hair_colours(assets, material))[1]

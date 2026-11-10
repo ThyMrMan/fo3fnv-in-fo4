@@ -9,13 +9,18 @@ cache is this machine's only; an entry's time is when a build last used it, and 
 See: docs/fork/fo4_plugin_layout.md#code-identity
 """
 
+import ast
 import functools
 import hashlib
+import io
 import json
 import os
 import pickle
+import shutil
 import time
 from pathlib import Path
+
+from PIL import Image
 
 from asset_convert.texture.dds_codec import normal_dds
 from asset_convert.texture.image_transcode import encode_dds
@@ -134,6 +139,21 @@ def _spec_dds(normal: bytes, smooth: float, red: 'int | None') -> bytes:
     return normal_dds(image)
 
 
+def reframed_dds(image: bytes, across: tuple, down: tuple, size: int) -> bytes:
+    """encode_dds() of a `size`-pixel square resampled from image `image`: each output point at fraction p across
+    (down) the image shows `image` at fraction a * p + b, (a, b) = `across` (`down`); black outside it."""
+    source = Image.open(io.BytesIO(image)).convert('RGBA')
+    (ax, bx), (ay, by) = across, down
+    affine = (ax * source.width / size, 0.0, bx * source.width, 0.0, ay * source.height / size, by * source.height)
+    return encode_dds(source.transform((size, size), Image.AFFINE, affine, Image.BICUBIC, fillcolor=(0, 0, 0, 255)))
+
+
+def reframed_map(image: bytes, across: tuple, down: tuple, size: int) -> tuple:
+    """deferred() reframed_dds of world map image `image`."""
+    return deferred('reframed_map', (image, across, down, size),
+                    functools.partial(reframed_dds, image, across, down, size))
+
+
 def spec_map(normal: bytes, smooth: float, red: 'int | None' = None) -> tuple:
     """deferred() FO4 specular map of FNV normal map bytes (_spec_dds)."""
     return deferred('spec_map', (normal, smooth, red), functools.partial(_spec_dds, normal, smooth, red))
@@ -164,3 +184,78 @@ def prune(folders: tuple, days: int = UNUSED_DAYS) -> int:
     for entry in old:
         os.unlink(entry.path)
     return len(old)
+
+
+def versioned_inputs(version, inputs: tuple) -> tuple:
+    """Work-cache inputs of a versioned site: `inputs` and its version."""
+    return (*inputs, f'version {version}')
+
+
+def lookup_versioned(site: str, version, inputs: tuple, default=None):
+    """lookup() of versioned `site`'s value for `inputs` and `version`; else `default`."""
+    return lookup(site, '', versioned_inputs(version, inputs), default)
+
+
+def store_versioned(site: str, version, inputs: tuple, value):
+    """store() `value` under versioned_inputs, with an empty code record; `value`."""
+    return store(site, '', versioned_inputs(version, inputs), value, {})
+
+
+def versioned(site: str, version, inputs: tuple, make):
+    """make()'s value, kept for `site` on `inputs` and `version` alone: the site's `<SITE>_VERSION`, bumped by hand
+    when a result changes (tests/fo4_versions.py checks it), and no code record deciding it.
+    See: docs/fork/fo4_build_speed.md#keys
+    """
+    missing = object()
+    value = lookup_versioned(site, version, inputs, missing)
+    return store_versioned(site, version, inputs, make()) if value is missing else value
+
+
+def store_bytes(site: str, data: bytes) -> str:
+    """Keep `data` once under `site`, keyed by its SHA-1 with an empty code record; the SHA-1."""
+    digest = hashlib.sha1(data).hexdigest()
+    if not _entry(site, (digest,)).exists():
+        store(site, '', (digest,), data, {})
+    return digest
+
+
+def stored_bytes(site: str, digest: str) -> 'bytes | None':
+    """The bytes store_bytes kept under `site` as `digest`; None when gone."""
+    return lookup(site, '', (digest,))
+
+
+def has_bytes(site: str, digest: str) -> bool:
+    """Whether stored_bytes finds `digest` under `site`, read or not."""
+    entry = _entry(site, (digest,))
+    return entry.exists() and current_ran(entry) is not None
+
+
+def named_strings(package: str = 'fo4_import') -> set:
+    """Every string constant in `package`'s code, where a site in use is named."""
+    return {node.value for path in (ROOT / package).rglob('*.py') for node in ast.walk(ast.parse(path.read_bytes()))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+
+
+def prune_unnamed(root: Path = CACHE) -> list:
+    """Delete every site folder of work cache `root` that no code names (named_strings); their names.
+    See: docs/fork/fo4_build_speed.md#keys
+    """
+    named = named_strings()
+    gone = sorted(site.name for site in os.scandir(root) if site.is_dir() and site.name not in named)
+    for name in gone:
+        shutil.rmtree(Path(root) / name)
+    return gone
+
+
+def prune_unrecorded(folders: tuple) -> int:
+    """Delete every file under `folders` (cache roots) that is no code record and has none: an entry no lookup
+    takes, or a partial left by a stopped build (so run it with no build running); the count.
+    See: docs/fork/fo4_build_speed.md#keys
+    """
+    bare = []
+    for folder in folders:
+        names = {entry.path for entry in _files(folder)} if Path(folder).is_dir() else set()
+        bare += [path for path in names if not path.endswith(RAN_SUFFIX) and path + RAN_SUFFIX not in names]
+    for path in bare:
+        os.unlink(path)
+    return len(bare)

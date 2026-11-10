@@ -10,6 +10,7 @@ asymmetric ones.
 See: docs/fork/fo4_spikes.md#spike-2-facegen
 """
 
+import os
 import struct
 from dataclasses import dataclass
 from functools import cache
@@ -19,6 +20,7 @@ import numpy as np
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from fo4_import.face.memo import frozen
+from fo4_import.nif import fnv_file
 
 apply_patches()
 from pyffi.formats.nif import NifFormat
@@ -58,11 +60,9 @@ def coefficients(hex_text: str, count: int) -> np.ndarray:
 
 @cache
 def _mesh(path: Path) -> tuple:
-    """(mean vertices, triangles, UVs, symmetric and asymmetric .egm modes) of the FNV head mesh at `path`; read
-    once per process, read-only."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    """(mean vertices, triangles, UVs, symmetric and asymmetric .egm modes) of the FNV head mesh at `path` (a
+    plain path: the key); read once per process, read-only."""
+    data = fnv_file.read(path)
     shape = next(b for b in data.blocks if isinstance(b, NifFormat.NiTriBasedGeom))
     mean = np.array([(v.x, v.y, v.z) for v in shape.data.vertices])
     sym, asym = read_egm(path.with_suffix('.egm').read_bytes(), len(mean))
@@ -71,8 +71,9 @@ def _mesh(path: Path) -> tuple:
 
 
 def head(meshes: Path, model: str, fggs: str, fgga: str) -> FnvHead:
-    """The FNV head `model` (under `meshes`) as the mean face and as the NPC with FaceGen text fggs/fgga."""
-    mean, triangles, uv, sym, asym = _mesh(meshes / model.replace('\\', '/').lower())
+    """The FNV head `model` (under `meshes`, a folder or a layered one, resolved here) as the mean face and as the
+    NPC with FaceGen text fggs/fgga."""
+    mean, triangles, uv, sym, asym = _mesh(Path(os.fspath(meshes / model.replace('\\', '/').lower())))
     npc = mean + np.tensordot(coefficients(fggs, len(sym)), sym, 1)
     npc += np.tensordot(coefficients(fgga, len(asym)), asym, 1)
     return FnvHead(mean, triangles, npc, uv)

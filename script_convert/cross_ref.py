@@ -5,9 +5,10 @@ import os
 import re
 
 from script_convert.constants import (
-    PLACED_REF_SIGS, PLAYER_ALIAS_EXTENDS, SCHOOL_ENCHANT_SHADER, TYPE_MAP,
+    PLACED_REF_SIGS, PLAYER_ALIAS_EXTENDS, SCHOOL_ENCHANT_SHADER,
     papyrus_script_name
 )
+from script_convert.target import variable_type
 from script_convert.command_rows import (
     ACTOR_ONLY_FUNCTIONS, OBJREF_SHARED_FUNCTIONS
 )
@@ -15,7 +16,7 @@ from tes5_import.base.mesh_bounds import get_mesh_physics_flags
 from tes5_import.base.text_reader import parse_export_file
 from tes5_import.record_types.world_falloutnv import FALLOUT_ONLY_SIGS
 from asset_convert.game_paths import current_namespace
-from core.plugin_masters import master_chain, master_dir
+from core.plugin_masters import chain_index_maps, master_chain, master_dir
 from core.worker_budget import worker_count
 from core.worldspace_names import converted_worldspace_edid, renames_for
 
@@ -76,6 +77,57 @@ def _new_scan_out() -> dict:
         'enchanted_books': set(),
         'trigger_blocks': {},
     }
+
+
+#: Scan tables keyed by FormID.
+_FID_KEYED = ('formid_to_edid', 'script_formid_to_edid', 'script_formid_to_type', 'record_scri', 'record_base',
+              'record_type', 'record_model', 'cell_geom', 'pack_type', 'actor_packages', 'actor_speed')
+#: Lowest FormID a plugin can own; the ids below it are the engine's and never move.
+_FIRST_PLUGIN_ID = 0x800
+
+
+def _master_rekeys(export_dir: str) -> dict:
+    """{master dir: its index-byte map}, for masters numbered unlike `export_dir`."""
+    return {folder: remap for folder, remap in chain_index_maps(export_dir)
+            if any(theirs != ours for theirs, ours in remap.items())}
+
+
+def _rekeyed_id(text: str, remap: dict) -> str:
+    """A master's FormID restated in the dependent's numbering; anything else unchanged."""
+    try:
+        raw = int(text, 16)
+    except (TypeError, ValueError):
+        return text
+    slot = remap.get(raw >> 24)
+    if slot is None or raw < _FIRST_PLUGIN_ID:
+        return text
+    return '%08X' % (slot << 24 | raw & 0xFFFFFF)
+
+
+def _rekey_scan(out: dict, remap: dict) -> dict:
+    """One master's scan result with every FormID, key or value, moved through `remap`.
+
+    See: docs/commentary/script_convert.md#master-ids-rekeyed
+    """
+    memo = {}
+
+    def fid(text):
+        """`text` rekeyed, remembered."""
+        if text not in memo:
+            memo[text] = _rekeyed_id(text, remap)
+        return memo[text]
+
+    for name in _FID_KEYED:
+        out[name] = {fid(key): value for key, value in out[name].items()}
+    for name in ('edid_to_formid', 'record_scri', 'record_base'):
+        out[name] = {key: fid(value) for key, value in out[name].items()}
+    for name in ('npc_formids', 'enchanted_books'):
+        out[name] = {fid(value) for value in out[name]}
+    out['actor_packages'] = {key: [fid(p) for p in packs] for key, packs in out['actor_packages'].items()}
+    out['cell_geom'] = {key: (geom[0], fid(geom[1]), *geom[2:]) for key, geom in out['cell_geom'].items()}
+    out['mgef_shaders'] = {key: (fid(shader), fid(ench), school)
+                           for key, (shader, ench, school) in out['mgef_shaders'].items()}
+    return out
 
 
 _EFFECT_FIELD_RE = re.compile(r'Effect\[(\d+)\]\.(EFID|ActorValue)$')
@@ -405,26 +457,18 @@ class CrossRefGraph:
         self.move_gmsts: dict[str, float] = {}
 
     def load_from_export(self, export_dir: str, workers: int = None):
-        """Load cross-reference data from all export .txt files.
+        """Load the graph from `export_dir` and every transitive master's export, in the plugin's numbering.
 
-        An OVERRIDE plugin's own export holds only the records it authors, so
-        every EditorID it merely *references* — the GLOBs, quests and refs that
-        live in its masters — is absent.  Unresolvable names fall through
-        `_convert_ref` as bare identifiers with no property declared, which the
-        compiler rejects ("undefined identifier `SetGewitter`").  So the
-        masters' exports are scanned too, TRANSITIVELY and MASTERS FIRST: the
-        merge is last-wins, and a plugin that overrides a master's record must
-        be the version this graph reports.
-
-        The scan is pure-Python line matching over ~2 GB of text, so files are
-        split into byte ranges (record-boundary aligned, same contract as
-        text_reader.parse_file_range) and scanned across a process pool.
+        Masters merge first and the plugin last, so its own version of a record wins. Files are scanned
+        in record-aligned byte ranges across a process pool.
+        See: docs/commentary/script_convert.md#master-ids-rekeyed
         """
         if not os.path.isdir(export_dir):
             return
 
-        jobs = []
+        jobs, remaps = [], []
         dirs, self.worldspace_renames = _scan_chain(export_dir)
+        rekeys = _master_rekeys(export_dir)
         for d in dirs:
             for fname in sorted(os.listdir(d)):
                 if not fname.endswith('.txt'):
@@ -440,21 +484,22 @@ class CrossRefGraph:
                 for start in range(0, size, _SCAN_CHUNK_BYTES):
                     jobs.append((fpath, sig,
                                  start, min(start + _SCAN_CHUNK_BYTES, size)))
+                    remaps.append(rekeys.get(d))
 
         if workers is None:
             workers = worker_count()
         workers = min(workers, max(1, len(jobs)))
         if workers <= 1 or len(jobs) <= 2:
-            results = map(_scan_range, jobs)
-            for out in results:
-                self._merge_scan(out)
+            self._merge_scans(map(_scan_range, jobs), remaps)
         else:
             from concurrent.futures import ProcessPoolExecutor
             with ProcessPoolExecutor(max_workers=workers) as ex:
-                # map preserves job order -> same last-wins merge semantics
-                # as the old serial whole-file scan.
-                for out in ex.map(_scan_range, jobs):
-                    self._merge_scan(out)
+                self._merge_scans(ex.map(_scan_range, jobs), remaps)
+
+    def _merge_scans(self, results, remaps: list) -> None:
+        """Fold the scan results in job order (last wins), master ids restated."""
+        for out, remap in zip(results, remaps):
+            self._merge_scan(_rekey_scan(out, remap) if remap else out)
 
     def _merge_scan(self, out: dict):
         """Fold one scan-range result (see _scan_range) into this graph."""
@@ -902,7 +947,7 @@ class CrossRefGraph:
                 if am:
                     vtype = am.group(1).lower()
                     vname = am.group(2).lower()
-                    all_vars[vname] = TYPE_MAP.get(vtype, 'Int')
+                    all_vars[vname] = variable_type(vtype)
             if ref_vars:
                 script_ref_vars[scn_low] = ref_vars
                 # COMMENTS ARE NOT USES.  DAHermaeusScript's only

@@ -57,9 +57,11 @@ _DECLARATION = re.compile(r'^(?:scriptname|import|customevent|struct|endstruct'
 _MEMBER = re.compile(r'\b(?:function|event|property|customevent) (\w+)')
 #: Per-script results of the last Fallout 4 run, in --out, so the next run compiles only what changed.
 _STATE_FILE = 'compile_state.json'
-#: Stamp memos (file_stamps) of the sources' facts and headers' hashes, per --out, in the cache (a build deploys --out).
-_SOURCE_STAMPS, _HEADER_STAMPS = 'sources.json', 'headers.json'
+#: Stamp memos (file_stamps) of the sources' facts, per --out, in the cache (a build deploys --out); the old headers' one.
+_SOURCE_STAMPS, _OLD_HEADER_STAMPS = 'sources.json', 'headers.json'
 _STAMPS_CACHE = _PROJECT_ROOT / 'output' / 'fo4_cache' / 'compile_stamps'
+#: Stamp memos of the header folders' file hashes, one per folder for every plugin importing it; this machine's only.
+_HEADER_MEMOS = _STAMPS_CACHE / 'headers'
 
 
 def find_compiler():
@@ -168,9 +170,14 @@ def source_facts(files: list, memo: 'Path | None' = None) -> tuple:
             {n: set(f[2]) for n, f in facts.items()})
 
 
+def _folder_tag(folder: Path) -> str:
+    """A short name for `folder`'s memo, from its path."""
+    return hashlib.sha1(str(folder).lower().encode()).hexdigest()[:12]
+
+
 def _stamps_memo(out_dir: Path, name: str) -> Path:
     """Where output folder `out_dir`'s stamp memo `name` lives (_STAMPS_CACHE)."""
-    return _STAMPS_CACHE / hashlib.sha1(str(out_dir).lower().encode()).hexdigest()[:12] / name
+    return _STAMPS_CACHE / _folder_tag(out_dir) / name
 
 
 def source_hashes(files: list) -> dict:
@@ -241,35 +248,56 @@ def needs_compile(hashes: dict, apis: dict, state: dict, users: dict, words: dic
     return changed | users_of(users, whole) | named | (users_of(users, redeclared) & failing) | unexplained
 
 
-def header_digest(imports: str, src_dir: Path, memo: 'Path | None' = None) -> str:
-    """SHA-1 over the path and SHA-1 of every .psc in the import folders other than `src_dir`, a file read only
-    when its stamp changed since the run that wrote `memo` (None: every file)."""
-    digest, stamps = hashlib.sha1(), Stamps(memo) if memo else None
+def header_digest(imports: str, src_dir: Path, memos: 'Path | None' = None) -> str:
+    """SHA-1 over the path and SHA-1 of every .psc in the import folders other than `src_dir`. With `memos` (a
+    folder of stamp memos, one per import folder, shared by every plugin importing it) a file is read only when
+    its stamp changed since the last run over its folder; None reads every file."""
+    digest = hashlib.sha1()
     sha = lambda path: hashlib.sha1(path.read_bytes()).hexdigest()
     for folder in (Path(d).resolve() for d in imports.split(';') if d):
         if folder == src_dir:
             continue
+        stamps = Stamps(memos / f'{_folder_tag(folder)}.json') if memos else None
         for path in sorted(folder.rglob('*.psc')):
             digest.update(str(path.relative_to(folder)).lower().encode() + b'\0'
                           + (stamps.value(path, sha) if stamps else sha(path)).encode())
-    if stamps:
-        stamps.save()
+        if stamps:
+            stamps.save()
     return digest.hexdigest()
 
 
-def _load_state(out_dir: Path, imports: str, headers: str) -> tuple:
-    """(the last run's per-script results, {} when absent or made against other header folders or contents;
-    every name it listed)."""
+def _state_key(imports: str) -> str:
+    """`imports` as compile_state.json names it: its first folder, the own, last."""
+    own, _, rest = imports.partition(';')
+    return f'{rest};{own}'
+
+
+def shadowing(names: set, imports: str) -> set:
+    """Those of `names` (lower case) that an import folder after the first, the scripts' own, has a script for."""
+    held = set()
+    for folder in filter(os.path.isdir, imports.split(';')[1:]):
+        held |= {entry[:-4].lower() for entry in os.listdir(folder) if entry.lower().endswith('.psc')}
+    return names & held
+
+
+def saved_state(out_dir: Path, imports: str, headers: str) -> tuple:
+    """(the last run's per-script results, every name it listed). No results when it is absent or was made
+    against other header folders or contents. One made when the masters' folders came before a script's own
+    loses the scripts a master also names (shadowing), so they and their users compile again.
+    See: docs/fork/fo4_pipeline.md#own-source-first
+    """
     path = out_dir / _STATE_FILE
     state = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
     scripts = state.get('scripts', {})
-    same = state.get('imports') == imports and state.get('headers') == headers
-    return (scripts if same else {}), set(scripts)
+    kept = scripts if state.get('imports') == _state_key(imports) and state.get('headers') == headers else {}
+    if kept and not state.get('own_first'):
+        again = shadowing(set(kept), imports)
+        kept = {name: result for name, result in kept.items() if name not in again}
+    return kept, set(scripts)
 
 
 def missing_pex(state: dict, out_dir: Path) -> set:
-    """Scripts the last run compiled whose .pex is gone (a stopped run deletes a .pex before recompiling it);
-    a stopped run's chunk folders go too.
+    """Scripts saved as compiled whose .pex is gone; old chunk folders are removed.
     See: docs/fork/fo4_pipeline.md#missing-pex"""
     shutil.rmtree(out_dir / '_chunks', ignore_errors=True)
     present = {p.stem.lower() for p in out_dir.glob('*.pex')}
@@ -290,16 +318,21 @@ def remove_orphans(out_dir: Path, sources: set, listed: set) -> int:
 
 def _compile_chunks(files: list, out_dir: Path, imports: str, workers: int, fast: bool = True) -> dict:
     """{script: [error messages]} from compiling `files`: with Caprica first when `fast` and it is bundled
-    (fo4_import.base.caprica), the rest in `workers` chunk folders of FO4's compiler, as many at once as free memory
-    holds (COMPILER_BYTES and COMPILER_SCRIPT_BYTES each, COMPILE_SPARE_BYTES left).
+    (fo4_import.base.caprica), then FO4's compiler (_fo4_batches) for those Caprica neither compiled nor found
+    a source error in.
     See: docs/fork/fo4_pipeline.md#caprica
     """
-    done = caprica.compile_files(files, out_dir, imports) if files and fast and caprica.available() else set()
-    if done:
-        print(f'Caprica compiled {len(done)} of {len(files)} files')
-    files = [f for f in files if f.stem.lower() not in done]
-    if not files:
-        return {}
+    own = {}
+    if files and fast and caprica.available():
+        done, own, runs = caprica.compile_files(files, out_dir, imports, workers)
+        print(f'Caprica compiled {len(done)} of {len(files)} files in {runs} runs; {len(own)} have source errors')
+        files = [f for f in files if f.stem.lower() not in done and f.stem.lower() not in own]
+    return {**own, **_fo4_batches(files, out_dir, imports, workers)} if files else own
+
+
+def _fo4_batches(files: list, out_dir: Path, imports: str, workers: int) -> dict:
+    """{script: [error messages]} from compiling `files` in `workers` chunk folders of FO4's compiler, as many at
+    once as free memory holds (COMPILER_BYTES and COMPILER_SCRIPT_BYTES each, COMPILE_SPARE_BYTES left)."""
     chunks = _fo4_chunks(files, out_dir, workers)
     each = COMPILER_BYTES + COMPILER_SCRIPT_BYTES * -(-len(files) // len(chunks))
     running = memory_workers(len(chunks), each, COMPILE_SPARE_BYTES)
@@ -329,14 +362,17 @@ def compile_fallout4(args) -> tuple:
     Compiles what needs_compile names, then users of one that started or
     stopped compiling, then once more any that failed with no error of their
     own; the rest keep the saved result, which other headers void. `--full`
-    compiles everything. Old .pex files go first, as does every orphan.
+    compiles everything. Old .pex files go first, as does every orphan. The
+    scripts' own folder is first in the import order, ahead of the headers.
+    See: docs/fork/fo4_pipeline.md#own-source-first
     """
     src_dir, out_dir = Path(args.src).resolve(), Path(args.out).resolve()
-    imports = f'{args.headers or header_dirs()};{src_dir}'
+    imports = f'{src_dir};{args.headers or header_dirs()}'
     files = sorted(src_dir.glob('*.psc'))
     hashes, apis, words = source_facts(files, _stamps_memo(out_dir, _SOURCE_STAMPS))
-    headers = header_digest(imports, src_dir, _stamps_memo(out_dir, _HEADER_STAMPS))
-    saved, listed = _load_state(out_dir, imports, headers)
+    headers = header_digest(imports, src_dir, _HEADER_MEMOS)
+    _stamps_memo(out_dir, _OLD_HEADER_STAMPS).unlink(missing_ok=True)
+    saved, listed = saved_state(out_dir, imports, headers)
     state = {} if args.full else saved
     removed = remove_orphans(out_dir, set(hashes), listed)
     if removed:
@@ -358,8 +394,8 @@ def compile_fallout4(args) -> tuple:
         own = {**own, **extra}
     scripts = {n: {**(state[n] if n not in todo else {'ok': n in pex, 'own': own.get(n, [])}),
                    'sha': hashes[n], 'api': apis[n]} for n in hashes}
-    (out_dir / _STATE_FILE).write_text(json.dumps({'imports': imports, 'headers': headers, 'scripts': scripts}),
-                                       encoding='utf-8')
+    (out_dir / _STATE_FILE).write_text(json.dumps({'imports': _state_key(imports), 'headers': headers,
+                                                   'own_first': True, 'scripts': scripts}), encoding='utf-8')
     compiled = {n for n, s in scripts.items() if s['ok']}
     own = {f.stem: scripts[f.stem.lower()]['own'] for f in files if scripts[f.stem.lower()]['own']}
     return compiled, own, [f.stem for f in files]

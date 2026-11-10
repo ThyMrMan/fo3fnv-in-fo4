@@ -245,7 +245,15 @@ built. The cell argument is the DLC's own interior.
   plugin's own bytes when it changes nothing: the build's greeting and patrol
   quests and their topics hold the DLC's lines under the game's ids, the way
   an FO4 plugin adds a line to a master topic. The topic's TIFC count is
-  left as the game's; xEdit compares it with `cpIgnore`. Left open: an ally's
+  left as the game's; xEdit compares it with `cpIgnore`. The masters' lines
+  the build leaves out are still read for one judgment, whether a Choices
+  menu's conversation can ever end (`Conversations._leaves`, through
+  `Hub.outside`; `SayTopics.outside` keeps them from the one INFO pass):
+  without them every menu answered by game lines looked never-ending, and
+  YUP wrote `[Leave]` and a silent exit line on 682 menus (467 with no YUP
+  line among their topics). With them, measured on the export without a
+  build, none of the 682 keeps it; the game build has no outside lines and
+  is unchanged. Left open: an ally's
   reply to a DLC bark ([bark replies](fo4_pipeline.md#bark-replies)) that
   only game quests answer is not copied, since the copy would hold the game's
   line under its game id. Honest Hearts has 6 such barks (3 Flee →
@@ -428,6 +436,152 @@ loose music, 522 MB, which a pack does not need.)
   effects a consumable's (`ScriptEffects._plain_spell`); it was left out.
   The base game's scripts gain these too.
 
+### <a id="multi-master"></a>A source with several masters
+
+Every FNV DLC lists only FalloutNV.esm, but most mods list FalloutNV.esm and
+the DLCs (all of Viva New Vegas: YUP, Better Brotherhood, Placement Fixes).
+A FormID's top byte indexes its own plugin's master list, so a master read
+behind the source names forms by its list, not the source's: Honest Hearts'
+own `01xxxxxx` is `02xxxxxx` in a mod listing Dead Money first. One
+master works only because FalloutNV.esm is `00` in both. SourceIds (FNV
+to FO4) already handles any master count; what reads the masters' data
+behind the source renumbers it.
+
+- **The map.** `master_space.byte_map`: a master's index i is the
+  source's index of that master's i-th master, its own index the source's
+  index of it. A source must list its masters' masters (FNV requires it);
+  one that does not stops the build. A master on masters of its own (a mod
+  on YUP) composes: each export is renumbered into its child's numbering as
+  it is layered. FalloutNV.esm and every DLC have one master, so their map
+  is the identity and is never applied: nothing an existing build makes
+  changes.
+- **Exports** (`export_index.master_records`). Keys classified by
+  `data/export_formid_keys.json`, from a census
+  (`tools/generators/gen_export_formid_keys.py`) over the FNV, DLC,
+  courier pack, FO3 and Anchorage exports: 151 keys only ever hold record
+  FormIDs, 5 never do, and 6 were mixed and decided by hand (ACBS, PKDT and
+  record flags whose values collide with record ids; Region[],
+  Sound[].FormID and WNAM.Worldspace, FormIDs with dangling values).
+  Conditions (`*Condition[].Raw`) renumber the global, the FormID
+  parameters by xEdit's condition table and the Reference; navmesh door
+  (NVDP) and edge (NVEX) links their FormIDs. Both lists are kept so neither
+  failure is silent: an 8-hex key or raw dump in neither is counted
+  (`master_space.UNCLASSIFIED`) and reported by the build, so a mod's
+  new keys show what to classify. Renumbering is per record type, when the
+  build reads it.
+- **Plugin bytes** (`master_plugin.renumbered`, behind
+  `install.source_stack` and the face fit's head parts). Each master file is
+  rewritten once a run through its map: record FormIDs, FormID group labels
+  (world, cell and topic children), and every subrecord FormID placed by
+  `data/<game>_subrecord_formids.json`, generated from xEdit's definitions
+  (`tools/generators/gen_fnv_subrecord_formids.py`, FNV and FO3, no
+  subrecord left complex). Compressed records are written inflated. A union
+  xEdit picks by a decider is a `select` + `cases` layout: package locations
+  and targets (PLDT/PLD2/PTDT/PTD2) by their own Type field, a note's topic
+  (TNAM) by its DATA type, a perk effect's DATA by PRKE and its function
+  data (EPFD) by EPFT. A case never applies before its selector subrecord,
+  which is what makes PERK's two DATAs exact: the 5-byte header comes before
+  any PRKE. EPFD's switch of type 2 to 5 picks no FormID, so it is not
+  modelled. Ownership (COED) is `owner_data`: the owner, and the value at 4
+  (a global for an NPC owner, a rank for a faction), renumbered only when
+  the map keeps index 0; a rank is below 2^24 or negative, so index 0 kept
+  leaves every rank as is (otherwise the value is counted). Hand-set: DIAL
+  INFC (xEdit also defines an unused raw copy) and REFR TNAM (a 2-byte map
+  marker or a 4-byte topic: a FormID offset past the data is skipped).
+  Checked over the five DLCs mapped to a moved index: ~328,000 own-range
+  values moved, all naming a DLC record but 3 the DLCs author dangling
+  (Dead Money INFO PNAM, Lonesome Road REGN RDID x2); a round trip is
+  byte-exact. Better Brotherhood (FalloutNV.esm and the five DLCs) layers
+  with no FormID collision and nothing unclassified.
+- **Built FO4 masters** (`master_overrides.built_bytes`, behind
+  `held_by`, `master_records` and the ragdoll poses' master lookup). The
+  build reads the plugins it built earlier (`--plugin-dirs`) the same way.
+  Each built DLC lists Fallout4.esm, FalloutHelpers.esl, XDI.esm and
+  FalloutNV.esm and is `04` itself; a mod on several DLCs lists them after
+  FalloutNV.esm, so Honest Hearts is `05` there. `byte_map` from the build's
+  masters, then `renumbered(..., 'fo4')` with `data/fo4_subrecord_formids.json`
+  (the same generator on `wbDefinitionsFO4.pas`, `--game fo4`: 139 records,
+  2,191 subrecords, 66 left complex: VMAD, PACK CNAM/PDTO/PTDA/PLDT, NAVM
+  NVNM, OBTS, OMOD DATA and others). FO4's MODS/MO2S-style subrecords are one
+  material swap FormID, not FO3/FNV's alternate-texture list, so the
+  `alt_textures` layout is FO3/FNV only. A complex subrecord is left as is
+  and counted by the build (`master FormIDs not renumbered`); on Honest
+  Hearts behind Dead Money 9,488 values in 40 kinds, mostly INFO VMAD and
+  PACK CNAM, which the build reads only for record ids and overrides it
+  compares whole. Checked on the five built DLCs in Better Brotherhood's
+  numbering: Dead Money (its index unchanged) byte-identical, the other four
+  ~256,000 own-range values moved, none dangling. A DLC build's own list is
+  the identity, so nothing it makes changes. Before this, `held_by` read the
+  raw ids, so a mod's override of a DLC record became a copy, and
+  `master_records` stopped the build.
+- <a id="multi-master-scripts"></a>**Script data (VMAD)** (`Renumbering.vmad`,
+  2026-11-10, not rebuilt). VMAD is complex in the table but is renumbered:
+  `dangling_scripts.object_offsets`, the one VMAD walker, gives every
+  object's FormID offset (properties, arrays, struct members, the fragment
+  script INFO, PACK, SCEN, TERM and PERK embed, a quest's stage script, each
+  alias's own object and its scripts; object format 1 holds the FormID first,
+  format 2 after the alias, xEdit `wbScriptPropertyObject`). A VMAD the
+  walker cannot follow is left as is and counted as `<TYPE>.VMAD (script
+  data not walked)`. Before this, a master record written as the master's
+  own copy (a DLC quest heading lines the mod overrides) kept the DLC's own
+  `04` in its properties while the record moved to `05`-`08`: YUP had 89
+  such properties on 11 quests (72 dangling, 17 bound to a Dead Money
+  record), DLC Enhancements 6 on 5, ExtraGoodies 3 on 1. Checked on the
+  built DLCs in YUP's numbering: 12,351 VMADs walked, none left as is,
+  16,077 object FormIDs moved, each naming a record its DLC holds, those 98
+  included; no measurable added time (1.8 s for the four moved DLCs either
+  way). The whole-body compare now also sees a script-only match: 4 YUP
+  overrides (Honest Hearts keys, VMAD the only difference) become `same as
+  master` and are dropped. Still left as is and counted, with the values in
+  YUP's four moved DLCs that name one of the DLC's own records: NAVM NVNM
+  18,540 in 1,210, PACK PLDT 226 and PTDA 177, WEAP OBTS 319 in 75, OMOD
+  DATA 91 in 57, REFR PDTO 25, PGRE NAME 25, NOTE SNAM 11, NPC_ OBTS 12 in
+  6, REGN RDSA 1; none in PACK CNAM/PDTO, SCEN HTID or TERM SNAM.
+
+### <a id="edited-cells"></a>Edited cells outside the region (built 2026-11-10, not played)
+
+A build places only the references of the cells it covers, and a DLC's
+`--region` was picked around its entrance. Edits it makes elsewhere in its
+master's worldspace were left out: Old World Blues swaps 46 skeletons to
+SkeletonTorsoNaked across about 25 cells (12 at Boulder City 13,5) and moves
+a deck of cards; none were built (0 of 47 in its plugin). Lonesome Road's
+left-out cells hold no references, only a reordered region list.
+
+So a source with masters adds to the first worldspace's region every grid
+cell it holds itself, its own and its overrides (`run.edited_cells`), not the
+persistent cell. A masterless plugin adds none: the base game's build is
+unchanged. An added cell is built like one in the region; its references
+that match the master's are dropped as unchanged overrides
+(`master_overrides.drop_unchanged`).
+
+Checked on the rebuilt Old World Blues (2026-11-10): 47 of 47 of those
+references are in its plugin.
+
+### <a id="asset-overlays"></a>Asset overlays (built 2026-11-10, not played)
+
+A texture or mesh replacer with no plugin (NVTUP; NVMIM's meshes) changes
+files the built plugins already ship, so no mod build picks it up.
+`fo4_import.pipeline.overlay` converts it into a folder of its own:
+
+- The replacer's folders go first in every source-file lookup
+  (`export_index.export_file`, through `F3NV_OVERLAYS`, which worker
+  processes inherit). The mesh cache keys on the source bytes and texture
+  stamps, so an overlay file is a new entry, never the base one.
+- Only files a named built plugin ships are converted (its
+  `<plugin>.files.txt` and Textures archive record): textures copied to
+  their FO4 path, a replaced normal map's specular maps derived again, and
+  meshes shipped under their plain or load-door name converted with their
+  materials and collision. Meshes shipped only as another variant (a posed
+  weapon, a prop, a terminal, a creature part) stay as built.
+- The folder gets an empty ESL with the built plugins as masters, so it
+  loads after them, and its own Textures and Main archives.
+- A mesh's bounds (OBND) stay the base record's.
+
+NVTUP 2.0 holds 13,455 textures and no normal maps; 3,516 replace textures
+FalloutNV.esm ships (12.8 GB against 1.1 GB). Its 6,357 face and body
+textures are unused: FO4 faces come from the CK
+([facegen plan](fo4_facegen_plan.md#phase-3)).
+
 ## <a id="mods"></a>Part B: mod patch plugins
 
 Today a replacement (an FO4 mod's gun, creature or outfit standing in for
@@ -540,7 +694,9 @@ each would save:
   `with_types`' named types by file size and time; memos in
   `output/fo4_cache/compile_stamps` and beside the script stage, not in the
   deployed Scripts folder. The header digest now hashes each file's SHA-1,
-  so the first build after it compiles everything once.
+  so the first build after it compiles everything once. The headers' memo
+  is one per header folder, shared by every plugin importing it
+  ([header hashes](fo4_pipeline.md#own-source-first)).
 - *Own rigs:* a body (`rig_body`) and a skeleton.nif with its ragdoll bones
   (`rig_skeleton_nif`, the Elric run) are work-cache entries keyed by their
   FNV meshes, bones, body name and fire nodes; a body's textures are FNV's
@@ -867,6 +1023,15 @@ decides.
   `after <master>`. `--run` builds the first plugin needing it, then checks
   again, until none needs a build. `--verify` rebuilds one current plugin and
   compares its plugin and ledger bytes.
+- **The plan reads the code on disk (fixed 2026-11-06).** Code identity is
+  unknown for a file edited after its process started, which protects a
+  build whose running code is not on disk. The plan process runs none of the
+  code it checks, but it lives through a whole `--run`. A peer session's edit
+  20 minutes into a 10-plugin run (`gun_anim_text.py`) left its identity
+  unknown for the rest of the run, so Caravan Pack, built from that code,
+  was "changed" after each build and rebuilt 8 times (about 7.5 min each).
+  Each `plan()` now calls `code_identity.rebase()`: the code on disk is the
+  code to compare, its identities computed afresh.
 - **Tested** (`tests/test_fo4_build_plan.py`):
   - a DLC stays current after the game gains a record and changes one it did
     not read;

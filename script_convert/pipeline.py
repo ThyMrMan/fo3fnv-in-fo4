@@ -38,8 +38,8 @@ from script_convert.context_setup import (
     build_xref, chargen_menu_plan, deploy_static_scripts, load_bounds_cache,
     load_records, prepare_output_dir, quest_edids_by_fid,
     service_menu_topics, topic_unlock_globals)
-from script_convert.ownership import owner_key, write_owned
-from script_convert import radio_lines, target
+from script_convert.ownership import owner_key, read_owned, write_owned
+from script_convert import radio_lines, target, udf_fallout4
 from script_convert.message_menus import build_message_plan
 from script_convert.commands_falloutnv import (quest_objective_indices,
                                                set_quest_objectives)
@@ -108,6 +108,7 @@ def _new_stats() -> dict:
         # a lookup rather than a second read of every generated .psc.
         'udf_sigs': {},
         'udf_callers': {},
+        'udf_forms': {},
     }
 
 
@@ -401,8 +402,7 @@ def convert_all_scripts(export_dir: str, output_dir: str, workers: int = None) -
             for part in ex.map(_script_worker_run, jobs):
                 _merge_stats(stats, part)
 
-    _fix_udf_call_arg_types(output_dir, stats['udf_sigs'],
-                            stats['udf_callers'])
+    finish_udf_calls(output_dir, stats)
     refuse_duplicate_names(stats['written'], stats['origins'] + _drain_origins())
     _record_ownership(output_dir, ctx, stats['written'])
     _print_summary(stats, ctx)
@@ -433,10 +433,18 @@ def _print_summary(stats: dict, ctx: dict) -> None:
 
 
 def _record_ownership(output_dir: str, ctx: dict, written: list) -> None:
-    """Save this plugin's script list; report names it took over from a sibling.
+    """Save this plugin's script list; report names it took over from a sibling. First the sources its last
+    list named that this run did not write (and no sibling claims) are deleted.
 
     See: docs/commentary/script_convert.md#wipe-output-dir
     """
+    kept = {name.lower() for name in written}
+    for name in read_owned(output_dir, ctx['owner']) - ctx['shared']:
+        if name.lower() not in kept:
+            try:
+                os.remove(os.path.join(output_dir, name + '.psc'))
+            except OSError:
+                pass
     write_owned(output_dir, ctx['owner'], written)
     taken = sorted(set(written) & ctx['shared'])
     if taken:
@@ -456,14 +464,26 @@ def _drain_written() -> list:
     return names
 
 
+def _file_bytes(path: str) -> 'bytes | None':
+    """A file's bytes; None when it cannot be read."""
+    try:
+        with open(path, 'rb') as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
 def write_psc(output_dir: str, script_name: str, text: str) -> None:
-    """Write one generated script with its dangling references commented out, noting its origin.
+    """Write one generated script with its dangling references commented out, noting its origin. A file already
+    holding those bytes is left alone, so its size and time (other steps' stamps of it) stay.
 
     See: docs/commentary/script_convert.md#dangling-cross-script-read
     """
     path = os.path.join(output_dir, script_name + '.psc')
-    with open(path, 'w', encoding='utf-8') as fh:
-        fh.write(_comment_dangling(text))
+    data = _comment_dangling(text).replace('\n', os.linesep).encode('utf-8')
+    if _file_bytes(path) != data:
+        with open(path, 'wb') as fh:
+            fh.write(data)
     _WRITTEN.append(script_name)
     _ORIGINS.append((script_name, _origin(text), hashlib.sha1(text.encode('utf-8')).hexdigest()))
 
@@ -548,6 +568,12 @@ def _comment_dangling(text: str) -> str:
             lines[i] = (f'{m.group(1)};{stripped}  ;NE: {m.group(2)} is not '
                         f'declared anywhere (dangling in the original mod)')
     return '\n'.join(lines)
+
+
+def finish_udf_calls(output_dir: str, stats: dict) -> None:
+    """Fix every user-function call once all scripts converted."""
+    _fix_udf_call_arg_types(output_dir, stats['udf_sigs'], stats['udf_callers'])
+    udf_fallout4.finish_calls(output_dir, stats['udf_forms'], stats['udf_callers'])
 
 
 def _fix_udf_call_arg_types(output_dir: str, sigs: dict, callers: dict) -> None:
@@ -651,6 +677,8 @@ def _scpt_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: dict
             write_psc(output_dir, script_name, papyrus)
             if conv.sc.udf_signature is not None:
                 stats['udf_sigs'][script_name.lower()] = conv.sc.udf_signature
+            if conv.sc.udf_forms is not None:
+                stats['udf_forms'][script_name.lower()] = conv.sc.udf_forms
             if conv.sc.udf_calls:
                 # BOTH type sources: an external ref becomes a property, and a
                 # script-local `ref` is promoted to one.  The old pass saw both
@@ -658,6 +686,7 @@ def _scpt_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: dict
                 types = {k.lower(): v
                          for k, v in conv.get_property_refs().items()}
                 types.update(conv.sc.var_types)
+                types.update(udf_fallout4.called_scripts(conv.sc.udf_calls))
                 stats['udf_callers'][script_name] = (conv.sc.udf_calls, types)
             stats['scpt_ok'] += 1
             stats['todo_count'] += papyrus.count(';TODO')
@@ -1260,6 +1289,8 @@ _VMAD_PROP_OBJECT_ARRAY = 11
 _VMAD_PROP_STRING_ARRAY = 12
 _VMAD_PROP_INT_ARRAY = 13
 _VMAD_PROP_FLOAT_ARRAY = 14
+#: script_entry's value-property kinds that are arrays.
+ARRAY_KINDS = frozenset({'strings', 'objects', 'floats', 'ints'})
 
 
 def build_vmad_object_script(script_name: str,
@@ -1295,9 +1326,14 @@ def append_vmad_object_script(existing: bytes, script_name: str,
 
 def script_entry(script_name: str, object_props: dict = None,
                   value_props: dict = None) -> bytes:
-    """One attached script: its name, flags 0, then its properties (status Edited)."""
+    """One attached script: its name, flags 0, then its properties (status Edited). An empty array is left
+    unset, as the engine rejects one written empty ("cannot be initialized because the value is the incorrect
+    type") and leaves it unset anyway.
+    See: docs/fork/fo4_pipeline.md#empty-array-properties
+    """
     object_props = object_props or {}
-    value_props = value_props or {}
+    value_props = {name: (kind, value) for name, (kind, value) in (value_props or {}).items()
+                   if kind not in ARRAY_KINDS or len(value)}
     out = pack_wstring(script_name) + struct.pack('<BH', 0, len(object_props) + len(value_props))
     for pname, fid in object_props.items():
         out += pack_wstring(pname) + struct.pack('<BBHhI', _VMAD_PROP_OBJECT, 1, 0, -1, fid)

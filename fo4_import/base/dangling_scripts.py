@@ -10,8 +10,8 @@ naming this plugin's own index but no record in it is set to None (FormID 0)
 in place: the VMAD keeps its size, so nothing else in the file moves.
 
 VMADs are walked as `fo4_import.base.vmad` writes them: plain scripts on any
-record, then the fragment script INFO, PACK, SCEN and TERM embed, and a
-quest's stage script and alias scripts.
+record, then the fragment script INFO, PACK, SCEN, TERM and PERK embed, and a
+quest's stage script, alias objects and alias scripts.
 
 See: docs/fork/fo4_pipeline.md#dangling-script-properties
 """
@@ -25,7 +25,11 @@ from tes5_import.base.tes5_reader import FLAG_COMPRESSED, REC_HDR, walk
 OBJECT, STRING, INT, FLOAT, BOOL, VARIABLE, STRUCT = 1, 2, 3, 4, 5, 6, 7
 SCALAR_SIZE = {INT: 4, FLOAT: 4, BOOL: 1}
 #: Records whose VMAD carries an embedded fragment script after the plain ones.
-FRAGMENTED = (b'INFO', b'PACK', b'SCEN', b'TERM')
+FRAGMENTED = (b'INFO', b'PACK', b'SCEN', b'TERM', b'PERK')
+#: Of those, the ones whose fragment block has no flags byte before its script (xEdit wbVMADFragmentedPERK).
+UNFLAGGED = (b'TERM', b'PERK')
+#: Object format -> the FormID's offset in an 8-byte object (xEdit wbScriptPropertyObject: v1 first, v2 last).
+FORMID_AT = {1: 0, 2: 4}
 
 
 class Unreadable(ValueError):
@@ -83,25 +87,32 @@ def _scripts(data: bytes, pos: int, found: list) -> int:
 
 
 def _quest_tail(data: bytes, pos: int, found: list) -> None:
-    """A quest's stage script (an empty name when none), its stages, then each alias's scripts."""
+    """A quest's stage script (an empty name when none), its stages, then each alias's object and scripts."""
     stages, pos = struct.unpack_from('<H', data, pos + 1)[0], pos + 3
     pos = _entry(data, pos, found) if struct.unpack_from('<H', data, pos)[0] else pos + 2
     for _ in range(stages):
         pos = _wstring(data, _wstring(data, pos + 9))
     aliases, pos = struct.unpack_from('<h', data, pos)[0], pos + 2
     for _ in range(aliases):
+        found.append(pos + 4)
         pos = _scripts(data, pos + 8, found)
 
 
 def object_offsets(sig: bytes, vmad: bytes) -> list:
-    """Offsets in `vmad` (a record of type `sig`) of every object property's FormID."""
+    """Offsets in `vmad` (a record of type `sig`) of every object's FormID: each object property's and each quest
+    alias's own, placed by the VMAD's object format; Unreadable for another format or an object past its end."""
+    lead = FORMID_AT.get(struct.unpack_from('<h', vmad, 2)[0])
+    if lead is None:
+        raise Unreadable(f'object format {vmad[2:4].hex()}')
     found = []
     pos = _scripts(vmad, 0, found)
     if pos < len(vmad) and sig in FRAGMENTED:
-        _entry(vmad, pos + (1 if sig == b'TERM' else 2), found)
+        _entry(vmad, pos + (1 if sig in UNFLAGGED else 2), found)
     elif pos < len(vmad) and sig == b'QUST':
         _quest_tail(vmad, pos, found)
-    return found
+    if found and max(found) + 4 > len(vmad):
+        raise Unreadable('an object past the end')
+    return [at - 4 + lead for at in found]
 
 
 def _vmads(raw: bytes, record) -> list:

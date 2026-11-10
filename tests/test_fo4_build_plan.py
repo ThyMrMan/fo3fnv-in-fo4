@@ -109,6 +109,21 @@ def test_identity_is_unknown_after_an_edit_during_the_run(package, monkeypatch):
     assert CI.identity(key) is None
 
 
+def test_the_plan_reads_code_edited_after_it_started(package, monkeypatch):
+    """The build plan runs none of the code it checks: a file edited after it started (a peer's edit during a
+    multi-plugin --run) still has an identity, so a plugin built from that code is current, not rebuilt forever."""
+    root, key = package
+    recorded = CI.identity(key)
+    monkeypatch.setattr(CI, 'STARTED', time.time() - 3600)
+    CI.identity.cache_clear()
+    assert CI.changed({key: recorded}) == key
+    CI.rebase()
+    assert CI.changed({key: recorded}) is None
+    _edit(root / 'other.py', 'LIMIT = 10', 'LIMIT = 11')
+    CI.rebase()
+    assert CI.changed({key: recorded}) == key
+
+
 def test_a_cache_entry_is_remade_only_when_code_that_made_it_changes(package, tmp_path, monkeypatch):
     """work_cache.cached keeps the functions that ran making a value: an edit to another function in the same
     module keeps the entry; an edit to a constant the maker read remakes it."""
@@ -152,7 +167,11 @@ def test_capture_records_the_repo_functions_that_ran():
 
 @pytest.fixture
 def recording(tmp_path, monkeypatch):
-    """This process recording into a fresh record (no masters asked), stopped after."""
+    """This process recording into a fresh record (no masters asked, no code run by earlier tests), stopped
+    after."""
+    monkeypatch.setattr(RC, 'RAN', set())
+    RC.start()
+    sys.monitoring.restart_events()
     monkeypatch.setattr(BI, '_SEEN', {k: set() for k in BI._SEEN})
     monkeypatch.setattr(BI, '_STATE', {'on': False, 'main': False})
     monkeypatch.setattr(BI, 'MASTERS', BI.MasterLog())

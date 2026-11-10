@@ -25,6 +25,7 @@ import numpy as np
 
 from core.collision_options import WINDING_FIX_ENV_VAR
 from core.process_job import join_pool_job
+from fo4_import.base.source_fault import SourceFault
 from fo4_import.nif import bgem, bgsm, blocks
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.addons import addon_map
@@ -97,8 +98,11 @@ def _stamps(converted: 'Converted | MeshFiles', texture_root) -> dict:
 
 
 def _entry(path, texture_root, pose: 'dict | None', animated: bool, addons: 'dict | None') -> tuple:
-    """(cache file, `addons` else `texture_root`'s ADDN mapping) of a convert() call."""
+    """(cache file, `addons` else `texture_root`'s ADDN mapping) of a convert() call; SourceFault for a model no
+    export layer holds."""
     addons = (addon_map(str(texture_root)) if texture_root else {}) if addons is None else addons
+    if not Path(path).is_file():
+        raise SourceFault(path, 'missing model (in no export layer)')
     key = _key(Path(path).read_bytes(), pose, animated, addons)
     return CACHE / key[:2] / f'{key}.pkl', addons
 
@@ -130,13 +134,21 @@ def cached_convert(path, texture_root=None, pose: dict = None, animated: bool = 
             os.utime(entry)
             os.utime(ran_path(entry))
             return converted
-    converted, ran = ran_while(lambda: convert(str(path), texture_root, pose, animated, addons))
+    converted, ran = ran_while(lambda: _convert(path, texture_root, pose, animated, addons))
     entry.parent.mkdir(parents=True, exist_ok=True)
     partial = entry.with_suffix(f'.{os.getpid()}.tmp')
     partial.write_bytes(pickle.dumps((_stamps(converted, texture_root), converted)))
     partial.replace(entry)
     write_ran(entry, ran)
     return converted
+
+
+def _convert(path, texture_root, pose: 'dict | None', animated: bool, addons: dict) -> Converted:
+    """convert(path, ...); a SourceFault it raises names `path`."""
+    try:
+        return convert(str(path), texture_root, pose, animated, addons)
+    except SourceFault as fault:
+        raise fault.at(path) from None
 
 
 def _warm(job: tuple) -> None:

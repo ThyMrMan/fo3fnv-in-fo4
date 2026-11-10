@@ -96,6 +96,20 @@ def master_index_map(master_folder, slot: int, header: list) -> dict:
     return remap
 
 
+def chain_index_maps(record_dir) -> list:
+    """(master folder, `master_index_map` into `record_dir`'s ids) for every transitive master, deepest first.
+
+    A direct master takes its header slot; an inherited one a slot past the dependent's own.
+    See: docs/reference/pipeline.md#master-index-maps
+    """
+    order = masters_from_export_header(str(record_dir)) + ['']
+    chain = master_chain(record_dir)
+    order += [n for n in chain if n.lower() not in {o.lower() for o in order}]
+    slots = {n.lower(): i for i, n in enumerate(order)}
+    folders = [master_dir(record_dir, n) for n in chain]
+    return [(folder, master_index_map(folder, slots[n.lower()], order)) for n, folder in zip(chain, folders)]
+
+
 def master_chain(record_dir) -> list:
     """Every master `record_dir` inherits from, transitively, each after its own masters.
 

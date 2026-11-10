@@ -55,13 +55,12 @@ See: docs/fork/fo4_spikes.md#spike-4-gun-clips
 """
 
 import collections
-import functools
 import hashlib
 import math
 import pickle
 import struct
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -73,6 +72,7 @@ from asset_convert.havok.gun_vocabulary_falloutnv import (ANIM_TYPE_CLASS, ATTAC
 from asset_convert.havok.hkx_anim import clip_to_animation_data, held_to, loop_clip, slice_clip
 from asset_convert.havok.kf_decode import BoneTrack, DecodedClip
 from fo4_import.havok.kf_cache import decoded_clip
+from fo4_import.nif import fnv_file
 from external.pynifly_hkx.anim_fo4 import (fo4_animation_header, parse_fo4_animation, parse_fo4_skeleton,
                                            write_fo4_animation)
 from fo4_import.base.ba2 import Archives
@@ -81,8 +81,7 @@ from fo4_import.havok.human_clip import BONES, COM, matching_pose
 from fo4_import.nif.convert_static import NifFormat
 from fo4_import.nif.gun import SIGHTING, bone_for
 from fo4_import.pipeline.elric_cache import write_new
-from fo4_import.pipeline.export_index import Layered
-from fo4_import.pipeline.work_cache import cached
+from fo4_import.pipeline.work_cache import has_bytes, lookup_versioned, store_bytes, store_versioned, stored_bytes
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 
 ANIMATIONS = 'Fallout4 - Animations.ba2'
@@ -102,9 +101,13 @@ SOUND_EVENT, FNV_SOUND = 'soundplay.', 'sound:'
 HEAD = ('EDID', 'DESC', 'BOD2', 'PRPS', 'DATA', 'MNAM', 'FNAM', *['MTNM'] * 5, 'VTCK', 'PNAM', 'UNAM', 'NAM1',
         'MNAM', 'INDX', 'FNAM', 'INDX', 'GNAM', 'NAM3', 'MNAM', 'FNAM', *['NAME'] * 32, 'RBPC', 'VNAM')
 ENTRY = (b'SAKD', b'SGNM', b'SAPT', b'STKD')
-#: The work cache site of a gun's converted clips, and the FNV WEAP fields the conversion reads.
-CLIP_SITE = 'gun_clips'
+#: The work cache site of a gun's converted clips (new name with its version), and the FNV WEAP fields it reads.
+CLIP_SITE = 'versioned_gun_clips'
 REC_FIELDS = ('EditorID', 'DNAM.FalloutAnimType', 'DNAM.AttackAnim', 'DNAM.ReloadAnim', 'DNAM.Flags1')
+#: The work cache site of each file a gun's clips write, kept once by its SHA-1 (keep).
+CLIP_FILES = 'gun_clip_files'
+#: The gun clips' hand-bumped version: raise it whenever _convert makes other files or values for the same key.
+GUN_CLIPS_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -274,9 +277,7 @@ def fo4_skeleton(raw: bytes) -> tuple:
 
 def fnv_frames(path: Path) -> dict:
     """{node name: 4x4 row-vector frame} of an FNV gun's nodes, in the gun's frame."""
-    data = NifFormat.Data()
-    with open(path, 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(path)
     root = data.roots[0]
     return {n.name.decode('cp1252'): np.array(n.get_transform(root).as_list())
             for n in root.tree() if isinstance(n, NifFormat.NiNode)}
@@ -566,11 +567,74 @@ def neutral_clip(bones: list, length: float) -> DecodedClip:
                                          translations=np.zeros((2, 3))) for b in bones])
 
 
+def kf_file(kf_dir: Path, stem: str) -> Path:
+    """FNV clip `stem`'s .kf under `kf_dir` (layered when `kf_dir` is)."""
+    return kf_dir / f'{stem.replace(chr(92), "/")}.kf'
+
+
 def fnv_stem(kf_dir: Path, stem: str, sights: bool = True) -> str:
     """FNV clip `stem`, a sighted one unsighted when missing or not `sights`."""
-    if stem.endswith(SIGHTED) and (not sights or not (kf_dir / f'{stem.replace(chr(92), "/")}.kf').is_file()):
+    if stem.endswith(SIGHTED) and (not sights or not kf_file(kf_dir, stem).is_file()):
         return stem[:-len(SIGHTED)]
     return stem
+
+
+def clip_names(rec: dict) -> 'tuple | None':
+    """(FNV clip class, {attack, letter, auto, sights}) of FNV gun `rec`; None for a class without clips."""
+    cls = ANIM_TYPE_CLASS.get(int(rec.get('DNAM.FalloutAnimType', -1)))
+    if cls is None:
+        return None
+    flags = int(rec.get('DNAM.Flags1', 0))
+    return cls, {'attack': ATTACK_ANIMS.get(int(rec.get('DNAM.AttackAnim', 255))) or ATTACK_ACTIONS[0],
+                 'letter': RELOAD_LETTERS[int(rec.get('DNAM.ReloadAnim', 0))], 'auto': bool(flags & FNV_AUTOMATIC),
+                 'sights': not flags & FNV_NO_SIGHTS}
+
+
+def planned(kf_dir: Path, cls: str, names: dict, perspective: int) -> list:
+    """[(FO4 clip, fnv_stem's FNV stem, piece)] of PLAN[perspective] for `cls`."""
+    return [(clip, fnv_stem(kf_dir, action.format(cls=cls, **names), names['sights']), piece)
+            for clip, action, piece in PLAN[perspective]]
+
+
+def clip_reads(kf_dir: Path, cls: str, names: dict, perspective: int) -> tuple:
+    """((name, SHA-1 or None), ...) of every FNV file one view's clips read: the skeleton, the aim clip and each
+    planned stem (a sighted one's presence decides its stem), each found in its own export layer.
+    See: docs/fork/fo4_build_speed.md#keys
+    """
+    files = {'skeleton.nif': kf_dir / 'skeleton.nif', f'{cls}aim': kf_file(kf_dir, f'{cls}aim')}
+    files.update((stem, kf_file(kf_dir, stem)) for _, stem, _ in planned(kf_dir, cls, names, perspective))
+    return tuple((name, hashlib.sha1(path.read_bytes()).hexdigest() if path.is_file() else None)
+                 for name, path in sorted(files.items()))
+
+
+def placeholder(keyword: int) -> int:
+    """A kept value's stand-in for the gun's own keyword replacing `keyword`."""
+    return -1 - keyword
+
+
+def owned(entry: dict, own: dict) -> dict:
+    """Subgraph `entry`, each placeholder target the gun's own keyword (`own`)."""
+    return dict(entry, target=[own[placeholder(k)] if k < 0 else k for k in entry['target']])
+
+
+def keep(inputs: tuple, recorded: tuple) -> None:
+    """Keep `recorded` (GunClips.recorded) under key `inputs`, each file once."""
+    made, added, files = recorded
+    store_versioned(CLIP_SITE, GUN_CLIPS_VERSION, inputs,
+                    (made, added, {rel: store_bytes(CLIP_FILES, data) for rel, data in files.items()}))
+
+
+def kept(inputs: tuple) -> 'tuple | None':
+    """keep()'s value for `inputs`, files read back; None if it or a file is gone."""
+    entry = lookup_versioned(CLIP_SITE, GUN_CLIPS_VERSION, inputs)
+    files = {rel: stored_bytes(CLIP_FILES, digest) for rel, digest in entry[2].items()} if entry else {}
+    return None if entry is None or None in files.values() else (entry[0], entry[1], files)
+
+
+def is_kept(inputs: tuple) -> bool:
+    """Whether kept(inputs) finds its value, its files not read."""
+    entry = lookup_versioned(CLIP_SITE, GUN_CLIPS_VERSION, inputs)
+    return entry is not None and all(has_bytes(CLIP_FILES, digest) for digest in entry[2].values())
 
 
 def vanilla_worlds(anim, dst: Skeleton, f: int) -> list:
@@ -857,19 +921,26 @@ class GunClips:
         return ([(a.time, a.text) for a in anim.annotations], anim.duration, anim) if anim else ([], 0.0, None)
 
     def convert(self, rec: dict, keywords: tuple, own_keyword, gun_path: Path, receiver: dict,
-                placement: np.ndarray, surfaces: tuple) -> 'Converted | None':
-        """_convert(), kept in the work cache by everything it reads (_inputs) with the files it writes: a replay
-        writes them again (touched when unchanged) and adds the gun's entries.
-        See: docs/fork/fo4_plugin_layout.md#stage-times
+                placement: np.ndarray, surfaces: tuple, inputs: 'tuple | None' = None) -> 'Converted | None':
+        """_convert(), kept in the work cache under key() (`inputs` when already made) with the files it writes
+        (keep): a replay writes them again (touched when unchanged) and adds the gun's entries. The kept value holds
+        placeholders; the gun's own keywords (`own_keyword` of each template keyword, asked in order) go in here.
+        See: docs/fork/fo4_build_speed.md#keys
         """
-        args = (rec, keywords, own_keyword, gun_path, receiver, placement, surfaces)
-        made, added, files = cached(CLIP_SITE, __name__, self._inputs(*args), lambda: self._recorded(args))
+        own = {k: own_keyword(k) for k in keywords[0]}
+        args = (rec, keywords, gun_path, receiver, placement, surfaces)
+        inputs = inputs or self.key(*args)
+        found = kept(inputs)
+        if found is None:
+            found = self.recorded(args)
+            keep(inputs, found)
+        made, added, files = found
         for rel, data in files.items():
             write_new(self.data_dir / rel, data)
-        self.added += added
-        return made
+        self.added += [owned(entry, own) for entry in added]
+        return None if made is None else replace(made, replaces={kw: own[kw] for kw in made.replaces})
 
-    def _recorded(self, args: tuple) -> tuple:
+    def recorded(self, args: tuple) -> tuple:
         """(_convert(*args), the entries it adds, {data-folder path: bytes} of the files it writes); the entries
         are left for convert() to add."""
         start, self.written = len(self.added), []
@@ -877,45 +948,34 @@ class GunClips:
         added, self.added = self.added[start:], self.added[:start]
         return made, added, {p.relative_to(self.data_dir).as_posix(): p.read_bytes() for p in dict.fromkeys(self.written)}
 
-    def _inputs(self, rec: dict, keywords: tuple, own_keyword, gun_path: Path, *shape) -> tuple:
-        """What _convert reads beyond Fallout4.esm: its cache key's parts."""
-        own = tuple(own_keyword(k) for k in keywords[0])
-        return (tuple(rec.get(k) for k in REC_FIELDS), tuple(keywords[0]), tuple(sorted(keywords[1] or ())), own,
-                gun_path.read_bytes(), pickle.dumps(shape, protocol=5), self.fnv_digest)
+    def key(self, rec: dict, keywords: tuple, gun_path: Path, *shape) -> tuple:
+        """What _convert reads beyond Fallout4.esm and the game's archives, no FormID among it: its cache key.
+        See: docs/fork/fo4_build_speed.md#keys
+        """
+        names = clip_names(rec)
+        reads = tuple(clip_reads(self.export_meshes / view.fnv, *names, view.perspective) for view in VIEWS) \
+            if names else ()
+        return (tuple(rec.get(k) for k in REC_FIELDS), tuple(keywords[0]), tuple(sorted(keywords[1] or ())),
+                gun_path.read_bytes(), pickle.dumps(shape, protocol=5), reads)
 
-    @functools.cached_property
-    def fnv_digest(self) -> str:
-        """A hash of every file in the views' FNV clip folders (clips and skeleton) in every export layer, read once."""
-        digest, meshes = hashlib.sha1(), self.export_meshes
-        roots = [Path(f).joinpath(*meshes.parts) for f in meshes.folders] if isinstance(meshes, Layered) else [meshes]
-        for folder in (Path(root) / view.fnv for root in roots for view in VIEWS):
-            for path in sorted(p for p in folder.rglob('*') if p.is_file()):
-                digest.update(str(path)[len(str(folder)):].lower().encode() + b'\0' + path.read_bytes())
-        return digest.hexdigest()
-
-    def _convert(self, rec: dict, keywords: tuple, own_keyword, gun_path: Path, receiver: dict,
-                 placement: np.ndarray, surfaces: tuple) -> 'Converted | None':
+    def _convert(self, rec: dict, keywords: tuple, gun_path: Path, receiver: dict, placement: np.ndarray,
+                 surfaces: tuple) -> 'Converted | None':
         """Write FNV gun `rec`'s clips (its NIF at `gun_path`, built on a receiver of {bone: rest 4x4}, put in its
         frame by `placement`: nif.gun.placement; `surfaces`: Gun.surfaces) under the template's clip names, given
-        `keywords` (its KWDA list, every keyword its parts give it: template_entries) and `own_keyword` (a template
-        keyword -> the FormID of the gun's own taking it); None when the template has no weapon entry it carries or
-        FNV's class has no clips."""
-        entries = self.template_entries(*keywords)
-        cls = ANIM_TYPE_CLASS.get(int(rec.get('DNAM.FalloutAnimType', -1)))
-        if not entries or cls is None:
+        `keywords` (its KWDA list, every keyword its parts give it: template_entries), each gun's own keyword a
+        placeholder; None when the template has no weapon entry it carries or FNV's class has no clips."""
+        entries, named = self.template_entries(*keywords), clip_names(rec)
+        if not entries or named is None:
             return None
+        cls, names = named
         gun = Gun.build(placement, fnv_frames(gun_path), receiver)
         gun.surfaces = surfaces
-        names = {'attack': ATTACK_ANIMS.get(int(rec.get('DNAM.AttackAnim', 255))) or ATTACK_ACTIONS[0],
-                 'letter': RELOAD_LETTERS[int(rec.get('DNAM.ReloadAnim', 0))],
-                 'auto': bool(int(rec.get('DNAM.Flags1', 0)) & FNV_AUTOMATIC),
-                 'sights': not int(rec.get('DNAM.Flags1', 0)) & FNV_NO_SIGHTS}
         written, lift, replaces = {}, None, {}
         for view in VIEWS:
             if view.perspective not in entries:
                 continue
             entry, heard, kw = entries[view.perspective]
-            replaces[kw] = keyword = own_keyword(kw)
+            replaces[kw] = keyword = placeholder(kw)
             folder = f'{view.folder}\\{rec["EditorID"]}'
             files = self._resolved(entry)
             events = {**self._clip_paths(files), **self._clip_paths(self._resolved(heard))}
@@ -966,11 +1026,10 @@ class GunClips:
         bolt = next((p[2] for b, p in gun.parts.items() if b == 'WeaponBolt'), None)
         template = self._template_anim(resolved)
         out, lift, held, grip = {}, None, self._held(template, rig), left_grip(template, rig) or (None, {})
-        moving, gap, grip, vanilla_left = self._hold_rules(rig, gun, kf_dir / f'{cls}aim.kf', template, grip,
+        moving, gap, grip, vanilla_left = self._hold_rules(rig, gun, kf_file(kf_dir, f'{cls}aim'), template, grip,
                                                           cls == ONE_HANDED)
-        for clip_name, action, piece in PLAN[view.perspective]:
-            stem = fnv_stem(kf_dir, action.format(cls=cls, **names), names['sights'])
-            kf = kf_dir / f'{stem.replace(chr(92), "/")}.kf'
+        for clip_name, stem, piece in planned(kf_dir, cls, names, view.perspective):
+            kf = kf_file(kf_dir, stem)
             if clip_name.lower() not in resolved or not kf.is_file() or (piece == 'loop' and not names['auto']):
                 continue
             clip = decoded_clip(str(kf))[0]

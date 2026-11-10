@@ -16,16 +16,18 @@ from pathlib import Path
 from core.heavy_lock import hold_heavy_lock
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
+from fo4_import.base.source_fault import report as fault_report, stamp as fault_stamp
 from fo4_import.pipeline import build_inputs
 from fo4_import.pipeline.build_steps import convert_scripts, source_state, write_stamp
 from fo4_import.pipeline.converters import placed_types
-from fo4_import.pipeline.export_index import export_file, export_records
+from fo4_import.pipeline.export_index import export_file, export_masters, export_records, own_records
+from fo4_import.pipeline.master_space import UNCLASSIFIED
 from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.pipeline.mod_dirs import plugin_dirs
 from fo4_import.pipeline.stage_timer import charged, report
 from fo4_import.spike import replacements
 from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
-from fo4_import.spike.exterior import Exterior
+from fo4_import.spike.exterior import PERSISTENT, Exterior
 from fo4_import.spike.interiors import scope
 from fo4_import.spike.object_lod import lod_sources
 
@@ -88,9 +90,22 @@ def reached_worlds(export_dir: Path, cells: list) -> set:
 
 
 def exteriors(args: argparse.Namespace) -> tuple:
-    """build()'s worldspaces: the first in scope_cells(), the others whole."""
+    """build()'s worlds: the first in scope_cells() and edited_cells(), the rest whole."""
     names = world_names(args.export, args.world)
-    return tuple([(name, *scope_cells(args)) for name in names[:1]] + [(name, None, None) for name in names[1:]])
+    first = [(name, *scope_cells(args), edited_cells(args.export, name)) for name in names[:1]]
+    return tuple(first + [(name, None, None) for name in names[1:]])
+
+
+def edited_cells(export_dir: Path, world: str) -> frozenset:
+    """Grid cells of worldspace `world` that a plugin with masters holds itself (its own and its overrides),
+    so an add-on build places its edits outside its region too; none for a masterless plugin.
+    See: docs/fork/fo4_plugin_layout.md#edited-cells
+    """
+    if not export_masters(str(export_dir)):
+        return frozenset()
+    wrld = next((w['FormID'] for w in export_records(export_dir, 'WRLD') if w.get('EditorID') == world), None)
+    return frozenset((int(c['XCLC.X']), int(c['XCLC.Y'])) for c in own_records(export_dir, 'CELL')
+                     if c.get('ParentWRLD') == wrld and 'XCLC.X' in c and not int(c.get('RecordFlags', 0)) & PERSISTENT)
 
 
 def arguments() -> argparse.Namespace:
@@ -144,11 +159,12 @@ def main():
     except BaseException:
         write_stamp(args.out, 'failed', started, extra)
         raise
-    write_stamp(args.out, 'finished', started, extra)
+    write_stamp(args.out, 'finished', started, {**extra, **fault_stamp()})
 
 
 def build_all(args: argparse.Namespace, started: float) -> None:
-    """The scripts converted (with --scripts), the plugin and assets built; the counts and each stage's time."""
+    """The scripts converted (with --scripts), the plugin and assets built; the counts, each stage's time and every
+    source fault (source_fault.report)."""
     if args.scripts:
         charged('script conversion', convert_scripts, args.export, args.scripts)
     worlds = exteriors(args)
@@ -160,9 +176,11 @@ def build_all(args: argparse.Namespace, started: float) -> None:
     for warning in table.warnings:
         print(f'replacements: {warning}')
     counts = build(args.export, args.out, args.data, args.cell, args.scripts, worlds, table, dirs, args.test_cell)
+    counts.update({f'master FormIDs not renumbered, left as is ({key})': n for key, n in UNCLASSIFIED.items()})
     for key, count in sorted(counts.items()):
         print(f'{key}: {count}')
     print('\n'.join(report()))
+    print('\n'.join(fault_report()))
     print(f'built in {time.time() - started:.1f}s')
 
 

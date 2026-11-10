@@ -16,7 +16,7 @@ import numpy as np
 
 from fo4_import.face import hair, sculpt, tint
 from fo4_import.face.bake import face_moves, face_shape
-from fo4_import.face.texture import face_texture
+from fo4_import.face.texture import face_colours
 from fo4_import.spike import fnv_npc
 from fo4_import.spike.fnv_npc import fnv_face, npc_head
 from tes5_import.base.tes5_reader import REC_HDR, SUB_HDR, first_sub, walk
@@ -86,25 +86,25 @@ def brow_overlay(export_dir: Path, edid: str, face: tuple) -> np.ndarray:
 def tint_target(export_dir: Path, edid: str, female: bool = False) -> tuple:
     """(target change of the reduced face texture, face mask, skin tone scale) for FNV NPC `edid`.
 
-    The target is T1's colour with the NPC's brows drawn over it.
+    The target is T1's colour, worked out on the reduced texture, with the NPC's brows drawn over it.
+    See: docs/fork/fo4_build_speed.md#faces
     """
     face = face_shape(sculpt.load_basis(female)[2])
-    base = tint.load_basis(female)[2]
+    base = tint.reduced(tint.load_basis(female)[2])
     fnv, pieces = fnv_face(export_dir, edid)
-    rgba, tone = face_texture(base, face, fnv, pieces, 'T1')
+    colour, tone, _ = face_colours(base, face, fnv, pieces, 'T1')
     brows = brow_overlay(export_dir, edid, face)
     alpha = brows[..., 3:] / 255
-    target = tint.reduced(rgba) * (1 - alpha) + brows[..., :3] * alpha
-    return target - tint.reduced(base), tint.face_mask(face), tone
+    target = np.clip(colour, 0, 255) * (1 - alpha) + brows[..., :3] * alpha
+    return target - base, tint.face_mask(face), tone
 
 
 def tint_fit(export_dir: Path, edid: str, female: bool = False) -> tuple:
     """(fitted value per option of its sex's basis, skin tone scale, fraction captured); None uncalibrated."""
-    cached = tint.load_basis(female)
-    if cached is None or sculpt.load_basis(female) is None:
+    if tint.load_basis(female) is None or sculpt.load_basis(female) is None:
         return None
     target, mask, tone = tint_target(export_dir, edid, female)
-    values, captured = tint.fit_with_brow(cached[0], target, mask, [cached[1].index(b) for b in cached[3]])
+    values, captured = tint.brow_fits(female, mask).best(target)
     return values, tone, captured
 
 

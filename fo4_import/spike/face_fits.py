@@ -1,20 +1,26 @@
-"""Published face fits: the work cache's face fits, in a file any user with the same fit code and bases installs
-instead of fitting the game's faces (about 2,247, 1.5-2 h) locally.
+"""Face fits in the work cache, and published: a file any user with the same fit version and bases installs
+instead of fitting the game's faces (about 2,247) locally.
 
     py -3.14 -m fo4_import.spike.face_fits export --export export/FalloutNV.esm --out <file>
     py -3.14 -m fo4_import.spike.face_fits verify <file>
     py -3.14 -m fo4_import.spike.face_fits install <file>
 
-The file is gzipped JSON, read without pickle. It holds the fit code version
-(fit_code), each sex's basis hash (basis_hash: SHA-1 of the basis arrays, never
-the arrays) and, per sex, each face keyed by a SHA-1 of its FIT_FIELDS values
-with its three fits as numbers and Fallout4.esm FormIDs only. A build takes a
-face from the installed file only when the code version and its sex's basis
-hash match this machine's (warm_faces counts each face it takes or fits).
-A face's key also holds its FNV head parts (fit_key), so NPCs sharing FaceGen
-but not brows or beards keep their own fits.
+A fit is a versioned work-cache entry (work_cache.versioned): its inputs
+(fit_key) are the face's FIT_FIELDS values, its FNV head parts (so NPCs
+sharing FaceGen but not brows or beards keep their own fits) and its sex's
+basis hash (basis_hash: SHA-1 of the basis arrays), under FIT_VERSION. No code
+record stands behind it: FIT_VERSION is bumped by hand when a fit's result
+changes, and tests/test_fo4_face_fit_version.py holds the bump to that.
+
+The file is gzipped JSON, read without pickle. It holds FIT_VERSION (as
+fit_code), each sex's basis hash (never the arrays) and, per sex, each face
+keyed by a SHA-1 of its fields and head parts with its three fits as numbers
+and Fallout4.esm FormIDs only. A build takes a face from the installed file
+only when the version and its sex's basis hash match this machine's
+(warm_faces counts each face it takes or fits), and keeps it under the same key.
 
 See: docs/fork/fo4_pipeline.md#published-face-fits
+See: docs/fork/fo4_build_speed.md#faces
 """
 
 import argparse
@@ -31,20 +37,20 @@ from pathlib import Path
 import numpy as np
 
 from fo4_import.face import sculpt, tint
-from fo4_import.pipeline.code_tag import code_tag
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.pipeline.work_cache import lookup, store
+from fo4_import.pipeline.work_cache import lookup_versioned, store_versioned, versioned
 from fo4_import.spike.fnv_npc import head_parts
 from fo4_import.spike.head_parts import HeadChoice
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
-#: The FNV NPC fields a face fit reads; with its sex's two basis files, the fit's work-cache inputs (fit_key).
+#: The face fits' version, of FIT_SITES' entries and the published file: bump it when any fit's result changes.
+FIT_VERSION = 1
+#: The FNV NPC fields a face fit reads; with its head parts and its sex's basis hash, its inputs (fit_key).
 FIT_FIELDS = ('FGGS', 'FGGA', 'FGTS', 'RNAM.Race', 'HNAM.Hair', 'ENAM.Eyes', 'HCLR.R', 'HCLR.G', 'HCLR.B',
               'LNAM.HairLength')
-#: (work-cache site, module) of a face's sculpt fit, tint fit and head part choice, in face_work's order.
-FIT_SITES = (('sculpt_fit', 'fo4_import.spike.face_fit'), ('tint_fit', 'fo4_import.spike.face_fit'),
-             ('head_parts', 'fo4_import.spike.head_parts'))
+#: The versioned work-cache sites of a face's sculpt fit, tint fit and head part choice, in face_work's order.
+FIT_SITES = ('sculpt_fit', 'tint_fit', 'head_parts')
 #: Where install puts a published file and builds read it.
 INSTALLED = sculpt.CACHE / 'face_fits.json.gz'
 #: The file layout's version.
@@ -57,39 +63,43 @@ SEXES = {False: 'male', True: 'female'}
 HEAD_FORMS = ('hair', 'facial_hair', 'eyes', 'colour')
 
 
-@functools.cache
-def bases(female: bool) -> tuple:
-    """One sex's existing sculpt and tint basis files' bytes, read once per process."""
-    return tuple(p.read_bytes() for p in (sculpt.basis_path(female), tint.basis_path(female)) if p.exists())
-
-
 def fit_key(export_dir: Path, npc: dict, female: bool) -> 'tuple | None':
     """The work-cache inputs of FNV NPC `npc`'s face fits: its FIT_FIELDS values, its head parts as `export_dir`
-    resolves them (fnv_npc.head_parts) and its sex's two basis files; None uncalibrated.
+    resolves them (fnv_npc.head_parts) and its sex's basis hash; None uncalibrated.
     See: docs/fork/fo4_pipeline.md#face-fit-head-parts
     """
-    found = bases(female)
-    if len(found) < 2:
+    basis = basis_hash(female)
+    if basis is None:
         return None
     parts = tuple(head_parts(export_dir, int(npc['FormID'], 16)))
-    return tuple(npc.get(k, '') for k in FIT_FIELDS) + (parts,) + found
+    return tuple(npc.get(k, '') for k in FIT_FIELDS) + (parts, basis)
 
 
 def face_id(key: tuple) -> str:
-    """The file's key of a face: a SHA-1 of its fit_key `key` but the basis files."""
-    return hashlib.sha1(repr(key[:-2]).encode()).hexdigest()
+    """The file's key of a face: a SHA-1 of its fit_key `key` but the basis hash."""
+    return hashlib.sha1(repr(key[:-1]).encode()).hexdigest()
 
 
-@functools.cache
-def fit_code() -> str:
-    """The fit code version: a SHA-1 of FIT_SITES' modules' code tags."""
-    return hashlib.sha1('\0'.join(code_tag(module) for _, module in FIT_SITES).encode()).hexdigest()
+def kept(index: int, key: tuple, default=None):
+    """FIT_SITES[index]'s value kept for fit_key `key` and FIT_VERSION; else `default`."""
+    return lookup_versioned(FIT_SITES[index], FIT_VERSION, key, default)
+
+
+def keep(index: int, key: tuple, value):
+    """Keep `value` as FIT_SITES[index]'s for fit_key `key` and FIT_VERSION."""
+    return store_versioned(FIT_SITES[index], FIT_VERSION, key, value)
+
+
+def fitted(index: int, key: tuple, make):
+    """FIT_SITES[index]'s value for fit_key `key` and FIT_VERSION, from make() once."""
+    return versioned(FIT_SITES[index], FIT_VERSION, key, make)
 
 
 @functools.cache
 def basis_hash(female: bool) -> 'str | None':
-    """A SHA-1 of one sex's sculpt and tint basis arrays (names, types, shapes, values); None uncalibrated."""
-    if len(bases(female)) < 2:
+    """A SHA-1 of one sex's sculpt and tint basis arrays (names, types, shapes, values), worked out once per
+    process; None uncalibrated."""
+    if not (sculpt.basis_path(female).exists() and tint.basis_path(female).exists()):
         return None
     digest = hashlib.sha1()
     for path in (sculpt.basis_path(female), tint.basis_path(female)):
@@ -208,20 +218,20 @@ def decode(entry: list) -> tuple:
 
 def collect(export_dir: Path) -> dict:
     """{sex: {face_id: encoded fits}} of every NPC_ in `export_dir` whose three fits this machine's work cache
-    holds under its current code and bases."""
+    holds under its current fit version and bases."""
     faces, missing = {sex: {} for sex in SEXES.values()}, object()
     for npc in export_records(export_dir, 'NPC_'):
         female = bool(int(npc.get('ACBS.Flags', 0)) & 1)
         key = fit_key(export_dir, npc, female)
-        values = tuple(lookup(*site, key, missing) for site in FIT_SITES) if key else (missing,)
+        values = tuple(kept(i, key, missing) for i in range(len(FIT_SITES))) if key else (missing,)
         if missing not in values:
             faces[SEXES[female]][face_id(key)] = encode(values)
     return faces
 
 
 def header() -> dict:
-    """A file's header on this machine: format, fit code version, basis hashes."""
-    return {'format': FORMAT, 'fit_code': fit_code(), 'bases': {sex: basis_hash(f) for f, sex in SEXES.items()}}
+    """A file's header on this machine: format, fit version, basis hashes."""
+    return {'format': FORMAT, 'fit_code': FIT_VERSION, 'bases': {sex: basis_hash(f) for f, sex in SEXES.items()}}
 
 
 def write(path: Path, faces: dict) -> None:
@@ -242,8 +252,8 @@ def read(path: Path) -> dict:
 
 def unusable(data: dict, female: bool) -> 'str | None':
     """Why file `data` (read) cannot give this machine's faces of one sex; None when it can."""
-    if data['fit_code'] != fit_code():
-        return 'fit code differs'
+    if data['fit_code'] != FIT_VERSION:
+        return 'fit version differs'
     local = basis_hash(female)
     return None if local and data['bases'][SEXES[female]] == local else f'{SEXES[female]} basis differs'
 
@@ -255,15 +265,15 @@ def installed() -> 'dict | None':
 
 
 def take(female: bool, key: tuple, wanted: list) -> tuple:
-    """(taken, build log count): store a face's `wanted` FIT_SITES values under its work-cache key `key` from
-    the installed file when it can give them."""
+    """(taken, build log count): keep a face's `wanted` FIT_SITES values under its work-cache key `key` (keep)
+    from the installed file when it can give them."""
     data = installed()
     reason = 'none installed' if data is None else unusable(data, female)
     values = None if reason else data['faces'][SEXES[female]].get(face_id(key))
     if values is None:
         return False, f'faces fitted locally (published fits: {reason or "face not in file"})'
     for i in wanted:
-        store(*FIT_SITES[i], key, values[i])
+        keep(i, key, values[i])
     return True, TAKEN
 
 

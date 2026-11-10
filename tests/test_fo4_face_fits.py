@@ -1,5 +1,5 @@
 """Published face fits: the file carries only numbers and FormIDs, round-trips each fit byte for byte, and a build
-takes a face from it only when the fit code and its sex's basis match.
+takes a face from it only when the fit version and its sex's basis match; a fit's key holds both, not its code.
 
 See: docs/fork/fo4_pipeline.md#published-face-fits
 """
@@ -18,8 +18,8 @@ from fo4_import.spike.head_parts import HeadChoice
 from tes5_import.base.writer import pack_subrecord
 
 NPC = {'FormID': '00000801', 'EditorID': 'Npc801', 'RNAM.Race': '00000019', 'FGGS': 'ab cd', 'HCLR.R': '12'}
-#: Work-cache keys of two faces as fit_key builds them: fields, head parts, the two basis files.
-KEY, OTHER = ('ab cd', (('EyebrowM', 'brow.nif'),), b'sculpt', b'tint'), ('ef', (), b'sculpt', b'tint')
+#: Work-cache keys of two faces as fit_key builds them: fields, head parts, the basis hash.
+KEY, OTHER = ('ab cd', (('EyebrowM', 'brow.nif'),), 'basis False'), ('ef', (), 'basis False')
 
 
 def _fits() -> tuple:
@@ -33,10 +33,10 @@ def _fits() -> tuple:
 
 @pytest.fixture
 def machine(monkeypatch, tmp_path):
-    """This machine: an empty work cache, a fit code and both sexes' basis hashes, nothing installed."""
+    """This machine: an empty work cache, a fit version and both sexes' basis hashes, nothing installed."""
     monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'work')
     monkeypatch.setattr(F, 'INSTALLED', tmp_path / 'face_fits.json.gz')
-    monkeypatch.setattr(F, 'fit_code', lambda: 'code')
+    monkeypatch.setattr(F, 'FIT_VERSION', 7)
     monkeypatch.setattr(F, 'basis_hash', lambda female: f'basis {female}')
     F.installed.cache_clear()
     yield tmp_path
@@ -87,29 +87,49 @@ def test_the_file_is_the_same_bytes_every_time(machine):
     assert F.read(machine / 'a.gz')['bases'] == {'male': 'basis False', 'female': 'basis True'}
 
 
-def test_a_build_takes_a_face_only_with_the_same_code_and_basis(machine, monkeypatch):
-    """take() stores the file's fits under the local key when code and basis match; else it says why not."""
+def _fail(*args):
+    """Stands in for work that must not run."""
+    raise AssertionError('ran')
+
+
+def test_a_build_takes_a_face_only_with_the_same_version_and_basis(machine, monkeypatch):
+    """take() keeps the file's fits under the local key, on no code record, when version and basis match; else
+    it says why not."""
+    monkeypatch.setattr(work_cache, 'module_ran', _fail)
     assert F.take(False, KEY, [0, 1, 2]) == (False, 'faces fitted locally (published fits: none installed)')
     F.write(F.INSTALLED, {'male': {F.face_id(KEY): F.encode(_fits())}, 'female': {}})
     F.installed.cache_clear()
     assert F.take(False, KEY, [1, 2]) == (True, F.TAKEN)
-    assert work_cache.lookup(*F.FIT_SITES[0], KEY) is None
-    assert F.same(work_cache.lookup(*F.FIT_SITES[1], KEY), _fits()[1])
+    assert F.kept(0, KEY) is None and F.same(F.kept(1, KEY), _fits()[1])
     assert F.take(False, OTHER, [0])[1].endswith('face not in file)')
     monkeypatch.setattr(F, 'basis_hash', lambda female: 'recalibrated')
     assert F.take(False, KEY, [0])[1].endswith('male basis differs)')
-    monkeypatch.setattr(F, 'fit_code', lambda: 'edited')
-    assert F.take(False, KEY, [0])[1].endswith('fit code differs)')
+    monkeypatch.setattr(F, 'FIT_VERSION', 8)
+    assert F.take(False, KEY, [0])[1].endswith('fit version differs)')
+
+
+def test_a_fit_is_kept_by_version_and_basis_not_by_the_code_that_made_it(machine, monkeypatch):
+    """fitted() makes a value once per key and version and reads it back whatever code ran (no code record is
+    looked at); another version, or another basis, is another entry."""
+    monkeypatch.setattr(work_cache, 'module_ran', _fail)
+    monkeypatch.setattr(F, 'head_parts', lambda export_dir, form_id: [])
+    key = F.fit_key(None, NPC, False)
+    assert key[-1] == 'basis False'
+    assert F.fitted(1, key, lambda: 'made') == 'made' and F.fitted(1, key, _fail) == 'made'
+    assert F.kept(1, key) == 'made' and F.kept(0, key, 'none') == 'none'
+    assert F.kept(1, F.fit_key(None, NPC, True), 'none') == 'none'
+    monkeypatch.setattr(F, 'FIT_VERSION', 8)
+    assert F.kept(1, key, 'none') == 'none'
 
 
 def test_one_facegen_with_other_head_parts_is_another_face(monkeypatch):
     """Two NPCs sharing every FIT_FIELDS value but not their FNV head parts get their own keys and file ids."""
     parts = {0x801: [('EyebrowM', 'brow.nif')], 0x802: [('EyebrowM', 'brow.nif'), ('Beard', 'beard.nif')]}
-    monkeypatch.setattr(F, 'bases', lambda female: (b'sculpt', b'tint'))
+    monkeypatch.setattr(F, 'basis_hash', lambda female: 'basis')
     monkeypatch.setattr(F, 'head_parts', lambda export_dir, form_id: parts[form_id])
     one, two = (F.fit_key(None, {**NPC, 'FormID': f}, False) for f in ('00000801', '00000802'))
-    assert one[:-3] == two[:-3] and one != two and F.face_id(one) != F.face_id(two)
-    assert one[-3] == (('EyebrowM', 'brow.nif'),) and one[-2:] == (b'sculpt', b'tint')
+    assert one[:-2] == two[:-2] and one != two and F.face_id(one) != F.face_id(two)
+    assert one[-2] == (('EyebrowM', 'brow.nif'),) and one[-1] == 'basis'
 
 
 def test_warm_faces_fits_none_the_published_file_gives(monkeypatch):
@@ -118,7 +138,7 @@ def test_warm_faces_fits_none_the_published_file_gives(monkeypatch):
     npcs.export_dir, npcs.builder = None, SimpleNamespace(counts=collections.Counter())
     monkeypatch.setattr(npcs, '_faces', lambda fnvs: {1: (NPC, False)}, raising=False)
     monkeypatch.setattr(N, 'fit_key', lambda export_dir, npc, female: KEY)
-    monkeypatch.setattr(N, 'lookup', lambda site, module, key, default: default)
+    monkeypatch.setattr(N, 'kept', lambda index, key, default: default)
     monkeypatch.setattr(N, 'take', lambda female, key, wanted: (True, F.TAKEN))
     monkeypatch.setattr(N, 'ProcessPoolExecutor', None)
     assert npcs.warm_faces([1]) == 0

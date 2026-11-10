@@ -1,10 +1,11 @@
 """A cache's code version: a SHA-1 over a module's source, every repo module it imports, transitively, and the
-native extensions they load.
+native extensions and data tables they load.
 
 Editing any file the cached work runs through gives a new tag, so a cache
 never needs a hand-bumped version. A native extension in native/dist counts
 when a closure file names it in a string (nif_geom_native loads
-`_nifgeom_native` by path). An import edge in IGNORED is not followed: its
+`_nifgeom_native` by path); so does a table in fo4_import/data a closure
+file names (hair_styles reads `hair_styles.json`). An import edge in IGNORED is not followed: its
 importer uses that module only in the function named, which no FO4
 converter calls (they read exports with parse_export_file and get_hex_bytes).
 Sources are hashed with CRLF read as LF, so a CRLF checkout of the same code
@@ -29,6 +30,7 @@ STARTED = time.time()
 
 ROOT = Path(__file__).resolve().parents[2]
 NATIVE = ROOT / 'native' / 'dist'
+DATA = ROOT / 'fo4_import' / 'data'
 #: The file name ending of a native extension this interpreter loads.
 EXT_SUFFIX = sysconfig.get_config_var('EXT_SUFFIX') or '.pyd'
 #: {(importer, imported): the importer's only function using it}: edges code_tag does not follow (module notes).
@@ -57,11 +59,12 @@ def imported(path: Path, package: str) -> set:
     return out
 
 
-def natives(path: Path) -> set:
-    """The native extension files in NATIVE the source at `path` names in a string."""
+def loaded(path: Path) -> set:
+    """The native extensions in NATIVE and data tables in DATA the source at `path` names in a string."""
     names = {n.value for n in ast.walk(ast.parse(path.read_bytes()))
-             if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.isidentifier()}
-    return {NATIVE / f'{name}{EXT_SUFFIX}' for name in names if (NATIVE / f'{name}{EXT_SUFFIX}').is_file()}
+             if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value}
+    found = {NATIVE / f'{name}{EXT_SUFFIX}' for name in names if name.isidentifier()} | {DATA / name for name in names}
+    return {f for f in found if f.parent in (NATIVE, DATA) and f.is_file()}
 
 
 def _followed(importer: str, name: str) -> bool:
@@ -70,7 +73,7 @@ def _followed(importer: str, name: str) -> bool:
 
 
 def tagged_files(module: str) -> dict:
-    """{name: file} of everything code_tag(`module`) hashes: repo modules by name, native extensions by file name."""
+    """{name: file} of everything code_tag(`module`) hashes: repo modules by name, other files by file name."""
     files, todo = {}, [module]
     while todo:
         name = todo.pop()
@@ -80,12 +83,12 @@ def tagged_files(module: str) -> dict:
         files[name] = path
         package = name if path.name == '__init__.py' else name.rpartition('.')[0]
         todo += [n for n in imported(path, package) if _followed(name, n)]
-    return {**files, **{p.name: p for path in list(files.values()) for p in natives(path)}}
+    return {**files, **{p.name: p for path in list(files.values()) for p in loaded(path)}}
 
 
 @functools.cache
 def code_tag(module: str) -> str:
-    """The SHA-1 of `module`'s source, its repo imports' and the native extensions they load (the module notes)."""
+    """The SHA-1 of `module`'s source, its repo imports' and the files they load (the module notes)."""
     files = tagged_files(module)
     digest = hashlib.sha1()
     for name in sorted(files):

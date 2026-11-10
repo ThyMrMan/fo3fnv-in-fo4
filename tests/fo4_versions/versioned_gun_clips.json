@@ -1,0 +1,13 @@
+{
+ "references": {
+  "WeapNV9mmPistol": {
+   "inputs": "39febe301da40fad61a083183a8f1171e58b9eb5",
+   "result": "4b17503a66ab2e0d4e8c221ab8885e116e1c5a9a"
+  },
+  "WeapNVVarmintRifle": {
+   "inputs": "7f3ce10e774c53233fbcba31a69dbfc7895649cc",
+   "result": "310a565b55cfdac0f1cbc6c1dba3ed070efa7a0a"
+  }
+ },
+ "version": 1
+}

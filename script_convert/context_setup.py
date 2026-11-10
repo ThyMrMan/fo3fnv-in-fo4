@@ -31,7 +31,8 @@ def prepare_output_dir(output_dir: str, owner: str) -> set:
     """Clear `owner`'s previous scripts; returns the names other plugins here own.
 
     A folder no other plugin shares is wiped whole, .psc tree and sibling .pex.
-    In a shared one only the files on `owner`'s own list go.
+    In a shared one only the .pex on `owner`'s own list go; its .psc stay for
+    write_psc to compare, and the run's end deletes those it did not write.
     See: docs/commentary/script_convert.md#wipe-output-dir
     """
     shared = sibling_owned(output_dir, owner)
@@ -44,7 +45,6 @@ def prepare_output_dir(output_dir: str, owner: str) -> set:
     else:
         stale = read_owned(output_dir, owner) - shared
     for name in stale:
-        _remove_quietly(os.path.join(output_dir, name + '.psc'))
         _remove_quietly(os.path.join(pex_dir, name + '.pex'))
     os.makedirs(output_dir, exist_ok=True)
     return shared
@@ -134,7 +134,7 @@ def build_xref(export_dir: str) -> CrossRefGraph:
     xref = CrossRefGraph()
     xref.load_from_export(export_dir)
     if is_fallout4():
-        xref.movies = frozenset(source_movies(export_dir))
+        xref.movies, xref.export_dir = frozenset(source_movies(export_dir)), export_dir
     print(f'    {len(xref.formid_to_edid)} FormID->EditorID mappings')
     print(f'    {len(xref.script_formid_to_edid)} scripts, '
           f'{len(xref.quest_edids)} quests')

@@ -1,12 +1,16 @@
 """Which repo functions ran in this process: sys.monitoring (PEP 669) reports each function's first start and is
 told not to report it again, so it costs one event per function. capture() collects what runs inside it (it
-re-arms the reports first), for a cache entry keyed on the code that made it.
+re-arms the reports first), for a cache entry keyed on the code that made it. A capture for a site keeps
+everything that ran for that site in this process so far, so work a per-process memo did for an earlier entry
+stays in every later entry's record.
 
 See: docs/fork/fo4_plugin_layout.md#code-identity
+See: docs/fork/fo4_build_speed.md#keys
 """
 
 import atexit
 import contextlib
+import functools
 import sys
 
 from fo4_import.pipeline.code_identity import SEP, hashes, relative
@@ -18,6 +22,8 @@ RECORDERS = frozenset(f'fo4_import/pipeline/{name}.py' for name in ('build_input
                                                                      'code_tag'))
 #: Every repo function key that ran in this process since start().
 RAN = set()
+#: {site: every repo function key that ran inside a capture of that site in this process}.
+SITES = {}
 _CAPTURES = []
 
 
@@ -52,20 +58,29 @@ def stop() -> None:
 
 
 @contextlib.contextmanager
-def capture():
-    """A set filled with the key of every repo function that starts inside the block (re-arming every report)."""
+def capture(site=None):
+    """A set filled with the key of every repo function that starts inside the block (re-arming every report);
+    given `site` (hashable), it is SITES[site]: also what ran in this process's earlier captures of `site`."""
     start()
-    seen = set()
+    seen = set() if site is None else SITES.setdefault(site, set())
     _CAPTURES.append(seen)
     sys.monitoring.restart_events()
     try:
         yield seen
     finally:
-        _CAPTURES.remove(seen)
+        del _CAPTURES[max(i for i, held in enumerate(_CAPTURES) if held is seen)]
+
+
+def site_of(make):
+    """The code `make` runs (through functools.partial and bound methods), standing for its site."""
+    while isinstance(make, functools.partial):
+        make = make.func
+    make = getattr(make, '__func__', make)
+    return getattr(make, '__code__', type(make))
 
 
 def ran_while(make) -> tuple:
-    """(make()'s value, {key: identity} of the repo functions that ran making it)."""
-    with capture() as seen:
+    """(make()'s value, {key: identity} of what ran for site_of(make) so far)."""
+    with capture(site_of(make)) as seen:
         value = make()
     return value, hashes(seen)
