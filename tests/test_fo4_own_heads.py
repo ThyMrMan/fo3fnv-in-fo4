@@ -55,6 +55,40 @@ def test_a_hair_mesh_puts_its_top_first_in_slot_30_with_vanillas_alpha_and_its_m
     assert nif.strings[nif.blocks[out['shader']][1]['name']] == 'materials\\fnv\\own\\hair.bgsm'
 
 
+def _hair_pair() -> bytes:
+    """hat_quad's NIF as an FNV hair: the quad as NoHat, and as Hat 0.5 lower."""
+    nif = F.read(hat_quad(0.0))
+    no_hat = nif.blocks[1][1]
+    no_hat['name'] = nif.string('NoHat')
+    lowered = [dict(v, position=(v['position'][0], v['position'][1], v['position'][2] - 0.5)) for v in no_hat['vertices']]
+    nif.blocks.append(('BSLightingShaderProperty', dict(nif.blocks[2][1])))
+    nif.blocks.append(('BSTriShape', dict(no_hat, name=nif.string('Hat'), shader=len(nif.blocks) - 1, vertices=lowered)))
+    nif.blocks[0][1]['children'].append(len(nif.blocks) - 1)
+    return F.write(nif)
+
+
+def test_an_fnv_hair_with_a_hat_shape_hides_its_nohat_under_hats_and_shows_its_hat_shape():
+    """NoHat and Hat become one shape, NoHat's triangles slot 30 and Hat's 31, whatever the vote; Hat leaves the
+    scene, and the bounds hold both."""
+    worn = H.worn(_hair_pair(), _fit(), (31,))
+    field = (cKDTree(np.zeros((HM.FIELD_NEIGHBOURS, 3))), np.ones(HM.FIELD_NEIGHBOURS, bool))
+    nif = F.read(HM.as_hair(worn, field, 'materials\\fnv\\own\\hair.bgsm'))
+    reached = [i for i in nif.blocks[0][1]['children'] if nif.blocks[i][0] == 'BSSubIndexTriShape']
+    assert len(reached) == 1
+    out, subs = HM.sub_segments(nif.blocks[reached[0]][1])
+    assert subs == [(0, 2, 30), (2, 2, 31)] and out['triangles'][2:] == [(4, 5, 6), (4, 6, 7)]
+    points = H.shape_arrays(out)[0]
+    assert np.allclose(points[4:, 2], points[:4, 2] - 0.5, atol=0.01)
+    centre, radius = np.array(out['bound'][:3]), out['bound'][3]
+    assert (np.linalg.norm(points - centre, axis=1) <= radius + 1e-3).all()
+
+
+def test_the_enclosing_sphere_holds_both_or_keeps_the_bigger():
+    """Two unit spheres 4 apart: radius 3 midway; a sphere inside another: the outer."""
+    assert np.allclose(HM.enclosing((0, 0, 0, 1), (4, 0, 0, 1)), (2, 0, 0, 3))
+    assert HM.enclosing((0, 0, 0, 5), (1, 0, 0, 1)) == (0, 0, 0, 5)
+
+
 def test_a_sphere_centre_is_found_from_its_surface():
     """Points on a sphere of radius 2 about (1, 2, 3) give that centre."""
     d = np.random.default_rng(4).normal(size=(50, 3))
