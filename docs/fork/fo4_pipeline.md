@@ -5627,6 +5627,8 @@ The patch also moves `vcpkg.json`'s baseline to current vcpkg (with fmt
 held at 9.1.0, the old baseline's): Boost 1.80's own build tool fails under
 Visual Studio 18. To rebuild: check out `2042c90` of `Orvid/Caprica`,
 `git apply f3nv.patch`, then CMake with the vcpkg toolchain as above.
+Not offered upstream (decided 2026-11-11): Caprica has had no release in
+three years and no fork is active, so the patch is ours to keep.
 
 **Checked (2026-11-11, FalloutNV.esm's 17,507 converted scripts,
 `caprica.compile_files`):** the release leaves 60 to FO4's compiler, 59
