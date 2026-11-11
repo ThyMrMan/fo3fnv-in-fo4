@@ -258,6 +258,28 @@ built. The cell argument is the DLC's own interior.
   only game quests answer is not copied, since the copy would hold the game's
   line under its game id. Honest Hearts has 6 such barks (3 Flee →
   FleeResponse, 3 AvoidThreat → AvoidThreatResponse).
+- <a id="dlc-greeting"></a>**A dependent plugin opens the greeting with its
+  own line** (2026-11-10, not yet played). Every talk starts from one silent
+  Greeting line ([greeting scene](fo4_pipeline.md#greeting-scene)), which
+  passes only for the speakers the GREETING lines name. A mod build keyed
+  that line `INFO greeting GREETINGS`, so it took the game's id; its copy
+  named only the mod's speakers, lost the game's conditions, and
+  `drop_unchanged` dropped it. The game's line names only the game's
+  speakers, so a mod's own NPC passed no Greeting line and activating her
+  did nothing (NVWillow's Willow: FalloutNV.esm's line has 814 conditions,
+  none hers; NVWillow.esp held no opener at all). Her GREETING lines did
+  reach the game's greeting scene, under its topic. When the shared
+  `FNV_Greetings` quest is a master's (`cell._opener_home`), the opener now
+  sits in a start-game quest of the plugin's own, `FNV_Greetings_<plugin>`,
+  keyed `GREETINGS <plugin>`, and still starts the game's greeting scene. It
+  is a quest of its own because no Fallout4.esm quest holds two Greeting
+  topics (325 topics, 325 quests). It names only the speakers the game's
+  built opener does not (`conversation.opener_forms`; FalloutNV.esm's names
+  584), so a game NPC a mod adds greetings to (YUP) still opens through the
+  game's line and its force-greet lists; with none left, no opener is
+  written, though the mod's lines still join the scene. Left open: a mod's
+  force greet on a game NPC still opens nothing. The game build's keys are
+  unchanged.
 - <a id="dlc-prompts"></a>**A reworded option in a game menu keeps the
   game's place.** A menu's options and answers pair by position: the
   player's topic holds each option and its pads, the speaker's topic its

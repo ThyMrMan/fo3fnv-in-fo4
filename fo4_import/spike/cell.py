@@ -18,10 +18,11 @@ from pathlib import Path
 
 from fo4_import.base.ba2_pack import sound_root, staging_root
 from fo4_import.spike.plugin_rename import drop_old_plugins, is_master, move_renamed, retarget_faces
-from fo4_import.base.master_overrides import held_by
+from fo4_import.base.master_overrides import held_by, master_records
 from fo4_import.base.source_ids import SourceIds, built_plugins, dependent_masters, master_ledgers
 from fo4_import.base.ledger import Ledger, LedgerWriter, ledger_path
 from fo4_import.base.install import FALLOUT4_ESM, masters_of, source_esm, source_walk, use_source
+from fo4_import.base.source import plugin_stem
 from fo4_import.base.source_fault import without_fault
 from fo4_import.base.support_records import pack_gmst
 from fo4_import.base.writer import pack_fo4_record, pack_quest
@@ -49,7 +50,7 @@ from fo4_import.spike.light_roles import ShadowLights
 from fo4_import.spike.imposter_gate import ImposterGate
 from fo4_import.spike import character, facegen, new_game, replacements, terrain_lod
 from fo4_import.spike.attach import ObjectScripts
-from fo4_import.spike.conversation import Conversations, Hub, hub, outside_lines, speaker_index
+from fo4_import.spike.conversation import Conversations, Hub, hub, opener_forms, outside_lines, speaker_index
 from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
 from fo4_import.spike.furniture_poses import FurniturePoses
 from fo4_import.spike.navmesh import navi, navmeshes
@@ -816,17 +817,41 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
     talks = Conversations(say, {'FormID': GREETINGS_KEY, 'EditorID': GREETINGS_EDID}, fid, form_map, XDI_KEYWORD,
                           shared)
     built = _all_talks(builder.scripts.talks, talks)
-    talks.greeting(builder.packages.greets, builder.packages.topics, builder.packages.once.write_list())
+    home = _opener_home(builder, fid)
+    opener = talks.greeting(builder.packages.greets, builder.packages.topics, builder.packages.once.write_list(), home)
+    talks.topics += [opener] if opener and not home else []
     talks.player_hello()
     builder.writer.add_record('GMST', pack_gmst(builder.new_id(f'GMST {PADDED_SETTING}'), PADDED_SETTING,
                                                 voice.SILENT_SECONDS))
-    aliases = [(SPEAKER_ALIAS, 'Speaker', None), (LISTENER_ALIAS, 'Listener', None)]
-    record = R.pack_fnv_quest(fid, f'FNV_{GREETINGS_EDID}', '', max((p for _, p in shared.quests.values()), default=0),
-                              quest_fragments('', []), [], [], aliases, True)
-    builder.writer.add_record('QUST', pack_quest(record, fid, [], talks.topics, talks.scenes))
+    priority = max((p for _, p in shared.quests.values()), default=0)
+    _greetings_quest(builder, (fid, GREETINGS_EDID), priority, talks.topics, talks.scenes)
+    if opener and home:
+        _greetings_quest(builder, (home[0], home[2]), priority, [opener], [])
     builder.counts['SCEN'] += len(talks.scenes)
     register_trace(builder.scripts)
     return built
+
+
+def _greetings_quest(builder: CellBuilder, quest: tuple, priority: int, topics: list, scenes: list) -> None:
+    """Write start-game quest `quest` (FormID, EditorID) with its talk aliases."""
+    aliases = [(SPEAKER_ALIAS, 'Speaker', None), (LISTENER_ALIAS, 'Listener', None)]
+    record = R.pack_fnv_quest(quest[0], f'FNV_{quest[1]}', '', priority, quest_fragments('', []), [], [], aliases, True)
+    builder.writer.add_record('QUST', pack_quest(record, quest[0], [], topics, scenes))
+
+
+def _opener_home(builder: CellBuilder, shared: int) -> 'tuple | None':
+    """None when greetings quest `shared` is the build's own; else its own start-game quest for the greeting
+    opener (FormID, key, EditorID, the speakers the masters' opener already names), since that one names only
+    the masters' speakers.
+    See: docs/fork/fo4_plugin_layout.md#dlc-greeting
+    """
+    if shared >> 24 == builder.writer.own_index:
+        return None
+    theirs = builder.writer.from_master(MADE_SITE, f'INFO greeting {GREETINGS_KEY}')
+    found = master_records(builder.built, {theirs: b'INFO'}, builder.masters) if theirs else {}
+    skip = opener_forms(found[theirs][1]) if theirs in found else frozenset()
+    key = f'{GREETINGS_KEY} {plugin_stem(builder.export_dir)}'
+    return builder.new_id(f'QUST {key}'), key, f'{GREETINGS_EDID}_{plugin_stem(builder.export_dir)}', skip
 
 
 @timed('makers')
