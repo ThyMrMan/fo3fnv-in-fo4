@@ -12,6 +12,8 @@ See: docs/fork/fo4_pipeline.md#new-game
 """
 
 
+from pathlib import Path
+
 from fo4_import.base.source import plugin_name
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records

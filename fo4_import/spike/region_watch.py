@@ -11,6 +11,7 @@ See: docs/fork/fo4_regions.md#built
 
 import re
 import struct
+from pathlib import Path
 
 from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_global, pack_script_quest

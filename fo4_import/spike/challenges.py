@@ -20,6 +20,8 @@ See: docs/fork/fo4_pipeline.md#challenges
 """
 
 
+from pathlib import Path
+
 from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_avif, pack_global, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
