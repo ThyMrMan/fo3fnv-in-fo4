@@ -3,7 +3,8 @@
 Status: **parked for future development** (2026-10-08). Not needed for the
 FNV conversion, which uses a fixed smaller skeleton box instead
 ([player collision](fo4_target.md#player-collision)). Kept because the
-engine findings make a general Fallout 4 mod practical.
+engine findings make a general Fallout 4 mod practical. The mod plan,
+with spikes, is [dynamic_collision_mod.md](../dynamic_collision_mod.md).
 
 ## The idea
 

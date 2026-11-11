@@ -279,6 +279,11 @@ Please report what you find in
 | A choice between New Vegas and Fallout 4 combat | An idea, not planned |
 | Other languages' movie tracks | Only English is checked ([Bink](bink_movies.md)) |
 | [Graphics research](research/graphics_options.md) | Notes to revisit later |
+| [Spin-off mods](spin_offs.md) from F3NV.dll (framework, content mods, dynamic collision) | Planned, not started; the dialogue menu goes first. [Strategy](spin_offs.md#strategy): open, drop-in replacements for XDI, then HUDFramework; waiting on the author's reply about licenses |
+| [Dialogue menu as its own mod](dialogue_menu_mod.md) (XDI replacement) | Planned, not started; first step is the own-movie spike |
+| [Our own Flash menu framework](swf_framework.md) (dialogue, casino, Pip-Boy) | Planned, not started; four spikes first |
+| [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned, not started; first spike is a vanilla sneak-headroom test |
+| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | Texture BA2 without Archive2 and loudness lips built, not built in game; Caprica only is blocked by one Caprica gap; the rest are ideas |
 
 ## <a id="inherited"></a>The inherited Skyrim converter
 
@@ -310,6 +315,10 @@ project. Their last status is in the [development log](dev_log.md#character).
 | [nvse_script_language.md](nvse_script_language.md) | NVSE's script language in converted scripts |
 | [fo4_hotfix.md](fo4_hotfix.md) | Script hotfixes between builds |
 | [kill_cams.md](kill_cams.md) | Kill cams and killmoves for converted weapons |
+| [spin_offs.md](spin_offs.md) | Releasing parts of F3NV.dll as mods anyone can use |
+| [dialogue_menu_mod.md](dialogue_menu_mod.md) | The dialogue menu as a standalone XDI replacement |
+| [swf_framework.md](swf_framework.md) | One Flash toolkit for our menus, and a Pip-Boy framework |
+| [dynamic_collision_mod.md](dynamic_collision_mod.md) | Collision that changes size while playing (crouch, swim) |
 | [fo4_tool_audit.md](fo4_tool_audit.md) | The converter audit before the whole-map build |
 | [dev_log.md](dev_log.md) | The development history up to the alpha |
 
@@ -341,4 +350,7 @@ Research: [Fallout 4 as the target](research/fo4_target.md),
 ([community ports](research/fo4_creature_rig_prior_art/fnv_fo3_creature_ports.md),
 [technique](research/fo4_creature_rig_prior_art/fo4_creature_technique.md),
 [Havok tools](research/fo4_creature_rig_prior_art/fo4_havok_tools.md),
-[new-creature mods](research/fo4_creature_rig_prior_art/fo4_new_creature_mods.md)).
+[new-creature mods](research/fo4_creature_rig_prior_art/fo4_new_creature_mods.md)),
+[FO4 animation replacer port](research/fo4_oar_port.md),
+[open frameworks and tools survey](research/fo4_open_landscape.md),
+[CommonLibF4 forks](research/commonlibf4_forks.md).
