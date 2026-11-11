@@ -19,6 +19,8 @@ Float Property AntiCheatSeconds Auto Const
 String Property NotBuiltText Auto Const
 String[] Property SlotTexts Auto Const
 {The slot screen's labels and results (FNV's settings), in SlotsScreen.as's order.}
+String[] Property RouletteTexts Auto Const
+{The roulette screen's labels, bet names and results (FNV's settings), in RouletteScreen.as's order.}
 String Property SpikeImage Auto Const
 {Spike: the converted card face the test screen mounts (under Textures).}
 
@@ -29,6 +31,8 @@ Int Property ExtendedFlags = 2 AutoReadOnly Hidden
 Int Property CaravanMinimum = 30 AutoReadOnly Hidden
 {FNV's smallest deck: the menu won't open with fewer cards.}
 
+Int Property Roulette = 2 AutoReadOnly Hidden
+{The roulette table's game number (Open's aiGame).}
 Int Property Slots = 3 AutoReadOnly Hidden
 {The slot machine's game number (Open's aiGame).}
 
@@ -95,7 +99,7 @@ Function Open(Int aiGame, F3NV_CasinoData akCasino, Int aiMin, Int aiMax, Int ai
     Debug.MessageBox(refusal)
     Return
   EndIf
-  If aiGame != Slots
+  If aiGame != Slots && aiGame != Roulette
     Debug.MessageBox(akCasino.CasinoName + "\n\n" + NotBuiltText)
     Return
   EndIf
@@ -123,6 +127,21 @@ Function OpenSlots()
   args[8] = StringsAsVar(playing.Symbols)
   args[9] = StringsAsVar(SlotTexts)
   UI.Invoke(MenuName, "root1.OpenSlots", args)
+EndFunction
+
+Function OpenRoulette()
+  {Hand the open menu the roulette table: the casino, the player's chips, bets (the max covers all bets on a spin), earnings, Luck, a seed and texts.}
+  Actor player = Game.GetPlayer()
+  Var[] args = new Var[8]
+  args[0] = playing.CasinoName
+  args[1] = player.GetItemCount(playing.Chip)
+  args[2] = betLow
+  args[3] = betHigh
+  args[4] = playing.GetEarnings()
+  args[5] = player.GetValue(Game.GetLuckAV()) as Int
+  args[6] = Utility.RandomInt(1, 2147483647)
+  args[7] = StringsAsVar(RouletteTexts)
+  UI.Invoke(MenuName, "root1.OpenRoulette", args)
 EndFunction
 
 Var Function IntsAsVar(Int[] aiValues)
@@ -187,9 +206,15 @@ Function Settle(F3NV_CasinoData akCasino, Int aiNet)
 EndFunction
 
 Function OnMenuRound(Int aiNet)
-  {The menu's report of a finished round at the open casino (an AS3 int arrives as an Int).}
-  If playing
-    Settle(playing, aiNet)
+  {The menu's report of a finished round at the open casino (an AS3 int arrives as an Int). At roulette, chips under the min bet close the table with FNV's broke text (RouletteMenu 0x007bd2a0).}
+  F3NV_CasinoData casino = playing
+  If !casino
+    Return
+  EndIf
+  Settle(casino, aiNet)
+  If playingGame == Roulette && Game.GetPlayer().GetItemCount(casino.Chip) < betLow
+    Debug.Notification(BrokeText)
+    UI.CloseMenu(MenuName)
   EndIf
 EndFunction
 
@@ -219,7 +244,7 @@ Function Spike(String asTitle = "F3NV casino spike")
 EndFunction
 
 Function SelfTest(Int aiLuck = 5)
-  {Replay the slot rules for seeds 1-3, 20 spins each, at aiLuck, and log them ("F3NV_Casino: selftest"), to compare with tests/casino/model.py's slot_trace.}
+  {Replay the slot rules for seeds 1-3, 20 spins each, at aiLuck, then the roulette draws and spot table, and log them ("F3NV_Casino: selftest"), to compare with tests/casino/model.py's slot_trace and roulette.py's roulette_trace.}
   Register()
   selfTestLuck = aiLuck
   spiking = False
@@ -261,6 +286,8 @@ Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
     UI.Invoke(MenuName, "root1.Spike", args)
   ElseIf abOpening && playing && playingGame == Slots
     OpenSlots()
+  ElseIf abOpening && playing && playingGame == Roulette
+    OpenRoulette()
   ElseIf !abOpening
     spiking = False
     playing = None
