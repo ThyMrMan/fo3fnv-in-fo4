@@ -266,6 +266,31 @@ ship), so each part goes in through the record:
 Every record is new, keyed by authored data (`derive_formid`, site
 `FNV own head`): no existing FormID moves.
 
+### <a id="own-hair-hat"></a>An own hair under a hat: FNV's Hat shape
+
+FNV hair NIFs have two shapes: `NoHat`, drawn bareheaded, and `Hat`, drawn
+under a hat. The `Hat` shape is the same mesh, squashed under the brim.
+Willow's `hairwillowalita.nif` has both, with 3,232 triangles each. Its `Hat`
+leaves the vertices below about z 5.5 alone and moves the crown down by up to
+1.1 units. FO4 has no hat swap: a hat hides the hair's slot-30 sub-segment.
+The CK's FaceGeom keeps one shape per head part, so a second shape never
+reaches the game.
+
+The vanilla-hair vote (`hat_field`) put 2,270 of `NoHat`'s 3,232 triangles in
+the top, down to the shoulders at the sides. Under her bowler hat, the cards
+were cut along a jagged line: torn strips and a bare head (in-game, 2026-11-11).
+
+`hair_mesh.as_hair` now merges the pair into one shape. `NoHat`'s triangles
+are the top (30) and `Hat`'s the rest (31), so under a hat the game draws FNV's
+`Hat` hair. Bareheaded, it draws both: `Hat` lies inside `NoHat`, and only 318
+of its 1,870 vertices sit farther out, by 0.14 units at the median and 0.28 at
+the 90th percentile. The `Hat` shape is detached from the root (unreferenced
+blocks stay in the file). A hair without the pair keeps the vote.
+
+The texture's alpha is not the cause. FNV's `hairalita.dds` alpha is 79% under
+90 and 17% at 255, ours is the same, and FNV's NIF has no NiAlphaProperty, so
+the threshold of 90 drops nothing FNV draws.
+
 ### <a id="ck-face-texture-format"></a>A face set texture must match its race's format
 
 In the 2026-11-11 NVWillow build, Willow's (`0047CBE4`) CK `_d`, `_msn` and `_s`
