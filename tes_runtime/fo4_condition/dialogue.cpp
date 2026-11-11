@@ -104,6 +104,9 @@ const size_t PLAYER_RESPONSE = 0xD3C;
 // BGSScene flags (Scene.Stop sets STOPPING). Action flags: the player line done (the NPC slot runs next), the NPC
 // line said. Player: the flag that skips the talking wait (0x4159B3). Actor: the "talking" vtable slot.
 const size_t SCENE_FLAGS = 0x28, ACTION_FLAGS = 0x10, PLAYER_NO_WAIT = 0x440, TALKING_SLOT = 0x270 / 8;
+// TESObjectREFR's model state (CommonLibF4's modelState); 1 while its 3D loads, when 0x415AC5 holds the NPC's line.
+const size_t REFR_MODEL_STATE = 0x10A;
+const UInt8 MODEL_LOADING = 1;
 const UInt32 SCENE_STOPPING = 0x100000, PLAYER_DONE = 0x2000000, NPC_SAID = 0x4000;
 const UInt32 NO_OPTION = 4, FIRST_OURS = 5, SLOTS = 4;
 // DialogueMenu: the Question holder's shader target (registerObjects keeps the four at +0xE0, Question last). The
@@ -144,11 +147,15 @@ struct Menu {
     void *action = nullptr;
     std::vector<Option> options;
 };
+// The answer line, once picked, and the action that asked for it: the engine asks that action's NPC slot again each
+// frame until the NPC can say it (0x415AC5 waits while the NPC's 3D loads), and each ask must get the same line.
 struct Chosen {
     void *action = nullptr;
     UInt32 index = 0;
     Option option{};
-    bool answered = false;
+    TESForm *line = nullptr;
+    void *answeredBy = nullptr;
+    UInt32 asks = 0;
 };
 
 std::mutex g_dialogueLock;
@@ -405,16 +412,38 @@ TESForm *PlayerSlot(void *action, void *scene, TESObjectREFR *target, SInt32 opt
     return picked.option.info;
 }
 
+// Whether `actor`'s 3D is loading (TESObjectREFR model state 1), which holds its line back (0x2C6E60).
+bool Loading3D(TESObjectREFR *actor) {
+    return actor && At<UInt8>(actor, REFR_MODEL_STATE) == MODEL_LOADING;
+}
+
+// The answer line already picked for our option: again for the action it went to (the engine asks until the NPC
+// can say it), none for another action. Logs the first ask again and every hundredth.
+TESForm *Again(const Chosen &picked, void *action, void *scene) {
+    if (picked.answeredBy != action) return nullptr;
+    UInt32 asks;
+    {
+        std::lock_guard<std::mutex> hold(g_dialogueLock);
+        asks = g_chosen.line == picked.line ? ++g_chosen.asks : 0;
+    }
+    NiPointer<TESObjectREFR> npc = ActionActor(action, scene);
+    if (asks == 1 || asks % 100 == 0)
+        _MESSAGE("dialogue menu: +%llu ms: asked again (%u) for %08X; NPC 3D loading %d", GetTickCount64() - g_pickedAt,
+                 asks, picked.line->formID, Loading3D(npc));
+    return picked.line;
+}
+
 // The answer to our option `chosen` (of Player Dialogue action `owner`, unless null), said by `action`'s actor: its
-// answer topic's first passing INFO, once.
+// answer topic's first passing INFO, picked once and given to that action until it is said.
 TESForm *Answer(void *owner, void *action, void *scene, UInt32 chosen, const char *where) {
     Chosen picked;
-    if (!PickedOption(owner, chosen, &picked) || picked.answered) return nullptr;
+    if (!PickedOption(owner, chosen, &picked)) return nullptr;
+    if (picked.line) return Again(picked, action, scene);
     NiPointer<TESObjectREFR> npc = ActionActor(action, scene);
     TESForm *info = npc ? Pick(picked.option.answer, npc, *g_player) : nullptr;
     if (info) {
         std::lock_guard<std::mutex> hold(g_dialogueLock);
-        if (g_chosen.action == picked.action) g_chosen.answered = true;
+        if (g_chosen.action == picked.action) g_chosen.line = info, g_chosen.answeredBy = action;
     }
     _MESSAGE("dialogue menu: %s answers %u from topic %08X with %08X", where, picked.index,
              picked.option.answer->formID, info ? info->formID : 0);
@@ -440,19 +469,21 @@ bool Talking(void *actor) {
     return actor && (*reinterpret_cast<TalkingFn **>(actor))[TALKING_SLOT](actor);
 }
 
-// While our picked option runs: each change in what the NPC slot waits on (0x415954), with the time since the pick.
+// While our picked option's action runs, through the NPC's line: each change in what the NPC slot waits on
+// (0x415954, 0x415AC5), with the time since the pick. The NPC talking turning 1 is when the answer starts.
 void TraceWaits(void *action, void *scene) {
     PlayerCharacter *player = *g_player;
-    if (!player || !g_pickedAt || g_chosen.action != action || g_chosen.answered) return;
+    if (!player || !g_pickedAt || g_chosen.action != action) return;
     NiPointer<TESObjectREFR> npc = ActionActor(action, scene);
     UInt32 flags = At<UInt32>(action, ACTION_FLAGS);
     UInt32 waits = (flags & PLAYER_DONE ? 1 : 0) | (flags & NPC_SAID ? 2 : 0) | (Talking(player) ? 4 : 0) |
-                   (At<UInt32>(player, PLAYER_NO_WAIT) & 2 ? 8 : 0) | (Talking(npc) ? 16 : 0);
+                   (At<UInt32>(player, PLAYER_NO_WAIT) & 2 ? 8 : 0) | (Talking(npc) ? 16 : 0) |
+                   (Loading3D(npc) ? 32 : 0);
     if (waits == g_lastWaits) return;
     g_lastWaits = waits;
-    _MESSAGE("dialogue menu: +%llu ms: player line %s, NPC line %s, player talking %d (no-wait flag %d), NPC talking %d",
-             GetTickCount64() - g_pickedAt, waits & 1 ? "done" : "pending", waits & 2 ? "said" : "not said",
-             (waits & 4) != 0, (waits & 8) != 0, (waits & 16) != 0);
+    _MESSAGE("dialogue menu: +%llu ms: player line %s, NPC line %s, player talking %d (no-wait flag %d), NPC talking %d"
+             ", NPC 3D loading %d", GetTickCount64() - g_pickedAt, waits & 1 ? "done" : "pending",
+             waits & 2 ? "said" : "not said", (waits & 4) != 0, (waits & 8) != 0, (waits & 16) != 0, (waits & 32) != 0);
 }
 
 // A Player Dialogue action's run: remember it as the running one.
@@ -530,7 +561,7 @@ public:
         {
             std::lock_guard<std::mutex> hold(g_dialogueLock);
             if (!action || action != g_menu.action || index >= g_menu.options.size()) return;
-            g_chosen = {action, index, g_menu.options[index], false};
+            g_chosen = {action, index, g_menu.options[index]};
             g_pickedAt = GetTickCount64();
             g_lastWaits = ~0u;
         }
@@ -587,7 +618,9 @@ public:
 class LogNative : public GFxFunctionHandler {
 public:
     void Invoke(Args *args) override {
-        if (args->numArgs > 0 && args->args[0].IsString()) _MESSAGE("dialogue menu: %s", args->args[0].GetString());
+        if (args->numArgs < 1 || !args->args[0].IsString()) return;
+        if (g_pickedAt) _MESSAGE("dialogue menu: +%llu ms: %s", GetTickCount64() - g_pickedAt, args->args[0].GetString());
+        else _MESSAGE("dialogue menu: %s", args->args[0].GetString());
     }
 };
 
