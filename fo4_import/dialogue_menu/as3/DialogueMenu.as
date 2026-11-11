@@ -54,6 +54,9 @@ package
 
       private var picking:Boolean = false;
 
+      // The list failed once: the game's own buttons from then on.
+      private var failed:Boolean = false;
+
       private var seen:Object = {};
 
       private static const ROWS:int = 7;
@@ -77,6 +80,8 @@ package
 
       private static const KEY_9:uint = 57;
 
+      // Only what the game's own constructor does: it runs inside the game's LoadMovie, where a TextField made in
+      // code crashed the game (played 2026-11-10). The list is made later, on the first ShowButtonHelp.
       public function DialogueMenu()
       {
          super();
@@ -84,33 +89,45 @@ package
          this.visible = false;
          this.BGSCodeObj = new Object();
          this.Buttons = new Vector.<BSButtonHint>();
+         this.Buttons.push(this.FadeHolder_mc.Positive.Holder.Button_mc);
+         this.Buttons.push(this.FadeHolder_mc.Negative.Holder.Button_mc);
+         this.Buttons.push(this.FadeHolder_mc.Neutral.Holder.Button_mc);
+         this.Buttons.push(this.FadeHolder_mc.Question.Holder.Button_mc);
          this.ButtonAnimators = new Vector.<MovieClip>();
+         this.ButtonAnimators.push(this.FadeHolder_mc.Positive);
+         this.ButtonAnimators.push(this.FadeHolder_mc.Negative);
+         this.ButtonAnimators.push(this.FadeHolder_mc.Neutral);
+         this.ButtonAnimators.push(this.FadeHolder_mc.Question);
          this.ButtonData = new Vector.<BSButtonHintData>();
-         var holders:Array = [this.FadeHolder_mc.Positive, this.FadeHolder_mc.Negative, this.FadeHolder_mc.Neutral, this.FadeHolder_mc.Question];
-         var keys:Array = [["Down", "PSN_A", "Xenon_A", 1], ["Right", "PSN_B", "Xenon_B", 1], ["Left", "PSN_X", "Xenon_X", 0], ["Up", "PSN_Y", "Xenon_Y", 0]];
-         var i:uint = 0;
-         while(i < holders.length)
-         {
-            this.Buttons.push(holders[i].Holder.Button_mc);
-            this.ButtonAnimators.push(holders[i]);
-            this.ButtonData.push(new BSButtonHintData("", keys[i][0], keys[i][1], keys[i][2], keys[i][3], this.releaser(i)));
-            i++;
-         }
+         this.ButtonData.push(new BSButtonHintData("", "Down", "PSN_A", "Xenon_A", 1, this.onPositiveRelease));
+         this.ButtonData.push(new BSButtonHintData("", "Right", "PSN_B", "Xenon_B", 1, this.onNegativeRelease));
+         this.ButtonData.push(new BSButtonHintData("", "Left", "PSN_X", "Xenon_X", 0, this.onNeutralRelease));
+         this.ButtonData.push(new BSButtonHintData("", "Up", "PSN_Y", "Xenon_Y", 0, this.onQuestionRelease));
          this.LastPressedButtonIndex = uint.MAX_VALUE;
          this._ButtonsShown = false;
          this.FadeHolder_mc.SpeechChallengeAnim_mc.mouseEnabled = false;
          this.FadeHolder_mc.SpeechChallengeAnim_mc.mouseChildren = false;
          this.FadeHolder_mc.SpeechChallengeAnim_mc.addEventListener("OnSpeechChallengeAnimComplete", this.OnSpeechChallengeAnimComplete);
-         this.makeList();
       }
 
-      private function releaser(button:uint) : Function
+      private function onPositiveRelease() : void
       {
-         var menu:DialogueMenu = this;
-         return function():void
-         {
-            menu.onButtonRelease(button);
-         };
+         this.onButtonRelease(0);
+      }
+
+      private function onNegativeRelease() : void
+      {
+         this.onButtonRelease(1);
+      }
+
+      private function onNeutralRelease() : void
+      {
+         this.onButtonRelease(2);
+      }
+
+      private function onQuestionRelease() : void
+      {
+         this.onButtonRelease(3);
       }
 
       override protected function onSetSafeRect() : void
@@ -129,17 +146,11 @@ package
          }
       }
 
-      // F4SE's object, once the movie has loaded: F3NV.dll's natives switch the list on.
+      // F4SE's object, once the movie has loaded: F3NV.dll's natives switch the list on at the next ShowButtonHelp.
       public function onF4SEObjCreated(f4se:Object) : void
       {
          this.dll = f4se != null && f4se.plugins != null && f4se.plugins.F3NV != null ? f4se.plugins.F3NV : null;
-         var i:uint = 0;
-         while(i < this.ButtonAnimators.length)
-         {
-            this.ButtonAnimators[i].visible = this.dll == null;
-            i++;
-         }
-         this.log("menu ready, F3NV " + (this.dll != null ? "found" : "missing"));
+         this.log("menu ready");
       }
 
       public function SetButtonText(button:uint, text:String) : *
@@ -164,8 +175,45 @@ package
          }
          this._ButtonsShown = true;
          this.picking = false;
-         this.listShown = this.dll != null;
+         this.listShown = this.dll != null && this.ensureList();
          this.refresh();
+      }
+
+      // The list, made once; on any error the menu stays the game's own four buttons for good.
+      private function ensureList() : Boolean
+      {
+         if(this.list == null && !this.failed)
+         {
+            this.log("making list");
+            try
+            {
+               this.makeList();
+            }
+            catch(error:Error)
+            {
+               this.fail("list not made: " + error.message);
+            }
+         }
+         return this.list != null;
+      }
+
+      // Drop the list and give the game's buttons back.
+      private function fail(why:String) : void
+      {
+         this.log(why);
+         this.failed = true;
+         this.listShown = false;
+         if(this.list != null)
+         {
+            this.list.visible = false;
+         }
+         this.list = null;
+         var i:uint = 0;
+         while(i < this.ButtonAnimators.length)
+         {
+            this.ButtonAnimators[i].visible = true;
+            i++;
+         }
       }
 
       public function HideButtonHelp() : *
@@ -186,7 +234,10 @@ package
          }
          this._ButtonsShown = false;
          this.listShown = false;
-         this.list.visible = false;
+         if(this.list != null)
+         {
+            this.list.visible = false;
+         }
       }
 
       public function EnableMenu() : *
@@ -201,10 +252,11 @@ package
 
       // ---- The list ----
 
+      // The list's rows, built once the movie is up (never in the constructor); hides the game's buttons.
       private function makeList() : void
       {
-         this.list = new Sprite();
-         this.list.visible = false;
+         var list:Sprite = new Sprite();
+         list.visible = false;
          this.rows = new Vector.<TextField>();
          var format:TextFormat = new TextFormat("$MAIN_Font", 20, 0xFFFFFF);
          var i:int = 0;
@@ -222,26 +274,49 @@ package
             row.name = String(i);
             row.addEventListener(MouseEvent.MOUSE_OVER, this.onRowOver);
             row.addEventListener(MouseEvent.CLICK, this.onRowClick);
-            this.list.addChild(row);
+            list.addChild(row);
             this.rows.push(row);
             i++;
          }
-         this.list.addEventListener(MouseEvent.MOUSE_WHEEL, this.onWheel);
-         addChild(this.list);
-         addEventListener("addedToStage", this.onAdded);
-      }
-
-      private function onAdded(e:Object) : void
-      {
-         stage.addEventListener(KeyboardEvent.KEY_DOWN, this.onKeyDown);
-         stage.addEventListener(KeyboardEvent.KEY_UP, this.onKeyUp);
+         list.addEventListener(MouseEvent.MOUSE_WHEEL, this.onWheel);
+         addChild(list);
+         if(stage != null)
+         {
+            stage.addEventListener(KeyboardEvent.KEY_DOWN, this.onKeyDown);
+            stage.addEventListener(KeyboardEvent.KEY_UP, this.onKeyUp);
+         }
+         this.list = list;
+         i = 0;
+         while(i < this.ButtonAnimators.length)
+         {
+            this.ButtonAnimators[i].visible = false;
+            i++;
+         }
+         this.log("list made");
       }
 
       // The list's entries again: F3NV.dll's options when it has any, else the game's buttons with text.
       private function refresh() : void
       {
+         if(this.list == null)
+         {
+            return;
+         }
+         try
+         {
+            this.fill();
+            this.draw();
+         }
+         catch(error:Error)
+         {
+            this.fail("list dropped: " + error.message);
+         }
+      }
+
+      private function fill() : void
+      {
          this.entries = [];
-         var options:Object = this.dll != null ? this.dll.GetDialogueOptions() : null;
+         var options:Object = this.dll.GetDialogueOptions();
          var i:int = 0;
          if(options != null && options.length > 0)
          {
@@ -264,7 +339,6 @@ package
             }
          }
          this.selected = Math.max(0, Math.min(this.selected, this.entries.length - 1));
-         this.draw();
       }
 
       private function draw() : void
