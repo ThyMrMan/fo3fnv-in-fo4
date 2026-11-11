@@ -54,8 +54,8 @@ package
 
       private var picking:Boolean = false;
 
-      // The list failed once: the game's own buttons from then on.
-      private var failed:Boolean = false;
+      // The list was tried once: a failed try leaves the game's own buttons from then on.
+      private var tried:Boolean = false;
 
       private var seen:Object = {};
 
@@ -138,7 +138,7 @@ package
       public function onCodeObjCreate() : *
       {
          this.BGSCodeObj.registerObjects(this.FadeHolder_mc.Positive, this.FadeHolder_mc.Negative, this.FadeHolder_mc.Neutral, this.FadeHolder_mc.Question, this.FadeHolder_mc.SpeechChallengeAnim_mc);
-         var i:uint = 0;
+         var i:int = 0;
          while(i < this.Buttons.length)
          {
             this.Buttons[i].ButtonHintData = this.ButtonData[i];
@@ -166,7 +166,7 @@ package
 
       public function ShowButtonHelp() : *
       {
-         var i:uint = 0;
+         var i:int = 0;
          while(!this._ButtonsShown && i < this.Buttons.length)
          {
             this.Buttons[i].bButtonPressed = false;
@@ -179,46 +179,22 @@ package
          this.refresh();
       }
 
-      // The list, made once; on any error the menu stays the game's own four buttons for good.
+      // The list, tried once: an error while making it leaves the game's own four buttons (they are hidden last).
+      // No try/catch and no uint counters: only bytecode the game has been seen to run (see movie.py).
       private function ensureList() : Boolean
       {
-         if(this.list == null && !this.failed)
+         if(this.list == null && !this.tried)
          {
+            this.tried = true;
             this.log("making list");
-            try
-            {
-               this.makeList();
-            }
-            catch(error:Error)
-            {
-               this.fail("list not made: " + error.message);
-            }
+            this.makeList();
          }
          return this.list != null;
       }
 
-      // Drop the list and give the game's buttons back.
-      private function fail(why:String) : void
-      {
-         this.log(why);
-         this.failed = true;
-         this.listShown = false;
-         if(this.list != null)
-         {
-            this.list.visible = false;
-         }
-         this.list = null;
-         var i:uint = 0;
-         while(i < this.ButtonAnimators.length)
-         {
-            this.ButtonAnimators[i].visible = true;
-            i++;
-         }
-      }
-
       public function HideButtonHelp() : *
       {
-         var i:uint = 0;
+         var i:int = 0;
          while(this._ButtonsShown && i < this.ButtonAnimators.length)
          {
             if(i == this.LastPressedButtonIndex)
@@ -298,18 +274,10 @@ package
       // The list's entries again: F3NV.dll's options when it has any, else the game's buttons with text.
       private function refresh() : void
       {
-         if(this.list == null)
-         {
-            return;
-         }
-         try
+         if(this.list != null)
          {
             this.fill();
             this.draw();
-         }
-         catch(error:Error)
-         {
-            this.fail("list dropped: " + error.message);
          }
       }
 
