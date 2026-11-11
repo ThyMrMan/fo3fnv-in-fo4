@@ -210,9 +210,11 @@ Tests: `py -3.14 -m pytest tests/test_fo4_*.py`.
 
 First things first, I want to give credit to all the wonderful people I used to know on the Morroblivion forum, and those still working hard on Skyblivion and Skywind all these years later. You are an inspiration.
 
-This project's own code is released under the **MIT License**. Everything under
-`external/` is third-party and carries its own licensing — nothing in that folder is
-covered by this project's MIT license.
+This project's own code is released under the **GNU GPL-3.0** ([LICENSE](LICENSE))
+with a modding exception ([EXCEPTIONS](EXCEPTIONS)). The code it started from,
+[tes4skyrim](https://github.com/bryantmh/tes4skyrim) by bryantmh and contributors,
+stays under the **MIT License**; [NOTICE](NOTICE) says which is which. Everything
+under `external/` is third-party and carries its own licensing, below.
 
 | Contributor / Component | Used for | License / Terms |
 |--------------------------|----------|-----------------|

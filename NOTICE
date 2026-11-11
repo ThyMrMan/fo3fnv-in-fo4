@@ -1,0 +1,63 @@
+fo3fnv-in-fo4
+Copyright (C) 2026 ThyMrMan and contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, version 3 (see LICENSE), with the additional permissions in
+EXCEPTIONS (the modding exception and the GPL-3.0 linking exception).
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+If this project goes unmaintained, anyone is welcome to continue it under these
+terms.
+
+
+WHAT EACH LICENSE COVERS
+
+- Our code (GPL-3.0 with the exceptions): every change and addition made in
+  this repository and its parent fork, ThyMrMan/tes4skyrim, from 2026-09-26 on,
+  including fo4_import/, the FO4 parts of tes_runtime/ (F3NV.dll), the fork's
+  tools and docs/fork/.
+
+- Upstream code (MIT): this project started as a copy of tes4skyrim
+  (https://github.com/bryantmh/tes4skyrim) by bryantmh and its contributors.
+  Their code, as written in upstream's history and in upstream changes merged
+  here since, remains available under the MIT License below. The combined
+  program is distributed under GPL-3.0. `git log` shows who wrote what.
+
+- Third-party code under external/: each component keeps its own license, as
+  listed in README.md ("Credits & License"). Parts of it are GPL-3.0
+  (PyNifly's Havok reader, OpenMW), LGPL (FFmpeg), MIT, BSD or unstated; the
+  tools are separate programs run by the converter.
+
+- Game data: converted plugins, meshes, textures, sounds and other output
+  come from the player's own copies of Bethesda's games. They are not ours
+  and none of these licenses cover them.
+
+Changes we send to upstream tes4skyrim as pull requests are offered under
+upstream's MIT License as well.
+
+
+MIT LICENSE (upstream tes4skyrim code)
+
+Copyright (c) bryantmh and the tes4skyrim contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
