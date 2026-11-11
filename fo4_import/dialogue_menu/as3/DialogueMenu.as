@@ -9,6 +9,7 @@ package
    import flash.display.Sprite;
    import flash.events.KeyboardEvent;
    import flash.events.MouseEvent;
+   import flash.geom.Matrix;
    import flash.geom.Rectangle;
    import flash.text.TextField;
    import flash.text.TextFormat;
@@ -61,10 +62,24 @@ package
 
       private static const ROWS:int = 7;
 
-      private static const ROW_HEIGHT:Number = 30;
+      // A row's text width (a longer prompt wraps), the panel's padding, the room for a scroll arrow, the selection
+      // edge's column and the gap between rows.
+      private static const TEXT_WIDTH:Number = 820;
 
-      // The selection mark's column, left of the text.
-      private static const MARK:Number = 18;
+      private static const PAD:Number = 10;
+
+      private static const HINT:Number = 10;
+
+      private static const MARK:Number = 16;
+
+      private static const GAP:Number = 6;
+
+      // The list entry that leaves the talk (LeaveDialogue), shown when a menu has no options of ours.
+      private static const LEAVE:int = -1;
+
+      private static const KEY_TAB:uint = 9;
+
+      private static const KEY_ESCAPE:uint = 27;
 
       // The four buttons' area in the list host's space, taken before their art is hidden.
       private var area:Rectangle;
@@ -181,6 +196,7 @@ package
          this.picking = false;
          this.listShown = this.dll != null && this.ensureList();
          this.refresh();
+         this.log("menu shown: " + this.entries.length + " entries");
       }
 
       // The list, tried once: an error while making it leaves the game's own four buttons (they are hidden last).
@@ -218,6 +234,7 @@ package
          {
             this.list.visible = false;
          }
+         this.log("menu hidden");
       }
 
       public function EnableMenu() : *
@@ -243,6 +260,7 @@ package
          list.visible = false;
          this.rows = new Vector.<TextField>();
          var format:TextFormat = new TextFormat("$MAIN_Font_Bold", 20, 0xFFFFFF);
+         format.leading = -2;
          var i:int = 0;
          while(i < ROWS)
          {
@@ -250,11 +268,11 @@ package
             row.embedFonts = true;
             row.defaultTextFormat = format;
             row.selectable = false;
-            row.multiline = false;
-            row.wordWrap = false;
+            row.multiline = true;
+            row.wordWrap = true;
+            row.width = TEXT_WIDTH;
             row.autoSize = "left";
-            row.x = MARK;
-            row.y = i * ROW_HEIGHT;
+            row.x = PAD + MARK;
             row.name = String(i);
             row.addEventListener(MouseEvent.MOUSE_OVER, this.onRowOver);
             row.addEventListener(MouseEvent.CLICK, this.onRowClick);
@@ -279,7 +297,8 @@ package
          this.log("list made");
       }
 
-      // The list's entries again: F3NV.dll's options when it has any, else the game's buttons with text.
+      // The list's entries again: F3NV.dll's options when it has any, else the game's buttons with text and our
+      // [Leave], so a menu without options of ours never leaves the talk stuck.
       private function refresh() : void
       {
          if(this.list != null)
@@ -313,6 +332,8 @@ package
                }
                i++;
             }
+            this.entries.push({"text":"[Leave]", "said":false, "ours":false, "index":LEAVE});
+            this.log("no options of ours: " + (this.entries.length - 1) + " of the game's, and [Leave]");
          }
          this.selected = Math.max(0, Math.min(this.selected, this.entries.length - 1));
       }
@@ -329,9 +350,8 @@ package
          {
             this.top = this.selected - count + 1;
          }
-         var g:Graphics = this.list.graphics;
-         g.clear();
          var wide:Number = 0;
+         var y:Number = PAD + HINT;
          var i:int = 0;
          while(i < ROWS)
          {
@@ -342,30 +362,61 @@ package
             {
                var entry:Object = this.entries[at];
                row.text = String(entry.text).toUpperCase();
-               row.alpha = at == this.selected ? 1 : (entry.said ? 0.35 : 0.6);
-               wide = Math.max(wide, row.width);
-               if(at == this.selected)
-               {
-                  g.beginFill(0xFFFFFF, 1);
-                  g.drawRect(0, i * ROW_HEIGHT + ROW_HEIGHT / 2 - 4, 8, 8);
-                  g.endFill();
-               }
+               row.alpha = at == this.selected ? 1 : (entry.said ? 0.4 : 0.7);
+               row.y = y;
+               y = y + row.height + GAP;
+               wide = Math.max(wide, row.textWidth + 6);
             }
             i++;
          }
-         if(this.entries.length > count)
-         {
-            g.beginFill(0xFFFFFF, 0.6);
-            g.drawRect(MARK + wide + 10, count * ROW_HEIGHT * this.top / this.entries.length, 3, count * ROW_HEIGHT * count / this.entries.length);
-            g.endFill();
-         }
-         this.list.x = this.area.x + (this.area.width - MARK - wide) / 2;
-         this.list.y = this.area.y + this.area.height - count * ROW_HEIGHT;
+         this.paint(count, wide, y - GAP + HINT + PAD);
+         this.list.x = this.area.x + (this.area.width - wide - MARK - 2 * PAD) / 2;
+         this.list.y = this.area.y + this.area.height - (y - GAP + HINT + PAD);
          this.list.visible = this.listShown && count > 0;
          if(this.list.visible && stage != null)
          {
             stage.focus = this.list;
          }
+      }
+
+      // The panel under `count` rows `wide` wide, `high` in all: a dark band fading at both ends, the selected row's
+      // bar and edge, and arrows when rows are hidden above or below. White is tinted to the HUD color by the game.
+      private function paint(count:int, wide:Number, high:Number) : void
+      {
+         var g:Graphics = this.list.graphics;
+         var full:Number = wide + MARK + 2 * PAD;
+         var box:Matrix = new Matrix();
+         box.createGradientBox(full, high, 0, 0, 0);
+         g.clear();
+         g.beginGradientFill("linear", [0, 0, 0, 0], [0, 0.6, 0.6, 0], [0, 28, 227, 255], box);
+         g.drawRect(0, 0, full, high);
+         g.endFill();
+         var row:TextField = this.rows[this.selected - this.top];
+         g.beginFill(0xFFFFFF, 0.14);
+         g.drawRect(PAD, row.y - 2, full - 2 * PAD, row.height + 4);
+         g.endFill();
+         g.beginFill(0xFFFFFF, 1);
+         g.drawRect(PAD, row.y - 2, 4, row.height + 4);
+         g.endFill();
+         if(this.top > 0)
+         {
+            this.arrow(g, full / 2, PAD, -1);
+         }
+         if(this.top + count < this.entries.length)
+         {
+            this.arrow(g, full / 2, high - PAD, 1);
+         }
+      }
+
+      // A small scroll arrow centered on `x`, its tip at `y`, pointing up (-1) or down (1).
+      private function arrow(g:Graphics, x:Number, y:Number, way:int) : void
+      {
+         g.beginFill(0xFFFFFF, 0.8);
+         g.moveTo(x - 9, y - way * 7);
+         g.lineTo(x + 9, y - way * 7);
+         g.lineTo(x, y);
+         g.lineTo(x - 9, y - way * 7);
+         g.endFill();
       }
 
       private function move(by:int) : void
@@ -387,7 +438,11 @@ package
          }
          var entry:Object = this.entries[at];
          this.picking = true;
-         if(entry.ours)
+         if(entry.index == LEAVE)
+         {
+            this.leave("[Leave]");
+         }
+         else if(entry.ours)
          {
             var taken:Boolean = this.dll.SelectDialogueOption(entry.index);
             this.log("picked " + at + (taken ? "" : " (refused)"));
@@ -397,6 +452,26 @@ package
          {
             this.onButtonRelease(entry.index);
          }
+         if(this.picking)
+         {
+            this.closeList();
+         }
+      }
+
+      // Hide the list after a pick until the game shows the next menu (ShowButtonHelp), and give its input back.
+      private function closeList() : void
+      {
+         this.listShown = false;
+         this._ButtonsShown = false;
+         this.list.visible = false;
+      }
+
+      // End the talk through F3NV.dll (`why` names the key or entry, for the log).
+      private function leave(why:String) : void
+      {
+         this.log("leave by " + why);
+         this.dll.LeaveDialogue();
+         this.closeList();
       }
 
       private function onRowOver(e:MouseEvent) : void
@@ -446,6 +521,10 @@ package
          {
             this.pick(this.selected);
          }
+         else if(e.keyCode == KEY_TAB || e.keyCode == KEY_ESCAPE)
+         {
+            this.leave("key " + e.keyCode);
+         }
          else if(e.keyCode >= KEY_1 && e.keyCode <= KEY_9)
          {
             this.pick(this.top + int(e.keyCode - KEY_1));
@@ -472,6 +551,10 @@ package
          else if(!down && (name == "Accept" || name == "Activate" || (name == "MultiActivateA" && uiPlatform != 0)))
          {
             this.pick(this.selected);
+         }
+         else if(!down && (name == "Cancel" || (name == "MultiActivateB" && uiPlatform != 0)))
+         {
+            this.leave(name);
          }
          else if(name.indexOf("MultiActivate") != 0 && name.indexOf("Quickkey") != 0)
          {

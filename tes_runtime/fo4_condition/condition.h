@@ -216,7 +216,8 @@ bool CallsTarget(uintptr_t site, uintptr_t target);
 
 // Point the dialogue option calls and the Player Dialogue run at our menu's options, through g_branchTrampoline (set
 // up); false when XDI.dll is loaded or a call site no longer calls the vanilla function. Run once plugins have loaded.
-bool HookDialogue();
+// `tasks` (F4SE's task interface) runs the menu's leave on the game's thread.
+bool HookDialogue(void *tasks);
 
 // F4SE's Scaleform callback: give a movie's f4se.plugins.F3NV the menu natives.
 bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin);

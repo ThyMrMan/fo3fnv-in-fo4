@@ -255,9 +255,12 @@ INFO and its answer a DIAL. The log line is
   - one never listed, because no line of its answer passes.
 
   Every answer that does not end the scene starts the menu again.
-- **`python -m tools.dialog.menu_rebuild`** rebuilds one built XDI menu in
-  this model:
-  - one answer topic per option, under the menu's quest;
+- **`python -m tools.dialog.menu_rebuild`** rebuilds a built XDI menu, and
+  every menu reachable from it, in this model. A menu is reachable when a
+  line of a reached scene starts its scene (TSCE); every Player Dialogue
+  action of that scene is rebuilt. Without this, an answer led into a menu
+  with no links and the talk stuck (played 2026-11-10). Each menu gets:
+  - one answer topic per option, under its scene's quest;
   - a copy of each paired answer that keeps its own conditions, flags,
     scripts and next step, and shares the response and voice (DNAM).
 
@@ -272,10 +275,12 @@ INFO and its answer a DIAL. The log line is
   flags 0x44) in the game build and with YUP over it. Offline, the pairing
   is not broken. Why the conversation does not end in game is not known.
   The DLL trace names the answer the engine actually plays.
-- **The rebuild** of FalloutNV.esm + YUP gives F3NV_MenuHub.esp:
-  - 1,994 options and 2,687 answer copies;
-  - `fo4_ref_check` found 0 unresolved references among 23,421. Another
-    61 go into DLC masters it was not given.
+- **The rebuild** of FalloutNV.esm + YUP from the hub gives
+  F3NV_MenuHub.esp:
+  - 2,558 scenes reached, 1,777 menus, 8,611 options and 10,380 answer
+    copies, all under FNV_Greetings; 2 options have no answer;
+  - `fo4_ref_check` found 0 unresolved references among 81,934. Another
+    63 go into DLC masters it was not given.
   - Both Vulpes options link to an answer topic whose only line shares
     the End Scene answer.
 - **Not yet built:**

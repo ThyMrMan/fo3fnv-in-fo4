@@ -145,7 +145,7 @@ void NoCombatSprint() {
 // F4SE messages: hook dialogue once every plugin has loaded (so XDI.dll shows), the Pip-Boy once the game has loaded
 // (the UI exists then).
 void OnMessage(F4SEMessagingInterface::Message *msg) {
-    if (msg->type == F4SEMessagingInterface::kMessage_PostLoad && g_trampoline) HookDialogue();
+    if (msg->type == F4SEMessagingInterface::kMessage_PostLoad && g_trampoline) HookDialogue(g_tasks);
     if (msg->type != F4SEMessagingInterface::kMessage_GameLoaded) return;
     NoCombatSprint();
     InstallPipboy(g_tasks);

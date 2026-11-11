@@ -11,6 +11,8 @@
 
 #include "f4se/GameData.h"
 #include "f4se/GameReferences.h"
+#include "f4se/GameThreads.h"
+#include "f4se/PluginAPI.h"
 #include "f4se/ScaleformCallbacks.h"
 #include "f4se/ScaleformMovie.h"
 #include "f4se/ScaleformValue.h"
@@ -48,6 +50,10 @@ using HandleFn = NiPointer<TESObjectREFR> *(*)(NiPointer<TESObjectREFR> *out, UI
 using SelectFn = void (*)(PlayerCharacter *player, UInt32 option);
 // A Player Dialogue action's run function (its vtable slot 21; both option calls are in it).
 using RunFn = UInt64 (*)(void *action, void *scene, void *third, void *fourth);
+// Stop a scene: Papyrus Scene.Stop's native (0x1119D20) calls this, then sets SCENE_STOPPING in its flags.
+using StopFn = void (*)(void *scene);
+// An actor's "talking" test, the one the run function waits on before the NPC slot (vtable +0x270, 0x4159BF).
+using TalkingFn = bool (*)(void *actor);
 
 RelocAddr<OptionInfoFn> OptionInfo(0x416600);
 RelocAddr<ResponseFn> ResponseInfo(0x414180);
@@ -58,6 +64,7 @@ RelocAddr<SaidFn> MarkSaid(0x69F8D0);
 RelocAddr<AliasFn> AliasHandle(0x671FA0);
 RelocAddr<HandleFn> HandleRef(0x21E550);
 RelocAddr<SelectFn> SelectOption(0xD76130);
+RelocAddr<StopFn> StopScene(0x638D60);
 // The player-slot and NPC-slot calls to OptionInfo (in 0x415280), and the NPC Response call to ResponseInfo.
 RelocAddr<uintptr_t> PLAYER_SLOT_CALL(0x41568A), NPC_SLOT_CALL(0x415A21), RESPONSE_CALL(0x413DA8);
 RelocAddr<uintptr_t> PLAYER_DIALOGUE_VTABLE(0x2488978);
@@ -75,6 +82,10 @@ const size_t SCENE_QUEST = 0xA8, ACTION_ALIAS = 0x08, ACTION_TOPICS = 0x20, ACTI
 const size_t TOPIC_INFOS = 0x50, TOPIC_ORDER = 0x58, TOPIC_COUNT = 0x60, INFO_SAID = 0x43;
 // PlayerCharacter: the chosen response an NPC Response action answers.
 const size_t PLAYER_RESPONSE = 0xD3C;
+// BGSScene flags (Scene.Stop sets STOPPING). Action flags: the player line done (the NPC slot runs next), the NPC
+// line said. Player: the flag that skips the talking wait (0x4159B3). Actor: the "talking" vtable slot.
+const size_t SCENE_FLAGS = 0x28, ACTION_FLAGS = 0x10, PLAYER_NO_WAIT = 0x440, TALKING_SLOT = 0x270 / 8;
+const UInt32 SCENE_STOPPING = 0x100000, PLAYER_DONE = 0x2000000, NPC_SAID = 0x4000;
 const UInt32 NO_OPTION = 4, FIRST_OURS = 5, SLOTS = 4;
 const UInt16 END = 0xFFFF;
 const char *LINKS = "Data\\F4SE\\Plugins\\F3NV_Menus\\";
@@ -115,6 +126,10 @@ OptionInfoFn g_optionInfo = nullptr;
 ResponseFn g_responseInfo = nullptr;
 RunFn g_run = nullptr;
 bool g_hooked = false, g_speechPatch = false, g_playerSpeaks = true;
+F4SETaskInterface *g_dialogueTasks = nullptr;
+// The wait trace: the last state logged for our picked option, and when it was picked.
+UInt32 g_lastWaits = ~0u;
+ULONGLONG g_pickedAt = 0;
 
 // `plugin`'s object id `id` (hex) as a loaded FormID; 0 when the plugin is not loaded.
 UInt32 Resolve(const std::string &plugin, const std::string &id) {
@@ -274,12 +289,49 @@ TESForm *Response(void *action, void *scene) {
     return Answer(nullptr, action, scene, chosen, "NPC Response");
 }
 
+// Whether `actor` is "talking" by the test the run function waits on.
+bool Talking(void *actor) {
+    return actor && (*reinterpret_cast<TalkingFn **>(actor))[TALKING_SLOT](actor);
+}
+
+// While our picked option runs: each change in what the NPC slot waits on (0x415954), with the time since the pick.
+void TraceWaits(void *action, void *scene) {
+    PlayerCharacter *player = *g_player;
+    if (!player || !g_pickedAt || g_chosen.action != action || g_chosen.answered) return;
+    NiPointer<TESObjectREFR> npc = ActionActor(action, scene);
+    UInt32 flags = At<UInt32>(action, ACTION_FLAGS);
+    UInt32 waits = (flags & PLAYER_DONE ? 1 : 0) | (flags & NPC_SAID ? 2 : 0) | (Talking(player) ? 4 : 0) |
+                   (At<UInt32>(player, PLAYER_NO_WAIT) & 2 ? 8 : 0) | (Talking(npc) ? 16 : 0);
+    if (waits == g_lastWaits) return;
+    g_lastWaits = waits;
+    _MESSAGE("dialogue menu: +%llu ms: player line %s, NPC line %s, player talking %d (no-wait flag %d), NPC talking %d",
+             GetTickCount64() - g_pickedAt, waits & 1 ? "done" : "pending", waits & 2 ? "said" : "not said",
+             (waits & 4) != 0, (waits & 8) != 0, (waits & 16) != 0);
+}
+
 // A Player Dialogue action's run: remember it as the running one.
 UInt64 Run(void *action, void *scene, void *third, void *fourth) {
     g_running = action;
     g_runningScene = scene;
+    TraceWaits(action, scene);
     return g_run(action, scene, third, fourth);
 }
+
+// End the player's conversation as Papyrus Scene.Stop does, on the game's thread.
+class LeaveTask : public ITaskDelegate {
+public:
+    void Run() override {
+        PlayerCharacter *player = *g_player;
+        BGSScene *scene = player ? player->GetCurrentScene() : nullptr;
+        if (!scene) {
+            _MESSAGE("dialogue menu: leave: the player is in no scene");
+            return;
+        }
+        StopScene(scene);
+        At<UInt32>(scene, SCENE_FLAGS) |= SCENE_STOPPING;
+        _MESSAGE("dialogue menu: left the talk (stopped scene %08X)", reinterpret_cast<TESForm *>(scene)->formID);
+    }
+};
 
 // The call at `site`'s target when it still calls `vanilla`; null otherwise.
 template <class Fn>
@@ -329,9 +381,20 @@ public:
             std::lock_guard<std::mutex> hold(g_dialogueLock);
             if (!action || action != g_menu.action || index >= g_menu.options.size()) return;
             g_chosen = {action, index, g_menu.options[index], false};
+            g_pickedAt = GetTickCount64();
+            g_lastWaits = ~0u;
         }
         SelectOption(*g_player, index + FIRST_OURS);
         args->result->SetBool(true);
+    }
+};
+
+// LeaveDialogue(): end the talk (the menu's Tab, Esc and [Leave] when no option of ours is up).
+class LeaveNative : public GFxFunctionHandler {
+public:
+    void Invoke(Args *args) override {
+        args->result->SetBool(g_dialogueTasks != nullptr);
+        if (g_dialogueTasks) g_dialogueTasks->AddTask(new LeaveTask);
     }
 };
 
@@ -351,10 +414,12 @@ bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin) {
     RegisterFunction<GetOptionsNative>(plugin, movie, "GetDialogueOptions");
     RegisterFunction<SelectNative>(plugin, movie, "SelectDialogueOption");
     RegisterFunction<LogNative>(plugin, movie, "Log");
+    RegisterFunction<LeaveNative>(plugin, movie, "LeaveDialogue");
     return true;
 }
 
-bool HookDialogue() {
+bool HookDialogue(void *tasks) {
+    g_dialogueTasks = static_cast<F4SETaskInterface *>(tasks);
     if (GetModuleHandleA("XDI.dll")) {
         _MESSAGE("dialogue menu: XDI.dll is loaded; leaving dialogue to XDI");
         return false;
