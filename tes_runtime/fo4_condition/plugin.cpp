@@ -110,7 +110,9 @@ void *g_tasks = nullptr;
 using MaxHealthFn = UInt32 (*)(TESForm *, TESObjectREFR *);
 RelocAddr<MaxHealthFn> MaxHealth(0x316940);
 RelocAddr<uintptr_t> SPAWN_HEALTH_CALL(0x271611);
-const size_t TRAMPOLINE_SIZE = 192;  // the spawn-health call, damage.cpp's four calls and two stubs, hardcore.cpp's call
+// The spawn-health call, damage.cpp's four calls and two stubs, hardcore.cpp's call, dialogue.cpp's three calls.
+const size_t TRAMPOLINE_SIZE = 256;
+bool g_trampoline = false;
 
 UInt32 SpawnMaxHealth(TESForm *form, TESObjectREFR *ref) {
     UInt32 health = MaxHealth(form, ref);
@@ -140,8 +142,10 @@ void NoCombatSprint() {
     _MESSAGE("combat approach sprint %s", found ? "off" : "left on (setting not found)");
 }
 
-// F4SE messages: hook the Pip-Boy once the game has loaded (the UI exists then).
+// F4SE messages: hook dialogue once every plugin has loaded (so XDI.dll shows), the Pip-Boy once the game has loaded
+// (the UI exists then).
 void OnMessage(F4SEMessagingInterface::Message *msg) {
+    if (msg->type == F4SEMessagingInterface::kMessage_PostLoad && g_trampoline) HookDialogue();
     if (msg->type != F4SEMessagingInterface::kMessage_GameLoaded) return;
     NoCombatSprint();
     InstallPipboy(g_tasks);
@@ -342,9 +346,11 @@ __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se) {
     _MESSAGE("F3NV loaded, runtime %08X", f4se->runtimeVersion);
     g_tasks = f4se->QueryInterface(kInterface_Task);
     auto *messaging = static_cast<F4SEMessagingInterface *>(f4se->QueryInterface(kInterface_Messaging));
-    bool trampoline = HookSpawnHealth(f4se);
-    _MESSAGE("weapon starting condition %s", trampoline ? "hooked" : "not hooked");
-    if (trampoline) HookDamage(), HookAmmoWeight();
+    g_trampoline = HookSpawnHealth(f4se);
+    _MESSAGE("weapon starting condition %s", g_trampoline ? "hooked" : "not hooked");
+    if (g_trampoline) HookDamage(), HookAmmoWeight();
+    auto *scaleform = static_cast<F4SEScaleformInterface *>(f4se->QueryInterface(kInterface_Scaleform));
+    if (!scaleform || !scaleform->Register("F3NV", RegisterDialogueMenu)) _MESSAGE("no dialogue menu natives");
     InstallTransfer();
     NoCombatSprint();
     if (!messaging || !g_tasks || !messaging->RegisterListener(g_handle, "F4SE", OnMessage))

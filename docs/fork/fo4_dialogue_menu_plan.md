@@ -1,6 +1,7 @@
 # Our own dialogue menu (replacing XDI): test-build plan
 
-Designed 2026-11-10, not built. Why: XDI pairs options and answers by
+Designed 2026-11-10; the test build is made ([as built](#as-built)) and not
+yet played. Why: XDI pairs options and answers by
 position, which forces a copy of every answer per menu, pads, and gates,
 and breaks whenever a mod shifts a menu
 ([robustness research](research/fo4_dialogue_robustness.md)). XDI's
@@ -43,7 +44,7 @@ Found by matching the port's own signature strings, each unique in
 - **F3NV.dll** (`tes_runtime/fo4_condition`, ~2.5k lines, built by
   `build.bat` with `cl` against F4SE 0.7.9 headers and libs, raw 1.11.240
   RVAs, no Address Library). It already registers Papyrus natives, uses a
-  `BranchTrampoline` (192 bytes, fully budgeted: raise it), patches vtable
+  `BranchTrampoline` (256 bytes since the dialogue hooks), patches vtable
   slots, and drives menus at runtime through `GFxValue::Invoke` and
   `GFxFunctionHandler` (pipboy.cpp). No dialogue code, and F4SE 0.7.9 has no
   TESTopic / TESTopicInfo / BGSScene layouts: those are new work.
@@ -94,6 +95,133 @@ Found by matching the port's own signature strings, each unique in
 
 Only after that plays: the converter switch (below), with its FormID drift
 measured and approved.
+
+## <a id="as-built"></a>The test build as built
+
+**Engine pieces it uses (1.11.240 RVAs; V = read in the disassembly at
+each call):**
+
+| What | RVA / offset | |
+|---|---|---|
+| INFO passes its conditions `(info, bool*, speaker, target)` | 0x69F490 | V |
+| INFO prompt text `(info) → const char*` | 0x69E740 | V |
+| Mark INFO said `(info)` | 0x69F8D0 | V |
+| Quest alias → handle `(quest, UInt32*, alias)`; handle → ref | 0x671FA0; 0x21E550 | V |
+| Player Dialogue vtable; its run function, slot 21 | 0x2488978; 0x415280 | V |
+| Player says the picked option: `48 8B C8` at 0x4158D2 → `EB 1E 90` skips it | 0x4158D2 | V |
+| Camera turns to the player: the 1 at 0x83266C; 2 keeps it on the NPC | 0x83266C | V |
+| Scene → quest | scene +0xA8 | V |
+| Action: alias +0x08, topics +0x20[4], chosen option +0xE0 (4: none) | | V |
+| Player's chosen response, read by `GetNPCResponseInfo` | player +0xD3C | V |
+| Topic: INFO array +0x50, order table +0x58 (u16 links, 0xFFFF ends) | | V |
+| Topic: INFO count +0x60 | | I |
+| INFO: said byte +0x43, flags +0x44 | | V |
+
+**F3NV.dll (`dialogue.cpp`).**
+- On PostLoad it hooks the three call sites with five-byte calls, and
+  takes vtable slot 21 to know which Player Dialogue action is running. It
+  refuses, and logs why, when `XDI.dll` is loaded or any site no longer
+  calls the vanilla function. `TRAMPOLINE_SIZE` is now 256.
+- It registers a Scaleform plugin object, `f4se.plugins.F3NV`, with three
+  natives:
+  - `GetDialogueOptions()` returns `[{text, said}]` for the waiting action;
+  - `SelectDialogueOption(i)` picks one, as option i + 5;
+  - `Log(text)` writes a line to F3NV.log.
+- **Which options are listed:** every INFO in the action's four player
+  topics that has a link, passes its own conditions, and whose answer
+  topic has a line that passes now.
+- **When an option is picked:**
+  - The player slot returns the option's INFO and marks it said. The
+    player does not speak it, and the camera stays on the NPC, as in FNV.
+  - The NPC slot, or a following NPC Response action, returns the answer
+    topic's first passing INFO, chosen by the engine's picker (0x698DB0),
+    once.
+  - Options below 5 go to the vanilla functions unchanged.
+
+**Menu movie.** `fo4_import/dialogue_menu/movie.py` reads
+`Interface/DialogueMenu.swf` from the user's `Fallout4 - Interface.ba2`.
+FFDec compiles our own `as3/DialogueMenu.as` over the game's class
+(`fo4_import/base/ffdec.py`, shared with the casino movie). The result is
+cached under `temp/` and written only to an output folder.
+- The list shows 7 rows and scrolls. Said options are grey.
+- **Keys:**
+  - W/S, the mouse wheel, or the gamepad's Quickkey up/down move;
+  - Enter, E, 1–9, a click, or gamepad A pick;
+  - Tab goes to the engine and leaves.
+- With no DLL, or no linked options, it lists the game's own four buttons.
+
+### <a id="links-file"></a>The links file
+
+The DLL reads `Data\F4SE\Plugins\F3NV_Menus\*.txt` the first time a menu
+opens. Each line has four tab-separated columns: the option's plugin, the
+option INFO's object id (hex), the answer's plugin, and the answer DIAL's
+object id. `#` starts a comment. A link is kept only when its option is an
+INFO and its answer a DIAL. The log line is
+`dialogue menu: <file>: N links, M resolved`.
+
+### <a id="test-mod"></a>Test mods
+
+- **`python -m fo4_import.dialogue_menu.test_mod`** writes
+  `output/fo4_dialogue_menu/`: F3NV_MenuTest.esp (only Fallout4.esm as
+  master), its links, the menu movie and the DLL.
+- The global `F3NVMenuTest` at 1 makes any NPC greet with an 8-option menu:
+  - first-passing (an alternate line at 2);
+  - Random ×3;
+  - Say Once option;
+  - Say Once answer;
+  - Goodbye (End Scene);
+  - a long prompt;
+  - an option listed only at 2;
+  - one never listed, because no line of its answer passes.
+
+  Every answer that does not end the scene starts the menu again.
+- **`python -m tools.dialog.menu_rebuild`** rebuilds one built XDI menu in
+  this model:
+  - one answer topic per option, under the menu's quest;
+  - a copy of each paired answer that keeps its own conditions, flags,
+    scripts and next step, and shares the response and voice (DNAM).
+
+  The pairing is XDI's own (`xdi_menus.pair_lines`).
+
+### <a id="vulpes"></a>Vulpes Inculta's Topic list (GREETINGS hub)
+
+- **The hub:** P0 03D4727A, N 03447EEE. FalloutNV.esm has 2,656 player
+  and 2,656 NPC lines there. YUP overrides or adds 35 of each.
+- **Both "I'll do as you ask" options** (03330928, 0331C0EE) pair with
+  the End Scene answer ("Then I bid you 'Vale'", 035AA687 / 03AEAEEE,
+  flags 0x44) in the game build and with YUP over it. Offline, the pairing
+  is not broken. Why the conversation does not end in game is not known.
+  The DLL trace names the answer the engine actually plays.
+- **The rebuild** of FalloutNV.esm + YUP gives F3NV_MenuHub.esp:
+  - 1,994 options and 2,687 answer copies;
+  - `fo4_ref_check` found 0 unresolved references among 23,421. Another
+    61 go into DLC masters it was not given.
+  - Both Vulpes options link to an answer topic whose only line shares
+    the End Scene answer.
+- **Not yet built:**
+  - The engine's `IsPlayerTalking` fix;
+  - speech challenges (the text and odds are not added to the prompt);
+  - text replacement in prompts.
+
+### <a id="setup"></a>Trying it in game
+
+1. Make a test MO2 profile. Turn off the mod holding `XDI.dll` and
+   `XDI - Main.ba2`, but keep XDI.esm, because the build's plugins have it
+   as a master.
+2. Install `output/fo4_dialogue_menu/` as a mod placed above F3NV, so its
+   F3NV.dll and `Interface/DialogueMenu.swf` win. Enable
+   F3NV_MenuTest.esp. F3NV_MenuHub.esp is optional: it needs YUP and goes
+   after it.
+3. In game, type `set F3NVMenuTest to 1` (or 2) in the console, then talk
+   to any NPC.
+4. **What to check in F3NV.log:**
+   - `dialogue menu: hooked, player line skip ready`;
+   - one `option i: …` line per listed option;
+   - `picked …` when an option is chosen;
+   - `NPC slot answers …` or `NPC Response answers …` with the answer
+     INFO, never 00000000;
+   - the menu's own `key …` / `event …` lines, the first time each one
+     is seen.
 
 ## <a id="converter"></a>The converter switch, and what it saves
 

@@ -67,6 +67,20 @@ def listed(info) -> bool:
     return bool(every(info, 'TRDA') or every(info, 'NAM1') or u32(first(info, 'DNAM')))
 
 
+def pair_lines(player: list, npc: list) -> list:
+    """[(option, [pads], [answers])] of one menu's player and NPC lines in order, as XDI pairs them: a listed
+    player line owns the NPC lines from its place up to the next listed one."""
+    out = []
+    for i, info in enumerate(player):
+        if listed(info):
+            out.append((info, [], []))
+        elif out:
+            out[-1][1].append(info)
+        if out and i < len(npc):
+            out[-1][2].append(npc[i])
+    return out
+
+
 def _response(index, info) -> str:
     """The first response text of the line `info` shows."""
     return next((zstring(text) for text in every(resolved(index, info), 'NAM1') if zstring(text)), '')

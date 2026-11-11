@@ -32,7 +32,7 @@ from tools.validate.preflight.condition_diff import FO4, IDENTITY, OR_NEXT, USE_
 from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.fo4_dialogue import line_parts
 from tools.validate.preflight.plugin_index import every, first, u32
-from tools.validate.preflight.xdi_menus import listed, menus
+from tools.validate.preflight.xdi_menus import menus, pair_lines
 
 #: A ledger key of a built option or pad: `INFO prompt <FNV topic> <text> at <place> <FNV topic> for <FNV quest>`.
 PROMPT_KEY = re.compile(r'''^["']INFO prompt ([0-9A-Fa-f]{8}) .* \1 for ([0-9A-Fa-f]*)(?: pad \d+)?["']$''')
@@ -170,14 +170,8 @@ def read_menus(index, prompts: dict) -> list:
     out = []
     for scene, phase, topics in menus(index):
         player, npc = [i for t in topics for i in by_topic.get(t, ())], by_topic.get(npc_topic.get(topics[0]), [])
-        options = []
-        for i, info in enumerate(player):
-            if listed(info):
-                options.append(Option(info, *prompts.get(info.form_id, (0, ''))))
-            elif options:
-                options[-1].pads.append(info)
-            if options and i < len(npc):
-                options[-1].answers.append(npc[i])
+        options = [Option(info, *prompts.get(info.form_id, (0, '')), pads, answers)
+                   for info, pads, answers in pair_lines(player, npc)]
         name = index.edid(topics[0]) or f'{topics[0]:08X}'
         out.append(Menu(name, (scene.form_id, phase), [o for o in options if o.topic], len(player) == len(npc)))
     return out
