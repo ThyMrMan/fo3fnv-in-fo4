@@ -21,7 +21,6 @@ import argparse
 import shutil
 import struct
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -37,7 +36,6 @@ from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
 from fo4_import.spike.face_fit import npc_subrecords, refine_sculpt, refine_tint, variant_npcs
 from fo4_import.spike.fnv_npc import fnv_face
-from fo4_import.spike.own_heads import FOLDER as OWN_FOLDER
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: The CK's export target: X64, since W32 writes hair cloth physics the 64-bit game misreads (see the module doc).
@@ -183,45 +181,11 @@ def cloth_pointer_sizes(nif_bytes: bytes) -> list:
     return [raw[CLOTH_POINTER_SIZE_AT] for kind, raw in nif_file.read(nif_bytes).blocks if kind == 'BSClothExtraData']
 
 
-@contextmanager
-def loose_head_textures(data_dir: Path):
-    """The build's own head textures (own_heads.FOLDER), staged for the texture BA2, copied loose into `data_dir`
-    for the CK, which drew a face from a previous NPC when a face set's texture was only in that BA2; the copies
-    go after. Yields how many were copied.
-    See: docs/fork/fo4_facegen_plan.md#ck-face-textures-loose
-    """
-    textures = staging_root(data_dir) / 'Textures'
-    staged = textures / OWN_FOLDER.replace('\\', '/')
-    made = []
-    try:
-        for path in sorted(p for p in staged.rglob('*') if p.is_file()) if staged.is_dir() else []:
-            target = data_dir / 'Textures' / path.relative_to(textures)
-            if not target.exists():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(path, target)
-                made.append(target)
-        yield len(made)
-    finally:
-        for target in made:
-            target.unlink(missing_ok=True)
-        for folder in sorted({t.parent for t in made}, key=lambda p: len(p.parts), reverse=True):
-            _remove_empty(folder, data_dir / 'Textures')
-
-
-def _remove_empty(folder: Path, stop: Path) -> None:
-    """Remove `folder` and its parents below `stop` while they are empty."""
-    while folder != stop and folder.is_dir() and not any(folder.iterdir()):
-        folder.rmdir()
-        folder = folder.parent
-
-
 def export(plugin: str, data_dir: Path) -> int:
-    """Clear, run the CK (the build's own head textures loose) and collect `plugin`'s FaceGen; the FaceGeom NIFs
-    collected. Raise if any carries cloth physics for another pointer size than the game's."""
+    """Clear, run the CK and collect `plugin`'s FaceGen; the FaceGeom NIFs collected. Raise if any carries cloth
+    physics for another pointer size than the game's."""
     clear(plugin, data_dir)
-    with loose_head_textures(data_dir) as copied:
-        print('own head textures made loose for the Creation Kit:', copied)
-        run_ck(plugin, data_dir)
+    run_ck(plugin, data_dir)
     nifs = collect(plugin, data_dir)
     wrong = [p.name for p in nifs if set(cloth_pointer_sizes(p.read_bytes())) - {GAME_POINTER_SIZE}]
     if wrong:

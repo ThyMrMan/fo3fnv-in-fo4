@@ -17,6 +17,7 @@ from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
 from fo4_import.base import ba2_pack
+from fo4_import.base import ba2
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_ESM, FALLOUTNV_ESM, use_source
 from fo4_import.base.writer import pack_fo4_header, pack_fo4_record
@@ -236,23 +237,16 @@ def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_pat
                                                      staged / '00000801_d.dds'))
 
 
-def test_the_ck_sees_the_builds_own_head_textures_loose_while_it_runs(tmp_path, monkeypatch):
-    """Own head textures staged for the BA2 are loose while the CK exports, and gone after; a loose one and other
-    staged textures are left alone."""
-    monkeypatch.setattr(ba2_pack, 'STAGING_CACHE', tmp_path / 'cache')
-    staged = ba2_pack.staging_root(tmp_path) / 'Textures' / 'fnv'
-    loose = tmp_path / 'Textures' / 'fnv' / 'own'
-    for folder, name, data in ((staged / 'own', 'face_d.dds', b'staged'), (staged / 'own', 'eye.dds', b'staged'),
-                               (staged / 'clutter', 'cup.dds', b'staged'), (loose, 'eye.dds', b'loose')):
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / name).write_bytes(data)
-    seen = []
-    monkeypatch.setattr(FG, 'run_ck', lambda *_: seen.extend(
-        (p.relative_to(loose).as_posix(), p.read_bytes()) for p in sorted(tmp_path.joinpath('Textures').rglob('*.dds'))))
-    monkeypatch.setattr(FG, 'collect', lambda *_: [])
-    FG.export('Spike.esp', tmp_path)
-    assert seen == [('eye.dds', b'loose'), ('face_d.dds', b'staged')]
-    assert [p.name for p in tmp_path.joinpath('Textures').rglob('*') if p.is_file()] == ['eye.dds']
+@pytest.mark.skipif(not TX.TEXCONV.exists(), reason="needs the CK's texconv")
+def test_a_texture_taking_a_vanilla_ones_place_keeps_its_format_size_and_mips():
+    """An opaque face drawn over vanilla's BC3 1024 face diffuse stays BC3 1024 with 11 mips (the CK refuses a
+    face texture in another format than its race's); over a BC1 one it is BC1."""
+    rgba = np.full((256, 256, 4), 200, np.uint8)
+    for fmt, size, mips in ((77, 1024, 11), (71, 512, 10)):
+        like = ba2.dds(fmt, size, size, b'')
+        out = TX.dds_like(rgba, like)
+        assert TX.dds_layout(out) == (TX.DXGI_NAMES[fmt], size, size)
+        assert struct.unpack_from('<I', out, 28)[0] == mips
 
 
 def _dds_shape(data: bytes) -> tuple:
