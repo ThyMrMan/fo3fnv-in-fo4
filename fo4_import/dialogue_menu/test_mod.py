@@ -65,10 +65,12 @@ class Ids:
 
 
 def write_links(path: Path, rows: list) -> Path:
-    """A links file of rows (option plugin, option FormID, answer plugin, answer topic FormID), object ids only."""
+    """A links file of rows (option plugin, option FormID, answer plugin, answer topic FormID[, actor value plugin,
+    actor value FormID, number needed]), object ids only; the last three name the option's skill check."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ['# option plugin, option INFO, answer plugin, answer DIAL (F3NV.dll dialogue.cpp)']
-    lines += [f'{a}\t{b & 0xFFFFFF:06X}\t{c}\t{d & 0xFFFFFF:06X}' for a, b, c, d in rows]
+    lines = ['# option plugin, option INFO, answer plugin, answer DIAL[, skill plugin, skill AVIF, needed] '
+             '(F3NV.dll dialogue.cpp)']
+    lines += ['\t'.join(f'{v & 0xFFFFFF:06X}' if i in (1, 3, 5) else str(v) for i, v in enumerate(row)) for row in rows]
     path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return path
 

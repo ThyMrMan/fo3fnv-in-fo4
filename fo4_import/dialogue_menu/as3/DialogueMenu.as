@@ -41,7 +41,7 @@ package
       // The game's text per button (0 Positive, 1 Negative, 2 Neutral, 3 Question).
       private var gameTexts:Array = ["", "", "", ""];
 
-      // The list: {text, said, ours, index}; index is F3NV.dll's option or the game's button.
+      // The list: {text, said, failed, ours, index}; index is F3NV.dll's option or the game's button.
       private var entries:Array = [];
 
       private var selected:int = 0;
@@ -51,6 +51,10 @@ package
       private var list:Sprite;
 
       private var rows:Vector.<TextField>;
+
+      // The rows whose skill check fails, laid over the list inside the Negative holder, which F3NV.dll tints with
+      // the game's own speech-challenge color (TintFailed) instead of the HUD color.
+      private var failedRows:Sprite;
 
       private var listShown:Boolean = false;
 
@@ -253,6 +257,7 @@ package
          if(this.list != null)
          {
             this.list.visible = false;
+            this.failedRows.visible = false;
             this.shade(false);
          }
          this.log("menu hidden");
@@ -302,6 +307,9 @@ package
             i++;
          }
          host.addChild(list);
+         this.failedRows = new Sprite();
+         this.failedRows.visible = false;
+         this.FadeHolder_mc.Negative.addChild(this.failedRows);
          if(stage != null)
          {
             stage.addEventListener(KeyboardEvent.KEY_DOWN, this.onKeyDown);
@@ -338,7 +346,7 @@ package
          {
             while(i < options.length)
             {
-               this.entries.push({"text":options[i].text, "said":options[i].said, "ours":true, "index":i});
+               this.entries.push({"text":options[i].text, "said":options[i].said, "failed":options[i].failed == true, "ours":true, "index":i});
                i++;
             }
          }
@@ -395,6 +403,7 @@ package
             this.top = this.selected - count + 1;
          }
          var y:Number = PAD + LINE;
+         var failed:int = 0;
          var i:int = 0;
          while(i < ROWS)
          {
@@ -404,6 +413,12 @@ package
             if(i < count)
             {
                var entry:Object = this.entries[at];
+               var layer:Sprite = entry.failed == true ? this.failedRows : this.list;
+               if(row.parent != layer)
+               {
+                  layer.addChild(row);
+               }
+               failed = failed + (entry.failed == true ? 1 : 0);
                row.text = String(entry.text).toUpperCase();
                row.alpha = at == this.selected ? 1 : (entry.said ? 0.45 : 0.75);
                row.y = y;
@@ -422,6 +437,7 @@ package
          this.list.y = base.y - high;
          this.list.visible = this.listShown && count > 0;
          this.shade(this.list.visible);
+         this.overlay(failed > 0);
          if(this.list.visible && stage != null)
          {
             stage.focus = this.list;
@@ -436,9 +452,11 @@ package
       {
          var g:Graphics = this.list.graphics;
          g.clear();
+         this.failedRows.graphics.clear();
          this.frame(g, 0, 0, BOX_WIDTH, high, 0.9);
          var row:TextField = this.rows[this.selected - this.top];
-         this.frame(g, GUTTER + PAD, row.y - 3, BOX_WIDTH - GUTTER - 2 * PAD, row.height + 6, 0.9);
+         var around:Graphics = row.parent == this.failedRows ? this.failedRows.graphics : g;
+         this.frame(around, GUTTER + PAD, row.y - 3, BOX_WIDTH - GUTTER - 2 * PAD, row.height + 6, 0.9);
          if(this.entries.length > count)
          {
             var x:Number = PAD + GUTTER / 2;
@@ -458,6 +476,25 @@ package
             this.shaded = on;
             var done:Boolean = this.dll.ShadeList(on);
             this.seenOnce("shaded background " + (on ? "on" : "off") + (done ? "" : " refused"));
+         }
+      }
+
+      // The failed rows' layer laid exactly over the list (same place and scale, from the list's corners), shown
+      // with it, and their holder tinted after the game's own re-tint of it in SetButtonText (F3NV.dll TintFailed).
+      private function overlay(any:Boolean) : void
+      {
+         var holder:DisplayObject = this.failedRows.parent;
+         var left:Point = holder.globalToLocal(this.list.localToGlobal(new Point(0, 0)));
+         var right:Point = holder.globalToLocal(this.list.localToGlobal(new Point(BOX_WIDTH, 0)));
+         this.failedRows.x = left.x;
+         this.failedRows.y = left.y;
+         this.failedRows.scaleX = (right.x - left.x) / BOX_WIDTH;
+         this.failedRows.scaleY = this.failedRows.scaleX;
+         this.failedRows.visible = this.list.visible;
+         if(any && this.list.visible)
+         {
+            var done:Boolean = this.dll.TintFailed();
+            this.seenOnce("failed skill checks tinted" + (done ? "" : " refused"));
          }
       }
 
@@ -528,6 +565,7 @@ package
          this.listShown = false;
          this._ButtonsShown = false;
          this.list.visible = false;
+         this.failedRows.visible = false;
          this.shade(false);
       }
 

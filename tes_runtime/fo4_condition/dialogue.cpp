@@ -62,6 +62,8 @@ using EventNameFn = void **(*)(void *event);
 using StaticNameFn = void **(*)();
 // BSGFxShaderFXTarget::EnableShadedBackground(type, brightness): the UI shader's translucent quad behind a target.
 using ShadeFn = void (*)(void *target, UInt32 type, float brightness);
+// DialogueMenu's holder color (0x1043EF0): 0 the HUD color, 1-7 the speech-challenge tints (iDialogueSC_*_Tint).
+using TintFn = void (*)(void *menu, void *target, UInt32 type, bool dim);
 
 RelocAddr<OptionInfoFn> OptionInfo(0x416600);
 RelocAddr<ResponseFn> ResponseInfo(0x414180);
@@ -88,6 +90,7 @@ RelocAddr<StaticNameFn> ZoomInName(0xB25620), ZoomOutName(0xA7A080);
 // The shaded background, and a plain BSGFxShaderFXTarget's vtable (what DialogueMenu registers its holders as).
 RelocAddr<ShadeFn> EnableShadedBackground(0x1B04350);
 RelocAddr<uintptr_t> SHADER_TARGET_VTABLE(0x27236D0);
+RelocAddr<TintFn> TintChallenge(0x1043EF0);
 const UInt8 SPEAKS[] = {0x48, 0x8B, 0xC8}, SILENT[] = {0xEB, 0x1E, 0x90};
 const UInt8 CAMERA_PLAYER = 1, CAMERA_SPEAKER = 2;
 
@@ -105,7 +108,9 @@ const UInt32 SCENE_STOPPING = 0x100000, PLAYER_DONE = 0x2000000, NPC_SAID = 0x40
 const UInt32 NO_OPTION = 4, FIRST_OURS = 5, SLOTS = 4;
 // DialogueMenu: the Question holder's shader target (registerObjects keeps the four at +0xE0, Question last). The
 // shaded background as vanilla menus ask for it: MenuNoColorBackground at full size.
-const size_t MENU_QUESTION_TARGET = 0xF8, TARGET_FX_FLAGS = 0x8C;
+const size_t MENU_NEGATIVE_TARGET = 0xE8, MENU_QUESTION_TARGET = 0xF8, TARGET_FX_FLAGS = 0x8C;
+// The speech-challenge tint 0x1043EF0 gives types 3 and 7: iDialogueSC_Hard_Tint (red).
+const UInt32 CHALLENGE_HARD = 3;
 const UInt32 FX_BACKGROUND_QUAD = 1;
 const UInt32 MENU_NO_COLOR_BACKGROUND = 1;
 const float FULL_QUAD = 1.0f;
@@ -122,6 +127,13 @@ struct Option {
     TESForm *answer;
     std::string prompt;
     bool said;
+    bool failed;  // its skill check fails for the player now
+};
+
+// An option's skill check from its link: the player's actor value and the number it needs.
+struct Check {
+    ActorValueInfo *av;
+    UInt32 needed;
 };
 
 // The options last listed, for which action; the option picked from them.
@@ -143,6 +155,8 @@ Chosen g_chosen;
 void *g_noneLogged = nullptr;
 // Option INFO FormID -> answer topic FormID, read once the data has loaded.
 std::unordered_map<UInt32, UInt32> g_links;
+// Option INFO FormID -> its skill check, for the options whose link names one.
+std::unordered_map<UInt32, Check> g_checks;
 bool g_linksRead = false;
 // The Player Dialogue action the engine ran last, and its scene.
 std::atomic<void *> g_running{nullptr}, g_runningScene{nullptr};
@@ -162,11 +176,22 @@ UInt32 Resolve(const std::string &plugin, const std::string &id) {
     return mod && mod->IsActive() ? mod->GetFormID(std::strtoul(id.c_str(), nullptr, 16)) : 0;
 }
 
-// One links file: lines of option plugin, option id, answer plugin, answer id, tab-separated; # starts a comment.
+// A link's optional skill check: columns 5-7, the actor value's plugin and id and the number needed.
+void ReadCheck(UInt32 option, const std::vector<std::string> &f, UInt32 *checks) {
+    if (f.size() < 7) return;
+    UInt32 id = Resolve(f[4], f[5]);
+    TESForm *av = id ? LookupFormByID(id) : nullptr;
+    if (!av || av->formType != kFormType_AVIF) return;
+    g_checks[option] = {static_cast<ActorValueInfo *>(av), UInt32(std::strtoul(f[6].c_str(), nullptr, 10))};
+    (*checks)++;
+}
+
+// One links file: lines of option plugin, option id, answer plugin, answer id[, skill plugin, skill id, needed],
+// tab-separated; # starts a comment.
 void ReadLinks(const std::string &path) {
     std::ifstream in(path);
     std::string line;
-    UInt32 read = 0, kept = 0;
+    UInt32 read = 0, kept = 0, checks = 0;
     while (std::getline(in, line)) {
         if (line.empty() || line[0] == '#') continue;
         std::vector<std::string> f;
@@ -179,10 +204,11 @@ void ReadLinks(const std::string &path) {
         read++;
         UInt32 option = Resolve(f[0], f[1]), answer = Resolve(f[2], f[3]);
         TESForm *info = option ? LookupFormByID(option) : nullptr, *topic = answer ? LookupFormByID(answer) : nullptr;
-        if (info && topic && info->formType == kFormType_INFO && topic->formType == kFormType_DIAL)
-            g_links[option] = answer, kept++;
+        if (!info || !topic || info->formType != kFormType_INFO || topic->formType != kFormType_DIAL) continue;
+        g_links[option] = answer, kept++;
+        ReadCheck(option, f, &checks);
     }
-    _MESSAGE("dialogue menu: %s: %u links, %u resolved", path.c_str(), read, kept);
+    _MESSAGE("dialogue menu: %s: %u links, %u resolved, %u skill checks", path.c_str(), read, kept, checks);
 }
 
 // Read every links file once (the data has loaded by the first menu).
@@ -223,6 +249,31 @@ NiPointer<TESObjectREFR> ActionActor(void *action, void *scene) {
     return ref;
 }
 
+// `prompt` with its build-time tag "[Speech 25] " written as FNV writes it (FalloutNV.exe's "[%s", "%s %d/%d",
+// "%s]  %s"): "[Speech 25]  text" when the player's value passes `check`, "[Speech 17/25]  text" when it fails.
+std::string Tagged(const char *prompt, const Check &check, bool *failed) {
+    std::string text(prompt ? prompt : "");
+    size_t open = text.find_first_not_of(' '), close = text.find(']');
+    size_t space = close == std::string::npos ? close : text.rfind(' ', close);
+    if (open == std::string::npos || text[open] != '[' || space == std::string::npos || space <= open) return text;
+    int value = int((*g_player)->actorValueOwner.GetValue(check.av));
+    *failed = value < int(check.needed);
+    std::string name = text.substr(open + 1, space - open - 1);
+    size_t rest = text.find_first_not_of(' ', close + 1);
+    char tag[128];
+    if (*failed) snprintf(tag, sizeof(tag), "[%s %d/%u]  ", name.c_str(), value, check.needed);
+    else snprintf(tag, sizeof(tag), "[%s %u]  ", name.c_str(), check.needed);
+    return tag + (rest == std::string::npos ? std::string() : text.substr(rest));
+}
+
+// An option's prompt as listed: tagged live when its link names a skill check.
+Option Listed(TESForm *info, TESForm *answer) {
+    Option option{info, answer, Prompt(info), At<UInt8>(info, INFO_SAID) != 0, false};
+    auto check = g_checks.find(info->formID);
+    if (check != g_checks.end()) option.prompt = Tagged(option.prompt.c_str(), check->second, &option.failed);
+    return option;
+}
+
 // How far each line of a menu got: lines, linked, passing their own conditions, answered (listed).
 struct Census {
     UInt32 lines = 0, linked = 0, passing = 0, answered = 0;
@@ -248,7 +299,7 @@ std::vector<Option> ListOptions(void *action, TESObjectREFR *npc, Census *census
                 continue;
             }
             census->answered++;
-            out.push_back({info, answer, Prompt(info), At<UInt8>(info, INFO_SAID) != 0});
+            out.push_back(Listed(info, answer));
         }
     return out;
 }
@@ -420,7 +471,7 @@ Fn Target(uintptr_t site, uintptr_t vanilla) {
 
 // ---- The menu's natives (f4se.plugins.F3NV in the menu's movie) ----
 
-// GetDialogueOptions(): [{text, said}] of the running action's options; [] when it has none of ours.
+// GetDialogueOptions(): [{text, said, failed}] of the running action's options; [] when it has none of ours.
 class GetOptionsNative : public GFxFunctionHandler {
 public:
     void Invoke(Args *args) override {
@@ -438,11 +489,12 @@ public:
         g_noneLogged = g_menu.options.empty() ? action : nullptr;
         for (UInt32 i = 0; i < g_menu.options.size(); i++) {
             const Option &o = g_menu.options[i];
-            GFxValue entry, text, said(o.said);
+            GFxValue entry, text, said(o.said), failed(o.failed);
             movie->CreateObject(&entry);
             movie->CreateString(&text, o.prompt.c_str());
             entry.SetMember("text", &text);
             entry.SetMember("said", &said);
+            entry.SetMember("failed", &failed);
             args->result->PushBack(&entry);
             _MESSAGE("dialogue menu: option %u: %08X '%s' -> topic %08X%s", i, o.info->formID, o.prompt.c_str(),
                      o.answer->formID, o.said ? " (said)" : "");
@@ -480,19 +532,38 @@ public:
     }
 };
 
+// The DialogueMenu running `movie` and its holder's shader target at `slot`; nulls when either is missing.
+void *HolderTarget(GFxMovieView *movie, size_t slot, IMenu **menu) {
+    *menu = *g_ui ? (*g_ui)->GetMenuByMovie(movie) : nullptr;
+    void *target = *menu ? At<void *>(*menu, slot) : nullptr;
+    return target && *static_cast<uintptr_t *>(target) == SHADER_TARGET_VTABLE.GetUIntPtr() ? target : nullptr;
+}
+
 // ShadeList(on): the game's translucent menu background behind the Question holder, where the list lives, on or
 // off. A fill inside a HUD-colored holder draws opaque (its alpha only darkens it), so the backdrop comes from here.
 class ShadeNative : public GFxFunctionHandler {
 public:
     void Invoke(Args *args) override {
         bool on = args->numArgs > 0 && args->args[0].GetBool();
-        IMenu *menu = *g_ui ? (*g_ui)->GetMenuByMovie(args->movie) : nullptr;
-        void *target = menu ? At<void *>(menu, MENU_QUESTION_TARGET) : nullptr;
-        bool found = target && *static_cast<uintptr_t *>(target) == SHADER_TARGET_VTABLE.GetUIntPtr();
-        if (found && on) EnableShadedBackground(target, MENU_NO_COLOR_BACKGROUND, FULL_QUAD);
-        if (found && !on) At<UInt32>(target, TARGET_FX_FLAGS) &= ~FX_BACKGROUND_QUAD;
-        if (!found) _MESSAGE("dialogue menu: no shader target for the list's background");
-        args->result->SetBool(found);
+        IMenu *menu = nullptr;
+        void *target = HolderTarget(args->movie, MENU_QUESTION_TARGET, &menu);
+        if (target && on) EnableShadedBackground(target, MENU_NO_COLOR_BACKGROUND, FULL_QUAD);
+        if (target && !on) At<UInt32>(target, TARGET_FX_FLAGS) &= ~FX_BACKGROUND_QUAD;
+        if (!target) _MESSAGE("dialogue menu: no shader target for the list's background");
+        args->result->SetBool(target != nullptr);
+    }
+};
+
+// TintFailed(): the Negative holder, where the menu puts its failed skill checks, in the game's own speech-challenge
+// Hard tint. The game re-tints the holders on each SetButtonText, so the menu calls this after them.
+class TintFailedNative : public GFxFunctionHandler {
+public:
+    void Invoke(Args *args) override {
+        IMenu *menu = nullptr;
+        void *target = HolderTarget(args->movie, MENU_NEGATIVE_TARGET, &menu);
+        if (target) TintChallenge(menu, target, CHALLENGE_HARD, false);
+        else _MESSAGE("dialogue menu: no shader target for failed skill checks");
+        args->result->SetBool(target != nullptr);
     }
 };
 
@@ -514,6 +585,7 @@ bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin) {
     RegisterFunction<LogNative>(plugin, movie, "Log");
     RegisterFunction<LeaveNative>(plugin, movie, "LeaveDialogue");
     RegisterFunction<ShadeNative>(plugin, movie, "ShadeList");
+    RegisterFunction<TintFailedNative>(plugin, movie, "TintFailed");
     return true;
 }
 

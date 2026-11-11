@@ -107,6 +107,29 @@ def test_rebuild_takes_every_scene_once_as_its_winner():
     assert MR.scenes([game, mod]) == [mod_override, mod_own]
 
 
+def _value_test(op: int, value: float, av: int, run_on: int = MR.TARGET) -> bytes:
+    """A GetValue condition's data on actor value `av`."""
+    return R.pack_ctda(op, value, MR.GET_VALUE, av, run_on=run_on)[6:]
+
+
+def _answer(*conditions: bytes) -> SimpleNamespace:
+    """An INFO with `conditions`."""
+    return SimpleNamespace(form_id=2, subrecords=[_sub('CTDA', c) for c in conditions])
+
+
+def test_skill_check_is_the_answer_condition_matching_the_prompt_tag():
+    """An option's check is the answer's GetValue test on the player that the prompt's tag number names."""
+    speech, sneak = 0x0100081C, 0x01000810
+    option = SimpleNamespace(form_id=1, subrecords=[_sub('RNAM', b'[Speech 25] Trust me.\0')])
+    assert MR.skill_check(option, [_answer(_value_test(0x60, 25.0, speech))]) == (speech, 25)
+    both = _answer(_value_test(0x40, 24.0, sneak), _value_test(0x60, 25.0, speech))
+    assert MR.skill_check(option, [both]) == (sneak, 25)
+    assert MR.skill_check(option, [_answer(_value_test(0x40, 20.0, speech))]) == ()
+    assert MR.skill_check(option, [_answer(_value_test(0x60, 25.0, speech, run_on=0))]) == ()
+    untagged = SimpleNamespace(form_id=1, subrecords=[_sub('RNAM', b'Trust me.\0')])
+    assert MR.skill_check(untagged, [_answer(_value_test(0x60, 25.0, speech))]) == ()
+
+
 def test_movie_draws_only_white_so_the_hud_color_shows():
     """Every fill is white, never a black backdrop (it would draw opaque).
 

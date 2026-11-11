@@ -17,18 +17,25 @@ See: docs/fork/fo4_dialogue_menu_plan.md#vulpes
 """
 
 import argparse
+import re
+import struct
 from collections import Counter, defaultdict
 from pathlib import Path
 
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest, pack_topic
 from fo4_import.dialogue_menu.test_mod import LINKS, write_links
 from fo4_import.spike import records as R
+from fo4_import.spike.conditions import FO4, PLAYER_REF
+from fo4_import.spike.skill_tags import NEEDED, REFERENCE, TARGET, USE_GLOBAL
 from tes5_import.base.writer import pack_subrecord
-from tools.validate.preflight.plugin_index import first, load_plugin, u32
+from tools.validate.preflight.plugin_index import every, first, load_plugin, u32, zstring
 from tools.validate.preflight.xdi_menus import PLAYER_TOPICS, pair_lines
 
 #: An INFO's response subrecords, which a copy sharing them (DNAM) leaves out.
 RESPONSE_TAGS = frozenset({'TRDA', 'NAM1', 'NAM2', 'NAM3', 'NAM4', 'SNAM', 'LNAM', 'DNAM'})
+#: The build's skill-check tag opening an option's prompt (skill_tags.tagged), and FO4's GetValue condition.
+TAG = re.compile(r'\s*\[[^\]]+ (\d+)\]')
+GET_VALUE = FO4.index('GetValue')
 
 
 def numbered(plugins: list) -> list:
@@ -84,6 +91,24 @@ def scene_menus(scene) -> list:
     return out
 
 
+def checked_value(ctda: bytes, needed: int) -> int:
+    """The actor value FormID of condition `ctda` when it tests the player's value against `needed`; 0 otherwise."""
+    op, value, func, av, run_on, ref = ctda[0], *struct.unpack_from('<fHxxIxxxxII', ctda, 4)
+    on_player = run_on == TARGET or (run_on == REFERENCE and ref == PLAYER_REF)
+    tests = func == GET_VALUE and on_player and not op & USE_GLOBAL and op & 0xE0 in NEEDED
+    return av if tests and int(round(value)) + NEEDED[op & 0xE0] == needed else 0
+
+
+def skill_check(option, answers: list) -> tuple:
+    """(actor value FormID, number needed) of the skill check `option`'s prompt tag names, found in the conditions
+    of its answers; () when the prompt has no tag or no answer tests it."""
+    tag = TAG.match(zstring(first(option, 'RNAM') or b''))
+    needed = int(tag.group(1)) if tag else 0
+    found = (checked_value(c, needed) for a in answers if tag for c in every(a, 'CTDA'))
+    av = next((v for v in found if v), 0)
+    return (av, needed) if av else ()
+
+
 def scenes(indexes: list) -> list:
     """Every scene of the load order once, its winning record, in load order."""
     fids = dict.fromkeys(s.form_id for i in indexes for s in i.by_type['SCEN'])
@@ -113,8 +138,11 @@ def rebuild(plugins: list, name: str) -> tuple:
                 next_id += len(infos)
                 edid = f'F3NVMenu_{option.form_id:08X}'
                 by_quest[quest].append(pack_topic(R.pack_dial(dial, edid, quest, R.TOPIC_SCENE, len(infos)), dial, infos))
-                rows.append((names[option.form_id >> 24], option.form_id, name, dial))
+                check = skill_check(option, answers)
+                skill = (names[check[0] >> 24], check[0], check[1]) if check else ()
+                rows.append((names[option.form_id >> 24], option.form_id, name, dial) + skill)
                 counts['answers'] += len(infos)
+                counts['skill checks'] += bool(check)
     w = FO4PluginWriter(masters=names, is_esm=False, description='F3NV dialogue menu test: rebuilt menus')
     for quest, topics in by_quest.items():
         qust = winner(indexes, quest)
