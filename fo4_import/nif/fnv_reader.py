@@ -1,9 +1,10 @@
 """An FNV or FO3 NIF read into our own blocks (fnv_schema), without pyffi's per-value objects: vertex, triangle
-and other arrays of numbers stay numpy arrays (Values, Records); everything else reads as pyffi names it.
+and other arrays of numbers stay numpy arrays (Values, Records), read and written through as pyffi's; everything
+else reads as pyffi names it.
 
-A block type pyffi does not know, or a block that fails to read, is skipped by its header size and listed in
+A block type the layouts do not know, or a block that fails to read, is skipped by its header size and listed in
 `NifData.skipped`; a block read to a size other than its header's is listed in `NifData.resized` (pyffi skips
-the same way). The converter keeps pyffi as the fallback for a file with anything skipped.
+the same way). fnv_file reads a file with anything skipped, or another version, with pyffi instead.
 
 See: docs/fork/research/fnv_nif_reader.md#reader
 """
@@ -14,11 +15,13 @@ from pathlib import Path
 
 import numpy as np
 
-from fo4_import.nif.fnv_schema import DTYPES, NifFormat, fixed_dtype, klass, plan
-from fo4_import.nif.fnv_file import header_start
+from fo4_import.nif.fnv_schema import (BS_VERSIONS, DTYPES, USER_VERSION, VERSION, columns, copy_row,
+                                      fixed_dtype, klass, layouts, plan, row_class, wide)
 
 #: Elements converted to Python values per step while iterating a large array.
 CHUNK = 4096
+#: The format names a NIF header line starts with.
+NAMES = (b'Gamebryo File Format', b'NetImmerse File Format')
 
 
 # ---------------------------------------------------------------------------
@@ -45,37 +48,38 @@ class Values:
         """One element as a Python number, or a slice as a list."""
         return self.array[index].tolist()
 
+    def __setitem__(self, index, value) -> None:
+        """Store `value` at `index`."""
+        self.array[index] = value
+
     def __array__(self, dtype=None, copy=None):
         """The numpy array (np.array(view) needs no iteration)."""
         return self.array if dtype is None else self.array.astype(dtype)
 
 
 class Records(Values):
-    """A numpy structured array of one fixed-layout struct type seen as pyffi's array of our structs."""
+    """A numpy structured array of one fixed-layout struct type seen as pyffi's array of structs: each element a
+    row of the array, read and written through."""
 
     def __init__(self, array: np.ndarray, sub: tuple, key: tuple):
-        """The view of `array`: structs of (pyffi class, template) `sub` at version `key`."""
+        """The view of `array`: structs of (name, template) `sub` at version `key`."""
         super().__init__(array)
-        self.sub, self.key = sub, key
+        self.row, self.columns = row_class(sub[0], key, sub[1]), columns(array)
 
     def __iter__(self):
-        """The elements as our structs."""
-        for start in range(0, len(self.array), CHUNK):
-            yield from (_record(self.sub, self.key, v) for v in self.array[start:start + CHUNK].tolist())
+        """The elements, as rows."""
+        row, c = self.row, self.columns
+        return (row(c, i) for i in range(len(self.array)))
 
     def __getitem__(self, index):
-        """One element as our struct, or a slice as a list of them."""
+        """One element as a row, or a slice as a list of them."""
         if isinstance(index, slice):
-            return [_record(self.sub, self.key, v) for v in self.array[index].tolist()]
-        return _record(self.sub, self.key, self.array[index].tolist())
+            return [self.row(self.columns, i) for i in range(len(self.array))[index]]
+        return self.row(self.columns, range(len(self.array))[index])
 
-
-def _record(sub: tuple, key: tuple, values: tuple):
-    """Our struct of fixed-layout (pyffi class, template) `sub` from a structured array element's tolist()."""
-    out = klass(sub[0])(sub[1])
-    for f, value in zip(plan(sub[0], key, sub[1])[0], values):
-        out.__dict__[f.name] = _record(f.sub, key, value) if f.kind == 'struct' else value
-    return out
+    def __setitem__(self, index, value) -> None:
+        """Every field of `value` into element `index`."""
+        copy_row(self[index], value)
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +142,9 @@ class _Cursor:
         return self.raw[self.pos - n:self.pos]
 
     def array(self, dtype, count: int) -> np.ndarray:
-        """`count` elements of numpy `dtype`, copied out."""
+        """`count` elements of numpy `dtype` on disk, as a new array with floats widened (fnv_schema.wide)."""
         dtype = np.dtype(dtype)
-        out = np.frombuffer(self.raw, dtype, count, self.pos).copy()
+        out = np.frombuffer(self.raw, dtype, count, self.pos).astype(wide(dtype))
         self.pos += dtype.itemsize * count
         return out
 
@@ -162,7 +166,7 @@ def _matrix(c: _Cursor) -> list:
 
 
 def _uv_sets(c: _Cursor) -> int:
-    """The UV-set byte; bit 0 only in a 20.2.0.7 Bethesda file, as patched pyffi.
+    """The UV-set byte; bit 0 only in a Bethesda 20.2.0.7 file, as patched pyffi.
 
     See: docs/commentary/asset_convert_nif.md#bethesda-geometry-data-flags
     """
@@ -221,10 +225,10 @@ def _value(c: _Cursor, s, f, arg):
     return value
 
 
-def read_struct(c: _Cursor, cls, template=None, arg=None):
-    """Our struct of pyffi struct `cls` read at the cursor, as pyffi's StructBase.read."""
-    out = klass(cls)(template, arg)
-    fields, dups = plan(cls, c.key, template)
+def read_struct(c: _Cursor, name: str, template=None, arg=None):
+    """Our struct `name` read at the cursor, as pyffi's StructBase.read."""
+    out = klass(name)(template, arg)
+    fields, dups = plan(name, c.key, template)
     seen = set() if dups else None
     for f in fields:
         if seen is not None and f.name in seen or f.cond is not None and not f.cond(out):
@@ -240,14 +244,21 @@ def read_struct(c: _Cursor, cls, template=None, arg=None):
 # Files
 # ---------------------------------------------------------------------------
 
+def header_start(raw: bytes) -> int:
+    """Where the format name starts in `raw`'s header line (0: at the start, or none)."""
+    line = raw[:raw.find(b'\n')] if b'\n' in raw else raw
+    return 0 if line.startswith(NAMES) else max(0, *(line.rfind(name) for name in NAMES))
+
+
 def read_header(raw: bytes) -> tuple:
-    """(NifData, [(block type, size)], position of the first block) of a 20.2.0.7 Bethesda NIF."""
+    """(NifData, [(block type, size)], position of the first block) of an FO3/FNV NIF (fnv_schema.KEYS);
+    ValueError for another version."""
     c = _Cursor(raw, None, [])
     c.pos = raw.index(b'\n') + 1
     version, _, user, n_blocks = c.take('I'), c.take('B'), c.take('I'), c.take('I')
-    if version < 0x14020007 or user < 10:
-        raise ValueError(f'not an FO3/FNV NIF: {version:#x} {user}')
-    bsver = c.take('I')
+    bsver = c.take('I') if version == VERSION and user == USER_VERSION else None
+    if bsver not in BS_VERSIONS:
+        raise ValueError(f'not an FO3/FNV NIF: {version:#x} {user} {bsver}')
     for _ in range(3):
         c.bytes(c.take('B'))
     types = [c.bytes(c.take('I')).decode('latin1') for _ in range(c.take('H'))]
@@ -260,11 +271,11 @@ def read_header(raw: bytes) -> tuple:
 
 def _block(c: _Cursor, data: NifData, at: int, kind: str, size: int):
     """Block `at` of type `kind` and `size` bytes read at the cursor (left at its end), or Unread."""
-    start, cls = c.pos, getattr(NifFormat, kind, None)
+    start = c.pos
     try:
-        if cls is None:
-            raise ValueError('type unknown to pyffi')
-        block = read_struct(c, cls)
+        if kind not in layouts()['structs']:
+            raise ValueError('type unknown to the layouts')
+        block = read_struct(c, kind)
     except (ValueError, struct.error, IndexError, TypeError, AttributeError) as error:
         data.skipped.append((at, kind, str(error)))
         block = Unread(kind, c.raw[start:start + size])
@@ -285,7 +296,7 @@ def _resolve(c: _Cursor, data: NifData) -> None:
 
 
 def read_bytes(raw: bytes) -> NifData:
-    """The NifData of an FNV/FO3 NIF's bytes (stray bytes before its header line skipped, as fnv_file)."""
+    """The NifData of an FNV/FO3 NIF's bytes (stray bytes before its header line skipped)."""
     raw = raw[header_start(raw):]
     data, entries, pos = read_header(raw)
     c = _Cursor(raw, (data.version, data.user_version, data.user_version_2), data.strings)

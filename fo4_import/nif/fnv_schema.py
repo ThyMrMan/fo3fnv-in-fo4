@@ -1,14 +1,18 @@
-"""The FNV/FO3 NIF schema for fnv_reader: what to read for each struct type at one file version, compiled once per
-process from pyffi's nif.xml classes (patched as the converter reads them), and the classes blocks are read into.
+"""The FNV/FO3 NIF schema for fnv_reader: what to read for each struct type at one file version, compiled from the
+frozen layouts in fnv_layouts.json (tools/generators/gen_fnv_nif_layouts.py), and the classes blocks are read into.
 
 A block class mirrors pyffi's: same name, bases, field names and helper methods (`tree`, `get_transform`, ...),
 the helpers bound to FORMAT, where a struct name gives our class. A field never read reads pyffi's default.
+Our classes and pyffi's accept each other's instances in isinstance(), so converter code naming NifFormat's
+classes, and a pyffi object made beside our blocks, work with either reader.
 
 See: docs/fork/research/fnv_nif_reader.md#schema
 """
 
 import functools
+import json
 import types
+from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
@@ -17,44 +21,34 @@ from asset_convert.nif.pyffi_monkey_patch import apply_patches
 
 apply_patches()
 from pyffi.formats.nif import NifFormat
-from pyffi.object_models import common
 from pyffi.object_models.xml.bit_struct import BitStructBase
-from pyffi.object_models.xml.enum import EnumBase
-from pyffi.object_models.xml.expression import Expression
 from pyffi.object_models.xml.struct_ import StructBase
 
-#: Basic pyffi types read as one fixed-size number (by their struct format).
-NUMBERS = (common.Int, common.Float, NifFormat.StringOffset)
-#: pyffi basic types read as their own kind (fnv_reader._READERS), most specific first.
-KINDS = ((NifFormat.Ptr, 'ptr'), (NifFormat.Ref, 'ref'), (NifFormat.string, 'string'),
-         (NifFormat.bool, 'bool'), (NifFormat.ShortString, 'short'), (NifFormat.LineString, 'line'),
-         (NifFormat.ByteArray, 'bytes'), (NifFormat.ByteMatrix, 'matrix'), (common.SizedString, 'sized'),
-         (common.Char, 'char'))
-#: The pyffi classes whose read() fnv_reader's kinds reproduce; a basic type reading any other way is refused.
-READ_BY = frozenset((common.Int, common.Float, NifFormat.Ref, NifFormat.string, NifFormat.bool, NifFormat.ShortString,
-                     NifFormat.LineString, NifFormat.ByteArray, NifFormat.ByteMatrix, common.SizedString,
-                     common.Char, EnumBase, BitStructBase))
-#: Basic types the converter's pyffi patches give their own read, by name: their fnv_reader kind.
-CUSTOM = {'NumUVSets': 'uvsets'}
-#: Method names of pyffi structs that read, write or walk pyffi's own storage; never borrowed.
-IO_NAMES = frozenset(('read', 'write', 'get_size', 'fix_links', 'get_links', 'get_refs', 'get_strings',
-                      'get_hash', '__init__', '__str__', '__repr__', 'deepcopy', 'replace_global_node',
-                      'get_attribute', 'set_attribute', 'get_basic_attribute', 'set_basic_attribute',
-                      'get_template_attribute', 'set_template_attribute', '_get_filtered_attribute_list',
-                      '__getattr__', '__setattr__', '__getattribute__'))
-#: numpy dtype of each struct format character; '?' is pyffi's one-byte bool.
+#: The file version, user version and BS versions fnv_reader reads; anything else is pyffi's.
+VERSION, USER_VERSION, BS_VERSIONS = 0x14020007, 11, range(35)
+#: Every (version, user version, BS version) fnv_reader reads.
+KEYS = tuple((VERSION, USER_VERSION, b) for b in BS_VERSIONS)
+#: The frozen layouts.
+LAYOUTS_PATH = Path(__file__).with_name('fnv_layouts.json')
+#: numpy dtype on disk of each struct format character; '?' is pyffi's one-byte bool.
 DTYPES = {'f': '<f4', 'i': '<i4', 'I': '<u4', 'h': '<i2', 'H': '<u2', 'b': 'i1', 'B': 'u1', 'q': '<i8',
           'Q': '<u8', '?': '?'}
-#: Python operators of pyffi's expression operators that differ.
-OPERATORS = {'&&': 'and', '||': 'or'}
+#: Struct names whose pyffi arrays are numpy views comparing by value (nif_geom_array); ours compare so too.
+BY_VALUE = frozenset(('Vector3', 'Color4', 'TexCoord', 'Vector4'))
 
 
 # ---------------------------------------------------------------------------
 # Values read
 # ---------------------------------------------------------------------------
 
+@functools.cache
+def layouts() -> dict:
+    """The frozen layouts: {'structs': ..., 'basics': ..., 'bits': ...}."""
+    return json.loads(LAYOUTS_PATH.read_text(encoding='utf-8'))
+
+
 class Field(NamedTuple):
-    """One field of a struct plan: its name, reader kind, struct format, sub-type (struct: (pyffi class, template);
+    """One field of a struct plan: its name, reader kind, struct format, sub-type (struct: (name, template);
     bits: BitFields class), argument, counts and condition (callables of the struct being read, or None)."""
     name: str
     kind: str
@@ -66,18 +60,36 @@ class Field(NamedTuple):
     cond: object
 
 
-class Struct:
+class _Ours(type):
+    """The metaclass of our structs: an instance of the pyffi struct a class mirrors is an instance too."""
+
+    def __instancecheck__(cls, obj) -> bool:
+        """isinstance() of `obj`: ours, or pyffi's struct of the class mirrored."""
+        if type.__instancecheck__(cls, obj):
+            return True
+        theirs = cls.__dict__.get('PYFFI')
+        return theirs is not None and type.__instancecheck__(theirs, obj)
+
+
+class Struct(metaclass=_Ours):
     """A NIF block or compound read by fnv_reader: fields are attributes; a field never read is pyffi's default."""
 
     def __init__(self, template=None, argument=None, parent=None):
-        """An empty struct (every field at its default), as pyffi's constructor."""
+        """An empty struct of `template` (a type name), as pyffi's constructor."""
+        self.__dict__['_template'] = template
         self.arg = argument
 
     def __getattr__(self, name):
         """pyffi's default for field `name`, kept; AttributeError for no such field."""
-        value = default(type(self).PYFFI, name)
+        value = default(type(self).PYFFI, name, self.__dict__.get('_template'))
         self.__dict__[name] = value
         return value
+
+    def __setattr__(self, name, value):
+        """Set `name`; a pyffi class set as `__class__` becomes ours."""
+        if name == '__class__' and not isinstance(value, _Ours):
+            value = klass(value.__name__)
+        object.__setattr__(self, name, value)
 
     def get_refs(self, data=None) -> list:
         """The blocks this struct references (not points to), as pyffi's get_refs()."""
@@ -88,6 +100,16 @@ class Struct:
         return _linked(self, True)
 
 
+def _theirs(cls, obj) -> bool:
+    """isinstance() for pyffi struct `cls`: pyffi's instance, or ours mirroring it."""
+    if type.__instancecheck__(cls, obj):
+        return True
+    return type.__instancecheck__(Struct, obj) and issubclass(type(obj).PYFFI, cls)
+
+
+type(StructBase).__instancecheck__ = _theirs
+
+
 def _linked(s: Struct, pointers: bool) -> list:
     """The blocks struct `s` links to as pyffi's get_refs()/get_links() find them without file data: its attribute
     list unfiltered by version, the first field of each name whose condition holds; pointers too when `pointers`.
@@ -95,7 +117,7 @@ def _linked(s: Struct, pointers: bool) -> list:
     See: docs/fork/research/fnv_nif_reader.md#compat
     """
     out, seen = [], set()
-    for name, cond, kind in link_fields(type(s).PYFFI):
+    for name, cond, kind in link_fields(type(s).__name__):
         if name in seen or cond is not None and not cond(s):
             continue
         seen.add(name)
@@ -154,115 +176,76 @@ def _bit_property(shift: int, mask: int) -> property:
 # Plans
 # ---------------------------------------------------------------------------
 
-def _active(attr, key: tuple) -> bool:
-    """Whether a pyffi attribute exists at file version `key` (version, user version, BS version)."""
-    version, user, bsver = key
-    if getattr(attr, 'is_abstract', False):
-        return False
-    if attr.ver1 is not None and version < attr.ver1 or attr.ver2 is not None and version > attr.ver2:
-        return False
-    if getattr(attr, 'userver', None) is not None and user != attr.userver:
-        return False
-    vercond = getattr(attr, 'vercond', None)
-    header = types.SimpleNamespace(version=version, user_version=user, user_version_2=bsver)
-    return vercond is None or bool(vercond.eval(header))
-
-
 @functools.cache
-def bit_fields(cls, key: tuple) -> type:
-    """Our BitFields class of pyffi bitstruct `cls` at file version `key`."""
-    body, shift = {'PYFFI': cls}, 0
-    for attr in (a for a in cls._attribute_list if _active(a, key)):
-        body[attr.name] = _bit_property(shift, (1 << attr.numbits) - 1)
-        shift += attr.numbits
-    return type(cls.__name__, (BitFields,), {**body, 'MASK': (1 << shift) - 1})
-
-
-def _source(node) -> str:
-    """Python source of a pyffi Expression node over struct `s`."""
-    if isinstance(node, Expression):
-        left, op, right = _source(node._left), node._op, _source(node._right)
-        if not op:
-            return left
-        if op == '!':
-            return f'(not {right})'
-        return f'({left} {OPERATORS.get(op, op)} {right})'
-    if isinstance(node, str):
-        return "''" if node in ('', '""') else 's.' + node
-    if isinstance(node, type):
-        return f'isinstance(s, F.{node.__name__})'
-    return repr(node)
-
-
-@functools.cache
-def _compiled(expression) -> object:
-    """A callable of struct `s` evaluating pyffi `expression`; None for none."""
-    if expression is None:
+def _compiled(source: 'str | None') -> object:
+    """A callable of struct `s` evaluating Python `source`; None for none."""
+    if source is None:
         return None
-    return eval(f'lambda s: {_source(expression)}', {'F': FORMAT})
+    return eval(f'lambda s: {source}', {'F': FORMAT})
 
 
-def kind_of(t) -> tuple:
-    """(reader kind, struct format) of pyffi type `t`; TypeError for a basic type whose read is its own."""
-    if issubclass(t, StructBase):
+@functools.cache
+def _exists(gate: 'str | None', key: tuple) -> bool:
+    """Whether a field with version gate `gate` exists at file version `key`."""
+    header = types.SimpleNamespace(version=key[0], user_version=key[1], user_version_2=key[2])
+    return gate is None or bool(_compiled(gate)(header))
+
+
+@functools.cache
+def bit_fields(name: str, key: tuple) -> type:
+    """Our BitFields class of bitstruct `name` at file version `key`."""
+    body, shift = {}, 0
+    for field_name, bits, gate in layouts()['bits'][name]:
+        if _exists(gate, key):
+            body[field_name] = _bit_property(shift, (1 << bits) - 1)
+            shift += bits
+    return type(name, (BitFields,), {**body, 'MASK': (1 << shift) - 1})
+
+
+def kind_of(name: 'str | None') -> tuple:
+    """(reader kind, struct format) of type `name`; TypeError for none, or a type read its own way."""
+    if name in layouts()['structs']:
         return 'struct', ''
-    if t.__name__ in CUSTOM:
-        return CUSTOM[t.__name__], 'B'
-    if next(c for c in t.__mro__ if 'read' in vars(c)) not in READ_BY:
-        raise TypeError(f'pyffi type {t.__name__} reads its own way')
-    if issubclass(t, (BitStructBase, EnumBase)):
-        return 'bits' if issubclass(t, BitStructBase) else 'num', t._struct
-    kind = next((k for base, k in KINDS if issubclass(t, base)), None)
-    if kind:
-        return kind, '?' if kind == 'bool' else 'i' if kind in ('ref', 'ptr', 'string') else ''
-    if issubclass(t, NUMBERS):
-        return 'num', 'f' if issubclass(t, common.Float) else t._struct
-    raise TypeError(f'no reader for pyffi type {t.__name__}')
+    kind, fmt = layouts()['basics'].get(name) or ('refused', f'no type {name}')
+    if kind == 'refused':
+        raise TypeError(fmt)
+    return kind, fmt
 
 
-def _field(attr, key: tuple, template) -> Field:
-    """The Field of pyffi attribute `attr` in a struct read with `template` at version `key`."""
-    t = attr.type_ if attr.type_ is not type(None) else template
-    sub_template = attr.template if attr.template is not type(None) else template
+def _field(row: list, key: tuple, template) -> Field:
+    """The Field of layout `row` in a struct read with `template` at version `key`."""
+    name, t, sub_template, arg, arr1, arr2, cond = row[:7]
+    t = template if t == '*' else t
+    sub_template = template if sub_template == '*' else sub_template
     kind, fmt = kind_of(t)
     sub = (t, sub_template) if kind == 'struct' else bit_fields(t, key) if kind == 'bits' else None
-    return Field(attr.name, kind, fmt, sub, attr.arg, _compiled(attr.arr1), _compiled(attr.arr2),
-                 _compiled(attr.cond))
-
-
-def _link_kind(t) -> str:
-    """'ref', 'ptr', 'struct' (a struct holding links), 'template' or '' (no links) for pyffi type `t`."""
-    if t is type(None):
-        return 'template'
-    if issubclass(t, NifFormat.Ptr):
-        return 'ptr'
-    if issubclass(t, NifFormat.Ref):
-        return 'ref'
-    return 'struct' if issubclass(t, StructBase) and t._has_links else ''
+    return Field(name, kind, fmt, sub, arg, _compiled(arr1), _compiled(arr2), _compiled(cond))
 
 
 @functools.cache
-def link_fields(cls) -> tuple:
-    """((name, condition, link kind), ...) of struct `cls`, all versions."""
-    return tuple((a.name, _compiled(a.cond), _link_kind(a.type_)) for a in cls._attribute_list)
+def link_fields(name: str) -> tuple:
+    """((field, condition, link kind), ...) of struct `name`, all versions."""
+    return tuple((row[0], _compiled(row[6]), row[8]) for row in layouts()['structs'][name])
 
 
 @functools.cache
-def plan(cls, key: tuple, template=None) -> tuple:
-    """(fields, any duplicate name) of pyffi struct `cls` at version `key`; a field after one of its name that
-    has no condition is never read, so left out."""
+def plan(name: str, key: tuple, template=None) -> tuple:
+    """(fields, any duplicate name) of struct `name` at version `key`; a field after one of its name that has no
+    condition is never read, so left out."""
     fields, always = [], set()
-    for attr in (a for a in cls._attribute_list if _active(a, key) and a.name not in always):
-        fields.append(_field(attr, key, template))
-        always |= {attr.name} if attr.cond is None else set()
+    for row in layouts()['structs'][name]:
+        if row[0] in always or not _exists(row[7], key):
+            continue
+        fields.append(_field(row, key, template))
+        always |= {row[0]} if row[6] is None else set()
     return tuple(fields), len({f.name for f in fields}) < len(fields)
 
 
 @functools.cache
-def fixed_dtype(cls, key: tuple, template=None):
-    """The numpy dtype of pyffi struct `cls` when every instance has the same layout (only numbers and such
+def fixed_dtype(name: str, key: tuple, template=None):
+    """The numpy dtype on disk of struct `name` when every instance has the same layout (only numbers and such
     structs, no condition, count or duplicate); else None."""
-    fields, dups = plan(cls, key, template)
+    fields, dups = plan(name, key, template)
     parts = []
     for f in fields:
         if dups or f.cond or f.arr1 or f.kind not in ('num', 'bool', 'struct'):
@@ -274,6 +257,17 @@ def fixed_dtype(cls, key: tuple, template=None):
     return np.dtype(parts) if parts else None
 
 
+@functools.cache
+def wide(dtype: np.dtype) -> np.dtype:
+    """`dtype` with float32 as float64, as pyffi holds floats.
+
+    See: docs/fork/research/fnv_nif_reader.md#compat
+    """
+    if dtype.names is None:
+        return np.dtype('<f8') if dtype == np.dtype('<f4') else dtype
+    return np.dtype([(n, wide(dtype.fields[n][0])) for n in dtype.names])
+
+
 # ---------------------------------------------------------------------------
 # Our classes, mirroring pyffi's
 # ---------------------------------------------------------------------------
@@ -282,16 +276,20 @@ class _Format:
     """NifFormat as the borrowed helpers see it: a struct class name gives ours (klass), anything else pyffi's."""
 
     def __getattr__(self, name):
-        """Our class for pyffi struct `name`, else pyffi's attribute; kept once looked up."""
-        value = getattr(NifFormat, name)
-        if isinstance(value, type) and issubclass(value, StructBase):
-            value = klass(value)
+        """Our class for struct `name`, else pyffi's attribute; kept once looked up."""
+        value = klass(name) if name in layouts()['structs'] else getattr(NifFormat, name)
         setattr(self, name, value)
         return value
 
 
 #: The NifFormat namespace of borrowed helpers and of converter code reading our blocks.
 FORMAT = _Format()
+#: Method names of pyffi structs that read, write or walk pyffi's own storage; never borrowed.
+IO_NAMES = frozenset(('read', 'write', 'get_size', 'fix_links', 'get_links', 'get_refs', 'get_strings',
+                      'get_hash', '__init__', '__str__', '__repr__', 'deepcopy', 'replace_global_node',
+                      'get_attribute', 'set_attribute', 'get_basic_attribute', 'set_basic_attribute',
+                      'get_template_attribute', 'set_template_attribute', '_get_filtered_attribute_list',
+                      '__getattr__', '__setattr__', '__getattribute__'))
 
 
 def _generated(cls) -> bool:
@@ -322,7 +320,7 @@ def _split(cls) -> tuple:
         if base is StructBase or not issubclass(base, StructBase):
             continue
         if _generated(base):
-            bases.append(klass(base))
+            bases.append(klass(base.__name__))
             continue
         more_bases, more = _split(base)
         bases += [b for b in more_bases if b not in bases]
@@ -332,10 +330,64 @@ def _split(cls) -> tuple:
 
 
 @functools.cache
-def klass(cls) -> type:
-    """Our class of pyffi struct `cls`: its name, mirrored bases, helpers."""
+def klass(name: str) -> type:
+    """Our class of struct `name`: its name, mirrored bases, pyffi's helpers."""
+    cls = getattr(NifFormat, name)
     bases, helpers = _split(cls)
-    return type(cls.__name__, tuple(bases) or (Struct,), {**helpers, 'PYFFI': cls})
+    return _Ours(name, tuple(bases) or (Struct,), {**helpers, 'PYFFI': cls})
+
+
+# ---------------------------------------------------------------------------
+# Rows of fixed-layout struct arrays
+# ---------------------------------------------------------------------------
+
+def columns(array: np.ndarray) -> dict:
+    """{field: column} of structured `array`; a struct field's as its columns."""
+    return {n: columns(array[n]) if array.dtype[n].names else array[n] for n in array.dtype.names}
+
+
+def _row_property(f: Field, key: tuple) -> property:
+    """A property of row field `f` reading and writing its column at the row's index."""
+    name = f.name
+    if f.kind != 'struct':
+        return property(lambda s: s._c[name][s._i].item(),
+                        lambda s, v: s._c[name].__setitem__(s._i, v))
+    sub = (f.sub[0], key, f.sub[1])
+    return property(lambda s: row_class(*sub)(s._c[name], s._i),
+                    lambda s, v: copy_row(row_class(*sub)(s._c[name], s._i), v))
+
+
+def _by_value(s, other) -> bool:
+    """Whether every field of row `s` equals `other`'s, as pyffi's numpy views compare."""
+    if other is None:
+        return False
+    try:
+        return all(getattr(s, n) == getattr(other, n) for n in s._c)
+    except AttributeError:
+        return NotImplemented
+
+
+def _row_init(s, c: dict, i: int) -> None:
+    """The row `i` of columns `c`."""
+    object.__setattr__(s, '_c', c)
+    object.__setattr__(s, '_i', i)
+
+
+@functools.cache
+def row_class(name: str, key: tuple, template=None) -> type:
+    """Our class of fixed-layout struct `name` (version `key`) whose instance reads and writes one row of
+    columns: row_class(...)(columns, index), as pyffi's numpy-backed array views."""
+    body = {'__slots__': ('_c', '_i'), '__init__': _row_init}
+    body.update({f.name: _row_property(f, key) for f in plan(name, key, template)[0]})
+    if name in BY_VALUE:
+        body.update(__eq__=_by_value, __ne__=lambda s, o: not _by_value(s, o), __hash__=None)
+    return _Ours(name, (klass(name),), body)
+
+
+def copy_row(row, value) -> None:
+    """Every field of `value` into `row`."""
+    for name in row._c:
+        setattr(row, name, getattr(value, name))
 
 
 # ---------------------------------------------------------------------------
@@ -343,26 +395,28 @@ def klass(cls) -> type:
 # ---------------------------------------------------------------------------
 
 @functools.cache
-def _pyffi_default(cls):
-    """A default-constructed pyffi instance of `cls`, once per process."""
-    return cls()
+def _pyffi_default(cls, template: 'str | None'):
+    """A default pyffi `cls` of `template` (a type name), once per process."""
+    return cls(template=getattr(NifFormat, template) if template else None)
 
 
 def ours(value):
     """pyffi value `value` as ours: a struct as our struct, a bitstruct as BitFields, an array as a list."""
+    if type.__instancecheck__(Struct, value):
+        return value
     if isinstance(value, StructBase):
-        out = klass(type(value))()
+        out = klass(type(value).__name__)()
         out.__dict__.update({n: ours(getattr(value, n)) for n in type(value)._names})
         return out
     if isinstance(value, BitStructBase):
-        return bit_fields(type(value), (0, 0, 0))(int(value))
+        return bit_fields(type(value).__name__, KEYS[-1])(int(value))
     if isinstance(value, list):
         return [ours(v) for v in value]
     return value
 
 
-def default(cls, name: str):
-    """pyffi's default of field `name` of struct `cls`, as ours."""
+def default(cls, name: str, template: 'str | None' = None):
+    """pyffi's default of field `name` of pyffi `cls` of `template`, as ours."""
     if name.startswith('_') or name not in cls._names:
-        raise AttributeError(name)
-    return ours(getattr(_pyffi_default(cls), name))
+        raise AttributeError(f"'{cls.__name__}' object has no attribute '{name}'")
+    return ours(getattr(_pyffi_default(cls, template), name))

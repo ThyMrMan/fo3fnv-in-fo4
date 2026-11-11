@@ -62,7 +62,7 @@ def block_types(path: Path) -> set:
         with open(path, 'rb') as f:
             raw = f.read(HEADER_BYTES)
         raw = raw if len(raw) < HEADER_BYTES else path.read_bytes()
-        return {kind for kind, _ in fnv_reader.read_header(raw[fnv_file.header_start(raw):])[1]}
+        return {kind for kind, _ in fnv_reader.read_header(raw[fnv_reader.header_start(raw):])[1]}
     except (ValueError, IndexError, OSError, struct.error):
         return set()
 
@@ -165,7 +165,7 @@ def compare(path: str) -> dict:
     out.update(skipped=ours.skipped, resized=ours.resized, blocks=len(ours.blocks))
     try:
         start = time.perf_counter()
-        theirs = fnv_file.read(path)
+        theirs = fnv_file.read_pyffi(path)
         out['pyffi_s'] = time.perf_counter() - start
     except Exception as error:
         out['pyffi_error'] = f'{type(error).__name__}: {error}'[:200]
@@ -205,7 +205,7 @@ def _peak_child(path: str, reader: str, cap: int, queue) -> None:
     base = committed()[0]
     start = time.perf_counter()
     try:
-        data = (fnv_reader.read if reader == 'ours' else fnv_file.read)(path)
+        data = (fnv_reader.read if reader == 'ours' else fnv_file.read_pyffi)(path)
         status = f'{len(data.blocks)} blocks'
     except MemoryError:
         status = 'cap'
@@ -228,7 +228,7 @@ def peak(path: str, reader: str, cap: int) -> dict:
 def traced(path: str) -> dict:
     """Peak Python-traced memory (numpy included) of each reader on `path`, in MB."""
     out = {}
-    for name, reader in (('ours', fnv_reader.read), ('pyffi', fnv_file.read)):
+    for name, reader in (('ours', fnv_reader.read), ('pyffi', fnv_file.read_pyffi)):
         tracemalloc.start()
         try:
             reader(path)
