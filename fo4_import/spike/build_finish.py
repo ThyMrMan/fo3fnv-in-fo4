@@ -9,6 +9,7 @@ import struct
 from pathlib import Path
 
 from fo4_import import dialogue_menu as menu_links
+from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
 from fo4_import.base.dangling_scripts import clear_dangling
@@ -140,7 +141,7 @@ def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
     npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
     builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
-    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
+    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER))
 
 
 @timed('script compile')

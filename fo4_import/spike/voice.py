@@ -4,7 +4,7 @@ FO4 finds a line at Sound/Voice/<plugin>/<voice type>/<INFO id, load-order byte 
 by the speaker's voice type. Each speaker maps its FNV voice folder to its
 stand-in's FO4 voice type; a line gets a file under every stand-in whose FNV
 folder recorded it. Audio comes from the FO4 Creation Kit's xWMAEncode; lips from the recording's own .lip
-(lip.from_fnv), else the Creation Kit's LipGenerator.
+(lip.from_fnv), else the Creation Kit's LipGenerator, else the recording's loudness (loudness_lip).
 
 See: docs/fork/fo4_spikes.md#spike-1-voice
 """
@@ -15,12 +15,16 @@ import os
 import re
 import shutil
 import struct
+import subprocess
 import tempfile
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
+
 from asset_convert.audio.audio_converter import SilentSource, convert_file_to_xwm, find_ffmpeg, pack_fuz
+from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base import lip
 from fo4_import.base.source import asset_dirs, plugin_name
 from fo4_import.pipeline.export_index import export_masters
@@ -35,6 +39,10 @@ PLAYER_VOICES = ('PlayerVoiceMale01', 'PlayerVoiceFemale01')
 SILENT_SECONDS, SILENT_RATE = 0.2, 44100
 #: How built .fuz lips are made; a staging root stamped with another value has its lips redone (relip_once).
 LIP_SCHEME = 'fnv-lip-1'
+#: Failed-job keys carry this, so lines an older build left lipless (.xwm) are tried once with the loudness lip.
+LIP_FALLBACK = 'loudness-1'
+#: Sample rate a recording is decoded at for its loudness lip.
+LOUDNESS_RATE = 16000
 
 
 def fnv_folders(export_dir: Path, voice_type: str) -> tuple:
@@ -199,12 +207,33 @@ def _convert_own_lip(recording: Path, fuz: Path, made: bytes, tools: tuple) -> b
     return True
 
 
+def loudness_lip(recording: Path, ffmpeg: str) -> 'bytes | None':
+    """A lip of `recording` from its loudness (lip.from_loudness), decoded by `ffmpeg`; None when it can't decode."""
+    try:
+        done = subprocess.run([ffmpeg, '-v', 'error', '-i', str(recording), '-ac', '1', '-ar', str(LOUDNESS_RATE),
+                               '-f', 's16le', '-'], capture_output=True, timeout=60, **POPEN_FLAGS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode or not done.stdout:
+        return None
+    return lip.from_loudness(np.frombuffer(done.stdout, '<i2').astype(np.float32) / 32768, LOUDNESS_RATE)
+
+
 def _convert_one(source: tuple, first: Path, tools: tuple) -> bool:
-    """`source` (recording, transcript) converted to `first`, with the recording's own lip when it has one."""
+    """`source` (recording, transcript) converted to `first`, with the recording's own lip when it has one, else
+    LipGenerator's when it is installed and works, else one from its loudness (loudness_lip)."""
     made = own_lip(source[0]) if first.suffix.lower() == '.fuz' else None
     if made:
         return _convert_own_lip(source[0], first, made, tools)
-    return convert_file_to_xwm(source[0], first, *tools, source[1])
+    lipgen = tools[2] if Path(tools[2]).is_file() else None
+    if not convert_file_to_xwm(source[0], first, tools[0], tools[1], lipgen, source[1]):
+        return False
+    audio = first.with_suffix('.xwm')
+    made = loudness_lip(source[0], tools[0]) if first.suffix.lower() == '.fuz' and audio.is_file() else None
+    if made:
+        first.write_bytes(pack_fuz(made, audio.read_bytes()))
+        audio.unlink()
+    return True
 
 
 def _convert_shared(source: tuple, destinations: list, tools: tuple) -> int:
@@ -226,8 +255,8 @@ def _attempt(job: tuple) -> str:
     source, dest, text = job
     own = Path(source).with_suffix('.lip')
     lip_hash = '|' + hashlib.sha1(own.read_bytes()).hexdigest() if own.is_file() else ''
-    return f'{dest.parent.name}/{dest.name}|{hashlib.sha1(Path(source).read_bytes()).hexdigest()}|' + \
-        hashlib.sha1((text or '').encode()).hexdigest() + lip_hash
+    return f'{LIP_FALLBACK}|{dest.parent.name}/{dest.name}|{hashlib.sha1(Path(source).read_bytes()).hexdigest()}|' \
+        + hashlib.sha1((text or '').encode()).hexdigest() + lip_hash
 
 
 def convert_new(job_list: list, lipgen_dir: Path, record: Path) -> int:

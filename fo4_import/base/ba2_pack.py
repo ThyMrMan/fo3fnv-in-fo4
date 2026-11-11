@@ -1,5 +1,5 @@
-"""Pack a Data folder's loose textures into the plugin's texture BA2 with the CK's Archive2, and its sounds,
-meshes and materials into its Main BA2 (pack_main).
+"""Pack a Data folder's loose textures into the plugin's texture BA2 (ba2_textures, our own writer), and its
+sounds, meshes and materials into its Main BA2 (pack_main).
 
 Fallout 4 streams a texture's mips from a BA2's chunks; a loose DDS can stay
 on a low mip, and past iTextureDegradeDistance the game drops a texture's top
@@ -8,7 +8,7 @@ ones are, so it always shows in full, as in FNV. Loose files under
 <data>/Textures move into the Data folder's staging folder (staging_root,
 outside it, so neither the game nor MO2 lists it), and all of it becomes
 `<plugin> - Textures.ba2`, loaded with the
-plugin. Folders the archiver cannot take (uncompressed one-mip LUTs, which
+plugin. Folders the caller keeps loose (uncompressed one-mip LUTs, which
 vanilla keeps in a general archive) stay loose. A build writes its textures
 through stage_texture(): once per run, and not at all while the staged copy
 is current; pack_textures() then drops staged OWN textures the build neither
@@ -24,26 +24,19 @@ import json
 import multiprocessing
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
-from core.subprocess_flags import POPEN_FLAGS
+from fo4_import.base.ba2_textures import write_textures
 from fo4_import.base.ba2_write import write_general
-from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.pipeline.build_inputs import MASTERS
 from fo4_import.pipeline.code_tag import ROOT
 
-ARCHIVE2 = FALLOUT4_DIR / 'Tools' / 'Archive2' / 'Archive2.exe'
 #: The staging folder's old place, under the Data folder (moved out by staging_root), and its new home.
 STAGING, STAGING_CACHE = '_ba2', ROOT / 'output' / 'fo4_cache' / 'ba2'
-#: Chunks per texture: one, so the game has no top mips to drop with distance.
-CHUNKS = 1
 #: The staging folder's record of its files at the last pack: {texture key: [size, mtime_ns, signature or None]}.
 MANIFEST = 'manifest.json'
 #: Texture key prefixes a build writes itself (its textures, its worldspaces' LOD); only these are pruned, not FaceGen.
 OWN = ('fnv/', 'terrain/fnv_')
-#: Archive2's options for the texture archive: DDS, CHUNKS chunks per texture.
-TEXTURE_OPTIONS = ('-f=DDS', f'-maxChunkCount={CHUNKS}')
 #: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
 SOUND = 'Sound'
 #: Data folders the build writes loose and the Main archive also holds (Scripts stay loose, so hotfixes still win).
@@ -181,6 +174,23 @@ def _move_loose(loose: Path, staged: Path, keep_loose: tuple) -> set:
     return moved
 
 
+def _unstage(staged: Path, loose: Path, keep_loose: tuple) -> int:
+    """Move files an older build staged under `keep_loose` folders back to `loose`, or delete them where a loose
+    copy exists; how many came back."""
+    back = 0
+    for folder in keep_loose:
+        base = staged / folder.replace(chr(92), '/')
+        for path in sorted(p for p in base.rglob('*') if p.is_file()) if base.is_dir() else []:
+            target = loose / path.relative_to(staged)
+            if target.exists():
+                path.unlink()
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(path, target)
+            back += 1
+    return back
+
+
 def _staged_files(staged: Path, keep: set) -> dict:
     """{key: path} of the files under `staged`, OWN ones not in `keep` deleted first."""
     out = {}
@@ -191,15 +201,6 @@ def _staged_files(staged: Path, keep: set) -> dict:
             continue
         out[key] = path
     return out
-
-
-def _archive2(staged: Path, root: Path, archive: Path) -> None:
-    """Pack `staged` as the texture archive `archive` (TEXTURE_OPTIONS), named from `root`, with Archive2."""
-    done = subprocess.run([str(ARCHIVE2), str(staged.resolve()), f'-c={archive.resolve()}', *TEXTURE_OPTIONS,
-                           f'-r={root.resolve()}', '-q'],
-                          capture_output=True, text=True, **POPEN_FLAGS)
-    if done.returncode or not archive.exists():
-        raise RuntimeError(f'Archive2 could not pack {archive} (absolute paths only): {done.stdout}{done.stderr}')
 
 
 def _pack(archive: Path, files: dict, make) -> None:
@@ -225,6 +226,7 @@ def pack_textures(data_dir: Path, plugin: str, keep_loose: tuple = ()) -> int:
     archive was packed; the staged file count."""
     root = staging_root(data_dir)
     run = _RUNS.pop(_run_key(data_dir), None) or {'manifest': _read_json(root / MANIFEST), 'staged': {}}
+    _unstage(root / 'Textures', data_dir / 'Textures', keep_loose)
     moved = _move_loose(data_dir / 'Textures', root / 'Textures', keep_loose)
     paths = _staged_files(root / 'Textures', moved | set(run['staged']))
     files = {}
@@ -232,8 +234,9 @@ def pack_textures(data_dir: Path, plugin: str, keep_loose: tuple = ()) -> int:
         stat = path.stat()
         files[key] = [stat.st_size, stat.st_mtime_ns, run['staged'].get(key)]
     archive = data_dir / f'{Path(plugin).stem} - Textures.ba2'
+    named = {f'Textures/{key}': path for key, path in paths.items()}
     _pack(archive, {key: value[:2] for key, value in files.items()},
-          lambda _kept: _archive2(root / 'Textures', root, archive))
+          lambda kept: write_textures(named, archive, {f'textures/{key}' for key in kept}))
     (root / MANIFEST).write_text(json.dumps(files, sort_keys=True), encoding='utf-8')
     return len(files)
 

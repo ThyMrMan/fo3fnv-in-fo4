@@ -85,6 +85,39 @@ def test_a_recording_with_its_own_lip_skips_lipgenerator(tmp_path, monkeypatch):
     assert not dest.with_suffix('.xwm').exists()
 
 
+def test_a_loudness_lip_opens_the_mouth_with_the_sound():
+    """30 frames a second; silence keeps Aah shut, the loud second opens it to OPEN; the rest of the lip is zero."""
+    rate = 16000
+    samples = np.concatenate([np.zeros(rate), np.sin(np.arange(rate) * 0.3) * 0.5]).astype(np.float32)
+    body = lip.inflate(lip.from_loudness(samples, rate)[12:])
+    count, offset, targets = struct.unpack_from('<IiI', body)
+    grid = np.frombuffer(body, '<f4', count * (targets + lip.MODIFIERS), 12).reshape(count, -1)
+    assert (count, offset, targets) == (60, 0, lip.FO4_TARGETS)
+    assert not grid[:29, 0].any() and np.allclose(grid[31:59, 0], lip.OPEN, atol=0.01)
+    assert not np.delete(grid, 0, axis=1).any()
+
+
+def test_a_line_lipgenerator_cannot_lip_gets_a_loudness_lip(tmp_path, monkeypatch):
+    """No own lip and no LipGenerator installed: the audio is packed with the loudness lip into the .fuz, and no
+    bare .xwm is left."""
+    recording = tmp_path / 'line_00104bee_1.ogg'
+    recording.write_bytes(b'ogg')
+    calls = []
+
+    def fake_xwm(src, dst, *tools):
+        """Write the bare .xwm convert_file_to_xwm leaves when it has no lip, recording the tools passed."""
+        calls.append(tools)
+        Path(dst).with_suffix('.xwm').write_bytes(b'XWMA')
+        return True
+    monkeypatch.setattr(voice, 'convert_file_to_xwm', fake_xwm)
+    monkeypatch.setattr(voice, 'loudness_lip', lambda rec, ffmpeg: b'LIP')
+    dest = tmp_path / 'out' / 'Type' / '00000001_1.fuz'
+    dest.parent.mkdir(parents=True)
+    assert voice._convert_shared((recording, 'Hi.'), [dest], ('ffmpeg', 'xwma', str(tmp_path / 'none.exe'))) == 1
+    assert calls == [('ffmpeg', 'xwma', None, 'Hi.')]
+    assert dest.read_bytes() == pack_fuz(b'LIP', b'XWMA') and not dest.with_suffix('.xwm').exists()
+
+
 def test_built_lips_are_redone_once(tmp_path):
     """A .fuz from LipGenerator gets the recording's own lip on the first build stamped, not again after."""
     recording = tmp_path / 'line_00104bee_1.ogg'

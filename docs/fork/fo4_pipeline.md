@@ -5935,7 +5935,8 @@ the files unchanged since, in contiguous blocks, out of the previous
 archive, reading only the rest from disk, 16 at a time. Measured: a first
 pack from cold files 607 s (opening 248,028 files dominates); a pack with
 nothing changed is skipped after listing the files (21 s). The texture
-archive stays on Archive2 (DX10 chunking), and was not a measured cost.
+archive is ours too since 2026-11-11 (`base/ba2_textures`,
+[why and the check against Archive2](fo4_ck_replacements.md#ba2)).
 
 <a id="main-archive"></a>**Meshes and materials join the sounds in the Main
 BA2 (2026-11-09, built, not played).** The deployed mod still held 63,500
