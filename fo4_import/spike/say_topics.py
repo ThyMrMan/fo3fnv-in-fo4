@@ -34,6 +34,7 @@ from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import Layered, export_masters, export_records, master_records, own_records
 from script_convert.constants import papyrus_script_name
+from fo4_import.spike.script import prefix
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 
 #: FNV DIAL type of the topics scripts Say: Conversation; of player topics (Topic).
@@ -52,7 +53,6 @@ SAY_ONCE = 0x04
 PART, PARTS = '_part', '_parts'
 #: Key of a shared info's copy naming the topic that borrows it (conversation.shared_lines).
 SHARED = '_shared'
-FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
 #: CTDA operator bits: the comparison, OR with the next, use a global as the value.
 COMPARE, OR = 0xE0, 0x01
 #: The FNV command opening a vendor's barter menu (lower case).
@@ -61,7 +61,6 @@ BARTER = 'showbartermenu'
 QUEST_VARIABLE, VM_QUEST_VARIABLE = 'GetQuestVariable', 'GetVMQuestVariable'
 #: FNV GetScriptVariable (reference, variable) and FO4's GetVMScriptVariable (run on it; CIS1 script, CIS2 variable).
 SCRIPT_VARIABLE, VM_SCRIPT_VARIABLE = 'GetScriptVariable', 'GetVMScriptVariable'
-SCRIPT_PREFIX = 'FALLOUTNV_'
 #: FO4 has no objective condition; an objective test reads its mirror global (objectives_falloutnv).
 GLOBAL_VALUE = 'GetGlobalValue'
 #: FNV base types a script runs on when placed (SCRI), for GetScriptVariable on their references.
@@ -209,7 +208,7 @@ class SayTopics:
     def _vmad(self, rec: dict, first: bool, last: bool, marked: list) -> bytes:
         """FNV line `rec`'s VMAD: the `marked` helper scripts (its Say Once marker), then its
         converted fragments (Begin on its first part, End on its last); b'' with neither."""
-        scripts, name = self.builder.scripts, f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
+        scripts, name = self.builder.scripts, f'{prefix("TIF__")}{rec["FormID"].upper()}'
         scripts.used += [s[0] for s in marked if s[0] not in scripts.used]
         if scripts.dir and (scripts.dir / f'{name}.psc').exists() and (first or last):
             scripts.used.append(name)
@@ -272,7 +271,7 @@ def script_vars(export_dir: Path) -> dict:
         while f'Variable[{i}].Index' in rec:
             names[int(rec[f'Variable[{i}].Index'])] = rec[f'Variable[{i}].Name']
             i += 1
-        scripts[rec['FormID'].upper()] = (papyrus_script_name(rec.get('EditorID', ''), SCRIPT_PREFIX), names)
+        scripts[rec['FormID'].upper()] = (papyrus_script_name(rec.get('EditorID', ''), prefix()), names)
     bases = {r['FormID'].upper(): r['SCRI'].upper() for sig in SCRIPTED_BASES for r in export_records(export_dir, sig)
              if r.get('SCRI')}
     out = {int(q['FormID'], 16): scripts.get(q.get('SCRI', '').upper(), ('', {}))
