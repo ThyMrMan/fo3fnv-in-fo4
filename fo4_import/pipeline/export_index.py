@@ -142,6 +142,12 @@ def export_file(export_dir, *parts) -> Path:
     return Layered((*overlays(), *asset_chain(export_dir)), *parts).path()
 
 
+def replaced_file(export_dir, *parts) -> 'Path | None':
+    """export_file()'s file's next layer down holding `parts`, or None."""
+    found = [p for p in (Path(f).joinpath(*parts) for f in (*overlays(), *asset_chain(export_dir))) if p.exists()]
+    return found[1] if len(found) > 1 else None
+
+
 def overlays() -> tuple:
     """The asset overlay folders OVERLAY_ENV names, first searched first.
     See: docs/fork/fo4_plugin_layout.md#asset-overlays

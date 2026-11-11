@@ -641,6 +641,56 @@ FalloutNV.esm ships (12.8 GB against 1.1 GB). Its 6,357 face and body
 textures are unused: FO4 faces come from the CK
 ([facegen plan](fo4_facegen_plan.md#phase-3)).
 
+#### <a id="premultiplied-replacers"></a>Premultiplied replacer textures
+
+**Code:** `fo4_import/base/premultiplied.py`, called from
+`spike/statics.copy_texture`.
+
+NVTUP 2.0 saved its textures premultiplied: color already multiplied by
+alpha, so black wherever alpha is clear. FNV and FO4 both read diffuse color
+as is, so an opaque material shows that black. Doc Mitchell's house
+(`architecture/westside/craftsmanhomea.nif`, no NiAlphaProperty on any
+shape) shows black boards across its siding: `craftsmansiding.dds` keeps an
+alpha mask for alpha-tested ruins, and vanilla has wood under it. Measured
+against vanilla, the NVTUP color divided by vanilla's follows alpha: 0.02 at
+alpha 0, 0.16 below 32, 0.55 at 96 to 160, 0.79 at 160 to 224, 1.0 when
+solid. The `apartmentpre01dcl` decal is the same: 0.00 at alpha 0. An
+alpha-blended decal drawn from premultiplied color gets dark edges.
+
+A texture that replaces one an earlier layer holds (an overlay over the
+export, a plugin over its master; `export_index.replaced_file`) is tested
+against it at the replacer's size. The test uses texels where the replacer's
+alpha is not solid (224 or below) and the replaced color is lit (above 24).
+Over them it asks which is nearer the replacer's mean color: the replaced
+color times alpha (premultiplied), or the replaced color itself (straight).
+The replaced color is first scaled to match where solid. At least 1% of
+texels must qualify. A fixed darkness cutoff missed textures whose clear
+areas are thin lines: there, DXT blocks average the black with the wood next
+to it.
+
+The mend writes `replacer + (1 - alpha) * replaced` (the replaced color
+resampled to the replacer's size). This is exact where alpha is 0 or 1, and
+between them it takes the replaced texture as the true color. Alpha is
+unchanged. `encode_dds` filters color and alpha separately for the mips.
+Pillow's RGBA resize premultiplies, which would put the black back in the
+lower mips. A mend costs about 0.75 s for a 2048 texture, and a kept
+texture's test about 0.07 s, so the overlay runs its texture writes in a
+process pool (`ba2_pack.write_later`). Encoding with separate color and alpha
+filtering changes the code identity of the work-cached maps that use
+`encode_dds` (glow maps, object-LOD atlases, reframed maps), so they are made
+again once.
+
+Census (2026-11-10): NVTUP 2.0 and NVMIM's textures against the six NV
+exports. Of 13,532 that have an alpha channel and replace an exported
+texture, 1,557 test premultiplied. 845 of them are among the 4,641 the built
+FNV and DLC plugins ship, so the overlay converts them. Most are alpha
+cutouts and blended layers: tree and plant leaves, effects, graffiti and
+signs, headgear, ruined walls. Spot checks of flagged textures show the
+color-to-vanilla ratio rising with alpha band by band (about 0.1, 0.3, 0.55,
+0.8, 1.0). The cases that change verdict between rules are DLC Pip-Boy
+icons, whose edges are darker at low alpha and brighter in mid alpha. Either
+verdict leaves them close to vanilla.
+
 ## <a id="mods"></a>Part B: mod patch plugins
 
 Today a replacement (an FO4 mod's gun, creature or outfit standing in for
