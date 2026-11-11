@@ -4108,9 +4108,14 @@ growing today's 11,302 hashed ids tenfold moved 34–70 of them.
     the topic's slot;
   - the greeting scene, when force-greet topics join it: labelled
     `greeting` instead of its list of lines, which grows with content.
-- **Kept numbers.** An objective target's alias id is the lowest free one
-  from the first target alias, kept per quest; a Say Once line's marker
-  stage is its hash moved up past the stages already given or kept.
+- **Kept numbers.** A Say Once line's marker stage is its hash moved up
+  past the stages already given or kept. An objective target's alias id is
+  no longer kept: it is the first target alias plus the target's place among
+  the quest's authored targets ([F4](fo4_tool_audit.md#formids-fixed)).
+- **Saved before the plugin.** The ledger is written just before the
+  plugin, so no written plugin holds an id its ledger lacks.
+- **A master's id wins** over the plugin's own kept one
+  ([shadowed ids](fo4_plugin_layout.md#dlc-shadowed-ids)).
 - **What still counts.** `FormIDs from a counted key` in a build's counts is
   how many generated records still take a count-based key.
 

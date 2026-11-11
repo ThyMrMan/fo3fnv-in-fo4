@@ -279,6 +279,21 @@ built. The cell argument is the DLC's own interior.
   holds it. Otherwise the key hashes to the DLC's own copy, as `fnv_id` does.
   No shipped id moves: the master never held the record, and a masterless
   build passes no FormID set.
+- <a id="dlc-shadowed-ids"></a>**A master's id wins over the plugin's own kept
+  one** (2026-11-11, the save-break build). `LedgerWriter.derive_formid` took
+  the plugin's own ledger entry for a key before a master's, so a key a
+  plugin kept from a build made before its master held the record stayed the
+  plugin's own copy for good. It now asks the masters first (`from_master`,
+  still only while the built master holds the id) and drops the plugin's own
+  entry for that key. Measured on the deployed ledgers and plugins of
+  2026-11-10, keys that move to the master's record: HonestHearts 28 (26
+  `FNV casino`), DeadMoney 7, GunRunnersArsenal 4, TribalPack 3, LonesomeRoad
+  2, OldWorldBlues 2, CaravanPack 2, ClassicPack 2, MercenaryPack 2; 0 in
+  YUP, NVWillow and every other mod build. FalloutNV.esm has no masters and
+  is unchanged. The earlier estimate (YUP 572) counted keys in both ledgers
+  without the held test: YUP shares 1,847 keys with the game ledger, and the
+  built game holds none of them (1,756 of the game ledger's 1,842
+  `FNV gun anims KYWD` ids are stale).
 - <a id="dlc-poses"></a>**A dead actor on a game base.** A DLC's placed corpse
   can use a game NPC or creature (a dead wastelander, a molerat). Its ragdoll
   pose needs the base's race skeleton, so `ragdoll_pose.Poses` also reads the
