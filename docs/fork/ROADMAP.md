@@ -312,6 +312,7 @@ project. Their last status is in the [development log](dev_log.md#character).
 Group plans from the [issue plan](fo4_issue_plan.md):
 [animation](fo4_plan_animation.md),
 [dialogue reach](fo4_plan_dialogue_reach.md),
+[our own dialogue menu](fo4_dialogue_menu_plan.md),
 [effects](fo4_plan_effects.md),
 [NPC behavior](fo4_plan_npc_behavior.md),
 [release](fo4_plan_release.md),
@@ -330,6 +331,7 @@ Research: [Fallout 4 as the target](research/fo4_target.md),
 [damage threshold reference](research/fo4_damage_threshold_reference.md),
 [dynamic collision](research/fo4_dynamic_collision.md),
 [character findings](research/character_findings.md),
+[dialogue robustness](research/fo4_dialogue_robustness.md),
 [creature rig prior art](research/fo4_creature_rig_prior_art.md)
 ([community ports](research/fo4_creature_rig_prior_art/fnv_fo3_creature_ports.md),
 [technique](research/fo4_creature_rig_prior_art/fo4_creature_technique.md),
