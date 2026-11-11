@@ -707,8 +707,9 @@ package
          }
       }
 
-      // A prompt as written: the build escapes & < > in player lines for XDI, which shows them as HTML
-      // (docs/fork/fo4_pipeline.md#xdi-html); this menu and the game's buttons show plain text.
+      // A prompt as written: builds made for XDI escaped & < > in player lines, which XDI showed as HTML
+      // (docs/fork/fo4_pipeline.md#xdi-html); this menu and the game's buttons show plain text. Kept for plugins
+      // built before the build stopped escaping.
       private function unescaped(text:String) : String
       {
          return text.split("&lt;").join("<").split("&gt;").join(">").split("&amp;").join("&");

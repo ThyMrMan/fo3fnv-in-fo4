@@ -105,7 +105,7 @@ class Holotapes:
             self.builder.counts['holotape left out (no speaker, lines or dialogue)'] += 1
             return None
         quest = self.builder.new_id(f'QUST holotape {key}')
-        topics = [self._line(info, quest, speaker) for info in lines]
+        topics = [self._line(info, quest, speaker, key) for info in lines]
         topics = [t for t in topics if t]
         scene = self.builder.new_id(f'SCEN holotape {key}')
         edid = f'FNV_{rec["EditorID"]}'
@@ -125,9 +125,10 @@ class Holotapes:
         model, bounds = self.builder.mesh(rec['Model.MODL'])
         return model, bounds or BOUNDS
 
-    def _line(self, info: dict, quest: int, speaker: int) -> 'tuple | None':
-        """(topic FormID, its pack_topic blob) of one FNV line; None when its conditions cannot convert."""
-        made = self.builder.say.info(info, self.form_map(), speaker=speaker)
+    def _line(self, info: dict, quest: int, speaker: int, note: str) -> 'tuple | None':
+        """(topic FormID, its pack_topic blob) of one FNV line of note `note` (FNV FormID, its copy's key); None when
+        its conditions cannot convert."""
+        made = self.builder.say.info(info, self.form_map(), speaker=speaker, place=f'holotape {note}')
         if not made:
             return None
         topic = self.builder.new_id(f'DIAL holotape {info["FormID"]}')

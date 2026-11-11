@@ -50,7 +50,7 @@ from fo4_import.spike.light_roles import ShadowLights
 from fo4_import.spike.imposter_gate import ImposterGate
 from fo4_import.spike import character, facegen, new_game, replacements, terrain_lod
 from fo4_import.spike.attach import ObjectScripts
-from fo4_import.spike.conversation import Conversations, Hub, hub, opener_forms, outside_lines, speaker_index
+from fo4_import.spike.conversation import Conversations, Hub, hub, opener_forms, outside_lines
 from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
 from fo4_import.spike.furniture_poses import FurniturePoses
 from fo4_import.spike.navmesh import navi, navmeshes
@@ -112,11 +112,9 @@ from tes5_import.base.tes5_reader import first_sub, records, sub_map, walk
 from tes5_import.base.writer import pack_subrecord
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
-MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN, 'XDI.esm']
+MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN]
 #: Master index of the helper plugin (FalloutHelpers.esl).
 HELPER_INDEX = 1
-#: XDI's menu keyword (conversation menus show more than four options).
-XDI_KEYWORD = MASTERS.index('XDI.esm') << 24 | R.XDI_KEYWORD
 #: The player's reference, the same FormID in both games.
 PLAYER = 0x14
 #: Started by hand (setstage FNV_VCG00 0 starts the rest), not with the game: they take the Pip-Boy, show tutorials.
@@ -753,14 +751,14 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
         topics = {dial: builder.new_id(f'DIAL {rec["FormID"]} {dial}') for dial in say.topics(rec)}
         builder.scripts.named.update({say.dials[d]['EditorID']: t for d, t in topics.items()})
         branch, blobs = say.build(rec, fid, topics, form_map) if topics else (None, [])
-        talks = Conversations(say, rec, fid, form_map, XDI_KEYWORD, shared)
+        talks = Conversations(say, rec, fid, form_map, shared)
         radio = builder.radio.program(rec, fid, form_map, ref_ids) or ((), [], [], ())
         done.append((fid, rec, [branch] if branch else [], blobs + radio[1], talks, radio))
     builder.packages.named_by_quests(builder.scripts, recs)
     records = [quest_record(fid, rec, builder.scripts, ref_ids, talks.has_lines(),
                             rec['EditorID'] not in HAND_STARTED, radio[0], radio[3])
                for fid, rec, _branches, _blobs, talks, radio in done]
-    built = _greetings(builder, say, form_map, shared)
+    built, pending = _greetings(builder, say, form_map, shared)
     for (fid, rec, branches, blobs, talks, radio), record in zip(done, records):
         built |= {prop for prop, scene in list(builder.scripts.talks.items())
                   if prop not in built and talks.talk(prop, scene)}
@@ -771,6 +769,9 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     for prop in set(builder.scripts.talks) - built:
         builder.counts[f'{prop}: no lines in the cell quests'] += 1
     ActorDialogue(builder, say, form_map, shared).write()
+    for quest, topics, scenes in pending:
+        _greetings_quest(builder, quest, max((p for _, p in shared.quests.values()), default=0), topics, scenes)
+    builder.counts['SCEN'] += len(shared.home.scenes)
     builder.patrols.write()
     if say.once.stages:
         builder.writer.add_record('QUST', say.once.record())
@@ -783,7 +784,6 @@ def _hub(builder: CellBuilder, export_dir: Path, say: SayTopics, recs: list, que
     reveals is gated on the unlock global the scripts set, as the script converter's unlock plan names it."""
     plan = build_unlock_plan(load_records(str(export_dir), ('DIAL', 'INFO', 'QUST', 'SCPT')))
     shared = hub(say, recs, quests, plan['added'])
-    shared.actors, shared.unfixed = speaker_index(export_dir)
     shared.outside, shared.outside_topics = outside_lines(say, shared.lines)
     shared.topics = tuple(d for d in shared.topics if any(
         r['ParentDIAL'].upper() == d and conditions_of(r, form_map, say.script_vars) is not None
@@ -805,17 +805,18 @@ def _all_talks(found: dict, talks) -> set:
     return built
 
 
-def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub) -> set:
-    """Write the generated, start-game quest holding the greeting every built quest's GREETING lines share and
-    the scenes it leads to, at the built quests' highest priority; the `TES4Talk_<topic>` scenes it built.
+def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub) -> tuple:
+    """Build the generated, start-game quest holding the greeting every built quest's GREETING lines share, and
+    every step any quest reaches (Hub.home); (the `TES4Talk_<topic>` scenes it built, [(quest, topics, scenes)]
+    to write once every quest is built, at the built quests' highest priority).
 
     Its FormID and record keys come from GREETINGS_KEY, never from a built
     quest, so adding quests to the build moves none of them.
     See: docs/fork/fo4_pipeline.md#quest-scope
     """
     fid = builder.new_id(f'QUST {GREETINGS_KEY}')
-    talks = Conversations(say, {'FormID': GREETINGS_KEY, 'EditorID': GREETINGS_EDID}, fid, form_map, XDI_KEYWORD,
-                          shared)
+    talks = shared.home = Conversations(say, {'FormID': GREETINGS_KEY, 'EditorID': GREETINGS_EDID}, fid, form_map,
+                                        shared)
     built = _all_talks(builder.scripts.talks, talks)
     home = _opener_home(builder, fid)
     opener = talks.greeting(builder.packages.greets, builder.packages.topics, builder.packages.once.write_list(), home)
@@ -823,13 +824,9 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
     talks.player_hello()
     builder.writer.add_record('GMST', pack_gmst(builder.new_id(f'GMST {PADDED_SETTING}'), PADDED_SETTING,
                                                 voice.SILENT_SECONDS))
-    priority = max((p for _, p in shared.quests.values()), default=0)
-    _greetings_quest(builder, (fid, GREETINGS_EDID), priority, talks.topics, talks.scenes)
-    if opener and home:
-        _greetings_quest(builder, (home[0], home[2]), priority, [opener], [])
-    builder.counts['SCEN'] += len(talks.scenes)
     register_trace(builder.scripts)
-    return built
+    return built, [((fid, GREETINGS_EDID), talks.topics, talks.scenes)] + ([((home[0], home[2]), [opener], [])]
+                                                                          if opener and home else [])
 
 
 def _greetings_quest(builder: CellBuilder, quest: tuple, priority: int, topics: list, scenes: list) -> None:

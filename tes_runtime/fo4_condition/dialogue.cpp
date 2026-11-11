@@ -2,7 +2,7 @@
 //
 // An option is a player INFO that names an answer topic (the links in Data\F4SE\Plugins\F3NV_Menus\*.txt); its
 // answer is that topic's first passing INFO, chosen by the engine's own picker, so nothing pairs options and answers
-// by position. The menu movie (Interface/DialogueMenu.swf, built by fo4_import.dialogue_menu) asks for the running
+// by position. The option shows that answer line's prompt (FNV shows the first passing line's) and skill check. The menu movie (Interface/DialogueMenu.swf, built by fo4_import.dialogue_menu) asks for the running
 // Player Dialogue action's options and picks one as option index + 5. The engine then asks three call sites for the
 // INFOs of the picked option; index 5 and up are ours, below 5 go to the engine's functions as before.
 //
@@ -116,6 +116,9 @@ const UInt32 MENU_NO_COLOR_BACKGROUND = 1;
 const float FULL_QUAD = 1.0f;
 const UInt16 END = 0xFFFF;
 const char *LINKS = "Data\\F4SE\\Plugins\\F3NV_Menus\\";
+// The links of the XDI-era hub plugin (tools.dialog.menu_rebuild), from before each build wrote its own: still read,
+// logged DEPRECATED. Builds and the deploy delete it.
+const char *LEGACY_HUB = "F3NV_MenuHub.txt";
 
 template <class T>
 T &At(void *base, size_t offset) {
@@ -155,7 +158,7 @@ Chosen g_chosen;
 void *g_noneLogged = nullptr;
 // Option INFO FormID -> answer topic FormID, read once the data has loaded.
 std::unordered_map<UInt32, UInt32> g_links;
-// Option INFO FormID -> its skill check, for the options whose link names one.
+// Answer INFO FormID (or a legacy link's option INFO) -> the skill check its prompt carries.
 std::unordered_map<UInt32, Check> g_checks;
 bool g_linksRead = false;
 // The Player Dialogue action the engine ran last, and its scene.
@@ -176,18 +179,19 @@ UInt32 Resolve(const std::string &plugin, const std::string &id) {
     return mod && mod->IsActive() ? mod->GetFormID(std::strtoul(id.c_str(), nullptr, 16)) : 0;
 }
 
-// A link's optional skill check: columns 5-7, the actor value's plugin and id and the number needed.
-void ReadCheck(UInt32 option, const std::vector<std::string> &f, UInt32 *checks) {
-    if (f.size() < 7) return;
-    UInt32 id = Resolve(f[4], f[5]);
+// A skill check on INFO `info`: columns `at` to `at` + 2 of `f`, the actor value's plugin and id and the number needed.
+void ReadCheck(UInt32 info, const std::vector<std::string> &f, size_t at, UInt32 *checks) {
+    if (!info || f.size() < at + 3) return;
+    UInt32 id = Resolve(f[at], f[at + 1]);
     TESForm *av = id ? LookupFormByID(id) : nullptr;
     if (!av || av->formType != kFormType_AVIF) return;
-    g_checks[option] = {static_cast<ActorValueInfo *>(av), UInt32(std::strtoul(f[6].c_str(), nullptr, 10))};
+    g_checks[info] = {static_cast<ActorValueInfo *>(av), UInt32(std::strtoul(f[at + 2].c_str(), nullptr, 10))};
     (*checks)++;
 }
 
-// One links file: lines of option plugin, option id, answer plugin, answer id[, skill plugin, skill id, needed],
-// tab-separated; # starts a comment.
+// One links file, tab-separated, # starting a comment. Four columns link an option to its answer topic (option
+// plugin, option id, answer plugin, answer id); five name an answer INFO's skill check (INFO plugin, INFO id, skill
+// plugin, skill id, needed). Seven, from older builds, are a link with its option's check.
 void ReadLinks(const std::string &path) {
     std::ifstream in(path);
     std::string line;
@@ -201,12 +205,16 @@ void ReadLinks(const std::string &path) {
             f.push_back(line.substr(at, tab - at));
         }
         if (f.size() < 4) continue;
+        if (f.size() == 5) {
+            ReadCheck(Resolve(f[0], f[1]), f, 2, &checks);
+            continue;
+        }
         read++;
         UInt32 option = Resolve(f[0], f[1]), answer = Resolve(f[2], f[3]);
         TESForm *info = option ? LookupFormByID(option) : nullptr, *topic = answer ? LookupFormByID(answer) : nullptr;
         if (!info || !topic || info->formType != kFormType_INFO || topic->formType != kFormType_DIAL) continue;
         g_links[option] = answer, kept++;
-        ReadCheck(option, f, &checks);
+        ReadCheck(option, f, 4, &checks);
     }
     _MESSAGE("dialogue menu: %s: %u links, %u resolved, %u skill checks", path.c_str(), read, kept, checks);
 }
@@ -221,8 +229,12 @@ void ReadAllLinks() {
         _MESSAGE("dialogue menu: no links in %s", LINKS);
         return;
     }
-    do ReadLinks(std::string(LINKS) + found.cFileName);
-    while (FindNextFileA(find, &found));
+    do {
+        if (!_stricmp(found.cFileName, LEGACY_HUB))
+            _MESSAGE("dialogue menu: DEPRECATED %s (the XDI-era hub; each plugin now writes its own links)",
+                     found.cFileName);
+        ReadLinks(std::string(LINKS) + found.cFileName);
+    } while (FindNextFileA(find, &found));
     FindClose(find);
 }
 
@@ -266,10 +278,13 @@ std::string Tagged(const char *prompt, const Check &check, bool *failed) {
     return tag + (rest == std::string::npos ? std::string() : text.substr(rest));
 }
 
-// An option's prompt as listed: tagged live when its link names a skill check.
-Option Listed(TESForm *info, TESForm *answer) {
-    Option option{info, answer, Prompt(info), At<UInt8>(info, INFO_SAID) != 0, false};
-    auto check = g_checks.find(info->formID);
+// An option as listed: the prompt of `line` (the answer line that plays) when it has one, else the option's; tagged
+// live with the skill check of that line, else of the option.
+Option Listed(TESForm *info, TESForm *answer, TESForm *line) {
+    const char *own = Prompt(line);
+    Option option{info, answer, own && *own ? own : Prompt(info), At<UInt8>(info, INFO_SAID) != 0, false};
+    auto check = g_checks.find(line->formID);
+    check = check != g_checks.end() ? check : g_checks.find(info->formID);
     if (check != g_checks.end()) option.prompt = Tagged(option.prompt.c_str(), check->second, &option.failed);
     return option;
 }
@@ -294,12 +309,13 @@ std::vector<Option> ListOptions(void *action, TESObjectREFR *npc, Census *census
             census->linked++;
             bool passes = Passes(info, &flag, player, npc);
             census->passing += passes;
-            if (!passes || !Pick(answer, npc, player)) {
+            TESForm *line = passes ? Pick(answer, npc, player) : nullptr;
+            if (!line) {
                 census->failed = census->failed ? census->failed : info->formID;
                 continue;
             }
             census->answered++;
-            out.push_back(Listed(info, answer));
+            out.push_back(Listed(info, answer, line));
         }
     return out;
 }

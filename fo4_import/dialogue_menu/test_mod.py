@@ -19,12 +19,11 @@ from fo4_import.base.ffdec import REPO
 from fo4_import.base.support_records import pack_global
 from fo4_import.base.writer import FO4PluginWriter, pack_quest, pack_topic
 from fo4_import.dialogue_menu import movie
+from fo4_import.dialogue_menu import LINKS, write_links
 from fo4_import.spike import records as R
 
 DEMO = 'F3NV_MenuTest.esp'
 MASTERS = ['Fallout4.esm']
-#: The links files' folder in a mod, which F3NV.dll reads (dialogue.cpp LINKS).
-LINKS = Path('F4SE') / 'Plugins' / 'F3NV_Menus'
 DLL = REPO / 'tes_runtime' / 'dist' / 'F3NV.dll'
 #: FO4 condition functions (xEdit wbDefinitionsFO4.pas): GetGlobalValue, GetPlayerActivated.
 GLOBAL_VALUE, PLAYER_ACTIVATED = 74, 483
@@ -62,17 +61,6 @@ class Ids:
         """The next FormID."""
         fid, self.next = self.next, self.next + 1
         return fid
-
-
-def write_links(path: Path, rows: list) -> Path:
-    """A links file of rows (option plugin, option FormID, answer plugin, answer topic FormID[, actor value plugin,
-    actor value FormID, number needed]), object ids only; the last three name the option's skill check."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ['# option plugin, option INFO, answer plugin, answer DIAL[, skill plugin, skill AVIF, needed] '
-             '(F3NV.dll dialogue.cpp)']
-    lines += ['\t'.join(f'{v & 0xFFFFFF:06X}' if i in (1, 3, 5) else str(v) for i, v in enumerate(row)) for row in rows]
-    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    return path
 
 
 def _global_is(glob: int, op: int, value: int) -> bytes:

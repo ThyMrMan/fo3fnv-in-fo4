@@ -450,44 +450,26 @@ On 2026-09-30:
 - Say Once findings: FO3 12 quests, FNV 29, Oblivion 12.
 - Scene originals: none outside IDAT or CUST.
 
-### XDI menus
+### Dialogue menu links
 <a id="xdi-menus"></a>
-`xdi_menus.audit` (part of `--audit dialogue`, Fallout 4 builds) finds every
-XDI menu that can open showing only "dialogueentry", the bug that reached
-play-tests on 2026-10-24, 2026-10-31 and 2026-11-01. Its rules come from the
-installed XDI, not from play:
-- **"dialogueentry" is a fallback.** XDI's `DialogueMenu.swf` (decompiled
-  with FFDec) keeps the options XDI returns that are enabled and have a
-  response (`populateArray`). With none left, `populateList` lists the
-  engine's button strings. Those are plain strings with no `text`, so each
-  list entry keeps its text field's authored text, "dialogueentry". The text
-  is in the SWF only, not in Fallout4.exe, XDI.dll or our plugin. A lone
-  "dialogueentry" therefore means no option passed.
-- **What XDI lists.** XDI 1.4.4 (the unofficial port for game 1.11.240, which
-  binary-patches the official DLL; its options code was disassembled at RVA
-  0x3910 and 0x4d60) matches the public source (`reg2k/xdi`
-  `DialogueEx.cpp`). It lists one option per player line that has responses
-  or a shared line, skips empty lines (pads) outright, and enables each
-  option by its own conditions. The menu labels an option with the line's
-  response text, and skips one whose response is empty or that is disabled.
-  The earlier reading that "a passing pad shows blank" was wrong: a pad can
-  never be listed.
+`menus.audit` (`--audit menus`, Fallout 4 builds) checks a build's menus
+against the links file it wrote (`F4SE/Plugins/F3NV_Menus/<plugin>.txt`):
+F3NV.dll lists an option only through a link. Errors: menus but no links
+file; an option of the plugin's own menus without a link; a link from no
+menu option; a link to no answer topic, or to one with no line (the
+plugin's or a built master's); a skill check on a missing INFO or AVIF.
+See [the converter switch](../fork/fo4_dialogue_menu_plan.md#converter-built).
 
-| Rule | Finding |
-|---|---|
-| A menu whose player lines have no content | error (review when nothing starts its scene) |
-| A listed player line whose response text is empty | error: it never shows |
-| A listed player line with FO4's Say Once | error: dropped once said, it can leave the menu empty (the 2026-10-31 "What are Powder Gangers?" case) |
-| A line starting the menu's scene names a speaker (GetIsID alone in its group) that no option's GetIsID on the Target admits | error: the menu opens with no option for that NPC |
-| A Greeting-topic line starts its scene by TSCE | error: a run left playing blocks the start, so every later talk opens with no menu ([greeting scene](../fork/fo4_pipeline.md#greeting-scene)) |
+`dialogue_rules.tsce_greetings` (part of `--audit dialogue`) keeps one rule
+from the XDI-era audit: a Greeting-topic line that starts its scene by TSCE
+is an error, since a run left playing blocks the start and every later talk
+opens with no menu ([greeting scene](../fork/fo4_pipeline.md#greeting-scene)).
 
-On the 2026-11-01 13:25 build:
-- The shared starter line 033AA035 opens the GREETING scene by TSCE: the
-  general cause, which every NPC hit.
-- Gomorrah's bartender opens a menu whose one topic (`vGOMEntranceGreeting`)
-  only the entrance guard answers.
-- 9 empty menus are started by nothing (review).
-- Ringo's own menu passes the menu rules: its one option admits Ringo.
+The XDI audit it replaced (`xdi_menus`, removed with the switch) found menus
+XDI showed as only "dialogueentry": XDI's movie lists the enabled player
+lines with a response and falls back to the engine's button strings when
+none is left. On the 2026-11-01 13:25 build it found the shared starter
+line 033AA035 opening the GREETING scene by TSCE, the cause every NPC hit.
 
 ## Script health
 <a id="script-health"></a>

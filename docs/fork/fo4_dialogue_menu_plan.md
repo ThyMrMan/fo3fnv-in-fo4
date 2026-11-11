@@ -276,13 +276,21 @@ cached under `temp/` and written only to an output folder.
 ### <a id="links-file"></a>The links file
 
 The DLL reads `Data\F4SE\Plugins\F3NV_Menus\*.txt` the first time a menu
-opens. Each line has four tab-separated columns: the option's plugin, the
-option INFO's object id (hex), the answer's plugin, and the answer DIAL's
-object id. An option with a skill check has three more: the actor value's
-plugin, its AVIF object id, and the number needed (decimal). `#` starts a
-comment. A link is kept only when its option is an INFO and its answer a
-DIAL. The log line is
-`dialogue menu: <file>: N links, M resolved, K skill checks`.
+opens. Each build writes `<plugin stem>.txt` there beside its plugin
+(`fo4_import/dialogue_menu/__init__.py`). Lines are tab-separated, `#` starts
+a comment, object ids are hex:
+
+- **Four columns, a link:** option plugin, option INFO, answer plugin,
+  answer DIAL. Kept only when the option is an INFO and the answer a DIAL.
+- **Five columns, a skill check:** answer plugin, answer INFO, actor value
+  plugin, AVIF, number needed (decimal).
+- **Seven columns** (the hub rebuild's): a link with its option's check.
+  Still read.
+
+The log line is
+`dialogue menu: <file>: N links, M resolved, K skill checks`. A file named
+`F3NV_MenuHub.txt` (the XDI-era hub) is still read and logged `DEPRECATED`;
+builds and `fo4_deploy` delete it and `F3NV_MenuHub.esp`.
 
 ### <a id="skill-checks"></a>Skill checks (confirmed in game, 2026-11-11)
 
@@ -291,15 +299,18 @@ on a pass, `[Sneak 14/50]  text` on a fail (FalloutNV.exe's strings `[%s`,
 `%s %d/%d`, `%s]  %s`: two spaces after the bracket). The plugin keeps the
 build's baked `[Name N] text` as the no-DLL fallback.
 
-- **Build** (`tools/dialog/menu_rebuild.py` `skill_check`): an option's check
-  is the first answer condition that is `GetValue` on the player (run on
-  target, or on reference PLAYER), not a global, with `>`/`>=`/`<`/`<=`
-  giving exactly the tag's number. In FNV + YUP, 4,481 of 4,496 tagged
-  options match. The 15 that don't are `[Endurance 9]` prompts whose answer
-  tests Endurance > 6 (a mismatch in the authored data); they keep the
-  baked tag. The plugin bytes do not change.
-- **DLL**: `Tagged` rewrites the tag from
-  `player->actorValueOwner.GetValue(av)` and flags a failed row.
+- **Build** (`fo4_import/spike/skill_tags.py` `tag_check`): a prompt's
+  check is the first condition among the lines sharing that prompt that is
+  `GetActorValue` on the player (run on target, or on reference PLAYER) of
+  a skill or SPECIAL, not a global. Every answer line with that prompt
+  carries the tag and a five-column check row, so the failing line (the one
+  that plays when the check fails) shows the failed tag. Measured on the
+  hub rebuild (FNV + YUP): 4,481 of 4,496 tagged options matched; 15
+  `[Endurance 9]` prompts test Endurance > 6 (an authored mismatch).
+- **DLL**: the option shows the prompt of the answer line `Pick` chose
+  (FNV shows the first passing line's), else the option's own. `Tagged`
+  rewrites its tag from `player->actorValueOwner.GetValue(av)`, using that
+  line's check row, else the option's, and flags a failed row.
 - **Color** (V): DialogueMenu colors each registered holder through
   0x1043EF0(menu, target, type, dim). Type 0 is the HUD color; 1/4/5,
   2/6 and 3/7 are the speech-challenge tints `iDialogueSC_Easy/Med/Hard_Tint*`
@@ -325,16 +336,9 @@ build's baked `[Name N] text` as the no-DLL fallback.
   - one never listed, because no line of its answer passes.
 
   Every answer that does not end the scene starts the menu again.
-- **`python -m tools.dialog.menu_rebuild`** rebuilds every built XDI menu
-  (each Player Dialogue action of every scene) in this model. Rebuilding
-  only the menus reachable from one hub missed menus that start from the
-  shared GREETING scene's lines, and an answer could lead into a menu with
-  no links (played 2026-11-10). Each menu gets:
-  - one answer topic per option, under its scene's quest;
-  - a copy of each paired answer that keeps its own conditions, flags,
-    scripts and next step, and shares the response and voice (DNAM).
-
-  The pairing is XDI's own (`xdi_menus.pair_lines`).
+- `tools.dialog.menu_rebuild` (the hub plugin rebuilt from XDI-built
+  menus) is gone: the build makes menus in this model itself
+  ([converter](#converter)).
 
 ### <a id="vulpes"></a>Vulpes Inculta's Topic list (GREETINGS hub)
 
@@ -372,13 +376,11 @@ build's baked `[Name N] text` as the no-DLL fallback.
 
 ### <a id="setup"></a>Trying it in game
 
-1. Make a test MO2 profile. Turn off the mod holding `XDI.dll` and
-   `XDI - Main.ba2`, but keep XDI.esm, because the build's plugins have it
-   as a master.
-2. Install `output/fo4_dialogue_menu/` as a mod placed above F3NV, so its
-   F3NV.dll and `Interface/DialogueMenu.swf` win. Enable
-   F3NV_MenuTest.esp. F3NV_MenuHub.esp is optional: it needs YUP and goes
-   after it.
+1. Turn off XDI (the install check reports it as a CONFLICT). Builds made
+   since the [converter switch](#converter) no longer master XDI.esm.
+2. For the demo, install `output/fo4_dialogue_menu/` as a mod placed above
+   F3NV and enable F3NV_MenuTest.esp. A converted game needs nothing more:
+   its build ships the DLL, the movie and its links.
 3. In game, type `set F3NVMenuTest to 1` (or 2) in the console, then talk
    to any NPC.
 4. **What to check in F3NV.log:**
@@ -404,15 +406,57 @@ Estimate with our menu (I): ~4.3k menu scenes, ~16–19k options, 0 pads,
 ~63 MB → ~9 MB for menus; voice ~1.8 GB. The `quests` stage (30–150 s)
 should be 2–3× faster, plus less to write, voice and pack.
 
-Code: `conversation.py` loses the option gates and pads (`_option`,
-`_prompt`, `_slot`, `_shared`, `_either`, `_earlier` and their helpers);
-answers are built once per FNV topic; `say_topics.prompt_places` goes.
-Audits: `menus.py` checks 1–3 and `dlc_overrides.unpaired_menus` are
-replaced by a menu → topic map check. Keys, from authored data only:
-answer INFO `INFO <line> <part>`, answer DIAL `DIAL answer <topic>`, menu
-by the line owning the Choices list, option `<menu> <topic>`, so a mod's
-edit overrides the master's in place. Every dialogue id moves once: a
-planned save break.
+### <a id="converter-built"></a>As built (2026-11-11)
+
+**Code:** `fo4_import/spike/conversation.py`, `fo4_import/dialogue_menu/__init__.py`,
+`tes_runtime/fo4_condition/dialogue.cpp`.
+
+- **A menu** (FNV Choices, or the Topic list) is one Player Dialogue
+  action: one player topic holding an option per FNV topic, then `[Leave]`
+  on the Topic list (and on a Choices menu that can never end), beside an
+  empty NPC topic. No pads, no gate conditions, no XDI keyword; plugins no
+  longer master XDI.esm. A menu ends its scene; the answer starts what
+  follows.
+- **An option** shows its topic's first line's prompt (tagged with its skill
+  check), on the topic's AddTopic gate only. F3NV.dll lists it while one
+  line of its answer topic passes, and shows that line's prompt.
+- **An answer topic** is built once per FNV topic for the whole build
+  (`Hub.answers`): every line of the topic in Hub order, each with its own
+  prompt and conditions, starting what its FNV line leads to with the
+  speaker forced into the Speaker alias (ALFA; 65 vanilla cross-quest TSCE
+  lines carry ALFA 0). `[Leave]` links to one silent End Scene answer.
+- **Shared steps live in one quest.** Every step any quest reaches (not a
+  chat's or a `TES4Talk_` talk's own) is built once, in the generated
+  start-game Greetings quest (`Hub.home`), so a quest that stops cannot
+  take a shared scene with it, and no menu is built twice. This replaces
+  the five copies of [no-dll](#no-dll). The Greetings quest is written after
+  every cell quest.
+- **The links file** lists each option → answer topic and each tagged answer
+  line's check ([links-file](#links-file)); the masterless build also
+  installs the menu movie when FFDec and the game's Interface archive are
+  there.
+- **Keys** (authored data only): answer DIAL `DIAL answer <FNV topic>`,
+  answer INFO `INFO <line> <part> at answer`, menu topics
+  `DIAL <step> options|answers`, option `INFO option <step> <FNV topic>`,
+  where `<step>` names the FNV Choices topics (or `menu hub`). A DLC that
+  derives the same key reuses its master's record in place.
+- **Folded in:** tool-audit F2 (holotape copies keyed by their note), F3
+  (no split options any more), F5 (Say Once stages numbered in FormID order
+  before use); see [fo4_tool_audit.md](fo4_tool_audit.md#formids).
+- **Audit:** `preflight/menus.py` checks the links file against the
+  plugin's menus (every option linked; every link from a menu option to an
+  answer topic with a line, the plugin's or a master's; every check on an
+  INFO and an AVIF). It replaces checks 1–3, `xdi_menus` and
+  `dlc_overrides.unpaired_menus`.
+- **Save break:** every menu and scene dialogue id moves once (approved).
+  Quest Say topics, barks, greetings, holotapes and radio keep theirs.
+- **Measured** (V, 2026-11-11): the GSDocMitchellHouse test-cell build
+  (every quest's dialogue), before → after: DIAL 6,576 → 2,008, INFO
+  4,139 → 3,090, SCEN 1,493 → 513, dialogue 3.6 → 1.9 MB, plugin 9.6 →
+  7.8 MB, `quests` stage 5.8 → 5.0 s; 560 options linked, 24 skill-check
+  rows, the links audit clean. Against the deployed ledger, 3,278 of the
+  build's 11,638 keys are new (all menu, answer and shared-step records,
+  and 773 line copies); 8,360 keep their ids.
 
 ## <a id="no-dll"></a>A saving that needs no DLL
 
@@ -425,3 +469,5 @@ cause (I): each quest's `Conversations` keeps its own placed list, so a
 talk that leads back to the Topic list rebuilds the whole conversation in
 that quest. Fixing it under XDI cuts about two thirds of the answer
 copies (and their voice files), but moves those ids: also a save break.
+Fixed by the switch: every shared step is built once, in `Hub.home`
+([as built](#converter-built)).

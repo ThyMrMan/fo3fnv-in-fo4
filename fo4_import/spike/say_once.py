@@ -41,20 +41,32 @@ class SayOnce:
         """No markers yet; a plugin whose master holds the marker quest has one of its own (stages cannot stack).
         See: docs/fork/fo4_plugin_layout.md#dlc-say-once
         """
-        self.stages, self.writer, self.edid = {}, writer, EDID
+        self.stages, self.numbers, self.writer, self.edid = {}, {}, writer, EDID
         self.quest = writer.derive_formid(SITE, EDID) if writer else 0
         if writer and self.quest >> 24 != writer.own_index:
             self.quest = writer.derive_formid(SITE, f'{EDID} plugin')
             self.edid = f'{EDID}_{self.quest & 0xFFFFFF:06X}'
 
+    def reserve(self, lines) -> None:
+        """Number FNV `lines` (FormID hex) in FormID order before any is used.
+        See: docs/fork/fo4_tool_audit.md#formids
+        """
+        for line in sorted({line.upper() for line in lines}):
+            self._number(line)
+
     def stage(self, line: str) -> int:
-        """The marker stage of FNV line `line` (FormID hex): the ledger's, else its hash moved up one while taken.
+        """FNV line `line`'s marker stage, written in the marker quest."""
+        line = line.upper()
+        self.stages[line] = self._number(line)
+        return self.stages[line]
+
+    def _number(self, line: str) -> int:
+        """`line`'s stage number: the ledger's, else its hash moved up one while taken.
         See: docs/fork/fo4_pipeline.md#formid-ledger
         """
-        line = line.upper()
-        if line not in self.stages:
+        if line not in self.numbers:
             site = f'{SITE} {self.quest:08X}'
-            used = set(self.stages.values()) | set(self.writer.ledger.values(NUMBER, site) if self.writer else ())
+            used = set(self.numbers.values()) | set(self.writer.ledger.values(NUMBER, site) if self.writer else ())
 
             def free() -> int:
                 """The line's hashed stage, moved up one while `used` holds it."""
@@ -62,8 +74,8 @@ class SayOnce:
                 while stage in used:
                     stage = FIRST + (stage - FIRST + 1) % COUNT
                 return stage
-            self.stages[line] = self.writer.stable_number(site, line, free) if self.writer else free()
-        return self.stages[line]
+            self.numbers[line] = self.writer.stable_number(site, line, free) if self.writer else free()
+        return self.numbers[line]
 
     def unsaid(self, lines: list) -> bytes:
         """CTDAs: one OR-group, true while one of FNV `lines` is unsaid."""

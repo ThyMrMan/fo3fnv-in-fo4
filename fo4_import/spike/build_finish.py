@@ -8,6 +8,7 @@ import collections
 import struct
 from pathlib import Path
 
+from fo4_import import dialogue_menu as menu_links
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
 from fo4_import.base.dangling_scripts import clear_dangling
@@ -157,7 +158,7 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
 @timed('closing records')
 def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helper: int) -> None:
     """The records written from everything made: script packages, ammo, condition (helper plugin index
-    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino."""
+    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino, the dialogue menu links."""
     builder.counts['script packages'] = write_script_packages(builder)
     ammo_casings.write(builder, builder.equipment.ammo_mods.loaded)
     ammo_switch.write(builder, builder.equipment.ammo_mods)
@@ -171,6 +172,7 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
     builder.casino.write(data_dir)
     companion_barks.write(builder)
     builder.counts['Pip-Boy Tabs files removed'] = len(remove_legacy_tabs(data_dir, out.name))
+    menu_links.write(builder, data_dir, out.name)
     if builder.built:
         builder.scripts.used += [list_adds.SCRIPT]
 

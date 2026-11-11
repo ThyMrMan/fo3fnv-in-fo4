@@ -104,6 +104,17 @@ def test_required_mod_missing_or_off(machine, mod):
     assert status(machine, mod) == 'MISSING'
 
 
+def test_enabled_xdi_conflicts(machine):
+    """XDI.dll in an enabled mod is a CONFLICT (F3NV.dll's menu replaces it); disabled, it is not reported."""
+    name, rel = IC.CONFLICTING_MODS[0]
+    touch(machine.mo2 / 'mods' / 'XDI' / rel)
+    modlist = machine.mo2 / 'profiles' / PLAY / 'modlist.txt'
+    modlist.write_text(modlist.read_text() + '\n+XDI', encoding='utf-8')
+    assert status(machine, name) == 'CONFLICT'
+    modlist.write_text(modlist.read_text().replace('+XDI', '-XDI'), encoding='utf-8')
+    assert name not in report(machine)
+
+
 def test_mo2_problems(machine):
     """No instance is MISSING; a lost executable or profile is MISSING too."""
     ini = machine.mo2 / 'ModOrganizer.ini'

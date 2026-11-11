@@ -105,7 +105,6 @@ find in [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
 - These Fallout 4 mods, installed in MO2:
   - [F4SE](https://f4se.silverlock.org/) for 1.11.240;
   - [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327);
-  - [Extended Dialogue Interface](https://www.nexusmods.com/fallout4/mods/27216);
   - [LevelUpMenuEx](https://www.nexusmods.com/fallout4/mods/28822);
   - [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497);
   - [Black Landscape Fix](https://www.nexusmods.com/fallout4/mods/108574)

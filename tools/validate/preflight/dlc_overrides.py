@@ -31,7 +31,7 @@ from fo4_import.base.master_overrides import master_records
 from fo4_import.pipeline.export_index import export_masters, own_records
 from fo4_import.pipeline.stale_files import LIST_SUFFIX, SLACK, listed, roots
 from fo4_import.spike.say_topics import dlc_lines
-from tes5_import.base.tes5_reader import FLAG_COMPRESSED, subrecords, walk
+from tes5_import.base.tes5_reader import FLAG_COMPRESSED, walk
 from tools.validate.preflight.build_diff import sample
 from tools.validate.preflight.build_history import read_stamp
 from tools.validate.preflight.findings import Finding
@@ -227,40 +227,6 @@ def unlisted_files(plugin: Path) -> tuple:
     return sorted(set(stale)), sorted(set(made))
 
 
-def menu_pairs(master: Path, names: list) -> dict:
-    """{player topic: answer topic} (PTOP: NPOT) of master `master`'s Player Dialogue actions, as FormIDs in the
-    numbering of a plugin whose masters are `names` (lower case)."""
-    own = [m.lower() for m in file_masters(master)] + [master.name.lower()]
-
-    def ours(fid: int) -> int:
-        """Master FormID `fid` in the plugin's numbering."""
-        return names.index(own[fid >> 24]) << 24 | fid & 0xFFFFFF
-
-    pairs, player = {}, None
-    for rec, _ in walk(Path(master).read_bytes()):
-        for sig, data in subrecords(rec.body) if rec.sig == b'SCEN' else ():
-            fid = int.from_bytes(data[:4], 'little') if len(data) == 4 else None
-            if sig == b'PTOP':
-                player = fid
-            elif sig == b'NPOT' and player is not None and fid is not None:
-                pairs[ours(player)], player = ours(fid), None
-    return pairs
-
-
-def unpaired_menus(plugin: Path, masters: list) -> list:
-    """Rows of the master menus whose option and answer topics get unequal numbers of `plugin`'s own INFOs.
-    See: docs/fork/fo4_plugin_layout.md#dlc-prompts
-    """
-    names = [m.lower() for m in file_masters(plugin)]
-    pairs = {p: n for master in masters for p, n in menu_pairs(Path(master), names).items()}
-    counts = defaultdict(int)
-    for rec, stack in walk(Path(plugin).read_bytes()):
-        if rec.sig == b'INFO' and rec.form_id >> 24 == len(names) and stack.groups:
-            counts[stack.groups[-1].label_fid] += 1
-    return [f'{p:08X}: {counts[p]} options, {counts[n]} answers' for p, n in sorted(pairs.items())
-            if counts[p] != counts[n]]
-
-
 def _finding(game: str, kind: str, summary: str, rows: list, severity: str = 'error') -> list:
     """One finding of `kind` when `rows` is not empty."""
     return [Finding('dlc', f'dlc|{game}|{kind}', severity, f'{len(rows)} {summary}', sample(rows))] if rows else []
@@ -281,8 +247,6 @@ def audit(game: str, index, plugin: Path, masters: list, export_dir: Path) -> li
     out += _finding(game, 'master-files', 'files are a master\'s own-rig creature or worldspace LOD files',
                     master_files(files, *master_prefixes(masters, Files([FALLOUT4_DIR / 'Data'])), theirs))
     out += shared_findings(game, index, plugin, masters, export_dir)
-    out += _finding(game, 'unpaired-menus', 'master menus get unequal numbers of the DLC\'s options and answers',
-                    unpaired_menus(plugin, masters))
     stale, made = unlisted_files(plugin)
     out += _finding(game, 'stale', 'files in the listed folders predate the build and are on no file list', stale)
     return out + _finding(game, 'unlisted', 'files the build made are not on its file list, so no build prunes them',

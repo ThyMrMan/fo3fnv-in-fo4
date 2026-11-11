@@ -16,7 +16,6 @@ left out and counted.
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
-import collections
 import re
 from pathlib import Path
 
@@ -95,20 +94,6 @@ def masters_own(export_dir, sig: str) -> dict:
             for r in master_records(str(export_dir), folder, sig)}
 
 
-def prompt_places(infos: dict, dials: dict) -> dict:
-    """{FormID: (prompt, place)} of FNV lines `infos`: its option's prompt (own or its topic's FULL in `dials`) and
-    its place among its topic and quest's lines under that prompt, in record order.
-    See: docs/fork/fo4_plugin_layout.md#dlc-prompts
-    """
-    seen, out = collections.Counter(), {}
-    for fid, rec in infos.items():
-        dial = rec['ParentDIAL'].upper()
-        prompt = rec.get('Prompt') or dials.get(dial, {}).get('FULL', '')
-        group = (dial, rec.get('QSTI.Quest', '').upper(), prompt)
-        out[fid], seen[group] = (prompt, seen[group]), seen[group] + 1
-    return out
-
-
 def dlc_lines(export_dir, theirs: 'dict | None' = None) -> 'frozenset | None':
     """FormIDs (upper case) of the INFOs a plugin with masters (a DLC) holds that are its lines: its own, and its
     overrides changing a master's line (`theirs`, masters_own when None) beyond its place in the topic (PNAM);
@@ -156,16 +141,15 @@ class SayTopics:
     [(FO4 INFO, said by the player)] for the silent lines (voice.silent_jobs)."""
 
     def __init__(self, builder, export_dir: Path):
-        """Index FNV topics and lines (a DLC's: only dlc_lines, its masters' kept apart in `outside`, and the masters'
-        own versions in `master_infos` and `master_dials`), each line carrying its quest's dialogue conditions
-        (with_quest); topics are written through `builder` (its script_vars() names)."""
+        """Index FNV topics and lines (a DLC's: only dlc_lines, its masters' kept apart in `outside`), each line
+        carrying its quest's dialogue conditions (with_quest), their Say Once stages reserved; topics are written
+        through `builder` (its script_vars() names). `links` [(option INFO, answer topic)] and `checks` [(answer
+        INFO, FO4 actor value, number needed)] are the menus' links file rows (fo4_import.dialogue_menu)."""
         self.builder, self.voiced, self.once = builder, [], SayOnce(builder.writer)
-        self.silent, self.outside = [], []
+        self.silent, self.outside, self.links, self.checks = [], [], [], []
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
-        self.master_infos, self.master_dials = masters_own(export_dir, 'INFO'), masters_own(export_dir, 'DIAL')
-        self.master_prompts = prompt_places(self.master_infos, self.master_dials)
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
-        self.infos, own, by_id = {}, dlc_lines(export_dir, self.master_infos), {}
+        self.infos, own, by_id = {}, dlc_lines(export_dir), {}
         for rec in export_records(export_dir, 'INFO'):
             if own is not None and rec['FormID'].upper() not in own:
                 self.outside.append(rec)
@@ -173,6 +157,7 @@ class SayTopics:
             quest = rec.get('QSTI.Quest', '').upper()
             by_id[rec['FormID'].upper()] = line = with_quest(rec, quests.get(quest, []))
             self.infos.setdefault(quest, []).append(line)
+        self.once.reserve(fid for fid, rec in by_id.items() if int(rec.get('DATA.Flags', 0) or 0) & SAY_ONCE)
         self.engine = {**ENGINE_TOPICS, **named_barks(self.dials)}
         self.replies = replies(self.dials, export_records(export_dir, 'INFO'), self.engine)
         self.script_vars = builder.script_vars
@@ -233,14 +218,14 @@ class SayTopics:
         return object_scripts(marked) if marked else b''
 
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
-             target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '', helpers: tuple = ()) -> bytes:
+             target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '', helpers: tuple = (),
+             prompt: str = '', forced: 'int | None' = None) -> bytes:
         """One FNV line as an FO4 INFO of quest `owner`; b'' when a condition cannot convert.
 
-        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once (say_once marks it);
-        `helpers` more scripts [(script, object props, value props)] on its first part;
-        `extra` CTDAs join its conditions, Target tests on alias `target`; `speaker` its NPC; `place` names
-        this copy (quest, step) for its FormID. A split line's later parts have no conditions or Say Once;
-        the first runs the Begin fragment, the last the End one; the part opening barter ends the scene.
+        `scene` (scene, phase) it starts, its speaker forced into alias `forced`; `flags` beside Say Once;
+        `helpers` more scripts on its first part; `extra` CTDAs join its conditions, Target tests on alias
+        `target`; `speaker` its NPC; `place` names this copy for its FormID; `prompt` its menu prompt. A split
+        line's later parts have no conditions or Say Once; the part opening barter ends the scene.
         """
         first, last = rec.get(PART, 1) == 1, rec.get(PART, 1) == rec.get(PARTS, 1)
         conditions = conditions_of(rec, form_map, self.script_vars, target=target) if first else b''
@@ -265,7 +250,7 @@ class SayTopics:
         return R.pack_info(fid, flags, tuple(lines) or (R.SILENT_LINE,), conditions + extra, scene=scene[0], phase=scene[1],
                            phase_index=scene[2] if len(scene) > 2 else 0, stages=(R.NO_STAGE, R.NO_STAGE),
                            notes=f'FNV {rec["FormID"]}', vmad=vmad, idles=self.builder.idles.line(rec),
-                           speaker=speaker)
+                           speaker=speaker, prompt=prompt, forced_alias=forced)
 
 
 def actor_values(helper_index: int) -> dict:
