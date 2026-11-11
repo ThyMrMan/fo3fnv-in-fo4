@@ -7,6 +7,7 @@ package
    import flash.display.Graphics;
    import flash.display.MovieClip;
    import flash.display.Sprite;
+   import flash.events.Event;
    import flash.events.KeyboardEvent;
    import flash.events.MouseEvent;
    import flash.geom.Point;
@@ -62,21 +63,28 @@ package
       private static const ROWS:int = 5;
 
       // The box's fixed width and its bottom's height above the screen's safe bottom (it stays under the speaker's
-      // face); a row's text width inside it (a longer prompt wraps), the padding, the room for a scroll arrow, the
-      // selection edge's column and the gap between rows.
+      // face); the padding, a row's text width inside it (a longer prompt wraps), the gap between rows, the outline's
+      // thickness, the backdrop's opacity and the scroll marks' column left of the box (as FNV draws its box).
       private static const BOX_WIDTH:Number = 640;
 
       private static const BOTTOM:Number = 36;
 
       private static const PAD:Number = 10;
 
-      private static const HINT:Number = 10;
-
-      private static const MARK:Number = 16;
-
-      private static const TEXT_WIDTH:Number = BOX_WIDTH - 2 * PAD - MARK;
+      private static const TEXT_WIDTH:Number = BOX_WIDTH - 4 * PAD;
 
       private static const GAP:Number = 6;
+
+      private static const LINE:Number = 2;
+
+      private static const BACKDROP:Number = 0.2;
+
+      private static const GUTTER:Number = 24;
+
+      // Frames to look again for F3NV.dll's options when a menu first shows none (its scene may not be set yet).
+      private static const RETRIES:int = 30;
+
+      private var retries:int = 0;
 
       // The list entry that leaves the talk (LeaveDialogue), shown when a menu has no options of ours.
       private static const LEAVE:int = -1;
@@ -203,6 +211,7 @@ package
          this._ButtonsShown = true;
          this.picking = false;
          this.listShown = this.dll != null && this.ensureList();
+         this.retries = RETRIES;
          this.refresh();
          this.log("menu shown: " + this.entries.length + " entries");
       }
@@ -279,7 +288,7 @@ package
             row.wordWrap = true;
             row.width = TEXT_WIDTH;
             row.autoSize = "left";
-            row.x = PAD + MARK;
+            row.x = 2 * PAD;
             row.name = String(i);
             row.addEventListener(MouseEvent.MOUSE_OVER, this.onRowOver);
             row.addEventListener(MouseEvent.CLICK, this.onRowClick);
@@ -340,8 +349,31 @@ package
             }
             this.log("no options of ours: the game's " + this.entries.length + " (" + this.gameTexts.join(" | ") + "), and [Leave]");
             this.entries.push({"text":"[Leave]", "said":false, "ours":false, "index":LEAVE});
+            if(this.listShown && this.retries > 0)
+            {
+               this.addEventListener(Event.ENTER_FRAME, this.lookAgain);
+            }
          }
          this.selected = Math.max(0, Math.min(this.selected, this.entries.length - 1));
+      }
+
+      // Each frame for RETRIES frames after a menu showed none of ours: ask F3NV.dll again, and show its options
+      // once it has some, before the game's own buttons are left in place.
+      private function lookAgain(e:Event) : void
+      {
+         this.retries = this.retries - 1;
+         var options:Object = this.listShown ? this.dll.GetDialogueOptions() : null;
+         var found:Boolean = options != null && options.length > 0;
+         if(found || !this.listShown || this.retries <= 0)
+         {
+            this.removeEventListener(Event.ENTER_FRAME, this.lookAgain);
+            this.log(found ? "options of ours after " + (RETRIES - this.retries) + " frames" : "still none of ours");
+            this.retries = 0;
+         }
+         if(found)
+         {
+            this.refresh();
+         }
       }
 
       private function draw() : void
@@ -356,7 +388,7 @@ package
          {
             this.top = this.selected - count + 1;
          }
-         var y:Number = PAD + HINT;
+         var y:Number = PAD + LINE;
          var i:int = 0;
          while(i < ROWS)
          {
@@ -373,7 +405,7 @@ package
             }
             i++;
          }
-         var high:Number = y - GAP + HINT + PAD;
+         var high:Number = y - GAP + PAD + LINE;
          this.paint(count, high);
          var base:Point = this.list.parent.globalToLocal(this.localToGlobal(new Point(0, -BOTTOM)));
          this.list.x = base.x - BOX_WIDTH / 2;
@@ -385,46 +417,53 @@ package
          }
       }
 
-      // The box under `count` rows, `high` in all and always BOX_WIDTH wide: faint black with a thin rule at top and
-      // bottom, the selected row's bar and edge, and arrows when rows are hidden above or below. White is tinted to
+      // The box under `count` rows, `high` in all and always BOX_WIDTH wide, drawn as FNV draws its own: a faint
+      // backdrop in an outline, the selected row in an outline of its own, and, when the list scrolls, an up and a
+      // down mark joined by a line left of the box (dim where there is nothing more that way). White is tinted to
       // the HUD color by the game.
       private function paint(count:int, high:Number) : void
       {
          var g:Graphics = this.list.graphics;
-         var full:Number = BOX_WIDTH;
          g.clear();
-         g.beginFill(0, 0.5);
-         g.drawRect(0, 0, full, high);
+         g.beginFill(0, BACKDROP);
+         g.drawRect(0, 0, BOX_WIDTH, high);
          g.endFill();
-         g.beginFill(0xFFFFFF, 0.35);
-         g.drawRect(0, 0, full, 1);
-         g.drawRect(0, high - 1, full, 1);
-         g.endFill();
+         this.frame(g, 0, 0, BOX_WIDTH, high, 0.9);
          var row:TextField = this.rows[this.selected - this.top];
-         g.beginFill(0xFFFFFF, 0.14);
-         g.drawRect(PAD, row.y - 2, full - 2 * PAD, row.height + 4);
+         g.beginFill(0xFFFFFF, 0.08);
+         g.drawRect(PAD, row.y - 3, BOX_WIDTH - 2 * PAD, row.height + 6);
          g.endFill();
-         g.beginFill(0xFFFFFF, 1);
-         g.drawRect(PAD, row.y - 2, 4, row.height + 4);
-         g.endFill();
-         if(this.top > 0)
+         this.frame(g, PAD, row.y - 3, BOX_WIDTH - 2 * PAD, row.height + 6, 0.9);
+         if(this.entries.length > count)
          {
-            this.arrow(g, full / 2, PAD, -1);
-         }
-         if(this.top + count < this.entries.length)
-         {
-            this.arrow(g, full / 2, high - PAD, 1);
+            var x:Number = -GUTTER / 2;
+            g.beginFill(0xFFFFFF, 0.5);
+            g.drawRect(x - LINE / 2, PAD + 12, LINE, high - 2 * PAD - 24);
+            g.endFill();
+            this.arrow(g, x, PAD, -1, this.top > 0 ? 1 : 0.3);
+            this.arrow(g, x, high - PAD, 1, this.top + count < this.entries.length ? 1 : 0.3);
          }
       }
 
-      // A small scroll arrow centered on `x`, its tip at `y`, pointing up (-1) or down (1).
-      private function arrow(g:Graphics, x:Number, y:Number, way:int) : void
+      // An outline LINE thick around the `wide` by `high` box at (`x`, `y`), as four strips that do not overlap.
+      private function frame(g:Graphics, x:Number, y:Number, wide:Number, high:Number, alpha:Number) : void
       {
-         g.beginFill(0xFFFFFF, 0.8);
-         g.moveTo(x - 9, y - way * 7);
-         g.lineTo(x + 9, y - way * 7);
+         g.beginFill(0xFFFFFF, alpha);
+         g.drawRect(x, y, wide, LINE);
+         g.drawRect(x, y + high - LINE, wide, LINE);
+         g.drawRect(x, y + LINE, LINE, high - 2 * LINE);
+         g.drawRect(x + wide - LINE, y + LINE, LINE, high - 2 * LINE);
+         g.endFill();
+      }
+
+      // A small scroll mark centered on `x`, its tip at `y`, pointing up (-1) or down (1).
+      private function arrow(g:Graphics, x:Number, y:Number, way:int, alpha:Number) : void
+      {
+         g.beginFill(0xFFFFFF, alpha);
+         g.moveTo(x - 8, y - way * 8);
+         g.lineTo(x + 8, y - way * 8);
          g.lineTo(x, y);
-         g.lineTo(x - 9, y - way * 7);
+         g.lineTo(x - 8, y - way * 8);
          g.endFill();
       }
 

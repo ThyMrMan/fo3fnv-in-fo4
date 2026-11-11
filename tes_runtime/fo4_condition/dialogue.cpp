@@ -54,8 +54,11 @@ using RunFn = UInt64 (*)(void *action, void *scene, void *third, void *fourth);
 using StopFn = void (*)(void *scene);
 // An actor's "talking" test, the one the run function waits on before the NPC slot (vtable +0x270, 0x4159BF).
 using TalkingFn = bool (*)(void *actor);
-// An input handler's "should handle" test (BSInputEventUser slot 1).
+// An input handler's "should handle" test (BSInputEventUser slot 1); an input event's user-event name (its slot 2);
+// the game's static ZoomIn / ZoomOut user-event names.
 using ShouldFn = bool (*)(void *handler, void *event);
+using EventNameFn = void **(*)(void *event);
+using StaticNameFn = void **(*)();
 
 RelocAddr<OptionInfoFn> OptionInfo(0x416600);
 RelocAddr<ResponseFn> ResponseInfo(0x414180);
@@ -74,8 +77,11 @@ const size_t RUN_SLOT = 21;
 // The player starting to say the picked option (`mov rcx, rax` before the call at 0x4158E9); `jmp 0x4158F2` takes
 // the said path without saying it. The camera's switch to the player (its 1 at 0x832665 + 7; 2 keeps it on the NPC).
 RelocAddr<uintptr_t> PLAYER_SPEAKS(0x4158D2), CAMERA_TO_PLAYER(0x83266C);
-// CameraZoomHandler's vtable and its "should handle" (ZoomIn / ZoomOut), which the mouse wheel reaches in dialogue.
-RelocAddr<uintptr_t> CAMERA_ZOOM_VTABLE(0x25B1E58), CAMERA_ZOOM_SHOULD(0x10784D0);
+// The camera states that take the mouse wheel (first person: ZoomOut to third; third person: both), their vtables
+// and "should handle" tests; the ZoomIn and ZoomOut name getters those tests call.
+RelocAddr<uintptr_t> FIRST_PERSON_VTABLE(0x25AAB08), FIRST_PERSON_SHOULD(0x10213E0);
+RelocAddr<uintptr_t> THIRD_PERSON_VTABLE(0x2522A88), THIRD_PERSON_SHOULD(0x102DFC0);
+RelocAddr<StaticNameFn> ZoomInName(0xB25620), ZoomOutName(0xA7A080);
 const UInt8 SPEAKS[] = {0x48, 0x8B, 0xC8}, SILENT[] = {0xEB, 0x1E, 0x90};
 const UInt8 CAMERA_PLAYER = 1, CAMERA_SPEAKER = 2;
 
@@ -121,6 +127,8 @@ struct Chosen {
 std::mutex g_dialogueLock;
 Menu g_menu;
 Chosen g_chosen;
+// The waiting action last logged as listing none of ours (the menu asks again each frame for a while).
+void *g_noneLogged = nullptr;
 // Option INFO FormID -> answer topic FormID, read once the data has loaded.
 std::unordered_map<UInt32, UInt32> g_links;
 bool g_linksRead = false;
@@ -129,7 +137,7 @@ std::atomic<void *> g_running{nullptr}, g_runningScene{nullptr};
 OptionInfoFn g_optionInfo = nullptr;
 ResponseFn g_responseInfo = nullptr;
 RunFn g_run = nullptr;
-ShouldFn g_zoomShould = nullptr;
+ShouldFn g_firstShould = nullptr, g_thirdShould = nullptr;
 bool g_hooked = false, g_speechPatch = false, g_playerSpeaks = true;
 F4SETaskInterface *g_dialogueTasks = nullptr;
 // The wait trace: the last state logged for our picked option, and when it was picked.
@@ -249,19 +257,36 @@ void *WaitingAction(void **scene) {
     return At<UInt32>(action, ACTION_OPTION) == NO_OPTION ? action : nullptr;
 }
 
-// The camera zoom takes the wheel only while no Player Dialogue choice waits; the menu scrolls with it then.
-bool ZoomShould(void *handler, void *event) {
+// A wheel step (ZoomIn / ZoomOut) while a Player Dialogue choice waits: the menu scrolls with it, not the camera.
+bool WheelWhileChoosing(void *event) {
+    void **name = (*reinterpret_cast<EventNameFn **>(event))[2](event);
     void *scene = nullptr;
-    return !WaitingAction(&scene) && g_zoomShould(handler, event);
+    return name && (*name == *ZoomInName() || *name == *ZoomOutName()) && WaitingAction(&scene);
 }
 
-// Route CameraZoomHandler's "should handle" through ZoomShould when the slot still holds the vanilla function.
-bool HookZoom() {
-    auto *slot = reinterpret_cast<ShouldFn *>(CAMERA_ZOOM_VTABLE.GetUIntPtr() + sizeof(void *));
-    if (uintptr_t(*slot) != CAMERA_ZOOM_SHOULD.GetUIntPtr()) return false;
-    g_zoomShould = *slot;
-    SafeWrite64(uintptr_t(slot), UInt64(&ZoomShould));
+bool FirstPersonShould(void *state, void *event) {
+    return !WheelWhileChoosing(event) && g_firstShould(state, event);
+}
+
+bool ThirdPersonShould(void *state, void *event) {
+    return !WheelWhileChoosing(event) && g_thirdShould(state, event);
+}
+
+// Route a camera state's "should handle" (vtable slot 1) through `hook` when the slot still holds `vanilla`.
+bool HookShould(uintptr_t vtable, uintptr_t vanilla, ShouldFn hook, ShouldFn *original) {
+    auto *slot = reinterpret_cast<ShouldFn *>(vtable + sizeof(void *));
+    if (uintptr_t(*slot) != vanilla) return false;
+    *original = *slot;
+    SafeWrite64(uintptr_t(slot), UInt64(hook));
     return true;
+}
+
+// Keep the wheel from the first- and third-person cameras while a choice waits.
+bool HookWheel() {
+    return HookShould(FIRST_PERSON_VTABLE.GetUIntPtr(), FIRST_PERSON_SHOULD.GetUIntPtr(), FirstPersonShould,
+                      &g_firstShould) &&
+           HookShould(THIRD_PERSON_VTABLE.GetUIntPtr(), THIRD_PERSON_SHOULD.GetUIntPtr(), ThirdPersonShould,
+                      &g_thirdShould);
 }
 
 // Let the player say the picked option (vanilla) or not (ours: the NPC answers at once, as in FNV).
@@ -397,7 +422,8 @@ public:
         Census census;
         g_menu.action = action;
         g_menu.options = npc ? ListOptions(action, npc, &census) : std::vector<Option>();
-        if (g_menu.options.empty()) LogNoOptions(scene, npc, census);
+        if (g_menu.options.empty() && g_noneLogged != action) LogNoOptions(scene, npc, census);
+        g_noneLogged = g_menu.options.empty() ? action : nullptr;
         for (UInt32 i = 0; i < g_menu.options.size(); i++) {
             const Option &o = g_menu.options[i];
             GFxValue entry, text, said(o.said);
@@ -488,7 +514,7 @@ bool HookDialogue(void *tasks) {
     }
     _MESSAGE("dialogue menu: %s, player line skip %s, wheel zoom %s",
              g_hooked ? "hooked" : "not hooked (no trampoline space)", g_speechPatch ? "ready" : "unavailable (code differs)",
-             g_hooked && HookZoom() ? "off while choosing" : "unchanged (code differs)");
+             g_hooked && HookWheel() ? "off the camera while choosing" : "unchanged (code differs)");
     return g_hooked;
 }
 

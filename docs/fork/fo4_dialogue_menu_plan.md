@@ -223,13 +223,20 @@ each call):**
 FFDec compiles our own `as3/DialogueMenu.as` over the game's class
 (`fo4_import/base/ffdec.py`, shared with the casino movie). The result is
 cached under `temp/` and written only to an output folder.
-- The list is a 640-wide box, faint black, its bottom 36 above the safe
-  area's bottom; it shows 5 rows and scrolls, and a long prompt wraps.
-  Said options are dimmer.
+- The list is a 640-wide box in FNV's style: a 0.2 black backdrop in an
+  outline, the selected row outlined, and up/down marks joined by a line
+  left of the box when it scrolls. Its bottom is 36 above the safe area's
+  bottom; it shows 5 rows, and a long prompt wraps. Said options are
+  dimmer. A menu that first shows none of ours asks again each frame for
+  30 frames before leaving the game's buttons.
 - **Keys:**
   - arrows, W/S, the mouse wheel, or the gamepad's Quickkey up/down move;
-    F3NV.dll keeps the wheel from the camera (CameraZoomHandler) while a
-    choice waits;
+    F3NV.dll keeps the wheel from the camera while a choice waits. The
+    wheel reaches the camera through the camera states' "should handle"
+    tests (V): FirstPersonState (0x10213E0) takes ZoomOut,
+    ThirdPersonState (0x102DFC0) both; F3NV.dll refuses ZoomIn/ZoomOut
+    there. CameraZoomHandler (0x10784D0), blocked first, was not the path
+    (played 2026-11-10);
   - Enter, E (Activate), 1–9, a click, or gamepad A pick;
   - Tab, Esc or Cancel leave the talk.
 - With no DLL, or no linked options, it lists the game's own four buttons.
@@ -290,9 +297,12 @@ INFO and its answer a DIAL. The log line is
   line (033AA035), whose script opens the GREETING scene. His line there
   ("I was just finishing up making an example of this town…", 03ECC85F)
   starts Scene6624, two speech lines; the second (03E8601C) starts the hub.
-  In the 2026-11-10 22:51 play the hub listed none of our options for him,
-  not even `[Leave]`, and the game's single button played FO4's own way.
-  Why is not known. F3NV.dll now logs it:
+  His other GREETING lines ("How interesting! You're the Profligate
+  courier…") start Scene6620 instead, a menu of its own (player topic
+  0358C4EA) that only GREETING lines start. The hub-only rebuild left it
+  unlinked, so the 22:51 play showed the game's single button there; the
+  all-menus rebuild lists his options there (23:17 play). F3NV.dll logs a
+  menu with none of ours once:
   `none of ours in scene … with NPC …: lines, linked, pass, answered`.
   - Both Vulpes options link to an answer topic whose only line shares
     the End Scene answer.
