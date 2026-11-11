@@ -690,7 +690,7 @@ last-wins merges that must scan **masters FIRST** so the plugin's own version of
 an overridden record wins:
 
 - `CrossRefGraph.load_from_export()` walks `_HEADER.txt` `Master[n]=` entries
-  transitively (`_export_dirs_with_masters`). Without it an unresolved name
+  transitively (`export_dirs_with_masters`). Without it an unresolved name
   falls out of `_convert_ref` as a bare identifier with no property declared,
   and the compiler rejects it: `undefined identifier \`SetGewitter\``. This was
   **430 of Translation.esp's 981 scripts** — Nehrim owns every `Set*`/`Var*`

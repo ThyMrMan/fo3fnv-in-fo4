@@ -14,7 +14,7 @@ from asset_convert.collision.collision_extract import bounds_cache_is_current
 from core.plugin_masters import masters_from_export_header
 from fo4_import.base.bink import source_movies
 from output_layout import assets_for
-from script_convert.cross_ref import CrossRefGraph
+from script_convert.cross_ref import CrossRefGraph, export_dirs_with_masters
 from script_convert.message_menus import build_chargen_menus
 from script_convert.ownership import read_owned, sibling_owned
 from script_convert.target import is_fallout4
@@ -154,6 +154,15 @@ def load_records(export_dir: str, sigs: tuple) -> dict:
         path = os.path.join(export_dir, f'{sig}.txt')
         out[sig] = parse_export_file(path) if os.path.exists(path) else []
     return out
+
+
+def chain_records(export_dir: str, by_type: dict, sigs: tuple) -> dict:
+    """`by_type`'s `sigs` records after every master's, deepest master first.
+
+    See: docs/fork/fo4_pipeline.md#master-mirrors
+    """
+    masters = [load_records(d, sigs) for d in export_dirs_with_masters(export_dir)[:-1]]
+    return {sig: [*(r for m in masters for r in m[sig]), *by_type.get(sig, ())] for sig in sigs}
 
 
 def service_menu_topics(by_type: dict) -> dict:

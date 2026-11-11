@@ -34,12 +34,12 @@ _SCAN_CHUNK_BYTES = 16 * 1024 * 1024
 
 
 def _scan_chain(export_dir: str) -> tuple:
-    """(`_export_dirs_with_masters`, the worldspace renames that chain applies)."""
-    dirs = _export_dirs_with_masters(export_dir)
+    """(`export_dirs_with_masters`, the worldspace renames that chain applies)."""
+    dirs = export_dirs_with_masters(export_dir)
     return dirs, renames_for(dirs)
 
 
-def _export_dirs_with_masters(export_dir: str) -> list:
+def export_dirs_with_masters(export_dir: str) -> list:
     """`export_dir` preceded by its masters' export dirs, deepest first.
 
     Masters come FIRST so the last-wins merge lets an overriding plugin's own
@@ -910,7 +910,7 @@ class CrossRefGraph:
         """
         export_dir = os.path.dirname(scpt_path)
         records = []
-        for d in _export_dirs_with_masters(export_dir):
+        for d in export_dirs_with_masters(export_dir):
             p = os.path.join(d, os.path.basename(scpt_path))
             if os.path.isfile(p):
                 records.extend(parse_export_file(p))

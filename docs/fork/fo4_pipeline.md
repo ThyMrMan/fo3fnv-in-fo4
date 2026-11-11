@@ -4000,6 +4000,19 @@ appeared in four sessions' logs. Now:
 - Not covered: the 6 converted script lines reading `GetTalkedToPC`
   ([script markers](script_markers.md#native-read-follow-ups)).
 
+<a id="master-mirrors"></a>**A mod's copy of a master's script keeps the master's mirrors (built 2026-11-11, not played).**
+Benny repeated his greeting, and objective 10 of `VMQTops` never showed as done.
+YUP ships its own `FALLOUTNV_BennySCRIPT.pex`, which overrides the base game's.
+Each plugin's conversion picked its quest-variable mirrors (`TES4QVar_`) and objective mirrors
+(`TES4ObjDone_`, `TES4ObjShown_`) from its own conditions only. YUP's lines don't test those
+objectives, so YUP's copy called `SetObjectiveCompleted(10, 1)` without the mirror `SetValue`s.
+The base game's lines read those mirrors, so they never changed. One session's log had 1,069 warnings that
+the properties a VMAD binds were missing from the overriding script: 844 `TES4QVar_`, 156 `TES4ObjShown_` and 69 `TES4ObjDone_`.
+On Fallout 4 a plugin with masters now picks both kinds of mirror from its masters' INFO, PACK, QUST
+and SCPT records plus its own (`script_convert/pipeline.py:_mirrors`, `context_setup.chain_records`).
+The masters' builds own those globals. An overriding script's properties bind through the master's VMAD.
+Not checked: whether a mod's own new script that sets a master's mirror gets that global bound in the mod's VMAD.
+
 ## <a id="trace"></a>Session trace (built 2026-10-13)
 
 Quest bugs in the opening chain showed in game only as "she stands there".
