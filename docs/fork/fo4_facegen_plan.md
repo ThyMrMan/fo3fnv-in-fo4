@@ -126,9 +126,50 @@ NVWillow 2), not per NPC.
 - No Creation Kit or MO2 for faces, so the [app](fo4_gui.md) can build
   faces on any machine.
 
+<a id="race-bodies"></a>**Race bodies: the rest of a custom character.**
+Asked 2026-11-10: should the direct route cover bodies too, for a fully
+custom character? FNV authors bodies per race, not per NPC, and mods do
+ship them. Census of the exported plugins' races naming body or head assets
+FalloutNV.esm doesn't (shipped in each export):
+
+| Plugin | Races | Own body assets |
+|---|---|---|
+| NVWillow | WillowRace | `femaleupperbody.nif` and both hands, `upperbodyfemale.dds` and `handfemale.dds` (2048 px), plus her head and teeth textures. Her body mesh is not FNV's: 10,109 vertices against the stock 4,023, mean 1.06 units off the stock body's vertices (95th percentile 2.7, max 4.6), no `UpperBody` underwear shape |
+| HonestHearts.esm | 6 tribal races (White Legs, Dead Horses, Sorrows) | `femaletribalupperbody.nif`, `nvdlc02sorrowupperbody.nif`, tattooed body, hand and head textures per tribe and sex |
+| LonesomeRoad.esm | MarkedMenGhoul | body, hand and head textures |
+| DeadMoney.esm, OldWorldBlues.esm | Christine; Lobotomites | head textures only (the [race-skin](#race-skin) fix already carries them) |
+
+Today all of these become FO4's own body (the `human_female` or
+`human_male` copy's) and FO4's body texture: Willow's body, the tribes'
+tattoos and the Marked Men's skin are lost.
+
+FO4's mechanism for an NPC's own body is its skin: the NPC's `WNAM` names
+an ARMO whose ARMA holds the body mesh and texture. Vanilla uses it at
+scale: 375 HumanRace NPCs in Fallout4.esm name one (`SkinNakedDirty` 337,
+`SkinRaider` 18, `SkinNaked` 16, `SkinOldNaked` 3), the same dirty, raider
+and old bodies FNV makes with races. So a race with its own body assets becomes
+one FO4 skin per race and sex: its body mesh retargeted onto FO4's skeleton
+with its own UVs, so its own texture applies as is, and its NPCs' `WNAM`
+names it. The retarget is the outfit code's job already (`nif.outfit`: FNV
+mesh onto FO4's skeleton and body, FO4's weights at each vertex).
+
+Where it belongs: **the race skin with the direct route** (it is the same
+input, the race record's parts, converted once per race like the head
+skin, and it is what makes a mod's character whole), **the mechanics with
+the [CBBE and BodySlide](fo4_bodies_cbbe.md) plan** (the body choice, bare
+skin inside outfits, FNV's underwear shapes, weights). The two meet at bare
+skin: an outfit's bare skin is drawn with FO4's body texture today, so a
+tattooed tribe loses its tattoos wherever an outfit shows skin, as FO4's
+own body texture does with CBBE. FO4's ARMA has Skyrim's answer:
+`NAM0`/`NAM1` (male/female skin texture) and `NAM2`/`NAM3` (skin texture
+swap lists; xEdit `wbDefinitionsFO4.pas`), present in Fallout4.esm's ARMAs.
+Unverified in game: that an outfit's bare skin takes the wearer's skin
+texture through them.
+
 **Order:** phase 1 (write the FaceGeom NIF ourselves, checked against a CK
 export), then phase 2 (shape) and phase 3 (texture) together, since
-Willow's look needs both; phase 4 (hair and head parts) last. Unknowns are
+Willow's look needs both; phase 4 (hair and head parts); then race bodies,
+once the CBBE plan's body choice exists for them to follow. Unknowns are
 listed [below](#risks); the first to settle is whether the game draws our
 FaceGeom NIF for an NPC whose record also carries sliders (it should, as it
 does the CK's).
@@ -171,10 +212,11 @@ does the CK's).
 
 ## <a id="not-included"></a>Not included
 
-- **Bodies.** FNV has no per-NPC body shape: one body per race and sex, no
-  weight slider. The one body link is skin colour, which the skin tone
-  (QNAM) already carries to the body. Outfit and body replacers are the
-  separate [CBBE and BodySlide](fo4_bodies_cbbe.md) plan.
+- **A per-NPC body shape or weight.** FNV has none: one body per race and
+  sex, no weight slider, so there is nothing authored for FO4's `MWGT` to
+  carry. Body weight and body presets stay in the
+  [CBBE and BodySlide](fo4_bodies_cbbe.md#body-weight) plan. A race's own
+  body *assets* are a different matter: [race bodies](#race-bodies).
 - **Ghouls, super mutants, children** at first: they keep their current
   route until the human heads work.
 - **The face-fit batch** (FNV's baked face textures as the colour source,
