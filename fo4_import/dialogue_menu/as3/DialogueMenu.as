@@ -63,7 +63,11 @@ package
 
       private static const ROW_HEIGHT:Number = 30;
 
-      private static const WIDTH:Number = 760;
+      // The selection mark's column, left of the text.
+      private static const MARK:Number = 18;
+
+      // The four buttons' area in the list host's space, taken before their art is hidden.
+      private var area:Rectangle;
 
       // The game's buttons in the order its menu reads them: Question, Positive, Negative, Neutral.
       private static const BUTTON_ORDER:Array = [3, 0, 1, 2];
@@ -228,13 +232,17 @@ package
 
       // ---- The list ----
 
-      // The list's rows, built once the movie is up (never in the constructor); hides the game's buttons.
+      // The list's rows, built once the movie is up (never in the constructor). The game draws this menu only
+      // inside the objects it registered (registerObjects), so the list lives in the Question button's holder,
+      // laid over the four buttons' area, and each holder's own button art is hidden (played 2026-11-10).
       private function makeList() : void
       {
+         var host:MovieClip = this.FadeHolder_mc.Question;
+         this.area = this.FadeHolder_mc.getBounds(host);
          var list:Sprite = new Sprite();
          list.visible = false;
          this.rows = new Vector.<TextField>();
-         var format:TextFormat = new TextFormat("$MAIN_Font", 20, 0xFFFFFF);
+         var format:TextFormat = new TextFormat("$MAIN_Font_Bold", 20, 0xFFFFFF);
          var i:int = 0;
          while(i < ROWS)
          {
@@ -243,10 +251,10 @@ package
             row.defaultTextFormat = format;
             row.selectable = false;
             row.multiline = false;
-            row.width = WIDTH;
-            row.height = ROW_HEIGHT;
-            row.x = 12;
-            row.y = i * ROW_HEIGHT + 3;
+            row.wordWrap = false;
+            row.autoSize = "left";
+            row.x = MARK;
+            row.y = i * ROW_HEIGHT;
             row.name = String(i);
             row.addEventListener(MouseEvent.MOUSE_OVER, this.onRowOver);
             row.addEventListener(MouseEvent.CLICK, this.onRowClick);
@@ -255,7 +263,7 @@ package
             i++;
          }
          list.addEventListener(MouseEvent.MOUSE_WHEEL, this.onWheel);
-         addChild(list);
+         host.addChild(list);
          if(stage != null)
          {
             stage.addEventListener(KeyboardEvent.KEY_DOWN, this.onKeyDown);
@@ -265,7 +273,7 @@ package
          i = 0;
          while(i < this.ButtonAnimators.length)
          {
-            this.ButtonAnimators[i].visible = false;
+            this.ButtonAnimators[i].Holder.visible = false;
             i++;
          }
          this.log("list made");
@@ -323,15 +331,7 @@ package
          }
          var g:Graphics = this.list.graphics;
          g.clear();
-         g.beginFill(0x000000, 0.55);
-         g.drawRect(0, 0, WIDTH + 24, count * ROW_HEIGHT + 6);
-         g.endFill();
-         if(this.entries.length > count)
-         {
-            g.beginFill(0xFFFFFF, 0.6);
-            g.drawRect(WIDTH + 20, 3 + count * ROW_HEIGHT * this.top / this.entries.length, 3, count * ROW_HEIGHT * count / this.entries.length);
-            g.endFill();
-         }
+         var wide:Number = 0;
          var i:int = 0;
          while(i < ROWS)
          {
@@ -341,20 +341,26 @@ package
             if(i < count)
             {
                var entry:Object = this.entries[at];
-               row.htmlText = entry.text;
-               row.textColor = at == this.selected ? 0x000000 : (entry.said ? 0x8C8C8C : 0xFFFFFF);
+               row.text = String(entry.text).toUpperCase();
+               row.alpha = at == this.selected ? 1 : (entry.said ? 0.35 : 0.6);
+               wide = Math.max(wide, row.width);
                if(at == this.selected)
                {
-                  g.beginFill(0xFFFFFF, 0.9);
-                  g.drawRect(4, i * ROW_HEIGHT + 3, WIDTH + 16, ROW_HEIGHT);
+                  g.beginFill(0xFFFFFF, 1);
+                  g.drawRect(0, i * ROW_HEIGHT + ROW_HEIGHT / 2 - 4, 8, 8);
                   g.endFill();
                }
             }
             i++;
          }
-         var bounds:Rectangle = this.FadeHolder_mc.getBounds(this);
-         this.list.x = bounds.x + (bounds.width - WIDTH - 24) / 2;
-         this.list.y = bounds.y + bounds.height - count * ROW_HEIGHT - 6;
+         if(this.entries.length > count)
+         {
+            g.beginFill(0xFFFFFF, 0.6);
+            g.drawRect(MARK + wide + 10, count * ROW_HEIGHT * this.top / this.entries.length, 3, count * ROW_HEIGHT * count / this.entries.length);
+            g.endFill();
+         }
+         this.list.x = this.area.x + (this.area.width - MARK - wide) / 2;
+         this.list.y = this.area.y + this.area.height - count * ROW_HEIGHT;
          this.list.visible = this.listShown && count > 0;
          if(this.list.visible && stage != null)
          {
