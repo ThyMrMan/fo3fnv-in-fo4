@@ -6483,6 +6483,19 @@ its free-standing post vanished from some angles. The grime shells only blend
 geometry. `overlay_layers` now passes over a tested shape, which converts
 as before the rule: an alpha-tested BGSM (`mobilehome02nv_a12ec_100`).
 
+*Bounded memory (2026-11-11).* The distance test (`nif/surface_gaps.py`)
+once took 256 layer points against every opaque triangle at once. On The
+Frontier's space station (677,436 triangles) one temporary was 3.88 GiB.
+Now groups of at most 256 nearby points are tested only against the
+triangles whose box, grown by the 4-unit gap, reaches the group. Pairs go
+2^18 at a time, so each temporary is 6 MB. A triangle counts for a point
+whose projection lies inside it with every barycentric coordinate at least
+-1e-6 over its doubled area. Such a projection lies inside the triangle
+scaled by 1 + 3 × that about its centre, so the box can't drop a point that
+counts. Measured identical to the old test: 30 random soups (slivers
+included), and 96 real layers in 68 meshes (16,505 near points); all 225
+sampled statics are byte-identical.
+
 <a id="wall-lean"></a>**Wall leans face the wall (built 2026-10-24, not yet played).** NPCs
 leaned on air facing the wall (Freeside, 001381D2 and others). All 352
 FNV wall leans use FURN `WallMarker`: one marker, heading 0, slot 19

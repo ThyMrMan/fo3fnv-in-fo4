@@ -26,7 +26,7 @@ from PIL import Image
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from asset_convert.texture import spec_mask
-from fo4_import.nif import fnv_file
+from fo4_import.nif import fnv_file, surface_gaps
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.file import NifFile
 
@@ -746,36 +746,16 @@ def overlay_layers(shapes: list, root) -> frozenset:
     solid = [_geometry(g, root) for g in shapes if not _blended_lit(g)]
     if not layers or not solid:
         return frozenset()
-    surface = np.concatenate([g[0][g[4]] for g in solid])
+    opaque = surface_gaps.surface(np.concatenate([g[0][g[4]] for g in solid]), OVERLAY_GAP)
     out = set()
     for geom in layers:
         geometry = _geometry(geom, root)
         corners = geometry[0][geometry[4]]
         area = np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1)
-        near = _surface_gaps(corners.mean(axis=1), surface) <= OVERLAY_GAP
+        near = surface_gaps.gaps(corners.mean(axis=1), opaque) <= OVERLAY_GAP
         if area.sum() and area[near].sum() >= OVERLAY_SHARE * area.sum():
             out.add(id(geom))
     return frozenset(out)
-
-
-def _surface_gaps(points: np.ndarray, tris: np.ndarray) -> np.ndarray:
-    """Per point, its distance to the nearest of triangles `tris` (n, 3, 3) its projection falls inside; inf
-    for none."""
-    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
-    normal = np.cross(b - a, c - a)
-    size = np.linalg.norm(normal, axis=1)
-    keep = size > 1e-9
-    a, b, c, normal = a[keep], b[keep], c[keep], normal[keep] / size[keep, None]
-    out = np.full(len(points), np.inf)
-    for start in range(0, len(points) if len(a) else 0, 256):
-        p = points[start:start + 256, None, :]
-        depth = np.einsum('pij,ij->pi', p - a, normal)
-        q = p - depth[..., None] * normal
-        inside = np.ones(depth.shape, bool)
-        for u, v in ((a, b), (b, c), (c, a)):
-            inside &= np.einsum('pij,ij->pi', np.cross(v - u, q - u), normal) >= -1e-6
-        out[start:start + 256] = np.where(inside, np.abs(depth), np.inf).min(axis=1)
-    return out
 
 
 def overlay_sheet(geom) -> bool:

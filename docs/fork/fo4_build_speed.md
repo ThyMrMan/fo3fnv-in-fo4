@@ -600,13 +600,28 @@ What its builds found:
   for uninitialized memory) on massless static bodies. `collision._motion`
   faults them, so these statics are left out. The fix to try is to read a
   massless body with an undefined motion system as fixed.
-- **Open: the overlay check's memory.** `tfssspacestationext.nif` (61 MB)
-  reads fine (pyffi: 3.7 s, 738 MB). `convert_static.overlay_layers` →
-  `_surface_gaps` then allocates 3.88 GiB per 256-point chunk over its
-  677,436 triangles ([station](research/fnv_nif_reader.md#station)).
+- **Fixed (2026-11-11): the overlay check's memory.** On
+  `tfssspacestationext.nif` (61 MB), the distance test asked for 3.88 GiB
+  per 256-point chunk over its 677,436 triangles
+  ([station](research/fnv_nif_reader.md#station)). It now tests groups of
+  nearby points against the triangles that can reach them, in 6 MB blocks
+  ([overlay-layers](fo4_pipeline.md#overlay-layers)); output is unchanged.
+  The 25 largest FO3/FNV/Frontier meshes, each converted alone under a
+  4 GB cap:
+  - **Station:** 35 s, 1.0 GB peak.
+  - **Others:** at most 788 MB (`tfliberatorairshipscol`).
+  - **Both motherships:** 7 s, 390 MB.
+  - **Six Frontier meshes stop on the open Havok fault above** (motion
+    system 205 or 154): `tfssrotatingtuberoom`,
+    `tfscolmarketbuildingcomplete`, `tfanalgesisscol`,
+    `tfscolwhitebuildinggroup01`, `tfscoldestroyedbuilding02`,
+    `tfscolwsfactory03b`.
 
-To try it again, run a scoped build first: one small area, fewer workers and
-a job cap around 12 GB.
+**Ready for a scoped retry.** The one per-mesh memory blow-up measured is
+fixed. The whole-world freeze was never pinned to a step, and the main
+process holding 589,612 references remains a suspect. So retry with a
+scoped build first: one small area, fewer workers and a job cap around
+12 GB.
 
 ## <a id="open"></a>Open questions
 

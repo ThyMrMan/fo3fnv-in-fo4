@@ -21,7 +21,7 @@ Measured 2026-11-11.
   creatures.
 - **What it doesn't fix.** The Frontier's space-station freeze is in the
   converter's [overlay check](#station), not in reading: pyffi reads that
-  mesh in 4 s at 739 MB.
+  mesh in 4 s at 739 MB. The overlay check has since been fixed on its own.
 
 ## <a id="census"></a>Census
 
@@ -219,6 +219,10 @@ next ones. The same check runs out of memory on NVMIM's
 [worker-memory](../fo4_build_speed.md#worker-memory) is this check, not
 pyffi's read.
 
+*Fixed 2026-11-11* ([overlay-layers](../fo4_pipeline.md#overlay-layers)).
+The station now converts in 35 s at a 1.0 GB peak, and the mothership in 7 s
+at 390 MB.
+
 ## <a id="integration"></a>Integration and side-by-side
 
 `fnv_file.read(path)` returns `fnv_reader.read(path)`. It falls back to
@@ -277,6 +281,4 @@ Switched, on the evidence above. Left for later:
   imports pyffi at all.
 - **Move the six spike modules** that read with pyffi directly
   ([compat](#compat)) onto `fnv_file.read`, each with its own side-by-side.
-- **Fix the space-station freeze** in `overlay_layers` / `_surface_gaps`
-  ([station](#station)): test points against nearby triangles only, in
-  chunks sized by triangle count. The reader switch leaves it in place.
+- ~~Fix the space-station freeze~~: done separately ([station](#station)).
