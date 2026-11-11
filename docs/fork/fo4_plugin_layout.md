@@ -258,6 +258,43 @@ built. The cell argument is the DLC's own interior.
   only game quests answer is not copied, since the copy would hold the game's
   line under its game id. Honest Hearts has 6 such barks (3 Flee →
   FleeResponse, 3 AvoidThreat → AvoidThreatResponse).
+- <a id="dlc-prompts"></a>**A reworded option in a game menu keeps the
+  game's place.** A menu's options and answers pair by position: the
+  player's topic holds each option and its pads, the speaker's topic its
+  answers in the same order, and the engine tries the answers from the
+  picked option's place on. An option's FormID was keyed by its prompt text,
+  so a plugin rewording a game line's prompt (YUP fixed spacing and case in
+  21 Topic-list options, and reworded a few) wrote a new option, while its
+  answer kept the game's id and place. YUP's plugin added 54 options and 31
+  answers to the Topic list's two topics; every game option after them
+  answered 23 places too far down, missed its line and fell through to the
+  silent `[Leave]` exit. Vulpes Inculta's "I'll do as you ask." ended the
+  scene without his farewell, whose result script ends his force greet, so he
+  greeted again (Papyrus trace, 2026-11-10). Keying the option by the
+  master's prompt (first fix) cut YUP's unbalanced game menus from 124 to 6,
+  but Vulpes's hub still had 34 options to 31 answers: YUP gives two of
+  Jimmy's three "I hear you were a slave of Caesar's Legion." lines
+  (0015697A, a prompt and two pads in the game) a new prompt, "Tell me about
+  yourself.", splitting one option into two, and the second took new ids
+  while its answers sat in the game's pad slots. `Conversations._slot` now
+  keys each option and pad by the game slot of the answer beside it: the
+  master prompt's option or `pad N`, N its line's place among that topic,
+  quest and prompt's master lines (`say_topics.prompt_places`, record
+  order), falling back to the plugin's own text when the slot is taken. A
+  build without masters is unchanged; on the exports the official DLCs move
+  0 lines. The YUP build of 2026-11-10 19:36 has the shared Topic list
+  balanced and 5 menus left (8 extra options), two causes:
+  - **Shared Infos:** a topic borrowing another's lines (00167494, Francine
+    Garret's `[Speech 35]` pair, a copy per quest) keys its copies by text,
+    since `_slot` skips borrowed copies; YUP's single spaces miss the game's
+    double-spaced prompts. `prompt_places` would need the copies, in
+    SharedInfo order after the topic's own lines.
+  - **The mod's ledger shadows the master's:** `derive_formid` takes the
+    plugin's own kept id for a key before a master's, so a key YUP kept from
+    an older build ("It's time for us to part ways. ... pad 4") stays a new
+    record though the game has it. Every mod ledger holds such keys (YUP 572,
+    52 INFO and 35 DLBR among them; most are `FNV gun anims KYWD`, in DLCs
+    too). Taking the master's first is drift in every plugin: not done.
 - <a id="dlc-placed"></a>**Game refs in the DLC's worldspace and cell groups.**
   The cell builder adds worldspaces and cells as pre-built groups
   (`add_raw_group`), which `top_records` and `patch_records` skip, so

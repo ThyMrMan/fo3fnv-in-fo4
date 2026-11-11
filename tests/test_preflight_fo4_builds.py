@@ -192,3 +192,24 @@ def test_dlc_overrides_shared_with_another_dlc(tmp_path):
     assert {(f.key, f.severity, f.detail) for f in found} == {
         ('dlc|A.esm|shared-identical|B.esm|QUST', 'review', ('G.esm 000005',)),
         ('dlc|A.esm|shared|B.esm|QUST', 'error', ('G.esm 000006',))}
+
+
+def group(label: int, kind: int, body: bytes) -> bytes:
+    """A group of `kind` labeled `label` holding `body`."""
+    return b'GRUP' + struct.pack('<IIiII', 24 + len(body), label, kind, 0, 0) + body
+
+
+def test_unpaired_menus_count_the_dlcs_options_and_answers(tmp_path):
+    """A master menu whose option topic gets two of the DLC's INFOs and answer topic one is flagged; a balanced
+    menu, and the master's own INFOs, are not."""
+    scenes = b''.join(record(b'SCEN', fid, b'PTOP' + struct.pack('<HI', 4, p) + b'NPOT' + struct.pack('<HI', 4, n))
+                      for fid, p, n in ((0x10, 0x20, 0x21), (0x11, 0x30, 0x31)))
+    master = tmp_path / 'G.esm'
+    master.write_bytes(record(b'TES4', 0, b'') + group(int.from_bytes(b'SCEN', 'little'), 0, scenes))
+    infos = {0x20: [0x01000001, 0x01000002, 0x00000040], 0x21: [0x01000003, 0x00000041, 0x00000042],
+             0x30: [0x01000004], 0x31: [0x01000005]}
+    topics = b''.join(group(dial, 7, b''.join(record(b'INFO', i) for i in fids)) for dial, fids in infos.items())
+    plugin = tmp_path / 'A.esp'
+    plugin.write_bytes(record(b'TES4', 0, b'MAST' + struct.pack('<H', 6) + b'G.esm\0')
+                       + group(int.from_bytes(b'DIAL', 'little'), 0, topics))
+    assert dlc_overrides.unpaired_menus(plugin, [master]) == ['00000020: 2 options, 1 answers']

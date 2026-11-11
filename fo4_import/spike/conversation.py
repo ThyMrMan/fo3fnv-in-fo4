@@ -445,8 +445,9 @@ class Conversations:
         See: docs/fork/fo4_pipeline.md#blank-choices
         """
         player, npc = menu
-        answers = [a for a in (self._line(r, continues, place=place) for r in members) if a]
-        if not answers:
+        said = [(r, self._line(r, continues, place=place)) for r in members]
+        said = [(r, a) for r, a in said if a]
+        if not said:
             return False
         once = R.INFO_SAY_ONCE if all(int(r.get('DATA.Flags', 0)) & SAY_ONCE for r in members) else 0
         if len(members) == 1:
@@ -455,14 +456,29 @@ class Conversations:
             shown = self._shared(members) + self._either(members) + self.speakers(members)
         shown += earlier + self._running(members[0]) + self._gate(dial)
         shown += self.say.once.unsaid([r['FormID'] for r in members]) if once else b''
-        owner, take = f'INFO prompt {dial} {text}', self.say.builder.new_id
-        label = tagged(text, members)
-        player.append(R.pack_info(take(owner, key=f'{owner} at {place}'), 0, (label,), shown, prompt=label,
-                                  vmad=CHOICE_VMAD))
-        player += [R.pack_info(take(owner, key=f'{owner} at {place} pad {i}'), conditions=shown, vmad=CHOICE_VMAD)
-                   for i in range(1, len(answers))]
-        npc += answers
+        label, take = tagged(text, members), self.say.builder.new_id
+        keys = [self._slot(dial, text, rec, i, place) for i, (rec, _) in enumerate(said)]
+        player += [R.pack_info(take(owner, key=key), 0, (label,), shown, prompt=label, vmad=CHOICE_VMAD) if not i
+                   else R.pack_info(take(owner, key=key), conditions=shown, vmad=CHOICE_VMAD)
+                   for i, (owner, key) in enumerate(keys)]
+        npc += [a for _, a in said]
         return True
+
+    def _slot(self, dial: str, text: str, rec: dict, index: int, place: str) -> tuple:
+        """(owner, key) of the option or pad (`index` 0 or more) of prompt `text` of FNV topic `dial` at `place`
+        beside answer `rec`: a master line's own slot (its master prompt's option or pad, by its place among that
+        prompt's master lines) while unused, so it overrides the master's in place as its answer does; else by `text`.
+        Options and answers pair by position, so a new option or pad beside the master's breaks them.
+        See: docs/fork/fo4_plugin_layout.md#dlc-prompts
+        """
+        fid = rec['FormID'].upper()
+        old = None if rec.get(SHARED) else self.say.master_infos.get(fid)
+        slots = [(f'INFO prompt {dial} {text}', index)]
+        if old and old['ParentDIAL'].upper() == dial.upper():
+            prompt, at = self.say.master_prompts[fid]
+            slots.insert(0, (f'INFO prompt {dial} {prompt}', at))
+        keys = [(owner, f'{owner} at {place}' + (f' pad {at}' if at else '')) for owner, at in slots]
+        return next((k for k in keys if k[1] not in self.say.builder.keyed), keys[-1])
 
     def _shared(self, members: list) -> bytes:
         """CTDAs (from the player's side) of the condition OR-groups every line in `members` has, besides a lone

@@ -38,7 +38,8 @@ def _earlier(lines: list, actors: dict = None, unfixed: frozenset = frozenset(),
     """({prompt: the CTDAs hiding its option behind earlier lines}, the conversation) for one topic's `lines`;
     the Hub's actor records `actors`, script-changed factions `unfixed`, the form map `forms` (FORMS)."""
     say = SimpleNamespace(infos={'Q1': lines}, dials={'D1': {'FULL': 'Topic', 'DATA.Type': '0'}}, script_vars={},
-                          once=SayOnce(), builder=SimpleNamespace(counts=Counter()))
+                          once=SayOnce(), builder=SimpleNamespace(counts=Counter(), keyed=set()), master_infos={},
+                          master_prompts={}, master_dials={})
     quest = {'FormID': 'Q1', 'EditorID': 'One'}
     shared = hub(say, [quest], {'One': 1}, set())
     shared.actors, shared.unfixed = actors or {}, unfixed
@@ -163,6 +164,32 @@ def test_a_say_once_option_drops_by_its_answers_markers_not_the_prompts_own_say_
     prompt, pad = (dict((s.type, s.data) for s in _subs(info)) for info in player)
     assert struct.unpack('<H', prompt['ENAM'][:2])[0] & R.INFO_SAY_ONCE == 0
     assert prompt['CTDA'] == pad['CTDA'] and struct.unpack_from('<H', prompt['CTDA'], 8)[0] == STAGE_DONE
+
+
+def test_options_and_pads_take_their_answers_master_slots():
+    """YUP rewords a game line's prompt ("Price wasn't there.  I fought..."), or splits Jimmy's "I hear you were a
+    slave" (a prompt and two pads) into two prompts: each option or pad takes the game slot of the answer beside it,
+    so options and answers keep their pairs; a line no master holds, or a slot taken, keys by its own text."""
+    lines = [_said('L1', 'New text.', [_test('GetIsID', DOC)])]
+    _, talk = _earlier(lines)
+    say = talk.say
+    say.master_prompts = {}
+    mine = ('INFO prompt D1 New text.', 'INFO prompt D1 New text. at p')
+    assert talk._slot('D1', 'New text.', lines[0], 0, 'p') == mine
+    say.master_infos = {'L1': {**lines[0], 'ParentDIAL': 'D1'}, 'L2': {**lines[0], 'FormID': 'L2', 'ParentDIAL': 'D1'}}
+    say.master_prompts = {'L1': ('Old text.', 0), 'L2': ('Old text.', 2)}
+    assert talk._slot('D1', 'New text.', lines[0], 0, 'p')[1] == 'INFO prompt D1 Old text. at p'
+    assert talk._slot('D1', 'Split.', {**lines[0], 'FormID': 'L2'}, 0, 'p')[1] == 'INFO prompt D1 Old text. at p pad 2'
+    say.builder.keyed.add('INFO prompt D1 Old text. at p')
+    assert talk._slot('D1', 'New text.', lines[0], 1, 'p')[1] == 'INFO prompt D1 New text. at p pad 1'
+
+
+def test_prompt_places_number_each_prompt_group_in_record_order():
+    """A line's place counts only earlier lines of its topic, quest and prompt; no prompt means the topic's FULL."""
+    infos = {f: {'FormID': f, 'ParentDIAL': 'D1', 'QSTI.Quest': q, **({'Prompt': p} if p else {})}
+             for f, q, p in (('A', 'Q', ''), ('B', 'Q', 'Other.'), ('C', 'Q', ''), ('D', 'R', ''))}
+    assert SAY.prompt_places(infos, {'D1': {'FULL': 'Topic.'}}) == {
+        'A': ('Topic.', 0), 'B': ('Other.', 0), 'C': ('Topic.', 1), 'D': ('Topic.', 0)}
 
 
 def test_an_option_of_say_once_lines_needs_a_line_that_passes_and_is_unsaid():

@@ -16,6 +16,7 @@ left out and counted.
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
+import collections
 import re
 from pathlib import Path
 
@@ -88,15 +89,35 @@ def free_said(scripts_dir) -> set:
             for m in SAY_FREE.finditer(path.read_text(encoding='utf-8', errors='replace'))}
 
 
-def dlc_lines(export_dir) -> 'frozenset | None':
+def masters_own(export_dir, sig: str) -> dict:
+    """{FormID (upper): record} of type `sig` in the masters, the last winning."""
+    return {r['FormID'].upper(): r for folder in export_masters(str(export_dir))
+            for r in master_records(str(export_dir), folder, sig)}
+
+
+def prompt_places(infos: dict, dials: dict) -> dict:
+    """{FormID: (prompt, place)} of FNV lines `infos`: its option's prompt (own or its topic's FULL in `dials`) and
+    its place among its topic and quest's lines under that prompt, in record order.
+    See: docs/fork/fo4_plugin_layout.md#dlc-prompts
+    """
+    seen, out = collections.Counter(), {}
+    for fid, rec in infos.items():
+        dial = rec['ParentDIAL'].upper()
+        prompt = rec.get('Prompt') or dials.get(dial, {}).get('FULL', '')
+        group = (dial, rec.get('QSTI.Quest', '').upper(), prompt)
+        out[fid], seen[group] = (prompt, seen[group]), seen[group] + 1
+    return out
+
+
+def dlc_lines(export_dir, theirs: 'dict | None' = None) -> 'frozenset | None':
     """FormIDs (upper case) of the INFOs a plugin with masters (a DLC) holds that are its lines: its own, and its
-    overrides changing a master's line beyond its place in the topic (PNAM); None for a plugin without masters.
+    overrides changing a master's line (`theirs`, masters_own when None) beyond its place in the topic (PNAM);
+    None for a plugin without masters.
     See: docs/fork/fo4_plugin_layout.md#dlc-dialogue
     """
-    masters = export_masters(str(export_dir))
-    if not masters:
+    if not export_masters(str(export_dir)):
         return None
-    theirs = {r['FormID'].upper(): r for folder in masters for r in master_records(str(export_dir), folder, 'INFO')}
+    theirs = masters_own(export_dir, 'INFO') if theirs is None else theirs
     return frozenset(r['FormID'].upper() for r in own_records(export_dir, 'INFO')
                      if r['FormID'].upper() not in theirs or _unordered(r) != _unordered(theirs[r['FormID'].upper()]))
 
@@ -135,14 +156,16 @@ class SayTopics:
     [(FO4 INFO, said by the player)] for the silent lines (voice.silent_jobs)."""
 
     def __init__(self, builder, export_dir: Path):
-        """Index FNV topics and lines (a DLC's: only dlc_lines, its masters' kept apart in `outside`), each line
-        carrying its quest's dialogue conditions (with_quest); topics are written through `builder` (its
-        script_vars() names)."""
+        """Index FNV topics and lines (a DLC's: only dlc_lines, its masters' kept apart in `outside`, and the masters'
+        own versions in `master_infos` and `master_dials`), each line carrying its quest's dialogue conditions
+        (with_quest); topics are written through `builder` (its script_vars() names)."""
         self.builder, self.voiced, self.once = builder, [], SayOnce(builder.writer)
         self.silent, self.outside = [], []
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
+        self.master_infos, self.master_dials = masters_own(export_dir, 'INFO'), masters_own(export_dir, 'DIAL')
+        self.master_prompts = prompt_places(self.master_infos, self.master_dials)
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
-        self.infos, own, by_id = {}, dlc_lines(export_dir), {}
+        self.infos, own, by_id = {}, dlc_lines(export_dir, self.master_infos), {}
         for rec in export_records(export_dir, 'INFO'):
             if own is not None and rec['FormID'].upper() not in own:
                 self.outside.append(rec)
