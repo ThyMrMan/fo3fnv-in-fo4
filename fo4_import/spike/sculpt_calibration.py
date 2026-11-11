@@ -23,16 +23,19 @@ from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 PLUGIN, TINT_PLUGIN = 'FNVSculptCalib.esp', 'FNVTintCalib.esp'
-#: Per sex (female?), the NPC every calibration clone starts from, face shape removed: the default human bodies.
+#: Per sex (female?), the NPC every calibration clone starts from, its face fields removed: the default human bodies.
 TEMPLATES = {False: 0x12FCCB, True: 0x09A680}
 
 
 def _template(female: bool) -> tuple:
-    """(HumanRace record, template NPC record, template body without its face shape) for one sex."""
+    """(HumanRace record, template NPC record, template body without its face fields) for one sex, as a fitted
+    copy has it.
+    See: docs/fork/fo4_facegen_plan.md#body-skin
+    """
     records = {r.form_id: r for r, _ in walk(FALLOUT4_ESM.read_bytes(), b'RACE', b'NPC_')
                if r.form_id in (HUMAN_RACE, TEMPLATES[female])}
     template = records[TEMPLATES[female]]
-    body = b''.join(pack_subrecord(t.decode(), d) for t, d in subrecords(template.body) if t not in sculpt.FACE_SHAPE)
+    body = b''.join(pack_subrecord(t.decode(), d) for t, d in subrecords(template.body) if t not in sculpt.FACE_FIELDS)
     return records[HUMAN_RACE], template, body
 
 

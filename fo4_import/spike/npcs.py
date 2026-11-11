@@ -30,7 +30,7 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.face import hair, sculpt, tint
-from fo4_import.face.sculpt import FACE_SHAPE
+from fo4_import.face.sculpt import FACE_FIELDS
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.face_fits import FIT_SITES, basis_hash, fit_key, fitted, keep, kept, take
 from fo4_import.spike import records as R
@@ -369,7 +369,7 @@ class Npcs:
         fid = self.made[fnv] = self.builder.new_id(NPC_KEY.format(fnv))
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
-            (FACE_SHAPE if face else frozenset()) | BODY_TIES, morphs,
+            (FACE_FIELDS if face else frozenset()) | BODY_TIES, morphs,
             composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv),
                      self._inventory(fnv, struct.unpack('<I', child)[0] if child else 0),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
