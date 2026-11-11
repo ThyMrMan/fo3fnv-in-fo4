@@ -227,7 +227,15 @@ cached under `temp/` and written only to an output folder.
   outline, the selected row outlined, and up/down marks joined by a line
   left of the box when it scrolls. Its bottom is 36 above the safe area's
   bottom; it shows 5 rows, and a long prompt wraps. Said options are
-  dimmer. A menu that first shows none of ours asks again each frame for
+  dimmer.
+- **Colors follow the player's HUD color (V):** DialogueMenu's
+  `registerObjects` (callback 0, 0x1043D19) makes each registered holder a
+  BSGFxShaderFXTarget and calls 0x1043EF0 with type 0, which goes to
+  0x1B04500 with HUD color type 2 (GameplayHUDColor, stored at +0xA8). That
+  sets a color multiplier over the holder, so the list, which lives in the
+  Question holder, draws its text, outlines and marks in white and shows
+  them in the HUD color. The black backdrop stays black. Nothing is
+  hard-coded to a color. A menu that first shows none of ours asks again each frame for
   30 frames before leaving the game's buttons.
 - **Keys:**
   - arrows, W/S, the mouse wheel, or the gamepad's Quickkey up/down move;
