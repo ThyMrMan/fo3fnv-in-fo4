@@ -523,6 +523,41 @@ overnight run measures every build.
 After every step, rerun the overnight queue and write a new dated audit. The
 table above is redone from that file, not from these estimates.
 
+### <a id="audit-2026-11-11"></a>Overnight audit, 2026-11-11 (V)
+
+The save-break run after the dialogue switch (no XDI): 33 builds, warm mesh
+and face caches. These are the `stage` lines of each build log.
+- **The game:** 37 min. Biggest stages: voice 431 s, own-rig animation data
+  (Creation Kit) 337 s, people 194 s, script compile 158 s.
+- **DLCs:** 6–19 min. Old World Blues spends 332 s in the Creation Kit step
+  as well.
+- **Packs:** 1 min each.
+- **Mods:** 3.4–19.5 min. Placement Fixes, a small patch, took 18.7 min.
+
+Summed over all 33 builds, 381 min:
+
+| Stage | Min | Share | Note |
+|---|---|---|---|
+| item WEAP | 63.5 | 17% | 100–276 s in nearly every mod, whatever its own weapons |
+| script compile | 40.8 | 11% | 41–174 s per mod; the 2026-11-10 stamp fix did not show (this run rewrote every dialogue script, so rerun before judging) |
+| people | 39.4 | 10% | |
+| base STAT | 38.3 | 10% | Goodies 157 s, down from 796 s |
+| ledger and cleanup | 30.2 | 8% | 14 s even on a 1-min pack, up to 137 s |
+| voice | 25.1 | 7% | the game, Autumn Leaves (394 s) and the FO3 spike |
+| collision | 25.1 | 7% | |
+| item ARMO | 17.6 | 5% | |
+| own-rig animation data | 14.3 | 4% | a Creation Kit load per plugin with rigs |
+
+Weapons, people, statics and collision (about 44% together) are mostly
+master content that each mod build makes again ([section 5](#replay)).
+Separately, the mesh cache check took 10–126 s per build even with every
+mesh cached.
+
+The Frontier is the first huge new worldspace, with 589,612 references.
+- **Import:** 15 min, placing 105,250 loose files.
+- **Mesh pool:** 982 s for 13,625 new meshes. It runs 15 workers at normal
+  priority, which left the desktop unusable for about 10 min.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh
