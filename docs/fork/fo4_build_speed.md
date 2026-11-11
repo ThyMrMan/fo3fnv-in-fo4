@@ -563,7 +563,8 @@ The Frontier is the first huge new worldspace, with 589,612 references.
 **What happened (V).** 118 of The Frontier's meshes fail to convert. A
 failed mesh is never cached, so every build retries all of them. One of
 them, `tfssspacestationext.nif` (61 MB), grows about 1 GB per second
-while pyffi reads it. In the rebuild after the gun fix, that worker
+while it converts. (Not in pyffi's read, which takes 3.7 s and 738 MB, but in
+the overlay check: [station](research/fnv_nif_reader.md#station).) In the rebuild after the gun fix, that worker
 reached 10 GB. RAM fell to 1.2 GB free with 65 of 72 GB committed, and the
 machine paged until it stopped responding. The main process would then have
 converted the mesh again with no limit (`_warm` drops failures).
@@ -599,8 +600,10 @@ What its builds found:
   for uninitialized memory) on massless static bodies. `collision._motion`
   faults them, so these statics are left out. The fix to try is to read a
   massless body with an undefined motion system as fixed.
-- **Open: pyffi bloat.** `tfssspacestationext.nif` (61 MB) is too large for
-  pyffi.
+- **Open: the overlay check's memory.** `tfssspacestationext.nif` (61 MB)
+  reads fine (pyffi: 3.7 s, 738 MB). `convert_static.overlay_layers` →
+  `_surface_gaps` then allocates 3.88 GiB per 256-point chunk over its
+  677,436 triangles ([station](research/fnv_nif_reader.md#station)).
 
 To try it again, run a scoped build first: one small area, fewer workers and
 a job cap around 12 GB.

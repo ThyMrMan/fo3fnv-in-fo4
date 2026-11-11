@@ -334,6 +334,7 @@ Research: [Fallout 4 as the target](research/fo4_target.md),
 [dynamic collision](research/fo4_dynamic_collision.md),
 [character findings](research/character_findings.md),
 [dialogue robustness](research/fo4_dialogue_robustness.md),
+[our own FNV NIF reader](research/fnv_nif_reader.md),
 [creature rig prior art](research/fo4_creature_rig_prior_art.md)
 ([community ports](research/fo4_creature_rig_prior_art/fnv_fo3_creature_ports.md),
 [technique](research/fo4_creature_rig_prior_art/fo4_creature_technique.md),
