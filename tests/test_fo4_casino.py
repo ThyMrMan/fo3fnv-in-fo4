@@ -122,6 +122,26 @@ def test_the_menu_events_match_what_as3_sends():
         assert f'Ui.plain({array})' in document, array
 
 
+RUNTIME = Path(__file__).resolve().parents[1] / 'tes_runtime' / 'fo4_condition'
+
+
+def test_the_menu_draws_in_the_hud_color_from_the_dll():
+    """No white is left in Ui.as or RouletteScreen.as but Ui.color's default; the menu sets it from F3NV.dll's
+    HudColor native, which reads the shared HudColor (condition.h) on every call.
+    See: docs/fork/fo4_casino_plan.md#hud-color
+    """
+    ui = (AS3 / 'f3nv' / 'casino' / 'Ui.as').read_text(encoding='utf-8')
+    roulette_screen = (AS3 / 'f3nv' / 'casino' / 'RouletteScreen.as').read_text(encoding='utf-8')
+    assert ui.upper().count('0XFFFFFF') == 1 and 'public static var color:uint = 0xFFFFFF;' in ui
+    assert '0XFFFFFF' not in roulette_screen.upper()
+    document = (AS3 / 'F3NV_Casino.as').read_text(encoding='utf-8')
+    assert 'Ui.color = dll != null && dll.HudColor != null ? uint(dll.HudColor()) : 0xFFFFFF;' in document
+    dialogue = (RUNTIME / 'dialogue.cpp').read_text(encoding='utf-8')
+    assert 'RegisterFunction<HudColorNative>(plugin, movie, "HudColor");' in dialogue
+    assert 'args->result->SetUInt(HudColor("iHUDColor"));' in dialogue
+    assert 'UInt32 HudColor(const char *prefix);' in (RUNTIME / 'condition.h').read_text(encoding='utf-8')
+
+
 def test_images_mount_by_their_path_under_textures():
     """MountImage loads the bare path under Textures (played 1108d): the records, MountAll and the spike use it."""
     assert R.fo4_path(R.SPIKE_TEXTURE) == 'fnv/terminals/nv_playingcards/deckt/cardt_c01.dds'

@@ -177,8 +177,13 @@ package
          return false;
       }
 
+      // A fresh screen, drawn in the player's HUD color: F3NV.dll's HudColor native (registered on every movie as
+      // f4se.plugins.F3NV), read again each time; white without the DLL.
       private function newScreen() : void
       {
+         var dll:Object = f4se != null && f4se.plugins != null ? f4se.plugins.F3NV : null;
+         Ui.color = dll != null && dll.HudColor != null ? uint(dll.HudColor()) : 0xFFFFFF;
+         send("F3NV_CasinoInput", "hud color " + Ui.color.toString(16) + (dll != null ? "" : " (no F3NV.dll)"));
          if (screen != null)
          {
             removeChild(screen);

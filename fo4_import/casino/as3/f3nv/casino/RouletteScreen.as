@@ -208,10 +208,10 @@ package f3nv.casino
          var box:Array = spotBox(index);
          var numbers:Array = Roulette.spot(index)[0];
          var straight:Boolean = Roulette.odds(index) == 35;
-         var color:uint = straight ? fill(numbers[0]) : index == 151 ? RED_FILL : index == 152 ? BLACK_FILL : GREEN_FILL;
+         var face:uint = straight ? fill(numbers[0]) : index == 151 ? RED_FILL : index == 152 ? BLACK_FILL : GREEN_FILL;
          var area:Sprite = new Sprite();
-         area.graphics.lineStyle(isMarker(index) ? 1 : 2, 0xFFFFFF, isMarker(index) ? 0.6 : 1);
-         area.graphics.beginFill(color, isMarker(index) ? 0.35 : 0.9);
+         area.graphics.lineStyle(isMarker(index) ? 1 : 2, Ui.color, isMarker(index) ? 0.6 : 1);
+         area.graphics.beginFill(face, isMarker(index) ? 0.35 : 0.9);
          area.graphics.drawRect(0, 0, box[2], box[3]);
          area.graphics.endFill();
          area.x = box[0];
@@ -265,7 +265,7 @@ package f3nv.casino
             var n:int = Roulette.WHEEL[i];
             var angle:Number = i / Roulette.POCKETS * Math.PI * 2 - Math.PI / 2;
             var pocket:Sprite = new Sprite();
-            pocket.graphics.lineStyle(1, 0xFFFFFF, 0.5);
+            pocket.graphics.lineStyle(1, Ui.color, 0.5);
             pocket.graphics.beginFill(fill(n));
             pocket.graphics.drawCircle(0, 0, 11);
             pocket.graphics.endFill();
@@ -312,7 +312,7 @@ package f3nv.casino
       {
          var box:Array = spotBox(index);
          var chip:Sprite = new Sprite();
-         chip.graphics.lineStyle(2, 0xFFFFFF);
+         chip.graphics.lineStyle(2, Ui.color);
          chip.graphics.beginFill(0xC8A040);
          chip.graphics.drawCircle(0, 0, 14);
          chip.graphics.endFill();

@@ -224,6 +224,9 @@ bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin);
 
 // ---- FNV Hardcore (hardcore.cpp; docs/fork/fo4_hardcore.md#dll) ----
 
+// INI color `prefix`R/G/B:Interface (the player's HUD colors, e.g. iHUDColor) as 0xRRGGBB; white when not found.
+UInt32 HudColor(const char *prefix);
+
 // Weigh ammo while Hardcore is on: FO4's ammo weight test, through g_branchTrampoline (set up); false when not.
 bool HookAmmoWeight();
 
