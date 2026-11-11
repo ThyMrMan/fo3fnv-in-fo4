@@ -53,6 +53,14 @@ Function Loaded()
   {A save was loaded: register again and start FNV's anti-cheat wait.}
   loadedAt = Utility.GetCurrentRealTime()
   Register()
+  ShowHud(True)
+EndFunction
+
+Function ShowHud(Bool abShow)
+  {Show or hide the game's HUD (HUDMenu's root clip) behind the casino menu, as FO4's own menus do; the menu flags stay as they are (changing them kept the menu from opening, spike 2a). See docs/fork/fo4_casino_plan.md#hud-hidden}
+  If UI.IsMenuOpen("HUDMenu")
+    UI.Set("HUDMenu", "root1.visible", abShow)
+  EndIf
 EndFunction
 
 Function Register()
@@ -275,6 +283,7 @@ Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
     Return
   EndIf
   Debug.Trace("F3NV_Casino: menu " + abOpening)
+  ShowHud(!abOpening)
   If abOpening && selfTestLuck > 0
     RunSelfTest()
   ElseIf abOpening && spiking

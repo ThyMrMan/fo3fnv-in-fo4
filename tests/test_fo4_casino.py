@@ -142,6 +142,16 @@ def test_the_menu_draws_in_the_hud_color_from_the_dll():
     assert 'UInt32 HudColor(const char *prefix);' in (RUNTIME / 'condition.h').read_text(encoding='utf-8')
 
 
+def test_no_focus_frame_and_no_hud_behind_the_menu():
+    """The movie turns off Flash's yellow focus rectangle; the bank hides the HUD while the menu is open.
+    See: docs/fork/fo4_casino_plan.md#hud-hidden
+    """
+    document = (AS3 / 'F3NV_Casino.as').read_text(encoding='utf-8')
+    assert 'stage.stageFocusRect = false;' in document and 'focusRect = false;' in document
+    bank = (STATIC / 'F3NV_Casino.psc').read_text(encoding='utf-8')
+    assert 'UI.Set("HUDMenu", "root1.visible", abShow)' in bank and 'ShowHud(!abOpening)' in bank
+
+
 def test_images_mount_by_their_path_under_textures():
     """MountImage loads the bare path under Textures (played 1108d): the records, MountAll and the spike use it."""
     assert R.fo4_path(R.SPIKE_TEXTURE) == 'fnv/terminals/nv_playingcards/deckt/cardt_c01.dds'
