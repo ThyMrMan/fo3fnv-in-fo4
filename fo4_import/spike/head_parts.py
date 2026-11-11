@@ -94,11 +94,13 @@ def choose(export_dir: Path, edid: str, assets: hair.Fo4Assets, baseline: bytes)
     return choice
 
 
-def head_parts_edit(choice: HeadChoice, assets: hair.Fo4Assets):
-    """A clone edit swapping in the chosen eyes, hair, facial hair (with extras) and hair colour; with no eyes
-    chosen (an FNV NPC on its race's) the clone keeps its own, while no hair or facial hair means none."""
+def head_parts_edit(choice: HeadChoice, assets: hair.Fo4Assets, swaps: dict = None):
+    """A clone edit swapping in the chosen eyes, hair, facial hair (with extras, or the parts `swaps` gives in a
+    chosen part's place) and hair colour; with no eyes chosen (an FNV NPC on its race's) the clone keeps its own,
+    while no hair or facial hair means none."""
     replaced = (hair.HAIR, hair.FACIAL_HAIR) + ((hair.EYES,) if choice.eyes is not None else ())
-    added = [q for p in (choice.eyes, choice.hair, choice.facial_hair) if p is not None for q in [p] + assets.extras(p)]
+    chosen = [p for p in (choice.eyes, choice.hair, choice.facial_hair) if p is not None]
+    added = [q for p in chosen for q in (swaps or {}).get(p, [p] + assets.extras(p))]
 
     def edit(subs: bytes) -> bytes:
         """The clone's subrecords with its head parts and hair colour replaced."""

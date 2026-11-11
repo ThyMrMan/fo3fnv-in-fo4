@@ -33,7 +33,7 @@ symptom has its own cause:
 | Aged, wrinkled skin | <a id="body-skin"></a>Every converted woman is a copy of Fallout4.esm's `DoctorAmari` (the `human_female` body rule), and her face texture set `FTST = SkinHeadFemaleOld` stayed on the copy. Men copy `DocWeathers`, who has none. The face fit never touched FTST. | Bug, fixed: a fitted copy drops the body's FTST, so the face uses HumanRace's default (`SkinHeadFemaleHero`), as the men's already did. |
 | Her skin colour lost | <a id="race-skin"></a>The colour fit (variant T1) carried only the NPC's `.egt` offset onto FO4's own skin and threw the race's head texture away. Willow has no `.egt`, so her target was all zero: no tint layers, skin tone ×1.0 (Cass, a vanilla woman, gets 19 layers and a tone). The same loss hit 803 FalloutNV.esm NPCs on races with their own head skin (raiders' grime: 529; the Old and OldAged races: 211; children and ghouls are not fitted). | Bug, fixed: the race's skin minus FNV's stock skin of that sex (`characters\<sex>\headhuman.dds`, which every playable race uses) is added to the face texture the tint layers are fitted to, after the skin tone is taken. It never moves the tone: FO4's tone colours the body too, and FNV's body takes FaceGen colour (the race's body `.egt`) but not the head texture. With it in the tone, a Viper leader's tone fell to ×0.47/0.30/0.18; split, every sampled tone is unchanged. |
 | Rounder face | The 28 sculpt regions captured 90.6% of her FaceGen shape (Cass: 90.9%), many controls pinned at ±1. Her head mesh is stock, so nothing was lost reading it. The rest is shape FO4's sliders cannot make. | Limit of the slider route; the [plan below](#direct) removes it. |
-| A bob instead of her hair | Her hair is the mod's own; no FO4 hair shares its name or style group, so the coverage matcher picked the nearest FO4 cut (`HairFemale15`, colour `HairColor19DirtyBlond`). | Limit of the slider route ([phase 4](#phase-4)). |
+| A bob instead of her hair | Her hair is the mod's own; no FO4 hair shares its name or style group, so the coverage matcher picked the nearest FO4 cut (`HairFemale15`, colour `HairColor19DirtyBlond`). | Limit of the slider route; her own hair now converts ([own heads](#own-heads)). |
 | Shape and colour drawn by the game, not baked | Her build ran no FaceGen stage (`spike.facegen`), so FO4 built her head from the record at run time. | Build step, not code. |
 
 Not a cause: her race's FaceGen data is read correctly (the race's own
@@ -173,6 +173,98 @@ once the CBBE plan's body choice exists for them to follow. Unknowns are
 listed [below](#risks); the first to settle is whether the game draws our
 FaceGeom NIF for an NPC whose record also carries sliders (it should, as it
 does the CK's).
+
+## <a id="own-heads"></a>Built: a mod's own hair, eyes and face skin (2026-11-11)
+
+**Code:** `fo4_import/spike/own_heads.py`, `fo4_import/nif/hair_mesh.py`,
+`fo4_import/face/eyes.py`.
+
+The play test after the fixes above still did not read as Willow: an FO4
+bob, darker and older skin, FO4 eyes. What the mod ships and why each was
+lost:
+
+| Part | NVWillow ships | Lost because | Now |
+|---|---|---|---|
+| Hair | Its own HAIR (`WillowAlita`: `hairwillowalita.nif`, `hairalita.dds`) | FO4 has no preset for it; the matcher picks the nearest vanilla cut | The mod's mesh, worn on FO4's head, as a new hair head part |
+| Face skin, freckles | Its own race skin (`characters\willow race\headhuman.dds`) | Tint layers approximate a texture with 20 sliders; FO4's face set is FO4's skin | A per-NPC face texture set whose diffuse is FNV's whole face |
+| Eyes | Its own EYES (`willow race\eyes\bluedarkeye.dds`) | The matcher picks the nearest vanilla eye colour | A copy of the chosen eyes on FNV's eye texture |
+| Face shape | Stock head, FaceGen shape | Sliders capture 90.6% | Unchanged (sliders; see below) |
+
+The trigger is authored: the NPC's HAIR, EYES or RACE record is one the
+plugin makes (its FormID in the plugin's own load slot, so not an override
+of a master's record: YUP's fixes to vanilla ghoul races would otherwise
+qualify), the plugin has masters, and for the face skin the race names a
+head texture other than FNV's stock one (a new race on the stock skin
+gains nothing over the sliders). A game plugin (masterless) keeps the
+slider route for every NPC, so FalloutNV.esm's output is unchanged.
+
+Census of the exported plugins (NPCs reached; new records at most, as only
+placed, face-fitted NPCs are built):
+
+| Plugin | Hair | Eyes | Face skin | New records |
+|---|---|---|---|---|
+| NVWillow | 1 | 1 | 2 | 5 |
+| HonestHearts.esm (tribes' war paint) | 0 | 0 | 159 | 9 |
+| OldWorldBlues.esm (Lobotomites) | 0 | 0 | 59 | 10 |
+| LonesomeRoad.esm (Marked Men) | 0 | 0 | 84 | 2 |
+| DeadMoney.esm (Christine) | 0 | 0 | 2 | 1 |
+| every other export | 0 | 0 | 0 | 0 |
+
+A face set depends only on the race, sex and FaceGen colour (FGTS), so
+NPCs sharing them share one: Honest Hearts' 159 NPCs need 9. Cost per new
+part: 1.7 s for a face set (a White Legs guard), 8.6 s for Willow's three
+(the first hair also pays the head fit and 3.6 s reading vanilla's split
+hairs: 342,286 triangles, 66% of them in the top).
+
+The game builds every face from the record at run time (no FaceGen files
+ship), so each part goes in through the record:
+
+- **Hair:** `Equipment.head_worn` puts the mod's hair mesh on FO4's head
+  as headgear already is (fit of FO4's base head onto FNV's, skinned to
+  HEAD). Vanilla hairs split their triangles into slot 30 (the top, hidden
+  under hats) and slot 31; a converted triangle takes the split of the 25
+  nearest vanilla hair triangles (both sexes' split hairs; leaving each
+  vanilla hair out in turn, 90.5% of its triangles agree). FO4 tints hair
+  by HCLF through the hair shader; FNV draws texture × 2 × HCLR blended
+  with its `_hl` layer, which no FO4 hair colour matches, so the colour is
+  baked into a copy of the texture and the material does not tint. The
+  material copy is set as vanilla human hair's (alpha test at 90,
+  two-sided, no glow; the converted static had made FNV's `_hl` layer a
+  glow map) and the shapes take vanilla hair's commonest NiAlphaProperty
+  (4844, 90: alpha-tested, unblended; 62 of 92 hair shapes, FaceBones copies left out). A vanilla hair HDPT is only EditorID,
+  model, DATA and PNAM (no morphs, no RNAM: `HairFemale15`), so the new one
+  is the same. It replaces the chosen vanilla hair and its extra parts (its
+  hairline belongs to that cut). HCLF stays: it colours facial hair.
+- **Face skin:** a copy of HumanRace's default face set (`DFTF`/`DFTM`)
+  whose diffuse is `texture.face_texture` T2 (race skin, FaceGen colour) on
+  FO4's face UVs; FTST names it. FTST is what gave every woman Amari's old
+  skin ([above](#body-skin)), so the game draws it. The texture holds the
+  colour the tint layers approximated, so their complexion layers go to 0
+  (brows stay: FNV draws brows as meshes, not in the texture) and the skin
+  tone takes T2's scale.
+  - The game draws a face set's raw diffuse brighter than the file: at the
+    default tone, the CK's export of a default face (the tint basis
+    baseline) is the raw `basefemalehead_d` ×1.32/1.43/1.51 per channel
+    (male ×1.57/1.77/2.07), within 5/255 on average. T2's tone compares
+    FNV's face with that drawn colour (`face_texture(..., shown)`); against
+    the raw file Willow's tone came out ×1.6–1.8.
+  - As in T1 ([race skin](#race-skin)), the race's own skin never moves
+    the tone, which colours the body too: with it in, a White Legs guard's
+    war paint took the tone to ×0.55/0.34/0.32. Without it: White Legs
+    ×1.08/1.08/1.15, Willow ×1.16/1.17/1.22 (FNV's stock skin is a little
+    paler than FO4's default). Willow's paler race skin stays on her face
+    only until her race body converts ([race bodies](#race-bodies)).
+  - Shape stays with the sliders: the stock head plus sliders is 90.6% of
+    her FaceGen shape; the rest needs our own FaceGeom NIF ([phase 1](#phase-1)).
+- **Eyes:** FNV paints lashes and shadow round a centred iris; FO4's eye
+  texture is a clean sclera with the iris low. `face.eyes` carries the
+  colour by geometry: each FO4 eye texel's direction from its eyeball's
+  centre (least-squares sphere) picks the FNV eye sample facing the same
+  way. The chosen vanilla eyes and their texture set are copied, the copy's
+  `TX00` the result, its extras (wetness, lashes) kept.
+
+Every record is new, keyed by authored data (`derive_formid`, site
+`FNV own head`): no existing FormID moves.
 
 ## <a id="today"></a>How faces work today
 

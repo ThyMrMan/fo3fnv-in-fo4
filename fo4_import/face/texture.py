@@ -129,11 +129,17 @@ def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple) -> tuple:
     _, idx = cKDTree(fnv_surface[0]).query(s * where @ r.T + t)
     _, owner, bary = fnv_surface
     fnv_uv = (bary[idx][:, :, None] * fnv_uvs[triangles[owner[idx]]]).sum(1)
+    return rows, cols, fnv_uv, island_padding(rows, cols, shape)
+
+
+def island_padding(rows: np.ndarray, cols: np.ndarray, shape: tuple) -> tuple:
+    """((rows, columns) within ISLAND_PADDING outside texels `rows`, `cols` of a `shape` image, (rows, columns)
+    of the texel each copies)."""
     filled = np.zeros(shape, bool)
     filled[rows, cols] = True
     dist, (near_r, near_c) = distance_transform_edt(~filled, return_indices=True)
     pad = (dist > 0) & (dist <= ISLAND_PADDING)
-    return rows, cols, fnv_uv, (np.nonzero(pad), (near_r[pad], near_c[pad]))
+    return np.nonzero(pad), (near_r[pad], near_c[pad])
 
 
 def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
@@ -142,7 +148,8 @@ def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple,
 
     The game tints face and body by the skin tone, so the FaceGen colour's
     overall shift goes into it: the texture is scaled back per channel to
-    FO4's median over the face. T1 adds the race's own (face-only) skin after.
+    FO4's median over the face. Both add the race's own skin after (FNV
+    draws it on the face only).
     pieces = (stock skin, FaceGen offset, race skin minus stock or None).
     See: docs/fork/fo4_facegen_plan.md#race-skin
     """
@@ -150,18 +157,25 @@ def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple,
     rows, cols, fnv_uv, edge = texel_map(fo4, (fnv.mean, fnv.triangles, fnv.uvs), fo4_image.shape[:2])
     out = fo4_image.astype(float)
     fo4_median = np.median(out[rows, cols, :3], 0)
-    whole = None if variant == 'T1' else base + offset + (0.0 if skin is None else skin)
+    whole = None if variant == 'T1' else base + offset
     out[rows, cols, :3] = bilinear(offset, fnv_uv) + out[rows, cols, :3] if whole is None else bilinear(whole, fnv_uv)
     tone = np.median(out[rows, cols, :3], 0) / fo4_median
-    if whole is None and skin is not None:
+    if skin is not None:
         out[rows, cols, :3] += bilinear(skin, fnv_uv)
     out[rows, cols, :3] /= tone
     return out, tone, edge
 
 
-def face_texture(fo4_rgba: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
-    """(face_colours' texture, padded past its face texels, as bytes; its tone scale)."""
-    out, tone, (pad, near) = face_colours(fo4_rgba, fo4, fnv, pieces, variant)
+def face_texture(fo4_rgba: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str,
+                 shown=1.0) -> tuple:
+    """(face_colours' texture, padded past its face texels, as bytes; its tone scale). `shown`: the per-channel
+    factor the game draws `fo4_rgba` at (1 for an exported FaceGen texture; more for a face set's raw diffuse,
+    which the skin tone brightens), so the tone compares what is seen.
+    See: docs/fork/fo4_facegen_plan.md#own-heads
+    """
+    scale = np.append(np.broadcast_to(np.asarray(shown, float), 3), 1.0)
+    out, tone, (pad, near) = face_colours(fo4_rgba * scale, fo4, fnv, pieces, variant)
+    out /= scale
     out[pad[0], pad[1], :3] = out[near[0], near[1], :3]
     return np.clip(out, 0, 255).astype(np.uint8), tone
 

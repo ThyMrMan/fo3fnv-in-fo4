@@ -40,6 +40,7 @@ from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.npc_skills import with_skills
+from fo4_import.spike.own_heads import OwnHeads
 from fo4_import.spike.placement import place, placement, starts_disabled
 from fo4_import.spike.stand_in_fields import checked
 from fo4_import.spike.voice_types import with_voice
@@ -342,7 +343,7 @@ class Npcs:
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
-        self.voids, self.poses = VoidActors(builder), None
+        self.voids, self.poses, self.own_heads = VoidActors(builder), None, OwnHeads(builder, export_dir)
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
         """The NPC or creature `fnv` takes part `flag` from (template_source); None if a list."""
@@ -638,8 +639,9 @@ class Npcs:
             return b'', None
         sculpted, tinted, chosen = fitted
         self.builder.counts['face fitted'] += 1
+        swaps, face, tinted = self.own_heads.of(npc, female, chosen, tinted, self.assets)
         return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female, self.tone_layers),
-                                                 head_parts_edit(chosen, self.assets))
+                                                 head_parts_edit(chosen, self.assets, swaps), face)
 
     def warm_faces(self, fnvs: list, workers: int = 0) -> int:
         """Fit in `workers` processes (face_workers by default), each on one BLAS thread, the faces the bases of FNV

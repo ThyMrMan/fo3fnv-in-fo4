@@ -49,7 +49,7 @@ def _plugin(*records: tuple) -> bytes:
         pack_group(0, sig.encode(), body) for sig, body in groups.items())
 
 
-def _grid(n: int, scale: float, lift: float) -> tuple:
+def uv_grid(n: int, scale: float, lift: float) -> tuple:
     """(points, UVs inside 0.2..0.8, triangles) of an n x n grid bulging toward +y, scaled and raised by `lift`."""
     x, z = (a.ravel() for a in np.meshgrid(np.linspace(-1, 1, n), np.linspace(-1, 1, n)))
     points = np.column_stack([x, 1 - 0.2 * (x ** 2 + z ** 2) + lift, z]) * scale
@@ -133,8 +133,8 @@ def test_by_content_keeps_results_by_contents_read_only():
 def test_face_texture_is_unchanged_by_the_shared_texel_map():
     """face_texture, mapping kept or not, is byte for byte what the per-call mapping and mask padding gave."""
     rng = np.random.default_rng(0)
-    fo4 = _grid(9, 1.0, 0.0)
-    fnv_points, fnv_uvs, fnv_tris = _grid(7, 1.1, 0.1)
+    fo4 = uv_grid(9, 1.0, 0.0)
+    fnv_points, fnv_uvs, fnv_tris = uv_grid(7, 1.1, 0.1)
     fnv = FnvHead(fnv_points, fnv_tris, fnv_points, fnv_uvs)
     rgba = rng.integers(1, 256, (64, 64, 4), dtype=np.uint8)
     pieces = (rng.uniform(0, 200, (32, 32, 3)), rng.uniform(-20, 20, (32, 32, 3)), None)
