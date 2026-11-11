@@ -195,7 +195,7 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
 
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
-| Slots | The Strip's and the Sierra Madre's slot machines, on our own 2D menu | Built, not played | Wins and losses, Luck, comps levels and the floor managers' dialogue; the menu itself (keys, images, font) is untried in game. Spins don't count toward the challenge yet. | [slots](fo4_casino_plan.md#slots-built) |
+| Slots | The Strip's and the Sierra Madre's slot machines, on our own 2D menu | Works | Spins pay out and take chips. Luck, comps levels, the floor managers' dialogue and the Sierra Madre's machines aren't checked. Spins don't count toward the challenge yet. | [slots](fo4_casino_plan.md#slots-built) |
 | Blackjack, roulette | The Strip's and the Sierra Madre's tables | Not built | A table says the game isn't playable yet; the casino's ban and the anti-cheat wait already apply. | [plan](fo4_casino_plan.md#records-built) |
 | Casino menu test | A console test screen for the new menu (`cqf FNV_Casino Spike`) | Works | Keys, mouse, text and images work in a menu of our own. | [spike](fo4_casino_plan.md#toolchain-found) |
 | Caravan | New Vegas's card game | Not built | Picked-up cards join your collection; asking to play says the game isn't playable yet (or that you need 30 cards). | [plan](fo4_casino_plan.md#records-built) |
@@ -233,7 +233,7 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
   ([challenges](fo4_pipeline.md#challenges-left-out))
 - With CBBE installed, bare skin in converted outfits looks scrambled.
   ([body plan](fo4_bodies_cbbe.md))
-- Blackjack, roulette and Caravan aren't playable yet; slot machines are built but not played.
+- Blackjack, roulette and Caravan aren't playable yet.
 
 Please report what you find in
 [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
