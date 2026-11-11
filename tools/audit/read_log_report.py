@@ -3,23 +3,28 @@ records each mod changes and adds.
 
     py -3.14 -m tools.audit.read_log_report --log output/fo4_cache/read_log/FalloutNV.esm
         --game export/FalloutNV.esm --mod "export/Landscape Disposition Fix" [--mod ...] [--limit 20]
+        [--check <mod export> <its build's recording> <the plugin it wrote>]
 
-Per mod: the units that read a record it changes, by kind; and for each type it adds a record to, the units that
-read the whole type, with the fields read on every record, on some, where it was asked and the narrower question
-it could be recorded as. Without --mod: the recording's own summary.
+Always: the recording's summary and the size of the journal it makes. Per --mod: the units that read a record it
+changes, by kind; and for each type it adds a record to, the units that read the whole type, with the fields read
+on every record, on some, where it was asked and the narrower question it could be recorded as. Per --check: each
+record of the mod's plugin by whether a replay reruns the unit that wrote it, and the build's time by the same.
 
 See: docs/fork/fo4_build_speed.md#replay-spike
 """
 
 import argparse
 import collections
+import io
 import json
 import sys
 from pathlib import Path
 
 import numpy as np
 
+from fo4_import.base.master_overrides import KEPT
 from fo4_import.pipeline.export_index import held_types, master_names, master_records, own_records
+from tes5_import.base.tes5_reader import walk
 
 SUFFIX = '.reads'
 #: Field names the recorder logs for a read of some field (records-only mode) and of every field.
@@ -30,6 +35,8 @@ DATA_KINDS = frozenset({'memo', 'init'})
 IDENTITY = frozenset({'FormID', 'EditorID', 'Signature'})
 #: A whole-type reader filtering on more fields than this is an aggregate, not a question.
 MAX_FILTER = 3
+#: The columns of a recording's records written (read_log._written).
+WRITE_FIELDS = ('unit', 'fid', 'sig', 'size', 'hash')
 
 
 def _loaded(folder: Path) -> list:
@@ -52,10 +59,13 @@ class Recording:
         self.sets, self.set_units, self.unit_sets = [], collections.defaultdict(list), collections.defaultdict(list)
         self.where, self.sites, self.problems = collections.defaultdict(set), collections.Counter(), []
         self.top, self.processes, self.with_fields = 0, 0, True
+        self.verdicts, self.spent = {}, collections.Counter()
         parts = collections.defaultdict(list)
         for meta, log in _loaded(folder):
             self._merge(meta, log, parts)
+            self._merge_writes(meta, log, parts)
         merged = {name: np.concatenate(chunks) if chunks else np.zeros(0, np.int64) for name, chunks in parts.items()}
+        self.writes = {name: merged.get(f'write_{name}', np.zeros(0, np.int64)) for name in WRITE_FIELDS}
         order = np.lexsort((merged['field'], merged['rec'], merged['unit']))
         self.unit, self.rec, self.field = (merged[name][order] for name in ('unit', 'rec', 'field'))
         self.start = np.searchsorted(self.unit, np.arange(len(self.units) + 1))
@@ -100,6 +110,21 @@ class Recording:
         self.problems += [f'unit not found: {name}' for name in meta['missing']]
         self.problems += [f'recorder error x{count}: {text}' for text, count in meta['errors'].items()]
         self.processes, self.with_fields = self.processes + 1, self.with_fields and meta['fields']
+
+    def _merge_writes(self, meta: dict, log, parts: dict) -> None:
+        """Add one process's records written, verdicts and unit times (a log of format 2 or later)."""
+        if 'write_unit' not in log:
+            return
+        unit = np.array([self.units[kind, key] for kind, key in meta['units']], np.int64)
+        parts['write_unit'].append(unit[log['write_unit']])
+        for name in WRITE_FIELDS[1:]:
+            parts[f'write_{name}'].append(log[f'write_{name}'])
+        self.verdicts.update(zip(log['verdict_fid'].tolist(), (meta['verdicts'][i] for i in log['verdict_kind'])))
+        self.spent.update(dict(zip(unit[log['spent_unit']].tolist(), log['spent_s'].tolist())))
+
+    def labels(self, renamed: tuple = ('', '')) -> list:
+        """Each unit's (kind, key), (old, new) `renamed` in its key."""
+        return [(kind, key.replace(*renamed) if renamed[0] else key) for kind, key in self.unit_list]
 
     def file(self, folder: str, sig: str) -> tuple:
         """(first record number, count) of `folder`'s type `sig`; (0, 0) if not parsed."""
@@ -160,9 +185,8 @@ def _hit_units(recording: Recording, numbers: np.ndarray, codes: np.ndarray) -> 
     return by_record, by_field
 
 
-def changed_readers(recording: Recording, game: Path, changed: dict) -> list:
-    """Report lines: how many units read a record the mod changes (`changed`: changes()), by kind: any field of
-    it, a field that differs, then with the askers of the data units among those, then with every asker."""
+def _changed_codes(recording: Recording, game: Path, changed: dict) -> tuple:
+    """(record numbers, record << 32 | field id codes) of the records and fields the mod changes (changes())."""
     numbers, codes = [], []
     for sig, (positions, *_) in changed.items():
         base, count = recording.file(game.name, sig)
@@ -170,7 +194,14 @@ def changed_readers(recording: Recording, game: Path, changed: dict) -> list:
             numbers.append(base + position)
             ids = [recording.fields[name] for name in (*fields, ANY, WHOLE) if name in recording.fields]
             codes += [base + position << 32 | fid for fid in ids]
-    by_record, by_field = _hit_units(recording, np.array(numbers, np.int64), np.array(codes, np.int64))
+    return np.array(numbers, np.int64), np.array(codes, np.int64)
+
+
+def changed_readers(recording: Recording, game: Path, changed: dict) -> list:
+    """Report lines: how many units read a record the mod changes (`changed`: changes()), by kind: any field of
+    it, a field that differs, then with the askers of the data units among those, then with every asker."""
+    numbers, codes = _changed_codes(recording, game, changed)
+    by_record, by_field = _hit_units(recording, numbers, codes)
     columns = (by_record, by_field, recording.askers(by_field, True), recording.askers(by_field, False))
     lines = [f'  records changed and read by the game build: {len(set(numbers))}',
              f'  {"kind":<16}{"units":>9}{"record":>9}{"field":>9}{"+memo":>9}{"+askers":>9}']
@@ -286,21 +317,156 @@ def mod_report(recording: Recording, game: Path, mod: Path, limit: int) -> list:
     return lines
 
 
+def _delta(units: np.ndarray, values: np.ndarray, *rest: np.ndarray) -> dict:
+    """Pairs (unit, value, rest...) as a journal stores them: sorted, each unit's count, values as steps from the
+    unit's last one."""
+    order = np.lexsort((*reversed(rest), values, units))
+    units, values = units[order], values[order]
+    steps = np.diff(values, prepend=0)
+    first = np.ones(len(units), bool)
+    first[1:] = units[1:] != units[:-1]
+    steps[first] = values[first]
+    out = {'counts': np.bincount(units).astype(np.uint32), 'steps': steps.astype(np.int64)}
+    return out | {f'rest{i}': column[order].astype(np.uint32) for i, column in enumerate(rest)}
+
+
+def _zipped(arrays: dict) -> tuple:
+    """(raw bytes, zip-compressed bytes) of `arrays` saved as one npz."""
+    buffer = io.BytesIO()
+    np.savez_compressed(buffer, **{name: np.ascontiguousarray(array) for name, array in arrays.items()})
+    return sum(array.nbytes for array in arrays.values()), buffer.tell()
+
+
+def _journal_parts(recording: Recording) -> dict:
+    """{part: arrays} of the journal `recording` makes: reads by record and by field, shared big reads, writes,
+    the units asked, the questions, the unit names."""
+    units, recs, fields = recording.unit, recording.rec, recording.field
+    pairs = np.unique(units << 32 | recs)
+    big = [np.unique(set_recs) for set_recs, _ in recording.sets]
+    members = np.array([(uid, sid) for sid, uids in recording.set_units.items() for uid in uids], np.int64)
+    writes = recording.writes
+    text = '\n'.join([*('\t'.join(label) for label in recording.unit_list), *recording.name_list]).encode()
+    return {'reads by record': _delta(pairs >> 32, pairs & 0xFFFFFFFF),
+            'reads by field': _delta(units, recs, fields),
+            'shared big reads': {'steps': np.concatenate([np.diff(b, prepend=0) for b in big] or [np.zeros(0)]),
+                                 'members': members.reshape(-1, 2), 'sizes': np.array([len(b) for b in big])},
+            'records written': _delta(writes['unit'], writes['fid']),
+            'units asked': {'a': recording.edges[0], 'b': recording.edges[1]},
+            'questions': {'a': recording.asked[0], 'b': recording.asked[1]},
+            'names': {'text': np.frombuffer(text, np.uint8)}}
+
+
+def journal_size(recording: Recording) -> list:
+    """Report lines: the journal this recording makes, part by part and in all, raw and zip-compressed, with reads
+    by record or by field (record bytes are the plugin's, not the journal's)."""
+    lines = ['journal (zip-compressed npz; record bytes stay in the plugin):',
+             f'  {"part":<20}{"items":>12}{"raw MB":>10}{"zipped MB":>11}']
+    sizes = {}
+    for part, arrays in _journal_parts(recording).items():
+        sizes[part] = _zipped(arrays)
+        items = max(len(array) for array in arrays.values())
+        lines.append(f'  {part:<20}{items:>12}{sizes[part][0] / 1e6:>10.1f}{sizes[part][1] / 1e6:>11.1f}')
+    for kept, other in (('reads by record', 'reads by field'), ('reads by field', 'reads by record')):
+        left = [part for part in sizes if part != other]
+        lines.append(f'  all, {kept}: {sum(sizes[p][0] for p in left) / 1e6:.1f} MB raw, '
+                     f'{sum(sizes[p][1] for p in left) / 1e6:.1f} MB zipped')
+    fids, size = recording.writes['fid'], recording.writes['size'].sum()
+    return lines + [f'  records written {len(fids)} ({len(np.unique(fids))} FormIDs, {size / 1e6:.1f} MB of bytes)']
+
+
+def _walkers(recording: Recording, sigs: set) -> set:
+    """Units that walked the binary source for one of `sigs` (logged per type)."""
+    return {int(uid) for uid, name in zip(*recording.asked) if recording.name_list[name].startswith('walk\t')
+            and set(recording.name_list[name].split('\t')[1].split(',')) & sigs}
+
+
+def _moved_into(game: Path, mod: Path) -> set:
+    """('cell refs', cell) labels of the cells the mod moves a game REFR into."""
+    theirs = {rec['FormID']: rec.get('ParentCELL') for rec in master_records(str(mod), str(game), 'REFR')}
+    return {('cell refs', rec['ParentCELL']) for rec in own_records(mod, 'REFR') if rec.get('ParentCELL')
+            and rec['FormID'] in theirs and theirs[rec['FormID']] != rec['ParentCELL']}
+
+
+def rerun(recording: Recording, game: Path, found: dict) -> set:
+    """Game units a replayed build of a mod (`found`: changes()) runs: readers of a field it changes, and binary
+    walkers of a type it changes, with the askers of the data units among them; the whole-type readers of each type
+    it adds a record to."""
+    changed = {sig for sig, (positions, *_) in found.items() if positions}
+    hit = _hit_units(recording, *_changed_codes(recording, game, found))[1] | _walkers(recording, changed | {WHOLE})
+    out = recording.askers(hit, True)
+    for sig in (sig for sig, (_, added, _, _) in found.items() if added):
+        span = recording.file(game.name, sig)
+        out |= set(_asking(recording, game.name, sig)) | (_full_readers(recording, *span) if span[1] else set())
+    return out
+
+
+def _status(units: set, labels: list, runs: set, known: set) -> str:
+    """How a replay makes a record written by mod-build `units`: rerun, a new unit, outside any unit, or MISSED."""
+    if not units:
+        return 'no writer logged'
+    if all(labels[uid][0] == 'process' for uid in units):
+        return 'outside any unit'
+    if any(labels[uid] in runs for uid in units):
+        return 'rerun'
+    return 'new unit' if any(labels[uid] not in known for uid in units) else 'MISSED'
+
+
+def _times(mod_rec: Recording, labels: list, runs: set, known: set) -> list:
+    """Report lines: the mod build's units and their own seconds by how a replay treats each."""
+    spent = collections.Counter()
+    for uid, seconds in mod_rec.spent.items():
+        spent['outside any unit' if labels[uid][0] == 'process' else 'rerun' if labels[uid] in runs
+              else 'new unit' if labels[uid] not in known else 'replayed'] += seconds
+    count = collections.Counter('rerun' if label in runs else 'new unit' if label not in known else 'replayed'
+                                for label in labels if label[0] != 'process')
+    return [f'  units {sum(count.values())}: ' + ', '.join(f'{k} {v}' for k, v in count.most_common()),
+            '  seconds: ' + ', '.join(f'{k} {v:.0f}' for k, v in spent.most_common())]
+
+
+def replay_check(game_rec: Recording, game: Path, mod: Path, mod_rec: Recording, plugin: Path, limit: int) -> list:
+    """Report lines: each record of the mod's built `plugin` by how a replay would make it (_status from the units
+    `mod_rec` saw write it); MISSED records would be lost or the game's, so the replayed plugin would differ."""
+    game_labels, labels = game_rec.labels(), mod_rec.labels((mod.name, game.name))
+    runs = {game_labels[uid] for uid in rerun(game_rec, game, changes(game, mod))} | _moved_into(game, mod)
+    known = set(game_labels)
+    writers = collections.defaultdict(set)
+    for uid, fid in zip(mod_rec.writes['unit'].tolist(), mod_rec.writes['fid'].tolist()):
+        writers[fid].add(uid)
+    tally, missed = collections.Counter(), []
+    for rec, _ in walk(plugin.read_bytes(), bodies=()):
+        verdict = mod_rec.verdicts.get(rec.form_id)
+        status = ("the master's copy, heading kept records" if verdict is not None and verdict not in KEPT
+                  else _status(writers.get(rec.form_id, set()), labels, runs, known))
+        tally[status] += 1
+        if status == 'MISSED':
+            names = sorted({' '.join(labels[uid]) for uid in writers[rec.form_id]})
+            missed.append(f'    {rec.sig.decode()} {rec.form_id:08X} '
+                          f'({mod_rec.verdicts.get(rec.form_id, "own")}): {"; ".join(names)[:160]}')
+    return ([f'\n== replay check: {plugin.name} ==', f'  game units rerun: {len(runs)} of {len(known)}',
+             '  plugin records: ' + ', '.join(f'{k} {v}' for k, v in tally.most_common())]
+            + _times(mod_rec, labels, runs, known) + missed[:limit])
+
+
 def main() -> None:
-    """Print the recording's summary, then each mod's report."""
+    """Print the recording's summary and journal size, then each mod's report and replay check."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--log', required=True, type=Path, help="The recording's folder (its <pid>.reads files)")
     parser.add_argument('--game', type=Path, help='The export the recording was built from')
     parser.add_argument('--mod', type=Path, action='append', default=[], help="A mod plugin's export folder")
+    parser.add_argument('--check', nargs=3, type=Path, action='append', default=[],
+                        metavar=('MOD_EXPORT', 'MOD_LOG', 'MOD_PLUGIN'),
+                        help="A mod's export, the recording of its own build and the plugin that build wrote")
     parser.add_argument('--limit', type=int, default=20, help='Groups and places printed per list')
     args = parser.parse_args()
-    if args.mod and not args.game:
-        parser.error('--mod needs --game')
+    if (args.mod or args.check) and not args.game:
+        parser.error('--mod and --check need --game')
     sys.stdout.reconfigure(encoding='utf-8')
     recording = Recording(args.log)
-    print('\n'.join(summary(recording, args.limit)))
+    print('\n'.join(summary(recording, args.limit) + journal_size(recording)))
     for mod in args.mod:
         print('\n'.join(mod_report(recording, args.game, mod, args.limit)))
+    for mod, log, plugin in args.check:
+        print('\n'.join(replay_check(recording, args.game, mod, Recording(log), plugin, args.limit)))
 
 
 if __name__ == '__main__':

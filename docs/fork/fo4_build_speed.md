@@ -482,6 +482,119 @@ gaps to close one by one.
 
 Size: the spike S–M; the journal L, then M (Part D's own estimate).
 
+#### <a id="spike-result"></a>What the spike found (2026-11-11)
+
+**Verdict: go for step 7, with four changes to the journal design below.**
+A replayed mod build is predicted to rerun 0.04–11% of the game's units and
+about 1.5–5 minutes of their time. The old-way builds took 7.4 and 13.8
+minutes. Every record the two test mods' plugins hold is made by a unit the
+replay reruns, with one exception: a region-build artifact that a replay
+rightly leaves out.
+
+**How it was run.** `fo4_import.pipeline.read_log --no-assets` (it skips the
+file-only steps and the Creation Kit; plugin bytes unchanged) recorded:
+- one whole game build, `--world WastelandNV reached --whole`, into a scratch
+  folder;
+- Landscape Disposition Fix (LDF) and Strip Lights Region Fix (SLRF), each
+  built the old way with its deployed arguments, the scratch game as master.
+
+`tools.audit.read_log_report --check` then sorted every record of each mod's
+plugin by the unit that packed it (see
+[python_tools](../reference/python_tools.md)). A recorded and an unrecorded
+one-cell build wrote byte-identical plugins.
+
+**The game's recording.** 97,139 units, 494,334 records packed, 7.8 M
+(record, field) reads kept per unit, plus 45.7 M in 226 shared whole-type
+reads.
+
+**The journal is small.** For the whole game:
+
+| | Raw | Zipped |
+|---|---|---|
+| Reads by field | 242 MB | 3.3 MB |
+| Reads by record only | 180 MB | 2.8 MB |
+
+That counts the reads, the FormIDs each unit packed, the units each asked,
+the questions and the unit names. Record bytes are the plugin's own (347 MB
+packed). Whole-type reads are 129 MB raw but 0.2 MB zipped: they are runs of
+consecutive records. Not yet measured: the memo and shared-list entries a
+unit adds (Part D's [shared state](fo4_plugin_layout.md#shared-state)).
+
+**Units each mod reruns:**
+
+| | LDF | SLRF |
+|---|---|---|
+| Records changed / added | 2,135 / 1 | 6,171 / 7 |
+| Units reading a changed record | 721 | 1,000 |
+| Units reading a changed field (plus askers) | 527 | 6 |
+| Rerun by field reads alone | 538 units, 173 s | 41 units, 83 s |
+| Rerun with binary walkers (change 2 below) | 10,932 units, 312 s | 4,663 units, 212 s |
+| Records in the old-way plugin | 2,247 | 130 |
+| Made by a rerun unit / the master's own group head | 1,747 / 500 | 127 / 1 |
+| Missed | 0 | 1 (an artifact, below) |
+
+The seconds are each unit's own time in the recorded game build. Field-level
+reads matter: SLRF changes 6,168 cells, and 1,000 units read them, but only
+6 read a field that differs.
+
+**Where the rerun time goes.** A few coarse units:
+- `world WastelandNV` (96 s): one unit for the whole worldspace;
+- the `quest scope` (89 s), `closing records` (41 s) and `scope` (8 s)
+  stages: setup that reads whole types.
+
+The 30 readers of every REFR are the 12 world scopes, five setup stages, two
+memos and the `CellBuilder` init. Each can be asked as a narrower question
+("REFR by FormID", "REFR where ParentCELL, XTEL.Door = …").
+
+**Four changes to the journal design** (each found by a miss in the check):
+1. **A record belongs to the unit that packs it** (`writer.pack_record`), not
+   the one that adds it. 78% of records were added by stages assembling
+   groups (a quest's topics, an interior's references) after their units ran.
+2. **Binary source walks must log per record.** Cell region lists
+   (`regions.py`: XCLR through `source_walk`) and worldspace subrecords
+   (`exterior.py`) come from the source plugin's bytes. The recorder logged
+   only "walked CELL", so 2 CELL and 1 WRLD overrides of LDF and all 92 CELL
+   overrides of SLRF were made by units nothing flagged. Counting each walker
+   as a reader of every changed record of its type closes the gap. It is
+   coarse, though: it is the jump from 538 to 10,932 units.
+3. **Cell membership is a question.** LDF moves 8 REFRs to another cell. The
+   new cell's unit never read them in the game build, since its references
+   come from an index built once. "The REFRs whose ParentCELL is X" has to be
+   recorded with its answer.
+4. **The coarse units need splitting** before replay pays: the worldspace by
+   cell, the setup stages into questions. Without that, a landscape mod
+   reruns about 5 minutes; with it, likely under 2 (not measured).
+
+**The byte-for-byte bar needs one adjustment.** SLRF's single miss is a TERM
+copy that is unreferenced in the old-way plugin. The region build copies
+master terminal `001672C6`, reached from `NellisArrayTerminal`, because the
+game plugin left it out (`COPY_SITE`). The game build's own unit makes no
+such copy. LDF's region build also made 3,651 master records differently
+from the game "by the build alone" (dropped), even against a game built from
+the same code. So the reference for step 7 should be the old way with its
+region artifacts removed, or an old-way build at the game's own scope, not
+the region build as it is.
+
+**Recording cost.** About 28% on the record-making stages (1,201 s against
+937 s for the same stages of the 11-11 overnight game build: other commit
+and caches, so rough). The read-heavy stages cost 2–3 times as much
+(`base STAT` 255 s against 104 s, `quest scope` 104 s against 37 s). On one
+cell: 360 s against 346 s.
+
+**Memory (separate finding).** In the game build,
+`land_layers.limit_textures` (via `blend_borders`, `_shared` over every
+border vertex of WastelandNV) takes the build from about 7 GB to over 15.5 GB
+in 90 s. With `TESCONV_JOB_MEM_GB=16` the recorded game build died there
+twice. It finished under 22 GB (14.7 GB sampled every 30 s); LDF peaked at
+8.3 GB. Normal builds run uncapped.
+
+**Estimate for step 7 (unmeasured, from the numbers above).** LDF by replay
+is about 3–5 minutes as the units stand, against 7.4 minutes; SLRF about 2–4,
+against 13.8. That is 2–4 minutes of reruns (less the 28% recording cost),
+plus mesh checks, setup and ledger work over the mod's records only. With
+change 4, both should be inside 1–2 minutes. Size: the journal L, as
+planned, plus M for changes 2–4.
+
 ## <a id="left-out"></a>Routes considered and not taken
 
 - **Ship the finished output as patches against the user's own game files**
@@ -629,9 +742,15 @@ scoped build first: one small area, fewer workers and a job cap around
   cache is? (Our numbers and Fallout4.esm FormIDs only.)
 - Is shipping patches against the user's own files wanted as a later option,
   or ruled out?
-- How large is the journal for the whole game, and does it ship compressed
-  beside the plugin or get rebuilt on the user's machine by the game build?
-  (The spike gives the read counts; record bytes are the built plugin.)
+- ~~How large is the journal for the whole game?~~ About 3.3 MB zipped
+  (242 MB raw) with reads by field, before memo and shared-list entries
+  ([spike](#spike-result)). It can ship compressed beside the plugin. Still
+  open: ship it, or let the user's game build write it? Recording costs that
+  build about 28%.
+- Should step 7's byte-for-byte reference be the old way at the game's own
+  scope rather than the region build? The region build makes records the
+  game build does not (an orphan TERM copy in Strip Lights;
+  [spike](#spike-result)).
 - A mod converted against one release's journal and a game rebuilt with
   another: the same question as in
   [mod builds](fo4_mod_builds.md#open).
