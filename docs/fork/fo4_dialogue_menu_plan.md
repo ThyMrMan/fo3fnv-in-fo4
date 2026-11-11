@@ -214,8 +214,9 @@ each call):**
   - The player slot returns the option's INFO and marks it said. The
     player does not speak it, and the camera stays on the NPC, as in FNV.
   - The NPC slot, or a following NPC Response action, returns the answer
-    topic's first passing INFO, chosen by the engine's picker (0x698DB0),
-    once.
+    topic's first passing INFO, chosen by the engine's picker (0x698DB0)
+    once, then the same INFO each time that action asks again
+    ([retries](#answer-retries)).
   - Options below 5 go to the vanilla functions unchanged.
 
 **Menu movie.** `fo4_import/dialogue_menu/movie.py` reads
@@ -319,6 +320,100 @@ build's baked `[Name N] text` as the no-DLL fallback.
   the Negative holder (menu +0xE8), laid over the list, and calls
   F3NV.dll's `TintFailed` on each draw. That native applies type 3 (Hard,
   red) through the same function.
+
+### <a id="answer-retries"></a>Answer retries, and Willow's slow answers (2026-11-11)
+
+Report: NVWillow's Willow pauses for a long time after an option is
+picked; FalloutNV.esm's NPCs answer at once.
+
+- **The engine asks the NPC slot again until the NPC can speak (V,
+  disassembly).** After the NPC slot (0x415A21) returns a line, the Player
+  Dialogue run function returns without saying it, and asks again next
+  frame, while any of these hold: the NPC's byte +0x10A is 1 (0x2C6E60,
+  called at 0x415AC5; CommonLibF4 names it the reference's model state, 1
+  while its 3D loads, I), the NPC has no process (+0x300), or the line has
+  no topic. The engine's own function gives the same INFO on every ask.
+  Ours answered once and gave nothing after, and a null line makes the
+  action end without the NPC's line (0x415A2C to slot 19, 0x415000). It
+  now gives the picked line to that action on every ask, and logs
+  `+N ms: asked again (n) for <INFO>; NPC 3D loading 0|1` on the first
+  ask and every hundredth.
+- **The trace runs past the answer.** The `+N ms` wait lines carry on
+  until the action ends, with the NPC's 3D loading bit: `NPC line said,
+  NPC talking 1` is when the answer starts. The menu's own lines (`menu
+  shown`, `menu ready`) carry the time since the pick.
+- **Willow's records and files match FalloutNV.esm's (V, measured
+  2026-11-11 on the deployed build).** Four of her answer INFOs (03769CE1,
+  0377F791, 03965644, 034C1ACB) against four of Doc Mitchell's
+  (02AFAB95, 02E94E76, 02651DC2, 02B5C088): the same INFO layout (ENAM,
+  TRDA, TSCE + ALFA + Phase0), the same answer DIAL fields, and the same
+  next-step scene (FNAM 0x1064, one Player Dialogue action). Her .fuz
+  files are present (775 of 785 answer lines and all 267 follow-up lines;
+  the 10 missing are `...`-type lines), stored uncompressed like the
+  game's, in the same xWMA format (mono 44.1 kHz, 6000 B/s). Her source
+  recordings have no leading silence. Her lips are copied frame for frame
+  from her .lip files and run 0.23 s past the audio at the median against
+  Doc Mitchell's 0.50 s. Multi-response lines are rarer in her mod (9%)
+  than in FalloutNV.esm (18%). Speaker idles are on 4.5% of her INFOs.
+- **What is hers alone is script load.** Her F3NV.log answers come 0 to
+  15 ms after the pick, like everyone's, so the time goes after the
+  answer is chosen. About 58 of her scripts fail to compile, so many of
+  her quest scripts fail to link or bind. Her freeform quest, her own
+  script and her sunglasses item then log a None error with a stack on
+  each timer tick: about 6,000 stack lines of the 45,000 Papyrus log
+  lines in a 33-minute run. Whether that holds her line back is not measured: the new trace
+  says where the time goes.
+
+### <a id="prompt-macros"></a>The player's name in prompts (2026-11-11)
+
+Report: Willow's "My name's &PCName;" showed the macro as written.
+
+- **FNV's rule (V, FalloutNV.exe 0x7070C0, `interface.cpp:5166` in the
+  decomp).** `&name;` is, in order: a control's label, a global's value
+  (by EditorID), `PCName` (the player's name), `PCRace`, `PCSex`,
+  `PCSexPronoun`, `PCSexPossessive` (game settings), then a game setting.
+  Names match in any case.
+- **Census (FO3, FNV, DLC and mod exports).** `&PCName;` 242 times, in
+  five casings: about 190 in note text, 22 in dialogue prompts (INFO
+  prompts, DIAL FULL; Willow's included), one NPC_ FULL. `&PCSex;` 10 and
+  `&PCRace;` 9, all in notes. The control macros (`&sUActnJump;`, …) are
+  in MESG text and the build already writes them as FO4 tags
+  (`spike/controls.py`).
+- **Prompts: written out by F3NV.dll.** FO4's own replacement
+  (`<Alias=Player>`, 39 uses in Fallout4.esm's string tables, in books,
+  terminals and messages) needs a quest alias and runs only in the game's
+  text menus. Our menu reads prompts raw (0x69E740), and no vanilla
+  prompt carries a token, so the DLL writes `&PCName;` and `&PCRace;` out
+  when it lists an option (`Expanded`): the player base's name and the
+  player's race name. `&amp;PCName;`, from plugins built for XDI, reads
+  the same.
+- **Not done: notes and messages.** Their 200-odd uses still show the
+  macro. FO4's way is `<Alias=Player>` in a book read through a quest's
+  book alias with Uses Stored Text, or a message with an owner quest.
+  That needs a quest and alias for every note.
+
+### <a id="said-gray"></a>Said options (2026-11-11)
+
+Report: Johnson Nash's "I lost a package I was supposed to deliver." was
+dim before it was picked.
+
+- One option stands for an FNV topic, and it shows the prompt of the
+  topic's answer line that plays now. Nash's topic (option 089D5980) has
+  "I'm a courier with the Mojave Express." first, then "I lost a package
+  …". The menu dimmed by the option INFO's said byte, which picking the
+  first line set, so the next line came up dim (F3NV.log).
+- FNV keeps said on its INFO, which here is the answer line. The menu
+  now dims by the said byte of the line that plays (the engine sets it
+  when the NPC says it).
+
+### <a id="backdrop-rows"></a>The backdrop under fewer rows (2026-11-11)
+
+Report: Willow's one-option menu had the shaded backdrop running far
+below the box. The backdrop is the game's shaded background, sized from
+the Question holder's bounds. Flash counts hidden children in a
+container's bounds, and the rows beyond the menu's count were only hidden,
+keeping the text and place of the last longer menu. Unused rows now leave
+the holder (`draw`).
 
 ### <a id="test-mod"></a>Test mods
 

@@ -411,6 +411,12 @@ package
             var row:TextField = this.rows[i];
             var at:int = this.top + i;
             row.visible = i < count;
+            // A hidden row still counts in its holder's bounds, which size the shaded background: an unused row
+            // leaves the holder, or the backdrop stays as tall as the last longer menu.
+            if(i >= count && row.parent != null)
+            {
+               row.parent.removeChild(row);
+            }
             if(i < count)
             {
                var entry:Object = this.entries[at];

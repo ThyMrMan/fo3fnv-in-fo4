@@ -99,6 +99,37 @@ def test_movie_shows_escaped_prompts_as_written():
     assert 'this.unescaped(String(options[i].text))' in menu and 'text = this.unescaped(text);' in menu
 
 
+def test_npc_slot_gets_the_same_answer_on_every_ask():
+    """The engine asks the NPC slot each frame until the NPC can speak; each ask of that action gets the picked line.
+
+    See: docs/fork/fo4_dialogue_menu_plan.md#answer-retries
+    """
+    source = DIALOGUE_CPP.read_text(encoding='utf-8')
+    assert 'if (picked.line) return Again(picked, action, scene);' in source
+    assert 'if (picked.answeredBy != action) return nullptr;' in source and 'return picked.line;' in source
+    assert 'REFR_MODEL_STATE = 0x10A' in source and 'answered = true' not in source
+
+
+def test_prompts_write_out_the_players_macros_and_gray_on_the_answer_line():
+    """&PCName; / &PCRace; (any case, or &amp;-escaped) become the player's; said follows the answer line, not the option.
+
+    See: docs/fork/fo4_dialogue_menu_plan.md#prompt-macros
+    """
+    source = DIALOGUE_CPP.read_text(encoding='utf-8')
+    assert 'if (name == "pcname")' in source and 'if (name == "pcrace")' in source
+    assert 'if (name == "amp") name = MacroName(text, end + 1, &end);' in source
+    assert 'Expanded(own && *own ? own : Prompt(info)), At<UInt8>(line, INFO_SAID) != 0' in source
+
+
+def test_unused_rows_leave_the_holder_so_the_backdrop_fits():
+    """A hidden row still counts in its holder's bounds, which size the shaded background.
+
+    See: docs/fork/fo4_dialogue_menu_plan.md#backdrop-rows
+    """
+    menu = MENU_AS.read_text(encoding='utf-8')
+    assert 'if(i >= count && row.parent != null)' in menu and 'row.parent.removeChild(row);' in menu
+
+
 def test_wheel_scrolls_the_list_and_skips_the_camera():
     """The movie moves on ZoomIn/ZoomOut; F3NV.dll refuses them at the first- and third-person cameras' tests."""
     source = DIALOGUE_CPP.read_text(encoding='utf-8')
