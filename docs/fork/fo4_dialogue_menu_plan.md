@@ -251,8 +251,16 @@ cached under `temp/` and written only to an output folder.
   against the shader target vtable 0x27236D0) and off by clearing flag bit
   0 at +0x8C. To keep that holder's bounds equal to the box, the movie
   moves it to the box's middle and empties the hidden buttons' text.
-  Its look in game is not yet seen. A menu that first shows none of ours asks again each frame for
+  Confirmed see-through in game (played 2026-11-11). A menu that first shows none of ours asks again each frame for
   30 frames before leaving the game's buttons.
+- **Escaped prompts.** The build writes `&`, `<` and `>` in player lines as
+  `&amp;`, `&lt;` and `&gt;`, because XDI shows option text as HTML
+  ([xdi-html](fo4_pipeline.md#xdi-html)). This menu and vanilla's
+  BSButtonHint show plain text (`GlobalFunc.SetText(tf, text, false, true)`),
+  so the movie decodes the three entities wherever text comes in
+  (`GetDialogueOptions` and `SetButtonText`) before upper-casing it.
+  `&lt;Keep holdout weapons&gt;` showed as `&LT;KEEP HOLDOUT WEAPONS&GT;`
+  (played 2026-11-11).
 - **Keys:**
   - arrows, W/S, the mouse wheel, or the gamepad's Quickkey up/down move;
     F3NV.dll keeps the wheel from the camera while a choice waits. The
@@ -270,9 +278,36 @@ cached under `temp/` and written only to an output folder.
 The DLL reads `Data\F4SE\Plugins\F3NV_Menus\*.txt` the first time a menu
 opens. Each line has four tab-separated columns: the option's plugin, the
 option INFO's object id (hex), the answer's plugin, and the answer DIAL's
-object id. `#` starts a comment. A link is kept only when its option is an
-INFO and its answer a DIAL. The log line is
-`dialogue menu: <file>: N links, M resolved`.
+object id. An option with a skill check has three more: the actor value's
+plugin, its AVIF object id, and the number needed (decimal). `#` starts a
+comment. A link is kept only when its option is an INFO and its answer a
+DIAL. The log line is
+`dialogue menu: <file>: N links, M resolved, K skill checks`.
+
+### <a id="skill-checks"></a>Skill checks (confirmed in game, 2026-11-11)
+
+FNV shows a check against the player's current value: `[Speech 25]  text`
+on a pass, `[Sneak 14/50]  text` on a fail (FalloutNV.exe's strings `[%s`,
+`%s %d/%d`, `%s]  %s`: two spaces after the bracket). The plugin keeps the
+build's baked `[Name N] text` as the no-DLL fallback.
+
+- **Build** (`tools/dialog/menu_rebuild.py` `skill_check`): an option's check
+  is the first answer condition that is `GetValue` on the player (run on
+  target, or on reference PLAYER), not a global, with `>`/`>=`/`<`/`<=`
+  giving exactly the tag's number. In FNV + YUP, 4,481 of 4,496 tagged
+  options match. The 15 that don't are `[Endurance 9]` prompts whose answer
+  tests Endurance > 6 (a mismatch in the authored data); they keep the
+  baked tag. The plugin bytes do not change.
+- **DLL**: `Tagged` rewrites the tag from
+  `player->actorValueOwner.GetValue(av)` and flags a failed row.
+- **Color** (V): DialogueMenu colors each registered holder through
+  0x1043EF0(menu, target, type, dim). Type 0 is the HUD color; 1/4/5,
+  2/6 and 3/7 are the speech-challenge tints `iDialogueSC_Easy/Med/Hard_Tint*`
+  (jump table at 0x1043FB8). The game re-tints the four holders on every
+  SetButtonText (0x1043539), so the movie moves failed rows into a layer in
+  the Negative holder (menu +0xE8), laid over the list, and calls
+  F3NV.dll's `TintFailed` on each draw. That native applies type 3 (Hard,
+  red) through the same function.
 
 ### <a id="test-mod"></a>Test mods
 

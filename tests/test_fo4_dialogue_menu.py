@@ -139,6 +139,38 @@ def test_movie_draws_only_white_so_the_hud_color_shows():
     assert fills and set(fills) == {'0xFFFFFF'}
 
 
+def test_backdrop_is_the_games_shaded_background():
+    """The backdrop is the engine's shaded background, never a fill.
+
+    See: docs/fork/fo4_dialogue_menu_plan.md#as-built
+    """
+    source = DIALOGUE_CPP.read_text(encoding='utf-8')
+    assert 'dll.ShadeList(on)' in MENU_AS.read_text(encoding='utf-8')
+    assert 'EnableShadedBackground(0x1B04350)' in source and 'MENU_QUESTION_TARGET = 0xF8' in source
+
+
+def test_failed_skill_checks_show_fnv_tags_in_the_hard_tint():
+    """FNV's tags ([Speech 25] / [Sneak 17/25], two spaces after), failed rows in the Negative holder's Hard tint.
+
+    See: docs/fork/fo4_dialogue_menu_plan.md#skill-checks
+    """
+    source, menu = DIALOGUE_CPP.read_text(encoding='utf-8'), MENU_AS.read_text(encoding='utf-8')
+    assert '"[%s %d/%u]  "' in source and '"[%s %u]  "' in source
+    assert 'TintChallenge(0x1043EF0)' in source and 'CHALLENGE_HARD = 3' in source
+    assert 'MENU_NEGATIVE_TARGET = 0xE8' in source
+    assert 'FadeHolder_mc.Negative.addChild(this.failedRows)' in menu and 'dll.TintFailed()' in menu
+
+
+def test_movie_shows_escaped_prompts_as_written():
+    """The build's &lt; &gt; &amp; show as < > & in the menu.
+
+    See: docs/fork/fo4_pipeline.md#xdi-html
+    """
+    menu = MENU_AS.read_text(encoding='utf-8')
+    assert 'split("&lt;").join("<").split("&gt;").join(">").split("&amp;").join("&")' in menu
+    assert 'this.unescaped(String(options[i].text))' in menu and 'text = this.unescaped(text);' in menu
+
+
 def test_wheel_scrolls_the_list_and_skips_the_camera():
     """The movie moves on ZoomIn/ZoomOut; F3NV.dll refuses them at the first- and third-person cameras' tests."""
     source = DIALOGUE_CPP.read_text(encoding='utf-8')

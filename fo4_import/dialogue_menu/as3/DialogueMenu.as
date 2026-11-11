@@ -197,6 +197,7 @@ package
 
       public function SetButtonText(button:uint, text:String) : *
       {
+         text = this.unescaped(text);
          this.ButtonData[button].ButtonText = this.list == null ? text.toUpperCase() : "";
          this.gameTexts[button] = text;
          if(button == 3)
@@ -346,7 +347,7 @@ package
          {
             while(i < options.length)
             {
-               this.entries.push({"text":options[i].text, "said":options[i].said, "failed":options[i].failed == true, "ours":true, "index":i});
+               this.entries.push({"text":this.unescaped(String(options[i].text)), "said":options[i].said, "failed":options[i].failed == true, "ours":true, "index":i});
                i++;
             }
          }
@@ -704,6 +705,13 @@ package
             this.Buttons[button].bButtonPressed = false;
             this.BGSCodeObj.onButtonRelease(button);
          }
+      }
+
+      // A prompt as written: the build escapes & < > in player lines for XDI, which shows them as HTML
+      // (docs/fork/fo4_pipeline.md#xdi-html); this menu and the game's buttons show plain text.
+      private function unescaped(text:String) : String
+      {
+         return text.split("&lt;").join("<").split("&gt;").join(">").split("&amp;").join("&");
       }
 
       private function seenOnce(what:String) : void
