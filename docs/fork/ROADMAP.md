@@ -262,6 +262,8 @@ Please report what you find in
   ([menu](fo4_menu_audit.md), [timing](fo4_timing_audit.md)).
 - **Mod builds:** convert one mod against a built game
   ([plan](fo4_mod_builds.md)).
+- **Load order:** converted mods in the user's FNV order, a conflict report,
+  a merged patch and LOOT rules ([plan](fo4_load_order.md)).
 - **Build time:** faster face fits, caches that survive unrelated edits, mod
   builds that reuse the game build ([plan](fo4_build_speed.md)).
 - **Differences from New Vegas** that could be closed later: attack and equip
