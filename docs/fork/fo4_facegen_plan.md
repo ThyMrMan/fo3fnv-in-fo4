@@ -266,6 +266,103 @@ ship), so each part goes in through the record:
 Every record is new, keyed by authored data (`derive_formid`, site
 `FNV own head`): no existing FormID moves.
 
+## <a id="phase-1-our-own-facegeom"></a>Built in scratch: our own FaceGeom, and phases 2 and 3 (2026-11-11)
+
+**Code:** `fo4_import/face/facegeom.py` (phase 1), `fo4_import/face/own_facegen.py`
+(a test mod with phases 2 and 3). Nothing in the build calls either; they
+write only where `--out` says (`temp/facegen_heads/`).
+
+### Phase 1: the CK's FaceGeom, rebuilt
+
+Checked against every CK export at hand: NVWillow's 11 NPCs (deployed
+2026-11-11) and FalloutNV's Doc Mitchell. Every one comes out the CK's exact
+size, with every block the same except:
+
+| Difference | Why |
+|---|---|
+| Vertex positions | The CK applies the NPC's slider morphs; ours is the unmorphed head that phase 2 reshapes |
+| `HEAD` (ours, as every FO4 mesh and skeleton spells it) vs the CK's `Head`; FalloutNV's `data\Textures` vs `Data\Textures` | The CK's case-insensitive string pool keeps the first spelling it met; the engine matches names case-insensitively |
+| Hair cloth bone nodes, up to 0.00045 units | Not found; ours are the hair mesh's own nodes at the race height. Cloth physics moves these bones anyway |
+
+`tests/test_fo4_facegeom.py` proves it for Willow: with the CK's vertex
+positions and `Head` swapped in, ours is the CK's file byte for byte.
+FalloutNV's exports predate its 2026-11-11 rebuild, so 14 of 25 sampled
+there list other head parts and most others another skin tone; the 11 with
+the same parts differ only as above.
+
+What the CK does, as `facegeom.py` repeats it:
+
+- **Parts:** the race's default head parts for types the NPC lacks (last
+  first), then the NPC's own `PNAM`s (last first, extra parts dropped),
+  each led by its `HNAM` extra parts.
+- **Bone nodes:** a flat list under the root, first seen first, unrotated,
+  at the race skeleton's bind positions with the skeleton root scaled by
+  the race's height for the sex (`DATA`: 1.0 male, 0.98 female), composed
+  in float32 as rotate, scale, translate. A bone the skeleton lacks (hair
+  cloth) takes the part mesh's own node. Exact on every node of both sexes.
+- **Each part** copies its mesh's shape bytes (vertices, triangles,
+  segments), `BSSkin::BoneData` and extra data (eye centre, cloth; listed
+  once from the root and again from the shape). It renames the shape to the
+  `HDPT` EditorID, zeroes its bound (every vanilla skinned part's bound is 0)
+  and sets the vertex descriptor's eye-data offset to 2 where it has none.
+  `BSSkin::Instance` has the FaceGen node as its root and `(0, 1, 1)` per
+  bone.
+- **Shaders** are the mesh's own, with the material inlined (name and root
+  material blanked):
+  - type from the material: glow map 2, FaceGen 4, skin tint 5, hair tint 6,
+    environment map 1, else 0;
+  - flags from the material (Specular only when its strength is non-zero,
+    Environment_Mapping, Hair, Glow_Map, Skew_Specular_Alpha);
+    Eye_Environment_Mapping cleared; Transform_Changed set;
+  - smoothness, specular, fresnel, backlight, alpha, emittance and UVs from
+    the material; wetness from it, else its root material, else
+    `(0.8, 0.7, 0.3, 1, 1.2, 0.1)`;
+  - subsurface rolloff kept from the mesh;
+  - `grayscale_scale` from the NPC's hair colour (`HCLF` → `CLFM` `CNAM`), on
+    every lighting shader;
+  - the rear head's skin tint from `QNAM`, rounded to bytes;
+  - effect shaders take the BGEM's textures, colour (its alpha last),
+    falloff and soft depth.
+- **Textures:** the material's paths. The part's texture set (`TNAM`)
+  replaces only the diffuse. A body-textured part (`DATA` 0x20) takes the
+  skin's body addon's texture set (`BOD2` slot 33, `NAM0`/`NAM1`), or that
+  set's material when it names no paths. The face material is the NPC's face
+  set (`FTST`), else the race's default (`DFTM`/`DFTF`). Its slots 0, 1 and 7
+  are `Data\Textures\Actors\Character\FaceCustomization\<plugin>\<id>_d,
+  _msn, _s`.
+
+**The first unknown** ([risks](#risks)): the game already draws a CK
+FaceGeom NIF for an NPC whose record has sliders (every deployed plugin ships
+them), and ours replaces that file under the same name. Only the in-game
+test can show whether the game ever rebuilds the face from the record
+instead.
+
+### Phases 2 and 3 on Willow
+
+- **Shape:** `bake.bake` C1 on our unmorphed head. It captures **100.0%** of
+  FNV's face shape; the deployed slider fit captures 86.4%. The neck seam
+  doesn't move (0.0000).
+- **`_d`:** `texture.face_texture` T2 (FNV's whole face, race skin added)
+  over the CK's default face export, at vanilla's DXT1 1024.
+  - FNV's face texture carries her brows.
+  - FO4's tint layers (lip colour, complexion) are not composited.
+  - T2 wants Willow's skin tone ×(1.155, 1.167, 1.216); the test mod can't
+    change her record, so it shows FO4's median face tone.
+- **`_msn` is not a model-space map** ([phase 3](#phase-3)): the CK writes
+  the face set's tangent-space normal plus tint-layer detail. Human NPCs'
+  `_msn` correlate 0.91–0.94 with their sex's `BaseFemaleHead_n` /
+  `BaseMaleHead_n`. A new shape needs no new normal map, so ours is the face
+  set's normal (`TX01`) and `_s` its `TX07`, at vanilla's formats.
+
+**Found in the deployed NVWillow build:** Willow's CK `_d`, `_msn` and `_s`
+(`0047CBE4`) are byte-identical to the previous NPC's, `002B6C87`
+(`FNV_WillowsPreviousTravelCompanion`, a ghoul), so she would show a ghoul's
+face. Her face set (own heads) names `fnv\own\face_0101ce58_f_…_d.dds`, which
+exists only inside `NVWillow - Textures.ba2`, not loose. The CK seems to have
+missed it and kept its last face. Whether the texture was packed or staged
+before the CK ran is not yet checked. The test mod's own files for her
+replace these.
+
 ## <a id="today"></a>How faces work today
 
 - The converted NPC record holds FO4 slider values: sculpt regions
@@ -360,8 +457,10 @@ compare.
   part of the head lets the blend run across them; the overall colour stays
   in the skin tone, which the game applies to face, hairline and body
   alike.
-- `_msn` (model-space normals) recomputed for the new shape, with FO4's
-  detail normals kept; `_s` from FO4's.
+- `_msn` and `_s` from the face set (`TX01`, `TX07`): the CK's `_msn` is
+  the face set's tangent-space normal plus tint detail, not a model-space
+  map, so a new shape needs no new one
+  ([built](#phase-1-our-own-facegeom)).
 - Guard against the "dark face" problem: FO4 draws a face dark when its
   FaceGen textures and record disagree. Each NPC's files and record are
   written by the same build, and a check lists any NPC whose FaceGeom NIF
