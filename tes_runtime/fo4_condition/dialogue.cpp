@@ -54,6 +54,8 @@ using RunFn = UInt64 (*)(void *action, void *scene, void *third, void *fourth);
 using StopFn = void (*)(void *scene);
 // An actor's "talking" test, the one the run function waits on before the NPC slot (vtable +0x270, 0x4159BF).
 using TalkingFn = bool (*)(void *actor);
+// An input handler's "should handle" test (BSInputEventUser slot 1).
+using ShouldFn = bool (*)(void *handler, void *event);
 
 RelocAddr<OptionInfoFn> OptionInfo(0x416600);
 RelocAddr<ResponseFn> ResponseInfo(0x414180);
@@ -72,6 +74,8 @@ const size_t RUN_SLOT = 21;
 // The player starting to say the picked option (`mov rcx, rax` before the call at 0x4158E9); `jmp 0x4158F2` takes
 // the said path without saying it. The camera's switch to the player (its 1 at 0x832665 + 7; 2 keeps it on the NPC).
 RelocAddr<uintptr_t> PLAYER_SPEAKS(0x4158D2), CAMERA_TO_PLAYER(0x83266C);
+// CameraZoomHandler's vtable and its "should handle" (ZoomIn / ZoomOut), which the mouse wheel reaches in dialogue.
+RelocAddr<uintptr_t> CAMERA_ZOOM_VTABLE(0x25B1E58), CAMERA_ZOOM_SHOULD(0x10784D0);
 const UInt8 SPEAKS[] = {0x48, 0x8B, 0xC8}, SILENT[] = {0xEB, 0x1E, 0x90};
 const UInt8 CAMERA_PLAYER = 1, CAMERA_SPEAKER = 2;
 
@@ -125,6 +129,7 @@ std::atomic<void *> g_running{nullptr}, g_runningScene{nullptr};
 OptionInfoFn g_optionInfo = nullptr;
 ResponseFn g_responseInfo = nullptr;
 RunFn g_run = nullptr;
+ShouldFn g_zoomShould = nullptr;
 bool g_hooked = false, g_speechPatch = false, g_playerSpeaks = true;
 F4SETaskInterface *g_dialogueTasks = nullptr;
 // The wait trace: the last state logged for our picked option, and when it was picked.
@@ -198,19 +203,41 @@ NiPointer<TESObjectREFR> ActionActor(void *action, void *scene) {
     return ref;
 }
 
+// How far each line of a menu got: lines, linked, passing their own conditions, answered (listed).
+struct Census {
+    UInt32 lines = 0, linked = 0, passing = 0, answered = 0;
+    UInt32 failed = 0;  // the first linked line whose conditions fail, or whose answer has no passing line
+};
+
 // The linked options of `action` that pass for the player talking to `npc` and whose answer topic has a line.
-std::vector<Option> ListOptions(void *action, TESObjectREFR *npc) {
+std::vector<Option> ListOptions(void *action, TESObjectREFR *npc, Census *census) {
     std::vector<Option> out;
     TESObjectREFR *player = *g_player;
     for (UInt32 slot = 0; slot < SLOTS; slot++)
         for (TESForm *info : Infos(At<TESForm *>(action, ACTION_TOPICS + slot * sizeof(void *)))) {
+            census->lines++;
             auto link = g_links.find(info->formID);
             TESForm *answer = link == g_links.end() ? nullptr : LookupFormByID(link->second);
             bool flag = false;
-            if (!answer || !Passes(info, &flag, player, npc) || !Pick(answer, npc, player)) continue;
+            if (!answer) continue;
+            census->linked++;
+            bool passes = Passes(info, &flag, player, npc);
+            census->passing += passes;
+            if (!passes || !Pick(answer, npc, player)) {
+                census->failed = census->failed ? census->failed : info->formID;
+                continue;
+            }
+            census->answered++;
             out.push_back({info, answer, Prompt(info), At<UInt8>(info, INFO_SAID) != 0});
         }
     return out;
+}
+
+// Why a waiting menu lists none of ours: its scene, its NPC and how far its lines got.
+void LogNoOptions(void *scene, TESObjectREFR *npc, const Census &census) {
+    _MESSAGE("dialogue menu: none of ours in scene %08X with NPC %08X: %u lines, %u linked, %u pass, %u answered; "
+             "first failing linked line %08X", reinterpret_cast<TESForm *>(scene)->formID, npc ? npc->formID : 0,
+             census.lines, census.linked, census.passing, census.answered, census.failed);
 }
 
 // The running Player Dialogue action of the player's scene, waiting for a pick; null when there is none.
@@ -220,6 +247,21 @@ void *WaitingAction(void **scene) {
     *scene = g_runningScene.load();
     if (!player || !action || !*scene || player->GetCurrentScene() != *scene) return nullptr;
     return At<UInt32>(action, ACTION_OPTION) == NO_OPTION ? action : nullptr;
+}
+
+// The camera zoom takes the wheel only while no Player Dialogue choice waits; the menu scrolls with it then.
+bool ZoomShould(void *handler, void *event) {
+    void *scene = nullptr;
+    return !WaitingAction(&scene) && g_zoomShould(handler, event);
+}
+
+// Route CameraZoomHandler's "should handle" through ZoomShould when the slot still holds the vanilla function.
+bool HookZoom() {
+    auto *slot = reinterpret_cast<ShouldFn *>(CAMERA_ZOOM_VTABLE.GetUIntPtr() + sizeof(void *));
+    if (uintptr_t(*slot) != CAMERA_ZOOM_SHOULD.GetUIntPtr()) return false;
+    g_zoomShould = *slot;
+    SafeWrite64(uintptr_t(slot), UInt64(&ZoomShould));
+    return true;
 }
 
 // Let the player say the picked option (vanilla) or not (ours: the NPC answers at once, as in FNV).
@@ -352,8 +394,10 @@ public:
         std::lock_guard<std::mutex> hold(g_dialogueLock);
         ReadAllLinks();
         NiPointer<TESObjectREFR> npc = ActionActor(action, scene);
+        Census census;
         g_menu.action = action;
-        g_menu.options = npc ? ListOptions(action, npc) : std::vector<Option>();
+        g_menu.options = npc ? ListOptions(action, npc, &census) : std::vector<Option>();
+        if (g_menu.options.empty()) LogNoOptions(scene, npc, census);
         for (UInt32 i = 0; i < g_menu.options.size(); i++) {
             const Option &o = g_menu.options[i];
             GFxValue entry, text, said(o.said);
@@ -442,8 +486,9 @@ bool HookDialogue(void *tasks) {
         g_run = *slot;
         SafeWrite64(uintptr_t(slot), UInt64(&Run));
     }
-    _MESSAGE("dialogue menu: %s, player line skip %s", g_hooked ? "hooked" : "not hooked (no trampoline space)",
-             g_speechPatch ? "ready" : "unavailable (code differs)");
+    _MESSAGE("dialogue menu: %s, player line skip %s, wheel zoom %s",
+             g_hooked ? "hooked" : "not hooked (no trampoline space)", g_speechPatch ? "ready" : "unavailable (code differs)",
+             g_hooked && HookZoom() ? "off while choosing" : "unchanged (code differs)");
     return g_hooked;
 }
 

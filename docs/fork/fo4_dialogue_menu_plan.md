@@ -223,11 +223,15 @@ each call):**
 FFDec compiles our own `as3/DialogueMenu.as` over the game's class
 (`fo4_import/base/ffdec.py`, shared with the casino movie). The result is
 cached under `temp/` and written only to an output folder.
-- The list shows 7 rows and scrolls. Said options are grey.
+- The list is a 640-wide box, faint black, its bottom 36 above the safe
+  area's bottom; it shows 5 rows and scrolls, and a long prompt wraps.
+  Said options are dimmer.
 - **Keys:**
-  - W/S, the mouse wheel, or the gamepad's Quickkey up/down move;
-  - Enter, E, 1–9, a click, or gamepad A pick;
-  - Tab goes to the engine and leaves.
+  - arrows, W/S, the mouse wheel, or the gamepad's Quickkey up/down move;
+    F3NV.dll keeps the wheel from the camera (CameraZoomHandler) while a
+    choice waits;
+  - Enter, E (Activate), 1–9, a click, or gamepad A pick;
+  - Tab, Esc or Cancel leave the talk.
 - With no DLL, or no linked options, it lists the game's own four buttons.
 
 ### <a id="links-file"></a>The links file
@@ -255,11 +259,11 @@ INFO and its answer a DIAL. The log line is
   - one never listed, because no line of its answer passes.
 
   Every answer that does not end the scene starts the menu again.
-- **`python -m tools.dialog.menu_rebuild`** rebuilds a built XDI menu, and
-  every menu reachable from it, in this model. A menu is reachable when a
-  line of a reached scene starts its scene (TSCE); every Player Dialogue
-  action of that scene is rebuilt. Without this, an answer led into a menu
-  with no links and the talk stuck (played 2026-11-10). Each menu gets:
+- **`python -m tools.dialog.menu_rebuild`** rebuilds every built XDI menu
+  (each Player Dialogue action of every scene) in this model. Rebuilding
+  only the menus reachable from one hub missed menus that start from the
+  shared GREETING scene's lines, and an answer could lead into a menu with
+  no links (played 2026-11-10). Each menu gets:
   - one answer topic per option, under its scene's quest;
   - a copy of each paired answer that keeps its own conditions, flags,
     scripts and next step, and shares the response and voice (DNAM).
@@ -275,12 +279,21 @@ INFO and its answer a DIAL. The log line is
   flags 0x44) in the game build and with YUP over it. Offline, the pairing
   is not broken. Why the conversation does not end in game is not known.
   The DLL trace names the answer the engine actually plays.
-- **The rebuild** of FalloutNV.esm + YUP from the hub gives
-  F3NV_MenuHub.esp:
-  - 2,558 scenes reached, 1,777 menus, 8,611 options and 10,380 answer
-    copies, all under FNV_Greetings; 2 options have no answer;
-  - `fo4_ref_check` found 0 unresolved references among 81,934. Another
-    63 go into DLC masters it was not given.
+- **The rebuild** of FalloutNV.esm + YUP gives F3NV_MenuHub.esp (27 MB):
+  - 11,518 scenes with menus, 11,765 menus, 54,466 options and 65,529
+    answer copies under 13 quests; 8 options have no answer, 53 sit in two
+    menus and keep their first;
+  - `fo4_ref_check` found 0 unresolved references among 518,234 in
+    120,008 records. Another 513 go into masters it was not given (XDI and
+    the DLCs).
+- **Vulpes's talk (V, data):** his force greet plays the silent Greeting
+  line (033AA035), whose script opens the GREETING scene. His line there
+  ("I was just finishing up making an example of this town…", 03ECC85F)
+  starts Scene6624, two speech lines; the second (03E8601C) starts the hub.
+  In the 2026-11-10 22:51 play the hub listed none of our options for him,
+  not even `[Leave]`, and the game's single button played FO4's own way.
+  Why is not known. F3NV.dll now logs it:
+  `none of ours in scene … with NPC …: lines, linked, pass, answered`.
   - Both Vulpes options link to an answer topic whose only line shares
     the End Scene answer.
 - **Not yet built:**

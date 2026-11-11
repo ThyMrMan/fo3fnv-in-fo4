@@ -1,11 +1,11 @@
 """Rebuild built XDI menus in our dialogue menu's model: a scratch plugin with one answer topic per option, and the
 links file F3NV.dll reads.
 
-    py -3.14 -m tools.dialog.menu_rebuild --plugins GAME.esm [MOD.esm ...] --player TOPIC --out MOD_DIR
+    py -3.14 -m tools.dialog.menu_rebuild --plugins GAME.esm [MOD.esm ...] --out MOD_DIR
 
-The menus are the one on player topic TOPIC and every menu reachable from it:
-each scene a line of a reached scene starts (TSCE), all of its Player
-Dialogue actions. Lines are merged in load order (an override in place, a new
+The menus are every Player Dialogue action of every scene in the plugins: a
+talk opens through the shared GREETING scene, whose lines start scenes no
+menu reaches. Lines are merged in load order (an override in place, a new
 line appended) and paired as XDI pairs them (xdi_menus.pair_lines). Each option
 gets an answer topic under its scene's quest (an unchanged copy of the quest
 record carries it) with a copy of each paired answer: its own conditions,
@@ -29,8 +29,6 @@ from tools.validate.preflight.xdi_menus import PLAYER_TOPICS, pair_lines
 
 #: An INFO's response subrecords, which a copy sharing them (DNAM) leaves out.
 RESPONSE_TAGS = frozenset({'TRDA', 'NAM1', 'NAM2', 'NAM3', 'NAM4', 'SNAM', 'LNAM', 'DNAM'})
-#: A scene action's player and NPC topics, whose lines may start another scene.
-ACTION_TOPICS = frozenset(PLAYER_TOPICS + ('NPOT', 'NNGT', 'NNUT', 'NQUT'))
 
 
 def numbered(plugins: list) -> list:
@@ -86,35 +84,24 @@ def scene_menus(scene) -> list:
     return out
 
 
-def reached_scenes(indexes: list, lines: dict, root: int) -> list:
-    """The scenes with a Player Dialogue action on topic `root`, then every scene a line of theirs (`lines`: merged)
-    starts (TSCE), transitively; winning records, in the order reached."""
-    queue = [s.form_id for i in indexes for s in i.by_type['SCEN'] if any(root in p for p, _ in scene_menus(s))]
-    seen, out = set(), []
-    while queue:
-        fid = queue.pop(0)
-        scene = winner(indexes, fid)
-        if fid in seen or scene is None:
-            continue
-        seen.add(fid)
-        out.append(scene)
-        topics = {u32(s.data) for s in scene.subrecords if s.type in ACTION_TOPICS}
-        queue += [u32(first(i, 'TSCE')) for t in topics for i in lines[t] if u32(first(i, 'TSCE'))]
-    return out
+def scenes(indexes: list) -> list:
+    """Every scene of the load order once, its winning record, in load order."""
+    fids = dict.fromkeys(s.form_id for i in indexes for s in i.by_type['SCEN'])
+    return [winner(indexes, fid) for fid in fids]
 
 
-def rebuild(plugins: list, player: int, name: str) -> tuple:
-    """(FO4PluginWriter of the scratch plugin `name`, links rows, counts): every menu reachable from the menu on
-    player topic `player` (reached_scenes), over [(name, PluginIndex)] in load order. An option in two menus keeps
-    its first."""
+def rebuild(plugins: list, name: str) -> tuple:
+    """(FO4PluginWriter of the scratch plugin `name`, links rows, counts): every menu of [(name, PluginIndex)] in
+    load order. An option in two menus keeps its first."""
     names, indexes = numbered(plugins), [index for _, index in plugins]
     own, lines = len(names) << 24, merged(indexes)
     by_quest, rows, linked, counts = defaultdict(list), [], set(), Counter()
     next_id = 0x800
-    for scene in reached_scenes(indexes, lines, player):
+    for scene in scenes(indexes):
         quest = u32(first(scene, 'PNAM'))
-        counts['scenes'] += 1
-        for topics, npc in scene_menus(scene):
+        menus = scene_menus(scene)
+        counts['scenes with menus'] += bool(menus)
+        for topics, npc in menus:
             counts['menus'] += 1
             for option, _, answers in pair_lines([i for t in topics for i in lines[t]], lines[npc]):
                 if not answers or option.form_id in linked:
@@ -141,12 +128,11 @@ def main():
     """Rebuild the menu into a mod folder: the plugin and its links file."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--plugins', nargs='+', type=Path, required=True, help='built plugins in load order')
-    parser.add_argument('--player', type=lambda s: int(s, 16), required=True, help="the first menu's player topic")
     parser.add_argument('--out', type=Path, required=True, help='the mod folder to write')
     parser.add_argument('--name', default='F3NV_MenuHub.esp', help='the scratch plugin')
     args = parser.parse_args()
     plugins = [(path.name, load_plugin(str(path))) for path in args.plugins]
-    w, rows, counts = rebuild(plugins, args.player, args.name)
+    w, rows, counts = rebuild(plugins, args.name)
     args.out.mkdir(parents=True, exist_ok=True)
     w.write(str(args.out / args.name))
     links = write_links(args.out / LINKS / f'{Path(args.name).stem}.txt', rows)

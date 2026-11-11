@@ -9,8 +9,7 @@ package
    import flash.display.Sprite;
    import flash.events.KeyboardEvent;
    import flash.events.MouseEvent;
-   import flash.geom.Matrix;
-   import flash.geom.Rectangle;
+   import flash.geom.Point;
    import flash.text.TextField;
    import flash.text.TextFormat;
 
@@ -60,17 +59,22 @@ package
 
       private var seen:Object = {};
 
-      private static const ROWS:int = 7;
+      private static const ROWS:int = 5;
 
-      // A row's text width (a longer prompt wraps), the panel's padding, the room for a scroll arrow, the selection
-      // edge's column and the gap between rows.
-      private static const TEXT_WIDTH:Number = 820;
+      // The box's fixed width and its bottom's height above the screen's safe bottom (it stays under the speaker's
+      // face); a row's text width inside it (a longer prompt wraps), the padding, the room for a scroll arrow, the
+      // selection edge's column and the gap between rows.
+      private static const BOX_WIDTH:Number = 640;
+
+      private static const BOTTOM:Number = 36;
 
       private static const PAD:Number = 10;
 
       private static const HINT:Number = 10;
 
       private static const MARK:Number = 16;
+
+      private static const TEXT_WIDTH:Number = BOX_WIDTH - 2 * PAD - MARK;
 
       private static const GAP:Number = 6;
 
@@ -81,8 +85,12 @@ package
 
       private static const KEY_ESCAPE:uint = 27;
 
-      // The four buttons' area in the list host's space, taken before their art is hidden.
-      private var area:Rectangle;
+      private static const KEY_UP:uint = 38;
+
+      private static const KEY_DOWN:uint = 40;
+
+      // The last wheel event was a press: its release does not move the list again.
+      private var wheelDown:Boolean = false;
 
       // The game's buttons in the order its menu reads them: Question, Positive, Negative, Neutral.
       private static const BUTTON_ORDER:Array = [3, 0, 1, 2];
@@ -251,15 +259,14 @@ package
 
       // The list's rows, built once the movie is up (never in the constructor). The game draws this menu only
       // inside the objects it registered (registerObjects), so the list lives in the Question button's holder,
-      // laid over the four buttons' area, and each holder's own button art is hidden (played 2026-11-10).
+      // placed near the screen's safe bottom (draw), and each holder's own button art is hidden (played 2026-11-10).
       private function makeList() : void
       {
          var host:MovieClip = this.FadeHolder_mc.Question;
-         this.area = this.FadeHolder_mc.getBounds(host);
          var list:Sprite = new Sprite();
          list.visible = false;
          this.rows = new Vector.<TextField>();
-         var format:TextFormat = new TextFormat("$MAIN_Font_Bold", 20, 0xFFFFFF);
+         var format:TextFormat = new TextFormat("$MAIN_Font_Bold", 18, 0xFFFFFF);
          format.leading = -2;
          var i:int = 0;
          while(i < ROWS)
@@ -280,7 +287,6 @@ package
             this.rows.push(row);
             i++;
          }
-         list.addEventListener(MouseEvent.MOUSE_WHEEL, this.onWheel);
          host.addChild(list);
          if(stage != null)
          {
@@ -332,8 +338,8 @@ package
                }
                i++;
             }
+            this.log("no options of ours: the game's " + this.entries.length + " (" + this.gameTexts.join(" | ") + "), and [Leave]");
             this.entries.push({"text":"[Leave]", "said":false, "ours":false, "index":LEAVE});
-            this.log("no options of ours: " + (this.entries.length - 1) + " of the game's, and [Leave]");
          }
          this.selected = Math.max(0, Math.min(this.selected, this.entries.length - 1));
       }
@@ -350,7 +356,6 @@ package
          {
             this.top = this.selected - count + 1;
          }
-         var wide:Number = 0;
          var y:Number = PAD + HINT;
          var i:int = 0;
          while(i < ROWS)
@@ -362,16 +367,17 @@ package
             {
                var entry:Object = this.entries[at];
                row.text = String(entry.text).toUpperCase();
-               row.alpha = at == this.selected ? 1 : (entry.said ? 0.4 : 0.7);
+               row.alpha = at == this.selected ? 1 : (entry.said ? 0.45 : 0.75);
                row.y = y;
                y = y + row.height + GAP;
-               wide = Math.max(wide, row.textWidth + 6);
             }
             i++;
          }
-         this.paint(count, wide, y - GAP + HINT + PAD);
-         this.list.x = this.area.x + (this.area.width - wide - MARK - 2 * PAD) / 2;
-         this.list.y = this.area.y + this.area.height - (y - GAP + HINT + PAD);
+         var high:Number = y - GAP + HINT + PAD;
+         this.paint(count, high);
+         var base:Point = this.list.parent.globalToLocal(this.localToGlobal(new Point(0, -BOTTOM)));
+         this.list.x = base.x - BOX_WIDTH / 2;
+         this.list.y = base.y - high;
          this.list.visible = this.listShown && count > 0;
          if(this.list.visible && stage != null)
          {
@@ -379,17 +385,20 @@ package
          }
       }
 
-      // The panel under `count` rows `wide` wide, `high` in all: a dark band fading at both ends, the selected row's
-      // bar and edge, and arrows when rows are hidden above or below. White is tinted to the HUD color by the game.
-      private function paint(count:int, wide:Number, high:Number) : void
+      // The box under `count` rows, `high` in all and always BOX_WIDTH wide: faint black with a thin rule at top and
+      // bottom, the selected row's bar and edge, and arrows when rows are hidden above or below. White is tinted to
+      // the HUD color by the game.
+      private function paint(count:int, high:Number) : void
       {
          var g:Graphics = this.list.graphics;
-         var full:Number = wide + MARK + 2 * PAD;
-         var box:Matrix = new Matrix();
-         box.createGradientBox(full, high, 0, 0, 0);
+         var full:Number = BOX_WIDTH;
          g.clear();
-         g.beginGradientFill("linear", [0, 0, 0, 0], [0, 0.6, 0.6, 0], [0, 28, 227, 255], box);
+         g.beginFill(0, 0.5);
          g.drawRect(0, 0, full, high);
+         g.endFill();
+         g.beginFill(0xFFFFFF, 0.35);
+         g.drawRect(0, 0, full, 1);
+         g.drawRect(0, high - 1, full, 1);
          g.endFill();
          var row:TextField = this.rows[this.selected - this.top];
          g.beginFill(0xFFFFFF, 0.14);
@@ -489,11 +498,6 @@ package
          this.pick(this.top + int(e.currentTarget.name));
       }
 
-      private function onWheel(e:MouseEvent) : void
-      {
-         this.move(e.delta > 0 ? -1 : 1);
-      }
-
       private function onKeyDown(e:KeyboardEvent) : void
       {
          if(!this.listShown)
@@ -501,11 +505,11 @@ package
             return;
          }
          this.seenOnce("key " + e.keyCode);
-         if(e.keyCode == KEY_W)
+         if(e.keyCode == KEY_W || e.keyCode == KEY_UP)
          {
             this.move(-1);
          }
-         else if(e.keyCode == KEY_S)
+         else if(e.keyCode == KEY_S || e.keyCode == KEY_DOWN)
          {
             this.move(1);
          }
@@ -531,16 +535,21 @@ package
          }
       }
 
-      // The game's input: arrows and D-pad move (Quickkey), A or Accept picks; the game's four dialogue keys are
-      // taken while the list is up so none picks a button behind it.
+      // The game's input: D-pad (Quickkey) and the mouse wheel (Zoom, kept from the camera by F3NV.dll) move, A,
+      // Accept or Activate picks; the game's four dialogue keys are taken while the list is up so none picks a
+      // button behind it.
       public function ProcessUserEvent(name:String, down:Boolean) : Boolean
       {
          if(!this.listShown)
          {
             return this.ProcessButtons(name, down);
          }
-         this.seenOnce("event " + name);
-         if(down && name == "QuickkeyUp")
+         this.seenOnce("event " + name + (down ? " down" : " up"));
+         if(name == "ZoomIn" || name == "ZoomOut")
+         {
+            this.wheel(name == "ZoomIn" ? -1 : 1, down);
+         }
+         else if(down && name == "QuickkeyUp")
          {
             this.move(-1);
          }
@@ -561,6 +570,16 @@ package
             return false;
          }
          return true;
+      }
+
+      // One wheel step moves the list once, whether the game sends it as a press, a release, or both.
+      private function wheel(by:int, down:Boolean) : void
+      {
+         if(down || !this.wheelDown)
+         {
+            this.move(by);
+         }
+         this.wheelDown = down;
       }
 
       // The game's four buttons, as its own menu takes them.
