@@ -175,14 +175,14 @@ do; exit code 1 when any check needs attention.
 | Fallout 4, its version, the CK, F4SE | `game_dirs` via settings; `Fallout4.exe`'s file version (`core.setup_check.exe_version`); `CreationKit.exe`, `f4se_loader.exe`, `f4se_1_11_240.dll` in the game folder | MISSING, WRONG VERSION |
 | New Vegas and its DLC | `FalloutNV.esm` and the nine DLC/pack masters in its `Data` | MISSING (DLC are listed, never a failure) |
 | MO2 | `ModOrganizer.ini`, the profile's `modlist.txt`, `gamePath`, the executables titled "Creation Kit" and the one running `f4se_loader.exe` (its title is the Play entry) | MISSING, WRONG |
-| The README mods | each mod's file in an enabled folder (`mod_sources.data_dirs`): `version-1-11-240-0.bin`, `XDI.dll`, `PRKF.dll`, `mcm.dll`, `BlackLandscapeFixRD.dll` under `F4SE/Plugins`; else in a mod the profile leaves off | MISSING, NOT ENABLED |
+| The README mods | each mod's file in an enabled folder (`mod_sources.data_dirs`): `version-1-11-240-0.bin`, `PRKF.dll`, `mcm.dll`, `BlackLandscapeFixRD.dll` under `F4SE/Plugins`; else in a mod the profile leaves off | MISSING, NOT ENABLED |
 | RAM, free disk | installed RAM (32 GB); free space on the work folder's drive (100 GB) | LOW |
 | After a conversion | every plugin with a `<plugin>.build.json` beside it where the game sees it: alone in its own MO2 mod, in no other, not in the game's Data or overwrite, stamp `finished`, ticked in `plugins.txt`; `F3NV.dll` in some `F4SE/Plugins` | WRONG PLACE, UNFINISHED, NOT ENABLED, MISSING; NOT YET (passes) before any conversion |
 
 Not checked: the required mods are enabled through
 `replacements.presence` only for the replacement table's plugins (the
 [required mods](fo4_gui.md#required-mods) dialog); this check covers the
-README's fixed list. `XDI.esm` being ticked is not checked.
+README's fixed list. XDI (`XDI.dll`) where the game sees it is a CONFLICT: F3NV.dll's menu replaces it.
 
 Checked by `tests/test_fo4_install_check.py` (15 tests: a fake game, New
 Vegas and MO2 instance all OK, then each requirement removed, disabled or

@@ -133,8 +133,8 @@ def run_conditions(game: Fo4Game) -> list:
 
 
 def run_menus(game: Fo4Game) -> list:
-    """The dialogue menu findings (checks 1 and 2) for one Fallout 4 build."""
-    return menus.audit(game.name, game.index, ledger_path(game.plugin), game.args.export / game.source)
+    """The dialogue menu links findings for one Fallout 4 build."""
+    return menus.audit(game.name, game.index, game.plugin, game.masters)
 
 
 def run_timing(game: Fo4Game) -> list:

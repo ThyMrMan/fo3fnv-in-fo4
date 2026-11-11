@@ -87,6 +87,18 @@ counted keys were rare at region size.
 | F4 | **Objective alias ids are numbered among built targets only** | `quest.py:41-56` | R; 7 quests have 12 aliases that renumber once an earlier unbuilt target enters scope |
 | F5 | **Say Once marker stages "move up one" on a collision** | `say_once.py` | M: the greeting quest holds 1,750 Say Once lines at whole-game scale; CRC32 mod 55,000 gives ~28 collisions, and which line moves depends on registration order |
 
+<a id="formids-dialogue"></a>**F2, F3, F5 fixed with the dialogue menu switch**
+([fo4_dialogue_menu_plan.md](fo4_dialogue_menu_plan.md#converter-built)):
+
+- **F2:** every copy's key names its place (`INFO <line> <part> at <step>`;
+  holotape lines `at holotape <note>`; radio already had one), and answers
+  are built once per line (`at answer`), so copies no longer count.
+- **F3:** split options are gone: one option per FNV topic per menu,
+  `INFO option <step> <topic>`.
+- **F5:** `SayOnce.reserve` numbers every Say Once line of the build in
+  FormID order before any is used, so a collision moves the same line
+  whatever order the copies are built in (the ledger keeps it after).
+
 **Fix direction.** Make the id a function of authored data only (put the
 quest and step in F2/F3's keys, the target's authored index in F4's). For
 F1 and F5 no hash scheme is order-free once collisions happen; a persisted

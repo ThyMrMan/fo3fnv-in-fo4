@@ -36,7 +36,7 @@ times](#stage-times)); records are still not cached.
 - **One plugin**, `FalloutNV.esp` (438 MB): 694,264 records, all but 19
   its own (the 19 are overrides of Fallout4.esm settings). Largest kinds:
   REFR 301,320, INFO 207,486, DIAL 66,236, CELL 30,109, LAND 29,180, SCEN
-  14,835. Masters: Fallout4.esm, FalloutHelpers.esl, XDI.esm, plus every
+  14,835. Masters: Fallout4.esm, FalloutHelpers.esl, plus every
   plugin the replacement table names (`replacements.extra_masters`,
   `fo4_import/spike/cell.py` `MASTERS`).
 - **FormIDs:** an FNV record made 1:1 keeps FNV's object id (`fnv_id`,
@@ -58,7 +58,7 @@ times](#stage-times)); records are still not cached.
 |---|---|---|---|
 | `FalloutHelpers.esl` | Shared FO3/FNV helpers (actor values, helper quests, globals): as now | Fallout4.esm | Rarely |
 | `FalloutNV - Rules.esl` | Our systems for FNV with no FNV record behind them: the combat rules perk, the player ability, game settings, type keywords, the skill gates perk | Fallout4.esm, FalloutHelpers.esl | A rules change: seconds |
-| `FalloutNV.esm` | The converted game: every FalloutNV.esm record and what is generated from one | the above, XDI.esm | A content change |
+| `FalloutNV.esm` | The converted game: every FalloutNV.esm record and what is generated from one | the above (XDI.esm no longer, since the [menu switch](fo4_dialogue_menu_plan.md#converter-built)) | A content change |
 | `DeadMoney.esm` etc. | One per FNV DLC, its records and its overrides of FalloutNV.esm's | the above, the game plugin | That DLC changes |
 | `FalloutNV - <mod> Patch.esp` | One per replacement source: overrides of our records pointing at that mod's | The game plugin (and DLC), the mod | The user's table changes |
 
@@ -555,9 +555,10 @@ behind the source renumbers it.
 - **Built FO4 masters** (`master_overrides.built_bytes`, behind
   `held_by`, `master_records` and the ragdoll poses' master lookup). The
   build reads the plugins it built earlier (`--plugin-dirs`) the same way.
-  Each built DLC lists Fallout4.esm, FalloutHelpers.esl, XDI.esm and
-  FalloutNV.esm and is `04` itself; a mod on several DLCs lists them after
-  FalloutNV.esm, so Honest Hearts is `05` there. `byte_map` from the build's
+  Each built DLC lists Fallout4.esm, FalloutHelpers.esl and
+  FalloutNV.esm and is `03` itself; a mod on several DLCs lists them after
+  FalloutNV.esm, so Honest Hearts is `04` there (one lower than before
+  XDI.esm left the masters). `byte_map` from the build's
   masters, then `renumbered(..., 'fo4')` with `data/fo4_subrecord_formids.json`
   (the same generator on `wbDefinitionsFO4.pas`, `--game fo4`: 139 records,
   2,191 subrecords, 66 left complex: VMAD, PACK CNAM/PDTO/PTDA/PLDT, NAVM
