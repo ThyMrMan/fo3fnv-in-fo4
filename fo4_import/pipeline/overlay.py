@@ -18,7 +18,7 @@ from pathlib import Path
 from core.heavy_lock import hold_heavy_lock
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
-from fo4_import.base.ba2_pack import pack_main, pack_textures
+from fo4_import.base.ba2_pack import pack_main, pack_textures, write_later
 from fo4_import.base.source_fault import FAULTS, report as fault_report, stamp as fault_stamp, without_fault
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif.convert_static import smoothness, spec_glossiness, texture_source
@@ -56,23 +56,27 @@ def mod_files(mods: list, folder: str, suffix: str) -> set:
     return out
 
 
-def textures(export_dir: Path, data_dir: Path, ships: set, rels: set) -> dict:
-    """Copy each of texture paths `rels` that `ships` holds, and derive again the shipped specular maps of each
-    normal map among them; counts."""
+def textures(export_dir: Path, data_dir: Path, ships: set, rels: set, workers: int) -> dict:
+    """Copy each of texture paths `rels` that `ships` holds (premultiplied ones mended, over `workers` processes),
+    and derive again the shipped specular maps of each normal map among them; counts.
+    See: docs/fork/fo4_plugin_layout.md#premultiplied-replacers
+    """
     specs = {}
     for path in ships:
         match = SPEC.match(path)
         if match:
             specs.setdefault(f'{match[1]}_n.dds', []).append(path)
     copied = derived = 0
+    later = []
     for rel in sorted(rels):
         source = texture_source(rel)
         if f'textures/fnv/{rel}' in ships:
-            copied += copy_texture(export_dir, data_dir, source)
+            copied += copy_texture(export_dir, data_dir, source, later)
         for spec in specs.get(rel, ()):
             normal = export_file(export_dir, source.replace('\\', '/'))
             target = spec[len('textures/'):].replace('/', '\\')
             derived += stage_derived(data_dir, target, spec_map, (normal,), smoothness(spec_glossiness(target)))
+    write_later(later, workers)
     return {'textures copied': copied, 'specular maps derived': derived}
 
 
@@ -93,7 +97,7 @@ def overlay(args: argparse.Namespace) -> dict:
     counts, made = {'mod textures': len(textures_in), 'mod meshes': len(meshes_in)}, []
     for plugin in args.built:
         export_dir, ships = args.export_root / plugin.name, shipped(plugin)
-        for key, n in textures(export_dir, args.out, ships, textures_in).items():
+        for key, n in textures(export_dir, args.out, ships, textures_in, args.workers).items():
             counts[f'{key} ({plugin.name})'] = n
         built = meshes(export_dir, args.out, ships, meshes_in, args.workers)
         counts[f'meshes converted ({plugin.name})'] = len(built)

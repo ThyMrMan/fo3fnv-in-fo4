@@ -21,6 +21,7 @@ See: docs/fork/fo4_tool_audit.md#rebuild
 import functools
 import hashlib
 import json
+import multiprocessing
 import os
 import shutil
 import subprocess
@@ -129,11 +130,11 @@ def _current(staged: Path, recorded, signature: str) -> bool:
     return [stat.st_size, stat.st_mtime_ns] == recorded[:2]
 
 
-def stage_texture(data_dir: Path, rel: str, plan) -> bool:
+def stage_texture(data_dir: Path, rel: str, plan, later: 'list | None' = None) -> bool:
     """Write texture `rel` (under <data_dir>/Textures) once per run, unless the last pack staged it with the same
-    signature and it is unchanged since; whether it was written. plan() is (signature, write(target)): the
-    signature names everything the file is made from (a copy's source, size and time; a derived map's work-cache
-    key). Paths name contents (convert_static), so a second call this run is skipped unplanned."""
+    signature and it is unchanged since; whether it was (or, with `later`, will be: write_later) written. plan() is
+    (signature, write(target)): the signature names everything the file is made from (a copy's source, size and
+    time; a derived map's work-cache key). A second call this run is skipped unplanned."""
     run, key = _run(data_dir), texture_key(rel)
     if key in run['staged'] or key in run['shared']:
         return False
@@ -147,8 +148,23 @@ def stage_texture(data_dir: Path, rel: str, plan) -> bool:
                                         signature):
         return False
     target.parent.mkdir(parents=True, exist_ok=True)
-    write(target)
+    if later is None:
+        write(target)
+    else:
+        later.append((write, target))
     return True
+
+
+def _write_one(job: tuple) -> None:
+    """Run one (write, target) job of stage_texture's `later`."""
+    write, target = job
+    write(target)
+
+
+def write_later(jobs: list, workers: int) -> None:
+    """Run (write, target) `jobs` on `workers` processes (0: CPUs - 1)."""
+    with multiprocessing.Pool(workers or max(1, os.cpu_count() - 1)) as pool:
+        pool.map(_write_one, jobs, chunksize=1)
 
 
 def _move_loose(loose: Path, staged: Path, keep_loose: tuple) -> set:
