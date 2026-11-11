@@ -13,6 +13,8 @@
   override: overrides do not stack, so the plugin loaded last wins. A review when both DLCs' sources override it.
 - A file under the folders the build lists (stale_files.roots) that no file list names: stale when older than the
   build, else made by it but left off its list (a review: no later build prunes it).
+- A master menu (a Player Dialogue action) whose first player topic and its answer topic (PTOP, NPOT) get unequal
+  numbers of the DLC's own INFOs: options and answers pair by position, so every option after them answers wrong.
 
 See: docs/fork/fo4_preflight.md#dlc-overrides
 """

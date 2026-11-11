@@ -112,8 +112,7 @@ class ActorDialogue:
             return 0
         hub = dataclasses.replace(self.shared, lines={**self.shared.lines, line: rec})
         fid = self.builder.new_id(f'QUST ADIA {line}')
-        talks = Conversations(self.say, {'FormID': f'ADIA {line}', 'EditorID': f'Chat{line}'}, fid, self.form_map, 0,
-                              hub)
+        talks = Conversations(self.say, {'FormID': f'ADIA {line}', 'EditorID': f'Chat{line}'}, fid, self.form_map, hub)
         step = ('chat', SPEAKER_ALIAS, ('line', (line,)))
         talks.labels[step] = 'actor dialogue'
         talks.scene(step, flags=QUEST_SCENE)

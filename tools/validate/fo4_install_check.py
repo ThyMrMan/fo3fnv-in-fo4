@@ -37,12 +37,13 @@ BASE_PLUGIN, *FNV_DLC = GAME_PLUGINS['fnv']
 REQUIRED_MODS = (
     ('Address Library for F4SE Plugins', 'F4SE/Plugins/version-{version}.bin',
      'https://www.nexusmods.com/fallout4/mods/47327'),
-    ('Extended Dialogue Interface', 'F4SE/Plugins/XDI.dll', 'https://www.nexusmods.com/fallout4/mods/27216'),
     ('LevelUpMenuEx', 'F4SE/Plugins/PRKF.dll', 'https://www.nexusmods.com/fallout4/mods/28822'),
     ('Mod Configuration Menu', 'F4SE/Plugins/mcm.dll', 'https://www.nexusmods.com/fallout4/mods/21497'),
     ('Black Landscape Fix (F4SE)', 'F4SE/Plugins/BlackLandscapeFixRD.dll',
      'https://www.nexusmods.com/fallout4/mods/108574'),
 )
+#: (mod, its file) of mods that must be off: F3NV.dll's dialogue menu refuses its hooks while XDI.dll loads.
+CONFLICTING_MODS = (('Extended Dialogue Interface', 'F4SE/Plugins/XDI.dll'),)
 #: Statuses that need nothing done.
 PASSING = ('OK', 'NOT YET')
 
@@ -218,7 +219,14 @@ def mod_checks(m: Machine, mods: Mods) -> list:
             out.append(Check(name, 'NOT ENABLED', f'MO2 mod "{off.name}" has {rel.name}; enable it in the profile'))
         else:
             out.append(Check(name, 'MISSING', f'{rel.name} not found; install it in MO2: {url}'))
-    return out
+    return out + conflict_checks(mods)
+
+
+def conflict_checks(mods: Mods) -> list:
+    """CONFLICT for each CONFLICTING_MODS file the game sees."""
+    found = [(name, rel, holder(Path(rel), mods.dirs)) for name, rel in CONFLICTING_MODS]
+    return [Check(name, 'CONFLICT', f'{Path(rel).name} in "{on.name}"; disable that mod: the converted dialogue '
+                  'uses the menu of F3NV.dll') for name, rel, on in found if on]
 
 
 # ---------------------------------------------------------------------------

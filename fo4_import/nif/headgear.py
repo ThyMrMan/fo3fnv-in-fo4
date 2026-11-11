@@ -198,13 +198,17 @@ def shape_arrays(shape: dict) -> tuple:
     return pos, uv, nrm, np.array(shape['triangles'])
 
 
-def _segments(n_tris: int, slot: int) -> bytes:
-    """A head item's segment trailer: an empty segment, one with every triangle, shared data naming `slot`."""
-    out = struct.pack('<3I', n_tris, 2, 3) + struct.pack('<4I', 0, 0, NO_PARENT, 0)
-    out += struct.pack('<4I', 0, n_tris, NO_PARENT, 1) + struct.pack('<4I', 0, n_tris, 1, 0)
-    out += struct.pack('<2I2I', 2, 3, 0, 1)
+def segments(parts: list) -> bytes:
+    """A head item's segment trailer: an empty segment, then one with every triangle, its sub-segments holding
+    `parts` [(slot, triangles)] in order (vanilla hairs: slot 30, then 31)."""
+    n_tris, total = sum(n for _, n in parts), 2 + len(parts)
+    out = struct.pack('<3I', n_tris, 2, total) + struct.pack('<4I', 0, 0, NO_PARENT, 0)
+    out += struct.pack('<4I', 0, n_tris, NO_PARENT, len(parts))
+    starts = np.cumsum([0] + [n for _, n in parts])
+    out += b''.join(struct.pack('<4I', int(start) * 3, n, 1, 0) for start, (_, n) in zip(starts, parts))
+    out += struct.pack('<2I2I', 2, total, 0, 1)
     out += struct.pack('<3I', 0, NO_PARENT, 0) + struct.pack('<3I', 1, NO_PARENT, 0)
-    return out + struct.pack('<3I', slot, HEAD_BONE_ID, 0) + struct.pack('<H', 0)
+    return out + b''.join(struct.pack('<3I', slot, HEAD_BONE_ID, 0) for slot, _ in parts) + struct.pack('<H', 0)
 
 
 def _bone_data(points: np.ndarray, fit: HeadFit) -> bytes:
@@ -233,7 +237,7 @@ def _skin(nif, index: int, head_node: int, fit: HeadFit, slot: int, placed: tupl
     nif.blocks.append(('BSSkin::Instance', struct.pack('<iiIiI', 0, skin + 1, 1, head_node, 0)))
     nif.blocks.append(('BSSkin::BoneData', _bone_data(points, fit)))
     nif.blocks[shape['shader']][1]['flags1'] |= SHADER_SKINNED
-    nif.blocks[index] = ('BSSubIndexTriShape', pack_tri_shape(shape) + _segments(len(shape['triangles']), slot))
+    nif.blocks[index] = ('BSSubIndexTriShape', pack_tri_shape(shape) + segments([(slot, len(shape['triangles']))]))
 
 
 def worn(static_bytes: bytes, fit: HeadFit, slots: tuple, frame: 'np.ndarray | None' = None) -> bytes:

@@ -23,7 +23,7 @@ USE_GLOBAL = 0x04
 
 
 def skill_check(raw: str) -> 'tuple | None':
-    """(actor value name, number needed) of FNV condition `raw` when it checks the player's skill or SPECIAL."""
+    """(FNV actor value index, number needed) of FNV condition `raw` when it checks the player's skill or SPECIAL."""
     cond = C.parse(raw)
     on_player = cond['run_on'] == TARGET or (cond['run_on'] == REFERENCE and cond['ref'] == PLAYER)
     op = cond['op_flags'] & 0xE0
@@ -31,13 +31,17 @@ def skill_check(raw: str) -> 'tuple | None':
         return None
     if cond['p1'] not in SPECIAL and cond['p1'] not in SKILLS:
         return None
-    return C.FNV_AV_NAMES[cond['p1']], int(round(cond['value'])) + NEEDED[op]
+    return cond['p1'], int(round(cond['value'])) + NEEDED[op]
+
+
+def tag_check(text: str, members: list) -> 'tuple | None':
+    """The check tagged() writes on `text`: (actor value index, number needed)."""
+    if text.lstrip().startswith('['):
+        return None
+    return next((check for rec in members for check in map(skill_check, raws(rec)) if check), None)
 
 
 def tagged(text: str, members: list) -> str:
-    """Prompt `text` with the first skill check among lines `members` as FNV's tag; as it is with none, or when
-    it already opens with a bracket."""
-    if text.lstrip().startswith('['):
-        return text
-    found = next((check for rec in members for check in map(skill_check, raws(rec)) if check), None)
-    return f'[{found[0]} {found[1]}] {text}' if found else text
+    """Prompt `text` led by FNV's tag of tag_check(), if any."""
+    found = tag_check(text, members)
+    return f'[{C.FNV_AV_NAMES[found[0]]} {found[1]}] {text}' if found else text

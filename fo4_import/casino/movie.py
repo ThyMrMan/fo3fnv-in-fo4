@@ -11,21 +11,14 @@ folder's Interface/.
 See: docs/fork/fo4_casino_plan.md#toolchain-found
 """
 
-import hashlib
-import os
 import shutil
 import struct
-import subprocess
-import tempfile
 from pathlib import Path
 
 from asset_convert.ui.swf import Swf, Tag
-from core.subprocess_flags import POPEN_FLAGS
+from fo4_import.base.ffdec import FFDEC, REPO, import_scripts, source_digest
 
 SOURCES = Path(__file__).resolve().parent / 'as3'
-REPO = Path(__file__).resolve().parents[2]
-#: JPEXS FFDec's jar: F3NV_FFDEC, else the tools_ext checkout beside the repo.
-FFDEC = Path(os.environ.get('F3NV_FFDEC', REPO.parent / 'tools_ext' / 'FFDec' / 'ffdec.jar'))
 CACHE = REPO / 'temp' / 'fo4_casino'
 MOVIE = 'F3NV_Casino.swf'
 #: The document class (the SymbolClass of character 0): the movie's root.
@@ -126,27 +119,12 @@ def skeleton(classes: list) -> bytes:
 
 def source_hash(sources: Path = SOURCES) -> str:
     """A hash over every source's path and bytes, and the skeleton's version."""
-    digest = hashlib.sha1(f'{VERSION} {STAGE}'.encode())
-    for path in sorted(sources.rglob('*.as')):
-        digest.update(path.relative_to(sources).as_posix().encode() + b'\0' + path.read_bytes())
-    return digest.hexdigest()[:16]
+    return source_digest(sources, f'{VERSION} {STAGE}'.encode())
 
 
 def compile_movie(out: Path, sources: Path = SOURCES, ffdec: Path = FFDEC) -> Path:
-    """Write the movie of `sources` to `out` with FFDec; raises RuntimeError with FFDec's output if it fails."""
-    with tempfile.TemporaryDirectory() as work:
-        work = Path(work)
-        shutil.copytree(sources, work / 'src' / 'scripts')
-        (work / 'skeleton.swf').write_bytes(skeleton(class_names(sources)))
-        result = subprocess.run(['java', '-jar', str(ffdec), '-importScript', str(work / 'skeleton.swf'),
-                                 str(work / MOVIE), str(work / 'src')], capture_output=True, text=True,
-                                **POPEN_FLAGS)
-        built, log = work / MOVIE, result.stdout + result.stderr
-        if result.returncode or 'SEVERE' in log or not built.is_file():
-            raise RuntimeError(f'FFDec failed to compile {sources}:\n{log}')
-        out.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(built, out)
-    return out
+    """The movie of `sources`, written to `out` (import_scripts)."""
+    return import_scripts(skeleton(class_names(sources)), sources, out, ffdec)
 
 
 def built_movie() -> 'Path | None':

@@ -192,3 +192,8 @@ def test_dlc_overrides_shared_with_another_dlc(tmp_path):
     assert {(f.key, f.severity, f.detail) for f in found} == {
         ('dlc|A.esm|shared-identical|B.esm|QUST', 'review', ('G.esm 000005',)),
         ('dlc|A.esm|shared|B.esm|QUST', 'error', ('G.esm 000006',))}
+
+
+def group(label: int, kind: int, body: bytes) -> bytes:
+    """A group of `kind` labeled `label` holding `body`."""
+    return b'GRUP' + struct.pack('<IIiII', 24 + len(body), label, kind, 0, 0) + body

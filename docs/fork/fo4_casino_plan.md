@@ -1,6 +1,6 @@
 # Casino games and Caravan on Fallout 4 (plan)
 
-**Status:** planned 2026-11-04; phases 0-2 built 2026-11-08 (see each
+**Status:** planned 2026-11-04; phases 0-2 built 2026-11-08, phase 3 (roulette) 2026-11-11 (see each
 phase's "Built" note). Status lines live only in
 [ROADMAP.md](ROADMAP.md#fo4-next). This plan replaces the design sketch in
 [fo4_build_next.md item 13](fo4_build_next.md#casino); its findings are
@@ -376,8 +376,10 @@ uniform draw; 159 bet spots; the max bet covers all bets on one spin.
 
 - A winning bet returns (odds + 1) × stake.
 - **Luck** changes only the win text, not the spin (wiki agrees; Prima
-  says "slightly"). [I: the spin path was not read end to end.]
-- **0 never pays** (wiki, an FNV bug; not yet found in the code).
+  says "slightly"). [V: phase 3 read the spin end to end.]
+- **0 pays only straight up, on red, on even and in the third column; 00
+  on black, odd and the first column** (FNV's bug; the wiki says "0 never
+  pays"). Read in phase 3: [roulette built](#roulette-built).
 
 ### <a id="rules-slots"></a>3.4 Slots [V]
 
@@ -625,7 +627,9 @@ phase 0 spike shows one of these fails:
 2. **Images:** if `MountImage` can't show a DDS from the BA2. Fix: the DLL
    loads the texture into the movie's image loader.
 
-A DLL is **not** needed for the rules, the RNG, saves or transfers.
+A DLL is **not** needed for the rules, the RNG, saves or transfers. The one
+DLL call the menu makes is optional: the player's HUD color
+([spike 2b](#hud-color)), white without F3NV.dll.
 
 ### <a id="design-toolchain"></a>4.9 Building the movie
 
@@ -760,6 +764,19 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
   So `MountImage` takes the path without the `Textures/` folder. `MountAll`
   (slot symbols) and the spike now mount the bare path, as the records
   store it (`records.fo4_path`).
+- <a id="hud-color"></a>**The HUD color without the shader (spike 2b, built
+  2026-11-11, not played).** Spike 2a (F4SE's flags with the HUD color
+  shader) failed: with them the slot menu would not open; the flags stay
+  0x800049D / 2. Instead the menu colors its own text, outlines and button
+  faces: `Ui.color` (white by default) is set in `newScreen()` from
+  F3NV.dll's `HudColor()` native (`dialogue.cpp`, registered with the
+  dialogue menu's natives on every movie as `f4se.plugins.F3NV`), which
+  returns `iHUDColorR/G/B:Interface` as 0xRRGGBB, read on every call. The
+  reader `HudColor(prefix)` is shared with the Hardcore HUD fields
+  (`hardcore.cpp`, declared in `condition.h`). Without F3NV.dll the menu
+  stays white. The board's red, black and green cells and the chips' gold
+  keep their own colors. The log says `F3NV_Casino: input hud color <hex>`
+  on each screen. Menu Frameworks' design.
 - **In-game check:** `cqf FNV_Casino Spike`; then click Ping, press Enter,
   Esc, and a gamepad's A/B if one is connected; read
   `F3NV_Casino:` lines in `Papyrus.0.log`.
@@ -915,7 +932,7 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
 - **Self-test:** `cqf FNV_Casino SelfTest 5` (or another Luck) logs
   `F3NV_Casino: selftest slots <luck> a,b,c ...` (seeds 1-3, 20 spins
   each). Pasting that text after `selftest ` into
-  `tests/casino/slots_selftest.txt` (one line per Luck) makes
+  `tests/casino/selftest.txt` (one line per Luck; [roulette](#roulette-built) adds its own) makes
   `test_the_movies_spins_match_the_model` compare it with the model.
 - **What's left in phase 2:** counting games for the challenges (misc stat
   42, and 40/41/37/38 later): FNV's casino misc stats are left out of
@@ -930,6 +947,84 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
   it, see the open question).
 - **In game:** bets on each kind, the 200 total limit (100 at the Sierra
   Madre).
+
+<a id="roulette-built"></a>**Built 2026-11-11, not played** (`as3/f3nv/casino/Roulette.as`,
+`RouletteScreen.as`; `tests/casino/roulette.py`):
+- **Rules, read in the decompile** (`roulettemenu.cpp`), sharper than
+  [3.3](#rules-roulette):
+  - **The board** (`InitRouletteWheel 0x007b9c40`): six rows of 24 spots
+    from the street edge (row A) to the 3s (row F), then 15 more. In the
+    number rows (B, D, F: the 1s, 2s, 3s) odd places are the numbers and
+    even places the splits between them; rows C and E (between) hold the
+    vertical splits and the corners; row A the streets (11:1) and six lines
+    (5:1). Place 0 of each row is the 0/00 edge: the top line 0-00-1-2-3
+    (6:1), 0-1 and 00-3 (17:1), and the baskets 0-1-2, 0-00-2, 00-2-3
+    (11:1). Spots 144-146 are 00, the 0/00 split and 0; 147-158 the
+    dozens, 1-18, even, red, black, odd, 19-36 and the columns. 38
+    straights, 60 splits, 15 streets and baskets, 22 corners, 11 lines.
+  - **The spin** (`0x007bf670`): one draw of 38 pockets, 37 standing for
+    00 (and one of 4 spin animations). **Luck** only picks the win text
+    (`sLuckyWinText` above 5); no unlucky text. A Luck below 5 changes
+    nothing at all: its flag (0x400e) is set and never read in
+    `roulettemenu*.cpp`.
+  - **The payout** (`0x007bd2a0`, state 3): every winning bet returns
+    (odds + 1) × its chips; the net takes the table's total back. Spots up
+    to 146 win when the result is in their number list; the outside spots
+    test the result by rule.
+  - **0 and 00, FNV's bug as it really is** (the wiki's "0 never pays" is
+    half of it): the number lists are `BSSimpleList`s whose `AddHead`
+    (`0x005ae3d0`) skips 0, so no split, basket or top line ever pays on 0,
+    and the 0/00 split pays only on 00. Spot 146 (0 alone) gets an empty
+    list whose head reads 0, so **a straight bet on 0 pays**. The outside
+    rules let **0 win red** (it sits at an even place in FNV's wheel order,
+    where red is "even place"), **even** and **the third column**
+    (0 % 3 == 0); **00 wins black, odd and the first column**
+    ((37 − 1) % 3 == 0). So red, black, odd and even are fair (no house
+    edge), columns 1 and 3 return **+2.6%**, straights and the rest −5.26%
+    as on a real wheel, and splits holding 0 lose about half
+    (`test_each_bets_return_follows_from_fnvs_rules`). Kept as FNV plays.
+  - **Placing** (`HandleRouletteInput 0x007bc870`, `0x007bed70`): one bet
+    a spot, ten a spin; the chips placed are the current bet; the max
+    bounds the table's total (the bet shrinks to what is left, and to the
+    chips held). **Steps** up as slots; down −1 to 10, then to the step's
+    multiple (5, 10, 25, 100), or a full step when already on one; the bet
+    holds at the min while the max leaves room. After a spin the bet goes
+    back to the min. With fewer chips than the min, FNV says
+    `sGamblingBrokeText` and closes the table.
+  - **Texts** are FalloutNV.exe's settings (named from their registrations
+    in the GOG exe): `sPlaceBetText`, `sRemoveBetText`, `sFinsihBetText`
+    (FNV's typo), `sIncreaseBetText`, `sDecreaseBetText`, `sBetText`,
+    `sPayoutText`, `sYouWin`, `sLuckyWinText`, `sYouLose`,
+    `sYouBreakEvenText`, `sPlural` "(s)", the dozen/even/red/black/odd and
+    `sTwoToOneText` names (`records.ROULETTE_TEXTS`).
+  - Spinning adds misc stat 40 (`FUN_004d5c60(40)`); not counted yet, as
+    slots' 42.
+- **The screen:** the board drawn flat (number cells red, black, green;
+  dozens and even-money cells under it; columns at the right end), with a
+  small marker on every split, corner, street and line where FNV's board
+  puts it. **Click an empty spot to place the current bet on it, click a
+  spot with chips to take them off** (FNV's Place and Remove Bet); hovering
+  shows FNV's spot label ("Bet: 1,2 / Payout: 17:1"). `-`, `+`, Finish Bet
+  (spin) and Exit; Enter/Space spin, Left/Right change the bet. The wheel is
+  a ring of the 38 pockets in FNV's order with the result enlarged and
+  named in the middle, and the last ten results under it. No spin
+  animation or sounds yet (phase 6); no gamepad cursor over the board yet
+  (phase 6's gamepad pass: with a gamepad the cursor is hidden).
+- **The loop:** `Open(2, ...)` now opens the menu; `OpenRoulette` hands it
+  the casino, chips, min and max, earnings, Luck, a seed and texts; each
+  spin sends `F3NV_CasinoRound(net)` and `Settle` banks it as slots does
+  (earnings, levels, comps, the ban). Under the min bet the bank shows
+  the broke text and closes the menu.
+- **Self-test:** `cqf FNV_Casino SelfTest 5` now logs two lines, `slots ...`
+  and `roulette ...` (seeds 1-3, 20 draws each, then each spot's odds and
+  the results it wins on). Paste each after `selftest ` into
+  `tests/casino/selftest.txt` (renamed from `slots_selftest.txt`, never
+  created); `test_the_movies_roulette_matches_the_model` checks the movie's
+  whole spot table against the model.
+- **In game:** at Gomorrah or the Tops, place bets on a number, a split, a
+  corner, a street, a dozen, red; spin; check chips and earnings; try an
+  eleventh bet (refused) and more than 200 in total (the bet shrinks);
+  bet on 0 alone and on red and see what a 0 pays.
 
 ### <a id="phase-4"></a>Phase 4. Blackjack (M)
 

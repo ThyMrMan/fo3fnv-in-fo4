@@ -16,7 +16,6 @@ import struct
 from collections import defaultdict
 
 from tes5_import.dialogue.say_once import SAY_ONCE
-from tools.validate.preflight import xdi_menus
 from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.plugin_index import every, first, u32
 from tools.validate.preflight.quest_source import decode_condition, speakable
@@ -177,8 +176,19 @@ def say_once_tree_findings(ctx) -> list:
             for quest, rows in sorted(lost.items())]
 
 
+def tsce_greetings(game: str, index) -> list:
+    """One error per Greeting-topic line opening its scene by TSCE: a run left playing blocks every later talk.
+    See: docs/fork/fo4_pipeline.md#greeting-scene
+    """
+    greeting = {d.form_id for d in index.by_type['DIAL'] if first(d, 'SNAM') == b'GREE'}
+    rows = [f'{i.form_id:08X}' for i in index.by_type['INFO'] if i.parent_dial in greeting and u32(first(i, 'TSCE'))]
+    return [Finding('dialogue', f'dialogue|{game}|greeting by TSCE', 'error',
+                    f'{len(rows)} Greeting lines start their scene by TSCE, which a run left playing blocks: '
+                    'every later talk opens no menu', tuple(rows[:SAMPLES]))] if rows else []
+
+
 def audit(ctx) -> list:
-    """The dialogue engine rule findings, with XDI's menus on a Fallout 4 build."""
-    menus = xdi_menus.audit(ctx.game, ctx.index) if ctx.index.fo4 else []
+    """The dialogue engine rule findings, Greeting TSCE lines on a Fallout 4 build."""
+    menus = tsce_greetings(ctx.game, ctx.index) if ctx.index.fo4 else []
     return (scene_original_findings(ctx.game, ctx.index, ctx.dialogue) + greeting_gate_findings(ctx)
             + reply_topic_findings(ctx) + say_once_tree_findings(ctx) + menus)

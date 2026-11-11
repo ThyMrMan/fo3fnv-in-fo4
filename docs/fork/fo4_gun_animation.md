@@ -85,6 +85,81 @@ Three measurements, each a one-off script (findings go into this doc).
 Done when the fall-through list exists per class, and steps 1 to 5 are
 re-ranked from it.
 
+### <a id="measured"></a>Measured (2026-11-11, last night's build, not played)
+
+One-off scripts over the built `FalloutNV.esm`, its Main BA2 and
+`tools.nif.gun_quick_convert` output, on the five test guns. Units are game
+units; "finger" is each hand's middle-finger base, the spike's grip measure.
+
+**Keywords don't lose the first-person entry.** Applying the CK rule (most
+actor keywords, then most targets) to every weapon entry of Fallout4.esm, the
+six DLC masters and our additive race, for all 50 actor-keyword sets found
+(Player, Synth, Confident, every injured combination): the gun's own entry
+wins in first person for every set and every test gun, and its AnimTextData
+file exists and points 39–46 of the graph's 88–90 clips at the gun's folder.
+The user's lead, a vanilla entry or the template keyword beating ours, is not
+what moves the hands in first person.
+- Third person: 14 of 86 converted guns get no entry at all, and play the
+  template's clips with vanilla's `WPNAssemblyPose`: the replaced keyword
+  keys only first-person entries (`AnimsFP10mm` on the 9mm and .22 pistols)
+  or is a part's (`AnimsLaserBarrelShort` on the Tesla Cannon Unique,
+  Tri-beam). The 9mm, Veronica's 10mm, the 12.7mm, the Recharger Rifle,
+  Laser Rifle Unique, detonators, artillery and two debug guns. The others,
+  the Tesla Cannon included, win for every actor set (player, synth and
+  injured entries already copied).
+- Not ours: the 9mm receiver's null keyword is vanilla's own
+  (`mod_10mm_Receiver_Standard` adds 00000000).
+
+**First person: FNV's clips hold where FNV does.** In every clip
+`gun_clips` writes, each finger sits a constant 2.4–5.3 units from FNV's own
+finger on the same mesh (9mm 2.4, carbine 3.8/4.0, Hunting Rifle 4.5/4.2,
+Flamer 4.1, Tesla 5.3/4.9 right/left): the two skeletons' hands differ, and
+the right hand holds the template's grip by the trigger. FNV's fingers sit
+0.2–2.7 from the mesh, ours 1.5–4.2. The Flamer's left hand is on vanilla's
+handle grip (`handle_grip`), FNV's 22 units off.
+- **What falls through, per class** (whole poses the graph plays from the
+  template's folder): `WPNSprint`, `WPNRunGunDown`, `WPNIdleGunDown`,
+  `WPNEquipFast`, `WPNJumpImpactLand`, `WPNMelee`, `WPNMeleeBayonet`,
+  `WPNGrenadeThrow`, `WPNMineThrow`, and on semi-automatic guns the
+  `WPNFireAuto*` clips; the paired kills (the Paired folder is searched
+  before ours); `Recoil`, `SneakOffset` and the `Stagger*Add` layers. These
+  are FO4's hold: the carbine's left finger 5.7 off our mesh in sprint,
+  landing and bash, the Hunting Rifle's 4.1, the Tesla's 4.3, the Flamer's
+  9.7. `WPNIdleGunDown` is lossless-compressed and can't be read.
+- `Recoil` turns the spine and moves the camera, `SneakOffset` lowers the
+  root 40 units: neither moves a hand against the gun.
+
+**Third person: the clip's own hand is on its own target.** In the
+template's idle, walk, run, sneak, sighted and fire clips the left hand sits
+within 0.7 of the clip's own `WeaponIKTargetL` (the Hunting Rifle's
+GripRifleStraight 5–9, its IK pulling the hand). Those targets differ from
+`WPNAssemblyPose`'s by 2–7 units, so moving only the pose cannot move them.
+Clips holding the target at the skeleton's rest sit 17–22 off (sprint,
+grenade, jumps), hit reactions 90–150. On our meshes the template's finger
+is 5.6 off the carbine, 1–3 off the Hunting Rifle, 3–4 off the Tesla, 16.5
+off the Flamer (GripHeavy idle and walk).
+- **A shipped bug:** `left_targets` read "our" left hand from the clip's
+  `WeaponIKTargetL` track. A hand on vanilla's grip (pistols, heavy guns on
+  `handle_grip`) writes none, and `fill_from` filled vanilla's in: the 9mm's
+  read the gun's origin, the Flamer's 90 units off its hand. Every such gun
+  with a third-person entry carried `WPNAssemblyPose`'s target that far (the
+  Flamer's 83 units off our mesh). Now read from the posed clip.
+
+**Ranked from this** (steps 1–5): first-person grip is the fall-through
+clips (step 4), not the keywords; third person's largest measured gap is
+the left target (the bug, then step 3), largest on heavy guns; step 1 (FNV's
+own third-person motion) is feel, unmeasured; step 2 is done for actor sets
+(power armor unchecked); step 5 follows from 3, since entries now playing
+FNV-folder clips go to the CK's AnimTextData run.
+
+| Rank | Change | Status |
+|---|---|---|
+| 1 | Our left hand read from the pose (third person, pistols and heavy guns) | built |
+| 2 | [Step 4](#fall-through): vanilla fall-through clips with the left hand carried | built |
+| 3 | [Step 3](#third-person-ik): every on-gun third-person clip's target carried | built |
+| 4 | A third-person keyword for the 14 guns without an entry | follow-up |
+| 5 | [Step 1](#third-person-clips): FNV's own third-person clips | open |
+
 ## <a id="third-person-clips"></a>1. FNV's own third-person clips
 
 Today third person plays the template's clips, with only the left-hand target
@@ -128,6 +203,23 @@ move the left arm with the two-bone IK the first-person clips use.
 Done when the left hand stays on the gun in every third-person state from
 step 0's list.
 
+**Built 2026-11-11, not played** (`_with_targets`). Every whole-pose clip
+of a third-person entry whose target stays within 12 units of
+`WPNAssemblyPose`'s (`ON_GUN`; [measured](#measured)), outside Paired, is
+copied with its target carried, into the gun's mirror of the clip's vanilla
+folder (`gun_folder`: `Actors\FNV\Character\Animations\<gun>\<folder under
+Actors\Character\Animations>`), searched just before that folder; one copy
+per gun, shared by its entries. A gun whose left hand is vanilla's (a pistol
+on vanilla's grip) carries nothing. The clip-driven arm itself is not moved.
+- Our hand against vanilla's grip, in the Weapon frame: carbine 4.0 units
+  and 23°, Hunting Rifle 1.8 and 20°, Flamer 18 and 72°, Tesla 27 and 120°.
+- The Flamer's targets, from our mesh: `WPNAssemblyPose` 11.4 → 5.8 (83
+  with the shipped bug), GripHeavy idle, walk and sneak 20.4 → 10.1. The
+  carbine's 6.7 → 5.1; the Hunting Rifle's distance unchanged.
+- Cost: 122–254 copies per gun, 2.2–5.4 MB uncompressed (carbine 191 and
+  3.9 MB), so about 300 MB over the 72 guns with an entry; each vanilla clip
+  is parsed once per worker.
+
 ## <a id="fall-through"></a>4. First-person fall-through audit
 
 First person has no IK, so every clip the gun falls through to keeps FO4's
@@ -138,6 +230,23 @@ vanilla only where the hand stays on the gun.
 
 Done when the list is empty, or each clip left on it is recorded here with
 the reason.
+
+**Built 2026-11-11, not played** (`_carried`, `carried_left`). Each
+whole-pose clip of the template's that the gun doesn't write, outside
+Paired, is copied with its left arm bent so the hand keeps the hand-local
+offset it has from vanilla's grip, on our grip: fully within 4 units of
+vanilla's grip, eased out by 12 (a grenade throw keeps its swing). Measured:
+the carbine's left finger 5.7 → 3.5 off our mesh in sprint, landing, bash,
+throws and gun-down (our idle's gap); the Tesla's 4.3 → 1.7 in sprint and
+gun-down (its bash and throws can't reach); the Hunting Rifle's distance
+unchanged (4.1 → 4.2) but the hand turned 20° to ours.
+Left on the list:
+- a clip whose carried hand the arm can't reach (1 unit, `REACHED`) stays
+  vanilla: all of the Flamer's (its handle is far from the FO4 flamer's;
+  vanilla's hand stays 9.7 off);
+- `WPNIdleGunDown` (unreadable), the paired kills, the additive layers
+  above;
+- a pistol on vanilla's grip has nothing to carry.
 
 ## <a id="anim-info"></a>5. Generate AnimTextData for guns
 

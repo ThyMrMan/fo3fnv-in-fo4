@@ -7,13 +7,16 @@ See: docs/fork/fo4_tool_audit.md#meshes
 
 import os
 import pathlib
+import struct
 import time
+import zlib
 from types import SimpleNamespace
 
 import pytest
 
 from fo4_import.base import ba2_pack as BP
 from fo4_import.base.ba2 import Archive
+from fo4_import.base.ba2_textures import dds_info, expand_bgr, write_textures
 from fo4_import.base.ba2_write import entry_names, write_general
 from fo4_import.nif import convert_static as C
 from fo4_import.nif import elric as E
@@ -157,8 +160,10 @@ def test_the_mesh_key_covers_the_addon_mapping(tmp_path, monkeypatch):
 
 
 def test_a_used_entry_is_touched_and_prune_drops_only_long_unused_files(tmp_path, monkeypatch):
-    """lookup() marks an entry used; prune() deletes files unused for 14 days and keeps the rest."""
+    """lookup() marks an entry used; prune() deletes files unused for 14 days and keeps the rest, at most once a
+    day."""
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
+    monkeypatch.setattr(WC, 'PRUNED', tmp_path / 'pruned')
     WC.store('site', 'fo4_import.pipeline.work_cache', (b'a',), 1)
     used = next(p for p in (tmp_path / 'work').rglob('*') if p.is_file())
     stale, recent = tmp_path / 'work' / 'site' / 'zz' / 'stale', tmp_path / 'elric' / 'recent'
@@ -169,20 +174,22 @@ def test_a_used_entry_is_touched_and_prune_drops_only_long_unused_files(tmp_path
     assert WC.lookup('site', 'fo4_import.pipeline.work_cache', (b'a',)) == 1
     assert WC.prune((tmp_path / 'work', tmp_path / 'elric', tmp_path / 'missing')) == 1
     assert used.exists() and recent.exists() and not stale.exists()
+    stale.write_bytes(b'x')
+    os.utime(stale, (time.time() - 15 * DAY,) * 2)
+    assert WC.prune((tmp_path / 'work',)) == 0 and stale.exists()
 
 
-def fake_archive2(cmd: list, packs: list) -> SimpleNamespace:
-    """Archive2 stand-in: log `cmd`, write the archive it names (-c=)."""
-    packs.append(cmd)
-    pathlib.Path(cmd[2][3:]).write_bytes(str(len(packs)).encode())
-    return SimpleNamespace(returncode=0, stdout='', stderr='')
+def fake_textures(named: dict, archive: pathlib.Path, packs: list) -> None:
+    """Texture writer stand-in: log the names packed, write a placeholder `archive`."""
+    packs.append(sorted(named))
+    archive.write_bytes(str(len(packs)).encode())
 
 
 def test_a_texture_is_staged_once_per_run_and_not_rewritten_or_repacked_while_current(tmp_path, monkeypatch):
-    """A second call this run is skipped; the next run skips a current staged copy and Archive2; a staged own
+    """A second call this run is skipped; the next run skips a current staged copy and the pack; a staged own
     texture no build wrote is pruned, FaceGen kept; a changed source is written and repacked."""
     packs = []
-    monkeypatch.setattr(BP.subprocess, 'run', lambda cmd, **_: fake_archive2(cmd, packs))
+    monkeypatch.setattr(BP, 'write_textures', lambda named, archive, _kept: fake_textures(named, archive, packs))
     monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
     data, source = tmp_path / 'data', tmp_path / 'src.dds'
     source.write_bytes(b'dds')
@@ -194,11 +201,30 @@ def test_a_texture_is_staged_once_per_run_and_not_rewritten_or_repacked_while_cu
         path.write_bytes(b'x')
     assert BP.stage_texture(data, 'fnv\\a.dds', plan) and not BP.stage_texture(data, 'fnv\\a.dds', plan)
     assert BP.pack_textures(data, 'P.esp') == 2 and not stale.exists() and len(packs) == 1
+    assert packs[0] == ['Textures/actors/character/facecustomization/p.esp/x_d.dds', 'Textures/fnv/a.dds']
     assert not BP.stage_texture(data, 'fnv\\a.dds', plan)
     assert BP.pack_textures(data, 'P.esp') == 2 and len(packs) == 1
     source.write_bytes(b'new dds')
     assert BP.stage_texture(data, 'fnv\\a.dds', plan) and BP.pack_textures(data, 'P.esp') == 2 and len(packs) == 2
     assert (BP.staging_root(data) / 'Textures' / 'fnv' / 'a.dds').read_bytes() == b'new dds'
+
+
+def test_a_kept_loose_folder_an_older_build_staged_goes_back_loose_and_is_not_packed(tmp_path, monkeypatch):
+    """A LUT an older build staged moves back to the Data folder (a loose copy wins and the staged one goes); the
+    pack names neither."""
+    packs = []
+    monkeypatch.setattr(BP, 'write_textures', lambda named, archive, _kept: fake_textures(named, archive, packs))
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    data = tmp_path / 'data'
+    staged = BP.staging_root(data) / 'Textures' / 'Effects' / 'LUTs' / 'FNVClassic'
+    loose = data / 'Textures' / 'Effects' / 'LUTs' / 'FNVClassic'
+    for path, payload in ((staged / 'a.dds', b'old a'), (staged / 'b.dds', b'old b'), (loose / 'b.dds', b'new b'),
+                          (data / 'Textures' / 'fnv' / 'c.dds', b'c')):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    assert BP.pack_textures(data, 'P.esp', ('Effects\\LUTs\\FNVClassic',)) == 1
+    assert packs == [['Textures/fnv/c.dds']] and not any(staged.rglob('*.dds'))
+    assert (loose / 'a.dds').read_bytes() == b'old a' and (loose / 'b.dds').read_bytes() == b'new b'
 
 
 def test_loose_sounds_are_staged_and_packed_into_the_main_archive(tmp_path, monkeypatch):
@@ -260,6 +286,58 @@ def test_a_general_archive_matches_archive2_and_reuses_unchanged_files(tmp_path)
     write_general(named, archive, {'sound/a.fuz', 'sound/b.fuz', 'sound/d.fuz'})
     read = Archive(archive)
     assert [read.read(f'Sound/{n}.fuz') for n in 'abcd'] == [b'\0', b'\1\1', b'new', b'\3\3\3\3']
+
+
+def _dds(fourcc: bytes, width: int, height: int, body: bytes, pixel: tuple = (0,) * 5, dx10: int = 0,
+         cube: bool = False) -> bytes:
+    """A one-mip DDS: legacy `fourcc` (or raw `pixel` bits and masks when empty, or a DX10 header of `dx10`)."""
+    head = bytearray(128)
+    head[:4] = b'DDS '
+    struct.pack_into('<II', head, 12, height, width)
+    head[84:88] = (b'DX10' if dx10 else fourcc).ljust(4, b'\0')
+    struct.pack_into('<5I', head, 88, *pixel)
+    struct.pack_into('<I', head, 112, 0xFE00 if cube else 0)
+    extra = struct.pack('<5I', dx10, 3, 0, 1, 0) if dx10 else b''
+    return bytes(head) + extra + body
+
+
+def test_dds_info_names_the_formats_archive2_writes():
+    """FourCC, raw 32-bit masks and DX10 headers give Archive2's DXGI formats; a cube map is flagged; 24-bit BGR
+    is stored as opaque B8G8R8A8; a format with no DXGI name is refused."""
+    assert dds_info(_dds(b'DXT1', 8, 4, b''))[:5] == (4, 8, 1, 71, 0)
+    assert dds_info(_dds(b'', 4, 4, b'', (32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000)))[3] == 87
+    assert dds_info(_dds(b'', 4, 4, b'', dx10=98, cube=True))[3:] == (98, 1, 148)
+    assert dds_info(_dds(b'', 4, 4, b'', (24, 0xFF0000, 0xFF00, 0xFF, 0)))[3] == 87
+    assert expand_bgr(b'\1\2\3\4\5\6') == b'\1\2\3\xff\4\5\6\xff'
+    with pytest.raises(ValueError):
+        dds_info(_dds(b'', 4, 4, b'', (16, 0xF800, 0x7E0, 0x1F, 0)))
+
+
+def test_a_texture_archive_is_laid_out_as_archive2_writes_it_and_reuses_unchanged_textures(tmp_path):
+    """Version 8 DX10, one zlib-6 chunk per texture, tile 8; the reader gives back each texture's pixels; a repack
+    copies a texture named unchanged out of the previous archive though its loose copy now differs."""
+    root, archive = tmp_path / 'root', tmp_path / 'P - Textures.ba2'
+    bodies = {'a': bytes(range(8)), 'b': bytes(range(16, 80))}
+    named = {}
+    for name, body in bodies.items():
+        path = root / 'Textures' / 'fnv' / f'{name}.dds'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(_dds(b'DXT1', 4, 4, body) if name == 'a' else
+                         _dds(b'', 4, 4, body, (32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000)))
+        named[f'Textures/fnv/{name}.dds'] = path
+    write_textures(named, archive)
+    raw = archive.read_bytes()
+    assert raw[:12] == b'BTDX\x08\x00\x00\x00DX10'
+    record = struct.unpack_from('<I4sIBBHHHBBBB', raw, 24)
+    assert record[1:] == (b'dds\0', record[2], 0, 1, 24, 4, 4, 1, 71, 0, 8)
+    assert zlib.compress(bodies['a'], 6) in raw
+    read = Archive(archive)
+    assert read.read('Textures/fnv/a.dds').endswith(bodies['a'])
+    named['Textures/fnv/a.dds'].write_bytes(_dds(b'DXT1', 4, 4, bytes(8)))
+    write_textures(named, archive, {'textures/fnv/a.dds', 'textures/fnv/b.dds'})
+    read = Archive(archive)
+    assert read.read('Textures/fnv/a.dds').endswith(bodies['a']) and read.read('Textures/fnv/b.dds').endswith(
+        bodies['b'])
 
 
 def test_write_assets_names_a_weapon_mesh_apart_and_keeps_load_doors(tmp_path, monkeypatch):

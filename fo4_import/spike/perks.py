@@ -23,7 +23,7 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.consumable_effects import AV_AT, Effects
 from fo4_import.spike.say_topics import conditions_of
-from fo4_import.spike.script import QUEST_PREFIX
+from fo4_import.spike.script import QUEST, prefix
 from fo4_import.spike.teammates import Teammates, companion_gate
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
@@ -180,7 +180,7 @@ class Perks:
             quest = self.forms.get(fnv)
             if rec.get(f'{key}.Type') == 'QuestStage' and int(rec.get(f'{key}.Rank', 0)) == rank and quest:
                 stage = int(rec.get(f'{key}.Stage', 0)) & STAGE_MASK
-                self.stage_effects.append((fid, quest, stage, f'{QUEST_PREFIX}{self.quest_names.get(fnv, '')}'))
+                self.stage_effects.append((fid, quest, stage, f'{prefix(QUEST)}{self.quest_names.get(fnv, '')}'))
 
     def ability(self, fnv: int) -> 'int | None':
         """The FO4 ability of FNV spell `fnv` (an actor's), written with the perks (its conditions need their

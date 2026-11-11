@@ -1,10 +1,11 @@
 """Read recording, the spike of the replay plan: which export records each maker call (a unit) of a build reads.
 
-    py -3.14 -m fo4_import.pipeline.read_log <the arguments of fo4_import.pipeline.run>
+    py -3.14 -m fo4_import.pipeline.read_log [--no-assets] <the arguments of fo4_import.pipeline.run>
 
 A normal build never imports this module. The command binds the recorder over the build's readers at run time,
 runs the build, and writes `output/fo4_cache/read_log/<plugin>/<pid>.reads` per process, which
-tools/audit/read_log_report.py reads. F3NV_READ_LOG_FIELDS=0 logs records without their fields.
+tools/audit/read_log_report.py reads: reads, the records each unit packed, drop_unchanged's verdicts, unit times.
+F3NV_READ_LOG_FIELDS=0 logs records without their fields. --no-assets leaves out the file-only steps.
 
 See: docs/fork/fo4_build_speed.md#replay-spike
 See: docs/fork/fo4_plugin_layout.md#incremental
@@ -21,6 +22,7 @@ import importlib
 import inspect
 import json
 import os
+import struct
 import sys
 import threading
 import time
@@ -29,16 +31,19 @@ from pathlib import Path
 import numpy as np
 
 from fo4_import.base import install as source_install
+from fo4_import.base import master_overrides
 from fo4_import.pipeline import export_index, ran_code, run, stage_timer
 from fo4_import.pipeline.code_identity import SEP, relative
 from fo4_import.pipeline.code_tag import ROOT
-from tes5_import.base import text_reader
+from fo4_import.rig import anim_info
+from fo4_import.spike import build_finish
+from tes5_import.base import text_reader, writer
 
 #: Environment of a recorded run: the log folder (a worker process records when set), its run id, its watched roots.
 ENV, RUN_ENV, ROOTS_ENV = 'F3NV_READ_LOG', 'F3NV_READ_LOG_RUN', 'F3NV_READ_LOG_ROOTS'
 #: Environment: '0' logs which records are read, not which fields.
 FIELDS_ENV = 'F3NV_READ_LOG_FIELDS'
-SUFFIX, FORMAT = '.reads', 1
+SUFFIX, FORMAT = '.reads', 2
 #: This module's sys.monitoring tool id (ran_code holds 4) and name.
 TOOL, NAME = 3, 'f3nv read log'
 #: This file as ran_code names it: a recorder, kept out of every code record from its import on.
@@ -47,6 +52,8 @@ SELF = 'fo4_import/pipeline/read_log.py'
 SHIFT, ANY, WHOLE = 20, '?', '*'
 #: A unit's run reading this many (record, field) pairs keeps them as one sorted array shared by equal runs.
 BIG = 4096
+#: A running unit holding this many reads when it asks another unit keeps them as such an array, its set emptied.
+FLUSH = 1 << 20
 #: Makers run as units: (module, qualified name, unit kind, the started frame's values naming the unit).
 UNITS = (
     ('fo4_import.spike.cell', 'CellBuilder.base', 'base', ('fnv_fid',)),
@@ -79,6 +86,8 @@ MAKER_PACKAGES = ('fo4_import.spike.', 'fo4_import.casino.')
 MEMO_PACKAGES, MEMO_SKIPPED = ('fo4_import.',), ('fo4_import.pipeline.',)
 #: export_index's caches holding parsed records, emptied when recording starts and stops.
 RECORD_CACHES = ('_parsed', '_layered', 'master_records')
+#: build_finish steps that write files only (meshes, LOD, sounds, archives, compiled scripts): left out by --no-assets.
+ASSET_STEPS = ('_collision', '_object_lod', '_assets', '_compile', '_gun_anim_text', '_main_archive')
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 _CACHED = type(functools.cache(len))
 _TIMED = stage_timer.timed('')(len).__code__
@@ -118,6 +127,8 @@ class Log:
         self.sites, self.errors = collections.Counter(), collections.Counter()
         self.unit_codes, self.call_codes, self.where = {}, {}, {}
         self.patched, self.missing, self.environ = [], [], {}
+        self.writes, self.verdicts, self.spent = [], {}, collections.Counter()
+        self.clock = [[time.perf_counter(), 0.0]]
 
     def reset(self) -> None:
         """Forget everything recorded; the audit hook stays known."""
@@ -365,6 +376,47 @@ def _layered_path(original):
     return path
 
 
+def _packed(original):
+    """writer.pack_record, each record packed logged to the running unit (unit 0 off the main thread): (unit,
+    FormID, signature, size, a 64-bit hash of its bytes). Packing, not adding: a group is added after its units."""
+    def pack_record(*args, **kwargs):
+        """The record, logged."""
+        blob = original(*args, **kwargs)
+        if LOG.on:
+            uid = LOG.stack[-1] if threading.get_ident() == LOG.thread else 0
+            digest = hashlib.blake2b(blob, digest_size=8).digest()
+            LOG.writes.append((uid, struct.unpack_from('<I', blob, 12)[0], struct.unpack_from('<I', blob)[0],
+                               len(blob), int.from_bytes(digest, 'little', signed=True)))
+        return blob
+    return pack_record
+
+
+def _verdict(original):
+    """master_overrides._kind, each master record's verdict kept by FormID (the last one judged)."""
+    def kind(sig, fid, record, kept, context):
+        """The verdict, logged."""
+        out = original(sig, fid, record, kept, context)
+        LOG.verdicts[fid] = out[0]
+        return out
+    return kind
+
+
+def _skipped(*_args, **_kwargs) -> None:
+    """An asset step left out (no_assets)."""
+
+
+def _not_needed(*_args, **_kwargs) -> bool:
+    """No Creation Kit run (no_assets)."""
+    return False
+
+
+def no_assets() -> None:
+    """Leave out ASSET_STEPS and the Creation Kit (it reads MO2)."""
+    for name in ASSET_STEPS:
+        _set(build_finish, name, _skipped)
+    _set(anim_info, 'needed', _not_needed)
+
+
 def _audit(event: str, args: tuple) -> None:
     """The audit hook: a file under a watched root opened for reading is logged to the running unit."""
     if event != 'open' or not LOG.on or not isinstance(args[0], (str, bytes, os.PathLike)):
@@ -406,21 +458,30 @@ def _fold(uid: int, reads) -> None:
 def _enter(uid: int, code=None) -> int:
     """Start unit `uid`, asked by the running one, as the running unit; the stack depth to _exit_to()."""
     global _CUR
+    if len(LOG.live[-1]) >= FLUSH:
+        _fold(LOG.stack[-1], LOG.live[-1])
+        LOG.live[-1].clear()
     LOG.edges.add(LOG.stack[-1] << 32 | uid)
     LOG.stack.append(uid)
     LOG.codes.append(code)
     LOG.live.append(set())
+    LOG.clock.append([time.perf_counter(), 0.0])
     if not LOG.quiet:
         _CUR = LOG.live[-1]
     return len(LOG.stack) - 1
 
 
 def _exit_to(depth: int) -> None:
-    """End the units at stack `depth` and above, keeping their reads; the unit below runs again."""
+    """End the units at stack `depth` and above, keeping their reads and own time (less the units they asked);
+    the unit below runs again."""
     global _CUR
     while len(LOG.stack) > max(depth, 1):
         uid, reads = LOG.stack.pop(), LOG.live.pop()
         LOG.codes.pop()
+        start, inner = LOG.clock.pop()
+        took = time.perf_counter() - start
+        LOG.spent[uid] += took - inner
+        LOG.clock[-1][1] += took
         if reads:
             _fold(uid, reads)
     if not LOG.quiet:
@@ -617,11 +678,13 @@ def install(folder, roots=(), fields: 'bool | None' = None) -> None:
     _watched()
     LOG.call_codes = {fn.__code__: fn.__name__ for fn in (export_index.export_records, export_index.own_records)}
     _rebind({id(text_reader.parse_export_file): (text_reader.parse_export_file,
-                                                 _parse(text_reader.parse_export_file)), **_memos()})
+                                                 _parse(text_reader.parse_export_file)),
+             id(writer.pack_record): (writer.pack_record, _packed(writer.pack_record)), **_memos()})
     _set(export_index, 'renumber_record', _renumber(export_index.renumber_record))
     _set(export_index, '_layered', _layers(getattr(export_index, '_layered')))
     _set(source_install, 'walk', _walk(source_install.walk))
     _set(export_index.Layered, 'path', _layered_path(export_index.Layered.path))
+    _set(master_overrides, '_kind', _verdict(getattr(master_overrides, '_kind')))
     ran_code.RAN.difference_update([key for key in ran_code.RAN if key.startswith(SELF + SEP)])
     _monitor(True)
     if not LOG.hooked:
@@ -701,7 +764,21 @@ def _meta() -> dict:
             'units': [[kind, _label(key)] for kind, key in LOG.units],
             'where': {kind: sorted(places) for kind, places in LOG.where.items()},
             'sites': [[op, _place(code, line), count] for (op, code, line), count in LOG.sites.most_common()],
-            'missing': LOG.missing, 'errors': dict(LOG.errors)}
+            'missing': LOG.missing, 'errors': dict(LOG.errors), 'verdicts': sorted(set(LOG.verdicts.values()))}
+
+
+def _written() -> dict:
+    """dump()'s arrays of the records written (write_*: unit, FormID, signature, size, hash), each master record's
+    verdict (verdict_fid, verdict_kind: its index in meta's verdicts) and each unit's own seconds (spent_*)."""
+    writes = np.array(LOG.writes, dtype=np.int64).reshape(-1, 5)
+    kinds = sorted(set(LOG.verdicts.values()))
+    LOG.spent[0] = time.perf_counter() - LOG.clock[0][0] - LOG.clock[0][1]
+    out = {f'write_{name}': writes[:, i] for i, name in enumerate(('unit', 'fid', 'sig', 'size', 'hash'))}
+    out['verdict_fid'] = np.array(list(LOG.verdicts), dtype=np.uint32)
+    out['verdict_kind'] = np.array([kinds.index(kind) for kind in LOG.verdicts.values()], dtype=np.uint16)
+    out['spent_unit'] = np.array(list(LOG.spent), dtype=np.uint32)
+    out['spent_s'] = np.array(list(LOG.spent.values()), dtype=np.float64)
+    return out
 
 
 def dump() -> Path:
@@ -718,6 +795,7 @@ def dump() -> Path:
               'big_rec': (big >> SHIFT).astype(np.uint32), 'big_field': (big & ((1 << SHIFT) - 1)).astype(np.uint32)}
     for name, packed in (('big', LOG.bigs), ('edge', LOG.edges), ('asked', LOG.asked)):
         arrays[f'{name}_a'], arrays[f'{name}_b'] = _pairs(packed)
+    arrays.update(_written())
     LOG.folder.mkdir(parents=True, exist_ok=True)
     path = LOG.folder / f'{os.getpid()}{SUFFIX}'
     with open(path, 'wb') as out:
@@ -731,11 +809,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     for flag in ('--export', '--out', '--scripts'):
         parser.add_argument(flag, type=Path)
+    parser.add_argument('--no-assets', action='store_true')
     known = parser.parse_known_args()[0]
+    sys.argv = [arg for arg in sys.argv if arg != '--no-assets']
     plugin = known.out.name if known.out else 'unnamed'
     os.environ[RUN_ENV] = str(time.time_ns())
     install(os.environ.get(ENV) or ROOT / 'output' / 'fo4_cache' / 'read_log' / plugin,
             [known.export.parent if known.export else None, known.scripts])
+    if known.no_assets:
+        no_assets()
     try:
         run.main()
     finally:

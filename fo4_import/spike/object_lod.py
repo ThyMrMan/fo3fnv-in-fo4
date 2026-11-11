@@ -29,7 +29,7 @@ from asset_convert.lod.lod_gen import LOD8_MIN_SIZE, LOD16_MIN_SIZE
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from fo4_import.base.source_fault import without_fault
 from fo4_import.pipeline.code_tag import ROOT
-from fo4_import.pipeline.export_index import export_file
+from fo4_import.pipeline.export_index import export_file, source_game
 from fo4_import.pipeline.mesh_cache import cached_files
 from fo4_import.pipeline.object_lod import list_path
 from fo4_import.pipeline.work_cache import cached
@@ -58,8 +58,9 @@ TREE_CARDS = {
 TREE_ATLAS = 'landscape\\trees\\treedeadlod.dds'
 #: A whole billboard texture's UV rectangle.
 WHOLE = (0.0, 0.0, 1.0, 1.0)
-#: FNV's own flat tree LOD mesh, whose node and properties (alpha test, two-sided) a card keeps.
-CARD_TEMPLATE = Path('meshes') / 'landscape' / 'trees' / 'treejoshanv_lod.nif'
+#: Per source game (export_index.source_game), its own flat tree LOD mesh whose node and properties a card keeps.
+CARD_TEMPLATES = {'fnv': Path('meshes') / 'landscape' / 'trees' / 'treejoshanv_lod.nif',
+                  'fo3': Path('meshes') / 'landscape' / 'trees' / 'treedead02_lod_flat.nif'}
 #: REFR flag Initially Disabled.
 INITIALLY_DISABLED = 0x800
 #: Bytes of a record's header before its fields (signature, size, flags, FormID, version control, form version).
@@ -140,10 +141,10 @@ def _card_data(rect: tuple, size: tuple):
 
 
 def card_nif(export_dir: Path, texture: str, rect: tuple, size: tuple) -> bytes:
-    """An FNV-format crossed-card LOD mesh: CARD_TEMPLATE's node and properties, diffuse `texture` (under
-    textures) cut to `rect`, its `_n` beside it or none, cards `size` (width, height)."""
+    """An FNV-format crossed-card LOD mesh: the source game's CARD_TEMPLATES node and properties, diffuse `texture`
+    (under textures) cut to `rect`, cards `size` (width, height)."""
     data = NifFormat.Data()
-    with open(export_file(export_dir, CARD_TEMPLATE), 'rb') as f:
+    with open(export_file(export_dir, CARD_TEMPLATES[source_game(export_dir)]), 'rb') as f:
         data.read(f)
     strips = next(b for b in data.blocks if isinstance(b, NifFormat.NiTriStrips))
     shape = NifFormat.NiTriShape()
@@ -152,14 +153,27 @@ def card_nif(export_dir: Path, texture: str, rect: tuple, size: tuple) -> bytes:
     shape.properties.update_size()
     for i, prop in enumerate(strips.properties):
         shape.properties[i] = prop
-    slots = next(p for p in strips.properties if isinstance(p, NifFormat.BSShaderPPLightingProperty)).texture_set
-    normal = f'{texture[:-4]}_n.dds'
-    slots.textures[0] = f'textures\\{texture}'.encode()
-    slots.textures[1] = f'textures\\{normal}'.encode() if export_file(export_dir, 'textures', normal).is_file() else b''
+    _card_texture(export_dir, strips.properties, texture)
     data.roots[0].children[0] = shape
     out = io.BytesIO()
     data.write(out)
     return out.getvalue()
+
+
+def _card_texture(export_dir: Path, props, texture: str) -> None:
+    """Put diffuse `texture` on a card's shader: a lit one's texture set (its `_n` beside it or none), an unlit
+    one's file and its NiTexturingProperty's base source."""
+    path = f'textures\\{texture}'.encode()
+    for prop in props:
+        if isinstance(prop, NifFormat.BSShaderPPLightingProperty):
+            normal = f'{texture[:-4]}_n.dds'
+            prop.texture_set.textures[0] = path
+            prop.texture_set.textures[1] = (f'textures\\{normal}'.encode()
+                                            if export_file(export_dir, 'textures', normal).is_file() else b'')
+        elif isinstance(prop, NifFormat.BSShaderNoLightingProperty):
+            prop.file_name = path
+        elif isinstance(prop, NifFormat.NiTexturingProperty) and prop.has_base_texture:
+            prop.base_texture.source.file_name = path
 
 
 def mnam(lod: str, across: int) -> tuple:

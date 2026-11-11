@@ -255,7 +255,10 @@
       "creatures\\mistergutsy": {"use": "Fallout4.esm|encMrGutsy01Template", "as": "stats"},
       "creatures\\sentrybot": {"use": "Fallout4.esm|EncSentryBot01Template", "as": "stats"},
       "creatures\\mirelurk": {"use": "Fallout4.esm|EncMirelurk01Template", "as": "stats"},
-      "creatures\\mirelurkking": {"use": "Fallout4.esm|EncMirelurkKing01", "as": "stats"}
+      "creatures\\mirelurkking": {"use": "Fallout4.esm|EncMirelurkKing01", "as": "stats"},
+      "creatures\\yaoguai": {"use": "Fallout4.esm|EncYaoGuai01Template", "as": "stats"},
+      "creatures\\libertyprime": {"use": "Fallout4.esm|EncLibertyPrime", "as": "stats"},
+      "creatures\\zaxeye": {"use": "Fallout4.esm|EncProtectron01Template", "as": "speaker"}
     },
     "body": {
       "human_male": {"use": "Fallout4.esm|DocWeathers"},

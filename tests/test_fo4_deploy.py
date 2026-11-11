@@ -68,6 +68,20 @@ def test_the_build_input_record_is_not_shipped(tmp_path):
     assert (mod / 'FalloutNV.formids.tsv').read_text() == 'ledger'
 
 
+def test_the_xdi_era_hub_is_retired_from_the_mods_beside(tmp_path):
+    """The hub plugin and its links in a mod beside --mod are deleted; its other files and --dry-run's stay."""
+    build, mod = _folders(tmp_path)
+    hub = tmp_path / 'fo4_dialogue_menu'
+    links = hub / 'F4SE' / 'Plugins' / 'F3NV_Menus'
+    links.mkdir(parents=True)
+    for path in (hub / 'F3NV_MenuHub.esp', links / 'F3NV_MenuHub.txt', links / 'F3NV_MenuTest.txt'):
+        path.write_text('x')
+    assert _run(build, mod, '--dry-run') == 0 and (hub / 'F3NV_MenuHub.esp').is_file()
+    assert _run(build, mod) == 0
+    assert not (hub / 'F3NV_MenuHub.esp').exists() and not (links / 'F3NV_MenuHub.txt').exists()
+    assert (links / 'F3NV_MenuTest.txt').is_file()
+
+
 def test_dry_run_changes_nothing(tmp_path):
     """--dry-run copies and deletes nothing, even with --delete-stale."""
     build, mod = _folders(tmp_path)

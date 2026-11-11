@@ -14,11 +14,15 @@ import numpy as np
 import pytest
 
 from fo4_import.base import install as source_install
+from fo4_import.base import master_overrides
+from fo4_import.base import writer as fo4_writer
 from fo4_import.pipeline import export_index as EI
 from fo4_import.pipeline import ran_code as RC
 from fo4_import.pipeline import read_log as RL
 from fo4_import.spike import glow_cards
 from tes5_import.base import text_reader
+from tes5_import.base import writer as tes5_writer
+from tes5_import.base.writer import PluginWriter, pack_group
 
 PLAIN = {'Signature': 'NPC_', 'FormID': '00000002', 'EditorID': 'Doc', 'Items': ['a', 'b']}
 
@@ -60,7 +64,8 @@ def recorded(tmp_path, monkeypatch):
     game = tmp_path / 'export' / 'Game.esm'
     export(game, 'NPC_', [{'FormID': f'0000000{n}', 'EditorID': f'Npc{n}', 'RecordFlags': '0'} for n in (1, 2, 3)])
     units = tuple((__name__, name, kind, ('fnv_fid',)) for name, kind in (
-        ('maker', 'base'), ('asker', 'cell'), ('failing', 'broken'))) + ((__name__, 'walker', 'walk', ('count',)),)
+        ('maker', 'base'), ('asker', 'cell'), ('failing', 'broken'), ('writing', 'writes'))) + (
+        (__name__, 'walker', 'walk', ('count',)),)
     monkeypatch.setattr(RL, 'UNITS', units)
     RL.install(tmp_path / 'log', [tmp_path / 'export'])
     yield game, tmp_path / 'log'
@@ -188,13 +193,33 @@ def test_master_records_keep_their_number(tmp_path, recorded):
     assert ('REFR', 0, 'NAME') in reads[f'process {os.getpid()}']
 
 
+def writing(fnv_fid: int) -> list:
+    """A unit packing two records."""
+    return [fo4_writer.pack_fo4_record('MISC', fnv_fid, 0, b'EDID\x02\x00a\x00'),
+            fo4_writer.pack_fo4_record('REFR', 0x22, 0, b'')]
+
+
+def test_packed_records_go_to_the_running_unit(recorded):
+    """Each record packed is logged with the unit packing it, its FormID, signature, size and hash; one packed
+    outside a unit goes to the process."""
+    PluginWriter().add_raw_group('CELL', pack_group(0, b'CELL', b''.join(writing(0x20))))
+    fo4_writer.pack_fo4_record('CELL', 0x21, 0, b'')
+    data = np.load(RL.dump())
+    meta = json.loads(bytes(data['meta']))
+    unit = meta['units'].index(['writes', '00000020'])
+    assert list(data['write_unit']) == [unit, unit, 0] and list(data['write_fid']) == [0x20, 0x22, 0x21]
+    assert [int(sig).to_bytes(4, 'little') for sig in data['write_sig']] == [b'MISC', b'REFR', b'CELL']
+    assert list(data['write_size']) == [32, 24, 24] and len(set(data['write_hash'])) == 3
+
+
 def test_uninstall_restores_every_name(tmp_path):
     """install() binds the readers and the memo functions and takes a monitoring tool; uninstall() puts each
     back and leaves plain records. The module stays out of code records from its import on."""
     def bound():
         """The names install() binds, as they are now."""
         return (text_reader.parse_export_file, EI.parse_export_file, EI.renumber_record, getattr(EI, '_layered'),
-                source_install.walk, EI.Layered.path, glow_cards.glow_cards, glow_cards.light_only)
+                source_install.walk, EI.Layered.path, glow_cards.glow_cards, glow_cards.light_only,
+                fo4_writer.pack_record, tes5_writer.pack_record, getattr(master_overrides, '_kind'))
     before, env = bound(), dict(os.environ)
     game = tmp_path / 'export' / 'Game.esm'
     export(game, 'MISC', [{'FormID': '00000001'}])

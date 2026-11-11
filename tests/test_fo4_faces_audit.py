@@ -17,6 +17,7 @@ from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 
 from fo4_import.base import ba2_pack
+from fo4_import.base import ba2
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_ESM, FALLOUTNV_ESM, use_source
 from fo4_import.base.writer import pack_fo4_header, pack_fo4_record
@@ -49,7 +50,7 @@ def _plugin(*records: tuple) -> bytes:
         pack_group(0, sig.encode(), body) for sig, body in groups.items())
 
 
-def _grid(n: int, scale: float, lift: float) -> tuple:
+def uv_grid(n: int, scale: float, lift: float) -> tuple:
     """(points, UVs inside 0.2..0.8, triangles) of an n x n grid bulging toward +y, scaled and raised by `lift`."""
     x, z = (a.ravel() for a in np.meshgrid(np.linspace(-1, 1, n), np.linspace(-1, 1, n)))
     points = np.column_stack([x, 1 - 0.2 * (x ** 2 + z ** 2) + lift, z]) * scale
@@ -133,11 +134,11 @@ def test_by_content_keeps_results_by_contents_read_only():
 def test_face_texture_is_unchanged_by_the_shared_texel_map():
     """face_texture, mapping kept or not, is byte for byte what the per-call mapping and mask padding gave."""
     rng = np.random.default_rng(0)
-    fo4 = _grid(9, 1.0, 0.0)
-    fnv_points, fnv_uvs, fnv_tris = _grid(7, 1.1, 0.1)
+    fo4 = uv_grid(9, 1.0, 0.0)
+    fnv_points, fnv_uvs, fnv_tris = uv_grid(7, 1.1, 0.1)
     fnv = FnvHead(fnv_points, fnv_tris, fnv_points, fnv_uvs)
     rgba = rng.integers(1, 256, (64, 64, 4), dtype=np.uint8)
-    pieces = (rng.uniform(0, 200, (32, 32, 3)), rng.uniform(-20, 20, (32, 32, 3)))
+    pieces = (rng.uniform(0, 200, (32, 32, 3)), rng.uniform(-20, 20, (32, 32, 3)), None)
     for variant in ('T1', 'T2', 'T1'):
         new, old = TX.face_texture(rgba, fo4, fnv, pieces, variant), _old_face_texture(rgba, fo4, fnv, pieces, variant)
         assert new[0].tobytes() == old[0].tobytes() and new[1].tobytes() == old[1].tobytes()
@@ -234,6 +235,18 @@ def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_pat
     assert sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob('*') if p.is_file()) == sorted(
         p.relative_to(tmp_path).as_posix() for p in (geom / '00000801.NIF', loose / '00000801_d.dds',
                                                      staged / '00000801_d.dds'))
+
+
+@pytest.mark.skipif(not TX.TEXCONV.exists(), reason="needs the CK's texconv")
+def test_a_texture_taking_a_vanilla_ones_place_keeps_its_format_size_and_mips():
+    """An opaque face drawn over vanilla's BC3 1024 face diffuse stays BC3 1024 with 11 mips (the CK refuses a
+    face texture in another format than its race's); over a BC1 one it is BC1."""
+    rgba = np.full((256, 256, 4), 200, np.uint8)
+    for fmt, size, mips in ((77, 1024, 11), (71, 512, 10)):
+        like = ba2.dds(fmt, size, size, b'')
+        out = TX.dds_like(rgba, like)
+        assert TX.dds_layout(out) == (TX.DXGI_NAMES[fmt], size, size)
+        assert struct.unpack_from('<I', out, 28)[0] == mips
 
 
 def _dds_shape(data: bytes) -> tuple:

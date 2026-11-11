@@ -7,7 +7,9 @@ from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
+from fo4_import.spike import conditions as C
 from fo4_import.spike import new_game
+from fo4_import.spike import script as spike_script
 from tes5_import.base.tes5_reader import subrecords
 
 
@@ -28,3 +30,25 @@ def test_the_new_game_quest_has_a_hand_start_stage(monkeypatch):
     assert sig == 'QUST' and builder.scripts.used == [new_game.FRAGMENTS]
     assert (b'INDX', struct.pack('<HBB', new_game.START_BY_HAND, 0, 0)) in subs
     assert all(name in vmad for name in (b'F3NV_NewGame', b'F3NV_NewGameStart', b'Fragment_Stage_0010_Item_00'))
+
+
+def test_fallout3_opens_at_cg00_with_its_own_script_names():
+    """FO3's opening is CG00 stage 0, and its build names converted scripts FALLOUT3_; FNV's stay FALLOUTNV_."""
+    assert new_game.START['Fallout3.esm'] == ('CG00', 0)
+    try:
+        spike_script.use_prefix(Path('export/Fallout3.esm'))
+        assert spike_script.prefix(spike_script.QUEST) == 'FALLOUT3_QF_'
+        spike_script.use_prefix(Path('export/DeadMoney.esm'))
+        assert spike_script.prefix(spike_script.FRAGMENT) == 'FALLOUTNV_TIF__'
+    finally:
+        spike_script.use_prefix(Path('export/FalloutNV.esm'))
+
+
+def test_fallout3_names_its_own_actor_values():
+    """An FO3 build names actor value 41 Small Guns (the helper's SmallGuns, as its scripts use); FNV's is Guns."""
+    try:
+        C.use_actor_values(Path('export/Fallout3.esm'))
+        assert C.fnv_av_name(41) == 'SmallGuns' and C.FNV_AV_NAMES.index('Big Guns') == 33
+    finally:
+        C.use_actor_values(Path('export/FalloutNV.esm'))
+    assert C.fnv_av_name(41) == 'Guns'

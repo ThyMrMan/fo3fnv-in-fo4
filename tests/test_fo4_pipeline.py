@@ -15,6 +15,7 @@ from fo4_import.pipeline import code_tag as CT
 from fo4_import.pipeline import converters as CV
 from fo4_import.pipeline import elric_cache as EC
 from fo4_import.pipeline import export_index as EI
+from fo4_import.pipeline import master_copies as MCP
 from fo4_import.pipeline import mesh_cache as MC
 from fo4_import.pipeline import run as RUN
 from fo4_import.pipeline import stale_files as SF
@@ -101,6 +102,77 @@ def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_pat
         assert EC.finish(paths) == [tmp_path / 'b.nif']
         assert [p.read_bytes() for p in paths] == [b'a+', b'b+']
     assert runs == [[b'a', b'b']]
+
+
+def test_a_mesh_a_master_finished_alike_is_left_out_and_its_mark_recorded(tmp_path, monkeypatch):
+    """finish() records each finished mesh's mark; a later build leaves out (deletes, does not write) one whose
+    master gives the same mark, keeps its failed flag, and writes one whose mark differs."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
+    monkeypatch.setattr(EC.elric, 'finish', lambda paths, run, names: [p for p in paths if p.read_bytes() == b'b'])
+    monkeypatch.setattr(EC, 'MARKS', {})
+    monkeypatch.setattr(EC, 'LEFT', [])
+    paths = [tmp_path / 'a.nif', tmp_path / 'b.nif', tmp_path / 'c.nif']
+    for p in paths:
+        p.write_bytes(p.stem.encode())
+    EC.finish(paths)
+    theirs = {k: v for k, v in EC.MARKS.items() if not k.endswith('c.nif')}
+    theirs[os.path.normcase(str(paths[2]))] = ['other', True]
+    assert EC.finish(paths, theirs) == [paths[1]]
+    assert EC.LEFT == paths[:2] and not paths[0].exists() and paths[2].read_bytes() == b'c'
+
+
+def test_a_dependent_build_trusts_mesh_records_only_when_every_master_has_one(tmp_path):
+    """theirs() maps a mesh path to the last master's record of it; one master folder without a record means none."""
+    game, dlc, own = tmp_path / 'game', tmp_path / 'dlc', tmp_path / 'own'
+    for folder in (game, dlc, own):
+        folder.mkdir()
+    builder = SimpleNamespace(data_dir=own, built=[game / 'G.esm', dlc / 'D.esm'])
+    mesh = own / 'Meshes' / 'fnv' / 'A.nif'
+    MCP.write_meshes(game / 'G.esm', game, [game / 'Meshes' / 'fnv' / 'a.nif'], {})
+    assert MCP.theirs(builder, [mesh]) == {}
+    (game / 'Meshes' / 'fnv').mkdir(parents=True)
+    (game / 'Meshes' / 'fnv' / 'a.nif').write_bytes(b'x')
+    MCP.write_meshes(game / 'G.esm', game, [game / 'Meshes' / 'fnv' / 'a.nif'],
+                     {os.path.normcase(str(game / 'Meshes' / 'fnv' / 'a.nif')): ['m1', True]})
+    (dlc / 'D.esm.meshes.json').write_text(json.dumps({'meshes/fnv/a.nif': ['m2', False]}), encoding='utf-8')
+    assert MCP.theirs(builder, [mesh]) == {os.path.normcase(str(mesh)): ['m2', False]}
+    (dlc / 'D.esm.meshes.json').unlink()
+    assert MCP.theirs(builder, [mesh]) == {}
+
+
+def test_warm_leaves_a_mesh_kept_and_unchanged_out_of_the_pool(tmp_path, monkeypatch):
+    """A second warm() sends no mesh whose entry is current and textures unchanged; a changed texture sends it."""
+    sent = []
+
+    class Pool:
+        """An in-process stand-in for the worker pool."""
+        def __init__(self, **_kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def map(self, fn, jobs, chunksize):
+            sent.extend(job[0] for job in jobs)
+            return [fn(job) for job in jobs]
+    monkeypatch.setattr(MC, 'CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(MC.concurrent.futures, 'ProcessPoolExecutor', Pool)
+    monkeypatch.setattr(MC, 'addon_map', lambda root: {})
+    monkeypatch.setattr(MC, 'convert', lambda *a: Converted(NifFile(), textures={'t.dds'}))
+    texture = tmp_path / 'textures' / 't.dds'
+    texture.parent.mkdir()
+    texture.write_bytes(b'one')
+    nif = tmp_path / 'a.nif'
+    nif.write_bytes(b'nif')
+    for _ in range(2):
+        MC.warm([nif], tmp_path)
+    texture.write_bytes(b'two!')
+    MC.warm([nif], tmp_path)
+    assert sent == [str(nif), str(nif)]
 
 
 def test_every_placed_type_has_a_converter_and_a_route():

@@ -12,6 +12,8 @@ See: docs/fork/fo4_pipeline.md#new-game
 """
 
 
+from pathlib import Path
+
 from fo4_import.base.source import plugin_name
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
@@ -20,8 +22,8 @@ from fo4_import.spike.character import SPECIAL
 from fo4_import.spike.combat_feel import PlayerRules
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS
 
-#: Source plugin -> (the quest whose stage opens its game, that stage).
-START = {'FalloutNV.esm': ('VCG00', 0)}
+#: Source plugin -> (the quest whose stage opens its game, that stage): FO3's CG00 0 places the parents and the birth.
+START = {'FalloutNV.esm': ('VCG00', 0), 'Fallout3.esm': ('CG00', 0)}
 #: Fallout4.esm forms the script is given: MQ101, MQ102 (MQ03QuestScript's quest), TimeScale, the mirror imods.
 MQ101, MQ102, TIME_SCALE, CAMERA_IMOD, MIRROR_IMOD = 0x1ED86, 0x1CC2A, 0x3A, 0x1A71FC, 0x1E9902
 #: Fallout 4's opening quests besides MQ101: SanctuaryHills, Radio, TVStation, PlayerComments, Vault111.

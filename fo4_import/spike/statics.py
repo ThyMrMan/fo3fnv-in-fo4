@@ -35,7 +35,9 @@ from fo4_import.nif.terminal import with_screen
 from fo4_import.nif.tree import tree_mesh
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
-from fo4_import.pipeline.export_index import export_file
+from fo4_import.pipeline.export_index import export_file, replaced_file
+from fo4_import.base.premultiplied import MENDED_VERSION, write_mended
+from fo4_import.base.source_fault import SourceFault, count
 from tes5_import.base.text_reader import parse_export_file
 
 MASTERS = ['Fallout4.esm']
@@ -199,15 +201,29 @@ def _material_file(data_dir: Path, material: str) -> Path:
     return data_dir / material.replace('materials\\', 'Materials\\', 1)
 
 
-def copy_texture(export_dir: Path, data_dir: Path, source: str) -> bool:
-    """Stage a copy of FNV texture `source` (textures\\...) at its FO4 path."""
-    return stage_texture(data_dir, fo4_texture(source), functools.partial(_copy_plan, _source(export_dir, source)))
+def copy_texture(export_dir: Path, data_dir: Path, source: str, later: 'list | None' = None) -> bool:
+    """stage_texture() FNV texture `source` (textures\\...) at its FO4 path; False, counting a source fault,
+    when no export layer holds it."""
+    rel = texture_source(source).replace('\\', '/')
+    path = export_file(export_dir, rel)
+    if not path.is_file():
+        count(SourceFault(path, 'missing texture (in no export layer)'))
+        return False
+    plan = functools.partial(_copy_plan, path, replaced_file(export_dir, rel))
+    return stage_texture(data_dir, fo4_texture(source), plan, later)
 
 
-def _copy_plan(path: Path) -> tuple:
-    """stage_texture's (signature, writer) of a copy of `path`."""
+def _copy_plan(path: Path, replaced: 'Path | None') -> tuple:
+    """stage_texture's (signature, writer) of `path`: a copy, or, when it replaces `replaced`, _mend().
+    See: docs/fork/fo4_plugin_layout.md#premultiplied-replacers
+    """
     stat = path.stat()
-    return f'copy {str(path).lower()} {stat.st_size} {stat.st_mtime_ns}', functools.partial(shutil.copyfile, path)
+    signature = f'copy {str(path).lower()} {stat.st_size} {stat.st_mtime_ns}'
+    if replaced is None:
+        return signature, functools.partial(shutil.copyfile, path)
+    under = replaced.stat()
+    return (f'{signature} over {str(replaced).lower()} {under.st_size} {under.st_mtime_ns} v{MENDED_VERSION}',
+            functools.partial(write_mended, path, replaced))
 
 
 def build(export_dir: Path, out: Path, data_dir: Path, edids: list) -> list:

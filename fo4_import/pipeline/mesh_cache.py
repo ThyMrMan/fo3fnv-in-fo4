@@ -15,16 +15,19 @@ See: docs/fork/fo4_plugin_layout.md#code-identity
 """
 
 import concurrent.futures
+import functools
 import hashlib
 import os
 import pickle
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NamedTuple
 
 import numpy as np
 
 from core.collision_options import WINDING_FIX_ENV_VAR
-from core.process_job import join_pool_job
+from core.process_job import join_pool_job, limit_own_memory, total_memory
+from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.source_fault import SourceFault
 from fo4_import.nif import bgem, bgsm, blocks
 from fo4_import.nif import file as nif_file
@@ -56,6 +59,12 @@ class MeshFiles(NamedTuple):
 
 #: {mesh path: MeshFiles.clamped} of the meshes cached_files gave this process, for the build's count.
 CLAMPED = {}
+#: Mesh paths a warm() worker ran out of its memory cap on this run; cached_convert faults them, never retries.
+TOO_LARGE = set()
+#: A mesh worker's memory cap: this share of the machine's RAM, at least MIN_WORKER_MEMORY.
+WORKER_MEMORY_SHARE, MIN_WORKER_MEMORY = 8, 2 * 2 ** 30
+#: Threads warm() checks kept entries in: the check waits on opening small files, not on the CPU.
+CHECK_THREADS = 16
 
 
 def mesh_bounds(nif) -> 'tuple | None':
@@ -127,6 +136,8 @@ def cached_files(path, texture_root=None, pose: dict = None, animated: bool = Tr
 def cached_convert(path, texture_root=None, pose: dict = None, animated: bool = True, addons: dict = None) -> Converted:
     """convert(path, texture_root, pose, animated) with `texture_root`'s ADDN mapping (addon_map() unless given),
     from the cache when its entry and the code that made it are current (module notes)."""
+    if _same(path) in TOO_LARGE:
+        raise SourceFault(path, f'mesh too large to convert (over {worker_memory() / 2 ** 30:.1f} GB)')
     entry, addons = _entry(path, texture_root, pose, animated, addons)
     if entry.exists() and current_ran(entry):
         stamps, converted = pickle.loads(entry.read_bytes())
@@ -151,19 +162,72 @@ def _convert(path, texture_root, pose: 'dict | None', animated: bool, addons: di
         raise fault.at(path) from None
 
 
-def _warm(job: tuple) -> None:
-    """One worker's cached_convert(*job), the mesh discarded; a mesh that fails is left to fail where it is used."""
+def worker_memory() -> int:
+    """A mesh worker's memory cap in bytes (module constants)."""
+    return max(MIN_WORKER_MEMORY, total_memory() // WORKER_MEMORY_SHARE)
+
+
+def _join_capped() -> None:
+    """A mesh worker's initializer: join the build's job, cap its memory."""
+    join_pool_job()
+    limit_own_memory(worker_memory())
+
+
+def _warm(job: tuple) -> tuple:
+    """One worker's cached_convert(*job), the mesh discarded: (ran out of memory, its texture stamps as JSON; None
+    when it failed: a mesh that fails is left to fail where it is used)."""
     try:
-        cached_convert(*job)
+        converted = cached_convert(*job)
+    except MemoryError:
+        return True, None
     except Exception:
-        return
+        return False, None
+    return False, {t: list(s) if s else None for t, s in _stamps(converted, job[1]).items()}
+
+
+def _memo(stamps: Stamps, path: Path, addons: dict) -> dict:
+    """warm()'s memo of `path` ({'key', 'textures'}, _kept) by its stamp."""
+    make = lambda f: {'key': _key(f.read_bytes(), None, True, addons), 'textures': None}
+    return stamps.value(path, make) if path.is_file() else {'key': '', 'textures': None}
+
+
+def _kept(memo: dict, texture_root) -> bool:
+    """Whether a warm() memo entry ({'key', 'textures'}) names a current cache entry, its textures unchanged since
+    a worker last checked them; its code record marked used (cached_files marks the entry). False sends the mesh
+    to a worker, which checks it fully."""
+    entry = CACHE / memo['key'][:2] / f"{memo['key']}.pkl"
+    if memo['textures'] is None or not entry.exists() or current_ran(entry) is None:
+        return False
+    now = _stamps(SimpleNamespace(textures=list(memo['textures']), spec_maps={}), texture_root)
+    if {t: list(s) if s else None for t, s in now.items()} != memo['textures']:
+        return False
+    os.utime(ran_path(entry))
+    return True
 
 
 def warm(paths: list, texture_root, workers: int = 0) -> None:
-    """Fill the cache for convert(path, texture_root) of every path in `paths`, in `workers` processes (all
-    but one CPU by default); the ADDN mapping is read once, here."""
+    """Fill the cache for convert(path, texture_root) of every path in `paths` in `workers` processes (all but one
+    CPU by default), each capped at worker_memory(); the ADDN mapping read once, here. A mesh whose entry a
+    file-stamp memo shows current (_kept) stays out of the pool.
+    See: docs/fork/fo4_build_speed.md#worker-memory
+    See: docs/fork/fo4_build_speed.md#fixed
+    """
     workers = workers or max(1, (os.cpu_count() or 2) - 1)
     addons = addon_map(str(texture_root)) if texture_root else {}
-    jobs = [(str(p), str(texture_root), None, True, addons) for p in paths]
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=join_pool_job) as pool:
-        list(pool.map(_warm, jobs, chunksize=1))
+    setting = hashlib.sha1(f'{texture_root}|{_key(b"", None, True, addons)}'.encode()).hexdigest()
+    stamps = Stamps(CACHE / 'warm' / f'{setting}.json')
+    memos = {str(p): _memo(stamps, Path(p), addons) for p in paths}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=CHECK_THREADS) as threads:
+        kept = list(threads.map(functools.partial(_kept, texture_root=texture_root), memos.values()))
+    jobs = [(p, str(texture_root), None, True, addons) for p, done in zip(memos, kept) if not done]
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_join_capped) as pool:
+        for job, (too_large, textures) in zip(jobs, pool.map(_warm, jobs, chunksize=1)):
+            memos[job[0]]['textures'] = textures
+            if too_large:
+                TOO_LARGE.add(_same(job[0]))
+    stamps.save()
+
+
+def _same(path) -> str:
+    """`path` spelled one way, whatever its slashes and case."""
+    return os.path.normcase(os.path.abspath(str(path)))

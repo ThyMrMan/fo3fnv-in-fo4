@@ -36,7 +36,7 @@ times](#stage-times)); records are still not cached.
 - **One plugin**, `FalloutNV.esp` (438 MB): 694,264 records, all but 19
   its own (the 19 are overrides of Fallout4.esm settings). Largest kinds:
   REFR 301,320, INFO 207,486, DIAL 66,236, CELL 30,109, LAND 29,180, SCEN
-  14,835. Masters: Fallout4.esm, FalloutHelpers.esl, XDI.esm, plus every
+  14,835. Masters: Fallout4.esm, FalloutHelpers.esl, plus every
   plugin the replacement table names (`replacements.extra_masters`,
   `fo4_import/spike/cell.py` `MASTERS`).
 - **FormIDs:** an FNV record made 1:1 keeps FNV's object id (`fnv_id`,
@@ -58,7 +58,7 @@ times](#stage-times)); records are still not cached.
 |---|---|---|---|
 | `FalloutHelpers.esl` | Shared FO3/FNV helpers (actor values, helper quests, globals): as now | Fallout4.esm | Rarely |
 | `FalloutNV - Rules.esl` | Our systems for FNV with no FNV record behind them: the combat rules perk, the player ability, game settings, type keywords, the skill gates perk | Fallout4.esm, FalloutHelpers.esl | A rules change: seconds |
-| `FalloutNV.esm` | The converted game: every FalloutNV.esm record and what is generated from one | the above, XDI.esm | A content change |
+| `FalloutNV.esm` | The converted game: every FalloutNV.esm record and what is generated from one | the above (XDI.esm no longer, since the [menu switch](fo4_dialogue_menu_plan.md#converter-built)) | A content change |
 | `DeadMoney.esm` etc. | One per FNV DLC, its records and its overrides of FalloutNV.esm's | the above, the game plugin | That DLC changes |
 | `FalloutNV - <mod> Patch.esp` | One per replacement source: overrides of our records pointing at that mod's | The game plugin (and DLC), the mod | The user's table changes |
 
@@ -258,6 +258,65 @@ built. The cell argument is the DLC's own interior.
   only game quests answer is not copied, since the copy would hold the game's
   line under its game id. Honest Hearts has 6 such barks (3 Flee →
   FleeResponse, 3 AvoidThreat → AvoidThreatResponse).
+- <a id="dlc-greeting"></a>**A dependent plugin opens the greeting with its
+  own line** (2026-11-10, not yet played). Every talk starts from one silent
+  Greeting line ([greeting scene](fo4_pipeline.md#greeting-scene)), which
+  passes only for the speakers the GREETING lines name. A mod build keyed
+  that line `INFO greeting GREETINGS`, so it took the game's id; its copy
+  named only the mod's speakers, lost the game's conditions, and
+  `drop_unchanged` dropped it. The game's line names only the game's
+  speakers, so a mod's own NPC passed no Greeting line and activating her
+  did nothing (NVWillow's Willow: FalloutNV.esm's line has 814 conditions,
+  none hers; NVWillow.esp held no opener at all). Her GREETING lines did
+  reach the game's greeting scene, under its topic. When the shared
+  `FNV_Greetings` quest is a master's (`cell._opener_home`), the opener now
+  sits in a start-game quest of the plugin's own, `FNV_Greetings_<plugin>`,
+  keyed `GREETINGS <plugin>`, and still starts the game's greeting scene. It
+  is a quest of its own because no Fallout4.esm quest holds two Greeting
+  topics (325 topics, 325 quests). It names only the speakers the game's
+  built opener does not (`conversation.opener_forms`; FalloutNV.esm's names
+  584), so a game NPC a mod adds greetings to (YUP) still opens through the
+  game's line and its force-greet lists; with none left, no opener is
+  written, though the mod's lines still join the scene. Left open: a mod's
+  force greet on a game NPC still opens nothing. The game build's keys are
+  unchanged.
+- <a id="dlc-prompts"></a>**A reworded option in a game menu keeps the
+  game's place.** A menu's options and answers pair by position: the
+  player's topic holds each option and its pads, the speaker's topic its
+  answers in the same order, and the engine tries the answers from the
+  picked option's place on. An option's FormID was keyed by its prompt text,
+  so a plugin rewording a game line's prompt (YUP fixed spacing and case in
+  21 Topic-list options, and reworded a few) wrote a new option, while its
+  answer kept the game's id and place. YUP's plugin added 54 options and 31
+  answers to the Topic list's two topics; every game option after them
+  answered 23 places too far down, missed its line and fell through to the
+  silent `[Leave]` exit. Vulpes Inculta's "I'll do as you ask." ended the
+  scene without his farewell, whose result script ends his force greet, so he
+  greeted again (Papyrus trace, 2026-11-10). Keying the option by the
+  master's prompt (first fix) cut YUP's unbalanced game menus from 124 to 6,
+  but Vulpes's hub still had 34 options to 31 answers: YUP gives two of
+  Jimmy's three "I hear you were a slave of Caesar's Legion." lines
+  (0015697A, a prompt and two pads in the game) a new prompt, "Tell me about
+  yourself.", splitting one option into two, and the second took new ids
+  while its answers sat in the game's pad slots. `Conversations._slot` now
+  keys each option and pad by the game slot of the answer beside it: the
+  master prompt's option or `pad N`, N its line's place among that topic,
+  quest and prompt's master lines (`say_topics.prompt_places`, record
+  order), falling back to the plugin's own text when the slot is taken. A
+  build without masters is unchanged; on the exports the official DLCs move
+  0 lines. The YUP build of 2026-11-10 19:36 has the shared Topic list
+  balanced and 5 menus left (8 extra options), two causes:
+  - **Shared Infos:** a topic borrowing another's lines (00167494, Francine
+    Garret's `[Speech 35]` pair, a copy per quest) keys its copies by text,
+    since `_slot` skips borrowed copies; YUP's single spaces miss the game's
+    double-spaced prompts. `prompt_places` would need the copies, in
+    SharedInfo order after the topic's own lines.
+  - **The mod's ledger shadows the master's:** `derive_formid` takes the
+    plugin's own kept id for a key before a master's, so a key YUP kept from
+    an older build ("It's time for us to part ways. ... pad 4") stays a new
+    record though the game has it. Every mod ledger holds such keys (YUP 572,
+    52 INFO and 35 DLBR among them; most are `FNV gun anims KYWD`, in DLCs
+    too). Taking the master's first is drift in every plugin: not done.
 - <a id="dlc-placed"></a>**Game refs in the DLC's worldspace and cell groups.**
   The cell builder adds worldspaces and cells as pre-built groups
   (`add_raw_group`), which `top_records` and `patch_records` skip, so
@@ -279,6 +338,21 @@ built. The cell argument is the DLC's own interior.
   holds it. Otherwise the key hashes to the DLC's own copy, as `fnv_id` does.
   No shipped id moves: the master never held the record, and a masterless
   build passes no FormID set.
+- <a id="dlc-shadowed-ids"></a>**A master's id wins over the plugin's own kept
+  one** (2026-11-11, the save-break build). `LedgerWriter.derive_formid` took
+  the plugin's own ledger entry for a key before a master's, so a key a
+  plugin kept from a build made before its master held the record stayed the
+  plugin's own copy for good. It now asks the masters first (`from_master`,
+  still only while the built master holds the id) and drops the plugin's own
+  entry for that key. Measured on the deployed ledgers and plugins of
+  2026-11-10, keys that move to the master's record: HonestHearts 28 (26
+  `FNV casino`), DeadMoney 7, GunRunnersArsenal 4, TribalPack 3, LonesomeRoad
+  2, OldWorldBlues 2, CaravanPack 2, ClassicPack 2, MercenaryPack 2; 0 in
+  YUP, NVWillow and every other mod build. FalloutNV.esm has no masters and
+  is unchanged. The earlier estimate (YUP 572) counted keys in both ledgers
+  without the held test: YUP shares 1,847 keys with the game ledger, and the
+  built game holds none of them (1,756 of the game ledger's 1,842
+  `FNV gun anims KYWD` ids are stale).
 - <a id="dlc-poses"></a>**A dead actor on a game base.** A DLC's placed corpse
   can use a game NPC or creature (a dead wastelander, a molerat). Its ragdoll
   pose needs the base's race skeleton, so `ragdoll_pose.Poses` also reads the
@@ -496,9 +570,10 @@ behind the source renumbers it.
 - **Built FO4 masters** (`master_overrides.built_bytes`, behind
   `held_by`, `master_records` and the ragdoll poses' master lookup). The
   build reads the plugins it built earlier (`--plugin-dirs`) the same way.
-  Each built DLC lists Fallout4.esm, FalloutHelpers.esl, XDI.esm and
-  FalloutNV.esm and is `04` itself; a mod on several DLCs lists them after
-  FalloutNV.esm, so Honest Hearts is `05` there. `byte_map` from the build's
+  Each built DLC lists Fallout4.esm, FalloutHelpers.esl and
+  FalloutNV.esm and is `03` itself; a mod on several DLCs lists them after
+  FalloutNV.esm, so Honest Hearts is `04` there (one lower than before
+  XDI.esm left the masters). `byte_map` from the build's
   masters, then `renumbered(..., 'fo4')` with `data/fo4_subrecord_formids.json`
   (the same generator on `wbDefinitionsFO4.pas`, `--game fo4`: 139 records,
   2,191 subrecords, 66 left complex: VMAD, PACK CNAM/PDTO/PTDA/PLDT, NAVM
@@ -582,6 +657,56 @@ FalloutNV.esm ships (12.8 GB against 1.1 GB). Its 6,357 face and body
 textures are unused: FO4 faces come from the CK
 ([facegen plan](fo4_facegen_plan.md#phase-3)).
 
+#### <a id="premultiplied-replacers"></a>Premultiplied replacer textures
+
+**Code:** `fo4_import/base/premultiplied.py`, called from
+`spike/statics.copy_texture`.
+
+NVTUP 2.0 saved its textures premultiplied: color already multiplied by
+alpha, so black wherever alpha is clear. FNV and FO4 both read diffuse color
+as is, so an opaque material shows that black. Doc Mitchell's house
+(`architecture/westside/craftsmanhomea.nif`, no NiAlphaProperty on any
+shape) shows black boards across its siding: `craftsmansiding.dds` keeps an
+alpha mask for alpha-tested ruins, and vanilla has wood under it. Measured
+against vanilla, the NVTUP color divided by vanilla's follows alpha: 0.02 at
+alpha 0, 0.16 below 32, 0.55 at 96 to 160, 0.79 at 160 to 224, 1.0 when
+solid. The `apartmentpre01dcl` decal is the same: 0.00 at alpha 0. An
+alpha-blended decal drawn from premultiplied color gets dark edges.
+
+A texture that replaces one an earlier layer holds (an overlay over the
+export, a plugin over its master; `export_index.replaced_file`) is tested
+against it at the replacer's size. The test uses texels where the replacer's
+alpha is not solid (224 or below) and the replaced color is lit (above 24).
+Over them it asks which is nearer the replacer's mean color: the replaced
+color times alpha (premultiplied), or the replaced color itself (straight).
+The replaced color is first scaled to match where solid. At least 1% of
+texels must qualify. A fixed darkness cutoff missed textures whose clear
+areas are thin lines: there, DXT blocks average the black with the wood next
+to it.
+
+The mend writes `replacer + (1 - alpha) * replaced` (the replaced color
+resampled to the replacer's size). This is exact where alpha is 0 or 1, and
+between them it takes the replaced texture as the true color. Alpha is
+unchanged. `encode_dds` filters color and alpha separately for the mips.
+Pillow's RGBA resize premultiplies, which would put the black back in the
+lower mips. A mend costs about 0.75 s for a 2048 texture, and a kept
+texture's test about 0.07 s, so the overlay runs its texture writes in a
+process pool (`ba2_pack.write_later`). Encoding with separate color and alpha
+filtering changes the code identity of the work-cached maps that use
+`encode_dds` (glow maps, object-LOD atlases, reframed maps), so they are made
+again once.
+
+Census (2026-11-10): NVTUP 2.0 and NVMIM's textures against the six NV
+exports. Of 13,532 that have an alpha channel and replace an exported
+texture, 1,557 test premultiplied. 845 of them are among the 4,641 the built
+FNV and DLC plugins ship, so the overlay converts them. Most are alpha
+cutouts and blended layers: tree and plant leaves, effects, graffiti and
+signs, headgear, ruined walls. Spot checks of flagged textures show the
+color-to-vanilla ratio rising with alpha band by band (about 0.1, 0.3, 0.55,
+0.8, 1.0). The cases that change verdict between rules are DLC Pip-Boy
+icons, whose edges are darker at low alpha and brighter in mid alpha. Either
+verdict leaves them close to vanilla.
+
 ## <a id="mods"></a>Part B: mod patch plugins
 
 Today a replacement (an FO4 mod's gun, creature or outfit standing in for
@@ -620,7 +745,8 @@ anything naming FNV content (the new-game quest names VCG00; the character
 rules quest names FNV's perk list; aim models and projectile copies belong
 to their guns).
 
-An ESL holds 2,048 records in FO4 (object ids 0x800 to 0xFFF); the
+An ESL holds 4,095 records in FO4 (object ids 0x001 to 0xFFF with a master;
+[light plugins](research/fo4_light_plugins.md#rules)); the
 candidates are a few hundred. Build it with the game plugin's build at
 first; the gain is a separate rules-only build of seconds. Measure first
 whether [incremental records](#incremental) already make a rules change a

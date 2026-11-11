@@ -545,13 +545,26 @@ class Equipment:
         See: docs/fork/fo4_tool_audit.md#meshes
         """
         if (model, sex, slots) not in self.worn_paths:
-            if sex not in self.fits:
-                self.fits[sex] = headgear.head_fit(self.builder.export_dir, sex)
             path, static = self._static(model)
             out = f'{path[:-len(".nif")]}_worn{"".join(f"_{s}" for s in slots)}{_sex_suffix(sex)}.nif'
-            write_new(self.builder.data_dir / 'Meshes' / out, headgear.worn(static, self.fits[sex], slots, frame))
+            write_new(self.builder.data_dir / 'Meshes' / out, headgear.worn(static, self._fit(sex), slots, frame))
             self.worn_paths[model, sex, slots] = out
         return self.worn_paths[model, sex, slots]
+
+    def _fit(self, sex: str) -> headgear.HeadFit:
+        """headgear.head_fit() of `sex`, made once."""
+        if sex not in self.fits:
+            self.fits[sex] = headgear.head_fit(self.builder.export_dir, sex)
+        return self.fits[sex]
+
+    def head_worn(self, model: str, sex: str, slots: tuple) -> 'tuple | None':
+        """(static path under Meshes, headgear.worn() bytes, unwritten) of FNV `model` on `sex`'s head in `slots`;
+        None when it is not drawn on the head (_on_head)."""
+        on, frame = self._on_head(model, sex)
+        if not on:
+            return None
+        path, static = self._static(model)
+        return path, headgear.worn(static, self._fit(sex), slots, frame)
 
     def _outfit(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
         """{sig: body} putting FNV outfit `rec` (upper body, skinned) on its own meshes moved onto FO4's body

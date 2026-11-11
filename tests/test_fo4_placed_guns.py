@@ -3,6 +3,8 @@
 See: docs/fork/fo4_spikes.md#placed-guns
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 
 from fo4_import.nif import gun
@@ -34,3 +36,16 @@ def test_an_fo4_model_gun_takes_fo4_axes_and_no_offset():
     plain = guns.turn(0x9999)
     assert np.array_equal(plain[:3, :3], gun.AXES) and not plain[3, :3].any()
     assert guns.turn(0x1234)[0, 0] == 2.0
+
+
+def test_a_gun_part_under_a_child_node_is_found_in_the_guns_frame():
+    """_fnv_parts finds a shape under a nested node, moved by that node; a mesh with no shapes lays out as None."""
+    node = {'rotation': (1, 0, 0, 0, 1, 0, 0, 0, 1), 'scale': 2.0, 'translation': (0, 0, 5), 'children': [2]}
+    shape = {'name': 0, 'rotation': (1, 0, 0, 0, 1, 0, 0, 0, 1), 'scale': 1.0, 'translation': (0, 0, 0),
+             'vertices': [{'position': (1, 0, 0)}]}
+    root = {'rotation': (1, 0, 0, 0, 1, 0, 0, 0, 1), 'scale': 1.0, 'translation': (0, 0, 0), 'children': [1]}
+    src = SimpleNamespace(strings=['Rock'], blocks=[('NiNode', root), ('NiNode', node), ('BSTriShape', shape)])
+    name, points = gun._fnv_parts(src, np.eye(3))[2]
+    assert name == 'Rock' and points.tolist() == [[2.0, 0.0, 5.0]]
+    src.blocks[1][1]['children'] = []
+    assert gun._fnv_parts(src) == {}

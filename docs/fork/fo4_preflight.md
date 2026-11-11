@@ -228,6 +228,12 @@ flags what is its master's (each a finding with samples):
   no `*.files.txt` beside the plugin names and that predates the build's
   start. Newer unlisted files are a review (`unlisted`): the build made them
   but no later build prunes them.
+- `unpaired-menus`: a master menu (a Player Dialogue action's PTOP and NPOT
+  topics) given unequal numbers of the plugin's own INFOs. Options and answers
+  pair by position, so every option after the extra ones answers wrong
+  ([dlc-prompts](fo4_plugin_layout.md#dlc-prompts)). On the YUP build of
+  2026-11-10 it flagged 124 menus (284 extra options), among them Vulpes's
+  hub (54 options, 31 answers); Goodies 2, ExtraGoodies 0.
 
 ## <a id="script-properties"></a>Script properties
 

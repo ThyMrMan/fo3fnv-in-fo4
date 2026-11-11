@@ -34,6 +34,7 @@ from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import Layered, export_masters, export_records, master_records, own_records
 from script_convert.constants import papyrus_script_name
+from fo4_import.spike.script import prefix
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 
 #: FNV DIAL type of the topics scripts Say: Conversation; of player topics (Topic).
@@ -52,7 +53,6 @@ SAY_ONCE = 0x04
 PART, PARTS = '_part', '_parts'
 #: Key of a shared info's copy naming the topic that borrows it (conversation.shared_lines).
 SHARED = '_shared'
-FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
 #: CTDA operator bits: the comparison, OR with the next, use a global as the value.
 COMPARE, OR = 0xE0, 0x01
 #: The FNV command opening a vendor's barter menu (lower case).
@@ -61,7 +61,6 @@ BARTER = 'showbartermenu'
 QUEST_VARIABLE, VM_QUEST_VARIABLE = 'GetQuestVariable', 'GetVMQuestVariable'
 #: FNV GetScriptVariable (reference, variable) and FO4's GetVMScriptVariable (run on it; CIS1 script, CIS2 variable).
 SCRIPT_VARIABLE, VM_SCRIPT_VARIABLE = 'GetScriptVariable', 'GetVMScriptVariable'
-SCRIPT_PREFIX = 'FALLOUTNV_'
 #: FO4 has no objective condition; an objective test reads its mirror global (objectives_falloutnv).
 GLOBAL_VALUE = 'GetGlobalValue'
 #: FNV base types a script runs on when placed (SCRI), for GetScriptVariable on their references.
@@ -88,15 +87,21 @@ def free_said(scripts_dir) -> set:
             for m in SAY_FREE.finditer(path.read_text(encoding='utf-8', errors='replace'))}
 
 
-def dlc_lines(export_dir) -> 'frozenset | None':
+def masters_own(export_dir, sig: str) -> dict:
+    """{FormID (upper): record} of type `sig` in the masters, the last winning."""
+    return {r['FormID'].upper(): r for folder in export_masters(str(export_dir))
+            for r in master_records(str(export_dir), folder, sig)}
+
+
+def dlc_lines(export_dir, theirs: 'dict | None' = None) -> 'frozenset | None':
     """FormIDs (upper case) of the INFOs a plugin with masters (a DLC) holds that are its lines: its own, and its
-    overrides changing a master's line beyond its place in the topic (PNAM); None for a plugin without masters.
+    overrides changing a master's line (`theirs`, masters_own when None) beyond its place in the topic (PNAM);
+    None for a plugin without masters.
     See: docs/fork/fo4_plugin_layout.md#dlc-dialogue
     """
-    masters = export_masters(str(export_dir))
-    if not masters:
+    if not export_masters(str(export_dir)):
         return None
-    theirs = {r['FormID'].upper(): r for folder in masters for r in master_records(str(export_dir), folder, 'INFO')}
+    theirs = masters_own(export_dir, 'INFO') if theirs is None else theirs
     return frozenset(r['FormID'].upper() for r in own_records(export_dir, 'INFO')
                      if r['FormID'].upper() not in theirs or _unordered(r) != _unordered(theirs[r['FormID'].upper()]))
 
@@ -136,10 +141,11 @@ class SayTopics:
 
     def __init__(self, builder, export_dir: Path):
         """Index FNV topics and lines (a DLC's: only dlc_lines, its masters' kept apart in `outside`), each line
-        carrying its quest's dialogue conditions (with_quest); topics are written through `builder` (its
-        script_vars() names)."""
+        carrying its quest's dialogue conditions (with_quest), their Say Once stages reserved; topics are written
+        through `builder` (its script_vars() names). `links` [(option INFO, answer topic)] and `checks` [(answer
+        INFO, FO4 actor value, number needed)] are the menus' links file rows (fo4_import.dialogue_menu)."""
         self.builder, self.voiced, self.once = builder, [], SayOnce(builder.writer)
-        self.silent, self.outside = [], []
+        self.silent, self.outside, self.links, self.checks = [], [], [], []
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
         self.infos, own, by_id = {}, dlc_lines(export_dir), {}
@@ -150,6 +156,7 @@ class SayTopics:
             quest = rec.get('QSTI.Quest', '').upper()
             by_id[rec['FormID'].upper()] = line = with_quest(rec, quests.get(quest, []))
             self.infos.setdefault(quest, []).append(line)
+        self.once.reserve(fid for fid, rec in by_id.items() if int(rec.get('DATA.Flags', 0) or 0) & SAY_ONCE)
         self.engine = {**ENGINE_TOPICS, **named_barks(self.dials)}
         self.replies = replies(self.dials, export_records(export_dir, 'INFO'), self.engine)
         self.script_vars = builder.script_vars
@@ -201,7 +208,7 @@ class SayTopics:
     def _vmad(self, rec: dict, first: bool, last: bool, marked: list) -> bytes:
         """FNV line `rec`'s VMAD: the `marked` helper scripts (its Say Once marker), then its
         converted fragments (Begin on its first part, End on its last); b'' with neither."""
-        scripts, name = self.builder.scripts, f'{FRAGMENT_PREFIX}{rec["FormID"].upper()}'
+        scripts, name = self.builder.scripts, f'{prefix("TIF__")}{rec["FormID"].upper()}'
         scripts.used += [s[0] for s in marked if s[0] not in scripts.used]
         if scripts.dir and (scripts.dir / f'{name}.psc').exists() and (first or last):
             scripts.used.append(name)
@@ -210,14 +217,14 @@ class SayTopics:
         return object_scripts(marked) if marked else b''
 
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
-             target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '', helpers: tuple = ()) -> bytes:
+             target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '', helpers: tuple = (),
+             prompt: str = '', forced: 'int | None' = None) -> bytes:
         """One FNV line as an FO4 INFO of quest `owner`; b'' when a condition cannot convert.
 
-        `scene` is (scene, phase) the line starts; `flags` ENAM flags beside Say Once (say_once marks it);
-        `helpers` more scripts [(script, object props, value props)] on its first part;
-        `extra` CTDAs join its conditions, Target tests on alias `target`; `speaker` its NPC; `place` names
-        this copy (quest, step) for its FormID. A split line's later parts have no conditions or Say Once;
-        the first runs the Begin fragment, the last the End one; the part opening barter ends the scene.
+        `scene` (scene, phase) it starts, its speaker forced into alias `forced`; `flags` beside Say Once;
+        `helpers` more scripts on its first part; `extra` CTDAs join its conditions, Target tests on alias
+        `target`; `speaker` its NPC; `place` names this copy for its FormID; `prompt` its menu prompt. A split
+        line's later parts have no conditions or Say Once; the part opening barter ends the scene.
         """
         first, last = rec.get(PART, 1) == 1, rec.get(PART, 1) == rec.get(PARTS, 1)
         conditions = conditions_of(rec, form_map, self.script_vars, target=target) if first else b''
@@ -242,7 +249,7 @@ class SayTopics:
         return R.pack_info(fid, flags, tuple(lines) or (R.SILENT_LINE,), conditions + extra, scene=scene[0], phase=scene[1],
                            phase_index=scene[2] if len(scene) > 2 else 0, stages=(R.NO_STAGE, R.NO_STAGE),
                            notes=f'FNV {rec["FormID"]}', vmad=vmad, idles=self.builder.idles.line(rec),
-                           speaker=speaker)
+                           speaker=speaker, prompt=prompt, forced_alias=forced)
 
 
 def actor_values(helper_index: int) -> dict:
@@ -264,7 +271,7 @@ def script_vars(export_dir: Path) -> dict:
         while f'Variable[{i}].Index' in rec:
             names[int(rec[f'Variable[{i}].Index'])] = rec[f'Variable[{i}].Name']
             i += 1
-        scripts[rec['FormID'].upper()] = (papyrus_script_name(rec.get('EditorID', ''), SCRIPT_PREFIX), names)
+        scripts[rec['FormID'].upper()] = (papyrus_script_name(rec.get('EditorID', ''), prefix()), names)
     bases = {r['FormID'].upper(): r['SCRI'].upper() for sig in SCRIPTED_BASES for r in export_records(export_dir, sig)
              if r.get('SCRI')}
     out = {int(q['FormID'], 16): scripts.get(q.get('SCRI', '').upper(), ('', {}))

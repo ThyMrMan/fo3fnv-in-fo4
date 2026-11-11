@@ -102,14 +102,6 @@ void ShotResist(void *hit, bool flag) {
     t_pellets = 1.0f;
 }
 
-// Whether the call at `site` still calls `target`.
-bool Calls(uintptr_t site, uintptr_t target) {
-    auto *call = reinterpret_cast<const UInt8 *>(site);
-    SInt32 rel;
-    std::memcpy(&rel, call + 1, sizeof(rel));
-    return call[0] == 0xE8 && site + 5 + rel == target;
-}
-
 // A stub at a resistance-curve call: `load` (the target into r9), then jump to FalloutDamage.
 uintptr_t Stub(const UInt8 *load, size_t size) {
     auto *code = static_cast<UInt8 *>(g_branchTrampoline.Allocate(size + 12));
@@ -124,7 +116,7 @@ uintptr_t Stub(const UInt8 *load, size_t size) {
 
 // Point the call at `site` to a stub loading the target with `load`, when it still calls the resistance curve.
 bool Patch(uintptr_t site, const UInt8 *load, size_t size) {
-    if (!Calls(site, ResistCurve.GetUIntPtr())) return false;
+    if (!CallsTarget(site, ResistCurve.GetUIntPtr())) return false;
     uintptr_t stub = Stub(load, size);
     return stub && g_branchTrampoline.Write5Call(site, stub);
 }
@@ -139,11 +131,18 @@ void SetRules(StaticFunctionTag *, float minDamage, float maxResist, ActorValueI
 
 }  // namespace
 
+bool CallsTarget(uintptr_t site, uintptr_t target) {
+    auto *call = reinterpret_cast<const UInt8 *>(site);
+    SInt32 rel;
+    std::memcpy(&rel, call + 1, sizeof(rel));
+    return call[0] == 0xE8 && site + 5 + rel == target;
+}
+
 bool HookDamage() {
     bool physical = Patch(PHYSICAL_CALL.GetUIntPtr(), PHYSICAL_TARGET, sizeof(PHYSICAL_TARGET));
     bool typed = Patch(TYPED_CALL.GetUIntPtr(), TYPED_TARGET, sizeof(TYPED_TARGET));
     uintptr_t shotTyped = SHOT_TYPED_CALL.GetUIntPtr(), shotResist = SHOT_RESIST_CALL.GetUIntPtr();
-    bool pellets = Calls(shotTyped, HitTyped.GetUIntPtr()) && Calls(shotResist, HitResist.GetUIntPtr()) &&
+    bool pellets = CallsTarget(shotTyped, HitTyped.GetUIntPtr()) && CallsTarget(shotResist, HitResist.GetUIntPtr()) &&
                    g_branchTrampoline.Write5Call(shotTyped, uintptr_t(ShotTyped)) &&
                    g_branchTrampoline.Write5Call(shotResist, uintptr_t(ShotResist));
     _MESSAGE("damage threshold: physical %s, typed %s, pellets %s", physical ? "hooked" : "not hooked",

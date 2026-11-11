@@ -247,6 +247,42 @@ materials are read when a cell loads.
      and every Fill, Amb and Kicker light, keep FNV's shadowless light as
      vanilla's fills are. Colour, radius, position and fade stay FNV's.
      New records only; no existing FormID moves.
+   - <a id="light-near-clip"></a>**Fixtures shadowing their own light
+     (found 2026-11-11, Doc Mitchell's ceiling; built, not played).** A
+     shadow light renders the meshes around it into a depth map: every
+     shape whose shader casts shadows, from the light's point, beyond the
+     light's near clip. FNV placed lights freely since none cast, so many
+     sit inside their fixture: Doc's Key light (`00103E6E`) is 75 units
+     under `LamplightChandelier`'s ceiling plate, 1.2 units from its
+     center body and 5.7 from its arms; the three globes are 27 to 35 away.
+     With the copy's near clip of 7.217, the arms and globes were drawn
+     into the shadow map from close range and thrown across the ceiling
+     several times their size: the blades are the arms, the far polygons
+     the low-poly globes.
+     - **Vanilla (Fallout4.esm, census 2026-11-11):** placed shadow
+       lights take the base light's near clip: omni 7.2 (180 placed), 64
+       (145), 32 (48); spot 64 (425) and 128 (260); 64 is the commonest
+       overall. At fixtures it is the fix for this: cage bulbs with the
+       light inside 64, oil lamps with the light 50–75 above the lamp
+       64, spots inside ceiling lamps 64. The reference's own near clip
+       (XLIG) is almost never set on an omni (2 of ~400). Vanilla's bulb
+       shapes (LightbulbInside01Alpha, CageBulb01AlphaEmit) also cast
+       nothing, NIF flag and BGSM alike, but glowing tubes and lit glass
+       do cast (25 of 52 glow shapes), so "glows" is no rule.
+     - **Ours:** every effect-shader shape already casts nothing (3,751
+       in the deployed build) and hidden shapes are not converted; the
+       meshes were never the cause.
+     - **Built:** the `_Shadow` copy's near clip is 64
+       (`light_roles.NEAR_CLIP`). Every one of FNV's 75 Key lights has a
+       radius of 100 or more (the CK wiki: a near clip past the radius
+       hides the light). 697 placements in FalloutNV.esm's 201 cells
+       change; 6 have a reference radius (base plus XRDS) under 64.
+       Things within 64 units of a Key light stop casting from it.
+     - **Not done:** vanilla gives each shadow reference a depth bias
+       (XLIG; all 1,106 that have XLIG, omni commonest 2.0); we write no
+       XLIG. Doc's globes have FNV emissive white but convert with
+       emissive black, so the globe outside the flicker sequence stays
+       dark.
    - **Later, separately:** a small non-shadow light at glowing objects
      with no light of their own (vending machines, neon signs; Fallout 34
      does the machines by hand), and FO4's fire add-on effects for FNV's

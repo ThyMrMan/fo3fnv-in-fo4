@@ -1498,7 +1498,9 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
 - **The body.** Each FNV NPC base becomes a copy of a vanilla NPC for its
   race and sex (the replacement table's `_rules.body`: DocWeathers, DoctorAmari, the ghouls Jones and
   Holly), keeping that NPC's class (its outfit and voice are replaced: below
-  and [voice types](#voice-types)). FNV's name,
+  and [voice types](#voice-types)). A copy with a fitted face drops the
+  body's face fields, its face texture set included (DoctorAmari's is old
+  skin; [body skin](fo4_facegen_plan.md#body-skin)). FNV's name,
   factions (SNAM with rank, through the converted factions), AI packages
   and script replace the copy's; its factions and crime faction are left
   out.
@@ -4108,9 +4110,14 @@ growing today's 11,302 hashed ids tenfold moved 34–70 of them.
     the topic's slot;
   - the greeting scene, when force-greet topics join it: labelled
     `greeting` instead of its list of lines, which grows with content.
-- **Kept numbers.** An objective target's alias id is the lowest free one
-  from the first target alias, kept per quest; a Say Once line's marker
-  stage is its hash moved up past the stages already given or kept.
+- **Kept numbers.** A Say Once line's marker stage is its hash moved up
+  past the stages already given or kept. An objective target's alias id is
+  no longer kept: it is the first target alias plus the target's place among
+  the quest's authored targets ([F4](fo4_tool_audit.md#formids-fixed)).
+- **Saved before the plugin.** The ledger is written just before the
+  plugin, so no written plugin holds an id its ledger lacks.
+- **A master's id wins** over the plugin's own kept one
+  ([shadowed ids](fo4_plugin_layout.md#dlc-shadowed-ids)).
 - **What still counts.** `FormIDs from a counted key` in a build's counts is
   how many generated records still take a count-based key.
 
@@ -4166,6 +4173,9 @@ trail: `##r`, `##ri`, `##rio`...). FNV loads them; pyffi refuses them
 (`Not a NIF file`, `string index too large`). Every FNV NIF and KF read
 goes through `nif/fnv_file.read`, which starts at the last format name in
 the header line and reads a string index past the table as an empty name.
+It reads with our own reader (`nif/fnv_reader`), and with pyffi only a file
+of another version or with a block ours could not read
+([fnv_nif_reader](research/fnv_nif_reader.md#integration)).
 
 ## <a id="water-heights"></a>Water heights (built 2026-10-17)
 
@@ -5925,7 +5935,8 @@ the files unchanged since, in contiguous blocks, out of the previous
 archive, reading only the rest from disk, 16 at a time. Measured: a first
 pack from cold files 607 s (opening 248,028 files dominates); a pack with
 nothing changed is skipped after listing the files (21 s). The texture
-archive stays on Archive2 (DX10 chunking), and was not a measured cost.
+archive is ours too since 2026-11-11 (`base/ba2_textures`,
+[why and the check against Archive2](fo4_ck_replacements.md#ba2)).
 
 <a id="main-archive"></a>**Meshes and materials join the sounds in the Main
 BA2 (2026-11-09, built, not played).** The deployed mod still held 63,500
@@ -6472,6 +6483,19 @@ its free-standing post vanished from some angles. The grime shells only blend
 (0x10ED, no test, all three measured meshes); alpha test marks cut-out
 geometry. `overlay_layers` now passes over a tested shape, which converts
 as before the rule: an alpha-tested BGSM (`mobilehome02nv_a12ec_100`).
+
+*Bounded memory (2026-11-11).* The distance test (`nif/surface_gaps.py`)
+once took 256 layer points against every opaque triangle at once. On The
+Frontier's space station (677,436 triangles) one temporary was 3.88 GiB.
+Now groups of at most 256 nearby points are tested only against the
+triangles whose box, grown by the 4-unit gap, reaches the group. Pairs go
+2^18 at a time, so each temporary is 6 MB. A triangle counts for a point
+whose projection lies inside it with every barycentric coordinate at least
+-1e-6 over its doubled area. Such a projection lies inside the triangle
+scaled by 1 + 3 × that about its centre, so the box can't drop a point that
+counts. Measured identical to the old test: 30 random soups (slivers
+included), and 96 real layers in 68 meshes (16,505 near points); all 225
+sampled statics are byte-identical.
 
 <a id="wall-lean"></a>**Wall leans face the wall (built 2026-10-24, not yet played).** NPCs
 leaned on air facing the wall (Freeside, 001381D2 and others). All 352

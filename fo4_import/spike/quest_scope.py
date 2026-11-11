@@ -33,11 +33,9 @@ from fo4_import.spike.items import ITEM_TYPES
 from fo4_import.spike.npcs import USE_FACTIONS, USE_INVENTORY, USE_TRAITS
 from fo4_import.spike.records import RUN_SUBJECT
 from fo4_import.spike.say_topics import CONVERSATION, GREETING, TOPIC_TYPE, raws
-from fo4_import.spike.script import FRAGMENT_PREFIX, PACKAGE_PREFIX, QUEST_PREFIX, declared_properties
+from fo4_import.spike.script import FRAGMENT, PACKAGE, QUEST, declared_properties, prefix
 from script_convert.constants import papyrus_script_name
 
-#: Converted script name prefix of an FNV script (attach.SCRIPT_PREFIX).
-SCRIPT_PREFIX = 'FALLOUTNV_'
 #: FNV records that hold others (_holds): actors, containers, leveled lists.
 HOLDERS = ('NPC_', 'CREA', 'CONT', 'LVLI', 'LVLN', 'LVLC')
 #: Export keys of a held FormID: an inventory item, a leveled entry.
@@ -53,7 +51,7 @@ IN_LIST = 'IsInList'
 #: FNV leveled actor lists: a placed actor or template naming one may be any of its entries.
 LEVELED_ACTORS = ('LVLN', 'LVLC')
 #: A converted call starting or advancing a quest, or writing its variable (TES4Add_<variable>, assignment).
-STARTS = re.compile(r'\b(?:TES4Start|TES4SetStage|StartForObjective)\(\s*\(?(\w+)'
+STARTS = re.compile(r'\b(?:TES4Start|TES4SetStage|StartForObjective|TES4Polyfill\.SetStage)\(\s*\(?(\w+)'
                     r'|\b(\w+)\.(?:SetStage\(|Start\(|TES4Add_\w+\(|\w+\s*=(?!=))')
 
 
@@ -191,21 +189,21 @@ class QuestScope:
         out = self._script(rec.get('SCRI'))[0]
         for i in range(int(rec.get('AIPackageCount', 0) or 0)):
             pack = int(rec[f'AIPackage[{i}]'], 16)
-            out |= self._file(f'{PACKAGE_PREFIX}{pack:08X}')[0] | (_params(self.packs.get(pack, {})) & self.quests.keys())
+            out |= self._file(f'{prefix(PACKAGE)}{pack:08X}')[0] | (_params(self.packs.get(pack, {})) & self.quests.keys())
         return out
 
     def _starts(self, quest: dict) -> set:
         """Quests an FNV quest's scripts start, set a stage on or write a variable of: quest script, stage results,
         lines' results."""
-        out = self._script(quest.get('SCRI'))[1] | self._file(f'{QUEST_PREFIX}{quest["EditorID"]}')[1]
+        out = self._script(quest.get('SCRI'))[1] | self._file(f'{prefix(QUEST)}{quest["EditorID"]}')[1]
         for line in self.lines[int(quest['FormID'], 16)]:
-            out |= self._file(f'{FRAGMENT_PREFIX}{line["FormID"].upper()}')[1]
+            out |= self._file(f'{prefix(FRAGMENT)}{line["FormID"].upper()}')[1]
         return out
 
     def _script(self, scri: 'str | None') -> tuple:
         """_file() of the converted FNV script `scri` (FormID hex)."""
         name = self.scripts.get(int(scri, 16), '') if scri else ''
-        return self._file(papyrus_script_name(name, SCRIPT_PREFIX)) if name else (set(), set())
+        return self._file(papyrus_script_name(name, prefix())) if name else (set(), set())
 
     def _file(self, script: str) -> tuple:
         """(quests a converted script's properties name, quests it starts, sets a stage on or writes a variable of),

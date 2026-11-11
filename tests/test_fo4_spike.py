@@ -1222,9 +1222,9 @@ def test_quest_scope_counts_writes_to_a_quests_variables():
     """A script starting, advancing, adding to or setting a quest's variable pulls the quest in; a read or a
     comparison does not (VCG01's psych test answers tally in VCG01Test)."""
     text = ('VCG01Test.TES4Add_nBarter((2))\nVMS01.LookingForStealthBoys = 1\nTES4SetStage(VCG02, 10)\n'
-            'VDoctors.Start()\nIf Generic.Cost == 3\nx = VFreeformNellis.State\n')
+            'VDoctors.Start()\nIf Generic.Cost == 3\nx = VFreeformNellis.State\nTES4Polyfill.SetStage(CG03Test, 9)\n')
     found = {n for m in QS.STARTS.finditer(text) for n in m.groups() if n}
-    assert found == {'VCG01Test', 'VMS01', 'VCG02', 'VDoctors'}
+    assert found == {'VCG01Test', 'VMS01', 'VCG02', 'VDoctors', 'CG03Test'}
 
 
 def test_quest_scope_follows_speaker_tests_to_placed_actors():
@@ -1610,3 +1610,14 @@ def test_a_reference_whose_enable_parent_is_not_built_starts_as_the_parent_leave
     assert PL.starts_disabled({'FormID': '00001000', 'RecordFlags': '0'}, {})
     assert not PL.starts_disabled({'FormID': '00001001', 'RecordFlags': '0'}, {})
     assert not PL.starts_disabled({'FormID': '00001000', 'RecordFlags': '0'}, {'00002000': 0x123})
+
+
+def test_a_receiver_of_a_station_past_the_free_frequencies_stays_a_plain_activator():
+    """With more placed Pip-Boy stations than FREQUENCIES, a receiver naming the last one gets no RADR."""
+    from fo4_import.spike import radio as RA
+    radio = RA.Radio.__new__(RA.Radio)
+    count = len(RA.FREQUENCIES) + 1
+    radio.builder, radio.refs = SimpleNamespace(counts=Counter()), {i: ['r'] for i in range(count)}
+    radio.stations = {i: {'RecordFlags': str(RA.RADIO_STATION)} for i in range(count)}
+    radio.stations_of = {100: count - 1, 101: 0}
+    assert radio.receiver(100) == b'' and radio.receiver(101) != b''

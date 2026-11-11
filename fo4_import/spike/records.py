@@ -6,7 +6,6 @@ are copied from vanilla Fallout4.esm records named in each docstring.
 See: docs/fork/fo4_spikes.md#spike-1
 """
 
-import html
 import re
 import struct
 
@@ -153,9 +152,8 @@ def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b
               vmad: bytes = b'', idles: tuple = (), speaker: int = 0) -> bytes:
     """An INFO in vanilla's field order (DialogueDiamondCity 00199516).
 
-    lines: response texts (none: padding), shown(), HTML-escaped with the prompt
-    on a player line (XDI lists them as HTML: `<Say nothing.>` vanished); stages are the
-    quest stages set on begin and on end (TIQS); scene/phase start a scene,
+    lines: response texts (none: padding), shown(), as plain text as the prompt;
+    stages are the quest stages set on begin and on end (TIQS); scene/phase start a scene,
     at phase_index (INTV, which the engine reads, not the NAM0 name);
     forced_alias (ALFA) puts the speaker into that alias; vmad is its fragments;
     idles: per response (speaker, listener) idle (SNAM, LNAM); speaker (ANAM)
@@ -164,13 +162,12 @@ def pack_info(fid: int, flags: int = 0, lines: tuple = (), conditions: bytes = b
     subs = (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_subrecord('ENAM', struct.pack('<HH', flags, 0))
     for number, text in enumerate(lines, 1):
         subs += pack_subrecord('TRDA', struct.pack('<iBIBHii', -1, number, 0, 1, 0, -1, -1))
-        said = html.escape(shown(text), quote=False) if prompt else shown(text)
-        subs += _zstr('NAM1', said) + _zstr('NAM2', notes) + _zstr('NAM3', '') + _zstr('NAM4', '')
+        subs += _zstr('NAM1', shown(text)) + _zstr('NAM2', notes) + _zstr('NAM3', '') + _zstr('NAM4', '')
         said, heard = idles[number - 1] if number <= len(idles) else (0, 0)
         subs += (pack_u32('SNAM', said) if said else b'') + (pack_u32('LNAM', heard) if heard else b'')
     subs += conditions
     if prompt:
-        subs += _zstr('RNAM', html.escape(shown(prompt), quote=False))
+        subs += _zstr('RNAM', shown(prompt))
     if scene:
         subs += pack_u32('TSCE', scene) + (_s32('INTV', phase_index) if phase_index else b'')
     if forced_alias is not None:
@@ -512,6 +509,11 @@ def packages_edit(packages: list):
                 out += pack_subrecord(tag.decode(), data) + (ours if tag == b'AIDT' else b'')
         return out
     return edit
+
+
+def with_face(txst: int):
+    """with_sub() naming face texture set `txst` (FTST) before QNAM, as vanilla."""
+    return with_sub(b'FTST', struct.pack('<I', txst), (b'QNAM',))
 
 
 def with_sub(tag: bytes, payload: bytes, before: tuple):

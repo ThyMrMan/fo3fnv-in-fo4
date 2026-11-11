@@ -97,7 +97,7 @@ class Music:
         self.markers = {}
         for rec, stack in source_walk(b'REFR'):
             subs = dict(subrecords(rec.body))
-            if b'MMRK' in subs and struct.unpack('<I', subs[b'NAME'])[0] == AUDIO_MARKER:
+            if b'MMRK' in subs and b'CNAM' in subs and struct.unpack('<I', subs[b'NAME'])[0] == AUDIO_MARKER:
                 x, y = struct.unpack_from('<2f', subs[b'DATA'])
                 radius = struct.unpack('<f', subs[b'XRDS'])[0] if b'XRDS' in subs else 0.0
                 self.markers.setdefault(_cell_of(stack), []).append(

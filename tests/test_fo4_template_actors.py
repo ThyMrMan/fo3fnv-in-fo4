@@ -453,9 +453,9 @@ def test_an_fnv_creatures_skin_shows_fo4s_head_over_fo4s_body_and_is_written_onc
 
 def test_with_face_puts_ftst_before_qnam():
     """with_face sets FTST once, right before QNAM, as vanilla's super mutants have it."""
-    from fo4_import.spike import creatures as CR
+    from fo4_import.spike import records
     subs = pack_subrecord('DPLT', bytes(4)) + pack_subrecord('FTST', bytes(4)) + pack_subrecord('QNAM', bytes(16))
-    out = CR.with_face(0x0300_5555)(subs)
+    out = records.with_face(0x0300_5555)(subs)
     assert [t for t, _ in subrecords(out)] == [b'DPLT', b'FTST', b'QNAM']
     assert dict(subrecords(out))[b'FTST'] == struct.pack('<I', 0x0300_5555)
 

@@ -38,6 +38,10 @@ TEXCONV = FALLOUT4_DIR / 'Tools' / 'Elric' / 'texconv.exe'
 FACE_FORMAT = 'BC3_UNORM'
 #: Vanilla FaceCustomization textures by suffix -> (format, size), all with full mips (Fallout4.esm's 3 x 1,096).
 VANILLA_FACE = {'d': ('BC1_UNORM', 1024), 'msn': ('BC1_UNORM', 1024), 's': ('BC5_UNORM', 512)}
+#: texconv's names of the DXGI formats vanilla texture sets use, and the DXGI format of a legacy four-CC DDS.
+DXGI_NAMES = {28: 'R8G8B8A8_UNORM', 71: 'BC1_UNORM', 74: 'BC2_UNORM', 77: 'BC3_UNORM', 80: 'BC4_UNORM',
+              83: 'BC5_UNORM', 98: 'BC7_UNORM'}
+LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77}
 #: Texels the new colour is carried past each UV island's edge, so filtering and compression do not bleed FO4's in.
 ISLAND_PADDING = 8
 
@@ -63,9 +67,15 @@ def _resized(image: np.ndarray, shape: tuple) -> np.ndarray:
         (shape[1], shape[0]), Image.BILINEAR)) for c in range(image.shape[2])], 2)
 
 
+def rgb(path: Path, shape: tuple = None) -> np.ndarray:
+    """An image as float RGB, bilinearly resized to `shape` (rows, cols) if given."""
+    image = Image.open(path).convert('RGB')
+    return np.asarray(image if shape is None else image.resize((shape[1], shape[0]), Image.BILINEAR), float)
+
+
 def fnv_texture(base_path: Path, egt_path: Path, fgts: np.ndarray) -> tuple:
     """(race head texture, the NPC's colour offset at its size: zero for a head with no .egt), both float RGB."""
-    base = np.asarray(Image.open(base_path).convert('RGB'), float)
+    base = rgb(base_path)
     if not egt_path.is_file():
         return base, np.zeros(base.shape)
     return base, _resized(egt_offset(egt_path.read_bytes(), fgts), base.shape[:2])
@@ -123,37 +133,53 @@ def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple) -> tuple:
     _, idx = cKDTree(fnv_surface[0]).query(s * where @ r.T + t)
     _, owner, bary = fnv_surface
     fnv_uv = (bary[idx][:, :, None] * fnv_uvs[triangles[owner[idx]]]).sum(1)
+    return rows, cols, fnv_uv, island_padding(rows, cols, shape)
+
+
+def island_padding(rows: np.ndarray, cols: np.ndarray, shape: tuple) -> tuple:
+    """((rows, columns) within ISLAND_PADDING outside texels `rows`, `cols` of a `shape` image, (rows, columns)
+    of the texel each copies)."""
     filled = np.zeros(shape, bool)
     filled[rows, cols] = True
     dist, (near_r, near_c) = distance_transform_edt(~filled, return_indices=True)
     pad = (dist > 0) & (dist <= ISLAND_PADDING)
-    return rows, cols, fnv_uv, (np.nonzero(pad), (near_r[pad], near_c[pad]))
+    return np.nonzero(pad), (near_r[pad], near_c[pad])
 
 
 def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
     """(FO4's face texture `fo4_image` (RGB or RGBA, any size) as floats with `variant`'s FNV colour on its face
     texels, the skin tone scale it needs, texel_map's padding).
 
-    The game tints the face by the NPC's skin tone at runtime (the CK's face
-    texture does not change with it), so the colour's overall shift goes into
-    the tone: the texture is scaled back, per channel, to FO4's median over
-    the face, and the scale returned multiplies the tone.
-    pieces = (race texture, NPC offset).
+    The game tints face and body by the skin tone, so the FaceGen colour's
+    overall shift goes into it: the texture is scaled back per channel to
+    FO4's median over the face. Both add the race's own skin after (FNV
+    draws it on the face only).
+    pieces = (stock skin, FaceGen offset, race skin minus stock or None).
+    See: docs/fork/fo4_facegen_plan.md#race-skin
     """
-    base, offset = pieces
-    source = offset if variant == 'T1' else base + offset
+    base, offset, skin = pieces
     rows, cols, fnv_uv, edge = texel_map(fo4, (fnv.mean, fnv.triangles, fnv.uvs), fo4_image.shape[:2])
     out = fo4_image.astype(float)
     fo4_median = np.median(out[rows, cols, :3], 0)
-    out[rows, cols, :3] = bilinear(source, fnv_uv) + (out[rows, cols, :3] if variant == 'T1' else 0.0)
+    whole = None if variant == 'T1' else base + offset
+    out[rows, cols, :3] = bilinear(offset, fnv_uv) + out[rows, cols, :3] if whole is None else bilinear(whole, fnv_uv)
     tone = np.median(out[rows, cols, :3], 0) / fo4_median
+    if skin is not None:
+        out[rows, cols, :3] += bilinear(skin, fnv_uv)
     out[rows, cols, :3] /= tone
     return out, tone, edge
 
 
-def face_texture(fo4_rgba: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
-    """(face_colours' texture, padded past its face texels, as bytes; its tone scale)."""
-    out, tone, (pad, near) = face_colours(fo4_rgba, fo4, fnv, pieces, variant)
+def face_texture(fo4_rgba: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str,
+                 shown=1.0) -> tuple:
+    """(face_colours' texture, padded past its face texels, as bytes; its tone scale). `shown`: the per-channel
+    factor the game draws `fo4_rgba` at (1 for an exported FaceGen texture; more for a face set's raw diffuse,
+    which the skin tone brightens), so the tone compares what is seen.
+    See: docs/fork/fo4_facegen_plan.md#own-heads
+    """
+    scale = np.append(np.broadcast_to(np.asarray(shown, float), 3), 1.0)
+    out, tone, (pad, near) = face_colours(fo4_rgba * scale, fo4, fnv, pieces, variant)
+    out /= scale
     out[pad[0], pad[1], :3] = out[near[0], near[1], :3]
     return np.clip(out, 0, 255).astype(np.uint8), tone
 
@@ -172,11 +198,32 @@ def vanilla_face_texture(path: Path) -> bool:
     return True
 
 
+def _texconv(rgba: np.ndarray, *options: str) -> bytes:
+    """`rgba` as DDS bytes, through the CK's texconv with `options`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        png = Path(tmp) / 'texture.png'
+        Image.fromarray(rgba, 'RGBA').save(png)
+        subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(png)], check=True, capture_output=True,
+                       **POPEN_FLAGS)
+        return (Path(tmp) / 'texture.dds').read_bytes()
+
+
 def write_dds(rgba: np.ndarray, path: Path) -> None:
     """`rgba` as a one-level DXT5 .dds at `path`, through the CK's texconv."""
-    with tempfile.TemporaryDirectory() as tmp:
-        png = Path(tmp) / f'{path.stem}.png'
-        Image.fromarray(rgba, 'RGBA').save(png)
-        subprocess.run([str(TEXCONV), '-nologo', '-f', FACE_FORMAT, '-m', '1', '-o', tmp, str(png)],
-                       check=True, capture_output=True, **POPEN_FLAGS)
-        path.write_bytes((Path(tmp) / f'{path.stem}.dds').read_bytes())
+    path.write_bytes(_texconv(rgba, '-f', FACE_FORMAT, '-m', '1'))
+
+
+def dds_layout(dds: bytes) -> tuple:
+    """(texconv format name, width, height) of DDS bytes `dds`, DX10 header or DXT1/DXT5 four-CC."""
+    four = dds[84:88]
+    fmt = struct.unpack_from('<I', dds, 128)[0] if four == b'DX10' else LEGACY_FORMATS[four]
+    height, width = struct.unpack_from('<II', dds, 12)
+    return DXGI_NAMES[fmt], width, height
+
+
+def dds_like(rgba: np.ndarray, like: bytes) -> bytes:
+    """`rgba` as DDS bytes in DDS `like`'s format and size, full mips.
+    See: docs/fork/fo4_facegen_plan.md#ck-face-texture-format
+    """
+    fmt, width, height = dds_layout(like)
+    return _texconv(rgba, '-f', fmt, '-w', str(width), '-h', str(height), '-m', '0')

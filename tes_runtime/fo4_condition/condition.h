@@ -209,7 +209,23 @@ bool HookDamage();
 // Register F3NV_Damage's native SetRules.
 void RegisterDamage(VirtualMachine *vm);
 
+// Whether the call instruction at `site` still calls `target`.
+bool CallsTarget(uintptr_t site, uintptr_t target);
+
+// ---- Our dialogue menu (dialogue.cpp; docs/fork/fo4_dialogue_menu_plan.md#test-build) ----
+
+// Point the dialogue option calls and the Player Dialogue run at our menu's options, through g_branchTrampoline (set
+// up); false when XDI.dll is loaded or a call site no longer calls the vanilla function. Run once plugins have loaded.
+// `tasks` (F4SE's task interface) runs the menu's leave on the game's thread.
+bool HookDialogue(void *tasks);
+
+// F4SE's Scaleform callback: give a movie's f4se.plugins.F3NV the menu natives.
+bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin);
+
 // ---- FNV Hardcore (hardcore.cpp; docs/fork/fo4_hardcore.md#dll) ----
+
+// INI color `prefix`R/G/B:Interface (the player's HUD colors, e.g. iHUDColor) as 0xRRGGBB; white when not found.
+UInt32 HudColor(const char *prefix);
 
 // Weigh ammo while Hardcore is on: FO4's ammo weight test, through g_branchTrampoline (set up); false when not.
 bool HookAmmoWeight();

@@ -10,14 +10,13 @@ starts it by setting its first stage.
 See: docs/fork/fo4_spikes.md#spike-2-vcg01
 """
 
-from fo4_import.base.ledger import NUMBER
 from fo4_import.base.support_records import pack_global
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
 from fo4_import.spike.conditions import AUTHORED
 from fo4_import.spike.readiness import TARGET_NOT_BUILT
-from fo4_import.spike.script import QUEST_PREFIX, stage_fragments
+from fo4_import.spike.script import QUEST, prefix, stage_fragments
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 from tes5_import.base.objectives_falloutnv import objective_global_name
 from script_convert.quest_var_mirrors import quest_var_global_name, tested_quest_vars
@@ -28,8 +27,6 @@ SPEAKER_ALIAS = 0
 LISTENER_ALIAS = 1000
 #: derive_formid site of a quest variable's mirror global (key: the global's name).
 QVAR_SITE = 'FNV qvar GLOB'
-#: Ledger site of a quest's objective target alias ids (with the FNV quest's FormID; key: the target's).
-ALIAS_SITE = 'FNV alias'
 #: FNV QUST DATA flag Start Game Enabled.
 START_GAME = 0x01
 
@@ -42,31 +39,22 @@ def _numbered(rec: dict, prefix: str) -> list:
     return out
 
 
-def objectives(rec: dict, ref_ids: dict, first: int = 0, writer=None) -> tuple:
+def objectives(rec: dict, ref_ids: dict, first: int = 0) -> tuple:
     """(objectives [(index, text, [alias ids])], aliases [(id, name, reference)]) of FNV quest `rec`.
 
     `ref_ids` is {FNV FormID (hex): FO4 reference}; a target not converted is
-    dropped. A target's alias id is the lowest free one from `first`, kept by
-    `writer`'s ledger so it stays put as more targets are built.
-    See: docs/fork/fo4_pipeline.md#formid-ledger
+    dropped. A target's alias id is `first` plus its place among the quest's
+    distinct authored targets, built or not, so building more moves none.
+    See: docs/fork/fo4_tool_audit.md#formids
     """
-    aliases, out, site = {}, [], f'{ALIAS_SITE} {rec["FormID"].upper()}'
-    taken = set(writer.ledger.values(NUMBER, site)) if writer else set()
-
-    def free() -> int:
-        """The lowest alias id from `first` neither kept nor given."""
-        return next(n for n in range(first, first + len(taken) + len(aliases) + 1) if n not in taken)
+    keys = [key for i in _numbered(rec, 'Objective') for key in _numbered_keys(rec, f'Objective[{i}].Target', 'FormID')]
+    place = {fnv: first + n for n, fnv in enumerate(dict.fromkeys(rec[key].upper() for key in keys))}
+    out = []
     for i in _numbered(rec, 'Objective'):
-        targets, k = [], 0
-        while f'Objective[{i}].Target[{k}].FormID' in rec:
-            fnv = rec[f'Objective[{i}].Target[{k}].FormID'].upper()
-            if fnv in ref_ids and fnv not in aliases:
-                aliases[fnv] = writer.stable_number(site, fnv, free) if writer else free()
-                taken.add(aliases[fnv])
-            targets += [aliases[fnv]] if fnv in aliases else []
-            k += 1
-        out.append((int(rec[f'Objective[{i}].Index']), rec.get(f'Objective[{i}].Text', ''), targets))
-    return out, [(alias, f'Target{fnv}', ref_ids[fnv]) for fnv, alias in aliases.items()]
+        fnvs = [rec[key].upper() for key in _numbered_keys(rec, f'Objective[{i}].Target', 'FormID')]
+        out.append((int(rec[f'Objective[{i}].Index']), rec.get(f'Objective[{i}].Text', ''),
+                    [place[fnv] for fnv in fnvs if fnv in ref_ids]))
+    return out, [(alias, f'Target{fnv}', ref_ids[fnv]) for fnv, alias in place.items() if fnv in ref_ids]
 
 
 def missing_targets(rec: dict, ref_ids: dict) -> list:
@@ -142,7 +130,7 @@ def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = Fa
     """
     stages = [(int(rec[f'Stage[{i}].Index']), int(rec.get(f'Stage[{i}].Log[0].Flags', 0)) & 1)
               for i in _numbered(rec, 'Stage')]
-    fragments_script = f'{QUEST_PREFIX}{rec["EditorID"]}'
+    fragments_script = f'{prefix(QUEST)}{rec["EditorID"]}'
     fragments = []
     if scripts.dir and (scripts.dir / f'{fragments_script}.psc').exists():
         fragments = stage_fragments((scripts.dir / f'{fragments_script}.psc').read_text(encoding='utf-8'))
@@ -152,7 +140,7 @@ def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = Fa
     scripts.used += [quest_script] if quest_script else []
     props = scripts.properties(fragments_script) if fragments else {}
     vmad = quest_fragments(fragments_script if fragments else '', fragments, props, scripts=attached)
-    goals, aliases = objectives(rec, ref_ids, int(speaker), scripts.builder.writer)
+    goals, aliases = objectives(rec, ref_ids, int(speaker))
     for target in missing_targets(rec, ref_ids):
         scripts.builder.readiness.add(TARGET_NOT_BUILT, rec['FormID'], target)
     aliases = [(SPEAKER_ALIAS, 'Speaker', None)] * speaker + aliases + [(LISTENER_ALIAS, 'Listener', None)] * speaker

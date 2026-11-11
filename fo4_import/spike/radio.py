@@ -199,23 +199,24 @@ class Radio:
 
     def receiver(self, fnv: int) -> bytes:
         """The RADR data of FNV activator `fnv` when it names a placed station (RNAM): a receiver on that station's
-        frequency, off until activated, on vanilla's jukebox sound model; b'' otherwise."""
+        frequency, off until activated, on vanilla's jukebox sound model; b'' otherwise, or when the station got
+        no free frequency (base)."""
         station = self.stations_of.get(fnv)
-        if station not in self.refs:
+        if station not in self.refs or self.frequency(station) is None:
             return b''
         self.builder.counts['radio receivers'] += 1
         return self._radr(station)
 
     def _radr(self, station: int) -> bytes:
-        """RADR on `station`'s frequency, off until switched on, jukebox sound."""
+        """RADR on `station`'s frequency (one it has), off until switched on, jukebox sound."""
         return struct.pack('<IffBB', RECEIVER_OUTPUT, self.frequency(station), RECEIVER_VOLUME, 0, 0)
 
     def npc_receiver(self, station: int) -> int:
         """The receiver activator a script's SetNPCRadio places at an actor to play placed `station` (an invisible
-        marker, as vanilla's dummy radios); 0 when no script names the station so.
+        marker, as vanilla's dummy radios); 0 when no script names the station so, or it got no free frequency.
         See: docs/fork/fo4_radio.md#npc-radio
         """
-        if station not in self.npc_radios:
+        if station not in self.npc_radios or station not in self.refs or self.frequency(station) is None:
             return 0
         rec = self.stations[station]
         fid = self.builder.new_id(f'ACTI radio npc receiver {station:08X}')

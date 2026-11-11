@@ -15,6 +15,8 @@ See: docs/fork/fo4_pipeline.md#stale-files
 
 from pathlib import Path
 
+from fo4_import.base.file_stamps import files_under
+
 #: Data-folder folders only this converter writes: meshes, materials, and a plugin's idle clips ({clips}).
 ROOTS = ('Meshes/fnv', 'Materials/fnv', 'Meshes/Actors/Character/Animations/{clips}')
 #: More folders a DLC build (its own data folder) rewrites every build: rigs, LOD, loose textures.
@@ -39,11 +41,11 @@ def listed(plugin: Path) -> set:
 
 def made(data_dir: Path, clips: str, started: float, dlc: bool = False) -> set:
     """Paths (relative to `data_dir`, '/'-separated) under roots() dated from `started` on."""
-    out = set()
+    out, base = set(), len(str(data_dir)) + 1
     for root in roots(clips, dlc):
         folder = data_dir / root
-        files = (p for p in folder.rglob('*') if p.is_file()) if folder.is_dir() else ()
-        out |= {p.relative_to(data_dir).as_posix() for p in files if p.stat().st_mtime >= started - SLACK}
+        files = files_under(folder) if folder.is_dir() else ()
+        out |= {f.path[base:].replace('\\', '/') for f in files if f.stat().st_mtime >= started - SLACK}
     return out
 
 

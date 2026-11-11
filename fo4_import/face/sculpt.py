@@ -30,8 +30,8 @@ from tes5_import.base.writer import pack_subrecord
 CONTROLS, STEP, BOUND = 7, 0.5, 1.0
 CACHE = Path(__file__).resolve().parents[2] / 'output' / 'fo4_cache'
 BASELINE = 'FNVSculpt_Base'
-#: NPC_ face shape subrecords: morph keys and values, face region sculpts.
-FACE_SHAPE = frozenset({b'MSDK', b'MSDV', b'FMRI', b'FMRS'})
+#: NPC_ face subrecords a fitted copy drops from its body: morphs, region sculpts, face texture set (the body's age).
+FACE_FIELDS = frozenset({b'MSDK', b'MSDV', b'FMRI', b'FMRS', b'FTST'})
 
 
 def race_regions(race_body: bytes, female: bool) -> list:

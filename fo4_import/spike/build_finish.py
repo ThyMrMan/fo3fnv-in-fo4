@@ -8,6 +8,8 @@ import collections
 import struct
 from pathlib import Path
 
+from fo4_import import dialogue_menu as menu_links
+from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
 from fo4_import.base.dangling_scripts import clear_dangling
@@ -81,8 +83,8 @@ def _main_archive(builder, data_dir: Path, plugin: str) -> None:
 
 @timed('plugin write')
 def _write_plugin(builder, out: Path, data_dir: Path) -> None:
-    """Write the plugin to `out` (a dependent build's master records only where they change the master's:
-    master_overrides), clear script properties naming no written record, then, when a written race names a
+    """Save the ledger, then write the plugin to `out` (a dependent build's master records only where they change
+    the master's: master_overrides), clear script properties naming no written record, then, when a written race names a
     graph of its own (anim_info.needed), have the Creation Kit write their animation data into `data_dir`."""
     builder.writer.next_object_id = builder.top
     if builder.built:
@@ -90,6 +92,7 @@ def _write_plugin(builder, out: Path, data_dir: Path) -> None:
         builder.counts.update(drop_unchanged(builder.writer, builder.built, builder.held, adds))
         builder.counts['master form list entries added at run time'] = list_adds.write(builder, adds)
     out.parent.mkdir(parents=True, exist_ok=True)
+    builder.writer.ledger.save()
     builder.writer.write(str(out))
     for key, count in clear_dangling(out, len(builder.writer.masters)).items():
         builder.counts[f'script properties naming no written record ({key})'] = count
@@ -113,11 +116,22 @@ def _gun_anim_text(builder, races: list, data_dir: Path) -> None:
         data_dir, copies, vanilla, master_copies.master_dirs(builder))
 
 
+def _finished(builder, data_dir: Path) -> tuple:
+    """([every written mesh], [those nothing changes or reads after Elric: not weapons (dressed) or object LOD])."""
+    paths = [data_dir / 'Meshes' / model for model, _ in builder.meshes.values()]
+    later = {data_dir / 'Meshes' / m for m in builder.weapons}
+    later |= {data_dir / 'Meshes' / made[0] for key, made in builder.meshes.items() if key.endswith('#lod')}
+    return paths, [p for p in paths if p not in later]
+
+
 @timed('collision')
 def _collision(builder, data_dir: Path) -> None:
-    """Elric's collision for every written mesh, then the weapon meshes dressed; counted."""
-    failed = elric_cache.finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
+    """Elric's collision for every written mesh but those a master ships finished alike (master_copies.theirs),
+    then the weapon meshes dressed; counted."""
+    paths, alone = _finished(builder, data_dir)
+    failed = elric_cache.finish(paths, master_copies.theirs(builder, alone))
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
+    builder.counts["meshes left to the master's archive (finished alike)"] = len(elric_cache.LEFT)
     builder.counts['mesh vertices with a UV clamped to the half-float range'] = sum(mesh_cache.CLAMPED.values())
     for model in sorted(builder.weapons):
         weapon.dress_file(data_dir / 'Meshes' / model)
@@ -138,7 +152,7 @@ def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
     npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
     builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
-    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
+    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER))
 
 
 @timed('script compile')
@@ -157,7 +171,7 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
 @timed('closing records')
 def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helper: int) -> None:
     """The records written from everything made: script packages, ammo, condition (helper plugin index
-    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino."""
+    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino, the dialogue menu links."""
     builder.counts['script packages'] = write_script_packages(builder)
     ammo_casings.write(builder, builder.equipment.ammo_mods.loaded)
     ammo_switch.write(builder, builder.equipment.ammo_mods)
@@ -171,6 +185,7 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
     builder.casino.write(data_dir)
     companion_barks.write(builder)
     builder.counts['Pip-Boy Tabs files removed'] = len(remove_legacy_tabs(data_dir, out.name))
+    menu_links.write(builder, data_dir, out.name)
     if builder.built:
         builder.scripts.used += [list_adds.SCRIPT]
 
@@ -199,11 +214,12 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     _compile(builder, data_dir, scripts_dir)
     _lists(builder, data_dir)
     _write_plugin(builder, out, data_dir)
-    builder.writer.ledger.save()
     builder.counts["files left to the master's folder"] = master_copies.drop_loose(data_dir,
                                                                                     master_copies.master_dirs(builder))
     made = stale_files.made(data_dir, plugin_stem(export_dir), builder.started, bool(builder.built))
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
+    builder.counts['finished meshes recorded for dependent builds'] = master_copies.write_meshes(
+        out, data_dir, _finished(builder, data_dir)[1], elric_cache.MARKS)
     _main_archive(builder, data_dir, out.name)
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')

@@ -81,11 +81,23 @@ counted keys were rare at region size.
 
 | # | What moves | Where | Evidence |
 |---|---|---|---|
-| F1 | **Hash collisions go to whichever key asks first.** `derive_formid` rehashes a key whose slot is taken, so an existing record moves when a new key, allocated earlier, lands on its slot | `tes5_import/base/writer.py:885-933` | V: simulated with the real writer and window (0x180000–0xF00000, FNV's 465,016 ids reserved). Today's plugin holds 11,302 hashed records (DIAL 3,889, INFO 3,310, GLOB 1,028, SCEN 850 …). Adding 10× as many keys moved 34 of them in random order, 70 with the new keys first |
+| F1 | **Hash collisions go to whichever key asks first.** `derive_formid` rehashes a key whose slot is taken, so an existing record moves when a new key, allocated earlier, lands on its slot | `tes5_import/base/writer.py:885-933` | V: simulated with the real writer and window (0x180000–0xF00000, FNV's 465,016 ids reserved). Today's plugin holds 11,302 hashed records (DIAL 3,889, INFO 3,310, GLOB 1,028, SCEN 850 …). Adding 10× as many keys moved 34 of them in random order, 70 with the new keys first. **Closed by the ledger** ([checked 2026-11-11](#formids-fixed)) |
 | F2 | **Copies of a line take counted ids.** `new_id(f'INFO {FNV id} {part}')` appends a count per copy | `say_topics.py:109`, `cell.py:217-224` | V (actors reviewer): 1,996 INFO copies of 1,126 FNV lines; 460 lines copied 2–19 times. A menu or quest built earlier renumbers the copies |
 | F3 | **Split menu options take counted ids** (`INFO prompt {dial} {text}` has no quest in it) | `conversation.py:254-256` | R; follows from #6 above |
-| F4 | **Objective alias ids are numbered among built targets only** | `quest.py:41-56` | R; 7 quests have 12 aliases that renumber once an earlier unbuilt target enters scope |
+| F4 | **Objective alias ids are numbered among built targets only** | `quest.py:41-56` | R; 7 quests have 12 aliases that renumber once an earlier unbuilt target enters scope. **Fixed 2026-11-11** (save-break build): `quest.objectives` gives a target `first` plus its place among the quest's distinct authored targets, built or not; the ledger no longer keeps alias numbers. Against the deployed ledgers 158 of FalloutNV.esm's 908 kept alias numbers move, 0 of YUP's 1,299 ([moved](#formids-fixed)) |
 | F5 | **Say Once marker stages "move up one" on a collision** | `say_once.py` | M: the greeting quest holds 1,750 Say Once lines at whole-game scale; CRC32 mod 55,000 gives ~28 collisions, and which line moves depends on registration order |
+
+<a id="formids-dialogue"></a>**F2, F3, F5 fixed with the dialogue menu switch**
+([fo4_dialogue_menu_plan.md](fo4_dialogue_menu_plan.md#converter-built)):
+
+- **F2:** every copy's key names its place (`INFO <line> <part> at <step>`;
+  holotape lines `at holotape <note>`; radio already had one), and answers
+  are built once per line (`at answer`), so copies no longer count.
+- **F3:** split options are gone: one option per FNV topic per menu,
+  `INFO option <step> <topic>`.
+- **F5:** `SayOnce.reserve` numbers every Say Once line of the build in
+  FormID order before any is used, so a collision moves the same line
+  whatever order the copies are built in (the ledger keeps it after).
 
 **Fix direction.** Make the id a function of authored data only (put the
 quest and step in F2/F3's keys, the target's authored index in F4's). For
@@ -94,6 +106,26 @@ ledger is: write `{(site, key): id}` beside the plugin on each build, load
 it first next build, and hash only keys it lacks. That also makes every
 rule change (a renamed key) visible as a ledger miss instead of silent
 drift.
+
+<a id="formids-fixed"></a>**Checked and fixed 2026-11-11** (the save-break build):
+- **F1 is closed by the ledger.** Every id the ledger keeps is reserved
+  before any key is hashed (`LedgerWriter.use_ledger`), so a new key that
+  lands on a kept id rehashes and the kept record stays. Order still decides
+  which of two keys new in the same build wins a slot, but no id is handed
+  out from a thread (the pools in `fo4_import` compress, pack, export faces
+  and convert voice), and `test_formid_determinism` refuses ids handed out
+  in set order, so a build asks in the same order every time. The one gap was
+  the ledger saved after the plugin was written: a crash between left a
+  plugin whose new ids no ledger kept. `build_finish._write_plugin` now saves
+  it first. Losing the ledger is still drift: it is the save contract and
+  ships beside the plugin.
+- **F4:** fixed as its row says. Alias numbers moved, measured against the
+  deployed ledgers' kept `FNV alias` numbers: FalloutNV.esm 158 of 908, YUP
+  0 of 1,299, NVWillow 145 of 269, DeadMoney 112 of 208, HonestHearts 116
+  of 276, OldWorldBlues 140 of 317, LonesomeRoad 113 of 180,
+  GunRunnersArsenal 21 of 33, the courier packs 16 of 28 each. These are
+  alias numbers inside quests, not FormIDs; a running quest's saved aliases
+  are what moves. The old `FNV alias` lines stay in the ledgers, unused.
 
 ## <a id="first-build"></a>Speed: the first whole-game build
 

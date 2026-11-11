@@ -6,10 +6,13 @@ package f3nv.casino
    import flash.text.TextFieldAutoSize;
    import flash.text.TextFormat;
 
-   // Text fields and buttons in FO4's own font, drawn white (the menu registers without the HUD color shader).
+   // Text fields, buttons and panels in FO4's own font, drawn in `color`: the player's HUD color, which the menu
+   // sets from F3NV.dll's HudColor (white without it; the menu registers without the HUD color shader).
    public class Ui
    {
       public static const FONT:String = "$MAIN_Font";
+      // The color of every text, outline and button face; F3NV_Casino.newScreen sets it.
+      public static var color:uint = 0xFFFFFF;
 
       // F4SE hands each item of a Papyrus Var array over wrapped as {__var__: value}: the plain values.
       public static function plain(items:Array) : Array
@@ -25,7 +28,7 @@ package f3nv.casino
       public static function label(parent:Sprite, x:Number, y:Number, size:int) : TextField
       {
          var field:TextField = new TextField();
-         field.defaultTextFormat = new TextFormat(FONT, size, 0xFFFFFF);
+         field.defaultTextFormat = new TextFormat(FONT, size, color);
          field.embedFonts = true;
          field.selectable = false;
          field.autoSize = TextFieldAutoSize.LEFT;
@@ -39,12 +42,12 @@ package f3nv.casino
                                     width:Number = 200) : Sprite
       {
          var box:Sprite = new Sprite();
-         box.graphics.lineStyle(2, 0xFFFFFF);
-         box.graphics.beginFill(0xFFFFFF, 0.1);
+         box.graphics.lineStyle(2, color);
+         box.graphics.beginFill(color, 0.1);
          box.graphics.drawRect(0, 0, width, 50);
          box.graphics.endFill();
          var field:TextField = new TextField();
-         field.defaultTextFormat = new TextFormat(FONT, 24, 0xFFFFFF, null, null, null, null, null, "center");
+         field.defaultTextFormat = new TextFormat(FONT, 24, color, null, null, null, null, null, "center");
          field.embedFonts = true;
          field.selectable = false;
          field.width = width;
@@ -65,7 +68,7 @@ package f3nv.casino
                                    alpha:Number) : Sprite
       {
          var box:Sprite = new Sprite();
-         box.graphics.lineStyle(2, 0xFFFFFF);
+         box.graphics.lineStyle(2, color);
          box.graphics.beginFill(0, alpha);
          box.graphics.drawRect(0, 0, width, height);
          box.graphics.endFill();

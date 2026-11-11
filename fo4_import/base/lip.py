@@ -18,6 +18,10 @@ FO4_TARGETS = 43
 FO4_FLAGS = 13
 #: The header's size field is the body's length plus this, in every lip of both games.
 SIZE_PAD = 16
+#: Lip frames per second (both games).
+FPS = 30
+#: A loudness lip: frames quieter than GATE of the line's loud level stay shut; the loudest open Aah to OPEN.
+GATE, OPEN = 0.15, 0.8
 
 
 #: A run of zero bytes as one compressed marker holds it (u16 count).
@@ -59,6 +63,24 @@ def fo4_lip(offset: int, shapes: np.ndarray, modifiers: np.ndarray) -> bytes:
     grid[:, FO4_TARGETS:] = modifiers
     body = struct.pack('<IiI', len(shapes), offset, FO4_TARGETS) + grid.tobytes()
     return struct.pack('<III', 1, len(body) + SIZE_PAD, FO4_FLAGS) + deflate(body)
+
+
+def from_loudness(samples: np.ndarray, rate: int) -> bytes:
+    """A Fallout 4 lip opening the mouth (Aah) with the loudness of mono `samples` (floats) at `rate` Hz: each
+    frame's RMS over the line's 95th percentile, quiet frames shut, three frames averaged.
+    See: docs/fork/fo4_ck_replacements.md#lips
+    """
+    frames = max(1, -(-len(samples) * FPS // rate))
+    starts = np.arange(frames) * rate // FPS
+    padded = np.zeros(max(len(samples), starts[-1] + 1), np.float32)
+    padded[:len(samples)] = samples
+    sizes = np.diff(np.append(starts, len(padded)))
+    rms = np.sqrt(np.add.reduceat(np.square(padded), starts) / sizes)
+    level = np.clip(rms / (np.percentile(rms, 95) or 1.0), 0, 1)
+    level[level < GATE] = 0
+    shapes = np.zeros((frames, MOUTH_SHAPES), np.float32)
+    shapes[:, 0] = np.convolve(level, np.ones(3) / 3, 'same') * OPEN
+    return fo4_lip(0, shapes, np.zeros((frames, MODIFIERS), np.float32))
 
 
 def from_fnv(lip: bytes) -> bytes:

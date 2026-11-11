@@ -6,8 +6,8 @@ seeded by the record. Vanilla Fallout 4 trees are statics; its 66
 wind-animated ones (blastedforestfungaltreelarge01) have a BSLeafAnimNode
 root, BSXFlags 130, vertex-coloured shapes, the leaves alpha-tested,
 two-sided and on a tree-flagged material (shader flags2 Tree Anim). The
-collision is the generated mesh on FNV's own tree body (nvgreybirch01's:
-static layer, fixed), finished by Elric as the statics' is.
+collision is the generated mesh on the source game's own tree body (FNV's
+nvgreybirch01, FO3's treedead01: fixed), finished by Elric as the statics' is.
 
 See: docs/fork/fo4_spikes.md#spike-4-trees
 """
@@ -19,11 +19,12 @@ import numpy as np
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from asset_convert.speedtree.spt_generator import build_tree
 from asset_convert.speedtree.spt_parser import parse_spt
+from fo4_import.nif import fnv_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.collision import material, mesh_collision
 from fo4_import.nif.convert_static import IDENTITY, NODE_FLAGS, Converted, emit, lit_material
 from fo4_import.nif.file import NifFile
-from fo4_import.pipeline.export_index import export_file
+from fo4_import.pipeline.export_index import export_file, source_game
 
 apply_patches()
 from pyffi.formats.nif import NifFormat
@@ -36,8 +37,9 @@ LEAF_ALPHA = (0x12EC, 160)
 TREE_BSX = 130
 #: FNV Havok material wood (index into collision.MATERIALS).
 FNV_WOOD = 9
-#: The FNV tree whose collision object gives the trunk's body settings.
-BODY_TEMPLATE = Path('meshes') / 'landscape' / 'trees' / 'nvgreybirch01.nif'
+#: Per source game (export_index.source_game), its own tree whose collision object gives the trunk's body settings.
+BODY_TEMPLATES = {'fnv': Path('meshes') / 'landscape' / 'trees' / 'nvgreybirch01.nif',
+                  'fo3': Path('meshes') / 'landscape' / 'trees' / 'treedead01.nif'}
 
 
 class _Alpha:
@@ -86,10 +88,8 @@ def _shape(nif: NifFile, name: str, arrays: tuple, tris, mat, flags: tuple, out:
 
 
 def _collision(nif: NifFile, export_dir: Path, geo) -> int:
-    """The generated collision mesh (wood) on BODY_TEMPLATE's collision object, for the root (block 0)."""
-    data = NifFormat.Data()
-    with open(export_file(export_dir, BODY_TEMPLATE), 'rb') as f:
-        data.read(f)
+    """The generated collision mesh (wood) on the source game's BODY_TEMPLATES collision object, for the root."""
+    data = fnv_file.read(export_file(export_dir, BODY_TEMPLATES[source_game(export_dir)]))
     template = next(b for b in data.blocks if isinstance(b, NifFormat.bhkCollisionObject))
     tris = [tuple(tuple(float(c) for c in verts[i]) for i in tri)
             for verts, faces in zip(geo.collision_verts, geo.collision_tris) for tri in np.asarray(faces, int)]

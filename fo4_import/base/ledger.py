@@ -118,17 +118,20 @@ class LedgerWriter(FO4PluginWriter):
         super().write(filepath)
 
     def derive_formid(self, site: str, key, legacy=None) -> int:
-        """The FormID of generated record `key` at `site`: the ledger's for `key`, else a master's (that record,
-        not made again), else the one it kept for `legacy` (the key this one replaced; that entry moves to `key`),
-        else the hash of `legacy` or `key`; then kept."""
+        """The FormID of generated record `key` at `site`: a master's (that record, not made again; the own
+        ledger's entry for it dropped), else the own ledger's, else the one it kept for `legacy` (the key this one
+        replaced; that entry moves to `key`), else the hash of `legacy` or `key`; then kept.
+        See: docs/fork/fo4_plugin_layout.md#dlc-shadowed-ids
+        """
         if (site, key) in self._derived:
             return self._derived[site, key]
-        kept = self.ledger.get(ID, site, key)
-        master = self.from_master(site, key) if kept is None else None
+        master = self.from_master(site, key)
         if master is not None:
+            self.ledger.pop(ID, site, key)
             self._derived[site, key] = master
             self.from_masters.add(master)
             return master
+        kept = self.ledger.get(ID, site, key)
         if kept is None and legacy is not None:
             kept = self.ledger.pop(ID, site, legacy)
         fid = self.own_index << 24 | kept if kept is not None else super().derive_formid(

@@ -11,7 +11,8 @@ the build's stamp (<plugin>.build.json) says running or failed; deleting also ne
 built only when <plugin>.files.txt names it, so a file an earlier build left there is neither copied nor kept.
 A loose build file that an archive at the top of the build folder holds (the meshes and materials in
 `<plugin> - Main.ba2`) is not copied, and the mod folder's copy is deleted on every run: loose wins over archived.
-A deploy also clears the F3NV - Hotfix mod's scripts (fo4_hotfix) of each plugin whose build began after them.
+A deploy also clears the F3NV - Hotfix mod's scripts (fo4_hotfix) of each plugin whose build began after them, and
+deletes the XDI-era dialogue hub plugin and links from the mods beside the mod folder.
 
 See: docs/reference/python_tools.md#fo4-deploy
 """
@@ -27,6 +28,7 @@ import time
 from pathlib import Path
 
 from fo4_import.base.ba2 import Archive
+from fo4_import import dialogue_menu as menu_links
 from fo4_import.pipeline import stale_files
 from fo4_import.pipeline.build_inputs import RECORD_SUFFIX, SUFFIX
 from fo4_import.pipeline.build_steps import STAMP_SUFFIX
@@ -261,8 +263,22 @@ def main(argv=None) -> int:
         copy_files(args, build, mod, copy)
         clear_built_hotfixes(args)
     remove_shadowing(args, mod, packed)
+    retire_hub(args)
     report_stale(args, mod, plan(build, mod)[1])
     return 0
+
+
+def retire_hub(args: argparse.Namespace) -> None:
+    """Delete (unless --dry-run) the XDI-era hub files (dialogue_menu.LEGACY) in the MO2 mods beside --mod:
+    each build now writes its own plugin's links.
+    See: docs/fork/fo4_dialogue_menu_plan.md#converter
+    """
+    found = [mod / rel for mod in sorted(args.mod.parent.iterdir()) if mod.is_dir()
+             for rel in menu_links.LEGACY if (mod / rel).is_file()]
+    for path in found:
+        print(f'XDI-era hub file {path}: {"would delete" if args.dry_run else "deleting"}')
+        if not args.dry_run:
+            path.unlink()
 
 
 def clear_built_hotfixes(args: argparse.Namespace) -> None:
