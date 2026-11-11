@@ -21,6 +21,7 @@
 #include "f4se_common/SafeWrite.h"
 
 #include <atomic>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -285,11 +286,51 @@ std::string Tagged(const char *prompt, const Check &check, bool *failed) {
     return tag + (rest == std::string::npos ? std::string() : text.substr(rest));
 }
 
-// An option as listed: the prompt of `line` (the answer line that plays) when it has one, else the option's; tagged
-// live with the skill check of that line, else of the option.
+// The value of FNV text macro `name` (lower case) for the player, as FalloutNV.exe 0x7070C0 gives it: PCName the
+// player's name, PCRace their race's name; null for any other (the build turns control macros into FO4 tags).
+const char *MacroValue(const std::string &name) {
+    PlayerCharacter *player = *g_player;
+    if (!player) return nullptr;
+    if (name == "pcname") return player->baseForm ? player->baseForm->GetFullName() : nullptr;
+    if (name == "pcrace") return player->race ? player->race->GetFullName() : nullptr;
+    return nullptr;
+}
+
+// The lower-case name between `from` and the next ';' of `text`, and that ';' in `end`; "" when there is none.
+std::string MacroName(const std::string &text, size_t from, size_t *end) {
+    *end = text.find(';', from);
+    if (*end == std::string::npos) return "";
+    std::string name = text.substr(from, *end - from);
+    for (char &c : name) c = char(std::tolower(UInt8(c)));
+    return name;
+}
+
+// `text` with FNV's player macros (&PCName; and &PCRace;, any case) written out, as FNV writes them in a prompt.
+// Plugins built for XDI wrote the & as &amp; (&amp;PCName;), and are read the same.
+std::string Expanded(std::string text) {
+    size_t at = 0, end = 0;
+    while ((at = text.find('&', at)) != std::string::npos) {
+        std::string name = MacroName(text, at + 1, &end);
+        if (end == std::string::npos) break;
+        if (name == "amp") name = MacroName(text, end + 1, &end);
+        if (end == std::string::npos) break;
+        const char *value = MacroValue(name);
+        if (!value) {
+            at++;
+            continue;
+        }
+        text.replace(at, end - at + 1, value);
+        at += std::strlen(value);
+    }
+    return text;
+}
+
+// An option as listed: the prompt of `line` (the answer line that plays) when it has one, else the option's, with
+// FNV's player macros written out; tagged live with the skill check of that line, else of the option. Said (shown
+// dim) when `line` was said: FNV keeps said on its INFO, the answer line here, not on the one option per topic.
 Option Listed(TESForm *info, TESForm *answer, TESForm *line) {
     const char *own = Prompt(line);
-    Option option{info, answer, own && *own ? own : Prompt(info), At<UInt8>(info, INFO_SAID) != 0, false};
+    Option option{info, answer, Expanded(own && *own ? own : Prompt(info)), At<UInt8>(line, INFO_SAID) != 0, false};
     auto check = g_checks.find(line->formID);
     check = check != g_checks.end() ? check : g_checks.find(info->formID);
     if (check != g_checks.end()) option.prompt = Tagged(option.prompt.c_str(), check->second, &option.failed);
