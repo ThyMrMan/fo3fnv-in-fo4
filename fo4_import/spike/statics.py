@@ -37,6 +37,7 @@ from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
 from fo4_import.pipeline.export_index import export_file, replaced_file
 from fo4_import.base.premultiplied import MENDED_VERSION, write_mended
+from fo4_import.base.source_fault import SourceFault, count
 from tes5_import.base.text_reader import parse_export_file
 
 MASTERS = ['Fallout4.esm']
@@ -201,9 +202,14 @@ def _material_file(data_dir: Path, material: str) -> Path:
 
 
 def copy_texture(export_dir: Path, data_dir: Path, source: str, later: 'list | None' = None) -> bool:
-    """stage_texture() FNV texture `source` (textures\\...) at its FO4 path."""
+    """stage_texture() FNV texture `source` (textures\\...) at its FO4 path; False, counting a source fault,
+    when no export layer holds it."""
     rel = texture_source(source).replace('\\', '/')
-    plan = functools.partial(_copy_plan, export_file(export_dir, rel), replaced_file(export_dir, rel))
+    path = export_file(export_dir, rel)
+    if not path.is_file():
+        count(SourceFault(path, 'missing texture (in no export layer)'))
+        return False
+    plan = functools.partial(_copy_plan, path, replaced_file(export_dir, rel))
     return stage_texture(data_dir, fo4_texture(source), plan, later)
 
 

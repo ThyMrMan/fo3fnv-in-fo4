@@ -26,6 +26,7 @@ from fo4_import.pipeline import work_cache as WC
 from fo4_import.spike import activators as AC
 from fo4_import.spike import creatures as CR
 from fo4_import.spike import object_lod as OL
+from fo4_import.spike import statics as ST
 from fo4_import.spike import swaps as SW
 from fo4_import.spike import talking_machines as TM
 from fo4_import.spike import terminals as TE
@@ -254,3 +255,10 @@ def test_a_fallout_3_mod_finds_its_games_dlc_models_not_new_vegas(tmp_path):
     X.export_masters.cache_clear()
     assert X.export_file(tmp_path / 'Mod.esp', 'meshes', 'Zeta.esm.nif').read_bytes() == b'nif'
     assert not X.export_file(tmp_path / 'Mod.esp', 'meshes', 'ClassicPack.esm.nif').is_file()
+
+
+def test_a_texture_no_export_layer_holds_is_counted_not_fatal(tmp_path):
+    """copy_texture() of a texture missing from every layer counts a fault and copies nothing."""
+    assert ST.copy_texture(tmp_path / 'export', tmp_path / 'data', 'textures/nvb/missing.dds') is False
+    assert [reason for _, reason in SF.FAULTS] == ['missing texture (in no export layer)']
+    assert not (tmp_path / 'data').exists()
