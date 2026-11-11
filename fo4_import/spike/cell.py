@@ -59,6 +59,8 @@ from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.idle_markers import EMPTY, IdleMarkers
 from fo4_import.spike.interiors import by_cell, scope
 from fo4_import.spike.vendors import merchants, with_chests, write_vendors
+from fo4_import.spike.conditions import use_actor_values
+from fo4_import.spike.script import use_prefix
 from fo4_import.spike.script_packages import PROPERTY as SCRIPT_PACKAGES, quest_id as script_packages_quest
 from fo4_import.spike.patrol_topics import PatrolTopics
 from fo4_import.spike.placement import map_markers, open_rooms, place, placement, starts_disabled
@@ -919,6 +921,8 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     """
     sources = plugin_sources(export_dir)
     use_source(sources[0][0], sources[1:])
+    use_prefix(export_dir)
+    use_actor_values(export_dir)
     cell = find_cell(export_dir, cell_edid) if cell_edid else None
     all_refs = export_records(export_dir, 'REFR') + export_records(export_dir, 'PGRE')
     refs = [r for r in all_refs if cell and r.get('ParentCELL') == cell['FormID']]

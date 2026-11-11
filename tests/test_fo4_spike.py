@@ -1222,9 +1222,9 @@ def test_quest_scope_counts_writes_to_a_quests_variables():
     """A script starting, advancing, adding to or setting a quest's variable pulls the quest in; a read or a
     comparison does not (VCG01's psych test answers tally in VCG01Test)."""
     text = ('VCG01Test.TES4Add_nBarter((2))\nVMS01.LookingForStealthBoys = 1\nTES4SetStage(VCG02, 10)\n'
-            'VDoctors.Start()\nIf Generic.Cost == 3\nx = VFreeformNellis.State\n')
+            'VDoctors.Start()\nIf Generic.Cost == 3\nx = VFreeformNellis.State\nTES4Polyfill.SetStage(CG03Test, 9)\n')
     found = {n for m in QS.STARTS.finditer(text) for n in m.groups() if n}
-    assert found == {'VCG01Test', 'VMS01', 'VCG02', 'VDoctors'}
+    assert found == {'VCG01Test', 'VMS01', 'VCG02', 'VDoctors', 'CG03Test'}
 
 
 def test_quest_scope_follows_speaker_tests_to_placed_actors():

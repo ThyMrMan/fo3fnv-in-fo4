@@ -24,14 +24,14 @@ from pathlib import Path
 
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import readiness as R
-from fo4_import.spike.script import FRAGMENT_PREFIX, QUEST_PREFIX
+from fo4_import.spike.script import FRAGMENT, QUEST, prefix, use_prefix
 from script_convert.constants import papyrus_script_name
 from tools.validate.fo4_audit import Plugin, check_properties, fnv_names
 
 #: FNV GetIsID and its condition layout: function at byte 8, parameter 1 at 12, Run On at 20 (0: the speaker).
 GET_IS_ID, SUBJECT = 72, 0
-#: Prefix of the converted FNV scripts and of the plugin's records.
-SCRIPT_PREFIX, RECORD_PREFIX = 'FALLOUTNV_', 'FNV_'
+#: Prefix of the plugin's records.
+RECORD_PREFIX = 'FNV_'
 
 
 # ---------------------------------------------------------------------------
@@ -46,13 +46,13 @@ class Quests:
         self.by_edid = {r['EditorID']: r for r in export_records(export, 'QUST') if r.get('EditorID')}
         self.by_fid = {r['FormID'].upper(): r['EditorID'] for r in self.by_edid.values()}
         scripts = {r['FormID'].upper(): r.get('EditorID', '') for r in export_records(export, 'SCPT')}
-        self.owner = {f'{QUEST_PREFIX}{e}': e for e in self.by_edid}
-        self.owner.update({papyrus_script_name(scripts.get(r['SCRI'].upper(), ''), SCRIPT_PREFIX): e
+        self.owner = {f'{prefix(QUEST)}{e}': e for e in self.by_edid}
+        self.owner.update({papyrus_script_name(scripts.get(r['SCRI'].upper(), ''), prefix()): e
                            for e, r in self.by_edid.items() if r.get('SCRI')})
         self.speakers = collections.defaultdict(set)
         for info in export_records(export, 'INFO'):
             quest = self.by_fid.get(info.get('QSTI.Quest', '').upper())
-            self.owner[f'{FRAGMENT_PREFIX}{info["FormID"].upper()}'] = quest
+            self.owner[f'{prefix(FRAGMENT)}{info["FormID"].upper()}'] = quest
             self.speakers[quest] |= _speakers(info)
         self.npc_names = {r['FormID'].upper(): r.get('EditorID', r['FormID'])
                           for sig in ('NPC_', 'CREA') for r in export_records(export, sig)}
@@ -128,6 +128,7 @@ def main() -> int:
     ap.add_argument('--quest', nargs='*', default=[], help='only these quests (FNV EditorIDs)')
     ap.add_argument('--brief', action='store_true', help='one line per quest')
     args = ap.parse_args()
+    use_prefix(args.export)
     entries_path = R.report_path(args.plugin.name)
     if not entries_path.exists():
         print(f'{entries_path}: no readiness entries; build the plugin first')

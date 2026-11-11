@@ -29,7 +29,7 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.say_topics import blocker, conditions_of, conditions_under, never_true, settled_by
 from script_convert.quest_var_mirrors import PREFIX as QVAR_PREFIX
-from fo4_import.spike.script import base_forms, declared_properties, fill
+from fo4_import.spike.script import base_forms, declared_properties, fill, prefix
 from fo4_import.spike.script_effects import ScriptEffects
 from fo4_import.spike.type_tests import CREATURE_TYPE_PREFIX
 from fo4_import.pipeline.export_index import export_records
@@ -39,7 +39,6 @@ from script_convert.constants import (FALLOUT4_CHAT_PREFIX, FALLOUT4_POSE_PREFIX
                                       FALLOUT4_SWAP_PREFIX, FALLOUT4_TALK_PREFIX, TALKING_LISTS_PROPERTY,
                                       papyrus_script_name)
 
-SCRIPT_PREFIX = 'FALLOUTNV_'
 #: The player reference, which converted scripts name `Player`.
 PLAYER = ('Player', 0x14)
 #: MESG DNAM Message Box, the one flag FNV and FO4 share (FNV bit 1 is Auto Display, FO4's Delay Initial Display).
@@ -127,7 +126,7 @@ class ObjectScripts:
 
     def name(self, scpt: int) -> 'str | None':
         """The converted script of FNV script `scpt`; None when it was not converted."""
-        name = papyrus_script_name(self.names.get(scpt, ''), SCRIPT_PREFIX)
+        name = papyrus_script_name(self.names.get(scpt, ''), prefix())
         return name if self.dir and (self.dir / f'{name}.psc').exists() else None
 
     def properties(self, script: str) -> dict:

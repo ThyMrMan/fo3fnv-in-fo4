@@ -32,7 +32,7 @@ from pathlib import Path
 from fo4_import.base.install import FALLOUT4_DIR, file_masters
 from fo4_import.base.vmad import Unsupported, read_entry, read_wstring
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.spike.script import FRAGMENT_PREFIX, declared_properties
+from fo4_import.spike.script import FRAGMENT, declared_properties, prefix, use_prefix
 from script_convert.atomic_adds import PREFIX as ADD_PREFIX
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.packages.scripts_falloutnv import package_flags
@@ -205,7 +205,7 @@ def check_hazards(plugin: Plugin, scripts: Path, files: set) -> dict:
         for owner, var in sorted(_tested_after_add(text)):
             out['hazards: counter tested with == after its add (both adders can miss it)'].append(
                 f'{script}: {owner}.{var}')
-        if script.startswith(FRAGMENT_PREFIX) and _SAY.search(text):
+        if script.startswith(prefix(FRAGMENT)) and _SAY.search(text):
             out['hazards: Say from a dialogue result (FO4 queues it, FNV began it)'].append(script)
         for name in set(_FORM_FILE.findall(text)) - files:
             out['hazards: GetFormFromFile on a file the load order lacks'].append(f'{script}: {name}')
@@ -329,6 +329,7 @@ def main() -> int:
     ap.add_argument('--plugin-dirs', nargs='*', default=[])
     ap.add_argument('--examples', type=int, default=8)
     args = ap.parse_args()
+    use_prefix(args.export)
     plugin = Plugin(args.plugin, args.plugin_dirs)
     unfilled, dangling = check_properties(plugin, args.scripts)
     fnv = fnv_names(args.export)

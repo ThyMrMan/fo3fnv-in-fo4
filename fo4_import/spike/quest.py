@@ -17,7 +17,7 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
 from fo4_import.spike.conditions import AUTHORED
 from fo4_import.spike.readiness import TARGET_NOT_BUILT
-from fo4_import.spike.script import QUEST_PREFIX, stage_fragments
+from fo4_import.spike.script import QUEST, prefix, stage_fragments
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 from tes5_import.base.objectives_falloutnv import objective_global_name
 from script_convert.quest_var_mirrors import quest_var_global_name, tested_quest_vars
@@ -142,7 +142,7 @@ def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = Fa
     """
     stages = [(int(rec[f'Stage[{i}].Index']), int(rec.get(f'Stage[{i}].Log[0].Flags', 0)) & 1)
               for i in _numbered(rec, 'Stage')]
-    fragments_script = f'{QUEST_PREFIX}{rec["EditorID"]}'
+    fragments_script = f'{prefix(QUEST)}{rec["EditorID"]}'
     fragments = []
     if scripts.dir and (scripts.dir / f'{fragments_script}.psc').exists():
         fragments = stage_fragments((scripts.dir / f'{fragments_script}.psc').read_text(encoding='utf-8'))

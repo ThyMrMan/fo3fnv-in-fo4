@@ -28,13 +28,12 @@ from fo4_import.base.vmad import object_scripts, terminal_fragments
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.say_topics import conditions_of, conditions_under
+from fo4_import.spike.script import TERMINAL, prefix
 from fo4_import.spike.statics import terminal_assets
 from script_convert.terminal_fragments import fragment_items, fragment_name
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
-#: A terminal's converted fragment script: terminal_script_name() in the FNV namespace, then its FormID.
-TERMINAL_PREFIX = 'FALLOUTNV_TM__'
 #: Vanilla DN054_ZekesTerminal (TerminalOn.nif on a desk) and the fields a converted terminal copies from it.
 TEMPLATE, KEPT = 0x1F2B69, (b'KSIZ', b'KWDA', b'PNAM', b'FNAM', b'MNAM', b'WBDT', b'XMRK')
 #: The user's spot from the screen's centre, out and down: TerminalOn.nif's screen (0, -5.8, 79.3), template's (0, -61, 0).
@@ -171,7 +170,7 @@ class Terminals:
     def _vmad(self, rec: dict) -> bytes:
         """The VMAD attaching FNV terminal `rec`'s own script and binding its converted item scripts as its
         fragments; b'' without either."""
-        scripts, name = self.builder.scripts, TERMINAL_PREFIX + rec['FormID'].upper()
+        scripts, name = self.builder.scripts, prefix(TERMINAL) + rec['FormID'].upper()
         plain = scripts.entries(int(rec.get('SCRI', '0'), 16))
         items = fragment_items(rec)
         if not items or not scripts.dir or not (scripts.dir / f'{name}.psc').exists():
