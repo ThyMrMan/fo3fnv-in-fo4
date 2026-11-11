@@ -58,6 +58,16 @@ SLOT_TEXTS = (('sSpinText', 'Spin'), ('sBetMax', 'Bet Max'), ('sChipCountText', 
               ('sPayoutListText', 'Payout List'), ('sExit', 'Exit'), ('sYouWin', 'You win'), ('sYouLose', 'You lose'),
               ('sLuckyWinText', 'You feel lucky. You win'), ('sUnluckyLoseText', 'You feel unlucky. You lose'),
               ('sCasinoChipText', 'chip'), ('sPluralPlain', 's'))
+#: The roulette screen's texts in RouletteScreen.as's order (RouletteMenu's buttons, spot names and results).
+ROULETTE_TEXTS = (('sPlaceBetText', 'Place Bet'), ('sRemoveBetText', 'Remove Bet'), ('sFinsihBetText', 'Finish Bet'),
+                  ('sIncreaseBetText', 'Increase Bet'), ('sDecreaseBetText', 'Decrease Bet'), ('sExit', 'Exit'),
+                  ('sChipCountText', 'Chips: '), ('sCurrentBetText', 'Current Bet: '), ('sTotalBetText', 'Total Bet: '),
+                  ('sCasinoEarningsText', 'Earnings: '), ('sBetText', 'Bet'), ('sPayoutText', 'Payout'),
+                  ('sYouWin', 'You win'), ('sLuckyWinText', 'You feel lucky. You win'), ('sYouLose', 'You lose'),
+                  ('sYouBreakEvenText', 'You break even'), ('sCasinoChipText', 'chip'), ('sPlural', '(s)'),
+                  ('sFirstDozenText', 'First Dozen'), ('sSecondDozenText', '2nd Dozen'),
+                  ('sThirdDozenText', '3rd Dozen'), ('sEvenText', 'Even'), ('sRedText', 'Red'),
+                  ('sBlacktext', 'Black'), ('sOddtext', 'Odd'), ('sTwoToOneText', '2 to 1'))
 #: FNV's anti-cheat wait after a load (iAntiCheatDuration, seconds).
 ANTI_CHEAT_SECONDS = ('iAntiCheatDuration', 60)
 #: Shown for a game whose screen is not built yet (ours, not FNV's).
@@ -97,12 +107,12 @@ def fo4_path(fnv_texture: str) -> str:
 
 
 def texts(export_dir: Path) -> dict:
-    """The bank's text and number properties: TEXTS, the anti-cheat texts and wait, the slot screen's texts;
-    FalloutNV.esm's GMST over the engine's default."""
+    """The bank's text and number properties: TEXTS, the anti-cheat texts and wait, the slot and roulette screens'
+    texts; FalloutNV.esm's GMST over the engine's default."""
     gmst = {r.get('EditorID'): r.get('DATA.Value') for r in export_records(export_dir, 'GMST')}
     values = {prop: ('string', gmst.get(name) or default) for prop, (name, default) in TEXTS.items()}
-    values['AntiCheatTexts'] = ('strings', [gmst.get(name) or default for name, default in ANTI_CHEAT])
-    values['SlotTexts'] = ('strings', [gmst.get(name) or default for name, default in SLOT_TEXTS])
+    for prop, table in (('AntiCheatTexts', ANTI_CHEAT), ('SlotTexts', SLOT_TEXTS), ('RouletteTexts', ROULETTE_TEXTS)):
+        values[prop] = ('strings', [gmst.get(name) or default for name, default in table])
     values['AntiCheatSeconds'] = ('float', float(gmst.get(ANTI_CHEAT_SECONDS[0]) or ANTI_CHEAT_SECONDS[1]))
     return {**values, 'NotBuiltText': ('string', NOT_BUILT)}
 

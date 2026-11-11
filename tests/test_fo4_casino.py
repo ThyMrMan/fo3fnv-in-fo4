@@ -25,6 +25,7 @@ from script_convert.cross_ref import CrossRefGraph
 from script_convert.target import FALLOUT4, TARGET_ENV
 from tes5_import.base.tes5_reader import subrecords
 from tests.casino import model
+from tests.casino import roulette
 
 STATIC = Path(__file__).resolve().parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
 needs_ffdec = pytest.mark.skipif(not M.FFDEC.is_file(), reason='FFDec is not installed')
@@ -327,8 +328,14 @@ def test_the_slot_texts_are_in_the_screens_order():
     assert indexes == list(range(len(R.SLOT_TEXTS)))
 
 
-#: A Papyrus.0.log line of `cqf FNV_Casino SelfTest <luck>`, pasted after "selftest " (absent until captured).
-CAPTURED = Path(__file__).resolve().parent / 'casino' / 'slots_selftest.txt'
+#: The Papyrus.0.log lines of `cqf FNV_Casino SelfTest <luck>`, each pasted after "selftest " (absent until captured).
+CAPTURED = Path(__file__).resolve().parent / 'casino' / 'selftest.txt'
+
+
+def _captured(game: str) -> list:
+    """The captured self-test lines of `game` (slots, roulette)."""
+    lines = CAPTURED.read_text(encoding='utf-8').split('\n') if CAPTURED.is_file() else []
+    return [line.strip() for line in lines if line.startswith(game + ' ')]
 
 
 def test_the_self_test_line_is_the_models_per_seed_spins():
@@ -337,9 +344,143 @@ def test_the_self_test_line_is_the_models_per_seed_spins():
     assert line[:2] == ['slots', '5'] and len(line) == 62 and all(len(s.split(',')) == 3 for s in line[2:])
 
 
-@pytest.mark.skipif(not CAPTURED.is_file(), reason='no in-game self-test captured yet')
+@pytest.mark.skipif(not _captured('slots'), reason='no in-game self-test captured yet')
 def test_the_movies_spins_match_the_model():
-    """Each captured SelfTest line is the model's for seeds 1-3, at its Luck."""
-    for line in CAPTURED.read_text(encoding='utf-8').split('\n'):
-        if line.strip():
-            assert line.strip() == model.slot_trace((1, 2, 3), 20, int(line.split(' ')[1]))
+    """Each captured slots line is the model's for seeds 1-3, at its Luck."""
+    for line in _captured('slots'):
+        assert line == model.slot_trace((1, 2, 3), 20, int(line.split(' ')[1]))
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: roulette
+# ---------------------------------------------------------------------------
+
+
+def test_the_board_has_fnvs_159_spots_by_kind():
+    """InitRouletteWheel: 38 straights, 60 splits, 15 streets and baskets, 22 corners, the top line, 11 lines and
+    12 outside spots."""
+    kinds = {}
+    for i in range(roulette.SPOTS):
+        named, odds = roulette.spot(i)
+        kinds[(len(named), odds)] = kinds.get((len(named), odds), 0) + 1
+    assert kinds == {(1, 35): 38, (2, 17): 60, (3, 11): 15, (4, 8): 22, (5, 6): 1, (6, 5): 11, (0, 2): 6, (0, 1): 6}
+    straights = [roulette.spot(i)[0][0] for i in range(roulette.SPOTS) if roulette.spot(i)[1] == 35]
+    assert sorted(straights) == list(range(38))
+
+
+@pytest.mark.parametrize('index, named, odds', [
+    (25, (1,), 35), (26, (1, 4), 17), (49, (1, 2), 17), (50, (1, 2, 4, 5), 8), (1, (1, 2, 3), 11),
+    (2, (1, 2, 3, 4, 5, 6), 5), (0, (0, 37, 1, 2, 3), 6), (72, (37, 0, 2), 11), (143, (36,), 35), (144, (37,), 35)])
+def test_spots_name_fnvs_numbers(index, named, odds):
+    """Rows of 24, street edge to the 3s: odd places numbers, even the lines."""
+    assert roulette.spot(index) == (named, odds)
+
+
+def test_zero_pays_only_on_its_own_spot_red_even_and_the_third_column():
+    """0 wins straight, red, even, column 3; 00 black, odd, column 1.
+    See: docs/fork/fo4_casino_plan.md#roulette-built
+    """
+    assert {i for i in range(roulette.SPOTS) if roulette.wins(i, 0)} == {146, 149, 151, 158}
+    assert {i for i in range(147, 159) if roulette.wins(i, 37)} == {152, 154, 156}
+    assert roulette.wins(145, 37) and not roulette.wins(24, 0) and roulette.wins(24, 1)
+
+
+@pytest.mark.parametrize('index, edge', [(146, -2), (25, -2), (151, 0), (149, 0), (156, 1), (157, -2), (147, -2),
+                                         (145, -20), (0, -10)])
+def test_each_bets_return_follows_from_fnvs_rules(index, edge):
+    """One chip's exact return in 38ths of a chip, from FNV's rules.
+    See: docs/fork/fo4_casino_plan.md#roulette-built
+    """
+    won = sum(roulette.spot(index)[1] + 1 for r in range(roulette.POCKETS) if roulette.wins(index, r))
+    assert won - roulette.POCKETS == edge
+
+
+def test_a_spin_pays_odds_plus_one_on_each_winner_less_the_table():
+    """A straight on the result returns 36x, red 2x; the net takes the table back; the bet returns to the min."""
+    table = roulette.Table(100, 5, 200, model.Rng(1))
+    result = model.Rng(1).below(roulette.POCKETS)
+    straight = next(i for i in range(roulette.SPOTS) if roulette.spot(i) == ((result,), 35))
+    table.place(straight)
+    table.bet_up()
+    table.place(151)
+    red = roulette.wins(151, result)
+    assert table.spin() == (result, 36 * 5 + (2 * 6 if red else 0) - 11) and table.bet == 5
+
+
+def test_the_max_covers_every_bet_on_a_spin():
+    """The bet shrinks to the max left; ten bets at most; one bet a spot; removing one frees its chips."""
+    table = roulette.Table(1000, 1, 200, model.Rng(1))
+    while table.bet < 60:
+        table.bet_up()
+    assert table.bet == 60
+    assert table.place(25) and table.place(27) and table.place(29) and table.bet == 20 and table.total == 180
+    assert table.place(31) and table.total == 200 and table.bet == 0 and not table.place(33)
+    assert not table.place(25) and table.remove(31) and table.total == 180
+    small = roulette.Table(1000, 1, 1000, model.Rng(1))
+    assert all(small.place(i) for i in range(10)) and small.bet == 0 and not small.place(10)
+
+
+def test_the_bet_never_takes_more_than_the_chips_left():
+    """FNV's frame rule: chips 12, two bets of 5: the bet is 2."""
+    table = roulette.Table(12, 5, 200, model.Rng(1))
+    assert table.place(25) and table.place(27) and table.bet == 2
+
+
+def test_roulette_bet_steps_go_down_to_the_steps_multiple():
+    """Down: -1 to 10, then to the multiple of 5, 10, 25, 100, or a step."""
+    assert [roulette.bet_down(b) for b in (10, 11, 13, 15, 40, 43, 100, 120, 130, 510, 600)] == \
+        [9, 10, 10, 10, 35, 40, 90, 100, 125, 500, 500]
+
+
+def test_the_min_holds_while_the_max_leaves_room():
+    """Down from the min stays at the min unless the table already fills the max."""
+    table = roulette.Table(1000, 5, 200, model.Rng(1))
+    table.bet_down()
+    assert table.bet == 5
+
+
+def test_a_long_run_returns_what_the_rules_say():
+    """60,000 seeded spins of one chip on 11 and one on red: -2/38 a spin, within noise."""
+    rng, total = model.Rng(4242), 0
+    for _ in range(60000):
+        result = rng.below(roulette.POCKETS)
+        total += (36 if roulette.wins(79, result) else 0) + (2 if roulette.wins(151, result) else 0) - 2
+    assert roulette.spot(79) == ((11,), 35) and abs(total / 60000 - (-2 / 38)) < 0.05
+
+
+def test_the_as3_roulette_carries_the_models_numbers():
+    """Roulette.as's wheel and limits are the model's (the AS3 can't run in the suite; the self-test checks the rest)."""
+    source = (AS3 / 'f3nv' / 'casino' / 'Roulette.as').read_text(encoding='utf-8')
+    assert ', '.join(map(str, roulette.WHEEL[:19])) in source and ', '.join(map(str, roulette.WHEEL[19:])) in source
+    for name in ('POCKETS', 'SPOTS', 'MOST_BETS', 'DOUBLE_ZERO'):
+        assert f'public static const {name}:int = {getattr(roulette, name)};' in source
+
+
+def test_the_roulette_texts_are_in_the_screens_order():
+    """records.ROULETTE_TEXTS has one text per RouletteScreen index, and the bank and menu pass them."""
+    source = (AS3 / 'f3nv' / 'casino' / 'RouletteScreen.as').read_text(encoding='utf-8')
+    indexes = [int(n) for n in re.findall(r'public static const [A-Z_]+:int = (\d+);', source)]
+    assert indexes == list(range(len(R.ROULETTE_TEXTS)))
+    assert len(R.texts(EXPORT)['RouletteTexts'][1]) == len(R.ROULETTE_TEXTS)
+    bank = (STATIC / 'F3NV_Casino.psc').read_text(encoding='utf-8')
+    assert 'StringsAsVar(RouletteTexts)' in bank and '"root1.OpenRoulette"' in bank
+
+
+def test_roulette_opens_and_blackjack_still_refuses():
+    """Open lets slots and roulette through; blackjack is still refused."""
+    bank = (STATIC / 'F3NV_Casino.psc').read_text(encoding='utf-8')
+    assert 'If aiGame != Slots && aiGame != Roulette' in bank and 'Int Property Roulette = 2' in bank
+
+
+def test_the_roulette_self_test_line_is_the_models():
+    """roulette_trace: 'roulette', 60 results, then the 159 spots' odds and win masks."""
+    line = roulette.roulette_trace((1, 2, 3), 20).split(' ')
+    assert line[0] == 'roulette' and len(line) == 62 and len(line[61].split(',')) == roulette.SPOTS
+    assert line[61].split(',')[146] == '35:1'
+
+
+@pytest.mark.skipif(not _captured('roulette'), reason='no in-game self-test captured yet')
+def test_the_movies_roulette_matches_the_model():
+    """Each captured roulette line is the model's for seeds 1-3."""
+    for line in _captured('roulette'):
+        assert line == roulette.roulette_trace((1, 2, 3), 20)

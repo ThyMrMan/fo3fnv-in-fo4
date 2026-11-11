@@ -1,6 +1,8 @@
 package
 {
    import f3nv.casino.Rng;
+   import f3nv.casino.Roulette;
+   import f3nv.casino.RouletteScreen;
    import f3nv.casino.Slots;
    import f3nv.casino.SlotsScreen;
    import f3nv.casino.Ui;
@@ -26,6 +28,7 @@ package
       public var f4se:Object;
       private var screen:Sprite;
       private var slots:SlotsScreen;
+      private var roulette:RouletteScreen;
       private var statusText:TextField;
       private var pings:int = 0;
 
@@ -108,8 +111,18 @@ package
                     MountAll(Ui.plain(symbols), "F3NV_Symbol"), Ui.plain(texts));
       }
 
-      // Replay `spins` slot spins per seed at `luck` on FNV's default reel and log them: the line
-      // tests/casino/model.py's slot_trace makes for the same numbers.
+      // The roulette table (F3NV_Casino.psc's OpenRoulette): see RouletteScreen.open.
+      public function OpenRoulette(name:String, chips:int, low:int, high:int, earnings:int, luck:int, seed:uint,
+                                   texts:Array) : void
+      {
+         newScreen();
+         roulette = new RouletteScreen(send);
+         screen.addChild(roulette);
+         roulette.open(name, chips, low, high, earnings, luck, seed, Ui.plain(texts));
+      }
+
+      // Replay `spins` slot spins per seed at `luck` on FNV's default reel and log them, then the roulette results
+      // and spot table: the lines tests/casino/model.py's slot_trace and roulette.py's roulette_trace make.
       public function SelfTest(seeds:Array, spins:int, luck:int) : void
       {
          var out:Array = [];
@@ -123,6 +136,16 @@ package
             }
          }
          send("F3NV_CasinoSelfTest", "slots " + luck + " " + out.join(" "));
+         var results:Array = [];
+         for (s = 0; s < seeds.length; s++)
+         {
+            var wheel:Rng = new Rng(uint(seeds[s]));
+            for (i = 0; i < spins; i++)
+            {
+               results.push(wheel.below(Roulette.POCKETS));
+            }
+         }
+         send("F3NV_CasinoSelfTest", "roulette " + results.join(" ") + " " + Roulette.spotMasks());
       }
 
       // FO4's menu input: the controls the game maps keys and gamepad buttons to.
@@ -142,6 +165,10 @@ package
          {
             return slots.control(control);
          }
+         if (roulette != null)
+         {
+            return roulette.control(control);
+         }
          if (control == "Accept")
          {
             ping();
@@ -158,6 +185,7 @@ package
          }
          screen = new Sprite();
          slots = null;
+         roulette = null;
          addChild(screen);
       }
 
