@@ -72,3 +72,4 @@ def test_player_in_region_reads_the_watch_global_and_scripts_call_the_polyfill(m
     src = 'scn T\nbegin GameMode\n  if IsPlayerInRegion vMapCanAttackPCHere == 1\n    set x to 1\n  endif\nend\n'
     out = ScriptConverter(CrossRefGraph()).convert_standalone('T', src, 'Quest', 'T')
     assert 'TES4Polyfill.InRegion(vMapCanAttackPCHere)' in out and 'GlobalVariable Property vMapCanAttackPCHere' in out
+    assert 'InRegion(vMapCanAttackPCHere) == 1' not in out

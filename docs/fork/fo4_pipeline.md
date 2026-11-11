@@ -5569,6 +5569,25 @@ case-sensitive, not yet confirmed in game.
   builds: every one of the base game's 16,044 scripts and every DLC's
   record a compile (`compile_state.json`), and none carries that name.
 
+### <a id="caprica-temp-alias"></a>Caprica's temp aliasing (found 2026-11-11, not built in game)
+
+After an `&&` or `||`, Caprica v0.3.0 can give one temp to two live values.
+`If a && b` then `If Foo() == 1` compiles to `CALLSTATIC Foo ::temp0`,
+`CAST ::temp0 1`, `COMPAREEQ ::temp0 ::temp0 ::temp0`: always true. FO4's
+compiler casts into a separate temp. In the 2026-11-11 build, 97 such compares
+in 43 FalloutNV scripts, among them Victor's move to Novac at game start
+(`VES01aVictorInNovacQuestSCRIPT`'s `IsPlayerInRegion`), the Psych Test's tag
+skill checks (`VCG01TestSCRIPT`) and Doc's chair trigger.
+
+- Each Caprica run dumps its assembly (`--dump-asm`); a script with an
+  instruction reading one temp in two source operands (`caprica.aliased`)
+  loses its .pex and FO4's compiler compiles it. The .pas files are deleted.
+- `compile_state.json` without `alias_checked` keeps no results, so every
+  script compiles once more (this replaced the `own_first` partial void).
+- Fallout 4 rows flagged `cmp_bool`/`bare_bool` (InRegion, LimbGone, the
+  Hardcore checks) now fold `== 1` as Skyrim rows do
+  (`command_rows_fallout4.COMPARISON_BOOL`).
+
 ### <a id="caprica-errors"></a>Whose failure it is, and the runs it costs (built 2026-11-10, not built in game)
 
 **Before.** Every script Caprica failed went to FO4's compiler, and each

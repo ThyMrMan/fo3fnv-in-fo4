@@ -1,7 +1,7 @@
 """Caprica, an open-source Papyrus compiler, ahead of Fallout 4's own: the scripts it compiles skip the slow one.
 
 Caprica (external/caprica, MIT) compiles FO4 Papyrus in seconds where FO4's
-PapyrusCompiler takes about 0.25 s a script. Two differences shape its use:
+PapyrusCompiler takes about 0.25 s a script. Three differences shape its use:
 
 - Its parser rejects a few header constructs FO4's compiler accepts, so it
   reads a patched copy of the header folders (`safe_headers`, PATCHES). A
@@ -13,6 +13,10 @@ PapyrusCompiler takes about 0.25 s a script. Two differences shape its use:
   (`source_error`) keeps those as its errors; any other failure (a crash,
   a timeout, a header or construct Caprica cannot read) is left to FO4's
   compiler.
+- After an `&&` or `||` it can hand one temp to two live values, so an
+  instruction reads the same temp twice (`If a && b` then `If Foo() == 1`
+  compares True with True). Each run dumps its assembly; a script showing
+  that (`aliased`) loses its .pex and is left to FO4's compiler.
 
 See: docs/fork/fo4_pipeline.md#caprica
 """
@@ -51,6 +55,12 @@ NO_FUNCTION, BAD_CAST = (re.compile(r"Unresolved function name '(\w+)'!"),
 NEW_EVENT, EVENT_NAME = 'Non-native scripts cannot define new events.', re.compile(r'^\s*Event\s+(\w+)', re.I)
 #: Seconds one Caprica run may take: a bound, not an estimate (the whole corpus compiles in about a minute).
 TIMEOUT = 1800
+#: Caprica assembly opcodes whose result is not their first operand: {opcode: index of the result}; None for none.
+RESULT_AT = {'CALLMETHOD': 2, 'CALLSTATIC': 2, 'CALLPARENT': 1, 'PROPGET': 2, 'ARRAYFINDELEMENT': 1,
+             'ARRAYRFINDELEMENT': 1, 'JUMP': None, 'JUMPT': None, 'JUMPF': None, 'RETURN': None, 'PROPSET': None,
+             'ARRAYSETELEMENT': None}
+#: A compiler temp in Caprica assembly.
+TEMP = re.compile(r'::temp\d+')
 #: One Caprica's memory (it reads every import file: 270-313 MB with 31,961), and what its runs leave free.
 CAPRICA_BYTES, SPARE_BYTES = 512 << 20, 2 << 30
 
@@ -99,13 +109,42 @@ def caprica_imports(imports: str) -> str:
 def _run(folder: Path, out_dir: Path, imports: str) -> tuple:
     """One Caprica run over `folder` into `out_dir`, serial (its parallel mode crashes on a failing script):
     (exit code, output), (None, '') when it ran past TIMEOUT."""
-    cmd = [str(CAPRICA), '-g', 'fallout4', '-q', '--ignorecwd', '-f', str(FLAGS), '-o', str(out_dir),
+    cmd = [str(CAPRICA), '-g', 'fallout4', '-q', '--ignorecwd', '--dump-asm', '-f', str(FLAGS), '-o', str(out_dir),
            '-i', imports, str(folder)]
     try:
         done = subprocess.run(cmd, capture_output=True, text=True, cwd=str(out_dir), timeout=TIMEOUT, **POPEN_FLAGS)
     except subprocess.TimeoutExpired:
         return None, ''
     return done.returncode, done.stdout + done.stderr
+
+
+def aliased(asm: str) -> bool:
+    """Whether Caprica assembly `asm` has an instruction reading one temp in two source operands: two live
+    values given the same temp, so one overwrote the other.
+    See: docs/fork/fo4_pipeline.md#caprica-temp-alias
+    """
+    for line in asm.splitlines():
+        words = line.split(';', 1)[0].split()
+        if not words or words[0].startswith('.') or words[0].endswith(':'):
+            continue
+        operands = words[1:]
+        result = RESULT_AT.get(words[0].upper(), 0)
+        temps = [w for i, w in enumerate(operands) if i != result and TEMP.fullmatch(w)]
+        if len(temps) != len(set(temps)):
+            return True
+    return False
+
+
+def _drop_aliased(names: set, out_dir: Path) -> set:
+    """Those of `names` whose assembly in `out_dir` is aliased, their .pex deleted; every name's assembly deleted."""
+    bad = set()
+    for name in names:
+        asm = out_dir / f'{name}.pas'
+        if asm.is_file() and aliased(asm.read_text(encoding='utf-8', errors='replace')):
+            (out_dir / f'{name}.pex').unlink(missing_ok=True)
+            bad.add(name)
+        asm.unlink(missing_ok=True)
+    return bad
 
 
 def source_error(message: str, line: str) -> 'str | None':
@@ -141,29 +180,31 @@ def _drain(folder: Path, out_dir: Path, imports: str) -> tuple:
     """Run Caprica over `folder` until it is empty: each run's compiled scripts and the one it stopped at leave
     it. (names compiled, {script: [its errors]} for those whose every message is a source_error, runs made).
     A run naming no script of the folder (a crash, a timeout, a header Caprica cannot read) ends it; unless that
-    run ended cleanly, what it wrote is deleted (a .pex may be half written)."""
+    run ended cleanly, what it wrote is deleted (a .pex may be half written). An aliased script is in neither
+    result (_drop_aliased)."""
     written, errors, runs = set(), {}, 0
     while any(folder.glob('*.psc')):
         (code, output), runs = _run(folder, out_dir, imports), runs + 1
         names = {p.stem.lower() for p in folder.glob('*.psc')}
+        bad = _drop_aliased(names, out_dir)
         made = {n for n in names if (out_dir / f'{n}.pex').is_file()}
         found = _errors(output, folder)
-        if not found and made != names:
+        if not found and made | bad != names:
             for name in made if code != 0 else ():
                 (out_dir / f'{name}.pex').unlink()
             written |= made if code == 0 else set()
             break
         written |= made
         errors.update({name: messages for name, messages in found.items() if None not in messages})
-        for name in made | set(found):
+        for name in made | bad | set(found):
             (folder / f'{name}.psc').unlink(missing_ok=True)
     return written, errors, runs
 
 
 def compile_files(files: list, out_dir: Path, imports: str, workers: int = 1) -> tuple:
     """Compile `files` (.psc paths) into `out_dir` with Caprica against import list `imports` (the scripts' own
-    folder first): (lower-case names it wrote a .pex for, {name: [errors]} of those failing on their own source,
-    Caprica runs made). The files are dealt into up to `workers` folders, as many as free memory holds a
+    folder first): (lower-case names it wrote a sound .pex for, {name: [errors]} of those failing on their own
+    source, Caprica runs made). The files are dealt into up to `workers` folders, as many as free memory holds a
     Caprica for, all drained at once (_drain). A script in neither result is left to FO4's compiler.
     See: docs/fork/fo4_pipeline.md#caprica-errors
     """
