@@ -146,10 +146,20 @@ def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
 
 @timed('assets')
 def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
-    """Lowered skeletons, voices, sounds and movies, stale FaceGen pruned, the texture BA2; counted."""
+    """Lowered skeletons, voices, sounds and movies; counted."""
     builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
     _sounds(builder, export_dir, data_dir, out.name)
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
+
+
+@timed('FaceGen and texture archive')
+def _faces(builder, data_dir: Path, out: Path) -> None:
+    """After the plugin is written: drop FaceGen naming no NPC_ or drawing parts it no longer has
+    (facegen.outdated; the game draws those NPCs from the record), then pack the texture BA2; counted."""
+    stale = facegen.outdated(out, data_dir, master_copies.master_dirs(builder))
+    for path in stale:
+        path.unlink()
+    builder.counts['FaceGeom NIFs older than their NPC head parts removed (run the faces stage)'] = len(stale)
     npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
     builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER))
@@ -214,6 +224,7 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     _compile(builder, data_dir, scripts_dir)
     _lists(builder, data_dir)
     _write_plugin(builder, out, data_dir)
+    _faces(builder, data_dir, out)
     builder.counts["files left to the master's folder"] = master_copies.drop_loose(data_dir,
                                                                                     master_copies.master_dirs(builder))
     made = stale_files.made(data_dir, plugin_stem(export_dir), builder.started, bool(builder.built))

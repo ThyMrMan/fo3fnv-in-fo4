@@ -28,6 +28,7 @@ from PIL import Image
 
 from fo4_import.base.ba2_pack import staging_root
 from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.face import facegeom
 from fo4_import.face.bake import bake, face_shape
 from fo4_import.face.sculpt import load_basis as sculpt_basis
 from fo4_import.face.texture import face_texture, vanilla_face_texture, write_dds
@@ -179,6 +180,29 @@ def vanilla_textures(plugin: str, data_dir: Path) -> int:
 def cloth_pointer_sizes(nif_bytes: bytes) -> list:
     """Each BSClothExtraData packfile's pointer size (8 on 64-bit PC)."""
     return [raw[CLOTH_POINTER_SIZE_AT] for kind, raw in nif_file.read(nif_bytes).blocks if kind == 'BSClothExtraData']
+
+
+def drawn_parts(nif_bytes: bytes) -> set:
+    """A FaceGeom NIF's shape names: the EditorIDs of the head parts the CK drew."""
+    nif = nif_file.read(nif_bytes)
+    names = [b['name'] if isinstance(b, dict) else struct.unpack_from('<i', b)[0]
+             for kind, b in nif.blocks if kind in facegeom.SHAPES]
+    return {nif.strings[i] for i in names}
+
+
+def outdated(plugin_path: Path, data_dir: Path, master_dirs=()) -> list:
+    """`plugin_path`'s FaceGeom NIFs in `data_dir` drawing other head parts than their NPC_ now has (masters
+    and their files from `data_dir`, then `master_dirs`).
+    See: docs/fork/fo4_spikes.md#stale-facegen
+    """
+    nifs, plugin = sorted((data_dir / FACEGEN_DIRS[0] / plugin_path.name).glob('*')), plugin_path.name
+    src = facegeom.Sources(plugin_path, [data_dir, *master_dirs]) if nifs else None
+    stale = []
+    for path in nifs:
+        npc, race, female, _ = facegeom.npc_face(src, plugin, int(path.stem, 16))
+        parts = {facegeom.zstr(p.first(b'EDID')) for p in facegeom.head_parts(src, npc, race, female)}
+        stale += [path] if parts != drawn_parts(path.read_bytes()) else []
+    return stale
 
 
 def export(plugin: str, data_dir: Path) -> int:
