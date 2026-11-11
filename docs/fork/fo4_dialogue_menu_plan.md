@@ -223,9 +223,10 @@ each call):**
 FFDec compiles our own `as3/DialogueMenu.as` over the game's class
 (`fo4_import/base/ffdec.py`, shared with the casino movie). The result is
 cached under `temp/` and written only to an output folder.
-- The list is a 640-wide box in FNV's style: a 0.2 black backdrop in an
-  outline, the selected row outlined, and up/down marks joined by a line
-  left of the box when it scrolls. Its bottom is 36 above the safe area's
+- The list is a 640-wide box in FNV's style: an outline, the selected row
+  outlined, and up/down marks joined by a line in the box's left column
+  when it scrolls (HUD color, outline, marks and the wheel lock confirmed
+  in game 2026-11-10). Its bottom is 36 above the safe area's
   bottom; it shows 5 rows, and a long prompt wraps. Said options are
   dimmer.
 - **Colors follow the player's HUD color (V):** DialogueMenu's
@@ -234,8 +235,23 @@ cached under `temp/` and written only to an output folder.
   0x1B04500 with HUD color type 2 (GameplayHUDColor, stored at +0xA8). That
   sets a color multiplier over the holder, so the list, which lives in the
   Question holder, draws its text, outlines and marks in white and shows
-  them in the HUD color. The black backdrop stays black. Nothing is
-  hard-coded to a color. A menu that first shows none of ours asks again each frame for
+  them in the HUD color (confirmed in game with a pink HUD color). Nothing
+  is hard-coded to a color.
+- **No translucent fills in a HUD-colored holder (V, measured).** In the
+  pink-HUD screenshot (HUD 255,128,255) every drawn pixel is opaque: the
+  0.5 scroll line reads 131,62,131 over both a 24,14,12 and an 86,40,20
+  floor, the 0.3 mark 81,38,81, the 0.08 row fill 21,10,21, and the 0.2
+  black backdrop 0,0,0. Alpha only darkens the color; only undrawn pixels
+  show the scene. So the movie draws no backdrop. Its backdrop is the
+  game's own shaded background, which vanilla menus turn on with
+  `EnableShadedBackground(target, 1, 1.0)` (0x1B04350; type 1 is
+  MenuNoColorBackground, as at 0x107C30B and 0xA492E4): one quad over the
+  target's bounds (0x1B04AB0), drawn by the UI shader. F3NV.dll's
+  `ShadeList(on)` turns it on for the Question holder (menu +0xF8, checked
+  against the shader target vtable 0x27236D0) and off by clearing flag bit
+  0 at +0x8C. To keep that holder's bounds equal to the box, the movie
+  moves it to the box's middle and empties the hidden buttons' text.
+  Its look in game is not yet seen. A menu that first shows none of ours asks again each frame for
   30 frames before leaving the game's buttons.
 - **Keys:**
   - arrows, W/S, the mouse wheel, or the gamepad's Quickkey up/down move;

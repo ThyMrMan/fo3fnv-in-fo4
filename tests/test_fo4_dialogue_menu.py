@@ -3,8 +3,10 @@
 See: docs/fork/fo4_dialogue_menu_plan.md#test-build
 """
 
+import re
 import struct
 import zlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +18,11 @@ from fo4_import.spike import records as R
 from tools.dialog import menu_rebuild as MR
 from tools.validate.preflight.plugin_index import every, first, load_plugin, u32
 from tools.validate.preflight.xdi_menus import pair_lines
+
+
+#: The menu's ActionScript source and F3NV.dll's dialogue hooks.
+MENU_AS = Path(M.__file__).parent / 'as3' / 'DialogueMenu.as'
+DIALOGUE_CPP = Path(__file__).parents[1] / 'tes_runtime' / 'fo4_condition' / 'dialogue.cpp'
 
 
 def _sub(sig: str, data: bytes) -> SimpleNamespace:
@@ -89,6 +96,33 @@ def test_shared_copy_drops_responses_and_shares_the_line():
     assert b'Vale' not in raw and b'TRDA' not in raw and b'CTDA' in raw
     assert raw.index(b'DNAM') > raw.index(b'ENAM')
     assert struct.unpack_from('<I', raw, raw.index(b'DNAM') + 6)[0] == answer.form_id
+
+
+def test_rebuild_takes_every_scene_once_as_its_winner():
+    """Every scene of the load order, a master's overridden by the mod's record, none twice (no hub reach)."""
+    game_scene, mod_override, mod_own = (SimpleNamespace(form_id=f) for f in (0x03000001, 0x03000001, 0x04000002))
+    game = SimpleNamespace(by_type={'SCEN': [game_scene]}, by_fid={0x03000001: game_scene})
+    mod = SimpleNamespace(by_type={'SCEN': [mod_override, mod_own]},
+                          by_fid={0x03000001: mod_override, 0x04000002: mod_own})
+    assert MR.scenes([game, mod]) == [mod_override, mod_own]
+
+
+def test_movie_draws_only_white_so_the_hud_color_shows():
+    """Every fill is white, never a black backdrop (it would draw opaque).
+
+    See: docs/fork/fo4_dialogue_menu_plan.md#as-built
+    """
+    fills = re.findall(r'beginFill\(([^,]+),', MENU_AS.read_text(encoding='utf-8'))
+    assert fills and set(fills) == {'0xFFFFFF'}
+
+
+def test_wheel_scrolls_the_list_and_skips_the_camera():
+    """The movie moves on ZoomIn/ZoomOut; F3NV.dll refuses them at the first- and third-person cameras' tests."""
+    source = DIALOGUE_CPP.read_text(encoding='utf-8')
+    assert '"ZoomIn"' in MENU_AS.read_text(encoding='utf-8')
+    for rva in ('0x25AAB08', '0x10213E0', '0x2522A88', '0x102DFC0'):
+        assert rva in source
+    assert 'CAMERA_ZOOM' not in source
 
 
 @pytest.mark.skipif(not M.FFDEC.is_file() or not (FALLOUT4_DIR / 'Data' / M.ARCHIVE).is_file(),

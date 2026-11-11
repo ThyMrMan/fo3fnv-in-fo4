@@ -10,6 +10,7 @@
 #include "condition.h"
 
 #include "f4se/GameData.h"
+#include "f4se/GameMenus.h"
 #include "f4se/GameReferences.h"
 #include "f4se/GameThreads.h"
 #include "f4se/PluginAPI.h"
@@ -59,6 +60,8 @@ using TalkingFn = bool (*)(void *actor);
 using ShouldFn = bool (*)(void *handler, void *event);
 using EventNameFn = void **(*)(void *event);
 using StaticNameFn = void **(*)();
+// BSGFxShaderFXTarget::EnableShadedBackground(type, brightness): the UI shader's translucent quad behind a target.
+using ShadeFn = void (*)(void *target, UInt32 type, float brightness);
 
 RelocAddr<OptionInfoFn> OptionInfo(0x416600);
 RelocAddr<ResponseFn> ResponseInfo(0x414180);
@@ -82,6 +85,9 @@ RelocAddr<uintptr_t> PLAYER_SPEAKS(0x4158D2), CAMERA_TO_PLAYER(0x83266C);
 RelocAddr<uintptr_t> FIRST_PERSON_VTABLE(0x25AAB08), FIRST_PERSON_SHOULD(0x10213E0);
 RelocAddr<uintptr_t> THIRD_PERSON_VTABLE(0x2522A88), THIRD_PERSON_SHOULD(0x102DFC0);
 RelocAddr<StaticNameFn> ZoomInName(0xB25620), ZoomOutName(0xA7A080);
+// The shaded background, and a plain BSGFxShaderFXTarget's vtable (what DialogueMenu registers its holders as).
+RelocAddr<ShadeFn> EnableShadedBackground(0x1B04350);
+RelocAddr<uintptr_t> SHADER_TARGET_VTABLE(0x27236D0);
 const UInt8 SPEAKS[] = {0x48, 0x8B, 0xC8}, SILENT[] = {0xEB, 0x1E, 0x90};
 const UInt8 CAMERA_PLAYER = 1, CAMERA_SPEAKER = 2;
 
@@ -97,6 +103,12 @@ const size_t PLAYER_RESPONSE = 0xD3C;
 const size_t SCENE_FLAGS = 0x28, ACTION_FLAGS = 0x10, PLAYER_NO_WAIT = 0x440, TALKING_SLOT = 0x270 / 8;
 const UInt32 SCENE_STOPPING = 0x100000, PLAYER_DONE = 0x2000000, NPC_SAID = 0x4000;
 const UInt32 NO_OPTION = 4, FIRST_OURS = 5, SLOTS = 4;
+// DialogueMenu: the Question holder's shader target (registerObjects keeps the four at +0xE0, Question last). The
+// shaded background as vanilla menus ask for it: MenuNoColorBackground at full size.
+const size_t MENU_QUESTION_TARGET = 0xF8, TARGET_FX_FLAGS = 0x8C;
+const UInt32 FX_BACKGROUND_QUAD = 1;
+const UInt32 MENU_NO_COLOR_BACKGROUND = 1;
+const float FULL_QUAD = 1.0f;
 const UInt16 END = 0xFFFF;
 const char *LINKS = "Data\\F4SE\\Plugins\\F3NV_Menus\\";
 
@@ -468,6 +480,22 @@ public:
     }
 };
 
+// ShadeList(on): the game's translucent menu background behind the Question holder, where the list lives, on or
+// off. A fill inside a HUD-colored holder draws opaque (its alpha only darkens it), so the backdrop comes from here.
+class ShadeNative : public GFxFunctionHandler {
+public:
+    void Invoke(Args *args) override {
+        bool on = args->numArgs > 0 && args->args[0].GetBool();
+        IMenu *menu = *g_ui ? (*g_ui)->GetMenuByMovie(args->movie) : nullptr;
+        void *target = menu ? At<void *>(menu, MENU_QUESTION_TARGET) : nullptr;
+        bool found = target && *static_cast<uintptr_t *>(target) == SHADER_TARGET_VTABLE.GetUIntPtr();
+        if (found && on) EnableShadedBackground(target, MENU_NO_COLOR_BACKGROUND, FULL_QUAD);
+        if (found && !on) At<UInt32>(target, TARGET_FX_FLAGS) &= ~FX_BACKGROUND_QUAD;
+        if (!found) _MESSAGE("dialogue menu: no shader target for the list's background");
+        args->result->SetBool(found);
+    }
+};
+
 // Log(text): a line from the menu in F3NV.log.
 class LogNative : public GFxFunctionHandler {
 public:
@@ -485,6 +513,7 @@ bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin) {
     RegisterFunction<SelectNative>(plugin, movie, "SelectDialogueOption");
     RegisterFunction<LogNative>(plugin, movie, "Log");
     RegisterFunction<LeaveNative>(plugin, movie, "LeaveDialogue");
+    RegisterFunction<ShadeNative>(plugin, movie, "ShadeList");
     return true;
 }
 

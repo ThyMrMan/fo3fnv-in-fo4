@@ -4,6 +4,7 @@ package
    import Shared.AS3.BSButtonHintData;
    import Shared.GlobalFunc;
    import Shared.IMenu;
+   import flash.display.DisplayObject;
    import flash.display.Graphics;
    import flash.display.MovieClip;
    import flash.display.Sprite;
@@ -63,23 +64,25 @@ package
       private static const ROWS:int = 5;
 
       // The box's fixed width and its bottom's height above the screen's safe bottom (it stays under the speaker's
-      // face); the padding, a row's text width inside it (a longer prompt wraps), the gap between rows, the outline's
-      // thickness, the backdrop's opacity and the scroll marks' column left of the box (as FNV draws its box).
+      // face); the padding, the scroll marks' column inside the box's left edge, a row's text width (a longer prompt
+      // wraps), the gap between rows and the outline's thickness. The box has no fill of its own: the game's shaded
+      // background (F3NV.dll ShadeList) is its backdrop, since a fill in a HUD-colored holder draws opaque.
       private static const BOX_WIDTH:Number = 640;
 
       private static const BOTTOM:Number = 36;
 
       private static const PAD:Number = 10;
 
-      private static const TEXT_WIDTH:Number = BOX_WIDTH - 4 * PAD;
+      private static const GUTTER:Number = 24;
+
+      private static const TEXT_WIDTH:Number = BOX_WIDTH - GUTTER - 3 * PAD;
 
       private static const GAP:Number = 6;
 
       private static const LINE:Number = 2;
 
-      private static const BACKDROP:Number = 0.2;
-
-      private static const GUTTER:Number = 24;
+      // The game's shaded background is on behind the holder.
+      private var shaded:Boolean = false;
 
       // Frames to look again for F3NV.dll's options when a menu first shows none (its scene may not be set yet).
       private static const RETRIES:int = 30;
@@ -190,7 +193,7 @@ package
 
       public function SetButtonText(button:uint, text:String) : *
       {
-         this.ButtonData[button].ButtonText = text.toUpperCase();
+         this.ButtonData[button].ButtonText = this.list == null ? text.toUpperCase() : "";
          this.gameTexts[button] = text;
          if(button == 3)
          {
@@ -250,6 +253,7 @@ package
          if(this.list != null)
          {
             this.list.visible = false;
+            this.shade(false);
          }
          this.log("menu hidden");
       }
@@ -268,7 +272,8 @@ package
 
       // The list's rows, built once the movie is up (never in the constructor). The game draws this menu only
       // inside the objects it registered (registerObjects), so the list lives in the Question button's holder,
-      // placed near the screen's safe bottom (draw), and each holder's own button art is hidden (played 2026-11-10).
+      // placed near the screen's safe bottom (draw), and each holder's own button art is hidden and its text
+      // emptied, so the Question holder's bounds (the shaded background's size) are the box's (played 2026-11-10).
       private function makeList() : void
       {
          var host:MovieClip = this.FadeHolder_mc.Question;
@@ -288,7 +293,7 @@ package
             row.wordWrap = true;
             row.width = TEXT_WIDTH;
             row.autoSize = "left";
-            row.x = 2 * PAD;
+            row.x = GUTTER + 2 * PAD;
             row.name = String(i);
             row.addEventListener(MouseEvent.MOUSE_OVER, this.onRowOver);
             row.addEventListener(MouseEvent.CLICK, this.onRowClick);
@@ -307,6 +312,7 @@ package
          while(i < this.ButtonAnimators.length)
          {
             this.ButtonAnimators[i].Holder.visible = false;
+            this.ButtonData[i].ButtonText = "";
             i++;
          }
          this.log("list made");
@@ -407,41 +413,51 @@ package
          }
          var high:Number = y - GAP + PAD + LINE;
          this.paint(count, high);
-         var base:Point = this.list.parent.globalToLocal(this.localToGlobal(new Point(0, -BOTTOM)));
+         var host:DisplayObject = this.list.parent;
+         var middle:Point = host.parent.globalToLocal(this.localToGlobal(new Point(0, -BOTTOM - high / 2)));
+         host.x = middle.x;
+         host.y = middle.y;
+         var base:Point = host.globalToLocal(this.localToGlobal(new Point(0, -BOTTOM)));
          this.list.x = base.x - BOX_WIDTH / 2;
          this.list.y = base.y - high;
          this.list.visible = this.listShown && count > 0;
+         this.shade(this.list.visible);
          if(this.list.visible && stage != null)
          {
             stage.focus = this.list;
          }
       }
 
-      // The box under `count` rows, `high` in all and always BOX_WIDTH wide, drawn as FNV draws its own: a faint
-      // backdrop in an outline, the selected row in an outline of its own, and, when the list scrolls, an up and a
-      // down mark joined by a line left of the box (dim where there is nothing more that way). White is tinted to
-      // the HUD color by the game.
+      // The box under `count` rows, `high` in all and always BOX_WIDTH wide, drawn as FNV draws its own: an
+      // outline, the selected row in an outline of its own, and, when the list scrolls, an up and a down mark joined
+      // by a line in the box's left column (dim where there is nothing more that way). White is tinted to the HUD
+      // color by the game; the backdrop is the game's shaded background (shade).
       private function paint(count:int, high:Number) : void
       {
          var g:Graphics = this.list.graphics;
          g.clear();
-         g.beginFill(0, BACKDROP);
-         g.drawRect(0, 0, BOX_WIDTH, high);
-         g.endFill();
          this.frame(g, 0, 0, BOX_WIDTH, high, 0.9);
          var row:TextField = this.rows[this.selected - this.top];
-         g.beginFill(0xFFFFFF, 0.08);
-         g.drawRect(PAD, row.y - 3, BOX_WIDTH - 2 * PAD, row.height + 6);
-         g.endFill();
-         this.frame(g, PAD, row.y - 3, BOX_WIDTH - 2 * PAD, row.height + 6, 0.9);
+         this.frame(g, GUTTER + PAD, row.y - 3, BOX_WIDTH - GUTTER - 2 * PAD, row.height + 6, 0.9);
          if(this.entries.length > count)
          {
-            var x:Number = -GUTTER / 2;
+            var x:Number = PAD + GUTTER / 2;
             g.beginFill(0xFFFFFF, 0.5);
             g.drawRect(x - LINE / 2, PAD + 12, LINE, high - 2 * PAD - 24);
             g.endFill();
             this.arrow(g, x, PAD, -1, this.top > 0 ? 1 : 0.3);
             this.arrow(g, x, high - PAD, 1, this.top + count < this.entries.length ? 1 : 0.3);
+         }
+      }
+
+      // The game's shaded background behind the list's holder, on or off (F3NV.dll; once per change).
+      private function shade(on:Boolean) : void
+      {
+         if(on != this.shaded)
+         {
+            this.shaded = on;
+            var done:Boolean = this.dll.ShadeList(on);
+            this.seenOnce("shaded background " + (on ? "on" : "off") + (done ? "" : " refused"));
          }
       }
 
@@ -512,6 +528,7 @@ package
          this.listShown = false;
          this._ButtonsShown = false;
          this.list.visible = false;
+         this.shade(false);
       }
 
       // End the talk through F3NV.dll (`why` names the key or entry, for the log).
