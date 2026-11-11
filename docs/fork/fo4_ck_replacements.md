@@ -1,7 +1,7 @@
 # Plan sketch: the build without the Creation Kit (2026-11-11)
 
-Status: 1 [built](#ba2) and 7 [built](#lips) (2026-11-11, not built in
-game); 2 [blocked by Caprica](#caprica); the rest ideas. Status lives in
+Status: 1 [built](#ba2), 2 [built](#caprica) and 7 [built](#lips)
+(2026-11-11, not built in game); the rest ideas. Status lives in
 [ROADMAP.md](ROADMAP.md). Built on the [open-tools survey](research/fo4_open_landscape.md#tools)
 and the build's own docs; costs quoted are the docs' measurements.
 
@@ -90,7 +90,19 @@ staged and then dropped by Archive2. Both folders now stay loose like
 vanilla's LUTs, and `ba2_pack._unstage` moves LUTs an older build staged
 back into the Data folder.
 
-## <a id="caprica"></a>2. Caprica only: one script left, blocked by Caprica (measured 2026-11-11)
+## <a id="caprica"></a>2. Caprica only: every script, with our Caprica build (2026-11-11, not built in game)
+
+**Done.** We now bundle our own Caprica build ([what changed](fo4_pipeline.md#caprica-ours)):
+relational operators on strings, and a fix for Caprica's temp reuse, which
+had silently miscompiled 59 FalloutNV scripts (Victor's game start among
+them). `List` lost its `= None` defaults and `nvse_falloutnv._array_call`
+passes all 20 (`LIST_SLOTS`). FalloutNV.esm's 17,507 scripts: 17,490
+compile in Caprica, and the 16 own errors fail in FO4's compiler too, so
+none is left for FO4's compiler. FO4's compiler stays the fallback for
+mods' scripts; `caprica.SAME_ERRORS` needs no change, since Caprica now
+gives its operator message only where FO4's compiler fails too.
+
+What follows is the measurement that led here.
 
 A probe compiled every script of a converted folder with Caprica the way
 the build does (`caprica.compile_files`) and listed what it left to FO4's

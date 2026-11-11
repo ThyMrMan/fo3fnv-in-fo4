@@ -57,8 +57,8 @@ _DECLARATION = re.compile(r'^(?:scriptname|import|customevent|struct|endstruct'
 _MEMBER = re.compile(r'\b(?:function|event|property|customevent) (\w+)')
 #: Per-script results of the last Fallout 4 run, in --out, so the next run compiles only what changed.
 _STATE_FILE = 'compile_state.json'
-#: A compile state's mark that every .pex it lists passed caprica.aliased; a state without it keeps no results.
-CHECKED = 'alias_checked'
+#: A compile state's Caprica (caprica.build_tag); a state made by another, or before the tag, keeps no results.
+COMPILER = 'caprica'
 #: Stamp memos (file_stamps) of the sources' facts, per --out, in the cache (a build deploys --out); the old headers' one.
 _SOURCE_STAMPS, _OLD_HEADER_STAMPS = 'sources.json', 'headers.json'
 _STAMPS_CACHE = _PROJECT_ROOT / 'output' / 'fo4_cache' / 'compile_stamps'
@@ -276,14 +276,14 @@ def _state_key(imports: str) -> str:
 
 def saved_state(out_dir: Path, imports: str, headers: str) -> tuple:
     """(the last run's per-script results, every name it listed). No results when it is absent, was made
-    against other header folders or contents, or predates the check of Caprica's output (CHECKED).
-    See: docs/fork/fo4_pipeline.md#caprica-temp-alias
+    against other header folders or contents, or by another Caprica (COMPILER).
+    See: docs/fork/fo4_pipeline.md#caprica-ours
     """
     path = out_dir / _STATE_FILE
     state = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
     scripts = state.get('scripts', {})
     same = state.get('imports') == _state_key(imports) and state.get('headers') == headers
-    return (scripts if same and state.get(CHECKED) else {}), set(scripts)
+    return (scripts if same and state.get(COMPILER) == caprica.build_tag() else {}), set(scripts)
 
 
 def missing_pex(state: dict, out_dir: Path) -> set:
@@ -385,7 +385,8 @@ def compile_fallout4(args) -> tuple:
     scripts = {n: {**(state[n] if n not in todo else {'ok': n in pex, 'own': own.get(n, [])}),
                    'sha': hashes[n], 'api': apis[n]} for n in hashes}
     (out_dir / _STATE_FILE).write_text(json.dumps({'imports': _state_key(imports), 'headers': headers,
-                                                   CHECKED: True, 'scripts': scripts}), encoding='utf-8')
+                                                   COMPILER: caprica.build_tag(), 'scripts': scripts}),
+                                       encoding='utf-8')
     compiled = {n for n, s in scripts.items() if s['ok']}
     own = {f.stem: scripts[f.stem.lower()]['own'] for f in files if scripts[f.stem.lower()]['own']}
     return compiled, own, [f.stem for f in files]

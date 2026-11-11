@@ -5595,11 +5595,46 @@ skill checks (`VCG01TestSCRIPT`) and Doc's chair trigger.
 - Each Caprica run dumps its assembly (`--dump-asm`); a script with an
   instruction reading one temp in two source operands (`caprica.aliased`)
   loses its .pex and FO4's compiler compiles it. The .pas files are deleted.
-- `compile_state.json` without `alias_checked` keeps no results, so every
-  script compiles once more (this replaced the `own_first` partial void).
+- A `compile_state.json` made by another Caprica keeps no results
+  ([below](#caprica-ours)), so every script compiles once more.
 - Fallout 4 rows flagged `cmp_bool`/`bare_bool` (InRegion, LimbGone, the
   Hardcore checks) now fold `== 1` as Skyrim rows do
   (`command_rows_fallout4.COMPARISON_BOOL`).
+- **Fixed in our Caprica build** ([below](#caprica-ours)). The `aliased`
+  check stays as a guard and flags nothing with it.
+
+### <a id="caprica-ours"></a>Our Caprica build (2026-11-11, not built in game)
+
+`external/caprica/Caprica.exe` is Caprica v0.3.0 (commit `2042c90`) with
+`external/caprica/f3nv.patch` applied, built by its CI's recipe (Release,
+static runtime, `x64-windows-static`); SHA-256 `531dd67b…d74c66`. The
+release exe it replaced is `389fef19…153ec6`. Two fixes:
+
+1. **Temps (the aliasing above).** `PexFunctionBuilder::fixup` freed every
+   temp an instruction named, the one it writes included. `a && b` is
+   `ASSIGN t a`, `JUMPF t`, `ASSIGN t b`, so `t` was freed twice while it
+   still held the result, and `IntrusiveStack::push` of a node already on
+   top links it to itself: from then on every temp of that type is the same
+   slot. Now a temp is freed only when read, never pushed twice
+   (`TempVarDescriptor::isFree`), and a temp written again leaves the free
+   list (`markTempLive`). Also fixes `(a || b) == Foo()`, where `Foo`'s
+   result overwrote the `||` result.
+2. **`<`, `<=`, `>`, `>=` on strings**, as FO4's compiler allows
+   (`PapyrusBinaryOpExpression::semantic`; the code was already emitted).
+   `F3NV_Array.KeyBefore` needs it ([CK replacements](fo4_ck_replacements.md#caprica)).
+
+The patch also moves `vcpkg.json`'s baseline to current vcpkg (with fmt
+held at 9.1.0, the old baseline's): Boost 1.80's own build tool fails under
+Visual Studio 18. To rebuild: check out `2042c90` of `Orvid/Caprica`,
+`git apply f3nv.patch`, then CMake with the vcpkg toolchain as above.
+
+**Checked (2026-11-11, FalloutNV.esm's 17,507 converted scripts,
+`caprica.compile_files`):** the release leaves 60 to FO4's compiler, 59
+flagged by `aliased` plus `F3NV_Array`; our build compiles 17,490, the
+same 16 own errors, none aliased. The new `F3NV_Array` (no `Var` defaults)
+compiles too; `KeyBefore` is `COMPARELT` on its two string casts.
+`compile_state.json` records the exe's SHA-1 (`caprica.build_tag`), so a
+state another Caprica made keeps no results and every script compiles once.
 
 ### <a id="caprica-errors"></a>Whose failure it is, and the runs it costs (built 2026-11-10, not built in game)
 

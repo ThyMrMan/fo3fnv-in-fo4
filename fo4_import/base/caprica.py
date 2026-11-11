@@ -21,6 +21,7 @@ PapyrusCompiler takes about 0.25 s a script. Three differences shape its use:
 See: docs/fork/fo4_pipeline.md#caprica
 """
 
+import functools
 import hashlib
 import re
 import shutil
@@ -75,6 +76,14 @@ def _patched(text: str) -> str:
     for pattern, replacement in PATCHES:
         text = pattern.sub(replacement, text)
     return text
+
+
+@functools.cache
+def build_tag() -> str:
+    """SHA-1 of the bundled Caprica.exe, '' when it is missing.
+    See: docs/fork/fo4_pipeline.md#caprica-ours
+    """
+    return hashlib.sha1(CAPRICA.read_bytes()).hexdigest() if CAPRICA.is_file() else ''
 
 
 def safe_headers(folder: Path) -> Path:

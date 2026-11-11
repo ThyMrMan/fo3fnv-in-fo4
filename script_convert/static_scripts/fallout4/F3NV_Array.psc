@@ -18,10 +18,10 @@ Var[] Function Construct(String asKind) Global
   Return arr
 EndFunction
 
-Var[] Function List(Int aiCount, Var a0 = None, Var a1 = None, Var a2 = None, Var a3 = None, Var a4 = None, \
-    Var a5 = None, Var a6 = None, Var a7 = None, Var a8 = None, Var a9 = None, Var a10 = None, Var a11 = None, \
-    Var a12 = None, Var a13 = None, Var a14 = None, Var a15 = None, Var a16 = None, Var a17 = None, \
-    Var a18 = None, Var a19 = None) Global
+Var[] Function List(Int aiCount, Var a0, Var a1, Var a2, Var a3, Var a4, \
+    Var a5, Var a6, Var a7, Var a8, Var a9, Var a10, Var a11, \
+    Var a12, Var a13, Var a14, Var a15, Var a16, Var a17, \
+    Var a18, Var a19) Global
   {ar_List: an Array of the first aiCount arguments (xNVSE takes at most 20).}
   Var[] items = new Var[20]
   items[0] = a0
