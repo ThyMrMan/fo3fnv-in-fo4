@@ -30,8 +30,8 @@ EXPORT_ROOT = REPO / 'export'
 GAMES = {
     'falloutnv': {'master': 'FalloutNV.esm', 'plugin': 'FalloutNV.esm', 'cell': 'GSDocMitchellHouse',
                   'world': 'WastelandNV', 'test_center': (-18, 0), 'built': True},
-    'fallout3': {'master': 'Fallout3.esm', 'plugin': 'Fallout3.esp', 'cell': '', 'world': 'Wasteland',
-                 'test_center': (0, 0), 'built': False},
+    'fallout3': {'master': 'Fallout3.esm', 'plugin': 'Fallout3.esm', 'cell': 'Vault101d', 'world': 'Wasteland',
+                 'test_center': (-4, -4), 'built': False},
 }
 #: Stage keys in run order, with their labels.
 ORDER = (('import', 'Import the mod folder'), ('export', 'Export the plugin and its archives'),

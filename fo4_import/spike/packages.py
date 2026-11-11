@@ -20,7 +20,7 @@ from fo4_import.spike.greet_once import GreetOnce
 from fo4_import.spike.say_topics import blocker, conditions_of
 from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
 from fo4_import.spike.records import pack_flst
-from fo4_import.spike.script import PACKAGE_PREFIX, QUEST_PREFIX, declared_properties
+from fo4_import.spike.script import PACKAGE, QUEST, declared_properties, prefix
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_CHAT_PREFIX
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -162,7 +162,7 @@ class Packages:
         See: docs/fork/fo4_pipeline.md#greeting-scene
         """
         names = [scripts.name(int(q['SCRI'], 16)) for q in quests if q.get('SCRI')]
-        names += [f'{QUEST_PREFIX}{q["EditorID"]}' for q in quests]
+        names += [f'{prefix(QUEST)}{q["EditorID"]}' for q in quests]
         for path in (scripts.dir / f'{n}.psc' for n in names if n and scripts.dir):
             props = declared_properties(path.read_text(encoding='utf-8')) if path.exists() else []
             for prop in (p for _, p in props if self.packs.get(self.by_name.get(p.lower()), {}).get('PKDT.Type')
@@ -350,7 +350,7 @@ class Packages:
     def _fragments(self, rec: dict, form_map: dict) -> bytes:
         """VMAD binding FNV package `rec`'s converted PF_ script, filled; a cower's (cowers()) COWER_SCRIPT; a
         Dialogue with an NPC's DIALOGUE_SCRIPT, its topic's chat scene and target; b'' without any."""
-        flags, name, scripts = package_flags(rec), PACKAGE_PREFIX + rec['FormID'].upper(), self.builder.scripts
+        flags, name, scripts = package_flags(rec), prefix(PACKAGE) + rec['FormID'].upper(), self.builder.scripts
         if cowers(rec) and not flags:
             self.builder.counts['cower package'] += 1
             return pack_subrecord('VMAD', package_fragments(COWER_SCRIPT, COWER_FRAGMENTS,

@@ -11,7 +11,8 @@ New Vegas is playable on Fallout 4 from Doc Mitchell's house onward, with
 its four story DLC and the five add-on packs. Nearly every system is built.
 Much of it has never been played, so most of what is left is play-testing
 and fixing what testers find. The casino games and Caravan are being built.
-Fallout 3 is not started. Install steps are in the
+Fallout 3 has a first spike, Vault 101 and its opening, not yet played
+([FO3 spike](fo4_fo3_plan.md)). Install steps are in the
 [README](../../README.md#install).
 
 The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
@@ -213,7 +214,7 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
 | Conversion app | Converts your New Vegas install for Fallout 4 | Partial | Setup, Convert and Replacements screens are built, not tested end to end. DLC and mod folders convert from the app too ([DLC and mods](fo4_gui.md#addons)); the Finished screen checks the install, sets the output up in Mod Organizer and plays ([buttons](fo4_gui.md#mo2-setup)), and the F4SE plugin and faces are stages. None of this run from the app yet. | [phases](fo4_gui.md#phases) |
 | Installing | The README's steps for testers | Built, not played | Never followed end to end on a clean machine. | [install](../../README.md#install) |
 | Replacements | Swapping converted items or creatures for Fallout 4's or other mods' versions | Partial | The table and its screen work, empty by default. Named profiles and a Wabbajack modlist aren't built. | [replacements](fo4_replacements.md#direction) |
-| Fallout 3 | Converting Fallout 3 the same way | Not built | | |
+| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into a scratch folder, not played. The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. | [FO3 spike](fo4_fo3_plan.md) |
 
 ## Known bugs a player will see
 
@@ -266,7 +267,8 @@ Please report what you find in
 - **Differences from New Vegas** that could be closed later: attack and equip
   speed perks, looting routines, per-pellet DT, Long Haul and Miss Fortune
   ([drift](fo4_drift.md)).
-- **Fallout 3.**
+- **Fallout 3:** play the Vault 101 spike, then the whole Capital Wasteland,
+  then Mart's Mutant Mod ([FO3 spike](fo4_fo3_plan.md#next)).
 
 ## <a id="parked"></a>Parked
 

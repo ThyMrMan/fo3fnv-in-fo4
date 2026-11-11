@@ -32,9 +32,10 @@ from script_convert.target import AV_PROPERTY_PREFIX
 from tools.script.compile_papyrus import compile_fallout4
 
 DOC_SCRIPT = 'FALLOUTNV_GSDocMitchellScript'
-FRAGMENT_PREFIX = 'FALLOUTNV_TIF__'
-QUEST_PREFIX = 'FALLOUTNV_QF_'
-PACKAGE_PREFIX = 'FALLOUTNV_PF__'
+#: Converted script kinds after the game prefix: quest stages, info results, packages, terminals, patrol markers.
+QUEST, FRAGMENT, PACKAGE, TERMINAL, PATROL = 'QF_', 'TIF__', 'PF__', 'TM__', 'PM__'
+#: The converted-script prefix of the game this run builds (use_prefix); New Vegas's until set.
+_PREFIX = {'run': 'FALLOUTNV_'}
 #: FNV quests the spike converts -> their object id, outside the spike's sequential ids so no line moves.
 QUESTS = {'VDoctors': 0x1000}
 _STAGE_FRAGMENT = re.compile(r'^Function (Fragment_Stage_(\d+)_Item_(\d+))\(', re.I | re.M)
@@ -50,6 +51,18 @@ TRACE_LOG = 'FNVSpikeTrace'
 STAGE = ROOT / 'output' / 'fo4_cache' / 'script_stage'
 #: Compiler instances compile_into runs at once.
 WORKERS = max(1, (os.cpu_count() or 2) - 1)
+
+
+def use_prefix(export_dir) -> None:
+    """Name converted scripts by `export_dir`'s game for this run.
+    See: docs/fork/fo4_fo3_plan.md#script-prefix
+    """
+    _PREFIX['run'] = namespace_for(export_dir).upper() + '_'
+
+
+def prefix(kind: str = '') -> str:
+    """This run's converted-script prefix (use_prefix), then `kind`."""
+    return _PREFIX['run'] + kind
 
 
 def stage_fragments(psc: str) -> list:
@@ -105,7 +118,7 @@ def spike_forms(helper_index: int, own_index: int) -> dict:
 
 def quest_record(scripts_dir: Path, edid: str, fid: int, stages: list, forms: dict, helper_index: int) -> tuple:
     """(QUST record, stage script name): FNV quest `edid` with its stages and its converted stage fragments."""
-    script = f'{QUEST_PREFIX}{edid}'
+    script = f'{prefix(QUEST)}{edid}'
     psc = (scripts_dir / f'{script}.psc').read_text(encoding='utf-8')
     vmad = quest_fragments(script, stage_fragments(psc), fill(declared_properties(psc), forms, helper_index))
     return pack_script_quest(fid, edid, vmad, stages), script
@@ -119,7 +132,7 @@ class Fragments:
 
     def vmad(self, fnv_info: str) -> bytes:
         """The INFO VMAD for FNV INFO `fnv_info` (hex FormID); b'' with no fragment script."""
-        name = f'{FRAGMENT_PREFIX}{fnv_info}'
+        name = f'{prefix(FRAGMENT)}{fnv_info}'
         path = self.dir / f'{name}.psc'
         if not path.exists():
             return b''

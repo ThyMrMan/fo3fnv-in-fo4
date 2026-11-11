@@ -16,14 +16,15 @@ from fo4_import.base.vmad import info_fragments, quest_fragments
 from fo4_import.base.writer import pack_quest, pack_topic
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
+from fo4_import.spike.script import PATROL, prefix
 from tes5_import.packages.scripts_falloutnv import has_code
 
 #: Ledger site of the arrival topics, their lines and their quest (keys: the FNV patrol point).
 SITE = 'FNV patrol topic'
 #: The quest holding the arrival topics.
 EDID = 'FNV_TES4PatrolTopics'
-#: Converted patrol point script prefix (script_convert.patrol_scripts) and the topic-only point's script.
-SCRIPT_PREFIX, SAY_SCRIPT = 'FALLOUTNV_PM__', 'F3NV_PatrolSay'
+#: The topic-only patrol point's script.
+SAY_SCRIPT = 'F3NV_PatrolSay'
 #: The export key every FNV patrol point carries (its idle time).
 PATROL_KEY = 'Patrol.IdleTime'
 
@@ -49,7 +50,7 @@ class PatrolTopics:
         """(script, object properties) the arrival line of patrol point `rec` runs; None when it has nothing to run
         (its script was not converted, its topic was not built)."""
         scripts = self.builder.scripts
-        name = f'{SCRIPT_PREFIX}{rec["FormID"].upper()}'
+        name = f'{prefix(PATROL)}{rec["FormID"].upper()}'
         if scripts.dir and (scripts.dir / f'{name}.psc').exists():
             scripts.used.append(name)
             return name, scripts.properties(name)

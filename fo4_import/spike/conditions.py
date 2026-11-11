@@ -14,6 +14,7 @@ import re
 import struct
 from pathlib import Path
 
+from fo4_import.pipeline.export_index import source_game
 from fo4_import.spike.records import RUN_REFERENCE, RUN_SUBJECT, RUN_TARGET, pack_ctda
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 from tools.dialog.tes4_ctda_dump import xedit_table
@@ -21,9 +22,18 @@ from tools.dialog.tes4_ctda_dump import xedit_table
 FNV = xedit_table('fnv')
 FO4 = xedit_table('fo4')
 FNV_DEFS = Path(__file__).resolve().parents[2] / 'references' / 'xEdit' / 'Core' / 'wbDefinitionsFNV.pas'
-_AV_ENUM = re.search(r"wbActorValueEnum\s*:=\s*wbEnum\(\[(.*?)\]", FNV_DEFS.read_text(errors='replace'), re.S)
-#: FNV actor value names by index; position, not xEdit's printed number (its Variable08 reads {79}).
-FNV_AV_NAMES = re.findall(r"\}\s*'([^']*)'", _AV_ENUM.group(1))
+#: Per source game (export_index.source_game), xEdit's definitions naming its actor values.
+AV_DEFS = {'fnv': FNV_DEFS, 'fo3': FNV_DEFS.with_name('wbDefinitionsFO3.pas')}
+
+
+def av_names(game: str) -> list:
+    """Source game `game`'s actor value names by list position."""
+    enum = re.search(r"wbActorValueEnum\s*:=\s*wbEnum\(\[(.*?)\]", AV_DEFS[game].read_text(errors='replace'), re.S)
+    return re.findall(r"\}\s*'([^']*)'", enum.group(1))
+
+
+#: The built game's actor value names by index (use_actor_values): FNV's until set; FO3 names 41 Small Guns.
+FNV_AV_NAMES = av_names('fnv')
 #: xEdit's FNV actor value labels that are not the game's own name with the spaces dropped (GECK, scripts).
 FNV_AV_GAME_NAMES = {'Critical Chance': 'CritChance', 'Damage Resistance': 'DamageResist',
                      'Poison Resistance': 'PoisonResist', 'Rad Resistance': 'RadResist',
@@ -63,6 +73,14 @@ AUTHORED = 'objectives'
 USE_GLOBAL = 0x04
 _OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,
         0x60: lambda a, b: a >= b, 0x80: lambda a, b: a < b, 0xA0: lambda a, b: a <= b}
+
+
+def use_actor_values(export_dir) -> None:
+    """Name actor values by `export_dir`'s source game for this run.
+    See: docs/fork/fo4_fo3_plan.md#shared
+    """
+    global FNV_AV_NAMES
+    FNV_AV_NAMES = av_names(source_game(export_dir))
 
 
 def fnv_av_name(index: int) -> str:

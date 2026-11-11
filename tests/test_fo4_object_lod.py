@@ -242,7 +242,7 @@ def test_a_tree_gets_a_card_of_its_billboard_at_its_billboard_size(monkeypatch, 
                                                     (175.0, 175.0)))]
 
 
-@pytest.mark.skipif(not O.export_file(Path('export/FalloutNV.esm'), O.CARD_TEMPLATE).is_file(),
+@pytest.mark.skipif(not O.export_file(Path('export/FalloutNV.esm'), O.CARD_TEMPLATES['fnv']).is_file(),
                     reason='needs the FalloutNV.esm export')
 def test_a_card_is_two_crossed_quads_on_the_template_s_properties():
     """Two crossed quads standing on 0, UVs the rect with v0 at the top, the atlas named with no normal map (FNV
@@ -261,6 +261,19 @@ def test_a_card_is_two_crossed_quads_on_the_template_s_properties():
     assert {'NiAlphaProperty', 'NiStencilProperty', 'BSShaderPPLightingProperty'} <= kinds
     slots = next(p for p in shape.properties if isinstance(p, NifFormat.BSShaderPPLightingProperty)).texture_set
     assert slots.textures[0] == b'textures\\landscape\\trees\\treedeadlod.dds' and slots.textures[1] == b''
+
+
+@pytest.mark.skipif(not O.export_file(Path('export/Fallout3.esm'), O.CARD_TEMPLATES['fo3']).is_file(),
+                    reason='needs the Fallout3.esm export')
+def test_a_fallout3_card_is_unlit_on_fallout3_s_own_template():
+    """An FO3 card keeps FO3's unlit LOD tree properties, its shader and base texture naming the billboard."""
+    raw = O.card_nif(Path('export/Fallout3.esm'), 'trees\\billboards\\pine01.dds', O.WHOLE, (100.0, 400.0))
+    data = NifFormat.Data()
+    data.read(io.BytesIO(raw))
+    props = data.roots[0].children[0].properties
+    unlit = next(p for p in props if isinstance(p, NifFormat.BSShaderNoLightingProperty))
+    base = next(p for p in props if isinstance(p, NifFormat.NiTexturingProperty)).base_texture.source
+    assert unlit.file_name == base.file_name == b'textures\\trees\\billboards\\pine01.dds'
 
 
 @pytest.mark.skipif(not FO3_TREE_TYPES.is_file(), reason='needs the Fallout3.esm export')

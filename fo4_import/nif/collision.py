@@ -259,6 +259,10 @@ class _Blocks:
                                                     material(s.material.material))
                         + EMPTY_PROPERTY * 2 + struct.pack(f'<I{len(subs)}I', len(subs), *[0] * len(subs)))
 
+    def _bhkConvexListShape(self, s) -> int:
+        """FO3's list of convex shapes, as a bhkListShape of them."""
+        return self._bhkListShape(s)
+
     def mesh(self, tris: list, materials: list, filt: bytes) -> int:
         """A repaired triangle soup (FO4 Havok units) as a bhkNiTriStripsShape: one NiTriStripsData per material."""
         groups = {}
