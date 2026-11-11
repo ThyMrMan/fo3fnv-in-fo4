@@ -582,6 +582,29 @@ converted the mesh again with no limit (`_warm` drops failures).
 
 Still open: a mesh that hits the cap is tried again on the next build.
 
+#### <a id="frontier-parked"></a>The Frontier is parked
+
+The Frontier (`The Frontier.esm`) stays out of the build queue for now. Its
+whole-world build froze the machine again, even with the worker cap,
+below-normal priority and a 24 GB job cap (`TESCONV_JOB_MEM_GB`). Which step
+froze it is not measured. The likeliest suspect is the main build process,
+holding 589,612 references.
+
+What its builds found:
+- **Fixed:**
+  - gun parts under nested nodes (`gun._shape_parents`);
+  - a receiver of a radio station with no free frequency (`Radio.receiver`).
+- **Open: 118 meshes with unset Havok fields.** Their bodies carry motion
+  system 205 or 154, quality 61 and deactivators 204 (`CC`/`CD`, MSVC's fill
+  for uninitialized memory) on massless static bodies. `collision._motion`
+  faults them, so these statics are left out. The fix to try is to read a
+  massless body with an undefined motion system as fixed.
+- **Open: pyffi bloat.** `tfssspacestationext.nif` (61 MB) is too large for
+  pyffi.
+
+To try it again, run a scoped build first: one small area, fewer workers and
+a job cap around 12 GB.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh

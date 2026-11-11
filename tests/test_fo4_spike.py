@@ -1610,3 +1610,14 @@ def test_a_reference_whose_enable_parent_is_not_built_starts_as_the_parent_leave
     assert PL.starts_disabled({'FormID': '00001000', 'RecordFlags': '0'}, {})
     assert not PL.starts_disabled({'FormID': '00001001', 'RecordFlags': '0'}, {})
     assert not PL.starts_disabled({'FormID': '00001000', 'RecordFlags': '0'}, {'00002000': 0x123})
+
+
+def test_a_receiver_of_a_station_past_the_free_frequencies_stays_a_plain_activator():
+    """With more placed Pip-Boy stations than FREQUENCIES, a receiver naming the last one gets no RADR."""
+    from fo4_import.spike import radio as RA
+    radio = RA.Radio.__new__(RA.Radio)
+    count = len(RA.FREQUENCIES) + 1
+    radio.builder, radio.refs = SimpleNamespace(counts=Counter()), {i: ['r'] for i in range(count)}
+    radio.stations = {i: {'RecordFlags': str(RA.RADIO_STATION)} for i in range(count)}
+    radio.stations_of = {100: count - 1, 101: 0}
+    assert radio.receiver(100) == b'' and radio.receiver(101) != b''
