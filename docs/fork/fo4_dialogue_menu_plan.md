@@ -93,6 +93,86 @@ Found by matching the port's own signature strings, each unique in
 6. **Measure and play:** options shown, answers right, say once, Random,
    camera, voice, leave.
 
+### <a id="vulpes-clean-start"></a>Vulpes from a clean start
+
+The scene comes from the export (`VNiptonSceneControlScript`,
+`VNiptonSceneVulpesTrigger01Script`) and the 2026-11-10 built plugin.
+YUP ships its own copy of the control script; the logic below is the
+same.
+- **What drives it:**
+  - VNipton starts with the game, so no quest needs starting.
+  - Code box `VNiptonCodeBox`: a timer runs while its cell is loaded.
+  - The player enters one of four "Start the Show" trigger volumes around
+    the town (base 16B090), which sets the code box's `bVulpesTrigger`
+    to 1.
+  - When the player is within 2,500 of `VNiptonVulpesMeet01` and
+    `FNV_vStoryEventVulpesDead` is 0, the code box enables Vulpes. He is
+    an initially-disabled actor *outside* the Town Hall door, not inside
+    it.
+  - About 7 seconds later, after he and his six guards get their travel
+    packages, `iVulpesAppears` becomes 2.
+  - When the player is within 600 of `VNiptonVulpesSceneMarker`, he gets
+    `vNiptonVulpesDialogueForce` and `bVulpesTalks` becomes 1.
+- **The force-greet package's conditions** (FO4 GetVMScriptVariable on the
+  code box ref): player distance < 2000, `bVulpesTalks` == 1,
+  `iVulpesLeaves` < 1.
+
+**Ids.** In the table, xx is FalloutNV.esm's load index in the game,
+which depends on the load order. In xEdit the same ids read 03xxxxxx. To
+find xx in game, run `help "Vulpes Inculta" 4`: his NPC_ id is xxEF0853.
+- FNV refs keep their FNV object id.
+- Actors are renumbered by key (`ACHR 0013BF5B STH` in
+  FalloutNV.formids.tsv).
+
+| What | In game | Persistent | Where (x, y, z) |
+|---|---|---|---|
+| Code box (`VNiptonCodeBox`, FNV 0016B097) | xx16B097 | yes | −33280, −95123, 7906 (≈1100 above the ground) |
+| Scene marker (FNV 0016B095) | xx16B095 | yes | −33155, −91760, 6785 |
+| `VNiptonVulpesMeet01` (FNV 0013BF67) | xx13BF67 | yes | −33157, −91979, 6822 |
+| Vulpes, placed (FNV 0013BF5B) | xx893C9C, initially disabled | yes | −33136, −91052, 6945 |
+| Vulpes NPC_ (FNV 001300E2) | xxEF0853 | | |
+| Triggers: west road, south, east, small | xx171B8D, xx16B0AC, xx171B8C, xx171B8E | no | −34709,−92014; −33170,−93610; −31655,−91719; −32519,−92888 |
+| Quest; global | `FNV_VNipton`; `FNV_vStoryEventVulpesDead` | | |
+
+The Nipton exterior cells have no EditorID, and the triggers are not
+persistent, so console `moveto` can't reach them from another cell. The
+code box can be reached: it is persistent, about 1,500 south of the south
+trigger, and outside every trigger.
+
+**Recipe (no save needed):**
+1. From the main menu: `coc qasmoke`, then `tgm`. You arrive 1,100 units
+   above the ground and fall.
+2. `help "Vulpes Inculta" 4` gives xx.
+3. `player.moveto xx16B097`.
+4. Check the starting state:
+   - `GetQuestRunning FNV_VNipton` should be 1.
+   - `prid xx16B097`, then `sv`: `bVulpesTrigger`, `iVulpesAppears`,
+     `bVulpesTalks` and `iVulpesLeaves` should all be 0.
+   - `xx893C9C.GetDisabled` should be 1.
+5. Walk north up the road into town, which crosses the south trigger after
+   about 1,500. Run `sv` on the code box again: `bVulpesTrigger` should be
+   1, and `iVulpesAppears` 1, then 2. Vulpes walks out of the Town Hall.
+6. Keep walking north to the front of the Town Hall, within 600 of the
+   scene marker. `bVulpesTalks` becomes 1, and Vulpes walks up and starts
+   talking. His GREETINGS line opens the Topic list (hub 03D4727A /
+   03447EEE), and that is our menu.
+
+**If a step stalls, force it, in this order:**
+- `set FNV_vStoryEventVulpesDead to 0`
+- `xx16B097.SetPV bVulpesTrigger 1` (the trigger did not register), then
+  stand within 2,500 of xx13BF67 so the code box enables him;
+- `player.moveto xx16B095` (puts you at the marker);
+- last resort, when he stays disabled: `xx893C9C.Enable`, then
+  `xx16B097.SetPV iVulpesAppears 2`. That skips his walk-out and his
+  guards. Then walk within 600 of the marker, so the code box adds the
+  package itself.
+- Never set `bVulpesTalks` by hand: the code box adds the package only
+  while it is 0.
+
+A save made at step 3 replays the test. `iVulpesLeaves` turns to 1 when
+the force-greet package ends; after that, the package's conditions fail
+and he leaves.
+
 Only after that plays: the converter switch (below), with its FormID drift
 measured and approved.
 
