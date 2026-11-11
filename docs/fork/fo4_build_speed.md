@@ -1,6 +1,7 @@
 # Plan: build time, first builds and rebuilds (2026-11-10)
 
-Status: planned, nothing built. Numbers come from the
+Status: steps 1, 2, 3 and 5 of the [order](#order) are built, each section saying
+what is measured; publishing face fits (4) and the journal (6, 7) are not. Numbers come from the
 [overnight run](../audits/fo4_overnight_build_2026-11-10.md) and from two code
 reads done for this plan. A line marked *(read)* was read in the code but not
 rerun; *(timed)* was timed once in a single process on one male face
@@ -411,15 +412,95 @@ Size: S–M. None of it changes a record.
 Each is small, and each still pays after [section 5](#replay), because the
 game build and a mod's own content go through the same steps.
 
-| Cost | Seen | Lead |
-|---|---|---|
-| Script compile with at least one script | 113–154 s against 3 s with none | Traced and built 2026-11-10 (not yet in a build). The conversion deleted and rewrote every .psc (17,440 files for 59 changed), which voided every size-and-time stamp and made the first read slow: 17,507 fresh files hash in 68 s against 1.4 s, the masters' 31,835 headers in 113 s against 2.3 s, Caprica's first run 62 s against 1.0 s. Now an unchanged .psc is left alone ([sources](../commentary/script_convert.md#wipe-output-dir)), the header memo is per header folder for all plugins, a Caprica source error is kept instead of recompiled by FO4's compiler, and Caprica's reruns go side by side: YUP 99 runs in 194 s before, 112 runs in 58 s ([errors and runs](fo4_pipeline.md#caprica-errors), [import order](fo4_pipeline.md#own-source-first)). Left: a Caprica run reads every import file (0.7–1.4 s each), and Caprica cannot go past a failing script, so runs = folders + failures. |
-| Mesh cache check | 26–153 s | Each hit reads the whole NIF to hash it, reads its code record and unpickles the result. Use the size-and-time stamps the compile step already has (`file_stamps`), and don't unpickle on a hit. |
-| Master meshes written, given collision, then deleted | 23–183 s of collision | Decide before writing: a mesh whose master folder already holds the same cache key is skipped. |
-| `ledger and cleanup` | 50–163 s | Not profiled. Profile it on Goodies. |
-| `base STAT` on Goodies | 796 s against 148 s for the whole game | Not explained. Find it before trusting any estimate here. |
+**Status: built and measured 2026-11-11.** Measured on scratch copies of two
+deployed mods, with each one's own build arguments: Strip Lights Region Fix
+(master: the game) and Better Brotherhood (the game and five DLC). Every
+time below is a stage line from a second, warm build. One profiled build of
+Strip Lights found the causes. The plugin came out byte-identical to the
+build before the change in every run: 4 Strip Lights builds and 2 Better
+Brotherhood builds. Better Brotherhood's also equals the deployed plugin.
 
-Size: S each, after a profile of one mod build (Goodies has all five).
+| Cost | Before | After | What it was, and the fix |
+|---|---|---|---|
+| `ledger and cleanup` | 27.9 s (Strip Lights), 147.5 s (Better Brotherhood) | 1.7 s, 17.1 s | See [cleanup](#fixed-cleanup). |
+| Mesh cache check (`mesh cache: … ready`) | 32.8 s | 24.1 s | See [mesh check](#fixed-mesh-check). |
+| Master meshes (`collision`) | 78.8 s | 19.7 s | See [master meshes](#fixed-master-meshes). Takes effect once the masters are rebuilt. |
+| Script compile | 92.0 s on a first build | 3.0–3.7 s | Nothing to fix. See [compile](#fixed-compile). |
+
+Strip Lights built in 755 s before and 541 s after, against a master with its
+mesh record. Its Main archive went from 622 MB to 268 MB.
+
+<a id="fixed-cleanup"></a>**`ledger and cleanup`.**
+- **The cache prune.** `prune_caches` walked every file of the mesh, work and
+  Elric caches on every build (10.8 s of 17 s profiled). Now
+  `work_cache.prune` sweeps at most once a day; the time of the `pruned` file
+  beside the caches says when. An unused entry still goes after 14 days, at
+  most a day later.
+- **Finding the files a build made.** `stale_files.made` stats each file
+  again after listing it; now it uses the listing's own stat
+  (`file_stamps.files_under`).
+- **Dropping files a master already has.** This was the 147.5 s on Better
+  Brotherhood. Old World Blues was built straight into its MO2 folder, so
+  about 18,000 of its files sit there loose: gun animation data, meshes, rig
+  files. Each build of a mod on it writes 18,076 copies of them. Then
+  `master_copies.drop_loose` reads each one and the master's copy and deletes
+  it. The reads wait on opening files (about 4 ms each here), so they now run
+  in 16 threads. Same files dropped.
+- Left: not writing those copies at all. Each writer (gun animation data,
+  rigs) would have to ask the master first.
+
+<a id="fixed-mesh-check"></a>**Mesh cache check.** The step sent all 6,628
+scoped meshes to the worker pool. Each worker hashed the whole NIF, read its
+code record and unpickled the entry to throw it away.
+- Now `mesh_cache.warm` keeps a memo per export and setting
+  (`meshes/warm/*.json`, `file_stamps`). It holds each NIF's cache key, under
+  the NIF's size-and-time stamp, and the texture stamps from the last time a
+  worker had it.
+- A mesh whose entry exists, whose code record is current and whose textures
+  are unchanged stays out of the pool. It is never unpickled.
+- That check costs about 4 ms a mesh in opening the code record, so it runs in
+  16 threads: 7–9 s for 6,628 meshes, against about 16 s in the pool.
+- A wrong "kept" costs only time: the build's own `cached_files` checks every
+  mesh fully and converts a miss itself.
+- The rest of the line is `scope_models` (13–20 s). It makes the scoped
+  worldspaces' `Exterior` objects, and `cell.build` makes them again from
+  other reference lists. Not shared yet.
+
+<a id="fixed-master-meshes"></a>**Master meshes.** "Written, given collision,
+then deleted" was wrong. A master's loose meshes are not in its MO2 folder,
+only its archives. So `drop_loose` found none of them, and every mod shipped
+its masters' meshes again in its own Main archive. In Strip Lights that was
+6,771 meshes, all byte-identical to the game's archive.
+- Every build now writes `<plugin>.meshes.json` beside its plugin, and the
+  deploy carries it. It lists each mesh the build ships as Elric finished it,
+  by path: `elric_cache.mark`, the `elric_finish` entry's key and code-record
+  digest, plus whether collision worked.
+- A dependent build reads its masters' records (`master_copies.theirs`). In
+  `_collision` it neither writes nor finishes a mesh whose master gives the
+  same mark (`elric_cache.LEFT`), and it deletes any copy already in its
+  folder.
+- The records count only when every master in another folder has one, the
+  last master's winning. So a master built before this change cannot hide a
+  different copy of the same path.
+- Weapon meshes (dressed after Elric) and object LOD meshes (read by the LOD
+  bake) are always built.
+- **Measured:** the game's record was simulated (a hard-linked copy of its MO2
+  folder, the record holding only meshes byte-identical to its archive).
+  Against it, Strip Lights left out 6,771 meshes, and collision went from
+  78.8 s to 19.7 s. Every other output file is byte-identical, the Textures
+  archive included.
+- **Not active until the game and DLC are rebuilt.** Until then their folders
+  have no record, so nothing is left out.
+
+<a id="fixed-compile"></a>**Script compile.** A second Better Brotherhood
+build compiled 0 of 68 scripts in 3.0–3.7 s, so the 2026-11-10 stamp fix
+holds. The overnight 41–174 s came from that run rewriting every dialogue
+script. The first build into a new folder compiled all 68 in 92 s: 18 Caprica
+runs, because 3 scripts have source errors and Caprica stops at each.
+
+| Cost | Seen before the fixes above | Lead |
+|---|---|---|
+| `base STAT` on Goodies | 796 s, then 157 s ([audit](#audit-2026-11-11)) | Not explained. |
 
 ## <a id="replay"></a>5. Mod builds replay the game build
 
