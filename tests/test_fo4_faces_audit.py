@@ -236,6 +236,25 @@ def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_pat
                                                      staged / '00000801_d.dds'))
 
 
+def test_the_ck_sees_the_builds_own_head_textures_loose_while_it_runs(tmp_path, monkeypatch):
+    """Own head textures staged for the BA2 are loose while the CK exports, and gone after; a loose one and other
+    staged textures are left alone."""
+    monkeypatch.setattr(ba2_pack, 'STAGING_CACHE', tmp_path / 'cache')
+    staged = ba2_pack.staging_root(tmp_path) / 'Textures' / 'fnv'
+    loose = tmp_path / 'Textures' / 'fnv' / 'own'
+    for folder, name, data in ((staged / 'own', 'face_d.dds', b'staged'), (staged / 'own', 'eye.dds', b'staged'),
+                               (staged / 'clutter', 'cup.dds', b'staged'), (loose, 'eye.dds', b'loose')):
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data)
+    seen = []
+    monkeypatch.setattr(FG, 'run_ck', lambda *_: seen.extend(
+        (p.relative_to(loose).as_posix(), p.read_bytes()) for p in sorted(tmp_path.joinpath('Textures').rglob('*.dds'))))
+    monkeypatch.setattr(FG, 'collect', lambda *_: [])
+    FG.export('Spike.esp', tmp_path)
+    assert seen == [('eye.dds', b'loose'), ('face_d.dds', b'staged')]
+    assert [p.name for p in tmp_path.joinpath('Textures').rglob('*') if p.is_file()] == ['eye.dds']
+
+
 def _dds_shape(data: bytes) -> tuple:
     """(width, mip count, fourcc) of a DDS."""
     height, width, _, _, mips = struct.unpack_from('<IIIII', data, 12)
