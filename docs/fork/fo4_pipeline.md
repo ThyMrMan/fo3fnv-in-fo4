@@ -4000,6 +4000,19 @@ appeared in four sessions' logs. Now:
 - Not covered: the 6 converted script lines reading `GetTalkedToPC`
   ([script markers](script_markers.md#native-read-follow-ups)).
 
+<a id="master-mirrors"></a>**A mod's copy of a master's script keeps the master's mirrors (built 2026-11-11, not played).**
+Benny repeated his greeting, and objective 10 of `VMQTops` never showed as done.
+YUP ships its own `FALLOUTNV_BennySCRIPT.pex`, which overrides the base game's.
+Each plugin's conversion picked its quest-variable mirrors (`TES4QVar_`) and objective mirrors
+(`TES4ObjDone_`, `TES4ObjShown_`) from its own conditions only. YUP's lines don't test those
+objectives, so YUP's copy called `SetObjectiveCompleted(10, 1)` without the mirror `SetValue`s.
+The base game's lines read those mirrors, so they never changed. One session's log had 1,069 warnings that
+the properties a VMAD binds were missing from the overriding script: 844 `TES4QVar_`, 156 `TES4ObjShown_` and 69 `TES4ObjDone_`.
+On Fallout 4 a plugin with masters now picks both kinds of mirror from its masters' INFO, PACK, QUST
+and SCPT records plus its own (`script_convert/pipeline.py:_mirrors`, `context_setup.chain_records`).
+The masters' builds own those globals. An overriding script's properties bind through the master's VMAD.
+Not checked: whether a mod's own new script that sets a master's mirror gets that global bound in the mod's VMAD.
+
 ## <a id="trace"></a>Session trace (built 2026-10-13)
 
 Quest bugs in the opening chain showed in game only as "she stands there".
@@ -5568,6 +5581,25 @@ case-sensitive, not yet confirmed in game.
   event on a non-native script) failed in both. Gone by the 2026-11-06
   builds: every one of the base game's 16,044 scripts and every DLC's
   record a compile (`compile_state.json`), and none carries that name.
+
+### <a id="caprica-temp-alias"></a>Caprica's temp aliasing (found 2026-11-11, not built in game)
+
+After an `&&` or `||`, Caprica v0.3.0 can give one temp to two live values.
+`If a && b` then `If Foo() == 1` compiles to `CALLSTATIC Foo ::temp0`,
+`CAST ::temp0 1`, `COMPAREEQ ::temp0 ::temp0 ::temp0`: always true. FO4's
+compiler casts into a separate temp. In the 2026-11-11 build, 97 such compares
+in 43 FalloutNV scripts, among them Victor's move to Novac at game start
+(`VES01aVictorInNovacQuestSCRIPT`'s `IsPlayerInRegion`), the Psych Test's tag
+skill checks (`VCG01TestSCRIPT`) and Doc's chair trigger.
+
+- Each Caprica run dumps its assembly (`--dump-asm`); a script with an
+  instruction reading one temp in two source operands (`caprica.aliased`)
+  loses its .pex and FO4's compiler compiles it. The .pas files are deleted.
+- `compile_state.json` without `alias_checked` keeps no results, so every
+  script compiles once more (this replaced the `own_first` partial void).
+- Fallout 4 rows flagged `cmp_bool`/`bare_bool` (InRegion, LimbGone, the
+  Hardcore checks) now fold `== 1` as Skyrim rows do
+  (`command_rows_fallout4.COMPARISON_BOOL`).
 
 ### <a id="caprica-errors"></a>Whose failure it is, and the runs it costs (built 2026-11-10, not built in game)
 

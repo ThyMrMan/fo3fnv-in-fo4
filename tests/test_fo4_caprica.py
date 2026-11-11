@@ -108,3 +108,35 @@ def test_only_the_known_header_folders_are_swapped_for_patched_copies(monkeypatc
     monkeypatch.setattr(CP, 'safe_headers', lambda folder: tmp_path / f'safe_{folder.name}')
     base = str(CP.HEADER_FOLDERS[1])
     assert CP.caprica_imports(f'{tmp_path / "mine"};{base}') == f'{tmp_path / "mine"};{tmp_path / "safe_Base"}'
+
+
+#: Caprica's own assembly of `If a < 10 && n <= 30` then `If Yes(a) == 1` (the compare reads ::temp0 twice), and
+#: of `If Yes(a) == 1` alone (the cast goes to its own temp; the result may be a source).
+ALIASED = ('COMPARELTE ::temp0 ::n_var 30 ;@line 17\nASSIGN ::temp0 ::temp0 ;@line 17\nlabel0:\n'
+           'CALLSTATIC clobberProbe Yes ::temp0 a ;@line 18\nCAST ::temp0 1 ;@line 18\n'
+           'COMPAREEQ ::temp0 ::temp0 ::temp0 ;@line 18\n')
+SOUND = ('.local ::temp0 Bool\nCALLSTATIC clobberProbe Yes ::temp0 a ;@line 26\nCAST ::temp1 1 ;@line 26\n'
+         'COMPAREEQ ::temp1 ::temp0 ::temp1 ;@line 26\nCALLMETHOD Absorbed self ::temp2 damage ::temp2\n'
+         'ARRAYFINDELEMENT Rounds ::temp0 ::temp2 ::temp0\n')
+
+
+def test_an_instruction_reading_one_temp_twice_is_aliased_and_a_result_slot_does_not_count():
+    """The aliased compare is caught; a temp read once and written as the result, in any opcode's result slot,
+    is not."""
+    assert CP.aliased(ALIASED) and not CP.aliased(SOUND)
+
+
+def test_an_aliased_script_loses_its_pex_and_is_left_to_fo4(tmp_path, monkeypatch):
+    """a's assembly is aliased: its .pex is deleted and it is in neither result; b is written; no .pas stays and
+    Caprica runs once."""
+    files, out = _sources(tmp_path, 'ab', monkeypatch)
+
+    def fake_run(folder, out_dir, imports):
+        """Compile both, a's assembly aliased."""
+        for name, asm in (('a', ALIASED), ('b', SOUND)):
+            (out_dir / f'{name}.pex').write_bytes(b'pex')
+            (out_dir / f'{name}.pas').write_text(asm, encoding='utf-8')
+        return 0, ''
+    monkeypatch.setattr(CP, '_run', fake_run)
+    assert CP.compile_files(files, out, 'headers') == ({'b'}, {}, 1)
+    assert sorted(p.name for p in out.iterdir()) == ['b.pex']

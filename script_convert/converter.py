@@ -21,6 +21,7 @@ from script_convert.command_rows import (
     COMPARISON_BOOL_FUNCTIONS, OBJREF_SHARED_FUNCTIONS, PAPYRUS_VALUE_TYPES,
     VOID_FUNCTIONS, ZERO_ARG_REF_FUNCTIONS, void_assign
 )
+from script_convert import command_rows_fallout4 as _fo4_rows
 from script_convert import quest_var_mirrors as _quest_vars, resolve_name as _resolve_name
 from script_convert import assemble as _assemble
 from script_convert import commands as _commands
@@ -606,16 +607,18 @@ class ScriptConverter:
     # path goes away entirely.
 
     def returns_bool(self, name: str) -> bool:
-        """Does this TES4 SOURCE name return a boolean, so `X == 1` is `X`?"""
-        return name.lower() in BOOL_VALUED_FUNCTIONS
+        """Does this TES4 SOURCE name return a boolean, so `X == 1` is `X`? Fallout 4's own rows count there."""
+        low = name.lower()
+        return low in BOOL_VALUED_FUNCTIONS or is_fallout4() and low in _fo4_rows.BOOL_VALUED
 
     def compares_bool(self, name: str) -> bool:
         """Does this TES4 name collapse `X == 0/1` in a COMPARISON position?
 
         Narrower than `returns_bool`: only the comparison-position list, which
-        differs from the bare-read one (docs/commentary/script_convert.md #6).
+        differs from the bare-read one (docs/commentary/script_convert.md #6). Fallout 4's own rows count there.
         """
-        return name.lower() in COMPARISON_BOOL_FUNCTIONS
+        low = name.lower()
+        return low in COMPARISON_BOOL_FUNCTIONS or is_fallout4() and low in _fo4_rows.COMPARISON_BOOL
 
     def emit_name(self, name: str, extends: str) -> str:
         """A local, a zero-argument command read, or an external property."""
