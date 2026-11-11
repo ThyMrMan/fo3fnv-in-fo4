@@ -266,6 +266,30 @@ ship), so each part goes in through the record:
 Every record is new, keyed by authored data (`derive_formid`, site
 `FNV own head`): no existing FormID moves.
 
+### <a id="ck-face-textures-loose"></a>The CK needs the own head textures loose
+
+The build writes the own head textures loose; `pack_textures` then moves them
+into the BA2 staging folder and packs `<plugin> - Textures.ba2`. The `faces`
+stage runs later, so the CK found Willow's face set texture
+(`fnv\own\face_…_d.dds`) only in that BA2. In the 2026-11-11 NVWillow build the
+BA2 was packed at 08:08, and the CK wrote FaceGen at 08:14–08:15. Her `_d`,
+`_msn` and `_s` came out byte-identical to `002B6C87`'s, the ghoul the CK
+exported just before her. The CK did not report the missing texture; it kept
+its last face. The texture is DXT1 1024 with full mips, a format the CK reads,
+so the format is not the cause. The CK has the string `" - Textures.ba2"`, and
+whether it opens a plugin's own texture BA2 during `-ExportFaceGenData` is not
+settled: the only CK log on disk is from a later run.
+
+`facegen.loose_head_textures` copies every staged texture under
+`own_heads.FOLDER` (`fnv\own\`) loose into the mod folder for the CK's run and
+removes the copies afterwards. A texture already loose is left alone.
+
+Her face set's `TX04`, `Actors\Character\HumanCommon\BlankDetailmap.dds`, is in
+no archive and is not a loose file. This is harmless and vanilla-legal:
+HumanRace's own default face sets (`0001FA47`, `0004D0EA`) and 10 of
+Fallout4.esm's 382 texture sets name it at `TX04`, and the own face set copies
+vanilla's.
+
 ## <a id="phase-1-our-own-facegeom"></a>Built in scratch: our own FaceGeom, and phases 2 and 3 (2026-11-11)
 
 **Code:** `fo4_import/face/facegeom.py` (phase 1), `fo4_import/face/own_facegen.py`
@@ -358,10 +382,10 @@ instead.
 (`0047CBE4`) are byte-identical to the previous NPC's, `002B6C87`
 (`FNV_WillowsPreviousTravelCompanion`, a ghoul), so she would show a ghoul's
 face. Her face set (own heads) names `fnv\own\face_0101ce58_f_…_d.dds`, which
-exists only inside `NVWillow - Textures.ba2`, not loose. The CK seems to have
-missed it and kept its last face. Whether the texture was packed or staged
-before the CK ran is not yet checked. The test mod's own files for her
-replace these.
+exists only inside `NVWillow - Textures.ba2`, not loose: it was packed before
+the CK ran. The fix is described in
+[the CK needs the own head textures loose](#ck-face-textures-loose). The test
+mod's own files for her replace these.
 
 ## <a id="today"></a>How faces work today
 
