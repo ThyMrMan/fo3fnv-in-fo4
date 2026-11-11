@@ -591,6 +591,15 @@ public:
     }
 };
 
+// HudColor(): the player's HUD color (iHUDColor) as 0xRRGGBB, read on every call, for menus of our own that draw
+// their text and lines in it (the casino menu: docs/fork/fo4_casino_plan.md#hud-color).
+class HudColorNative : public GFxFunctionHandler {
+public:
+    void Invoke(Args *args) override {
+        args->result->SetUInt(HudColor("iHUDColor"));
+    }
+};
+
 }  // namespace
 
 bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin) {
@@ -599,6 +608,7 @@ bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin) {
     RegisterFunction<GetOptionsNative>(plugin, movie, "GetDialogueOptions");
     RegisterFunction<SelectNative>(plugin, movie, "SelectDialogueOption");
     RegisterFunction<LogNative>(plugin, movie, "Log");
+    RegisterFunction<HudColorNative>(plugin, movie, "HudColor");
     RegisterFunction<LeaveNative>(plugin, movie, "LeaveDialogue");
     RegisterFunction<ShadeNative>(plugin, movie, "ShadeList");
     RegisterFunction<TintFailedNative>(plugin, movie, "TintFailed");

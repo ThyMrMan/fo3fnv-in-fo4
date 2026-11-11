@@ -627,7 +627,9 @@ phase 0 spike shows one of these fails:
 2. **Images:** if `MountImage` can't show a DDS from the BA2. Fix: the DLL
    loads the texture into the movie's image loader.
 
-A DLL is **not** needed for the rules, the RNG, saves or transfers.
+A DLL is **not** needed for the rules, the RNG, saves or transfers. The one
+DLL call the menu makes is optional: the player's HUD color
+([spike 2b](#hud-color)), white without F3NV.dll.
 
 ### <a id="design-toolchain"></a>4.9 Building the movie
 
@@ -762,6 +764,19 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
   So `MountImage` takes the path without the `Textures/` folder. `MountAll`
   (slot symbols) and the spike now mount the bare path, as the records
   store it (`records.fo4_path`).
+- <a id="hud-color"></a>**The HUD color without the shader (spike 2b, built
+  2026-11-11, not played).** Spike 2a (F4SE's flags with the HUD color
+  shader) failed: with them the slot menu would not open; the flags stay
+  0x800049D / 2. Instead the menu colors its own text, outlines and button
+  faces: `Ui.color` (white by default) is set in `newScreen()` from
+  F3NV.dll's `HudColor()` native (`dialogue.cpp`, registered with the
+  dialogue menu's natives on every movie as `f4se.plugins.F3NV`), which
+  returns `iHUDColorR/G/B:Interface` as 0xRRGGBB, read on every call. The
+  reader `HudColor(prefix)` is shared with the Hardcore HUD fields
+  (`hardcore.cpp`, declared in `condition.h`). Without F3NV.dll the menu
+  stays white. The board's red, black and green cells and the chips' gold
+  keep their own colors. The log says `F3NV_Casino: input hud color <hex>`
+  on each screen. Menu Frameworks' design.
 - **In-game check:** `cqf FNV_Casino Spike`; then click Ping, press Enter,
   Esc, and a gamepad's A/B if one is connected; read
   `F3NV_Casino:` lines in `Papyrus.0.log`.
