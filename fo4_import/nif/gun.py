@@ -231,19 +231,30 @@ def receiver_layout(raw: bytes) -> dict:
             'top': _top(nif, worlds)}
 
 
+def _shape_parents(src) -> dict:
+    """{shape index: its parent node's world matrix} of every BSTriShape reachable from the root (node_worlds)."""
+    worlds = node_worlds(src)
+    return {c: world for i, world in worlds.items() for c in src.blocks[i][1].get('children', [])
+            if c >= 0 and src.blocks[c][0] == 'BSTriShape'}
+
+
 def _fnv_parts(src, axes: np.ndarray = AXES) -> dict:
-    """{shape index: (part name, vertices turned by `axes`)} of an FNV gun."""
+    """{shape index: (part name, vertices in the gun's frame, turned by `axes`)} of an FNV gun, nested shapes
+    included."""
     return {i: (src.strings[src.blocks[i][1]['name']],
-                np.array([v['position'] for v in src.blocks[i][1]['vertices']], float) @ axes)
-            for i in src.blocks[0][1]['children'] if src.blocks[i][0] == 'BSTriShape'}
+                _moved(np.array([v['position'] for v in src.blocks[i][1]['vertices']], float).reshape(-1, 3),
+                       parent) @ axes)
+            for i, parent in _shape_parents(src).items()}
 
 
 def fnv_layout(static_bytes: bytes, nodes: dict) -> dict:
     """A converted FNV gun's trigger, magazine mouth, muzzle and sighting eye point (None when it has none)
-    and top, FO4's axes."""
+    and top, FO4's axes; None when the mesh has no shapes."""
     parts = _fnv_parts(nif_file.read(static_bytes)).values()
+    every = np.vstack([np.empty((0, 3)), *(p for _, p in parts)])
+    if not len(every):
+        return None
     moving = {bone: [p for name, p in parts if bone_for(name) == bone] for bone in (TRIGGER_BONE, MAGAZINE_BONE)}
-    every = np.vstack([p for _, p in parts])
     return {'trigger': _trigger_top(np.vstack(moving[TRIGGER_BONE])) if moving[TRIGGER_BONE] else None,
             'mag': _trigger_top(np.vstack(moving[MAGAZINE_BONE])) if moving[MAGAZINE_BONE] else None,
             'muzzle': nodes[MUZZLE] @ AXES if MUZZLE in nodes else None,
@@ -393,13 +404,14 @@ def gun(static_bytes: bytes, nodes: dict, receiver_bytes: bytes, matrix: np.ndar
                  if isinstance(b, dict) and muzzle in b.get('children', [])), 0)
     bones = {nif.strings[b['name']]: i for i, (kind, b) in enumerate(nif.blocks) if kind == 'NiNode'}
     _emptied(nif)
-    named = _fnv_parts(src, axes)
+    named, frames = _fnv_parts(src, axes), _shape_parents(src)
     parts, names = {i: p for i, (_, p) in named.items()}, {i: n for i, (n, _) in named.items()}
     for i, points in parts.items():
         bone = bone_for(names[i], bones)
         parent = bones[bone] if bone else body
         inverse = np.linalg.inv(worlds[parent])
-        normals = (np.array([v['normal'] for v in src.blocks[i][1]['vertices']], float) / 127.5 - 1.0) @ axes
+        raw = np.array([v['normal'] for v in src.blocks[i][1]['vertices']], float) / 127.5 - 1.0
+        normals = raw @ frames[i][:3, :3] @ axes
         merged = _merge_shape(nif, src, i, _moved(points + offset, inverse), normals @ inverse[:3, :3])
         nif.blocks[parent][1]['children'].append(merged)
     if muzzle is not None and MUZZLE in nodes:

@@ -158,6 +158,10 @@ class Guns:
             static = gun.without(static, gun.BACKPACK)
         nodes = gun.fnv_nodes(fnv_path)
         layout = gun.fnv_layout(static, nodes)
+        if layout is None:
+            count(SourceFault(fnv_path, 'gun mesh has no shapes'))
+            self.builder.counts['guns not on their FNV mesh (a source fault)'] += 1
+            return None
         choice = self.choices.choose(rec, layout, only)
         if choice is None:
             return None
