@@ -19,7 +19,7 @@ import numpy as np
 from fo4_import.face import hair
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, coefficients, head
-from fo4_import.face.texture import fnv_texture
+from fo4_import.face.texture import fnv_texture, rgb
 from fo4_import.pipeline.export_index import asset_root, export_file, export_records, plugin_sources
 from fo4_import.pipeline.master_plugin import renumbered
 from fo4_import.pipeline.master_space import identity
@@ -27,6 +27,8 @@ from tes5_import.base.tes5_reader import subrecords, walk
 
 #: FNV race head part index of the left eye mesh.
 FNV_EYE_PART = 6
+#: Per race head part key, the head texture FNV's playable races share: the skin FO4's face bases stand for.
+STOCK_SKIN = {'MalePart[0]': 'characters\\male\\headhuman.dds', 'FemalePart[0]': 'characters\\female\\headhuman.dds'}
 
 
 @dataclass
@@ -65,11 +67,20 @@ def npc_head(export_dir: Path, edid: str) -> tuple:
 
 
 def fnv_face(export_dir: Path, edid: str) -> tuple:
-    """(FNV head, (race head texture, colour offset)) of FNV NPC `edid`, from its race's head part and FaceGen."""
+    """(FNV head, (stock skin, FaceGen colour offset, race skin minus stock skin or None)) of FNV NPC `edid`,
+    from its race's head part and FaceGen; None (and the race's skin as stock) on a race using STOCK_SKIN. All
+    are in the race texture's size and UV layout.
+    See: docs/fork/fo4_facegen_plan.md#race-skin
+    """
     fnv, npc, race, part = npc_head(export_dir, edid)
     egt = asset(export_dir, 'meshes', first(race[part + '.Model'])).with_suffix('.egt')
     texture = asset(export_dir, 'textures', first(race[part + '.Texture']))
-    return fnv, fnv_texture(texture, egt, coefficients(npc.get('FGTS', ''), 50))
+    skin, offset = fnv_texture(texture, egt, coefficients(npc.get('FGTS', ''), 50))
+    stock = asset(export_dir, 'textures', STOCK_SKIN[part])
+    if stock == texture or not stock.is_file():
+        return fnv, (skin, offset, None)
+    stock = rgb(stock, skin.shape[:2])
+    return fnv, (stock, offset, skin - stock)
 
 
 @cache

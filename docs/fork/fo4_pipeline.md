@@ -1498,7 +1498,9 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
 - **The body.** Each FNV NPC base becomes a copy of a vanilla NPC for its
   race and sex (the replacement table's `_rules.body`: DocWeathers, DoctorAmari, the ghouls Jones and
   Holly), keeping that NPC's class (its outfit and voice are replaced: below
-  and [voice types](#voice-types)). FNV's name,
+  and [voice types](#voice-types)). A copy with a fitted face drops the
+  body's face fields, its face texture set included (DoctorAmari's is old
+  skin; [body skin](fo4_facegen_plan.md#body-skin)). FNV's name,
   factions (SNAM with rank, through the converted factions), AI packages
   and script replace the copy's; its factions and crime faction are left
   out.

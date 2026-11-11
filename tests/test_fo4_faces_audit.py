@@ -137,7 +137,7 @@ def test_face_texture_is_unchanged_by_the_shared_texel_map():
     fnv_points, fnv_uvs, fnv_tris = _grid(7, 1.1, 0.1)
     fnv = FnvHead(fnv_points, fnv_tris, fnv_points, fnv_uvs)
     rgba = rng.integers(1, 256, (64, 64, 4), dtype=np.uint8)
-    pieces = (rng.uniform(0, 200, (32, 32, 3)), rng.uniform(-20, 20, (32, 32, 3)))
+    pieces = (rng.uniform(0, 200, (32, 32, 3)), rng.uniform(-20, 20, (32, 32, 3)), None)
     for variant in ('T1', 'T2', 'T1'):
         new, old = TX.face_texture(rgba, fo4, fnv, pieces, variant), _old_face_texture(rgba, fo4, fnv, pieces, variant)
         assert new[0].tobytes() == old[0].tobytes() and new[1].tobytes() == old[1].tobytes()

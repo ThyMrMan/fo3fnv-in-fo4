@@ -56,6 +56,7 @@ from fo4_import.spike.skill_tags import tagged
 from fo4_import.spike.say_topics import (COMPARE, GREETING, PART, PARTS, SHARED, conditions_of, parsed, raws,
                                          settled_on, with_conditions)
 from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX
+from tes5_import.base.tes5_reader import subrecords
 
 #: FNV INFO DATA flags.
 GOODBYE, SAY_ONCE = 0x01, 0x04
@@ -679,30 +680,32 @@ class Conversations:
         """
         return step[0] != 'menu' and self.placed.get(step, (None,))[0] == self.building
 
-    def greeting(self, greets: list, topics: 'dict | None' = None, greet_list: int = 0) -> None:
-        """A Greeting topic whose silent line starts the GREETING talk scene, on activation or force greets `greets`.
-
-        The scene's lines: those of the topics force greets name (`topics`, {FNV topic: FO4 package}), each
-        needing its package current, then _greetings(). Its SILENT_LINE needs activation or a running force
-        greet, and a speaker the GREETING lines name or a talker in its talking-as list; its GREETING_SCRIPT
-        opens the scene and marks a force greet in `greet_list` spoken (greet_once).
+    def greeting(self, greets: list, topics: 'dict | None' = None, greet_list: int = 0,
+                 home: 'tuple | None' = None) -> bytes:
+        """The Greeting topic (b'' with no lines or speakers) of quest `home` (FormID, key, EditorID, forms a
+        master's opener names; default this one) whose silent line starts the GREETING scene on activation or force
+        greets `greets`. The scene's lines: the topics force greets name (`topics`, {FNV topic: FO4 package}), then
+        _greetings(). The silent line needs a speaker the lines name or a talker in its talking-as list.
         See: docs/fork/fo4_pipeline.md#greeting-scene
         """
+        quest, key, edid, skip = home or (self.fid, self.quest['FormID'], self.quest['EditorID'], frozenset())
         self.packaged = {i: (topics or {})[r['ParentDIAL'].upper()] for i, r in self.hub.lines.items()
                          if r['ParentDIAL'].upper() in (topics or {})}
         infos = list(self.packaged) + self._greetings()
         if not infos:
-            return
-        named = {c['p1'] for i in infos for c in parsed(self.hub.lines[i]) if c['func'] == SPEAKER_TEST}
-        speakers = sorted({self.form_map[p] for p in named if p in self.form_map})
-        talkers = sorted({self.form_map[(C.TALKING_AS, p)] for p in named if (C.TALKING_AS, p) in self.form_map})
-        opened = _any([(PLAYER_ACTIVATED, 0)] + [(CURRENT_PACKAGE, p) for p in greets])
-        opened += _any([(IS_ID, npc) for npc in speakers] + [(IN_LIST, flst) for flst in talkers])
+            return b''
         step = ('line', tuple(infos))
         if step not in self.labels:
             self.labels[step], self.legacy[step] = 'greeting', repr(step)
         scene, phase, index = self.scene(step)
-        greet = self.say.builder.new_id(f'INFO greeting {self.quest["FormID"]}')
+        named = {c['p1'] for i in infos for c in parsed(self.hub.lines[i]) if c['func'] == SPEAKER_TEST}
+        speakers = sorted({self.form_map[p] for p in named if p in self.form_map} - skip)
+        talkers = sorted({self.form_map[(C.TALKING_AS, p)] for p in named if (C.TALKING_AS, p) in self.form_map} - skip)
+        if not speakers + talkers:
+            return b''
+        opened = _any([(PLAYER_ACTIVATED, 0)] + [(CURRENT_PACKAGE, p) for p in greets])
+        opened += _any([(IS_ID, npc) for npc in speakers] + [(IN_LIST, flst) for flst in talkers])
+        greet = self.say.builder.new_id(f'INFO greeting {key}')
         self.say.silent.append((greet, False))
         if index:
             line = R.pack_info(greet, 0, (R.SILENT_LINE,), opened, scene=scene, phase=phase, phase_index=index,
@@ -711,9 +714,8 @@ class Conversations:
             self.say.builder.scripts.used.append(GREETING_SCRIPT)
             line = R.pack_info(greet, 0, (R.SILENT_LINE,), opened, notes='FNV GREETING',
                                vmad=object_scripts([(GREETING_SCRIPT, {'Greeting': scene, 'ScriptPackages': quest_id(self.say.builder), 'Greets': greet_list}, {})]))
-        fid = self.say.builder.new_id(f'DIAL greeting {self.quest["FormID"]}')
-        dial = R.pack_dial(fid, f'FNV_{self.quest["EditorID"]}_Greeting', self.fid, R.TOPIC_GREETING, 1)
-        self.topics.append(pack_topic(dial, fid, [line]))
+        fid = self.say.builder.new_id(f'DIAL greeting {key}')
+        return pack_topic(R.pack_dial(fid, f'FNV_{edid}_Greeting', quest, R.TOPIC_GREETING, 1), fid, [line])
 
     def player_hello(self) -> None:
         """A Hello topic whose one line, said by the player, is SILENT_LINE: it outranks vanilla's player hellos.
@@ -842,3 +844,9 @@ def or_groups(rec: dict) -> list:
 def _any(tests: list) -> bytes:
     """One OR-group of `tests` [(FO4 function, param 1)], each == 1 on the subject."""
     return b''.join(R.pack_ctda(OR if i < len(tests) - 1 else 0, 1.0, func, p1) for i, (func, p1) in enumerate(tests))
+
+
+def opener_forms(body: bytes) -> frozenset:
+    """The forms built opener INFO `body`'s GetIsID and IsInList name."""
+    tests = [struct.unpack_from('<H2xI', data, 8) for tag, data in subrecords(body) if tag == b'CTDA']
+    return frozenset(p1 for func, p1 in tests if func in (IS_ID, IN_LIST))

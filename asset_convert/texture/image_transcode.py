@@ -50,6 +50,16 @@ def _rect_header(w, h, linear_size, mip_count, fourcc):
     return bytes(hdr)
 
 
+def _halved(rgba: Image.Image) -> Image.Image:
+    """The next mip of `rgba`: color and alpha filtered apart, as Pillow's RGBA resize weighs color by alpha.
+    See: docs/fork/fo4_plugin_layout.md#premultiplied-replacers
+    """
+    size = (max(1, rgba.size[0] // 2), max(1, rgba.size[1] // 2))
+    rgb = rgba.convert('RGB').resize(size, Image.LANCZOS)
+    rgb.putalpha(rgba.getchannel('A').resize(size, Image.LANCZOS))
+    return rgb
+
+
 def encode_dds(img: Image.Image) -> bytes:
     """DXT1/DXT5 DDS bytes with a full mip chain, from any PIL image.
 
@@ -67,8 +77,7 @@ def encode_dds(img: Image.Image) -> bytes:
         mips.append(_encode_mip(np.asarray(cur, dtype=np.uint8), with_alpha))
         if cur.size == (1, 1):
             break
-        cur = cur.resize((max(1, cur.size[0] // 2), max(1, cur.size[1] // 2)),
-                         Image.LANCZOS)
+        cur = _halved(cur)
 
     fourcc = b'DXT5' if with_alpha else b'DXT1'
     return _rect_header(w, h, len(mips[0]), len(mips), fourcc) + b''.join(mips)

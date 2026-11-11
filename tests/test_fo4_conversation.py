@@ -8,7 +8,7 @@ from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike import say_topics as SAY
 from fo4_import.spike.conversation import (GREETING, NEVER, Conversations, hub, hub_key, named_speaker, negated,
-                                           one_each, outside_lines)
+                                           one_each, opener_forms, outside_lines)
 from fo4_import.spike.say_once import STAGE_DONE, SayOnce
 
 #: FNV NPCs and their FO4 copies; FNV's caps (an engine form, kept as it is); a faction.
@@ -225,8 +225,7 @@ def test_the_greeting_starts_for_a_talker_in_a_speakers_talking_as_list():
     quest = {'FormID': 'Q1', 'EditorID': 'One'}
     talk = Conversations(say, quest, 1, {tabitha: 0x0A000005, (C.TALKING_AS, tabitha): flst}, 0,
                          hub(say, [quest], {'One': 1}, set()))
-    talk.greeting([])
-    ctdas = [c for c in _ctdas_in(talk.topics[-1])]
+    ctdas = _ctdas_in(talk.greeting([]))
     assert (C.FO4.index('GetIsID'), 0x0A000005) in ctdas and (C.FO4.index('IsInList'), flst) in ctdas
 
 
@@ -240,10 +239,43 @@ def test_the_greeting_line_opens_its_scene_by_script_not_tsce():
     say.info = lambda rec, form_map, *args, **kwargs: b''
     quest = {'FormID': 'Q1', 'EditorID': 'One'}
     talk = Conversations(say, quest, 1, FORMS, 0, hub(say, [quest], {'One': 1}, set()))
-    talk.greeting([])
-    starter = talk.topics[-1]
+    starter = talk.greeting([])
     assert b'F3NV_Greeting' in starter and b'TSCE' not in starter and b'ALFA' not in starter
     assert talk.say.builder.scripts.used == ['F3NV_Greeting']
+
+
+def _willow_greeting(skip: frozenset) -> tuple:
+    """(opener, conversation) of a mod's greeting for Willow, whose quest tests GetIsID; the game's opener names
+    `skip`."""
+    willow = 0x01000ADD
+    say = SimpleNamespace(infos={'Q1': [SAY.with_quest(_line('W1', GREETING, 'Q1'), [_test('GetIsID', willow)])]},
+                          dials={GREETING: {'DATA.Type': '1'}}, script_vars={}, once=SayOnce(), silent=[],
+                          builder=SimpleNamespace(counts=Counter(), new_id=lambda owner, key=None: hash(owner) & 0xFFFF,
+                                                  scripts=SimpleNamespace(used=[]), writer=WRITER))
+    say.info = lambda rec, form_map, *args, **kwargs: b''
+    shared = hub(say, [{'FormID': 'Q1', 'EditorID': 'AWillowD'}], {'AWillowD': 1}, set())
+    talk = Conversations(say, {'FormID': 'GREETINGS', 'EditorID': 'Greetings'}, 0x03A37DCF, {willow: 0x0A000007}, 0,
+                         shared)
+    return talk.greeting([], home=(0x0A000123, 'GREETINGS NVWillow', 'Greetings_NVWillow', skip)), talk
+
+
+def test_a_mod_opens_the_greeting_from_its_own_quest():
+    """Willow (NVWillow.esp) passed no Greeting line: the mod's opener took the game's id and was dropped. Given a
+    home quest, the opener is keyed on it and sits in it, naming the mod's speaker (her quest's GetIsID)."""
+    starter, _ = _willow_greeting(frozenset())
+    dial = {s.type: s.data for s in _subs(starter[:24 + struct.unpack_from('<I', starter, 4)[0]])}
+    assert dial['QNAM'] == struct.pack('<I', 0x0A000123) and dial['EDID'] == b'FNV_Greetings_NVWillow_Greeting\0'
+    assert struct.unpack_from('<I', starter, 12)[0] == hash('DIAL greeting GREETINGS NVWillow') & 0xFFFF
+    assert (C.FO4.index('GetIsID'), 0x0A000007) in _ctdas_in(starter)
+
+
+def test_a_mod_opener_leaves_the_games_speakers_to_the_games_opener():
+    """A speaker the game's opener names (opener_forms) gets no second opener, but the greeting scene still builds,
+    so the mod's lines join it."""
+    starter, talk = _willow_greeting(frozenset({0x0A000007}))
+    assert starter == b'' and len(talk.scenes) == 1
+    opener = R.pack_info(1, 0, (R.SILENT_LINE,), R.pack_ctda(0, 1.0, C.FO4.index('GetIsID'), 0x0A000007))
+    assert opener_forms(opener[24:]) == {0x0A000007}
 
 
 def test_a_step_two_lines_lead_to_starts_its_own_scene():
