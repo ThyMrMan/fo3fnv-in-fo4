@@ -523,7 +523,7 @@ class Creatures:
                         self._own_voice(rec) if human else self._voice(rec), self._keywords(rec),
                         self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec),
                         *self._sized(rec, npc, stats), self.inventory(rec, npc, False, human),
-                        with_face(face) if face else None)
+                        R.with_face(face) if face else None)
         unique = struct.unpack_from('<I', dict(subrecords(npc.body))[b'ACBS'])[0] & UNIQUE
         write.add_record('NPC_', R.clone_npc(fid, npc.body, npc.flags, edid, rec.get('FULL', ''),
                                              CHARACTER_TIES if unique else STAND_IN_TIES,
@@ -683,19 +683,6 @@ def _on_race(subs: bytes, race: int, skin: int) -> bytes:
             continue
         out += pack_subrecord(tag.decode(), struct.pack('<I', race) if tag in (b'RNAM', b'ATKR') else data)
     return out if placed else out + pack_subrecord('WNAM', struct.pack('<I', skin))
-
-
-def with_face(txst: int):
-    """An NPC record edit naming face texture set `txst` (FTST), before QNAM as vanilla's super mutants have it."""
-    ftst = pack_subrecord('FTST', struct.pack('<I', txst))
-
-    def edit(subs: bytes) -> bytes:
-        """The subrecords with FTST set."""
-        kept = [(t, d) for t, d in subrecords(subs) if t != b'FTST']
-        at = next((i for i, (t, _) in enumerate(kept) if t == b'QNAM'), len(kept))
-        return b''.join(pack_subrecord(t.decode(), d) for t, d in kept[:at]) + ftst + b''.join(
-            pack_subrecord(t.decode(), d) for t, d in kept[at:])
-    return edit
 
 
 def _with_slot(rec, slot: int) -> dict:

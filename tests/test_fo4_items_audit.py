@@ -137,7 +137,7 @@ def test_skinned_fnv_headgear_moves_into_the_frame_rigid_headgear_is_drawn_in():
     assert H.head_frame(RIGID_FEDORA, FNV_HEAD) is None
 
 
-def _quad(z: float) -> bytes:
+def hat_quad(z: float) -> bytes:
     """A converted-static-like NIF: one lit two-triangle shape facing +Y at y 9, from height `z`."""
     nif = F.NifFile(strings=['Root'])
     pos = np.array([(-1, 9, z), (1, 9, z), (1, 9, z + 2), (-1, 9, z + 2)], float)
@@ -168,8 +168,8 @@ def test_worn_headgear_in_its_skeletons_space_matches_the_same_mesh_in_the_heads
                     np.zeros((1, 3)), np.zeros((1, 3)))
     frame = np.eye(4)
     frame[3, 2] = -100.0
-    moved = _worn_positions(H.worn(_quad(100.0), fit, (47,), frame))
-    assert np.allclose(moved, _worn_positions(H.worn(_quad(0.0), fit, (47,))), atol=1e-2)
+    moved = _worn_positions(H.worn(hat_quad(100.0), fit, (47,), frame))
+    assert np.allclose(moved, _worn_positions(H.worn(hat_quad(0.0), fit, (47,))), atol=1e-2)
 
 
 def test_worn_headgear_gets_a_file_per_slots_apart_from_its_static(tmp_path, monkeypatch):

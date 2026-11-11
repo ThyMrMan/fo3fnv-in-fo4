@@ -23,7 +23,7 @@ from fo4_import.spike import records as R
 from fo4_import.spike import replacements
 from fo4_import.spike.face_fit import tint_fit
 from tes5_import.base.tes5_reader import subrecords
-from tests.test_fo4_faces_audit import _grid
+from tests.test_fo4_faces_audit import uv_grid
 
 #: The mod export holding a race with its own head skin and no .egt (NVWillow's WillowRace).
 MOD_EXPORT = Path(__file__).resolve().parents[1] / 'export' / 'NVWillow'
@@ -71,19 +71,18 @@ def test_a_stock_race_keeps_its_pieces_bit_for_bit(tmp_path, monkeypatch):
 
 
 def test_a_race_skin_reaches_the_face_texture_but_not_the_skin_tone():
-    """T1 with a race skin: the same skin tone as without it (FNV's body never takes the head texture), and the
-    face texels carry the race skin; T2 draws stock skin, offset and race skin together."""
+    """T1 and T2 with a race skin: the same skin tone as without it (FNV's body never takes the head texture),
+    and the face texels carry the race skin."""
     rng = np.random.default_rng(3)
-    fnv_points, fnv_uvs, fnv_tris = _grid(7, 1.1, 0.1)
-    fnv, fo4 = FnvHead(fnv_points, fnv_tris, fnv_points, fnv_uvs), _grid(9, 1.0, 0.0)
+    fnv_points, fnv_uvs, fnv_tris = uv_grid(7, 1.1, 0.1)
+    fnv, fo4 = FnvHead(fnv_points, fnv_tris, fnv_points, fnv_uvs), uv_grid(9, 1.0, 0.0)
     image = rng.integers(60, 200, (64, 64, 3), dtype=np.uint8)
     base, offset = rng.uniform(0, 200, (32, 32, 3)), rng.uniform(-20, 20, (32, 32, 3))
     race = np.full((32, 32, 3), -40.0)
-    plain, plain_tone, _ = TX.face_colours(image, fo4, fnv, (base, offset, None), 'T1')
-    raced, raced_tone, _ = TX.face_colours(image, fo4, fnv, (base, offset, race), 'T1')
-    assert np.array_equal(raced_tone, plain_tone) and (raced < plain).any() and (raced <= plain).all()
-    whole = TX.face_colours(image, fo4, fnv, (base + race, offset, None), 'T2')[0]
-    assert np.allclose(TX.face_colours(image, fo4, fnv, (base, offset, race), 'T2')[0], whole)
+    for variant in ('T1', 'T2'):
+        plain, plain_tone, _ = TX.face_colours(image, fo4, fnv, (base, offset, None), variant)
+        raced, raced_tone, _ = TX.face_colours(image, fo4, fnv, (base, offset, race), variant)
+        assert np.array_equal(raced_tone, plain_tone) and (raced < plain).any() and (raced <= plain).all()
 
 
 @pytest.mark.skipif(not (MOD_EXPORT / 'NPC_.txt').exists() or not tint.basis_path(True).exists(),

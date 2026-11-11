@@ -511,6 +511,11 @@ def packages_edit(packages: list):
     return edit
 
 
+def with_face(txst: int):
+    """with_sub() naming face texture set `txst` (FTST) before QNAM, as vanilla."""
+    return with_sub(b'FTST', struct.pack('<I', txst), (b'QNAM',))
+
+
 def with_sub(tag: bytes, payload: bytes, before: tuple):
     """A record edit putting subrecord `tag` (`payload`) in place of any it has, before the first of tags `before`
     (else last); None for an empty `payload`."""
