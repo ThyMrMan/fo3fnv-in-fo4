@@ -48,7 +48,7 @@ LIGHTNING_GUN = ['Actors\\DLC01\\Character\\Animations\\LightningGun',
 
 def test_third_persons_left_target_keeps_vanillas_offset_from_the_first_person_hand():
     """Each frame's WeaponIKTargetL sits off our first-person left hand as vanilla's sits off vanilla's (hand-local);
-    a gun whose left hand writes no target (a pistol on vanilla's grip) gives none."""
+    our hand is read from the posed clip, and a gun whose hand is vanilla's (a pistol on vanilla's grip) gives none."""
     def frame(at, turn):
         """A row-vector 4x4 at `at` turned `turn` radians about z."""
         return compose(np.array(at, float), quat_wxyz_to_mat((np.cos(turn / 2), 0.0, 0.0, np.sin(turn / 2))))
@@ -61,10 +61,15 @@ def test_third_persons_left_target_keeps_vanillas_offset_from_the_first_person_h
         x, y, z, w = track.rotations[f]
         after = compose(np.asarray(track.translations[f]), quat_wxyz_to_mat((w, x, y, z)))
         assert np.allclose(after @ np.linalg.inv(ours), before @ np.linalg.inv(vanilla), atol=1e-5)
-    moved = SimpleNamespace(tracks=[BoneTrack(bone=IK_LEFT, rotations=np.array([[1.0, 0, 0, 0]]),
-                                              translations=np.array([[1.0, 2.0, 3.0]]))])
-    assert np.allclose(left_targets(moved, (vanilla, {}))[1][3, :3], (1, 2, 3))
-    assert left_targets(SimpleNamespace(tracks=[]), (vanilla, {})) is None
+    names = ['Root', 'Weapon', 'LArm_Hand', IK_LEFT]
+    rig = SimpleNamespace(dst=Skeleton(names, [-1, 0, 0, 1], [np.eye(4)] * 4))
+    pose = lambda hand: SimpleNamespace(times=np.zeros(1), tracks=[
+        BoneTrack(bone=b, rotations=np.array([mat_to_quat_wxyz(m[:3, :3])]), translations=np.array([m[3, :3]]))
+        for b, m in (('Weapon', frame((0, 0, 5), 0.3)), ('LArm_Hand', hand), (IK_LEFT, np.eye(4)))])
+    placed = ours @ frame((0, 0, 5), 0.3)
+    assert np.allclose(left_targets(rig, pose(placed), (vanilla, {}))[1], ours, atol=1e-6), 'read from the pose'
+    assert left_targets(rig, pose(vanilla @ frame((0, 0, 5), 0.3)), (vanilla, {})) is None, "vanilla's own grip"
+    assert left_targets(rig, pose(placed), None) is None
 
 
 def test_a_built_in_scope_has_the_scope_flag_and_not_scope_from_mod():
