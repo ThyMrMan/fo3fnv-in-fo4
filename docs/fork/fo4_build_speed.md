@@ -558,6 +558,30 @@ The Frontier is the first huge new worldspace, with 589,612 references.
 - **Mesh pool:** 982 s for 13,625 new meshes. It runs 15 workers at normal
   priority, which left the desktop unusable for about 10 min.
 
+#### <a id="worker-memory"></a>Mesh workers cap their own memory
+
+**What happened (V).** 118 of The Frontier's meshes fail to convert. A
+failed mesh is never cached, so every build retries all of them. One of
+them, `tfssspacestationext.nif` (61 MB), grows about 1 GB per second
+while pyffi reads it. In the rebuild after the gun fix, that worker
+reached 10 GB. RAM fell to 1.2 GB free with 65 of 72 GB committed, and the
+machine paged until it stopped responding. The main process would then have
+converted the mesh again with no limit (`_warm` drops failures).
+
+**The fix:**
+- **Memory cap:** each mesh worker puts itself in a nested job capped at
+  one-eighth of RAM, at least 2 GB (`core.process_job.limit_own_memory`;
+  3.9 GB on the 31 GB build machine).
+- **Too-large meshes:** an allocation past the cap is a `MemoryError` in
+  that worker. `warm()` records the mesh in `TOO_LARGE`, and
+  `cached_convert` faults it ("mesh too large to convert") instead of
+  retrying.
+  - The space station now stops at 3.9 GB after 8 s.
+- **Priority:** `create_pool_job` puts the whole build job at below-normal
+  priority.
+
+Still open: a mesh that hits the cap is tried again on the next build.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh

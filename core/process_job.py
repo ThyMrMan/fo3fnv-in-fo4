@@ -65,7 +65,9 @@ __all__ = [
     "job_env",
     "job_memory_limit_bytes",
     "kill_process_tree",
+    "limit_own_memory",
     "run_process",
+    "total_memory",
     "JOB_ENV_VAR",
     "RC_CANCELLED",
     "RC_FAILED",
@@ -156,7 +158,11 @@ def _extended_limit_struct():
 
 # JOBOBJECT_EXTENDED_LIMIT_INFORMATION class for SetInformationJobObject.
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+_JOB_OBJECT_LIMIT_PRIORITY_CLASS = 0x00000020
+_JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
 _JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
+#: Every process in the job runs below normal, so a build never starves the desktop.
+_BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 #: Lets a child that asks to leave the job (CREATE_BREAKAWAY_FROM_JOB) do so: MO2 starts the Creation Kit that way.
 _JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x00000800
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
@@ -231,7 +237,9 @@ def create_pool_job(memory_limit: int = None) -> bool:
 
         limit = job_memory_limit_bytes() if memory_limit is None else memory_limit
         info = _extended_limit_struct()()
-        flags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | _JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        flags = (_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | _JOB_OBJECT_LIMIT_BREAKAWAY_OK
+                 | _JOB_OBJECT_LIMIT_PRIORITY_CLASS)
+        info.BasicLimitInformation.PriorityClass = _BELOW_NORMAL_PRIORITY_CLASS
         if limit:
             flags |= _JOB_OBJECT_LIMIT_JOB_MEMORY
             info.JobMemoryLimit = limit
@@ -301,6 +309,57 @@ def join_pool_job() -> bool:
             k32.CloseHandle(handle)
             if ph:
                 k32.CloseHandle(ph)
+        return ok
+    except (OSError, AttributeError, ValueError):
+        return False
+
+
+#: This worker's own memory-cap job (limit_own_memory), held open for its lifetime.
+_OWN_LIMIT = {}
+
+
+def total_memory() -> int:
+    """This machine's physical memory in bytes; 0 off Windows or when unknown."""
+    if not _IS_WIN:
+        return 0
+    import ctypes
+
+    class MemoryStatus(ctypes.Structure):
+        """MEMORYSTATUSEX."""
+        _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong)] + [
+            (n, ctypes.c_ulonglong) for n in ("ullTotalPhys", "ullAvailPhys", "ullTotalPageFile",
+                                              "ullAvailPageFile", "ullTotalVirtual", "ullAvailVirtual",
+                                              "ullAvailExtendedVirtual")]
+    status = MemoryStatus()
+    status.dwLength = ctypes.sizeof(status)
+    return status.ullTotalPhys if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)) else 0
+
+
+def limit_own_memory(limit: int) -> bool:
+    """Cap this process's committed memory at `limit` bytes, in a job of its own nested in any job it is in; an
+    allocation past it raises MemoryError here, never a swap storm. Never raises; True when the cap is set.
+    See: docs/fork/fo4_build_speed.md#worker-memory
+    """
+    if not _IS_WIN or not limit or _OWN_LIMIT:
+        return bool(_OWN_LIMIT)
+    try:
+        import ctypes
+
+        k32 = _kernel32()
+        handle = k32.CreateJobObjectW(None, None)
+        info = _extended_limit_struct()()
+        info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_PROCESS_MEMORY
+        info.ProcessMemoryLimit = limit
+        ph = k32.OpenProcess(_PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, os.getpid())
+        ok = bool(handle and ph and k32.SetInformationJobObject(
+            handle, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION, ctypes.byref(info), ctypes.sizeof(info))
+            and k32.AssignProcessToJobObject(handle, ph))
+        if ph:
+            k32.CloseHandle(ph)
+        if ok:
+            _OWN_LIMIT['handle'] = handle
+        elif handle:
+            k32.CloseHandle(handle)
         return ok
     except (OSError, AttributeError, ValueError):
         return False

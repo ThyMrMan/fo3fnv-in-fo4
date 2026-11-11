@@ -24,7 +24,7 @@ from typing import NamedTuple
 import numpy as np
 
 from core.collision_options import WINDING_FIX_ENV_VAR
-from core.process_job import join_pool_job
+from core.process_job import join_pool_job, limit_own_memory, total_memory
 from fo4_import.base.source_fault import SourceFault
 from fo4_import.nif import bgem, bgsm, blocks
 from fo4_import.nif import file as nif_file
@@ -56,6 +56,10 @@ class MeshFiles(NamedTuple):
 
 #: {mesh path: MeshFiles.clamped} of the meshes cached_files gave this process, for the build's count.
 CLAMPED = {}
+#: Mesh paths a warm() worker ran out of its memory cap on this run; cached_convert faults them, never retries.
+TOO_LARGE = set()
+#: A mesh worker's memory cap: this share of the machine's RAM, at least MIN_WORKER_MEMORY.
+WORKER_MEMORY_SHARE, MIN_WORKER_MEMORY = 8, 2 * 2 ** 30
 
 
 def mesh_bounds(nif) -> 'tuple | None':
@@ -127,6 +131,8 @@ def cached_files(path, texture_root=None, pose: dict = None, animated: bool = Tr
 def cached_convert(path, texture_root=None, pose: dict = None, animated: bool = True, addons: dict = None) -> Converted:
     """convert(path, texture_root, pose, animated) with `texture_root`'s ADDN mapping (addon_map() unless given),
     from the cache when its entry and the code that made it are current (module notes)."""
+    if _same(path) in TOO_LARGE:
+        raise SourceFault(path, f'mesh too large to convert (over {worker_memory() / 2 ** 30:.1f} GB)')
     entry, addons = _entry(path, texture_root, pose, animated, addons)
     if entry.exists() and current_ran(entry):
         stamps, converted = pickle.loads(entry.read_bytes())
@@ -151,19 +157,41 @@ def _convert(path, texture_root, pose: 'dict | None', animated: bool, addons: di
         raise fault.at(path) from None
 
 
-def _warm(job: tuple) -> None:
-    """One worker's cached_convert(*job), the mesh discarded; a mesh that fails is left to fail where it is used."""
+def worker_memory() -> int:
+    """A mesh worker's memory cap in bytes (WORKER_MEMORY_SHARE of RAM, at least MIN_WORKER_MEMORY)."""
+    return max(MIN_WORKER_MEMORY, total_memory() // WORKER_MEMORY_SHARE)
+
+
+def _join_capped() -> None:
+    """A mesh worker's initializer: join the build's job, then cap its own memory (worker_memory)."""
+    join_pool_job()
+    limit_own_memory(worker_memory())
+
+
+def _warm(job: tuple) -> 'str | None':
+    """One worker's cached_convert(*job), the mesh discarded; its path when it ran out of memory, else None (a
+    mesh that fails otherwise is left to fail where it is used)."""
     try:
         cached_convert(*job)
+    except MemoryError:
+        return job[0]
     except Exception:
-        return
+        return None
+    return None
 
 
 def warm(paths: list, texture_root, workers: int = 0) -> None:
     """Fill the cache for convert(path, texture_root) of every path in `paths`, in `workers` processes (all
-    but one CPU by default); the ADDN mapping is read once, here."""
+    but one CPU by default), each capped at worker_memory(); the ADDN mapping is read once, here.
+    See: docs/fork/fo4_build_speed.md#worker-memory
+    """
     workers = workers or max(1, (os.cpu_count() or 2) - 1)
     addons = addon_map(str(texture_root)) if texture_root else {}
     jobs = [(str(p), str(texture_root), None, True, addons) for p in paths]
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=join_pool_job) as pool:
-        list(pool.map(_warm, jobs, chunksize=1))
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_join_capped) as pool:
+        TOO_LARGE.update(_same(p) for p in pool.map(_warm, jobs, chunksize=1) if p)
+
+
+def _same(path) -> str:
+    """`path` spelled one way, whatever its slashes and case."""
+    return os.path.normcase(os.path.abspath(str(path)))
