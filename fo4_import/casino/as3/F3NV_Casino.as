@@ -194,8 +194,11 @@ package
          addChild(screen);
       }
 
+      // Flash's yellow focus rectangle off (FO4's own IMenu does the same): focusing the root drew it around the screen.
       private function onStage(e:Event) : void
       {
+         stage.stageFocusRect = false;
+         focusRect = false;
          stage.addEventListener(KeyboardEvent.KEY_DOWN, onKey);
          stage.focus = this;
       }
