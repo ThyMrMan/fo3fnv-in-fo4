@@ -121,7 +121,7 @@ def test_prompts_write_out_the_players_macros_and_gray_on_the_answer_line():
 
 
 def test_unused_rows_leave_the_holder_so_the_backdrop_fits():
-    """A hidden row still counts in its holder's bounds, which size the shaded background.
+    """A hidden row still counts in the holder's bounds that size the backdrop.
 
     See: docs/fork/fo4_dialogue_menu_plan.md#backdrop-rows
     """

@@ -59,6 +59,18 @@ byte-stable (`tests/test_fo4_casino.py`).
   [fo4_pipboy_tabs.md](fo4_pipboy_tabs.md).
 - Making a TextField in the dialogue movie's constructor crashed the game.
   Build display objects on the first update call instead.
+- **Focus rectangle:** a movie that gives its root the keyboard focus
+  (`stage.focus = this`) gets Flash's yellow focus frame round the whole
+  screen. Set `stage.stageFocusRect = false` and `focusRect = false`, as
+  FO4's own `Shared.IMenu` does (casino, `fd59ed6f`, built, not played).
+- **The HUD stays drawn behind a custom menu.** No menu flag hides it, and
+  changing the casino's flags stopped the menu opening (spike 2a). The
+  casino hides it with F4SE `UI.Set("HUDMenu", "root1.visible", False)` on
+  open, shows it on close, and shows it again on every load so a crash
+  can't leave it hidden (`F3NV_Casino.psc` `ShowHud`, `fd59ed6f`, built,
+  not played). This also hides HUD widgets (HUDFramework, ours) while the
+  menu is up, which is what we want. In the library this moves into the DLL
+  side of `Host`, so every menu gets it.
 
 ### From F4SE, CommonLibF4 and other mods (V)
 
@@ -173,6 +185,9 @@ builds byte-identical twice after stripping.
     bytes, no errors or warnings.
 - **Still to do for spike 1:** build the casino spike this way (with the
   stage flags), strip, install, and play it.
+- **The casino stays on FFDec for now** (its plan took FFDec, "no Flex SDK
+  needed"). It moves to `mxmlc` together with the move onto the shared
+  library, in one change, so its own work isn't disturbed meanwhile.
 
 **Ship built movies, don't build at install.** Today the converter runs
 FFDec on the player's machine. With our own movies there is nothing of the
@@ -201,8 +216,8 @@ exception ([license](spin_offs.md#license)), no Bethesda classes:
 | `HintBar` | Button hints that show keys or gamepad glyphs (`$Controller_Buttons` font) | Bethesda's `BSButtonHintBar` |
 | `Modal` | A pop-up over a menu: fade, focus, back closes it | The Pip-Boy repair pop-up in C++ |
 | `Images` | `MountImage` with the path rule built in; asks the DLL whether a file exists first | Casino's own |
-| `Theme` | Colors over the HUD color, sizes, spacing, read from settings the DLL passes in | Hardcoded values |
-| `Host` | Safe-rect, menu open/close reset (F4SE keeps a movie alive between openings) | Each menu's own |
+| `Theme` | The HUD color from the DLL's `HudColor()` native on each open ([spike 2b](#spikes), played), colors over it, sizes, spacing, read from settings the DLL passes in | Hardcoded values |
+| `Host` | Safe-rect; menu open/close reset (F4SE keeps a movie alive between openings); focus rectangle off; HUD hidden while open and restored on close and on load ([casino fixes](#facts)) | Each menu's own |
 
 Each menu is then a thin document class on top: `CasinoMenu`,
 `DialogueMenu`, and the Pip-Boy overlay.
@@ -543,16 +558,76 @@ Each spike is one change, played in game.
      cause of the box. The menu needs drawing in white for the tint to show,
      as in the dialogue menu. Only `F3NV_Casino.psc` changes, so it can be
      tested as a one-script patch on the built plugin.
-   - **2b, if the box returns:** the menu colors itself. F3NV.dll already
-     reads the player's `iHUDColorR/G/B` settings (`hardcore.cpp`
-     `HudColor`); a native hands that to the movie, which applies it as a
-     color transform. No engine tint, no flags. It misses a color change
-     made while the menu is open, which doesn't matter for a casino table.
-   - **2c, only if a live engine tint is needed:** make our holders real
-     shader targets from the DLL (CommonLibF4's `BSGFxShaderFXTarget`).
-     New reverse-engineering, so last.
+   - **2a result (played 2026-11-11): failed.** With `0x800849D` / `3` the
+     slot machine menu didn't open at all (the box didn't come back; the
+     menu never showed). The original `.pex` was restored. Per the plan, no
+     further flag tries.
+   - **2b: works. The way our own menus get the HUD color.** The menu
+     colors itself; no engine tint, no flag change (menu flags stay
+     `0x800049D` / `2`).
+     - **How** (commit `df3f9972`, in F3NV.dll from `2d3fc70c`): a
+       `HudColor()` native on `f4se.plugins.F3NV` (every movie already gets
+       F3NV.dll's natives) returns the player's `iHUDColorR/G/B`, read
+       fresh on each call through the same `HudColor` the Hardcore HUD
+       uses. The casino sets `Ui.color` from it each time a screen opens,
+       and every outline and text that was white uses `Ui.color`. Only what
+       we draw takes the color: reel symbols, card faces and roulette
+       pockets share containers with the text, so a color transform on a
+       whole layer would tint them too.
+     - **Played 2026-11-11** (new F3NV.dll + casino movie, old casino
+       script; slots only, roulette waits for the full build): slots open
+       and play, drawn in the HUD color ("Slots work in the HUD color
+       now"). The log shows `F3NV_Casino: input hud color f774f7` on both
+       openings, the same color the Hardcore HUD read at load (`F774F7`
+       in F3NV.log).
+     - **Screenshot (The Tops, slots):** reel symbols and payout icons keep
+       their own colors; text, button outlines and borders are in the HUD
+       color. The buttons' 10% fill shows as a see-through tint: with the
+       menu coloring itself, translucent fills work, unlike inside an
+       engine-tinted holder (the dialogue menu's finding).
+     - **Not checked yet:** the menu following a HUD color changed in
+       Settings (both openings had the same color). The fallback path (no
+       F3NV.dll, white) wasn't tried.
+     - **Seen in the same play, fixed by the casino session** (`fd59ed6f`,
+       built, not played; [casino notes](fo4_casino_plan.md#hud-hidden)):
+       the game's HUD showed through behind the menu, and Flash drew its
+       yellow focus rectangle round the whole screen. Both fixes belong in
+       the `Host` module ([what we know](#facts)).
+     - **Limit:** a color changed while the menu is open shows on the next
+       opening. Fine for the casino: its flags include Disable Pause Menu
+       (`0x80`), so the settings can't be opened while it is up.
+   - **2c: not needed.** Real engine shader targets from the DLL
+     (CommonLibF4's `BSGFxShaderFXTarget`) stay unbuilt unless a menu ever
+     needs the engine's live tint.
 3. **Replaced dialogue movie:** five empty holders and a text list as
    `DialogueMenu.swf`; does the engine tint them?
+   - **Played 2026-11-11: works.** The engine tints holders made in code:
+     the list showed in the HUD color ("Hud color matches the text box").
+     Opening, picking, leaving and the talk going on all worked "nearly as
+     well" as the patched menu, without its styling. One bug: `[Leave]`
+     showed twice. The converted topic list already ends in its own
+     `[Leave]` option (`conversation.py`), and the spike added one more;
+     the shipping menu adds its own only when F3NV.dll has no options.
+     Fixed in the spike source, not replayed. So the dialogue menu can drop
+     the patched Bethesda movie: the XDI replacement starts from our own
+     movie.
+   - **Built 2026-11-11.** Two AS3 classes, no Bethesda code or
+     art: a root (`DialogueMenuRoot`) that holds the menu at `root.Menu_mc`,
+     as the game's own movie does (its `MainTimeline` has only `Menu_mc`),
+     and `f3ui.dialogue.DialogueMenu`, which answers the game's calls
+     (`onCodeObjCreate` → `registerObjects` of five code-made holders,
+     `SetButtonText`, `Show/HideButtonHelp`, `Enable/DisableMenu`,
+     `ProcessUserEvent`, `SetSafeRect`, `SetPlatform`) and its own base
+     class's job (focus rect off, safe-area placement). One white list in the
+     Question holder: F3NV.dll's options, else the game's four buttons, plus
+     `[Leave]`. `PlaySpeechChallengeAnim` has no animation and reports done
+     on the next frame. No shaded background or failed-check tint (one
+     variable). `mxmlc` output 3,440 bytes stripped, byte-identical twice;
+     no font tags (`$MAIN_Font_Bold` by name).
+   - **Play check:** loose `Interface\DialogueMenu.swf` with the current
+     F3NV.dll. Dialogue opens; the list is in the HUD color (white means the
+     engine didn't tint it); options pick and the talk goes on; `[Leave]`,
+     Tab and the controller's B leave; F3NV.log shows `spike 3 menu ready`.
 4. **Pip-Boy injection:** a `Loader` movie in `root.Menu_mc` that adds one
    item-card line, under vanilla and under FallUI Inventory.
 5. **Translation files:** the spike 1 movie shows one `$KEY` from our own
