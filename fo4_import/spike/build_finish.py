@@ -82,8 +82,8 @@ def _main_archive(builder, data_dir: Path, plugin: str) -> None:
 
 @timed('plugin write')
 def _write_plugin(builder, out: Path, data_dir: Path) -> None:
-    """Write the plugin to `out` (a dependent build's master records only where they change the master's:
-    master_overrides), clear script properties naming no written record, then, when a written race names a
+    """Save the ledger, then write the plugin to `out` (a dependent build's master records only where they change
+    the master's: master_overrides), clear script properties naming no written record, then, when a written race names a
     graph of its own (anim_info.needed), have the Creation Kit write their animation data into `data_dir`."""
     builder.writer.next_object_id = builder.top
     if builder.built:
@@ -91,6 +91,7 @@ def _write_plugin(builder, out: Path, data_dir: Path) -> None:
         builder.counts.update(drop_unchanged(builder.writer, builder.built, builder.held, adds))
         builder.counts['master form list entries added at run time'] = list_adds.write(builder, adds)
     out.parent.mkdir(parents=True, exist_ok=True)
+    builder.writer.ledger.save()
     builder.writer.write(str(out))
     for key, count in clear_dangling(out, len(builder.writer.masters)).items():
         builder.counts[f'script properties naming no written record ({key})'] = count
@@ -201,7 +202,6 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     _compile(builder, data_dir, scripts_dir)
     _lists(builder, data_dir)
     _write_plugin(builder, out, data_dir)
-    builder.writer.ledger.save()
     builder.counts["files left to the master's folder"] = master_copies.drop_loose(data_dir,
                                                                                     master_copies.master_dirs(builder))
     made = stale_files.made(data_dir, plugin_stem(export_dir), builder.started, bool(builder.built))

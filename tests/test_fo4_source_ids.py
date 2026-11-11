@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fo4_import.base.ledger import Ledger, LedgerWriter, ledger_path
+from fo4_import.base.ledger import ID, Ledger, LedgerWriter, ledger_path
 from fo4_import.base.master_overrides import added_perk_entries, drop_unchanged, master_records
 from fo4_import.base.source_ids import SourceIds, built_plugins, dependent_masters, master_ledgers
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest, pack_topic
@@ -65,6 +65,24 @@ def test_a_master_ledger_id_its_master_no_longer_holds_is_the_dlcs_own(tmp_path)
         assert dlc.derive_formid(SITE, KEY) == 0x01 << 24 | held & 0xFFFFFF
         copy = dlc.derive_formid(SITE, 'FNV_GoneFromTheGame')
         assert copy == expect_stale if expect_stale else copy >> 24 == dlc.own_index
+
+
+def test_a_key_the_dlc_kept_before_its_master_held_it_becomes_the_masters(tmp_path):
+    """The DLC's own ledger kept a key the game now holds: the game's id wins, the DLC's entry goes; a key only the
+    DLC holds keeps its own id."""
+    game = LedgerWriter(masters=['Fallout4.esm'], is_esm=True)
+    game.use_ledger(Ledger(ledger_path(tmp_path / 'FalloutNV.esm')))
+    keyword = game.derive_formid(SITE, KEY)
+    game.ledger.save()
+    own = Ledger(ledger_path(tmp_path / 'DeadMoney.esm'))
+    own.put(ID, SITE, KEY, 0x000900)
+    own.put(ID, SITE, 'FNV_DeadMoneyOnly', 0x000901)
+    dlc = LedgerWriter(masters=['Fallout4.esm', 'FalloutNV.esm'], is_esm=True)
+    dlc.use_ledger(own)
+    dlc.use_master_ledgers(master_ledgers(['Fallout4.esm', 'FalloutNV.esm'], (tmp_path,)))
+    assert dlc.derive_formid(SITE, KEY) == 0x01 << 24 | keyword & 0xFFFFFF
+    assert dlc.derive_formid(SITE, 'FNV_DeadMoneyOnly') == dlc.own_index << 24 | 0x000901
+    assert own.get(ID, SITE, KEY) is None and own.get(ID, SITE, 'FNV_DeadMoneyOnly') == 0x000901
 
 
 def _world(refs: list) -> bytes:
