@@ -160,8 +160,10 @@ def test_the_mesh_key_covers_the_addon_mapping(tmp_path, monkeypatch):
 
 
 def test_a_used_entry_is_touched_and_prune_drops_only_long_unused_files(tmp_path, monkeypatch):
-    """lookup() marks an entry used; prune() deletes files unused for 14 days and keeps the rest."""
+    """lookup() marks an entry used; prune() deletes files unused for 14 days and keeps the rest, at most once a
+    day."""
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
+    monkeypatch.setattr(WC, 'PRUNED', tmp_path / 'pruned')
     WC.store('site', 'fo4_import.pipeline.work_cache', (b'a',), 1)
     used = next(p for p in (tmp_path / 'work').rglob('*') if p.is_file())
     stale, recent = tmp_path / 'work' / 'site' / 'zz' / 'stale', tmp_path / 'elric' / 'recent'
@@ -172,6 +174,9 @@ def test_a_used_entry_is_touched_and_prune_drops_only_long_unused_files(tmp_path
     assert WC.lookup('site', 'fo4_import.pipeline.work_cache', (b'a',)) == 1
     assert WC.prune((tmp_path / 'work', tmp_path / 'elric', tmp_path / 'missing')) == 1
     assert used.exists() and recent.exists() and not stale.exists()
+    stale.write_bytes(b'x')
+    os.utime(stale, (time.time() - 15 * DAY,) * 2)
+    assert WC.prune((tmp_path / 'work',)) == 0 and stale.exists()
 
 
 def fake_textures(named: dict, archive: pathlib.Path, packs: list) -> None:

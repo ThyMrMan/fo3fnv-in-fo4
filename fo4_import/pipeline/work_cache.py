@@ -24,6 +24,7 @@ from PIL import Image
 
 from asset_convert.texture.dds_codec import normal_dds
 from asset_convert.texture.image_transcode import encode_dds
+from fo4_import.base.file_stamps import files_under
 from fo4_import.nif.convert_static import glow_image, spec_image
 from fo4_import.pipeline.code_identity import changed, hashes, relative, module_keys
 from fo4_import.pipeline.code_tag import ROOT, tagged_files
@@ -33,6 +34,8 @@ CACHE = ROOT / 'output' / 'fo4_cache' / 'work'
 #: Days an entry of a cache prune() is given may go unused before it is deleted.
 UNUSED_DAYS = 14
 RAN_SUFFIX = '.ran'
+#: The file whose time is when prune() last swept, beside the caches.
+PRUNED = CACHE.parent / 'pruned'
 
 
 def key(site: str, inputs: tuple) -> str:
@@ -77,14 +80,26 @@ def write_ran(entry: Path, ran: dict) -> None:
 
 
 def lookup(site: str, module: str, inputs: tuple, default=None):
-    """The value kept for `site` and `inputs` while its code is current (its entry marked used); else `default`.
-    `module` is store()'s."""
-    entry = _entry(site, inputs)
-    if not entry.exists() or current_ran(entry) is None:
+    """The value kept for `site`, `inputs` while current(); else `default`."""
+    if current(site, inputs) is None:
         return default
-    os.utime(entry)
-    os.utime(ran_path(entry))
-    return pickle.loads(entry.read_bytes())
+    return kept(site, inputs)
+
+
+def kept(site: str, inputs: tuple):
+    """The value kept for `site` and `inputs`, unchecked (current())."""
+    return pickle.loads(_entry(site, inputs).read_bytes())
+
+
+def current(site: str, inputs: tuple) -> 'str | None':
+    """current_ran() of `site`'s entry for `inputs`, the entry marked used when current; None when absent or stale.
+    `module` (lookup, store) does not decide the entry."""
+    entry = _entry(site, inputs)
+    made_by = current_ran(entry) if entry.exists() else None
+    if made_by is not None:
+        os.utime(entry)
+        os.utime(ran_path(entry))
+    return made_by
 
 
 def store(site: str, module: str, inputs: tuple, value, ran: 'dict | None' = None):
@@ -169,18 +184,20 @@ def glow_map(diffuse: bytes, glow: bytes, cut: 'int | None') -> tuple:
     return deferred('glow_map', (diffuse, glow, cut), functools.partial(_glow_dds, diffuse, glow, cut))
 
 
-def _files(folder) -> list:
-    """Every file under `folder` as os.DirEntry (its stat read with the listing)."""
-    out = []
-    for entry in os.scandir(folder):
-        out += _files(entry.path) if entry.is_dir(follow_symlinks=False) else [entry]
-    return out
-
-
 def prune(folders: tuple, days: int = UNUSED_DAYS) -> int:
-    """Delete every file under `folders` (cache roots) no build used or wrote for `days` days; the count."""
+    """Delete every file under `folders` (cache roots) no build used or wrote for `days` days, at most once a day
+    (PRUNED's time); the count.
+    See: docs/fork/fo4_build_speed.md#fixed
+    """
+    try:
+        if time.time() - PRUNED.stat().st_mtime < 86400:
+            return 0
+    except OSError:
+        pass
+    PRUNED.parent.mkdir(parents=True, exist_ok=True)
+    PRUNED.touch()
     before = time.time() - days * 86400
-    old = [e for folder in folders if Path(folder).is_dir() for e in _files(folder) if e.stat().st_mtime < before]
+    old = [e for f in folders if Path(f).is_dir() for e in files_under(f) if e.stat().st_mtime < before]
     for entry in old:
         os.unlink(entry.path)
     return len(old)
@@ -254,7 +271,7 @@ def prune_unrecorded(folders: tuple) -> int:
     """
     bare = []
     for folder in folders:
-        names = {entry.path for entry in _files(folder)} if Path(folder).is_dir() else set()
+        names = {entry.path for entry in files_under(folder)} if Path(folder).is_dir() else set()
         bare += [path for path in names if not path.endswith(RAN_SUFFIX) and path + RAN_SUFFIX not in names]
     for path in bare:
         os.unlink(path)

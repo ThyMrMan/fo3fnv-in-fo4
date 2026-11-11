@@ -10,7 +10,16 @@ See: docs/fork/fo4_plugin_layout.md#stage-times
 """
 
 import json
+import os
 from pathlib import Path
+
+
+def files_under(folder) -> list:
+    """Every file under `folder` as os.DirEntry (its stat read with the listing)."""
+    out = []
+    for entry in os.scandir(folder):
+        out += files_under(entry.path) if entry.is_dir(follow_symlinks=False) else [entry]
+    return out
 
 
 class Stamps:

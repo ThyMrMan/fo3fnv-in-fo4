@@ -26,13 +26,13 @@ def test_a_capped_process_gets_a_memory_error_not_a_swap_storm():
 
 
 def test_a_mesh_out_of_memory_in_the_pool_is_faulted_not_retried(monkeypatch, tmp_path):
-    """_warm returns the path of a mesh that ran out of memory; cached_convert then faults it untouched."""
+    """_warm says a mesh ran out of memory; cached_convert then faults it untouched."""
     def huge(*_args):
         """A conversion that runs out of memory."""
         raise MemoryError
     monkeypatch.setattr(MC, 'cached_convert', huge)
     mesh = tmp_path / 'Big.nif'
-    assert MC._warm((str(mesh), None, None, True, {})) == str(mesh)
+    assert MC._warm((str(mesh), None, None, True, {})) == (True, None)
     monkeypatch.undo()
     monkeypatch.setattr(MC, 'TOO_LARGE', {MC._same(str(mesh).replace('\\', '/'))})
     with pytest.raises(SourceFault, match='too large'):
