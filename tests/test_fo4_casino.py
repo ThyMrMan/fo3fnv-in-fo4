@@ -14,6 +14,7 @@ import pytest
 
 from asset_convert.ui.swf import Swf
 from fo4_import.base.papyrus import FO4_COMPILER, compile_folder, header_dirs
+from fo4_import.base import swf_skeleton as S
 from fo4_import.casino import movie as M
 from fo4_import.casino import records as R
 from fo4_import.base.install import source_walk, use_source
@@ -44,17 +45,17 @@ def _tags(raw: bytes) -> dict:
 
 def test_the_skeleton_is_an_as3_movie_whose_document_class_is_the_first_shell():
     """FileAttributes says AS3, DoABC2 holds an ABC 46.16 naming every class, SymbolClass makes the first the root."""
-    tags = _tags(M.skeleton(['F3NV_Casino', 'f3nv.casino.Rng']))
-    assert struct.unpack('<I', tags[M.FILE_ATTRIBUTES])[0] & M.AS3_FLAG
-    abc = tags[M.DO_ABC2][5:]
+    tags = _tags(S.skeleton(['F3NV_Casino', 'f3nv.casino.Rng']))
+    assert struct.unpack('<I', tags[S.FILE_ATTRIBUTES])[0] & S.AS3_FLAG
+    abc = tags[S.DO_ABC2][5:]
     assert struct.unpack_from('<HH', abc) == (16, 46)
     assert b'F3NV_Casino' in abc and b'f3nv.casino' in abc and b'Rng' in abc
-    assert tags[M.SYMBOL_CLASS] == struct.pack('<HH', 1, 0) + b'F3NV_Casino\x00'
+    assert tags[S.SYMBOL_CLASS] == struct.pack('<HH', 1, 0) + b'F3NV_Casino\x00'
 
 
 def test_u30_writes_seven_bits_a_byte_low_first():
     """ABC's variable-length integers."""
-    assert (M.u30(0), M.u30(0x7F), M.u30(0x80), M.u30(300)) == (b'\x00', b'\x7f', b'\x80\x01', b'\xac\x02')
+    assert (S.u30(0), S.u30(0x7F), S.u30(0x80), S.u30(300)) == (b'\x00', b'\x7f', b'\x80\x01', b'\xac\x02')
 
 
 def test_the_document_class_comes_first_and_packages_are_dotted(tmp_path):

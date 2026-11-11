@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.dialogue_menu import movie as M
 from fo4_import.dialogue_menu import test_mod as T
 from fo4_import.spike import records as R
@@ -139,11 +138,22 @@ def test_wheel_scrolls_the_list_and_skips_the_camera():
     assert 'CAMERA_ZOOM' not in source
 
 
-@pytest.mark.skipif(not M.FFDEC.is_file() or not (FALLOUT4_DIR / 'Data' / M.ARCHIVE).is_file(),
-                    reason='needs FFDec and the Fallout 4 Interface archive')
-def test_movie_carries_our_menu():
-    """The built movie's code calls the DLL's natives and handles the game's list keys."""
-    raw = M.built_movie().read_bytes()
+def test_movie_sources_use_no_bethesda_classes():
+    """Every import is Flash's own: nothing from the game's movies.
+
+    See: docs/fork/fo4_dialogue_menu_plan.md#own-movie
+    """
+    for path in M.SOURCES.rglob('*.as'):
+        imports = re.findall(r'^\s*import ([\w.]+);', path.read_text(encoding='utf-8'), re.M)
+        assert all(name.startswith('flash.') for name in imports), (path.name, imports)
+
+
+@pytest.mark.skipif(not M.FFDEC.is_file(), reason='needs FFDec')
+def test_movie_builds_the_same_twice_with_the_menu_at_root_menu_mc(tmp_path):
+    """Two builds are identical; the root holds Menu_mc, whose code registers the holders and calls the DLL."""
+    raw = M.compile_movie(tmp_path / 'a.swf').read_bytes()
+    assert raw == M.compile_movie(tmp_path / 'b.swf').read_bytes()
     body = zlib.decompress(raw[8:]) if raw[:3] == b'CWS' else raw
-    for name in (b'GetDialogueOptions', b'SelectDialogueOption', b'onF4SEObjCreated', b'QuickkeyUp'):
+    for name in (b'DialogueMenuRoot', b'Menu_mc', b'registerObjects', b'GetDialogueOptions', b'SelectDialogueOption',
+                 b'onF4SEObjCreated', b'QuickkeyUp'):
         assert name in body

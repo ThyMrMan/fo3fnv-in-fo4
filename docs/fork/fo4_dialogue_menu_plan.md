@@ -50,10 +50,9 @@ Found by matching the port's own signature strings, each unique in
   TESTopic / TESTopicInfo / BGSScene layouts: those are new work.
 - **Toolchain gap:** `tes_runtime/common/msvc.bat` names VS Build Tools,
   which is not installed; run Community's `vcvars64.bat` first.
-- **SWF building:** `fo4_import/casino/movie.py` compiles our own AS3 into a
-  skeleton SWF with FFDec (`-importScript`), deterministic and cached. No
-  step yet patches a vanilla SWF; the pre-push hook refuses any committed
-  `.swf`.
+- **SWF building:** `fo4_import/base/swf_skeleton.py` compiles our own AS3
+  into a skeleton SWF with FFDec (`-importScript`), deterministic and
+  cached; the pre-push hook refuses any committed `.swf`.
 - **The build marks menus** with XDI.esm's keyword (`records.py:73`
   `XDI_KEYWORD = 0x800`; `cell.py:114` masters `XDI.esm`).
 
@@ -70,9 +69,9 @@ Found by matching the port's own signature strings, each unique in
 - **The option → topic link:** a property on the script options already
   carry (CHOICE_VMAD), or a sidecar map read at load. TPIC ("Previous
   Topic") fits the type but its engine meaning is unknown; check before use.
-- **Menu file:** at install, extract `Interface/DialogueMenu.swf` from the
-  user's `Fallout4 - Interface.ba2`, import our own AS3 list class with
-  FFDec, write `<output>/Interface/DialogueMenu.swf`. Never commit it.
+- **Menu file:** first planned as the game's own `DialogueMenu.swf` with
+  our class compiled over it; now our own movie ([own movie](#own-movie)).
+  Never commit it.
 - **Coexistence:** refuse to install the hooks, and log it, when
   `XDI.dll` is loaded or a call site no longer points at the vanilla
   function. Other mods with a loose `DialogueMenu.swf` clash the same way.
@@ -414,6 +413,38 @@ the Question holder's bounds. Flash counts hidden children in a
 container's bounds, and the rows beyond the menu's count were only hidden,
 keeping the text and place of the last longer menu. Unused rows now leave
 the holder (`draw`).
+
+### <a id="own-movie"></a>Our own movie (2026-11-11, built, not played)
+
+The menu no longer starts from the game's `DialogueMenu.swf`. Spike 3
+([swf_framework](swf_framework.md#spikes)) showed the engine runs a movie
+made only of our code and tints the holders it registers.
+
+- **Build:** `movie.py` writes a skeleton movie and FFDec compiles `as3/`
+  over it (`fo4_import/base/swf_skeleton.py`, shared with the casino).
+  Nothing is read from `Fallout4 - Interface.ba2`; the build needs FFDec
+  only. About 10 KB, byte-identical on every build. The sources also
+  compile cleanly under `mxmlc` (a strict check).
+- **Root:** `DialogueMenuRoot` holds the menu at `root.Menu_mc`, where the
+  game looks (its own movie's root has only `Menu_mc`). F4SE calls
+  `onF4SEObjCreated` on root's direct children, so the menu gets it.
+- **What replaced the game's classes** in `DialogueMenu.as`:
+  - the five holders (`Positive`, `Negative`, `Neutral`, `Question`,
+    `SpeechChallengeAnim_mc`) are empty clips made in the constructor;
+  - the base class's work: `SetSafeRect`, `SetPlatform`, focus rect off,
+    placement at the bottom center of Scaleform's `visibleRect`;
+  - `EnableMenu` / `DisableMenu` show and hide the holders (no fade);
+  - `PlaySpeechChallengeAnim` has no animation: it reports done on the
+    next frame;
+  - the game's button clips are gone, so the list shows without F3NV.dll
+    too (the game's four buttons as rows, no `[Leave]`, no shaded
+    background); `Cancel` and Tab then go to the game.
+- **Carried over unchanged:** the list, scrolling, keys and controller,
+  retries, said dimming, failed-check tint, shaded background and the
+  unused-rows fix ([backdrop rows](#backdrop-rows)).
+- **To play:** dialogue opens; list in the HUD color with its shaded
+  backdrop and frame; a skill check shows the red tag; a speech check
+  finishes; `[Leave]`, Tab and B leave; F3NV.log shows `menu ready`.
 
 ### <a id="test-mod"></a>Test mods
 
