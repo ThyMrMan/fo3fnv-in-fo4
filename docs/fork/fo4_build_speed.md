@@ -588,6 +588,37 @@ in 90 s. With `TESCONV_JOB_MEM_GB=16` the recorded game build died there
 twice. It finished under 22 GB (14.7 GB sampled every 30 s); LDF peaked at
 8.3 GB. Normal builds run uncapped.
 
+<a id="land-memory"></a>**Fixed: the land texture step's memory.** The cause
+was `blend_borders`, not `limit_textures` itself. At every vertex several
+quadrants share, it gave each quadrant a 289-value array for every texture any
+of the others had there, zero-filled where the quadrant had none. Because it
+changes the mixes while it walks them, textures spread from quadrant to
+quadrant. On WastelandNV (16,388 cells with land, 65,552 quadrants) that made
+2,555,118 arrays, about 39 per quadrant and about 6 GB; `limit_textures` then
+summed all of them. Now a texture a quadrant gains with a share of +0
+everywhere points at one shared read-only zero array (`ZERO`), and gets an
+array of its own only when a nonzero (or -0) share is written to it. The dict
+keys and their order stay the same, because `kept_textures` can still fill a
+slot with a zero-sum texture. `limit_textures` sums only the kept textures.
+
+Measured on the real WastelandNV inputs, the step called directly on its land
+data in a child process capped with `limit_own_memory` (16 GB), memory being
+the process commit:
+
+| | Before | After |
+|---|---|---|
+| Commit after loading the land | 4.33 GB | 4.33 GB |
+| Peak after the step | 12.41 GB | 6.44 GB |
+| The step's own peak | +8.1 GB | +2.1 GB |
+| `blend_borders` | 61–84 s | 65 s |
+| `limit_textures` | 22–28 s | 17.5 s |
+
+The output is byte-identical: the SHA-1 over every cell's, quadrant's,
+texture's shares from `limit_textures` is the same before and after. About
+1.5 GB of the step's remaining peak is the `_shared` vertex index. With about
+6 GB less, the game build, at about 7 GB before this step, should peak near
+9–10 GB, under 16 GB; the next whole-map build confirms it.
+
 **Estimate for step 7 (unmeasured, from the numbers above).** LDF by replay
 is about 3–5 minutes as the units stand, against 7.4 minutes; SLRF about 2–4,
 against 13.8. That is 2–4 minutes of reruns (less the 28% recording cost),

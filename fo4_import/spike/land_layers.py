@@ -10,6 +10,8 @@ quadrants, inside a cell or across cells, takes their average mix.
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
 
+import math
+
 import numpy as np
 
 #: Vertices of a quadrant (17 x 17, row-major from the bottom-left).
@@ -21,6 +23,9 @@ EDGE = [p for p in range(QUAD_POINTS) if p % SIDE in (0, SIDE - 1) or p // SIDE 
 CELL_STEPS = 2 * (SIDE - 1)
 #: Textures a quadrant keeps: FO4 draws 4 at a time, the base first, and textures past the first 4 draw differently.
 DRAWN = 4
+#: The shares of a texture blend_borders brings to a quadrant at no vertex yet: one read-only array shared by all.
+ZERO = np.zeros(QUAD_POINTS)
+ZERO.setflags(write=False)
 
 
 def layer_weights(layers: list) -> list:
@@ -89,8 +94,7 @@ def limit_textures(mixes: dict, grassy: frozenset = frozenset()) -> dict:
     See: docs/fork/fo4_spikes.md#spike-4-exterior
     """
     kept = {(grid, q): kept_textures(mix, grassy) for grid, quads in mixes.items() for q, mix in quads.items()}
-    totals = {(grid, q, t): share.sum() for grid, quads in mixes.items() for q, mix in quads.items()
-              for t, share in mix.items()}
+    totals = {(grid, q, t): mixes[grid][q][t].sum() for (grid, q), textures in kept.items() for t in textures}
     allowed = {key: [set(textures)] * QUAD_POINTS for key, textures in kept.items()}
     fill = {key: [textures[0]] * QUAD_POINTS for key, textures in kept.items()}
     for members in _shared(mixes).values():
@@ -139,14 +143,21 @@ def _shared(mixes: dict) -> dict:
 
 def blend_borders(mixes: dict) -> dict:
     """Give every vertex shared by several quadrants of {cell grid: quadrant_mix} their average mix, so a texture
-    change at a quadrant or cell border fades over one vertex step; `mixes` is changed and returned."""
+    change at a quadrant or cell border fades over one vertex step; `mixes` is changed and returned. A texture a
+    quadrant gains with a share of +0 everywhere keeps ZERO, not an array of its own.
+    See: docs/fork/fo4_build_speed.md#land-memory
+    """
     for points in _shared(mixes).values():
         members = [(mixes[grid][q], pos) for grid, q, pos in points]
         textures = sorted({texture for mix, _ in members for texture in mix})
         average = {t: sum(mix[t][pos] for mix, pos in members if t in mix) / len(members) for t in textures}
+        plus_zero = {t for t, share in average.items() if share == 0 and math.copysign(1.0, share) > 0}
         for mix, pos in members:
             for texture, share in average.items():
-                if texture not in mix:
-                    mix[texture] = np.zeros(QUAD_POINTS)
-                mix[texture][pos] = share
+                shares = mix.setdefault(texture, ZERO)
+                if shares is ZERO and texture in plus_zero:
+                    continue
+                if shares is ZERO:
+                    shares = mix[texture] = np.zeros(QUAD_POINTS)
+                shares[pos] = share
     return mixes
