@@ -19,6 +19,7 @@ import numpy as np
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from asset_convert.speedtree.spt_generator import build_tree
 from asset_convert.speedtree.spt_parser import parse_spt
+from fo4_import.nif import fnv_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.collision import material, mesh_collision
 from fo4_import.nif.convert_static import IDENTITY, NODE_FLAGS, Converted, emit, lit_material
@@ -88,9 +89,7 @@ def _shape(nif: NifFile, name: str, arrays: tuple, tris, mat, flags: tuple, out:
 
 def _collision(nif: NifFile, export_dir: Path, geo) -> int:
     """The generated collision mesh (wood) on the source game's BODY_TEMPLATES collision object, for the root."""
-    data = NifFormat.Data()
-    with open(export_file(export_dir, BODY_TEMPLATES[source_game(export_dir)]), 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(export_file(export_dir, BODY_TEMPLATES[source_game(export_dir)]))
     template = next(b for b in data.blocks if isinstance(b, NifFormat.bhkCollisionObject))
     tris = [tuple(tuple(float(c) for c in verts[i]) for i in tri)
             for verts, faces in zip(geo.collision_verts, geo.collision_tris) for tri in np.asarray(faces, int)]

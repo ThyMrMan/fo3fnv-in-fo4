@@ -4173,6 +4173,9 @@ trail: `##r`, `##ri`, `##rio`...). FNV loads them; pyffi refuses them
 (`Not a NIF file`, `string index too large`). Every FNV NIF and KF read
 goes through `nif/fnv_file.read`, which starts at the last format name in
 the header line and reads a string index past the table as an empty name.
+It reads with our own reader (`nif/fnv_reader`), and with pyffi only a file
+of another version or with a block ours could not read
+([fnv_nif_reader](research/fnv_nif_reader.md#integration)).
 
 ## <a id="water-heights"></a>Water heights (built 2026-10-17)
 

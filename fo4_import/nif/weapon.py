@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fo4_import.nif import file as nif_file
+from fo4_import.nif import file as nif_file, fnv_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.convert_static import NifFormat, lighting_shader
 from fo4_import.pipeline.export_index import export_file
@@ -86,9 +86,7 @@ def held_pose(export_dir: Path, anim_type: int) -> dict:
     """{node name: (translation, rotation rows)} of the hold animation for FNV animation type `anim_type`."""
     if anim_type not in HOLD_ANIMS:
         return {}
-    data = NifFormat.Data()
-    with open(export_file(export_dir, 'meshes', 'characters', '_male', HOLD_ANIMS[anim_type]), 'rb') as f:
-        data.read(f)
+    data = fnv_file.read(export_file(export_dir, 'meshes', 'characters', '_male', HOLD_ANIMS[anim_type]))
     out = {}
     for seq in (b for b in data.roots if isinstance(b, NifFormat.NiControllerSequence)):
         for block in seq.controlled_blocks:
