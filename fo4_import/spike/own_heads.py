@@ -33,7 +33,7 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.face import hair, sculpt, tint
 from fo4_import.face.bake import face_shape, positions, triangles, uvs
 from fo4_import.face.eyes import eye_texture
-from fo4_import.face.texture import face_texture
+from fo4_import.face.texture import dds_like, face_texture
 from fo4_import.nif import bgsm
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.hair_mesh import HAIR_REST, as_hair, hat_field
@@ -76,10 +76,10 @@ def _texture_path(stem: str) -> bytes:
     return (stem + '.dds\0').encode()
 
 
-def _archive_texture(assets, path: bytes) -> np.ndarray:
-    """RGBA of texture set path `path` from the game's archives."""
+def _archive_dds(assets, path: bytes) -> bytes:
+    """DDS bytes of texture set path `path` from the game's archives."""
     name = path.rstrip(b'\0').decode().replace('/', '\\').lower()
-    return hair.image(assets.archives.read('textures\\' + name))
+    return assets.archives.read('textures\\' + name)
 
 
 class OwnHeads:
@@ -129,9 +129,14 @@ class OwnHeads:
             self.made[key] = fid
         return self.made[key]
 
-    def _write_texture(self, stem: str, rgba: np.ndarray) -> None:
-        """RGBA uint8 `rgba` as Textures\\`stem`.dds (full mips)."""
-        write_new(self.builder.data_dir / 'Textures' / f'{stem}.dds', encode_dds(Image.fromarray(rgba, 'RGBA')))
+    def _write_texture(self, stem: str, rgba: np.ndarray, like: bytes = None) -> None:
+        """RGBA uint8 `rgba` as Textures\\`stem`.dds (full mips), in the format and size of vanilla DDS `like` when
+        it takes that texture's place (the CK refuses a face texture whose format differs from its race's).
+        See: docs/fork/fo4_facegen_plan.md#ck-face-texture-format
+        """
+        path = self.builder.data_dir / 'Textures' / f'{stem}.dds'
+        data = dds_like(rgba, like) if like else encode_dds(Image.fromarray(rgba, 'RGBA'))
+        write_new(path, data)
 
     def _hair(self, npc: dict, female: bool, assets) -> 'int | None':
         """The hair head part of FNV NPC `npc`'s own hair in its colour (module notes); None when its mesh is not
@@ -184,7 +189,8 @@ class OwnHeads:
         if key not in self.made:
             stem = f'{FOLDER}{Path(eyes["ICON"]).stem.lower()}_{vanilla:08x}'
             tnam = struct.unpack('<I', assets.parts[vanilla][b'TNAM'][0])[0]
-            self._write_texture(stem, self._eye_rgba(npc, female, vanilla, assets.texture_sets[tnam], eyes, assets))
+            fo4 = _archive_dds(assets, assets.texture_sets[tnam][b'TX00'][0])
+            self._write_texture(stem, self._eye_rgba(npc, female, vanilla, fo4, eyes, assets), fo4)
             txst = self._add('TXST', f'{key} TXST', lambda fid: copy_record(
                 self._fo4(tnam), fid, f'FNV_{eyes["EditorID"]}_Eyes', {b'TX00': _texture_path(stem)}))
             data = bytes([assets.parts[vanilla][b'DATA'][0][0] & ~hair.PLAYABLE])
@@ -193,14 +199,14 @@ class OwnHeads:
                                                            drop=frozenset({b'MODT'})))
         return self.made[key]
 
-    def _eye_rgba(self, npc: dict, female: bool, vanilla: int, texture_set: dict, eyes: dict, assets) -> np.ndarray:
+    def _eye_rgba(self, npc: dict, female: bool, vanilla: int, diffuse: bytes, eyes: dict, assets) -> np.ndarray:
         """face.eyes.eye_texture of FNV NPC `npc`'s eye texture (EYES `eyes`) onto vanilla eyes `vanilla`'s mesh
-        and texture set `texture_set`'s diffuse."""
+        and its texture set's `diffuse` (DDS bytes)."""
         export_dir = self.export_dir
         at = fnv_npc.frame(export_dir, npc['EditorID'], face_shape(sculpt.load_basis(female)[2])[0])
         points, tris, uv, _ = hair.fnv_shape(fnv_npc.eye_mesh(export_dir, at.race, at.part))
         raw, _ = assets.shapes(vanilla)[0]
-        fo4 = _archive_texture(assets, texture_set[b'TX00'][0])
+        fo4 = hair.image(diffuse)
         fnv = hair.image(fnv_npc.asset(export_dir, 'textures', eyes['ICON']))
         return eye_texture(fo4, (positions(raw), uvs(raw), triangles(raw)), (at.to_fo4(points), tris, uv), fnv)
 
@@ -220,11 +226,12 @@ class OwnHeads:
         of fnv_face's `fnv` and `pieces`, both named by `name`; its skin tone scale)."""
         race = dict(subrecords(self._fo4(HUMAN_RACE).body))
         vanilla = self._fo4(struct.unpack('<I', race[FACE_SETS[female]])[0])
-        fo4 = _archive_texture(assets, dict(subrecords(vanilla.body))[b'TX00'])
+        diffuse = _archive_dds(assets, dict(subrecords(vanilla.body))[b'TX00'])
+        fo4 = hair.image(diffuse)
         face = face_shape(sculpt.load_basis(female)[2])
         rgba, tone = face_texture(fo4, face, fnv, pieces, 'T2', shown_scale(fo4, face, female))
         stem = f'{FOLDER}face_{name}_d'
-        self._write_texture(stem, rgba)
+        self._write_texture(stem, rgba, diffuse)
         fid = self._add('TXST', f'FACE {name}', lambda fid: copy_record(
             vanilla, fid, f'FNV_Face_{name}', {b'TX00': _texture_path(stem)}))
         return fid, tone

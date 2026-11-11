@@ -266,23 +266,35 @@ ship), so each part goes in through the record:
 Every record is new, keyed by authored data (`derive_formid`, site
 `FNV own head`): no existing FormID moves.
 
-### <a id="ck-face-textures-loose"></a>The CK needs the own head textures loose
+### <a id="ck-face-texture-format"></a>A face set texture must match its race's format
 
-The build writes the own head textures loose; `pack_textures` then moves them
-into the BA2 staging folder and packs `<plugin> - Textures.ba2`. The `faces`
-stage runs later, so the CK found Willow's face set texture
-(`fnv\own\face_…_d.dds`) only in that BA2. In the 2026-11-11 NVWillow build the
-BA2 was packed at 08:08, and the CK wrote FaceGen at 08:14–08:15. Her `_d`,
-`_msn` and `_s` came out byte-identical to `002B6C87`'s, the ghoul the CK
-exported just before her. The CK did not report the missing texture; it kept
-its last face. The texture is DXT1 1024 with full mips, a format the CK reads,
-so the format is not the cause. The CK has the string `" - Textures.ba2"`, and
-whether it opens a plugin's own texture BA2 during `-ExportFaceGenData` is not
-settled: the only CK log on disk is from a later run.
+In the 2026-11-11 NVWillow build, Willow's (`0047CBE4`) CK `_d`, `_msn` and `_s`
+came out byte-identical to `002B6C87`'s, the ghoul the CK exported just before
+her. The CK's log (`ckpe.log`, `-ExportFaceGenData:NVWillow.esp`) says why:
 
-`facegen.loose_head_textures` copies every staged texture under
-`own_heads.FOLDER` (`fnv\own\`) loose into the mod folder for the CK's run and
-removes the copies afterwards. A texture already loose is left alone.
+```
+[FACEGEN] Face customization texture fnv\own\face_0101ce58_f_8aab388173a7_d.dds for NPC FNV_Willow failed to load due to format mismatch with fnv\own\face_0101ce58_f_8aab388173a7_d.dds.
+[FACEGEN] Face customization texture fnv\own\face_0101ce58_f_8aab388173a7_d.dds for NPC FNV_Willow failed to load due to unknown error.
+[FACEGEN] Face customization texture Actors\Character\Character Assets\FaceDetails\FemBrow1_d.DDS for NPC FNV_Willow failed to load due to unknown error.
+```
+
+When a face texture fails, the CK writes the last face it drew. The same log
+shows it loading `NVWillow - Textures.ba2` with the plugin, so where the texture
+sits does not matter: loose copies (tried in `a7d0e465`) changed nothing.
+
+The face set texture was BC1, 1024, 11 mips, which `encode_dds` picks for an
+opaque image. HumanRace's default face sets (`DFTM` `0001FA47`, `DFTF`
+`0004D0EA`) are BC3, 1024, 11 mips, as are those of every human, synth and
+power-armor race in Fallout4.esm and the DLC. The CK has a sibling check, "Face
+customization texture %s differs from other textures on race '%s' with regards
+to number of mipmaps", so face textures on a race must agree with each other.
+The format check is in `CreationKit.exe` at `0xED7CE6` (flag `+0x24` of the
+40-byte per-texture record); the size check is the next block (`+0x14`/`+0x18`
+against `+0x1C`/`+0x20`).
+
+`own_heads` now writes a face or eye texture with `texture.dds_like`: the
+format, size and full mip chain of the vanilla texture set texture it takes the
+place of. Willow's face is now BC3, 1024, 11 mips.
 
 Her face set's `TX04`, `Actors\Character\HumanCommon\BlankDetailmap.dds`, is in
 no archive and is not a loose file. This is harmless and vanilla-legal:

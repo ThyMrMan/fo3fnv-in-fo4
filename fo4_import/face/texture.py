@@ -38,6 +38,10 @@ TEXCONV = FALLOUT4_DIR / 'Tools' / 'Elric' / 'texconv.exe'
 FACE_FORMAT = 'BC3_UNORM'
 #: Vanilla FaceCustomization textures by suffix -> (format, size), all with full mips (Fallout4.esm's 3 x 1,096).
 VANILLA_FACE = {'d': ('BC1_UNORM', 1024), 'msn': ('BC1_UNORM', 1024), 's': ('BC5_UNORM', 512)}
+#: texconv's names of the DXGI formats vanilla texture sets use, and the DXGI format of a legacy four-CC DDS.
+DXGI_NAMES = {28: 'R8G8B8A8_UNORM', 71: 'BC1_UNORM', 74: 'BC2_UNORM', 77: 'BC3_UNORM', 80: 'BC4_UNORM',
+              83: 'BC5_UNORM', 98: 'BC7_UNORM'}
+LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77}
 #: Texels the new colour is carried past each UV island's edge, so filtering and compression do not bleed FO4's in.
 ISLAND_PADDING = 8
 
@@ -194,11 +198,32 @@ def vanilla_face_texture(path: Path) -> bool:
     return True
 
 
+def _texconv(rgba: np.ndarray, *options: str) -> bytes:
+    """`rgba` as DDS bytes, through the CK's texconv with `options`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        png = Path(tmp) / 'texture.png'
+        Image.fromarray(rgba, 'RGBA').save(png)
+        subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(png)], check=True, capture_output=True,
+                       **POPEN_FLAGS)
+        return (Path(tmp) / 'texture.dds').read_bytes()
+
+
 def write_dds(rgba: np.ndarray, path: Path) -> None:
     """`rgba` as a one-level DXT5 .dds at `path`, through the CK's texconv."""
-    with tempfile.TemporaryDirectory() as tmp:
-        png = Path(tmp) / f'{path.stem}.png'
-        Image.fromarray(rgba, 'RGBA').save(png)
-        subprocess.run([str(TEXCONV), '-nologo', '-f', FACE_FORMAT, '-m', '1', '-o', tmp, str(png)],
-                       check=True, capture_output=True, **POPEN_FLAGS)
-        path.write_bytes((Path(tmp) / f'{path.stem}.dds').read_bytes())
+    path.write_bytes(_texconv(rgba, '-f', FACE_FORMAT, '-m', '1'))
+
+
+def dds_layout(dds: bytes) -> tuple:
+    """(texconv format name, width, height) of DDS bytes `dds`, DX10 header or DXT1/DXT5 four-CC."""
+    four = dds[84:88]
+    fmt = struct.unpack_from('<I', dds, 128)[0] if four == b'DX10' else LEGACY_FORMATS[four]
+    height, width = struct.unpack_from('<II', dds, 12)
+    return DXGI_NAMES[fmt], width, height
+
+
+def dds_like(rgba: np.ndarray, like: bytes) -> bytes:
+    """`rgba` as DDS bytes in DDS `like`'s format and size, full mips.
+    See: docs/fork/fo4_facegen_plan.md#ck-face-texture-format
+    """
+    fmt, width, height = dds_layout(like)
+    return _texconv(rgba, '-f', fmt, '-w', str(width), '-h', str(height), '-m', '0')
