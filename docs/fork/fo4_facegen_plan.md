@@ -961,6 +961,47 @@ The vertex reader also learned eye data (`VA_EYE_DATA`, a float after the
 skin), which FO4 eye meshes carry. Before, every vertex after the first was
 read 4 bytes off.
 
+### <a id="sculpt-census"></a>Census: all 2,382 CK faces (2026-11-12)
+
+`tools/nif/facegen_census.py` compared our positions with the CK's export
+(`temp/ck_facegen_reference_2026-11-12`) for every NPC. All 2,382 were
+measured with no errors. Every part matched the CK file's part list and
+vertex counts.
+
+| Parts | Count | Median max | 99th percentile | Worst | Unsculpted median |
+|---|---|---|---|---|---|
+| Faces, mouths, neck gore, rear heads | 11,701 | 0.033 | 0.045 | 0.045 | 0.23 |
+| Eyes | 9,363 | 0.002 | 0.002 | 0.003 | 0.19 |
+| Beards | 376 | 0.035 | 0.15 | 0.15 | 0.36 |
+| Hairs | 6,784 | 0.043 | 0.28 | 1.38 | 0.24 |
+
+The leftover is a fixed offset per part, not a slider effect: a part's
+error hardly varies across the NPCs who use it (MaleHeadHuman 0.044 to
+0.045 over 1,557 NPCs; HairMale06 0.282 over 138; HairMale22 0.289 over 53).
+It is there even for NPCs with no sculpt: the CK writes HairMale01 0.111
+away from its mesh, and its `_faceBones` twin is the same mesh. The
+largest hair offsets sit at the back of the neck, pulled toward the neck's
+axis.
+
+The plugin gives almost every NPC one of two body weights (MWGT): 2,277
+NPCs have (0.552, 0.266, 0.182) and 680 have (0.545, 0.041, 0.415). So a
+body-weight effect would show up exactly like this, fixed per part.
+Measured, each on one NPC with no sculpt:
+
+- A free 3x4 move per bone, fitted to the CK over all its parts, leaves the
+  max unchanged (0.111). So the offset is per vertex, not per bone.
+- The body-weight tables' blended scales, applied in each bone's frame,
+  make it worse (0.216).
+- Skinning with those scales on the mesh weights, then rebinding with the
+  twin's `CustomizationRemapData` weights, helps only a little (max 0.111 →
+  0.084, RMS 0.0137 → 0.0131).
+- The mod's own `skeleton*.nif` overrides (the files the CK read) have the
+  same node transforms as vanilla.
+
+One outlier is CK-side: FNV_TestFemaleNVPGSimple (`42B3DE`, a test NPC
+with all sliders zero) has its HairFemale32_Hairline1 1.38 off. The other 14
+NPCs with that hairline and the same weight are within 0.045 to 0.050.
+
 ## <a id="today"></a>How faces work today
 
 - The converted NPC record holds FO4 slider values: sculpt regions
