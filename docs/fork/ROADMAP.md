@@ -272,7 +272,8 @@ Please report what you find in
 - **Build time:** the game build is down to 32 minutes. Converted voice
   lines, finished meshes and face fits are cached, mod builds reuse their
   masters' finished meshes, and build records live outside the Data folder.
-  Still to come: profiling, then moving the hot spots to native code
+  A Low/Balanced/Full setting limits cores and memory, and the build prints
+  an estimated time ([resources](fo4_build_resources.md)). Still to come: profiling, then moving the hot spots to native code
   ([plan](fo4_build_speed.md)).
 - **Differences from New Vegas** that could be closed later: attack and equip
   speed perks, looting routines, per-pellet DT, Long Haul and Miss Fortune
@@ -291,7 +292,8 @@ Please report what you find in
 | [Dialogue menu as its own mod](dialogue_menu_mod.md) (XDI replacement) | Planned, not started; first step is the own-movie spike |
 | [Our own Flash menu framework](swf_framework.md) (dialogue, casino, Pip-Boy) | Spikes 1, 2b and 3 played (spike 1: the casino on `mxmlc` and the first `f3ui` classes). The dialogue menu's own movie played (looks the same as before), then moved onto `mxmlc` and `f3ui` (built, not played; FFDec build route deleted). Spike 5 (translation files, named after FalloutHelpers.esl) played: translation works, an untranslated key shows raw, `$` text needs `Text.show`. Spike 4 (our movie loaded into the Pip-Boy by F3NV.dll, one item-card line) played under the vanilla Pip-Boy; FallUI Inventory not yet tried |
 | [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned. Second shape slot read (free for us); next: the vanilla sneak test and a repo with a plugin that loads ([build-out](dynamic_collision_mod.md#build-out)) |
-| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own convex collision writer matches Elric on 177 of 228 test meshes; it isn't in the build yet. FaceGen is in progress (see Own FaceGen heads above) |
+| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own collision writer runs ahead of Elric for convex shapes and for triangle meshes on still or keyframed bodies (built, not played); spheres, capsules and ragdolls still go to Elric. Our own FaceGen runs at 0.29 s a face, byte for byte the same as before (see Own FaceGen heads above) |
+| [Ideas the build without the CK makes possible](fo4_after_ck_ideas.md) (a dark-face fixer for any load order, rebuilding only what changed, a face comparison gallery and more) | Ideas only, nothing built |
 
 ## <a id="inherited"></a>The inherited Skyrim converter
 
