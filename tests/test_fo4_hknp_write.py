@@ -181,6 +181,39 @@ def test_elric_cache_finishes_a_convex_nif_itself_and_sends_only_the_rest_to_elr
     assert [p.name for p in tmp_path.rglob('*') if p.is_file()] == [elric_cache.entry(listed, tmp_path).name]
 
 
+def test_meshes_needing_elric_wait_for_one_run_and_the_rest_finish_alone(tmp_path, monkeypatch):
+    """finish(): a box is finished alone by our writer; two constraint meshes Elric's cache lacks share one run.
+
+    See: docs/fork/fo4_build_speed.md#collision-pool
+    """
+    sent = []
+    monkeypatch.setattr(elric_cache, 'CACHE', tmp_path / 'elric')
+    monkeypatch.setattr(elric_cache.work_cache, 'CACHE', tmp_path / 'work')
+    monkeypatch.setattr(elric_cache, 'MARKS', {})
+    monkeypatch.setattr(elric_cache, 'elric_tag', lambda: b'tag')
+    monkeypatch.setattr(elric_cache.elric, 'process', lambda todo: sent.append(sorted(todo)) or {})
+    listed = _box_nif(('bhkStiffSpringConstraint', bytes(8)))
+    meshes = {tmp_path / 'box.nif': _box_nif(), tmp_path / 'a.nif': listed, tmp_path / 'b.nif': listed}
+    for path, data in meshes.items():
+        path.write_bytes(data)
+    assert elric_cache.finish(list(meshes)) == [tmp_path / 'a.nif', tmp_path / 'b.nif']
+    assert sent == [['00000.nif', '00001.nif']]
+    kinds = [k for k, _ in nif_file.read((tmp_path / 'box.nif').read_bytes()).blocks]
+    assert kinds == ['NiNode', 'bhkPhysicsSystem', 'bhkNPCollisionObject']
+
+
+def test_the_pool_finishes_meshes_as_one_process_does(tmp_path):
+    """POOLED misses go to worker processes, each back with one process's bytes; every record, a worker's later
+    meshes included, keeps the layout memo (packfile.classes) and holds no ragdoll or round-body code."""
+    meshes = {tmp_path / f'{i}.nif': _box_nif() for i in range(elric_cache.POOLED)}
+    alone = [elric_cache.finish_one(job) for job in meshes.items()]
+    pooled = list(elric_cache.finished_each(meshes))
+    assert [r[:3] for r in pooled] == [r[:3] for r in alone] and all(r[1] for r in pooled)
+    for record in (r[3] for r in pooled):
+        assert 'fo4_import/havok/packfile.py::classes' in record
+        assert not [k for k in record if k.startswith(('fo4_import/nif/hknp_ragdoll', 'fo4_import/nif/hknp_round'))]
+
+
 def test_a_flat_box_is_left_to_elric():
     """A box with no height has no 3-D hull: not covered, so Elric gets it.
 

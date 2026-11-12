@@ -17,23 +17,28 @@ See: docs/fork/fo4_pipeline.md#skeleton
 See: docs/fork/fo4_hknp_writer.md#seam
 """
 
+import concurrent.futures
 import functools
 import hashlib
 import os
 import tempfile
 from pathlib import Path
 
-from fo4_import.base.source_fault import faulted
+from core.build_resources import pool_workers
+from core.process_job import join_pool_job
+from fo4_import.base.source_fault import FAULTS, SourceFault, count, faulted
 from fo4_import.nif import elric, hknp_write
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import mesh_cache, work_cache
 from fo4_import.pipeline.code_tag import ROOT
-from fo4_import.pipeline.ran_code import ran_while
+from fo4_import.pipeline.ran_code import ran_alone
 from fo4_import.pipeline.work_cache import UNUSED_DAYS, prune, store
 
 CACHE = ROOT / 'output' / 'fo4_cache' / 'elric'
 #: The work-cache site of a finished NIF.
 SITE = 'elric_finish'
+#: Meshes to finish before finished_each spreads them over worker processes, and the memory each worker is given.
+POOLED, WORKER_BYTES = 16, 512 << 20
 #: {normcased NIF path: pre-Elric bytes} held this run until finish() writes them finished.
 _HELD = {}
 #: {normcased NIF path: [mark(), collision ok]} of each NIF finish() wrote this run.
@@ -120,23 +125,87 @@ def finish(paths: list, theirs: 'dict | None' = None) -> list:
 
 
 def _run(todo: dict) -> list:
-    """finish()'s work for `todo` ({path: (inputs, pre-Elric bytes)}), none cached: elric.finish on staged copies,
-    each result stored (but a source fault's), written and marked; the paths left without collision."""
-    failed = []
-    with tempfile.TemporaryDirectory() as tmp:
-        staged = {path: Path(tmp) / f'{i:05d}.nif' for i, path in enumerate(todo)}
-        for path, (_, data) in todo.items():
-            staged[path].write_bytes(data)
-        finished = functools.partial(elric.finish, list(staged.values()), process, list(todo))
-        failed_now, ran = ran_while(finished) if todo else ((), {})
-        for path, (inputs, _) in todo.items():
-            ok, data = staged[path] not in failed_now, staged[path].read_bytes()
-            if not faulted(path):
-                store(SITE, 'fo4_import.nif.elric', inputs, (ok, data), ran)
-                MARKS[os.path.normcase(str(path))] = [mark(inputs), ok]
-            write_new(path, data)
-            failed += [] if ok else [path]
+    """finish()'s work for `todo` ({path: (inputs, pre-Elric bytes)}), none cached: each mesh finished alone
+    (finished_each), then the ones needing a new Elric run in one batch; each result stored (but a source fault's),
+    written and marked; the paths left without collision."""
+    failed, waiting = [], {}
+    for path, ok, data, ran, faults in finished_each({path: data for path, (_, data) in todo.items()}):
+        if ok is None:
+            waiting[path] = todo[path][1]
+        else:
+            failed += _keep(path, todo[path][0], ok, data, ran, faults)
+    for path, ok, data, ran, faults in _batch(waiting):
+        failed += _keep(path, todo[path][0], ok, data, ran, faults)
     return failed
+
+
+def _keep(path: Path, inputs: tuple, ok: bool, data: bytes, ran: dict, faults: list) -> list:
+    """Count `faults`, store and mark mesh `path`'s finished `data` (not after a fault), write it; [path] if not ok."""
+    for fault in faults:
+        count(SourceFault(*fault))
+    if not faulted(path):
+        store(SITE, 'fo4_import.nif.elric', inputs, (ok, data), ran)
+        MARKS[os.path.normcase(str(path))] = [mark(inputs), ok]
+    write_new(path, data)
+    return [] if ok else [path]
+
+
+def finished_each(meshes: dict):
+    """finish_one() of each of `meshes` ({path: pre-Elric bytes}), as each is done: in worker processes (the resource
+    profile's, pool_workers) when there are POOLED or more."""
+    jobs = list(meshes.items())
+    if len(jobs) < POOLED:
+        yield from map(finish_one, jobs)
+        return
+    workers = pool_workers(WORKER_BYTES, len(jobs))
+    with concurrent.futures.ProcessPoolExecutor(workers, initializer=join_pool_job) as pool:
+        yield from pool.map(finish_one, jobs, chunksize=4)
+
+
+def finish_one(job: tuple) -> tuple:
+    """(path, ok, finished bytes, code record, faults met) of `job` = (path, pre-Elric bytes) through elric.finish
+    with no new Elric run (cached_process); ok None when it needs one (NeedsElric).
+    See: docs/fork/fo4_build_speed.md#collision-pool
+    """
+    path, data = job
+    before = set(FAULTS)
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = Path(tmp) / 'mesh.nif'
+        staged.write_bytes(data)
+        try:
+            failed, ran = ran_alone(functools.partial(elric.finish, [staged], cached_process, [path]))
+        except NeedsElric:
+            return path, None, b'', {}, []
+        return path, not failed, staged.read_bytes(), ran, [f for f in FAULTS if f not in before]
+
+
+def _batch(meshes: dict) -> list:
+    """[(path, ok, finished bytes, code record, faults met)] of `meshes` ({path: pre-Elric bytes}) through one
+    elric.finish on staged copies, Elric run once for them all."""
+    if not meshes:
+        return []
+    before = set(FAULTS)
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = {path: Path(tmp) / f'{i:05d}.nif' for i, path in enumerate(meshes)}
+        for path, data in meshes.items():
+            staged[path].write_bytes(data)
+        failed, ran = ran_alone(functools.partial(elric.finish, list(staged.values()), process, list(meshes)))
+        faults = [f for f in FAULTS if f not in before]
+        return [(path, staged[path] not in failed, staged[path].read_bytes(), ran, faults) for path in meshes]
+
+
+class NeedsElric(Exception):
+    """A mesh neither our writer nor Elric's cache finishes: it waits for _batch's Elric run."""
+
+
+def _needs_elric(sources: dict) -> dict:
+    """Stand in for elric.process in a worker: NeedsElric."""
+    raise NeedsElric(sorted(sources))
+
+
+def cached_process(sources: dict) -> dict:
+    """process() running no Elric: NeedsElric for a mesh only a new run finishes."""
+    return process(sources, _needs_elric)
 
 
 def ours(data: bytes) -> 'bytes | None':
@@ -147,9 +216,9 @@ def ours(data: bytes) -> 'bytes | None':
     return None if made is None else nif_file.write(made)
 
 
-def process(sources: dict) -> dict:
-    """Each pre-Elric NIF finished by name: by ours() where it covers it, else elric.process(), cached (module
-    notes); a NIF Elric crashes on is left out."""
+def process(sources: dict, run=None) -> dict:
+    """Each pre-Elric NIF finished by name: by ours() where it covers it, else `run` (default elric.process),
+    cached (module notes); a NIF Elric crashes on is left out."""
     done, todo = {}, {}
     for name, data in sources.items():
         done[name] = ours(data)
@@ -161,7 +230,7 @@ def process(sources: dict) -> dict:
             os.utime(cached)
         else:
             todo[name] = data
-    done.update(elric.process(todo) if todo else {})
+    done.update((run or elric.process)(todo) if todo else {})
     for name in todo:
         cached = entry(todo[name])
         cached.parent.mkdir(parents=True, exist_ok=True)

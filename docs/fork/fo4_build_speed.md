@@ -394,6 +394,52 @@ that gone, more workers than cores would add their 27%.
   Elric's own run is already cached by bytes alone (`elric_cache.process`).
   So `elric_finish` keeps a code record: the functions `elric.finish` ran,
   not `ran=None`. *Built.*
+- <a id="collision-pool"></a>**Collision, one record a mesh, in a pool
+  (2026-11-12).** The warm build of 2026-11-12 spent 477.6 s in
+  `collision` because every one of the 7,707 `elric_finish` entries
+  missed: merge 31e28b34 had changed the hknp writer. Three things made that
+  miss total and slow:
+  - One `ran_while` covered the whole batch, so every entry's record named
+    every function any mesh ran (234 keys): an edit to ragdoll or
+    constraint code voided plain meshes too.
+  - Every record also named `core/process_memory.py`, `eta.py` and
+    `stage_timer.py`. sys.monitoring reports starts on every thread, and
+    the memory sampler and progress threads run beside each capture.
+  - The finish ran in the main process, one mesh at a time.
+
+  *Built:*
+  - `ran_code` keeps a start only in captures of the thread it ran on.
+    While another thread holds a capture, a start is reported again, so
+    that capture still sees it.
+  - `ran_code.ran_alone`: a record of what ran in this call, plus what ran
+    for the site earlier in this process in a file this call ran in, or in
+    a file holding a functools-cached function the site ran
+    (`cached_function`). That keeps a memo's work (`packfile.classes` and
+    its size table) without other meshes' code. `ran_while` still keeps
+    everything for its other sites.
+  - `elric_cache.finish_one` finishes one mesh with its own record.
+    `finished_each` runs the misses in worker processes (`pool_workers`, 512
+    MB each) once there are `POOLED` (16) or more. A mesh only a new Elric
+    run can finish raises `NeedsElric` in its worker (`cached_process`) and
+    joins one `_batch` after the pool, so Elric still runs as one instance.
+    Faults a worker meets come back with its result and are counted in the
+    main process.
+
+  Measured on a scratch copy, pre-Elric meshes taken from the build's
+  `mesh_files` cache, empty work caches:
+
+  | Meshes | Old (one batch, main process) | New (per mesh, pool) | Output |
+  |---|---|---|---|
+  | 300 | 36.4 s | 6.2 s | all 300 byte-identical, same failures |
+  | 53 (3 our writer leaves to Elric) | 10.7 s | 5.5 s | all 53 byte-identical |
+
+  A second pass over the 300 (all hits) takes 2.8 s. A box mesh's record
+  now names 11 files, without `hknp_ragdoll`, `hknp_round`,
+  `hknp_compound`, `anim_blocks` or `particle_blocks`; the old batch
+  record named 18. Only 3 of the first 1,500 cached meshes need Elric.
+  Worker memory: 82 MB committed after imports with the build's one BLAS
+  thread (`configure_multiprocessing`), 18 MB more for the largest of those
+  1,500; without that setting, numpy alone commits 501 MB.
 - **Prune.** The gun clip cache keeps the hashes of the files it wrote and one
   copy of each, not a copy per entry (11 GB today). Entries without a code
   record, and the sites no code names any more (`bordered_map`, `encode_dds`,
