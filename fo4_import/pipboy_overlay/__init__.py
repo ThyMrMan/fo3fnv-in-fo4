@@ -4,7 +4,7 @@ F3NV.dll loads it into the open Pip-Boy menu with a Loader (pipboy.cpp
 LoadOverlay); no Pip-Boy movie of the game's is shipped or read. Cached
 under temp/ by the sources' hash; the masterless build installs it.
 
-See: docs/fork/swf_framework.md#spikes
+See: docs/fork/swf_framework.md#pipboy
 """
 
 import shutil

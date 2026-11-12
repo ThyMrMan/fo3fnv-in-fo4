@@ -137,19 +137,46 @@ void InstallPipboy(void *taskInterface);
 // Ask the Pip-Boy to show the highlighted item's condition again (after a repair).
 void RefreshPipboy();
 
-// ---- Pip-Boy lists on the item card (pipboy.cpp), shared by the ammo list ----
+// ---- Pip-Boy lists (pipboy.cpp), shared by the ammo list; our Pip-Boy movie draws them ----
+
+// One line of a Pip-Boy list or item card: its text and value.
+struct Row {
+    std::string text, value;
+};
+
+// A list our Pip-Boy movie draws as a pop-up over the item card (docs/fork/swf_framework.md#pipboy): a heading,
+// rows of which `chosen` is highlighted (-1: none), notes under them, and the keys.
+struct ListView {
+    Row heading, keys;
+    std::vector<Row> rows, notes;
+    SInt32 chosen = -1;
+};
 
 // The Pip-Boy's current page into `page` when it is the inventory page (it has an item card).
 bool CurrentPage(GFxMovieRoot *movie, GFxValue *page);
 
-// Push a {text, value} line onto item card line array `lines`.
-void AddLine(GFxMovieRoot *movie, GFxValue &lines, const std::string &text, const std::string &value);
-
-// Turn the inventory page's modal on or off: its fade and list input, with the item card lifted above the fade.
+// Turn the inventory page's modal on or off: its fade and its list's input.
 void SetModal(GFxValue &page, bool on);
 
-// Add a `label` line saying why there is nothing to choose to `page`'s item card.
-void SayOnCard(GFxMovieRoot *movie, GFxValue &page, const char *why, const char *label = "REPAIR");
+// Show `label`: `why` (why nothing opened) on the item card until the selection changes.
+void SayOnCard(const char *why, const char *label = "REPAIR");
+
+// Whether our Pip-Boy movie has called F3NV since this Pip-Boy menu opened (it draws the lists); logs once when not.
+bool PipboyMovieThere();
+
+// The open ammo list as a view for the movie; false when it is closed.
+bool AmmoView(ListView *view);
+
+// ---- Other mods' item-card lines (card.cpp; docs/fork/swf_framework.md#card-lines) ----
+
+// Append the lines mods set for item `formID` (for it, or a keyword it carries) to `out`.
+void CardLinesOf(UInt32 formID, std::vector<Row> *out);
+
+// Forget every mod's lines (a save is loading or a new game starts).
+void ForgetCardLines();
+
+// Register F3NV_ItemCard's native SetLine.
+void RegisterItemCard(VirtualMachine *vm);
 
 // Send F4SE external event `event` to Papyrus from the Pip-Boy's movie; false when it could not be sent.
 bool SendExternal(GFxMovieRoot *movie, const char *event);
@@ -165,6 +192,9 @@ SInt32 PipboyLineStack(UInt32 formID, UInt32 nodeID);
 
 // Whether the repair list is open.
 bool RepairListOpen();
+
+// Give `plugin` (a movie's f4se.plugins.F3NV) the Pip-Boy movie's natives PipboyCardLines and PipboyList.
+void RegisterPipboyMenu(GFxMovieRoot *movie, GFxValue *plugin);
 
 // ---- The ammo list (ammo.cpp; docs/fork/fo4_condition.md#ammo-list) ----
 

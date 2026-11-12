@@ -24,7 +24,7 @@ licensed way to build menus without starting from decompiled Bethesda files.
 |---|---|---|
 | Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
 | Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)). Since 2026-11-12 on `f3ui` (`Bridge`, `Text`), compiled by `mxmlc` like the casino's. Nothing read from the game | The patched-movie version played; our own movie (FFDec build) played 2026-11-12, looks the same. `mxmlc` build not played |
-| Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | No movie. The DLL draws into the open vanilla menus from C++: CND line, repair and ammo lists, STAT tabs, HUD needs | CND, repair and tabs played. Ammo list and HUD needs built, not played |
+| Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | The Pip-Boy's CND line, repair and ammo lists, and other mods' item-card lines are drawn by our injected movie from the DLL's data ([framework](#pipboy)). The rest is drawn by the DLL into the open vanilla menus from C++: REPAIR and AMMO hints, STAT tabs, the container and barter CND line, HUD needs | CND, repair and tabs played from C++; the movie's versions built, not played. Ammo list and HUD needs built, not played |
 
 Shared already:
 - `fo4_import/base/as3/f3ui/`: the AS3 library's first five classes,
@@ -281,12 +281,62 @@ One shared C++ module, used by every DLL built on the
 
 ### What moves from C++ into an injected movie
 
-Today `pipboy.cpp` keeps our line on the item card by re-adding it every
-frame, because the game refills the card on each selection. An injected
-movie can instead listen to the item card's own redraw and add its lines in
-the same frame, and draw lists and pop-ups with `ScrollList` and `Modal`
-instead of faking them as item-card lines. Key handling moves into the
-movie, which already gets keys when Papyrus doesn't.
+The game refills the item card on each selection, so a line has to be put
+back after every refill. An injected movie can instead listen to the item
+card's own redraw and add its lines in the same frame, and draw lists and
+pop-ups with `ScrollList` and `Modal` instead of faking them as item-card
+lines. Key handling moves into the movie, which already gets keys when
+Papyrus doesn't.
+
+Phases:
+1. **The CND line** (built 2026-11-12, not played). F3NV.dll still resolves
+   the highlighted stack and its health each frame, but no longer touches
+   the card. Its native `PipboyCardLines()` gives the lines to show
+   (`[{text, value, showAsPercent}]`, the CND line of an item that wears;
+   null while a list of ours draws the card), and `F3NV_Pipboy.swf` keeps
+   them in `CurrentPage.ItemCard_mc.InfoObj`, matched by text, calling
+   `onDataChange` only when it adds a line or a value changes. The spike-4
+   test line is gone.
+   - **Not checked under FallUI Inventory**: it isn't installed in the FO4
+     MO2 instance. The movie finds the card by `CurrentPage.ItemCard_mc` and
+     `InfoObj`, the same names the C++ line used.
+2. **The repair and ammo lists** (built 2026-11-12, not played). The DLL
+   keeps each list's state, its keys (the native `keyUp` listener, which
+   already works) and the repair, but no longer writes the list over the
+   card's `InfoObj` or lifts the card. Its native `PipboyList()` gives the
+   open list as `{heading, rows, chosen, notes, keys}` (`RepairView`,
+   `OfferView`, `AmmoView`), and the movie's `ListPanel` draws it as a
+   pop-up over the item card: a black panel outlined in white, the heading,
+   eight rows round the highlighted one (a translucent bar), the notes and
+   the keys. It is white, like the Pip-Boy's own art, because the game tints
+   the whole screen. While a list is open the movie moves our `Loader` to
+   the top of the menu, over the page and its fade. "Not needed", "No spare",
+   "One type only" and "Drop a copy first" are card lines from
+   `PipboyCardLines`, kept until the selection changes. The DLL opens a list
+   only after the movie has called it in this Pip-Boy opening, so a missing
+   movie never leaves an invisible list holding the keys (logged once).
+   - The REPAIR and AMMO hints stay in C++ (`MakeHint`), which works in play.
+3. **The item-card line API for other mods** (built 2026-11-12, not
+   played): [below](#card-lines).
+
+### <a id="card-lines"></a>Item-card lines for other mods
+
+`F3NV_ItemCard.SetLine(Form akItem, String asLabel, String asValue)`
+(Papyrus, global native; F3NV.dll `card.cpp`) shows a line on the inventory
+item card of `akItem`, or of every item carrying it when it is a Keyword. A
+second call with the same item and label replaces the line; an empty value
+removes it. Our movie draws these lines after F3NV's own, under any Pip-Boy
+that keeps the vanilla item card.
+- Lines live in F3NV.dll's memory and are forgotten when a save loads or a
+  new game starts (F4SE's `PreLoadGame` and `NewGame` messages), so a mod
+  sets them again on each game load (`OnPlayerLoadGame`), as HUD widgets
+  re-register. Nothing goes in the save, so an uninstalled mod leaves
+  nothing behind.
+- Values are text, shown as given.
+- Test from the console:
+  `cgf "F3NV_ItemCard.SetLine" <item form ID> "TEST" "HELLO"`.
+- Not yet: lines from an INI, numbers with `showAsPercent`, and per-copy
+  values (a line belongs to a form, not to one stack).
 
 ### What it offers other mods
 
