@@ -1,6 +1,7 @@
 package
 {
-   import f3ui.Draw;
+   import f3ui.Modal;
+   import f3ui.ScrollList;
    import f3ui.Text;
    import f3ui.Theme;
    import flash.display.Sprite;
@@ -8,9 +9,9 @@ package
    import flash.text.TextField;
 
    // A repair or ammo list of F3NV.dll's (its PipboyList native: {heading, rows, chosen, notes, keys}) drawn as a
-   // pop-up over the item card: the heading, a window of rows round the highlighted one, the notes and the keys,
-   // each a label on the left and its value on the right. White, as the Pip-Boy's own art is; the game tints the
-   // screen. The DLL keeps the list's state and keys; this only draws it.
+   // pop-up over the item card (f3ui's Modal): the heading, a window of rows round the highlighted one (a
+   // ScrollList), the notes and the keys, each a label on the left and its value on the right. White, as the
+   // Pip-Boy's own art is; the game tints the screen. The DLL keeps the list's state and keys; this only draws it.
    // See docs/fork/swf_framework.md#pipboy
    public class ListPanel extends Sprite
    {
@@ -21,13 +22,22 @@ package
       public static const WIDTH:Number = 440;
 
       private var shown:String = "";
-      private var marks:Sprite;
+      private var modal:Modal = new Modal();
+      private var body:Sprite = new Sprite();
+      private var rows:ScrollList = new ScrollList();
 
       public function ListPanel()
       {
          super();
          mouseEnabled = false;
          mouseChildren = false;
+         rows.rows = ROWS;
+         rows.line = LINE;
+         rows.size = SIZE;
+         rows.textX = MARGIN;
+         rows.centered = true;
+         rows.alphas = [1, 1, 1];
+         addChild(modal);
       }
 
       // Draw `list` with its bottom left at the card's (`card`, in this panel's parent's space); nothing when it
@@ -41,35 +51,27 @@ package
             return;
          }
          shown = key;
-         removeChildren();
-         var rows:Array = window(list.rows as Array, int(list.chosen));
-         var notes:Array = list.notes as Array;
-         var lines:int = 1 + rows.length + notes.length + 1;
-         var width:Number = Math.max(WIDTH, card.width);
-         var height:Number = lines * LINE + 4 * MARGIN;
-         Draw.panel(this, 0, 0, width, height, 0.9);
-         marks = new Sprite();
-         addChild(marks);
-         var at:Number = line(list.heading, MARGIN, width);
-         at = rule(at, width);
-         for each (var row:Object in rows)
+         while (body.numChildren > 0)
          {
-            if (row.index == int(list.chosen))
-            {
-               marks.graphics.beginFill(Theme.color, 0.25);
-               marks.graphics.drawRect(4, at, width - 8, LINE);
-               marks.graphics.endFill();
-            }
-            at = line(row, at, width);
+            body.removeChildAt(0);
          }
-         at = rule(at, width);
+         body.graphics.clear();
+         var notes:Array = list.notes as Array;
+         var width:Number = Math.max(WIDTH, card.width);
+         var at:Number = rule(line(list.heading, MARGIN, width), width);
+         rows.listWidth = width;
+         rows.y = at;
+         body.addChild(rows);
+         rows.show(list.rows as Array, int(list.chosen));
+         at = rule(at + rows.listHeight, width);
          for each (var note:Object in notes)
          {
             at = line(note, at, width);
          }
-         line(list.keys, at + MARGIN, width);
+         var height:Number = line(list.keys, at + MARGIN, width);
          x = card.x;
          y = card.bottom - height;
+         modal.open(body, width, height);
       }
 
       // Hide the panel and forget what it drew.
@@ -77,18 +79,6 @@ package
       {
          visible = false;
          shown = "";
-      }
-
-      // Up to ROWS of `rows` round row `chosen`, each {text, value, index}.
-      private static function window(rows:Array, chosen:int) : Array
-      {
-         var first:int = Math.max(0, Math.min(chosen - ROWS / 2, rows.length - ROWS));
-         var out:Array = [];
-         for (var i:int = first; i < rows.length && i < first + ROWS; i++)
-         {
-            out.push({text: rows[i].text, value: rows[i].value, index: i});
-         }
-         return out;
       }
 
       // `row`'s text on the left and value on the right at `at`; the next line's y.
@@ -104,17 +94,17 @@ package
          left.height = right.height = LINE;
          Text.show(left, String(row.text));
          Text.show(right, String(row.value));
-         addChild(left);
-         addChild(right);
+         body.addChild(left);
+         body.addChild(right);
          return at + LINE;
       }
 
       // A rule across the panel under `at`; the next line's y.
       private function rule(at:Number, width:Number) : Number
       {
-         marks.graphics.lineStyle(1, Theme.color, 0.6);
-         marks.graphics.moveTo(MARGIN, at + MARGIN / 2);
-         marks.graphics.lineTo(width - MARGIN, at + MARGIN / 2);
+         body.graphics.lineStyle(1, Theme.color, 0.6);
+         body.graphics.moveTo(MARGIN, at + MARGIN / 2);
+         body.graphics.lineTo(width - MARGIN, at + MARGIN / 2);
          return at + MARGIN;
       }
 

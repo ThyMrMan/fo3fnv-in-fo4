@@ -32,7 +32,7 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Piece | Done | Not done |
 |---|---|---|
 | **Toolchain** | `mxmlc` builds, byte-stable, every movie we ship; FFDec route deleted | The [movie check](#testing) in preflight (sources only, no Bethesda tags, mapped fonts) |
-| **AS3 library** ([design](#design)) | `Bridge`, `Theme`, `Host`, `Text` (with `Text.show` for `$KEY`s and slots), `Draw`; `Input` and `HintBar` ([input](#input), built, not played) | `ScrollList`, `Modal`, `Images` (the Pip-Boy's `ListPanel` and the dialogue list are each menu's own until then) |
+| **AS3 library** ([design](#design)) | `Bridge`, `Theme`, `Host`, `Text` (with `Text.show` for `$KEY`s and slots), `Draw`; `Input` and `HintBar` ([input](#input)), `ScrollList` ([scroll list](#scroll-list)) and `Modal` ([modal](#modal)), with the dialogue list and the Pip-Boy's list panel on them (built, not played) | `Images` |
 | **Own menu** | Casino (Papyrus `UI.RegisterCustomMenu`), HUD color by the menu itself (spike 2b, played) | Registering from the DLL: not needed for color; only if a later menu needs it |
 | **Replace a vanilla movie** | Dialogue menu on our own movie (spike 3, played); its `mxmlc` build | The `mxmlc` build played; a level-up menu in place of `LevelUpMenu` |
 | **Inject into a vanilla menu** | Pip-Boy (spike 4, played under vanilla); CND, lists and item-card API built | Any of it played; FallUI played; container and barter (still C++) |
@@ -269,6 +269,61 @@ exception ([license](spin_offs.md#license)), no Bethesda classes:
 
 Each menu is then a thin document class on top: `CasinoMenu`,
 `DialogueMenu`, and the Pip-Boy overlay.
+
+### <a id="scroll-list"></a>`ScrollList` (built 2026-11-12, not played)
+
+`fo4_import/base/as3/f3ui/ScrollList.as`: the selectable, scrolling list.
+Items are `{text, value, dim}`. It shows a window of rows over them, marks
+the selected one, and adds scroll marks when there are more. It takes
+`Input`'s actions (up and down move round the ends, accept and a digit
+pick) and the mouse (over selects, a click picks), and calls `onPick` and,
+after each draw, `onDraw`. Options set the look:
+- rows shown, width, font, size and line spacing;
+- wrapping rows (each as tall as its text) or fixed-height lines with a
+  value column on the right;
+- the marker: a translucent bar or an outline;
+- the scroll marks' column (or none), upper case, and the alphas of the
+  selected, other and dim rows;
+- centered scrolling (the selection stays mid-window) or minimal (the
+  window moves only as far as it must);
+- `layerOf(item)`: a row and its marker drawn in another layer.
+
+A row is a child only while it shows, since a hidden row still counts in a
+parent's bounds (the dialogue's backdrop is sized by them). Fields are
+remade when `Theme.color` or the width changes, since a field keeps the
+color it was made with.
+
+**Its users:**
+- **The dialogue list** (`DialogueMenu.as`): wrapping bold rows, the
+  selected one outlined, said ones dim, scroll marks in the box's left
+  column, every number as before. Failed skill checks go in the failed
+  layer through `layerOf`. The menu keeps the box's outline
+  (`Draw.outline`), its place, the backdrop and the overlay, redone in
+  `onDraw` because scrolling changes the box's height.
+- **The Pip-Boy's repair and ammo lists** (`ListPanel.as`): fixed 30-pixel
+  lines with values, the translucent bar, the window centered on the
+  highlighted row, no input (F3NV.dll owns the keys).
+
+**`removeChildren()` is gone:** the old `ListPanel` used it, but it is
+Flash Player 11's and Scaleform may lack it. Our AS3 now empties a
+container a child at a time, and `tests/test_fo4_f3ui_input.py` keeps it
+out.
+
+### <a id="modal"></a>`Modal` (built 2026-11-12, not played)
+
+`Modal.as`: a pop-up over a menu. It is a panel outlined in `Theme.color`
+and filled black (`Draw.box`, shared with `Draw.panel`) round its content,
+with an optional fade over the screen behind it. Back closes it
+(`onClose`), and its other actions go to the content's `handler`. The
+Pip-Boy's list panel is its first user: the heading, a `ScrollList`, the
+notes and the keys, in the same size and place as before. Its fade and
+Back aren't used there, since the DLL owns the keys.
+
+**Play check:**
+- **Dialogue menu:** the same as before. Rows wrap, the selected one is
+  outlined, said ones are dim, the marks show past five options, failed
+  checks are tinted, the mouse and number keys pick, and the backdrop fits.
+- **Pip-Boy:** the repair and ammo lists draw as before.
 
 ### Four ways a movie meets the game
 
@@ -1037,14 +1092,15 @@ Played first, since everything below builds on them (the morning test of
 2026-11-13): the Pip-Boy CND line, lists and item-card API, under vanilla
 and FallUI; the translated keys; the dialogue menu's `mxmlc` build; the
 level-up image spike; the casino and dialogue menu on `Input` and
-`HintBar`, with a pad ([play check](#input)).
+`HintBar`, with a pad ([play check](#input)); the dialogue list and the
+Pip-Boy lists on `ScrollList` and `Modal` ([play check](#modal)).
 
 Then:
 1. **`Input` and `HintBar`** in the library, with the casino and the
    dialogue menu moved onto them, played once with a pad
    ([input](#input)). **Built 2026-11-12; the pad play is left.**
 2. **`ScrollList` and `Modal`**, taking over the Pip-Boy's `ListPanel` and
-   the dialogue list.
+   the dialogue list. **Built 2026-11-12, not played.**
 3. **Replacing a vanilla menu by name** (the level-up menu in place of
    `LevelUpMenu`), then the level-up menu itself
    ([order](fo4_level_up_plan.md#order)).

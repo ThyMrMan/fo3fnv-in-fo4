@@ -42,6 +42,22 @@ def test_input_maps_every_menu_mode_control():
     assert set(moves) == {'up', 'down', 'left', 'right', 'prev', 'next'}
 
 
+def test_no_movie_calls_flash_11s_remove_children():
+    """removeChildren() is Flash Player 11's; Scaleform may lack it, so our AS3 empties a container a child at a time.
+
+    See: docs/fork/swf_framework.md#scroll-list
+    """
+    for path in (ROOT / 'fo4_import').rglob('*.as'):
+        assert 'removeChildren(' not in path.read_text(encoding='utf-8'), path.name
+
+
+def test_both_lists_are_the_librarys():
+    """The Pip-Boy's list panel is a Modal round a ScrollList, and the dialogue's rows are a ScrollList."""
+    panel = (ROOT / 'fo4_import' / 'pipboy_overlay' / 'as3' / 'ListPanel.as').read_text(encoding='utf-8')
+    assert 'new Modal()' in panel and 'new ScrollList()' in panel and 'modal.open(body' in panel
+    assert 'new ScrollList()' in MENUS[1].read_text(encoding='utf-8')
+
+
 def test_the_menus_take_keys_and_controls_only_through_input():
     """Neither menu listens for keys itself, and each hands the game's controls and platform to Input."""
     for menu in MENUS:

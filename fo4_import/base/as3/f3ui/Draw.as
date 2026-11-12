@@ -1,5 +1,6 @@
 package f3ui
 {
+   import flash.display.Graphics;
    import flash.display.Sprite;
    import flash.events.MouseEvent;
    import flash.text.TextField;
@@ -31,15 +32,34 @@ package f3ui
          return box;
       }
 
+      // An outline `thick` wide round the `wide` by `high` box at (`x`, `y`) in Theme.color at `alpha`, as four
+      // strips that do not overlap (so a translucent outline has no darker corners).
+      public static function outline(g:Graphics, x:Number, y:Number, wide:Number, high:Number, thick:Number,
+                                     alpha:Number) : void
+      {
+         g.beginFill(Theme.color, alpha);
+         g.drawRect(x, y, wide, thick);
+         g.drawRect(x, y + high - thick, wide, thick);
+         g.drawRect(x, y + thick, thick, high - 2 * thick);
+         g.drawRect(x + wide - thick, y + thick, thick, high - 2 * thick);
+         g.endFill();
+      }
+
+      // A `width` by `height` box at the origin of `g`, outlined in Theme.color and filled black at `alpha`.
+      public static function box(g:Graphics, width:Number, height:Number, alpha:Number) : void
+      {
+         g.lineStyle(2, Theme.color);
+         g.beginFill(0, alpha);
+         g.drawRect(0, 0, width, height);
+         g.endFill();
+      }
+
       // An outlined box filled black at `alpha`.
       public static function panel(parent:Sprite, x:Number, y:Number, width:Number, height:Number,
                                    alpha:Number) : Sprite
       {
          var box:Sprite = new Sprite();
-         box.graphics.lineStyle(2, Theme.color);
-         box.graphics.beginFill(0, alpha);
-         box.graphics.drawRect(0, 0, width, height);
-         box.graphics.endFill();
+         Draw.box(box.graphics, width, height, alpha);
          box.x = x;
          box.y = y;
          parent.addChild(box);
