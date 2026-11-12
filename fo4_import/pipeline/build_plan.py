@@ -20,9 +20,9 @@ import sys
 from pathlib import Path
 
 from fo4_import.base.install import file_masters
-from fo4_import.base.ledger import ID, Ledger
+from fo4_import.base.ledger import ID, Ledger, ledger_path
 from fo4_import.pipeline import creation_kit, mod_dirs
-from fo4_import.pipeline.build_inputs import SUFFIX, listing, stamp
+from fo4_import.pipeline.build_inputs import inputs_path, listing, stamp
 from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.pipeline.code_identity import changed, rebase
 from fo4_import.pipeline.code_tag import ROOT
@@ -33,7 +33,7 @@ CURRENT, BUILD, AFTER = 'current', 'build', 'after'
 
 def record(plugin: Path) -> 'dict | None':
     """`plugin`'s inputs record; None without one, or when its stamp is not a finished build."""
-    path, stamp_file = plugin.with_name(plugin.name + SUFFIX), stamp_path(plugin)
+    path, stamp_file = inputs_path(plugin), stamp_path(plugin)
     if not path.is_file() or not stamp_file.is_file() or not plugin.is_file():
         return None
     if json.loads(stamp_file.read_text(encoding='utf-8')).get('status') != 'finished':
@@ -202,8 +202,7 @@ def plan(plugins: list) -> list:
 
 def rebuild(plugin: Path) -> int:
     """Run `plugin`'s last build command again (from its inputs record, else its stamp); its exit code."""
-    rec = json.loads(plugin.with_name(plugin.name + SUFFIX).read_text(encoding='utf-8')) \
-        if plugin.with_name(plugin.name + SUFFIX).is_file() else None
+    rec = json.loads(inputs_path(plugin).read_text(encoding='utf-8')) if inputs_path(plugin).is_file() else None
     argv = rec['argv'] if rec else json.loads(stamp_path(plugin).read_text(encoding='utf-8'))['command'].split()[1:]
     print(f'== building {plugin.name}', flush=True)
     return subprocess.call([sys.executable, '-m', 'fo4_import.pipeline.run', *argv], cwd=ROOT)
@@ -228,7 +227,7 @@ def verify(plugin: Path) -> int:
     if verdict != CURRENT:
         print(f'{plugin.name} is not current ({reason}); nothing to verify')
         return 1
-    ledger = plugin.with_suffix('.formids.tsv')
+    ledger = ledger_path(plugin)
     before = (plugin.read_bytes(), ledger.read_bytes() if ledger.is_file() else b'')
     code = rebuild(plugin)
     after = (plugin.read_bytes(), ledger.read_bytes() if ledger.is_file() else b'')

@@ -13,6 +13,7 @@ import os
 import struct
 from pathlib import Path
 
+from fo4_import.base.build_files import moved_in
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.pipeline.build_inputs import MASTERS
 
@@ -55,13 +56,14 @@ class Ledger:
         lines = sorted(f'{kind}\t{site}\t{key}\t{value:X}' for (kind, site), keys in self.sites.items()
                        for key, value in keys.items())
         partial = self.path.with_name(f'{self.path.name}.{os.getpid()}.tmp')
+        partial.parent.mkdir(parents=True, exist_ok=True)
         partial.write_text('\n'.join(lines) + '\n', encoding='utf-8')
         partial.replace(self.path)
 
 
 def ledger_path(plugin: Path) -> Path:
-    """Where the ledger of `plugin` lives: beside it, `<stem>.formids.tsv`."""
-    return Path(plugin).with_suffix('.formids.tsv')
+    """`plugin`'s ledger, `<stem>.formids.tsv`, in its build records."""
+    return moved_in(Path(plugin).with_suffix('.formids.tsv'))
 
 
 class LedgerWriter(FO4PluginWriter):

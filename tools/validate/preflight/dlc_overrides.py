@@ -29,7 +29,7 @@ from fo4_import.base.install import FALLOUT4_DIR, file_masters
 from fo4_import.base.ledger import ledger_path
 from fo4_import.base.master_overrides import master_records
 from fo4_import.pipeline.export_index import export_masters, own_records
-from fo4_import.pipeline.stale_files import LIST_SUFFIX, SLACK, listed, roots
+from fo4_import.pipeline.stale_files import SLACK, list_paths, roots
 from fo4_import.spike.say_topics import dlc_lines
 from tes5_import.base.tes5_reader import FLAG_COMPRESSED, walk
 from tools.validate.preflight.build_diff import sample
@@ -214,7 +214,7 @@ def unlisted_files(plugin: Path) -> tuple:
     """([stale], [made by the build]): files under the listed folders no file list beside the plugin names, older
     than the build's start or not."""
     folder = Path(plugin).parent
-    named = set().union(*(listed(p.with_name(p.name[:-len(LIST_SUFFIX)])) for p in folder.glob('*' + LIST_SUFFIX)))
+    named = set().union(*(set(p.read_text(encoding='utf-8').splitlines()) for p in list_paths(folder)))
     started = read_stamp(plugin).get('started')
     start = time.mktime(time.strptime(started, STAMP_TIME)) - SLACK if started else float('inf')
     stale, made = [], []

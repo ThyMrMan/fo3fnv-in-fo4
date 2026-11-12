@@ -157,7 +157,7 @@ def test_results_another_caprica_made_are_all_compiled_again(tmp_path, monkeypat
     the next run compiles nothing."""
     args, batches = _build(tmp_path, monkeypatch, OVERRIDE)
     CP.compile_fallout4(args)
-    path = tmp_path / 'out' / 'compile_state.json'
+    path = CP.moved_in(tmp_path / 'out' / 'compile_state.json')
     state = json.loads(path.read_text(encoding='utf-8'))
     assert state['imports'] == f"{tmp_path / 'head'};{(tmp_path / 'src').resolve()}"
     assert state[CP.COMPILER] == CP.caprica.build_tag()

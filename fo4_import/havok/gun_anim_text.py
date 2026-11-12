@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fo4_import.base.ba2 import Archive
+from fo4_import.base.ba2_pack import data_file
 from fo4_import.havok.gun_clips import subgraph_entries
 from fo4_import.pipeline.elric_cache import write_new
 from tes5_import.base.tes5_reader import subrecords
@@ -164,8 +165,8 @@ def merge_persistent(data_dir: Path, copies: dict, vanilla: Vanilla, masters=())
     listed = persistent_ids(path.read_text(encoding='cp1252')) if path.is_file() else set(vanilla.persistent)
     added = {entry for entry, template in copies.items() if template in vanilla.persistent}
     for master in masters:
-        added |= persistent_ids((master / PERSISTENT).read_text(encoding='cp1252')) if (
-            master / PERSISTENT).is_file() else set()
+        theirs = data_file(master, PERSISTENT.as_posix())
+        added |= persistent_ids(theirs.decode('cp1252')) if theirs is not None else set()
     added -= listed
     if added or not path.is_file():
         write_new(path, ''.join(f'{entry}.txt\n' for entry in sorted(listed | added)).encode('cp1252'))

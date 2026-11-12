@@ -34,6 +34,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from core.subprocess_flags import windows_cmd
 from core.memory_budget import memory_workers
 from fo4_import.base import caprica
+from fo4_import.base.build_files import moved_in
 from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import compile_folder, header_dirs
 
@@ -55,7 +56,7 @@ _DECLARATION = re.compile(r'^(?:scriptname|import|customevent|struct|endstruct'
                           r'|(?:[\w:\[\]]+ )?(?:function|event|property)\b|[\w:\[\]]+ property\b)')
 #: The member a declaration line declares: a function, event, property or custom event name.
 _MEMBER = re.compile(r'\b(?:function|event|property|customevent) (\w+)')
-#: Per-script results of the last Fallout 4 run, in --out, so the next run compiles only what changed.
+#: Per-script results of the last Fallout 4 run, in --out's build records, so the next run compiles only what changed.
 _STATE_FILE = 'compile_state.json'
 #: A compile state's Caprica (caprica.build_tag); a state made by another, or before the tag, keeps no results.
 COMPILER = 'caprica'
@@ -279,7 +280,7 @@ def saved_state(out_dir: Path, imports: str, headers: str) -> tuple:
     against other header folders or contents, or by another Caprica (COMPILER).
     See: docs/fork/fo4_pipeline.md#caprica-ours
     """
-    path = out_dir / _STATE_FILE
+    path = moved_in(out_dir / _STATE_FILE)
     state = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
     scripts = state.get('scripts', {})
     same = state.get('imports') == _state_key(imports) and state.get('headers') == headers
@@ -384,9 +385,10 @@ def compile_fallout4(args) -> tuple:
         own = {**own, **extra}
     scripts = {n: {**(state[n] if n not in todo else {'ok': n in pex, 'own': own.get(n, [])}),
                    'sha': hashes[n], 'api': apis[n]} for n in hashes}
-    (out_dir / _STATE_FILE).write_text(json.dumps({'imports': _state_key(imports), 'headers': headers,
-                                                   COMPILER: caprica.build_tag(), 'scripts': scripts}),
-                                       encoding='utf-8')
+    state_file = moved_in(out_dir / _STATE_FILE)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps({'imports': _state_key(imports), 'headers': headers,
+                                      COMPILER: caprica.build_tag(), 'scripts': scripts}), encoding='utf-8')
     compiled = {n for n, s in scripts.items() if s['ok']}
     own = {f.stem: scripts[f.stem.lower()]['own'] for f in files if scripts[f.stem.lower()]['own']}
     return compiled, own, [f.stem for f in files]

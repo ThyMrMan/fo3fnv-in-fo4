@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 
 from fo4_import.base.ba2_pack import share_masters, sound_root
+from fo4_import.base.build_files import moved_in
 from fo4_import.base.file_stamps import files_under
 
 #: Beside a plugin: {mesh path: [elric_cache.mark(), collision ok]} of each mesh it ships as Elric finished it.
@@ -68,7 +69,7 @@ def _drop(path: Path, data_dir: Path, masters: list) -> bool:
 
 def _meshes_file(plugin) -> Path:
     """`plugin`'s record of its finished meshes (MESHES_SUFFIX)."""
-    return Path(plugin).with_name(Path(plugin).name + MESHES_SUFFIX)
+    return moved_in(Path(plugin).with_name(Path(plugin).name + MESHES_SUFFIX))
 
 
 def _rel(path, data_dir) -> str:
@@ -96,6 +97,7 @@ def write_meshes(plugin: Path, data_dir: Path, paths: list, marks: dict) -> int:
     that `marks` ({normcased path: [mark, ok]}) names; how many."""
     rows = {_rel(p, data_dir): marks[k] for p in paths
             if (k := os.path.normcase(str(p))) in marks and marks[k][0] and Path(p).is_file()}
+    _meshes_file(plugin).parent.mkdir(parents=True, exist_ok=True)
     _meshes_file(plugin).write_text(json.dumps(rows, sort_keys=True), encoding='utf-8')
     return len(rows)
 
