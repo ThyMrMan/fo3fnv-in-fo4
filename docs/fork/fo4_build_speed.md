@@ -550,6 +550,17 @@ holds. The overnight 41–174 s came from that run rewriting every dialogue
 script. The first build into a new folder compiled all 68 in 92 s: 18 Caprica
 runs, because 3 scripts have source errors and Caprica stops at each.
 
+On FalloutNV.esm (2026-11-12) two builds in a row compiled all 16,189
+scripts (67.8 s and 73.0 s). That looked like every build, but it isn't:
+the next build compiled 1 of 16,189, and earlier ones 15 and 2. The second
+full compile followed commit 37e74d8e, which dropped LevelUpMenuEx's
+header folder from the import list. `saved_state` keeps no results across
+another import list, header contents or Caprica, because those can change
+any script's compile. The `.pex` files were there all along:
+`restore_packed` brought back 77,355 loose files at the next build's
+start. One edit to `TES4Polyfill.psc` with unchanged declarations
+recompiled only that script.
+
 | Cost | Seen before the fixes above | Lead |
 |---|---|---|
 | `base STAT` on Goodies | 796 s, then 157 s ([audit](#audit-2026-11-11)) | Not explained. |
