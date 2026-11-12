@@ -44,6 +44,8 @@ DXGI_NAMES = {28: 'R8G8B8A8_UNORM', 71: 'BC1_UNORM', 74: 'BC2_UNORM', 77: 'BC3_U
 LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 80, b'ATI2': 83, b'BC5U': 83}
 #: Texels the new colour is carried past each UV island's edge, so filtering and compression do not bleed FO4's in.
 ISLAND_PADDING = 8
+#: Seconds texconv may take on one texture before the call fails.
+TEXCONV_TIMEOUT = 120
 
 
 def egt_offset(data: bytes, fgts: np.ndarray) -> np.ndarray:
@@ -193,7 +195,7 @@ def vanilla_face_texture(path: Path) -> bool:
     fmt, size = kind
     with tempfile.TemporaryDirectory() as tmp:
         subprocess.run([str(TEXCONV), '-nologo', '-f', fmt, '-w', str(size), '-h', str(size), '-m', '0',
-                        '-o', tmp, str(path)], check=True, capture_output=True, **POPEN_FLAGS)
+                        '-o', tmp, str(path)], check=True, capture_output=True, timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
         path.write_bytes((Path(tmp) / f'{path.stem}.dds').read_bytes())
     return True
 
@@ -204,8 +206,14 @@ def _texconv(rgba: np.ndarray, *options: str) -> bytes:
         png = Path(tmp) / 'texture.png'
         Image.fromarray(rgba, 'RGBA').save(png)
         subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(png)], check=True, capture_output=True,
-                       **POPEN_FLAGS)
+                       timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
         return (Path(tmp) / 'texture.dds').read_bytes()
+
+
+def vanilla_dds(rgba: np.ndarray, kind: str) -> bytes:
+    """`rgba` as DDS in vanilla's format and size for `kind`, full mips."""
+    fmt, size = VANILLA_FACE[kind]
+    return _texconv(rgba, '-f', fmt, '-w', str(size), '-h', str(size), '-m', '0')
 
 
 def write_dds(rgba: np.ndarray, path: Path) -> None:

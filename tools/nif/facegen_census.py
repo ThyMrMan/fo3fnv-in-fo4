@@ -21,9 +21,9 @@ See: docs/fork/fo4_facegen_plan.md#face-maps
 
 import argparse
 import json
-import multiprocessing
 import os
 import struct
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -198,8 +198,9 @@ def run(args) -> list:
     lines = []
     args.out.parent.mkdir(parents=True, exist_ok=True)
     work = measure_textures if args.textures else measure
-    with args.out.open('w') as out, multiprocessing.Pool(args.workers, _init, (plugin, [args.ref, *args.dirs])) as pool:
-        for i, line in enumerate(pool.imap_unordered(work, items, chunksize=8), 1):
+    pool = ProcessPoolExecutor(args.workers, initializer=_init, initargs=(plugin, [args.ref, *args.dirs]))
+    with args.out.open('w') as out, pool:
+        for i, line in enumerate(pool.map(work, items, chunksize=8), 1):
             out.write(json.dumps(line) + '\n')
             lines.append(line)
             if i % 200 == 0:

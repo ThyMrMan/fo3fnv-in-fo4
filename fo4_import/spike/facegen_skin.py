@@ -88,6 +88,11 @@ def _start(job: tuple) -> None:
                    templates={f: np.array(struct.unpack('<4f', t[0])[:3]) for f, t in templates.items()}, bodies={})
 
 
+def shared() -> dict:
+    """This worker's shared inputs (_start): export, data, plugin, src..."""
+    return _worker
+
+
 def workers(jobs: int) -> int:
     """Worker processes for `jobs` faces: half the cores, free memory."""
     return memory_workers(max(1, min(jobs, (os.cpu_count() or 2) // 2)), WORKER_BYTES, SPARE_BYTES)

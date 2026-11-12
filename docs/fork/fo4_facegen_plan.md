@@ -1136,6 +1136,54 @@ Ported in `face_tint.face_map`; `facegen_census --textures` now measures
 The worst `_msn` and `_s` NPCs are fiends and gang members with many detail
 layers (99th percentile 32–45, so the miss is local). Not chased further.
 
+### <a id="own-stage"></a>The faces stage writing its own FaceGen (`--own-facegen`, 2026-11-12)
+
+`python -m fo4_import.spike.facegen ... --own-facegen` writes the heads
+itself. The CK route stays the default and the fallback.
+
+- **Which NPCs:** the ones the CK exports. An NPC gets FaceGen when it
+  takes no traits from a template (TPLT plus ACBS template flag Use Traits,
+  u16 at byte 14) and its race has FaceGen Head (RACE DATA flags, u32 at
+  byte 32, bit 0x2; xEdit's layout). On FalloutNV.esm this predicts the
+  CK's 2,382 exported and 1,220 skipped NPCs exactly
+  (`facegeom.exported`). Only NPCs the plugin adds are considered; the
+  reference has no FaceGen for overridden master NPCs.
+- **What is written:** per NPC, `facegeom.build`'s FaceGeom NIF and
+  `face_tint`'s `_d`, `_msn` and `_s`, drawn at vanilla's sizes and
+  encoded at vanilla's formats (`_d`, `_msn` BC1 1024, `_s` BC5 512, full
+  mips; [audit fixes](fo4_pipeline.md#audit-fixes)), under the CK's names.
+  The CK route's re-encode step is skipped for them.
+- **Then as before:** the slider refit (against our heads now), a second
+  pass for the refitted NPCs only, `npc_skin`'s FNV skin, rear head and
+  tone, and packing.
+- **Speed:** `facegen_skin.pool`, sized by `facegen_skin.workers` (half
+  the cores, capped by free memory). That's the one place a shared worker
+  setting hooks in.
+- **Failures:** each NPC's error is caught in its worker and listed;
+  texconv has a 120 s timeout, and a broken pool fails every NPC instead
+  of hanging. Failed NPCs get the CK's export: our FaceGen is moved out of
+  MO2's view, the CK runs, only the failed NPCs' files are kept and
+  re-encoded, and ours goes back. If the CK fails too, those NPCs are
+  reported without FaceGen.
+
+**Proof (2026-11-12):** `facegen_own.write_face` over all 3,602
+FalloutNV.esm NPCs on a scratch copy against tonight's CK reference, 8
+workers (`facegen_skin.workers`):
+
+- **Selection:** 2,382 written and 1,220 skipped, exactly the CK's set.
+  No errors.
+- **FaceGeom:** every head has the CK's shapes. Median worst vertex 0.076,
+  one above 0.3 (the census's 1.38 hair outlier).
+- **Encoded textures**, decoded at 256: `_d` mean 2.63 (worst 5.64),
+  `_msn` 1.37 (worst 3.48), `_s` 1.23 (worst 4.46). That's slightly above
+  the census because vanilla's `_msn` is BC1 where the CK writes BC5.
+- **Time:** 31 minutes, a median 5.4 s per NPC in the pool (2.1–2.7 s
+  alone). One CK export ran 0.43 s per NPC serially (293 in 127 s). The CK
+  route exports every NPC twice; ours redoes only the refitted ones.
+
+Not yet run: the stage itself (`facegen.py --own-facegen`) through MO2,
+and a game build with it.
+
 ### <a id="face-d-revisit"></a>To revisit: the CK's lip colour and tone mask
 
 Pinned 2026-11-12: `face_tint` leaves both out until something authored

@@ -31,6 +31,8 @@ SIGS = (b'NPC_', b'RACE', b'HDPT', b'TXST', b'CLFM', b'ARMO', b'ARMA')
 EXTRA_PART, USES_BODY_TEXTURE = 0x08, 0x20
 #: ACBS flags bit Female.
 FEMALE = 0x1
+#: ACBS template flags (u16 at TEMPLATE_FLAGS_AT) bit Use Traits; RACE DATA flags (u32 at RACE_FLAGS_AT) FaceGen Head.
+USE_TRAITS, TEMPLATE_FLAGS_AT, FACEGEN_HEAD, RACE_FLAGS_AT = 0x1, 14, 0x2, 32
 #: Extra data a part's mesh carries into the FaceGeom (from its root or its shape).
 FACE_EXTRAS = ('BSClothExtraData', 'BSEyeCenterExtraData')
 #: Cloth data stores no name, but the engine names it 'CED' and the CK's string table lists that.
@@ -371,6 +373,16 @@ def npc_face(src: Sources, plugin: str, form_id: int) -> tuple:
     face = Npc(plugin, form_id & 0xFFFFFF, grayscale, tone, body_textures(src, npc, race, female),
                _face_material(src, npc, race, female))
     return npc, race, female, face
+
+
+def exported(npc: Rec, race: Rec) -> bool:
+    """Whether the CK exports FaceGen for `npc`: it takes no traits from a template and its race has a FaceGen head.
+    See: docs/fork/fo4_facegen_plan.md#own-stage
+    """
+    traits = npc.first(b'TPLT') and struct.unpack_from('<H', npc.first(b'ACBS'), TEMPLATE_FLAGS_AT)[0] & USE_TRAITS
+    data = race.first(b'DATA', b'')
+    return not traits and len(data) >= RACE_FLAGS_AT + 4 and bool(
+        struct.unpack_from('<I', data, RACE_FLAGS_AT)[0] & FACEGEN_HEAD)
 
 
 def _face_material(src: Sources, npc: Rec, race: Rec, female: bool) -> str:

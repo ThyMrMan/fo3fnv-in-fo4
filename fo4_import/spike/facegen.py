@@ -13,6 +13,11 @@ FaceGeom NIFs go into the plugin's Main archive and the face textures into
 its Textures archive, as vanilla ships both, and the loose copies leave the
 mod folder (the build's own come back first, so the Main archive keeps them).
 
+With --own-facegen the heads are ours instead (facegen_own): FaceGeom NIF and
+face textures at vanilla's formats for each NPC the CK would export, in a
+worker pool; an NPC that fails is listed and gets the CK's export (fallback).
+The refit, skin and packing steps run on them unchanged.
+
 The CK's targets are XB1, X64, PS4 and W32. W32 rewrites a hair's cloth
 physics (BSClothExtraData's Havok packfile) with 4-byte pointers; the 64-bit
 game misreads it and long hair stretches to the floor. X64 keeps 8-byte ones,
@@ -24,6 +29,7 @@ See: docs/fork/fo4_spikes.md#spike-2-facegen
 import argparse
 import shutil
 import struct
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -35,7 +41,7 @@ from fo4_import.face.texture import vanilla_face_texture
 from fo4_import.face.tint import skin_tone_layers
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
-from fo4_import.spike import facegen_skin
+from fo4_import.spike import facegen_own, facegen_skin
 from fo4_import.spike.imagespace import LUT_FOLDER
 from tes5_import.base.tes5_reader import subrecords, walk
 
@@ -72,14 +78,17 @@ def clear(plugin: str, data_dir: Path) -> None:
         shutil.rmtree(data_dir / folder / plugin, ignore_errors=True)
 
 
-def collect(plugin: str, data_dir: Path) -> list:
-    """Move `plugin`'s FaceGen files from where MO2 put them (creation_kit.output_dir) into `data_dir`; the FaceGeom
-    NIFs moved."""
+def collect(plugin: str, data_dir: Path, only: set = None) -> list:
+    """Move `plugin`'s FaceGen files from where MO2 put them (creation_kit.output_dir) into `data_dir`; with `only`
+    (FaceGen stems: 8 hex digits), just those NPCs' files, the others deleted. The FaceGeom NIFs moved."""
     nifs = []
     for folder in FACEGEN_DIRS:
         source = creation_kit.output_dir() / folder / plugin
         for path in sorted(source.glob('*')) if source.exists() else []:
             target = data_dir / folder / plugin / path.name
+            if only is not None and path.name[:8].upper() not in only:
+                path.unlink()
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             if path != target:
                 shutil.move(str(path), str(target))
@@ -102,10 +111,13 @@ def prune(plugin: str, data_dir: Path, npcs) -> int:
     return len(stale)
 
 
-def vanilla_textures(plugin: str, data_dir: Path) -> int:
-    """How many of `plugin`'s face textures vanilla_face_texture re-encoded."""
+def vanilla_textures(plugin: str, data_dir: Path, only: set = None) -> int:
+    """How many of `plugin`'s face textures (with `only`, those NPCs' FaceGen stems) vanilla_face_texture
+    re-encoded."""
+    paths = sorted(p for p in (data_dir / FACEGEN_DIRS[1] / plugin).glob('*.dds')
+                   if only is None or p.name[:8].upper() in only)
     with ThreadPoolExecutor() as pool:
-        return sum(pool.map(vanilla_face_texture, sorted((data_dir / FACEGEN_DIRS[1] / plugin).glob('*.dds'))))
+        return sum(pool.map(vanilla_face_texture, paths))
 
 
 def cloth_pointer_sizes(nif_bytes: bytes) -> list:
@@ -136,16 +148,55 @@ def outdated(plugin_path: Path, data_dir: Path, master_dirs=()) -> list:
     return stale
 
 
-def export(plugin: str, data_dir: Path) -> int:
-    """Clear, run the CK and collect `plugin`'s FaceGen; the FaceGeom NIFs collected. Raise if any carries cloth
-    physics for another pointer size than the game's."""
-    clear(plugin, data_dir)
-    run_ck(plugin, data_dir)
-    nifs = collect(plugin, data_dir)
+def checked(nifs: list) -> int:
+    """How many FaceGeom NIFs `nifs` are; raise if any carries cloth physics for another pointer size than the
+    game's."""
     wrong = [p.name for p in nifs if set(cloth_pointer_sizes(p.read_bytes())) - {GAME_POINTER_SIZE}]
     if wrong:
         raise SystemExit(f'the Creation Kit wrote cloth physics for another platform than {CK_TARGET}: {wrong}')
     return len(nifs)
+
+
+def export(plugin: str, data_dir: Path) -> int:
+    """Clear, run the CK, collect `plugin`'s FaceGen; NIFs collected."""
+    clear(plugin, data_dir)
+    run_ck(plugin, data_dir)
+    return checked(collect(plugin, data_dir))
+
+
+def fallback(plugin: str, data_dir: Path, failed: dict) -> list:
+    """Give the `failed` NPCs ({FormID: error}) the CK's FaceGen: ours set aside outside MO2's view (so the CK's
+    lands in overwrite), the CK run, only those NPCs' files kept (re-encoded at vanilla's formats), ours put back.
+    A CK that fails leaves those NPCs without FaceGen, reported. Report lines.
+    See: docs/fork/fo4_facegen_plan.md#own-stage
+    """
+    stems = {f'{form_id:08X}' for form_id in failed}
+    aside = Path(tempfile.mkdtemp(prefix='own_facegen_'))
+    for folder in FACEGEN_DIRS:
+        if (data_dir / folder / plugin).is_dir():
+            shutil.move(str(data_dir / folder / plugin), str(aside / folder.name))
+    try:
+        run_ck(plugin, data_dir)
+        nifs = checked(collect(plugin, data_dir, stems))
+        lines = [f'CK fallback: FaceGen for {nifs} of {len(failed)} failed NPCs, '
+                 f'{vanilla_textures(plugin, data_dir, stems)} textures at vanilla size']
+    except SystemExit as e:
+        lines = [f'CK fallback failed, {len(failed)} NPCs have no FaceGen: {e}']
+    for folder in FACEGEN_DIRS:
+        if (aside / folder.name).is_dir():
+            shutil.copytree(aside / folder.name, data_dir / folder / plugin, dirs_exist_ok=True)
+    shutil.rmtree(aside, ignore_errors=True)
+    return lines
+
+
+def own_export(job: tuple, forms: list) -> list:
+    """Write our own FaceGen for `forms` (facegen_own.export_own), the failed ones from the CK (fallback); report
+    lines, each failure with its error."""
+    data_dir, plugin = job[1], job[2]
+    written, skipped, failed = facegen_own.export_own(job, forms)
+    lines = [f'own FaceGen written: {written}, not exported (as the CK): {skipped}, failed: {len(failed)}']
+    lines += [f'  {form_id:08X} {error}' for form_id, error in sorted(failed.items())]
+    return lines + (fallback(plugin, data_dir, failed) if failed else [])
 
 
 def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
@@ -159,6 +210,19 @@ def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
         print('loose files the archives hold, removed:', drop_packed(data_dir, plugin))
 
 
+def heads(job: tuple, own: bool, forms: list = None) -> None:
+    """Write the plugin's FaceGen heads: ours (own_export) for `forms` (default: every NPC, the old ones cleared
+    first), else the CK's export of every NPC; printed."""
+    data_dir, plugin = job[1], job[2]
+    if not own:
+        print('FaceGeom NIFs:', export(plugin, data_dir))
+        return
+    if forms is None:
+        clear(plugin, data_dir)
+    for line in own_export(job, facegen_own.own_npcs(data_dir / plugin) if forms is None else forms):
+        print(line, flush=True)
+
+
 def main():
     """Export, refine, export again, skin and pack; print what was done."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -166,18 +230,21 @@ def main():
     ap.add_argument('--data', required=True, help='The mod folder holding the plugin')
     ap.add_argument('--keep-loose', action='store_true',
                     help="Keep the loose copies of what the plugin's archives hold (a build folder fo4_deploy copies)")
+    ap.add_argument('--own-facegen', action='store_true',
+                    help="Write the FaceGen heads ourselves; the Creation Kit only for NPCs that fail")
     ap.add_argument('plugin', help='Plugin file name')
     args = ap.parse_args()
     data_dir, export_dir = Path(args.data), Path(args.export)
     print('loose files restored from the Main archive:', restore_packed(data_dir, args.plugin))
-    print('FaceGeom NIFs:', export(args.plugin, data_dir))
     job = (export_dir, data_dir, args.plugin, skin_tone_layers(FALLOUT4_ESM.read_bytes()))
+    heads(job, args.own_facegen)
     faces = facegen_skin.fitted_faces(data_dir / args.plugin)
     for line in facegen_skin.refine(job, faces):
         print(line)
     if faces:
-        print('FaceGeom NIFs, refined:', export(args.plugin, data_dir))
-    print('face textures at vanilla size:', vanilla_textures(args.plugin, data_dir))
+        heads(job, args.own_facegen, [f.form_id for f in faces])
+    if not args.own_facegen:
+        print('face textures at vanilla size:', vanilla_textures(args.plugin, data_dir))
     for line in facegen_skin.skin(job, faces):
         print(line)
     pack(data_dir, args.plugin, args.keep_loose)
