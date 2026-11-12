@@ -9,13 +9,15 @@ NPC using one:
   for hats (nif.hair_mesh), on a copy of its material whose diffuse is its
   texture in the NPC's FNV hair colour (fnv_npc.hair_rgb), set as vanilla
   hair's (HAIR_MATERIAL); a new hair head part takes the chosen vanilla
-  hair's place, extras and all.
+  hair's place, extras and all, with a chargen .tri (face.hair_morphs) so it
+  follows the sliders.
 - Eyes: copies of the chosen vanilla eyes and their texture set, its
   diffuse FNV's eye texture carried across by face.eyes.
 - Face skin (own race): a copy of HumanRace's default face texture set
   whose diffuse is FNV's whole face (texture.face_texture T2: race skin and
-  FaceGen colour) on FO4's face UVs, named by FTST; the tint fit keeps only
-  its brows and takes T2's skin tone, as the texture holds the rest.
+  FaceGen colour) on FO4's face UVs and whose normal and specular maps are
+  the sex's young face set's, named by FTST; the tint fit keeps only its
+  brows and takes T2's skin tone, as the texture holds the rest.
 
 Every record is new and keyed by authored data, so no FormID moves.
 See: docs/fork/fo4_facegen_plan.md#own-heads
@@ -30,7 +32,7 @@ from PIL import Image
 
 from asset_convert.texture.image_transcode import encode_dds
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.face import hair, sculpt, tint
+from fo4_import.face import hair, hair_morphs, sculpt, tint
 from fo4_import.face.bake import face_shape, positions, triangles, uvs
 from fo4_import.face.eyes import eye_texture
 from fo4_import.face.texture import dds_like, face_texture
@@ -51,6 +53,10 @@ SITE, FOLDER = 'FNV own head', 'fnv\\own\\'
 OWN_TYPES = ('HAIR', 'EYES', 'RACE')
 #: Fallout4.esm HumanRace, and its default face texture set per sex (female?).
 HUMAN_RACE, FACE_SETS = 0x13746, {False: b'DFTM', True: b'DFTF'}
+#: Per sex (female?), Fallout4.esm's young face set, whose normal and specular maps an own face set takes.
+YOUNG_FACE_SETS, YOUNG_MAPS = {True: 0x0F7E65, False: 0x16F83D}, (b'TX01', b'TX07')
+#: HDPT NAM0 of a chargen .tri.
+CHARGEN_TRI = 2
 #: Vanilla human hair materials' settings: alpha-tested at 90, two-sided, no glow.
 HAIR_MATERIAL = {'alpha_test': True, 'alpha_test_ref': 90, 'alpha_blend': False, 'two_sided': True,
                  'glowmap': False}
@@ -151,22 +157,33 @@ class OwnHeads:
         if mesh is None:
             return None
         subs = (pack_subrecord('EDID', f'FNV_{rec["EditorID"]}_{sex}_{colour}\0'.encode())
-                + pack_subrecord('MODL', (mesh + '\0').encode())
+                + pack_subrecord('MODL', (mesh[0] + '\0').encode())
                 + pack_subrecord('DATA', bytes([hair.FEMALE if female else hair.MALE]))
-                + pack_subrecord('PNAM', struct.pack('<I', hair.HAIR)))
+                + pack_subrecord('PNAM', struct.pack('<I', hair.HAIR))
+                + pack_subrecord('NAM0', struct.pack('<I', CHARGEN_TRI))
+                + pack_subrecord('NAM1', (self._hair_tri(mesh, female, assets) + '\0').encode()))
         return self._add('HDPT', key, lambda fid: pack_fo4_record('HDPT', fid, 0, subs))
 
-    def _hair_mesh(self, rec: dict, sex: str, colour: str, npc: dict, assets) -> 'str | None':
-        """FNV hair `rec` as an FO4 hair mesh in `colour` for `sex`, written once; its path under Meshes."""
+    def _hair_tri(self, mesh: tuple, female: bool, assets) -> str:
+        """Write hair mesh `mesh` = (path under Meshes, NIF bytes)'s chargen .tri (hair_morphs); its path."""
+        path, nif = mesh
+        out = f'{path[:-4]}Chargen.tri'
+        head = assets.archives.read('meshes\\' + hair_morphs.CHARGEN_HEADS[female])
+        write_new(self.builder.data_dir / 'Meshes' / out, hair_morphs.hair_tri(head, nif))
+        return out
+
+    def _hair_mesh(self, rec: dict, sex: str, colour: str, npc: dict, assets) -> 'tuple | None':
+        """FNV hair `rec` as an FO4 hair mesh in `colour` for `sex`, written once; (its path under Meshes,
+        bytes)."""
         worn = self.builder.equipment.head_worn(rec['Model.MODL'], sex, (HAIR_REST,))
         if worn is None:
             return None
         static, nif = worn
         stem = f'{FOLDER}{Path(static).stem}_{colour}'
         material = self._hair_material(nif, rec, npc, stem)
-        out = f'{stem}_{sex}.nif'
-        write_new(self.builder.data_dir / 'Meshes' / out, as_hair(nif, hat_field(assets.archives), material))
-        return out
+        out, data = f'{stem}_{sex}.nif', as_hair(nif, hat_field(assets.archives), material)
+        write_new(self.builder.data_dir / 'Meshes' / out, data)
+        return out, data
 
     def _hair_material(self, nif: bytes, rec: dict, npc: dict, stem: str) -> str:
         """A copy of worn hair NIF `nif`'s material as HAIR_MATERIAL, its diffuse FNV hair `rec`'s texture in
@@ -232,6 +249,8 @@ class OwnHeads:
         rgba, tone = face_texture(fo4, face, fnv, pieces, 'T2', shown_scale(fo4, face, female))
         stem = f'{FOLDER}face_{name}_d'
         self._write_texture(stem, rgba, diffuse)
+        young = dict(subrecords(self._fo4(YOUNG_FACE_SETS[female]).body))
+        maps = {tag: young[tag] for tag in YOUNG_MAPS if tag in young}
         fid = self._add('TXST', f'FACE {name}', lambda fid: copy_record(
-            vanilla, fid, f'FNV_Face_{name}', {b'TX00': _texture_path(stem)}))
+            vanilla, fid, f'FNV_Face_{name}', {b'TX00': _texture_path(stem), **maps}))
         return fid, tone

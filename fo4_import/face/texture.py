@@ -41,9 +41,11 @@ VANILLA_FACE = {'d': ('BC1_UNORM', 1024), 'msn': ('BC1_UNORM', 1024), 's': ('BC5
 #: texconv's names of the DXGI formats vanilla texture sets use, and the DXGI format of a legacy four-CC DDS.
 DXGI_NAMES = {28: 'R8G8B8A8_UNORM', 71: 'BC1_UNORM', 74: 'BC2_UNORM', 77: 'BC3_UNORM', 80: 'BC4_UNORM',
               83: 'BC5_UNORM', 98: 'BC7_UNORM'}
-LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77}
+LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 80, b'ATI2': 83, b'BC5U': 83}
 #: Texels the new colour is carried past each UV island's edge, so filtering and compression do not bleed FO4's in.
 ISLAND_PADDING = 8
+#: Seconds texconv may take on one texture before the call fails.
+TEXCONV_TIMEOUT = 120
 
 
 def egt_offset(data: bytes, fgts: np.ndarray) -> np.ndarray:
@@ -120,15 +122,15 @@ shared_texel_points = by_content(texel_points)
 
 
 @by_content
-def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple) -> tuple:
-    """(rows, columns, FNV UVs) of the texels of a `shape` texture inside FO4's face `fo4` = (points, uvs,
-    triangles), placed on FNV's mean head `fnv_mesh` = (vertices, triangles, uvs) by bake.align; and the texels
-    within ISLAND_PADDING outside the face with the face texel each copies ((rows, columns), (rows, columns)).
-    The same for every NPC of one face and FNV head, so kept per process (memo)."""
+def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple, frame: np.ndarray = None) -> tuple:
+    """(rows, columns, FNV UVs) of the texels of a `shape` texture inside FO4's part `fo4` = (points, uvs,
+    triangles), placed on FNV's mean head `fnv_mesh` = (vertices, triangles, uvs) by bake.align of the face
+    points `frame` (default: the part's own); and the texels within ISLAND_PADDING outside the part with the
+    part texel each copies ((rows, columns), (rows, columns)). Kept per process (memo)."""
     points, uv, tris = fo4
     mean, triangles, fnv_uvs = fnv_mesh
     fnv_surface = surface(mean, triangles)
-    s, r, t = align(points, mean, fnv_surface)
+    s, r, t = align(points if frame is None else frame, mean, fnv_surface)
     rows, cols, where = texel_points(points, uv, tris, shape[0])
     _, idx = cKDTree(fnv_surface[0]).query(s * where @ r.T + t)
     _, owner, bary = fnv_surface
@@ -193,7 +195,7 @@ def vanilla_face_texture(path: Path) -> bool:
     fmt, size = kind
     with tempfile.TemporaryDirectory() as tmp:
         subprocess.run([str(TEXCONV), '-nologo', '-f', fmt, '-w', str(size), '-h', str(size), '-m', '0',
-                        '-o', tmp, str(path)], check=True, capture_output=True, **POPEN_FLAGS)
+                        '-o', tmp, str(path)], check=True, capture_output=True, timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
         path.write_bytes((Path(tmp) / f'{path.stem}.dds').read_bytes())
     return True
 
@@ -204,8 +206,14 @@ def _texconv(rgba: np.ndarray, *options: str) -> bytes:
         png = Path(tmp) / 'texture.png'
         Image.fromarray(rgba, 'RGBA').save(png)
         subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(png)], check=True, capture_output=True,
-                       **POPEN_FLAGS)
+                       timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
         return (Path(tmp) / 'texture.dds').read_bytes()
+
+
+def vanilla_dds(rgba: np.ndarray, kind: str) -> bytes:
+    """`rgba` as DDS in vanilla's format and size for `kind`, full mips."""
+    fmt, size = VANILLA_FACE[kind]
+    return _texconv(rgba, '-f', fmt, '-w', str(size), '-h', str(size), '-m', '0')
 
 
 def write_dds(rgba: np.ndarray, path: Path) -> None:
@@ -227,3 +235,8 @@ def dds_like(rgba: np.ndarray, like: bytes) -> bytes:
     """
     fmt, width, height = dds_layout(like)
     return _texconv(rgba, '-f', fmt, '-w', str(width), '-h', str(height), '-m', '0')
+
+
+def dds_as(rgba: np.ndarray, like: bytes) -> bytes:
+    """`rgba` as DDS bytes at its own size in DDS `like`'s format, full mips."""
+    return _texconv(rgba, '-f', dds_layout(like)[0], '-m', '0')

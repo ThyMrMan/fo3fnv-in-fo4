@@ -29,7 +29,7 @@ from core.process_job import join_pool_job
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_walk
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.face import hair, sculpt, tint
+from fo4_import.face import hair, presets, sculpt, tint
 from fo4_import.face.sculpt import FACE_FIELDS
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.face_fits import FIT_SITES, basis_hash, fit_key, fitted, keep, kept, take
@@ -37,7 +37,6 @@ from fo4_import.spike import records as R
 from fo4_import.spike.packages import listed
 from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
-from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.npc_skills import with_skills
 from fo4_import.spike.own_heads import OwnHeads
@@ -342,7 +341,7 @@ class Npcs:
         self.bodies = bodies(builder.fo4, builder.table.rules.body)
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
-        self.made_lists, self.tone_layers = {}, skin_tone_layers(builder.fo4)
+        self.made_lists, self.tone_layers = {}, tint.skin_tone_layers(builder.fo4)
         self.voids, self.poses, self.own_heads = VoidActors(builder), None, OwnHeads(builder, export_dir)
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
@@ -640,7 +639,7 @@ class Npcs:
         sculpted, tinted, chosen = fitted
         self.builder.counts['face fitted'] += 1
         swaps, face, tinted = self.own_heads.of(npc, female, chosen, tinted, self.assets)
-        return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female, self.tone_layers),
+        return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female, self.tone_layers), _preset_edit(sculpted),
                                                  head_parts_edit(chosen, self.assets, swaps), face)
 
     def warm_faces(self, fnvs: list, workers: int = 0) -> int:
@@ -762,6 +761,14 @@ class Npcs:
             fnv = {**self.lists, **self.creatures.records, **self.records}
             self.poses = Poses(self.builder, fnv, ragdolls(source_walk(b'ACHR', b'ACRE')))
         return self.poses.subrecords(fnv_ref, fnv_base, base)
+
+
+def _preset_edit(sculpted):
+    """A record edit giving the slider fit's morph presets (MSDK/MSDV after QNAM); None without any."""
+    picks = sculpted[1] if sculpted else ()
+    if not picks:
+        return None
+    return lambda subs: presets.with_presets(subs, [k for k, _ in picks], [v for _, v in picks])
 
 
 def _tint_edit(fitted, female: bool, options: frozenset):
