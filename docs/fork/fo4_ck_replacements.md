@@ -1,7 +1,7 @@
 # Plan sketch: the build without the Creation Kit (2026-11-11)
 
-Status: 1 [built](#ba2), 2 [built](#caprica) and 7 [built](#lips)
-(2026-11-11, not built in game); the rest ideas. Status lives in
+Status: 1 [built](#ba2), 2 [built](#caprica), 3 [built](#anim-text) and 7
+[built](#lips) (2026-11-11, not built in game); the rest ideas. Status lives in
 [ROADMAP.md](ROADMAP.md). Built on the [open-tools survey](research/fo4_open_landscape.md#tools)
 and the build's own docs; costs quoted are the docs' measurements.
 
@@ -20,7 +20,7 @@ reliability on Windows too.
 | Terrain and object LOD | none | Written from FNV's tiles and LOD meshes ([terrain](fo4_pipeline.md#terrain-lod), [objects](fo4_pipeline.md#object-lod)) |
 | Lip files | LipGenerator for lines with no FNV `.lip` | FNV's lips converted ([lips](research/lip_format.md#built)) |
 | Papyrus | FO4's compiler for scripts Caprica can't take | Caprica first ([Caprica](fo4_pipeline.md#caprica)) |
-| AnimTextData | CK `-GenerateAnimInfo` through MO2 | Third-person gun entries ([writer](research/anim_text_data.md#writer)) |
+| AnimTextData | none | Every file ([ours](research/anim_text_data.md#ours)) |
 | FaceGen | CK `-ExportFaceGenData` through MO2; we bake FNV's shape into its head (`face/bake.py`) | Plan to write the heads ourselves ([facegen plan](fo4_facegen_plan.md#direct)) |
 | Collision and ragdolls | Elric | Our pre-Elric blocks; the graft (`nif/elric.py`) |
 | BA2 packing | Archive2 (`base/ba2_pack.py`) | Staging and options |
@@ -34,8 +34,8 @@ reliability on Windows too.
 | 1 | **Archive2 → our own BA2 writer** (GNRL and DX10 chunks) | Small. Open references: `Ryan-rsm-McKenzie/bsa` (MIT), `northaxosky` `btdx` (Apache-2.0) | No CK Tools install for packing; runs on any OS; packing in our process pool |
 | 2 | **FO4's compiler → Caprica only** | Small to medium: fix Caprica's own failures upstream (MIT), the [error table](fo4_pipeline.md#caprica-errors) lists them | Scripts build on any OS; no 25–30 min fallback path on a first build |
 | 3 | **CK AnimTextData → our writer for everything** | Medium: format decoded ([AnimTextData](research/anim_text_data.md)), name hash known, gun entries written | Removes a CK run (233 s when it ran every build), the MO2 round trip and the CK editing deployed files in place ([why](fo4_own_rig.md#anim-info)) |
-| 4 | **CK FaceGen → our own heads and tint textures** | Large; already [planned](fo4_facegen_plan.md#direct) | FNV's full face shape (sliders reach 70–91%); no CK stage (0.43 s per NPC plus MO2); mod builds stop needing the CK for new NPCs. A community first: no open FO4 FaceGen baker exists |
-| 5 | **Elric → our own hknp collision writer** | Large. Starting points: `Kalmarv/havok-formats` (GPL-3.0, builds hknp compressed meshes, reads hk_2014 packfiles), BGS's class layouts (MIT), our NIF writer | Byte-reproducible output (Elric writes uninitialized bytes: 162 of 946 files differed); parallel (Elric deadlocks above one instance); no crash cases (the TLD_Travelers `graft` failure); 23–183 s off each mod build; a fixed ragdoll order for own rigs ([random today](fo4_own_rig.md)). A community first: nobody writes FO4 collision openly |
+| 4 | **CK FaceGen → our own heads and tint textures** | Large; already [planned](fo4_facegen_plan.md#direct) | FNV's full face shape (sliders reach 70–91%); no CK stage (0.43 s per NPC on a small plugin, but 5.7 s per face and 3.8 hours for FalloutNV.esm on 2026-11-12, then a [hang on exit](fo4_facegen_plan.md#ck-exit-hang)); mod builds stop needing the CK for new NPCs. A community first: no open FO4 FaceGen baker exists |
+| 5 | **Elric → our own hknp collision writer** ([plan](fo4_hknp_writer.md)) | Large. Starting points: `Kalmarv/havok-formats` (GPL-3.0, builds hknp compressed meshes, reads hk_2014 packfiles), NifSkope Wild Wasteland Edition's FO4 hknp writer (BSD-3, [found 2026-11-11](research/fo4_open_landscape.md#hknp-writer)), BGS's class layouts (MIT), our NIF writer | Byte-reproducible output (Elric writes uninitialized bytes: 162 of 946 files differed); parallel (Elric deadlocks above one instance); no crash cases (the TLD_Travelers `graft` failure); 23–183 s off each mod build; a fixed ragdoll order for own rigs ([random today](fo4_own_rig.md)). No longer a first: one NifSkope fork now writes it |
 | 6 | **xWMAEncode → something open** | Spike first: does the game play another codec inside `.fuz`? Else vet `595554963github/Xwma-Codec` (GPL-3.0, no README) | Voice builds on any OS |
 | 7 | **LipGenerator → nothing** | Small: only lines with no FNV `.lip` (Voices1: 315 of 52,896) need it; make those from the audio's loudness, or leave them silent | The last LipGenerator run gone; deterministic lips (LipGenerator gave 1,758 and 1,746 bytes for one line) |
 | 8 | **Precombines and previs, our own** | Very large. Precombining is mesh merging plus records; previs is a visibility bake. Nothing open exists | Frame rate in dense areas without the CK, and per-mod rebuilds. Do the CK route first; revisit once it works |
@@ -99,8 +99,9 @@ relational operators on strings, and a fix for Caprica's temp reuse, which
 had silently miscompiled 59 FalloutNV scripts (Victor's game start among
 them). `List` lost its `= None` defaults and `nvse_falloutnv._array_call`
 passes all 20 (`LIST_SLOTS`). FalloutNV.esm's 17,507 scripts: 17,490
-compile in Caprica, and the 16 own errors fail in FO4's compiler too, so
-none is left for FO4's compiler. FO4's compiler stays the fallback for
+compile in Caprica, the 16 own errors fail in FO4's compiler too, and the
+last is `F3NV_Array`, which the probe met in its old form (the defaults);
+the new one compiles, so 17,491 do and none is left for FO4's compiler. FO4's compiler stays the fallback for
 mods' scripts; `caprica.SAME_ERRORS` needs no change, since Caprica now
 gives its operator message only where FO4's compiler fails too.
 
@@ -143,6 +144,19 @@ not for strings, so a converted script ordering strings would be recorded as
 failing instead of falling back. None of the 32 built `compile_state.json`
 files records that message today.
 
+## <a id="anim-text"></a>3. AnimTextData is ours (built 2026-11-11, not built in game)
+
+The `-GenerateAnimInfo` stage is gone; `build_finish._anim_text` writes every
+AnimTextData file the plugin needs (`havok/anim_text.py`,
+`havok/gun_anim_text.py`): rules and checks in
+[ours](research/anim_text_data.md#ours). Offsets root keys are bit for bit
+the CK's; speed samples, stance torsos and fire transforms are close, not
+exact, and the game reads little of them
+([game use](research/anim_text_data.md#game-use)). Clip records are kept in
+the work cache: about 5 minutes on the first build (19,149 clips in a
+process pool), seconds after, against the CK's 1,231 s every build. Not yet
+in a game build.
+
 ## <a id="lips"></a>7. Lips from loudness when LipGenerator can't (built 2026-11-11, not built in game)
 
 A line with no `.lip` of its own still goes to LipGenerator when it is
@@ -157,8 +171,7 @@ more. Not looked at in game: how a loudness lip reads next to LipGenerator's.
 
 ## <a id="order"></a>Suggested order
 
-1, 2 and 7 first: small, and each removes a whole tool. Then 3, which
-removes one CK run. 4 is already planned for quality reasons. 5 is the
+1, 2, 3 and 7 are built. 3 removed one CK run. 4 is already planned for quality reasons. 5 is the
 largest and most valuable; start with a spike that round-trips one of our
 Elric-made NIFs' physics through `havok-formats`. 6 needs its spike. 8 waits
 for the CK route.
