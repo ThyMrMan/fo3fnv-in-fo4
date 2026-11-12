@@ -1,7 +1,8 @@
 # Our own dialogue menu (replacing XDI): test-build plan
 
-Designed 2026-11-10; the test build is made ([as built](#as-built)) and not
-yet played. Why: XDI pairs options and answers by
+Designed 2026-11-10; the test build is made ([as built](#as-built)) and
+played in parts (HUD color, scrolling, backdrop, skill tags, our own movie).
+Why: XDI pairs options and answers by
 position, which forces a copy of every answer per menu, pads, and gates,
 and breaks whenever a mod shifts a menu
 ([robustness research](research/fo4_dialogue_robustness.md)). XDI's

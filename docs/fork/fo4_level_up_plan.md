@@ -1,7 +1,8 @@
 # Our own level-up menu (plan)
 
 **Status:** planned 2026-11-12; the perk and skill images are staged by every
-build (built, not shown). Status lines live only in
+build, and PRKF.dll's points, tags and perk list are rebuilt in Papyrus
+(built, not used). Status lines live only in
 [ROADMAP.md](ROADMAP.md). The framework side (f3ui, replacing a vanilla
 menu, the image staging) is in
 [swf_framework.md](swf_framework.md#level-up).
@@ -133,7 +134,9 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
 
 1. **Spike:** one staged perk image mounted and shown in a menu of ours
    (DXT3/DXT5 through `MountImage` are untested;
-   [images](swf_framework.md#level-up)).
+   [images](swf_framework.md#level-up)). **Built 2026-11-12, not played.**
+   - **PRKF.dll's state in Papyrus** ([prkf](#prkf)): built 2026-11-12, not
+     used yet.
 2. **Opening ours instead of `LevelUpMenu`** (the framework's "replace a
    vanilla menu" mode).
 3. **Perk page** with the default features above, reading `FNV_Perks` as

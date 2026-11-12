@@ -25,11 +25,27 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
 | Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)). Since 2026-11-12 on `f3ui` (`Bridge`, `Text`), compiled by `mxmlc` like the casino's. Nothing read from the game | The patched-movie version played; our own movie (FFDec build) played 2026-11-12, looks the same. `mxmlc` build not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | The Pip-Boy's CND line, repair and ammo lists, and other mods' item-card lines are drawn by our injected movie from the DLL's data ([framework](#pipboy)). The rest is drawn by the DLL into the open vanilla menus from C++: REPAIR and AMMO hints, STAT tabs, the container and barter CND line, HUD needs | CND, repair and tabs played from C++; the movie's versions built, not played. Ammo list and HUD needs built, not played |
+| Level-up (`fo4_import/spike/level_up*.py`, `F3NV_LevelUp.psc`) | No menu yet ([level-up](#level-up)): the perk and skill images are staged, and PRKF.dll's points, tags, perk list and requirement rows are rebuilt in Papyrus | Images, the image spike and the Papyrus state built, none played or used |
+
+### <a id="where"></a>Where each piece stands (2026-11-12)
+
+| Piece | Done | Not done |
+|---|---|---|
+| **Toolchain** | `mxmlc` builds, byte-stable, every movie we ship; FFDec route deleted | The [movie check](#testing) in preflight (sources only, no Bethesda tags, mapped fonts) |
+| **AS3 library** ([design](#design)) | `Bridge`, `Theme`, `Host`, `Text` (with `Text.show` for `$KEY`s and slots), `Draw` | `Input`, `ScrollList`, `HintBar`, `Modal`, `Images` (the Pip-Boy's `ListPanel` and the dialogue list are each menu's own until then) |
+| **Own menu** | Casino (Papyrus `UI.RegisterCustomMenu`), HUD color by the menu itself (spike 2b, played) | Registering from the DLL: not needed for color; only if a later menu needs it |
+| **Replace a vanilla movie** | Dialogue menu on our own movie (spike 3, played); its `mxmlc` build | The `mxmlc` build played; a level-up menu in place of `LevelUpMenu` |
+| **Inject into a vanilla menu** | Pip-Boy (spike 4, played under vanilla); CND, lists and item-card API built | Any of it played; FallUI played; container and barter (still C++) |
+| **HUD widget** | Nothing | The widget movie, HUDFramework host, DLL injection ([HUD](#hud)); Hardcore's needs are still C++ |
+| **DLL side** | GFx helpers (`gfx.cpp`), Pip-Boy injection (`LoadOverlay`), natives the movies call (`HudColor`, `Log`, `PipboyCardLines`, `PipboyList`) | Injection by menu URL for other menus, settings INI to the movie, GFx log routing |
+| **Translations** ([translations](#translations)) | Files named after `FalloutHelpers.esl`, every language with English fallback, our fixed words as `$F3NV_` keys, the key check in preflight (spike 5, played) | The keys played; Papyrus key check; slot and per-language counts; a test language |
+| **Controller** ([controller](#controller)) | FO4's controls wired in the casino and dialogue menu | `Input`, `HintBar`, the Pip-Boy "more" button; nothing played with a pad |
+| **Release** ([release](#release)) | Nothing | The library repo, the Pip-Boy framework on Nexus |
 
 Shared already:
 - `fo4_import/base/as3/f3ui/`: the AS3 library's first five classes,
   `Bridge`, `Theme`, `Host`, `Text` and `Draw` ([design](#design)), used by
-  the casino and the dialogue menu.
+  the casino, the dialogue menu and the Pip-Boy movie.
 - `fo4_import/base/mxmlc.py`: the `mxmlc` build with the library on the
   source path, dated tags dropped, cached by the hash of the sources, the
   library and the options. Every movie we ship is built this way.
@@ -483,7 +499,7 @@ replaced movie:
 Together with the widget host this covers both of the HUD's frameworks
 in one injected movie, with no `HUDMenu.swf` shipped by anyone.
 
-## <a id="level-up"></a>Our own level-up menu (planned; icons built)
+## <a id="level-up"></a>Our own level-up menu (planned; images and state built)
 
 The menu's features and order: [fo4_level_up_plan.md](fo4_level_up_plan.md).
 This section is the framework side.
@@ -533,8 +549,9 @@ Still to do:
 
 - Move `Ui.as` and the bridge into the library; the games keep their own
   classes. **Done 2026-11-11** ([spike 1](#spikes)).
-- Register the menu from the DLL. Spike 2 tests HUD color with Custom
-  Rendering on and only Assign Cursor To Renderer off.
+- The HUD color: settled by spike 2b (the menu colors itself from the
+  DLL's `HudColor()`; played). The menu stays registered from Papyrus;
+  registering from the DLL was for the color and isn't needed.
 - Keep the Python reference models and in-game self-tests; they test game
   rules, which the library doesn't change.
 
@@ -770,11 +787,6 @@ Each spike is one change, played in game.
      decompiles only our 11 classes (6 casino, 5 `f3ui`). A type error
      FFDec let through (`var a:int = "one"`) now fails the build
      (`tests/test_fo4_casino.py`).
-   - **Play check:** a build with the new `Interface\F3NV_Casino.swf` (no
-     DLL or script change). The slots open in the HUD color with no yellow
-     frame; spin, the bet buttons, keys and mouse work; Tab or Esc closes;
-     the log shows `F3NV_Casino: input hud color …`. Roulette opens the
-     same way.
 2. **HUD color in our own menu.** One change per play-test; each needs a
    game restart, because F4SE keeps a menu's first registration.
    - **2a:** flags `0x800849D` (Custom Rendering back on, Assign Cursor To
@@ -858,10 +870,6 @@ Each spike is one change, played in game.
      on the next frame. No shaded background or failed-check tint (one
      variable). `mxmlc` output 3,440 bytes stripped, byte-identical twice;
      no font tags (`$MAIN_Font_Bold` by name).
-   - **Play check:** loose `Interface\DialogueMenu.swf` with the current
-     F3NV.dll. Dialogue opens; the list is in the HUD color (white means the
-     engine didn't tint it); options pick and the talk goes on; `[Leave]`,
-     Tab and the controller's B leave; F3NV.log shows `spike 3 menu ready`.
 4. **Pip-Boy injection:** a `Loader` movie in `root.Menu_mc` that adds one
    item-card line, under vanilla and under FallUI Inventory.
    - **Played 2026-11-12: works** (vanilla Pip-Boy). The inventory cards
@@ -894,13 +902,8 @@ Each spike is one change, played in game.
      warnings; the movie builds the same on Python 3.13 and 3.14; the name
      the DLL loads is the name the build installs
      (`tests/test_fo4_pipboy_overlay.py`).
-   - **Needs:** a rebuilt F3NV.dll and the movie.
-   - **Play check, vanilla Pip-Boy:** open the inventory and move between
-     a few items: each card shows `F3UI  SPIKE 4` under its own lines (and
-     CND where it applies). F3NV.log: `Pip-Boy: F3NV_Pipboy.swf loading`,
-     `Pip-Boy movie: loaded into … (F3NV.dll found)`, `added our line to
-     an item card`. The STAT and DATA pages are unchanged.
-   - **Then under FallUI Inventory**, if installed: the same checks.
+   - **Still to play:** the same under FallUI Inventory. The spike's test
+     line is gone; the framework's CND line is what to look for now.
 5. **Translation files:** the spike 1 movie shows one `$KEY` from our own
    `_en` file, then the same with `sLanguage` set to a language we have no
    file for. Records what the game shows, which settles the
@@ -951,37 +954,37 @@ Each spike is one change, played in game.
      - **Spike done.** The three test lines and `$F3UI_TranslationCheck`
        were removed 2026-11-12; the [check](#translations) now keeps keys
        and the English file in step.
-   - **Built 2026-11-12.** Two changes from the plan:
-     - The file is `Interface\Translations\FalloutHelpers_en.txt`, not
-       `F3NV_Casino_en.txt`: F4SE loads only files named after an active
-       plugin ([files](#translations)).
-     - **No `sLanguage` change.** With no file for the player's language,
-       F4SE loads nothing, which is the same as a key no file has. So one
-       play shows both cases: `$F3UI_TranslationCheck` (in our file) and
-       `$F3UI_TranslationAbsent` (in none). Changing `sLanguage` on an
-       English install would also lose the game's own strings.
-   - **What's built:** every casino screen (slots, roulette) shows both keys
-     in small text under the buttons, and logs what each field reads back
-     (`F3NV_Casino: input translation $F3UI_… reads back '…'`). The build
-     writes the file from `fo4_import/base/translation_files/en.txt`
-     (UTF-8) as UTF-16 LE with BOM and CRLF (`translations.install`, count
-     `menu translation files installed`). Checked offline: the movie
-     contains both keys (18,646 bytes, the same on Python 3.13 and 3.14);
-     `tests/test_fo4_translations.py`.
-   - **Play check:** a build with the new `Interface\F3NV_Casino.swf` and
-     `Interface\Translations\FalloutHelpers_en.txt`, then open slots. Note,
-     or screenshot, what each bottom line shows:
-     - left: `Translated from FalloutHelpers_en.txt` means our file loads;
-       `$F3UI_TranslationCheck` means it doesn't;
-     - right: whatever the game shows for a key no file has (the raw key,
-       an empty line, or something else). This settles the
-       [fallback](#translations).
-     - F4SE's log (`f4se.log`) should say `Reading translations from
-       Interface\Translations\FalloutHelpers_en.txt...`; the casino lines
-       in the Papyrus log give what each field reads back.
+   - **How it was built:** the file is
+     `Interface\Translations\FalloutHelpers_en.txt`, since F4SE loads only
+     files named after an active plugin ([files](#translations)). There was
+     no `sLanguage` change: one key in our file and one in none showed both
+     cases in one play.
+6. **Level-up images** (built 2026-11-12, not played): the casino's spike
+   screen shows DXT3, DXT5 and a name with a space beside the DXT1 card
+   ([level-up](#level-up)).
 
-Spikes 1, 2 and 4 need nothing from the CommonLibF4 port; they can run on
-today's F3NV.dll and Papyrus.
+### <a id="next"></a>Next, in order
+
+Played first, since everything below builds on them (the morning test of
+2026-11-13): the Pip-Boy CND line, lists and item-card API, under vanilla
+and FallUI; the translated keys; the dialogue menu's `mxmlc` build; the
+level-up image spike.
+
+Then:
+1. **`Input` and `HintBar`** in the library, with the casino and the
+   dialogue menu moved onto them, played once with a pad
+   ([controller](#controller)).
+2. **`ScrollList` and `Modal`**, taking over the Pip-Boy's `ListPanel` and
+   the dialogue list.
+3. **Replacing a vanilla menu by name** (the level-up menu in place of
+   `LevelUpMenu`), then the level-up menu itself
+   ([order](fo4_level_up_plan.md#order)).
+4. **The HUD widget**: Hardcore's needs as our movie, hosted by
+   HUDFramework or injected by the DLL ([HUD](#hud)).
+5. **The container and barter CND line** through an injected movie, as the
+   Pip-Boy's, retiring that C++.
+6. The [movie check](#testing) in preflight, then the
+   [release](#release) pieces.
 
 ## <a id="release"></a>Release
 
