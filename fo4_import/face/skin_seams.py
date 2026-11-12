@@ -49,19 +49,22 @@ def face_texture(baseline: np.ndarray, face: tuple, fnv, pieces: tuple, neck: tu
     return _repadded(out, edge), tone
 
 
-def rear_texture(own: np.ndarray, rear: tuple, frame: np.ndarray, colour: tuple, neck: tuple) -> np.ndarray:
+def rear_texture(own: np.ndarray, rear: tuple, frame: np.ndarray, colour: tuple, neck: tuple,
+                 whole=None) -> np.ndarray:
     """The rear head's own texture RGBA from its texture `own` (RGBA): FNV's colour (T1: `own` as the template's
-    skin tint draws it, plus FNV's offset and race skin), faded at the neck to `own` as drawn, divided through
-    the NPC's skin tint. `rear` = (points, UVs, triangles), `frame` the face points placing it on FNV's head,
-    `colour` = (FNV head, pieces), `neck` = (seam tree, (template skin tint, NPC skin tint))."""
-    fnv, (_, offset, race_skin) = colour
+    skin tint draws it, plus FNV's offset and race skin; given `whole`, FNV's whole skin times that per-channel
+    scale), faded at the neck to `own` as drawn, divided through the NPC's skin tint. `rear` = (points, UVs,
+    triangles), `frame` the face points placing it on FNV's head, `colour` = (FNV head, pieces), `neck` = (seam
+    tree, (template skin tint, NPC skin tint))."""
+    fnv, (stock, offset, race_skin) = colour
     seam, (template, tint) = neck
     rows, cols, fnv_uv, edge = texel_map(rear, (fnv.mean, fnv.triangles, fnv.uvs), own.shape[:2], frame)
     _, _, where = texel_points(*rear, own.shape[0])
     out = own.astype(float)
     base = out[rows, cols, :3]
     added = bilinear(offset, fnv_uv) + (0 if race_skin is None else bilinear(race_skin, fnv_uv))
+    above = base * template * SKIN_TINT_DRAW + added if whole is None else (bilinear(stock, fnv_uv) + added) * whole
     weight = neck_weight(where, seam)
-    drawn = (base * template * SKIN_TINT_DRAW + added) * (1 - weight) + base * tint * SKIN_TINT_DRAW * weight
+    drawn = above * (1 - weight) + base * tint * SKIN_TINT_DRAW * weight
     out[rows, cols, :3] = drawn / (tint * SKIN_TINT_DRAW)
     return _repadded(out, edge)

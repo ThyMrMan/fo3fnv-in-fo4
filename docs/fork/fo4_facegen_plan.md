@@ -581,6 +581,111 @@ This is the known outfit/neck fit ([fo4_bodies_cbbe.md](fo4_bodies_cbbe.md)),
 not FaceGen. A fix would recompute the normals of fitted outfit shapes after
 they move. Not done here.
 
+### <a id="slider-test"></a>Fourth test mod: native sliders, never maxed (2026-11-11, not yet played)
+
+Direction: if Willow's shape and look work this way, the rest is acceptable
+drift. For a base NPC the goal is a natural face shape that is not pushed to
+the slider limits, plus a better FNV tint. FO4's head stays.
+
+#### <a id="morph-presets"></a>Morph presets, measured through the CK
+
+HumanRace's morph groups (Eyes, Forehead, Nose, Ears, Cheeks, Mouth, Neck;
+also Jaw and Chin for female, with no presets) hold 185 presets per sex. A
+preset names a morph (`MPPM`) of the head's chargen `.tri`. Female has 41
+morphs, male 43. An NPC picks presets as `MSDK` keys (the preset's `MPPI`) with
+`MSDV` weights, written right after `QNAM`. Across Fallout4.esm's NPCs, no NPC
+uses two presets of one group (0 of about 7,400 group uses), so the fit picks
+at most one preset per group. A morph is a blend, linear in its weight, so the
+CK exports one NPC per distinct morph at weight 1. The difference from the
+baseline is the morph's effect.
+
+#### <a id="proportions"></a>Proportions, not every vertex
+
+The fit matches a few measures of the face, not every vertex. Each measure is
+a mean over the face vertices that one of the race's named sculpt regions
+moves (`FMRN`, from the string table). A region's set is the vertices it
+moves by at least half its peak. Measures are linear in the vertex positions,
+so they are linear in the controls. Cheek, jaw, eye and nose width are
+right-side mean x minus left-side mean x of Cheekbones, Jaw - Outer, Eyes and
+Nose - Full. Chin length is Mouth - Bottom minus the lower half of Chin
+(mean z). Brow-to-chin height is Eyebrows - Full minus the lower half of Chin.
+Nose length is Nose - Bridge minus Nostrils, nose depth is Nose - Tip minus
+Cheekbones (y), and nose height is Nose - Tip minus Eyes (z). Lip fullness is
+Mouth - Top and Mouth - Bottom minus Mouth - Corners (y). Lip height is Mouth -
+Top minus Mouth - Bottom (z).
+
+The target is FNV's proportions: the same measures on FO4's baseline face
+moved by FNV's offset from its mean face (C1). The controls are sculpt values
+within ±BOUND and preset weights within 0..BOUND. They are fitted by least
+squares on the measures plus a ridge penalty on the values.
+
+With one ridge for every control, the ridge that left nothing at the bound
+lost the lips (Willow rms 0.051). So each control starts at RIDGE (0.002),
+and only a control that sits at the bound has its ridge doubled, up to
+RIDGE_MAX, until none does.
+
+**Measured** (test mod 4, `F3NV - FaceGen Test 4`). Each value is the measure's
+change from FO4's baseline face, in game units. "Old" is the deployed
+record's fit, predicted linearly; "new CK" is the CK's export after one
+refine round.
+
+| | Willow | Kilborn |
+|---|---|---|
+| Controls at the bound | 0 (max 0.56); old fit: 9 at ±1 | 0 (max 0.55, one preset at 0.59); old fit: 8 at ±1 |
+| Presets | DefaultFaceType0 0.23, LipFeature3 0.36 | two, 0.14 and 0.59 |
+| rms vs FNV: none / old / new CK round 1 / round 2 | 0.232 / 0.022 / 0.023 / 0.014 | 0.178 / 0.037 / 0.035 / 0.025 |
+| Largest miss, new CK | lower lip 0.231 for 0.272, lip height -0.078 for -0.103 | upper lip -0.335 for -0.412, jaw width 0.159 for 0.190 |
+
+The CK-in-the-loop round helps both NPCs: it refits to the target moved by
+the first export's miss.
+
+- **Rear head:** an NPC's own type-9 part in PNAM replaces the race's. The CK
+  drew `FaceGenTest4Rear_*` on its own `TX00` for both NPCs, so no FaceGeom
+  patch is needed.
+- **Hair:** the CK moved Willow's hair by at most 0.02. The `.tri` predicts
+  0.019 at her preset weights (her two presets barely reach the hair). Hair
+  points inside the scalp: 27 of 1,870 with the sliders, against 29 on the
+  unmorphed head. For the 1,000 points within 1 unit of the scalp, the median
+  clearance stays 0.55, and each point changes by -0.30 to +0.40.
+- **Skin tone** over the tint basis template's: Willow ×(1.12, 1.15, 1.28),
+  set so the body at the neck matches her face set's CK face texture there.
+  Kilborn ×(1.09, 0.98, 0.92), from T1.
+
+#### <a id="ck-staging"></a>Running the CK without touching a mod folder
+
+MO2 sends the CK's new files to overwrite, but a file that already exists in
+a mod is edited where it sits. The third test mod (deployed) has loose
+FaceGen for Willow, `F3NV - Fallout New Vegas` has loose FaceGen for
+`FalloutNV.esm`, and `F3NV - NVWillow` has loose face textures. An export of
+overrides of those NPCs would rewrite them in place. So `face.slider_facegen`
+has the CK export copies instead: the NPCs under new FormIDs (EditorID + `CK`)
+in a staging plugin, `FaceGenTest4CK.esp`, written into overwrite with the
+hair `.tri` and stand-in rear textures. Every file the CK writes is new. The
+heads are then renamed to the real NPCs' paths in the test mod, with the
+texture paths inside each FaceGeom rewritten to match, and everything staged
+is removed. A plugin in overwrite that is not in `plugins.txt` loads as the
+CK's active file (as the calibration plugins do).
+
+#### <a id="rear-head-part"></a>Each NPC's own rear head part
+
+On the slider route the CK builds the FaceGeom, so a per-NPC rear texture
+needs a record. The test plugin gives each NPC a copy of its race's rear head
+part (`*HeadHumanRearTEMP`, part type 9) in place of the race's in its PNAM. The
+copy has its own texture set: the body's `_n` and `_s` with the NPC's own `_d`.
+It also has the Uses Body Texture flag (0x20) cleared, because with that flag
+the part takes the body's texture set.
+
+#### <a id="hair-morphs"></a>Hair that follows the sliders
+
+A head part follows the morph presets only through its own chargen `.tri`
+(HDPT `NAM0` 2, `NAM1` the path under `Meshes`). Vanilla hair has none, and
+it is skinned to `HEAD` alone, so sculpt regions (face bones) do not move it
+either. Willow's hair gets a chargen `.tri`. The vertices and triangles are
+its NIF shape's, and each morph of `BaseFemaleHeadChargen.tri` is copied to
+each hair vertex from its nearest head points, inverse-distance weighted, the
+way Outfit Studio copies slider data. Both files are in the same character
+frame: the hair's nearest head point is 0.1 units away.
+
 ## <a id="today"></a>How faces work today
 
 - The converted NPC record holds FO4 slider values: sculpt regions

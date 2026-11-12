@@ -92,7 +92,8 @@ def collect(plugin: str, data_dir: Path) -> list:
         for path in sorted(source.glob('*')) if source.exists() else []:
             target = data_dir / folder / plugin / path.name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(path), str(target))
+            if path != target:
+                shutil.move(str(path), str(target))
             nifs += [target] if path.suffix.lower() == '.nif' else []
     return nifs
 
