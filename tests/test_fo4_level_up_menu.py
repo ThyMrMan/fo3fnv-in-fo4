@@ -77,13 +77,22 @@ def test_the_rules_open_ours_in_place_of_level_up_menu():
 
 
 def test_the_tag_and_trait_menus_are_ours():
-    """The rules open our menu as the tag menu (count and bonus) and the trait menu (TraitCount); LevelUpMenuEx is
-    read only once, to move an older save's points and tags."""
+    """Our menu is the tag menu (count, bonus) and the trait menu (count, 0)."""
     assert 'ShowOurs(LevelUp().TagsMode, count, TagBonus)' in _function(RULES, 'OpenTags')
     assert 'ShowOurs(LevelUp().TraitsMode, count, 0)' in _function(RULES, 'OpenTraits') and 'OpenTraits(0)' in RULES
-    prkf = {m.start() for m in re.finditer('PRKF:PRKF', RULES)}
+
+
+def test_level_up_menu_ex_is_reached_only_by_name_and_only_while_loaded():
+    """No script compiles against LevelUpMenuEx: the rules call PRKF:PRKF by name (Prkf, CallGlobalFunction), only
+    from MovePrkf, and only while PRKF.dll is loaded; nothing else names it."""
+    assert 'PRKF:PRKF.' not in RULES and 'Utility.CallGlobalFunction("PRKF:PRKF"' in _function(RULES, 'Prkf')
+    callers = {m.start() for m in re.finditer(r'\bPrkf\(', RULES)} - {RULES.index('Var Function Prkf(') + 13}
     moved = re.search(r'Function MovePrkf\(.*?EndFunction', RULES, re.S).span()
-    assert prkf and all(moved[0] < at < moved[1] for at in prkf)
+    assert callers and all(moved[0] < at < moved[1] for at in callers)
+    assert 'If Migrated || F4SE.GetPluginVersion("PRKF") < 0' in _function(RULES, 'MovePrkf')
+    for name in ('F3NV_LevelUp', 'F3NV_LevelUpTable', 'F3NV_CharacterEvents'):
+        assert 'PRKF:' not in (STATIC / f'{name}.psc').read_text(encoding='utf-8'), name
+    assert 'LevelUpMenuEx' not in header_dirs()
 
 
 def test_each_tag_gets_its_bonus_once_and_keeps_it():
@@ -134,7 +143,7 @@ def test_an_added_perk_is_described_and_tested_by_the_game():
 @pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
 def test_the_character_scripts_compile_together(tmp_path):
     """F3NV_CharacterRules.psc, F3NV_LevelUp.psc, F3NV_LevelUpTable.psc and F3NV_CharacterEvents.psc (which holds
-    the tags) compile against FO4's, F4SE's and LevelUpMenuEx's headers."""
+    the tags) compile against FO4's and F4SE's headers alone."""
     src, stub, out = tmp_path / 'src', tmp_path / 'stub', tmp_path / 'out'
     for folder in (src, stub, out):
         folder.mkdir()

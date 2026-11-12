@@ -155,6 +155,19 @@ def test_the_game_table_rides_the_rules_quest_and_a_dlc_writes_its_own(monkeypat
     assert character._table(builder, 0x00000700, empty) == [] and written == ['QUST']
 
 
+def test_an_older_builds_level_up_menu_ex_ini_is_deleted(tmp_path):
+    """The game build deletes Data/PRKF/<stem>.ini an older build wrote, the folder once empty; another file stays."""
+    folder = tmp_path / character.PRKF_INI_DIR
+    folder.mkdir()
+    (folder / 'FalloutNV.ini').write_text('[Main]\n', encoding='ascii')
+    assert character.drop_prkf_ini(tmp_path, 'FalloutNV.esm') == 1 and not folder.exists()
+    assert character.drop_prkf_ini(tmp_path, 'FalloutNV.esm') == 0
+    folder.mkdir()
+    (folder / 'FalloutNV.ini').write_text('[Main]\n', encoding='ascii')
+    (folder / 'OtherMod.ini').write_text('[Main]\n', encoding='ascii')
+    assert character.drop_prkf_ini(tmp_path, 'FalloutNV.esm') == 1 and [p.name for p in folder.iterdir()] == ['OtherMod.ini']
+
+
 def test_send_merges_each_text_the_movie_reads_where_the_table_keeps_it():
     """Each Merged(n, ...) in Send is the table's Text n, and fills the argument the movie reads that table from."""
     text = re.search(r'String Function Text\(.*?EndFunction', TABLE, re.S).group(0)

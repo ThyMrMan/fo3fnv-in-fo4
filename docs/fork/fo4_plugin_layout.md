@@ -437,8 +437,9 @@ built. The cell argument is the DLC's own interior.
   (Before the merge, Honest Hearts' copy was dropped and FO4Edit found 866
   Say Once conditions naming a stage that never shipped.)
 - **The game plugin's files stay the game's.** Only the game build writes
-  LevelUpMenuEx's ini (a second one would point the level-up menu at the
-  DLC's copy of the lists) and copies `F3NV.dll`.
+  the level-up options' MCM page (a second would set a DLC's copy of the
+  rules quest) and copies `F3NV.dll`. (It also wrote LevelUpMenuEx's ini,
+  until that was [dropped](fo4_level_up_plan.md#dropped).)
 - **Two DLCs overriding one record** (a form list, a merged quest): the one
   loading last wins, each holding the game's entries and its own. Met in play
   with seven DLCs and packs loaded: condition, the Ammo Type hotkey and

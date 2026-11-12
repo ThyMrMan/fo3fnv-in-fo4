@@ -4,8 +4,8 @@
 build, PRKF.dll's points, tags and perk list are rebuilt in Papyrus, and our
 own menu opens in place of `LevelUpMenu` with skill, perk and taken pages,
 and serves as the tag and trait menus too, listing every DLC's perks and
-traits, with the balance options and a hotkey in MCM (built 2026-11-12, not
-played).
+traits, with the balance options and a hotkey in MCM and an API for other
+mods; LevelUpMenuEx is no longer required (built 2026-11-12, not played).
 Status lines live only in
 [ROADMAP.md](ROADMAP.md). The framework side (f3ui, replacing a vanilla
 menu, the image staging) is in
@@ -17,11 +17,11 @@ have bolted onto level-up menus built in. Not the perks themselves
 ([fo4_perks.md](fo4_perks.md)) or the rules handing out points
 (`F3NV_CharacterRules`).
 
-## <a id="today"></a>What LevelUpMenuEx does for us today
+## <a id="today"></a>What LevelUpMenuEx did for us
 
 LevelUpMenuEx (Neanka; `LevelUpMenu.swf`, `PRKF.dll`, PRKF scripts and an
-MCM config; unlicensed, read only, `references/LevelUpMenuEx`) is a hard
-dependency:
+MCM config; unlicensed, read only, `references/LevelUpMenuEx`) was a hard
+dependency until 2026-11-12 ([dropped](#dropped)):
 - it lists `FNV_Perks` (its INI's `PerksList`; 91 FNV perks by level then
   name) and `FNV_Traits`, reading each perk's ranks, level and next rank
   ([fo4_perks.md](fo4_perks.md#hasperk));
@@ -337,6 +337,32 @@ skill's tag rides a 31-bit mask), and LevelUpMenuEx's INI format (the open
 decision above). A tab in an added perk's name or description would split
 its entry: Papyrus has no string search to strip it.
 
+## <a id="dropped"></a>LevelUpMenuEx dropped (2026-11-12, not played)
+
+Nothing of ours needs LevelUpMenuEx any more:
+- **No INI.** The game build no longer writes `Data/PRKF/<plugin>.ini`
+  (its perk and skill lists, `disableVanillaPerks`, the skill cap). An
+  older build's copy is deleted by the next one (`character.drop_prkf_ini`,
+  counted as `LevelUpMenuEx INI deleted`); the deployed copy goes with the
+  deploy's `--delete-stale` ([end-user state](../../CLAUDE.md#end-user-state)).
+  The perk chart it turned off never opens: `LevelUpMenu` opening opens
+  ours ([open](#open)).
+- **No compile dependency.** `header_dirs()` (and Caprica's
+  `HEADER_FOLDERS`) is F4SE then Base; `references/LevelUpMenuEx` is
+  reading material only. The one call left, `MovePrkf`, reaches
+  `PRKF:PRKF` by name (`Prkf`, `Utility.CallGlobalFunction`), so it
+  compiles without LevelUpMenuEx's sources.
+- **The move from an older save.** `MovePrkf` runs only while PRKF.dll is
+  loaded (`F4SE.GetPluginVersion("PRKF")`): it moves the banked perk and
+  skill points and the tagged skills once, the first time our menu opens.
+  Without PRKF.dll it waits, so a player who removed LevelUpMenuEx before
+  updating can put it back for one load. The README says to keep it until
+  the menu has opened once.
+- **Not a requirement anywhere:** the install check
+  (`fo4_install_check.REQUIRED_MODS`), the README's mod list and the app's
+  finish text no longer name it. Installed alongside, it does no harm: its
+  `LevelUpMenu.swf` is what opens, and ours replaces it.
+
 ## <a id="profiles"></a>Both profiles
 
 - Every setting keys on the character's starting world, as the character
@@ -368,7 +394,8 @@ its entry: Papyrus has no string search to strip it.
    cap, perk sound and the off-by-default features left. Then the **API**
    ([api](#api)): `Get`, the menu openers, `AddPerk` and the events built
    2026-11-12, not played; other mods' skills and the INI format left. Then
-   dropping LevelUpMenuEx from the requirements.
+   dropping LevelUpMenuEx from the requirements ([dropped](#dropped)):
+   done 2026-11-12, not played.
 
 **Open questions:**
 - Whether the moment of `LevelUpMenu` before ours is acceptable in play,

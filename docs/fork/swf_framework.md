@@ -592,10 +592,11 @@ in one injected movie, with no `HUDMenu.swf` shipped by anyone.
 The menu's features and order: [fo4_level_up_plan.md](fo4_level_up_plan.md).
 This section is the framework side.
 
-FNV's skills, perks, traits and tags go through LevelUpMenuEx today
-(Neanka: its own `LevelUpMenu.swf`, `PRKF.dll`, MCM config; unlicensed, one
-maintainer, a hard dependency). A menu of our own on f3ui would drop it and
-follow our HUD color and translations.
+FNV's skills, perks, traits and tags went through LevelUpMenuEx (Neanka:
+its own `LevelUpMenu.swf`, `PRKF.dll`, MCM config; unlicensed, one
+maintainer). Our own menu on f3ui replaces it, follows our HUD color and
+translations, and since 2026-11-12 LevelUpMenuEx is no longer required
+([dropped](fo4_level_up_plan.md#dropped)).
 
 **The art needs no authoring.** FNV's and FO3's level-up screens are a
 list, a description and a Vault Boy picture, and every picture is named by
@@ -647,8 +648,9 @@ the movie sees one list ([tables](fo4_level_up_plan.md#tables)).
 
 Still to do:
 - **Play the image spike** above, and the menu.
-- Options, the API, then dropping LevelUpMenuEx
-  ([order](fo4_level_up_plan.md#order)).
+- Playing the menu, then the options left (level cap, perk sound, the
+  off-by-default features). LevelUpMenuEx is no longer required
+  ([dropped](fo4_level_up_plan.md#dropped)).
 
 <a id="level-up-play"></a>**Play check:** level up (`player.setlevel` one
 higher, or earn it), then open the level-up screen from the Pip-Boy:
@@ -676,7 +678,10 @@ Tags and traits, on a new game:
 - the Tag! perk at level 16 reopens TAG SKILLS for one more: the three
   tags stay locked, the fourth gets the bonus;
 - re-entering SPECIAL at the Vit-o-matic keeps each tag's bonus once;
-- a save made with LevelUpMenuEx keeps its banked points and tags.
+- a save made with LevelUpMenuEx, loaded with it still installed, keeps its
+  banked points and tags once the menu opens; then, with LevelUpMenuEx
+  removed, a level-up opens our menu and `Papyrus.0.log` has no `PRKF`
+  errors.
 
 With the DLCs loaded (FNV: Dead Money, Honest Hearts, Old World Blues,
 Lonesome Road, Gun Runners' Arsenal):

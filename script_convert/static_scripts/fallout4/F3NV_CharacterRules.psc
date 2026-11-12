@@ -94,22 +94,25 @@ Function ShowOurs(Int aiMode, Int aiCount, Int aiBonus)
 EndFunction
 
 Function MovePrkf()
-  {Once, on a save from before our menu: the perk and skill points LevelUpMenuEx banked, and its tagged skills (each
-  already given its bonus by its tag menu), moved to ours. Without LevelUpMenuEx its calls give nothing.
-  See docs/fork/fo4_level_up_plan.md#tags}
-  If Migrated
+  {Once, on a save from before our menu while LevelUpMenuEx is still loaded: the perk and skill points it banked, and
+  its tagged skills (each already given its bonus by its tag menu), moved to ours. Called by name (Prkf), so nothing
+  compiles against LevelUpMenuEx; without PRKF.dll it waits, in case LevelUpMenuEx comes back.
+  See docs/fork/fo4_level_up_plan.md#dropped}
+  If Migrated || F4SE.GetPluginVersion("PRKF") < 0
     Return
   EndIf
   Migrated = True
   F3NV_LevelUp ours = LevelUp()
-  ours.AddPerkPoints(PRKF:PRKF.GetPP())
-  ours.AddSkillPoints(PRKF:PRKF.GetSP())
-  PRKF:PRKF.AddPP(-PRKF:PRKF.GetPP())
-  PRKF:PRKF.AddSP(-PRKF:PRKF.GetSP())
+  Int perks = Prkf("GetPP", new Var[0]) as Int
+  Int points = Prkf("GetSP", new Var[0]) as Int
+  ours.AddPerkPoints(perks)
+  ours.AddSkillPoints(points)
+  Prkf("AddPP", OneArg(-perks))
+  Prkf("AddSP", OneArg(-points))
   ActorValue[] skills = Skills()
   Int i = 0
   While i < skills.Length
-    If PRKF:PRKF.IsTagSkillAV(skills[i])
+    If Prkf("IsTagSkillAV", OneArg(skills[i])) as Bool
       TES4CharacterEvents.Tag(skills[i])
       If !TES4CharacterEvents.IsSuggested(skills[i])
         MarkBonused(skills[i])
@@ -117,6 +120,18 @@ Function MovePrkf()
     EndIf
     i += 1
   EndWhile
+EndFunction
+
+Var Function Prkf(String asFunction, Var[] akArgs)
+  {LevelUpMenuEx's global function asFunction (script PRKF:PRKF), called by name with akArgs.}
+  Return Utility.CallGlobalFunction("PRKF:PRKF", asFunction, akArgs)
+EndFunction
+
+Var[] Function OneArg(Var akArg)
+  {akArg as a call's only argument.}
+  Var[] args = new Var[1]
+  args[0] = akArg
+  Return args
 EndFunction
 
 Function MarkBonused(ActorValue akSkill)

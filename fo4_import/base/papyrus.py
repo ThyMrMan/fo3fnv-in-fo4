@@ -14,11 +14,13 @@ from fo4_import.base.install import FALLOUT4_DIR
 
 FO4_COMPILER = FALLOUT4_DIR / 'Papyrus Compiler' / 'PapyrusCompiler.exe'
 FO4_HEADERS = Path(__file__).resolve().parents[2] / 'references' / 'fo4_scripts'
-#: LevelUpMenuEx's script sources (the character rules call PRKF:PRKF).
-LEVELUP_MENU_HEADERS = FO4_HEADERS.parent / 'LevelUpMenuEx' / 'Data' / 'Scripts' / 'Source' / 'User'
+
+
 def header_dirs() -> str:
-    """FO4 scripts' import order: F4SE, Base, LevelUpMenuEx."""
-    return f'{FO4_HEADERS / "F4SE"};{FO4_HEADERS / "Base"};{LEVELUP_MENU_HEADERS}'
+    """FO4 scripts' import order: F4SE, then Base.
+    See: docs/fork/fo4_level_up_plan.md#dropped
+    """
+    return f'{FO4_HEADERS / "F4SE"};{FO4_HEADERS / "Base"}'
 
 
 def compile_folder(folder: Path, out_dir: Path, imports: str) -> str:

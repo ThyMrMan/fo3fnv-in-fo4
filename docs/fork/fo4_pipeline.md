@@ -5632,8 +5632,10 @@ lower-case first letter (`tES4Polyfill`); Papyrus names are not
 case-sensitive, not yet confirmed in game.
 
 **Differences handled (`fo4_import/base/caprica.py`):**
-- Header constructs Caprica rejects are patched in a copy of F4SE, Base and
-  LevelUpMenuEx (`safe_headers`, `output/fo4_cache/caprica_headers`): text
+- Header constructs Caprica rejects are patched in a copy of F4SE and Base
+  (LevelUpMenuEx's too until it was
+  [dropped](fo4_level_up_plan.md#dropped); `safe_headers`,
+  `output/fo4_cache/caprica_headers`): text
   before `Scriptname` (5 vanilla sources, `TestKevinActivationScript`), a
   struct member named `parent` (F4SE `ObjectReference.ConnectPoint`, now
   `parentNode` in the copy) and `Var x = None` parameters (F4SE
