@@ -6,8 +6,11 @@ Runs the CK's `-ExportFaceGenData:<plugin> X64` through MO2 (so it loads the
 profile's plugins), moves the FaceGeom NIFs and face tint textures it writes
 from where MO2 put them (creation_kit) into the mod folder, then bakes the FNV face into every
 NPC whose EditorID ends in a C variant (face.bake), from the FNV NPC its
-EditorID names. Last, the face textures (2048 square, one mip) are
-re-encoded at vanilla's sizes and formats with full mips.
+EditorID names. Then the face textures (2048 square, one mip) are
+re-encoded at vanilla's sizes and formats with full mips. Last, the
+FaceGeom NIFs go into the plugin's Main archive and the face textures into
+its Textures archive, as vanilla ships both, and the loose copies leave the
+mod folder (the build's own come back first, so the Main archive keeps them).
 
 The CK's targets are XB1, X64, PS4 and W32. W32 rewrites a hair's cloth
 physics (BSClothExtraData's Havok packfile) with 4-byte pointers; the 64-bit
@@ -26,8 +29,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from fo4_import.base.ba2_pack import staging_root
+from fo4_import.base.ba2_pack import drop_packed, pack_main, pack_textures, restore_packed, staging_root
 from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.face import facegeom
 from fo4_import.face.bake import bake, face_shape
 from fo4_import.face.sculpt import load_basis as sculpt_basis
@@ -37,6 +41,7 @@ from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
 from fo4_import.spike.face_fit import npc_subrecords, refine_sculpt, refine_tint, variant_npcs
 from fo4_import.spike.fnv_npc import fnv_face
+from fo4_import.spike.imagespace import LUT_FOLDER
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: The CK's export target: X64, since W32 writes hair cloth physics the 64-bit game misreads (see the module doc).
@@ -217,14 +222,28 @@ def export(plugin: str, data_dir: Path) -> int:
     return len(nifs)
 
 
+def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
+    """The plugin's archives packed again with its FaceGen (pack_textures pruning nothing: this run staged no
+    texture), then the loose copies they hold dropped unless `keep_loose`; printed.
+    See: docs/fork/fo4_pipeline.md#main-archive
+    """
+    print('textures packed:', pack_textures(data_dir, plugin, (LUT_FOLDER, CLASSIC_FOLDER), prune=False))
+    print('files packed into the Main archive:', pack_main(data_dir, plugin))
+    if not keep_loose:
+        print('loose files the archives hold, removed:', drop_packed(data_dir, plugin))
+
+
 def main():
-    """Export, collect and bake; print what was done."""
+    """Export, collect, bake and pack; print what was done."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
     ap.add_argument('--data', required=True, help='The mod folder holding the plugin')
+    ap.add_argument('--keep-loose', action='store_true',
+                    help="Keep the loose copies of what the plugin's archives hold (a build folder fo4_deploy copies)")
     ap.add_argument('plugin', help='Plugin file name')
     args = ap.parse_args()
     data_dir, export_dir = Path(args.data), Path(args.export)
+    print('loose files restored from the Main archive:', restore_packed(data_dir, args.plugin))
     print('FaceGeom NIFs:', export(args.plugin, data_dir))
     for round_ in range(REFINE_ROUNDS + 1):
         refined = refine_fits(export_dir, data_dir, args.plugin, apply=round_ < REFINE_ROUNDS)
@@ -235,6 +254,7 @@ def main():
     for edid, variant in bake_variants(export_dir, data_dir, args.plugin):
         print(f'baked {edid} {variant}')
     print('face textures at vanilla size:', vanilla_textures(args.plugin, data_dir))
+    pack(data_dir, args.plugin, args.keep_loose)
 
 
 if __name__ == '__main__':

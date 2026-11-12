@@ -1,6 +1,7 @@
 # Plan: build time, first builds and rebuilds (2026-11-10)
 
-Status: planned, nothing built. Numbers come from the
+Status: steps 1, 2, 3 and 5 of the [order](#order) are built, each section saying
+what is measured; publishing face fits (4) and the journal (6, 7) are not. Numbers come from the
 [overnight run](../audits/fo4_overnight_build_2026-11-10.md) and from two code
 reads done for this plan. A line marked *(read)* was read in the code but not
 rerun; *(timed)* was timed once in a single process on one male face
@@ -411,15 +412,95 @@ Size: S–M. None of it changes a record.
 Each is small, and each still pays after [section 5](#replay), because the
 game build and a mod's own content go through the same steps.
 
-| Cost | Seen | Lead |
-|---|---|---|
-| Script compile with at least one script | 113–154 s against 3 s with none | Traced and built 2026-11-10 (not yet in a build). The conversion deleted and rewrote every .psc (17,440 files for 59 changed), which voided every size-and-time stamp and made the first read slow: 17,507 fresh files hash in 68 s against 1.4 s, the masters' 31,835 headers in 113 s against 2.3 s, Caprica's first run 62 s against 1.0 s. Now an unchanged .psc is left alone ([sources](../commentary/script_convert.md#wipe-output-dir)), the header memo is per header folder for all plugins, a Caprica source error is kept instead of recompiled by FO4's compiler, and Caprica's reruns go side by side: YUP 99 runs in 194 s before, 112 runs in 58 s ([errors and runs](fo4_pipeline.md#caprica-errors), [import order](fo4_pipeline.md#own-source-first)). Left: a Caprica run reads every import file (0.7–1.4 s each), and Caprica cannot go past a failing script, so runs = folders + failures. |
-| Mesh cache check | 26–153 s | Each hit reads the whole NIF to hash it, reads its code record and unpickles the result. Use the size-and-time stamps the compile step already has (`file_stamps`), and don't unpickle on a hit. |
-| Master meshes written, given collision, then deleted | 23–183 s of collision | Decide before writing: a mesh whose master folder already holds the same cache key is skipped. |
-| `ledger and cleanup` | 50–163 s | Not profiled. Profile it on Goodies. |
-| `base STAT` on Goodies | 796 s against 148 s for the whole game | Not explained. Find it before trusting any estimate here. |
+**Status: built and measured 2026-11-11.** Measured on scratch copies of two
+deployed mods, with each one's own build arguments: Strip Lights Region Fix
+(master: the game) and Better Brotherhood (the game and five DLC). Every
+time below is a stage line from a second, warm build. One profiled build of
+Strip Lights found the causes. The plugin came out byte-identical to the
+build before the change in every run: 4 Strip Lights builds and 2 Better
+Brotherhood builds. Better Brotherhood's also equals the deployed plugin.
 
-Size: S each, after a profile of one mod build (Goodies has all five).
+| Cost | Before | After | What it was, and the fix |
+|---|---|---|---|
+| `ledger and cleanup` | 27.9 s (Strip Lights), 147.5 s (Better Brotherhood) | 1.7 s, 17.1 s | See [cleanup](#fixed-cleanup). |
+| Mesh cache check (`mesh cache: … ready`) | 32.8 s | 24.1 s | See [mesh check](#fixed-mesh-check). |
+| Master meshes (`collision`) | 78.8 s | 19.7 s | See [master meshes](#fixed-master-meshes). Takes effect once the masters are rebuilt. |
+| Script compile | 92.0 s on a first build | 3.0–3.7 s | Nothing to fix. See [compile](#fixed-compile). |
+
+Strip Lights built in 755 s before and 541 s after, against a master with its
+mesh record. Its Main archive went from 622 MB to 268 MB.
+
+<a id="fixed-cleanup"></a>**`ledger and cleanup`.**
+- **The cache prune.** `prune_caches` walked every file of the mesh, work and
+  Elric caches on every build (10.8 s of 17 s profiled). Now
+  `work_cache.prune` sweeps at most once a day; the time of the `pruned` file
+  beside the caches says when. An unused entry still goes after 14 days, at
+  most a day later.
+- **Finding the files a build made.** `stale_files.made` stats each file
+  again after listing it; now it uses the listing's own stat
+  (`file_stamps.files_under`).
+- **Dropping files a master already has.** This was the 147.5 s on Better
+  Brotherhood. Old World Blues was built straight into its MO2 folder, so
+  about 18,000 of its files sit there loose: gun animation data, meshes, rig
+  files. Each build of a mod on it writes 18,076 copies of them. Then
+  `master_copies.drop_loose` reads each one and the master's copy and deletes
+  it. The reads wait on opening files (about 4 ms each here), so they now run
+  in 16 threads. Same files dropped.
+- Left: not writing those copies at all. Each writer (gun animation data,
+  rigs) would have to ask the master first.
+
+<a id="fixed-mesh-check"></a>**Mesh cache check.** The step sent all 6,628
+scoped meshes to the worker pool. Each worker hashed the whole NIF, read its
+code record and unpickled the entry to throw it away.
+- Now `mesh_cache.warm` keeps a memo per export and setting
+  (`meshes/warm/*.json`, `file_stamps`). It holds each NIF's cache key, under
+  the NIF's size-and-time stamp, and the texture stamps from the last time a
+  worker had it.
+- A mesh whose entry exists, whose code record is current and whose textures
+  are unchanged stays out of the pool. It is never unpickled.
+- That check costs about 4 ms a mesh in opening the code record, so it runs in
+  16 threads: 7–9 s for 6,628 meshes, against about 16 s in the pool.
+- A wrong "kept" costs only time: the build's own `cached_files` checks every
+  mesh fully and converts a miss itself.
+- The rest of the line is `scope_models` (13–20 s). It makes the scoped
+  worldspaces' `Exterior` objects, and `cell.build` makes them again from
+  other reference lists. Not shared yet.
+
+<a id="fixed-master-meshes"></a>**Master meshes.** "Written, given collision,
+then deleted" was wrong. A master's loose meshes are not in its MO2 folder,
+only its archives. So `drop_loose` found none of them, and every mod shipped
+its masters' meshes again in its own Main archive. In Strip Lights that was
+6,771 meshes, all byte-identical to the game's archive.
+- Every build now writes `<plugin>.meshes.json` beside its plugin, and the
+  deploy carries it. It lists each mesh the build ships as Elric finished it,
+  by path: `elric_cache.mark`, the `elric_finish` entry's key and code-record
+  digest, plus whether collision worked.
+- A dependent build reads its masters' records (`master_copies.theirs`). In
+  `_collision` it neither writes nor finishes a mesh whose master gives the
+  same mark (`elric_cache.LEFT`), and it deletes any copy already in its
+  folder.
+- The records count only when every master in another folder has one, the
+  last master's winning. So a master built before this change cannot hide a
+  different copy of the same path.
+- Weapon meshes (dressed after Elric) and object LOD meshes (read by the LOD
+  bake) are always built.
+- **Measured:** the game's record was simulated (a hard-linked copy of its MO2
+  folder, the record holding only meshes byte-identical to its archive).
+  Against it, Strip Lights left out 6,771 meshes, and collision went from
+  78.8 s to 19.7 s. Every other output file is byte-identical, the Textures
+  archive included.
+- **Not active until the game and DLC are rebuilt.** Until then their folders
+  have no record, so nothing is left out.
+
+<a id="fixed-compile"></a>**Script compile.** A second Better Brotherhood
+build compiled 0 of 68 scripts in 3.0–3.7 s, so the 2026-11-10 stamp fix
+holds. The overnight 41–174 s came from that run rewriting every dialogue
+script. The first build into a new folder compiled all 68 in 92 s: 18 Caprica
+runs, because 3 scripts have source errors and Caprica stops at each.
+
+| Cost | Seen before the fixes above | Lead |
+|---|---|---|
+| `base STAT` on Goodies | 796 s, then 157 s ([audit](#audit-2026-11-11)) | Not explained. |
 
 ## <a id="replay"></a>5. Mod builds replay the game build
 
@@ -481,6 +562,150 @@ the end-of-build lists and the records changed without being held as known
 gaps to close one by one.
 
 Size: the spike S–M; the journal L, then M (Part D's own estimate).
+
+#### <a id="spike-result"></a>What the spike found (2026-11-11)
+
+**Verdict: go for step 7, with four changes to the journal design below.**
+A replayed mod build is predicted to rerun 0.04–11% of the game's units and
+about 1.5–5 minutes of their time. The old-way builds took 7.4 and 13.8
+minutes. Every record the two test mods' plugins hold is made by a unit the
+replay reruns, with one exception: a region-build artifact that a replay
+rightly leaves out.
+
+**How it was run.** `fo4_import.pipeline.read_log --no-assets` (it skips the
+file-only steps and the Creation Kit; plugin bytes unchanged) recorded:
+- one whole game build, `--world WastelandNV reached --whole`, into a scratch
+  folder;
+- Landscape Disposition Fix (LDF) and Strip Lights Region Fix (SLRF), each
+  built the old way with its deployed arguments, the scratch game as master.
+
+`tools.audit.read_log_report --check` then sorted every record of each mod's
+plugin by the unit that packed it (see
+[python_tools](../reference/python_tools.md)). A recorded and an unrecorded
+one-cell build wrote byte-identical plugins.
+
+**The game's recording.** 97,139 units, 494,334 records packed, 7.8 M
+(record, field) reads kept per unit, plus 45.7 M in 226 shared whole-type
+reads.
+
+**The journal is small.** For the whole game:
+
+| | Raw | Zipped |
+|---|---|---|
+| Reads by field | 242 MB | 3.3 MB |
+| Reads by record only | 180 MB | 2.8 MB |
+
+That counts the reads, the FormIDs each unit packed, the units each asked,
+the questions and the unit names. Record bytes are the plugin's own (347 MB
+packed). Whole-type reads are 129 MB raw but 0.2 MB zipped: they are runs of
+consecutive records. Not yet measured: the memo and shared-list entries a
+unit adds (Part D's [shared state](fo4_plugin_layout.md#shared-state)).
+
+**Units each mod reruns:**
+
+| | LDF | SLRF |
+|---|---|---|
+| Records changed / added | 2,135 / 1 | 6,171 / 7 |
+| Units reading a changed record | 721 | 1,000 |
+| Units reading a changed field (plus askers) | 527 | 6 |
+| Rerun by field reads alone | 538 units, 173 s | 41 units, 83 s |
+| Rerun with binary walkers (change 2 below) | 10,932 units, 312 s | 4,663 units, 212 s |
+| Records in the old-way plugin | 2,247 | 130 |
+| Made by a rerun unit / the master's own group head | 1,747 / 500 | 127 / 1 |
+| Missed | 0 | 1 (an artifact, below) |
+
+The seconds are each unit's own time in the recorded game build. Field-level
+reads matter: SLRF changes 6,168 cells, and 1,000 units read them, but only
+6 read a field that differs.
+
+**Where the rerun time goes.** A few coarse units:
+- `world WastelandNV` (96 s): one unit for the whole worldspace;
+- the `quest scope` (89 s), `closing records` (41 s) and `scope` (8 s)
+  stages: setup that reads whole types.
+
+The 30 readers of every REFR are the 12 world scopes, five setup stages, two
+memos and the `CellBuilder` init. Each can be asked as a narrower question
+("REFR by FormID", "REFR where ParentCELL, XTEL.Door = …").
+
+**Four changes to the journal design** (each found by a miss in the check):
+1. **A record belongs to the unit that packs it** (`writer.pack_record`), not
+   the one that adds it. 78% of records were added by stages assembling
+   groups (a quest's topics, an interior's references) after their units ran.
+2. **Binary source walks must log per record.** Cell region lists
+   (`regions.py`: XCLR through `source_walk`) and worldspace subrecords
+   (`exterior.py`) come from the source plugin's bytes. The recorder logged
+   only "walked CELL", so 2 CELL and 1 WRLD overrides of LDF and all 92 CELL
+   overrides of SLRF were made by units nothing flagged. Counting each walker
+   as a reader of every changed record of its type closes the gap. It is
+   coarse, though: it is the jump from 538 to 10,932 units.
+3. **Cell membership is a question.** LDF moves 8 REFRs to another cell. The
+   new cell's unit never read them in the game build, since its references
+   come from an index built once. "The REFRs whose ParentCELL is X" has to be
+   recorded with its answer.
+4. **The coarse units need splitting** before replay pays: the worldspace by
+   cell, the setup stages into questions. Without that, a landscape mod
+   reruns about 5 minutes; with it, likely under 2 (not measured).
+
+**The byte-for-byte bar needs one adjustment.** SLRF's single miss is a TERM
+copy that is unreferenced in the old-way plugin. The region build copies
+master terminal `001672C6`, reached from `NellisArrayTerminal`, because the
+game plugin left it out (`COPY_SITE`). The game build's own unit makes no
+such copy. LDF's region build also made 3,651 master records differently
+from the game "by the build alone" (dropped), even against a game built from
+the same code. So the reference for step 7 should be the old way with its
+region artifacts removed, or an old-way build at the game's own scope, not
+the region build as it is.
+
+**Recording cost.** About 28% on the record-making stages (1,201 s against
+937 s for the same stages of the 11-11 overnight game build: other commit
+and caches, so rough). The read-heavy stages cost 2–3 times as much
+(`base STAT` 255 s against 104 s, `quest scope` 104 s against 37 s). On one
+cell: 360 s against 346 s.
+
+**Memory (separate finding).** In the game build,
+`land_layers.limit_textures` (via `blend_borders`, `_shared` over every
+border vertex of WastelandNV) takes the build from about 7 GB to over 15.5 GB
+in 90 s. With `TESCONV_JOB_MEM_GB=16` the recorded game build died there
+twice. It finished under 22 GB (14.7 GB sampled every 30 s); LDF peaked at
+8.3 GB. Normal builds run uncapped.
+
+<a id="land-memory"></a>**Fixed: the land texture step's memory.** The cause
+was `blend_borders`, not `limit_textures` itself. At every vertex several
+quadrants share, it gave each quadrant a 289-value array for every texture any
+of the others had there, zero-filled where the quadrant had none. Because it
+changes the mixes while it walks them, textures spread from quadrant to
+quadrant. On WastelandNV (16,388 cells with land, 65,552 quadrants) that made
+2,555,118 arrays, about 39 per quadrant and about 6 GB; `limit_textures` then
+summed all of them. Now a texture a quadrant gains with a share of +0
+everywhere points at one shared read-only zero array (`ZERO`), and gets an
+array of its own only when a nonzero (or -0) share is written to it. The dict
+keys and their order stay the same, because `kept_textures` can still fill a
+slot with a zero-sum texture. `limit_textures` sums only the kept textures.
+
+Measured on the real WastelandNV inputs, the step called directly on its land
+data in a child process capped with `limit_own_memory` (16 GB), memory being
+the process commit:
+
+| | Before | After |
+|---|---|---|
+| Commit after loading the land | 4.33 GB | 4.33 GB |
+| Peak after the step | 12.41 GB | 6.44 GB |
+| The step's own peak | +8.1 GB | +2.1 GB |
+| `blend_borders` | 61–84 s | 65 s |
+| `limit_textures` | 22–28 s | 17.5 s |
+
+The output is byte-identical: the SHA-1 over every cell's, quadrant's,
+texture's shares from `limit_textures` is the same before and after. About
+1.5 GB of the step's remaining peak is the `_shared` vertex index. With about
+6 GB less, the game build, at about 7 GB before this step, should peak near
+9–10 GB, under 16 GB; the next whole-map build confirms it.
+
+**Estimate for step 7 (unmeasured, from the numbers above).** LDF by replay
+is about 3–5 minutes as the units stand, against 7.4 minutes; SLRF about 2–4,
+against 13.8. That is 2–4 minutes of reruns (less the 28% recording cost),
+plus mesh checks, setup and ledger work over the mod's records only. With
+change 4, both should be inside 1–2 minutes. Size: the journal L, as
+planned, plus M for changes 2–4.
 
 ## <a id="left-out"></a>Routes considered and not taken
 
@@ -563,7 +788,8 @@ The Frontier is the first huge new worldspace, with 589,612 references.
 **What happened (V).** 118 of The Frontier's meshes fail to convert. A
 failed mesh is never cached, so every build retries all of them. One of
 them, `tfssspacestationext.nif` (61 MB), grows about 1 GB per second
-while pyffi reads it. In the rebuild after the gun fix, that worker
+while it converts. (Not in pyffi's read, which takes 3.7 s and 738 MB, but in
+the overlay check: [station](research/fnv_nif_reader.md#station).) In the rebuild after the gun fix, that worker
 reached 10 GB. RAM fell to 1.2 GB free with 65 of 72 GB committed, and the
 machine paged until it stopped responding. The main process would then have
 converted the mesh again with no limit (`_warm` drops failures).
@@ -599,11 +825,28 @@ What its builds found:
   for uninitialized memory) on massless static bodies. `collision._motion`
   faults them, so these statics are left out. The fix to try is to read a
   massless body with an undefined motion system as fixed.
-- **Open: pyffi bloat.** `tfssspacestationext.nif` (61 MB) is too large for
-  pyffi.
+- **Fixed (2026-11-11): the overlay check's memory.** On
+  `tfssspacestationext.nif` (61 MB), the distance test asked for 3.88 GiB
+  per 256-point chunk over its 677,436 triangles
+  ([station](research/fnv_nif_reader.md#station)). It now tests groups of
+  nearby points against the triangles that can reach them, in 6 MB blocks
+  ([overlay-layers](fo4_pipeline.md#overlay-layers)); output is unchanged.
+  The 25 largest FO3/FNV/Frontier meshes, each converted alone under a
+  4 GB cap:
+  - **Station:** 35 s, 1.0 GB peak.
+  - **Others:** at most 788 MB (`tfliberatorairshipscol`).
+  - **Both motherships:** 7 s, 390 MB.
+  - **Six Frontier meshes stop on the open Havok fault above** (motion
+    system 205 or 154): `tfssrotatingtuberoom`,
+    `tfscolmarketbuildingcomplete`, `tfanalgesisscol`,
+    `tfscolwhitebuildinggroup01`, `tfscoldestroyedbuilding02`,
+    `tfscolwsfactory03b`.
 
-To try it again, run a scoped build first: one small area, fewer workers and
-a job cap around 12 GB.
+**Ready for a scoped retry.** The one per-mesh memory blow-up measured is
+fixed. The whole-world freeze was never pinned to a step, and the main
+process holding 589,612 references remains a suspect. So retry with a
+scoped build first: one small area, fewer workers and a job cap around
+12 GB.
 
 ## <a id="open"></a>Open questions
 
@@ -611,9 +854,15 @@ a job cap around 12 GB.
   cache is? (Our numbers and Fallout4.esm FormIDs only.)
 - Is shipping patches against the user's own files wanted as a later option,
   or ruled out?
-- How large is the journal for the whole game, and does it ship compressed
-  beside the plugin or get rebuilt on the user's machine by the game build?
-  (The spike gives the read counts; record bytes are the built plugin.)
+- ~~How large is the journal for the whole game?~~ About 3.3 MB zipped
+  (242 MB raw) with reads by field, before memo and shared-list entries
+  ([spike](#spike-result)). It can ship compressed beside the plugin. Still
+  open: ship it, or let the user's game build write it? Recording costs that
+  build about 28%.
+- Should step 7's byte-for-byte reference be the old way at the game's own
+  scope rather than the region build? The region build makes records the
+  game build does not (an orphan TERM copy in Strip Lights;
+  [spike](#spike-result)).
 - A mod converted against one release's journal and a game rebuilt with
   another: the same question as in
   [mod builds](fo4_mod_builds.md#open).

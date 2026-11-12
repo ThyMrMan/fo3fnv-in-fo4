@@ -25,11 +25,17 @@ from fo4_import.nif import elric
 from fo4_import.pipeline import mesh_cache, work_cache
 from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.ran_code import ran_while
-from fo4_import.pipeline.work_cache import UNUSED_DAYS, lookup, prune, store
+from fo4_import.pipeline.work_cache import UNUSED_DAYS, prune, store
 
 CACHE = ROOT / 'output' / 'fo4_cache' / 'elric'
+#: The work-cache site of a finished NIF.
+SITE = 'elric_finish'
 #: {normcased NIF path: pre-Elric bytes} held this run until finish() writes them finished.
 _HELD = {}
+#: {normcased NIF path: [mark(), collision ok]} of each NIF finish() wrote this run.
+MARKS = {}
+#: NIF paths finish() left unwritten this run: a master ships the same finished NIF.
+LEFT = []
 
 
 @functools.cache
@@ -72,22 +78,44 @@ def mesh_bytes(path: Path) -> bytes:
     return Path(path).read_bytes() if held is None else held
 
 
-def finish(paths: list) -> list:
+def mark(inputs: tuple) -> 'str | None':
+    """`inputs`' elric_finish key and code record digest, while current."""
+    made_by = work_cache.current(SITE, inputs)
+    return None if made_by is None else f'{work_cache.key(SITE, inputs)}:{made_by}'
+
+
+def finish(paths: list, theirs: 'dict | None' = None) -> list:
     """elric.finish() through work_cache (a NIF finished before, same bytes, Elric and the code that ran finishing
     it, comes from the cache) on each path's mesh_bytes(), run on staged copies; each finished NIF written with
-    write_new(), one with a source fault not cached. The paths left without collision.
+    write_new(), one with a source fault not cached, its [mark(), ok] kept in MARKS. A path `theirs` ({normcased
+    path: [mark, ok]}, a master's) gives the same mark is not written (LEFT). The paths left without collision.
     See: docs/fork/fo4_build_speed.md#keys
+    See: docs/fork/fo4_build_speed.md#fixed
     """
     failed, todo = [], {}
     for path in dict.fromkeys(Path(p) for p in paths):
         data = _HELD.pop(os.path.normcase(str(path)), None) or path.read_bytes()
         inputs = (elric_tag(), hashlib.sha1(data).digest())
-        done = lookup('elric_finish', 'fo4_import.nif.elric', inputs)
-        if done is None:
+        made = mark(inputs)
+        shipped = (theirs or {}).get(os.path.normcase(str(path)))
+        if made is None:
             todo[path] = inputs, data
-            continue
-        write_new(path, done[1])
-        failed += [] if done[0] else [path]
+        elif shipped and shipped[0] == made:
+            path.unlink(missing_ok=True)
+            LEFT.append(path)
+            failed += [] if shipped[1] else [path]
+        else:
+            ok, done = work_cache.kept(SITE, inputs)
+            write_new(path, done)
+            MARKS[os.path.normcase(str(path))] = [made, ok]
+            failed += [] if ok else [path]
+    return failed + _run(todo)
+
+
+def _run(todo: dict) -> list:
+    """finish()'s work for `todo` ({path: (inputs, pre-Elric bytes)}), none cached: elric.finish on staged copies,
+    each result stored (but a source fault's), written and marked; the paths left without collision."""
+    failed = []
     with tempfile.TemporaryDirectory() as tmp:
         staged = {path: Path(tmp) / f'{i:05d}.nif' for i, path in enumerate(todo)}
         for path, (_, data) in todo.items():
@@ -97,7 +125,8 @@ def finish(paths: list) -> list:
         for path, (inputs, _) in todo.items():
             ok, data = staged[path] not in failed_now, staged[path].read_bytes()
             if not faulted(path):
-                store('elric_finish', 'fo4_import.nif.elric', inputs, (ok, data), ran)
+                store(SITE, 'fo4_import.nif.elric', inputs, (ok, data), ran)
+                MARKS[os.path.normcase(str(path))] = [mark(inputs), ok]
             write_new(path, data)
             failed += [] if ok else [path]
     return failed

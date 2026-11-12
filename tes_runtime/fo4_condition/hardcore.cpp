@@ -55,16 +55,6 @@ SInt32 AmmoDifficulty(void *player) {
     return On() ? SURVIVAL : Difficulty(player);
 }
 
-// INI color `prefix`R/G/B:Interface as 0xRRGGBB; white when not found.
-UInt32 HudColor(const char *prefix) {
-    UInt32 rgb = 0;
-    for (const char *channel : {"R", "G", "B"}) {
-        Setting *setting = GetINISetting((std::string(prefix) + channel + ":Interface").c_str());
-        rgb = (rgb << 8) | (setting ? (setting->data.u32 & 0xFF) : 0xFF);
-    }
-    return rgb;
-}
-
 // The fields' last shown state, to set them only on a change.
 struct Shown {
     SInt32 value = -1;
@@ -167,6 +157,16 @@ void Track(StaticFunctionTag *, TESGlobal *on, VMArray<ActorValueInfo *> needs) 
 }
 
 }  // namespace
+
+// INI color `prefix`R/G/B:Interface as 0xRRGGBB; white when not found.
+UInt32 HudColor(const char *prefix) {
+    UInt32 rgb = 0;
+    for (const char *channel : {"R", "G", "B"}) {
+        Setting *setting = GetINISetting((std::string(prefix) + channel + ":Interface").c_str());
+        rgb = (rgb << 8) | (setting ? (setting->data.u32 & 0xFF) : 0xFF);
+    }
+    return rgb;
+}
 
 bool HookAmmoWeight() {
     uintptr_t site = AMMO_DIFFICULTY_CALL.GetUIntPtr();

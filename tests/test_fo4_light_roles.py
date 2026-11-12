@@ -18,7 +18,7 @@ def test_key_is_a_word_of_the_editor_id():
 
 
 def test_the_shadow_copy_casts_an_omni_shadow_and_keeps_the_rest():
-    """The copy renames to _Shadow, adds Shadow OmniDirectional and keeps the light's other DATA."""
+    """The copy renames to _Shadow, adds Shadow OmniDirectional, clips its shadow at NEAR_CLIP, keeps the rest."""
     light = (512, (255, 200, 150), 0x1 | 0x8, 1.0, 90.0, (0.2, 0.3, 0.0))
     record = R.pack_ligh(0x100, 'FNV_LightKey', (0,) * 6, '', light, 1.5)
     copy = dict(subrecords(LR.shadow_copy(record, 0x200)[LR.HEADER:]))
@@ -26,6 +26,11 @@ def test_the_shadow_copy_casts_an_omni_shadow_and_keeps_the_rest():
     assert copy[b'EDID'] == b'FNV_LightKey_Shadow\0'
     assert struct.unpack_from('<I', copy[b'DATA'], LR.FLAGS_AT)[0] == 0x1 | 0x8 | LR.SHADOW_OMNI
     assert copy[b'DATA'][:LR.FLAGS_AT] == source[b'DATA'][:LR.FLAGS_AT] and copy[b'FNAM'] == source[b'FNAM']
+    assert struct.unpack_from('<f', copy[b'DATA'], LR.NEAR_CLIP_AT)[0] == LR.NEAR_CLIP == 64.0
+    assert abs(struct.unpack_from('<f', source[b'DATA'], LR.NEAR_CLIP_AT)[0] - 7.217) < 1e-4
+    after = LR.NEAR_CLIP_AT + 4
+    assert copy[b'DATA'][LR.FLAGS_AT + 4:LR.NEAR_CLIP_AT] == source[b'DATA'][LR.FLAGS_AT + 4:LR.NEAR_CLIP_AT]
+    assert copy[b'DATA'][after:] == source[b'DATA'][after:]
     assert struct.unpack_from('<I', LR.shadow_copy(record, 0x200), 12)[0] == 0x200
 
 

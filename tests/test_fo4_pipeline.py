@@ -15,6 +15,7 @@ from fo4_import.pipeline import code_tag as CT
 from fo4_import.pipeline import converters as CV
 from fo4_import.pipeline import elric_cache as EC
 from fo4_import.pipeline import export_index as EI
+from fo4_import.pipeline import master_copies as MCP
 from fo4_import.pipeline import mesh_cache as MC
 from fo4_import.pipeline import run as RUN
 from fo4_import.pipeline import stale_files as SF
@@ -103,6 +104,77 @@ def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_pat
     assert runs == [[b'a', b'b']]
 
 
+def test_a_mesh_a_master_finished_alike_is_left_out_and_its_mark_recorded(tmp_path, monkeypatch):
+    """finish() records each finished mesh's mark; a later build leaves out (deletes, does not write) one whose
+    master gives the same mark, keeps its failed flag, and writes one whose mark differs."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
+    monkeypatch.setattr(EC.elric, 'finish', lambda paths, run, names: [p for p in paths if p.read_bytes() == b'b'])
+    monkeypatch.setattr(EC, 'MARKS', {})
+    monkeypatch.setattr(EC, 'LEFT', [])
+    paths = [tmp_path / 'a.nif', tmp_path / 'b.nif', tmp_path / 'c.nif']
+    for p in paths:
+        p.write_bytes(p.stem.encode())
+    EC.finish(paths)
+    theirs = {k: v for k, v in EC.MARKS.items() if not k.endswith('c.nif')}
+    theirs[os.path.normcase(str(paths[2]))] = ['other', True]
+    assert EC.finish(paths, theirs) == [paths[1]]
+    assert EC.LEFT == paths[:2] and not paths[0].exists() and paths[2].read_bytes() == b'c'
+
+
+def test_a_dependent_build_trusts_mesh_records_only_when_every_master_has_one(tmp_path):
+    """theirs() maps a mesh path to the last master's record of it; one master folder without a record means none."""
+    game, dlc, own = tmp_path / 'game', tmp_path / 'dlc', tmp_path / 'own'
+    for folder in (game, dlc, own):
+        folder.mkdir()
+    builder = SimpleNamespace(data_dir=own, built=[game / 'G.esm', dlc / 'D.esm'])
+    mesh = own / 'Meshes' / 'fnv' / 'A.nif'
+    MCP.write_meshes(game / 'G.esm', game, [game / 'Meshes' / 'fnv' / 'a.nif'], {})
+    assert MCP.theirs(builder, [mesh]) == {}
+    (game / 'Meshes' / 'fnv').mkdir(parents=True)
+    (game / 'Meshes' / 'fnv' / 'a.nif').write_bytes(b'x')
+    MCP.write_meshes(game / 'G.esm', game, [game / 'Meshes' / 'fnv' / 'a.nif'],
+                     {os.path.normcase(str(game / 'Meshes' / 'fnv' / 'a.nif')): ['m1', True]})
+    (dlc / 'D.esm.meshes.json').write_text(json.dumps({'meshes/fnv/a.nif': ['m2', False]}), encoding='utf-8')
+    assert MCP.theirs(builder, [mesh]) == {os.path.normcase(str(mesh)): ['m2', False]}
+    MCP.moved_in(dlc / 'D.esm.meshes.json').unlink()
+    assert MCP.theirs(builder, [mesh]) == {}
+
+
+def test_warm_leaves_a_mesh_kept_and_unchanged_out_of_the_pool(tmp_path, monkeypatch):
+    """A second warm() sends no mesh whose entry is current and textures unchanged; a changed texture sends it."""
+    sent = []
+
+    class Pool:
+        """An in-process stand-in for the worker pool."""
+        def __init__(self, **_kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def map(self, fn, jobs, chunksize):
+            sent.extend(job[0] for job in jobs)
+            return [fn(job) for job in jobs]
+    monkeypatch.setattr(MC, 'CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(MC.concurrent.futures, 'ProcessPoolExecutor', Pool)
+    monkeypatch.setattr(MC, 'addon_map', lambda root: {})
+    monkeypatch.setattr(MC, 'convert', lambda *a: Converted(NifFile(), textures={'t.dds'}))
+    texture = tmp_path / 'textures' / 't.dds'
+    texture.parent.mkdir()
+    texture.write_bytes(b'one')
+    nif = tmp_path / 'a.nif'
+    nif.write_bytes(b'nif')
+    for _ in range(2):
+        MC.warm([nif], tmp_path)
+    texture.write_bytes(b'two!')
+    MC.warm([nif], tmp_path)
+    assert sent == [str(nif), str(nif)]
+
+
 def test_every_placed_type_has_a_converter_and_a_route():
     """PLACED names only builder methods and routed types; stand-ins are placed."""
     assert all(callable(getattr(CellBuilder, method, None)) for method in CV.PLACED.values())
@@ -142,13 +214,13 @@ def test_the_stamp_says_running_then_finished_or_failed(tmp_path, monkeypatch):
     written before it reads finished, and it reads failed when the build raises."""
     out = tmp_path / 'FalloutNV.esm'
     seen = []
-    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path))
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path, keep_loose=False))
     for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
         monkeypatch.setattr(RUN, name, lambda *a: None)
     monkeypatch.setattr(RUN, 'source_state', lambda: {'commit': 'abc', 'changed files': ['x.py']})
     stamp = BS.stamp_path(out)
     status = lambda: json.loads(stamp.read_text())['status']
-    monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(RECORD_SUFFIX='.inputs',
+    monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(record_dir=lambda plugin: plugin,
                                                              start=lambda folder: seen.append('record'),
                                                              write=lambda *a: seen.append(f'inputs {status()}')))
     monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(status()))
@@ -222,4 +294,4 @@ def test_stale_files_are_what_the_last_list_named_and_no_list_names_now(tmp_path
     (tmp_path / ('B.esp' + SF.LIST_SUFFIX)).write_text('Meshes/fnv/shared.nif\n', encoding='utf-8')
     assert SF.prune(plugin, tmp_path, {'Meshes/fnv/a.nif'}) == ['Meshes/fnv/old.nif']
     assert not files['Meshes/fnv/old.nif'].exists() and files['Meshes/fnv/shared.nif'].exists()
-    assert (tmp_path / ('A.esp' + SF.LIST_SUFFIX)).read_text(encoding='utf-8') == 'Meshes/fnv/a.nif\n'
+    assert SF.list_path(plugin).read_text(encoding='utf-8') == 'Meshes/fnv/a.nif\n'

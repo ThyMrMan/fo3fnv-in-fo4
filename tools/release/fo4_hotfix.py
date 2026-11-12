@@ -23,7 +23,8 @@ from types import SimpleNamespace
 
 from core.heavy_lock import hold_heavy_lock
 from fo4_import.base.papyrus import header_dirs
-from fo4_import.pipeline.build_steps import convert_scripts, stamp_path
+from fo4_import.base.build_files import all_moved_in
+from fo4_import.pipeline.build_steps import STAMP_SUFFIX, convert_scripts, stamp_path
 from fo4_import.spike.script import WORKERS, converted_prefix, stage_dir
 from tools.release.fo4_deploy import HOTFIX_MOD, ROOT, game_running, install_hotfix
 from tools.script.compile_papyrus import compile_fallout4
@@ -52,8 +53,8 @@ def master_script_dirs(options: dict) -> list:
     """The converted-script folders of the built masters in the build's --plugin-dirs (each from its stamp)."""
     dirs = []
     for folder in options.get('--plugin-dirs', []):
-        for stamp in sorted((ROOT / folder).glob('*.esm.build.json')):
-            dirs += [ROOT / d for d in build_options(stamp.with_name(stamp.name[:-len('.build.json')]))['--scripts']]
+        for stamp in all_moved_in(ROOT / folder, '*.esm' + STAMP_SUFFIX):
+            dirs += [ROOT / d for d in build_options(ROOT / folder / stamp.name[:-len(STAMP_SUFFIX)])['--scripts']]
     return dirs
 
 

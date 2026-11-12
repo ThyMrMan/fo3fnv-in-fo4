@@ -152,18 +152,20 @@ def test_a_scripts_own_source_comes_before_a_masters_of_the_same_name(tmp_path, 
     assert given == [[own, master]] and batches[0][1] == [own, master]
 
 
-def test_results_saved_under_the_old_import_order_recompile_only_overrides_and_their_users(tmp_path, monkeypatch):
-    """A compile_state.json from before the own folder came first keeps its results, except for the script a
-    master also names and the script using it; the next run compiles nothing."""
+def test_results_another_caprica_made_are_all_compiled_again(tmp_path, monkeypatch):
+    """A compile_state.json made by another Caprica keeps no results, so every script compiles once more;
+    the next run compiles nothing."""
     args, batches = _build(tmp_path, monkeypatch, OVERRIDE)
     CP.compile_fallout4(args)
-    path = tmp_path / 'out' / 'compile_state.json'
+    path = CP.moved_in(tmp_path / 'out' / 'compile_state.json')
     state = json.loads(path.read_text(encoding='utf-8'))
-    assert state['imports'] == f"{tmp_path / 'head'};{(tmp_path / 'src').resolve()}" and state.pop('own_first')
+    assert state['imports'] == f"{tmp_path / 'head'};{(tmp_path / 'src').resolve()}"
+    assert state[CP.COMPILER] == CP.caprica.build_tag()
+    state[CP.COMPILER] = 'an older build'
     path.write_text(json.dumps(state), encoding='utf-8')
     del batches[:]
     CP.compile_fallout4(args)
-    assert sorted(name for names, _ in batches for name in names) == ['Shared', 'User']
+    assert sorted(name for names, _ in batches for name in names) == ['Alone', 'Shared', 'User']
     del batches[:]
     CP.compile_fallout4(args)
     assert batches == []

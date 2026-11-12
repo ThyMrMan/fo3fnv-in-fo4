@@ -9,8 +9,9 @@ also removes the folders that leaves empty; MO2's meta.ini is never touched. Ref
 the build's stamp (<plugin>.build.json) says running or failed; deleting also needs a finished stamp. With
 --plugin (a DLC build in its own folder), a file under the folders its list covers (stale_files.roots) counts as
 built only when <plugin>.files.txt names it, so a file an earlier build left there is neither copied nor kept.
-A loose build file that an archive at the top of the build folder holds (the meshes and materials in
+A loose build file that an archive at the top of the build folder holds (the meshes, materials and scripts in
 `<plugin> - Main.ba2`) is not copied, and the mod folder's copy is deleted on every run: loose wins over archived.
+The build's records (build_files.BOOKS: stamp, ledger, file list...) are copied, but its inputs record.
 A deploy also clears the F3NV - Hotfix mod's scripts (fo4_hotfix) of each plugin whose build began after them, and
 deletes the XDI-era dialogue hub plugin and links from the mods beside the mod folder.
 
@@ -28,10 +29,11 @@ import time
 from pathlib import Path
 
 from fo4_import.base.ba2 import Archive
+from fo4_import.base.build_files import BOOKS, all_moved_in
 from fo4_import import dialogue_menu as menu_links
 from fo4_import.pipeline import stale_files
 from fo4_import.pipeline.build_inputs import RECORD_SUFFIX, SUFFIX
-from fo4_import.pipeline.build_steps import STAMP_SUFFIX
+from fo4_import.pipeline.build_steps import STAMP_SUFFIX, stamp_path
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / 'temp' / 'profile_data'
@@ -97,9 +99,13 @@ def tree(folder: Path) -> dict:
 
 
 def shipped(files: dict) -> dict:
-    """`files` (tree()) less the build's input records, <plugin>.inputs.json and <plugin>.record/ (build_inputs)."""
+    """`files` (tree()) less the build's input records, <plugin>.inputs.json and <plugin>.record/ (build_inputs),
+    in its records folder (build_files.BOOKS) or, from an older build, at the top."""
+    books = BOOKS.lower() + '/'
+
     def record(key: str) -> bool:
         """Whether relative path `key` is part of a build's input record."""
+        key = key[len(books):] if key.startswith(books) else key
         top = key.split('/', 1)[0]
         return top.endswith(RECORD_SUFFIX) and top != key or top == key and key.endswith(SUFFIX)
     return {key: entry for key, entry in files.items() if not record(key)}
@@ -148,7 +154,7 @@ def plan(build: dict, mod: dict) -> tuple:
 
 def stamp_status(build_dir: Path) -> 'str | None':
     """The build stamp's status (running, finished, failed), or None when the build folder has no stamp."""
-    stamps = sorted(build_dir.glob('*' + STAMP_SUFFIX))
+    stamps = all_moved_in(build_dir, '*' + STAMP_SUFFIX)
     statuses = {json.loads(p.read_text(encoding='utf-8')).get('status') for p in stamps}
     if not statuses:
         return None
@@ -284,7 +290,7 @@ def retire_hub(args: argparse.Namespace) -> None:
 def clear_built_hotfixes(args: argparse.Namespace) -> None:
     """After a deploy, clear_hotfix (the hotfix mod beside --mod) for each deployed plugin: --plugin, else every
     stamped plugin of the build."""
-    stamps = [args.build / (args.plugin + STAMP_SUFFIX)] if args.plugin else sorted(args.build.glob('*' + STAMP_SUFFIX))
+    stamps = [stamp_path(args.build / args.plugin)] if args.plugin else all_moved_in(args.build, '*' + STAMP_SUFFIX)
     for stamp in stamps:
         plugin = stamp.name[:-len(STAMP_SUFFIX)]
         started = time.mktime(time.strptime(json.loads(stamp.read_text(encoding='utf-8'))['started'],

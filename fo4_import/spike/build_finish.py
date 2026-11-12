@@ -9,6 +9,7 @@ import struct
 from pathlib import Path
 
 from fo4_import import dialogue_menu as menu_links
+from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
 from fo4_import.base.dangling_scripts import clear_dangling
@@ -115,11 +116,22 @@ def _gun_anim_text(builder, races: list, data_dir: Path) -> None:
         data_dir, copies, vanilla, master_copies.master_dirs(builder))
 
 
+def _finished(builder, data_dir: Path) -> tuple:
+    """([every written mesh], [those nothing changes or reads after Elric: not weapons (dressed) or object LOD])."""
+    paths = [data_dir / 'Meshes' / model for model, _ in builder.meshes.values()]
+    later = {data_dir / 'Meshes' / m for m in builder.weapons}
+    later |= {data_dir / 'Meshes' / made[0] for key, made in builder.meshes.items() if key.endswith('#lod')}
+    return paths, [p for p in paths if p not in later]
+
+
 @timed('collision')
 def _collision(builder, data_dir: Path) -> None:
-    """Elric's collision for every written mesh, then the weapon meshes dressed; counted."""
-    failed = elric_cache.finish([data_dir / 'Meshes' / model for model, _ in builder.meshes.values()])
+    """Elric's collision for every written mesh but those a master ships finished alike (master_copies.theirs),
+    then the weapon meshes dressed; counted."""
+    paths, alone = _finished(builder, data_dir)
+    failed = elric_cache.finish(paths, master_copies.theirs(builder, alone))
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
+    builder.counts["meshes left to the master's archive (finished alike)"] = len(elric_cache.LEFT)
     builder.counts['mesh vertices with a UV clamped to the half-float range'] = sum(mesh_cache.CLAMPED.values())
     for model in sorted(builder.weapons):
         weapon.dress_file(data_dir / 'Meshes' / model)
@@ -150,7 +162,7 @@ def _faces(builder, data_dir: Path, out: Path) -> None:
     builder.counts['FaceGeom NIFs older than their NPC head parts removed (run the faces stage)'] = len(stale)
     npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
     builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
-    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER,))
+    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER))
 
 
 @timed('script compile')
@@ -160,7 +172,7 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
     if builder.scripts.used and scripts_dir is not None:
         masters = tuple(Path(scripts_dir).parent / p.name for p in builder.built)
         print(compile_into(scripts_dir, data_dir, builder.scripts.used, masters,
-                           tuple(Path(p).parent / 'Scripts' for p in builder.built)))
+                           tuple(Path(p).parent for p in builder.built)))
         own = [Path(scripts_dir) / f'{name}.psc' for name in builder.scripts.used]
         for path in master_scripts(own, masters) if masters else ():
             MASTERS.script(path)
@@ -217,6 +229,8 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
                                                                                     master_copies.master_dirs(builder))
     made = stale_files.made(data_dir, plugin_stem(export_dir), builder.started, bool(builder.built))
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
+    builder.counts['finished meshes recorded for dependent builds'] = master_copies.write_meshes(
+        out, data_dir, _finished(builder, data_dir)[1], elric_cache.MARKS)
     _main_archive(builder, data_dir, out.name)
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')

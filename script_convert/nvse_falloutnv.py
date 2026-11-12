@@ -19,6 +19,8 @@ from script_convert.tes4 import nodes as N
 
 #: The Papyrus script holding the array functions (static_scripts/fallout4/F3NV_Array.psc).
 ARRAY = 'F3NV_Array'
+#: Arguments F3NV_Array.List takes after its count (xNVSE ar_List takes at most 20); unused ones pass None.
+LIST_SLOTS = 20
 #: xNVSE's ar_BadNumericIndex (Commands_Array.cpp `s_arrayErrorCodeNum`).
 BAD_NUMERIC_INDEX = '-99999'
 #: Comparison operators: each side is cast to the other's type.
@@ -192,8 +194,8 @@ def _array_call(conv, node: N.Call, extends: str, want: str) -> str:
         kind = node.args[0].text if node.args and isinstance(node.args[0], N.Literal) else '"Array"'
         return f'{ARRAY}.Construct({kind})'
     if low == 'ar_list':
-        items = [value_text(conv, a, extends) for a in node.args[:20]]
-        return f'{ARRAY}.List({", ".join([str(len(items))] + items)})'
+        items = [value_text(conv, a, extends) for a in node.args[:LIST_SLOTS]]
+        return f'{ARRAY}.List({", ".join([str(len(items))] + items + ['None'] * (LIST_SLOTS - len(items)))})'
     func, rtype, arrays = _ARRAY_CALLS[low]
     args = [array_text(conv, a, extends) if i in arrays else value_text(conv, a, extends)
             for i, a in enumerate(node.args)]

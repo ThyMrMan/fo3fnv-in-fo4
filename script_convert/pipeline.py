@@ -35,7 +35,7 @@ from core.plugin_masters import masters_from_export_header
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.converter import ScriptConverter
 from script_convert.context_setup import (
-    build_xref, chargen_menu_plan, deploy_static_scripts, load_bounds_cache,
+    build_xref, chain_records, chargen_menu_plan, deploy_static_scripts, load_bounds_cache,
     load_records, prepare_output_dir, quest_edids_by_fid,
     service_menu_topics, topic_unlock_globals)
 from script_convert.ownership import owner_key, read_owned, write_owned
@@ -299,10 +299,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     term_work = terminal_work(export_dir)
     print(f'  Converting {len(scpt_work)} SCPT / {len(info_work)} INFO / '
           f'{len(qust_work)} QUST scripts...')
-    say_durations = scan_voice_durations(export_dir)
-    if say_durations:
-        print(f'    voice durations: {len(say_durations)} lines/topics '
-              f'measured (Say() timers)')
+    say_durations = _voice_durations(export_dir)
     say_topics = scan_say_topic_fids(by_type)
     ScriptConverter.say_topics = say_topics
     print(f'    script-driven topics: {len(say_topics)}')
@@ -316,6 +313,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     if message_menus:
         print(f'    Button menus: {sum(len(v) for v in message_menus.values())} '
               f'MessageBox sites in {len(message_menus)} scripts')
+    objectives, quest_vars = _mirrors(export_dir, by_type)
     initargs = (xref, output_dir, unlock_plan['info_reveals'],
                 service_menu_topics(by_type),
                 unlock_plan['stage_reveals'], say_durations,
@@ -329,16 +327,35 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
                 build_force_greet_slots(by_type),
                 export_is_fallout(export_dir),
                 say_to_done_hooks(by_type, said_to_topics(by_type)),
-                objective_script_globals(by_type) if export_is_fallout(export_dir) else {},
-                build_force_flee_slots(by_type), menu_only_infos(by_type),
-                _quest_vars.quest_var_mirrors(by_type, quest_script_vars)
-                if target.is_fallout4() and export_is_fallout(export_dir) else {},
+                objectives, build_force_flee_slots(by_type), menu_only_infos(by_type), quest_vars,
                 _adds.find_adds(by_type, xref) if target.is_fallout4() and export_is_fallout(export_dir) else None)
     stats['written'] = _drain_written()
     return {'initargs': initargs, 'scpt_work': scpt_work,
             'info_work': info_work, 'qust_work': qust_work,
             'pack_work': pack_work, 'patrol_work': patrol_work, 'term_work': term_work,
             'stats': stats, 'owner': owner, 'shared': shared}
+
+
+def _voice_durations(export_dir: str) -> dict:
+    """scan_voice_durations of `export_dir`, with its count printed."""
+    say_durations = scan_voice_durations(export_dir)
+    if say_durations:
+        print(f'    voice durations: {len(say_durations)} lines/topics '
+              f'measured (Say() timers)')
+    return say_durations
+
+
+def _mirrors(export_dir: str, by_type: dict) -> tuple:
+    """(objective mirrors, quest-variable mirrors) converted writes keep in step; on Fallout 4 masters' tests count.
+
+    See: docs/fork/fo4_pipeline.md#master-mirrors
+    """
+    if not export_is_fallout(export_dir):
+        return {}, {}
+    if not target.is_fallout4():
+        return objective_script_globals(by_type), {}
+    chain = chain_records(export_dir, by_type, ('INFO', 'PACK', 'QUST', 'SCPT'))
+    return objective_script_globals(chain), _quest_vars.quest_var_mirrors(chain, build_quest_script_vars(chain))
 
 
 def _write_conversation_driver(export_dir: str, output_dir: str,

@@ -292,7 +292,7 @@ def test_script_stage_finds_a_master_outside_the_mod_folder(tmp_path):
     The script stage joined the master's name onto the record dir's PARENT,
     which for a mod is the mod folder, and skipped the miss silently.
     """
-    from script_convert.cross_ref import _export_dirs_with_masters
+    from script_convert.cross_ref import export_dirs_with_masters
     from core.plugin_masters import master_chain
 
     exp = _fake_group(tmp_path, ['Mod.esm', 'Mod.esp'])
@@ -300,7 +300,7 @@ def test_script_stage_finds_a_master_outside_the_mod_folder(tmp_path):
                    'Mod.esp': ['Oblivion.esm', 'Mod.esm']})
     esp = str(exp / 'My Pack' / 'Mod.esp')
     assert master_chain(esp) == ['Oblivion.esm', 'Mod.esm']
-    assert _export_dirs_with_masters(esp) == [
+    assert export_dirs_with_masters(esp) == [
         str(exp / 'Oblivion.esm'), str(exp / 'My Pack' / 'Mod.esm'), esp]
 
 

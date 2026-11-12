@@ -119,3 +119,14 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'gettalkedtopcp': Cmd(f'({{ref}}.GetValue({av_property("TalkedToPC")}) != 0.0)', ACTOR,
                           self_type=_av('TalkedToPC'), flags='actor_only zero_arg cmp_bool'),
 }.items()}
+
+
+def _flagged(flag: str) -> frozenset:
+    """Commands whose Fallout 4 row carries `flag`."""
+    return frozenset(name for name, row in COMMAND_ROWS.items() if flag in getattr(FALLOUT4_ROWS.get(row), 'flags', ()))
+
+
+#: Commands a Fallout 4 row makes Bool: `X == 1` is `X` (cmp_bool, and bare_bool too for returns_bool).
+#: See: docs/fork/fo4_pipeline.md#caprica-temp-alias
+COMPARISON_BOOL = _flagged('cmp_bool')
+BOOL_VALUED = COMPARISON_BOOL | _flagged('bare_bool')

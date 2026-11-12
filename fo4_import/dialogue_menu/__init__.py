@@ -7,16 +7,14 @@ of a scene's player topic) to its answer topic; a row of five names the skill
 check an answer INFO's prompt carries. Each FormID is a plugin name and an
 object id, so a row resolves under any load order or ESL. Each plugin writes
 its own file, named after it; the masterless build also installs the menu
-movie (built from the user's game movie with FFDec) and drops the XDI-era hub
-files an older setup put in the data folder.
+movie (built from our own sources with FFDec) and drops the XDI-era hub files
+an older setup put in the data folder.
 
 See: docs/fork/fo4_dialogue_menu_plan.md#converter
 """
 
 from pathlib import Path
 
-from fo4_import.base.ffdec import FFDEC
-from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.dialogue_menu import movie
 
 #: The links files' folder in a mod, which F3NV.dll reads (dialogue.cpp LINKS).
@@ -54,14 +52,6 @@ def remove_legacy(data_dir: Path) -> list:
     return gone
 
 
-def install_movie(data_dir: Path, game_data: Path = FALLOUT4_DIR / 'Data') -> int:
-    """Write the menu movie to `data_dir`; 1 if installed, 0 without FFDec or the game's archive."""
-    if not FFDEC.is_file() or not (Path(game_data) / movie.ARCHIVE).is_file():
-        return 0
-    movie.install(data_dir, game_data)
-    return 1
-
-
 def write(builder, data_dir: Path, plugin: str) -> None:
     """Write `plugin`'s links file from builder.say's links and checks into `data_dir`; the masterless build also
     installs the movie and removes the legacy hub files. Counts go to builder.counts."""
@@ -76,6 +66,6 @@ def write(builder, data_dir: Path, plugin: str) -> None:
     counts['dialogue menu skill checks'] = len(say.checks) if say else 0
     counts['dialogue menu hub files removed'] = len(remove_legacy(data_dir))
     if not builder.built:
-        installed = install_movie(data_dir)
+        installed = int(movie.install(data_dir) is not None)
         counts['dialogue menu movie installed'] = installed
-        counts['dialogue menu movie missing (no FFDec or game archive)'] = 1 - installed
+        counts['dialogue menu movie missing (no FFDec)'] = 1 - installed

@@ -4,9 +4,11 @@ FNV names each light by its lighting role (Key, Fill, Amb, Kicker) and no
 FNV light casts a shadow. Each Key light gets a copy that casts an
 omnidirectional shadow; in each cell the SHADOW_CAP widest Key references
 place the copy, and the rest, and every other role, keep FNV's shadowless
-light, as vanilla's fill, bounce and ambient lights are.
+light, as vanilla's fill, bounce and ambient lights are. The copy's near
+clip keeps the fixture around the light out of its shadow map.
 
 See: docs/fork/fo4_look.md#route-lights
+See: docs/fork/fo4_look.md#light-near-clip
 """
 import re
 import struct
@@ -20,6 +22,8 @@ from tes5_import.base.writer import pack_subrecord
 SITE = 'FNV shadow light'
 #: FO4 LIGH DATA flag Shadow OmniDirectional (xEdit wbDefinitionsFO4), and the flags' offset in DATA.
 SHADOW_OMNI, FLAGS_AT = 0x1000, 12
+#: Shadow near clip (DATA float at NEAR_CLIP_AT): vanilla's commonest on placed shadow lights, as at its fixtures.
+NEAR_CLIP, NEAR_CLIP_AT = 64.0, 24
 #: Shadow-casting lights per cell: Fallout4.esm's 90th percentile over its 442 lit interiors (median 1).
 SHADOW_CAP = 6
 #: Size of a record header before its subrecords.
@@ -33,14 +37,16 @@ def is_key(edid: str) -> bool:
 
 
 def shadow_copy(record: bytes, fid: int) -> bytes:
-    """Packed LIGH `record` on `fid`, its EditorID suffixed _Shadow and its DATA flags casting an omni shadow."""
+    """Packed LIGH `record` on `fid`: EditorID suffixed _Shadow, DATA casting an omni shadow from NEAR_CLIP out."""
     subs = b''
     for tag, data in subrecords(record[HEADER:]):
         if tag == b'EDID':
             data = data.rstrip(b'\0') + b'_Shadow\0'
         elif tag == b'DATA':
-            flags = struct.unpack_from('<I', data, FLAGS_AT)[0] | SHADOW_OMNI
-            data = data[:FLAGS_AT] + struct.pack('<I', flags) + data[FLAGS_AT + 4:]
+            data = bytearray(data)
+            struct.pack_into('<I', data, FLAGS_AT, struct.unpack_from('<I', data, FLAGS_AT)[0] | SHADOW_OMNI)
+            struct.pack_into('<f', data, NEAR_CLIP_AT, NEAR_CLIP)
+            data = bytes(data)
         subs += pack_subrecord(tag.decode('latin1'), data)
     return pack_fo4_record('LIGH', fid, 0, subs)
 

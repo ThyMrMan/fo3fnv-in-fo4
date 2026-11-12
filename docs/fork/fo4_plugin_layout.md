@@ -745,7 +745,8 @@ anything naming FNV content (the new-game quest names VCG00; the character
 rules quest names FNV's perk list; aim models and projectile copies belong
 to their guns).
 
-An ESL holds 2,048 records in FO4 (object ids 0x800 to 0xFFF); the
+An ESL holds 4,095 records in FO4 (object ids 0x001 to 0xFFF with a master;
+[light plugins](research/fo4_light_plugins.md#rules)); the
 candidates are a few hundred. Build it with the game plugin's build at
 first; the gain is a separate rules-only build of seconds. Measure first
 whether [incremental records](#incremental) already make a rules change a

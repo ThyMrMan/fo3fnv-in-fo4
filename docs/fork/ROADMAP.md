@@ -47,7 +47,7 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
 | Grass | Grass where New Vegas grows it, at its density | Built, not played | Fixes for the triangle at the tips and the dark flecks (the texture now clamps, as New Vegas does) and for the color (vertex tint on) are built. Swapping in Fallout 4's grass was ruled out. | [grass](fo4_look.md#grass) |
 | Lights and glow | Lamps, windows, lanterns and animated signs | Built, not played | Lanterns and lamps work. Fixes for the dim OPEN and SAL signs and the Strip's night horizon glow are built. The saloon window is still far too yellow; it needs a shot from the next build. | [neon](fo4_look.md#route-neon) |
 | Overall color tone | New Vegas's color grading and warmth | Built, not played | Fallout 4's tone curve and bloom with New Vegas's tint and saturation on top, at a fixed exposure that keeps New Vegas's mid-tones (decided 2026-11-09). | [FO4 route](fo4_look.md#fo4-route) |
-| Modern lighting and the Classic switch | Shadow-casting main lights and Fallout 4's light types, picked by each light's New Vegas role; an optional plugin restores the classic flat look | Built, not played | Up to 6 main lights per interior cast shadows. The Classic Look plugin is an optional app step. | [plan](fo4_look.md#route-lights) |
+| Modern lighting and the Classic switch | Shadow-casting main lights and Fallout 4's light types, picked by each light's New Vegas role; an optional plugin restores the classic flat look | Built, not played | Up to 6 main lights per interior cast shadows, starting 64 units out so a ceiling fixture does not shadow its own light. The Classic Look plugin is an optional app step. | [plan](fo4_look.md#route-lights) |
 | Precombines and previs | Fallout 4's merged meshes and visibility data for dense areas | Not built | | [precombines](fo4_pipeline.md#before) |
 | Frame rate | Smooth play across the Mojave | Partial | Goodsprings to Primm holds the frame cap. Freeside, the Strip and Novac aren't measured. | [measured](fo4_pipeline.md#region-measured) |
 | Intro movie | New Vegas's intro, with sound | Works | | [play test](bink_movies.md#play-test) |
@@ -195,9 +195,10 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
 
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
-| Slots | The Strip's and the Sierra Madre's slot machines, on our own 2D menu | Built, not played | Wins and losses, Luck, comps levels and the floor managers' dialogue; the menu itself (keys, images, font) is untried in game. Spins don't count toward the challenge yet. | [slots](fo4_casino_plan.md#slots-built) |
-| Blackjack, roulette | The Strip's and the Sierra Madre's tables | Not built | A table says the game isn't playable yet; the casino's ban and the anti-cheat wait already apply. | [plan](fo4_casino_plan.md#records-built) |
-| Casino menu test | A console test screen for the new menu (`cqf FNV_Casino Spike`) | Works | Keys, mouse, text and images work in a menu of our own. | [spike](fo4_casino_plan.md#toolchain-found) |
+| Slots | The Strip's and the Sierra Madre's slot machines, on our own 2D menu | Works | Spins pay out and take chips. Luck, comps levels, the floor managers' dialogue and the Sierra Madre's machines aren't checked. Spins don't count toward the challenge yet. | [slots](fo4_casino_plan.md#slots-built) |
+| Roulette | The Strip's and the Sierra Madre's roulette tables, on our own 2D menu | Built, not played | Click a spot to bet, click it again to take the chips off. Pays as New Vegas does, its 0 and 00 quirks included. No spin animation or sounds; no gamepad cursor over the board. Spins don't count toward the challenge yet. | [roulette](fo4_casino_plan.md#roulette-built) |
+| Blackjack | The Strip's and the Sierra Madre's blackjack tables | Not built | A table says the game isn't playable yet; the casino's ban and the anti-cheat wait already apply. | [plan](fo4_casino_plan.md#records-built) |
+| Casino menu test | A console test screen for the new menu (`cqf FNV_Casino Spike`) | Works | Keys, mouse, text and images work in a menu of our own. Drawing it in your HUD color is built, not played (white without F3NV.dll). | [spike](fo4_casino_plan.md#toolchain-found) |
 | Caravan | New Vegas's card game | Not built | Picked-up cards join your collection; asking to play says the game isn't playable yet (or that you need 30 cards). | [plan](fo4_casino_plan.md#records-built) |
 
 ### DLC and add-on packs
@@ -233,7 +234,7 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
   ([challenges](fo4_pipeline.md#challenges-left-out))
 - With CBBE installed, bare skin in converted outfits looks scrambled.
   ([body plan](fo4_bodies_cbbe.md))
-- Blackjack, roulette and Caravan aren't playable yet; slot machines are built but not played.
+- Blackjack and Caravan aren't playable yet.
 
 Please report what you find in
 [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
@@ -262,6 +263,8 @@ Please report what you find in
   ([menu](fo4_menu_audit.md), [timing](fo4_timing_audit.md)).
 - **Mod builds:** convert one mod against a built game
   ([plan](fo4_mod_builds.md)).
+- **Load order:** converted mods in the user's FNV order, a conflict report,
+  a merged patch and LOOT rules ([plan](fo4_load_order.md)).
 - **Build time:** faster face fits, caches that survive unrelated edits, mod
   builds that reuse the game build ([plan](fo4_build_speed.md)).
 - **Differences from New Vegas** that could be closed later: attack and equip
@@ -277,6 +280,11 @@ Please report what you find in
 | A choice between New Vegas and Fallout 4 combat | An idea, not planned |
 | Other languages' movie tracks | Only English is checked ([Bink](bink_movies.md)) |
 | [Graphics research](research/graphics_options.md) | Notes to revisit later |
+| [Spin-off mods](spin_offs.md) from F3NV.dll (framework, content mods, dynamic collision) | Planned, not started; the dialogue menu goes first. [Strategy](spin_offs.md#strategy): open, drop-in replacements for XDI, then HUDFramework; waiting on the author's reply about licenses |
+| [Dialogue menu as its own mod](dialogue_menu_mod.md) (XDI replacement) | Planned, not started; first step is the own-movie spike |
+| [Our own Flash menu framework](swf_framework.md) (dialogue, casino, Pip-Boy) | Planned, not started; four spikes first |
+| [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned, not started; first spike is a vanilla sneak-headroom test |
+| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | Texture BA2 without Archive2 and loudness lips built, not built in game; Caprica only is blocked by one Caprica gap; the rest are ideas |
 
 ## <a id="inherited"></a>The inherited Skyrim converter
 
@@ -308,6 +316,10 @@ project. Their last status is in the [development log](dev_log.md#character).
 | [nvse_script_language.md](nvse_script_language.md) | NVSE's script language in converted scripts |
 | [fo4_hotfix.md](fo4_hotfix.md) | Script hotfixes between builds |
 | [kill_cams.md](kill_cams.md) | Kill cams and killmoves for converted weapons |
+| [spin_offs.md](spin_offs.md) | Releasing parts of F3NV.dll as mods anyone can use |
+| [dialogue_menu_mod.md](dialogue_menu_mod.md) | The dialogue menu as a standalone XDI replacement |
+| [swf_framework.md](swf_framework.md) | One Flash toolkit for our menus, and a Pip-Boy framework |
+| [dynamic_collision_mod.md](dynamic_collision_mod.md) | Collision that changes size while playing (crouch, swim) |
 | [fo4_tool_audit.md](fo4_tool_audit.md) | The converter audit before the whole-map build |
 | [dev_log.md](dev_log.md) | The development history up to the alpha |
 
@@ -332,10 +344,15 @@ Research: [Fallout 4 as the target](research/fo4_target.md),
 [lip files](research/lip_format.md),
 [damage threshold reference](research/fo4_damage_threshold_reference.md),
 [dynamic collision](research/fo4_dynamic_collision.md),
+[light plugins](research/fo4_light_plugins.md),
 [character findings](research/character_findings.md),
 [dialogue robustness](research/fo4_dialogue_robustness.md),
+[our own FNV NIF reader](research/fnv_nif_reader.md),
 [creature rig prior art](research/fo4_creature_rig_prior_art.md)
 ([community ports](research/fo4_creature_rig_prior_art/fnv_fo3_creature_ports.md),
 [technique](research/fo4_creature_rig_prior_art/fo4_creature_technique.md),
 [Havok tools](research/fo4_creature_rig_prior_art/fo4_havok_tools.md),
-[new-creature mods](research/fo4_creature_rig_prior_art/fo4_new_creature_mods.md)).
+[new-creature mods](research/fo4_creature_rig_prior_art/fo4_new_creature_mods.md)),
+[FO4 animation replacer port](research/fo4_oar_port.md),
+[open frameworks and tools survey](research/fo4_open_landscape.md),
+[CommonLibF4 forks](research/commonlibf4_forks.md).

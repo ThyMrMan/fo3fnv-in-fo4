@@ -12,6 +12,8 @@ import re
 import shutil
 from pathlib import Path
 
+from fo4_import.base.build_files import BOOKS
+
 #: Plugin extensions a renamed plugin may have had.
 EXTENSIONS = ('.esp', '.esm', '.esl')
 
@@ -61,7 +63,8 @@ def retarget_faces(folder: Path, plugin: str) -> int:
 def drop_old_plugins(data_dir: Path, plugin: str) -> int:
     """Delete the plugin files `plugin` had under another extension in `data_dir`, with their sidecars
     (`<old name>.files.txt`...; the ledger, named by stem, stays); how many went."""
-    gone = [path for name in old_names(plugin) for path in Path(data_dir).glob(f'{name}*') if path.is_file()]
+    gone = [path for name in old_names(plugin) for folder in (Path(data_dir), Path(data_dir) / BOOKS)
+            for path in folder.glob(f'{name}*') if path.is_file()]
     for path in gone:
         path.unlink()
     return len(gone)

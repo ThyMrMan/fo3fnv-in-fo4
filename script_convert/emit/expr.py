@@ -60,36 +60,28 @@ _REF_RETURNING = frozenset({
 def is_ref_typed(conv, node: N.Expr) -> bool:
     """Does this expression evaluate to an object reference?
 
-    Drives the `== 0` -> `== None` rewrite below.  A wrong answer here is a
-    compile error in one direction (`Int == None`) and a silently-true test in
-    the other, so it checks the declared type, the two literal self-forms, and
-    the ref-returning calls -- exactly the four routes the string version used.
+    Drives the `== 0` -> `== None` rewrite (wrong is `Int == None` or a silently-true test). A bare name is
+    one when it is a self-form, an event parameter, a ref-returning command read bare (`getActionRef`), or
+    typed so: declared, registered under any casing, or a record not yet registered (`Cell == 0`).
+    See: docs/fork/fo4_script_compile.md#record-compared-to-zero
     """
     if isinstance(node, N.Ident):
         low = node.name.lower()
-        if low in ('self', 'this', 'getself'):
+        if low in ('self', 'this', 'getself') or low in EVENT_REF_PARAMS or low in _REF_RETURNING:
             return True
-        # An event parameter is an ObjectReference the script never declares,
-        # so no lookup can find its type.
-        if low in EVENT_REF_PARAMS:
-            return True
-        # TES4 reads a zero-argument command bare, so `getActionRef` arrives as
-        # an Ident, not a Call -- the same name in either shape is the same
-        # reference-returning command.
-        if low in _REF_RETURNING:
-            return True
-        # Case-insensitive: `_property_refs` is keyed by the AUTHORED spelling,
-        # so a source `timer` does not find a registered `Timer` by exact
-        # lookup -- and getting that wrong emitted `Timer <= 0` on an
-        # ObjectReference, which does not compile.
-        t = (conv.type_of(node.name)
-             or conv._property_type_ci(node.name)).lower()
+        t = (conv.type_of(node.name) or conv._property_type_ci(node.name) or _record_type(conv, node.name)).lower()
         return bool(t) and t not in _VALUE_TYPES_LOW
     if isinstance(node, N.Call):
         return node.name.lower() in _REF_RETURNING
     if isinstance(node, N.Member):
         return _member_is_ref(conv, node)
     return False
+
+
+def _record_type(conv, name: str) -> str:
+    """The property type of the record `name` names, or '' when none does."""
+    fid, canon = _resolve.record_formid(conv, name) if conv.xref is not None else ('', name)
+    return conv._record_property_type(fid, conv.xref.formid_to_edid.get(fid, canon)) if fid else ''
 
 
 def _member_is_ref(conv, node: N.Member) -> bool:

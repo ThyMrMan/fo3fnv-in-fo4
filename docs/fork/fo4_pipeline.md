@@ -4000,6 +4000,19 @@ appeared in four sessions' logs. Now:
 - Not covered: the 6 converted script lines reading `GetTalkedToPC`
   ([script markers](script_markers.md#native-read-follow-ups)).
 
+<a id="master-mirrors"></a>**A mod's copy of a master's script keeps the master's mirrors (built 2026-11-11, not played).**
+Benny repeated his greeting, and objective 10 of `VMQTops` never showed as done.
+YUP ships its own `FALLOUTNV_BennySCRIPT.pex`, which overrides the base game's.
+Each plugin's conversion picked its quest-variable mirrors (`TES4QVar_`) and objective mirrors
+(`TES4ObjDone_`, `TES4ObjShown_`) from its own conditions only. YUP's lines don't test those
+objectives, so YUP's copy called `SetObjectiveCompleted(10, 1)` without the mirror `SetValue`s.
+The base game's lines read those mirrors, so they never changed. One session's log had 1,069 warnings that
+the properties a VMAD binds were missing from the overriding script: 844 `TES4QVar_`, 156 `TES4ObjShown_` and 69 `TES4ObjDone_`.
+On Fallout 4 a plugin with masters now picks both kinds of mirror from its masters' INFO, PACK, QUST
+and SCPT records plus its own (`script_convert/pipeline.py:_mirrors`, `context_setup.chain_records`).
+The masters' builds own those globals. An overriding script's properties bind through the master's VMAD.
+Not checked: whether a mod's own new script that sets a master's mirror gets that global bound in the mod's VMAD.
+
 ## <a id="trace"></a>Session trace (built 2026-10-13)
 
 Quest bugs in the opening chain showed in game only as "she stands there".
@@ -4070,8 +4083,9 @@ hand.
   `script_convert.pipeline` into that folder first (about 22 s, counted as
   the `script conversion` stage). The compile goes by each script's text, so
   only the scripts that changed recompile.
-- **The stamp.** `<plugin>.build.json` sits beside the plugin
-  (`build_steps.write_stamp`). It records:
+- **The stamp.** `<plugin>.build.json` sits in the build records beside
+  the plugin ([build files](#build-files); `build_steps.write_stamp`). It
+  records:
   - `status`: `running`, `finished` or `failed`;
   - when the build started and ended, and its command;
   - the commit it started from, and the files that then differed from it.
@@ -4088,7 +4102,8 @@ order ([audit](fo4_tool_audit.md#formids)). Simulated with the real writer,
 growing today's 11,302 hashed ids tenfold moved 34–70 of them.
 
 - **The ledger** (`fo4_import/base/ledger.py`) is `<plugin stem>.formids.tsv`
-  beside the plugin. Each build reads it first: a key it holds keeps its id,
+  in the build records beside the plugin ([build files](#build-files)).
+  Each build reads it first: a key it holds keeps its id,
   and its ids are reserved so no new key can take one. A key it lacks is
   hashed as before and added. The file is sorted text, one line per id.
 - **Stable numbers** (a quest's alias ids, Say Once marker stages) are kept
@@ -4173,6 +4188,9 @@ trail: `##r`, `##ri`, `##rio`...). FNV loads them; pyffi refuses them
 (`Not a NIF file`, `string index too large`). Every FNV NIF and KF read
 goes through `nif/fnv_file.read`, which starts at the last format name in
 the header line and reads a string index past the table as an empty name.
+It reads with our own reader (`nif/fnv_reader`), and with pyffi only a file
+of another version or with a block ours could not read
+([fnv_nif_reader](research/fnv_nif_reader.md#integration)).
 
 ## <a id="water-heights"></a>Water heights (built 2026-10-17)
 
@@ -5566,6 +5584,62 @@ case-sensitive, not yet confirmed in game.
   builds: every one of the base game's 16,044 scripts and every DLC's
   record a compile (`compile_state.json`), and none carries that name.
 
+### <a id="caprica-temp-alias"></a>Caprica's temp aliasing (found 2026-11-11, not built in game)
+
+After an `&&` or `||`, Caprica v0.3.0 can give one temp to two live values.
+`If a && b` then `If Foo() == 1` compiles to `CALLSTATIC Foo ::temp0`,
+`CAST ::temp0 1`, `COMPAREEQ ::temp0 ::temp0 ::temp0`: always true. FO4's
+compiler casts into a separate temp. In the 2026-11-11 build, 97 such compares
+in 43 FalloutNV scripts, among them Victor's move to Novac at game start
+(`VES01aVictorInNovacQuestSCRIPT`'s `IsPlayerInRegion`), the Psych Test's tag
+skill checks (`VCG01TestSCRIPT`) and Doc's chair trigger.
+
+- Each Caprica run dumps its assembly (`--dump-asm`); a script with an
+  instruction reading one temp in two source operands (`caprica.aliased`)
+  loses its .pex and FO4's compiler compiles it. The .pas files are deleted.
+- A `compile_state.json` made by another Caprica keeps no results
+  ([below](#caprica-ours)), so every script compiles once more.
+- Fallout 4 rows flagged `cmp_bool`/`bare_bool` (InRegion, LimbGone, the
+  Hardcore checks) now fold `== 1` as Skyrim rows do
+  (`command_rows_fallout4.COMPARISON_BOOL`).
+- **Fixed in our Caprica build** ([below](#caprica-ours)). The `aliased`
+  check stays as a guard and flags nothing with it.
+
+### <a id="caprica-ours"></a>Our Caprica build (2026-11-11, not built in game)
+
+`external/caprica/Caprica.exe` is Caprica v0.3.0 (commit `2042c90`) with
+`external/caprica/f3nv.patch` applied, built by its CI's recipe (Release,
+static runtime, `x64-windows-static`); SHA-256 `531dd67b…d74c66`. The
+release exe it replaced is `389fef19…153ec6`. Two fixes:
+
+1. **Temps (the aliasing above).** `PexFunctionBuilder::fixup` freed every
+   temp an instruction named, the one it writes included. `a && b` is
+   `ASSIGN t a`, `JUMPF t`, `ASSIGN t b`, so `t` was freed twice while it
+   still held the result, and `IntrusiveStack::push` of a node already on
+   top links it to itself: from then on every temp of that type is the same
+   slot. Now a temp is freed only when read, never pushed twice
+   (`TempVarDescriptor::isFree`), and a temp written again leaves the free
+   list (`markTempLive`). Also fixes `(a || b) == Foo()`, where `Foo`'s
+   result overwrote the `||` result.
+2. **`<`, `<=`, `>`, `>=` on strings**, as FO4's compiler allows
+   (`PapyrusBinaryOpExpression::semantic`; the code was already emitted).
+   `F3NV_Array.KeyBefore` needs it ([CK replacements](fo4_ck_replacements.md#caprica)).
+
+The patch also moves `vcpkg.json`'s baseline to current vcpkg (with fmt
+held at 9.1.0, the old baseline's): Boost 1.80's own build tool fails under
+Visual Studio 18. To rebuild: check out `2042c90` of `Orvid/Caprica`,
+`git apply f3nv.patch`, then CMake with the vcpkg toolchain as above.
+Not offered upstream (decided 2026-11-11): Caprica has had no release in
+three years and no fork is active, so the patch is ours to keep.
+
+**Checked (2026-11-11, FalloutNV.esm's 17,507 converted scripts,
+`caprica.compile_files`):** the release leaves 60 to FO4's compiler, 59
+flagged by `aliased` plus `F3NV_Array`; our build compiles 17,490, the
+same 16 own errors, none aliased. The new `F3NV_Array` (no `Var` defaults)
+compiles too; `KeyBefore` is `COMPARELT` on its two string casts.
+`compile_state.json` records the exe's SHA-1 (`caprica.build_tag`), so a
+state another Caprica made keeps no results and every script compiles once.
+
 ### <a id="caprica-errors"></a>Whose failure it is, and the runs it costs (built 2026-11-10, not built in game)
 
 **Before.** Every script Caprica failed went to FO4's compiler, and each
@@ -5932,7 +6006,8 @@ the files unchanged since, in contiguous blocks, out of the previous
 archive, reading only the rest from disk, 16 at a time. Measured: a first
 pack from cold files 607 s (opening 248,028 files dominates); a pack with
 nothing changed is skipped after listing the files (21 s). The texture
-archive stays on Archive2 (DX10 chunking), and was not a measured cost.
+archive is ours too since 2026-11-11 (`base/ba2_textures`,
+[why and the check against Archive2](fo4_ck_replacements.md#ba2)).
 
 <a id="main-archive"></a>**Meshes and materials join the sounds in the Main
 BA2 (2026-11-09, built, not played).** The deployed mod still held 63,500
@@ -5962,15 +6037,60 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   entries in the 6.1 GB archive already end past 4 GiB, among them Doc
   Mitchell's lines (offset 5.6 GB), and the roadmap has NPC voices
   working.
-- **Loose copies stay in the build folder.** The build reads them (mesh and
-  Elric caches, stale lists, object LOD, `master_copies`, the DLC's master
-  folder), so the archive is an extra copy. `tools.release.fo4_deploy` drops
-  every build file an archive at the top of the build folder holds
-  (`archived`) and deletes the mod folder's loose copies of them on every
-  run, `--delete-stale` or not (`remove_shadowing`): the Play profile sets
-  `bInvalidateOlderFiles=1` and an empty `sResourceDataDirsFinal`, so a
-  loose file wins over the archive and an old one would hide the new mesh.
-  Scripts stay loose, so `fo4_hotfix` still wins.
+- **Loose copies leave the Data folder after the build (2026-11-11).** A
+  mod or DLC build writes straight into its MO2 mod folder, so the deploy's
+  clean-up below never ran for it: on 2026-11-11 the `F3NV - *` folders held
+  410,702 loose files, 361,518 of them copies of what the same mod's Main
+  archive held. `fo4_import.pipeline.run` now ends with
+  `ba2_pack.drop_packed`: every loose file the plugin's own Main or Textures
+  archive holds is deleted (a loose file wins over the archive, and MO2's
+  usvfs pays for each one at launch). The build still reads those files (the
+  stale lists, object LOD, the Creation Kit's animation data list, FaceGen's
+  checks, the script compiler's state), so it starts with
+  `restore_packed`: each Main-archive file under `PACKED` that is not loose
+  is written back from the archive, dated as the archive, so `stale_files`
+  does not count it as made by this build, and spelled as the archive
+  stores it (`Archive.spelled`): `stale_files` compares spellings with the
+  last file list, and a first version that wrote the lowercase names pruned
+  all 6,192 `Meshes/Actors` files of a scratch Classic Pack build. Meshes and materials are
+  rewritten every build anyway (`elric_cache.write_new`); what the restore
+  matters for is what no writer remakes each build: the CK's AnimTextData
+  and FaceGen. `--keep-loose` skips the drop, for a build folder that
+  `tools.release.fo4_deploy` copies (it drops the archived files itself:
+  `archived`, then `remove_shadowing` deletes the mod folder's copies on
+  every run, `--delete-stale` or not, since the Play profile sets
+  `bInvalidateOlderFiles=1` and an empty `sResourceDataDirsFinal`). The
+  app's stages run the same commands, so its mod builds drop too.
+- **Scripts join Main (2026-11-11).** `PACKED` holds `Scripts/*.pex` (only
+  `.pex`: anything else in `Scripts` stays out). That was 16,189 loose
+  scripts in the game's build and each mod's own. Vanilla ships scripts the
+  same way: `DLCCoast - Main.ba2` holds 830 `.pex`, `DLCNukaWorld` 908,
+  `DLCRobot` 483, each Creation Club `- Main.ba2` its own, and the base
+  game's 7,875 are in `Fallout4 - Misc.ba2`. Hotfixes still win:
+  `fo4_hotfix` writes loose `.pex` into the separate `F3NV - Hotfix` mod,
+  and a loose file beats an archived one; the deploy clears a hotfix older
+  than the build as before ([clearing](fo4_hotfix.md#clearing)). The
+  compiler reads the loose `.pex` of its own output folder
+  (`missing_pex`, `remove_orphans`), which `restore_packed` gives back.
+- **FaceGen joins the archives (2026-11-11).** The faces stage
+  (`spike.facegen`) runs after the build and left its FaceGeom NIFs and
+  FaceCustomization textures loose until the next build packed them. It
+  now restores the Main archive's files, exports, then packs: FaceGeom NIFs
+  into Main, the face textures into `- Textures.ba2` (`pack_textures` with
+  `prune=False`, since that run staged no texture and must not prune the
+  build's), and drops the loose copies. Vanilla does the same:
+  `Fallout4 - Meshes.ba2` holds 1,094 FaceGeom NIFs and the texture
+  archives the FaceCustomization textures; `DLCCoast` 153 NIFs in Main and
+  459 face textures in its Textures archive, `DLCNukaWorld` 224 and 672.
+  A staged texture the run did not stage keeps the last pack's signature
+  while its file is unchanged, so the next build does not rewrite it.
+- **A master folder is read through its archives.** A dependent build reads
+  its masters' deployed folders, whose loose copies are gone:
+  `ba2_pack.data_file` (the persistent subgraph list,
+  `gun_anim_text.merge_persistent`) and `archived_names` (`adopted_scripts`:
+  a master script compiled into the master's archive is not compiled again
+  into the dependent plugin; preflight's `quest_converted.load_scripts`).
+  Meshes go by the master's `<plugin>.meshes.json` as before.
 - **Cost.** `write_general` packed 6,000 of those files (298 MB) in 2.1 s
   and read all back byte-identical (`Archive`); the full set is about 16 s
   warm, up to about 2 minutes from cold files (the sound pack's 400 files/s).
@@ -5983,6 +6103,28 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   own-rig skeletons in its archive too. The CK (AnimInfo, FaceGen) runs
   through MO2 and should load a plugin's own archives with it, as it does
   vanilla DLC's; not yet checked on a packed deploy.
+
+<a id="build-files"></a>**The build's records leave the Data folder
+(2026-11-11).** Each plugin's build kept its records beside the plugin, in
+the game's Data: the stamp (`.build.json`), the stale list (`.files.txt`),
+the FormID ledger (`.formids.tsv`), the inputs record (`.inputs.json` and
+the `.record/` folder of per-process files), the archive records
+(`<archive>.ba2.json`), the finished-mesh list (`.meshes.json`), the CK
+animation list and key (`.animinfo.txt`, `.animinfo.key`), and the script
+compiler's `Scripts/compile_state.json`: 818 files in the `F3NV - *`
+folders. They now live in `F3NV_Build.mohidden` beside the plugin
+(`fo4_import.base.build_files`; `Scripts/F3NV_Build.mohidden` for the
+compiler's state). MO2 and its usvfs skip every `.mohidden` path, so the
+game and the CK see none of them, and the records still travel with the
+plugin's folder, where every reader finds them from the plugin's path: the
+build stamp, the ledger a dependent build reads from its master's folder,
+`fo4_deploy`, `fo4_hotfix`, `fo4_install_check`, preflight, the app.
+`moved_in` is the one place a record's path is made: a record an older
+build left beside the plugin moves into the folder on first use, or, with
+both there, the newer one stays, so no ledger is lost. The deploy copies
+the folder but the inputs record. A tool on the new code moves an old
+folder's records, so a build on older code reading the same folder no
+longer finds its ledger: run every build on the new code once one has.
 
 <a id="clip-cache"></a>**FNV clips decoded once (2026-10-29).** The same
 build spent about 12 min decoding FNV `.kf` clips (guns, idles, creature
@@ -6479,6 +6621,19 @@ its free-standing post vanished from some angles. The grime shells only blend
 (0x10ED, no test, all three measured meshes); alpha test marks cut-out
 geometry. `overlay_layers` now passes over a tested shape, which converts
 as before the rule: an alpha-tested BGSM (`mobilehome02nv_a12ec_100`).
+
+*Bounded memory (2026-11-11).* The distance test (`nif/surface_gaps.py`)
+once took 256 layer points against every opaque triangle at once. On The
+Frontier's space station (677,436 triangles) one temporary was 3.88 GiB.
+Now groups of at most 256 nearby points are tested only against the
+triangles whose box, grown by the 4-unit gap, reaches the group. Pairs go
+2^18 at a time, so each temporary is 6 MB. A triangle counts for a point
+whose projection lies inside it with every barycentric coordinate at least
+-1e-6 over its doubled area. Such a projection lies inside the triangle
+scaled by 1 + 3 × that about its centre, so the box can't drop a point that
+counts. Measured identical to the old test: 30 random soups (slivers
+included), and 96 real layers in 68 meshes (16,505 near points); all 225
+sampled statics are byte-identical.
 
 <a id="wall-lean"></a>**Wall leans face the wall (built 2026-10-24, not yet played).** NPCs
 leaned on air facing the wall (Freeside, 001381D2 and others). All 352

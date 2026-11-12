@@ -131,7 +131,7 @@ def test_anim_info_moves_this_runs_files_and_keeps_last_runs(tmp_path, monkeypat
     moved = mod / 'Meshes' / 'AnimTextData' / 'AnimationSpeedInfo' / '2.txt'
     assert moved.read_text() == '-GenerateAnimInfo:Test.esp Data Data --speed --stance'
     assert (mod / 'Meshes' / 'AnimTextData' / 'DynamicIdleData' / '2.txt').read_bytes() == b'Version 1\n'
-    assert plugin.with_name(plugin.name + anim_info.LIST_SUFFIX).read_text().splitlines() == [
+    assert anim_info.moved_in(plugin.with_name(plugin.name + anim_info.LIST_SUFFIX)).read_text().splitlines() == [
         'Meshes/AnimTextData/AnimationSpeedInfo/1.txt', 'Meshes/AnimTextData/AnimationOffsets/2.txt',
         'Meshes/AnimTextData/AnimationSpeedInfo/2.txt', 'Meshes/AnimTextData/DynamicIdleData/2.txt']
 

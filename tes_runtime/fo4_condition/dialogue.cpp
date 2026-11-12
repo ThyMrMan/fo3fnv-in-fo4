@@ -21,6 +21,7 @@
 #include "f4se_common/SafeWrite.h"
 
 #include <atomic>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -104,6 +105,9 @@ const size_t PLAYER_RESPONSE = 0xD3C;
 // BGSScene flags (Scene.Stop sets STOPPING). Action flags: the player line done (the NPC slot runs next), the NPC
 // line said. Player: the flag that skips the talking wait (0x4159B3). Actor: the "talking" vtable slot.
 const size_t SCENE_FLAGS = 0x28, ACTION_FLAGS = 0x10, PLAYER_NO_WAIT = 0x440, TALKING_SLOT = 0x270 / 8;
+// TESObjectREFR's model state (CommonLibF4's modelState); 1 while its 3D loads, when 0x415AC5 holds the NPC's line.
+const size_t REFR_MODEL_STATE = 0x10A;
+const UInt8 MODEL_LOADING = 1;
 const UInt32 SCENE_STOPPING = 0x100000, PLAYER_DONE = 0x2000000, NPC_SAID = 0x4000;
 const UInt32 NO_OPTION = 4, FIRST_OURS = 5, SLOTS = 4;
 // DialogueMenu: the Question holder's shader target (registerObjects keeps the four at +0xE0, Question last). The
@@ -144,11 +148,15 @@ struct Menu {
     void *action = nullptr;
     std::vector<Option> options;
 };
+// The answer line, once picked, and the action that asked for it: the engine asks that action's NPC slot again each
+// frame until the NPC can say it (0x415AC5 waits while the NPC's 3D loads), and each ask must get the same line.
 struct Chosen {
     void *action = nullptr;
     UInt32 index = 0;
     Option option{};
-    bool answered = false;
+    TESForm *line = nullptr;
+    void *answeredBy = nullptr;
+    UInt32 asks = 0;
 };
 
 std::mutex g_dialogueLock;
@@ -278,11 +286,51 @@ std::string Tagged(const char *prompt, const Check &check, bool *failed) {
     return tag + (rest == std::string::npos ? std::string() : text.substr(rest));
 }
 
-// An option as listed: the prompt of `line` (the answer line that plays) when it has one, else the option's; tagged
-// live with the skill check of that line, else of the option.
+// The value of FNV text macro `name` (lower case) for the player, as FalloutNV.exe 0x7070C0 gives it: PCName the
+// player's name, PCRace their race's name; null for any other (the build turns control macros into FO4 tags).
+const char *MacroValue(const std::string &name) {
+    PlayerCharacter *player = *g_player;
+    if (!player) return nullptr;
+    if (name == "pcname") return player->baseForm ? player->baseForm->GetFullName() : nullptr;
+    if (name == "pcrace") return player->race ? player->race->GetFullName() : nullptr;
+    return nullptr;
+}
+
+// The lower-case name between `from` and the next ';' of `text`, and that ';' in `end`; "" when there is none.
+std::string MacroName(const std::string &text, size_t from, size_t *end) {
+    *end = text.find(';', from);
+    if (*end == std::string::npos) return "";
+    std::string name = text.substr(from, *end - from);
+    for (char &c : name) c = char(std::tolower(UInt8(c)));
+    return name;
+}
+
+// `text` with FNV's player macros (&PCName; and &PCRace;, any case) written out, as FNV writes them in a prompt.
+// Plugins built for XDI wrote the & as &amp; (&amp;PCName;), and are read the same.
+std::string Expanded(std::string text) {
+    size_t at = 0, end = 0;
+    while ((at = text.find('&', at)) != std::string::npos) {
+        std::string name = MacroName(text, at + 1, &end);
+        if (end == std::string::npos) break;
+        if (name == "amp") name = MacroName(text, end + 1, &end);
+        if (end == std::string::npos) break;
+        const char *value = MacroValue(name);
+        if (!value) {
+            at++;
+            continue;
+        }
+        text.replace(at, end - at + 1, value);
+        at += std::strlen(value);
+    }
+    return text;
+}
+
+// An option as listed: the prompt of `line` (the answer line that plays) when it has one, else the option's, with
+// FNV's player macros written out; tagged live with the skill check of that line, else of the option. Said (shown
+// dim) when `line` was said: FNV keeps said on its INFO, the answer line here, not on the one option per topic.
 Option Listed(TESForm *info, TESForm *answer, TESForm *line) {
     const char *own = Prompt(line);
-    Option option{info, answer, own && *own ? own : Prompt(info), At<UInt8>(info, INFO_SAID) != 0, false};
+    Option option{info, answer, Expanded(own && *own ? own : Prompt(info)), At<UInt8>(line, INFO_SAID) != 0, false};
     auto check = g_checks.find(line->formID);
     check = check != g_checks.end() ? check : g_checks.find(info->formID);
     if (check != g_checks.end()) option.prompt = Tagged(option.prompt.c_str(), check->second, &option.failed);
@@ -405,16 +453,38 @@ TESForm *PlayerSlot(void *action, void *scene, TESObjectREFR *target, SInt32 opt
     return picked.option.info;
 }
 
+// Whether `actor`'s 3D is loading (TESObjectREFR model state 1), which holds its line back (0x2C6E60).
+bool Loading3D(TESObjectREFR *actor) {
+    return actor && At<UInt8>(actor, REFR_MODEL_STATE) == MODEL_LOADING;
+}
+
+// The answer line already picked for our option: again for the action it went to (the engine asks until the NPC
+// can say it), none for another action. Logs the first ask again and every hundredth.
+TESForm *Again(const Chosen &picked, void *action, void *scene) {
+    if (picked.answeredBy != action) return nullptr;
+    UInt32 asks;
+    {
+        std::lock_guard<std::mutex> hold(g_dialogueLock);
+        asks = g_chosen.line == picked.line ? ++g_chosen.asks : 0;
+    }
+    NiPointer<TESObjectREFR> npc = ActionActor(action, scene);
+    if (asks == 1 || asks % 100 == 0)
+        _MESSAGE("dialogue menu: +%llu ms: asked again (%u) for %08X; NPC 3D loading %d", GetTickCount64() - g_pickedAt,
+                 asks, picked.line->formID, Loading3D(npc));
+    return picked.line;
+}
+
 // The answer to our option `chosen` (of Player Dialogue action `owner`, unless null), said by `action`'s actor: its
-// answer topic's first passing INFO, once.
+// answer topic's first passing INFO, picked once and given to that action until it is said.
 TESForm *Answer(void *owner, void *action, void *scene, UInt32 chosen, const char *where) {
     Chosen picked;
-    if (!PickedOption(owner, chosen, &picked) || picked.answered) return nullptr;
+    if (!PickedOption(owner, chosen, &picked)) return nullptr;
+    if (picked.line) return Again(picked, action, scene);
     NiPointer<TESObjectREFR> npc = ActionActor(action, scene);
     TESForm *info = npc ? Pick(picked.option.answer, npc, *g_player) : nullptr;
     if (info) {
         std::lock_guard<std::mutex> hold(g_dialogueLock);
-        if (g_chosen.action == picked.action) g_chosen.answered = true;
+        if (g_chosen.action == picked.action) g_chosen.line = info, g_chosen.answeredBy = action;
     }
     _MESSAGE("dialogue menu: %s answers %u from topic %08X with %08X", where, picked.index,
              picked.option.answer->formID, info ? info->formID : 0);
@@ -440,19 +510,21 @@ bool Talking(void *actor) {
     return actor && (*reinterpret_cast<TalkingFn **>(actor))[TALKING_SLOT](actor);
 }
 
-// While our picked option runs: each change in what the NPC slot waits on (0x415954), with the time since the pick.
+// While our picked option's action runs, through the NPC's line: each change in what the NPC slot waits on
+// (0x415954, 0x415AC5), with the time since the pick. The NPC talking turning 1 is when the answer starts.
 void TraceWaits(void *action, void *scene) {
     PlayerCharacter *player = *g_player;
-    if (!player || !g_pickedAt || g_chosen.action != action || g_chosen.answered) return;
+    if (!player || !g_pickedAt || g_chosen.action != action) return;
     NiPointer<TESObjectREFR> npc = ActionActor(action, scene);
     UInt32 flags = At<UInt32>(action, ACTION_FLAGS);
     UInt32 waits = (flags & PLAYER_DONE ? 1 : 0) | (flags & NPC_SAID ? 2 : 0) | (Talking(player) ? 4 : 0) |
-                   (At<UInt32>(player, PLAYER_NO_WAIT) & 2 ? 8 : 0) | (Talking(npc) ? 16 : 0);
+                   (At<UInt32>(player, PLAYER_NO_WAIT) & 2 ? 8 : 0) | (Talking(npc) ? 16 : 0) |
+                   (Loading3D(npc) ? 32 : 0);
     if (waits == g_lastWaits) return;
     g_lastWaits = waits;
-    _MESSAGE("dialogue menu: +%llu ms: player line %s, NPC line %s, player talking %d (no-wait flag %d), NPC talking %d",
-             GetTickCount64() - g_pickedAt, waits & 1 ? "done" : "pending", waits & 2 ? "said" : "not said",
-             (waits & 4) != 0, (waits & 8) != 0, (waits & 16) != 0);
+    _MESSAGE("dialogue menu: +%llu ms: player line %s, NPC line %s, player talking %d (no-wait flag %d), NPC talking %d"
+             ", NPC 3D loading %d", GetTickCount64() - g_pickedAt, waits & 1 ? "done" : "pending",
+             waits & 2 ? "said" : "not said", (waits & 4) != 0, (waits & 8) != 0, (waits & 16) != 0, (waits & 32) != 0);
 }
 
 // A Player Dialogue action's run: remember it as the running one.
@@ -530,7 +602,7 @@ public:
         {
             std::lock_guard<std::mutex> hold(g_dialogueLock);
             if (!action || action != g_menu.action || index >= g_menu.options.size()) return;
-            g_chosen = {action, index, g_menu.options[index], false};
+            g_chosen = {action, index, g_menu.options[index]};
             g_pickedAt = GetTickCount64();
             g_lastWaits = ~0u;
         }
@@ -587,7 +659,18 @@ public:
 class LogNative : public GFxFunctionHandler {
 public:
     void Invoke(Args *args) override {
-        if (args->numArgs > 0 && args->args[0].IsString()) _MESSAGE("dialogue menu: %s", args->args[0].GetString());
+        if (args->numArgs < 1 || !args->args[0].IsString()) return;
+        if (g_pickedAt) _MESSAGE("dialogue menu: +%llu ms: %s", GetTickCount64() - g_pickedAt, args->args[0].GetString());
+        else _MESSAGE("dialogue menu: %s", args->args[0].GetString());
+    }
+};
+
+// HudColor(): the player's HUD color (iHUDColor) as 0xRRGGBB, read on every call, for menus of our own that draw
+// their text and lines in it (the casino menu: docs/fork/fo4_casino_plan.md#hud-color).
+class HudColorNative : public GFxFunctionHandler {
+public:
+    void Invoke(Args *args) override {
+        args->result->SetUInt(HudColor("iHUDColor"));
     }
 };
 
@@ -599,6 +682,7 @@ bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin) {
     RegisterFunction<GetOptionsNative>(plugin, movie, "GetDialogueOptions");
     RegisterFunction<SelectNative>(plugin, movie, "SelectDialogueOption");
     RegisterFunction<LogNative>(plugin, movie, "Log");
+    RegisterFunction<HudColorNative>(plugin, movie, "HudColor");
     RegisterFunction<LeaveNative>(plugin, movie, "LeaveDialogue");
     RegisterFunction<ShadeNative>(plugin, movie, "ShadeList");
     RegisterFunction<TintFailedNative>(plugin, movie, "TintFailed");

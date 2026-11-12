@@ -16,6 +16,7 @@ from pathlib import Path
 from core.heavy_lock import hold_heavy_lock
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
+from fo4_import.base.ba2_pack import drop_packed, restore_packed
 from fo4_import.base.source_fault import report as fault_report, stamp as fault_stamp
 from fo4_import.pipeline import build_inputs
 from fo4_import.pipeline.build_steps import convert_scripts, source_state, write_stamp
@@ -136,26 +137,33 @@ def arguments() -> argparse.Namespace:
                     help="The app's settings file (fo4_import.app.settings); its mod sources are searched for "
                          'plugins after --plugin-dirs')
     ap.add_argument('--workers', type=int, default=0, help='Mesh conversion processes (default: all CPUs but one)')
+    ap.add_argument('--keep-loose', action='store_true',
+                    help="Keep the loose copies of what the plugin's archives hold (a build folder fo4_deploy copies)")
     ap.add_argument('cell', nargs='?', help='FNV interior cell editor ID (none: a DLC with no cell of its own)')
     return ap.parse_args()
 
 
 def main():
     """Build the plugin and assets once any other heavy job on the machine has finished, its stamp saying
-    running, then finished or failed.
+    running, then finished or failed; the loose copies of its archives' files are back for the build and gone
+    after it (but with --keep-loose).
     See: docs/fork/fo4_pipeline.md#build-stamp
+    See: docs/fork/fo4_pipeline.md#main-archive
     """
     args = arguments()
     hold_heavy_lock(' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]))
     configure_multiprocessing()
     create_pool_job()
+    print(f'loose files restored from the Main archive: {restore_packed(args.data, args.out.name)}')
     started = time.time()
     extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), **source_state()}
     write_stamp(args.out, 'running', started, extra)
-    build_inputs.start(args.out.with_name(args.out.name + build_inputs.RECORD_SUFFIX))
+    build_inputs.start(build_inputs.record_dir(args.out))
     try:
         build_all(args, started)
         build_inputs.write(args.out, args.data, sys.argv[1:])
+        if not args.keep_loose:
+            print(f'loose files the archives hold, removed: {drop_packed(args.data, args.out.name)}')
     except BaseException:
         write_stamp(args.out, 'failed', started, extra)
         raise
