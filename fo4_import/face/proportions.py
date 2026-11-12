@@ -34,6 +34,10 @@ MEASURES = (
     ('nose length', 'z', 'Nose - Bridge', 'Nostrils'), ('nose height', 'z', 'Nose - Tip', 'Eyes'),
     ('nose depth', 'y', 'Nose - Tip', 'Cheekbones'), ('upper lip', 'y', 'Mouth - Top', 'Mouth - Corners'),
     ('lower lip', 'y', 'Mouth - Bottom', 'Mouth - Corners'), ('lip height', 'z', 'Mouth - Top', 'Mouth - Bottom'),
+    ('cheek fullness', 'y', 'Cheeks', 'Cheekbones'), ('midface', 'z', 'Eyes', 'Mouth - Top'),
+    ('lower face', 'z', 'Mouth - Top', 'Chin<'), ('chin width', 'w', 'Chin', None),
+    ('jaw middle width', 'w', 'Jaw - Middle', None), ('chin point', 'y', 'Chin<', 'Jaw - Middle'),
+    ('eye depth', 'y', 'Eyes', 'Eyebrows - Full'),
 )
 AXES = {'x': 0, 'y': 1, 'z': 2}
 

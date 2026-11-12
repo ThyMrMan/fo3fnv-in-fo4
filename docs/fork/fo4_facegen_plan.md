@@ -651,6 +651,69 @@ the first export's miss.
   set so the body at the neck matches her face set's CK face texture there.
   Kilborn ×(1.09, 0.98, 0.92), from T1.
 
+**Played** (test mod 4, beside FNV). Kilborn is accepted: "isn't bad at
+all, he ain't perfect but is pretty close". Willow reads as too angular and
+older than FNV's youthful Willow, beyond the hair.
+
+#### <a id="willow-skin"></a>Why Willow looked older, measured
+
+All units are game units, and each value is the change from FO4's baseline
+female face.
+
+- **Shape: the target was relative.** C1 is FNV's offset from FNV's mean face,
+  carried onto FO4's base face, so FO4's own base shape stays. Against FNV
+  Willow's absolute surface (C2), FO4's base is the one that differs:
+
+  | Measure | C1 target | C2 (FNV's own face) | Test 4 (CK) |
+  |---|---|---|---|
+  | Chin point (Chin lower half minus Jaw - Middle, y) | +0.27 | -0.07 | +0.34 |
+  | Jaw middle width | -0.03 | +0.20 | -0.04 |
+  | Chin width | -0.15 | -0.02 | +0.01 |
+  | Lower face (Mouth - Top minus the lower Chin, z) | -0.14 | +0.01 | -0.12 |
+  | Cheek fullness (Cheeks minus Cheekbones, y) | +0.22 | -0.02 | +0.12 |
+
+  FNV's base female face is rounder and wider in the lower jaw than FO4's.
+  Willow's offset (a pointier chin than FNV's mean) made FO4's pointier
+  still. Test mod 5 fits C2F, which is FNV's own surface below the eyes and
+  on the jaw (as the third mod baked), and it adds these measures to the fit.
+- **Eyes:** FNV Willow's eye openings (the head mesh's holes) are the FNV
+  mean's size: 1.87 wide by 0.41 open, against 1.80 by 0.41. Her larger eyes
+  in FNV are not a shape offset. Eye depth relative to the brow is +0.04 in
+  C2, and test 4 already has +0.10.
+- **Normal map:** her face set used `BaseFemaleHead_n` (the player's default
+  face). Its fine detail (pores, the mean |xy| above a 1-texel blur, over the
+  face) is 0.034. That is close to FO4's weathered (0.030) and old (0.047)
+  female faces. Fallout4.esm's young female face set (`SkinHeadFemaleYoung`,
+  `PiperHead_n`) is 0.010, with the same wrinkle-scale shape (0.034 against
+  0.035). Its maps have the same format and size (BC5 1024, specular BC5
+  512). Test mod 5 overrides her face set's normal and specular with those.
+- **Colour:** her complexion tint layers are all 0. The CK's face texture
+  from her face set has a median of (132, 105, 90) over the face, against FNV's
+  whole skin at (144, 109, 88): cooler and greyer, (0.92, 0.96, 1.02) of FNV.
+  The neck tone that matched it then needed a blue boost: ×(1.12, 1.15, 1.28)
+  over the template. Test mod 5 scales the CK's face texture per channel to
+  FNV's skin median before taking the neck tone, and paints the rear head in
+  FNV's skin unscaled.
+
+**Test mod 5** (Willow only, `F3NV - FaceGen Test 5`, `FaceGenTest5.esp`,
+not yet played). A run now leaves out every earlier FaceGen test plugin
+(description starting `FaceGen test`) and the mod folder holding it. A
+first run read Willow through test mod 4's override and kept the race's rear
+head.
+
+- Shape (C2F, 19 measures): 0 controls at the bound, the largest 0.26, two
+  presets at 0.04 and 0.10. rms against C2F: none 0.074, test 4's fit 0.210,
+  CK round 1 0.016, round 2 0.004. Chin point -0.069 (test 4: +0.262), jaw
+  middle width +0.179 (-0.024), cheek fullness -0.015 (+0.250), lower face
+  +0.013 (-0.155).
+- Skin: `_msn` fine detail 0.011 (test 4: 0.029). The face texture median is
+  (140, 109, 90), against test 4's (132, 105, 90) and FNV's (144, 109, 88).
+  The neck tone is ×(1.22, 1.18, 1.24) over the template, against test 4's
+  ×(1.12, 1.15, 1.28).
+- The rear head is her own part on its own texture. Hair points inside the
+  scalp: 31 of 1,870, against 29 unmorphed. Each point within 1 unit of the
+  scalp moves by -0.31 to +0.21.
+
 #### <a id="ck-staging"></a>Running the CK without touching a mod folder
 
 MO2 sends the CK's new files to overwrite, but a file that already exists in

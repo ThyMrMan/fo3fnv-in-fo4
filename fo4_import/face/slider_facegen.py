@@ -38,8 +38,10 @@ from fo4_import.spike.facegen import CK_TARGET, FACEGEN_DIRS, HUMAN_RACE, ck_tim
 from fo4_import.spike.fnv_npc import fnv_face
 from tes5_import.base.tes5_reader import subrecords, walk
 
-#: The test plugin, the staging plugin the CK exports, and our files' folder under Meshes and Textures.
-PLUGIN, STAGING, OWN = 'FaceGenTest4.esp', 'FaceGenTest4CK.esp', 'FaceGenTest4'
+#: The default --name: the test plugin's stem and our files' folder under Meshes and Textures.
+NAME = 'FaceGenSliders'
+#: How every FaceGen test plugin's description starts (own_facegen's and ours), so a run reads past them.
+TEST_DESCRIPTION = 'FaceGen test'
 #: The part type of a hair.
 HAIR_PART = 3
 #: CK rounds: export, refit from the CK's heads, export again.
@@ -48,6 +50,10 @@ ROUNDS = 2
 NECK_REACH = 1.0
 #: A hair point this far inside the scalp clips it.
 CLIPS = -0.05
+#: Per sex (female?), Fallout4.esm's young face set (SkinHeadFemaleYoung, SkinHeadYoungMale) for --skin-maps young.
+YOUNG_FACE_SETS = {True: 0x0F7E65, False: 0x16F83D}
+#: HDPT part type of the eyes, and the face set slots of the skin maps it takes (normal TX01, specular TX07).
+EYES_PART, SKIN_MAPS = 2, ((1, b'TX01'), (7, b'TX07'))
 
 
 @dataclass(frozen=True)
@@ -60,6 +66,7 @@ class Problem:
     face: np.ndarray
     baseline: bytes
     presets: tuple
+    eye_part: str
 
 
 @dataclass(eq=False)
@@ -93,7 +100,17 @@ class Job:
     out: Path
     templates: dict
     layers: frozenset
+    #: The fit's target shape (bake variant C1 or C2F), and whether own face sets take the young skin maps.
+    shape: str = 'C2F'
+    young: bool = True
+    #: The test plugin's stem (its staging plugin adds 'CK') and our files' folder under Meshes and Textures.
+    name: str = NAME
     copies: dict = field(default_factory=dict)
+
+    @property
+    def staging(self) -> str:
+        """The staging plugin the CK exports."""
+        return f'{self.name}CK.esp'
 
 
 @functools.cache
@@ -111,8 +128,20 @@ def problem(female: bool) -> Problem:
     measures = proportions.measure_matrix(proportions.region_sets(basis, regions, names, face), face)
     morph_basis, morphs = presets.load_basis(female)
     picks = {(p.group, p.morph): p.key for p in presets.race_presets(human_race(), female) if p.morph in morphs}
+    eye_part = next(name for name in shapes(baseline) if name in eye_parts())
     return Problem(measures, basis, regions, face, baseline,
-                   (morph_basis, [(g, key, morphs.index(m)) for (g, m), key in picks.items()]))
+                   (morph_basis, [(g, key, morphs.index(m)) for (g, m), key in picks.items()]), eye_part)
+
+
+@functools.cache
+def eye_parts() -> frozenset:
+    """Fallout4.esm's eyes head part EditorIDs."""
+    out = set()
+    for rec, _ in walk(FALLOUT4_ESM.read_bytes(), b'HDPT'):
+        subs = dict(subrecords(rec.body))
+        if subs.get(b'PNAM') == struct.pack('<I', EYES_PART):
+            out.add(facegeom.zstr(subs[b'EDID']))
+    return frozenset(out)
 
 
 def old_values(npc: facegeom.Rec, regions: list) -> np.ndarray:
@@ -138,19 +167,19 @@ def part_of(src, face: Face, part_type: int) -> tuple:
     return part, raw
 
 
-def rear_path(face: Face) -> str:
+def rear_path(job, face: Face) -> str:
     """The NPC's own rear head texture, under Textures."""
-    return f'{OWN}\\{face.plugin[:-4]}_{face.stem}_rear_d.dds'
+    return f'{job.name}\\{face.plugin[:-4]}_{face.stem}_rear_d.dds'
 
 
-def own_hairs(src, faces: list) -> dict:
+def own_hairs(job, faces: list) -> dict:
     """{PNAM bytes: (hair part Rec, chargen .tri path under Meshes, female)} of the faces' own hairs (not from
     Fallout4.esm)."""
     out = {}
     for face in faces:
-        part, raw = part_of(src, face, HAIR_PART)
+        part, raw = part_of(job.src, face, HAIR_PART)
         if raw and part.owner != 'fallout4.esm':
-            out[raw] = (part, f'{OWN}\\{facegeom.zstr(part.first(b"EDID"))}Chargen.tri', face.female)
+            out[raw] = (part, f'{job.name}\\{facegeom.zstr(part.first(b"EDID"))}Chargen.tri', face.female)
     return out
 
 
@@ -174,16 +203,31 @@ def plugin(job: Job, faces: list, staging: bool) -> records.TestPlugin:
     out = records.TestPlugin([own_facegen.find(job.dirs, n) for n in names])
     for face in faces:
         rear, _ = part_of(job.src, face, records.REAR_PART)
-        edid = f'{OWN}Rear_{face.plugin[:-4]}_{face.stem}'
+        edid = f'{job.name}Rear_{face.plugin[:-4]}_{face.stem}'
         textures = facegeom.body_textures(job.src, face.npc, face.race, face.female)
-        txst = out.add('TXST', out.new_id(), records.rear_texture_set(edid + 'Set', textures, rear_path(face)))
+        txst = out.add('TXST', out.new_id(), records.rear_texture_set(edid + 'Set', textures, rear_path(job, face)))
         part = out.add('HDPT', out.new_id(), records.rear_part(rear, edid, txst))
         form_id, flags, body = npc_body(job, face, part, staging)
         npc_id = out.add('NPC_', out.new_id() if staging else form_id, body, flags)
         if staging:
             job.copies[npc_id & 0xFFFFFF] = face
-    for raw, (part, tri, _) in own_hairs(job.src, faces).items():
+    for raw, (part, tri, _) in own_hairs(job, faces).items():
         out.add('HDPT', struct.unpack('<I', raw)[0], records.with_chargen_tri(part, tri))
+    for raw, (face_set, maps) in (young_skins(job, faces) if job.young else {}).items():
+        out.add('TXST', struct.unpack('<I', raw)[0], records.with_skin_maps(face_set, maps))
+    return out
+
+
+def young_skins(job: Job, faces: list) -> dict:
+    """{FTST bytes: (face set Rec, {TX tag: path})}: each own face set (not Fallout4.esm's) with its sex's young
+    face set's normal and specular maps."""
+    out = {}
+    for face in faces:
+        raw = face.npc.first(b'FTST')
+        face_set = job.src.get(face.npc, raw) if raw else None
+        if face_set and face_set.owner != 'fallout4.esm':
+            young = facegeom.txst_slots(job.src, job.src.records['fallout4.esm', YOUNG_FACE_SETS[face.female]])
+            out[raw] = (face_set, {tag: young[slot] for slot, tag in SKIN_MAPS if young[slot]})
     return out
 
 
@@ -196,14 +240,14 @@ def chargen_head(female: bool) -> str:
 def own_files(job: Job, faces: list) -> dict:
     """{path under Data: bytes} the plugin needs beside it: own hairs' .tri files and rear texture stand-ins."""
     out = {}
-    for part, tri, female in own_hairs(job.src, faces).values():
+    for part, tri, female in own_hairs(job, faces).values():
         nif = nif_file.read(job.src.read('meshes\\' + facegeom.zstr(part.first(b'MODL'))))
         raw = next(b for k, b in nif.blocks if k in facegeom.SHAPES and isinstance(b, bytes))
         head = TriFile.from_bytes(job.src.read('meshes\\' + chargen_head(female)))
         out[f'Meshes\\{tri}'] = hair_morphs.part_tri(head, raw)
     for face in faces:
         textures = facegeom.body_textures(job.src, face.npc, face.race, face.female)
-        out[f'Textures\\{rear_path(face)}'] = job.src.read('textures\\' + textures[0])
+        out[f'Textures\\{rear_path(job, face)}'] = job.src.read('textures\\' + textures[0])
     return out
 
 
@@ -213,23 +257,23 @@ def ck_export(job: Job, faces: list) -> dict:
     stage = creation_kit.output_dir()
     files = own_files(job, faces)
     job.copies.clear()
-    plugin(job, faces, staging=True).write(stage / STAGING)
+    plugin(job, faces, staging=True).write(stage / job.staging)
     for rel, data in files.items():
         (stage / rel).parent.mkdir(parents=True, exist_ok=True)
         (stage / rel).write_bytes(data)
     try:
         for folder in FACEGEN_DIRS:
-            shutil.rmtree(stage / folder / STAGING, ignore_errors=True)
-        creation_kit.run(f'-ExportFaceGenData:{STAGING} {CK_TARGET}', ck_timeout(len(faces)), 'exporting the test')
+            shutil.rmtree(stage / folder / job.staging, ignore_errors=True)
+        creation_kit.run(f'-ExportFaceGenData:{job.staging} {CK_TARGET}', ck_timeout(len(faces)), 'exporting the test')
         return collect(job, stage)
     finally:
-        for rel in [*files, STAGING]:
+        for rel in [*files, job.staging]:
             (stage / rel).unlink(missing_ok=True)
         for folder in {(stage / rel).parent for rel in files}:
             if folder.is_dir() and not any(folder.iterdir()):
                 folder.rmdir()
         for folder in FACEGEN_DIRS:
-            shutil.rmtree(stage / folder / STAGING, ignore_errors=True)
+            shutil.rmtree(stage / folder / job.staging, ignore_errors=True)
 
 
 def collect(job: Job, stage: Path) -> dict:
@@ -237,14 +281,14 @@ def collect(job: Job, stage: Path) -> dict:
     under the real NPCs' names, re-encoded as vanilla's."""
     out = {}
     for local, face in job.copies.items():
-        nif = (stage / FACEGEN_DIRS[0] / STAGING / f'{local:08X}.nif').read_bytes()
+        nif = (stage / FACEGEN_DIRS[0] / job.staging / f'{local:08X}.nif').read_bytes()
         folder = job.out / FACEGEN_DIRS[1] / face.plugin
         folder.mkdir(parents=True, exist_ok=True)
-        for made in (stage / FACEGEN_DIRS[1] / STAGING).glob(f'{local:08X}_*'):
+        for made in (stage / FACEGEN_DIRS[1] / job.staging).glob(f'{local:08X}_*'):
             target = folder / (face.stem + made.name[8:])
             shutil.copyfile(made, target)
             vanilla_face_texture(target)
-        out[face] = renamed(nif, f'{STAGING}\\{local:08X}', f'{face.plugin}\\{face.stem}')
+        out[face] = renamed(nif, f'{job.staging}\\{local:08X}', f'{face.plugin}\\{face.stem}')
     return out
 
 
@@ -259,11 +303,12 @@ def renamed(nif_bytes: bytes, old: str, new: str) -> bytes:
 
 
 def new_face(job: Job, export: Path, plugin_name: str, form_id: int) -> Face:
-    """NPC `form_id` of `plugin_name` with its FNV colour and target measures (FNV's offset from its mean, C1)."""
+    """NPC `form_id` of `plugin_name` with its FNV colour and target measures (job.shape's moves of FO4's
+    baseline face)."""
     npc, race, female, _ = facegeom.npc_face(job.src, plugin_name, form_id)
     colour = fnv_face(record_dir(export, plugin_name), own_facegen.fnv_edid(npc))
     p = problem(female)
-    target = p.measures @ face_moves(p.baseline, colour[0], 'C1')[1].ravel()
+    target = p.measures @ face_moves(p.baseline, colour[0], job.shape, p.eye_part)[1].ravel()
     return Face(plugin_name, form_id & 0xFFFFFF, npc, race, female, colour, target)
 
 
@@ -308,18 +353,32 @@ def whole_scale(drawn: np.ndarray, face_geo: tuple, colour: tuple) -> np.ndarray
     return np.median(drawn[rows, cols], 0) / np.median(whole, 0)
 
 
+def own_face_texture(diffuse: Path, face_geo: tuple, colour: tuple) -> np.ndarray:
+    """Rewrite the CK's face texture of an own face set at `diffuse`, scaled per channel to FNV's whole skin
+    (its median over the face); its RGB as floats.
+    See: docs/fork/fo4_facegen_plan.md#willow-skin
+    """
+    rgba = hair.image(diffuse.read_bytes()).astype(float)
+    rgba[..., :3] /= whole_scale(rgba[..., :3], face_geo, colour)
+    rgba = np.clip(rgba, 0, 255).astype(np.uint8)
+    write_dds(rgba, diffuse)
+    vanilla_face_texture(diffuse)
+    return rgba[..., :3].astype(float)
+
+
 def skin(job: Job, face: Face, nif: bytes) -> tuple:
-    """Write the face's skin and set its tone: an own face set keeps the CK's face texture, toned to match at the
-    neck, its rear head in FNV's whole skin; otherwise T1. (the FaceGeom on it, own_rear's note)."""
+    """Write the face's skin and set its tone: an own face set keeps the CK's face texture (own_face_texture),
+    toned to match at the neck, its rear head in FNV's whole skin; otherwise T1. (the FaceGeom on it,
+    own_rear's note)."""
     face_geo, seam = face_shape(nif), seam_tree(nif)
     template = np.array(struct.unpack('<4f', job.templates[face.female][0])[:3])
     body = own_facegen.body(job.src, face.npc, face.race, face.female)
     diffuse = job.out / FACEGEN_DIRS[1] / face.plugin / f'{face.stem}_d.dds'
     whole = None
     if face.npc.first(b'FTST'):
-        drawn = hair.image(diffuse.read_bytes())[..., :3].astype(float)
+        drawn = own_face_texture(diffuse, face_geo, face.colour)
         face.tone = neck_tone(drawn, face_geo, seam, body) / template
-        whole = whole_scale(drawn, face_geo, face.colour)
+        whole = np.ones(3)
     else:
         rgba, face.tone = skin_seams.face_texture(tint.load_basis(face.female)[2], face_geo, *face.colour,
                                                   (seam, body, lambda s: np.clip(template * s, 0.0, 1.0)))
@@ -343,13 +402,13 @@ def own_rear(job: Job, face: Face, nif_bytes: bytes, rear: tuple) -> tuple:
         if not isinstance(sh, dict) or sh.get('skin_tint') is None:
             continue
         texture_set = nif.blocks[sh['texture_set']][1]['textures']
-        note = (nif.strings[struct.unpack_from('<i', raw)[0]], texture_set[0].lower() == rear_path(face).lower())
+        note = (nif.strings[struct.unpack_from('<i', raw)[0]], texture_set[0].lower() == rear_path(job, face).lower())
         rgba = skin_seams.rear_texture(hair.image(own), (positions(raw), uvs(raw), triangles(raw)), frame,
                                        face.colour, neck, whole)
-        path = job.out / 'Textures' / rear_path(face).replace('\\', '/')
+        path = job.out / 'Textures' / rear_path(job, face).replace('\\', '/')
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(dds_like(rgba, own))
-        texture_set[0] = rear_path(face)
+        texture_set[0] = rear_path(job, face)
         sh['skin_tint'] = (*(np.round(neck[1][1] * 255) / 255).tolist(), sh['skin_tint'][3])
     return nif_file.write(nif), note
 
@@ -406,6 +465,21 @@ def fit_report(face: Face) -> list:
     return lines
 
 
+def without_tests(profile: Path, out: str) -> tuple:
+    """own_facegen.profile_order of `profile` without mod folder `out`, any FaceGen test plugin (its description
+    starts TEST_DESCRIPTION) and the mod folders holding one."""
+    dirs, order = own_facegen.profile_order(profile, creation_kit.MO2, (out,))
+    tests = {name for name in order if own_facegen.find(dirs, name).is_file()
+             and description(own_facegen.find(dirs, name).read_bytes()).startswith(TEST_DESCRIPTION)}
+    return [d for d in dirs if not any((d / name).is_file() for name in tests)], [n for n in order if n not in tests]
+
+
+def description(data: bytes) -> str:
+    """A plugin's description (TES4 SNAM)."""
+    size = struct.unpack_from('<I', data, 4)[0]
+    return next((facegeom.zstr(d) for t, d in subrecords(data[24:24 + size]) if t == b'SNAM'), '')
+
+
 def main(argv=None) -> None:
     """Write the test mod folder --out for --npcs (plugin:FormID) through --profile's load order."""
     p = argparse.ArgumentParser(description=main.__doc__)
@@ -413,15 +487,17 @@ def main(argv=None) -> None:
     p.add_argument('--export', type=Path, required=True, help='an FNV export folder (others found beside it)')
     p.add_argument('--out', type=Path, required=True, help='the test mod folder (scratch)')
     p.add_argument('--npcs', nargs='+', required=True, help='plugin:FormID (hex)')
+    p.add_argument('--shape', default='C2F', choices=('C1', 'C2F'), help='the target shape (bake variant)')
+    p.add_argument('--skin-maps', default='young', choices=('young', 'own'), help="own face sets' normal/specular")
+    p.add_argument('--name', default=NAME, help="the test plugin's stem and our files' folder")
     args = p.parse_args(argv)
-    skip = (args.out.name, PLUGIN, STAGING)
-    dirs, order = own_facegen.profile_order(args.profile or creation_kit.profile_dir(), creation_kit.MO2, skip)
+    dirs, order = without_tests(args.profile or creation_kit.profile_dir(), args.out.name)
     npcs = [(name, int(fid, 16)) for name, fid in (item.rsplit(':', 1) for item in args.npcs)]
     deepest = max((n for n, _ in npcs), key=lambda n: [o.lower() for o in order].index(n.lower()))
     esm = FALLOUT4_ESM.read_bytes()
     layers = skin_tone_layers(esm)
     job = Job(facegeom.Sources(own_facegen.find(dirs, deepest), dirs, order), dirs, order, args.out,
-              own_facegen.template_tones(esm, layers), layers)
+              own_facegen.template_tones(esm, layers), layers, args.shape, args.skin_maps == 'young', args.name)
     faces = [new_face(job, args.export, name, fid) for name, fid in npcs]
     finish(job, faces, fit_rounds(job, faces))
 
@@ -442,7 +518,7 @@ def finish(job: Job, faces: list, nifs: dict) -> None:
         if rel.startswith('Meshes'):
             (job.out / rel.replace('\\', '/')).parent.mkdir(parents=True, exist_ok=True)
             (job.out / rel.replace('\\', '/')).write_bytes(data)
-    print('plugin masters:', plugin(job, faces, staging=False).write(job.out / PLUGIN))
+    print('plugin masters:', plugin(job, faces, staging=False).write(job.out / f'{job.name}.esp'))
 
 
 if __name__ == '__main__':

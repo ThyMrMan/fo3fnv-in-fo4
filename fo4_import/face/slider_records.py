@@ -70,6 +70,14 @@ def rear_part(part: facegeom.Rec, edid: str, texture_set: int) -> bytes:
     return pack(subs)
 
 
+def with_skin_maps(face_set: facegeom.Rec, maps: dict) -> bytes:
+    """Face set `face_set` with `maps` {TX tag: path} in place of its own (missing ones before DNAM)."""
+    subs = [(t, maps[t].encode() + b'\0' if t in maps else d) for t, d in face_set.subs]
+    missing = [(t, p.encode() + b'\0') for t, p in maps.items() if t not in {tag for tag, _ in subs}]
+    at = next((i for i, (t, _) in enumerate(subs) if t in (b'DODT', b'DNAM', b'MNAM')), len(subs))
+    return pack(subs[:at] + missing + subs[at:])
+
+
 def with_chargen_tri(part: facegeom.Rec, tri: str) -> bytes:
     """Head part `part`'s subrecords with chargen .tri `tri` added."""
     parts = [(b'NAM0', struct.pack('<I', CHARGEN_TRI)), (b'NAM1', tri.encode() + b'\0')]

@@ -238,10 +238,10 @@ def _head_moves(nif, fnv: FnvHead, variant: str, eye_part: str = None) -> tuple:
     return shapes, face, head, _smoothed(head, head_displacement(head, fnv, variant, eyes))
 
 
-def face_moves(nif_bytes: bytes, fnv: FnvHead, variant: str) -> tuple:
-    """(face vertex positions, `variant` moves) faded to zero at the body seam."""
+def face_moves(nif_bytes: bytes, fnv: FnvHead, variant: str, eye_part: str = None) -> tuple:
+    """(face points, `variant` moves) faded out at the neck; C2F needs eye_part."""
     nif = nif_file.read(nif_bytes)
-    shapes, face, head, moves = _head_moves(nif, fnv, variant)
+    shapes, face, head, moves = _head_moves(nif, fnv, variant, eye_part)
     return head, moves * np.clip(_seam(nif, shapes, face).query(head)[0] / NECK_BLEND, 0.0, 1.0)[:, None]
 
 
