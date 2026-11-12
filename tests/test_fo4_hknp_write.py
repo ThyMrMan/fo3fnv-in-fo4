@@ -1,0 +1,142 @@
+"""Our convex hknp writer: polytope geometry, Elric's packed mass properties, and a written physics system.
+
+See: docs/fork/fo4_hknp_writer.md#convex
+"""
+
+import struct
+
+import numpy as np
+import pytest
+
+from fo4_import.havok import packfile
+from fo4_import.nif import hknp_convex, hknp_hull, hknp_write
+from fo4_import.nif.hknp_write import DAMPING, FILTER, FRICTION, MASS, MAX_ANGULAR, MOTION, RESTITUTION
+
+BOX = hknp_convex.box_planes((1.0, 2.0, 3.0))
+CORNERS = hknp_convex.box_corners((1.0, 2.0, 3.0))
+
+
+def _body(motion: int, mass: float) -> bytes:
+    """A pre-Elric rigid body's bytes with the fields the writer reads."""
+    raw = bytearray(220)
+    struct.pack_into('<I', raw, FILTER, 0x2A)
+    struct.pack_into('<f', raw, MASS, mass)
+    struct.pack_into('<2f', raw, DAMPING, 0.1, 0.05)
+    struct.pack_into('<f', raw, FRICTION, 0.5)
+    struct.pack_into('<f', raw, RESTITUTION, 0.4)
+    struct.pack_into('<f', raw, MAX_ANGULAR, 31.4)
+    raw[MOTION] = motion
+    return bytes(raw)
+
+
+def _system(*motions) -> dict:
+    """The root fields of a system holding one box body per (motion, mass)."""
+    place = (np.array([1.0, 0.0, 0.0]), (0.0, 0.0, 0.0, 1.0))
+    rows = [(i, _body(m, w), CORNERS, 0.0, 7, place) for i, (m, w) in enumerate(motions)]
+    data = hknp_write.system(rows)
+    assert struct.unpack_from('<I', data)[0] == len(data) - 4
+    return packfile.read(data[4:]).objects[0]['fields']
+
+
+def test_box_has_eight_corners_and_six_ccw_faces():
+    """Each face loop is four corners, counter-clockwise seen along its outward normal."""
+    verts, loops, planes = hknp_convex.faces(BOX, np.zeros(3))
+    assert len(verts) == 8 and len(loops) == 6
+    for loop, plane in zip(loops, planes):
+        a, b, c = verts[loop[:3]]
+        assert np.cross(b - a, c - b) @ plane[:3] > 0
+
+
+def test_angle_byte_is_the_steepest_neighbour_rise():
+    """Box faces rise at 90 degrees (128); a 45-degree bevel brings the faces beside it down to 64."""
+    verts, loops, planes = hknp_convex.faces(BOX, np.zeros(3))
+    assert hknp_convex.angle_bytes(verts, loops, planes) == [128] * 6
+    bevel = np.vstack([BOX, [*(np.array([1.0, 0.0, 1.0]) / np.sqrt(2)), -3.5 / np.sqrt(2)]])
+    verts, loops, planes = hknp_convex.faces(bevel, np.zeros(3))
+    bytes_ = dict(zip(map(tuple, planes[:, :3].round(3)), hknp_convex.angle_bytes(verts, loops, planes)))
+    assert bytes_[(1.0, 0.0, 0.0)] == 64 and bytes_[(0.0, 0.0, 1.0)] == 64
+
+
+def test_faces_over_sixteen_corners_are_trimmed():
+    """A 20-sided prism's caps keep 16 corners, lean 0 on the dropped ones, and the shape loses SMALL_FACES."""
+    turns = np.linspace(0, 2 * np.pi, 20, endpoint=False)
+    sides = np.column_stack([np.cos(turns), np.sin(turns), np.zeros(20), -np.ones(20)])
+    caps = np.array([[0.0, 0.0, 1.0, -1.0], [0.0, 0.0, -1.0, -1.0]])
+    planes = np.vstack([sides, caps])
+    verts, loops, planes = hknp_convex.faces(planes, np.zeros(3))
+    kept = [hknp_convex.trim(verts, loop) for loop in loops]
+    assert sorted(map(len, kept))[-2:] == [16, 16] and set(kept[-1]) <= set(loops[-1])
+    assert sorted(hknp_convex.angle_bytes(verts, kept, planes))[:2] == [0, 0]
+    objects, _ = hknp_convex.polytope('#s0', verts, 0.0, 0)
+    assert objects[0]['fields']['flags'] == hknp_convex.SHAPE_FLAGS & ~hknp_convex.SMALL_FACES
+
+
+def test_box_mass_is_its_volume_with_scaled_principal_inertia():
+    """Density 1, Elric's 1.5x inertia, an identity frame packed as Elric packs it."""
+    verts, _, planes = hknp_convex.corners(CORNERS)
+    mass = hknp_convex.mass_properties(verts, planes, 0.0)
+    assert mass.volume == pytest.approx(48.0)
+    assert mass.inertia == pytest.approx(1.5 * 48 / 3 * np.array([13.0, 10.0, 5.0]))
+    assert hknp_convex.pack_quaternion(mass.frame) == [-32768, -32768, -32768, -2768]
+
+
+def test_packed_vector_shares_one_exponent():
+    """The largest component sets the exponent word; the rest scale by it."""
+    assert hknp_convex.pack_vector((1.0, 0.5, 0.0)) == [16384, 8192, 0, 97 << 7]
+
+
+def test_half_keeps_the_top_bits_rounded():
+    """hkHalf of 1.0 and of a value that rounds up."""
+    assert hknp_write.half(1.0) == 0x3F80
+    assert hknp_write.half(struct.unpack('<f', struct.pack('<I', 0x3F808000))[0]) == 0x3F81
+
+
+def test_motions_follow_elric_per_motion_system():
+    """Dynamic and massive keyframed bodies get a full motion, massless keyframed the preset, fixed none."""
+    root = _system((2, 10.0), (4, 50.0), (4, 0.0), (5, 0.0))
+    bodies, motions = root['bodyCinfos'], root['motionCinfos']
+    assert [b['flags'] for b in bodies] == [128, 0x10080, 0, 0]
+    assert [b['motionId'] for b in bodies] == [0, 1, 2, hknp_write.NO_ID]
+    assert motions[0]['inverseMass'] == pytest.approx(0.1) and motions[1]['inverseMass'] == pytest.approx(0.02)
+    assert motions[2]['motionPropertiesId'] == hknp_write.PRESET
+    assert len(root['motionProperties']) == 2 and bodies[0]['collisionFilterInfo'] == 0x2A
+
+
+def test_a_card_thinner_than_a_micron_has_four_corner_faces():
+    """Corners go to the planes that made them: a 1e-6 thick card has 4-corner faces."""
+    verts, loops, _ = hknp_convex.faces(hknp_convex.box_planes((0.05, 0.08, 7e-7)), np.zeros(3))
+    assert len(verts) == 8 and sorted(map(len, loops)) == [4] * 6
+
+
+def test_grid_keeps_box_corners_and_rounds_others_to_a_step():
+    """Box corners stay put; any point moves at most half a step (half size / 8191)."""
+    assert np.allclose(hknp_hull.grid(CORNERS), CORNERS, atol=1e-6)
+    points = np.random.default_rng(1).uniform(-1, 1, (50, 3))
+    assert np.abs(hknp_hull.grid(points) - points).max() <= 0.5 / 8191 * 1.001
+
+
+def test_a_bent_face_merges_back_into_one():
+    """A box whose top is raised 0.002 at one corner gets its two top triangles merged: six faces."""
+    points = CORNERS.copy()
+    points[np.argmax(points.sum(1))] += (0.0, 0.0, 0.002)
+    _, loops, _ = hknp_convex.corners(points)
+    assert len(loops) == 6
+
+
+def _bevelled(depth: float) -> np.ndarray:
+    """CORNERS with the (1, 2, 3) corner cut `depth` deep along each edge."""
+    cut = [(1.0, 2.0, 3.0 - depth), (1.0, 2.0 - depth, 3.0), (1.0 - depth, 2.0, 3.0)]
+    return np.vstack([CORNERS[:-1], cut])
+
+
+def test_a_small_bevel_collapses_away():
+    """A corner cut 0.015 deep collapses back to eight corners."""
+    verts, loops, _ = hknp_convex.corners(_bevelled(0.015))
+    assert len(verts) == 8 and len(loops) == 6
+
+
+def test_a_degenerate_hull_keeps_every_point():
+    """A 0.002 cut is a degenerate triangle: both passes skip, the cut stays."""
+    assert hknp_hull.degenerate(hknp_hull.snap(_bevelled(0.002)))
+    verts, loops, _ = hknp_convex.corners(_bevelled(0.002))
+    assert len(verts) == 10 and len(loops) == 7
