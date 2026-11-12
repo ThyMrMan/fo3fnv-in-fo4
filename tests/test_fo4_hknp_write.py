@@ -37,7 +37,7 @@ def _body(motion: int, mass: float) -> bytes:
 def _system(*motions) -> dict:
     """The root fields of a system holding one box body per (motion, mass)."""
     place = (np.array([1.0, 0.0, 0.0]), (0.0, 0.0, 0.0, 1.0))
-    rows = [(i, _body(m, w), CORNERS, 0.0, 7, place) for i, (m, w) in enumerate(motions)]
+    rows = [(i, _body(m, w), (CORNERS, 0.0, 7), place) for i, (m, w) in enumerate(motions)]
     data = hknp_write.system(rows)
     assert struct.unpack_from('<I', data)[0] == len(data) - 4
     return packfile.read(data[4:]).objects[0]['fields']
