@@ -696,7 +696,8 @@ count `casino menu movie missing (no Flex SDK)`). **Played 2026-11-11:
 slots and roulette both work on it.** The movie is written uncompressed so
 its bytes don't depend on the Python's zlib
 ([why](swf_framework.md#mxmlc-setup)). The FFDec route below is
-how it was built until then; the dialogue menu still uses it.
+how it was built until then; the dialogue menu used it until 2026-11-12,
+when its code was deleted.
 
 **Built 2026-11-08, not played.** The compiler
 is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).

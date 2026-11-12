@@ -295,6 +295,12 @@ F3NV plugin (`pipboy.cpp`) works inside FO4's own Pip-Boy movie.
   `PipboyRefresh` (show the new value after a repair), and
   `GetStackHealth` and `SetStackHealth`.
 
+**Our own movie in the Pip-Boy** (2026-11-12, spike 4 of the
+[menu framework](swf_framework.md#spikes), played under the vanilla Pip-Boy: works): the same
+once-per-menu hook loads `Interface\F3NV_Pipboy.swf` into the menu instance
+with a `Loader` (`LoadOverlay`). Its first job is one test line on the item
+card. If it works, the CND line, hints and lists move into it.
+
 **Papyrus:** `F3NV_ConditionPlayer` tracks the items, registers G
 while the Pip-Boy is open, and listens for the hint's event. Each of them
 repairs the highlighted stack from a spare. The Repair hotkey item now calls

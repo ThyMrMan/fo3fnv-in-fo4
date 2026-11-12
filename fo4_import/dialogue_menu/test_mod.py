@@ -15,7 +15,7 @@ import argparse
 import shutil
 from pathlib import Path
 
-from fo4_import.base.ffdec import REPO
+from fo4_import.base.mxmlc import REPO
 from fo4_import.base.support_records import pack_global
 from fo4_import.base.writer import FO4PluginWriter, pack_quest, pack_topic
 from fo4_import.dialogue_menu import movie

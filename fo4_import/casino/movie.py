@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 
 from fo4_import.base import mxmlc
-from fo4_import.base.ffdec import REPO
+from fo4_import.base.mxmlc import REPO
 
 SOURCES = Path(__file__).resolve().parent / 'as3'
 CACHE = REPO / 'temp' / 'fo4_casino'

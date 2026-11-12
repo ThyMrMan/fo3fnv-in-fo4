@@ -16,11 +16,12 @@ package f3ui
       // format with Times New Roman, which the game has no letters for (spike 5).
       private static var formats:Dictionary = new Dictionary(true);
 
-      // A non-selectable field in the game font and Theme.color.
-      public static function field(size:int, align:String = null, font:String = FONT) : TextField
+      // A non-selectable field in the game font and Theme.color; `leading` the extra space between lines.
+      public static function field(size:int, align:String = null, font:String = FONT, leading:Object = null) : TextField
       {
          var out:TextField = new TextField();
-         var format:TextFormat = new TextFormat(font, size, Theme.color, null, null, null, null, null, align);
+         var format:TextFormat = new TextFormat(font, size, Theme.color, null, null, null, null, null, align, null,
+                                                null, null, leading);
          formats[out] = format;
          out.defaultTextFormat = format;
          out.embedFonts = true;

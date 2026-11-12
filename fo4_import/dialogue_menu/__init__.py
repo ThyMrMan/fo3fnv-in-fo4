@@ -7,7 +7,7 @@ of a scene's player topic) to its answer topic; a row of five names the skill
 check an answer INFO's prompt carries. Each FormID is a plugin name and an
 object id, so a row resolves under any load order or ESL. Each plugin writes
 its own file, named after it; the masterless build also installs the menu
-movie (built from our own sources with FFDec) and drops the XDI-era hub files
+movie (built from our own sources with mxmlc) and drops the XDI-era hub files
 an older setup put in the data folder.
 
 See: docs/fork/fo4_dialogue_menu_plan.md#converter
@@ -68,4 +68,4 @@ def write(builder, data_dir: Path, plugin: str) -> None:
     if not builder.built:
         installed = int(movie.install(data_dir) is not None)
         counts['dialogue menu movie installed'] = installed
-        counts['dialogue menu movie missing (no FFDec)'] = 1 - installed
+        counts['dialogue menu movie missing (no Flex SDK)'] = 1 - installed

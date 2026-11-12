@@ -9,6 +9,7 @@ import struct
 from pathlib import Path
 
 from fo4_import import dialogue_menu as menu_links
+from fo4_import import pipboy_overlay
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
@@ -181,7 +182,8 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
 @timed('closing records')
 def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helper: int) -> None:
     """The records written from everything made: script packages, ammo, condition (helper plugin index
-    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino, the dialogue menu links."""
+    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino, the dialogue menu links; the masterless
+    build also installs our Pip-Boy movie."""
     builder.counts['script packages'] = write_script_packages(builder)
     ammo_casings.write(builder, builder.equipment.ammo_mods.loaded)
     ammo_switch.write(builder, builder.equipment.ammo_mods)
@@ -198,6 +200,8 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
     menu_links.write(builder, data_dir, out.name)
     if builder.built:
         builder.scripts.used += [list_adds.SCRIPT]
+    else:
+        builder.counts['Pip-Boy movie installed'] = pipboy_overlay.install(data_dir)
 
 
 @timed('closing records')
