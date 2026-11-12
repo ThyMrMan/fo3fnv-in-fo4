@@ -1,9 +1,8 @@
 """JPEXS FFDec's script import: compile AS3 sources over the classes of an existing SWF.
 
 FFDec's `-importScript` replaces the script of every class it finds a source
-for (it cannot add classes). The casino movie (casino.movie) imports over a
-skeleton of empty shells; the dialogue menu (dialogue_menu.movie) over the
-game's own movie.
+for (it cannot add classes), so our movies import over a skeleton of empty
+shells (base.swf_skeleton).
 
 See: docs/fork/fo4_casino_plan.md#toolchain-found
 """

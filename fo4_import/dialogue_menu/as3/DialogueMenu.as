@@ -1,9 +1,5 @@
 package
 {
-   import Shared.AS3.BSButtonHint;
-   import Shared.AS3.BSButtonHintData;
-   import Shared.GlobalFunc;
-   import Shared.IMenu;
    import flash.display.DisplayObject;
    import flash.display.Graphics;
    import flash.display.MovieClip;
@@ -12,31 +8,33 @@ package
    import flash.events.KeyboardEvent;
    import flash.events.MouseEvent;
    import flash.geom.Point;
+   import flash.geom.Rectangle;
+   import flash.system.ApplicationDomain;
    import flash.text.TextField;
    import flash.text.TextFormat;
+   import flash.utils.getDefinitionByName;
 
-   // F3NV's dialogue menu, compiled over the game's own DialogueMenu class (fo4_import/dialogue_menu/movie.py).
-   // The game drives it as before (SetButtonText, ShowButtonHelp, BGSCodeObj); with F3NV.dll it shows one scrolling
-   // list instead of the four buttons: F3NV.dll's options for its menus (any number), else the game's four.
-   // See docs/fork/fo4_dialogue_menu_plan.md#test-build
-   public class DialogueMenu extends IMenu
+   // F3NV's dialogue menu, in a movie made only of our code (fo4_import/dialogue_menu/movie.py); the root
+   // (DialogueMenuRoot) holds it at root.Menu_mc, where the game looks. The game drives it as its own menu
+   // (SetButtonText, ShowButtonHelp, BGSCodeObj) and tints the five holders it registers with the HUD color. One
+   // scrolling list: F3NV.dll's options for its menus (any number), else the game's four.
+   // See docs/fork/fo4_dialogue_menu_plan.md#own-movie
+   public class DialogueMenu extends MovieClip
    {
       public var FadeHolder_mc:MovieClip;
 
       public var BGSCodeObj:Object;
 
-      private var Buttons:Vector.<BSButtonHint>;
-
-      private var ButtonAnimators:Vector.<MovieClip>;
-
-      private var ButtonData:Vector.<BSButtonHintData>;
-
-      private var LastPressedButtonIndex:uint;
-
-      private var _ButtonsShown:Boolean;
-
-      // f4se.plugins.F3NV: GetDialogueOptions, SelectDialogueOption, Log.
+      // f4se.plugins.F3NV: GetDialogueOptions, SelectDialogueOption, Log, LeaveDialogue, ShadeList, TintFailed.
       private var dll:Object = null;
+
+      // The game's input platform (SetPlatform): 0 is keyboard and mouse.
+      private var platform:uint = 0;
+
+      // The safe-area margins the game gives (SetSafeRect).
+      private var safeX:Number = 0;
+
+      private var safeY:Number = 0;
 
       // The game's text per button (0 Positive, 1 Negative, 2 Neutral, 3 Question).
       private var gameTexts:Array = ["", "", "", ""];
@@ -59,9 +57,6 @@ package
       private var listShown:Boolean = false;
 
       private var picking:Boolean = false;
-
-      // The list was tried once: a failed try leaves the game's own buttons from then on.
-      private var tried:Boolean = false;
 
       private var seen:Object = {};
 
@@ -110,6 +105,9 @@ package
       // The game's buttons in the order its menu reads them: Question, Positive, Negative, Neutral.
       private static const BUTTON_ORDER:Array = [3, 0, 1, 2];
 
+      // The holders the game registers and tints, in registerObjects' order.
+      private static const HOLDERS:Array = ["Positive", "Negative", "Neutral", "Question", "SpeechChallengeAnim_mc"];
+
       private static const KEY_ENTER:uint = 13;
 
       private static const KEY_E:uint = 69;
@@ -122,83 +120,85 @@ package
 
       private static const KEY_9:uint = 57;
 
-      // Only what the game's own constructor does: it runs inside the game's LoadMovie, where a TextField made in
-      // code crashed the game (played 2026-11-10). The list is made later, on the first ShowButtonHelp.
+      // Only the holders: the constructor runs inside the game's LoadMovie, where a TextField made in code crashed
+      // the game (played 2026-11-10). The list is made later, on the first ShowButtonHelp.
       public function DialogueMenu()
       {
          super();
-         addFrameScript(0, this.frame1, 4, this.frame5);
          this.visible = false;
          this.BGSCodeObj = new Object();
-         this.Buttons = new Vector.<BSButtonHint>();
-         this.Buttons.push(this.FadeHolder_mc.Positive.Holder.Button_mc);
-         this.Buttons.push(this.FadeHolder_mc.Negative.Holder.Button_mc);
-         this.Buttons.push(this.FadeHolder_mc.Neutral.Holder.Button_mc);
-         this.Buttons.push(this.FadeHolder_mc.Question.Holder.Button_mc);
-         this.ButtonAnimators = new Vector.<MovieClip>();
-         this.ButtonAnimators.push(this.FadeHolder_mc.Positive);
-         this.ButtonAnimators.push(this.FadeHolder_mc.Negative);
-         this.ButtonAnimators.push(this.FadeHolder_mc.Neutral);
-         this.ButtonAnimators.push(this.FadeHolder_mc.Question);
-         this.ButtonData = new Vector.<BSButtonHintData>();
-         this.ButtonData.push(new BSButtonHintData("", "Down", "PSN_A", "Xenon_A", 1, this.onPositiveRelease));
-         this.ButtonData.push(new BSButtonHintData("", "Right", "PSN_B", "Xenon_B", 1, this.onNegativeRelease));
-         this.ButtonData.push(new BSButtonHintData("", "Left", "PSN_X", "Xenon_X", 0, this.onNeutralRelease));
-         this.ButtonData.push(new BSButtonHintData("", "Up", "PSN_Y", "Xenon_Y", 0, this.onQuestionRelease));
-         this.LastPressedButtonIndex = uint.MAX_VALUE;
-         this._ButtonsShown = false;
-         this.FadeHolder_mc.SpeechChallengeAnim_mc.mouseEnabled = false;
-         this.FadeHolder_mc.SpeechChallengeAnim_mc.mouseChildren = false;
-         this.FadeHolder_mc.SpeechChallengeAnim_mc.addEventListener("OnSpeechChallengeAnimComplete", this.OnSpeechChallengeAnimComplete);
+         this.FadeHolder_mc = new MovieClip();
+         for each (var name:String in HOLDERS)
+         {
+            var holder:MovieClip = new MovieClip();
+            holder.name = name;
+            this.FadeHolder_mc[name] = holder;
+            this.FadeHolder_mc.addChild(holder);
+         }
+         addChild(this.FadeHolder_mc);
+         addEventListener(Event.ADDED_TO_STAGE, this.onStage);
       }
 
-      private function onPositiveRelease() : void
+      // No yellow focus frame round the menu; the keys come from the stage.
+      private function onStage(e:Event) : void
       {
-         this.onButtonRelease(0);
-      }
-
-      private function onNegativeRelease() : void
-      {
-         this.onButtonRelease(1);
-      }
-
-      private function onNeutralRelease() : void
-      {
-         this.onButtonRelease(2);
-      }
-
-      private function onQuestionRelease() : void
-      {
-         this.onButtonRelease(3);
-      }
-
-      override protected function onSetSafeRect() : void
-      {
-         GlobalFunc.LockToSafeRect(this, "BC", SafeX, SafeY);
+         stage.stageFocusRect = false;
+         stage.addEventListener(KeyboardEvent.KEY_DOWN, this.onKeyDown);
+         stage.addEventListener(KeyboardEvent.KEY_UP, this.onKeyUp);
+         this.place();
       }
 
       public function onCodeObjCreate() : *
       {
-         this.BGSCodeObj.registerObjects(this.FadeHolder_mc.Positive, this.FadeHolder_mc.Negative, this.FadeHolder_mc.Neutral, this.FadeHolder_mc.Question, this.FadeHolder_mc.SpeechChallengeAnim_mc);
-         var i:int = 0;
-         while(i < this.Buttons.length)
+         var h:MovieClip = this.FadeHolder_mc;
+         this.BGSCodeObj.registerObjects(h.Positive, h.Negative, h.Neutral, h.Question, h.SpeechChallengeAnim_mc);
+      }
+
+      // F4SE's object, once the movie has loaded (F4SE calls root's direct children too): F3NV.dll's natives.
+      public function onF4SEObjCreated(f4se:Object) : void
+      {
+         if(this.dll == null && f4se != null && f4se.plugins != null && f4se.plugins.F3NV != null)
          {
-            this.Buttons[i].ButtonHintData = this.ButtonData[i];
-            i++;
+            this.dll = f4se.plugins.F3NV;
+            this.log("menu ready");
          }
       }
 
-      // F4SE's object, once the movie has loaded: F3NV.dll's natives switch the list on at the next ShowButtonHelp.
-      public function onF4SEObjCreated(f4se:Object) : void
+      public function SetPlatform(platform:uint, ps3Switch:Boolean) : *
       {
-         this.dll = f4se != null && f4se.plugins != null && f4se.plugins.F3NV != null ? f4se.plugins.F3NV : null;
-         this.log("menu ready");
+         this.platform = platform;
+      }
+
+      public function SetSafeRect(x:Number, y:Number) : *
+      {
+         this.safeX = x;
+         this.safeY = y;
+         this.place();
+      }
+
+      // At the bottom center of the visible area, above the safe margin: Scaleform's visibleRect (the screen's
+      // shape, wider than the stage on wide screens), else the stage.
+      private function place() : void
+      {
+         if(stage == null)
+         {
+            return;
+         }
+         var area:Rectangle = new Rectangle(0, 0, stage.stageWidth, stage.stageHeight);
+         var name:String = "scaleform.gfx.Extensions";
+         if(ApplicationDomain.currentDomain.hasDefinition(name))
+         {
+            var rect:Rectangle = getDefinitionByName(name).visibleRect as Rectangle;
+            area = rect != null ? rect : area;
+         }
+         var at:Point = this.parent.globalToLocal(new Point(area.x + area.width / 2, area.y + area.height - this.safeY));
+         this.x = at.x;
+         this.y = at.y;
       }
 
       public function SetButtonText(button:uint, text:String) : *
       {
          text = this.unescaped(text);
-         this.ButtonData[button].ButtonText = this.list == null ? text.toUpperCase() : "";
          this.gameTexts[button] = text;
          if(button == 3)
          {
@@ -209,28 +209,17 @@ package
 
       public function ShowButtonHelp() : *
       {
-         var i:int = 0;
-         while(!this._ButtonsShown && i < this.Buttons.length)
-         {
-            this.Buttons[i].bButtonPressed = false;
-            this.ButtonAnimators[i].gotoAndPlay("showButton");
-            i++;
-         }
-         this._ButtonsShown = true;
          this.picking = false;
-         this.listShown = this.dll != null && this.ensureList();
+         this.listShown = this.ensureList();
          this.retries = RETRIES;
          this.refresh();
          this.log("menu shown: " + this.entries.length + " entries");
       }
 
-      // The list, tried once: an error while making it leaves the game's own four buttons (they are hidden last).
-      // No try/catch and no uint counters: only bytecode the game has been seen to run (see movie.py).
       private function ensureList() : Boolean
       {
-         if(this.list == null && !this.tried)
+         if(this.list == null)
          {
-            this.tried = true;
             this.log("making list");
             this.makeList();
          }
@@ -239,21 +228,6 @@ package
 
       public function HideButtonHelp() : *
       {
-         var i:int = 0;
-         while(this._ButtonsShown && i < this.ButtonAnimators.length)
-         {
-            if(i == this.LastPressedButtonIndex)
-            {
-               this.Buttons[i].bButtonPressed = true;
-               this.ButtonAnimators[i].gotoAndPlay("slowHideButton");
-            }
-            else
-            {
-               this.ButtonAnimators[i].gotoAndPlay("hideButton");
-            }
-            i++;
-         }
-         this._ButtonsShown = false;
          this.listShown = false;
          if(this.list != null)
          {
@@ -266,12 +240,12 @@ package
 
       public function EnableMenu() : *
       {
-         gotoAndPlay("showMenu");
+         this.FadeHolder_mc.visible = true;
       }
 
       public function DisableMenu() : *
       {
-         gotoAndPlay("hideMenu");
+         this.FadeHolder_mc.visible = false;
       }
 
       // ---- The list ----
@@ -311,19 +285,7 @@ package
          this.failedRows = new Sprite();
          this.failedRows.visible = false;
          this.FadeHolder_mc.Negative.addChild(this.failedRows);
-         if(stage != null)
-         {
-            stage.addEventListener(KeyboardEvent.KEY_DOWN, this.onKeyDown);
-            stage.addEventListener(KeyboardEvent.KEY_UP, this.onKeyUp);
-         }
          this.list = list;
-         i = 0;
-         while(i < this.ButtonAnimators.length)
-         {
-            this.ButtonAnimators[i].Holder.visible = false;
-            this.ButtonData[i].ButtonText = "";
-            i++;
-         }
          this.log("list made");
       }
 
@@ -341,7 +303,7 @@ package
       private function fill() : void
       {
          this.entries = [];
-         var options:Object = this.dll.GetDialogueOptions();
+         var options:Object = this.dll != null ? this.dll.GetDialogueOptions() : null;
          var i:int = 0;
          if(options != null && options.length > 0)
          {
@@ -363,8 +325,11 @@ package
                i++;
             }
             this.log("no options of ours: the game's " + this.entries.length + " (" + this.gameTexts.join(" | ") + "), and [Leave]");
-            this.entries.push({"text":"[Leave]", "said":false, "ours":false, "index":LEAVE});
-            if(this.listShown && this.retries > 0)
+            if(this.dll != null)
+            {
+               this.entries.push({"text":"[Leave]", "said":false, "ours":false, "index":LEAVE});
+            }
+            if(this.dll != null && this.listShown && this.retries > 0)
             {
                this.addEventListener(Event.ENTER_FRAME, this.lookAgain);
             }
@@ -478,7 +443,7 @@ package
       // The game's shaded background behind the list's holder, on or off (F3NV.dll; once per change).
       private function shade(on:Boolean) : void
       {
-         if(on != this.shaded)
+         if(on != this.shaded && this.dll != null)
          {
             this.shaded = on;
             var done:Boolean = this.dll.ShadeList(on);
@@ -570,15 +535,18 @@ package
       private function closeList() : void
       {
          this.listShown = false;
-         this._ButtonsShown = false;
          this.list.visible = false;
          this.failedRows.visible = false;
          this.shade(false);
       }
 
-      // End the talk through F3NV.dll (`why` names the key or entry, for the log).
+      // End the talk through F3NV.dll (`why` names the key or entry, for the log); without it, the game's own way.
       private function leave(why:String) : void
       {
+         if(this.dll == null)
+         {
+            return;
+         }
          this.log("leave by " + why);
          this.dll.LeaveDialogue();
          this.closeList();
@@ -643,7 +611,7 @@ package
       {
          if(!this.listShown)
          {
-            return this.ProcessButtons(name, down);
+            return false;
          }
          this.seenOnce("event " + name + (down ? " down" : " up"));
          if(name == "ZoomIn" || name == "ZoomOut")
@@ -658,11 +626,11 @@ package
          {
             this.move(1);
          }
-         else if(!down && (name == "Accept" || name == "Activate" || (name == "MultiActivateA" && uiPlatform != 0)))
+         else if(!down && (name == "Accept" || name == "Activate" || (name == "MultiActivateA" && this.platform != 0)))
          {
             this.pick(this.selected);
          }
-         else if(!down && (name == "Cancel" || (name == "MultiActivateB" && uiPlatform != 0)))
+         else if(this.dll != null && !down && (name == "Cancel" || (name == "MultiActivateB" && this.platform != 0)))
          {
             this.leave(name);
          }
@@ -683,34 +651,9 @@ package
          this.wheelDown = down;
       }
 
-      // The game's four buttons, as its own menu takes them.
-      private function ProcessButtons(name:String, down:Boolean) : Boolean
-      {
-         var names:Array = ["MultiActivateA", "MultiActivateB", "MultiActivateX", "MultiActivateY"];
-         var button:int = names.indexOf(name);
-         if(!this._ButtonsShown || button < 0)
-         {
-            return false;
-         }
-         if(down)
-         {
-            this.Buttons[button].bButtonPressed = true;
-         }
-         else
-         {
-            this.onButtonRelease(button);
-         }
-         return true;
-      }
-
       private function onButtonRelease(button:uint) : void
       {
-         if(button < this.Buttons.length)
-         {
-            this.LastPressedButtonIndex = button;
-            this.Buttons[button].bButtonPressed = false;
-            this.BGSCodeObj.onButtonRelease(button);
-         }
+         this.BGSCodeObj.onButtonRelease(button);
       }
 
       // A prompt as written: builds made for XDI escaped & < > in player lines, which XDI showed as HTML
@@ -738,24 +681,16 @@ package
          }
       }
 
+      // No animation of its own: the game waits for the end of one, so it gets it on the next frame.
       public function PlaySpeechChallengeAnim() : *
       {
-         this.FadeHolder_mc.SpeechChallengeAnim_mc.gotoAndPlay("startAnim");
+         addEventListener(Event.ENTER_FRAME, this.speechDone);
       }
 
-      public function OnSpeechChallengeAnimComplete() : *
+      private function speechDone(e:Event) : void
       {
+         removeEventListener(Event.ENTER_FRAME, this.speechDone);
          this.BGSCodeObj.OnSpeechChallengeAnimComplete();
-      }
-
-      internal function frame1() : *
-      {
-         stop();
-      }
-
-      internal function frame5() : *
-      {
-         stop();
       }
    }
 }

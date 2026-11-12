@@ -112,11 +112,11 @@ def demo_plugin(path: Path) -> list:
     return rows
 
 
-def build(out: Path, dll: Path = DLL, game_data: Path = None) -> list:
+def build(out: Path, dll: Path = DLL) -> list:
     """The test mod in `out`: demo plugin, its links, the menu movie and `dll`; the files written."""
     rows = demo_plugin(out / DEMO)
     written = [out / DEMO, write_links(out / LINKS / f'{Path(DEMO).stem}.txt', rows)]
-    written.append(movie.install(out, game_data) if game_data else movie.install(out))
+    written.append(movie.install(out))
     target = out / 'F4SE' / 'Plugins' / 'F3NV.dll'
     shutil.copyfile(dll, target)
     return written + [target]

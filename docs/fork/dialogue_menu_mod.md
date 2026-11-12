@@ -66,8 +66,9 @@ skill-check tags were checked in game on 2026-11-10/11
   button texts drawn as a list, plus `[Leave]`.
 - **Steps aside** when `XDI.dll` is loaded. It reads nothing of XDI's, so a
   mod built for XDI shows only vanilla's four options.
-- **The movie** is Bethesda's `DialogueMenu.swf` with our `DialogueMenu`
-  class compiled over it by FFDec at install. It can't be shipped.
+- **The movie** is our own (since 2026-11-11): only our AS3, built like the
+  casino's ([own movie](fo4_dialogue_menu_plan.md#own-movie)). It can be
+  shipped.
 - **No settings:** 5 rows, 640 wide, font 18, keys fixed in the AS3.
 - Raw 1.11.240 addresses, inside F3NV.dll.
 
