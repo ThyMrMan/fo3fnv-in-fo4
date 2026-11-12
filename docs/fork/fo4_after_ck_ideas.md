@@ -142,6 +142,136 @@ collision, or with broken collision.
 - **Size:** small once the writer covers spheres, capsules and ragdolls
   ([writer plan](fo4_hknp_writer.md)).
 
+## <a id="by-step"></a>Ideas from the other replaced steps
+
+Each step in [the replacements table](fo4_ck_replacements.md#today) gives
+something beyond the conversion. Faces and collision are covered above.
+
+### <a id="ba2-ideas"></a>Archives (our BA2 writer)
+
+Open BA2 libraries already exist
+([survey](research/fo4_open_landscape.md#tools)), so a packer alone is not
+new. What we learned while replacing Archive2 is
+([texture BA2](fo4_ck_replacements.md#ba2)).
+
+- **<a id="ba2-check"></a>An archive check for modders.** Archive2 left out
+  every 24-bit BGR texture and still exited 0: an ending slide in
+  AutumnLeaves, 12 textures in Weapons of the New Millenia, and the Classic
+  Look's 54 LUTs. A checker could read a mod's loose files and its BA2s and
+  list what Archive2 would drop: textures in a format with no DXGI match.
+  Any mod author could run it before release. Other silent losses can be
+  added as they turn up.
+  - **Have:** the format census and the format mapping (`expand_bgr`, and
+    the pack stopping with the file's path on a format it cannot name).
+  - **Size:** small.
+- **Archives that only change what changed.** Our writer already copies
+  unchanged textures out of the old archive still compressed. The same idea
+  makes a small update for players: two builds' archives differ only in the
+  files that changed, so an update could ship only those.
+  - **Size:** small for the diff, medium for an updater that applies it.
+- **Pack a loose-file mod.** Players with many loose-file mods could have
+  them packed into BA2s for faster loading, with a check that no file loses
+  to another mod's loose copy after packing.
+  - **Unknown:** the game's archive count limit in a large load order, and
+    how mod managers treat the result.
+  - **Size:** medium; the load-order rules are the work, not the packing.
+
+### <a id="caprica-ideas"></a>Scripts (Caprica only)
+
+- **<a id="caprica-upstream"></a>Our Caprica fixes upstream.** Caprica has
+  been quiet since 2024 ([survey](research/fo4_open_landscape.md#tools)).
+  Our build adds relational operators on strings and fixes a temp-reuse bug
+  that silently miscompiled 59 FalloutNV scripts
+  ([our Caprica](fo4_pipeline.md#caprica-ours)). Every FO4 modder who
+  compiles with Caprica has that bug too. Offer both as pull requests, or
+  publish our build if upstream stays quiet.
+  - **Size:** small; the fixes exist.
+- **A miscompile scanner.** Released mods compiled with an unfixed Caprica
+  may carry the same bug. A scanner that reads `.pex` files and flags the
+  instruction pattern the bug produces would tell authors which scripts to
+  rebuild.
+  - **Unknown:** whether the bad pattern can be told apart from correct
+    code in the compiled file without the source. Needs a spike on our 59.
+  - **Size:** medium.
+- **Scripts written in Papyrus assembly.** Caprica assembles hand-written
+  `.pas` files (tried with a string `COMPARELT`). Small helpers Papyrus
+  can't express could be written that way instead of needing a DLL native.
+  - **Size:** small per helper, once the build carries `.pas` files.
+
+### <a id="anim-text-ideas"></a>Animation data (our AnimTextData writer)
+
+The survey lists no open AnimTextData writer. Today a modder adding a new
+weapon, creature or animation set needs the CK's `-GenerateAnimInfo`, and a
+missing entry shows in game as a frozen or wrong animation.
+
+- **<a id="anim-text-tool"></a>AnimTextData for any mod.** Point it at a
+  mod's behavior graphs and clips, get the AnimTextData files, without the
+  CK. Ours writes every file the conversion needs, with the offsets' root
+  keys bit for bit the CK's ([ours](research/anim_text_data.md#ours)).
+  - **Need:** a check on vanilla FO4 animation mods, not just converted
+    FNV content.
+  - **Fits:** [the spin-off strategy](spin_offs.md#strategy).
+  - **Size:** small to medium.
+- **A missing-animation finder.** The same code can list, for a load order,
+  the behavior graphs and clips that have no AnimTextData entry, before
+  anyone sees a frozen animation in game.
+  - **Size:** small, after the tool above.
+
+### <a id="lip-ideas"></a>Lip files (no LipGenerator)
+
+LipGenerator only runs on Windows, sometimes isn't installed, and gave 1,746
+and 1,758 bytes for the same line on two runs. Our loudness lips need only
+the audio ([lips](fo4_ck_replacements.md#lips)).
+
+- **<a id="lip-tool"></a>Lips for voice mods.** New voiced-line mods
+  (recorded or generated voices) need a `.lip` per line. A tool that makes
+  them from the audio alone, the same every run and on any OS, would help
+  every one of them.
+  - **Have:** `lip.from_loudness`, and the converter from FNV's `.lip`
+    format ([lips](research/lip_format.md#built)).
+  - **Unknown:** how a loudness lip reads in game next to LipGenerator's.
+    That check is already on the replacements list.
+  - **Size:** small.
+- **Lips that follow the words.** Loudness only opens and closes the mouth.
+  Aligning the line's text to its audio would give real mouth shapes per
+  sound.
+  - **Need:** an open aligner whose license fits ours, and a map from its
+    sounds to FO4's lip targets.
+  - **Size:** medium.
+
+### <a id="later-steps"></a>The steps not started yet
+
+- **Voice audio (6).** If the game plays a codec other than xWMA inside
+  `.fuz`, voice mods could be built on any OS, and a tool could re-encode
+  oversized voice packs. That depends on the spike
+  ([table](fo4_ck_replacements.md#today)).
+- **Precombines and previs (8).** Today a mod that edits a precombined
+  cell breaks its precombines, and the fix is a CK rebuild. Our own baker
+  would make "rebuild the precombines this load order broke" possible
+  without the CK. Very large, and the CK route comes first.
+
+## <a id="toolkit"></a>All of it together
+
+### <a id="ck-free-kit"></a>A CK-free build kit for mods
+
+One command that takes an FO4 mod's sources and writes the finished mod:
+archives, compiled scripts, AnimTextData, lips, FaceGen and collision, on
+any OS, the same bytes every run. Each piece above is one part of it.
+
+- **Gains:** mods that build on Linux and the Steam Deck; release builds
+  anyone can repeat and check; mod authors without the CK installed.
+- **Size:** medium on top of the pieces; it is mostly a front end and the
+  load-order reading the [dark-face fixer](#dark-face) needs too.
+
+### <a id="ci"></a>Mods built by continuous integration
+
+Repeatable output means a mod's repository can build and check itself on
+every push (for example on GitHub's Linux runners): compile the scripts,
+pack the archives, bake new faces, and compare against the last release.
+No Bethesda tool can run there today.
+
+- **Size:** small once the [build kit](#ck-free-kit) exists.
+
 ## <a id="fun"></a>Fun extras
 
 ### <a id="courier"></a>Bring your Courier's face
@@ -174,8 +304,8 @@ holotape, or a gallery page.
 ### <a id="gallery"></a>A comparison gallery
 
 The CK's face, ours and FNV's original, side by side for every NPC. It
-would make problems visible at a glance and help with the pinned lip-color
-and tone-mask work ([revisit](fo4_facegen_plan.md#face-d-revisit)).
+would make problems visible at a glance, such as the faces the census still
+ranks worst after the [shader port](fo4_facegen_plan.md#ck-face-shader).
 
 - **Size:** small if it shows the textures flat; medium with rendered
   heads (it shares a renderer with [portraits](#portraits)).
@@ -199,3 +329,9 @@ and tone-mask work ([revisit](fo4_facegen_plan.md#face-d-revisit)).
    after it.
 3. **[The comparison gallery](#gallery):** cheap, and it doubles as a check
    on our faces.
+4. **[Our Caprica fixes upstream](#caprica-upstream):** the fixes exist,
+   and every Caprica user has the miscompile.
+5. **[The archive check](#ba2-check):** small, and it catches a silent
+   Archive2 loss that any mod author can hit.
+6. **[AnimTextData for any mod](#anim-text-tool):** nobody else offers it,
+   and most of it is built.
