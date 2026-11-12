@@ -3922,6 +3922,35 @@ converter gap:
   line, and Fallout 4 keeps that half; melee weapons have no Fallout 4
   actor value.
 
+## <a id="dialogue-gate"></a>Polls wait only while the dialogue menu is open (2026-11-12, after play; not yet played)
+
+Every converted poll skips its pass while `TES4Polyfill.PlayerIsInDialogue()`
+is true. The shared version asks the last speaker stamped in the player's
+Variable05/06 whether `IsInDialogueWithPlayer()`. On Fallout 4 that stayed
+true on Doc for about 22 s after his goodbye (Papyrus trace 2026-11-12: the
+goodbye's end fragment at 494.5 s, the Goodsprings exterior loaded at
+502.9 s, Doc's parked greet package cleared at 516.2 s). So `VGenericTimer`,
+which sets VCG01 stage 200 (`GameHour` to 8) about 0.1 s after the talk in
+FNV, ran at 516.7 s: the player stood outside at night for seconds, then it
+turned day. Every poll waiting for a talk to end had the same delay.
+
+The Fallout 4 override also requires `UI.IsMenuOpen("DialogueMenu")`, as
+`ShowBarterMenu` already does. A goodbye line still playing after the menu
+closes keeps the hold (`_IsSpeaking`), as before.
+
+## <a id="furniture-seated"></a>On furniture means seated (2026-11-12, after play; not yet played)
+
+`IsCurrentFurnitureRef` read `GetFurnitureReference()` alone. Fallout 4 names
+the furniture as soon as the actor picks it, while it walks there (sit state
+1) and plays the sit-down (2). FNV's `VCG01DocMitchellChairTriggerSCRIPT`
+starts its 2.5 s timer when Doc is on his chair, then the couch script's
+2.0 s, then the psych test's greeting. Started early, the test sometimes
+opened with Doc standing; he sat at the next break between stages (played
+2026-11-12, varying run to run). The Fallout 4 override needs sit state 3 or
+4 too. Of the 7 converted uses, Big Sal's and Nero's already test
+`GetSitState() == 3`; the others are Doc's chair (2), the couch (player and
+Doc) and Vault 11's extermination chair (player).
+
 ## <a id="before"></a>Before the pipeline: build and research
 
 In order. **Built** marks what is done.

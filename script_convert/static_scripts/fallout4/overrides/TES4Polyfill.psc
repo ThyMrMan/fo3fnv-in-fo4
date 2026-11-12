@@ -1014,3 +1014,36 @@ Function RemoveAllTypedItems(ObjectReference akFrom, ObjectReference akTo, Bool 
     i += 1
   EndWhile
 EndFunction
+
+; fallout4: replaces IsCurrentFurnitureRef f6c61f4d708a399215280e4a5d17f085ce1bd1aa
+Bool Function IsCurrentFurnitureRef(Actor a, ObjectReference akFurniture) Global
+  {FO3/FNV IsCurrentFurnitureRef: `a` sits on exactly `akFurniture` (sit state 3, or 4 wanting to stand). Fallout 4 names the furniture as soon as the actor picks it, while still walking there and sitting down (states 1 and 2), and Doc's chair timer then opened the psych test with him standing. See docs/fork/fo4_pipeline.md#furniture-seated}
+  Return akFurniture != None && a.GetSitState() >= 3 && a.GetFurnitureReference() == akFurniture
+EndFunction
+
+; fallout4: replaces PlayerIsInDialogue cbc5d6e0cee16f47bd63c10aa645c6790d642178
+Bool Function PlayerIsInDialogue() Global
+  {True while the player's dialogue menu is open with the last stamped speaker, or that speaker's last line still plays. Fallout 4 keeps IsInDialogueWithPlayer true on a speaker for seconds after the talk ends (22 s on Doc after his goodbye, the player already outside), so the menu must be open too. See docs/fork/fo4_pipeline.md#dialogue-gate}
+  Actor p = Game.GetPlayer()
+  ActorValue hiAV = AV("Variable05")
+  ActorValue loAV = AV("Variable06")
+  Float hi = p.GetValue(hiAV)
+  Float lo = p.GetValue(loAV)
+  If hi <= 0.0 && lo <= 0.0
+    Return False
+  EndIf
+  ObjectReference r = None
+  If hi < 32768.0
+    r = Game.GetForm((hi as Int) * 65536 + (lo as Int)) as ObjectReference
+  EndIf
+  If r != None && UI.IsMenuOpen("DialogueMenu") && r.IsInDialogueWithPlayer()
+    Return True
+  EndIf
+  Actor ra = r as Actor
+  If ra != None && _IsSpeaking(ra)
+    Return True
+  EndIf
+  p.SetValue(hiAV, 0.0)
+  p.SetValue(loAV, 0.0)
+  Return False
+EndFunction
