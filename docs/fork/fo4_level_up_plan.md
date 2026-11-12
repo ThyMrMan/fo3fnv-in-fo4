@@ -1,8 +1,10 @@
 # Our own level-up menu (plan)
 
 **Status:** planned 2026-11-12; the perk and skill images are staged by every
-build, and PRKF.dll's points, tags and perk list are rebuilt in Papyrus
-(built, not used). Status lines live only in
+build, PRKF.dll's points, tags and perk list are rebuilt in Papyrus, and our
+own menu opens in place of `LevelUpMenu` with skill, perk and taken pages
+(built 2026-11-12, not played). Traits and tags are still LevelUpMenuEx's.
+Status lines live only in
 [ROADMAP.md](ROADMAP.md). The framework side (f3ui, replacing a vanilla
 menu, the image staging) is in
 [swf_framework.md](swf_framework.md#level-up).
@@ -72,7 +74,7 @@ Settings go in MCM, with an INI behind them so the menu works without MCM.
 The rules' own values live on `F3NV_CharacterRules` today; the options
 change those, not a second copy.
 
-## <a id="prkf"></a>PRKF.dll's work, in Papyrus (built 2026-11-12, not used yet)
+## <a id="prkf"></a>PRKF.dll's work, in Papyrus (built 2026-11-12, used by our menu)
 
 PRKF.dll keeps perk and skill points, the tagged skills and the perk list,
 and opens its menus on them. None of the non-menu part needs native code,
@@ -99,15 +101,102 @@ so F3NV.dll gets nothing:
   66, nothing left out (`level-up requirement not shown`). A row shows
   the base value; whether the perk can be taken is still `IsEligible`'s
   call.
+  - **Fixed 2026-11-12:** a sex row compared the player's sex with the
+    condition's value (1), so every "is male" perk (Lady Killer,
+    Confirmed Bachelor, Action Boy) failed for a man. A sex row now tests
+    the player's sex `==` or `!=` the sex the condition names
+    (`GetIsSex(Male) == 1` is "sex == 0").
 
 The tag bonus stays the caller's to give, since the rules' `OnTagsFinished`
 already sets it. The trait and tag menus are the menu's (order step 5).
-The rules keep calling `PRKF:PRKF` until our menu replaces LevelUpMenuEx's,
-and then they switch to this script, along with `F3NV_CharacterEvents`
-(SetPlayerTagSkill) and converted scripts' `IsTagSkillAV`
-(`commands_falloutnv.py`). Arrays a script builds hold at most 128 entries,
+Since our menu took over level-ups ([open](#open)), the rules give
+each level's points to this script; LevelUpMenuEx keeps the trait and tag
+menus, `F3NV_CharacterEvents` (SetPlayerTagSkill) and converted scripts'
+`IsTagSkillAV` (`commands_falloutnv.py`), and our tags are copied from it
+each time our menu opens. Arrays a script builds hold at most 128 entries,
 which `PerkList` stays under for FNV (91 perks); a DLC's perks join by the
 form list merge, and their requirement rows are an open question.
+
+## <a id="open"></a>Opening ours in place of `LevelUpMenu` (built 2026-11-12, not played)
+
+No DLL, and no `LevelUpMenu.swf` of ours. `F3NV_CharacterRules` already
+watched `LevelUpMenu`; now, when it opens and the rules did not open it
+themselves for LevelUpMenuEx's trait or tag menu (`PrkfMenu`, set just
+before `OpenTraitsMenuFL` and `OpenTagSkillsMenu`), `OpenLevelUp`:
+1. closes `LevelUpMenu` and the Pip-Boy (FNV's level-up screen is not
+   part of its Pip-Boy, and no source gives FO4's menu depths, so ours is
+   not put over an open Pip-Boy);
+2. gives the levels gained since the last time their points (`TopUp`,
+   now into `F3NV_LevelUp`, no longer topping up PRKF's);
+3. once, moves the points LevelUpMenuEx banked on an older save to ours
+   ([end-user state](../../CLAUDE.md#end-user-state)), and each time
+   copies its tagged skills to ours;
+4. waits until no menu is open (`WaitOutOfMenus`), then opens ours.
+
+So it catches every way into `LevelUpMenu`: the Pip-Boy's button,
+LevelUpMenuEx's hotkey, a script. The cost is a moment of the vanilla (or
+LevelUpMenuEx's) screen before ours, and the Pip-Boy closing. If that
+flash is ugly in play, the next step is F3NV.dll swapping the menu table's
+`LevelUpMenu` constructor (`UI::menuTable`, F4SE `GameMenus.h`), which
+needs no flash and no Pip-Boy close; F4SE's own custom menu can't be
+registered under a vanilla name (`RegisterCustomMenu` refuses a
+registered name).
+
+The perk stage handling (`WatchStages`, `RunPerkStages`,
+[intense training](fo4_pipeline.md#intense-training)) now runs round our
+menu, and round LevelUpMenuEx's when it is the trait or tag menu.
+
+## <a id="menu"></a>The menu (built 2026-11-12, not played)
+
+`fo4_import/level_up/` (`F3NV_LevelUp.as`, `f3nv/levelup/Character.as`)
+on f3ui, built by `mxmlc`, installed by the masterless build as
+`Interface/F3NV_LevelUp.swf`, registered by `F3NV_LevelUp.psc` with the
+casino's menu flags. Three pages (Prev/Next):
+- **SKILLS:** each skill and its value. Accept or Right sets a point, Left
+  takes one back, within the points, the base and `SkillCap`; Y resets;
+  X spends them. The list shows "45 > 50" while set, and the right side
+  names the perks those points would open. Back with points set asks
+  whether to spend them.
+- **PERKS:** the perks with a rank left that can be taken now; X shows all
+  of them, the others dimmed. The right side shows the image, ranks held,
+  the requirements (level first, OR groups on one line, each unmet one
+  with "(you have N)") and the description. Accept asks, then takes it;
+  Papyrus's `TakePerk` (the engine's `IsEligible`) has the last word.
+- **TAKEN:** the perks held, with their ranks.
+
+Points not spent stay for later (banking). The HUD color, hints with key
+names or button glyphs, and translated words (`$F3NV_LU_*`) come from the
+library.
+
+**What the menu shows comes from the build, not the engine.** F4SE's Form
+and Perk natives aren't flagged no-wait, so each call from Papyrus costs
+its stack a frame; asking for 91 perks' names, descriptions, images,
+levels and ranks would take seconds. The build writes them as properties
+of `F3NV_LevelUp` (`level_up.py` `menu_properties`): `SEP`-joined strings
+(`PerkNames`, `PerkDescriptions`, `PerkImages`, `SkillNames`, ...), the
+levels and rank counts, every rank in order (`RankForms`), and per
+requirement row its perk's place in the list (`RequirementOwners`), where
+the tested value is (`RequirementTargets`: SPECIAL then skills, or a
+listed perk) and a label. Census (stand-in FormIDs, 2026-11-12): FNV 91
+perks, 111 ranks, 105 rows, every row placed, descriptions 12 KB; FO3 61,
+91 and 66. At open, `Gather` asks only for the ranks held (`HasPerk` along
+`RankForms`) and the 20 base values, split over 8 stacks
+(`CallFunctionNoWait`) so their frames overlap; the menu works out
+eligibility from the rows. The log line `F3NV_LevelUp: sent in Ns` measures
+it.
+
+**Not yet:** a DLC's perks (they join `FNV_Perks` but not the tables, so
+the menu doesn't list them), search and sorting, the trait and tag menus
+(step 5), options and the API (step 6).
+
+## <a id="images"></a>Images from the records
+
+Each perk's image is its FNV `ICON`, staged by `level_up_icons.py` and
+written into the converted PERK's own `ICON` (FO4's "Image" field, which
+vanilla never fills; F4SE's `GetIconPath` reads it, since `BGSPerk` has a
+`TESIcon`), and into the menu's `PerkImages` table. Skills have no such
+field in FO4 (`ActorValueInfo` has none), so their images are only in
+`SkillImages`, from the FNV AVIF's `ICON`.
 
 ## <a id="api"></a>For other mods
 
@@ -135,22 +224,25 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
 1. **Spike:** one staged perk image mounted and shown in a menu of ours
    (DXT3/DXT5 through `MountImage` are untested;
    [images](swf_framework.md#level-up)). **Built 2026-11-12, not played.**
-   - **PRKF.dll's state in Papyrus** ([prkf](#prkf)): built 2026-11-12, not
-     used yet.
-2. **Opening ours instead of `LevelUpMenu`** (the framework's "replace a
-   vanilla menu" mode).
+   - **PRKF.dll's state in Papyrus** ([prkf](#prkf)): built 2026-11-12.
+2. **Opening ours instead of `LevelUpMenu`** ([open](#open)): built
+   2026-11-12 in Papyrus, not played.
 3. **Perk page** with the default features above, reading `FNV_Perks` as
-   LevelUpMenuEx does.
-4. **Skill page** with the preview, undo and banking.
+   LevelUpMenuEx does ([menu](#menu)): built 2026-11-12 with filters,
+   requirements and a taken page; search, sorting and DLC perks left.
+4. **Skill page** with the preview, undo and banking ([menu](#menu)):
+   built 2026-11-12.
 5. **Traits and tags** at character creation, with re-tagging.
 6. **Options** in MCM, then the **API**, then dropping LevelUpMenuEx from
    the requirements.
 
 **Open questions:**
-- How the menu finds an image from a record: FO4's PERK has an unused
-  `ICON` field and AVIF none, so our own table or that field.
+- Whether the moment of `LevelUpMenu` before ours is acceptable in play,
+  or F3NV.dll should swap the menu's constructor ([open](#open)).
 - Whether Vanilla UI Plus or zUI already show highlighted requirements or
   sorting in FNV's level-up screen (their feature lists weren't found).
+- Settled 2026-11-12: a perk's image is in its own `ICON` and the menu's
+  table, a skill's only in the table ([images](#images)).
 
 ## <a id="sources"></a>Sources (searched 2026-11-12)
 

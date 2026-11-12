@@ -19,7 +19,7 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.helpers_plugin import EDID_PREFIX, actor_value_form, form_id
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
-from fo4_import.spike.level_up import SCRIPT as LEVEL_UP_SCRIPT, properties as level_up_properties, rows as level_up_rows
+from fo4_import.spike.level_up import SCRIPT as LEVEL_UP_SCRIPT, av_records, menu_properties as level_up_properties
 from fo4_import.spike.pipboy_tabs import tab_quest
 from fo4_import.pipeline.export_index import export_records, root_export
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_HELPER_QUESTS
@@ -36,8 +36,6 @@ GOVERNING = {
 #: Per game: (skill points per Intelligence point, levels per perk). Both give 10 + those per level.
 RATES = {'FalloutNV.esm': (0.5, 2), 'Fallout3.esm': (1.0, 1)}
 SKILL_POINTS_BASE = 10
-#: FO3/FNV actor value FormIDs: index + this.
-FNV_AVIF_BASE = 0x490
 INI_VERSION = 3
 #: Fallout4.esm's SPECIAL menu total (28) and FO3/FNV's: 40, ShowSPECIALBookMenu's default.
 SPECIAL_POINTS_SETTING, SPECIAL_POINTS_ID, SPECIAL_POINTS = 'uSPECIALPoints', 0x00078744, 40
@@ -48,12 +46,12 @@ def _settings(export_dir: Path) -> dict:
     return {r.get('EditorID'): r.get('DATA.Value') for r in export_records(export_dir, 'GMST')}
 
 
-def _skill_texts(builder, export_dir: Path, skills: list, helper_index: int) -> None:
-    """Override the helper plugin's skill actor values with the game's name and description."""
-    avifs = {int(r['FormID'], 16): r for r in export_records(export_dir, 'AVIF')}
+def _skill_texts(builder, avifs: dict, skills: list, helper_index: int) -> None:
+    """Override the helper plugin's skill actor values with the game's name and description (`avifs`, level_up's
+    av_records)."""
     for i, name in enumerate(C.FNV_AV_NAMES):
-        if name.replace(' ', '') in skills and FNV_AVIF_BASE + i in avifs:
-            rec = avifs[FNV_AVIF_BASE + i]
+        if name.replace(' ', '') in skills and i in avifs:
+            rec = avifs[i]
             fid = actor_value_form(name.replace(' ', ''), helper_index)
             builder.writer.add_record('AVIF', pack_avif(fid, EDID_PREFIX + name.replace(' ', ''), rec.get('FULL', name),
                                                         rec.get('DESC', '')))
@@ -74,13 +72,15 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     governing = GOVERNING[game]
     skills = sorted({s for group in governing for s in group}, key=lambda s: C.FNV_AV_NAMES.index(
         next(n for n in C.FNV_AV_NAMES if n.replace(' ', '') == s)))
-    settings = _settings(export_dir)
-    _skill_texts(builder, export_dir, skills, helper_index)
-    skill_list = _list(builder, 'FNV_Skills', [actor_value_form(s, helper_index) for s in skills])
+    settings, avifs = _settings(export_dir), av_records(export_dir)
+    _skill_texts(builder, avifs, skills, helper_index)
+    skill_forms = [actor_value_form(s, helper_index) for s in skills]
+    special_forms = [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]
+    skill_list = _list(builder, 'FNV_Skills', skill_forms)
     governed = [_list(builder, f'FNV_GovernedBy{stat}', [actor_value_form(s, helper_index) for s in group])
                 for stat, group in zip(SPECIAL, governing)]
     objects = {'TES4CharacterEvents': form_id(FALLOUT4_HELPER_QUESTS['F3NV_CharacterEvents'], helper_index),
-               'SpecialStats': _list(builder, 'FNV_SpecialStats', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
+               'SpecialStats': _list(builder, 'FNV_SpecialStats', special_forms),
                'GovernedSkills': _list(builder, 'FNV_GovernedSkills', governed),
                'Traits': _list(builder, 'FNV_Traits', builder.perks.traits())}
     per_int, per_perk = RATES[game]
@@ -89,7 +89,8 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
               'TraitCount': ('int', int(settings.get('iTraitMenuMaxNumTraits', 0))),
               'SkillBase': ('float', float(settings['fAVDSkillBarterBase'])), **stage_properties(builder.perks)}
     perks = _list(builder, 'FNV_Perks', builder.perks.playable())
-    level_up = ({'Perks': perks}, level_up_properties(level_up_rows(builder)))
+    level_up = ({'Perks': perks, 'Skills': skill_list, 'Specials': objects['SpecialStats']},
+                level_up_properties(builder, avifs, special_forms + skill_forms, skills))
     quest = builder.new_id('QUST FNV_CharacterRules')
     builder.writer.add_record('QUST', pack_script_quest(quest, 'FNV_CharacterRules', quest_fragments(
         '', [], scripts=[(RULES_SCRIPT, objects, values), (LEVEL_UP_SCRIPT, *level_up)])))

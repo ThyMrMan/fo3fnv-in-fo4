@@ -25,7 +25,7 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
 | Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)). Since 2026-11-12 on `f3ui` (`Bridge`, `Text`), compiled by `mxmlc` like the casino's. Nothing read from the game | The patched-movie version played; our own movie (FFDec build) played 2026-11-12, looks the same. `mxmlc` build not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | The Pip-Boy's CND line, repair and ammo lists, and other mods' item-card lines are drawn by our injected movie from the DLL's data ([framework](#pipboy)). The rest is drawn by the DLL into the open vanilla menus from C++: REPAIR and AMMO hints, STAT tabs, the container and barter CND line, HUD needs | CND, repair and tabs played from C++; the movie's versions built, not played. Ammo list and HUD needs built, not played |
-| Level-up (`fo4_import/spike/level_up*.py`, `F3NV_LevelUp.psc`) | No menu yet ([level-up](#level-up)): the perk and skill images are staged, and PRKF.dll's points, tags, perk list and requirement rows are rebuilt in Papyrus | Images, the image spike and the Papyrus state built, none played or used |
+| Level-up (`fo4_import/level_up/`, `fo4_import/spike/level_up*.py`, `F3NV_LevelUp.psc`) | Our own menu on f3ui ([level-up](#level-up)), opened by the character rules in place of `LevelUpMenu`, with skill, perk and taken pages; PRKF.dll's points, tags, perk list and requirement rows rebuilt in Papyrus; traits and tags still LevelUpMenuEx's | Built 2026-11-12, none played |
 
 ### <a id="where"></a>Where each piece stands (2026-11-12)
 
@@ -34,7 +34,7 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | **Toolchain** | `mxmlc` builds, byte-stable, every movie we ship; FFDec route deleted | The [movie check](#testing) in preflight (sources only, no Bethesda tags, mapped fonts) |
 | **AS3 library** ([design](#design)) | `Bridge`, `Theme`, `Host`, `Text` (with `Text.show` for `$KEY`s and slots), `Draw`; `Input` and `HintBar` ([input](#input)), `ScrollList` ([scroll list](#scroll-list)) and `Modal` ([modal](#modal)), with the dialogue list and the Pip-Boy's list panel on them; `Images` ([images](#images)) with the casino on it (all built, not played) | Every planned class is built; next, playing them |
 | **Own menu** | Casino (Papyrus `UI.RegisterCustomMenu`), HUD color by the menu itself (spike 2b, played) | Registering from the DLL: not needed for color; only if a later menu needs it |
-| **Replace a vanilla movie** | Dialogue menu on our own movie (spike 3, played); its `mxmlc` build | The `mxmlc` build played; a level-up menu in place of `LevelUpMenu` |
+| **Replace a vanilla movie** | Dialogue menu on our own movie (spike 3, played); its `mxmlc` build. Level-up: our own registered menu opened in place of `LevelUpMenu` from Papyrus, no vanilla file shipped ([open](fo4_level_up_plan.md#open), built) | Both played; if the moment of `LevelUpMenu` first shows, F3NV.dll swapping its constructor |
 | **Inject into a vanilla menu** | Pip-Boy (spike 4, played under vanilla); CND, lists and item-card API built | Any of it played; FallUI played; container and barter (still C++) |
 | **HUD widget** | Nothing | The widget movie, HUDFramework host, DLL injection ([HUD](#hud)); Hardcore's needs are still C++ |
 | **DLL side** | GFx helpers (`gfx.cpp`), Pip-Boy injection (`LoadOverlay`), natives the movies call (`HudColor`, `Log`, `PipboyCardLines`, `PipboyList`, `TextureExists`) | Injection by menu URL for other menus, settings INI to the movie, GFx log routing |
@@ -587,7 +587,7 @@ replaced movie:
 Together with the widget host this covers both of the HUD's frameworks
 in one injected movie, with no `HUDMenu.swf` shipped by anyone.
 
-## <a id="level-up"></a>Our own level-up menu (planned; images and state built)
+## <a id="level-up"></a>Our own level-up menu (built 2026-11-12, not played)
 
 The menu's features and order: [fo4_level_up_plan.md](fo4_level_up_plan.md).
 This section is the framework side.
@@ -622,17 +622,41 @@ three. "Mounted" alone proves nothing with an older F3NV.dll, since a
 missing file still mounts ([casino phase 0](fo4_casino_plan.md#phase-0)).
 With the new DLL, a missing file is labeled missing ([images](#images)).
 
+**The menu (built 2026-11-12, not played):** `fo4_import/level_up/`, our
+own movie registered from Papyrus like the casino's, with SKILLS, PERKS
+and TAKEN pages on `ScrollList`, `Modal`, `Input`, `HintBar` and `Images`
+([menu](fo4_level_up_plan.md#menu)). What it shows comes from tables the
+build writes onto `F3NV_LevelUp`, since each Papyrus call to a Form or
+Perk native costs a frame. Images come from the records: each perk's in
+its own PERK `ICON` and the table, a skill's in the table
+([images](fo4_level_up_plan.md#images)).
+
+**Replacing a vanilla menu (built, not played):** the character rules open
+ours whenever `LevelUpMenu` opens other than for LevelUpMenuEx's trait and
+tag menus, after closing it and the Pip-Boy
+([open](fo4_level_up_plan.md#open)). No DLL and no vanilla file; the
+framework's DLL route (swapping a menu's constructor in F4SE's menu table)
+stays in reserve for when the moment of the vanilla screen shows.
+
 Still to do:
-- **Play the image spike** above.
-- **Finding an image from a record:** FO4's PERK has an `ICON` ("Image")
-  field vanilla never fills, and AVIF has none, so the menu needs its own
-  table (FormID to texture path) or the PERK field. Decide with the menu.
-- **PRKF.dll's work:** the points, tags, perk list and requirement rows are
-  built in Papyrus, with no DLL code (`F3NV_LevelUp`,
-  [prkf](fo4_level_up_plan.md#prkf)); the trait and tag menus come with
-  the menu.
-- **Replacing a vanilla menu:** opening ours instead of `LevelUpMenu`, a
-  mode the framework does not have yet.
+- **Play the image spike** above, and the menu.
+- **Traits and tags** in our menu, then dropping LevelUpMenuEx
+  ([order](fo4_level_up_plan.md#order)).
+
+<a id="level-up-play"></a>**Play check:** level up (`player.setlevel` one
+higher, or earn it), then open the level-up screen from the Pip-Boy:
+- the Pip-Boy closes and our menu opens (a moment of the old screen first
+  is expected); `Papyrus.0.log` has `F3NV_LevelUp: sent in Ns` (how long
+  the open took) and an `open:` line with the counts (FNV 91 perks, 13
+  skills, 105 rows);
+- SKILLS: set points with Right, take back with Left, the list shows
+  "45 > 50", X spends them and the skill rises; Back with points set asks;
+- PERKS: only perks you can take, X shows all (others dimmed), each with
+  its image, requirements ("Science 50 (you have 45)") and description;
+  Accept asks, then takes it, and it moves to TAKEN;
+- a male character sees Lady Killer as available at its level;
+- leave with points unspent, reopen: they are still there;
+- a new game's tag and trait menus are still LevelUpMenuEx's.
 
 ## <a id="casino"></a>The casino on the framework
 
@@ -1129,7 +1153,7 @@ level-up image spike; the casino and dialogue menu on `Input` and
 `HintBar`, with a pad ([play check](#input)); the dialogue list and the
 Pip-Boy lists on `ScrollList` and `Modal` ([play check](#modal)); the
 casino's images through `Images`, with the new F3NV.dll
-([play check](#images)).
+([play check](#images)); the level-up menu ([play check](#level-up-play)).
 
 Then:
 1. **`Input` and `HintBar`** in the library, with the casino and the
@@ -1139,7 +1163,8 @@ Then:
    the dialogue list. **Built 2026-11-12, not played.**
 3. **Replacing a vanilla menu by name** (the level-up menu in place of
    `LevelUpMenu`), then the level-up menu itself
-   ([order](fo4_level_up_plan.md#order)).
+   ([order](fo4_level_up_plan.md#order)). **Built 2026-11-12 (opening,
+   skills, perks, taken); traits and tags left.**
 4. **The HUD widget**: Hardcore's needs as our movie, hosted by
    HUDFramework or injected by the DLL ([HUD](#hud)).
 5. **The container and barter CND line** through an injected movie, as the

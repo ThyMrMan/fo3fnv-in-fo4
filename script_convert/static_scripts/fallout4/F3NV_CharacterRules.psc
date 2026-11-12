@@ -1,8 +1,9 @@
 ScriptName F3NV_CharacterRules extends Quest
-{Fallout 4 only. FO3/FNV's character rules on LevelUpMenuEx (PRKF): answers F3NV_CharacterEvents' CharacterMenu
-(SPECIAL, tag skills, traits), sets each skill's starting value once SPECIAL is chosen, and at each level-up
-tops LevelUpMenuEx's skill and perk points up to the source game's rates. The importer fills the lists and
-rates from the game. See docs/fork/research/fo4_target.md#decisions}
+{Fallout 4 only. FO3/FNV's character rules: answers F3NV_CharacterEvents' CharacterMenu (SPECIAL, and LevelUpMenuEx's
+tag skill and trait menus), sets each skill's starting value once SPECIAL is chosen, gives each level-up's skill and
+perk points at the source game's rates to F3NV_LevelUp (on this quest), and opens our level-up menu in place of
+LevelUpMenu. The importer fills the lists and rates from the game. See docs/fork/research/fo4_target.md#decisions,
+docs/fork/fo4_level_up_plan.md#open}
 
 F3NV_CharacterEvents Property TES4CharacterEvents Auto
 FormList Property SpecialStats Auto
@@ -26,18 +27,16 @@ String[] Property StageScripts Auto
 Bool[] HeldAtOpen
 Bool[] StageSeen
 Int LastLevel
-Int LastPP
-Int LastSP
 Float SkillPointCarry
 Float[] TagBases
+Bool PrkfMenu
+Bool Migrated
 
 Event OnInit()
   RegisterForCustomEvent(TES4CharacterEvents, "CharacterMenu")
   RegisterForMenuOpenCloseEvent("SPECIALMenu")
   RegisterForMenuOpenCloseEvent("LevelUpMenu")
   LastLevel = Game.GetPlayer().GetLevel()
-  LastPP = PRKF:PRKF.GetPP()
-  LastSP = PRKF:PRKF.GetSP()
 EndEvent
 
 Event F3NV_CharacterEvents.CharacterMenu(F3NV_CharacterEvents akSender, Var[] akArgs)
@@ -49,6 +48,7 @@ Event F3NV_CharacterEvents.CharacterMenu(F3NV_CharacterEvents akSender, Var[] ak
   ElseIf kind == "tags"
     OpenTags((akArgs[1] as Float) as Int)
   ElseIf kind == "traits"
+    PrkfMenu = True
     PRKF:PRKF.OpenTraitsMenuFL(Traits, TraitCount, True)
   EndIf
 EndEvent
@@ -57,17 +57,64 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
   If asMenuName == "SPECIALMenu"
     TraceSpecial(abOpening)
   EndIf
+  String ours = LevelUp().MenuName
   If asMenuName == "SPECIALMenu" && !abOpening
     SetSkillBases()
-  ElseIf asMenuName == "LevelUpMenu" && abOpening
-    TopUp()
+  ElseIf asMenuName == "LevelUpMenu" && abOpening && !PrkfMenu
+    OpenLevelUp()
+  ElseIf (asMenuName == "LevelUpMenu" || asMenuName == ours) && abOpening
     WatchStages()
-  ElseIf asMenuName == "LevelUpMenu"
-    LastPP = PRKF:PRKF.GetPP()
-    LastSP = PRKF:PRKF.GetSP()
+  ElseIf asMenuName == "LevelUpMenu" && PrkfMenu
+    PrkfMenu = False
+    RunPerkStages()
+  ElseIf asMenuName == ours
     RunPerkStages()
   EndIf
 EndEvent
+
+F3NV_LevelUp Function LevelUp()
+  {Our level-up state and menu, on this quest.}
+  Return (Self as Quest) as F3NV_LevelUp
+EndFunction
+
+Function OpenLevelUp()
+  {In place of LevelUpMenu (from the Pip-Boy, LevelUpMenuEx's hotkey or anything else; not the trait and tag menus
+  this script opens there): this level-up's points, LevelUpMenuEx's tags copied across, then our menu once
+  LevelUpMenu and the Pip-Boy have closed, as FNV's level-up is not part of its Pip-Boy.
+  See docs/fork/fo4_level_up_plan.md#open}
+  UI.CloseMenu("LevelUpMenu")
+  If UI.IsMenuOpen("PipboyMenu")
+    UI.CloseMenu("PipboyMenu")
+  EndIf
+  TopUp()
+  CopyPrkfTags()
+  RegisterForMenuOpenCloseEvent(LevelUp().MenuName)
+  WaitOutOfMenus()
+  LevelUp().Open()
+EndFunction
+
+Function CopyPrkfTags()
+  {Our tags as LevelUpMenuEx's (its tag menu and SetPlayerTagSkill still set them), and once, the points it banked
+  before our menu took over level-ups, moved to ours.}
+  F3NV_LevelUp ours = LevelUp()
+  If !Migrated
+    Migrated = True
+    ours.AddPerkPoints(PRKF:PRKF.GetPP())
+    ours.AddSkillPoints(PRKF:PRKF.GetSP())
+    PRKF:PRKF.AddPP(-PRKF:PRKF.GetPP())
+    PRKF:PRKF.AddSP(-PRKF:PRKF.GetSP())
+  EndIf
+  ActorValue[] skills = Skills()
+  Int i = 0
+  While i < skills.Length
+    If PRKF:PRKF.IsTagSkillAV(skills[i])
+      ours.Tag(skills[i])
+    Else
+      ours.Untag(skills[i])
+    EndIf
+    i += 1
+  EndWhile
+EndFunction
 
 Function WatchStages()
   {As the level-up menu opens: which stage perks the player holds, and a watch on their quests' stages, so
@@ -156,6 +203,7 @@ Function OpenTags(Int count)
   If left < 0
     left = 0
   EndIf
+  PrkfMenu = True
   PRKF:PRKF.OpenTagSkillsMenu(left, TagBonus, tagged > 0)
 EndFunction
 
@@ -299,9 +347,8 @@ Function SetSkillBases()
 EndFunction
 
 Function TopUp()
-  {For the levels gained since the last top-up: SkillPointsBase + Intelligence x SkillPointsPerIntelligence skill
-  points each (a fraction carries over), a perk point every LevelsPerPerk levels; whatever LevelUpMenuEx itself
-  added since is subtracted.}
+  {For the levels gained since the last top-up, to F3NV_LevelUp: SkillPointsBase + Intelligence x
+  SkillPointsPerIntelligence skill points each (a fraction carries over), a perk point every LevelsPerPerk levels.}
   Actor player = Game.GetPlayer()
   Int level = player.GetLevel()
   If level <= LastLevel
@@ -319,8 +366,7 @@ Function TopUp()
   EndWhile
   Int whole = Math.Floor(sp)
   SkillPointCarry = sp - whole
-  PRKF:PRKF.AddSP(whole - (PRKF:PRKF.GetSP() - LastSP))
-  PRKF:PRKF.AddPP(pp - (PRKF:PRKF.GetPP() - LastPP))
+  LevelUp().AddSkillPoints(whole)
+  LevelUp().AddPerkPoints(pp)
   LastLevel = level
-  PRKF:PRKF.UpdateMenu()
 EndFunction
