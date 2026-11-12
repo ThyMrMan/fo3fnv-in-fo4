@@ -3,7 +3,8 @@
 Status: step 1 (convex bodies) built and wired in, awaiting its play test; step 2 (triangle meshes
 on fixed and massless keyframed bodies) built and wired in, awaiting its play test; step 3's spheres and
 capsules built and wired in, awaiting their play test; step 3's compounds (lists) built and wired
-in, awaiting their play test; step 4 planned. Status lives
+in, awaiting their play test; step 4 (constraints and ragdolls) built and
+wired in, awaiting its play test. Status lives
 in [ROADMAP.md](ROADMAP.md). Item 5 of the
 [CK replacements](fo4_ck_replacements.md#options).
 
@@ -72,7 +73,10 @@ build queue runs); reading and scratch work don't.
 5. **Step 3:** ~~spheres and capsules~~ built (`nif/hknp_round.py`) and
    wired in ([round](#round)); ~~compounds (`bhkListShape`)~~ built
    (`nif/hknp_compound.py`) and wired in ([compound](#compound)).
-6. **Step 4.**
+6. ~~**Step 4:**~~ constraints built (`nif/hknp_constraint.py`) and wired
+   into `hknp_write` ([constraints](#constraints)); ragdolls built
+   (`nif/hknp_ragdoll.py`) and wired into `rig/assets.write_skeleton_nif`
+   ([ragdolls](#ragdolls)). The main session runs the play test.
 
 ## <a id="convex"></a>Step 1: what Elric writes for a convex body
 
@@ -514,7 +518,7 @@ Read off 51 pairs (every FNV mesh in `clutter`, `weapons`, `furniture`,
 
 **Built:** `nif/hknp_compound.py`; `hknp_write` takes a list of convex
 shapes (under a convex transform or not) and meshes on any body;
-constraints still go to Elric, as does a list with a flat child (one
+a list with a flat child still goes to Elric (one
 pair, `vdnwallwindow01`). On the 51 pairs, 50 covered: 14 match in every
 field; the instance words, sizes, bounds and motions match on all but
 those that follow a child's hull. What still differs: the accepted Step 1
@@ -526,6 +530,84 @@ meshes keep them all, so the rule is compound-only and not read).
 FNV `clutter` plus `architecture/barrier`: 1,347 pairs compared (16 more
 than before), 757 match in every field (753 before); none of the 679
 clutter pairs compared at Step 1 differs in a field it matched then.
+
+## <a id="constraints"></a>Step 4: constraints
+
+Read off 25 pairs (every FNV mesh outside the creature skeletons whose
+pre-Elric NIF holds a constraint: the skeleton clutter piles, hanging
+lights, swinging-beam traps, the chandelier), 119 constraints. Our input is
+`collision.py`'s `_joint`: a `<I2iI` head (2, body A block, body B block,
+priority), side A's three axes and pivot, side B's, then the limits (a
+ragdoll's cone, plane min and max, twist min and max, friction; a hinge's
+min, max, friction) and a motor byte. Elric writes an
+`hknpConstraintCinfo` (body ids, flags 0) and an
+`hkpRagdollConstraintData` or `hkpLimitedHingeConstraintData` (`userData`
+0, not in `referencedObjects`), all exact on 119 of 119:
+
+- **Transforms:** each side's axes and pivot are its transform's columns,
+  copied as they are (differences ≤3e-7). The w words are not zero: column
+  0 holds the third axis's y, column 1 its x, columns 2 and 3 zero (238 of
+  238 sides).
+- **Constant atoms:** setup stabilization (enabled, impulses `FLT_MAX`,
+  max angle 1.8e19) and the ball socket (velocity stabilization factor 48,
+  breach impulse `FLT_MAX`).
+- **Limits:** the input's angles in their atoms. Tau is 1.0 on a hinge and
+  0.8 on a ragdoll's twist, cone and planes. The cone's min angle is −100
+  (unused) with memory offset 56; the planes limit uses angle mode 1.
+- **Friction:** the input's torque, over 1 axis on a hinge and 3 on a
+  ragdoll. Motors: disabled; a hinge's slot is empty outside a ragdoll.
+- **Order:** Elric writes the cinfos in random order; we write block order,
+  and `hknp_compare` sorts both by (body A, body B).
+
+**Quaternions follow Havok's rule.** A body's orientation from its matrix:
+with a positive trace w is positive, otherwise the component of the
+largest diagonal term is. Our old "w ≥ 0" rule flipped 24 constraint-pair
+orientations; on clutter it fixes 6 fields and moves 4 clipboards' motion
+orientation just over tolerance (1.2e-4, bodies that already follow hull
+drift).
+
+**Built:** `nif/hknp_constraint.py`; `hknp_write` writes ragdoll and
+limited hinge constraints between its bodies, and leaves any other kind
+(or one that names a body outside the system) to Elric. On the 25 pairs
+every constraint field matches; what differs is `centerOfMassWorld.w`
+(19 pairs: Elric leaves a nonzero leftover there that is neither input nor
+a component of the local center of mass; we write 0), the Step 1 drift
+(the 90° angle byte, small inertia drift on 4 bodies ≤0.6%, the
+restitution half step, the chandelier's hull). FNV `clutter` plus
+`architecture/barrier`: 1,367 compared (20 more meshes covered), 758 match
+in every field.
+
+## <a id="ragdolls"></a>Step 4: ragdolls
+
+Read off 7 creature rig pairs (`rig/assets.write_skeleton_nif`'s input to
+Elric, against the rig work cache). Elric turns a skeleton into a
+`bhkRagdollSystem` (`hknpRagdollData`) and a `bhkPhysicsSystem` for the
+phantoms:
+
+- **The ragdoll** is the physics system of the rigid bodies and
+  constraints, as above, plus a `skeleton` and an identity
+  `boneToBodyMap`. Every constraint's motor slots name one shared
+  `hkpPositionConstraintMotor` (type 1, force −1e6 to 100, tau 0.8, damping
+  1, recovery velocities 5 and 0.2); the motors stay disabled.
+- **The skeleton** (`hkaSkeleton`) has one unnamed bone per body.
+  `parentIndices[A] = B` for each constraint (A, B), else −1 (7 of 7);
+  `lockTranslation` 0 on a root bone, 1 on the rest. The reference pose is
+  each body's place in its parent body's frame (translation, rotation,
+  scale 1); the w lanes of its translation and scale hold leftovers, which
+  the compare tool leaves out.
+- **Phantoms:** the `bhkSimpleShapePhantom`s (CharacterController,
+  CharacterBumper) become trigger bodies of their own system: their shape,
+  their filter, flags 16, no motion, placed by their node, a material with
+  flags 0x200000, trigger type 2, friction 16128, restitution 0.
+- Collision objects are `bhkNPCollisionObject`s with flags 128 pointing at
+  their system, as on every mesh.
+
+**Built:** `nif/hknp_ragdoll.py`; `write_skeleton_nif` asks it first and
+sends only what it does not cover to Elric. All 12 rigs in the table are
+covered. End to end through `write_skeleton_nif` on the 7 cached rigs, the
+ragdoll bones and the collision objects equal Elric's on all 7; the
+fields that differ are `centerOfMassWorld.w` and, on 3, the 90° angle
+byte.
 
 ## <a id="check"></a>How each step is checked
 
@@ -539,8 +621,9 @@ position, faces by normal; angle bytes, offsets and corner counts on the
 paired rows), a compressed mesh as the triangles it decodes to (per
 strip, each corner allowed one quantization step of the coarser tree; key
 bits and the two bit fields, which follow the tree's layout, left out),
-packed mass properties unpacked, and each collision object's owner and
-body checked. FNV `clutter` runs in 33 s on 7 workers. Fields Elric derives (mass
+packed mass properties unpacked, constraint cinfos sorted by their bodies,
+a ragdoll compared with its skeleton (pose w lanes left out), and each
+collision object's owner, system and body checked. FNV `clutter` runs in 33 s on 7 workers. Fields Elric derives (mass
 properties, motion records, face angles) are matched to its values, and a
 value we cannot reproduce exactly is recorded here with its spread. The
 first in-game build of each step is a play test of the meshes it covers.

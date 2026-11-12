@@ -18,6 +18,7 @@ from fo4_import.havok import packfile_write
 from fo4_import.nif import hknp_mesh
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.hknp_compound import compound
+from fo4_import.nif.hknp_constraint import constraints
 from fo4_import.nif.elric import without_havok
 from fo4_import.nif.file import NifFile
 from fo4_import.nif.hknp_convex import box_corners, polytope, quaternion
@@ -63,7 +64,7 @@ MOTION_PROPERTIES = {'isExclusive': 0, 'flags': 0, 'gravityFactor': 1.0, 'timeFa
 # Reading our pre-Elric blocks
 # ---------------------------------------------------------------------------
 
-def _convex(blocks: list, index: int, matrix: np.ndarray = IDENTITY) -> 'Callable | None':
+def convex(blocks: list, index: int, matrix: np.ndarray = IDENTITY) -> 'Callable | None':
     """The maker (name -> (objects, Mass)) of convex shape block `index` moved by 4×4 `matrix`, Havok units: a
     polytope of a convex shape's own vertices or a box's corners, a sphere, a capsule; None for any other."""
     kind, raw = blocks[index]
@@ -84,7 +85,7 @@ def _convex(blocks: list, index: int, matrix: np.ndarray = IDENTITY) -> 'Callabl
         return lambda name: capsule(name, moved(ends[:3]), moved(ends[3:]), radius, crc)
     if kind == 'bhkConvexTransformShape' and blocks[_transform(raw)[0]][0] in CONVEX_KINDS:
         child, cells = _transform(raw)
-        return _convex(blocks, child, matrix @ cells)
+        return convex(blocks, child, matrix @ cells)
     return None
 
 
@@ -105,10 +106,10 @@ def _child(blocks: list, index: int) -> 'tuple | None':
     kind, raw = blocks[index]
     if kind == 'bhkConvexTransformShape':
         child, cells = _transform(raw)
-        maker = _convex(blocks, child) if blocks[child][0] in CONVEX_KINDS else None
+        maker = convex(blocks, child) if blocks[child][0] in CONVEX_KINDS else None
         return None if maker is None else (maker, cells)
     mesh = hknp_mesh.read(blocks, index)
-    maker = _convex(blocks, index) if mesh is None else _mesh(mesh)
+    maker = convex(blocks, index) if mesh is None else _mesh(mesh)
     return None if maker is None else (maker, IDENTITY)
 
 
@@ -123,7 +124,7 @@ def _list(blocks: list, index: int) -> 'Callable | None':
     return lambda name: compound(name, children, material)
 
 
-def _world(nif: NifFile, index: int) -> tuple:
+def world(nif: NifFile, index: int) -> tuple:
     """(translation in Havok units, rotation quaternion) of node `index` in the NIF root's space."""
     parents = {child: i for i, (_, b) in enumerate(nif.blocks) if isinstance(b, dict) for child in b.get('children', ())}
     rotation, translation = np.eye(3), np.zeros(3)
@@ -137,26 +138,26 @@ def _world(nif: NifFile, index: int) -> tuple:
 
 
 def _shape(blocks: list, index: int, body: bytes) -> 'Callable | None':
-    """The maker (name -> (objects, Mass or None)) of `body`'s shape block `index`: a convex shape (_convex), a
+    """The maker (name -> (objects, Mass or None)) of `body`'s shape block `index`: a convex shape (convex), a
     list (_list), or a triangle mesh on a body without a full motion; None for anything else."""
     if blocks[index][0] == 'bhkListShape':
         return _list(blocks, index)
     mesh = hknp_mesh.read(blocks, index)
     if mesh is None:
-        return _convex(blocks, index)
+        return convex(blocks, index)
     return None if _massive(body) else _mesh(mesh)
 
 
-def _bodies(nif: NifFile) -> 'list | None':
-    """[(owner block, rigid body bytes, shape, owner's world place)] per collision owner, block order; None when
-    any of it is not a rigid body we cover."""
-    if any('Constraint' in kind for kind, _ in nif.blocks):
-        return None
+def bodies(nif: NifFile, skip: frozenset = frozenset()) -> 'list | None':
+    """[(owner block, rigid body bytes, shape, owner's world place)] per collision owner, block order, owners whose
+    collision object is a kind in `skip` left out; None when any of the rest is not a rigid body we cover."""
     out = []
     for i, (_, block) in enumerate(nif.blocks):
         if not isinstance(block, dict) or block.get('collision', NONE) == NONE:
             continue
         kind, raw = nif.blocks[block['collision']]
+        if kind in skip:
+            continue
         if kind != 'bhkCollisionObject':
             return None
         body_kind, body = nif.blocks[struct.unpack('<iHi', raw)[2]]
@@ -166,7 +167,7 @@ def _bodies(nif: NifFile) -> 'list | None':
         shape = _shape(nif.blocks, struct.unpack_from('<i', body)[0], body)
         if shape is None:
             return None
-        out.append((i, body, shape, _world(nif, i)))
+        out.append((i, body, shape, world(nif, i)))
     return out or None
 
 
@@ -184,13 +185,13 @@ def halved(value: float) -> float:
     return struct.unpack('<f', struct.pack('<I', half(value) << 16))[0]
 
 
-def _rotate(q: tuple, v: np.ndarray) -> np.ndarray:
+def rotate(q: tuple, v: np.ndarray) -> np.ndarray:
     """Vector `v` rotated by quaternion `q` (x, y, z, w)."""
     u, w = np.array(q[:3]), q[3]
     return v + 2 * np.cross(u, np.cross(u, v) + w * v)
 
 
-def _compose(a: tuple, b: tuple) -> tuple:
+def compose(a: tuple, b: tuple) -> tuple:
     """Quaternion product a * b (x, y, z, w)."""
     ax, ay, az, aw = a
     bx, by, bz, bw = b
@@ -203,11 +204,11 @@ def _motion(body: bytes, mass, place: tuple, props: int) -> dict:
     orientation), using motion properties `props`."""
     weight = struct.unpack_from('<f', body, MASS)[0]
     factor = weight / mass.volume
-    com = place[0] + _rotate(place[1], mass.com)
+    com = place[0] + rotate(place[1], mass.com)
     return {'motionPropertiesId': props, 'enableDeactivation': 1, 'inverseMass': 1 / weight, 'massFactor': factor,
             'maxLinearAccelerationDistancePerStep': UNBOUNDED, 'maxRotationToPreventTunneling': UNBOUNDED,
             'inverseInertiaLocal': (*(1 / (m * factor) for m in mass.inertia), 1.0),
-            'centerOfMassWorld': (*com, 0.0), 'orientation': _compose(place[1], mass.frame),
+            'centerOfMassWorld': (*com, 0.0), 'orientation': compose(place[1], mass.frame),
             'linearVelocity': (0.0,) * 4, 'angularVelocity': (0.0,) * 4}
 
 
@@ -256,10 +257,11 @@ def _body(index: int, body: bytes, motion_id: int, place: tuple) -> dict:
             'position': (*place[0], 0.0), 'orientation': place[1], 'spuFlags': 0, 'localFrame': None}
 
 
-def system(bodies: list) -> bytes:
-    """The bhkPhysicsSystem block (u32 length, packfile) for `bodies` (_bodies' rows)."""
+def assemble(rows: list, joints: tuple = ()) -> tuple:
+    """(hknpPhysicsSystemData fields, the other packfile objects) for `rows` (bodies()) and `joints` [(constraint
+    cinfo, its data object)]."""
     shapes, cinfos, motions, props = [], [], [], []
-    for index, (_, body, shape, place) in enumerate(bodies):
+    for index, (_, body, shape, place) in enumerate(rows):
         objects, mass = shape(f'#s{index}')
         shapes += objects
         motion_id = NO_ID
@@ -270,11 +272,27 @@ def system(bodies: list) -> bytes:
             motion_id = len(motions)
             motions.append(_keyframed(place))
         cinfos.append(_body(index, body, motion_id, place))
-    root = {'name': None, 'materials': [_material(b[1]) for b in bodies], 'motionProperties': props,
-            'motionCinfos': motions, 'bodyCinfos': cinfos, 'constraintCinfos': [],
-            'referencedObjects': [f'#s{i}' for i in range(len(bodies))]}
-    data = packfile_write.write([{'#': '#root', 'class': 'hknpPhysicsSystemData', 'fields': root}] + shapes, '#root')
+    root = {'name': None, 'materials': [_material(b[1]) for b in rows], 'motionProperties': props,
+            'motionCinfos': motions, 'bodyCinfos': cinfos, 'constraintCinfos': [c for c, _ in joints],
+            'referencedObjects': [f'#s{i}' for i in range(len(rows))]}
+    return root, shapes + [d for _, d in joints]
+
+
+def pack(cls: str, root: dict, objects: list) -> bytes:
+    """A system block (u32 length, packfile): root class `cls`, `objects`."""
+    data = packfile_write.write([{'#': '#root', 'class': cls, 'fields': root}] + objects, '#root')
     return struct.pack('<I', len(data)) + data
+
+
+def system(rows: list, joints: tuple = ()) -> bytes:
+    """The bhkPhysicsSystem block for `rows` (bodies()) and `joints` (assemble())."""
+    return pack('hknpPhysicsSystemData', *assemble(rows, joints))
+
+
+def joints_of(nif: NifFile, rows: list, motor: 'str | None' = None) -> 'list | None':
+    """constraints() between the bodies of `rows`, motor slots on `motor`."""
+    ids = {struct.unpack('<iHi', nif.blocks[nif.blocks[b[0]][1]['collision']][1])[2]: n for n, b in enumerate(rows)}
+    return constraints(nif.blocks, ids, motor)
 
 
 def physics(nif: NifFile) -> 'tuple | None':
@@ -282,25 +300,32 @@ def physics(nif: NifFile) -> 'tuple | None':
     included.
     See: docs/fork/fo4_hknp_writer.md#flat
     """
-    bodies = _bodies(nif)
-    if bodies is None:
+    rows = bodies(nif)
+    joints = None if rows is None else joints_of(nif, rows)
+    if joints is None:
         return None
     try:
-        return system(bodies), [b[0] for b in bodies]
+        return system(rows, joints), [b[0] for b in rows]
     except QhullError:
         return None
 
 
-def finish(nif: NifFile) -> 'NifFile | None':
-    """`nif` with its Havok input replaced by our physics; None (`nif` untouched) when not covered."""
-    made = physics(nif)
-    if made is None:
-        return None
-    block, owners = made
+def replace(nif: NifFile, systems: list) -> NifFile:
+    """`nif` without its Havok input, then each of `systems` [(block kind, block, owner blocks in body order)]
+    appended with a bhkNPCollisionObject on each owner (found again after the input's removal renumbers them)."""
+    held = [[id(nif.blocks[o][1]) for o in owners] for _, _, owners in systems]
     without_havok(nif)
-    nif.blocks.append(('bhkPhysicsSystem', block))
-    at = len(nif.blocks) - 1
-    for body, owner in enumerate(owners):
-        nif.blocks.append(('bhkNPCollisionObject', struct.pack('<iHiI', owner, NP_FLAGS, at, body)))
-        nif.blocks[owner][1]['collision'] = len(nif.blocks) - 1
+    at = {id(block): i for i, (_, block) in enumerate(nif.blocks)}
+    for (kind, block, _), owners in zip(systems, held):
+        nif.blocks.append((kind, block))
+        system_at = len(nif.blocks) - 1
+        for body, owner in enumerate(at[o] for o in owners):
+            nif.blocks.append(('bhkNPCollisionObject', struct.pack('<iHiI', owner, NP_FLAGS, system_at, body)))
+            nif.blocks[owner][1]['collision'] = len(nif.blocks) - 1
     return nif
+
+
+def finish(nif: NifFile) -> 'NifFile | None':
+    """`nif` with our physics for its Havok input; None when not covered."""
+    made = physics(nif)
+    return None if made is None else replace(nif, [('bhkPhysicsSystem', *made)])

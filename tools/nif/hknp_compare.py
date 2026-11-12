@@ -53,6 +53,9 @@ OFF_BY = 'off by'
 TREE_LAYOUT = frozenset({'numShapeKeyBits', 'quadIsFlat', 'triangleIsInterior'})
 #: The key a leaf dict is known by: a convex hull's corners, a compressed mesh's triangles.
 LEAVES = frozenset({'points', 'triangles'})
+#: A system's root classes, and each system block's path prefix in a comparison.
+ROOTS = frozenset({'hknpPhysicsSystemData', 'hknpRagdollData'})
+SYSTEMS = {'bhkPhysicsSystem': '', 'bhkRagdollSystem': 'ragdoll.'}
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +125,12 @@ def _compound(fields: dict) -> dict:
 def _object(fields: dict, cls: str) -> dict:
     """An object's fields as compared: a polytope's or capsule's arrays as its hull, a sphere's as its center, a
     compressed mesh as its triangles without its TREE_LAYOUT fields, a compound without its tree's layout,
-    packed mass properties unpacked."""
+    constraints in body order (Elric's own order is random), a skeleton's pose without its unused w lanes, packed
+    mass properties unpacked."""
+    if cls in ROOTS:
+        return {**fields, 'constraintCinfos': sorted(fields['constraintCinfos'], key=lambda c: (c['bodyA'], c['bodyB']))}
+    if cls == 'hkaSkeleton':
+        return {**fields, 'referencePose': [[*p[:3], *p[4:11]] for p in fields['referencePose']]}
     if cls == 'hknpDynamicCompoundShape':
         return _compound(fields)
     if cls == 'hknpDynamicCompoundShapeData':
@@ -182,9 +190,9 @@ class _Flattener:
 
 
 def flatten(objects: list) -> dict:
-    """A packfile's leaves from its hknpPhysicsSystemData root (_Flattener)."""
+    """A packfile's leaves from its system root (ROOTS, _Flattener)."""
     walker = _Flattener(objects)
-    walker.walk(next(o['#'] for o in objects if o['class'] == 'hknpPhysicsSystemData'), '')
+    walker.walk(next(o['#'] for o in objects if o['class'] in ROOTS), '')
     return walker.out
 
 
@@ -274,30 +282,40 @@ def diff(ours: dict, theirs: dict, tolerance: float) -> dict:
 
 
 def collision_objects(nif) -> list:
-    """[(owner node name, lower case; flags; body id)] of each bhkNPCollisionObject in a finished NIF."""
+    """Sorted [(owner node name, lower case; flags; system block kind; body id)] of each bhkNPCollisionObject in a
+    finished NIF."""
     out = []
     for kind, raw in nif.blocks:
         if kind == 'bhkNPCollisionObject':
-            target, flags, _, body = struct.unpack('<iHiI', raw)
-            out.append((nif.strings[nif.blocks[target][1]['name']].lower(), flags, body))
-    return out
+            target, flags, system, body = struct.unpack('<iHiI', raw)
+            out.append((nif.strings[nif.blocks[target][1]['name']].lower(), flags, nif.blocks[system][0], body))
+    return sorted(out)
 
 
-def physics(nif) -> 'list | None':
-    """The packfile objects of a finished NIF's (first) bhkPhysicsSystem, or None."""
-    block = next((raw for kind, raw in nif.blocks if kind == 'bhkPhysicsSystem'), None)
+def physics(nif, kind: str = 'bhkPhysicsSystem') -> 'list | None':
+    """The objects of a finished NIF's first system block of `kind`, or None."""
+    block = next((raw for k, raw in nif.blocks if k == kind), None)
     known = frozenset(packfile.classes().raw)
     return None if block is None else packfile.read(block[4:], only=known).objects
 
 
-def compare_pair(source: bytes, elric_out: bytes, tolerance: float) -> 'dict | None':
-    """{field path: (ours, Elric's)} for pre-Elric NIF `source` and Elric's output for it; None when our writer
-    does not cover it."""
-    ours = hknp_write.finish(nif_file.read(source))
+def leaves_of(nif) -> dict:
+    """flatten() of each system block in a finished NIF, its paths prefixed per SYSTEMS."""
+    out = {}
+    for kind, prefix in SYSTEMS.items():
+        objects = physics(nif, kind)
+        out.update({prefix + path: v for path, v in flatten(objects).items()} if objects else {})
+    return out
+
+
+def compare_pair(source: bytes, elric_out: bytes, tolerance: float, writer=hknp_write.finish) -> 'dict | None':
+    """{field path: (ours, Elric's)} for pre-Elric NIF `source` and Elric's output for it, ours from `writer`;
+    None when it does not cover it."""
+    ours = writer(nif_file.read(source))
     if ours is None:
         return None
     theirs = nif_file.read(elric_out)
-    found = diff(flatten(physics(ours)), flatten(physics(theirs)), tolerance)
+    found = diff(leaves_of(ours), leaves_of(theirs), tolerance)
     mine, elrics = collision_objects(ours), collision_objects(theirs)
     return found if mine == elrics else {**found, 'nif.collisionObjects': (mine, elrics)}
 
