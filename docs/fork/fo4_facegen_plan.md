@@ -1028,6 +1028,8 @@ other 14 NPCs with that hairline and the same weight are within 0.045 to
 
 ### <a id="face-d-decode"></a>The CK's face `_d`, decoded and ported (2026-11-12)
 
+*Superseded by [the CK's face bake, read from its shader](#ck-face-shader). These were fitted before the shader was read; kept as the record.*
+
 Measured against the reference set's `_d` (2048, read at 256 to 512).
 Errors are mean absolute per channel, out of 255; the CK's own DXT
 compression costs about 2.
@@ -1104,6 +1106,8 @@ The island core is 348 of 262,144 texels at 512 (0.13%), so these areas
 matter for how the face looks up close more than for the whole-texture mean.
 
 ### <a id="face-maps"></a>The CK's face `_msn` and `_s`, decoded and ported (2026-11-12)
+
+*Superseded by [the CK's face bake, read from its shader](#ck-face-shader). These were fitted before the shader was read; kept as the record.*
 
 Both are BC5 at 2048, so only red and green carry data.
 
@@ -1223,31 +1227,206 @@ workers, held down by memory, with 15 GB free): 2,382 written, 1,220
 skipped, 0 errors in 680 s (0.29 s a written face, 11 minutes). All 9,528
 files are byte-identical to the previous code's.
 
-### <a id="face-d-revisit"></a>To revisit: the CK's lip colour and tone mask
+### <a id="ck-face-shader"></a>The CK's face bake, read from its shader (2026-11-12)
 
-Pinned 2026-11-12: `face_tint` leaves both out until something authored
-explains them. Hard-coding lip template 2 or the measured mask
-curve would be a measured constant.
+The two rules the sections above left out (the lips and the island) and
+the odd ones they measured (√alpha twice, toneless NPCs) all come from
+one GPU pixel shader and the CPU code that fills its constants. Both were
+read, not fitted. `face_tint` now follows them.
 
-- **Already searched, nothing found:**
-  - Forums and the CK wikis (FO4 and Skyrim) only report the CK dropping or
-    mangling lip colour, with workarounds such as moving the loose
-    `tintmasks` folder aside. Nobody explains the bake.
-  - expired6978's public plugin source only touches runtime tinting.
-    LooksMenu's `f4ee/CharGenTint.cpp` looks templates up by
-    `templateIndex`, which matches our reading. RaceMenu's
-    `skee64/Shaders/NiOverride/Effects/Tint.fx` (Skyrim) masks a colour
-    layer linearly (mask red × colour alpha, overlay blend). That's
-    RaceMenu's runtime, not the CK's FaceGen bake.
-- **Next lead:** CreationKit.exe. Find the FaceCustomization export and the
-  routine that fills tint slots an NPC leaves empty. Look for where a Lip
-  Color or Paint option gets a colour, and how the Skin Tone option's mask is
-  read.
-- **Check when it's found:** the lip region error inside `LipColor1Male.dds`
-  (13.9 now, 4.8 with entry 2), and the island core (CK 20–40 below us).
-  Rerun `facegen_census --textures` and compare with the census above.
-  Colour layers other than the tone (face paint, dirt) are also untested:
-  no FalloutNV.esm NPC has one.
+**Where:** `Fallout 4 - Shaders.ba2` → `shadersfx\shaders011.fxp`, DXBC
+blob 3582 (`ps_5_0`). `fxc.exe /dumpbin` from the Windows 10 SDK
+disassembles it. One pass draws all three textures: o0 is `_d`, o1 the
+`_msn` red and green, o2 the `_s` red and green.
+
+- **Inputs:** t0 a texture array of masks, t1 the layers' diffuse, t2
+  their normal maps, t3 their specular maps, t4 a plain 2D gradient. The
+  constant buffer `CB12[320]` holds up to 128 layers: [0..31] flag words,
+  [32..159] colours, [160..191] strengths, [192..319] array slices.
+- **Flag bits per layer:**
+
+  | Bit | Meaning |
+  |---|---|
+  | 1 | mask from t0's red |
+  | 2 | texture set: colour from t1, mask from t1's alpha |
+  | 4, 8 | also draw its normal (t2) and specular (t3) |
+  | 16 | a constant colour (palette) |
+  | 32 | brows: colour from the t4 gradient at (green^(1/2.2), the hair colour's row) |
+  | 64 | write alpha |
+  | 128 / 256 / 512 / 1024 / 2048 | Default / Multiply / Overlay / Soft Light / Hard Light |
+
+- **Math:** every texture is decoded sRGB → linear by the GPU, and all
+  blending is in linear light. A layer's weight is
+  **mask^(1/2.2) × strength**, and `out = lerp(out, blend(out, colour),
+  weight)`. The output is `out^(1/2.2)`. The maps lerp their raw red and
+  green by the same weight.
+- **Blends:** Overlay is keyed on the base (< 0.5), Hard Light on the
+  layer. Soft Light raises both to 1/2.2, applies Photoshop's formula
+  (with the square root), and raises the result back to 2.2.
+- **Sampling:** textures are read with `ld`, the nearest texel at
+  floor(uv × size), mip 0. No filtering.
+
+That one weight rule explains three earlier measurements. A 0.5 mask
+weighs 0.73, not 0.5, which is the island's curve
+([above](#face-d-decode): w = 0.28 at a mask of 0.025 is 0.025^(1/2.2) = 0.19
+mixed in linear light). Splochy's "√alpha twice" was alpha^(1/2.2) in
+linear light. The maps' √alpha was the same alpha^(1/2.2).
+
+### <a id="ck-layer-list"></a>Which layers the CK bakes
+
+Read from `CreationKit.exe` (Steam). RVAs:
+
+- **`0xabe160`** exports an NPC's face. It copies the NPC's own layers
+  (TETI/TEND), then merges the race's defaults (`0xa9b540`, `0x41c760`).
+- **`0x421070`** adds a default layer, built by `0x41d030`, for every race
+  option the NPC doesn't list. Brow options (slot 23) are skipped when the
+  NPC has a brow layer above 0.
+- **`0x41d030`** picks the entry kind by TETI slot: below 7 a mask, 7–20
+  a palette, 21 and up a texture set.
+  - A palette's default is its **default entry**: TTED's float bits read
+    as an integer index into TTEC. The layer's value is that entry's
+    alpha. HumanRace's female LipColor1 has TTED bits 7, so entry 7 at
+    0.30. With no TTED it is entry 0.
+  - A texture set's default is TTED as a float.
+  - A mask's default is 0.
+- **`0x41cb30`** sorts the list by the option's position in the race. The
+  data fits only the **reverse** of race order: race options drawn last to
+  first. Record order and slot order both fit worse.
+- **`0xed6890`** fills the constants. A palette layer whose template
+  matches a TTEC entry takes that entry's colour and blend. Otherwise the
+  layer's own colour is used, and the blend comes from slot 12 → Soft
+  Light or a lookup (`0x18bc9`, not read). The brow slot gets bit 32.
+  `0xed80f0` uploads them.
+
+That is the lip answer. Every HumanRace NPC who doesn't list a lip option
+gets it anyway, at the default entry:
+
+- Male LipColor1Male (option 1558, slot 13) uses entry 0, alpha 0.52,
+  Soft Light.
+- Female option 1718, a second lip option, also uses entry 0, alpha 0.52.
+- Female LipColor1 (option 1320) uses entry 7, alpha 0.30.
+
+The "entry 2 fits best" measurement was entry 0 seen through the wrong
+weight curve.
+
+### <a id="face-d-revisit"></a>What we had wrong, and the CK's own quirks
+
+Resolved 2026-11-12 (pinned earlier the same day as "to revisit").
+
+**What the port had wrong.** Each is now replaced by the read rule:
+
+- It blended in sRGB, not in linear light.
+- It weighted by value × alpha, or √alpha twice, not mask^(1/2.2) ×
+  value.
+- It added only TTED > 0 defaults, so it missed every palette default:
+  lips, and on some races more.
+- Its "toneless NPC gets the first template" rule was the palette default
+  rule seen once.
+- It drew the tone unmasked; the tone's mask goes through ^(1/2.2) like
+  any other.
+- It drew layers in NPC record order instead of reverse race order.
+- It keyed Overlay on `<=` (the shader uses `<`), drew Soft Light in
+  sRGB, and resized masks bilinearly where the shader reads the nearest
+  texel.
+
+**The CK's quirks, which `face_tint` copies:**
+
+- **Hidden lips.** No NPC chose them, the race's presets disagree on lip
+  colour, and the race menu shows nothing. A converter or an editor that
+  reads only an NPC's TETI list can't predict the CK's face.
+- **TTED means two things.** It is a float strength for a texture set and
+  an integer entry index, stored in a float field, for a palette. xEdit
+  shows a palette's TTED 7 as a tiny denormal float.
+- **The skin tone's blend.** HumanChildRace's tone entries 1216–1224 store
+  blend 0 (Default) in TTEC, yet the CK's child faces are Soft Light. The
+  tone is Soft Light whatever its entry says. Either the data or the CK is
+  inconsistent here; we follow the CK's output.
+- **Nearest-texel masks.** A 512 mask on a 2048 face gives 4×4 blocks at
+  mask edges.
+
+**Not ported** ([brows](#ck-brows) are, since):
+
+- Mask-kind options (slots below 7); FalloutNV.esm sets none.
+- The `0x18bc9` blend lookup for an own colour with no matching template.
+
+`sRSMLipColor` in the CK is only the race menu's label.
+
+**Measured** on 26 NPCs at 512 (mean / 99th percentile, out of 255): the
+old port 2.59 / 14.8; the new rules 0.94–1.51 per NPC, 99th percentile
+mostly 3–5. The lips went from about 13 to 1.4–3.2, and the island from
+8–28 to about 1.0. The child 6EEA50, the one outlier before the tone was
+forced to Soft Light, is 1.51.
+
+**Whole set:** `facegen_census --textures`, all 2,382 CK faces at 256, no
+errors. The earlier port's numbers are in brackets.
+
+| Texture | Mean | Median | p90 | Worst | NPCs above 4 | Median 99th pct |
+|---|---|---|---|---|---|---|
+| `_d` | 1.59 (2.53) | 1.41 (2.55) | 3.00 (3.03) | 3.69 (5.71) | 0 (6) | 6.1 (13) |
+| `_msn` | 0.31 (0.55) | 0.29 (0.33) | 0.51 (1.66) | 0.56 (2.64) | 0 (0) | 1.3 |
+| `_s` | 0.48 (0.87) | 0.39 (0.46) | 0.89 (2.47) | 1.12 (4.86) | 0 (110) | 2.1 |
+
+The census draws ours at 256 and shrinks the CK's 2048 with PIL's
+bilinear filter. `face_tint.image` reads a texture texel by texel (as the
+shader does) when the face is at least the texture's size, and shrinks it
+with the same bilinear filter when the face is smaller. With nearest-texel
+reads at 256 the maps alias (`_msn` 4.3, `_s` 3.2); with a box filter the
+two sides disagree by about 0.7. At the stage's own sizes (1024, 512) most
+masks are read texel by texel.
+
+The worst `_d` faces are now Fiends and gang members with many detail
+layers, and Duke. Brows still use their own texture colour rather than
+the hair gradient, which is the next thing to check there.
+
+### <a id="ck-brows"></a>Brows from the hair colour (2026-11-12)
+
+The CK colours brows from the hair, not from the brow texture.
+
+- **Shader** (bit 32, set for TETI slot 23): the brow texture's green,
+  which the GPU reads decoded to linear, raised to 1/2.2, picks the
+  column of t4. The layer's colour `.x` picks the row. Both are read with
+  `ld` at floor(coordinate × size). The texel is lerped in with no blend
+  operation, at the usual weight (alpha^(1/2.2) × value).
+- **t4** is the race's HNAM, "Hair Color Lookup Texture" (HumanRace:
+  `Actors\Character\Hair\HairColor_Lgrad_d.DDS`, 64 × 512, BC1). It
+  fits only when decoded as sRGB, although its format is plain UNORM.
+- **The row** (`0xed6890` at `0xed707f`): the hair colour from `0xa95450`
+  (the NPC's HCLF, else a per-sex default from the race's head data,
+  which we read as RACE HCLF). If that CLFM has FNAM flag 2 ("Remapping
+  Index"), its CNAM read as a float is the row. Otherwise the row is
+  FLT_MAX, off the texture.
+- **Black brows.** An off-texture `ld` reads 0, so the CK draws brows
+  black for a hair colour without a remapping index. It also draws them
+  black for a race without HNAM: HumanChildRace has none, so every child
+  gets black brows whatever its hair. Both match the CK's output (the
+  child 6EEA50: brow region 7.8 → 0.8).
+
+Ported as `face_tint.brow_colour`, with `Face.hair_row`. The maps are
+unchanged (the brow's own `_n`/`_s` as before).
+
+**Measured.** Brow region at 512, before → after:
+
+| NPC | Hair | Before | After |
+|---|---|---|---|
+| Duke (BE740C) | PlatinumBlond, row 0.488 | 26.2 | 0.9 |
+| DCBE56 | PlatinumBlond | 30.7 | 1.1 |
+| 180A57 | JetBlack, row 0.613 | 4.9 | 0.8 |
+| EEEDC9 | row 0.707 | 11.5 | 0.7 |
+| 6EEA50 (child, no HNAM) | | 7.8 | 0.8 |
+
+Whole set (`facegen_census --textures`, 2,382 faces at 256, no errors):
+`_d` mean 1.59 → 1.55, median 1.41 → 1.38, worst 3.69 → 3.28; `_msn`
+and `_s` unchanged. Brows are a small area, so the mean barely moves.
+
+The census's remaining tail (182 faces above 3) comes from drawing
+small, not from the model. Its two worst faces, C5E98E and 47E91A, score
+3.28 at 256 but 1.29 when drawn at 1024 and compared at 512. Shrinking
+the masks before the non-linear blends is not the same as shrinking the
+CK's finished face. The stage draws at 1024 and 512.
+
+The decode matters for the column. Raising the stored green to 1/2.2
+without decoding it first gives 18.0 on Duke's brows. The plain stored
+green gives 2.9; the decoded rule, 0.9.
 
 ## <a id="today"></a>How faces work today
 
