@@ -36,7 +36,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fo4_import.face import sculpt, tint
+from fo4_import.face import presets, sculpt, tint
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.work_cache import lookup_versioned, store_versioned, versioned
 from fo4_import.spike.fnv_npc import head_parts
@@ -45,7 +45,7 @@ from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: The face fits' version, of FIT_SITES' entries and the published file: bump it when any fit's result changes.
-FIT_VERSION = 2
+FIT_VERSION = 3
 #: The FNV NPC fields a face fit reads; with its head parts and its sex's basis hash, its inputs (fit_key).
 FIT_FIELDS = ('FGGS', 'FGGA', 'FGTS', 'RNAM.Race', 'HNAM.Hair', 'ENAM.Eyes', 'HCLR.R', 'HCLR.G', 'HCLR.B',
               'LNAM.HairLength')
@@ -97,12 +97,13 @@ def fitted(index: int, key: tuple, make):
 
 @functools.cache
 def basis_hash(female: bool) -> 'str | None':
-    """A SHA-1 of one sex's sculpt and tint basis arrays (names, types, shapes, values), worked out once per
-    process; None uncalibrated."""
-    if not (sculpt.basis_path(female).exists() and tint.basis_path(female).exists()):
+    """A SHA-1 of one sex's sculpt, preset and tint basis arrays (names, types, shapes, values), worked out once
+    per process; None uncalibrated."""
+    paths = (sculpt.basis_path(female), presets.basis_path(female), tint.basis_path(female))
+    if not all(path.exists() for path in paths):
         return None
     digest = hashlib.sha1()
-    for path in (sculpt.basis_path(female), tint.basis_path(female)):
+    for path in paths:
         with np.load(path) as arrays:
             for name in sorted(arrays.files):
                 digest.update(f'{name}\0{arrays[name].dtype.str}\0{arrays[name].shape}\0'.encode())
@@ -125,23 +126,25 @@ def _form(value) -> 'int | None':
 
 
 def encode_sculpt(value: tuple) -> list:
-    """[[[region, [seven controls]], ...], captured] of a sculpt fit (FMRI/FMRS pairs, fraction captured)."""
-    morphs, captured = value
+    """[[[region, [seven controls]], ...], [[MSDK key, weight], ...], rms] of a slider fit (FMRI/FMRS pairs,
+    presets, rms miss)."""
+    morphs, picks, miss = value
     subs = list(subrecords(morphs))
     pairs = []
     for (region, index), (controls, data) in zip(subs[::2], subs[1::2]):
         if (region, controls, len(index), data[28:]) != (b'FMRI', b'FMRS', 4, bytes(8)):
             raise ValueError('a sculpt fit holds more than FMRI/FMRS pairs')
         pairs.append([struct.unpack('<I', index)[0], list(struct.unpack('<7f', data[:28]))])
-    return [pairs, captured]
+    return [pairs, [list(pick) for pick in picks], miss]
 
 
 def decode_sculpt(value: list) -> tuple:
-    """The sculpt fit encode_sculpt gave `value` for."""
-    pairs, captured = value
-    return b''.join(pack_subrecord('FMRI', struct.pack('<I', _form(region)))
-                    + pack_subrecord('FMRS', sculpt.pack_fmrs([_number(c) for c in controls]))
-                    for region, controls in pairs), _number(captured)
+    """The slider fit encode_sculpt gave `value` for."""
+    pairs, picks, miss = value
+    morphs = b''.join(pack_subrecord('FMRI', struct.pack('<I', _form(region)))
+                      + pack_subrecord('FMRS', sculpt.pack_fmrs([_number(c) for c in controls]))
+                      for region, controls in pairs)
+    return morphs, tuple((_form(key), _number(weight)) for key, weight in picks), _number(miss)
 
 
 def encode_tint(value: tuple) -> list:

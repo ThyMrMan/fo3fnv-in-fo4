@@ -1,13 +1,14 @@
-"""Spike 2 step 4: FaceGen for the cell's NPCs, from the Creation Kit, with FNV face shapes baked in.
+"""The faces stage: FaceGen for a plugin's NPCs, from the Creation Kit, with FNV's faces carried onto it.
 
     py -3.14 -m fo4_import.spike.facegen --export <FalloutNV.esm export> --data <mod folder> FalloutNV.esm
 
 Runs the CK's `-ExportFaceGenData:<plugin> X64` through MO2 (so it loads the
 profile's plugins), moves the FaceGeom NIFs and face tint textures it writes
-from where MO2 put them (creation_kit) into the mod folder, then bakes the FNV face into every
-NPC whose EditorID ends in a C variant (face.bake), from the FNV NPC its
-EditorID names. Then the face textures (2048 square, one mip) are
-re-encoded at vanilla's sizes and formats with full mips. Last, the
+from where MO2 put them (creation_kit) into the mod folder. Each fitted NPC's
+sliders are refitted to that export's miss (facegen_skin.refine) and the CK
+exports again. The face textures (2048 square, one mip) are re-encoded at
+vanilla's sizes and formats with full mips, then each fitted NPC gets FNV's
+skin, its rear head texture and skin tone (facegen_skin.skin). Last, the
 FaceGeom NIFs go into the plugin's Main archive and the face textures into
 its Textures archive, as vanilla ships both, and the loose copies leave the
 mod folder (the build's own come back first, so the Main archive keeps them).
@@ -26,21 +27,15 @@ import struct
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import numpy as np
-from PIL import Image
-
 from fo4_import.base.ba2_pack import drop_packed, pack_main, pack_textures, restore_packed, staging_root
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.face import facegeom
-from fo4_import.face.bake import bake, face_shape
-from fo4_import.face.sculpt import load_basis as sculpt_basis
-from fo4_import.face.texture import face_texture, vanilla_face_texture, write_dds
-from fo4_import.face.tint import load_basis as tint_basis, scaled_tone
+from fo4_import.face.texture import vanilla_face_texture
+from fo4_import.face.tint import skin_tone_layers
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
-from fo4_import.spike.face_fit import npc_subrecords, refine_sculpt, refine_tint, variant_npcs
-from fo4_import.spike.fnv_npc import fnv_face
+from fo4_import.spike import facegen_skin
 from fo4_import.spike.imagespace import LUT_FOLDER
 from tes5_import.base.tes5_reader import subrecords, walk
 
@@ -53,12 +48,6 @@ FACEGEN_DIRS = (Path('Meshes/Actors/Character/FaceGenData/FaceGeom'),
                 Path('Textures/Actors/Character/FaceCustomization'))
 #: Seconds to wait for the CK at least, and per NPC_ record (the region: 293 in 127 s, 0.43 s each).
 CK_TIMEOUT, CK_FACE_SECONDS = 900, 2.0
-#: Fallout4.esm HumanRace, and the tint slot (xEdit's TETI enum) of its Skin Tone options.
-HUMAN_RACE, SKIN_TONE_SLOT = 0x13746, 12
-#: Face variants with fitted sculpt regions, with fitted tint layers, and how many CK rounds refine them.
-SCULPTED, TINTED, REFINE_ROUNDS = frozenset({'ST', 'STH'}), frozenset({'ST', 'STH'}), 2
-#: Face variant -> (head shape bake.bake makes or None, face texture texture.face_texture makes or None).
-BAKED_VARIANTS = {'C1': ('C1', None), 'C2': ('C2', None), 'T1': ('C1', 'T1'), 'T2': ('C1', 'T2')}
 
 
 def npc_count(plugin_path: Path) -> int:
@@ -111,70 +100,6 @@ def prune(plugin: str, data_dir: Path, npcs) -> int:
     for path in stale:
         path.unlink()
     return len(stale)
-
-
-def bake_variants(export_dir: Path, data_dir: Path, plugin: str) -> list:
-    """Bake every C-variant NPC's FaceGeom NIF in `data_dir`; [(EditorID, variant)] baked."""
-    done, faces, tone_layers = [], {}, skin_tone_layers(FALLOUT4_ESM.read_bytes())
-    for form_id, (edid, variant) in sorted(variant_npcs(data_dir / plugin, BAKED_VARIANTS).items()):
-        path = data_dir / FACEGEN_DIRS[0] / plugin / f'{form_id:08X}.NIF'
-        if not path.exists():
-            continue
-        if edid not in faces:
-            faces[edid] = fnv_face(export_dir, edid)
-        fnv, pieces = faces[edid]
-        shape, texture = BAKED_VARIANTS[variant]
-        if texture:
-            diffuse = data_dir / FACEGEN_DIRS[1] / plugin / f'{form_id:08X}_d.dds'
-            fo4_rgba = np.asarray(Image.open(diffuse).convert('RGBA'))
-            rgba, tone = face_texture(fo4_rgba, face_shape(path.read_bytes()), fnv, pieces, texture)
-            write_dds(rgba, diffuse)
-            scale_skin_tone(data_dir / plugin, form_id, tone, tone_layers)
-        if shape:
-            path.write_bytes(bake(path.read_bytes(), fnv, shape))
-        done.append((edid, variant))
-    return done
-
-
-def skin_tone_layers(esm: bytes) -> frozenset:
-    """HumanRace's tint option indices in the Skin Tone slot (male and female), from Fallout4.esm's bytes `esm`."""
-    out = set()
-    for rec, _ in walk(esm, b'RACE'):
-        if rec.form_id == HUMAN_RACE:
-            out |= {struct.unpack('<HH', d)[1] for tag, d in subrecords(rec.body)
-                    if tag == b'TETI' and struct.unpack('<HH', d)[0] == SKIN_TONE_SLOT}
-    return frozenset(out)
-
-
-def scale_skin_tone(plugin_path: Path, form_id: int, scale, layers: frozenset) -> None:
-    """Multiply NPC `form_id`'s texture lighting (QNAM) and Skin Tone layer colour by `scale`, in place.
-
-    Both keep their sizes, so the plugin's bytes are patched where they lie.
-    """
-    raw, layer = bytearray(plugin_path.read_bytes()), None
-    for tag, data, size in npc_subrecords(raw, form_id):
-        if tag == b'TETI':
-            layer = struct.unpack_from('<HH', raw, data)[1]
-        if tag == b'QNAM' or (tag == b'TEND' and layer in layers and size >= 4):
-            raw[data:data + size] = scaled_tone(tag, bytes(raw[data:data + size]), scale)
-    plugin_path.write_bytes(bytes(raw))
-
-
-def refine_fits(export_dir: Path, data_dir: Path, plugin: str, apply: bool) -> list:
-    """Measure every fitted NPC's export and, with `apply`, refine its fit; one report line each."""
-    lines, plugin_path = [], data_dir / plugin
-    note = '; refined' if apply else ''
-    for form_id, (edid, variant) in sorted(variant_npcs(plugin_path, SCULPTED | TINTED).items()):
-        stem = f'{form_id:08X}'
-        if sculpt_basis() is not None:
-            nif = data_dir / FACEGEN_DIRS[0] / plugin / f'{stem}.NIF'
-            captured = refine_sculpt(plugin_path, form_id, edid, nif, export_dir, apply)
-            lines.append(f'{edid} {variant}: shape captures {captured:.0%}{note}')
-        if variant in TINTED and tint_basis() is not None:
-            diffuse = data_dir / FACEGEN_DIRS[1] / plugin / f'{stem}_d.dds'
-            captured = refine_tint(plugin_path, form_id, edid, diffuse, export_dir, apply)
-            lines.append(f'{edid} {variant}: colour captures {captured:.0%}{note}')
-    return lines
 
 
 def vanilla_textures(plugin: str, data_dir: Path) -> int:
@@ -235,7 +160,7 @@ def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
 
 
 def main():
-    """Export, collect, bake and pack; print what was done."""
+    """Export, refine, export again, skin and pack; print what was done."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
     ap.add_argument('--data', required=True, help='The mod folder holding the plugin')
@@ -246,15 +171,15 @@ def main():
     data_dir, export_dir = Path(args.data), Path(args.export)
     print('loose files restored from the Main archive:', restore_packed(data_dir, args.plugin))
     print('FaceGeom NIFs:', export(args.plugin, data_dir))
-    for round_ in range(REFINE_ROUNDS + 1):
-        refined = refine_fits(export_dir, data_dir, args.plugin, apply=round_ < REFINE_ROUNDS)
-        for line in refined:
-            print(line)
-        if refined and round_ < REFINE_ROUNDS:
-            export(args.plugin, data_dir)
-    for edid, variant in bake_variants(export_dir, data_dir, args.plugin):
-        print(f'baked {edid} {variant}')
+    job = (export_dir, data_dir, args.plugin, skin_tone_layers(FALLOUT4_ESM.read_bytes()))
+    faces = facegen_skin.fitted_faces(data_dir / args.plugin)
+    for line in facegen_skin.refine(job, faces):
+        print(line)
+    if faces:
+        print('FaceGeom NIFs, refined:', export(args.plugin, data_dir))
     print('face textures at vanilla size:', vanilla_textures(args.plugin, data_dir))
+    for line in facegen_skin.skin(job, faces):
+        print(line)
     pack(data_dir, args.plugin, args.keep_loose)
 
 

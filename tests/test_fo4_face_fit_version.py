@@ -25,13 +25,14 @@ needs_game = pytest.mark.skipif(
 
 
 def written(fits: tuple, female: bool) -> tuple:
-    """What a record takes from a face's three fits (FIT_SITES' order): the sculpt controls as stored, the tint
+    """What a record takes from a face's three fits (FIT_SITES' order): the sculpt controls and presets as stored, the tint
     layers as packed, the skin tone scale to six places, the head parts chosen. Two fits that write the same
     record are one result, whatever rounding in their last places the BLAS build or thread count left."""
-    (morphs, _), (values, tone, _), chosen = fits
+    (morphs, picks, _), (values, tone, _), chosen = fits
     _, options, _, brows = tint.load_basis(female)
     parts = {name: getattr(chosen, name) for name in F.HEAD_FORMS}
-    return morphs, tint.pack_layers(options, values, b'', brows), [round(float(t), 6) for t in tone], parts
+    return (morphs, picks, tint.pack_layers(options, values, b'', brows), [round(float(t), 6) for t in tone],
+            parts)
 
 
 @pytest.fixture(scope='module')

@@ -1,10 +1,8 @@
-"""A head part's chargen .tri with the base head's slider morphs copied onto it, and how far a hair sits off the
-scalp.
+"""A head part's chargen .tri with the base head's slider morphs copied onto it.
 
 Each morph of the race's base head chargen .tri reaches a part vertex from its
 NEIGHBOURS nearest head points, inverse-distance weighted, as Outfit Studio
-copies slider data; both are in the same character frame. Clearance is signed
-along the nearest scalp vertex's normal, negative inside.
+copies slider data; both are in the same character frame.
 
 See: docs/fork/fo4_facegen_plan.md#hair-morphs
 """
@@ -13,9 +11,14 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from asset_convert.character.facegen_tri import TriFile
+from fo4_import.face import facegeom
 from fo4_import.face.bake import positions, triangles, uvs
+from fo4_import.nif import file as nif_file
 
 NEIGHBOURS = 4
+#: Per sex (female?), the base head's chargen .tri under Meshes.
+CHARGEN_HEADS = {True: 'Actors\\Character\\CharacterAssets\\BaseFemaleHeadChargen.tri',
+                 False: 'Actors\\Character\\CharacterAssets\\BaseMaleHeadCharGen.tri'}
 
 
 def copied_morphs(head: TriFile, points: np.ndarray) -> dict:
@@ -33,17 +36,7 @@ def part_tri(head: TriFile, raw: bytes) -> bytes:
     return TriFile(points.tolist(), tris, uvs(raw).tolist(), tris, morphs).to_bytes()
 
 
-def vertex_normals(points: np.ndarray, tris: np.ndarray) -> np.ndarray:
-    """Area-weighted unit vertex normals of a triangle mesh."""
-    faces = np.cross(points[tris[:, 1]] - points[tris[:, 0]], points[tris[:, 2]] - points[tris[:, 0]])
-    out = np.zeros_like(points)
-    for corner in range(3):
-        np.add.at(out, tris[:, corner], faces)
-    return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-9)
-
-
-def clearance(points: np.ndarray, scalp: tuple) -> np.ndarray:
-    """Per point, its signed distance off the scalp (points, triangles)."""
-    surface, tris = scalp
-    near = cKDTree(surface).query(points)[1]
-    return ((points - surface[near]) * vertex_normals(surface, tris)[near]).sum(1)
+def hair_tri(head_tri: bytes, hair_nif: bytes) -> bytes:
+    """A hair NIF's first shape as a chargen .tri of a base head .tri."""
+    raw = next(b for k, b in nif_file.read(hair_nif).blocks if k in facegeom.SHAPES and isinstance(b, bytes))
+    return part_tri(TriFile.from_bytes(head_tri), raw)

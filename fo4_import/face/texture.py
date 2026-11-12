@@ -227,3 +227,8 @@ def dds_like(rgba: np.ndarray, like: bytes) -> bytes:
     """
     fmt, width, height = dds_layout(like)
     return _texconv(rgba, '-f', fmt, '-w', str(width), '-h', str(height), '-m', '0')
+
+
+def dds_as(rgba: np.ndarray, like: bytes) -> bytes:
+    """`rgba` as DDS bytes at its own size in DDS `like`'s format, full mips."""
+    return _texconv(rgba, '-f', dds_layout(like)[0], '-m', '0')

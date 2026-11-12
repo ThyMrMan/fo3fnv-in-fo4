@@ -75,6 +75,15 @@ def with_positions(raw: bytes, points: np.ndarray) -> bytes:
     return bytes(out)
 
 
+def with_uvs(raw: bytes, uv: np.ndarray) -> bytes:
+    """`raw` with its vertex UVs replaced by `uv` (half floats)."""
+    start, stride, count, full = vertex_layout(raw)
+    out, skip = bytearray(raw), 16 if full else 8
+    for i in range(count):
+        struct.pack_into('<2e', out, start + i * stride + skip, *uv[i])
+    return bytes(out)
+
+
 def surface(vertices: np.ndarray, triangles: np.ndarray) -> tuple:
     """Points spread over the triangles and, per point, (triangle, barycentric weights)."""
     steps = np.linspace(0, 1, SURFACE_DENSITY)

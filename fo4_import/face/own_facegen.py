@@ -26,9 +26,7 @@ from fo4_import.face.bake import bake, face_shape, positions, seam_tree, triangl
 from fo4_import.face.texture import dds_like, vanilla_face_texture, write_dds
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
-from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.fnv_npc import fnv_face
-from fo4_import.spike.sculpt_calibration import TEMPLATES
 from tes5_import.base.tes5_reader import subrecords, walk, zstr
 from tes5_import.base.writer import pack_subrecord
 
@@ -155,7 +153,7 @@ def template_tones(esm: bytes, layers: frozenset) -> dict:
     """{female: (QNAM, Skin Tone TETI, its TEND)} of each sex's tint basis template in Fallout4.esm bytes `esm`."""
     out = {}
     for rec, _ in walk(esm, b'NPC_'):
-        female = next((f for f, fid in TEMPLATES.items() if fid == rec.form_id), None)
+        female = next((f for f, fid in tint.TEMPLATES.items() if fid == rec.form_id), None)
         if female is None:
             continue
         subs, teti = dict(subrecords(rec.body)), None
@@ -218,7 +216,7 @@ def main(argv=None) -> None:
     npcs = [(plugin, int(fid, 16)) for plugin, fid in (item.rsplit(':', 1) for item in args.npcs)]
     names = sorted({plugin for plugin, _ in npcs}, key=lambda n: [o.lower() for o in order].index(n.lower()))
     esm = FALLOUT4_ESM.read_bytes()
-    layers = skin_tone_layers(esm)
+    layers = tint.skin_tone_layers(esm)
     job = Job(facegeom.Sources(find(dirs, names[-1]), dirs, order), args.export, args.out, args.shape,
               template_tones(esm, layers))
     tones = {}

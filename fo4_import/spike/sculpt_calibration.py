@@ -18,13 +18,12 @@ from PIL import Image
 
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.face import presets, sculpt, tint
-from fo4_import.spike.facegen import FACEGEN_DIRS, HUMAN_RACE, clear, collect, run_ck
+from fo4_import.face.tint import HUMAN_RACE, TEMPLATES
+from fo4_import.spike.facegen import FACEGEN_DIRS, clear, collect, run_ck
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 PLUGIN, TINT_PLUGIN, PRESET_PLUGIN = 'FNVSculptCalib.esp', 'FNVTintCalib.esp', 'FNVPresetCalib.esp'
-#: Per sex (female?), the NPC every calibration clone starts from, its face fields removed: the default human bodies.
-TEMPLATES = {False: 0x12FCCB, True: 0x09A680}
 
 
 def _template(female: bool) -> tuple:

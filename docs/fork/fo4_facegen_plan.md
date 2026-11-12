@@ -769,7 +769,7 @@ lips, while FNV's skin is nearly matte.
   own `_s` in its texture set and FaceGeom. Normal maps are unchanged.
 
 **Test mod 6** (Willow only, `F3NV - FaceGen Test 6`, `FaceGenTest6.esp`,
-not yet played) is test 5 with FNV's shine. Shape, `_d`, `_msn` and tone are
+played) is test 5 with FNV's shine. Shape, `_d`, `_msn` and tone are
 unchanged; `_d` and `_msn` are byte-identical to test 5's. Means over each
 part's texels:
 
@@ -781,6 +781,22 @@ part's texels:
 The face set's `TX07` still names Piper's `_s`. The CK bakes from it, and
 our map replaces that bake. The CK writes its BC5 `_s` with the legacy
 `BC5U` four-character code, which `texture.LEGACY_FORMATS` now reads.
+
+Played and accepted (2026-11-11): "Willow I think looks close enough to go
+ahead with. Maybe in the future I'll spend more time trying for perfection,
+but I think I'll take close enough to look at something else."
+
+#### <a id="accepted-drift"></a>Accepted drift
+
+Willow (test 6) and Sgt Kilborn (test 4) are accepted as close enough.
+Neither is perfect. What remains is accepted, not a defect to chase:
+
+- FNV's heavier lashes.
+- FNV's warmer, flatter lighting.
+- The difference between FO4's and FNV's base heads that the native sliders
+  cannot reach within ±0.6.
+- Willow's hair clipping is the same as on an unmorphed head (31 of 1,870
+  points inside the scalp, against 29).
 
 #### <a id="ck-staging"></a>Running the CK without touching a mod folder
 
@@ -816,6 +832,65 @@ its NIF shape's, and each morph of `BaseFemaleHeadChargen.tri` is copied to
 each hair vertex from its nearest head points, inverse-distance weighted, the
 way Outfit Studio copies slider data. Both files are in the same character
 frame: the hair's nearest head point is 0.1 units away.
+
+## <a id="build-faces"></a>Built: test mods 4–6 in the game build (2026-11-12)
+
+The build now makes every face the way the accepted test mods did, and the
+scratch tool (`face.slider_facegen`, `face.slider_records`) is gone.
+
+| Step | Where | What |
+|---|---|---|
+| Slider fit | records stage: `spike.face_fit.sculpt_fit` → `face.slider_fit.fit` | Never-maxed fit (±0.6, a ridge per control, at most one morph preset per group) of FNV's own face (C2F) over the 19 [proportions](#proportions); written as FMRI/FMRS plus MSDK/MSDV |
+| Own face set | records stage: `spike.own_heads` | The race's FTST gets Fallout4's young normal and specular (TX01, TX07) |
+| Hair | records stage: `spike.own_heads` | Each converted hair gets `<mesh>Chargen.tri` ([hair morphs](#hair-morphs)), HDPT `NAM0` 2 / `NAM1` |
+| CK export | faces stage: `spike.facegen` | As before |
+| Refine | faces stage: `spike.facegen_skin.refine` | Each NPC refitted to aim + (record's predicted − CK's measured), keeping the record's preset keys so MSDV keeps its size; patched in place; CK exports again |
+| Skin | faces stage: `spike.facegen_skin.skin` → `face.npc_skin` | Base NPCs: T1 with the tone kept in and FNV's brows. Own face sets: the CK's texture scaled to FNV's whole skin, and [FNV's shine](#fnv-shine) on face and rear head. Both: QNAM and Skin Tone TEND scaled to the tone, patched in place |
+| Rear head | `face.npc_skin.rear_head` | Its own texture from FNV's colour, faded to the body at the neck |
+
+Records and files are read as the CK sees them (MO2's profile), past any
+plugin whose description starts `FaceGen test` and the mod folder holding it.
+Test mods 4–6 still load in the CK through MO2, so disable them before the
+faces stage.
+
+### The rear head lives only in the FaceGeom
+
+The test plugins gave each NPC a [rear head part](#rear-head-part) record.
+The build does not: a per-NPC TXST cannot name a texture cut to the rear
+head's UV island, because the part mesh's UVs still point into the full body
+texture. So, as in the [third test mod](#rear-head-texture) (played, seams
+gone), only the FaceGeom names it. The rear texture is cut to a square around
+the shape's UV island (`ISLAND_PADDING` out), the shape's UVs are moved onto
+it, and it is written at 512 (`REAR_SIZE`) in the body texture's format. On a
+2048 body texture the island is about 400 texels across. Measured on Doc
+Mitchell: the crop draws the same as the uncropped texture (float difference
+0). The shipped 512 BC1 file is within 1.1 of 255 (median), 4.5 (p95) at the
+rear head's vertices. The rear `_d` is 174,904 bytes, against 2.8 MB at 2048.
+
+No new records come from this: the own face set TXSTs and own hair HDPTs
+already exist (hashed FormIDs) and only gain fields. No existing FormID moves.
+
+### Cost, measured on a dry run (Doc Mitchell base, Willow own)
+
+| Work | Per NPC | FalloutNV.esm (2,957 fitted faces) |
+|---|---|---|
+| Slider fit at record time | about 0.3 s after a 1 s setup per worker | about 2 min on 8 workers |
+| Refit to the CK's export | 0.12 s | under 1 min |
+| Second CK export | 0.43 s | about 21 min (one process) |
+| Skin (face, rear, tone) | 3.0 s base, 3.1 s own | about 19 min on 8 workers |
+| Worker start | 2.5 s per worker | — |
+| Disk | +175 KB rear `_d`; own face sets +350 KB rear `_s` | about 0.5 GB |
+
+A converted hair's chargen `.tri` is about 576 KB. Only plugins with their own
+hair have one; FalloutNV.esm has none.
+
+### Published face fits
+
+`FIT_VERSION` is 3. The sculpt entry is (FMRI/FMRS bytes, ((MSDK key,
+weight), ...), rms): numbers and Fallout4.esm keys only, so the fits are still
+publishable. The basis hash now covers the preset bases too. The refine round
+is per machine (it reads the CK's export) and is not published. The fits file
+must be re-exported and republished under version 3.
 
 ## <a id="today"></a>How faces work today
 
