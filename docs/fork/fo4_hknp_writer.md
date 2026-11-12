@@ -1,7 +1,7 @@
 # Plan: our own FO4 physics writer in place of Elric (2026-11-11)
 
-Status: step 1 (convex bodies) built and wired in, awaiting its play test; step 2 (meshes) being
-read; the rest planned. Status lives
+Status: step 1 (convex bodies) built and wired in, awaiting its play test; step 2 (triangle meshes
+on fixed and massless keyframed bodies) built and wired in, awaiting its play test; the rest planned. Status lives
 in [ROADMAP.md](ROADMAP.md). Item 5 of the
 [CK replacements](fo4_ck_replacements.md#options).
 
@@ -14,8 +14,8 @@ folder, so it blocks the [cross-platform app](fo4_gui.md).
 ## <a id="have"></a>What we already have
 
 - **The file format.** `havok/packfile.py` reads and `packfile_write.py`
-  writes Havok 2014 packfiles from `data/hk2014_layouts.json` (368
-  classes, every `hknp` one). Elric's convex-only physics systems come
+  writes Havok 2014 packfiles from `data/hk2014_layouts.json` (370
+  classes: every `hknp` one, and Bethesda's material table). Elric's convex-only physics systems come
   back byte for byte through them: 616 of 616 in a 3,000-entry sample of
   the Elric cache (`keep_order`).
 - **The input.** `nif/collision.py` writes FNV's collision as FO4's
@@ -63,11 +63,10 @@ build queue runs); reading and scratch work don't.
 3. ~~**Wire Step 1 in**~~ ahead of Elric in `elric_cache.process`: done
    after the user accepted the [drift](#convex-drift); the main session
    runs the play test.
-4. **Step 2, triangle meshes:** ~~add `hknpBSMaterialProperties` to our
-   class layouts~~ (done), ~~decode Elric's compressed mesh pairs~~ (first
-   census done: [mesh](#mesh)); next read Havok's mesh-shape builder in
-   `ElricInterop.dll` for its section split, node boxes and quad pairing,
-   the parts the data does not settle.
+4. ~~**Step 2, triangle meshes:**~~ built (`nif/hknp_mesh.py`) and wired
+   in ahead of Elric ([mesh writer](#mesh-writer)); the main session runs
+   the play test. A mesh on a body with a full motion (dynamic, or
+   keyframed with mass) still goes to Elric.
 5. **Steps 3 and 4** in table order.
 
 ## <a id="convex"></a>Step 1: what Elric writes for a convex body
@@ -349,10 +348,80 @@ with its own collision filter (`collision.py`).
   `hkBitField`s whose last word carries junk above `numBits` (532 of 661
   and 308 of 635 such words): the uninitialised bytes behind Elric's
   run-to-run differences. Our mesh writer will zero them.
-- **Not read yet:** how Elric splits sections and builds the section and
-  tree node boxes; its quad pairing and the two bit fields' meaning;
-  the builder in `ElricInterop.dll` (Havok's `hkcdStaticMeshTree` build,
-  reached from `hkpPhysicsMigrationUtils` like the convex path).
+- **Quad pairing** (495 one-section meshes without shared vertices,
+  input triangles matched to primitives by their packed corners): 16,018
+  of 16,163 quads are two input triangles `(a, b, c)` and `(a, c, d)`
+  joined on the `a–c` diagonal; 14,710 of those are consecutive input
+  triangles, the rest up to dozens apart, so the pairing searches
+  neighbours rather than taking the next triangle. 2,824 triangles stay
+  single. Primitives come out in tree order, not input order (491 of 495
+  meshes).
+- <a id="cms-builder"></a>**The builder in `ElricInterop.dll`.** The
+  section encoder is the function holding the `Promoted … vertices in
+  order to comply with compression error constraint.` message (loop at
+  `0x10260a30`, inside a build function starting before `0x1026056b`); the
+  statistics printer (`Number of sections`, `Quads: …`) is `0x1025c061`.
+  Read so far: for each primitive corner, `t = clamp((p − min) × r, 0, 1)`
+  per axis against the section box, where `r` is the box extent's
+  reciprocal by `rcpps` plus one Newton step (`r(2 − e·r)`, zero on a
+  flat axis); the packed value is `trunc(t × N + 0.5)` (N = 2047, 2047,
+  1023) through `fistp` with truncation; the decoded corner is
+  `min + q/N × extent`, and a corner whose decoded distance from the
+  original exceeds the cinfo's error tolerance (config `+0x28`, checked
+  only when below FLT_MAX) is promoted to a shared vertex. Shared vertices
+  are mostly corners used by several sections (1,262 in the pairs, many
+  with no packing error at all), so promotion is the lesser source. As
+  with the face angle byte, `rcpps` makes exact ties CPU-dependent.
+- **Keys and bit fields** (708 meshes): `numPrimitiveKeys` is the triangle
+  count (707; the other is a junk primitive, below), not `maxKeyValue + 1`;
+  `quadIsFlat` holds `(maxKeyValue + 2) / 2` bits and `triangleIsInterior`
+  `maxKeyValue + 1` (708 each).
+- **One junk primitive:** `dumptruck01` has a primitive `[222, 173, 222,
+  173]` in a 51-vertex section (1 of 1,016 sections); `hknp_mesh.triangles`
+  skips a primitive naming a vertex its section lacks.
+- **Not read:** the tolerance Elric passes, how it splits sections, its node
+  boxes, which neighbour a triangle pairs with, and `triangleIsInterior`'s
+  meaning. The writer takes WWE's choices for these instead (zero interior
+  bits, as WWE writes and the game accepts), and is checked by the triangles
+  it decodes to.
+
+### <a id="mesh-writer"></a>Built, and how it compares with Elric
+
+`nif/hknp_mesh.py` ports WWE's encoder (`src/gl/hknpencode.cpp`; its
+BSD-3 notice is `nif/NIFSKOPE_LICENSE.txt`), with Elric's details where the
+census reads them:
+
+- **Input:** each `NiTriStripsData` strip's points over Elric's 69.99125
+  game units per Havok unit; one material-table entry per strip (filter,
+  CRC), the shape's `userData` the first strip's CRC.
+- **Quads:** in triangle order, each unused triangle takes the unused
+  triangle of its own strip across a shared edge (opposite direction,
+  different third corner) whose normal is closest to its own; stored
+  `(a, b, c, d)` read back as `(a, b, c)` and `(a, c, d)`; a lone triangle
+  repeats `c`. A quad is flat when `d` is within 0.01 of the first three's
+  plane (Elric's rule, [above](#mesh)).
+- **Sections:** primitives sorted along the mesh's longest axis by their
+  first three corners, cut at 128 primitives or 255 vertices; each
+  section's own vertices (none shared), quantized as Elric does
+  (`trunc(t × N + 0.5)` on the section box).
+- **Trees:** both split at the median along the widest axis; each node's
+  box coded as square-root insets of its parent's decoded box, rounded so
+  the decoded box always holds its geometry (WWE adds 1e-6 instead). A
+  section-tree node holds 15 bits over `hiData`/`loData`, the top one
+  marking an inner node.
+- **Data runs:** consecutive same-strip primitives; identical run lists
+  shared between sections.
+
+**Result** (`hknp_compare`, FNV `clutter` and `architecture/barrier`,
+1,748 meshes, 1,327 pairs compared, mesh pairs included): every
+compressed mesh but one decodes to Elric's triangles, strip for strip,
+within one quantization step of the coarser tree; the exception is
+`dumptruck01`, whose extra triangle on Elric's side is the junk primitive.
+Over the 654 saved pairs, the median largest distance from Elric's
+triangle is 2e-7 (the same packing), the largest 0.018 Havok units. The
+writer takes 6 ms per mesh (median; 341 ms at most, 7.3 s for 648). It
+writes no stray bits past a bit field's end, so its output is the same
+on every run.
 
 ## <a id="check"></a>How each step is checked
 
@@ -363,8 +432,11 @@ the build does, finds Elric's output by the pre-Elric bytes, and walks both
 physics systems from the root through their pointers, so object names and
 order don't count. A convex hull is compared as a set (corners paired by
 position, faces by normal; angle bytes, offsets and corner counts on the
-paired rows), packed mass properties unpacked, and each collision object's
-owner and body checked. FNV `clutter` runs in 33 s on 7 workers. Fields Elric derives (mass
+paired rows), a compressed mesh as the triangles it decodes to (per
+strip, each corner allowed one quantization step of the coarser tree; key
+bits and the two bit fields, which follow the tree's layout, left out),
+packed mass properties unpacked, and each collision object's owner and
+body checked. FNV `clutter` runs in 33 s on 7 workers. Fields Elric derives (mass
 properties, motion records, face angles) are matched to its values, and a
 value we cannot reproduce exactly is recorded here with its spread. The
 first in-game build of each step is a play test of the meshes it covers.

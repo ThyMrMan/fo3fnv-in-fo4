@@ -8,7 +8,7 @@ import struct
 import numpy as np
 
 from fo4_import.havok import packfile
-from fo4_import.nif import hknp_convex, hknp_write
+from fo4_import.nif import hknp_convex, hknp_mesh, hknp_write
 from fo4_import.nif.hknp_write import MASS, MOTION
 from tools.nif import hknp_compare
 
@@ -21,7 +21,7 @@ def _objects(mass: float = 5.0) -> list:
     struct.pack_into('<f', body, MASS, mass)
     body[MOTION] = 3
     place = (np.zeros(3), (0.0, 0.0, 0.0, 1.0))
-    data = hknp_write.system([(0, bytes(body), CORNERS, 0.01, 7, place)])
+    data = hknp_write.system([(0, bytes(body), (CORNERS, 0.01, 7), place)])
     return packfile.read(data[4:]).objects
 
 
@@ -87,6 +87,26 @@ def test_hull_differences_name_counts_and_angles():
     found = hknp_compare.diff({'s': {'points': points, 'faces': faces}},
                               {'s': {'points': points, 'faces': faces[:1]}}, 1e-4)
     assert found == {'s.faces.len': (2, 1)}
+
+
+def _mesh_leaf(shift: float, strip: int) -> dict:
+    """The compared leaf of a two-triangle square whose second triangle is on `strip`, its far corner raised."""
+    points = np.array([[0.0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, shift]])
+    built = hknp_mesh.compressed('#m', hknp_mesh.Mesh(points, np.array([(0, 1, 2), (0, 2, 3)]), np.array([0, strip]),
+                                                      [(1, 2), (1, 3)]))
+    return hknp_compare.mesh(built[-1]['fields']['meshTree'])
+
+
+def test_meshes_match_within_a_step_and_report_moves_and_material_swaps():
+    """The same square matches; a corner raised 0.5 is off by about that; a triangle on another strip is
+    counted per material and has no match of its own material."""
+    same = hknp_compare.diff({'m': _mesh_leaf(0.0, 0)}, {'m': _mesh_leaf(0.0, 0)}, 1e-4)
+    assert same == {}
+    moved = hknp_compare.diff({'m': _mesh_leaf(0.5, 0)}, {'m': _mesh_leaf(0.0, 0)}, 1e-4)
+    assert list(moved) == ['m.triangles'] and moved['m.triangles'][1] > 0.4
+    swapped = hknp_compare.diff({'m': _mesh_leaf(0.0, 1)}, {'m': _mesh_leaf(0.0, 0)}, 1e-4)
+    assert swapped.keys() == {'m.materials[0].len', 'm.materials[1].len', 'm.triangles'}
+    assert swapped['m.materials[0].len'] == (1, 2) and swapped['m.materials[1].len'] == (1, 0)
 
 
 def test_packed_mass_properties_unpack():

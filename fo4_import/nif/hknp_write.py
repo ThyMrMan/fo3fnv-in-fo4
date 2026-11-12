@@ -1,8 +1,9 @@
-"""Our own FO4 physics for a pre-Elric NIF, where it covers the input (convex bodies), in place of Elric's.
+"""Our own FO4 physics for a pre-Elric NIF, where it covers the input, in place of Elric's.
 
 `physics(nif)` reads the collision blocks nif/collision.py wrote (bhkCollisionObject, bhkRigidBody,
-convex shapes) and gives the bhkPhysicsSystem block and each collision owner in body order; None for
-input it does not cover yet. `finish(nif)` puts them in place of the Havok input as elric.graft does.
+convex shapes, triangle meshes on massless bodies) and gives the bhkPhysicsSystem block and each collision
+owner in body order; None for input it does not cover yet. `finish(nif)` puts them in place of the Havok
+input as elric.graft does.
 
 See: docs/fork/fo4_hknp_writer.md#convex
 """
@@ -13,15 +14,15 @@ import numpy as np
 from scipy.spatial import QhullError
 
 from fo4_import.havok import packfile_write
+from fo4_import.nif import hknp_mesh
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.elric import without_havok
 from fo4_import.nif.file import NifFile
 from fo4_import.nif.hknp_convex import box_corners, polytope, quaternion
+from fo4_import.nif.hknp_mesh import GAME_PER_HAVOK
 
 #: Pre-Elric bhkRigidBody offsets: filter, mass, damping, friction, restitution, max angular speed, motion.
 FILTER, MASS, DAMPING, FRICTION, RESTITUTION, MAX_ANGULAR, MOTION = 4, 180, 184, 196, 204, 212, 216
-#: FO4 game units per Havok unit as Elric places a body (its node's world translation over this).
-GAME_PER_HAVOK = 69.99125
 #: Low float32 bits Elric rounds off a body's max angular speed.
 SPEED_BITS = 12
 #: Havok 2014 motion systems: the dynamic ones, keyframed, fixed.
@@ -91,9 +92,18 @@ def _world(nif: NifFile, index: int) -> tuple:
     return translation / GAME_PER_HAVOK, quaternion(rotation)
 
 
+def _shape(blocks: list, index: int, body: bytes) -> 'tuple | hknp_mesh.Mesh | None':
+    """Shape block `index` of `body`: (points, radius, material CRC) when convex, a Mesh when a triangle mesh on
+    a body without a full motion; None for anything else."""
+    mesh = hknp_mesh.read(blocks, index)
+    if mesh is None:
+        return _convex(blocks, index)
+    return None if _massive(body) or not len(mesh.tris) else mesh
+
+
 def _bodies(nif: NifFile) -> 'list | None':
-    """[(owner block, rigid body bytes, points, radius, material, owner's world place)] per
-    collision owner, block order; None when any of it is not a convex rigid body we cover."""
+    """[(owner block, rigid body bytes, shape, owner's world place)] per collision owner, block order; None when
+    any of it is not a rigid body we cover."""
     if any('Constraint' in kind or kind == 'bhkListShape' for kind, _ in nif.blocks):
         return None
     out = []
@@ -105,10 +115,12 @@ def _bodies(nif: NifFile) -> 'list | None':
             return None
         body_kind, body = nif.blocks[struct.unpack('<iHi', raw)[2]]
         motion = body[MOTION] if body_kind in BODY_KINDS else None
-        shape = _convex(nif.blocks, struct.unpack_from('<i', body)[0]) if motion is not None else None
-        if shape is None or not (motion in DYNAMIC or motion in (KEYFRAMED, FIXED)):
+        if not (motion in DYNAMIC or motion in (KEYFRAMED, FIXED)):
             return None
-        out.append((i, body, *shape, _world(nif, i)))
+        shape = _shape(nif.blocks, struct.unpack_from('<i', body)[0], body)
+        if shape is None:
+            return None
+        out.append((i, body, shape, _world(nif, i)))
     return out or None
 
 
@@ -201,8 +213,11 @@ def _body(index: int, body: bytes, motion_id: int, place: tuple) -> dict:
 def system(bodies: list) -> bytes:
     """The bhkPhysicsSystem block (u32 length, packfile) for `bodies` (_bodies' rows)."""
     shapes, cinfos, motions, props = [], [], [], []
-    for index, (_, body, points, radius, crc, place) in enumerate(bodies):
-        objects, mass = polytope(f'#s{index}', points, radius, crc)
+    for index, (_, body, shape, place) in enumerate(bodies):
+        if isinstance(shape, hknp_mesh.Mesh):
+            objects, mass = hknp_mesh.compressed(f'#s{index}', shape), None
+        else:
+            objects, mass = polytope(f'#s{index}', *shape)
         shapes += objects
         motion_id = NO_ID
         if _massive(body):

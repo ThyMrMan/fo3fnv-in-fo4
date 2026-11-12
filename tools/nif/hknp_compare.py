@@ -10,7 +10,10 @@ from the Elric cache (`--cache`, default the build's), so Elric never runs.
 Both physics systems are walked from their root, pointers followed, so
 object names and order do not matter; a convex shape's hull is compared as
 a set of corners and faces matched by normal, packed mass properties
-unpacked. Prints, per field (array indices folded), how many covered pairs
+unpacked. A compressed mesh is compared as the triangles it decodes to, per
+material, each corner allowed one quantization step of the coarser tree;
+fields that only follow its tree layout (key bits, the two bit fields) are
+left out. Prints, per field (array indices folded), how many covered pairs
 differ, with examples; --json writes each pair's differences as computed.
 
 See: docs/fork/fo4_hknp_writer.md#check
@@ -28,10 +31,11 @@ from pathlib import Path
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from scipy.spatial import cKDTree
 
 from fo4_import.havok import packfile
 from fo4_import.nif import file as nif_file
-from fo4_import.nif import hknp_write
+from fo4_import.nif import hknp_mesh, hknp_write
 from fo4_import.nif.elric import havok_start
 from fo4_import.pipeline import elric_cache
 from fo4_import.pipeline.mesh_cache import cached_files
@@ -42,6 +46,10 @@ POLYTOPE_ARRAYS = {'vertices': (16, '<3fI'), 'planes': (16, '<4f'), 'faces': (4,
 VERTEX_INDEX = 0xFFFFFF
 #: First value of a hull difference over matched rows; the second is the largest difference.
 OFF_BY = 'off by'
+#: hknpCompressedMeshShape fields set by its tree's layout rather than its geometry.
+TREE_LAYOUT = frozenset({'numShapeKeyBits', 'quadIsFlat', 'triangleIsInterior'})
+#: The key a leaf dict is known by: a convex hull's corners, a compressed mesh's triangles.
+LEAVES = frozenset({'points', 'triangles'})
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +84,20 @@ def hull(fields: dict) -> dict:
     return {'points': np.array(sorted(corners.values())).reshape(-1, 3), 'faces': np.array(faces).reshape(-1, 6)}
 
 
+def mesh(tree: dict) -> dict:
+    """A meshTree's decoded triangles (n, 9), their materials, its box's step."""
+    tris, materials = hknp_mesh.triangles(tree)
+    lo, hi = (np.array(tree['domain'][k][:3]) for k in ('min', 'max'))
+    return {'triangles': tris.reshape(-1, 9), 'materials': materials, 'step': (hi - lo) / hknp_mesh.STEPS}
+
+
 def _object(fields: dict, cls: str) -> dict:
-    """An object's fields as compared: a polytope's arrays as its hull, packed mass properties unpacked."""
+    """An object's fields as compared: a polytope's arrays as its hull, a compressed mesh as its triangles
+    without its TREE_LAYOUT fields, packed mass properties unpacked."""
+    if cls == 'hknpCompressedMeshShapeData':
+        return {**fields, 'meshTree': mesh(fields['meshTree'])}
+    if cls == 'hknpCompressedMeshShape':
+        return {k: v for k, v in fields.items() if k not in TREE_LAYOUT}
     if cls == 'hknpConvexPolytopeShape':
         kept = {k: v for k, v in fields.items() if k not in POLYTOPE_ARRAYS and k != '__tail__'}
         return {**kept, 'hull': hull(fields)}
@@ -91,8 +111,8 @@ def _object(fields: dict, cls: str) -> dict:
 
 class _Flattener:
     """flatten()'s walk: {field path: leaf value}, every pointer followed; an object met again is a leaf naming
-    the path it was first met at; a polytope's hull is one leaf (a dict); an object of a class the layouts lack
-    is its class alone."""
+    the path it was first met at; a polytope's hull or a mesh's triangles is one leaf (a dict, LEAVES); an object
+    of a class the layouts lack is its class alone."""
 
     def __init__(self, objects: list):
         """Index `objects` by name."""
@@ -113,7 +133,7 @@ class _Flattener:
         """Put `value`'s leaves under `path`."""
         if isinstance(value, str) and value in self.named:
             self.pointer(value, path)
-        elif isinstance(value, dict) and 'points' not in value:
+        elif isinstance(value, dict) and not LEAVES & value.keys():
             for key, item in value.items():
                 self.walk(item, f'{path}.{key}' if path else key)
         elif isinstance(value, list):
@@ -174,14 +194,41 @@ def _hull_diff(path: str, ours: dict, theirs: dict, tolerance: float) -> dict:
     return out
 
 
+def _farthest(ours: np.ndarray, theirs: np.ndarray, allow: np.ndarray) -> float:
+    """The largest amount any corner of `ours` (n, 9) passes `allow` from the nearest of `theirs` in any
+    rotation (winding kept); -inf when either is empty."""
+    if not len(ours) or not len(theirs):
+        return -np.inf
+    rolled = np.vstack([np.roll(theirs.reshape(-1, 3, 3), -k, 1).reshape(-1, 9) for k in range(3)])
+    nearest = rolled[cKDTree(rolled).query(ours)[1]]
+    return float((np.abs(ours - nearest) - allow).max())
+
+
+def _mesh_diff(path: str, ours: dict, theirs: dict, tolerance: float) -> dict:
+    """The differing mesh fields under `path`: triangle counts, overall and per material, then (OFF_BY) how far
+    any corner passes one step of the coarser tree from its match of the same material, both ways."""
+    out = {}
+    if len(ours['triangles']) != len(theirs['triangles']):
+        out[f'{path}.triangles.len'] = (len(ours['triangles']), len(theirs['triangles']))
+    allow, worst = np.tile(np.maximum(ours['step'], theirs['step']), 3), -np.inf
+    for material in np.union1d(ours['materials'], theirs['materials']):
+        a, b = ours['triangles'][ours['materials'] == material], theirs['triangles'][theirs['materials'] == material]
+        if len(a) != len(b):
+            out[f'{path}.materials[{material}].len'] = (len(a), len(b))
+        worst = max(worst, _farthest(a, b, allow), _farthest(b, a, allow))
+    if worst > tolerance:
+        out[f'{path}.triangles'] = (OFF_BY, worst)
+    return out
+
+
 def diff(ours: dict, theirs: dict, tolerance: float) -> dict:
-    """{field path: (ours, Elric's)} of every leaf of two flatten() results that disagrees (close()); a hull's
-    differences as _hull_diff gives them, a value one side lacks as None."""
+    """{field path: (ours, Elric's)} of every leaf of two flatten() results that disagrees (close()); a hull's or
+    mesh's differences as _hull_diff or _mesh_diff gives them, a value one side lacks as None."""
     out = {}
     for path in sorted(ours.keys() | theirs.keys()):
         a, b = ours.get(path), theirs.get(path)
-        if isinstance(a, dict) and isinstance(b, dict):
-            out.update(_hull_diff(path, a, b, tolerance))
+        if isinstance(a, dict) and isinstance(b, dict) and a.keys() == b.keys():
+            out.update((_mesh_diff if 'triangles' in a else _hull_diff)(path, a, b, tolerance))
         elif isinstance(a, dict) or isinstance(b, dict):
             out[path] = ('hull' if isinstance(a, dict) else a, 'hull' if isinstance(b, dict) else b)
         elif not close(a, b, tolerance):

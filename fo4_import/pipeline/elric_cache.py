@@ -10,7 +10,7 @@ four at once never finished (no CPU after nine minutes). A NIF with Havok
 input is held in memory (hold()) rather than written, since FO4 cannot load
 it; finish() writes only the finished NIF, and only when its bytes changed,
 so a game running beside the build never loads a half-made mesh. A NIF our
-own physics writer covers (nif/hknp_write.py: convex bodies) never reaches
+own physics writer covers (nif/hknp_write.py: convex bodies, meshes) never reaches
 Elric or its cache.
 
 See: docs/fork/fo4_pipeline.md#skeleton
@@ -52,7 +52,7 @@ def elric_tag() -> bytes:
 
 
 def entry(data: bytes, cache: 'Path | None' = None) -> Path:
-    """The cache file of one pre-Elric NIF, under `cache` (default CACHE, read when called)."""
+    """The cache file of one pre-Elric NIF, under `cache` (default: CACHE now)."""
     key = hashlib.sha1(elric_tag() + data).hexdigest()
     return (cache or CACHE) / key[:2] / key
 
