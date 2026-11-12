@@ -23,12 +23,14 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Menu | How it's made | State |
 |---|---|---|
 | Casino (`fo4_import/casino/`) | Our own AS3 (785 lines). A Python-written skeleton movie, then FFDec compiles our classes over it. Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | Spike played: keys, mouse, text, images. Slots built, not played |
-| Dialogue menu (`fo4_import/dialogue_menu/`) | Our AS3 compiled by FFDec **over Bethesda's own** `DialogueMenu.swf`, read from the player's interface archive at install | Played in parts. Can't be shipped as a mod |
+| Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)): built like the casino's, a skeleton then FFDec. Nothing read from the game | The patched-movie version played; our own movie built, not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | No movie. The DLL draws into the open vanilla menus from C++: CND line, repair and ammo lists, STAT tabs, HUD needs | CND, repair and tabs played. Ammo list and HUD needs built, not played |
 
 Shared already: `fo4_import/base/ffdec.py` (FFDec wrapper, source digest),
-`asset_convert/ui/swf.py` (our SWF writer). The skeleton build is
-byte-stable (`tests/test_fo4_casino.py`).
+`fo4_import/base/swf_skeleton.py` (the skeleton movie and cached build,
+used by both menus), `asset_convert/ui/swf.py` (our SWF writer). The
+skeleton build is byte-stable (`tests/test_fo4_casino.py`,
+`tests/test_fo4_dialogue_menu.py`).
 
 ## <a id="facts"></a>What we know about FO4's Flash
 
@@ -611,6 +613,11 @@ Each spike is one change, played in game.
      Fixed in the spike source, not replayed. So the dialogue menu can drop
      the patched Bethesda movie: the XDI replacement starts from our own
      movie.
+   - **Done (2026-11-11, not played):** the shipping dialogue menu moved
+     onto its own movie ([dialogue menu plan](fo4_dialogue_menu_plan.md#own-movie)).
+     Spike 3 also settles two open facts: `try/catch` ran in game (the
+     spike's placement used it), and `scaleform.gfx.Extensions` needs no
+     stub to compile against when looked up by name.
    - **Built 2026-11-11.** Two AS3 classes, no Bethesda code or
      art: a root (`DialogueMenuRoot`) that holds the menu at `root.Menu_mc`,
      as the game's own movie does (its `MainTimeline` has only `Menu_mc`),
