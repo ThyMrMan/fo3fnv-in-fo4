@@ -9,6 +9,7 @@ import os
 
 from fo4_import.base import ba2_pack as BP
 from fo4_import.base import build_files as BF
+from fo4_import.base.ba2 import Archive
 from fo4_import.base.ledger import ledger_path
 from fo4_import.spike.script import adopted_scripts
 
@@ -55,6 +56,24 @@ def test_a_master_folder_is_read_through_its_archives(tmp_path, monkeypatch):
     for name in ('A', 'B'):
         (sources / f'{name}.psc').write_text('x')
     assert adopted_scripts(['A', 'B'], (sources,), (data,)) == [sources / 'B.psc']
+
+
+def test_data_file_indexes_each_archive_once_while_it_is_unchanged(tmp_path, monkeypatch):
+    """Reads through a master's archive parse its index once; a repacked archive is indexed again."""
+    data = _packed(tmp_path, monkeypatch)
+    BP.drop_packed(data, 'P.esm')
+    opened = []
+    monkeypatch.setattr(BP, 'Archive', lambda path: opened.append(path) or Archive(path))
+    for name, payload in FILES.items():
+        assert BP.data_file(data, name) == payload
+    assert len(opened) == 1
+    BP.restore_packed(data, 'P.esm')
+    (data / 'Scripts' / 'B.pex').write_bytes(b'b')
+    BP.pack_main(data, 'P.esm')
+    BP.drop_packed(data, 'P.esm')
+    before = len(opened)
+    assert BP.data_file(data, 'Scripts/B.pex') == b'b' and BP.data_file(data, 'Scripts/A.pex') == b'pex'
+    assert len(opened) == before + 1
 
 
 def test_records_move_into_the_records_folder_and_the_newer_one_wins(tmp_path):

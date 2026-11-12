@@ -11,6 +11,7 @@ See: docs/fork/research/anim_text_data.md#ours
 """
 
 import concurrent.futures
+import functools
 import hashlib
 import os
 import re
@@ -78,11 +79,14 @@ class Race:
 
 @dataclass
 class Known:
-    """What vanilla's offsets know: each event name (lower case) as they spell it, and each clip path's record; and
-    the records this run computed, by clip path (lower case)."""
+    """What vanilla's offsets know: each event name (lower case) as they spell it, and each clip path's record; the
+    records this run computed, by clip path (lower case); the work cache's records table, read once per run
+    (compute), and whether this run added to it (save)."""
     spelled: dict = field(default_factory=dict)
     records: dict = field(default_factory=dict)
     computed: dict = field(default_factory=dict)
+    table: 'dict | None' = None
+    unsaved: bool = False
 
 
 def known(vanilla: Vanilla) -> Known:
@@ -101,20 +105,32 @@ def known(vanilla: Vanilla) -> Known:
 
 def compute(paths: list, read, k: Known) -> None:
     """Put each clip of `paths` (no extension) not in k.computed there: its record (spelled_record of read(path +
-    '.hkx')) kept in the work cache by path and bytes, the rest made in worker processes; vanilla's record when
-    the clip can't be read, else None.
+    '.hkx')) looked up in the work cache's table by path and bytes (k.table, kept by save()), the rest made in
+    worker processes; vanilla's record when the clip can't be read, else None.
     See: docs/fork/research/anim_text_data.md#ours
     """
     todo = {path.lower(): path for path in paths if path.lower() not in k.computed}
     raws = {key: raw for key, path in todo.items() if (raw := read(path + '.hkx'))}
     keys = {key: (key, hashlib.sha1(raw).hexdigest()) for key, raw in raws.items()}
-    inputs = (RECORDS_VERSION, sorted(k.spelled.items()))
-    table = work_cache.lookup(RECORDS_SITE, anim_offsets.__name__, inputs, {}) if keys else {}
+    if k.table is None and keys:
+        k.table = work_cache.lookup(RECORDS_SITE, anim_offsets.__name__, _inputs(k), {})
+    table = k.table if k.table is not None else {}
     missing = [key for key in keys if keys[key] not in table]
     table.update(zip((keys[key] for key in missing), _records([(todo[key], raws[key]) for key in missing], k.spelled)))
-    if missing:
-        work_cache.store(RECORDS_SITE, anim_offsets.__name__, inputs, table)
+    k.unsaved |= bool(missing)
     k.computed.update({key: table[keys[key]] if key in keys else k.records.get(key) for key in todo})
+
+
+def _inputs(k: Known) -> tuple:
+    """The records table's work cache inputs: its version and the event spellings."""
+    return RECORDS_VERSION, sorted(k.spelled.items())
+
+
+def save(k: Known) -> None:
+    """Keep the records table in the work cache when compute() added to it this run."""
+    if k.unsaved:
+        work_cache.store(RECORDS_SITE, anim_offsets.__name__, _inputs(k), k.table)
+        k.unsaved = False
 
 
 def _records(jobs: list, spelled: dict) -> list:
@@ -231,6 +247,7 @@ def event_info(graph: str, found: list, objs: dict) -> bytes:
     return ('\n'.join(lines) + '\n').encode('cp1252')
 
 
+@functools.lru_cache(maxsize=1 << 16)
 def _stem(name: str) -> str:
     """A graph path's file name without its extension."""
     return PureWindowsPath(name).stem
@@ -429,14 +446,19 @@ def file_data_names(text: str) -> dict:
 
 def entry_files(entries: dict, read, k: Known) -> dict:
     """{Data path under AnimTextData: bytes}: each own_clips entry's offsets, from its file data, and an entry
-    without a template's dynamic idle data."""
-    out = {}
+    without a template's dynamic idle data. Every entry's clips are compute()d at once, each spelled as the
+    first entry naming it spells it."""
+    named, clips, out = {}, {}, {}
     for entry, (graph, template) in sorted(entries.items()):
         listed = read(f'AnimTextData\\AnimationFileData\\{entry}.txt')
         if listed is not None:
-            names = file_data_names(listed.decode('cp1252'))
-            out[f'AnimationOffsets\\{entry}.txt'] = offsets(graph, names, read, k)
-            out.update({f'DynamicIdleData\\{entry}.txt': DYNAMIC_IDLE} if template is None else {})
+            named[entry] = graph, template, file_data_names(listed.decode('cp1252'))
+            for key, path in {path.lower(): path for path in named[entry][2].values()}.items():
+                clips.setdefault(key, path)
+    compute(list(clips.values()), read, k)
+    for entry, (graph, template, names) in named.items():
+        out[f'AnimationOffsets\\{entry}.txt'] = offsets(graph, names, read, k)
+        out.update({f'DynamicIdleData\\{entry}.txt': DYNAMIC_IDLE} if template is None else {})
     return out
 
 

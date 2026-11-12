@@ -129,6 +129,27 @@ def test_file_data_names_its_clips_not_its_behavior_graphs():
     assert T.file_data_names(text) == {'Walk': 'Actors\\FNV\\C\\Walk'}
 
 
+def test_entry_files_compute_every_clip_once_with_one_table_read_and_store(monkeypatch):
+    """All entries' clips are computed in one pass, each spelled as the first entry names it; the work cache's
+    table is read once per run and stored once, by save(), only when something was added."""
+    calls, made = [], []
+    monkeypatch.setattr(T.work_cache, 'lookup', lambda *a: calls.append('lookup') or {})
+    monkeypatch.setattr(T.work_cache, 'store', lambda *a: calls.append('store'))
+    monkeypatch.setattr(T.anim_offsets, 'spelled_record',
+                        lambda path, raw, spelled: made.append(path) or T.anim_offsets.Clip(path, 1.0))
+    listed = {1: 'A\\Walk.hkx\r\nA\\Run.hkx', 2: 'a\\WALK.hkx\r\nA\\Jump.hkx'}
+    files = {f'AnimTextData\\AnimationFileData\\{e}.txt': ('0\r\n' * 4 + text).encode() for e, text in listed.items()}
+    k = T.Known()
+    read = {**files, **{f'{c}.hkx': b'clip' for c in ('A\\Walk', 'A\\Run', 'a\\WALK', 'A\\Jump')}}.get
+    out = T.entry_files({1: ('G.hkx', None), 2: ('G.hkx', 7)}, read, k)
+    assert sorted(made) == ['A\\Jump', 'A\\Run', 'A\\Walk'] and calls == ['lookup']
+    assert sorted(out) == ['AnimationOffsets\\1.txt', 'AnimationOffsets\\2.txt', 'DynamicIdleData\\1.txt']
+    T.save(k)
+    T.save(k)
+    T.entry_files({1: ('G.hkx', None)}, read, k)
+    assert calls == ['lookup', 'store'] and len(made) == 3
+
+
 def test_prune_removes_what_this_run_did_not_write(tmp_path: Path):
     """Files of the owned kinds this run didn't write go; written ones, the persistent list and file data stay."""
     root = tmp_path / ANIM_TEXT
