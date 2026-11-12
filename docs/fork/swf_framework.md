@@ -507,10 +507,18 @@ textures), so `f4se.MountImage` can show them. A DLC build stages only the
 images its masters' builds did not. Counts: `level-up icons staged`,
 `level-up icon missing from the export`.
 
+**The image spike (built 2026-11-12, not played):** the casino's spike
+screen (`cqf FNV_Casino Spike`) shows four images side by side: the DXT1
+card face as the control, then `skills_barter.dds` (DXT3),
+`perk_action_girl.dds` (DXT5) and `perk_action boy.dds` (DXT3, a space in
+the name). The list is `records.SPIKE_LEVEL_UP`, passed in the bank
+quest's `SpikeImages` property. Read the `F3NV_CasinoSpikeImage` lines in
+`Papyrus.0.log`: "shown 256x256" for each means MountImage takes all
+three. "Mounted" alone proves nothing, since a missing file still mounts
+([casino phase 0](fo4_casino_plan.md#phase-0)).
+
 Still to do:
-- **A spike:** one perk image mounted and shown in a menu of ours. The
-  casino's tested image was DXT1; DXT3 and DXT5 through `MountImage` are
-  untested.
+- **Play the image spike** above.
 - **Finding an image from a record:** FO4's PERK has an `ICON` ("Image")
   field vanilla never fills, and AVIF has none, so the menu needs its own
   table (FormID to texture path) or the PERK field. Decide with the menu.

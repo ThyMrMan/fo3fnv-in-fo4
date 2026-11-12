@@ -28,6 +28,8 @@ package
       public static const MENU:String = "F3NV_Casino";
       public static const WIDTH:Number = 1280;
       public static const HEIGHT:Number = 720;
+      // The spike screen's images, one every this many pixels across (four 256-pixel images fit).
+      public static const SPIKE_STEP:Number = 300;
 
       private var bridge:Bridge = new Bridge();
       private var screen:Sprite;
@@ -89,12 +91,13 @@ package
          {
             var name:String = "F3NV_Spike" + i;
             var mounted:Boolean = bridge.mount(MENU, paths[i], name);
-            Text.label(screen, 40 + i * 400, 130, 16).text = paths[i] + (mounted ? "" : " (not mounted)");
+            var file:String = String(paths[i]).split("/").pop();
+            Text.label(screen, 40 + i * SPIKE_STEP, 130, 16).text = file + (mounted ? "" : " (not mounted)");
             send("F3NV_CasinoSpikeImage", paths[i] + (mounted ? " mounted as " + name : " not mounted"));
             if (mounted)
             {
                var image:Loader = new Loader();
-               image.x = 40 + i * 400;
+               image.x = 40 + i * SPIKE_STEP;
                image.y = 160;
                image.contentLoaderInfo.addEventListener(Event.COMPLETE, onImage);
                image.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, onImageError);
