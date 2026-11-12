@@ -51,19 +51,19 @@ def frozen(value):
     return value
 
 
-def by_content(fn):
-    """`fn` (pure; arrays, sequences or plain values in) remembered per process for its last KEPT inputs."""
-    kept = OrderedDict()
+def by_content(fn, kept: int = KEPT):
+    """`fn` (pure; arrays, sequences or plain values in) remembered per process for its last `kept` inputs."""
+    held, limit = OrderedDict(), kept
 
     @functools.wraps(fn)
     def remembered(*args):
         """fn(*args), from the kept results when the same contents were seen."""
         key = digest(*args)
-        if key in kept:
-            kept.move_to_end(key)
-            return kept[key]
-        kept[key] = value = frozen(fn(*args))
-        if len(kept) > KEPT:
-            kept.popitem(last=False)
+        if key in held:
+            held.move_to_end(key)
+            return held[key]
+        held[key] = value = frozen(fn(*args))
+        if len(held) > limit:
+            held.popitem(last=False)
         return value
     return remembered

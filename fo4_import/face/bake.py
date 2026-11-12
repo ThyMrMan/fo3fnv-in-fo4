@@ -94,6 +94,12 @@ def surface(vertices: np.ndarray, triangles: np.ndarray) -> tuple:
     return points, owner, np.repeat(grid, len(triangles), axis=0)
 
 
+#: surface() remembered per process (memo): every face of a sex lands on the same FNV mean head.
+mean_surface = by_content(surface)
+#: A cKDTree of points remembered per process (memo): each sex's mean_surface points and body vertices.
+point_tree = by_content(cKDTree, kept=8)
+
+
 def _similarity(src: np.ndarray, dst: np.ndarray) -> tuple:
     """(s, R, t) minimising |s R src + t - dst| (Umeyama)."""
     mu_s, mu_d = src.mean(0), dst.mean(0)
@@ -109,7 +115,7 @@ def _similarity(src: np.ndarray, dst: np.ndarray) -> tuple:
 def align(fo4_head: np.ndarray, fnv_mean: np.ndarray, surface: tuple) -> tuple:
     """(s, R, t) taking FO4 head coordinates onto FNV's mean head, fitted over the front of the face; kept per
     process (memo)."""
-    tree = cKDTree(surface[0])
+    tree = point_tree(surface[0])
     front = fo4_head[fo4_head[:, 1] > 0]
     s = np.ptp(fnv_mean[fnv_mean[:, 1] > 0][:, 0]) / np.ptp(front[:, 0])
     r, t = np.eye(3), fnv_mean[fnv_mean[:, 1] > 0].mean(0) - s * front.mean(0)

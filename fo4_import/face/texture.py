@@ -16,6 +16,7 @@ FO4's alpha is kept, and texels outside FO4's face UVs keep FO4's colour.
 See: docs/fork/fo4_spikes.md#spike-2-face-texture
 """
 
+import functools
 import struct
 import subprocess
 import tempfile
@@ -24,11 +25,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from scipy.ndimage import distance_transform_edt
-from scipy.spatial import cKDTree
 
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.install import FALLOUT4_DIR
-from fo4_import.face.bake import align, surface
+from fo4_import.face.bake import align, mean_surface, point_tree
 from fo4_import.face.fnv_head import FnvHead
 from fo4_import.face.memo import by_content
 
@@ -46,6 +46,8 @@ LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 8
 ISLAND_PADDING = 8
 #: Seconds texconv may take on one texture before the call fails.
 TEXCONV_TIMEOUT = 120
+#: UV layouts (mesh and texture size) texel_cover keeps per process: each sex's face and rear head (a 1024 face: 37 MB).
+COVERS = 8
 
 
 def egt_offset(data: bytes, fgts: np.ndarray) -> np.ndarray:
@@ -97,8 +99,18 @@ def bilinear(image: np.ndarray, uv: np.ndarray) -> np.ndarray:
 
 
 def texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:
-    """(texel rows, columns, 3D points) of every texel centre inside a triangle in UV space."""
-    rows, cols, where = [], [], []
+    """(rows, columns, 3D points) of each texel centre in a UV triangle (texel_cover).
+    See: docs/fork/fo4_facegen_plan.md#skin-speed
+    """
+    rows, cols, corners, bary = texel_cover(uv, tris, size)
+    return rows, cols, np.matmul(bary[:, None, :], points[corners])[:, 0]
+
+
+@functools.partial(by_content, kept=COVERS)
+def texel_cover(uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:
+    """(texel rows, columns, corner vertices [n, 3], barycentric weights [n, 3]) of every texel centre inside a
+    triangle of `tris` in UV space, in triangle order; kept per process (memo)."""
+    rows, cols, vertices, weights = [], [], [], []
     for tri in tris:
         corners = uv[tri] * size - 0.5
         lo, hi = np.floor(corners.min(0)).astype(int), np.ceil(corners.max(0)).astype(int)
@@ -113,8 +125,9 @@ def texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int
         inside = (bary >= -1e-6).all(1)
         rows.append(ys.ravel()[inside])
         cols.append(xs.ravel()[inside])
-        where.append(bary[inside] @ points[tri])
-    return np.concatenate(rows), np.concatenate(cols), np.vstack(where)
+        vertices.append(np.broadcast_to(tri, (int(inside.sum()), 3)))
+        weights.append(bary[inside])
+    return np.concatenate(rows), np.concatenate(cols), np.vstack(vertices), np.vstack(weights)
 
 
 #: texel_points remembered per process (memo), for the work-size texels the tint fit's steps share.
@@ -129,13 +142,13 @@ def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple, frame: np.ndarray = Non
     part texel each copies ((rows, columns), (rows, columns)). Kept per process (memo)."""
     points, uv, tris = fo4
     mean, triangles, fnv_uvs = fnv_mesh
-    fnv_surface = surface(mean, triangles)
+    fnv_surface = mean_surface(mean, triangles)
     s, r, t = align(points if frame is None else frame, mean, fnv_surface)
     rows, cols, where = texel_points(points, uv, tris, shape[0])
-    _, idx = cKDTree(fnv_surface[0]).query(s * where @ r.T + t)
+    _, idx = point_tree(fnv_surface[0]).query(s * where @ r.T + t)
     _, owner, bary = fnv_surface
     fnv_uv = (bary[idx][:, :, None] * fnv_uvs[triangles[owner[idx]]]).sum(1)
-    return rows, cols, fnv_uv, island_padding(rows, cols, shape)
+    return rows, cols, fnv_uv, padding(rows, cols, shape)
 
 
 def island_padding(rows: np.ndarray, cols: np.ndarray, shape: tuple) -> tuple:
@@ -146,6 +159,10 @@ def island_padding(rows: np.ndarray, cols: np.ndarray, shape: tuple) -> tuple:
     dist, (near_r, near_c) = distance_transform_edt(~filled, return_indices=True)
     pad = (dist > 0) & (dist <= ISLAND_PADDING)
     return np.nonzero(pad), (near_r[pad], near_c[pad])
+
+
+#: island_padding remembered per process (memo): a UV layout's texels pad alike for every face.
+padding = by_content(island_padding)
 
 
 def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
