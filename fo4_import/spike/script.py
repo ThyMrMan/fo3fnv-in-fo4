@@ -19,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from asset_convert.game_paths import namespace_for
+from fo4_import.base.ba2_pack import archived_names
 from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import compile_folder, header_dirs
 from fo4_import.base.support_records import pack_script_quest
@@ -171,12 +172,14 @@ def with_types(scripts_dir: Path, names, prefix: str) -> set:
 
 
 def adopted_scripts(names: list, masters: tuple, shipped: tuple) -> list:
-    """The masters' converted sources (in `masters`) of `names` that no master's Scripts folder (`shipped`)
-    holds compiled."""
+    """The masters' converted sources (in `masters`) of `names` that no master's Data folder (`shipped`) holds
+    compiled, loose or in its archives."""
     out = []
+    compiled = set().union(*(archived_names(d) for d in shipped))
     for name in names:
         source = next((Path(m) / f'{name}.psc' for m in masters if (Path(m) / f'{name}.psc').is_file()), None)
-        if source and not any((Path(s) / f'{name}.pex').is_file() for s in shipped):
+        if source and f'scripts/{name}.pex'.lower() not in compiled and not any(
+                (Path(d) / 'Scripts' / f'{name}.pex').is_file() for d in shipped):
             out.append(source)
     return out
 
@@ -193,8 +196,8 @@ def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = (), master
     """Compile Doc's script (when the folder has it), `fragments`, the scripts they name and every static helper
     into <data_dir>/Scripts; a summary. Only what changed since the last build compiles, from a staging folder
     kept between builds. A dependent plugin's build compiles only its own folder's scripts, its masters'
-    folders `masters` imported (theirs ship with them), and any of theirs it uses that no master's Scripts
-    folder `shipped` holds compiled (adopted_scripts).
+    folders `masters` imported (theirs ship with them), and any of theirs it uses that no master's Data folder
+    `shipped` holds compiled (adopted_scripts).
     See: docs/fork/fo4_plugin_layout.md#dlc-build
     """
     scripts_dir, out = scripts_dir.resolve(), (data_dir / 'Scripts').resolve()

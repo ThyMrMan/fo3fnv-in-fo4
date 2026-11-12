@@ -109,8 +109,8 @@ def test_ledger_round_trip_keeps_ids_in_any_order(tmp_path):
     again = _writer(Ledger(ledger_path(tmp_path / 'Spike.esp')))
     assert {key: again.derive_formid('site', key) for key in (('c', 1), 'b', 'a')} == given
     assert again.stable_number('alias Q', 'T', lambda: 9) == 4
-    assert (tmp_path / 'Spike.formids.tsv').read_text(encoding='utf-8').splitlines() == sorted(
-        (tmp_path / 'Spike.formids.tsv').read_text(encoding='utf-8').splitlines())
+    lines = ledger_path(tmp_path / 'Spike.esp').read_text(encoding='utf-8').splitlines()
+    assert lines == sorted(lines) and not (tmp_path / 'Spike.formids.tsv').exists()
 
 
 def test_ledger_ids_are_reserved_for_new_keys(tmp_path):

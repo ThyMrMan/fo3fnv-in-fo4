@@ -19,7 +19,9 @@ from pathlib import Path
 from core.mod_sources import ModSource, data_dirs, find_file, mo2_layout, read_mo2_ini
 from core.setup_check import exe_version
 from fo4_import.app import settings as S
+from fo4_import.base.build_files import all_moved_in
 from fo4_import.base.source import GAME_PLUGINS
+from fo4_import.pipeline.build_steps import STAMP_SUFFIX, stamp_path
 from fo4_import.pipeline.creation_kit import CK_EXECUTABLE, MO2
 
 GAME_VERSION = (1, 11, 240)
@@ -31,7 +33,6 @@ MO2_URL = 'https://github.com/ModOrganizer2/modorganizer'
 F4SE_LOADER = 'f4se_loader.exe'
 PLUGINS = Path('F4SE', 'Plugins')
 RUNTIME_DLL = 'F3NV.dll'
-STAMP = '.build.json'
 BASE_PLUGIN, *FNV_DLC = GAME_PLUGINS['fnv']
 #: (mod, the file it puts in Data, download page) per README mod; {version} is the game's version, dashed.
 REQUIRED_MODS = (
@@ -288,8 +289,8 @@ def converted(dirs: tuple) -> dict:
     """{folder: [plugin]} of the folders holding a converted plugin and its build stamp."""
     out = {}
     for folder in dirs:
-        for stamp in sorted(folder.glob('*' + STAMP)):
-            plugin = stamp.name[:-len(STAMP)]
+        for stamp in all_moved_in(folder, '*' + STAMP_SUFFIX):
+            plugin = stamp.name[:-len(STAMP_SUFFIX)]
             if (folder / plugin).is_file():
                 out.setdefault(folder, []).append(plugin)
     return out
@@ -307,7 +308,7 @@ def plugin_check(plugin: str, folder: Path, found: dict, mods: Mods) -> Check:
     """One converted plugin: in its own enabled MO2 mod, once, finished, and ticked in the plugin list."""
     together = [p for p in found[folder] if p != plugin]
     elsewhere = [f.name for f, plugins in found.items() if f != folder and plugin.lower() in map(str.lower, plugins)]
-    status = stamp_status(folder / (plugin + STAMP))
+    status = stamp_status(stamp_path(folder / plugin))
     if folder in mods.shared:
         return Check(plugin, 'WRONG PLACE', f'in {folder}; move it into its own MO2 mod')
     if together:

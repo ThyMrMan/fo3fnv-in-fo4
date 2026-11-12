@@ -16,6 +16,7 @@ import struct
 import time
 from pathlib import Path
 
+from fo4_import.base.build_files import moved_in
 from fo4_import.pipeline import creation_kit
 from tes5_import.base.tes5_reader import subrecords, walk
 
@@ -99,7 +100,7 @@ def generate(plugin: Path, data_dir: Path) -> int:
     missing here is copied back from MO2 (_restore).
     See: docs/fork/fo4_own_rig.md#anim-info
     """
-    listed, key_file = plugin.with_name(plugin.name + LIST_SUFFIX), plugin.with_name(plugin.name + KEY_SUFFIX)
+    listed, key_file = (moved_in(plugin.with_name(plugin.name + s)) for s in (LIST_SUFFIX, KEY_SUFFIX))
     key = inputs_key(plugin, data_dir)
     last = listed.read_text(encoding='utf-8').splitlines() if listed.is_file() else []
     old = key_file.read_text(encoding='utf-8') if key_file.is_file() else ''
@@ -113,6 +114,7 @@ def generate(plugin: Path, data_dir: Path) -> int:
     creation_kit.run(ARGUMENTS.format(plugin=plugin.name), CK_TIMEOUT, f'generating animation data for {plugin.name}')
     made = list(dict.fromkeys([r for r in last if (data_dir / r).is_file()] + _collect(data_dir, started - SLACK)))
     made += [r for r in dynamic_idles(data_dir, made) if r not in made]
+    listed.parent.mkdir(parents=True, exist_ok=True)
     listed.write_text(''.join(f'{rel}\n' for rel in made), encoding='utf-8')
     key_file.write_text(key, encoding='utf-8')
     return len(made)

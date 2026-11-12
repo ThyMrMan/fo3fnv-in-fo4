@@ -137,7 +137,7 @@ def test_a_dependent_build_trusts_mesh_records_only_when_every_master_has_one(tm
                      {os.path.normcase(str(game / 'Meshes' / 'fnv' / 'a.nif')): ['m1', True]})
     (dlc / 'D.esm.meshes.json').write_text(json.dumps({'meshes/fnv/a.nif': ['m2', False]}), encoding='utf-8')
     assert MCP.theirs(builder, [mesh]) == {os.path.normcase(str(mesh)): ['m2', False]}
-    (dlc / 'D.esm.meshes.json').unlink()
+    MCP.moved_in(dlc / 'D.esm.meshes.json').unlink()
     assert MCP.theirs(builder, [mesh]) == {}
 
 
@@ -214,13 +214,13 @@ def test_the_stamp_says_running_then_finished_or_failed(tmp_path, monkeypatch):
     written before it reads finished, and it reads failed when the build raises."""
     out = tmp_path / 'FalloutNV.esm'
     seen = []
-    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path))
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path, keep_loose=False))
     for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
         monkeypatch.setattr(RUN, name, lambda *a: None)
     monkeypatch.setattr(RUN, 'source_state', lambda: {'commit': 'abc', 'changed files': ['x.py']})
     stamp = BS.stamp_path(out)
     status = lambda: json.loads(stamp.read_text())['status']
-    monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(RECORD_SUFFIX='.inputs',
+    monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(record_dir=lambda plugin: plugin,
                                                              start=lambda folder: seen.append('record'),
                                                              write=lambda *a: seen.append(f'inputs {status()}')))
     monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(status()))
@@ -294,4 +294,4 @@ def test_stale_files_are_what_the_last_list_named_and_no_list_names_now(tmp_path
     (tmp_path / ('B.esp' + SF.LIST_SUFFIX)).write_text('Meshes/fnv/shared.nif\n', encoding='utf-8')
     assert SF.prune(plugin, tmp_path, {'Meshes/fnv/a.nif'}) == ['Meshes/fnv/old.nif']
     assert not files['Meshes/fnv/old.nif'].exists() and files['Meshes/fnv/shared.nif'].exists()
-    assert (tmp_path / ('A.esp' + SF.LIST_SUFFIX)).read_text(encoding='utf-8') == 'Meshes/fnv/a.nif\n'
+    assert SF.list_path(plugin).read_text(encoding='utf-8') == 'Meshes/fnv/a.nif\n'

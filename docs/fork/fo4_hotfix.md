@@ -32,7 +32,8 @@ A hotfix takes the machine's build lock, so it waits for a running build instead
 folder. It refuses while Fallout 4 runs.
 
 **One-time setup (by hand in MO2):** enable `F3NV - Hotfix` and place it last, below every `F3NV - ` mod. Loose
-files already win over BA2 archives; being last makes it win over the built mods' loose scripts too.
+files already win over BA2 archives, where the builds pack their scripts since 2026-11-11
+([main archive](fo4_pipeline.md#main-archive)); being last makes it win over any loose script a mod still has.
 
 ## What it cannot carry
 

@@ -4083,8 +4083,9 @@ hand.
   `script_convert.pipeline` into that folder first (about 22 s, counted as
   the `script conversion` stage). The compile goes by each script's text, so
   only the scripts that changed recompile.
-- **The stamp.** `<plugin>.build.json` sits beside the plugin
-  (`build_steps.write_stamp`). It records:
+- **The stamp.** `<plugin>.build.json` sits in the build records beside
+  the plugin ([build files](#build-files); `build_steps.write_stamp`). It
+  records:
   - `status`: `running`, `finished` or `failed`;
   - when the build started and ended, and its command;
   - the commit it started from, and the files that then differed from it.
@@ -4101,7 +4102,8 @@ order ([audit](fo4_tool_audit.md#formids)). Simulated with the real writer,
 growing today's 11,302 hashed ids tenfold moved 34–70 of them.
 
 - **The ledger** (`fo4_import/base/ledger.py`) is `<plugin stem>.formids.tsv`
-  beside the plugin. Each build reads it first: a key it holds keeps its id,
+  in the build records beside the plugin ([build files](#build-files)).
+  Each build reads it first: a key it holds keeps its id,
   and its ids are reserved so no new key can take one. A key it lacks is
   hashed as before and added. The file is sorted text, one line per id.
 - **Stable numbers** (a quest's alias ids, Say Once marker stages) are kept
@@ -5998,15 +6000,57 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   entries in the 6.1 GB archive already end past 4 GiB, among them Doc
   Mitchell's lines (offset 5.6 GB), and the roadmap has NPC voices
   working.
-- **Loose copies stay in the build folder.** The build reads them (mesh and
-  Elric caches, stale lists, object LOD, `master_copies`, the DLC's master
-  folder), so the archive is an extra copy. `tools.release.fo4_deploy` drops
-  every build file an archive at the top of the build folder holds
-  (`archived`) and deletes the mod folder's loose copies of them on every
-  run, `--delete-stale` or not (`remove_shadowing`): the Play profile sets
-  `bInvalidateOlderFiles=1` and an empty `sResourceDataDirsFinal`, so a
-  loose file wins over the archive and an old one would hide the new mesh.
-  Scripts stay loose, so `fo4_hotfix` still wins.
+- **Loose copies leave the Data folder after the build (2026-11-11).** A
+  mod or DLC build writes straight into its MO2 mod folder, so the deploy's
+  clean-up below never ran for it: on 2026-11-11 the `F3NV - *` folders held
+  410,702 loose files, 361,518 of them copies of what the same mod's Main
+  archive held. `fo4_import.pipeline.run` now ends with
+  `ba2_pack.drop_packed`: every loose file the plugin's own Main or Textures
+  archive holds is deleted (a loose file wins over the archive, and MO2's
+  usvfs pays for each one at launch). The build still reads those files (the
+  stale lists, object LOD, the Creation Kit's animation data list, FaceGen's
+  checks, the script compiler's state), so it starts with
+  `restore_packed`: each Main-archive file under `PACKED` that is not loose
+  is written back from the archive, dated as the archive, so `stale_files`
+  does not count it as made by this build. Meshes and materials are
+  rewritten every build anyway (`elric_cache.write_new`); what the restore
+  matters for is what no writer remakes each build: the CK's AnimTextData
+  and FaceGen. `--keep-loose` skips the drop, for a build folder that
+  `tools.release.fo4_deploy` copies (it drops the archived files itself:
+  `archived`, then `remove_shadowing` deletes the mod folder's copies on
+  every run, `--delete-stale` or not, since the Play profile sets
+  `bInvalidateOlderFiles=1` and an empty `sResourceDataDirsFinal`). The
+  app's stages run the same commands, so its mod builds drop too.
+- **Scripts join Main (2026-11-11).** `PACKED` holds `Scripts/*.pex` (only
+  `.pex`: anything else in `Scripts` stays out). That was 16,189 loose
+  scripts in the game's build and each mod's own. Vanilla ships scripts the
+  same way: `DLCCoast - Main.ba2` holds 830 `.pex`, `DLCNukaWorld` 908,
+  `DLCRobot` 483, each Creation Club `- Main.ba2` its own, and the base
+  game's 7,875 are in `Fallout4 - Misc.ba2`. Hotfixes still win:
+  `fo4_hotfix` writes loose `.pex` into the separate `F3NV - Hotfix` mod,
+  and a loose file beats an archived one; the deploy clears a hotfix older
+  than the build as before ([clearing](fo4_hotfix.md#clearing)). The
+  compiler reads the loose `.pex` of its own output folder
+  (`missing_pex`, `remove_orphans`), which `restore_packed` gives back.
+- **FaceGen joins the archives (2026-11-11).** The faces stage
+  (`spike.facegen`) runs after the build and left its FaceGeom NIFs and
+  FaceCustomization textures loose until the next build packed them. It
+  now restores the Main archive's files, exports, then packs: FaceGeom NIFs
+  into Main, the face textures into `- Textures.ba2` (`pack_textures` with
+  `prune=False`, since that run staged no texture and must not prune the
+  build's), and drops the loose copies. Vanilla does the same:
+  `Fallout4 - Meshes.ba2` holds 1,094 FaceGeom NIFs and the texture
+  archives the FaceCustomization textures; `DLCCoast` 153 NIFs in Main and
+  459 face textures in its Textures archive, `DLCNukaWorld` 224 and 672.
+  A staged texture the run did not stage keeps the last pack's signature
+  while its file is unchanged, so the next build does not rewrite it.
+- **A master folder is read through its archives.** A dependent build reads
+  its masters' deployed folders, whose loose copies are gone:
+  `ba2_pack.data_file` (the persistent subgraph list,
+  `gun_anim_text.merge_persistent`) and `archived_names` (`adopted_scripts`:
+  a master script compiled into the master's archive is not compiled again
+  into the dependent plugin; preflight's `quest_converted.load_scripts`).
+  Meshes go by the master's `<plugin>.meshes.json` as before.
 - **Cost.** `write_general` packed 6,000 of those files (298 MB) in 2.1 s
   and read all back byte-identical (`Archive`); the full set is about 16 s
   warm, up to about 2 minutes from cold files (the sound pack's 400 files/s).
@@ -6019,6 +6063,28 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   own-rig skeletons in its archive too. The CK (AnimInfo, FaceGen) runs
   through MO2 and should load a plugin's own archives with it, as it does
   vanilla DLC's; not yet checked on a packed deploy.
+
+<a id="build-files"></a>**The build's records leave the Data folder
+(2026-11-11).** Each plugin's build kept its records beside the plugin, in
+the game's Data: the stamp (`.build.json`), the stale list (`.files.txt`),
+the FormID ledger (`.formids.tsv`), the inputs record (`.inputs.json` and
+the `.record/` folder of per-process files), the archive records
+(`<archive>.ba2.json`), the finished-mesh list (`.meshes.json`), the CK
+animation list and key (`.animinfo.txt`, `.animinfo.key`), and the script
+compiler's `Scripts/compile_state.json`: 818 files in the `F3NV - *`
+folders. They now live in `F3NV_Build.mohidden` beside the plugin
+(`fo4_import.base.build_files`; `Scripts/F3NV_Build.mohidden` for the
+compiler's state). MO2 and its usvfs skip every `.mohidden` path, so the
+game and the CK see none of them, and the records still travel with the
+plugin's folder, where every reader finds them from the plugin's path: the
+build stamp, the ledger a dependent build reads from its master's folder,
+`fo4_deploy`, `fo4_hotfix`, `fo4_install_check`, preflight, the app.
+`moved_in` is the one place a record's path is made: a record an older
+build left beside the plugin moves into the folder on first use, or, with
+both there, the newer one stays, so no ledger is lost. The deploy copies
+the folder but the inputs record. A tool on the new code moves an old
+folder's records, so a build on older code reading the same folder no
+longer finds its ledger: run every build on the new code once one has.
 
 <a id="clip-cache"></a>**FNV clips decoded once (2026-10-29).** The same
 build spent about 12 min decoding FNV `.kf` clips (guns, idles, creature

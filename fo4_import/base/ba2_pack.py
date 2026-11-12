@@ -1,5 +1,6 @@
 """Pack a Data folder's loose textures into the plugin's texture BA2 (ba2_textures, our own writer), and its
-sounds, meshes and materials into its Main BA2 (pack_main).
+sounds, meshes, materials and scripts into its Main BA2 (pack_main); the loose copies the archives hold leave
+the Data folder after the build (drop_packed) and the Main archive's come back before the next (restore_packed).
 
 Fallout 4 streams a texture's mips from a BA2's chunks; a loose DDS can stay
 on a low mip, and past iTextureDegradeDistance the game drops a texture's top
@@ -26,8 +27,10 @@ import os
 import shutil
 from pathlib import Path
 
+from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import write_textures
 from fo4_import.base.ba2_write import write_general
+from fo4_import.base.build_files import moved_in
 from fo4_import.pipeline.build_inputs import MASTERS
 from fo4_import.pipeline.code_tag import ROOT
 
@@ -39,8 +42,8 @@ MANIFEST = 'manifest.json'
 OWN = ('fnv/', 'terrain/fnv_')
 #: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
 SOUND = 'Sound'
-#: Data folders the build writes loose and the Main archive also holds (Scripts stay loose, so hotfixes still win).
-PACKED = ('Meshes', 'Materials')
+#: Data folders the build writes loose that the Main archive holds, each with the one file ending it packs (None: all).
+PACKED = (('Meshes', None), ('Materials', None), ('Scripts', '.pex'))
 #: Per resolved Data folder, this run's {'manifest': the last pack's record, 'staged': {key: signature}}.
 _RUNS = {}
 
@@ -191,12 +194,12 @@ def _unstage(staged: Path, loose: Path, keep_loose: tuple) -> int:
     return back
 
 
-def _staged_files(staged: Path, keep: set) -> dict:
-    """{key: path} of the files under `staged`, OWN ones not in `keep` deleted first."""
+def _staged_files(staged: Path, keep: 'set | None') -> dict:
+    """{key: path} of the files under `staged`, OWN ones not in `keep` deleted first (None: none deleted)."""
     out = {}
     for path in sorted(p for p in staged.rglob('*') if p.is_file()) if staged.exists() else []:
         key = path.relative_to(staged).as_posix().lower()
-        if key.startswith(OWN) and key not in keep:
+        if keep is not None and key.startswith(OWN) and key not in keep:
             path.unlink()
             continue
         out[key] = path
@@ -207,7 +210,7 @@ def _pack(archive: Path, files: dict, make) -> None:
     """Pack `archive` with make(kept) unless the record beside it shows the same `files` ({key: [size, mtime]})
     packed; `kept` are the keys unchanged since the archive on disk was packed."""
     state = hashlib.sha1(json.dumps(files, sort_keys=True).encode()).hexdigest()
-    record = archive.with_name(archive.name + '.json')
+    record = pack_record(archive)
     packed = _read_json(record)
     stat = archive.stat() if archive.exists() else None
     current = bool(stat) and packed.get('archive') == [stat.st_size, stat.st_mtime_ns]
@@ -216,23 +219,38 @@ def _pack(archive: Path, files: dict, make) -> None:
     before = packed.get('manifest', {}) if current else {}
     make({key for key, value in files.items() if before.get(key) == value})
     stat = archive.stat()
+    record.parent.mkdir(parents=True, exist_ok=True)
     record.write_text(json.dumps({'files': state, 'archive': [stat.st_size, stat.st_mtime_ns], 'manifest': files}),
                       encoding='utf-8')
 
 
-def pack_textures(data_dir: Path, plugin: str, keep_loose: tuple = ()) -> int:
+def pack_record(archive: Path) -> Path:
+    """`archive`'s record of what it holds, in the build records (build_files)."""
+    return moved_in(archive.with_name(archive.name + '.json'))
+
+
+def _signature(run: dict, key: str, stat) -> 'str | None':
+    """Staged texture `key`'s signature: this run's (stage_texture), else the last pack's while the file is
+    unchanged since."""
+    if key in run['staged']:
+        return run['staged'][key]
+    kept = run['manifest'].get(key) or [None] * 3
+    return kept[2] if kept[:2] == [stat.st_size, stat.st_mtime_ns] else None
+
+
+def pack_textures(data_dir: Path, plugin: str, keep_loose: tuple = (), prune: bool = True) -> int:
     """Stage <data_dir>/Textures (but `keep_loose` folders), drop staged OWN textures this run neither wrote nor
-    confirmed (stage_texture), and pack the staging as `<plugin stem> - Textures.ba2` when it changed since that
-    archive was packed; the staged file count."""
+    confirmed (stage_texture; not without `prune`, for a run that stages none), and pack the staging as
+    `<plugin stem> - Textures.ba2` when it changed since that archive was packed; the staged file count."""
     root = staging_root(data_dir)
     run = _RUNS.pop(_run_key(data_dir), None) or {'manifest': _read_json(root / MANIFEST), 'staged': {}}
     _unstage(root / 'Textures', data_dir / 'Textures', keep_loose)
     moved = _move_loose(data_dir / 'Textures', root / 'Textures', keep_loose)
-    paths = _staged_files(root / 'Textures', moved | set(run['staged']))
+    paths = _staged_files(root / 'Textures', moved | set(run['staged']) if prune else None)
     files = {}
     for key, path in paths.items():
         stat = path.stat()
-        files[key] = [stat.st_size, stat.st_mtime_ns, run['staged'].get(key)]
+        files[key] = [stat.st_size, stat.st_mtime_ns, _signature(run, key, stat)]
     archive = data_dir / f'{Path(plugin).stem} - Textures.ba2'
     named = {f'Textures/{key}': path for key, path in paths.items()}
     _pack(archive, {key: value[:2] for key, value in files.items()},
@@ -264,17 +282,18 @@ def _tree(base: Path, folder: str) -> dict:
 
 def main_files(data_dir: Path) -> dict:
     """{archive name: path} of what `<plugin> - Main.ba2` holds: the staged sounds (sound_root) and the loose
-    PACKED folders of `data_dir`."""
+    PACKED files of `data_dir`."""
     named = _tree(sound_root(data_dir), SOUND)
-    for folder in PACKED:
-        named.update(_tree(Path(data_dir), folder))
+    for folder, ending in PACKED:
+        named.update((name, path) for name, path in _tree(Path(data_dir), folder).items()
+                     if ending is None or name.lower().endswith(ending))
     return named
 
 
 def pack_main(data_dir: Path, plugin: str) -> int:
     """Pack main_files() as `<plugin stem> - Main.ba2` when they changed since it was packed, or delete that archive
-    and its record when there are none (an earlier build's would ship stale files); the file count. Loose PACKED
-    files stay for the build; the deploy ships the archive in their place.
+    and its record when there are none (an earlier build's would ship stale files); the file count. The loose
+    PACKED files stay until drop_packed().
     See: docs/fork/fo4_pipeline.md#main-archive
     """
     named, archive = main_files(data_dir), Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
@@ -282,6 +301,81 @@ def pack_main(data_dir: Path, plugin: str) -> int:
         stats = {name.lower(): path.stat() for name, path in named.items()}
         _pack(archive, {key: [st.st_size, st.st_mtime_ns] for key, st in stats.items()},
               lambda kept: write_general(named, archive, kept))
-    for stale in () if named else (archive, archive.with_name(archive.name + '.json')):
+    for stale in () if named else (archive, pack_record(archive)):
         stale.unlink(missing_ok=True)
     return len(named)
+
+
+def own_archives(data_dir: Path, plugin: str) -> list:
+    """`plugin`'s Main and Textures archives in `data_dir` that exist."""
+    stem = Path(plugin).stem
+    return [p for p in (Path(data_dir) / f'{stem} - {kind}.ba2' for kind in ('Main', 'Textures')) if p.is_file()]
+
+
+def drop_packed(data_dir: Path, plugin: str) -> int:
+    """Delete each loose file in `data_dir` that `plugin`'s archives hold: loose wins over an archive, and under
+    MO2 the game's launch pays for every loose file; how many. restore_packed() brings the Main archive's back.
+    See: docs/fork/fo4_pipeline.md#main-archive
+    """
+    gone = 0
+    for archive in own_archives(data_dir, plugin):
+        for name in Archive(archive).entries:
+            path = Path(data_dir) / name.replace(chr(92), '/')
+            if path.is_file():
+                path.unlink()
+                gone += 1
+    _remove_empty(Path(data_dir), tuple(folder for folder, _ in PACKED) + ('Textures',))
+    return gone
+
+
+def _remove_empty(data_dir: Path, folders: tuple) -> None:
+    """Remove the empty folders under `data_dir`'s `folders`, deepest first (each of `folders` too when empty)."""
+    for folder in folders:
+        tops = sorted(os.walk(data_dir / folder), key=lambda t: -len(t[0])) if (data_dir / folder).is_dir() else []
+        for top, _dirs, _names in tops:
+            if not any(Path(top).iterdir()):
+                Path(top).rmdir()
+
+
+def restore_packed(data_dir: Path, plugin: str) -> int:
+    """Write back each PACKED file of `plugin`'s Main archive that `data_dir` lacks loose (drop_packed), dated as
+    the archive, so a build or the faces stage reads what the last build made; how many.
+    See: docs/fork/fo4_pipeline.md#main-archive
+    """
+    archive = Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
+    if not archive.is_file():
+        return 0
+    main, when, restored = Archive(archive), archive.stat().st_mtime, 0
+    folders = tuple(folder.lower() + chr(92) for folder, _ in PACKED)
+    for name in main.entries:
+        path = Path(data_dir) / name.replace(chr(92), '/')
+        if name.startswith(folders) and not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(main.read(name))
+            os.utime(path, (when, when))
+            restored += 1
+    return restored
+
+
+def archived_names(data_dir: Path) -> set:
+    """The lowercase '/'-separated paths the BA2s at the top of `data_dir` hold."""
+    archives = sorted(Path(data_dir).glob('*.ba2')) if Path(data_dir).is_dir() else []
+    return set().union(*(_names(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in archives))
+
+
+@functools.lru_cache(maxsize=64)
+def _names(path: str, _size: int, _mtime: int) -> frozenset:
+    """Archive `path`'s paths, lowercase, '/'-separated (size and time key the cache)."""
+    return frozenset(name.replace(chr(92), '/') for name in Archive(Path(path)).entries)
+
+
+def data_file(data_dir: Path, rel: str) -> 'bytes | None':
+    """The bytes of Data path `rel` in `data_dir`: loose, else from its top-level archives; None when neither."""
+    loose = Path(data_dir) / rel
+    if loose.is_file():
+        return loose.read_bytes()
+    key = str(rel).replace(chr(92), '/').lower()
+    for archive in sorted(Path(data_dir).glob('*.ba2'), reverse=True) if Path(data_dir).is_dir() else ():
+        if key in _names(str(archive), archive.stat().st_size, archive.stat().st_mtime_ns):
+            return Archive(archive).read(key)
+    return None

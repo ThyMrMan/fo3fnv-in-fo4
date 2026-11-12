@@ -16,6 +16,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from fo4_import.base.build_files import moved_in
 from fo4_import.pipeline import ran_code
 from fo4_import.pipeline.code_identity import hashes
 from fo4_import.pipeline.code_tag import ROOT
@@ -23,7 +24,7 @@ from fo4_import.pipeline.code_tag import ROOT
 #: The folder each process of a recorded build writes its record into (set for worker processes).
 ENV = 'F3NV_BUILD_INPUTS'
 SUFFIX, FORMAT = '.inputs.json', 1
-#: The folder beside the plugin each process of its build writes its record into (start()).
+#: The folder each process of a plugin's build writes its record into (start(), record_dir()).
 RECORD_SUFFIX = '.record'
 #: Files up to this size are also kept by SHA-1, so a rewrite with the same bytes is not a change.
 HASHED = 64 << 20
@@ -76,6 +77,16 @@ def _audit(event: str, args: tuple) -> None:
         path = norm(args[0] if args[0] is not None else '.')
         if path:
             _SEEN['dirs'].add(path)
+
+
+def inputs_path(plugin: Path) -> Path:
+    """`plugin`'s inputs record (SUFFIX), in the build records beside it (build_files)."""
+    return moved_in(plugin.with_name(plugin.name + SUFFIX))
+
+
+def record_dir(plugin: Path) -> Path:
+    """The folder `plugin`'s build processes record into (RECORD_SUFFIX)."""
+    return moved_in(plugin.with_name(plugin.name + RECORD_SUFFIX))
 
 
 def start(folder: Path) -> None:
@@ -288,6 +299,7 @@ def write(plugin: Path, data_dir: Path, argv: list) -> Path:
             'natives': {p: stamp(Path(p)) for p in sorted(seen['natives'])},
             'code': hashes(seen['ran']), 'masters': MASTERS.body(),
             'asked': [json.loads(q) for q in sorted(seen['asked'])]}
-    out = plugin.with_name(plugin.name + SUFFIX)
+    out = inputs_path(plugin)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(body, indent=0, sort_keys=True), encoding='utf-8')
     return out

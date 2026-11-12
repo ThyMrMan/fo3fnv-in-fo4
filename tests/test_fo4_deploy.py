@@ -1,6 +1,7 @@
 """tools.release.fo4_deploy: copies what changed, lists stale mod files, deletes them only with the flag."""
 
 import json
+import time
 
 import pytest
 
@@ -68,6 +69,21 @@ def test_the_build_input_record_is_not_shipped(tmp_path):
     assert (mod / 'FalloutNV.formids.tsv').read_text() == 'ledger'
 
 
+def test_the_build_records_ship_in_their_folder_but_the_inputs_record(tmp_path):
+    """A build's records folder (build_files.BOOKS) ships its stamp and ledger, not its inputs record."""
+    build, mod = _folders(tmp_path)
+    books = build / D.BOOKS
+    (books / 'FalloutNV.esm.record').mkdir(parents=True)
+    (books / 'FalloutNV.esm.record' / '12.json').write_text('{}')
+    (books / 'FalloutNV.esm.inputs.json').write_text('{}')
+    (books / 'FalloutNV.formids.tsv').write_text('ledger')
+    assert _run(build, mod, '--delete-stale') == 0
+    assert (mod / D.BOOKS / 'FalloutNV.formids.tsv').read_text() == 'ledger'
+    assert (mod / D.BOOKS / ('FalloutNV.esm' + D.STAMP_SUFFIX)).is_file()
+    assert not (mod / D.BOOKS / 'FalloutNV.esm.record').exists()
+    assert not (mod / D.BOOKS / 'FalloutNV.esm.inputs.json').exists()
+
+
 def test_the_xdi_era_hub_is_retired_from_the_mods_beside(tmp_path):
     """The hub plugin and its links in a mod beside --mod are deleted; its other files and --dry-run's stay."""
     build, mod = _folders(tmp_path)
@@ -131,6 +147,24 @@ def test_loose_files_an_archive_holds_ship_only_in_it(tmp_path, capsys):
     assert not (mod / 'meshes').exists() and (mod / 'FalloutNV - Main.ba2').is_file()
     assert (mod / 'Scripts' / 'a.pex').read_text() == 'new' and (mod / 'Old' / 'Gone.dds').is_file()
     assert '1 loose files in the mod folder that the archives hold' in capsys.readouterr().out
+
+
+def test_packed_scripts_ship_in_the_archive_and_a_hotfix_still_wins_until_a_later_build(tmp_path):
+    """Scripts the Main archive holds: the mod folder's loose copy goes, the archive ships; a hotfix begun after the
+    build stays loose in the hotfix mod (loose beats archived), one begun before it is cleared."""
+    build, mod = _folders(tmp_path)
+    write_general({'Scripts/A.pex': build / 'Scripts' / 'A.pex'}, build / 'FalloutNV - Main.ba2')
+    (build / 'Scripts' / 'A.pex').unlink()
+    hotfix = mod.with_name(D.HOTFIX_MOD.name)
+    started = time.mktime(time.strptime(STARTED, '%Y-%m-%d %H:%M:%S'))
+    fix = tmp_path / 'A.pex'
+    fix.write_text('fix')
+    D.install_hotfix(hotfix, 'FalloutNV.esm', [fix], started + 60)
+    assert _run(build, mod) == 0
+    assert not (mod / 'Scripts' / 'a.pex').exists() and (mod / 'FalloutNV - Main.ba2').is_file()
+    assert (hotfix / 'Scripts' / 'A.pex').read_text() == 'fix'
+    D.install_hotfix(hotfix, 'FalloutNV.esm', [fix], started - 60)
+    assert _run(build, mod) == 0 and not (hotfix / 'Scripts' / 'A.pex').exists()
 
 
 def test_a_dlc_without_a_file_list_is_refused(tmp_path):

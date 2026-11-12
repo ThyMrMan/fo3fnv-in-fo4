@@ -172,7 +172,7 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
     if builder.scripts.used and scripts_dir is not None:
         masters = tuple(Path(scripts_dir).parent / p.name for p in builder.built)
         print(compile_into(scripts_dir, data_dir, builder.scripts.used, masters,
-                           tuple(Path(p).parent / 'Scripts' for p in builder.built)))
+                           tuple(Path(p).parent for p in builder.built)))
         own = [Path(scripts_dir) / f'{name}.psc' for name in builder.scripts.used]
         for path in master_scripts(own, masters) if masters else ():
             MASTERS.script(path)

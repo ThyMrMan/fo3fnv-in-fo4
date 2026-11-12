@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from core.subprocess_flags import POPEN_FLAGS
+from fo4_import.base.build_files import moved_in
 
 ROOT = Path(__file__).resolve().parents[2]
 #: The stamp's file name ending, after the plugin's name.
@@ -31,8 +32,8 @@ def convert_scripts(export_dir: Path, scripts_dir: Path) -> None:
 
 
 def stamp_path(plugin: Path) -> Path:
-    """The stamp beside `plugin`."""
-    return plugin.with_name(plugin.name + STAMP_SUFFIX)
+    """`plugin`'s stamp, in the build records beside it (build_files)."""
+    return moved_in(plugin.with_name(plugin.name + STAMP_SUFFIX))
 
 
 def _git(*args: str) -> str:
@@ -54,5 +55,6 @@ def write_stamp(plugin: Path, status: str, started: float, extra: dict) -> None:
     """The stamp: `status` (running, finished, failed), when the build started and ended, and `extra`."""
     body = {'status': status, 'started': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(started)),
             'ended': None if status == 'running' else time.strftime('%Y-%m-%d %H:%M:%S'), **extra}
-    plugin.parent.mkdir(parents=True, exist_ok=True)
-    stamp_path(plugin).write_text(json.dumps(body, indent=1) + '\n', encoding='utf-8')
+    path = stamp_path(plugin)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(body, indent=1) + '\n', encoding='utf-8')
