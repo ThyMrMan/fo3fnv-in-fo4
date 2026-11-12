@@ -66,8 +66,7 @@ Two readers put MO2's files in every plugin's record:
   lookup resolved in the game's Data folder. The settings file was recorded
   whole too, so changing any app setting also rebuilt every plugin.
 - **`pipeline/creation_kit.py`**, for the Creation Kit's output folder and
-  which enabled mod holds a file it wrote (`holding`, called by
-  `rig/anim_info.py`).
+  which enabled mod holds a file it wrote (`holding`).
 
 What the record keeps now:
 - `build_inputs.asked(kind, arg, answer, files)` logs a question and its
@@ -172,8 +171,9 @@ mod's folder, not rely on the files matching.
 At run time nothing needs MO2: the output is plugins, archives and loose
 files ([the app](fo4_gui.md)). At build time, MO2 does two jobs:
 
-- **Runs the Creation Kit** for FaceGen export (`spike/facegen.py`) and
-  animation data (`rig/anim_info.py`). The Creation Kit sees only the game's
+- **Runs the Creation Kit** for FaceGen export (`spike/facegen.py`); animation
+  data was its job too until 2026-11-11
+  ([ours now](research/anim_text_data.md#ours)). The Creation Kit sees only the game's
   Data folder; MO2's virtual folder shows it our output without copying it
   there, and catches what it writes in overwrite.
 - **A fixed path**, `MO2 = C:\Modlists\fo3fnv-in-fo4`, which should be the

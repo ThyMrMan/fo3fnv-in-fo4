@@ -841,7 +841,8 @@ each would save:
   writes them again through `elric_cache.write_new` (touched when the same,
   so `stale_files` keeps them). Two guns through `gun_quick_convert`: 18.7 s,
   then 7.0 s.
-- *The Creation Kit's animation data* (`anim_info.generate`): skipped when
+- *The Creation Kit's animation data* (`anim_info.generate`, removed
+  2026-11-11: the build writes it, [ours](research/anim_text_data.md#ours)): skipped when
   `inputs_key` matches the last run's (`<plugin>.animinfo.key`) and every
   file it listed is still there. The key hashes the plugin's RACE, IDLE,
   MOVT, KYWD and AACT records and every file under the data folder's
@@ -937,7 +938,8 @@ written records at the end), **always run** (setup the units depend on).
    LTEX, no counted key left, and 98 duplicate LTEX and their TXST gone.
 2. *The own-rig animation step* runs when a written RACE names in a
    subgraph entry a graph in the data folder (`anim_info.needed`), not on a
-   count: the game plugin yes (15 races), GRA no.
+   count: the game plugin yes (15 races), GRA no. Since 2026-11-11 the step
+   is ours and runs on every build (`build_finish._anim_text`).
 3. *Record order.* `LedgerWriter.write` puts each top group of plain records
    in FormID order (stable); a group holding GRUPs (cells, worlds, topics)
    keeps its own, as its children follow their parents. A one-time byte

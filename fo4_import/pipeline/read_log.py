@@ -35,7 +35,6 @@ from fo4_import.base import master_overrides
 from fo4_import.pipeline import export_index, ran_code, run, stage_timer
 from fo4_import.pipeline.code_identity import SEP, relative
 from fo4_import.pipeline.code_tag import ROOT
-from fo4_import.rig import anim_info
 from fo4_import.spike import build_finish
 from tes5_import.base import text_reader, writer
 
@@ -87,7 +86,7 @@ MEMO_PACKAGES, MEMO_SKIPPED = ('fo4_import.',), ('fo4_import.pipeline.',)
 #: export_index's caches holding parsed records, emptied when recording starts and stops.
 RECORD_CACHES = ('_parsed', '_layered', 'master_records')
 #: build_finish steps that write files only (meshes, LOD, sounds, archives, compiled scripts): left out by --no-assets.
-ASSET_STEPS = ('_collision', '_object_lod', '_assets', '_compile', '_gun_anim_text', '_main_archive')
+ASSET_STEPS = ('_collision', '_object_lod', '_assets', '_compile', '_anim_text', '_main_archive')
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 _CACHED = type(functools.cache(len))
 _TIMED = stage_timer.timed('')(len).__code__
@@ -405,16 +404,10 @@ def _skipped(*_args, **_kwargs) -> None:
     """An asset step left out (no_assets)."""
 
 
-def _not_needed(*_args, **_kwargs) -> bool:
-    """No Creation Kit run (no_assets)."""
-    return False
-
-
 def no_assets() -> None:
-    """Leave out ASSET_STEPS and the Creation Kit (it reads MO2)."""
+    """Leave out ASSET_STEPS."""
     for name in ASSET_STEPS:
         _set(build_finish, name, _skipped)
-    _set(anim_info, 'needed', _not_needed)
 
 
 def _audit(event: str, args: tuple) -> None:

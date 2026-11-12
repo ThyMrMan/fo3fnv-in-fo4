@@ -91,18 +91,6 @@ def ask(kind: str, arg: str) -> 'str | None':
     return str(found) if found else None
 
 
-def written_since(rel: Path, since: float) -> list:
-    """[(file, its path under the Data folder, whether it is in output_dir)] of the files under `rel` the CK wrote
-    from `since` on: new ones in output_dir(), edited ones in the enabled mods holding them."""
-    out, found = output_dir(), []
-    for root in _roots():
-        folder = root / rel
-        for path in sorted(folder.rglob('*')) if folder.is_dir() else ():
-            if path.is_file() and path.stat().st_mtime >= since:
-                found.append((path, path.relative_to(root), root == out))
-    return found
-
-
 def output_dir() -> Path:
     """Where MO2 puts the files the CK creates: the selected profile's custom overwrite mod for it, else overwrite;
     logged as a build input."""

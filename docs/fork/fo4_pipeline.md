@@ -5702,8 +5702,8 @@ three years and no fork is active, so the patch is ours to keep.
 **Checked (2026-11-11, FalloutNV.esm's 17,507 converted scripts,
 `caprica.compile_files`):** the release leaves 60 to FO4's compiler, 59
 flagged by `aliased` plus `F3NV_Array`; our build compiles 17,490, the
-same 16 own errors, none aliased. The new `F3NV_Array` (no `Var` defaults)
-compiles too; `KeyBefore` is `COMPARELT` on its two string casts.
+same 16 own errors, none aliased, and leaves the folder's old
+`F3NV_Array` (its `Var` defaults). The new one compiles, making 17,491; `KeyBefore` is `COMPARELT` on its two string casts.
 `compile_state.json` records the exe's SHA-1 (`caprica.build_tag`), so a
 state another Caprica made keeps no results and every script compiles once.
 
@@ -6177,7 +6177,8 @@ the game's Data: the stamp (`.build.json`), the stale list (`.files.txt`),
 the FormID ledger (`.formids.tsv`), the inputs record (`.inputs.json` and
 the `.record/` folder of per-process files), the archive records
 (`<archive>.ba2.json`), the finished-mesh list (`.meshes.json`), the CK
-animation list and key (`.animinfo.txt`, `.animinfo.key`), and the script
+animation list and key (`.animinfo.txt`, `.animinfo.key`; deleted by
+builds since 2026-11-11, which write that data themselves), and the script
 compiler's `Scripts/compile_state.json`: 818 files in the `F3NV - *`
 folders. They now live in `F3NV_Build.mohidden` beside the plugin
 (`fo4_import.base.build_files`; `Scripts/F3NV_Build.mohidden` for the
