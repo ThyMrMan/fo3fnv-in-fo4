@@ -91,15 +91,18 @@ class Rec:
 class Sources:
     """A plugin, its masters and the game: records by (owner, local id), files loose first, then archives."""
 
-    def __init__(self, plugin: Path, dirs: list):
-        """Index `plugin` and its masters (found in `dirs`, then the game's Data); files from `dirs`' loose folders
-        and BA2s, then the game's archives."""
+    def __init__(self, plugin: Path, dirs: list, load_order=()):
+        """Index the plugins of `load_order` (names, in order, as the CK loads a profile's), then `plugin`, each
+        with its masters (found in `dirs`, then the game's Data), a later one's records over an earlier's; files
+        from `dirs`' loose folders and BA2s (first wins), then the game's archives."""
         self.dirs = [Path(d) for d in dirs]
         self.records, self.masters = {}, {}
         self.archives = Archives(FALLOUT4_DIR / 'Data')
         for d in reversed(self.dirs):
             self.archives.by_name.update(Archives(d, '*.ba2').by_name)
-        self._load(Path(plugin))
+        for name in [*load_order, Path(plugin).name]:
+            if name.lower() not in self.masters:
+                self._load(self._find(name) if name in load_order else Path(plugin))
 
     def _load(self, path: Path) -> None:
         """Index one plugin's records (masters first)."""
@@ -323,17 +326,19 @@ def effect(sh: dict, mat: dict) -> dict:
     return sh
 
 
-def _body_textures(src: Sources, npc: Rec, race: Rec, female: bool) -> list:
-    """The skin's (the NPC's WNAM, else the race's) body addon's skin texture set for one sex."""
+def body_addon(src: Sources, npc: Rec, race: Rec) -> 'Rec | None':
+    """The skin's (the NPC's WNAM, else the race's) body addon (ARMA on the body slot)."""
     owner = npc if npc.first(b'WNAM') else race
     skin = src.get(owner, owner.first(b'WNAM')) if owner.first(b'WNAM') else None
-    for data in (d for t, d in (skin.subs if skin else []) if t == b'MODL'):
-        addon = src.get(skin, data)
-        body = addon and _form(addon.first(b'BOD2', b'\0' * 4)) & BODY_SLOT
-        txst = addon.first(b'NAM1' if female else b'NAM0') if body else None
-        if txst:
-            return txst_slots(src, src.get(addon, txst))
-    return []
+    addons = (src.get(skin, d) for t, d in (skin.subs if skin else []) if t == b'MODL')
+    return next((a for a in addons if a and _form(a.first(b'BOD2', b'\0' * 4)) & BODY_SLOT), None)
+
+
+def body_textures(src: Sources, npc: Rec, race: Rec, female: bool) -> list:
+    """The skin's body addon's skin texture set for one sex."""
+    addon = body_addon(src, npc, race)
+    txst = addon.first(b'NAM1' if female else b'NAM0') if addon else None
+    return txst_slots(src, src.get(addon, txst)) if txst else []
 
 
 def txst_slots(src: Sources, txst: Rec) -> list:
@@ -355,7 +360,7 @@ def npc_face(src: Sources, plugin: str, form_id: int) -> tuple:
     grayscale = struct.unpack('<f', colour.first(b'CNAM'))[0] if colour else 1.0
     tone = tuple(float(np.float32(round(c * 255)) * np.float32(1 / 255))
                  for c in struct.unpack('<4f', npc.first(b'QNAM', b'\0' * 16)))
-    face = Npc(plugin, form_id & 0xFFFFFF, grayscale, tone, _body_textures(src, npc, race, female),
+    face = Npc(plugin, form_id & 0xFFFFFF, grayscale, tone, body_textures(src, npc, race, female),
                _face_material(src, npc, race, female))
     return npc, race, female, face
 

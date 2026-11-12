@@ -477,6 +477,64 @@ narrower, longer outline; Doc's bald scalp showed an orange cap.
   beard's FacialHair02 (grey 60) through HairColor04Silver comes out about
   RGB (80, 77, 74). Not changed here.
 
+### <a id="rear-head-texture"></a>Third test mod: the rear head's own texture (2026-11-11, not yet played)
+
+Played on the second test mod: Doc's face met an orange scalp in a sharp line
+over the top of his skull, and Sunny showed a colour step at the back of her
+neck. T1 and the tone plugin did not close either.
+
+**What the seam was,** measured at the 39 vertices the face and rear head
+share (`seam_colours.py` in scratch): Doc's test `_d` there was (165, 134,
+115); the rear head draws the body texture (93, 68, 49) under the skin tint
+(0.835, 0.663, 0.502); the CK's own face there was (138, 91, 49). Sunny: ours
+(125, 97, 74), the CK's (120, 72, 49).
+
+**How the game draws the two sides** (`draw_factor.py`, 24 CK faces of the
+fresh FalloutNV export): the face texture as it is; a skin-tint part (rear
+head, body) as texture × skin tint × a factor. At the face/rear seam the
+CK's face over rear diffuse × tint is (1.75, 2.01, 2.32) per channel
+(medians, ±5% between NPCs); at the face's neck ring over the body texture
+at the same vertex × QNAM, (1.77, 1.95, 2.16). `skin_seams.SKIN_TINT_DRAW`
+is their mean, (1.76, 1.98, 2.24). The body mesh is in the FaceGeom's own
+frame (its vertices meet the face's neck ring at distance 0).
+
+So T1 was wrong for the test: it divided the tone out of the face texture
+(`face_colours`), expecting the game to multiply it back on the face; it
+does not, so the face came out paler and bluer than the rear head and body
+by the tone. `skin_seams` now:
+
+- **Face:** T1 on the untinted template face as drawn (the tone kept in),
+  fading over the last `NECK_BLEND` (3) units above the neck seam to the
+  body's drawn colour at its nearest body vertex (body texture × QNAM ×
+  factor).
+- **Rear head:** its own texture per NPC (`<FormID>_rear_d.dds` under
+  FaceCustomization, the rear's own format and size): its texture as the
+  template's tint draws it plus FNV's colour offset and race skin, placed
+  on FNV's head with the face's alignment (`texel_map`'s `frame`), fading to
+  its own texture at the neck, then divided through the NPC's tint × factor.
+  The NIF's rear shader points at it and takes the plugin's QNAM as its tint.
+- **Load order:** the test mod reads an MO2 profile's active plugins and
+  enabled mods as the CK does (`own_facegen.profile_order`,
+  `facegeom.Sources(load_order=)`), our own test mod and plugin left out.
+  CBBE.esp overrides `FemaleHeadHumanRearTEMP` with DATA 0x15 (no
+  uses-body-texture bit) and its own texture set `SkinHeadRearCBBE`
+  (`femalebhed_d.dds`), and ships its body loose; with CBBE active, the rear
+  texture and the neck fade come from those.
+
+**Checked** (`seam_check.py`, drawn colour, medians at each seam; the Play
+profile):
+
+| | face / rear head | face / body at the neck | rear head / body at the neck |
+|---|---|---|---|
+| Doc, ours | (144, 101, 74) / (151, 104, 65) | (132, 90, 57) / (136, 92, 60) | (141, 92, 56) / (139, 92, 57) |
+| Doc, CK | (138, 91, 49) / (137, 89, 55) | (134, 91, 56) / (138, 95, 59) | (141, 94, 57) / (141, 95, 55) |
+| Sunny, ours | (115, 69, 49) / (115, 69, 47) | (115, 69, 49) / (115, 68, 47) | (120, 69, 48) / (115, 69, 47) |
+| Trudy, ours | (115, 74, 49) / (114, 77, 48) | (107, 73, 49) / (110, 73, 48) | (115, 73, 49) / (110, 74, 48) |
+
+Ours now steps by 1–9 levels across each seam, the CK's own heads by 1–6.
+With CBBE.esp loaded, Sunny's rear head takes `femalebhed_d.dds` and her
+body its loose files.
+
 ## <a id="today"></a>How faces work today
 
 - The converted NPC record holds FO4 slider values: sculpt regions

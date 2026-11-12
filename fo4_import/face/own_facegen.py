@@ -1,9 +1,10 @@
-"""A test mod of our own FaceGen for a few NPCs: our FaceGeom NIF (facegeom) with FNV's shape baked in (bake),
-the CK's face texture with FNV's FaceGen colour (texture.face_texture T1), and a plugin overriding the NPCs with
-their skin tone scaled as T1 wants (tint.with_tone), as the build's faces stage does.
+"""A test mod of our own FaceGen for a few NPCs, read through an MO2 profile's load order as the CK reads it: our
+FaceGeom NIF (facegeom) with FNV's shape baked in (bake), the face and rear head textures drawn from FNV's colour
+on both sides of the hairline and faded to the body at the neck (skin_seams), and a plugin overriding the NPCs
+with the skin tone those textures are drawn with.
 
-    py -3.14 -m fo4_import.face.own_facegen --plugin <deepest plugin> --dirs <masters' folders...>
-        --export <an FNV export> --out temp/facegen_heads/<mod name> --npcs <plugin>:<FormID>...
+    py -3.14 -m fo4_import.face.own_facegen --profile <MO2 profile folder> --export <an FNV export>
+        --out temp/facegen_heads/<mod name> --npcs <plugin>:<FormID>...
 
 Scratch only: it writes a mod folder under --out and touches nothing the build or the game reads.
 
@@ -12,29 +13,44 @@ See: docs/fork/fo4_facegen_plan.md#phase-1-our-own-facegeom
 
 import argparse
 import struct
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
 from fo4_import.base.source import record_dir
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
-from fo4_import.face import facegeom, tint
-from fo4_import.face.bake import bake, face_shape
-from fo4_import.face.texture import face_texture, vanilla_face_texture, write_dds
+from fo4_import.face import facegeom, hair, skin_seams, tint
+from fo4_import.face.bake import bake, face_shape, positions, seam_tree, triangles, uvs
+from fo4_import.face.texture import dds_like, vanilla_face_texture, write_dds
+from fo4_import.nif import file as nif_file
+from fo4_import.pipeline import creation_kit
 from fo4_import.spike.facegen import skin_tone_layers
 from fo4_import.spike.fnv_npc import fnv_face
 from fo4_import.spike.sculpt_calibration import TEMPLATES
 from tes5_import.base.tes5_reader import subrecords, walk, zstr
 from tes5_import.base.writer import pack_subrecord
 
-#: Where a mod's FaceGen goes under its folder (Meshes, Textures).
+#: Where a mod's FaceGen goes under its folder (Meshes, Textures), and the textures folder of its paths.
 GEOM_DIR = Path('Meshes/Actors/Character/FaceGenData/FaceGeom')
-FACE_DIR = Path('Textures/Actors/Character/FaceCustomization')
+FACE_DIR, FACE_PATH = Path('Textures/Actors/Character/FaceCustomization'), 'Actors\\Character\\FaceCustomization'
 #: The prefix our NPC EditorIDs put before FNV's.
 FNV_PREFIX = 'FNV_'
 #: The test mod's plugin, and the record header flag of a compressed body.
 PLUGIN, COMPRESSED = 'FaceGen Test.esp', 0x40000
+
+
+@dataclass
+class Job:
+    """What every NPC of one run shares."""
+
+    src: facegeom.Sources
+    export: Path
+    out: Path
+    shape: str
+    #: {female: (QNAM, Skin Tone TETI, its TEND)} of the tint basis templates (template_tones).
+    templates: dict
 
 
 def fnv_edid(npc: facegeom.Rec) -> str:
@@ -45,34 +61,87 @@ def fnv_edid(npc: facegeom.Rec) -> str:
     return edid[len(FNV_PREFIX):]
 
 
-def write_face(out: Path, stem: str, faces: tuple) -> np.ndarray:
-    """The NPC's _d: the CK's untinted face of its sex's template (tint basis baseline) with FNV's FaceGen colour
-    (T1), at vanilla's format; `faces` = (female, FO4 face shape, FNV head, pieces). The tone scale T1 wants."""
-    female, face, fnv, pieces = faces
-    rgba, tone = face_texture(tint.load_basis(female)[2], face, fnv, pieces, 'T1')
-    out.mkdir(parents=True, exist_ok=True)
-    write_dds(rgba, out / f'{stem}_d.dds')
-    vanilla_face_texture(out / f'{stem}_d.dds')
-    return tone
+def profile_order(profile: Path, mo2: Path, skip: tuple) -> tuple:
+    """(MO2's overwrite then the profile's enabled mod folders, highest priority first; its active plugins in
+    load order), without the mods and plugins named in `skip`."""
+    def lines(name: str, mark: str) -> list:
+        """The profile file's entries ticked with `mark`, mark dropped, but `skip`."""
+        text = (profile / name).read_text(encoding='utf-8-sig').splitlines()
+        return [line[1:] for line in text if line.startswith(mark) and line[1:] not in skip]
+    return [mo2 / 'overwrite'] + [mo2 / 'mods' / name for name in lines('modlist.txt', '+')], lines('plugins.txt', '*')
 
 
-def write_npc(src: facegeom.Sources, npc_key: tuple, export: Path, out: Path, shape: str) -> tuple:
-    """Write one NPC's FaceGeom NIF (FNV's `shape` baked in) and T1 face texture (none for an NPC naming its own
-    face set) under mod folder `out`; `npc_key` = (plugin, local id). (report line, (female, tone scale) or None)."""
-    plugin, form_id = npc_key
-    npc, race, female, _ = facegeom.npc_face(src, plugin, form_id)
+def find(dirs: list, name: str) -> Path:
+    """Plugin `name` in the first of `dirs` holding it, else the game's Data."""
+    return next((d / name for d in dirs if (d / name).is_file()), FALLOUT4_DIR / 'Data' / name)
+
+
+def body(src: facegeom.Sources, npc: facegeom.Rec, race: facegeom.Rec, female: bool) -> tuple:
+    """(positions, UVs, RGB texture) of the NPC's body: its skin's body addon's model and skin texture."""
+    addon = facegeom.body_addon(src, npc, race)
+    mesh = nif_file.read(src.read('meshes\\' + zstr(addon.first(b'MOD3' if female else b'MOD2'))))
+    raw = max((b for k, b in mesh.blocks if k in facegeom.SHAPES and isinstance(b, bytes)), key=len)
+    rgb = hair.image(src.read('textures\\' + facegeom.body_textures(src, npc, race, female)[0]))[..., :3]
+    return positions(raw), uvs(raw), rgb.astype(float)
+
+
+def with_rear(job: Job, name: tuple, nif_bytes: bytes, rear: tuple) -> bytes:
+    """The FaceGeom NIF with each skin-tint part (the rear head) on its own texture (skin_seams.rear_texture),
+    written under the test mod as `<FormID>_rear_d`, and drawn with the NPC's skin tint; `name` = (plugin, stem),
+    `rear` = (face points, colour, neck) as rear_texture takes them."""
+    plugin, stem = name
+    frame, colour, neck = rear
+    nif = nif_file.read(nif_bytes)
+    for kind, raw in list(nif.blocks):
+        sh = nif.blocks[hair.shader_index(raw)][1] if kind in facegeom.SHAPES and isinstance(raw, bytes) else None
+        if isinstance(sh, dict) and sh.get('skin_tint') is not None:
+            texture_set = nif.blocks[sh['texture_set']][1]['textures']
+            own = job.src.read('textures\\' + texture_set[0])
+            rgba = skin_seams.rear_texture(hair.image(own), (positions(raw), uvs(raw), triangles(raw)), frame,
+                                           colour, neck)
+            texture_set[0] = f'{FACE_PATH}\\{plugin}\\{stem}_rear_d.dds'
+            (job.out / 'Textures' / texture_set[0].replace('\\', '/')).write_bytes(dds_like(rgba, own))
+            sh['skin_tint'] = (*(np.round(neck[1][1] * 255) / 255).tolist(), sh['skin_tint'][3])
+    return nif_file.write(nif)
+
+
+def write_skin(job: Job, who: tuple, nif: bytes, colour: tuple) -> tuple:
+    """Write the NPC's face _d and rear head texture; (T1's tone scale, the NIF on its rear texture). `who` =
+    (plugin, stem, npc, race, female), `colour` = (FNV head, pieces)."""
+    plugin, stem, npc, race, female = who
+    face, seam = face_shape(nif), seam_tree(nif)
+    template = np.array(struct.unpack('<4f', job.templates[female][0])[:3])
+
+    def tint_of(scale):
+        """The skin tint (QNAM) the plugin gives for tone `scale`."""
+        return np.clip(template * scale, 0.0, 1.0)
+    neck = (seam, body(job.src, npc, race, female), tint_of)
+    rgba, tone = skin_seams.face_texture(tint.load_basis(female)[2], face, *colour, neck)
+    folder = job.out / FACE_DIR / plugin
+    folder.mkdir(parents=True, exist_ok=True)
+    write_dds(rgba, folder / f'{stem}_d.dds')
+    vanilla_face_texture(folder / f'{stem}_d.dds')
+    return tone, with_rear(job, (plugin, stem), nif, (face[0], colour, (seam, (template, tint_of(tone)))))
+
+
+def write_npc(job: Job, plugin: str, form_id: int) -> tuple:
+    """Write one NPC's FaceGeom NIF (FNV's shape baked in) and skin textures (none for an NPC naming its own face
+    set, which keeps the CK's) under the test mod. (report line, (female, tone scale) or None)."""
+    npc, race, female, _ = facegeom.npc_face(job.src, plugin, form_id)
     stem, edid = f'{form_id & 0xFFFFFF:08X}', fnv_edid(npc)
-    nif = facegeom.build(src, plugin, form_id)
-    fnv, pieces = fnv_face(record_dir(export, plugin), edid)
-    eyes = next(facegeom.zstr(p.first(b'EDID')) for p in facegeom.head_parts(src, npc, race, female)
+    nif = facegeom.build(job.src, plugin, form_id)
+    fnv, pieces = fnv_face(record_dir(job.export, plugin), edid)
+    eyes = next(facegeom.zstr(p.first(b'EDID')) for p in facegeom.head_parts(job.src, npc, race, female)
                 if facegeom.part_type(p) == facegeom.EYES_PART)
-    geom = out / GEOM_DIR / plugin / f'{stem}.nif'
+    tone = None
+    if not npc.first(b'FTST'):
+        tone, nif = write_skin(job, (plugin, stem, npc, race, female), nif, (fnv, pieces))
+    geom = job.out / GEOM_DIR / plugin / f'{stem}.nif'
     geom.parent.mkdir(parents=True, exist_ok=True)
-    geom.write_bytes(bake(nif, fnv, shape, eyes))
-    if npc.first(b'FTST'):
-        return f'{stem} {edid}: shape {shape}, its own face set: the CK face texture and tone kept', None
-    tone = write_face(out / FACE_DIR / plugin, stem, (female, face_shape(nif), fnv, pieces))
-    return f'{stem} {edid}: shape {shape}, face T1, skin tone x{np.round(tone, 3).tolist()}', (female, tone)
+    geom.write_bytes(bake(nif, fnv, job.shape, eyes))
+    kept = 'its own face set: the CK face texture and tone kept' if tone is None else \
+        f'face and rear head T1, skin tone x{np.round(tone, 3).tolist()}'
+    return f'{stem} {edid}: shape {job.shape}, {kept}', None if tone is None else (female, tone)
 
 
 def master_names(data: bytes) -> list:
@@ -96,12 +165,12 @@ def template_tones(esm: bytes, layers: frozenset) -> dict:
     return out
 
 
-def with_template_tone(body: bytes, template: tuple, scale, layers: frozenset) -> bytes:
-    """NPC subrecords `body` with QNAM and the Skin Tone layer replaced by `template`'s (template_tones) times
-    `scale`, as a T1 face's untinted template has them."""
+def with_template_tone(body_subs: bytes, template: tuple, scale, layers: frozenset) -> bytes:
+    """NPC subrecords with QNAM and the Skin Tone layer replaced by `template`'s (template_tones) times `scale`,
+    as a T1 face's untinted template has them."""
     qnam, teti, tend = template
     out, skin = b'', False
-    for tag, data in subrecords(body):
+    for tag, data in subrecords(body_subs):
         if tag == b'TETI':
             skin = struct.unpack('<HH', data)[1] in layers
             data = teti if skin else data
@@ -113,15 +182,13 @@ def with_template_tone(body: bytes, template: tuple, scale, layers: frozenset) -
     return out
 
 
-def tone_plugin(path: Path, plugins: list, tones: dict) -> list:
+def tone_plugin(path: Path, plugins: list, tones: dict, tone_data: tuple) -> list:
     """Write `path`: overrides of the NPCs in `tones` {(plugin, local id): (female, scale)} with their template's
     tone scaled (with_template_tone); `plugins` are the source paths, deepest last, whose masters and selves begin
-    its own. Its masters."""
+    its own; `tone_data` = (template_tones, Skin Tone options). Its masters."""
+    templates, layers = tone_data
     datas = {p.name: p.read_bytes() for p in plugins}
     order = master_names(datas[plugins[-1].name]) + [plugins[-1].name]
-    esm = FALLOUT4_ESM.read_bytes()
-    layers = skin_tone_layers(esm)
-    templates = template_tones(esm, layers)
     w = FO4PluginWriter(masters=order, is_esm=False, description='FaceGen test: skin tones')
     for name, data in datas.items():
         own = len(master_names(data))
@@ -138,26 +205,28 @@ def tone_plugin(path: Path, plugins: list, tones: dict) -> list:
 
 
 def main(argv=None) -> None:
-    """Write the test mod folder --out for --npcs (plugin:FormID) of --plugin and its masters."""
+    """Write the test mod folder --out for --npcs (plugin:FormID) through --profile's load order."""
     p = argparse.ArgumentParser(description=main.__doc__)
-    p.add_argument('--plugin', type=Path, required=True, help='the deepest plugin; its masters are found in --dirs')
-    p.add_argument('--dirs', type=Path, nargs='*', default=[], help='folders holding masters, loose files and BA2s')
+    p.add_argument('--profile', type=Path, help="MO2 profile folder (default: MO2's selected profile)")
     p.add_argument('--export', type=Path, required=True, help='an FNV export folder (others found beside it)')
     p.add_argument('--out', type=Path, required=True, help='the test mod folder (scratch)')
     p.add_argument('--npcs', nargs='+', required=True, help='plugin:FormID (hex)')
     p.add_argument('--shape', default='C2F', choices=('C1', 'C2', 'C2F'), help='bake.bake variant')
     args = p.parse_args(argv)
-    src = facegeom.Sources(args.plugin, [args.plugin.parent] + args.dirs)
+    dirs, order = profile_order(args.profile or creation_kit.profile_dir(), creation_kit.MO2, (args.out.name, PLUGIN))
+    npcs = [(plugin, int(fid, 16)) for plugin, fid in (item.rsplit(':', 1) for item in args.npcs)]
+    names = sorted({plugin for plugin, _ in npcs}, key=lambda n: [o.lower() for o in order].index(n.lower()))
+    esm = FALLOUT4_ESM.read_bytes()
+    layers = skin_tone_layers(esm)
+    job = Job(facegeom.Sources(find(dirs, names[-1]), dirs, order), args.export, args.out, args.shape,
+              template_tones(esm, layers))
     tones = {}
-    for item in args.npcs:
-        plugin, fid = item.rsplit(':', 1)
-        line, tones[plugin, int(fid, 16)] = write_npc(src, (plugin, int(fid, 16)), args.export, args.out, args.shape)
+    for plugin, fid in npcs:
+        line, tones[plugin, fid] = write_npc(job, plugin, fid)
         print(line, flush=True)
-    folders = [args.plugin.parent] + args.dirs
-    plugins = [next(d / name for d in folders if (d / name).is_file())
-               for name in dict.fromkeys(plugin for plugin, _ in tones) if name != args.plugin.name]
     toned = {npc: tone for npc, tone in tones.items() if tone}
-    print('plugin masters:', tone_plugin(args.out / PLUGIN, plugins + [args.plugin], toned))
+    plugins = [find(dirs, name) for name in names]
+    print('plugin masters:', tone_plugin(args.out / PLUGIN, plugins, toned, (job.templates, layers)))
 
 
 if __name__ == '__main__':

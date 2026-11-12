@@ -120,15 +120,15 @@ shared_texel_points = by_content(texel_points)
 
 
 @by_content
-def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple) -> tuple:
-    """(rows, columns, FNV UVs) of the texels of a `shape` texture inside FO4's face `fo4` = (points, uvs,
-    triangles), placed on FNV's mean head `fnv_mesh` = (vertices, triangles, uvs) by bake.align; and the texels
-    within ISLAND_PADDING outside the face with the face texel each copies ((rows, columns), (rows, columns)).
-    The same for every NPC of one face and FNV head, so kept per process (memo)."""
+def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple, frame: np.ndarray = None) -> tuple:
+    """(rows, columns, FNV UVs) of the texels of a `shape` texture inside FO4's part `fo4` = (points, uvs,
+    triangles), placed on FNV's mean head `fnv_mesh` = (vertices, triangles, uvs) by bake.align of the face
+    points `frame` (default: the part's own); and the texels within ISLAND_PADDING outside the part with the
+    part texel each copies ((rows, columns), (rows, columns)). Kept per process (memo)."""
     points, uv, tris = fo4
     mean, triangles, fnv_uvs = fnv_mesh
     fnv_surface = surface(mean, triangles)
-    s, r, t = align(points, mean, fnv_surface)
+    s, r, t = align(points if frame is None else frame, mean, fnv_surface)
     rows, cols, where = texel_points(points, uv, tris, shape[0])
     _, idx = cKDTree(fnv_surface[0]).query(s * where @ r.T + t)
     _, owner, bary = fnv_surface

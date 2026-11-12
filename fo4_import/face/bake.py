@@ -223,6 +223,12 @@ def _seam(nif, shapes: list, face: int) -> cKDTree:
     return cKDTree(body_seam(borders[face], [b for i, b in borders.items() if i != face]))
 
 
+def seam_tree(nif_bytes: bytes) -> cKDTree:
+    """A tree over a FaceGeom NIF's body seam points (_seam)."""
+    nif = nif_file.read(nif_bytes)
+    return _seam(nif, *_shapes(nif))
+
+
 def _head_moves(nif, fnv: FnvHead, variant: str, eye_part: str = None) -> tuple:
     """(head part shapes, the face's index, its vertex positions, their smoothed moves for `variant`; 'C2F'
     places its blend at the shape `eye_part`)."""
