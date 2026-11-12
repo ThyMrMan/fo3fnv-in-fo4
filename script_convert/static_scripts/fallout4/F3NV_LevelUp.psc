@@ -1,11 +1,12 @@
 ScriptName F3NV_LevelUp extends Quest
 {Fallout 4 only. FO3/FNV's level-up in place of LevelUpMenuEx's PRKF.dll: the perk and skill points to spend (saved
-with the game as this script's variables), taking a perk and raising a skill, the perk list, each perk's rank,
-eligibility and requirement rows, and our level-up menu (Interface/F3NV_LevelUp.swf, registered with F4SE), which
+with the game as this script's variables), taking a perk and raising a skill, the perk list, each perk's rank and
+eligibility, and our level-up menu (Interface/F3NV_LevelUp.swf, registered with F4SE), which
 F3NV_CharacterRules opens in place of LevelUpMenu, and as the tag skill and trait menus. The tagged skills are
-F3NV_CharacterEvents'. The build writes what the menu shows as tables, so opening it asks the engine only for the
-ranks and traits held and the player's values. TagsChosen is sent once the tag menu's picks are set. On the
-character rules quest. See docs/fork/fo4_level_up_plan.md#prkf}
+F3NV_CharacterEvents'. The build writes what the menu shows as tables (the skills' here, each plugin's perks and
+traits on its F3NV_LevelUpTable), so opening it asks the engine only for the ranks and traits held and the player's
+values. TagsChosen is sent once the tag menu's picks are set. On the character rules quest.
+See docs/fork/fo4_level_up_plan.md#prkf}
 
 CustomEvent PerkTaken
 CustomEvent TagsChosen
@@ -18,8 +19,6 @@ Int Property ExtendedFlags = 2 AutoReadOnly Hidden
 {F4SE extended flags: drop the cursor when a gamepad is in use.}
 Int Property Chunks = 8 AutoReadOnly Hidden
 {How many stacks ask the engine for ranks and values at once: each native call costs its stack a frame.}
-String Property SEP = "\t" AutoReadOnly Hidden
-{Between a table's entries (fo4_import/spike/level_up.py's SEP).}
 Int Property LevelUpMode = 0 AutoReadOnly Hidden
 {Open's modes: a level-up (skills, perks, taken), the tag skill menu, the trait menu.}
 Int Property TagsMode = 1 AutoReadOnly Hidden
@@ -34,40 +33,12 @@ FormList Property Skills Auto Const
 FormList Property Specials Auto Const
 {The seven SPECIAL actor values; the menu's values are these, then Skills.}
 Int Property SkillCap = 100 Auto Const
-String Property PerkNames Auto Const
-{The listed perks' names, SEP between; PerkDescriptions and PerkImages (paths under Textures) alike.}
-String Property PerkDescriptions Auto Const
-String Property PerkImages Auto Const
-Int[] Property PerkLevels Auto Const
-Int[] Property PerkRanks Auto Const
-{Each listed perk's rank count; its ranks are the next that many of RankForms.}
-Perk[] Property RankForms Auto Const
 String Property SkillNames Auto Const
 {Skills' names, SEP between; SkillDescriptions and SkillImages alike.}
 String Property SkillDescriptions Auto Const
 String Property SkillImages Auto Const
-FormList Property Traits Auto Const
-{The trait menu's traits (FNV_Traits); TraitNames, TraitDescriptions and TraitImages line up, SEP between.}
-String Property TraitNames Auto Const
-String Property TraitDescriptions Auto Const
-String Property TraitImages Auto Const
-Perk[] Property RequirementPerks Auto Const
-{One row per requirement: the perk (first rank) it belongs to. The other Requirement arrays line up with it.}
-Int[] Property RequirementKinds Auto Const
-{0 an actor value, 1 the player's sex, 2 another perk, 3 the level.}
-Form[] Property RequirementForms Auto Const
-{The actor value or perk a row tests; None for sex and level.}
-Int[] Property RequirementCompares Auto Const
-{0 ==, 1 !=, 2 >, 3 >=, 4 <, 5 <=.}
-Float[] Property RequirementValues Auto Const
-Int[] Property RequirementOr Auto Const
-{1 when a row ORs with the next.}
-Int[] Property RequirementOwners Auto Const
-{The row's perk's index in Perks; -1 for one not listed (a trait).}
-Int[] Property RequirementTargets Auto Const
-{Where the menu finds the tested value: an index into its values (Specials then Skills) or into Perks; -1 otherwise.}
-String Property RequirementLabels Auto Const
-{The tested actor value's or perk's name per row, SEP between ("" for sex and level).}
+FormList Property Tables Auto Const
+{Every plugin's perk and trait table (F3NV_LevelUpTable), the game's beside this script on its own quest.}
 
 Int PerkPoints
 Int SkillPoints
@@ -79,6 +50,12 @@ Int pending
 Int mode
 Int wanted
 Int bonus
+F3NV_LevelUpTable[] shown
+Int[] perkCounts
+Int[] traitCounts
+Int[] rowCounts
+Int perkTotal
+Int traitTotal
 
 Int Function GetPerkPoints()
   Return PerkPoints
@@ -214,59 +191,6 @@ Perk[] Function PerkList(Int aiShow)
 EndFunction
 
 ; ---------------------------------------------------------------------------
-; Requirement rows
-; ---------------------------------------------------------------------------
-
-Int[] Function RequirementRows(Perk akPerk)
-  {The rows of akPerk's (a first rank) requirements, in the source perk's order.}
-  Int[] out = new Int[0]
-  If RequirementPerks == None
-    Return out
-  EndIf
-  Int i = RequirementPerks.Find(akPerk)
-  While i >= 0
-    out.Add(i)
-    i = RequirementPerks.Find(akPerk, i + 1)
-  EndWhile
-  Return out
-EndFunction
-
-Float Function PlayerValue(Int aiRow)
-  {The player's value row aiRow tests: an actor value's base, sex (0 male, 1 female), 1 or 0 for a perk, the level.}
-  Actor player = Game.GetPlayer()
-  Int kind = RequirementKinds[aiRow]
-  If kind == 0
-    Return player.GetBaseValue(RequirementForms[aiRow] as ActorValue)
-  ElseIf kind == 1
-    Return player.GetLeveledActorBase().GetSex()
-  ElseIf kind == 2 && player.HasPerk(RequirementForms[aiRow] as Perk)
-    Return 1.0
-  ElseIf kind == 3
-    Return player.GetLevel()
-  EndIf
-  Return 0.0
-EndFunction
-
-Bool Function RequirementMet(Int aiRow)
-  {Whether the player's value passes row aiRow's comparison.}
-  Float have = PlayerValue(aiRow)
-  Float need = RequirementValues[aiRow]
-  Int compare = RequirementCompares[aiRow]
-  If compare == 0
-    Return have == need
-  ElseIf compare == 1
-    Return have != need
-  ElseIf compare == 2
-    Return have > need
-  ElseIf compare == 3
-    Return have >= need
-  ElseIf compare == 4
-    Return have < need
-  EndIf
-  Return have <= need
-EndFunction
-
-; ---------------------------------------------------------------------------
 ; The menu
 ; ---------------------------------------------------------------------------
 
@@ -311,24 +235,25 @@ Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
 EndEvent
 
 Function Send()
-  {Hand the open menu its tables, the player's points, level, sex and cap, the ranks held and values (asked in
-  parallel, Gather), the tagged skills, the requirement rows, the mode and the traits held (root1.Open, in
-  Character.as's order).}
+  {Hand the open menu every plugin's perk, trait and requirement tables joined (Collect, Merged), the player's points,
+  level, sex and cap, the ranks held and values (asked in parallel, Gather), the tagged skills, the mode and the
+  traits held (root1.Open, in Character.as's order).}
   Float started = Utility.GetCurrentRealTime()
   Actor player = Game.GetPlayer()
+  Collect()
   Int specialCount = Specials.GetSize()
-  Gather(specialCount, Skills.GetSize(), Traits.GetSize())
+  Gather(specialCount, Skills.GetSize())
   Var[] args = new Var[32]
   args[0] = PerkPoints
   args[1] = SkillPoints
   args[2] = player.GetLevel()
   args[3] = player.GetLeveledActorBase().GetSex()
   args[4] = SkillCap
-  args[5] = PerkNames
-  args[6] = PerkDescriptions
-  args[7] = PerkImages
-  args[8] = IntsText(PerkLevels)
-  args[9] = IntsText(PerkRanks)
+  args[5] = Merged(0, perkCounts)
+  args[6] = Merged(1, perkCounts)
+  args[7] = Merged(2, perkCounts)
+  args[8] = Merged(3, perkCounts)
+  args[9] = Merged(4, perkCounts)
   args[10] = JoinedParts(heldParts)
   args[11] = SkillNames
   args[12] = SkillDescriptions
@@ -336,31 +261,81 @@ Function Send()
   args[14] = JoinedParts(valueParts)
   args[15] = JoinedParts(tagParts)
   args[16] = specialCount
-  args[17] = IntsText(RequirementOwners)
-  args[18] = IntsText(RequirementKinds)
-  args[19] = IntsText(RequirementTargets)
-  args[20] = IntsText(RequirementCompares)
-  args[21] = FloatsText(RequirementValues)
-  args[22] = IntsText(RequirementOr)
-  args[23] = RequirementLabels
-  args[24] = UnlistedPerksHeld()
+  args[17] = Merged(8, rowCounts)
+  args[18] = Merged(9, rowCounts)
+  args[19] = Merged(10, rowCounts)
+  args[20] = Merged(11, rowCounts)
+  args[21] = Merged(12, rowCounts)
+  args[22] = Merged(13, rowCounts)
+  args[23] = Merged(14, rowCounts)
+  args[24] = Merged(15, rowCounts)
   args[25] = mode
   args[26] = wanted
   args[27] = bonus
-  args[28] = TraitNames
-  args[29] = TraitDescriptions
-  args[30] = TraitImages
+  args[28] = Merged(5, traitCounts)
+  args[29] = Merged(6, traitCounts)
+  args[30] = Merged(7, traitCounts)
   args[31] = JoinedParts(traitParts)
   UI.Invoke(MenuName, "root1.Open", args)
-  Debug.Trace("F3NV_LevelUp: sent in " + (Utility.GetCurrentRealTime() - started) + "s")
+  Debug.Trace("F3NV_LevelUp: sent in " + (Utility.GetCurrentRealTime() - started) + "s, " + shown.Length + " tables")
 EndFunction
 
-Function Gather(Int aiSpecials, Int aiSkills, Int aiTraits)
+Function Collect()
+  {Into shown: this quest's table (the game's), then every other plugin's registered in Tables; and each one's perk,
+  trait and row counts.}
+  F3NV_LevelUpTable own = (Self as Quest) as F3NV_LevelUpTable
+  shown = new F3NV_LevelUpTable[0]
+  If own
+    shown.Add(own)
+  EndIf
+  Int k = 0
+  While Tables && k < Tables.GetSize()
+    F3NV_LevelUpTable table = Tables.GetAt(k) as F3NV_LevelUpTable
+    If table && shown.Find(table) < 0
+      shown.Add(table)
+    EndIf
+    k += 1
+  EndWhile
+  perkCounts = new Int[shown.Length]
+  traitCounts = new Int[shown.Length]
+  rowCounts = new Int[shown.Length]
+  perkTotal = 0
+  traitTotal = 0
+  Int t = 0
+  While t < shown.Length
+    perkCounts[t] = shown[t].PerkCount()
+    traitCounts[t] = shown[t].TraitCount()
+    rowCounts[t] = shown[t].RowCount()
+    perkTotal += perkCounts[t]
+    traitTotal += traitCounts[t]
+    t += 1
+  EndWhile
+EndFunction
+
+String Function Merged(Int aiWhich, Int[] aiCounts)
+  {Text aiWhich (F3NV_LevelUpTable.Text) of each shown table with entries (aiCounts, per table), SEP between, its perk
+  indexes counted across the tables.}
+  String out = ""
+  Int first = 0
+  Int part = 0
+  Int t = 0
+  While t < shown.Length
+    If aiCounts[t] > 0
+      out = F3NV_LevelUpTable.Joined(out, shown[t].Text(aiWhich, first), part)
+      part += 1
+    EndIf
+    first += perkCounts[t]
+    t += 1
+  EndWhile
+  Return out
+EndFunction
+
+Function Gather(Int aiSpecials, Int aiSkills)
   {Into heldParts, valueParts, tagParts and traitParts: the ranks held of each listed perk, the player's base value of
   each Specials and Skills entry and its tag (0 none, 1 a suggestion the tag menu may change, 2 tagged), then whether
   the player has each trait; asked by Chunks stacks at once (ScanChunk), so the frame each native call costs
   overlaps. Gives up after 10 seconds.}
-  Int count = PerkRanks.Length + aiSpecials + aiSkills + aiTraits
+  Int count = perkTotal + aiSpecials + aiSkills + traitTotal
   heldParts = new String[Chunks]
   valueParts = new String[Chunks]
   tagParts = new String[Chunks]
@@ -385,49 +360,74 @@ Function Gather(Int aiSpecials, Int aiSkills, Int aiTraits)
 EndFunction
 
 Function ScanChunk(Int aiChunk, Int aiFirst, Int aiEnd, Int aiSpecials, Int aiSkills)
-  {Gather's items aiFirst to aiEnd into its parts aiChunk: a listed perk's ranks held (walking RankForms), a value and
-  its tag (Specials, then Skills), or a trait held.}
+  {Gather's items aiFirst to aiEnd into its parts aiChunk: listed perks' ranks held, values and their tags (Specials,
+  then Skills), traits held; the perks and traits asked of their tables (Over).}
   Actor player = Game.GetPlayer()
-  Int listed = PerkRanks.Length
-  Int traitsAt = listed + aiSpecials + aiSkills
-  Int offset = 0
-  Int i = 0
-  While i < aiFirst && i < listed
-    offset += PerkRanks[i]
-    i += 1
-  EndWhile
-  String held = ""
+  Int traitsAt = perkTotal + aiSpecials + aiSkills
+  heldParts[aiChunk] = Over(player, False, aiFirst, Least(aiEnd, perkTotal))
+  traitParts[aiChunk] = Over(player, True, Most(aiFirst, traitsAt) - traitsAt, aiEnd - traitsAt)
   String values = ""
   String tags = ""
-  String had = ""
-  i = aiFirst
-  While i < aiEnd
-    If i < listed
-      Int rank = 0
-      While rank < PerkRanks[i] && player.HasPerk(RankForms[offset + rank])
-        rank += 1
-      EndWhile
-      offset += PerkRanks[i]
-      held = Joined(held, "" + rank)
-    ElseIf i >= traitsAt
-      had = Joined(had, "" + (player.HasPerk(Traits.GetAt(i - traitsAt) as Perk) as Int))
+  Int i = Most(aiFirst, perkTotal)
+  While i < Least(aiEnd, traitsAt)
+    ActorValue value
+    If i - perkTotal < aiSpecials
+      value = Specials.GetAt(i - perkTotal) as ActorValue
     Else
-      ActorValue value
-      If i - listed < aiSpecials
-        value = Specials.GetAt(i - listed) as ActorValue
-      Else
-        value = Skills.GetAt(i - listed - aiSpecials) as ActorValue
-      EndIf
-      values = Joined(values, "" + player.GetBaseValue(value))
-      tags = Joined(tags, "" + TagState(value))
+      value = Skills.GetAt(i - perkTotal - aiSpecials) as ActorValue
     EndIf
+    Int n = i - Most(aiFirst, perkTotal)
+    values = F3NV_LevelUpTable.Joined(values, "" + player.GetBaseValue(value), n)
+    tags = F3NV_LevelUpTable.Joined(tags, "" + TagState(value), n)
     i += 1
   EndWhile
-  heldParts[aiChunk] = held
   valueParts[aiChunk] = values
   tagParts[aiChunk] = tags
-  traitParts[aiChunk] = had
   pending -= 1
+EndFunction
+
+String Function Over(Actor akPlayer, Bool abTraits, Int aiFrom, Int aiTo)
+  {The ranks akPlayer holds of the listed perks aiFrom to aiTo, counted across the shown tables, or whether they have
+  each of those traits (abTraits); SEP between.}
+  String out = ""
+  Int start = 0
+  Int part = 0
+  Int t = 0
+  While t < shown.Length && start < aiTo
+    Int n = perkCounts[t]
+    If abTraits
+      n = traitCounts[t]
+    EndIf
+    Int from = Most(aiFrom - start, 0)
+    Int upto = Least(aiTo - start, n)
+    If from < upto
+      String text
+      If abTraits
+        text = shown[t].TraitsHeld(akPlayer, from, upto)
+      Else
+        text = shown[t].RanksHeld(akPlayer, from, upto)
+      EndIf
+      out = F3NV_LevelUpTable.Joined(out, text, part)
+      part += 1
+    EndIf
+    start += n
+    t += 1
+  EndWhile
+  Return out
+EndFunction
+
+Int Function Least(Int aiA, Int aiB)
+  If aiA < aiB
+    Return aiA
+  EndIf
+  Return aiB
+EndFunction
+
+Int Function Most(Int aiA, Int aiB)
+  If aiA > aiB
+    Return aiA
+  EndIf
+  Return aiB
 EndFunction
 
 Int Function TagState(ActorValue akValue)
@@ -440,66 +440,39 @@ Int Function TagState(ActorValue akValue)
   Return 2
 EndFunction
 
-String Function Joined(String asText, String asEntry)
-  {asText with asEntry added, SEP between.}
-  If asText == ""
-    Return asEntry
-  EndIf
-  Return asText + SEP + asEntry
-EndFunction
-
 String Function JoinedParts(String[] asParts)
   {asParts' non-empty texts, SEP between.}
   String out = ""
+  Int n = 0
   Int i = 0
   While i < asParts.Length
     If asParts[i] != ""
-      out = Joined(out, asParts[i])
+      out = F3NV_LevelUpTable.Joined(out, asParts[i], n)
+      n += 1
     EndIf
     i += 1
   EndWhile
   Return out
 EndFunction
 
-String Function IntsText(Int[] aiValues)
-  {aiValues, SEP between.}
-  String out = ""
-  Int i = 0
-  While aiValues && i < aiValues.Length
-    out = Joined(out, "" + aiValues[i])
-    i += 1
+Perk Function ListedPerk(Int aiIndex)
+  {The first rank of listed perk aiIndex, counted across the shown tables; None outside them.}
+  Int at = aiIndex
+  Int t = 0
+  While at >= 0 && t < shown.Length
+    If at < perkCounts[t]
+      Return shown[t].FirstRank(at)
+    EndIf
+    at -= perkCounts[t]
+    t += 1
   EndWhile
-  Return out
-EndFunction
-
-String Function FloatsText(Float[] afValues)
-  {afValues, SEP between.}
-  String out = ""
-  Int i = 0
-  While afValues && i < afValues.Length
-    out = Joined(out, "" + afValues[i])
-    i += 1
-  EndWhile
-  Return out
-EndFunction
-
-String Function UnlistedPerksHeld()
-  {Per requirement row: for a perk test whose perk is not listed (target -1), 1 when the player has it, else 0.}
-  Actor player = Game.GetPlayer()
-  String out = ""
-  Int i = 0
-  While RequirementKinds && i < RequirementKinds.Length
-    Bool has = RequirementKinds[i] == 2 && RequirementTargets[i] < 0 && player.HasPerk(RequirementForms[i] as Perk)
-    out = Joined(out, "" + (has as Int))
-    i += 1
-  EndWhile
-  Return out
+  Return None
 EndFunction
 
 Function OnMenuTake(Int aiIndex)
   {The menu's pick of listed perk aiIndex: take its next rank (TakePerk, the engine's eligibility test), then tell
   the menu whether it was taken, the ranks now held and the perk points left (root1.Taken).}
-  Perk first = Perks.GetAt(aiIndex) as Perk
+  Perk first = ListedPerk(aiIndex)
   Bool taken = first && TakePerk(first)
   Var[] args = new Var[4]
   args[0] = aiIndex
@@ -540,20 +513,15 @@ Function OnMenuTags(Int aiMask)
 EndFunction
 
 Function OnMenuTraits(Int aiMask, Int aiShown)
-  {The trait menu's picks, bit i for Traits' entry i, of the first aiShown (those the menu's tables name; a DLC's
-  joined by the list merge are left as they are): each the player has and isn't picked is removed, each picked one
-  they don't have added; then the menu closed.}
+  {The trait menu's picks, bit i for trait i of the shown tables', of the first aiShown: each table adds the picked
+  ones the player lacks and removes the others they have (F3NV_LevelUpTable.SetTraits); then the menu closed.}
   Actor player = Game.GetPlayer()
-  Int i = 0
-  While i < aiShown && i < Traits.GetSize()
-    Perk trait = Traits.GetAt(i) as Perk
-    Bool picked = Math.LogicalAnd(aiMask, Math.LeftShift(1, i)) != 0
-    If picked && !player.HasPerk(trait)
-      player.AddPerk(trait)
-    ElseIf !picked && player.HasPerk(trait)
-      player.RemovePerk(trait)
-    EndIf
-    i += 1
+  Int first = 0
+  Int t = 0
+  While t < shown.Length
+    shown[t].SetTraits(player, aiMask, first, aiShown)
+    first += traitCounts[t]
+    t += 1
   EndWhile
   UI.CloseMenu(MenuName)
 EndFunction

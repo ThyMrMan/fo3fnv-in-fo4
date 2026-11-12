@@ -3,7 +3,8 @@
 **Status:** planned 2026-11-12; the perk and skill images are staged by every
 build, PRKF.dll's points, tags and perk list are rebuilt in Papyrus, and our
 own menu opens in place of `LevelUpMenu` with skill, perk and taken pages,
-and serves as the tag and trait menus too (built 2026-11-12, not played).
+and serves as the tag and trait menus too, listing every DLC's perks and
+traits (built 2026-11-12, not played).
 Status lines live only in
 [ROADMAP.md](ROADMAP.md). The framework side (f3ui, replacing a vanilla
 menu, the image staging) is in
@@ -111,8 +112,9 @@ so F3NV.dll gets nothing:
 Since our menu took over level-ups ([open](#open)), the rules give each
 level's points to this script, and no PRKF menu is opened any more
 ([tags](#tags)). Arrays a script builds hold at most 128 entries,
-which `PerkList` stays under for FNV (91 perks); a DLC's perks join by the
-form list merge, and their requirement rows are an open question.
+which `PerkList` stays under for FNV with its DLCs (122 perks); a DLC's
+perks join `FNV_Perks` at run time ([lists](fo4_plugin_layout.md#dlc-lists)),
+and the menu reads each plugin's own table ([tables](#tables)).
 
 ## <a id="open"></a>Opening ours in place of `LevelUpMenu` (built 2026-11-12, not played)
 
@@ -168,7 +170,9 @@ library.
 and Perk natives aren't flagged no-wait, so each call from Papyrus costs
 its stack a frame; asking for 91 perks' names, descriptions, images,
 levels and ranks would take seconds. The build writes them as properties
-of `F3NV_LevelUp` (`level_up.py` `menu_properties`): `SEP`-joined strings
+(`level_up.py`): the skills' on `F3NV_LevelUp` (`skill_table`), the perks'
+and traits' on each plugin's `F3NV_LevelUpTable` ([tables](#tables),
+`table_properties`): `SEP`-joined strings
 (`PerkNames`, `PerkDescriptions`, `PerkImages`, `SkillNames`, ...), the
 levels and rank counts, every rank in order (`RankForms`), and per
 requirement row its perk's place in the list (`RequirementOwners`), where
@@ -181,9 +185,41 @@ perks, 111 ranks, 105 rows, every row placed, descriptions 12 KB; FO3 61,
 eligibility from the rows. The log line `F3NV_LevelUp: sent in Ns` measures
 it.
 
-**Not yet:** a DLC's perks and traits (they join `FNV_Perks` and
-`FNV_Traits` but not the tables, so the menu doesn't list them), search and
-sorting, options and the API (step 6).
+**Not yet:** search and sorting, options and the API (step 6).
+
+## <a id="tables"></a>Every plugin's perks and traits (built 2026-11-12, not played)
+
+A DLC adds perks and traits, and two plugins overriding one record don't
+stack ([dlc-lists](fo4_plugin_layout.md#dlc-lists)), so no DLC overrides
+the game's tables. As with condition's rows
+([sources](fo4_condition.md#sources)), each plugin's are its own:
+- `F3NV_LevelUpTable` holds one plugin's own listed perks and traits
+  (`table_properties`, `builder.ids.is_own`: a DLC's, not its masters'):
+  names, descriptions, images, levels, rank chains, the traits' forms, and
+  its perks' requirement rows. A row's owner and a perk row's target index
+  this table's perks; a requirement on a perk of another plugin is a target
+  of -1, and the menu is told whether the player has it
+  (`UnlistedHeld`).
+- The game's table is a script of the rules quest itself, beside
+  `F3NV_LevelUp`. A DLC writes `FNV_LevelUpTable_<plugin>`, a start-game
+  quest that adds itself to `FNV_LevelUpTables` (an empty game form list;
+  `FormList.AddForm` is kept by the save and stacks) as it starts. A DLC
+  without perks or traits writes none.
+- When the menu opens, `F3NV_LevelUp.Collect` takes its own quest's table
+  first (an older save's rules quest never ran the table's start), then
+  each registered one. `Merged` joins each text, moving owners and perk
+  targets by where that table's perks start; `Gather` asks each table for
+  its ranks and traits held; a pick (`ListedPerk`) and the trait menu
+  (`SetTraits`) go back to the table they came from. The movie sees one
+  list.
+
+Census of the exports (2026-11-12), each DLC's own listed perks (ranks) and
+traits: Dead Money 7 (7), Honest Hearts 6 (6), Old World Blues 4 (5) and 6
+traits (Claustrophobia, Skilled, Logan's Loophole, Hoarder, Hot Blooded,
+Early Bird), Lonesome Road 13 (13), Gun Runners' Arsenal 1 (1); the four
+courier packs none. With all of them: 122 perks, 16 traits, inside the
+trait menu's 31 (`MASK_BITS`; a plugin past it is counted, `level-up menu
+traits past its mask`).
 
 ## <a id="tags"></a>Tag skills and traits (built 2026-11-12, not played)
 
@@ -260,7 +296,8 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
    2026-11-12 in Papyrus, not played.
 3. **Perk page** with the default features above, reading `FNV_Perks` as
    LevelUpMenuEx does ([menu](#menu)): built 2026-11-12 with filters,
-   requirements and a taken page; search, sorting and DLC perks left.
+   requirements and a taken page, and every DLC's perks and traits
+   ([tables](#tables)); search and sorting left.
 4. **Skill page** with the preview, undo and banking ([menu](#menu)):
    built 2026-11-12.
 5. **Traits and tags** at character creation, with re-tagging

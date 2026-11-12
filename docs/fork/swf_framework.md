@@ -25,7 +25,7 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
 | Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)). Since 2026-11-12 on `f3ui` (`Bridge`, `Text`), compiled by `mxmlc` like the casino's. Nothing read from the game | The patched-movie version played; our own movie (FFDec build) played 2026-11-12, looks the same. `mxmlc` build not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | The Pip-Boy's CND line, repair and ammo lists, and other mods' item-card lines are drawn by our injected movie from the DLL's data ([framework](#pipboy)). The rest is drawn by the DLL into the open vanilla menus from C++: REPAIR and AMMO hints, STAT tabs, the container and barter CND line, HUD needs | CND, repair and tabs played from C++; the movie's versions built, not played. Ammo list and HUD needs built, not played |
-| Level-up (`fo4_import/level_up/`, `fo4_import/spike/level_up*.py`, `F3NV_LevelUp.psc`) | Our own menu on f3ui ([level-up](#level-up)), opened by the character rules in place of `LevelUpMenu`, with skill, perk and taken pages, and as the tag-skill and trait menus; PRKF.dll's points, tags, perk list and requirement rows rebuilt in Papyrus | Built 2026-11-12, none played |
+| Level-up (`fo4_import/level_up/`, `fo4_import/spike/level_up*.py`, `F3NV_LevelUp.psc`) | Our own menu on f3ui ([level-up](#level-up)), opened by the character rules in place of `LevelUpMenu`, with skill, perk and taken pages, and as the tag-skill and trait menus, every DLC's perks and traits included; PRKF.dll's points, tags, perk list and requirement rows rebuilt in Papyrus | Built 2026-11-12, none played |
 
 ### <a id="where"></a>Where each piece stands (2026-11-12)
 
@@ -641,6 +641,10 @@ stays in reserve for when the moment of the vanilla screen shows.
 mode, one page each and no Back; picks come back to Papyrus as a bitmask
 in one external event ([tags](fo4_level_up_plan.md#tags)).
 
+**Every plugin's tables (built, not played):** each plugin's perks and
+traits are its own quest's table, joined by Papyrus as the menu opens, so
+the movie sees one list ([tables](fo4_level_up_plan.md#tables)).
+
 Still to do:
 - **Play the image spike** above, and the menu.
 - Options, the API, then dropping LevelUpMenuEx
@@ -673,6 +677,15 @@ Tags and traits, on a new game:
   tags stay locked, the fourth gets the bonus;
 - re-entering SPECIAL at the Vit-o-matic keeps each tag's bonus once;
 - a save made with LevelUpMenuEx keeps its banked points and tags.
+
+With the DLCs loaded (FNV: Dead Money, Honest Hearts, Old World Blues,
+Lonesome Road, Gun Runners' Arsenal):
+- the `sent in` log line says `6 tables`, and PERKS with X (show all)
+  lists 122 perks, the DLCs' among them;
+- a DLC perk's requirements show (a game perk it needs is met or unmet as
+  you hold it), and taking one takes that perk;
+- TRAITS lists Old World Blues' six after the game's ten, and choosing one
+  adds it.
 
 ## <a id="casino"></a>The casino on the framework
 

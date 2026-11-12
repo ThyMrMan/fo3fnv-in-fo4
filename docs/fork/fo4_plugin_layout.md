@@ -444,8 +444,9 @@ built. The cell argument is the DLC's own interior.
   with seven DLCs and packs loaded: condition, the Ammo Type hotkey and
   challenges kept only Honest Hearts' items. Those systems now gather every
   plugin's rows at run time ([condition](fo4_condition.md#sources),
-  [form lists](#dlc-lists), [Say Once](#dlc-say-once)), and no DLC overrides
-  their quests or lists.
+  [form lists](#dlc-lists), [Say Once](#dlc-say-once), the level-up menu's
+  [perk and trait tables](fo4_level_up_plan.md#tables)), and no DLC
+  overrides their quests or lists.
 
 **Gun Runners' Arsenal, measured:** 979 records (38 guns, 160 weapon mods, 27
 ammo, 131 leveled lists, 51 recipes, the vendor chest cell with 23

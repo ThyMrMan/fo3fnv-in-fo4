@@ -1,8 +1,9 @@
 """FO3/FNV's level-up for our own level-up menu, in place of LevelUpMenuEx's PRKF.dll: F3NV_LevelUp on the character
 rules quest holds the points and tagged skills, opens the menu (Interface/F3NV_LevelUp.swf, fo4_import/level_up),
-and gets from the build what the menu shows without asking the engine: each listed perk's name, description, image,
-level and rank chain, each skill's name, description and image, and each playable perk's requirements as rows
-("Science 50", "Level 8"). Whether a perk can be taken is still the engine's own test of its conditions.
+and gets from the build what the menu shows without asking the engine: each skill's name, description and image,
+and from each plugin's F3NV_LevelUpTable its own listed perks' and traits' names, descriptions, images, levels and
+rank chains and its perks' requirements as rows ("Science 50", "Level 8"). Whether a perk can be taken is still the
+engine's own test of its conditions.
 
 See: docs/fork/fo4_level_up_plan.md#prkf
 """
@@ -13,7 +14,7 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
 from fo4_import.spike.perks import fo4_icon
 
-SCRIPT = 'F3NV_LevelUp'
+SCRIPT, TABLE_SCRIPT = 'F3NV_LevelUp', 'F3NV_LevelUpTable'
 #: Requirement kinds by FNV condition function: an actor value, the player's sex, another perk, the level.
 KINDS = {'GetPermanentActorValue': 0, 'GetActorValue': 0, 'GetIsSex': 1, 'HasPerk': 2, 'GetLevel': 3}
 #: A condition's comparison bits, shifted down to 0-5: ==, !=, >, >=, <, <=.
@@ -78,11 +79,11 @@ def labels(perks, avs: dict) -> dict:
     return out
 
 
-def rows(builder, names: dict = None) -> list:
-    """[(first rank, kind, form, comparison, value, or-next, label)] of every playable perk's requirement conditions,
-    in record order; a condition the menu cannot show is counted and left out."""
+def rows(builder, names: dict = None, records: list = None) -> list:
+    """[(first rank, kind, form, comparison, value, or-next, label)] of every playable perk's requirement conditions
+    (of `records`, else all), in record order; a condition the menu cannot show is counted and left out."""
     perks, out = builder.perks, []
-    for rec in perks.records:
+    for rec in perks.records if records is None else records:
         if rec.get('DATA.Playable') != '1' or rec.get('DATA.Hidden') == '1':
             continue
         first = perks.first[int(rec['FormID'], 16)]
@@ -96,14 +97,14 @@ def rows(builder, names: dict = None) -> list:
 
 
 def properties(table: list, values: list = (), listed: list = ()) -> dict:
-    """F3NV_LevelUp's Requirement* properties: `table`'s rows as parallel arrays. A row's owner is its perk's index
-    in `listed` (the level-up list); its target the index the menu finds the tested value at: in `values` (SPECIAL
-    then skills) for an actor value, in `listed` for a perk; -1 when not there."""
+    """F3NV_LevelUpTable's Requirement* properties: `table`'s rows as parallel arrays. A row's owner is its perk's
+    index in `listed` (the table's listed perks); its target the index the menu finds the tested value at: in `values`
+    (SPECIAL then skills) for an actor value, in `listed` for a perk; -1 when not there."""
     perk, kind, form, compare, value, either, label = zip(*table) if table else ((),) * 7
     where = {0: list(values), 2: list(listed)}
     targets = [where[k].index(f) if f in where.get(k, ()) else -1 for k, f in zip(kind, form)]
     owners = [list(listed).index(p) if p in listed else -1 for p in perk]
-    return {'RequirementPerks': ('objects', list(perk)), 'RequirementKinds': ('ints', list(kind)),
+    return {'RequirementKinds': ('ints', list(kind)),
             'RequirementForms': ('objects', list(form)), 'RequirementCompares': ('ints', list(compare)),
             'RequirementValues': ('floats', [float(v) for v in value]), 'RequirementOr': ('ints', list(either)),
             'RequirementOwners': ('ints', owners), 'RequirementTargets': ('ints', targets),
@@ -124,10 +125,9 @@ def texts(kind: str, records: list, names: list = None) -> dict:
             f'{kind}Images': ('string', joined(fo4_icon(r) for r in records))}
 
 
-def perk_table(perks) -> dict:
-    """The level-up list's perks (perks.offered(), FNV_Perks' order) as texts(), each one's level and rank count,
-    and every rank in order (RankForms, PerkRanks per perk)."""
-    offered = perks.offered()
+def perk_table(perks, offered: list) -> dict:
+    """Listed perks `offered` (in perks.offered()'s order) as texts(), each one's level and rank count, and every rank
+    in order (RankForms, PerkRanks per perk)."""
     ranks = [perks.ids[int(r['FormID'], 16)] for r in offered]
     return {**texts('Perk', offered), 'PerkLevels': ('ints', [int(r.get('DATA.MinLevel', 0) or 0) for r in offered]),
             'PerkRanks': ('ints', [len(ids) for ids in ranks]),
@@ -140,16 +140,22 @@ def skill_table(avs: dict, skills: list) -> dict:
     return texts('Skill', [avs.get(index[s], {}) for s in skills], skills)
 
 
-def menu_properties(builder, avs: dict, values: list, skills: list) -> dict:
-    """F3NV_LevelUp's value properties: rows, perk, skill and trait tables. The tag and trait menus answer with a
-    bit per entry, so entries past MASK_BITS are counted.
-    See: docs/fork/fo4_level_up_plan.md#menu
+def table_properties(builder, avs: dict, values: list) -> dict:
+    """F3NV_LevelUpTable's value properties for the build's own listed perks and traits (a DLC's, not its masters'):
+    their tables and the perks' requirement rows. The trait menu answers with a bit per trait, so a trait past
+    MASK_BITS is counted.
+    See: docs/fork/fo4_level_up_plan.md#tables
     """
-    table = rows(builder, labels(builder.perks, avs))
-    listed = [builder.perks.ids[int(r['FormID'], 16)][0] for r in builder.perks.offered()]
-    traits = builder.perks.trait_records()
-    past = max(0, len(traits) - MASK_BITS) + max(0, len(skills) - MASK_BITS)
-    if past:
-        builder.counts['level-up menu entries past its mask'] += past
-    return {**properties(table, values, listed), **perk_table(builder.perks), **skill_table(avs, skills),
-            **texts('Trait', traits)}
+    perks = builder.perks
+    offered, traits = (_own(builder, records) for records in (perks.offered(), perks.trait_records()))
+    listed = [perks.ids[int(r['FormID'], 16)][0] for r in offered]
+    if len(traits) > MASK_BITS:
+        builder.counts['level-up menu traits past its mask'] += len(traits) - MASK_BITS
+    table = rows(builder, labels(perks, avs), _own(builder, perks.records))
+    return {**properties(table, values, listed), **perk_table(perks, offered), **texts('Trait', traits),
+            'TraitForms': ('objects', [perks.ids[int(r['FormID'], 16)][0] for r in traits])}
+
+
+def _own(builder, records) -> list:
+    """`records` that are the source plugin's own, not its masters'."""
+    return [r for r in records if builder.ids.is_own(int(r['FormID'], 16))]

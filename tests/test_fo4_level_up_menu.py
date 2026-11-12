@@ -96,13 +96,13 @@ def test_each_tag_gets_its_bonus_once_and_keeps_it():
 
 @pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
 def test_the_character_scripts_compile_together(tmp_path):
-    """F3NV_CharacterRules.psc, F3NV_LevelUp.psc and F3NV_CharacterEvents.psc (which hold the tags) compile
-    against FO4's, F4SE's and LevelUpMenuEx's headers."""
+    """F3NV_CharacterRules.psc, F3NV_LevelUp.psc, F3NV_LevelUpTable.psc and F3NV_CharacterEvents.psc (which holds
+    the tags) compile against FO4's, F4SE's and LevelUpMenuEx's headers."""
     src, stub, out = tmp_path / 'src', tmp_path / 'stub', tmp_path / 'out'
     for folder in (src, stub, out):
         folder.mkdir()
     (stub / 'TES4Polyfill.psc').write_text(POLYFILL_STUB, encoding='utf-8')
-    names = ('F3NV_LevelUp', 'F3NV_CharacterRules', 'F3NV_CharacterEvents')
+    names = ('F3NV_LevelUp', 'F3NV_LevelUpTable', 'F3NV_CharacterRules', 'F3NV_CharacterEvents')
     for name in names:
         shutil.copy(STATIC / f'{name}.psc', src)
     log = compile_folder(src, out, f'{src};{stub};{STATIC};{header_dirs()}')
