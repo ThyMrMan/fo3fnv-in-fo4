@@ -16,6 +16,10 @@ ActorValue[] Property Suggested Auto Hidden
 {Skills SetPlayerTagSkill tagged ahead of the next tag menu (the psych test's picks), which the player may still
 change there; the rules clear it after.}
 
+Quest Property LevelUp Auto Hidden
+{The running game's level-up (F3NV_LevelUp, on its character rules quest), which F3NV_LevelUp.Get hands to other
+mods; set as the rules start and each time our level-up menu opens.}
+
 ActorValue[] Tagged
 
 Function Menu(string asKind, float afValue)

@@ -36,6 +36,7 @@ Event OnInit()
   RegisterForMenuOpenCloseEvent("SPECIALMenu")
   RegisterForMenuOpenCloseEvent("LevelUpMenu")
   LastLevel = Game.GetPlayer().GetLevel()
+  LevelUp().Announce()
 EndEvent
 
 Event F3NV_CharacterEvents.CharacterMenu(F3NV_CharacterEvents akSender, Var[] akArgs)
@@ -47,7 +48,7 @@ Event F3NV_CharacterEvents.CharacterMenu(F3NV_CharacterEvents akSender, Var[] ak
   ElseIf kind == "tags"
     OpenTags((akArgs[1] as Float) as Int)
   ElseIf kind == "traits"
-    ShowOurs(LevelUp().TraitsMode, TraitCount, 0)
+    OpenTraits(0)
   EndIf
 EndEvent
 
@@ -210,6 +211,14 @@ Function OpenTags(Int count)
   before stay. OnTagsChosen gives the bonus.}
   RegisterForCustomEvent(LevelUp(), "TagsChosen")
   ShowOurs(LevelUp().TagsMode, count, TagBonus)
+EndFunction
+
+Function OpenTraits(Int count)
+  {Our menu as the trait menu, for up to `count` traits (0: TraitCount, the game's).}
+  If count <= 0
+    count = TraitCount
+  EndIf
+  ShowOurs(LevelUp().TraitsMode, count, 0)
 EndFunction
 
 Event F3NV_LevelUp.TagsChosen(F3NV_LevelUp akSender, Var[] akArgs)

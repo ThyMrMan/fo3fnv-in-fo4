@@ -14,6 +14,7 @@ from asset_convert.ui.swf import Swf
 from fo4_import import level_up as M
 from fo4_import.base import mxmlc
 from fo4_import.base.papyrus import FO4_COMPILER, compile_folder, header_dirs
+from script_convert.constants import FALLOUT4_HELPER_PLUGIN, FALLOUT4_HELPER_QUESTS
 
 STATIC = Path(__file__).resolve().parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
 SCRIPT = (STATIC / 'F3NV_LevelUp.psc').read_text(encoding='utf-8')
@@ -79,7 +80,7 @@ def test_the_tag_and_trait_menus_are_ours():
     """The rules open our menu as the tag menu (count and bonus) and the trait menu (TraitCount); LevelUpMenuEx is
     read only once, to move an older save's points and tags."""
     assert 'ShowOurs(LevelUp().TagsMode, count, TagBonus)' in _function(RULES, 'OpenTags')
-    assert 'ShowOurs(LevelUp().TraitsMode, TraitCount, 0)' in RULES
+    assert 'ShowOurs(LevelUp().TraitsMode, count, 0)' in _function(RULES, 'OpenTraits') and 'OpenTraits(0)' in RULES
     prkf = {m.start() for m in re.finditer('PRKF:PRKF', RULES)}
     moved = re.search(r'Function MovePrkf\(.*?EndFunction', RULES, re.S).span()
     assert prkf and all(moved[0] < at < moved[1] for at in prkf)
@@ -93,6 +94,41 @@ def test_each_tag_gets_its_bonus_once_and_keeps_it():
     assert 'TES4CharacterEvents.Suggested = new ActorValue[0]' in chosen
     assert 'If HasBonus(skill)' in _function(RULES, 'SetSkillBases')
     assert 'SendCustomEvent("TagsChosen"' in _function(SCRIPT, 'OnMenuTags')
+
+
+def test_other_mods_reach_the_level_up_through_the_helper_plugin():
+    """Get() reads the character events quest of FalloutHelpers.esl, which the level-up announces itself to as the
+    rules start and as our menu registers."""
+    get = _function(SCRIPT, 'Get')
+    quest = FALLOUT4_HELPER_QUESTS['F3NV_CharacterEvents']
+    assert f'Game.GetFormFromFile(0x{quest:X}, "{FALLOUT4_HELPER_PLUGIN}") as F3NV_CharacterEvents' in get
+    assert 'Announce()' in _function(SCRIPT, 'Register') and 'LevelUp().Announce()' in RULES
+
+
+def test_the_api_opens_each_menu_through_the_rules():
+    """OpenLevelUpMenu, OpenTagMenu and OpenTraitMenu call the rules' openers, which exist."""
+    for api, rules in (('OpenLevelUpMenu', 'OpenLevelUp()'), ('OpenTagMenu', 'OpenTags(aiTags)'),
+                       ('OpenTraitMenu', 'OpenTraits(aiTraits)')):
+        assert f'Rules().{rules}' in _function(SCRIPT, api)
+        assert f'Function {rules.split("(")[0]}(' in RULES
+
+
+def test_the_api_sends_its_events():
+    """SkillRaised as points raise a skill, MenuClosed as our menu closes, each declared."""
+    for event, function in (('SkillRaised', 'RaiseSkill'), ('MenuClosed', None)):
+        assert f'CustomEvent {event}' in SCRIPT
+        body = _function(SCRIPT, function) if function else re.search(
+            r'Event OnMenuOpenCloseEvent\(.*?EndEvent', SCRIPT, re.S).group(0)
+        assert f'SendCustomEvent("{event}", args)' in body
+
+
+def test_an_added_perk_is_described_and_tested_by_the_game():
+    """DescribeAdded fills every perk and row text (Text's 0-4, 8-15) for an added perk, its one row of kind 4,
+    which the movie's GAME kind is."""
+    described = _function(SCRIPT, 'DescribeAdded')
+    filled = sorted(int(n) for n in re.findall(r'AddPart\((\d+),', described))
+    assert filled == [*range(5), *range(8, 16)] and 'AddPart(9, "4", j)' in described
+    assert 'public static const GAME:int = 4;' in CHARACTER and '"$F3NV_LU_OWN_TEST"' in CHARACTER
 
 
 @pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')

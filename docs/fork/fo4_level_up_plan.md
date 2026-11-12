@@ -303,6 +303,40 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
   and Be Exceptional patches) work without LevelUpMenuEx. Only the file
   format, not its code. **Open decision**, as with PipboyTabs' INIs.
 
+**Built 2026-11-12 (not played),** all on `F3NV_LevelUp`:
+- **Reaching it:** `F3NV_LevelUp.Get()` (global), so a mod needs no master
+  but `FalloutHelpers.esl`, which every converted plugin masters. It reads
+  `F3NV_CharacterEvents.LevelUp` (helper quest `0x901`), which the level-up
+  sets as the rules quest starts (`OnInit`) and each time our menu registers
+  (`Register`, `Announce`); on a save from before, `Get()` is None until
+  the menu first opens. With two games loaded, the one whose rules ran last.
+- **Points:** `AddPerkPoints`, `AddSkillPoints`, `GetPerkPoints`,
+  `GetSkillPoints`, `RaiseSkill`, `TakePerk`, `CanTake`, `Rank`,
+  `NextRank`, `PerkList` (from [prkf](#prkf)).
+- **Menus:** `OpenLevelUpMenu()` (as the Pip-Boy's button: points topped
+  up, then ours), `OpenTagMenu(aiTags)` (tags in all; tags held stay
+  locked, so Tag! is `OpenTagMenu(held + 1)`), `OpenTraitMenu(aiTraits = 0)`
+  (0: the game's `TraitCount`). Each goes through the rules' openers
+  (`OpenLevelUp`, `OpenTags`, `OpenTraits`), which wait until no menu is
+  open.
+- **Tags:** `Tag`, `Untag`, `IsTagged` (`F3NV_CharacterEvents` holds them).
+- **Events:** `PerkTaken` (the rank), `SkillRaised` (skill, points spent,
+  new base), `TagsChosen`, `MenuClosed` (mode, perk and skill points left:
+  a level-up finished when the mode is 0); `F3NV_CharacterEvents`'
+  `SkillTagged` and `SkillUntagged`.
+- **Perks of other mods:** `AddPerk(akFirstRank)` and `RemovePerk`, kept by
+  the save. An added perk no plugin's table lists comes after them, read
+  from the perk itself as the menu opens (`DescribeAdded`: `GetName`,
+  `GetDescription`, `GetIconPath`, `GetLevel`, `GetNumRanks`, each a frame
+  per perk). Its requirements are one row of kind 4, the game's own test
+  of its next rank (`IsEligible`), shown as "Its own requirements"
+  (`$F3NV_LU_OWN_TEST`); taking it is `TakePerk` as for any other.
+
+**Not yet:** skills of other mods (the menu's skills are FNV_Skills, and a
+skill's tag rides a 31-bit mask), and LevelUpMenuEx's INI format (the open
+decision above). A tab in an added perk's name or description would split
+its entry: Papyrus has no string search to strip it.
+
 ## <a id="profiles"></a>Both profiles
 
 - Every setting keys on the character's starting world, as the character
@@ -331,8 +365,10 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
    ([tags](#tags)): built 2026-11-12, not played.
 6. **Options** in MCM ([options](#options)): the balance values, the
    show-all filter and the hotkey built 2026-11-12, not played; the level
-   cap, perk sound and the off-by-default features left. Then the **API**,
-   then dropping LevelUpMenuEx from the requirements.
+   cap, perk sound and the off-by-default features left. Then the **API**
+   ([api](#api)): `Get`, the menu openers, `AddPerk` and the events built
+   2026-11-12, not played; other mods' skills and the INI format left. Then
+   dropping LevelUpMenuEx from the requirements.
 
 **Open questions:**
 - Whether the moment of `LevelUpMenu` before ours is acceptable in play,

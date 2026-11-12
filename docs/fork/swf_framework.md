@@ -696,6 +696,16 @@ Options, with MCM (Mod Configuration Menu, `F3NV: Fallout New Vegas`):
   happens, MCM's `CallFunction` didn't find `F3NV_CharacterRules` on the
   quest).
 
+The API, from the console (`cqf` runs a quest function; the rules quest's
+EditorID is `FNV_CharacterRules`):
+- `cqf FNV_CharacterRules "F3NV_LevelUp.OpenTagMenu" 4`: the tag menu
+  for a fourth tag, the three held locked;
+- `cqf FNV_CharacterRules "F3NV_LevelUp.AddPerk" <a Fallout 4 perk's
+  FormID>`, then open the menu: the perk is last on PERKS, its image if it
+  has one, "Its own requirements" met or unmet as the game's test says;
+- `Papyrus.0.log` after a level-up: no errors from `MenuClosed` or
+  `SkillRaised`.
+
 ## <a id="casino"></a>The casino on the framework
 
 - Move `Ui.as` and the bridge into the library; the games keep their own

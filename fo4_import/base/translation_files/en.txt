@@ -73,3 +73,4 @@ $F3NV_MCM_SHOW_ALL	Show every perk at first
 $F3NV_MCM_SHOW_ALL_HELP	The perk list opens with the perks you can't take yet shown too, dimmed. X switches it in the menu.
 $F3NV_MCM_OPEN	Open the level-up menu
 $F3NV_MCM_OPEN_HELP	A key that opens the level-up menu, to spend points you kept or to look through the perks.
+$F3NV_LU_OWN_TEST	Its own requirements
