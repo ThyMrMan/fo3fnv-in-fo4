@@ -9,7 +9,8 @@ import struct
 from pathlib import Path
 
 from fo4_import import dialogue_menu as menu_links
-from fo4_import import pipboy_overlay
+from fo4_import import level_up as level_up_menu, pipboy_overlay
+from fo4_import.base import translations
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
@@ -24,7 +25,8 @@ from fo4_import.nif import weapon
 from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
 from fo4_import.pipeline.stage_timer import timed
-from fo4_import.spike import ammo_casings, ammo_switch, companion_barks, facegen, list_adds, skeleton, voice
+from fo4_import.spike import (ammo_casings, ammo_switch, companion_barks, facegen, level_up_icons, list_adds,
+                               skeleton, voice)
 from fo4_import.spike.combat_feel import write_settings
 from fo4_import.spike.imagespace import LUT_FOLDER
 from fo4_import.spike.karma_page import write_karma_page
@@ -166,10 +168,11 @@ def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
 
 @timed('assets')
 def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
-    """Lowered skeletons, voices, sounds and movies; counted."""
+    """Lowered skeletons, voices, sounds, movies and the level-up icons; counted."""
     builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
     _sounds(builder, export_dir, data_dir, out.name)
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
+    level_up_icons.stage(builder, export_dir, data_dir)
 
 
 @timed('FaceGen and texture archive')
@@ -221,6 +224,8 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
         builder.scripts.used += [list_adds.SCRIPT]
     else:
         builder.counts['Pip-Boy movie installed'] = pipboy_overlay.install(data_dir)
+        builder.counts['level-up menu movie installed'] = level_up_menu.install(data_dir)
+        builder.counts['menu translation files installed'] = translations.install(data_dir)
 
 
 @timed('closing records')

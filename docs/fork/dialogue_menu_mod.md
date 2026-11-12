@@ -310,9 +310,15 @@ losing their mods. It is not the reason to install it.
 ## <a id="phases"></a>Phases
 
 1. **Movie spike:** the five-holder movie as `DialogueMenu.swf`; does the
-   engine tint it? (Front 1.)
+   engine tint it? (Front 1.) **Done:** played 2026-11-11, the engine tints
+   it ([spike 3](swf_framework.md#spikes)).
 2. **Own movie:** the list, hint bar, speech animation and safe rect, built
-   by `mxmlc`, replacing the FFDec patch in the FNV build too.
+   by `mxmlc`, replacing the FFDec patch in the FNV build too. **Partly
+   done:** the list and safe rect on our own movie (played 2026-11-12), on
+   `mxmlc` and `f3ui` (built, not played); keys, controls and the hint bar
+   through the library's `Input` and `HintBar`
+   ([input](swf_framework.md#input), built, not played). Not built: a
+   speech animation.
 3. **Shared base and its own DLL:** CommonLibF4 (Dear-Modding), Address Library, xmake;
    `dialogue.cpp` moves out of F3NV.dll ([spin-off plan](spin_offs.md#runtime)).
 4. **Modes:** XDI mode, vanilla expanded, per-option flags, Leave rules.

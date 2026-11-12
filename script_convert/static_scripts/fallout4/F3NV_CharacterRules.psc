@@ -1,8 +1,9 @@
 ScriptName F3NV_CharacterRules extends Quest
-{Fallout 4 only. FO3/FNV's character rules on LevelUpMenuEx (PRKF): answers F3NV_CharacterEvents' CharacterMenu
-(SPECIAL, tag skills, traits), sets each skill's starting value once SPECIAL is chosen, and at each level-up
-tops LevelUpMenuEx's skill and perk points up to the source game's rates. The importer fills the lists and
-rates from the game. See docs/fork/research/fo4_target.md#decisions}
+{Fallout 4 only. FO3/FNV's character rules: answers F3NV_CharacterEvents' CharacterMenu (SPECIAL, and our menu as the
+tag skill and trait menus), sets each skill's starting value once SPECIAL is chosen (a tagged skill's bonus kept),
+gives each tagged skill its bonus once, gives each level-up's skill and perk points at the source game's rates to
+F3NV_LevelUp (on this quest), and opens our level-up menu in place of LevelUpMenu. The importer fills the lists and
+rates from the game. See docs/fork/research/fo4_target.md#decisions, docs/fork/fo4_level_up_plan.md#open}
 
 F3NV_CharacterEvents Property TES4CharacterEvents Auto
 FormList Property SpecialStats Auto
@@ -26,18 +27,15 @@ String[] Property StageScripts Auto
 Bool[] HeldAtOpen
 Bool[] StageSeen
 Int LastLevel
-Int LastPP
-Int LastSP
 Float SkillPointCarry
-Float[] TagBases
+ActorValue[] Bonused
+Bool Migrated
 
 Event OnInit()
   RegisterForCustomEvent(TES4CharacterEvents, "CharacterMenu")
   RegisterForMenuOpenCloseEvent("SPECIALMenu")
   RegisterForMenuOpenCloseEvent("LevelUpMenu")
   LastLevel = Game.GetPlayer().GetLevel()
-  LastPP = PRKF:PRKF.GetPP()
-  LastSP = PRKF:PRKF.GetSP()
 EndEvent
 
 Event F3NV_CharacterEvents.CharacterMenu(F3NV_CharacterEvents akSender, Var[] akArgs)
@@ -49,7 +47,7 @@ Event F3NV_CharacterEvents.CharacterMenu(F3NV_CharacterEvents akSender, Var[] ak
   ElseIf kind == "tags"
     OpenTags((akArgs[1] as Float) as Int)
   ElseIf kind == "traits"
-    PRKF:PRKF.OpenTraitsMenuFL(Traits, TraitCount, True)
+    ShowOurs(LevelUp().TraitsMode, TraitCount, 0)
   EndIf
 EndEvent
 
@@ -57,17 +55,82 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
   If asMenuName == "SPECIALMenu"
     TraceSpecial(abOpening)
   EndIf
+  String ours = LevelUp().MenuName
   If asMenuName == "SPECIALMenu" && !abOpening
     SetSkillBases()
   ElseIf asMenuName == "LevelUpMenu" && abOpening
-    TopUp()
+    OpenLevelUp()
+  ElseIf asMenuName == ours && abOpening
     WatchStages()
-  ElseIf asMenuName == "LevelUpMenu"
-    LastPP = PRKF:PRKF.GetPP()
-    LastSP = PRKF:PRKF.GetSP()
+  ElseIf asMenuName == ours
     RunPerkStages()
   EndIf
 EndEvent
+
+F3NV_LevelUp Function LevelUp()
+  {Our level-up state and menu, on this quest.}
+  Return (Self as Quest) as F3NV_LevelUp
+EndFunction
+
+Function OpenLevelUp()
+  {In place of LevelUpMenu (from the Pip-Boy, LevelUpMenuEx's hotkey or anything else): this level-up's points, then
+  our menu once LevelUpMenu and the Pip-Boy have closed, as FNV's level-up is not part of its Pip-Boy.
+  See docs/fork/fo4_level_up_plan.md#open}
+  UI.CloseMenu("LevelUpMenu")
+  If UI.IsMenuOpen("PipboyMenu")
+    UI.CloseMenu("PipboyMenu")
+  EndIf
+  TopUp()
+  ShowOurs(LevelUp().LevelUpMode, 0, 0)
+EndFunction
+
+Function ShowOurs(Int aiMode, Int aiCount, Int aiBonus)
+  {Our menu in mode aiMode (F3NV_LevelUp.Open) once no menu is open, LevelUpMenuEx's state moved over first.}
+  MovePrkf()
+  RegisterForMenuOpenCloseEvent(LevelUp().MenuName)
+  WaitOutOfMenus()
+  LevelUp().Open(aiMode, aiCount, aiBonus)
+EndFunction
+
+Function MovePrkf()
+  {Once, on a save from before our menu: the perk and skill points LevelUpMenuEx banked, and its tagged skills (each
+  already given its bonus by its tag menu), moved to ours. Without LevelUpMenuEx its calls give nothing.
+  See docs/fork/fo4_level_up_plan.md#tags}
+  If Migrated
+    Return
+  EndIf
+  Migrated = True
+  F3NV_LevelUp ours = LevelUp()
+  ours.AddPerkPoints(PRKF:PRKF.GetPP())
+  ours.AddSkillPoints(PRKF:PRKF.GetSP())
+  PRKF:PRKF.AddPP(-PRKF:PRKF.GetPP())
+  PRKF:PRKF.AddSP(-PRKF:PRKF.GetSP())
+  ActorValue[] skills = Skills()
+  Int i = 0
+  While i < skills.Length
+    If PRKF:PRKF.IsTagSkillAV(skills[i])
+      TES4CharacterEvents.Tag(skills[i])
+      If !TES4CharacterEvents.IsSuggested(skills[i])
+        MarkBonused(skills[i])
+      EndIf
+    EndIf
+    i += 1
+  EndWhile
+EndFunction
+
+Function MarkBonused(ActorValue akSkill)
+  {akSkill has its tag bonus.}
+  If !Bonused
+    Bonused = new ActorValue[0]
+  EndIf
+  If Bonused.Find(akSkill) < 0
+    Bonused.Add(akSkill)
+  EndIf
+EndFunction
+
+Bool Function HasBonus(ActorValue akSkill)
+  Return Bonused && Bonused.Find(akSkill) >= 0
+EndFunction
 
 Function WatchStages()
   {As the level-up menu opens: which stage perks the player holds, and a watch on their quests' stages, so
@@ -142,40 +205,32 @@ Function RunFragment(Int i)
 EndFunction
 
 Function OpenTags(Int count)
-  {The tag menu for `count` skills in all. Skills SetPlayerTagSkill suggested are already tagged and count toward
-  them; the player may untag one to pick another, and OnTagsFinished squares each skill's bonus once it closes.}
-  Int tagged = 0
-  If TES4CharacterEvents.Suggested
-    tagged = TES4CharacterEvents.Suggested.Length
-  EndIf
-  If tagged > 0
-    TagBases = SkillValues()
-    RegisterForExternalEvent("PRKF::TagSkills::Finish", "OnTagsFinished")
-  EndIf
-  Int left = count - tagged
-  If left < 0
-    left = 0
-  EndIf
-  PRKF:PRKF.OpenTagSkillsMenu(left, TagBonus, tagged > 0)
+  {Our menu as the tag menu, for `count` skills tagged in all (FNV's 3 at Doc Mitchell's, one more for Tag!). Skills
+  SetPlayerTagSkill suggested are tagged already and count toward them, and the player may untag them; skills tagged
+  before stay. OnTagsChosen gives the bonus.}
+  RegisterForCustomEvent(LevelUp(), "TagsChosen")
+  ShowOurs(LevelUp().TagsMode, count, TagBonus)
 EndFunction
 
-Function OnTagsFinished()
-  {Each skill at its value before the tag menu plus TagBonus when it ends tagged, whatever the menu added or took
-  for a skill tagged before it opened; the suggestions are cleared.}
-  UnregisterForExternalEvent("PRKF::TagSkills::Finish")
+Event F3NV_LevelUp.TagsChosen(F3NV_LevelUp akSender, Var[] akArgs)
+  {The tag menu's picks are set: each tagged skill without its bonus gets TagBonus, a skill untagged loses it; the
+  suggestions are done with.}
   Actor player = Game.GetPlayer()
   ActorValue[] skills = Skills()
   Int i = 0
-  While i < skills.Length && i < TagBases.Length
-    Float bonus = 0.0
-    If PRKF:PRKF.IsTagSkillAV(skills[i])
-      bonus = TagBonus
+  While i < skills.Length
+    Bool tagged = TES4CharacterEvents.IsTagged(skills[i])
+    If tagged && !HasBonus(skills[i])
+      player.SetValue(skills[i], player.GetBaseValue(skills[i]) + TagBonus)
+      MarkBonused(skills[i])
+    ElseIf !tagged && HasBonus(skills[i])
+      player.SetValue(skills[i], player.GetBaseValue(skills[i]) - TagBonus)
+      Bonused.Remove(Bonused.Find(skills[i]))
     EndIf
-    player.SetValue(skills[i], TagBases[i] + bonus)
     i += 1
   EndWhile
   TES4CharacterEvents.Suggested = new ActorValue[0]
-EndFunction
+EndEvent
 
 ActorValue[] Function Skills()
   {Every governed skill, in GovernedSkills' order.}
@@ -188,18 +243,6 @@ ActorValue[] Function Skills()
       out.Add(governed.GetAt(k) as ActorValue)
       k += 1
     EndWhile
-    i += 1
-  EndWhile
-  Return out
-EndFunction
-
-Float[] Function SkillValues()
-  {The player's value of each of Skills().}
-  ActorValue[] skills = Skills()
-  Float[] out = new Float[skills.Length]
-  Int i = 0
-  While i < skills.Length
-    out[i] = Game.GetPlayer().GetValue(skills[i])
     i += 1
   EndWhile
   Return out
@@ -282,7 +325,8 @@ Function RaiseSkills(Int aiStat, Float afBefore)
 EndFunction
 
 Function SetSkillBases()
-  {Each skill's base: SkillBase + 2 x its governing stat + Luck / 2, rounded up (FO3/FNV's starting value).}
+  {Each skill's base: SkillBase + 2 x its governing stat + Luck / 2, rounded up (FO3/FNV's starting value), plus
+  TagBonus when it has its tag bonus (SPECIAL chosen again after the tags).}
   Actor player = Game.GetPlayer()
   Int luck = Math.Ceiling(player.GetValue(SpecialStats.GetAt(6) as ActorValue) / 2.0)
   Int i = 0
@@ -291,7 +335,12 @@ Function SetSkillBases()
     FormList governed = GovernedSkills.GetAt(i) as FormList
     Int k = 0
     While k < governed.GetSize()
-      player.SetValue(governed.GetAt(k) as ActorValue, SkillBase + 2.0 * stat + luck)
+      ActorValue skill = governed.GetAt(k) as ActorValue
+      Float tag = 0.0
+      If HasBonus(skill)
+        tag = TagBonus
+      EndIf
+      player.SetValue(skill, SkillBase + 2.0 * stat + luck + tag)
       k += 1
     EndWhile
     i += 1
@@ -299,9 +348,8 @@ Function SetSkillBases()
 EndFunction
 
 Function TopUp()
-  {For the levels gained since the last top-up: SkillPointsBase + Intelligence x SkillPointsPerIntelligence skill
-  points each (a fraction carries over), a perk point every LevelsPerPerk levels; whatever LevelUpMenuEx itself
-  added since is subtracted.}
+  {For the levels gained since the last top-up, to F3NV_LevelUp: SkillPointsBase + Intelligence x
+  SkillPointsPerIntelligence skill points each (a fraction carries over), a perk point every LevelsPerPerk levels.}
   Actor player = Game.GetPlayer()
   Int level = player.GetLevel()
   If level <= LastLevel
@@ -319,8 +367,7 @@ Function TopUp()
   EndWhile
   Int whole = Math.Floor(sp)
   SkillPointCarry = sp - whole
-  PRKF:PRKF.AddSP(whole - (PRKF:PRKF.GetSP() - LastSP))
-  PRKF:PRKF.AddPP(pp - (PRKF:PRKF.GetPP() - LastPP))
+  LevelUp().AddSkillPoints(whole)
+  LevelUp().AddPerkPoints(pp)
   LastLevel = level
-  PRKF:PRKF.UpdateMenu()
 EndFunction

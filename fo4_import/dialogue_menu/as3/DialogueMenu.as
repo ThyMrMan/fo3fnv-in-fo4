@@ -1,18 +1,18 @@
 package
 {
    import f3ui.Bridge;
+   import f3ui.Draw;
+   import f3ui.HintBar;
+   import f3ui.Input;
+   import f3ui.ScrollList;
    import f3ui.Text;
    import flash.display.DisplayObject;
-   import flash.display.Graphics;
    import flash.display.MovieClip;
    import flash.display.Sprite;
    import flash.events.Event;
-   import flash.events.KeyboardEvent;
-   import flash.events.MouseEvent;
    import flash.geom.Point;
    import flash.geom.Rectangle;
    import flash.system.ApplicationDomain;
-   import flash.text.TextField;
    import flash.utils.getDefinitionByName;
 
    // F3NV's dialogue menu, in a movie made only of our code (fo4_import/dialogue_menu/movie.py); the root
@@ -29,8 +29,10 @@ package
       // f4se.plugins.F3NV: GetDialogueOptions, SelectDialogueOption, Log, LeaveDialogue, ShadeList, TintFailed.
       private var dll:Object = null;
 
-      // The game's input platform (SetPlatform): 0 is keyboard and mouse.
-      private var platform:uint = 0;
+      // Keys and the game's controls as actions (made once the movie is on the stage), and the hints under the list.
+      private var input:Input;
+
+      private var hints:HintBar;
 
       // The safe-area margins the game gives (SetSafeRect).
       private var safeX:Number = 0;
@@ -40,16 +42,14 @@ package
       // The game's text per button (0 Positive, 1 Negative, 2 Neutral, 3 Question).
       private var gameTexts:Array = ["", "", "", ""];
 
-      // The list: {text, said, failed, ours, index}; index is F3NV.dll's option or the game's button.
+      // The list: {text, said, dim, failed, ours, index}; index is F3NV.dll's option or the game's button, dim the
+      // same as said (ScrollList draws a dim row fainter).
       private var entries:Array = [];
 
-      private var selected:int = 0;
-
-      private var top:int = 0;
-
+      // The box (its outline in its own graphics) holding the rows (f3ui's ScrollList) and the hints.
       private var list:Sprite;
 
-      private var rows:Vector.<TextField>;
+      private var scroll:ScrollList;
 
       // The rows whose skill check fails, laid over the list inside the Negative holder, which F3NV.dll tints with
       // the game's own speech-challenge color (TintFailed) instead of the HUD color.
@@ -92,34 +92,16 @@ package
       // The list entry that leaves the talk (LeaveDialogue), shown when a menu has no options of ours.
       private static const LEAVE:int = -1;
 
-      private static const KEY_TAB:uint = 9;
+      // The hint bar's text size and its gap under the box.
+      private static const HINT_SIZE:int = 16;
 
-      private static const KEY_ESCAPE:uint = 27;
-
-      private static const KEY_UP:uint = 38;
-
-      private static const KEY_DOWN:uint = 40;
-
-      // The last wheel event was a press: its release does not move the list again.
-      private var wheelDown:Boolean = false;
+      private static const HINT_GAP:Number = 8;
 
       // The game's buttons in the order its menu reads them: Question, Positive, Negative, Neutral.
       private static const BUTTON_ORDER:Array = [3, 0, 1, 2];
 
       // The holders the game registers and tints, in registerObjects' order.
       private static const HOLDERS:Array = ["Positive", "Negative", "Neutral", "Question", "SpeechChallengeAnim_mc"];
-
-      private static const KEY_ENTER:uint = 13;
-
-      private static const KEY_E:uint = 69;
-
-      private static const KEY_W:uint = 87;
-
-      private static const KEY_S:uint = 83;
-
-      private static const KEY_1:uint = 49;
-
-      private static const KEY_9:uint = 57;
 
       // Only the holders: the constructor runs inside the game's LoadMovie, where a TextField made in code crashed
       // the game (played 2026-11-10). The list is made later, on the first ShowButtonHelp.
@@ -140,12 +122,22 @@ package
          addEventListener(Event.ADDED_TO_STAGE, this.onStage);
       }
 
-      // No yellow focus frame round the menu; the keys come from the stage.
+      // No yellow focus frame round the menu. Input's keys and controls, with the dialogue's own: W and S move and E
+      // picks, the D-pad comes as Quickkey controls, Activate picks, and on a gamepad A and B come as MultiActivate
+      // (the keyboard sends those for its arrow and number keys).
       private function onStage(e:Event) : void
       {
          stage.stageFocusRect = false;
-         stage.addEventListener(KeyboardEvent.KEY_DOWN, this.onKeyDown);
-         stage.addEventListener(KeyboardEvent.KEY_UP, this.onKeyUp);
+         this.input = new Input(stage, this.onAction);
+         this.input.log = this.log;
+         this.input.mapKey(87, Input.UP, "W");
+         this.input.mapKey(83, Input.DOWN, "S");
+         this.input.mapKey(69, Input.ACCEPT, "E");
+         this.input.mapControl("QuickkeyUp", Input.UP);
+         this.input.mapControl("QuickkeyDown", Input.DOWN);
+         this.input.mapControl("Activate", Input.ACCEPT);
+         this.input.mapControl("MultiActivateA", Input.ACCEPT, true);
+         this.input.mapControl("MultiActivateB", Input.BACK, true);
          this.place();
       }
 
@@ -169,7 +161,10 @@ package
 
       public function SetPlatform(platform:uint, ps3Switch:Boolean) : *
       {
-         this.platform = platform;
+         if(this.input != null)
+         {
+            this.input.setPlatform(platform);
+         }
       }
 
       public function SetSafeRect(x:Number, y:Number) : *
@@ -253,38 +248,59 @@ package
 
       // ---- The list ----
 
-      // The list's rows, built once the movie is up (never in the constructor). The game draws this menu only
-      // inside the objects it registered (registerObjects), so the list lives in the Question button's holder,
-      // placed near the screen's safe bottom (draw), and each holder's own button art is hidden and its text
-      // emptied, so the Question holder's bounds (the shaded background's size) are the box's (played 2026-11-10).
+      // The list, built once the movie is up (never in the constructor). The game draws this menu only inside the
+      // objects it registered (registerObjects), so the list lives in the Question button's holder, placed near the
+      // screen's safe bottom (layout), and each holder's own button art is hidden and its text emptied, so the
+      // Question holder's bounds (the shaded background's size) are the box's (played 2026-11-10). The rows are a
+      // ScrollList with FNV's look: wrapping bold rows, the selected one outlined, said ones dim, scroll marks in
+      // the box's left column; a failed skill check's row goes in the failed layer (overlay).
       private function makeList() : void
       {
          var host:MovieClip = this.FadeHolder_mc.Question;
          var list:Sprite = new Sprite();
          list.visible = false;
-         this.rows = new Vector.<TextField>();
-         var i:int = 0;
-         while(i < ROWS)
-         {
-            var row:TextField = Text.field(18, null, Text.BOLD, -2);
-            row.multiline = true;
-            row.wordWrap = true;
-            row.width = TEXT_WIDTH;
-            row.autoSize = "left";
-            row.x = GUTTER + 2 * PAD;
-            row.name = String(i);
-            row.addEventListener(MouseEvent.MOUSE_OVER, this.onRowOver);
-            row.addEventListener(MouseEvent.CLICK, this.onRowClick);
-            list.addChild(row);
-            this.rows.push(row);
-            i++;
-         }
-         host.addChild(list);
          this.failedRows = new Sprite();
          this.failedRows.visible = false;
          this.FadeHolder_mc.Negative.addChild(this.failedRows);
+         var rows:ScrollList = new ScrollList();
+         rows.rows = ROWS;
+         rows.listWidth = BOX_WIDTH;
+         rows.size = 18;
+         rows.font = Text.BOLD;
+         rows.leading = -2;
+         rows.wrap = true;
+         rows.gap = GAP;
+         rows.textX = GUTTER + 2 * PAD;
+         rows.textWidth = TEXT_WIDTH;
+         rows.padTop = PAD + LINE;
+         rows.padBottom = PAD + LINE;
+         rows.marker = ScrollList.FRAME;
+         rows.markerLeft = GUTTER + PAD;
+         rows.markerRight = PAD;
+         rows.marksX = PAD + GUTTER / 2;
+         rows.marksInset = PAD;
+         rows.upper = true;
+         rows.alphas = [1, 0.75, 0.45];
+         rows.layerOf = this.layerOf;
+         rows.onPick = this.pick;
+         rows.onDraw = this.layout;
+         list.addChild(rows);
+         this.scroll = rows;
+         if(this.input != null)
+         {
+            this.hints = new HintBar(this.input, HINT_SIZE);
+            this.hints.show([[Input.ACCEPT, "$F3NV_HINT_SELECT"], [Input.BACK, "$F3NV_HINT_LEAVE"]]);
+            list.addChild(this.hints);
+         }
+         host.addChild(list);
          this.list = list;
          this.log("list made");
+      }
+
+      // A failed skill check's row goes in the failed layer, tinted apart; the rest stay in the list.
+      private function layerOf(entry:Object) : Sprite
+      {
+         return entry.failed == true ? this.failedRows : null;
       }
 
       // The list's entries again: F3NV.dll's options when it has any, else the game's buttons with text and our
@@ -307,7 +323,7 @@ package
          {
             while(i < options.length)
             {
-               this.entries.push({"text":this.unescaped(String(options[i].text)), "said":options[i].said, "failed":options[i].failed == true, "ours":true, "index":i});
+               this.entries.push({"text":this.unescaped(String(options[i].text)), "said":options[i].said, "dim":options[i].said == true, "failed":options[i].failed == true, "ours":true, "index":i});
                i++;
             }
          }
@@ -325,14 +341,13 @@ package
             this.log("no options of ours: the game's " + this.entries.length + " (" + this.gameTexts.join(" | ") + "), and [Leave]");
             if(this.dll != null)
             {
-               this.entries.push({"text":"[Leave]", "said":false, "ours":false, "index":LEAVE});
+               this.entries.push({"text":"$F3NV_LEAVE", "said":false, "ours":false, "index":LEAVE});
             }
             if(this.dll != null && this.listShown && this.retries > 0)
             {
                this.addEventListener(Event.ENTER_FRAME, this.lookAgain);
             }
          }
-         this.selected = Math.max(0, Math.min(this.selected, this.entries.length - 1));
       }
 
       // Each frame for RETRIES frames after a menu showed none of ours: ask F3NV.dll again, and show its options
@@ -354,50 +369,31 @@ package
          }
       }
 
+      // The rows again (ScrollList keeps the selection in range and draws, then layout places the box).
       private function draw() : void
       {
+         this.scroll.show(this.entries, this.scroll.selected);
+      }
+
+      // After each draw of the rows: the hints under the box, the box's outline (FNV's: white, tinted to the HUD
+      // color by the game; the backdrop is the game's shaded background), the holder and box at the screen's safe
+      // bottom, the list shown or hidden with its backdrop, and the failed layer laid over it.
+      private function layout() : void
+      {
          var count:int = Math.min(ROWS, this.entries.length);
-         this.top = Math.max(0, Math.min(this.top, this.entries.length - count));
-         if(this.selected < this.top)
-         {
-            this.top = this.selected;
-         }
-         if(this.selected >= this.top + count)
-         {
-            this.top = this.selected - count + 1;
-         }
-         var y:Number = PAD + LINE;
+         var high:Number = this.scroll.listHeight;
          var failed:int = 0;
-         var i:int = 0;
-         while(i < ROWS)
+         for(var i:int = this.scroll.top; i < this.scroll.top + count; i++)
          {
-            var row:TextField = this.rows[i];
-            var at:int = this.top + i;
-            row.visible = i < count;
-            // A hidden row still counts in its holder's bounds, which size the shaded background: an unused row
-            // leaves the holder, or the backdrop stays as tall as the last longer menu.
-            if(i >= count && row.parent != null)
-            {
-               row.parent.removeChild(row);
-            }
-            if(i < count)
-            {
-               var entry:Object = this.entries[at];
-               var layer:Sprite = entry.failed == true ? this.failedRows : this.list;
-               if(row.parent != layer)
-               {
-                  layer.addChild(row);
-               }
-               failed = failed + (entry.failed == true ? 1 : 0);
-               Text.show(row, String(entry.text).toUpperCase());
-               row.alpha = at == this.selected ? 1 : (entry.said ? 0.45 : 0.75);
-               row.y = y;
-               y = y + row.height + GAP;
-            }
-            i++;
+            failed = failed + (this.entries[i].failed == true ? 1 : 0);
          }
-         var high:Number = y - GAP + PAD + LINE;
-         this.paint(count, high);
+         if(this.hints != null)
+         {
+            this.hints.x = (BOX_WIDTH - this.hints.width) / 2;
+            this.hints.y = high + HINT_GAP;
+         }
+         this.list.graphics.clear();
+         Draw.outline(this.list.graphics, 0, 0, BOX_WIDTH, high, LINE, 0.9);
          var host:DisplayObject = this.list.parent;
          var middle:Point = host.parent.globalToLocal(this.localToGlobal(new Point(0, -BOTTOM - high / 2)));
          host.x = middle.x;
@@ -411,30 +407,6 @@ package
          if(this.list.visible && stage != null)
          {
             stage.focus = this.list;
-         }
-      }
-
-      // The box under `count` rows, `high` in all and always BOX_WIDTH wide, drawn as FNV draws its own: an
-      // outline, the selected row in an outline of its own, and, when the list scrolls, an up and a down mark joined
-      // by a line in the box's left column (dim where there is nothing more that way). White is tinted to the HUD
-      // color by the game; the backdrop is the game's shaded background (shade).
-      private function paint(count:int, high:Number) : void
-      {
-         var g:Graphics = this.list.graphics;
-         g.clear();
-         this.failedRows.graphics.clear();
-         this.frame(g, 0, 0, BOX_WIDTH, high, 0.9);
-         var row:TextField = this.rows[this.selected - this.top];
-         var around:Graphics = row.parent == this.failedRows ? this.failedRows.graphics : g;
-         this.frame(around, GUTTER + PAD, row.y - 3, BOX_WIDTH - GUTTER - 2 * PAD, row.height + 6, 0.9);
-         if(this.entries.length > count)
-         {
-            var x:Number = PAD + GUTTER / 2;
-            g.beginFill(0xFFFFFF, 0.5);
-            g.drawRect(x - LINE / 2, PAD + 12, LINE, high - 2 * PAD - 24);
-            g.endFill();
-            this.arrow(g, x, PAD, -1, this.top > 0 ? 1 : 0.3);
-            this.arrow(g, x, high - PAD, 1, this.top + count < this.entries.length ? 1 : 0.3);
          }
       }
 
@@ -466,38 +438,6 @@ package
             var done:Boolean = this.dll.TintFailed();
             this.seenOnce("failed skill checks tinted" + (done ? "" : " refused"));
          }
-      }
-
-      // An outline LINE thick around the `wide` by `high` box at (`x`, `y`), as four strips that do not overlap.
-      private function frame(g:Graphics, x:Number, y:Number, wide:Number, high:Number, alpha:Number) : void
-      {
-         g.beginFill(0xFFFFFF, alpha);
-         g.drawRect(x, y, wide, LINE);
-         g.drawRect(x, y + high - LINE, wide, LINE);
-         g.drawRect(x, y + LINE, LINE, high - 2 * LINE);
-         g.drawRect(x + wide - LINE, y + LINE, LINE, high - 2 * LINE);
-         g.endFill();
-      }
-
-      // A small scroll mark centered on `x`, its tip at `y`, pointing up (-1) or down (1).
-      private function arrow(g:Graphics, x:Number, y:Number, way:int, alpha:Number) : void
-      {
-         g.beginFill(0xFFFFFF, alpha);
-         g.moveTo(x - 8, y - way * 8);
-         g.lineTo(x + 8, y - way * 8);
-         g.lineTo(x, y);
-         g.lineTo(x - 8, y - way * 8);
-         g.endFill();
-      }
-
-      private function move(by:int) : void
-      {
-         if(this.entries.length == 0)
-         {
-            return;
-         }
-         this.selected = (this.selected + by + this.entries.length) % this.entries.length;
-         this.draw();
       }
 
       // Pick list entry `at`: F3NV.dll's option, or the game's button.
@@ -550,103 +490,36 @@ package
          this.closeList();
       }
 
-      private function onRowOver(e:MouseEvent) : void
-      {
-         var at:int = this.top + int(e.currentTarget.name);
-         if(at != this.selected && at < this.entries.length)
-         {
-            this.selected = at;
-            this.draw();
-         }
-      }
-
-      private function onRowClick(e:MouseEvent) : void
-      {
-         this.pick(this.top + int(e.currentTarget.name));
-      }
-
-      private function onKeyDown(e:KeyboardEvent) : void
-      {
-         if(!this.listShown)
-         {
-            return;
-         }
-         this.seenOnce("key " + e.keyCode);
-         if(e.keyCode == KEY_W || e.keyCode == KEY_UP)
-         {
-            this.move(-1);
-         }
-         else if(e.keyCode == KEY_S || e.keyCode == KEY_DOWN)
-         {
-            this.move(1);
-         }
-      }
-
-      private function onKeyUp(e:KeyboardEvent) : void
-      {
-         if(!this.listShown)
-         {
-            return;
-         }
-         if(e.keyCode == KEY_ENTER || e.keyCode == KEY_E)
-         {
-            this.pick(this.selected);
-         }
-         else if(e.keyCode == KEY_TAB || e.keyCode == KEY_ESCAPE)
-         {
-            this.leave("key " + e.keyCode);
-         }
-         else if(e.keyCode >= KEY_1 && e.keyCode <= KEY_9)
-         {
-            this.pick(this.top + int(e.keyCode - KEY_1));
-         }
-      }
-
-      // The game's input: D-pad (Quickkey) and the mouse wheel (Zoom, kept from the camera by F3NV.dll) move, A,
-      // Accept or Activate picks; the game's four dialogue keys are taken while the list is up so none picks a
-      // button behind it.
-      public function ProcessUserEvent(name:String, down:Boolean) : Boolean
+      // One action while the list is up (Input): back leaves; the rows take the rest (ScrollList: up and down move,
+      // the wheel too, accept picks, a number key picks that row).
+      private function onAction(action:String, digit:int) : Boolean
       {
          if(!this.listShown)
          {
             return false;
          }
-         this.seenOnce("event " + name + (down ? " down" : " up"));
-         if(name == "ZoomIn" || name == "ZoomOut")
+         this.seenOnce("action " + action);
+         if(action == Input.BACK && this.dll != null)
          {
-            this.wheel(name == "ZoomIn" ? -1 : 1, down);
+            this.leave(action);
          }
-         else if(down && name == "QuickkeyUp")
-         {
-            this.move(-1);
-         }
-         else if(down && name == "QuickkeyDown")
-         {
-            this.move(1);
-         }
-         else if(!down && (name == "Accept" || name == "Activate" || (name == "MultiActivateA" && this.platform != 0)))
-         {
-            this.pick(this.selected);
-         }
-         else if(this.dll != null && !down && (name == "Cancel" || (name == "MultiActivateB" && this.platform != 0)))
-         {
-            this.leave(name);
-         }
-         else if(name.indexOf("MultiActivate") != 0 && name.indexOf("Quickkey") != 0)
+         else if(!this.scroll.action(action, digit))
          {
             return false;
          }
          return true;
       }
 
-      // One wheel step moves the list once, whether the game sends it as a press, a release, or both.
-      private function wheel(by:int, down:Boolean) : void
+      // The game's input, through Input; the game's four dialogue keys (MultiActivate, Quickkey) are taken while the
+      // list is up so none picks a button behind it.
+      public function ProcessUserEvent(name:String, down:Boolean) : Boolean
       {
-         if(down || !this.wheelDown)
+         if(!this.listShown || this.input == null)
          {
-            this.move(by);
+            return false;
          }
-         this.wheelDown = down;
+         this.seenOnce("event " + name + (down ? " down" : " up"));
+         return this.input.control(name, down) || name.indexOf("MultiActivate") == 0 || name.indexOf("Quickkey") == 0;
       }
 
       private function onButtonRelease(button:uint) : void

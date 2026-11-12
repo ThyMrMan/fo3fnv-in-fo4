@@ -241,7 +241,7 @@ EndFunction
 
 ; fallout4: new
 Bool Function InMenuMode() Global
-  {FO3/FNV menu mode: a pausing menu is open, or a character menu (SPECIAL, LevelUpMenuEx's tags and traits, the face) that FO4 does not count as one.}
+  {FO3/FNV menu mode: a pausing menu is open (our level-up, tag and trait menu pauses), or a character menu (SPECIAL, LevelUpMenu before ours replaces it, the face) that FO4 does not count as one.}
   Return Utility.IsInMenuMode() || UI.IsMenuOpen("SPECIALMenu") || UI.IsMenuOpen("LevelUpMenu") || UI.IsMenuOpen("LooksMenu")
 EndFunction
 

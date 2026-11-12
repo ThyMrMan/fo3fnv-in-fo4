@@ -6438,11 +6438,11 @@ class TestFallout4PlayerPackage:
         assert 'TES4ScriptPackages.Add(DocREF, DocSitPackage)' in added
         assert 'TES4ScriptPackages.Remove(DocREF)' in conv_lines(converter, 'DocREF.removescriptpackage', 'Quest')
 
-    def test_tag_skill_reads_levelupmenuex(self, converter, monkeypatch):
-        """VCG01's handouts branch on the player's tag skills, which LevelUpMenuEx's tag menu set."""
+    def test_tag_skill_reads_the_character_helpers_tags(self, converter, monkeypatch):
+        """VCG01's handouts branch on the player's tag skills, which our tag menu set on the character helper."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
         out = conv_lines(converter, 'if IsPlayerTagSkill Guns\nset x to 1\nendif', 'Quest')
-        assert 'PRKF:PRKF.IsTagSkillAV(TES4AV_Guns)' in out and 'TODO' not in out
+        assert 'TES4CharacterEvents.IsTagged(TES4AV_Guns)' in out and 'TODO' not in out and 'PRKF' not in out
 
     def test_set_tag_skill_suggests_it_ahead_of_the_tag_menu(self, converter, monkeypatch):
         """The psych test's picks go through the character helper; the slot is dropped."""

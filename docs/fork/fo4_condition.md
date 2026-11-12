@@ -283,9 +283,8 @@ F3NV plugin (`pipboy.cpp`) works inside FO4's own Pip-Boy movie.
 - Each frame on the inventory page, it reads the highlighted entry. It finds
   that entry's item in the player's inventory by `formID`, among the forms
   that wear (`F3NV_Condition.Track`), and its stack (see the third play-test).
-  - It keeps a `CND` line at the stack's condition in the card's `InfoObj`,
-    and redraws the card (`onDataChange`) when it adds or changes the line.
-  - The game's refill drops the line, and the next frame adds it back.
+  - It keeps that stack's condition for the `CND` line, which our movie
+    draws (below).
   - It logs the members of the first entry it reads to `F3NV.log`.
     The game may give an inventory handle that would replace matching by name.
 - On keyboard and mouse (`uiPlatform` 0), it adds a REPAIR hint (G) to the
@@ -298,8 +297,16 @@ F3NV plugin (`pipboy.cpp`) works inside FO4's own Pip-Boy movie.
 **Our own movie in the Pip-Boy** (2026-11-12, spike 4 of the
 [menu framework](swf_framework.md#spikes), played under the vanilla Pip-Boy: works): the same
 once-per-menu hook loads `Interface\F3NV_Pipboy.swf` into the menu instance
-with a `Loader` (`LoadOverlay`). Its first job is one test line on the item
-card. If it works, the CND line, hints and lists move into it.
+with a `Loader` (`LoadOverlay`). Since 2026-11-12 (built, not played) it
+draws the CND line: each frame it calls the native `PipboyCardLines`, which
+gives `[{text: "CND", value, showAsPercent}]` for an item that wears, and
+keeps those lines in the card's `InfoObj`, redrawing the card
+(`onDataChange`) when it adds one or a value changes. The game's refill
+drops the line and the next frame adds it back. While a repair or ammo list
+draws the card, the native gives null and the movie leaves the card alone.
+Without the movie there is no CND line in the Pip-Boy (the container and
+barter menus still draw theirs from C++, `transfer.cpp`). Hints and lists
+are still drawn from C++ ([framework](swf_framework.md#pipboy)).
 
 **Papyrus:** `F3NV_ConditionPlayer` tracks the items, registers G
 while the Pip-Boy is open, and listens for the hint's event. Each of them
@@ -371,7 +378,7 @@ lists every spare with its condition bar, previews the gain and shows the
 Repair skill (asked for with a screenshot). Ours:
 - G or the REPAIR hint on an item that wears opens a list on the item card.
   - First the Repair skill.
-  - Then up to six spares: the item's other unequipped stacks, another copy
+  - Then the spares (six at a time; eight since the movie draws them): the item's other unequipped stacks, another copy
     in its own stack, and unequipped stacks of items in its FNV repair list.
     Each shows its name, a count when more than one, and its CND.
   - Then the item's CND before and after, and "ENTER) REPAIR / ESC) CANCEL".
@@ -404,6 +411,11 @@ Repair skill (asked for with a screenshot). Ours:
   Not needed", not "No spare". Not yet played.
 - Untested: removal skips `RemoveItem`'s own work, so no `OnItemRemoved` and
   no HUD line. Equipped stacks are never offered as spares.
+- **Since 2026-11-12 (built, not played) our Pip-Boy movie draws the list**
+  as a pop-up over the card, from the native `PipboyList`
+  ([framework](swf_framework.md#pipboy)); the card is no longer replaced or
+  lifted, and "Not needed" / "No spare" come through `PipboyCardLines`. The
+  keys, the spares and the repair are unchanged.
 
 <a id="ammo-list"></a>**The ammo list (built 2026-10-23, not yet played).** FNV picks a gun's
 ammo in the Pip-Boy. Asked for: the same on the inventory page, opened the
@@ -414,11 +426,12 @@ each FNV round is one ammo mod.
   REPAIR). V is free in the Pip-Boy, which uses T, G, Q, E, R, X, C, Z, Tab
   and Enter. Like G, it is heard by the native `keyUp` listener, since
   Papyrus `OnKeyDown` never fires in the Pip-Boy.
-- **The list** (`tes_runtime/fo4_condition/ammo.cpp`), drawn on the item card
-  under the page's modal with the card lifted above the fade. It reuses the
-  repair list's helpers in `pipboy.cpp` (`CurrentPage`, `AddLine`,
-  `SetModal`, `SayOnCard`, `MakeHint`, `SendExternal`):
-  - "AMMO TYPE / CARRIED", then up to eight rounds of the gun's FNV ammo list:
+- **The list** (`tes_runtime/fo4_condition/ammo.cpp`), under the page's
+  modal; since 2026-11-12 (built, not played) our Pip-Boy movie draws it
+  from `AmmoView` as the repair list is drawn. It reuses the repair list's
+  helpers in `pipboy.cpp` (`CurrentPage`, `SetModal`, `SayOnCard`,
+  `MakeHint`, `SendExternal`):
+  - "AMMO TYPE / CARRIED", then the rounds of the gun's FNV ammo list (eight at a time):
     name, the count carried over all stacks, and "(loaded)" on the round the
     gun holds. Last, "ENTER) LOAD / ESC) CANCEL"; ENTER is left out on the
     loaded round and on one the player has none of.

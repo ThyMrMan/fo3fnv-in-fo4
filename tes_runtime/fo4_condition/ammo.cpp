@@ -1,5 +1,5 @@
 // F3NV's ammo list in the Pip-Boy (docs/fork/fo4_condition.md#ammo-list): FNV's choice of ammo for the
-// highlighted gun, drawn on the inventory page's item card the way the repair list is (pipboy.cpp). V or the AMMO
+// highlighted gun, drawn by our Pip-Boy movie from AmmoView the way the repair list is (pipboy.cpp). V or the AMMO
 // hint opens it on a gun of an FNV ammo list: each round of the list with the count carried, the loaded one
 // marked. Confirming sends the F4SE external event FNVAmmoSwitch; F3NV_AmmoSwitch takes the choice
 // (F3NV_PipboyAmmo.ChosenGun, TakeChoice) and attaches that round's ammo mod (fo4_import/spike/ammo_switch.py).
@@ -19,10 +19,9 @@ namespace condition {
 
 namespace {
 
-const char *SCRIPT = "F3NV_PipboyAmmo", *EVENT = "FNVAmmoSwitch", *HINT = "AMMO", *HINT_KEY = "V";
+const char *SCRIPT = "F3NV_PipboyAmmo", *EVENT = "FNVAmmoSwitch", *HINT = "$F3NV_AMMO", *HINT_KEY = "V";
 enum : int { KEY_TAB = 9, KEY_ENTER = 13, KEY_ESC = 27, KEY_UP = 38, KEY_DOWN = 40, KEY_E = 69, KEY_S = 83,
              KEY_V = 86, KEY_W = 87 };
-const SInt32 ROWS = 8;
 
 // One FNV ammo list (F3NV_AmmoSwitch's arrays): the keyword its guns carry, its first round's index there, its
 // rounds and the form IDs of their ammo mods.
@@ -88,32 +87,12 @@ bool CanLoad() {
     return g_ammo.chosen != g_ammo.loaded && g_ammo.counts[g_ammo.chosen] > 0;
 }
 
-// Draw the ammo list on `page`'s item card.
-void Draw(GFxMovieRoot *movie, GFxValue &page) {
-    GFxValue card, lines;
-    if (!Get(page, "ItemCard_mc", &card)) return;
-    movie->CreateArray(&lines);
-    AddLine(movie, lines, "AMMO TYPE", "CARRIED");
-    SInt32 size = SInt32(g_ammo.group.rounds.size());
-    SInt32 first = std::max<SInt32>(0, std::min<SInt32>(g_ammo.chosen - ROWS / 2, size - ROWS));
-    for (SInt32 i = first; i < size && i < first + ROWS; i++) {
-        TESForm *round = g_ammo.group.rounds[i];
-        const char *name = round ? round->GetFullName() : nullptr;
-        std::string text = std::string(i == g_ammo.chosen ? "> " : "  ") + (name && *name ? name : "?");
-        if (i == g_ammo.loaded) text += " (loaded)";
-        AddLine(movie, lines, text, std::to_string(g_ammo.counts[i]));
-    }
-    AddLine(movie, lines, CanLoad() ? "ENTER) LOAD" : "", "ESC) CANCEL");
-    card.SetMember("InfoObj", &lines);
-    card.Invoke("onDataChange", nullptr, nullptr, 0);
-}
-
 // Open the ammo list for the highlighted gun, on its loaded round; on a gun of one ammo type, or with two copies
 // of it (Papyrus attaches a mod to the form, not to one copy), say so on the card.
 void Open(GFxMovieRoot *movie) {
     GFxValue page, list, entry, id, node;
-    if (!CurrentPage(movie, &page) || !Get(page, "List_mc", &list) || !Get(list, "selectedEntry", &entry) ||
-        !Get(entry, "formID", &id))
+    if (!CurrentPage(movie, &page) || !PipboyMovieThere() || !Get(page, "List_mc", &list) ||
+        !Get(list, "selectedEntry", &entry) || !Get(entry, "formID", &id))
         return;
     UInt32 formID = UInt32(SInt64(Num(id)));
     TESForm *gun = LookupFormByID(formID);
@@ -125,11 +104,11 @@ void Open(GFxMovieRoot *movie) {
         if (g >= 0) g_ammo.group = g_groups[g];
     }
     if (g < 0 || !player) {
-        if (gun && gun->formType == kFormType_WEAP) SayOnCard(movie, page, "One type only", HINT);
+        if (gun && gun->formType == kFormType_WEAP) SayOnCard("$F3NV_ONE_TYPE", HINT);
         return;
     }
     if (Carried(player, gun) > 1) {
-        SayOnCard(movie, page, "Drop a copy first", HINT);
+        SayOnCard("$F3NV_DROP_A_COPY", HINT);
         return;
     }
     Get(entry, "nodeID", &node);
@@ -142,7 +121,6 @@ void Open(GFxMovieRoot *movie) {
     _MESSAGE("Pip-Boy ammo list for %08X: %u rounds, loaded %d", formID, UInt32(g_ammo.counts.size()),
              g_ammo.loaded);
     SetModal(page, true);
-    Draw(movie, page);
 }
 
 // Close the ammo list, loading the chosen round when `load`; the game redraws the item card.
@@ -227,17 +205,30 @@ bool AmmoKey(GFxMovieRoot *movie, int key) {
         if (key == KEY_V) Open(movie);
         return key == KEY_V;
     }
-    GFxValue page;
     SInt32 last = SInt32(g_ammo.group.rounds.size()) - 1;
     if (key == KEY_UP || key == KEY_W || key == KEY_DOWN || key == KEY_S) {
         SInt32 step = key == KEY_UP || key == KEY_W ? -1 : 1;
         g_ammo.chosen = std::max<SInt32>(0, std::min<SInt32>(last, g_ammo.chosen + step));
-        if (CurrentPage(movie, &page)) Draw(movie, page);
     } else if (key == KEY_ENTER || key == KEY_E) {
         if (g_ammo.chosen == g_ammo.loaded || CanLoad()) Close(movie, CanLoad());
     } else if (key == KEY_ESC || key == KEY_TAB || key == KEY_V) {
         Close(movie, false);
     }
+    return true;
+}
+
+bool AmmoView(ListView *view) {
+    if (!g_ammo.open) return false;
+    view->heading = {"$F3NV_AMMO_TYPE", "$F3NV_CARRIED"};
+    for (size_t i = 0; i < g_ammo.group.rounds.size(); i++) {
+        TESForm *round = g_ammo.group.rounds[i];
+        const char *name = round ? round->GetFullName() : nullptr;
+        std::string text = name && *name ? name : "?";
+        if (SInt32(i) == g_ammo.loaded) text = Fill("$F3NV_LOADED", text);
+        view->rows.push_back({text, std::to_string(g_ammo.counts[i])});
+    }
+    view->chosen = g_ammo.chosen;
+    view->keys = {CanLoad() ? "$F3NV_KEY_LOAD" : "", "$F3NV_KEY_CANCEL"};
     return true;
 }
 

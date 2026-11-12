@@ -19,6 +19,7 @@ from fo4_import.casino import records as R
 from fo4_import.base.install import source_walk, use_source
 from fo4_import.base.source import source_plugin
 from fo4_import.spike import conditions as C
+from fo4_import.spike import level_up_icons as LUI
 from fo4_import.spike import say_topics as ST
 from script_convert.converter import ScriptConverter
 from script_convert.cross_ref import CrossRefGraph
@@ -57,8 +58,9 @@ def test_the_movie_builds_to_the_same_bytes_twice_with_its_entry_points(tmp_path
     assert not {t.code for t in Swf.parse(raw).tags} & set(mxmlc.DATED)
     body = raw[8:]
     for name in (b'F3NV_Casino', b'onF4SEObjCreated', b'ProcessUserEvent', b'SendExternalEvent', b'MountImage',
-                 b'f3ui', b'HudColor', b'$F3UI_TranslationCheck', b'$F3UI_TranslationAbsent'):
+                 b'f3ui', b'HudColor'):
         assert name in body
+    assert b'$F3UI_Translation' not in body
 
 
 @needs_flex
@@ -141,12 +143,28 @@ def test_no_focus_frame_and_no_hud_behind_the_menu():
 
 
 def test_images_mount_by_their_path_under_textures():
-    """MountImage loads the bare path under Textures (played 1108d): the records, MountAll and the spike use it."""
+    """MountImage loads the bare path under Textures (played 1108d): the records write it, f3ui's Images puts any
+    form that way, and MountAll and the spike mount through Images."""
     assert R.fo4_path(R.SPIKE_TEXTURE) == 'fnv/terminals/nv_playingcards/deckt/cardt_c01.dds'
     document = (Path(M.SOURCES) / 'F3NV_Casino.as').read_text()
-    assert 'bridge.mount(MENU, paths[i], name)' in document and 'Textures/' not in document
+    assert 'images.mount(paths[i], prefix + i)' in document and 'images.mount(paths[i], "F3NV_Spike" + i)' in document
+    assert 'bridge.mount(' not in document and 'Textures/' not in document
+    images = (LIBRARY / 'Images.as').read_text(encoding='utf-8')
+    assert 'bridge.mount(menu, at, name)' in images and 'indexOf("textures/") == 0' in images
     assert 'f4se.MountImage(menu, path, name)' in (LIBRARY / 'Bridge.as').read_text(encoding='utf-8')
     assert 'Textures/' not in (STATIC / 'F3NV_Casino.psc').read_text()
+
+
+@pytest.mark.skipif(not (EXPORT_FNV := Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm').is_dir(),
+                    reason='no FalloutNV.esm export')
+def test_spike_shows_staged_level_up_images():
+    """The spike's level-up images are ones level_up_icons stages, passed to the screen space and all.
+
+    See: docs/fork/swf_framework.md#level-up
+    """
+    assert set(R.SPIKE_LEVEL_UP) <= set(LUI.icons(EXPORT_FNV))
+    assert R.fo4_path(R.SPIKE_LEVEL_UP[2]) == 'fnv/interface/icons/pipboyimages/perks/perk_action boy.dds'
+    assert 'String[] Property SpikeImages' in (STATIC / 'F3NV_Casino.psc').read_text()
 
 
 # ---------------------------------------------------------------------------

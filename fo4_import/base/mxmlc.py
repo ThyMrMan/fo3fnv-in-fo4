@@ -10,6 +10,7 @@ See: docs/fork/swf_framework.md#toolchain
 
 import hashlib
 import os
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -86,3 +87,14 @@ def built_movie(sources: Path, document: str, cache: Path, name: str) -> 'Path |
     if not cached.is_file() and available():
         compile_movie(cached, sources, document)
     return cached if cached.is_file() else None
+
+
+def install(data_dir: Path, movie: str, sources: Path, document: str, cache: Path) -> 'Path | None':
+    """Copy the movie of `sources` (built_movie) to <data_dir>/<movie>; its path, None when it could not be built."""
+    built = built_movie(sources, document, cache, Path(movie).name)
+    if built is None:
+        return None
+    target = Path(data_dir) / movie
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(built, target)
+    return target
