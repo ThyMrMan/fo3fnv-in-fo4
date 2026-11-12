@@ -42,6 +42,8 @@ from fo4_import.pipeline.mesh_cache import cached_files
 
 #: Relative-array members of a convex polytope: (element size, struct format of one element).
 POLYTOPE_ARRAYS = {'vertices': (16, '<3fI'), 'planes': (16, '<4f'), 'faces': (4, '<HBB'), 'indices': (1, '<B')}
+#: Classes laid out as a convex polytope (vertices, planes, faces, indices after the class).
+POLYTOPES = frozenset({'hknpConvexPolytopeShape', 'hknpCapsuleShape'})
 #: Low bits of a polytope vertex's fourth word holding the corner index it repeats.
 VERTEX_INDEX = 0xFFFFFF
 #: First value of a hull difference over matched rows; the second is the largest difference.
@@ -67,12 +69,12 @@ def unpack_quaternion(packed) -> tuple:
     return tuple(((c & 0xFFFF) - 0x8000) / 30000 for c in packed)
 
 
-def hull(fields: dict) -> dict:
-    """{'points': (n, 3) distinct corners, 'faces': (f, 6) rows of normal, offset, angle byte, corner count} of an
-    hknpConvexPolytopeShape's decoded fields."""
+def hull(fields: dict, cls: str = 'hknpConvexPolytopeShape') -> dict:
+    """{'points': (n, 3) distinct corners, 'faces': (f, 6) rows of normal, offset, angle byte, corner count} of a
+    polytope's (class `cls`) decoded fields."""
     cl = packfile.classes()
-    at = {m.name: m.offset for m in cl.members('hknpConvexPolytopeShape')}
-    base = cl.size('hknpConvexPolytopeShape')
+    at = {m.name: m.offset for m in cl.members(cls)}
+    base = cl.size(cls)
     tail = fields.get('__tail__', b'')
     parts = {}
     for name, (size, fmt) in POLYTOPE_ARRAYS.items():
@@ -92,15 +94,18 @@ def mesh(tree: dict) -> dict:
 
 
 def _object(fields: dict, cls: str) -> dict:
-    """An object's fields as compared: a polytope's arrays as its hull, a compressed mesh as its triangles
-    without its TREE_LAYOUT fields, packed mass properties unpacked."""
+    """An object's fields as compared: a polytope's or capsule's arrays as its hull, a sphere's as its center, a
+    compressed mesh as its triangles without its TREE_LAYOUT fields, packed mass properties unpacked."""
     if cls == 'hknpCompressedMeshShapeData':
         return {**fields, 'meshTree': mesh(fields['meshTree'])}
     if cls == 'hknpCompressedMeshShape':
         return {k: v for k, v in fields.items() if k not in TREE_LAYOUT}
-    if cls == 'hknpConvexPolytopeShape':
+    if cls in POLYTOPES:
         kept = {k: v for k, v in fields.items() if k not in POLYTOPE_ARRAYS and k != '__tail__'}
-        return {**kept, 'hull': hull(fields)}
+        return {**kept, 'hull': hull(fields, cls)}
+    if cls == 'hknpSphereShape':
+        kept = {k: v for k, v in fields.items() if k not in ('vertices', '__tail__')}
+        return {**kept, 'center': struct.unpack_from('<3f', fields['__tail__'])}
     if cls == 'hknpShapeMassProperties':
         packed = fields['compressedMassProperties']
         return {**packed, 'centerOfMass': unpack_vector(packed['centerOfMass']),

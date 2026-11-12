@@ -1,7 +1,7 @@
 """Our own FO4 physics for a pre-Elric NIF, where it covers the input, in place of Elric's.
 
 `physics(nif)` reads the collision blocks nif/collision.py wrote (bhkCollisionObject, bhkRigidBody,
-convex shapes, triangle meshes on massless bodies) and gives the bhkPhysicsSystem block and each collision
+convex shapes, spheres and capsules, triangle meshes on massless bodies) and gives the bhkPhysicsSystem block and each collision
 owner in body order; None for input it does not cover yet. `finish(nif)` puts them in place of the Havok
 input as elric.graft does.
 
@@ -9,6 +9,7 @@ See: docs/fork/fo4_hknp_writer.md#convex
 """
 
 import struct
+from collections.abc import Callable
 
 import numpy as np
 from scipy.spatial import QhullError
@@ -20,6 +21,7 @@ from fo4_import.nif.elric import without_havok
 from fo4_import.nif.file import NifFile
 from fo4_import.nif.hknp_convex import box_corners, polytope, quaternion
 from fo4_import.nif.hknp_mesh import GAME_PER_HAVOK
+from fo4_import.nif.hknp_round import capsule, sphere
 
 #: Pre-Elric bhkRigidBody offsets: filter, mass, damping, friction, restitution, max angular speed, motion.
 FILTER, MASS, DAMPING, FRICTION, RESTITUTION, MAX_ANGULAR, MOTION = 4, 180, 184, 196, 204, 212, 216
@@ -37,7 +39,9 @@ KEYFRAMED_FLAG = 0x10000
 UNBOUNDED = 1.8446726481523507e+19
 #: bhkNPCollisionObject flags on every Elric collision object.
 NP_FLAGS = 128
-CONVEX_KINDS = frozenset({'bhkConvexVerticesShape', 'bhkBoxShape'})
+CONVEX_KINDS = frozenset({'bhkConvexVerticesShape', 'bhkBoxShape', 'bhkSphereShape', 'bhkCapsuleShape'})
+#: No move: a convex shape's own frame.
+IDENTITY = np.eye(4)
 BODY_KINDS = frozenset({'bhkRigidBody', 'bhkRigidBodyT'})
 MATERIAL = {'name': None, 'isExclusive': 0, 'flags': 0, 'triggerType': 0, 'triggerManifoldTolerance': {'value': 255},
             'frictionCombinePolicy': 1, 'restitutionCombinePolicy': 2, 'weldingTolerance': 15692,
@@ -58,24 +62,28 @@ MOTION_PROPERTIES = {'isExclusive': 0, 'flags': 0, 'gravityFactor': 1.0, 'timeFa
 # Reading our pre-Elric blocks
 # ---------------------------------------------------------------------------
 
-def _convex(blocks: list, index: int) -> 'tuple | None':
-    """(points, convex radius, material CRC) of a convex shape block, Havok units: a convex shape's own vertex
-    list, a box's corners; None for any other."""
+def _convex(blocks: list, index: int, matrix: np.ndarray = IDENTITY) -> 'Callable | None':
+    """The maker (name -> (objects, Mass)) of convex shape block `index` moved by 4×4 `matrix`, Havok units: a
+    polytope of a convex shape's own vertices or a box's corners, a sphere, a capsule; None for any other."""
     kind, raw = blocks[index]
+    moved = lambda points: np.asarray(points) @ matrix[:3, :3].T + matrix[:3, 3]
     if kind == 'bhkConvexVerticesShape':
         crc, radius = struct.unpack_from('<If', raw)
         count = struct.unpack_from('<I', raw, 32)[0]
-        return np.array(struct.unpack_from(f'<{4 * count}f', raw, 36)).reshape(-1, 4)[:, :3], radius, crc
+        points = moved(np.array(struct.unpack_from(f'<{4 * count}f', raw, 36)).reshape(-1, 4)[:, :3])
+        return lambda name: polytope(name, points, radius, crc)
     if kind == 'bhkBoxShape':
         crc, radius, *half = struct.unpack_from('<If8x3f', raw)
-        return box_corners(half), radius, crc
-    if kind == 'bhkConvexTransformShape':
+        return lambda name: polytope(name, moved(box_corners(half)), radius, crc)
+    if kind == 'bhkSphereShape':
+        crc, radius = struct.unpack('<If', raw)
+        return lambda name: sphere(name, moved(np.zeros(3)), radius, crc)
+    if kind == 'bhkCapsuleShape':
+        crc, radius, *ends = struct.unpack('<If8x3f4x3f4x', raw)
+        return lambda name: capsule(name, moved(ends[:3]), moved(ends[3:]), radius, crc)
+    if kind == 'bhkConvexTransformShape' and blocks[struct.unpack_from('<i', raw)[0]][0] in CONVEX_KINDS:
         child, _, _, *cells = struct.unpack('<iIf8x16f', raw)
-        inner = _convex(blocks, child) if blocks[child][0] in CONVEX_KINDS else None
-        if inner is None:
-            return None
-        matrix = np.array(cells).reshape(4, 4).T
-        return inner[0] @ matrix[:3, :3].T + matrix[:3, 3], *inner[1:]
+        return _convex(blocks, child, matrix @ np.array(cells).reshape(4, 4).T)
     return None
 
 
@@ -92,13 +100,15 @@ def _world(nif: NifFile, index: int) -> tuple:
     return translation / GAME_PER_HAVOK, quaternion(rotation)
 
 
-def _shape(blocks: list, index: int, body: bytes) -> 'tuple | hknp_mesh.Mesh | None':
-    """Shape block `index` of `body`: (points, radius, material CRC) when convex, a Mesh when a triangle mesh on
-    a body without a full motion; None for anything else."""
+def _shape(blocks: list, index: int, body: bytes) -> 'Callable | None':
+    """The maker (name -> (objects, Mass or None)) of `body`'s shape block `index`: a convex shape (_convex), or
+    a triangle mesh on a body without a full motion; None for anything else."""
     mesh = hknp_mesh.read(blocks, index)
     if mesh is None:
         return _convex(blocks, index)
-    return None if _massive(body) or not len(mesh.tris) else mesh
+    if _massive(body) or not len(mesh.tris):
+        return None
+    return lambda name: (hknp_mesh.compressed(name, mesh), None)
 
 
 def _bodies(nif: NifFile) -> 'list | None':
@@ -214,10 +224,7 @@ def system(bodies: list) -> bytes:
     """The bhkPhysicsSystem block (u32 length, packfile) for `bodies` (_bodies' rows)."""
     shapes, cinfos, motions, props = [], [], [], []
     for index, (_, body, shape, place) in enumerate(bodies):
-        if isinstance(shape, hknp_mesh.Mesh):
-            objects, mass = hknp_mesh.compressed(f'#s{index}', shape), None
-        else:
-            objects, mass = polytope(f'#s{index}', *shape)
+        objects, mass = shape(f'#s{index}')
         shapes += objects
         motion_id = NO_ID
         if _massive(body):

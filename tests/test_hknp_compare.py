@@ -21,7 +21,7 @@ def _objects(mass: float = 5.0) -> list:
     struct.pack_into('<f', body, MASS, mass)
     body[MOTION] = 3
     place = (np.zeros(3), (0.0, 0.0, 0.0, 1.0))
-    data = hknp_write.system([(0, bytes(body), (CORNERS, 0.01, 7), place)])
+    data = hknp_write.system([(0, bytes(body), lambda name: hknp_convex.polytope(name, CORNERS, 0.01, 7), place)])
     return packfile.read(data[4:]).objects
 
 
