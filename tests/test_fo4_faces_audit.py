@@ -170,11 +170,11 @@ def test_faces_follow_templates_and_lists(monkeypatch):
 
 
 def test_face_workers_follow_the_faces_the_cores_and_free_memory(monkeypatch):
-    """One worker per FACES_PER_WORKER faces, at most half the logical cores, as many as free memory holds."""
+    """One worker per FACES_PER_WORKER faces, at most half the logical cores, as many as the profile's memory holds."""
     monkeypatch.setattr(N.os, 'cpu_count', lambda: 16)
-    monkeypatch.setattr(N, 'memory_workers', lambda wanted, each, spare: wanted)
+    monkeypatch.setattr(N, 'pool_workers', lambda each, jobs, asked: min(jobs, asked))
     assert [N.face_workers(n) for n in (1, 2 * N.FACES_PER_WORKER, 10 ** 6)] == [1, 2, 8]
-    monkeypatch.setattr(N, 'memory_workers', lambda wanted, each, spare: min(wanted, 4))
+    monkeypatch.setattr(N, 'pool_workers', lambda each, jobs, asked: min(jobs, asked, 4))
     assert N.face_workers(10 ** 6) == 4
 
 

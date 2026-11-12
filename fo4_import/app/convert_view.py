@@ -5,7 +5,8 @@ or mod builds what it changes, so the test block is off for one. A stage that ca
 with the reason (fo4_import.app.stages.unavailable). Beside each
 stage is what an earlier run (the app's or the command line's) left (stages.found); the export and up-to-date
 scripts start unticked. The stages
-run on a QThread through fo4_import.app.runner; a zip is made afterwards when the user chose zip output.
+run on a QThread through fo4_import.app.runner; a zip is made afterwards when the user chose zip output. Under the
+controls is the build's estimated time (stages.estimate), replaced while it runs by the build's own 'estimate:' lines.
 
 See: docs/fork/fo4_gui.md#app-shape
 """
@@ -58,13 +59,14 @@ class ConvertView(QWidget):
         self.scopes, self.corners = QButtonGroup(self), [QSpinBox() for _ in range(4)]
         self.workers = QSpinBox()
         self.workers.setRange(0, 256)
-        self.workers.setSpecialValueText('all CPUs but one')
+        self.workers.setSpecialValueText('as the resource setting allows')
         self.start, self.stop = QPushButton('Start'), QPushButton('Stop')
         self.start.clicked.connect(self._start)
         self.stop.clicked.connect(self._stop)
         self.stop.setEnabled(False)
         self.target, self.settings = TargetBox(lambda: self.refresh(self.settings)), None
-        self.status, self.log = QLabel('Ready.'), QPlainTextEdit()
+        self.status, self.log, self.estimate = QLabel('Ready.'), QPlainTextEdit(), QLabel()
+        self.estimate.setWordWrap(True)
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(LOG_LINES)
         self.log.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
@@ -103,6 +105,7 @@ class ConvertView(QWidget):
         box.addWidget(self.target)
         box.addLayout(top)
         box.addLayout(controls)
+        box.addWidget(self.estimate)
         box.addWidget(self.log, 1)
 
     def refresh(self, settings: dict) -> None:
@@ -126,6 +129,8 @@ class ConvertView(QWidget):
             done += [label] if now else []
         if done and not self.stop.isEnabled():
             self.status.setText(f"Already done, so unticked: {', '.join(done)}. Tick a stage to run it again.")
+        if not self.stop.isEnabled():
+            self.estimate.setText(stages.estimate(settings, settings['source']))
 
     def _addon_scopes(self, addon: bool) -> None:
         """Turn the test block off for a DLC or mod (it builds what it changes), choosing the whole scope."""
@@ -151,11 +156,17 @@ class ConvertView(QWidget):
         self.log.clear()
         self.thread = StageThread(plan, settings, settings['source'])
         self.thread.line.connect(self.log.appendPlainText)
+        self.thread.line.connect(self._estimate_line)
         self.thread.done.connect(self._done)
         self.start.setEnabled(False)
         self.stop.setEnabled(True)
         self.status.setText(f'Running {len(plan)} stage(s)...')
         self.thread.start()
+
+    def _estimate_line(self, line: str) -> None:
+        """Show a build's 'estimate:' line under the controls."""
+        if line.startswith('estimate: '):
+            self.estimate.setText('Estimated: ' + line.removeprefix('estimate: '))
 
     def _stop(self) -> None:
         """Stop the running stage."""

@@ -25,7 +25,8 @@ from core.heavy_lock import hold_heavy_lock
 from fo4_import.base.papyrus import header_dirs
 from fo4_import.base.build_files import all_moved_in
 from fo4_import.pipeline.build_steps import STAMP_SUFFIX, convert_scripts, stamp_path
-from fo4_import.spike.script import WORKERS, converted_prefix, stage_dir
+from core.build_resources import profile_cores
+from fo4_import.spike.script import converted_prefix, stage_dir
 from tools.release.fo4_deploy import HOTFIX_MOD, ROOT, game_running, install_hotfix
 from tools.script.compile_papyrus import compile_fallout4
 
@@ -81,7 +82,7 @@ def compile_changed(sources: list, imports: str) -> tuple:
     out.mkdir()
     for path in sources:
         shutil.copyfile(path, src / path.name)
-    compiled, own, names = compile_fallout4(SimpleNamespace(src=str(src), out=str(out), full=True, workers=WORKERS,
+    compiled, own, names = compile_fallout4(SimpleNamespace(src=str(src), out=str(out), full=True, workers=profile_cores(),
                                                             headers=f'{src};{imports}'))
     pex = {n: out / f'{n}.pex' for n in names if n.lower() in compiled and (out / f'{n}.pex').is_file()}
     failed = {n: own.get(n, ['no error of its own (a script it uses failed)']) for n in names if n not in pex}

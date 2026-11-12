@@ -275,6 +275,7 @@ sets them and Setup edits them later.
 | Export and caches | The user folder (default) or a folder the user picks; they can take tens of GB |
 | Replacement profile | `vanilla-fo4`, `fnv-look`, or a modlist's ([profiles](#replacement-data)) |
 | External tools | Wine or Proton prefix (macOS, Linux); NifSkope path (optional) |
+| How much of the PC a build uses | Low, Balanced (default) or Full ([resources](fo4_build_resources.md#profiles)) |
 
 `run.py` reads these settings instead of its constants. `spike/facegen.py`
 should too, but its MO2 path is still hard-coded

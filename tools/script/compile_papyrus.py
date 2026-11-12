@@ -44,6 +44,8 @@ COMPILER_BYTES, COMPILER_SCRIPT_BYTES = 1 << 30, 1 << 19
 COMPILE_SPARE_BYTES = 2 << 30
 #: One FO4 compiler diagnostic: `<path>\<Script>.psc(line,col): message`.
 _FO4_LINE = re.compile(r'[\\/](\w+)\.psc\(\d+,\d+\): (.+)')
+#: This process's script counts over every compile_fallout4 call, for the build's record.
+TALLY = {'scripts changed': 0, 'scripts': 0}
 #: Name prefixes of the scripts converted from a game (lower case): a .pex with one and no source is an orphan.
 CONVERTED_PREFIXES = ('falloutnv_', 'fallout3_')
 #: Converted script names, folded so one missed construct is one error kind.
@@ -347,6 +349,13 @@ def _compile_named(files: list, names: set, out_dir: Path, imports: str, workers
     return own, {p.stem.lower() for p in out_dir.glob('*.pex')}
 
 
+def _tally(todo: set, files: list) -> None:
+    """Print and add to TALLY how many of `files` are in `todo`, to compile."""
+    print(f'{len(todo)} of {len(files)} scripts changed or use one whose declarations did')
+    TALLY['scripts changed'] += len(todo)
+    TALLY['scripts'] += len(files)
+
+
 def compile_fallout4(args) -> tuple:
     """(compiled names, {file: [own error messages]}, source names), Caprica first (_compile_chunks).
 
@@ -370,7 +379,7 @@ def compile_fallout4(args) -> tuple:
         print(f'{removed} .pex without a source removed')
     users = users_index(words, set(hashes))
     todo = needs_compile(hashes, apis, state, users, words) | missing_pex(state, out_dir)
-    print(f'{len(todo)} of {len(files)} scripts changed or use one whose declarations did')
+    _tally(todo, files)
     own, pex = _compile_named(files, todo, out_dir, imports, args.workers, getattr(args, 'caprica', True))
     flipped = {n for n in todo if n in state and state[n].get('ok') != (n in pex)}
     more = users_of(users, flipped) - todo

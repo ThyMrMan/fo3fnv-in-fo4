@@ -29,6 +29,7 @@ import os
 import shutil
 from pathlib import Path
 
+from core.build_resources import pool_workers
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import write_textures
 from fo4_import.base.ba2_write import write_general
@@ -49,6 +50,8 @@ SOUND = 'Sound'
 VOICE = 'sound/voice/'
 #: Data folders the build writes loose that the Main archive holds, each with the one file ending it packs (None: all).
 PACKED = (('Meshes', None), ('Materials', None), ('Scripts', '.pex'))
+#: What a write_later worker commits, for the worker count (build_resources.pool_workers).
+WRITE_WORKER_BYTES = 512 << 20
 #: Per resolved Data folder, this run's {'manifest': the last pack's record, 'staged': {key: signature}}.
 _RUNS = {}
 
@@ -163,8 +166,8 @@ def _write_one(job: tuple) -> None:
 
 
 def write_later(jobs: list, workers: int) -> None:
-    """Run (write, target) `jobs` on `workers` processes (0: CPUs - 1)."""
-    with multiprocessing.Pool(workers or max(1, os.cpu_count() - 1)) as pool:
+    """Run (write, target) `jobs` on `workers` processes (0: the resource profile's)."""
+    with multiprocessing.Pool(pool_workers(WRITE_WORKER_BYTES, len(jobs), workers)) as pool:
         pool.map(_write_one, jobs, chunksize=1)
 
 

@@ -13,7 +13,6 @@ See: docs/fork/research/anim_text_data.md#ours
 import concurrent.futures
 import functools
 import hashlib
-import os
 import re
 import struct
 from collections import Counter
@@ -21,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 
 from asset_convert.havok.clip_retarget import Skeleton, compose, mat_to_quat_wxyz, quat_wxyz_to_mat
+from core.build_resources import pool_workers
 from core.process_job import join_pool_job
 from external.pynifly_hkx.anim_fo4 import parse_fo4_animation
 from fo4_import.havok import anim_offsets, anim_speed, packfile
@@ -56,6 +56,8 @@ STANCE_START = anim_offsets.pack_string('AnimationBoneTransform') + struct.pack(
 IDENTITY = struct.pack('<7f', 1, 0, 0, 0, 0, 0, 0)
 #: Work cache site and version of {(clip path lower, SHA-1 of its bytes): Clip}; records worth a process pool.
 RECORDS_SITE, RECORDS_VERSION, POOLED = 'anim offsets records', 1, 16
+#: What a record worker commits, for the worker count (build_resources.pool_workers).
+RECORD_WORKER_BYTES = 256 << 20
 #: A record worker's event spellings (_start).
 _worker = {}
 
@@ -134,11 +136,11 @@ def save(k: Known) -> None:
 
 
 def _records(jobs: list, spelled: dict) -> list:
-    """spelled_record of each (path, bytes) in `jobs`, in order: in worker processes (all but one CPU) when there
-    are POOLED or more."""
+    """spelled_record of each (path, bytes) in `jobs`, in order: in worker processes (the resource profile's,
+    build_resources.pool_workers) when there are POOLED or more."""
     if len(jobs) < POOLED:
         return [anim_offsets.spelled_record(path, raw, spelled) for path, raw in jobs]
-    workers = min(len(jobs), max(1, (os.cpu_count() or 2) - 1))
+    workers = pool_workers(RECORD_WORKER_BYTES, len(jobs))
     with concurrent.futures.ProcessPoolExecutor(workers, initializer=_start, initargs=(spelled,)) as pool:
         return list(pool.map(_record, jobs, chunksize=8))
 
