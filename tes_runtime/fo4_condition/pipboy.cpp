@@ -32,7 +32,7 @@ namespace condition {
 namespace {
 
 // The Pip-Boy's own keys there: Enter, X, R, Q, C, Tab, Z, and T (Grid View); G is free. No gamepad button is.
-const char *MENU = "PipboyMenu", *LINE = "CND", *HINT = "REPAIR", *HINT_KEY = "G", *HOOKED = "fnvConditionHooked";
+const char *MENU = "PipboyMenu", *LINE = "$F3NV_CND", *HINT = "$F3NV_REPAIR", *HINT_KEY = "G", *HOOKED = "fnvConditionHooked";
 const char *HINT_CLASS = "Shared.AS3.BSButtonHintData", *REPAIR_EVENT = "FNVConditionRepair";
 const UInt32 KEYBOARD_MOUSE = 0;  // PlatformChangeEvent.PLATFORM_PC_KB_MOUSE
 F4SETaskInterface *g_tasks = nullptr;
@@ -159,12 +159,12 @@ namespace {
 
 // The vendor's offer: its skill, the condition before and after, the price, the caps held.
 void OfferView(ListView *view) {
-    view->heading = {"REPAIR SERVICES", g_list.vendor};
-    view->notes = {{"VENDOR REPAIR", std::to_string(int(g_list.skill))},
-                   {"CND", Percent(g_list.health) + " > " + Percent(g_list.offer.health)},
-                   {"COST", std::to_string(g_list.offer.cost) + " caps"},
-                   {"YOUR CAPS", std::to_string(g_list.caps)}};
-    view->keys = {g_list.caps >= g_list.offer.cost ? "ENTER) REPAIR" : "NOT ENOUGH CAPS", "ESC) CANCEL"};
+    view->heading = {"$F3NV_REPAIR_SERVICES", g_list.vendor};
+    view->notes = {{"$F3NV_VENDOR_REPAIR", std::to_string(int(g_list.skill))},
+                   {LINE, Percent(g_list.health) + " > " + Percent(g_list.offer.health)},
+                   {"$F3NV_COST", Fill("$F3NV_CAPS", std::to_string(g_list.offer.cost))},
+                   {"$F3NV_YOUR_CAPS", std::to_string(g_list.caps)}};
+    view->keys = {g_list.caps >= g_list.offer.cost ? "$F3NV_KEY_REPAIR" : "$F3NV_NOT_ENOUGH_CAPS", "$F3NV_KEY_CANCEL"};
 }
 
 // The open repair list, or the vendor's offer, as a view for our movie.
@@ -173,7 +173,7 @@ void RepairView(ListView *view) {
         OfferView(view);
         return;
     }
-    view->heading = {"REPAIR SKILL", std::to_string(int(g_list.skill))};
+    view->heading = {"$F3NV_REPAIR_SKILL", std::to_string(int(g_list.skill))};
     for (const Spare &spare : g_list.spares) {
         const char *name = spare.form->GetFullName();
         std::string text = name ? name : "?";
@@ -182,8 +182,8 @@ void RepairView(ListView *view) {
     }
     view->chosen = g_list.chosen;
     float result = RepairResult(g_list.health, g_list.spares[g_list.chosen].health, g_list.skill);
-    view->notes = {{"CND", Percent(g_list.health) + " > " + Percent(result)}};
-    view->keys = {"ENTER) REPAIR", "ESC) CANCEL"};
+    view->notes = {{LINE, Percent(g_list.health) + " > " + Percent(result)}};
+    view->keys = {"$F3NV_KEY_REPAIR", "$F3NV_KEY_CANCEL"};
 }
 
 }  // namespace
@@ -235,7 +235,7 @@ void OpenOffer(GFxMovieRoot *movie, GFxValue &page) {
     _MESSAGE("vendor repair offer for %08X stack %d: %.3f for %u caps (held %u)", g_list.item, g_list.stack,
              g_list.offer.health, g_list.offer.cost, g_list.caps);
     if (!g_list.offer.cost) {
-        SayOnCard(g_list.health >= 0.995f ? "Not needed" : "Beyond the vendor's skill");
+        SayOnCard(g_list.health >= 0.995f ? "$F3NV_NOT_NEEDED" : "$F3NV_BEYOND_VENDOR");
         return;
     }
     g_list.open = true;
@@ -267,7 +267,7 @@ void OpenList(GFxMovieRoot *movie) {
              UInt32(g_list.spares.size()));
     bool whole = g_list.health >= 0.995f;
     if (whole || g_list.spares.empty()) {
-        SayOnCard(whole ? "Not needed" : "No spare");
+        SayOnCard(whole ? "$F3NV_NOT_NEEDED" : "$F3NV_NO_SPARE");
         return;
     }
     g_list.chosen = DefaultSpare(g_list.spares, g_list.health, g_list.skill);

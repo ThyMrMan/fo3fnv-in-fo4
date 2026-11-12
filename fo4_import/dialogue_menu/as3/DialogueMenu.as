@@ -325,7 +325,7 @@ package
             this.log("no options of ours: the game's " + this.entries.length + " (" + this.gameTexts.join(" | ") + "), and [Leave]");
             if(this.dll != null)
             {
-               this.entries.push({"text":"[Leave]", "said":false, "ours":false, "index":LEAVE});
+               this.entries.push({"text":"$F3NV_LEAVE", "said":false, "ours":false, "index":LEAVE});
             }
             if(this.dll != null && this.listShown && this.retries > 0)
             {

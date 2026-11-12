@@ -19,7 +19,7 @@ namespace condition {
 
 namespace {
 
-const char *SCRIPT = "F3NV_PipboyAmmo", *EVENT = "FNVAmmoSwitch", *HINT = "AMMO", *HINT_KEY = "V";
+const char *SCRIPT = "F3NV_PipboyAmmo", *EVENT = "FNVAmmoSwitch", *HINT = "$F3NV_AMMO", *HINT_KEY = "V";
 enum : int { KEY_TAB = 9, KEY_ENTER = 13, KEY_ESC = 27, KEY_UP = 38, KEY_DOWN = 40, KEY_E = 69, KEY_S = 83,
              KEY_V = 86, KEY_W = 87 };
 
@@ -104,11 +104,11 @@ void Open(GFxMovieRoot *movie) {
         if (g >= 0) g_ammo.group = g_groups[g];
     }
     if (g < 0 || !player) {
-        if (gun && gun->formType == kFormType_WEAP) SayOnCard("One type only", HINT);
+        if (gun && gun->formType == kFormType_WEAP) SayOnCard("$F3NV_ONE_TYPE", HINT);
         return;
     }
     if (Carried(player, gun) > 1) {
-        SayOnCard("Drop a copy first", HINT);
+        SayOnCard("$F3NV_DROP_A_COPY", HINT);
         return;
     }
     Get(entry, "nodeID", &node);
@@ -219,16 +219,16 @@ bool AmmoKey(GFxMovieRoot *movie, int key) {
 
 bool AmmoView(ListView *view) {
     if (!g_ammo.open) return false;
-    view->heading = {"AMMO TYPE", "CARRIED"};
+    view->heading = {"$F3NV_AMMO_TYPE", "$F3NV_CARRIED"};
     for (size_t i = 0; i < g_ammo.group.rounds.size(); i++) {
         TESForm *round = g_ammo.group.rounds[i];
         const char *name = round ? round->GetFullName() : nullptr;
         std::string text = name && *name ? name : "?";
-        if (SInt32(i) == g_ammo.loaded) text += " (loaded)";
+        if (SInt32(i) == g_ammo.loaded) text = Fill("$F3NV_LOADED", text);
         view->rows.push_back({text, std::to_string(g_ammo.counts[i])});
     }
     view->chosen = g_ammo.chosen;
-    view->keys = {CanLoad() ? "ENTER) LOAD" : "", "ESC) CANCEL"};
+    view->keys = {CanLoad() ? "$F3NV_KEY_LOAD" : "", "$F3NV_KEY_CANCEL"};
     return true;
 }
 

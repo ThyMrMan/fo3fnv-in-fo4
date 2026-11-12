@@ -350,7 +350,9 @@ that keeps the vanilla item card.
   sets them again on each game load (`OnPlayerLoadGame`), as HUD widgets
   re-register. Nothing goes in the save, so an uninstalled mod leaves
   nothing behind.
-- Values are text, shown as given.
+- Values are text, shown as given. A label or value may be a mod's own
+  `$KEY` from its own translation file; the card translates it as it does
+  ours ([keys](#keys)).
 - Test from the console:
   `cgf "F3NV_ItemCard.SetLine" <item form ID> "TEST" "HELLO"`.
 - Not yet: lines from an INI, numbers with `showAsPercent`, and per-copy
@@ -527,22 +529,52 @@ English sentences, to anything shown on screen.
   `$F3UI_` and menu key (`fo4_import/base/translations.py`).
 - In the repo: one **English source** file per release in UTF-8, so changes
   show in diffs (`fo4_import/base/translation_files/en.txt`). The build
-  writes the UTF-16 file for each language that exists
-  (`translations.install`, with the casino today).
+  writes the UTF-16 file for every game language, English filling any gap
+  (`translations.install`, in the masterless build; [fallback](#translations)).
 - Translations arrive as one file per language and ship in the main
   download, or as separate Nexus translation uploads that hold only that
   file.
 
 ### Fallback
 
-**Unverified:** what the game shows for a `$KEY` when the player's language
-has no file (likely the raw `$KEY`). Our `Text` module must never show a
-raw key:
-- the DLL reads our English file at load and hands the movie a fallback
-  table;
-- `Text` uses the game's translation first, then the fallback, then the key
-  name without its `$`;
-- the DLL logs once which keys fell back, so translators can find gaps.
+Spike 5 settled it: a key no file has shows as the raw `$KEY`, and F4SE
+loads only `FalloutHelpers_<sLanguage>.txt`. **Built 2026-11-12, instead of
+the DLL table once planned:** `translations.install` writes a file for every
+one of FO4's 11 languages (`cn de en es esmx fr it ja pl ptbr ru`, the
+game's own `Interface\translate_<language>.txt` set), each the English table
+with that language's own source laid over it. A German game with no German
+translation shows English, and a partial translation shows English for the
+keys it lacks. A translator's mod replaces our file for its language by
+load order. No DLL work is needed.
+
+### <a id="keys"></a>Our keys (moved 2026-11-12, built, not played)
+
+Every fixed word our menus show is a key in `en.txt`, UPPER_SNAKE with our
+prefix (`$F3NV_REPAIR`). Upper case because the dialogue menu, and maybe the
+item card, uppercase their text before the game translates it. The English
+text is what showed before, word for word.
+- **Movies:** the dialogue menu's `[LEAVE]` (`$F3NV_LEAVE`).
+- **F3NV.dll** (`pipboy.cpp`, `ammo.cpp`): the CND line (Pip-Boy, container
+  and barter), the REPAIR and AMMO hints and card labels, the repair list,
+  vendor offer and ammo list headings, notes and keys, and the "Not
+  needed" / "No spare" / "Beyond the vendor's skill" / "One type only" /
+  "Drop a copy first" notes. The game translates them where they are shown:
+  the button hint bar, the item card (vanilla's own lines are keys such as
+  `$wt`), and our list panel.
+- **Built text** goes as `$KEY<tab>slot0<tab>slot1` (C++ `Fill`); f3ui's
+  `Text.show` translates the key (read back through a scratch field, as
+  spike 5 read translations back) and puts each slot in for `{0}`, `{1}`:
+  `$F3NV_CAPS` is `{0} caps`, `$F3NV_LOADED` is `{0} (loaded)`. Item-card
+  lines (drawn by the game's card) never use slots.
+- **Left as they are:** the casino's words, which are FNV's own settings in
+  the player's language; the Hardcore HUD's `H2O`/`FOD`/`SLP` and the
+  `[Speech 25]` tags, FNV's own formats drawn from C++; the casino's
+  developer-only spike screen (Ping/Close); and the `[Leave]` topic the
+  converter writes into plugins (`conversation.py`), which is record text.
+- **Untested:** whether a key read back through an off-stage field
+  translates (the slot templates rely on it), and whether the vanilla and
+  FallUI item cards and the hint bar translate our keys as they do the
+  game's.
 
 ### Fonts
 
@@ -566,20 +598,23 @@ raw key:
 
 ### Checks
 
-**Built 2026-11-12:** `translations.check()` reads every `"$KEY"` string in
-our movies' AS3 (each `as3/` folder under `fo4_import/`, `//` comment lines
-and the font names `$MAIN_Font`/`$MAIN_Font_Bold` left out) and finds:
+**Built 2026-11-12:** `translations.check()` reads every `"$KEY"` string
+(or a template's `"$KEY\t`) in our movies' AS3 (each `as3/` folder under
+`fo4_import/`) and F3NV.dll's C++ (`tes_runtime/fo4_condition/*.cpp`),
+`//` comment lines and the font names `$MAIN_Font`/`$MAIN_Font_Bold` left
+out, and finds:
 - keys the English file lacks (error: the game shows them raw);
 - English keys no movie uses (review);
 - keys another language has that English lacks (error).
 
 Preflight's `menus` audit reports them for every FO4 build
 (`menus.translation_audit`), and `test_our_movies_use_only_keys_the_english_file_has`
-holds the repo to none. `en.txt` is empty since spike 5's test key went:
-`install` writes no file for a language without keys.
+holds the repo to none. `install` writes nothing while `en.txt` has no
+keys. The masterless build installs the files beside the Pip-Boy movie
+(`build_finish`), no longer only with the casino.
 
 Still planned:
-- keys in C++ and Papyrus sources too, once those pass `$KEY`s to a movie;
+- keys in Papyrus sources too, once those pass `$KEY`s to a menu;
 - each language file has the same `{slots}` as English;
 - a count of untranslated keys per language for the release notes.
 

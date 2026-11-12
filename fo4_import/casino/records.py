@@ -15,7 +15,6 @@ See: docs/fork/fo4_casino_plan.md#records-built
 import struct
 from pathlib import Path
 
-from fo4_import.base import translations
 from fo4_import.base.install import source_walk
 from fo4_import.base.support_records import pack_global, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
@@ -216,7 +215,6 @@ class Casino:
         installed = movie.install(data_dir)
         self.builder.counts['casino menu movie installed'] = installed
         self.builder.counts['casino menu movie missing (no Flex SDK)'] = 1 - installed
-        self.builder.counts['menu translation files installed'] = translations.install(data_dir)
 
     def _textures(self, data_dir: Path) -> int:
         """Stage every texture the casinos and cards name (slot symbols, deck backs, card faces), and the

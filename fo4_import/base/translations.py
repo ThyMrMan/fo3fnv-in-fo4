@@ -2,8 +2,10 @@
 
 F4SE loads `Interface/Translations/<plugin>_<sLanguage>.txt` only for each plugin active in plugins.txt, so ours
 are named after FalloutHelpers.esl, which every converted FO3/FNV plugin masters. Each source `<language>.txt`
-holds `$KEY<tab>text` lines; the installed file is UTF-16 LE with a BOM and CRLF lines, as F4SE requires.
-check() holds our movies' `"$KEY"` strings against the English file, which F4SE falls back to.
+holds `$KEY<tab>text` lines; the installed file is UTF-16 LE with a BOM and CRLF lines, as F4SE requires. Every
+game language gets a file, its missing keys in English, since F4SE has no fallback of its own. A key's text may
+hold `{0}`, `{1}` slots: the code sends `$KEY<tab>slot0<tab>slot1`, and f3ui's Text.show fills them.
+check() holds the `"$KEY"` strings in our movies and F3NV.dll against the English file.
 
 See: docs/fork/swf_framework.md#translations
 """
@@ -17,14 +19,16 @@ SOURCES = Path(__file__).resolve().parent / 'translation_files'
 PLUGIN = 'FalloutHelpers'
 #: F4SE's line buffer, in UTF-16 units: a longer line is cut.
 LINE_LIMIT = 511
-#: The English source, the table every other language falls back to.
-ENGLISH = SOURCES / 'en.txt'
-#: Where our movies' AS3 sources live (every as3/ folder under it).
-MOVIES = Path(__file__).resolve().parents[1]
+#: Fallout 4's sLanguage values (its own Interface/translate_<language>.txt files).
+LANGUAGES = ('cn', 'de', 'en', 'es', 'esmx', 'fr', 'it', 'ja', 'pl', 'ptbr', 'ru')
+#: The repo root, under which our code's sources are found.
+REPO = Path(__file__).resolve().parents[2]
+#: Our code that shows keys: (folder, glob) — the movies' AS3 and F3NV.dll's C++.
+CODE = ((REPO / 'fo4_import', '**/as3/**/*.as'), (REPO / 'tes_runtime' / 'fo4_condition', '*.cpp'))
 #: `"$..."` strings that are the game's font names (fontconfig.txt), not translation keys.
 FONTS = frozenset({'$MAIN_Font', '$MAIN_Font_Bold'})
-#: A `"$KEY"` string literal in AS3.
-KEY_LITERAL = re.compile(r'"(\$[A-Za-z_][A-Za-z0-9_]*)"')
+#: A `"$KEY"` string literal, or a template's `"$KEY\t`.
+KEY_LITERAL = re.compile(r'"(\$[A-Za-z_][A-Za-z0-9_]*)(?=["\\])')
 
 
 def entries(source: Path) -> dict:
@@ -46,33 +50,39 @@ def encoded(table: dict) -> bytes:
 
 
 def install(data_dir: Path, sources: Path = SOURCES) -> int:
-    """Write each source with keys as <data_dir>/Interface/Translations/<PLUGIN>_<language>.txt; how many were."""
-    tables = {source.stem: entries(source) for source in sorted(Path(sources).glob('*.txt'))}
-    tables = {language: table for language, table in tables.items() if table}
+    """Write <data_dir>/Interface/Translations/<PLUGIN>_<language>.txt for every game language: English, with the
+    language's own source over it where one exists; how many were written (none while English has no keys)."""
+    english = entries(Path(sources) / 'en.txt')
+    if not english:
+        return 0
     folder = Path(data_dir) / 'Interface' / 'Translations'
-    for language, table in tables.items():
-        folder.mkdir(parents=True, exist_ok=True)
+    folder.mkdir(parents=True, exist_ok=True)
+    for language in LANGUAGES:
+        own = Path(sources) / f'{language}.txt'
+        table = {**english, **(entries(own) if own.is_file() else {})}
         (folder / f'{PLUGIN}_{language}.txt').write_bytes(encoded(table))
-    return len(tables)
+    return len(LANGUAGES)
 
 
-def used_keys(movies: Path = MOVIES) -> dict:
-    """{key: [files]} of the `"$KEY"` strings in the .as files of every as3/ folder under `movies`, fonts and
-    `//` comment lines left out."""
+def used_keys(code=CODE) -> dict:
+    """{key: [files]} of the `"$KEY"` strings in `code` ((folder, glob) pairs), fonts and `//` comment lines left
+    out."""
     out = {}
-    for path in sorted(Path(movies).glob('**/as3/**/*.as')):
-        code = [line for line in path.read_text(encoding='utf-8').splitlines() if not line.lstrip().startswith('//')]
-        for key in KEY_LITERAL.findall('\n'.join(code)):
-            if key not in FONTS:
-                out.setdefault(key, []).append(path.name)
+    for folder, pattern in code:
+        for path in sorted(Path(folder).glob(pattern)):
+            lines = path.read_text(encoding='utf-8').splitlines()
+            text = '\n'.join(line for line in lines if not line.lstrip().startswith('//'))
+            for key in KEY_LITERAL.findall(text):
+                if key not in FONTS:
+                    out.setdefault(key, []).append(path.name)
     return out
 
 
-def check(movies: Path = MOVIES, sources: Path = SOURCES) -> dict:
-    """{fault: sorted rows}: keys our movies use that en.txt lacks (shown raw in game), en.txt keys no movie uses,
+def check(code=CODE, sources: Path = SOURCES) -> dict:
+    """{fault: sorted rows}: keys our code uses that en.txt lacks (shown raw in game), en.txt keys nothing uses,
     and other languages' keys en.txt lacks."""
     english = entries(Path(sources) / 'en.txt')
-    used = used_keys(movies)
+    used = used_keys(code)
     others = {f'{source.name}: {key}' for source in Path(sources).glob('*.txt') if source.stem != 'en'
               for key in entries(source) if key not in english}
     return {'key missing from en.txt': sorted(f'{key} ({", ".join(sorted(set(files)))})'

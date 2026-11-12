@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fo4_import import dialogue_menu as menu_links
 from fo4_import import pipboy_overlay
+from fo4_import.base import translations
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
@@ -202,6 +203,7 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
         builder.scripts.used += [list_adds.SCRIPT]
     else:
         builder.counts['Pip-Boy movie installed'] = pipboy_overlay.install(data_dir)
+        builder.counts['menu translation files installed'] = translations.install(data_dir)
 
 
 @timed('closing records')

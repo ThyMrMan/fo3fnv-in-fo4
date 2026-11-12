@@ -179,8 +179,13 @@ bool CurrentPage(GFxMovieRoot *movie, GFxValue *page);
 // Turn the inventory page's modal on or off: its fade and its list's input.
 void SetModal(GFxValue &page, bool on);
 
-// Show `label`: `why` (why nothing opened) on the item card until the selection changes.
-void SayOnCard(const char *why, const char *label = "REPAIR");
+// Translation key `key` with `slot` for its {0}, as our movies' Text.show fills it (docs/fork/swf_framework.md#translations).
+inline std::string Fill(const char *key, const std::string &slot) {
+    return std::string(key) + "\t" + slot;
+}
+
+// Show `label`: `why` (why nothing opened; translation keys) on the item card until the selection changes.
+void SayOnCard(const char *why, const char *label = "$F3NV_REPAIR");
 
 // Whether our Pip-Boy movie has called F3NV since this Pip-Boy menu opened (it draws the lists); logs once when not.
 bool PipboyMovieThere();
