@@ -687,6 +687,7 @@ bool RegisterDialogueMenu(GFxMovieView *view, GFxValue *plugin) {
     RegisterFunction<ShadeNative>(plugin, movie, "ShadeList");
     RegisterFunction<TintFailedNative>(plugin, movie, "TintFailed");
     RegisterPipboyMenu(movie, plugin);
+    RegisterImageNatives(movie, plugin);
     return true;
 }
 

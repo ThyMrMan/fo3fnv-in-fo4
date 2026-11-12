@@ -32,12 +32,12 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Piece | Done | Not done |
 |---|---|---|
 | **Toolchain** | `mxmlc` builds, byte-stable, every movie we ship; FFDec route deleted | The [movie check](#testing) in preflight (sources only, no Bethesda tags, mapped fonts) |
-| **AS3 library** ([design](#design)) | `Bridge`, `Theme`, `Host`, `Text` (with `Text.show` for `$KEY`s and slots), `Draw`; `Input` and `HintBar` ([input](#input)), `ScrollList` ([scroll list](#scroll-list)) and `Modal` ([modal](#modal)), with the dialogue list and the Pip-Boy's list panel on them (built, not played) | `Images` |
+| **AS3 library** ([design](#design)) | `Bridge`, `Theme`, `Host`, `Text` (with `Text.show` for `$KEY`s and slots), `Draw`; `Input` and `HintBar` ([input](#input)), `ScrollList` ([scroll list](#scroll-list)) and `Modal` ([modal](#modal)), with the dialogue list and the Pip-Boy's list panel on them; `Images` ([images](#images)) with the casino on it (all built, not played) | Every planned class is built; next, playing them |
 | **Own menu** | Casino (Papyrus `UI.RegisterCustomMenu`), HUD color by the menu itself (spike 2b, played) | Registering from the DLL: not needed for color; only if a later menu needs it |
 | **Replace a vanilla movie** | Dialogue menu on our own movie (spike 3, played); its `mxmlc` build | The `mxmlc` build played; a level-up menu in place of `LevelUpMenu` |
 | **Inject into a vanilla menu** | Pip-Boy (spike 4, played under vanilla); CND, lists and item-card API built | Any of it played; FallUI played; container and barter (still C++) |
 | **HUD widget** | Nothing | The widget movie, HUDFramework host, DLL injection ([HUD](#hud)); Hardcore's needs are still C++ |
-| **DLL side** | GFx helpers (`gfx.cpp`), Pip-Boy injection (`LoadOverlay`), natives the movies call (`HudColor`, `Log`, `PipboyCardLines`, `PipboyList`) | Injection by menu URL for other menus, settings INI to the movie, GFx log routing |
+| **DLL side** | GFx helpers (`gfx.cpp`), Pip-Boy injection (`LoadOverlay`), natives the movies call (`HudColor`, `Log`, `PipboyCardLines`, `PipboyList`, `TextureExists`) | Injection by menu URL for other menus, settings INI to the movie, GFx log routing |
 | **Translations** ([translations](#translations)) | Files named after `FalloutHelpers.esl`, every language with English fallback, our fixed words as `$F3NV_` keys, the key check in preflight (spike 5, played) | The keys played; Papyrus key check; slot and per-language counts; a test language |
 | **Controller** ([controller](#controller)) | The casino and dialogue menu on `Input` and `HintBar` (built, not played) | Playing them with a pad; the Pip-Boy "more" button; roulette's board on a pad |
 | **Release** ([release](#release)) | Nothing | The library repo, the Pip-Boy framework on Nexus |
@@ -325,6 +325,39 @@ Back aren't used there, since the DLL owns the keys.
   checks are tinted, the mouse and number keys pick, and the backdrop fits.
 - **Pip-Boy:** the repair and ammo lists draw as before.
 
+### <a id="images"></a>`Images` (built 2026-11-12, not played)
+
+`Images.as`: textures shown in a menu through `f4se.MountImage`.
+- **The path rule:** `texturePath` puts any form of a texture's path the
+  way MountImage takes it: forward slashes, with no leading `Data/` or
+  `Textures/` (any case) and spaces kept. MountImage takes the path under
+  Textures without that folder (played 2026-11-08).
+- **Missing files:** MountImage reports true for a file that isn't there
+  (the game's loader hands back a stand-in), so `mount` first asks
+  F3NV.dll's new `TextureExists(path)` native. It is in `gfx.cpp` and
+  registered on every movie with the other F3NV natives. It opens
+  `Textures\<path>` through the game's file system, loose files or an
+  archive, with `BSResourceNiBinaryStream`, the same call F4SE makes for
+  our translation files (played in spike 5). A missing texture is logged
+  and `mount` returns "". Without F3NV.dll, or with one older than this, it
+  mounts as before.
+- **Showing:** `show(parent, url, x, y, size, done)` gives a Loader scaled
+  to `size` square once loaded, then `done(loader, loaded)`. A failed load
+  is logged. An empty url leaves the Loader empty, so a menu's layout
+  needs no special case.
+
+**The casino on it:** `MountAll` returns the mounted images' URLs ("" for
+a missing one), the slot symbols show through `Images.show`, and the spike
+screen labels a missing texture and still logs each image's size. Next
+user: the level-up menu's perk and skill images.
+
+**Checked offline:** `gfx.cpp` and `dialogue.cpp` compile with the DLL's
+flags; the DLL itself is the main session's build. **Play check:** the
+casino's spike screen (`cqf FNV_Casino Spike`) with the new F3NV.dll:
+every image shows, and none is labeled missing. A path changed by hand to
+one that doesn't exist shows as missing, with `missing texture` in the
+log, instead of an empty mount.
+
 ### Four ways a movie meets the game
 
 | Mode | Used by | How |
@@ -585,8 +618,9 @@ card face as the control, then `skills_barter.dds` (DXT3),
 the name). The list is `records.SPIKE_LEVEL_UP`, passed in the bank
 quest's `SpikeImages` property. Read the `F3NV_CasinoSpikeImage` lines in
 `Papyrus.0.log`: "shown 256x256" for each means MountImage takes all
-three. "Mounted" alone proves nothing, since a missing file still mounts
-([casino phase 0](fo4_casino_plan.md#phase-0)).
+three. "Mounted" alone proves nothing with an older F3NV.dll, since a
+missing file still mounts ([casino phase 0](fo4_casino_plan.md#phase-0)).
+With the new DLL, a missing file is labeled missing ([images](#images)).
 
 Still to do:
 - **Play the image spike** above.
@@ -1093,7 +1127,9 @@ Played first, since everything below builds on them (the morning test of
 and FallUI; the translated keys; the dialogue menu's `mxmlc` build; the
 level-up image spike; the casino and dialogue menu on `Input` and
 `HintBar`, with a pad ([play check](#input)); the dialogue list and the
-Pip-Boy lists on `ScrollList` and `Modal` ([play check](#modal)).
+Pip-Boy lists on `ScrollList` and `Modal` ([play check](#modal)); the
+casino's images through `Images`, with the new F3NV.dll
+([play check](#images)).
 
 Then:
 1. **`Input` and `HintBar`** in the library, with the casino and the

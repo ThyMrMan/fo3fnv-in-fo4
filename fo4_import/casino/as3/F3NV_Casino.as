@@ -9,6 +9,7 @@ package
    import f3ui.Draw;
    import f3ui.HintBar;
    import f3ui.Host;
+   import f3ui.Images;
    import f3ui.Input;
    import f3ui.Text;
    import f3ui.Theme;
@@ -17,8 +18,6 @@ package
    import flash.display.MovieClip;
    import flash.display.Sprite;
    import flash.events.Event;
-   import flash.events.IOErrorEvent;
-   import flash.net.URLRequest;
    import flash.text.TextField;
 
    // The casino menu's document class (F3NV_Casino.psc opens it through F4SE and calls these by UI.Invoke).
@@ -33,6 +32,7 @@ package
       public static const SPIKE_STEP:Number = 300;
 
       private var bridge:Bridge = new Bridge();
+      private var images:Images = new Images(bridge, MENU);
       private var screen:Sprite;
       private var slots:SlotsScreen;
       private var roulette:RouletteScreen;
@@ -55,33 +55,25 @@ package
       // F4SE hands the menu its f4se object (MountImage, SendExternalEvent).
       public function onF4SEObjCreated(codeObject:Object) : void
       {
+         images.log = function(text:String) : void { send("F3NV_CasinoInput", text); };
          bridge.f4se = codeObject;
          send("F3NV_CasinoReady");
       }
 
-      // Mount each texture path as `prefix<i>`; the names mounted (a failed one is logged, "").
-      // MountImage takes the path under Textures without the folder (played 2026-11-08, build 1108d).
+      // Mount each texture path as `prefix<i>` (f3ui's Images): their img:// URLs, "" for one missing or not
+      // mounted (logged).
       public function MountAll(paths:Array, prefix:String) : Array
       {
-         var names:Array = [];
+         var urls:Array = [];
          for (var i:int = 0; i < paths.length; i++)
          {
-            var name:String = prefix + i;
-            if (bridge.mount(MENU, paths[i], name))
-            {
-               names.push(name);
-            }
-            else
-            {
-               send("F3NV_CasinoInput", "not mounted " + paths[i]);
-               names.push("");
-            }
+            urls.push(images.mount(paths[i], prefix + i));
          }
-         return names;
+         return urls;
       }
 
-      // Phase 0: a title, and the same texture under each path form to try, side by side: each mounted
-      // one is loaded and shown under its path, and the log says which loaded at what size.
+      // Phase 0: a title and each texture of `paths` side by side (Images: missing ones are labeled), each
+      // shown under its file name; the log says which loaded at what size.
       public function Spike(title:String, paths:Array) : void
       {
          newScreen([[Input.ACCEPT, "Ping"], [Input.BACK, "Close"]]);
@@ -92,21 +84,11 @@ package
          paths = Bridge.plain(paths);
          for (var i:int = 0; i < paths.length; i++)
          {
-            var name:String = "F3NV_Spike" + i;
-            var mounted:Boolean = bridge.mount(MENU, paths[i], name);
+            var url:String = images.mount(paths[i], "F3NV_Spike" + i);
             var file:String = String(paths[i]).split("/").pop();
-            Text.label(screen, 40 + i * SPIKE_STEP, 130, 16).text = file + (mounted ? "" : " (not mounted)");
-            send("F3NV_CasinoSpikeImage", paths[i] + (mounted ? " mounted as " + name : " not mounted"));
-            if (mounted)
-            {
-               var image:Loader = new Loader();
-               image.x = 40 + i * SPIKE_STEP;
-               image.y = 160;
-               image.contentLoaderInfo.addEventListener(Event.COMPLETE, onImage);
-               image.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, onImageError);
-               screen.addChild(image);
-               image.load(new URLRequest("img://" + name));
-            }
+            Text.label(screen, 40 + i * SPIKE_STEP, 130, 16).text = file + (url != "" ? "" : " (missing)");
+            send("F3NV_CasinoSpikeImage", paths[i] + (url != "" ? " mounted as " + url : " missing or not mounted"));
+            images.show(screen, url, 40 + i * SPIKE_STEP, 160, 0, onImage);
          }
       }
 
@@ -115,7 +97,7 @@ package
                                 stops:Array, symbols:Array, texts:Array) : void
       {
          newScreen(null);
-         slots = new SlotsScreen(send);
+         slots = new SlotsScreen(send, images);
          screen.addChild(slots);
          slots.open(name, chips, low, high, earnings, luck, seed, Bridge.plain(stops),
                     MountAll(Bridge.plain(symbols), "F3NV_Symbol"), Bridge.plain(texts));
@@ -237,15 +219,11 @@ package
          Host.focus(this);
       }
 
-      private function onImage(e:Event) : void
+      // A spike image loaded or failed: the log line the play check reads.
+      private function onImage(image:Loader, loaded:Boolean) : void
       {
-         var info:LoaderInfo = LoaderInfo(e.target);
-         send("F3NV_CasinoSpikeImage", info.url + " shown " + info.width + "x" + info.height);
-      }
-
-      private function onImageError(e:IOErrorEvent) : void
-      {
-         send("F3NV_CasinoSpikeImage", LoaderInfo(e.target).url + " load failed: " + e.text);
+         var info:LoaderInfo = image.contentLoaderInfo;
+         send("F3NV_CasinoSpikeImage", info.url + (loaded ? " shown " + info.width + "x" + info.height : " load failed"));
       }
 
       private function ping(e:Event = null) : void

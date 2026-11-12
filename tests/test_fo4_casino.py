@@ -143,10 +143,14 @@ def test_no_focus_frame_and_no_hud_behind_the_menu():
 
 
 def test_images_mount_by_their_path_under_textures():
-    """MountImage loads the bare path under Textures (played 1108d): the records, MountAll and the spike use it."""
+    """MountImage loads the bare path under Textures (played 1108d): the records write it, f3ui's Images puts any
+    form that way, and MountAll and the spike mount through Images."""
     assert R.fo4_path(R.SPIKE_TEXTURE) == 'fnv/terminals/nv_playingcards/deckt/cardt_c01.dds'
     document = (Path(M.SOURCES) / 'F3NV_Casino.as').read_text()
-    assert 'bridge.mount(MENU, paths[i], name)' in document and 'Textures/' not in document
+    assert 'images.mount(paths[i], prefix + i)' in document and 'images.mount(paths[i], "F3NV_Spike" + i)' in document
+    assert 'bridge.mount(' not in document and 'Textures/' not in document
+    images = (LIBRARY / 'Images.as').read_text(encoding='utf-8')
+    assert 'bridge.mount(menu, at, name)' in images and 'indexOf("textures/") == 0' in images
     assert 'f4se.MountImage(menu, path, name)' in (LIBRARY / 'Bridge.as').read_text(encoding='utf-8')
     assert 'Textures/' not in (STATIC / 'F3NV_Casino.psc').read_text()
 

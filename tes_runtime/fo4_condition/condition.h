@@ -222,6 +222,9 @@ bool RepairListOpen();
 // Give `plugin` (a movie's f4se.plugins.F3NV) the Pip-Boy movie's natives PipboyCardLines and PipboyList.
 void RegisterPipboyMenu(GFxMovieRoot *movie, GFxValue *plugin);
 
+// Add the natives f3ui's Images calls (TextureExists) to `plugin` (f4se.plugins.F3NV) in `movie` (gfx.cpp).
+void RegisterImageNatives(GFxMovieRoot *movie, GFxValue *plugin);
+
 // ---- The ammo list (ammo.cpp; docs/fork/fo4_condition.md#ammo-list) ----
 
 // Whether the ammo list is open.

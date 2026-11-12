@@ -51,6 +51,21 @@ def test_no_movie_calls_flash_11s_remove_children():
         assert 'removeChildren(' not in path.read_text(encoding='utf-8'), path.name
 
 
+def test_images_asks_the_dll_for_a_texture_by_the_name_it_registers():
+    """F3NV.dll registers TextureExists on every movie of ours (opening Textures\\<path> as F4SE opens a translation
+    file); Images calls it with the path MountImage takes, and treats a DLL without it as found.
+
+    See: docs/fork/swf_framework.md#images
+    """
+    runtime = ROOT / 'tes_runtime' / 'fo4_condition'
+    gfx = (runtime / 'gfx.cpp').read_text(encoding='utf-8')
+    assert 'RegisterFunction<TextureExistsNative>(plugin, movie, "TextureExists")' in gfx
+    assert 'std::string("Textures\\\\")' in gfx and 'BSResourceNiBinaryStream stream(path.c_str());' in gfx
+    assert 'RegisterImageNatives(movie, plugin);' in (runtime / 'dialogue.cpp').read_text(encoding='utf-8')
+    images = (LIBRARY / 'Images.as').read_text(encoding='utf-8')
+    assert 'dll.TextureExists == null || dll.TextureExists(texturePath(path)) == true' in images
+
+
 def test_both_lists_are_the_librarys():
     """The Pip-Boy's list panel is a Modal round a ScrollList, and the dialogue's rows are a ScrollList."""
     panel = (ROOT / 'fo4_import' / 'pipboy_overlay' / 'as3' / 'ListPanel.as').read_text(encoding='utf-8')
