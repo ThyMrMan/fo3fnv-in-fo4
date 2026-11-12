@@ -1184,6 +1184,45 @@ workers (`facegen_skin.workers`):
 Not yet run: the stage itself (`facegen.py --own-facegen`) through MO2,
 and a game build with it.
 
+#### <a id="own-stage-speed"></a>Speed (2026-11-12)
+
+Profiled per face, one worker, 42 different NPCs: tint 1.83 s, texconv
+with its PNG hand-off 0.47 s, FaceGeom 0.08 s. Tint time was numpy
+blending over the whole 1024² image for every layer (about 17 `_d` and 22
+map layers a face), plus reloading masks: 68 distinct masks went through
+a 24-entry cache (541 hits, 2,122 misses).
+
+What changed. The output is byte-identical: every file of the whole set
+matches the previous code's.
+
+- **Each layer is drawn only inside its painted rectangle**
+  (`face_tint.painted`). A colour layer is masked by its texture's red
+  channel. A value-only layer and its `_msn`/`_s` maps are masked by the
+  diffuse's alpha. Outside that rectangle the lerp weight is 0, so the
+  pixels can't change. The median mask's rectangle is 15% of the square
+  (10 of 68 cover over half). The skin tone stays whole-image.
+- **Crops are cached once per worker** (`face_tint.crop`), as uint8, not
+  whole float textures. That's 186 MB after 41 faces; whole uint8 images
+  were 478 MB.
+- **texconv gets an uncompressed TGA** instead of a PNG: saving drops from
+  0.10 to 0.003 s a texture, and the DDS bytes are the same.
+- **Tried and dropped:** batching several textures into one texconv call
+  (0.06–0.09 s a texture either way) and `-singleproc` (no steady gain in
+  the pool). Both kept identical bytes.
+- **Worker memory:** a worker peaks at 1.84 GB loading `facegeom.Sources`
+  (1.42 GB private after), so `facegen_skin.WORKER_BYTES` is 2 GB, up from
+  1. Eight workers at the old 1 GB ran out of memory with 15 GB free.
+
+Pool, 63 faces with warm workers: 0.90 s a face on 1 worker, 0.40 on 4,
+0.33 on 6, 0.30–0.36 on 8. It levels off at about 6, so `workers()`
+stays half the cores, capped by memory. Before, it was 0.82 s a face on
+8 workers.
+
+Whole set, every FalloutNV.esm NPC through `facegen_skin.workers` (6
+workers, held down by memory, with 15 GB free): 2,382 written, 1,220
+skipped, 0 errors in 680 s (0.29 s a written face, 11 minutes). All 9,528
+files are byte-identical to the previous code's.
+
 ### <a id="face-d-revisit"></a>To revisit: the CK's lip colour and tone mask
 
 Pinned 2026-11-12: `face_tint` leaves both out until something authored
