@@ -3926,6 +3926,22 @@ baked). Re-exported with X64, the region's 167 FaceGeom NIFs hold 7 cloth
 hairs (HairFemale04 ×4, HairFemale01 ×3, all women), all 8-byte. Each one's
 packfile is byte for byte the hair mesh's own. HairFemale13 has no cloth.
 
+<a id="stale-facegen"></a>**Stretched long hair again: stale FaceGen (2026-11-11, not
+yet played).** The same plank came back in Primm with every deployed cloth
+packfile still 8-byte and byte-equal to the vanilla hair's, cloth bones as
+vanilla Scarlett's, and every shipped skeleton equal to the lowered vanilla
+one. The FaceGeom NIFs were stale: exported 2026-10-30, before hair matching
+by name and style (2026-11-07) changed the records. 101 of FalloutNV's 167
+FaceGeoms drew other hair than their NPC's record, e.g. PrimmResidentFemale2:
+the record HairFemale15, the FaceGeom HairFemale04 with its cloth. The CK
+names each FaceGeom shape for its head part's EditorID, so
+`facegen.outdated` compares those names with the parts the record draws
+(`facegeom.head_parts`), and the build deletes a FaceGeom that differs
+before it prunes face textures and packs (`build_finish._faces`, after the
+plugin write); the game then draws that NPC from the record until the faces
+stage runs again. Counted as `FaceGeom NIFs older than their NPC head parts
+removed`. A fresh export (NVWillow) has none; the check takes 1.5 s.
+
 <a id="hair-styles"></a>**Hair by name, then style (2026-11-07).** Coverage
 alone lost Sgt Kilborn's crop: FNV's HairAfricanAmericanBase is a solid
 short crop, and coverage picked HairMale17, a shaved stubble. Both games name

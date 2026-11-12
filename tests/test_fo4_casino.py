@@ -6,14 +6,14 @@ See: docs/fork/fo4_casino_plan.md#phases
 import re
 import shutil
 import struct
-import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from asset_convert.ui.swf import Swf
+from asset_convert.ui.swf import Swf, Tag
 from fo4_import.base.papyrus import FO4_COMPILER, compile_folder, header_dirs
+from fo4_import.base import mxmlc
 from fo4_import.casino import movie as M
 from fo4_import.casino import records as R
 from fo4_import.base.install import source_walk, use_source
@@ -28,7 +28,7 @@ from tests.casino import model
 from tests.casino import roulette
 
 STATIC = Path(__file__).resolve().parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
-needs_ffdec = pytest.mark.skipif(not M.FFDEC.is_file(), reason='FFDec is not installed')
+needs_flex = pytest.mark.skipif(not mxmlc.available(), reason='the Flex SDK is not installed')
 needs_compiler = pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
 
 
@@ -37,52 +37,39 @@ needs_compiler = pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 
 # ---------------------------------------------------------------------------
 
 
-def _tags(raw: bytes) -> dict:
-    """{tag code: payload} of a SWF's top-level tags (the last of each code)."""
-    return {tag.code: tag.data for tag in Swf.parse(raw).tags}
+def test_the_build_date_tags_are_dropped_and_the_metadata_flag_cleared():
+    """undated(): no ProductInfo (41) or Metadata (77), FileAttributes keeps AS3 without HasMetadata.
+    See: docs/fork/swf_framework.md#mxmlc-setup
+    """
+    tags = [Tag(69, struct.pack('<I', 0x18)), Tag(77, b'<rdf/>'), Tag(41, b'\x00' * 26), Tag(1, b''), Tag(0, b'')]
+    raw = mxmlc.undated(Swf(15, b'\x00', 30 << 8, 1, tags).serialize(compress=False))
+    kept = Swf.parse(raw).tags
+    assert [t.code for t in kept] == [69, 1, 0] and kept[0].data == struct.pack('<I', 0x08)
 
 
-def test_the_skeleton_is_an_as3_movie_whose_document_class_is_the_first_shell():
-    """FileAttributes says AS3, DoABC2 holds an ABC 46.16 naming every class, SymbolClass makes the first the root."""
-    tags = _tags(M.skeleton(['F3NV_Casino', 'f3nv.casino.Rng']))
-    assert struct.unpack('<I', tags[M.FILE_ATTRIBUTES])[0] & M.AS3_FLAG
-    abc = tags[M.DO_ABC2][5:]
-    assert struct.unpack_from('<HH', abc) == (16, 46)
-    assert b'F3NV_Casino' in abc and b'f3nv.casino' in abc and b'Rng' in abc
-    assert tags[M.SYMBOL_CLASS] == struct.pack('<HH', 1, 0) + b'F3NV_Casino\x00'
-
-
-def test_u30_writes_seven_bits_a_byte_low_first():
-    """ABC's variable-length integers."""
-    assert (M.u30(0), M.u30(0x7F), M.u30(0x80), M.u30(300)) == (b'\x00', b'\x7f', b'\x80\x01', b'\xac\x02')
-
-
-def test_the_document_class_comes_first_and_packages_are_dotted(tmp_path):
-    """class_names: as3/F3NV_Casino.as first, as3/f3nv/x/Y.as as f3nv.x.Y."""
-    (tmp_path / 'f3nv' / 'x').mkdir(parents=True)
-    for rel in ('A.as', 'F3NV_Casino.as', 'f3nv/x/Y.as'):
-        (tmp_path / rel).write_text('', encoding='utf-8')
-    assert M.class_names(tmp_path) == ['F3NV_Casino', 'A', 'f3nv.x.Y']
-
-
-@needs_ffdec
+@needs_flex
 def test_the_movie_builds_to_the_same_bytes_twice_with_its_entry_points(tmp_path):
-    """Two builds of the sources are identical, and the root class carries what F4SE and Papyrus call."""
+    """Two builds are identical, undated and uncompressed; the root class carries what F4SE and Papyrus call, the
+    library is in."""
     first, second = M.compile_movie(tmp_path / 'a.swf'), M.compile_movie(tmp_path / 'b.swf')
     raw = first.read_bytes()
-    assert raw == second.read_bytes()
-    body = zlib.decompress(raw[8:]) if raw[:3] == b'CWS' else raw
-    for name in (b'F3NV_Casino', b'onF4SEObjCreated', b'ProcessUserEvent', b'SendExternalEvent', b'MountImage'):
+    assert raw == second.read_bytes() and raw[:3] == b'FWS'
+    assert not {t.code for t in Swf.parse(raw).tags} & set(mxmlc.DATED)
+    body = raw[8:]
+    for name in (b'F3NV_Casino', b'onF4SEObjCreated', b'ProcessUserEvent', b'SendExternalEvent', b'MountImage',
+                 b'f3ui', b'HudColor', b'$F3UI_TranslationCheck', b'$F3UI_TranslationAbsent'):
         assert name in body
 
 
-@needs_ffdec
-def test_a_source_that_does_not_compile_fails_the_build(tmp_path):
-    """FFDec's compile error is raised, not shipped as an empty shell."""
+@needs_flex
+@pytest.mark.parametrize('body', ['var a:int = 1; a++ +;', 'var a:int = "one";'])
+def test_a_source_that_does_not_compile_fails_the_build(tmp_path, body):
+    """A syntax error, and a type error FFDec let through, are raised, never shipped."""
     (tmp_path / 'src').mkdir()
-    source = 'package { public class F3NV_Casino { public function f():void { var a:int = 1; a++ +; } } }'
+    source = f'package {{ import flash.display.MovieClip; public class F3NV_Casino extends MovieClip {{ ' \
+             f'public function f():void {{ {body} }} }} }}'
     (tmp_path / 'src' / 'F3NV_Casino.as').write_text(source, encoding='utf-8')
-    with pytest.raises(RuntimeError, match='FFDec failed'):
+    with pytest.raises(RuntimeError, match='mxmlc failed'):
         M.compile_movie(tmp_path / 'out.swf', tmp_path / 'src')
 
 
@@ -119,34 +106,46 @@ def test_the_menu_events_match_what_as3_sends():
     assert 'Function OnMenuPing(Int ' in source and 'Function OnMenuRound(Int ' in source
     document = (Path(M.SOURCES) / 'F3NV_Casino.as').read_text()
     for array in ('paths', 'stops', 'symbols', 'texts', 'seeds'):
-        assert f'Ui.plain({array})' in document, array
+        assert f'Bridge.plain({array})' in document, array
 
 
 RUNTIME = Path(__file__).resolve().parents[1] / 'tes_runtime' / 'fo4_condition'
+LIBRARY = mxmlc.LIBRARY / 'f3ui'
 
 
 def test_the_menu_draws_in_the_hud_color_from_the_dll():
-    """No white is left in Ui.as or RouletteScreen.as but Ui.color's default; the menu sets it from F3NV.dll's
-    HudColor native, which reads the shared HudColor (condition.h) on every call.
+    """No white in the casino or the library but Theme's default; each screen reads F3NV.dll's HudColor native,
+    which reads the shared HudColor (condition.h) on every call.
     See: docs/fork/fo4_casino_plan.md#hud-color
     """
-    ui = (AS3 / 'f3nv' / 'casino' / 'Ui.as').read_text(encoding='utf-8')
-    roulette_screen = (AS3 / 'f3nv' / 'casino' / 'RouletteScreen.as').read_text(encoding='utf-8')
-    assert ui.upper().count('0XFFFFFF') == 1 and 'public static var color:uint = 0xFFFFFF;' in ui
-    assert '0XFFFFFF' not in roulette_screen.upper()
-    document = (AS3 / 'F3NV_Casino.as').read_text(encoding='utf-8')
-    assert 'Ui.color = dll != null && dll.HudColor != null ? uint(dll.HudColor()) : 0xFFFFFF;' in document
+    sources = [*AS3.rglob('*.as'), *LIBRARY.glob('*.as')]
+    assert [p.name for p in sources if '0XFFFFFF' in p.read_text(encoding='utf-8').upper()] == ['Theme.as']
+    theme = (LIBRARY / 'Theme.as').read_text(encoding='utf-8')
+    assert 'color = dll != null && dll.HudColor != null ? uint(dll.HudColor()) : WHITE;' in theme
+    assert 'Theme.fromHud(dll)' in (AS3 / 'F3NV_Casino.as').read_text(encoding='utf-8')
     dialogue = (RUNTIME / 'dialogue.cpp').read_text(encoding='utf-8')
     assert 'RegisterFunction<HudColorNative>(plugin, movie, "HudColor");' in dialogue
     assert 'args->result->SetUInt(HudColor("iHUDColor"));' in dialogue
     assert 'UInt32 HudColor(const char *prefix);' in (RUNTIME / 'condition.h').read_text(encoding='utf-8')
 
 
+def test_no_focus_frame_and_no_hud_behind_the_menu():
+    """The movie turns off Flash's yellow focus rectangle; the bank hides the HUD while the menu is open.
+    See: docs/fork/fo4_casino_plan.md#hud-hidden
+    """
+    host = (LIBRARY / 'Host.as').read_text(encoding='utf-8')
+    assert 'menu.stage.stageFocusRect = false;' in host and 'menu.focusRect = false;' in host
+    assert 'Host.focus(this);' in (AS3 / 'F3NV_Casino.as').read_text(encoding='utf-8')
+    bank = (STATIC / 'F3NV_Casino.psc').read_text(encoding='utf-8')
+    assert 'UI.Set("HUDMenu", "root1.visible", abShow)' in bank and 'ShowHud(!abOpening)' in bank
+
+
 def test_images_mount_by_their_path_under_textures():
     """MountImage loads the bare path under Textures (played 1108d): the records, MountAll and the spike use it."""
     assert R.fo4_path(R.SPIKE_TEXTURE) == 'fnv/terminals/nv_playingcards/deckt/cardt_c01.dds'
     document = (Path(M.SOURCES) / 'F3NV_Casino.as').read_text()
-    assert 'f4se.MountImage(MENU, paths[i], name)' in document and 'Textures/' not in document
+    assert 'bridge.mount(MENU, paths[i], name)' in document and 'Textures/' not in document
+    assert 'f4se.MountImage(menu, path, name)' in (LIBRARY / 'Bridge.as').read_text(encoding='utf-8')
     assert 'Textures/' not in (STATIC / 'F3NV_Casino.psc').read_text()
 
 

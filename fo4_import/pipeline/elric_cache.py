@@ -34,8 +34,8 @@ SITE = 'elric_finish'
 _HELD = {}
 #: {normcased NIF path: [mark(), collision ok]} of each NIF finish() wrote this run.
 MARKS = {}
-#: NIF paths finish() left unwritten this run: a master ships the same finished NIF.
-LEFT = []
+#: {normcased NIF path: its finish() inputs} of each NIF finish() left unwritten this run (a master ships it alike).
+LEFT = {}
 
 
 @functools.cache
@@ -73,9 +73,12 @@ def write_mesh(path: Path, data: bytes) -> None:
 
 
 def mesh_bytes(path: Path) -> bytes:
-    """The NIF for `path` as the build made it: held (write_mesh) or on disk."""
-    held = _HELD.get(os.path.normcase(str(path)))
-    return Path(path).read_bytes() if held is None else held
+    """The NIF for `path` as the build made it: held (write_mesh), finished but left to a master (LEFT; the
+    cached finished NIF), or on disk."""
+    key = os.path.normcase(str(path))
+    if key in _HELD:
+        return _HELD[key]
+    return work_cache.kept(SITE, LEFT[key])[1] if key in LEFT else Path(path).read_bytes()
 
 
 def mark(inputs: tuple) -> 'str | None':
@@ -102,7 +105,7 @@ def finish(paths: list, theirs: 'dict | None' = None) -> list:
             todo[path] = inputs, data
         elif shipped and shipped[0] == made:
             path.unlink(missing_ok=True)
-            LEFT.append(path)
+            LEFT[os.path.normcase(str(path))] = inputs
             failed += [] if shipped[1] else [path]
         else:
             ok, done = work_cache.kept(SITE, inputs)

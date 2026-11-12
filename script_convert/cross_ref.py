@@ -9,11 +9,12 @@ from script_convert.constants import (
     papyrus_script_name
 )
 from script_convert.target import variable_type
+from script_convert.symbols import command_return_type
 from script_convert.command_rows import (
     ACTOR_ONLY_FUNCTIONS, OBJREF_SHARED_FUNCTIONS
 )
 from tes5_import.base.mesh_bounds import get_mesh_physics_flags
-from tes5_import.base.text_reader import parse_export_file
+from tes5_import.base.text_reader import parse_export_file, unescape_value
 from tes5_import.record_types.world_falloutnv import FALLOUT_ONLY_SIGS
 from asset_convert.game_paths import current_namespace
 from core.plugin_masters import chain_index_maps, master_chain, master_dir
@@ -34,12 +35,12 @@ _SCAN_CHUNK_BYTES = 16 * 1024 * 1024
 
 
 def _scan_chain(export_dir: str) -> tuple:
-    """(`_export_dirs_with_masters`, the worldspace renames that chain applies)."""
-    dirs = _export_dirs_with_masters(export_dir)
+    """(`export_dirs_with_masters`, the worldspace renames that chain applies)."""
+    dirs = export_dirs_with_masters(export_dir)
     return dirs, renames_for(dirs)
 
 
-def _export_dirs_with_masters(export_dir: str) -> list:
+def export_dirs_with_masters(export_dir: str) -> list:
     """`export_dir` preceded by its masters' export dirs, deepest first.
 
     Masters come FIRST so the last-wins merge lets an overriding plugin's own
@@ -895,293 +896,142 @@ class CrossRefGraph:
         return papyrus_script_name(script_edid) if script_edid else ''
 
     def build_ref_as_int_map(self, scpt_path: str):
-        """Scan all SCPT SCTX sources to find ref variables used only as integers.
+        """Type TES4 `ref` variables from every script that touches them: Int when only ever set to numbers,
+        a base form when set to a base record, and a Property when another script reads or writes them.
 
-        TES4 'ref' type can hold both references and integers.  When a ref
-        variable is only ever assigned/compared with numeric literals across
-        ALL scripts that touch it, it should be typed Int in Papyrus.
+        The masters' SCPT sources are read first (an override plugin's script reaching into a master's script
+        variable needs that script's declarations; a plugin's own SCPT must win). The plugin's INFO and QUST
+        result scripts count as uses too.
 
-        The masters' SCPT sources are scanned alongside the plugin's own, for
-        the same reason load_from_export scans their records: an override
-        plugin's script reaching into a MASTER's script variable
-        (`SomeMasterQuest.someVar`) can only be typed if that script's
-        declarations are known here.  Masters first — a plugin that overrides a
-        master's SCPT must be the source that wins.
+        See: docs/fork/fo4_script_compile.md#ref-as-number
         """
         export_dir = os.path.dirname(scpt_path)
         records = []
-        for d in _export_dirs_with_masters(export_dir):
+        for d in export_dirs_with_masters(export_dir):
             p = os.path.join(d, os.path.basename(scpt_path))
             if os.path.isfile(p):
                 records.extend(parse_export_file(p))
-
-        # Phase A: collect variable declarations per script
-        _decl_re = re.compile(r'^\s*ref\s+(\w+)', re.IGNORECASE)
-        _all_decl_re = re.compile(r'^\s*(short|long|int|float|ref)\s+(\w+)',
-                                  re.IGNORECASE)
-        script_ref_vars: dict[str, set[str]] = {}
-        script_all_vars: dict[str, dict[str, str]] = {}
-        script_actor_vars: dict[str, set[str]] = {}
-        script_sources: dict[str, str] = {}
-        _actor_only = sorted(ACTOR_ONLY_FUNCTIONS - OBJREF_SHARED_FUNCTIONS)
-        _actor_call_re = re.compile(
-            r'(\w+)\s*\.\s*(?:' +
-            '|'.join(re.escape(f) for f in _actor_only) +
-            r')(?:\s|$|\()', re.IGNORECASE)
-
-        for rec in records:
-            edid = rec.get('EditorID', '')
-            sctx = rec.get('SCTX', '')
-            if not edid or not sctx:
-                continue
-            scn_low = edid.lower()
-            script_sources[scn_low] = sctx
-            ref_vars = set()
-            all_vars: dict[str, str] = {}
-            for line in sctx.split('\n'):
-                stripped = line.strip()
-                m = _decl_re.match(stripped)
-                if m:
-                    ref_vars.add(m.group(1).lower())
-                am = _all_decl_re.match(stripped)
-                if am:
-                    vtype = am.group(1).lower()
-                    vname = am.group(2).lower()
-                    all_vars[vname] = variable_type(vtype)
-            if ref_vars:
-                script_ref_vars[scn_low] = ref_vars
-                # COMMENTS ARE NOT USES.  DAHermaeusScript's only
-                # `target.GetDead` sits behind a `;`, and counting it declared
-                # `Actor Property target` on a variable the script never uses
-                # as one -- every cross-script write into it then needed a
-                # downcast that the owning script's real type does not want.
-                actor_used = {m.group(1).lower()
-                              for m in _actor_call_re.finditer(
-                                  _strip_comments(sctx))}
-                actor_used &= ref_vars
-                if actor_used:
-                    script_actor_vars[scn_low] = actor_used
-            if all_vars:
-                script_all_vars[scn_low] = all_vars
-
-        # Persist for cross-script type lookups
-        self.script_ref_vars = script_ref_vars
-        self.script_all_vars = script_all_vars
-        self.script_actor_vars = script_actor_vars
-
-        if not script_ref_vars:
+        sources, self.script_ref_vars, self.script_all_vars, self.script_actor_vars = _script_declarations(records)
+        if not self.script_ref_vars:
             return
-
-        # Phase B: scan ALL scripts for usage of ref vars
-        _set_re = re.compile(
-            r'\bset\s+(?:(\w+)\.)?(\w+)\s+to\s+(.+)',
-            re.IGNORECASE
-        )
-        # (script_lower, var_lower) -> {'zero', 'int', 'ref'}
         usage: dict[tuple[str, str], set[str]] = {}
-        # dest_var -> {source_vars}: `set A.x to y` where y is another variable
-        # rather than a record name. Used to propagate 'baseform' along
-        # variable-to-variable copies (see Phase C).
         ref_flow: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        for scn_low, sctx in sources.items():
+            self._scan_ref_usage(scn_low, sctx, usage, ref_flow)
+        _scan_plugin_result_scripts(export_dir, lambda text: self._scan_ref_usage('', text, usage, ref_flow))
+        self._classify_ref_usage(usage, ref_flow)
+        self.cross_script_vars = self._cross_script_vars(sources.values(), export_dir)
 
-        for scn_low, sctx in script_sources.items():
-            for raw_line in sctx.split('\n'):
-                line = raw_line.strip()
-                if not line or line.startswith(';'):
-                    continue
+    def _script_of(self, owner: str, var: str, declared: dict, own: str = '') -> str:
+        """The script (lowercase) declaring `var` for `owner` (a script name, or a record whose SCRI does), or ''.
+        `own`, the scanning script itself, never resolves through a record."""
+        if var in declared.get(owner, ()):
+            return owner
+        if owner == own:
+            return ''
+        scri = self.record_scri.get(self.edid_to_formid.get(owner, ''), '')
+        script = self.script_formid_to_edid.get(scri, '').lower() if scri else ''
+        return script if var in declared.get(script, ()) else ''
 
-                # Detect ref usage: var.method() patterns on local ref variables
-                if scn_low in script_ref_vars:
-                    for ref_var in script_ref_vars[scn_low]:
-                        if re.search(r'\b' + re.escape(ref_var) + r'\.\w+',
-                                     line, re.IGNORECASE):
-                            key = (scn_low, ref_var)
-                            if key not in usage:
-                                usage[key] = set()
-                            usage[key].add('ref')
+    def _scan_ref_usage(self, scn_low: str, text: str, usage: dict, ref_flow: dict) -> None:
+        """Note each use of a declared ref variable in `text`, script `scn_low` ('' for a result script):
+        `var.Call` is a reference use, and each `set [owner.]var to value` says what the value holds."""
+        own_refs = self.script_ref_vars.get(scn_low, ())
+        for raw_line in text.split('\n'):
+            line = raw_line.strip()
+            if not line or line.startswith(';'):
+                continue
+            for ref_var in own_refs:
+                if re.search(r'\b' + re.escape(ref_var) + r'\.\w+', line, re.IGNORECASE):
+                    usage.setdefault((scn_low, ref_var), set()).add('ref')
+            sm = _SET_RE.match(line)
+            if sm:
+                self._note_set(sm, scn_low, usage, ref_flow)
 
-                # Check 'set [obj.]var to value' patterns
-                sm = _set_re.match(line)
-                if sm:
-                    target_obj = (sm.group(1) or '').lower()
-                    var_name = sm.group(2).lower()
-                    value = sm.group(3).strip()
-                    # Strip TES4 inline comments ("; comment text")
-                    semi_idx = value.find(';')
-                    if semi_idx >= 0:
-                        value = value[:semi_idx].strip()
-                    if target_obj:
-                        owner = target_obj
-                    else:
-                        owner = scn_low
-                    # Resolve owner to its script name
-                    owner_script = None
-                    if owner in script_ref_vars and var_name in script_ref_vars[owner]:
-                        owner_script = owner
-                    elif owner != scn_low:
-                        base_fid = self.edid_to_formid.get(owner, '')
-                        if base_fid:
-                            scri_fid = self.record_scri.get(base_fid, '')
-                            if scri_fid:
-                                se = self.script_formid_to_edid.get(scri_fid, '')
-                                if se:
-                                    se_low = se.lower()
-                                    if se_low in script_ref_vars and var_name in script_ref_vars[se_low]:
-                                        owner_script = se_low
+    def _note_set(self, match, scn_low: str, usage: dict, ref_flow: dict) -> None:
+        """Record what one `set [owner.]var to value` says about a declared ref variable, and the variable it
+        copies from (the edge a base form spreads along)."""
+        var = match.group(2).lower()
+        owner = self._script_of((match.group(1) or scn_low).lower(), var, self.script_ref_vars, scn_low)
+        if not owner:
+            return
+        value = match.group(3).split(';', 1)[0].strip()
+        kinds = self._set_value_kinds(value)
+        usage.setdefault((owner, var), set()).update(kinds)
+        source = self._flow_source(value, scn_low) if 'ref' in kinds else None
+        if source:
+            ref_flow.setdefault((owner, var), set()).add(source)
 
-                    if owner_script:
-                        key = (owner_script, var_name)
-                        if key not in usage:
-                            usage[key] = set()
-                        if re.match(r'^-?\d+(\.\d+)?$', value):
-                            if value.strip() == '0':
-                                usage[key].add('zero')
-                            else:
-                                usage[key].add('int')
-                        else:
-                            usage[key].add('ref')
-                            # A BASE record assigned here (not a placed ref):
-                            # ObjectReference cannot hold it. TES4 lets a form
-                            # name be quoted (`Set X to "0probeUbent"`), so
-                            # strip quotes before the EditorID lookup.
-                            value = value.strip('"')
-                            if re.match(r'^\w+$', value):
-                                v_fid = self.edid_to_formid.get(
-                                    value.lower(), '')
-                                v_rtype = (self.record_type.get(v_fid, '')
-                                           if v_fid else '')
-                                if v_rtype and v_rtype not in PLACED_REF_SIGS:
-                                    usage[key].add('baseform')
-                                elif not v_fid:
-                                    # Not a record name -- it is another
-                                    # variable. Remember the edge so a base
-                                    # form reaching THAT variable propagates
-                                    # here too (moXscrXtrapXwritedynamicdata
-                                    # fills local XLOCALXProbeIDA* with probe
-                                    # MISCs, then copies them into
-                                    # memorystorage.XCURRENTprobeID).
-                                    ref_flow.setdefault(key, set()).add(
-                                        (scn_low, value.lower()))
-                            else:
-                                # `A.x = B.y` -- a QUALIFIED source. Resolve
-                                # B to its script so the edge still links the
-                                # two variables (XcurrentTRAPeffect is fed
-                                # from the same script's XSpellIDA*).
-                                qm = re.match(r'^(\w+)\.(\w+)$', value)
-                                if qm:
-                                    src_owner = qm.group(1).lower()
-                                    src_var = qm.group(2).lower()
-                                    src_script = None
-                                    if (src_owner in script_ref_vars
-                                            and src_var
-                                            in script_ref_vars[src_owner]):
-                                        src_script = src_owner
-                                    else:
-                                        s_fid = self.edid_to_formid.get(
-                                            src_owner, '')
-                                        s_scri = (self.record_scri.get(
-                                            s_fid, '') if s_fid else '')
-                                        s_ed = (self.script_formid_to_edid
-                                                .get(s_scri, '')
-                                                if s_scri else '')
-                                        if s_ed:
-                                            src_script = s_ed.lower()
-                                    if src_script:
-                                        ref_flow.setdefault(key, set()).add(
-                                            (src_script, src_var))
+    def _set_value_kinds(self, value: str) -> set:
+        """What `set x to <value>` puts in x: {'zero'}, {'int'} (a number, arithmetic, a numeric command such as
+        `GetItemCount`, or a global), or {'ref'} plus 'baseform' when the value names a base record."""
+        if _NUMBER_RE.match(value):
+            return {'zero'} if value == '0' else {'int'}
+        command = _COMMAND_RE.match(value)
+        if ('"' not in value and _ARITHMETIC_RE.search(value)) or (
+                command and command_return_type(command.group(1)) in ('Int', 'Float')):
+            return {'int'}
+        name = value.strip('"')
+        if not _WORD_RE.match(name):
+            return {'ref'}
+        rtype = self.record_type.get(self.edid_to_formid.get(name.lower(), ''), '')
+        if rtype == 'GLOB':
+            return {'int'}
+        return {'ref', 'baseform'} if rtype and rtype not in PLACED_REF_SIGS else {'ref'}
 
-        # Phase C: ref vars with ONLY non-zero integer usage -> retype to Int
-        for (script_low, var_low), types in usage.items():
+    def _flow_source(self, value: str, scn_low: str):
+        """The (script, var) a `set` copies from, or None: a bare name that is no record is the script's own
+        variable; `Owner.var` resolves Owner to its script."""
+        name = value.strip('"')
+        if _WORD_RE.match(name):
+            return None if self.edid_to_formid.get(name.lower()) else (scn_low, name.lower())
+        qualified = _QUALIFIED_RE.match(value)
+        if not qualified:
+            return None
+        src_var = qualified.group(2).lower()
+        src = self._script_of(qualified.group(1).lower(), src_var, self.script_ref_vars)
+        return (src, src_var) if src else None
+
+    def _classify_ref_usage(self, usage: dict, ref_flow: dict) -> None:
+        """Int for a ref variable set to non-zero numbers and never used as a reference; a base form for one
+        given a base record, spread along variable-to-variable copies until it stops spreading."""
+        for key, types in usage.items():
             if 'ref' not in types and 'int' in types:
-                self.ref_as_int.add((script_low, var_low))
+                self.ref_as_int.add(key)
             elif 'baseform' in types:
-                self.ref_as_base_form.add((script_low, var_low))
-        # Propagate 'holds a base form' along variable-to-variable copies until
-        # it stops spreading. A local that received a base record makes every
-        # variable it is copied into a base-form holder too, however many hops
-        # away and across script boundaries.
+                self.ref_as_base_form.add(key)
         changed = True
         while changed:
             changed = False
             for dest, sources in ref_flow.items():
-                if dest in self.ref_as_base_form:
-                    continue
-                if any(s in self.ref_as_base_form for s in sources):
+                if dest not in self.ref_as_base_form and any(s in self.ref_as_base_form for s in sources):
                     self.ref_as_base_form.add(dest)
                     changed = True
 
-        # Phase D: detect cross-script variable access (Owner.VarName patterns)
-        # These variables must be Properties on the owning script so other scripts
-        # can access them. Scans SCPT sources, INFO result scripts, and QUST stage scripts.
-        _owner_var_re = re.compile(r'\b(\w+)\.(\w+)\b')
-        cross_script_vars: dict[str, set[str]] = {}
+    def _cross_script_vars(self, sources, export_dir: str) -> dict:
+        """{script: variables another script reads or writes as `Owner.var`}, from every SCPT source and the
+        plugin's result scripts: those variables must be Properties on the owning script."""
+        found: dict[str, set[str]] = {}
 
-        def _scan_text_for_cross_access(text):
-            for raw_line in text.split('\n'):
-                line = raw_line.strip()
-                if not line or line.startswith(';'):
-                    continue
-                semi = line.find(';')
-                if semi >= 0:
-                    line = line[:semi]
-                for match in _owner_var_re.finditer(line):
-                    owner = match.group(1).lower()
+        def scan(text):
+            """Add each `Owner.var` in `text` that names a declared variable."""
+            for line in _strip_comments(text).split('\n'):
+                for match in _OWNER_VAR_RE.finditer(line):
                     var = match.group(2).lower()
-                    target_script = None
-                    if owner in script_all_vars and var in script_all_vars[owner]:
-                        target_script = owner
-                    else:
-                        fid = self.edid_to_formid.get(owner, '')
-                        if fid:
-                            scri_fid = self.record_scri.get(fid, '')
-                            if scri_fid:
-                                se = self.script_formid_to_edid.get(scri_fid, '')
-                                if se:
-                                    se_low = se.lower()
-                                    if se_low in script_all_vars and var in script_all_vars[se_low]:
-                                        target_script = se_low
-                    if target_script:
-                        if target_script not in cross_script_vars:
-                            cross_script_vars[target_script] = set()
-                        cross_script_vars[target_script].add(var)
+                    script = self._script_of(match.group(1).lower(), var, self.script_all_vars)
+                    if script:
+                        found.setdefault(script, set()).add(var)
 
-        # Scan all SCPT sources
-        for scn_low, sctx in script_sources.items():
-            _scan_text_for_cross_access(sctx)
+        for sctx in sources:
+            scan(sctx)
+        _scan_plugin_result_scripts(export_dir, scan)
+        return found
 
-        _scan_plugin_result_scripts(export_dir, _scan_text_for_cross_access)
-
-        self.cross_script_vars = cross_script_vars
     def is_remote_ref_var(self, owner_edid: str, var_name: str) -> bool:
-        """Check if a variable on a remote record's script is ref-typed in TES4.
-
-        *owner_edid* is the EditorID of the quest/NPC/object (e.g. 'MQ00').
-        *var_name* is the property name (e.g. 'nearOblivionGate').
-        Returns True if the remote script declares that variable as 'ref'
-        AND it is not a ref-as-int variable (used only as integers).
-        """
+        """Whether owner_edid's script declares `var_name` a `ref` that holds a reference."""
         var_low = var_name.lower()
-        owner_low = owner_edid.lower()
-        # Direct script name match
-        if owner_low in self.script_ref_vars:
-            if var_low in self.script_ref_vars[owner_low]:
-                return (owner_low, var_low) not in self.ref_as_int
-            return False
-        # Resolve owner EditorID -> script name
-        fid = self.edid_to_formid.get(owner_low, '')
-        if not fid:
-            return False
-        scri_fid = self.record_scri.get(fid, '')
-        if not scri_fid:
-            return False
-        se = self.script_formid_to_edid.get(scri_fid, '')
-        if not se:
-            return False
-        se_low = se.lower()
-        if se_low in self.script_ref_vars:
-            if var_low in self.script_ref_vars[se_low]:
-                return (se_low, var_low) not in self.ref_as_int
-        return False
+        script = self._script_of(owner_edid.lower(), var_low, self.script_ref_vars)
+        return bool(script) and (script, var_low) not in self.ref_as_int
 
 
 # ===========================================================================
@@ -1201,6 +1051,51 @@ def _strip_comments(text: str) -> str:
     return nl.join(line.split(';', 1)[0] for line in text.split(nl))
 
 
+#: TES4 declarations: `ref <name>`, and any typed `<type> <name>`.
+_REF_DECL_RE = re.compile(r'^\s*ref\s+(\w+)', re.IGNORECASE)
+_VAR_DECL_RE = re.compile(r'^\s*(short|long|int|float|ref)\s+(\w+)', re.IGNORECASE)
+#: `set [owner.]var to value`, an `Owner.var` access, and the shapes of a `set` value.
+_SET_RE = re.compile(r'\bset\s+(?:(\w+)\.)?(\w+)\s+to\s+(.+)', re.IGNORECASE)
+_OWNER_VAR_RE = re.compile(r'\b(\w+)\.(\w+)\b')
+_NUMBER_RE = re.compile(r'^-?\d+(\.\d+)?$')
+_WORD_RE = re.compile(r'^\w+$')
+_QUALIFIED_RE = re.compile(r'^(\w+)\.(\w+)$')
+_COMMAND_RE = re.compile(r'^(?:\w+\.)?(\w+)(?:\s|$)')
+_ARITHMETIC_RE = re.compile(r'[\w)]\s*[-+*/]\s*[\w(.]')
+#: `var.<call>` with a call only an Actor has.
+_ACTOR_CALL_RE = re.compile(
+    r'(\w+)\s*\.\s*(?:' + '|'.join(re.escape(f) for f in sorted(ACTOR_ONLY_FUNCTIONS - OBJREF_SHARED_FUNCTIONS))
+    + r')(?:\s|$|\()', re.IGNORECASE)
+
+
+def _script_declarations(records: list) -> tuple:
+    """(sources, ref vars, all vars, actor vars), each keyed by lowercase script EditorID: the SCTX text, its
+    `ref` names, {name: Papyrus type}, and the ref names given an Actor-only call outside a comment."""
+    sources, ref_vars, all_vars, actor_vars = {}, {}, {}, {}
+    for rec in records:
+        edid, sctx = rec.get('EditorID', ''), rec.get('SCTX', '')
+        if not edid or not sctx:
+            continue
+        scn_low = edid.lower()
+        sources[scn_low] = sctx
+        refs, typed = set(), {}
+        for line in sctx.split('\n'):
+            m = _REF_DECL_RE.match(line.strip())
+            if m:
+                refs.add(m.group(1).lower())
+            m = _VAR_DECL_RE.match(line.strip())
+            if m:
+                typed[m.group(2).lower()] = variable_type(m.group(1).lower())
+        if refs:
+            ref_vars[scn_low] = refs
+            actor_used = {m.group(1).lower() for m in _ACTOR_CALL_RE.finditer(_strip_comments(sctx))} & refs
+            if actor_used:
+                actor_vars[scn_low] = actor_used
+        if typed:
+            all_vars[scn_low] = typed
+    return sources, ref_vars, all_vars, actor_vars
+
+
 def _scan_plugin_result_scripts(export_dir: str, scan) -> None:
     """Feed THIS plugin's INFO result scripts (both halves) and QUST stage
     scripts to `scan`: a pure union that only ADDS names which must become
@@ -1213,7 +1108,7 @@ def _scan_plugin_result_scripts(export_dir: str, scan) -> None:
         for raw_line in _export_lines(os.path.join(export_dir, extra_file)):
             if raw_line.startswith(prefix):
                 text = raw_line[len(prefix):].strip()
-                scan(text.replace('\\r\\n', '\n').replace('\\n', '\n'))
+                scan(unescape_value(text))
 
 
 def _export_lines(path: str):

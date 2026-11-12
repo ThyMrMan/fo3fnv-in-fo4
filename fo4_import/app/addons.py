@@ -18,6 +18,7 @@ from pathlib import Path
 from asset_convert.sources import source_registry
 from fo4_import.app import settings as S
 from fo4_import.base.install import masters_of
+from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.pipeline.export_index import export_masters, export_records, own_records
 from fo4_import.pipeline.run import reached_worlds
 
@@ -69,11 +70,11 @@ def output(settings: dict, source: str, plugin: str, master: str) -> Path:
 
 def default_output(settings: dict, source: str, plugin: str) -> Path:
     """An add-on's output when none is chosen: the folder beside the game's output holding its build stamp
-    (`<plugin>.build.json`, an earlier build's), else `F3NV - <stem>` there.
+    (an earlier build's), else `F3NV - <stem>` there.
     See: docs/fork/fo4_gui.md#addons
     """
     parent = S.output_dir(settings, source).parent
-    built = [d for d in (parent.iterdir() if parent.is_dir() else ()) if (d / f'{plugin}.build.json').is_file()]
+    built = [d for d in (parent.iterdir() if parent.is_dir() else ()) if stamp_path(d / plugin).is_file()]
     return built[0] if built else parent / f'F3NV - {Path(plugin).stem}'
 
 

@@ -600,6 +600,12 @@ converter writes them to the menu's translation file
 (`Interface\Translations\F3NV_Casino_en.txt`, FO4's `$KEY` mechanism), so
 other languages follow FNV's own string tables when present.
 
+**Correction (2026-11-12):** F4SE loads a translation file only when it's
+named after an active plugin, so `F3NV_Casino_en.txt` would never be read
+([swf_framework.md](swf_framework.md#translations)). Today the labels reach
+the menu through Papyrus instead. If they move to `$KEY`s, they go in a file
+named after the converted plugin, written under the player's `sLanguage`.
+
 ### <a id="design-flow"></a>4.7 One round, end to end (slots)
 
 1. Player activates `vGomorrahSlot01`; its converted script calls
@@ -683,7 +689,17 @@ shell.
 - **In game:** the user opens the test menu from the console, clicks the
   button, sees the card, closes it, and walks and activates normally after.
 
-<a id="toolchain-found"></a>**Built 2026-11-08, not played.** The compiler
+<a id="toolchain-found"></a>**Since 2026-11-11 the casino builds with
+`mxmlc` on our shared `f3ui` library** (spike 1 of the
+[menu framework](swf_framework.md#spikes); `fo4_import/base/mxmlc.py`,
+count `casino menu movie missing (no Flex SDK)`). **Played 2026-11-11:
+slots and roulette both work on it.** The movie is written uncompressed so
+its bytes don't depend on the Python's zlib
+([why](swf_framework.md#mxmlc-setup)). The FFDec route below is
+how it was built until then; the dialogue menu used it until 2026-11-12,
+when its code was deleted.
+
+**Built 2026-11-08, not played.** The compiler
 is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
 - FFDec's `-importScript` only *replaces* classes already in a movie; it
   cannot add one, and has no option to. So `fo4_import/casino/movie.py`
@@ -776,7 +792,24 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
   (`hardcore.cpp`, declared in `condition.h`). Without F3NV.dll the menu
   stays white. The board's red, black and green cells and the chips' gold
   keep their own colors. The log says `F3NV_Casino: input hud color <hex>`
-  on each screen. Menu Frameworks' design.
+  on each screen. Menu Frameworks' design. **Played 2026-11-11:** text,
+  outlines and reel frames follow the HUD color (pink); the symbols keep
+  their own.
+- <a id="hud-hidden"></a>**Two fixes from that play (built 2026-11-11,
+  not played):**
+  - **A thin yellow frame round the screen** was Flash's focus rectangle:
+    the root takes the keyboard focus (`stage.focus = this`), and its
+    bounds are the whole backdrop. The movie now sets
+    `stage.stageFocusRect = false` and `focusRect = false`, as FO4's own
+    `Shared.IMenu` does (its `stage.stageFocusRect = false`, read from the
+    game's DialogueMenu.swf), so our dialogue menu, built on `IMenu`,
+    never had it.
+  - **The HUD showed through** (the activate prompt, compass, crosshair).
+    FO4 has no menu flag that hides the HUD, and changing the flags kept
+    the menu from opening (spike 2a). So the bank hides HUDMenu's root clip
+    with F4SE's `UI.Set("HUDMenu", "root1.visible", False)` when the
+    casino menu opens and shows it again when it closes, and on every load
+    (`ShowHud`).
 - **In-game check:** `cqf FNV_Casino Spike`; then click Ping, press Enter,
   Esc, and a gamepad's A/B if one is connected; read
   `F3NV_Casino:` lines in `Papyrus.0.log`.

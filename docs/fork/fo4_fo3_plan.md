@@ -131,8 +131,15 @@ Only play can check:
   → CG02 (the birthday) → CG03 (the G.O.A.T.) → CG04 (the escape), stages
   set by 44 of the plugin's dialogue lines and by quest scripts.
 - `SetPCYoung` is not converted, so the child stages play with an adult
-  body. `SetInCharGen` and `SetLocationSpecificLoadScreensOnly` are
-  dropped; `IgnoreCrime` and `PipBoyRadioOff` are not converted yet.
+  body. `SetLocationSpecificLoadScreensOnly` is dropped and
+  `PipBoyRadioOff` is not converted yet.
+- **IgnoreCrime** is converted ([how](fo4_plan_script_functions.md#ignore-crime)):
+  CG02 and CG03 clear the crime faction of almost everyone in the vault
+  (Butch, Wally, Paul, Dad, Amata...), so hitting Butch at the birthday
+  and before the G.O.A.T. is a fight, not an assault the vault reports.
+- **SetInCharGen** is converted to a remembered flag (CG00-CG03 on, CG04's
+  end off) with Fallout 4's own chargen state off. FO3's hold on leveling
+  is not: a level gained in the vault arrives at once.
 - Fallout 4's own intro movie plays first; Fallout 3's is not built.
 - The race and SPECIAL menus open through the polyfill.
 - **Profile:** FalloutNV.esm and Fallout3.esm both carry a new-game quest

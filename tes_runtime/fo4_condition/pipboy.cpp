@@ -10,6 +10,7 @@
 // LineStack) and keeps a CND line in InfoObj, redrawing the card when it adds or changes it. The game refills
 // InfoObj on every selection change, which drops the line; the next frame puts it back. G or the REPAIR hint
 // opens the repair list (below); confirming it sends the F4SE external event FNVConditionRepair to Papyrus.
+// Once per menu it also loads our own movie into the menu instance (LoadOverlay, spike 4).
 #include "condition.h"
 
 #include "f4se/GameEvents.h"
@@ -472,6 +473,22 @@ public:
     void Invoke(Args *args) override { Update(args->movie->movieRoot); }
 };
 
+// Spike 4: our own movie (Interface/F3NV_Pipboy.swf, fo4_import/pipboy_overlay) loaded into the menu instance
+// `menu` with a Loader, as F4SE's UI.Load does; the movie keeps its own line on the item card
+// (docs/fork/swf_framework.md#spikes).
+const char *OVERLAY = "F3NV_Pipboy.swf";
+
+void LoadOverlay(GFxMovieRoot *movie, GFxValue &menu) {
+    GFxValue loader, path, args[2];
+    movie->CreateObject(&loader, "flash.display.Loader");
+    movie->CreateString(&path, OVERLAY);
+    movie->CreateObject(&args[0], "flash.net.URLRequest", &path, 1);
+    args[1].SetNull();
+    bool added = loader.IsObject() && menu.Invoke("addChild", nullptr, &loader, 1);
+    bool loading = added && loader.Invoke("load", nullptr, args, 2);
+    _MESSAGE("Pip-Boy: %s %s", OVERLAY, loading ? "loading" : added ? "not loaded" : "not added");
+}
+
 // A display object joined the menu: when it is a newly loaded STAT page, give it our tabs at once, before the
 // menu's header reads its tab names (from the next frame on, a page loaded on one of ours showed none of them).
 class AddedHandler : public GFxFunctionHandler {
@@ -524,6 +541,7 @@ public:
         root.Invoke("addEventListener", nullptr, added, 2);
         _MESSAGE("Pip-Boy key listener %s", listening ? "added" : "not added");
         code.SetMember(HOOKED, &flag);
+        LoadOverlay(movie, root);
         g_hintPage = nullptr;
         ResetPages();
         g_list.open = false;

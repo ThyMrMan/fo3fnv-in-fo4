@@ -1,0 +1,158 @@
+diff --git a/Caprica/common/IntrusiveStack.h b/Caprica/common/IntrusiveStack.h
+index f091cca..6d41f7c 100644
+--- a/Caprica/common/IntrusiveStack.h
++++ b/Caprica/common/IntrusiveStack.h
+@@ -36,6 +36,18 @@ struct IntrusiveStack final {
+     return true;
+   }
+ 
++  // Take `node` out of the stack wherever it sits; false when it is not in it.
++  bool erase(T* node) {
++    for (T** link = &root; *link; link = &(*link)->nextInStack) {
++      if (*link == node) {
++        *link = node->nextInStack;
++        count--;
++        return true;
++      }
++    }
++    return false;
++  }
++
+   size_t size() const { return count; }
+ 
+ private:
+diff --git a/Caprica/papyrus/expressions/PapyrusBinaryOpExpression.h b/Caprica/papyrus/expressions/PapyrusBinaryOpExpression.h
+index 05b6ed1..6370892 100644
+--- a/Caprica/papyrus/expressions/PapyrusBinaryOpExpression.h
++++ b/Caprica/papyrus/expressions/PapyrusBinaryOpExpression.h
+@@ -163,6 +163,16 @@ struct PapyrusBinaryOpExpression final : public PapyrusExpression {
+       case PapyrusBinaryOperatorType::CmpLte:
+       case PapyrusBinaryOperatorType::CmpGt:
+       case PapyrusBinaryOperatorType::CmpGte:
++        // Bethesda's compilers also order strings with these (the VM compares them).
++        coerceToSameType(ctx);
++        if (left->resultType().type != PapyrusType::Kind::Int && left->resultType().type != PapyrusType::Kind::Float &&
++            left->resultType().type != PapyrusType::Kind::String) {
++          ctx->reportingContext.fatal(
++              location,
++              "The <, <=, >, >=, -, *, /, and % operators are only valid on integers and floats!");
++        }
++        return;
++
+       case PapyrusBinaryOperatorType::Subtract:
+       case PapyrusBinaryOperatorType::Multiply:
+       case PapyrusBinaryOperatorType::Divide:
+diff --git a/Caprica/pex/PexFunctionBuilder.cpp b/Caprica/pex/PexFunctionBuilder.cpp
+index c37ffa5..d41029a 100644
+--- a/Caprica/pex/PexFunctionBuilder.cpp
++++ b/Caprica/pex/PexFunctionBuilder.cpp
+@@ -62,16 +62,29 @@ void PexFunctionBuilder::freeValueIfTemp(const PexValue& v) {
+ 
+   detail::TempVarDescriptor* desc;
+   if (tempVarMap->tryFind(varName, desc)) {
+-    if (!desc->isLongLivedTempVar && desc->localVar)
++    if (!desc->isLongLivedTempVar && desc->localVar && !desc->isFree) {
++      desc->isFree = true;
+       tempVarMap->findOrCreate(desc->localVar->type)->freeVars.push(desc->localVar);
++    }
++  }
++}
++
++void PexFunctionBuilder::markTempLive(const PexValue& v) {
++  detail::TempVarDescriptor* desc;
++  if (v.type == PexValueType::Identifier && tempVarMap->tryFind(v.val.s, desc) && desc->isFree) {
++    desc->isFree = false;
++    tempVarMap->findOrCreate(desc->localVar->type)->freeVars.erase(desc->localVar);
+   }
+ }
+ 
+ PexLocalVariable* PexFunctionBuilder::internalAllocateTempVar(const PexString& typeName) {
+   detail::TempVarDescriptor* desc;
+   if (tempVarMap->tryFind(typeName, desc)) {
+-    if (desc->freeVars.size())
+-      return desc->freeVars.pop();
++    if (desc->freeVars.size()) {
++      auto loc = desc->freeVars.pop();
++      tempVarMap->findOrCreate(loc->name)->isFree = false;
++      return loc;
++    }
+   }
+ 
+   constexpr size_t PrefixLength = 6;
+@@ -97,6 +110,8 @@ PexLocalVariable* PexFunctionBuilder::internalAllocateTempVar(const PexString& t
+ }
+ 
+ PexFunctionBuilder& PexFunctionBuilder::fixup(PexInstruction* instr) {
++  auto destIdx = PexInstruction::getDestArgIndexForOpCode(instr->opCode);
++  int32_t argIdx = 0;
+   for (auto& v : instr->args) {
+     if (v.type == PexValueType::Invalid) {
+       reportingContext.fatal(currentLocation,
+@@ -105,7 +120,9 @@ PexFunctionBuilder& PexFunctionBuilder::fixup(PexInstruction* instr) {
+     }
+     if (v.type == PexValueType::TemporaryVar && v.val.tmpVar->var)
+       v = PexValue::Identifier(v.val.tmpVar->var);
+-    freeValueIfTemp(v);
++    // The written temp is not read here: freeing it would hand its slot out while it holds the new value.
++    if (argIdx++ != destIdx)
++      freeValueIfTemp(v);
+   }
+   for (auto it = instr->variadicArgs.beginInsertable(); it != instr->variadicArgs.endInsertable(); ++it) {
+     if ((*it)->type == PexValueType::Invalid) {
+@@ -118,11 +135,13 @@ PexFunctionBuilder& PexFunctionBuilder::fixup(PexInstruction* instr) {
+     freeValueIfTemp(**it);
+   }
+ 
+-  auto destIdx = PexInstruction::getDestArgIndexForOpCode(instr->opCode);
+   if (destIdx != -1 && instr->args[destIdx].type == PexValueType::TemporaryVar) {
+     auto loc = internalAllocateTempVar(instr->args[destIdx].val.tmpVar->type);
+     instr->args[destIdx].val.tmpVar->var = loc;
+     instr->args[destIdx] = PexValue::Identifier(loc);
++  } else if (destIdx != -1) {
++    // A temp written again (the right side of && and ||) holds a live value until its next read.
++    markTempLive(instr->args[destIdx]);
+   }
+ 
+   for (auto& v : instr->args)
+diff --git a/Caprica/pex/PexFunctionBuilder.h b/Caprica/pex/PexFunctionBuilder.h
+index 9e86ea5..5a4420b 100644
+--- a/Caprica/pex/PexFunctionBuilder.h
++++ b/Caprica/pex/PexFunctionBuilder.h
+@@ -273,6 +273,8 @@ struct TempVarDescriptor final {
+   // These are only used when the key is a variable name.
+   PexLocalVariable* localVar { nullptr };
+   bool isLongLivedTempVar { false };
++  // Whether localVar is on its type's freeVars (a temp must never be pushed there twice).
++  bool isFree { false };
+ };
+ }
+ 
+@@ -428,6 +430,7 @@ struct PexFunctionBuilder final {
+   }
+ 
+   void freeValueIfTemp(const PexValue& v);
++  void markTempLive(const PexValue& v);
+   void populateFunction(PexFunction* func, PexDebugFunctionInfo* debInfo);
+ 
+   explicit PexFunctionBuilder(CapricaReportingContext& repCtx, CapricaFileLocation loc, PexFile* fl);
+diff --git a/vcpkg.json b/vcpkg.json
+index 28d0e42..dff12ba 100644
+--- a/vcpkg.json
++++ b/vcpkg.json
+@@ -21,6 +21,14 @@
+       ]
+     }
+   },
+-  "default-features": ["standalone"],
+-  "builtin-baseline": "4cb4a5c5ddcb9de0c83c85837ee6974c8333f032"
++  "default-features": [
++    "standalone"
++  ],
++  "builtin-baseline": "b58529e33332fbb6dfe20317a82009b78ceeab36",
++  "overrides": [
++    {
++      "name": "fmt",
++      "version": "9.1.0"
++    }
++  ]
+ }

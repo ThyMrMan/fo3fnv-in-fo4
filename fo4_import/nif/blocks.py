@@ -165,12 +165,15 @@ _LIGHTING_TAIL = (('grayscale_scale', 'f'), ('fresnel_power', 'f'), ('wetness', 
 _FLT_MAX = struct.unpack('<f', struct.pack('<f', 3.4028234663852886e38))[0]
 #: Shader types whose extra fields this module reads (default, environment map, glow: none extra; skin tint).
 SHADER_DEFAULT, SHADER_ENVMAP, SHADER_GLOW, SHADER_SKIN_TINT = 0, 1, 2, 5
+#: Shader types of FaceGen NIFs: the face (no extra fields) and hair tint (a colour).
+SHADER_FACEGEN, SHADER_HAIR_TINT = 4, 6
 #: Shader type of terrain LOD (every vanilla .btr's); no extra fields.
 SHADER_LOD_LAND = 18
 
 
 def read_lighting(r: Reader) -> dict:
-    """BSLightingShaderProperty at stream 130 (default, environment-map, skin-tint or LOD-land type)."""
+    """BSLightingShaderProperty at stream 130 (default, environment-map, glow, FaceGen, skin- or hair-tint or
+    LOD-land type)."""
     out = {'shader_type': r.take('I')}
     read_net(r, out)
     for name, fmt in _LIGHTING:
@@ -183,7 +186,9 @@ def read_lighting(r: Reader) -> dict:
         out['envmap'] = r.take('f2B')
     elif out['shader_type'] == SHADER_SKIN_TINT:
         out['skin_tint'] = r.take('4f')
-    elif out['shader_type'] not in (SHADER_DEFAULT, SHADER_GLOW, SHADER_LOD_LAND):
+    elif out['shader_type'] == SHADER_HAIR_TINT:
+        out['hair_tint'] = r.take('3f')
+    elif out['shader_type'] not in (SHADER_DEFAULT, SHADER_GLOW, SHADER_LOD_LAND, SHADER_FACEGEN):
         raise ValueError(f"shader type {out['shader_type']} not supported")
     if r.pos != len(r.data):
         raise ValueError(f"shader type {out['shader_type']}: {len(r.data) - r.pos} bytes not read")
@@ -208,6 +213,8 @@ def pack_lighting(b: dict) -> bytes:
         out += struct.pack('<f2B', *b['envmap'])
     elif b['shader_type'] == SHADER_SKIN_TINT:
         out += struct.pack('<4f', *b['skin_tint'])
+    elif b['shader_type'] == SHADER_HAIR_TINT:
+        out += struct.pack('<3f', *b['hair_tint'])
     return out
 
 

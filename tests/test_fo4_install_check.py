@@ -25,7 +25,7 @@ def touch(path: Path, text: str = '') -> Path:
 def stamp(folder: Path, plugin: str, status: str = 'finished') -> None:
     """A converted `plugin` in `folder` with its build stamp."""
     touch(folder / plugin)
-    touch(folder / (plugin + IC.STAMP), json.dumps({'status': status}))
+    touch(folder / (plugin + IC.STAMP_SUFFIX), json.dumps({'status': status}))
 
 
 def fake_mo2(root: Path, fallout4: Path) -> Path:
@@ -158,6 +158,6 @@ def test_dll_missing_and_nothing_converted(machine):
     (machine.mo2 / 'mods' / BASE_MOD / IC.PLUGINS / IC.RUNTIME_DLL).unlink()
     assert status(machine, IC.RUNTIME_DLL) == 'MISSING'
     for mod in (BASE_MOD, DLC_MOD):
-        for path in (machine.mo2 / 'mods' / mod).glob('*' + IC.STAMP):
+        for path in IC.all_moved_in(machine.mo2 / 'mods' / mod, '*' + IC.STAMP_SUFFIX):
             path.unlink()
     assert status(machine, 'Converted plugins') == 'NOT YET'

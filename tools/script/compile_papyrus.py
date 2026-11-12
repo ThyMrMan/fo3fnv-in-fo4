@@ -34,6 +34,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from core.subprocess_flags import windows_cmd
 from core.memory_budget import memory_workers
 from fo4_import.base import caprica
+from fo4_import.base.build_files import moved_in
 from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import compile_folder, header_dirs
 
@@ -55,8 +56,10 @@ _DECLARATION = re.compile(r'^(?:scriptname|import|customevent|struct|endstruct'
                           r'|(?:[\w:\[\]]+ )?(?:function|event|property)\b|[\w:\[\]]+ property\b)')
 #: The member a declaration line declares: a function, event, property or custom event name.
 _MEMBER = re.compile(r'\b(?:function|event|property|customevent) (\w+)')
-#: Per-script results of the last Fallout 4 run, in --out, so the next run compiles only what changed.
+#: Per-script results of the last Fallout 4 run, in --out's build records, so the next run compiles only what changed.
 _STATE_FILE = 'compile_state.json'
+#: A compile state's Caprica (caprica.build_tag); a state made by another, or before the tag, keeps no results.
+COMPILER = 'caprica'
 #: Stamp memos (file_stamps) of the sources' facts, per --out, in the cache (a build deploys --out); the old headers' one.
 _SOURCE_STAMPS, _OLD_HEADER_STAMPS = 'sources.json', 'headers.json'
 _STAMPS_CACHE = _PROJECT_ROOT / 'output' / 'fo4_cache' / 'compile_stamps'
@@ -272,28 +275,16 @@ def _state_key(imports: str) -> str:
     return f'{rest};{own}'
 
 
-def shadowing(names: set, imports: str) -> set:
-    """Those of `names` (lower case) that an import folder after the first, the scripts' own, has a script for."""
-    held = set()
-    for folder in filter(os.path.isdir, imports.split(';')[1:]):
-        held |= {entry[:-4].lower() for entry in os.listdir(folder) if entry.lower().endswith('.psc')}
-    return names & held
-
-
 def saved_state(out_dir: Path, imports: str, headers: str) -> tuple:
-    """(the last run's per-script results, every name it listed). No results when it is absent or was made
-    against other header folders or contents. One made when the masters' folders came before a script's own
-    loses the scripts a master also names (shadowing), so they and their users compile again.
-    See: docs/fork/fo4_pipeline.md#own-source-first
+    """(the last run's per-script results, every name it listed). No results when it is absent, was made
+    against other header folders or contents, or by another Caprica (COMPILER).
+    See: docs/fork/fo4_pipeline.md#caprica-ours
     """
-    path = out_dir / _STATE_FILE
+    path = moved_in(out_dir / _STATE_FILE)
     state = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
     scripts = state.get('scripts', {})
-    kept = scripts if state.get('imports') == _state_key(imports) and state.get('headers') == headers else {}
-    if kept and not state.get('own_first'):
-        again = shadowing(set(kept), imports)
-        kept = {name: result for name, result in kept.items() if name not in again}
-    return kept, set(scripts)
+    same = state.get('imports') == _state_key(imports) and state.get('headers') == headers
+    return (scripts if same and state.get(COMPILER) == caprica.build_tag() else {}), set(scripts)
 
 
 def missing_pex(state: dict, out_dir: Path) -> set:
@@ -394,8 +385,10 @@ def compile_fallout4(args) -> tuple:
         own = {**own, **extra}
     scripts = {n: {**(state[n] if n not in todo else {'ok': n in pex, 'own': own.get(n, [])}),
                    'sha': hashes[n], 'api': apis[n]} for n in hashes}
-    (out_dir / _STATE_FILE).write_text(json.dumps({'imports': _state_key(imports), 'headers': headers,
-                                                   'own_first': True, 'scripts': scripts}), encoding='utf-8')
+    state_file = moved_in(out_dir / _STATE_FILE)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps({'imports': _state_key(imports), 'headers': headers,
+                                      COMPILER: caprica.build_tag(), 'scripts': scripts}), encoding='utf-8')
     compiled = {n for n, s in scripts.items() if s['ok']}
     own = {f.stem: scripts[f.stem.lower()]['own'] for f in files if scripts[f.stem.lower()]['own']}
     return compiled, own, [f.stem for f in files]

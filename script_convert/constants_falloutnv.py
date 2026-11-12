@@ -79,6 +79,10 @@ _ALWAYS_HARDCORE = dict(emit='0', note='{f} - Skyrim has no hardcore mode, nor i
 
 #: FO3/FNV commands as COMMAND_ROWS specs (Cmd keyword arguments); 'MAP'/'ACTOR' name constants.MAP/ACTOR.
 FALLOUT_COMMAND_ROWS = {
+    #: The build stands in for xNVSE 6.4.9 (nvse_version.h). See: docs/fork/fo4_script_compile.md#nvse-version
+    'getnvseversion': dict(emit='6', max_args=0),
+    'getnvserevision': dict(emit='4', max_args=0),
+    'getnvsebeta': dict(emit='9', max_args=0),
     'setenemy': dict(emit='{p0}.SetEnemy({p1}, {b2}, {b3})',
                      types={0: 'Faction', 1: 'Faction'}, defaults={2: '0', 3: '0'}),
     'setally': dict(emit='{p0}.SetAlly({p1}, {b2}, {b3})',
@@ -164,6 +168,7 @@ FALLOUT_COMMAND_ROWS = {
     'getignorecrime': dict(
         emit='0', note='{f} - Skyrim has no ignore-crime read (read as 0)',
         flags='zero_arg'),
+    'ignorecrime': dict(note='{f} {a} - Skyrim keeps no per-actor ignore-crime flag'),
     'isgoredisabled': dict(
         emit='0', note='{f} - Skyrim has no gore toggle (read as 0)',
         flags='zero_arg'),

@@ -74,10 +74,12 @@ reach, the weather, glowing signs and neon.
 
 ## Not done yet
 
-- **Casino games and Caravan:** blackjack, roulette, slots and Caravan are
-  being built now ([plan](docs/fork/fo4_casino_plan.md)). Until then the
-  tables do nothing.
-- **Fallout 3:** not converted yet.
+- **Casino games and Caravan:** slots and roulette work, on our own menu.
+  Blackjack and Caravan are being built now
+  ([plan](docs/fork/fo4_casino_plan.md)); until then those tables say the
+  game isn't playable yet.
+- **Fallout 3:** a first spike (Vault 101 and the opening) is built, not
+  played. The rest of the Capital Wasteland isn't converted yet.
 - **Known gaps:** a few hundred dialogue lines whose conditions Fallout 4
   can't check, some creature animations (hit reactions and staggers on FNV's
   own rigs), FNV's third-person gun animations, precombines in the densest

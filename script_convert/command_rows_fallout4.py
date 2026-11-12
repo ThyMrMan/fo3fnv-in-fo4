@@ -103,6 +103,10 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'isplayerinregion': Cmd('TES4Polyfill.InRegion({p0})', types={0: 'GlobalVariable'}, flags='cmp_bool'),
     'getcurrentaiprocedure': Cmd('TES4Polyfill.AIProcedure({ref})', ACTOR, flags='actor_only zero_arg'),
     'islimbgone': Cmd('TES4Polyfill.LimbGone({ref}, {i0})', ACTOR, flags='actor_only cmp_bool'),
+    'ignorecrime': Cmd('TES4Polyfill.IgnoreCrime({ref}, {b0})', ACTOR, flags='actor_only'),
+    'getignorecrime': Cmd('TES4Polyfill.GetIgnoreCrime({ref})', ACTOR, flags='actor_only zero_arg'),
+    'setinchargen': Cmd('TES4Polyfill.SetInCharGen({b0})'),
+    'getinchargen': Cmd('TES4Polyfill.GetInCharGen()', flags='zero_arg'),
     'ishardcore': Cmd(f'{_HARDCORE[0]}.IsOn()', self_type=_HARDCORE, flags='zero_arg cmp_bool'),
     'isalwayshardcore': Cmd(f'{_HARDCORE[0]}.IsAlways()', self_type=_HARDCORE, flags='zero_arg cmp_bool'),
     'behemoth': Cmd(f'{_HARDCORE[0]}.IsAlways()', self_type=_HARDCORE, flags='zero_arg cmp_bool'),
@@ -119,3 +123,14 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'gettalkedtopcp': Cmd(f'({{ref}}.GetValue({av_property("TalkedToPC")}) != 0.0)', ACTOR,
                           self_type=_av('TalkedToPC'), flags='actor_only zero_arg cmp_bool'),
 }.items()}
+
+
+def _flagged(flag: str) -> frozenset:
+    """Commands whose Fallout 4 row carries `flag`."""
+    return frozenset(name for name, row in COMMAND_ROWS.items() if flag in getattr(FALLOUT4_ROWS.get(row), 'flags', ()))
+
+
+#: Commands a Fallout 4 row makes Bool: `X == 1` is `X` (cmp_bool, and bare_bool too for returns_bool).
+#: See: docs/fork/fo4_pipeline.md#caprica-temp-alias
+COMPARISON_BOOL = _flagged('cmp_bool')
+BOOL_VALUED = COMPARISON_BOOL | _flagged('bare_bool')

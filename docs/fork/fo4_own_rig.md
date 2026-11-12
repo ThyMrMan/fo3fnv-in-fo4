@@ -50,10 +50,9 @@ as `stats` does; the race comes from the rig table.
   and project from the template's files in the game archives.
 - `fo4_import/rig/records.py`: RACE, BPTD, ARMO/ARMA, MOVT (the form
   version's `SPED` layout) and the action IDLEs, on the template's records.
-- `fo4_import/rig/build.py` (`project_file_data`) and
-  `fo4_import/rig/anim_info.py` (`dynamic_idles`): AnimTextData's text files
-  (the project's file data, dynamic idle data). The rest comes from the
-  Creation Kit run ([below](#anim-info); id rule and formats:
+- `fo4_import/rig/build.py` (`project_file_data`): the project's
+  AnimationFileData. The rest of its AnimTextData is written after the plugin
+  ([below](#anim-info); id rule and formats:
   [anim_text_data](research/anim_text_data.md#ids)).
 - `creatures.py`: mode `rig` calls these once per skeleton folder and writes
   the NPC as `stats` does, on the rig's race.
@@ -89,34 +88,28 @@ of the lowercased name. `build.model` writes that file and `records.body_path`
 names it, so the mesh and its ARMA agree. The skin's EditorID and FormID
 still come from the full name, so nothing moves.
 
-## <a id="anim-info"></a>AnimTextData from the Creation Kit
+## <a id="anim-info"></a>AnimTextData: ours since 2026-11-11
 
-The game reads a race's graphs through AnimTextData, mostly binary files
-the Creation Kit writes (`-GenerateAnimInfo:<plugin> <data> <output>
-[--speed] [--stance] [--forceAll]`): animation offsets, speed info, stance
-data, clip generator data, event info, file data, dynamic idle data and the
-persistent subgraph list. The played gecko had them all. So the build runs
-the CK (`fo4_import/rig/anim_info.py`) after the plugin is written, when it
-made an own-rig creature, the way FaceGen runs it
-(`fo4_import/pipeline/creation_kit.py`): through MO2, so the CK loads the
-profile's plugins. MO2 sends the files the CK creates to the selected
-profile's custom overwrite for the Creation Kit, else to `overwrite`
-(`creation_kit.output_dir`), and the CK edits an existing file in place,
-so last run's files (listed in `<plugin>.animinfo.txt`) are deleted first
-and the new ones moved into the mod folder. *Deleting them from the build's
-folder is not enough once the build is deployed (found 2026-10-31):* the
-deployed MO2 mod holds the same files, the CK edits those in place, and
-nothing reached `overwrite`: two rebuilds collected 0 files, the build's
-folder lost its 17,892, the list came back empty, so the skip never held
-and the CK ran on every build (233 s). The files dated from the run's start
-are now collected from `overwrite` (moved) and from every enabled mod
-(copied, so the deployed copy stays): `creation_kit.written_since`. The CK also edits
-`CreationKitPrefs.ini`, `ckpe.log` and the `Logs` folders in the game
-folder in place.
+The game reads a race's graphs through AnimTextData: animation offsets,
+speed info, stance data, clip generator data, event info, file data, dynamic
+idle data and the persistent subgraph list. Until 2026-11-11 the Creation
+Kit wrote them (`-GenerateAnimInfo:<plugin> Data Data --speed --stance`,
+through MO2), 233 s a build. The build now writes them itself after the
+plugin (`build_finish._anim_text`, `havok/anim_text.py`,
+[ours](research/anim_text_data.md#ours)); the CK stage and its lists beside
+the plugin (`<plugin>.animinfo.txt`, `.animinfo.key`) are gone.
 
-The CK's run also covers every converted gun's subgraph entry: 98% of what
-it writes. Since 2026-11-06 the third-person gun entries' files are copied
-from vanilla after it runs ([writer](research/anim_text_data.md#writer)).
+What running the CK through MO2 taught, kept for FaceGen, which still does
+(`fo4_import/pipeline/creation_kit.py`):
+- MO2 sends the files the CK creates to the selected profile's custom
+  overwrite for the Creation Kit, else to `overwrite`
+  (`creation_kit.output_dir`).
+- The CK edits a file that already exists in a mod in place. Once the build
+  was deployed, the deployed mod held every AnimTextData file, so the CK
+  edited those and nothing reached `overwrite` (found 2026-10-31): two
+  rebuilds collected 0 files and the CK ran on every build.
+- It also edits `CreationKitPrefs.ini`, `ckpe.log` and the `Logs` folders in
+  the game folder in place.
 
 ## <a id="nightstalker"></a>Second creature: the nightstalker (2026-10-27)
 

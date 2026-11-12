@@ -55,11 +55,10 @@ leaves out melee, thrown and mines.
 **AnimTextData.** `fo4_import/havok/gun_anim_text.py:load_vanilla` reads
 every vanilla AnimationOffsets file into `Vanilla.clips`: the clip names
 each vanilla graph can play. `copied_entries` copies vanilla's files for
-entries that play no FNV clip; any entry that plays one is left to the
-Creation Kit run, `fo4_import/rig/anim_info.py:generate`.
-`anim_info.inputs_key` hashes every file under `Meshes/Actors`, so any new
-clip reruns the CK ([AnimTextData](fo4_own_rig.md#anim-info),
-[writer](research/anim_text_data.md#writer)).
+entries that play no FNV clip. Since 2026-11-11 `havok/anim_text.py` writes
+first-person entries' offsets and own-rig creatures' files, with no Creation
+Kit run; third-person entries that play an FNV clip get none yet
+([ours](research/anim_text_data.md#ours)).
 
 **Own rigs.** `fo4_import/data/creature_rigs.json` maps FO4 clip roles to
 FNV files per rig. Across the 13 rigs the roles are Idle, turns, walk, run,

@@ -9,6 +9,7 @@ import struct
 from pathlib import Path
 
 from fo4_import import dialogue_menu as menu_links
+from fo4_import import pipboy_overlay
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
@@ -16,12 +17,13 @@ from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.master_overrides import drop_unchanged
 from fo4_import.base.source import plugin_stem
-from fo4_import.havok import gun_anim_text
+from fo4_import.base.ba2 import Archives
+from fo4_import.base.build_files import moved_in
+from fo4_import.havok import anim_text, gun_anim_text
 from fo4_import.nif import weapon
 from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
-from fo4_import.pipeline.stage_timer import charged, timed
-from fo4_import.rig import anim_info
+from fo4_import.pipeline.stage_timer import timed
 from fo4_import.spike import ammo_casings, ammo_switch, companion_barks, facegen, list_adds, skeleton, voice
 from fo4_import.spike.combat_feel import write_settings
 from fo4_import.spike.imagespace import LUT_FOLDER
@@ -39,6 +41,10 @@ LIP_GENERATOR = FALLOUT4_DIR / 'Tools' / 'LipGen' / 'LipGenerator'
 VOICE_FAILED = 'VoiceFailed'
 #: The stamp of how a plugin's built lips were made (voice.relip_once), per plugin, under the sound staging root.
 VOICE_LIPS = 'VoiceLips'
+#: The kinds an entry playing clips of its own copies from its template: its offsets are written (entry_files).
+TEMPLATE_KINDS = ('AnimationSpeedInfo', 'AnimationStanceData', 'DynamicIdleData')
+#: The file list and input key the Creation Kit stage kept beside the plugin (older builds), now removed.
+ANIM_INFO_LISTS = ('.animinfo.txt', '.animinfo.key')
 
 
 @timed('voice')
@@ -84,8 +90,8 @@ def _main_archive(builder, data_dir: Path, plugin: str) -> None:
 @timed('plugin write')
 def _write_plugin(builder, out: Path, data_dir: Path) -> None:
     """Save the ledger, then write the plugin to `out` (a dependent build's master records only where they change
-    the master's: master_overrides), clear script properties naming no written record, then, when a written race names a
-    graph of its own (anim_info.needed), have the Creation Kit write their animation data into `data_dir`."""
+    the master's: master_overrides), clear script properties naming no written record, then write the animation
+    data the written races need (_anim_text)."""
     builder.writer.next_object_id = builder.top
     if builder.built:
         adds = {}
@@ -96,24 +102,37 @@ def _write_plugin(builder, out: Path, data_dir: Path) -> None:
     builder.writer.write(str(out))
     for key, count in clear_dangling(out, len(builder.writer.masters)).items():
         builder.counts[f'script properties naming no written record ({key})'] = count
-    races = [r for r in builder.writer.top_records() if r[:4] == b'RACE']
-    if anim_info.needed(races, data_dir):
-        builder.counts['own-rig animation data files (Creation Kit)'] = charged(
-            'own-rig animation data (Creation Kit)', anim_info.generate, out, data_dir)
-    _gun_anim_text(builder, races, data_dir)
+    _anim_text(builder, [r for r in builder.writer.top_records() if r[:4] in (b'RACE', b'BPTD')], data_dir, out)
 
 
-@timed('gun animation data')
-def _gun_anim_text(builder, races: list, data_dir: Path) -> None:
-    """Third-person gun entries' animation data copied from vanilla (gun_anim_text), after the Creation Kit so
-    those files are ours whatever it wrote; counted.
-    See: docs/fork/research/anim_text_data.md#writer
+@timed('animation data')
+def _anim_text(builder, records: list, data_dir: Path, plugin: Path) -> None:
+    """Every AnimTextData file the written races (in packed `records`, with the body part data) need, in place of
+    the Creation Kit: gun entries playing only vanilla clips copied from vanilla, own-rig creature projects' and
+    entries' (read from `data_dir` only), other entries' offsets with their template's other files, and the sync
+    data; then stale files pruned, the persistent list merged and the Creation Kit stage's old lists beside the
+    plugin removed; counted.
+    See: docs/fork/research/anim_text_data.md#ours
     """
-    vanilla = gun_anim_text.load_vanilla(FALLOUT4_DIR / 'Data')
-    copies = gun_anim_text.copied_entries(races, data_dir, vanilla)
-    builder.counts['gun animation data files copied from vanilla'] = len(gun_anim_text.write(data_dir, copies, vanilla))
+    races = [r for r in records if r[:4] == b'RACE']
+    vanilla, masters = gun_anim_text.load_vanilla(FALLOUT4_DIR / 'Data'), master_copies.master_dirs(builder)
+    known, copies = anim_text.known(vanilla), gun_anim_text.copied_entries(races, data_dir, vanilla)
+    made = anim_text.creatures(races, anim_text.reader(data_dir), known,
+                               anim_text.body_parts([r for r in records if r[:4] == b'BPTD']))
+    own = {entry: v for entry, v in anim_text.own_clips(races, vanilla, copies).items()
+           if f'AnimationOffsets\\{entry}.txt' not in made}
+    templates = {entry: template for entry, (_, template) in own.items() if template is not None}
+    read = anim_text.reader(data_dir, *masters, Archives(FALLOUT4_DIR / 'Data'))
+    files = {**made, **anim_text.entry_files(own, read, known), **anim_text.sync_data(plugin.name)}
+    written = (gun_anim_text.write(data_dir, copies, vanilla) + anim_text.write(data_dir, files)
+               + gun_anim_text.write(data_dir, templates, vanilla, TEMPLATE_KINDS))
+    builder.counts['animation data files written'] = len(written)
+    builder.counts['stale animation data files removed'] = anim_text.prune(data_dir, written)
     builder.counts['ids added to the persistent subgraph list'] = gun_anim_text.merge_persistent(
-        data_dir, copies, vanilla, master_copies.master_dirs(builder))
+        data_dir, {**copies, **templates}, vanilla, masters)
+    for suffix in ANIM_INFO_LISTS:
+        moved_in(plugin.with_name(plugin.name + suffix)).unlink(missing_ok=True)
+        plugin.with_name(plugin.name + suffix).unlink(missing_ok=True)
 
 
 def _finished(builder, data_dir: Path) -> tuple:
@@ -146,10 +165,20 @@ def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
 
 @timed('assets')
 def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
-    """Lowered skeletons, voices, sounds and movies, stale FaceGen pruned, the texture BA2; counted."""
+    """Lowered skeletons, voices, sounds and movies; counted."""
     builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
     _sounds(builder, export_dir, data_dir, out.name)
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
+
+
+@timed('FaceGen and texture archive')
+def _faces(builder, data_dir: Path, out: Path) -> None:
+    """After the plugin is written: drop FaceGen naming no NPC_ or drawing parts it no longer has
+    (facegen.outdated; the game draws those NPCs from the record), then pack the texture BA2; counted."""
+    stale = facegen.outdated(out, data_dir, master_copies.master_dirs(builder))
+    for path in stale:
+        path.unlink()
+    builder.counts['FaceGeom NIFs older than their NPC head parts removed (run the faces stage)'] = len(stale)
     npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
     builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
     builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER))
@@ -162,7 +191,7 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
     if builder.scripts.used and scripts_dir is not None:
         masters = tuple(Path(scripts_dir).parent / p.name for p in builder.built)
         print(compile_into(scripts_dir, data_dir, builder.scripts.used, masters,
-                           tuple(Path(p).parent / 'Scripts' for p in builder.built)))
+                           tuple(Path(p).parent for p in builder.built)))
         own = [Path(scripts_dir) / f'{name}.psc' for name in builder.scripts.used]
         for path in master_scripts(own, masters) if masters else ():
             MASTERS.script(path)
@@ -171,7 +200,8 @@ def _compile(builder, data_dir: Path, scripts_dir) -> None:
 @timed('closing records')
 def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helper: int) -> None:
     """The records written from everything made: script packages, ammo, condition (helper plugin index
-    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino, the dialogue menu links."""
+    `helper`), the Pip-Boy pages, challenges, Hardcore mode, the casino, the dialogue menu links; the masterless
+    build also installs our Pip-Boy movie."""
     builder.counts['script packages'] = write_script_packages(builder)
     ammo_casings.write(builder, builder.equipment.ammo_mods.loaded)
     ammo_switch.write(builder, builder.equipment.ammo_mods)
@@ -188,6 +218,8 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
     menu_links.write(builder, data_dir, out.name)
     if builder.built:
         builder.scripts.used += [list_adds.SCRIPT]
+    else:
+        builder.counts['Pip-Boy movie installed'] = pipboy_overlay.install(data_dir)
 
 
 @timed('closing records')
@@ -214,6 +246,7 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     _compile(builder, data_dir, scripts_dir)
     _lists(builder, data_dir)
     _write_plugin(builder, out, data_dir)
+    _faces(builder, data_dir, out)
     builder.counts["files left to the master's folder"] = master_copies.drop_loose(data_dir,
                                                                                     master_copies.master_dirs(builder))
     made = stale_files.made(data_dir, plugin_stem(export_dir), builder.started, bool(builder.built))

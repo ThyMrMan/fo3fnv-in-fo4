@@ -18,7 +18,7 @@ from pathlib import Path
 from core.heavy_lock import hold_heavy_lock
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
-from fo4_import.base.ba2_pack import pack_main, pack_textures, write_later
+from fo4_import.base.ba2_pack import pack_main, pack_record, pack_textures, write_later
 from fo4_import.base.source_fault import FAULTS, report as fault_report, stamp as fault_stamp, without_fault
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif.convert_static import smoothness, spec_glossiness, texture_source
@@ -27,6 +27,7 @@ from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.elric_cache import finish
 from fo4_import.pipeline.export_index import OVERLAY_ENV, export_file
 from fo4_import.pipeline.mesh_cache import warm
+from fo4_import.pipeline.stale_files import list_path
 from fo4_import.pipeline.work_cache import spec_map
 from fo4_import.spike.statics import copy_texture, stage_derived, write_assets
 
@@ -39,8 +40,8 @@ VARIANTS = (('', False), ('load', True))
 def shipped(plugin: Path) -> set:
     """Lowercase '/'-separated paths `plugin`'s folder ships: its files list and its Textures archive record."""
     folder = plugin.parent
-    listed = (folder / f'{plugin.name}.files.txt').read_text(encoding='utf-8').lower().replace('\\', '/')
-    record = folder / f'{plugin.stem} - Textures.ba2.json'
+    listed = list_path(plugin).read_text(encoding='utf-8').lower().replace('\\', '/')
+    record = pack_record(folder / f'{plugin.stem} - Textures.ba2')
     packed = json.loads(record.read_text(encoding='utf-8'))['manifest'] if record.is_file() else {}
     loose = folder / 'Textures'
     names = [p.relative_to(loose).as_posix().lower() for p in loose.rglob('*.dds')] if loose.is_dir() else []

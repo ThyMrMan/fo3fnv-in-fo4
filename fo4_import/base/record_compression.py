@@ -3,14 +3,16 @@
 Fallout4.esm compresses every LAND (37,019 of 37,020) and every NAVM (7,894) record: the record flag 0x40000, then
 the body's length (u32) and the body deflated at level 9 (zlib header 78 DA). The writer packs records raw and
 compresses only as it writes the file (FO4PluginWriter._finish_groups), so every step comparing or reading the
-built records in memory sees them uncompressed. zlib is deterministic, so the plugin stays byte-reproducible.
+built records in memory sees them uncompressed. Bodies go through our pinned zlib, so the plugin is the same bytes
+on every machine and Python.
 
 See: docs/fork/fo4_pipeline.md#record-compression
 """
 
 import struct
-import zlib
 from concurrent.futures import ThreadPoolExecutor
+
+from fo4_import.base.pinned_zlib import compress
 
 #: Record types Fallout4.esm stores compressed.
 COMPRESSED_TYPES = (b'LAND', b'NAVM')
@@ -24,7 +26,7 @@ HOLDERS = (b'WRLD', b'CELL')
 
 def _deflate(body: bytes) -> bytes:
     """A record body stored compressed: its length, then the zlib stream."""
-    return struct.pack('<I', len(body)) + zlib.compress(body, LEVEL)
+    return struct.pack('<I', len(body)) + compress(body, LEVEL)
 
 
 def _spans(blob: bytes, start: int, end: int, out: list) -> None:
@@ -64,8 +66,8 @@ def _rebuild(blob: bytes, start: int, end: int, packed: dict) -> bytes:
 
 
 def compress_group(blob: bytes) -> bytes:
-    """Top-level group `blob` with its COMPRESSED_TYPES records compressed (bodies deflated on threads, as zlib
-    releases the GIL); a group of another type unchanged."""
+    """Top-level group `blob` with its COMPRESSED_TYPES records compressed (bodies deflated on threads, as the
+    ctypes call releases the GIL); a group of another type unchanged."""
     if blob[8:12] not in HOLDERS:
         return blob
     spans = []

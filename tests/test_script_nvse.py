@@ -121,8 +121,8 @@ def test_array_commands_call_f3nv_array(fallout4):
                 '  if ar_Find 2 a == ar_BadNumericIndex\n    let a := ar_Null\n  endif\n',
                 'array_var a\narray_var m\nint n\n')
     assert _declares(got, 'Var[]', 'a')
-    for want in ('a = F3NV_Array.List(3, 1, 2, 3)', 'm = F3NV_Array.Construct("StringMap")',
-                 'F3NV_Array.Set(m, "x", 5)', 'n = F3NV_Array.Size(a)', 'If F3NV_Array.HasKey(m, "x")',
+    for want in ('a = F3NV_Array.List(3, 1, 2, 3, ' + ', '.join(['None'] * 17) + ')',
+                 'm = F3NV_Array.Construct("StringMap")', 'F3NV_Array.Set(m, "x", 5)', 'n = F3NV_Array.Size(a)', 'If F3NV_Array.HasKey(m, "x")',
                  'n = (F3NV_Array.Get(m, "x") as Int)', 'If (F3NV_Array.Find(2, a) as Float) == -99999',
                  'a = None'):
         assert want in got

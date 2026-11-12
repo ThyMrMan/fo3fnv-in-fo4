@@ -15,7 +15,7 @@ import argparse
 import shutil
 from pathlib import Path
 
-from fo4_import.base.ffdec import REPO
+from fo4_import.base.mxmlc import REPO
 from fo4_import.base.support_records import pack_global
 from fo4_import.base.writer import FO4PluginWriter, pack_quest, pack_topic
 from fo4_import.dialogue_menu import movie
@@ -112,11 +112,11 @@ def demo_plugin(path: Path) -> list:
     return rows
 
 
-def build(out: Path, dll: Path = DLL, game_data: Path = None) -> list:
+def build(out: Path, dll: Path = DLL) -> list:
     """The test mod in `out`: demo plugin, its links, the menu movie and `dll`; the files written."""
     rows = demo_plugin(out / DEMO)
     written = [out / DEMO, write_links(out / LINKS / f'{Path(DEMO).stem}.txt', rows)]
-    written.append(movie.install(out, game_data) if game_data else movie.install(out))
+    written.append(movie.install(out))
     target = out / 'F4SE' / 'Plugins' / 'F3NV.dll'
     shutil.copyfile(dll, target)
     return written + [target]

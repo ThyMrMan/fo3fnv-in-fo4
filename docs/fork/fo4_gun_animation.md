@@ -252,9 +252,10 @@ Left on the list:
 
 Gun entries copy the template's AnimTextData under the new folder list's id.
 Once step 1 changes the third-person clips, the copied speed and stance data
-no longer match them. Run the Creation Kit export (`rig/anim_info.py`, already
-built for own-rig creatures, with `--speed --stance`) over the gun entries
-too, and keep its input-key skip so an unchanged build doesn't pay for it.
+no longer match them. Write those entries' offsets the way
+`havok/anim_text.py` writes first-person entries' and own-rig creatures'
+([ours](research/anim_text_data.md#ours)); the Creation Kit export is gone
+(2026-11-11).
 
 Done when the gun entries' AnimTextData comes from the CK, and NPCs aim the
 converted guns at the player (played).

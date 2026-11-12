@@ -46,17 +46,13 @@ machine):
 - **The movie.** `spike/build_finish.py` calls `base/bink.write_movies`,
   which writes FNV's `Video` folder into the build's Data
   ([as built](bink_movies.md#plan)).
-- **Gun animation data** without the Creation Kit:
-  `build_finish._gun_anim_text` ([writer](research/anim_text_data.md#writer)).
+- **All animation data** without the Creation Kit (2026-11-11):
+  `build_finish._anim_text` ([ours](research/anim_text_data.md#ours)).
 
 **What still needs the Creation Kit through MO2:**
 - `pipeline/creation_kit.py` fixes `MO2 = C:\Modlists\fo3fnv-in-fo4` and
   runs `ModOrganizer.exe run -e "Creation Kit"` (`creation_kit.run`). The
   app's MO2 choice does not reach it.
-- `rig/anim_info.generate` runs it on every build whose races name a graph
-  (`build_finish`, own-rig creatures). The CK sees MO2's Data, so it reads
-  the *deployed* mod, not the build folder
-  ([anim info](fo4_own_rig.md#anim-info)).
 - `spike/facegen.run_ck` runs `-ExportFaceGenData` the same way. It is a
   separate command after the build; neither the app nor the README runs it.
 - Face fits can be published and installed (`spike/face_fits.py` export,
@@ -151,10 +147,10 @@ existing Python tools. Nothing here needs new runtime code.
 | 9 | Wabbajack modlist | L | An MO2 instance with the required mods and a profile, compiled for Wabbajack; the app converts into it | A second clean-machine run, from the modlist to Doc Mitchell's house | 2, 5, 7 |
 
 **First to choose in phase 5: build into the MO2 mod, or into a staging
-folder and deploy.** The CK step reads the deployed mod
-(`anim_info.generate`), so on a clean machine a staging build runs the CK
-before the plugin is in MO2. Building straight into the mod folder avoids
-that. Deploying keeps `fo4_deploy.refusal`'s guard against a half-written
+folder and deploy.** The CK's FaceGen step reads the deployed mod, so on a
+clean machine a staging build runs the CK before the plugin is in MO2
+(the animation data step no longer does, since 2026-11-11). Building
+straight into the mod folder avoids that. Deploying keeps `fo4_deploy.refusal`'s guard against a half-written
 mod. Phase 2 shows which one fails; the plan leans toward building straight
 into the mod folder for testers, with deploy left as the developer's tool.
 

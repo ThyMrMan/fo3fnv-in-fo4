@@ -9,12 +9,12 @@ import os
 import pathlib
 import struct
 import time
-import zlib
 from types import SimpleNamespace
 
 import pytest
 
 from fo4_import.base import ba2_pack as BP
+from fo4_import.base import pinned_zlib
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import dds_info, expand_bgr, write_textures
 from fo4_import.base.ba2_write import entry_names, write_general
@@ -244,27 +244,28 @@ def test_loose_sounds_are_staged_and_packed_into_the_main_archive(tmp_path, monk
     assert Archive(data / 'P - Main.ba2').read('Sound/Voice/P.esp/V/a.fuz') == b'x'
 
 
-def test_meshes_and_materials_join_the_sounds_in_the_main_archive_and_stay_loose(tmp_path, monkeypatch):
-    """pack_main: loose meshes and materials pack with the staged sounds and stay loose (the build reads them);
-    scripts stay out; one changed mesh repacks, copying the rest out of the old archive."""
+def test_meshes_materials_and_scripts_join_the_sounds_in_the_main_archive_and_stay_loose(tmp_path, monkeypatch):
+    """pack_main: loose meshes, materials and compiled scripts pack with the staged sounds and stay loose (the build
+    reads them); a script folder's other files stay out; one changed mesh repacks, copying the rest out of the old
+    archive."""
     monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
     data = tmp_path / 'data'
     files = {'Meshes/fnv/Cup.nif': b'cup', 'Meshes/Actors/Rig/skeleton.nif': b'rig', 'Materials/fnv/a.bgsm': b'm',
-             'Scripts/A.pex': b'pex'}
+             'Scripts/A.pex': b'pex', 'Scripts/compile_state.json': b'{}'}
     for name, payload in files.items():
         (data / name).parent.mkdir(parents=True, exist_ok=True)
         (data / name).write_bytes(payload)
     sound = BP.sound_root(data) / 'Sound' / 'FX' / 'b.xwm'
     sound.parent.mkdir(parents=True)
     sound.write_bytes(b'snd')
-    assert BP.pack_main(data, 'P.esm') == 4 and all((data / name).is_file() for name in files)
+    assert BP.pack_main(data, 'P.esm') == 5 and all((data / name).is_file() for name in files)
     read = Archive(data / 'P - Main.ba2')
     assert sorted(read.entries) == ['materials\\fnv\\a.bgsm', 'meshes\\actors\\rig\\skeleton.nif',
-                                    'meshes\\fnv\\cup.nif', 'sound\\fx\\b.xwm']
+                                    'meshes\\fnv\\cup.nif', 'scripts\\a.pex', 'sound\\fx\\b.xwm']
     (data / 'Meshes/fnv/Cup.nif').write_bytes(b'new cup')
     kept = []
     monkeypatch.setattr(BP, 'write_general', lambda *a: kept.append(a[2]) or write_general(*a))
-    assert BP.pack_main(data, 'P.esm') == 4 and len(kept[0]) == 3 and 'meshes/fnv/cup.nif' not in kept[0]
+    assert BP.pack_main(data, 'P.esm') == 5 and len(kept[0]) == 4 and 'meshes/fnv/cup.nif' not in kept[0]
     read = Archive(data / 'P - Main.ba2')
     assert read.read('Meshes/fnv/Cup.nif') == b'new cup' and read.read('Sound/FX/b.xwm') == b'snd'
 
@@ -330,7 +331,7 @@ def test_a_texture_archive_is_laid_out_as_archive2_writes_it_and_reuses_unchange
     assert raw[:12] == b'BTDX\x08\x00\x00\x00DX10'
     record = struct.unpack_from('<I4sIBBHHHBBBB', raw, 24)
     assert record[1:] == (b'dds\0', record[2], 0, 1, 24, 4, 4, 1, 71, 0, 8)
-    assert zlib.compress(bodies['a'], 6) in raw
+    assert pinned_zlib.compress(bodies['a'], 6) in raw
     read = Archive(archive)
     assert read.read('Textures/fnv/a.dds').endswith(bodies['a'])
     named['Textures/fnv/a.dds'].write_bytes(_dds(b'DXT1', 4, 4, bytes(8)))
@@ -437,7 +438,7 @@ def test_a_build_with_no_sounds_left_deletes_its_old_sound_archive(tmp_path, mon
     assert BP.pack_main(data, 'P.esp') == 1 and (data / 'P - Main.ba2').is_file()
     staged.unlink()
     assert BP.pack_main(data, 'P.esp') == 0
-    assert not (data / 'P - Main.ba2').exists() and not (data / 'P - Main.ba2.json').exists()
+    assert not (data / 'P - Main.ba2').exists() and not BP.pack_record(data / 'P - Main.ba2').exists()
 
 
 def test_a_worldspace_lod_texture_no_longer_written_is_dropped_from_the_staging(tmp_path):

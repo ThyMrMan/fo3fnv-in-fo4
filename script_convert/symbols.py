@@ -64,64 +64,64 @@ IMPLICIT_NAMES = STATIC_SCRIPT_CLASSES | frozenset({
 def type_of_expr(node, lookup) -> str:
     """Papyrus type of an expression NODE, or '' when nothing says.
 
-    Reading the TREE beats the text scan it replaced twice over: a name inside
-    a string literal cannot be mistaken for a variable, and arithmetic is typed
-    by its OPERANDS.  `/` included -- Papyrus types `Int / Int` as Int exactly
-    as TES4 did, and always-Float changed every integer ratio in the corpus.
-
-    `lookup(name) -> str` supplies a bare name's type; the converter passes its
-    own `type_of`, so locals, properties and remote members all resolve there.
+    Read from the tree: a name inside a string is no variable, and arithmetic
+    is typed by its operands (`Int / Int` is Int, as in TES4). `lookup(name)
+    -> str` gives a bare name's type (the converter's `type_of`: locals,
+    properties, remote members).
     """
-
-    if node is None:
-        return ''
     if isinstance(node, N.Literal):
-        if node.is_string:
-            return 'String'
-        return 'Float' if '.' in node.text else 'Int'
+        return 'String' if node.is_string else ('Float' if '.' in node.text else 'Int')
     if isinstance(node, N.Ident):
-        # A bare name is a variable if one is declared, and a zero-argument
-        # command otherwise -- the same order the emitter resolves them in.
-        declared = lookup(node.name)
-        # A GlobalVariable read emits `X.GetValue()`, which Papyrus types
-        # Float even for a global holding whole numbers.  TES4 wrote the same
-        # read as a bare name (`set d to GameDaysPassed + 2`), so without this
-        # the value looks Int and the assignment to a `short` loses its cast.
-        if declared == 'GlobalVariable' or node.name.lower() in KNOWN_GLOBALS:
-            return 'Float'
-        return declared or RETURN_TYPES.get(node.name.lower(), '')
+        return _ident_type(node, lookup)
     if isinstance(node, N.Member):
-        return lookup(f'{_bare(node.owner)}.{node.name}') \
-            or RETURN_TYPES.get(node.name.lower(), '')
+        return lookup(f'{_bare(node.owner)}.{node.name}') or RETURN_TYPES.get(node.name.lower(), '')
     if isinstance(node, N.Call):
-        low = node.name.lower()
-        hit = RETURN_TYPES.get(low) or RETURN_TYPES.get(_papyrus_name(low))
-        if hit:
-            return hit
-        # TES4 spells the axis as an ARGUMENT (`GetAngle Z`) where Papyrus
-        # spells it in the NAME (`GetAngleZ`), so the table keyed by Papyrus
-        # name misses it unless the first argument is folded in.
-        if low in AXIS_COMMANDS and node.args:
-            axis = _bare(node.args[0]).strip().lower()
-            if axis in ('x', 'y', 'z'):
-                return RETURN_TYPES.get(AXIS_COMMANDS[low] + axis, '')
-        # `GetGlobalValue <g>` and any read of a GlobalVariable reach Papyrus
-        # as `<g>.GetValue()`, which is Float.
-        if low in ('getglobalvalue', 'getglobal'):
-            return 'Float'
-        return ''
+        return _call_type(node)
     if isinstance(node, N.Unary):
         return 'Bool' if node.op == '!' else type_of_expr(node.operand, lookup)
     if isinstance(node, N.BinOp):
-        if node.op in ('==', '!=', '>', '<', '>=', '<=', '&&', '||', '<>'):
-            return 'Bool'
-        left = type_of_expr(node.left, lookup)
-        right = type_of_expr(node.right, lookup)
-        for rank in NUMERIC_RANK:
-            if rank in (left, right):
-                return rank
-        return left or right
+        return _binop_type(node, lookup)
     return ''
+
+
+def _ident_type(node, lookup) -> str:
+    """A bare name's type: a declared variable's, else a zero-argument command's (the emitter's order).
+
+    A GlobalVariable read emits `X.GetValue()`, which Papyrus types Float even
+    for a global holding whole numbers; TES4 wrote it as a bare name (`set d to
+    GameDaysPassed + 2`), and typing it Int lost the cast on assignment to a `short`.
+    """
+    declared = lookup(node.name)
+    if declared == 'GlobalVariable' or node.name.lower() in KNOWN_GLOBALS:
+        return 'Float'
+    return declared or RETURN_TYPES.get(node.name.lower(), '')
+
+
+def command_return_type(name: str) -> str:
+    """The Papyrus type TES4 command `name` returns, or ''."""
+    low = name.lower()
+    return RETURN_TYPES.get(low) or RETURN_TYPES.get(_papyrus_name(low), '')
+
+
+def _call_type(node) -> str:
+    """A call's return type: command_return_type, the axis folded in (`GetAngle Z` is Papyrus `GetAngleZ`),
+    or Float for a global's read (`GetGlobalValue <g>` is `<g>.GetValue()`)."""
+    low = node.name.lower()
+    hit = command_return_type(low)
+    axis = _bare(node.args[0]).strip().lower() if not hit and low in AXIS_COMMANDS and node.args else ''
+    if axis in ('x', 'y', 'z'):
+        return RETURN_TYPES.get(AXIS_COMMANDS[low] + axis, '')
+    if not hit and low in ('getglobalvalue', 'getglobal'):
+        return 'Float'
+    return hit or ''
+
+
+def _binop_type(node, lookup) -> str:
+    """A comparison or logic operator is Bool; arithmetic takes its widest numeric operand's type (NUMERIC_RANK)."""
+    if node.op in ('==', '!=', '>', '<', '>=', '<=', '&&', '||', '<>'):
+        return 'Bool'
+    left, right = type_of_expr(node.left, lookup), type_of_expr(node.right, lookup)
+    return next((rank for rank in NUMERIC_RANK if rank in (left, right)), left or right)
 
 
 @dataclass
@@ -255,18 +255,13 @@ def _names_a_typed_call(value) -> bool:
 
 
 def _classify_assignment(usage, value, lookup):
-    """Record what one assignment says about the variable's real type."""
-
+    """Record what one assignment says about the variable's real type: a number (a literal, `y + 1`, a
+    numeric call such as `GetItemCount`) is the TES4 `ref`-as-Int idiom; a typed call or record otherwise."""
     usage.assigned.append(value)
-    if isinstance(value, N.Literal) and not value.is_string:
+    vtype = type_of_expr(value, lookup)
+    if vtype in ('Int', 'Float'):
         usage.int_assign = True
         return
-    # `x = y + 1` on a numeric operand is still the flag idiom.
-    if isinstance(value, N.BinOp) and value.op in ('+', '-', '*', '/', '%'):
-        if type_of_expr(value, lookup) in ('Int', 'Float'):
-            usage.int_assign = True
-            return
-    vtype = type_of_expr(value, lookup)
     # A CALL with a narrow return type names the exact type the variable must
     # be declared as.  A bare NAME does not: it is a base record, and the
     # variable is assigned real references elsewhere, so it widens to Form.

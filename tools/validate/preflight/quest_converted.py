@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from fo4_import.base.ba2_pack import archived_names
 from tools.validate.preflight.plugin_index import every, first, u32, zstring
 from tools.validate.preflight.quest_source import (SETSTAGE, START, STARTQUEST, addressed_elsewhere,
                                                    decode_condition, speakable)
@@ -123,10 +124,13 @@ def parse_script(name: str, text: str, compiled: bool) -> Script:
 def load_scripts(scripts_dir: Path, source_dir: Path = None) -> dict:
     """{script name lower: Script} for every source in `source_dir` (default `scripts_dir/source`).
 
-    A script counts as compiled when `scripts_dir` holds its `.pex`.
+    A script counts as compiled when `scripts_dir` holds its `.pex`, or an archive in its parent (the Data folder)
+    does.
     """
     source = Path(source_dir) if source_dir else Path(scripts_dir) / 'source'
     compiled = {p.stem.lower() for p in Path(scripts_dir).glob('*.pex')}
+    compiled |= {Path(n).stem for n in archived_names(Path(scripts_dir).parent)
+                 if n.startswith('scripts/') and n.endswith('.pex')}
     out = {}
     for path in source.glob('*.psc'):
         text = path.read_text(encoding='utf-8', errors='replace')

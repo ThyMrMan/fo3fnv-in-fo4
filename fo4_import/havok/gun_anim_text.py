@@ -3,7 +3,7 @@
 An entry whose FNV folders supply none of its graph's clips plays what its template plays: the same folder list
 without FNV's. So the template's offsets, speed, stance and dynamic idle files go under the entry's own id, and
 the entry joins the persistent list when its template is on it. First-person entries and entries playing an FNV
-clip are left to the Creation Kit (rig/anim_info).
+clip get offsets of their own (anim_text).
 
 See: docs/fork/research/anim_text_data.md#writer
 """
@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fo4_import.base.ba2 import Archive
+from fo4_import.base.ba2_pack import data_file
 from fo4_import.havok.gun_clips import subgraph_entries
 from fo4_import.pipeline.elric_cache import write_new
 from tes5_import.base.tes5_reader import subrecords
@@ -34,7 +35,7 @@ SEP = '\\'
 # Ids and file layout
 # ---------------------------------------------------------------------------
 
-def _crc(text: str) -> int:
+def crc(text: str) -> int:
     """AnimTextData's CRC-32 of `text` as given: zero start, no final inversion."""
     return zlib.crc32(text.encode('cp1252'), 0xFFFFFFFF) ^ 0xFFFFFFFF
 
@@ -44,7 +45,7 @@ def entry_id(paths: list, graph: str) -> int:
     See: docs/fork/research/anim_text_data.md#ids
     """
     joined = '|'.join(paths)
-    return _crc(joined if len(paths) == 1 else joined.lower()) << 32 | _crc(graph.lower())
+    return crc(joined if len(paths) == 1 else joined.lower()) << 32 | crc(graph.lower())
 
 
 def template_paths(paths: list) -> 'list | None':
@@ -143,12 +144,12 @@ def copied_entries(races, data_dir: Path, vanilla: Vanilla) -> dict:
     return out
 
 
-def write(data_dir: Path, copies: dict, vanilla: Vanilla) -> list:
-    """Each entry's template files of the COPIED kinds under its own id in `data_dir` (unchanged files touched);
-    their paths."""
+def write(data_dir: Path, copies: dict, vanilla: Vanilla, kinds: tuple = COPIED) -> list:
+    """Each entry's template files of `kinds` under its own id in `data_dir` (unchanged files touched); their
+    paths."""
     out = []
     for entry, template in sorted(copies.items()):
-        for kind in COPIED:
+        for kind in kinds:
             data = vanilla.read(kind, template)
             if data is not None:
                 out.append(data_dir / ANIM_TEXT / kind / f'{entry}.txt')
@@ -164,8 +165,8 @@ def merge_persistent(data_dir: Path, copies: dict, vanilla: Vanilla, masters=())
     listed = persistent_ids(path.read_text(encoding='cp1252')) if path.is_file() else set(vanilla.persistent)
     added = {entry for entry, template in copies.items() if template in vanilla.persistent}
     for master in masters:
-        added |= persistent_ids((master / PERSISTENT).read_text(encoding='cp1252')) if (
-            master / PERSISTENT).is_file() else set()
+        theirs = data_file(master, PERSISTENT.as_posix())
+        added |= persistent_ids(theirs.decode('cp1252')) if theirs is not None else set()
     added -= listed
     if added or not path.is_file():
         write_new(path, ''.join(f'{entry}.txt\n' for entry in sorted(listed | added)).encode('cp1252'))

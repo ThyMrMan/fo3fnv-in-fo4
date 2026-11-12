@@ -190,12 +190,31 @@ def test_ck_timeout_scales_with_the_plugins_npcs(tmp_path):
 def test_ck_exports_facegen_for_64_bit_pc(monkeypatch):
     """The CK is asked for the X64 target: W32 writes hair cloth physics with 4-byte pointers."""
     calls = []
-    monkeypatch.setattr(FG.creation_kit.subprocess, 'run',
-                        lambda args, **_: calls.append(args) or SimpleNamespace(stdout=''))
+    monkeypatch.setattr(FG.creation_kit.subprocess, 'Popen', lambda args, **_: calls.append(args))
+    monkeypatch.setattr(FG.creation_kit, 'running', lambda: False)
     monkeypatch.setattr(FG.creation_kit.time, 'sleep', lambda _: None)
     monkeypatch.setattr(FG.creation_kit, 'output_dir', lambda: FG.creation_kit.MO2 / 'overwrite')
     FG.run_ck('Spike.esp')
     assert calls[0][-1] == '-ExportFaceGenData:Spike.esp X64'
+
+
+def test_ck_closed_once_quiet_after_writing(monkeypatch, tmp_path):
+    """A CK that wrote files and then nothing for CK_QUIET seconds is closed and counts as done; one that never
+    wrote runs to its timeout, is closed, and raises."""
+    CK, clock, closed = FG.creation_kit, [1000.0], []
+    monkeypatch.setattr(CK.subprocess, 'Popen', lambda *_, **__: None)
+    monkeypatch.setattr(CK, 'running', lambda: True)
+    monkeypatch.setattr(CK, 'close', lambda: closed.append(clock[0]))
+    monkeypatch.setattr(CK, 'output_dir', lambda: tmp_path)
+    monkeypatch.setattr(CK.time, 'time', lambda: clock[0])
+    monkeypatch.setattr(CK.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s))
+    monkeypatch.setattr(CK, 'newest_file', lambda _: 1010.0)
+    CK.run('-x', 10 * CK.CK_QUIET, 'testing')
+    assert closed == [pytest.approx(1010.0 + CK.CK_QUIET, abs=CK.CK_POLL)]
+    monkeypatch.setattr(CK, 'newest_file', lambda _: 0.0)
+    with pytest.raises(SystemExit, match='did not finish'):
+        CK.run('-x', 100, 'testing')
+    assert len(closed) == 2
 
 
 @pytest.mark.skipif(not VANILLA_MESHES.exists(), reason='needs Fallout 4')
@@ -307,12 +326,12 @@ def test_voice_converts_each_recording_and_transcript_once(monkeypatch, tmp_path
 def test_an_unused_voice_file_waits_in_the_cache_and_comes_back_when_a_line_needs_it(tmp_path):
     """A build without line 2's voice type keeps its .fuz aside, not deleted; the next build needing it restores it
     instead of converting it again."""
-    voice, cache = tmp_path / 'Voice' / 'MaleAdult01', tmp_path / 'VoiceCache'
+    voice, cache, src = tmp_path / 'Voice' / 'MaleAdult01', tmp_path / 'VoiceCache', tmp_path / 'line.ogg'
     _write(voice / '1_1.fuz', b'one')
     _write(voice / '2_1.fuz', b'two')
-    assert V.remove_stale([(None, voice / '1_1.fuz', 'a')], [voice], cache) == 1
+    assert V.remove_stale([(src, voice / '1_1.fuz', 'a')], [voice], cache) == 1
     assert not (voice / '2_1.fuz').exists() and (cache / 'MaleAdult01' / '2_1.fuz').read_bytes() == b'two'
-    assert V.restore([(None, voice / '1_1.fuz', 'a'), (None, voice / '2_1.fuz', 'b')], cache) == 1
+    assert V.restore([(src, voice / '1_1.fuz', 'a'), (src, voice / '2_1.fuz', 'b')], cache) == 1
     assert (voice / '2_1.fuz').read_bytes() == b'two' and not (cache / 'MaleAdult01' / '2_1.fuz').exists()
 
 

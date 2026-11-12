@@ -22,13 +22,25 @@ licensed way to build menus without starting from decompiled Bethesda files.
 
 | Menu | How it's made | State |
 |---|---|---|
-| Casino (`fo4_import/casino/`) | Our own AS3 (785 lines). A Python-written skeleton movie, then FFDec compiles our classes over it. Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | Spike played: keys, mouse, text, images. Slots built, not played |
-| Dialogue menu (`fo4_import/dialogue_menu/`) | Our AS3 compiled by FFDec **over Bethesda's own** `DialogueMenu.swf`, read from the player's interface archive at install | Played in parts. Can't be shipped as a mod |
+| Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
+| Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)). Since 2026-11-12 on `f3ui` (`Bridge`, `Text`), compiled by `mxmlc` like the casino's. Nothing read from the game | The patched-movie version played; our own movie (FFDec build) played 2026-11-12, looks the same. `mxmlc` build not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | No movie. The DLL draws into the open vanilla menus from C++: CND line, repair and ammo lists, STAT tabs, HUD needs | CND, repair and tabs played. Ammo list and HUD needs built, not played |
 
-Shared already: `fo4_import/base/ffdec.py` (FFDec wrapper, source digest),
-`asset_convert/ui/swf.py` (our SWF writer). The skeleton build is
-byte-stable (`tests/test_fo4_casino.py`).
+Shared already:
+- `fo4_import/base/as3/f3ui/`: the AS3 library's first five classes,
+  `Bridge`, `Theme`, `Host`, `Text` and `Draw` ([design](#design)), used by
+  the casino and the dialogue menu.
+- `fo4_import/base/mxmlc.py`: the `mxmlc` build with the library on the
+  source path, dated tags dropped, cached by the hash of the sources, the
+  library and the options. Every movie we ship is built this way.
+- The FFDec build route (a skeleton movie, then FFDec's script import:
+  `swf_skeleton.py`, `ffdec.py`) was deleted on 2026-11-12, when the
+  dialogue menu moved to `mxmlc`. FFDec stays a tool for reading vanilla
+  movies.
+- `asset_convert/ui/swf.py`: our SWF reader and writer.
+
+Both builds are byte-stable (`tests/test_fo4_casino.py`,
+`tests/test_fo4_dialogue_menu.py`).
 
 ## <a id="facts"></a>What we know about FO4's Flash
 
@@ -59,6 +71,18 @@ byte-stable (`tests/test_fo4_casino.py`).
   [fo4_pipboy_tabs.md](fo4_pipboy_tabs.md).
 - Making a TextField in the dialogue movie's constructor crashed the game.
   Build display objects on the first update call instead.
+- **Focus rectangle:** a movie that gives its root the keyboard focus
+  (`stage.focus = this`) gets Flash's yellow focus frame round the whole
+  screen. Set `stage.stageFocusRect = false` and `focusRect = false`, as
+  FO4's own `Shared.IMenu` does (casino, `fd59ed6f`, built, not played).
+- **The HUD stays drawn behind a custom menu.** No menu flag hides it, and
+  changing the casino's flags stopped the menu opening (spike 2a). The
+  casino hides it with F4SE `UI.Set("HUDMenu", "root1.visible", False)` on
+  open, shows it on close, and shows it again on every load so a crash
+  can't leave it hidden (`F3NV_Casino.psc` `ShowHud`, `fd59ed6f`, built,
+  not played). This also hides HUD widgets (HUDFramework, ours) while the
+  menu is up, which is what we want. In the library this moves into the DLL
+  side of `Host`, so every menu gets it.
 
 ### From F4SE, CommonLibF4 and other mods (V)
 
@@ -171,8 +195,31 @@ builds byte-identical twice after stripping.
     65, 9, 41, 43, 82, 76, 1, 0. No Flex framework code is linked in.
   - The casino's AS3 (`fo4_import/casino/as3`) compiles cleanly: 6,070
     bytes, no errors or warnings.
-- **Still to do for spike 1:** build the casino spike this way (with the
-  stage flags), strip, install, and play it.
+- **In the build** (`fo4_import/base/mxmlc.py`, 2026-11-11): the command
+  above with `-default-background-color=0x000000` (the skeleton's black),
+  `+flexlib` given as an absolute path so it runs from any folder, and
+  `-source-path+=` for the library. Any `Warning:` or `Error:` in the
+  output fails the build. Tags 41 and 77 are dropped, FileAttributes'
+  HasMetadata bit (`0x10`) cleared, and the movie written **uncompressed**
+  (`FWS`). Compressing with zlib is not byte-stable across Python builds:
+  Python 3.14 on Windows ships zlib-ng (`zlib.ZLIB_RUNTIME_VERSION`
+  `1.3.1.zlib-ng`), Python 3.13 ships stock zlib 1.3.1, and at level 9 the
+  same casino movie came out at 11,323 and 11,305 bytes, with every tag
+  identical. Uncompressed, the bytes depend only on the sources. (Since
+  2026-11-12 the FO4 build has a [pinned zlib](fo4_pipeline.md#pinned-zlib)
+  that would make a compressed movie stable too; the movies stay
+  uncompressed, the format that has been played.) The SDK is found at `F3NV_FLEX`, else `tools_ext\FlexSDK` beside
+  the repo (in a worktree, set `F3NV_FLEX`).
+- **The casino moved to `mxmlc` and the library in one change** (spike 1).
+  The dialogue menu stayed on FFDec until its own movie was played, so
+  only one thing changed per play-test.
+- **The dialogue menu moved to `mxmlc` and the library on 2026-11-12**
+  (built, not played). Its AS3 compiled cleanly under `mxmlc` unchanged.
+  Then: rows made by `Text.field` (bold 18, leading -2, white: the engine
+  tints them) and filled through `Text.show`, F3NV.dll's natives through
+  `Bridge`. Behavior is unchanged. Movie 9,585 bytes, the same on Python
+  3.13 and 3.14. **Play check:** dialogue opens and looks as before; the
+  options read in the HUD color, pick and leave as before.
 
 **Ship built movies, don't build at install.** Today the converter runs
 FFDec on the player's machine. With our own movies there is nothing of the
@@ -201,8 +248,8 @@ exception ([license](spin_offs.md#license)), no Bethesda classes:
 | `HintBar` | Button hints that show keys or gamepad glyphs (`$Controller_Buttons` font) | Bethesda's `BSButtonHintBar` |
 | `Modal` | A pop-up over a menu: fade, focus, back closes it | The Pip-Boy repair pop-up in C++ |
 | `Images` | `MountImage` with the path rule built in; asks the DLL whether a file exists first | Casino's own |
-| `Theme` | Colors over the HUD color, sizes, spacing, read from settings the DLL passes in | Hardcoded values |
-| `Host` | Safe-rect, menu open/close reset (F4SE keeps a movie alive between openings) | Each menu's own |
+| `Theme` | The HUD color from the DLL's `HudColor()` native on each open ([spike 2b](#spikes), played), colors over it, sizes, spacing, read from settings the DLL passes in | Hardcoded values |
+| `Host` | Safe-rect; menu open/close reset (F4SE keeps a movie alive between openings); focus rectangle off; HUD hidden while open and restored on close and on load ([casino fixes](#facts)) | Each menu's own |
 
 Each menu is then a thin document class on top: `CasinoMenu`,
 `DialogueMenu`, and the Pip-Boy overlay.
@@ -369,7 +416,7 @@ in one injected movie, with no `HUDMenu.swf` shipped by anyone.
 ## <a id="casino"></a>The casino on the framework
 
 - Move `Ui.as` and the bridge into the library; the games keep their own
-  classes.
+  classes. **Done 2026-11-11** ([spike 1](#spikes)).
 - Register the menu from the DLL. Spike 2 tests HUD color with Custom
   Rendering on and only Assign Cursor To Renderer off.
 - Keep the Python reference models and in-game self-tests; they test game
@@ -398,12 +445,22 @@ English sentences, to anything shown on screen.
 
 ### Files
 
-- `Interface\Translations\<Mod>_<language>.txt`: UTF-16 LE with BOM, one
+- `Interface\Translations\<plugin>_<language>.txt`: UTF-16 LE with BOM, one
   `$KEY<tab>text` per line (F4SE `Translation.cpp`, V). `<language>` is the
-  game's `sLanguage` (`en`, `de`, `fr`, `ru`, …).
+  game's `sLanguage` (`en`, `de`, `fr`, `ru`, …). **`<plugin>` must be an
+  active plugin's name:** F4SE reads `plugins.txt` and, for each `*` line
+  ending `.esm`, `.esp` or `.esl`, loads that plugin's file through the
+  game's file system (loose or BA2), once, when the translator is made (F4SE
+  0.7.9 `ImportTranslationFiles`). A file named after anything else, such as
+  a menu, is never read. Lines start with `$`, split at the last tab, and
+  stop at 511 characters; no BOM means the file is skipped.
+- **Ours are named after `FalloutHelpers.esl`**, which every converted
+  FO3/FNV plugin masters: `FalloutHelpers_<language>.txt` holds every
+  `$F3UI_` and menu key (`fo4_import/base/translations.py`).
 - In the repo: one **English source** file per release in UTF-8, so changes
-  show in diffs. The build writes the UTF-16 file for each language that
-  exists.
+  show in diffs (`fo4_import/base/translation_files/en.txt`). The build
+  writes the UTF-16 file for each language that exists
+  (`translations.install`, with the casino today).
 - Translations arrive as one file per language and ship in the main
   download, or as separate Nexus translation uploads that hold only that
   file.
@@ -533,6 +590,32 @@ Each spike is one change, played in game.
 
 1. **`mxmlc` build:** the casino spike built by `mxmlc` (tags stripped)
    behaves the same and builds byte-identical twice.
+   - **Played 2026-11-11: passed.** Slots and roulette both work on the
+     `mxmlc`/`f3ui` movie (user: "both work fine with the custom menu
+     work"). The movie played was zlib-compressed; it is now written
+     uncompressed ([why](#mxmlc-setup)), the same format as the dialogue
+     menu's own movie, which also loads in game.
+   - **Built 2026-11-11.** The casino now compiles with `mxmlc`
+     on the library's first five classes:
+     - `Bridge`: the f4se object, `send`, `natives`, `mount`, `plain`;
+     - `Theme`: `color`, `fromHud`;
+     - `Host`: `focus` (focus rectangle off);
+     - `Text`: `field`, `label`;
+     - `Draw`: `button`, `panel`.
+
+     The casino's own `Ui.as` is gone; its screens and document class call
+     the library. Nothing else in the casino changed: same calls, keys,
+     drawing and colors.
+   - **Checked offline:** strict compile, no warnings. Byte-identical
+     twice, from any folder or worktree. Tags: 69, 65, 9, 43, 82, 76, 1, 0. FFDec
+     decompiles only our 11 classes (6 casino, 5 `f3ui`). A type error
+     FFDec let through (`var a:int = "one"`) now fails the build
+     (`tests/test_fo4_casino.py`).
+   - **Play check:** a build with the new `Interface\F3NV_Casino.swf` (no
+     DLL or script change). The slots open in the HUD color with no yellow
+     frame; spin, the bet buttons, keys and mouse work; Tab or Esc closes;
+     the log shows `F3NV_Casino: input hud color …`. Roulette opens the
+     same way.
 2. **HUD color in our own menu.** One change per play-test; each needs a
    game restart, because F4SE keeps a menu's first registration.
    - **2a:** flags `0x800849D` (Custom Rendering back on, Assign Cursor To
@@ -543,22 +626,199 @@ Each spike is one change, played in game.
      cause of the box. The menu needs drawing in white for the tint to show,
      as in the dialogue menu. Only `F3NV_Casino.psc` changes, so it can be
      tested as a one-script patch on the built plugin.
-   - **2b, if the box returns:** the menu colors itself. F3NV.dll already
-     reads the player's `iHUDColorR/G/B` settings (`hardcore.cpp`
-     `HudColor`); a native hands that to the movie, which applies it as a
-     color transform. No engine tint, no flags. It misses a color change
-     made while the menu is open, which doesn't matter for a casino table.
-   - **2c, only if a live engine tint is needed:** make our holders real
-     shader targets from the DLL (CommonLibF4's `BSGFxShaderFXTarget`).
-     New reverse-engineering, so last.
+   - **2a result (played 2026-11-11): failed.** With `0x800849D` / `3` the
+     slot machine menu didn't open at all (the box didn't come back; the
+     menu never showed). The original `.pex` was restored. Per the plan, no
+     further flag tries.
+   - **2b: works. The way our own menus get the HUD color.** The menu
+     colors itself; no engine tint, no flag change (menu flags stay
+     `0x800049D` / `2`).
+     - **How** (commit `df3f9972`, in F3NV.dll from `2d3fc70c`): a
+       `HudColor()` native on `f4se.plugins.F3NV` (every movie already gets
+       F3NV.dll's natives) returns the player's `iHUDColorR/G/B`, read
+       fresh on each call through the same `HudColor` the Hardcore HUD
+       uses. The casino sets `Ui.color` from it each time a screen opens,
+       and every outline and text that was white uses `Ui.color`. Only what
+       we draw takes the color: reel symbols, card faces and roulette
+       pockets share containers with the text, so a color transform on a
+       whole layer would tint them too.
+     - **Played 2026-11-11** (new F3NV.dll + casino movie, old casino
+       script; slots only, roulette waits for the full build): slots open
+       and play, drawn in the HUD color ("Slots work in the HUD color
+       now"). The log shows `F3NV_Casino: input hud color f774f7` on both
+       openings, the same color the Hardcore HUD read at load (`F774F7`
+       in F3NV.log).
+     - **Screenshot (The Tops, slots):** reel symbols and payout icons keep
+       their own colors; text, button outlines and borders are in the HUD
+       color. The buttons' 10% fill shows as a see-through tint: with the
+       menu coloring itself, translucent fills work, unlike inside an
+       engine-tinted holder (the dialogue menu's finding).
+     - **Not checked yet:** the menu following a HUD color changed in
+       Settings (both openings had the same color). The fallback path (no
+       F3NV.dll, white) wasn't tried.
+     - **Seen in the same play, fixed by the casino session** (`fd59ed6f`,
+       built, not played; [casino notes](fo4_casino_plan.md#hud-hidden)):
+       the game's HUD showed through behind the menu, and Flash drew its
+       yellow focus rectangle round the whole screen. Both fixes belong in
+       the `Host` module ([what we know](#facts)).
+     - **Limit:** a color changed while the menu is open shows on the next
+       opening. Fine for the casino: its flags include Disable Pause Menu
+       (`0x80`), so the settings can't be opened while it is up.
+   - **2c: not needed.** Real engine shader targets from the DLL
+     (CommonLibF4's `BSGFxShaderFXTarget`) stay unbuilt unless a menu ever
+     needs the engine's live tint.
 3. **Replaced dialogue movie:** five empty holders and a text list as
    `DialogueMenu.swf`; does the engine tint them?
+   - **Played 2026-11-11: works.** The engine tints holders made in code:
+     the list showed in the HUD color ("Hud color matches the text box").
+     Opening, picking, leaving and the talk going on all worked "nearly as
+     well" as the patched menu, without its styling. One bug: `[Leave]`
+     showed twice. The converted topic list already ends in its own
+     `[Leave]` option (`conversation.py`), and the spike added one more;
+     the shipping menu adds its own only when F3NV.dll has no options.
+     Fixed in the spike source, not replayed. So the dialogue menu can drop
+     the patched Bethesda movie: the XDI replacement starts from our own
+     movie.
+   - **Played 2026-11-12: works.** The shipping dialogue menu on its own
+     movie plays fine and looks the same as before (user).
+   - **Done 2026-11-11:** the shipping dialogue menu moved
+     onto its own movie ([dialogue menu plan](fo4_dialogue_menu_plan.md#own-movie)).
+     Spike 3 also settles two open facts: `try/catch` ran in game (the
+     spike's placement used it), and `scaleform.gfx.Extensions` needs no
+     stub to compile against when looked up by name.
+   - **Built 2026-11-11.** Two AS3 classes, no Bethesda code or
+     art: a root (`DialogueMenuRoot`) that holds the menu at `root.Menu_mc`,
+     as the game's own movie does (its `MainTimeline` has only `Menu_mc`),
+     and `f3ui.dialogue.DialogueMenu`, which answers the game's calls
+     (`onCodeObjCreate` → `registerObjects` of five code-made holders,
+     `SetButtonText`, `Show/HideButtonHelp`, `Enable/DisableMenu`,
+     `ProcessUserEvent`, `SetSafeRect`, `SetPlatform`) and its own base
+     class's job (focus rect off, safe-area placement). One white list in the
+     Question holder: F3NV.dll's options, else the game's four buttons, plus
+     `[Leave]`. `PlaySpeechChallengeAnim` has no animation and reports done
+     on the next frame. No shaded background or failed-check tint (one
+     variable). `mxmlc` output 3,440 bytes stripped, byte-identical twice;
+     no font tags (`$MAIN_Font_Bold` by name).
+   - **Play check:** loose `Interface\DialogueMenu.swf` with the current
+     F3NV.dll. Dialogue opens; the list is in the HUD color (white means the
+     engine didn't tint it); options pick and the talk goes on; `[Leave]`,
+     Tab and the controller's B leave; F3NV.log shows `spike 3 menu ready`.
 4. **Pip-Boy injection:** a `Loader` movie in `root.Menu_mc` that adds one
    item-card line, under vanilla and under FallUI Inventory.
+   - **Played 2026-11-12: works** (vanilla Pip-Boy). The inventory cards
+     show `F3UI  SPIKE 4` (user). F3NV.log: `Pip-Boy: F3NV_Pipboy.swf
+     loading`, `loaded into [object PipboyMenu] (F3NV.dll found)`, `added
+     our line to an item card (1 lines)`, then `(9 lines)` on a weapon's
+     card. The second opening loaded it again: the game makes a new
+     Pip-Boy menu each time, and our movie comes with it. **Not yet tried
+     under FallUI Inventory.**
+   - **Built 2026-11-12.** Two pieces, no Pip-Boy movie of the
+     game's shipped or read:
+     - **F3NV.dll** (`pipboy.cpp` `LoadOverlay`): in the hook that already
+       runs once per Pip-Boy menu (the `fnvConditionHooked` flag), it makes
+       a `flash.display.Loader`, adds it to the menu instance
+       (`root.Menu_mc`) and loads `F3NV_Pipboy.swf` (a path under
+       `Data\Interface`, as HUDFramework's widgets load), the same calls as
+       F4SE's `UI.Load`. Logs `Pip-Boy: F3NV_Pipboy.swf loading`.
+     - **The movie** (`fo4_import/pipboy_overlay/as3/F3NV_Pipboy.as`,
+       `mxmlc` with `f3ui`, 2,325 bytes): it finds the menu as its Loader's
+       parent and F4SE's object on the Pip-Boy movie's root. Each frame it
+       puts a line `F3UI  SPIKE 4` back on the shown page's
+       `ItemCard_mc.InfoObj` when the game's refill dropped it, then calls
+       `onDataChange()`, as `pipboy.cpp` does for CND today. It draws
+       nothing and takes no input. It logs through F3NV.dll's `Log`
+       native, so its lines read `dialogue menu: Pip-Boy movie: …` in
+       F3NV.log (that native's prefix).
+     - The masterless build installs `Interface\F3NV_Pipboy.swf` (count
+       `Pip-Boy movie installed`).
+   - **Checked offline:** `pipboy.cpp` compiles with the DLL's flags, no
+     warnings; the movie builds the same on Python 3.13 and 3.14; the name
+     the DLL loads is the name the build installs
+     (`tests/test_fo4_pipboy_overlay.py`).
+   - **Needs:** a rebuilt F3NV.dll and the movie.
+   - **Play check, vanilla Pip-Boy:** open the inventory and move between
+     a few items: each card shows `F3UI  SPIKE 4` under its own lines (and
+     CND where it applies). F3NV.log: `Pip-Boy: F3NV_Pipboy.swf loading`,
+     `Pip-Boy movie: loaded into … (F3NV.dll found)`, `added our line to
+     an item card`. The STAT and DATA pages are unchanged.
+   - **Then under FallUI Inventory**, if installed: the same checks.
 5. **Translation files:** the spike 1 movie shows one `$KEY` from our own
    `_en` file, then the same with `sLanguage` set to a language we have no
    file for. Records what the game shows, which settles the
    [fallback](#translations) design. Can ride along with spike 1.
+   - **Played 2026-11-12: the translation works; one drawing bug.**
+     - f4se.log: `Reading translations from
+       Interface\Translations\FalloutHelpers_en.txt...`. The log: the
+       present key reads back `Translated from FalloutHelpers_en.txt`, the
+       absent one reads back `$F3UI_TranslationAbsent`. **So the game shows
+       a key no file has as the raw `$KEY`**, which settles the
+       [fallback](#translations): `Text` must never show an untranslated
+       key itself.
+     - **Bug:** both lines drew one small mark per letter (10, 4 and 21
+       marks on the left: the words of the translation; 23 on the right:
+       the raw key). The buttons beside them, made by the same
+       `Text.field` (same font name, embedded fonts on), drew fine, and so
+       do roulette's size 11 and 14 labels, so neither the font name nor
+       the size is the cause. The only difference: these two texts start
+       with `$` and go through the game's translator. Likely cause: the
+       translator's result replaces the text without the field's default
+       format, so it falls back to a font that isn't embedded, and the
+       game draws a mark for each missing letter.
+     - **First fix, played 2026-11-12: failed** (looks the same).
+       `Text.show` reapplied `setTextFormat(defaultTextFormat)` after the
+       assignment. Log, both keys: `font Times New Roman then Times New
+       Roman`, so after the `$` assignment even the field's default format
+       read as Times New Roman (Flash's default font, which the game
+       doesn't embed).
+     - **Second try, played 2026-11-12: works.** All three lines draw as
+       text. **Cause, confirmed by the log:** assigning a string that starts
+       with `$` to a code-made field resets both its text format and its
+       `defaultTextFormat` to Times New Roman, whether or not the key is
+       translated; plain text keeps `$MAIN_Font`. So f3ui puts text in a
+       field only through `Text.show`, never `field.text = "$…"`:
+
+       | Line | After a plain assignment (its default) | After `Text.show` |
+       |---|---|---|
+       | Key in our file | Times New Roman (Times New Roman) | `$MAIN_Font` |
+       | Key in no file | Times New Roman (Times New Roman) | `$MAIN_Font` |
+       | Plain text | `$MAIN_Font` (`$MAIN_Font`) | `$MAIN_Font` |
+     - **What was built for it:** `Text.field` keeps its
+       own copy of each field's format; `Text.show` assigns the text, then
+       puts that copy back as the default and over all of the text.
+       `Draw.button` uses it too. A third, plain line (no `$`) is the
+       control. Each line logs `font: default <before>, plain <after a
+       plain assignment> (default <its default then>), shown <after
+       Text.show>`. Movie 19,014 bytes.
+     - **Spike done.** The three test lines stay on every casino screen
+       until the fallback replaces them.
+   - **Built 2026-11-12.** Two changes from the plan:
+     - The file is `Interface\Translations\FalloutHelpers_en.txt`, not
+       `F3NV_Casino_en.txt`: F4SE loads only files named after an active
+       plugin ([files](#translations)).
+     - **No `sLanguage` change.** With no file for the player's language,
+       F4SE loads nothing, which is the same as a key no file has. So one
+       play shows both cases: `$F3UI_TranslationCheck` (in our file) and
+       `$F3UI_TranslationAbsent` (in none). Changing `sLanguage` on an
+       English install would also lose the game's own strings.
+   - **What's built:** every casino screen (slots, roulette) shows both keys
+     in small text under the buttons, and logs what each field reads back
+     (`F3NV_Casino: input translation $F3UI_… reads back '…'`). The build
+     writes the file from `fo4_import/base/translation_files/en.txt`
+     (UTF-8) as UTF-16 LE with BOM and CRLF (`translations.install`, count
+     `menu translation files installed`). Checked offline: the movie
+     contains both keys (18,646 bytes, the same on Python 3.13 and 3.14);
+     `tests/test_fo4_translations.py`.
+   - **Play check:** a build with the new `Interface\F3NV_Casino.swf` and
+     `Interface\Translations\FalloutHelpers_en.txt`, then open slots. Note,
+     or screenshot, what each bottom line shows:
+     - left: `Translated from FalloutHelpers_en.txt` means our file loads;
+       `$F3UI_TranslationCheck` means it doesn't;
+     - right: whatever the game shows for a key no file has (the raw key,
+       an empty line, or something else). This settles the
+       [fallback](#translations).
+     - F4SE's log (`f4se.log`) should say `Reading translations from
+       Interface\Translations\FalloutHelpers_en.txt...`; the casino lines
+       in the Papyrus log give what each field reads back.
 
 Spikes 1, 2 and 4 need nothing from the CommonLibF4 port; they can run on
 today's F3NV.dll and Papyrus.

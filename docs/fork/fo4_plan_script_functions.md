@@ -204,9 +204,9 @@ behavior match is not yet read against the GECK wiki. Markers are from the
 | GetXPForNextLevel | 1 | 1 | `Game.GetXPForLevel(level + 1)` |
 | IsSpellTarget | 1 | 1 | `Actor.HasMagicEffect` of the spell's effect |
 | `ne` (GetFactionRelation) | 1 | 1 | `Actor.GetFactionReaction`; to confirm. The census reads `;NE: NE:` as a function named `ne` |
-| SetInChargen | 1 | 1 | `Game.SetInChargen` |
+| SetInChargen, GetInCharGen | 1 | 2 | **Built:** the flag in `F3NV_State`; `Game.SetInChargen` kept off ([below](#ignore-crime)) |
 | ShowAllMapMarkers | 1 | 1 | `Game.ShowAllMapMarkers` |
-| IgnoreCrime, GetIgnoreCrime | 185, 3 | 2 | Phase 7: the flag in `F3NV_State`, read back by GetIgnoreCrime; a [DLL candidate](#dll-decisions) |
+| IgnoreCrime, GetIgnoreCrime | 185, 3 | 2 | **Built:** the actor's crime faction cleared and remembered in `F3NV_State`, read back by GetIgnoreCrime ([below](#ignore-crime)) |
 | SetPackDuration | 12 | 2 | An end time in `F3NV_State`; the poll calls `EvaluatePackage` once it passes |
 | HasBeenEaten | 5 | 2 | The Cannibal feed writes `F3NV_State` |
 | IsPlayerMovingIntoNewSpace | 5 | 2 | A flag set from the player's `OnLocationChange` |
@@ -255,8 +255,8 @@ Return 13, undeclared var 6.
 | 3 build data | 6 | 53 |
 | 4 nothing to do | 44 | 312 |
 
-No function needs route 5 outright; IgnoreCrime, SetActorFullName and
-ResetInventory keep a DLL candidate below. Phase 2 grows from the 111
+No function needs route 5 outright; SetActorFullName and ResetInventory
+keep a DLL candidate below. Phase 2 grows from the 111
 markers it first counted to route 1's 184, and loses the objective reads.
 
 ### <a id="dll-decisions"></a>DLL decisions
@@ -265,7 +265,6 @@ Each needs the user's approval; none is in the phases unless approved.
 
 | Candidate | Need | Alternative without a DLL |
 |---|---|---|
-| IgnoreCrime (185 sites) | The R8 crime drop: an actor that never reports the player | Put the actor in a converter-built faction with Fallout 4's ignore-crime flags (unverified that they cover reporting), and record the flag in `F3NV_State` so the standings script charges no infamy for it |
 | IsAnimPlaying | A NIF sequence's real end | A flag timed from the sequence's authored length (phase 4) |
 | SetActorFullName (17) | Rename a reference | A reference alias with a display name, if Fallout 4's alias name field works on a forced reference (unverified) |
 | ResetInventory (17) | Restore the base inventory | `RemoveAllItems`, then add a converter-built list of the base's inventory |
@@ -280,7 +279,40 @@ Each needs the user's approval; none is in the phases unless approved.
 | 4 | M | `F3NV_State` and cost item 3: dialogue speaker and line timing held in quest variables, written as Fallout 4 overrides of `LineBegan`, `LineEnded` and `PlayerIsInDialogue` | Helper-plugin test for id 0x903; in game, Doc Mitchell's intro and a Say-timer scene keep their pacing; the trace shows no actor-value writes from `LineBegan` | 1 |
 | 5 | M | `IsAnimPlaying` (route 3 plus 2): the PlayGroup handler records the reference, group and end time; the end time comes from the mesh's sequence length, which the build writes as a table the script stage reads | All 71 source matches convert to the read; in game, the Vault 11 gear door, the Lucky 38 lights and a Hoover Dam vertibird | 4 |
 | 6 | S | Companion barks: `Poisoned` and `OnFire` from the follower's active effects, `UsedDoctorBag` from the Doctor's Bag effect writing `F3NV_State`, `WeaponBroke` from `GetEquippedWeaponHealth` | `tests/test_fo4_companion_barks.py`; in game, a companion poisoned by a cazador barks once | 4 |
-| 7 | M | Crime infamy and IgnoreCrime: the route the play test picks (crime gold values on converted crime factions, or infamy from the standings alias and witness); `GetIgnoreCrime` reads the remembered flag | In game, a witnessed theft in Goodsprings raises Goodsprings infamy; an `IgnoreCrime` actor (the Pit fighters' triggers) does not report | 4, play test |
+| 7 | M | Crime infamy: the route the play test picks (crime gold values on converted crime factions, or infamy from the standings alias and witness). IgnoreCrime is **built** ([below](#ignore-crime)) | In game, a witnessed theft in Goodsprings raises Goodsprings infamy; an `IgnoreCrime` actor (the Pit fighters' triggers, Butch at the G.O.A.T.) does not report | 4, play test |
+
+### <a id="ignore-crime"></a>Built: IgnoreCrime and SetInCharGen
+
+`F3NV_State` (`FalloutHelpers.esl` 0x903, appended to
+`FALLOUT4_HELPER_QUESTS`, so no existing id moves) is the helper quest
+phase 4 names. It holds two things today; phase 4 adds the dialogue state.
+
+- **IgnoreCrime.** GECK wiki: `[Actor.]IgnoreCrime 1` stops the actor
+  reporting the player's crimes; it still reacts to a direct attack if not
+  friendly. Fallout 4's vanilla scripts do this with
+  `Actor.SetCrimeFaction(None)`: an actor with no crime faction reports to
+  no one. `TES4Polyfill.IgnoreCrime(actor, flag)` clears it and remembers
+  the faction it had (`Actor.GetCrimeFaction`); `IgnoreCrime 0` restores
+  that faction. `GetIgnoreCrime` reads the remembered flag (FO3's MS13
+  collar saves it and restores it later). 128 actors, the oldest giving
+  way. Every use names an actor: FO3 has 45 calls (42 set 1, 1 sets 0, 2
+  restore a saved flag), FNV 185 (87 set 1, 98 set 0); none needs the
+  player-wide `Game.SetPlayerReportCrime`.
+- **SetInCharGen.** GECK wiki: while on, the player does not level up (XP
+  still accumulates); the levels arrive when it turns off. FO3 sets it at
+  the start of CG00-CG03 and clears it at CG04's end. Fallout 4's
+  `Game.SetInChargen(saving, waiting, controls message)` only blocks saving
+  and waiting (vanilla MQ101 clears it with "allow saving"), so it is called
+  with all three off, and the flag is remembered for `GetInCharGen`.
+  **Not converted:** the level hold itself. Fallout 4 has no Papyrus call
+  that stops a level-up, so a level gained in the vault arrives there.
+
+Converted scripts that change, measured on the last converted folders:
+Fallout3.esm 18 (53 lines), FalloutNV.esm 67 (189), DeadMoney 7,
+HonestHearts 6, OldWorldBlues 11, LonesomeRoad 4, and mods (The Frontier
+49, YUP 44, NVWillow 15, Bounties II 14). In the scripts read, only the
+`;NE:` lines became calls, and one guard that always read false
+(`CrucifiedVictimScript`'s `If GetIgnoreCrime != 1`) now runs.
 | 8 | L | The remaining rows, one function at a time, by gameplay effect (`ResetInventory`, `SetPackDuration`, `GetFurnitureMarkerID`, `HasBeenEaten`, then the rest); DLL rows only if approved | One test per function; census count per batch | 2, 4 |
 
 ## <a id="play-test"></a>5. What the play test should tell us first

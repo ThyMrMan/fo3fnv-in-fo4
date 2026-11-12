@@ -346,8 +346,20 @@ vanilla's.
   faces read rounder and more generic than FNV's (Sgt Kilborn, 2026-11-09).
 - Hair is chosen per NPC from FO4's own hairstyles: by name, then by style,
   then by drawn coverage ([hair styles](fo4_spikes.md#hair-styles)).
-- The CK costs about 2 s per NPC, needs the MO2 profile, and is a
-  Windows-only stage of the app.
+- The CK needs the MO2 profile, and is a Windows-only stage of the app.
+  It costs about 2 s per NPC on a small plugin, but 5.7 s per face on
+  FalloutNV.esm: the overnight run of 2026-11-12 wrote 2,382 faces in
+  3.8 hours. The timeout allows 6 s per NPC_ record.
+- <a id="ck-exit-hang"></a>**The CK can hang on exit after a big export.**
+  On that run it wrote its last face at 05:27, then stayed up until it was
+  closed by hand at 07:21. It hit an access violation in `CreationKit.exe+38A466`
+  with cell `FNVVault22d` loaded, and CKPE wrote the crash zip only on that
+  close. Every NPC still missing a face had a creature race, so the export was
+  complete. MO2's `run` waits for the CK, so the old timeout never ran.
+  `creation_kit.run` now starts MO2 without waiting. Once the CK has written
+  files and then gone `CK_QUIET` (15 min) without a new one, it counts as
+  done and is closed. `facegen --collected` finishes a stage from files that
+  an earlier CK run left in overwrite.
 
 ## <a id="benefits"></a>What it would give
 

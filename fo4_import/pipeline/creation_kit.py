@@ -28,29 +28,53 @@ CK_EXECUTABLE, CK_PROCESS = 'Creation Kit', 'CreationKit.exe'
 CK_CRASHES = FALLOUT4_DIR / 'Logs' / 'CKPE' / 'Crashes'
 #: Seconds between checks that the CK is still running.
 CK_POLL = 5
+#: Seconds the CK may run after its last new file before it counts as done (it can hang on exit).
+CK_QUIET = 900
 
 
 def run(arguments: str, timeout: float, what: str) -> None:
-    """Run the CK with `arguments` through MO2 and wait for it to exit; raise if its write target is a disabled mod
-    (MO2 would wait on an error dialog), it crashed, or it took longer than `timeout` seconds (`what` names the
-    job in the error)."""
+    """Run the CK with `arguments` through MO2 and wait for it to exit, or close it once it has written files and
+    then gone CK_QUIET seconds without a new one; raise if its write target is a disabled mod (MO2 would wait on an
+    error dialog), it crashed, or it ran past `timeout` seconds (`what` names the job in the error).
+    See: docs/fork/fo4_facegen_plan.md#ck-exit-hang
+    """
     target = output_dir()
     if target.parent.name == 'mods' and f'+{target.name}' not in modlist():
         raise SystemExit(f'MO2 sends the Creation Kit\'s new files to mod "{target.name}", which the selected '
                          f'profile has disabled: enable it, or clear the Creation Kit\'s write target, then rebuild')
     started = time.time()
-    subprocess.run([str(MO2 / 'ModOrganizer.exe'), 'run', '-e', CK_EXECUTABLE, '-a', arguments], check=True,
-                   **POPEN_FLAGS)
+    subprocess.Popen([str(MO2 / 'ModOrganizer.exe'), 'run', '-e', CK_EXECUTABLE, '-a', arguments], **POPEN_FLAGS)
     while time.time() < started + timeout:
         time.sleep(CK_POLL)
-        listing = subprocess.run(['tasklist', '/FI', f'IMAGENAME eq {CK_PROCESS}'], capture_output=True, text=True,
-                                 **POPEN_FLAGS).stdout
-        if CK_PROCESS not in listing:
+        if not running():
             crashes = [p for p in CK_CRASHES.glob('*.zip') if p.stat().st_mtime > started]
             if crashes:
                 raise SystemExit(f'the Creation Kit crashed {what}: see {max(crashes)}')
             return
+        newest = newest_file(target)
+        if started < newest < time.time() - CK_QUIET:
+            print(f'the Creation Kit wrote nothing for {CK_QUIET}s after {what}: closed it', flush=True)
+            close()
+            return
+    close()
     raise SystemExit(f'the Creation Kit did not finish {what} in {timeout:.0f}s')
+
+
+def running() -> bool:
+    """Whether a CK process is running."""
+    listing = subprocess.run(['tasklist', '/FI', f'IMAGENAME eq {CK_PROCESS}'], capture_output=True, text=True,
+                             **POPEN_FLAGS).stdout
+    return CK_PROCESS in listing
+
+
+def close() -> None:
+    """End every CK process."""
+    subprocess.run(['taskkill', '/F', '/T', '/IM', CK_PROCESS], capture_output=True, **POPEN_FLAGS)
+
+
+def newest_file(folder: Path) -> float:
+    """The newest modification time of a file under `folder`, 0 when it holds none."""
+    return max((p.stat().st_mtime for p in folder.rglob('*') if p.is_file()), default=0.0)
 
 
 def profile_dir() -> Path:
@@ -89,18 +113,6 @@ def ask(kind: str, arg: str) -> 'str | None':
     """Logged question `kind` (HOLDING or OUTPUT) about `arg`, answered now."""
     found = holding(Path(arg)) if kind == HOLDING else output_dir()
     return str(found) if found else None
-
-
-def written_since(rel: Path, since: float) -> list:
-    """[(file, its path under the Data folder, whether it is in output_dir)] of the files under `rel` the CK wrote
-    from `since` on: new ones in output_dir(), edited ones in the enabled mods holding them."""
-    out, found = output_dir(), []
-    for root in _roots():
-        folder = root / rel
-        for path in sorted(folder.rglob('*')) if folder.is_dir() else ():
-            if path.is_file() and path.stat().st_mtime >= since:
-                found.append((path, path.relative_to(root), root == out))
-    return found
 
 
 def output_dir() -> Path:

@@ -478,7 +478,12 @@ its masters' meshes again in its own Main archive. In Strip Lights that was
 - A dependent build reads its masters' records (`master_copies.theirs`). In
   `_collision` it neither writes nor finishes a mesh whose master gives the
   same mark (`elric_cache.LEFT`), and it deletes any copy already in its
-  folder.
+  folder. Steps after `_collision` can still read such a mesh:
+  `mesh_bytes` returns its finished copy from the `elric_finish` cache.
+  Before this, Dead Money's 2026-11-12 build crashed. A repair list in
+  `_closing_records` made the lingerie outfit's armor, which reads its world
+  mesh `fnv\armor\lingerie\go.nif` for texture swaps, and that file had
+  just been left to the game's archive.
 - The records count only when every master in another folder has one, the
   last master's winning. So a master built before this change cannot hide a
   different copy of the same path.
@@ -866,3 +871,23 @@ scoped build first: one small area, fewer workers and a job cap around
 - A mod converted against one release's journal and a game rebuilt with
   another: the same question as in
   [mod builds](fo4_mod_builds.md#open).
+- <a id="native-candidates"></a>**Idea, not started: profile first, then move
+  the plain-Python hot spots to native code.** A wholesale move off Python
+  would not pay: the measured wins so far came from work done once instead of
+  many times, not from language speed ([routes not taken](#left-out)). Profile
+  one whole base build split into plain Python, numpy and waiting (files, the
+  Creation Kit), and look at a stage only when plain Python dominates.
+  Candidates already in view:
+  - **The export index's memory.** Some pool tools load about 2.1 GB per
+    worker, a copy per process. Options: a compact memory-mapped store that
+    all workers share, or Python 3.14's free-threaded build so workers share
+    one copy (only if numpy and the other libraries support it).
+  - **Mesh reading and writing.** Move the inner loops of our NIF reader into
+    `native/` beside `nifgeom`. The Frontier needed 982 s for 13,625 meshes,
+    and one 61 MB mesh used 738 MB to read with pyffi.
+  - **Per-item maths over large sets:** AnimTextData's 19,149 clip records
+    (about 5 min on a first build), the overlay check, collision.
+
+  The cost: every native part must be built and shipped for each platform the
+  app supports. Wait until the Creation Kit replacements have been measured
+  in real overnight rebuilds.

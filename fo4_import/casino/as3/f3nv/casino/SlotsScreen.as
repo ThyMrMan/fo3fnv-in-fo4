@@ -1,5 +1,7 @@
 package f3nv.casino
 {
+   import f3ui.Draw;
+   import f3ui.Text;
    import flash.display.Loader;
    import flash.display.Sprite;
    import flash.events.Event;
@@ -57,21 +59,21 @@ package f3nv.casino
          maxBet = high;
          bet = Math.min(low, chips);
          slots = new Slots(stops, luck, new Rng(seed));
-         title = Ui.label(this, 40, 30, 32);
+         title = Text.label(this, 40, 30, 32);
          title.text = name;
          for (var r:int = 0; r < 3; r++)
          {
-            Ui.panel(this, 240 + r * 230, 110, REEL_SIZE, REEL_SIZE, 0.5);
+            Draw.panel(this, 240 + r * 230, 110, REEL_SIZE, REEL_SIZE, 0.5);
             reels.push(symbolImages(symbols, 240 + r * 230, 110, REEL_SIZE));
          }
-         result = Ui.label(this, 240, 340, 28);
-         status = Ui.label(this, 40, 420, 22);
+         result = Text.label(this, 240, 340, 28);
+         status = Text.label(this, 40, 420, 22);
          payoutList(symbols);
-         Ui.button(this, "-", 40, 620, betDown, 80);
-         Ui.button(this, "+", 130, 620, betUp, 80);
-         Ui.button(this, text(BET_MAX), 220, 620, betMax);
-         Ui.button(this, text(SPIN), 440, 620, spin);
-         Ui.button(this, text(EXIT), 1040, 620, exit);
+         Draw.button(this, "-", 40, 620, betDown, 80);
+         Draw.button(this, "+", 130, 620, betUp, 80);
+         Draw.button(this, text(BET_MAX), 220, 620, betMax);
+         Draw.button(this, text(SPIN), 440, 620, spin);
+         Draw.button(this, text(EXIT), 1040, 620, exit);
          show([0, 2, 4]);
          update();
       }
@@ -131,7 +133,7 @@ package f3nv.casino
 
       private function payoutList(symbols:Array) : void
       {
-         var heading:TextField = Ui.label(this, 980, 110, 22);
+         var heading:TextField = Text.label(this, 980, 110, 22);
          heading.text = text(PAYOUTS);
          var lines:Array = [[6, 6, 6, 10], [0, 0, 0, 10], [1, 1, 1, 20], [2, 2, 2, 30], [3, 3, 3, 40],
                             [4, 4, 4, 60], [5, 5, 5, 100], [6, 6, -1, 5], [6, -1, -1, 2]];
@@ -145,7 +147,7 @@ package f3nv.casino
                   image[0].visible = true;
                }
             }
-            var pays:TextField = Ui.label(this, 1090, 145 + i * 34, 20);
+            var pays:TextField = Text.label(this, 1090, 145 + i * 34, 20);
             pays.text = "x" + lines[i][3];
          }
       }
