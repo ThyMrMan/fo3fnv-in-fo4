@@ -46,12 +46,13 @@ defaults to the inert `0` (`None` or `""` where the caller needs that type).
 import re
 
 from script_convert.constants import (
-    PAPYRUS_BOOL_FUNCTIONS, safe_property_name
+    PAPYRUS_BOOL_FUNCTIONS, is_generated_script_type, safe_property_name
 )
 from script_convert.command_rows import (
     ACTOR, AV, COMMAND_ROWS, COMPARISON_BOOL_FUNCTIONS, OBJREF, RAW
 )
 
+from script_convert.resolve_name import record_formid
 from script_convert.tes4 import lexer as L
 from script_convert.target import is_fallout4, self_as_actor
 from script_convert.command_rows_fallout4 import FALLOUT4_ROWS
@@ -165,7 +166,7 @@ class _Args(dict):
         if kind == 's':
             return self._c.arg_src(n, default).strip().strip('"')
         if kind == 'p':
-            return safe_property_name(self._c.arg_src(n, default))
+            return property_of(self._c, self._c.arg_src(n, default))
         if kind == 'b':
             return self._bool(n, default)
         arg = self._c.arg_expr(n, self._e, default)
@@ -212,11 +213,26 @@ def emit_row(conv, row, ref_name, func_name, args_str, extends):
     for n, ptype in row.types.items():
         name = conv.arg_src(n)
         if name:
-            conv.sc.property_refs[safe_property_name(name)] = ptype
+            _register(conv.sc.property_refs, property_of(conv, name), ptype)
     args = _Args(conv, row, args_str, extends)
     if '{ref}' in row.emit:
         args['ref'] = _ref(conv, row, ref_name, extends)
     return row.emit.format_map(args)
+
+
+def _register(refs: dict, prop: str, ptype: str) -> None:
+    """Type `prop` as `ptype`, keeping a native type (Weapon, Book) over a generic Form or ObjectReference.
+    See: docs/fork/fo4_script_compile.md#region-case
+    """
+    current = refs.get(prop, '')
+    if ptype not in ('Form', 'ObjectReference') or not current or is_generated_script_type(current):
+        refs[prop] = ptype
+
+
+def property_of(conv, name: str) -> str:
+    """The property `name` names: its record's EditorID as `record_property` keys it."""
+    fid, name = record_formid(conv, name) if conv.xref is not None else ('', name)
+    return safe_property_name(conv.xref.formid_to_edid.get(fid, name) if fid else name)
 
 
 #: Values a row names that come from the CONVERTER rather than from the call.

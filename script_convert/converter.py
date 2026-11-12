@@ -466,66 +466,25 @@ class ScriptConverter:
         ]
 
     def _emit_cell_family_helpers(self) -> list:
-        """Helper functions for the GetInCell prefix families used by a script.
+        """Helper functions for the GetInCell prefix families used by a script: TES4 matches GetInCell on an
+        EditorID prefix, so one call can mean "in any of these 86 cells". One If per cell (Papyrus has no line
+        continuation); `TES4_parentCell` because `parent` is taken in that scope.
 
-        TES4 matches GetInCell on an EditorID prefix, so one call can mean "in
-        any of these 86 cells" — see the GetInCell handler in _emit_function.
+        See: docs/fork/fo4_script_compile.md#digit-names
         """
         if not self.sc.cell_families:
             return []
         lines = ['']
-        for entry in sorted(self.sc.cell_families.values(),
-                            key=lambda kv: kv[0].lower()):
+        for entry in sorted(self.sc.cell_families.values(), key=lambda kv: kv[0].lower()):
             key, cells = entry[0], entry[1]
             exterior = entry[2] if len(entry) > 2 else []
-            lines.append(
-                f'; TES4 `GetInCell {key}` matched {len(cells)} interior and '
-                f'{len(exterior)} exterior cells by EditorID prefix.')
-            lines.append(
-                f'Bool Function TES4_IsIn{key}(ObjectReference akRef)')
-            # `parent` is taken in this scope (the CK compiler rejects it with
-            # "function variable parent already defined"), hence the prefix.
-            lines.append('  Cell TES4_parentCell = akRef.GetParentCell()')
-            # Papyrus has no line-continuation, and a several-hundred-term
-            # expression on one line is unreadable, so test-and-return instead.
+            lines += [f'; TES4 `GetInCell {key}` matched {len(cells)} interior and '
+                      f'{len(exterior)} exterior cells by EditorID prefix.',
+                      f'Bool Function TES4_IsIn{key}(ObjectReference akRef)',
+                      '  Cell TES4_parentCell = akRef.GetParentCell()']
             for c in cells:
-                lines.append(f'  If TES4_parentCell == {c}')
-                lines.append('    Return true')
-                lines.append('  EndIf')
-            if exterior:
-                # An exterior cell cannot be a bound Cell property, so match it
-                # by the position that identifies it: same worldspace, same
-                # 4096-unit grid square. GetPositionX/Y are world units;
-                # floor-divide to the cell grid the same way the engine does.
-                lines.append('  WorldSpace TES4_ws = akRef.GetWorldSpace()')
-                lines.append('  Float TES4_fx = akRef.GetPositionX() / 4096.0')
-                lines.append('  Float TES4_fy = akRef.GetPositionY() / 4096.0')
-                lines.append('  Int TES4_gx = TES4_fx as Int')
-                lines.append('  Int TES4_gy = TES4_fy as Int')
-                # `as Int` truncates toward zero; the grid floors. Correct only
-                # when truncation actually rounded UP, i.e. the value was
-                # negative and not already exact (-4096.0 is cell -1, not -2).
-                lines.append('  If TES4_fx < 0.0 && TES4_fx != (TES4_gx as Float)')
-                lines.append('    TES4_gx = TES4_gx - 1')
-                lines.append('  EndIf')
-                lines.append('  If TES4_fy < 0.0 && TES4_fy != (TES4_gy as Float)')
-                lines.append('    TES4_gy = TES4_gy - 1')
-                lines.append('  EndIf')
-                for wrld, x, y in exterior:
-                    if not wrld:
-                        continue
-                    if x is None or y is None:
-                        # Worldspace dummy cell: anywhere in the worldspace.
-                        lines.append(f'  If TES4_ws == {wrld}')
-                    else:
-                        lines.append(
-                            f'  If TES4_ws == {wrld} && TES4_gx == {x} '
-                            f'&& TES4_gy == {y}')
-                    lines.append('    Return true')
-                    lines.append('  EndIf')
-            lines.append('  Return false')
-            lines.append('EndFunction')
-            lines.append('')
+                lines += [f'  If TES4_parentCell == {safe_property_name(c)}', '    Return true', '  EndIf']
+            lines += _exterior_cell_tests(exterior) + ['  Return false', 'EndFunction', '']
         return lines
 
 
@@ -1058,7 +1017,8 @@ class ScriptConverter:
         TES4 let one script read another's variables directly.  The owner is a
         property typed as a generated script class, so the remote script's
         variable table answers what the member is -- three sites resolved this
-        identically by hand.
+        identically by hand. The owning script's own typing decides over the TES4 declaration: a `ref` it calls an
+        actor-only method on is Actor there, and a `ref` only ever given numbers is Int.
         See: docs/commentary/script_convert.md#generated-script-types
         """
         if '.' not in dotted or not self.xref:
@@ -1069,12 +1029,10 @@ class ScriptConverter:
             return ''
         script = self._script_edid_for(owner_type)
         member_low = member.lower()
-        # The owning script's OWN use decides: a `ref` it calls an actor-only
-        # method on is declared Actor there, so a write from here needs the
-        # downcast.  `script_all_vars` records the TES4 declaration, which says
-        # only `ObjectReference`; `script_actor_vars` records the promotion.
         if member_low in self.xref.script_actor_vars.get(script, ()):
             return 'Actor'
+        if (script, member_low) in self.xref.ref_as_int:
+            return 'Int'
         return self.xref.script_all_vars.get(script, {}).get(member_low, '')
 
     def _script_edid_for(self, owner_type: str) -> str:
@@ -2393,6 +2351,27 @@ def sctx_onactivate_consumes(sctx: str) -> bool:
 # ---------------------------------------------------------------------------
 # Say call sites
 # ---------------------------------------------------------------------------
+
+def _exterior_cell_tests(exterior: list) -> list:
+    """Papyrus lines matching exterior cells [(worldspace, x, y)] by worldspace and floored 4096-unit grid
+    square (no x/y: anywhere in the worldspace); an exterior cell cannot be a bound Cell property.
+    `as Int` truncates toward zero, so a negative inexact position steps down one cell."""
+    if not exterior:
+        return []
+    lines = ['  WorldSpace TES4_ws = akRef.GetWorldSpace()',
+             '  Float TES4_fx = akRef.GetPositionX() / 4096.0', '  Float TES4_fy = akRef.GetPositionY() / 4096.0',
+             '  Int TES4_gx = TES4_fx as Int', '  Int TES4_gy = TES4_fy as Int',
+             '  If TES4_fx < 0.0 && TES4_fx != (TES4_gx as Float)', '    TES4_gx = TES4_gx - 1', '  EndIf',
+             '  If TES4_fy < 0.0 && TES4_fy != (TES4_gy as Float)', '    TES4_gy = TES4_gy - 1', '  EndIf']
+    for wrld, x, y in exterior:
+        if not wrld:
+            continue
+        test = f'TES4_ws == {safe_property_name(wrld)}'
+        if x is not None and y is not None:
+            test += f' && TES4_gx == {x} && TES4_gy == {y}'
+        lines += [f'  If {test}', '    Return true', '  EndIf']
+    return lines
+
 
 def _speak_as_tokens(pparts: list, fname_low: str):
     """(topic, voice) from a TES4 Say/SayTo argument list, or None.
