@@ -9,10 +9,13 @@ source plugin's own records are the build's own. A master built before keeps its
 See: docs/fork/fo4_plugin_layout.md#formids
 """
 
+import functools
+import struct
 from pathlib import Path
 
-from fo4_import.base.install import file_masters
-from fo4_import.base.ledger import Ledger, ledger_path
+from fo4_import.base.install import HEADER, file_masters
+from fo4_import.base.ledger import ID, ONE_TO_ONE, Ledger, ledger_path
+from fo4_import.base.writer import FLAG_ESL
 from fo4_import.pipeline.build_inputs import MASTERS
 
 #: FormID master byte and object id.
@@ -34,17 +37,31 @@ class SourceIds:
         if missing:
             raise ValueError(f'the build has no FO4 master for source masters {missing}')
         self.indexes = [lower.index(fo4_plugin(m).lower()) for m in source_masters]
-        self.own_index = own_index
+        self.own_index, self.keyed = own_index, {}
+
+    def key(self, index: int, resolve) -> None:
+        """Map light plugin `index`'s records by `resolve`(object id)."""
+        self.keyed[index] = resolve
 
     def is_own(self, fid: int) -> bool:
         """Whether source FormID `fid` is the source plugin's own record (not a master's)."""
         return fid >> MASTER_SHIFT >= len(self.indexes)
 
-    def fo4(self, fid: int) -> int:
-        """Source FormID `fid` in FO4: its master plugin's, else the build's."""
+    def held(self, fid: int) -> 'int | None':
+        """Source FormID `fid` in FO4: its master plugin's, else the build's; through key() for a light plugin,
+        None when its ledger has no id for it."""
         byte = fid >> MASTER_SHIFT
         index = self.indexes[byte] if byte < len(self.indexes) else self.own_index
+        if index in self.keyed:
+            return self.keyed[index](fid & OBJECT_ID)
         return index << MASTER_SHIFT | fid & OBJECT_ID
+
+    def fo4(self, fid: int) -> int:
+        """held(), which must find `fid`."""
+        found = self.held(fid)
+        if found is None:
+            raise KeyError(f'{fid:08X}: its light plugin\'s ledger has no {ONE_TO_ONE!r} id for it')
+        return found
 
 
 def built_plugins(source_masters: list, dirs: tuple) -> list:
@@ -81,3 +98,32 @@ def master_ledgers(masters: list, dirs: tuple) -> dict:
             MASTERS.cover(f'ledger:{index}', found)
             out[index] = Ledger(found)
     return out
+
+
+def is_light(path: Path) -> bool:
+    """Whether plugin file `path`'s header has the ESL flag (any extension)."""
+    with open(path, 'rb') as f:
+        return bool(struct.unpack_from('<I', f.read(HEADER), 8)[0] & FLAG_ESL)
+
+
+def key_light(ids: SourceIds, writer, built: list, masters: list, ledgers: dict) -> None:
+    """Map light plugins' records through their ledgers (ONE_TO_ONE): the build's own when `writer` is light, and
+    each light plugin of `built` (by `masters` index; it must have its ledger in `ledgers`).
+    See: docs/fork/research/fo4_light_plugins.md#reading
+    """
+    if writer.light:
+        ids.key(writer.own_index, writer.one_to_one)
+    lower = [m.lower() for m in masters]
+    for path in built:
+        if not is_light(path):
+            continue
+        index = lower.index(path.name.lower())
+        if index not in ledgers:
+            raise SystemExit(f'{path.name} is a light plugin with no ledger beside it: its records can not be found')
+        ids.key(index, functools.partial(_ledger_id, ledgers[index], index))
+
+
+def _ledger_id(ledger: Ledger, index: int, oid: int) -> 'int | None':
+    """Light master `index`'s FormID of source record `oid`; None if unkept."""
+    kept = ledger.get(ID, ONE_TO_ONE, f'{oid:06X}')
+    return None if kept is None else index << MASTER_SHIFT | kept

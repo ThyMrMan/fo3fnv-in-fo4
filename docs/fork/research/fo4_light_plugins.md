@@ -150,9 +150,10 @@ in `tools/`); rerun with the [preflight](#size) addition below.
    4,095, plus 1 (0x001–0xFFF). Collisions rehash with the same salt sequence, with no 64-probe cap: the build
    fails only when every slot is taken. Full plugins don't change: same window, same `FORMID_SCHEME_VERSION`, so
    nothing already built moves.
-2. **Every own record is keyed.** A 1:1 FNV record in a light plugin takes site `FNV 1:1`, key its FNV FormID
-   (`fnv_id` asks the writer instead of passing the object id through). Copies and generated records already have
-   keys.
+2. **Every own record is keyed.** A 1:1 FNV record in a light plugin takes site `FNV 1:1`, key its object id in
+   its source plugin (six hex digits; the master byte differs between a plugin and its dependents, the object id
+   does not). `fnv_id` asks the writer instead of passing the object id through. Copies and generated records
+   already have keys. Built 2026-11-12: [light builds](../fo4_pipeline.md#light-builds).
 3. **The ledger keeps every id, and is required.** As today, its ids are reserved before hashing, never reused, and
    saved before the plugin is written. Slots a removed record held stay taken, so a plugin's budget is its
    ledger's id count, not its record count.

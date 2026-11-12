@@ -4186,7 +4186,9 @@ hand.
   - when the build started and ended, and its command;
   - the commit it started from, and the files that then differed from it;
   - once it ends, each stage's seconds and peak memory, every count, and the
-    resource profile ([memory per stage](fo4_build_resources.md#stage-memory)).
+    resource profile ([memory per stage](fo4_build_resources.md#stage-memory));
+  - `light opt-in`: whether the plugin was built with `--light`, which locks
+    its type ([light builds](#light-builds)).
 
   Check it before building on a plugin, preflighting it or deploying it: only
   `finished` is a whole build.
@@ -4229,6 +4231,39 @@ growing today's 11,302 hashed ids tenfold moved 34–70 of them.
   the quest's authored targets ([F4](fo4_tool_audit.md#formids-fixed)).
 - **Saved before the plugin.** The ledger is written just before the
   plugin, so no written plugin holds an id its ledger lacks.
+
+### <a id="light-builds"></a>Light builds (built 2026-11-12)
+
+The design and its evidence are in
+[research/fo4_light_plugins.md](research/fo4_light_plugins.md#scheme). In code:
+
+- **`--light`** (`fo4_import.pipeline.run`) builds the plugin light;
+  `pipeline/light_choice.py` decides from the stamp's `light opt-in` (else a
+  ledger holding `FNV 1:1` ids means light). A first build takes what is
+  asked. A built plugin keeps its type: asking the other stops with the count
+  of FormIDs that move, unless `--switch-plugin-type` confirms it, which drops
+  the ledger's ids so every own record gets one of the new type.
+- **Refusals.** A light plugin built before but missing its ledger, or with
+  own ids its ledger lacks (compacted in xEdit), stops the build; so does a
+  full build of a plugin made light outside the converter.
+- **Ids.** `LedgerWriter.make_light()` replaces `reserve_source_ids`. Every
+  own record is keyed: generated ones as before, 1:1 ones at site `FNV 1:1`
+  by their source object id (`one_to_one`, through `SourceIds.key`). The hash
+  is `derive_formid`'s, into 0x001–0xFFF, rehashed with the same salts and no
+  probe cap; a build needing a 4,096th id raises `LightFull` before anything
+  is written. HEDR's next id is the highest own id plus one.
+- **Light masters** (ESL flag in the header, any extension) are read through
+  their ledgers (`source_ids.key_light`), in full builds too: a record the
+  ledger lacks is not in the master, so `fnv_id` copies it as for any record
+  a master left out. A light master without its ledger stops the build.
+- **At write** (`light_choice.finish_flag`): a full build with no own record
+  is flagged light (no id moves); a light build whose own cell carries
+  precombine or previs data (XCRI, XPRI, PCMB, VISI, RVIS) stops, since those
+  files are named by FormID & 0xFFFFFF. The build counts which it wrote
+  (`plugin written ...`).
+- **Full builds are unchanged:** same window, same hash, same
+  `FORMID_SCHEME_VERSION` (`tests/test_fo4_light_plugins.py` compares a full
+  LedgerWriter with the plain writer).
 - **A master's id wins** over the plugin's own kept one
   ([shadowed ids](fo4_plugin_layout.md#dlc-shadowed-ids)).
 - **What still counts.** `FormIDs from a counted key` in a build's counts is

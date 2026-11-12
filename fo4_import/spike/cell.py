@@ -19,8 +19,8 @@ from pathlib import Path
 from fo4_import.base.ba2_pack import sound_root, staging_root
 from fo4_import.spike.plugin_rename import drop_old_plugins, is_master, move_renamed, retarget_faces
 from fo4_import.base.master_overrides import held_by, master_records
-from fo4_import.base.source_ids import SourceIds, built_plugins, dependent_masters, master_ledgers
-from fo4_import.base.ledger import Ledger, LedgerWriter, ledger_path
+from fo4_import.base.source_ids import SourceIds, built_plugins, dependent_masters, key_light, master_ledgers
+from fo4_import.base.ledger import ID, Ledger, LedgerWriter, ledger_path
 from fo4_import.base.install import FALLOUT4_ESM, masters_of, source_esm, source_walk, use_source
 from fo4_import.base.source import plugin_stem
 from fo4_import.base.source_fault import without_fault
@@ -105,6 +105,7 @@ from fo4_import.spike.placeable_water import PlaceableWater
 from fo4_import.pipeline.stage_timer import charged, timed
 from fo4_import.spike.build_finish import VOICE_CACHE, finish
 from fo4_import.pipeline import master_copies
+from fo4_import.pipeline.light_choice import Choice
 from fo4_import.pipeline.converters import PLACED, placed_types
 from fo4_import.pipeline.export_index import (Layered, asset_root, export_file, export_records, held_types,
                                               own_records, plugin_sources)
@@ -229,9 +230,10 @@ class CellBuilder:
     """FO4 base records for one FNV cell's references, each base and mesh converted once."""
 
     def __init__(self, export_dir: Path, data_dir: Path, bases: dict, table: 'dict | None' = None,
-                 plugin_dirs: tuple = ()):
+                 plugin_dirs: tuple = (), light: bool = False):
         """A builder writing assets into `data_dir`; `bases` is {FNV FormID: (type, record)}; `table` the
-        replacement table (spike.replacements; its other plugins become masters, found in `plugin_dirs`)."""
+        replacement table (spike.replacements; its other plugins become masters, found in `plugin_dirs`);
+        `light`: a light plugin (LedgerWriter.make_light)."""
         self.export_dir, self.data_dir, self.bases = export_dir, data_dir, bases
         self.table, self.plugin_dirs = table if table is not None else replacements.load(), plugin_dirs
         source_masters = masters_of(source_esm())
@@ -241,7 +243,10 @@ class CellBuilder:
         self.ids = SourceIds(source_masters, self.masters, self.writer.own_index)
         self.top, self.owned = ENGINE_IDS, collections.Counter()
         self.fnv_types = {r.form_id: r.sig.decode() for r in (r for r, _ in source_walk(bodies=()))}
-        self.writer.reserve_source_ids({self.ids.fo4(fid) for fid in self.fnv_types if self.ids.is_own(fid)})
+        if light:
+            self.writer.make_light()
+        else:
+            self.writer.reserve_source_ids({self.ids.fo4(fid) for fid in self.fnv_types if self.ids.is_own(fid)})
         self.in_masters = held_by(self.built, self.masters) if self.built else None
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.faulted = set()
@@ -275,7 +280,7 @@ class CellBuilder:
         if self.ids.is_own(fid):
             self.top = max(self.top, (fid & 0xFFFFFF) + 1)
             return self.ids.fo4(fid)
-        fo4 = self.ids.fo4(fid)
+        fo4 = self.ids.held(fid)
         if self.in_masters is None or fo4 in self.in_masters:
             return fo4
         return self.writer.derive_formid(COPY_SITE, f'{fid:08X}')
@@ -933,13 +938,14 @@ def _cell_quests(builder: CellBuilder, export_dir: Path, refs: list, cell_of, ce
 @timed('rest of the build')
 def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
           scripts_dir: 'Path | None' = None, exteriors: tuple = (), table: 'dict | None' = None,
-          plugin_dirs: tuple = (), test_cell: bool = True) -> collections.Counter:
+          plugin_dirs: tuple = (), test_cell: bool = True, light: Choice = Choice()) -> collections.Counter:
     """Write the plugin and assets for the FNV interior cell `cell_edid` (None: none, a DLC of held content
     only); counts of what was made.
 
     `scripts_dir` holds the converted scripts. `exteriors` lists (worldspace, (x, y) low, (x, y) high), that
     rectangle of its cells (None, None: all). Every interior a door leads into is built too. `table` is the
-    replacement table, its plugins in `plugin_dirs`; `test_cell` adds QASmoke's test chest and stand-in doors.
+    replacement table, its plugins in `plugin_dirs`; `test_cell` adds QASmoke's test chest and stand-in doors;
+    `light`: light_choice.
     """
     sources = plugin_sources(export_dir)
     use_source(sources[0][0], sources[1:])
@@ -951,7 +957,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     worlds = [Exterior(export_dir, all_refs, *spec) for spec in exteriors]
     interiors, every, outside, sold = _scoped(export_dir, all_refs, cell, worlds)
-    builder = _builder(export_dir, data_dir, every + outside, (table, plugin_dirs), ledger_path(out))
+    builder = _builder(export_dir, data_dir, every + outside, (table, plugin_dirs), ledger_path(out), light)
     _renamed(builder, data_dir, out.name)
     _object_makers(builder, export_dir, scripts_dir, refs, every + outside)
     builder.vendors = write_vendors(builder, export_dir, sold)
@@ -1051,17 +1057,23 @@ def _renamed(builder: CellBuilder, data_dir: Path, plugin: str) -> None:
 
 
 @timed('setup')
-def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledger: Path) -> CellBuilder:
+def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledger: Path,
+             light: Choice) -> CellBuilder:
     """The CellBuilder of the build placing FNV references `placed`: their bases and static collections' parts,
-    `table` (replacement table, its plugin folders), its FormIDs kept by the ledger file `ledger`.
+    `table` (replacement table, its plugin folders), its FormIDs kept by the ledger file `ledger` (none when
+    `light` switched the plugin's type), light plugins' records through their ledgers.
     See: docs/fork/fo4_pipeline.md#formid-ledger
     """
     used = {int(r[key], 16) for r in placed for key in ('NAME', 'XEMI.Emittance') if key in r}
     parts = Parts(used)
-    builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), *table)
-    builder.writer.use_ledger(Ledger(ledger))
-    builder.writer.use_master_ledgers(master_ledgers(builder.masters[:builder.writer.own_index],
-                                                     (data_dir, *table[1])), builder.in_masters)
+    builder = CellBuilder(export_dir, data_dir, placed_bases(export_dir, used | parts.fids()), *table, light.light)
+    kept = Ledger(ledger)
+    if light.fresh_ids:
+        kept.drop(ID)
+    builder.writer.use_ledger(kept)
+    ledgers = master_ledgers(builder.masters[:builder.writer.own_index], (data_dir, *table[1]))
+    builder.writer.use_master_ledgers(ledgers, builder.in_masters)
+    key_light(builder.ids, builder.writer, builder.built, builder.masters, ledgers)
     builder.writer.compare_masters = bool(builder.built)
     master_copies.share(builder)
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)

@@ -24,6 +24,7 @@ from fo4_import.havok import anim_text, gun_anim_text
 from fo4_import.nif import weapon
 from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
+from fo4_import.pipeline.light_choice import finish_flag
 from fo4_import.pipeline.stage_timer import timed
 from fo4_import.spike import (ammo_casings, ammo_switch, companion_barks, facegen, level_up_icons, list_adds,
                                skeleton, voice)
@@ -92,13 +93,14 @@ def _main_archive(builder, data_dir: Path, plugin: str) -> None:
 @timed('plugin write')
 def _write_plugin(builder, out: Path, data_dir: Path) -> None:
     """Save the ledger, then write the plugin to `out` (a dependent build's master records only where they change
-    the master's: master_overrides), clear script properties naming no written record, then write the animation
-    data the written races need (_anim_text)."""
+    the master's: master_overrides; light or full: light_choice.finish_flag), clear script properties naming no
+    written record, then write the animation data the written races need (_anim_text)."""
     builder.writer.next_object_id = builder.top
     if builder.built:
         adds = {}
         builder.counts.update(drop_unchanged(builder.writer, builder.built, builder.held, adds))
         builder.counts['master form list entries added at run time'] = list_adds.write(builder, adds)
+    builder.counts[f'plugin written {finish_flag(builder.writer)}'] = 1
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.ledger.save()
     builder.writer.write(str(out))
