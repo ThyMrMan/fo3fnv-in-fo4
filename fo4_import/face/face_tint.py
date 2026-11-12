@@ -1,12 +1,10 @@
-"""The face textures the Creation Kit bakes for an NPC (FaceCustomization _d, _msn, _s): its tint layers, and the
-race's defaults for slots it leaves empty, composited in order onto its face set's diffuse, normal and specular.
+"""The face textures the Creation Kit bakes for an NPC (FaceCustomization _d, _msn, _s), as its face shader does:
+the NPC's tint layers plus a default layer for every race option it doesn't list, in reverse race order, each
+blended in linear light at mask^(1/2.2) x value onto its face set's diffuse, normal and specular.
 
     py -3.14 -m fo4_import.face.face_tint --plugin <plugin> --dirs <folders> --npc <FormID> --out <folder>
 
-Scratch use: nothing in the build reads it yet.
-
-See: docs/fork/fo4_facegen_plan.md#face-d-decode
-See: docs/fork/fo4_facegen_plan.md#face-maps
+See: docs/fork/fo4_facegen_plan.md#ck-face-shader
 """
 
 import argparse
@@ -27,6 +25,10 @@ SKIN_TONE_SLOT, BROW_SLOT = 12, 23
 DEFAULT, MULTIPLY, OVERLAY, SOFT_LIGHT, HARD_LIGHT = range(5)
 #: NPC TETI data type of a layer with a colour (the other, 2, is value-only).
 COLOUR_LAYER = 1
+#: TETI slots: below PALETTE_SLOT masks, then palettes (colour layers), from TEXTURE_SET_SLOT on texture sets.
+PALETTE_SLOT, TEXTURE_SET_SLOT = 7, 21
+#: The face shader's power for masks, Soft Light and its output.
+GAMMA = 2.2
 #: Per FaceCustomization texture besides _d: (face set slot it starts from, position of an option's own TTET).
 MAPS = {'msn': (1, 1), 's': (7, 2)}
 #: The whole image as an index: every row and column.
@@ -55,6 +57,18 @@ class Option:
         """The option's texture for FaceCustomization `kind` ('' for none)."""
         at = MAPS[kind][1]
         return self.textures[at] if len(self.textures) > at else ''
+
+    @property
+    def palette(self) -> bool:
+        """True for a palette (colour) option, by its slot."""
+        return PALETTE_SLOT <= self.slot < TEXTURE_SET_SLOT
+
+    @property
+    def default_entry(self) -> tuple:
+        """(template index, TTEC entry) at TTED's bits as an index; (None, None)."""
+        at = struct.unpack('<I', struct.pack('<f', self.default))[0]
+        entries = list(self.colours.items())
+        return entries[at] if at < len(entries) else (None, None)
 
 
 @dataclass(frozen=True)
@@ -107,48 +121,67 @@ def npc_layers(npc: facegeom.Rec) -> list:
     return out
 
 
-def with_defaults(layers: list, options: dict) -> list:
-    """`layers`, then each option with a default value in a slot no layer fills, at that value; with no Skin Tone
-    layer, the Skin Tone option's first template colour (TTEC order) at full value."""
+def default_layer(index: int, option: Option):
+    """The layer the CK adds for an option an NPC doesn't list: a palette's default entry at that entry's alpha, a
+    texture set at TTED; None for a mask or a palette without entries."""
+    if option.palette:
+        template, entry = option.default_entry
+        return Layer(index, COLOUR_LAYER, entry[1], template=template) if entry else None
+    return Layer(index, 2, option.default) if option.slot >= TEXTURE_SET_SLOT else None
+
+
+def baked_layers(layers: list, options: dict) -> list:
+    """[(Option, Layer)] the CK bakes, drawn in order: the NPC's `layers` plus default_layer for each option they
+    don't name (no brow default when a brow layer is above 0), value > 0, in reverse race option order.
+
+    See: docs/fork/fo4_facegen_plan.md#ck-layer-list
+    """
     have = {layer.index for layer in layers}
-    slots = {options[layer.index].slot for layer in layers if layer.index in options}
-    out = layers + [Layer(i, 2, o.default) for i, o in options.items()
-                    if o.default > 0 and i not in have and o.slot not in slots]
-    tone = next((i for i, o in options.items() if o.slot == SKIN_TONE_SLOT and o.colours), None)
-    if tone is not None and SKIN_TONE_SLOT not in slots:
-        out.append(Layer(tone, COLOUR_LAYER, 1.0, template=next(iter(options[tone].colours))))
-    return out
+    brow = any(options[l.index].slot == BROW_SLOT and l.value > 0 for l in layers if l.index in options)
+    added = [default_layer(i, o) for i, o in options.items() if i not in have and not (brow and o.slot == BROW_SLOT)]
+    order = {index: at for at, index in enumerate(options)}
+    kept = [layer for layer in layers + added if layer and layer.index in options and layer.value > 0]
+    return [(options[layer.index], layer) for layer in sorted(kept, key=lambda layer: -order[layer.index])]
+
+
+def linear(c: np.ndarray) -> np.ndarray:
+    """sRGB 0..1 to linear light, the GPU's decode of an sRGB texture."""
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
 
 
 def soft_light(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Photoshop's Soft Light of `b` over `a` (0..1)."""
-    return np.where(b <= 0.5, 2 * a * b + a * a * (1 - 2 * b), 2 * a * (1 - b) + np.sqrt(a) * (2 * b - 1))
+    return np.where(b < 0.5, 2 * a * b + a * a * (1 - 2 * b), 2 * a * (1 - b) + np.sqrt(a) * (2 * b - 1))
 
 
 def blend(op: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Layer `b` over `a` (0..1) by blend operation `op`."""
+    """Layer `b` over `a` (linear 0..1) by blend operation `op`, as the face shader does (Soft Light in gamma)."""
     if op == MULTIPLY:
         return a * b
     if op == OVERLAY:
-        return np.where(a <= 0.5, 2 * a * b, 1 - 2 * (1 - a) * (1 - b))
+        return np.where(a < 0.5, 2 * a * b, 1 - 2 * (1 - a) * (1 - b))
     if op == HARD_LIGHT:
-        return np.where(b <= 0.5, 2 * a * b, 1 - 2 * (1 - a) * (1 - b))
-    return soft_light(a, b) if op == SOFT_LIGHT else b + 0 * a
+        return np.where(b < 0.5, 2 * a * b, 1 - 2 * (1 - a) * (1 - b))
+    return soft_light(a ** (1 / GAMMA), b ** (1 / GAMMA)) ** GAMMA if op == SOFT_LIGHT else b + 0 * a
 
 
 def colour_of(src: facegeom.Sources, race: facegeom.Rec, option: Option, layer: Layer) -> tuple:
-    """(RGB 0..1, alpha, blend) of a colour layer: its template's (by TTEC template index) if it names one the
-    option has, else its own colour at alpha 1 with the option's blend."""
+    """(linear RGB, blend) of a colour layer: its template entry's colour and blend if it names one the option has,
+    else its own colour with the default entry's blend; the skin tone always by Soft Light."""
     if layer.template in option.colours:
-        data, alpha, op = option.colours[layer.template]
-        return np.frombuffer(src.get(race, data).first(b'CNAM')[:3], np.uint8) / np.float32(255), alpha, op
-    return np.array(layer.colour, np.float32) / 255, 1.0, option.blend
+        data, _, op = option.colours[layer.template]
+        rgb = np.frombuffer(src.get(race, data).first(b'CNAM')[:3], np.uint8) / np.float32(255)
+    else:
+        rgb, op = np.array(layer.colour, np.float32) / 255, (option.default_entry[1] or (0, 0, option.blend))[2]
+    return linear(rgb), SOFT_LIGHT if option.slot == SKIN_TONE_SLOT else op
 
 
 def image(src: facegeom.Sources, path: str, size: int) -> np.ndarray:
-    """A texture under textures\\ as RGBA uint8 at `size` square (bilinear)."""
+    """A texture under textures\\ as RGBA uint8 at `size` square: read texel by texel as the shader's `ld` does,
+    averaged when `size` is below the texture's (the CK's own face is larger and is shrunk after)."""
     img = Image.open(io.BytesIO(src.read('textures\\' + path))).convert('RGBA')
-    img = img if img.size == (size, size) else img.resize((size, size), Image.BILINEAR)
+    shrink = Image.BILINEAR if size < img.size[0] else Image.NEAREST
+    img = img if img.size == (size, size) else img.resize((size, size), shrink)
     return np.asarray(img)
 
 
@@ -174,27 +207,26 @@ def painted(src: facegeom.Sources, path: str, size: int, channel: int) -> tuple:
     return (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1)) if len(rows) else None
 
 
+def weight(mask: np.ndarray, layer: Layer) -> np.ndarray:
+    """A layer's strength per texel: its mask (0..1) to the 1/GAMMA, times its value."""
+    return mask ** (1 / GAMMA) * layer.value
+
+
 def apply(out: np.ndarray, option: Option, layer: Layer, rgba: np.ndarray, layer_colour=None) -> np.ndarray:
-    """`out` with one layer drawn from the option's texture `rgba`: a colour layer (`layer_colour` = colour_of's)
-    at value x alpha through the texture's red channel (the skin tone unmasked, by Soft Light); a value-only one
-    by the texture's RGB at value x alpha, but a Default-blend detail other than brows at value x sqrt(alpha),
-    twice."""
-    if layer.kind == COLOUR_LAYER:
-        rgb, alpha, op = layer_colour
-        tone = option.slot == SKIN_TONE_SLOT
-        m = (1.0 if tone else rgba[..., :1]) * layer.value * alpha
-        return out * (1 - m) + m * blend(SOFT_LIGHT if tone else op, out, rgb)
-    twice = option.blend == DEFAULT and option.slot != BROW_SLOT
-    m = layer.value * (np.sqrt(rgba[..., 3:]) if twice else rgba[..., 3:])
-    for _ in range(2 if twice else 1):
-        out = out * (1 - m) + m * blend(option.blend, out, rgba[..., :3])
-    return out
+    """`out` (linear RGB) with one layer drawn from the option's texture `rgba` (raw 0..1, None for none): a palette
+    layer's colour (`layer_colour` = colour_of's) through the texture's red channel, a texture set's linear RGB
+    through its alpha, each lerped in at weight() by its blend."""
+    if option.palette:
+        rgb, op = layer_colour
+        mask = rgba[..., :1] if rgba is not None else np.ones((1, 1, 1), np.float32)
+    else:
+        rgb, op, mask = linear(rgba[..., :3]), option.blend, rgba[..., 3:]
+    return out + weight(mask, layer) * (blend(op, out, rgb) - out)
 
 
 def apply_map(out: np.ndarray, layer: Layer, diffuse: np.ndarray, rgba: np.ndarray) -> np.ndarray:
-    """`out` (map RG) lerped to `rgba` at value x sqrt(`diffuse` alpha)."""
-    m = layer.value * np.sqrt(diffuse[..., 3:])
-    return out * (1 - m) + m * rgba[..., :2]
+    """`out` (map RG, raw) lerped to `rgba` at weight() of `diffuse`'s alpha."""
+    return out + weight(diffuse[..., 3:], layer) * (rgba[..., :2] - out)
 
 
 @dataclass(frozen=True)
@@ -212,50 +244,48 @@ class Face:
         return facegeom.txst_slots(self.src, self.src.get(owner, owner.first(tag)))
 
     def layers(self) -> list:
-        """[(Option, Layer)] drawn in order (with_defaults), value > 0."""
-        options = race_options(self.race, self.female)
-        return [(options[layer.index], layer) for layer in with_defaults(npc_layers(self.npc), options)
-                if layer.index in options and layer.value > 0]
+        """[(Option, Layer)] drawn in order (baked_layers)."""
+        return baked_layers(npc_layers(self.npc), race_options(self.race, self.female))
 
     def size(self, path: str, size: int = None) -> int:
         """`size`, else texture `path`'s width."""
         return size or Image.open(io.BytesIO(self.src.read('textures\\' + path))).size[0]
 
 
-def area(face: Face, option: Option, layer: Layer, size: int):
-    """Where a layer can change the _d: WHOLE for skin tone, else painted()."""
-    if layer.kind == COLOUR_LAYER and option.slot == SKIN_TONE_SLOT:
-        return WHOLE
-    return painted(face.src, option.texture, size, RED if layer.kind == COLOUR_LAYER else ALPHA)
+def area(face: Face, option: Option, size: int):
+    """The painted() box where a layer can change the _d; None if it draws nothing."""
+    if option.palette:
+        return painted(face.src, option.texture, size, RED) if option.texture else WHOLE
+    return painted(face.src, option.texture, size, ALPHA) if option.slot >= TEXTURE_SET_SLOT and option.texture else None
 
 
 def face_diffuse(face: Face, size: int = None) -> np.ndarray:
-    """The NPC's face _d as float RGB 0..1 at `size` square (default: its face set diffuse's size); each layer is
-    drawn only inside its area().
+    """The NPC's face _d as float sRGB 0..1 at `size` square (default: its face set diffuse's size): the face set's
+    diffuse in linear light, each layer applied inside its area(), back by the shader's 1/GAMMA.
 
-    See: docs/fork/fo4_facegen_plan.md#own-stage-speed
+    See: docs/fork/fo4_facegen_plan.md#ck-face-shader
     """
     base_path = face.slots()[0]
     size = face.size(base_path, size)
-    out = texture(face.src, base_path, size)[..., :3]
+    out = linear(texture(face.src, base_path, size)[..., :3])
     for option, layer in face.layers():
-        at = area(face, option, layer, size) if option.texture or option.slot == SKIN_TONE_SLOT else None
+        at = area(face, option, size)
         if at is not None:
             rgba = texture(face.src, option.texture, size, at) if option.texture else None
-            colour = colour_of(face.src, face.race, option, layer) if layer.kind == COLOUR_LAYER else None
+            colour = colour_of(face.src, face.race, option, layer) if option.palette else None
             out[at] = apply(out[at], option, layer, rgba, colour)
-    return out
+    return np.clip(out, 0, 1) ** (1 / GAMMA)
 
 
 def face_map(face: Face, kind: str, size: int = None) -> np.ndarray:
     """The NPC's face _msn or _s (`kind`) as float RG 0..1 at `size` square (default: the face set map's size):
-    the face set's map with each value-only layer's own map over it (apply_map), inside its diffuse's painted
+    the face set's map with each texture set's own map lerped over it (apply_map), inside its diffuse's painted
     alpha."""
     base_path = face.slots()[MAPS[kind][0]]
     size = face.size(base_path, size)
     out = texture(face.src, base_path, size)[..., :2]
     for option, layer in face.layers():
-        at = painted(face.src, option.texture, size, ALPHA) if layer.kind != COLOUR_LAYER and option.texture else None
+        at = area(face, option, size) if not option.palette else None
         if at is not None and option.map_texture(kind):
             diffuse = texture(face.src, option.texture, size, at)
             out[at] = apply_map(out[at], layer, diffuse, texture(face.src, option.map_texture(kind), size, at))

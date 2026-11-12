@@ -1,6 +1,6 @@
-"""The face _d compositor: reading race tint options and NPC layers, race defaults, and the layer rules.
+"""The face _d compositor: reading race tint options and NPC layers, the CK's layer list, and the shader's rules.
 
-See: docs/fork/fo4_facegen_plan.md#face-d-decode
+See: docs/fork/fo4_facegen_plan.md#ck-face-shader
 """
 
 import struct
@@ -9,6 +9,9 @@ import numpy as np
 
 from fo4_import.face import face_tint as FT
 from fo4_import.face.facegeom import Rec
+
+#: A palette TTED holding default entry index 1 (the CK reads the float's bits as a u32).
+ENTRY_1 = struct.unpack('<f', struct.pack('<I', 1))[0]
 
 
 def _option(slot: int, index: int, texture: str, blend: int, default=None, colours=()) -> list:
@@ -22,71 +25,95 @@ def _option(slot: int, index: int, texture: str, blend: int, default=None, colou
 
 
 def _race() -> Rec:
-    """Male: tone, default brow, detail. Female: a tone."""
-    male = (_option(12, 1, 'Tone.dds', 0, colours=[(0x10, 0.5, 900, 3), (0x11, 1.0, 901, 3)])
-            + _option(23, 2, 'Brow.dds', 0, default=1.0) + _option(22, 3, 'Blotch_d,Blotch_n,Blotch_s', 0))
+    """Male: tone, default brow, detail, lip (default entry 1). Female: a tone."""
+    male = (_option(12, 1, 'Tone.dds', 0, colours=[(0x10, 0.5, 900, 0), (0x11, 1.0, 901, 0)])
+            + _option(23, 2, 'Brow.dds', 0, default=1.0) + _option(22, 3, 'Blotch_d,Blotch_n,Blotch_s', 0)
+            + _option(13, 4, 'Lip.dds', 0, ENTRY_1, [(0x12, 0.25, 950, 1), (0x13, 0.75, 951, 3)]))
     return Rec('race.esm', b'RACE', [(b'MNAM', b'')] + male + [(b'FNAM', b'')] + _option(12, 7, 'F.dds', 0))
 
 
 def test_race_options_are_per_sex_with_colours_by_template_index():
     """Options come from the sex's section; TTEC colours are keyed by their template index field, not position."""
     male, female = FT.race_options(_race(), False), FT.race_options(_race(), True)
-    assert sorted(male) == [1, 2, 3] and sorted(female) == [7]
+    assert sorted(male) == [1, 2, 3, 4] and sorted(female) == [7]
     assert male[1].slot == 12 and male[1].texture == 'Tone.dds' and sorted(male[1].colours) == [900, 901]
-    assert male[1].colours[901] == (struct.pack('<I', 0x11), 1.0, 3)
+    assert male[1].colours[901] == (struct.pack('<I', 0x11), 1.0, 0)
     assert male[2].default == 1.0 and male[3].default == 0.0
     assert male[3].texture == 'Blotch_d' and male[3].map_texture('msn') == 'Blotch_n'
     assert male[3].map_texture('s') == 'Blotch_s' and male[2].map_texture('s') == ''
 
 
-def test_a_layers_map_goes_on_at_sqrt_of_its_diffuse_alpha():
-    """_msn and _s: the layer's own map lerped in at value x sqrt(its _d alpha), once, red and green only."""
-    out = np.full((1, 1, 2), 0.5, np.float32)
-    diffuse = np.zeros((1, 1, 4), np.float32)
-    diffuse[..., 3] = 0.25
-    own = np.array([[[1.0, 0.0, 0.7, 1.0]]], np.float32)
-    got = FT.apply_map(out, FT.Layer(3, 2, 0.8), diffuse, own)
-    m = 0.8 * 0.5
-    assert got.shape == (1, 1, 2) and np.allclose(got, [[[0.5 * (1 - m) + m, 0.5 * (1 - m)]]])
+def test_a_palettes_tted_is_its_default_entry_index():
+    """Palette slots 7..20 read TTED's bits as an index into TTEC; no TTED is entry 0; past the end is none."""
+    male = FT.race_options(_race(), False)
+    assert male[1].palette and male[4].palette and not male[2].palette
+    assert male[4].default_entry == (951, (struct.pack('<I', 0x13), 0.75, 3))
+    assert male[1].default_entry[0] == 900
+    assert FT.Option(13, (), 0, {}, 0.0).default_entry == (None, None)
 
 
-def test_npc_layers_and_race_defaults_fill_only_empty_slots():
-    """TEND gives value, colour and template; a race default is added only for a slot the NPC leaves empty."""
+def test_npc_layers_and_the_ck_layer_list():
+    """TEND gives value, colour and template; every unlisted option gets its default; reverse race order."""
     tone = struct.pack('<B4Bh', 100, 200, 180, 160, 0, -1)
     npc = Rec('p.esp', b'NPC_', [(b'TETI', struct.pack('<HH', 1, 1)), (b'TEND', tone),
                                  (b'TETI', struct.pack('<HH', 2, 3)), (b'TEND', bytes([40]))])
     layers = FT.npc_layers(npc)
     assert layers == [FT.Layer(1, 1, 1.0, (200, 180, 160), -1), FT.Layer(3, 2, 0.4)]
     options = FT.race_options(_race(), False)
-    assert FT.with_defaults(layers, options)[-1] == FT.Layer(2, 2, 1.0)
-    browed = layers + [FT.Layer(2, 2, 0.0)]
-    assert FT.with_defaults(browed, options) == browed
+    baked = [layer for _, layer in FT.baked_layers(layers, options)]
+    assert baked == [FT.Layer(4, FT.COLOUR_LAYER, 0.75, template=951), FT.Layer(3, 2, 0.4), FT.Layer(2, 2, 1.0),
+                     layers[0]]
 
 
-def test_a_toneless_npc_gets_the_first_template_tone():
-    """No Skin Tone layer: the first TTEC colour at full value."""
+def test_a_brow_layer_drops_the_default_brow_and_a_toneless_npc_gets_entry_0():
+    """A listed brow blocks the brow default (at 0 it draws nothing); no tone layer: the tone default entry."""
     options = FT.race_options(_race(), False)
-    assert FT.with_defaults([], options) == [FT.Layer(2, 2, 1.0), FT.Layer(1, FT.COLOUR_LAYER, 1.0, None, 900)]
+    browed = [layer for _, layer in FT.baked_layers([FT.Layer(2, 2, 0.3)], options)]
+    assert browed == [FT.Layer(4, 1, 0.75, template=951), FT.Layer(2, 2, 0.3), FT.Layer(1, 1, 0.5, template=900)]
+    zero = [layer.index for _, layer in FT.baked_layers([FT.Layer(2, 2, 0.0)], options)]
+    assert zero == [4, 1]
 
 
-def test_blends_match_their_formulas():
-    """Soft Light is Photoshop's; Default replaces; Multiply, Overlay and Hard Light at known points."""
-    a, b = np.array([0.25, 0.25]), np.array([0.25, 0.75])
-    assert np.allclose(FT.soft_light(a, b), [2 * .25 * .25 + .0625 * .5, 2 * .25 * .25 + 0.5 * 0.5])
+def test_blends_match_the_shader():
+    """Default replaces; Multiply; Overlay keyed on the base; Hard Light on the layer; Soft Light in gamma."""
+    a, b = np.array([0.25, 0.75]), np.array([0.25, 0.75])
+    assert np.allclose(FT.soft_light(a, b), [2 * .25 * .25 + .0625 * .5, 2 * .75 * .25 + np.sqrt(.75) * .5])
     assert np.allclose(FT.blend(FT.DEFAULT, a, b), b) and np.allclose(FT.blend(FT.MULTIPLY, a, b), a * b)
-    assert np.allclose(FT.blend(FT.OVERLAY, a, b), 2 * a * b)
-    assert np.allclose(FT.blend(FT.HARD_LIGHT, a, b), [2 * .25 * .25, 1 - 2 * .75 * .25])
+    assert np.allclose(FT.blend(FT.OVERLAY, a, b[::-1]), [2 * .25 * .75, 1 - 2 * .25 * .75])
+    assert np.allclose(FT.blend(FT.HARD_LIGHT, a[::-1], b), [2 * .75 * .25, 1 - 2 * .75 * .25])
+    g = 1 / FT.GAMMA
+    assert np.allclose(FT.blend(FT.SOFT_LIGHT, a, b), FT.soft_light(a ** g, b ** g) ** FT.GAMMA)
 
 
-def test_layer_rules_tone_unmasked_and_default_details_twice():
-    """The tone is Soft Light at value x alpha over the whole face; a Default detail goes twice at sqrt(alpha)."""
+def test_layers_go_on_at_mask_to_one_over_gamma_times_value():
+    """A palette uses its texture's red, a texture set its linear RGB at its alpha; both lerp at mask^(1/2.2) x v."""
     out = np.full((1, 1, 3), 0.25, np.float32)
-    rgba = np.zeros((1, 1, 4), np.float32)
+    rgba = np.array([[[0.5, 0.0, 0.0, 0.25]]], np.float32)
     options = FT.race_options(_race(), False)
-    tone = FT.apply(out, options[1], FT.Layer(1, 1, 1.0), rgba, (np.full(3, 0.75), 0.5, FT.DEFAULT))
-    assert np.allclose(tone, 0.25 * 0.5 + 0.5 * FT.soft_light(np.float32(0.25), np.float32(0.75)))
-    rgba[..., 3], rgba[..., :3] = 0.25, 1.0
-    m = 0.5 * np.sqrt(0.25)
-    once = 0.25 * (1 - m) + m
-    assert np.allclose(FT.apply(out, options[3], FT.Layer(3, 2, 0.5), rgba), once * (1 - m) + m)
-    assert np.allclose(FT.apply(out, options[2], FT.Layer(2, 2, 0.5), rgba), 0.25 * 0.875 + 0.125)
+    m = 0.5 ** (1 / FT.GAMMA) * 0.8
+    got = FT.apply(out, options[4], FT.Layer(4, 1, 0.8), rgba, (np.full(3, 0.6, np.float32), FT.MULTIPLY))
+    assert np.allclose(got, 0.25 + m * (0.25 * 0.6 - 0.25))
+    m = 0.25 ** (1 / FT.GAMMA) * 0.5
+    got = FT.apply(out, options[3], FT.Layer(3, 2, 0.5), rgba)
+    assert np.allclose(got, 0.25 + m * (FT.linear(rgba[..., :3]) - 0.25))
+
+
+def test_a_layers_map_goes_on_at_its_diffuse_weight():
+    """_msn and _s: the layer's own map lerped in at its _d alpha^(1/2.2) x value, red and green only."""
+    out = np.full((1, 1, 2), 0.5, np.float32)
+    diffuse = np.zeros((1, 1, 4), np.float32)
+    diffuse[..., 3] = 0.25
+    own = np.array([[[1.0, 0.0, 0.7, 1.0]]], np.float32)
+    got = FT.apply_map(out, FT.Layer(3, 2, 0.8), diffuse, own)
+    m = 0.8 * 0.25 ** (1 / FT.GAMMA)
+    assert got.shape == (1, 1, 2) and np.allclose(got, [[[0.5 * (1 - m) + m, 0.5 * (1 - m)]]])
+
+
+def test_an_own_colour_takes_the_default_entrys_blend_and_the_tone_is_always_soft_light():
+    """No matching template: the layer's colour, linear, by the default entry's blend; the skin tone by Soft Light."""
+    options = FT.race_options(_race(), False)
+    rgb, op = FT.colour_of(None, None, options[4], FT.Layer(4, 1, 1.0, (255, 0, 0), -1))
+    assert op == FT.SOFT_LIGHT and np.allclose(rgb, [1, 0, 0])
+    assert FT.colour_of(None, None, options[1], FT.Layer(1, 1, 1.0, (128, 0, 0), -1))[1] == FT.SOFT_LIGHT
+    lip = FT.Option(13, (), FT.MULTIPLY, {5: (b'', 1.0, FT.OVERLAY)}, 0.0)
+    assert FT.colour_of(None, None, lip, FT.Layer(4, 1, 1.0, (0, 0, 0), -1))[1] == FT.OVERLAY
