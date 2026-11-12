@@ -1188,6 +1188,77 @@ workers (`facegen_skin.workers`):
 Not yet run: the stage itself (`facegen.py --own-facegen`) through MO2,
 and a game build with it.
 
+#### <a id="second-pass"></a>The second head pass draws meshes only (2026-11-12)
+
+The faces stage draws every head (2,382 in the 2026-11-12 run), refits the
+sliders, then draws the refitted ones again (2,237). The second pass used
+to redraw their `_d`, `_msn` and `_s` too, about half the first pass's
+680 s. But the refit (`facegen_skin.slider_edit`) writes only FMRS and
+MSDV, and the face textures read neither: `face_tint` imports only
+`facegeom`, and no texture code names FMRS, MSDV, MSDK or FMRI. Sliders
+reach the FaceGeom NIF only, through `face_bones`.
+
+Now `heads()` for the refitted forms passes `textures=False` down through
+`own_export`, `export_own`, `own_face` and `write_face`, so
+`face_files` draws the NIF alone and the first pass's textures stay on
+disk for the skin step. The work cache keys on `textures` too, so a
+mesh-only entry never stands in for a full one.
+
+Proof on a scratch copy of the built plugin: 12 exported NPCs drawn, then
+refitted by `refit_face`, with the sliders patched into the plugin and
+reloaded, then drawn again. All 36 textures were byte-identical to the
+first draw, and all 12 FaceGeom NIFs changed.
+
+#### <a id="skin-speed"></a>The skin step's speed (2026-11-12)
+
+`facegen_skin.skin_face` took 2.3 s a face in one process (12 faces),
+more than drawing the head. Profiled over 11 faces, the time went to
+mapping texels, not to colour:
+
+- `texel_points` looped over every triangle in Python, solving each one's
+  barycentrics (77,091 `linalg.solve` calls), once per call: the face, the
+  rear head and the specular map each asked again.
+- `texel_map` rebuilt FNV's mean-head surface and a k-d tree of it on every
+  call, and `align` built another.
+- `neck_weight` searched the full distance to the seam for every texel,
+  and `body_at` built a k-d tree of the body and looked up every texel,
+  though the fade only reaches texels within `NECK_BLEND` of the seam.
+
+What changed. Every output is byte-identical:
+
+- **`texture.texel_cover`** keeps, per UV layout (UVs, triangles, size),
+  which texels fall in which triangle and their weights (`COVERS`, 8, per
+  process; a 1024 face's is 800k texels, 37 MB). `texel_points` only weights the face's own points:
+  `np.matmul` over the stacked weights gives the same floats as the
+  per-triangle product.
+- **`bake.mean_surface` and `bake.point_tree`** keep FNV's mean-head
+  surface and the k-d trees of it and of a body. `texture.padding` keeps a
+  layout's island padding.
+- **`skin_seams.neck_weight`** stops its search at `NECK_BLEND`; a farther
+  texel's weight was 0 already. **`skin_seams.faded`** draws the body's
+  colour only where the weight is above 0. Elsewhere the old sum added
+  `body × 0`, which changes nothing.
+- `memo.by_content` takes how many results to keep.
+
+Measured on a scratch copy of the built plugin: 13 exported NPCs, heads
+drawn and then skinned in one process, by the old code (HEAD's tree) and
+the new. The machine was busy with another build (82–90% CPU), so times
+moved between runs:
+
+| Run | Old, median a face | New, median a face |
+|---|---|---|
+| First pair | 3.36 s | 1.99 s |
+| Back to back | 3.61 s | 2.28 s |
+| Final code | | 1.92 s |
+
+All 69 files (FaceGeom NIFs, `_d`, `_msn`, `_s`, rear head textures)
+were byte-identical every time. What is left per face is real work: each
+face's texels are matched to FNV's head by its own points (`texel_map`'s
+query, about 0.29 s a call, twice a face), plus colour sampling, medians
+and texconv. FalloutNV.esm has no fitted NPC with its own face texture set
+(33 have FTST, none FMRI), so the own-set path (`own_face_texture`) wasn't
+measured; its changed parts are the `texel_map` the base path proves.
+
 #### <a id="own-cache"></a>Faces kept between builds (2026-11-12)
 
 Every base build rewrites the plugin, so the faces stage used to redraw

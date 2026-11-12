@@ -104,3 +104,57 @@ def test_a_faces_run_packs_its_textures_without_pruning_the_builds(tmp_path, mon
     assert BP.pack_textures(data, 'P.esm', prune=False) == 2 and not face.exists()
     manifest = BP._read_json(BP.staging_root(data) / BP.MANIFEST)
     assert manifest['fnv/a.dds'][2] == 'sig-a'
+
+
+FACE = 'Meshes/Actors/Character/FaceGenData/FaceGeom/P.esm/'
+
+
+def test_a_faces_run_repacks_main_without_restoring_it(tmp_path, monkeypatch):
+    """With the FaceGeom folder replaced, pack_main keeps Main's other entries as packed (nothing restored loose)
+    and swaps the old faces for the loose new ones; faces written again unchanged leave Main as it is; a record
+    that no longer matches the archive gives None."""
+    data = _packed(tmp_path, monkeypatch)
+    (data / FACE).mkdir(parents=True)
+    (data / FACE / '00000001.nif').write_bytes(b'old face')
+    BP.pack_main(data, 'P.esm')
+    BP.drop_packed(data, 'P.esm')
+    main = data / 'P - Main.ba2'
+    replaced = (FACE.lower(),)
+    assert set(BP.archived(main)) == {*FILES, FACE + '00000001.nif'}
+    (data / FACE).mkdir(parents=True)
+    (data / FACE / '00000002.nif').write_bytes(b'new face')
+    assert BP.pack_main(data, 'P.esm', replaced) == len(FILES) + 1
+    assert not (data / 'Meshes/fnv/Cup.nif').exists()
+    packed = Archive(main)
+    assert {name: packed.read(name.lower().replace('/', chr(92))) for name in FILES} == FILES
+    assert packed.read((FACE + '00000002.nif').lower().replace('/', chr(92))) == b'new face'
+    assert (FACE + '00000001.nif').lower().replace('/', chr(92)) not in packed.entries
+    assert set(BP.archived(main)) == {*FILES, FACE + '00000002.nif'}
+    BP.drop_packed(data, 'P.esm')
+    (data / FACE).mkdir(parents=True)
+    (data / FACE / '00000002.nif').write_bytes(b'new face')
+    when = main.stat().st_mtime_ns
+    assert BP.pack_main(data, 'P.esm', replaced) == len(FILES) + 1 and main.stat().st_mtime_ns == when
+    os.utime(main, ns=(1, 1))
+    assert BP.archived(main) is None
+
+
+def test_a_face_texture_written_again_unchanged_keeps_its_staged_copy(tmp_path, monkeypatch):
+    """A loose texture with the same bytes as its staged copy is deleted, so the copy keeps its time and the pack
+    sees nothing changed; a changed one replaces the copy."""
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    written = []
+    monkeypatch.setattr(BP, 'write_textures', lambda named, archive, kept: written.append(1) or archive.write_bytes(b'x'))
+    data = tmp_path / 'data'
+    face = data / 'Textures/Actors/Character/FaceCustomization/P.esm/00001234_d.dds'
+    face.parent.mkdir(parents=True)
+    face.write_bytes(b'f')
+    assert BP.pack_textures(data, 'P.esm', prune=False) == 1
+    staged = BP.staging_root(data) / face.relative_to(data)
+    before = staged.stat().st_mtime_ns
+    face.write_bytes(b'f')
+    assert BP.pack_textures(data, 'P.esm', prune=False) == 1 and not face.exists()
+    assert staged.stat().st_mtime_ns == before and len(written) == 1
+    face.write_bytes(b'g')
+    BP.pack_textures(data, 'P.esm', prune=False)
+    assert staged.read_bytes() == b'g' and len(written) == 2

@@ -1,8 +1,9 @@
 """Which repo functions ran in this process: sys.monitoring (PEP 669) reports each function's first start and is
 told not to report it again, so it costs one event per function. capture() collects what runs inside it (it
-re-arms the reports first), for a cache entry keyed on the code that made it. A capture for a site keeps
-everything that ran for that site in this process so far, so work a per-process memo did for an earlier entry
-stays in every later entry's record.
+re-arms the reports first), for a cache entry keyed on the code that made it. A capture holds only what its
+own thread runs (a build's memory sampler and progress threads run beside every capture). A capture for a site
+keeps everything that ran for that site in this process so far, so work a per-process memo did for an earlier
+entry stays in every later entry's record.
 
 See: docs/fork/fo4_plugin_layout.md#code-identity
 See: docs/fork/fo4_build_speed.md#keys
@@ -12,6 +13,7 @@ import atexit
 import contextlib
 import functools
 import sys
+import threading
 
 from fo4_import.pipeline.code_identity import SEP, hashes, relative
 
@@ -22,21 +24,28 @@ RECORDERS = frozenset(f'fo4_import/pipeline/{name}.py' for name in ('build_input
                                                                      'code_tag'))
 #: Every repo function key that ran in this process since start().
 RAN = set()
+#: {repo file: the keys of RAN in it}.
+RAN_BY_FILE = {}
 #: {site: every repo function key that ran inside a capture of that site in this process}.
 SITES = {}
+#: (thread id, set) of each capture open now, innermost last.
 _CAPTURES = []
 
 
 def _started(code, offset: int):
-    """Record `code`'s first start: a repo function or class body (not a lambda, comprehension, module, or the
-    __annotate__ Python makes for annotations, which its class or function's identity holds)."""
+    """Record `code`'s first start in this thread's captures: a repo function or class body (not a lambda,
+    comprehension, module, or the __annotate__ Python makes for annotations, which its class or function's identity
+    holds). It is reported again while another thread holds a capture, so that capture still sees it start."""
     rel = relative(code.co_filename)
-    if rel is not None and rel not in RECORDERS and not code.co_qualname.endswith(('>', '__annotate__')):
-        key = rel + SEP + code.co_qualname
-        RAN.add(key)
-        for seen in tuple(_CAPTURES):
+    if rel is None or rel in RECORDERS or code.co_qualname.endswith(('>', '__annotate__')):
+        return sys.monitoring.DISABLE
+    key, me = rel + SEP + code.co_qualname, threading.get_ident()
+    RAN.add(key)
+    RAN_BY_FILE.setdefault(rel, set()).add(key)
+    for owner, seen in tuple(_CAPTURES):
+        if owner == me:
             seen.add(key)
-    return sys.monitoring.DISABLE
+    return sys.monitoring.DISABLE if all(owner == me for owner, _ in tuple(_CAPTURES)) else None
 
 
 def start() -> None:
@@ -63,12 +72,13 @@ def capture(site=None):
     given `site` (hashable), it is SITES[site]: also what ran in this process's earlier captures of `site`."""
     start()
     seen = set() if site is None else SITES.setdefault(site, set())
-    _CAPTURES.append(seen)
+    held = threading.get_ident(), seen
+    _CAPTURES.append(held)
     sys.monitoring.restart_events()
     try:
         yield seen
     finally:
-        del _CAPTURES[max(i for i, held in enumerate(_CAPTURES) if held is seen)]
+        del _CAPTURES[max(i for i, open_now in enumerate(_CAPTURES) if open_now is held)]
 
 
 def site_of(make):
@@ -77,6 +87,31 @@ def site_of(make):
         make = make.func
     make = getattr(make, '__func__', make)
     return getattr(make, '__code__', type(make))
+
+
+@functools.cache
+def cached_function(key: str) -> bool:
+    """Whether repo function `key` is wrapped by a functools cache (a memo its callers skip into)."""
+    rel, qualname = key.split(SEP)
+    found = sys.modules.get(rel.removesuffix('.py').replace('/', '.'))
+    for part in qualname.split('.'):
+        found = getattr(found, part, None)
+    return hasattr(found, 'cache_info')
+
+
+def ran_alone(make) -> tuple:
+    """(make()'s value, {key: identity}): what ran inside this call, plus everything that ran in this process
+    (RAN_BY_FILE) in a file this call ran in or a file holding a cached function (cached_function) its site ran
+    before: a memo's work, filled by any caller, without other entries' code (ran_while keeps all of the site's).
+    See: docs/fork/fo4_build_speed.md#keys
+    """
+    earlier = SITES.setdefault(site_of(make), set())
+    before = set(earlier)
+    with capture() as mine:
+        value = make()
+    earlier |= mine
+    files = {k.split(SEP)[0] for k in mine} | {k.split(SEP)[0] for k in before if cached_function(k)}
+    return value, hashes(mine.union(*(RAN_BY_FILE.get(f, ()) for f in files)))
 
 
 def ran_while(make) -> tuple:

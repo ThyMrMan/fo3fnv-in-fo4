@@ -82,8 +82,8 @@ def test_cached_work_runs_once_per_input_and_keeps_a_none(tmp_path, monkeypatch)
 
 
 def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_path, monkeypatch):
-    """elric_cache.finish() finishes only meshes it has not seen; a seen one gets its finished bytes and its
-    failed flag back."""
+    """elric_cache.finish() finishes only meshes it has not seen, each alone; a seen one gets its finished bytes and
+    its failed flag back."""
     runs = []
 
     def fake(paths, run, names):
@@ -102,7 +102,7 @@ def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_pat
             p.write_bytes(p.stem.encode())
         assert EC.finish(paths) == [tmp_path / 'b.nif']
         assert [p.read_bytes() for p in paths] == [b'a+', b'b+']
-    assert runs == [[b'a', b'b']]
+    assert runs == [[b'a'], [b'b']]
 
 
 def test_a_mesh_a_master_finished_alike_is_left_out_and_its_mark_recorded(tmp_path, monkeypatch):
