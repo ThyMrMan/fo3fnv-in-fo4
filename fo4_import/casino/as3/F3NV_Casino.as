@@ -5,7 +5,11 @@ package
    import f3nv.casino.RouletteScreen;
    import f3nv.casino.Slots;
    import f3nv.casino.SlotsScreen;
-   import f3nv.casino.Ui;
+   import f3ui.Bridge;
+   import f3ui.Draw;
+   import f3ui.Host;
+   import f3ui.Text;
+   import f3ui.Theme;
    import flash.display.Loader;
    import flash.display.LoaderInfo;
    import flash.display.MovieClip;
@@ -25,7 +29,7 @@ package
       public static const WIDTH:Number = 1280;
       public static const HEIGHT:Number = 720;
 
-      public var f4se:Object;
+      private var bridge:Bridge = new Bridge();
       private var screen:Sprite;
       private var slots:SlotsScreen;
       private var roulette:RouletteScreen;
@@ -46,7 +50,7 @@ package
       // F4SE hands the menu its f4se object (MountImage, SendExternalEvent).
       public function onF4SEObjCreated(codeObject:Object) : void
       {
-         f4se = codeObject;
+         bridge.f4se = codeObject;
          send("F3NV_CasinoReady");
       }
 
@@ -58,7 +62,7 @@ package
          for (var i:int = 0; i < paths.length; i++)
          {
             var name:String = prefix + i;
-            if (f4se != null && f4se.MountImage(MENU, paths[i], name))
+            if (bridge.mount(MENU, paths[i], name))
             {
                names.push(name);
             }
@@ -76,16 +80,16 @@ package
       public function Spike(title:String, paths:Array) : void
       {
          newScreen();
-         Ui.label(screen, 40, 30, 32).text = title;
-         statusText = Ui.label(screen, 40, 80, 20);
-         Ui.button(screen, "Ping", 40, 620, ping);
-         Ui.button(screen, "Close", 260, 620, close);
-         paths = Ui.plain(paths);
+         Text.label(screen, 40, 30, 32).text = title;
+         statusText = Text.label(screen, 40, 80, 20);
+         Draw.button(screen, "Ping", 40, 620, ping);
+         Draw.button(screen, "Close", 260, 620, close);
+         paths = Bridge.plain(paths);
          for (var i:int = 0; i < paths.length; i++)
          {
             var name:String = "F3NV_Spike" + i;
-            var mounted:Boolean = f4se != null && f4se.MountImage(MENU, paths[i], name);
-            Ui.label(screen, 40 + i * 400, 130, 16).text = paths[i] + (mounted ? "" : " (not mounted)");
+            var mounted:Boolean = bridge.mount(MENU, paths[i], name);
+            Text.label(screen, 40 + i * 400, 130, 16).text = paths[i] + (mounted ? "" : " (not mounted)");
             send("F3NV_CasinoSpikeImage", paths[i] + (mounted ? " mounted as " + name : " not mounted"));
             if (mounted)
             {
@@ -107,8 +111,8 @@ package
          newScreen();
          slots = new SlotsScreen(send);
          screen.addChild(slots);
-         slots.open(name, chips, low, high, earnings, luck, seed, Ui.plain(stops),
-                    MountAll(Ui.plain(symbols), "F3NV_Symbol"), Ui.plain(texts));
+         slots.open(name, chips, low, high, earnings, luck, seed, Bridge.plain(stops),
+                    MountAll(Bridge.plain(symbols), "F3NV_Symbol"), Bridge.plain(texts));
       }
 
       // The roulette table (F3NV_Casino.psc's OpenRoulette): see RouletteScreen.open.
@@ -118,7 +122,7 @@ package
          newScreen();
          roulette = new RouletteScreen(send);
          screen.addChild(roulette);
-         roulette.open(name, chips, low, high, earnings, luck, seed, Ui.plain(texts));
+         roulette.open(name, chips, low, high, earnings, luck, seed, Bridge.plain(texts));
       }
 
       // Replay `spins` slot spins per seed at `luck` on FNV's default reel and log them, then the roulette results
@@ -126,7 +130,7 @@ package
       public function SelfTest(seeds:Array, spins:int, luck:int) : void
       {
          var out:Array = [];
-         seeds = Ui.plain(seeds);
+         seeds = Bridge.plain(seeds);
          for (var s:int = 0; s < seeds.length; s++)
          {
             var machine:Slots = new Slots([2, 2, 2, 2, 2, 2, 2], luck, new Rng(uint(seeds[s])));
@@ -177,13 +181,12 @@ package
          return false;
       }
 
-      // A fresh screen, drawn in the player's HUD color: F3NV.dll's HudColor native (registered on every movie as
-      // f4se.plugins.F3NV), read again each time; white without the DLL.
+      // A fresh screen, drawn in the player's HUD color (Theme.fromHud: F3NV.dll's HudColor, white without it).
       private function newScreen() : void
       {
-         var dll:Object = f4se != null && f4se.plugins != null ? f4se.plugins.F3NV : null;
-         Ui.color = dll != null && dll.HudColor != null ? uint(dll.HudColor()) : 0xFFFFFF;
-         send("F3NV_CasinoInput", "hud color " + Ui.color.toString(16) + (dll != null ? "" : " (no F3NV.dll)"));
+         var dll:Object = bridge.natives("F3NV");
+         var color:uint = Theme.fromHud(dll);
+         send("F3NV_CasinoInput", "hud color " + color.toString(16) + (dll != null ? "" : " (no F3NV.dll)"));
          if (screen != null)
          {
             removeChild(screen);
@@ -194,13 +197,10 @@ package
          addChild(screen);
       }
 
-      // Flash's yellow focus rectangle off (FO4's own IMenu does the same): focusing the root drew it around the screen.
       private function onStage(e:Event) : void
       {
-         stage.stageFocusRect = false;
-         focusRect = false;
          stage.addEventListener(KeyboardEvent.KEY_DOWN, onKey);
-         stage.focus = this;
+         Host.focus(this);
       }
 
       private function onKey(e:KeyboardEvent) : void
@@ -238,10 +238,7 @@ package
 
       private function send(event:String, ... args) : void
       {
-         if (f4se != null)
-         {
-            f4se.SendExternalEvent.apply(null, [event].concat(args));
-         }
+         bridge.send.apply(null, [event].concat(args));
       }
    }
 }

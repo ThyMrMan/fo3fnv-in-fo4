@@ -214,7 +214,7 @@ class Casino:
         self.builder.scripts.used += [s for s in (SCRIPT, PLAYER_SCRIPT) if s not in self.builder.scripts.used]
         installed = movie.install(data_dir)
         self.builder.counts['casino menu movie installed'] = installed
-        self.builder.counts['casino menu movie missing (no FFDec)'] = 1 - installed
+        self.builder.counts['casino menu movie missing (no Flex SDK)'] = 1 - installed
 
     def _textures(self, data_dir: Path) -> int:
         """Stage every texture the casinos and cards name (slot symbols, deck backs, card faces), and the

@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from asset_convert.ui.swf import Swf
+from fo4_import.base import swf_skeleton as S
 from fo4_import.dialogue_menu import movie as M
 from fo4_import.dialogue_menu import test_mod as T
 from fo4_import.spike import records as R
@@ -146,6 +148,29 @@ def test_movie_sources_use_no_bethesda_classes():
     for path in M.SOURCES.rglob('*.as'):
         imports = re.findall(r'^\s*import ([\w.]+);', path.read_text(encoding='utf-8'), re.M)
         assert all(name.startswith('flash.') for name in imports), (path.name, imports)
+
+
+def test_the_skeleton_is_an_as3_movie_whose_document_class_is_the_first_shell():
+    """FileAttributes says AS3, DoABC2 holds an ABC 46.16 naming every class, SymbolClass makes the first the root."""
+    tags = {tag.code: tag.data for tag in Swf.parse(S.skeleton(['DialogueMenuRoot', 'f3ui.dialogue.X'])).tags}
+    assert struct.unpack('<I', tags[S.FILE_ATTRIBUTES])[0] & S.AS3_FLAG
+    abc = tags[S.DO_ABC2][5:]
+    assert struct.unpack_from('<HH', abc) == (16, 46)
+    assert b'DialogueMenuRoot' in abc and b'f3ui.dialogue' in abc and b'X' in abc
+    assert tags[S.SYMBOL_CLASS] == struct.pack('<HH', 1, 0) + b'DialogueMenuRoot\x00'
+
+
+def test_u30_writes_seven_bits_a_byte_low_first():
+    """ABC's variable-length integers."""
+    assert (S.u30(0), S.u30(0x7F), S.u30(0x80), S.u30(300)) == (b'\x00', b'\x7f', b'\x80\x01', b'\xac\x02')
+
+
+def test_the_document_class_comes_first_and_packages_are_dotted(tmp_path):
+    """class_names: the document class first, x/Y.as as x.Y."""
+    (tmp_path / 'f3ui' / 'x').mkdir(parents=True)
+    for rel in ('A.as', 'DialogueMenuRoot.as', 'f3ui/x/Y.as'):
+        (tmp_path / rel).write_text('', encoding='utf-8')
+    assert S.class_names(tmp_path, M.DOCUMENT) == ['DialogueMenuRoot', 'A', 'f3ui.x.Y']
 
 
 @pytest.mark.skipif(not M.FFDEC.is_file(), reason='needs FFDec')

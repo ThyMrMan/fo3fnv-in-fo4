@@ -4,8 +4,8 @@ skeleton() writes an AS3 SWF whose ABC holds an empty shell of every class
 in a sources folder (FFDec's script import replaces classes, it cannot add
 them), then JPEXS FFDec's `-importScript` compiles the sources over the
 shells (base.ffdec). Both steps are deterministic, so the same sources give
-the same bytes. A built movie is cached by the sources' hash. The casino
-menu and the dialogue menu are built this way.
+the same bytes. A built movie is cached by the sources' hash. The dialogue
+menu is built this way until it moves to base.mxmlc.
 
 See: docs/fork/swf_framework.md#toolchain
 """

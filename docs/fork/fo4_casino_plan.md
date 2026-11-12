@@ -683,7 +683,16 @@ shell.
 - **In game:** the user opens the test menu from the console, clicks the
   button, sees the card, closes it, and walks and activates normally after.
 
-<a id="toolchain-found"></a>**Built 2026-11-08, not played.** The compiler
+<a id="toolchain-found"></a>**Since 2026-11-11 the casino builds with
+`mxmlc` on our shared `f3ui` library** (spike 1 of the
+[menu framework](swf_framework.md#spikes); `fo4_import/base/mxmlc.py`,
+count `casino menu movie missing (no Flex SDK)`). **Played 2026-11-11:
+slots and roulette both work on it.** The movie is written uncompressed so
+its bytes don't depend on the Python's zlib
+([why](swf_framework.md#mxmlc-setup)). The FFDec route below is
+how it was built until then; the dialogue menu still uses it.
+
+**Built 2026-11-08, not played.** The compiler
 is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
 - FFDec's `-importScript` only *replaces* classes already in a movie; it
   cannot add one, and has no option to. So `fo4_import/casino/movie.py`

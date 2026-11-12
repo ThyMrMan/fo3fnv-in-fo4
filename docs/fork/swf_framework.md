@@ -22,14 +22,22 @@ licensed way to build menus without starting from decompiled Bethesda files.
 
 | Menu | How it's made | State |
 |---|---|---|
-| Casino (`fo4_import/casino/`) | Our own AS3 (785 lines). A Python-written skeleton movie, then FFDec compiles our classes over it. Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | Spike played: keys, mouse, text, images. Slots built, not played |
+| Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
 | Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)): built like the casino's, a skeleton then FFDec. Nothing read from the game | The patched-movie version played; our own movie built, not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | No movie. The DLL draws into the open vanilla menus from C++: CND line, repair and ammo lists, STAT tabs, HUD needs | CND, repair and tabs played. Ammo list and HUD needs built, not played |
 
-Shared already: `fo4_import/base/ffdec.py` (FFDec wrapper, source digest),
-`fo4_import/base/swf_skeleton.py` (the skeleton movie and cached build,
-used by both menus), `asset_convert/ui/swf.py` (our SWF writer). The
-skeleton build is byte-stable (`tests/test_fo4_casino.py`,
+Shared already:
+- `fo4_import/base/as3/f3ui/`: the AS3 library's first five classes,
+  `Bridge`, `Theme`, `Host`, `Text` and `Draw` ([design](#design)). Today
+  only the casino uses them.
+- `fo4_import/base/mxmlc.py`: the `mxmlc` build with the library on the
+  source path, dated tags dropped, cached by the hash of the sources, the
+  library and the options.
+- `fo4_import/base/ffdec.py` and `fo4_import/base/swf_skeleton.py`: the FFDec
+  route, now only for the dialogue menu.
+- `asset_convert/ui/swf.py`: our SWF reader and writer.
+
+Both builds are byte-stable (`tests/test_fo4_casino.py`,
 `tests/test_fo4_dialogue_menu.py`).
 
 ## <a id="facts"></a>What we know about FO4's Flash
@@ -185,11 +193,21 @@ builds byte-identical twice after stripping.
     65, 9, 41, 43, 82, 76, 1, 0. No Flex framework code is linked in.
   - The casino's AS3 (`fo4_import/casino/as3`) compiles cleanly: 6,070
     bytes, no errors or warnings.
-- **Still to do for spike 1:** build the casino spike this way (with the
-  stage flags), strip, install, and play it.
-- **The casino stays on FFDec for now** (its plan took FFDec, "no Flex SDK
-  needed"). It moves to `mxmlc` together with the move onto the shared
-  library, in one change, so its own work isn't disturbed meanwhile.
+- **In the build** (`fo4_import/base/mxmlc.py`, 2026-11-11): the command
+  above with `-default-background-color=0x000000` (the skeleton's black),
+  `+flexlib` given as an absolute path so it runs from any folder, and
+  `-source-path+=` for the library. Any `Warning:` or `Error:` in the
+  output fails the build. Tags 41 and 77 are dropped, FileAttributes'
+  HasMetadata bit (`0x10`) cleared, and the movie written **uncompressed**
+  (`FWS`). Compressing with zlib is not byte-stable across Python builds:
+  Python 3.14 on Windows ships zlib-ng (`zlib.ZLIB_RUNTIME_VERSION`
+  `1.3.1.zlib-ng`), Python 3.13 ships stock zlib 1.3.1, and at level 9 the
+  same casino movie came out at 11,323 and 11,305 bytes, with every tag
+  identical. Uncompressed, the bytes depend only on the sources. The SDK is found at `F3NV_FLEX`, else `tools_ext\FlexSDK` beside
+  the repo (in a worktree, set `F3NV_FLEX`).
+- **The casino moved to `mxmlc` and the library in one change** (spike 1).
+  The dialogue menu stays on FFDec until its own movie is played, so
+  only one thing changes per play-test.
 
 **Ship built movies, don't build at install.** Today the converter runs
 FFDec on the player's machine. With our own movies there is nothing of the
@@ -386,7 +404,7 @@ in one injected movie, with no `HUDMenu.swf` shipped by anyone.
 ## <a id="casino"></a>The casino on the framework
 
 - Move `Ui.as` and the bridge into the library; the games keep their own
-  classes.
+  classes. **Done 2026-11-11** ([spike 1](#spikes)).
 - Register the menu from the DLL. Spike 2 tests HUD color with Custom
   Rendering on and only Assign Cursor To Renderer off.
 - Keep the Python reference models and in-game self-tests; they test game
@@ -550,6 +568,32 @@ Each spike is one change, played in game.
 
 1. **`mxmlc` build:** the casino spike built by `mxmlc` (tags stripped)
    behaves the same and builds byte-identical twice.
+   - **Played 2026-11-11: passed.** Slots and roulette both work on the
+     `mxmlc`/`f3ui` movie (user: "both work fine with the custom menu
+     work"). The movie played was zlib-compressed; it is now written
+     uncompressed ([why](#mxmlc-setup)), the same format as the dialogue
+     menu's own movie, which also loads in game.
+   - **Built 2026-11-11.** The casino now compiles with `mxmlc`
+     on the library's first five classes:
+     - `Bridge`: the f4se object, `send`, `natives`, `mount`, `plain`;
+     - `Theme`: `color`, `fromHud`;
+     - `Host`: `focus` (focus rectangle off);
+     - `Text`: `field`, `label`;
+     - `Draw`: `button`, `panel`.
+
+     The casino's own `Ui.as` is gone; its screens and document class call
+     the library. Nothing else in the casino changed: same calls, keys,
+     drawing and colors.
+   - **Checked offline:** strict compile, no warnings. Byte-identical
+     twice, from any folder or worktree. Tags: 69, 65, 9, 43, 82, 76, 1, 0. FFDec
+     decompiles only our 11 classes (6 casino, 5 `f3ui`). A type error
+     FFDec let through (`var a:int = "one"`) now fails the build
+     (`tests/test_fo4_casino.py`).
+   - **Play check:** a build with the new `Interface\F3NV_Casino.swf` (no
+     DLL or script change). The slots open in the HUD color with no yellow
+     frame; spin, the bet buttons, keys and mouse work; Tab or Esc closes;
+     the log shows `F3NV_Casino: input hud color …`. Roulette opens the
+     same way.
 2. **HUD color in our own menu.** One change per play-test; each needs a
    game restart, because F4SE keeps a menu's first registration.
    - **2a:** flags `0x800849D` (Custom Rendering back on, Assign Cursor To

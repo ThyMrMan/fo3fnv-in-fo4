@@ -1,5 +1,8 @@
 package f3nv.casino
 {
+   import f3ui.Draw;
+   import f3ui.Text;
+   import f3ui.Theme;
    import flash.display.Sprite;
    import flash.events.Event;
    import flash.events.MouseEvent;
@@ -80,17 +83,17 @@ package f3nv.casino
          earnings = won;
          luck = playerLuck;
          table = new Roulette(chipCount, low, high, new Rng(seed));
-         Ui.label(this, 40, 30, 32).text = name;
+         Text.label(this, 40, 30, 32).text = name;
          board();
          wheel();
-         status = Ui.label(this, 40, 430, 22);
-         result = Ui.label(this, 480, 430, 28);
-         info = Ui.label(this, 480, 480, 20);
-         past = Ui.label(this, 960, 400, 20);
-         Ui.button(this, "-", 40, 620, betDown, 80);
-         Ui.button(this, "+", 130, 620, betUp, 80);
-         Ui.button(this, text(SPIN), 220, 620, spin);
-         Ui.button(this, text(EXIT), 1040, 620, exit);
+         status = Text.label(this, 40, 430, 22);
+         result = Text.label(this, 480, 430, 28);
+         info = Text.label(this, 480, 480, 20);
+         past = Text.label(this, 960, 400, 20);
+         Draw.button(this, "-", 40, 620, betDown, 80);
+         Draw.button(this, "+", 130, 620, betUp, 80);
+         Draw.button(this, text(SPIN), 220, 620, spin);
+         Draw.button(this, text(EXIT), 1040, 620, exit);
          update();
       }
 
@@ -210,7 +213,7 @@ package f3nv.casino
          var straight:Boolean = Roulette.odds(index) == 35;
          var face:uint = straight ? fill(numbers[0]) : index == 151 ? RED_FILL : index == 152 ? BLACK_FILL : GREEN_FILL;
          var area:Sprite = new Sprite();
-         area.graphics.lineStyle(isMarker(index) ? 1 : 2, Ui.color, isMarker(index) ? 0.6 : 1);
+         area.graphics.lineStyle(isMarker(index) ? 1 : 2, Theme.color, isMarker(index) ? 0.6 : 1);
          area.graphics.beginFill(face, isMarker(index) ? 0.35 : 0.9);
          area.graphics.drawRect(0, 0, box[2], box[3]);
          area.graphics.endFill();
@@ -220,7 +223,7 @@ package f3nv.casino
          area.mouseChildren = false;
          if (!isMarker(index))
          {
-            var caption:TextField = Ui.label(area, 6, box[3] / 2 - 14, 20);
+            var caption:TextField = Text.label(area, 6, box[3] / 2 - 14, 20);
             caption.text = straight ? pocketName(numbers[0]) : shortName(index);
          }
          area.addEventListener(MouseEvent.CLICK, function(e:Event) : void { toggle(index); });
@@ -265,18 +268,18 @@ package f3nv.casino
             var n:int = Roulette.WHEEL[i];
             var angle:Number = i / Roulette.POCKETS * Math.PI * 2 - Math.PI / 2;
             var pocket:Sprite = new Sprite();
-            pocket.graphics.lineStyle(1, Ui.color, 0.5);
+            pocket.graphics.lineStyle(1, Theme.color, 0.5);
             pocket.graphics.beginFill(fill(n));
             pocket.graphics.drawCircle(0, 0, 11);
             pocket.graphics.endFill();
             pocket.x = WHEEL_X + Math.cos(angle) * WHEEL_R;
             pocket.y = WHEEL_Y + Math.sin(angle) * WHEEL_R;
-            var caption:TextField = Ui.label(pocket, -9, -9, 11);
+            var caption:TextField = Text.label(pocket, -9, -9, 11);
             caption.text = pocketName(n);
             addChild(pocket);
             pockets.push(pocket);
          }
-         drawn = Ui.label(this, WHEEL_X - 30, WHEEL_Y - 30, 48);
+         drawn = Text.label(this, WHEEL_X - 30, WHEEL_Y - 30, 48);
       }
 
       private function showResult(n:int) : void
@@ -312,7 +315,7 @@ package f3nv.casino
       {
          var box:Array = spotBox(index);
          var chip:Sprite = new Sprite();
-         chip.graphics.lineStyle(2, Ui.color);
+         chip.graphics.lineStyle(2, Theme.color);
          chip.graphics.beginFill(0xC8A040);
          chip.graphics.drawCircle(0, 0, 14);
          chip.graphics.endFill();
@@ -320,7 +323,7 @@ package f3nv.casino
          chip.y = box[1] + box[3] / 2;
          chip.mouseEnabled = false;
          chip.mouseChildren = false;
-         Ui.label(chip, -12, -11, 14).text = String(amount);
+         Text.label(chip, -12, -11, 14).text = String(amount);
          addChild(chip);
          return chip;
       }
