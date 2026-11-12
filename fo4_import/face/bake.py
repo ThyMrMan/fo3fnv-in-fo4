@@ -39,6 +39,8 @@ SMOOTH_PASSES, ICP_ROUNDS, PART_NEIGHBOURS = 4, 40, 4
 #: Samples per triangle edge when FNV's surface is sampled for nearest-point queries.
 SURFACE_DENSITY = 6
 VA_FULL_PRECISION = 0x400
+#: 'C2F' blend (head units from the eyes part's centre): fade span, ears' depth behind it, jaw's drop below it.
+BLEND_SPAN, EAR_DEPTH, JAW_DROP = 2.5, 4.0, 6.0
 
 
 def vertex_layout(raw: bytes) -> tuple:
@@ -114,8 +116,30 @@ def _interpolate(values: np.ndarray, triangles: np.ndarray, surface: tuple, idx:
     return (bary[idx][:, :, None] * values[triangles[owner[idx]]]).sum(1)
 
 
-def head_displacement(fo4_head: np.ndarray, fnv: FnvHead, variant: str) -> np.ndarray:
-    """Per FO4 head vertex, its move for `variant` in the FO4 frame."""
+def eye_centre(nif, eye_part: str) -> np.ndarray:
+    """The mean vertex of a FaceGeom NIF's shape named `eye_part` (its eyes head part)."""
+    return positions(next(b for kind, b in nif.blocks if kind in ('BSSubIndexTriShape', 'BSTriShape')
+                          and nif.strings[struct.unpack_from('<i', b, 0)[0]] == eye_part)).mean(0)
+
+
+def face_share(head: np.ndarray, eyes: np.ndarray) -> np.ndarray:
+    """Per face vertex, C2's share in 'C2F': 1 on the face below the eyes and on the jaw, fading to 0 over
+    BLEND_SPAN on the forehead and toward the ears.
+    See: docs/fork/fo4_facegen_plan.md#c2f-outline
+    """
+    below = np.clip((eyes[2] + BLEND_SPAN - head[:, 2]) / BLEND_SPAN, 0.0, 1.0)
+    front = np.clip((head[:, 1] - eyes[1] + EAR_DEPTH + BLEND_SPAN) / BLEND_SPAN, 0.0, 1.0)
+    jaw = np.clip((eyes[2] - JAW_DROP + BLEND_SPAN - head[:, 2]) / BLEND_SPAN, 0.0, 1.0)
+    return below * np.maximum(front, jaw)
+
+
+def head_displacement(fo4_head: np.ndarray, fnv: FnvHead, variant: str, eyes=None) -> np.ndarray:
+    """Per FO4 head vertex, its move for `variant` in the FO4 frame; 'C2F' blends C2 into C1 by face_share
+    around the eye centre `eyes`."""
+    if variant == 'C2F':
+        share = face_share(fo4_head, eyes)[:, None]
+        c1, c2 = (head_displacement(fo4_head, fnv, v) for v in ('C1', 'C2'))
+        return share * c2 + (1 - share) * c1
     mean_surface = surface(fnv.mean, fnv.triangles)
     s, r, t = align(fo4_head, fnv.mean, mean_surface)
     placed = s * fo4_head @ r.T + t
@@ -199,21 +223,27 @@ def _seam(nif, shapes: list, face: int) -> cKDTree:
     return cKDTree(body_seam(borders[face], [b for i, b in borders.items() if i != face]))
 
 
-def face_moves(nif_bytes: bytes, fnv: FnvHead, variant: str) -> tuple:
-    """(face vertex positions, their moves for `variant`: smoothed, faded to zero at the body seam)."""
-    nif = nif_file.read(nif_bytes)
+def _head_moves(nif, fnv: FnvHead, variant: str, eye_part: str = None) -> tuple:
+    """(head part shapes, the face's index, its vertex positions, their smoothed moves for `variant`; 'C2F'
+    places its blend at the shape `eye_part`)."""
     shapes, face = _shapes(nif)
     head = positions(nif.blocks[face][1])
-    moves = _smoothed(head, head_displacement(head, fnv, variant))
+    eyes = eye_centre(nif, eye_part) if variant == 'C2F' else None
+    return shapes, face, head, _smoothed(head, head_displacement(head, fnv, variant, eyes))
+
+
+def face_moves(nif_bytes: bytes, fnv: FnvHead, variant: str) -> tuple:
+    """(face vertex positions, `variant` moves) faded to zero at the body seam."""
+    nif = nif_file.read(nif_bytes)
+    shapes, face, head, moves = _head_moves(nif, fnv, variant)
     return head, moves * np.clip(_seam(nif, shapes, face).query(head)[0] / NECK_BLEND, 0.0, 1.0)[:, None]
 
 
-def bake(nif_bytes: bytes, fnv: FnvHead, variant: str) -> bytes:
-    """The FaceGeom NIF `nif_bytes` with its face and every head part moved to `variant`'s shape."""
+def bake(nif_bytes: bytes, fnv: FnvHead, variant: str, eye_part: str = None) -> bytes:
+    """The FaceGeom NIF `nif_bytes` with its face and every head part moved to `variant`'s shape ('C2F' needs
+    the eyes head part's shape name, `eye_part`)."""
     nif = nif_file.read(nif_bytes)
-    shapes, face = _shapes(nif)
-    head = positions(nif.blocks[face][1])
-    moves = _smoothed(head, head_displacement(head, fnv, variant))
+    shapes, face, head, moves = _head_moves(nif, fnv, variant, eye_part)
     seam = _seam(nif, shapes, face)
     tree = cKDTree(head)
     for i in shapes:

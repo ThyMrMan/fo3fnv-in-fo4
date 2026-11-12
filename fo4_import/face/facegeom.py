@@ -32,8 +32,8 @@ FEMALE = 0x1
 FACE_EXTRAS = ('BSClothExtraData', 'BSEyeCenterExtraData')
 #: Cloth data stores no name, but the engine names it 'CED' and the CK's string table lists that.
 CLOTH, CLOTH_NAME = 'BSClothExtraData', 'CED'
-#: HDPT type of the face, and the race's default face texture set per sex (female?).
-FACE_PART, FACE_SETS = 1, {False: b'DFTM', True: b'DFTF'}
+#: HDPT types of the face and the eyes, and the race's default face texture set per sex (female?).
+FACE_PART, EYES_PART, FACE_SETS = 1, 2, {False: b'DFTM', True: b'DFTF'}
 #: NiNode flags of the root, the FaceGen node and each bone node, as the CK writes them.
 ROOT_FLAGS, FACEGEN_FLAGS, BONE_FLAGS = 536887310, 536870926, 14
 FACEGEN_NODE = 'BSFaceGenNiNodeSkinned'
@@ -137,7 +137,7 @@ class Sources:
         return (bgem if raw[:4] == bgem.MAGIC else bgsm).read(raw)
 
 
-def _type(part: Rec) -> int:
+def part_type(part: Rec) -> int:
     """A head part's type (HDPT PNAM)."""
     return _form(part.first(b'PNAM', b'\xff\xff\xff\xff'))
 
@@ -165,11 +165,11 @@ def head_parts(src: Sources, npc: Rec, race: Rec, female: bool) -> list:
     (last first), each led by its extras."""
     own = [p for p in (src.get(npc, d) for t, d in npc.subs if t == b'PNAM')
            if p and not p.first(b'DATA')[0] & EXTRA_PART]
-    types, defaults = {_type(p) for p in own}, []
+    types, defaults = {part_type(p) for p in own}, []
     for part in (src.get(race, d) for d in _by_sex(race, female, b'HEAD')):
-        if part and _type(part) not in types:
+        if part and part_type(part) not in types:
             defaults.append(part)
-            types.add(_type(part))
+            types.add(part_type(part))
     return [x for p in defaults[::-1] + own[::-1] if p.first(b'MODL') for x in _with_extras(src, p)]
 
 
@@ -459,7 +459,7 @@ class FaceGeom:
         bones = [self.nodes[b.lower()] for b in _bone_names(mesh, shape)]
         data = mesh.blocks[_skin_data(mesh.blocks[shape.skin][1])][1]
         kind, sh = mesh.blocks[shape.shader]
-        face = _type(part) == FACE_PART and self.npc.face_material
+        face = part_type(part) == FACE_PART and self.npc.face_material
         mat = self.src.material(face or mesh.strings[sh['name']])
         blocks += [(shape.kind, b''), *extras, ('BSSkin::Instance', _pack_skin_instance(self.facegen, skin + 1, bones)),
                    ('BSSkin::BoneData', data)]

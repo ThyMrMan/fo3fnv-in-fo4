@@ -423,6 +423,60 @@ for its format; see
 [a face set texture must match its race's format](#ck-face-texture-format). The
 test mod's own files for her replace these.
 
+### <a id="c2f-outline"></a>Second test mod: FNV's face outline (C2F) and T1 (2026-11-11, not yet played)
+
+Played on the first test mod: Willow's, Sunny's and Doc's faces kept FO4's
+narrower, longer outline; Doc's bald scalp showed an orange cap.
+
+- **The outline in numbers** (FO4's head frame, FNV mapped by `bake.align`'s
+  inverse; chin bottom z, then face half-width at z 0, -2, -3.5, -4.5; the
+  eyes are at z 2.8):
+
+  | | FO4 unbaked | C1 | C2F | FNV NPC |
+  |---|---|---|---|---|
+  | Willow | -5.45; 5.20 4.48 3.59 2.79 | -5.43; 5.21 4.45 3.42 2.57 | -5.50; 5.20 4.48 3.85 2.74 | -5.53; 5.25 4.51 3.62 2.82 |
+  | Sunny | -5.45; 5.20 4.48 3.59 2.79 | -5.66; 5.05 4.67 3.84 3.00 | -5.77; 5.23 4.65 3.95 3.61 | -5.80; 4.96 4.81 4.07 3.43 |
+  | Doc | -5.58; 5.05 4.51 3.80 3.49 | -5.70; 4.94 4.43 3.80 3.62 | -5.51; 4.98 4.48 3.88 3.60 | -5.47; 4.97 4.40 3.77 3.33 |
+
+  After the similarity fit, FO4's unbaked outline already lies within
+  0.1–0.6 units of FNV's on a face about 10 wide, and a per-axis fit gives
+  scales 0.98–1.02. C2F brings the lower face nearer each NPC's own FNV
+  outline than C1 (Sunny's lower-jaw width 3.61 against FNV's 3.43, C1's
+  3.00), but the in-game "narrow and long" look is not mostly a difference
+  in this outline. An earlier note here put FO4's jaw 0.5–0.7 off FNV's; that
+  was measured on the throat, not the jaw.
+- **C2F:** C2 (each vertex onto the NPC's own FNV surface) on the face below
+  the eyes and on the jaw, C1 on the forehead, ears and skull, so the hair
+  stays put. `bake.face_share` places the blend from the centre of the
+  NPC's eyes head part (HDPT type 2; only the male head carries a
+  `BSEyeCenterExtraData`, and only the male eyes the vertex eye-data flag):
+  full below it, fading over 2.5 units above it; full in front of 4 units
+  behind it, fading over 2.5 (FO4's ears lie 5.5–7.6 behind it); the jaw
+  under the ears keeps C2 from 6 units below it. The constants are measured
+  on FO4's male and female heads, not authored.
+- **Doc's cap:** the rear head and body draw the record's skin tone (QNAM)
+  while T2's face texture assumed it scaled; with no plugin the scale never
+  happened. The second test mod uses T1 and ships `FaceGen Test.esp`.
+  - T1 runs on the tint basis baseline (the CK's untinted face of the sex's
+    template, DocWeathers or DoctorAmari), not the NPC's CK `_d`: today's
+    records carry tint layers and a tone fitted to FNV's colour, so the
+    CK's `_d` already holds the FaceGen offset and T1 on it applies it twice
+    (Doc's blue came out x0.19).
+  - The plugin overrides each NPC with QNAM and the Skin Tone layer set to
+    the template's times T1's ratio (`own_facegen.with_template_tone`), as
+    the build's untinted T1 copy would have them. The result lands near the
+    build's own fit: Doc's QNAM (0.824, 0.646, 0.511) against his fitted
+    (0.836, 0.663, 0.500), Sunny's (0.694, 0.498, 0.430) against (0.700,
+    0.498, 0.430).
+  - An NPC naming its own face set (FTST, made by own heads: Willow) already
+    carries FNV's whole face and its tone; it keeps the CK's face texture and
+    record, and only its shape changes.
+- **Doc's grey mustache is the CK's too:** his head's shaders match the CK's
+  in every field. The hair colour is matched on the head hair's diffuse
+  (HairShaved06, grey 96) and FO4 draws facial hair in the same colour; his
+  beard's FacialHair02 (grey 60) through HairColor04Silver comes out about
+  RGB (80, 77, 74). Not changed here.
+
 ## <a id="today"></a>How faces work today
 
 - The converted NPC record holds FO4 slider values: sculpt regions
