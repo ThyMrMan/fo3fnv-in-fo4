@@ -164,6 +164,7 @@ FALLOUT_COMMAND_ROWS = {
     'getignorecrime': dict(
         emit='0', note='{f} - Skyrim has no ignore-crime read (read as 0)',
         flags='zero_arg'),
+    'ignorecrime': dict(note='{f} {a} - Skyrim keeps no per-actor ignore-crime flag'),
     'isgoredisabled': dict(
         emit='0', note='{f} - Skyrim has no gore toggle (read as 0)',
         flags='zero_arg'),
