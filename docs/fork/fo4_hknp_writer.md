@@ -1,7 +1,8 @@
 # Plan: our own FO4 physics writer in place of Elric (2026-11-11)
 
 Status: step 1 (convex bodies) built and wired in, awaiting its play test; step 2 (triangle meshes
-on fixed and massless keyframed bodies) built and wired in, awaiting its play test; the rest planned. Status lives
+on fixed and massless keyframed bodies) built and wired in, awaiting its play test; step 3's spheres and
+capsules built and wired in, awaiting their play test; compounds and step 4 planned. Status lives
 in [ROADMAP.md](ROADMAP.md). Item 5 of the
 [CK replacements](fo4_ck_replacements.md#options).
 
@@ -67,7 +68,9 @@ build queue runs); reading and scratch work don't.
    in ahead of Elric ([mesh writer](#mesh-writer)); the main session runs
    the play test. A mesh on a body with a full motion (dynamic, or
    keyframed with mass) still goes to Elric.
-5. **Steps 3 and 4** in table order.
+5. **Step 3:** ~~spheres and capsules~~ built (`nif/hknp_round.py`) and
+   wired in ([round](#round)); compounds (`bhkListShape`) next.
+6. **Step 4.**
 
 ## <a id="convex"></a>Step 1: what Elric writes for a convex body
 
@@ -423,6 +426,55 @@ writer takes 6 ms per mesh (median; 341 ms at most, 7.3 s for 648). It
 writes no stray bits past a bit field's end, so its output is the same
 on every run.
 
+## <a id="round"></a>Step 3: spheres and capsules
+
+Read off 25 pairs from FNV `clutter`, `weapons`, `furniture`, `dungeons`,
+`architecture` and `effects` (every mesh whose pre-Elric NIF holds a
+`bhkSphereShape` or `bhkCapsuleShape`: 104 capsules, 4 dynamic spheres,
+98 dynamic capsules, most of them ragdoll parts). Neither shape gets a
+mass-properties object (`properties` is null); Elric works a dynamic
+body's mass out from the shape.
+
+- **Sphere** (`hknpSphereShape`, flags 273): the convex radius is the
+  input radius unchanged; four vertices, all the center (the convex
+  transform's translation, else the origin), each tagged index 0. Mass: a
+  solid sphere's volume; inertia 1.5 × 2/5 r² × volume on every axis
+  (all 4).
+- <a id="capsule"></a>**Capsule** (`hknpCapsuleShape`, flags 451, a
+  polytope): `a` and `b` are the input end points (w 1). Elric takes 1% off
+  the radius, and Havok takes 1% of the rest as a core box's padding, the
+  remainder the convex radius: `r1 = R − R·0.01`, `pad = r1·0.01`,
+  `convexRadius = r1 − pad`, all in float32 (99 of 104; the other five share
+  one input radius yet come out as three different values, within 3e-8,
+  so no rule of R reproduces them). The core is a box around the segment,
+  one padding out on every side and past each end: corner `i` is end `a`
+  (bit 0 set) or `b`, plus or minus `pad` along `e1` (bit 1) and `e2`
+  (bit 2), where `u = (a − b)/|a − b|`, `e1` is Havok's perpendicular of
+  `b − a` (its smallest component zeroed, the later axis on a tie, the
+  other two swapped and the later of them negated), normalized, and
+  `e2 = e1 × u` (all 104 within float32 rounding, 4.8e-7; the classic
+  tie-to-the-earlier-axis rule gets 34). Faces always in the order `+e1,
+  −e2, +e2, −e1, +u, −u`, loops `7 6 2 3`, `3 2 0 1`, `7 5 4 6`, `1 0 4 5`,
+  `1 5 7 3`, `2 6 4 0`, angle byte 4; the two spare plane slots hold
+  `(0, 0, 0, −FLT_MAX)` (all 208; a polytope's spare slots hold whatever
+  was in memory). Mass (all 98 dynamic capsules): the analytic capsule of
+  the convex radius over the segment `a–b` (volume `πr²L + 4/3 πr³`),
+  inertia 1.5 × its axial and transverse moments, centered on the
+  segment's middle, the tensor diagonalized by Havok's float32 Jacobi
+  (`hknp_convex.principal`), which gives Elric's motion frame on all 98
+  to 1e-5.
+
+**Built:** `nif/hknp_round.py`; `hknp_write` takes a sphere or capsule on
+any body, alone or under a `bhkConvexTransformShape` (the transform moves
+the center or end points). Against all 104 capsules and 4 spheres in the
+pairs: every convex radius equal, sphere shapes byte for byte, capsule
+tails within float32 rounding (4.8e-7; signed zeros in plane normals
+differ, and our tail runs 8 bytes of padding longer). `hknp_compare` on
+the 25 meshes: 9 covered (the rest have constraints or lists), 6 match in
+every field; the other three differ only in what Step 1 already records
+(a restitution of 0.9 one hkHalf step below Elric's on `ball01` and
+`tumbleweednv`; `globe01`'s convex body's hull).
+
 ## <a id="check"></a>How each step is checked
 
 `tests/` compare our objects with Elric's on a handful of pairs;
@@ -430,7 +482,7 @@ on every run.
 ([catalogue](../reference/python_tools.md)): it converts each FNV mesh as
 the build does, finds Elric's output by the pre-Elric bytes, and walks both
 physics systems from the root through their pointers, so object names and
-order don't count. A convex hull is compared as a set (corners paired by
+order don't count. A convex hull (a capsule's core box too) is compared as a set (corners paired by
 position, faces by normal; angle bytes, offsets and corner counts on the
 paired rows), a compressed mesh as the triangles it decodes to (per
 strip, each corner allowed one quantization step of the coarser tree; key

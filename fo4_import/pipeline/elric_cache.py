@@ -10,7 +10,7 @@ four at once never finished (no CPU after nine minutes). A NIF with Havok
 input is held in memory (hold()) rather than written, since FO4 cannot load
 it; finish() writes only the finished NIF, and only when its bytes changed,
 so a game running beside the build never loads a half-made mesh. A NIF our
-own physics writer covers (nif/hknp_write.py: convex bodies, meshes) never reaches
+own physics writer covers (nif/hknp_write.py: convex, round and mesh bodies) never reaches
 Elric or its cache.
 
 See: docs/fork/fo4_pipeline.md#skeleton
