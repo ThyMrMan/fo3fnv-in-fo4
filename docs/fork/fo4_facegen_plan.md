@@ -998,9 +998,136 @@ Measured, each on one NPC with no sculpt:
 - The mod's own `skeleton*.nif` overrides (the files the CK read) have the
   same node transforms as vanilla.
 
-One outlier is CK-side: FNV_TestFemaleNVPGSimple (`42B3DE`, a test NPC
-with all sliders zero) has its HairFemale32_Hairline1 1.38 off. The other 14
-NPCs with that hairline and the same weight are within 0.045 to 0.050.
+Body weight is ruled out. Parts used under two different weights have the
+same error under both:
+
+| Part | (0.545, 0.041, 0.415) | (0.5, 0.5, 0.0) |
+|---|---|---|
+| FemaleHeadHuman | 0.0332 (680 NPCs) | 0.0332 (34) |
+| HairFemale12 | 0.0442 (9) | 0.0442 (13) |
+| HairFemale01 | 0.0474 (38) | 0.0469 (34) |
+
+So does MaleMouthHumanoidDefault under (0.552, 0.266, 0.182) and (0.75, 0.25,
+0.0): 0.0296 and 0.0293. The large male hair offsets occur only under the
+male weight, but they behave the same way.
+
+The CK does not re-bind the hair either. On an NPC with no sculpt, the CK's
+HairMale01 and HairMale06 have the source mesh's bones, binds and per-vertex
+weights exactly. Only the positions differ, most on vertices led by
+`Neck_skin`: HairMale01's mean error is 0.034 there, 0.012 on `HEAD` and
+0.005 on `Head_skin`.
+
+So the offset is something the CK does to each part's positions,
+independent of the NPC. The CK's export stays the reference. 4 mm at the
+back of the neck is for play-testing to judge, not a blocker.
+
+One outlier is a CK quirk on a test NPC, skipped: FNV_TestFemaleNVPGSimple
+(`42B3DE`, all sliders zero) has its HairFemale32_Hairline1 1.38 off. The
+other 14 NPCs with that hairline and the same weight are within 0.045 to
+0.050.
+
+### <a id="face-d-decode"></a>The CK's face `_d`, decoded and ported (2026-11-12)
+
+Measured against the reference set's `_d` (2048, read at 256 to 512).
+Errors are mean absolute per channel, out of 255; the CK's own DXT
+compression costs about 2.
+
+- **Base:** the face set's diffuse: the NPC's FTST, else the race's
+  DFTM/DFTF, through `facegeom.txst_slots`.
+- **Skin tone** (TETI slot 12, a colour layer): Soft Light of the tone
+  colour over the base, Photoshop's formula, in sRGB, at the layer's value.
+  Blending in linear space is about 10× worse. NPCs whose only active layer
+  is the tone match to 2.1–2.7 over four tones and both sexes. The tone's
+  mask (`SkinTone.dds`, grey channels) is not used as is. Read through a
+  gamma curve it shortens the tail (99th percentile 10.4 → 7.4) but raises
+  the mean over 60 NPCs (2.79 → 3.09). So the tone goes on unmasked for now.
+- **Race defaults:** an option with a default value (TTED > 0), in a slot
+  the NPC lists nothing for, is applied at that value. In HumanRace this is
+  only the male Brow1 at 1.0; an NPC with no brow layer still gets brows.
+- **No skin tone:** an NPC with no Skin Tone layer gets the tone option's
+  first TTEC colour (HumanRace female: 1157, 247, 239, 238) at full value.
+  The 47 toneless female speakers and holotapes go from 54.8 to 2.8 with it;
+  the other 12 template colours give 9.4–81.9. Only the tone slot does
+  this: unlisted face paints don't show in the CK's output.
+- **Detail layers** (value-only): the texture's RGB blended by the option's
+  TTEB (Default = replace, Multiply, Overlay, Soft Light, Hard Light), at
+  strength value × alpha. For Default-blend details other than brows (the
+  Splochy blotches), the CK's strength measures as value × √alpha, applied
+  twice. For example, Splochy4 at value 0.61 measures 0.36, 0.56, 0.68, 0.77
+  and 0.82 at alpha 0.2, 0.3, 0.5, 0.7 and 0.9. Soft Light details fit the
+  plain value × alpha. Dropping each of Doc's layers in turn confirms every
+  layer's own blend operation.
+- **Colour layers** keep their mask in the grey channels (alpha is 1). In
+  FalloutNV.esm only the skin tone is one, so the rest are untested.
+- **Template colours:** a TEND template value is a TTEC entry's *Template
+  Index* field (HumanRace's presets name 1657, 1658, ...), not its position
+  in the TTEC list. LooksMenu's `CharGenTint.cpp` reads it the same way.
+
+**Ported:** `fo4_import/face/face_tint.py` (`face_diffuse`; tests in
+`tests/test_fo4_face_tint.py`). It isn't wired into the build yet. One 2048
+face takes 6 s, plugin loading included.
+`python -m tools.nif.facegen_census --textures` measured all 2,382 CK faces
+at 256: no errors, mean 2.53, median 2.55, p90 3.03, worst 5.71; 6 NPCs
+above 4 (burned bodies and scarred or painted faces). The median 99th
+percentile is 13. The super mutants' face sets use `fnv\tinted` textures
+that are only in the built mod, so the census needs
+`--dirs <mod folder>` for them.
+
+Most of the remaining tail is in two areas. Neither has an authored source
+yet, so neither is in the model.
+
+- **Lips: an unlisted lip colour.** With the tone model applied, the CK minus
+  ours in the lips is nearly the same for every male, whatever the tone:
+  about +2, +13, +11 on the lower lip and −2, +10, +10 on the upper. On 30
+  males its average has exactly the shape of `LipColor1Male.dds` (HumanRace's
+  slot 13 "Paint" option; xEdit names slot 7 "Lip Color"). Adding that option
+  with each of its 11 TTEC colours, 12 of 15 sampled males fit best with
+  entry 2 (the other three pick entries 0 or 8): colour 157, 177, 198, Soft Light, alpha 0.50. That cuts the error inside
+  the mask from 13.9 to 4.8. No NPC lists the option, its TTED is 0, and the
+  race's 15 male presets disagree on lip colour, so nothing authored picks
+  entry 2. Females (`LipColor1.dds`) fit less clearly: 5.7–7.8 drops to
+  4.0–5.1, with no single entry.
+- **The lower-left island: the tone weight follows the SkinTone mask on a
+  curve.** The island is where `SkinTone.dds` is black (0.03), and the CK
+  leaves it near the base, so our unmasked tone is 20–40 too light there.
+  Fitting the tone's weight per texel (CK = lerp(no tone, full tone, w)) over
+  24 NPCs gives w = 0.28, 0.38, 0.47, 0.54, 0.60, 0.65, 0.69, 0.72, 0.76, 0.78
+  for mask bins 0.025 to 0.475, then about 0.95–1.0 above a mask of 0.6. The
+  map is sharp, so it isn't a blurred mask. Linear, gamma 1/2.2, √, linear
+  space, a two-part model (masked soft light plus a 0.04 normal blend toward
+  the tone: RMS 3.16 → 2.61), and a different base texture all fail to fit
+  it. The face set has no alpha mask. Texels below a mask of 0.5 are almost
+  all in the island, so this curve can't be told apart from "the island is
+  special".
+
+The island core is 348 of 262,144 texels at 512 (0.13%), so these areas
+matter for how the face looks up close more than for the whole-texture mean.
+
+### <a id="face-d-revisit"></a>To revisit: the CK's lip colour and tone mask
+
+Pinned 2026-11-12: `face_tint` leaves both out until something authored
+explains them. Hard-coding lip template 2 or the measured mask
+curve would be a measured constant.
+
+- **Already searched, nothing found:**
+  - Forums and the CK wikis (FO4 and Skyrim) only report the CK dropping or
+    mangling lip colour, with workarounds such as moving the loose
+    `tintmasks` folder aside. Nobody explains the bake.
+  - expired6978's public plugin source only touches runtime tinting.
+    LooksMenu's `f4ee/CharGenTint.cpp` looks templates up by
+    `templateIndex`, which matches our reading. RaceMenu's
+    `skee64/Shaders/NiOverride/Effects/Tint.fx` (Skyrim) masks a colour
+    layer linearly (mask red × colour alpha, overlay blend). That's
+    RaceMenu's runtime, not the CK's FaceGen bake.
+- **Next lead:** CreationKit.exe. Find the FaceCustomization export and the
+  routine that fills tint slots an NPC leaves empty. Look for where a Lip
+  Color or Paint option gets a colour, and how the Skin Tone option's mask is
+  read.
+- **Check when it's found:** the lip region error inside `LipColor1Male.dds`
+  (13.9 now, 4.8 with entry 2), and the island core (CK 20–40 below us).
+  Rerun `facegen_census --textures` and compare with the census above.
+  Colour layers other than the tone (face paint, dirt) are also untested:
+  no FalloutNV.esm NPC has one.
 
 ## <a id="today"></a>How faces work today
 

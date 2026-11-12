@@ -148,13 +148,18 @@ def part_type(part: Rec) -> int:
     return _form(part.first(b'PNAM', b'\xff\xff\xff\xff'))
 
 
-def _by_sex(race: Rec, female: bool, tag: bytes) -> list:
-    """The race's `tag` subrecords in its male (MNAM) or female (FNAM) sections."""
+def sex_section(race: Rec, female: bool) -> list:
+    """The race's subrecords [(tag, data)] in its male (empty MNAM) or female (empty FNAM) sections."""
     marker, sex, out = b'FNAM' if female else b'MNAM', None, []
     for t, data in race.subs:
         sex = t if t in (b'MNAM', b'FNAM') and not data else sex
-        out += [data] if t == tag and sex == marker else []
+        out += [(t, data)] if sex == marker else []
     return out
+
+
+def _by_sex(race: Rec, female: bool, tag: bytes) -> list:
+    """The race's `tag` subrecords in its male (MNAM) or female (FNAM) sections."""
+    return [data for t, data in sex_section(race, female) if t == tag]
 
 
 def _with_extras(src: Sources, part: Rec) -> list:

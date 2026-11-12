@@ -16,6 +16,27 @@ def test_ck_files_are_the_plugins_folder_with_local_ids(tmp_path):
     assert FC.ck_files(tmp_path, 'Other.esp') == []
 
 
+def test_ck_files_finds_face_diffuses_by_their_id_prefix(tmp_path):
+    """In --textures mode the FaceCustomization _d files are found, their id read from the name before '_'."""
+    folder = tmp_path / 'Textures' / 'FaceCustomization' / 'FalloutNV.esm'
+    folder.mkdir(parents=True)
+    for name in ('0108C462D_d.dds', '0108C462D_msn.dds', '0000ABCD_d.dds'):
+        (folder / name).write_bytes(b'')
+    found = FC.ck_files(tmp_path, 'falloutnv.esm', 'FaceCustomization', '*_d.dds')
+    assert [form for form, _ in found] == [0xABCD, 0x8C462D]
+
+
+def test_texture_summary_prints_spread_worst_and_errors(capsys):
+    """The _d summary counts errors, gives the spread of per-NPC means and lists the worst first."""
+    lines = [{'form': '000001', 'edid': 'A', 'female': True, 'mean': 2.0, 'p99': 9.0},
+             {'form': '000002', 'edid': 'B', 'female': False, 'mean': 3.0, 'p99': 12.0},
+             {'form': '000003', 'error': 'KeyError: x'}]
+    FC.texture_summary(lines)
+    out = capsys.readouterr().out
+    assert 'NPCs 3, errors 1, measured 2' in out and 'worst 3.00' in out
+    assert out.index('000002 B M') < out.index('000001 A F') and 'error 000003' in out
+
+
 def test_worst_part_skips_status_rows_and_the_summary_prints(capsys):
     """A part whose row is a status text is not measured; the summary counts it and lists the worst NPC."""
     line = {'form': '000001', 'edid': 'A', 'race': 'R',

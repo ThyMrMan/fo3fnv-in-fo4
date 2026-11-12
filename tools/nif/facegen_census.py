@@ -4,13 +4,18 @@ Reads a reference folder that holds the plugin the CK read and its FaceGeom NIFs
 (Meshes\\Actors\\Character\\FaceGenData\\FaceGeom\\<plugin>\\<id>.nif). Each NPC's head parts get their positions as
 facegeom.build gives them; per part it records the vertex count, our max and RMS distance to the CK's, the distance
 with no sculpt, and whether a sculpt applied. One JSON line per NPC goes to --out as it is measured, then the
-spread and the worst NPCs are printed. --summary reprints them from an existing --out.
+spread and the worst NPCs are printed. --summary reprints them from an existing --out. With --textures it
+instead compares each NPC's face _d (face_tint) with the CK's
+(Textures\\Actors\\Character\\FaceCustomization\\<plugin>\\<id>_d.dds) at TEXTURE_SIZE: mean and 99th
+percentile error per NPC.
 
 Usage:
   python -m tools.nif.facegen_census --ref temp/ck_facegen_reference_2026-11-12 --dirs <loose files> --out <jsonl>
+  python -m tools.nif.facegen_census --ref <same> --textures --out <jsonl>
   python -m tools.nif.facegen_census --summary <jsonl>
 
 See: docs/fork/fo4_facegen_plan.md#sculpt-census
+See: docs/fork/fo4_facegen_plan.md#face-d-decode
 """
 
 import argparse
@@ -21,8 +26,9 @@ import struct
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
-from fo4_import.face import facegeom
+from fo4_import.face import face_tint, facegeom
 from fo4_import.face.bake import positions
 from fo4_import.face.face_bones import Sculpt
 from fo4_import.nif import file as nif_file
@@ -32,15 +38,18 @@ from fo4_import.nif.blocks import pack_tri_shape
 BUCKETS = (0.005, 0.05, 0.1, 0.5, 1.0)
 #: Worst NPCs, and head parts (by their worst error), the summary lists.
 WORST, PARTS = 20, 40
+#: Square size --textures compares face _d textures at.
+TEXTURE_SIZE = 256
 STATE = {}
 
 
-def ck_files(ref: Path, plugin: str) -> list:
-    """[(local form id, path)] of every FaceGeom NIF the CK wrote for `plugin` under `ref`."""
-    root = next((p for p in ref.rglob('FaceGeom') if p.is_dir()), None)
+def ck_files(ref: Path, plugin: str, kind: str = 'FaceGeom', pattern: str = '*.nif') -> list:
+    """[(local form id, path)] of every file matching `pattern` the CK wrote for `plugin` under `ref`'s `kind`
+    folder (FaceGeom NIFs; FaceCustomization with '*_d.dds' for face diffuses)."""
+    root = next((p for p in ref.rglob(kind) if p.is_dir()), None)
     folder = next((d for d in root.iterdir() if d.name.lower() == plugin.lower()), None) if root else None
-    files = sorted(folder.glob('*.nif')) if folder else []
-    return [(int(f.stem, 16) & 0xFFFFFF, f) for f in files]
+    files = sorted(folder.glob(pattern)) if folder else []
+    return [(int(f.stem.split('_')[0], 16) & 0xFFFFFF, f) for f in files]
 
 
 def shape_points(nif) -> dict:
@@ -95,6 +104,37 @@ def measure(item: tuple) -> dict:
     return line
 
 
+def measure_d(item: tuple) -> dict:
+    """One NPC's face _d line: our face_tint against the CK's at TEXTURE_SIZE, mean and 99th percentile of the
+    per-channel absolute error (0..255), or its error."""
+    form, path = item
+    line = {'form': f'{form:06X}'}
+    try:
+        npc, race, female, _ = facegeom.npc_face(STATE['src'], STATE['plugin'], form)
+        line.update(edid=facegeom.zstr(npc.first(b'EDID', b'\0')), female=female)
+        ours = face_tint.face_diffuse(STATE['src'], npc, race, female, TEXTURE_SIZE)
+        ck = Image.open(path).convert('RGB').resize((TEXTURE_SIZE, TEXTURE_SIZE), Image.BILINEAR)
+        error = np.abs(ours * 255 - np.asarray(ck, np.float32))
+        line.update(mean=round(float(error.mean()), 3), p99=round(float(np.percentile(error, 99)), 2))
+    except (KeyError, ValueError, AttributeError, OSError, struct.error) as e:
+        line['error'] = f'{type(e).__name__}: {e}'
+    return line
+
+
+def texture_summary(lines: list) -> None:
+    """Print the spread of per-NPC mean _d error and the worst NPCs."""
+    rows = sorted((ln for ln in lines if 'mean' in ln), key=lambda ln: -ln['mean'])
+    means = np.array([ln['mean'] for ln in rows])
+    print(f'NPCs {len(lines)}, errors {len(lines) - len(rows)}, measured {len(rows)}')
+    if len(rows):
+        print(f'  mean of means {means.mean():.2f}, median {np.median(means):.2f}, '
+              f'p90 {np.percentile(means, 90):.2f}, worst {means.max():.2f}')
+    for ln in rows[:WORST]:
+        print(f"  {ln['form']} {ln.get('edid', '')} {'F' if ln.get('female') else 'M'} mean {ln['mean']} p99 {ln['p99']}")
+    for ln in [ln for ln in lines if 'error' in ln][:WORST]:
+        print(f"  error {ln['form']}: {ln['error']}")
+
+
 def worst_part(line: dict) -> tuple:
     """(max error, part) over a line's measured parts; (-1, '') when none was measured."""
     rows = [(row[1], name) for name, row in line.get('parts', {}).items() if isinstance(row, list)]
@@ -139,12 +179,15 @@ def summary(lines: list) -> None:
 def run(args) -> list:
     """Measure every CK FaceGeom under --ref (up to --max), writing lines to --out as they come."""
     plugin = args.plugin or next(args.ref.glob('*.es[mp]'))
-    items = ck_files(args.ref, plugin.name)[:args.max or None]
-    print(f'{len(items)} CK FaceGeom files for {plugin.name}', flush=True)
+    found = ck_files(args.ref, plugin.name, 'FaceCustomization', '*_d.dds') if args.textures else \
+        ck_files(args.ref, plugin.name)
+    items = found[:args.max or None]
+    print(f"{len(items)} CK {'face _d' if args.textures else 'FaceGeom'} files for {plugin.name}", flush=True)
     lines = []
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    work = measure_d if args.textures else measure
     with args.out.open('w') as out, multiprocessing.Pool(args.workers, _init, (plugin, [args.ref, *args.dirs])) as pool:
-        for i, line in enumerate(pool.imap_unordered(measure, items, chunksize=8), 1):
+        for i, line in enumerate(pool.imap_unordered(work, items, chunksize=8), 1):
             out.write(json.dumps(line) + '\n')
             lines.append(line)
             if i % 200 == 0:
@@ -163,11 +206,11 @@ def main(argv=None) -> None:
     p.add_argument('--max', type=int, default=0, help='measure only the first N NPCs')
     p.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 1))
     p.add_argument('--summary', type=Path, help='reprint the summary of an existing --out')
+    p.add_argument('--textures', action='store_true', help='measure the face _d (face_tint) instead of positions')
     args = p.parse_args(argv)
-    if args.summary:
-        summary([json.loads(x) for x in args.summary.read_text().splitlines() if x.strip()])
-        return
-    summary(run(args))
+    lines = [json.loads(x) for x in args.summary.read_text().splitlines() if x.strip()] if args.summary else run(args)
+    textures = args.textures or any('mean' in ln for ln in lines)
+    (texture_summary if textures else summary)(lines)
 
 
 if __name__ == '__main__':
