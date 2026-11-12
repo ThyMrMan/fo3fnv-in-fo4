@@ -47,9 +47,10 @@ package f3nv.levelup
       // Whether the perk page opens showing every perk (the MCM option).
       public var showAll:Boolean;
 
-      // F3NV_LevelUp.psc's Send, in its order: points, level, sex, cap; the perk tables and ranks held; the skill
+      // F3NV_LevelUp.psc's Built, in its order: points, level, sex, cap; the perk tables and ranks held; the skill
       // tables, values and tags; how many values are SPECIAL; the requirement rows' columns; the mode, the count
-      // and bonus; the trait tables and traits held; whether to show every perk at first.
+      // and bonus; the trait tables and traits held; whether to show every perk at first; each table's perk and
+      // row counts.
       public function Character(args:Array)
       {
          perkPoints = int(args[0]);
@@ -76,7 +77,7 @@ package f3nv.levelup
             skills.push({name: names[i], text: texts[i] || "", image: images[i] || "", tag: tag, tagged: tag > 0,
                          pending: 0});
          }
-         readRows(args.slice(17, 25));
+         readRows(args.slice(17, 25), split(args[33]), split(args[34]));
          mode = int(args[25]);
          wanted = int(args[26]);
          bonus = int(args[27]);
@@ -166,25 +167,51 @@ package f3nv.levelup
          return out;
       }
 
-      // The rows' columns (owner, kind, target, comparison, value, or-next, label, unlisted perk held), each row
-      // added to its perk's.
-      private function readRows(columns:Array) : void
+      // The rows' columns (owner, kind, target, comparison, value, or-next, label, then the indexes of the rows whose
+      // perk test, or the game's own test, passes), each row added to its perk's. Each table's (group's) rows count
+      // their owners, and their perk targets, from 0: they move to where the group's perks start, by `perkCounts` and
+      // `rowCounts`, one per group.
+      private function readRows(columns:Array, perkCounts:Array, rowCounts:Array) : void
       {
          var owners:Array = split(columns[0]), kinds:Array = split(columns[1]), targets:Array = split(columns[2]);
          var compares:Array = split(columns[3]), needs:Array = split(columns[4]), ors:Array = split(columns[5]);
-         var labels:Array = split(columns[6]), unlisted:Array = split(columns[7]);
+         var labels:Array = split(columns[6]), held:Object = {};
+         for each (var at:String in split(columns[7]))
+         {
+            held[int(at)] = true;
+         }
+         var moves:Array = groupStarts(perkCounts, rowCounts);
          for (var i:int = 0; i < owners.length; i++)
          {
-            var row:Object = {kind: int(kinds[i]), target: int(targets[i]), compare: int(compares[i]),
-                              need: Number(needs[i]), or: ors[i] == "1", label: labels[i] || "",
-                              unlisted: unlisted[i] == "1"};
+            var by:int = i < moves.length ? moves[i] : 0;
+            var kind:int = int(kinds[i]), target:int = int(targets[i]), owner:int = int(owners[i]);
+            var row:Object = {kind: kind, target: kind == PERK && target >= 0 ? target + by : target,
+                              compare: int(compares[i]), need: Number(needs[i]), or: ors[i] == "1",
+                              label: labels[i] || "", unlisted: held[i] == true};
             rows.push(row);
-            var owner:int = int(owners[i]);
+            owner = owner >= 0 ? owner + by : owner;
             if (owner >= 0 && owner < perks.length)
             {
                perks[owner].rows.push(row);
             }
          }
+      }
+
+      // Per row, where its group's perks start among every group's: group g has rowCounts[g] rows and perkCounts[g]
+      // perks, in order.
+      public static function groupStarts(perkCounts:Array, rowCounts:Array) : Array
+      {
+         var out:Array = [];
+         var first:int = 0;
+         for (var g:int = 0; g < rowCounts.length; g++)
+         {
+            for (var r:int = 0; r < int(rowCounts[g]); r++)
+            {
+               out.push(first);
+            }
+            first += int(perkCounts[g]);
+         }
+         return out;
       }
 
       // Skill `index`'s base value, and with the points set on it.

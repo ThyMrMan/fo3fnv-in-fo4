@@ -50,15 +50,27 @@ def test_the_script_and_movie_agree_on_events_and_calls():
     assert 'send("F3NV_LevelUpTraits", Character.mask(who.traits, "picked"), who.traits.length)' in MOVIE
 
 
-def test_send_hands_over_what_the_movie_reads():
-    """Send fills args[0] to args[32]; Character reads 17 values, 8 requirement columns (17-24), then the mode,
-    count, bonus, the trait tables (25-31) and the show-all option (32)."""
-    send = _function(SCRIPT, 'Send')
-    assert sorted(int(n) for n in re.findall(r'args\[(\d+)\] =', send)) == list(range(33)) and 'new Var[33]' in send
-    assert 'args[16]' in CHARACTER and 'readRows(args.slice(17, 25))' in CHARACTER
+def test_built_hands_over_what_the_movie_reads():
+    """Built fills args[0] to args[34] and Send hands them over; Character reads 17 values, 8 requirement columns
+    (17-24), then the mode, count, bonus, the trait tables (25-31), the show-all option (32) and each table's perk
+    and row counts (33, 34), which move the rows' owners and perk targets."""
+    built = _function(SCRIPT, 'Built')
+    assert sorted(int(n) for n in re.findall(r'args\[(\d+)\] =', built)) == list(range(35)) and 'new Var[35]' in built
+    assert 'UI.Invoke(MenuName, "root1.Open", args)' in _function(SCRIPT, 'Send')
+    assert 'args[16]' in CHARACTER and 'readRows(args.slice(17, 25), split(args[33]), split(args[34]))' in CHARACTER
     assert re.findall(r'split\(columns\[(\d)\]\)', CHARACTER) == [str(i) for i in range(8)]
-    assert sorted(int(n) for n in re.findall(r'args\[(2[5-9]|3\d)\]', CHARACTER)) == list(range(25, 33))
-    assert 'args[32] = ShowAllPerks' in send and 'showAll = who.showAll;' in MOVIE
+    assert 'for each (var at:String in split(columns[7]))' in CHARACTER
+    assert sorted(int(n) for n in re.findall(r'args\[(2[5-9]|3\d)\]', CHARACTER)) == list(range(25, 35))
+    assert 'args[32] = ShowAllPerks' in built and 'showAll = who.showAll;' in MOVIE
+
+
+def test_the_rules_gather_the_menus_data_while_the_pipboy_closes():
+    """ShowOurs prepares our menu (registering it) before listening and waiting, then opens it without the settling
+    wait a message box needs; Open gathers again only for a different open."""
+    shown = _function(RULES, 'ShowOurs')
+    assert shown.index('Prepare(aiMode, aiCount, aiBonus)') < shown.index('RegisterForMenuOpenCloseEvent(') \
+        < shown.index('WaitOutOfMenus(False)') < shown.index('.Open(aiMode, aiCount, aiBonus)')
+    assert 'Register()' in _function(SCRIPT, 'Prepare') and 'If !ready || mode != aiMode' in _function(SCRIPT, 'Open')
     modes = {m: int(v) for m, v in re.findall(r'Int Property (\w+)Mode = (\d)', SCRIPT)}
     assert modes == {'LevelUp': 0, 'Tags': 1, 'Traits': 2}
     assert all(f'{name}:int = {modes[mode]};' in CHARACTER
@@ -70,7 +82,7 @@ def test_the_rules_open_ours_in_place_of_level_up_menu():
     F3NV_LevelUp, and LevelUpMenuEx's menus are never opened."""
     opened = _function(RULES, 'OpenLevelUp')
     assert opened.index('UI.CloseMenu("LevelUpMenu")') < opened.index('TopUp()') < opened.index('ShowOurs(')
-    assert 'UI.CloseMenu("PipboyMenu")' in opened and 'WaitOutOfMenus()' in _function(RULES, 'ShowOurs')
+    assert 'UI.CloseMenu("PipboyMenu")' in opened and 'WaitOutOfMenus(False)' in _function(RULES, 'ShowOurs')
     assert 'asMenuName == "LevelUpMenu" && abOpening' in RULES and 'PRKF:PRKF.Open' not in RULES
     top_up = _function(RULES, 'TopUp')
     assert 'LevelUp().AddSkillPoints(whole)' in top_up and 'PRKF' not in top_up
@@ -132,11 +144,12 @@ def test_the_api_sends_its_events():
 
 
 def test_an_added_perk_is_described_and_tested_by_the_game():
-    """DescribeAdded fills every perk and row text (Text's 0-4, 8-15) for an added perk, its one row of kind 4,
-    which the movie's GAME kind is."""
+    """DescribeAdded fills every perk and row text (Text's 0-4, 8-14) for an added perk, its one row of kind 4,
+    which the movie's GAME kind is, listed as passed after every table's rows when the game's test passes."""
     described = _function(SCRIPT, 'DescribeAdded')
     filled = sorted(int(n) for n in re.findall(r'AddPart\((\d+),', described))
-    assert filled == [*range(5), *range(8, 16)] and 'AddPart(9, "4", j)' in described
+    assert filled == [*range(5), *range(8, 15)] and 'AddPart(9, "4", j)' in described
+    assert '"" + (tableRows + j)' in described
     assert 'public static const GAME:int = 4;' in CHARACTER and '"$F3NV_LU_OWN_TEST"' in CHARACTER
 
 

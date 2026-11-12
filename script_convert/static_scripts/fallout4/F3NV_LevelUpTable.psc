@@ -11,32 +11,38 @@ String Property PerkNames Auto Const
 {This plugin's listed perks' names, SEP between; PerkDescriptions and PerkImages (paths under Textures) alike.}
 String Property PerkDescriptions Auto Const
 String Property PerkImages Auto Const
-Int[] Property PerkLevels Auto Const
+String Property PerkLevels Auto Const
+{Each listed perk's level, SEP between.}
 Int[] Property PerkRanks Auto Const
-{Each listed perk's rank count; its ranks are the next that many of RankForms.}
+{Each listed perk's rank count; its ranks are the next that many of RankForms. PerkRanksText is the same, SEP between.}
+String Property PerkRanksText Auto Const
 Perk[] Property RankForms Auto Const
 Perk[] Property TraitForms Auto Const
 {This plugin's traits; TraitNames, TraitDescriptions and TraitImages line up, SEP between.}
 String Property TraitNames Auto Const
 String Property TraitDescriptions Auto Const
 String Property TraitImages Auto Const
-Int[] Property RequirementKinds Auto Const
-{One row per requirement of this plugin's perks: 0 an actor value, 1 the player's sex, 2 another perk, 3 the level. The
-other Requirement arrays line up with it.}
-Form[] Property RequirementForms Auto Const
-{The actor value or perk a row tests; None for sex and level.}
-Int[] Property RequirementCompares Auto Const
+String Property RequirementKinds Auto Const
+{One row per requirement of this plugin's perks, SEP between: 0 an actor value, 1 the player's sex, 2 another perk, 3
+the level. The other Requirement texts line up with it, written whole by the build so an open joins nothing.}
+String Property RequirementCompares Auto Const
 {0 ==, 1 !=, 2 >, 3 >=, 4 <, 5 <=.}
-Float[] Property RequirementValues Auto Const
-Int[] Property RequirementOr Auto Const
+String Property RequirementValues Auto Const
+String Property RequirementOr Auto Const
 {1 when a row ORs with the next.}
-Int[] Property RequirementOwners Auto Const
-{The row's perk's index among this table's listed perks; -1 for one not listed (a trait).}
-Int[] Property RequirementTargets Auto Const
+String Property RequirementOwners Auto Const
+{The row's perk's index among this table's listed perks; -1 for one not listed (a trait). The menu moves it to where
+this table's perks start among every table's.}
+String Property RequirementTargets Auto Const
 {Where the menu finds the tested value: an index into its values (SPECIAL then skills), or for a perk into this table's
-listed perks; -1 otherwise.}
+listed perks (moved as the owners are); -1 otherwise.}
 String Property RequirementLabels Auto Const
-{The tested actor value's or perk's name per row, SEP between ("" for sex and level).}
+{The tested actor value's or perk's name per row ("" for sex and level).}
+Int Property RowTotal Auto Const
+{How many rows the Requirement texts hold.}
+Int[] Property UnlistedRows Auto Const
+{The rows testing a perk this table does not list, by index; UnlistedPerks are those perks.}
+Perk[] Property UnlistedPerks Auto Const
 
 Event OnQuestInit()
   Register()
@@ -61,14 +67,13 @@ Int Function TraitCount()
 EndFunction
 
 Int Function RowCount()
-  Return CountOf(RequirementKinds)
+  Return RowTotal
 EndFunction
 
-String Function Text(Int aiWhich, Int aiFirstPerk)
-  {Table aiWhich as the menu reads it, SEP between: 0 to 4 the perks' names, descriptions, images, levels and rank
-  counts; 5 to 7 the traits' names, descriptions and images; 8 to 14 the rows' owners, kinds, targets, comparisons,
-  values, OR flags and labels; 15 UnlistedHeld. A row's owner, and a perk row's target, are moved to aiFirstPerk,
-  where this table's perks start among every table's.}
+String Function Text(Int aiWhich)
+  {Table aiWhich as the menu reads it, SEP between, as the build wrote it: 0 to 4 the perks' names, descriptions,
+  images, levels and rank counts; 5 to 7 the traits' names, descriptions and images; 8 to 14 the rows' owners, kinds,
+  targets, comparisons, values, OR flags and labels.}
   If aiWhich == 0
     Return PerkNames
   ElseIf aiWhich == 1
@@ -76,9 +81,9 @@ String Function Text(Int aiWhich, Int aiFirstPerk)
   ElseIf aiWhich == 2
     Return PerkImages
   ElseIf aiWhich == 3
-    Return IntsText(PerkLevels)
+    Return PerkLevels
   ElseIf aiWhich == 4
-    Return IntsText(PerkRanks)
+    Return PerkRanksText
   ElseIf aiWhich == 5
     Return TraitNames
   ElseIf aiWhich == 6
@@ -86,36 +91,19 @@ String Function Text(Int aiWhich, Int aiFirstPerk)
   ElseIf aiWhich == 7
     Return TraitImages
   ElseIf aiWhich == 8
-    Return Moved(RequirementOwners, aiFirstPerk, -1)
+    Return RequirementOwners
   ElseIf aiWhich == 9
-    Return IntsText(RequirementKinds)
+    Return RequirementKinds
   ElseIf aiWhich == 10
-    Return Moved(RequirementTargets, aiFirstPerk, 2)
+    Return RequirementTargets
   ElseIf aiWhich == 11
-    Return IntsText(RequirementCompares)
+    Return RequirementCompares
   ElseIf aiWhich == 12
-    Return FloatsText(RequirementValues)
+    Return RequirementValues
   ElseIf aiWhich == 13
-    Return IntsText(RequirementOr)
-  ElseIf aiWhich == 14
-    Return RequirementLabels
+    Return RequirementOr
   EndIf
-  Return UnlistedHeld(Game.GetPlayer())
-EndFunction
-
-String Function Moved(Int[] aiIndexes, Int aiBy, Int aiKind)
-  {aiIndexes, SEP between, each one 0 or more moved up by aiBy: every one when aiKind is -1, else a row of that kind.}
-  String out = ""
-  Int i = 0
-  While aiIndexes && i < aiIndexes.Length
-    Int at = aiIndexes[i]
-    If at >= 0 && (aiKind < 0 || RequirementKinds[i] == aiKind)
-      at += aiBy
-    EndIf
-    out = Joined(out, "" + at, i)
-    i += 1
-  EndWhile
-  Return out
+  Return RequirementLabels
 EndFunction
 
 String Function RanksHeld(Actor akPlayer, Int aiFrom, Int aiTo)
@@ -150,17 +138,17 @@ String Function TraitsHeld(Actor akPlayer, Int aiFrom, Int aiTo)
   Return out
 EndFunction
 
-String Function UnlistedHeld(Actor akPlayer)
-  {Per requirement row: for a perk test whose perk this table does not list (target -1), 1 when akPlayer has it, else
-  0; SEP between.}
-  String out = ""
+String Function UnlistedHeld(Actor akPlayer, Int aiFirstRow, String asOut)
+  {asOut with, SEP between, the index of each row testing a perk this table does not list that akPlayer has, moved to
+  aiFirstRow, where this table's rows start among every table's.}
   Int i = 0
-  While i < RowCount()
-    Bool has = RequirementKinds[i] == 2 && RequirementTargets[i] < 0 && akPlayer.HasPerk(RequirementForms[i] as Perk)
-    out = Joined(out, "" + (has as Int), i)
+  While UnlistedRows && i < UnlistedRows.Length
+    If akPlayer.HasPerk(UnlistedPerks[i])
+      asOut = Joined(asOut, "" + (aiFirstRow + UnlistedRows[i]), (asOut != "") as Int)
+    EndIf
     i += 1
   EndWhile
-  Return out
+  Return asOut
 EndFunction
 
 Bool Function Lists(Perk akPerk)
@@ -214,24 +202,3 @@ String Function Joined(String asText, String asEntry, Int aiIndex) Global
   Return asText + "\t" + asEntry
 EndFunction
 
-String Function IntsText(Int[] aiValues) Global
-  {aiValues, a tab between.}
-  String out = ""
-  Int i = 0
-  While aiValues && i < aiValues.Length
-    out = Joined(out, "" + aiValues[i], i)
-    i += 1
-  EndWhile
-  Return out
-EndFunction
-
-String Function FloatsText(Float[] afValues) Global
-  {afValues, a tab between.}
-  String out = ""
-  Int i = 0
-  While afValues && i < afValues.Length
-    out = Joined(out, "" + afValues[i], i)
-    i += 1
-  EndWhile
-  Return out
-EndFunction
