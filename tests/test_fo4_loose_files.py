@@ -69,3 +69,19 @@ def test_records_move_into_the_records_folder_and_the_newer_one_wins(tmp_path):
     old.write_text('newer copy')
     assert BF.moved_in(old).read_text() == 'newer copy' and not old.exists()
     assert BF.moved_in(tmp_path / 'none.txt') == tmp_path / BF.BOOKS / 'none.txt'
+
+
+def test_a_faces_run_packs_its_textures_without_pruning_the_builds(tmp_path, monkeypatch):
+    """pack_textures(prune=False) (the faces stage, which stages no texture) keeps the build's staged textures and
+    their signatures, and packs the new face texture with them."""
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(BP, 'write_textures', lambda named, archive, kept: archive.write_bytes(b'x'))
+    data = tmp_path / 'data'
+    assert BP.stage_texture(data, 'fnv/a.dds', lambda: ('sig-a', lambda target: target.write_bytes(b'a')))
+    assert BP.pack_textures(data, 'P.esm') == 1
+    face = data / 'Textures/Actors/Character/FaceCustomization/P.esm/00001234_d.dds'
+    face.parent.mkdir(parents=True)
+    face.write_bytes(b'f')
+    assert BP.pack_textures(data, 'P.esm', prune=False) == 2 and not face.exists()
+    manifest = BP._read_json(BP.staging_root(data) / BP.MANIFEST)
+    assert manifest['fnv/a.dds'][2] == 'sig-a'
