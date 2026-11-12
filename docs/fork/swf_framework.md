@@ -485,6 +485,9 @@ in one injected movie, with no `HUDMenu.swf` shipped by anyone.
 
 ## <a id="level-up"></a>Our own level-up menu (planned; icons built)
 
+The menu's features and order: [fo4_level_up_plan.md](fo4_level_up_plan.md).
+This section is the framework side.
+
 FNV's skills, perks, traits and tags go through LevelUpMenuEx today
 (Neanka: its own `LevelUpMenu.swf`, `PRKF.dll`, MCM config; unlicensed, one
 maintainer, a hard dependency). A menu of our own on f3ui would drop it and

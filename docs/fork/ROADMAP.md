@@ -319,6 +319,7 @@ project. Their last status is in the [development log](dev_log.md#character).
 | [spin_offs.md](spin_offs.md) | Releasing parts of F3NV.dll as mods anyone can use |
 | [dialogue_menu_mod.md](dialogue_menu_mod.md) | The dialogue menu as a standalone XDI replacement |
 | [swf_framework.md](swf_framework.md) | One Flash toolkit for our menus, and a Pip-Boy framework |
+| [fo4_level_up_plan.md](fo4_level_up_plan.md) | Our own level-up menu, replacing LevelUpMenuEx, with extras built in |
 | [dynamic_collision_mod.md](dynamic_collision_mod.md) | Collision that changes size while playing (crouch, swim) |
 | [fo4_tool_audit.md](fo4_tool_audit.md) | The converter audit before the whole-map build |
 | [dev_log.md](dev_log.md) | The development history up to the alpha |
