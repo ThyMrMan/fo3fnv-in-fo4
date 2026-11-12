@@ -892,6 +892,75 @@ publishable. The basis hash now covers the preset bases too. The refine round
 is per machine (it reads the CK's export) and is not published. The fits file
 must be re-exported and republished under version 3.
 
+## <a id="sculpt-regions"></a>Decoded: sculpt regions through the face bones (2026-11-12)
+
+**Code:** `fo4_import/face/face_bones.py`, called from `facegeom.build`.
+
+Our FaceGeom now moves each part's vertices by the NPC's sculpt regions
+(FMRI/FMRS) itself, as the CK does, without the CK. The mechanism, all read
+from vanilla files:
+
+- `meshes\actors\character\characterassets\humanracefacialboneregions{male,female}.txt`
+  is JSON: 32 regions per sex, each with `ID` (the FMRI value), `Name`, and
+  `BonesA`. Each bone has `Maxima` and `Minima` for Position xyz, Rotation
+  xyz (degrees) and Scale xyz. `Defaults` is all zero in vanilla. The race
+  record holds only FMRI and FMRN.
+- FMRS holds 9 floats: position xyz, rotation xyz, scale, then two unused
+  floats. A value v adds |v| times the bone's Maxima (v ≥ 0) or Minima,
+  summed over every region that names the bone. The single scale control
+  drives all three scale axes.
+- Bone `bone_X` in the JSON is node `skin_bone_X` in
+  `skeleton_facebones.nif` (`skeleton_female_facebones.nif`). A bone's node
+  becomes `local @ T(pos) @ Rz @ Ry @ Rx (negated angles) @ diag(1 + scale)`,
+  and the skeleton carries that down its hierarchy (`C_Chin` under
+  `C_MasterBot`, the eyelids under the eyes; scale reaches children too).
+- Every head part mesh has a `*_faceBones.nif` twin with the same vertices
+  (gap 0.0 on Doc's 12 parts), skinned to the face bones. Each bone's move in
+  its own frame (`rest⁻¹ @ moved`) is applied about the twin's bind
+  (BSSkin::BoneData), weighted by the twin's skin weights.
+- The twin's `CustomizationRemapData` (per vertex: 4 half weights and 4 bone
+  bytes) and `CustomizationRemapNewBonesData` rebind the vertices to body
+  bones (HEAD, Neck) after the bake. They don't change positions.
+
+Doc Mitchell (32 regions, no morph presets) against the CK's own export:
+
+| Part | Max | RMS |
+|---|---|---|
+| MaleHeadHuman | 0.044 | 0.0054 |
+| MouthShadowMale | 0.043 | 0.0103 |
+| HairMale08 | 0.041 | 0.0101 |
+| BigBeard20_Hairline | 0.035 | 0.0054 |
+| MaleHeadHumanRearTEMP | 0.032 | 0.0096 |
+| BigBeard20, MaleMouthHumanoidDefault, MaleNeckGore | 0.030 | 0.003–0.008 |
+| the four eye parts | 0.002 | ≤ 0.0005 |
+
+Without the sculpt the head is up to 0.37 off. 0.045 units is about 0.6 mm.
+
+The remainder is deterministic (left and right vertices match) but it is not
+a bone effect:
+
+- Vertices skinned to a single bone match within half-float precision.
+- Vertices whose bones are all unsculpted (neck, rear head) still move up
+  to 0.03. On the rear head the move is along mesh z only, and its sign
+  follows each vertex's weight-sum error (half weights summing to 1 ± 0.0003).
+- A free affine move per bone, fitted to the CK, lowers the error only
+  slightly (neck gore 0.0068 → 0.0058 RMS).
+
+Ruled out, each measured on Doc:
+
+- dual-quaternion blending (no change);
+- the race's body-weight bone scales (`humanracebonescales*.txt`, many times
+  worse when applied);
+- the chargen `.tri` morphs (0.0056 → 0.0054);
+- a frame mismatch between the skeleton and the binds (relative transforms
+  agree within 0.04°);
+- `skeleton.nif` in place of the facebones skeleton (0.07° apart);
+- rounding to half floats at character height.
+
+The vertex reader also learned eye data (`VA_EYE_DATA`, a float after the
+skin), which FO4 eye meshes carry. Before, every vertex after the first was
+read 4 bytes off.
+
 ## <a id="today"></a>How faces work today
 
 - The converted NPC record holds FO4 slider values: sculpt regions

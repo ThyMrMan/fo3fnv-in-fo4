@@ -1,6 +1,7 @@
 """An NPC's FaceGen head (FaceGeom NIF) assembled from its head part meshes, as the Creation Kit exports it.
 
-Each part's shape, skin and bone data are copied from its own mesh; the shader is the mesh's, filled in from its
+Each part's shape, skin and bone data are copied from its own mesh, its vertices moved by the NPC's sculpt
+regions (face_bones); the shader is the mesh's, filled in from its
 material, texture set and the NPC (hair colour, skin tone); the bone nodes stand at the race skeleton's bind
 positions scaled by the race's height. Scratch only: nothing in the build calls this yet.
 
@@ -16,6 +17,8 @@ import numpy as np
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.face.bake import positions, with_positions
+from fo4_import.face.face_bones import Sculpt
 from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import SHADER_DEFAULT, SHADER_ENVMAP, SHADER_FACEGEN, SHADER_GLOW, SHADER_HAIR_TINT
@@ -401,6 +404,13 @@ class Shape:
         return pack_av(self.av) + struct.pack('<4f3iQ', 0.0, 0.0, 0.0, 0.0, self.skin, self.shader, self.alpha,
                                               self.desc) + self.body
 
+    def sculpt(self, sculpt: Sculpt, model: str) -> None:
+        """Move the vertices by the NPC's sculpt regions, where the part has a twin they move."""
+        packed = self.pack()
+        points = sculpt.positions(model, len(positions(packed)))
+        if points is not None:
+            self.body = with_positions(packed, points)[len(packed) - len(self.body):]
+
 
 def _bone_names(mesh, shape: Shape) -> list:
     """The bone names a mesh's shape is skinned to."""
@@ -506,10 +516,13 @@ def bone_nodes(parts: list, skeleton: dict, height: float) -> list:
 def build(src: Sources, plugin: str, form_id: int) -> bytes:
     """The FaceGeom NIF bytes of NPC `form_id` (local id) of `plugin`."""
     npc, race, female, face = npc_face(src, plugin, form_id)
-    parts = []
+    sculpt, parts = Sculpt(src, npc, female), []
     for part in head_parts(src, npc, race, female):
-        mesh = nif_file.read(src.read('meshes\\' + zstr(part.first(b'MODL'))))
-        parts.append((part, mesh, Shape.of(mesh)))
+        model = zstr(part.first(b'MODL'))
+        mesh = nif_file.read(src.read('meshes\\' + model))
+        shape = Shape.of(mesh)
+        shape.sculpt(sculpt, model)
+        parts.append((part, mesh, shape))
     geom = FaceGeom(src, face, bone_nodes(parts, skeleton_nodes(src, race, female), race_height(race, female)))
     for part, mesh, shape in parts:
         geom.add(part, mesh, shape)
