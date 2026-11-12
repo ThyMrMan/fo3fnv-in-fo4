@@ -326,12 +326,12 @@ def test_voice_converts_each_recording_and_transcript_once(monkeypatch, tmp_path
 def test_an_unused_voice_file_waits_in_the_cache_and_comes_back_when_a_line_needs_it(tmp_path):
     """A build without line 2's voice type keeps its .fuz aside, not deleted; the next build needing it restores it
     instead of converting it again."""
-    voice, cache = tmp_path / 'Voice' / 'MaleAdult01', tmp_path / 'VoiceCache'
+    voice, cache, src = tmp_path / 'Voice' / 'MaleAdult01', tmp_path / 'VoiceCache', tmp_path / 'line.ogg'
     _write(voice / '1_1.fuz', b'one')
     _write(voice / '2_1.fuz', b'two')
-    assert V.remove_stale([(None, voice / '1_1.fuz', 'a')], [voice], cache) == 1
+    assert V.remove_stale([(src, voice / '1_1.fuz', 'a')], [voice], cache) == 1
     assert not (voice / '2_1.fuz').exists() and (cache / 'MaleAdult01' / '2_1.fuz').read_bytes() == b'two'
-    assert V.restore([(None, voice / '1_1.fuz', 'a'), (None, voice / '2_1.fuz', 'b')], cache) == 1
+    assert V.restore([(src, voice / '1_1.fuz', 'a'), (src, voice / '2_1.fuz', 'b')], cache) == 1
     assert (voice / '2_1.fuz').read_bytes() == b'two' and not (cache / 'MaleAdult01' / '2_1.fuz').exists()
 
 
