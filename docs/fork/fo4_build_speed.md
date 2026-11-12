@@ -866,3 +866,23 @@ scoped build first: one small area, fewer workers and a job cap around
 - A mod converted against one release's journal and a game rebuilt with
   another: the same question as in
   [mod builds](fo4_mod_builds.md#open).
+- <a id="native-candidates"></a>**Idea, not started: profile first, then move
+  the plain-Python hot spots to native code.** A wholesale move off Python
+  would not pay: the measured wins so far came from work done once instead of
+  many times, not from language speed ([routes not taken](#left-out)). Profile
+  one whole base build split into plain Python, numpy and waiting (files, the
+  Creation Kit), and look at a stage only when plain Python dominates.
+  Candidates already in view:
+  - **The export index's memory.** Some pool tools load about 2.1 GB per
+    worker, a copy per process. Options: a compact memory-mapped store that
+    all workers share, or Python 3.14's free-threaded build so workers share
+    one copy (only if numpy and the other libraries support it).
+  - **Mesh reading and writing.** Move the inner loops of our NIF reader into
+    `native/` beside `nifgeom`. The Frontier needed 982 s for 13,625 meshes,
+    and one 61 MB mesh used 738 MB to read with pyffi.
+  - **Per-item maths over large sets:** AnimTextData's 19,149 clip records
+    (about 5 min on a first build), the overlay check, collision.
+
+  The cost: every native part must be built and shipped for each platform the
+  app supports. Wait until the Creation Kit replacements have been measured
+  in real overnight rebuilds.
