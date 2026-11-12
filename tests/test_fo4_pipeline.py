@@ -218,7 +218,8 @@ def test_the_stamp_says_running_then_finished_or_failed(tmp_path, monkeypatch):
     out = tmp_path / 'FalloutNV.esm'
     seen = []
     monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path, keep_loose=False,
-                                                                  resources='low'))
+                                                                  resources='low', light=False,
+                                                                  switch_plugin_type=False))
     for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
         monkeypatch.setattr(RUN, name, lambda *a: None)
     monkeypatch.setattr(RUN, 'estimate', lambda args: lambda stage, seconds: None)

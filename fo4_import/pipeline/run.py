@@ -165,12 +165,12 @@ def main():
     See: docs/fork/fo4_pipeline.md#main-archive
     """
     args = arguments()
-    args.choice = choose(args.out, args.light, args.switch_plugin_type)
     if args.resources:
         os.environ[build_resources.ENV_VAR] = args.resources
     hold_heavy_lock(' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]))
     configure_multiprocessing()
     create_pool_job()
+    args.choice = choose(args.out, args.light, args.switch_plugin_type)
     stop_sampling = sample()
     print(resources_line())
     print(f'loose files restored from the Main archive: {restore_packed(args.data, args.out.name)}')
