@@ -813,6 +813,29 @@ def test_texture_zero_draws_fnvs_default_land_texture_not_fo4s():
     assert written == [ext.textures['00000A8A']]
 
 
+def test_a_land_layer_with_no_share_is_left_out_and_the_next_takes_its_number():
+    """A kept texture whose shares are all under MIN_SHARE writes no ATXT/VTXT (vanilla's 37,020 LANDs have none;
+    Black Landscape Fix strips them as invalid); the layer after it is numbered 0; counted."""
+    ext = EX.Exterior.__new__(EX.Exterior)
+    ext._ltex = lambda builder, texture, data_dir: int(texture, 16)
+    builder = SimpleNamespace(counts=Counter(), fnv_id=lambda fid: 0x01000800)
+    full, empty, half = (np.full(LL.QUAD_POINTS, s) for s in (1.0, 0.0, 0.5))
+    mix = {q: [('10', full), ('20', empty), ('30', half)] for q in range(4)}
+    subs = list(_fo4_subrecords(ext._land(builder, {'FormID': '00000800'}, mix, None)[24:]))
+    atxt = [struct.unpack('<IBBH', d) for tag, d in subs if tag == b'ATXT']
+    assert atxt == [(0x30, q, 0, 0) for q in range(4)] and sum(tag == b'VTXT' for tag, _ in subs) == 4
+    assert builder.counts['land alpha layers left out (no share)'] == 4
+
+
+def _fo4_subrecords(raw: bytes):
+    """(tag, data) of packed subrecords `raw`."""
+    at = 0
+    while at < len(raw):
+        tag, size = raw[at:at + 4], struct.unpack_from('<H', raw, at + 4)[0]
+        yield tag, raw[at + 6:at + 6 + size]
+        at += 6 + size
+
+
 def _mixes(left: dict, right: dict) -> dict:
     """A cell: bottom quadrants `left`, `right` ({texture: share}), top ones 'a'."""
     flat = lambda shares: {t: np.full(LL.QUAD_POINTS, s) for t, s in shares.items()}

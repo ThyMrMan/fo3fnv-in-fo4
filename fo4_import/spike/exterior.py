@@ -236,7 +236,10 @@ class Exterior:
 
     def _land(self, builder, rec: dict, mix: dict, data_dir: Path) -> bytes:
         """The FO4 LAND of FNV LAND `rec`: its vertex data and, per quadrant, its limited `mix` (land_layers): the
-        heaviest texture as the base (FO4 draws the base first), the rest as alpha layers with their shares."""
+        heaviest texture as the base (FO4 draws the base first), the rest as alpha layers with their shares; a layer
+        with no share over MIN_SHARE is left out (counted), as vanilla never writes one.
+        See: docs/fork/fo4_spikes.md#empty-land-layers
+        """
         subs = pack_subrecord('DATA', struct.pack('<I', int(rec.get('DATA.Flags', 0))))
         subs += b''.join(pack_subrecord(t, bytes.fromhex(rec[t])) for t in ('VNML', 'VHGT', 'VCLR') if rec.get(t))
         for quad in range(4):
@@ -244,7 +247,9 @@ class Exterior:
             for texture, shares in mix[quad]:
                 fo4 = self._ltex(builder, texture, data_dir)
                 layers[fo4] = layers.get(fo4, 0) + shares
-            (base, _), *alpha = layers.items()
+            (base, _), *every = layers.items()
+            alpha = [(fo4, shares) for fo4, shares in every if (shares > MIN_SHARE).any()]
+            builder.counts['land alpha layers left out (no share)'] += len(every) - len(alpha)
             subs += pack_subrecord('BTXT', struct.pack('<IBBh', base, quad, 0, BASE_LAYER))
             for layer, (fo4, shares) in enumerate(alpha):
                 subs += pack_subrecord('ATXT', struct.pack('<IBBH', fo4, quad, 0, layer))
