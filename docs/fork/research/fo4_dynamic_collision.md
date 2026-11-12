@@ -57,6 +57,35 @@ RVAs from `Fallout4.exe.unpacked.exe`; full reading in
 - **Unused keyword.** `ScaleCustomCharController_DO` (`00249F53`) scales
   only the custom capsule, which human actors do not use.
 
+## The second shape slot (read 2026-11-11)
+
+From `Fallout4.exe.unpacked.exe` 1.11.240 (RVAs):
+
+- **Applying a setup** (`0x1899320`, called only from the controller's
+  apply-setup function at `0x1899280`, which also copies the setup's other
+  fields onto the controller): takes the setup's two shapes (setup `+0x80`,
+  `+0x88`) into the controller's slots (`+0x360`, `+0x368`, ref-counted).
+  Then, if the setup's wanted index (setup `+0x50`, below 2) differs from
+  the controller's (`+0x354`) and that slot holds a shape, it stores the
+  index and calls the controller's virtuals `0x198` (with a scratch buffer)
+  and `0x218` (with the result of `0xd4b6f0(controller)` and the same
+  buffer): the switch.
+- **Building a setup's shape** (`0x1892de0`, called only from the setup
+  builder `0xcbfdb0`): stores the shape it makes in the slot named by setup
+  `+0x50` (`[setup + index*8 + 0x80]`), and only that one.
+- **So:** each build fills one slot, and the switch runs only when a setup is
+  applied, at controller creation. No other caller of the switch was found
+  (direct calls and stored pointers scanned). Vanilla almost certainly never
+  fills or uses slot 1 while playing; [spike 1](../dynamic_collision_mod.md#spikes)
+  confirms in game.
+- **For the mod:** give the controller a second shape in slot 1 and switch
+  with the same two virtuals the engine uses. What the scratch buffer and
+  `0xd4b6f0` are (likely the physics world, for the shape change) is the
+  next read, before spike 3.
+- Tool note: `tools/disasm/skyrim_xref.py` returned no callers on the FO4 exe
+  even for a call visible in the disassembly; a plain scan for `E8`/`E9`
+  calls and stored pointers found them.
+
 ## What a mod would still need
 
 - Find what the second shape slot is for, and what selects it.

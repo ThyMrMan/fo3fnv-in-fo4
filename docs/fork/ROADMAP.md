@@ -15,8 +15,11 @@ Fallout 3 has a first spike, Vault 101 and its opening, not yet played
 ([FO3 spike](fo4_fo3_plan.md)). Install steps are in the
 [README](../../README.md#install).
 
-The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
-`F3NV.dll`, and the DLC and pack plugins built on it.
+The page describes the 2026-11-12 build of `FalloutNV.esm`,
+`FalloutHelpers.esl` and `F3NV.dll`, and the DLC, pack and mod plugins built
+on it. That build is the first made with our own AnimTextData writer in
+place of the Creation Kit, and it took 32 minutes against 45 the night
+before.
 
 **States:**
 
@@ -60,7 +63,7 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
 | Hair and eyes | The closest Fallout 4 hair, beard and eyes for each NPC | Works | The match by hairstyle works. The fix for stretched long hair isn't checked. | [hair](fo4_spikes.md#hair-styles) |
 | Outfits and clothing | New Vegas's clothes and armor fitted onto Fallout 4's body | Partial | 21 of 98 armors use Fallout 4 stand-in models. The wrist seam shows, loose cloth sits off the body, and cut-off limbs don't cut the clothes. | [clothing](fo4_build_next.md#human-clothing) |
 | Headgear | Hats, masks and glasses on New Vegas's own models | Works | | [headgear](fo4_spikes.md#spike-4-headgear) |
-| Own FaceGen heads and hair | New Vegas's full face shape, face color and own hairstyles, written without the Creation Kit | Planned | Faces read rounder and more generic than New Vegas's: the sliders reach about 70% of the shape. | [facegen plan](fo4_facegen_plan.md) |
+| Own FaceGen heads and hair | Each NPC's face files written by the build itself instead of the Creation Kit, plus mods' own hairstyles | Partial | The face mesh file is rebuilt byte for byte (on the faces branch, not merged). Next: the slider shapes and the face textures, checked against the Creation Kit's export of all 2,382 New Vegas faces. The remaining Fallout 4 face shape is accepted drift (Willow, 2026-11-11). The Creation Kit's export takes 3.8 hours for `FalloutNV.esm` and can hang on exit. | [facegen plan](fo4_facegen_plan.md#ck-exit-hang) |
 | Body choice (CBBE, BodySlide) | Choosing which body converted outfits fit | Not built | Only the vanilla body. With CBBE installed, bare skin in converted outfits looks scrambled. | [body plan](fo4_bodies_cbbe.md) |
 | Super mutants and nightkin | New Vegas's mutants in their own armor | Partial | Fallout 4's mutant body and head, tinted, under New Vegas's armor. Pistols, the Multiplas rifle, shotguns, the gatling laser and the railway rifle map to super mutant animations (built, not played); grenade launchers still fight unarmed. | [super mutants](fo4_build_next.md#super-mutants) |
 | Ghouls and glowing ones | Feral ghouls, and glowing ones with their aura and healing | Works | | [ghouls](fo4_creature_audit.md#ghouls) |
@@ -196,7 +199,7 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
 | Slots | The Strip's and the Sierra Madre's slot machines, on our own 2D menu | Works | Spins pay out and take chips. Luck, comps levels, the floor managers' dialogue and the Sierra Madre's machines aren't checked. Spins don't count toward the challenge yet. | [slots](fo4_casino_plan.md#slots-built) |
-| Roulette | The Strip's and the Sierra Madre's roulette tables, on our own 2D menu | Built, not played | Click a spot to bet, click it again to take the chips off. Pays as New Vegas does, its 0 and 00 quirks included. No spin animation or sounds; no gamepad cursor over the board. Spins don't count toward the challenge yet. | [roulette](fo4_casino_plan.md#roulette-built) |
+| Roulette | The Strip's and the Sierra Madre's roulette tables, on our own 2D menu | Works | Click a spot to bet, click it again to take the chips off. Pays as New Vegas does, its 0 and 00 quirks included. No spin animation or sounds; no gamepad cursor over the board. Spins don't count toward the challenge yet. | [roulette](fo4_casino_plan.md#roulette-built) |
 | Blackjack | The Strip's and the Sierra Madre's blackjack tables | Not built | A table says the game isn't playable yet; the casino's ban and the anti-cheat wait already apply. | [plan](fo4_casino_plan.md#records-built) |
 | Casino menu test | A console test screen for the new menu (`cqf FNV_Casino Spike`) | Works | Keys, mouse, text and images work in a menu of our own. Drawing it in your HUD color is built, not played (white without F3NV.dll). | [spike](fo4_casino_plan.md#toolchain-found) |
 | Caravan | New Vegas's card game | Not built | Picked-up cards join your collection; asking to play says the game isn't playable yet (or that you need 30 cards). | [plan](fo4_casino_plan.md#records-built) |
@@ -215,7 +218,7 @@ The page describes build 1107i of `FalloutNV.esm`, `FalloutHelpers.esl` and
 | Conversion app | Converts your New Vegas install for Fallout 4 | Partial | Setup, Convert and Replacements screens are built, not tested end to end. DLC and mod folders convert from the app too ([DLC and mods](fo4_gui.md#addons)); the Finished screen checks the install, sets the output up in Mod Organizer and plays ([buttons](fo4_gui.md#mo2-setup)), and the F4SE plugin and faces are stages. None of this run from the app yet. | [phases](fo4_gui.md#phases) |
 | Installing | The README's steps for testers | Built, not played | Never followed end to end on a clean machine. | [install](../../README.md#install) |
 | Replacements | Swapping converted items or creatures for Fallout 4's or other mods' versions | Partial | The table and its screen work, empty by default. Named profiles and a Wabbajack modlist aren't built. | [replacements](fo4_replacements.md#direction) |
-| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into a scratch folder, not played. The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. | [FO3 spike](fo4_fo3_plan.md) |
+| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into its own MO2 profile, not played; rebuilt 2026-11-12 with crime ignored during character creation (`IgnoreCrime`, `SetInCharGen`). The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. | [FO3 spike](fo4_fo3_plan.md) |
 
 ## Known bugs a player will see
 
@@ -261,12 +264,16 @@ Please report what you find in
   steps ([phases](fo4_gui.md#phases)).
 - **Build checks:** the dialogue menu audit and the rest of the timing audit
   ([menu](fo4_menu_audit.md), [timing](fo4_timing_audit.md)).
-- **Mod builds:** convert one mod against a built game
-  ([plan](fo4_mod_builds.md)).
+- **Mod builds:** about 20 New Vegas mods (YUP, NVMIM, Willow, the New Vegas
+  Bounties series, JSawyer Ultimate and others) convert against the built game
+  and rebuild overnight; none played yet ([plan](fo4_mod_builds.md)).
 - **Load order:** converted mods in the user's FNV order, a conflict report,
   a merged patch and LOOT rules ([plan](fo4_load_order.md)).
-- **Build time:** faster face fits, caches that survive unrelated edits, mod
-  builds that reuse the game build ([plan](fo4_build_speed.md)).
+- **Build time:** the game build is down to 32 minutes. Converted voice
+  lines, finished meshes and face fits are cached, mod builds reuse their
+  masters' finished meshes, and build records live outside the Data folder.
+  Still to come: profiling, then moving the hot spots to native code
+  ([plan](fo4_build_speed.md)).
 - **Differences from New Vegas** that could be closed later: attack and equip
   speed perks, looting routines, per-pellet DT, Long Haul and Miss Fortune
   ([drift](fo4_drift.md)).
@@ -283,8 +290,8 @@ Please report what you find in
 | [Spin-off mods](spin_offs.md) from F3NV.dll (framework, content mods, dynamic collision) | Planned, not started; the dialogue menu goes first. [Strategy](spin_offs.md#strategy): open, drop-in replacements for XDI, then HUDFramework; waiting on the author's reply about licenses |
 | [Dialogue menu as its own mod](dialogue_menu_mod.md) (XDI replacement) | Planned, not started; first step is the own-movie spike |
 | [Our own Flash menu framework](swf_framework.md) (dialogue, casino, Pip-Boy) | Spikes 1, 2b and 3 played (spike 1: the casino on `mxmlc` and the first `f3ui` classes). The dialogue menu's own movie played (looks the same as before), then moved onto `mxmlc` and `f3ui` (built, not played; FFDec build route deleted). Spike 5 (translation files, named after FalloutHelpers.esl) played: translation works, an untranslated key shows raw, `$` text needs `Text.show`. Spike 4 (our movie loaded into the Pip-Boy by F3NV.dll, one item-card line) played under the vanilla Pip-Boy; FallUI Inventory not yet tried |
-| [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned, not started; first spike is a vanilla sneak-headroom test |
-| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | Texture BA2 without Archive2 and loudness lips built, not built in game; Caprica only is blocked by one Caprica gap; the rest are ideas |
+| [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned. Second shape slot read (free for us); next: the vanilla sneak test and a repo with a plugin that loads ([build-out](dynamic_collision_mod.md#build-out)) |
+| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own convex collision writer matches Elric on 177 of 228 test meshes; it isn't in the build yet. FaceGen is in progress (see Own FaceGen heads above) |
 
 ## <a id="inherited"></a>The inherited Skyrim converter
 

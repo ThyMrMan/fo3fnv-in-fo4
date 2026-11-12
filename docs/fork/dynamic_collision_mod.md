@@ -48,9 +48,10 @@ Skyrim's physics is Havok 2010 (`hkp*`); FO4's is Havok 2014's new physics
 
 ## <a id="unknown"></a>What we don't know
 
-1. **What the second shape slot is for** and what selects it. If it's a
-   sneak shape, or can become one, the mod is mostly "give the controller a
-   smaller second shape".
+1. ~~What the second shape slot is for.~~ Read: the engine can hold two
+   shapes and switch, but fills and switches only at controller creation;
+   slot 1 is free for us ([the read](research/fo4_dynamic_collision.md#the-second-shape-slot-read-2026-11-11)).
+   Still open: what the switch's scratch buffer and `0xd4b6f0` are.
 2. **Changing a shape while playing:** whether the controller's own swap is
    safe at any time, and what the physics world needs (locking, contact
    refresh) when a shape changes.
@@ -74,7 +75,8 @@ Each is one change, played or measured.
    No build needed.
 2. **Read the second slot:** find what writes slot 2 and what asks for
    index 1 (disassembly from `0x1899320` and the setup at `0xcbfdb0`);
-   name the trigger.
+   name the trigger. Read 2026-11-11: nothing does while playing
+   ([the read](research/fo4_dynamic_collision.md#the-second-shape-slot-read-2026-11-11)).
 3. **Swap by hand:** a test DLL that, on a hotkey, gives the player's
    controller a smaller second shape (three capsules built with the game's
    own `0x189ee10`) and switches the index. Measured on the step map: does
@@ -87,6 +89,55 @@ Each is one change, played or measured.
 Spikes 1 and 2 need no DLL. Spikes 3–5 can run on a throwaway test DLL
 with raw 1.11.240 addresses; the release moves to the
 [shared base](spin_offs.md#runtime).
+
+## <a id="build-out"></a>Build-out
+
+Its own repo from day one; nothing here touches the converter or its
+builds, so it runs beside the FO4 sessions without colliding.
+
+### Phase 0: repo and a plugin that loads
+
+1. **Repo** (name to pick) with `LICENSE`, `EXCEPTIONS` and a short
+   `NOTICE` ([license](spin_offs.md#license)), README, `.gitignore`.
+2. **Build:** CMake + vcpkg, LucaDotGit CommonLibF4 "AV" as a submodule or
+   vcpkg port, Visual Studio 2022 (Community's `vcvars64`, as the converter's
+   DLLs need). One command builds `<Name>.dll`.
+3. **Hello plugin:** loads under F4SE on 1.11.240, writes its version and
+   the game version to its log, declares Address Library use. Proves the
+   toolchain before any hook.
+4. **Address Library IDs** for the functions we use (controller setup,
+   setup builder, capsule builder, apply-setup, the switch's helper):
+   look each RVA up in the 1.11.240 database, then match the 1.10.163 and
+   1.10.984 IDs.
+5. **Deploy:** a small script that copies the built DLL and INI into an MO2
+   mod folder (`<Name> - dev`), separate from the F3NV mods.
+
+### Phase 1: spikes ([list](#spikes))
+
+- Spike 1 (vanilla sneak test) can run any time; it needs only the user.
+- Read the switch's scratch buffer and `0xd4b6f0`, then spike 3 (hotkey
+  swap) as the first real code in the Phase 0 plugin, then spikes 4 and 5.
+- **A test cell of our own:** the converter's step map is converter code,
+  so build a small ESP with marked openings (heights 90 to 140 in steps of
+  10, a vent, a low pipe) in the Creation Kit or from a script; it becomes
+  the demo cell shipped with the mod.
+
+### Phase 2: first release (player crouch)
+
+- Sneak lowers the player's collision; leaving sneak under a low ceiling
+  stays crouched; INI settings; log; every hook checks its bytes.
+- Played on 1.11.240, then 1.10.984 and 1.10.163, with keyboard and a
+  controller; with and without our FNV build's lowered skeleton box.
+- Nexus as a beta: requirements, demo cell, source link, open permissions.
+
+### Phase 3: more states and an API
+
+Swimming, power armor, the Papyrus API and events, MCM page, debug view.
+
+### Phase 4: further
+
+NPCs (rigid body controllers), the scale fix, VR with the
+[VR build](spin_offs.md#platforms).
 
 ## <a id="design"></a>Design
 
