@@ -6283,7 +6283,7 @@ def test_fallout3_islimbgone_negative_argument_and_or_chain():
     """
     out = _fo3('if IsLimbGone -1 || IsLimbGone 0 || IsLimbGone 1\nelse\n  resurrect\nendif')
     assert 'If 0 || 0 || 0' in out
-    assert 'TODO: IsLimbGone -1' in out
+    assert ';NE: IsLimbGone -1 - Skyrim has no dismemberment query' in out
 
 
 def test_fallout3_inverse_trig_flag():
