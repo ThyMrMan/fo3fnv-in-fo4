@@ -111,7 +111,7 @@ def test_a_mesh_a_master_finished_alike_is_left_out_and_its_mark_recorded(tmp_pa
     monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
     monkeypatch.setattr(EC.elric, 'finish', lambda paths, run, names: [p for p in paths if p.read_bytes() == b'b'])
     monkeypatch.setattr(EC, 'MARKS', {})
-    monkeypatch.setattr(EC, 'LEFT', [])
+    monkeypatch.setattr(EC, 'LEFT', {})
     paths = [tmp_path / 'a.nif', tmp_path / 'b.nif', tmp_path / 'c.nif']
     for p in paths:
         p.write_bytes(p.stem.encode())
@@ -119,7 +119,9 @@ def test_a_mesh_a_master_finished_alike_is_left_out_and_its_mark_recorded(tmp_pa
     theirs = {k: v for k, v in EC.MARKS.items() if not k.endswith('c.nif')}
     theirs[os.path.normcase(str(paths[2]))] = ['other', True]
     assert EC.finish(paths, theirs) == [paths[1]]
-    assert EC.LEFT == paths[:2] and not paths[0].exists() and paths[2].read_bytes() == b'c'
+    assert list(EC.LEFT) == [os.path.normcase(str(p)) for p in paths[:2]]
+    assert not paths[0].exists() and paths[2].read_bytes() == b'c'
+    assert EC.mesh_bytes(paths[0]) == b'a'
 
 
 def test_a_dependent_build_trusts_mesh_records_only_when_every_master_has_one(tmp_path):

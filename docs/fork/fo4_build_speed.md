@@ -478,7 +478,12 @@ its masters' meshes again in its own Main archive. In Strip Lights that was
 - A dependent build reads its masters' records (`master_copies.theirs`). In
   `_collision` it neither writes nor finishes a mesh whose master gives the
   same mark (`elric_cache.LEFT`), and it deletes any copy already in its
-  folder.
+  folder. Steps after `_collision` can still read such a mesh:
+  `mesh_bytes` returns its finished copy from the `elric_finish` cache.
+  Before this, Dead Money's 2026-11-12 build crashed. A repair list in
+  `_closing_records` made the lingerie outfit's armor, which reads its world
+  mesh `fnv\armor\lingerie\go.nif` for texture swaps, and that file had
+  just been left to the game's archive.
 - The records count only when every master in another folder has one, the
   last master's winning. So a master built before this change cannot hide a
   different copy of the same path.
