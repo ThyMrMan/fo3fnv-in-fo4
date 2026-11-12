@@ -201,11 +201,14 @@ def vanilla_face_texture(path: Path) -> bool:
 
 
 def _texconv(rgba: np.ndarray, *options: str) -> bytes:
-    """`rgba` as DDS bytes, through the CK's texconv with `options`."""
+    """`rgba` as DDS bytes, through the CK's texconv with `options`, handed over as an uncompressed TGA.
+
+    See: docs/fork/fo4_facegen_plan.md#own-stage-speed
+    """
     with tempfile.TemporaryDirectory() as tmp:
-        png = Path(tmp) / 'texture.png'
-        Image.fromarray(rgba, 'RGBA').save(png)
-        subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(png)], check=True, capture_output=True,
+        tga = Path(tmp) / 'texture.tga'
+        Image.fromarray(rgba, 'RGBA').save(tga)
+        subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(tga)], check=True, capture_output=True,
                        timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
         return (Path(tmp) / 'texture.dds').read_bytes()
 

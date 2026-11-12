@@ -29,6 +29,10 @@ DEFAULT, MULTIPLY, OVERLAY, SOFT_LIGHT, HARD_LIGHT = range(5)
 COLOUR_LAYER = 1
 #: Per FaceCustomization texture besides _d: (face set slot it starts from, position of an option's own TTET).
 MAPS = {'msn': (1, 1), 's': (7, 2)}
+#: The whole image as an index: every row and column.
+WHOLE = (slice(None), slice(None))
+#: RGBA channel whose zeros leave the face untouched: red masks a colour layer, alpha a value-only layer.
+RED, ALPHA = 0, 3
 
 
 @dataclass(frozen=True)
@@ -141,12 +145,33 @@ def colour_of(src: facegeom.Sources, race: facegeom.Rec, option: Option, layer: 
     return np.array(layer.colour, np.float32) / 255, 1.0, option.blend
 
 
-@functools.lru_cache(maxsize=24)
-def texture(src: facegeom.Sources, path: str, size: int) -> np.ndarray:
-    """A texture under textures\\ as float RGBA 0..1 at `size` square (bilinear)."""
+def image(src: facegeom.Sources, path: str, size: int) -> np.ndarray:
+    """A texture under textures\\ as RGBA uint8 at `size` square (bilinear)."""
     img = Image.open(io.BytesIO(src.read('textures\\' + path))).convert('RGBA')
     img = img if img.size == (size, size) else img.resize((size, size), Image.BILINEAR)
-    return np.asarray(img, np.float32) / 255
+    return np.asarray(img)
+
+
+@functools.cache
+def crop(src: facegeom.Sources, path: str, size: int, area: tuple) -> np.ndarray:
+    """`area` of image(), kept for the process: only the part a layer draws is held.
+
+    See: docs/fork/fo4_facegen_plan.md#own-stage-speed
+    """
+    return image(src, path, size)[area].copy()
+
+
+def texture(src: facegeom.Sources, path: str, size: int, area: tuple = WHOLE) -> np.ndarray:
+    """crop() as float RGBA 0..1."""
+    return np.asarray(crop(src, path, size, area), np.float32) / 255
+
+
+@functools.cache
+def painted(src: facegeom.Sources, path: str, size: int, channel: int) -> tuple:
+    """Slices of image()'s smallest box holding `channel`'s nonzeros, or None."""
+    values = image(src, path, size)[..., channel]
+    rows, cols = np.flatnonzero(values.any(1)), np.flatnonzero(values.any(0))
+    return (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1)) if len(rows) else None
 
 
 def apply(out: np.ndarray, option: Option, layer: Layer, rgba: np.ndarray, layer_colour=None) -> np.ndarray:
@@ -197,29 +222,43 @@ class Face:
         return size or Image.open(io.BytesIO(self.src.read('textures\\' + path))).size[0]
 
 
+def area(face: Face, option: Option, layer: Layer, size: int):
+    """Where a layer can change the _d: WHOLE for skin tone, else painted()."""
+    if layer.kind == COLOUR_LAYER and option.slot == SKIN_TONE_SLOT:
+        return WHOLE
+    return painted(face.src, option.texture, size, RED if layer.kind == COLOUR_LAYER else ALPHA)
+
+
 def face_diffuse(face: Face, size: int = None) -> np.ndarray:
-    """The NPC's face _d as float RGB 0..1 at `size` square (default: its face set diffuse's size)."""
+    """The NPC's face _d as float RGB 0..1 at `size` square (default: its face set diffuse's size); each layer is
+    drawn only inside its area().
+
+    See: docs/fork/fo4_facegen_plan.md#own-stage-speed
+    """
     base_path = face.slots()[0]
     size = face.size(base_path, size)
-    out = texture(face.src, base_path, size)[..., :3].copy()
+    out = texture(face.src, base_path, size)[..., :3]
     for option, layer in face.layers():
-        if option.texture or option.slot == SKIN_TONE_SLOT:
-            rgba = texture(face.src, option.texture, size) if option.texture else None
+        at = area(face, option, layer, size) if option.texture or option.slot == SKIN_TONE_SLOT else None
+        if at is not None:
+            rgba = texture(face.src, option.texture, size, at) if option.texture else None
             colour = colour_of(face.src, face.race, option, layer) if layer.kind == COLOUR_LAYER else None
-            out = apply(out, option, layer, rgba, colour)
+            out[at] = apply(out[at], option, layer, rgba, colour)
     return out
 
 
 def face_map(face: Face, kind: str, size: int = None) -> np.ndarray:
     """The NPC's face _msn or _s (`kind`) as float RG 0..1 at `size` square (default: the face set map's size):
-    the face set's map with each value-only layer's own map over it (apply_map)."""
+    the face set's map with each value-only layer's own map over it (apply_map), inside its diffuse's painted
+    alpha."""
     base_path = face.slots()[MAPS[kind][0]]
     size = face.size(base_path, size)
-    out = texture(face.src, base_path, size)[..., :2].copy()
+    out = texture(face.src, base_path, size)[..., :2]
     for option, layer in face.layers():
-        if layer.kind != COLOUR_LAYER and option.texture and option.map_texture(kind):
-            diffuse = texture(face.src, option.texture, size)
-            out = apply_map(out, layer, diffuse, texture(face.src, option.map_texture(kind), size))
+        at = painted(face.src, option.texture, size, ALPHA) if layer.kind != COLOUR_LAYER and option.texture else None
+        if at is not None and option.map_texture(kind):
+            diffuse = texture(face.src, option.texture, size, at)
+            out[at] = apply_map(out[at], layer, diffuse, texture(face.src, option.map_texture(kind), size, at))
     return out
 
 
