@@ -66,7 +66,9 @@ read off Archive2's own archives: version 8 `DX10`, one chunk per texture,
 flag, tile mode 8) and 24-byte chunk (offset, zlib size, size, first and
 last mip, `0xBAADF00D`), the DDS bodies zlib level 6 back to back, then the
 names. Textures unchanged since the last pack are copied out of the old
-archive still compressed.
+archive still compressed. The bodies go through our
+[pinned zlib](fo4_pipeline.md#pinned-zlib), which gives Archive2's bytes on
+any Python; Python 3.14's own zlib (zlib-ng) does not.
 
 **Checked against Archive2 (2026-11-11):**
 - AutumnLeaves: all 174 textures Archive2 packed have the same record and

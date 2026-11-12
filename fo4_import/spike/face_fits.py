@@ -36,6 +36,7 @@ from pathlib import Path
 
 import numpy as np
 
+from fo4_import.base import pinned_zlib
 from fo4_import.face import sculpt, tint
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.pipeline.work_cache import lookup_versioned, store_versioned, versioned
@@ -237,7 +238,7 @@ def header() -> dict:
 def write(path: Path, faces: dict) -> None:
     """Write `faces` ({sex: {face_id: fits}}) under header() to file `path`."""
     text = json.dumps({**header(), 'faces': faces}, sort_keys=True, separators=(',', ':'))
-    Path(path).write_bytes(gzip.compress(text.encode(), mtime=0))
+    Path(path).write_bytes(pinned_zlib.gzip(text.encode()))
 
 
 def read(path: Path) -> dict:

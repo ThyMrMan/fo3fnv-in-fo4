@@ -13,7 +13,6 @@ See: docs/fork/fo4_ck_replacements.md#ba2
 
 import os
 import struct
-import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -22,6 +21,7 @@ import numpy
 from fo4_import.base.ba2 import DX10_CHUNK as CHUNK
 from fo4_import.base.ba2 import DX10_ENTRY as RECORD
 from fo4_import.base.ba2_write import BUFFER, HEADER, MARKER, VERSION, entry_names
+from fo4_import.base.pinned_zlib import compress
 
 #: zlib level Archive2 compresses with (its bytes, reproduced), and the record's chunk-header size and tile mode.
 LEVEL, CHUNK_SIZE, TILE = 6, 24, 8
@@ -30,7 +30,7 @@ FOURCC = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 80, b'ATI
 #: Raw DDS pixel formats as (bits, R, G, B, A masks) and their DXGI formats; 24-bit BGR goes in as B8G8R8A8 (expand_bgr).
 MASKS = {(32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000): 87, (32, 0xFF, 0xFF00, 0xFF0000, 0xFF000000): 28,
          (32, 0xFF0000, 0xFF00, 0xFF, 0): 88, (8, 0xFF, 0, 0, 0): 61, (24, 0xFF0000, 0xFF00, 0xFF, 0): 87}
-#: Textures read and compressed at once (zlib frees the GIL while it works).
+#: Textures read and compressed at once (the pinned zlib's ctypes call frees the GIL while it works).
 WORKERS = max(1, (os.cpu_count() or 2) - 1)
 
 
@@ -100,7 +100,7 @@ def _texture(name: str, path: Path) -> tuple:
     except ValueError as error:
         raise ValueError(f'{path}: {error}') from None
     body = expand_bgr(data[skip:]) if data[84:92] == bytes(4) + struct.pack('<I', 24) else data[skip:]
-    packed = zlib.compress(body, LEVEL)
+    packed = compress(body, LEVEL)
     record = (*entry_names(name), 0, 1, CHUNK_SIZE, height, width, mips, form, cube, TILE)
     return record, (0, len(packed), len(body), 0, mips - 1, MARKER), packed
 
