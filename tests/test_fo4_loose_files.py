@@ -29,13 +29,15 @@ def _packed(tmp_path, monkeypatch):
 
 def test_drop_then_restore_brings_back_what_the_main_archive_holds(tmp_path, monkeypatch):
     """drop_packed deletes the loose copies the archives hold (and the folders left empty), not other files;
-    restore_packed writes them back, dated as the archive so a build does not count them as made."""
+    restore_packed writes them back, spelled as the archive stores them and dated as the archive, so a build
+    neither counts them as made nor finds them missing from its last file list (stale_files compares spellings)."""
     data = _packed(tmp_path, monkeypatch)
     assert BP.drop_packed(data, 'P.esm') == len(FILES)
     assert not (data / 'Meshes').exists() and not (data / 'Materials').exists()
     assert (data / 'Scripts' / 'compile_state.json').is_file() and (data / 'Textures/Effects/LUTs/FNV/lut.dds').is_file()
     assert BP.restore_packed(data, 'P.esm') == len(FILES)
     assert all((data / name).read_bytes() == payload for name, payload in FILES.items())
+    assert os.listdir(data / 'Meshes') == ['AnimTextData', 'fnv'] and os.listdir(data / 'Meshes' / 'fnv') == ['Cup.nif']
     archive_time = (data / 'P - Main.ba2').stat().st_mtime
     assert abs(os.stat(data / 'Meshes/fnv/Cup.nif').st_mtime - archive_time) < 1
     assert BP.restore_packed(data, 'P.esm') == 0

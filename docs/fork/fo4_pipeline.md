@@ -6012,7 +6012,10 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   checks, the script compiler's state), so it starts with
   `restore_packed`: each Main-archive file under `PACKED` that is not loose
   is written back from the archive, dated as the archive, so `stale_files`
-  does not count it as made by this build. Meshes and materials are
+  does not count it as made by this build, and spelled as the archive
+  stores it (`Archive.spelled`): `stale_files` compares spellings with the
+  last file list, and a first version that wrote the lowercase names pruned
+  all 6,192 `Meshes/Actors` files of a scratch Classic Pack build. Meshes and materials are
   rewritten every build anyway (`elric_cache.write_new`); what the restore
   matters for is what no writer remakes each build: the CK's AnimTextData
   and FaceGen. `--keep-loose` skips the drop, for a build folder that

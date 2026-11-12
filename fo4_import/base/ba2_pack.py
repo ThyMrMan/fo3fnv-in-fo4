@@ -338,8 +338,8 @@ def _remove_empty(data_dir: Path, folders: tuple) -> None:
 
 
 def restore_packed(data_dir: Path, plugin: str) -> int:
-    """Write back each PACKED file of `plugin`'s Main archive that `data_dir` lacks loose (drop_packed), dated as
-    the archive, so a build or the faces stage reads what the last build made; how many.
+    """Write back each PACKED file of `plugin`'s Main archive that `data_dir` lacks loose (drop_packed), spelled
+    and dated as the archive, so a build or the faces stage reads what the last build made; how many.
     See: docs/fork/fo4_pipeline.md#main-archive
     """
     archive = Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
@@ -347,8 +347,8 @@ def restore_packed(data_dir: Path, plugin: str) -> int:
         return 0
     main, when, restored = Archive(archive), archive.stat().st_mtime, 0
     folders = tuple(folder.lower() + chr(92) for folder, _ in PACKED)
-    for name in main.entries:
-        path = Path(data_dir) / name.replace(chr(92), '/')
+    for name, spelled in main.spelled.items():
+        path = Path(data_dir) / spelled.replace(chr(92), '/')
         if name.startswith(folders) and not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(main.read(name))

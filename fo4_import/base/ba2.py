@@ -42,7 +42,8 @@ def dds(fmt: int, width: int, height: int, pixels: bytes) -> bytes:
 
 
 class Archive:
-    """One BA2: its paths (lowercase, backslashes, whichever slash it stores) and their bytes."""
+    """One BA2: its paths (`entries`: lowercase, backslashes, whichever slash it stores; `spelled`: each as
+    stored) and their bytes."""
 
     def __init__(self, path: Path):
         """Index the archive at `path`."""
@@ -52,9 +53,10 @@ class Archive:
             assert magic == b'BTDX', self.path
             entries = [self._entry(f) for _ in range(count)]
             f.seek(names_at)
-            names = [f.read(struct.unpack('<H', f.read(2))[0]).decode('cp1252').lower().replace('/', chr(92))
-                     for _ in range(count)]
+            spelled = [f.read(struct.unpack('<H', f.read(2))[0]).decode('cp1252') for _ in range(count)]
+        names = [name.lower().replace('/', chr(92)) for name in spelled]
         self.entries = dict(zip(names, entries))
+        self.spelled = dict(zip(names, spelled))
 
     def _entry(self, f) -> tuple:
         """One file's entry: (offset, packed, size) for GNRL; (format, width, height, first chunk) for DX10."""
