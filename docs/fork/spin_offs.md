@@ -43,6 +43,7 @@ raw F4SE 0.7.9 with no Address Library.
 | **NV Weapon Condition & Repair** (content mod) | ESP + scripts that track weapons and armor, repair lists, vendors | Players. Requires the framework |
 | **NV Ammo Switching** (content mod, optional) | ESP + scripts for the ammo list | Players. Requires the framework. Many alternatives exist; low priority |
 | **Dynamic collision** | New DLL ([plan](dynamic_collision_mod.md)), from [the research](research/fo4_dynamic_collision.md) | Players and mod authors. No FO4 equivalent exists. No code yet |
+| **Appearance comparison** | Stand-alone tool, no DLL for its viewer ([plan](appearance_compare_tool.md)): two load orders' NPCs side by side, plus a dark-face check | Players choosing between character replacers, and mod authors. No code yet |
 | **F3NV.dll** | The converter's own rules: Damage Threshold, Hardcore, combat sprint, spawn condition | The FNV build only. Requires the framework and the dialogue menu |
 
 Not released on their own:

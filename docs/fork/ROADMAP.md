@@ -294,6 +294,7 @@ Please report what you find in
 | [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned. Second shape slot read (free for us); next: the vanilla sneak test and a repo with a plugin that loads ([build-out](dynamic_collision_mod.md#build-out)) |
 | [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own collision writer runs ahead of Elric for convex shapes and for triangle meshes on still or keyframed bodies (built, not played); spheres, capsules and ragdolls still go to Elric. Our own FaceGen runs at 0.29 s a face, byte for byte the same as before (see Own FaceGen heads above) |
 | [Ideas the build without the CK makes possible](fo4_after_ck_ideas.md) (a dark-face fixer for any load order, rebuilding only what changed, a face comparison gallery and more) | Ideas only, nothing built |
+| [Appearance comparison](appearance_compare_tool.md) (two load orders' NPCs side by side, such as two character replacers, plus a dark-face check) | Plan only, no code |
 
 ## <a id="inherited"></a>The inherited Skyrim converter
 

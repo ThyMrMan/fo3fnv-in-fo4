@@ -179,6 +179,9 @@ and tone-mask work ([revisit](fo4_facegen_plan.md#face-d-revisit)).
 
 - **Size:** small if it shows the textures flat; medium with rendered
   heads (it shares a renderer with [portraits](#portraits)).
+- **As a spin-off:** the same viewer comparing any two load orders, such as
+  two character replacement mods, is planned as its own tool
+  ([appearance comparison](appearance_compare_tool.md)).
 
 ## <a id="later"></a>Further out
 
