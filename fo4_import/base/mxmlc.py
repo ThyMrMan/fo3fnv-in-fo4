@@ -8,6 +8,7 @@ Adobe's playerglobal.swc are build-time tools, never shipped or committed.
 See: docs/fork/swf_framework.md#toolchain
 """
 
+import hashlib
 import os
 import struct
 import subprocess
@@ -16,17 +17,25 @@ from pathlib import Path
 
 from asset_convert.ui.swf import Swf
 from core.subprocess_flags import POPEN_FLAGS
-from fo4_import.base.ffdec import REPO, source_digest
 
+REPO = Path(__file__).resolve().parents[2]
 #: The Flex SDK 4.16.1 with playerglobal 11.2 (docs/fork/swf_framework.md#mxmlc-setup): F3NV_FLEX, else tools_ext.
 FLEX = Path(os.environ.get('F3NV_FLEX', REPO.parent / 'tools_ext' / 'FlexSDK'))
 #: Our shared AS3 library (package f3ui), on every movie's source path.
 LIBRARY = Path(__file__).resolve().parent / 'as3'
-#: Stage, frame rate, background, player and SWF version: the skeleton movies' own.
+#: Stage, frame rate, background, player and SWF version.
 OPTIONS = ('-target-player=11.2', '-swf-version=15', '-static-link-runtime-shared-libraries=true', '-debug=false',
            '-default-size', '1280', '720', '-default-frame-rate', '30', '-default-background-color=0x000000')
 #: The tags that carry the build date (ProductInfo, Metadata); FileAttributes' HasMetadata flag.
 DATED, FILE_ATTRIBUTES, HAS_METADATA = (41, 77), 69, 0x10
+
+
+def source_digest(sources: Path, seed: bytes) -> str:
+    """A 16-digit hash over `seed`, then every .as under `sources`: its path and bytes."""
+    digest = hashlib.sha1(seed)
+    for path in sorted(sources.rglob('*.as')):
+        digest.update(path.relative_to(sources).as_posix().encode() + b'\0' + path.read_bytes())
+    return digest.hexdigest()[:16]
 
 
 def available(flex: Path = FLEX) -> bool:

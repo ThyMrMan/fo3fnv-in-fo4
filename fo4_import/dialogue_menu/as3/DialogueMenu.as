@@ -1,5 +1,7 @@
 package
 {
+   import f3ui.Bridge;
+   import f3ui.Text;
    import flash.display.DisplayObject;
    import flash.display.Graphics;
    import flash.display.MovieClip;
@@ -11,7 +13,6 @@ package
    import flash.geom.Rectangle;
    import flash.system.ApplicationDomain;
    import flash.text.TextField;
-   import flash.text.TextFormat;
    import flash.utils.getDefinitionByName;
 
    // F3NV's dialogue menu, in a movie made only of our code (fo4_import/dialogue_menu/movie.py); the root
@@ -157,9 +158,11 @@ package
       // F4SE's object, once the movie has loaded (F4SE calls root's direct children too): F3NV.dll's natives.
       public function onF4SEObjCreated(f4se:Object) : void
       {
-         if(this.dll == null && f4se != null && f4se.plugins != null && f4se.plugins.F3NV != null)
+         var bridge:Bridge = new Bridge();
+         bridge.f4se = f4se;
+         if(this.dll == null && bridge.natives("F3NV") != null)
          {
-            this.dll = f4se.plugins.F3NV;
+            this.dll = bridge.natives("F3NV");
             this.log("menu ready");
          }
       }
@@ -260,15 +263,10 @@ package
          var list:Sprite = new Sprite();
          list.visible = false;
          this.rows = new Vector.<TextField>();
-         var format:TextFormat = new TextFormat("$MAIN_Font_Bold", 18, 0xFFFFFF);
-         format.leading = -2;
          var i:int = 0;
          while(i < ROWS)
          {
-            var row:TextField = new TextField();
-            row.embedFonts = true;
-            row.defaultTextFormat = format;
-            row.selectable = false;
+            var row:TextField = Text.field(18, null, Text.BOLD, -2);
             row.multiline = true;
             row.wordWrap = true;
             row.width = TEXT_WIDTH;
@@ -391,7 +389,7 @@ package
                   layer.addChild(row);
                }
                failed = failed + (entry.failed == true ? 1 : 0);
-               row.text = String(entry.text).toUpperCase();
+               Text.show(row, String(entry.text).toUpperCase());
                row.alpha = at == this.selected ? 1 : (entry.said ? 0.45 : 0.75);
                row.y = y;
                y = y + row.height + GAP;

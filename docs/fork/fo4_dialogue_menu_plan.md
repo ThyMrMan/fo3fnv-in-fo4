@@ -50,9 +50,10 @@ Found by matching the port's own signature strings, each unique in
   TESTopic / TESTopicInfo / BGSScene layouts: those are new work.
 - **Toolchain gap:** `tes_runtime/common/msvc.bat` names VS Build Tools,
   which is not installed; run Community's `vcvars64.bat` first.
-- **SWF building:** `fo4_import/base/swf_skeleton.py` compiles our own AS3
-  into a skeleton SWF with FFDec (`-importScript`), deterministic and
-  cached; the pre-push hook refuses any committed `.swf`.
+- **SWF building:** `fo4_import/base/mxmlc.py` compiles our own AS3 with
+  the `f3ui` library (since 2026-11-12; FFDec over a skeleton movie
+  before), deterministic and cached; the pre-push hook refuses any
+  committed `.swf`.
 - **The build marks menus** with XDI.esm's keyword (`records.py:73`
   `XDI_KEYWORD = 0x800`; `cell.py:114` masters `XDI.esm`).
 
@@ -218,7 +219,8 @@ each call):**
     ([retries](#answer-retries)).
   - Options below 5 go to the vanilla functions unchanged.
 
-**Menu movie.** `fo4_import/dialogue_menu/movie.py` reads
+**Menu movie** (until 2026-11-11; now [our own movie](#own-movie)).
+`fo4_import/dialogue_menu/movie.py` read
 `Interface/DialogueMenu.swf` from the user's `Fallout4 - Interface.ba2`.
 FFDec compiles our own `as3/DialogueMenu.as` over the game's class
 (`fo4_import/base/ffdec.py`, shared with the casino movie). The result is
@@ -417,18 +419,19 @@ the holder (`draw`).
 ### <a id="own-movie"></a>Our own movie (2026-11-11, played 2026-11-12)
 
 **Played 2026-11-12: works.** It plays fine and looks the same as the
-patched-movie version did (user). Next: move it onto `mxmlc` and `f3ui`
-([swf_framework](swf_framework.md#mxmlc-setup)).
+patched-movie version did (user). **Moved onto `mxmlc` and `f3ui`
+2026-11-12, not played** ([swf_framework](swf_framework.md#mxmlc-setup)).
 
 The menu no longer starts from the game's `DialogueMenu.swf`. Spike 3
 ([swf_framework](swf_framework.md#spikes)) showed the engine runs a movie
 made only of our code and tints the holders it registers.
 
-- **Build:** `movie.py` writes a skeleton movie and FFDec compiles `as3/`
-  over it (`fo4_import/base/swf_skeleton.py`, shared with the casino).
-  Nothing is read from `Fallout4 - Interface.ba2`; the build needs FFDec
-  only. About 10 KB, byte-identical on every build. The sources also
-  compile cleanly under `mxmlc` (a strict check).
+- **Build:** `movie.py` compiles `as3/` with `mxmlc` and the `f3ui`
+  library (`fo4_import/base/mxmlc.py`, shared with the casino; count
+  `dialogue menu movie missing (no Flex SDK)`). Nothing is read from
+  `Fallout4 - Interface.ba2`. 9,585 bytes, byte-identical on every build.
+  Until 2026-11-12 it was a skeleton movie with FFDec's script import
+  over it.
 - **Root:** `DialogueMenuRoot` holds the menu at `root.Menu_mc`, where the
   game looks (its own movie's root has only `Menu_mc`). F4SE calls
   `onF4SEObjCreated` on root's direct children, so the menu gets it.

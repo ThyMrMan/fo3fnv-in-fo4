@@ -23,18 +23,20 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Menu | How it's made | State |
 |---|---|---|
 | Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
-| Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)): built like the casino's, a skeleton then FFDec. Nothing read from the game | The patched-movie version played; our own movie played 2026-11-12, looks the same |
+| Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)). Since 2026-11-12 on `f3ui` (`Bridge`, `Text`), compiled by `mxmlc` like the casino's. Nothing read from the game | The patched-movie version played; our own movie (FFDec build) played 2026-11-12, looks the same. `mxmlc` build not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | No movie. The DLL draws into the open vanilla menus from C++: CND line, repair and ammo lists, STAT tabs, HUD needs | CND, repair and tabs played. Ammo list and HUD needs built, not played |
 
 Shared already:
 - `fo4_import/base/as3/f3ui/`: the AS3 library's first five classes,
-  `Bridge`, `Theme`, `Host`, `Text` and `Draw` ([design](#design)). Today
-  only the casino uses them.
+  `Bridge`, `Theme`, `Host`, `Text` and `Draw` ([design](#design)), used by
+  the casino and the dialogue menu.
 - `fo4_import/base/mxmlc.py`: the `mxmlc` build with the library on the
   source path, dated tags dropped, cached by the hash of the sources, the
-  library and the options.
-- `fo4_import/base/ffdec.py` and `fo4_import/base/swf_skeleton.py`: the FFDec
-  route, now only for the dialogue menu.
+  library and the options. Every movie we ship is built this way.
+- The FFDec build route (a skeleton movie, then FFDec's script import:
+  `swf_skeleton.py`, `ffdec.py`) was deleted on 2026-11-12, when the
+  dialogue menu moved to `mxmlc`. FFDec stays a tool for reading vanilla
+  movies.
 - `asset_convert/ui/swf.py`: our SWF reader and writer.
 
 Both builds are byte-stable (`tests/test_fo4_casino.py`,
@@ -209,8 +211,15 @@ builds byte-identical twice after stripping.
   uncompressed, the format that has been played.) The SDK is found at `F3NV_FLEX`, else `tools_ext\FlexSDK` beside
   the repo (in a worktree, set `F3NV_FLEX`).
 - **The casino moved to `mxmlc` and the library in one change** (spike 1).
-  The dialogue menu stays on FFDec until its own movie is played, so
-  only one thing changes per play-test.
+  The dialogue menu stayed on FFDec until its own movie was played, so
+  only one thing changed per play-test.
+- **The dialogue menu moved to `mxmlc` and the library on 2026-11-12**
+  (built, not played). Its AS3 compiled cleanly under `mxmlc` unchanged.
+  Then: rows made by `Text.field` (bold 18, leading -2, white: the engine
+  tints them) and filled through `Text.show`, F3NV.dll's natives through
+  `Bridge`. Behavior is unchanged. Movie 9,585 bytes, the same on Python
+  3.13 and 3.14. **Play check:** dialogue opens and looks as before; the
+  options read in the HUD color, pick and leave as before.
 
 **Ship built movies, don't build at install.** Today the converter runs
 FFDec on the player's machine. With our own movies there is nothing of the
@@ -696,6 +705,43 @@ Each spike is one change, played in game.
      Tab and the controller's B leave; F3NV.log shows `spike 3 menu ready`.
 4. **Pip-Boy injection:** a `Loader` movie in `root.Menu_mc` that adds one
    item-card line, under vanilla and under FallUI Inventory.
+   - **Played 2026-11-12: works** (vanilla Pip-Boy). The inventory cards
+     show `F3UI  SPIKE 4` (user). F3NV.log: `Pip-Boy: F3NV_Pipboy.swf
+     loading`, `loaded into [object PipboyMenu] (F3NV.dll found)`, `added
+     our line to an item card (1 lines)`, then `(9 lines)` on a weapon's
+     card. The second opening loaded it again: the game makes a new
+     Pip-Boy menu each time, and our movie comes with it. **Not yet tried
+     under FallUI Inventory.**
+   - **Built 2026-11-12.** Two pieces, no Pip-Boy movie of the
+     game's shipped or read:
+     - **F3NV.dll** (`pipboy.cpp` `LoadOverlay`): in the hook that already
+       runs once per Pip-Boy menu (the `fnvConditionHooked` flag), it makes
+       a `flash.display.Loader`, adds it to the menu instance
+       (`root.Menu_mc`) and loads `F3NV_Pipboy.swf` (a path under
+       `Data\Interface`, as HUDFramework's widgets load), the same calls as
+       F4SE's `UI.Load`. Logs `Pip-Boy: F3NV_Pipboy.swf loading`.
+     - **The movie** (`fo4_import/pipboy_overlay/as3/F3NV_Pipboy.as`,
+       `mxmlc` with `f3ui`, 2,325 bytes): it finds the menu as its Loader's
+       parent and F4SE's object on the Pip-Boy movie's root. Each frame it
+       puts a line `F3UI  SPIKE 4` back on the shown page's
+       `ItemCard_mc.InfoObj` when the game's refill dropped it, then calls
+       `onDataChange()`, as `pipboy.cpp` does for CND today. It draws
+       nothing and takes no input. It logs through F3NV.dll's `Log`
+       native, so its lines read `dialogue menu: Pip-Boy movie: …` in
+       F3NV.log (that native's prefix).
+     - The masterless build installs `Interface\F3NV_Pipboy.swf` (count
+       `Pip-Boy movie installed`).
+   - **Checked offline:** `pipboy.cpp` compiles with the DLL's flags, no
+     warnings; the movie builds the same on Python 3.13 and 3.14; the name
+     the DLL loads is the name the build installs
+     (`tests/test_fo4_pipboy_overlay.py`).
+   - **Needs:** a rebuilt F3NV.dll and the movie.
+   - **Play check, vanilla Pip-Boy:** open the inventory and move between
+     a few items: each card shows `F3UI  SPIKE 4` under its own lines (and
+     CND where it applies). F3NV.log: `Pip-Boy: F3NV_Pipboy.swf loading`,
+     `Pip-Boy movie: loaded into … (F3NV.dll found)`, `added our line to
+     an item card`. The STAT and DATA pages are unchanged.
+   - **Then under FallUI Inventory**, if installed: the same checks.
 5. **Translation files:** the spike 1 movie shows one `$KEY` from our own
    `_en` file, then the same with `sLanguage` set to a language we have no
    file for. Records what the game shows, which settles the
