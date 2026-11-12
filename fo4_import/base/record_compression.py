@@ -12,6 +12,7 @@ See: docs/fork/fo4_pipeline.md#record-compression
 import struct
 from concurrent.futures import ThreadPoolExecutor
 
+from core.build_resources import profile_cores
 from fo4_import.base.pinned_zlib import compress
 
 #: Record types Fallout4.esm stores compressed.
@@ -74,7 +75,7 @@ def compress_group(blob: bytes) -> bytes:
     _spans(blob, HEADER, len(blob), spans)
     if not spans:
         return blob
-    with ThreadPoolExecutor() as pool:
+    with ThreadPoolExecutor(profile_cores()) as pool:
         bodies = pool.map(_deflate, (blob[p + HEADER:p + HEADER + n] for p, n in spans), chunksize=64)
         packed = dict(zip((p for p, _ in spans), bodies))
     inner = _rebuild(blob, HEADER, len(blob), packed)

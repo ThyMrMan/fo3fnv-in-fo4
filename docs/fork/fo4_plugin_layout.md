@@ -765,7 +765,8 @@ makers in `spike/cell.py` and the end of the build in
 wherever they are first made (`base NPC_`, `item WEAP`), as a base is made
 on first request by whichever stage asks; those lines are what phase 6
 caches. Export files read for the first time are charged to the stage that
-read them.
+read them. Since 2026-11-12 the mesh cache step is a stage too, and each line
+carries the stage's peak memory ([memory per stage](fo4_build_resources.md#stage-memory)).
 
 **Measured, whole map, 2026-10-31** (3,023 s; meshes cached, 0 scripts
 changed): the Creation Kit's own-rig animation data 1,231 s (the plugin

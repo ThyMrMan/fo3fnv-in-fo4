@@ -10,10 +10,10 @@ See: docs/fork/fo4_build_speed.md#keys
 
 import concurrent.futures
 import mmap
-import os
 import tempfile
 from pathlib import Path
 
+from core.build_resources import pool_workers
 from core.process_job import join_pool_job
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.base.source_fault import SourceFault
@@ -21,6 +21,8 @@ from fo4_import.havok.gun_clips import GunClips, is_kept, keep
 from fo4_import.pipeline import mesh_cache, work_cache
 from fo4_import.pipeline.export_index import Layered
 
+#: What a gun clip worker commits, for the worker count (build_resources.pool_workers).
+WORKER_BYTES = 1 << 30
 #: A worker process's GunClips and the temporary data folder it writes into (_start).
 _worker = {}
 
@@ -45,11 +47,11 @@ def _convert(args: tuple) -> 'tuple | None':
 
 def warm(jobs: list, export_meshes, workers: int = 0) -> int:
     """Keep the clips of each of `jobs` [(GunClips.key, GunClips.recorded args)] not kept yet, made in `workers`
-    processes (all but one CPU by default, no more than the guns to make); how many were made."""
+    processes (by default the resource profile's, no more than the guns to make); how many were made."""
     todo = [(key, args) for key, args in jobs if not is_kept(key)]
     if not todo:
         return 0
-    workers = min(len(todo), workers or max(1, (os.cpu_count() or 2) - 1))
+    workers = pool_workers(WORKER_BYTES, len(todo), workers)
     meshes = (export_meshes.folders, export_meshes.parts) if isinstance(export_meshes, Layered) \
         else ((export_meshes,), ())
     started = (meshes, (work_cache.CACHE, mesh_cache.CACHE))

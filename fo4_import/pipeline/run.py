@@ -9,24 +9,27 @@ See: docs/fork/fo4_pipeline.md#skeleton
 """
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
 
+from core import build_resources
 from core.heavy_lock import hold_heavy_lock
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
 from fo4_import.base.ba2_pack import drop_packed, restore_packed
 from fo4_import.base.source_fault import report as fault_report, stamp as fault_stamp
-from fo4_import.pipeline import build_inputs
-from fo4_import.pipeline.build_steps import convert_scripts, source_state, write_stamp
+from fo4_import.pipeline import build_inputs, eta, eta_inputs
+from fo4_import.pipeline.build_steps import convert_scripts, source_state, stamp_path, write_stamp
 from fo4_import.pipeline.converters import placed_types
 from fo4_import.pipeline.export_index import export_file, export_masters, export_records, own_records
 from fo4_import.pipeline.master_space import UNCLASSIFIED
 from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.pipeline.mod_dirs import plugin_dirs
-from fo4_import.pipeline.stage_timer import charged, report
+from fo4_import.pipeline.stage_timer import LISTENERS, charged, records, report, sample
 from fo4_import.spike import replacements
+from tools.script.compile_papyrus import TALLY
 from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
 from fo4_import.spike.exterior import PERSISTENT, Exterior
 from fo4_import.spike.interiors import scope
@@ -136,7 +139,11 @@ def arguments() -> argparse.Namespace:
     ap.add_argument('--mod-sources', type=Path,
                     help="The app's settings file (fo4_import.app.settings); its mod sources are searched for "
                          'plugins after --plugin-dirs')
-    ap.add_argument('--workers', type=int, default=0, help='Mesh conversion processes (default: all CPUs but one)')
+    ap.add_argument('--workers', type=int, default=0,
+                    help='Mesh conversion processes (default: as many as the resource profile allows)')
+    ap.add_argument('--resources', choices=sorted(build_resources.PROFILES),
+                    help=f'How much of the machine the build may use (default: ${build_resources.ENV_VAR}, else '
+                         f'{build_resources.DEFAULT}); low leaves half the cores and memory free, full uses all')
     ap.add_argument('--keep-loose', action='store_true',
                     help="Keep the loose copies of what the plugin's archives hold (a build folder fo4_deploy copies)")
     ap.add_argument('cell', nargs='?', help='FNV interior cell editor ID (none: a DLC with no cell of its own)')
@@ -151,33 +158,77 @@ def main():
     See: docs/fork/fo4_pipeline.md#main-archive
     """
     args = arguments()
+    if args.resources:
+        os.environ[build_resources.ENV_VAR] = args.resources
     hold_heavy_lock(' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]))
     configure_multiprocessing()
     create_pool_job()
+    stop_sampling = sample()
+    print(resources_line())
     print(f'loose files restored from the Main archive: {restore_packed(args.data, args.out.name)}')
+    LISTENERS.append(estimate(args))
     started = time.time()
     extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), **source_state()}
     write_stamp(args.out, 'running', started, extra)
     build_inputs.start(build_inputs.record_dir(args.out))
+    counts = {}
     try:
-        build_all(args, started)
+        counts = build_all(args, started)
         build_inputs.write(args.out, args.data, sys.argv[1:])
         if not args.keep_loose:
             print(f'loose files the archives hold, removed: {drop_packed(args.data, args.out.name)}')
     except BaseException:
-        write_stamp(args.out, 'failed', started, extra)
+        stop_sampling()
+        write_stamp(args.out, 'failed', started, {**extra, **profile_stamp(counts)})
         raise
-    write_stamp(args.out, 'finished', started, {**extra, **fault_stamp()})
+    stop_sampling()
+    write_stamp(args.out, 'finished', started, {**extra, **fault_stamp(), **profile_stamp(counts)})
 
 
-def build_all(args: argparse.Namespace, started: float) -> None:
+def resources_line() -> str:
+    """'resources: <profile> (...)': the profile, the cores and memory it leaves the build's workers."""
+    name, box = build_resources.profile_name(), build_resources.machine()
+    budget = build_resources.memory_budget(box, name)
+    memory = f', {budget / build_resources.GB:.1f} GB for workers now' if budget is not None else ''
+    return f'resources: {name} ({build_resources.core_workers(box.cpus, name)} of {box.cpus} cores{memory})'
+
+
+def estimate(args: argparse.Namespace) -> eta.Live:
+    """Print this build's estimated time, cold and cached, from its last finished build's record, else from its
+    export; the listener that prints the time left as it runs (from the cached plan when there is a record).
+    See: docs/fork/fo4_build_resources.md#eta
+    """
+    model, bench, profile = eta.load(), eta.benchmark(), build_resources.profile_name()
+    found = eta_inputs.record_build(stamp_path(args.out))
+    if found:
+        feats, source = eta_inputs.features(found[1], found[1].get(eta_inputs.MASTERS_COUNT, 1)), 'its last build'
+    else:
+        own = eta_inputs.export_counts(args.export, model['per_record'])
+        feats = eta_inputs.export_features(own, bool(export_masters(str(args.export))), model)
+        source = 'its export, as a whole-plugin build'
+    print(f'estimate: {eta.summary(model, feats, bench, profile)} (from {source}; {eta.NOTE})')
+    return eta.Live(eta.predict(model, feats, None if found else True, bench, profile)).start()
+
+
+def profile_stamp(counts: dict) -> dict:
+    """The stamp's machine-readable profile of this build: each stage's seconds and peak memory, the counts, the
+    resource profile and the machine's cores and memory.
+    See: docs/fork/fo4_build_resources.md#stage-memory
+    """
+    box = build_resources.machine()
+    return {'stages': records(), 'counts': dict(sorted(counts.items())),
+            'resources': {'profile': build_resources.profile_name(), 'cpus': box.cpus,
+                          'memory_gb': round(box.total / build_resources.GB, 1)}}
+
+
+def build_all(args: argparse.Namespace, started: float) -> dict:
     """The scripts converted (with --scripts), the plugin and assets built; the counts, each stage's time and every
-    source fault (source_fault.report)."""
+    source fault (source_fault.report) printed; the counts."""
     if args.scripts:
         charged('script conversion', convert_scripts, args.export, args.scripts)
     worlds = exteriors(args)
     models = scope_models(args.export, args.cell, worlds)
-    warm(models, args.export, args.workers)
+    converted = charged('mesh cache', warm, models, args.export, args.workers)
     print(f'mesh cache: {len(models)} meshes ready in {time.time() - started:.1f}s')
     dirs = plugin_dirs(args.plugin_dirs, args.mod_sources)
     table = replacements.load(args.replacements, args.profile, dirs)
@@ -185,11 +236,14 @@ def build_all(args: argparse.Namespace, started: float) -> None:
         print(f'replacements: {warning}')
     counts = build(args.export, args.out, args.data, args.cell, args.scripts, worlds, table, dirs, args.test_cell)
     counts.update({f'master FormIDs not renumbered, left as is ({key})': n for key, n in UNCLASSIFIED.items()})
+    counts.update({**TALLY, 'meshes in scope': len(models), 'meshes converted': converted,
+                   eta_inputs.MASTERS_COUNT: int(bool(export_masters(str(args.export))))})
     for key, count in sorted(counts.items()):
         print(f'{key}: {count}')
     print('\n'.join(report()))
     print('\n'.join(fault_report()))
     print(f'built in {time.time() - started:.1f}s')
+    return counts
 
 
 if __name__ == '__main__':

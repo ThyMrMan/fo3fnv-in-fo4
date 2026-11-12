@@ -26,6 +26,7 @@ import numpy as np
 from PIL import Image
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
+from core.build_resources import profile_cores
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.ba2_pack import stage_texture
 from fo4_import.face.texture import TEXCONV
@@ -282,7 +283,7 @@ def write(export_dir: Path, data_dir: Path, world: str, fo4_world: str) -> int:
     settings.write_bytes(lod_settings(found))
     jobs = [job for tile in found for job in _texture_jobs(export_dir, world, fo4_world, tile)]
     stage_texture(data_dir, *jobs[0])
-    with ThreadPoolExecutor() as pool:
+    with ThreadPoolExecutor(profile_cores()) as pool:
         list(pool.map(lambda job: stage_texture(data_dir, *job), jobs[1:]))
     for level, x, y, path in found:
         stem = f'Data\\Textures\\Terrain\\{fo4_world}\\{fo4_world}.{level}.{x}.{y}'

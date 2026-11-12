@@ -26,6 +26,7 @@ from typing import NamedTuple
 import numpy as np
 
 from core.collision_options import WINDING_FIX_ENV_VAR
+from core.build_resources import pool_workers
 from core.process_job import join_pool_job, limit_own_memory, total_memory
 from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.source_fault import SourceFault
@@ -63,6 +64,8 @@ CLAMPED = {}
 TOO_LARGE = set()
 #: A mesh worker's memory cap: this share of the machine's RAM, at least MIN_WORKER_MEMORY.
 WORKER_MEMORY_SHARE, MIN_WORKER_MEMORY = 8, 2 * 2 ** 30
+#: What a mesh worker commits, for the worker count (build_resources.pool_workers): 0.17 GB measured, large meshes more.
+WORKER_BYTES = 512 << 20
 #: Threads warm() checks kept entries in: the check waits on opening small files, not on the CPU.
 CHECK_THREADS = 16
 
@@ -205,14 +208,14 @@ def _kept(memo: dict, texture_root) -> bool:
     return True
 
 
-def warm(paths: list, texture_root, workers: int = 0) -> None:
-    """Fill the cache for convert(path, texture_root) of every path in `paths` in `workers` processes (all but one
-    CPU by default), each capped at worker_memory(); the ADDN mapping read once, here. A mesh whose entry a
+def warm(paths: list, texture_root, workers: int = 0) -> int:
+    """Fill the cache for convert(path, texture_root) of every path in `paths` in worker processes (`workers`, else
+    the resource profile's: build_resources.pool_workers), each capped at worker_memory(); the ADDN mapping read once;
+    how many were converted. A mesh whose entry a
     file-stamp memo shows current (_kept) stays out of the pool.
     See: docs/fork/fo4_build_speed.md#worker-memory
     See: docs/fork/fo4_build_speed.md#fixed
     """
-    workers = workers or max(1, (os.cpu_count() or 2) - 1)
     addons = addon_map(str(texture_root)) if texture_root else {}
     setting = hashlib.sha1(f'{texture_root}|{_key(b"", None, True, addons)}'.encode()).hexdigest()
     stamps = Stamps(CACHE / 'warm' / f'{setting}.json')
@@ -220,12 +223,14 @@ def warm(paths: list, texture_root, workers: int = 0) -> None:
     with concurrent.futures.ThreadPoolExecutor(max_workers=CHECK_THREADS) as threads:
         kept = list(threads.map(functools.partial(_kept, texture_root=texture_root), memos.values()))
     jobs = [(p, str(texture_root), None, True, addons) for p, done in zip(memos, kept) if not done]
+    workers = pool_workers(WORKER_BYTES, len(jobs), workers)
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_join_capped) as pool:
         for job, (too_large, textures) in zip(jobs, pool.map(_warm, jobs, chunksize=1)):
             memos[job[0]]['textures'] = textures
             if too_large:
                 TOO_LARGE.add(_same(job[0]))
     stamps.save()
+    return len(jobs)
 
 
 def _same(path) -> str:

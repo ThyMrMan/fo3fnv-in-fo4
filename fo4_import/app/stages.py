@@ -22,6 +22,8 @@ from fo4_import.app import settings as S
 from asset_convert.sources import source_registry
 from fo4_import.classic_look import plugin_name
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
+from fo4_import.pipeline import eta, eta_inputs
+from fo4_import.pipeline.build_steps import stamp_path
 from tools.validate.fo4_install_check import PLUGINS, RUNTIME_DLL
 
 REPO = Path(__file__).resolve().parents[2]
@@ -210,11 +212,25 @@ def addon_arguments(settings: dict, source: str, scope: Scope, settings_file: Pa
 
 
 def _shared_arguments(settings: dict, source: str, scope: Scope) -> list:
-    """The workers, profile and replacement file every build of `source` takes."""
+    """The workers, resource profile, replacement profile and replacement file every build of `source` takes."""
     block, replacements = settings['per_source'][source], S.replacement_file(settings, source)
-    args = ['--workers', str(scope.workers)] if scope.workers else []
+    args = ['--resources', settings['resources']] + (['--workers', str(scope.workers)] if scope.workers else [])
     args += ['--profile', block['profile']] if block['profile'] else []
     return args + (['--replacements', str(replacements)] if replacements.is_file() else [])
+
+
+def estimate(settings: dict, source: str) -> str:
+    """'Estimated build time: ...' of `source`'s target under the chosen resources, from its last finished build,
+    else its export; '' when it has neither yet.
+    See: docs/fork/fo4_build_resources.md#eta
+    """
+    model, stamp = eta.load(), stamp_path(plugin_path(settings, source))
+    found = eta.target_features(stamp if eta_inputs.record_build(stamp) else export_dir(settings, source), model)
+    if found is None:
+        return ''
+    source_text = 'from its last build' if found[1] else 'from its export, for a whole build'
+    return (f'Estimated build time: {eta.summary(model, found[0], eta.benchmark(), settings["resources"])} '
+            f'({source_text}; {eta.NOTE})')
 
 
 def package(settings: dict, source: str) -> 'Path | None':

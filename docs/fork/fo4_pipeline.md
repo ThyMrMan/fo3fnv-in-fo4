@@ -4155,7 +4155,9 @@ hand.
   records:
   - `status`: `running`, `finished` or `failed`;
   - when the build started and ended, and its command;
-  - the commit it started from, and the files that then differed from it.
+  - the commit it started from, and the files that then differed from it;
+  - once it ends, each stage's seconds and peak memory, every count, and the
+    resource profile ([memory per stage](fo4_build_resources.md#stage-memory)).
 
   Check it before building on a plugin, preflighting it or deploying it: only
   `finished` is a whole build.

@@ -24,7 +24,7 @@ import struct
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from core.memory_budget import memory_workers
+from core.build_resources import pool_workers
 from core.process_job import join_pool_job
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_walk
@@ -83,8 +83,8 @@ CHILD_RACE = 0x4
 UPPER_BODY = 0x4
 #: new_id keys of a converted NPC and its placed actor (the spike's, kept so no FormID moves).
 NPC_KEY, ACHR_KEY = 'NPC_ {:08X} STH', 'ACHR {} STH'
-#: Bytes one face-fit worker process holds at most (0.84 GB measured), and bytes of free memory the pool leaves alone.
-FACE_WORKER_BYTES, FACE_SPARE_BYTES = 1 << 30, 2 << 30
+#: Bytes one face-fit worker process holds at most (0.84 GB measured).
+FACE_WORKER_BYTES = 1 << 30
 #: Faces a face worker needs to be worth starting: its head-part candidates for both sexes cost about as many fits.
 FACES_PER_WORKER = 25
 #: OpenBLAS threads of a face worker: one, as a fit's heavy algebra is done once per worker and sex (BrowFits).
@@ -108,11 +108,10 @@ def fit_face(export_dir: Path, npc: dict, female: bool, assets) -> 'tuple | None
 
 
 def face_workers(jobs: int) -> int:
-    """Workers for `jobs` faces: FACES_PER_WORKER each, half the cores, free memory.
+    """Workers for `jobs` faces (FACES_PER_WORKER each, at most half the cores).
     See: docs/fork/fo4_build_speed.md#face-pool
     """
-    wanted = max(1, min(jobs // FACES_PER_WORKER, (os.cpu_count() or 2) // 2))
-    return memory_workers(wanted, FACE_WORKER_BYTES, FACE_SPARE_BYTES)
+    return pool_workers(FACE_WORKER_BYTES, max(1, jobs // FACES_PER_WORKER), max(1, (os.cpu_count() or 2) // 2))
 
 
 def head_assets(esm) -> hair.Fo4Assets:

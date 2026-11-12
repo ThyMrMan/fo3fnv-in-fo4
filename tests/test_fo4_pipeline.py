@@ -195,7 +195,7 @@ def test_a_region_is_its_two_corners_and_around_is_its_square():
 def test_a_build_takes_the_heavy_job_lock_before_any_work(monkeypatch):
     """main() queues behind any other heavy job before it starts the build's processes."""
     calls = []
-    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace())
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(resources=None))
     monkeypatch.setattr(RUN, 'hold_heavy_lock', lambda label: calls.append(label))
 
     def stop():
@@ -216,20 +216,24 @@ def test_the_stamp_says_running_then_finished_or_failed(tmp_path, monkeypatch):
     written before it reads finished, and it reads failed when the build raises."""
     out = tmp_path / 'FalloutNV.esm'
     seen = []
-    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path, keep_loose=False))
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path, keep_loose=False,
+                                                                  resources='low'))
     for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
         monkeypatch.setattr(RUN, name, lambda *a: None)
+    monkeypatch.setattr(RUN, 'estimate', lambda args: lambda stage, seconds: None)
+    monkeypatch.delenv(RUN.build_resources.ENV_VAR, raising=False)
     monkeypatch.setattr(RUN, 'source_state', lambda: {'commit': 'abc', 'changed files': ['x.py']})
     stamp = BS.stamp_path(out)
     status = lambda: json.loads(stamp.read_text())['status']
     monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(record_dir=lambda plugin: plugin,
                                                              start=lambda folder: seen.append('record'),
                                                              write=lambda *a: seen.append(f'inputs {status()}')))
-    monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(status()))
+    monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(status()) or {'NPC_': 2})
     RUN.main()
     body = json.loads(stamp.read_text())
     assert (seen, body['status'], body['commit'], body['changed files']) == (
         ['record', 'running', 'inputs running'], 'finished', 'abc', ['x.py'])
+    assert body['resources']['profile'] == 'low' and body['counts'] == {'NPC_': 2} and 'stages' in body
 
     def fails(args, started):
         """A build that dies part way."""

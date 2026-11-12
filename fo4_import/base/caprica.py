@@ -29,7 +29,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from core.memory_budget import memory_workers
+from core.build_resources import pool_workers
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import FO4_HEADERS, LEVELUP_MENU_HEADERS
@@ -62,8 +62,8 @@ RESULT_AT = {'CALLMETHOD': 2, 'CALLSTATIC': 2, 'CALLPARENT': 1, 'PROPGET': 2, 'A
              'ARRAYSETELEMENT': None}
 #: A compiler temp in Caprica assembly.
 TEMP = re.compile(r'::temp\d+')
-#: One Caprica's memory (it reads every import file: 270-313 MB with 31,961), and what its runs leave free.
-CAPRICA_BYTES, SPARE_BYTES = 512 << 20, 2 << 30
+#: One Caprica's memory (it reads every import file: 270-313 MB with 31,961).
+CAPRICA_BYTES = 512 << 20
 
 
 def available() -> bool:
@@ -219,7 +219,7 @@ def compile_files(files: list, out_dir: Path, imports: str, workers: int = 1) ->
     """
     root = out_dir / '_caprica'
     shutil.rmtree(root, ignore_errors=True)
-    folders = [root / str(n) for n in range(memory_workers(min(workers, len(files)), CAPRICA_BYTES, SPARE_BYTES))]
+    folders = [root / str(n) for n in range(pool_workers(CAPRICA_BYTES, len(files), workers))]
     for folder in folders:
         folder.mkdir(parents=True)
     for i, path in enumerate(files):

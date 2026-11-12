@@ -1,0 +1,149 @@
+{
+ "version": 1,
+ "reference": {
+  "version": 1,
+  "when": "2026-11-12 10:28",
+  "cpu": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+  "machine": "AMD64",
+  "os": "Windows-11-10.0.26200-SP0",
+  "python": "3.14.3",
+  "logical_cores": 16,
+  "single": {
+   "python_units_s": 30.06,
+   "numpy_units_s": 35.48
+  },
+  "workers": {
+   "units_per_second": {
+    "1": 31.83,
+    "4": 103.88,
+    "8": 149.95,
+    "12": 207.51,
+    "15": 251.13
+   },
+   "effective_cores": 8.35
+  },
+  "disk": {
+   "write_mb_s": 43.0,
+   "read_mb_s": 2215.7,
+   "small_files_s": 130.4,
+   "folder": "C:\\Users\\thymr\\AppData\\Local\\Temp"
+  },
+  "memory": {
+   "total_gb": 31.1,
+   "free_gb": 16.8,
+   "copy_gb_s": 4.4
+  }
+ },
+ "main_gb": 9.0,
+ "groups": {
+  "animation": {
+   "one": 10.0,
+   "guns": 0.4,
+   "guns_cold": 1.5
+  },
+  "archives": {
+   "packed": 0.000884
+  },
+  "collision": {
+   "meshes": 0.010211
+  },
+  "ledger": {
+   "masters": 10.968143,
+   "meshes": 0.008556
+  },
+  "mesh cache": {
+   "meshes_cold": 0.072,
+   "one": 6.417815,
+   "meshes": 0.005241
+  },
+  "people": {
+   "faces_cold": 0.12,
+   "one": 5.804754,
+   "npcs": 0.057397
+  },
+  "records": {
+   "one": 27.933534,
+   "info": 0.002932,
+   "statics": 0.023264
+  },
+  "scripts": {
+   "one": 5.342663,
+   "compiles": 1.475817,
+   "compile_size": 17.730509
+  },
+  "statics": {
+   "statics": 0.022776
+  },
+  "voice": {
+   "info": 0.002367,
+   "voices_cold": 0.007683
+  },
+  "weapons": {
+   "guns": 1.314564,
+   "guns_cold": 2.903776
+  },
+  "worlds": {
+   "land": 0.004259,
+   "cells": 0.005198
+  }
+ },
+ "cold_ratios": {
+  "faces_cold": 1.0,
+  "guns_cold": 1.0,
+  "scripts_changed": 1.0,
+  "voices_cold": 1.0,
+  "meshes_cold": 1.0
+ },
+ "per_record": {
+  "CELL": 360.0,
+  "CREA": 1336.2,
+  "INFO": 850.0,
+  "LAND": 22861.3,
+  "NPC_": 2333.9,
+  "QUST": 1236.8,
+  "SCPT": 2257.9,
+  "STAT": 255.7,
+  "WEAP": 925.3
+ },
+ "ratios": {
+  "npcs": 0.606,
+  "guns": 0.5498,
+  "statics": 1.2225,
+  "land": 0.9614,
+  "cells": 0.2015,
+  "info": 1.4656,
+  "scripts": 0.6169,
+  "meshes": 0.7659,
+  "packed": 3.413
+ },
+ "region": {
+  "npcs": 856.0,
+  "guns": 79.1,
+  "statics": 2977.7,
+  "land": 1216.7,
+  "cells": 1.2,
+  "info": 0.0,
+  "scripts": 0.0,
+  "meshes": 4234.7
+ },
+ "fit": {
+  "builds": 39,
+  "error": {
+   "in_sample": {
+    "median": 0.23,
+    "mean": 0.304,
+    "builds": 39
+   },
+   "left_out": {
+    "median": 0.239,
+    "mean": 0.401,
+    "builds": 39
+   },
+   "export": {
+    "median": 0.332,
+    "mean": 0.384,
+    "builds": 37
+   }
+  }
+ }
+}

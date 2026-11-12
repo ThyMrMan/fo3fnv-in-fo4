@@ -15,7 +15,8 @@ rerun; *(timed)* was timed once in a single process on one male face
 | One mod against a built game | 7–41 min, whatever its size | the mod build remakes what its masters hold | 1–5 min, by the mod's size |
 | A developer's rebuild after a code change | 25–55 min, 135 when a cache empties | caches emptied by unrelated edits; every record remade | minutes |
 
-Related: [mod builds](fo4_mod_builds.md) (the master kit, MO2, the app),
+Related: [build resources](fo4_build_resources.md) (memory per stage, the Low/Balanced/Full setting, time
+estimates), [mod builds](fo4_mod_builds.md) (the master kit, MO2, the app),
 [Part D](fo4_plugin_layout.md#incremental) (the journal),
 [Part E](fo4_plugin_layout.md#which-builds) (which plugins build, code
 identity). This plan sets the order across them and adds what they lack.
