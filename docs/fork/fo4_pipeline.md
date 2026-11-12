@@ -6188,6 +6188,32 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   459 face textures in its Textures archive, `DLCNukaWorld` 224 and 672.
   A staged texture the run did not stage keeps the last pack's signature
   while its file is unchanged, so the next build does not rewrite it.
+- <a id="faces-repack"></a>**The faces stage repacks only its own files
+  (2026-11-12, not yet built).** On the 2026-11-12 build the faces stage
+  spent about 240 s packing Textures, 220 s packing Main and 79 s dropping
+  loose copies, after restoring 77,355 files at its start. Two causes. The
+  restore dates each file as the archive, so no restored file matched the
+  `[size, mtime]` the pack record keeps, and `pack_main` read all 152,521
+  entries loose and wrote Main anew. And every face texture is written again
+  each run with a new date, so `pack_textures` compressed all of them again.
+  Now `ba2_pack.archived` reads the Main archive's entries from its pack
+  record (only when the record's `[size, mtime]` matches the archive on
+  disk), and `pack_main(..., replaced)` keeps every entry outside the
+  plugin's FaceGeom folder as packed (`_held`), plus each FaceGeom NIF this
+  run wrote with the same bytes the archive holds. A loose file the archive
+  also holds still wins. The restore runs only when there is no matching
+  record. For textures, `_move_loose` deletes a loose file whose staged copy
+  has the same bytes, so the staged copy keeps its date and the pack's
+  signature, and only changed face textures are compressed.
+  Measured on a scratch hardlink of the 2026-11-12 Main (79,736 entries,
+  3.3 GB, 2,382 FaceGeom NIFs; the voices had moved out): with every face
+  written again unchanged, as the per-NPC face cache does, `pack_main`
+  writes nothing (10.1 s, nearly all comparing the NIFs). When a face did
+  change, Main is written with the other 77,354 entries copied out of the
+  old archive: 104 s and 162 s in two runs, and the new file was byte for
+  byte the old one. A profile put 157 of the 162 s in writing the file
+  (about 21 MB/s on this drive); reading took about 5 s. The Textures side
+  is covered by tests only, not timed on the real archive.
 - **A master folder is read through its archives.** A dependent build reads
   its masters' deployed folders, whose loose copies are gone:
   `ba2_pack.data_file` (the persistent subgraph list,

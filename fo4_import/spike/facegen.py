@@ -33,7 +33,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fo4_import.base.ba2_pack import drop_packed, pack_main, pack_textures, restore_packed, staging_root
+from fo4_import.base.ba2_pack import archived, drop_packed, pack_main, pack_textures, restore_packed, staging_root
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.face import facegeom
@@ -202,13 +202,28 @@ def own_export(job: tuple, forms: list, textures: bool = True) -> list:
     return lines + (fallback(plugin, data_dir, failed) if failed else [])
 
 
+def geometry(plugin: str) -> tuple:
+    """The archive prefix of the FaceGeom folder this stage rewrites."""
+    return ((FACEGEN_DIRS[0] / plugin).as_posix().lower() + '/',)
+
+
+def restore(data_dir: Path, plugin: str) -> int:
+    """restore_packed(), only when Main has no current pack record; how many files.
+    See: docs/fork/fo4_pipeline.md#faces-repack
+    """
+    main = data_dir / f'{Path(plugin).stem} - Main.ba2'
+    return restore_packed(data_dir, plugin) if archived(main) is None else 0
+
+
 def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
     """The plugin's archives packed again with its FaceGen (pack_textures pruning nothing: this run staged no
-    texture), then the loose copies they hold dropped unless `keep_loose`; printed.
+    texture; Main keeping its other entries as packed), then the loose copies they hold dropped unless
+    `keep_loose`; printed.
     See: docs/fork/fo4_pipeline.md#main-archive
+    See: docs/fork/fo4_pipeline.md#faces-repack
     """
     print('textures packed:', pack_textures(data_dir, plugin, (LUT_FOLDER, CLASSIC_FOLDER), prune=False))
-    print('files packed into the Main and voices archives:', pack_main(data_dir, plugin))
+    print('files packed into the Main and voices archives:', pack_main(data_dir, plugin, geometry(plugin)))
     if not keep_loose:
         print('loose files the archives hold, removed:', drop_packed(data_dir, plugin))
 
@@ -243,7 +258,7 @@ def main():
     ap.add_argument('plugin', help='Plugin file name')
     args = ap.parse_args()
     data_dir, export_dir = Path(args.data), Path(args.export)
-    print('loose files restored from the Main archive:', restore_packed(data_dir, args.plugin))
+    print('loose files restored from the Main archive:', restore(data_dir, args.plugin))
     job = (export_dir, data_dir, args.plugin, skin_tone_layers(FALLOUT4_ESM.read_bytes()))
     heads(job, args.own_facegen, ck=not args.collected)
     faces = facegen_skin.fitted_faces(data_dir, args.plugin)
