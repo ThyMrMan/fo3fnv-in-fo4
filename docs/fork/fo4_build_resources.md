@@ -99,6 +99,7 @@ The app's Setup screen has it under Other, saved in `fo4_app.json` as
 | `base/ba2_pack.py` write_later | overlay texture writes | 512 MB |
 | `base/caprica.py` | one Caprica run | 512 MB (`CAPRICA_BYTES`) |
 | `spike/npcs.py` face_workers | face fits, at most half the cores | 1 GB |
+| `spike/facegen_skin.py` workers | own FaceGen faces (`--own-facegen`), at most half the cores | 2 GB ([Sources peaks at 1.84 GB](fo4_facegen_plan.md#own-stage-speed)) |
 | `base/ba2_textures.py` | threads (zlib frees the GIL): cores only | none |
 | `spike/script.py`, `tools/release/fo4_hotfix.py` | the compile's worker count, cores only (Caprica then applies its own `each`) | none |
 | `spike/voice.py` convert, `spike/terrain_lod.py`, `base/record_compression.py` | threads running tools or zlib: cores only | none |

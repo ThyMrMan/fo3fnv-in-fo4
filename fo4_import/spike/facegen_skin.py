@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from core.memory_budget import memory_workers
+from core.build_resources import pool_workers
 from core.process_job import join_pool_job
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.face import facegeom, npc_skin, own_facegen, sculpt, slider_fit, tint
@@ -29,8 +29,8 @@ from tes5_import.base.tes5_reader import subrecords, walk
 
 #: How every FaceGen test plugin's description starts, so the stage reads past them.
 TEST_DESCRIPTION = 'FaceGen test'
-#: Bytes one worker holds at most (Sources peaks at 1.84 GB), and free memory the pool leaves alone. See #own-stage-speed.
-WORKER_BYTES, SPARE_BYTES = 2 << 30, 2 << 30
+#: Bytes one worker holds at most (Sources peaks at 1.84 GB). See #own-stage-speed.
+WORKER_BYTES = 2 << 30
 #: FO4 ACBS flag Female.
 FEMALE = 0x1
 #: A worker process's shared inputs (_start).
@@ -94,8 +94,8 @@ def shared() -> dict:
 
 
 def workers(jobs: int) -> int:
-    """Worker processes for `jobs` faces: half the cores, free memory."""
-    return memory_workers(max(1, min(jobs, (os.cpu_count() or 2) // 2)), WORKER_BYTES, SPARE_BYTES)
+    """Worker processes for `jobs` faces: half the cores, pool_workers()' memory."""
+    return pool_workers(WORKER_BYTES, jobs, max(1, (os.cpu_count() or 2) // 2))
 
 
 def pool(job: tuple, work, faces: list) -> list:
