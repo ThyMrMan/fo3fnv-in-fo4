@@ -7,7 +7,7 @@ import struct
 from concurrent.futures.process import BrokenProcessPool
 
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
-from fo4_import.face import facegeom
+from fo4_import.face import facegeom, own_facegen
 from fo4_import.face.facegeom import Rec
 from fo4_import.spike import facegen, facegen_own, facegen_skin
 from tes5_import.base.writer import pack_subrecord
@@ -43,6 +43,20 @@ def test_own_npcs_are_the_plugins_own_records(tmp_path):
     w.next_object_id = 0x803
     w.write(str(tmp_path / 'p.esp'))
     assert facegen_own.own_npcs(tmp_path / 'p.esp') == [0x800, 0x802]
+
+
+def test_fitted_faces_are_only_those_the_export_wrote(tmp_path):
+    """A fitted NPC with no FaceGeom (the export skips one taking traits) is not refitted or skinned (001810D4)."""
+    w = FO4PluginWriter(masters=['Fallout4.esm'], is_esm=False, description='t')
+    for fid in (0x01000800, 0x01000801):
+        subs = pack_subrecord('EDID', f'{own_facegen.FNV_PREFIX}Npc{fid & 0xFFF:X}\0'.encode())
+        subs += pack_subrecord('ACBS', bytes(20)) + pack_subrecord('FMRI', b'\0' * 4)
+        w.add_record('NPC_', pack_fo4_record('NPC_', fid, 0, subs))
+    w.write(str(tmp_path / 'p.esp'))
+    geom = tmp_path / own_facegen.GEOM_DIR / 'p.esp'
+    geom.mkdir(parents=True)
+    (geom / '00000800.nif').write_bytes(b'')
+    assert [f.form_id for f in facegen_skin.fitted_faces(tmp_path, 'p.esp')] == [0x800]
 
 
 def test_collect_keeps_only_the_named_npcs(tmp_path, monkeypatch):
