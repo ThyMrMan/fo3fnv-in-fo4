@@ -257,6 +257,9 @@ Please report what you find in
   ([plan](fo4_bodies_cbbe.md)).
 - **The look:** grass color, Strip neon, the night horizon glow, New Vegas's
   color tone, distant trees and water ([plan](fo4_look.md)).
+- **Terrain LOD of our own:** skirts first to close the gaps between
+  distant tiles, then tiles built from the land with matching edges and
+  more detail than vanilla ([plan](fo4_terrain_lod_plan.md)).
 - **Precombines** for Freeside and the Strip.
 - **Script speed:** the remaining Papyrus cost fixes
   ([performance](performance.md#papyrus)).
