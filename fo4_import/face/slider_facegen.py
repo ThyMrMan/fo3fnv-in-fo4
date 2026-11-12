@@ -31,11 +31,11 @@ from fo4_import.base.source import record_dir
 from fo4_import.face import facegeom, hair, hair_morphs, own_facegen, presets, proportions, sculpt, skin_seams, tint
 from fo4_import.face import slider_records as records
 from fo4_import.face.bake import FACE_PARTS, face_moves, face_shape, positions, seam_tree, triangles, uvs
-from fo4_import.face.texture import bilinear, dds_like, texel_map, vanilla_face_texture, write_dds
+from fo4_import.face.texture import bilinear, dds_like, texel_map, texel_points, vanilla_face_texture, write_dds
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
 from fo4_import.spike.facegen import CK_TARGET, FACEGEN_DIRS, HUMAN_RACE, ck_timeout, skin_tone_layers
-from fo4_import.spike.fnv_npc import fnv_face
+from fo4_import.spike.fnv_npc import fnv_face, fnv_shine
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: The default --name: the test plugin's stem and our files' folder under Meshes and Textures.
@@ -54,6 +54,8 @@ CLIPS = -0.05
 YOUNG_FACE_SETS = {True: 0x0F7E65, False: 0x16F83D}
 #: HDPT part type of the eyes, and the face set slots of the skin maps it takes (normal TX01, specular TX07).
 EYES_PART, SKIN_MAPS = 2, ((1, b'TX01'), (7, b'TX07'))
+#: The texture set slot of the specular map.
+SPECULAR = 7
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,9 @@ class Face:
     fit: proportions.Fit = None
     tone: np.ndarray = None
     rounds: list = field(default_factory=list)
+    #: FNV's skin shine (fnv_shine) or None to keep the CK's, and lines on the specular maps it wrote.
+    shine: np.ndarray = None
+    shines: list = field(default_factory=list)
 
     @property
     def stem(self) -> str:
@@ -103,6 +108,8 @@ class Job:
     #: The fit's target shape (bake variant C1 or C2F), and whether own face sets take the young skin maps.
     shape: str = 'C2F'
     young: bool = True
+    #: Whether face and rear head take FNV's skin shine as their specular maps.
+    shine: bool = True
     #: The test plugin's stem (its staging plugin adds 'CK') and our files' folder under Meshes and Textures.
     name: str = NAME
     copies: dict = field(default_factory=dict)
@@ -167,9 +174,16 @@ def part_of(src, face: Face, part_type: int) -> tuple:
     return part, raw
 
 
-def rear_path(job, face: Face) -> str:
-    """The NPC's own rear head texture, under Textures."""
-    return f'{job.name}\\{face.plugin[:-4]}_{face.stem}_rear_d.dds'
+def rear_path(job, face: Face, kind: str = 'd') -> str:
+    """The NPC's own rear head texture `kind` (d, s), under Textures."""
+    return f'{job.name}\\{face.plugin[:-4]}_{face.stem}_rear_{kind}.dds'
+
+
+def rear_textures(job: Job, face: Face) -> list:
+    """The rear head's set slots: the body's, its _s ours under job.shine."""
+    textures = list(facegeom.body_textures(job.src, face.npc, face.race, face.female))
+    textures[SPECULAR] = rear_path(job, face, 's') if job.shine else textures[SPECULAR]
+    return textures
 
 
 def own_hairs(job, faces: list) -> dict:
@@ -204,8 +218,8 @@ def plugin(job: Job, faces: list, staging: bool) -> records.TestPlugin:
     for face in faces:
         rear, _ = part_of(job.src, face, records.REAR_PART)
         edid = f'{job.name}Rear_{face.plugin[:-4]}_{face.stem}'
-        textures = facegeom.body_textures(job.src, face.npc, face.race, face.female)
-        txst = out.add('TXST', out.new_id(), records.rear_texture_set(edid + 'Set', textures, rear_path(job, face)))
+        txst = out.add('TXST', out.new_id(), records.rear_texture_set(edid + 'Set', rear_textures(job, face),
+                                                                      rear_path(job, face)))
         part = out.add('HDPT', out.new_id(), records.rear_part(rear, edid, txst))
         form_id, flags, body = npc_body(job, face, part, staging)
         npc_id = out.add('NPC_', out.new_id() if staging else form_id, body, flags)
@@ -248,6 +262,8 @@ def own_files(job: Job, faces: list) -> dict:
     for face in faces:
         textures = facegeom.body_textures(job.src, face.npc, face.race, face.female)
         out[f'Textures\\{rear_path(job, face)}'] = job.src.read('textures\\' + textures[0])
+        if job.shine:
+            out[f'Textures\\{rear_path(job, face, "s")}'] = job.src.read('textures\\' + textures[SPECULAR])
     return out
 
 
@@ -309,7 +325,8 @@ def new_face(job: Job, export: Path, plugin_name: str, form_id: int) -> Face:
     colour = fnv_face(record_dir(export, plugin_name), own_facegen.fnv_edid(npc))
     p = problem(female)
     target = p.measures @ face_moves(p.baseline, colour[0], job.shape, p.eye_part)[1].ravel()
-    return Face(plugin_name, form_id & 0xFFFFFF, npc, race, female, colour, target)
+    shine = fnv_shine(record_dir(export, plugin_name), own_facegen.fnv_edid(npc)) if job.shine else None
+    return Face(plugin_name, form_id & 0xFFFFFF, npc, race, female, colour, target, shine=shine)
 
 
 def rms(values: np.ndarray) -> float:
@@ -386,16 +403,36 @@ def skin(job: Job, face: Face, nif: bytes) -> tuple:
         vanilla_face_texture(diffuse)
     qnam = np.clip(template * face.tone, 0.0, 1.0)
     face.tone = qnam / template
-    return own_rear(job, face, nif, (face_geo[0], (seam, (template, qnam)), whole))
+    shine_neck = None
+    if face.shine is not None:
+        shine_neck = (seam, own_facegen.body(job.src, face.npc, face.race, face.female, SPECULAR))
+        specular = diffuse.with_name(f'{face.stem}_s.dds')
+        face.shines.append('face ' + write_shine(face, specular.read_bytes(), specular, (face_geo, None), shine_neck))
+    return own_rear(job, face, nif, (face_geo[0], (seam, (template, qnam)), whole, shine_neck))
+
+
+def write_shine(face: Face, own: bytes, path: Path, part: tuple, neck: tuple) -> str:
+    """Write specular map `own` (DDS bytes) at `path` with FNV's shine on `part` = (points, UVs, triangles),
+    frame) (skin_seams.shine_texture, its format and size kept); a line: its mean R and G there, before and
+    after."""
+    before = hair.image(own)
+    after = skin_seams.shine_texture(before, *part, face.colour[0], face.shine, neck)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(dds_like(after, own))
+    rows, cols, _ = texel_points(*part[0], before.shape[0])
+    old, new = before[rows, cols, :2].mean(0), hair.image(path.read_bytes())[rows, cols, :2].mean(0)
+    return f'specular R {old[0]:.1f} -> {new[0]:.1f}, smoothness G {old[1]:.1f} -> {new[1]:.1f}'
 
 
 def own_rear(job: Job, face: Face, nif_bytes: bytes, rear: tuple) -> tuple:
     """(the FaceGeom with its rear head on the NPC's own texture, written under the test mod, and drawn with its
     skin tint; (the rear shape's name, whether the CK already drew it on that texture)). `rear` = (face points,
-    neck as rear_texture takes it, whole scale or None)."""
-    frame, neck, whole = rear
+    neck as rear_texture takes it, whole scale or None, the neck as shine_texture takes it or None to keep the
+    body's specular map)."""
+    frame, neck, whole, shine_neck = rear
     nif = nif_file.read(nif_bytes)
-    own = job.src.read('textures\\' + facegeom.body_textures(job.src, face.npc, face.race, face.female)[0])
+    textures = facegeom.body_textures(job.src, face.npc, face.race, face.female)
+    own = job.src.read('textures\\' + textures[0])
     note = None
     for kind, raw in list(nif.blocks):
         sh = nif.blocks[hair.shader_index(raw)][1] if kind in facegeom.SHAPES and isinstance(raw, bytes) else None
@@ -409,6 +446,12 @@ def own_rear(job: Job, face: Face, nif_bytes: bytes, rear: tuple) -> tuple:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(dds_like(rgba, own))
         texture_set[0] = rear_path(job, face)
+        if shine_neck is not None:
+            texture_set[SPECULAR] = rear_path(job, face, 's')
+            part = ((positions(raw), uvs(raw), triangles(raw)), frame)
+            face.shines.append('rear ' + write_shine(face, job.src.read('textures\\' + textures[SPECULAR]),
+                                                     job.out / 'Textures' / texture_set[SPECULAR].replace('\\', '/'),
+                                                     part, shine_neck))
         sh['skin_tint'] = (*(np.round(neck[1][1] * 255) / 255).tolist(), sh['skin_tint'][3])
     return nif_file.write(nif), note
 
@@ -490,6 +533,7 @@ def main(argv=None) -> None:
     p.add_argument('--shape', default='C2F', choices=('C1', 'C2F'), help='the target shape (bake variant)')
     p.add_argument('--skin-maps', default='young', choices=('young', 'own'), help="own face sets' normal/specular")
     p.add_argument('--name', default=NAME, help="the test plugin's stem and our files' folder")
+    p.add_argument('--shine', default='fnv', choices=('fnv', 'ck'), help="face and rear head specular maps")
     args = p.parse_args(argv)
     dirs, order = without_tests(args.profile or creation_kit.profile_dir(), args.out.name)
     npcs = [(name, int(fid, 16)) for name, fid in (item.rsplit(':', 1) for item in args.npcs)]
@@ -497,7 +541,8 @@ def main(argv=None) -> None:
     esm = FALLOUT4_ESM.read_bytes()
     layers = skin_tone_layers(esm)
     job = Job(facegeom.Sources(own_facegen.find(dirs, deepest), dirs, order), dirs, order, args.out,
-              own_facegen.template_tones(esm, layers), layers, args.shape, args.skin_maps == 'young', args.name)
+              own_facegen.template_tones(esm, layers), layers, args.shape, args.skin_maps == 'young', args.shine == 'fnv',
+              args.name)
     faces = [new_face(job, args.export, name, fid) for name, fid in npcs]
     finish(job, faces, fit_rounds(job, faces))
 
@@ -512,6 +557,8 @@ def finish(job: Job, faces: list, nifs: dict) -> None:
         print('\n'.join(fit_report(face)))
         print(f'  rear head: shape {rear[0]}, the CK drew it on its own texture: {rear[1]}; skin tone x'
               f'{np.round(face.tone, 3).tolist()}', flush=True)
+        for line in face.shines:
+            print(f'  {line}')
         clearance = hair_clearance(job, face, nif)
         print(f'  {clearance}' if clearance else "  hair: the build's own match, unchanged")
     for rel, data in own_files(job, faces).items():

@@ -76,12 +76,13 @@ def find(dirs: list, name: str) -> Path:
     return next((d / name for d in dirs if (d / name).is_file()), FALLOUT4_DIR / 'Data' / name)
 
 
-def body(src: facegeom.Sources, npc: facegeom.Rec, race: facegeom.Rec, female: bool) -> tuple:
-    """(positions, UVs, RGB texture) of the NPC's body: its skin's body addon's model and skin texture."""
+def body(src: facegeom.Sources, npc: facegeom.Rec, race: facegeom.Rec, female: bool, slot: int = 0) -> tuple:
+    """(positions, UVs, RGB texture) of the NPC's body: its skin's body addon's model and skin texture set
+    slot `slot` (0 diffuse, 7 specular)."""
     addon = facegeom.body_addon(src, npc, race)
     mesh = nif_file.read(src.read('meshes\\' + zstr(addon.first(b'MOD3' if female else b'MOD2'))))
     raw = max((b for k, b in mesh.blocks if k in facegeom.SHAPES and isinstance(b, bytes)), key=len)
-    rgb = hair.image(src.read('textures\\' + facegeom.body_textures(src, npc, race, female)[0]))[..., :3]
+    rgb = hair.image(src.read('textures\\' + facegeom.body_textures(src, npc, race, female)[slot]))[..., :3]
     return positions(raw), uvs(raw), rgb.astype(float)
 
 

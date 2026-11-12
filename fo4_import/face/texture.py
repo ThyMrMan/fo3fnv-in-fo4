@@ -41,7 +41,7 @@ VANILLA_FACE = {'d': ('BC1_UNORM', 1024), 'msn': ('BC1_UNORM', 1024), 's': ('BC5
 #: texconv's names of the DXGI formats vanilla texture sets use, and the DXGI format of a legacy four-CC DDS.
 DXGI_NAMES = {28: 'R8G8B8A8_UNORM', 71: 'BC1_UNORM', 74: 'BC2_UNORM', 77: 'BC3_UNORM', 80: 'BC4_UNORM',
               83: 'BC5_UNORM', 98: 'BC7_UNORM'}
-LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77}
+LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 80, b'ATI2': 83, b'BC5U': 83}
 #: Texels the new colour is carried past each UV island's edge, so filtering and compression do not bleed FO4's in.
 ISLAND_PADDING = 8
 

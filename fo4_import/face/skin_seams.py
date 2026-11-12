@@ -24,10 +24,15 @@ def neck_weight(points: np.ndarray, seam: cKDTree) -> np.ndarray:
     return np.clip(1.0 - seam.query(points)[0] / NECK_BLEND, 0.0, 1.0)[:, None]
 
 
+def body_at(points: np.ndarray, body: tuple) -> np.ndarray:
+    """The body texture at its vertex nearest each point (positions, UVs, RGB)."""
+    positions, uvs, rgb = body
+    return bilinear(rgb, uvs[cKDTree(positions).query(points)[1]])
+
+
 def body_drawn(points: np.ndarray, body: tuple, tint: np.ndarray) -> np.ndarray:
     """The body's drawn colour at its vertex nearest each point (positions, UVs, RGB)."""
-    positions, uvs, rgb = body
-    return bilinear(rgb, uvs[cKDTree(positions).query(points)[1]]) * tint * SKIN_TINT_DRAW
+    return body_at(points, body) * tint * SKIN_TINT_DRAW
 
 
 def _repadded(out: np.ndarray, edge: tuple) -> np.ndarray:
@@ -67,4 +72,19 @@ def rear_texture(own: np.ndarray, rear: tuple, frame: np.ndarray, colour: tuple,
     weight = neck_weight(where, seam)
     drawn = above * (1 - weight) + base * tint * SKIN_TINT_DRAW * weight
     out[rows, cols, :3] = drawn / (tint * SKIN_TINT_DRAW)
+    return _repadded(out, edge)
+
+
+def shine_texture(own: np.ndarray, part: tuple, frame, fnv, shine: np.ndarray, neck: tuple) -> np.ndarray:
+    """Specular map `own` (RGBA) with FNV's skin shine `shine` (an FO4 _s image in FNV's head UVs) on part
+    `part` = (points, UVs, triangles), placed on FNV's head by the face points `frame` (None: the part's own),
+    faded at the neck to the body's own; `neck` = (seam tree, (body positions, UVs, specular RGB)).
+    See: docs/fork/fo4_facegen_plan.md#fnv-shine
+    """
+    seam, body = neck
+    rows, cols, fnv_uv, edge = texel_map(part, (fnv.mean, fnv.triangles, fnv.uvs), own.shape[:2], frame)
+    _, _, where = texel_points(*part, own.shape[0])
+    weight = neck_weight(where, seam)
+    out = own.astype(float)
+    out[rows, cols, :3] = bilinear(shine, fnv_uv) * (1 - weight) + body_at(where, body) * weight
     return _repadded(out, edge)

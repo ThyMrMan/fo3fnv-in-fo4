@@ -714,6 +714,74 @@ head.
   scalp: 31 of 1,870, against 29 unmorphed. Each point within 1 unit of the
   scalp moves by -0.31 to +0.21.
 
+Played: "That looks much better, the skin texture still isn't there, it reads
+as a bit glossy". In game she had strong highlights on the nose, forehead and
+lips, while FNV's skin is nearly matte.
+
+#### <a id="fnv-shine"></a>FNV's skin shine as FO4's specular map
+
+- **FNV's source.** The specular flag is on in the head shader
+  (`BSShaderPPLightingProperty`), and the head's `NiMaterialProperty` has
+  glossiness 10 and specular colour (0, 0, 0). This is the same in vanilla
+  `headhuman.nif`, `headfemale.nif` and Willow's race head. The strength is
+  the alpha of the head's normal map. That map is the race head texture's
+  `_n` (Willow's race has its own) and is otherwise the mesh's own
+  `HeadHuman_n`. As the static converter does
+  ([spike 2](fo4_spikes.md#spike-2-static)), the material's colour is
+  ignored.
+- **Alpha means over the map:**
+
+  | Normal map | Alpha mean | p10 | p50 | p90 |
+  |---|---|---|---|---|
+  | Willow's race | 11.3 | 1 | 12 | 19 |
+  | FNV female | 16.0 | 14 | 17 | 18 |
+  | FNV male | 12.4 | 9 | 12 | 16 |
+
+  FNV's own skin shine is about 4 to 6% strength.
+- **FO4's `_s` channels.** R is specular strength and G is smoothness. On
+  `PiperHead_s`, R is highest on the nose tip (63.5) and forehead (50.6), the
+  oily T-zone, and lowest on the chin (29.8). G is highest on the forehead
+  (109) and cheeks (91). Means over the face:
+
+  | Map | R (specular) | G (smoothness) |
+  |---|---|---|
+  | Piper (young female) | 34.7 | 67.2 |
+  | Base female head | 23.3 | 74.2 |
+  | Mid-aged female head | 23.6 | 63.9 |
+  | Old female head | 22.8 | 73.3 |
+  | 12 vanilla `FaceCustomization` `_s` | 16 to 26 | 59 to 88 |
+  | Willow's CK `_s` in test 5 | 34.2 | 66.7 |
+
+  The CK bakes its own `_s` per NPC from the face set's `TX07`, so test 5
+  copied Piper's, the shiniest female head in the game.
+- **Shader values add nothing.** On 44 sampled vanilla FaceGeoms, every face
+  shader (type 4) and rear head shader (type 5) has smoothness 1.0, specular
+  strength 1.0 and white specular colour. Willow's are the same. The `_s`
+  maps alone set the shine.
+- **The rear head.** `FemaleBody_s` over the rear head's texels: R 28.4 (35.9
+  toward the hairline) and G 82.6. That is as shiny as Piper's face.
+- **The map (`fnv_npc.fnv_shine`, `skin_seams.shine_texture`).** The FNV
+  normal alpha goes through the static converter's rule (`spec_image`): R is
+  the alpha × `specular_scale`, and G is `smoothness(glossiness)`. At
+  glossiness 10, that is R = 0.52 × alpha and G = 92. Both face and rear head
+  get it by the face colour's mapping (`texel_map`), faded at the neck into the
+  body's `_s`. The face's map overwrites the CK's `_s`. The rear head gets its
+  own `_s` in its texture set and FaceGeom. Normal maps are unchanged.
+
+**Test mod 6** (Willow only, `F3NV - FaceGen Test 6`, `FaceGenTest6.esp`,
+not yet played) is test 5 with FNV's shine. Shape, `_d`, `_msn` and tone are
+unchanged; `_d` and `_msn` are byte-identical to test 5's. Means over each
+part's texels:
+
+| Part | R (specular) | G (smoothness) |
+|---|---|---|
+| Face | 34.3 → 7.4 | 66.8 → 91.2 |
+| Rear head | 28.4 → 4.2 | 82.6 → 91.6 |
+
+The face set's `TX07` still names Piper's `_s`. The CK bakes from it, and
+our map replaces that bake. The CK writes its BC5 `_s` with the legacy
+`BC5U` four-character code, which `texture.LEGACY_FORMATS` now reads.
+
 #### <a id="ck-staging"></a>Running the CK without touching a mod folder
 
 MO2 sends the CK's new files to overwrite, but a file that already exists in
