@@ -21,6 +21,8 @@ String[] Property SlotTexts Auto Const
 {The slot screen's labels and results (FNV's settings), in SlotsScreen.as's order.}
 String[] Property RouletteTexts Auto Const
 {The roulette screen's labels, bet names and results (FNV's settings), in RouletteScreen.as's order.}
+String[] Property BlackjackTexts Auto Const
+{The blackjack screen's buttons, labels and results (FNV's settings), in BlackjackScreen.as's order.}
 String Property SpikeImage Auto Const
 {Spike: the converted card face the test screen mounts (under Textures).}
 
@@ -31,6 +33,8 @@ Int Property ExtendedFlags = 2 AutoReadOnly Hidden
 Int Property CaravanMinimum = 30 AutoReadOnly Hidden
 {FNV's smallest deck: the menu won't open with fewer cards.}
 
+Int Property Blackjack = 1 AutoReadOnly Hidden
+{The blackjack table's game number (Open's aiGame).}
 Int Property Roulette = 2 AutoReadOnly Hidden
 {The roulette table's game number (Open's aiGame).}
 Int Property Slots = 3 AutoReadOnly Hidden
@@ -107,10 +111,6 @@ Function Open(Int aiGame, F3NV_CasinoData akCasino, Int aiMin, Int aiMax, Int ai
     Debug.MessageBox(refusal)
     Return
   EndIf
-  If aiGame != Slots && aiGame != Roulette
-    Debug.MessageBox(akCasino.CasinoName + "\n\n" + NotBuiltText)
-    Return
-  EndIf
   spiking = False
   playing = akCasino
   playingGame = aiGame
@@ -150,6 +150,26 @@ Function OpenRoulette()
   args[6] = Utility.RandomInt(1, 2147483647)
   args[7] = StringsAsVar(RouletteTexts)
   UI.Invoke(MenuName, "root1.OpenRoulette", args)
+EndFunction
+
+Function OpenBlackjack()
+  {Hand the open menu the blackjack table: the casino, the player's chips, bets, earnings, Luck, a seed, the casino's decks, reshuffle share, natural payout, soft-17 rule, card backs and texts.}
+  Actor player = Game.GetPlayer()
+  Var[] args = new Var[13]
+  args[0] = playing.CasinoName
+  args[1] = player.GetItemCount(playing.Chip)
+  args[2] = betLow
+  args[3] = betHigh
+  args[4] = playing.GetEarnings()
+  args[5] = player.GetValue(Game.GetLuckAV()) as Int
+  args[6] = Utility.RandomInt(1, 2147483647)
+  args[7] = playing.Decks
+  args[8] = playing.ReshuffleShare
+  args[9] = playing.Payout
+  args[10] = playing.DealerStaysOnSoft17
+  args[11] = StringsAsVar(playing.CardBacks)
+  args[12] = StringsAsVar(BlackjackTexts)
+  UI.Invoke(MenuName, "root1.OpenBlackjack", args)
 EndFunction
 
 Var Function IntsAsVar(Int[] aiValues)
@@ -214,13 +234,13 @@ Function Settle(F3NV_CasinoData akCasino, Int aiNet)
 EndFunction
 
 Function OnMenuRound(Int aiNet)
-  {The menu's report of a finished round at the open casino (an AS3 int arrives as an Int). At roulette, chips under the min bet close the table with FNV's broke text (RouletteMenu 0x007bd2a0).}
+  {The menu's report of a finished round at the open casino (an AS3 int arrives as an Int). At roulette and blackjack, chips under the min bet close the table with FNV's broke text (RouletteMenu 0x007bd2a0, BlackjackMenu 0x00734db0).}
   F3NV_CasinoData casino = playing
   If !casino
     Return
   EndIf
   Settle(casino, aiNet)
-  If playingGame == Roulette && Game.GetPlayer().GetItemCount(casino.Chip) < betLow
+  If playingGame != Slots && Game.GetPlayer().GetItemCount(casino.Chip) < betLow
     Debug.Notification(BrokeText)
     UI.CloseMenu(MenuName)
   EndIf
@@ -297,6 +317,8 @@ Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
     OpenSlots()
   ElseIf abOpening && playing && playingGame == Roulette
     OpenRoulette()
+  ElseIf abOpening && playing && playingGame == Blackjack
+    OpenBlackjack()
   ElseIf !abOpening
     spiking = False
     playing = None

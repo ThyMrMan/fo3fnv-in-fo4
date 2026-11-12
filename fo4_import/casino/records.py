@@ -69,6 +69,17 @@ ROULETTE_TEXTS = (('sPlaceBetText', 'Place Bet'), ('sRemoveBetText', 'Remove Bet
                   ('sFirstDozenText', 'First Dozen'), ('sSecondDozenText', '2nd Dozen'),
                   ('sThirdDozenText', '3rd Dozen'), ('sEvenText', 'Even'), ('sRedText', 'Red'),
                   ('sBlacktext', 'Black'), ('sOddtext', 'Odd'), ('sTwoToOneText', '2 to 1'))
+#: The blackjack screen's texts in BlackjackScreen.as's order (BlackjackMenu's buttons, labels and results).
+BLACKJACK_TEXTS = (('sDealText', 'Deal'), ('sIncreaseBetText', 'Increase Bet'), ('sDecreaseBetText', 'Decrease Bet'),
+                   ('sBetMax', 'Bet Max'), ('sExit', 'Exit'), ('sHitText', 'Hit'), ('sDoubleDownText', 'Double Down'),
+                   ('sSplitText', 'Split'), ('sSwitchHandsText', 'Switch Hands'), ('sSurrenderText', 'Surrender'),
+                   ('sStayText', 'Stay'), ('sChipCountText', 'Chips: '), ('sCurrentBetText', 'Current Bet: '),
+                   ('sCasinoEarningsText', 'Earnings: '), ('sYouWin', 'You win'),
+                   ('sLuckyWinText', 'You feel lucky. You win'), ('sYouLose', 'You lose'),
+                   ('sUnluckyLoseText', 'You feel unlucky. You lose'), ('sYouBreakEvenText', 'You break even'),
+                   ('sCasinoChipText', 'chip'), ('sPlural', '(s)'))
+#: Card face suits in FNV's load order (hearts, clubs, diamonds, spades).
+SUITS = 'hcds'
 #: FNV's anti-cheat wait after a load (iAntiCheatDuration, seconds).
 ANTI_CHEAT_SECONDS = ('iAntiCheatDuration', 60)
 #: Shown for a game whose screen is not built yet (ours, not FNV's).
@@ -102,6 +113,14 @@ def card_textures(subs: list) -> list:
     return _text(subs, b'TX00') + _text(subs, b'TX01')
 
 
+def face_textures(back: str) -> list:
+    """A deck's 52 card faces from its back's path, as FNV loads them.
+    See: docs/fork/fo4_casino_plan.md#blackjack-built
+    """
+    stem = back[:back.rfind('_') + 1]
+    return [f'{stem}{suit}{(rank + 1) % 13 + 1:02d}.dds' for suit in SUITS for rank in range(13)]
+
+
 def fo4_path(fnv_texture: str) -> str:
     """An FNV texture as the menu names it: its path under Textures, slashed."""
     return fo4_texture(fnv_texture).replace('\\', '/')
@@ -112,7 +131,8 @@ def texts(export_dir: Path) -> dict:
     texts; FalloutNV.esm's GMST over the engine's default."""
     gmst = {r.get('EditorID'): r.get('DATA.Value') for r in export_records(export_dir, 'GMST')}
     values = {prop: ('string', gmst.get(name) or default) for prop, (name, default) in TEXTS.items()}
-    for prop, table in (('AntiCheatTexts', ANTI_CHEAT), ('SlotTexts', SLOT_TEXTS), ('RouletteTexts', ROULETTE_TEXTS)):
+    for prop, table in (('AntiCheatTexts', ANTI_CHEAT), ('SlotTexts', SLOT_TEXTS), ('RouletteTexts', ROULETTE_TEXTS),
+                        ('BlackjackTexts', BLACKJACK_TEXTS)):
         values[prop] = ('strings', [gmst.get(name) or default for name, default in table])
     values['AntiCheatSeconds'] = ('float', float(gmst.get(ANTI_CHEAT_SECONDS[0]) or ANTI_CHEAT_SECONDS[1]))
     return {**values, 'NotBuiltText': ('string', NOT_BUILT)}
@@ -219,10 +239,12 @@ class Casino:
         self.builder.counts['menu translation files installed'] = translations.install(data_dir)
 
     def _textures(self, data_dir: Path) -> int:
-        """Stage every texture the casinos and cards name (slot symbols, deck backs, card faces), and the
-        spike's; how many the export has (one missing is counted)."""
-        paths = {SPIKE_TEXTURE} | {texture_source(t) for _, subs in self.records[b'CSNO']
-                                   for t in _text(subs, b'ICON') + _text(subs, b'ICO2')}
+        """Stage every texture the casinos and cards name (slot symbols, deck backs and their blackjack faces,
+        Caravan card faces), and the spike's; how many the export has (one missing is counted)."""
+        backs = [t for _, subs in self.records[b'CSNO'] for t in _text(subs, b'ICO2')]
+        named = [t for _, subs in self.records[b'CSNO'] for t in _text(subs, b'ICON')] + backs
+        named += [face for back in set(backs) for face in face_textures(back)]
+        paths = {SPIKE_TEXTURE} | {texture_source(t) for t in named}
         paths |= {texture_source(t) for _, subs in self.records[b'CCRD'] for t in card_textures(subs)}
         found = [p for p in sorted(paths) if export_file(self.export_dir, p.replace('\\', '/')).is_file()]
         for path in found:

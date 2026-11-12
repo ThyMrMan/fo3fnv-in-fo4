@@ -1,5 +1,7 @@
 package
 {
+   import f3nv.casino.Blackjack;
+   import f3nv.casino.BlackjackScreen;
    import f3nv.casino.Rng;
    import f3nv.casino.Roulette;
    import f3nv.casino.RouletteScreen;
@@ -33,6 +35,7 @@ package
       private var screen:Sprite;
       private var slots:SlotsScreen;
       private var roulette:RouletteScreen;
+      private var blackjack:BlackjackScreen;
       private var statusText:TextField;
       private var pings:int = 0;
 
@@ -125,6 +128,18 @@ package
          roulette.open(name, chips, low, high, earnings, luck, seed, Bridge.plain(texts));
       }
 
+      // The blackjack table (F3NV_Casino.psc's OpenBlackjack): see BlackjackScreen.open.
+      public function OpenBlackjack(name:String, chips:int, low:int, high:int, earnings:int, luck:int, seed:uint,
+                                    decks:int, share:Number, payout:Number, stays:Boolean, backs:Array,
+                                    texts:Array) : void
+      {
+         newScreen();
+         blackjack = new BlackjackScreen(send);
+         screen.addChild(blackjack);
+         blackjack.open(name, chips, low, high, earnings, luck, seed, decks, share, payout, stays, Bridge.plain(backs),
+                        Bridge.plain(texts), MountAll);
+      }
+
       // Replay `spins` slot spins per seed at `luck` on FNV's default reel and log them, then the roulette results
       // and spot table: the lines tests/casino/model.py's slot_trace and roulette.py's roulette_trace make.
       public function SelfTest(seeds:Array, spins:int, luck:int) : void
@@ -150,6 +165,16 @@ package
             }
          }
          send("F3NV_CasinoSelfTest", "roulette " + results.join(" ") + " " + Roulette.spotMasks());
+         var rounds:Array = [];
+         for (s = 0; s < seeds.length; s++)
+         {
+            var table:Blackjack = new Blackjack(100000, 5, 5, 4, 0.35, 1.5, false, luck, new Rng(uint(seeds[s])));
+            for (i = 0; i < spins; i++)
+            {
+               rounds.push(table.roundText(table.play()));
+            }
+         }
+         send("F3NV_CasinoSelfTest", "blackjack " + luck + " " + rounds.join(" "));
       }
 
       // FO4's menu input: the controls the game maps keys and gamepad buttons to.
@@ -162,7 +187,10 @@ package
          send("F3NV_CasinoInput", "control " + control);
          if (control == "Cancel")
          {
-            close();
+            if (blackjack == null || blackjack.canLeave())
+            {
+               close();
+            }
             return true;
          }
          if (slots != null)
@@ -172,6 +200,10 @@ package
          if (roulette != null)
          {
             return roulette.control(control);
+         }
+         if (blackjack != null)
+         {
+            return blackjack.control(control);
          }
          if (control == "Accept")
          {
@@ -194,6 +226,7 @@ package
          screen = new Sprite();
          slots = null;
          roulette = null;
+         blackjack = null;
          addChild(screen);
          translationCheck();
       }

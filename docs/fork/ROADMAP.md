@@ -200,7 +200,7 @@ before.
 |---|---|---|---|---|
 | Slots | The Strip's and the Sierra Madre's slot machines, on our own 2D menu | Works | Spins pay out and take chips. Luck, comps levels, the floor managers' dialogue and the Sierra Madre's machines aren't checked. Spins don't count toward the challenge yet. | [slots](fo4_casino_plan.md#slots-built) |
 | Roulette | The Strip's and the Sierra Madre's roulette tables, on our own 2D menu | Works | Click a spot to bet, click it again to take the chips off. Pays as New Vegas does, its 0 and 00 quirks included. No spin animation or sounds; no gamepad cursor over the board. Spins don't count toward the challenge yet. | [roulette](fo4_casino_plan.md#roulette-built) |
-| Blackjack | The Strip's and the Sierra Madre's blackjack tables | Not built | A table says the game isn't playable yet; the casino's ban and the anti-cheat wait already apply. | [plan](fo4_casino_plan.md#records-built) |
+| Blackjack | The Strip's and the Sierra Madre's blackjack tables, on our own 2D menu | Built, not played | Plays as New Vegas does, from each casino's decks, payout and soft-17 rule, its quirks included (kings split; a split 21 pays both hands as naturals). Luck above 10 helps no more than 10. No felt texture, dealing animation or sounds; no gamepad cursor. Rounds don't count toward the challenge yet. | [blackjack](fo4_casino_plan.md#blackjack-built) |
 | Casino menu test | A console test screen for the new menu (`cqf FNV_Casino Spike`) | Works | Keys, mouse, text and images work in a menu of our own. Drawing it in your HUD color is built, not played (white without F3NV.dll). | [spike](fo4_casino_plan.md#toolchain-found) |
 | Caravan | New Vegas's card game | Not built | Picked-up cards join your collection; asking to play says the game isn't playable yet (or that you need 30 cards). | [plan](fo4_casino_plan.md#records-built) |
 
@@ -237,7 +237,7 @@ before.
   ([challenges](fo4_pipeline.md#challenges-left-out))
 - With CBBE installed, bare skin in converted outfits looks scrambled.
   ([body plan](fo4_bodies_cbbe.md))
-- Blackjack and Caravan aren't playable yet.
+- Caravan isn't playable yet.
 
 Please report what you find in
 [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).

@@ -344,7 +344,7 @@ from the player's inventory with the usual item messages.
   bet. No insurance. 7 cards auto-stand.
   - Guide/wiki: no split on queens or kings, and only the first split
     hand may double (W L3071189). The split check (`0x007395a0`) compares
-    rank; whether it excludes queens and kings is to be read in phase 4.
+    rank and allows queens and kings ([blackjack built](#blackjack-built)).
 - **Payouts:** natural 21 pays bet × CSNO payout, rounded (3:2, 6:5 at
   the Atomic Wrangler); a win pays 1:1; push returns the bet; a split
   hand reaching 21 also pays as a natural.
@@ -1067,6 +1067,81 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
   Luck's candidate draw; traces.
 - **In game:** each action at the Tops; a hit-soft-17 table at Gomorrah;
   double and split with too few chips refused.
+
+<a id="blackjack-built"></a>**Built 2026-11-12, not played** (`as3/f3nv/casino/Blackjack.as`,
+`BlackjackScreen.as`; `tests/casino/blackjack.py`):
+- **Rules, read in the decompile** (`blackjackmenu.cpp`), sharper than
+  [3.2](#rules-bj):
+  - **The shoe:** decks × 52 cards in load order; shuffling only puts the
+    count back to full (`0x007399d0`), and drawn cards swap to the end. The
+    deal reshuffles below decks × 52 × share, a draw below 5 cards.
+  - **The draw** (`BJDeck::DrawCard 0x00739090`, read in the GOG exe too):
+    a plain draw takes a random card of those left and **passes over the
+    next one unseen** (the count drops twice). Luck draws |Luck − 5|
+    candidates, and FNV's array holds 5, so **Luck above 10 helps no more
+    than 10** (FNV would write past the array). From a total over 9 it takes
+    the highest total of 21 or less; from 9 or less the nearest to 21 or
+    to 11. The lucky (player) or unlucky (dealer) text shows only when Luck
+    changed the card.
+  - **The deal** (`0x007393f0`): dealer, player plain; dealer (Luck for
+    the dealer), player (Luck). A player 21 is a natural; **the dealer
+    peeks**: a dealer 21 loses the round at once, or pushes against a
+    natural. Double needs chips for twice the bet and a total other than 11
+    to also allow a split.
+  - **Split** (`0x007395a0`) needs two cards of **one rank** (kings split,
+    a jack and a queen don't; the wiki's "no split on queens or kings" is
+    not in the code) and chips for twice the bet. Each hand gets a plain
+    card. FNV tests the first hand's 21 twice, so **a first split hand of
+    21 pays both hands as naturals** at once. After a split, Double Down
+    doubles the **first** hand even while the split hand is in play
+    (`0x00739650`). Kept as FNV plays.
+  - **Hit** ends a hand at 21 or more, or 7 cards; **Stay** ends the whole
+    turn, both hands; **Surrender** only before any action, losing half the
+    bet rounded up (bet 5 loses 3), and pays nothing on a split hand.
+  - **The dealer** plays unless every hand busted or surrendered, or a
+    natural ended the deal: below 17, or 17 with **any ace** in hand at a
+    casino without the soft-17 flag (so ace-six-king hits too); 7 cards at
+    most.
+  - **Payouts** (`0x00734db0`): win 1:1, natural bet × payout + 0.5
+    truncated (5 pays 8 at 3:2, 6 at the Atomic Wrangler's 6:5); a doubled
+    bet halves again after the round, and the bet never exceeds the chips.
+    **Steps** as roulette up; down −1 to 10, then to the step's multiple
+    (5, 10, 25, 100, 500); Bet Max is the max or the chips held.
+  - **Texts** (`records.BLACKJACK_TEXTS`): `sDealText`, `sHitText`,
+    `sStayText`, `sDoubleDownText`, `sSplitText`, `sSwitchHandsText`,
+    `sSurrenderText`, `sBetMax`, `sExit`, the chip, bet and earnings labels,
+    `sYouWin`/`sLuckyWinText`, `sYouLose`/`sUnluckyLoseText`,
+    `sYouBreakEvenText`.
+  - Rounds add misc stat 41; not counted yet, as slots' and roulette's.
+- **Card faces** (`LoadCardDeckResources 0x00731d70`): from the casino's
+  card back, the name up to its last `_`, then suit (`hcds`) and number
+  (01 the ace, 13 the king): `cardT_Back.dds` → `cardT_h01.dds`.
+  `records.face_textures` stages the 52 faces of every back a casino
+  names; the menu mounts them per deck.
+- **The screen:** a drawn felt; the dealer's row (first card face down
+  while you play), your hand and the split hand beside it (the hand in
+  play outlined), totals under each. Betting row: Deal, Increase and
+  Decrease Bet, Bet Max, Exit; play row: Hit, Double Down, Split, Switch
+  Hands, Surrender, Stay, the ones not allowed dimmed. Enter deals or
+  hits, Left/Right change the bet. **Esc and Exit work only between
+  rounds** (mid-round the bet is on the table, as FNV). No felt texture,
+  dealing animation or sounds yet (phase 6); no gamepad cursor.
+- **The loop:** `Open(1, ...)` now opens the menu; `OpenBlackjack` hands
+  it the casino, chips, min and max, earnings, Luck, a seed, the casino's
+  decks, reshuffle share, payout, soft-17 flag, card backs and texts; each
+  round sends `F3NV_CasinoRound(net)` and `Settle` banks it. Under the min
+  bet the bank shows the broke text and closes, as at roulette.
+- **Self-test:** `cqf FNV_Casino SelfTest 5` logs a third line,
+  `blackjack 5 ...`: the Tops' rules (soft 17 hit), seeds 1-3, 20 rounds
+  each of a fixed play (split pairs, double on 10-11, hit below 17), each
+  as `dealer/hand/split ranks=net`. Paste it after `selftest ` into
+  `tests/casino/selftest.txt`; `test_the_movies_blackjack_matches_the_model`
+  checks it. A long run of that play returns about −52% of the bet at
+  Luck 1, −5% at Luck 5 and +74% at Luck 10.
+- **In game:** at the Tops, play a few rounds with each action; split a
+  pair of kings, double after a split, surrender a 16; at Gomorrah watch
+  the dealer hit ace-six; with too few chips for twice the bet, Double
+  Down and Split stay dimmed; Esc mid-round does nothing.
 
 ### <a id="phase-5"></a>Phase 5. Caravan (L)
 
