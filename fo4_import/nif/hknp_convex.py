@@ -202,12 +202,20 @@ def principal(tensor: np.ndarray) -> tuple:
 
 
 def quaternion(m: np.ndarray) -> tuple:
-    """Rotation matrix `m` (columns the rotated axes) as (x, y, z, w), w not negative."""
-    w = math.sqrt(max(0.0, 1.0 + m[0, 0] + m[1, 1] + m[2, 2])) / 2
-    x = math.copysign(math.sqrt(max(0.0, 1.0 + m[0, 0] - m[1, 1] - m[2, 2])) / 2, m[2, 1] - m[1, 2])
-    y = math.copysign(math.sqrt(max(0.0, 1.0 - m[0, 0] + m[1, 1] - m[2, 2])) / 2, m[0, 2] - m[2, 0])
-    z = math.copysign(math.sqrt(max(0.0, 1.0 - m[0, 0] - m[1, 1] + m[2, 2])) / 2, m[1, 0] - m[0, 1])
-    return float(x), float(y), float(z), float(w)
+    """Rotation matrix `m` (columns the rotated axes) as (x, y, z, w) by Havok's rule: w positive on a positive
+    trace, else the component of the largest diagonal term positive."""
+    trace = m[0, 0] + m[1, 1] + m[2, 2]
+    if trace > 0:
+        s = math.sqrt(trace + 1.0)
+        return tuple(float(c) for c in ((m[2, 1] - m[1, 2]) / (2 * s), (m[0, 2] - m[2, 0]) / (2 * s),
+                                        (m[1, 0] - m[0, 1]) / (2 * s), s / 2))
+    i = max(range(3), key=lambda a: (m[a, a], -a))
+    j, k = (i + 1) % 3, (i + 2) % 3
+    s = math.sqrt(m[i, i] - m[j, j] - m[k, k] + 1.0)
+    q = [0.0] * 4
+    q[i], q[j], q[k], q[3] = s / 2, (m[j, i] + m[i, j]) / (2 * s), (m[k, i] + m[i, k]) / (2 * s), \
+        (m[k, j] - m[j, k]) / (2 * s)
+    return tuple(float(c) for c in q)
 
 
 def pack_vector(v) -> list:

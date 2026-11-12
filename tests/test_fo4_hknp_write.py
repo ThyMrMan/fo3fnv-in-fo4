@@ -164,7 +164,7 @@ def _box_nif(*extra) -> bytes:
 
 
 def test_elric_cache_finishes_a_convex_nif_itself_and_sends_only_the_rest_to_elric(tmp_path, monkeypatch):
-    """A box body is finished by our writer, never reaching Elric or its cache; a constraint still goes to Elric.
+    """A box body is finished by our writer, never reaching Elric or its cache; a constraint we do not write still goes to Elric.
 
     See: docs/fork/fo4_hknp_writer.md#seam
     """
@@ -172,7 +172,7 @@ def test_elric_cache_finishes_a_convex_nif_itself_and_sends_only_the_rest_to_elr
     monkeypatch.setattr(elric_cache, 'CACHE', tmp_path)
     monkeypatch.setattr(elric_cache, 'elric_tag', lambda: b'tag')
     monkeypatch.setattr(elric_cache.elric, 'process', lambda todo: sent.append(set(todo)) or {})
-    listed = _box_nif(('bhkRagdollConstraint', bytes(8)))
+    listed = _box_nif(('bhkStiffSpringConstraint', bytes(8)))
     done = elric_cache.process({'box.nif': _box_nif(), 'list.nif': listed})
     assert sent == [{'list.nif'}] and list(done) == ['box.nif']
     kinds = [k for k, _ in nif_file.read(done['box.nif']).blocks]
