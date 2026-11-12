@@ -71,8 +71,14 @@ def rear_texture(own: np.ndarray, rear: tuple, frame: np.ndarray, colour: tuple,
     above = base * template * SKIN_TINT_DRAW + added if whole is None else (bilinear(stock, fnv_uv) + added) * whole
     weight = neck_weight(where, seam)
     drawn = above * (1 - weight) + base * tint * SKIN_TINT_DRAW * weight
-    out[rows, cols, :3] = drawn / (tint * SKIN_TINT_DRAW)
+    out[rows, cols, :3] = untinted(drawn, base, tint)
     return _repadded(out, edge)
+
+
+def untinted(drawn: np.ndarray, base: np.ndarray, tint) -> np.ndarray:
+    """`drawn` over the tint as drawn; `base` where the tint zeroes a channel."""
+    scale = np.broadcast_to(np.asarray(tint, float) * SKIN_TINT_DRAW, drawn.shape)
+    return np.divide(drawn, scale, out=base.astype(float), where=scale > 0)
 
 
 def shine_texture(own: np.ndarray, part: tuple, frame, fnv, shine: np.ndarray, neck: tuple) -> np.ndarray:

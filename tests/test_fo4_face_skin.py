@@ -13,7 +13,7 @@ from PIL import Image
 
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.face import texture as TX
-from fo4_import.face import tint
+from fo4_import.face import skin_seams, tint
 from fo4_import.face.fnv_head import FnvHead
 from fo4_import.face.sculpt import FACE_FIELDS
 from fo4_import.face.texture import fnv_texture
@@ -91,3 +91,11 @@ def test_a_mod_race_skin_without_an_egt_reaches_the_tint_fit():
     """Willow (own race skin, no .egt) gets tint layers; no FaceGen colour, so no tone."""
     values, tone, captured = tint_fit(MOD_EXPORT, 'Willow', True)
     assert (np.asarray(values) > 0.005).any() and np.array_equal(tone, np.ones(3)) and captured > 0
+
+
+def test_a_skin_tint_with_a_zero_channel_keeps_the_texture_finite():
+    """untinted divides through the tint and keeps the base in a channel the tint zeroes, never inf or NaN."""
+    drawn, base = np.full((2, 3), 0.5), np.full((2, 3), 0.25)
+    out = skin_seams.untinted(drawn, base, (0.5, 0.0, 1.0))
+    assert np.isfinite(out).all() and np.allclose(out[:, 1], 0.25)
+    assert np.allclose(out[:, 0], 0.5 / (0.5 * skin_seams.SKIN_TINT_DRAW[0]))
