@@ -341,6 +341,13 @@ Back aren't used there, since the DLL owns the keys.
   our translation files (played in spike 5). A missing texture is logged
   and `mount` returns "". Without F3NV.dll, or with one older than this, it
   mounts as before.
+- **Texture archives (P, 2026-11-12):** that stream can't open a file in a
+  texture (DX10) BA2: the level-up menu logged every skill and perk icon
+  as missing, all of them in `FalloutNV - Textures.ba2`. So
+  `TextureExists` also reads the name table of every `.ba2` in Data once
+  (the BTDX header's file count and name table offset, as
+  `fo4_import/base/ba2.py` reads them) and answers from it. An archive in
+  Data that the game doesn't load still counts (built, not played).
 - **Showing:** `show(parent, url, x, y, size, done)` gives a Loader scaled
   to `size` square once loaded, then `done(loader, loaded)`. A failed load
   is logged. An empty url leaves the Loader empty, so a menu's layout

@@ -373,7 +373,8 @@ EndFunction
 
 Function Collect()
   {Into shown: this quest's table (the game's), then every other plugin's registered in Tables; and each one's perk,
-  trait and row counts.}
+  trait and row counts, of what the mode shows: perks and rows in a level-up, traits in the trait menu, neither in
+  the tag menu (the rest count 0, so Send hands over and asks about none of them).}
   F3NV_LevelUpTable own = (Self as Quest) as F3NV_LevelUpTable
   shown = new F3NV_LevelUpTable[0]
   If own
@@ -394,21 +395,27 @@ Function Collect()
   traitTotal = 0
   Int t = 0
   While t < shown.Length
-    perkCounts[t] = shown[t].PerkCount()
-    traitCounts[t] = shown[t].TraitCount()
-    rowCounts[t] = shown[t].RowCount()
+    If mode == LevelUpMode
+      perkCounts[t] = shown[t].PerkCount()
+      rowCounts[t] = shown[t].RowCount()
+    ElseIf mode == TraitsMode
+      traitCounts[t] = shown[t].TraitCount()
+    EndIf
     tablePerks += perkCounts[t]
     traitTotal += traitCounts[t]
     t += 1
   EndWhile
-  DescribeAdded()
+  extra = new Perk[0]
+  extraParts = new String[16]
+  If mode == LevelUpMode
+    DescribeAdded()
+  EndIf
   perkTotal = tablePerks + extra.Length
 EndFunction
 
 Function DescribeAdded()
   {Into extra and extraParts (F3NV_LevelUpTable.Text's order): the perks AddPerk listed that no shown table lists,
   each read from the perk, with one requirement row of kind 4, the game's own test of its next rank.}
-  extra = new Perk[0]
   Int i = 0
   While Added && i < Added.Length
     If Added[i] && extra.Find(Added[i]) < 0 && !Tabled(Added[i])
@@ -416,7 +423,6 @@ Function DescribeAdded()
     EndIf
     i += 1
   EndWhile
-  extraParts = new String[16]
   Int j = 0
   While j < extra.Length
     Perk first = extra[j]

@@ -40,10 +40,19 @@ package
                                            "$F3NV_LU_TRAITS"];
       private static const LIST_X:Number = 40;
       private static const TOP:Number = 80;
-      private static const DETAIL_X:Number = 620;
+      private static const LINE:Number = 30;
       private static const IMAGE:Number = 200;
-      private static const TEXT_X:Number = DETAIL_X + IMAGE + 24;
       private static const DIM:Number = 0.45;
+      // The tag and trait menus' panel: its width and where its detail starts.
+      private static const PANEL_WIDTH:Number = 1000;
+      private static const PANEL_DETAIL_X:Number = 520;
+
+      // This open's size and detail column: the whole screen for a level-up, a centered panel for the tag and
+      // trait menus.
+      private var wide:Number = WIDTH;
+      private var high:Number = HEIGHT;
+      private var detailX:Number = 620;
+      private var textX:Number;
 
       private var bridge:Bridge = new Bridge();
       private var images:Images = new Images(bridge, MENU);
@@ -78,9 +87,6 @@ package
       public function F3NV_LevelUp()
       {
          super();
-         graphics.beginFill(0, 0.85);
-         graphics.drawRect(0, 0, WIDTH, HEIGHT);
-         graphics.endFill();
          addEventListener(Event.ADDED_TO_STAGE, onStage);
       }
 
@@ -150,27 +156,34 @@ package
          input.log = log;
          hints = new HintBar(input);
          hints.x = LIST_X;
-         hints.y = HEIGHT - 36;
          Host.focus(this);
       }
 
-      // The screen's parts, in the HUD color read on this open.
+      // The screen's parts, in the HUD color read on this open: the whole screen for a level-up; for the tag and
+      // trait menus, one row per entry in a centered panel, the game showing faded round it.
       private function build() : void
       {
          while (numChildren > 0)
          {
             removeChildAt(0);
          }
+         var panel:Boolean = pages.length == 1;
+         var rows:int = panel ? Math.min(18, Math.max(1, pages[0] == TAGS ? who.skills.length : who.traits.length)) : 18;
+         wide = panel ? PANEL_WIDTH : WIDTH;
+         high = panel ? Math.max(560, TOP + rows * LINE + 80) : HEIGHT;
+         detailX = panel ? PANEL_DETAIL_X : 620;
+         textX = detailX + IMAGE + 24;
+         backdrop(panel);
          tabs = [];
          for (var i:int = 0; i < pages.length; i++)
          {
             tabs.push(Text.show(Text.label(this, LIST_X + i * 170, 24, 28), TITLES[pages[i]]));
          }
-         points = Text.label(this, DETAIL_X, 30, 20);
+         points = Text.label(this, detailX, 30, 20);
          list = new ScrollList();
-         list.rows = 18;
-         list.listWidth = DETAIL_X - LIST_X - 30;
-         list.line = 30;
+         list.rows = rows;
+         list.listWidth = detailX - LIST_X - 30;
+         list.line = LINE;
          list.x = LIST_X;
          list.y = TOP;
          list.onPick = function(index:int) : void { onAction(Input.ACCEPT, 0); };
@@ -178,21 +191,42 @@ package
          addChild(list);
          detail = new Sprite();
          addChild(detail);
-         title = Text.label(detail, TEXT_X, TOP, 30);
-         sub = Text.label(detail, TEXT_X, TOP + 44, 20);
-         needs = wrapped(detail, TEXT_X, TOP + 80, WIDTH - 40 - TEXT_X, 18);
-         about = wrapped(detail, DETAIL_X, TOP + IMAGE + 30, WIDTH - 40 - DETAIL_X, 20);
-         status = wrapped(this, DETAIL_X, HEIGHT - 110, WIDTH - 40 - DETAIL_X, 20);
+         title = Text.label(detail, textX, TOP, 30);
+         sub = Text.label(detail, textX, TOP + 44, 20);
+         needs = wrapped(detail, textX, TOP + 80, wide - 40 - textX, 18);
+         about = wrapped(detail, detailX, TOP + IMAGE + 30, wide - 40 - detailX, 20);
+         status = wrapped(this, detailX, high - 110, wide - 40 - detailX, 20);
          question = wrapped(null, 20, 20, 560, 22);
          modal = new Modal();
          modal.fade = 0.5;
-         modal.x = (WIDTH - 600) / 2;
-         modal.y = (HEIGHT - 140) / 2;
+         modal.x = (wide - 600) / 2;
+         modal.y = (high - 140) / 2;
          modal.handler = onModal;
          addChild(modal);
          if (hints != null)
          {
+            hints.y = high - 36;
             addChild(hints);
+         }
+      }
+
+      // The menu's ground: a level-up darkens the whole screen; a panel sits centered (this clip moved there) over a
+      // lighter fade, framed in the HUD color.
+      private function backdrop(panel:Boolean) : void
+      {
+         x = (WIDTH - wide) / 2;
+         y = (HEIGHT - high) / 2;
+         graphics.clear();
+         graphics.beginFill(0, panel ? 0.5 : 0.85);
+         graphics.drawRect(-x, -y, WIDTH, HEIGHT);
+         graphics.endFill();
+         if (panel)
+         {
+            graphics.lineStyle(2, Theme.color);
+            graphics.beginFill(0, 0.85);
+            graphics.drawRect(0, 0, wide, high);
+            graphics.endFill();
+            graphics.lineStyle();
          }
       }
 
@@ -344,7 +378,7 @@ package
          var skills:Boolean = page == SKILLS || page == TAGS;
          var entry:Object = skills ? who.skills[index] : (page == TRAITS ? who.traits[index] : who.perks[index]);
          var kind:String = skills ? "S" : (page == TRAITS ? "T" : "P");
-         image = images.show(detail, imageUrl(kind, index, entry.image), DETAIL_X, TOP, IMAGE);
+         image = images.show(detail, imageUrl(kind, index, entry.image), detailX, TOP, IMAGE);
          Text.show(title, entry.name);
          Text.show(about, entry.text);
          if (page == TRAITS)
