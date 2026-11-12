@@ -5,7 +5,7 @@ are named after FalloutHelpers.esl, which every converted FO3/FNV plugin masters
 holds `$KEY<tab>text` lines; the installed file is UTF-16 LE with a BOM and CRLF lines, as F4SE requires. Every
 game language gets a file, its missing keys in English, since F4SE has no fallback of its own. A key's text may
 hold `{0}`, `{1}` slots: the code sends `$KEY<tab>slot0<tab>slot1`, and f3ui's Text.show fills them.
-check() holds the `"$KEY"` strings in our movies and F3NV.dll against the English file.
+check() holds the `"$KEY"` strings in our movies, F3NV.dll and MCM pages against the English file.
 
 See: docs/fork/swf_framework.md#translations
 """
@@ -23,8 +23,9 @@ LINE_LIMIT = 511
 LANGUAGES = ('cn', 'de', 'en', 'es', 'esmx', 'fr', 'it', 'ja', 'pl', 'ptbr', 'ru')
 #: The repo root, under which our code's sources are found.
 REPO = Path(__file__).resolve().parents[2]
-#: Our code that shows keys: (folder, glob) — the movies' AS3 and F3NV.dll's C++.
-CODE = ((REPO / 'fo4_import', '**/as3/**/*.as'), (REPO / 'tes_runtime' / 'fo4_condition', '*.cpp'))
+#: Our code that shows keys: (folder, glob) — the movies' AS3, F3NV.dll's C++ and our MCM pages' templates.
+CODE = ((REPO / 'fo4_import', '**/as3/**/*.as'), (REPO / 'tes_runtime' / 'fo4_condition', '*.cpp'),
+        (REPO / 'fo4_import', '**/mcm/*.json'))
 #: `"$..."` strings that are the game's font names (fontconfig.txt), not translation keys.
 FONTS = frozenset({'$MAIN_Font', '$MAIN_Font_Bold', '$Controller_Buttons'})
 #: A `"$KEY"` string literal, or a template's `"$KEY\t`.

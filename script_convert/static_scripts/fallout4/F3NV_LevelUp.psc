@@ -32,7 +32,10 @@ FormList Property Skills Auto Const
 {The skills the menu raises (FNV_Skills).}
 FormList Property Specials Auto Const
 {The seven SPECIAL actor values; the menu's values are these, then Skills.}
-Int Property SkillCap = 100 Auto Const
+Int Property SkillCap = 100 Auto
+{The highest a skill's base can be raised with skill points; an MCM option (fo4_import/level_up/options.py).}
+Bool Property ShowAllPerks = False Auto
+{Whether the perk page opens with every perk shown, the ones the player can't take dimmed; an MCM option.}
 String Property SkillNames Auto Const
 {Skills' names, SEP between; SkillDescriptions and SkillImages alike.}
 String Property SkillDescriptions Auto Const
@@ -237,13 +240,13 @@ EndEvent
 Function Send()
   {Hand the open menu every plugin's perk, trait and requirement tables joined (Collect, Merged), the player's points,
   level, sex and cap, the ranks held and values (asked in parallel, Gather), the tagged skills, the mode and the
-  traits held (root1.Open, in Character.as's order).}
+  traits held, and whether to show every perk at first (root1.Open, in Character.as's order).}
   Float started = Utility.GetCurrentRealTime()
   Actor player = Game.GetPlayer()
   Collect()
   Int specialCount = Specials.GetSize()
   Gather(specialCount, Skills.GetSize())
-  Var[] args = new Var[32]
+  Var[] args = new Var[33]
   args[0] = PerkPoints
   args[1] = SkillPoints
   args[2] = player.GetLevel()
@@ -276,6 +279,7 @@ Function Send()
   args[29] = Merged(6, traitCounts)
   args[30] = Merged(7, traitCounts)
   args[31] = JoinedParts(traitParts)
+  args[32] = ShowAllPerks
   UI.Invoke(MenuName, "root1.Open", args)
   Debug.Trace("F3NV_LevelUp: sent in " + (Utility.GetCurrentRealTime() - started) + "s, " + shown.Length + " tables")
 EndFunction

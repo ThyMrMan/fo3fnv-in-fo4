@@ -687,6 +687,15 @@ Lonesome Road, Gun Runners' Arsenal):
 - TRAITS lists Old World Blues' six after the game's ten, and choosing one
   adds it.
 
+Options, with MCM (Mod Configuration Menu, `F3NV: Fallout New Vegas`):
+- set levels per perk to 1, level up: a perk point; set skill points per
+  level to 20: the next level-up gives 20 + Intelligence x 0.5;
+- set the skill cap to 150: SKILLS lets a skill past 100;
+- turn on show every perk: PERKS opens with every perk, dimmed ones too;
+- bind the hotkey and press it outside menus: our menu opens (if nothing
+  happens, MCM's `CallFunction` didn't find `F3NV_CharacterRules` on the
+  quest).
+
 ## <a id="casino"></a>The casino on the framework
 
 - Move `Ui.as` and the bridge into the library; the games keep their own

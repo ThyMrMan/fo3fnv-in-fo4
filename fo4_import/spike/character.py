@@ -18,6 +18,7 @@ from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_avif, pack_gmst, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.helpers_plugin import EDID_PREFIX, actor_value_form, form_id
+from fo4_import.level_up import options
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.level_up import SCRIPT as LEVEL_UP_SCRIPT, TABLE_SCRIPT, av_records, skill_table, table_properties
@@ -69,8 +70,8 @@ def _list(builder, edid: str, forms: list) -> int:
 
 def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: int) -> None:
     """Write the character-rule records into `builder`'s plugin `plugin` (the rules quest also carries our level-up
-    state, level_up), the Pip-Boy's SKILLS tab and, for the game plugin only, LevelUpMenuEx's INI (a DLC's perks
-    reach the game's list by its form list merge)."""
+    state, level_up), the Pip-Boy's SKILLS tab and, for the game plugin only, LevelUpMenuEx's INI and the level-up
+    options' MCM page (a DLC's perks reach the game's list by its form list merge)."""
     game = root_export(export_dir).name
     governing = GOVERNING[game]
     skills = sorted({s for group in governing for s in group}, key=lambda s: C.FNV_AV_NAMES.index(
@@ -103,6 +104,7 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
     if not builder.built:
         write_ini(data_dir / 'PRKF' / f'{Path(plugin).stem}.ini', plugin, level_up[1]['Perks'], skill_list)
+        builder.counts['MCM page files'] += options.install(data_dir, plugin, quest)
     tab_quest(builder, 'SKILLS', skill_list)
 
 

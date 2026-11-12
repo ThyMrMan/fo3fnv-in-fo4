@@ -50,13 +50,14 @@ def test_the_script_and_movie_agree_on_events_and_calls():
 
 
 def test_send_hands_over_what_the_movie_reads():
-    """Send fills args[0] to args[31]; Character reads 17 values, 8 requirement columns (17-24), then the mode,
-    count, bonus and the trait tables (25-31)."""
+    """Send fills args[0] to args[32]; Character reads 17 values, 8 requirement columns (17-24), then the mode,
+    count, bonus, the trait tables (25-31) and the show-all option (32)."""
     send = _function(SCRIPT, 'Send')
-    assert sorted(int(n) for n in re.findall(r'args\[(\d+)\] =', send)) == list(range(32)) and 'new Var[32]' in send
+    assert sorted(int(n) for n in re.findall(r'args\[(\d+)\] =', send)) == list(range(33)) and 'new Var[33]' in send
     assert 'args[16]' in CHARACTER and 'readRows(args.slice(17, 25))' in CHARACTER
     assert re.findall(r'split\(columns\[(\d)\]\)', CHARACTER) == [str(i) for i in range(8)]
-    assert sorted(int(n) for n in re.findall(r'args\[(2[5-9]|3\d)\]', CHARACTER)) == list(range(25, 32))
+    assert sorted(int(n) for n in re.findall(r'args\[(2[5-9]|3\d)\]', CHARACTER)) == list(range(25, 33))
+    assert 'args[32] = ShowAllPerks' in send and 'showAll = who.showAll;' in MOVIE
     modes = {m: int(v) for m, v in re.findall(r'Int Property (\w+)Mode = (\d)', SCRIPT)}
     assert modes == {'LevelUp': 0, 'Tags': 1, 'Traits': 2}
     assert all(f'{name}:int = {modes[mode]};' in CHARACTER

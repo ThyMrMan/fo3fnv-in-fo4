@@ -42,10 +42,12 @@ package f3nv.levelup
       public var specials:int;
       public var perkPoints:int;
       public var skillPoints:int;
+      // Whether the perk page opens showing every perk (the MCM option).
+      public var showAll:Boolean;
 
       // F3NV_LevelUp.psc's Send, in its order: points, level, sex, cap; the perk tables and ranks held; the skill
       // tables, values and tags; how many values are SPECIAL; the requirement rows' columns; the mode, the count
-      // and bonus; the trait tables and traits held.
+      // and bonus; the trait tables and traits held; whether to show every perk at first.
       public function Character(args:Array)
       {
          perkPoints = int(args[0]);
@@ -85,6 +87,7 @@ package f3nv.levelup
             traits.push({name: names[i], text: texts[i] || "", image: images[i] || "", held: held[i] == "1",
                          picked: held[i] == "1"});
          }
+         showAll = Boolean(args[32]);
       }
 
       // How many skills are tagged now (in the tag menu, as the player has them set).

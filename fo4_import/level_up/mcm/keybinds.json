@@ -1,0 +1,15 @@
+{
+  "modName": "{mod}",
+  "keybinds": [
+    {
+      "id": "f3nv_open_level_up",
+      "desc": "Open the level-up menu",
+      "action": {
+        "type": "CallFunction",
+        "form": "{form}",
+        "scriptName": "F3NV_CharacterRules",
+        "function": "OpenLevelUp"
+      }
+    }
+  ]
+}
