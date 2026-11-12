@@ -23,6 +23,8 @@ EQUAL, NOT_EQUAL = 0, 1
 FNV_AVIF_BASE = 0x490
 #: Between the entries of a table the menu reads as one string (no entry holds one).
 SEP = '\t'
+#: The tag and trait menus' picks come back as one Papyrus Int, a bit per entry.
+MASK_BITS = 31
 
 
 # ---------------------------------------------------------------------------
@@ -113,33 +115,41 @@ def properties(table: list, values: list = (), listed: list = ()) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def texts(kind: str, records: list, names: list = None) -> dict:
+    """`records`' names (`names` where FULL is empty), descriptions and images as the SEP tables <kind>Names,
+    <kind>Descriptions and <kind>Images."""
+    names = names or [''] * len(records)
+    return {f'{kind}Names': ('string', joined(r.get('FULL') or n for r, n in zip(records, names))),
+            f'{kind}Descriptions': ('string', joined(r.get('DESC', '') for r in records)),
+            f'{kind}Images': ('string', joined(fo4_icon(r) for r in records))}
+
+
 def perk_table(perks) -> dict:
-    """The level-up list's perks (perks.offered(), FNV_Perks' order): names, descriptions and images as SEP tables,
-    each one's level and rank count, and every rank in order (RankForms, PerkRanks per perk)."""
+    """The level-up list's perks (perks.offered(), FNV_Perks' order) as texts(), each one's level and rank count,
+    and every rank in order (RankForms, PerkRanks per perk)."""
     offered = perks.offered()
     ranks = [perks.ids[int(r['FormID'], 16)] for r in offered]
-    return {'PerkNames': ('string', joined(r.get('FULL', '') for r in offered)),
-            'PerkDescriptions': ('string', joined(r.get('DESC', '') for r in offered)),
-            'PerkImages': ('string', joined(fo4_icon(r) for r in offered)),
-            'PerkLevels': ('ints', [int(r.get('DATA.MinLevel', 0) or 0) for r in offered]),
+    return {**texts('Perk', offered), 'PerkLevels': ('ints', [int(r.get('DATA.MinLevel', 0) or 0) for r in offered]),
             'PerkRanks': ('ints', [len(ids) for ids in ranks]),
             'RankForms': ('objects', [fid for ids in ranks for fid in ids])}
 
 
 def skill_table(avs: dict, skills: list) -> dict:
-    """`skills` (FNV actor value names without spaces, FNV_Skills' order): names, descriptions and images as SEP
-    tables, from the game's AVIF records."""
+    """`skills` (FNV_Skills' order, spaceless AV names) as texts() from AVIFs."""
     index = {n.replace(' ', ''): i for i, n in enumerate(C.FNV_AV_NAMES)}
-    records = [avs.get(index[s], {}) for s in skills]
-    return {'SkillNames': ('string', joined(r.get('FULL') or s for r, s in zip(records, skills))),
-            'SkillDescriptions': ('string', joined(r.get('DESC', '') for r in records)),
-            'SkillImages': ('string', joined(fo4_icon(r) for r in records))}
+    return texts('Skill', [avs.get(index[s], {}) for s in skills], skills)
 
 
 def menu_properties(builder, avs: dict, values: list, skills: list) -> dict:
-    """F3NV_LevelUp's value properties: rows, perk and skill tables.
+    """F3NV_LevelUp's value properties: rows, perk, skill and trait tables. The tag and trait menus answer with a
+    bit per entry, so entries past MASK_BITS are counted.
     See: docs/fork/fo4_level_up_plan.md#menu
     """
     table = rows(builder, labels(builder.perks, avs))
     listed = [builder.perks.ids[int(r['FormID'], 16)][0] for r in builder.perks.offered()]
-    return {**properties(table, values, listed), **perk_table(builder.perks), **skill_table(avs, skills)}
+    traits = builder.perks.trait_records()
+    past = max(0, len(traits) - MASK_BITS) + max(0, len(skills) - MASK_BITS)
+    if past:
+        builder.counts['level-up menu entries past its mask'] += past
+    return {**properties(table, values, listed), **perk_table(builder.perks), **skill_table(avs, skills),
+            **texts('Trait', traits)}

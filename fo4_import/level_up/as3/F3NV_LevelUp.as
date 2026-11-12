@@ -17,11 +17,13 @@ package
    import flash.text.TextField;
    import flash.text.TextFieldAutoSize;
 
-   // Our level-up menu's document class: F3NV_LevelUp.psc opens it in place of LevelUpMenu and calls these by
-   // UI.Invoke. Three pages, a list on the left and the highlighted entry on the right (its image, name, ranks,
-   // requirements and description): SKILLS, where points are set (Accept or Right adds, Left takes back; Y resets)
-   // and spent together (X); PERKS, the perks with a rank left (X shows all or only those that can be taken now;
-   // Accept takes one, once confirmed); TAKEN, the perks held. Points left unspent stay for later.
+   // Our level-up menu's document class: F3NV_LevelUp.psc opens it in place of LevelUpMenu, and as the tag skill and
+   // trait menus, and calls these by UI.Invoke. A list on the left and the highlighted entry on the right (its image,
+   // name, ranks, requirements and description). A level-up has three pages: SKILLS, where points are set (Accept or
+   // Right adds, Left takes back; Y resets) and spent together (X); PERKS, the perks with a rank left (X shows all or
+   // only those that can be taken now; Accept takes one, once confirmed); TAKEN, the perks held. Points left unspent
+   // stay for later. The tag menu (TAGS) tags skills up to the count asked, X once all are picked; the trait menu
+   // (TRAITS) picks up to the count, X to keep them, Back to leave them as they were.
    // See docs/fork/fo4_level_up_plan.md#menu
    public class F3NV_LevelUp extends MovieClip
    {
@@ -31,7 +33,11 @@ package
       public static const SKILLS:int = 0;
       public static const PERKS:int = 1;
       public static const TAKEN:int = 2;
-      private static const PAGES:Array = ["$F3NV_LU_SKILLS", "$F3NV_LU_PERKS", "$F3NV_LU_TAKEN"];
+      public static const TAGS:int = 3;
+      public static const TRAITS:int = 4;
+      // Each page's title, by page.
+      private static const TITLES:Array = ["$F3NV_LU_SKILLS", "$F3NV_LU_PERKS", "$F3NV_LU_TAKEN", "$F3NV_LU_TAGS",
+                                           "$F3NV_LU_TRAITS"];
       private static const LIST_X:Number = 40;
       private static const TOP:Number = 80;
       private static const DETAIL_X:Number = 620;
@@ -43,6 +49,8 @@ package
       private var images:Images = new Images(bridge, MENU);
       private var urls:Object = {};
       private var who:Character;
+      // This open's pages, and the one shown.
+      private var pages:Array = [SKILLS, PERKS, TAKEN];
       private var page:int = SKILLS;
       private var showAll:Boolean = false;
       // The list's entries on the current page: indexes into who.perks or who.skills.
@@ -83,16 +91,18 @@ package
          images.log = log;
       }
 
-      // F3NV_LevelUp.psc's Send: everything the menu shows (Character's order). Opens on SKILLS when there are
-      // skill points, else on PERKS.
+      // F3NV_LevelUp.psc's Send: everything the menu shows (Character's order). A level-up opens on SKILLS when
+      // there are skill points, else on PERKS; the tag and trait menus have their one page.
       public function Open(... args) : void
       {
          Theme.fromHud(bridge.natives("F3NV"));
          who = new Character(args);
-         log("open: " + who.perks.length + " perks, " + who.skills.length + " skills, " + who.rows.length
-             + " requirement rows, " + who.perkPoints + " perk and " + who.skillPoints + " skill points");
+         log("open: mode " + who.mode + ", " + who.perks.length + " perks, " + who.skills.length + " skills, "
+             + who.traits.length + " traits, " + who.rows.length + " requirement rows, " + who.perkPoints
+             + " perk and " + who.skillPoints + " skill points");
+         pages = who.mode == Character.TAGS ? [TAGS] : (who.mode == Character.TRAITS ? [TRAITS] : [SKILLS, PERKS, TAKEN]);
          build();
-         page = who.skillPoints > 0 || who.perkPoints == 0 ? SKILLS : PERKS;
+         page = pages.length == 1 ? pages[0] : (who.skillPoints > 0 || who.perkPoints == 0 ? SKILLS : PERKS);
          if (input != null)
          {
             input.open();
@@ -151,9 +161,9 @@ package
             removeChildAt(0);
          }
          tabs = [];
-         for (var i:int = 0; i < PAGES.length; i++)
+         for (var i:int = 0; i < pages.length; i++)
          {
-            tabs.push(Text.show(Text.label(this, LIST_X + i * 170, 24, 28), PAGES[i]));
+            tabs.push(Text.show(Text.label(this, LIST_X + i * 170, 24, 28), TITLES[pages[i]]));
          }
          points = Text.label(this, DETAIL_X, 30, 20);
          list = new ScrollList();
@@ -202,44 +212,91 @@ package
          return out;
       }
 
-      // The current page's list with entry `selected` highlighted, the tabs, points and hints.
+      // The current page's list with entry `selected` highlighted, the tabs, the count line and hints.
       private function showPage(selected:int) : void
       {
          for (var i:int = 0; i < tabs.length; i++)
          {
-            tabs[i].alpha = i == page ? 1 : DIM;
+            tabs[i].alpha = pages[i] == page ? 1 : DIM;
          }
-         var pending:int = who.pendingPoints();
-         Text.show(points, Text.fill("$F3NV_LU_POINTS\t" + (who.skillPoints - pending) + "\t" + who.perkPoints));
-         var items:Array = [];
+         Text.show(points, counts());
          shown = [];
-         if (page == SKILLS)
-         {
-            for (i = 0; i < who.skills.length; i++)
-            {
-               var skill:Object = who.skills[i];
-               var value:String = String(who.skillValue(i));
-               shown.push(i);
-               items.push({text: skill.name, value: skill.pending > 0 ? value + " > " + who.skillValue(i, true) : value});
-            }
-         }
-         else
-         {
-            for (i = 0; i < who.perks.length; i++)
-            {
-               var perk:Object = who.perks[i];
-               var listed:Boolean = page == TAKEN ? perk.held > 0
-                                                  : perk.held < perk.ranks && (showAll || who.eligible(i));
-               if (listed)
-               {
-                  shown.push(i);
-                  items.push({text: perk.name, value: perk.ranks > 1 ? perk.held + "/" + perk.ranks : "",
-                              dim: page == PERKS && !who.eligible(i)});
-               }
-            }
-         }
+         var items:Array = page == SKILLS || page == TAGS ? skillItems() : (page == TRAITS ? traitItems() : perkItems());
          list.show(items, selected);
          showHints();
+      }
+
+      // The line over the detail: the points left, or the tags or traits picked of those asked.
+      private function counts() : String
+      {
+         if (page == TAGS)
+         {
+            return Text.fill("$F3NV_LU_TAGS_PICKED\t" + who.tagCount() + "\t" + who.wanted);
+         }
+         if (page == TRAITS)
+         {
+            return Text.fill("$F3NV_LU_TRAITS_PICKED\t" + who.traitCount() + "\t" + who.wanted);
+         }
+         return Text.fill("$F3NV_LU_POINTS\t" + (who.skillPoints - who.pendingPoints()) + "\t" + who.perkPoints);
+      }
+
+      // `name`, marked with `mark` (a $KEY) when `marked`.
+      private static function marked(name:String, marked:Boolean, mark:String) : String
+      {
+         return marked ? name + " (" + Text.translate(mark) + ")" : name;
+      }
+
+      // The skills, each with its value ("45 > 50" with points set, or with the tag bonus in the tag menu).
+      private function skillItems() : Array
+      {
+         var items:Array = [];
+         for (var i:int = 0; i < who.skills.length; i++)
+         {
+            var skill:Object = who.skills[i];
+            var value:String = String(who.skillValue(i));
+            var after:Number = page == TAGS ? who.skillValue(i) + tagGain(skill) : who.skillValue(i, true);
+            shown.push(i);
+            items.push({text: marked(skill.name, skill.tagged, "$F3NV_LU_TAG_MARK"),
+                        value: after != who.skillValue(i) ? value + " > " + after : value,
+                        dim: page == TAGS && skill.tag == Character.TAGGED});
+         }
+         return items;
+      }
+
+      // The tag bonus skill `skill` would get as the tag menu stands: a new tag's (a suggestion has none yet).
+      private function tagGain(skill:Object) : int
+      {
+         return skill.tagged && skill.tag != Character.TAGGED ? who.bonus : 0;
+      }
+
+      private function traitItems() : Array
+      {
+         var items:Array = [];
+         for (var i:int = 0; i < who.traits.length; i++)
+         {
+            shown.push(i);
+            items.push({text: marked(who.traits[i].name, who.traits[i].picked, "$F3NV_LU_CHOSEN_MARK")});
+         }
+         return items;
+      }
+
+      // PERKS: those with a rank left the player can take now (all of them, the rest dimmed, with showAll); TAKEN:
+      // those held.
+      private function perkItems() : Array
+      {
+         var items:Array = [];
+         for (var i:int = 0; i < who.perks.length; i++)
+         {
+            var perk:Object = who.perks[i];
+            var listed:Boolean = page == TAKEN ? perk.held > 0 : perk.held < perk.ranks && (showAll || who.eligible(i));
+            if (listed)
+            {
+               shown.push(i);
+               items.push({text: perk.name, value: perk.ranks > 1 ? perk.held + "/" + perk.ranks : "",
+                           dim: page == PERKS && !who.eligible(i)});
+            }
+         }
+         return items;
       }
 
       private function showHints() : void
@@ -248,7 +305,7 @@ package
          {
             return;
          }
-         var out:Array = [[[Input.PREV, Input.NEXT], "$F3NV_LU_PAGE"]];
+         var out:Array = pages.length > 1 ? [[[Input.PREV, Input.NEXT], "$F3NV_LU_PAGE"]] : [];
          if (page == SKILLS)
          {
             out.push([[Input.LEFT, Input.RIGHT], "$F3NV_LU_SET"], [Input.X, "$F3NV_LU_DONE"], [Input.Y, "$F3NV_LU_RESET"]);
@@ -257,7 +314,14 @@ package
          {
             out.push([Input.ACCEPT, "$F3NV_LU_TAKE"], [Input.X, showAll ? "$F3NV_LU_SHOW_AVAILABLE" : "$F3NV_LU_SHOW_ALL"]);
          }
-         out.push([Input.BACK, "$F3NV_HINT_LEAVE"]);
+         else if (page == TAGS || page == TRAITS)
+         {
+            out.push([Input.ACCEPT, page == TAGS ? "$F3NV_LU_TAG" : "$F3NV_LU_PICK"], [Input.X, "$F3NV_LU_DONE"]);
+         }
+         if (page != TAGS)
+         {
+            out.push([Input.BACK, "$F3NV_HINT_LEAVE"]);
+         }
          hints.show(out);
       }
 
@@ -276,15 +340,24 @@ package
             return;
          }
          var index:int = shown[list.selected];
-         var entry:Object = page == SKILLS ? who.skills[index] : who.perks[index];
-         image = images.show(detail, imageUrl(page == SKILLS ? "S" : "P", index, entry.image), DETAIL_X, TOP, IMAGE);
+         var skills:Boolean = page == SKILLS || page == TAGS;
+         var entry:Object = skills ? who.skills[index] : (page == TRAITS ? who.traits[index] : who.perks[index]);
+         var kind:String = skills ? "S" : (page == TRAITS ? "T" : "P");
+         image = images.show(detail, imageUrl(kind, index, entry.image), DETAIL_X, TOP, IMAGE);
          Text.show(title, entry.name);
          Text.show(about, entry.text);
-         if (page == SKILLS)
+         if (page == TRAITS)
          {
-            Text.show(sub, who.skillValue(index) + (entry.pending > 0 ? " > " + who.skillValue(index, true) : ""));
+            Text.show(sub, "");
+            Text.show(needs, "");
+            return;
+         }
+         if (skills)
+         {
+            var after:Number = page == TAGS ? who.skillValue(index) + tagGain(entry) : who.skillValue(index, true);
+            Text.show(sub, who.skillValue(index) + (after != who.skillValue(index) ? " > " + after : ""));
             Text.show(needs, entry.tagged ? Text.translate("$F3NV_LU_TAGGED") : "");
-            var opens:Array = who.unlocked();
+            var opens:Array = page == SKILLS ? who.unlocked() : [];
             say(opens.length > 0 ? Text.fill("$F3NV_LU_OPENS\t" + opens.join(", ")) : "");
             return;
          }
@@ -297,7 +370,7 @@ package
          Text.show(needs, lines.join("\n"));
       }
 
-      // The image of entry `index` of kind `kind` (S skill, P perk), mounted once per open; "" for none.
+      // The image of entry `index` of kind `kind` (S skill, P perk, T trait), mounted once per open; "" for none.
       private function imageUrl(kind:String, index:int, path:String) : String
       {
          var key:String = kind + index;
@@ -327,16 +400,59 @@ package
          }
          if (action == Input.BACK)
          {
+            if (page == TAGS)
+            {
+               return true;
+            }
             return who.pendingPoints() > 0 ? ask("$F3NV_LU_KEEP_POINTS", leaveKeeping, leaveDropping) : close();
          }
-         if (action == Input.PREV || action == Input.NEXT)
+         if ((action == Input.PREV || action == Input.NEXT) && pages.length > 1)
          {
-            page = (page + (action == Input.NEXT ? 1 : PAGES.length - 1)) % PAGES.length;
+            var at:int = pages.indexOf(page);
+            page = pages[(at + (action == Input.NEXT ? 1 : pages.length - 1)) % pages.length];
             say("");
             showPage(0);
             return true;
          }
+         if (page == TAGS || page == TRAITS)
+         {
+            return pickAction(action);
+         }
          return page == SKILLS ? skillAction(action) : (page == PERKS ? perkAction(action) : move(action));
+      }
+
+      // The tag and trait menus: Accept tags or picks the highlighted entry (within the count); X keeps the picks,
+      // once all the tags asked are picked; then the menu closes.
+      private function pickAction(action:String) : Boolean
+      {
+         var tags:Boolean = page == TAGS;
+         if (action == Input.ACCEPT)
+         {
+            var index:int = shown[list.selected];
+            var changed:Boolean = tags ? who.toggleTag(index) : who.toggleTrait(index);
+            say(changed ? "" : (tags && who.skills[index].tag == Character.TAGGED ? "$F3NV_LU_TAG_KEPT"
+                                                                                : "$F3NV_LU_PICK_FULL"));
+            showPage(list.selected);
+            return true;
+         }
+         if (action != Input.X)
+         {
+            return move(action);
+         }
+         if (tags && who.tagCount() < who.wanted)
+         {
+            say(Text.fill("$F3NV_LU_TAG_MORE\t" + (who.wanted - who.tagCount())));
+            return true;
+         }
+         if (tags)
+         {
+            send("F3NV_LevelUpTags", Character.mask(who.skills, "tagged"));
+         }
+         else
+         {
+            send("F3NV_LevelUpTraits", Character.mask(who.traits, "picked"), who.traits.length);
+         }
+         return true;
       }
 
       // Up and Down move the highlight (a click or a number key would pick a row the highlight is not on).

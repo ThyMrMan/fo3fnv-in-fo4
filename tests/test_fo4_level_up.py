@@ -112,18 +112,28 @@ def test_the_script_declares_exactly_the_properties_the_build_writes():
     source = (STATIC / f'{L.SCRIPT}.psc').read_text(encoding='utf-8')
     declared = set(re.findall(r'^\S+ Property (\w+) Auto Const$', source, re.M))
     builder = _builder(_perk(0x1))
-    written = {*L.properties([]), *L.perk_table(builder.perks), *L.skill_table({}, [])}
-    assert declared == {*written, 'Perks', 'Skills', 'Specials'}
+    written = {*L.properties([]), *L.perk_table(builder.perks), *L.skill_table({}, []), *L.texts('Trait', [])}
+    assert declared == {*written, 'Perks', 'Skills', 'Specials', 'Traits', 'Events'}
     character = (Path(L.__file__).parent / 'character.py').read_text(encoding='utf-8')
-    assert "level_up = ({'Perks': perks, 'Skills': skill_list, 'Specials': objects['SpecialStats']}," in character
+    assert ("level_up = ({'Perks': perks, 'Skills': skill_list, 'Specials': objects['SpecialStats'], "
+            "'Traits': objects['Traits'],\n                 'Events': objects['TES4CharacterEvents']},") in character
+
+
+def test_the_trait_table_follows_the_traits_list():
+    """The trait menu's names, descriptions and images line up with FNV_Traits (trait_records' order)."""
+    traits = [{'FULL': 'Kamikaze', 'DESC': 'Faster, weaker.', 'ICON': 'Interface\\Icons\\Trait_K.dds'}, {'FULL': 'Four Eyes'}]
+    table = L.texts('Trait', traits)
+    assert table['TraitNames'] == ('string', 'Kamikaze\tFour Eyes')
+    assert table['TraitDescriptions'] == ('string', 'Faster, weaker.\t') and table['TraitImages'][1].endswith('trait_k.dds\t')
 
 
 @pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
 def test_the_script_compiles(tmp_path):
-    """F3NV_LevelUp.psc compiles against Fallout 4's and F4SE's headers."""
+    """F3NV_LevelUp.psc compiles against Fallout 4's and F4SE's headers and F3NV_CharacterEvents.psc, which holds
+    the tags."""
     src, out = tmp_path / 'src', tmp_path / 'out'
     src.mkdir()
     out.mkdir()
     shutil.copy(STATIC / f'{L.SCRIPT}.psc', src)
-    log = compile_folder(src, out, f'{src};{header_dirs()}')
+    log = compile_folder(src, out, f'{src};{STATIC};{header_dirs()}')
     assert (out / f'{L.SCRIPT}.pex').is_file(), log

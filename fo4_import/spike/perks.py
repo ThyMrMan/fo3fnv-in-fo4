@@ -124,10 +124,13 @@ class Perks:
                 key = (struct.unpack_from('<I', data, AV_AT)[0], bool(data[0] & DETRIMENTAL), bool(data[0] & RECOVER))
                 self.constants.setdefault(key, rec.form_id)
 
+    def trait_records(self) -> list:
+        """FNV's playable traits, in record order."""
+        return [r for r in self.records if r.get('DATA.Trait') == '1' and r.get('DATA.Playable') == '1']
+
     def traits(self) -> list:
-        """The FO4 perks of FNV's playable traits."""
-        return [self.ids[int(r['FormID'], 16)][0] for r in self.records
-                if r.get('DATA.Trait') == '1' and r.get('DATA.Playable') == '1']
+        """The FO4 perks of trait_records()."""
+        return [self.ids[int(r['FormID'], 16)][0] for r in self.trait_records()]
 
     def offered(self) -> list:
         """FNV perks a level-up offers (playable, shown, no traits), by level, name."""

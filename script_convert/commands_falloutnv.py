@@ -403,19 +403,18 @@ def player_package(ctx, call):
 
 def tag_skill(ctx, call):
     """FNV `IsPlayerTagSkill <skill>` and `SetPlayerTagSkill <skill> <slot>` on Fallout 4, on the skill's ActorValue:
-    LevelUpMenuEx's IsTagSkillAV, and F3NV_CharacterEvents.SuggestTag (tagged ahead of the tag menu, which the
-    player may still change; FNV's slot is the menu's order). The tag menu is LevelUpMenuEx's (F3NV_CharacterRules).
-    See: docs/fork/fo4_spikes.md#spike-2-vcg01
+    F3NV_CharacterEvents' IsTagged, and its SuggestTag (tagged ahead of the tag menu, which the player may still
+    change; FNV's slot is the menu's order). The tag menu is our level-up menu's (F3NV_CharacterRules).
+    See: docs/fork/fo4_level_up_plan.md#tags
     """
     if not is_fallout4() or not len(call):
         return None
     raw = call.source(0).strip('"')
     prop = av_property(fallout4_av_name(raw) or raw)
     ctx.sc.property_refs[prop] = 'ActorValue'
-    if call.name == 'setplayertagskill':
-        ctx.sc.property_refs[CHARACTER_PROPERTY] = CHARACTER_SCRIPT
-        return f'{CHARACTER_PROPERTY}.SuggestTag({prop})'
-    return f'PRKF:PRKF.IsTagSkillAV({prop})'
+    ctx.sc.property_refs[CHARACTER_PROPERTY] = CHARACTER_SCRIPT
+    method = 'SuggestTag' if call.name == 'setplayertagskill' else 'IsTagged'
+    return f'{CHARACTER_PROPERTY}.{method}({prop})'
 
 
 #: FO3/FNV PlayBink's optional flags after the file -- interruptible, mute audio, pause music, letterbox -- defaults.

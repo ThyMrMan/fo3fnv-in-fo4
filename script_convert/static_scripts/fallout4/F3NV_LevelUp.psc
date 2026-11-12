@@ -1,14 +1,14 @@
 ScriptName F3NV_LevelUp extends Quest
-{Fallout 4 only. FO3/FNV's level-up in place of LevelUpMenuEx's PRKF.dll: the perk and skill points to spend and the
-tagged skills (saved with the game as this script's variables), taking a perk and raising a skill, the perk list, each
-perk's rank, eligibility and requirement rows, and our level-up menu (Interface/F3NV_LevelUp.swf, registered with
-F4SE), which F3NV_CharacterRules opens in place of LevelUpMenu. The build writes what the menu shows as tables, so
-opening it asks the engine only for the ranks held and the player's values. On the character rules quest.
-See docs/fork/fo4_level_up_plan.md#prkf}
+{Fallout 4 only. FO3/FNV's level-up in place of LevelUpMenuEx's PRKF.dll: the perk and skill points to spend (saved
+with the game as this script's variables), taking a perk and raising a skill, the perk list, each perk's rank,
+eligibility and requirement rows, and our level-up menu (Interface/F3NV_LevelUp.swf, registered with F4SE), which
+F3NV_CharacterRules opens in place of LevelUpMenu, and as the tag skill and trait menus. The tagged skills are
+F3NV_CharacterEvents'. The build writes what the menu shows as tables, so opening it asks the engine only for the
+ranks and traits held and the player's values. TagsChosen is sent once the tag menu's picks are set. On the
+character rules quest. See docs/fork/fo4_level_up_plan.md#prkf}
 
 CustomEvent PerkTaken
-CustomEvent SkillTagged
-CustomEvent SkillUntagged
+CustomEvent TagsChosen
 
 String Property MenuName = "F3NV_LevelUp" AutoReadOnly Hidden
 {The menu's name, also its movie's name under Interface.}
@@ -20,7 +20,13 @@ Int Property Chunks = 8 AutoReadOnly Hidden
 {How many stacks ask the engine for ranks and values at once: each native call costs its stack a frame.}
 String Property SEP = "\t" AutoReadOnly Hidden
 {Between a table's entries (fo4_import/spike/level_up.py's SEP).}
+Int Property LevelUpMode = 0 AutoReadOnly Hidden
+{Open's modes: a level-up (skills, perks, taken), the tag skill menu, the trait menu.}
+Int Property TagsMode = 1 AutoReadOnly Hidden
+Int Property TraitsMode = 2 AutoReadOnly Hidden
 
+F3NV_CharacterEvents Property Events Auto Const
+{The helper quest's character events, which hold the tagged skills.}
 FormList Property Perks Auto Const
 {The level-up list's perks, first ranks only (FNV_Perks).}
 FormList Property Skills Auto Const
@@ -40,6 +46,11 @@ String Property SkillNames Auto Const
 {Skills' names, SEP between; SkillDescriptions and SkillImages alike.}
 String Property SkillDescriptions Auto Const
 String Property SkillImages Auto Const
+FormList Property Traits Auto Const
+{The trait menu's traits (FNV_Traits); TraitNames, TraitDescriptions and TraitImages line up, SEP between.}
+String Property TraitNames Auto Const
+String Property TraitDescriptions Auto Const
+String Property TraitImages Auto Const
 Perk[] Property RequirementPerks Auto Const
 {One row per requirement: the perk (first rank) it belongs to. The other Requirement arrays line up with it.}
 Int[] Property RequirementKinds Auto Const
@@ -60,11 +71,14 @@ String Property RequirementLabels Auto Const
 
 Int PerkPoints
 Int SkillPoints
-ActorValue[] Tagged
 String[] heldParts
 String[] valueParts
 String[] tagParts
+String[] traitParts
 Int pending
+Int mode
+Int wanted
+Int bonus
 
 Int Function GetPerkPoints()
   Return PerkPoints
@@ -97,30 +111,17 @@ EndFunction
 ; ---------------------------------------------------------------------------
 
 Bool Function IsTagged(ActorValue akSkill)
-  Return Tagged != None && Tagged.Find(akSkill) >= 0
+  Return Events.IsTagged(akSkill)
 EndFunction
 
 Bool Function Tag(ActorValue akSkill)
-  {Tags akSkill and sends SkillTagged; False when it already was. The tag bonus is the caller's to give.}
-  If !akSkill || IsTagged(akSkill)
-    Return False
-  EndIf
-  If Tagged == None
-    Tagged = new ActorValue[0]
-  EndIf
-  Tagged.Add(akSkill)
-  SendCustomEvent("SkillTagged", FormArgs(akSkill))
-  Return True
+  {Tags akSkill (F3NV_CharacterEvents sends SkillTagged); False when it already was. The rules give the bonus.}
+  Return Events.Tag(akSkill)
 EndFunction
 
 Bool Function Untag(ActorValue akSkill)
-  {Untags akSkill and sends SkillUntagged; False when it was not tagged.}
-  If !IsTagged(akSkill)
-    Return False
-  EndIf
-  Tagged.Remove(Tagged.Find(akSkill))
-  SendCustomEvent("SkillUntagged", FormArgs(akSkill))
-  Return True
+  {Untags akSkill (F3NV_CharacterEvents sends SkillUntagged); False when it was not tagged.}
+  Return Events.Untag(akSkill)
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -269,8 +270,12 @@ EndFunction
 ; The menu
 ; ---------------------------------------------------------------------------
 
-Function Open()
-  {Open our level-up menu; it gets its data (Send) once open.}
+Function Open(Int aiMode = 0, Int aiCount = 0, Int aiBonus = 0)
+  {Open our menu in mode aiMode (LevelUpMode, TagsMode for aiCount tags in all with aiBonus each, TraitsMode for up to
+  aiCount traits); it gets its data (Send) once open.}
+  mode = aiMode
+  wanted = aiCount
+  bonus = aiBonus
   Register()
   UI.OpenMenu(MenuName)
 EndFunction
@@ -289,10 +294,14 @@ Function Register()
   UnregisterForExternalEvent("F3NV_LevelUpRaise")
   UnregisterForExternalEvent("F3NV_LevelUpClose")
   UnregisterForExternalEvent("F3NV_LevelUpLog")
+  UnregisterForExternalEvent("F3NV_LevelUpTags")
+  UnregisterForExternalEvent("F3NV_LevelUpTraits")
   RegisterForExternalEvent("F3NV_LevelUpTake", "OnMenuTake")
   RegisterForExternalEvent("F3NV_LevelUpRaise", "OnMenuRaise")
   RegisterForExternalEvent("F3NV_LevelUpClose", "OnMenuClose")
   RegisterForExternalEvent("F3NV_LevelUpLog", "OnMenuLog")
+  RegisterForExternalEvent("F3NV_LevelUpTags", "OnMenuTags")
+  RegisterForExternalEvent("F3NV_LevelUpTraits", "OnMenuTraits")
 EndFunction
 
 Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
@@ -303,12 +312,13 @@ EndEvent
 
 Function Send()
   {Hand the open menu its tables, the player's points, level, sex and cap, the ranks held and values (asked in
-  parallel, Gather), the tagged skills and the requirement rows (root1.Open, in F3NV_LevelUp.as's order).}
+  parallel, Gather), the tagged skills, the requirement rows, the mode and the traits held (root1.Open, in
+  Character.as's order).}
   Float started = Utility.GetCurrentRealTime()
   Actor player = Game.GetPlayer()
   Int specialCount = Specials.GetSize()
-  Gather(specialCount, Skills.GetSize())
-  Var[] args = new Var[25]
+  Gather(specialCount, Skills.GetSize(), Traits.GetSize())
+  Var[] args = new Var[32]
   args[0] = PerkPoints
   args[1] = SkillPoints
   args[2] = player.GetLevel()
@@ -334,26 +344,36 @@ Function Send()
   args[22] = IntsText(RequirementOr)
   args[23] = RequirementLabels
   args[24] = UnlistedPerksHeld()
+  args[25] = mode
+  args[26] = wanted
+  args[27] = bonus
+  args[28] = TraitNames
+  args[29] = TraitDescriptions
+  args[30] = TraitImages
+  args[31] = JoinedParts(traitParts)
   UI.Invoke(MenuName, "root1.Open", args)
   Debug.Trace("F3NV_LevelUp: sent in " + (Utility.GetCurrentRealTime() - started) + "s")
 EndFunction
 
-Function Gather(Int aiSpecials, Int aiSkills)
-  {Into heldParts, valueParts and tagParts: the ranks held of each listed perk, then the player's base value of each
-  Specials and Skills entry and whether it is tagged; asked by Chunks stacks at once (ScanChunk), so the frame each
-  native call costs overlaps. Gives up after 10 seconds.}
-  Int count = PerkRanks.Length + aiSpecials + aiSkills
+Function Gather(Int aiSpecials, Int aiSkills, Int aiTraits)
+  {Into heldParts, valueParts, tagParts and traitParts: the ranks held of each listed perk, the player's base value of
+  each Specials and Skills entry and its tag (0 none, 1 a suggestion the tag menu may change, 2 tagged), then whether
+  the player has each trait; asked by Chunks stacks at once (ScanChunk), so the frame each native call costs
+  overlaps. Gives up after 10 seconds.}
+  Int count = PerkRanks.Length + aiSpecials + aiSkills + aiTraits
   heldParts = new String[Chunks]
   valueParts = new String[Chunks]
   tagParts = new String[Chunks]
+  traitParts = new String[Chunks]
   pending = Chunks
   Int k = 0
   While k < Chunks
-    Var[] args = new Var[4]
+    Var[] args = new Var[5]
     args[0] = k
     args[1] = k * count / Chunks
     args[2] = (k + 1) * count / Chunks
     args[3] = aiSpecials
+    args[4] = aiSkills
     CallFunctionNoWait("ScanChunk", args)
     k += 1
   EndWhile
@@ -364,11 +384,12 @@ Function Gather(Int aiSpecials, Int aiSkills)
   EndWhile
 EndFunction
 
-Function ScanChunk(Int aiChunk, Int aiFirst, Int aiEnd, Int aiSpecials)
-  {Gather's items aiFirst to aiEnd into its parts aiChunk: a listed perk's ranks held (walking RankForms), or a value
-  and its tag (Specials, then Skills).}
+Function ScanChunk(Int aiChunk, Int aiFirst, Int aiEnd, Int aiSpecials, Int aiSkills)
+  {Gather's items aiFirst to aiEnd into its parts aiChunk: a listed perk's ranks held (walking RankForms), a value and
+  its tag (Specials, then Skills), or a trait held.}
   Actor player = Game.GetPlayer()
   Int listed = PerkRanks.Length
+  Int traitsAt = listed + aiSpecials + aiSkills
   Int offset = 0
   Int i = 0
   While i < aiFirst && i < listed
@@ -378,6 +399,7 @@ Function ScanChunk(Int aiChunk, Int aiFirst, Int aiEnd, Int aiSpecials)
   String held = ""
   String values = ""
   String tags = ""
+  String had = ""
   i = aiFirst
   While i < aiEnd
     If i < listed
@@ -387,6 +409,8 @@ Function ScanChunk(Int aiChunk, Int aiFirst, Int aiEnd, Int aiSpecials)
       EndWhile
       offset += PerkRanks[i]
       held = Joined(held, "" + rank)
+    ElseIf i >= traitsAt
+      had = Joined(had, "" + (player.HasPerk(Traits.GetAt(i - traitsAt) as Perk) as Int))
     Else
       ActorValue value
       If i - listed < aiSpecials
@@ -395,14 +419,25 @@ Function ScanChunk(Int aiChunk, Int aiFirst, Int aiEnd, Int aiSpecials)
         value = Skills.GetAt(i - listed - aiSpecials) as ActorValue
       EndIf
       values = Joined(values, "" + player.GetBaseValue(value))
-      tags = Joined(tags, "" + (IsTagged(value) as Int))
+      tags = Joined(tags, "" + TagState(value))
     EndIf
     i += 1
   EndWhile
   heldParts[aiChunk] = held
   valueParts[aiChunk] = values
   tagParts[aiChunk] = tags
+  traitParts[aiChunk] = had
   pending -= 1
+EndFunction
+
+Int Function TagState(ActorValue akValue)
+  {0 untagged, 1 tagged as SetPlayerTagSkill's suggestion (the tag menu may change it), 2 tagged.}
+  If !Events.IsTagged(akValue)
+    Return 0
+  ElseIf Events.IsSuggested(akValue)
+    Return 1
+  EndIf
+  Return 2
 EndFunction
 
 String Function Joined(String asText, String asEntry)
@@ -485,6 +520,42 @@ Function OnMenuRaise(Int aiSkill, Int aiPoints)
   args[2] = Game.GetPlayer().GetBaseValue(skill)
   args[3] = SkillPoints
   UI.Invoke(MenuName, "root1.Raised", args)
+EndFunction
+
+Function OnMenuTags(Int aiMask)
+  {The tag menu's picks, bit i for Skills' entry i: each tagged or untagged, the suggestions done with, TagsChosen
+  sent (the rules give the bonus), then the menu closed.}
+  Int i = 0
+  While i < Skills.GetSize()
+    ActorValue skill = Skills.GetAt(i) as ActorValue
+    If Math.LogicalAnd(aiMask, Math.LeftShift(1, i)) != 0
+      Events.Tag(skill)
+    Else
+      Events.Untag(skill)
+    EndIf
+    i += 1
+  EndWhile
+  SendCustomEvent("TagsChosen", new Var[0])
+  UI.CloseMenu(MenuName)
+EndFunction
+
+Function OnMenuTraits(Int aiMask, Int aiShown)
+  {The trait menu's picks, bit i for Traits' entry i, of the first aiShown (those the menu's tables name; a DLC's
+  joined by the list merge are left as they are): each the player has and isn't picked is removed, each picked one
+  they don't have added; then the menu closed.}
+  Actor player = Game.GetPlayer()
+  Int i = 0
+  While i < aiShown && i < Traits.GetSize()
+    Perk trait = Traits.GetAt(i) as Perk
+    Bool picked = Math.LogicalAnd(aiMask, Math.LeftShift(1, i)) != 0
+    If picked && !player.HasPerk(trait)
+      player.AddPerk(trait)
+    ElseIf !picked && player.HasPerk(trait)
+      player.RemovePerk(trait)
+    EndIf
+    i += 1
+  EndWhile
+  UI.CloseMenu(MenuName)
 EndFunction
 
 Function OnMenuClose()

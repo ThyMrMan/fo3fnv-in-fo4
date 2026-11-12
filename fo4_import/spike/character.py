@@ -89,7 +89,8 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
               'TraitCount': ('int', int(settings.get('iTraitMenuMaxNumTraits', 0))),
               'SkillBase': ('float', float(settings['fAVDSkillBarterBase'])), **stage_properties(builder.perks)}
     perks = _list(builder, 'FNV_Perks', builder.perks.playable())
-    level_up = ({'Perks': perks, 'Skills': skill_list, 'Specials': objects['SpecialStats']},
+    level_up = ({'Perks': perks, 'Skills': skill_list, 'Specials': objects['SpecialStats'], 'Traits': objects['Traits'],
+                 'Events': objects['TES4CharacterEvents']},
                 level_up_properties(builder, avifs, special_forms + skill_forms, skills))
     quest = builder.new_id('QUST FNV_CharacterRules')
     builder.writer.add_record('QUST', pack_script_quest(quest, 'FNV_CharacterRules', quest_fragments(

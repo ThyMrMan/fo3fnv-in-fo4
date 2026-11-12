@@ -2,8 +2,8 @@
 
 **Status:** planned 2026-11-12; the perk and skill images are staged by every
 build, PRKF.dll's points, tags and perk list are rebuilt in Papyrus, and our
-own menu opens in place of `LevelUpMenu` with skill, perk and taken pages
-(built 2026-11-12, not played). Traits and tags are still LevelUpMenuEx's.
+own menu opens in place of `LevelUpMenu` with skill, perk and taken pages,
+and serves as the tag and trait menus too (built 2026-11-12, not played).
 Status lines live only in
 [ROADMAP.md](ROADMAP.md). The framework side (f3ui, replacing a vanilla
 menu, the image staging) is in
@@ -82,8 +82,9 @@ so F3NV.dll gets nothing:
 - **Points and tags** are variables of `F3NV_LevelUp` (on the
   `FNV_CharacterRules` quest), saved with the game like any script's. The
   API is PRKF's: `AddPerkPoints`, `AddSkillPoints`, `GetPerkPoints`,
-  `GetSkillPoints`, `Tag`, `Untag`, `IsTagged`, and the custom events
-  `PerkTaken`, `SkillTagged`, `SkillUntagged`.
+  `GetSkillPoints`, `Tag`, `Untag`, `IsTagged`, and the custom event
+  `PerkTaken`. The tags themselves live on `F3NV_CharacterEvents`
+  ([tags](#tags)); `Tag`, `Untag` and `IsTagged` pass through to it.
 - **The perk list** is `FNV_Perks` through F4SE's Perk natives:
   `NextRank` and `Rank` walk a perk's rank chain (`GetNextPerk`,
   `GetNumRanks`). `Eligible` is the level (`GetLevel`) plus the engine's own
@@ -107,31 +108,26 @@ so F3NV.dll gets nothing:
     the player's sex `==` or `!=` the sex the condition names
     (`GetIsSex(Male) == 1` is "sex == 0").
 
-The tag bonus stays the caller's to give, since the rules' `OnTagsFinished`
-already sets it. The trait and tag menus are the menu's (order step 5).
-Since our menu took over level-ups ([open](#open)), the rules give
-each level's points to this script; LevelUpMenuEx keeps the trait and tag
-menus, `F3NV_CharacterEvents` (SetPlayerTagSkill) and converted scripts'
-`IsTagSkillAV` (`commands_falloutnv.py`), and our tags are copied from it
-each time our menu opens. Arrays a script builds hold at most 128 entries,
+Since our menu took over level-ups ([open](#open)), the rules give each
+level's points to this script, and no PRKF menu is opened any more
+([tags](#tags)). Arrays a script builds hold at most 128 entries,
 which `PerkList` stays under for FNV (91 perks); a DLC's perks join by the
 form list merge, and their requirement rows are an open question.
 
 ## <a id="open"></a>Opening ours in place of `LevelUpMenu` (built 2026-11-12, not played)
 
 No DLL, and no `LevelUpMenu.swf` of ours. `F3NV_CharacterRules` already
-watched `LevelUpMenu`; now, when it opens and the rules did not open it
-themselves for LevelUpMenuEx's trait or tag menu (`PrkfMenu`, set just
-before `OpenTraitsMenuFL` and `OpenTagSkillsMenu`), `OpenLevelUp`:
+watched `LevelUpMenu`; now, whenever it opens, `OpenLevelUp`:
 1. closes `LevelUpMenu` and the Pip-Boy (FNV's level-up screen is not
    part of its Pip-Boy, and no source gives FO4's menu depths, so ours is
    not put over an open Pip-Boy);
 2. gives the levels gained since the last time their points (`TopUp`,
    now into `F3NV_LevelUp`, no longer topping up PRKF's);
-3. once, moves the points LevelUpMenuEx banked on an older save to ours
-   ([end-user state](../../CLAUDE.md#end-user-state)), and each time
-   copies its tagged skills to ours;
-4. waits until no menu is open (`WaitOutOfMenus`), then opens ours.
+3. once, moves the points and tags LevelUpMenuEx kept on an older save to
+   ours (`MovePrkf`, [tags](#tags),
+   [end-user state](../../CLAUDE.md#end-user-state));
+4. waits until no menu is open (`WaitOutOfMenus`), then opens ours
+   (`ShowOurs`, shared with the tag and trait menus).
 
 So it catches every way into `LevelUpMenu`: the Pip-Boy's button,
 LevelUpMenuEx's hotkey, a script. The cost is a moment of the vanilla (or
@@ -143,8 +139,8 @@ registered under a vanilla name (`RegisterCustomMenu` refuses a
 registered name).
 
 The perk stage handling (`WatchStages`, `RunPerkStages`,
-[intense training](fo4_pipeline.md#intense-training)) now runs round our
-menu, and round LevelUpMenuEx's when it is the trait or tag menu.
+[intense training](fo4_pipeline.md#intense-training)) runs round our menu
+in every mode.
 
 ## <a id="menu"></a>The menu (built 2026-11-12, not played)
 
@@ -185,9 +181,44 @@ perks, 111 ranks, 105 rows, every row placed, descriptions 12 KB; FO3 61,
 eligibility from the rows. The log line `F3NV_LevelUp: sent in Ns` measures
 it.
 
-**Not yet:** a DLC's perks (they join `FNV_Perks` but not the tables, so
-the menu doesn't list them), search and sorting, the trait and tag menus
-(step 5), options and the API (step 6).
+**Not yet:** a DLC's perks and traits (they join `FNV_Perks` and
+`FNV_Traits` but not the tables, so the menu doesn't list them), search and
+sorting, options and the API (step 6).
+
+## <a id="tags"></a>Tag skills and traits (built 2026-11-12, not played)
+
+The same movie and script, opened in another mode
+(`F3NV_LevelUp.Open(mode, count, bonus)`; `LevelUpMode`, `TagsMode`,
+`TraitsMode`), each with one page and no Back:
+- **TAG SKILLS** (`kind == "tags"` from a converted `SetTagSkills count`,
+  `count` skills in all: FNV's 3 at Doc Mitchell's, one more for Tag!).
+  Accept tags or untags; a skill tagged before stays (locked); the list
+  shows the value with the tag bonus. X confirms once exactly `count` are
+  tagged ("Tag N more" otherwise), and `OnMenuTags` gets a bit per skill.
+- **TRAITS** (`kind == "traits"`, up to `TraitCount`, 2): Accept chooses or
+  drops a trait from `FNV_Traits`, with its image and description; X
+  confirms, and `OnMenuTraits` adds the chosen and removes the dropped
+  ones. The trait names, descriptions and images are build tables
+  (`TraitNames`, ...; `level_up.py` `texts`), as the perks' are.
+
+The picks come back as an Int bitmask, so a menu holds at most 31 entries
+(`MASK_BITS`); the build counts any past that (`level-up menu entries past
+its mask`, 0 today: FNV has 13 skills and 10 traits, FO3 has no traits).
+
+**The tags live on `F3NV_CharacterEvents`**, which converted scripts
+already call: `IsPlayerTagSkill` is `IsTagged`, `SetPlayerTagSkill` is
+`SuggestTag` (`commands_falloutnv.py`). A suggested tag (the Vault 21 psych
+test's picks) counts as tagged and shows up ticked in the tag menu, where
+the player may still untag it. **The bonus** (`TagBonus`, 15) is the rules':
+`TagsChosen` gives it to each tagged skill not yet in `Bonused` and takes
+it back from one untagged, then clears the suggestions; `SetSkillBases`
+adds it back when SPECIAL is set again. So a skill keeps one bonus however
+often the menu runs.
+
+`MovePrkf` runs once, on a save made with LevelUpMenuEx: it moves PRKF's
+banked points and tagged skills to ours, each tag marked as bonused (its
+tag menu gave it). It is the only code still calling PRKF; without
+LevelUpMenuEx its calls give nothing.
 
 ## <a id="images"></a>Images from the records
 
@@ -232,7 +263,8 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
    requirements and a taken page; search, sorting and DLC perks left.
 4. **Skill page** with the preview, undo and banking ([menu](#menu)):
    built 2026-11-12.
-5. **Traits and tags** at character creation, with re-tagging.
+5. **Traits and tags** at character creation, with re-tagging
+   ([tags](#tags)): built 2026-11-12, not played.
 6. **Options** in MCM, then the **API**, then dropping LevelUpMenuEx from
    the requirements.
 

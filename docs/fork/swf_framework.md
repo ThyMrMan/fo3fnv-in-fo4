@@ -25,7 +25,7 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
 | Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)). Since 2026-11-12 on `f3ui` (`Bridge`, `Text`), compiled by `mxmlc` like the casino's. Nothing read from the game | The patched-movie version played; our own movie (FFDec build) played 2026-11-12, looks the same. `mxmlc` build not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | The Pip-Boy's CND line, repair and ammo lists, and other mods' item-card lines are drawn by our injected movie from the DLL's data ([framework](#pipboy)). The rest is drawn by the DLL into the open vanilla menus from C++: REPAIR and AMMO hints, STAT tabs, the container and barter CND line, HUD needs | CND, repair and tabs played from C++; the movie's versions built, not played. Ammo list and HUD needs built, not played |
-| Level-up (`fo4_import/level_up/`, `fo4_import/spike/level_up*.py`, `F3NV_LevelUp.psc`) | Our own menu on f3ui ([level-up](#level-up)), opened by the character rules in place of `LevelUpMenu`, with skill, perk and taken pages; PRKF.dll's points, tags, perk list and requirement rows rebuilt in Papyrus; traits and tags still LevelUpMenuEx's | Built 2026-11-12, none played |
+| Level-up (`fo4_import/level_up/`, `fo4_import/spike/level_up*.py`, `F3NV_LevelUp.psc`) | Our own menu on f3ui ([level-up](#level-up)), opened by the character rules in place of `LevelUpMenu`, with skill, perk and taken pages, and as the tag-skill and trait menus; PRKF.dll's points, tags, perk list and requirement rows rebuilt in Papyrus | Built 2026-11-12, none played |
 
 ### <a id="where"></a>Where each piece stands (2026-11-12)
 
@@ -632,15 +632,18 @@ its own PERK `ICON` and the table, a skill's in the table
 ([images](fo4_level_up_plan.md#images)).
 
 **Replacing a vanilla menu (built, not played):** the character rules open
-ours whenever `LevelUpMenu` opens other than for LevelUpMenuEx's trait and
-tag menus, after closing it and the Pip-Boy
+ours whenever `LevelUpMenu` opens, after closing it and the Pip-Boy
 ([open](fo4_level_up_plan.md#open)). No DLL and no vanilla file; the
 framework's DLL route (swapping a menu's constructor in F4SE's menu table)
 stays in reserve for when the moment of the vanilla screen shows.
 
+**Tag skills and traits (built, not played):** the same movie in another
+mode, one page each and no Back; picks come back to Papyrus as a bitmask
+in one external event ([tags](fo4_level_up_plan.md#tags)).
+
 Still to do:
 - **Play the image spike** above, and the menu.
-- **Traits and tags** in our menu, then dropping LevelUpMenuEx
+- Options, the API, then dropping LevelUpMenuEx
   ([order](fo4_level_up_plan.md#order)).
 
 <a id="level-up-play"></a>**Play check:** level up (`player.setlevel` one
@@ -655,8 +658,21 @@ higher, or earn it), then open the level-up screen from the Pip-Boy:
   its image, requirements ("Science 50 (you have 45)") and description;
   Accept asks, then takes it, and it moves to TAKEN;
 - a male character sees Lady Killer as available at its level;
-- leave with points unspent, reopen: they are still there;
-- a new game's tag and trait menus are still LevelUpMenuEx's.
+- leave with points unspent, reopen: they are still there.
+
+Tags and traits, on a new game:
+- after Doc Mitchell's questionnaire, the TAG SKILLS page opens with its
+  three suggestions ticked; untag one and tag another, X before three are
+  tagged says "Tag 1 more", X with three closes it; each tagged skill is
+  15 higher, an untagged suggestion is not;
+- Back does nothing on either page;
+- the TRAITS page lists FNV's traits with images; choose two, a third says
+  to drop one first; X closes it and the traits are on the player
+  (`player.hasperk`);
+- the Tag! perk at level 16 reopens TAG SKILLS for one more: the three
+  tags stay locked, the fourth gets the bonus;
+- re-entering SPECIAL at the Vit-o-matic keeps each tag's bonus once;
+- a save made with LevelUpMenuEx keeps its banked points and tags.
 
 ## <a id="casino"></a>The casino on the framework
 
@@ -1164,7 +1180,7 @@ Then:
 3. **Replacing a vanilla menu by name** (the level-up menu in place of
    `LevelUpMenu`), then the level-up menu itself
    ([order](fo4_level_up_plan.md#order)). **Built 2026-11-12 (opening,
-   skills, perks, taken); traits and tags left.**
+   skills, perks, taken, tags, traits).**
 4. **The HUD widget**: Hardcore's needs as our movie, hosted by
    HUDFramework or injected by the DLL ([HUD](#hud)).
 5. **The container and barter CND line** through an injected movie, as the

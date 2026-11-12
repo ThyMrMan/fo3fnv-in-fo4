@@ -18,8 +18,22 @@ package f3nv.levelup
       public static const LEVEL:int = 3;
       private static const OPS:Array = ["=", "!=", ">", "", "<", "<="];
 
+      // Open's modes (F3NV_LevelUp.psc): a level-up, the tag skill menu, the trait menu.
+      public static const LEVEL_UP:int = 0;
+      public static const TAGS:int = 1;
+      public static const TRAITS:int = 2;
+      // A skill's tag: none, SetPlayerTagSkill's suggestion (the tag menu may change it), tagged.
+      public static const SUGGESTED:int = 1;
+      public static const TAGGED:int = 2;
+
+      public var mode:int;
+      // How many tags in all (TAGS) or traits at most (TRAITS); each new tag's bonus.
+      public var wanted:int;
+      public var bonus:int;
       public var perks:Array = [];
       public var skills:Array = [];
+      // {name, text, image, held, picked}
+      public var traits:Array = [];
       public var values:Array = [];
       public var rows:Array = [];
       public var level:int;
@@ -30,7 +44,8 @@ package f3nv.levelup
       public var skillPoints:int;
 
       // F3NV_LevelUp.psc's Send, in its order: points, level, sex, cap; the perk tables and ranks held; the skill
-      // tables, values and tags; how many values are SPECIAL; the requirement rows' columns.
+      // tables, values and tags; how many values are SPECIAL; the requirement rows' columns; the mode, the count
+      // and bonus; the trait tables and traits held.
       public function Character(args:Array)
       {
          perkPoints = int(args[0]);
@@ -53,10 +68,81 @@ package f3nv.levelup
          specials = int(args[16]);
          for (i = 0; i < names.length; i++)
          {
-            skills.push({name: names[i], text: texts[i] || "", image: images[i] || "",
-                         tagged: tags[specials + i] == "1", pending: 0});
+            var tag:int = int(tags[specials + i]);
+            skills.push({name: names[i], text: texts[i] || "", image: images[i] || "", tag: tag, tagged: tag > 0,
+                         pending: 0});
          }
-         readRows(args.slice(17));
+         readRows(args.slice(17, 25));
+         mode = int(args[25]);
+         wanted = int(args[26]);
+         bonus = int(args[27]);
+         names = split(args[28]);
+         texts = split(args[29]);
+         images = split(args[30]);
+         held = split(args[31]);
+         for (i = 0; i < names.length; i++)
+         {
+            traits.push({name: names[i], text: texts[i] || "", image: images[i] || "", held: held[i] == "1",
+                         picked: held[i] == "1"});
+         }
+      }
+
+      // How many skills are tagged now (in the tag menu, as the player has them set).
+      public function tagCount() : int
+      {
+         var out:int = 0;
+         for each (var skill:Object in skills)
+         {
+            out += skill.tagged ? 1 : 0;
+         }
+         return out;
+      }
+
+      // Tag or untag skill `index` in the tag menu: a skill tagged before (not a suggestion) stays, and no more than
+      // `wanted` are tagged; whether it changed.
+      public function toggleTag(index:int) : Boolean
+      {
+         var skill:Object = skills[index];
+         if (skill.tag == TAGGED || !skill.tagged && tagCount() >= wanted)
+         {
+            return false;
+         }
+         skill.tagged = !skill.tagged;
+         return true;
+      }
+
+      // How many traits are picked.
+      public function traitCount() : int
+      {
+         var out:int = 0;
+         for each (var trait:Object in traits)
+         {
+            out += trait.picked ? 1 : 0;
+         }
+         return out;
+      }
+
+      // Pick or drop trait `index`, no more than `wanted` picked; whether it changed.
+      public function toggleTrait(index:int) : Boolean
+      {
+         var trait:Object = traits[index];
+         if (!trait.picked && traitCount() >= wanted)
+         {
+            return false;
+         }
+         trait.picked = !trait.picked;
+         return true;
+      }
+
+      // `items`' entries with `key` set, as one int, bit i for entry i (the tag and trait menus' answer).
+      public static function mask(items:Array, key:String) : int
+      {
+         var out:int = 0;
+         for (var i:int = 0; i < items.length && i < 31; i++)
+         {
+            out |= items[i][key] ? 1 << i : 0;
+         }
+         return out;
       }
 
       // `text`'s entries; none for "".
