@@ -63,6 +63,7 @@ def test_elric_runs_only_on_uncached_meshes_and_remembers_a_crash(tmp_path, monk
     monkeypatch.setattr(EC, 'CACHE', tmp_path)
     monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
     monkeypatch.setattr(EC.elric, 'process', fake)
+    monkeypatch.setattr(EC, 'ours', lambda data: None)
     assert EC.process({'a': b'one', 'b': b'bad'}) == {'a': b'one!'}
     assert EC.process({'c': b'one', 'd': b'bad', 'e': b'two'}) == {'c': b'one!', 'e': b'two!'}
     assert runs == [['a', 'b'], ['e']]

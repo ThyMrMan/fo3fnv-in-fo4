@@ -9,7 +9,12 @@ import numpy as np
 import pytest
 
 from fo4_import.havok import packfile, packfile_write
+from fo4_import.nif import file as nif_file
 from fo4_import.nif import hknp_convex, hknp_hull, hknp_write
+from fo4_import.nif.blocks import NONE
+from fo4_import.nif.convert_static import IDENTITY
+from fo4_import.nif.file import NifFile
+from fo4_import.pipeline import elric_cache
 from fo4_import.nif.hknp_write import DAMPING, FILTER, FRICTION, MASS, MAX_ANGULAR, MOTION, RESTITUTION
 
 BOX = hknp_convex.box_planes((1.0, 2.0, 3.0))
@@ -99,6 +104,8 @@ def test_motions_follow_elric_per_motion_system():
     assert [b['motionId'] for b in bodies] == [0, 1, 2, hknp_write.NO_ID]
     assert motions[0]['inverseMass'] == pytest.approx(0.1) and motions[1]['inverseMass'] == pytest.approx(0.02)
     assert motions[2]['motionPropertiesId'] == hknp_write.PRESET
+    assert motions[2]['centerOfMassWorld'] == bodies[2]['position']
+    assert motions[2]['orientation'] == bodies[2]['orientation']
     assert len(root['motionProperties']) == 2 and bodies[0]['collisionFilterInfo'] == 0x2A
 
 
@@ -140,6 +147,47 @@ def test_a_degenerate_hull_keeps_every_point():
     assert hknp_hull.degenerate(hknp_hull.snap(_bevelled(0.002)))
     verts, loops, _ = hknp_convex.corners(_bevelled(0.002))
     assert len(verts) == 10 and len(loops) == 7
+
+
+def _box_nif(*extra) -> bytes:
+    """A pre-Elric NIF: a root node owning one dynamic box body, then `extra` (kind, bytes) blocks."""
+    nif = NifFile()
+    root = {'name': nif.string('Root'), 'extra': [], 'controller': NONE, 'flags': 0, 'translation': (0.0,) * 3,
+            'rotation': IDENTITY, 'scale': 1.0, 'collision': 1, 'children': []}
+    body = bytearray(_body(3, 5.0)) + bytes(30)
+    struct.pack_into('<i', body, 0, 3)
+    nif.blocks = [('NiNode', root), ('bhkCollisionObject', struct.pack('<iHi', 0, 0, 2)),
+                  ('bhkRigidBody', bytes(body)), ('bhkBoxShape', struct.pack('<If8x3ff', 7, 0.01, 1, 2, 3, 0)),
+                  *extra]
+    return nif_file.write(nif)
+
+
+def test_elric_cache_finishes_a_convex_nif_itself_and_sends_only_the_rest_to_elric(tmp_path, monkeypatch):
+    """A box body is finished by our writer, never reaching Elric or its cache; a list shape still goes to Elric.
+
+    See: docs/fork/fo4_hknp_writer.md#seam
+    """
+    sent = []
+    monkeypatch.setattr(elric_cache, 'CACHE', tmp_path)
+    monkeypatch.setattr(elric_cache, 'elric_tag', lambda: b'tag')
+    monkeypatch.setattr(elric_cache.elric, 'process', lambda todo: sent.append(set(todo)) or {})
+    listed = _box_nif(('bhkListShape', bytes(8)))
+    done = elric_cache.process({'box.nif': _box_nif(), 'list.nif': listed})
+    assert sent == [{'list.nif'}] and list(done) == ['box.nif']
+    kinds = [k for k, _ in nif_file.read(done['box.nif']).blocks]
+    assert kinds == ['NiNode', 'bhkPhysicsSystem', 'bhkNPCollisionObject']
+    assert elric_cache.entry(listed, tmp_path).read_bytes() == b''
+    assert [p.name for p in tmp_path.rglob('*') if p.is_file()] == [elric_cache.entry(listed, tmp_path).name]
+
+
+def test_a_flat_box_is_left_to_elric():
+    """A box with no height has no 3-D hull: not covered, so Elric gets it.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
+    nif = nif_file.read(_box_nif())
+    nif.blocks[3] = ('bhkBoxShape', struct.pack('<If8x3ff', 7, 0.01, 1, 2, 0, 0))
+    assert hknp_write.physics(nif) is None
 
 
 def test_bs_material_entries_sit_0x18_apart_as_elric_writes_them():

@@ -1,6 +1,6 @@
 # Plan: our own FO4 physics writer in place of Elric (2026-11-11)
 
-Status: step 1 (convex bodies) built, not wired in; step 2 (meshes) being
+Status: step 1 (convex bodies) built and wired in, awaiting its play test; step 2 (meshes) being
 read; the rest planned. Status lives
 in [ROADMAP.md](ROADMAP.md). Item 5 of the
 [CK replacements](fo4_ck_replacements.md#options).
@@ -36,8 +36,10 @@ folder, so it blocks the [cross-platform app](fo4_gui.md).
 `nif/hknp_write.py` takes a pre-Elric NIF and returns the NIF Elric would
 have made, or None for input it does not cover yet. `elric_cache.process`
 asks it first and sends only the rest to Elric, so each step ships on its
-own and `elric.finish`'s graft is unchanged. Wiring waits for the main
-session's commit (it owns the pipeline files).
+own and `elric.finish`'s graft is unchanged (it grafts our finished NIF
+as it would Elric's). Our output is not put in the Elric cache, and the
+finished-NIF work cache (`elric_finish`) records `hknp_write` among the code
+that ran, so a writer change refinishes the meshes it covers.
 
 ## <a id="steps"></a>Steps
 
@@ -58,9 +60,9 @@ build queue runs); reading and scratch work don't.
    `nif/hknp_hull.py`, and it beats the exact hull ([results](#hull-scratch)).
 2. ~~**Turn the scratch comparison into a tool.**~~ Done:
    `tools/nif/hknp_compare.py` ([check](#check)).
-3. **Wire Step 1 in** ahead of Elric in `elric_cache.process`, after the
-   user rules on the [drift](#convex-drift); the main session runs the play
-   test. Waiting on that ruling (asked 2026-11-12).
+3. ~~**Wire Step 1 in**~~ ahead of Elric in `elric_cache.process`: done
+   after the user accepted the [drift](#convex-drift); the main session
+   runs the play test.
 4. **Step 2, triangle meshes:** ~~add `hknpBSMaterialProperties` to our
    class layouts~~ (done), ~~decode Elric's compressed mesh pairs~~ (first
    census done: [mesh](#mesh)); next read Havok's mesh-shape builder in
@@ -112,7 +114,10 @@ output for our pre-Elric NIF.
   deactivation constants). Keyframed with mass (the fridge doors, 50): the
   dynamic motion, flags `0x10080`. Keyframed without mass (stall door, gate,
   tape machine): a motion with zero inverse mass, `massFactor` 1 and motion
-  properties `65535` (the game's preset), flags 0.
+  properties `65535` (the game's preset), flags 0, its centre of mass the
+  body's position and its orientation the body's (all 43 such bodies in
+  `clutter`, `furniture`, `dungeons`, `architecture`, `weapons`; writing
+  the origin instead put door motions up to 1.6 Havok units off).
 - **Material:** our friction (dynamic and static) and restitution as
   `hkHalf` (a float32's top 16 bits, rounded), welding tolerance 0.05, the
   rest constant.
@@ -123,15 +128,18 @@ output for our pre-Elric NIF.
 Built in `fo4_import/nif/hknp_hull.py` (Havok's hull simplification),
 `fo4_import/nif/hknp_convex.py` (shape, mass properties) and
 `fo4_import/nif/hknp_write.py` (bodies, motions, materials, the NIF
-blocks); tests in `tests/test_fo4_hknp_write.py`. Not wired into
-`elric_cache.process` yet. Covered: NIFs whose every collision is a
+blocks); tests in `tests/test_fo4_hknp_write.py`. Wired in ahead of
+Elric: `elric_cache.process` asks `hknp_write.finish` first and sends only
+what it does not cover to the Elric cache and Elric. Covered: NIFs whose every collision is a
 `bhkRigidBody(T)` with a box, convex-vertices or convex-transform shape;
 anything with a constraint or a list shape falls back to Elric.
 
 On the 228 pairs, 18 match Elric in every field (177 on every hull field,
 221 on mass properties) and body placement matches
-on all. What still differs, proposed as accepted drift
-([accept drift](research/fo4_target.md)) and awaiting the user's decision:
+on all. What still differs, **accepted as drift by the user on
+2026-11-12** ("yes, accept all four and wire it in";
+[accept drift](research/fo4_target.md)). The play test watches round
+objects (pool balls, barrels) rolling and settling:
 
 - **Hull ties and rounding (51 shapes).** We run Havok's own
   simplification ([below](#elric-code)); 30 shapes still differ in corner
@@ -172,6 +180,20 @@ converter rejects):
 
 Angle bytes off by more than 1 (17 pairs) are all on hulls whose face
 counts differ, so faces are paired across different hulls.
+
+**`furniture`, `dungeons`, `architecture`, `weapons`** (5,359 meshes, 420
+pairs we cover, 4 min): 65 match every field, 192 more only in angle
+bytes; the rest are the accepted hull, mass and frame drift, plus the
+throwing axe's body orientation 1.1e-4 off in one component (not read).
+
+<a id="flat"></a>**Flat shapes go to Elric.** Seven meshes there have a
+convex body with no thickness (the Lucky 38 floor and ceiling quads, a
+sewer door, the Nipton sign post): Qhull finds no 3-D hull and our writer
+raised. Elric writes an exactly flat four-point quad as a shape that is
+not a polytope (shape flags 1, mass 2), and the 1.5e-8-thick sign as an
+eight-corner polytope with four faces; neither is read yet, so
+`hknp_write.physics` returns None for a shape Qhull cannot hull and Elric
+keeps those.
 
 ### <a id="elric-code"></a>Read from Elric's code
 
