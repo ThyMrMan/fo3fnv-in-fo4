@@ -1223,8 +1223,13 @@ one process each run:
 | One NPC's QNAM changed | that NPC written (0.66 s); the other two kept |
 
 An entry is about 2 MB, so all 2,382 faces need about 5 GB; `prune`
-drops entries no build used for 14 days. The stage's end-to-end time with
-the cache is not measured yet.
+drops entries no build used for 14 days.
+
+Before the cache, the whole `--own-facegen` stage took 3,390 s end to end
+(2,382 first heads, 2,193 refit, 2,237 second heads and skins, then
+packing 22,674 textures and 152,521 Main and voice files). The log has no
+per-step times. The first build with the cache fills it, so the cached
+time comes from the build after that; not measured yet.
 
 #### <a id="own-stage-speed"></a>Speed (2026-11-12)
 

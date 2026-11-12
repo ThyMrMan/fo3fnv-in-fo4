@@ -29,8 +29,8 @@ own per-mesh caches (`elric_cache`, `mesh_cache`).
 
 - **Built:** faces (2026-11-12). Kept faces take 0.02–0.05 s each against
   0.5–1.2 s to draw.
-- **Left:** the faces stage's end-to-end time with the cache, from a real
-  build.
+- **Left:** the faces stage's end-to-end time with the cache, from the
+  second build after it. Without it: 3,390 s.
 
 ### <a id="anywhere"></a>Builds off Windows
 
