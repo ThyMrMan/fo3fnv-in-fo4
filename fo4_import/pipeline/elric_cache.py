@@ -47,10 +47,10 @@ def elric_tag() -> bytes:
     return digest.digest()
 
 
-def entry(data: bytes, cache: Path = CACHE) -> Path:
-    """The cache file of one pre-Elric NIF, under `cache`."""
+def entry(data: bytes, cache: 'Path | None' = None) -> Path:
+    """The cache file of one pre-Elric NIF, under `cache` (default CACHE, read when called)."""
     key = hashlib.sha1(elric_tag() + data).hexdigest()
-    return cache / key[:2] / key
+    return (cache or CACHE) / key[:2] / key
 
 
 def write_new(target: Path, data: bytes) -> None:
