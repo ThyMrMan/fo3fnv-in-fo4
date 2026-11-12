@@ -2,7 +2,8 @@
 
 Status: step 1 (convex bodies) built and wired in, awaiting its play test; step 2 (triangle meshes
 on fixed and massless keyframed bodies) built and wired in, awaiting its play test; step 3's spheres and
-capsules built and wired in, awaiting their play test; compounds and step 4 planned. Status lives
+capsules built and wired in, awaiting their play test; step 3's compounds (lists) built and wired
+in, awaiting their play test; step 4 planned. Status lives
 in [ROADMAP.md](ROADMAP.md). Item 5 of the
 [CK replacements](fo4_ck_replacements.md#options).
 
@@ -69,7 +70,8 @@ build queue runs); reading and scratch work don't.
    the play test. A mesh on a body with a full motion (dynamic, or
    keyframed with mass) still goes to Elric.
 5. **Step 3:** ~~spheres and capsules~~ built (`nif/hknp_round.py`) and
-   wired in ([round](#round)); compounds (`bhkListShape`) next.
+   wired in ([round](#round)); ~~compounds (`bhkListShape`)~~ built
+   (`nif/hknp_compound.py`) and wired in ([compound](#compound)).
 6. **Step 4.**
 
 ## <a id="convex"></a>Step 1: what Elric writes for a convex body
@@ -474,6 +476,56 @@ the 25 meshes: 9 covered (the rest have constraints or lists), 6 match in
 every field; the other three differ only in what Step 1 already records
 (a restitution of 0.9 one hkHalf step below Elric's on `ball01` and
 `tumbleweednv`; `globe01`'s convex body's hull).
+
+## <a id="compound"></a>Step 3: lists (compounds)
+
+Read off 51 pairs (every FNV mesh in `clutter`, `weapons`, `furniture`,
+`dungeons` and `architecture` whose pre-Elric NIF holds a `bhkListShape`;
+54 lists, each held directly by a rigid body). Elric writes an
+`hknpDynamicCompoundShape` for every motion system (2, 3, 4 and 5 all seen):
+
+- **Shape:** flags 4, dispatch type 2, convex radius 0, `userData` the
+  list's material CRC, no properties, `isMutable` 1, an empty welding map,
+  `shapeTagCodecInfo` 0xFFFFFFFF, `numShapeKeyBits` the bit length of the
+  instance count (all 54).
+- **Instances:** one per list child, in list order (48 of 48 single-list
+  pairs). A `bhkConvexTransformShape` child puts its matrix in the
+  instance and keeps its shape in its own frame (50 of 50 boxes, 25
+  turned); any other child sits in place under the identity. Scale 1,
+  both tags 65535, padding zero. The transform's w words are packed
+  integers (`0x3F000000 |` value): column 0 `0x40`, column 1 zero, column
+  2 the child's memory size (class plus tail rounded up to 16 on all 143
+  polytopes; 0x90 on all 46 compressed meshes), column 3 the instance's
+  leaf node.
+- **Tree** (`hknpDynamicCompoundShapeData`): `2n + 1` nodes, node 0 and
+  the last empty, root 1, `firstFree` `2n`; min.w packs the parent, max.w
+  `child0 | child1 << 16`, a leaf `0 | instance << 16`; parents come
+  before their children. A leaf box is the child's box placed by its
+  instance (polytope corners ± convex radius; a mesh's domain). How
+  Havok picks its splits is not read: we split at the median center on
+  the longest axis, and the compare tool checks leaf boxes per instance,
+  not the layout.
+- **Bounds:** the union of the leaf boxes; min.w is the smallest leaf
+  parent, packed (54 of 54), max.w 0.
+- **Mass** (all 12 dynamic list bodies, exact): a solid box over the
+  compound's bounds, centered in it, inertia 1.5 × the box's, no rotation,
+  whatever the children (neither their summed masses nor their hull come
+  near).
+
+**Built:** `nif/hknp_compound.py`; `hknp_write` takes a list of convex
+shapes (under a convex transform or not) and meshes on any body;
+constraints still go to Elric, as does a list with a flat child (one
+pair, `vdnwallwindow01`). On the 51 pairs, 50 covered: 14 match in every
+field; the instance words, sizes, bounds and motions match on all but
+those that follow a child's hull. What still differs: the accepted Step 1
+drift inside the children (the 90° angle byte on 27, hull ties on 9,
+which move a leaf box and, on two dynamic bodies, the motion), and on 4
+mesh children Elric drops some of the reverse-wound copies of our
+double-sided triangles (every surface stays on both sides; standalone
+meshes keep them all, so the rule is compound-only and not read).
+FNV `clutter` plus `architecture/barrier`: 1,347 pairs compared (16 more
+than before), 757 match in every field (753 before); none of the 679
+clutter pairs compared at Step 1 differs in a field it matched then.
 
 ## <a id="check"></a>How each step is checked
 

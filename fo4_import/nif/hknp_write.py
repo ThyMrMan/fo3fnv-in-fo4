@@ -1,7 +1,7 @@
 """Our own FO4 physics for a pre-Elric NIF, where it covers the input, in place of Elric's.
 
 `physics(nif)` reads the collision blocks nif/collision.py wrote (bhkCollisionObject, bhkRigidBody,
-convex shapes, spheres and capsules, triangle meshes on massless bodies) and gives the bhkPhysicsSystem block and each collision
+convex shapes, spheres and capsules, lists of those or of meshes, triangle meshes on massless bodies) and gives the bhkPhysicsSystem block and each collision
 owner in body order; None for input it does not cover yet. `finish(nif)` puts them in place of the Havok
 input as elric.graft does.
 
@@ -17,6 +17,7 @@ from scipy.spatial import QhullError
 from fo4_import.havok import packfile_write
 from fo4_import.nif import hknp_mesh
 from fo4_import.nif.blocks import NONE
+from fo4_import.nif.hknp_compound import compound
 from fo4_import.nif.elric import without_havok
 from fo4_import.nif.file import NifFile
 from fo4_import.nif.hknp_convex import box_corners, polytope, quaternion
@@ -81,10 +82,45 @@ def _convex(blocks: list, index: int, matrix: np.ndarray = IDENTITY) -> 'Callabl
     if kind == 'bhkCapsuleShape':
         crc, radius, *ends = struct.unpack('<If8x3f4x3f4x', raw)
         return lambda name: capsule(name, moved(ends[:3]), moved(ends[3:]), radius, crc)
-    if kind == 'bhkConvexTransformShape' and blocks[struct.unpack_from('<i', raw)[0]][0] in CONVEX_KINDS:
-        child, _, _, *cells = struct.unpack('<iIf8x16f', raw)
-        return _convex(blocks, child, matrix @ np.array(cells).reshape(4, 4).T)
+    if kind == 'bhkConvexTransformShape' and blocks[_transform(raw)[0]][0] in CONVEX_KINDS:
+        child, cells = _transform(raw)
+        return _convex(blocks, child, matrix @ cells)
     return None
+
+
+def _transform(raw: bytes) -> tuple:
+    """(child block, 4×4 matrix) of a bhkConvexTransformShape."""
+    child, _, _, *cells = struct.unpack('<iIf8x16f', raw)
+    return child, np.array(cells).reshape(4, 4).T
+
+
+def _mesh(mesh: hknp_mesh.Mesh) -> 'Callable | None':
+    """The maker of triangle `mesh`; None when it has no triangles."""
+    return (lambda name: (hknp_mesh.compressed(name, mesh), None)) if len(mesh.tris) else None
+
+
+def _child(blocks: list, index: int) -> 'tuple | None':
+    """(maker, 4×4 matrix) of list child block `index`: a convex transform's child in its own frame under
+    the transform, else the child in place; None when not covered."""
+    kind, raw = blocks[index]
+    if kind == 'bhkConvexTransformShape':
+        child, cells = _transform(raw)
+        maker = _convex(blocks, child) if blocks[child][0] in CONVEX_KINDS else None
+        return None if maker is None else (maker, cells)
+    mesh = hknp_mesh.read(blocks, index)
+    maker = _convex(blocks, index) if mesh is None else _mesh(mesh)
+    return None if maker is None else (maker, IDENTITY)
+
+
+def _list(blocks: list, index: int) -> 'Callable | None':
+    """The maker of bhkListShape block `index` as a compound; None when any child is not covered."""
+    raw = blocks[index][1]
+    count = struct.unpack_from('<I', raw)[0]
+    children = [_child(blocks, sub) for sub in struct.unpack_from(f'<{count}i', raw, 4)]
+    if not children or any(c is None for c in children):
+        return None
+    material = struct.unpack_from('<I', raw, 4 + 4 * count)[0]
+    return lambda name: compound(name, children, material)
 
 
 def _world(nif: NifFile, index: int) -> tuple:
@@ -101,20 +137,20 @@ def _world(nif: NifFile, index: int) -> tuple:
 
 
 def _shape(blocks: list, index: int, body: bytes) -> 'Callable | None':
-    """The maker (name -> (objects, Mass or None)) of `body`'s shape block `index`: a convex shape (_convex), or
-    a triangle mesh on a body without a full motion; None for anything else."""
+    """The maker (name -> (objects, Mass or None)) of `body`'s shape block `index`: a convex shape (_convex), a
+    list (_list), or a triangle mesh on a body without a full motion; None for anything else."""
+    if blocks[index][0] == 'bhkListShape':
+        return _list(blocks, index)
     mesh = hknp_mesh.read(blocks, index)
     if mesh is None:
         return _convex(blocks, index)
-    if _massive(body) or not len(mesh.tris):
-        return None
-    return lambda name: (hknp_mesh.compressed(name, mesh), None)
+    return None if _massive(body) else _mesh(mesh)
 
 
 def _bodies(nif: NifFile) -> 'list | None':
     """[(owner block, rigid body bytes, shape, owner's world place)] per collision owner, block order; None when
     any of it is not a rigid body we cover."""
-    if any('Constraint' in kind or kind == 'bhkListShape' for kind, _ in nif.blocks):
+    if any('Constraint' in kind for kind, _ in nif.blocks):
         return None
     out = []
     for i, (_, block) in enumerate(nif.blocks):
