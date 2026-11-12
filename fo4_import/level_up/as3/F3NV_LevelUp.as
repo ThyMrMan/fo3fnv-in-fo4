@@ -97,6 +97,7 @@ package
       {
          Theme.fromHud(bridge.natives("F3NV"));
          who = new Character(args);
+         showAll = who.showAll;
          log("open: mode " + who.mode + ", " + who.perks.length + " perks, " + who.skills.length + " skills, "
              + who.traits.length + " traits, " + who.rows.length + " requirement rows, " + who.perkPoints
              + " perk and " + who.skillPoints + " skill points");

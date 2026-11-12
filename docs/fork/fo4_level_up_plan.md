@@ -4,7 +4,8 @@
 build, PRKF.dll's points, tags and perk list are rebuilt in Papyrus, and our
 own menu opens in place of `LevelUpMenu` with skill, perk and taken pages,
 and serves as the tag and trait menus too, listing every DLC's perks and
-traits (built 2026-11-12, not played).
+traits, with the balance options and a hotkey in MCM and an API for other
+mods; LevelUpMenuEx is no longer required (built 2026-11-12, not played).
 Status lines live only in
 [ROADMAP.md](ROADMAP.md). The framework side (f3ui, replacing a vanilla
 menu, the image staging) is in
@@ -16,11 +17,11 @@ have bolted onto level-up menus built in. Not the perks themselves
 ([fo4_perks.md](fo4_perks.md)) or the rules handing out points
 (`F3NV_CharacterRules`).
 
-## <a id="today"></a>What LevelUpMenuEx does for us today
+## <a id="today"></a>What LevelUpMenuEx did for us
 
 LevelUpMenuEx (Neanka; `LevelUpMenu.swf`, `PRKF.dll`, PRKF scripts and an
-MCM config; unlicensed, read only, `references/LevelUpMenuEx`) is a hard
-dependency:
+MCM config; unlicensed, read only, `references/LevelUpMenuEx`) was a hard
+dependency until 2026-11-12 ([dropped](#dropped)):
 - it lists `FNV_Perks` (its INI's `PerksList`; 91 FNV perks by level then
   name) and `FNV_Traits`, reading each perk's ranks, level and next rank
   ([fo4_perks.md](fo4_perks.md#hasperk));
@@ -61,9 +62,9 @@ the character's starting world
 
 | Option | Default | Seen in |
 |---|---|---|
-| Perks every N levels | FNV 2, FO3 1 (`F3NV_CharacterRules.LevelsPerPerk`) | FNV Perk Every Level mods (59629), FNV's `iPerksPerLevel` INI tweak |
-| Skill points per level, or a multiplier | 10 + Intelligence x 0.5 (FNV) or x 1 (FO3) (`character.py` `RATES`) | Skill point limiters (47036) |
-| Skill cap, level cap | The game's | LevelUpMenuEx's skill cap override |
+| Perks every N levels (**built**) | FNV 2, FO3 1 (`F3NV_CharacterRules.LevelsPerPerk`) | FNV Perk Every Level mods (59629), FNV's `iPerksPerLevel` INI tweak |
+| Skill points per level and per Intelligence (**built**) | 10 + Intelligence x 0.5 (FNV) or x 1 (FO3) (`character.py` `RATES`) | Skill point limiters (47036) |
+| Skill cap (**built**), level cap | The game's | LevelUpMenuEx's skill cap override |
 | **Choose later:** a perk-list entry that keeps the pick for later | Off | FNV mods 76593 and 45604 (a consumable reopens the pick); ours is banking |
 | **Two half level-ups:** half the skill points and a perk pick, twice a level | Off | An FNV mod |
 | **Random draft:** pick 1 of 3 random perks, with re-roll and remove | Off | FNV mod 77762 (needs Vanilla UI Plus there) |
@@ -71,9 +72,35 @@ the character's starting world
 | **Delay level-up** until sleeping or resting | Off | FNV Sleep To Level Up |
 | Perk sound, looping | On, as LevelUpMenuEx | LevelUpMenuEx |
 
-Settings go in MCM, with an INI behind them so the menu works without MCM.
-The rules' own values live on `F3NV_CharacterRules` today; the options
-change those, not a second copy.
+**Built 2026-11-12 (not played):** an MCM page per game plugin
+(`fo4_import/level_up/options.py`, templates in `level_up/mcm/`), installed by
+the game build as `MCM/Config/F3NV_<plugin>/` (loose; `F3NV: Fallout New
+Vegas`, `F3NV: Fallout 3`):
+- **LEVEL-UP:** levels per perk (1 to 5), skill points per level (0 to 30),
+  skill points per Intelligence (0 to 3, by 0.5), skill cap (50 to 250, by
+  5). The rates apply from the next level-up (`TopUp` reads them each time).
+- **LEVEL-UP MENU:** show every perk at first (LevelUpMenuEx's ineligible
+  filter; `ShowAllPerks`, the movie's starting `showAll`), and a hotkey
+  that opens the menu (`keybinds.json`, `CallFunction` of the rules'
+  `OpenLevelUp`): the [defaults](#defaults)' hotkey.
+
+**No second copy, and no INI of ours.** MCM's `PropertyValue` sources
+read and write the rules quest's own properties (`F3NV_CharacterRules`'
+rates, `F3NV_LevelUp`'s `SkillCap`, `ShowAllPerks`), which the save keeps.
+Our scripts call nothing of MCM's, so they compile and run without it.
+Without MCM every option stays the game's value the build wrote; the plan's
+"INI behind it" would need F3NV.dll to read one (Papyrus can't read a mod
+INI), so it is left out until a player needs the options without MCM
+(console: `setpqv`). Each game plugin's rules quest has its own values, so
+the options key on the character's starting world as the rules do
+([profiles](#profiles)). `MCM.swf` and `mcm.dll` know these source types
+and `scriptName` (read 2026-11-12); whether `CallFunction` honors
+`scriptName` on a quest with three scripts is the play check's.
+
+**Not yet:** the level cap (FO4 has none to set; FNV's is
+`iMaxCharacterLevel`), the perk sound (our menu plays none yet), and the
+off-by-default features above (choose later, half level-ups, random
+draft, respec, delay until sleep).
 
 ## <a id="prkf"></a>PRKF.dll's work, in Papyrus (built 2026-11-12, used by our menu)
 
@@ -276,6 +303,66 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
   and Be Exceptional patches) work without LevelUpMenuEx. Only the file
   format, not its code. **Open decision**, as with PipboyTabs' INIs.
 
+**Built 2026-11-12 (not played),** all on `F3NV_LevelUp`:
+- **Reaching it:** `F3NV_LevelUp.Get()` (global), so a mod needs no master
+  but `FalloutHelpers.esl`, which every converted plugin masters. It reads
+  `F3NV_CharacterEvents.LevelUp` (helper quest `0x901`), which the level-up
+  sets as the rules quest starts (`OnInit`) and each time our menu registers
+  (`Register`, `Announce`); on a save from before, `Get()` is None until
+  the menu first opens. With two games loaded, the one whose rules ran last.
+- **Points:** `AddPerkPoints`, `AddSkillPoints`, `GetPerkPoints`,
+  `GetSkillPoints`, `RaiseSkill`, `TakePerk`, `CanTake`, `Rank`,
+  `NextRank`, `PerkList` (from [prkf](#prkf)).
+- **Menus:** `OpenLevelUpMenu()` (as the Pip-Boy's button: points topped
+  up, then ours), `OpenTagMenu(aiTags)` (tags in all; tags held stay
+  locked, so Tag! is `OpenTagMenu(held + 1)`), `OpenTraitMenu(aiTraits = 0)`
+  (0: the game's `TraitCount`). Each goes through the rules' openers
+  (`OpenLevelUp`, `OpenTags`, `OpenTraits`), which wait until no menu is
+  open.
+- **Tags:** `Tag`, `Untag`, `IsTagged` (`F3NV_CharacterEvents` holds them).
+- **Events:** `PerkTaken` (the rank), `SkillRaised` (skill, points spent,
+  new base), `TagsChosen`, `MenuClosed` (mode, perk and skill points left:
+  a level-up finished when the mode is 0); `F3NV_CharacterEvents`'
+  `SkillTagged` and `SkillUntagged`.
+- **Perks of other mods:** `AddPerk(akFirstRank)` and `RemovePerk`, kept by
+  the save. An added perk no plugin's table lists comes after them, read
+  from the perk itself as the menu opens (`DescribeAdded`: `GetName`,
+  `GetDescription`, `GetIconPath`, `GetLevel`, `GetNumRanks`, each a frame
+  per perk). Its requirements are one row of kind 4, the game's own test
+  of its next rank (`IsEligible`), shown as "Its own requirements"
+  (`$F3NV_LU_OWN_TEST`); taking it is `TakePerk` as for any other.
+
+**Not yet:** skills of other mods (the menu's skills are FNV_Skills, and a
+skill's tag rides a 31-bit mask), and LevelUpMenuEx's INI format (the open
+decision above). A tab in an added perk's name or description would split
+its entry: Papyrus has no string search to strip it.
+
+## <a id="dropped"></a>LevelUpMenuEx dropped (2026-11-12, not played)
+
+Nothing of ours needs LevelUpMenuEx any more:
+- **No INI.** The game build no longer writes `Data/PRKF/<plugin>.ini`
+  (its perk and skill lists, `disableVanillaPerks`, the skill cap). An
+  older build's copy is deleted by the next one (`character.drop_prkf_ini`,
+  counted as `LevelUpMenuEx INI deleted`); the deployed copy goes with the
+  deploy's `--delete-stale` ([end-user state](../../CLAUDE.md#end-user-state)).
+  The perk chart it turned off never opens: `LevelUpMenu` opening opens
+  ours ([open](#open)).
+- **No compile dependency.** `header_dirs()` (and Caprica's
+  `HEADER_FOLDERS`) is F4SE then Base; `references/LevelUpMenuEx` is
+  reading material only. The one call left, `MovePrkf`, reaches
+  `PRKF:PRKF` by name (`Prkf`, `Utility.CallGlobalFunction`), so it
+  compiles without LevelUpMenuEx's sources.
+- **The move from an older save.** `MovePrkf` runs only while PRKF.dll is
+  loaded (`F4SE.GetPluginVersion("PRKF")`): it moves the banked perk and
+  skill points and the tagged skills once, the first time our menu opens.
+  Without PRKF.dll it waits, so a player who removed LevelUpMenuEx before
+  updating can put it back for one load. The README says to keep it until
+  the menu has opened once.
+- **Not a requirement anywhere:** the install check
+  (`fo4_install_check.REQUIRED_MODS`), the README's mod list and the app's
+  finish text no longer name it. Installed alongside, it does no harm: its
+  `LevelUpMenu.swf` is what opens, and ours replaces it.
+
 ## <a id="profiles"></a>Both profiles
 
 - Every setting keys on the character's starting world, as the character
@@ -302,8 +389,13 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
    built 2026-11-12.
 5. **Traits and tags** at character creation, with re-tagging
    ([tags](#tags)): built 2026-11-12, not played.
-6. **Options** in MCM, then the **API**, then dropping LevelUpMenuEx from
-   the requirements.
+6. **Options** in MCM ([options](#options)): the balance values, the
+   show-all filter and the hotkey built 2026-11-12, not played; the level
+   cap, perk sound and the off-by-default features left. Then the **API**
+   ([api](#api)): `Get`, the menu openers, `AddPerk` and the events built
+   2026-11-12, not played; other mods' skills and the INI format left. Then
+   dropping LevelUpMenuEx from the requirements ([dropped](#dropped)):
+   done 2026-11-12, not played.
 
 **Open questions:**
 - Whether the moment of `LevelUpMenu` before ours is acceptable in play,

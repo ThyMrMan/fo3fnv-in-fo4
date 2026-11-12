@@ -163,6 +163,11 @@ String Function UnlistedHeld(Actor akPlayer)
   Return out
 EndFunction
 
+Bool Function Lists(Perk akPerk)
+  {Whether akPerk is a rank of one of this table's listed perks.}
+  Return RankForms && RankForms.Find(akPerk) >= 0
+EndFunction
+
 Perk Function FirstRank(Int aiPerk)
   {The first rank of this table's listed perk aiPerk.}
   Int offset = 0

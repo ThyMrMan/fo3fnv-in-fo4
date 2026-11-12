@@ -10,6 +10,8 @@ See docs/fork/fo4_level_up_plan.md#prkf}
 
 CustomEvent PerkTaken
 CustomEvent TagsChosen
+CustomEvent SkillRaised
+CustomEvent MenuClosed
 
 String Property MenuName = "F3NV_LevelUp" AutoReadOnly Hidden
 {The menu's name, also its movie's name under Interface.}
@@ -32,7 +34,10 @@ FormList Property Skills Auto Const
 {The skills the menu raises (FNV_Skills).}
 FormList Property Specials Auto Const
 {The seven SPECIAL actor values; the menu's values are these, then Skills.}
-Int Property SkillCap = 100 Auto Const
+Int Property SkillCap = 100 Auto
+{The highest a skill's base can be raised with skill points; an MCM option (fo4_import/level_up/options.py).}
+Bool Property ShowAllPerks = False Auto
+{Whether the perk page opens with every perk shown, the ones the player can't take dimmed; an MCM option.}
 String Property SkillNames Auto Const
 {Skills' names, SEP between; SkillDescriptions and SkillImages alike.}
 String Property SkillDescriptions Auto Const
@@ -56,6 +61,75 @@ Int[] traitCounts
 Int[] rowCounts
 Int perkTotal
 Int traitTotal
+Int tablePerks
+Perk[] Added
+Perk[] extra
+String[] extraParts
+
+; ---------------------------------------------------------------------------
+; For other mods (docs/fork/fo4_level_up_plan.md#api)
+; ---------------------------------------------------------------------------
+
+F3NV_LevelUp Function Get() Global
+  {The running game's level-up, for other mods: F3NV_LevelUp.Get().AddPerkPoints(1). FalloutHelpers.esl's character
+  events (0x901) hold it, set as the character rules start and each time our menu opens; None before that.}
+  F3NV_CharacterEvents holder = Game.GetFormFromFile(0x901, "FalloutHelpers.esl") as F3NV_CharacterEvents
+  If !holder
+    Return None
+  EndIf
+  Return holder.LevelUp as F3NV_LevelUp
+EndFunction
+
+Function Announce()
+  {Be the level-up Get() finds.}
+  If Events
+    Events.LevelUp = Self
+  EndIf
+EndFunction
+
+F3NV_CharacterRules Function Rules()
+  {The character rules, on this quest.}
+  Return (Self as Quest) as F3NV_CharacterRules
+EndFunction
+
+Bool Function AddPerk(Perk akPerk)
+  {List perk akPerk (a first rank) in the level-up menu after the build's, kept by the save; False when already added.
+  Its name, description, image, level and ranks are read from the perk as the menu opens, and whether it can be
+  taken is the game's own test of its conditions. A perk a plugin's table lists already is shown once.}
+  If !akPerk || (Added && Added.Find(akPerk) >= 0)
+    Return False
+  ElseIf !Added
+    Added = new Perk[0]
+  EndIf
+  Added.Add(akPerk)
+  Return True
+EndFunction
+
+Bool Function RemovePerk(Perk akPerk)
+  {Take perk akPerk, added by AddPerk, out of the level-up menu; False when it was not added.}
+  If !Added || Added.Find(akPerk) < 0
+    Return False
+  EndIf
+  Added.Remove(Added.Find(akPerk))
+  Return True
+EndFunction
+
+Function OpenLevelUpMenu()
+  {Open the level-up menu (skills, perks, taken) once no menu is open, the levels gained since the last time given
+  their points first, as the Pip-Boy's level-up button does. MenuClosed is sent when it closes.}
+  Rules().OpenLevelUp()
+EndFunction
+
+Function OpenTagMenu(Int aiTags)
+  {Open the tag skill menu for aiTags skills tagged in all (FNV: 3 at Doc Mitchell's; the tags held plus one for
+  Tag!). Tags chosen before stay, each new one gets the tag bonus; TagsChosen is sent once the picks are set.}
+  Rules().OpenTags(aiTags)
+EndFunction
+
+Function OpenTraitMenu(Int aiTraits = 0)
+  {Open the trait menu for up to aiTraits traits (0: the game's own count, F3NV_CharacterRules.TraitCount).}
+  Rules().OpenTraits(aiTraits)
+EndFunction
 
 Int Function GetPerkPoints()
   Return PerkPoints
@@ -121,6 +195,11 @@ Int Function RaiseSkill(ActorValue akSkill, Int aiPoints)
   EndIf
   player.SetValue(akSkill, base + spend)
   SkillPoints -= spend
+  Var[] args = new Var[3]
+  args[0] = akSkill
+  args[1] = spend
+  args[2] = base + spend
+  SendCustomEvent("SkillRaised", args)
   Return spend
 EndFunction
 
@@ -205,7 +284,9 @@ Function Open(Int aiMode = 0, Int aiCount = 0, Int aiBonus = 0)
 EndFunction
 
 Function Register()
-  {Register the menu with F4SE (registrations do not last past a load) and its events, each once.}
+  {Register the menu with F4SE (registrations do not last past a load) and its events, each once; be the level-up
+  Get() finds.}
+  Announce()
   If !UI.IsMenuRegistered(MenuName)
     UI:MenuData data = new UI:MenuData
     data.menuFlags = MenuFlags
@@ -229,21 +310,30 @@ Function Register()
 EndFunction
 
 Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
-  If asMenuName == MenuName && abOpening
+  {Our menu open: Send. Closed: MenuClosed (its mode, the perk and skill points left).}
+  If asMenuName != MenuName
+    Return
+  ElseIf abOpening
     Send()
+    Return
   EndIf
+  Var[] args = new Var[3]
+  args[0] = mode
+  args[1] = PerkPoints
+  args[2] = SkillPoints
+  SendCustomEvent("MenuClosed", args)
 EndEvent
 
 Function Send()
   {Hand the open menu every plugin's perk, trait and requirement tables joined (Collect, Merged), the player's points,
   level, sex and cap, the ranks held and values (asked in parallel, Gather), the tagged skills, the mode and the
-  traits held (root1.Open, in Character.as's order).}
+  traits held, and whether to show every perk at first (root1.Open, in Character.as's order).}
   Float started = Utility.GetCurrentRealTime()
   Actor player = Game.GetPlayer()
   Collect()
   Int specialCount = Specials.GetSize()
   Gather(specialCount, Skills.GetSize())
-  Var[] args = new Var[32]
+  Var[] args = new Var[33]
   args[0] = PerkPoints
   args[1] = SkillPoints
   args[2] = player.GetLevel()
@@ -276,6 +366,7 @@ Function Send()
   args[29] = Merged(6, traitCounts)
   args[30] = Merged(7, traitCounts)
   args[31] = JoinedParts(traitParts)
+  args[32] = ShowAllPerks
   UI.Invoke(MenuName, "root1.Open", args)
   Debug.Trace("F3NV_LevelUp: sent in " + (Utility.GetCurrentRealTime() - started) + "s, " + shown.Length + " tables")
 EndFunction
@@ -299,17 +390,68 @@ Function Collect()
   perkCounts = new Int[shown.Length]
   traitCounts = new Int[shown.Length]
   rowCounts = new Int[shown.Length]
-  perkTotal = 0
+  tablePerks = 0
   traitTotal = 0
   Int t = 0
   While t < shown.Length
     perkCounts[t] = shown[t].PerkCount()
     traitCounts[t] = shown[t].TraitCount()
     rowCounts[t] = shown[t].RowCount()
-    perkTotal += perkCounts[t]
+    tablePerks += perkCounts[t]
     traitTotal += traitCounts[t]
     t += 1
   EndWhile
+  DescribeAdded()
+  perkTotal = tablePerks + extra.Length
+EndFunction
+
+Function DescribeAdded()
+  {Into extra and extraParts (F3NV_LevelUpTable.Text's order): the perks AddPerk listed that no shown table lists,
+  each read from the perk, with one requirement row of kind 4, the game's own test of its next rank.}
+  extra = new Perk[0]
+  Int i = 0
+  While Added && i < Added.Length
+    If Added[i] && extra.Find(Added[i]) < 0 && !Tabled(Added[i])
+      extra.Add(Added[i])
+    EndIf
+    i += 1
+  EndWhile
+  extraParts = new String[16]
+  Int j = 0
+  While j < extra.Length
+    Perk first = extra[j]
+    AddPart(0, first.GetName(), j)
+    AddPart(1, first.GetDescription(), j)
+    AddPart(2, first.GetIconPath(), j)
+    AddPart(3, "" + first.GetLevel(), j)
+    AddPart(4, "" + first.GetNumRanks(), j)
+    AddPart(8, "" + (tablePerks + j), j)
+    AddPart(9, "4", j)
+    AddPart(10, "-1", j)
+    AddPart(11, "0", j)
+    AddPart(12, "1.0", j)
+    AddPart(13, "0", j)
+    AddPart(14, "", j)
+    AddPart(15, "" + (Eligible(NextRank(first)) as Int), j)
+    j += 1
+  EndWhile
+EndFunction
+
+Function AddPart(Int aiWhich, String asText, Int aiIndex)
+  {asText, the added perk aiIndex's, onto extraParts[aiWhich] (a tab inside it would split the entry).}
+  extraParts[aiWhich] = F3NV_LevelUpTable.Joined(extraParts[aiWhich], asText, aiIndex)
+EndFunction
+
+Bool Function Tabled(Perk akPerk)
+  {Whether a shown table lists akPerk.}
+  Int t = 0
+  While t < shown.Length
+    If shown[t].Lists(akPerk)
+      Return True
+    EndIf
+    t += 1
+  EndWhile
+  Return False
 EndFunction
 
 String Function Merged(Int aiWhich, Int[] aiCounts)
@@ -327,6 +469,9 @@ String Function Merged(Int aiWhich, Int[] aiCounts)
     first += perkCounts[t]
     t += 1
   EndWhile
+  If extra.Length > 0 && (aiWhich < 5 || aiWhich > 7)
+    out = F3NV_LevelUpTable.Joined(out, extraParts[aiWhich], part)
+  EndIf
   Return out
 EndFunction
 
@@ -413,6 +558,12 @@ String Function Over(Actor akPlayer, Bool abTraits, Int aiFrom, Int aiTo)
     start += n
     t += 1
   EndWhile
+  Int k = Most(aiFrom - tablePerks, 0)
+  While !abTraits && k < Least(aiTo - tablePerks, extra.Length)
+    out = F3NV_LevelUpTable.Joined(out, "" + Rank(extra[k]), part)
+    part += 1
+    k += 1
+  EndWhile
   Return out
 EndFunction
 
@@ -466,6 +617,9 @@ Perk Function ListedPerk(Int aiIndex)
     at -= perkCounts[t]
     t += 1
   EndWhile
+  If at >= 0 && at < extra.Length
+    Return extra[at]
+  EndIf
   Return None
 EndFunction
 

@@ -32,14 +32,14 @@ from pathlib import Path
 from core.build_resources import pool_workers
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.file_stamps import Stamps
-from fo4_import.base.papyrus import FO4_HEADERS, LEVELUP_MENU_HEADERS
+from fo4_import.base.papyrus import FO4_HEADERS
 
 CAPRICA = Path(__file__).resolve().parents[2] / 'external' / 'caprica' / 'Caprica.exe'
 FLAGS = FO4_HEADERS / 'Base' / 'Institute_Papyrus_Flags.flg'
 #: Where the patched header copies live, one folder per source folder and content.
 HEADER_CACHE = Path(__file__).resolve().parents[2] / 'output' / 'fo4_cache' / 'caprica_headers'
 #: The header folders FO4's compiler imports that Caprica reads patched.
-HEADER_FOLDERS = (FO4_HEADERS / 'F4SE', FO4_HEADERS / 'Base', LEVELUP_MENU_HEADERS)
+HEADER_FOLDERS = (FO4_HEADERS / 'F4SE', FO4_HEADERS / 'Base')
 #: (pattern, replacement) of what Caprica's parser rejects in the headers (the module docs' link lists each).
 PATCHES = ((re.compile(r'\A\s+'), ''), (re.compile(r'(?m)^(\s*string\s+)parent(\s*)$'), r'\1parentNode\2'),
            (re.compile(r'\bVar (\w+) = None\b', re.I), r'Var \1'))

@@ -38,7 +38,6 @@ BASE_PLUGIN, *FNV_DLC = GAME_PLUGINS['fnv']
 REQUIRED_MODS = (
     ('Address Library for F4SE Plugins', 'F4SE/Plugins/version-{version}.bin',
      'https://www.nexusmods.com/fallout4/mods/47327'),
-    ('LevelUpMenuEx', 'F4SE/Plugins/PRKF.dll', 'https://www.nexusmods.com/fallout4/mods/28822'),
     ('Mod Configuration Menu', 'F4SE/Plugins/mcm.dll', 'https://www.nexusmods.com/fallout4/mods/21497'),
     ('Black Landscape Fix (F4SE)', 'F4SE/Plugins/BlackLandscapeFixRD.dll',
      'https://www.nexusmods.com/fallout4/mods/108574'),

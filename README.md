@@ -46,8 +46,9 @@ ThyMrMan/tes4skyrim for it.
 - **Dialogue and quests:** FNV's own voices and lip sync, through Extended
   Dialogue Interface; scripts converted to Papyrus.
 - **Your character:** SPECIAL, the 13 skills, 200+ perks and traits, FNV's
-  level-up through LevelUpMenuEx, reputation, karma, challenges, Hardcore
-  mode, chem addiction.
+  level-up, tag skill and trait menus (our own, with every DLC's perks;
+  options in MCM), reputation, karma, challenges, Hardcore mode, chem
+  addiction.
 - **Combat:** FNV's guns, ammo subtypes and the Ammo Type hotkey, weapon mods,
   item condition and repair, critical hits, Damage Threshold, sneak attacks,
   grenades and mines, V.A.T.S. tuned toward FNV's.
@@ -107,11 +108,14 @@ find in [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
 - These Fallout 4 mods, installed in MO2:
   - [F4SE](https://f4se.silverlock.org/) for 1.11.240;
   - [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327);
-  - [LevelUpMenuEx](https://www.nexusmods.com/fallout4/mods/28822);
   - [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497);
   - [Black Landscape Fix](https://www.nexusmods.com/fallout4/mods/108574)
     (F4SE version): without it, a Fallout 4 engine bug turns some patches
     of the Mojave's bare ground black.
+
+  LevelUpMenuEx is no longer needed. On a save from an older build, keep it
+  installed until you have opened the level-up menu once: that moves its
+  saved skill and perk points and tagged skills over.
 - **A strong PC:** 32 GB of RAM is recommended. Allow about 100 GB of free
   disk: the New Vegas export is about 10 GB, the build caches grow to about
   70 GB, and the output is about 10 GB. The first build converts every mesh

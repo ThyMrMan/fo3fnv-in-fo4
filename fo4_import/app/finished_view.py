@@ -22,7 +22,7 @@ INSTALL_NOTES = (
     'its plugins; otherwise copy the folder there (or install the zip) and enable them.\n'
     '- Vortex: install the zip (or the folder zipped) as a mod.\n'
     '- By hand: copy the folder\'s contents into Fallout 4\'s Data folder and enable the plugins.\n'
-    'The plugins need F4SE, Address Library, Extended Dialogue Interface, LevelUpMenuEx, MCM and '
+    'The plugins need F4SE, Address Library, Extended Dialogue Interface, MCM and '
     'Black Landscape Fix installed ("Install status" checks them). The "Install the F4SE plugin" stage puts '
     'F3NV.dll in the game\'s output.')
 

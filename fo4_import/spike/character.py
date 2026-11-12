@@ -1,15 +1,14 @@
-"""FO3/FNV's character system on LevelUpMenuEx, for the cell spike.
+"""FO3/FNV's character system, for the cell spike.
 
-LevelUpMenuEx (PRKF) reads `Data\\PRKF\\*.ini`: form lists of its skills and
-perks (`Plugin.esp|<hex id>`, split at `|`), points per level, and whether
-FO4's perk chart is off. The plugin gets those lists, the game's traits
-(perks.Perks), the skills' FNV names and descriptions over the helper
-plugin's actor values, and a quest running F3NV_CharacterRules: it opens FO4's
-SPECIAL menu and LevelUpMenuEx's tag and trait menus for the converted
-scripts' CharacterMenu events, sets starting skills from SPECIAL and tops up
-each level's points to the game's rates.
+The plugin gets the skill, SPECIAL, perk and trait lists, the skills' FNV names
+and descriptions over the helper plugin's actor values, and a quest running
+F3NV_CharacterRules and our level-up (F3NV_LevelUp, its tables): it opens FO4's
+SPECIAL menu and our level-up menu as the tag and trait menus for the converted
+scripts' CharacterMenu events, sets starting skills from SPECIAL and gives each
+level's points at the game's rates. The game plugin also gets the level-up
+options' MCM page; LevelUpMenuEx's INI an older build wrote is deleted.
 
-See: docs/fork/research/fo4_target.md#decisions
+See: docs/fork/research/fo4_target.md#decisions, docs/fork/fo4_level_up_plan.md#dropped
 """
 
 from pathlib import Path
@@ -18,6 +17,7 @@ from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_avif, pack_gmst, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.helpers_plugin import EDID_PREFIX, actor_value_form, form_id
+from fo4_import.level_up import options
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.level_up import SCRIPT as LEVEL_UP_SCRIPT, TABLE_SCRIPT, av_records, skill_table, table_properties
@@ -39,7 +39,8 @@ RATES = {'FalloutNV.esm': (0.5, 2), 'Fallout3.esm': (1.0, 1)}
 SKILL_POINTS_BASE = 10
 #: A DLC's level-up table quest: its FormID key.
 TABLE_KEY = 'QUST FNV_LevelUpTable'
-INI_VERSION = 3
+#: LevelUpMenuEx's INI folder, where an older build wrote <plugin stem>.ini.
+PRKF_INI_DIR = 'PRKF'
 #: Fallout4.esm's SPECIAL menu total (28) and FO3/FNV's: 40, ShowSPECIALBookMenu's default.
 SPECIAL_POINTS_SETTING, SPECIAL_POINTS_ID, SPECIAL_POINTS = 'uSPECIALPoints', 0x00078744, 40
 
@@ -69,8 +70,8 @@ def _list(builder, edid: str, forms: list) -> int:
 
 def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: int) -> None:
     """Write the character-rule records into `builder`'s plugin `plugin` (the rules quest also carries our level-up
-    state, level_up), the Pip-Boy's SKILLS tab and, for the game plugin only, LevelUpMenuEx's INI (a DLC's perks
-    reach the game's list by its form list merge)."""
+    state, level_up), the Pip-Boy's SKILLS tab and, for the game plugin only, the level-up options' MCM page (a DLC's
+    perks reach the game's list by its form list merge, its own tables by _table)."""
     game = root_export(export_dir).name
     governing = GOVERNING[game]
     skills = sorted({s for group in governing for s in group}, key=lambda s: C.FNV_AV_NAMES.index(
@@ -102,7 +103,8 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     builder.scripts.used.extend((RULES_SCRIPT, LEVEL_UP_SCRIPT, TABLE_SCRIPT))
     builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
     if not builder.built:
-        write_ini(data_dir / 'PRKF' / f'{Path(plugin).stem}.ini', plugin, level_up[1]['Perks'], skill_list)
+        builder.counts['MCM page files'] += options.install(data_dir, plugin, quest)
+        builder.counts["LevelUpMenuEx INI deleted (an older build's)"] += drop_prkf_ini(data_dir, plugin)
     tab_quest(builder, 'SKILLS', skill_list)
 
 
@@ -130,9 +132,16 @@ def stage_properties(perks) -> dict:
             'StageIndexes': ('ints', list(stages)), 'StageScripts': ('strings', list(scripts))}
 
 
-def write_ini(path: Path, plugin: str, perks: int, skills: int) -> None:
-    """LevelUpMenuEx's INI: our perk and skill lists, FO4's perk chart off, points per level left to the rules."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'[Main]\nINIVersion={INI_VERSION}\ndisableVanillaPerks=1\noverrideMaxSkillsValue=100\n'
-                    f'PerksList={plugin}|{perks & 0xFFFFFF:X}\nSkillsList={plugin}|{skills & 0xFFFFFF:X}\n'
-                    'PPPerLevel=0\nSPPerLevel=0\n', encoding='ascii')
+def drop_prkf_ini(data_dir: Path, plugin: str) -> int:
+    """Delete LevelUpMenuEx's INI an older build wrote for `plugin` (Data/PRKF/<stem>.ini), and its folder once
+    empty; 1 if one was deleted.
+    See: docs/fork/fo4_level_up_plan.md#dropped
+    """
+    folder = Path(data_dir) / PRKF_INI_DIR
+    old = folder / f'{Path(plugin).stem}.ini'
+    if not old.is_file():
+        return 0
+    old.unlink()
+    if not any(folder.iterdir()):
+        folder.rmdir()
+    return 1

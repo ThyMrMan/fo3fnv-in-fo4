@@ -16,6 +16,8 @@ package f3nv.levelup
       public static const SEX:int = 1;
       public static const PERK:int = 2;
       public static const LEVEL:int = 3;
+      // A perk another mod added (F3NV_LevelUp.AddPerk): the game's own test of its conditions, met when unlisted.
+      public static const GAME:int = 4;
       private static const OPS:Array = ["=", "!=", ">", "", "<", "<="];
 
       // Open's modes (F3NV_LevelUp.psc): a level-up, the tag skill menu, the trait menu.
@@ -42,10 +44,12 @@ package f3nv.levelup
       public var specials:int;
       public var perkPoints:int;
       public var skillPoints:int;
+      // Whether the perk page opens showing every perk (the MCM option).
+      public var showAll:Boolean;
 
       // F3NV_LevelUp.psc's Send, in its order: points, level, sex, cap; the perk tables and ranks held; the skill
       // tables, values and tags; how many values are SPECIAL; the requirement rows' columns; the mode, the count
-      // and bonus; the trait tables and traits held.
+      // and bonus; the trait tables and traits held; whether to show every perk at first.
       public function Character(args:Array)
       {
          perkPoints = int(args[0]);
@@ -85,6 +89,7 @@ package f3nv.levelup
             traits.push({name: names[i], text: texts[i] || "", image: images[i] || "", held: held[i] == "1",
                          picked: held[i] == "1"});
          }
+         showAll = Boolean(args[32]);
       }
 
       // How many skills are tagged now (in the tag menu, as the player has them set).
@@ -228,6 +233,10 @@ package f3nv.levelup
          {
             return row.target >= 0 ? (perks[row.target].held > 0 ? 1 : 0) : (row.unlisted ? 1 : 0);
          }
+         if (row.kind == GAME)
+         {
+            return row.unlisted ? 1 : 0;
+         }
          return level;
       }
 
@@ -296,7 +305,7 @@ package f3nv.levelup
          {
             var ok:Boolean = met(row);
             good = good || ok;
-            parts.push(ok || row.kind == SEX || row.kind == PERK ? shown(row)
+            parts.push(ok || row.kind == SEX || row.kind == PERK || row.kind == GAME ? shown(row)
                        : Text.fill("$F3NV_LU_YOU_HAVE\t" + shown(row) + "\t" + Math.floor(have(row))));
             if (!row.or)
             {
@@ -308,9 +317,13 @@ package f3nv.levelup
          return out;
       }
 
-      // `row` as shown: "Science 50", "Strength < 5", "Level 8", the sex, or the perk's name.
+      // `row` as shown: "Science 50", "Strength < 5", "Level 8", the sex, the perk's name, or the perk's own conditions.
       private function shown(row:Object) : String
       {
+         if (row.kind == GAME)
+         {
+            return Text.translate("$F3NV_LU_OWN_TEST");
+         }
          if (row.kind == SEX)
          {
             var female:Boolean = (row.need == 1) == (row.compare == 0);
