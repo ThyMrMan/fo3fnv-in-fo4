@@ -81,10 +81,10 @@ def _sounds(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
 
 @timed('main archive')
 def _main_archive(builder, data_dir: Path, plugin: str) -> None:
-    """The Main BA2 (pack_main), after every writer and the stale prune.
+    """The Main and voices BA2s (pack_main), after every writer and the stale prune.
     See: docs/fork/fo4_pipeline.md#main-archive
     """
-    builder.counts['files packed into the Main archive'] = pack_main(data_dir, plugin)
+    builder.counts['files packed into the Main and voices archives'] = pack_main(data_dir, plugin)
 
 
 @timed('plugin write')

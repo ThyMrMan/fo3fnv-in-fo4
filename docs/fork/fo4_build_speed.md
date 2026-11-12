@@ -939,11 +939,64 @@ less disk load.
   stat'ed once, not twice.
 - The archive is unchanged: SHA-1 `e87c5e25…` from both old and new code.
 
-**Option, not taken (needs a decision).** Pack the voices as `<plugin> -
-Voices_en.ba2`, one of the three suffixes `Fallout4.exe` loads
-([main-archive](fo4_pipeline.md#main-archive)). A build that changes no line
-would then skip 2.54 GB. The cost: the game loads `Voices_<sLanguage>`, so
-other languages would need a copy, or a file named per language.
+#### <a id="voices-archive"></a>Voices in their own archive (built 2026-11-12)
+
+**What changed.** `ba2_pack.pack_main` now packs two archives:
+- `<plugin> - Voices_<language>.ba2`: the staged `Sound/Voice`. This is one
+  of the three suffixes `Fallout4.exe` loads for a plugin
+  ([main-archive](fo4_pipeline.md#main-archive)); the DLCs ship
+  `DLCRobot - Voices_en.ba2` the same way.
+- `<plugin> - Main.ba2`: everything else, as before.
+
+How it works:
+- Each archive keeps its own record, so the voices archive is rewritten only
+  when a voice file changed.
+- Every caller gets the split: the build, the faces stage's repack, the asset
+  overlay and DLC and mod builds, each in its own Data folder.
+- `drop_packed` covers the voices archive (`own_archives`).
+- `restore_packed` restores only Main's meshes, materials and scripts; voices
+  never sit loose in the Data folder, since they are staged outside it.
+- Deploy copies the new archive like any top-level file. The rebuilt Main
+  no longer holds voices, so an existing install ends with each voice in one
+  archive (`test_fo4_deploy`).
+
+**The language.** `install.game_language()` reads `sLanguage` from the game
+folder's `Fallout4_Default.ini`, which Steam writes for the installed
+language (`en` on this machine). It defaults to `en`.
+- When the language changes, `pack_main` deletes the old language's voices
+  archive and its record. Deploy then lists it as stale (`--delete-stale`
+  removes it).
+- **Drift from FNV:** the game loads only `Voices_<its sLanguage>`. A build's
+  voices play only in the language the building machine's game is set to.
+  A build shared with a player whose game uses another language plays no
+  voices until it is renamed to their language.
+- A `sLanguage` set only in the player's own `Fallout4.ini` (Documents or
+  an MO2 profile) is not read.
+
+**Shown on the scratch folder** (a copy of the 11-12 base build, 150,202
+files):
+- **Same files:** the scratch rebuild of the one-archive layout matches the
+  real build's archive (SHA-1 `e87c5e25…`). After the split, each of its
+  files is in exactly one archive with the same bytes: 77,417 in Main
+  (2.55 GB), 72,785 in the voices archive (2.54 GB).
+- **First build after the change:** 110.2 s. Main is rewritten without
+  voices, and the voices archive is written from the staged files.
+- **A build where no voice changed** (all 75,036 meshes, materials and
+  scripts touched, as a build does):
+  - writes 2.55 GB instead of 5.10 GB;
+  - leaves the voices archive untouched (same SHA-1 `28f512b8…`, same time);
+  - so deploy does not copy it again.
+
+| `pack_main`, no voice changed | Time |
+|---|---|
+| one archive (old code) | 66.9 s |
+| split, run 1 | 50.8 s |
+| split, run 2 | 62.2 s |
+| split, nothing changed | 12.1 s |
+
+The halved write is certain. The wall-clock gain is within this disk's
+noise while the overnight queue shares it: the same old-code case measured
+124.6–213.5 s earlier in the day.
 
 ## <a id="open"></a>Open questions
 

@@ -1,6 +1,7 @@
-"""Pack a Data folder's loose textures into the plugin's texture BA2 (ba2_textures, our own writer), and its
-sounds, meshes, materials and scripts into its Main BA2 (pack_main); the loose copies the archives hold leave
-the Data folder after the build (drop_packed) and the Main archive's come back before the next (restore_packed).
+"""Pack a Data folder's loose textures into the plugin's texture BA2 (ba2_textures, our own writer), its voices
+into `<plugin> - Voices_<language>.ba2`, and its other sounds, meshes, materials and scripts into its Main BA2
+(pack_main); the loose copies the archives hold leave the Data folder after the build (drop_packed) and the Main
+archive's come back before the next (restore_packed).
 
 Fallout 4 streams a texture's mips from a BA2's chunks; a loose DDS can stay
 on a low mip, and past iTextureDegradeDistance the game drops a texture's top
@@ -20,6 +21,7 @@ See: docs/fork/fo4_tool_audit.md#rebuild
 """
 
 import functools
+import glob
 import hashlib
 import json
 import multiprocessing
@@ -31,6 +33,7 @@ from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import write_textures
 from fo4_import.base.ba2_write import write_general
 from fo4_import.base.build_files import moved_in
+from fo4_import.base.install import game_language
 from fo4_import.pipeline.build_inputs import MASTERS
 from fo4_import.pipeline.code_tag import ROOT
 
@@ -42,6 +45,8 @@ MANIFEST = 'manifest.json'
 OWN = ('fnv/', 'terrain/fnv_')
 #: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
 SOUND = 'Sound'
+#: The staged sound folder (lowercase, '/'-separated, ending '/') packed apart, into voices_archive().
+VOICE = 'sound/voice/'
 #: Data folders the build writes loose that the Main archive holds, each with the one file ending it packs (None: all).
 PACKED = (('Meshes', None), ('Materials', None), ('Scripts', '.pex'))
 #: Per resolved Data folder, this run's {'manifest': the last pack's record, 'staged': {key: signature}}.
@@ -279,36 +284,61 @@ def _tree(base: Path, folder: str) -> dict:
     return out
 
 
-def main_files(data_dir: Path) -> dict:
-    """{archive name: path} of what `<plugin> - Main.ba2` holds: the staged sounds (sound_root) and the loose
-    PACKED files of `data_dir`."""
-    named = _tree(sound_root(data_dir), SOUND)
+def archive_files(data_dir: Path) -> tuple:
+    """({archive name: path} of what `<plugin> - Main.ba2` holds, of what voices_archive() holds): the staged
+    sounds (sound_root) but VOICE and the loose PACKED files of `data_dir`; the staged VOICE files."""
+    main, voices = {}, {}
+    for name, path in _tree(sound_root(data_dir), SOUND).items():
+        (voices if name.lower().startswith(VOICE) else main)[name] = path
     for folder, ending in PACKED:
-        named.update((name, path) for name, path in _tree(Path(data_dir), folder).items()
-                     if ending is None or name.lower().endswith(ending))
-    return named
+        main.update((name, path) for name, path in _tree(Path(data_dir), folder).items()
+                    if ending is None or name.lower().endswith(ending))
+    return main, voices
 
 
-def pack_main(data_dir: Path, plugin: str) -> int:
-    """Pack main_files() as `<plugin stem> - Main.ba2` when they changed since it was packed, or delete that archive
-    and its record when there are none (an earlier build's would ship stale files); the file count. The loose
-    PACKED files stay until drop_packed().
-    See: docs/fork/fo4_pipeline.md#main-archive
-    """
-    named, archive = main_files(data_dir), Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
+def voices_archive(data_dir: Path, plugin: str) -> Path:
+    """`plugin`'s voices archive in `data_dir`, named for the game's language."""
+    return Path(data_dir) / f'{Path(plugin).stem} - Voices_{game_language()}.ba2'
+
+
+def _voice_archives(data_dir: Path, plugin: str) -> list:
+    """`plugin`'s voices archives in `data_dir`, of any language."""
+    return sorted(Path(data_dir).glob(f'{glob.escape(Path(plugin).stem)} - Voices_*.ba2'))
+
+
+def _pack_general(archive: Path, named: dict) -> None:
+    """Pack `named` as general `archive` when it changed since it was packed; delete the archive and its record
+    when `named` is empty (an earlier build's would ship stale files)."""
     if named:
         stats = {name: path.stat() for name, path in named.items()}
         _pack(archive, {name.lower(): [st.st_size, st.st_mtime_ns] for name, st in stats.items()},
               lambda kept: write_general(named, archive, kept, {name: st.st_size for name, st in stats.items()}))
     for stale in () if named else (archive, pack_record(archive)):
         stale.unlink(missing_ok=True)
-    return len(named)
+
+
+def pack_main(data_dir: Path, plugin: str) -> int:
+    """Pack archive_files() as `<plugin stem> - Main.ba2` and voices_archive(), each only when its files changed
+    since it was packed (_pack_general); another language's voices archive goes; the file count. The loose PACKED
+    files stay until drop_packed().
+    See: docs/fork/fo4_pipeline.md#main-archive
+    See: docs/fork/fo4_build_speed.md#voices-archive
+    """
+    main, voices = archive_files(data_dir)
+    target = voices_archive(data_dir, plugin)
+    for old in _voice_archives(data_dir, plugin):
+        if old != target:
+            _pack_general(old, {})
+    _pack_general(Path(data_dir) / f'{Path(plugin).stem} - Main.ba2', main)
+    _pack_general(target, voices)
+    return len(main) + len(voices)
 
 
 def own_archives(data_dir: Path, plugin: str) -> list:
-    """`plugin`'s Main and Textures archives in `data_dir` that exist."""
+    """`plugin`'s Main, voices and Textures archives in `data_dir` that exist."""
     stem = Path(plugin).stem
-    return [p for p in (Path(data_dir) / f'{stem} - {kind}.ba2' for kind in ('Main', 'Textures')) if p.is_file()]
+    return [p for p in (Path(data_dir) / f'{stem} - {kind}.ba2' for kind in ('Main', 'Textures')) if p.is_file()] \
+        + _voice_archives(data_dir, plugin)
 
 
 def drop_packed(data_dir: Path, plugin: str) -> int:

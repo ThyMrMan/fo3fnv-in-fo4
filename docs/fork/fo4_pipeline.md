@@ -6104,6 +6104,10 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   entries in the 6.1 GB archive already end past 4 GiB, among them Doc
   Mitchell's lines (offset 5.6 GB), and the roadmap has NPC voices
   working.
+- **Voices pack apart (2026-11-12).** The staged `Sound/Voice` goes to
+  `<plugin> - Voices_<sLanguage>.ba2`, written only when a voice changed;
+  Main keeps the rest
+  ([voices-archive](fo4_build_speed.md#voices-archive)).
 - **Loose copies leave the Data folder after the build (2026-11-11).** A
   mod or DLC build writes straight into its MO2 mod folder, so the deploy's
   clean-up below never ran for it: on 2026-11-11 the `F3NV - *` folders held

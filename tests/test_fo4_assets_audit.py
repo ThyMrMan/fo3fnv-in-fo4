@@ -18,6 +18,7 @@ from fo4_import.base import pinned_zlib
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import dds_info, expand_bgr, write_textures
 from fo4_import.base.ba2_write import entry_names, write_general
+from fo4_import.base.install import game_language
 from fo4_import.nif import convert_static as C
 from fo4_import.nif import elric as E
 from fo4_import.nif import file as F
@@ -227,12 +228,14 @@ def test_a_kept_loose_folder_an_older_build_staged_goes_back_loose_and_is_not_pa
     assert (loose / 'a.dds').read_bytes() == b'old a' and (loose / 'b.dds').read_bytes() == b'new b'
 
 
-def test_loose_sounds_are_staged_and_packed_into_the_main_archive(tmp_path, monkeypatch):
-    """An older build's loose voice moves to the staging folder (others' sounds stay); the staged sounds pack
-    once as `<plugin> - Main.ba2`, a general archive the reader reads back, and not again while unchanged."""
+def test_loose_sounds_are_staged_and_packed_into_the_voices_archive(tmp_path, monkeypatch):
+    """An older build's loose voice moves to the staging folder (others' sounds stay); the staged voice packs
+    once as `<plugin> - Voices_<language>.ba2`, a general archive the reader reads back, and not again while
+    unchanged; no Main archive is written without other files."""
     packs = []
     monkeypatch.setattr(BP, 'write_general', lambda *a: packs.append(a) or write_general(*a))
     monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(BP, 'game_language', lambda: 'en')
     data = tmp_path / 'data'
     ours, theirs = data / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.fuz', data / 'Sound' / 'Voice' / 'O.esp' / 'b.fuz'
     for path in (ours, theirs):
@@ -241,7 +244,46 @@ def test_loose_sounds_are_staged_and_packed_into_the_main_archive(tmp_path, monk
     assert BP.stage_loose_sounds(data, ('Voice/P.esp',)) == 1 and theirs.exists() and not ours.exists()
     assert (BP.sound_root(data) / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.fuz').is_file()
     assert BP.pack_main(data, 'P.esp') == 1 and BP.pack_main(data, 'P.esp') == 1 and len(packs) == 1
-    assert Archive(data / 'P - Main.ba2').read('Sound/Voice/P.esp/V/a.fuz') == b'x'
+    assert Archive(data / 'P - Voices_en.ba2').read('Sound/Voice/P.esp/V/a.fuz') == b'x'
+    assert not (data / 'P - Main.ba2').exists()
+
+
+def test_voices_pack_apart_and_stay_untouched_while_unchanged(tmp_path, monkeypatch):
+    """Voices go to the voices archive, other sounds and meshes to Main; a changed mesh repacks Main only; a new
+    game language replaces the voices archive and drops the old one with its record; drop_packed removes a loose
+    voice copy the voices archive holds."""
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(BP, 'game_language', lambda: 'en')
+    data, root = tmp_path / 'data', BP.sound_root(tmp_path / 'data')
+    files = {data / 'Meshes/a.nif': b'mesh', root / 'Sound/FX/b.xwm': b'fx', root / 'Sound/Voice/P.esp/V/c.fuz': b'v'}
+    for path, payload in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    assert BP.pack_main(data, 'P.esp') == 3
+    main, voices = data / 'P - Main.ba2', data / 'P - Voices_en.ba2'
+    assert sorted(Archive(main).entries) == ['meshes\\a.nif', 'sound\\fx\\b.xwm']
+    assert sorted(Archive(voices).entries) == ['sound\\voice\\p.esp\\v\\c.fuz']
+    voiced = voices.stat().st_mtime_ns
+    (data / 'Meshes/a.nif').write_bytes(b'new mesh')
+    packs = []
+    monkeypatch.setattr(BP, 'write_general', lambda *a: packs.append(a[1]) or write_general(*a))
+    assert BP.pack_main(data, 'P.esp') == 3 and packs == [main] and voices.stat().st_mtime_ns == voiced
+    monkeypatch.setattr(BP, 'game_language', lambda: 'fr')
+    assert BP.pack_main(data, 'P.esp') == 3 and packs == [main, data / 'P - Voices_fr.ba2']
+    assert not voices.exists() and not BP.pack_record(voices).exists()
+    loose = data / 'Sound/Voice/P.esp/V/c.fuz'
+    loose.parent.mkdir(parents=True)
+    loose.write_bytes(b'v')
+    assert BP.drop_packed(data, 'P.esp') == 2 and not loose.exists()
+
+
+def test_the_game_language_is_the_install_ini_s(tmp_path):
+    """game_language reads sLanguage from the install's Fallout4_Default.ini; 'en' without the ini or the key."""
+    (tmp_path / 'fr').mkdir()
+    (tmp_path / 'fr' / 'Fallout4_Default.ini').write_text('[General]\nsLanguage=fr\nsIntroSequence=\n')
+    (tmp_path / 'none').mkdir()
+    (tmp_path / 'none' / 'Fallout4_Default.ini').write_text('[General]\nsIntroSequence=\n')
+    assert [game_language(tmp_path / f) for f in ('fr', 'none', 'missing')] == ['fr', 'en', 'en']
 
 
 def test_meshes_materials_and_scripts_join_the_sounds_in_the_main_archive_and_stay_loose(tmp_path, monkeypatch):
@@ -426,19 +468,23 @@ def test_an_old_staging_folder_moves_out_of_the_data_folder(tmp_path, monkeypatc
     assert BP.staging_root(data) == root and not (data / BP.STAGING).exists()
 
 
-def test_a_build_with_no_sounds_left_deletes_its_old_sound_archive(tmp_path, monkeypatch):
+def test_a_build_with_no_sounds_left_deletes_its_old_sound_archives(tmp_path, monkeypatch):
     """A plugin whose staged sounds are all gone (a pack's stale silent lines set aside) loses its old
-    `<plugin> - Main.ba2` and its record, which would ship those sounds."""
+    `<plugin> - Main.ba2`, voices archive and their records, which would ship those sounds."""
     monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    monkeypatch.setattr(BP, 'game_language', lambda: 'en')
     data = tmp_path / 'data'
-    staged = BP.sound_root(data) / 'Sound' / 'Voice' / 'P.esp' / 'V' / 'a.xwm'
-    staged.parent.mkdir(parents=True)
+    staged = [BP.sound_root(data) / 'Sound' / folder / 'a.xwm' for folder in ('Voice/P.esp/V', 'FX/P')]
     data.mkdir()
-    staged.write_bytes(b'x')
-    assert BP.pack_main(data, 'P.esp') == 1 and (data / 'P - Main.ba2').is_file()
-    staged.unlink()
+    for path in staged:
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'x')
+    archives = [data / 'P - Main.ba2', data / 'P - Voices_en.ba2']
+    assert BP.pack_main(data, 'P.esp') == 2 and all(a.is_file() for a in archives)
+    for path in staged:
+        path.unlink()
     assert BP.pack_main(data, 'P.esp') == 0
-    assert not (data / 'P - Main.ba2').exists() and not BP.pack_record(data / 'P - Main.ba2').exists()
+    assert not any(a.exists() or BP.pack_record(a).exists() for a in archives)
 
 
 def test_a_worldspace_lod_texture_no_longer_written_is_dropped_from_the_staging(tmp_path):

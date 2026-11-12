@@ -230,7 +230,7 @@ def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
     See: docs/fork/fo4_pipeline.md#main-archive
     """
     print('textures packed:', pack_textures(data_dir, plugin, (LUT_FOLDER, CLASSIC_FOLDER), prune=False))
-    print('files packed into the Main archive:', pack_main(data_dir, plugin))
+    print('files packed into the Main and voices archives:', pack_main(data_dir, plugin))
     if not keep_loose:
         print('loose files the archives hold, removed:', drop_packed(data_dir, plugin))
 
