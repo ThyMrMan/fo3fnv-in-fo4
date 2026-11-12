@@ -7,7 +7,9 @@ package
    import f3nv.casino.SlotsScreen;
    import f3ui.Bridge;
    import f3ui.Draw;
+   import f3ui.HintBar;
    import f3ui.Host;
+   import f3ui.Input;
    import f3ui.Text;
    import f3ui.Theme;
    import flash.display.Loader;
@@ -16,7 +18,6 @@ package
    import flash.display.Sprite;
    import flash.events.Event;
    import flash.events.IOErrorEvent;
-   import flash.events.KeyboardEvent;
    import flash.net.URLRequest;
    import flash.text.TextField;
 
@@ -37,6 +38,8 @@ package
       private var roulette:RouletteScreen;
       private var statusText:TextField;
       private var pings:int = 0;
+      private var input:Input;
+      private var hints:HintBar;
 
       public function F3NV_Casino()
       {
@@ -81,7 +84,7 @@ package
       // one is loaded and shown under its path, and the log says which loaded at what size.
       public function Spike(title:String, paths:Array) : void
       {
-         newScreen();
+         newScreen([[Input.ACCEPT, "Ping"], [Input.BACK, "Close"]]);
          Text.label(screen, 40, 30, 32).text = title;
          statusText = Text.label(screen, 40, 80, 20);
          Draw.button(screen, "Ping", 40, 620, ping);
@@ -111,21 +114,23 @@ package
       public function OpenSlots(name:String, chips:int, low:int, high:int, earnings:int, luck:int, seed:uint,
                                 stops:Array, symbols:Array, texts:Array) : void
       {
-         newScreen();
+         newScreen(null);
          slots = new SlotsScreen(send);
          screen.addChild(slots);
          slots.open(name, chips, low, high, earnings, luck, seed, Bridge.plain(stops),
                     MountAll(Bridge.plain(symbols), "F3NV_Symbol"), Bridge.plain(texts));
+         hints.show(slots.hints());
       }
 
       // The roulette table (F3NV_Casino.psc's OpenRoulette): see RouletteScreen.open.
       public function OpenRoulette(name:String, chips:int, low:int, high:int, earnings:int, luck:int, seed:uint,
                                    texts:Array) : void
       {
-         newScreen();
+         newScreen(null);
          roulette = new RouletteScreen(send);
          screen.addChild(roulette);
          roulette.open(name, chips, low, high, earnings, luck, seed, Bridge.plain(texts));
+         hints.show(roulette.hints());
       }
 
       // Replay `spins` slot spins per seed at `luck` on FNV's default reel and log them, then the roulette results
@@ -155,28 +160,43 @@ package
          send("F3NV_CasinoSelfTest", "roulette " + results.join(" ") + " " + Roulette.spotMasks());
       }
 
-      // FO4's menu input: the controls the game maps keys and gamepad buttons to.
+      // FO4's menu input: the controls the game maps keys and gamepad buttons to, as actions (Input).
       public function ProcessUserEvent(control:String, down:Boolean) : Boolean
       {
-         if (down)
+         if (!down)
          {
-            return false;
+            send("F3NV_CasinoInput", "control " + control);
          }
-         send("F3NV_CasinoInput", "control " + control);
-         if (control == "Cancel")
+         return input != null && input.control(control, down);
+      }
+
+      // The game's input device, when it says (Input follows the keys and controls otherwise).
+      public function SetPlatform(platform:uint, ps3Switch:Boolean) : void
+      {
+         if (input != null)
+         {
+            input.setPlatform(platform);
+         }
+      }
+
+      // One action from a key, a control or a hint: Back closes, the rest go to the open game; on the spike
+      // screen Accept pings.
+      private function onAction(action:String, digit:int) : Boolean
+      {
+         if (action == Input.BACK)
          {
             close();
             return true;
          }
          if (slots != null)
          {
-            return slots.control(control);
+            return slots.control(action);
          }
          if (roulette != null)
          {
-            return roulette.control(control);
+            return roulette.control(action);
          }
-         if (control == "Accept")
+         if (action == Input.ACCEPT)
          {
             ping();
             return true;
@@ -184,8 +204,9 @@ package
          return false;
       }
 
-      // A fresh screen, drawn in the player's HUD color (Theme.fromHud: F3NV.dll's HudColor, white without it).
-      private function newScreen() : void
+      // A fresh screen, drawn in the player's HUD color (Theme.fromHud: F3NV.dll's HudColor, white without it),
+      // with the hint bar along the bottom showing `hintList` (the games set theirs once open).
+      private function newScreen(hintList:Array) : void
       {
          var dll:Object = bridge.natives("F3NV");
          var color:uint = Theme.fromHud(dll);
@@ -198,22 +219,22 @@ package
          slots = null;
          roulette = null;
          addChild(screen);
+         if (input != null)
+         {
+            input.open();
+            addChild(hints);
+            hints.show(hintList || []);
+         }
       }
 
       private function onStage(e:Event) : void
       {
-         stage.addEventListener(KeyboardEvent.KEY_DOWN, onKey);
+         input = new Input(stage, onAction);
+         input.log = function(text:String) : void { send("F3NV_CasinoInput", text); };
+         hints = new HintBar(input);
+         hints.x = 40;
+         hints.y = HEIGHT - 36;
          Host.focus(this);
-      }
-
-      private function onKey(e:KeyboardEvent) : void
-      {
-         send("F3NV_CasinoInput", "key " + e.keyCode);
-         var controls:Object = {27: "Cancel", 9: "Cancel", 13: "Accept", 32: "Accept", 37: "Left", 39: "Right"};
-         if (controls[e.keyCode] != undefined)
-         {
-            ProcessUserEvent(controls[e.keyCode], false);
-         }
       }
 
       private function onImage(e:Event) : void

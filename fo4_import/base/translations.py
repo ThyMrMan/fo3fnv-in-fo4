@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[2]
 #: Our code that shows keys: (folder, glob) — the movies' AS3 and F3NV.dll's C++.
 CODE = ((REPO / 'fo4_import', '**/as3/**/*.as'), (REPO / 'tes_runtime' / 'fo4_condition', '*.cpp'))
 #: `"$..."` strings that are the game's font names (fontconfig.txt), not translation keys.
-FONTS = frozenset({'$MAIN_Font', '$MAIN_Font_Bold'})
+FONTS = frozenset({'$MAIN_Font', '$MAIN_Font_Bold', '$Controller_Buttons'})
 #: A `"$KEY"` string literal, or a template's `"$KEY\t`.
 KEY_LITERAL = re.compile(r'"(\$[A-Za-z_][A-Za-z0-9_]*)(?=["\\])')
 

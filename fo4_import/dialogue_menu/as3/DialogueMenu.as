@@ -1,13 +1,14 @@
 package
 {
    import f3ui.Bridge;
+   import f3ui.HintBar;
+   import f3ui.Input;
    import f3ui.Text;
    import flash.display.DisplayObject;
    import flash.display.Graphics;
    import flash.display.MovieClip;
    import flash.display.Sprite;
    import flash.events.Event;
-   import flash.events.KeyboardEvent;
    import flash.events.MouseEvent;
    import flash.geom.Point;
    import flash.geom.Rectangle;
@@ -29,8 +30,10 @@ package
       // f4se.plugins.F3NV: GetDialogueOptions, SelectDialogueOption, Log, LeaveDialogue, ShadeList, TintFailed.
       private var dll:Object = null;
 
-      // The game's input platform (SetPlatform): 0 is keyboard and mouse.
-      private var platform:uint = 0;
+      // Keys and the game's controls as actions (made once the movie is on the stage), and the hints under the list.
+      private var input:Input;
+
+      private var hints:HintBar;
 
       // The safe-area margins the game gives (SetSafeRect).
       private var safeX:Number = 0;
@@ -92,34 +95,16 @@ package
       // The list entry that leaves the talk (LeaveDialogue), shown when a menu has no options of ours.
       private static const LEAVE:int = -1;
 
-      private static const KEY_TAB:uint = 9;
+      // The hint bar's text size and its gap under the box.
+      private static const HINT_SIZE:int = 16;
 
-      private static const KEY_ESCAPE:uint = 27;
-
-      private static const KEY_UP:uint = 38;
-
-      private static const KEY_DOWN:uint = 40;
-
-      // The last wheel event was a press: its release does not move the list again.
-      private var wheelDown:Boolean = false;
+      private static const HINT_GAP:Number = 8;
 
       // The game's buttons in the order its menu reads them: Question, Positive, Negative, Neutral.
       private static const BUTTON_ORDER:Array = [3, 0, 1, 2];
 
       // The holders the game registers and tints, in registerObjects' order.
       private static const HOLDERS:Array = ["Positive", "Negative", "Neutral", "Question", "SpeechChallengeAnim_mc"];
-
-      private static const KEY_ENTER:uint = 13;
-
-      private static const KEY_E:uint = 69;
-
-      private static const KEY_W:uint = 87;
-
-      private static const KEY_S:uint = 83;
-
-      private static const KEY_1:uint = 49;
-
-      private static const KEY_9:uint = 57;
 
       // Only the holders: the constructor runs inside the game's LoadMovie, where a TextField made in code crashed
       // the game (played 2026-11-10). The list is made later, on the first ShowButtonHelp.
@@ -140,12 +125,22 @@ package
          addEventListener(Event.ADDED_TO_STAGE, this.onStage);
       }
 
-      // No yellow focus frame round the menu; the keys come from the stage.
+      // No yellow focus frame round the menu. Input's keys and controls, with the dialogue's own: W and S move and E
+      // picks, the D-pad comes as Quickkey controls, Activate picks, and on a gamepad A and B come as MultiActivate
+      // (the keyboard sends those for its arrow and number keys).
       private function onStage(e:Event) : void
       {
          stage.stageFocusRect = false;
-         stage.addEventListener(KeyboardEvent.KEY_DOWN, this.onKeyDown);
-         stage.addEventListener(KeyboardEvent.KEY_UP, this.onKeyUp);
+         this.input = new Input(stage, this.onAction);
+         this.input.log = this.log;
+         this.input.mapKey(87, Input.UP, "W");
+         this.input.mapKey(83, Input.DOWN, "S");
+         this.input.mapKey(69, Input.ACCEPT, "E");
+         this.input.mapControl("QuickkeyUp", Input.UP);
+         this.input.mapControl("QuickkeyDown", Input.DOWN);
+         this.input.mapControl("Activate", Input.ACCEPT);
+         this.input.mapControl("MultiActivateA", Input.ACCEPT, true);
+         this.input.mapControl("MultiActivateB", Input.BACK, true);
          this.place();
       }
 
@@ -169,7 +164,10 @@ package
 
       public function SetPlatform(platform:uint, ps3Switch:Boolean) : *
       {
-         this.platform = platform;
+         if(this.input != null)
+         {
+            this.input.setPlatform(platform);
+         }
       }
 
       public function SetSafeRect(x:Number, y:Number) : *
@@ -278,6 +276,12 @@ package
             list.addChild(row);
             this.rows.push(row);
             i++;
+         }
+         if(this.input != null)
+         {
+            this.hints = new HintBar(this.input, HINT_SIZE);
+            this.hints.show([[Input.ACCEPT, "$F3NV_HINT_SELECT"], [Input.BACK, "$F3NV_HINT_LEAVE"]]);
+            list.addChild(this.hints);
          }
          host.addChild(list);
          this.failedRows = new Sprite();
@@ -397,6 +401,11 @@ package
             i++;
          }
          var high:Number = y - GAP + PAD + LINE;
+         if(this.hints != null)
+         {
+            this.hints.x = (BOX_WIDTH - this.hints.width) / 2;
+            this.hints.y = high + HINT_GAP;
+         }
          this.paint(count, high);
          var host:DisplayObject = this.list.parent;
          var middle:Point = host.parent.globalToLocal(this.localToGlobal(new Point(0, -BOTTOM - high / 2)));
@@ -565,88 +574,48 @@ package
          this.pick(this.top + int(e.currentTarget.name));
       }
 
-      private function onKeyDown(e:KeyboardEvent) : void
-      {
-         if(!this.listShown)
-         {
-            return;
-         }
-         this.seenOnce("key " + e.keyCode);
-         if(e.keyCode == KEY_W || e.keyCode == KEY_UP)
-         {
-            this.move(-1);
-         }
-         else if(e.keyCode == KEY_S || e.keyCode == KEY_DOWN)
-         {
-            this.move(1);
-         }
-      }
-
-      private function onKeyUp(e:KeyboardEvent) : void
-      {
-         if(!this.listShown)
-         {
-            return;
-         }
-         if(e.keyCode == KEY_ENTER || e.keyCode == KEY_E)
-         {
-            this.pick(this.selected);
-         }
-         else if(e.keyCode == KEY_TAB || e.keyCode == KEY_ESCAPE)
-         {
-            this.leave("key " + e.keyCode);
-         }
-         else if(e.keyCode >= KEY_1 && e.keyCode <= KEY_9)
-         {
-            this.pick(this.top + int(e.keyCode - KEY_1));
-         }
-      }
-
-      // The game's input: D-pad (Quickkey) and the mouse wheel (Zoom, kept from the camera by F3NV.dll) move, A,
-      // Accept or Activate picks; the game's four dialogue keys are taken while the list is up so none picks a
-      // button behind it.
-      public function ProcessUserEvent(name:String, down:Boolean) : Boolean
+      // One action while the list is up (Input): up and down move (the wheel too), accept picks, back leaves, a
+      // number key picks that row.
+      private function onAction(action:String, digit:int) : Boolean
       {
          if(!this.listShown)
          {
             return false;
          }
-         this.seenOnce("event " + name + (down ? " down" : " up"));
-         if(name == "ZoomIn" || name == "ZoomOut")
+         this.seenOnce("action " + action);
+         if(action == Input.UP || action == Input.DOWN)
          {
-            this.wheel(name == "ZoomIn" ? -1 : 1, down);
+            this.move(action == Input.UP ? -1 : 1);
          }
-         else if(down && name == "QuickkeyUp")
-         {
-            this.move(-1);
-         }
-         else if(down && name == "QuickkeyDown")
-         {
-            this.move(1);
-         }
-         else if(!down && (name == "Accept" || name == "Activate" || (name == "MultiActivateA" && this.platform != 0)))
+         else if(action == Input.ACCEPT)
          {
             this.pick(this.selected);
          }
-         else if(this.dll != null && !down && (name == "Cancel" || (name == "MultiActivateB" && this.platform != 0)))
+         else if(action == Input.BACK && this.dll != null)
          {
-            this.leave(name);
+            this.leave(action);
          }
-         else if(name.indexOf("MultiActivate") != 0 && name.indexOf("Quickkey") != 0)
+         else if(action == Input.DIGIT)
+         {
+            this.pick(this.top + digit);
+         }
+         else
          {
             return false;
          }
          return true;
       }
 
-      // One wheel step moves the list once, whether the game sends it as a press, a release, or both.
-      private function wheel(by:int, down:Boolean) : void
+      // The game's input, through Input; the game's four dialogue keys (MultiActivate, Quickkey) are taken while the
+      // list is up so none picks a button behind it.
+      public function ProcessUserEvent(name:String, down:Boolean) : Boolean
       {
-         if(down || !this.wheelDown)
+         if(!this.listShown || this.input == null)
          {
-            this.move(by);
+            return false;
          }
-         this.wheelDown = down;
+         this.seenOnce("event " + name + (down ? " down" : " up"));
+         return this.input.control(name, down) || name.indexOf("MultiActivate") == 0 || name.indexOf("Quickkey") == 0;
       }
 
       private function onButtonRelease(button:uint) : void

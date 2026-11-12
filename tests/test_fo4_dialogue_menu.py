@@ -20,6 +20,7 @@ from tools.validate.preflight.plugin_index import every, first, load_plugin, u32
 #: The menu's ActionScript source and F3NV.dll's dialogue hooks.
 MENU_AS = Path(M.__file__).parent / 'as3' / 'DialogueMenu.as'
 DIALOGUE_CPP = Path(__file__).parents[1] / 'tes_runtime' / 'fo4_condition' / 'dialogue.cpp'
+LIBRARY_INPUT = Path(__file__).parents[1] / 'fo4_import' / 'base' / 'as3' / 'f3ui' / 'Input.as'
 
 
 @pytest.fixture(scope='module')
@@ -131,9 +132,11 @@ def test_unused_rows_leave_the_holder_so_the_backdrop_fits():
 
 
 def test_wheel_scrolls_the_list_and_skips_the_camera():
-    """The movie moves on ZoomIn/ZoomOut; F3NV.dll refuses them at the first- and third-person cameras' tests."""
+    """The movie moves on ZoomIn/ZoomOut (f3ui's Input maps them to up and down, and the menu hands it every control);
+    F3NV.dll refuses them at the first- and third-person cameras' tests."""
     source = DIALOGUE_CPP.read_text(encoding='utf-8')
-    assert '"ZoomIn"' in MENU_AS.read_text(encoding='utf-8')
+    assert 'ZoomIn: UP' in (LIBRARY_INPUT).read_text(encoding='utf-8')
+    assert 'this.input.control(name, down)' in MENU_AS.read_text(encoding='utf-8')
     for rva in ('0x25AAB08', '0x10213E0', '0x2522A88', '0x102DFC0'):
         assert rva in source
     assert 'CAMERA_ZOOM' not in source

@@ -32,14 +32,14 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Piece | Done | Not done |
 |---|---|---|
 | **Toolchain** | `mxmlc` builds, byte-stable, every movie we ship; FFDec route deleted | The [movie check](#testing) in preflight (sources only, no Bethesda tags, mapped fonts) |
-| **AS3 library** ([design](#design)) | `Bridge`, `Theme`, `Host`, `Text` (with `Text.show` for `$KEY`s and slots), `Draw` | `Input`, `ScrollList`, `HintBar`, `Modal`, `Images` (the Pip-Boy's `ListPanel` and the dialogue list are each menu's own until then) |
+| **AS3 library** ([design](#design)) | `Bridge`, `Theme`, `Host`, `Text` (with `Text.show` for `$KEY`s and slots), `Draw`; `Input` and `HintBar` ([input](#input), built, not played) | `ScrollList`, `Modal`, `Images` (the Pip-Boy's `ListPanel` and the dialogue list are each menu's own until then) |
 | **Own menu** | Casino (Papyrus `UI.RegisterCustomMenu`), HUD color by the menu itself (spike 2b, played) | Registering from the DLL: not needed for color; only if a later menu needs it |
 | **Replace a vanilla movie** | Dialogue menu on our own movie (spike 3, played); its `mxmlc` build | The `mxmlc` build played; a level-up menu in place of `LevelUpMenu` |
 | **Inject into a vanilla menu** | Pip-Boy (spike 4, played under vanilla); CND, lists and item-card API built | Any of it played; FallUI played; container and barter (still C++) |
 | **HUD widget** | Nothing | The widget movie, HUDFramework host, DLL injection ([HUD](#hud)); Hardcore's needs are still C++ |
 | **DLL side** | GFx helpers (`gfx.cpp`), Pip-Boy injection (`LoadOverlay`), natives the movies call (`HudColor`, `Log`, `PipboyCardLines`, `PipboyList`) | Injection by menu URL for other menus, settings INI to the movie, GFx log routing |
 | **Translations** ([translations](#translations)) | Files named after `FalloutHelpers.esl`, every language with English fallback, our fixed words as `$F3NV_` keys, the key check in preflight (spike 5, played) | The keys played; Papyrus key check; slot and per-language counts; a test language |
-| **Controller** ([controller](#controller)) | FO4's controls wired in the casino and dialogue menu | `Input`, `HintBar`, the Pip-Boy "more" button; nothing played with a pad |
+| **Controller** ([controller](#controller)) | The casino and dialogue menu on `Input` and `HintBar` (built, not played) | Playing them with a pad; the Pip-Boy "more" button; roulette's board on a pad |
 | **Release** ([release](#release)) | Nothing | The library repo, the Pip-Boy framework on Nexus |
 
 Shared already:
@@ -616,7 +616,9 @@ Every fixed word our menus show is a key in `en.txt`, UPPER_SNAKE with our
 prefix (`$F3NV_REPAIR`). Upper case because the dialogue menu, and maybe the
 item card, uppercase their text before the game translates it. The English
 text is what showed before, word for word.
-- **Movies:** the dialogue menu's `[LEAVE]` (`$F3NV_LEAVE`).
+- **Movies:** the dialogue menu's `[LEAVE]` (`$F3NV_LEAVE`) and its hints
+  (`$F3NV_HINT_SELECT`, `$F3NV_HINT_LEAVE`). `$Controller_Buttons` is a
+  font name, not a key, and the check skips it.
 - **F3NV.dll** (`pipboy.cpp`, `ammo.cpp`): the CND line (Pip-Boy, container
   and barter), the REPAIR and AMMO hints and card labels, the repair list,
   vendor offer and ammo list headings, notes and keys, and the "Not
@@ -702,10 +704,76 @@ feature that works only on keyboard is not finished.
 
 | Menu | Gamepad today | Gap |
 |---|---|---|
-| Dialogue menu | Designed for it: D-pad (`QuickkeyUp/Down`) moves, A (`Accept`) picks, B (`Cancel`) leaves (`DialogueMenu.as`) | Never played with a pad |
-| Casino | FO4's own controls are wired (`Accept`, `Cancel`, `Left`, `Right`); the gamepad cursor flag is set | The planned gamepad pass was never played |
+| Dialogue menu | On `Input` and `HintBar` (built 2026-11-12): D-pad (`QuickkeyUp/Down`) moves, A picks, B leaves, hints under the list | Never played with a pad |
+| Casino | On `Input` and `HintBar` (built 2026-11-12): A spins, the D-pad changes the bet, Y bets the most on slots, B leaves; the gamepad cursor flag is set | Never played with a pad; roulette's board is mouse-only |
 | Pip-Boy repair and ammo | **None.** Keyboard only (G, V); hints hidden on a pad, because every gamepad button is taken in the Pip-Boy ([condition](fo4_condition.md#pipboy)) | A way in on a pad |
 | STAT tabs | The game's own tab switching | Check with a pad |
+
+### <a id="input"></a>`Input` and `HintBar` (built 2026-11-12, not played)
+
+**What the game gives (V, read 2026-11-12, nothing copied):**
+- **Menu-mode controls**, from the control map in `Fallout4.exe` (the game
+  keeps it there, not in an archive): `Accept` (Enter, A), `Cancel` (Tab,
+  B), `Up`/`Down`/`Left`/`Right` (arrows, D-pad), `XButton` (R, X),
+  `YButton` (T, Y), `LShoulder` (C, LB), `RShoulder` (Q, RB),
+  `LTrigger`/`RTrigger` (the triggers only), `Select` (V, Back), `L3` (Z),
+  `R3` (X). The dialogue has its own block: the arrows and number keys send
+  `MultiActivateA`-`Y`, and the D-pad sends `Quickkey*`.
+- **Platforms** (`SetPlatform`): 0 keyboard and mouse, 1 a PC gamepad, 2
+  Xbox, 3 PlayStation. A PC gamepad shows Xbox buttons.
+- **Button glyphs:** `$Controller_Buttons` (the game's `fontconfig.txt` maps
+  it to `fonts_console.swf`) draws each button as one letter. Xbox: A `A`,
+  B `B`, X `C`, Y `D`, LB `G`, RB `L`, the D-pad `T`/`U`/`V`/`W` (left,
+  right, down, up). PlayStation: cross `a`, circle `d`, square `c`, triangle
+  `b`, L1 `g`, R1 `m`, the D-pad `t`/`u`/`v`/`w`. Read from the game's own
+  button hint class (decompiled from DEF_UI's copy into the scratchpad,
+  read only).
+
+**`f3ui.Input`** (`fo4_import/base/as3/f3ui/Input.as`): one map from keys
+and the game's controls to actions: `up`, `down`, `left`, `right`, `accept`,
+`back`, `prev`, `next`, `x`, `y` and `digit` (the keys 1 to 9).
+- Moves fire on the press (so a held key repeats); accept, back and the
+  rest fire on the release, as both menus did before.
+- A press that arrives as both a key and a control fires once (the same
+  action from another source within 150 ms is dropped). The wheel
+  (`ZoomIn`/`ZoomOut`) moves once a step, whether it comes as a press, a
+  release or both.
+- Nothing fires for 250 ms after `open()`, so the key that opened a menu
+  doesn't act in it.
+- Keys typed into an input text field are ignored (FallUI's search).
+- **The device:** the game's `SetPlatform` wins once the game has sent it.
+  Until then a key means the keyboard, and a control with no key within
+  150 ms of it means a gamepad. Whether the game sends `SetPlatform` to an
+  F4SE custom menu, whether a pad also sends key events, and whether
+  Scaleform sends frame events to the off-screen object that times the
+  check, are untested: each change of device is logged
+  (`input device <n>`).
+- A menu adds its own: `mapKey(code, action, name)`,
+  `mapControl(name, action, gamepadOnly)`.
+
+**`f3ui.HintBar`** (`HintBar.as`): a row of `[actions, label]` hints. On a
+keyboard each shows the key's name (`ENTER) SPIN`, as our Pip-Boy hints),
+on a gamepad the button's glyph; actions shown together share one hint
+(`LEFT/RIGHT) -/+`, or two glyphs). It redraws when the device changes,
+and clicking a hint fires its action. Labels may be `$KEY`s.
+
+**The menus on it:**
+- **Casino:** its own key table is gone. Back closes; the games take
+  accept (spin), left and right (the bet) and, on slots, `y` (bet max, so a
+  pad can reach every button). The hint bar runs along the bottom with the
+  games' own words (FNV's settings: Spin, Bet Max, Exit, Increase and
+  Decrease Bet). Roulette's board is still mouse-only.
+- **Dialogue menu:** W, S and E, the `Quickkey` D-pad, `Activate`, and on
+  a gamepad only `MultiActivateA`/`B` are its additions. The hints
+  (`$F3NV_HINT_SELECT`, `$F3NV_HINT_LEAVE`) sit under the box, inside the
+  tinted holder, so they take the HUD color and the shaded backdrop.
+- `tests/test_fo4_f3ui_input.py` holds the glyph table and the control
+  names to the game's, and both menus to taking keys only through `Input`.
+
+**Play check:** each menu once on keyboard and once with a pad, mouse and
+keyboard untouched: the hints change between key names and glyphs when the
+device changes, every action works, nothing fires twice (one bet step per
+press, one pick), and the log shows `input device` lines.
 
 ### Rules for the library
 
@@ -968,12 +1036,13 @@ Each spike is one change, played in game.
 Played first, since everything below builds on them (the morning test of
 2026-11-13): the Pip-Boy CND line, lists and item-card API, under vanilla
 and FallUI; the translated keys; the dialogue menu's `mxmlc` build; the
-level-up image spike.
+level-up image spike; the casino and dialogue menu on `Input` and
+`HintBar`, with a pad ([play check](#input)).
 
 Then:
 1. **`Input` and `HintBar`** in the library, with the casino and the
    dialogue menu moved onto them, played once with a pad
-   ([controller](#controller)).
+   ([input](#input)). **Built 2026-11-12; the pad play is left.**
 2. **`ScrollList` and `Modal`**, taking over the Pip-Boy's `ListPanel` and
    the dialogue list.
 3. **Replacing a vanilla menu by name** (the level-up menu in place of

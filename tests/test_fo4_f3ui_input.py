@@ -1,0 +1,51 @@
+"""f3ui's Input and HintBar: the game's controls and glyphs they rely on, and the menus taking input only through them.
+
+See: docs/fork/swf_framework.md#input
+"""
+
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+LIBRARY = ROOT / 'fo4_import' / 'base' / 'as3' / 'f3ui'
+MENUS = (ROOT / 'fo4_import' / 'casino' / 'as3' / 'F3NV_Casino.as',
+         ROOT / 'fo4_import' / 'dialogue_menu' / 'as3' / 'DialogueMenu.as')
+#: FO4's menu-mode controls (the control map in Fallout4.exe) and the action each should be.
+MENU_CONTROLS = {'Accept': 'ACCEPT', 'Cancel': 'BACK', 'Up': 'UP', 'Down': 'DOWN', 'Left': 'LEFT', 'Right': 'RIGHT',
+                 'LShoulder': 'PREV', 'RShoulder': 'NEXT', 'LTrigger': 'PREV', 'RTrigger': 'NEXT', 'XButton': 'X',
+                 'YButton': 'Y', 'ZoomIn': 'UP', 'ZoomOut': 'DOWN'}
+#: The controller font's letter per button (the game's button hint map), Xbox then PlayStation.
+XBOX = {'accept': 'A', 'back': 'B', 'x': 'C', 'y': 'D', 'prev': 'G', 'next': 'L', 'up': 'W', 'down': 'V', 'left': 'T',
+        'right': 'U'}
+PLAYSTATION = {'accept': 'a', 'back': 'd', 'x': 'c', 'y': 'b', 'prev': 'g', 'next': 'm', 'up': 'w', 'down': 'v',
+               'left': 't', 'right': 'u'}
+
+
+def _object(source: str, name: str) -> dict:
+    """The AS3 object literal `name` in `source` as {key: value}, its values strings or bare names."""
+    body = re.search(rf'{name}:Object = \{{(.*?)\}};', source, re.S).group(1)
+    return {k: v.strip('"') for k, v in re.findall(r'(\w+):\s*("?[\w.]+"?)', body)}
+
+
+def test_the_hint_glyphs_are_the_controller_fonts_letters():
+    """Each action's glyph on Xbox and PlayStation is the letter the game's controller font draws that button with."""
+    source = (LIBRARY / 'HintBar.as').read_text(encoding='utf-8')
+    assert _object(source, 'XBOX') == XBOX and _object(source, 'PLAYSTATION') == PLAYSTATION
+    assert 'GLYPHS:String = "$Controller_Buttons"' in source
+
+
+def test_input_maps_every_menu_mode_control():
+    """The game's menu-mode controls each map to their action; moves fire on the press, accept and back on release."""
+    source = (LIBRARY / 'Input.as').read_text(encoding='utf-8')
+    assert _object(source, 'names') == MENU_CONTROLS
+    moves = _object(source, 'MOVES')
+    assert set(moves) == {'up', 'down', 'left', 'right', 'prev', 'next'}
+
+
+def test_the_menus_take_keys_and_controls_only_through_input():
+    """Neither menu listens for keys itself, and each hands the game's controls and platform to Input."""
+    for menu in MENUS:
+        source = menu.read_text(encoding='utf-8')
+        assert 'KeyboardEvent' not in source, menu.name
+        assert 'input.control(' in source and 'input.setPlatform(platform)' in source, menu.name
+        assert 'new HintBar(' in source, menu.name
