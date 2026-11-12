@@ -47,10 +47,10 @@ def elric_tag() -> bytes:
     return digest.digest()
 
 
-def _entry(data: bytes):
-    """The cache file of one pre-Elric NIF."""
+def entry(data: bytes, cache: Path = CACHE) -> Path:
+    """The cache file of one pre-Elric NIF, under `cache`."""
     key = hashlib.sha1(elric_tag() + data).hexdigest()
-    return CACHE / key[:2] / key
+    return cache / key[:2] / key
 
 
 def write_new(target: Path, data: bytes) -> None:
@@ -139,17 +139,17 @@ def process(sources: dict) -> dict:
     """elric.process(sources) (Elric's output by name; a NIF it crashes on left out), cached (module notes)."""
     done, todo = {}, {}
     for name, data in sources.items():
-        entry = _entry(data)
-        if entry.exists():
-            done[name] = entry.read_bytes()
-            os.utime(entry)
+        cached = entry(data)
+        if cached.exists():
+            done[name] = cached.read_bytes()
+            os.utime(cached)
         else:
             todo[name] = data
     done.update(elric.process(todo) if todo else {})
     for name in todo:
-        entry = _entry(todo[name])
-        entry.parent.mkdir(parents=True, exist_ok=True)
-        entry.write_bytes(done.get(name, b''))
+        cached = entry(todo[name])
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_bytes(done.get(name, b''))
     return {name: out for name, out in done.items() if out}
 
 

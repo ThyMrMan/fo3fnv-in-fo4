@@ -1,6 +1,7 @@
 # Plan: our own FO4 physics writer in place of Elric (2026-11-11)
 
-Status: step 1 (convex bodies) being built; the rest planned. Status lives
+Status: step 1 (convex bodies) built, not wired in; step 2 (meshes) being
+read; the rest planned. Status lives
 in [ROADMAP.md](ROADMAP.md). Item 5 of the
 [CK replacements](fo4_ck_replacements.md#options).
 
@@ -55,15 +56,16 @@ build queue runs); reading and scratch work don't.
 
 1. ~~**Finish Step 1's hull.**~~ Done: read, built in
    `nif/hknp_hull.py`, and it beats the exact hull ([results](#hull-scratch)).
-2. **Turn the scratch comparison into a tool** (`tools/`): our writer
-   against Elric's cache, field by field, over any set of pairs. Steps 2–4
-   need it.
+2. ~~**Turn the scratch comparison into a tool.**~~ Done:
+   `tools/nif/hknp_compare.py` ([check](#check)).
 3. **Wire Step 1 in** ahead of Elric in `elric_cache.process`, after the
    user rules on the [drift](#convex-drift); the main session runs the play
-   test.
-4. **Step 2, triangle meshes:** add `hknpBSMaterialProperties` to our
-   class layouts, decode Elric's compressed mesh pairs, then read Havok's
-   mesh-shape builder in `ElricInterop.dll` for its quantization and tree.
+   test. Waiting on that ruling (asked 2026-11-12).
+4. **Step 2, triangle meshes:** ~~add `hknpBSMaterialProperties` to our
+   class layouts~~ (done), ~~decode Elric's compressed mesh pairs~~ (first
+   census done: [mesh](#mesh)); next read Havok's mesh-shape builder in
+   `ElricInterop.dll` for its section split, node boxes and quad pairing,
+   the parts the data does not settle.
 5. **Steps 3 and 4** in table order.
 
 ## <a id="convex"></a>Step 1: what Elric writes for a convex body
@@ -152,6 +154,24 @@ on all. What still differs, proposed as accepted drift
   own float32 integration of the hull.
 - **Max angular speed (2 barrels).** Elric writes 549.25 for our 514.1; the
   other 226 pairs match the 12-bit rounding. Not read yet.
+
+<a id="clutter-census"></a>**All of FNV `clutter`** (`hknp_compare`,
+tolerance 1e-4; 1,716 meshes: 679 pairs we cover, 672 Elric-only shapes,
+313 without Havok, 50 not in the cache, 2 skinned corpses the static
+converter rejects):
+
+| Pairs | What differs |
+|---|---|
+| 121 | nothing |
+| 360 | only face angle bytes, every one by 1 (the 90° case above) |
+| 118 | hull corner or face counts (ties; mass and motion follow) |
+| 36 | hull corner positions or planes only, under a grid step |
+| 41 | hull matches; mass properties or motion beyond 1e-4 (inverse inertia alone in 11; principal frame in 22) |
+| 2 | max angular speed (the barrels) |
+| 1 | restitution: Elric writes 0.9 (`0x3F666666`) as hkHalf `0x3F67`, not the nearest `0x3F66`; friction on the same body rounds to nearest. Not read yet |
+
+Angle bytes off by more than 1 (17 pairs) are all on hulls whose face
+counts differ, so faces are paired across different hulls.
 
 ### <a id="elric-code"></a>Read from Elric's code
 
@@ -256,12 +276,73 @@ Read and re-implemented, never copied.
   reaches it.
 - **Not read yet:** Havok's triangle order (ties on round shapes), the
   oriented box fit (`0x103ad800`), the max-angular-speed path, and
-  anything for compressed meshes.
+  the compressed-mesh builder ([mesh](#mesh)).
+
+## <a id="mesh"></a>Step 2: what Elric writes for a triangle mesh
+
+Read off 654 mesh pairs (FNV `clutter` and `architecture/barrier`: every
+mesh whose Elric output holds an `hknpCompressedMeshShape`). Our input is a
+`bhkNiTriStripsShape` with one `NiTriStripsData` per material, each strip
+with its own collision filter (`collision.py`).
+
+- <a id="bs-material"></a>**`hknpBSMaterialProperties`** (Bethesda's
+  class, signature `0xa3e47a9a`; no Havok class description has it, and
+  Elric registers its classes in code rather than static tables, so the
+  layout is read off the data): an `hkReferencedObject`, then one array at
+  +0x10 of 0x18-byte entries, one per input strip in strip order: 16 bytes
+  always zero, the strip's collision filter (u32), its material CRC (u32).
+  All 654 pairs match that exactly (two list a body's tables in another
+  object order). Over 1,500 cache entries (2,509 tables, 1 to 9 entries)
+  the zero bytes never vary; the filter is the layer alone in 86%, else a
+  layer with flag bits (`0x2001`, `0x8001`). Added to
+  `tools/generators/hk2014_layouts.py` (`BETHESDA`) and our layouts as
+  `hknpBSMaterialProperties` / `hknpBSMaterial` (`reserved`,
+  `collisionFilterInfo`, `materialCrc`). With it every one of the 654
+  pairs' physics systems reads and writes back byte for byte
+  (`packfile_write`, `keep_order`).
+- **The shape** (701 compressed meshes in 650 pairs; 4 pairs have a
+  different number of mesh bodies than we sent, not read yet): flags 516,
+  dispatch type 2, convex radius 0, `numShapeKeyBits` equal to the tree's
+  `bitsPerKey`, `userData` a first strip's material CRC (all 701), the material
+  table through an `hkRefCountedProperties` entry with key `0xF601`. Edge
+  welding map empty; the `hkcdSimdTree` two empty nodes (bounds ±FLT_MAX).
+- **Tree box:** the input points' bounding box, nothing added (99.3% within
+  1e-5; the rest are bodies paired in the wrong order by the census).
+- **Quantization:** a section's vertices pack 11/11/10 bits;
+  `codecParms` is (offset, scale) per axis. In a one-section mesh the
+  offset is the box minimum and the scale its extent over 2047, 2047, 1023
+  (exact to float rounding), and a vertex is `round((p − offset) / scale)`
+  (98.4% of 15,692 points; floor gives 15%). In a mesh of several
+  sections, 31% of sections' codecs differ from the section's own box,
+  which is the tree's quantized node box rather than its vertices'; not
+  read yet. 118 meshes also use shared vertices (21/21/22 bits over the
+  tree box).
+- **Primitives:** four indices each, a triangle repeating its third (index
+  2 = 3); Elric pairs triangles into quads, two shape keys each, so the
+  triangle count is unchanged (99.1% of meshes). `bitsPerKey` is the bit
+  length of `maxKeyValue` in 650 of 701 (one more in 51; not read).
+  Up to 210 packed vertices per section (median 26); 83% of meshes are one
+  section.
+- **Elric's random bytes:** `quadIsFlat` and `triangleIsInterior` are
+  `hkBitField`s whose last word carries junk above `numBits` (532 of 661
+  and 308 of 635 such words): the uninitialised bytes behind Elric's
+  run-to-run differences. Our mesh writer will zero them.
+- **Not read yet:** how Elric splits sections and builds the section and
+  tree node boxes; its quad pairing and the two bit fields' meaning;
+  the builder in `ElricInterop.dll` (Havok's `hkcdStaticMeshTree` build,
+  reached from `hkpPhysicsMigrationUtils` like the convex path).
 
 ## <a id="check"></a>How each step is checked
 
-`tests/` compare our objects with Elric's on a handful of pairs; a scratch
-census runs every pair in the cache. Fields Elric derives (mass
+`tests/` compare our objects with Elric's on a handful of pairs;
+`tools/nif/hknp_compare.py` runs any set of meshes against the Elric cache
+([catalogue](../reference/python_tools.md)): it converts each FNV mesh as
+the build does, finds Elric's output by the pre-Elric bytes, and walks both
+physics systems from the root through their pointers, so object names and
+order don't count. A convex hull is compared as a set (corners paired by
+position, faces by normal; angle bytes, offsets and corner counts on the
+paired rows), packed mass properties unpacked, and each collision object's
+owner and body checked. FNV `clutter` runs in 33 s on 7 workers. Fields Elric derives (mass
 properties, motion records, face angles) are matched to its values, and a
 value we cannot reproduce exactly is recorded here with its spread. The
 first in-game build of each step is a play test of the meshes it covers.
