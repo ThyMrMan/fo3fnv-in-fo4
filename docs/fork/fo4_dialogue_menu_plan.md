@@ -414,7 +414,11 @@ container's bounds, and the rows beyond the menu's count were only hidden,
 keeping the text and place of the last longer menu. Unused rows now leave
 the holder (`draw`).
 
-### <a id="own-movie"></a>Our own movie (2026-11-11, built, not played)
+### <a id="own-movie"></a>Our own movie (2026-11-11, played 2026-11-12)
+
+**Played 2026-11-12: works.** It plays fine and looks the same as the
+patched-movie version did (user). Next: move it onto `mxmlc` and `f3ui`
+([swf_framework](swf_framework.md#mxmlc-setup)).
 
 The menu no longer starts from the game's `DialogueMenu.swf`. Spike 3
 ([swf_framework](swf_framework.md#spikes)) showed the engine runs a movie

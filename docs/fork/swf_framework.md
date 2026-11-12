@@ -23,7 +23,7 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Menu | How it's made | State |
 |---|---|---|
 | Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
-| Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)): built like the casino's, a skeleton then FFDec. Nothing read from the game | The patched-movie version played; our own movie built, not played |
+| Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)): built like the casino's, a skeleton then FFDec. Nothing read from the game | The patched-movie version played; our own movie played 2026-11-12, looks the same |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | No movie. The DLL draws into the open vanilla menus from C++: CND line, repair and ammo lists, STAT tabs, HUD needs | CND, repair and tabs played. Ammo list and HUD needs built, not played |
 
 Shared already:
@@ -436,12 +436,22 @@ English sentences, to anything shown on screen.
 
 ### Files
 
-- `Interface\Translations\<Mod>_<language>.txt`: UTF-16 LE with BOM, one
+- `Interface\Translations\<plugin>_<language>.txt`: UTF-16 LE with BOM, one
   `$KEY<tab>text` per line (F4SE `Translation.cpp`, V). `<language>` is the
-  game's `sLanguage` (`en`, `de`, `fr`, `ru`, …).
+  game's `sLanguage` (`en`, `de`, `fr`, `ru`, …). **`<plugin>` must be an
+  active plugin's name:** F4SE reads `plugins.txt` and, for each `*` line
+  ending `.esm`, `.esp` or `.esl`, loads that plugin's file through the
+  game's file system (loose or BA2), once, when the translator is made (F4SE
+  0.7.9 `ImportTranslationFiles`). A file named after anything else, such as
+  a menu, is never read. Lines start with `$`, split at the last tab, and
+  stop at 511 characters; no BOM means the file is skipped.
+- **Ours are named after `FalloutHelpers.esl`**, which every converted
+  FO3/FNV plugin masters: `FalloutHelpers_<language>.txt` holds every
+  `$F3UI_` and menu key (`fo4_import/base/translations.py`).
 - In the repo: one **English source** file per release in UTF-8, so changes
-  show in diffs. The build writes the UTF-16 file for each language that
-  exists.
+  show in diffs (`fo4_import/base/translation_files/en.txt`). The build
+  writes the UTF-16 file for each language that exists
+  (`translations.install`, with the casino today).
 - Translations arrive as one file per language and ship in the main
   download, or as separate Nexus translation uploads that hold only that
   file.
@@ -660,7 +670,9 @@ Each spike is one change, played in game.
      Fixed in the spike source, not replayed. So the dialogue menu can drop
      the patched Bethesda movie: the XDI replacement starts from our own
      movie.
-   - **Done (2026-11-11, not played):** the shipping dialogue menu moved
+   - **Played 2026-11-12: works.** The shipping dialogue menu on its own
+     movie plays fine and looks the same as before (user).
+   - **Done 2026-11-11:** the shipping dialogue menu moved
      onto its own movie ([dialogue menu plan](fo4_dialogue_menu_plan.md#own-movie)).
      Spike 3 also settles two open facts: `try/catch` ran in game (the
      spike's placement used it), and `scaleform.gfx.Extensions` needs no
@@ -688,6 +700,79 @@ Each spike is one change, played in game.
    `_en` file, then the same with `sLanguage` set to a language we have no
    file for. Records what the game shows, which settles the
    [fallback](#translations) design. Can ride along with spike 1.
+   - **Played 2026-11-12: the translation works; one drawing bug.**
+     - f4se.log: `Reading translations from
+       Interface\Translations\FalloutHelpers_en.txt...`. The log: the
+       present key reads back `Translated from FalloutHelpers_en.txt`, the
+       absent one reads back `$F3UI_TranslationAbsent`. **So the game shows
+       a key no file has as the raw `$KEY`**, which settles the
+       [fallback](#translations): `Text` must never show an untranslated
+       key itself.
+     - **Bug:** both lines drew one small mark per letter (10, 4 and 21
+       marks on the left: the words of the translation; 23 on the right:
+       the raw key). The buttons beside them, made by the same
+       `Text.field` (same font name, embedded fonts on), drew fine, and so
+       do roulette's size 11 and 14 labels, so neither the font name nor
+       the size is the cause. The only difference: these two texts start
+       with `$` and go through the game's translator. Likely cause: the
+       translator's result replaces the text without the field's default
+       format, so it falls back to a font that isn't embedded, and the
+       game draws a mark for each missing letter.
+     - **First fix, played 2026-11-12: failed** (looks the same).
+       `Text.show` reapplied `setTextFormat(defaultTextFormat)` after the
+       assignment. Log, both keys: `font Times New Roman then Times New
+       Roman`, so after the `$` assignment even the field's default format
+       read as Times New Roman (Flash's default font, which the game
+       doesn't embed).
+     - **Second try, played 2026-11-12: works.** All three lines draw as
+       text. **Cause, confirmed by the log:** assigning a string that starts
+       with `$` to a code-made field resets both its text format and its
+       `defaultTextFormat` to Times New Roman, whether or not the key is
+       translated; plain text keeps `$MAIN_Font`. So f3ui puts text in a
+       field only through `Text.show`, never `field.text = "$…"`:
+
+       | Line | After a plain assignment (its default) | After `Text.show` |
+       |---|---|---|
+       | Key in our file | Times New Roman (Times New Roman) | `$MAIN_Font` |
+       | Key in no file | Times New Roman (Times New Roman) | `$MAIN_Font` |
+       | Plain text | `$MAIN_Font` (`$MAIN_Font`) | `$MAIN_Font` |
+     - **What was built for it:** `Text.field` keeps its
+       own copy of each field's format; `Text.show` assigns the text, then
+       puts that copy back as the default and over all of the text.
+       `Draw.button` uses it too. A third, plain line (no `$`) is the
+       control. Each line logs `font: default <before>, plain <after a
+       plain assignment> (default <its default then>), shown <after
+       Text.show>`. Movie 19,014 bytes.
+     - **Spike done.** The three test lines stay on every casino screen
+       until the fallback replaces them.
+   - **Built 2026-11-12.** Two changes from the plan:
+     - The file is `Interface\Translations\FalloutHelpers_en.txt`, not
+       `F3NV_Casino_en.txt`: F4SE loads only files named after an active
+       plugin ([files](#translations)).
+     - **No `sLanguage` change.** With no file for the player's language,
+       F4SE loads nothing, which is the same as a key no file has. So one
+       play shows both cases: `$F3UI_TranslationCheck` (in our file) and
+       `$F3UI_TranslationAbsent` (in none). Changing `sLanguage` on an
+       English install would also lose the game's own strings.
+   - **What's built:** every casino screen (slots, roulette) shows both keys
+     in small text under the buttons, and logs what each field reads back
+     (`F3NV_Casino: input translation $F3UI_… reads back '…'`). The build
+     writes the file from `fo4_import/base/translation_files/en.txt`
+     (UTF-8) as UTF-16 LE with BOM and CRLF (`translations.install`, count
+     `menu translation files installed`). Checked offline: the movie
+     contains both keys (18,646 bytes, the same on Python 3.13 and 3.14);
+     `tests/test_fo4_translations.py`.
+   - **Play check:** a build with the new `Interface\F3NV_Casino.swf` and
+     `Interface\Translations\FalloutHelpers_en.txt`, then open slots. Note,
+     or screenshot, what each bottom line shows:
+     - left: `Translated from FalloutHelpers_en.txt` means our file loads;
+       `$F3UI_TranslationCheck` means it doesn't;
+     - right: whatever the game shows for a key no file has (the raw key,
+       an empty line, or something else). This settles the
+       [fallback](#translations).
+     - F4SE's log (`f4se.log`) should say `Reading translations from
+       Interface\Translations\FalloutHelpers_en.txt...`; the casino lines
+       in the Papyrus log give what each field reads back.
 
 Spikes 1, 2 and 4 need nothing from the CommonLibF4 port; they can run on
 today's F3NV.dll and Papyrus.

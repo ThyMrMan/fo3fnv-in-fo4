@@ -20,7 +20,7 @@ package f3ui
          caption.width = width;
          caption.height = 40;
          caption.y = 10;
-         caption.text = text;
+         Text.show(caption, text);
          box.addChild(caption);
          box.mouseChildren = false;
          box.buttonMode = true;

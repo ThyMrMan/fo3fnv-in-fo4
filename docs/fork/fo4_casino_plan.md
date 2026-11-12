@@ -600,6 +600,12 @@ converter writes them to the menu's translation file
 (`Interface\Translations\F3NV_Casino_en.txt`, FO4's `$KEY` mechanism), so
 other languages follow FNV's own string tables when present.
 
+**Correction (2026-11-12):** F4SE loads a translation file only when it's
+named after an active plugin, so `F3NV_Casino_en.txt` would never be read
+([swf_framework.md](swf_framework.md#translations)). Today the labels reach
+the menu through Papyrus instead. If they move to `$KEY`s, they go in a file
+named after the converted plugin, written under the player's `sLanguage`.
+
 ### <a id="design-flow"></a>4.7 One round, end to end (slots)
 
 1. Player activates `vGomorrahSlot01`; its converted script calls
