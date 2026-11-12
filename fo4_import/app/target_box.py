@@ -1,15 +1,17 @@
 """The Convert screen's "What to convert" box: the game, a DLC found in its Data folder, or a mod folder the user
-adds, and where an add-on builds. Choices are written into the settings (fo4_import.app.addons).
+adds, where an add-on builds and whether it builds as a light plugin (fo4_import.app.light_plugins). Choices are
+written into the settings (fo4_import.app.addons).
 
 See: docs/fork/fo4_gui.md#addons
+See: docs/fork/fo4_gui.md#light
 """
 
 from pathlib import Path
 
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QMessageBox,
-                               QPushButton, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog,
+                               QLabel, QMessageBox, QPushButton, QWidget)
 
-from fo4_import.app import addons, stages
+from fo4_import.app import addons, light_plugins, stages
 from fo4_import.app import settings as S
 from fo4_import.app.widgets import PathRow
 
@@ -22,6 +24,10 @@ class TargetBox(QGroupBox):
         super().__init__('What to convert', parent)
         self.on_change, self.settings = on_change, None
         self.choice, self.output = QComboBox(), PathRow()
+        self.light, self.light_notes = QCheckBox('Build as a light plugin (ESL flag; takes no full plugin slot)'), QLabel()
+        self.light_notes.setWordWrap(True)
+        self.light_notes.setStyleSheet('color: gray')
+        self.light.clicked.connect(self._light_clicked)
         add_mod = QPushButton('Add a mod folder...')
         add_mod.clicked.connect(self._add_mod)
         self.choice.activated.connect(self._chosen)
@@ -34,6 +40,8 @@ class TargetBox(QGroupBox):
         form = QFormLayout(self)
         form.addRow('Convert', holder)
         form.addRow('Output folder', self.output)
+        form.addRow('Plugin type', self.light)
+        form.addRow('', self.light_notes)
 
     def show_settings(self, settings: dict) -> None:
         """List the game, its DLC and its added mods for the chosen source game, the current target selected."""
@@ -61,6 +69,32 @@ class TargetBox(QGroupBox):
         self.output.edit.setPlaceholderText(str(default))
         chosen = addons.entry(self.settings, source, plugin) if plugin else None
         self.output.set_text((chosen or {}).get('output', ''))
+        self._show_light()
+
+    def _show_light(self) -> None:
+        """The chosen add-on's light opt-in and its warnings (the game is always full)."""
+        source, plugin = self.settings['source'], self.choice.currentData()
+        self.light.setEnabled(bool(plugin))
+        self.light.setChecked(bool(plugin) and light_plugins.chosen(self.settings, source, plugin))
+        notes = light_plugins.warnings(stages.export_dir(self.settings, source), stages.plugin_path(
+            self.settings, source)) if plugin else ['The game is always a full plugin']
+        self.light_notes.setText('\n'.join(notes))
+
+    def _light_clicked(self, light: bool) -> None:
+        """Record the opt-in; switching an already built add-on's type asks first, since saves using it break."""
+        source, plugin = self.settings['source'], self.choice.currentData()
+        built = stages.plugin_path(self.settings, source)
+        switch = light_plugins.needs_confirming(built, light)
+        if switch:
+            asked = QMessageBox.warning(
+                self, 'This breaks saves', f'{plugin} is already built as a {"full" if light else "light"} plugin. '
+                f'Building it {"light" if light else "full"} moves {light_plugins.own_count(built):,} FormIDs: saves '
+                'that use this mod break, and mods built on it must be rebuilt. Switch?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            if asked != QMessageBox.StandardButton.Yes:
+                self.light.setChecked(not light)
+                return
+        light_plugins.choose(self.settings, source, plugin, light, switch)
 
     def write(self) -> None:
         """Write the chosen target and the add-on's output folder into the settings."""

@@ -228,6 +228,25 @@ and `target_box.py`.
   map (regions -26 -31 22 17 and -22 -26 22 3) and one or two Freeside
   worldspace cells, which the hand-made builds' entrance regions left out.
 
+### <a id="light"></a>Light plugins: the per-mod opt-in (built 2026-11-12, not run from the app yet)
+
+Under the output folder, **Plugin type** has a checkbox, *Build as a light plugin*, for a DLC or mod (the game is
+always full). It is saved in the add-on's entry (`light`) by `fo4_import/app/light_plugins.py`; the Build stage
+passes `--light` ([the policy](research/fo4_light_plugins.md#policy)).
+
+- **Before the first build** the box is free. **After it** the plugin's type is locked: ticking or unticking it
+  for a built add-on asks first ("moves N FormIDs: saves that use this mod break, and mods built on it must be
+  rebuilt"). Only a Yes stores the confirmed type (`light_confirmed`) and makes the build pass
+  `--switch-plugin-type`; the build itself also refuses a switch without that flag.
+- **Under the box** go the add-on's notes (`light_plugins.warnings`): once built, its own records against 4,095
+  (fits; fits with little room above 3,071; does not fit); from its export, the
+  [light-only problems](research/fo4_light_plugins.md#problems): new cells in an `.esm`, new worldspaces
+  (untested), plain `.esp` masters.
+- **Light FO4 and Creation Club plugins** need nothing new: the app counts no plugin slots, tests no `.esl`
+  extension, and names their records by plugin and in-file object id (`catalog.py`, `replacements.py`).
+- **Not built yet:** the light trial that counts a mod's own records before its first build (the count shows only
+  after a build); a slot count against 254 when the load-order report is built.
+
 ## <a id="cross-platform"></a>Cross-platform rules
 
 - **Paths:** `pathlib` everywhere and no backslash literals. Settings and

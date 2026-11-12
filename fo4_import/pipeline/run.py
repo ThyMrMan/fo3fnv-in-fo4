@@ -24,6 +24,7 @@ from fo4_import.pipeline import build_inputs, eta, eta_inputs
 from fo4_import.pipeline.build_steps import convert_scripts, source_state, stamp_path, write_stamp
 from fo4_import.pipeline.converters import placed_types
 from fo4_import.pipeline.export_index import export_file, export_masters, export_records, own_records
+from fo4_import.pipeline.light_choice import STAMP_KEY, choose
 from fo4_import.pipeline.master_space import UNCLASSIFIED
 from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.pipeline.mod_dirs import plugin_dirs
@@ -146,6 +147,12 @@ def arguments() -> argparse.Namespace:
                          f'{build_resources.DEFAULT}); low leaves half the cores and memory free, full uses all')
     ap.add_argument('--keep-loose', action='store_true',
                     help="Keep the loose copies of what the plugin's archives hold (a build folder fo4_deploy copies)")
+    ap.add_argument('--light', action='store_true',
+                    help="Build a light (ESL-flagged) plugin: the mod's opt-in, chosen before its first build and "
+                         'kept after it')
+    ap.add_argument('--switch-plugin-type', action='store_true',
+                    help='Confirm building an already built plugin as the other type (light or full): every own '
+                         'FormID moves, which breaks saves that use it')
     ap.add_argument('cell', nargs='?', help='FNV interior cell editor ID (none: a DLC with no cell of its own)')
     return ap.parse_args()
 
@@ -158,6 +165,7 @@ def main():
     See: docs/fork/fo4_pipeline.md#main-archive
     """
     args = arguments()
+    args.choice = choose(args.out, args.light, args.switch_plugin_type)
     if args.resources:
         os.environ[build_resources.ENV_VAR] = args.resources
     hold_heavy_lock(' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]))
@@ -168,7 +176,8 @@ def main():
     print(f'loose files restored from the Main archive: {restore_packed(args.data, args.out.name)}')
     LISTENERS.append(estimate(args))
     started = time.time()
-    extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), **source_state()}
+    extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), **source_state(),
+             STAMP_KEY: args.choice.light}
     write_stamp(args.out, 'running', started, extra)
     build_inputs.start(build_inputs.record_dir(args.out))
     counts = {}
@@ -234,7 +243,8 @@ def build_all(args: argparse.Namespace, started: float) -> dict:
     table = replacements.load(args.replacements, args.profile, dirs)
     for warning in table.warnings:
         print(f'replacements: {warning}')
-    counts = build(args.export, args.out, args.data, args.cell, args.scripts, worlds, table, dirs, args.test_cell)
+    counts = build(args.export, args.out, args.data, args.cell, args.scripts, worlds, table, dirs, args.test_cell,
+                   args.choice)
     counts.update({f'master FormIDs not renumbered, left as is ({key})': n for key, n in UNCLASSIFIED.items()})
     counts.update({**TALLY, 'meshes in scope': len(models), 'meshes converted': converted,
                    eta_inputs.MASTERS_COUNT: int(bool(export_masters(str(args.export))))})

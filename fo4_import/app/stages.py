@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.mod_sources import data_dirs
-from fo4_import.app import addons
+from fo4_import.app import addons, light_plugins
 from fo4_import.app import settings as S
 from asset_convert.sources import source_registry
 from fo4_import.classic_look import plugin_name
@@ -199,14 +199,14 @@ def build_arguments(settings: dict, source: str, scope: Scope, settings_file: Pa
 
 def addon_arguments(settings: dict, source: str, scope: Scope, settings_file: Path) -> list:
     """fo4_import.pipeline.run's arguments for an add-on target: its own output, scripts beside the game's, its
-    masters' outputs as plugin folders, and its scope from its export (addons.build_scope; a region scope's corners
-    on the largest master worldspace it changes)."""
-    chosen = target(settings, source)
+    masters' outputs as plugin folders, its light opt-in (light_plugins), and its scope from its export
+    (addons.build_scope; a region scope's corners on the largest master worldspace it changes)."""
+    chosen, out = target(settings, source), plugin_path(settings, source)
     region = scope.region if scope.kind == 'region' else None
-    args = ['--export', str(export_dir(settings, source)), '--out', str(plugin_path(settings, source)), '--data',
+    args = ['--export', str(export_dir(settings, source)), '--out', str(out), '--data',
             str(chosen.output), '--scripts', str(S.scripts_dir(settings, source).parent / chosen.plugin),
             '--plugin-dirs', *map(str, master_dirs(settings, source)), '--mod-sources', str(settings_file),
-            '--no-test-cell']
+            '--no-test-cell', *light_plugins.arguments(settings, source, chosen.plugin, out)]
     return args + _shared_arguments(settings, source, scope) + addons.build_scope(export_dir(settings, source),
                                                                                   region)
 
