@@ -1,11 +1,12 @@
-"""The face diffuse (_d) the Creation Kit bakes for an NPC: its tint layers, and the race's defaults for slots it
-leaves empty, composited in order onto its face set's diffuse.
+"""The face textures the Creation Kit bakes for an NPC (FaceCustomization _d, _msn, _s): its tint layers, and the
+race's defaults for slots it leaves empty, composited in order onto its face set's diffuse, normal and specular.
 
-    py -3.14 -m fo4_import.face.face_tint --plugin <plugin> --dirs <folders> --npc <FormID> --out <png>
+    py -3.14 -m fo4_import.face.face_tint --plugin <plugin> --dirs <folders> --npc <FormID> --out <folder>
 
 Scratch use: nothing in the build reads it yet.
 
 See: docs/fork/fo4_facegen_plan.md#face-d-decode
+See: docs/fork/fo4_facegen_plan.md#face-maps
 """
 
 import argparse
@@ -26,18 +27,30 @@ SKIN_TONE_SLOT, BROW_SLOT = 12, 23
 DEFAULT, MULTIPLY, OVERLAY, SOFT_LIGHT, HARD_LIGHT = range(5)
 #: NPC TETI data type of a layer with a colour (the other, 2, is value-only).
 COLOUR_LAYER = 1
+#: Per FaceCustomization texture besides _d: (face set slot it starts from, position of an option's own TTET).
+MAPS = {'msn': (1, 1), 's': (7, 2)}
 
 
 @dataclass(frozen=True)
 class Option:
-    """One race tint option: TETI slot, first TTET texture ('' for none), TTEB blend, TTEC template colours
+    """One race tint option: TETI slot, TTET textures in order (_d, _n, _s), TTEB blend, TTEC template colours
     {template index: (CLFM FormID data, alpha, blend)}, TTED default (0 when absent)."""
 
     slot: int
-    texture: str
+    textures: tuple
     blend: int
     colours: dict
     default: float
+
+    @property
+    def texture(self) -> str:
+        """The option's diffuse texture ('' for none)."""
+        return self.textures[0] if self.textures else ''
+
+    def map_texture(self, kind: str) -> str:
+        """The option's texture for FaceCustomization `kind` ('' for none)."""
+        at = MAPS[kind][1]
+        return self.textures[at] if len(self.textures) > at else ''
 
 
 @dataclass(frozen=True)
@@ -53,8 +66,8 @@ class Layer:
 
 def _option_fields(option: dict, tag: bytes, data: bytes) -> None:
     """Set the field subrecord `tag` gives on the option being read (a dict of Option's fields)."""
-    if tag == b'TTET' and not option['texture']:
-        option['texture'] = facegeom.zstr(data)
+    if tag == b'TTET':
+        option['textures'] += (facegeom.zstr(data),)
     elif tag == b'TTEB':
         option['blend'] = struct.unpack('<I', data)[0]
     elif tag == b'TTED':
@@ -70,7 +83,7 @@ def race_options(race: facegeom.Rec, female: bool) -> dict:
     for tag, data in facegeom.sex_section(race, female):
         if tag == b'TETI':
             slot, index = struct.unpack('<HH', data)
-            current = out[index] = dict(slot=slot, texture='', blend=DEFAULT, colours={}, default=0.0)
+            current = out[index] = dict(slot=slot, textures=(), blend=DEFAULT, colours={}, default=0.0)
         elif current is not None:
             _option_fields(current, tag, data)
     return {index: Option(**fields) for index, fields in out.items()}
@@ -153,39 +166,86 @@ def apply(out: np.ndarray, option: Option, layer: Layer, rgba: np.ndarray, layer
     return out
 
 
-def face_diffuse(src: facegeom.Sources, npc: facegeom.Rec, race: facegeom.Rec, female: bool,
-                 size: int = None) -> np.ndarray:
+def apply_map(out: np.ndarray, layer: Layer, diffuse: np.ndarray, rgba: np.ndarray) -> np.ndarray:
+    """`out` (map RG) lerped to `rgba` at value x sqrt(`diffuse` alpha)."""
+    m = layer.value * np.sqrt(diffuse[..., 3:])
+    return out * (1 - m) + m * rgba[..., :2]
+
+
+@dataclass(frozen=True)
+class Face:
+    """What an NPC's face textures are drawn from: Sources, the NPC, its race, female."""
+
+    src: facegeom.Sources
+    npc: facegeom.Rec
+    race: facegeom.Rec
+    female: bool
+
+    def slots(self) -> list:
+        """Texture slots of the NPC's face set, else the race default's."""
+        owner, tag = (self.npc, b'FTST') if self.npc.first(b'FTST') else (self.race, facegeom.FACE_SETS[self.female])
+        return facegeom.txst_slots(self.src, self.src.get(owner, owner.first(tag)))
+
+    def layers(self) -> list:
+        """[(Option, Layer)] drawn in order (with_defaults), value > 0."""
+        options = race_options(self.race, self.female)
+        return [(options[layer.index], layer) for layer in with_defaults(npc_layers(self.npc), options)
+                if layer.index in options and layer.value > 0]
+
+    def size(self, path: str, size: int = None) -> int:
+        """`size`, else texture `path`'s width."""
+        return size or Image.open(io.BytesIO(self.src.read('textures\\' + path))).size[0]
+
+
+def face_diffuse(face: Face, size: int = None) -> np.ndarray:
     """The NPC's face _d as float RGB 0..1 at `size` square (default: its face set diffuse's size)."""
-    owner, tag = (npc, b'FTST') if npc.first(b'FTST') else (race, facegeom.FACE_SETS[female])
-    base_path = facegeom.txst_slots(src, src.get(owner, owner.first(tag)))[0]
-    size = size or Image.open(io.BytesIO(src.read('textures\\' + base_path))).size[0]
-    out = texture(src, base_path, size)[..., :3].copy()
-    options = race_options(race, female)
-    for layer in with_defaults(npc_layers(npc), options):
-        option = options.get(layer.index)
-        drawn = option and layer.value > 0 and (option.texture or option.slot == SKIN_TONE_SLOT)
-        if drawn:
-            rgba = texture(src, option.texture, size) if option.texture else None
-            colour = colour_of(src, race, option, layer) if layer.kind == COLOUR_LAYER else None
+    base_path = face.slots()[0]
+    size = face.size(base_path, size)
+    out = texture(face.src, base_path, size)[..., :3].copy()
+    for option, layer in face.layers():
+        if option.texture or option.slot == SKIN_TONE_SLOT:
+            rgba = texture(face.src, option.texture, size) if option.texture else None
+            colour = colour_of(face.src, face.race, option, layer) if layer.kind == COLOUR_LAYER else None
             out = apply(out, option, layer, rgba, colour)
     return out
 
 
+def face_map(face: Face, kind: str, size: int = None) -> np.ndarray:
+    """The NPC's face _msn or _s (`kind`) as float RG 0..1 at `size` square (default: the face set map's size):
+    the face set's map with each value-only layer's own map over it (apply_map)."""
+    base_path = face.slots()[MAPS[kind][0]]
+    size = face.size(base_path, size)
+    out = texture(face.src, base_path, size)[..., :2].copy()
+    for option, layer in face.layers():
+        if layer.kind != COLOUR_LAYER and option.texture and option.map_texture(kind):
+            diffuse = texture(face.src, option.texture, size)
+            out = apply_map(out, layer, diffuse, texture(face.src, option.map_texture(kind), size))
+    return out
+
+
+def as_image(values: np.ndarray) -> Image.Image:
+    """Float 0..1 RGB, or RG (blue 0), as an 8-bit RGB image."""
+    rgb = values if values.shape[2] == 3 else np.dstack([values, np.zeros(values.shape[:2], values.dtype)])
+    return Image.fromarray(np.round(np.clip(rgb, 0, 1) * 255).astype(np.uint8))
+
+
 def main(argv=None) -> None:
-    """Write one NPC's face _d as a PNG to --out."""
+    """Write one NPC's face _d, _msn and _s as PNGs to the folder --out."""
     p = argparse.ArgumentParser(description=main.__doc__)
     p.add_argument('--plugin', type=Path, required=True, help="the NPC's plugin (its masters are found in --dirs)")
     p.add_argument('--dirs', type=Path, nargs='*', default=[], help='folders holding masters, loose files and BA2s')
     p.add_argument('--npc', required=True, help="the NPC's FormID (hex; the plugin's own index is ignored)")
-    p.add_argument('--size', type=int, help="square size (default: the face set diffuse's)")
-    p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--size', type=int, help="square size (default: each face set texture's)")
+    p.add_argument('--out', type=Path, required=True, help='folder for <FormID>_d.png, _msn.png, _s.png')
     args = p.parse_args(argv)
     src = facegeom.Sources(args.plugin, [args.plugin.parent] + args.dirs)
     npc, race, female, _ = facegeom.npc_face(src, args.plugin.name, int(args.npc, 16))
-    rgb = face_diffuse(src, npc, race, female, args.size)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(np.round(np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(args.out)
-    print('wrote', args.out)
+    face, stem = Face(src, npc, race, female), f'{int(args.npc, 16) & 0xFFFFFF:08X}'
+    args.out.mkdir(parents=True, exist_ok=True)
+    as_image(face_diffuse(face, args.size)).save(args.out / f'{stem}_d.png')
+    for kind in MAPS:
+        as_image(face_map(face, kind, args.size)).save(args.out / f'{stem}_{kind}.png')
+    print('wrote', args.out / f'{stem}_*.png')
 
 
 if __name__ == '__main__':

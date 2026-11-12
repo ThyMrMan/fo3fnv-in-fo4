@@ -27,14 +27,15 @@ def test_ck_files_finds_face_diffuses_by_their_id_prefix(tmp_path):
 
 
 def test_texture_summary_prints_spread_worst_and_errors(capsys):
-    """The _d summary counts errors, gives the spread of per-NPC means and lists the worst first."""
-    lines = [{'form': '000001', 'edid': 'A', 'female': True, 'mean': 2.0, 'p99': 9.0},
-             {'form': '000002', 'edid': 'B', 'female': False, 'mean': 3.0, 'p99': 12.0},
+    """Per texture kind: the spread of per-NPC means and the worst first; then the errors."""
+    lines = [{'form': '000001', 'edid': 'A', 'female': True, 'd': [2.0, 9.0], 'msn': [1.0, 4.0], 's': [5.0, 8.0]},
+             {'form': '000002', 'edid': 'B', 'female': False, 'd': [3.0, 12.0], 'msn': [0.5, 2.0], 's': [1.0, 3.0]},
              {'form': '000003', 'error': 'KeyError: x'}]
     FC.texture_summary(lines)
     out = capsys.readouterr().out
-    assert 'NPCs 3, errors 1, measured 2' in out and 'worst 3.00' in out
-    assert out.index('000002 B M') < out.index('000001 A F') and 'error 000003' in out
+    assert 'NPCs 3, errors 1' in out and '_d: measured 2' in out and 'worst 3.00' in out and 'worst 5.00' in out
+    d, msn = out.index('_d:'), out.index('_msn:')
+    assert d < out.index('000002 B M', d) < out.index('000001 A F', d) < msn and 'error 000003' in out
 
 
 def test_worst_part_skips_status_rows_and_the_summary_prints(capsys):

@@ -1103,6 +1103,39 @@ yet, so neither is in the model.
 The island core is 348 of 262,144 texels at 512 (0.13%), so these areas
 matter for how the face looks up close more than for the whole-texture mean.
 
+### <a id="face-maps"></a>The CK's face `_msn` and `_s`, decoded and ported (2026-11-12)
+
+Both are BC5 at 2048, so only red and green carry data.
+
+- **Base:** the face set's slot 1 (`BaseMaleHead_n`, tangent space despite
+  the `_msn` name) for `_msn`, and slot 7 (`BaseMaleHead_s`) for `_s`. A
+  tone-and-brow NPC matches them to 0.2 and 0.7. The wrinkle map (slot 2)
+  is not baked in (3.4–4.5 off).
+- **Layers:** each value-only layer whose option has a second (`_n`) or
+  third (`_s`) TTET texture lerps that texture's red and green in. The
+  weight is value × √(alpha of the layer's own `_d`), once, for every blend
+  operation. Colour layers (the skin tone) leave both alone. 97 of
+  HumanRace's 143 male options carry `_n` and `_s`.
+- **Measured on 40 NPCs at 256:** mean error 0.91 (`_msn`) and 0.99 (`_s`)
+  with the diffuse's weights. With √alpha for all layers, five NPCs with
+  20–36 Soft Light details went 2.69 → 2.06 on `_msn`. The exponent scan
+  (0.35, 0.5, 0.65, 0.8, 1) has its minimum at 0.5 for `_msn`; `_s` is flat
+  from 0.5 to 1 (3.1–3.2). Blending by the option's own operation is worse
+  (`_s` 9.4 on those five), and so is weighting by the map's own alpha
+  (`_msn` 7.0, `_s` 31.9).
+
+Ported in `face_tint.face_map`; `facegen_census --textures` now measures
+`_d`, `_msn` and `_s` per NPC. All 2,382 CK faces at 256, no errors:
+
+| Texture | Mean | Median | p90 | Worst | NPCs above 4 |
+|---|---|---|---|---|---|
+| `_d` | 2.53 | 2.55 | 3.03 | 5.71 | 6 |
+| `_msn` | 0.55 | 0.33 | 1.66 | 2.64 | 0 |
+| `_s` | 0.87 | 0.46 | 2.47 | 4.86 | 110 |
+
+The worst `_msn` and `_s` NPCs are fiends and gang members with many detail
+layers (99th percentile 32–45, so the miss is local). Not chased further.
+
 ### <a id="face-d-revisit"></a>To revisit: the CK's lip colour and tone mask
 
 Pinned 2026-11-12: `face_tint` leaves both out until something authored

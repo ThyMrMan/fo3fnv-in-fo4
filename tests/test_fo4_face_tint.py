@@ -12,9 +12,10 @@ from fo4_import.face.facegeom import Rec
 
 
 def _option(slot: int, index: int, texture: str, blend: int, default=None, colours=()) -> list:
-    """The subrecords of one race tint option; `colours` = [(FormID, alpha, template index, blend)]."""
-    subs = [(b'TETI', struct.pack('<HH', slot, index)), (b'TTET', texture.encode() + b'\0'),
-            (b'TTEB', struct.pack('<I', blend))]
+    """The subrecords of one race tint option; `texture` names its _d, _n, _s (comma-separated); `colours` =
+    [(FormID, alpha, template index, blend)]."""
+    subs = [(b'TETI', struct.pack('<HH', slot, index))]
+    subs += [(b'TTET', name.encode() + b'\0') for name in texture.split(',')] + [(b'TTEB', struct.pack('<I', blend))]
     if colours:
         subs.append((b'TTEC', b''.join(struct.pack('<IfHI', *c) for c in colours)))
     return subs + ([(b'TTED', struct.pack('<f', default))] if default is not None else [])
@@ -23,7 +24,7 @@ def _option(slot: int, index: int, texture: str, blend: int, default=None, colou
 def _race() -> Rec:
     """Male: tone, default brow, detail. Female: a tone."""
     male = (_option(12, 1, 'Tone.dds', 0, colours=[(0x10, 0.5, 900, 3), (0x11, 1.0, 901, 3)])
-            + _option(23, 2, 'Brow.dds', 0, default=1.0) + _option(22, 3, 'Blotch.dds', 0))
+            + _option(23, 2, 'Brow.dds', 0, default=1.0) + _option(22, 3, 'Blotch_d,Blotch_n,Blotch_s', 0))
     return Rec('race.esm', b'RACE', [(b'MNAM', b'')] + male + [(b'FNAM', b'')] + _option(12, 7, 'F.dds', 0))
 
 
@@ -34,6 +35,19 @@ def test_race_options_are_per_sex_with_colours_by_template_index():
     assert male[1].slot == 12 and male[1].texture == 'Tone.dds' and sorted(male[1].colours) == [900, 901]
     assert male[1].colours[901] == (struct.pack('<I', 0x11), 1.0, 3)
     assert male[2].default == 1.0 and male[3].default == 0.0
+    assert male[3].texture == 'Blotch_d' and male[3].map_texture('msn') == 'Blotch_n'
+    assert male[3].map_texture('s') == 'Blotch_s' and male[2].map_texture('s') == ''
+
+
+def test_a_layers_map_goes_on_at_sqrt_of_its_diffuse_alpha():
+    """_msn and _s: the layer's own map lerped in at value x sqrt(its _d alpha), once, red and green only."""
+    out = np.full((1, 1, 2), 0.5, np.float32)
+    diffuse = np.zeros((1, 1, 4), np.float32)
+    diffuse[..., 3] = 0.25
+    own = np.array([[[1.0, 0.0, 0.7, 1.0]]], np.float32)
+    got = FT.apply_map(out, FT.Layer(3, 2, 0.8), diffuse, own)
+    m = 0.8 * 0.5
+    assert got.shape == (1, 1, 2) and np.allclose(got, [[[0.5 * (1 - m) + m, 0.5 * (1 - m)]]])
 
 
 def test_npc_layers_and_race_defaults_fill_only_empty_slots():

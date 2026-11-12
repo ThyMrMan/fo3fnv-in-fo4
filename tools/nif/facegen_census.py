@@ -5,9 +5,9 @@ Reads a reference folder that holds the plugin the CK read and its FaceGeom NIFs
 facegeom.build gives them; per part it records the vertex count, our max and RMS distance to the CK's, the distance
 with no sculpt, and whether a sculpt applied. One JSON line per NPC goes to --out as it is measured, then the
 spread and the worst NPCs are printed. --summary reprints them from an existing --out. With --textures it
-instead compares each NPC's face _d (face_tint) with the CK's
-(Textures\\Actors\\Character\\FaceCustomization\\<plugin>\\<id>_d.dds) at TEXTURE_SIZE: mean and 99th
-percentile error per NPC.
+instead compares each NPC's face _d, _msn and _s (face_tint) with the CK's
+(Textures\\Actors\\Character\\FaceCustomization\\<plugin>\\<id>_<kind>.dds) at TEXTURE_SIZE: mean and 99th
+percentile error per NPC and texture.
 
 Usage:
   python -m tools.nif.facegen_census --ref temp/ck_facegen_reference_2026-11-12 --dirs <loose files> --out <jsonl>
@@ -16,6 +16,7 @@ Usage:
 
 See: docs/fork/fo4_facegen_plan.md#sculpt-census
 See: docs/fork/fo4_facegen_plan.md#face-d-decode
+See: docs/fork/fo4_facegen_plan.md#face-maps
 """
 
 import argparse
@@ -40,6 +41,8 @@ BUCKETS = (0.005, 0.05, 0.1, 0.5, 1.0)
 WORST, PARTS = 20, 40
 #: Square size --textures compares face _d textures at.
 TEXTURE_SIZE = 256
+#: FaceCustomization texture kinds --textures measures.
+TEXTURES = ('d', 'msn', 's')
 STATE = {}
 
 
@@ -104,33 +107,42 @@ def measure(item: tuple) -> dict:
     return line
 
 
-def measure_d(item: tuple) -> dict:
-    """One NPC's face _d line: our face_tint against the CK's at TEXTURE_SIZE, mean and 99th percentile of the
-    per-channel absolute error (0..255), or its error."""
+def texture_error(ours: np.ndarray, ck_path: Path) -> list:
+    """[mean, p99] error (0..255) of `ours`' channels against the CK texture's."""
+    ck = Image.open(ck_path).convert('RGB').resize((TEXTURE_SIZE, TEXTURE_SIZE), Image.BILINEAR)
+    error = np.abs(ours * 255 - np.asarray(ck, np.float32)[..., :ours.shape[2]])
+    return [round(float(error.mean()), 3), round(float(np.percentile(error, 99)), 2)]
+
+
+def measure_textures(item: tuple) -> dict:
+    """One NPC's face texture line: per TEXTURES kind its texture_error against the CK's, or the NPC's error."""
     form, path = item
     line = {'form': f'{form:06X}'}
     try:
         npc, race, female, _ = facegeom.npc_face(STATE['src'], STATE['plugin'], form)
         line.update(edid=facegeom.zstr(npc.first(b'EDID', b'\0')), female=female)
-        ours = face_tint.face_diffuse(STATE['src'], npc, race, female, TEXTURE_SIZE)
-        ck = Image.open(path).convert('RGB').resize((TEXTURE_SIZE, TEXTURE_SIZE), Image.BILINEAR)
-        error = np.abs(ours * 255 - np.asarray(ck, np.float32))
-        line.update(mean=round(float(error.mean()), 3), p99=round(float(np.percentile(error, 99)), 2))
+        face = face_tint.Face(STATE['src'], npc, race, female)
+        for kind in TEXTURES:
+            ours = face_tint.face_diffuse(face, TEXTURE_SIZE) if kind == 'd' else \
+                face_tint.face_map(face, kind, TEXTURE_SIZE)
+            line[kind] = texture_error(ours, path.with_name(path.name.replace('_d.dds', f'_{kind}.dds')))
     except (KeyError, ValueError, AttributeError, OSError, struct.error) as e:
         line['error'] = f'{type(e).__name__}: {e}'
     return line
 
 
 def texture_summary(lines: list) -> None:
-    """Print the spread of per-NPC mean _d error and the worst NPCs."""
-    rows = sorted((ln for ln in lines if 'mean' in ln), key=lambda ln: -ln['mean'])
-    means = np.array([ln['mean'] for ln in rows])
-    print(f'NPCs {len(lines)}, errors {len(lines) - len(rows)}, measured {len(rows)}')
-    if len(rows):
-        print(f'  mean of means {means.mean():.2f}, median {np.median(means):.2f}, '
-              f'p90 {np.percentile(means, 90):.2f}, worst {means.max():.2f}')
-    for ln in rows[:WORST]:
-        print(f"  {ln['form']} {ln.get('edid', '')} {'F' if ln.get('female') else 'M'} mean {ln['mean']} p99 {ln['p99']}")
+    """Print, per texture kind, the spread of per-NPC mean error and the worst NPCs; then the errors."""
+    print(f"NPCs {len(lines)}, errors {sum('error' in ln for ln in lines)}")
+    for kind in TEXTURES:
+        rows = sorted((ln for ln in lines if kind in ln), key=lambda ln: -ln[kind][0])
+        means = np.array([ln[kind][0] for ln in rows])
+        if len(rows):
+            print(f'_{kind}: measured {len(rows)}, mean of means {means.mean():.2f}, median {np.median(means):.2f}, '
+                  f'p90 {np.percentile(means, 90):.2f}, worst {means.max():.2f}')
+        for ln in rows[:WORST]:
+            print(f"  {ln['form']} {ln.get('edid', '')} {'F' if ln.get('female') else 'M'} "
+                  f"mean {ln[kind][0]} p99 {ln[kind][1]}")
     for ln in [ln for ln in lines if 'error' in ln][:WORST]:
         print(f"  error {ln['form']}: {ln['error']}")
 
@@ -185,7 +197,7 @@ def run(args) -> list:
     print(f"{len(items)} CK {'face _d' if args.textures else 'FaceGeom'} files for {plugin.name}", flush=True)
     lines = []
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    work = measure_d if args.textures else measure
+    work = measure_textures if args.textures else measure
     with args.out.open('w') as out, multiprocessing.Pool(args.workers, _init, (plugin, [args.ref, *args.dirs])) as pool:
         for i, line in enumerate(pool.imap_unordered(work, items, chunksize=8), 1):
             out.write(json.dumps(line) + '\n')
@@ -206,10 +218,10 @@ def main(argv=None) -> None:
     p.add_argument('--max', type=int, default=0, help='measure only the first N NPCs')
     p.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 1))
     p.add_argument('--summary', type=Path, help='reprint the summary of an existing --out')
-    p.add_argument('--textures', action='store_true', help='measure the face _d (face_tint) instead of positions')
+    p.add_argument('--textures', action='store_true', help='measure the face _d, _msn and _s (face_tint) instead of positions')
     args = p.parse_args(argv)
     lines = [json.loads(x) for x in args.summary.read_text().splitlines() if x.strip()] if args.summary else run(args)
-    textures = args.textures or any('mean' in ln for ln in lines)
+    textures = args.textures or any('d' in ln for ln in lines)
     (texture_summary if textures else summary)(lines)
 
 
