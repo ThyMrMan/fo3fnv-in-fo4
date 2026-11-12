@@ -71,6 +71,43 @@ Settings go in MCM, with an INI behind them so the menu works without MCM.
 The rules' own values live on `F3NV_CharacterRules` today; the options
 change those, not a second copy.
 
+## <a id="prkf"></a>PRKF.dll's work, in Papyrus (built 2026-11-12, not used yet)
+
+PRKF.dll keeps perk and skill points, the tagged skills and the perk list,
+and opens its menus on them. None of the non-menu part needs native code,
+so F3NV.dll gets nothing:
+- **Points and tags** are variables of `F3NV_LevelUp` (on the
+  `FNV_CharacterRules` quest), saved with the game like any script's. The
+  API is PRKF's: `AddPerkPoints`, `AddSkillPoints`, `GetPerkPoints`,
+  `GetSkillPoints`, `Tag`, `Untag`, `IsTagged`, and the custom events
+  `PerkTaken`, `SkillTagged`, `SkillUntagged`.
+- **The perk list** is `FNV_Perks` through F4SE's Perk natives:
+  `NextRank` and `Rank` walk a perk's rank chain (`GetNextPerk`,
+  `GetNumRanks`). `Eligible` is the level (`GetLevel`) plus the engine's own
+  test of the converted conditions (`IsEligible`, which skips the level).
+  `PerkList(0|1|2)` returns all of them, the eligible ones or the
+  ineligible ones. `TakePerk` adds the next rank for a perk point, and
+  `RaiseSkill` spends skill points up to `SkillCap`.
+- **Requirement rows** show the reasons ("Science 70 (you have 45)").
+  `fo4_import/spike/level_up.py` turns each playable perk's source
+  conditions into a row in parallel arrays (`Requirement*`), because the
+  build can't write struct properties. A row is an actor value, sex,
+  another perk or the level, with the comparison, the value and the OR
+  flag. `RequirementRows`, `PlayerValue` and `RequirementMet` read them.
+  Census: FNV 105 rows (97 skill or SPECIAL, 6 sex, 1 perk, 1 level), FO3
+  66, nothing left out (`level-up requirement not shown`). A row shows
+  the base value; whether the perk can be taken is still `IsEligible`'s
+  call.
+
+The tag bonus stays the caller's to give, since the rules' `OnTagsFinished`
+already sets it. The trait and tag menus are the menu's (order step 5).
+The rules keep calling `PRKF:PRKF` until our menu replaces LevelUpMenuEx's,
+and then they switch to this script, along with `F3NV_CharacterEvents`
+(SetPlayerTagSkill) and converted scripts' `IsTagSkillAV`
+(`commands_falloutnv.py`). Arrays a script builds hold at most 128 entries,
+which `PerkList` stays under for FNV (91 perks); a DLC's perks join by the
+form list merge, and their requirement rows are an open question.
+
 ## <a id="api"></a>For other mods
 
 As with [item-card lines](swf_framework.md#card-lines), a small API:

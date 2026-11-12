@@ -19,6 +19,7 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.helpers_plugin import EDID_PREFIX, actor_value_form, form_id
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from fo4_import.spike.level_up import SCRIPT as LEVEL_UP_SCRIPT, properties as level_up_properties, rows as level_up_rows
 from fo4_import.spike.pipboy_tabs import tab_quest
 from fo4_import.pipeline.export_index import export_records, root_export
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_HELPER_QUESTS
@@ -66,8 +67,9 @@ def _list(builder, edid: str, forms: list) -> int:
 
 
 def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: int) -> None:
-    """Write the character-rule records into `builder`'s plugin `plugin`, the Pip-Boy's SKILLS tab and, for the
-    game plugin only, LevelUpMenuEx's INI (a DLC's perks reach the game's list by its form list merge)."""
+    """Write the character-rule records into `builder`'s plugin `plugin` (the rules quest also carries our level-up
+    state, level_up), the Pip-Boy's SKILLS tab and, for the game plugin only, LevelUpMenuEx's INI (a DLC's perks
+    reach the game's list by its form list merge)."""
     game = root_export(export_dir).name
     governing = GOVERNING[game]
     skills = sorted({s for group in governing for s in group}, key=lambda s: C.FNV_AV_NAMES.index(
@@ -86,12 +88,13 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
               'LevelsPerPerk': ('int', per_perk), 'TagBonus': ('int', int(float(settings['fAVDTagSkillBonus']))),
               'TraitCount': ('int', int(settings.get('iTraitMenuMaxNumTraits', 0))),
               'SkillBase': ('float', float(settings['fAVDSkillBarterBase'])), **stage_properties(builder.perks)}
-    quest = builder.new_id('QUST FNV_CharacterRules')
-    builder.writer.add_record('QUST', pack_script_quest(
-        quest, 'FNV_CharacterRules', quest_fragments('', [], scripts=[(RULES_SCRIPT, objects, values)])))
-    builder.scripts.used.append(RULES_SCRIPT)
-    builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
     perks = _list(builder, 'FNV_Perks', builder.perks.playable())
+    level_up = ({'Perks': perks}, level_up_properties(level_up_rows(builder)))
+    quest = builder.new_id('QUST FNV_CharacterRules')
+    builder.writer.add_record('QUST', pack_script_quest(quest, 'FNV_CharacterRules', quest_fragments(
+        '', [], scripts=[(RULES_SCRIPT, objects, values), (LEVEL_UP_SCRIPT, *level_up)])))
+    builder.scripts.used.extend((RULES_SCRIPT, LEVEL_UP_SCRIPT))
+    builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
     if not builder.built:
         write_ini(data_dir / 'PRKF' / f'{Path(plugin).stem}.ini', plugin, perks, skill_list)
     tab_quest(builder, 'SKILLS', skill_list)

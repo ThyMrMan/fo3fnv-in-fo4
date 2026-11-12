@@ -522,9 +522,10 @@ Still to do:
 - **Finding an image from a record:** FO4's PERK has an `ICON` ("Image")
   field vanilla never fills, and AVIF has none, so the menu needs its own
   table (FormID to texture path) or the PERK field. Decide with the menu.
-- **PRKF.dll's work:** skill points per level, the perk list and its
-  requirements, tag skills at character creation, traits; in F3NV.dll and
-  Papyrus.
+- **PRKF.dll's work:** the points, tags, perk list and requirement rows are
+  built in Papyrus, with no DLL code (`F3NV_LevelUp`,
+  [prkf](fo4_level_up_plan.md#prkf)); the trait and tag menus come with
+  the menu.
 - **Replacing a vanilla menu:** opening ours instead of `LevelUpMenu`, a
   mode the framework does not have yet.
 
