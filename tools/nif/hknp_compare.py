@@ -13,7 +13,8 @@ a set of corners and faces matched by normal, packed mass properties
 unpacked. A compressed mesh is compared as the triangles it decodes to, per
 material, each corner allowed one quantization step of the coarser tree;
 fields that only follow its tree layout (key bits, the two bit fields) are
-left out. Prints, per field (array indices folded), how many covered pairs
+left out. A compound is compared by its instances and each instance's
+leaf box, without its tree's layout. Prints, per field (array indices folded), how many covered pairs
 differ, with examples; --json writes each pair's differences as computed.
 
 See: docs/fork/fo4_hknp_writer.md#check
@@ -93,9 +94,40 @@ def mesh(tree: dict) -> dict:
     return {'triangles': tris.reshape(-1, 9), 'materials': materials, 'step': (hi - lo) / hknp_mesh.STEPS}
 
 
+def _bits(value: float) -> int:
+    """The bits of float32 `value`."""
+    return struct.unpack('<I', struct.pack('<f', value))[0]
+
+
+def leaves(tree: dict) -> list:
+    """A compound tree's leaf boxes (min xyz, max xyz) in instance order, walked from its root."""
+    out, todo = {}, [tree['root']]
+    while todo:
+        box = tree['nodes'][todo.pop()]['aabb']
+        children = _bits(box['max'][3])
+        if children & 0xFFFF:
+            todo += [children & 0xFFFF, children >> 16]
+        else:
+            out[children >> 16] = (*box['min'][:3], *box['max'][:3])
+    return [out[i] for i in sorted(out)]
+
+
+def _compound(fields: dict) -> dict:
+    """A compound shape's fields less its tree's layout (leaf nodes, min.w)."""
+    elements = [{**e, 'transform': [*e['transform'][:15], None]} for e in fields['instances']['elements']]
+    aabb = {'min': (*fields['aabb']['min'][:3], None), 'max': fields['aabb']['max']}
+    return {**fields, 'instances': {**fields['instances'], 'elements': elements}, 'aabb': aabb}
+
+
 def _object(fields: dict, cls: str) -> dict:
     """An object's fields as compared: a polytope's or capsule's arrays as its hull, a sphere's as its center, a
-    compressed mesh as its triangles without its TREE_LAYOUT fields, packed mass properties unpacked."""
+    compressed mesh as its triangles without its TREE_LAYOUT fields, a compound without its tree's layout,
+    packed mass properties unpacked."""
+    if cls == 'hknpDynamicCompoundShape':
+        return _compound(fields)
+    if cls == 'hknpDynamicCompoundShapeData':
+        tree = fields['aabbTree']
+        return {'numLeaves': tree['numLeaves'], 'leaves': leaves(tree)}
     if cls == 'hknpCompressedMeshShapeData':
         return {**fields, 'meshTree': mesh(fields['meshTree'])}
     if cls == 'hknpCompressedMeshShape':
