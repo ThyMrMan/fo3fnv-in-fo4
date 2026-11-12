@@ -59,6 +59,15 @@ def test_fitted_faces_are_only_those_the_export_wrote(tmp_path):
     assert [f.form_id for f in facegen_skin.fitted_faces(tmp_path, 'p.esp')] == [0x800]
 
 
+def test_a_face_a_later_plugin_overrides_is_not_refitted(monkeypatch):
+    """refit_face leaves an NPC whose winning record is another plugin's: its sliders are not ours to patch."""
+    monkeypatch.setitem(facegen_skin.shared(), 'plugin', 'p.esp')
+    monkeypatch.setitem(facegen_skin.shared(), 'src', None)
+    monkeypatch.setattr(facegen_skin.slider_fit, 'problem', lambda female: None)
+    monkeypatch.setattr(facegen_skin.facegeom, 'npc_face', lambda *_: (Rec('mod.esp', b'NPC_', []),))
+    assert facegen_skin.refit_face(facegen_skin.Face(0x800, 'x', False, False)) is None
+
+
 def test_collect_keeps_only_the_named_npcs(tmp_path, monkeypatch):
     """With `only`, the named NPCs' files move into the mod; the CK's others are deleted from overwrite."""
     overwrite, data = tmp_path / 'overwrite', tmp_path / 'mod'

@@ -127,11 +127,16 @@ def record_sliders(npc: facegeom.Rec, p: slider_fit.Problem) -> tuple:
     return values, dict(zip(keys, weights))
 
 
-def refit_face(face: Face) -> tuple:
+def refit_face(face: Face) -> 'tuple | None':
     """(FormID, new sculpt values {region: controls}, new weights in the record's MSDK order, rms miss of the
-    export) of the face refitted to its target moved by the CK export's miss."""
+    export) of the face refitted to its target moved by the CK export's miss; None when a later plugin overrides
+    the NPC (its sliders are that plugin's, not ours to patch).
+    See: docs/fork/fo4_facegen_plan.md#own-stage
+    """
     p = slider_fit.problem(face.female)
     npc = facegeom.npc_face(_worker['src'], _worker['plugin'], face.form_id)[0]
+    if npc.owner != _worker['plugin'].lower():
+        return None
     values, weights = record_sliders(npc, p)
     goal = slider_fit.target(p, npc_head(_worker['export'], face.edid)[0])
     actual = slider_fit.measured(p, nif_path(face).read_bytes())
@@ -212,13 +217,15 @@ def tone_edit(qnam: np.ndarray, layers: frozenset):
 
 
 def refine(job: tuple, faces: list) -> list:
-    """Refit every face to the CK's export and patch the plugin; report lines."""
+    """Refit every face the plugin's own record shows (refit_face) to the export and patch the plugin; report
+    lines."""
     data_dir, plugin = job[1], job[2]
-    fits = pool(job, refit_face, faces)
+    results = pool(job, refit_face, faces)
+    fits = [fit for fit in results if fit]
     patch(data_dir / plugin, {fid: slider_edit(values, weights) for fid, values, weights, _ in fits})
     misses = [miss for *_, miss in fits]
     return [f'sliders refitted to the export: {len(fits)} faces, rms miss median {np.median(misses):.3f}, '
-            f'max {max(misses):.3f}'] if fits else []
+            f'max {max(misses):.3f}; overridden by a later plugin, left: {len(results) - len(fits)}'] if fits else []
 
 
 def skin(job: tuple, faces: list) -> list:
