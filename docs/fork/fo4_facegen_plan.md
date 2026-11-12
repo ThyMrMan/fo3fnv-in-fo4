@@ -1344,11 +1344,8 @@ Resolved 2026-11-12 (pinned earlier the same day as "to revisit").
 - **Nearest-texel masks.** A 512 mask on a 2048 face gives 4×4 blocks at
   mask edges.
 
-**Not ported:**
+**Not ported** ([brows](#ck-brows) are, since):
 
-- The brow gradient (bit 32; t4 is probably
-  `actors\character\hair\haircolor_lgrad_d.dds`, row from the NPC's hair
-  colour). Brows still use their texture's own colour.
 - Mask-kind options (slots below 7); FalloutNV.esm sets none.
 - The `0x18bc9` blend lookup for an own colour with no matching template.
 
@@ -1380,6 +1377,56 @@ masks are read texel by texel.
 The worst `_d` faces are now Fiends and gang members with many detail
 layers, and Duke. Brows still use their own texture colour rather than
 the hair gradient, which is the next thing to check there.
+
+### <a id="ck-brows"></a>Brows from the hair colour (2026-11-12)
+
+The CK colours brows from the hair, not from the brow texture.
+
+- **Shader** (bit 32, set for TETI slot 23): the brow texture's green,
+  which the GPU reads decoded to linear, raised to 1/2.2, picks the
+  column of t4. The layer's colour `.x` picks the row. Both are read with
+  `ld` at floor(coordinate × size). The texel is lerped in with no blend
+  operation, at the usual weight (alpha^(1/2.2) × value).
+- **t4** is the race's HNAM, "Hair Color Lookup Texture" (HumanRace:
+  `Actors\Character\Hair\HairColor_Lgrad_d.DDS`, 64 × 512, BC1). It
+  fits only when decoded as sRGB, although its format is plain UNORM.
+- **The row** (`0xed6890` at `0xed707f`): the hair colour from `0xa95450`
+  (the NPC's HCLF, else a per-sex default from the race's head data,
+  which we read as RACE HCLF). If that CLFM has FNAM flag 2 ("Remapping
+  Index"), its CNAM read as a float is the row. Otherwise the row is
+  FLT_MAX, off the texture.
+- **Black brows.** An off-texture `ld` reads 0, so the CK draws brows
+  black for a hair colour without a remapping index. It also draws them
+  black for a race without HNAM: HumanChildRace has none, so every child
+  gets black brows whatever its hair. Both match the CK's output (the
+  child 6EEA50: brow region 7.8 → 0.8).
+
+Ported as `face_tint.brow_colour`, with `Face.hair_row`. The maps are
+unchanged (the brow's own `_n`/`_s` as before).
+
+**Measured.** Brow region at 512, before → after:
+
+| NPC | Hair | Before | After |
+|---|---|---|---|
+| Duke (BE740C) | PlatinumBlond, row 0.488 | 26.2 | 0.9 |
+| DCBE56 | PlatinumBlond | 30.7 | 1.1 |
+| 180A57 | JetBlack, row 0.613 | 4.9 | 0.8 |
+| EEEDC9 | row 0.707 | 11.5 | 0.7 |
+| 6EEA50 (child, no HNAM) | | 7.8 | 0.8 |
+
+Whole set (`facegen_census --textures`, 2,382 faces at 256, no errors):
+`_d` mean 1.59 → 1.55, median 1.41 → 1.38, worst 3.69 → 3.28; `_msn`
+and `_s` unchanged. Brows are a small area, so the mean barely moves.
+
+The census's remaining tail (182 faces above 3) comes from drawing
+small, not from the model. Its two worst faces, C5E98E and 47E91A, score
+3.28 at 256 but 1.29 when drawn at 1024 and compared at 512. Shrinking
+the masks before the non-linear blends is not the same as shrinking the
+CK's finished face. The stage draws at 1024 and 512.
+
+The decode matters for the column. Raising the stored green to 1/2.2
+without decoding it first gives 18.0 on Duke's brows. The plain stored
+green gives 2.9; the decoded rule, 0.9.
 
 ## <a id="today"></a>How faces work today
 

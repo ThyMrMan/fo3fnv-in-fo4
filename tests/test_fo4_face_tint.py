@@ -3,9 +3,11 @@
 See: docs/fork/fo4_facegen_plan.md#ck-face-shader
 """
 
+import io
 import struct
 
 import numpy as np
+from PIL import Image
 
 from fo4_import.face import face_tint as FT
 from fo4_import.face.facegeom import Rec
@@ -117,3 +119,51 @@ def test_an_own_colour_takes_the_default_entrys_blend_and_the_tone_is_always_sof
     assert FT.colour_of(None, None, options[1], FT.Layer(1, 1, 1.0, (128, 0, 0), -1))[1] == FT.SOFT_LIGHT
     lip = FT.Option(13, (), FT.MULTIPLY, {5: (b'', 1.0, FT.OVERLAY)}, 0.0)
     assert FT.colour_of(None, None, lip, FT.Layer(4, 1, 1.0, (0, 0, 0), -1))[1] == FT.OVERLAY
+
+
+class _Src:
+    """A Sources stand-in: CLFM records by FormID data, and one 4 x 2 hair gradient for every texture read."""
+
+    def __init__(self, colours: dict):
+        self.colours = colours
+
+    def get(self, owner, data):
+        """The CLFM for `data`, or None."""
+        return self.colours.get(data)
+
+    def read(self, path: str) -> bytes:
+        """A 4 x 2 PNG: row 0 dark greys, row 1 reds rising left to right."""
+        out = io.BytesIO()
+        pixels = [(10, 10, 10), (20, 20, 20), (30, 30, 30), (40, 40, 40), (60, 0, 0), (120, 0, 0), (180, 0, 0), (240, 0, 0)]
+        img = Image.new('RGB', (4, 2))
+        img.putdata(pixels)
+        img.save(out, 'PNG')
+        return out.getvalue()
+
+
+def _clfm(row: float, flags: int) -> Rec:
+    """A CLFM with CNAM `row` (as a float) and FNAM `flags`."""
+    return Rec('p.esp', b'CLFM', [(b'CNAM', struct.pack('<f', row)), (b'FNAM', struct.pack('<I', flags))])
+
+
+def _face(npc_hair: bytes, hnam: bool = True) -> FT.Face:
+    """A male Face whose NPC names `npc_hair` (b'' for none) and whose race defaults to hair 3 (male) and 4."""
+    src = _Src({b'\1\0\0\0': _clfm(0.5, 3), b'\2\0\0\0': _clfm(0.5, 1), b'\3\0\0\0': _clfm(0.0, 2)})
+    race = Rec('race.esm', b'RACE', [(b'HCLF', b'\3\0\0\0\4\0\0\0')] + ([(b'HNAM', b'Hair/Lut.dds\0')] if hnam else []))
+    npc = Rec('p.esp', b'NPC_', [(b'HCLF', npc_hair)] if npc_hair else [])
+    return FT.Face(src, npc, race, False)
+
+
+def test_the_hair_row_is_a_remapping_clfms_cnam_float():
+    """NPC HCLF, else the race's; needs the Remapping Index flag and the CLFM."""
+    assert _face(b'\1\0\0\0').hair_row() == 0.5 and _face(b'\2\0\0\0').hair_row() is None
+    assert _face(b'').hair_row() == 0.0 and _face(b'\x09\0\0\0').hair_row() is None
+
+
+def test_brows_take_the_hair_gradient_or_black():
+    """Column (linear green)^(1/2.2), row hair_row(), decoded to linear; black without HNAM or a row."""
+    rgba = np.array([[[0, 0, 0, 1], [0, 1, 0, 1]]], np.float32)
+    got = FT.brow_colour(_face(b'\1\0\0\0'), rgba)
+    assert np.allclose(got, FT.linear(np.array([[[60, 0, 0], [240, 0, 0]]], np.float32) / 255))
+    assert not FT.brow_colour(_face(b'\1\0\0\0', hnam=False), rgba).any()
+    assert not FT.brow_colour(_face(b'\2\0\0\0'), rgba).any()

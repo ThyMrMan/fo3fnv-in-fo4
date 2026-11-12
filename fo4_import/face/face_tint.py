@@ -35,6 +35,8 @@ MAPS = {'msn': (1, 1), 's': (7, 2)}
 WHOLE = (slice(None), slice(None))
 #: RGBA channel whose zeros leave the face untouched: red masks a colour layer, alpha a value-only layer.
 RED, ALPHA = 0, 3
+#: CLFM FNAM flag: CNAM is a float row into the race's hair lookup texture, not a colour.
+REMAPPING_INDEX = 2
 
 
 @dataclass(frozen=True)
@@ -220,8 +222,36 @@ def apply(out: np.ndarray, option: Option, layer: Layer, rgba: np.ndarray, layer
         rgb, op = layer_colour
         mask = rgba[..., :1] if rgba is not None else np.ones((1, 1, 1), np.float32)
     else:
-        rgb, op, mask = linear(rgba[..., :3]), option.blend, rgba[..., 3:]
+        (rgb, op), mask = layer_colour or (linear(rgba[..., :3]), option.blend), rgba[..., 3:]
     return out + weight(mask, layer) * (blend(op, out, rgb) - out)
+
+
+@functools.cache
+def gradient(src: facegeom.Sources, path: str) -> np.ndarray:
+    """A hair colour lookup texture (rows: remapping index) as linear RGB."""
+    return linear(np.asarray(Image.open(io.BytesIO(src.read('textures\\' + path))).convert('RGB'), np.float32) / 255)
+
+
+def brow_colour(face, rgba: np.ndarray) -> np.ndarray:
+    """A brow's linear colour per texel: the race's hair gradient (HNAM) at column (its linear green)^(1/GAMMA), row
+    hair_row(); black, as the shader's off-texture read, without a gradient or a row inside it.
+
+    See: docs/fork/fo4_facegen_plan.md#ck-brows
+    """
+    path, row = facegeom.zstr(face.race.first(b'HNAM', b'')), face.hair_row()
+    if not path or row is None or not 0 <= row < 1:
+        return np.zeros(rgba.shape[:-1] + (3,), np.float32)
+    lookup = gradient(face.src, path)
+    rows, cols = lookup.shape[:2]
+    shade = np.minimum((linear(rgba[..., 1]) ** (1 / GAMMA) * cols).astype(int), cols - 1)
+    return lookup[int(row * rows)][shade]
+
+
+def layer_colour(face, option: Option, layer: Layer, rgba: np.ndarray):
+    """apply()'s colour: colour_of() for a palette, brow_colour() for a brow."""
+    if option.palette:
+        return colour_of(face.src, face.race, option, layer)
+    return (brow_colour(face, rgba), DEFAULT) if option.slot == BROW_SLOT else None
 
 
 def apply_map(out: np.ndarray, layer: Layer, diffuse: np.ndarray, rgba: np.ndarray) -> np.ndarray:
@@ -246,6 +276,19 @@ class Face:
     def layers(self) -> list:
         """[(Option, Layer)] drawn in order (baked_layers)."""
         return baked_layers(npc_layers(self.npc), race_options(self.race, self.female))
+
+    def hair_row(self):
+        """The hair colour's remapping index (the NPC's HCLF, else its race's for its sex), or None.
+
+        See: docs/fork/fo4_facegen_plan.md#ck-brows
+        """
+        mine = self.npc.first(b'HCLF')
+        owner, data = (self.npc, mine) if mine else (self.race, (self.race.first(b'HCLF') or b'')[4 * self.female:][:4])
+        colour = self.src.get(owner, data) if data and data != bytes(4) else None
+        if colour is None:
+            return None
+        flags = struct.unpack('<I', colour.first(b'FNAM', bytes(4)))[0]
+        return struct.unpack('<f', colour.first(b'CNAM'))[0] if flags & REMAPPING_INDEX else None
 
     def size(self, path: str, size: int = None) -> int:
         """`size`, else texture `path`'s width."""
@@ -272,8 +315,7 @@ def face_diffuse(face: Face, size: int = None) -> np.ndarray:
         at = area(face, option, size)
         if at is not None:
             rgba = texture(face.src, option.texture, size, at) if option.texture else None
-            colour = colour_of(face.src, face.race, option, layer) if option.palette else None
-            out[at] = apply(out[at], option, layer, rgba, colour)
+            out[at] = apply(out[at], option, layer, rgba, layer_colour(face, option, layer, rgba))
     return np.clip(out, 0, 1) ** (1 / GAMMA)
 
 
