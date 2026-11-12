@@ -483,6 +483,40 @@ replaced movie:
 Together with the widget host this covers both of the HUD's frameworks
 in one injected movie, with no `HUDMenu.swf` shipped by anyone.
 
+## <a id="level-up"></a>Our own level-up menu (planned; icons built)
+
+FNV's skills, perks, traits and tags go through LevelUpMenuEx today
+(Neanka: its own `LevelUpMenu.swf`, `PRKF.dll`, MCM config; unlicensed, one
+maintainer, a hard dependency). A menu of our own on f3ui would drop it and
+follow our HUD color and translations.
+
+**The art needs no authoring.** FNV's and FO3's level-up screens are a
+list, a description and a Vault Boy picture, and every picture is named by
+the source records: each PERK's and skill or SPECIAL AVIF's `ICON`.
+Census of the exports (2026-11-12): FalloutNV.esm 156 distinct images (135
+perk, 21 skill and SPECIAL), Fallout3.esm 91 (70 and 21), every one in the
+export. They are DXT3 or DXT5, 256x256.
+
+**Built 2026-11-12 (not played):** `fo4_import/spike/level_up_icons.py`
+stages every one of them in each build, copied as it is to its FNV path
+under our texture folder (`statics.copy_texture`, as the casino's
+textures), so `f4se.MountImage` can show them. A DLC build stages only the
+images its masters' builds did not. Counts: `level-up icons staged`,
+`level-up icon missing from the export`.
+
+Still to do:
+- **A spike:** one perk image mounted and shown in a menu of ours. The
+  casino's tested image was DXT1; DXT3 and DXT5 through `MountImage` are
+  untested.
+- **Finding an image from a record:** FO4's PERK has an `ICON` ("Image")
+  field vanilla never fills, and AVIF has none, so the menu needs its own
+  table (FormID to texture path) or the PERK field. Decide with the menu.
+- **PRKF.dll's work:** skill points per level, the perk list and its
+  requirements, tag skills at character creation, traits; in F3NV.dll and
+  Papyrus.
+- **Replacing a vanilla menu:** opening ours instead of `LevelUpMenu`, a
+  mode the framework does not have yet.
+
 ## <a id="casino"></a>The casino on the framework
 
 - Move `Ui.as` and the bridge into the library; the games keep their own
