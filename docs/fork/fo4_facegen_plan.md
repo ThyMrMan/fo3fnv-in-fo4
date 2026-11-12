@@ -477,7 +477,11 @@ narrower, longer outline; Doc's bald scalp showed an orange cap.
   beard's FacialHair02 (grey 60) through HairColor04Silver comes out about
   RGB (80, 77, 74). Not changed here.
 
-### <a id="rear-head-texture"></a>Third test mod: the rear head's own texture (2026-11-11, not yet played)
+### <a id="rear-head-texture"></a>Third test mod: the rear head's own texture (2026-11-11, played)
+
+**Played:** "the color looks good and the seams are gone". Left over: Sunny
+shows an odd neck seam where her head meets her outfit's collar (see
+[outfit neck](#outfit-neck)).
 
 Played on the second test mod: Doc's face met an orange scalp in a sharp line
 over the top of his skull, and Sunny showed a colour step at the back of her
@@ -534,6 +538,48 @@ profile):
 Ours now steps by 1–9 levels across each seam, the CK's own heads by 1–6.
 With CBBE.esp loaded, Sunny's rear head takes `femalebhed_d.dds` and her
 body its loose files.
+
+#### <a id="outfit-neck"></a>Sunny's neck under her outfit: the outfit's fit, not the fade
+
+In game, Sunny shows a lighter band along the bottom of her neck and a ragged
+outline where her head meets the collar. She wears `FNV_ArmorLeather`
+(`fnv\armor\leatherarmor\f\outfitf_female.nif`). Her bare neck there is the
+outfit's own skin shape `Arms01`: 59 vertices, a 7-unit strip from z -13.8 up
+to the head's ring at z -6.7. It draws with the skin-tint shader and
+`FemaleBody_d.dds`, like the FO4 body. Measured (`sunny_neck*.py`, Play
+profile, drawn colour):
+
+| At the head's neck ring | head side | outfit skin | FO4 body (what the fade aims at) |
+|---|---|---|---|
+| face part, 13 points | (115, 69, 49) | (114, 66, 47) | (115, 68, 47) |
+| rear head, 7 points | (120, 69, 48) | (115, 69, 47) | (115, 69, 47) |
+
+Down the strip, the outfit skin stays within 3 levels of the FO4 body at the
+same points. Each outfit vertex takes the UV of the nearest FO4 body point
+(see [fo4_bodies_cbbe.md](fo4_bodies_cbbe.md)), so the fade target and what
+the outfit draws agree. **The band is not the fade.** If they ever differ, the
+fade should aim at the outfit skin's own drawn colour (its texture at its UV
+× tone × draw factor) at the nearest outfit-skin vertex. The FO4 body is right
+only where no outfit skin covers the neck.
+
+The geometry is what differs:
+
+- The strip sits 0.5–0.6 units off the FO4 body's surface. The head ring
+  reaches it within 0.16 (rear) to 0.43 (face).
+- **Its stored normals are 13° off its own surface** (median, max 28°). The FO4
+  body is 1° off, our face 3°, our rear head 2°. Every converted shape of this
+  outfit is 9–16° off (`Arms02` 12°, `Upperbody` 16°, `Arms` 9°).
+  `outfit._fitted` carries FNV's normals through the retarget, but
+  `fit.seamed` moves the positions after that without recomputing them. The
+  skin is lit as though it faced another way, which matches the band. This is
+  suspected, not yet shown in game.
+- The leather collar (`Upperbody`, `outfitf.dds`) comes within 0.24 of the
+  head's ring at 38 vertices. That is the ragged outline: FNV's collar edge
+  lies over FO4's neck line.
+
+This is the known outfit/neck fit ([fo4_bodies_cbbe.md](fo4_bodies_cbbe.md)),
+not FaceGen. A fix would recompute the normals of fitted outfit shapes after
+they move. Not done here.
 
 ## <a id="today"></a>How faces work today
 
