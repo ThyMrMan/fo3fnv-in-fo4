@@ -1,4 +1,5 @@
-"""The dialogue menu check: a built plugin's menus against its links file (fo4_import.dialogue_menu).
+"""The menu checks: a built plugin's dialogue menus against its links file (fo4_import.dialogue_menu), and our
+movies' translation keys against the English file (fo4_import.base.translations).
 
 F3NV.dll lists a Player Dialogue action's option only when the links file
 links it to an answer topic holding a line, so: every option of the
@@ -7,11 +8,13 @@ topic (the plugin's or a built master's) with a line; every skill check names
 an INFO and an actor value that exist.
 
 See: docs/fork/fo4_dialogue_menu_plan.md#converter
+See: docs/fork/swf_framework.md#translations
 """
 
 from collections import Counter
 from pathlib import Path
 
+from fo4_import.base import translations
 from fo4_import.dialogue_menu import LINKS
 from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.plugin_index import load_plugin, u32
@@ -20,6 +23,9 @@ from tools.validate.preflight.plugin_index import load_plugin, u32
 PLAYER_TOPICS = ('PTOP', 'NTOP', 'NETO', 'QTOP')
 #: Rows listed per finding.
 SAMPLES = 5
+#: Each translation fault's severity: a missing key shows raw in game; an unused one is only clutter.
+TRANSLATION_SEVERITY = {'key missing from en.txt': 'error', 'en.txt key no movie uses': 'review',
+                        'key only in another language': 'error'}
 
 
 def player_topics(index) -> set:
@@ -107,3 +113,10 @@ def audit(game: str, index, plugin: Path, masters: list) -> list:
     found = link_rows(Records(index, masters), options, *read_links(path, names))
     return [Finding('dialogue', f'dialogue|{game}|menu|{kind}', 'error', f'{len(rows)} {kind} in {path.name}',
                     tuple(rows[:SAMPLES])) for kind, rows in found.items() if rows]
+
+
+def translation_audit(game: str) -> list:
+    """One finding per kind of translation fault in our movies' sources."""
+    return [Finding('menus', f'menus|{game}|translation|{kind}', TRANSLATION_SEVERITY[kind],
+                    f'{len(rows)} {kind}', tuple(rows[:SAMPLES]))
+            for kind, rows in translations.check().items() if rows]

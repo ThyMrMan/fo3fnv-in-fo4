@@ -6,9 +6,11 @@
 #include "f4se/GameForms.h"
 #include "f4se/GameReferences.h"
 #include "f4se/PapyrusVM.h"
+#include "f4se/ScaleformCallbacks.h"
 #include "f4se/ScaleformMovie.h"
 #include "f4se/ScaleformValue.h"
 
+#include <initializer_list>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -116,11 +118,30 @@ float BuyRepair(Actor *holder, TESForm *item, SInt32 stack, UInt32 cost, float h
 // The repair chosen in the Pip-Boy, cleared as it is taken; false with none.
 bool TakePipboyRepair(Repair *out);
 
+// ---- Flash helpers (gfx.cpp) ----
+
 // A Flash value as a number (int, uint, number or bool; else 0).
 double Num(const GFxValue &v);
 
 // Member `name` of Flash object `obj` into `out`; false when `obj` is not an object or lacks it.
 bool Get(GFxValue &obj, const char *name, GFxValue *out);
+
+// Log Flash object `obj`'s members by name and GFx type to F3NV.log (a menu not laid out as expected).
+void LogMembers(GFxValue &obj);
+
+// The first of `bases` (paths in `movie`) with a BGSCodeObj, and with member `needs` unless null: its path into
+// `base`, it into `root` and its BGSCodeObj into `code`; false (base cleared) when none has them.
+bool FindMenu(GFxMovieRoot *movie, std::initializer_list<const char *> bases, const char *needs, std::string *base,
+              GFxValue *root, GFxValue *code);
+
+// Listen for `event` on Flash object `target` with a native `Handler`; false when it could not be added.
+template <class Handler>
+bool Listen(GFxMovieRoot *movie, GFxValue &target, const char *event) {
+    GFxValue args[2];
+    movie->CreateString(&args[0], event);
+    CreateFunction<Handler>(&args[1], movie);
+    return target.Invoke("addEventListener", nullptr, args, 2);
+}
 
 // Keep a CND line at `health` in item card `card`'s InfoObj, redrawing the card when it is added or changes.
 void ShowLine(GFxMovieRoot *movie, GFxValue &card, float health, bool force);

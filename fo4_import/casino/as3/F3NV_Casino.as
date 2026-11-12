@@ -195,25 +195,6 @@ package
          slots = null;
          roulette = null;
          addChild(screen);
-         translationCheck();
-      }
-
-      // Spike 5: a key our FalloutHelpers_en.txt has, one no file has and plain text, each logged as its field
-      // reads back, with its fonts: the default before, after a plain assignment, and after Text.show.
-      // See docs/fork/swf_framework.md#spikes
-      private function translationCheck() : void
-      {
-         var keys:Array = ["$F3UI_TranslationCheck", "$F3UI_TranslationAbsent", "Plain text, no key"];
-         for (var i:int = 0; i < keys.length; i++)
-         {
-            var shown:TextField = Text.label(screen, 40 + i * 420, 684, 14);
-            var before:String = shown.defaultTextFormat.font;
-            shown.text = keys[i];
-            var plain:String = shown.getTextFormat().font + " (default " + shown.defaultTextFormat.font + ")";
-            Text.show(shown, keys[i]);
-            send("F3NV_CasinoInput", "translation " + keys[i] + " reads back '" + shown.text + "', font: default "
-                 + before + ", plain " + plain + ", shown " + shown.getTextFormat().font);
-         }
       }
 
       private function onStage(e:Event) : void

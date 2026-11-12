@@ -272,8 +272,10 @@ One shared C++ module, used by every DLL built on the
 - injection: watch for a menu's movie by URL, load our movie into it, add
   our API object;
 - native function registration (one helper, not one class per function);
-- GFx helpers now duplicated across `pipboy.cpp`, `transfer.cpp` and
-  `hardcore.cpp` (value reading, member logging, path probing);
+- GFx helpers: **done in F3NV.dll 2026-11-12**, `gfx.cpp` (`Num`, `Get`,
+  `LogMembers`, `FindMenu` for the menu-instance path probe, and the
+  `Listen<Handler>` template for native event listeners), used by
+  `pipboy.cpp`, `transfer.cpp` and `hardcore.cpp`;
 - settings: read the mod's INI and hand it to the movie as one object;
 - `bEnableGFXLog` routed into our own log when debugging.
 
@@ -297,9 +299,25 @@ Phases:
    them in `CurrentPage.ItemCard_mc.InfoObj`, matched by text, calling
    `onDataChange` only when it adds a line or a value changes. The spike-4
    test line is gone.
-   - **Not checked under FallUI Inventory**: it isn't installed in the FO4
-     MO2 instance. The movie finds the card by `CurrentPage.ItemCard_mc` and
-     `InfoObj`, the same names the C++ line used.
+   - **FallUI Inventory (2.2.1), read 2026-11-12, not played.** It ships
+     its own `PipboyMenu.swf` and `Pipboy_InvPage.swf` (read with FFDec,
+     unlicensed, read only). Everything we use is still there:
+     `CurrentPage`, `ItemCard_mc`, `InfoObj` (FallUI sometimes assigns a new
+     array, which the movie re-reads each frame), `onDataChange`,
+     `ModalFadeRect_mc`, `List_mc.disableInput`. Its card draws plain
+     `{text, value}` lines; `ItemCardFwCore.preprocessData` only copies the
+     array and runs FallUI's own add-on hooks. Three differences:
+     - **Color:** FallUI ships `M8rDisablePipboyEffects` (no game screen
+       tint) and colors its art from `M8r.Mods.config.stdColor` (green by
+       default). The list panel takes that color from the Pip-Boy's classes,
+       as FallUI's own add-on API does (`PipboyApi.primaryColor`), else
+       white.
+     - **Typing:** its list search (F) is a text box, and our `keyUp`
+       listener would hear G and V typed into it. Keys whose target is an
+       input text field are now ignored.
+     - FallUI has its own item-card add-on framework (SWFs in
+       `Interface\UI-Framework\ItemCard`). Ours stays independent so it
+       works under vanilla too; under FallUI both sets of lines show.
 2. **The repair and ammo lists** (built 2026-11-12, not played). The DLL
    keeps each list's state, its keys (the native `keyUp` listener, which
    already works) and the repair, but no longer writes the list over the
@@ -548,11 +566,21 @@ raw key:
 
 ### Checks
 
-A `translations` check in preflight, per release:
-- every `$KEY` used in our AS3, C++ and Papyrus sources is in the English
-  file, and every English key is used;
-- each language file has the same keys and the same `{slots}` as English,
-  and is valid UTF-16 LE with BOM;
+**Built 2026-11-12:** `translations.check()` reads every `"$KEY"` string in
+our movies' AS3 (each `as3/` folder under `fo4_import/`, `//` comment lines
+and the font names `$MAIN_Font`/`$MAIN_Font_Bold` left out) and finds:
+- keys the English file lacks (error: the game shows them raw);
+- English keys no movie uses (review);
+- keys another language has that English lacks (error).
+
+Preflight's `menus` audit reports them for every FO4 build
+(`menus.translation_audit`), and `test_our_movies_use_only_keys_the_english_file_has`
+holds the repo to none. `en.txt` is empty since spike 5's test key went:
+`install` writes no file for a language without keys.
+
+Still planned:
+- keys in C++ and Papyrus sources too, once those pass `$KEY`s to a movie;
+- each language file has the same `{slots}` as English;
 - a count of untranslated keys per language for the release notes.
 
 ### Compatibility
@@ -839,8 +867,9 @@ Each spike is one change, played in game.
        control. Each line logs `font: default <before>, plain <after a
        plain assignment> (default <its default then>), shown <after
        Text.show>`. Movie 19,014 bytes.
-     - **Spike done.** The three test lines stay on every casino screen
-       until the fallback replaces them.
+     - **Spike done.** The three test lines and `$F3UI_TranslationCheck`
+       were removed 2026-11-12; the [check](#translations) now keeps keys
+       and the English file in step.
    - **Built 2026-11-12.** Two changes from the plan:
      - The file is `Interface\Translations\FalloutHelpers_en.txt`, not
        `F3NV_Casino_en.txt`: F4SE loads only files named after an active

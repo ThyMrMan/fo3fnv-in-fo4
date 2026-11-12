@@ -1,6 +1,7 @@
 package
 {
    import f3ui.Bridge;
+   import f3ui.Theme;
    import flash.display.DisplayObject;
    import flash.display.MovieClip;
    import flash.events.Event;
@@ -10,7 +11,8 @@ package
    // line of an item that wears, why a list did not open, other mods' lines) on the inventory item card
    // (CurrentPage.ItemCard_mc.InfoObj), which the game refills on every selection, under any Pip-Boy movie that
    // keeps the vanilla item card. While F3NV's repair or ammo list is open (PipboyList) it draws that list over
-   // the card instead (ListPanel). It takes no input: F3NV.dll keeps the keys.
+   // the card instead (ListPanel), in white for the game's own screen tint, or in FallUI's Pip-Boy color when
+   // FallUI draws the Pip-Boy (it turns the tint off). It takes no input: F3NV.dll keeps the keys.
    // See docs/fork/swf_framework.md#pipboy
    public class F3NV_Pipboy extends MovieClip
    {
@@ -55,6 +57,7 @@ package
          if (list != null && card != null)
          {
             raise();
+            Theme.color = pipboyColor();
             panel.draw(list, DisplayObject(card).getBounds(this));
             once("drew a list of F3NV's");
             return;
@@ -102,6 +105,26 @@ package
          }
          lines.push(line);
          return true;
+      }
+
+      // FallUI's Pip-Boy color (M8r.Mods.config.stdColor in the Pip-Boy's classes, as FallUI's own add-on API reads
+      // it), else white: the game tints the vanilla Pip-Boy's white art itself.
+      // See docs/fork/swf_framework.md#pipboy
+      private function pipboyColor() : uint
+      {
+         try
+         {
+            var mods:Object = menu.loaderInfo.applicationDomain.getDefinition("M8r.Mods");
+            if (mods.configLoaded && mods.config != null)
+            {
+               return uint(mods.config.stdColor);
+            }
+         }
+         catch (error:Error)
+         {
+            once("no FallUI colors: " + error.message);
+         }
+         return Theme.WHITE;
       }
 
       // Our Loader to the top of the Pip-Boy menu, over the page and its fade, when something covered it.

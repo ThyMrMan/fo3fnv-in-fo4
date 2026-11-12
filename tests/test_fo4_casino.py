@@ -57,8 +57,9 @@ def test_the_movie_builds_to_the_same_bytes_twice_with_its_entry_points(tmp_path
     assert not {t.code for t in Swf.parse(raw).tags} & set(mxmlc.DATED)
     body = raw[8:]
     for name in (b'F3NV_Casino', b'onF4SEObjCreated', b'ProcessUserEvent', b'SendExternalEvent', b'MountImage',
-                 b'f3ui', b'HudColor', b'$F3UI_TranslationCheck', b'$F3UI_TranslationAbsent'):
+                 b'f3ui', b'HudColor'):
         assert name in body
+    assert b'$F3UI_Translation' not in body
 
 
 @needs_flex

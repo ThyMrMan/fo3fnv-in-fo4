@@ -1,6 +1,8 @@
-"""The dialogue menu check over a tiny built plugin and its links file, and the Greeting TSCE check.
+"""The dialogue menu check over a tiny built plugin and its links file, the menu translation findings, and the
+Greeting TSCE check.
 
 See: docs/fork/fo4_dialogue_menu_plan.md#converter
+See: docs/fork/swf_framework.md#translations
 """
 
 import struct
@@ -74,3 +76,13 @@ def test_a_greeting_line_starting_its_scene_by_tsce_is_found():
     found = tsce_greetings(PLUGIN, PluginIndex([greet, starter], fo4=True))
     assert [f.key.split('|')[2] for f in found] == ['greeting by TSCE']
     assert tsce_greetings(PLUGIN, PluginIndex([greet], fo4=True)) == []
+
+
+def test_translation_faults_become_findings_with_their_severity(monkeypatch):
+    """A missing key is an error, an unused one a review; a kind with no rows gives no finding."""
+    monkeypatch.setattr(M.translations, 'check', lambda: {'key missing from en.txt': ['$A (Menu.as)'],
+                                                          'en.txt key no movie uses': ['$B'],
+                                                          'key only in another language': []})
+    found = {f.key: (f.severity, f.detail) for f in M.translation_audit('FalloutNV')}
+    assert found == {'menus|FalloutNV|translation|key missing from en.txt': ('error', ('$A (Menu.as)',)),
+                     'menus|FalloutNV|translation|en.txt key no movie uses': ('review', ('$B',))}

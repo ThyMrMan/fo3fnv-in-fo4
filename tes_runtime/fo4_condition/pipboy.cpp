@@ -29,20 +29,6 @@
 
 namespace condition {
 
-double Num(const GFxValue &v) {
-    switch (v.GetType()) {
-        case GFxValue::kType_Int: return v.GetInt();
-        case GFxValue::kType_UInt: return v.GetUInt();
-        case GFxValue::kType_Number: return v.GetNumber();
-        case GFxValue::kType_Bool: return v.GetBool() ? 1.0 : 0.0;
-        default: return 0.0;
-    }
-}
-
-bool Get(GFxValue &obj, const char *name, GFxValue *out) {
-    return obj.IsObject() && obj.GetMember(name, out);
-}
-
 namespace {
 
 // The Pip-Boy's own keys there: Enter, X, R, Q, C, Tab, Z, and T (Grid View); G is free. No gamepad button is.
@@ -57,15 +43,6 @@ bool g_wears = false;            // Whether it does.
 const void *g_hintPage = nullptr;  // The inventory page given the REPAIR hint (identity only).
 bool g_loggedEntry = false;
 std::string g_base = "root";       // The path of the PipboyMenu instance (root, or root.Menu_mc).
-
-
-// Log an object's members by name and GFx type (the first highlighted entry; the root when the hook fails).
-class LogMembers : public GFxValue::ObjectInterface::ObjVisitor {
-public:
-    void Visit(const char *member, GFxValue *value) override {
-        _MESSAGE("  member %s (type %d)", member, value->GetType());
-    }
-};
 
 // The game's Pip-Boy inventory lines (Fallout4.exe 1.11.240; docs/fork/fo4_condition.md#pipboy-lines): the
 // PipboyDataManager pointer's global, its PipboyInventoryData, and that one's map of form ID -> its lines.
@@ -325,13 +302,20 @@ public:
     }
 };
 
+// Whether key event `event` was typed into a text box (FallUI's list search), which our keys leave alone.
+bool Typed(GFxValue &event) {
+    GFxValue target, type;
+    return Get(event, "target", &target) && Get(target, "type", &type) && type.IsString() &&
+           !strcmp(type.GetString(), "input");
+}
+
 // The Pip-Boy's own key events: G opens the repair list on an item that wears, V the ammo list (ammo.cpp); the
-// open list's keys.
+// open list's keys. Keys typed into a text box are left alone.
 class KeyHandler : public GFxFunctionHandler {
 public:
     void Invoke(Args *args) override {
         GFxValue code;
-        if (args->numArgs < 1 || !Get(args->args[0], "keyCode", &code)) return;
+        if (args->numArgs < 1 || !Get(args->args[0], "keyCode", &code) || Typed(args->args[0])) return;
         GFxMovieRoot *movie = args->movie->movieRoot;
         int key = int(Num(code));
         if (!g_list.open && AmmoKey(movie, key)) return;
@@ -422,8 +406,7 @@ void Update(GFxMovieRoot *movie) {
         key = std::to_string(formID) + "|" + std::to_string(Num(node)) + "|" + std::to_string(Num(equip));
         if (!g_loggedEntry) {
             g_loggedEntry = true;
-            LogMembers log;
-            entry.VisitMembers(&log);
+            LogMembers(entry);
         }
     }
     g_selectedForm = formID;
@@ -549,38 +532,21 @@ public:
     void Run() override {
         BSFixedString name(MENU);
         IMenu *menu = (*g_ui)->GetMenu(name);
-        GFxValue root, code, flag(true), args[2];
+        GFxValue root, code, flag(true);
         if (!menu || !menu->movie || !menu->movie->movieRoot) {
             _MESSAGE("Pip-Boy opened, but its menu has no movie");
             return;
         }
         GFxMovieRoot *movie = menu->movie->movieRoot;
-        const char *bases[] = {"root", "root.Menu_mc"};
-        g_base.clear();
-        for (const char *base : bases)
-            if (movie->GetVariable(&code, (std::string(base) + ".BGSCodeObj").c_str()) && code.IsObject() &&
-                movie->GetVariable(&root, base)) {
-                g_base = base;
-                break;
-            }
-        if (g_base.empty()) {
+        if (!FindMenu(movie, {"root", "root.Menu_mc"}, nullptr, &g_base, &root, &code)) {
             _MESSAGE("Pip-Boy opened, but neither root nor root.Menu_mc has a BGSCodeObj; root's members:");
-            LogMembers log;
-            if (movie->GetVariable(&root, "root")) root.VisitMembers(&log);
+            if (movie->GetVariable(&root, "root")) LogMembers(root);
             return;
         }
         if (code.HasMember(HOOKED)) return;
-        movie->CreateString(&args[0], "enterFrame");
-        CreateFunction<FrameHandler>(&args[1], movie);
-        root.Invoke("addEventListener", nullptr, args, 2);
-        GFxValue keys[2];
-        movie->CreateString(&keys[0], "keyUp");
-        CreateFunction<KeyHandler>(&keys[1], movie);
-        bool listening = root.Invoke("addEventListener", nullptr, keys, 2);
-        GFxValue added[2];
-        movie->CreateString(&added[0], "added");
-        CreateFunction<AddedHandler>(&added[1], movie);
-        root.Invoke("addEventListener", nullptr, added, 2);
+        Listen<FrameHandler>(movie, root, "enterFrame");
+        bool listening = Listen<KeyHandler>(movie, root, "keyUp");
+        Listen<AddedHandler>(movie, root, "added");
         _MESSAGE("Pip-Boy key listener %s", listening ? "added" : "not added");
         code.SetMember(HOOKED, &flag);
         g_movieThere = false;
