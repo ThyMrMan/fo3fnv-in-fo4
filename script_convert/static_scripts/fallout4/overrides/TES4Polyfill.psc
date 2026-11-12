@@ -502,6 +502,47 @@ Int Function AIProcedure(Actor akActor) Global
 EndFunction
 
 ; fallout4: new
+F3NV_State Function SourceState() Global
+  {The helper plugin's remembered source-game state quest (F3NV_State).}
+  Return Game.GetFormFromFile(0x903, "FalloutHelpers.esl") as F3NV_State
+EndFunction
+
+; fallout4: new
+Function IgnoreCrime(Actor akActor, Bool abIgnore) Global
+  {FO3/FNV IgnoreCrime: akActor stops (abIgnore) or resumes reporting the player's crimes, through its crime faction.
+  See: docs/fork/fo4_plan_script_functions.md#ignore-crime}
+  If akActor
+    SourceState().IgnoreCrime(akActor, abIgnore)
+  EndIf
+EndFunction
+
+; fallout4: new
+Int Function GetIgnoreCrime(Actor akActor) Global
+  {FO3/FNV GetIgnoreCrime: 1 while akActor ignores crime (IgnoreCrime), else 0.}
+  If akActor && SourceState().IgnoresCrime(akActor)
+    Return 1
+  EndIf
+  Return 0
+EndFunction
+
+; fallout4: new
+Function SetInCharGen(Bool abInCharGen) Global
+  {FO3/FNV SetInCharGen, remembered for GetInCharGen; Fallout 4's own state, which only holds saving and waiting, stays off.
+  See: docs/fork/fo4_plan_script_functions.md#ignore-crime}
+  SourceState().InCharGen = abInCharGen
+  Game.SetInCharGen(False, False, False)
+EndFunction
+
+; fallout4: new
+Int Function GetInCharGen() Global
+  {FO3/FNV GetInCharGen: 1 between SetInCharGen 1 and SetInCharGen 0, else 0.}
+  If SourceState().InCharGen
+    Return 1
+  EndIf
+  Return 0
+EndFunction
+
+; fallout4: new
 Function TracePackage(Actor akActor, String asFragment) Global
   {A converted package section running (its PF_ script's fragment): the actor and the fragment.}
   If Tracing()

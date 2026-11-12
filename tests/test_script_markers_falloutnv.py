@@ -55,10 +55,10 @@ def test_casino_comp_guard_reads_the_casino_bank(converter):
     assert out.startswith('If GomorrahCasinoData.GetLevel() == 1 && SmallFry == 0')
 
 
-def test_in_chargen_reads_never(converter):
-    """GetInCharGen reads 0, matching SetInCharGen converting to nothing, so a bark guard stays open."""
+def test_in_chargen_reads_the_remembered_flag(converter):
+    """GetInCharGen reads the flag SetInCharGen remembers in F3NV_State."""
     out = _lines(converter, 'if ( GetInCharGen == 1 )\nreturn\nendif', 'Quest')
-    assert 'GetInCharGen' not in out.split(';')[0] and out.startswith('If ')
+    assert out.startswith('If (TES4Polyfill.GetInCharGen() == 1)') and ';NE:' not in out
 
 
 def _placed_graph() -> CrossRefGraph:

@@ -772,7 +772,8 @@ FALLOUT4_FALLOUT_AV_RENAMES = {'RadiationRads': 'Rads', 'XP': 'Experience', 'Rad
 FALLOUT4_HELPER_AV_ALIASES = {'Lockpicking': 'Lockpick', 'Speechcraft': 'Speech', 'Smithing': 'Repair',
                               'SleepDeprevation': 'SleepDeprivation', 'Starvation': 'Hunger'}
 #: Helper quest scripts -> object id in FALLOUT4_HELPER_PLUGIN of the start-game quest running each.
-FALLOUT4_HELPER_QUESTS = {'F3NV_PlayerControls': 0x900, 'F3NV_CharacterEvents': 0x901, 'F3NV_PackageState': 0x902}
+FALLOUT4_HELPER_QUESTS = {'F3NV_PlayerControls': 0x900, 'F3NV_CharacterEvents': 0x901, 'F3NV_PackageState': 0x902,
+                          'F3NV_State': 0x903}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
 FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00, 'TES4Trace': 0xA01}
 #: Message boxes -> (object id in FALLOUT4_HELPER_PLUGIN, title and text, buttons); ids append only.
