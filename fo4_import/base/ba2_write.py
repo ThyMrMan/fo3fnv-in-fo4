@@ -98,13 +98,13 @@ def _contents(files: list, names: list, sizes: list, archive: Path, kept: set):
                 yield block
 
 
-def write_general(named: dict, archive: Path, kept: set = frozenset()) -> None:
+def write_general(named: dict, archive: Path, kept: set = frozenset(), sized: 'dict | None' = None) -> None:
     """Write `named` ({archive name, forward slashes: path}) as the uncompressed general BA2 `archive`, in
     lowercase name order, through a temporary file replaced at the end; files whose lowercase names are in `kept`
-    are unchanged since `archive` was written and are copied out of it."""
+    are unchanged since `archive` was written and are copied out of it. `sized`: {name: size} already read."""
     names = sorted(named, key=str.lower)
     files = [named[name] for name in names]
-    sizes = [Path(p).stat().st_size for p in files]
+    sizes = [sized[name] if sized else Path(p).stat().st_size for name, p in zip(names, files)]
     offset = HEADER.size + ENTRY.size * len(files)
     temporary = archive.with_name(archive.name + '.tmp')
     with open(temporary, 'wb', buffering=BUFFER) as out:

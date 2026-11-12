@@ -853,6 +853,98 @@ process holding 589,612 references remains a suspect. So retry with a
 scoped build first: one small area, fewer workers and a job cap around
 12 GB.
 
+### <a id="audit-2026-11-12"></a>Two stages that slowed down, 2026-11-12 (V)
+
+The 2026-11-12 overnight base build took 32 min, but two stages grew. All
+times below are under cProfile, on scratch copies of `temp/profile_data`'s
+`FalloutNV.esm` and `FalloutNV - Main.ba2` (clips read through the archive)
+and of the `anim offsets records` work cache.
+
+#### <a id="anim-data-2026-11-12"></a>Animation data: 1,039.5 s to about 45 s warm
+
+**Cause (measured).** `anim_text.compute()` ran once per entry: 3,913 entries
+in the base game. Each call did three expensive things:
+- read the 14.6 MB records table from the work cache again (0.1–0.3 s);
+- stored the whole table again when it added a clip;
+- started and stopped its own process pool when it had 16 or more new clips.
+
+On the old code, the entries step took 990.6 s (the overnight build: 1,039.5 s).
+Of that, 687 s was tearing down 293 pools.
+
+Separately, `ba2_pack.data_file` built a new `Archive` for every read of a
+file that is only in an archive, re-parsing the 150,202-entry index of the
+5.1 GB Main each time. That hits creature graphs and clips once they are no
+longer loose, and a DLC reading its master's clips.
+
+**Fix.**
+- `Known.table`: the table is read once per run, and `anim_text.save()`
+  stores it once.
+- `entry_files`: computes every entry's clips in one `compute()` (one pool),
+  each spelled as the first entry names it, as before.
+- `ba2_pack._archive`: each archive's index is kept per path, size and time.
+- `anim_offsets.pack_string` and `anim_text._stem` are memoized.
+
+| Step (s) | Old | New, cold | New, warm |
+|---|---|---|---|
+| vanilla, copies | 18.7 | 16.1 | 17.3 |
+| creatures | 10.4 (100 in the 11-12 scratch run, archive per read) | 6.1 | 3.2 |
+| entries (3,913) | 990.6 | 136.6 | 22.1 |
+| Honest Hearts entries (302, master clips via the archive) | 115.0 | 25.2 | — |
+
+- **Output unchanged:** all 4,018 computed files and the copied-entry list
+  hash the same for old, new cold and new warm. Honest Hearts' 302 do too.
+- **Not done:** keying the table by archive stamps instead of hashing. Warm,
+  reading and hashing every clip costs about 7 s.
+- **One cold run to come:** the `anim_offsets` edit changes the identity of
+  the code that made the table, so the next build computes all ~19,000 clips
+  again (about 2 min).
+
+#### <a id="main-archive-2026-11-12"></a>Main archive: 36 s to 138 s is the disk
+
+From 36.0 s (2026-11-11, 122,107 files) to 138.2 s (2026-11-12, 150,202
+files, 5.08 GB).
+
+**Where it goes.** `write_general` writes the whole archive again on every
+build that changes anything. The 11-12 build touched 69,069 of its files
+(2.25 GB):
+- AnimTextData: 19,588 files, 1.21 GB;
+- meshes: 29,515 files, 1.02 GB;
+- scripts: 15,983 files;
+- materials: 3,983 files.
+
+Those files are read loose. The 75,166 sounds (2.65 GB; voices are 72,785
+of them, 2.54 GB) were untouched, so they are block-copied out of the old
+archive.
+
+| `pack_main` on the scratch folder | Old | New |
+|---|---|---|
+| cold: every file read loose | 180.7 s | — |
+| non-sound files touched (75,036), sounds kept | 213.5 s | 124.6 s |
+| nothing changed (stats and the record only) | 14.4 s | 17.5 s |
+
+The touched-case gap between old and new is mostly disk load, not the code.
+- In the 213.5 s run, `write()` into the temporary archive took 145 s.
+- Raw 16 MB-block writes to the same folder ran at 49–95 MB/s, with the
+  overnight queue on the same NVMe drive.
+- In the unchanged case, the same 150,203 `stat` calls took 5.5 s, then
+  12.8 s.
+
+So the stage is about writing 5 GB: it is inherent while one archive holds
+everything. Why the 11-11 run took 36 s was not measured: page cache, or
+less disk load.
+
+**Fixed (Python overhead, about 7 s of every pack, and more on a repack).**
+- `_tree` computes paths per folder instead of `relative_to` per file.
+- `pack_main` passes its stat sizes to `write_general`, so each file is
+  stat'ed once, not twice.
+- The archive is unchanged: SHA-1 `e87c5e25…` from both old and new code.
+
+**Option, not taken (needs a decision).** Pack the voices as `<plugin> -
+Voices_en.ba2`, one of the three suffixes `Fallout4.exe` loads
+([main-archive](fo4_pipeline.md#main-archive)). A build that changes no line
+would then skip 2.54 GB. The cost: the game loads `Voices_<sLanguage>`, so
+other languages would need a copy, or a file named per language.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh
@@ -886,7 +978,8 @@ scoped build first: one small area, fewer workers and a job cap around
     `native/` beside `nifgeom`. The Frontier needed 982 s for 13,625 meshes,
     and one 61 MB mesh used 738 MB to read with pyffi.
   - **Per-item maths over large sets:** AnimTextData's 19,149 clip records
-    (about 5 min on a first build), the overlay check, collision.
+    (about 2 min on a first build: [measured](#anim-data-2026-11-12)), the
+    overlay check, collision.
 
   The cost: every native part must be built and shipped for each platform the
   app supports. Wait until the Creation Kit replacements have been measured

@@ -124,6 +124,7 @@ def _anim_text(builder, records: list, data_dir: Path, plugin: Path) -> None:
     templates = {entry: template for entry, (_, template) in own.items() if template is not None}
     read = anim_text.reader(data_dir, *masters, Archives(FALLOUT4_DIR / 'Data'))
     files = {**made, **anim_text.entry_files(own, read, known), **anim_text.sync_data(plugin.name)}
+    anim_text.save(known)
     written = (gun_anim_text.write(data_dir, copies, vanilla) + anim_text.write(data_dir, files)
                + gun_anim_text.write(data_dir, templates, vanilla, TEMPLATE_KINDS))
     builder.counts['animation data files written'] = len(written)

@@ -274,9 +274,8 @@ def _tree(base: Path, folder: str) -> dict:
     """{name relative to `base`, '/'-separated: path} of every file under `base`/`folder`."""
     out = {}
     for top, _dirs, names in os.walk(Path(base) / folder):
-        for name in names:
-            path = Path(top, name)
-            out[path.relative_to(base).as_posix()] = path
+        rel = Path(top).relative_to(base).as_posix()
+        out.update((f'{rel}/{name}', Path(top, name)) for name in names)
     return out
 
 
@@ -298,9 +297,9 @@ def pack_main(data_dir: Path, plugin: str) -> int:
     """
     named, archive = main_files(data_dir), Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
     if named:
-        stats = {name.lower(): path.stat() for name, path in named.items()}
-        _pack(archive, {key: [st.st_size, st.st_mtime_ns] for key, st in stats.items()},
-              lambda kept: write_general(named, archive, kept))
+        stats = {name: path.stat() for name, path in named.items()}
+        _pack(archive, {name.lower(): [st.st_size, st.st_mtime_ns] for name, st in stats.items()},
+              lambda kept: write_general(named, archive, kept, {name: st.st_size for name, st in stats.items()}))
     for stale in () if named else (archive, pack_record(archive)):
         stale.unlink(missing_ok=True)
     return len(named)
@@ -364,9 +363,15 @@ def archived_names(data_dir: Path) -> set:
 
 
 @functools.lru_cache(maxsize=64)
-def _names(path: str, _size: int, _mtime: int) -> frozenset:
+def _names(path: str, size: int, mtime: int) -> frozenset:
     """Archive `path`'s paths, lowercase, '/'-separated (size and time key the cache)."""
-    return frozenset(name.replace(chr(92), '/') for name in Archive(Path(path)).entries)
+    return frozenset(name.replace(chr(92), '/') for name in _archive(path, size, mtime).entries)
+
+
+@functools.lru_cache(maxsize=8)
+def _archive(path: str, _size: int, _mtime: int) -> Archive:
+    """Archive `path` indexed once while its size and time stay (they key the cache)."""
+    return Archive(Path(path))
 
 
 def data_file(data_dir: Path, rel: str) -> 'bytes | None':
@@ -376,6 +381,7 @@ def data_file(data_dir: Path, rel: str) -> 'bytes | None':
         return loose.read_bytes()
     key = str(rel).replace(chr(92), '/').lower()
     for archive in sorted(Path(data_dir).glob('*.ba2'), reverse=True) if Path(data_dir).is_dir() else ():
-        if key in _names(str(archive), archive.stat().st_size, archive.stat().st_mtime_ns):
-            return Archive(archive).read(key)
+        stamp = str(archive), archive.stat().st_size, archive.stat().st_mtime_ns
+        if key in _names(*stamp):
+            return _archive(*stamp).read(key)
     return None
