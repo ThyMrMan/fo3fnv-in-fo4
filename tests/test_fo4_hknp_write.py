@@ -8,7 +8,7 @@ import struct
 import numpy as np
 import pytest
 
-from fo4_import.havok import packfile
+from fo4_import.havok import packfile, packfile_write
 from fo4_import.nif import hknp_convex, hknp_hull, hknp_write
 from fo4_import.nif.hknp_write import DAMPING, FILTER, FRICTION, MASS, MAX_ANGULAR, MOTION, RESTITUTION
 
@@ -140,3 +140,19 @@ def test_a_degenerate_hull_keeps_every_point():
     assert hknp_hull.degenerate(hknp_hull.snap(_bevelled(0.002)))
     verts, loops, _ = hknp_convex.corners(_bevelled(0.002))
     assert len(verts) == 10 and len(loops) == 7
+
+
+def test_bs_material_entries_sit_0x18_apart_as_elric_writes_them():
+    """Bethesda's material table: entries from +0x20, 0x18 apart, filter then CRC after 16 zero bytes.
+
+    See: docs/fork/fo4_hknp_writer.md#bs-material
+    """
+    rows = [(1, 0x064003D4), (0x2001, 0xDF02F237)]
+    entries = [{'reserved': [0, 0], 'collisionFilterInfo': f, 'materialCrc': c} for f, c in rows]
+    objects = [{'#': '#m', 'class': 'hknpBSMaterialProperties', 'fields': {'materials': entries}}]
+    pf = packfile.read(packfile_write.write(objects, '#m'))
+    assert pf.objects[0]['fields']['materials'] == entries
+    at = pf.base + pf.virtual[0][0]
+    for i, row in enumerate(rows):
+        assert pf.data[at + 0x20 + i * 0x18:at + 0x30 + i * 0x18] == bytes(16)
+        assert struct.unpack_from('<2I', pf.data, at + 0x30 + i * 0x18) == row

@@ -3,12 +3,13 @@
 Reads hkxpack-style class descriptions (one XML per class, from a classxml folder the user supplies) and keeps the
 classes named in the `__classnames__` sections of the game's actor .hkx files (behaviors, characters, projects,
 skeletons, a sample of clips) and every shape, constraint data and motor class (Elric's ragdolls), plus their
-parents and member struct types. Each class keeps its parent, signature
+parents and member struct types, and Bethesda's own classes (BETHESDA). Each class keeps its parent, signature
 and members (name, offset, type, subtype, struct type, fixed array size, flags).
 
     python tools/generators/hk2014_layouts.py <classxml folder> [-o fo4_import/data/hk2014_layouts.json]
 
 See: docs/fork/fo4_spikes.md#own-rig-code
+See: docs/fork/fo4_hknp_writer.md#bs-material
 """
 
 import argparse
@@ -23,6 +24,15 @@ from fo4_import.base.install import FALLOUT4_DIR
 OUT = Path(__file__).resolve().parents[2] / 'fo4_import' / 'data' / 'hk2014_layouts.json'
 #: Clips sampled per archive: every FO4 clip names the same handful of classes.
 CLIP_SAMPLE = 20
+#: Bethesda's own classes, in no Havok class description: layouts read off Elric's output (fo4_hknp_writer.md).
+BETHESDA = {
+    'hknpBSMaterial': {'parent': None, 'signature': '0x00000000', 'members': [
+        ['reserved', 0, 'TYPE_UINT64', 'TYPE_VOID', None, 2, 'FLAGS_NONE'],
+        ['collisionFilterInfo', 16, 'TYPE_UINT32', 'TYPE_VOID', None, 0, 'FLAGS_NONE'],
+        ['materialCrc', 20, 'TYPE_UINT32', 'TYPE_VOID', None, 0, 'FLAGS_NONE']]},
+    'hknpBSMaterialProperties': {'parent': 'hkReferencedObject', 'signature': '0xa3e47a9a', 'members': [
+        ['materials', 16, 'TYPE_ARRAY', 'TYPE_STRUCT', 'hknpBSMaterial', 0, 'FLAGS_NONE']]},
+}
 
 
 def classnames(data: bytes) -> set:
@@ -92,7 +102,7 @@ def main():
         e = ET.fromstring(path.read_text(encoding='utf-8', errors='replace'))
         raw[e.get('name')] = e
     wanted = vanilla_classes() | physics_classes(raw)
-    table = closure(raw, wanted)
+    table = dict(sorted({**closure(raw, wanted), **BETHESDA}.items()))
     args.out.write_text(json.dumps(table, indent=0, separators=(',', ':')) + '\n', encoding='utf-8')
     missing = sorted(wanted - set(raw))
     print(f'{len(wanted)} classes in vanilla actor files, {len(table)} written with parents and members;'
