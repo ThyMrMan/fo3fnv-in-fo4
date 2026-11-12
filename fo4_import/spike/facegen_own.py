@@ -44,15 +44,15 @@ def face_textures(face: face_tint.Face) -> dict:
     return out
 
 
-def face_files(src: facegeom.Sources, plugin: str, form_id: int) -> 'dict | None':
-    """{path under Data: bytes} of NPC `form_id`'s FaceGeom NIF and face textures, as the CK names them; None for
-    an NPC the CK exports none for."""
+def face_files(src: facegeom.Sources, plugin: str, form_id: int, textures: bool = True) -> 'dict | None':
+    """{path under Data: bytes} of NPC `form_id`'s FaceGeom NIF and (`textures`) face textures, as the CK names
+    them; None for an NPC the CK exports none for."""
     npc, race, female, _ = facegeom.npc_face(src, plugin, form_id)
     if not facegeom.exported(npc, race):
         return None
     stem = f'{form_id:08X}'
     files = {(own_facegen.GEOM_DIR / plugin / f'{stem}.nif').as_posix(): facegeom.build(src, plugin, form_id)}
-    for kind, rgba in face_textures(face_tint.Face(src, npc, race, female)).items():
+    for kind, rgba in face_textures(face_tint.Face(src, npc, race, female)).items() if textures else ():
         files[(own_facegen.FACE_DIR / plugin / f'{stem}_{kind}.dds').as_posix()] = vanilla_dds(rgba, kind)
     return files
 
@@ -104,45 +104,46 @@ def texconv() -> str:
     return hashlib.sha1(TEXCONV.read_bytes()).hexdigest()
 
 
-def cached_files(src: facegeom.Sources, plugin: str, form_id: int) -> tuple:
+def cached_files(src: facegeom.Sources, plugin: str, form_id: int, textures: bool = True) -> tuple:
     """(face_files(), whether it came from the work cache): kept by the NPC record, the plugins' masters and texconv,
     and used while every other record and file it read (reads) and the code that made it are unchanged.
     See: docs/fork/fo4_facegen_plan.md#own-cache
     """
     npc = src.records.get((plugin.lower(), form_id & 0xFFFFFF))
-    inputs = (plugin.lower(), form_id, held(npc), sorted(src.masters.items()), texconv())
+    inputs = (plugin.lower(), form_id, held(npc), sorted(src.masters.items()), texconv(), textures)
     kept = work_cache.lookup(SITE, __name__, inputs)
     if kept is not None and unchanged(src, kept[0]):
         return kept[1], True
-    (files, ran), read = reading(src, functools.partial(ran_while, functools.partial(face_files, src, plugin, form_id)))
+    make = functools.partial(face_files, src, plugin, form_id, textures)
+    (files, ran), read = reading(src, functools.partial(ran_while, make))
     work_cache.store(SITE, __name__, inputs, (read, files), ran)
     return files, False
 
 
-def write_face(src: facegeom.Sources, plugin: str, form_id: int, data_dir: Path) -> str:
-    """Write NPC `form_id`'s FaceGeom NIF and face textures (cached_files) under `data_dir`; WRITTEN, KEPT (from the
-    cache) or SKIPPED (none exported)."""
-    files, kept = cached_files(src, plugin, form_id)
+def write_face(src: facegeom.Sources, plugin: str, form_id: int, data_dir: Path, textures: bool = True) -> str:
+    """Write NPC `form_id`'s FaceGeom NIF and (`textures`) face textures (cached_files) under `data_dir`; WRITTEN,
+    KEPT (from the cache) or SKIPPED (none exported)."""
+    files, kept = cached_files(src, plugin, form_id, textures)
     for rel, data in (files or {}).items():
         (data_dir / rel).parent.mkdir(parents=True, exist_ok=True)
         (data_dir / rel).write_bytes(data)
     return SKIPPED if files is None else KEPT if kept else WRITTEN
 
 
-def own_face(form_id: int) -> tuple:
+def own_face(form_id: int, textures: bool = True) -> tuple:
     """(FormID, WRITTEN, SKIPPED or the error) of write_face in a facegen_skin worker; never raises."""
     worker = facegen_skin.shared()
     try:
-        return form_id, write_face(worker['src'], worker['plugin'], form_id, worker['data'])
+        return form_id, write_face(worker['src'], worker['plugin'], form_id, worker['data'], textures)
     except Exception as e:
         return form_id, f'{type(e).__name__}: {e}'
 
 
-def export_own(job: tuple, forms: list) -> tuple:
-    """(written, kept, skipped, {FormID: error}) of own_face over `forms` in facegen_skin's pool sharing `job`
-    (kept: written from the work cache); a pool that breaks (a worker killed) fails every face."""
+def export_own(job: tuple, forms: list, textures: bool = True) -> tuple:
+    """(written, kept, skipped, {FormID: error}) of own_face over `forms` (with `textures` or not) in facegen_skin's
+    pool sharing `job` (kept: written from the work cache); a pool that breaks (a worker killed) fails every face."""
     try:
-        results = facegen_skin.pool(job, own_face, forms)
+        results = facegen_skin.pool(job, functools.partial(own_face, textures=textures), forms)
     except BrokenProcessPool as e:
         results = [(form_id, f'worker pool broke: {e}') for form_id in forms]
     failed = {form_id: status for form_id, status in results if status not in (WRITTEN, KEPT, SKIPPED)}

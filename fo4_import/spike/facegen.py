@@ -191,11 +191,11 @@ def fallback(plugin: str, data_dir: Path, failed: dict) -> list:
     return lines
 
 
-def own_export(job: tuple, forms: list) -> list:
-    """Write our own FaceGen for `forms` (facegen_own.export_own), the failed ones from the CK (fallback); report
-    lines, each failure with its error."""
+def own_export(job: tuple, forms: list, textures: bool = True) -> list:
+    """Write our own FaceGen for `forms` (facegen_own.export_own; face textures only with `textures`), the failed
+    ones from the CK (fallback); report lines, each failure with its error."""
     data_dir, plugin = job[1], job[2]
-    written, kept, skipped, failed = facegen_own.export_own(job, forms)
+    written, kept, skipped, failed = facegen_own.export_own(job, forms, textures)
     lines = [f'own FaceGen written: {written + kept} ({kept} from the work cache), not exported (as the CK): '
              f'{skipped}, failed: {len(failed)}']
     lines += [f'  {form_id:08X} {error}' for form_id, error in sorted(failed.items())]
@@ -214,15 +214,18 @@ def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
 
 
 def heads(job: tuple, own: bool, forms: list = None, ck: bool = True) -> None:
-    """Write the plugin's FaceGen heads: ours (own_export) for `forms` (default: every NPC, the old ones cleared
-    first), else the CK's export of every NPC (not `ck`: an earlier run's, collected); printed."""
+    """Write the plugin's FaceGen heads: ours (own_export) for every NPC, the old ones cleared first, or only the
+    FaceGeom NIFs of refitted `forms` (the refit changes sliders, which no face texture reads); else the CK's
+    export of every NPC (not `ck`: an earlier run's, collected); printed.
+    See: docs/fork/fo4_facegen_plan.md#second-pass
+    """
     data_dir, plugin = job[1], job[2]
     if not own:
         print('FaceGeom NIFs:', export(plugin, data_dir, ck))
         return
     if forms is None:
         clear(plugin, data_dir)
-    for line in own_export(job, facegen_own.own_npcs(data_dir / plugin) if forms is None else forms):
+    for line in own_export(job, facegen_own.own_npcs(data_dir / plugin) if forms is None else forms, forms is None):
         print(line, flush=True)
 
 

@@ -1188,6 +1188,27 @@ workers (`facegen_skin.workers`):
 Not yet run: the stage itself (`facegen.py --own-facegen`) through MO2,
 and a game build with it.
 
+#### <a id="second-pass"></a>The second head pass draws meshes only (2026-11-12)
+
+The faces stage draws every head (2,382 in the 2026-11-12 run), refits the
+sliders, then draws the refitted ones again (2,237). The second pass used
+to redraw their `_d`, `_msn` and `_s` too, about half the first pass's
+680 s. But the refit (`facegen_skin.slider_edit`) writes only FMRS and
+MSDV, and the face textures read neither: `face_tint` imports only
+`facegeom`, and no texture code names FMRS, MSDV, MSDK or FMRI. Sliders
+reach the FaceGeom NIF only, through `face_bones`.
+
+Now `heads()` for the refitted forms passes `textures=False` down through
+`own_export`, `export_own`, `own_face` and `write_face`, so
+`face_files` draws the NIF alone and the first pass's textures stay on
+disk for the skin step. The work cache keys on `textures` too, so a
+mesh-only entry never stands in for a full one.
+
+Proof on a scratch copy of the built plugin: 12 exported NPCs drawn, then
+refitted by `refit_face`, with the sliders patched into the plugin and
+reloaded, then drawn again. All 36 textures were byte-identical to the
+first draw, and all 12 FaceGeom NIFs changed.
+
 #### <a id="skin-speed"></a>The skin step's speed (2026-11-12)
 
 `facegen_skin.skin_face` took 2.3 s a face in one process (12 faces),
