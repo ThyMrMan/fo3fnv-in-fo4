@@ -9,12 +9,12 @@ import os
 import pathlib
 import struct
 import time
-import zlib
 from types import SimpleNamespace
 
 import pytest
 
 from fo4_import.base import ba2_pack as BP
+from fo4_import.base import pinned_zlib
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import dds_info, expand_bgr, write_textures
 from fo4_import.base.ba2_write import entry_names, write_general
@@ -331,7 +331,7 @@ def test_a_texture_archive_is_laid_out_as_archive2_writes_it_and_reuses_unchange
     assert raw[:12] == b'BTDX\x08\x00\x00\x00DX10'
     record = struct.unpack_from('<I4sIBBHHHBBBB', raw, 24)
     assert record[1:] == (b'dds\0', record[2], 0, 1, 24, 4, 4, 1, 71, 0, 8)
-    assert zlib.compress(bodies['a'], 6) in raw
+    assert pinned_zlib.compress(bodies['a'], 6) in raw
     read = Archive(archive)
     assert read.read('Textures/fnv/a.dds').endswith(bodies['a'])
     named['Textures/fnv/a.dds'].write_bytes(_dds(b'DXT1', 4, 4, bytes(8)))

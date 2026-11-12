@@ -3586,7 +3586,74 @@ Measured on the 2026-11-04 plugin, compressing a copy:
   releases the GIL), with a build running beside it.
 - **Correctness:** all 738,901 records read back byte-identical.
 
-zlib is deterministic, so the plugin stays byte-reproducible.
+The bodies go through our [pinned zlib](#pinned-zlib), so the plugin is the
+same bytes on every machine.
+
+## <a id="pinned-zlib"></a>One zlib for everything we compress (2026-11-12)
+
+**Python's zlib is not byte-stable across machines.** The `zlib` module is
+whatever the interpreter was built with, and those compress the same input
+to different bytes:
+
+| Python | `zlib.ZLIB_RUNTIME_VERSION` |
+|---|---|
+| Windows 3.13 | `1.3.1` (stock zlib) |
+| Windows 3.14 (the pipeline's Python: `native/dist` holds cp314 modules) | `1.3.1.zlib-ng` |
+| Linux | the system's library; Fedora ships zlib-ng in its place |
+
+Found on the casino movie: the same movie, every tag identical, came out at
+11,305 bytes on 3.13 and 11,323 on 3.14
+([swf_framework.md](swf_framework.md#mxmlc-setup)). Decompressing is not
+affected: inflating gives the same bytes from any of them.
+
+**The fix:** `fo4_import/base/pinned_zlib.py` compresses with our own copy
+of stock zlib 1.4 (`native/src/f3_zlib/zlib`: its deflate sources,
+unmodified, from zlib.net, SHA-256 of `zlib-1.4.tar.gz`
+`02dd1597…6ad584` checked against the site's). zlib's license ships beside
+its sources as `native/src/f3_zlib/zlib/LICENSE` (the zlib license:
+permissive, compatible with our GPL-3.0; its notice must stay with the
+source). `native/src/f3_zlib/f3_zlib.c`
+exports one call, `f3_deflate` (window bits 15 or -15, memory level 8, the
+default strategy, as `zlib.compress`). It is built by
+`python -m tools.generators.gen_f3_zlib` into `native/dist/f3_zlib.dll`
+(`.so`/`.dylib` elsewhere), a plain library loaded through ctypes, so one
+build serves every Python version. It is committed and required: a missing
+library raises; nothing falls back to Python's zlib. Stock zlib is plain C
+with no CPU-dependent code paths; zlib-ng picks code by CPU at run time, and
+no source says its output is the same everywhere.
+
+Routed through it: LAND and NAVM bodies (`record_compression.py`), texture
+BA2 bodies (`ba2_textures.py`), and the face-fit file (`face_fits.write`,
+`pinned_zlib.gzip`: gzip.compress's own header, mtime 0, OS 255). The mxmlc
+movies stay uncompressed (`mxmlc.undated`).
+
+**Checked:** the same digest over every test sample at levels 1, 6 and 9
+and gzip on Python 3.13 and 3.14 (`tests/test_fo4_pinned_zlib.py`). On
+3.13 the bytes equal `zlib.compress` and `gzip.compress`. Against
+Bethesda's own bytes (decompress, recompress, compare):
+
+| Sample | Pinned zlib matches | zlib-ng (3.14) matches |
+|---|---|---|
+| `Fallout4 - Textures1.ba2`, 402 chunks, level 6 | 402 | 0 |
+| `Fallout4.esm`, 300 LAND + 300 NAVM bodies, level 9 | 600 | 199 |
+| Our deployed `FalloutNV - Textures.ba2` (2026-11-11), 150 chunks | 145 | 5 |
+
+Our deployed archive mixes both: chunks copied forward from earlier packs
+are stock zlib's, chunks recompressed on 3.14 are zlib-ng's.
+
+**Cost, measured on Python 3.14 against zlib-ng:**
+- Record bodies, level 9: 22.1 MB in 0.42 s (zlib-ng 0.35 s).
+- Texture bodies, level 6, on the texture packer's 15 threads: 177.2 MB in
+  0.67 s (zlib-ng 0.26 s). That is about 6 s more for a full repack of
+  about 2.5 GB of textures; unchanged textures are copied, not recompressed.
+
+**Not yet pinned:** the Skyrim side's compressors are inherited code and
+would conflict on every `standalone` merge, so they belong in the
+tes4skyrim fork: `asset_convert/ui/swf.py` (CWS movies, DefineBitsLossless)
+and `tes5_import/navmesh/from_pgrd.py` (NAVM records; it feeds the shared
+navmesh cache tag, so changing it means republishing). The collision cache
+(`collision_extract._serialize`) is local, and its content hash already
+ignores the compressed bytes.
 
 ## <a id="menu-speakers"></a>A menu offers only what its speakers can say (2026-11-04, not yet built)
 

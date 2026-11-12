@@ -203,7 +203,10 @@ builds byte-identical twice after stripping.
   Python 3.14 on Windows ships zlib-ng (`zlib.ZLIB_RUNTIME_VERSION`
   `1.3.1.zlib-ng`), Python 3.13 ships stock zlib 1.3.1, and at level 9 the
   same casino movie came out at 11,323 and 11,305 bytes, with every tag
-  identical. Uncompressed, the bytes depend only on the sources. The SDK is found at `F3NV_FLEX`, else `tools_ext\FlexSDK` beside
+  identical. Uncompressed, the bytes depend only on the sources. (Since
+  2026-11-12 the FO4 build has a [pinned zlib](fo4_pipeline.md#pinned-zlib)
+  that would make a compressed movie stable too; the movies stay
+  uncompressed, the format that has been played.) The SDK is found at `F3NV_FLEX`, else `tools_ext\FlexSDK` beside
   the repo (in a worktree, set `F3NV_FLEX`).
 - **The casino moved to `mxmlc` and the library in one change** (spike 1).
   The dialogue menu stays on FFDec until its own movie is played, so
