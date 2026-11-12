@@ -9,9 +9,12 @@ rebuild after the first byte for byte the same. Elric runs as one instance:
 four at once never finished (no CPU after nine minutes). A NIF with Havok
 input is held in memory (hold()) rather than written, since FO4 cannot load
 it; finish() writes only the finished NIF, and only when its bytes changed,
-so a game running beside the build never loads a half-made mesh.
+so a game running beside the build never loads a half-made mesh. A NIF our
+own physics writer covers (nif/hknp_write.py: convex bodies) never reaches
+Elric or its cache.
 
 See: docs/fork/fo4_pipeline.md#skeleton
+See: docs/fork/fo4_hknp_writer.md#seam
 """
 
 import functools
@@ -21,7 +24,8 @@ import tempfile
 from pathlib import Path
 
 from fo4_import.base.source_fault import faulted
-from fo4_import.nif import elric
+from fo4_import.nif import elric, hknp_write
+from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import mesh_cache, work_cache
 from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.ran_code import ran_while
@@ -135,10 +139,22 @@ def _run(todo: dict) -> list:
     return failed
 
 
+def ours(data: bytes) -> 'bytes | None':
+    """NIF `data` finished by our physics writer; None where it does not cover it.
+    See: docs/fork/fo4_hknp_writer.md#seam
+    """
+    made = hknp_write.finish(nif_file.read(data))
+    return None if made is None else nif_file.write(made)
+
+
 def process(sources: dict) -> dict:
-    """elric.process(sources) (Elric's output by name; a NIF it crashes on left out), cached (module notes)."""
+    """Each pre-Elric NIF finished by name: by ours() where it covers it, else elric.process(), cached (module
+    notes); a NIF Elric crashes on is left out."""
     done, todo = {}, {}
     for name, data in sources.items():
+        done[name] = ours(data)
+        if done[name] is not None:
+            continue
         cached = entry(data)
         if cached.exists():
             done[name] = cached.read_bytes()
@@ -149,7 +165,7 @@ def process(sources: dict) -> dict:
     for name in todo:
         cached = entry(todo[name])
         cached.parent.mkdir(parents=True, exist_ok=True)
-        cached.write_bytes(done.get(name, b''))
+        cached.write_bytes(done[name] or b'')
     return {name: out for name, out in done.items() if out}
 
 

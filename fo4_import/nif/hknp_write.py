@@ -10,6 +10,7 @@ See: docs/fork/fo4_hknp_writer.md#convex
 import struct
 
 import numpy as np
+from scipy.spatial import QhullError
 
 from fo4_import.havok import packfile_write
 from fo4_import.nif.blocks import NONE
@@ -152,11 +153,11 @@ def _motion(body: bytes, mass, place: tuple, props: int) -> dict:
             'linearVelocity': (0.0,) * 4, 'angularVelocity': (0.0,) * 4}
 
 
-def _keyframed() -> dict:
-    """A keyframed body's motion cinfo: no mass, the game's preset properties."""
+def _keyframed(place: tuple) -> dict:
+    """A keyframed body's motion cinfo: no mass, the game's preset properties, at the body's `place`."""
     return {'motionPropertiesId': PRESET, 'enableDeactivation': 1, 'inverseMass': 0.0, 'massFactor': 1.0,
             'maxLinearAccelerationDistancePerStep': UNBOUNDED, 'maxRotationToPreventTunneling': UNBOUNDED,
-            'inverseInertiaLocal': (0.0,) * 4, 'centerOfMassWorld': (0.0,) * 4, 'orientation': (0.0, 0.0, 0.0, 1.0),
+            'inverseInertiaLocal': (0.0,) * 4, 'centerOfMassWorld': (*place[0], 0.0), 'orientation': place[1],
             'linearVelocity': (0.0,) * 4, 'angularVelocity': (0.0,) * 4}
 
 
@@ -209,7 +210,7 @@ def system(bodies: list) -> bytes:
             motions.append(_motion(body, mass, place, len(props) - 1))
         elif body[MOTION] == KEYFRAMED:
             motion_id = len(motions)
-            motions.append(_keyframed())
+            motions.append(_keyframed(place))
         cinfos.append(_body(index, body, motion_id, place))
     root = {'name': None, 'materials': [_material(b[1]) for b in bodies], 'motionProperties': props,
             'motionCinfos': motions, 'bodyCinfos': cinfos, 'constraintCinfos': [],
@@ -219,9 +220,17 @@ def system(bodies: list) -> bytes:
 
 
 def physics(nif: NifFile) -> 'tuple | None':
-    """(bhkPhysicsSystem block, [owner per body]) for `nif`; None when not covered."""
+    """(bhkPhysicsSystem block, [owner per body]) for `nif`; None when not covered, a flat shape (no 3-D hull)
+    included.
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
     bodies = _bodies(nif)
-    return None if bodies is None else (system(bodies), [b[0] for b in bodies])
+    if bodies is None:
+        return None
+    try:
+        return system(bodies), [b[0] for b in bodies]
+    except QhullError:
+        return None
 
 
 def finish(nif: NifFile) -> 'NifFile | None':
