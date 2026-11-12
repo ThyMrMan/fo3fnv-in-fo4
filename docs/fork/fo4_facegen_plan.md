@@ -1188,6 +1188,44 @@ workers (`facegen_skin.workers`):
 Not yet run: the stage itself (`facegen.py --own-facegen`) through MO2,
 and a game build with it.
 
+#### <a id="own-cache"></a>Faces kept between builds (2026-11-12)
+
+Every base build rewrites the plugin, so the faces stage used to redraw
+all 2,382 heads. Now `facegen_own.cached_files` keeps each NPC's four
+files (FaceGeom NIF, `_d`, `_msn`, `_s`) in the work cache (site
+`own_face`), and a later build writes the kept files without drawing them.
+
+- **Key:** the plugin, the NPC's local id, its NPC_ record as indexed
+  (owner, signature, subrecords), every plugin's masters, and texconv's
+  bytes. A refitted NPC has a different record, so the first pass and the
+  second (refit) pass each keep their own entry.
+- **Checked on use:** every other record and file the face read, by
+  SHA-1. `Sources.record`, `get` and `read` note each one in
+  `Sources.seen`; `Sources.stored` reads a file without noting it, for the
+  check. The work cache's `.ran` record covers the code
+  ([code identity](fo4_plugin_layout.md#code-identity)).
+- **Per-process memos:** face code caches masks, gradients and skeletons
+  per process, so a face can use a file an earlier face read. An entry
+  therefore also lists everything earlier faces in the same worker read,
+  except other NPCs' records. Without that exception, one changed NPC
+  remade every face drawn after it in its worker; the proof caught it.
+- **Where:** in `facegen_skin.pool`'s workers, which already hold the
+  records. Refine, skin and pack run as before: they patch the plugin and
+  the NIFs every build.
+
+Proof on a scratch copy of the built plugin, six NPCs (three exported),
+one process each run:
+
+| Run | Result |
+|---|---|
+| Empty cache | 3 written, 3 skipped; 3.55 s for the first face (memos filling), then 0.54 s and 1.17 s |
+| Again, new process | all kept: 0.47 s for the first (hashing the shared inputs), then 0.02–0.05 s; every file byte-identical to the first run and to an uncached draw in that process |
+| One NPC's QNAM changed | that NPC written (0.66 s); the other two kept |
+
+An entry is about 2 MB, so all 2,382 faces need about 5 GB; `prune`
+drops entries no build used for 14 days. The stage's end-to-end time with
+the cache is not measured yet.
+
 #### <a id="own-stage-speed"></a>Speed (2026-11-12)
 
 Profiled per face, one worker, 42 different NPCs: tint 1.83 s, texconv

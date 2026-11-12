@@ -101,7 +101,7 @@ class Sources:
         with its masters (found in `dirs`, then the game's Data), a later one's records over an earlier's; files
         from `dirs`' loose folders and BA2s (first wins), then the game's archives."""
         self.dirs = [Path(d) for d in dirs]
-        self.records, self.masters = {}, {}
+        self.records, self.masters, self.seen = {}, {}, set()
         self.archives = Archives(FALLOUT4_DIR / 'Data')
         for d in reversed(self.dirs):
             self.archives.by_name.update(Archives(d, '*.ba2').by_name)
@@ -128,14 +128,24 @@ class Sources:
                 return d / name
         raise FileNotFoundError(f'master {name} not in {self.dirs} or the game\'s Data')
 
+    def record(self, owner: str, form_id: int) -> 'Rec | None':
+        """The record (owner, local id), noted in `seen` (facegen_own's cache check)."""
+        self.seen.add((owner, form_id))
+        return self.records.get((owner, form_id))
+
     def get(self, rec: Rec, data: bytes) -> 'Rec | None':
         """The record the FormID in `data` (a field of `rec`) names."""
         fid, own = _form(data), self.masters[rec.owner]
-        return self.records.get((own[fid >> 24] if fid >> 24 < len(own) else rec.owner, fid & 0xFFFFFF))
+        return self.record(own[fid >> 24] if fid >> 24 < len(own) else rec.owner, fid & 0xFFFFFF)
 
     def read(self, path: str) -> bytes:
-        """A file under Data: loose in `dirs` first, then the archives."""
+        """A file under Data, noted in `seen` (as record())."""
         rel = path.replace('/', '\\')
+        self.seen.add(rel)
+        return self.stored(rel)
+
+    def stored(self, rel: str) -> bytes:
+        """File `rel` under Data, loose in `dirs` first, then the archives; not noted."""
         hit = next((d / rel for d in self.dirs if (d / rel).is_file()), None)
         return hit.read_bytes() if hit else self.archives.read(rel)
 
@@ -364,7 +374,7 @@ def txst_slots(src: Sources, txst: Rec) -> list:
 
 def npc_face(src: Sources, plugin: str, form_id: int) -> tuple:
     """(NPC record, its race, female, Npc) for the NPC `form_id` (local id) of `plugin`."""
-    npc = src.records[plugin.lower(), form_id & 0xFFFFFF]
+    npc = src.record(plugin.lower(), form_id & 0xFFFFFF)
     race, female = src.get(npc, npc.first(b'RNAM')), bool(struct.unpack_from('<I', npc.first(b'ACBS'))[0] & FEMALE)
     colour = src.get(npc, npc.first(b'HCLF')) if npc.first(b'HCLF') else None
     grayscale = struct.unpack('<f', colour.first(b'CNAM'))[0] if colour else 1.0

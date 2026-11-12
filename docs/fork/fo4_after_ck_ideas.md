@@ -20,18 +20,17 @@ Sizes below are rough guesses, not measurements.
 
 ### <a id="incremental"></a>Rebuild only what changed
 
-The CK exports every NPC's FaceGen on every run. We can hash each NPC's
-inputs (its record, race, head parts, tint layers, and the textures and
-meshes they name) and rebuild only the faces whose hash changed. Collision
-can do the same per mesh. Most rebuilds after a small change would then
-take seconds instead of minutes.
+The CK exports every NPC's FaceGen on every run. Our own faces now keep
+each NPC's files in the work cache, keyed by its record and checked
+against every other record and file it read, so a build redraws only the
+faces whose inputs changed
+([own-cache](fo4_facegen_plan.md#own-cache)). Collision already had its
+own per-mesh caches (`elric_cache`, `mesh_cache`).
 
-- **Have:** byte-identical output run to run, which is what makes a hash
-  trustworthy; per-NPC `write_face`; per-mesh collision.
-- **Need:** a list of everything a face or mesh reads (the hash inputs),
-  and a stored hash per output file. The CLAUDE.md rule on caches between
-  runs applies: this one has to earn its keep with a large win.
-- **Size:** small to medium.
+- **Built:** faces (2026-11-12). Kept faces take 0.02–0.05 s each against
+  0.5–1.2 s to draw.
+- **Left:** the faces stage's end-to-end time with the cache, from a real
+  build.
 
 ### <a id="anywhere"></a>Builds off Windows
 

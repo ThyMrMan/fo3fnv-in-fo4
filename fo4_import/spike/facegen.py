@@ -195,8 +195,9 @@ def own_export(job: tuple, forms: list) -> list:
     """Write our own FaceGen for `forms` (facegen_own.export_own), the failed ones from the CK (fallback); report
     lines, each failure with its error."""
     data_dir, plugin = job[1], job[2]
-    written, skipped, failed = facegen_own.export_own(job, forms)
-    lines = [f'own FaceGen written: {written}, not exported (as the CK): {skipped}, failed: {len(failed)}']
+    written, kept, skipped, failed = facegen_own.export_own(job, forms)
+    lines = [f'own FaceGen written: {written + kept} ({kept} from the work cache), not exported (as the CK): '
+             f'{skipped}, failed: {len(failed)}']
     lines += [f'  {form_id:08X} {error}' for form_id, error in sorted(failed.items())]
     return lines + (fallback(plugin, data_dir, failed) if failed else [])
 
