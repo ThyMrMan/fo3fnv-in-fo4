@@ -190,12 +190,31 @@ def test_ck_timeout_scales_with_the_plugins_npcs(tmp_path):
 def test_ck_exports_facegen_for_64_bit_pc(monkeypatch):
     """The CK is asked for the X64 target: W32 writes hair cloth physics with 4-byte pointers."""
     calls = []
-    monkeypatch.setattr(FG.creation_kit.subprocess, 'run',
-                        lambda args, **_: calls.append(args) or SimpleNamespace(stdout=''))
+    monkeypatch.setattr(FG.creation_kit.subprocess, 'Popen', lambda args, **_: calls.append(args))
+    monkeypatch.setattr(FG.creation_kit, 'running', lambda: False)
     monkeypatch.setattr(FG.creation_kit.time, 'sleep', lambda _: None)
     monkeypatch.setattr(FG.creation_kit, 'output_dir', lambda: FG.creation_kit.MO2 / 'overwrite')
     FG.run_ck('Spike.esp')
     assert calls[0][-1] == '-ExportFaceGenData:Spike.esp X64'
+
+
+def test_ck_closed_once_quiet_after_writing(monkeypatch, tmp_path):
+    """A CK that wrote files and then nothing for CK_QUIET seconds is closed and counts as done; one that never
+    wrote runs to its timeout, is closed, and raises."""
+    CK, clock, closed = FG.creation_kit, [1000.0], []
+    monkeypatch.setattr(CK.subprocess, 'Popen', lambda *_, **__: None)
+    monkeypatch.setattr(CK, 'running', lambda: True)
+    monkeypatch.setattr(CK, 'close', lambda: closed.append(clock[0]))
+    monkeypatch.setattr(CK, 'output_dir', lambda: tmp_path)
+    monkeypatch.setattr(CK.time, 'time', lambda: clock[0])
+    monkeypatch.setattr(CK.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s))
+    monkeypatch.setattr(CK, 'newest_file', lambda _: 1010.0)
+    CK.run('-x', 10 * CK.CK_QUIET, 'testing')
+    assert closed == [pytest.approx(1010.0 + CK.CK_QUIET, abs=CK.CK_POLL)]
+    monkeypatch.setattr(CK, 'newest_file', lambda _: 0.0)
+    with pytest.raises(SystemExit, match='did not finish'):
+        CK.run('-x', 100, 'testing')
+    assert len(closed) == 2
 
 
 @pytest.mark.skipif(not VANILLA_MESHES.exists(), reason='needs Fallout 4')

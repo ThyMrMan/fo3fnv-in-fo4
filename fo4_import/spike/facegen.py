@@ -52,7 +52,7 @@ GAME_POINTER_SIZE, CLOTH_POINTER_SIZE_AT = 8, 20
 FACEGEN_DIRS = (Path('Meshes/Actors/Character/FaceGenData/FaceGeom'),
                 Path('Textures/Actors/Character/FaceCustomization'))
 #: Seconds to wait for the CK at least, and per NPC_ record (the region: 293 in 127 s, 0.43 s each).
-CK_TIMEOUT, CK_FACE_SECONDS = 900, 2.0
+CK_TIMEOUT, CK_FACE_SECONDS = 900, 6.0
 #: Fallout4.esm HumanRace, and the tint slot (xEdit's TETI enum) of its Skin Tone options.
 HUMAN_RACE, SKIN_TONE_SLOT = 0x13746, 12
 #: Face variants with fitted sculpt regions, with fitted tint layers, and how many CK rounds refine them.
@@ -210,11 +210,13 @@ def outdated(plugin_path: Path, data_dir: Path, master_dirs=()) -> list:
     return stale
 
 
-def export(plugin: str, data_dir: Path) -> int:
-    """Clear, run the CK and collect `plugin`'s FaceGen; the FaceGeom NIFs collected. Raise if any carries cloth
-    physics for another pointer size than the game's."""
-    clear(plugin, data_dir)
-    run_ck(plugin, data_dir)
+def export(plugin: str, data_dir: Path, ck: bool = True) -> int:
+    """Clear, run the CK (unless not `ck`: an earlier run's files wait where MO2 put them) and collect `plugin`'s
+    FaceGen; the FaceGeom NIFs collected. Raise if any carries cloth physics for another pointer size than the
+    game's."""
+    if ck:
+        clear(plugin, data_dir)
+        run_ck(plugin, data_dir)
     nifs = collect(plugin, data_dir)
     wrong = [p.name for p in nifs if set(cloth_pointer_sizes(p.read_bytes())) - {GAME_POINTER_SIZE}]
     if wrong:
@@ -240,11 +242,13 @@ def main():
     ap.add_argument('--data', required=True, help='The mod folder holding the plugin')
     ap.add_argument('--keep-loose', action='store_true',
                     help="Keep the loose copies of what the plugin's archives hold (a build folder fo4_deploy copies)")
+    ap.add_argument('--collected', action='store_true',
+                    help="Don't run the CK first: collect the FaceGen an earlier CK run left where MO2 puts it")
     ap.add_argument('plugin', help='Plugin file name')
     args = ap.parse_args()
     data_dir, export_dir = Path(args.data), Path(args.export)
     print('loose files restored from the Main archive:', restore_packed(data_dir, args.plugin))
-    print('FaceGeom NIFs:', export(args.plugin, data_dir))
+    print('FaceGeom NIFs:', export(args.plugin, data_dir, not args.collected))
     for round_ in range(REFINE_ROUNDS + 1):
         refined = refine_fits(export_dir, data_dir, args.plugin, apply=round_ < REFINE_ROUNDS)
         for line in refined:
