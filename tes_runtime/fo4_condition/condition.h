@@ -259,6 +259,11 @@ void RegisterPages(VirtualMachine *vm);
 // Register F3NV_Sex's native ChangeSex, run through F4SE's task interface `tasks`.
 void RegisterSex(VirtualMachine *vm, void *tasks);
 
+// ---- A Goodbye ends the talk (talk.cpp; docs/fork/fo4_pipeline.md#goodbye-ends-talk) ----
+
+// Register F3NV_Talk's native EndTalk, run through F4SE's task interface `tasks`.
+void RegisterTalk(VirtualMachine *vm, void *tasks);
+
 // ---- Damage Threshold (damage.cpp; docs/fork/fo4_pipeline.md#damage-threshold) ----
 
 // Point FO4's two resistance-curve calls at FNV's DT and DR, and count a projectile hit's pellets, through

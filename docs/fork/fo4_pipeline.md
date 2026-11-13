@@ -3938,6 +3938,38 @@ The Fallout 4 override also requires `UI.IsMenuOpen("DialogueMenu")`, as
 `ShowBarterMenu` already does. A goodbye line still playing after the menu
 closes keeps the hold (`_IsSpeaking`), as before.
 
+## <a id="goodbye-ends-talk"></a>A Goodbye line ends the talk (2026-11-12, after play; not yet played)
+
+The dialogue gate fixes above shortened the gate but not the hold. In the
+2026-11-12 play, Doc's goodbye (INFO 001057E7) ended its scene at 496.9 s,
+and its end fragment restarted `VGenericTimer` at 497.0 s. The quest's script
+bound then, but its first pass (VCG01 stage 200, VCG02 stage 5) ran only at
+512.0 s. That came just after Doc's talk ended at 511.6 s (his parked greet
+package cleared, a package burst). Fallout 4 does not finish a quest start
+while the talk runs, and the talk outlived its scene by about 15 s.
+
+Fallout4.exe 1.11.240:
+- A scene's end calls the end-the-talk function 0xBB0720 (MenuTopicManager
+  0x30E6E50; calls at 0x637693 and 0x637A06) for a scene flagged Has Player
+  Dialogue. The function does nothing while the player's own current scene is
+  another scene. Our answer and goodbye scenes hold only the NPC.
+- A line flagged End Running Scene (every converted Goodbye) skips the talk's
+  other exit, the one begun as a line nears its end (0xC7C0CA, 0x4FF08A).
+- Otherwise the speaker's update ends the talk with
+  `0xBB0720(manager, speaker, player's current scene, true)` (0xC7CB1B), once
+  the speaker's process requests an exit. Without one it waits on the
+  dialogue timer: `fAIInDialogueModewithPlayerTimer` is 30 s in Fallout4.esm,
+  set as a talk starts and as each line starts (0xC5A0D5, 0xC7C22E).
+
+So every FNV Goodbye line of a Topic (DialogType 0, 6,405 in FalloutNV.esm;
+1,044 of them had no fragment and now get one) begins its End fragment with
+`F3NV_Talk.EndTalk(akSpeakerRef)` (`script_convert/goodbye_talk.py`). On the
+game's next frame F3NV.dll (`talk.cpp`) makes the speaker update's own call,
+when the talk still runs with that speaker. It leaves the talk up when the
+player is in another scene that still plays (one the result script started).
+F3NV.log names each outcome: `goodbye of <speaker>: talk ended | talk left up |
+no talk runs`.
+
 ## <a id="furniture-seated"></a>On furniture means seated (2026-11-12, after play; not yet played)
 
 `IsCurrentFurnitureRef` read `GetFurnitureReference()` alone. Fallout 4 names

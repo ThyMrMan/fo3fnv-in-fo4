@@ -284,6 +284,7 @@ bool Register(VirtualMachine *vm) {
     RegisterAmmo(vm);
     RegisterItemCard(vm);
     RegisterSex(vm, g_tasks);
+    RegisterTalk(vm, g_tasks);
     RegisterDamage(vm);
     RegisterHardcore(vm);
     vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, float, TESObjectREFR *, TESForm *>(

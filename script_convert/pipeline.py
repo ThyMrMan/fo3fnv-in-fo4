@@ -55,6 +55,7 @@ from script_convert.say_durations import scan_voice_durations
 from script_convert.speech_challenges_falloutnv import reroll_line, speech_helper
 from tes5_import.dialogue.speech_chance_falloutnv import NEED_GLOBALS, rerolls
 from script_convert.force_greet_lines import in_menu_only, menu_only_infos
+from script_convert.goodbye_talk import END_TALK, ends_talk
 from script_convert.talked_to_pc import greeted
 from script_convert.weapon_hits import as_effect
 from script_convert.say_to_done import (fragment_calls, say_to_done_hooks,
@@ -789,8 +790,8 @@ def _info_begin_fragment(body_lines: list, seq_gate: str, length: float,
 
 
 def _info_end_fragment(body_lines: list, seq_gate: str,
-                       service_kind, length: float, done_calls=()) -> list:
-    """Fragment_0 (OnEnd): the TES4 result, LineEnded, then SayToDone.
+                       service_kind, length: float, done_calls=(), first=()) -> list:
+    """Fragment_0 (OnEnd): the `first` calls, the TES4 result, LineEnded, then SayToDone.
 
     A poll waiting on this speaker must see the result's state writes before
     it can issue the next line. The body is gated only when it owns the
@@ -799,7 +800,7 @@ def _info_end_fragment(body_lines: list, seq_gate: str,
     See: docs/commentary/script_convert.md#sequenced-fragment-surgery
     See: docs/commentary/script_convert.md#saytodone
     """
-    out = ['Function Fragment_0(ObjectReference akSpeakerRef)']
+    out = ['Function Fragment_0(ObjectReference akSpeakerRef)', *first]
     body_lines = state_writes_before_setstage(body_lines)
     counter_step, rest_body = split_counter_step(body_lines, seq_gate)
     if seq_gate and body_lines and counter_step:
@@ -864,7 +865,8 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
     out_lines += _info_begin_fragment(body_lines, seq_gate, length, [*begin_lines, *greeted(rec)], reveals)
     done = (_WORKER_CTX.get('say_to_done') or {}).get((rec.get('ParentDIAL') or '').upper(), ())
     out_lines += _info_end_fragment(body_lines, seq_gate, service_kind, length,
-                                    fragment_calls(done) + ([reroll_line()] if speech else []))
+                                    fragment_calls(done) + ([reroll_line()] if speech else []),
+                                    [END_TALK] if ends_talk(rec) else [])
     if conv:
         out_lines.extend(conv.get_cell_family_helpers())
     if target.is_fallout4() and radio_lines.is_radio(rec):
@@ -1195,7 +1197,7 @@ def info_needs_fragment(rec: dict, info_reveals: dict = None,
         fid24 = int(rec.get('FormID') or '0', 16) & 0xFFFFFF
     except (TypeError, ValueError):
         fid24 = 0
-    if fid24 and fid24 in info_reveals:
+    if fid24 and fid24 in info_reveals or ends_talk(rec):
         return True
 
     parent = (rec.get('ParentDIAL') or '').strip()
