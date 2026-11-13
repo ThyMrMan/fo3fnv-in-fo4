@@ -1023,7 +1023,7 @@ EndFunction
 
 ; fallout4: replaces PlayerIsInDialogue cbc5d6e0cee16f47bd63c10aa645c6790d642178
 Bool Function PlayerIsInDialogue() Global
-  {True while the player's dialogue menu is open with the last stamped speaker, or that speaker's last line still plays. Fallout 4 keeps IsInDialogueWithPlayer true on a speaker for seconds after the talk ends (22 s on Doc after his goodbye, the player already outside), so the menu must be open too. See docs/fork/fo4_pipeline.md#dialogue-gate}
+  {True while the player and the last stamped speaker are in the same scene (the conversation), or that speaker's last line still plays. Fallout 4 keeps IsInDialogueWithPlayer and the DialogueMenu up for 16-22 s after the talk's scene ends, so neither marks the talk. See docs/fork/fo4_pipeline.md#dialogue-gate}
   Actor p = Game.GetPlayer()
   ActorValue hiAV = AV("Variable05")
   ActorValue loAV = AV("Variable06")
@@ -1036,7 +1036,8 @@ Bool Function PlayerIsInDialogue() Global
   If hi < 32768.0
     r = Game.GetForm((hi as Int) * 65536 + (lo as Int)) as ObjectReference
   EndIf
-  If r != None && UI.IsMenuOpen("DialogueMenu") && r.IsInDialogueWithPlayer()
+  Scene talk = p.GetCurrentScene()
+  If r != None && talk != None && r.GetCurrentScene() == talk
     Return True
   EndIf
   Actor ra = r as Actor
@@ -1045,5 +1046,8 @@ Bool Function PlayerIsInDialogue() Global
   EndIf
   p.SetValue(hiAV, 0.0)
   p.SetValue(loAV, 0.0)
+  If Tracing()
+    TraceWrite("dialogue gate", "cleared|" + r)
+  EndIf
   Return False
 EndFunction
