@@ -3100,6 +3100,12 @@ were converted and the joints between them dropped.
   - Pivots are scaled to FO4 units. A baked `bhkRigidBodyT`'s transform
     moves its side's vectors.
   - The motor is written as none.
+  - FNV also lists Havok actions in a body's constraints
+    (`bhkOrientHingedBodyAction` on the sentry turret skeletons,
+    `bhkLiquidAction` on `dlc03flamerexplosion` and `nukagrenadeexplosion01`).
+    They have no `entities`, and reading them as constraints failed those
+    four meshes' conversion. FO4's physics (`hknpPhysicsSystemData`) has no
+    actions, so they are left out like any other kind we do not write.
 - A mesh with joints sets Articulated (`0x80`).
 - **Played: still a solid object with glitchy physics.** The collision
   converter hung each body on a new node off the root, and the visible

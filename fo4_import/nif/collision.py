@@ -562,10 +562,16 @@ def joints(nif: NifFile, bodies: dict) -> None:
 
 def _joint(c, bodies: dict) -> 'bytes | None':
     """FNV constraint `c` in FO4's pre-Elric layout (twist/axis vectors before each pivot); None when it is
-    not a ragdoll or limited hinge or joins a body not converted."""
-    ends = [bodies.get(id(e() if callable(e) else e)) for e in c.entities]
+    not a ragdoll or limited hinge (an action listed beside the constraints included) or joins a body not
+    converted.
+
+    See: docs/fork/fo4_pipeline.md#ragdolls
+    """
     kind = type(c).__name__
-    if None in ends or kind not in JOINT_FIELDS:
+    if kind not in JOINT_FIELDS:
+        return None
+    ends = [bodies.get(id(e() if callable(e) else e)) for e in c.entities]
+    if None in ends:
         return None
     desc = getattr(c, JOINT_FIELDS[kind][0])
     side = [(ends[0], JOINT_FIELDS[kind][1]), (ends[1], JOINT_FIELDS[kind][2])]

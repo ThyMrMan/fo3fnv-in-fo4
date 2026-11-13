@@ -680,10 +680,10 @@ have an Elric entry, because other changes moved their pre-Elric bytes;
 our writer covers them, the compare cannot check them). In FNV nothing
 reaches Elric after this; what our writer would still refuse (a constraint
 other than ragdoll and limited hinge, a flat shape on a moving body) does
-not occur. Four meshes fail conversion before any physics, with Elric or
-without: the sentry turret skeletons and two explosions, whose
-`bhkOrientHingedBodyAction` and `bhkLiquidAction` `collision.py` reads as
-constraints. FO3 was not censused.
+not occur. Four meshes used to fail conversion before any physics (the
+sentry turret skeletons and two explosions: `collision.py` read their Havok
+actions as constraints, [fixed](fo4_pipeline.md#ragdolls)); all four now
+convert and are ours. FO3 was not censused.
 
 ## <a id="check"></a>How each step is checked
 
