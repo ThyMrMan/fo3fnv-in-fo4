@@ -655,9 +655,9 @@ class Npcs:
             return b'', None
         sculpted, tinted, chosen = fitted
         self.builder.counts['face fitted'] += 1
-        swaps, face, tinted = self.own_heads.of(npc, female, chosen, tinted, self.assets)
+        swaps, worn, face, tinted = self.own_heads.of(npc, female, chosen, tinted, self.assets)
         return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female, self.tone_layers), _preset_edit(sculpted),
-                                                 head_parts_edit(chosen, self.assets, swaps), face)
+                                                 head_parts_edit(chosen, self.assets, swaps, worn), face)
 
     def warm_faces(self, fnvs: list, workers: int = 0) -> int:
         """Fit in `workers` processes (face_workers by default), each on one BLAS thread, the faces the bases of FNV

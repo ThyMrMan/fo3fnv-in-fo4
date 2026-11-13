@@ -3916,8 +3916,16 @@ BA2s (GNRL, and DX10 as a one-mip DDS), so no reference copy is read.
   fitted to the rest). FO4's base face texture has brows painted in, as
   FNV's does, and FO4's brow options are all dark: for Doc (silver brows
   over dark painted ones) none is chosen.
-- **FNV head parts** have no type: centred below the eye mesh they are facial
-  hair, above it brows, otherwise reported. The FNV export has no NPC PNAM
+- **FNV head parts** have no type: a part drawn as hair, centred below the
+  eye mesh, is facial hair, above it brows, otherwise reported. Drawn as hair
+  means its mesh's texture set names a hair layer (slot 2, the `_hl`): all 20
+  beard and brow meshes of FalloutNV.esm and its DLCs do and are
+  alpha-blended; the one other mesh, `Eyepatch.NIF` (opaque, no `_hl`), does
+  not. Placed by its centre alone the eyepatch (strap above the eyes) was a
+  brow: painted in hair colour onto the face texture over the eye and across
+  the brow, and fitted as brow tint (13 FalloutNV NPCs, Tommy Torini among
+  them). It is now worn as its own Misc head part
+  ([worn parts](fo4_facegen_plan.md#worn-parts)). The FNV export has no NPC PNAM
   and dumps HDPT as sizes, so both are read from FalloutNV.esm. `export\` is
   shared with the Skyrim fork, whose exporter has moved on, so the export is
   not redone from this repo.

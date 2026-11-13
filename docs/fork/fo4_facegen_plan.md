@@ -174,6 +174,37 @@ listed [below](#risks); the first to settle is whether the game draws our
 FaceGeom NIF for an NPC whose record also carries sliders (it should, as it
 does the CK's).
 
+## <a id="worn-parts"></a>Built: FNV head parts not drawn as hair, worn (2026-11-13)
+
+**Code:** `fo4_import/spike/own_heads.py` (`_worn_part`), `fo4_import/spike/fnv_npc.py` (`worn_parts`).
+
+FNV's `Eyepatch.NIF` is the one game head part whose mesh names no hair layer
+([spike 2](fo4_spikes.md#spike-2-hair)); placed as a brow it was painted onto
+Tommy Torini's face texture. Each such part, in any plugin, now becomes its own
+FO4 head part:
+
+- **Record:** a new HDPT per FNV HDPT FormID and sex (`derive_formid('FNV own
+  head', 'PART <FNV HDPT> <sex>')`, the mesh is fitted per sex): EditorID
+  `FNV_<EditorID>_<sex>`, MODL, DATA the sex bit, PNAM 0 (Misc), NAM0/NAM1 its
+  chargen `.tri`, as the own hair's. Vanilla's model: Nick Valentine's misc
+  parts (`SynthGen2SkinValentine`, `SynthGen2PartsValentine`: PNAM 0, not
+  extra parts, listed on the NPC). Of Fallout4.esm's 148 Misc parts 145 are
+  extra parts (hairlines); HumanRace's defaults hold no Misc part, so adding
+  one hides no race default in the CK's or our FaceGen part list.
+- **Mesh:** `Equipment.head_worn`, as the own hair: the FNV static conversion
+  (its own `eyepatch.dds` and `_n`, no hair tint) fitted to FO4's head and
+  skinned to HEAD, one segment on slot 32 (FaceGen Head), the slot of
+  vanilla's eyes (82 of 85) and mouths: FNV draws head parts as part of the
+  head, so what hides FO4's head hides it.
+- **NPC:** `head_parts_edit` adds it after the chosen parts. Our FaceGen
+  (`facegeom.head_parts`) and the CK draw every non-extra part the NPC lists,
+  so the FaceGeom carries it with no FaceGen change.
+
+FalloutNV.esm: 13 NPCs list the eyepatch, 10 of them built and face-fitted
+(6 men, 4 women), so 2 new HDPT records, 2 worn meshes and 2 chargen `.tri`
+files. Measured on the built plugin's ledger (496,896 ids): both keys new,
+their ids in neither the ledger nor the plugin, 0 existing ids moved.
+
 ## <a id="own-heads"></a>Built: a mod's own hair, eyes and face skin (2026-11-11)
 
 **Code:** `fo4_import/spike/own_heads.py`, `fo4_import/nif/hair_mesh.py`,
@@ -886,11 +917,14 @@ hair have one; FalloutNV.esm has none.
 
 ### Published face fits
 
-`FIT_VERSION` is 3. The sculpt entry is (FMRI/FMRS bytes, ((MSDK key,
+`FIT_VERSION` is 4. The sculpt entry is (FMRI/FMRS bytes, ((MSDK key,
 weight), ...), rms): numbers and Fallout4.esm keys only, so the fits are still
 publishable. The basis hash now covers the preset bases too. The refine round
-is per machine (it reads the CK's export) and is not published. The fits file
-must be re-exported and republished under version 3.
+is per machine (it reads the CK's export) and is not published. Version 4:
+only head parts drawn as hair are brows or facial hair (the eyepatch's tint
+fit no longer counts it as a brow; see
+[spike 2](fo4_spikes.md#spike-2-hair)). The fits file must be re-exported and
+republished under version 4.
 
 ## <a id="sculpt-regions"></a>Decoded: sculpt regions through the face bones (2026-11-12)
 
