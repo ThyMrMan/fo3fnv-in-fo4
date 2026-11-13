@@ -19,11 +19,16 @@ span, each rising from the last) also gets a stair-helper ramp, as vanilla
 puts under its staircases: a thin slab whose top face runs through the
 first and last nosings down to the flight's foot, which only FO4's
 character controller meets, so it walks up a slope instead of each step.
+Some FNV staircases are collision ramps with no treads (Lucky 38's curved
+stairs, Novac's motel, the vault halls): a face too steep to walk between
+such a ramp and a level landing (or the ground) is a step, marked with the
+ramp and landing it joins.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 #: Tallest step (game units) marked, within TOUCH: vanilla's tallest stairs riser is 22; FNV kits use 24.
 RISER_MAX = 24.0
@@ -33,6 +38,10 @@ RISER_MIN = 8.0
 REACH = 24.0
 #: |normal z| at least this is a tread, at most VERTICAL an upright face.
 FLAT, VERTICAL = 0.98, 0.17
+#: |normal z| from which a face is walkable ground or ramp (50 degrees; Novac motel's stairs ramp is 38).
+WALKABLE = 0.64
+#: |normal z| from which a face is a built floor (2.6 degrees), not a sculpted surface's near-flat facet.
+LEVEL = 0.999
 #: Game units a point may sit off a face and still touch it.
 TOUCH = 1.0
 #: Fewest steps in a row that get a stair-helper ramp (vanilla's ramped flights have 7 to 15).
@@ -133,6 +142,39 @@ def _ground_steps(corners: np.ndarray, nz: np.ndarray, treads: np.ndarray) -> se
     return marked
 
 
+def _ramp_steps(corners: np.ndarray, nz: np.ndarray) -> set:
+    """Faces too steep to walk, SHORT_RISE to RISER_MAX tall, between a ramp face and a LEVEL one (or the mesh's
+    lowest point, below), both at least REACH square and the ramp rising more than RISER_MIN, with the faces their
+    corners meet: an FNV collision ramp's lip onto its landing or its riser up from the floor.
+    See: docs/fork/fo4_pipeline.md#ramp-lips
+    """
+    walk = np.nonzero(nz >= WALKABLE)[0]
+    if not len(walk):
+        return set()
+    tree, base, marked = cKDTree(corners[walk].reshape(-1, 3)), corners[:, :, 2].min(), set()
+    sides = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    big = np.linalg.norm(sides, axis=1) >= 2 * REACH ** 2
+    level, ramp_face = big & (nz >= LEVEL), big & (nz < FLAT) & (np.ptp(corners[:, :, 2], axis=1) > RISER_MIN)
+    for i in np.nonzero(nz < WALKABLE)[0]:
+        z = corners[i, :, 2]
+        if not SHORT_RISE - TOUCH <= z.max() - z.min() <= RISER_MAX + TOUCH:
+            continue
+        top = _met(tree, walk, corners[i][z >= z.max() - TOUCH])
+        grounded = z.min() <= base + TOUCH
+        bottom = set() if grounded else _met(tree, walk, corners[i][z <= z.min() + TOUCH])
+        tread = [level[list(top)].any(), grounded or level[list(bottom)].any()]
+        ramp = [ramp_face[list(side)].any() for side in (top, bottom)]
+        if top and (grounded or bottom) and (ramp[0] and tread[1] or tread[0] and ramp[1]):
+            marked.update([int(i), *top, *bottom])
+    return marked
+
+
+def _met(tree, walk: np.ndarray, points: np.ndarray) -> set:
+    """Faces of `walk` that `points` meet within TOUCH; empty unless every point does."""
+    near = tree.query_ball_point(points, TOUCH)
+    return {int(walk[k // 3]) for hits in near for k in hits} if all(len(h) for h in near) else set()
+
+
 def _riser_faces(p: np.ndarray, q: np.ndarray, low: float, out: np.ndarray) -> list:
     """Two triangles closing a step from edge p-q down to height `low`, facing `out`."""
     top_p, top_q = p.copy(), q.copy()
@@ -222,7 +264,7 @@ def stairs(tris: list, materials: list, unit: float, stairs_of) -> tuple:
     corners, nz = faces(tris, unit)
     treads = np.nonzero(nz >= FLAT)[0]
     marked, risers = _edge_steps(corners, treads)
-    marked |= _ground_steps(corners, nz, treads)
+    marked |= _ground_steps(corners, nz, treads) | _ramp_steps(corners, nz)
     out_mats = [stairs_of(m) if i in marked else m for i, m in enumerate(materials)]
     added = [(tuple(tuple(c / unit) for c in face), stairs_of(materials[i]))
              for i, p, q, low, out in risers for face in _riser_faces(p, q, low, out)]

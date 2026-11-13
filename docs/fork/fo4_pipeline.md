@@ -6842,6 +6842,26 @@ refuses as a plain step. Census over every FNV mesh:
 - It keeps the ruined slide's ladder steps (22 to 24) and the train
   station bench (15 and 18, within 1 unit of 16).
 
+<a id="ramp-lips"></a>**Collision-ramp stairs get their lips marked (proposed 2026-11-13, not yet played).**
+Lucky 38's curved staircase (REFR 00116689, `NVLucky38Stairs03`) "isn't
+always smooth". Its collision has no treads: FNV built it as a faceted
+ramp (27–44°, material 0, no stairs bit) from a 12.5-unit plain riser at
+the foot (80 → 93) to 362, then a 54–63° lip 19.5 tall onto the floor at
+381.7. The stairs pass found no flight and left both plain; a plain 19.5
+step is past what FO4 climbs. Vanilla's own curved stairs
+(`BldWoodPSmStairsSpiral01`) carry a stepped mesh plus a layer-31
+`hknpDynamicCompoundShape` of 10 planar 8-corner helper slabs, one per
+36° sector, level across the radius. `stairs._ramp_steps` now marks a
+face too steep to walk (under `WALKABLE`), 16 to 24 tall, between a ramp
+face and a level face (or the mesh's lowest point, below), each at least
+24 square and the ramp rising more than 8, with the faces it joins. Old
+vs new over every FNV mesh: 511 of 14,885 meshes change (334 placed,
+5,688 placements); no ramp is added or moved. Stair cases among them:
+the Lucky 38 stairs 01/01a/03/04, Novac's motel riser (15.8, the stuck
+spot above), vault hall stairs (`vhallsmstairs01`, 24-unit lips onto
+landings). The rest are rocks, curbs, roads, walls and vehicle beds with
+a 16–24 lip at a ramp's edge; they take only the stairs material.
+
 <a id="glass-texture"></a>**Textured glass at full strength (built 2026-10-25; Madrid played).** FNV glass
 converts to vanilla's beaker BGEM, whose base colour is a dark grey (0.18,
 0.19, 0.20) at scale 0.2: it multiplies FNV's glass texture (the Madrid

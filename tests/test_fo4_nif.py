@@ -470,6 +470,29 @@ def test_a_flight_whose_first_steps_are_elsewhere_ramps_down_to_the_floor_but_on
     assert feet == [0, 48]
 
 
+def _ramp_to_landing(lip: float, tilt: float = 0.0) -> list:
+    """A 31-degree collision ramp 100 wide rising 60 up +Y, a 63-degree lip `lip` tall, a landing (tilted `tilt`)."""
+    def quad(a, b, c, d):
+        """Two triangles of quad a-b-c-d."""
+        return [(a, b, c), (a, c, d)]
+    top = 60 + lip
+    return (quad((0, 0, 0), (100, 0, 0), (100, 100, 60), (0, 100, 60))
+            + quad((0, 100, 60), (100, 100, 60), (100, 110, top), (0, 110, top))
+            + quad((0, 110, top), (100, 110, top), (100, 210, top + tilt), (0, 210, top + tilt)))
+
+
+def test_a_collision_ramps_lip_onto_its_landing_is_stairs():
+    """Lucky 38's curved stairs: a collision ramp ending 19.5 below its floor behind a 54-63 degree lip. A 20-unit
+    lip takes stairs material with the ramp and landing; a 12-unit one (FO4 climbs it plain) and one onto a
+    sculpted, 5-degree top stay plain."""
+    def marked(tris):
+        """How many of `tris` the pass marks."""
+        return sum(m == 1 for m in S.stairs(tris, [0] * len(tris), 1.0, lambda m: m + 1)[1])
+    assert marked(_ramp_to_landing(20.0)) == 6
+    assert marked(_ramp_to_landing(12.0)) == 0
+    assert marked(_ramp_to_landing(20.0, tilt=9.0)) == 0
+
+
 def test_skin_uv_extends_one_body_triangles_mapping_and_stretch_compares_uv_to_size():
     """A point off a triangle's corner takes its mapping extended; a triangle spanning the atlas is stretched."""
     corners = np.array([(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (0.0, 10.0, 0.0)])
