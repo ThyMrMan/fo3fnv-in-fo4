@@ -4,7 +4,8 @@ A key is the work's site and the bytes it reads (source files, images, settings)
 it, `<entry>.ran` keeps the identity of every repo function that ran making it (ran_code, code_identity): an
 entry whose functions all keep their identity is current, so an edit to code the work never ran keeps it. A
 value stored without that record keeps every function of its module's import tree (code_tag.tagged_files). The
-cache is this machine's only; an entry's time is when a build last used it, and prune() drops what no build used.
+cache is this machine's only; an entry's time is when a build last used it (to the day: mark_used), and prune()
+drops what no build used.
 
 See: docs/fork/fo4_plugin_layout.md#code-identity
 """
@@ -33,6 +34,8 @@ from fo4_import.pipeline.ran_code import ran_while
 CACHE = ROOT / 'output' / 'fo4_cache' / 'work'
 #: Days an entry of a cache prune() is given may go unused before it is deleted.
 UNUSED_DAYS = 14
+#: Seconds a used entry's time may lag before a lookup marks it again: prune() counts whole days.
+MARK_EVERY = 86400
 RAN_SUFFIX = '.ran'
 #: The file whose time is when prune() last swept, beside the caches.
 PRUNED = CACHE.parent / 'pruned'
@@ -95,11 +98,23 @@ def current(site: str, inputs: tuple) -> 'str | None':
     """current_ran() of `site`'s entry for `inputs`, the entry marked used when current; None when absent or stale.
     `module` (lookup, store) does not decide the entry."""
     entry = _entry(site, inputs)
-    made_by = current_ran(entry) if entry.exists() else None
+    try:
+        used = entry.stat().st_mtime
+    except OSError:
+        return None
+    made_by = current_ran(entry)
     if made_by is not None:
+        mark_used(entry, used)
+    return made_by
+
+
+def mark_used(entry: Path, used: float) -> None:
+    """Mark `entry` and its code record used now, unless `used` (its time) is under MARK_EVERY old.
+    See: docs/fork/fo4_build_speed.md#gun-parses
+    """
+    if time.time() - used >= MARK_EVERY:
         os.utime(entry)
         os.utime(ran_path(entry))
-    return made_by
 
 
 def store(site: str, module: str, inputs: tuple, value, ran: 'dict | None' = None):
@@ -236,15 +251,30 @@ def store_bytes(site: str, data: bytes) -> str:
     return digest
 
 
+def _bytes_entry(site: str, digest: str) -> 'tuple | None':
+    """(store_bytes' entry of `digest` under `site`, its time) while it and its code record exist; else None. The
+    record is always empty, so it is not read."""
+    entry = _entry(site, (digest,))
+    try:
+        used = entry.stat().st_mtime
+        ran_path(entry).stat()
+    except OSError:
+        return None
+    return entry, used
+
+
 def stored_bytes(site: str, digest: str) -> 'bytes | None':
-    """The bytes store_bytes kept under `site` as `digest`; None when gone."""
-    return lookup(site, '', (digest,))
+    """The bytes store_bytes kept under `site` as `digest`, marked used; None when gone."""
+    found = _bytes_entry(site, digest)
+    if found is None:
+        return None
+    mark_used(*found)
+    return pickle.loads(found[0].read_bytes())
 
 
 def has_bytes(site: str, digest: str) -> bool:
     """Whether stored_bytes finds `digest` under `site`, read or not."""
-    entry = _entry(site, (digest,))
-    return entry.exists() and current_ran(entry) is not None
+    return _bytes_entry(site, digest) is not None
 
 
 def named_strings(package: str = 'fo4_import') -> set:
