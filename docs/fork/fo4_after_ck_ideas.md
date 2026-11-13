@@ -256,8 +256,41 @@ missing entry shows in game as a frozen or wrong animation.
   the graph, as the CK does, would give its speed samples and fire positions
   exactly (ours are off by up to about 130 units/s on the mantis, and the
   fire positions by 0.6–64 units), plus offline previews and checks for any
-  FO4 graph. No open one exists for either game.
-  - **Fits:** a base for the patcher and the checker, not a first step.
+  FO4 graph. To our knowledge no open one exists for either game: Skyrim
+  has editors (Haviour) and patchers (Nemesis, Pandora) that read and
+  rewrite graphs, but none that runs them (general knowledge, not checked
+  against their sources).
+  - **What it is:** each frame, a graph takes the actor's variables and
+    events, steps its state machines, blends clips and applies modifiers,
+    and gives a pose and root motion. Ours would do that offline from the
+    `.hkx` files; the game keeps its own Havok.
+  - **Opens up, by value:**
+    1. Preview and debugging without the game: send events, watch the
+       states, see where it stops. The gecko's 12 frozen builds would have
+       been minutes.
+    2. Checks that run the graph: unreachable states, transitions whose
+       variable is never set, states with no way out (a frozen creature).
+       Static checks can't see these.
+    3. Testing merges: replay each source mod's event sequences on a
+       merged graph ([patcher](#behavior-patcher)).
+    4. Graphs written from a plain description of states, clips and
+       transitions, compiled to `.hkx` and checked by running. Combined
+       with [animation sets](#anim-sets), new FO4 creatures get practical.
+    5. Converting graphs between games (FNV, Skyrim, FO4) and checking that
+       the result behaves like the source, not only that it loads.
+    6. A map of vanilla graphs: which events drive what, which variables
+       matter.
+    7. Automated tests for animation mods ("still attacks, staggers, dies").
+  - **Doesn't open up:** new in-game node types (the game runs only what
+    its Havok knows; new ones need F4SE). Physics-driven nodes (ragdoll,
+    foot and hand IK) would be approximate offline.
+  - **License:** written from scratch from the file formats and observed
+    behavior, never the Havok SDK, like the existing open `.hkx` tools.
+  - **Stages:** state machines, clip generators and blend nodes first, no
+    physics. That covers the exact AnimTextData data, previews and the
+    run-based checks.
+  - **First step:** count the node types vanilla FO4 graphs use; that
+    count sizes the work.
   - **Size:** large.
 - **<a id="anim-open"></a>Still open in the format work.** Untested in
   game: whether loose AnimTextData counts the same as packed (all 35
