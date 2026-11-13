@@ -7,6 +7,7 @@ See: docs/fork/fo4_gui.md#cross-platform
 """
 
 import functools
+import re
 import struct
 from pathlib import Path
 
@@ -22,8 +23,24 @@ FALLOUT4_ESM = FALLOUT4_DIR / 'Data' / 'Fallout4.esm'
 FALLOUTNV_ESM = (find('falloutnv') or STEAM_COMMON / 'Fallout New Vegas') / 'Data' / 'FalloutNV.esm'
 #: A plugin file's header: its record header size.
 HEADER = 24
+#: The game's language when the install names none, as its archives spell it (`DLCRobot - Voices_en.ba2`).
+LANGUAGE = 'en'
 #: The plugin the running build converts (use_source).
 _SOURCE = {'plugin': FALLOUTNV_ESM, 'masters': ()}
+
+
+@functools.cache
+def game_language(game_dir: Path = FALLOUT4_DIR) -> str:
+    """sLanguage of `game_dir`'s Fallout4_Default.ini, which Steam writes for the installed language; LANGUAGE
+    without one. The game loads a plugin's voices from `<plugin> - Voices_<it>.ba2`.
+    See: docs/fork/fo4_build_speed.md#voices-archive
+    """
+    try:
+        text = (Path(game_dir) / 'Fallout4_Default.ini').read_text(encoding='cp1252', errors='replace')
+    except OSError:
+        return LANGUAGE
+    found = re.search(r'(?im)^[ \t]*sLanguage[ \t]*=[ \t]*(\w+)', text)
+    return found.group(1) if found else LANGUAGE
 
 
 def use_source(plugin: Path, masters: tuple = ()) -> None:

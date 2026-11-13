@@ -28,13 +28,17 @@ from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.face.memo import frozen
 from fo4_import.face.sculpt import CACHE
 from fo4_import.face.texture import shared_texel_points
-from tes5_import.base.tes5_reader import subrecords
+from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: HumanRace tint group indices (TTGE): complexion (Markings, Blemishes; not Face Tattoos), and Brows.
 COMPLEXION_GROUPS, BROW_GROUP = frozenset({2, 3}), 1
 #: xEdit's TETI slot enum: Skin Tone.
 SKIN_TONE_SLOT = 12
+#: Fallout4.esm HumanRace.
+HUMAN_RACE = 0x13746
+#: Per sex (female?), the NPC every calibration clone starts from, its face fields removed: the default human bodies.
+TEMPLATES = {False: 0x12FCCB, True: 0x09A680}
 #: NPC TETI data type of a value-only layer.
 VALUE_ONLY = 2
 WORK_SIZE = 256
@@ -258,3 +262,13 @@ def _loaded(path, stamp: int) -> tuple:
     with np.load(path) as d:
         return frozen((d['effects'].astype(np.float32), [int(o) for o in d['options']], d['baseline'],
                        [int(o) for o in d['brows']]))
+
+
+def skin_tone_layers(esm: bytes) -> frozenset:
+    """HumanRace's tint option indices in the Skin Tone slot (male and female), from Fallout4.esm's bytes `esm`."""
+    out = set()
+    for rec, _ in walk(esm, b'RACE'):
+        if rec.form_id == HUMAN_RACE:
+            out |= {struct.unpack('<HH', d)[1] for tag, d in subrecords(rec.body)
+                    if tag == b'TETI' and struct.unpack('<HH', d)[0] == SKIN_TONE_SLOT}
+    return frozenset(out)

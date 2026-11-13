@@ -23,12 +23,12 @@ KEY, OTHER = ('ab cd', (('EyebrowM', 'brow.nif'),), 'basis False'), ('ef', (), '
 
 
 def _fits() -> tuple:
-    """A face's three fits as the work cache holds them: sculpt (FMRI/FMRS, captured NaN), tint, head parts."""
+    """A face's three fits as the work cache holds them: sliders (FMRI/FMRS, presets, miss NaN), tint, head parts."""
     morphs = sculpt.face_morphs([0, 1, 7], np.array([[0.5, -0.25, 0, 0, 0, 0, 1 / 3]] * 3), all_regions=True)
     tinted = (np.array([0.1, 0.0, 2 / 3]), np.array([1.0, 0.9, 0.8]), 0.75)
     chosen = HeadChoice(hair=0x1411C7, facial_hair=None, eyes=0x2B2B6, colour=0x19EE67,
                         distances={'hair': 0.15677014877103143}, unmapped=['FNVHeadPartEdid'])
-    return (morphs, -float('nan')), tinted, chosen
+    return (morphs, ((0x36EF364E, 0.04), (0x36EF3699, 0.1)), -float('nan')), tinted, chosen
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def test_a_fit_survives_the_file_byte_for_byte_but_its_fnv_editor_ids():
     """Each fit decodes to what the work cache held (a NaN's sign aside); head parts lose only `unmapped`."""
     fits = _fits()
     decoded = F.decode(F.encode(fits))
-    assert decoded[0][0] == fits[0][0] and np.isnan(decoded[0][1])
+    assert decoded[0][:2] == fits[0][:2] and np.isnan(decoded[0][2])
     assert F.same(decoded[1], fits[1])
     assert decoded[2] == HeadChoice(**{**fits[2].__dict__, 'unmapped': []})
 
@@ -63,11 +63,12 @@ def test_a_sculpt_fit_holding_other_bytes_is_refused():
     """Only FMRI/FMRS pairs encode, so no other record bytes can reach the file."""
     morphs = pack_subrecord('FMRI', bytes(4)) + pack_subrecord('MODL', b'meshes\\head.nif\0')
     with pytest.raises(ValueError):
-        F.encode_sculpt((morphs, 1.0))
+        F.encode_sculpt((morphs, (), 1.0))
 
 
 @pytest.mark.parametrize('entry', [
-    [[[0, ['x'] * 7], 1.0], None, None],
+    [[[[0, ['x'] * 7]], [], 1.0], None, None],
+    [[[], [[-1, 0.5]], 1.0], None, None],
     [None, [[0.1], [1.0], '0.5'], None],
     [None, None, {'hair': 1, 'facial_hair': None, 'eyes': None, 'colour': None, 'distances': {}, 'unmapped': ['a']}],
     [None, None, {'hair': -1, 'facial_hair': None, 'eyes': None, 'colour': None, 'distances': {}}],

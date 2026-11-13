@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_write import write_general
 from tools.release import fo4_deploy as D
 
@@ -147,6 +148,23 @@ def test_loose_files_an_archive_holds_ship_only_in_it(tmp_path, capsys):
     assert not (mod / 'meshes').exists() and (mod / 'FalloutNV - Main.ba2').is_file()
     assert (mod / 'Scripts' / 'a.pex').read_text() == 'new' and (mod / 'Old' / 'Gone.dds').is_file()
     assert '1 loose files in the mod folder that the archives hold' in capsys.readouterr().out
+
+
+def test_an_install_whose_main_archive_held_the_voices_ends_with_each_voice_in_one_archive(tmp_path):
+    """An older deploy's Main holds a voice; the rebuilt Main does not and the voices archive does: both ship,
+    so each voice is in exactly one archive. A voices archive of a language no longer built is stale."""
+    build, mod = _folders(tmp_path)
+    voice, mesh = tmp_path / 'c.fuz', tmp_path / 'a.nif'
+    voice.write_text('v')
+    mesh.write_text('m')
+    write_general({'Meshes/a.nif': mesh, 'Sound/Voice/FalloutNV.esm/V/c.fuz': voice}, mod / 'FalloutNV - Main.ba2')
+    write_general({'Sound/Voice/FalloutNV.esm/V/c.fuz': voice}, mod / 'FalloutNV - Voices_de.ba2')
+    write_general({'Meshes/a.nif': mesh}, build / 'FalloutNV - Main.ba2')
+    write_general({'Sound/Voice/FalloutNV.esm/V/c.fuz': voice}, build / 'FalloutNV - Voices_en.ba2')
+    assert _run(build, mod, '--delete-stale') == 0
+    shipped = [Archive(path).entries for path in sorted(mod.glob('*.ba2'))]
+    assert [sorted(names) for names in shipped] == [['meshes\\a.nif'], ['sound\\voice\\falloutnv.esm\\v\\c.fuz']]
+    assert (mod / 'FalloutNV - Voices_en.ba2').is_file()
 
 
 def test_packed_scripts_ship_in_the_archive_and_a_hotfix_still_wins_until_a_later_build(tmp_path):

@@ -6,6 +6,7 @@ one record per file: duration, root translation and rotation keys, and the annot
 See: docs/fork/research/anim_text_data.md#offsets
 """
 
+import functools
 import struct
 from dataclasses import dataclass, field
 
@@ -49,6 +50,7 @@ def _string(data: bytes, at: int) -> tuple:
     return data[at + 1:at + size].decode('cp1252'), at + 1 + size
 
 
+@functools.lru_cache(maxsize=1 << 16)
 def pack_string(text: str) -> bytes:
     """`text` as the format stores a string."""
     raw = text.encode('cp1252') + b'\0'

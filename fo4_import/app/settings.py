@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from core import game_dirs
+from core.build_resources import DEFAULT as DEFAULT_RESOURCES, PROFILES
 from core.mod_sources import from_settings
 
 APP_DIR = Path(__file__).resolve().parents[2]
@@ -34,6 +35,7 @@ def defaults() -> dict:
         'mod_sources': [],
         'work_dir': '',
         'tools': {'wine': '', 'nifskope': ''},
+        'resources': DEFAULT_RESOURCES,
         'per_source': {source: {'output': {'kind': 'folder', 'path': ''},
                                 'replacements': {'where': 'app', 'path': ''},
                                 'scripts': '', 'profile': '', 'addons': [], 'target': ''} for source in SOURCES},
@@ -78,6 +80,8 @@ def check(settings: dict) -> None:
     """Refuse settings naming an unknown source, output kind, replacement place or mod source kind."""
     if settings['source'] not in SOURCES:
         raise ValueError(f"source {settings['source']!r} is not one of {tuple(SOURCES)}")
+    if settings['resources'] not in PROFILES:
+        raise ValueError(f"resources {settings['resources']!r} is not one of {tuple(PROFILES)}")
     for source, block in settings['per_source'].items():
         if block['output']['kind'] not in OUTPUT_KINDS:
             raise ValueError(f"{source}: output kind {block['output']['kind']!r} is not one of {OUTPUT_KINDS}")

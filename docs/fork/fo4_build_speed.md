@@ -15,7 +15,8 @@ rerun; *(timed)* was timed once in a single process on one male face
 | One mod against a built game | 7–41 min, whatever its size | the mod build remakes what its masters hold | 1–5 min, by the mod's size |
 | A developer's rebuild after a code change | 25–55 min, 135 when a cache empties | caches emptied by unrelated edits; every record remade | minutes |
 
-Related: [mod builds](fo4_mod_builds.md) (the master kit, MO2, the app),
+Related: [build resources](fo4_build_resources.md) (memory per stage, the Low/Balanced/Full setting, time
+estimates), [mod builds](fo4_mod_builds.md) (the master kit, MO2, the app),
 [Part D](fo4_plugin_layout.md#incremental) (the journal),
 [Part E](fo4_plugin_layout.md#which-builds) (which plugins build, code
 identity). This plan sets the order across them and adds what they lack.
@@ -393,6 +394,52 @@ that gone, more workers than cores would add their 27%.
   Elric's own run is already cached by bytes alone (`elric_cache.process`).
   So `elric_finish` keeps a code record: the functions `elric.finish` ran,
   not `ran=None`. *Built.*
+- <a id="collision-pool"></a>**Collision, one record a mesh, in a pool
+  (2026-11-12).** The warm build of 2026-11-12 spent 477.6 s in
+  `collision` because every one of the 7,707 `elric_finish` entries
+  missed: merge 31e28b34 had changed the hknp writer. Three things made that
+  miss total and slow:
+  - One `ran_while` covered the whole batch, so every entry's record named
+    every function any mesh ran (234 keys): an edit to ragdoll or
+    constraint code voided plain meshes too.
+  - Every record also named `core/process_memory.py`, `eta.py` and
+    `stage_timer.py`. sys.monitoring reports starts on every thread, and
+    the memory sampler and progress threads run beside each capture.
+  - The finish ran in the main process, one mesh at a time.
+
+  *Built:*
+  - `ran_code` keeps a start only in captures of the thread it ran on.
+    While another thread holds a capture, a start is reported again, so
+    that capture still sees it.
+  - `ran_code.ran_alone`: a record of what ran in this call, plus what ran
+    for the site earlier in this process in a file this call ran in, or in
+    a file holding a functools-cached function the site ran
+    (`cached_function`). That keeps a memo's work (`packfile.classes` and
+    its size table) without other meshes' code. `ran_while` still keeps
+    everything for its other sites.
+  - `elric_cache.finish_one` finishes one mesh with its own record.
+    `finished_each` runs the misses in worker processes (`pool_workers`, 512
+    MB each) once there are `POOLED` (16) or more. A mesh only a new Elric
+    run can finish raises `NeedsElric` in its worker (`cached_process`) and
+    joins one `_batch` after the pool, so Elric still runs as one instance.
+    Faults a worker meets come back with its result and are counted in the
+    main process.
+
+  Measured on a scratch copy, pre-Elric meshes taken from the build's
+  `mesh_files` cache, empty work caches:
+
+  | Meshes | Old (one batch, main process) | New (per mesh, pool) | Output |
+  |---|---|---|---|
+  | 300 | 36.4 s | 6.2 s | all 300 byte-identical, same failures |
+  | 53 (3 our writer leaves to Elric) | 10.7 s | 5.5 s | all 53 byte-identical |
+
+  A second pass over the 300 (all hits) takes 2.8 s. A box mesh's record
+  now names 11 files, without `hknp_ragdoll`, `hknp_round`,
+  `hknp_compound`, `anim_blocks` or `particle_blocks`; the old batch
+  record named 18. Only 3 of the first 1,500 cached meshes need Elric.
+  Worker memory: 82 MB committed after imports with the build's one BLAS
+  thread (`configure_multiprocessing`), 18 MB more for the largest of those
+  1,500; without that setting, numpy alone commits 501 MB.
 - **Prune.** The gun clip cache keeps the hashes of the files it wrote and one
   copy of each, not a copy per entry (11 GB today). Entries without a code
   record, and the sites no code names any more (`bordered_map`, `encode_dds`,
@@ -502,6 +549,17 @@ build compiled 0 of 68 scripts in 3.0–3.7 s, so the 2026-11-10 stamp fix
 holds. The overnight 41–174 s came from that run rewriting every dialogue
 script. The first build into a new folder compiled all 68 in 92 s: 18 Caprica
 runs, because 3 scripts have source errors and Caprica stops at each.
+
+On FalloutNV.esm (2026-11-12) two builds in a row compiled all 16,189
+scripts (67.8 s and 73.0 s). That looked like every build, but it isn't:
+the next build compiled 1 of 16,189, and earlier ones 15 and 2. The second
+full compile followed commit 37e74d8e, which dropped LevelUpMenuEx's
+header folder from the import list. `saved_state` keeps no results across
+another import list, header contents or Caprica, because those can change
+any script's compile. The `.pex` files were there all along:
+`restore_packed` brought back 77,355 loose files at the next build's
+start. One edit to `TES4Polyfill.psc` with unchanged declarations
+recompiled only that script.
 
 | Cost | Seen before the fixes above | Lead |
 |---|---|---|
@@ -853,6 +911,238 @@ process holding 589,612 references remains a suspect. So retry with a
 scoped build first: one small area, fewer workers and a job cap around
 12 GB.
 
+### <a id="audit-2026-11-12"></a>Two stages that slowed down, 2026-11-12 (V)
+
+The 2026-11-12 overnight base build took 32 min, but two stages grew. All
+times below are under cProfile, on scratch copies of `temp/profile_data`'s
+`FalloutNV.esm` and `FalloutNV - Main.ba2` (clips read through the archive)
+and of the `anim offsets records` work cache.
+
+#### <a id="anim-data-2026-11-12"></a>Animation data: 1,039.5 s to about 45 s warm
+
+**Cause (measured).** `anim_text.compute()` ran once per entry: 3,913 entries
+in the base game. Each call did three expensive things:
+- read the 14.6 MB records table from the work cache again (0.1–0.3 s);
+- stored the whole table again when it added a clip;
+- started and stopped its own process pool when it had 16 or more new clips.
+
+On the old code, the entries step took 990.6 s (the overnight build: 1,039.5 s).
+Of that, 687 s was tearing down 293 pools.
+
+Separately, `ba2_pack.data_file` built a new `Archive` for every read of a
+file that is only in an archive, re-parsing the 150,202-entry index of the
+5.1 GB Main each time. That hits creature graphs and clips once they are no
+longer loose, and a DLC reading its master's clips.
+
+**Fix.**
+- `Known.table`: the table is read once per run, and `anim_text.save()`
+  stores it once.
+- `entry_files`: computes every entry's clips in one `compute()` (one pool),
+  each spelled as the first entry names it, as before.
+- `ba2_pack._archive`: each archive's index is kept per path, size and time.
+- `anim_offsets.pack_string` and `anim_text._stem` are memoized.
+
+| Step (s) | Old | New, cold | New, warm |
+|---|---|---|---|
+| vanilla, copies | 18.7 | 16.1 | 17.3 |
+| creatures | 10.4 (100 in the 11-12 scratch run, archive per read) | 6.1 | 3.2 |
+| entries (3,913) | 990.6 | 136.6 | 22.1 |
+| Honest Hearts entries (302, master clips via the archive) | 115.0 | 25.2 | — |
+
+- **Output unchanged:** all 4,018 computed files and the copied-entry list
+  hash the same for old, new cold and new warm. Honest Hearts' 302 do too.
+- **Not done:** keying the table by archive stamps instead of hashing. Warm,
+  reading and hashing every clip costs about 7 s.
+- **One cold run to come:** the `anim_offsets` edit changes the identity of
+  the code that made the table, so the next build computes all ~19,000 clips
+  again (about 2 min).
+
+#### <a id="main-archive-2026-11-12"></a>Main archive: 36 s to 138 s is the disk
+
+From 36.0 s (2026-11-11, 122,107 files) to 138.2 s (2026-11-12, 150,202
+files, 5.08 GB).
+
+**Where it goes.** `write_general` writes the whole archive again on every
+build that changes anything. The 11-12 build touched 69,069 of its files
+(2.25 GB):
+- AnimTextData: 19,588 files, 1.21 GB;
+- meshes: 29,515 files, 1.02 GB;
+- scripts: 15,983 files;
+- materials: 3,983 files.
+
+Those files are read loose. The 75,166 sounds (2.65 GB; voices are 72,785
+of them, 2.54 GB) were untouched, so they are block-copied out of the old
+archive.
+
+| `pack_main` on the scratch folder | Old | New |
+|---|---|---|
+| cold: every file read loose | 180.7 s | — |
+| non-sound files touched (75,036), sounds kept | 213.5 s | 124.6 s |
+| nothing changed (stats and the record only) | 14.4 s | 17.5 s |
+
+The touched-case gap between old and new is mostly disk load, not the code.
+- In the 213.5 s run, `write()` into the temporary archive took 145 s.
+- Raw 16 MB-block writes to the same folder ran at 49–95 MB/s, with the
+  overnight queue on the same NVMe drive.
+- In the unchanged case, the same 150,203 `stat` calls took 5.5 s, then
+  12.8 s.
+
+So the stage is about writing 5 GB: it is inherent while one archive holds
+everything. Why the 11-11 run took 36 s was not measured: page cache, or
+less disk load.
+
+**Fixed (Python overhead, about 7 s of every pack, and more on a repack).**
+- `_tree` computes paths per folder instead of `relative_to` per file.
+- `pack_main` passes its stat sizes to `write_general`, so each file is
+  stat'ed once, not twice.
+- The archive is unchanged: SHA-1 `e87c5e25…` from both old and new code.
+
+#### <a id="textures-rewrite-2026-11-12"></a>Textures archive: 138 s was loose writers with new dates
+
+**Cause (measured).** The 2026-11-12 base3 build spent 138.3 s in "FaceGen
+and texture archive", writing the whole 4.8 GB `- Textures.ba2` again; base2
+spent 46.7 s, when the archive was smaller. The pack record's dates show
+base3 wrote only six textures: the super mutant tints in `fnv/tinted/`.
+- `creature_tint.tinted_materials` writes its DDS files loose into the Data
+  folder's `Textures` every build, and `own_heads._write_texture` goes
+  through `write_new`, which touches a file with the same bytes.
+- `pack_textures` then moved each loose texture into staging with its new
+  date. The `[size, mtime]` state changed, so all 22,674 textures were
+  written again for six unchanged ones.
+
+**Already fixed** by the same-bytes rule in `_move_loose`
+([faces-repack](fo4_pipeline.md#faces-repack)): a loose texture whose staged
+copy has the same bytes is deleted and the staged copy keeps its date. Base4
+(commit `b60c5931`, which has it) took 8.7 s for the stage. Drawing the
+`sm3d1024_d` super mutant tint twice gave byte-identical DDS and BGSM files,
+so the rule holds for that writer. A real change to any texture still
+writes the whole archive, at this drive's write speed.
+
+#### <a id="worlds-profile-2026-11-12"></a>Worlds stage: the land texture step is most of it
+
+The worlds stage took 134.9 s in the warm base3 build (236.1 s cold), its own
+time only: navmesh, object LOD and placed references are their own stages.
+
+**The land texture step, profiled alone** on WastelandNV's real inputs: an
+`Exterior` built from the export with no references, its mixes made as
+`Exterior.group` makes them. 16,396 cells, 16,388 with land, 65,552
+quadrants.
+
+| Step | Time | Under cProfile |
+|---|---|---|
+| Loading cells, land and LTEX from the export | 10.3 s | — |
+| `quadrant_mix` | 8.2 s | — |
+| `blend_borders` | about 65 s (land-memory measurement) | 192.9 s |
+| `limit_textures` | about 17.5 s | 36.6 s |
+
+So the step is about 82 s of the 135 s. Of 229 profiled seconds:
+- `blend_borders`' own loop 83.7 s, plus 84 million `sum` calls (75.8 s
+  with their generators), 171 million `dict.setdefault` (17.3 s) and 76
+  million `math.copysign` (6.3 s). That is one pass per shared border
+  vertex, each texture averaged over the quadrants on it in Python.
+- `_shared`, the border vertex index, 15.3 s for its two calls (once in
+  each function).
+- `limit_textures`' own work 8.0 s, its `max`/`sorted` per vertex 7.6 s,
+  `numpy.delete` 3.9 s.
+
+The step reads only the export's LAND and LTEX records, which a warm build
+does not change, and makes the same output every build.
+
+**Two ways to cut it:**
+- *Cache the step's output per worldspace:* built, see
+  [land-cache](#land-cache) below.
+- *Vectorize `blend_borders` (not built).* It must give the same dict keys in the same
+  order: a quadrant gains a texture key with a +0 share where a neighbor
+  has the texture, and that key then spreads on through later shared
+  vertices in visit order (ties in `kept_textures` follow key order). That
+  makes an exact numpy version harder than the averaging itself.
+
+**The other about 53 s** is not profiled yet. The next build run with
+`F3NV_PROFILE_STAGES=worlds` ([stage-profile](fo4_plugin_layout.md#stage-profile))
+writes `temp/stage_profiles/worlds.txt` with the whole stage.
+
+<a id="land-cache"></a>**The land texture step is cached (2026-11-12, not yet
+built).** `land_layers.land_textures` runs `quadrant_mix`, `blend_borders`
+and `limit_textures` for a worldspace's land through `work_cache.cached`
+(site `land textures`), and `Exterior.group` calls it. The key is a SHA-1
+over the grassy texture set and, per cell in grid order, every LAND field
+`quadrant_mix` reads (`LayerCount` and the `Layer[...]` fields). A height
+or any other field leaves it, and the code record covers the code. It is
+exact for a DLC too, since it keys on the layered records `Exterior`
+holds, not on an export file.
+
+Measured on WastelandNV's real inputs, the cache on D::
+
+| Run | Time |
+|---|---|
+| The old call | 92.1 s |
+| `land_textures`, empty cache (made and stored) | 106.6 s |
+| `land_textures`, cached | 5.1 s |
+
+The three outputs pickle to the same bytes. The entry is 461 MB. The first
+run's 14.5 s more is recording the code that ran and writing the entry.
+A warm build saves about 87 s of the worlds stage, and the step's memory
+peak (about 2 GB, [land-memory](#land-memory)) with it.
+
+#### <a id="voices-archive"></a>Voices in their own archive (built 2026-11-12)
+
+**What changed.** `ba2_pack.pack_main` now packs two archives:
+- `<plugin> - Voices_<language>.ba2`: the staged `Sound/Voice`. This is one
+  of the three suffixes `Fallout4.exe` loads for a plugin
+  ([main-archive](fo4_pipeline.md#main-archive)); the DLCs ship
+  `DLCRobot - Voices_en.ba2` the same way.
+- `<plugin> - Main.ba2`: everything else, as before.
+
+How it works:
+- Each archive keeps its own record, so the voices archive is rewritten only
+  when a voice file changed.
+- Every caller gets the split: the build, the faces stage's repack, the asset
+  overlay and DLC and mod builds, each in its own Data folder.
+- `drop_packed` covers the voices archive (`own_archives`).
+- `restore_packed` restores only Main's meshes, materials and scripts; voices
+  never sit loose in the Data folder, since they are staged outside it.
+- Deploy copies the new archive like any top-level file. The rebuilt Main
+  no longer holds voices, so an existing install ends with each voice in one
+  archive (`test_fo4_deploy`).
+
+**The language.** `install.game_language()` reads `sLanguage` from the game
+folder's `Fallout4_Default.ini`, which Steam writes for the installed
+language (`en` on this machine). It defaults to `en`.
+- When the language changes, `pack_main` deletes the old language's voices
+  archive and its record. Deploy then lists it as stale (`--delete-stale`
+  removes it).
+- **Drift from FNV:** the game loads only `Voices_<its sLanguage>`. A build's
+  voices play only in the language the building machine's game is set to.
+  A build shared with a player whose game uses another language plays no
+  voices until it is renamed to their language.
+- A `sLanguage` set only in the player's own `Fallout4.ini` (Documents or
+  an MO2 profile) is not read.
+
+**Shown on the scratch folder** (a copy of the 11-12 base build, 150,202
+files):
+- **Same files:** the scratch rebuild of the one-archive layout matches the
+  real build's archive (SHA-1 `e87c5e25…`). After the split, each of its
+  files is in exactly one archive with the same bytes: 77,417 in Main
+  (2.55 GB), 72,785 in the voices archive (2.54 GB).
+- **First build after the change:** 110.2 s. Main is rewritten without
+  voices, and the voices archive is written from the staged files.
+- **A build where no voice changed** (all 75,036 meshes, materials and
+  scripts touched, as a build does):
+  - writes 2.55 GB instead of 5.10 GB;
+  - leaves the voices archive untouched (same SHA-1 `28f512b8…`, same time);
+  - so deploy does not copy it again.
+
+| `pack_main`, no voice changed | Time |
+|---|---|
+| one archive (old code) | 66.9 s |
+| split, run 1 | 50.8 s |
+| split, run 2 | 62.2 s |
+| split, nothing changed | 12.1 s |
+
+The halved write is certain. The wall-clock gain is within this disk's
+noise while the overnight queue shares it: the same old-code case measured
+124.6–213.5 s earlier in the day.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh
@@ -886,7 +1176,8 @@ scoped build first: one small area, fewer workers and a job cap around
     `native/` beside `nifgeom`. The Frontier needed 982 s for 13,625 meshes,
     and one 61 MB mesh used 738 MB to read with pyffi.
   - **Per-item maths over large sets:** AnimTextData's 19,149 clip records
-    (about 5 min on a first build), the overlay check, collision.
+    (about 2 min on a first build: [measured](#anim-data-2026-11-12)), the
+    overlay check, collision.
 
   The cost: every native part must be built and shipped for each platform the
   app supports. Wait until the Creation Kit replacements have been measured

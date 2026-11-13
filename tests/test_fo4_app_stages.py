@@ -31,6 +31,7 @@ def test_build_arguments_follow_the_choices(tmp_path):
     assert cmd[cmd.index('--out') + 1] == str(out / 'FalloutNV.esm') and cmd[cmd.index('--data') + 1] == str(out)
     assert cmd[cmd.index('--region') + 1:cmd.index('--region') + 5] == ['1', '2', '3', '4']
     assert cmd[cmd.index('--profile') + 1] == 'look' and cmd[cmd.index('--workers') + 1] == '6'
+    assert cmd[cmd.index('--resources') + 1] == 'balanced'
     assert cmd[cmd.index('--mod-sources') + 1] == str(tmp_path / 'fo4_app.json')
     assert '--replacements' not in cmd and cmd[-1] == 'GSDocMitchellHouse'
     test = ST.command(s, 'falloutnv', 'build', ST.Scope(), tmp_path / 'x.json')
@@ -126,3 +127,18 @@ def test_runner_streams_and_stops_at_a_failure():
     assert [(r.key, r.code) for r in results] == [('a', 0), ('b', 3)]
     assert lines[:3] == ['=== First', 'one', 'two'] and 'never' not in lines
     assert runner.warnings == ['ERROR: bad']
+
+
+def test_the_estimate_reads_the_last_build_else_the_export_else_nothing(tmp_path, monkeypatch):
+    """No export and no build: no line; an export: its cold and cached estimate; a finished build's stamp wins."""
+    s = _settings(tmp_path)
+    export = tmp_path / 'export' / 'FalloutNV.esm'
+    monkeypatch.setattr(ST, 'export_dir', lambda settings, source: export)
+    assert ST.estimate(s, 'falloutnv') == ''
+    export.mkdir(parents=True)
+    (export / 'NPC_.txt').write_text('---RECORD_BEGIN---\n' * 50)
+    assert 'from its export' in ST.estimate(s, 'falloutnv') and 'cold' in ST.estimate(s, 'falloutnv')
+    stamp = ST.stamp_path(ST.plugin_path(s, 'falloutnv'))
+    stamp.parent.mkdir(parents=True)
+    stamp.write_text('{"status": "finished", "stages": {"people": {"seconds": 1.0}}, "counts": {"NPC_": 5}}')
+    assert 'from its last build' in ST.estimate(s, 'falloutnv')

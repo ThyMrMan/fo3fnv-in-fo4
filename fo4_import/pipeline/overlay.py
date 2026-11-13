@@ -109,7 +109,7 @@ def overlay(args: argparse.Namespace) -> dict:
     FO4PluginWriter(masters=[p.name for p in args.built], is_esm=False, is_esl=True,
                     description=f'F3NV asset overlay: {args.name}').write(str(esl))
     counts['textures packed'] = pack_textures(args.out, esl.name)
-    counts['files packed into the Main archive'] = pack_main(args.out, esl.name)
+    counts['files packed into the Main and voices archives'] = pack_main(args.out, esl.name)
     return counts
 
 

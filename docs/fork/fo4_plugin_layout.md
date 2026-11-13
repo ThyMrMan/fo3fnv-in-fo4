@@ -437,15 +437,17 @@ built. The cell argument is the DLC's own interior.
   (Before the merge, Honest Hearts' copy was dropped and FO4Edit found 866
   Say Once conditions naming a stage that never shipped.)
 - **The game plugin's files stay the game's.** Only the game build writes
-  LevelUpMenuEx's ini (a second one would point the level-up menu at the
-  DLC's copy of the lists) and copies `F3NV.dll`.
+  the level-up options' MCM page (a second would set a DLC's copy of the
+  rules quest) and copies `F3NV.dll`. (It also wrote LevelUpMenuEx's ini,
+  until that was [dropped](fo4_level_up_plan.md#dropped).)
 - **Two DLCs overriding one record** (a form list, a merged quest): the one
   loading last wins, each holding the game's entries and its own. Met in play
   with seven DLCs and packs loaded: condition, the Ammo Type hotkey and
   challenges kept only Honest Hearts' items. Those systems now gather every
   plugin's rows at run time ([condition](fo4_condition.md#sources),
-  [form lists](#dlc-lists), [Say Once](#dlc-say-once)), and no DLC overrides
-  their quests or lists.
+  [form lists](#dlc-lists), [Say Once](#dlc-say-once), the level-up menu's
+  [perk and trait tables](fo4_level_up_plan.md#tables)), and no DLC
+  overrides their quests or lists.
 
 **Gun Runners' Arsenal, measured:** 979 records (38 guns, 160 weapon mods, 27
 ammo, 131 leveled lists, 51 recipes, the vendor chest cell with 23
@@ -613,6 +615,82 @@ behind the source renumbers it.
   DATA 91 in 57, REFR PDTO 25, PGRE NAME 25, NOTE SNAM 11, NPC_ OBTS 12 in
   6, REGN RDSA 1; none in PACK CNAM/PDTO, SCEN HTID or TERM SNAM.
 
+### <a id="changed-scripts"></a>A mod's changed scripts on the master's records (built 2026-11-12, not played)
+
+A mod that overrides a master's SCPT but not the records attaching it
+ships its conversion under the master's name (`FALLOUTNV_...`), compiled
+into its own folder, so its `.pex` wins in game. The records stay the
+master plugin's, though, and so does their VMAD with the master version's
+property list. A property only the mod's version declares is never
+filled (None), and one it dropped logs "script no longer contains that
+property". Seen in game 2026-11-12: YUP's
+`VCG01RemoveDocCarebearModeTriggerSCRIPT` gates the eye-adjust flash
+outside Doc Mitchell's house on `GameHour`. FalloutNV.esm's VMAD on the
+trigger's base (ACTI 0011E65F) has no GameHour but still has
+CompanionSuite and the VStreet* properties. So OnTriggerEnter stopped at
+"Cannot call GetValue() on a None object" and the flash never played.
+
+`spike.script_overrides` fixes this for every dependent build (any mod
+with masters, DLCs included). Before the compile, `plan` lists the master
+SCPTs the plugin holds whose conversion is in its own scripts folder. It
+then finds every top-level record of the built masters (`--plugin-dirs`,
+in the build's numbering via `built_bytes`) whose VMAD attaches one of
+them (`dangling_scripts.script_spans`: plain scripts, a fragment script,
+a quest's stage script). For each one the plugin does not hold, it
+rebuilds that script's entry:
+
+- a property both versions declare keeps the master's value, matched
+  ignoring case as Papyrus does;
+- a property the mod's version no longer declares goes;
+- a property only it declares is filled by the build
+  (`ObjectScripts.properties(only=)`, so GameHour is Fallout4.esm's).
+
+A record whose entry comes out the same is left alone. Those scripts join
+the compile. After `drop_unchanged`, `apply` writes the entry: in place on
+a master record the build still writes, else on the master plugin's own
+copy of the record, kept on its FormID (no new ids, no drift). Records the
+plugin holds already get the mod's script through the normal build.
+Placed references are not scanned: FNV attaches object scripts to bases.
+
+**Census (2026-11-12, exports in `export/`, built masters in the MO2 mods
+folder).** Master SCPTs each mod overrides; master records attaching them,
+by SCRI in the layered export, with how many the mod does not hold itself:
+
+| Source | SCPT overrides | Attaching records (not held) |
+|---|---|---|
+| YUP - Base Game + All DLC | 890 | 1,255 (1,024): ACTI 349 (346), NPC_ 381 (252), CREA 182 (145), QUST 117 (88), DOOR 73 (72), MISC 64 (52), ARMO 44 (37), CONT 16 (15), WEAP 10 (1), TACT 6 (6), TERM 5 (3), KEYM 3 (3), CHAL 2 (2), ALCH 1 (0), FURN 1 (1), LIGH 1 (1) |
+| JSawyer Ultimate | 16 | 14 (9): QUST 11 (6), ACTI 2 (2), TACT 1 (1) |
+| Agua Fria | 13 | 8 (8): QUST 6, ACTI 2 |
+| Essential DLC Enhancements | 7 | 7 (7): ACTI 5, DOOR 1, WEAP 1 |
+| Dead Money | 5 | 17 (10): CHAL 13 (6), NPC_ 2 (2), ACTI 1 (1), QUST 1 (1) |
+| NVBII | 2 | 7 (6): NPC_ 6 (5), ACTI 1 (1) |
+| Old World Blues | 2 | 1 (1): ACTI |
+| ClassicPack | 2 | 2 (0): QUST |
+| Honest Hearts | 1 | 7 (4): ACTI |
+| Russell, The Living Desert | 1 each | 1 (1) each: NPC_, ACTI |
+| Caravan, Mercenary, Tribal packs; Master Build | 1 each | 1 (0) each: QUST |
+
+The other 15 exported sources override no master SCPT. In FO4 terms the
+scan of YUP's built masters (2.0 s) finds 1,488 records whose VMAD attaches
+one of its 890 scripts: NPC_ 453, MISC 388, ACTI 339, QUST 107, DOOR 95,
+ARMO 42, MGEF 29, CONT 16, TACT 6, TERM 5, WEAP 4, KEYM 3, FURN 1 (a
+creature is an NPC_ there). Those records attach 829 of the 890
+scripts; 474 of them declare a different property list (ignoring case)
+than the master's conversion.
+
+A scratch YUP build (2026-11-12, on the FalloutNV.esm built at b60c5931)
+judged 1,391 attaching records it does not hold. It overrode 885: MISC
+312, NPC_ 260, ACTI 159, DOOR 48, QUST 41, ARMO 36, MGEF 20, TACT 6,
+CONT 1, FURN 1, WEAP 1. It also set the entry in place on 3 master records
+it already wrote. The trigger's ACTI 0211E65F now binds GameHour to
+Fallout4.esm's 00000038, with CompanionSuite and the VStreet* properties
+gone. 12 of its 3,690 scripts did not compile. Two of them,
+GoodspringsRadioScript and NVDLC03StripeWildWastel, are YUP overrides
+this step attaches. Without a compiled `.pex` the master's script still
+runs, so `apply` now leaves a record alone when its script did not
+compile into the build's `Scripts` folder, counted as `changed script left
+to the master (did not compile)`. The scratch build predates that check.
+
 ### <a id="edited-cells"></a>Edited cells outside the region (built 2026-11-10, not played)
 
 A build places only the references of the cells it covers, and a DLC's
@@ -765,7 +843,8 @@ makers in `spike/cell.py` and the end of the build in
 wherever they are first made (`base NPC_`, `item WEAP`), as a base is made
 on first request by whichever stage asks; those lines are what phase 6
 caches. Export files read for the first time are charged to the stage that
-read them.
+read them. Since 2026-11-12 the mesh cache step is a stage too, and each line
+carries the stage's peak memory ([memory per stage](fo4_build_resources.md#stage-memory)).
 
 **Measured, whole map, 2026-10-31** (3,023 s; meshes cached, 0 scripts
 changed): the Creation Kit's own-rig animation data 1,231 s (the plugin
@@ -855,6 +934,19 @@ each would save:
   input list yet to tell why; the rig graphs and skeleton NIFs differ from
   an older build's (2 and 4,814 bytes for the gecko's), not yet shown to
   differ build to build.
+
+<a id="stage-profile"></a>**Profiling one stage (2026-11-12).** Set
+`F3NV_PROFILE_STAGES` to stage names as the `stage` lines print them,
+comma-separated (`worlds` or `worlds,item WEAP`), and those stages run under
+cProfile in that build. `stage_timer` writes `temp/stage_profiles/<stage>.prof`
+(open it with `pstats`) and `<stage>.txt`, the top 40 functions by own time
+and by cumulative time. Every call of the stage in one build adds to the
+same file; the next build replaces it. Nested stages run inside the profile
+too, so their functions appear in it while the `stage` lines still charge
+them to themselves. Only the main process is profiled, not pool workers,
+and cProfile slows Python-heavy code, so compare shares within one profile,
+not times against an unprofiled build. With the variable unset, nothing is
+profiled.
 
 ### <a id="shared-state"></a>Shared state a unit touches (survey, 2026-10-31)
 

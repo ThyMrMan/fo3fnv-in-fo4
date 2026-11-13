@@ -9,6 +9,7 @@ code tag covers the writer (face fits, through spike.records) do not rerun when 
 See: docs/fork/fo4_pipeline.md#formid-ledger
 """
 
+import hashlib
 import os
 import struct
 from pathlib import Path
@@ -18,6 +19,14 @@ from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.pipeline.build_inputs import MASTERS
 
 ID, NUMBER = 'id', 'n'
+#: A light plugin's own object ids: LIGHT_FIRST up to LIGHT_FIRST + LIGHT_SPAN - 1 (0x001-0xFFF).
+LIGHT_FIRST, LIGHT_SPAN = 0x001, 0xFFF
+#: The ledger site of a source record made 1:1 in a light plugin, keyed by its object id in the source plugin.
+ONE_TO_ONE = 'FNV 1:1'
+
+
+class LightFull(RuntimeError):
+    """A light plugin needs more own ids than 0x001-0xFFF holds."""
 
 
 class Ledger:
@@ -42,6 +51,10 @@ class Ledger:
     def pop(self, kind: str, site: str, key) -> 'int | None':
         """The value kept for `key` at `site`, no longer kept; None when it has none."""
         return self.sites.get((kind, site), {}).pop(repr(key), None)
+
+    def drop(self, kind: str) -> None:
+        """Keep no value of `kind` any more."""
+        self.sites = {(k, site): keys for (k, site), keys in self.sites.items() if k != kind}
 
     def values(self, kind: str, site: 'str | None' = None) -> list:
         """Every value of `kind`, or of `kind` at `site`."""
@@ -75,6 +88,13 @@ class LedgerWriter(FO4PluginWriter):
         self.ledger, self.masters_ledgers, self.from_masters, self.left_to_masters = Ledger(), {}, set(), 0
         self.masters_hold = None
         self.compare_masters = False
+        self.light = False
+
+    def make_light(self) -> None:
+        """Light ids (0x001-0xFFF) and the ESL flag; in place of reserve_source_ids.
+        See: docs/fork/research/fo4_light_plugins.md#scheme
+        """
+        self.light = self.is_esl = True
 
     def use_ledger(self, ledger: Ledger) -> None:
         """Keep `ledger`'s ids (reserved) and numbers; call after reserve_source_ids."""
@@ -133,14 +153,55 @@ class LedgerWriter(FO4PluginWriter):
             self._derived[site, key] = master
             self.from_masters.add(master)
             return master
+        return self._kept(site, key, legacy)
+
+    def one_to_one(self, oid: int) -> int:
+        """In a light build, the FormID of the source plugin's own record with object id `oid` (site ONE_TO_ONE).
+        See: docs/fork/research/fo4_light_plugins.md#scheme
+        """
+        key = f'{oid:06X}'
+        found = self._derived.get((ONE_TO_ONE, key))
+        return found if found is not None else self._kept(ONE_TO_ONE, key)
+
+    def _kept(self, site: str, key, legacy=None) -> int:
+        """The own ledger's id for `key` at `site`, else the one it kept for `legacy` (that entry moves to `key`),
+        else the hash of `legacy` or `key`; then kept."""
         kept = self.ledger.get(ID, site, key)
         if kept is None and legacy is not None:
             kept = self.ledger.pop(ID, site, legacy)
-        fid = self.own_index << 24 | kept if kept is not None else super().derive_formid(
-            site, key if legacy is None else legacy)
+        hashed = self._light_id if self.light else super().derive_formid
+        fid = self.own_index << 24 | kept if kept is not None else hashed(site, key if legacy is None else legacy)
         self._derived[site, key] = fid
         self.ledger.put(ID, site, key, fid & 0xFFFFFF)
         return fid
+
+    def _light_id(self, site: str, key) -> int:
+        """derive_formid's hash of `key` at `site` and its salted rehashes into 0x001-0xFFF, uncapped: the first
+        free id; LightFull when none is.
+        See: docs/fork/research/fo4_light_plugins.md#collisions
+        """
+        payload, probe = f'{site}\x00{key!r}'.encode('utf-8'), 0
+        with self._lock:
+            if (site, key) in self._derived:
+                return self._derived[site, key]
+            if len(self._derived_taken) >= LIGHT_SPAN:
+                raise LightFull(f'{site}/{key!r}: all {LIGHT_SPAN} light ids are taken')
+            while True:
+                salt = b'' if probe == 0 else b'\x00%d' % probe
+                hashed = struct.unpack('<I', hashlib.md5(payload + salt).digest()[:4])[0]
+                fid = self.own_index << 24 | LIGHT_FIRST + hashed % LIGHT_SPAN
+                if fid not in self._derived_taken:
+                    break
+                probe += 1
+            self._derived_taken.add(fid)
+            self._derived[site, key] = fid
+        return fid
+
+    def _high_water_id(self) -> int:
+        """HEDR next object id; a light plugin's is one above its highest own id."""
+        if not self.light:
+            return super()._high_water_id()
+        return max((fid & 0xFFFFFF for fid in self._derived_taken), default=0) + 1
 
     def stable_number(self, site: str, key, make) -> int:
         """The number kept for `key` at `site` (an alias id, a marker stage); else make()'s, then kept."""

@@ -18,6 +18,8 @@ from pathlib import Path
 
 import numpy
 
+from core.build_resources import profile_cores
+
 from fo4_import.base.ba2 import DX10_CHUNK as CHUNK
 from fo4_import.base.ba2 import DX10_ENTRY as RECORD
 from fo4_import.base.ba2_write import BUFFER, HEADER, MARKER, VERSION, entry_names
@@ -30,8 +32,6 @@ FOURCC = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 80, b'ATI
 #: Raw DDS pixel formats as (bits, R, G, B, A masks) and their DXGI formats; 24-bit BGR goes in as B8G8R8A8 (expand_bgr).
 MASKS = {(32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000): 87, (32, 0xFF, 0xFF00, 0xFF0000, 0xFF000000): 28,
          (32, 0xFF0000, 0xFF00, 0xFF, 0): 88, (8, 0xFF, 0, 0, 0): 61, (24, 0xFF0000, 0xFF00, 0xFF, 0): 87}
-#: Textures read and compressed at once (the pinned zlib's ctypes call frees the GIL while it works).
-WORKERS = max(1, (os.cpu_count() or 2) - 1)
 
 
 def dds_info(head: bytes) -> tuple:
@@ -112,10 +112,12 @@ def _one(name: str, named: dict, old: dict, archive: Path) -> tuple:
 
 
 def _built(names: list, named: dict, old: dict, archive: Path):
-    """Each of `names` as _one() gives it, in order, WORKERS at a time."""
-    with ThreadPoolExecutor(WORKERS) as pool:
-        for start in range(0, len(names), WORKERS * 4):
-            batch = names[start:start + WORKERS * 4]
+    """Each of `names` as _one() gives it, in order, on the resource profile's threads (the pinned zlib's ctypes
+    call frees the GIL while it works)."""
+    workers = profile_cores()
+    with ThreadPoolExecutor(workers) as pool:
+        for start in range(0, len(names), workers * 4):
+            batch = names[start:start + workers * 4]
             yield from pool.map(lambda n: _one(n, named, old, archive), batch)
 
 

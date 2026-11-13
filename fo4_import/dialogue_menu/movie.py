@@ -8,7 +8,6 @@ See: docs/fork/fo4_dialogue_menu_plan.md#own-movie
 """
 
 import argparse
-import shutil
 from pathlib import Path
 
 from fo4_import.base import mxmlc
@@ -28,20 +27,9 @@ def compile_movie(out: Path, sources: Path = SOURCES) -> Path:
     return mxmlc.compile_movie(out, sources, DOCUMENT)
 
 
-def built_movie() -> 'Path | None':
-    """The movie of the current sources, cached; None if it can't be built."""
-    return mxmlc.built_movie(SOURCES, DOCUMENT, CACHE, Path(MOVIE).name)
-
-
 def install(out_dir: Path) -> 'Path | None':
-    """Write our movie to <out_dir>/Interface/DialogueMenu.swf; its path, or None if it could not be built."""
-    movie = built_movie()
-    if movie is None:
-        return None
-    target = Path(out_dir) / MOVIE
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(movie, target)
-    return target
+    """Our movie written to <out_dir>/MOVIE; its path, None if not built."""
+    return mxmlc.install(out_dir, MOVIE, SOURCES, DOCUMENT, CACHE)
 
 
 def main():

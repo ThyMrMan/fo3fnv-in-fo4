@@ -143,9 +143,11 @@ void NoCombatSprint() {
 }
 
 // F4SE messages: hook dialogue once every plugin has loaded (so XDI.dll shows), the Pip-Boy once the game has loaded
-// (the UI exists then).
+// (the UI exists then); forget mods' item-card lines as a save loads or a new game starts.
 void OnMessage(F4SEMessagingInterface::Message *msg) {
     if (msg->type == F4SEMessagingInterface::kMessage_PostLoad && g_trampoline) HookDialogue(g_tasks);
+    if (msg->type == F4SEMessagingInterface::kMessage_PreLoadGame || msg->type == F4SEMessagingInterface::kMessage_NewGame)
+        ForgetCardLines();
     if (msg->type != F4SEMessagingInterface::kMessage_GameLoaded) return;
     NoCombatSprint();
     InstallPipboy(g_tasks);
@@ -280,7 +282,9 @@ void SetServiceRulesNative(StaticFunctionTag *, float skillBase, float skillMax,
 bool Register(VirtualMachine *vm) {
     RegisterPages(vm);
     RegisterAmmo(vm);
+    RegisterItemCard(vm);
     RegisterSex(vm, g_tasks);
+    RegisterTalk(vm, g_tasks);
     RegisterDamage(vm);
     RegisterHardcore(vm);
     vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, float, TESObjectREFR *, TESForm *>(

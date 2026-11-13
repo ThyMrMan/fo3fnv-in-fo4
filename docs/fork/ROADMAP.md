@@ -144,7 +144,7 @@ before.
 | S.P.E.C.I.A.L. | Setting your seven stats with the Vit-o-matic | Works | | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Tag skills | Doc's questionnaire suggests three skills to tag | Works | | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Skills | New Vegas's 13 skills, shown in the Pip-Boy | Works | | [tabs](fo4_pipboy_tabs.md#how) |
-| XP and level-ups | Earning XP and picking perks and skill points | Works | Skill points and perk picks both work. | [level-up](fo4_perks.md#hasperk) |
+| XP and level-ups | Earning XP and picking perks and skill points | Works | Skill points and perk picks both work in LevelUpMenuEx. Our own level-up menu now opens in its place (requirements shown, points kept for later, every DLC's perks listed), and is the tag-skill and trait menu too; perks per level, skill points, the skill cap, a show-all filter and a hotkey are set in MCM; other mods can open its menus, add perks and hear its events; LevelUpMenuEx is no longer required; built, not played. | [level-up](fo4_perks.md#hasperk), [our menu](fo4_level_up_plan.md#menu) |
 | Perks | New Vegas's 176 perks and ranks | Partial | Not played. 29 effects have no Fallout 4 equivalent (attack and equip speed, unarmed specials, Miss Fortune, Long Haul, some DT perks). | [census](fo4_perks.md#census) |
 | Traits | Optional traits with an upside and a downside | Partial | Picking works; effects aren't played. | [drift](fo4_drift.md#recorded) |
 | Companion perks | Perks your companions give you | Built, not played | | [teammate perks](fo4_perks.md#teammate-perks) |
@@ -200,9 +200,9 @@ before.
 |---|---|---|---|---|
 | Slots | The Strip's and the Sierra Madre's slot machines, on our own 2D menu | Works | Spins pay out and take chips. Luck, comps levels, the floor managers' dialogue and the Sierra Madre's machines aren't checked. Spins don't count toward the challenge yet. | [slots](fo4_casino_plan.md#slots-built) |
 | Roulette | The Strip's and the Sierra Madre's roulette tables, on our own 2D menu | Works | Click a spot to bet, click it again to take the chips off. Pays as New Vegas does, its 0 and 00 quirks included. No spin animation or sounds; no gamepad cursor over the board. Spins don't count toward the challenge yet. | [roulette](fo4_casino_plan.md#roulette-built) |
-| Blackjack | The Strip's and the Sierra Madre's blackjack tables | Not built | A table says the game isn't playable yet; the casino's ban and the anti-cheat wait already apply. | [plan](fo4_casino_plan.md#records-built) |
-| Casino menu test | A console test screen for the new menu (`cqf FNV_Casino Spike`) | Works | Keys, mouse, text and images work in a menu of our own. Drawing it in your HUD color is built, not played (white without F3NV.dll). | [spike](fo4_casino_plan.md#toolchain-found) |
-| Caravan | New Vegas's card game | Not built | Picked-up cards join your collection; asking to play says the game isn't playable yet (or that you need 30 cards). | [plan](fo4_casino_plan.md#records-built) |
+| Blackjack | The Strip's and the Sierra Madre's blackjack tables, on our own 2D menu | Built, not played | Plays as New Vegas does, from each casino's decks, payout and soft-17 rule, its quirks included (kings split; a split 21 pays both hands as naturals). Luck above 10 helps no more than 10. No felt texture, dealing animation or sounds; no gamepad cursor. Rounds don't count toward the challenge yet. | [blackjack](fo4_casino_plan.md#blackjack-built) |
+| Casino menu test | A console test screen for the new menu (`cqf FNV_Casino Spike`) | Works | Keys, mouse, text and images work in a menu of our own, drawn in your HUD color (white without F3NV.dll). Level-up images (DXT3, DXT5) beside the card are built, not played. | [spike](fo4_casino_plan.md#toolchain-found) |
+| Caravan | New Vegas's card game, on our own 2D menu | Built, not played | Bet with caps and NCR or Legion money, build a deck from your collection, play the opponent's deck against New Vegas's own AI; FNV's rules and quirks kept. The opening ends once all six caravans have a card (New Vegas could get stuck there). Raise goes up in steps. No tutorial, animation or sounds; no gamepad cursor. Games don't count toward the challenges yet. | [caravan](fo4_casino_plan.md#caravan-built) |
 
 ### DLC and add-on packs
 
@@ -237,7 +237,6 @@ before.
   ([challenges](fo4_pipeline.md#challenges-left-out))
 - With CBBE installed, bare skin in converted outfits looks scrambled.
   ([body plan](fo4_bodies_cbbe.md))
-- Blackjack and Caravan aren't playable yet.
 
 Please report what you find in
 [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
@@ -257,6 +256,9 @@ Please report what you find in
   ([plan](fo4_bodies_cbbe.md)).
 - **The look:** grass color, Strip neon, the night horizon glow, New Vegas's
   color tone, distant trees and water ([plan](fo4_look.md)).
+- **Terrain LOD of our own:** skirts first to close the gaps between
+  distant tiles, then tiles built from the land with matching edges and
+  more detail than vanilla ([plan](fo4_terrain_lod_plan.md)).
 - **Precombines** for Freeside and the Strip.
 - **Script speed:** the remaining Papyrus cost fixes
   ([performance](performance.md#papyrus)).
@@ -272,7 +274,8 @@ Please report what you find in
 - **Build time:** the game build is down to 32 minutes. Converted voice
   lines, finished meshes and face fits are cached, mod builds reuse their
   masters' finished meshes, and build records live outside the Data folder.
-  Still to come: profiling, then moving the hot spots to native code
+  A Low/Balanced/Full setting limits cores and memory, and the build prints
+  an estimated time ([resources](fo4_build_resources.md)). Still to come: profiling, then moving the hot spots to native code
   ([plan](fo4_build_speed.md)).
 - **Differences from New Vegas** that could be closed later: attack and equip
   speed perks, looting routines, per-pellet DT, Long Haul and Miss Fortune
@@ -288,10 +291,17 @@ Please report what you find in
 | Other languages' movie tracks | Only English is checked ([Bink](bink_movies.md)) |
 | [Graphics research](research/graphics_options.md) | Notes to revisit later |
 | [Spin-off mods](spin_offs.md) from F3NV.dll (framework, content mods, dynamic collision) | Planned, not started; the dialogue menu goes first. [Strategy](spin_offs.md#strategy): open, drop-in replacements for XDI, then HUDFramework; waiting on the author's reply about licenses |
-| [Dialogue menu as its own mod](dialogue_menu_mod.md) (XDI replacement) | Planned, not started; first step is the own-movie spike |
-| [Our own Flash menu framework](swf_framework.md) (dialogue, casino, Pip-Boy) | Spikes 1, 2b and 3 played (spike 1: the casino on `mxmlc` and the first `f3ui` classes). The dialogue menu's own movie played (looks the same as before), then moved onto `mxmlc` and `f3ui` (built, not played; FFDec build route deleted). Spike 5 (translation files, named after FalloutHelpers.esl) played: translation works, an untranslated key shows raw, `$` text needs `Text.show`. Spike 4 (our movie loaded into the Pip-Boy by F3NV.dll, one item-card line) played under the vanilla Pip-Boy; FallUI Inventory not yet tried |
+| [f3ui as a menu library](spin_offs.md) (our AS3 menu toolkit for other mods, no DLL) | Every planned class is built; the release is not started |
+| [Our level-up menu as its own mod](spin_offs.md#level-up) (LevelUpMenuEx replacement, with an API for other mods) | Built for the conversion and no longer needs LevelUpMenuEx, not played; reading LevelUpMenuEx's INI lists and perk tables for any load order not started |
+| [Casino games and Caravan as a content mod](spin_offs.md#casino) | Idea; slots and roulette are built for the conversion, blackjack and Caravan are not |
+| [Modder tools from the replaced CK steps](spin_offs.md#tools) (dark-face fixer, AnimTextData, lips, archive check, collision, Caprica fixes) | Ideas only ([picks](fo4_after_ck_ideas.md#picks)) |
+| [Write-ups for the community](spin_offs.md#write-ups) (first: how the CK bakes faces) | Findings written in our docs; no public page yet |
+| [Dialogue menu as its own mod](dialogue_menu_mod.md) (XDI replacement) | Phase 1 done (our own movie, played); phase 2 partly (the list on `mxmlc` with a hint bar and gamepad input through f3ui, not played); the standalone DLL and later phases not started |
+| [Our own Flash menu framework](swf_framework.md) (dialogue, casino, Pip-Boy) | **Played:** spikes 1-5: the casino on `mxmlc` and `f3ui`, the HUD color in our own menu, the dialogue menu on its own movie, our movie in the vanilla Pip-Boy, translation files. **Built, not played:** the Pip-Boy framework (CND line, repair and ammo lists, F3NV_ItemCard.SetLine), FallUI support, the dialogue menu on `mxmlc`, our words as `$F3NV_` keys with English under every language, the level-up images and their spike, PRKF.dll's state in Papyrus (Cleanroom UI's CRUI_LevelUp, older saves' F3NV_LevelUp state moved over once), our own level-up menu (skills, perks, taken) opened from Papyrus in place of LevelUpMenu, Input and HintBar with the casino and dialogue menu moved onto them (keys, controls and hints the same on keyboard and gamepad), ScrollList and Modal with the dialogue list and the Pip-Boy's repair and ammo lists moved onto them, Images (texture paths, a missing file caught by F3NV.dll's new TextureExists) with the casino on it: every planned library class is built. **Not started:** gamepad play, the level-up menu's traits and tags, the HUD widget, the container and barter on a movie, the release. Piece by piece: [where each piece stands](swf_framework.md#where); order: [next](swf_framework.md#next) |
 | [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned. Second shape slot read (free for us); next: the vanilla sneak test and a repo with a plugin that loads ([build-out](dynamic_collision_mod.md#build-out)) |
-| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own convex collision writer matches Elric on 177 of 228 test meshes; it isn't in the build yet. FaceGen is in progress (see Own FaceGen heads above) |
+| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own collision writer runs ahead of Elric for convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules and list shapes (built, not played); ragdoll joints and flat shapes still go to Elric. Our own FaceGen runs at 0.29 s a face, byte for byte the same as before (see Own FaceGen heads above) |
+| [Ideas the build without the CK makes possible](fo4_after_ck_ideas.md) (a dark-face fixer for any load order, rebuilding only what changed, a face comparison gallery, Caprica fixes upstream, an archive check, AnimTextData for any mod, and ideas for every replaced step) | Ideas only, nothing built |
+| [Appearance comparison](appearance_compare_tool.md) (two load orders' NPCs side by side, such as two character replacers, plus a dark-face check) | Plan only, no code |
 
 ## <a id="inherited"></a>The inherited Skyrim converter
 
@@ -326,6 +336,7 @@ project. Their last status is in the [development log](dev_log.md#character).
 | [spin_offs.md](spin_offs.md) | Releasing parts of F3NV.dll as mods anyone can use |
 | [dialogue_menu_mod.md](dialogue_menu_mod.md) | The dialogue menu as a standalone XDI replacement |
 | [swf_framework.md](swf_framework.md) | One Flash toolkit for our menus, and a Pip-Boy framework |
+| [fo4_level_up_plan.md](fo4_level_up_plan.md) | Our own level-up menu, replacing LevelUpMenuEx, with extras built in |
 | [dynamic_collision_mod.md](dynamic_collision_mod.md) | Collision that changes size while playing (crouch, swim) |
 | [fo4_tool_audit.md](fo4_tool_audit.md) | The converter audit before the whole-map build |
 | [dev_log.md](dev_log.md) | The development history up to the alpha |

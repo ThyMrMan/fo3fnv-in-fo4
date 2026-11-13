@@ -4,6 +4,7 @@ See: docs/fork/fo4_spikes.md#spike-1b
 """
 
 import math
+import pickle
 import struct
 import wave
 from collections import Counter
@@ -813,6 +814,29 @@ def test_texture_zero_draws_fnvs_default_land_texture_not_fo4s():
     assert written == [ext.textures['00000A8A']]
 
 
+def test_a_land_layer_with_no_share_is_left_out_and_the_next_takes_its_number():
+    """A kept texture whose shares are all under MIN_SHARE writes no ATXT/VTXT (vanilla's 37,020 LANDs have none;
+    Black Landscape Fix strips them as invalid); the layer after it is numbered 0; counted."""
+    ext = EX.Exterior.__new__(EX.Exterior)
+    ext._ltex = lambda builder, texture, data_dir: int(texture, 16)
+    builder = SimpleNamespace(counts=Counter(), fnv_id=lambda fid: 0x01000800)
+    full, empty, half = (np.full(LL.QUAD_POINTS, s) for s in (1.0, 0.0, 0.5))
+    mix = {q: [('10', full), ('20', empty), ('30', half)] for q in range(4)}
+    subs = list(_fo4_subrecords(ext._land(builder, {'FormID': '00000800'}, mix, None)[24:]))
+    atxt = [struct.unpack('<IBBH', d) for tag, d in subs if tag == b'ATXT']
+    assert atxt == [(0x30, q, 0, 0) for q in range(4)] and sum(tag == b'VTXT' for tag, _ in subs) == 4
+    assert builder.counts['land alpha layers left out (no share)'] == 4
+
+
+def _fo4_subrecords(raw: bytes):
+    """(tag, data) of packed subrecords `raw`."""
+    at = 0
+    while at < len(raw):
+        tag, size = raw[at:at + 4], struct.unpack_from('<H', raw, at + 4)[0]
+        yield tag, raw[at + 6:at + 6 + size]
+        at += 6 + size
+
+
 def _mixes(left: dict, right: dict) -> dict:
     """A cell: bottom quadrants `left`, `right` ({texture: share}), top ones 'a'."""
     flat = lambda shares: {t: np.full(LL.QUAD_POINTS, s) for t, s in shares.items()}
@@ -836,6 +860,32 @@ def test_a_quadrant_keeps_its_four_heaviest_textures_and_shared_vertices_still_m
     assert [t for t, _ in limited[0]] == ['a', 'b', 'c', 'd'] and np.allclose(sum(left.values()), 1.0)
     border = LL.SIDE - 1
     assert all(abs(left.get(t, np.zeros(1))[border] - right.get(t, np.zeros(1))[0]) < 1e-9 for t in 'abcd')
+
+
+def _land(base: str, painted: str, opacity: float) -> dict:
+    """An FNV LAND record: quadrant 0 on `base` with `painted` at `opacity` on its first 20 vertices."""
+    rec = {'LayerCount': '2', 'Layer[0].Type': 'BASE', 'Layer[0].BTXT.Quadrant': '0', 'Layer[0].BTXT.Texture': base,
+           'Layer[1].Type': 'ALPHA', 'Layer[1].ATXT.Quadrant': '0', 'Layer[1].ATXT.Layer': '0',
+           'Layer[1].ATXT.Texture': painted, 'Layer[1].VTXTCount': '20', 'VHGT.Offset': '0'}
+    rec.update({f'Layer[1].VT[{v}].Pos': str(v) for v in range(20)})
+    rec.update({f'Layer[1].VT[{v}].Opacity': str(opacity) for v in range(20)})
+    return rec
+
+
+def test_the_land_texture_step_is_kept_in_the_work_cache(tmp_path, monkeypatch):
+    """land_textures gives limit_textures(blend_borders()) of the quadrant mixes; a height change reuses the kept
+    value, a layer change makes it again."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path)
+    lands = {(0, 0): _land('00000A01', '00000A02', 0.5), (1, 0): _land('00000A03', '00000A02', 0.25), (2, 0): None}
+    direct = LL.limit_textures(LL.blend_borders({g: LL.quadrant_mix(r) for g, r in lands.items() if r}))
+    assert pickle.dumps(LL.land_textures(lands)) == pickle.dumps(direct)
+    made = []
+    monkeypatch.setattr(LL, 'blend_borders', lambda mixes: made.append(1) or mixes)
+    lands[(0, 0)]['VHGT.Offset'] = '8'
+    assert pickle.dumps(LL.land_textures(lands)) == pickle.dumps(direct) and not made
+    lands[(0, 0)]['Layer[1].VT[3].Opacity'] = '0.75'
+    LL.land_textures(lands)
+    assert made == [1]
 
 
 def test_only_references_written_as_themselves_are_linked_to():

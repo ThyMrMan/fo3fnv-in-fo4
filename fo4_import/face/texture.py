@@ -16,6 +16,7 @@ FO4's alpha is kept, and texels outside FO4's face UVs keep FO4's colour.
 See: docs/fork/fo4_spikes.md#spike-2-face-texture
 """
 
+import functools
 import struct
 import subprocess
 import tempfile
@@ -24,11 +25,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from scipy.ndimage import distance_transform_edt
-from scipy.spatial import cKDTree
 
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.install import FALLOUT4_DIR
-from fo4_import.face.bake import align, surface
+from fo4_import.face.bake import align, mean_surface, point_tree
 from fo4_import.face.fnv_head import FnvHead
 from fo4_import.face.memo import by_content
 
@@ -41,9 +41,13 @@ VANILLA_FACE = {'d': ('BC1_UNORM', 1024), 'msn': ('BC1_UNORM', 1024), 's': ('BC5
 #: texconv's names of the DXGI formats vanilla texture sets use, and the DXGI format of a legacy four-CC DDS.
 DXGI_NAMES = {28: 'R8G8B8A8_UNORM', 71: 'BC1_UNORM', 74: 'BC2_UNORM', 77: 'BC3_UNORM', 80: 'BC4_UNORM',
               83: 'BC5_UNORM', 98: 'BC7_UNORM'}
-LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77}
+LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 80, b'ATI2': 83, b'BC5U': 83}
 #: Texels the new colour is carried past each UV island's edge, so filtering and compression do not bleed FO4's in.
 ISLAND_PADDING = 8
+#: Seconds texconv may take on one texture before the call fails.
+TEXCONV_TIMEOUT = 120
+#: UV layouts (mesh and texture size) texel_cover keeps per process: each sex's face and rear head (a 1024 face: 37 MB).
+COVERS = 8
 
 
 def egt_offset(data: bytes, fgts: np.ndarray) -> np.ndarray:
@@ -95,8 +99,18 @@ def bilinear(image: np.ndarray, uv: np.ndarray) -> np.ndarray:
 
 
 def texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:
-    """(texel rows, columns, 3D points) of every texel centre inside a triangle in UV space."""
-    rows, cols, where = [], [], []
+    """(rows, columns, 3D points) of each texel centre in a UV triangle (texel_cover).
+    See: docs/fork/fo4_facegen_plan.md#skin-speed
+    """
+    rows, cols, corners, bary = texel_cover(uv, tris, size)
+    return rows, cols, np.matmul(bary[:, None, :], points[corners])[:, 0]
+
+
+@functools.partial(by_content, kept=COVERS)
+def texel_cover(uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:
+    """(texel rows, columns, corner vertices [n, 3], barycentric weights [n, 3]) of every texel centre inside a
+    triangle of `tris` in UV space, in triangle order; kept per process (memo)."""
+    rows, cols, vertices, weights = [], [], [], []
     for tri in tris:
         corners = uv[tri] * size - 0.5
         lo, hi = np.floor(corners.min(0)).astype(int), np.ceil(corners.max(0)).astype(int)
@@ -111,8 +125,9 @@ def texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int
         inside = (bary >= -1e-6).all(1)
         rows.append(ys.ravel()[inside])
         cols.append(xs.ravel()[inside])
-        where.append(bary[inside] @ points[tri])
-    return np.concatenate(rows), np.concatenate(cols), np.vstack(where)
+        vertices.append(np.broadcast_to(tri, (int(inside.sum()), 3)))
+        weights.append(bary[inside])
+    return np.concatenate(rows), np.concatenate(cols), np.vstack(vertices), np.vstack(weights)
 
 
 #: texel_points remembered per process (memo), for the work-size texels the tint fit's steps share.
@@ -120,20 +135,20 @@ shared_texel_points = by_content(texel_points)
 
 
 @by_content
-def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple) -> tuple:
-    """(rows, columns, FNV UVs) of the texels of a `shape` texture inside FO4's face `fo4` = (points, uvs,
-    triangles), placed on FNV's mean head `fnv_mesh` = (vertices, triangles, uvs) by bake.align; and the texels
-    within ISLAND_PADDING outside the face with the face texel each copies ((rows, columns), (rows, columns)).
-    The same for every NPC of one face and FNV head, so kept per process (memo)."""
+def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple, frame: np.ndarray = None) -> tuple:
+    """(rows, columns, FNV UVs) of the texels of a `shape` texture inside FO4's part `fo4` = (points, uvs,
+    triangles), placed on FNV's mean head `fnv_mesh` = (vertices, triangles, uvs) by bake.align of the face
+    points `frame` (default: the part's own); and the texels within ISLAND_PADDING outside the part with the
+    part texel each copies ((rows, columns), (rows, columns)). Kept per process (memo)."""
     points, uv, tris = fo4
     mean, triangles, fnv_uvs = fnv_mesh
-    fnv_surface = surface(mean, triangles)
-    s, r, t = align(points, mean, fnv_surface)
+    fnv_surface = mean_surface(mean, triangles)
+    s, r, t = align(points if frame is None else frame, mean, fnv_surface)
     rows, cols, where = texel_points(points, uv, tris, shape[0])
-    _, idx = cKDTree(fnv_surface[0]).query(s * where @ r.T + t)
+    _, idx = point_tree(fnv_surface[0]).query(s * where @ r.T + t)
     _, owner, bary = fnv_surface
     fnv_uv = (bary[idx][:, :, None] * fnv_uvs[triangles[owner[idx]]]).sum(1)
-    return rows, cols, fnv_uv, island_padding(rows, cols, shape)
+    return rows, cols, fnv_uv, padding(rows, cols, shape)
 
 
 def island_padding(rows: np.ndarray, cols: np.ndarray, shape: tuple) -> tuple:
@@ -144,6 +159,10 @@ def island_padding(rows: np.ndarray, cols: np.ndarray, shape: tuple) -> tuple:
     dist, (near_r, near_c) = distance_transform_edt(~filled, return_indices=True)
     pad = (dist > 0) & (dist <= ISLAND_PADDING)
     return np.nonzero(pad), (near_r[pad], near_c[pad])
+
+
+#: island_padding remembered per process (memo): a UV layout's texels pad alike for every face.
+padding = by_content(island_padding)
 
 
 def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
@@ -193,19 +212,28 @@ def vanilla_face_texture(path: Path) -> bool:
     fmt, size = kind
     with tempfile.TemporaryDirectory() as tmp:
         subprocess.run([str(TEXCONV), '-nologo', '-f', fmt, '-w', str(size), '-h', str(size), '-m', '0',
-                        '-o', tmp, str(path)], check=True, capture_output=True, **POPEN_FLAGS)
+                        '-o', tmp, str(path)], check=True, capture_output=True, timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
         path.write_bytes((Path(tmp) / f'{path.stem}.dds').read_bytes())
     return True
 
 
 def _texconv(rgba: np.ndarray, *options: str) -> bytes:
-    """`rgba` as DDS bytes, through the CK's texconv with `options`."""
+    """`rgba` as DDS bytes, through the CK's texconv with `options`, handed over as an uncompressed TGA.
+
+    See: docs/fork/fo4_facegen_plan.md#own-stage-speed
+    """
     with tempfile.TemporaryDirectory() as tmp:
-        png = Path(tmp) / 'texture.png'
-        Image.fromarray(rgba, 'RGBA').save(png)
-        subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(png)], check=True, capture_output=True,
-                       **POPEN_FLAGS)
+        tga = Path(tmp) / 'texture.tga'
+        Image.fromarray(rgba, 'RGBA').save(tga)
+        subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(tga)], check=True, capture_output=True,
+                       timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
         return (Path(tmp) / 'texture.dds').read_bytes()
+
+
+def vanilla_dds(rgba: np.ndarray, kind: str) -> bytes:
+    """`rgba` as DDS in vanilla's format and size for `kind`, full mips."""
+    fmt, size = VANILLA_FACE[kind]
+    return _texconv(rgba, '-f', fmt, '-w', str(size), '-h', str(size), '-m', '0')
 
 
 def write_dds(rgba: np.ndarray, path: Path) -> None:
@@ -227,3 +255,8 @@ def dds_like(rgba: np.ndarray, like: bytes) -> bytes:
     """
     fmt, width, height = dds_layout(like)
     return _texconv(rgba, '-f', fmt, '-w', str(width), '-h', str(height), '-m', '0')
+
+
+def dds_as(rgba: np.ndarray, like: bytes) -> bytes:
+    """`rgba` as DDS bytes at its own size in DDS `like`'s format, full mips."""
+    return _texconv(rgba, '-f', dds_layout(like)[0], '-m', '0')

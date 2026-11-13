@@ -1,6 +1,7 @@
 package f3nv.casino
 {
    import f3ui.Draw;
+   import f3ui.Input;
    import f3ui.Text;
    import f3ui.Theme;
    import flash.display.Sprite;
@@ -97,18 +98,19 @@ package f3nv.casino
          update();
       }
 
-      // FO4's controls and keys: Accept or Enter spins, left and right change the chips placed, Cancel leaves.
-      public function control(name:String) : Boolean
+      // One action from the menu's Input: Accept spins, left and right change the chips placed (Back is the menu's
+      // own).
+      public function control(action:String) : Boolean
       {
-         if (name == "Accept")
+         if (action == Input.ACCEPT)
          {
             spin();
          }
-         else if (name == "Left")
+         else if (action == Input.LEFT)
          {
             betDown();
          }
-         else if (name == "Right")
+         else if (action == Input.RIGHT)
          {
             betUp();
          }
@@ -117,6 +119,13 @@ package f3nv.casino
             return false;
          }
          return true;
+      }
+
+      // The hint bar's hints: spin, the bet down and up, exit.
+      public function hints() : Array
+      {
+         return [[Input.ACCEPT, text(SPIN)], [Input.LEFT, text(DECREASE_BET)], [Input.RIGHT, text(INCREASE_BET)],
+                 [Input.BACK, text(EXIT)]];
       }
 
       private function text(index:int) : String

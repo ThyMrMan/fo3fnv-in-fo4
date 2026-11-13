@@ -1,11 +1,12 @@
 package f3nv.casino
 {
    import f3ui.Draw;
+   import f3ui.Images;
+   import f3ui.Input;
    import f3ui.Text;
    import flash.display.Loader;
    import flash.display.Sprite;
    import flash.events.Event;
-   import flash.net.URLRequest;
    import flash.text.TextField;
 
    // The slot machine screen: three reels of the casino's symbols, the bet, the payout list.
@@ -30,6 +31,7 @@ package f3nv.casino
       public static const REEL_SIZE:Number = 200;
 
       private var send:Function;
+      private var images:Images;
       private var texts:Array;
       private var slots:Slots;
       private var reels:Array = [];
@@ -42,13 +44,16 @@ package f3nv.casino
       private var result:TextField;
       private var status:TextField;
 
-      public function SlotsScreen(sender:Function)
+      // Rounds go out through `sender`; the symbols show through `pictures` (the menu's Images).
+      public function SlotsScreen(sender:Function, pictures:Images)
       {
          super();
          send = sender;
+         images = pictures;
       }
 
-      // Papyrus's data (F3NV_Casino.OpenSlots); `symbols` are the mounted image names, wild last.
+      // Papyrus's data (F3NV_Casino.OpenSlots); `symbols` are the mounted images' URLs ("" for a missing one), wild
+      // last.
       public function open(name:String, chipCount:int, low:int, high:int, won:int, luck:int, seed:uint,
                            stops:Array, symbols:Array, menuTexts:Array) : void
       {
@@ -78,20 +83,25 @@ package f3nv.casino
          update();
       }
 
-      // FO4's controls and keys: Accept or Enter spins, left and right change the bet, Cancel leaves.
-      public function control(name:String) : Boolean
+      // One action from the menu's Input: Accept spins, left and right change the bet, Y bets the most (Back is the
+      // menu's own).
+      public function control(action:String) : Boolean
       {
-         if (name == "Accept")
+         if (action == Input.ACCEPT)
          {
             spin();
          }
-         else if (name == "Left")
+         else if (action == Input.LEFT)
          {
             betDown();
          }
-         else if (name == "Right")
+         else if (action == Input.RIGHT)
          {
             betUp();
+         }
+         else if (action == Input.Y)
+         {
+            betMax();
          }
          else
          {
@@ -100,35 +110,29 @@ package f3nv.casino
          return true;
       }
 
+      // The hint bar's hints: spin, the bet down and up, bet max, exit.
+      public function hints() : Array
+      {
+         return [[Input.ACCEPT, text(SPIN)], [[Input.LEFT, Input.RIGHT], "-/+"], [Input.Y, text(BET_MAX)],
+                 [Input.BACK, text(EXIT)]];
+      }
+
       private function text(index:int) : String
       {
          return index < texts.length ? String(texts[index]) : "";
       }
 
+      // A hidden image of each of `symbols` (URLs) at (x, y), `size` square.
       private function symbolImages(symbols:Array, x:Number, y:Number, size:Number) : Array
       {
-         var images:Array = [];
+         var shown:Array = [];
          for (var i:int = 0; i < symbols.length; i++)
          {
-            var image:Loader = new Loader();
-            image.contentLoaderInfo.addEventListener(Event.COMPLETE, fit(image, size));
-            image.load(new URLRequest("img://" + symbols[i]));
-            image.x = x;
-            image.y = y;
+            var image:Loader = images.show(this, symbols[i], x, y, size);
             image.visible = false;
-            addChild(image);
-            images.push(image);
+            shown.push(image);
          }
-         return images;
-      }
-
-      private static function fit(image:Loader, size:Number) : Function
-      {
-         return function(e:Event) : void
-         {
-            image.width = size;
-            image.height = size;
-         };
+         return shown;
       }
 
       private function payoutList(symbols:Array) : void

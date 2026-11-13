@@ -129,14 +129,15 @@ class ObjectScripts:
         name = papyrus_script_name(self.names.get(scpt, ''), prefix())
         return name if self.dir and (self.dir / f'{name}.psc').exists() else None
 
-    def properties(self, script: str) -> dict:
-        """{property: FormID} of converted `script`'s properties the spike can fill.
+    def properties(self, script: str, only: 'set | None' = None) -> dict:
+        """{property: FormID} of converted `script`'s properties the spike can fill (those named in `only`).
 
         A `TES4Talk_<topic>` scene gets its FormID here, kept in `talks` for the conversation builder;
         material swaps, imagespace modifiers and poses are made on demand (_made). A name matches the build's
         forms ignoring case, as FNV's script names do (SunnyREF is the reference SunnyRef).
         """
-        declared = declared_properties((self.dir / f'{script}.psc').read_text(encoding='utf-8'))
+        declared = [(kind, prop) for kind, prop in declared_properties(
+            (self.dir / f'{script}.psc').read_text(encoding='utf-8')) if only is None or prop in only]
         messages = {prop: self.message(prop) for kind, prop in declared if kind == 'Message' and prop in self.messages}
         props = fill(declared, {**self.forms, 'Message': messages}, self.helper_index)
         talks = {prop: self.talk(prop) for kind, prop in declared

@@ -3,12 +3,18 @@ REM Build F3NV.dll (F4SE plugin, Fallout4.exe 1.11.240) into ..\dist.
 REM
 REM Needs F4SE 0.7.9's source and ianpatt's common, built as static libraries
 REM (docs/fork/fo4_condition.md#plugin-build). F4SE_ROOT and COMMON_ROOT
-REM default to C:\Coding\tes4skyrim\tools_ext.
+REM default to the tools_ext folder beside the checkout (or beside the main
+REM checkout, from a worktree under .claude\worktrees).
 
 setlocal
 call "%~dp0..\common\msvc.bat"
 if errorlevel 1 exit /b 1
-if not defined TOOLS_EXT set TOOLS_EXT=C:\Coding\tes4skyrim\tools_ext
+if not defined TOOLS_EXT for %%I in ("%~dp0..\..\..\tools_ext") do if exist "%%~fI" set TOOLS_EXT=%%~fI
+if not defined TOOLS_EXT for %%I in ("%~dp0..\..\..\..\..\..\tools_ext") do if exist "%%~fI" set TOOLS_EXT=%%~fI
+if not defined TOOLS_EXT (
+    echo [build] ERROR: no tools_ext beside the checkout; set TOOLS_EXT
+    exit /b 1
+)
 set F4SE_ROOT=%TOOLS_EXT%\f4se_src\f4se-0.7.9
 set COMMON_ROOT=%TOOLS_EXT%\extern
 
@@ -18,7 +24,7 @@ del /q obj\*.obj 2>nul
 
 echo [build] compiling F3NV...
 cl /nologo /c /EHsc /std:c++17 /O2 /MT /W3 /DNDEBUG /DRUNTIME /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
-   /I"%F4SE_ROOT%" /I"%COMMON_ROOT%\include" /FI"common/IPrefix.h" plugin.cpp pipboy.cpp repair.cpp transfer.cpp vendor.cpp pages.cpp ammo.cpp sex.cpp damage.cpp hardcore.cpp dialogue.cpp /Fo:obj\
+   /I"%F4SE_ROOT%" /I"%COMMON_ROOT%\include" /FI"common/IPrefix.h" plugin.cpp pipboy.cpp repair.cpp transfer.cpp vendor.cpp pages.cpp ammo.cpp card.cpp gfx.cpp sex.cpp talk.cpp damage.cpp hardcore.cpp dialogue.cpp /Fo:obj\
 if errorlevel 1 (
     echo [build] ERROR: F3NV compilation failed
     exit /b 1

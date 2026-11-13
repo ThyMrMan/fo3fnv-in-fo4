@@ -8,7 +8,7 @@ from PIL import Image
 from tools.validate import shot_boxes as SB
 
 #: The user's FNV reference shot, kept outside the repo (Bethesda art).
-NIGHT_FNV = Path(r'C:\Coding\tes4skyrim\look_refs\saloon_night_fnv.webp')
+NIGHT_FNV = Path(__file__).resolve().parents[2] / 'look_refs' / 'saloon_night_fnv.webp'
 
 
 def _image() -> np.ndarray:

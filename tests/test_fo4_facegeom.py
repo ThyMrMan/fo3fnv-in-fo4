@@ -14,9 +14,10 @@ from fo4_import.face.bake import positions, with_positions
 from fo4_import.nif import blocks as K
 from fo4_import.nif import convert_static as C
 from fo4_import.nif import file as F
+from fo4_import.pipeline.creation_kit import MO2
 
-WILLOW_MOD = Path(r'C:\Modlists\fo3fnv-in-fo4\mods\F3NV - NVWillow')
-PROFILE = Path(r'C:\Coding\tes4skyrim\fo4_main\temp\profile_data')
+WILLOW_MOD = MO2 / 'mods' / 'F3NV - NVWillow'
+PROFILE = Path(__file__).resolve().parents[1] / 'temp' / 'profile_data'
 WILLOW = 0x47CBE4
 
 

@@ -9,7 +9,8 @@ import struct
 from pathlib import Path
 
 from fo4_import import dialogue_menu as menu_links
-from fo4_import import pipboy_overlay
+from fo4_import import level_up as level_up_menu, pipboy_overlay
+from fo4_import.base import translations
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
@@ -23,8 +24,10 @@ from fo4_import.havok import anim_text, gun_anim_text
 from fo4_import.nif import weapon
 from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
+from fo4_import.pipeline.light_choice import finish_flag
 from fo4_import.pipeline.stage_timer import timed
-from fo4_import.spike import ammo_casings, ammo_switch, companion_barks, facegen, list_adds, skeleton, voice
+from fo4_import.spike import (ammo_casings, ammo_switch, companion_barks, facegen, level_up_icons, list_adds,
+                               script_overrides, skeleton, voice)
 from fo4_import.spike.combat_feel import write_settings
 from fo4_import.spike.imagespace import LUT_FOLDER
 from fo4_import.spike.karma_page import write_karma_page
@@ -81,22 +84,24 @@ def _sounds(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
 
 @timed('main archive')
 def _main_archive(builder, data_dir: Path, plugin: str) -> None:
-    """The Main BA2 (pack_main), after every writer and the stale prune.
+    """The Main and voices BA2s (pack_main), after every writer and the stale prune.
     See: docs/fork/fo4_pipeline.md#main-archive
     """
-    builder.counts['files packed into the Main archive'] = pack_main(data_dir, plugin)
+    builder.counts['files packed into the Main and voices archives'] = pack_main(data_dir, plugin)
 
 
 @timed('plugin write')
 def _write_plugin(builder, out: Path, data_dir: Path) -> None:
     """Save the ledger, then write the plugin to `out` (a dependent build's master records only where they change
-    the master's: master_overrides), clear script properties naming no written record, then write the animation
-    data the written races need (_anim_text)."""
+    the master's: master_overrides; light or full: light_choice.finish_flag), clear script properties naming no
+    written record, then write the animation data the written races need (_anim_text)."""
     builder.writer.next_object_id = builder.top
     if builder.built:
         adds = {}
         builder.counts.update(drop_unchanged(builder.writer, builder.built, builder.held, adds))
+        script_overrides.apply(builder, data_dir / 'Scripts')
         builder.counts['master form list entries added at run time'] = list_adds.write(builder, adds)
+    builder.counts[f'plugin written {finish_flag(builder.writer)}'] = 1
     out.parent.mkdir(parents=True, exist_ok=True)
     builder.writer.ledger.save()
     builder.writer.write(str(out))
@@ -124,6 +129,7 @@ def _anim_text(builder, records: list, data_dir: Path, plugin: Path) -> None:
     templates = {entry: template for entry, (_, template) in own.items() if template is not None}
     read = anim_text.reader(data_dir, *masters, Archives(FALLOUT4_DIR / 'Data'))
     files = {**made, **anim_text.entry_files(own, read, known), **anim_text.sync_data(plugin.name)}
+    anim_text.save(known)
     written = (gun_anim_text.write(data_dir, copies, vanilla) + anim_text.write(data_dir, files)
                + gun_anim_text.write(data_dir, templates, vanilla, TEMPLATE_KINDS))
     builder.counts['animation data files written'] = len(written)
@@ -165,10 +171,11 @@ def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
 
 @timed('assets')
 def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
-    """Lowered skeletons, voices, sounds and movies; counted."""
+    """Lowered skeletons, voices, sounds, movies and the level-up icons; counted."""
     builder.counts['human skeletons lowered'] = skeleton.write(data_dir)
     _sounds(builder, export_dir, data_dir, out.name)
     builder.counts['movies written'] = write_movies(export_dir, data_dir)
+    level_up_icons.stage(builder, export_dir, data_dir)
 
 
 @timed('FaceGen and texture archive')
@@ -220,6 +227,8 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
         builder.scripts.used += [list_adds.SCRIPT]
     else:
         builder.counts['Pip-Boy movie installed'] = pipboy_overlay.install(data_dir)
+        builder.counts['level-up menu movie installed'] = level_up_menu.install(data_dir)
+        builder.counts['menu translation files installed'] = translations.install(data_dir)
 
 
 @timed('closing records')
@@ -243,6 +252,7 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     _object_lod(builder, export_dir, data_dir)
     _assets(builder, export_dir, data_dir, out)
     _closing_records(builder, export_dir, data_dir, out, helper)
+    script_overrides.plan(builder, export_dir, scripts_dir)
     _compile(builder, data_dir, scripts_dir)
     _lists(builder, data_dir)
     _write_plugin(builder, out, data_dir)

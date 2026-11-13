@@ -1,28 +1,33 @@
 package
 {
    import f3ui.Bridge;
+   import f3ui.Theme;
+   import flash.display.DisplayObject;
    import flash.display.MovieClip;
    import flash.events.Event;
 
-   // Spike 4: our own movie inside the Pip-Boy. F3NV.dll loads it into the Pip-Boy menu (root.Menu_mc) with a
-   // Loader when the menu opens (pipboy.cpp LoadOverlay). It keeps one line of its own on the inventory item card
+   // Our movie inside the Pip-Boy. F3NV.dll loads it into the Pip-Boy menu (root.Menu_mc) with a Loader when the
+   // menu opens (pipboy.cpp LoadOverlay). Each frame it keeps the lines F3NV.dll gives (PipboyCardLines: the CND
+   // line of an item that wears, why a list did not open, other mods' lines) on the inventory item card
    // (CurrentPage.ItemCard_mc.InfoObj), which the game refills on every selection, under any Pip-Boy movie that
-   // keeps the vanilla item card. It draws nothing and takes no input.
-   // See docs/fork/swf_framework.md#spikes
+   // keeps the vanilla item card. While F3NV's repair or ammo list is open (PipboyList) it draws that list over
+   // the card instead (ListPanel), in white for the game's own screen tint, or in FallUI's Pip-Boy color when
+   // FallUI draws the Pip-Boy (it turns the tint off). It takes no input: F3NV.dll keeps the keys.
+   // See docs/fork/swf_framework.md#pipboy
    public class F3NV_Pipboy extends MovieClip
    {
-      public static const LABEL:String = "F3UI";
-      public static const VALUE:String = "SPIKE 4";
-
       private var bridge:Bridge = new Bridge();
       private var menu:Object;
       private var seen:Object = {};
+      private var panel:ListPanel = new ListPanel();
 
       public function F3NV_Pipboy()
       {
          super();
          mouseEnabled = false;
          mouseChildren = false;
+         panel.hide();
+         addChild(panel);
          addEventListener(Event.ADDED_TO_STAGE, onStage);
       }
 
@@ -43,25 +48,99 @@ package
          addEventListener(Event.ENTER_FRAME, onFrame);
       }
 
-      // Each frame: put our line back on the item card when the game's refill dropped it, and redraw the card.
+      // Each frame: draw F3NV.dll's open list, or else keep its lines on the item card.
       private function onFrame(e:Event) : void
       {
+         var dll:Object = bridge.natives("F3NV");
+         var list:Object = dll != null && dll.PipboyList != null ? dll.PipboyList() : null;
          var card:Object = itemCard();
-         var lines:Array = card != null ? card.InfoObj as Array : null;
+         if (list != null && card != null)
+         {
+            raise();
+            Theme.color = pipboyColor();
+            panel.draw(list, DisplayObject(card).getBounds(this));
+            once("drew a list of F3NV's");
+            return;
+         }
+         panel.hide();
+         keepLines(dll, card);
+      }
+
+      // Put F3NV.dll's lines on item card `card`, adding the ones the game's refill dropped and updating changed
+      // values, and redraw the card when anything changed. Nothing while a list of F3NV's has the card.
+      private function keepLines(dll:Object, card:Object) : void
+      {
+         var wanted:Array = dll != null && dll.PipboyCardLines != null ? dll.PipboyCardLines() as Array : null;
+         var lines:Array = wanted != null && card != null ? card.InfoObj as Array : null;
          if (lines == null)
          {
             return;
          }
-         for each (var line:Object in lines)
+         var changed:Boolean = false;
+         for each (var line:Object in wanted)
          {
-            if (line != null && line.text == LABEL)
+            changed = keep(lines, line) || changed;
+         }
+         if (changed)
+         {
+            card.onDataChange();
+            once("drew F3NV's lines on an item card (" + lines.length + " lines)");
+         }
+      }
+
+      // Put `line` in item card `lines` (matched by its text), or update its value; true when either was needed.
+      private static function keep(lines:Array, line:Object) : Boolean
+      {
+         for each (var shown:Object in lines)
+         {
+            if (shown != null && shown.text == line.text)
             {
-               return;
+               if (shown.value == line.value)
+               {
+                  return false;
+               }
+               shown.value = line.value;
+               return true;
             }
          }
-         lines.push({text: LABEL, value: VALUE});
-         card.onDataChange();
-         once("added our line to an item card (" + lines.length + " lines)");
+         lines.push(line);
+         return true;
+      }
+
+      // FallUI's Pip-Boy color (M8r.Mods.config.stdColor in the Pip-Boy's classes, as FallUI's own add-on API reads
+      // it), else white: the game tints the vanilla Pip-Boy's white art itself.
+      // See docs/fork/swf_framework.md#pipboy
+      private function pipboyColor() : uint
+      {
+         try
+         {
+            var mods:Object = menu.loaderInfo.applicationDomain.getDefinition("M8r.Mods");
+            if (mods.configLoaded && mods.config != null)
+            {
+               return uint(mods.config.stdColor);
+            }
+         }
+         catch (error:Error)
+         {
+            once("no FallUI colors: " + error.message);
+         }
+         return Theme.WHITE;
+      }
+
+      // Our Loader to the top of the Pip-Boy menu, over the page and its fade, when something covered it.
+      private function raise() : void
+      {
+         try
+         {
+            if (menu.getChildIndex(parent) != menu.numChildren - 1)
+            {
+               menu.setChildIndex(parent, menu.numChildren - 1);
+            }
+         }
+         catch (error:Error)
+         {
+            once("could not raise our movie: " + error.message);
+         }
       }
 
       // The shown page's item card, or null on a page without one.

@@ -1,6 +1,7 @@
-"""Pack a Data folder's loose textures into the plugin's texture BA2 (ba2_textures, our own writer), and its
-sounds, meshes, materials and scripts into its Main BA2 (pack_main); the loose copies the archives hold leave
-the Data folder after the build (drop_packed) and the Main archive's come back before the next (restore_packed).
+"""Pack a Data folder's loose textures into the plugin's texture BA2 (ba2_textures, our own writer), its voices
+into `<plugin> - Voices_<language>.ba2`, and its other sounds, meshes, materials and scripts into its Main BA2
+(pack_main); the loose copies the archives hold leave the Data folder after the build (drop_packed: the Main
+archive's into a stash beside the staging folder) and come back before the next (restore_packed).
 
 Fallout 4 streams a texture's mips from a BA2's chunks; a loose DDS can stay
 on a low mip, and past iTextureDegradeDistance the game drops a texture's top
@@ -20,6 +21,7 @@ See: docs/fork/fo4_tool_audit.md#rebuild
 """
 
 import functools
+import glob
 import hashlib
 import json
 import multiprocessing
@@ -27,10 +29,12 @@ import os
 import shutil
 from pathlib import Path
 
+from core.build_resources import pool_workers
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import write_textures
-from fo4_import.base.ba2_write import write_general
+from fo4_import.base.ba2_write import same_bytes, write_general
 from fo4_import.base.build_files import moved_in
+from fo4_import.base.install import game_language
 from fo4_import.pipeline.build_inputs import MASTERS
 from fo4_import.pipeline.code_tag import ROOT
 
@@ -42,8 +46,14 @@ MANIFEST = 'manifest.json'
 OWN = ('fnv/', 'terrain/fnv_')
 #: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
 SOUND = 'Sound'
+#: The staged sound folder (lowercase, '/'-separated, ending '/') packed apart, into voices_archive().
+VOICE = 'sound/voice/'
 #: Data folders the build writes loose that the Main archive holds, each with the one file ending it packs (None: all).
 PACKED = (('Meshes', None), ('Materials', None), ('Scripts', '.pex'))
+#: The staging folder's folder keeping, per plugin, the loose Main files between builds (stash_dir), and its stamp.
+LOOSE, STAMP = 'loose', 'stash.json'
+#: What a write_later worker commits, for the worker count (build_resources.pool_workers).
+WRITE_WORKER_BYTES = 512 << 20
 #: Per resolved Data folder, this run's {'manifest': the last pack's record, 'staged': {key: signature}}.
 _RUNS = {}
 
@@ -158,23 +168,35 @@ def _write_one(job: tuple) -> None:
 
 
 def write_later(jobs: list, workers: int) -> None:
-    """Run (write, target) `jobs` on `workers` processes (0: CPUs - 1)."""
-    with multiprocessing.Pool(workers or max(1, os.cpu_count() - 1)) as pool:
+    """Run (write, target) `jobs` on `workers` processes (0: the resource profile's)."""
+    with multiprocessing.Pool(pool_workers(WRITE_WORKER_BYTES, len(jobs), workers)) as pool:
         pool.map(_write_one, jobs, chunksize=1)
 
 
 def _move_loose(loose: Path, staged: Path, keep_loose: tuple) -> set:
-    """Move every file under `loose` but `keep_loose` folders into `staged`; their texture keys."""
+    """Move every file under `loose` but `keep_loose` folders into `staged`; their texture keys. A loose file the
+    staged copy already matches byte for byte is deleted instead, so the copy keeps its time and the archive
+    copies it rather than compressing it again.
+    See: docs/fork/fo4_pipeline.md#faces-repack
+    """
     kept = [loose / folder.replace(chr(92), '/') for folder in keep_loose]
     moved = set()
     for path in sorted(p for p in loose.rglob('*') if p.is_file()) if loose.exists() else []:
         if any(path.is_relative_to(folder) for folder in kept):
             continue
         target = staged / path.relative_to(loose)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(path, target)
+        if _same_file(path, target):
+            path.unlink()
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(path, target)
         moved.add(path.relative_to(loose).as_posix().lower())
     return moved
+
+
+def _same_file(path: Path, other: Path) -> bool:
+    """Whether `other` exists and holds exactly `path`'s bytes."""
+    return other.is_file() and other.stat().st_size == path.stat().st_size and other.read_bytes() == path.read_bytes()
 
 
 def _unstage(staged: Path, loose: Path, keep_loose: tuple) -> int:
@@ -274,50 +296,187 @@ def _tree(base: Path, folder: str) -> dict:
     """{name relative to `base`, '/'-separated: path} of every file under `base`/`folder`."""
     out = {}
     for top, _dirs, names in os.walk(Path(base) / folder):
-        for name in names:
-            path = Path(top, name)
-            out[path.relative_to(base).as_posix()] = path
+        rel = Path(top).relative_to(base).as_posix()
+        out.update((f'{rel}/{name}', Path(top, name)) for name in names)
     return out
 
 
-def main_files(data_dir: Path) -> dict:
-    """{archive name: path} of what `<plugin> - Main.ba2` holds: the staged sounds (sound_root) and the loose
-    PACKED files of `data_dir`."""
-    named = _tree(sound_root(data_dir), SOUND)
+def archive_files(data_dir: Path) -> tuple:
+    """({archive name: path} of what `<plugin> - Main.ba2` holds, of what voices_archive() holds): the staged
+    sounds (sound_root) but VOICE and the loose PACKED files of `data_dir`; the staged VOICE files."""
+    main, voices = {}, {}
+    for name, path in _tree(sound_root(data_dir), SOUND).items():
+        (voices if name.lower().startswith(VOICE) else main)[name] = path
+    return {**main, **_packed_loose(Path(data_dir))}, voices
+
+
+def _packed_loose(base: Path) -> dict:
+    """{name relative to `base`, '/'-separated: path} of the PACKED files loose under `base`."""
+    out = {}
     for folder, ending in PACKED:
-        named.update((name, path) for name, path in _tree(Path(data_dir), folder).items()
-                     if ending is None or name.lower().endswith(ending))
-    return named
+        out.update((name, path) for name, path in _tree(base, folder).items()
+                   if ending is None or name.lower().endswith(ending))
+    return out
 
 
-def pack_main(data_dir: Path, plugin: str) -> int:
-    """Pack main_files() as `<plugin stem> - Main.ba2` when they changed since it was packed, or delete that archive
-    and its record when there are none (an earlier build's would ship stale files); the file count. The loose
-    PACKED files stay until drop_packed().
-    See: docs/fork/fo4_pipeline.md#main-archive
-    """
-    named, archive = main_files(data_dir), Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
-    if named:
-        stats = {name.lower(): path.stat() for name, path in named.items()}
-        _pack(archive, {key: [st.st_size, st.st_mtime_ns] for key, st in stats.items()},
-              lambda kept: write_general(named, archive, kept))
-    for stale in () if named else (archive, pack_record(archive)):
+def voices_archive(data_dir: Path, plugin: str) -> Path:
+    """`plugin`'s voices archive in `data_dir`, named for the game's language."""
+    return Path(data_dir) / f'{Path(plugin).stem} - Voices_{game_language()}.ba2'
+
+
+def _voice_archives(data_dir: Path, plugin: str) -> list:
+    """`plugin`'s voices archives in `data_dir`, of any language."""
+    return sorted(Path(data_dir).glob(f'{glob.escape(Path(plugin).stem)} - Voices_*.ba2'))
+
+
+def _pack_general(archive: Path, named: dict, held: 'dict | None' = None) -> None:
+    """Pack `named` ({name: loose path}) and `held` ({name: [size, mtime]} that `archive` holds as packed,
+    archived(), none of them in `named`) as general `archive` when that changed since it was packed; delete the
+    archive and its record when both are empty (an earlier build's would ship stale files)."""
+    held = held or {}
+    stats = {name: path.stat() for name, path in named.items()}
+    files = {**held, **{name: [st.st_size, st.st_mtime_ns] for name, st in stats.items()}}
+    if files:
+        everything = {**dict.fromkeys(held), **named}
+        _pack(archive, {name.lower(): value for name, value in files.items()},
+              lambda kept: write_general(everything, archive, kept, {name: value[0] for name, value in files.items()}))
+    for stale in () if files else (archive, pack_record(archive)):
         stale.unlink(missing_ok=True)
-    return len(named)
+
+
+def archived(archive: Path) -> 'dict | None':
+    """{name as `archive` spells it, '/'-separated: [size, mtime] it was packed with}, from its pack record; None
+    when the record does not describe the archive on disk.
+    See: docs/fork/fo4_pipeline.md#faces-repack
+    """
+    packed, stat = _read_json(pack_record(archive)), archive.stat() if archive.exists() else None
+    if not stat or packed.get('archive') != [stat.st_size, stat.st_mtime_ns]:
+        return None
+    spelled = {name.replace(chr(92), '/'): text.replace(chr(92), '/')
+               for name, text in Archive(archive).spelled.items()}
+    return {spelled[name]: value for name, value in packed.get('manifest', {}).items() if name in spelled}
+
+
+def _held(archive: Path, main: dict, replaced: tuple) -> dict:
+    """What `archive` keeps as packed ({name as it spells it: [size, mtime]}, archived()): each loose file of
+    `main` ({name: path}) whose size and time, else bytes, match its packed copy; with `replaced` folders, also
+    every entry outside them that is not loose (a stage that rewrites only those folders).
+    See: docs/fork/fo4_pipeline.md#unchanged-bytes
+    """
+    record = archived(archive) or {}
+    spelled = {name.lower(): name for name in record}
+    loose = {name.lower(): path for name, path in main.items()}
+    held = {spelled[n]: record[spelled[n]] for n in spelled
+            if replaced and n not in loose and not n.startswith(replaced)}
+    stats = {n: loose[n].stat() for n in spelled.keys() & loose.keys()}
+    same = {n for n, st in stats.items() if record[spelled[n]] == [st.st_size, st.st_mtime_ns]}
+    sized = {n: loose[n] for n, st in stats.items() if n not in same and record[spelled[n]][0] == st.st_size}
+    for n in same | (same_bytes(archive, sized) if sized else set()):
+        held[spelled[n]] = record[spelled[n]]
+    return held
+
+
+def pack_main(data_dir: Path, plugin: str, replaced: tuple = ()) -> int:
+    """Pack archive_files() as `<plugin stem> - Main.ba2` and voices_archive(), each only when its files changed
+    since it was packed (_pack_general); another language's voices archive goes; the file count. The loose PACKED
+    files stay until drop_packed(). Main keeps what _held() says as packed (`replaced`: folders this stage
+    rewrites, the rest needing no restore_packed()).
+    See: docs/fork/fo4_pipeline.md#main-archive
+    See: docs/fork/fo4_pipeline.md#unchanged-bytes
+    See: docs/fork/fo4_build_speed.md#voices-archive
+    """
+    main, voices = archive_files(data_dir)
+    target = voices_archive(data_dir, plugin)
+    for old in _voice_archives(data_dir, plugin):
+        if old != target:
+            _pack_general(old, {})
+    archive = Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
+    held = _held(archive, main, replaced)
+    same = {name.lower() for name in held}
+    main = {name: path for name, path in main.items() if name.lower() not in same}
+    _pack_general(archive, main, held)
+    _pack_general(target, voices)
+    return len(main) + len(held) + len(voices)
 
 
 def own_archives(data_dir: Path, plugin: str) -> list:
-    """`plugin`'s Main and Textures archives in `data_dir` that exist."""
+    """`plugin`'s Main, voices and Textures archives in `data_dir` that exist."""
     stem = Path(plugin).stem
-    return [p for p in (Path(data_dir) / f'{stem} - {kind}.ba2' for kind in ('Main', 'Textures')) if p.is_file()]
+    return [p for p in (Path(data_dir) / f'{stem} - {kind}.ba2' for kind in ('Main', 'Textures')) if p.is_file()] \
+        + _voice_archives(data_dir, plugin)
+
+
+def stash_dir(data_dir: Path, plugin: str) -> Path:
+    """Where drop_packed() keeps `plugin`'s loose Main files, outside the Data folder."""
+    return staging_root(data_dir) / LOOSE / Path(plugin).stem
+
+
+def stashed(data_dir: Path, plugin: str) -> bool:
+    """Whether stash_dir() holds the loose copies of `plugin`'s Main archive as it is on disk."""
+    archive = Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
+    stat = archive.stat() if archive.is_file() else None
+    stamp = _read_json(stash_dir(data_dir, plugin) / STAMP)
+    return bool(stat) and stamp.get('archive') == [stat.st_size, stat.st_mtime_ns]
+
+
+def _stash(data_dir: Path, plugin: str) -> int:
+    """Move the loose PACKED files into stash_dir() (each top folder in one rename), stamped with the Main
+    archive's size and time, when they are exactly the archive's PACKED entries and the stash is on the Data
+    folder's drive; how many (0: none moved, the earlier stash gone).
+    See: docs/fork/fo4_pipeline.md#loose-stash
+    """
+    data, stash = Path(data_dir), stash_dir(data_dir, plugin)
+    archive = data / f'{Path(plugin).stem} - Main.ba2'
+    shutil.rmtree(stash, ignore_errors=True)
+    stash.mkdir(parents=True, exist_ok=True)
+    loose = _packed_loose(data) if archive.is_file() and os.stat(stash).st_dev == os.stat(data).st_dev else {}
+    folders = tuple(folder.lower() + chr(92) for folder, _ in PACKED)
+    held = {name for name in Archive(archive).entries if name.startswith(folders)} if loose else set()
+    if not loose or {name.lower().replace('/', chr(92)) for name in loose} != held:
+        shutil.rmtree(stash, ignore_errors=True)
+        return 0
+    whole = {folder.lower() for folder, ending in PACKED if ending is None}
+    for top in [name for name in os.listdir(data) if name.lower() in whole]:
+        os.replace(data / top, stash / top)
+    for name, path in loose.items():
+        if path.is_file():
+            (stash / name).parent.mkdir(parents=True, exist_ok=True)
+            os.replace(path, stash / name)
+    stat = archive.stat()
+    (stash / STAMP).write_text(json.dumps({'archive': [stat.st_size, stat.st_mtime_ns], 'files': len(loose)}))
+    return len(loose)
+
+
+def _unstash(data_dir: Path, plugin: str) -> int:
+    """Move stash_dir()'s files back where the Data folder has none (a whole top folder in one rename) when
+    stashed(), else drop the stash; how many came back.
+    See: docs/fork/fo4_pipeline.md#loose-stash
+    """
+    stash = stash_dir(data_dir, plugin)
+    files = _read_json(stash / STAMP).get('files', 0) if stashed(data_dir, plugin) else 0
+    (stash / STAMP).unlink(missing_ok=True)
+    for top in os.listdir(stash) if files else ():
+        if not (Path(data_dir) / top).exists():
+            os.replace(stash / top, Path(data_dir) / top)
+    for path in sorted(p for p in stash.rglob('*') if p.is_file()) if files else ():
+        target = Path(data_dir) / path.relative_to(stash)
+        if target.exists():
+            path.unlink()
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(path, target)
+    shutil.rmtree(stash, ignore_errors=True)
+    return files
 
 
 def drop_packed(data_dir: Path, plugin: str) -> int:
-    """Delete each loose file in `data_dir` that `plugin`'s archives hold: loose wins over an archive, and under
-    MO2 the game's launch pays for every loose file; how many. restore_packed() brings the Main archive's back.
+    """Take each loose file in `data_dir` that `plugin`'s archives hold out of it: loose wins over an archive, and
+    under MO2 the game's launch pays for every loose file; how many. The Main archive's go to stash_dir() when
+    _stash() can, the rest are deleted; restore_packed() brings the Main archive's back.
     See: docs/fork/fo4_pipeline.md#main-archive
+    See: docs/fork/fo4_pipeline.md#loose-stash
     """
-    gone = 0
+    gone = _stash(data_dir, plugin)
     for archive in own_archives(data_dir, plugin):
         for name in Archive(archive).entries:
             path = Path(data_dir) / name.replace(chr(92), '/')
@@ -338,14 +497,16 @@ def _remove_empty(data_dir: Path, folders: tuple) -> None:
 
 
 def restore_packed(data_dir: Path, plugin: str) -> int:
-    """Write back each PACKED file of `plugin`'s Main archive that `data_dir` lacks loose (drop_packed), spelled
-    and dated as the archive, so a build or the faces stage reads what the last build made; how many.
+    """Bring back each PACKED file of `plugin`'s Main archive that `data_dir` lacks loose (drop_packed): moved
+    back from stash_dir() (_unstash), the rest written from the archive, spelled and dated as the archive, so a
+    build or the faces stage reads what the last build made; how many.
     See: docs/fork/fo4_pipeline.md#main-archive
+    See: docs/fork/fo4_pipeline.md#loose-stash
     """
     archive = Path(data_dir) / f'{Path(plugin).stem} - Main.ba2'
     if not archive.is_file():
         return 0
-    main, when, restored = Archive(archive), archive.stat().st_mtime, 0
+    main, when, restored = Archive(archive), archive.stat().st_mtime, _unstash(data_dir, plugin)
     folders = tuple(folder.lower() + chr(92) for folder, _ in PACKED)
     for name, spelled in main.spelled.items():
         path = Path(data_dir) / spelled.replace(chr(92), '/')
@@ -364,9 +525,15 @@ def archived_names(data_dir: Path) -> set:
 
 
 @functools.lru_cache(maxsize=64)
-def _names(path: str, _size: int, _mtime: int) -> frozenset:
+def _names(path: str, size: int, mtime: int) -> frozenset:
     """Archive `path`'s paths, lowercase, '/'-separated (size and time key the cache)."""
-    return frozenset(name.replace(chr(92), '/') for name in Archive(Path(path)).entries)
+    return frozenset(name.replace(chr(92), '/') for name in _archive(path, size, mtime).entries)
+
+
+@functools.lru_cache(maxsize=8)
+def _archive(path: str, _size: int, _mtime: int) -> Archive:
+    """Archive `path` indexed once while its size and time stay (they key the cache)."""
+    return Archive(Path(path))
 
 
 def data_file(data_dir: Path, rel: str) -> 'bytes | None':
@@ -376,6 +543,7 @@ def data_file(data_dir: Path, rel: str) -> 'bytes | None':
         return loose.read_bytes()
     key = str(rel).replace(chr(92), '/').lower()
     for archive in sorted(Path(data_dir).glob('*.ba2'), reverse=True) if Path(data_dir).is_dir() else ():
-        if key in _names(str(archive), archive.stat().st_size, archive.stat().st_mtime_ns):
-            return Archive(archive).read(key)
+        stamp = str(archive), archive.stat().st_size, archive.stat().st_mtime_ns
+        if key in _names(*stamp):
+            return _archive(*stamp).read(key)
     return None

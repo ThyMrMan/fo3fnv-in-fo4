@@ -212,10 +212,12 @@ export; the rail line and the seam are not.
 ### <a id="p2"></a>Phase 2 (M): distant land holes
 
 - **Delivers:** the cause and fix of the holes and dark blocks at the rail
-  line. Leads, in order, none confirmed: the texture half-turn not yet
-  played; `without_skirts` opening cracks where FO4 draws neighbor tiles
-  at different levels (FNV's skirts may have hidden exactly those); a
-  missing or textureless tile in `tiles`. A per-tile audit (every level
+  line. Leading cause, measured 2026-11-12 ([LOD research](research/fo4_lod_research.md#gaps)):
+  `without_skirts` opens cracks of up to 344 units between same-level tiles
+  and 1,968 between levels, which vanilla hides with skirts 1,000 units
+  deep per level step; the fix is vanilla-depth skirts. Still open: the
+  texture half-turn not yet played; a missing or textureless tile in
+  `tiles`. A per-tile audit (every level
   covers its parent's area, no tile left out) runs over the built
   `Meshes/Terrain` folder.
 - **Checked by:** the audit's count of missing or uncovered tiles reaching

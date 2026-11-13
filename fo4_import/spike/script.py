@@ -19,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from asset_convert.game_paths import namespace_for
+from core.build_resources import profile_cores
 from fo4_import.base.ba2_pack import archived_names
 from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import compile_folder, header_dirs
@@ -50,8 +51,6 @@ TRACE_SCRIPT = 'FNVSpike_SceneTrace'
 TRACE_LOG = 'FNVSpikeTrace'
 #: compile_into's staging folders (one per output Scripts folder).
 STAGE = ROOT / 'output' / 'fo4_cache' / 'script_stage'
-#: Compiler instances compile_into runs at once.
-WORKERS = max(1, (os.cpu_count() or 2) - 1)
 
 
 def use_prefix(export_dir) -> None:
@@ -218,7 +217,7 @@ def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = (), master
     for name in sorted(keep):
         if not (stage / name).exists() or (stage / name).read_bytes() != sources[name].read_bytes():
             shutil.copyfile(sources[name], stage / name)
-    compiled, own, names = compile_fallout4(SimpleNamespace(src=str(stage), out=str(out), full=False, workers=WORKERS,
+    compiled, own, names = compile_fallout4(SimpleNamespace(src=str(stage), out=str(out), full=False, workers=profile_cores(),
                                                             headers=';'.join([header_dirs(), *(str(Path(m).resolve()) for m in masters)])
                                                             if masters else None))
     failed = sorted(n for n in names if n.lower() not in compiled)

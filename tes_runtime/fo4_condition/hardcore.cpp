@@ -206,10 +206,7 @@ void HookHud() {
     for (size_t i = 0; i < NEEDS; i++) AddField(movie, box, "need" + std::to_string(i), FIELD_STEP * double(i));
     meters.Invoke("addChild", nullptr, &box, 1);
     meters.SetMember(HOOKED, &box);
-    GFxValue args[2];
-    movie->CreateString(&args[0], "enterFrame");
-    CreateFunction<HudFrame>(&args[1], movie);
-    root.Invoke("addEventListener", nullptr, args, 2);
+    Listen<HudFrame>(movie, root, "enterFrame");
     g_normal = HudColor("iHUDColor");
     g_warning = HudColor("iHUDColorWarning");
     for (Shown &shown : g_shown) shown = Shown();

@@ -573,7 +573,9 @@ since it is player or actor state:
 The ids live in `script_convert/constants.py` (`FALLOUT4_HELPER_*`) and are
 a save contract: append only. Converted plugins list the helper plugin as a
 master; `helpers_plugin.actor_value_form` and `helper_forms` give the FormIDs
-a plugin writes for them, by its master index.
+a plugin writes for them, by its master index. The same command writes
+Cleanroom UI's `CleanroomUI.esl` beside it
+([level-up plugin](fo4_level_up_plan.md#plugin)).
 
 - `TES4Polyfill.AV(name)` is generated from `target.fallout4_actor_values()`:
   Fallout4.esm's ids read from `Fallout4.esm`, the rest from the helper
@@ -2040,8 +2042,9 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   - The sign is one shape (diffuse, normal, environment mask), no LOD
     node: the lower texture is FO4 streaming mips in.
 - **Fourth play:** the road wall is gone. The black hill triangles stay
-  with layer -1; the F4SE mod Black Landscape Fix clears them (an engine
-  bug, not our data). Blurry textures vary between launches (sign one
+  with layer -1; the F4SE mod Black Landscape Fix clears them. The engine
+  bug is real, but our data triggers it ([empty layers](#empty-land-layers)).
+  Blurry textures vary between launches (sign one
   launch, sign and bike another); a wall in front of Doc's house; an
   uneven wall at the water tank and a ruined house you can slip into.
   - The sign's DDS is full size (512², 10 mips, as FNV's). FO4 streams
@@ -2348,6 +2351,38 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   same home leaves only with the doorway raised: X tilt 0 and 0.2138 trap,
   0.3038 is 50/50, 0.4938 and up leave, door south; the same tilt with the
   door north traps (the tilt is about the world axis, after the heading).
+
+### <a id="empty-land-layers"></a>Empty land layers and Black Landscape Fix (census 2026-11-12)
+
+- **What the mod does:** Black Landscape Fix (Nexus 108574, an F4SE plugin)
+  hooks the terrain renderer. Its `SanitizeMergedLayers` runs on the
+  texture layers and weights the game gathers for each LAND before drawing,
+  and drops "excess" layers and "invalid weighted" layers. Affected ground
+  falls back to its base texture instead of drawing black. With
+  `bEnableCellLogging=1` in its ini, it logs each cell it cleaned:
+  `terrain scratch sanitized: cell=…, land=…, retained N, removed X excess and Y invalid weighted layer(s)`.
+- **The census** (scratch `land_census.py`; vanilla `Fallout4.esm` against
+  the 2026-11-12 `FalloutNV.esm`):
+
+  | | Vanilla (37,020 LAND) | Ours (29,180 LAND) |
+  |---|---|---|
+  | Layers in the fullest quadrant | up to 10 | at most 4 |
+  | Distinct textures in one cell | up to 15 | at most 11 |
+  | Most alpha layers weighted at one vertex | up to 6 | at most 3 |
+  | Alpha layers with an empty VTXT | 0 | 154,352, in 15,080 cells |
+
+- **The cause in our data:** the land writer gave every texture that
+  `land_layers.limit_textures` kept an ATXT, then wrote that layer's VTXT
+  only where its share was over `MIN_SHARE`. A kept texture with no share
+  that large anywhere in the quadrant got an ATXT with an empty VTXT. This
+  is mostly a neighbor's texture that `blend_borders` brought to a shared
+  edge and the limit then trimmed. We never exceed vanilla's layer counts,
+  so the mod has no excess layers of ours to drop.
+- **Fix:** `exterior._land` leaves such a layer out and numbers the rest in
+  order (counted as `land alpha layers left out (no share)`). Those layers
+  drew nothing, so the ground should look the same. Not yet played: the
+  check is the mod's log (no cells on the fixed build), then a play
+  without the mod.
 
 ### <a id="spike-4-trees"></a>Trees (built 2026-10-09, played 2026-10-10: they look right)
 

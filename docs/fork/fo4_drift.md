@@ -14,11 +14,11 @@ here, so a later patch can close the gap. Content is never dropped.
 | Vit-o-matic (SPECIAL) | FNV's menu, 40 points, every stat starting at 5 | FO4's SPECIAL menu with `uSPECIALPoints` set to 40; the new game sets each stat to the FNV player record's 5 | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Choosing sex | The Reflectron's race menu | A Male/Female box before the Reflectron opens FO4's appearance editor | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Naming the character | The Reflectron's name entry | FO4's SPECIAL menu name field, at the Vit-o-matic | [vcg01](fo4_spikes.md#spike-2-vcg01) |
-| Skills page | Pip-Boy Skills tab | Spent in LevelUpMenuEx's menu; shown on our Pip-Boy SKILLS tab ([tabs](fo4_pipboy_tabs.md)) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
-| Traits | Effects on pick | Picked through LevelUpMenuEx; their effects are the perk conversion's, with its gaps (next row) | [perks](fo4_perks.md#records) |
+| Skills page | Pip-Boy Skills tab | Spent in our level-up menu, a screen of its own after the Pip-Boy closes ([level-up](fo4_level_up_plan.md#open)); shown on our Pip-Boy SKILLS tab ([tabs](fo4_pipboy_tabs.md)) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Traits | Effects on pick | Picked in our level-up menu's trait page ([tags](fo4_level_up_plan.md#tags)); their effects are the perk conversion's, with its gaps (next row) | [perks](fo4_perks.md#records) |
 | Perk effects | 143 entry-point effects, abilities, quest stages | FO4's entry points of the same meaning; Computer Whiz, Paralyzing Palm, Concentrated Fire and Grim Reaper's Sprint (all AP back, by chance) as FO4's own perks do them; no attack or equip speed, aiming speed, unarmed special moves, Miss Fortune, Long Haul; defender Damage Threshold perks on another tab (Stonewall, Hit the Deck). Reload, AP regeneration, run speed, Lead Belly and plain defender DT are abilities ([stat abilities](fo4_perks.md#stat-abilities)) | [perks](fo4_perks.md#records) |
 | Rad resistance | A percentage | FO4's `RadResistExposure` at FNV's number, as Rad-X already converts | [perks](fo4_perks.md#records) |
-| Skill points per level | Granted at the level-up | Added when LevelUpMenuEx's menu next opens | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Skill points per level | Granted at the level-up | Added when the level-up menu next opens; the rates are MCM options, defaulting to the game's ([options](fo4_level_up_plan.md#options)) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Rooms and portals in partly covered interiors | Rooms cull what is outside view; space in no room is drawn as seen | In the 29 interiors where a portal leads to no room, no rooms: the whole cell is drawn (no room culling) | [rooms](fo4_pipeline.md#rooms) |
 | Walking away mid-conversation | The talk ends | A one-menu scene ends; a multi-phase scene waits in its phase until the player returns | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Opening a talk | `StartConversation`, force greets and clicking all open the GREETING | A silent `...` greeting line starts the GREETING scene (its subtitle shows briefly) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
@@ -90,7 +90,7 @@ medium, L large). Counts are from the FalloutNV.esm export.
 
 | System | Decision | What it takes | Size |
 |---|---|---|---|
-| SPECIAL, skills, traits, perks | FNV's system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions)) | Skills in LevelUpMenuEx's menu; FO4's perk chart off | — |
+| SPECIAL, skills, traits, perks | FNV's system, in our own level-up menu ([plan](fo4_level_up_plan.md); LevelUpMenuEx [dropped](fo4_level_up_plan.md#dropped)) | Skills, perks, tags and traits in our menu, opened in place of FO4's perk chart | — |
 | Speech checks, skill-gated lines | **FNV's**: deterministic skill checks, not FO4's Charisma chance (no reloading past them) | Converted as dialogue conditions (spike 1, played). The `[Speech 50]` tag is built into the option text from the line's check (2026-10-30, not played; [speech tag](fo4_build_next.md#speech-tag)); a failed check shows `[Speech 50]`, not FNV's `[Speech 30/50]` | S |
 | Karma | **FNV's**, our own (built) | Karma as an actor value: 48 `RewardKarma`, about 200 reads in scripts and conditions. FNV's engine also moves karma on kills and thefts: FO4 story-manager kill and crime events with a script. Design borrowed from KARMA ([mods](research/fo4_target.md#mods)) | S-M |
 | Faction reputation | **FNV's**, our own (built) | 13 REPU factions; 218 `AddReputation`, 81 `SetReputation`, 202 `GetReputation`, 135 `GetReputationThreshold`. Fame and infamy per faction plus a stored tier, so conditions can test it; scripts through the converter's helpers. Hit squads and gift givers are FNV content and convert with it. REPUTATION is closed to new factions | M |

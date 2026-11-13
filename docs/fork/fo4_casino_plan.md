@@ -344,7 +344,7 @@ from the player's inventory with the usual item messages.
   bet. No insurance. 7 cards auto-stand.
   - Guide/wiki: no split on queens or kings, and only the first split
     hand may double (W L3071189). The split check (`0x007395a0`) compares
-    rank; whether it excludes queens and kings is to be read in phase 4.
+    rank and allows queens and kings ([blackjack built](#blackjack-built)).
 - **Payouts:** natural 21 pays bet × CSNO payout, rounded (3:2, 6:5 at
   the Atomic Wrangler); a win pays 1:1; push returns the bet; a split
   hand reaching 21 also pays as a natural.
@@ -442,8 +442,9 @@ uniform draw; 159 bet spots; the max bet covers all bets on one spin.
   beats the opposite one if it is higher or the other hasn't sold; the
   side that wins 2 of 3 takes the pot. A side out of cards loses.
 - **Bet:** funds = caps + the value of CMNY items held, for both sides.
-  The opponent antes funds × ante share; the player may raise up to
-  min(opponent funds, funds × share × (1 + Barter / 100)). The winner gets
+  The opponent antes its funds × ante share; it matches a raise up to
+  min(its funds, its funds × share × (1 + Barter / 100))
+  ([Caravan built](#caravan-built)). The winner gets
   CMNY items first, then caps for the rest (`0x0074cc70`).
 - **AI** (`0x0074fdc0`): scores every legal move (push a caravan toward
   21-26, face cards by lane advantage, Jack/Joker by the player's loss,
@@ -810,6 +811,10 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
     with F4SE's `UI.Set("HUDMenu", "root1.visible", False)` when the
     casino menu opens and shows it again when it closes, and on every load
     (`ShowHud`).
+- **Level-up images (built 2026-11-12, not played):** the spike now shows
+  the card face and three level-up images (DXT3, DXT5, and a name with a
+  space) from the `SpikeImages` property, 300 pixels apart
+  ([level-up](swf_framework.md#level-up)).
 - **In-game check:** `cqf FNV_Casino Spike`; then click Ping, press Enter,
   Esc, and a gamepad's A/B if one is connected; read
   `F3NV_Casino:` lines in `Papyrus.0.log`.
@@ -1068,6 +1073,81 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
 - **In game:** each action at the Tops; a hit-soft-17 table at Gomorrah;
   double and split with too few chips refused.
 
+<a id="blackjack-built"></a>**Built 2026-11-12, not played** (`as3/f3nv/casino/Blackjack.as`,
+`BlackjackScreen.as`; `tests/casino/blackjack.py`):
+- **Rules, read in the decompile** (`blackjackmenu.cpp`), sharper than
+  [3.2](#rules-bj):
+  - **The shoe:** decks × 52 cards in load order; shuffling only puts the
+    count back to full (`0x007399d0`), and drawn cards swap to the end. The
+    deal reshuffles below decks × 52 × share, a draw below 5 cards.
+  - **The draw** (`BJDeck::DrawCard 0x00739090`, read in the GOG exe too):
+    a plain draw takes a random card of those left and **passes over the
+    next one unseen** (the count drops twice). Luck draws |Luck − 5|
+    candidates, and FNV's array holds 5, so **Luck above 10 helps no more
+    than 10** (FNV would write past the array). From a total over 9 it takes
+    the highest total of 21 or less; from 9 or less the nearest to 21 or
+    to 11. The lucky (player) or unlucky (dealer) text shows only when Luck
+    changed the card.
+  - **The deal** (`0x007393f0`): dealer, player plain; dealer (Luck for
+    the dealer), player (Luck). A player 21 is a natural; **the dealer
+    peeks**: a dealer 21 loses the round at once, or pushes against a
+    natural. Double needs chips for twice the bet and a total other than 11
+    to also allow a split.
+  - **Split** (`0x007395a0`) needs two cards of **one rank** (kings split,
+    a jack and a queen don't; the wiki's "no split on queens or kings" is
+    not in the code) and chips for twice the bet. Each hand gets a plain
+    card. FNV tests the first hand's 21 twice, so **a first split hand of
+    21 pays both hands as naturals** at once. After a split, Double Down
+    doubles the **first** hand even while the split hand is in play
+    (`0x00739650`). Kept as FNV plays.
+  - **Hit** ends a hand at 21 or more, or 7 cards; **Stay** ends the whole
+    turn, both hands; **Surrender** only before any action, losing half the
+    bet rounded up (bet 5 loses 3), and pays nothing on a split hand.
+  - **The dealer** plays unless every hand busted or surrendered, or a
+    natural ended the deal: below 17, or 17 with **any ace** in hand at a
+    casino without the soft-17 flag (so ace-six-king hits too); 7 cards at
+    most.
+  - **Payouts** (`0x00734db0`): win 1:1, natural bet × payout + 0.5
+    truncated (5 pays 8 at 3:2, 6 at the Atomic Wrangler's 6:5); a doubled
+    bet halves again after the round, and the bet never exceeds the chips.
+    **Steps** as roulette up; down −1 to 10, then to the step's multiple
+    (5, 10, 25, 100, 500); Bet Max is the max or the chips held.
+  - **Texts** (`records.BLACKJACK_TEXTS`): `sDealText`, `sHitText`,
+    `sStayText`, `sDoubleDownText`, `sSplitText`, `sSwitchHandsText`,
+    `sSurrenderText`, `sBetMax`, `sExit`, the chip, bet and earnings labels,
+    `sYouWin`/`sLuckyWinText`, `sYouLose`/`sUnluckyLoseText`,
+    `sYouBreakEvenText`.
+  - Rounds add misc stat 41; not counted yet, as slots' and roulette's.
+- **Card faces** (`LoadCardDeckResources 0x00731d70`): from the casino's
+  card back, the name up to its last `_`, then suit (`hcds`) and number
+  (01 the ace, 13 the king): `cardT_Back.dds` → `cardT_h01.dds`.
+  `records.face_textures` stages the 52 faces of every back a casino
+  names; the menu mounts them per deck.
+- **The screen:** a drawn felt; the dealer's row (first card face down
+  while you play), your hand and the split hand beside it (the hand in
+  play outlined), totals under each. Betting row: Deal, Increase and
+  Decrease Bet, Bet Max, Exit; play row: Hit, Double Down, Split, Switch
+  Hands, Surrender, Stay, the ones not allowed dimmed. Enter deals or
+  hits, Left/Right change the bet. **Esc and Exit work only between
+  rounds** (mid-round the bet is on the table, as FNV). No felt texture,
+  dealing animation or sounds yet (phase 6); no gamepad cursor.
+- **The loop:** `Open(1, ...)` now opens the menu; `OpenBlackjack` hands
+  it the casino, chips, min and max, earnings, Luck, a seed, the casino's
+  decks, reshuffle share, payout, soft-17 flag, card backs and texts; each
+  round sends `F3NV_CasinoRound(net)` and `Settle` banks it. Under the min
+  bet the bank shows the broke text and closes, as at roulette.
+- **Self-test:** `cqf FNV_Casino SelfTest 5` logs a third line,
+  `blackjack 5 ...`: the Tops' rules (soft 17 hit), seeds 1-3, 20 rounds
+  each of a fixed play (split pairs, double on 10-11, hit below 17), each
+  as `dealer/hand/split ranks=net`. Paste it after `selftest ` into
+  `tests/casino/selftest.txt`; `test_the_movies_blackjack_matches_the_model`
+  checks it. A long run of that play returns about −52% of the bet at
+  Luck 1, −5% at Luck 5 and +74% at Luck 10.
+- **In game:** at the Tops, play a few rounds with each action; split a
+  pair of kings, double after a split, surrender a 16; at Gomorrah watch
+  the dealer hit ace-six; with too few chips for twice the bet, Double
+  Down and Split stay dimmed; Esc mid-round does nothing.
+
 ### <a id="phase-5"></a>Phase 5. Caravan (L)
 
 - Collection and deck containers; `AddCard`; Ringo's lesson works.
@@ -1083,6 +1163,117 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
   AS3 engine.
 - **In game:** Ringo's lesson and a first game; No-bark and Johnson Nash
   (funds with NCR money); the 5-game merchant limit; a Joker on an Ace.
+
+<a id="caravan-built"></a>**Built 2026-11-12, not played** (`as3/f3nv/casino/Caravan.as`,
+`CaravanAi.as`, `CaravanScreen.as`; `tests/casino/caravan.py`, `caravan_ai.py`):
+- **Rules, read in the decompile** (`caravanmenu.cpp`, the AI in
+  `staging/blk_00740000_od.cpp`), sharper than [3.6](#rules-caravan):
+  - **Cards** (CCRD's two INTVs): suit 1 hearts, 2 spades, 3 diamonds,
+    4 clubs, 5 Joker; value 1 the ace to 10, 12 Jack, 13 Queen, 14 King,
+    15 Joker (11 unused).
+  - **Placement** (`CanPlaceCard 0x0074f6c0`): caravans 0-2 are the
+    player's, 3-5 the opponent's, caravan k facing 5 - k. At the opening
+    any number (10 or less) on an empty cell. A face card goes on any card,
+    either side, with fewer than 3 faces on it; a Queen only on a caravan's
+    last card. A number goes on its own side's next row, never the last
+    card's value, and the caravan's way (up or down) unless it matches the
+    caravan's suit.
+  - **Points, way and suit** (`UpdateHandStats 0x0074ee70`): each King
+    doubles its card (twice is x4); one card has no way; with more, the way
+    is the last two cards', the suit the last card's, and each Queen on the
+    last card sets its suit and turns the way.
+  - **A Jack** takes its card and that card's faces; later cards move up.
+    **A Joker** on a number takes every other card of that value, on an ace
+    every other card of the ace's suit, on both sides; it stays. FNV's
+    cascade (states 17-19) corrects later rows once, so with three targets
+    in one caravan the third survives, and a seven-card caravan keeps a
+    copy of its last card; kept as FNV plays.
+  - **The deal** (`0x0073ea90`): eight cards each, one each in turn from a
+    random place (the deck's last card fills it); after that each draw
+    takes a random card to the end of the hand. The opponent always moves
+    first. At the opening each side opens its caravans in order (the
+    player's from 0, the opponent's from 5 down) with no draw; the player's
+    discards there are free, the opponent's end its turn.
+  - **A turn** is one action: play a card (the hand draws), discard a card
+    (only with a card to draw, for the player), or discard a caravan (not
+    at the opening, with a card on one of them). The result is checked
+    after every action.
+  - **The result** (`CheckCaravanResult 0x00752e20`): a caravan sells at
+    21-26 and wins its pair if the other is unsold or lower; equal sold
+    caravans wait. All three pairs decided: the majority wins. Else the
+    player out of cards (hand and deck) loses, then the opponent.
+  - **Money** (`0x0073d650`, `0x0073d020`, `0x0074a090`, `0x0074cc70`):
+    funds are caps plus each Caravan money item's value held (NCR $100 40,
+    $20 8, $5 2, Aureus 100, Denarius 4, mangled 2). The opponent antes its
+    funds x share, truncated; it matches a raise up to its funds x share x
+    (1 + Barter / 100), never past its funds. Each side risks the smaller
+    bet (the pot is twice it). The loser pays each money item in turn, as
+    many as fit in what is left, then caps for the rest.
+  - **The deck builder:** 30 to 108 cards; Randomize picks 30 if the
+    collection has 30 or fewer, else a random size from 30 to one under
+    the whole collection. Play rewrites the player's two lists.
+  - **Texts** (`records.CARAVAN_TEXTS`): FNV's settings (`sPlayCaravanText`,
+    `sTotalFundsText`, `sCurrentAnteText`, `sAntePotText`, `sAutoMatchText`,
+    `sRaiseText`, `sPlaceCardText`, `sDiscardCardText`, `sForfeitGameText`,
+    `sQuitCaravanText`, the results' `sCaravan*Text`) and its menu XML's
+    strings ("Your Current Ante: ", "Add", "Remove"); "Randomize" and
+    "Discard Caravan" are ours.
+- **Drift, our choices:**
+  - The opening ends when all six caravans have a card. FNV ends it only
+    after the player opens caravan 2 with caravan 3 open; after an opponent
+    discard at the opening that never happens and FNV runs past its board.
+    Where FNV's opening AI reads a card it never set (no such card in
+    hand), its first number card opens.
+  - Raise adds FNV's quantity menu's small step (a twentieth of the room,
+    whole tens above 10) per press instead of a slider.
+  - Money is paid in the money list's order (by FormID), not the
+    inventory's.
+  - The deck builder shows 60 card faces a page; a click adds or removes.
+  - Caravan wins and losses don't count toward the challenges yet (misc
+    stats 37 and 38), as the other games'; FNV's five totals (won, lost,
+    games won and lost, the biggest pot) are kept by the bank and shown.
+  - No tutorial message, dealing animation, sounds or gamepad cursor yet
+    (phase 6).
+- **The loop:** `OpenCaravan` checks FNV's 30 cards and opens the menu;
+  `OpenCaravanMenu` hands it the opponent's name, both funds, the share,
+  Barter, the mode, a seed, the card table (`CardTable`: each
+  `F3NV_CaravanCardList` card's "suit,value,face,back", 30 to a string),
+  the owned and deck cards as bit chunks, the opponent's deck as card
+  places, the five totals and the texts. Play sends the deck back as
+  `F3NV_CaravanDeck(chunk, bits)` events (each sets its 30 cards in or out
+  of the deck); the end sends `F3NV_CaravanResult(won, stake)` and the
+  bank pays (`Pay`) and counts.
+- **Self-test:** `cqf FNV_Casino SelfTest 5` logs a fourth line,
+  `caravan 3 ...`: one game per seed 1-3 between two standard 54-card
+  decks, both sides by the AI's rules at mode 3, each as
+  `W or L:moves:the six caravans' points`.
+  `test_the_movies_caravan_matches_the_model` checks it.
+- **Measured:** AI against AI, every pairing of modes wins about half its
+  games (200 games each): FNV's modes change only the opening, a King's
+  and a Joker's scores and the caravan discard, not the strength. A game
+  takes about 39 moves.
+- **In game:** Ringo's first game (a deck from his cards); bet, Auto-Match
+  and Raise against No-bark or Johnson Nash with NCR money in hand;
+  Randomize a deck; a Jack, a King, a Queen and a Joker on an ace;
+  forfeit a game; check caps and NCR money after a win and a loss.
+
+<a id="caravan-ai"></a>**The AI** (`CaravanOwner 0x0074fdc0`, checked
+against the GOG exe): no randomness. At the opening it discards a face
+card when it holds over five of the wrong cards (a Joker first), else mode
+0 opens with its last number, 1-2 its first 6-10 or under-4 card (the kind
+it holds more of), 3 the card nearest 6. In play it scores, caravan by
+caravan: under 21, a number or King that keeps it at 26 or less (scored by
+the total); sold but behind, a Jack, a Joker (mode 1 up) or a number that
+catches up; sold, a number or King that stays sold; bust, a Jack that
+fixes it; then a Jack or King against the player's caravans; with nothing,
+a hand discard or a caravan discard. The list is sorted by the C runtime's
+qsort (not stable, so equal scores come out in FNV's order) and the first
+is played. FNV's quirks are kept: the scratch record keeps fields between
+candidates (a number past 26 can be pushed with an old score), a Jack is
+valued on the player's caravan but played on its own, the Joker's loss
+counts aces or suits the wrong way round, a King on a sold caravan counts
+twice its card, the Queen is never played, and a hand discard scores its
+place in the hand.
 
 ### <a id="phase-6"></a>Phase 6. Dead Money and polish (S)
 
