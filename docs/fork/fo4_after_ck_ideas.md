@@ -215,6 +215,58 @@ missing entry shows in game as a frozen or wrong animation.
   the behavior graphs and clips that have no AnimTextData entry, before
   anyone sees a frozen animation in game.
   - **Size:** small, after the tool above.
+- **<a id="behavior-patcher"></a>The FO4 half of a behavior patcher.**
+  Skyrim's Nemesis and Pandora merge behavior patches from many mods, then
+  rebuild the animation data cache for the whole load order. FO4 has no such
+  tool: any subgraph change needs AnimTextData rebuilt, and only the CK does
+  that today. Our writer is the missing piece.
+  - **Route:** contribute the AnimTextData part to Pandora (GPL-3.0, like
+    ours; FO4 is an open target there), or write our own patcher.
+  - **Unchecked:** the Skyrim tool details are general knowledge, not read
+    from their sources.
+  - **Size:** medium as a contribution, large on our own.
+- **<a id="anim-sets"></a>Animation sets without F4SE.** FO4 already picks
+  a race's subgraph entry by actor keyword (how `ChangeAnimFlavor` works). A
+  tool that takes a folder of clips and a keyword and writes the subgraph
+  entry plus all its AnimTextData (offsets, speed and stance from the clips'
+  root motion) gives conditional animation sets with no DLL.
+  F4-OpenAnimationReplacer does this at runtime but needs F4SE and has no
+  license.
+  - **Why new entries:** the game keeps the first loaded offsets record per
+    clip path ([game use](research/anim_text_data.md#game-use)), so a set
+    can't override vanilla's data for a vanilla clip; its own entry
+    sidesteps that.
+  - **Have:** the subgraph entries we write for FNV guns, and the offsets
+    and speed math.
+  - **Size:** medium.
+- **<a id="graph-check"></a>A creature graph checker.** The gecko spike
+  froze through about 12 test builds on mistakes a checker would catch: a
+  root graph missing events and variables its subgraphs use, AnimTextData
+  shipped loose instead of packed, attack events that don't match the
+  graph, and missing per-entry dynamic idle files. The missing-animation
+  finder above is one of its checks.
+  - **Size:** small to medium.
+- **<a id="annotation-edit"></a>Annotation editing that stays in sync.**
+  Changing a clip's `WeaponFire` or footstep timing today means rerunning
+  the CK, or the offsets' event times and the clip generator triggers keep
+  the old timing and attacks fire at the wrong moment. Edit the annotations
+  and rewrite both files in one step.
+  - **Size:** small to medium.
+- **<a id="behavior-engine"></a>Our own Havok behavior engine.** Running
+  the graph, as the CK does, would give its speed samples and fire positions
+  exactly (ours are off by up to about 130 units/s on the mantis, and the
+  fire positions by 0.6–64 units), plus offline previews and checks for any
+  FO4 graph. No open one exists for either game.
+  - **Fits:** a base for the patcher and the checker, not a first step.
+  - **Size:** large.
+- **<a id="anim-open"></a>Still open in the format work.** Untested in
+  game: whether loose AnimTextData counts the same as packed (all 35
+  installed mods pack theirs), and the first-loaded-wins rule. Not decoded:
+  SyncAnimData groups (FNV and FO3 have none), dynamic idle files with
+  content (we write the empty `Version 1` form), and the speed file's node
+  index (the game doesn't read it). Not done: FNV third-person gun clips, and
+  a run on vanilla FO4 animation mods
+  ([ours](research/anim_text_data.md#ours)).
 
 ### <a id="lip-ideas"></a>Lip files (no LipGenerator)
 
