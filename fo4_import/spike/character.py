@@ -2,7 +2,7 @@
 
 The plugin gets the skill, SPECIAL, perk and trait lists, the skills' FNV names
 and descriptions over the helper plugin's actor values, and a quest running
-F3NV_CharacterRules and our level-up (F3NV_LevelUp, its tables): it opens FO4's
+F3NV_CharacterRules and our level-up (CRUI_LevelUp, its tables): it opens FO4's
 SPECIAL menu and our level-up menu as the tag and trait menus for the converted
 scripts' CharacterMenu events, sets starting skills from SPECIAL and gives each
 level's points at the game's rates. The game plugin also gets the level-up
@@ -20,7 +20,8 @@ from fo4_import.helpers_plugin import EDID_PREFIX, actor_value_form, form_id
 from fo4_import.level_up import options
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
-from fo4_import.spike.level_up import SCRIPT as LEVEL_UP_SCRIPT, TABLE_SCRIPT, av_records, skill_table, table_properties
+from fo4_import.spike.level_up import (LEGACY_SCRIPT, SCRIPT as LEVEL_UP_SCRIPT, TABLE_SCRIPT, av_records, skill_table,
+                                       table_properties)
 from fo4_import.spike.pipboy_tabs import tab_quest
 from fo4_import.pipeline.export_index import export_records, root_export
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_HELPER_QUESTS
@@ -99,8 +100,9 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     quest = builder.new_id('QUST FNV_CharacterRules')
     table = (TABLE_SCRIPT, {'Tables': tables}, table_properties(builder, avifs, special_forms + skill_forms))
     builder.writer.add_record('QUST', pack_script_quest(quest, 'FNV_CharacterRules', quest_fragments(
-        '', [], scripts=[(RULES_SCRIPT, objects, values), level_up, *_table(builder, quest, table)])))
-    builder.scripts.used.extend((RULES_SCRIPT, LEVEL_UP_SCRIPT, TABLE_SCRIPT))
+        '', [], scripts=[(RULES_SCRIPT, objects, values), level_up, (LEGACY_SCRIPT, {}, {}),
+                         *_table(builder, quest, table)])))
+    builder.scripts.used.extend((RULES_SCRIPT, LEVEL_UP_SCRIPT, LEGACY_SCRIPT, TABLE_SCRIPT))
     builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
     if not builder.built:
         builder.counts['MCM page files'] += options.install(data_dir, plugin, quest)

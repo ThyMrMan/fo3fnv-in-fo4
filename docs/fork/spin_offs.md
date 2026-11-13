@@ -38,7 +38,7 @@ raw F4SE 0.7.9 with no Address Library.
 
 | Release | Contains | For |
 |---|---|---|
-| **Framework DLL** (name to pick) | Item condition API, Pip-Boy and menu CND lines, Pip-Boy tabs API, `ChangeSex`, the Papyrus array library (`F3NV_Array.psc`) | Mod authors. Does nothing on its own |
+| **Framework DLL** (name to pick) | Item condition API, Pip-Boy and menu CND lines, Pip-Boy tabs API, `ChangeSex`, the Papyrus array library (`CRUI_Array.psc`) | Mod authors. Does nothing on its own |
 | **Dialogue menu** | `dialogue.cpp` and its menu file, separate DLL | Players replacing XDI. No framework needed. See [its plan](dialogue_menu_mod.md) |
 | **NV Weapon Condition & Repair** (content mod) | ESP + scripts that track weapons and armor, repair lists, vendors | Players. Requires the framework |
 | **NV Ammo Switching** (content mod, optional) | ESP + scripts for the ammo list | Players. Requires the framework. Many alternatives exist; low priority |

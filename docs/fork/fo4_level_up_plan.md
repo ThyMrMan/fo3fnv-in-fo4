@@ -86,7 +86,7 @@ Vegas`, `F3NV: Fallout 3`):
 
 **No second copy, and no INI of ours.** MCM's `PropertyValue` sources
 read and write the rules quest's own properties (`F3NV_CharacterRules`'
-rates, `F3NV_LevelUp`'s `SkillCap`, `ShowAllPerks`), which the save keeps.
+rates, `CRUI_LevelUp`'s `SkillCap`, `ShowAllPerks`), which the save keeps.
 Our scripts call nothing of MCM's, so they compile and run without it.
 Without MCM every option stays the game's value the build wrote; the plan's
 "INI behind it" would need F3NV.dll to read one (Papyrus can't read a mod
@@ -107,7 +107,7 @@ draft, respec, delay until sleep).
 PRKF.dll keeps perk and skill points, the tagged skills and the perk list,
 and opens its menus on them. None of the non-menu part needs native code,
 so F3NV.dll gets nothing:
-- **Points and tags** are variables of `F3NV_LevelUp` (on the
+- **Points and tags** are variables of `CRUI_LevelUp` (on the
   `FNV_CharacterRules` quest), saved with the game like any script's. The
   API is PRKF's: `AddPerkPoints`, `AddSkillPoints`, `GetPerkPoints`,
   `GetSkillPoints`, `Tag`, `Untag`, `IsTagged`, and the custom event
@@ -151,7 +151,7 @@ watched `LevelUpMenu`; now, whenever it opens, `OpenLevelUp`:
    part of its Pip-Boy, and no source gives FO4's menu depths, so ours is
    not put over an open Pip-Boy);
 2. gives the levels gained since the last time their points (`TopUp`,
-   now into `F3NV_LevelUp`, no longer topping up PRKF's);
+   now into `CRUI_LevelUp`, no longer topping up PRKF's);
 3. once, moves the points and tags LevelUpMenuEx kept on an older save to
    ours (`MovePrkf`, [tags](#tags),
    [end-user state](../../CLAUDE.md#end-user-state));
@@ -173,9 +173,9 @@ in every mode.
 
 ## <a id="menu"></a>The menu (built 2026-11-12, not played)
 
-`fo4_import/level_up/` (`F3NV_LevelUp.as`, `f3nv/levelup/Character.as`)
+`fo4_import/level_up/` (`CRUI_LevelUp.as`, `crui/levelup/Character.as`)
 on f3ui, built by `mxmlc`, installed by the masterless build as
-`Interface/F3NV_LevelUp.swf`, registered by `F3NV_LevelUp.psc` with the
+`Interface/CRUI_LevelUp.swf`, registered by `CRUI_LevelUp.psc` with the
 casino's menu flags. Three pages (Prev/Next):
 - **SKILLS:** each skill and its value. Accept or Right sets a point, Left
   takes one back, within the points, the base and `SkillCap`; Y resets;
@@ -190,15 +190,15 @@ casino's menu flags. Three pages (Prev/Next):
 - **TAKEN:** the perks held, with their ranks.
 
 Points not spent stay for later (banking). The HUD color, hints with key
-names or button glyphs, and translated words (`$F3NV_LU_*`) come from the
+names or button glyphs, and translated words (`$CRUI_LU_*`) come from the
 library.
 
 **What the menu shows comes from the build, not the engine.** F4SE's Form
 and Perk natives aren't flagged no-wait, so each call from Papyrus costs
 its stack a frame; asking for 91 perks' names, descriptions, images,
 levels and ranks would take seconds. The build writes them as properties
-(`level_up.py`): the skills' on `F3NV_LevelUp` (`skill_table`), the perks'
-and traits' on each plugin's `F3NV_LevelUpTable` ([tables](#tables),
+(`level_up.py`): the skills' on `CRUI_LevelUp` (`skill_table`), the perks'
+and traits' on each plugin's `CRUI_LevelUpTable` ([tables](#tables),
 `table_properties`): `SEP`-joined strings
 (`PerkNames`, `PerkDescriptions`, `PerkImages`, `SkillNames`, ...), the
 levels and rank counts, every rank in order (`RankForms`), and per
@@ -209,7 +209,7 @@ perks, 111 ranks, 105 rows, every row placed, descriptions 12 KB; FO3 61,
 91 and 66. At open, `Gather` asks only for the ranks held (`HasPerk` along
 `RankForms`) and the 20 base values, split over 8 stacks
 (`CallFunctionNoWait`) so their frames overlap; the menu works out
-eligibility from the rows. The log line `F3NV_LevelUp: sent in Ns` measures
+eligibility from the rows. The log line `CRUI_LevelUp: sent in Ns` measures
 it.
 
 **Not yet:** search and sorting, options and the API (step 6).
@@ -220,7 +220,7 @@ A DLC adds perks and traits, and two plugins overriding one record don't
 stack ([dlc-lists](fo4_plugin_layout.md#dlc-lists)), so no DLC overrides
 the game's tables. As with condition's rows
 ([sources](fo4_condition.md#sources)), each plugin's are its own:
-- `F3NV_LevelUpTable` holds one plugin's own listed perks and traits
+- `CRUI_LevelUpTable` holds one plugin's own listed perks and traits
   (`table_properties`, `builder.ids.is_own`: a DLC's, not its masters'):
   names, descriptions, images, levels, rank chains, the traits' forms, and
   its perks' requirement rows. A row's owner and a perk row's target index
@@ -228,11 +228,11 @@ the game's tables. As with condition's rows
   of -1, and the menu is told whether the player has it
   (`UnlistedHeld`).
 - The game's table is a script of the rules quest itself, beside
-  `F3NV_LevelUp`. A DLC writes `FNV_LevelUpTable_<plugin>`, a start-game
+  `CRUI_LevelUp`. A DLC writes `FNV_LevelUpTable_<plugin>`, a start-game
   quest that adds itself to `FNV_LevelUpTables` (an empty game form list;
   `FormList.AddForm` is kept by the save and stacks) as it starts. A DLC
   without perks or traits writes none.
-- When the menu opens, `F3NV_LevelUp.Collect` takes its own quest's table
+- When the menu opens, `CRUI_LevelUp.Collect` takes its own quest's table
   first (an older save's rules quest never ran the table's start), then
   each registered one. `Merged` joins each table's text whole; the movie
   moves owners and perk targets by where that table's perks start
@@ -287,7 +287,7 @@ time from the level-up button to a filled menu.
 ## <a id="tags"></a>Tag skills and traits (built 2026-11-12, not played)
 
 The same movie and script, opened in another mode
-(`F3NV_LevelUp.Open(mode, count, bonus)`; `LevelUpMode`, `TagsMode`,
+(`CRUI_LevelUp.Open(mode, count, bonus)`; `LevelUpMode`, `TagsMode`,
 `TraitsMode`), each with one page and no Back:
 - **TAG SKILLS** (`kind == "tags"` from a converted `SetTagSkills count`,
   `count` skills in all: FNV's 3 at Doc Mitchell's, one more for Tag!).
@@ -339,15 +339,14 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
   and Be Exceptional patches) work without LevelUpMenuEx. Only the file
   format, not its code. **Open decision**, as with PipboyTabs' INIs.
 
-**Built 2026-11-12 (not played),** all on `F3NV_LevelUp`:
-- **Reaching it:** `F3NV_LevelUp.Get()` (global), so a mod needs no master
-  but `FalloutHelpers.esl`, which every converted plugin masters. It reads
-  Cleanroom UI's shared holder when `CleanroomUI.esl` is loaded
-  ([plugin](#plugin)), else `F3NV_CharacterEvents.LevelUp` (helper quest
-  `0x901`, [holder](#holder)), which the level-up
-  sets as the rules quest starts (`OnInit`) and each time our menu registers
-  (`Register`, `Announce`); on a save from before, `Get()` is None until
-  the menu first opens. With two games loaded, the one whose rules ran last.
+**Built 2026-11-12 (not played),** all on `CRUI_LevelUp`:
+- **Reaching it:** `CRUI_LevelUp.Get()` (global), so a mod needs no master
+  but `CleanroomUI.esl`, which the converter ships ([plugin](#plugin)). It
+  reads Cleanroom UI's shared holder, which the level-up sets as the rules
+  quest starts (`OnInit`) and each time our menu registers (`Register`,
+  `Announce`); on a save from before, `Get()` is None until the menu first
+  opens, and None while `CleanroomUI.esl` is not loaded. With two games
+  loaded, the one whose rules ran last.
 - **Points:** `AddPerkPoints`, `AddSkillPoints`, `GetPerkPoints`,
   `GetSkillPoints`, `RaiseSkill`, `TakePerk`, `CanTake`, `Rank`,
   `NextRank`, `PerkList` (from [prkf](#prkf)).
@@ -367,13 +366,14 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
 
 ## <a id="holder"></a>The level-up holder (Cleanroom UI's, built 2026-11-12, not played)
 
-`F3NV_LevelUp` and `F3NV_LevelUpHolder` are Cleanroom UI's
-(`ThyMrMan/cleanroom-ui`, its `docs/level_up_plan.md#holder`), copied here
-until the converter takes that repo as a submodule. The host names no
-converter script: it asks its holder (its `Events` property) for the tags,
-for where `Get()` finds it, and for what opening each menu does.
+`CRUI_LevelUp`, `CRUI_LevelUpHolder`, `CRUI_LevelUpTable` and `CRUI_Array`
+are Cleanroom UI's (`ThyMrMan/cleanroom-ui`, its `papyrus/`), copied here
+verbatim but for doc links until the converter takes that repo as a
+submodule. The host names no converter script: it asks its holder (its
+`Events` property) for the tags, for where `Get()` finds it, and for what
+opening each menu does.
 
-**`F3NV_CharacterEvents` is our holder** (`extends F3NV_LevelUpHolder`):
+**`F3NV_CharacterEvents` is our holder** (`extends CRUI_LevelUpHolder`):
 - Its `IsTagged`, `IsSuggested`, `Tag`, `Untag` and `SuggestTag` have the
   holder's signatures, so they replace the holder's own as they were; the
   tags stay in its saved `Tagged` and `Suggested`.
@@ -383,34 +383,61 @@ for where `Get()` finds it, and for what opening each menu does.
   the same names (`Rules()`: `LevelUp as F3NV_CharacterRules`), which top
   up points, give the tag bonus and move LevelUpMenuEx's state.
 
-`F3NV_LevelUpHolder.psc` ships with the masterless build like every
+`CRUI_LevelUpHolder.psc` ships with the masterless build like every
 static script; without it `F3NV_CharacterEvents` would not bind. On a save
-from before, `F3NV_CharacterEvents` gains its parent's variables; **check
-in game** that an older save keeps its tags.
+from before, `F3NV_CharacterEvents` gains a new parent; **check in game**
+that an older save keeps its tags.
+
+## <a id="crui"></a>From `F3NV_LevelUp` to `CRUI_LevelUp` (built 2026-11-12, not played)
+
+The level-up's state was `F3NV_LevelUp`'s on saves from before (played
+since b620b85a): perk and skill points, the perks other mods added
+(`Added`) and the MCM options `SkillCap` and `ShowAllPerks`. A save keeps
+a script's variables under that script's name, so the build keeps
+`F3NV_LevelUp` on the rules quest beside `CRUI_LevelUp`, with nothing set
+(`LEGACY_SCRIPT`, `fo4_import/spike/level_up.py`), and the script itself is
+now only those variables, under the same names, and `MoveTo`.
+- `F3NV_CharacterRules.LevelUp()`, which every use of the level-up goes
+  through, calls `MoveTo` once first, which adds the points and perks to
+  `CRUI_LevelUp` and sets its options (logged as `DEPRECATED state moved`).
+- A new game moves nothing: the rules' `OnInit` marks it moved
+  (`HostMoved`) before it reaches `LevelUp()`; an older save's rules
+  started before `HostMoved` existed, so it is unset there.
+- Tags were never `F3NV_LevelUp`'s: `F3NV_CharacterEvents` keeps them.
+- The old `Interface/F3NV_LevelUp.swf` is deleted when the movie installs;
+  the old `.pex` go as every build clears its scripts. `F3NV_LevelUpHolder`
+  never reached a played save, so it is gone with no stub.
+- Remove `F3NV_LevelUp` (stub, `LEGACY_SCRIPT`, `HostMoved`) once no save
+  predates it.
+
+The movie (`CRUI_LevelUp.as`, its menu name and events) and its words
+(`$CRUI_LU_*`, `$CRUI_HINT_LEAVE` in `FalloutHelpers_<language>.txt`) match
+Cleanroom UI's, so either repo's movie works with the other's scripts.
+The movie still builds on our `f3ui` library until the converter takes
+Cleanroom UI's `crui`. Converted xNVSE array code calls `CRUI_Array`.
 
 ## <a id="plugin"></a>`CleanroomUI.esl` (built 2026-11-12, not played)
 
-`Get()` first reads Cleanroom UI's shared holder (`CleanroomUI.esl`
-`0x800`), which every level-up host announces itself to, and falls back to
-ours above (`Game.IsPluginInstalled` keeps a missing plugin out of the log).
+`Get()` reads Cleanroom UI's shared holder (`CleanroomUI.esl` `0x800`,
+`CRUI_LevelUpHolder`), which every level-up host announces itself to.
 
 The converter ships it: `fo4_import.helpers_plugin --out <dir>/FalloutHelpers.esl`
 (the app's helpers stage) also writes `<dir>/CleanroomUI.esl`
 (`fo4_import/cleanroom_plugin.py`, with our own plugin writer), so it lands
 in the build folder and the deploy copies it like `FalloutHelpers.esl`. The
 app's MO2 setup ticks it after the helper plugin. Its bytes are exactly
-Cleanroom UI's (`crui/plugin.py`; compared 2026-11-12), so the converter's
-copy and a Cleanroom UI release are one file to the game. The name and
-holder id are `CLEANROOM_PLUGIN` and `CLEANROOM_HOLDER`
-(`script_convert/constants.py`), a save contract. Converted plugins don't
-master it.
+Cleanroom UI's (`crui/plugin.py`; compared 2026-11-12 after the `CRUI_`
+rename), so the converter's copy and a Cleanroom UI release are one file to
+the game. The name and holder id are `CLEANROOM_PLUGIN` and
+`CLEANROOM_HOLDER` (`script_convert/constants.py`), a save contract.
+Converted plugins don't master it.
 - **Perks of other mods:** `AddPerk(akFirstRank)` and `RemovePerk`, kept by
   the save. An added perk no plugin's table lists comes after them, read
   from the perk itself as the menu opens (`DescribeAdded`: `GetName`,
   `GetDescription`, `GetIconPath`, `GetLevel`, `GetNumRanks`, each a frame
   per perk). Its requirements are one row of kind 4, the game's own test
   of its next rank (`IsEligible`), shown as "Its own requirements"
-  (`$F3NV_LU_OWN_TEST`); taking it is `TakePerk` as for any other.
+  (`$CRUI_LU_OWN_TEST`); taking it is `TakePerk` as for any other.
 
 **Not yet:** skills of other mods (the menu's skills are FNV_Skills, and a
 skill's tag rides a 31-bit mask), and LevelUpMenuEx's INI format (the open

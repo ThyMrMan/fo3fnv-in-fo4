@@ -81,7 +81,7 @@ def test_the_trace_switch_is_an_empty_light_plugin_tracing_names(tmp_path):
 
 def test_cleanroom_plugin_holds_the_shared_level_up_holder(tmp_path):
     """CleanroomUI.esl: a light master without masters, one start-game quest at CLEANROOM_HOLDER carrying
-    F3NV_LevelUpHolder, the quest and file F3NV_LevelUpHolder.Shared() reads.
+    CRUI_LevelUpHolder, the quest and file CRUI_LevelUpHolder.Shared() reads.
     See: docs/fork/fo4_level_up_plan.md#plugin
     """
     raw = cleanroom_plugin.build(tmp_path).read_bytes()

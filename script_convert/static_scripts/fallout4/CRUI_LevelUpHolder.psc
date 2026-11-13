@@ -1,12 +1,12 @@
-ScriptName F3NV_LevelUpHolder extends Quest
-{The level-up host's partner: where F3NV_LevelUp.Get() finds the running host, the player's tagged skills, and what
+ScriptName CRUI_LevelUpHolder extends Quest
+{The level-up host's partner: where CRUI_LevelUp.Get() finds the running host, the player's tagged skills, and what
 opening each menu does. Every function here works as written; a mod with rules of its own extends this script and
 overrides the functions it needs (the FO3/FNV conversion's F3NV_CharacterEvents keeps its tags and opens the menus
 through its character rules). The host reads it from its Events property, else from a holder on its own quest.
 See docs/fork/fo4_level_up_plan.md#holder}
 
 Quest Property Host Auto Hidden
-{The running host (F3NV_LevelUp), set by Hold.}
+{The running host (CRUI_LevelUp), set by Hold.}
 
 ActorValue[] tags
 ActorValue[] suggestions
@@ -15,21 +15,21 @@ ActorValue[] suggestions
 ; The running host
 ; ---------------------------------------------------------------------------
 
-F3NV_LevelUpHolder Function Shared() Global
+CRUI_LevelUpHolder Function Shared() Global
   {The holder quest of Cleanroom UI's own plugin (CleanroomUI.esl 0x800, crui/plugin.py), which every host announces
   itself to; None when the plugin is not loaded.}
   If !Game.IsPluginInstalled("CleanroomUI.esl")
     Return None
   EndIf
-  Return Game.GetFormFromFile(0x800, "CleanroomUI.esl") as F3NV_LevelUpHolder
+  Return Game.GetFormFromFile(0x800, "CleanroomUI.esl") as CRUI_LevelUpHolder
 EndFunction
 
-F3NV_LevelUp Function Running()
+CRUI_LevelUp Function Running()
   {The running host Get() hands to other mods; None before it registers.}
-  Return Host as F3NV_LevelUp
+  Return Host as CRUI_LevelUp
 EndFunction
 
-Function Hold(F3NV_LevelUp akHost)
+Function Hold(CRUI_LevelUp akHost)
   {Remember akHost as the running host.}
   Host = akHost as Quest
 EndFunction
@@ -81,7 +81,7 @@ Function SuggestTag(ActorValue akSkill)
 EndFunction
 
 ; ---------------------------------------------------------------------------
-; Opening the menus (F3NV_LevelUp's OpenLevelUpMenu, OpenTagMenu, OpenTraitMenu)
+; Opening the menus (CRUI_LevelUp's OpenLevelUpMenu, OpenTagMenu, OpenTraitMenu)
 ; ---------------------------------------------------------------------------
 
 Function OpenLevelUp()

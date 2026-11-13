@@ -1,6 +1,6 @@
-"""Our level-up menu's movie, Interface/F3NV_LevelUp.swf, built from as3/ with mxmlc and our f3ui library.
+"""Our level-up menu's movie, Interface/CRUI_LevelUp.swf, built from as3/ with mxmlc and our f3ui library.
 
-F3NV_LevelUp.psc registers it with F4SE and opens it in place of LevelUpMenu
+CRUI_LevelUp.psc registers it with F4SE and opens it in place of LevelUpMenu
 (F3NV_CharacterRules); the data it shows comes from the build's tables on that
 script (fo4_import/spike/level_up.py). Cached under temp/ by the sources' hash;
 the masterless build installs it.
@@ -15,10 +15,12 @@ from fo4_import.base.mxmlc import REPO
 
 SOURCES = Path(__file__).resolve().parent / 'as3'
 CACHE = REPO / 'temp' / 'fo4_level_up'
-#: The movie's path in a data folder: the menu name F3NV_LevelUp.psc registers, under Interface.
-MOVIE = 'Interface/F3NV_LevelUp.swf'
+#: The movie's path in a data folder: the menu name CRUI_LevelUp.psc registers, under Interface.
+MOVIE = 'Interface/CRUI_LevelUp.swf'
 #: The document class: the movie's root.
-DOCUMENT = 'F3NV_LevelUp'
+DOCUMENT = 'CRUI_LevelUp'
+#: DEPRECATED: the movie's path before CRUI_LevelUp, which install deletes.
+OLD_MOVIE = 'Interface/F3NV_LevelUp.swf'
 
 
 def compile_movie(out: Path, sources: Path = SOURCES) -> Path:
@@ -27,5 +29,6 @@ def compile_movie(out: Path, sources: Path = SOURCES) -> Path:
 
 
 def install(data_dir: Path) -> int:
-    """Copy the movie to <data_dir>/Interface; 1 if installed, 0 if not built."""
+    """Copy the movie to <data_dir>/Interface, deleting an older build's OLD_MOVIE; 1 if installed, 0 if not built."""
+    (Path(data_dir) / OLD_MOVIE).unlink(missing_ok=True)
     return int(mxmlc.install(data_dir, MOVIE, SOURCES, DOCUMENT, CACHE) is not None)

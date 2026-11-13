@@ -1,6 +1,7 @@
 $F3NV_LEAVE	[LEAVE]
 $F3NV_HINT_SELECT	SELECT
 $F3NV_HINT_LEAVE	LEAVE
+$CRUI_HINT_LEAVE	LEAVE
 $F3NV_CND	CND
 $F3NV_REPAIR	REPAIR
 $F3NV_AMMO	AMMO
@@ -22,43 +23,43 @@ $F3NV_CARRIED	CARRIED
 $F3NV_LOADED	{0} (loaded)
 $F3NV_ONE_TYPE	One type only
 $F3NV_DROP_A_COPY	Drop a copy first
-$F3NV_LU_SKILLS	SKILLS
-$F3NV_LU_PERKS	PERKS
-$F3NV_LU_TAKEN	TAKEN
-$F3NV_LU_POINTS	SKILL POINTS {0}    PERK POINTS {1}
-$F3NV_LU_LEVEL	Level {0}
-$F3NV_LU_RANK	Rank {0}/{1}
-$F3NV_LU_YOU_HAVE	{0} (you have {1})
-$F3NV_LU_OR	or
-$F3NV_LU_NOT	Not {0}
-$F3NV_LU_MALE	Male
-$F3NV_LU_FEMALE	Female
-$F3NV_LU_TAGGED	Tagged skill
-$F3NV_LU_OPENS	These points open: {0}
-$F3NV_LU_CANNOT_TAKE	You can't take this perk now.
-$F3NV_LU_NO_PERK_POINTS	You have no perk points.
-$F3NV_LU_CONFIRM_TAKE	Take {0}?
-$F3NV_LU_KEEP_POINTS	Spend the skill points you set?
-$F3NV_LU_YES	YES
-$F3NV_LU_NO	NO
-$F3NV_LU_PAGE	PAGE
-$F3NV_LU_SET	SET POINTS
-$F3NV_LU_DONE	DONE
-$F3NV_LU_RESET	RESET
-$F3NV_LU_TAKE	TAKE
-$F3NV_LU_SHOW_ALL	SHOW ALL
-$F3NV_LU_SHOW_AVAILABLE	SHOW AVAILABLE
-$F3NV_LU_TAGS	TAG SKILLS
-$F3NV_LU_TRAITS	TRAITS
-$F3NV_LU_TAGS_PICKED	TAGGED {0} OF {1}
-$F3NV_LU_TRAITS_PICKED	CHOSEN {0} OF {1}
-$F3NV_LU_TAG_MARK	TAGGED
-$F3NV_LU_CHOSEN_MARK	CHOSEN
-$F3NV_LU_TAG	TAG
-$F3NV_LU_PICK	CHOOSE
-$F3NV_LU_TAG_KEPT	This skill is already tagged.
-$F3NV_LU_PICK_FULL	Untag or drop one first.
-$F3NV_LU_TAG_MORE	Tag {0} more.
+$CRUI_LU_SKILLS	SKILLS
+$CRUI_LU_PERKS	PERKS
+$CRUI_LU_TAKEN	TAKEN
+$CRUI_LU_POINTS	SKILL POINTS {0}    PERK POINTS {1}
+$CRUI_LU_LEVEL	Level {0}
+$CRUI_LU_RANK	Rank {0}/{1}
+$CRUI_LU_YOU_HAVE	{0} (you have {1})
+$CRUI_LU_OR	or
+$CRUI_LU_NOT	Not {0}
+$CRUI_LU_MALE	Male
+$CRUI_LU_FEMALE	Female
+$CRUI_LU_TAGGED	Tagged skill
+$CRUI_LU_OPENS	These points open: {0}
+$CRUI_LU_CANNOT_TAKE	You can't take this perk now.
+$CRUI_LU_NO_PERK_POINTS	You have no perk points.
+$CRUI_LU_CONFIRM_TAKE	Take {0}?
+$CRUI_LU_KEEP_POINTS	Spend the skill points you set?
+$CRUI_LU_YES	YES
+$CRUI_LU_NO	NO
+$CRUI_LU_PAGE	PAGE
+$CRUI_LU_SET	SET POINTS
+$CRUI_LU_DONE	DONE
+$CRUI_LU_RESET	RESET
+$CRUI_LU_TAKE	TAKE
+$CRUI_LU_SHOW_ALL	SHOW ALL
+$CRUI_LU_SHOW_AVAILABLE	SHOW AVAILABLE
+$CRUI_LU_TAGS	TAG SKILLS
+$CRUI_LU_TRAITS	TRAITS
+$CRUI_LU_TAGS_PICKED	TAGGED {0} OF {1}
+$CRUI_LU_TRAITS_PICKED	CHOSEN {0} OF {1}
+$CRUI_LU_TAG_MARK	TAGGED
+$CRUI_LU_CHOSEN_MARK	CHOSEN
+$CRUI_LU_TAG	TAG
+$CRUI_LU_PICK	CHOOSE
+$CRUI_LU_TAG_KEPT	This skill is already tagged.
+$CRUI_LU_PICK_FULL	Untag or drop one first.
+$CRUI_LU_TAG_MORE	Tag {0} more.
 $F3NV_MCM_LEVEL_UP	LEVEL-UP
 $F3NV_MCM_LEVELS_PER_PERK	Levels per perk
 $F3NV_MCM_LEVELS_PER_PERK_HELP	A perk point every this many levels, from your next level-up. Fallout: New Vegas gives one every 2 levels, Fallout 3 every level.
@@ -73,4 +74,4 @@ $F3NV_MCM_SHOW_ALL	Show every perk at first
 $F3NV_MCM_SHOW_ALL_HELP	The perk list opens with the perks you can't take yet shown too, dimmed. X switches it in the menu.
 $F3NV_MCM_OPEN	Open the level-up menu
 $F3NV_MCM_OPEN_HELP	A key that opens the level-up menu, to spend points you kept or to look through the perks.
-$F3NV_LU_OWN_TEST	Its own requirements
+$CRUI_LU_OWN_TEST	Its own requirements
