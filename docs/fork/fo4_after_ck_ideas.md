@@ -245,7 +245,8 @@ missing entry shows in game as a frozen or wrong animation.
   shipped loose instead of packed, attack events that don't match the
   graph, and missing per-entry dynamic idle files. The missing-animation
   finder above is one of its checks.
-  - **Size:** small to medium.
+  - **Built 2026-11-13:** `tools.validate.fo4_graph_check`
+    ([checker](fo4_own_rig.md#graph-check)).
 - **<a id="annotation-edit"></a>Annotation editing that stays in sync.**
   Changing a clip's `WeaponFire` or footstep timing today means rerunning
   the CK, or the offsets' event times and the clip generator triggers keep

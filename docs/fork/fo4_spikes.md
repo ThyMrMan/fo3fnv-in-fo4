@@ -4740,8 +4740,9 @@ it settles for a converter that has none of those:
     `meleeStart_Left` and `meleeStart_Power` were "not processed by the
     graph". The working one is a state's own transition; every ignored
     one is a state machine's wildcard transition. Cause: every vanilla
-    wildcard transition carries `FLAG_IS_LOCAL_WILDCARD` (0x800; 842 alone,
-    321 with `ALLOW_SELF_TRANSITION_BY_TRANSITION_FROM_ANY_STATE`, 0xA00),
+    wildcard transition carries `FLAG_IS_LOCAL_WILDCARD` (0x800) or the global
+    flag 0x400 (over all 147 actor graphs: 1,299, 360 and 229 with both, none
+    with neither; [graph check](fo4_own_rig.md#graph-check)),
     state transitions mostly 0 (2,210); our builder wrote 0 on wildcards,
     so Havok never matched them (the root's `Ragdoll` wildcards included:
     the gecko could never ragdoll). Fixed in the builder; test 15 rebuilt
@@ -4860,8 +4861,9 @@ it settles for a converter that has none of those:
     launches; with only ours, frozen in 8 of 8; ours rewritten in the new
     layout (forward 62.5 / 578.6 / 1012.6, the FNV clips' root speeds),
     moved in 8 of 8 (test 40). Rules: write `SPED` in the layout of the
-    form version written, and give a creature graph only its own
-    `iState_` variable. Ruled out on the way, each by a freeze: the
+    form version written, and give no two `iState_` variables the value
+    the graph starts at (vanilla graphs have several, each at its own value:
+    [graph check](fo4_own_rig.md#graph-check)). Ruled out on the way, each by a freeze: the
     subgraph entry, attack data, CK-generated AnimTextData, our clips and
     skeleton, IDLE and action lookup (`PlayIdleAction` worked while
     frozen), graph-driven movement. A Papyrus trace (`GeckoTrace`) and a
