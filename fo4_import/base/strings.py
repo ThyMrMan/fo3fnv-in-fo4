@@ -46,10 +46,10 @@ def fallout4() -> dict:
     return load()
 
 
-def as_text(tag: bytes, data: bytes) -> bytes:
-    """Fallout4.esm subrecord `tag`'s `data` with a string ID (LOCALIZED) as its text; else unchanged.
+def as_text(tag: bytes, data: bytes, localized: tuple = LOCALIZED) -> bytes:
+    """Fallout4.esm subrecord `tag`'s `data` with a string ID (a `localized` tag) as its text; else unchanged.
     See: docs/fork/fo4_thrown_weapons.md#names
     """
-    if tag not in LOCALIZED or len(data) != 4:
+    if tag not in localized or len(data) != 4:
         return data
     return fallout4().get(struct.unpack('<I', data)[0], b'') + b'\0'

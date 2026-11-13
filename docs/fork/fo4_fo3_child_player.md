@@ -19,6 +19,7 @@ Status is in [ROADMAP.md](ROADMAP.md#fo4-app); the spike itself is
 - [A child race for the player](#child-race)
 - [The route per age](#route)
 - [The child-race spike](#spike)
+- [The in-game test](#spike-test)
 
 ## <a id="fo3"></a>What Fallout 3 does
 
@@ -171,9 +172,76 @@ Built only after one in-game check, since the crash is a community report:
    the Dads to the player's race; on FO4 every human is `HumanRace`, so it
    stays a no-op.
 
-The in-game check before building: from a save in CG02, `player.setrace`
-to a test copy of the race built per step 1, look in first and third
-person, open the Pip-Boy, save and load, and `setrace HumanRace` back with
-the face intact. If it crashes, the fallback is the 19401 approach: child
-face presets on the race and a `ShowRaceMenu` limited to them at the
-birthday, which is a larger piece.
+The [in-game test](#spike-test) comes first.
+
+## <a id="spike-test"></a>The in-game test
+
+**The result decides the route.** If `F3NV_PlayerChildRace` plays
+cleanly (no crash, body and Pip-Boy drawn, face back after the switch),
+the [spike](#spike) is built as written. If only the tinted variant
+works, the spike keeps the tint templates. If both crash, the fallback is
+the 19401 approach: child face presets on the race and a `ShowRaceMenu`
+limited to them at the birthday, which is a larger piece.
+
+**The kit.** `F3NV_ChildRaceTest.esl` (`fo4_import/spike/child_race_test.py`),
+a light master on Fallout4.esm only, so it loads beside any save:
+
+```
+py -3.14 -m fo4_import.spike.child_race_test --out D:\scratch\child_race_test
+```
+
+| Record | Object id | What it is |
+|---|---|---|
+| `F3NV_PlayerChildRace` "Player Child (no tints)" | `E43` | HumanChildRace copy, no tint templates, HumanRace's 64 morph regions |
+| `F3NV_PlayerChildRaceTints` "Player Child (tints)" | `BD0` | plain HumanChildRace copy (46 tint templates) |
+| `F3NV_SkinChildNaked` | `B31` | the child skin, its torso and hands addons copied to draw on both races |
+| `F3NV_ChildRaceTestVaultSuit` "Vault 81 Jumpsuit" | `A86` | the Vault 81 child jumpsuit, its addon drawing on both races |
+| `F3NV_PipboyChildAA` | `C23` | the Pip-Boy addon on both races |
+| `Pipboy` (Fallout4.esm `00021B3B`) | override | lists `F3NV_PipboyChildAA` after vanilla's addon |
+
+In game a light plugin's FormID is `FE`, its 3-digit slot, then the
+object id; `help` prints it. Deploy it as the MO2 mod
+`F3NV - Child Race Test`, enabled, below the other plugins.
+
+**Steps.** Write down each "note" line; on a crash, stop and send the logs
+listed at the end.
+
+1. Load a Fallout 4 save past Vault 111 (Pip-Boy on the wrist), or a
+   Vault 101 save if the Fallout 3 build exists. Save it as
+   `childtest-base`. Note: which save.
+2. Open the console: `help F3NV_PlayerChildRace 4`. Note the two RACE
+   FormIDs and the ARMO FormID of `F3NV_ChildRaceTestVaultSuit`.
+3. `player.setrace <no-tints race id>`. Note: crash or not; how long the
+   body took to appear.
+4. First person: look down and at the hands, walk, run, crouch. Note: are
+   hands and arms drawn; camera height (lower than adult?); any stretched
+   or missing parts.
+5. Third person (F): turn the camera around the player. Note: body size
+   (child or adult height), head (child head, adult head or none), hair,
+   skin color of face against body.
+6. If the body is adult height: `player.setscale 0.825`, and note whether
+   that is needed. Leave it for the rest of the test.
+7. Open the Pip-Boy (Tab). Note: is the device drawn on the wrist, do the
+   tabs work, close it again.
+8. `player.additem <suit id> 1`, then equip "Vault 81 Jumpsuit" from the
+   Pip-Boy. Note: drawn in first and third person.
+9. Walk through a door into another cell and back. Note: crash or not;
+   anything changed after the load.
+10. Save as `childtest-child`, load it. Note: race, size, suit and Pip-Boy
+    after the load.
+11. `player.setrace 00013746` (HumanRace), `player.setscale 1` if step 6
+    used it. Note: is the original face back (shape, skin tone, makeup,
+    hair), any black or missing tints.
+12. Save as `childtest-adult`, load it. Note: the face again.
+13. Load `childtest-base` and repeat steps 3-12 with the tints race id.
+
+**On a crash,** send from `Documents\My Games\Fallout4\F4SE\` (or the
+OneDrive `Documents` copy):
+
+- the newest `crash-<date>.log`: its first 30 lines (the exception and the
+  call stack) and the PROBABLE CALL STACK and REGISTERS sections; a stack
+  through `BSFaceGen`, `TintTemplate`, `BGSCharacterTint` or a
+  `FaceGen`/`Tint` name points at tints, as 19401 reports;
+- `F3NV.log` only when the save also runs our converted game plugins (the
+  plain FO4 save writes nothing there);
+- which step crashed and which race id was set.
