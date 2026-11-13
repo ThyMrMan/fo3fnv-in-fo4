@@ -29,6 +29,8 @@ from fo4_import.pipeline.code_tag import ROOT
 from tes5_import.base.tes5_reader import walk
 
 CURRENT, BUILD, AFTER = 'current', 'build', 'after'
+#: fo4_import.pipeline.run's flags that take one path.
+PATH_FLAGS = frozenset({'--export', '--out', '--data', '--scripts', '--mod-sources', '--replacements'})
 
 
 def record(plugin: Path) -> 'dict | None':
@@ -200,25 +202,84 @@ def plan(plugins: list) -> list:
     return out
 
 
-def rebuild(plugin: Path) -> int:
-    """Run `plugin`'s last build command again (from its inputs record, else its stamp); its exit code."""
+def _exists(path: str) -> bool:
+    """Whether `path` (relative to the repo, or absolute) names a file or folder."""
+    return (Path(path) if Path(path).is_absolute() else ROOT / path).exists()
+
+
+def stamp_argv(command: str) -> list:
+    """The arguments of a stamp's space-joined `command`; a PATH_FLAGS value that held spaces is rejoined (the
+    longest run of words before the next flag that names an existing path, else one word)."""
+    words, out, i = command.split()[1:], [], 0
+    while i < len(words):
+        out.append(words[i])
+        i += 1
+        if out[-1] in PATH_FLAGS and i < len(words):
+            stop = next((j for j in range(i, len(words)) if words[j].startswith('--')), len(words))
+            end = next((e for e in range(stop, i, -1) if _exists(' '.join(words[i:e]))), i + 1)
+            out.append(' '.join(words[i:end]))
+            i = end
+    return out
+
+
+def retarget(argv: list, plugin: Path, dirs: list) -> list:
+    """`argv` building `plugin` in its own folder: --out `plugin`, --data its folder, --plugin-dirs `dirs` (a
+    command recorded for a scratch build would otherwise write the scratch copy again, against scratch masters)."""
+    rest, i = [], 0
+    while i < len(argv):
+        word = argv[i]
+        i += 1
+        if word in ('--out', '--data'):
+            i += 1
+        elif word == '--plugin-dirs':
+            while i < len(argv) and not argv[i].startswith('--'):
+                i += 1
+        else:
+            rest.append(word)
+    return ['--out', str(plugin), '--data', str(plugin.parent), *(['--plugin-dirs', *map(str, dirs)] if dirs else []),
+            *rest]
+
+
+def build_argv(plugin: Path, dirs: list) -> list:
+    """`plugin`'s last build arguments (its inputs record, else its stamp), retargeted to its own folder."""
     rec = json.loads(inputs_path(plugin).read_text(encoding='utf-8')) if inputs_path(plugin).is_file() else None
-    argv = rec['argv'] if rec else json.loads(stamp_path(plugin).read_text(encoding='utf-8'))['command'].split()[1:]
+    if rec is None:
+        kept = json.loads(stamp_path(plugin).read_text(encoding='utf-8'))
+        argv = kept.get('argv') or stamp_argv(kept['command'])
+    else:
+        argv = rec['argv']
+    return retarget(argv, plugin, dirs)
+
+
+def master_dirs(plugin: Path, plugins: list) -> list:
+    """The folders of the `plugins` that `plugin`'s header names as masters."""
+    names = {m.lower() for m in file_masters(plugin)}
+    return sorted({Path(p).parent for p in plugins if Path(p).name.lower() in names})
+
+
+def rebuild(plugin: Path, dirs: list = ()) -> int:
+    """Build `plugin` again in its own folder, masters from `dirs`; the exit code."""
     print(f'== building {plugin.name}', flush=True)
-    return subprocess.call([sys.executable, '-m', 'fo4_import.pipeline.run', *argv], cwd=ROOT)
+    return subprocess.call([sys.executable, '-m', 'fo4_import.pipeline.run', *build_argv(plugin, dirs)], cwd=ROOT)
 
 
 def run(plugins: list) -> int:
     """Build every plugin of `plugins` that needs it, masters first, checking the rest again after each; the first
-    failing build's exit code, else 0."""
+    failing build's exit code, 3 when a plugin still needs a build after its own, else 0."""
+    built = set()
     while True:
         todo = [(p, reason) for p, verdict, reason in plan(plugins) if verdict == BUILD]
         if not todo:
             return 0
-        print(f'{todo[0][0].name}: {todo[0][1]}', flush=True)
-        code = rebuild(todo[0][0])
+        plugin, reason = todo[0]
+        if plugin.resolve() in built:
+            print(f'{plugin.name} still needs a build after building it ({reason}); stopped', flush=True)
+            return 3
+        print(f'{plugin.name}: {reason}', flush=True)
+        code = rebuild(plugin, master_dirs(plugin, plugins))
         if code:
             return code
+        built.add(plugin.resolve())
 
 
 def verify(plugin: Path) -> int:
