@@ -10,16 +10,17 @@ each system got here, with dates and measurements, is in the
 New Vegas is playable on Fallout 4 from Doc Mitchell's house onward, with
 its four story DLC and the five add-on packs. Nearly every system is built.
 Much of it has never been played, so most of what is left is play-testing
-and fixing what testers find. The casino games and Caravan are being built.
+and fixing what testers find. All four casino games and Caravan are built.
 Fallout 3 has a first spike, Vault 101 and its opening, not yet played
 ([FO3 spike](fo4_fo3_plan.md)). Install steps are in the
 [README](../../README.md#install).
 
-The page describes the 2026-11-12 build of `FalloutNV.esm`,
+The page describes the 2026-11-13 build of `FalloutNV.esm`,
 `FalloutHelpers.esl` and `F3NV.dll`, and the DLC, pack and mod plugins built
-on it. That build is the first made with our own AnimTextData writer in
-place of the Creation Kit, and it took 32 minutes against 45 the night
-before.
+on it. It is the first build whose faces were all made by our own FaceGen
+instead of the Creation Kit (2,382 faces, none failed). With warm caches the
+game took 9 minutes and its faces 15, against about 18 and 39 minutes with
+the Creation Kit's faces.
 
 **States:**
 
@@ -39,7 +40,7 @@ before.
 |---|---|---|---|---|
 | Mojave landscape | The Mojave's ground, roads and land textures, built from New Vegas's own world | Works | Needs the Black Landscape Fix mod, listed in the install steps; without it a Fallout 4 engine bug turns some bare ground black. Soft land seams in a few places. | [exterior](fo4_spikes.md#spike-4-exterior) |
 | Distant terrain (LOD) | The far-off hills you see before you get close | Partial | Distant water (Lake Mead, the Colorado) shows as water. Tiles now hang vanilla-depth skirts over the seams between them (none left open around Goodsprings, [measured offline](fo4_terrain_lod_plan.md#p0)); not yet seen in game. | [terrain LOD](fo4_pipeline.md#terrain-lod) |
-| Distant objects (LOD) | Low-detail buildings and landmarks seen from far away | Partial | Buildings work. Distant trees are built, not played. | [object LOD](fo4_pipeline.md#object-lod) |
+| Distant objects (LOD) | Low-detail buildings and landmarks seen from far away | Partial | Buildings work. Distant trees are built, not played. LODGen fails (exit code 404, 0 tiles) on one Honest Hearts and seven Lonesome Road worlds when a `_lod.nif` they name is missing, so those worlds have no distant objects. | [object LOD](fo4_pipeline.md#object-lod) |
 | Pip-Boy world map | The Mojave map in the Pip-Boy, with New Vegas's markers | Partial | The Mojave and Freeside maps show, at the larger size. Markers sat below their places; fixed, not built. | [world map](fo4_pipeline.md#world-map) |
 | Worldspaces and exteriors | The whole Mojave plus Freeside, the Strip and the other separate areas, with their doors | Partial | Trap triggers, stand-in smoke and damage stages (burning cars, their explosions) are built, not played. The skipped statics are audio markers, built as music regions. | [whole map](fo4_pipeline.md#whole-map) |
 | Interiors | Buildings and dungeons with New Vegas's layout, objects, furniture and lighting | Works | | [interiors](fo4_pipeline.md#interiors) |
@@ -51,7 +52,7 @@ before.
 | Lights and glow | Lamps, windows, lanterns and animated signs | Built, not played | Lanterns and lamps work. Fixes for the dim OPEN and SAL signs and the Strip's night horizon glow are built. The saloon window is still far too yellow; it needs a shot from the next build. | [neon](fo4_look.md#route-neon) |
 | Overall color tone | New Vegas's color grading and warmth | Built, not played | Fallout 4's tone curve and bloom with New Vegas's tint and saturation on top, at a fixed exposure that keeps New Vegas's mid-tones (decided 2026-11-09). | [FO4 route](fo4_look.md#fo4-route) |
 | Modern lighting and the Classic switch | Shadow-casting main lights and Fallout 4's light types, picked by each light's New Vegas role; an optional plugin restores the classic flat look | Built, not played | Up to 6 main lights per interior cast shadows, starting 64 units out so a ceiling fixture does not shadow its own light. The Classic Look plugin is an optional app step. | [plan](fo4_look.md#route-lights) |
-| Precombines and previs | Fallout 4's merged meshes and visibility data for dense areas | Not built | | [precombines](fo4_pipeline.md#before) |
+| Precombines and previs | Fallout 4's merged meshes and visibility data for dense areas | Not built | Researched: every precombine format is decoded, so we could write them ourselves; previs is a licensed Umbra file only the Creation Kit writes. Without either the game draws each object on its own, which costs speed only in dense places. | [research](research/fo4_precombines_previs.md#own-precombines) |
 | Frame rate | Smooth play across the Mojave | Partial | Goodsprings to Primm holds the frame cap. Freeside, the Strip and Novac aren't measured. | [measured](fo4_pipeline.md#region-measured) |
 | Intro movie | New Vegas's intro, with sound | Works | | [play test](bink_movies.md#play-test) |
 
@@ -63,8 +64,9 @@ before.
 | Hair and eyes | The closest Fallout 4 hair, beard and eyes for each NPC | Works | The match by hairstyle works. The fix for stretched long hair isn't checked. | [hair](fo4_spikes.md#hair-styles) |
 | Outfits and clothing | New Vegas's clothes and armor fitted onto Fallout 4's body | Partial | 21 of 98 armors use Fallout 4 stand-in models. The wrist seam shows, loose cloth sits off the body, and cut-off limbs don't cut the clothes. | [clothing](fo4_build_next.md#human-clothing) |
 | Headgear | Hats, masks and glasses on New Vegas's own models | Works | | [headgear](fo4_spikes.md#spike-4-headgear) |
-| Own FaceGen heads and hair | Each NPC's face files written by the build itself instead of the Creation Kit, plus mods' own hairstyles | Partial | The face mesh file is rebuilt byte for byte (on the faces branch, not merged). Next: the slider shapes and the face textures, checked against the Creation Kit's export of all 2,382 New Vegas faces. The remaining Fallout 4 face shape is accepted drift (Willow, 2026-11-11). The Creation Kit's export takes 3.8 hours for `FalloutNV.esm` and can hang on exit. | [facegen plan](fo4_facegen_plan.md#ck-exit-hang) |
-| Body choice (CBBE, BodySlide) | Choosing which body converted outfits fit | Not built | Only the vanilla body. With CBBE installed, bare skin in converted outfits looks scrambled. | [body plan](fo4_bodies_cbbe.md) |
+| Own FaceGen heads and hair | Each NPC's face files written by the build itself instead of the Creation Kit, plus mods' own hairstyles | Built, not played | The 2026-11-13 build's faces are all ours: 2,382 heads and their face textures, none failed, so the Creation Kit fallback never ran (869 s with the work cache, against 39 minutes to 4.3 hours for the Creation Kit). Offline they match the Creation Kit's within a median 0.076 units and about 1 to 3 of 255 in color. Still the Creation Kit's: `texconv` for the face textures. Not built: mods' own hairstyles. The remaining Fallout 4 face shape is accepted drift (Willow, 2026-11-11). | [own stage](fo4_facegen_plan.md#own-stage) |
+| DLC and mod faces | Face files for the NPCs the story DLC, packs and mods add | Not built | The faces step runs only for `FalloutNV.esm`; the DLC and mod builds ship no FaceGen (Dead Money's and Honest Hearts' archives hold none), so their own NPCs (Christine, Joshua Graham, Ulysses, Willow and others) have none. | [own stage](fo4_facegen_plan.md#own-stage) |
+| Body choice (CBBE, BodySlide) | Choosing which body converted outfits fit | Partial | Only the vanilla body in the build. Researched: the cause of the scrambled bare skin with CBBE is found; a hook fits outfits to any body's mesh, and a writer makes BodySlide projects that BodySlide 5.9.1 builds without clicks. Neither is in the build yet. | [body plan](fo4_bodies_cbbe.md) |
 | Super mutants and nightkin | New Vegas's mutants in their own armor | Partial | Fallout 4's mutant body and head, tinted, under New Vegas's armor. Pistols, the Multiplas rifle, shotguns, the gatling laser and the railway rifle map to super mutant animations (built, not played); grenade launchers still fight unarmed. | [super mutants](fo4_build_next.md#super-mutants) |
 | Ghouls and glowing ones | Feral ghouls, and glowing ones with their aura and healing | Works | | [ghouls](fo4_creature_audit.md#ghouls) |
 | Ghost People and holograms | Dead Money's enemies | Built, not played | | [Dead Money](fo4_spikes.md#dead-money-humans) |
@@ -116,7 +118,7 @@ before.
 
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
-| New game | The intro movie, waking at Doc Mitchell's, name, face, S.P.E.C.I.A.L., the word test and tag skills | Works | | [new game](fo4_pipeline.md#new-game) |
+| New game | The intro movie, waking at Doc Mitchell's, name, face, S.P.E.C.I.A.L., the word test and tag skills | Works | Two fixes built, not played: Doc's long pause before the psych test (sitting down now counts as at the chair), and Sunny, Victor and the light outside Doc's house running late (a goodbye line now ends the talk Fallout 4 kept up for about 15 s, which held back quest starts). | [seated](fo4_pipeline.md#furniture-seated), [goodbye](fo4_pipeline.md#goodbye-ends-talk) |
 | Quests | New Vegas's quests, objectives and stage scripts | Partial | Played from Goodsprings to Primm; the rest is untested. | [preflight](fo4_preflight.md#results-2026-11-07) |
 | Script converter | New Vegas's scripts rewritten as Fallout 4 scripts | Partial | Every script compiles. About 1,276 calls the converter can't translate do nothing. | [scripts](fo4_spikes.md#spike-3-gate) |
 | Unconverted functions | Script commands with no Fallout 4 equivalent | Partial | Combat-style changes, package timers, renaming, inventory resets and music cues do nothing. | [not built](script_markers.md#not-built) |
@@ -189,7 +191,7 @@ before.
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
 | Consumables | Food, drinks, chems and their effects | Partial | Basic effects work. Script-driven ones (Cateye, Steady, Stealth Boy and others) aren't played; Rebound and a few others are dropped. | [consumables](fo4_pipeline.md#consumable-effects) |
-| Crafting | Recipes at workbenches, campfires and the reloading bench | Partial | The reloading bench put the player on the wrong side at Primm and Goodsprings; each open side is now its own bench, fixed, not built. Dead Money's vending machines and DLC recipes with quest or item conditions aren't built. Planned: New Vegas's own recipe menu, opened where you stand, with skill requirements and quantity. | [stations](fo4_pipeline.md#station-entry), [plan](fo4_crafting_plan.md#recommendation) |
+| Crafting | Recipes at workbenches, campfires and the reloading bench | Partial | The reloading bench put the player on the wrong side at Primm and Goodsprings; each open side is now its own bench (built, not played). Dead Money's vending machines and DLC recipes with quest or item conditions aren't built. Planned: New Vegas's own recipe menu, opened where you stand, with skill requirements and quantity. | [stations](fo4_pipeline.md#station-entry), [plan](fo4_crafting_plan.md#recommendation) |
 | Caps | The Mojave's currency | Works | | [items](fo4_casino_plan.md#items-built) |
 | Other money and cards | NCR dollars, Legion coins, casino chips, Caravan cards | Built, not played | Items only, until the casino games are built. | [items](fo4_casino_plan.md#items-built) |
 | Item models | New Vegas's own models for items | Partial | Many aid items (the Stimpak among them) and some armor show Fallout 4's. | [drift](fo4_drift.md#recorded) |
@@ -208,7 +210,7 @@ before.
 
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
-| Story DLC | Dead Money, Honest Hearts, Old World Blues, Lonesome Road | Built, not played | Dead Money's casino games are missing; its vending machines' chips aren't played. When two DLC change the same thing, the last one loaded wins. | [DLC](fo4_plugin_layout.md#dlc-build) |
+| Story DLC | Dead Money, Honest Hearts, Old World Blues, Lonesome Road | Built, not played | Dead Money's casino games are missing; its vending machines' chips aren't played. Their own NPCs have no FaceGen (see DLC and mod faces). When two DLC change the same thing, the last one loaded wins. Every DLC, pack and mod now rebuilds in its own MO2 folder through `build_plan`, only when something it read changed. | [DLC](fo4_plugin_layout.md#dlc-build), [build plan](fo4_plugin_layout.md#build-plan) |
 | Gun Runners' Arsenal and courier packs | The weapon and gear packs | Built, not played | | [packs](fo4_plugin_layout.md#courier-packs) |
 
 ### <a id="fo4-app"></a>The app and installing
@@ -222,10 +224,12 @@ before.
 
 ## Known bugs a player will see
 
-- Holes and dark blocks in distant land, closing up as you approach.
-  ([terrain LOD](fo4_pipeline.md#terrain-lod))
-- The reloading bench puts you on its wall side at Primm and Goodsprings (fix
-  not built). ([stations](fo4_pipeline.md#station-entry))
+- Holes and dark blocks in distant land, closing up as you approach (skirts
+  over the tile seams built, not played). ([terrain LOD](fo4_pipeline.md#terrain-lod))
+- The DLC's and mods' own NPCs have no FaceGen.
+  ([own stage](fo4_facegen_plan.md#own-stage))
+- No distant objects in one Honest Hearts and seven Lonesome Road worlds.
+  ([object LOD](fo4_pipeline.md#object-lod))
 - Scripts that wait for an animated window or the Lucky 38 lights do nothing. ([census](fo4_idles.md#census))
 - NPCs and the player catch on some stairs (the Novac motel, Vikki and
   Vance's steps). ([stairs](fo4_pipeline.md#stair-helper-pitch))
@@ -245,7 +249,14 @@ Please report what you find in
 
 - **Play-testing** everything marked "Built, not played", and fixing what
   turns up.
-- **Casino games and Caravan**, in progress ([plan](fo4_casino_plan.md)).
+- **Casino games and Caravan:** all built; blackjack and Caravan not yet
+  played ([plan](fo4_casino_plan.md)).
+- **Faces for the DLC and mods** with our own FaceGen, then making it the
+  default and dropping the Creation Kit fallback ([own stage](fo4_facegen_plan.md#own-stage)).
+- **Crafting on our own menu:** New Vegas's recipe menu with skill
+  requirements and quantity ([plan](fo4_crafting_plan.md#recommendation)).
+- **Fallout 3's child player:** play the child-race test, then build the age
+  10 and Tranquility Lane race ([plan](fo4_fo3_child_player.md#spike-test)).
 - **Fixes for the known bugs** above, in the order of the
   [issue plan](fo4_issue_plan.md): play tests first, then by size.
 - **Gun animation:** New Vegas's third-person clips and grip
@@ -259,7 +270,8 @@ Please report what you find in
 - **Terrain LOD of our own:** skirts first to close the gaps between
   distant tiles, then tiles built from the land with matching edges and
   more detail than vanilla ([plan](fo4_terrain_lod_plan.md)).
-- **Precombines** for Freeside and the Strip.
+- **Precombines** for Freeside and the Strip, written by our own code
+  (previs stays the Creation Kit's) ([research](research/fo4_precombines_previs.md#own-precombines)).
 - **Script speed:** the remaining Papyrus cost fixes
   ([performance](performance.md#papyrus)).
 - **The app:** Mod Organizer setup, Play, and the DLC, DLL, movie and face
@@ -268,15 +280,25 @@ Please report what you find in
   ([menu](fo4_menu_audit.md), [timing](fo4_timing_audit.md)).
 - **Mod builds:** about 20 New Vegas mods (YUP, NVMIM, Willow, the New Vegas
   Bounties series, JSawyer Ultimate and others) convert against the built game
-  and rebuild overnight; none played yet ([plan](fo4_mod_builds.md)).
+  and rebuild through `build_plan` in their own MO2 folders; none played yet
+  ([plan](fo4_mod_builds.md)). Overlay plugins (NVTUP and NVMIM) rebuild
+  through it once the chain-runner work merges.
 - **Load order:** converted mods in the user's FNV order, a conflict report,
   a merged patch and LOOT rules ([plan](fo4_load_order.md)).
-- **Build time:** the game build is down to 32 minutes. Converted voice
-  lines, finished meshes and face fits are cached, mod builds reuse their
-  masters' finished meshes, and build records live outside the Data folder.
-  A Low/Balanced/Full setting limits cores and memory, and the build prints
-  an estimated time ([resources](fo4_build_resources.md)). Still to come: profiling, then moving the hot spots to native code
-  ([plan](fo4_build_speed.md)).
+- **Build time:** with warm caches the game builds in about 9 minutes and
+  its faces in about 15. Converted voice lines, finished meshes, face fits,
+  faces and the land texture step are cached; a build that writes the same
+  archive bytes leaves the archive alone; mod builds reuse their masters'
+  finished meshes. A Low/Balanced/Full setting limits cores and memory, and
+  the build prints an estimated time ([resources](fo4_build_resources.md)).
+  Named stages can be profiled (`F3NV_PROFILE_STAGES`). Still to come:
+  moving the hot spots to native code ([plan](fo4_build_speed.md)).
+- **Build safety:** a build chain that checks the setup first, watches every
+  step for stalls, reruns faces after any base rebuild, stops on a hidden
+  link between plugins and resumes where it stopped (built on its own
+  branch, not merged). Merged already: a Creation Kit that writes nothing
+  in 30 minutes is closed, and `build_plan` stops instead of rebuilding a
+  plugin twice ([build plan](fo4_plugin_layout.md#build-plan)).
 - **Differences from New Vegas** that could be closed later: attack and equip
   speed perks, looting routines, per-pellet DT, Long Haul and Miss Fortune
   ([drift](fo4_drift.md)).
@@ -293,13 +315,13 @@ Please report what you find in
 | [Spin-off mods](spin_offs.md) from F3NV.dll (framework, content mods, dynamic collision) | Split into Cleanroom UI (`ThyMrMan/cleanroom-ui`); the converter moves onto it in [six steps](spin_offs.md#move), steps 1 to 3 (the dialogue menu; the level-up and `CleanroomUI.esl`; the framework DLL and Pip-Boy movie, F3NV.dll cut to FNV's rules) built 2026-11-13, not played. [Strategy](spin_offs.md#strategy): open, drop-in replacements for XDI, then HUDFramework; waiting on the author's reply about licenses |
 | [f3ui as a menu library](spin_offs.md) (our AS3 menu toolkit for other mods, no DLL) | Every planned class is built; the release is not started |
 | [Our level-up menu as its own mod](spin_offs.md#level-up) (LevelUpMenuEx replacement, with an API for other mods) | Built for the conversion and no longer needs LevelUpMenuEx, not played; reading LevelUpMenuEx's INI lists and perk tables for any load order not started |
-| [Casino games and Caravan as a content mod](spin_offs.md#casino) | Idea; slots and roulette are built for the conversion, blackjack and Caravan are not |
+| [Casino games and Caravan as a content mod](spin_offs.md#casino) | Idea; all four games are built for the conversion |
 | [Modder tools from the replaced CK steps](spin_offs.md#tools) (dark-face fixer, AnimTextData, lips, archive check, collision, Caprica fixes) | Ideas only ([picks](fo4_after_ck_ideas.md#picks)) |
 | [Write-ups for the community](spin_offs.md#write-ups) (first: how the CK bakes faces) | Findings written in our docs; no public page yet |
 | [Dialogue menu as its own mod](dialogue_menu_mod.md) (XDI replacement) | Phase 1 done (our own movie, played); phase 2 partly (the list on `mxmlc` with a hint bar and gamepad input through f3ui, not played); the standalone DLL is Cleanroom UI's `CleanroomDialogue.dll`, which the converter ships since 2026-11-13 (not played); later phases not started |
 | [Our own Flash menu framework](swf_framework.md) (dialogue, casino, Pip-Boy) | **Played:** spikes 1-5: the casino on `mxmlc` and `f3ui`, the HUD color in our own menu, the dialogue menu on its own movie, our movie in the vanilla Pip-Boy, translation files. **Built, not played:** the Pip-Boy framework (CND line, repair and ammo lists, F3NV_ItemCard.SetLine), FallUI support, the dialogue menu on `mxmlc`, our words as `$F3NV_` keys with English under every language, the level-up images and their spike, PRKF.dll's state in Papyrus (Cleanroom UI's CRUI_LevelUp, older saves' F3NV_LevelUp state moved over once), our own level-up menu (skills, perks, taken) opened from Papyrus in place of LevelUpMenu, Input and HintBar with the casino and dialogue menu moved onto them (keys, controls and hints the same on keyboard and gamepad), ScrollList and Modal with the dialogue list and the Pip-Boy's repair and ammo lists moved onto them, Images (texture paths, a missing file caught by F3NV.dll's new TextureExists) with the casino on it: every planned library class is built. **Not started:** gamepad play, the level-up menu's traits and tags, the HUD widget, the container and barter on a movie, the release. Piece by piece: [where each piece stands](swf_framework.md#where); order: [next](swf_framework.md#next) |
 | [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned. Second shape slot read (free for us); next: the vanilla sneak test and a repo with a plugin that loads ([build-out](dynamic_collision_mod.md#build-out)) |
-| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own collision writer runs ahead of Elric for convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules and list shapes (built, not played); ragdoll joints and flat shapes still go to Elric. Our own FaceGen runs at 0.29 s a face, byte for byte the same as before (see Own FaceGen heads above) |
+| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own collision writer runs ahead of Elric for convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules and list shapes (built, not played); ragdoll joints and flat shapes still go to Elric. Our own FaceGen made every face of the 2026-11-13 build with no Creation Kit run (see Own FaceGen heads above); it is still behind `--own-facegen`, with the Creation Kit as fallback. Precombines researched: ours look doable, previs stays the Creation Kit's |
 | [Ideas the build without the CK makes possible](fo4_after_ck_ideas.md) (a dark-face fixer for any load order, rebuilding only what changed, a face comparison gallery, Caprica fixes upstream, an archive check, AnimTextData for any mod, and ideas for every replaced step) | Ideas only, nothing built |
 | [Appearance comparison](appearance_compare_tool.md) (two load orders' NPCs side by side, such as two character replacers, plus a dark-face check) | Plan only, no code |
 
@@ -364,6 +386,7 @@ Research: [Fallout 4 as the target](research/fo4_target.md),
 [damage threshold reference](research/fo4_damage_threshold_reference.md),
 [dynamic collision](research/fo4_dynamic_collision.md),
 [light plugins](research/fo4_light_plugins.md),
+[precombines and previs](research/fo4_precombines_previs.md),
 [character findings](research/character_findings.md),
 [dialogue robustness](research/fo4_dialogue_robustness.md),
 [our own FNV NIF reader](research/fnv_nif_reader.md),
