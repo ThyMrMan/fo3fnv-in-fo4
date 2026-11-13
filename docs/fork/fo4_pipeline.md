@@ -3983,6 +3983,23 @@ opened with Doc standing; he sat at the next break between stages (played
 `GetSitState() == 3`; the others are Doc's chair (2), the couch (player and
 Doc) and Vault 11's extermination chair (player).
 
+**Sitting down counts (2026-11-12, after play; not yet played).** Waiting
+for state 3 made Doc's pause before the psych test longer than FNV's. FNV
+names the furniture as its package picks it, before the sit
+(`FurnitureProcess` 0x917A70, `TryUseFurniture` 0x92A9B0 in the decomp), and
+`IsCurrentFurnitureRef` (0x59DF40) reads only that. The chair script's 2.5 s
+is its own allowance for the sit-down ("We assume he is in the chair after x
+amount of time"). Our chain waited for the sit-down to end, then ran the
+2.5 s, then the couch's 2.0 s. In both Papyrus traces of 2026-11-12, Doc
+entered the chair trigger 13.8 s and 14.4 s before the test's greeting
+(trace 18:49: 220.0 → 233.8 s; 20:35: 262.7 → 277.1 s), and his
+`weaponSheathe` came 9.2 to 9.3 s before it. FNV needs about 4.5 s from the
+trigger. The override now counts from sit state 2 (playing the sit-down,
+FO4 CK wiki `GetSitState`). State 1, still walking there, still does not
+count. Ruled out by the same traces: the scripts' timers count real seconds,
+no dialogue ran between stage 80 and the greeting, and no package fragment
+of Doc's ran in that span.
+
 ## <a id="before"></a>Before the pipeline: build and research
 
 In order. **Built** marks what is done.
