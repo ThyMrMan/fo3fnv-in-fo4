@@ -94,3 +94,11 @@ def test_links_move_to_cleanroom_uis_folder(tmp_path):
     (old / 'Other.txt').write_text('x')
     assert D.remove_legacy(tmp_path, 'Mod.esp') == [] and (old / 'Other.txt').is_file()
     assert D.LINKS == Path('F4SE', 'Plugins', 'CleanroomDialogue')
+
+
+def test_cleanroom_finds_the_main_checkout_from_the_main_checkout_and_a_worktree(monkeypatch):
+    """main_checkout() is the repo itself, or the one above .claude/worktrees for a worktree (a short path such as
+    D:/Coding/x has no fourth parent: the finder raised IndexError there)."""
+    for repo, main in ((Path('D:/C/x'), Path('D:/C/x')), (Path('D:/C/x/.claude/worktrees/w'), Path('D:/C/x'))):
+        monkeypatch.setattr(cleanroom, 'REPO', repo)
+        assert cleanroom.main_checkout() == main

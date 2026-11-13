@@ -40,8 +40,13 @@ def checkout() -> 'Path | None':
     checkout, from a worktree under .claude/worktrees); None when there is none."""
     home = os.environ.get('CRUI_HOME')
     places = [REPO / 'external' / 'cleanroom_ui', *([Path(home)] if home else []), REPO.parent / 'cleanroom_ui',
-              REPO.parents[3] / 'cleanroom_ui']
+              main_checkout().parent / 'cleanroom_ui']
     return next((place for place in places if (place / 'crui' / '__main__.py').is_file()), None)
+
+
+def main_checkout() -> Path:
+    """The main checkout: REPO, or the one holding it when REPO is a worktree under .claude/worktrees."""
+    return REPO.parents[2] if REPO.parent.name == 'worktrees' and REPO.parents[1].name == '.claude' else REPO
 
 
 def pinned() -> str:
