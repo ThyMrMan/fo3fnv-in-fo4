@@ -6430,11 +6430,14 @@ vertices, land 1,773), drawn with the land texture; through the holes it
 left, the tile skirts (edge vertices dropped to -14098, on every FNV
 tile) showed as grey walls from The Fort. `land_shape` now takes the
 shaded shape. That alone left The Fort's view unchanged: the land shapes
-carry skirts too, each border vertex repeated at -14098 (FO4's tiles,
-vanilla's and xLODGen's, have none), and where FO4 lowers or hides a
-neighbour they stand as walls. `without_skirts` drops every triangle
-touching a border vertex that lies under another at the same x, y (4.20.8:
-4,207 to 4,044 triangles, lowest vertex -14098 to 2600). The water shapes
+carry skirts too, each border vertex repeated at -14098, and where FO4
+lowers or hides a neighbour they stand as walls. `without_skirts` drops
+every triangle touching a border vertex that lies under another at the same
+x, y (4.20.8: 4,207 to 4,044 triangles, lowest vertex -14098 to 2600).
+With them gone the cracks between tiles showed, so `with_skirts` hangs
+vanilla's instead: every border point repeated 1,000 units below itself per
+level step (1,000 at level 4 to 4,000 at 32, as the Commonwealth's tiles),
+facing out ([Phase 0](fo4_terrain_lod_plan.md#p0)). The water shapes
 became each tile's `WATER` node on 2026-11-09 ([distant water](#distant-water));
 FNV's land under the lake is flattened to its surface with a lake-coloured
 diffuse, and stays under the water as FNV's does. The

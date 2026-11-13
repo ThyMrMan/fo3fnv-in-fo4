@@ -1,6 +1,6 @@
 # Plan: our own Fallout 4 terrain LOD, better than vanilla (2026-11-12)
 
-Status: planned, nothing built. Status lives in [ROADMAP.md](ROADMAP.md).
+Status: Phase 0 built, the rest planned. Status lives in [ROADMAP.md](ROADMAP.md).
 Research behind it: [LOD research](research/fo4_lod_research.md).
 Replaces the converted FNV tiles in [terrain LOD](fo4_pipeline.md#terrain-lod).
 
@@ -49,6 +49,34 @@ the fallback for a world whose LAND we cannot read.
   the rail-line spot.
 - **Risk:** a 1,000-unit skirt can still show as a wall where FO4 hides a
   neighbouring tile; vanilla lives with the same.
+
+**Built** (`terrain_lod.with_skirts`): FNV's skirt goes, and each border
+edge of the surface (as its triangle runs it, strip stitches skipped) gets
+two triangles down to copies of its points `skirt_depth(level)` below,
+with the same UVs, facing out. Only used vertices are kept, so the tile's
+bound no longer reaches -14,098.
+
+**Measured offline** around Goodsprings (cells x -32 to -1, y -16 to 15;
+the 158 tiles touching x -36 to 3, y -20 to 19 written to
+`D:\scratch\terrain_lod_skirts\before` and `after`), heights every 64 units
+along each shared edge with `tools/lod/terrain_lod_edges.py`. "Open" is the
+part of a gap no skirt covers, over 1 unit:
+
+| Edge | Edges | Samples | Worst gap per edge, median | Worst gap | Open samples before | Edges / tiles open before | Open after |
+|---|---|---|---|---|---|---|---|
+| level 4 beside 4 | 144 | 36,864 | 87 | 329 | 28,550 | 144 / 96 | 0 |
+| level 4 beside 8 | 160 | 40,960 | 185 | 792 | 37,724 | 160 / 128 | 0 |
+| level 8 beside 8 | 40 | 20,480 | 243 | 701 | 17,267 | 40 / 32 | 0 |
+| level 8 beside 16 | 48 | 24,576 | 421 | 1,083 | 22,920 | 48 / 44 | 0 |
+| level 16 beside 16 | 12 | 12,288 | 647 | 1,209 | 11,259 | 12 / 12 | 0 |
+| level 16 beside 32 | 16 | 16,384 | 946 | 1,733 | 16,041 | 16 / 18 | 0 |
+| level 32 beside 32 | 5 | 10,240 | 1,388 | 1,634 | 10,002 | 5 / 6 | 0 |
+
+Every gap is under the higher tile's skirt (worst 1,733 against level 16's
+3,000). Cost per tile, land shape: level 4 1,514 to 1,767 triangles
+(+17%), 8 +8%, 16 +7%, 32 +5%; vertices slightly fewer (FNV's unused skirt
+points dropped); files +7% at level 4. Not yet checked in game: The Fort
+and the rail-line spot.
 
 ### <a id="p1"></a>Phase 1 (M): heights from LAND
 
