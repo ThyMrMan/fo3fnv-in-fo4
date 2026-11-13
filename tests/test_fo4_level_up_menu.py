@@ -170,14 +170,14 @@ def test_character_events_overrides_the_holder_with_matching_signatures():
 @pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
 def test_the_character_scripts_compile_together(tmp_path):
     """F3NV_CharacterRules.psc, F3NV_CharacterEvents.psc (the holder holding the tags) and F3NV_LevelUp.psc (an older
-    save's state) compile with Cleanroom UI's CRUI_LevelUp, CRUI_LevelUpTable and CRUI_LevelUpHolder against FO4's
+    save's state) compile with Cleanroom UI's level-up scripts (host, table, holder, natives) against FO4's
     and F4SE's headers alone."""
     src, stub, out = tmp_path / 'src', tmp_path / 'stub', tmp_path / 'out'
     for folder in (src, stub, out):
         folder.mkdir()
     (stub / 'TES4Polyfill.psc').write_text(POLYFILL_STUB, encoding='utf-8')
     ours = ('F3NV_CharacterRules', 'F3NV_CharacterEvents', LEGACY_SCRIPT)
-    theirs = ('CRUI_LevelUp', 'CRUI_LevelUpTable', 'CRUI_LevelUpHolder')
+    theirs = ('CRUI_LevelUp', 'CRUI_LevelUpTable', 'CRUI_LevelUpHolder', 'CRUI_LevelUpNative')
     for path in [STATIC / f'{name}.psc' for name in ours] + [CLEANROOM[f'{name}.psc'] for name in theirs]:
         shutil.copy(path, src)
     log = compile_folder(src, out, f'{src};{stub};{STATIC};{header_dirs()}')

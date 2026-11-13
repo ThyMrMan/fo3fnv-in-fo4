@@ -28,8 +28,8 @@ PLUGIN_FILES = ('CleanroomUI.esl',)
 #: Its level-up menu's movie and the words of every CleanroomUI movie (F4SE reads them for CleanroomUI.esl).
 LEVEL_UP_FILES = ('Interface/CRUI_LevelUp.swf', 'Interface/Translations/CleanroomUI_*.txt')
 #: Its Papyrus scripts (papyrus/) our scripts use, shipped with the static scripts: level-up, arrays, DLL natives.
-SCRIPTS = ('CRUI_Array', 'CRUI_LevelUp', 'CRUI_LevelUpHolder', 'CRUI_LevelUpTable', 'CRUI_Condition', 'CRUI_ItemCard',
-           'CRUI_Pipboy', 'CRUI_PipboyAmmo', 'CRUI_Sex')
+SCRIPTS = ('CRUI_Array', 'CRUI_LevelUp', 'CRUI_LevelUpHolder', 'CRUI_LevelUpNative', 'CRUI_LevelUpTable',
+           'CRUI_Condition', 'CRUI_ItemCard', 'CRUI_Pipboy', 'CRUI_PipboyAmmo', 'CRUI_Sex')
 #: Its framework DLL (in DIST), which sends these F4SE external events: a Pip-Boy repair and an ammo choice confirmed.
 FRAMEWORK_DLL = 'CleanroomUI.dll'
 EVENTS = ('CRUI_ConditionRepair', 'CRUI_AmmoSwitch')
