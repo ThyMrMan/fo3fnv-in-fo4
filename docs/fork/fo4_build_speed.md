@@ -1048,13 +1048,10 @@ So the step is about 82 s of the 135 s. Of 229 profiled seconds:
 The step reads only the export's LAND and LTEX records, which a warm build
 does not change, and makes the same output every build.
 
-**Two ways to cut it, not built:**
-- *Cache the step's output per worldspace* (`work_cache`, keyed by the
-  LAND and LTEX records it reads and its code record). A warm build skips
-  about 82 s; a cold build pays it once. The output is about 65,552
-  quadrants of a few 289-value float64 arrays each (on the order of
-  600 MB pickled), so loading it costs seconds.
-- *Vectorize `blend_borders`.* It must give the same dict keys in the same
+**Two ways to cut it:**
+- *Cache the step's output per worldspace:* built, see
+  [land-cache](#land-cache) below.
+- *Vectorize `blend_borders` (not built).* It must give the same dict keys in the same
   order: a quadrant gains a texture key with a +0 share where a neighbor
   has the texture, and that key then spreads on through later shared
   vertices in visit order (ties in `kept_textures` follow key order). That
@@ -1063,6 +1060,29 @@ does not change, and makes the same output every build.
 **The other about 53 s** is not profiled yet. The next build run with
 `F3NV_PROFILE_STAGES=worlds` ([stage-profile](fo4_plugin_layout.md#stage-profile))
 writes `temp/stage_profiles/worlds.txt` with the whole stage.
+
+<a id="land-cache"></a>**The land texture step is cached (2026-11-12, not yet
+built).** `land_layers.land_textures` runs `quadrant_mix`, `blend_borders`
+and `limit_textures` for a worldspace's land through `work_cache.cached`
+(site `land textures`), and `Exterior.group` calls it. The key is a SHA-1
+over the grassy texture set and, per cell in grid order, every LAND field
+`quadrant_mix` reads (`LayerCount` and the `Layer[...]` fields). A height
+or any other field leaves it, and the code record covers the code. It is
+exact for a DLC too, since it keys on the layered records `Exterior`
+holds, not on an export file.
+
+Measured on WastelandNV's real inputs, the cache on D::
+
+| Run | Time |
+|---|---|
+| The old call | 92.1 s |
+| `land_textures`, empty cache (made and stored) | 106.6 s |
+| `land_textures`, cached | 5.1 s |
+
+The three outputs pickle to the same bytes. The entry is 461 MB. The first
+run's 14.5 s more is recording the code that ran and writing the entry.
+A warm build saves about 87 s of the worlds stage, and the step's memory
+peak (about 2 GB, [land-memory](#land-memory)) with it.
 
 #### <a id="voices-archive"></a>Voices in their own archive (built 2026-11-12)
 

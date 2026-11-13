@@ -10,9 +10,12 @@ quadrants, inside a cell or across cells, takes their average mix.
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
 
+import hashlib
 import math
 
 import numpy as np
+
+from fo4_import.pipeline.work_cache import cached
 
 #: Vertices of a quadrant (17 x 17, row-major from the bottom-left).
 SIDE = 17
@@ -23,6 +26,10 @@ EDGE = [p for p in range(QUAD_POINTS) if p % SIDE in (0, SIDE - 1) or p // SIDE 
 CELL_STEPS = 2 * (SIDE - 1)
 #: Textures a quadrant keeps: FO4 draws 4 at a time, the base first, and textures past the first 4 draw differently.
 DRAWN = 4
+#: The LAND fields quadrant_mix reads: the layer count and every layer's.
+LAYER_FIELDS = ('LayerCount', 'Layer[')
+#: The work-cache site of land_textures().
+SITE = 'land textures'
 #: The shares of a texture blend_borders brings to a quadrant at no vertex yet: one read-only array shared by all.
 ZERO = np.zeros(QUAD_POINTS)
 ZERO.setflags(write=False)
@@ -161,3 +168,17 @@ def blend_borders(mixes: dict) -> dict:
                     shares = mix[texture] = np.zeros(QUAD_POINTS)
                 shares[pos] = share
     return mixes
+
+
+def land_textures(lands: dict, grassy: frozenset = frozenset()) -> dict:
+    """limit_textures(blend_borders()) of the quadrant_mix of each grid's FNV LAND in `lands` ({grid: record or
+    None}), kept in the work cache by the fields it reads (LAYER_FIELDS) and `grassy`.
+    See: docs/fork/fo4_build_speed.md#land-cache
+    """
+    digest = hashlib.sha1(repr(sorted(grassy)).encode())
+    for grid, land in sorted(lands.items()):
+        if land:
+            digest.update(repr((grid, [(k, v) for k, v in land.items() if k.startswith(LAYER_FIELDS)])).encode())
+    mixes = {grid: land for grid, land in lands.items() if land}
+    return cached(SITE, __name__, (digest.digest(),), lambda: limit_textures(
+        blend_borders({grid: quadrant_mix(land) for grid, land in mixes.items()}), grassy))
