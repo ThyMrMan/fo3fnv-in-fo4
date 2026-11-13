@@ -215,6 +215,91 @@ missing entry shows in game as a frozen or wrong animation.
   the behavior graphs and clips that have no AnimTextData entry, before
   anyone sees a frozen animation in game.
   - **Size:** small, after the tool above.
+- **<a id="behavior-patcher"></a>The FO4 half of a behavior patcher.**
+  Skyrim's Nemesis and Pandora merge behavior patches from many mods, then
+  rebuild the animation data cache for the whole load order. FO4 has no such
+  tool: any subgraph change needs AnimTextData rebuilt, and only the CK does
+  that today. Our writer is the missing piece.
+  - **Route:** contribute the AnimTextData part to Pandora (GPL-3.0, like
+    ours; FO4 is an open target there), or write our own patcher.
+  - **Unchecked:** the Skyrim tool details are general knowledge, not read
+    from their sources.
+  - **Size:** medium as a contribution, large on our own.
+- **<a id="anim-sets"></a>Animation sets without F4SE.** FO4 already picks
+  a race's subgraph entry by actor keyword (how `ChangeAnimFlavor` works). A
+  tool that takes a folder of clips and a keyword and writes the subgraph
+  entry plus all its AnimTextData (offsets, speed and stance from the clips'
+  root motion) gives conditional animation sets with no DLL.
+  F4-OpenAnimationReplacer does this at runtime but needs F4SE and has no
+  license.
+  - **Why new entries:** the game keeps the first loaded offsets record per
+    clip path ([game use](research/anim_text_data.md#game-use)), so a set
+    can't override vanilla's data for a vanilla clip; its own entry
+    sidesteps that.
+  - **Have:** the subgraph entries we write for FNV guns, and the offsets
+    and speed math.
+  - **Size:** medium.
+- **<a id="graph-check"></a>A creature graph checker.** The gecko spike
+  froze through about 12 test builds on mistakes a checker would catch: a
+  root graph missing events and variables its subgraphs use, AnimTextData
+  shipped loose instead of packed, attack events that don't match the
+  graph, and missing per-entry dynamic idle files. The missing-animation
+  finder above is one of its checks.
+  - **Size:** small to medium.
+- **<a id="annotation-edit"></a>Annotation editing that stays in sync.**
+  Changing a clip's `WeaponFire` or footstep timing today means rerunning
+  the CK, or the offsets' event times and the clip generator triggers keep
+  the old timing and attacks fire at the wrong moment. Edit the annotations
+  and rewrite both files in one step.
+  - **Size:** small to medium.
+- **<a id="behavior-engine"></a>Our own Havok behavior engine.** Running
+  the graph, as the CK does, would give its speed samples and fire positions
+  exactly (ours are off by up to about 130 units/s on the mantis, and the
+  fire positions by 0.6–64 units), plus offline previews and checks for any
+  FO4 graph. To our knowledge no open one exists for either game: Skyrim
+  has editors (Haviour) and patchers (Nemesis, Pandora) that read and
+  rewrite graphs, but none that runs them (general knowledge, not checked
+  against their sources).
+  - **What it is:** each frame, a graph takes the actor's variables and
+    events, steps its state machines, blends clips and applies modifiers,
+    and gives a pose and root motion. Ours would do that offline from the
+    `.hkx` files; the game keeps its own Havok.
+  - **Opens up, by value:**
+    1. Preview and debugging without the game: send events, watch the
+       states, see where it stops. The gecko's 12 frozen builds would have
+       been minutes.
+    2. Checks that run the graph: unreachable states, transitions whose
+       variable is never set, states with no way out (a frozen creature).
+       Static checks can't see these.
+    3. Testing merges: replay each source mod's event sequences on a
+       merged graph ([patcher](#behavior-patcher)).
+    4. Graphs written from a plain description of states, clips and
+       transitions, compiled to `.hkx` and checked by running. Combined
+       with [animation sets](#anim-sets), new FO4 creatures get practical.
+    5. Converting graphs between games (FNV, Skyrim, FO4) and checking that
+       the result behaves like the source, not only that it loads.
+    6. A map of vanilla graphs: which events drive what, which variables
+       matter.
+    7. Automated tests for animation mods ("still attacks, staggers, dies").
+  - **Doesn't open up:** new in-game node types (the game runs only what
+    its Havok knows; new ones need F4SE). Physics-driven nodes (ragdoll,
+    foot and hand IK) would be approximate offline.
+  - **License:** written from scratch from the file formats and observed
+    behavior, never the Havok SDK, like the existing open `.hkx` tools.
+  - **Stages:** state machines, clip generators and blend nodes first, no
+    physics. That covers the exact AnimTextData data, previews and the
+    run-based checks.
+  - **First step:** count the node types vanilla FO4 graphs use; that
+    count sizes the work.
+  - **Size:** large.
+- **<a id="anim-open"></a>Still open in the format work.** Untested in
+  game: whether loose AnimTextData counts the same as packed (all 35
+  installed mods pack theirs), and the first-loaded-wins rule. Not decoded:
+  SyncAnimData groups (FNV and FO3 have none), dynamic idle files with
+  content (we write the empty `Version 1` form), and the speed file's node
+  index (the game doesn't read it). Not done: FNV third-person gun clips, and
+  a run on vanilla FO4 animation mods
+  ([ours](research/anim_text_data.md#ours)).
 
 ### <a id="lip-ideas"></a>Lip files (no LipGenerator)
 
@@ -247,7 +332,11 @@ the audio ([lips](fo4_ck_replacements.md#lips)).
 - **Precombines and previs (8).** Today a mod that edits a precombined
   cell breaks its precombines, and the fix is a CK rebuild. Our own baker
   would make "rebuild the precombines this load order broke" possible
-  without the CK. Very large, and the CK route comes first.
+  without the CK. Since the
+  [research](research/fo4_precombines_previs.md#own-precombines): our own
+  precombines look feasible (every format decoded; embedded geometry needs
+  no `.csg`), so this is large, not very large. Previs is an Umbra 3 file
+  only the CK writes, so that half stays the CK's.
 
 ## <a id="toolkit"></a>All of it together
 
