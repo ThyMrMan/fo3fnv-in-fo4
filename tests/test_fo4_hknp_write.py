@@ -16,6 +16,7 @@ from fo4_import.nif.convert_static import IDENTITY
 from fo4_import.nif.file import NifFile
 from fo4_import.pipeline import elric_cache
 from fo4_import.nif.hknp_write import DAMPING, FILTER, FRICTION, MASS, MAX_ANGULAR, MOTION, RESTITUTION
+from tools.nif import hknp_compare
 
 BOX = hknp_convex.box_planes((1.0, 2.0, 3.0))
 CORNERS = hknp_convex.box_corners((1.0, 2.0, 3.0))
@@ -98,16 +99,33 @@ def test_half_keeps_the_top_bits_rounded():
 
 
 def test_motions_follow_elric_per_motion_system():
-    """Dynamic and massive keyframed bodies get a full motion, massless keyframed the preset, fixed none."""
-    root = _system((2, 10.0), (4, 50.0), (4, 0.0), (5, 0.0))
+    """Dynamic (thin box inertia too) and massive keyframed bodies get a full motion, massless keyframed the
+    preset, fixed none."""
+    root = _system((2, 10.0), (4, 50.0), (4, 0.0), (5, 0.0), (6, 1.0))
     bodies, motions = root['bodyCinfos'], root['motionCinfos']
-    assert [b['flags'] for b in bodies] == [128, 0x10080, 0, 0]
-    assert [b['motionId'] for b in bodies] == [0, 1, 2, hknp_write.NO_ID]
+    assert [b['flags'] for b in bodies] == [128, 0x10080, 0, 0, 128]
+    assert [b['motionId'] for b in bodies] == [0, 1, 2, hknp_write.NO_ID, 3]
     assert motions[0]['inverseMass'] == pytest.approx(0.1) and motions[1]['inverseMass'] == pytest.approx(0.02)
     assert motions[2]['motionPropertiesId'] == hknp_write.PRESET
     assert motions[2]['centerOfMassWorld'] == bodies[2]['position']
     assert motions[2]['orientation'] == bodies[2]['orientation']
-    assert len(root['motionProperties']) == 2 and bodies[0]['collisionFilterInfo'] == 0x2A
+    assert len(root['motionProperties']) == 3 and bodies[0]['collisionFilterInfo'] == 0x2A
+
+
+def test_a_quad_planar_on_the_grid_is_a_convex_shape_with_its_surface_mass():
+    """Four points in one plane (z by y only): an hknpConvexShape of the points as given; the fan from the
+    first point carries mass 2, so a crossed quad's centre of mass sits off its middle; volume area × radius.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
+    quad = np.array([[-1.0, -1.0, 0.5], [-1.0, 1.0, 0.5000001], [1.0, -1.0, 0.5], [1.0, 1.0, 0.5000001]])
+    assert hknp_hull.planar(quad) and not hknp_hull.planar(quad + [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1e-3]])
+    objects, mass = hknp_convex.polytope('#s0', quad, 0.01, 7)
+    assert objects[0]['class'] == 'hknpConvexShape' and objects[0]['fields']['flags'] == 1
+    assert objects[0]['fields']['__tail__'][:12] == struct.pack('<3f', *quad[0])
+    assert mass.com == pytest.approx((0, -1 / 3, 0.5), abs=1e-6) and mass.volume == pytest.approx(0.04)
+    packed = objects[2]['fields']['compressedMassProperties']
+    assert packed['mass'] == 2.0 and packed['volume'] == pytest.approx(0.04)
 
 
 def test_a_card_thinner_than_a_micron_has_four_corner_faces():
@@ -214,14 +232,36 @@ def test_the_pool_finishes_meshes_as_one_process_does(tmp_path):
         assert not [k for k in record if k.startswith(('fo4_import/nif/hknp_ragdoll', 'fo4_import/nif/hknp_round'))]
 
 
-def test_a_flat_box_is_left_to_elric():
-    """A box with no height has no 3-D hull: not covered, so Elric gets it.
+def test_a_flat_box_is_ours_when_fixed_and_elrics_when_it_moves():
+    """A box with no height is a flat convex shape; on a dynamic body (Elric's mass for that unread) Elric gets it.
 
     See: docs/fork/fo4_hknp_writer.md#flat
     """
     nif = nif_file.read(_box_nif())
     nif.blocks[3] = ('bhkBoxShape', struct.pack('<If8x3ff', 7, 0.01, 1, 2, 0, 0))
     assert hknp_write.physics(nif) is None
+    body = bytearray(nif.blocks[2][1])
+    body[MOTION] = hknp_write.FIXED
+    nif.blocks[2] = ('bhkRigidBody', bytes(body))
+    shapes = [o['class'] for o in packfile.read(hknp_write.physics(nif)[0][4:]).objects]
+    assert 'hknpConvexShape' in shapes
+
+
+def test_a_quad_off_its_plane_by_float_noise_is_a_two_faced_polytope_with_its_box_mass():
+    """Four corners a few float steps off one plane: two faces holding every corner, two padding faces, and
+    the mass of the corners' box grown by the convex radius.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
+    quad = np.array([[0.58, -0.0545903, -1.83], [0.58, -0.05459031, 0.56], [3.08, -0.05459042, -1.83],
+                     [3.08, -0.05459036, 0.56]])
+    assert not hknp_hull.planar(quad)
+    objects, mass = hknp_convex.polytope('#s0', quad, 0.01, 7)
+    faces = hknp_compare.hull(objects[0]['fields'])['faces']
+    assert len(faces) == 4 and list(faces[:, 5]) == [4] * 4 and not faces[2:, :3].any()
+    assert abs(faces[0, 1]) == pytest.approx(1) and not mass.solid
+    assert mass.volume == pytest.approx(2.52 * 2.41 * 0.02, rel=1e-4)
+    assert mass.com == pytest.approx((1.83, -0.05459, -0.635), abs=1e-4)
 
 
 def test_bs_material_entries_sit_0x18_apart_as_elric_writes_them():

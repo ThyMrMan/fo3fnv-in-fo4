@@ -1,9 +1,10 @@
 """Our own FO4 physics for a pre-Elric NIF, where it covers the input, in place of Elric's.
 
 `physics(nif)` reads the collision blocks nif/collision.py wrote (bhkCollisionObject, bhkRigidBody,
-convex shapes, spheres and capsules, lists of those or of meshes, triangle meshes on massless bodies) and gives the bhkPhysicsSystem block and each collision
-owner in body order; None for input it does not cover yet. `finish(nif)` puts them in place of the Havok
-input as elric.graft does.
+convex shapes flat ones included, spheres and capsules, lists of those or of meshes, triangle meshes on massless
+bodies, constraints, phantoms as trigger bodies) and gives the bhkPhysicsSystem block and each collision owner in
+body order; None for input it does not cover yet. `finish(nif)` puts them in place of the Havok input as
+elric.graft does.
 
 See: docs/fork/fo4_hknp_writer.md#convex
 """
@@ -29,8 +30,8 @@ from fo4_import.nif.hknp_round import capsule, sphere
 FILTER, MASS, DAMPING, FRICTION, RESTITUTION, MAX_ANGULAR, MOTION = 4, 180, 184, 196, 204, 212, 216
 #: Low float32 bits Elric rounds off a body's max angular speed.
 SPEED_BITS = 12
-#: Havok 2014 motion systems: the dynamic ones, keyframed, fixed.
-DYNAMIC, KEYFRAMED, FIXED = frozenset({2, 3}), 4, 5
+#: Havok 2014 motion systems: the dynamic ones (sphere, box and thin box inertia), keyframed, fixed.
+DYNAMIC, KEYFRAMED, FIXED = frozenset({2, 3, 6}), 4, 5
 #: Body cinfo values: no motion or reserved id, every quality the default, a dynamic body's flags.
 NO_ID, QUALITY, DYNAMIC_FLAGS = 0x7FFFFFFF, 255, 128
 #: A motion's properties id for the game's own preset (keyframed bodies without mass).
@@ -58,6 +59,12 @@ MOTION_PROPERTIES = {'isExclusive': 0, 'flags': 0, 'gravityFactor': 1.0, 'timeFa
                      'pathingLowerThreshold': -26213, 'numDeactivationFrequencyPasses': 4,
                      'deactivationVelocityScaleSquare': 115, 'minimumPathingVelocityScaleSquare': 117,
                      'spikingVelocityScaleThresholdSquared': 6, 'minimumSpikingVelocityScaleSquared': 115}
+#: A phantom's collision object, its body flags (a trigger) and its material.
+PHANTOM_OBJECT, TRIGGER_BODY = 'bhkSPCollisionObject', 16
+#: A shape our hull code cannot build (Qhull's failures, NaN from garbage input): not covered.
+UNBUILT = (QhullError, ValueError)
+TRIGGER_MATERIAL = {**MATERIAL, 'flags': 0x200000, 'triggerType': 2, 'dynamicFriction': 16128,
+                    'staticFriction': 16128, 'restitution': 0}
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +175,31 @@ def bodies(nif: NifFile, skip: frozenset = frozenset()) -> 'list | None':
         if shape is None:
             return None
         out.append((i, body, shape, world(nif, i)))
-    return out or None
+    return out
+
+
+def _phantom(nif: NifFile, owner: int, index: int) -> 'tuple | None':
+    """(body cinfo, shape objects) of node `owner`'s phantom as body `index`; None when its shape is not convex."""
+    phantom = nif.blocks[struct.unpack('<iHi', nif.blocks[nif.blocks[owner][1]['collision']][1])[2]][1]
+    shape, filt = struct.unpack_from('<iI', phantom)
+    maker = convex(nif.blocks, shape)
+    if maker is None:
+        return None
+    place = world(nif, owner)
+    cinfo = {'shape': f'#p{index}', 'reservedBodyId': NO_ID, 'motionId': NO_ID, 'qualityId': QUALITY,
+             'materialId': index, 'collisionFilterInfo': filt, 'flags': TRIGGER_BODY,
+             'collisionLookAheadDistance': 0.0, 'name': None, 'userData': 0, 'position': (*place[0], 0.0),
+             'orientation': place[1], 'spuFlags': 0, 'localFrame': None}
+    return cinfo, maker(f'#p{index}')[0]
+
+
+def phantoms(nif: NifFile, first: int = 0) -> 'tuple | None':
+    """([(trigger body cinfo, shape objects)], [owner]) of `nif`'s phantoms as bodies from `first`, block order;
+    None when one is not covered."""
+    owners = [i for i, (_, b) in enumerate(nif.blocks) if isinstance(b, dict) and b.get('collision', NONE) != NONE
+              and nif.blocks[b['collision']][0] == PHANTOM_OBJECT]
+    made = [_phantom(nif, owner, first + i) for i, owner in enumerate(owners)]
+    return None if any(m is None for m in made) else (made, owners)
 
 
 # ---------------------------------------------------------------------------
@@ -257,12 +288,14 @@ def _body(index: int, body: bytes, motion_id: int, place: tuple) -> dict:
             'position': (*place[0], 0.0), 'orientation': place[1], 'spuFlags': 0, 'localFrame': None}
 
 
-def assemble(rows: list, joints: tuple = ()) -> tuple:
-    """(hknpPhysicsSystemData fields, the other packfile objects) for `rows` (bodies()) and `joints` [(constraint
-    cinfo, its data object)]."""
+def assemble(rows: list, joints: tuple = (), triggers: tuple = ()) -> tuple:
+    """(hknpPhysicsSystemData fields, the other packfile objects) for `rows` (bodies()), `joints` [(constraint
+    cinfo, its data object)] and phantom `triggers` (phantoms()) after the bodies."""
     shapes, cinfos, motions, props = [], [], [], []
     for index, (_, body, shape, place) in enumerate(rows):
         objects, mass = shape(f'#s{index}')
+        if _massive(body) and mass is not None and not mass.solid:
+            raise ValueError('a moving body on a flat or thin shape (Elric\'s mass for it is unread)')
         shapes += objects
         motion_id = NO_ID
         if _massive(body):
@@ -272,10 +305,11 @@ def assemble(rows: list, joints: tuple = ()) -> tuple:
             motion_id = len(motions)
             motions.append(_keyframed(place))
         cinfos.append(_body(index, body, motion_id, place))
-    root = {'name': None, 'materials': [_material(b[1]) for b in rows], 'motionProperties': props,
-            'motionCinfos': motions, 'bodyCinfos': cinfos, 'constraintCinfos': [c for c, _ in joints],
-            'referencedObjects': [f'#s{i}' for i in range(len(rows))]}
-    return root, shapes + [d for _, d in joints]
+    root = {'name': None, 'materials': [_material(b[1]) for b in rows] + [dict(TRIGGER_MATERIAL) for _ in triggers],
+            'motionProperties': props, 'motionCinfos': motions, 'bodyCinfos': cinfos + [c for c, _ in triggers],
+            'constraintCinfos': [c for c, _ in joints],
+            'referencedObjects': [c['shape'] for c in cinfos] + [c['shape'] for c, _ in triggers]}
+    return root, shapes + [o for _, objects in triggers for o in objects] + [d for _, d in joints]
 
 
 def pack(cls: str, root: dict, objects: list) -> bytes:
@@ -284,9 +318,9 @@ def pack(cls: str, root: dict, objects: list) -> bytes:
     return struct.pack('<I', len(data)) + data
 
 
-def system(rows: list, joints: tuple = ()) -> bytes:
-    """The bhkPhysicsSystem block for `rows` (bodies()) and `joints` (assemble())."""
-    return pack('hknpPhysicsSystemData', *assemble(rows, joints))
+def system(rows: list, joints: tuple = (), triggers: tuple = ()) -> bytes:
+    """The bhkPhysicsSystem block for `rows`, `joints` and `triggers` (assemble())."""
+    return pack('hknpPhysicsSystemData', *assemble(rows, joints, triggers))
 
 
 def joints_of(nif: NifFile, rows: list, motor: 'str | None' = None) -> 'list | None':
@@ -300,13 +334,14 @@ def physics(nif: NifFile) -> 'tuple | None':
     included.
     See: docs/fork/fo4_hknp_writer.md#flat
     """
-    rows = bodies(nif)
+    rows = bodies(nif, frozenset({PHANTOM_OBJECT}))
     joints = None if rows is None else joints_of(nif, rows)
-    if joints is None:
-        return None
     try:
-        return system(rows, joints), [b[0] for b in rows]
-    except QhullError:
+        made = None if joints is None else phantoms(nif, len(rows))
+        if made is None or not rows + made[1]:
+            return None
+        return system(rows, joints, made[0]), [b[0] for b in rows] + made[1]
+    except UNBUILT:
         return None
 
 
