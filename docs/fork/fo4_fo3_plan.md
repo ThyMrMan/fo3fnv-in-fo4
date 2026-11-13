@@ -130,8 +130,10 @@ Only play can check:
 - The birth to the escape plays in order: CG00 (birth) → CG01 (Baby Steps)
   → CG02 (the birthday) → CG03 (the G.O.A.T.) → CG04 (the escape), stages
   set by 44 of the plugin's dialogue lines and by quest scripts.
-- `SetPCYoung` is not converted, so the child stages play with an adult
-  body. `SetLocationSpecificLoadScreensOnly` is dropped and
+- `AgeRace` is not converted, so the 10th birthday plays on the adult
+  race, and the child jumpsuit does not draw on it; the age-1 scale does
+  convert ([child player plan](fo4_fo3_child_player.md#route)).
+  `SetLocationSpecificLoadScreensOnly` is dropped and
   `PipBoyRadioOff` is not converted yet.
 - **IgnoreCrime** is converted ([how](fo4_plan_script_functions.md#ignore-crime)):
   CG02 and CG03 clear the crime faction of almost everyone in the vault
