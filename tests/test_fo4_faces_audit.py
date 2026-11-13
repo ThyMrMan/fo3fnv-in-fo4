@@ -217,6 +217,21 @@ def test_ck_closed_once_quiet_after_writing(monkeypatch, tmp_path):
     assert len(closed) == 2
 
 
+def test_ck_closed_when_it_writes_nothing_in_ck_first(monkeypatch, tmp_path):
+    """A CK that writes no file within CK_FIRST seconds is closed then, not at its (hours long) timeout, and raises."""
+    CK, clock, closed = FG.creation_kit, [1000.0], []
+    monkeypatch.setattr(CK.subprocess, 'Popen', lambda *_, **__: None)
+    monkeypatch.setattr(CK, 'running', lambda: True)
+    monkeypatch.setattr(CK, 'close', lambda: closed.append(clock[0]))
+    monkeypatch.setattr(CK, 'output_dir', lambda: tmp_path)
+    monkeypatch.setattr(CK, 'newest_file', lambda _: 0.0)
+    monkeypatch.setattr(CK.time, 'time', lambda: clock[0])
+    monkeypatch.setattr(CK.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s))
+    with pytest.raises(SystemExit, match='no file written'):
+        CK.run('-x', 20 * CK.CK_FIRST, 'testing')
+    assert closed == [pytest.approx(1000.0 + CK.CK_FIRST, abs=CK.CK_POLL)]
+
+
 @pytest.mark.skipif(not VANILLA_MESHES.exists(), reason='needs Fallout 4')
 def test_export_refuses_facegen_with_32_bit_cloth_physics(monkeypatch, tmp_path):
     """Vanilla FaceGen with cloth hair (Scarlett's) passes; the same with its packfile's pointer size set to 4, as
