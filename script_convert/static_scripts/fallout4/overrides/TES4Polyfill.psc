@@ -118,7 +118,7 @@ EndFunction
 
 ; fallout4: replaces ForceCombatNow 8c58cc5780a8af03fadc8b3d12810637906ad569
 Bool Function ForceCombatNow(Actor akAttacker, Actor akTarget, Faction akAttackers, Faction akVictims, Bool abAdd = False) Global
-  {The shared ForceCombatNow; a fight with the player puts the other actor in _PlayerEnemyFaction.}
+  {The shared ForceCombatNow; a fight with the player puts the other actor in _PlayerEnemyFaction, and an NPC's fight on the player brings in its allies (RallyAllies).}
   If akAttacker == None || akTarget == None || akAttacker.IsDead() || akTarget.IsDead()
     Return False
   EndIf
@@ -144,7 +144,53 @@ Bool Function ForceCombatNow(Actor akAttacker, Actor akTarget, Faction akAttacke
     StandDown(akAttacker)
   EndIf
   akAttacker.StartCombat(akTarget)
+  If akTarget == player
+    Var[] args = new Var[2]
+    args[0] = akAttacker
+    args[1] = akTarget
+    Utility.CallGlobalFunctionNoWait("TES4Polyfill", "RallyAllies", args)
+  EndIf
   Return True
+EndFunction
+
+; fallout4: new
+Function RallyAllies(Actor akAttacker, Actor akPlayer) Global
+  {FNV's combat group on a scripted StartCombat player: every loaded actor near akAttacker that _Assists it joins the fight, hating the player as akAttacker does. Fallout 4 brings none in. See docs/fork/fo4_pipeline.md#allies-join}
+  Int[] types = _ActorTypes()
+  ActorValue assistance = TES4Polyfill.AV("Assistance")
+  Faction hatesPlayer = _PlayerEnemyFaction()
+  Int joined = 0
+  Int t = 0
+  While t < types.Length
+    ObjectReference[] found = akAttacker.FindAllReferencesWithKeyword(Game.GetFormFromFile(types[t], "Fallout4.esm"), 8192.0)
+    Int i = 0
+    While i < found.Length
+      Actor a = found[i] as Actor
+      If _Assists(a, akAttacker, akPlayer, assistance)
+        a.AddToFaction(hatesPlayer)
+        a.StartCombat(akPlayer)
+        joined += 1
+      EndIf
+      i += 1
+    EndWhile
+    t += 1
+  EndWhile
+  If Tracing()
+    TraceWrite("rally", TraceName(akAttacker) + "|" + joined + " joined")
+  EndIf
+EndFunction
+
+; fallout4: new
+Bool Function _Assists(Actor akHelper, Actor akAttacker, Actor akPlayer, ActorValue akAssistance) Global
+  {Whether akHelper helps akAttacker fight akPlayer as FNV's AI does: alive, not yet fighting, not the player's teammate, akAttacker's Ally (Assistance Helps Allies or more) or Friend (Helps Friends and Allies), neither Ally nor Friend of the player, and seeing one of the two.}
+  If !akHelper || akHelper == akAttacker || akHelper == akPlayer || akHelper.IsDead() || akHelper.IsInCombat() || akHelper.IsPlayerTeammate()
+    Return False
+  EndIf
+  Int reaction = akHelper.GetFactionReaction(akAttacker)
+  If reaction < 2 || akHelper.GetValue(akAssistance) < reaction - 1 || akHelper.GetFactionReaction(akPlayer) >= 2
+    Return False
+  EndIf
+  Return akAttacker.IsDetectedBy(akHelper) || akPlayer.IsDetectedBy(akHelper)
 EndFunction
 
 ; fallout4: replaces EndCombat d99861d03328f154627388185c6ee598b4e39cea
@@ -332,13 +378,20 @@ Function SetMirror(GlobalVariable akGlobal, Float afValue) Global
 EndFunction
 
 ; fallout4: new
-Function EvaluateNearby() Global
-  {EvaluatePackage on every living loaded NPC, creature, robot and super mutant (Fallout4.esm ActorType keywords) within 8192 units of the player.}
+Int[] Function _ActorTypes() Global
+  {Fallout4.esm's ActorType keywords a search for nearby actors walks: NPC 0x13794, Creature 0x13795, Robot 0x2CB73, SuperMutant 0x6D7B6.}
   Int[] types = new Int[4]
   types[0] = 79764
   types[1] = 79765
   types[2] = 183155
   types[3] = 448438
+  Return types
+EndFunction
+
+; fallout4: new
+Function EvaluateNearby() Global
+  {EvaluatePackage on every living loaded NPC, creature, robot and super mutant (_ActorTypes) within 8192 units of the player.}
+  Int[] types = _ActorTypes()
   Actor player = Game.GetPlayer()
   Int t = 0
   Int count = 0

@@ -2297,6 +2297,21 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   Every DOOR base now carries `F3NV_DoorCloser` beside its own script: an
   NPC's OnOpen registers a distance event, and once the NPC is 200 units
   away the door closes if still open. Doors the player opens stay as left.
+- <a id="allies-join"></a>**Allies join a scripted fight on the player
+  (proposed 2026-11-13, not built).** FNV puts an actor that starts combat in a
+  combat group with its Allies and Friends, and each joins as its Assistance
+  allows (GECK AI Data and Factions pages). Fallout 4 does not: at the Las Vegas
+  Boulevard Station `VStripMonorailWarning2TriggerSCRIPT` starts
+  `VStripNCRTrooperMonorail1REF` on the player, and the second trooper, NCR's
+  Ally with Assistance 2 standing beside him, never fought (played 2026-11-13).
+  Vanilla Fallout 4 brings a group in by script (`SetEnemy`,
+  `SendAssaultAlarm` after `StartCombat`). `ForceCombatNow` now hands an NPC's
+  fight on the player to `RallyAllies`, which walks the loaded actors within
+  8192 units of the attacker and starts each one `_Assists` (alive, not
+  fighting, not a teammate, the attacker's Ally with Assistance 1 or more or
+  Friend with 2, not the player's Ally or Friend, detecting either side) on the
+  player, in `PlayerEnemyFaction` as the attacker is. 738 converted FNV call
+  sites start an NPC on the player.
 - **Patrol start (played 2026-10-17: Victor runs his circuit).** An FNV Patrol starts at its location reference (FNV
   PLDT near reference, e.g. Victor's circuit marker). The FO4 copy's
   Patrol Start is that reference; before, it was the actor's linked
