@@ -75,7 +75,14 @@ A built line can play when its topic is reachable and a placed actor passes
 its GetIsID tests. A topic is reachable when it is neither a scene nor a
 custom topic (the engine plays greetings and hellos itself), when a reachable
 scene's action names it (Dialogue, Player Dialogue, NPC Response, Start Scene
-or Radio), or when a script property names it (Say). A scene is reachable
+or Radio), when a script property names it (Say), or when the menu links
+file links a speakable option of a reachable topic to it: an answer topic,
+which F3NV.dll plays when the player picks the option
+([links-file](fo4_dialogue_menu_plan.md#links-file)). Before 2026-11-13 the
+model did not read the links file, so after the switch to our own menu
+model (no XDI) every answer topic, and every shared step an answer line
+starts, read "in no scene that starts": 448 dialogue, 225 quest and 21
+start errors on that day's FalloutNV.esm. A scene is reachable
 when it begins on quest start, when a voice holotape plays it (NOTE DNAM 1, its SNAM; since 2026-10-31,
 before which every holotape line read "in no scene that starts"), when a script property names it (`TES4Talk_*`,
 `Start()`, an array of steps), when a reachable line starts it (TSCE), or when

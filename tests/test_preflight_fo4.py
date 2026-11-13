@@ -71,6 +71,21 @@ def test_a_scene_line_speaks_only_through_a_scene_that_starts():
     assert 'in no scene that starts' in Fo4Dialogue(scene_plugin(False)).reachable_info(OWN | 0x21)
 
 
+def test_a_menu_link_reaches_its_answer_topic_and_the_scene_its_line_starts():
+    """Option 0x20 (in scene 1's topic) links to answer topic 0x12, whose line starts scene 3 (0x13's line); only
+    the links file reaches them, as F3NV.dll plays an answer.
+    See: docs/fork/fo4_dialogue_menu_plan.md#links-file
+    """
+    plugin = scene_plugin(True)
+    extra = [rec('DIAL', OWN | 0x12, [('SNAM', b'SCEN')]), rec('DIAL', OWN | 0x13, [('SNAM', b'SCEN')]),
+             rec('INFO', OWN | 0x22, [('TSCE', u32(OWN | 0x32))], OWN | 0x12), scene(OWN | 0x32, OWN | 0x13),
+             rec('INFO', OWN | 0x23, [], OWN | 0x13)]
+    index = fo4_index([*(r for recs in plugin.by_type.values() for r in recs), *extra])
+    assert 'in no scene that starts' in Fo4Dialogue(index).reachable_info(OWN | 0x23)
+    linked = Fo4Dialogue(index, [(OWN | 0x20, OWN | 0x12)])
+    assert linked.reachable_info(OWN | 0x22) == linked.reachable_info(OWN | 0x23) == ''
+
+
 def test_talking_through_an_activator_reads_0_on_the_fnv_side():
     """FNV's IsActorTalkingThroughActivator is 0 in every sampled state, as no actor talks through one on FO4."""
     cond = {'func': D.FNV.index('IsActorTalkingThroughActivator'), 'p1': 0, 'p2': 0, 'run_on': 0, 'ref': 0}

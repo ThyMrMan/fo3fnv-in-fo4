@@ -98,6 +98,10 @@ class Fo4Game(Game):
         self.script_sources = args.fo4_scripts or Path('temp') / 'fo4_scripts' / self.source
         self.masters = built_masters.master_paths(self.plugin, self.index.masters, args.plugin_dirs)
 
+    def dialogue(self) -> Fo4Dialogue:
+        """The plugin's dialogue model, its menu links (F3NV.dll's links file) included."""
+        return Fo4Dialogue(self.index, menus.plugin_links(self.index, self.plugin)[0])
+
     @property
     def ctx(self):
         """The QuestContext over the FO4 dialogue model and the ledger's line copies."""
@@ -106,7 +110,7 @@ class Fo4Game(Game):
             scripts = load_scripts(self.plugin.parent / 'Scripts', self.script_sources)
             self.parts = line_parts(self.index, ledger_path(self.plugin), source.infos)
             self._ctx = quest_progression.QuestContext(self.name, source, scripts, self.index,
-                                                       dialogue=Fo4Dialogue(self.index), copies=line_copies(self.parts),
+                                                       dialogue=self.dialogue(), copies=line_copies(self.parts),
                                                        left_out=left_out(report_path(self.plugin)))
         return self._ctx
 
