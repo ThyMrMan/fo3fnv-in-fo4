@@ -6,11 +6,13 @@ See: docs/fork/fo4_pipeline.md#build-files
 """
 
 import os
+import shutil
 
 from fo4_import.base import ba2_pack as BP
 from fo4_import.base import build_files as BF
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ledger import ledger_path
+from fo4_import.spike import facegen
 from fo4_import.spike.script import adopted_scripts
 
 FILES = {'Meshes/fnv/Cup.nif': b'cup', 'Materials/fnv/a.bgsm': b'm', 'Scripts/A.pex': b'pex',
@@ -29,13 +31,15 @@ def _packed(tmp_path, monkeypatch):
 
 
 def test_drop_then_restore_brings_back_what_the_main_archive_holds(tmp_path, monkeypatch):
-    """drop_packed deletes the loose copies the archives hold (and the folders left empty), not other files;
-    restore_packed writes them back, spelled as the archive stores them and dated as the archive, so a build
-    neither counts them as made nor finds them missing from its last file list (stale_files compares spellings)."""
+    """drop_packed takes the loose copies the archives hold out (and the folders left empty), not other files;
+    with no stash, restore_packed writes them back, spelled as the archive stores them and dated as the archive,
+    so a build neither counts them as made nor finds them missing from its last file list (stale_files compares
+    spellings)."""
     data = _packed(tmp_path, monkeypatch)
     assert BP.drop_packed(data, 'P.esm') == len(FILES)
     assert not (data / 'Meshes').exists() and not (data / 'Materials').exists()
     assert (data / 'Scripts' / 'compile_state.json').is_file() and (data / 'Textures/Effects/LUTs/FNV/lut.dds').is_file()
+    shutil.rmtree(BP.stash_dir(data, 'P.esm'))
     assert BP.restore_packed(data, 'P.esm') == len(FILES)
     assert all((data / name).read_bytes() == payload for name, payload in FILES.items())
     assert os.listdir(data / 'Meshes') == ['AnimTextData', 'fnv'] and os.listdir(data / 'Meshes' / 'fnv') == ['Cup.nif']
@@ -175,3 +179,32 @@ def test_a_build_that_rewrites_the_same_bytes_leaves_main_as_it_is(tmp_path, mon
     BP.pack_main(data, 'P.esm')
     assert main.stat().st_mtime_ns != when and Archive(main).read('scripts/a.pex') == b'PEX'
     assert Archive(main).read('materials/fnv/a.bgsm') == b'm'
+
+
+def test_the_loose_copies_wait_in_the_stash_with_their_dates(tmp_path, monkeypatch):
+    """drop_packed moves Main's loose files into stash_dir (outside the Data folder) and restore_packed moves
+    them back with their own dates, the stash gone; the faces stage's restore() takes them back too."""
+    data = _packed(tmp_path, monkeypatch)
+    dated = {name: (data / name).stat().st_mtime_ns for name in FILES}
+    BP.drop_packed(data, 'P.esm')
+    stash = BP.stash_dir(data, 'P.esm')
+    assert BP.stashed(data, 'P.esm') and not stash.is_relative_to(data)
+    assert {name: (stash / name).read_bytes() for name in FILES} == FILES
+    assert facegen.restore(data, 'P.esm') == len(FILES) and not stash.exists()
+    assert {name: (data / name).stat().st_mtime_ns for name in FILES} == dated
+    assert {name: (data / name).read_bytes() for name in FILES} == FILES
+
+
+def test_a_stash_the_archive_moved_on_from_is_not_used(tmp_path, monkeypatch):
+    """A stash whose stamp no longer matches the Main archive is deleted and the archive restores the files;
+    loose files that are not exactly the archive's PACKED entries are deleted, not stashed."""
+    data = _packed(tmp_path, monkeypatch)
+    BP.drop_packed(data, 'P.esm')
+    stash, main = BP.stash_dir(data, 'P.esm'), data / 'P - Main.ba2'
+    (stash / 'Scripts/A.pex').write_bytes(b'stale')
+    os.utime(main, ns=(1, 1))
+    assert not BP.stashed(data, 'P.esm') and BP.restore_packed(data, 'P.esm') == len(FILES)
+    assert (data / 'Scripts/A.pex').read_bytes() == b'pex' and not stash.exists()
+    (data / 'Meshes/fnv/Extra.nif').write_bytes(b'not packed')
+    BP.drop_packed(data, 'P.esm')
+    assert not stash.exists() and not (data / 'Meshes/fnv/Cup.nif').exists()

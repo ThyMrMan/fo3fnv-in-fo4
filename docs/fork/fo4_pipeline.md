@@ -6238,6 +6238,35 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   files (`stale_files`, object LOD, the Creation Kit's animation list, the
   script compiler, `write_new`'s own check) reading through the archive
   instead.
+- <a id="loose-stash"></a>**The loose copies move aside instead of being
+  deleted and written back (2026-11-12, not yet built).** Reading through
+  the archive would change about 38 reads in 17 files, plus the script
+  compiler and the Creation Kit, which read the folder themselves. Instead
+  `drop_packed` moves the Main archive's loose files into
+  `ba2_pack.stash_dir` (`loose/<plugin stem>` in the Data folder's staging
+  folder, outside the mod folder, so neither MO2, the game nor
+  `fo4_deploy` sees it), and `restore_packed` moves them back. On one drive
+  a move is a rename: `Meshes` and `Materials` go in one rename each, the
+  `.pex` files one by one. Every file keeps its date, so `stale_files` does
+  not count it as made and the pack record still matches it. The stash is
+  kept only when it is exactly the archive's `Meshes`, `Materials` and
+  `.pex` entries and sits on the Data folder's drive. Its stamp holds the
+  archive's size and time; when anything repacked Main since (a faces run
+  that did not restore, a deploy), the stash is deleted and the restore
+  writes from the archive as before. The faces stage brings the stash back
+  too, so its drop stashes a complete set again.
+  Measured on a D: copy of the 2026-11-12 Main and record, staging on D:
+  too, two warm builds' archive steps in a row:
+
+  | Step | First (no stash) | Second (from the stash) |
+  |---|---|---|
+  | `restore_packed` (77,355 files) | 42.6 s | 3.6 s |
+  | `pack_main` (Main not written either time) | 39.3 s | 11.1 s |
+  | `drop_packed` | 7.2 s | 6.7 s |
+
+  The second restore gave back the same files with the same sizes and
+  dates, so `pack_main` matched every one on its record without comparing
+  bytes.
 - **A master folder is read through its archives.** A dependent build reads
   its masters' deployed folders, whose loose copies are gone:
   `ba2_pack.data_file` (the persistent subgraph list,

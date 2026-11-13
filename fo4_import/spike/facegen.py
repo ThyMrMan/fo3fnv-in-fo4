@@ -33,7 +33,8 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fo4_import.base.ba2_pack import archived, drop_packed, pack_main, pack_textures, restore_packed, staging_root
+from fo4_import.base.ba2_pack import (archived, drop_packed, pack_main, pack_textures, restore_packed, stashed,
+                                      staging_root)
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.face import facegeom
@@ -208,11 +209,11 @@ def geometry(plugin: str) -> tuple:
 
 
 def restore(data_dir: Path, plugin: str) -> int:
-    """restore_packed(), only when Main has no current pack record; how many files.
-    See: docs/fork/fo4_pipeline.md#faces-repack
+    """restore_packed() if stashed() or Main has no current record; the count.
+    See: docs/fork/fo4_pipeline.md#loose-stash
     """
     main = data_dir / f'{Path(plugin).stem} - Main.ba2'
-    return restore_packed(data_dir, plugin) if archived(main) is None else 0
+    return restore_packed(data_dir, plugin) if stashed(data_dir, plugin) or archived(main) is None else 0
 
 
 def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
