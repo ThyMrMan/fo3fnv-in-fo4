@@ -32,10 +32,12 @@ def condition_map(builder, base: dict, lines: list, helper_index: int) -> dict:
 
 
 def condition_forms(builder, lines: list) -> dict:
-    """{FNV form: FO4 form} for `lines`' conditions: items and item lists (made now), voice types, map regions'
-    locations, the built cells and worldspace."""
-    voices = getattr(getattr(builder, 'npcs', None), 'voices', None)
+    """{FNV form: FO4 form} for `lines`' conditions: items and item lists (made now), voice types, races and tested
+    classes (Npcs.trait_forms), map regions' locations, the built cells and worldspace."""
+    npcs = getattr(builder, 'npcs', None)
+    voices = getattr(npcs, 'voices', None)
     out = {**getattr(builder, 'cell_ids', {}), **{k: v for k, v in getattr(voices, 'ids', {}).items() if v}}
+    out.update(npcs.trait_forms() if npcs else {})
     out.update(getattr(builder, 'regions', {}))
     out.update(condition_items(builder, lines, out))
     builder.counts['condition forms'] = len(out)
@@ -43,11 +45,15 @@ def condition_forms(builder, lines: list) -> dict:
 
 
 def condition_items(builder, lines: list, known: dict) -> dict:
-    """{FNV item or item list: FO4 form} made now for `lines`' item tests (ITEM_TESTS) of forms `known` lacks."""
+    """{FNV item or item list: FO4 form} made now for `lines`' item tests (ITEM_TESTS) of forms `known` lacks;
+    {(C.UNMADE, item): 0} for one the build cannot make, which no one can hold.
+    See: docs/fork/fo4_dialogue_gaps.md#unmade-items
+    """
     out = {}
     for line in lines:
         for cond in (C.parse(line[f'Condition[{i}].Raw']) for i in range(int(line.get('ConditionCount', 0) or 0))):
-            if cond['func'] in ITEM_TESTS and cond['p1'] not in known and cond['p1'] not in out:
-                made = builder.items.item(cond['p1'])
-                out.update({cond['p1']: made} if made else {})
+            item = cond['p1']
+            if cond['func'] in ITEM_TESTS and item and not any(k in known or k in out for k in (item, (C.UNMADE, item))):
+                made = builder.items.item(item)
+                out[item if made else (C.UNMADE, item)] = made or 0
     return out

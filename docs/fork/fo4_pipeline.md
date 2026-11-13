@@ -838,6 +838,10 @@ fourth (2026-10-31):
     Weathers' `00136DFA`, GetItemCount; Cass's `0015C795`, IsSpellTarget),
     and the scene of that line's Choices is built with nothing to start
     it. 58 of them are behind the blockers above.
+- *Census and fixes (2026-11-12, not built).* What the whole-map build
+  still leaves out, by cause, and the fixes for empty actor parameters,
+  race and class tests, items the build cannot make and uncounted menu
+  answers: [dialogue gaps](fo4_dialogue_gaps.md).
 - *Quest conditions.* An FNV quest's own conditions gate all its dialogue
   (vDialogueEDE: `GetIsID` ED-E; Doctors: DoctorsDialogueFaction, not Doc
   Mitchell's voice type). `say_topics.with_quest` ANDs them into each line,

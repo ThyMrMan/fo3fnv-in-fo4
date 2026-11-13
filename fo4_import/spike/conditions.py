@@ -69,6 +69,8 @@ OR_NEXT = 0x01
 OBJECTIVE_STATES = tuple(OBJECTIVE_FUNCS.values())
 #: Form map key head of a built quest's authored objective indexes: (AUTHORED, quest) -> frozenset.
 AUTHORED = 'objectives'
+#: Form map key head of an item a line tests that the build could not make: (UNMADE, FNV form) -> 0.
+UNMADE = 'unmade'
 #: Condition flag (both games): compare against a global's value; the value field holds the global's FormID.
 USE_GLOBAL = 0x04
 _OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,
@@ -162,13 +164,14 @@ def simplify(conds: list, settle):
 
 def absent(cond: dict, form_map: dict) -> 'bool | None':
     """Outcome of a FIXED function's test, of an ABSENT_ZERO test of a form the build lacks, of an objective its
-    quest does not author, or of any test run on a reference it lacks (all read 0); else None.
+    quest does not author, of a test of an item it could not make (UNMADE), or of any test run on a reference it
+    lacks (all read 0); else None.
     See: docs/fork/fo4_pipeline.md#dialogue-conditions"""
     if cond['op_flags'] & USE_GLOBAL:
         return None
     if cond['func'] in FIXED:
         return compare(cond, FIXED[cond['func']])
-    if unbuilt_reference(cond, form_map):
+    if unbuilt_reference(cond, form_map) or (UNMADE, cond['p1']) in form_map:
         return compare(cond, 0.0)
     if cond['func'] not in ABSENT_ZERO or 0 < cond['p1'] < ENGINE_FORMS:
         return None
@@ -184,9 +187,10 @@ def _unauthored(cond: dict, form_map: dict) -> bool:
 
 
 def unmapped_form(cond: dict, form_map: dict) -> bool:
-    """True when a form parameter is neither in `form_map` nor the player's."""
+    """True for a set form parameter `form_map` lacks, not the player's; 0 stays 0.
+    See: docs/fork/fo4_dialogue_gaps.md#empty-params"""
     slots = FNV.form_slots.get(FNV.index(cond['func']), set())
-    return any(s in slots and p not in form_map and p not in PLAYER_FORMS
+    return any(s in slots and p and p not in form_map and p not in PLAYER_FORMS
                for s, p in ((1, cond['p1']), (2, cond['p2'])))
 
 
