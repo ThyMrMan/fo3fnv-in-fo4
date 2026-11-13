@@ -1143,6 +1143,55 @@ The halved write is certain. The wall-clock gain is within this disk's
 noise while the overnight queue shares it: the same old-code case measured
 124.6–213.5 s earlier in the day.
 
+### <a id="weap-profile-2026-11-13"></a>The item WEAP stage, profiled (2026-11-13)
+
+The 07:40 base build ran with `F3NV_PROFILE_STAGES=item WEAP`
+([stage-profile](fo4_plugin_layout.md#stage-profile)): 100.1 s, 90 s of it
+under `Guns.templates`. Shares overlap; the profiler slows pure Python more
+than file calls.
+
+| Part | Time |
+|---|---|
+| Clips (`_clips`: the guess pass 50 s, the pool warm-up 38 s, `GunClips.convert` 21 s) | 65 s |
+| NIF reads (`read_tri_shape`, 2.9 million vertices, 24 million `Reader.take` calls) | 25 s |
+| Cache files: 88,821 opens, 50,045 existence checks, 66,079 time stamps | about 25 s |
+| Building the gun meshes (`nif.gun.gun`, `_merge_shape`) | 19 s |
+| `copy.deepcopy` (14 million calls on 2,374 objects) | 8 s |
+
+<a id="gun-parses"></a>**Three fixes (2026-11-13, not yet in a build).**
+- **Shared parses.** A gun's converted mesh was parsed three times per gun
+  and its receiver four (`fnv_layout`, `placement`, `gun`, `receiver_bones`,
+  `pieces`). The readers that never change the NIF now share
+  `gun.parsed()` and `gun.stripped()`, which keep the last 8 parses;
+  `gun()` and `without()` still read their own copy, since they change it.
+- **A lighter shape copy.** `_merge_shape` deep-copied the source shape,
+  vertex dicts included, then replaced the vertices. It now copies every
+  other field and reads the vertices from the source.
+- **Fewer file calls per cached clip.** `work_cache.has_bytes` and
+  `stored_bytes` check that the entry and its code record exist instead of
+  reading and parsing the record, which is always empty for these entries.
+  `current()` stats the entry once, and `mark_used` sets an entry's time
+  only when it is a day old or more: `prune` counts whole days, so an entry
+  any build used within 14 days still stays. `write_new` stats its target
+  once.
+
+The NIF block readers themselves (`Reader.take`, `read_tri_shape`,
+`read_vertex`) were left alone, though vectorizing them is the bigger win.
+They are in the code records of the FaceGen, Elric-finish and shape-material
+caches (`own_face`, `sculpt_fit`, `tint_fit`, `head_parts`,
+`elric_finish`), so any edit to them rebuilds all of those. So are
+`work_cache.current_ran`, `ran_path` and `write_ran` (in 117,799
+`mesh_files` records), which this change keeps as they were.
+
+**Measured** (scratch harnesses, a build running at the same time):
+- **The gun calls** of a build (`fnv_layout`, `draws`, `placement`, `gun`,
+  `receiver_bones`, `pieces` of both NIFs, `receiver_layout`, `mesh_top`)
+  on all 113 FNV guns with a mesh, each on a vanilla receiver: 22.95 s
+  before, 19.42 s after; every output pickles to the same bytes.
+- **The cache replay** of 3,000 copied `gun_clip_files` entries (`has_bytes`,
+  `stored_bytes`, `write_new` onto unchanged files): 1.40 s before, 0.85 s
+  after, the same values. A whole-map build replays about 21,600 of them.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh

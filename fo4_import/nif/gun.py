@@ -19,6 +19,7 @@ See: docs/fork/fo4_spikes.md#spike-4-guns
 """
 
 import copy
+import functools
 import struct
 from pathlib import Path
 
@@ -50,6 +51,22 @@ BACKPACK = 'Backpack'
 MAG_POINT, SCOPE_POINT = 'P-Mag', 'P-Scope'
 #: FNV's aiming eye point on a gun.
 SIGHTING = '##SightingNode'
+#: How many NIFs parsed() and stripped() each keep: a gun's converted mesh, its receiver and its build, and spares.
+KEPT_PARSES = 8
+
+
+@functools.lru_cache(maxsize=KEPT_PARSES)
+def parsed(raw: bytes):
+    """nif_file.read(`raw`), shared by the readers here: never change it.
+    See: docs/fork/fo4_build_speed.md#gun-parses
+    """
+    return nif_file.read(raw)
+
+
+@functools.lru_cache(maxsize=KEPT_PARSES)
+def stripped(raw: bytes):
+    """without_havok() of a fresh read of `raw`, shared like parsed()."""
+    return without_havok(nif_file.read(raw))
 
 
 def node_matrix(block: dict) -> np.ndarray:
@@ -195,7 +212,7 @@ def _points(nif, worlds: dict) -> np.ndarray:
 
 def pieces(raw: bytes) -> list:
     """A weapon NIF's placed shapes split into connected vertex groups (a handle, a barrel...), its bone's frame."""
-    nif = nif_file.read(raw)
+    nif = parsed(raw)
     worlds, out = node_worlds(nif), []
     for i, (kind, b) in enumerate(nif.blocks):
         if kind != 'BSTriShape' or i not in worlds or not b['vertices'] or not b['triangles']:
@@ -216,13 +233,13 @@ def _top(nif, worlds: dict) -> float:
 
 def mesh_top(raw: bytes) -> float:
     """The highest point of a NIF's placed shapes."""
-    nif = nif_file.read(raw)
+    nif = parsed(raw)
     return _top(nif, node_worlds(nif))
 
 
 def receiver_layout(raw: bytes) -> dict:
     """A FO4 receiver NIF's trigger, magazine mouth, muzzle and sights point, and its top (z), receiver space."""
-    nif = nif_file.read(raw)
+    nif = parsed(raw)
     worlds = node_worlds(nif)
     points = connect_points(nif, worlds)
     node = {name: worlds[i][3, :3] for name in (MAGAZINE_BONE, MUZZLE) if (i := _named(nif, name)) in worlds}
@@ -250,7 +267,7 @@ def _fnv_parts(src, axes: np.ndarray = AXES) -> dict:
 def fnv_layout(static_bytes: bytes, nodes: dict) -> dict:
     """A converted FNV gun's trigger, magazine mouth, muzzle and sighting eye point (None when it has none)
     and top, FO4's axes; None when the mesh has no shapes."""
-    parts = _fnv_parts(nif_file.read(static_bytes)).values()
+    parts = _fnv_parts(parsed(static_bytes)).values()
     every = np.vstack([np.empty((0, 3)), *(p for _, p in parts)])
     if not len(every):
         return None
@@ -316,11 +333,13 @@ def _copy_keyed(dst, src, index: int) -> int:
 
 def _merge_shape(dst, src, index: int, points: np.ndarray, normals: np.ndarray) -> int:
     """Copy `src`'s shape `index` (shader, texture set, alpha) into `dst`, its vertices at `points`; its index."""
-    shape = copy.deepcopy(src.blocks[index][1])
+    source = src.blocks[index][1]
+    shape = {k: None if k == 'vertices' else list(v) if k == 'triangles' else copy.deepcopy(v)
+             for k, v in source.items()}
     tris = np.array(shape['triangles'])
-    uv = np.array([v['uv'] for v in shape['vertices']], float)
-    colors = (np.array([v['color'] for v in shape['vertices']], float) / 255
-              if 'color' in shape['vertices'][0] else None)
+    uv = np.array([v['uv'] for v in source['vertices']], float)
+    colors = (np.array([v['color'] for v in source['vertices']], float) / 255
+              if 'color' in source['vertices'][0] else None)
     unit = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-9)
     center = (points.min(0) + points.max(0)) / 2
     shape.update(name=dst.string(src.strings[shape['name']]), vertices=vertices(points, uv, unit, colors, tris),
@@ -345,12 +364,12 @@ def _emptied(nif) -> None:
 
 def draws(raw: bytes) -> bool:
     """Whether a NIF has any geometry (a weapon's base model is often an empty dummy)."""
-    return any(kind.endswith('TriShape') for kind, _ in nif_file.read(raw).blocks)
+    return any(kind.endswith('TriShape') for kind, _ in parsed(raw).blocks)
 
 
 def receiver_bones(raw: bytes) -> dict:
     """{bone name: receiver-space rest 4x4} of a receiver NIF's nodes."""
-    nif = nif_file.read(raw)
+    nif = parsed(raw)
     worlds = node_worlds(nif)
     return {nif.strings[b['name']]: worlds[i] for i, (kind, b) in enumerate(nif.blocks)
             if kind == 'NiNode' and i in worlds}
@@ -380,7 +399,7 @@ def placement(static_bytes: bytes, nodes: dict, receiver_bytes: bytes) -> np.nda
     """The row-vector 4x4 putting converted FNV gun `static_bytes` (`nodes` its FNV node positions) in receiver
     NIF `receiver_bytes`'s frame: turned to FO4's axes (axes_for), then moved so its trigger's top sits on the
     receiver's drawn one; unmoved without either, as both games put a gun's origin in the hand."""
-    src, nif = without_havok(nif_file.read(static_bytes)), nif_file.read(receiver_bytes)
+    src, nif = stripped(static_bytes), parsed(receiver_bytes)
     axes = axes_for(src, nodes, nif)
     bones = {nif.strings[b['name']]: i for i, (kind, b) in enumerate(nif.blocks) if kind == 'NiNode'}
     target = _receiver_trigger(nif, node_worlds(nif), drawn=True)
