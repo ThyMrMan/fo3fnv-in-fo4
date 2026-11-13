@@ -3,11 +3,13 @@ pruning."""
 
 import struct
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
 from fo4_import.havok import anim_text as T
 from fo4_import.havok.gun_anim_text import ANIM_TEXT, PERSISTENT
+from fo4_import.rig.build import project_file_data
 from tes5_import.base.writer import pack_subrecord
 
 EVENTS = ['meleeStart_Right', 'rangedAttackStart2', 'FootLeft', 'SoundPlay.Roar', 'weaponFire', 'moveStart']
@@ -127,6 +129,15 @@ def test_file_data_names_its_clips_not_its_behavior_graphs():
     """Clips by stem (first wins), no extension; behavior graphs left out."""
     text = '3\r\n1\r\n7\r\n3\r\nActors\\C\\Behaviors\\B.hkx\r\nActors\\FNV\\C\\Walk.hkx\r\nActors\\C\\Walk.hkx\r\n0\r\n'
     assert T.file_data_names(text) == {'Walk': 'Actors\\FNV\\C\\Walk'}
+
+
+def test_a_creature_entrys_file_data_lists_its_projects_clips_in_the_cks_form():
+    """An entry's file data is 3, 1, its id, the count and the project's clips under its folder, LF lines: the
+    form of the CK's 12 (the FO3 build's ant had none)."""
+    rig = SimpleNamespace(project='FNVGiantAnt', clips=['Idle', 'AttackLeft'])
+    out = T.entry_file_data(7046690657184703767, project_file_data(rig), 'Actors\\FNVGiantAnt')
+    assert out == (b'3\n1\n7046690657184703767\n2\nActors\\FNVGiantAnt\\Animations\\Idle.hkx\n'
+                   b'Actors\\FNVGiantAnt\\Animations\\AttackLeft.hkx\n')
 
 
 def test_entry_files_compute_every_clip_once_with_one_table_read_and_store(monkeypatch):

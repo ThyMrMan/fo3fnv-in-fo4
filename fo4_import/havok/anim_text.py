@@ -47,6 +47,8 @@ OWNED = ('AnimationOffsets', 'AnimationSpeedInfo', 'AnimationStanceData', 'Dynam
          'ClipGeneratorData', 'SyncAnimData')
 #: The CK's transition arrays, skipped when following a state's generator.
 TRANSITIONS = 'hkbStateMachineTransitionInfoArray'
+#: The start (lower case) of a project file data line naming a clip (rig.build.project_file_data).
+CLIPS = 'animations\\'
 #: The event (lower case) a creature's stance pose follows, and the BPND part types of its head and torso.
 EQUIP, TORSO, HEAD = 'weapequip', 0, 1
 #: A packed BPND's part type byte.
@@ -308,7 +310,18 @@ def creature(race: Race, read, k: Known, parts: dict) -> dict:
            f'ClipGeneratorData\\{root}.txt': generator_data(graph, played, objs, events, k.spelled)}
     out.update({f'{kind}\\{own}.txt': data for kind, data in mine.items() if data is not None})
     out.update({f'{kind}\\{e}.txt': data for e in race.entries for kind, data in entry.items() if data is not None})
+    listed = read(f'AnimTextData\\AnimationFileData\\{PureWindowsPath(project).stem.lower()}.txt')
+    out.update({f'AnimationFileData\\{e}.txt': entry_file_data(e, listed, folder) for e in race.entries}
+               if listed else {})
     return out
+
+
+def entry_file_data(entry: int, listed: bytes, folder: str) -> bytes:
+    """Entry `entry`'s file data: project list `listed`'s clips under `folder`.
+    See: docs/fork/research/anim_text_data.md#entry-file-data
+    """
+    clips = [f'{folder}\\{line}' for line in listed.decode('cp1252').splitlines() if line.lower().startswith(CLIPS)]
+    return ('\n'.join(['3', '1', str(entry), str(len(clips)), *clips]) + '\n').encode('cp1252')
 
 
 def armed_clip(folder: str, objs: dict, events: list) -> 'str | None':

@@ -171,7 +171,8 @@ through `hkbBehaviorReferenceGenerator`. It exits 1 on an error.
   leftover from an older build (dated 2026-11-12, kept because `prune`
   doesn't own that folder). No current code writes an own-rig entry's file
   data: `rig.build` writes only the project's, and `gun_clips` only gun
-  entries'. Not fixed here.
+  entries'. Fixed 2026-11-13, not built:
+  [entry file data](research/anim_text_data.md#entry-file-data).
 - **The gecko's graph broken again in memory** the spike's ways: every
   break is reported, the clean graph nothing.
   - wildcards at 0: 3 machines;

@@ -495,6 +495,20 @@ gone, and what the CK left), and the persistent list is merged.
 - **Furniture without a template** gets offsets and dynamic idle data but no
   stance: the CK's comes from running the vanilla furniture graph on the
   human rig.
+- <a id="entry-file-data"></a>**A creature's subgraph entry's file data**
+  (`anim_text.entry_file_data`, 2026-11-13). Until now nothing wrote it:
+  - `rig.build` wrote only the project's list, and `gun_clips` only gun
+    entries'.
+  - The FNV build kept the CK's 12 as leftovers, because `prune` doesn't own
+    `AnimationFileData`.
+  - The Fallout 3 build's giant ant had none, which
+    [the graph check](../fo4_own_rig.md#graph-check) found.
+
+  The form is LF lines: `3`, `1`, the entry id, the count, then each
+  `Animations\` clip of the project's list, under the project folder. Against
+  the CK's 12, header, line endings and clips are equal; only the order
+  differs. The CK's order follows neither the project list nor the graph, a
+  hash order like the offsets records', and the game looks clips up by name.
 
 **Drift from the CK, accepted:** record order (the CK's is a pointer hash),
 the speed samples ([speed-rules](#speed-rules)), the creature stances' torso
