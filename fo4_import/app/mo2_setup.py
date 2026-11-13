@@ -2,8 +2,8 @@
 
 The app's MO2 mod source names the instance and profile. Setting up enables the target's output folder (it must be
 a mod folder of that instance) in the profile's mod list, highest priority, and its plugins in the profile's
-plugin list and load order, after what is there: the game's plugin, its helper plugin and its Classic Look when
-built, or an add-on's plugin. Each file changed is backed up first (`<file>.f3nv-backup`). MO2 rewrites these
+plugin list and load order, after what is there: the game's plugin, its helper plugin, Cleanroom UI's and its
+Classic Look when built, or an add-on's plugin. Each file changed is backed up first (`<file>.f3nv-backup`). MO2 rewrites these
 files when it closes, so setup refuses while it runs. Play starts F4SE through MO2's F4SE executable for that
 profile, or the game folder's f4se_loader.exe without MO2.
 
@@ -21,7 +21,7 @@ from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.app import settings as S
 from fo4_import.app import stages
 from fo4_import.classic_look import plugin_name
-from script_convert.constants import FALLOUT4_HELPER_PLUGIN
+from script_convert.constants import CLEANROOM_PLUGIN, FALLOUT4_HELPER_PLUGIN
 from tools.validate.fo4_install_check import F4SE_LOADER, executables
 
 MO2_EXE, MO2_PROCESS = 'ModOrganizer.exe', 'ModOrganizer.exe'
@@ -57,10 +57,12 @@ def environment(settings: dict) -> dict:
 
 
 def plugins(settings: dict, source: str) -> list:
-    """The target's built plugins to enable, in load order: the game's own three when built, or an add-on's."""
+    """The target's built plugins to enable, in load order: the game's own, its helpers, Cleanroom UI's and its
+    Classic Look when built, or an add-on's."""
     chosen, built = stages.target(settings, source), stages.plugin_path(settings, source)
-    names = [built.name, FALLOUT4_HELPER_PLUGIN, plugin_name(stages.GAMES[source]['plugin'])] if chosen.game \
-        else [built.name]
+    names = [built.name]
+    if chosen.game:
+        names += [FALLOUT4_HELPER_PLUGIN, CLEANROOM_PLUGIN, plugin_name(stages.GAMES[source]['plugin'])]
     return [name for name in names if (chosen.output / name).is_file()]
 
 

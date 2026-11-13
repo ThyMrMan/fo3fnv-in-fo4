@@ -752,6 +752,8 @@ FALLOUT4_ACTOR_VALUE_IDS = {
 }
 #: The plugin every converted FO3/FNV plugin masters for the records no source plugin has.
 FALLOUT4_HELPER_PLUGIN = 'FalloutHelpers.esl'
+#: Cleanroom UI's own plugin and its level-up holder quest's object id (that repo's crui/plugin.py; a save contract).
+CLEANROOM_PLUGIN, CLEANROOM_HOLDER = 'CleanroomUI.esl', 0x800
 #: The empty plugin whose being enabled turns the session trace on (TES4Polyfill.Tracing); see fo4_pipeline.md#trace.
 FALLOUT4_TRACE_PLUGIN = 'F3NV_Trace.esl'
 #: Actor values FO4 lacks -> object id in FALLOUT4_HELPER_PLUGIN; ids are a save contract, append only.

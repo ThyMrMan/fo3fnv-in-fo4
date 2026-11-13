@@ -39,7 +39,7 @@ def _settings(tmp_path: Path, mo2: Path) -> dict:
     s['mod_sources'] = [{'folder': str(mo2), 'kind': 'mo2_profile', 'profile': ''}]
     out = mo2 / 'mods' / 'F3NV - Fallout New Vegas'
     out.mkdir()
-    for name in ('FalloutNV.esm', 'FalloutHelpers.esl'):
+    for name in ('FalloutNV.esm', 'FalloutHelpers.esl', 'CleanroomUI.esl'):
         (out / name).write_bytes(b'')
     s['per_source']['falloutnv']['output']['path'] = str(out)
     return s
@@ -57,10 +57,10 @@ def test_set_up_enables_the_mod_and_plugins_once(tmp_path):
     assert (profile / 'modlist.txt').read_text(encoding='utf-8').splitlines() == [
         HEADER, '+Some Mod', '+F3NV - Fallout New Vegas']
     assert (profile / 'plugins.txt').read_text(encoding='utf-8').splitlines() == [
-        '*Other.esp', '*FalloutHelpers.esl', '*FalloutNV.esm']
-    assert (profile / 'loadorder.txt').read_text(encoding='utf-8').splitlines() == ['FalloutNV.esm',
-                                                                                     'FalloutHelpers.esl']
-    assert (profile / ('modlist.txt' + M.BACKUP)).is_file() and len(changes) == 5
+        '*Other.esp', '*FalloutHelpers.esl', '*FalloutNV.esm', '*CleanroomUI.esl']
+    assert (profile / 'loadorder.txt').read_text(encoding='utf-8').splitlines() == [
+        'FalloutNV.esm', 'FalloutHelpers.esl', 'CleanroomUI.esl']
+    assert (profile / ('modlist.txt' + M.BACKUP)).is_file() and len(changes) == 7
     assert M.set_up(s, 'falloutnv') == ['already set up']
 
 

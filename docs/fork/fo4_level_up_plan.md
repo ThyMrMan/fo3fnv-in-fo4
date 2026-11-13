@@ -388,13 +388,22 @@ static script; without it `F3NV_CharacterEvents` would not bind. On a save
 from before, `F3NV_CharacterEvents` gains its parent's variables; **check
 in game** that an older save keeps its tags.
 
-## <a id="plugin"></a>`CleanroomUI.esl` (not shipped yet)
+## <a id="plugin"></a>`CleanroomUI.esl` (built 2026-11-12, not played)
 
 `Get()` first reads Cleanroom UI's shared holder (`CleanroomUI.esl`
 `0x800`), which every level-up host announces itself to, and falls back to
-ours above. The converter doesn't ship `CleanroomUI.esl` yet, so today
-`Get()` takes the fallback; `Game.IsPluginInstalled` keeps the missing
-plugin out of the log.
+ours above (`Game.IsPluginInstalled` keeps a missing plugin out of the log).
+
+The converter ships it: `fo4_import.helpers_plugin --out <dir>/FalloutHelpers.esl`
+(the app's helpers stage) also writes `<dir>/CleanroomUI.esl`
+(`fo4_import/cleanroom_plugin.py`, with our own plugin writer), so it lands
+in the build folder and the deploy copies it like `FalloutHelpers.esl`. The
+app's MO2 setup ticks it after the helper plugin. Its bytes are exactly
+Cleanroom UI's (`crui/plugin.py`; compared 2026-11-12), so the converter's
+copy and a Cleanroom UI release are one file to the game. The name and
+holder id are `CLEANROOM_PLUGIN` and `CLEANROOM_HOLDER`
+(`script_convert/constants.py`), a save contract. Converted plugins don't
+master it.
 - **Perks of other mods:** `AddPerk(akFirstRank)` and `RemovePerk`, kept by
   the save. An added perk no plugin's table lists comes after them, read
   from the perk itself as the menu opens (`DescribeAdded`: `GetName`,
