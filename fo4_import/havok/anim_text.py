@@ -208,7 +208,7 @@ def _entered(objs: dict, machine: dict, sent: frozenset) -> 'str | None':
     return by_id.get(to[0], state) if to else state
 
 
-def _owners(objs: dict) -> dict:
+def transition_owners(objs: dict) -> dict:
     """{transition array: (its state machine, whether it is the machine's wildcard transitions)}."""
     out = {}
     for ref, o in objs.items():
@@ -224,7 +224,7 @@ def attacks(objs: dict, events: list, attack: set) -> list:
     fire event), in the graph's order: the clips its target state plays (_settled).
     See: docs/fork/research/anim_text_data.md#root-keys
     """
-    out, owners = [], _owners(objs)
+    out, owners = [], transition_owners(objs)
     for ref, o in objs.items():
         if o['class'] != TRANSITIONS:
             continue
@@ -325,14 +325,14 @@ def armed_clip(folder: str, objs: dict, events: list) -> 'str | None':
 def _skeleton(project: str, read) -> 'Skeleton | None':
     """The rig of project `project` (its first character's rigName); None when read() lacks a file."""
     folder = str(PureWindowsPath(project).parent)
-    character = _strings(read(project), 'hkbProjectStringData', 'characterFilenames')
-    rig = _strings(read(str(PureWindowsPath(folder, character[0]))), 'hkbCharacterStringData', 'rigName') \
+    character = string_field(read(project), 'hkbProjectStringData', 'characterFilenames')
+    rig = string_field(read(str(PureWindowsPath(folder, character[0]))), 'hkbCharacterStringData', 'rigName') \
         if character else None
     raw = read(str(PureWindowsPath(folder, rig).with_suffix('.hkx'))) if rig else None
     return fo4_skeleton(raw)[0] if raw else None
 
 
-def _strings(raw: 'bytes | None', cls: str, name: str):
+def string_field(raw: 'bytes | None', cls: str, name: str):
     """Field `name` of the `cls` object in packfile `raw`; None without either."""
     found = [o['fields'] for o in packfile.read(raw).objects if o['class'] == cls] if raw else []
     return found[0].get(name) if found else None
