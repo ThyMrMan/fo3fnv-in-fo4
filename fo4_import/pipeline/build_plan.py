@@ -21,6 +21,7 @@ from pathlib import Path
 
 from fo4_import.base.install import file_masters
 from fo4_import.base.ledger import ID, Ledger, ledger_path
+from fo4_import.base.master_overrides import read_built
 from fo4_import.pipeline import creation_kit, mod_dirs
 from fo4_import.pipeline.build_inputs import inputs_path, listing, stamp
 from fo4_import.pipeline.build_steps import stamp_path
@@ -88,21 +89,23 @@ def _environment(rec: dict) -> 'str | None':
     return None
 
 
-def _records(paths: list, wanted: dict) -> dict:
+def _records(paths: list, wanted: dict, masters: list) -> dict:
     """{FormID: [signature, SHA-1 of the body]} of `wanted` ({FormID: signature}) in plugins `paths`, the last
-    one holding each (as master_overrides.master_records reads)."""
+    one holding each, numbered as a build mastering `masters` reads them (as master_overrides.master_records)."""
     out = {}
     sigs = frozenset(s.encode('latin-1') for s in wanted.values())
     for path in paths:
-        for rec, _ in walk(Path(path).read_bytes(), bodies=sigs):
+        for rec, _ in walk(read_built(path, masters), bodies=sigs):
             if wanted.get(rec.form_id) == rec.sig.decode('latin-1'):
                 out[rec.form_id] = [rec.sig.decode('latin-1'), hashlib.sha1(rec.body).hexdigest()]
     return out
 
 
-def _held(paths: list) -> frozenset:
-    """Every FormID in built plugins `paths`."""
-    return frozenset(rec.form_id for path in paths for rec, _ in walk(Path(path).read_bytes(), bodies=()))
+def _held(paths: list, masters: list) -> frozenset:
+    """Every FormID in plugins `paths`, numbered for a build mastering `masters`.
+    See: docs/fork/fo4_plugin_layout.md#multi-master
+    """
+    return frozenset(rec.form_id for path in paths for rec, _ in walk(read_built(path, masters), bodies=()))
 
 
 def _ledgers(log: dict, held: frozenset) -> 'str | None':
@@ -120,18 +123,20 @@ def _ledgers(log: dict, held: frozenset) -> 'str | None':
     return None
 
 
-def _masters(log: dict) -> 'str | None':
-    """The first master question that now has another answer (build_inputs.MasterLog)."""
+def _masters(log: dict, plugin: Path) -> 'str | None':
+    """The first master question that now has another answer (build_inputs.MasterLog), master FormIDs read in
+    the numbering of `plugin`'s own masters."""
     plugins = log['paths'].get('plugin', [])
     for path, masters in log['headers'].items():
         if not Path(path).is_file() or file_masters(Path(path)) != masters:
             return f'master header {path}'
-    held = _held(plugins) if plugins else frozenset()
+    own = file_masters(plugin) if plugins else []
+    held = _held(plugins, own) if plugins else frozenset()
     moved = next((fid for fid, answer in log['held'].items() if (int(fid, 16) in held) != answer), None)
     if moved:
         return f'master holds {moved}'
     wanted = {int(fid, 16): sig for fid, (sig, _) in log['records'].items()}
-    now = _records(plugins, wanted) if wanted else {}
+    now = _records(plugins, wanted, own) if wanted else {}
     moved = next((fid for fid, kept in log['records'].items() if now.get(int(fid, 16), [kept[0], None]) != kept), None)
     if moved:
         return f'master record {moved}'
@@ -165,7 +170,7 @@ def check(plugin: Path) -> tuple:
     key = changed(rec['code'])
     if key:
         return BUILD, f'code {key}'
-    reason = _environment(rec) or _files(rec) or _asked(rec) or _masters(rec['masters'])
+    reason = _environment(rec) or _files(rec) or _asked(rec) or _masters(rec['masters'], plugin)
     return (BUILD, reason) if reason else (CURRENT, '')
 
 
