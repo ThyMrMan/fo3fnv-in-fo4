@@ -422,20 +422,25 @@ ammo in the Pip-Boy. Asked for: the same on the inventory page, opened the
 way the repair list is. The ammo itself still switches through the Ammo
 Type hotkey's Papyrus ([fo4_pipeline.md#ammo-switch](fo4_pipeline.md#ammo-switch)):
 each FNV round is one ammo mod.
-- **Key:** V, or the AMMO hint beside REPAIR (keyboard and mouse only, like
-  REPAIR). V is free in the Pip-Boy, which uses T, G, Q, E, R, X, C, Z, Tab
-  and Enter. Like G, it is heard by the native `keyUp` listener, since
+- **Key:** B, or the AMMO hint beside REPAIR (keyboard and mouse only, like
+  REPAIR). The Pip-Boy uses T, G, Q, E, R, X, C, Z, Tab and Enter, and V
+  (Toggle POV) is its own "Pipboy Zoom": with V the list zoomed the screen,
+  which cut the list's right side off, and a list closed by Esc or Tab or
+  by leaving the Pip-Boy left the zoom on (P, 2026-11-12; B since then, not
+  played). Like G, it is heard by the native `keyUp` listener, since
   Papyrus `OnKeyDown` never fires in the Pip-Boy.
 - **The list** (`tes_runtime/fo4_condition/ammo.cpp`), under the page's
   modal; since 2026-11-12 (built, not played) our Pip-Boy movie draws it
   from `AmmoView` as the repair list is drawn. It reuses the repair list's
   helpers in `pipboy.cpp` (`CurrentPage`, `SetModal`, `SayOnCard`,
   `MakeHint`, `SendExternal`):
-  - "AMMO TYPE / CARRIED", then the rounds of the gun's FNV ammo list (eight at a time):
-    name, the count carried over all stacks, and "(loaded)" on the round the
-    gun holds. Last, "ENTER) LOAD / ESC) CANCEL"; ENTER is left out on the
-    loaded round and on one the player has none of.
-  - Keys: Up or W and Down or S move, Enter or E loads, Esc, Tab or V
+  - "AMMO TYPE / CARRIED", then the rounds of the gun's FNV ammo list the
+    player carries, and the loaded one (eight at a time): name, the count
+    carried over all stacks, and "(loaded)" on the round the gun holds.
+    Until 2026-11-12 every round of the list showed, carried or not (P).
+    Last, "ENTER) LOAD / ESC) CANCEL"; ENTER is left out on the loaded
+    round, which may be one the player has none of.
+  - Keys: Up or W and Down or S move, Enter or E loads, Esc, Tab or B
     cancels. Enter on the loaded round just closes.
   - The loaded round: the highlighted line's stack (`LineStack`), then the
     first of the list's ammo mods among the mods in that stack's

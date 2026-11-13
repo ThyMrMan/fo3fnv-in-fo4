@@ -97,18 +97,23 @@ def rows(builder, names: dict = None, records: list = None) -> list:
 
 
 def properties(table: list, values: list = (), listed: list = ()) -> dict:
-    """F3NV_LevelUpTable's Requirement* properties: `table`'s rows as parallel arrays. A row's owner is its perk's
-    index in `listed` (the table's listed perks); its target the index the menu finds the tested value at: in `values`
-    (SPECIAL then skills) for an actor value, in `listed` for a perk; -1 when not there."""
+    """F3NV_LevelUpTable's Requirement* properties: `table`'s rows as the SEP texts the menu reads, so an open joins
+    nothing. A row's owner is its perk's index in `listed` (the table's listed perks); its target the index the menu
+    finds the tested value at: in `values` (SPECIAL then skills) for an actor value, in `listed` for a perk; -1 when
+    not there. The menu moves both by where the table's perks start. RowTotal counts the rows; UnlistedRows and
+    UnlistedPerks are the rows testing a perk the table does not list, which the game is asked about.
+    See: docs/fork/fo4_level_up_plan.md#open-delay
+    """
     perk, kind, form, compare, value, either, label = zip(*table) if table else ((),) * 7
     where = {0: list(values), 2: list(listed)}
     targets = [where[k].index(f) if f in where.get(k, ()) else -1 for k, f in zip(kind, form)]
     owners = [list(listed).index(p) if p in listed else -1 for p in perk]
-    return {'RequirementKinds': ('ints', list(kind)),
-            'RequirementForms': ('objects', list(form)), 'RequirementCompares': ('ints', list(compare)),
-            'RequirementValues': ('floats', [float(v) for v in value]), 'RequirementOr': ('ints', list(either)),
-            'RequirementOwners': ('ints', owners), 'RequirementTargets': ('ints', targets),
-            'RequirementLabels': ('string', joined(label))}
+    unlisted = [i for i, (k, t) in enumerate(zip(kind, targets)) if k == 2 and t < 0]
+    return {'RequirementKinds': ('string', joined(kind)), 'RequirementCompares': ('string', joined(compare)),
+            'RequirementValues': ('string', joined(float(v) for v in value)), 'RequirementOr': ('string', joined(either)),
+            'RequirementOwners': ('string', joined(owners)), 'RequirementTargets': ('string', joined(targets)),
+            'RequirementLabels': ('string', joined(label)), 'RowTotal': ('int', len(kind)),
+            'UnlistedRows': ('ints', unlisted), 'UnlistedPerks': ('objects', [form[i] for i in unlisted])}
 
 
 # ---------------------------------------------------------------------------
@@ -126,11 +131,13 @@ def texts(kind: str, records: list, names: list = None) -> dict:
 
 
 def perk_table(perks, offered: list) -> dict:
-    """Listed perks `offered` (in perks.offered()'s order) as texts(), each one's level and rank count, and every rank
-    in order (RankForms, PerkRanks per perk)."""
+    """Listed perks `offered` (in perks.offered()'s order) as texts(), each one's level and rank count as SEP texts,
+    and every rank in order (RankForms, PerkRanks per perk)."""
     ranks = [perks.ids[int(r['FormID'], 16)] for r in offered]
-    return {**texts('Perk', offered), 'PerkLevels': ('ints', [int(r.get('DATA.MinLevel', 0) or 0) for r in offered]),
-            'PerkRanks': ('ints', [len(ids) for ids in ranks]),
+    counts = [len(ids) for ids in ranks]
+    return {**texts('Perk', offered),
+            'PerkLevels': ('string', joined(int(r.get('DATA.MinLevel', 0) or 0) for r in offered)),
+            'PerkRanks': ('ints', counts), 'PerkRanksText': ('string', joined(counts)),
             'RankForms': ('objects', [fid for ids in ranks for fid in ids])}
 
 

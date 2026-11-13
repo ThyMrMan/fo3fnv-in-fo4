@@ -62,9 +62,12 @@ Int[] rowCounts
 Int perkTotal
 Int traitTotal
 Int tablePerks
+Int tableRows
 Perk[] Added
 Perk[] extra
 String[] extraParts
+String unlisted
+Var[] ready
 
 ; ---------------------------------------------------------------------------
 ; For other mods (docs/fork/fo4_level_up_plan.md#api)
@@ -275,12 +278,21 @@ EndFunction
 
 Function Open(Int aiMode = 0, Int aiCount = 0, Int aiBonus = 0)
   {Open our menu in mode aiMode (LevelUpMode, TagsMode for aiCount tags in all with aiBonus each, TraitsMode for up to
-  aiCount traits); it gets its data (Send) once open.}
+  aiCount traits): its data gathered first (Prepare) unless Prepare just did for this open; Send hands it over.}
+  If !ready || mode != aiMode || wanted != aiCount || bonus != aiBonus
+    Prepare(aiMode, aiCount, aiBonus)
+  EndIf
+  UI.OpenMenu(MenuName)
+EndFunction
+
+Function Prepare(Int aiMode, Int aiCount, Int aiBonus)
+  {Gather what our menu shows in mode aiMode (Built) ahead of opening it, registered first. The character rules call
+  it while the Pip-Boy closes, so the gathering overlaps that wait. See docs/fork/fo4_level_up_plan.md#open-delay}
   mode = aiMode
   wanted = aiCount
   bonus = aiBonus
   Register()
-  UI.OpenMenu(MenuName)
+  ready = Built()
 EndFunction
 
 Function Register()
@@ -325,15 +337,26 @@ Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
 EndEvent
 
 Function Send()
-  {Hand the open menu every plugin's perk, trait and requirement tables joined (Collect, Merged), the player's points,
-  level, sex and cap, the ranks held and values (asked in parallel, Gather), the tagged skills, the mode and the
-  traits held, and whether to show every perk at first (root1.Open, in Character.as's order).}
+  {Hand the open menu what Prepare gathered (root1.Open), once; gathered now when nothing waits.}
+  Var[] args = ready
+  ready = None
+  If !args
+    args = Built()
+  EndIf
+  UI.Invoke(MenuName, "root1.Open", args)
+EndFunction
+
+Var[] Function Built()
+  {What the menu shows, in Character.as's order: every plugin's perk, trait and requirement tables joined (Collect,
+  Merged), the player's points, level, sex and cap, the ranks held and values (asked in parallel, Gather), the tagged
+  skills, the mode and the traits held, whether to show every perk at first, and each table's perk and row counts
+  (the menu moves each table's row owners and perk targets by them).}
   Float started = Utility.GetCurrentRealTime()
   Actor player = Game.GetPlayer()
   Collect()
   Int specialCount = Specials.GetSize()
   Gather(specialCount, Skills.GetSize())
-  Var[] args = new Var[33]
+  Var[] args = new Var[35]
   args[0] = PerkPoints
   args[1] = SkillPoints
   args[2] = player.GetLevel()
@@ -358,7 +381,7 @@ Function Send()
   args[21] = Merged(12, rowCounts)
   args[22] = Merged(13, rowCounts)
   args[23] = Merged(14, rowCounts)
-  args[24] = Merged(15, rowCounts)
+  args[24] = unlisted
   args[25] = mode
   args[26] = wanted
   args[27] = bonus
@@ -367,13 +390,32 @@ Function Send()
   args[30] = Merged(7, traitCounts)
   args[31] = JoinedParts(traitParts)
   args[32] = ShowAllPerks
-  UI.Invoke(MenuName, "root1.Open", args)
-  Debug.Trace("F3NV_LevelUp: sent in " + (Utility.GetCurrentRealTime() - started) + "s, " + shown.Length + " tables")
+  args[33] = GroupCounts(perkCounts)
+  args[34] = GroupCounts(rowCounts)
+  Debug.Trace("F3NV_LevelUp: gathered in " + (Utility.GetCurrentRealTime() - started) + "s, mode " + mode + ", " \
+              + shown.Length + " tables")
+  Return args
+EndFunction
+
+String Function GroupCounts(Int[] aiCounts)
+  {aiCounts, one per shown table, then the added perks' count when there are any (one each, as perks or rows), SEP
+  between: the groups the menu moves indexes by.}
+  String out = ""
+  Int t = 0
+  While t < aiCounts.Length
+    out = F3NV_LevelUpTable.Joined(out, "" + aiCounts[t], t)
+    t += 1
+  EndWhile
+  If extra.Length > 0
+    out = F3NV_LevelUpTable.Joined(out, "" + extra.Length, t)
+  EndIf
+  Return out
 EndFunction
 
 Function Collect()
   {Into shown: this quest's table (the game's), then every other plugin's registered in Tables; and each one's perk,
-  trait and row counts.}
+  trait and row counts, of what the mode shows: perks and rows in a level-up, traits in the trait menu, neither in
+  the tag menu (the rest count 0, so Send hands over and asks about none of them).}
   F3NV_LevelUpTable own = (Self as Quest) as F3NV_LevelUpTable
   shown = new F3NV_LevelUpTable[0]
   If own
@@ -391,24 +433,34 @@ Function Collect()
   traitCounts = new Int[shown.Length]
   rowCounts = new Int[shown.Length]
   tablePerks = 0
+  tableRows = 0
   traitTotal = 0
+  unlisted = ""
   Int t = 0
   While t < shown.Length
-    perkCounts[t] = shown[t].PerkCount()
-    traitCounts[t] = shown[t].TraitCount()
-    rowCounts[t] = shown[t].RowCount()
+    If mode == LevelUpMode
+      perkCounts[t] = shown[t].PerkCount()
+      rowCounts[t] = shown[t].RowCount()
+    ElseIf mode == TraitsMode
+      traitCounts[t] = shown[t].TraitCount()
+    EndIf
     tablePerks += perkCounts[t]
+    tableRows += rowCounts[t]
     traitTotal += traitCounts[t]
     t += 1
   EndWhile
-  DescribeAdded()
+  extra = new Perk[0]
+  extraParts = new String[16]
+  If mode == LevelUpMode
+    DescribeAdded()
+  EndIf
   perkTotal = tablePerks + extra.Length
 EndFunction
 
 Function DescribeAdded()
   {Into extra and extraParts (F3NV_LevelUpTable.Text's order): the perks AddPerk listed that no shown table lists,
-  each read from the perk, with one requirement row of kind 4, the game's own test of its next rank.}
-  extra = new Perk[0]
+  each read from the perk, with one requirement row of kind 4, the game's own test of its next rank: the row's index,
+  after every table's rows, goes in unlisted when the test passes. Owners count from 0, as a table's do.}
   Int i = 0
   While Added && i < Added.Length
     If Added[i] && extra.Find(Added[i]) < 0 && !Tabled(Added[i])
@@ -416,7 +468,6 @@ Function DescribeAdded()
     EndIf
     i += 1
   EndWhile
-  extraParts = new String[16]
   Int j = 0
   While j < extra.Length
     Perk first = extra[j]
@@ -425,14 +476,16 @@ Function DescribeAdded()
     AddPart(2, first.GetIconPath(), j)
     AddPart(3, "" + first.GetLevel(), j)
     AddPart(4, "" + first.GetNumRanks(), j)
-    AddPart(8, "" + (tablePerks + j), j)
+    AddPart(8, "" + j, j)
     AddPart(9, "4", j)
     AddPart(10, "-1", j)
     AddPart(11, "0", j)
     AddPart(12, "1.0", j)
     AddPart(13, "0", j)
     AddPart(14, "", j)
-    AddPart(15, "" + (Eligible(NextRank(first)) as Int), j)
+    If Eligible(NextRank(first))
+      unlisted = F3NV_LevelUpTable.Joined(unlisted, "" + (tableRows + j), (unlisted != "") as Int)
+    EndIf
     j += 1
   EndWhile
 EndFunction
@@ -455,18 +508,16 @@ Bool Function Tabled(Perk akPerk)
 EndFunction
 
 String Function Merged(Int aiWhich, Int[] aiCounts)
-  {Text aiWhich (F3NV_LevelUpTable.Text) of each shown table with entries (aiCounts, per table), SEP between, its perk
-  indexes counted across the tables.}
+  {Text aiWhich (F3NV_LevelUpTable.Text) of each shown table with entries (aiCounts, per table), then the added
+  perks', SEP between.}
   String out = ""
-  Int first = 0
   Int part = 0
   Int t = 0
   While t < shown.Length
     If aiCounts[t] > 0
-      out = F3NV_LevelUpTable.Joined(out, shown[t].Text(aiWhich, first), part)
+      out = F3NV_LevelUpTable.Joined(out, shown[t].Text(aiWhich), part)
       part += 1
     EndIf
-    first += perkCounts[t]
     t += 1
   EndWhile
   If extra.Length > 0 && (aiWhich < 5 || aiWhich > 7)
@@ -479,13 +530,18 @@ Function Gather(Int aiSpecials, Int aiSkills)
   {Into heldParts, valueParts, tagParts and traitParts: the ranks held of each listed perk, the player's base value of
   each Specials and Skills entry and its tag (0 none, 1 a suggestion the tag menu may change, 2 tagged), then whether
   the player has each trait; asked by Chunks stacks at once (ScanChunk), so the frame each native call costs
-  overlaps. Gives up after 10 seconds.}
+  overlaps. In a level-up, one more stack asks for the perks the requirement rows test that no table lists
+  (ScanUnlisted). Gives up after 10 seconds.}
   Int count = perkTotal + aiSpecials + aiSkills + traitTotal
   heldParts = new String[Chunks]
   valueParts = new String[Chunks]
   tagParts = new String[Chunks]
   traitParts = new String[Chunks]
   pending = Chunks
+  If mode == LevelUpMode
+    pending += 1
+    CallFunctionNoWait("ScanUnlisted", new Var[0])
+  EndIf
   Int k = 0
   While k < Chunks
     Var[] args = new Var[5]
@@ -528,6 +584,20 @@ Function ScanChunk(Int aiChunk, Int aiFirst, Int aiEnd, Int aiSpecials, Int aiSk
   EndWhile
   valueParts[aiChunk] = values
   tagParts[aiChunk] = tags
+  pending -= 1
+EndFunction
+
+Function ScanUnlisted()
+  {Gather's extra stack: onto unlisted, each table's rows testing a perk it does not list that the player has, moved
+  to where the table's rows start (F3NV_LevelUpTable.UnlistedHeld).}
+  Actor player = Game.GetPlayer()
+  Int first = 0
+  Int t = 0
+  While t < shown.Length
+    unlisted = shown[t].UnlistedHeld(player, first, unlisted)
+    first += rowCounts[t]
+    t += 1
+  EndWhile
   pending -= 1
 EndFunction
 

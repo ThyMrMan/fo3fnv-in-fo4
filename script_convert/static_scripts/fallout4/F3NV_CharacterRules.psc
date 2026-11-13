@@ -86,10 +86,14 @@ Function OpenLevelUp()
 EndFunction
 
 Function ShowOurs(Int aiMode, Int aiCount, Int aiBonus)
-  {Our menu in mode aiMode (F3NV_LevelUp.Open) once no menu is open, LevelUpMenuEx's state moved over first.}
+  {Our menu in mode aiMode (F3NV_LevelUp.Open) once no menu is open, LevelUpMenuEx's state moved over first. Its data
+  is gathered (Prepare, which registers the menu with F4SE before we listen for it) while the Pip-Boy closes, and it
+  opens as soon as no menu is open, without the settling a message box needs.
+  See docs/fork/fo4_level_up_plan.md#open-delay}
   MovePrkf()
+  LevelUp().Prepare(aiMode, aiCount, aiBonus)
   RegisterForMenuOpenCloseEvent(LevelUp().MenuName)
-  WaitOutOfMenus()
+  WaitOutOfMenus(False)
   LevelUp().Open(aiMode, aiCount, aiBonus)
 EndFunction
 
@@ -315,13 +319,16 @@ Function AddSpecialPoints(Int aiPoints)
   EndWhile
 EndFunction
 
-Function WaitOutOfMenus()
-  {Returns once no menu is open and the Pip-Boy (the level-up menu's host) has finished closing; a box shown while it
-  closes never appears. See docs/fork/fo4_pipeline.md#intense-training}
-  While Utility.IsInMenuMode() || UI.IsMenuOpen("PipboyMenu")
+Function WaitOutOfMenus(Bool abSettle = True)
+  {Returns once no menu is open, our level-up menu named too, and the Pip-Boy has finished closing, then (abSettle)
+  0.5 s of game time more: a box shown while the Pip-Boy closes never appears.
+  See docs/fork/fo4_pipeline.md#intense-training}
+  While Utility.IsInMenuMode() || UI.IsMenuOpen("PipboyMenu") || UI.IsMenuOpen(LevelUp().MenuName)
     Utility.WaitMenuMode(0.25)
   EndWhile
-  Utility.Wait(0.5)
+  If abSettle
+    Utility.Wait(0.5)
+  EndIf
 EndFunction
 
 Function RaiseSkills(Int aiStat, Float afBefore)

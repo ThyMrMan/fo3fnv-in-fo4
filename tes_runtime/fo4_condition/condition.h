@@ -233,7 +233,7 @@ bool AmmoListOpen();
 // Forget an open ammo list (the page changed or the Pip-Boy opened again).
 void ForgetAmmoList();
 
-// A Pip-Boy key (Flash key code): V opens the ammo list, and the open list takes every key; false otherwise.
+// A Pip-Boy key (Flash key code): B opens the ammo list, and the open list takes every key; false otherwise.
 bool AmmoKey(GFxMovieRoot *movie, int key);
 
 // The AMMO hint into `hint`; false when it cannot be made.

@@ -19,7 +19,7 @@ from fo4_import.spike import level_up as L
 
 STATIC = Path(__file__).resolve().parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
 TABLE = (STATIC / f'{L.TABLE_SCRIPT}.psc').read_text(encoding='utf-8')
-SEND = re.search(r'Function Send\(.*?EndFunction', (STATIC / f'{L.SCRIPT}.psc').read_text(encoding='utf-8'), re.S).group(0)
+SEND = re.search(r'Function Built\(.*?EndFunction', (STATIC / f'{L.SCRIPT}.psc').read_text(encoding='utf-8'), re.S).group(0)
 #: FNV comparison flags: >=, >= OR'd with the next, <.
 AT_LEAST, AT_LEAST_OR, BELOW = 0x60, 0x61, 0x80
 SCIENCE, GUNS, LEVEL_PERK = 0x200, 0x201, 0x300
@@ -80,18 +80,18 @@ def test_a_requirement_the_menu_cannot_show_is_counted_and_left_out():
     assert builder.counts['level-up requirement not shown'] == 2
 
 
-def test_requirement_properties_are_parallel_arrays():
-    """Each Requirement* array lines up by row: its perk's place in the list (owner), where the menu finds the
-    tested value (target: the values for an actor value, the list for a perk, -1 for neither), the labels as one
-    table; none is written for an empty table."""
+def test_requirement_properties_are_the_texts_the_menu_reads():
+    """Each Requirement* text lines up by row: its perk's place in the list (owner), where the menu finds the
+    tested value (target: the values for an actor value, the list for a perk, -1 for neither), the labels; the
+    rows testing a perk not listed are named with their perks; none is written for an empty table."""
     table = [(0x90001, 0, GUNS, 3, 45, 1, 'Guns'), (0x90002, 3, 0, 4, 30.0, 0, ''),
              (0x90002, 2, 0x90001, 0, 1.0, 0, 'Gunslinger'), (0x90003, 2, 0x90009, 0, 1.0, 0, 'Trait')]
     props = L.properties(table, values=[0x2C2, SCIENCE, GUNS], listed=[0x90001, 0x90002])
-    assert props == {'RequirementKinds': ('ints', [0, 3, 2, 2]), 'RequirementForms': ('objects', [GUNS, 0, 0x90001, 0x90009]),
-                     'RequirementCompares': ('ints', [3, 4, 0, 0]), 'RequirementValues': ('floats', [45.0, 30.0, 1.0, 1.0]),
-                     'RequirementOr': ('ints', [1, 0, 0, 0]), 'RequirementOwners': ('ints', [0, 1, 1, -1]),
-                     'RequirementTargets': ('ints', [2, -1, 0, -1]),
-                     'RequirementLabels': ('string', 'Guns\t\tGunslinger\tTrait')}
+    assert props == {'RequirementKinds': ('string', '0\t3\t2\t2'), 'RequirementCompares': ('string', '3\t4\t0\t0'),
+                     'RequirementValues': ('string', '45.0\t30.0\t1.0\t1.0'), 'RequirementOr': ('string', '1\t0\t0\t0'),
+                     'RequirementOwners': ('string', '0\t1\t1\t-1'), 'RequirementTargets': ('string', '2\t-1\t0\t-1'),
+                     'RequirementLabels': ('string', 'Guns\t\tGunslinger\tTrait'), 'RowTotal': ('int', 4),
+                     'UnlistedRows': ('ints', [3]), 'UnlistedPerks': ('objects', [0x90009])}
     assert all(not value for _, value in L.properties([]).values())
 
 
@@ -104,7 +104,8 @@ def test_the_menu_tables_follow_the_list_and_the_skills():
     table = L.perk_table(builder.perks, builder.perks.offered())
     assert table['PerkNames'] == ('string', 'Action Boy\tComprehension')
     assert table['PerkDescriptions'] == ('string', 'More AP\t') and table['PerkImages'][1].endswith('perk_ab.dds\t')
-    assert table['PerkLevels'] == ('ints', [6, 4]) and table['PerkRanks'] == ('ints', [2, 1])
+    assert table['PerkLevels'] == ('string', '6\t4') and table['PerkRanks'] == ('ints', [2, 1])
+    assert table['PerkRanksText'] == ('string', '2\t1')
     assert table['RankForms'] == ('objects', [0x90001, 0x91001, 0x90002])
     avs = {C.FNV_AV_NAMES.index('Barter'): {'FULL': 'Barter', 'DESC': 'Trade.', 'ICON': 'Interface\\Icons\\Skills_Barter.dds'}}
     skills = L.skill_table(avs, ['Barter', 'EnergyWeapons'])
@@ -138,7 +139,8 @@ def test_a_dlc_table_holds_only_its_own_perks_and_traits():
     table = L.table_properties(builder, {}, [])
     assert table['PerkNames'] == ('string', 'Own\tSecond') and table['RankForms'] == ('objects', [0x90003, 0x90004])
     assert table['TraitNames'] == ('string', 'Trait') and table['TraitForms'] == ('objects', [0x90005])
-    assert table['RequirementOwners'] == ('ints', [0, 0]) and table['RequirementTargets'] == ('ints', [-1, 1])
+    assert table['RequirementOwners'] == ('string', '0\t0') and table['RequirementTargets'] == ('string', '-1\t1')
+    assert table['UnlistedPerks'] == ('objects', [0x90001])
 
 
 def test_the_game_table_rides_the_rules_quest_and_a_dlc_writes_its_own(monkeypatch):
@@ -168,17 +170,19 @@ def test_an_older_builds_level_up_menu_ex_ini_is_deleted(tmp_path):
     assert character.drop_prkf_ini(tmp_path, 'FalloutNV.esm') == 1 and [p.name for p in folder.iterdir()] == ['OtherMod.ini']
 
 
-def test_send_merges_each_text_the_movie_reads_where_the_table_keeps_it():
-    """Each Merged(n, ...) in Send is the table's Text n, and fills the argument the movie reads that table from."""
+def test_built_merges_each_text_the_movie_reads_where_the_table_keeps_it():
+    """Each Merged(n, ...) in Built is the table's Text n, a property the build wrote whole (an open joins none), and
+    fills the argument the movie reads that table from; the rows' held tests are gathered beside the ranks."""
     text = re.search(r'String Function Text\(.*?EndFunction', TABLE, re.S).group(0)
-    branches = {**dict(re.findall(r'aiWhich == (\d+)\n\s+Return (?:\w+\()?(\w+)', text)), '15': 'UnlistedHeld'}
-    assert 'Return UnlistedHeld(Game.GetPlayer())\nEndFunction' in text
-    wanted = {5: 'PerkNames', 6: 'PerkDescriptions', 7: 'PerkImages', 8: 'PerkLevels', 9: 'PerkRanks',
+    branches = {**dict(re.findall(r'aiWhich == (\d+)\n\s+Return (\w+)\n', text)), '14': 'RequirementLabels'}
+    assert text.endswith('Return RequirementLabels\nEndFunction') and 'Joined(' not in text
+    wanted = {5: 'PerkNames', 6: 'PerkDescriptions', 7: 'PerkImages', 8: 'PerkLevels', 9: 'PerkRanksText',
               17: 'RequirementOwners', 18: 'RequirementKinds', 19: 'RequirementTargets', 20: 'RequirementCompares',
-              21: 'RequirementValues', 22: 'RequirementOr', 23: 'RequirementLabels', 24: 'UnlistedHeld',
+              21: 'RequirementValues', 22: 'RequirementOr', 23: 'RequirementLabels',
               28: 'TraitNames', 29: 'TraitDescriptions', 30: 'TraitImages'}
     merged = {int(arg): branches[n] for arg, n in re.findall(r'args\[(\d+)\] = Merged\((\d+),', SEND)}
-    assert merged == wanted
+    assert merged == wanted and 'args[24] = unlisted' in SEND
+    assert 'args[33] = GroupCounts(perkCounts)' in SEND and 'args[34] = GroupCounts(rowCounts)' in SEND
 
 
 def test_the_trait_table_follows_the_traits_list():

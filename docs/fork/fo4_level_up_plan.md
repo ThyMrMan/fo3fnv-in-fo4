@@ -234,11 +234,11 @@ the game's tables. As with condition's rows
   without perks or traits writes none.
 - When the menu opens, `F3NV_LevelUp.Collect` takes its own quest's table
   first (an older save's rules quest never ran the table's start), then
-  each registered one. `Merged` joins each text, moving owners and perk
-  targets by where that table's perks start; `Gather` asks each table for
-  its ranks and traits held; a pick (`ListedPerk`) and the trait menu
-  (`SetTraits`) go back to the table they came from. The movie sees one
-  list.
+  each registered one. `Merged` joins each table's text whole; the movie
+  moves owners and perk targets by where that table's perks start
+  ([open delay](#open-delay)). `Gather` asks each table for its ranks and
+  traits held; a pick (`ListedPerk`) and the trait menu (`SetTraits`) go
+  back to the table they came from. The movie sees one list.
 
 Census of the exports (2026-11-12), each DLC's own listed perks (ranks) and
 traits: Dead Money 7 (7), Honest Hearts 6 (6), Old World Blues 4 (5) and 6
@@ -247,6 +247,42 @@ Early Bird), Lonesome Road 13 (13), Gun Runners' Arsenal 1 (1); the four
 courier packs none. With all of them: 122 perks, 16 traits, inside the
 trait menu's 31 (`MASK_BITS`; a plugin past it is counted, `level-up menu
 traits past its mask`).
+
+## <a id="open-delay"></a>The open delay (built 2026-11-12, not played)
+
+Played 2026-11-12: every open logged `sent in 2.2s` (the menu's data,
+gathered after it opened), on top of the wait for the Pip-Boy to close and
+0.5 s more. Papyrus runs only a small slice of script work each frame, and
+each native call on the player costs its stack a frame. The open spent its
+time on:
+- **Text the build already knew.** The table joined its perk levels and
+  ranks (91 each) and six columns of its 105 requirement rows, about 800
+  joins of growing strings, and moved owners and targets one by one.
+- **`UnlistedHeld`**, one `HasPerk` per row testing a perk the table
+  doesn't list, after `Gather` instead of beside it.
+- **The tag and trait menus** gathered every perk and row they never show
+  (fixed first: each mode gathers only what it shows).
+
+Now:
+- **The build writes the texts whole.** `PerkLevels`, `PerkRanksText` and
+  every `Requirement*` column are SEP texts (`level_up.properties`,
+  `perk_table`); `PerkRanks` stays an array for the ranks held. `Text`
+  returns properties only, so an open joins one text per table.
+- **The movie moves the indexes.** `Built` hands over each table's perk
+  and row counts (args 33 and 34, the added perks as a last group), and
+  `Character.groupStarts` moves each row's owner and perk target by where
+  its table's perks start.
+- **Only the unlisted rows are asked about.** The build lists them
+  (`UnlistedRows`, `UnlistedPerks`); `ScanUnlisted` runs as one more stack
+  beside `Gather`'s, and hands over the indexes of the rows that pass
+  (with an added perk's game test), not a 0 or 1 per row.
+- **Gathered while the Pip-Boy closes.** `ShowOurs` calls `Prepare`
+  first, which registers the menu and builds its data; the menu opens once
+  no menu is open, without the 0.5 s settle a message box needs
+  (`WaitOutOfMenus(False)`), and `Send` hands the prepared data over.
+
+**Play check:** the Papyrus log's `gathered in` line per open, and the
+time from the level-up button to a filled menu.
 
 ## <a id="tags"></a>Tag skills and traits (built 2026-11-12, not played)
 
