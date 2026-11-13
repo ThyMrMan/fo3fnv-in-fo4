@@ -997,6 +997,73 @@ less disk load.
   stat'ed once, not twice.
 - The archive is unchanged: SHA-1 `e87c5e25…` from both old and new code.
 
+#### <a id="textures-rewrite-2026-11-12"></a>Textures archive: 138 s was loose writers with new dates
+
+**Cause (measured).** The 2026-11-12 base3 build spent 138.3 s in "FaceGen
+and texture archive", writing the whole 4.8 GB `- Textures.ba2` again; base2
+spent 46.7 s, when the archive was smaller. The pack record's dates show
+base3 wrote only six textures: the super mutant tints in `fnv/tinted/`.
+- `creature_tint.tinted_materials` writes its DDS files loose into the Data
+  folder's `Textures` every build, and `own_heads._write_texture` goes
+  through `write_new`, which touches a file with the same bytes.
+- `pack_textures` then moved each loose texture into staging with its new
+  date. The `[size, mtime]` state changed, so all 22,674 textures were
+  written again for six unchanged ones.
+
+**Already fixed** by the same-bytes rule in `_move_loose`
+([faces-repack](fo4_pipeline.md#faces-repack)): a loose texture whose staged
+copy has the same bytes is deleted and the staged copy keeps its date. Base4
+(commit `b60c5931`, which has it) took 8.7 s for the stage. Drawing the
+`sm3d1024_d` super mutant tint twice gave byte-identical DDS and BGSM files,
+so the rule holds for that writer. A real change to any texture still
+writes the whole archive, at this drive's write speed.
+
+#### <a id="worlds-profile-2026-11-12"></a>Worlds stage: the land texture step is most of it
+
+The worlds stage took 134.9 s in the warm base3 build (236.1 s cold), its own
+time only: navmesh, object LOD and placed references are their own stages.
+
+**The land texture step, profiled alone** on WastelandNV's real inputs: an
+`Exterior` built from the export with no references, its mixes made as
+`Exterior.group` makes them. 16,396 cells, 16,388 with land, 65,552
+quadrants.
+
+| Step | Time | Under cProfile |
+|---|---|---|
+| Loading cells, land and LTEX from the export | 10.3 s | — |
+| `quadrant_mix` | 8.2 s | — |
+| `blend_borders` | about 65 s (land-memory measurement) | 192.9 s |
+| `limit_textures` | about 17.5 s | 36.6 s |
+
+So the step is about 82 s of the 135 s. Of 229 profiled seconds:
+- `blend_borders`' own loop 83.7 s, plus 84 million `sum` calls (75.8 s
+  with their generators), 171 million `dict.setdefault` (17.3 s) and 76
+  million `math.copysign` (6.3 s). That is one pass per shared border
+  vertex, each texture averaged over the quadrants on it in Python.
+- `_shared`, the border vertex index, 15.3 s for its two calls (once in
+  each function).
+- `limit_textures`' own work 8.0 s, its `max`/`sorted` per vertex 7.6 s,
+  `numpy.delete` 3.9 s.
+
+The step reads only the export's LAND and LTEX records, which a warm build
+does not change, and makes the same output every build.
+
+**Two ways to cut it, not built:**
+- *Cache the step's output per worldspace* (`work_cache`, keyed by the
+  LAND and LTEX records it reads and its code record). A warm build skips
+  about 82 s; a cold build pays it once. The output is about 65,552
+  quadrants of a few 289-value float64 arrays each (on the order of
+  600 MB pickled), so loading it costs seconds.
+- *Vectorize `blend_borders`.* It must give the same dict keys in the same
+  order: a quadrant gains a texture key with a +0 share where a neighbor
+  has the texture, and that key then spreads on through later shared
+  vertices in visit order (ties in `kept_textures` follow key order). That
+  makes an exact numpy version harder than the averaging itself.
+
+**The other about 53 s** is not profiled yet. The next build run with
+`F3NV_PROFILE_STAGES=worlds` ([stage-profile](fo4_plugin_layout.md#stage-profile))
+writes `temp/stage_profiles/worlds.txt` with the whole stage.
+
 #### <a id="voices-archive"></a>Voices in their own archive (built 2026-11-12)
 
 **What changed.** `ba2_pack.pack_main` now packs two archives:

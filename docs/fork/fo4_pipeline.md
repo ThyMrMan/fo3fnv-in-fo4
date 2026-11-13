@@ -6249,6 +6249,59 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   byte the old one. A profile put 157 of the 162 s in writing the file
   (about 21 MB/s on this drive); reading took about 5 s. The Textures side
   is covered by tests only, not timed on the real archive.
+- <a id="unchanged-bytes"></a>**Main is written only when a byte changed
+  (2026-11-12, not yet built).** A warm build rewrote Main every time (89 s
+  on the 2026-11-12 base build, 118 s on the one before), though no mesh was
+  converted. `elric_cache.write_new` leaves a file whose bytes already match,
+  but touches it so `stale_files` counts it as made by this build, and the
+  animation data step writes its 15,663 files again. Each new date broke the
+  `[size, mtime]` match against Main's pack record, so `pack_main` read
+  69,069 files loose and wrote the 3.3 GB archive again. Now `_held` keeps
+  as packed every loose file whose size and date match the record, and,
+  when only the date differs, every one whose bytes match the archive's
+  copy (`ba2_write.same_bytes`: the archive read once in offset order, the
+  loose files 16 at a time). When nothing changed, the record's state is
+  the same and Main is not written.
+  Measured on a D: copy of the 2026-11-12 Main and its record (79,736
+  entries; the staged non-voice sounds read from the build's staging),
+  running a warm build's archive steps: `restore_packed` 77,355 files in
+  54.0 s, every one touched (8.9 s), `pack_main` 45.5 s with Main not
+  written, `drop_packed` 11.2 s. The 45.5 s is the comparing; before, the
+  same files were read loose and then the whole archive was written as
+  well. Still paid every warm build: the restore and the drop, about 65 s
+  here and more on C:. Ending them means each step that reads the restored
+  files (`stale_files`, object LOD, the Creation Kit's animation list, the
+  script compiler, `write_new`'s own check) reading through the archive
+  instead.
+- <a id="loose-stash"></a>**The loose copies move aside instead of being
+  deleted and written back (2026-11-12, not yet built).** Reading through
+  the archive would change about 38 reads in 17 files, plus the script
+  compiler and the Creation Kit, which read the folder themselves. Instead
+  `drop_packed` moves the Main archive's loose files into
+  `ba2_pack.stash_dir` (`loose/<plugin stem>` in the Data folder's staging
+  folder, outside the mod folder, so neither MO2, the game nor
+  `fo4_deploy` sees it), and `restore_packed` moves them back. On one drive
+  a move is a rename: `Meshes` and `Materials` go in one rename each, the
+  `.pex` files one by one. Every file keeps its date, so `stale_files` does
+  not count it as made and the pack record still matches it. The stash is
+  kept only when it is exactly the archive's `Meshes`, `Materials` and
+  `.pex` entries and sits on the Data folder's drive. Its stamp holds the
+  archive's size and time; when anything repacked Main since (a faces run
+  that did not restore, a deploy), the stash is deleted and the restore
+  writes from the archive as before. The faces stage brings the stash back
+  too, so its drop stashes a complete set again.
+  Measured on a D: copy of the 2026-11-12 Main and record, staging on D:
+  too, two warm builds' archive steps in a row:
+
+  | Step | First (no stash) | Second (from the stash) |
+  |---|---|---|
+  | `restore_packed` (77,355 files) | 42.6 s | 3.6 s |
+  | `pack_main` (Main not written either time) | 39.3 s | 11.1 s |
+  | `drop_packed` | 7.2 s | 6.7 s |
+
+  The second restore gave back the same files with the same sizes and
+  dates, so `pack_main` matched every one on its record without comparing
+  bytes.
 - **A master folder is read through its archives.** A dependent build reads
   its masters' deployed folders, whose loose copies are gone:
   `ba2_pack.data_file` (the persistent subgraph list,

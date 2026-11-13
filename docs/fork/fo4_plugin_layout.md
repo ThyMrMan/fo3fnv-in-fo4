@@ -859,6 +859,19 @@ each would save:
   an older build's (2 and 4,814 bytes for the gecko's), not yet shown to
   differ build to build.
 
+<a id="stage-profile"></a>**Profiling one stage (2026-11-12).** Set
+`F3NV_PROFILE_STAGES` to stage names as the `stage` lines print them,
+comma-separated (`worlds` or `worlds,item WEAP`), and those stages run under
+cProfile in that build. `stage_timer` writes `temp/stage_profiles/<stage>.prof`
+(open it with `pstats`) and `<stage>.txt`, the top 40 functions by own time
+and by cumulative time. Every call of the stage in one build adds to the
+same file; the next build replaces it. Nested stages run inside the profile
+too, so their functions appear in it while the `stage` lines still charge
+them to themselves. Only the main process is profiled, not pool workers,
+and cProfile slows Python-heavy code, so compare shares within one profile,
+not times against an unprofiled build. With the variable unset, nothing is
+profiled.
+
 ### <a id="shared-state"></a>Shared state a unit touches (survey, 2026-10-31)
 
 What a unit writes that other units or the end of the build read, from a
