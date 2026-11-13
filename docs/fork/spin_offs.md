@@ -232,9 +232,15 @@ Pip-Boy and the dialogue menu.
 
 **Where the converter finds Cleanroom UI.** One module,
 `fo4_import/cleanroom.py`, finds the checkout (`external/cleanroom_ui`,
-else `CRUI_HOME`), runs `python -m crui <steps> --out <cache>` with the
-converter's own Flex SDK and Fallout 4 paths, caches the result under
-`temp/cleanroom_ui/<commit>`, and installs what a build needs. The DLLs
+else `CRUI_HOME`, else beside this one), unpacks the pinned commit's tree
+from it into `temp/cleanroom_ui_src/<commit>` (`git archive`), runs that
+tree's `python -m crui <steps> --out temp/cleanroom_ui` with the
+converter's own Flex SDK and Fallout 4 paths, and installs what a build
+needs. A build never reads the checkout itself: on 2026-11-13 the checkout
+moved past the pin, its newer `CRUI_LevelUp` needed a script our list did
+not ship, failed to compile, and every character script and Doc Mitchell's
+wake-up quest failed to link, so a new game stuck on the wake-up fade.
+`CRUI_Framework` ships too (CleanroomUI.dll binds its natives). The DLLs
 can't be built on a user's machine (Visual Studio), so the two built from
 the pinned commit are committed to `tes_runtime/dist/` beside F3NV.dll,
 with that commit in `tes_runtime/dist/cleanroom_ui.txt`, and

@@ -5,6 +5,7 @@ See: docs/fork/fo4_dialogue_menu_plan.md#test-build
 """
 
 import struct
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -97,8 +98,19 @@ def test_links_move_to_cleanroom_uis_folder(tmp_path):
 
 
 def test_cleanroom_finds_the_main_checkout_from_the_main_checkout_and_a_worktree(monkeypatch):
-    """main_checkout() is the repo itself, or the one above .claude/worktrees for a worktree (a short path such as
-    D:/Coding/x has no fourth parent: the finder raised IndexError there)."""
+    """main_checkout(): the repo, or the one above .claude/worktrees."""
     for repo, main in ((Path('D:/C/x'), Path('D:/C/x')), (Path('D:/C/x/.claude/worktrees/w'), Path('D:/C/x'))):
         monkeypatch.setattr(cleanroom, 'REPO', repo)
         assert cleanroom.main_checkout() == main
+
+
+@pytest.mark.skipif(cleanroom.checkout() is None, reason='no Cleanroom UI checkout')
+def test_cleanroom_scripts_come_from_the_pinned_commit_not_the_checkout():
+    """scripts() reads the pinned commit's tree, so a checkout that moved past PIN never changes what a build ships
+    (a newer CRUI_LevelUp once failed to compile and broke every character script)."""
+    pin = cleanroom.pinned()
+    assert cleanroom.source().name == pin
+    for name, path in cleanroom.scripts().items():
+        shown = subprocess.run(['git', '-C', str(cleanroom.checkout()), 'show', f'{pin}:papyrus/{name}'],
+                               capture_output=True, check=True).stdout
+        assert path.read_bytes().replace(b'\r\n', b'\n') == shown.replace(b'\r\n', b'\n'), name
