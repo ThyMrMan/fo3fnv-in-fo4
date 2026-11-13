@@ -15,6 +15,8 @@ from core.build_resources import profile_cores
 from core.subprocess_flags import POPEN_FLAGS
 from core.worker_budget import WORKERS_ENV_VAR
 from fo4_import.base.build_files import moved_in
+from fo4_import.pipeline.build_inputs import leave_out
+from script_convert.ownership import OWNED_SUFFIX
 
 ROOT = Path(__file__).resolve().parents[2]
 #: The stamp's file name ending, after the plugin's name.
@@ -24,8 +26,11 @@ STAMP_SUFFIX = '.build.json'
 def convert_scripts(export_dir: Path, scripts_dir: Path) -> None:
     """Convert the export's scripts into `scripts_dir` (script_convert.pipeline): every build, as the compile
     after it recompiles only scripts whose text changed. Its workers are the resource profile's unless
-    TESCONV_WORKERS says otherwise."""
+    TESCONV_WORKERS says otherwise. Other plugins' script lists beside it stay out of the build's record.
+    See: docs/fork/fo4_plugin_layout.md#owned-lists
+    """
     started = time.time()
+    leave_out([scripts_dir.parent, *scripts_dir.parent.glob(f'*{OWNED_SUFFIX}')])
     cmd = [sys.executable, '-m', 'script_convert.pipeline', str(export_dir), '-o', str(scripts_dir),
            '--target', 'fallout4']
     env = {**os.environ, WORKERS_ENV_VAR: os.environ.get(WORKERS_ENV_VAR) or str(profile_cores())}
