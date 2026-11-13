@@ -1285,6 +1285,23 @@ decides.
     wrote a file the plugin reads but its record misses; the run stops and
     prints the changed input (`leaked`). Before, only a repeat build of the
     same plugin stopped it (exit 3), after a wasted build.
+  - <a id="replay"></a>*Each plugin replayed by its own module.* A stamp's
+    command names the module that built it; `--run` rebuilds with that
+    module, not always `pipeline.run`. An asset overlay
+    (`pipeline.overlay`, e.g. `F3NV - NVTUP and NVMIM.esl`) is retargeted to
+    its own folder (`--out`, `--name` its stem) and to the planned masters'
+    current paths (`--built`, its header's masters found in the plugins'
+    folders). An old space-joined command is split back by flag: one path
+    (`--out`), several paths (`--built`, `--mods`, `--plugin-dirs`; each the
+    longest run of words naming an existing path) and text (`--name`, every
+    word up to the next flag). Before this an overlay's replay failed with
+    "required: --export" and stopped the run (2026-11-13). Overlay now
+    records its reads like `pipeline.run` (an inputs record, its `--built`
+    plugins as masters, `argv` in its stamp), so the plan orders it after
+    its masters and rebuilds it only when the files it read (the masters'
+    file lists and texture records, the replacer mods' files, the exports)
+    or its code changed. An overlay built before then has no record and is
+    rebuilt once.
   - *Faces reset by a rebuild.* A rebuilt plugin whose faces stage had run
     on its previous build gets that stage again, with the recorded
     arguments, before anything else is planned (`faces_again`,
