@@ -1264,6 +1264,15 @@ decides.
   one folder (they don't: each has `temp/fo4_scripts/<plugin>`), and Dead
   Money's script build made FalloutNV.esm look changed. `convert_scripts`
   now leaves that folder and the lists in it out of the record.
+- **The plan reads masters in the plugin's numbering (fixed 2026-11-13).**
+  Each master file numbers FormIDs by its own master list (Dead Money's own
+  records are `03`, and so are Honest Hearts'). The build reads masters
+  through `built_bytes`, renumbered to the dependent plugin's list; the plan
+  read the raw bytes. So Agua Fria (eight masters) asked "does Dead Money
+  hold 03000FD0?", the build answered no, and the plan found Honest Hearts'
+  own `03000FD0` and rebuilt it until the loop guard stopped the run.
+  `_held` and `_records` now read through `read_built`, the same
+  renumbering read fresh from disk, as the plan outlives masters' rebuilds.
 - **The plan reads the code on disk (fixed 2026-11-06).** Code identity is
   unknown for a file edited after its process started, which protects a
   build whose running code is not on disk. The plan process runs none of the

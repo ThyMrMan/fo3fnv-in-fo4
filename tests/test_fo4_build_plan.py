@@ -271,25 +271,43 @@ def test_a_plugin_lookup_stands_for_the_mod_sources(recording, monkeypatch):
     assert verdict == BP.BUILD and reason.startswith('plugin found ["Guns.esp"')
 
 
+def _plugin(path: Path, masters: list, records: list) -> Path:
+    """A plugin at `path` mastering `masters` and holding `records` [(signature, FormID, body)]."""
+    writer = FO4PluginWriter(masters=masters, is_esm=True)
+    for sig, fid, body in records:
+        writer.add_record(sig, pack_fo4_record(sig, fid, 0, body))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    writer.write(str(path))
+    return path
+
+
 def _game(path: Path, records: list) -> Path:
     """A built game plugin at `path` holding `records` [(signature, FormID, body)]."""
-    game = FO4PluginWriter(masters=['Fallout4.esm'], is_esm=True)
-    for sig, fid, body in records:
-        game.add_record(sig, pack_fo4_record(sig, fid, 0, body))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    game.write(str(path))
+    _plugin(path, ['Fallout4.esm'], records)
     _finished(path)
     return path
 
 
+def test_master_formids_are_read_in_the_dependent_plugins_numbering(tmp_path):
+    """Two DLC each number their own records 02 (after Fallout4 and the game); a mod mastering both reads the
+    second's as 03, so asking whether 03000FD0 is held looks at that DLC alone."""
+    masters = ['Fallout4.esm', 'Game.esm', 'One.esm', 'Two.esm']
+    one = _plugin(tmp_path / 'One.esm', masters[:2], [('FLST', 0x02000FD0, b'a')])
+    two = _plugin(tmp_path / 'Two.esm', masters[:2], [('FLST', 0x02000AAA, b'b')])
+    held = BP._held([one, two], masters)
+    assert {0x02000FD0, 0x03000AAA} <= held
+    assert 0x03000FD0 not in held and 0x02000AAA not in held
+
+
 def _dlc_asks(game: Path, dlc_data: Path) -> Path:
     """A DLC build that asked the game whether it holds 0x01000900 and read record 0x01000901; its plugin."""
-    held = BI.Held(BP._held([game]))
+    masters = ['Fallout4.esm', game.name]
+    held = BI.Held(BP._held([game], masters))
     BI.MASTERS.cover('plugin', game)
     assert 0x01000900 in held
-    body = BP._records([game], {0x01000901: 'FLST'})[0x01000901]
+    body = BP._records([game], {0x01000901: 'FLST'}, masters)[0x01000901]
     BI.MASTERS.records[0x01000901] = body
-    plugin = dlc_data / 'Dlc.esm'
+    plugin = _plugin(dlc_data / 'Dlc.esm', masters, [])
     _finished(plugin)
     BI.write(plugin, dlc_data, [])
     return plugin

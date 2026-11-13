@@ -82,6 +82,11 @@ def _built(path: str, masters: tuple) -> bytes:
     return raw if identity(mapping) else renumbered(raw, mapping, 'fo4')
 
 
+def read_built(path, masters: list) -> bytes:
+    """built_bytes read from disk now, not cached."""
+    return _built.__wrapped__(str(path), tuple(masters))
+
+
 def built_bytes(path, masters: list) -> bytes:
     """A built master's bytes, FormIDs as a build mastering `masters` reads them.
     See: docs/fork/fo4_plugin_layout.md#multi-master
