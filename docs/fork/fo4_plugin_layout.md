@@ -1243,6 +1243,19 @@ decides.
   `after <master>`. `--run` builds the first plugin needing it, then checks
   again, until none needs a build. `--verify` rebuilds one current plugin and
   compares its plugin and ledger bytes.
+- **A rebuild writes the plugin where it is (fixed 2026-11-13).** `--run`
+  replays the last build's arguments, from the inputs record or else the
+  stamp. Nine plugins had been built in `temp/profile_data_<x>` and then
+  deployed, so their stamps named the scratch folder. A replay wrote the
+  scratch copy again, the MO2 plugin never got a record, and Caravan Pack
+  built over and over from 04:30 to 06:20. Now:
+  - `retarget` points `--out` and `--data` at the plugin's own folder;
+  - `--plugin-dirs` names the folders of the plugin's masters among those
+    planned (the scratch commands named a stale `temp/profile_data` base);
+  - the stamp keeps `argv` as a list, and an old stamp's space-joined
+    command is split back with mod-folder spaces kept (`stamp_argv`);
+  - a plugin still needing a build after its own build stops the run
+    (exit 3).
 - **The plan reads the code on disk (fixed 2026-11-06).** Code identity is
   unknown for a file edited after its process started, which protects a
   build whose running code is not on disk. The plan process runs none of the

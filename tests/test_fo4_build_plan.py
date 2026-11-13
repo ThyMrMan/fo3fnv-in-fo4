@@ -318,6 +318,37 @@ def test_a_dlc_waits_for_a_game_that_needs_a_build(recording):
     assert [(p.name, verdict) for p, verdict, _ in planned] == [('Game.esm', BP.BUILD), ('Dlc.esm', BP.AFTER)]
 
 
+def test_a_stamp_command_keeps_paths_with_spaces(tmp_path):
+    """A stamp's space-joined command splits back into its arguments, a mod folder's spaces kept in one path."""
+    mod = tmp_path / 'F3NV - Old World Blues'
+    mod.mkdir()
+    (mod / 'OldWorldBlues.esm').write_bytes(b'')
+    argv = BP.stamp_argv(f'fo4_import.pipeline.run --export export/X.esm --out {mod}/OldWorldBlues.esm --data {mod} '
+                         f'--world WastelandNV NVDLC03BigMT --replacements replacements/falloutnv.json Cell01')
+    assert argv[argv.index('--out') + 1] == f'{mod}/OldWorldBlues.esm'
+    assert argv[argv.index('--data') + 1] == str(mod)
+    assert argv[-3:] == ['--replacements', 'replacements/falloutnv.json', 'Cell01']
+
+
+def test_a_rebuild_writes_the_plugin_in_its_own_folder(tmp_path):
+    """A command recorded for a scratch build is rebuilt into the plugin's own folder, its masters from `dirs`."""
+    plugin, game = tmp_path / 'Mod' / 'Dlc.esm', tmp_path / 'Game'
+    argv = ['--export', 'export/Dlc.esm', '--out', 'temp/scratch/Dlc.esm', '--data', 'temp/scratch',
+            '--plugin-dirs', 'temp/profile_data', '--no-test-cell']
+    assert BP.retarget(argv, plugin, [game]) == ['--out', str(plugin), '--data', str(plugin.parent), '--plugin-dirs',
+                                                 str(game), '--export', 'export/Dlc.esm', '--no-test-cell']
+
+
+def test_a_plugin_still_out_of_date_after_its_build_stops_the_run(monkeypatch, tmp_path):
+    """A build that leaves its plugin needing a build again stops the run instead of building it forever."""
+    plugin, builds = tmp_path / 'Dlc.esm', []
+    monkeypatch.setattr(BP, 'plan', lambda plugins: [(plugin, BP.BUILD, 'no finished build with an inputs record')])
+    monkeypatch.setattr(BP, 'master_dirs', lambda *_: [])
+    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs: builds.append(p) or 0)
+    assert BP.run([plugin]) == 3
+    assert builds == [plugin]
+
+
 @pytest.mark.parametrize('executable, args, program', [
     (None, '"C:\\Program Files\\Tool\\Caprica.exe" -o out', 'C:\\Program Files\\Tool\\Caprica.exe'),
     (None, 'cmd /c echo hi', 'cmd'),
