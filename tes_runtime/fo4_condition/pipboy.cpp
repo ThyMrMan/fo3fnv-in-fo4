@@ -7,10 +7,10 @@
 // (pipboy_invpage.swf) has List_mc (its selectedEntry: formID, nodeID, equipState) and ItemCard_mc, which
 // draws the line objects in its InfoObj array ({text, value, showAsPercent}) when it is dirty. Every frame
 // while the Pip-Boy is open this file finds the highlighted line's stack (the game's own StackID for the line,
-// LineStack) and keeps a CND line in InfoObj, redrawing the card when it adds or changes it. The game refills
-// InfoObj on every selection change, which drops the line; the next frame puts it back. G or the REPAIR hint
-// opens the repair list (below); confirming it sends the F4SE external event FNVConditionRepair to Papyrus.
-// Once per menu it also loads our own movie into the menu instance (LoadOverlay, spike 4).
+// LineStack) and its health. Once per menu it loads our own movie into the menu instance (LoadOverlay), which
+// asks PipboyCardLines for the card's lines each frame and keeps them in InfoObj, and draws the open repair or
+// ammo list from PipboyList. This file keeps the lists' state and keys: G or the REPAIR hint opens the repair
+// list (below); confirming it sends the F4SE external event FNVConditionRepair to Papyrus.
 #include "condition.h"
 
 #include "f4se/GameEvents.h"
@@ -29,24 +29,10 @@
 
 namespace condition {
 
-double Num(const GFxValue &v) {
-    switch (v.GetType()) {
-        case GFxValue::kType_Int: return v.GetInt();
-        case GFxValue::kType_UInt: return v.GetUInt();
-        case GFxValue::kType_Number: return v.GetNumber();
-        case GFxValue::kType_Bool: return v.GetBool() ? 1.0 : 0.0;
-        default: return 0.0;
-    }
-}
-
-bool Get(GFxValue &obj, const char *name, GFxValue *out) {
-    return obj.IsObject() && obj.GetMember(name, out);
-}
-
 namespace {
 
 // The Pip-Boy's own keys there: Enter, X, R, Q, C, Tab, Z, and T (Grid View); G is free. No gamepad button is.
-const char *MENU = "PipboyMenu", *LINE = "CND", *HINT = "REPAIR", *HINT_KEY = "G", *HOOKED = "fnvConditionHooked";
+const char *MENU = "PipboyMenu", *LINE = "$F3NV_CND", *HINT = "$F3NV_REPAIR", *HINT_KEY = "G", *HOOKED = "fnvConditionHooked";
 const char *HINT_CLASS = "Shared.AS3.BSButtonHintData", *REPAIR_EVENT = "FNVConditionRepair";
 const UInt32 KEYBOARD_MOUSE = 0;  // PlatformChangeEvent.PLATFORM_PC_KB_MOUSE
 F4SETaskInterface *g_tasks = nullptr;
@@ -57,15 +43,6 @@ bool g_wears = false;            // Whether it does.
 const void *g_hintPage = nullptr;  // The inventory page given the REPAIR hint (identity only).
 bool g_loggedEntry = false;
 std::string g_base = "root";       // The path of the PipboyMenu instance (root, or root.Menu_mc).
-
-
-// Log an object's members by name and GFx type (the first highlighted entry; the root when the hook fails).
-class LogMembers : public GFxValue::ObjectInterface::ObjVisitor {
-public:
-    void Visit(const char *member, GFxValue *value) override {
-        _MESSAGE("  member %s (type %d)", member, value->GetType());
-    }
-};
 
 // The game's Pip-Boy inventory lines (Fallout4.exe 1.11.240; docs/fork/fo4_condition.md#pipboy-lines): the
 // PipboyDataManager pointer's global, its PipboyInventoryData, and that one's map of form ID -> its lines.
@@ -142,8 +119,8 @@ void SendRepair(GFxMovieRoot *movie, const char *why) {
 }
 
 // ---- The repair list ----
-// FNV's "repair with" menu, drawn on the inventory page's item card while it is open: the Repair skill, the
-// spares (name, CND) with the chosen one marked, and the item's CND before and after. The page's own modal
+// FNV's "repair with" menu, drawn by our Pip-Boy movie from RepairView while it is open: the Repair skill, the
+// spares (name, CND) with the chosen one highlighted, and the item's CND before and after. The page's own modal
 // (ModalFadeRect_mc, which its pop-ups use) blocks the page's actions and List_mc's input meanwhile.
 // Keys (Flash key codes): Up or W, Down or S move; Enter or E repairs; Esc, Tab or G cancels.
 
@@ -161,8 +138,9 @@ struct RepairListState {
 } g_list;  // UI thread only
 Repair g_pending;
 bool g_hasPending = false;  // under g_lock
-const SInt32 LIST_ROWS = 6;
-SInt32 g_cardIndex = -1;  // the item card's place among the page's children while lifted
+Row g_say;                  // why nothing opened, shown on the card until the selection changes (UI thread only)
+bool g_movieThere = false;  // our movie called PipboyCardLines in this Pip-Boy menu (UI thread only)
+UInt32 g_selectedForm = 0;  // the highlighted entry's form (UI thread only)
 enum : int { KEY_TAB = 9, KEY_ENTER = 13, KEY_ESC = 27, KEY_UP = 38, KEY_DOWN = 40, KEY_E = 69, KEY_G = 71,
              KEY_S = 83, KEY_W = 87 };
 
@@ -177,85 +155,56 @@ bool CurrentPage(GFxMovieRoot *movie, GFxValue *page) {
            page->HasMember("ItemCard_mc");
 }
 
-void AddLine(GFxMovieRoot *movie, GFxValue &lines, const std::string &text, const std::string &value) {
-    GFxValue line, label, shown;
-    movie->CreateObject(&line);
-    movie->CreateString(&label, text.c_str());
-    movie->CreateString(&shown, value.c_str());
-    line.SetMember("text", &label);
-    line.SetMember("value", &shown);
-    lines.PushBack(&line);
-}
-
 namespace {
 
-// The vendor's offer on the card's lines: its skill, the condition before and after, the price, the caps held.
-void DrawOffer(GFxMovieRoot *movie, GFxValue &lines) {
-    AddLine(movie, lines, "REPAIR SERVICES", g_list.vendor);
-    AddLine(movie, lines, "VENDOR REPAIR", std::to_string(int(g_list.skill)));
-    AddLine(movie, lines, "CND", Percent(g_list.health) + " > " + Percent(g_list.offer.health));
-    AddLine(movie, lines, "COST", std::to_string(g_list.offer.cost) + " caps");
-    AddLine(movie, lines, "YOUR CAPS", std::to_string(g_list.caps));
-    bool afford = g_list.caps >= g_list.offer.cost;
-    AddLine(movie, lines, afford ? "ENTER) REPAIR" : "NOT ENOUGH CAPS", "ESC) CANCEL");
+// The vendor's offer: its skill, the condition before and after, the price, the caps held.
+void OfferView(ListView *view) {
+    view->heading = {"$F3NV_REPAIR_SERVICES", g_list.vendor};
+    view->notes = {{"$F3NV_VENDOR_REPAIR", std::to_string(int(g_list.skill))},
+                   {LINE, Percent(g_list.health) + " > " + Percent(g_list.offer.health)},
+                   {"$F3NV_COST", Fill("$F3NV_CAPS", std::to_string(g_list.offer.cost))},
+                   {"$F3NV_YOUR_CAPS", std::to_string(g_list.caps)}};
+    view->keys = {g_list.caps >= g_list.offer.cost ? "$F3NV_KEY_REPAIR" : "$F3NV_NOT_ENOUGH_CAPS", "$F3NV_KEY_CANCEL"};
 }
 
-// Draw the repair list, or the vendor's offer, on `page`'s item card.
-void DrawList(GFxMovieRoot *movie, GFxValue &page) {
-    GFxValue card, lines;
-    if (!Get(page, "ItemCard_mc", &card)) return;
-    movie->CreateArray(&lines);
+// The open repair list, or the vendor's offer, as a view for our movie.
+void RepairView(ListView *view) {
     if (g_list.service) {
-        DrawOffer(movie, lines);
-        card.SetMember("InfoObj", &lines);
-        card.Invoke("onDataChange", nullptr, nullptr, 0);
+        OfferView(view);
         return;
     }
-    AddLine(movie, lines, "REPAIR SKILL", std::to_string(int(g_list.skill)));
-    SInt32 size = SInt32(g_list.spares.size());
-    SInt32 first = std::max<SInt32>(0, std::min<SInt32>(g_list.chosen - LIST_ROWS / 2, size - LIST_ROWS));
-    for (SInt32 i = first; i < size && i < first + LIST_ROWS; i++) {
-        const Spare &spare = g_list.spares[i];
+    view->heading = {"$F3NV_REPAIR_SKILL", std::to_string(int(g_list.skill))};
+    for (const Spare &spare : g_list.spares) {
         const char *name = spare.form->GetFullName();
-        std::string text = std::string(i == g_list.chosen ? "> " : "  ") + (name ? name : "?");
+        std::string text = name ? name : "?";
         if (spare.count > 1) text += " (" + std::to_string(spare.count) + ")";
-        AddLine(movie, lines, text, Percent(spare.health));
+        view->rows.push_back({text, Percent(spare.health)});
     }
+    view->chosen = g_list.chosen;
     float result = RepairResult(g_list.health, g_list.spares[g_list.chosen].health, g_list.skill);
-    AddLine(movie, lines, "CND", Percent(g_list.health) + " > " + Percent(result));
-    AddLine(movie, lines, "ENTER) REPAIR", "ESC) CANCEL");
-    card.SetMember("InfoObj", &lines);
-    card.Invoke("onDataChange", nullptr, nullptr, 0);
+    view->notes = {{LINE, Percent(g_list.health) + " > " + Percent(result)}};
+    view->keys = {"$F3NV_KEY_REPAIR", "$F3NV_KEY_CANCEL"};
 }
 
 }  // namespace
 
-// Turn `page`'s modal (its fade, which blocks the page's actions, and its list's input) on or off. While on,
-// the item card is lifted above the fade, as the page's own pop-ups are, so the list reads as the pop-up; off,
-// it goes back to its place (played 2026-10-23: under the fade the list looked like a pop-up that never came).
+// Turn `page`'s modal (its fade, which blocks the page's actions, and its list's input) on or off. Our movie draws
+// the list above the page, fade included.
 void SetModal(GFxValue &page, bool on) {
-    GFxValue rect, list, shown(on), blocked(on), at, top, args[2];  // args[0]: the card, read in place (no copy)
+    GFxValue rect, list, shown(on), blocked(on);
     if (Get(page, "ModalFadeRect_mc", &rect)) rect.SetMember("visible", &shown);
     if (Get(page, "List_mc", &list)) list.SetMember("disableInput", &blocked);
-    if (!Get(page, "ItemCard_mc", &args[0])) return;
-    if (on && page.Invoke("getChildIndex", &at, &args[0], 1) && Get(page, "numChildren", &top)) {
-        g_cardIndex = SInt32(Num(at));
-        args[1].SetInt(SInt32(Num(top)) - 1);
-    } else if (!on && g_cardIndex >= 0) {
-        args[1].SetInt(g_cardIndex);
-        g_cardIndex = -1;
-    } else {
-        return;
-    }
-    page.Invoke("setChildIndex", nullptr, args, 2);
 }
 
-void SayOnCard(GFxMovieRoot *movie, GFxValue &page, const char *why, const char *label) {
-    GFxValue card, info;
-    if (Get(page, "ItemCard_mc", &card) && Get(card, "InfoObj", &info) && info.IsArray()) {
-        AddLine(movie, info, label, why);
-        card.Invoke("onDataChange", nullptr, nullptr, 0);
-    }
+void SayOnCard(const char *why, const char *label) {
+    g_say = {label, why};
+}
+
+bool PipboyMovieThere() {
+    static bool logged = false;
+    if (!g_movieThere && !logged) _MESSAGE("Pip-Boy: no list without our movie (%s)", "F3NV_Pipboy.swf");
+    logged = logged || !g_movieThere;
+    return g_movieThere;
 }
 
 bool SendExternal(GFxMovieRoot *movie, const char *event) {
@@ -286,19 +235,18 @@ void OpenOffer(GFxMovieRoot *movie, GFxValue &page) {
     _MESSAGE("vendor repair offer for %08X stack %d: %.3f for %u caps (held %u)", g_list.item, g_list.stack,
              g_list.offer.health, g_list.offer.cost, g_list.caps);
     if (!g_list.offer.cost) {
-        SayOnCard(movie, page, g_list.health >= 0.995f ? "Not needed" : "Beyond the vendor's skill");
+        SayOnCard(g_list.health >= 0.995f ? "$F3NV_NOT_NEEDED" : "$F3NV_BEYOND_VENDOR");
         return;
     }
     g_list.open = true;
     SetModal(page, true);
-    DrawList(movie, page);
 }
 
 // Open the repair list for the highlighted item, on its default spare; on a whole item or with no spare, say so
 // on the card. While a vendor offers repair services, open its offer instead.
 void OpenList(GFxMovieRoot *movie) {
     GFxValue page;
-    if (!g_wears || !CurrentPage(movie, &page)) return;
+    if (!g_wears || !CurrentPage(movie, &page) || !PipboyMovieThere()) return;
     Selection selected;
     {
         std::lock_guard<std::mutex> hold(g_lock);
@@ -319,13 +267,12 @@ void OpenList(GFxMovieRoot *movie) {
              UInt32(g_list.spares.size()));
     bool whole = g_list.health >= 0.995f;
     if (whole || g_list.spares.empty()) {
-        SayOnCard(movie, page, whole ? "Not needed" : "No spare");
+        SayOnCard(whole ? "$F3NV_NOT_NEEDED" : "$F3NV_NO_SPARE");
         return;
     }
     g_list.chosen = DefaultSpare(g_list.spares, g_list.health, g_list.skill);
     g_list.open = true;
     SetModal(page, true);
-    DrawList(movie, page);
 }
 
 // Close the repair list, repairing with the chosen spare when `repair`; the game redraws the item card.
@@ -355,13 +302,20 @@ public:
     }
 };
 
+// Whether key event `event` was typed into a text box (FallUI's list search), which our keys leave alone.
+bool Typed(GFxValue &event) {
+    GFxValue target, type;
+    return Get(event, "target", &target) && Get(target, "type", &type) && type.IsString() &&
+           !strcmp(type.GetString(), "input");
+}
+
 // The Pip-Boy's own key events: G opens the repair list on an item that wears, V the ammo list (ammo.cpp); the
-// open list's keys.
+// open list's keys. Keys typed into a text box are left alone.
 class KeyHandler : public GFxFunctionHandler {
 public:
     void Invoke(Args *args) override {
-        GFxValue code, page;
-        if (args->numArgs < 1 || !Get(args->args[0], "keyCode", &code)) return;
+        GFxValue code;
+        if (args->numArgs < 1 || !Get(args->args[0], "keyCode", &code) || Typed(args->args[0])) return;
         GFxMovieRoot *movie = args->movie->movieRoot;
         int key = int(Num(code));
         if (!g_list.open && AmmoKey(movie, key)) return;
@@ -373,7 +327,6 @@ public:
         bool vertical = key == KEY_UP || key == KEY_W || key == KEY_DOWN || key == KEY_S;
         if (vertical && !g_list.service) {
             g_list.chosen = std::max<SInt32>(0, std::min<SInt32>(last, g_list.chosen + (key == KEY_UP || key == KEY_W ? -1 : 1)));
-            if (CurrentPage(movie, &page)) DrawList(movie, page);
         } else if ((key == KEY_ENTER || key == KEY_E) && (!g_list.service || g_list.caps >= g_list.offer.cost)) {
             CloseList(movie, true);
         } else if (key == KEY_ESC || key == KEY_TAB || key == KEY_G) {
@@ -453,11 +406,12 @@ void Update(GFxMovieRoot *movie) {
         key = std::to_string(formID) + "|" + std::to_string(Num(node)) + "|" + std::to_string(Num(equip));
         if (!g_loggedEntry) {
             g_loggedEntry = true;
-            LogMembers log;
-            entry.VisitMembers(&log);
+            LogMembers(entry);
         }
     }
+    g_selectedForm = formID;
     if (key != g_lastKey || force) {
+        if (key != g_lastKey) g_say = Row();
         g_lastKey = key;
         g_wears = !key.empty() && Resolve(formID, UInt32(Num(node)));
         if (g_wears)
@@ -465,7 +419,6 @@ void Update(GFxMovieRoot *movie) {
                      g_health);
     }
     if (force && formID) FixEquipMarks(list, formID);
-    if (g_wears) ShowLine(movie, card, g_health, force);
 }
 
 class FrameHandler : public GFxFunctionHandler {
@@ -473,9 +426,81 @@ public:
     void Invoke(Args *args) override { Update(args->movie->movieRoot); }
 };
 
-// Spike 4: our own movie (Interface/F3NV_Pipboy.swf, fo4_import/pipboy_overlay) loaded into the menu instance
-// `menu` with a Loader, as F4SE's UI.Load does; the movie keeps its own line on the item card
-// (docs/fork/swf_framework.md#spikes).
+// A {text, value} object of `row` into `out`.
+void RowObject(GFxMovieRoot *movie, const Row &row, GFxValue *out) {
+    GFxValue text, value;
+    movie->CreateObject(out);
+    movie->CreateString(&text, row.text.c_str());
+    movie->CreateString(&value, row.value.c_str());
+    out->SetMember("text", &text);
+    out->SetMember("value", &value);
+}
+
+// `rows`' objects pushed onto array `out`.
+void PushRows(GFxMovieRoot *movie, const std::vector<Row> &rows, GFxValue *out) {
+    for (const Row &row : rows) {
+        GFxValue line;
+        RowObject(movie, row, &line);
+        out->PushBack(&line);
+    }
+}
+
+// PipboyCardLines(): the lines for the highlighted item's card, [{text, value, showAsPercent}], for our Pip-Boy
+// movie to keep there: the CND line of an item that wears, why a list did not open, then other mods' lines
+// (card.cpp). Null while a list of ours is open or off the inventory page.
+class CardLinesNative : public GFxFunctionHandler {
+public:
+    void Invoke(Args *args) override {
+        GFxMovieRoot *movie = args->movie->movieRoot;
+        GFxValue page;
+        g_movieThere = true;
+        args->result->SetNull();
+        if (g_list.open || AmmoListOpen() || !CurrentPage(movie, &page)) return;
+        movie->CreateArray(args->result);
+        if (g_wears) {
+            GFxValue line, text, value(std::floor(g_health * 100.0 + 0.5)), percent(true);
+            movie->CreateObject(&line);
+            movie->CreateString(&text, LINE);
+            line.SetMember("text", &text);
+            line.SetMember("value", &value);
+            line.SetMember("showAsPercent", &percent);
+            args->result->PushBack(&line);
+        }
+        std::vector<Row> rows;
+        if (!g_say.text.empty()) rows.push_back(g_say);
+        if (g_selectedForm) CardLinesOf(g_selectedForm, &rows);
+        PushRows(movie, rows, args->result);
+    }
+};
+
+// PipboyList(): the open repair or ammo list for our movie to draw, {heading, rows, chosen, notes, keys} (heading
+// and keys {text, value}; rows and notes arrays of them; chosen the highlighted row, -1 for none); null when none.
+class ListNative : public GFxFunctionHandler {
+public:
+    void Invoke(Args *args) override {
+        GFxMovieRoot *movie = args->movie->movieRoot;
+        ListView view;
+        args->result->SetNull();
+        if (g_list.open) RepairView(&view);
+        else if (!AmmoView(&view)) return;
+        GFxValue heading, rows, chosen(view.chosen), notes, keys;
+        RowObject(movie, view.heading, &heading);
+        movie->CreateArray(&rows);
+        PushRows(movie, view.rows, &rows);
+        movie->CreateArray(&notes);
+        PushRows(movie, view.notes, &notes);
+        RowObject(movie, view.keys, &keys);
+        movie->CreateObject(args->result);
+        args->result->SetMember("heading", &heading);
+        args->result->SetMember("rows", &rows);
+        args->result->SetMember("chosen", &chosen);
+        args->result->SetMember("notes", &notes);
+        args->result->SetMember("keys", &keys);
+    }
+};
+
+// Our own movie (Interface/F3NV_Pipboy.swf, fo4_import/pipboy_overlay) loaded into the menu instance `menu` with a
+// Loader, as F4SE's UI.Load does; it draws PipboyCardLines on the item card (docs/fork/swf_framework.md#pipboy).
 const char *OVERLAY = "F3NV_Pipboy.swf";
 
 void LoadOverlay(GFxMovieRoot *movie, GFxValue &menu) {
@@ -507,40 +532,24 @@ public:
     void Run() override {
         BSFixedString name(MENU);
         IMenu *menu = (*g_ui)->GetMenu(name);
-        GFxValue root, code, flag(true), args[2];
+        GFxValue root, code, flag(true);
         if (!menu || !menu->movie || !menu->movie->movieRoot) {
             _MESSAGE("Pip-Boy opened, but its menu has no movie");
             return;
         }
         GFxMovieRoot *movie = menu->movie->movieRoot;
-        const char *bases[] = {"root", "root.Menu_mc"};
-        g_base.clear();
-        for (const char *base : bases)
-            if (movie->GetVariable(&code, (std::string(base) + ".BGSCodeObj").c_str()) && code.IsObject() &&
-                movie->GetVariable(&root, base)) {
-                g_base = base;
-                break;
-            }
-        if (g_base.empty()) {
+        if (!FindMenu(movie, {"root", "root.Menu_mc"}, nullptr, &g_base, &root, &code)) {
             _MESSAGE("Pip-Boy opened, but neither root nor root.Menu_mc has a BGSCodeObj; root's members:");
-            LogMembers log;
-            if (movie->GetVariable(&root, "root")) root.VisitMembers(&log);
+            if (movie->GetVariable(&root, "root")) LogMembers(root);
             return;
         }
         if (code.HasMember(HOOKED)) return;
-        movie->CreateString(&args[0], "enterFrame");
-        CreateFunction<FrameHandler>(&args[1], movie);
-        root.Invoke("addEventListener", nullptr, args, 2);
-        GFxValue keys[2];
-        movie->CreateString(&keys[0], "keyUp");
-        CreateFunction<KeyHandler>(&keys[1], movie);
-        bool listening = root.Invoke("addEventListener", nullptr, keys, 2);
-        GFxValue added[2];
-        movie->CreateString(&added[0], "added");
-        CreateFunction<AddedHandler>(&added[1], movie);
-        root.Invoke("addEventListener", nullptr, added, 2);
+        Listen<FrameHandler>(movie, root, "enterFrame");
+        bool listening = Listen<KeyHandler>(movie, root, "keyUp");
+        Listen<AddedHandler>(movie, root, "added");
         _MESSAGE("Pip-Boy key listener %s", listening ? "added" : "not added");
         code.SetMember(HOOKED, &flag);
+        g_movieThere = false;
         LoadOverlay(movie, root);
         g_hintPage = nullptr;
         ResetPages();
@@ -613,6 +622,11 @@ SInt32 PipboyLineStack(UInt32 formID, UInt32 nodeID) {
 
 bool RepairListOpen() {
     return g_list.open;
+}
+
+void RegisterPipboyMenu(GFxMovieRoot *movie, GFxValue *plugin) {
+    RegisterFunction<CardLinesNative>(plugin, movie, "PipboyCardLines");
+    RegisterFunction<ListNative>(plugin, movie, "PipboyList");
 }
 
 void ShowLine(GFxMovieRoot *movie, GFxValue &card, float health, bool force) {

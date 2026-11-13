@@ -21,7 +21,7 @@ from fo4_import.base import ba2
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_ESM, FALLOUTNV_ESM, use_source
 from fo4_import.base.writer import pack_fo4_header, pack_fo4_record
-from fo4_import.face import memo
+from fo4_import.face import memo, tint
 from fo4_import.face import texture as TX
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, head
@@ -109,7 +109,7 @@ def test_skin_tone_layers_come_from_the_bytes_given():
     """HumanRace's Skin Tone options, from the ESM bytes passed."""
     teti = [pack_subrecord('TETI', struct.pack('<HH', slot, index)) for slot, index in ((12, 5), (3, 6), (12, 9))]
     other = pack_subrecord('TETI', struct.pack('<HH', 12, 7))
-    assert FG.skin_tone_layers(_plugin(('RACE', FG.HUMAN_RACE, b''.join(teti)), ('RACE', 0x1234, other))) == {5, 9}
+    assert tint.skin_tone_layers(_plugin(('RACE', tint.HUMAN_RACE, b''.join(teti)), ('RACE', 0x1234, other))) == {5, 9}
 
 
 def test_by_content_keeps_results_by_contents_read_only():
@@ -170,11 +170,11 @@ def test_faces_follow_templates_and_lists(monkeypatch):
 
 
 def test_face_workers_follow_the_faces_the_cores_and_free_memory(monkeypatch):
-    """One worker per FACES_PER_WORKER faces, at most half the logical cores, as many as free memory holds."""
+    """One worker per FACES_PER_WORKER faces, at most half the logical cores, as many as the profile's memory holds."""
     monkeypatch.setattr(N.os, 'cpu_count', lambda: 16)
-    monkeypatch.setattr(N, 'memory_workers', lambda wanted, each, spare: wanted)
+    monkeypatch.setattr(N, 'pool_workers', lambda each, jobs, asked: min(jobs, asked))
     assert [N.face_workers(n) for n in (1, 2 * N.FACES_PER_WORKER, 10 ** 6)] == [1, 2, 8]
-    monkeypatch.setattr(N, 'memory_workers', lambda wanted, each, spare: min(wanted, 4))
+    monkeypatch.setattr(N, 'pool_workers', lambda each, jobs, asked: min(jobs, asked, 4))
     assert N.face_workers(10 ** 6) == 4
 
 

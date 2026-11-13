@@ -59,6 +59,12 @@ SHAPES = ('BSSubIndexTriShape', 'BSTriShape')
 SHADER_REF_AFTER_EXTRAS = 4 + 4 + 12 + 36 + 4 + 4 + 16 + 4
 
 
+def shader_index(raw: bytes) -> int:
+    """The shader block index of a raw BSTriShape-like block."""
+    extras = struct.unpack_from('<I', raw, 4)[0]
+    return struct.unpack_from('<i', raw, 8 + 4 * extras + SHADER_REF_AFTER_EXTRAS)[0]
+
+
 @cache
 def _lab_transform():
     """PIL's sRGB to Lab transform."""
@@ -176,8 +182,7 @@ class Fo4Assets:
         out = []
         for kind, raw in nif.blocks:
             if kind in SHAPES and isinstance(raw, bytes):
-                extras = struct.unpack_from('<I', raw, 4)[0]
-                shader = nif.blocks[struct.unpack_from('<i', raw, 8 + 4 * extras + SHADER_REF_AFTER_EXTRAS)[0]][1]
+                shader = nif.blocks[shader_index(raw)][1]
                 name = nif.strings[shader['name'] if isinstance(shader, dict) else struct.unpack_from('<i', shader, 4)[0]]
                 path = name if name.lower().startswith('materials') else 'materials/' + name
                 out.append((raw, bgsm.read(self.archives.read(path))))

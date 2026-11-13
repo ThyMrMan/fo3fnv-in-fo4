@@ -3922,6 +3922,35 @@ converter gap:
   line, and Fallout 4 keeps that half; melee weapons have no Fallout 4
   actor value.
 
+## <a id="dialogue-gate"></a>Polls wait only while the dialogue menu is open (2026-11-12, after play; not yet played)
+
+Every converted poll skips its pass while `TES4Polyfill.PlayerIsInDialogue()`
+is true. The shared version asks the last speaker stamped in the player's
+Variable05/06 whether `IsInDialogueWithPlayer()`. On Fallout 4 that stayed
+true on Doc for about 22 s after his goodbye (Papyrus trace 2026-11-12: the
+goodbye's end fragment at 494.5 s, the Goodsprings exterior loaded at
+502.9 s, Doc's parked greet package cleared at 516.2 s). So `VGenericTimer`,
+which sets VCG01 stage 200 (`GameHour` to 8) about 0.1 s after the talk in
+FNV, ran at 516.7 s: the player stood outside at night for seconds, then it
+turned day. Every poll waiting for a talk to end had the same delay.
+
+The Fallout 4 override also requires `UI.IsMenuOpen("DialogueMenu")`, as
+`ShowBarterMenu` already does. A goodbye line still playing after the menu
+closes keeps the hold (`_IsSpeaking`), as before.
+
+## <a id="furniture-seated"></a>On furniture means seated (2026-11-12, after play; not yet played)
+
+`IsCurrentFurnitureRef` read `GetFurnitureReference()` alone. Fallout 4 names
+the furniture as soon as the actor picks it, while it walks there (sit state
+1) and plays the sit-down (2). FNV's `VCG01DocMitchellChairTriggerSCRIPT`
+starts its 2.5 s timer when Doc is on his chair, then the couch script's
+2.0 s, then the psych test's greeting. Started early, the test sometimes
+opened with Doc standing; he sat at the next break between stages (played
+2026-11-12, varying run to run). The Fallout 4 override needs sit state 3 or
+4 too. Of the 7 converted uses, Big Sal's and Nero's already test
+`GetSitState() == 3`; the others are Doc's chair (2), the couch (player and
+Doc) and Vault 11's extermination chair (player).
+
 ## <a id="before"></a>Before the pipeline: build and research
 
 In order. **Built** marks what is done.
@@ -4155,7 +4184,11 @@ hand.
   records:
   - `status`: `running`, `finished` or `failed`;
   - when the build started and ended, and its command;
-  - the commit it started from, and the files that then differed from it.
+  - the commit it started from, and the files that then differed from it;
+  - once it ends, each stage's seconds and peak memory, every count, and the
+    resource profile ([memory per stage](fo4_build_resources.md#stage-memory));
+  - `light opt-in`: whether the plugin was built with `--light`, which locks
+    its type ([light builds](#light-builds)).
 
   Check it before building on a plugin, preflighting it or deploying it: only
   `finished` is a whole build.
@@ -4198,6 +4231,39 @@ growing today's 11,302 hashed ids tenfold moved 34–70 of them.
   the quest's authored targets ([F4](fo4_tool_audit.md#formids-fixed)).
 - **Saved before the plugin.** The ledger is written just before the
   plugin, so no written plugin holds an id its ledger lacks.
+
+### <a id="light-builds"></a>Light builds (built 2026-11-12)
+
+The design and its evidence are in
+[research/fo4_light_plugins.md](research/fo4_light_plugins.md#scheme). In code:
+
+- **`--light`** (`fo4_import.pipeline.run`) builds the plugin light;
+  `pipeline/light_choice.py` decides from the stamp's `light opt-in` (else a
+  ledger holding `FNV 1:1` ids means light). A first build takes what is
+  asked. A built plugin keeps its type: asking the other stops with the count
+  of FormIDs that move, unless `--switch-plugin-type` confirms it, which drops
+  the ledger's ids so every own record gets one of the new type.
+- **Refusals.** A light plugin built before but missing its ledger, or with
+  own ids its ledger lacks (compacted in xEdit), stops the build; so does a
+  full build of a plugin made light outside the converter.
+- **Ids.** `LedgerWriter.make_light()` replaces `reserve_source_ids`. Every
+  own record is keyed: generated ones as before, 1:1 ones at site `FNV 1:1`
+  by their source object id (`one_to_one`, through `SourceIds.key`). The hash
+  is `derive_formid`'s, into 0x001–0xFFF, rehashed with the same salts and no
+  probe cap; a build needing a 4,096th id raises `LightFull` before anything
+  is written. HEDR's next id is the highest own id plus one.
+- **Light masters** (ESL flag in the header, any extension) are read through
+  their ledgers (`source_ids.key_light`), in full builds too: a record the
+  ledger lacks is not in the master, so `fnv_id` copies it as for any record
+  a master left out. A light master without its ledger stops the build.
+- **At write** (`light_choice.finish_flag`): a full build with no own record
+  is flagged light (no id moves); a light build whose own cell carries
+  precombine or previs data (XCRI, XPRI, PCMB, VISI, RVIS) stops, since those
+  files are named by FormID & 0xFFFFFF. The build counts which it wrote
+  (`plugin written ...`).
+- **Full builds are unchanged:** same window, same hash, same
+  `FORMID_SCHEME_VERSION` (`tests/test_fo4_light_plugins.py` compares a full
+  LedgerWriter with the plain writer).
 - **A master's id wins** over the plugin's own kept one
   ([shadowed ids](fo4_plugin_layout.md#dlc-shadowed-ids)).
 - **What still counts.** `FormIDs from a counted key` in a build's counts is
@@ -5632,8 +5698,10 @@ lower-case first letter (`tES4Polyfill`); Papyrus names are not
 case-sensitive, not yet confirmed in game.
 
 **Differences handled (`fo4_import/base/caprica.py`):**
-- Header constructs Caprica rejects are patched in a copy of F4SE, Base and
-  LevelUpMenuEx (`safe_headers`, `output/fo4_cache/caprica_headers`): text
+- Header constructs Caprica rejects are patched in a copy of F4SE and Base
+  (LevelUpMenuEx's too until it was
+  [dropped](fo4_level_up_plan.md#dropped); `safe_headers`,
+  `output/fo4_cache/caprica_headers`): text
   before `Scriptname` (5 vanilla sources, `TestKevinActivationScript`), a
   struct member named `parent` (F4SE `ObjectReference.ConnectPoint`, now
   `parentNode` in the copy) and `Var x = None` parameters (F4SE
@@ -6104,6 +6172,10 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   entries in the 6.1 GB archive already end past 4 GiB, among them Doc
   Mitchell's lines (offset 5.6 GB), and the roadmap has NPC voices
   working.
+- **Voices pack apart (2026-11-12).** The staged `Sound/Voice` goes to
+  `<plugin> - Voices_<sLanguage>.ba2`, written only when a voice changed;
+  Main keeps the rest
+  ([voices-archive](fo4_build_speed.md#voices-archive)).
 - **Loose copies leave the Data folder after the build (2026-11-11).** A
   mod or DLC build writes straight into its MO2 mod folder, so the deploy's
   clean-up below never ran for it: on 2026-11-11 the `F3NV - *` folders held
@@ -6151,6 +6223,85 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   459 face textures in its Textures archive, `DLCNukaWorld` 224 and 672.
   A staged texture the run did not stage keeps the last pack's signature
   while its file is unchanged, so the next build does not rewrite it.
+- <a id="faces-repack"></a>**The faces stage repacks only its own files
+  (2026-11-12, not yet built).** On the 2026-11-12 build the faces stage
+  spent about 240 s packing Textures, 220 s packing Main and 79 s dropping
+  loose copies, after restoring 77,355 files at its start. Two causes. The
+  restore dates each file as the archive, so no restored file matched the
+  `[size, mtime]` the pack record keeps, and `pack_main` read all 152,521
+  entries loose and wrote Main anew. And every face texture is written again
+  each run with a new date, so `pack_textures` compressed all of them again.
+  Now `ba2_pack.archived` reads the Main archive's entries from its pack
+  record (only when the record's `[size, mtime]` matches the archive on
+  disk), and `pack_main(..., replaced)` keeps every entry outside the
+  plugin's FaceGeom folder as packed (`_held`), plus each FaceGeom NIF this
+  run wrote with the same bytes the archive holds. A loose file the archive
+  also holds still wins. The restore runs only when there is no matching
+  record. For textures, `_move_loose` deletes a loose file whose staged copy
+  has the same bytes, so the staged copy keeps its date and the pack's
+  signature, and only changed face textures are compressed.
+  Measured on a scratch hardlink of the 2026-11-12 Main (79,736 entries,
+  3.3 GB, 2,382 FaceGeom NIFs; the voices had moved out): with every face
+  written again unchanged, as the per-NPC face cache does, `pack_main`
+  writes nothing (10.1 s, nearly all comparing the NIFs). When a face did
+  change, Main is written with the other 77,354 entries copied out of the
+  old archive: 104 s and 162 s in two runs, and the new file was byte for
+  byte the old one. A profile put 157 of the 162 s in writing the file
+  (about 21 MB/s on this drive); reading took about 5 s. The Textures side
+  is covered by tests only, not timed on the real archive.
+- <a id="unchanged-bytes"></a>**Main is written only when a byte changed
+  (2026-11-12, not yet built).** A warm build rewrote Main every time (89 s
+  on the 2026-11-12 base build, 118 s on the one before), though no mesh was
+  converted. `elric_cache.write_new` leaves a file whose bytes already match,
+  but touches it so `stale_files` counts it as made by this build, and the
+  animation data step writes its 15,663 files again. Each new date broke the
+  `[size, mtime]` match against Main's pack record, so `pack_main` read
+  69,069 files loose and wrote the 3.3 GB archive again. Now `_held` keeps
+  as packed every loose file whose size and date match the record, and,
+  when only the date differs, every one whose bytes match the archive's
+  copy (`ba2_write.same_bytes`: the archive read once in offset order, the
+  loose files 16 at a time). When nothing changed, the record's state is
+  the same and Main is not written.
+  Measured on a D: copy of the 2026-11-12 Main and its record (79,736
+  entries; the staged non-voice sounds read from the build's staging),
+  running a warm build's archive steps: `restore_packed` 77,355 files in
+  54.0 s, every one touched (8.9 s), `pack_main` 45.5 s with Main not
+  written, `drop_packed` 11.2 s. The 45.5 s is the comparing; before, the
+  same files were read loose and then the whole archive was written as
+  well. Still paid every warm build: the restore and the drop, about 65 s
+  here and more on C:. Ending them means each step that reads the restored
+  files (`stale_files`, object LOD, the Creation Kit's animation list, the
+  script compiler, `write_new`'s own check) reading through the archive
+  instead.
+- <a id="loose-stash"></a>**The loose copies move aside instead of being
+  deleted and written back (2026-11-12, not yet built).** Reading through
+  the archive would change about 38 reads in 17 files, plus the script
+  compiler and the Creation Kit, which read the folder themselves. Instead
+  `drop_packed` moves the Main archive's loose files into
+  `ba2_pack.stash_dir` (`loose/<plugin stem>` in the Data folder's staging
+  folder, outside the mod folder, so neither MO2, the game nor
+  `fo4_deploy` sees it), and `restore_packed` moves them back. On one drive
+  a move is a rename: `Meshes` and `Materials` go in one rename each, the
+  `.pex` files one by one. Every file keeps its date, so `stale_files` does
+  not count it as made and the pack record still matches it. The stash is
+  kept only when it is exactly the archive's `Meshes`, `Materials` and
+  `.pex` entries and sits on the Data folder's drive. Its stamp holds the
+  archive's size and time; when anything repacked Main since (a faces run
+  that did not restore, a deploy), the stash is deleted and the restore
+  writes from the archive as before. The faces stage brings the stash back
+  too, so its drop stashes a complete set again.
+  Measured on a D: copy of the 2026-11-12 Main and record, staging on D:
+  too, two warm builds' archive steps in a row:
+
+  | Step | First (no stash) | Second (from the stash) |
+  |---|---|---|
+  | `restore_packed` (77,355 files) | 42.6 s | 3.6 s |
+  | `pack_main` (Main not written either time) | 39.3 s | 11.1 s |
+  | `drop_packed` | 7.2 s | 6.7 s |
+
+  The second restore gave back the same files with the same sizes and
+  dates, so `pack_main` matched every one on its record without comparing
+  bytes.
 - **A master folder is read through its archives.** A dependent build reads
   its masters' deployed folders, whose loose copies are gone:
   `ba2_pack.data_file` (the persistent subgraph list,

@@ -61,6 +61,22 @@ def _loose(paths: list):
             yield from pool.map(Path.read_bytes, map(Path, paths[start:start + AHEAD]))
 
 
+def same_bytes(archive: Path, named: dict) -> set:
+    """The names in `named` ({lowercase '/'-separated name: loose path}) whose file holds exactly what the general
+    `archive` stores uncompressed for that name; the archive read once, in offset order.
+    See: docs/fork/fo4_pipeline.md#faces-repack
+    """
+    stored = {name.replace(chr(92), '/'): at for name, at in entries(archive).items()}
+    order = sorted((stored[name][0], name) for name in named if name in stored)
+    same = set()
+    with open(archive, 'rb') as f:
+        for (offset, name), data in zip(order, _loose([named[name] for _, name in order])):
+            f.seek(offset)
+            if len(data) == stored[name][1] and f.read(len(data)) == data:
+                same.add(name)
+    return same
+
+
 def _runs(names: list, sizes: list, old: dict) -> list:
     """`names` (with `sizes`) in order as runs: (offset, length) of consecutive files lying back to back in the old
     archive (`old`: {lowercase name: (offset, size)}), or (None, index) of a file read from disk."""
@@ -98,13 +114,13 @@ def _contents(files: list, names: list, sizes: list, archive: Path, kept: set):
                 yield block
 
 
-def write_general(named: dict, archive: Path, kept: set = frozenset()) -> None:
+def write_general(named: dict, archive: Path, kept: set = frozenset(), sized: 'dict | None' = None) -> None:
     """Write `named` ({archive name, forward slashes: path}) as the uncompressed general BA2 `archive`, in
     lowercase name order, through a temporary file replaced at the end; files whose lowercase names are in `kept`
-    are unchanged since `archive` was written and are copied out of it."""
+    are unchanged since `archive` was written and are copied out of it. `sized`: {name: size} already read."""
     names = sorted(named, key=str.lower)
     files = [named[name] for name in names]
-    sizes = [Path(p).stat().st_size for p in files]
+    sizes = [sized[name] if sized else Path(p).stat().st_size for name, p in zip(names, files)]
     offset = HEADER.size + ENTRY.size * len(files)
     temporary = archive.with_name(archive.name + '.tmp')
     with open(temporary, 'wb', buffering=BUFFER) as out:

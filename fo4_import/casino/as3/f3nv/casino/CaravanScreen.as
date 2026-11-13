@@ -1,6 +1,7 @@
 package f3nv.casino
 {
    import f3ui.Draw;
+   import f3ui.Input;
    import f3ui.Text;
    import f3ui.Theme;
    import flash.display.Loader;
@@ -64,6 +65,8 @@ package f3nv.casino
       public static const SUIT_NAMES:Array = ["", "H", "S", "D", "C", ""];
       public static const OPPONENT_MS:int = 500;
 
+      // The hint bar's show (F3NV_Casino sets it): each screen shows its own hints.
+      public var showHints:Function;
       private var send:Function;
       private var mount:Function;
       private var texts:Array;
@@ -180,6 +183,10 @@ package f3nv.casino
          }
          view = new Sprite();
          addChild(view);
+         if (showHints != null)
+         {
+            showHints(hints());
+         }
          Text.label(view, 40, 20, 30).text = opponentName;
       }
 
@@ -559,31 +566,41 @@ package f3nv.casino
          addEventListener(MouseEvent.CLICK, onExit);
       }
 
-      // FO4's controls: Accept goes on (the bet, play), Cancel leaves before play or asks to forfeit, any at the end.
-      public function control(name:String) : Boolean
+      // Input's actions: at the bet Accept goes on, X Auto-Match, Y Raise; at the deck Accept plays, Y randomizes,
+      // left and right page; at the table Back asks to forfeit (before play F3NV_Casino's Back leaves); any at the end.
+      public function control(action:String) : Boolean
       {
+         var steps:Object = {bet: {accept: onAccept, x: onMatch, y: onRaise},
+                             deck: {accept: onPlay, y: onRandomize, left: onPrevious, right: onNext},
+                             table: {back: onForfeit}};
          if (step == "result")
          {
             onExit();
+            return true;
          }
-         else if (name == "Accept" && step == "bet")
-         {
-            onAccept();
-         }
-         else if (name == "Accept" && step == "deck")
-         {
-            onPlay();
-         }
-         else if (name == "Cancel" && step == "table")
-         {
-            asking = !asking;
-            showTable();
-         }
-         else
+         var handler:Function = steps[step] != null ? steps[step][action] : null;
+         if (handler == null)
          {
             return false;
          }
+         handler();
          return true;
+      }
+
+      // The hint bar's hints for the screen showing.
+      public function hints() : Array
+      {
+         if (step == "bet")
+         {
+            return [[Input.ACCEPT, text(ACCEPT)], [Input.X, text(AUTO_MATCH)], [Input.Y, text(RAISE)],
+                    [Input.BACK, text(EXIT)]];
+         }
+         if (step == "deck")
+         {
+            return [[Input.ACCEPT, text(PLAY_CARAVAN)], [Input.Y, text(RANDOMIZE)], [[Input.LEFT, Input.RIGHT], "<>"],
+                    [Input.BACK, text(EXIT)]];
+         }
+         return step == "table" ? [[Input.BACK, text(FORFEIT)]] : [[Input.ACCEPT, text(PRESS_ANY)]];
       }
 
       // Leaving is free before the game; in it, Cancel asks to forfeit (FNV's sQuitCaravanText).
@@ -597,9 +614,9 @@ package f3nv.casino
          var name:String = images[path];
          if (name == null)
          {
-            var names:Array = mount([path], "F3NV_CaravanImage" + imageCount + "_");
+            var urls:Array = mount([path], "F3NV_CaravanImage" + imageCount + "_");
             imageCount++;
-            name = names.length ? names[0] : "";
+            name = urls.length ? urls[0] : "";
             images[path] = name;
          }
          var loader:Loader = new Loader();
@@ -613,7 +630,7 @@ package f3nv.casino
          parent.addChild(loader);
          if (name)
          {
-            loader.load(new URLRequest("img://" + name));
+            loader.load(new URLRequest(name));
          }
       }
    }

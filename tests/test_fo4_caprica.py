@@ -28,7 +28,7 @@ def _sources(tmp_path, names: str, monkeypatch) -> tuple:
     for name in names:
         (src / f'{name}.psc').write_text(f'Scriptname {name}\nEvent OnBogus()\nEndEvent\n')
     monkeypatch.setattr(CP, 'caprica_imports', lambda imports: imports)
-    monkeypatch.setattr(CP, 'memory_workers', lambda wanted, each, spare: wanted)
+    monkeypatch.setattr(CP, 'pool_workers', lambda each, jobs, asked=0: max(1, min(asked or jobs, jobs)))
     return [src / f'{name}.psc' for name in names], out
 
 

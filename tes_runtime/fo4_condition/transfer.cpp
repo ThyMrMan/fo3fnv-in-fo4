@@ -68,14 +68,6 @@ void BarterLine(void *menu, UInt32 *owner, UInt8 *entry, GFxValue *line) {
 
 std::string g_base;  // the path of the open transfer menu's instance (UI thread only)
 
-// Log an object's members by name and GFx type (the menu's root, when its item card is not found).
-class LogMembers : public GFxValue::ObjectInterface::ObjVisitor {
-public:
-    void Visit(const char *member, GFxValue *value) override {
-        _MESSAGE("  member %s (type %d)", member, value->GetType());
-    }
-} g_logMembers;
-
 // One transfer menu frame: the highlighted line whose ItemCardInfoList the card shows gets its CND line.
 void Update(GFxMovieRoot *movie) {
     GFxValue card, info;
@@ -112,25 +104,16 @@ void HookTransferMenu(const char *name) {
     IMenu *menu = (*g_ui)->GetMenu(menuName);
     if (!menu || !menu->movie || !menu->movie->movieRoot) return;
     GFxMovieRoot *movie = menu->movie->movieRoot;
-    GFxValue code, root, card, flag(true), args[2];
-    g_base.clear();
+    GFxValue code, root, flag(true);
     // The transfer menu's root holds only FilterHolder_mc (played: its members were f4se and FilterHolder_mc).
-    for (const char *base : {"root.FilterHolder_mc.Menu_mc", "root.FilterHolder_mc", "root.Menu_mc", "root"})
-        if (movie->GetVariable(&code, (std::string(base) + ".BGSCodeObj").c_str()) && code.IsObject() &&
-            movie->GetVariable(&card, (std::string(base) + ".ItemCard_mc").c_str()) && card.IsObject() &&
-            movie->GetVariable(&root, base)) {
-            g_base = base;
-            break;
-        }
-    if (g_base.empty()) {
+    if (!FindMenu(movie, {"root.FilterHolder_mc.Menu_mc", "root.FilterHolder_mc", "root.Menu_mc", "root"},
+                  "ItemCard_mc", &g_base, &root, &code)) {
         _MESSAGE("%s opened, but no known path has its item card; root.FilterHolder_mc's members:", name);
-        if (movie->GetVariable(&root, "root.FilterHolder_mc")) root.VisitMembers(&g_logMembers);
+        if (movie->GetVariable(&root, "root.FilterHolder_mc")) LogMembers(root);
         return;
     }
     if (code.HasMember(HOOKED)) return;
-    movie->CreateString(&args[0], "enterFrame");
-    CreateFunction<FrameHandler>(&args[1], movie);
-    root.Invoke("addEventListener", nullptr, args, 2);
+    Listen<FrameHandler>(movie, root, "enterFrame");
     code.SetMember(HOOKED, &flag);
     _MESSAGE("hooked %s at %s", name, g_base.c_str());
 }

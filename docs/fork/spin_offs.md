@@ -24,6 +24,8 @@ installs all of them at load.
 | `plugin.cpp`, `repair.cpp`, `vendor.cpp`, `transfer.cpp` | Item condition per stack, repair from spares, vendor repair, CND line in the transfer and barter menus | `F3NV_Condition` (18 natives) | Spawn-health call redirect; transfer and barter menu listeners |
 | `pipboy.cpp` | CND line, repair list and ammo list on the Pip-Boy item card | `F3NV_Condition.Pipboy*`, `F3NV_PipboyAmmo` | Pip-Boy menu listener |
 | `pages.cpp` | Extra STAT tabs | `F3NV_Pipboy.SetTab` | (through the Pip-Boy listener) |
+| `card.cpp` | Other mods' lines on the Pip-Boy item card, per item or per keyword ([card lines](swf_framework.md#card-lines)) | `F3NV_ItemCard.SetLine` | (drawn by our Pip-Boy movie) |
+| `gfx.cpp` | Flash helpers shared by the hooked menus, and natives any movie of ours may call (`TextureExists`, for f3ui's images) | Scaleform natives `F3NV` | Nothing |
 | `ammo.cpp` | Ammo choice list for the highlighted gun | `F3NV_PipboyAmmo` | (through the Pip-Boy listener) |
 | `damage.cpp` | Flat Damage Threshold, per pellet | `F3NV_Damage.SetRules` | Four resistance-curve call redirects; off until `SetRules` |
 | `hardcore.cpp` | Ammo weight outside Survival, HUD needs | `F3NV_HardcoreNative.Track` | One call redirect; off until its global is set |
@@ -38,11 +40,16 @@ raw F4SE 0.7.9 with no Address Library.
 
 | Release | Contains | For |
 |---|---|---|
-| **Framework DLL** (name to pick) | Item condition API, Pip-Boy and menu CND lines, Pip-Boy tabs API, `ChangeSex`, the Papyrus array library (`F3NV_Array.psc`) | Mod authors. Does nothing on its own |
+| **Framework DLL** (name to pick) | Item condition API, Pip-Boy and menu CND lines, Pip-Boy tabs API, item-card lines for other mods (`card.cpp`), `ChangeSex`, the Papyrus array library (`F3NV_Array.psc`) | Mod authors. Does nothing on its own |
+| **f3ui menu library** | Our own AS3 menu toolkit: input, modal pop-ups, scroll lists, hint bar, images, translations, controller support; compiled with the open Flex SDK ([release](swf_framework.md#release)) | Mod authors who want a menu without decompiling Bethesda's files. No DLL |
+| **Level-up menu** | Our level-up menu on f3ui ([plan](fo4_level_up_plan.md)): skill, perk, tag and trait pages, PRKF.dll's work in Papyrus, opened in place of `LevelUpMenu` without replacing its movie, an API for other mods ([API](fo4_level_up_plan.md#api)) | Players and perk-overhaul authors replacing LevelUpMenuEx ([below](#level-up)) |
+| **Casino games and Caravan** (content mod) | The casino menus on f3ui ([plan](fo4_casino_plan.md)): slots and roulette built, blackjack and Caravan planned | Players who want the games anywhere in FO4, such as a settlement bar ([below](#casino)) |
+| **Modder tools** | Stand-alone tools from the replaced CK steps ([below](#tools)) | Mod authors. No DLL |
 | **Dialogue menu** | `dialogue.cpp` and its menu file, separate DLL | Players replacing XDI. No framework needed. See [its plan](dialogue_menu_mod.md) |
 | **NV Weapon Condition & Repair** (content mod) | ESP + scripts that track weapons and armor, repair lists, vendors | Players. Requires the framework |
 | **NV Ammo Switching** (content mod, optional) | ESP + scripts for the ammo list | Players. Requires the framework. Many alternatives exist; low priority |
 | **Dynamic collision** | New DLL ([plan](dynamic_collision_mod.md)), from [the research](research/fo4_dynamic_collision.md) | Players and mod authors. No FO4 equivalent exists. No code yet |
+| **Appearance comparison** | Stand-alone tool, no DLL for its viewer ([plan](appearance_compare_tool.md)): two load orders' NPCs side by side, plus a dark-face check | Players choosing between character replacers, and mod authors. No code yet |
 | **F3NV.dll** | The converter's own rules: Damage Threshold, Hardcore, combat sprint, spawn condition | The FNV build only. Requires the framework and the dialogue menu |
 
 Not released on their own:
@@ -218,6 +225,12 @@ Everything else needs F4SE and stays PC (and later VR).
    framework's example mod.
 5. **Dynamic collision**: once its open engine questions are answered.
 
+The pieces added since (f3ui, the level-up menu, the casino, the tools and
+the write-ups) are ordered in [the strategy table](#strategy) and below.
+Of them, only the item-card lines need a DLL (`card.cpp`, so they ship
+with the framework); f3ui, the level-up menu, the casino screens, the
+tools and the write-ups don't wait on the shared DLL base.
+
 ## <a id="strategy"></a>Strategy: open, drop-in replacements
 
 Widely used FO4 UI mods by the same small group (reg2k, very likely the
@@ -232,6 +245,7 @@ maintain their cores.
 | HUDFramework | Mar 2017 (source uploaded Sep 2026) | `references/HUDFramework Source Code 1.0f`, no license |
 | MCM | Sep 2026 | GitHub, no license |
 | DEF_UI (DEF_HUD + DEF_INV, Neanka) | Real work 2016; 2024 repack "as-is, not supported" | None. Permissions forbid changing its files ([DEF_UI](#def-ui)) |
+| LevelUpMenuEx (Neanka) | Not checked | `references/LevelUpMenuEx`, no license ([what it does](fo4_level_up_plan.md#today)) |
 
 **Decision:** aim to be the open-licensed, drop-in replacement, one
 framework at a time, the way Open Animation Replacer took over from Dynamic
@@ -252,6 +266,88 @@ Animation Replacer in Skyrim:
 | 3b. DEF_HUD layouts on the same HUD host ([plan](swf_framework.md#hud-layout)) | Move, scale, recolor and hide the game's own HUD parts without replacing `HUDMenu.swf`; reads `DEF_HUD.xml`; ends the DEF_UI + HUDFramework merge patch | Small on top of 3 |
 | 4. MCM | Works, most depended on, still updated; no clear gain yet | Largest; keep using its file format |
 | 5. DEF_INV-style inventory | Icons, tabs and key-ring roll-ups from sorting mods' tags; FallUI Inventory already holds this space | Large; maybe never |
+| 6. LevelUpMenuEx → our [level-up menu](#level-up) | Built for the conversion already; reads LevelUpMenuEx's INI lists so its add-ons keep working | Small to medium on top of what's built |
+
+### <a id="level-up"></a>The level-up menu
+
+LevelUpMenuEx is a hard dependency of the conversion today, unlicensed and
+in the same state as XDI and DEF_UI. Our replacement is built
+([plan](fo4_level_up_plan.md), not played): skill, perk and taken pages,
+and the tag and trait menus, listing every plugin's perks and traits, with
+PRKF.dll's points, tags and perk list rebuilt in Papyrus. It opens in
+place of the vanilla `LevelUpMenu` without shipping a `LevelUpMenu.swf`.
+
+- **Drop-in:** read LevelUpMenuEx's INI lists (`PerksList`, `SkillsList`,
+  the point settings), so P76 Perks and the You Are Exceptional and Be
+  Exceptional patches work without it. Only the file format, not its code;
+  still an open decision in [the plan](fo4_level_up_plan.md#api).
+- **Clearly better:** the extras players bolt onto level-up menus, built in
+  ([defaults](fo4_level_up_plan.md#defaults)); a Papyrus API to add perks
+  and skills, open the trait and tag menus and hear when a perk is taken.
+- **No DLL:** it opens from Papyrus (`F3NV_CharacterRules` closes
+  `LevelUpMenu` and opens ours, [opening](fo4_level_up_plan.md#open)).
+- **Needs before release:** perk and trait tables for any load order. Today
+  the converter writes them from each plugin's records
+  ([tables](fo4_level_up_plan.md#tables)), and the points come from
+  `F3NV_CharacterRules`. Plus a play test of the built menu.
+
+### <a id="casino"></a>Casino games and Caravan
+
+The casino screens run on f3ui and Papyrus, with no DLL
+([design](fo4_casino_plan.md#design-logic)). As a content mod, the games
+could sit in any bar or settlement: slots and roulette now, blackjack and
+Caravan when they're built.
+
+- **Needs:** the rules split from FNV's records (casino, chips, comps and
+  bans are per casino today), plain FO4 items for chips and cards, and a
+  play test. Caravan as a card game with its own decks would stand out
+  most, since FO4 has no card game.
+- **Size:** medium after phase 5 of [the casino plan](fo4_casino_plan.md#phases).
+
+## <a id="tools"></a>Modder tools from the replaced CK steps
+
+The build now does much of what the Creation Kit, Elric, Archive2 and
+LipGenerator did ([replacements](fo4_ck_replacements.md#today)). Several of
+those pieces are useful to any FO4 mod author as stand-alone tools, no DLL,
+on any OS. The full list, sizes and order are in
+[the ideas doc](fo4_after_ck_ideas.md#picks); in short:
+
+- [a dark-face fixer](fo4_after_ck_ideas.md#dark-face) that rebuilds only
+  the NPCs whose FaceGen no longer matches the load order, without the CK;
+- [AnimTextData for any mod](fo4_after_ck_ideas.md#anim-text-tool);
+- [lips for voice mods](fo4_after_ck_ideas.md#lip-tool) from the audio
+  alone;
+- [an archive check](fo4_after_ck_ideas.md#ba2-check) for the textures
+  Archive2 silently drops;
+- [collision for modders](fo4_after_ck_ideas.md#collision-tool);
+- [our Caprica fixes upstream](fo4_after_ck_ideas.md#caprica-upstream),
+  including the temp-reuse miscompile every Caprica user has.
+
+They share the release rules above: GPL-3.0 with the modding exception,
+one repo.
+
+## <a id="write-ups"></a>Write-ups for the community
+
+Some findings help modders even without code. The first candidate is the
+CK's face bake, read from its shader and CPU code
+([shader](fo4_facegen_plan.md#ck-face-shader),
+[layer list](fo4_facegen_plan.md#ck-layer-list),
+[brows](fo4_facegen_plan.md#ck-brows),
+[quirks](fo4_facegen_plan.md#face-d-revisit)):
+
+- every unlisted palette option gets its default entry, so every human NPC
+  gets lip color nobody chose;
+- a palette's TTED is an entry index stored in a float field;
+- brows are colored from the race's hair gradient, and black when the race
+  has none (every child) or the hair color has no remapping index;
+- layers go on at mask^(1/2.2) × value, in linear light, in reverse race
+  order.
+
+Character-preset and LooksMenu authors work against this blind today. A
+public page, in our own words with no Bethesda code, costs little.
+
+- **Size:** small. Other candidates as they come: AnimTextData's format
+  ([research](research/anim_text_data.md)), Archive2's silent losses.
 
 ### <a id="def-ui"></a>DEF_UI
 

@@ -1,6 +1,6 @@
 """Measure FO4's face sculpt region and tint layer bases through the Creation Kit, once per race and sex.
 
-    py -3.14 -m fo4_import.spike.sculpt_calibration --data <mod folder> [--what sculpt|tints] [--female]
+    py -3.14 -m fo4_import.spike.sculpt_calibration --data <mod folder> [--what sculpt|tints|presets] [--female]
 
 Writes the calibration plugin (face.sculpt) into the mod folder, exports its
 FaceGen with the CK through MO2, measures each control's effect on the face
@@ -17,14 +17,13 @@ import numpy as np
 from PIL import Image
 
 from fo4_import.base.install import FALLOUT4_ESM
-from fo4_import.face import sculpt, tint
-from fo4_import.spike.facegen import FACEGEN_DIRS, HUMAN_RACE, clear, collect, run_ck
+from fo4_import.face import presets, sculpt, tint
+from fo4_import.face.tint import HUMAN_RACE, TEMPLATES
+from fo4_import.spike.facegen import FACEGEN_DIRS, clear, collect, run_ck
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
-PLUGIN, TINT_PLUGIN = 'FNVSculptCalib.esp', 'FNVTintCalib.esp'
-#: Per sex (female?), the NPC every calibration clone starts from, its face fields removed: the default human bodies.
-TEMPLATES = {False: 0x12FCCB, True: 0x09A680}
+PLUGIN, TINT_PLUGIN, PRESET_PLUGIN = 'FNVSculptCalib.esp', 'FNVTintCalib.esp', 'FNVPresetCalib.esp'
 
 
 def _template(female: bool) -> tuple:
@@ -89,14 +88,37 @@ def calibrate_tints(data_dir: Path, female: bool = False) -> Path:
     return out
 
 
+def calibrate_presets(data_dir: Path, female: bool = False) -> Path:
+    """Measure and cache HumanRace's morph preset basis for one sex; the cache file."""
+    race, template, body = _template(female)
+    found = presets.race_presets(race.body, female)
+    names = presets.calibration_plugin(data_dir / PRESET_PLUGIN, body, template.flags, found)
+    try:
+        clear(PRESET_PLUGIN, data_dir)
+        run_ck(PRESET_PLUGIN)
+        collect(PRESET_PLUGIN, data_dir)
+        nifs = {n: p.read_bytes() for n, p in _exported(names, PRESET_PLUGIN, data_dir, 0, '.NIF').items()}
+        out = presets.basis_path(female)
+        morph_names = presets.morphs(found)
+        np.savez_compressed(out, basis=presets.measure(nifs, morph_names), names=np.array(morph_names))
+    finally:
+        (data_dir / PRESET_PLUGIN).unlink(missing_ok=True)
+        clear(PRESET_PLUGIN, data_dir)
+    return out
+
+
+#: --what -> the calibration it runs.
+CALIBRATIONS = {'sculpt': calibrate, 'tints': calibrate_tints, 'presets': calibrate_presets}
+
+
 def main():
     """Calibrate and print the cache path."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--data', required=True, help='The MO2 mod folder the CK sees')
-    ap.add_argument('--what', choices=('sculpt', 'tints'), default='sculpt', help='Which basis to measure')
+    ap.add_argument('--what', choices=tuple(CALIBRATIONS), default='sculpt', help='Which basis to measure')
     ap.add_argument('--female', action='store_true', help='Measure the female HumanRace basis')
     args = ap.parse_args()
-    print('basis:', (calibrate if args.what == 'sculpt' else calibrate_tints)(Path(args.data), args.female))
+    print('basis:', CALIBRATIONS[args.what](Path(args.data), args.female))
 
 
 if __name__ == '__main__':

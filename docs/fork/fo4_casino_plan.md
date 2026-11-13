@@ -811,6 +811,10 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
     with F4SE's `UI.Set("HUDMenu", "root1.visible", False)` when the
     casino menu opens and shows it again when it closes, and on every load
     (`ShowHud`).
+- **Level-up images (built 2026-11-12, not played):** the spike now shows
+  the card face and three level-up images (DXT3, DXT5, and a name with a
+  space) from the `SpikeImages` property, 300 pixels apart
+  ([level-up](swf_framework.md#level-up)).
 - **In-game check:** `cqf FNV_Casino Spike`; then click Ping, press Enter,
   Esc, and a gamepad's A/B if one is connected; read
   `F3NV_Casino:` lines in `Papyrus.0.log`.

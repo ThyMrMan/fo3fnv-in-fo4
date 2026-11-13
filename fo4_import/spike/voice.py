@@ -23,6 +23,8 @@ from pathlib import Path
 
 import numpy as np
 
+from core.build_resources import profile_cores
+
 from asset_convert.audio.audio_converter import SilentSource, convert_file_to_xwm, find_ffmpeg, pack_fuz
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base import lip
@@ -285,5 +287,5 @@ def convert(job_list: list, lipgen_dir: Path) -> int:
     for source, dest, text in job_list:
         dests = shared.setdefault((source, text), [])
         dests += [] if dest in dests else [dest]
-    with ThreadPoolExecutor() as pool:
+    with ThreadPoolExecutor(profile_cores()) as pool:
         return sum(pool.map(lambda item: _convert_shared(*item, tools), shared.items()))

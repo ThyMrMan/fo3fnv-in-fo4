@@ -48,6 +48,8 @@ SCRIPT, CALLS, NATIVES, ITEM_SCRIPT = ('F3NV_ConditionPlayer', 'F3NV_ConditionCa
                                        'F3NV_ConditionRepairItem')
 #: Each plugin's rows (the game's on its condition quest, a DLC's on a quest of its own); see Condition.write.
 SOURCE_SCRIPT = 'F3NV_ConditionSource'
+#: The item-card line API for other mods (natives in F3NV.dll, card.cpp), shipped with the Pip-Boy work.
+CARD_SCRIPT = 'F3NV_ItemCard'
 #: Our condition attach point (attach point keyword) and the keyword every converted item takes its mods by.
 POINT_EDID, KEYWORD_EDID, ATTACH_POINT, MOD_ASSOCIATION = 'FNV_ap_Condition', 'FNV_ma_Condition', 2, 5
 #: FNV weapon animation types that never wear: grenade throw, land mine, mine drop, thrown.
@@ -241,7 +243,7 @@ class Condition:
         hotkey_effect(self.builder, effect, 'FNV_ConditionRepairEffect', REPAIR_NAME,
                       object_scripts([(ITEM_SCRIPT, {'Hotkey': item, 'Owner': quest}, {})]))
         hotkey_item(self.builder, item, 'FNV_ConditionRepairHotkey', REPAIR_NAME, effect)
-        self.builder.scripts.used += [SCRIPT, CALLS, ITEM_SCRIPT]
+        self.builder.scripts.used += [SCRIPT, CALLS, ITEM_SCRIPT, CARD_SCRIPT]
         if self.builder.built:
             return
         (data_dir / PLUGIN_DIR).mkdir(parents=True, exist_ok=True)

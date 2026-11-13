@@ -17,6 +17,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.writer import pack_fo4_record
+from fo4_import.nif.convert_static import fo4_texture
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
@@ -123,17 +124,23 @@ class Perks:
                 key = (struct.unpack_from('<I', data, AV_AT)[0], bool(data[0] & DETRIMENTAL), bool(data[0] & RECOVER))
                 self.constants.setdefault(key, rec.form_id)
 
+    def trait_records(self) -> list:
+        """FNV's playable traits, in record order."""
+        return [r for r in self.records if r.get('DATA.Trait') == '1' and r.get('DATA.Playable') == '1']
+
     def traits(self) -> list:
-        """The FO4 perks of FNV's playable traits."""
-        return [self.ids[int(r['FormID'], 16)][0] for r in self.records
-                if r.get('DATA.Trait') == '1' and r.get('DATA.Playable') == '1']
+        """The FO4 perks of trait_records()."""
+        return [self.ids[int(r['FormID'], 16)][0] for r in self.trait_records()]
+
+    def offered(self) -> list:
+        """FNV perks a level-up offers (playable, shown, no traits), by level, name."""
+        out = [r for r in self.records if r.get('DATA.Playable') == '1' and r.get('DATA.Trait') != '1'
+               and r.get('DATA.Hidden') != '1']
+        return sorted(out, key=lambda r: (int(r.get('DATA.MinLevel', 0) or 0), r.get('FULL', '')))
 
     def playable(self) -> list:
-        """The first-rank FO4 perks a level-up offers (FNV's playable, shown perks; not traits), by level and name."""
-        offered = [r for r in self.records if r.get('DATA.Playable') == '1' and r.get('DATA.Trait') != '1'
-                   and r.get('DATA.Hidden') != '1']
-        offered.sort(key=lambda r: (int(r.get('DATA.MinLevel', 0) or 0), r.get('FULL', '')))
-        return [self.ids[int(r['FormID'], 16)][0] for r in offered]
+        """The first-rank FO4 perks of offered(), in its order."""
+        return [self.ids[int(r['FormID'], 16)][0] for r in self.offered()]
 
     def form_map(self) -> dict:
         """{FNV perk FormID: first-rank FO4 perk}, held at any rank."""
@@ -158,8 +165,8 @@ class Perks:
                 effects = b'' if teammates else self._effects(rec, rank, after, edid)
                 if not teammates:
                     self._stages(rec, rank, fid)
-                self.builder.writer.add_record('PERK', pack_perk(fid, (edid, rec.get('FULL', ''), rec.get('DESC', '')),
-                                                                 needs or b'', _data(rec, len(ids), bool(teammates)),
+                text = (edid, rec.get('FULL', ''), rec.get('DESC', ''), fo4_icon(rec))
+                self.builder.writer.add_record('PERK', pack_perk(fid, text, needs or b'', _data(rec, len(ids), bool(teammates)),
                                                                  after, effects))
                 self.builder.counts['PERK'] += 1
             if teammates:
@@ -480,10 +487,19 @@ def pack_effect(kind: int, data: bytes, tabs: dict, params: list, priority: int 
     return out + b''.join(pack_subrecord(t.decode(), d) for t, d in params) + pack_subrecord('PRKF', b'')
 
 
+def fo4_icon(record: dict) -> str:
+    """`record`'s ICON as its staged path under Textures; '' for none."""
+    return fo4_texture(record['ICON']) if record.get('ICON') else ''
+
+
 def pack_perk(fid: int, text: tuple, conditions: bytes, data: bytes, next_perk: int, effects: bytes) -> bytes:
-    """An FO4 perk: `text` (EditorID, name, description), requirement `conditions`, DATA, the next rank, effects."""
-    edid, name, desc = text
-    subs = pack_string_subrecord('EDID', edid) + pack_string_subrecord('FULL', name) + pack_string_subrecord('DESC', desc) + conditions
+    """An FO4 perk: `text` (EditorID, name, description and optionally its image, FO4's otherwise unused ICON),
+    requirement `conditions`, DATA, the next rank, effects.
+    See: docs/fork/fo4_level_up_plan.md#images
+    """
+    edid, name, desc, *icon = text
+    subs = pack_string_subrecord('EDID', edid) + pack_string_subrecord('FULL', name) + pack_string_subrecord('DESC', desc)
+    subs += (pack_string_subrecord('ICON', icon[0]) if icon and icon[0] else b'') + conditions
     subs += pack_subrecord('DATA', data) + (pack_subrecord('NNAM', struct.pack('<I', next_perk)) if next_perk else b'')
     return pack_fo4_record('PERK', fid, 0, subs + effects)
 

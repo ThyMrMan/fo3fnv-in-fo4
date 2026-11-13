@@ -148,7 +148,7 @@ def mass_properties(verts: np.ndarray, planes: np.ndarray, radius: float) -> Mas
     grown[:, 3] -= radius
     points = HalfspaceIntersection(grown, verts.mean(0)).intersections
     volume, com, tensor = _solid(points)
-    inertia, frame = _principal(tensor * INERTIA_SCALE)
+    inertia, frame = principal(tensor * INERTIA_SCALE)
     return Mass(volume, com, inertia, frame)
 
 
@@ -184,7 +184,7 @@ def _rotation(m: np.ndarray, p: int, q: int) -> np.ndarray:
     return j
 
 
-def _principal(tensor: np.ndarray) -> tuple:
+def principal(tensor: np.ndarray) -> tuple:
     """(principal moments in diagonal order, frame quaternion) of `tensor` by Havok's float32 Jacobi: rotate away
     the largest off-diagonal term until all fall under JACOBI_EPSILON of the matrix.
 
@@ -202,12 +202,20 @@ def _principal(tensor: np.ndarray) -> tuple:
 
 
 def quaternion(m: np.ndarray) -> tuple:
-    """Rotation matrix `m` (columns the rotated axes) as (x, y, z, w), w not negative."""
-    w = math.sqrt(max(0.0, 1.0 + m[0, 0] + m[1, 1] + m[2, 2])) / 2
-    x = math.copysign(math.sqrt(max(0.0, 1.0 + m[0, 0] - m[1, 1] - m[2, 2])) / 2, m[2, 1] - m[1, 2])
-    y = math.copysign(math.sqrt(max(0.0, 1.0 - m[0, 0] + m[1, 1] - m[2, 2])) / 2, m[0, 2] - m[2, 0])
-    z = math.copysign(math.sqrt(max(0.0, 1.0 - m[0, 0] - m[1, 1] + m[2, 2])) / 2, m[1, 0] - m[0, 1])
-    return float(x), float(y), float(z), float(w)
+    """Rotation matrix `m` (columns the rotated axes) as (x, y, z, w) by Havok's rule: w positive on a positive
+    trace, else the component of the largest diagonal term positive."""
+    trace = m[0, 0] + m[1, 1] + m[2, 2]
+    if trace > 0:
+        s = math.sqrt(trace + 1.0)
+        return tuple(float(c) for c in ((m[2, 1] - m[1, 2]) / (2 * s), (m[0, 2] - m[2, 0]) / (2 * s),
+                                        (m[1, 0] - m[0, 1]) / (2 * s), s / 2))
+    i = max(range(3), key=lambda a: (m[a, a], -a))
+    j, k = (i + 1) % 3, (i + 2) % 3
+    s = math.sqrt(m[i, i] - m[j, j] - m[k, k] + 1.0)
+    q = [0.0] * 4
+    q[i], q[j], q[k], q[3] = s / 2, (m[j, i] + m[i, j]) / (2 * s), (m[k, i] + m[i, k]) / (2 * s), \
+        (m[k, j] - m[j, k]) / (2 * s)
+    return tuple(float(c) for c in q)
 
 
 def pack_vector(v) -> list:
@@ -227,15 +235,17 @@ def pack_quaternion(q) -> list:
 # Packfile objects
 # ---------------------------------------------------------------------------
 
-def _tail(verts: np.ndarray, loops: list, planes: np.ndarray, angles: list) -> tuple:
-    """(the shape's relative-array bytes past its class, {member: (count, offset)})."""
+def tail(verts: np.ndarray, loops: list, planes: np.ndarray, angles: list, cls: str = CLASS,
+         spare: bytes = bytes(16)) -> tuple:
+    """(polytope class `cls`'s relative-array bytes past its class, {member: (count, offset)}); plane slots
+    past the last face hold `spare`."""
     nv, nf = -(-len(verts) // 4) * 4, len(loops)
     np_ = -(-nf // 4) * 4
     out = bytearray()
     for i in range(nv):
         src = min(i, len(verts) - 1)
         out += struct.pack('<3fI', *verts[src], VERTEX_TAG | src)
-    out += b''.join(struct.pack('<4f', *p) for p in planes) + bytes(16 * (np_ - nf))
+    out += b''.join(struct.pack('<4f', *p) for p in planes) + spare * (np_ - nf)
     first, index = 0, bytearray()
     for loop, angle in zip(loops, angles):
         out += struct.pack('<HBB', first, len(loop), angle)
@@ -243,14 +253,14 @@ def _tail(verts: np.ndarray, loops: list, planes: np.ndarray, angles: list) -> t
         first += len(loop)
     out += bytes(4 * (np_ - nf)) + index
     out += bytes(-len(out) % 16)
-    return bytes(out), _relarrays(nv, np_, nf, first)
+    return bytes(out), _relarrays(nv, np_, nf, first, cls)
 
 
-def _relarrays(nv: int, np_: int, nf: int, ni: int) -> dict:
-    """The four relative arrays' (count, offset from the member) for those counts."""
+def _relarrays(nv: int, np_: int, nf: int, ni: int, cls: str) -> dict:
+    """The four relative arrays' (count, offset from the member) of class `cls` for those counts."""
     cl = classes()
-    at = {m.name: m.offset for m in cl.members(CLASS)}
-    verts = cl.size(CLASS)
+    at = {m.name: m.offset for m in cl.members(cls)}
+    verts = cl.size(cls)
     planes = verts + 16 * nv
     faces_at = planes + 16 * np_
     indices = faces_at + 4 * np_
@@ -274,10 +284,10 @@ def polytope(name: str, points: np.ndarray, radius: float, material: int) -> tup
     verts, loops, planes = corners(points)
     mass = mass_properties(verts, planes, radius)
     kept = [trim(verts, loop) for loop in loops]
-    tail, arrays = _tail(verts, kept, planes, angle_bytes(verts, kept, planes))
+    data, arrays = tail(verts, kept, planes, angle_bytes(verts, kept, planes))
     flags = SHAPE_FLAGS & ~SMALL_FACES if kept != loops else SHAPE_FLAGS
     shape = {'flags': flags, 'numShapeKeyBits': 0, 'dispatchType': DISPATCH_CONVEX, 'convexRadius': radius,
-             'userData': material, 'properties': f'{name}p', **arrays, '__tail__': tail}
+             'userData': material, 'properties': f'{name}p', **arrays, '__tail__': data}
     props = {'entries': [{'object': f'{name}m', 'key': MASS_PROPERTIES_KEY, 'flags': 0}]}
     compressed = {'centerOfMass': pack_vector(mass.com), 'inertia': pack_vector(mass.inertia),
                   'majorAxisSpace': pack_quaternion(mass.frame), 'mass': mass.volume, 'volume': mass.volume}

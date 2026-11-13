@@ -5,12 +5,15 @@ See: docs/fork/fo4_pipeline.md#build-stamp
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+from core.build_resources import profile_cores
 from core.subprocess_flags import POPEN_FLAGS
+from core.worker_budget import WORKERS_ENV_VAR
 from fo4_import.base.build_files import moved_in
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,11 +23,13 @@ STAMP_SUFFIX = '.build.json'
 
 def convert_scripts(export_dir: Path, scripts_dir: Path) -> None:
     """Convert the export's scripts into `scripts_dir` (script_convert.pipeline): every build, as the compile
-    after it recompiles only scripts whose text changed."""
+    after it recompiles only scripts whose text changed. Its workers are the resource profile's unless
+    TESCONV_WORKERS says otherwise."""
     started = time.time()
     cmd = [sys.executable, '-m', 'script_convert.pipeline', str(export_dir), '-o', str(scripts_dir),
            '--target', 'fallout4']
-    done = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, **POPEN_FLAGS)
+    env = {**os.environ, WORKERS_ENV_VAR: os.environ.get(WORKERS_ENV_VAR) or str(profile_cores())}
+    done = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=env, **POPEN_FLAGS)
     if done.returncode:
         print(done.stdout[-4000:] + done.stderr[-4000:])
         raise SystemExit(f'script conversion failed ({done.returncode}): {" ".join(cmd)}')

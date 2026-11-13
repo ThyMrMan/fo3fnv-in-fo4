@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QLineEdit, QScrollArea,
                                QVBoxLayout, QWidget)
 
+from core.build_resources import PROFILES
 from fo4_import.app import settings as S
 from fo4_import.app.stages import GAMES
 from fo4_import.app.widgets import ModSourcesTable, PathRow
@@ -19,6 +20,8 @@ SOURCE_LABELS = {source: GAME_LABELS[source] + ('' if game['built'] else ' (buil
                  for source, game in GAMES.items()}
 OUTPUT_LABELS = {'folder': 'A folder of loose files', 'zip': 'A zip of that folder'}
 PLACE_LABELS = {'app': 'Beside the app', 'output': 'In the output folder', 'custom': 'A path I choose'}
+RESOURCE_LABELS = {'low': 'Low: leave half the cores and memory free (slower; for a weaker PC or using it meanwhile)',
+                   'balanced': 'Balanced: leave a quarter free', 'full': 'Full: every core but one (fastest)'}
 
 
 def _combo(labels: dict) -> QComboBox:
@@ -48,6 +51,7 @@ class SetupView(QWidget):
         self.profile = QLineEdit()
         self.profile.setPlaceholderText('none (the converter defaults)')
         self.work, self.nifskope = PathRow(), PathRow(file_filter='NifSkope (*.exe);;All files (*)')
+        self.resources = _combo(RESOURCE_LABELS)
         self.portable = QCheckBox('Keep the settings beside the app (portable)')
         self.saved_at = QLabel()
         self.saved_at.setStyleSheet('color: gray')
@@ -68,6 +72,7 @@ class SetupView(QWidget):
             ('Replacement file', self.place),
             ('Custom replacement file', self.replacements), ('Replacement profile', self.profile)]))
         box.addWidget(self._group('Other', [('Work folder (caches, default scripts)', self.work),
+                                            ('How much of the PC a build uses', self.resources),
                                             ('NifSkope (optional)', self.nifskope), ('', self.portable),
                                             ('', self.saved_at)]))
         box.addStretch(1)
@@ -97,6 +102,7 @@ class SetupView(QWidget):
         self.work.edit.setPlaceholderText(str(S.work_dir(S.defaults())))
         self.work.set_text(settings['work_dir'])
         self.nifskope.set_text(settings['tools']['nifskope'])
+        self.resources.setCurrentIndex(list(RESOURCE_LABELS).index(settings['resources']))
         self.portable.setChecked(portable)
         self.saved_at.setText(f'Settings file: {saved_at}')
         self.shown_source = settings['source']
@@ -139,4 +145,5 @@ class SetupView(QWidget):
         self.settings['mod_sources'] = self.mods.entries()
         self.settings['work_dir'] = self.work.text()
         self.settings['tools']['nifskope'] = self.nifskope.text()
+        self.settings['resources'] = self.resources.currentData()
         return self.settings

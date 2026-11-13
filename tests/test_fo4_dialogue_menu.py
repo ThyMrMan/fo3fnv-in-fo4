@@ -20,6 +20,8 @@ from tools.validate.preflight.plugin_index import every, first, load_plugin, u32
 #: The menu's ActionScript source and F3NV.dll's dialogue hooks.
 MENU_AS = Path(M.__file__).parent / 'as3' / 'DialogueMenu.as'
 DIALOGUE_CPP = Path(__file__).parents[1] / 'tes_runtime' / 'fo4_condition' / 'dialogue.cpp'
+LIBRARY = Path(__file__).parents[1] / 'fo4_import' / 'base' / 'as3' / 'f3ui'
+LIBRARY_INPUT = LIBRARY / 'Input.as'
 
 
 @pytest.fixture(scope='module')
@@ -59,12 +61,19 @@ def test_demo_options_gated_by_the_global(demo):
 
 
 def test_movie_draws_only_white_so_the_hud_color_shows():
-    """Every fill is white, never a black backdrop (it would draw opaque).
+    """Every fill is white, never a black backdrop (it would draw opaque): the menu fills nothing itself and leaves
+    Theme.color white, and the library's outline and list fill only in Theme.color.
 
     See: docs/fork/fo4_dialogue_menu_plan.md#as-built
     """
-    fills = re.findall(r'beginFill\(([^,]+),', MENU_AS.read_text(encoding='utf-8'))
-    assert fills and set(fills) == {'0xFFFFFF'}
+    menu = MENU_AS.read_text(encoding='utf-8')
+    assert 'beginFill' not in menu and 'Theme.color' not in menu
+    assert 'public static var color:uint = WHITE;' in (LIBRARY / 'Theme.as').read_text(encoding='utf-8')
+    for name in ('ScrollList.as', 'Draw.as'):
+        source = (LIBRARY / name).read_text(encoding='utf-8')
+        body = source if name == 'ScrollList.as' else source[source.index('function outline'):source.index('function box')]
+        fills = re.findall(r'beginFill\(([^,]+),', body)
+        assert fills and set(fills) == {'Theme.color'}, name
 
 
 def test_backdrop_is_the_games_shaded_background():
@@ -126,14 +135,18 @@ def test_unused_rows_leave_the_holder_so_the_backdrop_fits():
 
     See: docs/fork/fo4_dialogue_menu_plan.md#backdrop-rows
     """
-    menu = MENU_AS.read_text(encoding='utf-8')
-    assert 'if(i >= count && row.parent != null)' in menu and 'row.parent.removeChild(row);' in menu
+    rows = (LIBRARY / 'ScrollList.as').read_text(encoding='utf-8')
+    assert 'var layer:Sprite = i < shown ? layerFor(items[first + i]) : null;' in rows
+    assert 'field.parent.removeChild(field);' in rows
+    assert 'scroll.show(this.entries' in MENU_AS.read_text(encoding='utf-8')
 
 
 def test_wheel_scrolls_the_list_and_skips_the_camera():
-    """The movie moves on ZoomIn/ZoomOut; F3NV.dll refuses them at the first- and third-person cameras' tests."""
+    """The movie moves on ZoomIn/ZoomOut (f3ui's Input maps them to up and down, and the menu hands it every control);
+    F3NV.dll refuses them at the first- and third-person cameras' tests."""
     source = DIALOGUE_CPP.read_text(encoding='utf-8')
-    assert '"ZoomIn"' in MENU_AS.read_text(encoding='utf-8')
+    assert 'ZoomIn: UP' in (LIBRARY_INPUT).read_text(encoding='utf-8')
+    assert 'this.input.control(name, down)' in MENU_AS.read_text(encoding='utf-8')
     for rva in ('0x25AAB08', '0x10213E0', '0x2522A88', '0x102DFC0'):
         assert rva in source
     assert 'CAMERA_ZOOM' not in source
@@ -154,8 +167,9 @@ def test_rows_take_text_only_through_f3ui():
 
     See: docs/fork/swf_framework.md#spikes
     """
-    menu = MENU_AS.read_text(encoding='utf-8')
-    assert 'Text.show(row, ' in menu and not re.search(r'row\.text\s*=', menu)
+    rows = (LIBRARY / 'ScrollList.as').read_text(encoding='utf-8')
+    assert 'Text.show(text, ' in rows and not re.search(r'\.text\s*=', rows)
+    assert not re.search(r'\.text\s*=', MENU_AS.read_text(encoding='utf-8'))
 
 
 @pytest.mark.skipif(not mxmlc.available(), reason='the Flex SDK is not installed')

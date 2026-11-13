@@ -20,6 +20,8 @@ from fo4_import.face import hair
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, coefficients, head
 from fo4_import.face.texture import fnv_texture, rgb
+from fo4_import.nif import fnv_file
+from fo4_import.nif.convert_static import smoothness, spec_image
 from fo4_import.pipeline.export_index import asset_root, export_file, export_records, plugin_sources
 from fo4_import.pipeline.master_plugin import renumbered
 from fo4_import.pipeline.master_space import identity
@@ -57,11 +59,16 @@ def asset(export_dir: Path, folder: str, rel: str) -> Path:
     return export_file(export_dir, folder, rel.replace(chr(92), '/').lower())
 
 
-def npc_head(export_dir: Path, edid: str) -> tuple:
-    """(FNV head, NPC record, race record, race head part key) of FNV NPC `edid`."""
+def npc_race(export_dir: Path, edid: str) -> tuple:
+    """(NPC record, race record, race head part key) of FNV NPC `edid`."""
     npc = next(r for r in export_records(export_dir, 'NPC_') if r.get('EditorID') == edid)
     race = record(export_dir, 'RACE', npc['RNAM.Race'])
-    part = 'FemalePart[0]' if int(npc.get('ACBS.Flags', 0)) & 1 else 'MalePart[0]'
+    return npc, race, 'FemalePart[0]' if int(npc.get('ACBS.Flags', 0)) & 1 else 'MalePart[0]'
+
+
+def npc_head(export_dir: Path, edid: str) -> tuple:
+    """(FNV head, NPC record, race record, race head part key) of FNV NPC `edid`."""
+    npc, race, part = npc_race(export_dir, edid)
     model = first(race[part + '.Model'])
     return head(asset_root(export_dir, 'meshes'), model, npc.get('FGGS', ''), npc.get('FGGA', '')), npc, race, part
 
@@ -81,6 +88,21 @@ def fnv_face(export_dir: Path, edid: str) -> tuple:
         return fnv, (skin, offset, None)
     stock = rgb(stock, skin.shape[:2])
     return fnv, (stock, offset, skin - stock)
+
+
+def fnv_shine(export_dir: Path, edid: str) -> np.ndarray:
+    """FNV NPC `edid`'s skin shine as an FO4 specular map image (spec_image, float) in its head's UVs: the alpha
+    of the race head texture's normal map (else the head mesh's own) at the head material's glossiness.
+    See: docs/fork/fo4_facegen_plan.md#fnv-shine
+    """
+    _, race, part = npc_race(export_dir, edid)
+    blocks = fnv_file.read(asset(export_dir, 'meshes', first(race[part + '.Model']))).blocks
+    glossiness = next(b.glossiness for b in blocks if hasattr(b, 'glossiness'))
+    normal = asset(export_dir, 'textures', first(race[part + '.Texture'])[:-4] + '_n.dds')
+    if not normal.is_file():
+        textures = next(b.textures for b in blocks if type(b).__name__ == 'BSShaderTextureSet')
+        normal = asset(export_dir, '', str(textures[1]))
+    return spec_image(normal.read_bytes(), smoothness(glossiness)).astype(float)
 
 
 @cache

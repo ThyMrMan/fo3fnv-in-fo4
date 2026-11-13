@@ -13,7 +13,7 @@ from PIL import Image
 
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.face import texture as TX
-from fo4_import.face import tint
+from fo4_import.face import skin_seams, tint
 from fo4_import.face.fnv_head import FnvHead
 from fo4_import.face.sculpt import FACE_FIELDS
 from fo4_import.face.texture import fnv_texture
@@ -91,3 +91,59 @@ def test_a_mod_race_skin_without_an_egt_reaches_the_tint_fit():
     """Willow (own race skin, no .egt) gets tint layers; no FaceGen colour, so no tone."""
     values, tone, captured = tint_fit(MOD_EXPORT, 'Willow', True)
     assert (np.asarray(values) > 0.005).any() and np.array_equal(tone, np.ones(3)) and captured > 0
+
+
+def test_a_skin_tint_with_a_zero_channel_keeps_the_texture_finite():
+    """untinted divides through the tint and keeps the base in a channel the tint zeroes, never inf or NaN."""
+    drawn, base = np.full((2, 3), 0.5), np.full((2, 3), 0.25)
+    out = skin_seams.untinted(drawn, base, (0.5, 0.0, 1.0))
+    assert np.isfinite(out).all() and np.allclose(out[:, 1], 0.25)
+    assert np.allclose(out[:, 0], 0.5 / (0.5 * skin_seams.SKIN_TINT_DRAW[0]))
+
+
+def _old_texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:
+    """texel_points as it was: each triangle's texels and their points worked out in turn, every call."""
+    rows, cols, where = [], [], []
+    for tri in tris:
+        corners = uv[tri] * size - 0.5
+        lo, hi = np.floor(corners.min(0)).astype(int), np.ceil(corners.max(0)).astype(int)
+        xs, ys = np.meshgrid(np.arange(max(lo[0], 0), min(hi[0], size - 1) + 1),
+                             np.arange(max(lo[1], 0), min(hi[1], size - 1) + 1))
+        p = np.stack([xs.ravel(), ys.ravel()], 1).astype(float)
+        m = np.array([corners[1] - corners[0], corners[2] - corners[0]]).T
+        if abs(np.linalg.det(m)) < 1e-12 or not len(p):
+            continue
+        b = np.linalg.solve(m, (p - corners[0]).T).T
+        bary = np.column_stack([1 - b.sum(1), b])
+        inside = (bary >= -1e-6).all(1)
+        rows.append(ys.ravel()[inside])
+        cols.append(xs.ravel()[inside])
+        where.append(bary[inside] @ points[tri])
+    return np.concatenate(rows), np.concatenate(cols), np.vstack(where)
+
+
+def test_texel_points_from_the_kept_cover_match_the_per_triangle_points():
+    """Two faces on one UV layout: each one's texels and points are bit for bit the per-triangle loop's.
+
+    See: docs/fork/fo4_facegen_plan.md#skin-speed
+    """
+    points, uv, tris = uv_grid(9, 1.0, 0.0)
+    for scale in (1.0, 1.3):
+        new, old = TX.texel_points(points * scale, uv, tris, 64), _old_texel_points(points * scale, uv, tris, 64)
+        assert all(a.tobytes() == b.tobytes() for a, b in zip(new, old))
+
+
+def test_the_neck_fade_matches_the_unbounded_search():
+    """neck_weight (box-filtered, bounded search) and faded (body drawn only where it shows) give the plain sums.
+
+    See: docs/fork/fo4_facegen_plan.md#skin-speed
+    """
+    rng = np.random.default_rng(3)
+    seam = skin_seams.cKDTree(rng.uniform(0, 4, (50, 3)))
+    points = rng.uniform(-30, 30, (4000, 3))
+    plain = np.clip(1.0 - seam.query(points)[0] / skin_seams.NECK_BLEND, 0.0, 1.0)[:, None]
+    weight = skin_seams.neck_weight(points, seam)
+    assert weight.tobytes() == plain.tobytes() and 0 < np.count_nonzero(weight) < len(points)
+    own, body = rng.uniform(0, 255, (4000, 3)), rng.uniform(0, 255, (4000, 3))
+    mixed = skin_seams.faded(own, weight, lambda near: body[near])
+    assert mixed.tobytes() == (own * (1 - weight) + body * weight).tobytes()

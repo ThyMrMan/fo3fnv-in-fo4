@@ -89,10 +89,21 @@ per-user rules file, `userlist.yaml` (in LOOT's `Fallout 4` folder), with `after
 
 ## <a id="light"></a>Light plugins
 
-FO4 allows 254 full plugins but about 4,000 light (ESL) ones. A Tale of Two Wastelands–sized conversion with a
-large FNV mod list would hit the full-plugin limit, so making small converted mods light matters. Whether our
-hashed FormIDs can fit a light plugin's range without moving IDs in existing saves is investigated separately:
-see [research/fo4_light_plugins.md](research/fo4_light_plugins.md).
+FO4 allows 254 full plugins but 4,096 light (ESL) ones, each with up to 4,095 new records. A Tale of Two
+Wastelands–sized conversion with a large FNV mod list would hit the full-plugin limit. Decided (2026-11-11), with
+the design and the engine evidence in [research/fo4_light_plugins.md](research/fo4_light_plugins.md#policy):
+
+- **Full plugins by default** for every converted plugin.
+- **A per-mod "build as light" opt-in in the app**, before that mod's first build. The app shows whether the mod fits
+  and warns about [light-only problems](research/fo4_light_plugins.md#problems) (precombines and previs on the
+  plugin's own cells; new cells in an ESM+ESL plugin that others override). An opted-in mod gets light-range ids
+  from its ledger, stable across rebuilds; dependent converted mods find its records through that ledger.
+- **Locked after the first build:** switching moves FormIDs, so it needs an explicit "breaks saves that use this
+  mod" confirmation. Don't compact converted plugins in xEdit: the next rebuild writes the full numbering again.
+- **The converter reads light plugins either way:** light converted masters, and light FO4 and Creation Club
+  plugins in the load order (they take no full slot).
+- **Override-only plugins are light automatically:** the [merged patch](#merged-patch), replacement patches, and any
+  converted plugin with no new records. No FormID changes.
 
 ## <a id="order"></a>Order
 

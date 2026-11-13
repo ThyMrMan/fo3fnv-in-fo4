@@ -32,8 +32,8 @@ String[] Property RouletteTexts Auto Const
 {The roulette screen's labels, bet names and results (FNV's settings), in RouletteScreen.as's order.}
 String[] Property BlackjackTexts Auto Const
 {The blackjack screen's buttons, labels and results (FNV's settings), in BlackjackScreen.as's order.}
-String Property SpikeImage Auto Const
-{Spike: the converted card face the test screen mounts (under Textures).}
+String[] Property SpikeImages Auto Const
+{Spike: the images the test screen mounts (under Textures): a converted card face, then level-up images.}
 
 Int Property MenuFlags = 0x800049D AutoReadOnly Hidden
 {F4SE's default menu flags (0x801849D: pauses, cursor, menu context, modal, no pause menu) without Custom Rendering (0x8000) and Assign Cursor To Renderer (0x10000): with those the menu drew only around the cursor (played 2026-11-08).}
@@ -459,7 +459,7 @@ EndFunction
 ; ---- The menu
 
 Function Spike(String asTitle = "F3NV casino spike")
-  {Phase 0: open the test screen showing asTitle and SpikeImage.}
+  {Phase 0: open the test screen showing asTitle and SpikeImages.}
   Register()
   spikeTitle = asTitle
   spiking = True
@@ -502,8 +502,12 @@ Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
   If abOpening && selfTestLuck > 0
     RunSelfTest()
   ElseIf abOpening && spiking
-    Var[] paths = new Var[1]
-    paths[0] = SpikeImage
+    Var[] paths = new Var[SpikeImages.Length]
+    Int i = 0
+    While i < SpikeImages.Length
+      paths[i] = SpikeImages[i]
+      i += 1
+    EndWhile
     Var[] args = new Var[2]
     args[0] = spikeTitle
     args[1] = Utility.VarArrayToVar(paths)

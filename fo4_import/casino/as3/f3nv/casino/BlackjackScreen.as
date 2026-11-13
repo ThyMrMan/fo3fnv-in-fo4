@@ -1,6 +1,7 @@
 package f3nv.casino
 {
    import f3ui.Draw;
+   import f3ui.Input;
    import f3ui.Text;
    import flash.display.Loader;
    import flash.display.Sprite;
@@ -84,7 +85,7 @@ package f3nv.casino
          return out;
       }
 
-      // Papyrus's data (F3NV_Casino.OpenBlackjack); `mount(paths, prefix)` mounts textures and names them.
+      // Papyrus's data (F3NV_Casino.OpenBlackjack); `mount(paths, prefix)` mounts textures: their img:// URLs.
       public function open(name:String, chipCount:int, low:int, high:int, won:int, luck:int, seed:uint, decks:int,
                            share:Number, payout:Number, stays:Boolean, backPaths:Array, menuTexts:Array,
                            mount:Function) : void
@@ -141,18 +142,18 @@ package f3nv.casino
          return out;
       }
 
-      // FO4's controls and keys: Accept or Enter deals, then hits; left and right change the bet; Cancel leaves.
-      public function control(name:String) : Boolean
+      // Input's actions: Accept deals, then hits; left and right change the bet (Back leaves, F3NV_Casino).
+      public function control(action:String) : Boolean
       {
-         if (name == "Accept")
+         if (action == Input.ACCEPT)
          {
             if (table.betting) { deal(); } else { hit(); }
          }
-         else if (name == "Left")
+         else if (action == Input.LEFT)
          {
             lower();
          }
-         else if (name == "Right")
+         else if (action == Input.RIGHT)
          {
             raise();
          }
@@ -161,6 +162,13 @@ package f3nv.casino
             return false;
          }
          return true;
+      }
+
+      // The hint bar's hints: deal or hit, the bet down and up, exit.
+      public function hints() : Array
+      {
+         return [[Input.ACCEPT, text(DEAL) + " / " + text(HIT)], [[Input.LEFT, Input.RIGHT], "-/+"],
+                 [Input.BACK, text(EXIT)]];
       }
 
       private function text(index:int) : String
@@ -183,7 +191,7 @@ package f3nv.casino
             cardsShown.addChild(loader);
             if (image)
             {
-               loader.load(new URLRequest("img://" + image));
+               loader.load(new URLRequest(image));
             }
          }
       }

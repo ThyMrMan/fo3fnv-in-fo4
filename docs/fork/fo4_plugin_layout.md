@@ -437,15 +437,17 @@ built. The cell argument is the DLC's own interior.
   (Before the merge, Honest Hearts' copy was dropped and FO4Edit found 866
   Say Once conditions naming a stage that never shipped.)
 - **The game plugin's files stay the game's.** Only the game build writes
-  LevelUpMenuEx's ini (a second one would point the level-up menu at the
-  DLC's copy of the lists) and copies `F3NV.dll`.
+  the level-up options' MCM page (a second would set a DLC's copy of the
+  rules quest) and copies `F3NV.dll`. (It also wrote LevelUpMenuEx's ini,
+  until that was [dropped](fo4_level_up_plan.md#dropped).)
 - **Two DLCs overriding one record** (a form list, a merged quest): the one
   loading last wins, each holding the game's entries and its own. Met in play
   with seven DLCs and packs loaded: condition, the Ammo Type hotkey and
   challenges kept only Honest Hearts' items. Those systems now gather every
   plugin's rows at run time ([condition](fo4_condition.md#sources),
-  [form lists](#dlc-lists), [Say Once](#dlc-say-once)), and no DLC overrides
-  their quests or lists.
+  [form lists](#dlc-lists), [Say Once](#dlc-say-once), the level-up menu's
+  [perk and trait tables](fo4_level_up_plan.md#tables)), and no DLC
+  overrides their quests or lists.
 
 **Gun Runners' Arsenal, measured:** 979 records (38 guns, 160 weapon mods, 27
 ammo, 131 leveled lists, 51 recipes, the vendor chest cell with 23
@@ -765,7 +767,8 @@ makers in `spike/cell.py` and the end of the build in
 wherever they are first made (`base NPC_`, `item WEAP`), as a base is made
 on first request by whichever stage asks; those lines are what phase 6
 caches. Export files read for the first time are charged to the stage that
-read them.
+read them. Since 2026-11-12 the mesh cache step is a stage too, and each line
+carries the stage's peak memory ([memory per stage](fo4_build_resources.md#stage-memory)).
 
 **Measured, whole map, 2026-10-31** (3,023 s; meshes cached, 0 scripts
 changed): the Creation Kit's own-rig animation data 1,231 s (the plugin
@@ -855,6 +858,19 @@ each would save:
   input list yet to tell why; the rig graphs and skeleton NIFs differ from
   an older build's (2 and 4,814 bytes for the gecko's), not yet shown to
   differ build to build.
+
+<a id="stage-profile"></a>**Profiling one stage (2026-11-12).** Set
+`F3NV_PROFILE_STAGES` to stage names as the `stage` lines print them,
+comma-separated (`worlds` or `worlds,item WEAP`), and those stages run under
+cProfile in that build. `stage_timer` writes `temp/stage_profiles/<stage>.prof`
+(open it with `pstats`) and `<stage>.txt`, the top 40 functions by own time
+and by cumulative time. Every call of the stage in one build adds to the
+same file; the next build replaces it. Nested stages run inside the profile
+too, so their functions appear in it while the `stage` lines still charge
+them to themselves. Only the main process is profiled, not pool workers,
+and cProfile slows Python-heavy code, so compare shares within one profile,
+not times against an unprofiled build. With the variable unset, nothing is
+profiled.
 
 ### <a id="shared-state"></a>Shared state a unit touches (survey, 2026-10-31)
 

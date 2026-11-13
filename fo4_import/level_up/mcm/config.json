@@ -1,0 +1,91 @@
+{
+  "modName": "{mod}",
+  "displayName": "{title}",
+  "minMcmVersion": 1,
+  "content": [
+    {
+      "text": "$F3NV_MCM_LEVEL_UP",
+      "type": "section"
+    },
+    {
+      "text": "$F3NV_MCM_LEVELS_PER_PERK",
+      "type": "slider",
+      "help": "$F3NV_MCM_LEVELS_PER_PERK_HELP",
+      "valueOptions": {
+        "min": 1,
+        "max": 5,
+        "step": 1,
+        "sourceType": "PropertyValueInt",
+        "sourceForm": "{form}",
+        "scriptName": "F3NV_CharacterRules",
+        "propertyName": "LevelsPerPerk"
+      }
+    },
+    {
+      "text": "$F3NV_MCM_SKILL_POINTS",
+      "type": "slider",
+      "help": "$F3NV_MCM_SKILL_POINTS_HELP",
+      "valueOptions": {
+        "min": 0,
+        "max": 30,
+        "step": 1,
+        "sourceType": "PropertyValueInt",
+        "sourceForm": "{form}",
+        "scriptName": "F3NV_CharacterRules",
+        "propertyName": "SkillPointsBase"
+      }
+    },
+    {
+      "text": "$F3NV_MCM_PER_INTELLIGENCE",
+      "type": "slider",
+      "help": "$F3NV_MCM_PER_INTELLIGENCE_HELP",
+      "valueOptions": {
+        "min": 0,
+        "max": 3,
+        "step": 0.5,
+        "sourceType": "PropertyValueFloat",
+        "sourceForm": "{form}",
+        "scriptName": "F3NV_CharacterRules",
+        "propertyName": "SkillPointsPerIntelligence"
+      }
+    },
+    {
+      "text": "$F3NV_MCM_SKILL_CAP",
+      "type": "slider",
+      "help": "$F3NV_MCM_SKILL_CAP_HELP",
+      "valueOptions": {
+        "min": 50,
+        "max": 250,
+        "step": 5,
+        "sourceType": "PropertyValueInt",
+        "sourceForm": "{form}",
+        "scriptName": "F3NV_LevelUp",
+        "propertyName": "SkillCap"
+      }
+    },
+    {
+      "type": "spacer"
+    },
+    {
+      "text": "$F3NV_MCM_MENU",
+      "type": "section"
+    },
+    {
+      "text": "$F3NV_MCM_SHOW_ALL",
+      "type": "switcher",
+      "help": "$F3NV_MCM_SHOW_ALL_HELP",
+      "valueOptions": {
+        "sourceType": "PropertyValueBool",
+        "sourceForm": "{form}",
+        "scriptName": "F3NV_LevelUp",
+        "propertyName": "ShowAllPerks"
+      }
+    },
+    {
+      "id": "f3nv_open_level_up",
+      "text": "$F3NV_MCM_OPEN",
+      "type": "hotkey",
+      "help": "$F3NV_MCM_OPEN_HELP"
+    }
+  ]
+}

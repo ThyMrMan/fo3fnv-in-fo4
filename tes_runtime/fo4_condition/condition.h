@@ -6,9 +6,11 @@
 #include "f4se/GameForms.h"
 #include "f4se/GameReferences.h"
 #include "f4se/PapyrusVM.h"
+#include "f4se/ScaleformCallbacks.h"
 #include "f4se/ScaleformMovie.h"
 #include "f4se/ScaleformValue.h"
 
+#include <initializer_list>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -116,11 +118,30 @@ float BuyRepair(Actor *holder, TESForm *item, SInt32 stack, UInt32 cost, float h
 // The repair chosen in the Pip-Boy, cleared as it is taken; false with none.
 bool TakePipboyRepair(Repair *out);
 
+// ---- Flash helpers (gfx.cpp) ----
+
 // A Flash value as a number (int, uint, number or bool; else 0).
 double Num(const GFxValue &v);
 
 // Member `name` of Flash object `obj` into `out`; false when `obj` is not an object or lacks it.
 bool Get(GFxValue &obj, const char *name, GFxValue *out);
+
+// Log Flash object `obj`'s members by name and GFx type to F3NV.log (a menu not laid out as expected).
+void LogMembers(GFxValue &obj);
+
+// The first of `bases` (paths in `movie`) with a BGSCodeObj, and with member `needs` unless null: its path into
+// `base`, it into `root` and its BGSCodeObj into `code`; false (base cleared) when none has them.
+bool FindMenu(GFxMovieRoot *movie, std::initializer_list<const char *> bases, const char *needs, std::string *base,
+              GFxValue *root, GFxValue *code);
+
+// Listen for `event` on Flash object `target` with a native `Handler`; false when it could not be added.
+template <class Handler>
+bool Listen(GFxMovieRoot *movie, GFxValue &target, const char *event) {
+    GFxValue args[2];
+    movie->CreateString(&args[0], event);
+    CreateFunction<Handler>(&args[1], movie);
+    return target.Invoke("addEventListener", nullptr, args, 2);
+}
 
 // Keep a CND line at `health` in item card `card`'s InfoObj, redrawing the card when it is added or changes.
 void ShowLine(GFxMovieRoot *movie, GFxValue &card, float health, bool force);
@@ -137,19 +158,51 @@ void InstallPipboy(void *taskInterface);
 // Ask the Pip-Boy to show the highlighted item's condition again (after a repair).
 void RefreshPipboy();
 
-// ---- Pip-Boy lists on the item card (pipboy.cpp), shared by the ammo list ----
+// ---- Pip-Boy lists (pipboy.cpp), shared by the ammo list; our Pip-Boy movie draws them ----
+
+// One line of a Pip-Boy list or item card: its text and value.
+struct Row {
+    std::string text, value;
+};
+
+// A list our Pip-Boy movie draws as a pop-up over the item card (docs/fork/swf_framework.md#pipboy): a heading,
+// rows of which `chosen` is highlighted (-1: none), notes under them, and the keys.
+struct ListView {
+    Row heading, keys;
+    std::vector<Row> rows, notes;
+    SInt32 chosen = -1;
+};
 
 // The Pip-Boy's current page into `page` when it is the inventory page (it has an item card).
 bool CurrentPage(GFxMovieRoot *movie, GFxValue *page);
 
-// Push a {text, value} line onto item card line array `lines`.
-void AddLine(GFxMovieRoot *movie, GFxValue &lines, const std::string &text, const std::string &value);
-
-// Turn the inventory page's modal on or off: its fade and list input, with the item card lifted above the fade.
+// Turn the inventory page's modal on or off: its fade and its list's input.
 void SetModal(GFxValue &page, bool on);
 
-// Add a `label` line saying why there is nothing to choose to `page`'s item card.
-void SayOnCard(GFxMovieRoot *movie, GFxValue &page, const char *why, const char *label = "REPAIR");
+// Translation key `key` with `slot` for its {0}, as our movies' Text.show fills it (docs/fork/swf_framework.md#translations).
+inline std::string Fill(const char *key, const std::string &slot) {
+    return std::string(key) + "\t" + slot;
+}
+
+// Show `label`: `why` (why nothing opened; translation keys) on the item card until the selection changes.
+void SayOnCard(const char *why, const char *label = "$F3NV_REPAIR");
+
+// Whether our Pip-Boy movie has called F3NV since this Pip-Boy menu opened (it draws the lists); logs once when not.
+bool PipboyMovieThere();
+
+// The open ammo list as a view for the movie; false when it is closed.
+bool AmmoView(ListView *view);
+
+// ---- Other mods' item-card lines (card.cpp; docs/fork/swf_framework.md#card-lines) ----
+
+// Append the lines mods set for item `formID` (for it, or a keyword it carries) to `out`.
+void CardLinesOf(UInt32 formID, std::vector<Row> *out);
+
+// Forget every mod's lines (a save is loading or a new game starts).
+void ForgetCardLines();
+
+// Register F3NV_ItemCard's native SetLine.
+void RegisterItemCard(VirtualMachine *vm);
 
 // Send F4SE external event `event` to Papyrus from the Pip-Boy's movie; false when it could not be sent.
 bool SendExternal(GFxMovieRoot *movie, const char *event);
@@ -166,6 +219,12 @@ SInt32 PipboyLineStack(UInt32 formID, UInt32 nodeID);
 // Whether the repair list is open.
 bool RepairListOpen();
 
+// Give `plugin` (a movie's f4se.plugins.F3NV) the Pip-Boy movie's natives PipboyCardLines and PipboyList.
+void RegisterPipboyMenu(GFxMovieRoot *movie, GFxValue *plugin);
+
+// Add the natives f3ui's Images calls (TextureExists) to `plugin` (f4se.plugins.F3NV) in `movie` (gfx.cpp).
+void RegisterImageNatives(GFxMovieRoot *movie, GFxValue *plugin);
+
 // ---- The ammo list (ammo.cpp; docs/fork/fo4_condition.md#ammo-list) ----
 
 // Whether the ammo list is open.
@@ -174,7 +233,7 @@ bool AmmoListOpen();
 // Forget an open ammo list (the page changed or the Pip-Boy opened again).
 void ForgetAmmoList();
 
-// A Pip-Boy key (Flash key code): V opens the ammo list, and the open list takes every key; false otherwise.
+// A Pip-Boy key (Flash key code): B opens the ammo list, and the open list takes every key; false otherwise.
 bool AmmoKey(GFxMovieRoot *movie, int key);
 
 // The AMMO hint into `hint`; false when it cannot be made.

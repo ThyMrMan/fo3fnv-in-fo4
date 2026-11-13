@@ -17,7 +17,7 @@ import struct
 from fo4_import.base.support_records import pack_gmst
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.creature_speed import forward_run
-from fo4_import.spike.facegen import HUMAN_RACE
+from fo4_import.face.tint import HUMAN_RACE
 from fo4_import.spike.perks import SPELL_TEMPLATE, pack_spell
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord

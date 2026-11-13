@@ -63,6 +63,7 @@ def test_elric_runs_only_on_uncached_meshes_and_remembers_a_crash(tmp_path, monk
     monkeypatch.setattr(EC, 'CACHE', tmp_path)
     monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
     monkeypatch.setattr(EC.elric, 'process', fake)
+    monkeypatch.setattr(EC, 'ours', lambda data: None)
     assert EC.process({'a': b'one', 'b': b'bad'}) == {'a': b'one!'}
     assert EC.process({'c': b'one', 'd': b'bad', 'e': b'two'}) == {'c': b'one!', 'e': b'two!'}
     assert runs == [['a', 'b'], ['e']]
@@ -81,8 +82,8 @@ def test_cached_work_runs_once_per_input_and_keeps_a_none(tmp_path, monkeypatch)
 
 
 def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_path, monkeypatch):
-    """elric_cache.finish() finishes only meshes it has not seen; a seen one gets its finished bytes and its
-    failed flag back."""
+    """elric_cache.finish() finishes only meshes it has not seen, each alone; a seen one gets its finished bytes and
+    its failed flag back."""
     runs = []
 
     def fake(paths, run, names):
@@ -101,7 +102,7 @@ def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_pat
             p.write_bytes(p.stem.encode())
         assert EC.finish(paths) == [tmp_path / 'b.nif']
         assert [p.read_bytes() for p in paths] == [b'a+', b'b+']
-    assert runs == [[b'a', b'b']]
+    assert runs == [[b'a'], [b'b']]
 
 
 def test_a_mesh_a_master_finished_alike_is_left_out_and_its_mark_recorded(tmp_path, monkeypatch):
@@ -195,7 +196,7 @@ def test_a_region_is_its_two_corners_and_around_is_its_square():
 def test_a_build_takes_the_heavy_job_lock_before_any_work(monkeypatch):
     """main() queues behind any other heavy job before it starts the build's processes."""
     calls = []
-    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace())
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(resources=None))
     monkeypatch.setattr(RUN, 'hold_heavy_lock', lambda label: calls.append(label))
 
     def stop():
@@ -216,20 +217,25 @@ def test_the_stamp_says_running_then_finished_or_failed(tmp_path, monkeypatch):
     written before it reads finished, and it reads failed when the build raises."""
     out = tmp_path / 'FalloutNV.esm'
     seen = []
-    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path, keep_loose=False))
+    monkeypatch.setattr(RUN, 'arguments', lambda: SimpleNamespace(out=out, data=tmp_path, keep_loose=False,
+                                                                  resources='low', light=False,
+                                                                  switch_plugin_type=False))
     for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
         monkeypatch.setattr(RUN, name, lambda *a: None)
+    monkeypatch.setattr(RUN, 'estimate', lambda args: lambda stage, seconds: None)
+    monkeypatch.delenv(RUN.build_resources.ENV_VAR, raising=False)
     monkeypatch.setattr(RUN, 'source_state', lambda: {'commit': 'abc', 'changed files': ['x.py']})
     stamp = BS.stamp_path(out)
     status = lambda: json.loads(stamp.read_text())['status']
     monkeypatch.setattr(RUN, 'build_inputs', SimpleNamespace(record_dir=lambda plugin: plugin,
                                                              start=lambda folder: seen.append('record'),
                                                              write=lambda *a: seen.append(f'inputs {status()}')))
-    monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(status()))
+    monkeypatch.setattr(RUN, 'build_all', lambda args, started: seen.append(status()) or {'NPC_': 2})
     RUN.main()
     body = json.loads(stamp.read_text())
     assert (seen, body['status'], body['commit'], body['changed files']) == (
         ['record', 'running', 'inputs running'], 'finished', 'abc', ['x.py'])
+    assert body['resources']['profile'] == 'low' and body['counts'] == {'NPC_': 2} and 'stages' in body
 
     def fails(args, started):
         """A build that dies part way."""

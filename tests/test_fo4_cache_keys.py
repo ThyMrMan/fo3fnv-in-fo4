@@ -7,10 +7,12 @@ See: docs/fork/fo4_build_speed.md#keys
 import functools
 import hashlib
 import json
+import threading
 
 import numpy as np
 import pytest
 
+from fo4_import.base import source_fault as SF
 from fo4_import.pipeline import elric_cache as EC
 from fo4_import.pipeline import ran_code as RC
 from fo4_import.pipeline import work_cache as WC
@@ -67,6 +69,39 @@ def test_ran_while_keeps_sites_apart(cache):
     _, second = RC.ran_while(lambda: _entry_value(2))
     _, again = RC.ran_while(functools.partial(_entry_value, 3))
     assert HERE + '_expensive' in first and HERE + '_expensive' not in second | again
+
+
+def _threaded() -> int:
+    """A repo function another thread starts first."""
+    return 1
+
+
+def test_a_capture_keeps_only_its_own_threads_starts(cache):
+    """A function another thread starts during a capture is not in it; the capture's own later call of it is."""
+    with RC.capture() as seen:
+        other = threading.Thread(target=_threaded)
+        other.start()
+        other.join()
+        before = HERE + '_threaded' in seen
+        _threaded()
+    assert not before and HERE + '_threaded' in seen
+
+
+def _alone_entry(n: int) -> int:
+    """Entry `n`'s value; entry 1 alone also asks source_fault (another file)."""
+    if n == 1:
+        SF.faulted('x')
+    return _entry_value(n)
+
+
+def test_ran_alone_keeps_a_memos_work_not_another_entrys_code(cache):
+    """Entry 2's record holds the memo fill entry 1 ran (a file entry 2 runs in) but not source_fault, which only
+    entry 1 ran."""
+    _, first = RC.ran_alone(functools.partial(_alone_entry, 1))
+    _, second = RC.ran_alone(functools.partial(_alone_entry, 2))
+    fault = 'fo4_import/base/source_fault.py::faulted'
+    assert fault in first and HERE + '_expensive' in first
+    assert fault not in second and HERE + '_expensive' in second
 
 
 def test_a_versioned_entry_keys_on_its_version_alone(cache):

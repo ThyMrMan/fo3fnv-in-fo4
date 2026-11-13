@@ -18,6 +18,8 @@ HALF_MAX = 65504.0
 CLAMPED = {'uv': 0}
 #: BSVertexDesc attribute bits (nif.xml VertexAttribute).
 VA_VERTEX, VA_UV, VA_NORMAL, VA_TANGENT, VA_COLOR, VA_SKINNED, VA_FULL_PRECISION = 0x1, 0x2, 0x8, 0x10, 0x20, 0x40, 0x400
+#: BSVertexDesc attribute bit Eye_Data: a float after the skin (FO4 eye meshes).
+VA_EYE_DATA = 0x100
 #: Vanilla Raider02MaskM.nif's vertex descriptor: half positions, UV, normal, tangent, skin (32 bytes).
 DESC_SKINNED = 0x5B00050430208
 #: The same with vertex colours before the skin (36 bytes).
@@ -263,6 +265,8 @@ def read_vertex(r: Reader, attrs: int) -> dict:
         v['color'] = r.take('4B')
     if attrs & VA_SKINNED:
         v['weights'], v['bones'] = r.take('4e'), r.take('4B')
+    if attrs & VA_EYE_DATA:
+        v['eye'] = r.take('f')
     return v
 
 
@@ -293,6 +297,8 @@ def pack_vertex(v: dict, attrs: int) -> bytes:
         out += bytes(v['color'])
     if attrs & VA_SKINNED:
         out += struct.pack('<4e', *v['weights']) + bytes(v['bones'])
+    if attrs & VA_EYE_DATA:
+        out += struct.pack('<f', v['eye'])
     return out
 
 

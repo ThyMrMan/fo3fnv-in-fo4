@@ -15,7 +15,6 @@ See: docs/fork/fo4_casino_plan.md#records-built
 import struct
 from pathlib import Path
 
-from fo4_import.base import translations
 from fo4_import.base.install import source_walk
 from fo4_import.base.support_records import pack_global, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
@@ -104,6 +103,10 @@ SUITS = 'hcds'
 ANTI_CHEAT_SECONDS = ('iAntiCheatDuration', 60)
 #: Phase 0's test image: a card face the spike screen mounts (FNV path; staged under Textures/fnv).
 SPIKE_TEXTURE = 'textures\\terminals\\nv_playingcards\\deckt\\cardt_c01.dds'
+#: The level-up image spike's images beside it (staged by level_up_icons): DXT3, DXT5, and DXT3 with a space.
+SPIKE_LEVEL_UP = ('textures\\interface\\icons\\stats\\skills_barter.dds',
+                  'textures\\interface\\icons\\pipboyimages\\perks\\perk_action_girl.dds',
+                  'textures\\interface\\icons\\pipboyimages\\perks\\perk_action boy.dds')
 
 
 def _text(subs: list, tag: bytes) -> list:
@@ -259,7 +262,7 @@ class Casino:
         for name, fid in zip((OWNED, DECK), lists.values()):
             writer.add_record('FLST', R.pack_flst(fid, name, []))
         cards = self._caravan_lists(lists)
-        values = {**texts(self.export_dir), 'SpikeImage': ('string', fo4_path(SPIKE_TEXTURE)),
+        values = {**texts(self.export_dir), 'SpikeImages': ('strings', [fo4_path(t) for t in (SPIKE_TEXTURE, *SPIKE_LEVEL_UP)]),
                   'CardTable': ('strings', card_table(cards))}
         vmad = quest_fragments('', [], aliases=[(0, self.quest, [(PLAYER_SCRIPT, {}, {})])],
                                scripts=[(SCRIPT, lists, values)])
@@ -268,7 +271,6 @@ class Casino:
         installed = movie.install(data_dir)
         self.builder.counts['casino menu movie installed'] = installed
         self.builder.counts['casino menu movie missing (no Flex SDK)'] = 1 - installed
-        self.builder.counts['menu translation files installed'] = translations.install(data_dir)
 
     def _caravan_lists(self, objects: dict) -> list:
         """The FormLists of every Caravan card (by source FormID) and money item, and the Barter actor value, into

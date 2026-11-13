@@ -1,6 +1,7 @@
 """An NPC's FaceGen head (FaceGeom NIF) assembled from its head part meshes, as the Creation Kit exports it.
 
-Each part's shape, skin and bone data are copied from its own mesh; the shader is the mesh's, filled in from its
+Each part's shape, skin and bone data are copied from its own mesh, its vertices moved by the NPC's sculpt
+regions (face_bones); the shader is the mesh's, filled in from its
 material, texture set and the NPC (hair colour, skin tone); the bone nodes stand at the race skeleton's bind
 positions scaled by the race's height. Scratch only: nothing in the build calls this yet.
 
@@ -16,6 +17,8 @@ import numpy as np
 
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.face.bake import positions, with_positions
+from fo4_import.face.face_bones import Sculpt
 from fo4_import.nif import bgem, bgsm
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import SHADER_DEFAULT, SHADER_ENVMAP, SHADER_FACEGEN, SHADER_GLOW, SHADER_HAIR_TINT
@@ -28,12 +31,14 @@ SIGS = (b'NPC_', b'RACE', b'HDPT', b'TXST', b'CLFM', b'ARMO', b'ARMA')
 EXTRA_PART, USES_BODY_TEXTURE = 0x08, 0x20
 #: ACBS flags bit Female.
 FEMALE = 0x1
+#: ACBS template flags (u16 at TEMPLATE_FLAGS_AT) bit Use Traits; RACE DATA flags (u32 at RACE_FLAGS_AT) FaceGen Head.
+USE_TRAITS, TEMPLATE_FLAGS_AT, FACEGEN_HEAD, RACE_FLAGS_AT = 0x1, 14, 0x2, 32
 #: Extra data a part's mesh carries into the FaceGeom (from its root or its shape).
 FACE_EXTRAS = ('BSClothExtraData', 'BSEyeCenterExtraData')
 #: Cloth data stores no name, but the engine names it 'CED' and the CK's string table lists that.
 CLOTH, CLOTH_NAME = 'BSClothExtraData', 'CED'
-#: HDPT type of the face, and the race's default face texture set per sex (female?).
-FACE_PART, FACE_SETS = 1, {False: b'DFTM', True: b'DFTF'}
+#: HDPT types of the face and the eyes, and the race's default face texture set per sex (female?).
+FACE_PART, EYES_PART, FACE_SETS = 1, 2, {False: b'DFTM', True: b'DFTF'}
 #: NiNode flags of the root, the FaceGen node and each bone node, as the CK writes them.
 ROOT_FLAGS, FACEGEN_FLAGS, BONE_FLAGS = 536887310, 536870926, 14
 FACEGEN_NODE = 'BSFaceGenNiNodeSkinned'
@@ -91,15 +96,18 @@ class Rec:
 class Sources:
     """A plugin, its masters and the game: records by (owner, local id), files loose first, then archives."""
 
-    def __init__(self, plugin: Path, dirs: list):
-        """Index `plugin` and its masters (found in `dirs`, then the game's Data); files from `dirs`' loose folders
-        and BA2s, then the game's archives."""
+    def __init__(self, plugin: Path, dirs: list, load_order=()):
+        """Index the plugins of `load_order` (names, in order, as the CK loads a profile's), then `plugin`, each
+        with its masters (found in `dirs`, then the game's Data), a later one's records over an earlier's; files
+        from `dirs`' loose folders and BA2s (first wins), then the game's archives."""
         self.dirs = [Path(d) for d in dirs]
-        self.records, self.masters = {}, {}
+        self.records, self.masters, self.seen = {}, {}, set()
         self.archives = Archives(FALLOUT4_DIR / 'Data')
         for d in reversed(self.dirs):
             self.archives.by_name.update(Archives(d, '*.ba2').by_name)
-        self._load(Path(plugin))
+        for name in [*load_order, Path(plugin).name]:
+            if name.lower() not in self.masters:
+                self._load(self._find(name) if name in load_order else Path(plugin))
 
     def _load(self, path: Path) -> None:
         """Index one plugin's records (masters first)."""
@@ -120,14 +128,24 @@ class Sources:
                 return d / name
         raise FileNotFoundError(f'master {name} not in {self.dirs} or the game\'s Data')
 
+    def record(self, owner: str, form_id: int) -> 'Rec | None':
+        """The record (owner, local id), noted in `seen` (facegen_own's cache check)."""
+        self.seen.add((owner, form_id))
+        return self.records.get((owner, form_id))
+
     def get(self, rec: Rec, data: bytes) -> 'Rec | None':
         """The record the FormID in `data` (a field of `rec`) names."""
         fid, own = _form(data), self.masters[rec.owner]
-        return self.records.get((own[fid >> 24] if fid >> 24 < len(own) else rec.owner, fid & 0xFFFFFF))
+        return self.record(own[fid >> 24] if fid >> 24 < len(own) else rec.owner, fid & 0xFFFFFF)
 
     def read(self, path: str) -> bytes:
-        """A file under Data: loose in `dirs` first, then the archives."""
+        """A file under Data, noted in `seen` (as record())."""
         rel = path.replace('/', '\\')
+        self.seen.add(rel)
+        return self.stored(rel)
+
+    def stored(self, rel: str) -> bytes:
+        """File `rel` under Data, loose in `dirs` first, then the archives; not noted."""
         hit = next((d / rel for d in self.dirs if (d / rel).is_file()), None)
         return hit.read_bytes() if hit else self.archives.read(rel)
 
@@ -137,18 +155,23 @@ class Sources:
         return (bgem if raw[:4] == bgem.MAGIC else bgsm).read(raw)
 
 
-def _type(part: Rec) -> int:
+def part_type(part: Rec) -> int:
     """A head part's type (HDPT PNAM)."""
     return _form(part.first(b'PNAM', b'\xff\xff\xff\xff'))
 
 
-def _by_sex(race: Rec, female: bool, tag: bytes) -> list:
-    """The race's `tag` subrecords in its male (MNAM) or female (FNAM) sections."""
+def sex_section(race: Rec, female: bool) -> list:
+    """The race's subrecords [(tag, data)] in its male (empty MNAM) or female (empty FNAM) sections."""
     marker, sex, out = b'FNAM' if female else b'MNAM', None, []
     for t, data in race.subs:
         sex = t if t in (b'MNAM', b'FNAM') and not data else sex
-        out += [data] if t == tag and sex == marker else []
+        out += [(t, data)] if sex == marker else []
     return out
+
+
+def _by_sex(race: Rec, female: bool, tag: bytes) -> list:
+    """The race's `tag` subrecords in its male (MNAM) or female (FNAM) sections."""
+    return [data for t, data in sex_section(race, female) if t == tag]
 
 
 def _with_extras(src: Sources, part: Rec) -> list:
@@ -165,11 +188,11 @@ def head_parts(src: Sources, npc: Rec, race: Rec, female: bool) -> list:
     (last first), each led by its extras."""
     own = [p for p in (src.get(npc, d) for t, d in npc.subs if t == b'PNAM')
            if p and not p.first(b'DATA')[0] & EXTRA_PART]
-    types, defaults = {_type(p) for p in own}, []
+    types, defaults = {part_type(p) for p in own}, []
     for part in (src.get(race, d) for d in _by_sex(race, female, b'HEAD')):
-        if part and _type(part) not in types:
+        if part and part_type(part) not in types:
             defaults.append(part)
-            types.add(_type(part))
+            types.add(part_type(part))
     return [x for p in defaults[::-1] + own[::-1] if p.first(b'MODL') for x in _with_extras(src, p)]
 
 
@@ -323,17 +346,19 @@ def effect(sh: dict, mat: dict) -> dict:
     return sh
 
 
-def _body_textures(src: Sources, npc: Rec, race: Rec, female: bool) -> list:
-    """The skin's (the NPC's WNAM, else the race's) body addon's skin texture set for one sex."""
+def body_addon(src: Sources, npc: Rec, race: Rec) -> 'Rec | None':
+    """The skin's (the NPC's WNAM, else the race's) body addon (ARMA on the body slot)."""
     owner = npc if npc.first(b'WNAM') else race
     skin = src.get(owner, owner.first(b'WNAM')) if owner.first(b'WNAM') else None
-    for data in (d for t, d in (skin.subs if skin else []) if t == b'MODL'):
-        addon = src.get(skin, data)
-        body = addon and _form(addon.first(b'BOD2', b'\0' * 4)) & BODY_SLOT
-        txst = addon.first(b'NAM1' if female else b'NAM0') if body else None
-        if txst:
-            return txst_slots(src, src.get(addon, txst))
-    return []
+    addons = (src.get(skin, d) for t, d in (skin.subs if skin else []) if t == b'MODL')
+    return next((a for a in addons if a and _form(a.first(b'BOD2', b'\0' * 4)) & BODY_SLOT), None)
+
+
+def body_textures(src: Sources, npc: Rec, race: Rec, female: bool) -> list:
+    """The skin's body addon's skin texture set for one sex."""
+    addon = body_addon(src, npc, race)
+    txst = addon.first(b'NAM1' if female else b'NAM0') if addon else None
+    return txst_slots(src, src.get(addon, txst)) if txst else []
 
 
 def txst_slots(src: Sources, txst: Rec) -> list:
@@ -349,15 +374,25 @@ def txst_slots(src: Sources, txst: Rec) -> list:
 
 def npc_face(src: Sources, plugin: str, form_id: int) -> tuple:
     """(NPC record, its race, female, Npc) for the NPC `form_id` (local id) of `plugin`."""
-    npc = src.records[plugin.lower(), form_id & 0xFFFFFF]
+    npc = src.record(plugin.lower(), form_id & 0xFFFFFF)
     race, female = src.get(npc, npc.first(b'RNAM')), bool(struct.unpack_from('<I', npc.first(b'ACBS'))[0] & FEMALE)
     colour = src.get(npc, npc.first(b'HCLF')) if npc.first(b'HCLF') else None
     grayscale = struct.unpack('<f', colour.first(b'CNAM'))[0] if colour else 1.0
     tone = tuple(float(np.float32(round(c * 255)) * np.float32(1 / 255))
                  for c in struct.unpack('<4f', npc.first(b'QNAM', b'\0' * 16)))
-    face = Npc(plugin, form_id & 0xFFFFFF, grayscale, tone, _body_textures(src, npc, race, female),
+    face = Npc(plugin, form_id & 0xFFFFFF, grayscale, tone, body_textures(src, npc, race, female),
                _face_material(src, npc, race, female))
     return npc, race, female, face
+
+
+def exported(npc: Rec, race: Rec) -> bool:
+    """Whether the CK exports FaceGen for `npc`: it takes no traits from a template and its race has a FaceGen head.
+    See: docs/fork/fo4_facegen_plan.md#own-stage
+    """
+    traits = npc.first(b'TPLT') and struct.unpack_from('<H', npc.first(b'ACBS'), TEMPLATE_FLAGS_AT)[0] & USE_TRAITS
+    data = race.first(b'DATA', b'')
+    return not traits and len(data) >= RACE_FLAGS_AT + 4 and bool(
+        struct.unpack_from('<I', data, RACE_FLAGS_AT)[0] & FACEGEN_HEAD)
 
 
 def _face_material(src: Sources, npc: Rec, race: Rec, female: bool) -> str:
@@ -395,6 +430,13 @@ class Shape:
         """The shape's bytes with a zero bound, as every skinned part has."""
         return pack_av(self.av) + struct.pack('<4f3iQ', 0.0, 0.0, 0.0, 0.0, self.skin, self.shader, self.alpha,
                                               self.desc) + self.body
+
+    def sculpt(self, sculpt: Sculpt, model: str) -> None:
+        """Move the vertices by the NPC's sculpt regions, where the part has a twin they move."""
+        packed = self.pack()
+        points = sculpt.positions(model, len(positions(packed)))
+        if points is not None:
+            self.body = with_positions(packed, points)[len(packed) - len(self.body):]
 
 
 def _bone_names(mesh, shape: Shape) -> list:
@@ -459,7 +501,7 @@ class FaceGeom:
         bones = [self.nodes[b.lower()] for b in _bone_names(mesh, shape)]
         data = mesh.blocks[_skin_data(mesh.blocks[shape.skin][1])][1]
         kind, sh = mesh.blocks[shape.shader]
-        face = _type(part) == FACE_PART and self.npc.face_material
+        face = part_type(part) == FACE_PART and self.npc.face_material
         mat = self.src.material(face or mesh.strings[sh['name']])
         blocks += [(shape.kind, b''), *extras, ('BSSkin::Instance', _pack_skin_instance(self.facegen, skin + 1, bones)),
                    ('BSSkin::BoneData', data)]
@@ -501,10 +543,13 @@ def bone_nodes(parts: list, skeleton: dict, height: float) -> list:
 def build(src: Sources, plugin: str, form_id: int) -> bytes:
     """The FaceGeom NIF bytes of NPC `form_id` (local id) of `plugin`."""
     npc, race, female, face = npc_face(src, plugin, form_id)
-    parts = []
+    sculpt, parts = Sculpt(src, npc, female), []
     for part in head_parts(src, npc, race, female):
-        mesh = nif_file.read(src.read('meshes\\' + zstr(part.first(b'MODL'))))
-        parts.append((part, mesh, Shape.of(mesh)))
+        model = zstr(part.first(b'MODL'))
+        mesh = nif_file.read(src.read('meshes\\' + model))
+        shape = Shape.of(mesh)
+        shape.sculpt(sculpt, model)
+        parts.append((part, mesh, shape))
     geom = FaceGeom(src, face, bone_nodes(parts, skeleton_nodes(src, race, female), race_height(race, female)))
     for part, mesh, shape in parts:
         geom.add(part, mesh, shape)

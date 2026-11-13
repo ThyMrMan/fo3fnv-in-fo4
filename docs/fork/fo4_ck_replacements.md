@@ -1,7 +1,10 @@
 # Plan sketch: the build without the Creation Kit (2026-11-11)
 
-Status: 1 [built](#ba2), 2 [built](#caprica), 3 [built](#anim-text) and 7
-[built](#lips) (2026-11-11, not built in game); the rest ideas. Status lives in
+Status (2026-11-12): 1 [built](#ba2), 2 [built](#caprica), 3
+[built](#anim-text) and in every build, 7 [built](#lips); 4 built behind
+`--own-facegen` with a per-NPC CK fallback; 5 built in four steps, a few
+shapes still go to Elric; 6 and 8 not started. Most of it is not played
+yet. Status lives in
 [ROADMAP.md](ROADMAP.md). Built on the [open-tools survey](research/fo4_open_landscape.md#tools)
 and the build's own docs; costs quoted are the docs' measurements.
 
@@ -14,18 +17,18 @@ reliability on Windows too.
 
 ## <a id="today"></a>Where each step stands
 
-| Step | Tool today | Already ours |
-|---|---|---|
-| Navmesh | none | Converted from FNV ([navmesh](fo4_pipeline.md#exterior-navmesh)) |
-| Terrain and object LOD | none | Written from FNV's tiles and LOD meshes ([terrain](fo4_pipeline.md#terrain-lod), [objects](fo4_pipeline.md#object-lod)) |
-| Lip files | LipGenerator for lines with no FNV `.lip` | FNV's lips converted ([lips](research/lip_format.md#built)) |
-| Papyrus | FO4's compiler for scripts Caprica can't take | Caprica first ([Caprica](fo4_pipeline.md#caprica)) |
-| AnimTextData | none | Every file ([ours](research/anim_text_data.md#ours)) |
-| FaceGen | CK `-ExportFaceGenData` through MO2; we bake FNV's shape into its head (`face/bake.py`) | Plan to write the heads ourselves ([facegen plan](fo4_facegen_plan.md#direct)) |
-| Collision and ragdolls | Elric | Our pre-Elric blocks; the graft (`nif/elric.py`) |
-| BA2 packing | Archive2 (`base/ba2_pack.py`) | Staging and options |
-| Voice audio | xWMAEncode inside each `.fuz` | The `.fuz` itself |
-| Precombines and previs | none yet (CK planned, [before](fo4_pipeline.md#before)) | Not built |
+| Step | Bethesda or Microsoft tool still used | Ours | Left |
+|---|---|---|---|
+| Navmesh | none | Converted from FNV ([navmesh](fo4_pipeline.md#exterior-navmesh)) | — |
+| Terrain and object LOD | none | Written from FNV's tiles and LOD meshes ([terrain](fo4_pipeline.md#terrain-lod), [objects](fo4_pipeline.md#object-lod)) | — |
+| BA2 packing (1) | none | Main, texture and voice archives written by us (`base/ba2_write.py`, `base/ba2_textures.py`; [texture BA2](#ba2)) | Play test |
+| Papyrus (2) | FO4's compiler, only as the fallback for mods' scripts | Every FalloutNV.esm script in our Caprica build ([Caprica](#caprica)) | Play test |
+| AnimTextData (3) | none | Every file, in every build since 2026-11-12 ([ours](research/anim_text_data.md#ours)) | — |
+| FaceGen (4) | The CK, per NPC, when ours fails; the CK's `texconv` (`Tools/Elric`) for the face textures | FaceGeom heads and `_d`/`_msn`/`_s` behind `--own-facegen`, 0.29 s a face ([own stage](fo4_facegen_plan.md#own-stage)) | Play test; make it the default and drop the CK fallback; hair up to 0.29 units off, cause unknown; replace `texconv` |
+| Collision and ragdolls (5) | Elric, only for what ours does not cover | Convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules, lists, ragdoll and hinge constraints, creature ragdolls ([steps](fo4_hknp_writer.md#steps)) | Play test; triangle meshes on bodies with full motion; flat shapes; other constraint kinds; then drop Elric |
+| Lip files (7) | LipGenerator, when installed and it works | FNV's lips converted ([lips](research/lip_format.md#built)); the recording's loudness otherwise ([lips](#lips)) | Play test; decide whether to stop calling LipGenerator |
+| Voice audio (6) | xWMAEncode inside each `.fuz` | The `.fuz` itself | Not started: a spike on whether the game plays another codec |
+| Precombines and previs (8) | none yet (CK planned, [before](fo4_pipeline.md#before)) | Not built | Not started: the CK route first |
 
 ## <a id="options"></a>What we could build, by payoff for the work
 
@@ -171,7 +174,6 @@ more. Not looked at in game: how a loudness lip reads next to LipGenerator's.
 
 ## <a id="order"></a>Suggested order
 
-1, 2, 3 and 7 are built. 3 removed one CK run. 4 is already planned for quality reasons. 5 is the
-largest and most valuable; start with a spike that round-trips one of our
-Elric-made NIFs' physics through `havok-formats`. 6 needs its spike. 8 waits
-for the CK route.
+1, 2, 3, 4, 5 and 7 are built (see [the table](#today) for what each has
+left). Next: play-test them together, make 4 the default, cover 5's last
+shapes and drop Elric. 6 needs its spike. 8 waits for the CK route.
