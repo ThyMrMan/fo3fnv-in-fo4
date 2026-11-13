@@ -329,10 +329,13 @@ def strongest(dense: np.ndarray) -> tuple:
     return w / np.maximum(w.sum(1, keepdims=True), 1e-9), top
 
 
-def body_fit(export_dir: Path, sex: str, archives: Archives = None) -> BodyFit:
-    """The fit of FNV's skeleton and body of `sex` onto FO4's."""
+def body_fit(export_dir: Path, sex: str, archives: Archives = None, body_nif: bytes = None) -> BodyFit:
+    """The fit of FNV's skeleton and body of `sex` onto FO4's, or onto body NIF `body_nif` (a body mod's, such as
+    CBBE's: its shape, UVs and edges).
+    See: docs/fork/fo4_bodies_cbbe.md#bare-skin
+    """
     archives = archives or Archives(FALLOUT4_DIR / 'Data')
-    body = nif_file.read(archives.read(FO4_BODIES[sex]))
+    body = nif_file.read(body_nif or archives.read(FO4_BODIES[sex]))
     raw = next(b for kind, b in body.blocks if kind == 'BSSubIndexTriShape')
     shape = read_tri_shape(Reader(raw))
     nodes, data = shape_bones(body, shape)
