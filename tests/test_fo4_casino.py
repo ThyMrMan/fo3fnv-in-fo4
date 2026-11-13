@@ -486,7 +486,7 @@ def test_the_roulette_texts_are_in_the_screens_order():
 
 
 def test_every_table_game_opens():
-    """Open lets blackjack, roulette and slots through; only Caravan says not yet."""
+    """Open lets blackjack, roulette and slots through (Caravan has OpenCaravan)."""
     bank = (STATIC / 'F3NV_Casino.psc').read_text(encoding='utf-8')
     assert 'If aiGame != Slots' not in bank and 'Int Property Roulette = 2' in bank and 'Int Property Blackjack = 1' in bank
 

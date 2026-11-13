@@ -2,6 +2,8 @@ package
 {
    import f3nv.casino.Blackjack;
    import f3nv.casino.BlackjackScreen;
+   import f3nv.casino.Caravan;
+   import f3nv.casino.CaravanScreen;
    import f3nv.casino.Rng;
    import f3nv.casino.Roulette;
    import f3nv.casino.RouletteScreen;
@@ -36,6 +38,7 @@ package
       private var slots:SlotsScreen;
       private var roulette:RouletteScreen;
       private var blackjack:BlackjackScreen;
+      private var caravan:CaravanScreen;
       private var statusText:TextField;
       private var pings:int = 0;
 
@@ -140,6 +143,19 @@ package
                         Bridge.plain(texts), MountAll);
       }
 
+      // Caravan (F3NV_Casino.psc's OpenCaravanMenu): see CaravanScreen.open.
+      public function OpenCaravan(name:String, funds:int, opponentFunds:int, share:Number, barter:int, mode:int,
+                                  seed:uint, cards:Array, owned:Array, deck:Array, opponentDeck:Array, results:Array,
+                                  texts:Array) : void
+      {
+         newScreen();
+         caravan = new CaravanScreen(send);
+         screen.addChild(caravan);
+         caravan.open(name, funds, opponentFunds, share, barter, mode, seed, Bridge.plain(cards), Bridge.plain(owned),
+                      Bridge.plain(deck), Bridge.plain(opponentDeck), Bridge.plain(results), Bridge.plain(texts),
+                      MountAll);
+      }
+
       // Replay `spins` slot spins per seed at `luck` on FNV's default reel and log them, then the roulette results
       // and spot table: the lines tests/casino/model.py's slot_trace and roulette.py's roulette_trace make.
       public function SelfTest(seeds:Array, spins:int, luck:int) : void
@@ -175,6 +191,7 @@ package
             }
          }
          send("F3NV_CasinoSelfTest", "blackjack " + luck + " " + rounds.join(" "));
+         send("F3NV_CasinoSelfTest", Caravan.trace(seeds, 3));
       }
 
       // FO4's menu input: the controls the game maps keys and gamepad buttons to.
@@ -185,6 +202,10 @@ package
             return false;
          }
          send("F3NV_CasinoInput", "control " + control);
+         if (control == "Cancel" && caravan != null && !caravan.canLeave())
+         {
+            return caravan.control(control);
+         }
          if (control == "Cancel")
          {
             if (blackjack == null || blackjack.canLeave())
@@ -204,6 +225,10 @@ package
          if (blackjack != null)
          {
             return blackjack.control(control);
+         }
+         if (caravan != null)
+         {
+            return caravan.control(control);
          }
          if (control == "Accept")
          {
@@ -227,6 +252,7 @@ package
          slots = null;
          roulette = null;
          blackjack = null;
+         caravan = null;
          addChild(screen);
          translationCheck();
       }

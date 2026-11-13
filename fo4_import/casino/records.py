@@ -20,6 +20,7 @@ from fo4_import.base.install import source_walk
 from fo4_import.base.support_records import pack_global, pack_script_quest
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.casino import movie
+from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.nif.convert_static import fo4_texture, texture_source
 from fo4_import.pipeline.export_index import export_file, export_records
 from fo4_import.spike import records as R
@@ -34,6 +35,10 @@ QUEST, SCRIPT, PLAYER_SCRIPT, DATA_SCRIPT = 'FNV_Casino', 'F3NV_Casino', 'F3NV_C
 PROPERTY = 'TES4Casino'
 #: The player's Caravan cards: owned (FNV's PlayerCharacter+0x614) and the active deck (+0x618).
 OWNED, DECK = 'F3NV_CaravanOwned', 'F3NV_CaravanDeck'
+#: Every Caravan card and every Caravan money item, as FormLists (the menu's card table follows CARDS).
+CARDS, MONEY = 'F3NV_CaravanCardList', 'F3NV_CaravanMoneyList'
+#: Cards per CardTable string and per deck chunk the menu sends (bits 0-29 of an int).
+CARD_CHUNK = 30
 PLAYER = 0x14
 #: CSNO DATA: reshuffle share, blackjack payout, 7 reel stops, decks, max winnings, chip, winnings quest, flags.
 CSNO_DATA = struct.Struct('<ff7IIIIII')
@@ -78,12 +83,25 @@ BLACKJACK_TEXTS = (('sDealText', 'Deal'), ('sIncreaseBetText', 'Increase Bet'), 
                    ('sLuckyWinText', 'You feel lucky. You win'), ('sYouLose', 'You lose'),
                    ('sUnluckyLoseText', 'You feel unlucky. You lose'), ('sYouBreakEvenText', 'You break even'),
                    ('sCasinoChipText', 'chip'), ('sPlural', '(s)'))
+#: The Caravan screens' texts in CaravanScreen.as's order: FNV's settings, or its menu XML's strings ('').
+CARAVAN_TEXTS = (('sPlayCaravanText', 'Play Caravan'), ('sTotalFundsText', 'Total Funds: '),
+                 ('sCurrentAnteText', 'Current Ante: '), ('', 'Your Current Ante: '), ('sAntePotText', 'Ante Pot: '),
+                 ('sAutoMatchText', 'Auto-Match'), ('sRaiseText', 'Raise'), ('sAccept', 'Accept'), ('sExit', 'Exit'),
+                 ('sCaravanDeckText', 'Caravan Deck'), ('sAllCardsText', 'All Cards'),
+                 ('sCardsInDeckText', 'Cards in Deck: '), ('sTotalCardsText', 'Total Cards: '), ('', 'Add'),
+                 ('', 'Remove'), ('', 'Randomize'), ('sPlaceCardText', 'Place Card'),
+                 ('sDiscardCardText', 'Discard Card'), ('', 'Discard Caravan'), ('sForfeitGameText', 'Forfeit Game'),
+                 ('sQuitCaravanText', 'If you quit now, you will forfeit the money wagered. Are you sure you wish '
+                                      'to forfeit this match?'),
+                 ('sYes', 'Yes'), ('sNo', 'No'), ('sCaravanYouWinText', 'You win!'),
+                 ('sCaravanYouLoseText', 'You Lose!'), ('sCaravanWinningsText', 'Winnings to Date: '),
+                 ('sCaravanLossesText', 'Losses to Date: '), ('sCaravanWinLossText', 'Win/Loss Totals: '),
+                 ('sCaravanBiggestAnteText', 'Biggest Ante Pot Won: '),
+                 ('sCaravanPressAnyKeyText', 'Press Any Button to Continue'), ('sSelectCardText', 'Select Card'))
 #: Card face suits in FNV's load order (hearts, clubs, diamonds, spades).
 SUITS = 'hcds'
 #: FNV's anti-cheat wait after a load (iAntiCheatDuration, seconds).
 ANTI_CHEAT_SECONDS = ('iAntiCheatDuration', 60)
-#: Shown for a game whose screen is not built yet (ours, not FNV's).
-NOT_BUILT = 'This game is not playable on Fallout 4 yet.'
 #: Phase 0's test image: a card face the spike screen mounts (FNV path; staged under Textures/fnv).
 SPIKE_TEXTURE = 'textures\\terminals\\nv_playingcards\\deckt\\cardt_c01.dds'
 
@@ -121,6 +139,18 @@ def face_textures(back: str) -> list:
     return [f'{stem}{suit}{(rank + 1) % 13 + 1:02d}.dds' for suit in SUITS for rank in range(13)]
 
 
+def card_entry(subs: list) -> str:
+    """A CCRD as "suit,value,face,back" (INTV, INTV, TX00, TX01)."""
+    suit, value = (struct.unpack('<I', data)[0] for got, data in subs if got == b'INTV')
+    face, back = (fo4_path(t) for t in card_textures(subs))
+    return f'{suit},{value},{face},{back}'
+
+
+def card_table(entries: list) -> list:
+    """The entries joined by "|", CARD_CHUNK to a string."""
+    return ['|'.join(entries[i:i + CARD_CHUNK]) for i in range(0, len(entries), CARD_CHUNK)]
+
+
 def fo4_path(fnv_texture: str) -> str:
     """An FNV texture as the menu names it: its path under Textures, slashed."""
     return fo4_texture(fnv_texture).replace('\\', '/')
@@ -132,10 +162,10 @@ def texts(export_dir: Path) -> dict:
     gmst = {r.get('EditorID'): r.get('DATA.Value') for r in export_records(export_dir, 'GMST')}
     values = {prop: ('string', gmst.get(name) or default) for prop, (name, default) in TEXTS.items()}
     for prop, table in (('AntiCheatTexts', ANTI_CHEAT), ('SlotTexts', SLOT_TEXTS), ('RouletteTexts', ROULETTE_TEXTS),
-                        ('BlackjackTexts', BLACKJACK_TEXTS)):
+                        ('BlackjackTexts', BLACKJACK_TEXTS), ('CaravanTexts', CARAVAN_TEXTS)):
         values[prop] = ('strings', [gmst.get(name) or default for name, default in table])
     values['AntiCheatSeconds'] = ('float', float(gmst.get(ANTI_CHEAT_SECONDS[0]) or ANTI_CHEAT_SECONDS[1]))
-    return {**values, 'NotBuiltText': ('string', NOT_BUILT)}
+    return values
 
 
 class Casino:
@@ -145,7 +175,7 @@ class Casino:
         """Read the source's CSNO, CDCK and CCRD; derive every FormID the casino writes."""
         self.builder, self.export_dir = builder, export_dir
         self.records = {sig: [(rec.form_id, subrecords(rec.body)) for rec, _ in source_walk(sig)]
-                        for sig in (b'CSNO', b'CDCK', b'CCRD')}
+                        for sig in (b'CSNO', b'CDCK', b'CCRD', b'CMNY')}
         self.edids = {fid: (_text(subs, b'EDID') or [f'{fid:08X}'])[0]
                       for sig in (b'CSNO', b'CDCK') for fid, subs in self.records[sig]}
         self.quests = self._forms(b'CSNO', '')
@@ -228,7 +258,9 @@ class Casino:
         lists = {'Owned': own(SITE, OWNED), 'Deck': own(SITE, DECK)}
         for name, fid in zip((OWNED, DECK), lists.values()):
             writer.add_record('FLST', R.pack_flst(fid, name, []))
-        values = {**texts(self.export_dir), 'SpikeImage': ('string', fo4_path(SPIKE_TEXTURE))}
+        cards = self._caravan_lists(lists)
+        values = {**texts(self.export_dir), 'SpikeImage': ('string', fo4_path(SPIKE_TEXTURE)),
+                  'CardTable': ('strings', card_table(cards))}
         vmad = quest_fragments('', [], aliases=[(0, self.quest, [(PLAYER_SCRIPT, {}, {})])],
                                scripts=[(SCRIPT, lists, values)])
         writer.add_record('QUST', R.pack_qust(self.quest, QUEST, '', 0, [], 'Player', PLAYER, vmad))
@@ -237,6 +269,20 @@ class Casino:
         self.builder.counts['casino menu movie installed'] = installed
         self.builder.counts['casino menu movie missing (no Flex SDK)'] = 1 - installed
         self.builder.counts['menu translation files installed'] = translations.install(data_dir)
+
+    def _caravan_lists(self, objects: dict) -> list:
+        """The FormLists of every Caravan card (by source FormID) and money item, and the Barter actor value, into
+        `objects`; the card table's entries in the card list's order."""
+        made = [(self.builder.items.item(fid), subs) for fid, subs in sorted(self.records[b'CCRD'])]
+        money = [self.builder.items.item(fid) for fid, _ in sorted(self.records[b'CMNY'])]
+        for key, name, forms in (('CaravanCards', CARDS, [f for f, _ in made if f]),
+                                 ('CaravanMoney', MONEY, [f for f in money if f])):
+            objects[key] = self.builder.writer.derive_formid(SITE, name)
+            self.builder.writer.add_record('FLST', R.pack_flst(objects[key], name, forms))
+        barter = actor_value_form('Barter', self.builder.perks.helper_index)
+        objects.update({'Barter': barter} if barter else {})
+        self.builder.counts['Caravan cards'] = sum(1 for f, _ in made if f)
+        return [card_entry(subs) for f, subs in made if f]
 
     def _textures(self, data_dir: Path) -> int:
         """Stage every texture the casinos and cards name (slot symbols, deck backs and their blackjack faces,
