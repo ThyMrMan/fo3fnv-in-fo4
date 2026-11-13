@@ -262,7 +262,7 @@ def main():
     print('loose files restored from the Main archive:', restore(data_dir, args.plugin))
     job = (export_dir, data_dir, args.plugin, skin_tone_layers(FALLOUT4_ESM.read_bytes()))
     heads(job, args.own_facegen, ck=not args.collected)
-    faces = facegen_skin.fitted_faces(data_dir, args.plugin)
+    faces = facegen_skin.fitted_faces(data_dir, args.plugin, export_dir)
     for line in facegen_skin.refine(job, faces):
         print(line)
     if faces:
