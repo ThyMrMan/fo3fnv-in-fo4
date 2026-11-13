@@ -50,6 +50,12 @@ def read_pyffi(path) -> NifFormat.Data:
     return data
 
 
+def parent_map(root) -> dict:
+    """{id(block): its parent node} of every child under FNV `root`."""
+    return {id(child): node for node in root.tree() if hasattr(node, 'children')
+            for child in node.children if child is not None}
+
+
 def read(path):
     """The data of the FNV NIF or KF file at `path`: fnv_reader's, else pyffi's."""
     try:

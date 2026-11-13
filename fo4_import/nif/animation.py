@@ -21,6 +21,7 @@ import numpy as np
 
 from fo4_import.nif.blocks import DESC_SKINNED, DESC_SKINNED_COLOR, NONE, SHADER_SKINNED
 from fo4_import.nif.file import NifFile
+from fo4_import.nif.fnv_file import parent_map
 from fo4_import.nif.particles import drives_particles, particle_block
 from fo4_import.nif.shader_anim import channel, key_group, shader_block, shapes_by_name, timing
 
@@ -62,8 +63,7 @@ def kept_nodes(root, manager) -> list:
 
 def with_parents(root, wanted) -> list:
     """The FNV nodes under `root` for which `wanted(node)` holds, and those between each and `root`, parents first."""
-    parents = {id(child): node for node in root.tree() if hasattr(node, 'children')
-               for child in node.children if child is not None}
+    parents = parent_map(root)
     out = []
     for node in root.tree():
         if hasattr(node, 'children') and node is not root and wanted(node):

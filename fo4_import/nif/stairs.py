@@ -52,24 +52,35 @@ def faces(tris: list, unit: float) -> tuple:
     return corners, nz
 
 
-def _covers(tris: np.ndarray, point: np.ndarray) -> np.ndarray:
-    """Which of `tris` (n, 3, 3) cover XY `point`, within TOUCH of their edges."""
+def cover_frame(tris: np.ndarray) -> tuple:
+    """What covers_at needs of `tris` (n, 3, 3), worked out once: each edge's start and vector, how far (TOUCH)
+    a point may sit outside it, which way the face winds in XY, and which faces have area."""
     a, b, c = tris[:, 0, :2], tris[:, 1, :2], tris[:, 2, :2]
     area = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
-    sign = np.where(area >= 0, 1.0, -1.0)
-    ok = np.abs(area) > 1e-9
-    for p, q in ((a, b), (b, c), (c, a)):
-        edge = q - p
-        cross = sign * (edge[:, 0] * (point[1] - p[:, 1]) - edge[:, 1] * (point[0] - p[:, 0]))
-        ok &= cross >= -TOUCH * np.linalg.norm(edge, axis=1)
+    edges = [(p, q - p) for p, q in ((a, b), (b, c), (c, a))]
+    return ([(p, e, -TOUCH * np.linalg.norm(e, axis=1)) for p, e in edges], np.where(area >= 0, 1.0, -1.0),
+            np.abs(area) > 1e-9)
+
+
+def covers_at(frame: tuple, points: np.ndarray) -> np.ndarray:
+    """(m, n) mask: which of cover_frame's faces cover each XY point of `points` (m, 2), within TOUCH."""
+    edges, sign, ok = frame
+    ok = np.broadcast_to(ok, (len(points), len(ok))).copy()
+    x, y = points[:, 0:1], points[:, 1:2]
+    for p, edge, limit in edges:
+        ok &= sign * (edge[:, 0] * (y - p[:, 1]) - edge[:, 1] * (x - p[:, 0])) >= limit
     return ok
 
 
-def _beyond(flat: np.ndarray, tops: np.ndarray, top: float, mid: np.ndarray, out: np.ndarray) -> np.ndarray:
-    """Mask of the treads one step below `top` beyond an edge (`mid`, outward `out`); none when a tread at `top`
-    continues past it or the drop is one FO4 climbs anyway."""
-    for reach in (2 * TOUCH, REACH / 2, REACH):
-        hit = _covers(flat, mid + out * reach)
+def _covers(tris: np.ndarray, point: np.ndarray) -> np.ndarray:
+    """Which of `tris` (n, 3, 3) cover XY `point`, within TOUCH of their edges."""
+    return covers_at(cover_frame(tris), np.asarray(point, dtype=float)[None, :2])[0]
+
+
+def _beyond(frame: tuple, tops: np.ndarray, top: float, mid: np.ndarray, out: np.ndarray) -> np.ndarray:
+    """Mask of the treads (cover_frame `frame`) one step below `top` beyond an edge (`mid`, outward `out`); none
+    when a tread at `top` continues past it or the drop is one FO4 climbs anyway."""
+    for hit in covers_at(frame, np.array([mid + out * reach for reach in (2 * TOUCH, REACH / 2, REACH)])):
         if (hit & (np.abs(tops - top) <= TOUCH)).any():
             break
         lower = hit & (tops < top - TOUCH) & (tops >= top - RISER_MAX - TOUCH)
@@ -82,7 +93,7 @@ def _beyond(flat: np.ndarray, tops: np.ndarray, top: float, mid: np.ndarray, out
 def _edge_steps(corners: np.ndarray, treads: np.ndarray) -> tuple:
     """(treads in a step, risers): each riser is (upper tread, edge start, edge end, lower level, outward)."""
     flat, tops = corners[treads], corners[treads, :, 2].mean(axis=1)
-    marked, risers, seen = set(), [], set()
+    frame, marked, risers, seen = cover_frame(flat), set(), [], set()
     for k, i in enumerate(treads):
         tri = corners[i]
         centre = tri[:, :2].mean(axis=0)
@@ -90,7 +101,7 @@ def _edge_steps(corners: np.ndarray, treads: np.ndarray) -> tuple:
             mid, along = (p[:2] + q[:2]) / 2, q[:2] - p[:2]
             out = np.array([along[1], -along[0]]) / (np.linalg.norm(along) or 1.0)
             out = out if np.dot(out, mid - centre) > 0 else -out
-            below = _beyond(flat, tops, tops[k], mid, out)
+            below = _beyond(frame, tops, tops[k], mid, out)
             if not below.any():
                 continue
             marked.update([int(i), *(int(j) for j in treads[below])])

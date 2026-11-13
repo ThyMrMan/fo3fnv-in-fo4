@@ -29,6 +29,7 @@ from asset_convert.texture import spec_mask
 from fo4_import.nif import fnv_file, surface_gaps
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.file import NifFile
+from fo4_import.nif.fnv_reader import Records
 
 apply_patches()
 from pyffi.formats.nif import NifFormat
@@ -43,6 +44,8 @@ from fo4_import.nif.collision import collision_nodes, moves, node_transform
 from fo4_import.pipeline.export_index import export_file
 
 PREFIX = 'fnv'
+#: Normal maps whose spec-mask verdict one process keeps (_spec_masked).
+KEPT_NORMAL_MAPS = 4096
 #: BSVertexDesc of a vanilla static shape (ClutterGen, SetDressing): half positions, UV, normal, tangent.
 DESC_PLAIN = 0x1B00000430205
 #: The same with vertex colours.
@@ -219,35 +222,49 @@ def tangent_frame(pos: np.ndarray, uv: np.ndarray, nrm: np.ndarray, tris: np.nda
     return du, dv
 
 
-def _byte(x: float) -> int:
-    """A -1..1 component as nif.xml's normbyte."""
-    return int(round((max(-1.0, min(1.0, x)) + 1.0) * 127.5))
+def _held(x: np.ndarray, low: float) -> np.ndarray:
+    """`x` held in low..1 as max(low, min(1, x)) holds it (NaN as 1)."""
+    x = np.where(x < 1.0, x, 1.0)
+    return np.where(x > low, x, low)
+
+
+def _bytes(x: np.ndarray) -> list:
+    """-1..1 components as nif.xml normbytes (round half to even), as lists."""
+    return np.rint((_held(np.asarray(x, dtype=np.float64), -1.0) + 1.0) * 127.5).astype(np.int64).tolist()
 
 
 def vertices(pos, uv, nrm, colors, tris) -> list:
     """BSVertexData dicts; FO4's 'tangent' is dP/dv and its bitangent dP/du (measured on vanilla)."""
     du, dv = tangent_frame(pos, uv, nrm, tris)
-    out = []
-    for i in range(len(pos)):
-        v = {'position': tuple(float(c) for c in pos[i]), 'bitangent_x': float(du[i, 0]),
-             'uv': (float(uv[i, 0]), float(uv[i, 1])), 'normal': tuple(_byte(c) for c in nrm[i]),
-             'bitangent_y': _byte(du[i, 1]), 'tangent': tuple(_byte(c) for c in dv[i]),
-             'bitangent_z': _byte(du[i, 2])}
-        if colors is not None:
-            v['color'] = tuple(int(round(max(0.0, min(1.0, c)) * 255)) for c in colors[i])
-        out.append(v)
+    p, u = np.asarray(pos, dtype=np.float64).tolist(), np.asarray(uv, dtype=np.float64)[:, :2].tolist()
+    bx = du[:, 0].astype(np.float64).tolist()
+    n, t, by, bz = _bytes(nrm), _bytes(dv), _bytes(du[:, 1]), _bytes(du[:, 2])
+    out = [{'position': tuple(p[i]), 'bitangent_x': bx[i], 'uv': tuple(u[i]), 'normal': tuple(n[i]),
+            'bitangent_y': by[i], 'tangent': tuple(t[i]), 'bitangent_z': bz[i]} for i in range(len(p))]
+    if colors is not None:
+        rgba = np.rint(_held(np.asarray(colors, dtype=np.float64), 0.0) * 255).astype(np.int64).tolist()
+        for v, c in zip(out, rgba):
+            v['color'] = tuple(c)
     return out
+
+
+def _fields(values, names: tuple) -> np.ndarray:
+    """(n, len(names)) float64 of fields `names` of each struct in `values`."""
+    if isinstance(values, Records):
+        return np.column_stack([values.columns[n] for n in names]).astype(np.float64).reshape(-1, len(names))
+    return np.array([[getattr(v, n) for n in names] for v in values], dtype=np.float64).reshape(-1, len(names))
 
 
 def _geometry(geom, root) -> tuple:
     """(positions, UVs, normals, colours or None, triangles) of one FNV shape in the space of its ancestor
     `root`."""
     data, m = geom.data, np.array(geom.get_transform(root).as_list())
-    pos = np.array([(v.x, v.y, v.z, 1.0) for v in data.vertices]) @ m
-    nrm = np.array([(n.x, n.y, n.z) for n in data.normals]) @ m[:3, :3] if data.has_normals else None
-    uv = (np.array([(t.u, t.v) for t in data.uv_sets[0]]) if data.num_uv_sets and len(data.uv_sets)
+    xyz = _fields(data.vertices, ('x', 'y', 'z'))
+    pos = np.hstack([xyz, np.ones((len(xyz), 1))]) @ m
+    nrm = _fields(data.normals, ('x', 'y', 'z')) @ m[:3, :3] if data.has_normals else None
+    uv = (_fields(data.uv_sets[0], ('u', 'v')) if data.num_uv_sets and len(data.uv_sets)
           else np.zeros((data.num_vertices, 2)))
-    colors = (np.array([(c.r, c.g, c.b, c.a) for c in data.vertex_colors]) if data.has_vertex_colors else None)
+    colors = _fields(data.vertex_colors, ('r', 'g', 'b', 'a')) if data.has_vertex_colors else None
     tris = np.array([t for t in data.get_triangles() if len(set(t)) == 3], dtype=np.int64).reshape(-1, 3)
     if nrm is None:
         nrm = np.zeros_like(pos[:, :3])
@@ -289,6 +306,13 @@ def spec_glossiness(spec_path: str) -> float:
     return GLOSSINESS if plain else float(tag.replace('p', '.'))
 
 
+@functools.lru_cache(maxsize=KEPT_NORMAL_MAPS)
+def _spec_masked(source: str, size: int, mtime: int) -> bool:
+    """Whether normal map `source` is square with a spec mask in its alpha."""
+    data = Path(source).read_bytes()
+    return spec_mask.has_mask(data) and _square(data)
+
+
 def _specular(mat: dict, fnv_normal: str, props: dict, texture_root) -> 'tuple | None':
     """Set `mat`'s specular from FNV's normal-map alpha; (map path, (normal, glossiness)) or None.
 
@@ -296,8 +320,8 @@ def _specular(mat: dict, fnv_normal: str, props: dict, texture_root) -> 'tuple |
     ignores the mesh's material colour) or the map is not square.
     """
     source = export_file(texture_root, texture_source(fnv_normal).replace('\\', '/')) if texture_root and fnv_normal else None
-    data = source.read_bytes() if source and source.exists() else b''
-    if not spec_mask.has_mask(data) or not _square(data):
+    stat = source.stat() if source and source.exists() else None
+    if stat is None or not _spec_masked(str(source), stat.st_size, stat.st_mtime_ns):
         mat['specular'] = False
         return None
     material = props.get('NiMaterialProperty')
@@ -1049,7 +1073,9 @@ def _particles(nif: NifFile, root, found: list, nodes: dict, out: Converted, tex
 
     See: docs/fork/fo4_pipeline.md#particles
     """
-    made, scene = {}, {'nodes': nodes, 'place': lambda geom: nodes[id(_owner(geom, root, nodes))], 'emitters': {}}
+    parents = fnv_file.parent_map(root)
+    made, scene = {}, {'nodes': nodes, 'place': lambda geom: nodes[id(_owner(geom, parents, root, nodes))],
+                       'emitters': {}}
     for system in found:
         shader = material_blocks(nif, _material(system, texture_root), out, bool(system.data.has_vertex_colors))
         made.update(add_system(nif, system, scene['place'](system), shader, scene))
@@ -1063,13 +1089,13 @@ def range_nodes(nif: NifFile, root, nodes: dict) -> dict:
 
     See: docs/fork/fo4_pipeline.md#damage-stages
     """
-    placed = dict(nodes)
+    placed, parents = dict(nodes), fnv_file.parent_map(root)
     for node in root.tree():
         kind = type(node).__name__
         if kind not in RANGE_NODES or node is root:
             continue
         if id(node) not in placed:
-            owner = _owner(node, root, placed)
+            owner = _owner(node, parents, root, placed)
             translation, rotation, scale = node_transform(node, owner)
             placed[id(node)] = len(nif.blocks)
             nif.blocks.append(('NiNode', {
@@ -1091,7 +1117,7 @@ def _addon_nodes(nif: NifFile, root, addons: dict, placed: dict) -> bool:
     One under a hidden node other than a range node is left out.
     See: docs/fork/fo4_pipeline.md#addons
     """
-    parents = {id(c): n for n in root.tree() if hasattr(n, 'children') for c in n.children if c is not None}
+    parents = fnv_file.parent_map(root)
     seen = collections.Counter()
     for node in root.tree():
         chain, at = [], node
@@ -1103,7 +1129,7 @@ def _addon_nodes(nif: NifFile, root, addons: dict, placed: dict) -> bool:
         index = addons.get(int(node.value)) if shown else None
         if index is None:
             continue
-        owner = _owner(node, root, placed)
+        owner = _owner(node, parents, root, placed)
         translation, rotation, scale = node_transform(node, owner)
         name = f'AddOnNode{index:02d}' + (f'@#{seen[index] - 1}' if seen[index] else '')
         seen[index] += 1
@@ -1134,21 +1160,20 @@ def _has_body(node) -> bool:
 def _shapes(nif: NifFile, root, nodes: dict, placed: dict, out: Converted, texture_root) -> None:
     """Append FNV `root`'s visible shapes under their nearest `placed` node (a kept or range one; a skinned shape
     under the root, skinned to the kept `nodes`)."""
-    shapes = _visible_shapes(root)
+    shapes, parents = _visible_shapes(root), fnv_file.parent_map(root)
     layers = overlay_layers(shapes, root)
     for g in shapes:
         skinned = len(nodes) > 1 and g.skin_instance is not None
-        owner = root if skinned else _owner(g, root, placed)
+        owner = root if skinned else _owner(g, parents, root, placed)
         made = _shape_blocks(nif, g, owner, out, texture_root, id(g) in layers)
         nif.blocks[placed[id(owner)]][1]['children'] += made
         if skinned:
             skin(nif, made, g, root, nodes)
 
 
-def _owner(geom, root, nodes: dict):
-    """The nearest of `geom`'s ancestors among the kept `nodes` ({id(FNV node): index}, the root included)."""
-    parents = {id(child): node for node in root.tree() if hasattr(node, 'children') for child in node.children
-               if child is not None}
+def _owner(geom, parents: dict, root, nodes: dict):
+    """The nearest of `geom`'s ancestors (`parents`: parent_map) among the kept `nodes` ({id(FNV node): index},
+    the root included)."""
     current = parents.get(id(geom), root)
     while id(current) not in nodes:
         current = parents.get(id(current), root)

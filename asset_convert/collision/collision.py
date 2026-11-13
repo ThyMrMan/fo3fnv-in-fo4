@@ -591,9 +591,9 @@ def _rebuild_mesh_collision(rb, target_node):
     return 'drop'
 
 
-def mesh_soup(rb, materials_of=None):
+def mesh_soup(rb, materials_of=None, normals=False):
     """(tris, materials, groups, authored_normals) of `rb`'s finite mesh collision in Skyrim Havok units, as
-    authored (winding unrepaired).
+    authored (winding unrepaired); authored_normals None unless `normals`.
 
     Materials are Skyrim CRCs, or `materials_of(shape, n)`'s values. A
     bhkRigidBodyT's transform is baked in (the body becomes an identity
@@ -602,7 +602,7 @@ def mesh_soup(rb, materials_of=None):
     """
     shape = rb.shape
     inner = shape.shape if isinstance(shape, NifFormat.bhkMoppBvTreeShape) else shape
-    soup = _finite_soup(inner, materials_of)
+    soup = _finite_soup(inner, materials_of, normals)
     if soup is None:
         return None
     tris, materials, groups, authored_normals = soup
@@ -623,7 +623,7 @@ def repaired_mesh_soup(rb, target_node, materials_of=None, visual=None):
     'drop' for a sub-viable hull.
     See: docs/commentary/asset_convert_collision.md#inverted-collision-winding-i-fall
     """
-    soup = mesh_soup(rb, materials_of)
+    soup = mesh_soup(rb, materials_of, True)
     if soup is None or soup == 'drop':
         return soup
     tris, materials, groups, authored_normals = soup
@@ -636,12 +636,13 @@ def repaired_mesh_soup(rb, target_node, materials_of=None, visual=None):
     return tris, materials
 
 
-def _finite_soup(inner, materials_of=None):
+def _finite_soup(inner, materials_of=None, normals=True):
     """(tris, materials, groups, authored_normals) of mesh shape `inner` with
     every non-finite triangle removed and the parallel lists cut to match;
     None when it is not a mesh shape or nothing finite is left.  `groups`
     and `authored_normals` are [] / None when they do not line up with the soup.
-    `materials_of(inner, n)` replaces the Skyrim materials (see repaired_mesh_soup)."""
+    `materials_of(inner, n)` replaces the Skyrim materials (see repaired_mesh_soup).
+    authored_normals are not read unless `normals`."""
     soup = _shape_tri_soup(inner)
     if soup is None:
         return None
@@ -649,7 +650,7 @@ def _finite_soup(inner, materials_of=None):
     if materials_of is not None:
         materials = materials_of(inner, len(tris))
     groups = shape_tri_groups(inner)
-    authored_normals = _shape_tri_normals(inner)
+    authored_normals = _shape_tri_normals(inner) if normals else None
     if authored_normals is not None and len(authored_normals) != len(tris):
         authored_normals = None
     keep = [all(math.isfinite(c) for v in t for c in v) for t in tris]
