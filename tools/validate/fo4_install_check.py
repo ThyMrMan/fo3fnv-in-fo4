@@ -33,6 +33,8 @@ MO2_URL = 'https://github.com/ModOrganizer2/modorganizer'
 F4SE_LOADER = 'f4se_loader.exe'
 PLUGINS = Path('F4SE', 'Plugins')
 RUNTIME_DLL = 'F3NV.dll'
+#: Every F4SE plugin the output ships: ours, then Cleanroom UI's (fo4_import.cleanroom DIALOGUE_DLL, FRAMEWORK_DLL).
+RUNTIME_DLLS = (RUNTIME_DLL, 'CleanroomDialogue.dll', 'CleanroomUI.dll')
 BASE_PLUGIN, *FNV_DLC = GAME_PLUGINS['fnv']
 #: (mod, the file it puts in Data, download page) per README mod; {version} is the game's version, dashed.
 REQUIRED_MODS = (
@@ -323,16 +325,17 @@ def plugin_check(plugin: str, folder: Path, found: dict, mods: Mods) -> Check:
 
 
 def output_checks(mods: Mods) -> list:
-    """Each converted plugin's place, then F3NV.dll; NOT YET when nothing is converted."""
+    """Each converted plugin's place, then each of RUNTIME_DLLS; NOT YET when nothing is converted."""
     found = converted(mods.dirs)
     if not found:
         return [Check('Converted plugins', 'NOT YET', 'none where the game sees them; run this again after '
                       'converting and adding the output to MO2')]
     out = [plugin_check(plugin, folder, found, mods) for folder, plugins in found.items() for plugin in plugins]
-    dll = holder(PLUGINS / RUNTIME_DLL, mods.dirs)
-    out.append(Check(RUNTIME_DLL, 'OK', f'in "{dll.name}"') if dll else
-               Check(RUNTIME_DLL, 'MISSING', f'copy tes_runtime/dist/{RUNTIME_DLL} into F4SE/Plugins in the mod '
-                     f'holding {BASE_PLUGIN}'))
+    for name in RUNTIME_DLLS:
+        dll = holder(PLUGINS / name, mods.dirs)
+        out.append(Check(name, 'OK', f'in "{dll.name}"') if dll else
+                   Check(name, 'MISSING', f'copy tes_runtime/dist/{name} into F4SE/Plugins in the mod '
+                         f'holding {BASE_PLUGIN}'))
     return out
 
 

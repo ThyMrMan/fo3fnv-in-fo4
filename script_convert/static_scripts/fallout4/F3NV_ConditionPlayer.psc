@@ -68,10 +68,10 @@ Function ListenPipboy()
     EndIf
     k += 1
   EndWhile
-  F3NV_Condition.SetServiceRules(RepairSkillBase, RepairSkillMax, RepairCostMult)
+  CRUI_Condition.SetServiceRules(RepairSkillBase, RepairSkillMax, RepairCostMult)
   TellJuryRigging()
   RegisterForMenuOpenCloseEvent("PipboyMenu")
-  RegisterForExternalEvent("FNVConditionRepair", "OnPipboyRepair")
+  RegisterForExternalEvent("CRUI_ConditionRepair", "OnPipboyRepair")
 EndFunction
 
 Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
@@ -93,14 +93,14 @@ Event OnKeyDown(Int aiKeyCode)
 EndEvent
 
 Function OnPipboyRepair()
-  {Carry out the repair chosen in the Pip-Boy's repair list (the plugin sends FNVConditionRepair as it is confirmed), then show the item's new condition there; a second request within 0.3 s is the same press.}
+  {Carry out the repair chosen in the Pip-Boy's repair list (the plugin sends CRUI_ConditionRepair as it is confirmed), then show the item's new condition there; a second request within 0.3 s is the same press.}
   Float now = Utility.GetCurrentRealTime()
   If now >= RepairedAt && now - RepairedAt < 0.3
     Return
   EndIf
   RepairedAt = now
-  Form item = F3NV_Condition.PipboySelection()
-  Float health = F3NV_Condition.PipboyRepair(GetActorReference())
+  Form item = CRUI_Condition.PipboySelection()
+  Float health = CRUI_Condition.PipboyRepair(GetActorReference())
   Debug.Trace("TES4Condition|Pip-Boy repair|" + item + "|" + health)
   If item && health >= 0.0
     Refresh(item)
@@ -109,12 +109,12 @@ Function OnPipboyRepair()
   ElseIf item
     Debug.MessageBox("No spare to repair " + item.GetName() + " with.")
   EndIf
-  F3NV_Condition.PipboyRefresh()
+  CRUI_Condition.PipboyRefresh()
 EndFunction
 
 Function TellJuryRigging()
   {Tell the plugin whether the player has Jury Rigging (it can be taken at any level-up).}
-  F3NV_Condition.SetJuryRigging(JuryRigging && GetActorReference().HasPerk(JuryRigging))
+  CRUI_Condition.SetJuryRigging(JuryRigging && GetActorReference().HasPerk(JuryRigging))
 EndFunction
 
 Function RepairFromHotkey()
@@ -128,7 +128,7 @@ Function RepairFromHotkey()
     Form[] worn = Worn(player)
     Int k = 0
     While k < worn.Length
-      Float health = F3NV_ConditionCalls.Whole(F3NV_Condition.GetHealth(player, worn[k]))
+      Float health = F3NV_ConditionCalls.Whole(CRUI_Condition.GetHealth(player, worn[k]))
       If health < lowest && Repairable(worn[k], -1)
         item = worn[k]
         lowest = health
@@ -146,11 +146,11 @@ EndFunction
 Function RepairItem(Form akItem, Int aiStack)
   {Repair stack aiStack of akItem from a spare and put its condition mod on, naming the result (the Repair hotkey).}
   Actor player = GetActorReference()
-  If F3NV_ConditionCalls.Whole(F3NV_Condition.GetStackHealth(player, akItem, aiStack)) >= 1.0
+  If F3NV_ConditionCalls.Whole(CRUI_Condition.GetStackHealth(player, akItem, aiStack)) >= 1.0
     Debug.Notification(akItem.GetName() + " needs no repair.")
   ElseIf F3NV_ConditionCalls.RepairWithSpare(player, akItem, aiStack)
     Refresh(akItem)
-    Int percent = Math.Floor(F3NV_ConditionCalls.Whole(F3NV_Condition.GetStackHealth(player, akItem, aiStack)) * 100.0 + 0.5)
+    Int percent = Math.Floor(F3NV_ConditionCalls.Whole(CRUI_Condition.GetStackHealth(player, akItem, aiStack)) * 100.0 + 0.5)
     Debug.Notification(akItem.GetName() + " repaired: " + percent + "%")
   Else
     Debug.Notification("No spare to repair " + akItem.GetName() + " with.")
@@ -163,10 +163,10 @@ Bool Function Repairable(Form akItem, Int aiStack)
   If !akItem || (!WeaponSource(akItem) && !ArmorSource(akItem))
     Return False
   EndIf
-  If F3NV_ConditionCalls.Whole(F3NV_Condition.GetStackHealth(player, akItem, aiStack)) >= 1.0
+  If F3NV_ConditionCalls.Whole(CRUI_Condition.GetStackHealth(player, akItem, aiStack)) >= 1.0
     Return False
   EndIf
-  Return F3NV_Condition.SpareCount(player, akItem, aiStack) > 0
+  Return CRUI_Condition.SpareCount(player, akItem, aiStack) > 0
 EndFunction
 
 Function Listen()
@@ -195,18 +195,18 @@ Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)
     EndIf
     Refresh(gun)
     Note(gun, health)
-    F3NV_Condition.PipboyRefresh()
+    CRUI_Condition.PipboyRefresh()
   ElseIf ArmorSource(akBaseObject)
     Refresh(akBaseObject)
     Note(akBaseObject, Health(player, akBaseObject))
-    F3NV_Condition.PipboyRefresh()
+    CRUI_Condition.PipboyRefresh()
   EndIf
 EndEvent
 
 Event OnItemUnequipped(Form akBaseObject, ObjectReference akReference)
   {An item that wears coming off: the Pip-Boy redraws its lines' equipped marks.}
   If WeaponSource(akBaseObject) || ArmorSource(akBaseObject)
-    F3NV_Condition.PipboyRefresh()
+    CRUI_Condition.PipboyRefresh()
   EndIf
 EndEvent
 
@@ -226,11 +226,11 @@ Event OnAnimationEvent(ObjectReference akSource, String asEventName)
   EndIf
   Float health = Health(player, gun) - Wear(player) / rows.WeaponMax(gun)
   If health <= 0.0
-    F3NV_Condition.SetHealth(player, gun, 0.0)
+    CRUI_Condition.SetHealth(player, gun, 0.0)
     Break(player, gun)
     Return
   EndIf
-  F3NV_Condition.SetHealth(player, gun, health)
+  CRUI_Condition.SetHealth(player, gun, health)
   Refresh(gun, False)
 EndEvent
 
@@ -246,7 +246,7 @@ Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource
   Int k = 0
   While k < worn.Length
     Float health = Health(player, worn[k]) - wear / ArmorSource(worn[k]).ArmorHealth(worn[k])
-    F3NV_Condition.SetHealth(player, worn[k], Math.Max(health, 0.0))
+    CRUI_Condition.SetHealth(player, worn[k], Math.Max(health, 0.0))
     Refresh(worn[k], False)
     k += 1
   EndWhile
@@ -378,10 +378,10 @@ EndFunction
 
 Float Function Health(Actor akPlayer, Form akItem)
   {akItem's condition, set whole (1) the first time it has none.}
-  Float health = F3NV_Condition.GetHealth(akPlayer, akItem)
+  Float health = CRUI_Condition.GetHealth(akPlayer, akItem)
   If health < 0.0
     health = 1.0
-    F3NV_Condition.SetHealth(akPlayer, akItem, health)
+    CRUI_Condition.SetHealth(akPlayer, akItem, health)
   EndIf
   Return health
 EndFunction

@@ -7,12 +7,24 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
+from fo4_import import cleanroom
 from fo4_import.level_up import options as O
 from fo4_import.spike.character import RATES
 
 STATIC = Path(__file__).resolve().parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
 #: MCM's property source types and the Papyrus type each writes.
 TYPES = {'PropertyValueInt': 'Int', 'PropertyValueFloat': 'Float', 'PropertyValueBool': 'Bool'}
+
+
+def _script(name: str) -> str:
+    """Papyrus script `name`'s source: Cleanroom UI's for its scripts (skipped without a checkout), else ours."""
+    if name not in cleanroom.SCRIPTS:
+        return (STATIC / f'{name}.psc').read_text(encoding='utf-8')
+    if cleanroom.checkout() is None:
+        pytest.skip('no Cleanroom UI checkout')
+    return cleanroom.scripts()[f'{name}.psc'].read_text(encoding='utf-8')
 
 
 def _controls(plugin: str = 'FalloutNV.esm', quest: int = 0x01000801) -> list:
@@ -38,7 +50,7 @@ def test_each_option_is_a_settable_property_of_its_script():
         source = control.get('valueOptions', {})
         if 'propertyName' not in source:
             continue
-        script = (STATIC / f'{source["scriptName"]}.psc').read_text(encoding='utf-8')
+        script = _script(source['scriptName'])
         declared = re.search(rf'^(\w+) Property {source["propertyName"]}\b[^\n]*$', script, re.M)
         assert declared and declared.group(1) == TYPES[source['sourceType']], source['propertyName']
         assert 'Const' not in declared.group(0) and 'AutoReadOnly' not in declared.group(0), source['propertyName']

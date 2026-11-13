@@ -1,7 +1,7 @@
 """The menu checks: a built plugin's dialogue menus against its links file (fo4_import.dialogue_menu), and our
 movies' translation keys against the English file (fo4_import.base.translations).
 
-F3NV.dll lists a Player Dialogue action's option only when the links file
+CleanroomDialogue.dll lists a Player Dialogue action's option only when the links file
 links it to an answer topic holding a line, so: every option of the
 plugin's own menus has a link; every link names such an option and an answer
 topic (the plugin's or a built master's) with a line; every skill check names

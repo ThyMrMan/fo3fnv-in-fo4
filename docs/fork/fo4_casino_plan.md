@@ -786,8 +786,8 @@ is **FFDec** (open question 1 taken as recommended; no Flex SDK needed).
   shader) failed: with them the slot menu would not open; the flags stay
   0x800049D / 2. Instead the menu colors its own text, outlines and button
   faces: `Ui.color` (white by default) is set in `newScreen()` from
-  F3NV.dll's `HudColor()` native (`dialogue.cpp`, registered with the
-  dialogue menu's natives on every movie as `f4se.plugins.F3NV`), which
+  F3NV.dll's `HudColor()` native (`gfx.cpp`, registered with our
+  other movie natives on every movie as `f4se.plugins.F3NV`), which
   returns `iHUDColorR/G/B:Interface` as 0xRRGGBB, read on every call. The
   reader `HudColor(prefix)` is shared with the Hardcore HUD fields
   (`hardcore.cpp`, declared in `condition.h`). Without F3NV.dll the menu

@@ -789,8 +789,9 @@ Every fixed word our menus show is a key in `en.txt`, UPPER_SNAKE with our
 prefix (`$F3NV_REPAIR`). Upper case because the dialogue menu, and maybe the
 item card, uppercase their text before the game translates it. The English
 text is what showed before, word for word.
-- **Movies:** the dialogue menu's `[LEAVE]` (`$F3NV_LEAVE`) and its hints
-  (`$F3NV_HINT_SELECT`, `$F3NV_HINT_LEAVE`). `$Controller_Buttons` is a
+- **Movies:** the dialogue menu's words are Cleanroom UI's since
+  2026-11-13 (`$CRUI_LEAVE`, `$CRUI_HINT_SELECT`, `$CRUI_HINT_LEAVE` in
+  `CleanroomDialogue_<language>.txt`). `$Controller_Buttons` is a
   font name, not a key, and the check skips it.
 - **F3NV.dll** (`pipboy.cpp`, `ammo.cpp`): the CND line (Pip-Boy, container
   and barter), the REPAIR and AMMO hints and card labels, the repair list,
@@ -938,7 +939,7 @@ and clicking a hint fires its action. Labels may be `$KEY`s.
   Decrease Bet). Roulette's board is still mouse-only.
 - **Dialogue menu:** W, S and E, the `Quickkey` D-pad, `Activate`, and on
   a gamepad only `MultiActivateA`/`B` are its additions. The hints
-  (`$F3NV_HINT_SELECT`, `$F3NV_HINT_LEAVE`) sit under the box, inside the
+  (`$CRUI_HINT_SELECT`, `$CRUI_HINT_LEAVE`) sit under the box, inside the
   tinted holder, so they take the HUD color and the shaded backdrop.
 - `tests/test_fo4_f3ui_input.py` holds the glyph table and the control
   names to the game's, and both menus to taking keys only through `Input`.

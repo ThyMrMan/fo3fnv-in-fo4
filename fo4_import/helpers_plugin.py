@@ -7,7 +7,7 @@ Actor values FO4 lacks (Variable01-10, the FO3/FNV skills), the start-game
 quests running the helper quest scripts, and the helpers' globals; one copy
 for every converted game, since they hold player and actor state. Object ids
 come from script_convert.constants (FALLOUT4_HELPER_*), a save contract.
-Cleanroom UI's CleanroomUI.esl (cleanroom_plugin) is written beside it.
+Cleanroom UI's CleanroomUI.esl (built by Cleanroom UI, fo4_import.cleanroom) is copied beside it.
 
 See: docs/fork/fo4_spikes.md#spike-3-helper-plugin
 """
@@ -16,7 +16,7 @@ import argparse
 import re
 from pathlib import Path
 
-from fo4_import import cleanroom_plugin
+from fo4_import import cleanroom
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.support_records import pack_avif, pack_global, pack_mesg, pack_script_quest
 from fo4_import.base.vmad import object_scripts
@@ -115,7 +115,8 @@ def main():
         print(f'{args.out}: the trace switch')
         return
     print(f'{args.out}: {build(Path(args.out))} records')
-    print(f'{cleanroom_plugin.build(Path(args.out).parent)}: Cleanroom UI\'s holder')
+    for copy in cleanroom.install(Path(args.out).parent, cleanroom.PLUGIN_FILES):
+        print(f'{copy}: Cleanroom UI\'s plugin')
 
 
 if __name__ == '__main__':

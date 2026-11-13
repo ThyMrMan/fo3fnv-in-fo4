@@ -25,8 +25,8 @@ SITE = 'FNV ammo switch'
 SCRIPT, ITEM_SCRIPT = 'F3NV_AmmoSwitch', 'F3NV_AmmoSwitchItem'
 #: Each plugin's ammo lists (the game's on its ammo switch quest, a DLC's on a quest of its own); see write.
 SOURCE_SCRIPT = 'F3NV_AmmoSwitchSource'
-#: The F3NV plugin's natives for the Pip-Boy's ammo list (tes_runtime/fo4_condition/ammo.cpp).
-NATIVES = 'F3NV_PipboyAmmo'
+#: The natives for the Pip-Boy's ammo list (Cleanroom UI's CleanroomUI.dll, its ammo.cpp).
+NATIVES = 'CRUI_PipboyAmmo'
 #: The hotkey item's name (FNV's own for the hotkey).
 ITEM_NAME = 'Ammo Type'
 #: The quest's messages: property, text.

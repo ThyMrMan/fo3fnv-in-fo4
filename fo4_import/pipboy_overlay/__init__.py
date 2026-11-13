@@ -1,30 +1,23 @@
-"""Our movie inside the Pip-Boy, Interface/F3NV_Pipboy.swf, built from as3/ with mxmlc and our f3ui library.
+"""Cleanroom UI's movie inside the Pip-Boy, Interface/CRUI_Pipboy.swf, installed with the masterless build.
 
-F3NV.dll loads it into the open Pip-Boy menu with a Loader (pipboy.cpp
-LoadOverlay); no Pip-Boy movie of the game's is shipped or read. Cached
-under temp/ by the sources' hash; the masterless build installs it.
+CleanroomUI.dll loads it into the open Pip-Boy menu with a Loader (its
+pipboy.cpp); it draws the CND line, the repair and ammo lists and other mods'
+item-card lines from the DLL's data. Built by Cleanroom UI (fo4_import.cleanroom).
 
 See: docs/fork/swf_framework.md#pipboy
 """
 
 from pathlib import Path
 
-from fo4_import.base import mxmlc
-from fo4_import.base.mxmlc import REPO
+from fo4_import import cleanroom
 
-SOURCES = Path(__file__).resolve().parent / 'as3'
-CACHE = REPO / 'temp' / 'fo4_pipboy_overlay'
-#: The movie's path in a data folder: the name pipboy.cpp's OVERLAY loads, under Interface.
-MOVIE = 'Interface/F3NV_Pipboy.swf'
-#: The document class: the movie's root.
-DOCUMENT = 'F3NV_Pipboy'
-
-
-def compile_movie(out: Path, sources: Path = SOURCES) -> Path:
-    """The movie of `sources`, written to `out`."""
-    return mxmlc.compile_movie(out, sources, DOCUMENT)
+#: The movie in a data folder, as Cleanroom UI's build writes it.
+FILES = ('Interface/CRUI_Pipboy.swf',)
+#: DEPRECATED: our own movie before Cleanroom UI's, which F3NV.dll loaded; install deletes it.
+OLD_MOVIE = 'Interface/F3NV_Pipboy.swf'
 
 
 def install(data_dir: Path) -> int:
-    """Copy the movie to <data_dir>/Interface; 1 if installed, 0 if not built."""
-    return int(mxmlc.install(data_dir, MOVIE, SOURCES, DOCUMENT, CACHE) is not None)
+    """Copy the movie into `data_dir` and delete OLD_MOVIE; 1 if installed."""
+    (Path(data_dir) / OLD_MOVIE).unlink(missing_ok=True)
+    return len(cleanroom.install(data_dir, FILES))

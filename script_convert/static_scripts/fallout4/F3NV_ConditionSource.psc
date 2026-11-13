@@ -33,9 +33,9 @@ Function Register()
   If Sources.Find(Self) < 0
     Sources.AddForm(Self)
   EndIf
-  F3NV_Condition.Track(Weapons)
-  F3NV_Condition.Track(Armors)
-  F3NV_Condition.TrackRepair(Weapons, Armors, RepairLists, JuryGroups, Repair)
+  CRUI_Condition.Track(Weapons)
+  CRUI_Condition.Track(Armors)
+  CRUI_Condition.TrackRepair(Weapons, Armors, RepairLists, JuryGroups, Repair)
 EndFunction
 
 Float Function WeaponMax(Form akItem)

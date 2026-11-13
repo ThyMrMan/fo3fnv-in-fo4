@@ -14,8 +14,12 @@
 // the engine does not tint a field it did not make.
 #include "condition.h"
 
+#include "f4se/GameEvents.h"
 #include "f4se/GameMenus.h"
+#include "f4se/GameReferences.h"
 #include "f4se/GameSettings.h"
+#include "f4se/GameThreads.h"
+#include "f4se/PluginAPI.h"
 #include "f4se/PapyrusArgs.h"
 #include "f4se/PapyrusNativeFunctions.h"
 #include "f4se/ScaleformCallbacks.h"
@@ -179,8 +183,9 @@ bool HookAmmoWeight() {
     return hooked;
 }
 
-// The HUD's needs clip above its health bar, and a frame listener; once per HUD movie, nothing without a HUD.
-void HookHud() {
+// The HUD's needs clip above its health bar, and a frame listener; once per HUD movie, nothing without a HUD. Run on
+// every menu opening (InstallHud), on the UI thread.
+static void HookHud() {
     BSFixedString name(HUD);
     IMenu *menu = (*g_ui)->GetMenu(name);
     GFxValue root, meters, bounds, top, left, box, boxName;
@@ -211,6 +216,33 @@ void HookHud() {
     g_warning = HudColor("iHUDColorWarning");
     for (Shown &shown : g_shown) shown = Shown();
     _MESSAGE("Hardcore needs added to the HUD (colors %06X, %06X)", g_normal, g_warning);
+}
+
+namespace {
+
+F4SETaskInterface *g_tasks = nullptr;
+
+// A menu opened: give the HUD Hardcore's needs on the UI thread, if it has none yet.
+class HudHookTask : public ITaskDelegate {
+public:
+    void Run() override { HookHud(); }
+};
+
+class OpenSink : public BSTEventSink<MenuOpenCloseEvent> {
+public:
+    EventResult ReceiveEvent(MenuOpenCloseEvent *evn, void *) override {
+        if (evn && evn->isOpen && g_tasks) g_tasks->AddUITask(new HudHookTask);
+        return kEvent_Continue;
+    }
+};
+OpenSink g_openSink;
+
+}  // namespace
+
+void InstallHud(void *tasks) {
+    g_tasks = static_cast<F4SETaskInterface *>(tasks);
+    bool added = *g_ui && (*g_ui)->menuOpenCloseEventSource.AddEventSink(&g_openSink);
+    _MESSAGE("Hardcore HUD %s", added ? "listening for menus" : "could not listen for menus");
 }
 
 void RegisterHardcore(VirtualMachine *vm) {

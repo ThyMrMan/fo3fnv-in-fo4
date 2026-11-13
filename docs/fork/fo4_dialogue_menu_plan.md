@@ -198,7 +198,8 @@ each call):**
 | Topic: INFO count +0x60 | | I |
 | INFO: said byte +0x43, flags +0x44 | | V |
 
-**F3NV.dll (`dialogue.cpp`).**
+**The DLL (`dialogue.cpp`: F3NV.dll's, Cleanroom UI's `CleanroomDialogue.dll` since 2026-11-13,
+[move](spin_offs.md#move)).**
 - On PostLoad it hooks the three call sites with five-byte calls, and
   takes vtable slot 21 to know which Player Dialogue action is running. It
   refuses, and logs why, when `XDI.dll` is loaded or any site no longer
@@ -278,9 +279,10 @@ cached under `temp/` and written only to an output folder.
 
 ### <a id="links-file"></a>The links file
 
-The DLL reads `Data\F4SE\Plugins\F3NV_Menus\*.txt` the first time a menu
-opens. Each build writes `<plugin stem>.txt` there beside its plugin
-(`fo4_import/dialogue_menu/__init__.py`). Lines are tab-separated, `#` starts
+The DLL reads `Data\F4SE\Plugins\CleanroomDialogue\*.txt` (and the
+older `F3NV_Menus\`, logged `DEPRECATED`) the first time a menu opens. Each build writes `<plugin stem>.txt` there beside its plugin
+(`fo4_import/dialogue_menu/__init__.py`) and deletes its file in
+`F3NV_Menus\`. Lines are tab-separated, `#` starts
 a comment, object ids are hex:
 
 - **Four columns, a link:** option plugin, option INFO, answer plugin,
@@ -543,7 +545,8 @@ should be 2–3× faster, plus less to write, voice and pack.
 ### <a id="converter-built"></a>As built (2026-11-11)
 
 **Code:** `fo4_import/spike/conversation.py`, `fo4_import/dialogue_menu/__init__.py`,
-`tes_runtime/fo4_condition/dialogue.cpp`.
+`tes_runtime/fo4_condition/dialogue.cpp` (Cleanroom UI's
+`dll/dialogue/dialogue.cpp` since 2026-11-13).
 
 - **A menu** (FNV Choices, or the Topic list) is one Player Dialogue
   action: one player topic holding an option per FNV topic, then `[Leave]`

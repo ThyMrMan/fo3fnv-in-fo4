@@ -57,7 +57,7 @@ The menu is played in parts: HUD color, scrolling, the shaded backdrop and
 skill-check tags were checked in game on 2026-11-10/11
 ([as built](fo4_dialogue_menu_plan.md#as-built)). It works like this:
 
-- **Links files** `Data\F4SE\Plugins\F3NV_Menus\*.txt`, tab-separated:
+- **Links files** `Data\F4SE\Plugins\CleanroomDialogue\*.txt`, tab-separated:
   option INFO → answer topic, plus optional skill checks
   (`dialogue.cpp` `ReadLinks`). An INFO in a links file is "ours". The
   answer is the answer topic's first passing line, chosen by the game's own

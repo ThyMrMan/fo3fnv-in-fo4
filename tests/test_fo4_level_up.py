@@ -1,10 +1,10 @@
-"""Our own level-up state in place of PRKF.dll: the perks' requirement rows and CRUI_LevelUp.psc.
+"""Our own level-up state in place of PRKF.dll: the perks' requirement rows and the tables Cleanroom UI's
+CRUI_LevelUp.psc and CRUI_LevelUpTable.psc read.
 
 See: docs/fork/fo4_level_up_plan.md#prkf
 """
 
 import re
-import shutil
 import struct
 from collections import Counter
 from pathlib import Path
@@ -12,14 +12,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from fo4_import.base.papyrus import FO4_COMPILER, compile_folder, header_dirs
+from fo4_import import cleanroom
 from fo4_import.spike import character
 from fo4_import.spike import conditions as C
 from fo4_import.spike import level_up as L
 
-STATIC = Path(__file__).resolve().parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
-TABLE = (STATIC / f'{L.TABLE_SCRIPT}.psc').read_text(encoding='utf-8')
-SEND = re.search(r'Function Built\(.*?EndFunction', (STATIC / f'{L.SCRIPT}.psc').read_text(encoding='utf-8'), re.S).group(0)
+if cleanroom.checkout() is None:
+    pytest.skip('no Cleanroom UI checkout', allow_module_level=True)
+
+CLEANROOM = cleanroom.scripts()
+TABLE = CLEANROOM[f'{L.TABLE_SCRIPT}.psc'].read_text(encoding='utf-8')
+SEND = re.search(r'Function Built\(.*?EndFunction', CLEANROOM[f'{L.SCRIPT}.psc'].read_text(encoding='utf-8'),
+                 re.S).group(0)
 #: FNV comparison flags: >=, >= OR'd with the next, <.
 AT_LEAST, AT_LEAST_OR, BELOW = 0x60, 0x61, 0x80
 SCIENCE, GUNS, LEVEL_PERK = 0x200, 0x201, 0x300
@@ -121,7 +125,7 @@ def test_the_scripts_declare_exactly_the_properties_the_build_writes():
     """CRUI_LevelUp's properties without a default are the lists and the skill table; CRUI_LevelUpTable's the
     registry and table_properties' tables; character.build fills both."""
     builder = _builder(_perk(0x01000001))
-    source = (STATIC / f'{L.SCRIPT}.psc').read_text(encoding='utf-8')
+    source = CLEANROOM[f'{L.SCRIPT}.psc'].read_text(encoding='utf-8')
     assert _declared(source) == {*L.skill_table({}, []), 'Perks', 'Skills', 'Specials', 'Events', 'Tables'}
     assert _declared(TABLE) == {*L.table_properties(builder, {}, []), 'Tables'}
     built = (Path(L.__file__).parent / 'character.py').read_text(encoding='utf-8')
@@ -191,15 +195,3 @@ def test_the_trait_table_follows_the_traits_list():
     table = L.texts('Trait', traits)
     assert table['TraitNames'] == ('string', 'Kamikaze\tFour Eyes')
     assert table['TraitDescriptions'] == ('string', 'Faster, weaker.\t') and table['TraitImages'][1].endswith('trait_k.dds\t')
-
-
-@pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
-def test_the_script_compiles(tmp_path):
-    """CRUI_LevelUp.psc compiles against Fallout 4's and F4SE's headers and F3NV_CharacterEvents.psc, which holds
-    the tags."""
-    src, out = tmp_path / 'src', tmp_path / 'out'
-    src.mkdir()
-    out.mkdir()
-    shutil.copy(STATIC / f'{L.SCRIPT}.psc', src)
-    log = compile_folder(src, out, f'{src};{STATIC};{header_dirs()}')
-    assert (out / f'{L.SCRIPT}.pex').is_file(), log

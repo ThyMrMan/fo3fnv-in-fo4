@@ -16,7 +16,7 @@ from fo4_import.base.vmad import quest_fragments
 from fo4_import.spike import records as R
 
 #: The tab quest script, the natives it calls, and each tab's place among ours (FNV's STATS order).
-TAB_SCRIPT, NATIVES = 'F3NV_PipboyTab', 'F3NV_Pipboy'
+TAB_SCRIPT, NATIVES = 'F3NV_PipboyTab', 'CRUI_Pipboy'
 ORDER = {'SKILLS': 0, 'REPUTATION': 1, 'KARMA': 2, 'CHALLENGES': 3}
 #: derive_formid site of a tab's quest (key: its EditorID).
 TAB_SITE = 'FNV Pip-Boy tab'
