@@ -503,10 +503,10 @@ def test_the_roulette_texts_are_in_the_screens_order():
     assert 'StringsAsVar(RouletteTexts)' in bank and '"root1.OpenRoulette"' in bank
 
 
-def test_roulette_opens_and_blackjack_still_refuses():
-    """Open lets slots and roulette through; blackjack is still refused."""
+def test_every_table_game_opens():
+    """Open lets blackjack, roulette and slots through (Caravan has OpenCaravan)."""
     bank = (STATIC / 'F3NV_Casino.psc').read_text(encoding='utf-8')
-    assert 'If aiGame != Slots && aiGame != Roulette' in bank and 'Int Property Roulette = 2' in bank
+    assert 'If aiGame != Slots' not in bank and 'Int Property Roulette = 2' in bank and 'Int Property Blackjack = 1' in bank
 
 
 def test_the_roulette_self_test_line_is_the_models():

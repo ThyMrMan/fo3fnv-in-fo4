@@ -7,6 +7,16 @@ FormList Property Owned Auto Const
 {The player's Caravan cards out of the deck (card MISCs).}
 FormList Property Deck Auto Const
 {The player's Caravan deck.}
+FormList Property CaravanCards Auto Const
+{Every Caravan card (MISCs); CardTable describes them in this order.}
+FormList Property CaravanMoney Auto Const
+{Every Caravan money item (MISCs worth FNV's value), counted with caps as Caravan funds.}
+String[] Property CardTable Auto Const
+{Each Caravan card's "suit,value,face texture,back texture", joined by "|", CardChunk cards to a string.}
+ActorValue Property Barter Auto Const
+{FNV's Barter skill: it raises how much a Caravan opponent matches.}
+String[] Property CaravanTexts Auto Const
+{The Caravan screens' texts (FNV's settings and menu strings), in CaravanScreen.as's order.}
 String Property BannedText Auto Const
 String Property BrokeText Auto Const
 String Property MinWinText Auto Const
@@ -16,11 +26,12 @@ String[] Property AntiCheatTexts Auto Const
 {Per game (1 blackjack, 2 roulette, 3 slots): FNV's anti-cheat text.}
 Float Property AntiCheatSeconds Auto Const
 {FNV's iAntiCheatDuration: games refuse this long after a load.}
-String Property NotBuiltText Auto Const
 String[] Property SlotTexts Auto Const
 {The slot screen's labels and results (FNV's settings), in SlotsScreen.as's order.}
 String[] Property RouletteTexts Auto Const
 {The roulette screen's labels, bet names and results (FNV's settings), in RouletteScreen.as's order.}
+String[] Property BlackjackTexts Auto Const
+{The blackjack screen's buttons, labels and results (FNV's settings), in BlackjackScreen.as's order.}
 String[] Property SpikeImages Auto Const
 {Spike: the images the test screen mounts (under Textures): a converted card face, then level-up images.}
 
@@ -30,7 +41,13 @@ Int Property ExtendedFlags = 2 AutoReadOnly Hidden
 {F4SE extended flags: drop the cursor when a gamepad is in use; no HUD color (it needs Custom Rendering).}
 Int Property CaravanMinimum = 30 AutoReadOnly Hidden
 {FNV's smallest deck: the menu won't open with fewer cards.}
+Int Property CardChunk = 30 AutoReadOnly Hidden
+{Cards per CardTable string and per deck chunk the menu sends (bits 0-29 of an Int).}
+Int Property CaravanGame = 4 AutoReadOnly Hidden
+{Caravan's game number while its menu is open.}
 
+Int Property Blackjack = 1 AutoReadOnly Hidden
+{The blackjack table's game number (Open's aiGame).}
 Int Property Roulette = 2 AutoReadOnly Hidden
 {The roulette table's game number (Open's aiGame).}
 Int Property Slots = 3 AutoReadOnly Hidden
@@ -44,6 +61,15 @@ Int playingGame
 Int betLow
 Int betHigh
 Int selfTestLuck
+ObjectReference opponent
+FormList opponentDeck
+Int caravanMode
+Float anteShare
+Int caravanWinnings
+Int caravanLosses
+Int caravanWins
+Int caravanLossCount
+Int caravanBiggest
 
 Event OnInit()
   Register()
@@ -72,7 +98,7 @@ Function Register()
     UI.RegisterCustomMenu(MenuName, MenuName, "root1", data)
   EndIf
   UnregisterForMenuOpenCloseEvent(MenuName)
-  String[] events = new String[7]
+  String[] events = new String[9]
   events[0] = "F3NV_CasinoClose"
   events[1] = "F3NV_CasinoReady"
   events[2] = "F3NV_CasinoRound"
@@ -80,6 +106,8 @@ Function Register()
   events[4] = "F3NV_CasinoInput"
   events[5] = "F3NV_CasinoSpikeImage"
   events[6] = "F3NV_CasinoSelfTest"
+  events[7] = "F3NV_CaravanDeck"
+  events[8] = "F3NV_CaravanResult"
   Int i = 0
   While i < events.Length
     UnregisterForExternalEvent(events[i])
@@ -93,6 +121,8 @@ Function Register()
   RegisterForExternalEvent("F3NV_CasinoInput", "OnMenuInput")
   RegisterForExternalEvent("F3NV_CasinoSpikeImage", "OnMenuImage")
   RegisterForExternalEvent("F3NV_CasinoSelfTest", "OnMenuSelfTest")
+  RegisterForExternalEvent("F3NV_CaravanDeck", "OnCaravanDeck")
+  RegisterForExternalEvent("F3NV_CaravanResult", "OnCaravanResult")
 EndFunction
 
 ; ---- Openers (the converted scripts' ShowBlackjackMenuParams, ShowRouletteMenuParams, ShowSlotMachineMenuParams, ShowCaravanMenu)
@@ -105,10 +135,6 @@ Function Open(Int aiGame, F3NV_CasinoData akCasino, Int aiMin, Int aiMax, Int ai
   String refusal = Refusal(aiGame, akCasino, aiMin, aiMinWinnings)
   If refusal != ""
     Debug.MessageBox(refusal)
-    Return
-  EndIf
-  If aiGame != Slots && aiGame != Roulette
-    Debug.MessageBox(akCasino.CasinoName + "\n\n" + NotBuiltText)
     Return
   EndIf
   spiking = False
@@ -150,6 +176,26 @@ Function OpenRoulette()
   args[6] = Utility.RandomInt(1, 2147483647)
   args[7] = StringsAsVar(RouletteTexts)
   UI.Invoke(MenuName, "root1.OpenRoulette", args)
+EndFunction
+
+Function OpenBlackjack()
+  {Hand the open menu the blackjack table: the casino, the player's chips, bets, earnings, Luck, a seed, the casino's decks, reshuffle share, natural payout, soft-17 rule, card backs and texts.}
+  Actor player = Game.GetPlayer()
+  Var[] args = new Var[13]
+  args[0] = playing.CasinoName
+  args[1] = player.GetItemCount(playing.Chip)
+  args[2] = betLow
+  args[3] = betHigh
+  args[4] = playing.GetEarnings()
+  args[5] = player.GetValue(Game.GetLuckAV()) as Int
+  args[6] = Utility.RandomInt(1, 2147483647)
+  args[7] = playing.Decks
+  args[8] = playing.ReshuffleShare
+  args[9] = playing.Payout
+  args[10] = playing.DealerStaysOnSoft17
+  args[11] = StringsAsVar(playing.CardBacks)
+  args[12] = StringsAsVar(BlackjackTexts)
+  UI.Invoke(MenuName, "root1.OpenBlackjack", args)
 EndFunction
 
 Var Function IntsAsVar(Int[] aiValues)
@@ -195,7 +241,176 @@ Function OpenCaravan(ObjectReference akOpponent, FormList akOpponentDeck, Int ai
     Debug.MessageBox(CardCountText)
     Return
   EndIf
-  Debug.MessageBox(NotBuiltText)
+  If !akOpponent || !akOpponentDeck
+    Return
+  EndIf
+  spiking = False
+  playing = None
+  playingGame = CaravanGame
+  opponent = akOpponent
+  opponentDeck = akOpponentDeck
+  caravanMode = aiMode
+  anteShare = afAnte
+  Register()
+  UI.OpenMenu(MenuName)
+EndFunction
+
+Function OpenCaravanMenu()
+  {Hand the open menu Caravan: the opponent's name, both sides' funds, the ante share, Barter, the AI mode, a seed, the card table, the player's owned and deck cards (bit chunks), the opponent's deck (card places), FNV's five results to date and the texts.}
+  Actor player = Game.GetPlayer()
+  Int chunks = (CaravanCards.GetSize() + CardChunk - 1) / CardChunk
+  If chunks < 1
+    chunks = 1
+  EndIf
+  Int[] results = new Int[5]
+  results[0] = caravanWinnings
+  results[1] = caravanLosses
+  results[2] = caravanWins
+  results[3] = caravanLossCount
+  results[4] = caravanBiggest
+  Var[] args = new Var[13]
+  args[0] = opponent.GetDisplayName()
+  args[1] = Funds(player)
+  args[2] = Funds(opponent)
+  args[3] = anteShare
+  args[4] = 0
+  If Barter
+    args[4] = player.GetValue(Barter) as Int
+  EndIf
+  args[5] = caravanMode
+  args[6] = Utility.RandomInt(1, 2147483647)
+  args[7] = StringsAsVar(CardTable)
+  args[8] = IntsAsVar(Masks(Owned, chunks))
+  args[9] = IntsAsVar(Masks(Deck, chunks))
+  args[10] = IntsAsVar(Places(opponentDeck))
+  args[11] = IntsAsVar(results)
+  args[12] = StringsAsVar(CaravanTexts)
+  UI.Invoke(MenuName, "root1.OpenCaravan", args)
+EndFunction
+
+Int Function Funds(ObjectReference akWho)
+  {FNV's Caravan funds: caps plus each Caravan money item's value times how many akWho holds.}
+  Int total = akWho.GetItemCount(Game.GetCaps())
+  Int i = 0
+  While i < CaravanMoney.GetSize()
+    Form money = CaravanMoney.GetAt(i)
+    total += akWho.GetItemCount(money) * money.GetGoldValue()
+    i += 1
+  EndWhile
+  Return total
+EndFunction
+
+Int Function Bit(Int aiPlace)
+  {2 to the power aiPlace.}
+  Int out = 1
+  While aiPlace > 0
+    out *= 2
+    aiPlace -= 1
+  EndWhile
+  Return out
+EndFunction
+
+Int[] Function Masks(FormList akCards, Int aiChunks)
+  {akCards as bits of CaravanCards places, CardChunk to an Int.}
+  Int[] out = new Int[aiChunks]
+  Int i = 0
+  While i < akCards.GetSize()
+    Int place = CaravanCards.Find(akCards.GetAt(i))
+    If place >= 0 && place / CardChunk < aiChunks
+      out[place / CardChunk] = out[place / CardChunk] + Bit(place % CardChunk)
+    EndIf
+    i += 1
+  EndWhile
+  Return out
+EndFunction
+
+Int[] Function Places(FormList akCards)
+  {akCards' places in CaravanCards (-1 for a card not there), at most 128.}
+  Int size = akCards.GetSize()
+  If size > 128
+    size = 128
+  ElseIf size < 1
+    size = 1
+  EndIf
+  Int[] out = new Int[size]
+  Int i = 0
+  While i < size
+    out[i] = CaravanCards.Find(akCards.GetAt(i))
+    i += 1
+  EndWhile
+  Return out
+EndFunction
+
+Function OnCaravanDeck(Int aiChunk, Int aiBits)
+  {The menu's deck for one chunk of CaravanCards (bit k the card at aiChunk * CardChunk + k): an owned card in it moves to Deck, a deck card out of it back to Owned, as FNV rewrites its two lists when play starts.}
+  Int bits = aiBits
+  Int k = 0
+  While k < CardChunk
+    Int place = aiChunk * CardChunk + k
+    If place < CaravanCards.GetSize()
+      Form card = CaravanCards.GetAt(place)
+      If bits % 2 == 1 && Owned.HasForm(card)
+        Owned.RemoveAddedForm(card)
+        Deck.AddForm(card)
+      ElseIf bits % 2 == 0 && Deck.HasForm(card)
+        Deck.RemoveAddedForm(card)
+        Owned.AddForm(card)
+      EndIf
+    EndIf
+    bits = bits / 2
+    k += 1
+  EndWhile
+EndFunction
+
+Function OnCaravanResult(Bool abWon, Int aiStake)
+  {A finished Caravan game: the loser pays the stake (TransferBarterItems 0x0074cc70) and FNV's results to date count it.}
+  If !opponent
+    Return
+  EndIf
+  Actor player = Game.GetPlayer()
+  If abWon
+    Pay(opponent, player, aiStake)
+    caravanWinnings += aiStake
+    caravanWins += 1
+    If aiStake > caravanBiggest
+      caravanBiggest = aiStake
+    EndIf
+  Else
+    Pay(player, opponent, aiStake)
+    caravanLosses += aiStake
+    caravanLossCount += 1
+  EndIf
+EndFunction
+
+Function Pay(ObjectReference akFrom, ObjectReference akTo, Int aiStake)
+  {akFrom pays akTo aiStake as FNV does: each Caravan money item in turn, as many as fit in what is left, then caps for the rest (akTo gets all of it).}
+  Int left = aiStake
+  Int i = 0
+  While i < CaravanMoney.GetSize() && left > 0
+    Form money = CaravanMoney.GetAt(i)
+    Int value = money.GetGoldValue()
+    Int count = akFrom.GetItemCount(money)
+    Int moved = count
+    If value * count > left
+      moved = left / value
+    EndIf
+    If moved > 0
+      akFrom.RemoveItem(money, moved, True, akTo)
+      left -= moved * value
+    EndIf
+    i += 1
+  EndWhile
+  If left > 0
+    Form caps = Game.GetCaps()
+    Int held = akFrom.GetItemCount(caps)
+    If held > left
+      held = left
+    EndIf
+    If held > 0
+      akFrom.RemoveItem(caps, held, True)
+    EndIf
+    akTo.AddItem(caps, left, True)
+  EndIf
 EndFunction
 
 ; ---- The bank
@@ -214,13 +429,13 @@ Function Settle(F3NV_CasinoData akCasino, Int aiNet)
 EndFunction
 
 Function OnMenuRound(Int aiNet)
-  {The menu's report of a finished round at the open casino (an AS3 int arrives as an Int). At roulette, chips under the min bet close the table with FNV's broke text (RouletteMenu 0x007bd2a0).}
+  {The menu's report of a finished round at the open casino (an AS3 int arrives as an Int). At roulette and blackjack, chips under the min bet close the table with FNV's broke text (RouletteMenu 0x007bd2a0, BlackjackMenu 0x00734db0).}
   F3NV_CasinoData casino = playing
   If !casino
     Return
   EndIf
   Settle(casino, aiNet)
-  If playingGame == Roulette && Game.GetPlayer().GetItemCount(casino.Chip) < betLow
+  If playingGame != Slots && Game.GetPlayer().GetItemCount(casino.Chip) < betLow
     Debug.Notification(BrokeText)
     UI.CloseMenu(MenuName)
   EndIf
@@ -301,9 +516,15 @@ Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
     OpenSlots()
   ElseIf abOpening && playing && playingGame == Roulette
     OpenRoulette()
+  ElseIf abOpening && playing && playingGame == Blackjack
+    OpenBlackjack()
+  ElseIf abOpening && opponent && playingGame == CaravanGame
+    OpenCaravanMenu()
   ElseIf !abOpening
     spiking = False
     playing = None
+    opponent = None
+    opponentDeck = None
   EndIf
 EndEvent
 

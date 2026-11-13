@@ -1,5 +1,9 @@
 package
 {
+   import f3nv.casino.Blackjack;
+   import f3nv.casino.BlackjackScreen;
+   import f3nv.casino.Caravan;
+   import f3nv.casino.CaravanScreen;
    import f3nv.casino.Rng;
    import f3nv.casino.Roulette;
    import f3nv.casino.RouletteScreen;
@@ -36,6 +40,8 @@ package
       private var screen:Sprite;
       private var slots:SlotsScreen;
       private var roulette:RouletteScreen;
+      private var blackjack:BlackjackScreen;
+      private var caravan:CaravanScreen;
       private var statusText:TextField;
       private var pings:int = 0;
       private var input:Input;
@@ -115,8 +121,37 @@ package
          hints.show(roulette.hints());
       }
 
+      // The blackjack table (F3NV_Casino.psc's OpenBlackjack): see BlackjackScreen.open.
+      public function OpenBlackjack(name:String, chips:int, low:int, high:int, earnings:int, luck:int, seed:uint,
+                                    decks:int, share:Number, payout:Number, stays:Boolean, backs:Array,
+                                    texts:Array) : void
+      {
+         newScreen(null);
+         blackjack = new BlackjackScreen(send);
+         screen.addChild(blackjack);
+         blackjack.open(name, chips, low, high, earnings, luck, seed, decks, share, payout, stays, Bridge.plain(backs),
+                        Bridge.plain(texts), MountAll);
+         hints.show(blackjack.hints());
+      }
+
+      // Caravan (F3NV_Casino.psc's OpenCaravanMenu): see CaravanScreen.open.
+      public function OpenCaravan(name:String, funds:int, opponentFunds:int, share:Number, barter:int, mode:int,
+                                  seed:uint, cards:Array, owned:Array, deck:Array, opponentDeck:Array, results:Array,
+                                  texts:Array) : void
+      {
+         newScreen(null);
+         caravan = new CaravanScreen(send);
+         caravan.showHints = hints.show;
+         screen.addChild(caravan);
+         caravan.open(name, funds, opponentFunds, share, barter, mode, seed, Bridge.plain(cards), Bridge.plain(owned),
+                      Bridge.plain(deck), Bridge.plain(opponentDeck), Bridge.plain(results), Bridge.plain(texts),
+                      MountAll);
+         hints.show(caravan.hints());
+      }
+
       // Replay `spins` slot spins per seed at `luck` on FNV's default reel and log them, then the roulette results
-      // and spot table: the lines tests/casino/model.py's slot_trace and roulette.py's roulette_trace make.
+      // and spot table, the blackjack rounds and Caravan games: the lines tests/casino/model.py's slot_trace,
+      // roulette.py's roulette_trace, blackjack.py's blackjack_trace and caravan.py's caravan_trace make.
       public function SelfTest(seeds:Array, spins:int, luck:int) : void
       {
          var out:Array = [];
@@ -140,6 +175,17 @@ package
             }
          }
          send("F3NV_CasinoSelfTest", "roulette " + results.join(" ") + " " + Roulette.spotMasks());
+         var rounds:Array = [];
+         for (s = 0; s < seeds.length; s++)
+         {
+            var table:Blackjack = new Blackjack(100000, 5, 5, 4, 0.35, 1.5, false, luck, new Rng(uint(seeds[s])));
+            for (i = 0; i < spins; i++)
+            {
+               rounds.push(table.roundText(table.play()));
+            }
+         }
+         send("F3NV_CasinoSelfTest", "blackjack " + luck + " " + rounds.join(" "));
+         send("F3NV_CasinoSelfTest", Caravan.trace(seeds, 3));
       }
 
       // FO4's menu input: the controls the game maps keys and gamepad buttons to, as actions (Input).
@@ -161,13 +207,20 @@ package
          }
       }
 
-      // One action from a key, a control or a hint: Back closes, the rest go to the open game; on the spike
-      // screen Accept pings.
+      // One action from a key, a control or a hint: Back closes (not mid-round at blackjack; mid-game Caravan asks
+      // to forfeit), the rest go to the open game; on the spike screen Accept pings.
       private function onAction(action:String, digit:int) : Boolean
       {
+         if (action == Input.BACK && caravan != null && !caravan.canLeave())
+         {
+            return caravan.control(action);
+         }
          if (action == Input.BACK)
          {
-            close();
+            if (blackjack == null || blackjack.canLeave())
+            {
+               close();
+            }
             return true;
          }
          if (slots != null)
@@ -177,6 +230,14 @@ package
          if (roulette != null)
          {
             return roulette.control(action);
+         }
+         if (blackjack != null)
+         {
+            return blackjack.control(action);
+         }
+         if (caravan != null)
+         {
+            return caravan.control(action);
          }
          if (action == Input.ACCEPT)
          {
@@ -200,6 +261,8 @@ package
          screen = new Sprite();
          slots = null;
          roulette = null;
+         blackjack = null;
+         caravan = null;
          addChild(screen);
          if (input != null)
          {
