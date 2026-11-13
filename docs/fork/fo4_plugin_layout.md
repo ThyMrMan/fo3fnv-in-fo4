@@ -1256,6 +1256,14 @@ decides.
     command is split back with mod-folder spaces kept (`stamp_argv`);
   - a plugin still needing a build after its own build stops the run
     (exit 3).
+- <a id="owned-lists"></a>**Other plugins' script lists are not inputs
+  (fixed 2026-11-13).** Script conversion files each plugin's list of the
+  scripts it wrote (`<owner>.owned.txt`, `script_convert/ownership.py`)
+  beside its scripts folder, which for FO4 is the shared `temp/fo4_scripts`.
+  So every plugin's build read every other plugin's list as if they shared
+  one folder (they don't: each has `temp/fo4_scripts/<plugin>`), and Dead
+  Money's script build made FalloutNV.esm look changed. `convert_scripts`
+  now leaves that folder and the lists in it out of the record.
 - **The plan reads the code on disk (fixed 2026-11-06).** Code identity is
   unknown for a file edited after its process started, which protects a
   build whose running code is not on disk. The plan process runs none of the

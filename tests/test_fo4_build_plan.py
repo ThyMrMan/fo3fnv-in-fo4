@@ -18,6 +18,7 @@ import pytest
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.pipeline import build_inputs as BI
 from fo4_import.pipeline import build_plan as BP
+from fo4_import.pipeline import build_steps as BS
 from fo4_import.pipeline import code_identity as CI
 from fo4_import.pipeline import mod_dirs as MD
 from fo4_import.pipeline import ran_code as RC
@@ -316,6 +317,19 @@ def test_a_dlc_waits_for_a_game_that_needs_a_build(recording):
     dlc = _dlc_asks(game, recording / 'dlc')
     planned = BP.plan([dlc, game])
     assert [(p.name, verdict) for p, verdict, _ in planned] == [('Game.esm', BP.BUILD), ('Dlc.esm', BP.AFTER)]
+
+
+def test_other_plugins_script_lists_stay_out_of_the_record(monkeypatch, tmp_path):
+    """Script conversion leaves the shared scripts folder and every plugin's owned list beside it out of the record,
+    so a DLC's script build never makes its game look changed."""
+    scripts = tmp_path / 'fo4_scripts' / 'Game.esm'
+    scripts.mkdir(parents=True)
+    (scripts.parent / 'Dlc.esm.owned.txt').write_text('DlcScript\n')
+    left = []
+    monkeypatch.setattr(BS, 'leave_out', lambda paths: left.extend(paths))
+    monkeypatch.setattr(BS.subprocess, 'run', lambda *_, **__: subprocess.CompletedProcess([], 0, '', ''))
+    BS.convert_scripts(tmp_path / 'export', scripts)
+    assert set(left) == {scripts.parent, scripts.parent / 'Dlc.esm.owned.txt'}
 
 
 def test_a_stamp_command_keeps_paths_with_spaces(tmp_path):
