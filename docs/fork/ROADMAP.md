@@ -189,7 +189,7 @@ before.
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
 | Consumables | Food, drinks, chems and their effects | Partial | Basic effects work. Script-driven ones (Cateye, Steady, Stealth Boy and others) aren't played; Rebound and a few others are dropped. | [consumables](fo4_pipeline.md#consumable-effects) |
-| Crafting | Recipes at workbenches, campfires and the reloading bench | Partial | The reloading bench put the player on the wrong side at Primm and Goodsprings; each open side is now its own bench, fixed, not built. | [stations](fo4_pipeline.md#station-entry) |
+| Crafting | Recipes at workbenches, campfires and the reloading bench | Partial | The reloading bench put the player on the wrong side at Primm and Goodsprings; each open side is now its own bench, fixed, not built. Dead Money's vending machines and DLC recipes with quest or item conditions aren't built. Planned: New Vegas's own recipe menu, opened where you stand, with skill requirements and quantity. | [stations](fo4_pipeline.md#station-entry), [plan](fo4_crafting_plan.md#recommendation) |
 | Caps | The Mojave's currency | Works | | [items](fo4_casino_plan.md#items-built) |
 | Other money and cards | NCR dollars, Legion coins, casino chips, Caravan cards | Built, not played | Items only, until the casino games are built. | [items](fo4_casino_plan.md#items-built) |
 | Item models | New Vegas's own models for items | Partial | Many aid items (the Stimpak among them) and some armor show Fallout 4's. | [drift](fo4_drift.md#recorded) |
@@ -337,6 +337,7 @@ project. Their last status is in the [development log](dev_log.md#character).
 | [dialogue_menu_mod.md](dialogue_menu_mod.md) | The dialogue menu as a standalone XDI replacement |
 | [swf_framework.md](swf_framework.md) | One Flash toolkit for our menus, and a Pip-Boy framework |
 | [fo4_level_up_plan.md](fo4_level_up_plan.md) | Our own level-up menu, replacing LevelUpMenuEx, with extras built in |
+| [fo4_crafting_plan.md](fo4_crafting_plan.md) | New Vegas's crafting benches: census, routes, and our own recipe menu |
 | [dynamic_collision_mod.md](dynamic_collision_mod.md) | Collision that changes size while playing (crouch, swim) |
 | [fo4_tool_audit.md](fo4_tool_audit.md) | The converter audit before the whole-map build |
 | [dev_log.md](dev_log.md) | The development history up to the alpha |
