@@ -190,7 +190,10 @@ casino's menu flags. Three pages (Prev/Next):
   Papyrus's `TakePerk` (the engine's `IsEligible`) has the last word.
 - **TAKEN:** the perks held, with their ranks.
 
-Points not spent stay for later (banking). The HUD color, hints with key
+Points not spent stay for later (banking). Since 2026-11-13 the game's own perk points,
+which the Pip-Boy's LEVEL UP notice shows, follow ours (`CleanroomUI.dll`,
+Cleanroom UI's `docs/level_up_plan.md#game-points`): it no longer counts
+the levels already spent. The HUD color, hints with key
 names or button glyphs, and translated words (`$CRUI_LU_*`) come from the
 library.
 

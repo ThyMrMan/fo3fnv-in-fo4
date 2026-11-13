@@ -50,6 +50,14 @@ the *previous* offset is divided by `ptrSize` before the delta and the result
 multiplied back after. It is not a plain "scale the delta" — that yields wrong
 RVAs for the absolute kinds 0/6/7.
 
+## <a id="fallout-4"></a>Fallout 4
+
+F4SE's Address Library (Nexus 47327) ships `version-<a>-<b>-<c>-0.bin` per
+build, with no format number: a `u64` count, then `count` pairs of `u64`
+id and `u64` RVA (1.11.240: 652,306 pairs, 10,436,904 bytes). Old-gen
+(1.10.163 and before) and next-gen (1.10.980 on) number their ids apart.
+`address_lib.py` tells it from Skyrim's by size alone (`8 + 16 * count`).
+
 ## Format 5 — flat array
 
 1.7.x dropped delta coding entirely. The header also changed: the
