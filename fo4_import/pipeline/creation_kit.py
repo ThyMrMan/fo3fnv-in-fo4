@@ -30,12 +30,15 @@ CK_CRASHES = FALLOUT4_DIR / 'Logs' / 'CKPE' / 'Crashes'
 CK_POLL = 5
 #: Seconds the CK may run after its last new file before it counts as done (it can hang on exit).
 CK_QUIET = 900
+#: Seconds the CK may run before its first new file (loading the plugins) before it counts as stuck.
+CK_FIRST = 1800
 
 
 def run(arguments: str, timeout: float, what: str) -> None:
     """Run the CK with `arguments` through MO2 and wait for it to exit, or close it once it has written files and
     then gone CK_QUIET seconds without a new one; raise if its write target is a disabled mod (MO2 would wait on an
-    error dialog), it crashed, or it ran past `timeout` seconds (`what` names the job in the error).
+    error dialog), it crashed, it wrote nothing in CK_FIRST seconds, or it ran past `timeout` seconds (`what` names
+    the job in the error).
     See: docs/fork/fo4_facegen_plan.md#ck-exit-hang
     """
     target = output_dir()
@@ -52,12 +55,15 @@ def run(arguments: str, timeout: float, what: str) -> None:
                 raise SystemExit(f'the Creation Kit crashed {what}: see {max(crashes)}')
             return
         newest = newest_file(target)
+        if newest <= started and time.time() > started + CK_FIRST:
+            break
         if started < newest < time.time() - CK_QUIET:
             print(f'the Creation Kit wrote nothing for {CK_QUIET}s after {what}: closed it', flush=True)
             close()
             return
     close()
-    raise SystemExit(f'the Creation Kit did not finish {what} in {timeout:.0f}s')
+    raise SystemExit(f'the Creation Kit did not finish {what}: closed after {time.time() - started:.0f}s '
+                     f'({"no file written" if newest_file(target) <= started else "timed out"})')
 
 
 def running() -> bool:

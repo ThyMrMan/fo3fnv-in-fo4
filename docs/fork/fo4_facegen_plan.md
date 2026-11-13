@@ -1575,6 +1575,9 @@ green gives 2.9; the decoded rule, 0.9.
   files and then gone `CK_QUIET` (15 min) without a new one, it counts as
   done and is closed. `facegen --collected` finishes a stage from files that
   an earlier CK run left in overwrite.
+- **A CK stuck before its first file** (a load hang or an error dialog) is
+  closed after `CK_FIRST` (30 min) and stops the stage. Before, only the
+  overall timeout caught it, 6 s per NPC: about 6 hours for FalloutNV.esm.
 
 ## <a id="benefits"></a>What it would give
 
