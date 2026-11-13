@@ -332,7 +332,11 @@ the audio ([lips](fo4_ck_replacements.md#lips)).
 - **Precombines and previs (8).** Today a mod that edits a precombined
   cell breaks its precombines, and the fix is a CK rebuild. Our own baker
   would make "rebuild the precombines this load order broke" possible
-  without the CK. Very large, and the CK route comes first.
+  without the CK. Since the
+  [research](research/fo4_precombines_previs.md#own-precombines): our own
+  precombines look feasible (every format decoded; embedded geometry needs
+  no `.csg`), so this is large, not very large. Previs is an Umbra 3 file
+  only the CK writes, so that half stays the CK's.
 
 ## <a id="toolkit"></a>All of it together
 
