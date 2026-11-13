@@ -38,10 +38,11 @@ clips under the vanilla names they replace; a state FNV has no clip for
   aim clip (fnv_stem), as FNV does.
 - Fall-through: each other whole-pose clip of the template's (sprint, landing, bash, throws) is copied with
   its left hand carried from vanilla's grip onto ours (carried_left), first person having no hand IK.
-- Third person keeps the template's clips, its left hand IK'd to WeaponIKTargetL: each human third-person
-  entry searches, before each vanilla folder, the gun's mirror of it (gun_folder) holding copies of
-  WPNAssemblyPose and every clip whose target stays on the gun, the target carried onto ours (carried_target:
-  vanilla's hand-local offset from its first-person left hand, onto ours).
+- Third person (gun_third) writes FNV's characters\\_male clips the same way, its left hand IK'd to
+  WeaponIKTargetL; a moving clip is a stride, FNV's aim on vanilla's legs, one per vanilla clip it stands in
+  for. Each human third-person entry searches the gun's folder first and, before each vanilla folder, the
+  gun's mirror of it (gun_folder) holding those strides, WPNAssemblyPose and every other clip whose target
+  stays on the gun, the target carried onto ours (carried_target).
 - Events: each clip takes the annotations of the vanilla clip it replaces
   (sounds, weaponFire, reloadComplete...), each timed from FNV's matching
   text key (KEYED; vanilla sounds in order onto FNV's `Sound:` keys), the
@@ -80,6 +81,8 @@ from external.pynifly_hkx.anim_fo4 import (fo4_animation_header, parse_fo4_anima
                                            write_fo4_animation)
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.havok.gun_third import (ON_GUN, PAIRED, THIRD_FOLDER, THIRD_SKELETON, carried_target, gun_folder,
+                                        mirror, stride, vanilla_worlds, walk_legs)
 from fo4_import.havok.human_clip import BONES, COM, matching_pose
 from fo4_import.nif.convert_static import NifFormat
 from fo4_import.nif.gun import SIGHTING, bone_for
@@ -110,7 +113,7 @@ REC_FIELDS = ('EditorID', 'DNAM.FalloutAnimType', 'DNAM.AttackAnim', 'DNAM.Reloa
 #: The work cache site of each file a gun's clips write, kept once by its SHA-1 (keep).
 CLIP_FILES = 'gun_clip_files'
 #: The gun clips' hand-bumped version: raise it whenever _convert makes other files or values for the same key.
-GUN_CLIPS_VERSION = 2
+GUN_CLIPS_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -124,9 +127,10 @@ class View:
     camera: 'tuple | None'
 
 
-#: The views converted: first person (third person keeps the template's clips and over-the-shoulder camera).
+#: The views converted: first person, then third (FNV's _male clips on the human skeleton, no camera placement).
 VIEWS = (View('characters\\_1stperson', 'meshes\\actors\\character\\_1stperson\\characterassets\\skeleton.hkx',
-              'Actors\\FNV\\Character\\_1stPerson\\Animations', 1, ('Camera1st', 'Camera')),)
+              'Actors\\FNV\\Character\\_1stPerson\\Animations', 1, ('Camera1st', 'Camera')),
+         View('characters\\_male', THIRD_SKELETON, THIRD_FOLDER, 0, None))
 #: First-person moving clips: the aim pose held for the vanilla clip's length (piece 'still'), as vanilla's hold.
 MOVES = ('WalkForward', 'RunForward', 'RunLeft', 'RunRight')
 #: (FO4 clip, FNV clip, piece) per view, with every variant the graph picks among (idles A-D, shots A-B).
@@ -139,6 +143,8 @@ PLAN = {1: (('WPNIdleReady', '{cls}aim', None), *((f'WPNIdleReady{v}', '{cls}aim
           *((f'WPN{move}Ready', '{cls}aim', 'still') for move in MOVES), ('WPNWalkForwardSighted', '{cls}aimis', 'still'),
           *((f'WPNFireAuto{c}', '{cls}attackloop' + s, 'loop') for c, s in (('ReadyForward', ''), ('ReadyBack', ''),
                                                                                 ('Sighted', 'is'))))}
+#: Third person plays the same clips; a moving one walks on vanilla's legs (piece 'stride': walk_legs).
+PLAN[0] = tuple((clip, stem, 'stride' if piece == 'still' else piece) for clip, stem, piece in PLAN[1])
 #: Clips keeping FNV's left hand (it works the magazine); elsewhere a one-handed gun's holds vanilla's grip.
 OWN_LEFT = ('WPNReload',)
 #: The FNV class held in one hand: only its left hand takes vanilla's grip (FNV holds the others two-handed).
@@ -158,9 +164,8 @@ ADDITIVE, NEUTRAL = 2, '(neutral additive)'
 FNV_NO_SIGHTS = 0x40
 #: The first-person clip whose left hand third person's target is carried from.
 HELD_POSE = 'WPNIdleReady'
-#: The per-gun pose setting WeaponIKTargetL, the human third-person skeleton, the folder a gun's own copies go in.
-ASSEMBLY, THIRD_SKELETON = 'WPNAssemblyPose', 'meshes\\actors\\character\\characterassets\\skeleton.hkx'
-THIRD_FOLDER = 'Actors\\FNV\\Character\\Animations'
+#: The per-gun pose setting WeaponIKTargetL.
+ASSEMBLY = 'WPNAssemblyPose'
 #: Two handles are held the same way when their long directions lie within 45 degrees (cosine).
 SAME_WAY = math.cos(math.radians(45))
 #: The suffix of FNV's iron-sight clips (2haaimis, 2haattack3is).
@@ -179,10 +184,6 @@ CARRY_NEAR, CARRY_FAR = 4.0, 12.0
 REACHED = 1.0
 #: Our left hand is vanilla's (no clip carried) within this many units and degrees of it, in the Weapon frame.
 SAME_HOLD, SAME_TURN = 0.5, 5.0
-#: Units a third-person clip's left-hand target may stray from WPNAssemblyPose's and still be on the gun (_on_gun).
-ON_GUN = 12.0
-#: The vanilla third-person root its folders lie under, and the folder holding paired clips.
-THIRD_ROOT, PAIRED = 'actors\\character\\animations', 'paired'
 
 
 def crc(text: str) -> int:
@@ -408,14 +409,16 @@ def fill_from(moved, anim, rig: Rig) -> None:
 
 
 def cut_piece(clip, piece: 'str | None', length: float, cut: 'float | None'):
-    """FNV `clip` cut to PLAN's `piece`: 'still' its first pose held and 'loop' it repeated for `length` (the vanilla
-    clip's; a loop keeps vanilla's event times), 'shot' up to the bolt's `cut` and held to at least `length`
-    (the graph leaves a shot by triggers timed back from its end), 'bolt' from the cut; None for a bolt piece
-    without one.
+    """FNV `clip` cut to PLAN's `piece`: 'still' its first pose held ('stride': at every frame) and 'loop' it
+    repeated for `length` (the vanilla clip's; a loop keeps vanilla's event times), 'shot' up to the bolt's `cut`
+    and held to at least `length` (the graph leaves a shot by triggers timed back from its end), 'bolt' from the
+    cut; None for a bolt piece without one.
     See: docs/fork/fo4_spikes.md#spike-4-gun-clips
     """
     if piece == 'still':
         return slice_clip(clip, 0.0, length, hold=True)
+    if piece == 'stride':
+        return stride(clip, length)
     if piece == 'loop':
         return loop_clip(clip, length)
     if piece == 'shot':
@@ -652,20 +655,6 @@ def is_kept(inputs: tuple) -> bool:
     return entry is not None and all(has_bytes(CLIP_FILES, digest) for digest in entry[2].values())
 
 
-def vanilla_worlds(anim, dst: Skeleton, f: int) -> list:
-    """Row-vector world frames of skeleton `dst` posed by vanilla clip `anim` at frame `f` (rest where untracked)."""
-    out = []
-    for i, p in enumerate(dst.parents):
-        track = anim.tracks[i] if i < len(anim.tracks) and anim.tracks[i].rotations else None
-        if track is None:
-            local = dst.local[i]
-        else:
-            x, y, z, w = track.rotations[f]
-            local = compose(np.asarray(track.translations[f], float), quat_wxyz_to_mat((w, x, y, z)))
-        out.append(local if p < 0 else local @ out[p])
-    return out
-
-
 def left_grip(anim, rig: Rig) -> 'tuple | None':
     """Vanilla's left hand in clip `anim`'s first frame: (its frame relative to the Weapon bone, {left finger:
     local wxyz}); None without `anim`."""
@@ -694,20 +683,6 @@ def left_targets(rig: Rig, moved, vanilla: 'tuple | None') -> 'tuple | None':
     move = np.linalg.inv(vanilla[0]) @ ours
     turn = math.degrees(math.acos(max(-1.0, min(1.0, (np.trace(move[:3, :3]) - 1.0) / 2.0))))
     return None if np.linalg.norm(move[3, :3]) < SAME_HOLD and turn < SAME_TURN else (vanilla[0], ours)
-
-
-def carried_target(anim, index: int, left: tuple) -> None:
-    """Third-person clip `anim`'s WeaponIKTargetL track (bone `index`) moved onto our gun, in place: each frame
-    keeps the hand-local offset vanilla's target has from vanilla's first-person left hand (`left`: left_targets).
-    See: docs/fork/fo4_spikes.md#spike-4-gun-clips
-    """
-    vanilla, ours = left
-    move = np.linalg.inv(vanilla) @ ours
-    track = anim.tracks[index]
-    for f, ((x, y, z, w), at) in enumerate(zip(track.rotations, track.translations)):
-        target = compose(np.asarray(at, float), quat_wxyz_to_mat((w, x, y, z))) @ move
-        qw, qx, qy, qz = mat_to_quat_wxyz(target[:3, :3])
-        track.rotations[f], track.translations[f] = [qx, qy, qz, qw], list(target[3, :3])
 
 
 def as_decoded(anim, names: list) -> 'DecodedClip | None':
@@ -757,13 +732,6 @@ def carried_left(rig: Rig, clip, left: tuple) -> bool:
     return moved
 
 
-def gun_folder(edid: str, folder: str) -> str:
-    """FNV gun `edid`'s own third-person folder mirroring vanilla `folder`."""
-    parts = folder.split('\\')
-    tail = parts[3:] if folder.lower().startswith(THIRD_ROOT) else parts[-2:]
-    return '\\'.join((THIRD_FOLDER, edid, *tail))
-
-
 def continuous(clip) -> None:
     """Each of `clip`'s rotation tracks kept on one quaternion hemisphere, frame to frame, in place."""
     for t in clip.tracks:
@@ -801,6 +769,8 @@ class Gun:
     moved: bool = False
     #: The first-person left hand in the Weapon frame in WPNIdleReady: (vanilla's on the template, ours), else None.
     left: 'tuple | None' = None
+    #: {vanilla clip path, lower case: the folder holding our stride standing in for it} (GunClips._strides).
+    strides: dict = field(default_factory=dict)
 
     def points(self, which: int) -> np.ndarray:
         """Every vertex of our gun (0) or the template's (1), Weapon frame."""
@@ -833,10 +803,10 @@ class Gun:
         """The Weapon, part and left-hand target tracks of a retargeted clip: the gun where FNV's is (camera
         shift applied; an `anchor` moves it in camera space), held in FO4's right hand at `held` (the Weapon
         bone's local in vanilla's hand: hold() bends the arm to it), its parts where FNV's clip moves them; the
-        left hand as left_hand() puts it (`weights`: grip_weights per frame), the left target on it unless the
-        hand is always on `grip`."""
+        left hand as left_hand() puts it (`weights`: grip_weights per frame), the left target on it (in first
+        person only unless the hand is always on `grip`)."""
         left = rig.dst.index[LEFT_HAND]
-        aimed = grip is None or weights is None or weights.min() < 1.0
+        aimed = grip is None or weights is None or weights.min() < 1.0 or rig.view.camera is None
         out = {name: [] for name in (WEAPON, *([IK_LEFT] if aimed else []), *self.parts)}
         for f in range(len(src_clip.times)):
             placed = self.inverse @ rig.fnv_gun(src_clip, f)
@@ -1048,7 +1018,7 @@ class GunClips:
         cls, names = named
         gun = Gun.build(placement, fnv_frames(gun_path), receiver)
         gun.surfaces = surfaces
-        written, lift, replaces = {}, None, {}
+        written, lift, replaces, ours = {}, None, {}, None
         for view in VIEWS:
             if view.perspective not in entries:
                 continue
@@ -1059,13 +1029,18 @@ class GunClips:
             events = {**self._clip_paths(files), **self._clip_paths(self._resolved(heard))}
             written[view.perspective], view_lift = self._view(view, cls, names, gun, folder, files, events)
             lift = view_lift if view_lift is not None else lift
+            if view.camera is None:
+                resolved = self._clip_paths(files)
+                mine = {n.lower() for n in written[view.perspective] if resolved[n.lower()].lower() not in gun.strides}
+                ours = (folder, mine) if mine else None
+                continue
             paths = with_folder(entry['paths'], folder)
             self._anim_text(entry, paths, files, {name.lower(): folder for name in written[view.perspective]})
             self.added.append(aimed(dict(entry, paths=paths), kw, keyword))
-        made = {}
-        self.added += [aimed(self._with_targets(gun, rec['EditorID'], e, made), kw, keyword)
+        made = dict(gun.strides)
+        self.added += [aimed(self._with_targets(gun, rec['EditorID'], e, made, ours), kw, keyword)
                        for kw, keyword in replaces.items() for e in self.entries
-                       if kw in e['target'] and perspective(e) not in written]
+                       if kw in e['target'] and (perspective(e) == 0 or perspective(e) not in written)]
         return Converted(replaces, lift, written, gun.moved)
 
     def _third_anim(self, path: str):
@@ -1097,89 +1072,130 @@ class GunClips:
         at = np.asarray(anim.tracks[self.third.index[IK_LEFT]].translations, float)
         return float(np.linalg.norm(at - assembly, axis=1).max()) <= ON_GUN
 
-    def _with_targets(self, gun: Gun, edid: str, entry: dict, made: dict) -> dict:
-        """Third-person `entry` searching, before each folder it plays a moved clip from, FNV gun `edid`'s copy
-        of it (gun_folder) holding WPNAssemblyPose and every clip whose target stays on the gun (_on_gun), the
-        left-hand target moved onto ours (carried_target); `entry` unchanged without our left hand or a pose on
-        the human skeleton. `made`: {vanilla clip path, lower case: our folder or None}, shared by a gun's entries.
+    def _with_targets(self, gun: Gun, edid: str, entry: dict, made: dict, ours: 'tuple | None' = None) -> dict:
+        """Third-person `entry` searching, first, the gun's own folder (`ours`: (folder, its clip names lower
+        case) or None), and before each folder it plays a moved clip from, FNV gun `edid`'s copy of it (gun_folder):
+        our strides, WPNAssemblyPose and every clip whose target stays on the gun (_carried_targets); `entry`
+        unchanged with none. `made`: {vanilla clip path, lower case: our folder or None}, shared by a gun's entries.
         See: docs/fork/fo4_gun_animation.md#third-person-ik
         """
         files = self._resolved(entry)
         resolved = self._clip_paths(files)
         path = resolved.get(ASSEMBLY.lower())
         pose = self._third_parsed(path) if path and gun.left else None
-        if pose is None:
+        mine = {name: ours[0] for name in ours[1] if name in resolved} if ours else {}
+        if pose:
+            self._carried_targets(gun, edid, resolved, made, pose, mine)
+        moved = {**{n: made[p.lower()] for n, p in resolved.items() if n not in mine and made.get(p.lower())}, **mine}
+        if not moved:
             return entry
-        assembly = np.asarray(pose.tracks[self.third.index[IK_LEFT]].translations[0], float)
-        moved = {}
-        for name, clip in resolved.items():
-            key = clip.lower()
-            if key not in made:
-                made[key] = None
-                if name == ASSEMBLY.lower() or self._on_gun(clip, assembly):
-                    anim = self._third_anim(clip)
-                    carried_target(anim, self.third.index[IK_LEFT], gun.left)
-                    made[key] = gun_folder(edid, clip.rsplit('\\', 1)[0])
-                    self._write_clip(made[key], clip, anim)
-            if made[key]:
-                moved[name] = made[key]
-        ours, paths = {folder.lower() for folder in moved.values()}, []
+        carried, paths = {folder.lower() for folder in moved.values()}, []
         for folder in entry['paths']:
-            mine = gun_folder(edid, folder)
-            paths += [mine, folder] if mine.lower() in ours else [folder]
+            copied = gun_folder(edid, folder)
+            paths += [copied, folder] if copied.lower() in carried else [folder]
+        paths = with_folder(paths, ours[0]) if mine else paths
         self._anim_text(entry, paths, files, moved)
         return dict(entry, paths=paths)
 
+    def _carried_targets(self, gun: Gun, edid: str, resolved: dict, made: dict, pose, mine: dict) -> None:
+        """Into `made`, a gun_folder copy of WPNAssemblyPose (`pose`) and of every clip of `resolved` but `mine`
+        whose target stays on the gun (_on_gun), each written once per gun with its left-hand target moved onto
+        ours (carried_target)."""
+        assembly = np.asarray(pose.tracks[self.third.index[IK_LEFT]].translations[0], float)
+        for name, clip in resolved.items():
+            key = clip.lower()
+            if name in mine or key in made:
+                continue
+            made[key] = None
+            if name == ASSEMBLY.lower() or self._on_gun(clip, assembly):
+                anim = self._third_anim(clip)
+                carried_target(anim, self.third.index[IK_LEFT], gun.left)
+                made[key] = gun_folder(edid, clip.rsplit('\\', 1)[0])
+                self._write_clip(made[key], clip, anim)
+
     @staticmethod
     def _hold_rules(rig: Rig, gun: Gun, aim: Path, template, grip: tuple, one_handed: bool) -> tuple:
-        """(off_screen: clips start at vanilla's hold, also on `gun`; left_reach's gap; the left grip, carried
-        onto our handle for a moved gun (handle_grip); whether the left hand takes it)."""
+        """(off_screen, first person only: clips start at vanilla's hold, kept on `gun`; left_reach's gap; the left
+        grip, carried onto our handle for a moved gun (handle_grip); whether the left hand takes it)."""
         vanilla_left = grip[0] is not None and one_handed
-        gun.moved = not vanilla_left and template is not None and off_screen(rig, gun, aim)
-        if gun.moved and grip[0] is not None:
+        moving = rig.view.camera is not None and not vanilla_left and template is not None and off_screen(rig, gun, aim)
+        gun.moved |= moving
+        if moving and grip[0] is not None:
             grip = (handle_grip(rig, gun, template, grip[0], aim), grip[1])
             vanilla_left = grip[0] is not None
         gap = None if vanilla_left else grip_gap(template, rig, gun.points(1))
-        return gun.moved, gap, grip, vanilla_left
+        return moving, gap, grip, vanilla_left
 
     def _view(self, view: View, cls: str, names: dict, gun: Gun, folder: str, files: list, events: dict) -> tuple:
         """Write one view's clips into `folder`, each with the events of the vanilla clip `events` resolves its
-        name to; ({FO4 clip: FNV stem}, the iron sights' camera lift)."""
+        name to; ({FO4 clip: FNV stem}, the iron sights' camera lift). First person also writes the carried and
+        neutral clips; third person leaves vanilla's additive layers (NPCs aim with them)."""
         rig = self.rig(view)
         resolved = self._clip_paths(files)
         kf_dir = self.export_meshes / view.fnv
         bolt = next((p[2] for b, p in gun.parts.items() if b == 'WeaponBolt'), None)
         template = self._template_anim(resolved)
-        out, lift, held, grip = {}, None, self._held(template, rig), left_grip(template, rig) or (None, {})
-        moving, gap, grip, vanilla_left = self._hold_rules(rig, gun, kf_file(kf_dir, f'{cls}aim'), template, grip,
-                                                          cls == ONE_HANDED)
+        out, lift, grip = {}, None, left_grip(template, rig) or (None, {})
+        rules = (self._held(template, rig), template, bolt,
+                 *self._hold_rules(rig, gun, kf_file(kf_dir, f'{cls}aim'), template, grip, cls == ONE_HANDED))
         for clip_name, stem, piece in planned(kf_dir, cls, names, view.perspective):
-            kf = kf_file(kf_dir, stem)
-            if clip_name.lower() not in resolved or not kf.is_file() or (piece == 'loop' and not names['auto']):
+            if clip_name.lower() not in resolved or (piece == 'loop' and not names['auto']):
                 continue
-            clip = decoded_clip(str(kf))[0]
-            vanilla, length, anim = self._vanilla(events[clip_name.lower()])
-            clip = cut_piece(clip, piece, length, bolt_start(clip, bolt) if BOLT_CLIP.lower() in resolved else None)
-            if clip is None:
+            write = self._strides if piece == 'stride' else self._clip
+            made = write(rig, gun, kf_file(kf_dir, stem), (clip_name, piece), rules, (folder, resolved, events))
+            if made is None:
                 continue
-            moved = rig.retarget(clip)
-            gun.anchor = anchor_for(rig, gun, clip, moved, anim or template) if moving else None
-            gun.reach = left_reach(rig, gun, clip, gap)
-            weights = grip_weights(clip_name, len(clip.times)) if vanilla_left or gun.reach is not None else None
-            finish(rig, gun, clip, moved, held, anim or template, (grip[0] if vanilla_left else None, weights, grip[1]))
-            anim = clip_to_animation_data(moved, rig.dst.names, rig.pose,
-                                          annotations(vanilla, length, clip.text_keys, float(clip.duration)))
-            anim.bone_names = [''] * len(rig.dst.names)
-            self._write_clip(folder, resolved[clip_name.lower()], anim)
             out[clip_name] = stem + (f' ({piece})' if piece else '')
             if clip_name == 'WPNIdleSighted':
-                lift = gun.sight_lift(rig, clip, moved)
-            if clip_name == HELD_POSE:
-                gun.left = left_targets(rig, moved, left_grip(template, rig))
-        if gun.left is not None:
+                lift = gun.sight_lift(rig, *made)
+            if clip_name == HELD_POSE and view.camera:
+                gun.left = left_targets(rig, made[1], left_grip(template, rig))
+        if view.camera and gun.left is not None:
             out.update(self._carried(rig, resolved, folder, out, gun.left))
-        out.update(self._neutral_layers(rig, resolved, folder, out))
+        if view.camera:
+            out.update(self._neutral_layers(rig, resolved, folder, out))
         return out, lift
+
+    def _clip(self, rig: Rig, gun: Gun, kf: Path, planned_as: tuple, rules: tuple, into: tuple) -> 'tuple | None':
+        """Write FNV clip `kf` as FO4 clip `planned_as` (name, PLAN piece) into `into` (folder, the template's
+        resolved clips, the event clips), held by `rules` (held, template, bolt, then _hold_rules'); (the cut FNV
+        clip, it retargeted), None when there is nothing to write. A stride walks on vanilla's legs (walk_legs)."""
+        (clip_name, piece), (folder, resolved, events) = planned_as, into
+        held, template, bolt, moving, gap, grip, vanilla_left = rules
+        if not kf.is_file():
+            return None
+        clip = decoded_clip(str(kf))[0]
+        vanilla, length, anim = self._vanilla(events[clip_name.lower()])
+        clip = cut_piece(clip, piece, length, bolt_start(clip, bolt) if BOLT_CLIP.lower() in resolved else None)
+        if clip is None:
+            return None
+        moved = rig.retarget(clip)
+        gun.anchor = anchor_for(rig, gun, clip, moved, anim or template) if moving else None
+        gun.reach = left_reach(rig, gun, clip, gap)
+        weights = grip_weights(clip_name, len(clip.times)) if vanilla_left or gun.reach is not None else None
+        finish(rig, gun, clip, moved, held, anim or template, (grip[0] if vanilla_left else None, weights, grip[1]))
+        if piece == 'stride' and as_decoded(anim, rig.dst.names) is not None:
+            walk_legs(moved, anim, rig.dst)
+            continuous(moved)
+        made = clip_to_animation_data(moved, rig.dst.names, rig.pose,
+                                      annotations(vanilla, length, clip.text_keys, float(clip.duration)))
+        made.bone_names = [''] * len(rig.dst.names)
+        self._write_clip(folder, resolved[clip_name.lower()], made)
+        return clip, moved
+
+    def _strides(self, rig: Rig, gun: Gun, kf: Path, planned_as: tuple, rules: tuple, into: tuple) -> 'tuple | None':
+        """_clip's stride once per vanilla clip it stands in for (the entry's, the player's), each walking on that
+        clip's legs in its mirror of the clip's folder, kept on gun.strides; the last (clip, moved) or None.
+        See: docs/fork/fo4_gun_animation.md#third-person-clips
+        """
+        (folder, resolved, events), key = into, planned_as[0].lower()
+        made = None
+        for source in dict.fromkeys((resolved[key], events[key])):
+            at = mirror(folder, source.rsplit('\\', 1)[0])
+            wrote = self._clip(rig, gun, kf, planned_as, rules, (at, resolved, {**events, key: source}))
+            if wrote:
+                gun.strides[source.lower()], made = at, wrote
+        return made
 
     def _carried(self, rig: Rig, resolved: dict, folder: str, written: dict, left: tuple) -> dict:
         """Write in `folder` a copy of each whole-pose clip of the template's (`resolved`) not `written` and not

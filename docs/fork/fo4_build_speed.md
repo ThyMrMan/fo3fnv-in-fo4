@@ -318,6 +318,25 @@ run)*: about 150 s on 8 workers, against 5,827 s; the same rates give about
 results are a few kilobytes per sex and could be made once and shared. With
 that gone, more workers than cores would add their 27%.
 
+<a id="unseen-controls"></a>**Sculpt controls no measure sees (2026-11-13).**
+The base build of 2026-11-13 refit 2,130 faces after `FIT_VERSION` 3 → 4
+(the worn head parts): the people stage took 714 s on 4 workers (memory
+held it to 4 with the main process at 7 GB), against 63 s with the fits
+cached. The sculpt fit was most of a face's time, all of it in
+`proportions._solve`'s bounded least squares (`lsq_linear`), called about
+250 times a face by the greedy preset search and the ridge doubling.
+- Only 94 of the 224 male sculpt columns move any of the 19 measures. The
+  others enter the objective only through their ridge, so their best value
+  is 0; `_solve` now solves only the seen columns and leaves the rest at 0.
+- Measured on one process, one BLAS thread, against the old solve on 116
+  faces (the six references, three slices of the game's faces, women
+  among them): every stored value (FMRS, presets) the same, so
+  `FIT_VERSION` stays. The sculpt fit took 102.7 s before and 40.3 s
+  after; women are slowest (1.70 s a face before, 0.63 s after).
+- With the tint fit and head-part choice unchanged (about 0.35 s a face
+  together), a refit costs about 0.7 s a face instead of 1.3 s *(estimate,
+  not built)*.
+
 ## <a id="keys"></a>3. Cache keys that hold
 
 - **A hand-bumped version for the expensive sites.** Face fits (5,500 s to
