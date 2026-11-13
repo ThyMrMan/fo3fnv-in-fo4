@@ -105,9 +105,9 @@ def test_foreach_over_an_array_is_an_index_loop(fallout4):
     got = _body('  foreach it <- a\n    let n += it["value"]\n  loop\n', 'array_var a\narray_var it\nint n\n')
     start = got.index('Var[] TES4_Each1 = a')
     assert got[start + 1:start + 6] == [
-        'Int TES4_EachIndex1 = 0', 'While TES4_EachIndex1 < F3NV_Array.Size(TES4_Each1)',
-        'it = F3NV_Array.Iterator(TES4_Each1, TES4_EachIndex1)',
-        'n = n + (F3NV_Array.Get(it, "value") as Int)', 'TES4_EachIndex1 += 1']
+        'Int TES4_EachIndex1 = 0', 'While TES4_EachIndex1 < CRUI_Array.Size(TES4_Each1)',
+        'it = CRUI_Array.Iterator(TES4_Each1, TES4_EachIndex1)',
+        'n = n + (CRUI_Array.Get(it, "value") as Int)', 'TES4_EachIndex1 += 1']
 
 
 # ---------------------------------------------------------------------------
@@ -121,9 +121,9 @@ def test_array_commands_call_f3nv_array(fallout4):
                 '  if ar_Find 2 a == ar_BadNumericIndex\n    let a := ar_Null\n  endif\n',
                 'array_var a\narray_var m\nint n\n')
     assert _declares(got, 'Var[]', 'a')
-    for want in ('a = F3NV_Array.List(3, 1, 2, 3, ' + ', '.join(['None'] * 17) + ')',
-                 'm = F3NV_Array.Construct("StringMap")', 'F3NV_Array.Set(m, "x", 5)', 'n = F3NV_Array.Size(a)', 'If F3NV_Array.HasKey(m, "x")',
-                 'n = (F3NV_Array.Get(m, "x") as Int)', 'If (F3NV_Array.Find(2, a) as Float) == -99999',
+    for want in ('a = CRUI_Array.List(3, 1, 2, 3, ' + ', '.join(['None'] * 17) + ')',
+                 'm = CRUI_Array.Construct("StringMap")', 'CRUI_Array.Set(m, "x", 5)', 'n = CRUI_Array.Size(a)', 'If CRUI_Array.HasKey(m, "x")',
+                 'n = (CRUI_Array.Get(m, "x") as Int)', 'If (CRUI_Array.Find(2, a) as Float) == -99999',
                  'a = None'):
         assert want in got
 
@@ -131,15 +131,15 @@ def test_array_commands_call_f3nv_array(fallout4):
 def test_an_element_read_as_a_receiver_is_cast_for_its_command(fallout4):
     """An Actor-only command casts its element to Actor, any other to ObjectReference."""
     got = _body('  if a[0].IsDead\n    a[1].Disable\n  endif\n', 'array_var a\n')
-    assert 'If (F3NV_Array.Get(a, 0) as Actor).IsDead()' in got
-    assert '(F3NV_Array.Get(a, 1) as ObjectReference).Disable()' in got
+    assert 'If (CRUI_Array.Get(a, 0) as Actor).IsDead()' in got
+    assert '(CRUI_Array.Get(a, 1) as ObjectReference).Disable()' in got
 
 
 def test_skyrim_does_not_lower_arrays(monkeypatch):
     """Off Fallout 4 nothing lowers."""
     monkeypatch.delenv(TARGET_ENV, raising=False)
     got = _body('  let n := ar_Size a\n', 'array_var a\nint n\n')
-    assert not any('F3NV_Array' in line for line in got)
+    assert not any('CRUI_Array' in line for line in got)
 
 
 # ---------------------------------------------------------------------------

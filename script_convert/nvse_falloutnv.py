@@ -17,9 +17,9 @@ from script_convert.symbols import needs_actor, type_of_expr
 from script_convert.target import ARRAY_TYPE, is_fallout4
 from script_convert.tes4 import nodes as N
 
-#: The Papyrus script holding the array functions (static_scripts/fallout4/F3NV_Array.psc).
-ARRAY = 'F3NV_Array'
-#: Arguments F3NV_Array.List takes after its count (xNVSE ar_List takes at most 20); unused ones pass None.
+#: The Papyrus script holding the array functions (static_scripts/fallout4/CRUI_Array.psc).
+ARRAY = 'CRUI_Array'
+#: Arguments CRUI_Array.List takes after its count (xNVSE ar_List takes at most 20); unused ones pass None.
 LIST_SLOTS = 20
 #: xNVSE's ar_BadNumericIndex (Commands_Array.cpp `s_arrayErrorCodeNum`).
 BAD_NUMERIC_INDEX = '-99999'
@@ -33,7 +33,7 @@ _BITWISE = {'|': 'LogicalOr', '&': 'LogicalAnd', '<<': 'LeftShift', '>>': 'Right
 _NVSE_UNARY = frozenset({'*', '&', '#'})
 #: Array commands that return an array.
 _ARRAY_MAKERS = frozenset({'ar_construct', 'ar_list', 'ar_null', 'ar_copy', 'ar_deepcopy'})
-#: Array commands -> (F3NV_Array function, Papyrus result type, which arguments are arrays).
+#: Array commands -> (CRUI_Array function, Papyrus result type, which arguments are arrays).
 _ARRAY_CALLS = {
     'ar_size': ('Size', 'Int', (0,)), 'ar_haskey': ('HasKey', 'Bool', (0,)),
     'ar_find': ('Find', '', (1,)), 'ar_append': ('Append', 'Bool', (0,)),
@@ -276,7 +276,7 @@ def assignment(conv, stmt: N.Assign, extends: str):
 
 
 def _element_write(conv, stmt: N.Assign, extends: str) -> str:
-    """`arr[k] := v` (and `arr[k] += v`) as F3NV_Array.Set."""
+    """`arr[k] := v` (and `arr[k] += v`) as CRUI_Array.Set."""
     arr = array_text(conv, stmt.target.target, extends)
     key = value_text(conv, stmt.target.index, extends)
     value = value_text(conv, stmt.value, extends)

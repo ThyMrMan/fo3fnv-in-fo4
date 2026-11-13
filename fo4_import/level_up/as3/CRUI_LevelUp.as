@@ -1,6 +1,6 @@
 package
 {
-   import f3nv.levelup.Character;
+   import crui.levelup.Character;
    import f3ui.Bridge;
    import f3ui.HintBar;
    import f3ui.Host;
@@ -17,7 +17,7 @@ package
    import flash.text.TextField;
    import flash.text.TextFieldAutoSize;
 
-   // Our level-up menu's document class: F3NV_LevelUp.psc opens it in place of LevelUpMenu, and as the tag skill and
+   // Our level-up menu's document class: CRUI_LevelUp.psc opens it in place of LevelUpMenu, and as the tag skill and
    // trait menus, and calls these by UI.Invoke. A list on the left and the highlighted entry on the right (its image,
    // name, ranks, requirements and description). A level-up has three pages: SKILLS, where points are set (Accept or
    // Right adds, Left takes back; Y resets) and spent together (X); PERKS, the perks with a rank left (X shows all or
@@ -25,9 +25,9 @@ package
    // stay for later. The tag menu (TAGS) tags skills up to the count asked, X once all are picked; the trait menu
    // (TRAITS) picks up to the count, X to keep them, Back to leave them as they were.
    // See docs/fork/fo4_level_up_plan.md#menu
-   public class F3NV_LevelUp extends MovieClip
+   public class CRUI_LevelUp extends MovieClip
    {
-      public static const MENU:String = "F3NV_LevelUp";
+      public static const MENU:String = "CRUI_LevelUp";
       public static const WIDTH:Number = 1280;
       public static const HEIGHT:Number = 720;
       public static const SKILLS:int = 0;
@@ -36,8 +36,8 @@ package
       public static const TAGS:int = 3;
       public static const TRAITS:int = 4;
       // Each page's title, by page.
-      private static const TITLES:Array = ["$F3NV_LU_SKILLS", "$F3NV_LU_PERKS", "$F3NV_LU_TAKEN", "$F3NV_LU_TAGS",
-                                           "$F3NV_LU_TRAITS"];
+      private static const TITLES:Array = ["$CRUI_LU_SKILLS", "$CRUI_LU_PERKS", "$CRUI_LU_TAKEN", "$CRUI_LU_TAGS",
+                                           "$CRUI_LU_TRAITS"];
       private static const LIST_X:Number = 40;
       private static const TOP:Number = 80;
       private static const LINE:Number = 30;
@@ -84,7 +84,7 @@ package
       private var status:TextField;
       private var question:TextField;
 
-      public function F3NV_LevelUp()
+      public function CRUI_LevelUp()
       {
          super();
          addEventListener(Event.ADDED_TO_STAGE, onStage);
@@ -97,7 +97,7 @@ package
          images.log = log;
       }
 
-      // F3NV_LevelUp.psc's Send: everything the menu shows (Character's order). A level-up opens on SKILLS when
+      // CRUI_LevelUp.psc's Send: everything the menu shows (Character's order). A level-up opens on SKILLS when
       // there are skill points, else on PERKS; the tag and trait menus have their one page.
       public function Open(... args) : void
       {
@@ -117,16 +117,16 @@ package
          showPage(0);
       }
 
-      // F3NV_LevelUp.psc's answer to a Take: whether perk `index` was taken, the ranks now held, the points left.
+      // CRUI_LevelUp.psc's answer to a Take: whether perk `index` was taken, the ranks now held, the points left.
       public function Taken(index:int, taken:Boolean, held:int, perkPoints:int) : void
       {
          who.perks[index].held = held;
          who.perkPoints = perkPoints;
-         say(taken ? "" : "$F3NV_LU_CANNOT_TAKE");
+         say(taken ? "" : "$CRUI_LU_CANNOT_TAKE");
          showPage(list.selected);
       }
 
-      // F3NV_LevelUp.psc's answer to a Raise: skill `index` took `spent` points to `value`; the points left. The
+      // CRUI_LevelUp.psc's answer to a Raise: skill `index` took `spent` points to `value`; the points left. The
       // next skill set is raised, then the menu redraws (or closes, when leaving).
       public function Raised(index:int, spent:int, value:Number, skillPoints:int) : void
       {
@@ -222,6 +222,8 @@ package
          graphics.endFill();
          if (panel)
          {
+            // Scaleform strokes a drawRect from where the pen was left (the fade's corner): move it first.
+            graphics.moveTo(0, 0);
             graphics.lineStyle(2, Theme.color);
             graphics.beginFill(0, 0.85);
             graphics.drawRect(0, 0, wide, high);
@@ -266,13 +268,13 @@ package
       {
          if (page == TAGS)
          {
-            return Text.fill("$F3NV_LU_TAGS_PICKED\t" + who.tagCount() + "\t" + who.wanted);
+            return Text.fill("$CRUI_LU_TAGS_PICKED\t" + who.tagCount() + "\t" + who.wanted);
          }
          if (page == TRAITS)
          {
-            return Text.fill("$F3NV_LU_TRAITS_PICKED\t" + who.traitCount() + "\t" + who.wanted);
+            return Text.fill("$CRUI_LU_TRAITS_PICKED\t" + who.traitCount() + "\t" + who.wanted);
          }
-         return Text.fill("$F3NV_LU_POINTS\t" + (who.skillPoints - who.pendingPoints()) + "\t" + who.perkPoints);
+         return Text.fill("$CRUI_LU_POINTS\t" + (who.skillPoints - who.pendingPoints()) + "\t" + who.perkPoints);
       }
 
       // `name`, marked with `mark` (a $KEY) when `marked`.
@@ -291,7 +293,7 @@ package
             var value:String = String(who.skillValue(i));
             var after:Number = page == TAGS ? who.skillValue(i) + tagGain(skill) : who.skillValue(i, true);
             shown.push(i);
-            items.push({text: marked(skill.name, skill.tagged, "$F3NV_LU_TAG_MARK"),
+            items.push({text: marked(skill.name, skill.tagged, "$CRUI_LU_TAG_MARK"),
                         value: after != who.skillValue(i) ? value + " > " + after : value,
                         dim: page == TAGS && skill.tag == Character.TAGGED});
          }
@@ -310,7 +312,7 @@ package
          for (var i:int = 0; i < who.traits.length; i++)
          {
             shown.push(i);
-            items.push({text: marked(who.traits[i].name, who.traits[i].picked, "$F3NV_LU_CHOSEN_MARK")});
+            items.push({text: marked(who.traits[i].name, who.traits[i].picked, "$CRUI_LU_CHOSEN_MARK")});
          }
          return items;
       }
@@ -340,22 +342,22 @@ package
          {
             return;
          }
-         var out:Array = pages.length > 1 ? [[[Input.PREV, Input.NEXT], "$F3NV_LU_PAGE"]] : [];
+         var out:Array = pages.length > 1 ? [[[Input.PREV, Input.NEXT], "$CRUI_LU_PAGE"]] : [];
          if (page == SKILLS)
          {
-            out.push([[Input.LEFT, Input.RIGHT], "$F3NV_LU_SET"], [Input.X, "$F3NV_LU_DONE"], [Input.Y, "$F3NV_LU_RESET"]);
+            out.push([[Input.LEFT, Input.RIGHT], "$CRUI_LU_SET"], [Input.X, "$CRUI_LU_DONE"], [Input.Y, "$CRUI_LU_RESET"]);
          }
          else if (page == PERKS)
          {
-            out.push([Input.ACCEPT, "$F3NV_LU_TAKE"], [Input.X, showAll ? "$F3NV_LU_SHOW_AVAILABLE" : "$F3NV_LU_SHOW_ALL"]);
+            out.push([Input.ACCEPT, "$CRUI_LU_TAKE"], [Input.X, showAll ? "$CRUI_LU_SHOW_AVAILABLE" : "$CRUI_LU_SHOW_ALL"]);
          }
          else if (page == TAGS || page == TRAITS)
          {
-            out.push([Input.ACCEPT, page == TAGS ? "$F3NV_LU_TAG" : "$F3NV_LU_PICK"], [Input.X, "$F3NV_LU_DONE"]);
+            out.push([Input.ACCEPT, page == TAGS ? "$CRUI_LU_TAG" : "$CRUI_LU_PICK"], [Input.X, "$CRUI_LU_DONE"]);
          }
          if (page != TAGS)
          {
-            out.push([Input.BACK, "$F3NV_HINT_LEAVE"]);
+            out.push([Input.BACK, "$CRUI_HINT_LEAVE"]);
          }
          hints.show(out);
       }
@@ -391,12 +393,12 @@ package
          {
             var after:Number = page == TAGS ? who.skillValue(index) + tagGain(entry) : who.skillValue(index, true);
             Text.show(sub, who.skillValue(index) + (after != who.skillValue(index) ? " > " + after : ""));
-            Text.show(needs, entry.tagged ? Text.translate("$F3NV_LU_TAGGED") : "");
+            Text.show(needs, entry.tagged ? Text.translate("$CRUI_LU_TAGGED") : "");
             var opens:Array = page == SKILLS ? who.unlocked() : [];
-            say(opens.length > 0 ? Text.fill("$F3NV_LU_OPENS\t" + opens.join(", ")) : "");
+            say(opens.length > 0 ? Text.fill("$CRUI_LU_OPENS\t" + opens.join(", ")) : "");
             return;
          }
-         Text.show(sub, entry.ranks > 1 ? Text.fill("$F3NV_LU_RANK\t" + entry.held + "\t" + entry.ranks) : "");
+         Text.show(sub, entry.ranks > 1 ? Text.fill("$CRUI_LU_RANK\t" + entry.held + "\t" + entry.ranks) : "");
          var lines:Array = [];
          for each (var line:Array in who.requirements(index))
          {
@@ -411,7 +413,7 @@ package
          var key:String = kind + index;
          if (!(key in urls))
          {
-            urls[key] = path != "" ? images.mount(path, "F3NV_LU_" + key) : "";
+            urls[key] = path != "" ? images.mount(path, "CRUI_LU_" + key) : "";
          }
          return urls[key];
       }
@@ -439,7 +441,7 @@ package
             {
                return true;
             }
-            return who.pendingPoints() > 0 ? ask("$F3NV_LU_KEEP_POINTS", leaveKeeping, leaveDropping) : close();
+            return who.pendingPoints() > 0 ? ask("$CRUI_LU_KEEP_POINTS", leaveKeeping, leaveDropping) : close();
          }
          if ((action == Input.PREV || action == Input.NEXT) && pages.length > 1)
          {
@@ -465,8 +467,8 @@ package
          {
             var index:int = shown[list.selected];
             var changed:Boolean = tags ? who.toggleTag(index) : who.toggleTrait(index);
-            say(changed ? "" : (tags && who.skills[index].tag == Character.TAGGED ? "$F3NV_LU_TAG_KEPT"
-                                                                                : "$F3NV_LU_PICK_FULL"));
+            say(changed ? "" : (tags && who.skills[index].tag == Character.TAGGED ? "$CRUI_LU_TAG_KEPT"
+                                                                                : "$CRUI_LU_PICK_FULL"));
             showPage(list.selected);
             return true;
          }
@@ -476,16 +478,16 @@ package
          }
          if (tags && who.tagCount() < who.wanted)
          {
-            say(Text.fill("$F3NV_LU_TAG_MORE\t" + (who.wanted - who.tagCount())));
+            say(Text.fill("$CRUI_LU_TAG_MORE\t" + (who.wanted - who.tagCount())));
             return true;
          }
          if (tags)
          {
-            send("F3NV_LevelUpTags", Character.mask(who.skills, "tagged"));
+            send("CRUI_LevelUpTags", Character.mask(who.skills, "tagged"));
          }
          else
          {
-            send("F3NV_LevelUpTraits", Character.mask(who.traits, "picked"), who.traits.length);
+            send("CRUI_LevelUpTraits", Character.mask(who.traits, "picked"), who.traits.length);
          }
          return true;
       }
@@ -541,15 +543,15 @@ package
          var index:int = shown[list.selected];
          if (who.perkPoints <= 0)
          {
-            say("$F3NV_LU_NO_PERK_POINTS");
+            say("$CRUI_LU_NO_PERK_POINTS");
          }
          else if (!who.eligible(index))
          {
-            say("$F3NV_LU_CANNOT_TAKE");
+            say("$CRUI_LU_CANNOT_TAKE");
          }
          else
          {
-            ask("$F3NV_LU_CONFIRM_TAKE\t" + who.perks[index].name, function() : void { take(index); }, null);
+            ask("$CRUI_LU_CONFIRM_TAKE\t" + who.perks[index].name, function() : void { take(index); }, null);
          }
          return true;
       }
@@ -569,7 +571,7 @@ package
          var choices:HintBar = new HintBar(input);
          choices.x = 20;
          choices.y = 90;
-         choices.show([[Input.ACCEPT, "$F3NV_LU_YES"], [Input.BACK, "$F3NV_LU_NO"]]);
+         choices.show([[Input.ACCEPT, "$CRUI_LU_YES"], [Input.BACK, "$CRUI_LU_NO"]]);
          body.addChild(choices);
          modal.onClose = function() : void
          {
@@ -602,7 +604,7 @@ package
 
       private function take(index:int) : void
       {
-         send("F3NV_LevelUpTake", index);
+         send("CRUI_LevelUpTake", index);
       }
 
       // Spend the points set on skills, one skill at a time (Raise, answered by Raised); then close when `leave`.
@@ -627,7 +629,7 @@ package
          if (busy)
          {
             var index:int = raising.shift();
-            send("F3NV_LevelUpRaise", index, who.skills[index].pending);
+            send("CRUI_LevelUpRaise", index, who.skills[index].pending);
          }
          else if (closing)
          {
@@ -651,13 +653,13 @@ package
 
       private function close() : Boolean
       {
-         send("F3NV_LevelUpClose");
+         send("CRUI_LevelUpClose");
          return true;
       }
 
       private function log(text:String) : void
       {
-         send("F3NV_LevelUpLog", text);
+         send("CRUI_LevelUpLog", text);
       }
 
       private function send(event:String, ... args) : void

@@ -59,7 +59,7 @@
         "step": 5,
         "sourceType": "PropertyValueInt",
         "sourceForm": "{form}",
-        "scriptName": "F3NV_LevelUp",
+        "scriptName": "CRUI_LevelUp",
         "propertyName": "SkillCap"
       }
     },
@@ -77,7 +77,7 @@
       "valueOptions": {
         "sourceType": "PropertyValueBool",
         "sourceForm": "{form}",
-        "scriptName": "F3NV_LevelUp",
+        "scriptName": "CRUI_LevelUp",
         "propertyName": "ShowAllPerks"
       }
     },

@@ -1,7 +1,7 @@
 """The level-up options as a Mod Configuration Menu page, one per game plugin: Data/MCM/Config/F3NV_<plugin>/.
 
 MCM reads and writes the options straight into the character rules quest's script properties (PropertyValue
-sources: F3NV_CharacterRules' rates, F3NV_LevelUp's cap and filter), kept by the save; our scripts call nothing of
+sources: F3NV_CharacterRules' rates, CRUI_LevelUp's cap and filter), kept by the save; our scripts call nothing of
 MCM's, so without it every option stays the source game's value the build wrote. A hotkey opens the menu
 (OpenLevelUp). The page is the templates in mcm/, their `$F3NV_MCM_` keys in our translation files.
 

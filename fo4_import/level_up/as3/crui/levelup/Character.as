@@ -1,4 +1,4 @@
-package f3nv.levelup
+package crui.levelup
 {
    import f3ui.Text;
 
@@ -9,18 +9,18 @@ package f3nv.levelup
    // See docs/fork/fo4_level_up_plan.md#menu
    public class Character
    {
-      // Between a table's entries (F3NV_LevelUp.psc's SEP).
+      // Between a table's entries (CRUI_LevelUp.psc's SEP).
       public static const SEP:String = "\t";
       // Requirement kinds and comparisons (fo4_import/spike/level_up.py).
       public static const VALUE:int = 0;
       public static const SEX:int = 1;
       public static const PERK:int = 2;
       public static const LEVEL:int = 3;
-      // A perk another mod added (F3NV_LevelUp.AddPerk): the game's own test of its conditions, met when unlisted.
+      // A perk another mod added (CRUI_LevelUp.AddPerk): the game's own test of its conditions, met when unlisted.
       public static const GAME:int = 4;
       private static const OPS:Array = ["=", "!=", ">", "", "<", "<="];
 
-      // Open's modes (F3NV_LevelUp.psc): a level-up, the tag skill menu, the trait menu.
+      // Open's modes (CRUI_LevelUp.psc): a level-up, the tag skill menu, the trait menu.
       public static const LEVEL_UP:int = 0;
       public static const TAGS:int = 1;
       public static const TRAITS:int = 2;
@@ -47,7 +47,7 @@ package f3nv.levelup
       // Whether the perk page opens showing every perk (the MCM option).
       public var showAll:Boolean;
 
-      // F3NV_LevelUp.psc's Built, in its order: points, level, sex, cap; the perk tables and ranks held; the skill
+      // CRUI_LevelUp.psc's Built, in its order: points, level, sex, cap; the perk tables and ranks held; the skill
       // tables, values and tags; how many values are SPECIAL; the requirement rows' columns; the mode, the count
       // and bonus; the trait tables and traits held; whether to show every perk at first; each table's perk and
       // row counts.
@@ -325,7 +325,7 @@ package f3nv.levelup
       public function requirements(index:int) : Array
       {
          var perk:Object = perks[index];
-         var out:Array = [[Text.fill("$F3NV_LU_LEVEL\t" + perk.level), level >= perk.level]];
+         var out:Array = [[Text.fill("$CRUI_LU_LEVEL\t" + perk.level), level >= perk.level]];
          var parts:Array = [];
          var good:Boolean = false;
          for each (var row:Object in perk.rows)
@@ -333,10 +333,10 @@ package f3nv.levelup
             var ok:Boolean = met(row);
             good = good || ok;
             parts.push(ok || row.kind == SEX || row.kind == PERK || row.kind == GAME ? shown(row)
-                       : Text.fill("$F3NV_LU_YOU_HAVE\t" + shown(row) + "\t" + Math.floor(have(row))));
+                       : Text.fill("$CRUI_LU_YOU_HAVE\t" + shown(row) + "\t" + Math.floor(have(row))));
             if (!row.or)
             {
-               out.push([parts.join(" " + Text.translate("$F3NV_LU_OR") + " "), good]);
+               out.push([parts.join(" " + Text.translate("$CRUI_LU_OR") + " "), good]);
                parts = [];
                good = false;
             }
@@ -349,20 +349,20 @@ package f3nv.levelup
       {
          if (row.kind == GAME)
          {
-            return Text.translate("$F3NV_LU_OWN_TEST");
+            return Text.translate("$CRUI_LU_OWN_TEST");
          }
          if (row.kind == SEX)
          {
             var female:Boolean = (row.need == 1) == (row.compare == 0);
-            return Text.translate(female ? "$F3NV_LU_FEMALE" : "$F3NV_LU_MALE");
+            return Text.translate(female ? "$CRUI_LU_FEMALE" : "$CRUI_LU_MALE");
          }
          if (row.kind == LEVEL)
          {
-            return Text.fill("$F3NV_LU_LEVEL\t" + (OPS[row.compare] ? OPS[row.compare] + " " : "") + row.need);
+            return Text.fill("$CRUI_LU_LEVEL\t" + (OPS[row.compare] ? OPS[row.compare] + " " : "") + row.need);
          }
          if (row.kind == PERK)
          {
-            return (row.need == 0) == (row.compare == 0) ? Text.fill("$F3NV_LU_NOT\t" + row.label) : row.label;
+            return (row.need == 0) == (row.compare == 0) ? Text.fill("$CRUI_LU_NOT\t" + row.label) : row.label;
          }
          return row.label + " " + (OPS[row.compare] ? OPS[row.compare] + " " : "") + row.need;
       }

@@ -25,7 +25,7 @@ licensed way to build menus without starting from decompiled Bethesda files.
 | Casino (`fo4_import/casino/`) | Our own AS3 on the `f3ui` library, compiled by `mxmlc` (since 2026-11-11, [spike 1](#spikes)). Opened as an F4SE custom menu from Papyrus (`F3NV_Casino.psc`) | FFDec build played (slots in the HUD color). `mxmlc` build played: slots and roulette work |
 | Dialogue menu (`fo4_import/dialogue_menu/`) | Our own AS3 only (since 2026-11-11, [spike 3](#spikes)). Since 2026-11-12 on `f3ui` (`Bridge`, `Text`), compiled by `mxmlc` like the casino's. Nothing read from the game | The patched-movie version played; our own movie (FFDec build) played 2026-11-12, looks the same. `mxmlc` build not played |
 | Pip-Boy, container, barter, HUD (`tes_runtime/fo4_condition/`) | The Pip-Boy's CND line, repair and ammo lists, and other mods' item-card lines are drawn by our injected movie from the DLL's data ([framework](#pipboy)). The rest is drawn by the DLL into the open vanilla menus from C++: REPAIR and AMMO hints, STAT tabs, the container and barter CND line, HUD needs | CND, repair and tabs played from C++; the movie's versions built, not played. Ammo list and HUD needs built, not played |
-| Level-up (`fo4_import/level_up/`, `fo4_import/spike/level_up*.py`, `F3NV_LevelUp.psc`) | Our own menu on f3ui ([level-up](#level-up)), opened by the character rules in place of `LevelUpMenu`, with skill, perk and taken pages, and as the tag-skill and trait menus, every DLC's perks and traits included; PRKF.dll's points, tags, perk list and requirement rows rebuilt in Papyrus | Built 2026-11-12, none played |
+| Level-up (`fo4_import/level_up/`, `fo4_import/spike/level_up*.py`, `CRUI_LevelUp.psc`) | Our own menu on f3ui ([level-up](#level-up)), opened by the character rules in place of `LevelUpMenu`, with skill, perk and taken pages, and as the tag-skill and trait menus, every DLC's perks and traits included; PRKF.dll's points, tags, perk list and requirement rows rebuilt in Papyrus | Built 2026-11-12, none played |
 
 ### <a id="where"></a>Where each piece stands (2026-11-12)
 
@@ -634,7 +634,7 @@ With the new DLL, a missing file is labeled missing ([images](#images)).
 own movie registered from Papyrus like the casino's, with SKILLS, PERKS
 and TAKEN pages on `ScrollList`, `Modal`, `Input`, `HintBar` and `Images`
 ([menu](fo4_level_up_plan.md#menu)). What it shows comes from tables the
-build writes onto `F3NV_LevelUp`, since each Papyrus call to a Form or
+build writes onto `CRUI_LevelUp`, since each Papyrus call to a Form or
 Perk native costs a frame. Images come from the records: each perk's in
 its own PERK `ICON` and the table, a skill's in the table
 ([images](fo4_level_up_plan.md#images)).
@@ -662,7 +662,7 @@ Still to do:
 <a id="level-up-play"></a>**Play check:** level up (`player.setlevel` one
 higher, or earn it), then open the level-up screen from the Pip-Boy:
 - the Pip-Boy closes and our menu opens (a moment of the old screen first
-  is expected); `Papyrus.0.log` has `F3NV_LevelUp: sent in Ns` (how long
+  is expected); `Papyrus.0.log` has `CRUI_LevelUp: sent in Ns` (how long
   the open took) and an `open:` line with the counts (FNV 91 perks, 13
   skills, 105 rows);
 - SKILLS: set points with Right, take back with Left, the list shows
@@ -710,9 +710,9 @@ Options, with MCM (Mod Configuration Menu, `F3NV: Fallout New Vegas`):
 
 The API, from the console (`cqf` runs a quest function; the rules quest's
 EditorID is `FNV_CharacterRules`):
-- `cqf FNV_CharacterRules "F3NV_LevelUp.OpenTagMenu" 4`: the tag menu
+- `cqf FNV_CharacterRules "CRUI_LevelUp.OpenTagMenu" 4`: the tag menu
   for a fourth tag, the three held locked;
-- `cqf FNV_CharacterRules "F3NV_LevelUp.AddPerk" <a Fallout 4 perk's
+- `cqf FNV_CharacterRules "CRUI_LevelUp.AddPerk" <a Fallout 4 perk's
   FormID>`, then open the menu: the perk is last on PERKS, its image if it
   has one, "Its own requirements" met or unmet as the game's test says;
 - `Papyrus.0.log` after a level-up: no errors from `MenuClosed` or
@@ -1241,10 +1241,16 @@ Then:
   and INI format documented.
 - The dialogue menu and the converter use both.
 
+**Decided 2026-11-12:** the library, the menus and the framework DLL live in
+one repo, **Cleanroom UI** (`ThyMrMan/cleanroom-ui`, private until the
+first release), with the prefix `CRUI_`. It was split out of this repo with
+history; its README lists what moved and the steps left before the
+converter can use it as a submodule. Until then the copies here stay the
+ones the build uses.
+
 ## <a id="decisions"></a>Open decisions
 
 - Where built movies live: release assets only, or an exempt folder in git.
-- Library and Papyrus prefix names.
 - Whether the Pip-Boy framework reads PipboyTabs' INI files.
 - Whether to contact HUDFramework's author (license, the F4SE fast path),
   together with the XDI question.

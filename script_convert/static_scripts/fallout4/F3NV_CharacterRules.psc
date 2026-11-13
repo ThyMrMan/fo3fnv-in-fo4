@@ -2,7 +2,7 @@ ScriptName F3NV_CharacterRules extends Quest
 {Fallout 4 only. FO3/FNV's character rules: answers F3NV_CharacterEvents' CharacterMenu (SPECIAL, and our menu as the
 tag skill and trait menus), sets each skill's starting value once SPECIAL is chosen (a tagged skill's bonus kept),
 gives each tagged skill its bonus once, gives each level-up's skill and perk points at the source game's rates to
-F3NV_LevelUp (on this quest), and opens our level-up menu in place of LevelUpMenu. The importer fills the lists and
+CRUI_LevelUp (on this quest), and opens our level-up menu in place of LevelUpMenu. The importer fills the lists and
 rates from the game. See docs/fork/research/fo4_target.md#decisions, docs/fork/fo4_level_up_plan.md#open}
 
 F3NV_CharacterEvents Property TES4CharacterEvents Auto
@@ -30,8 +30,10 @@ Int LastLevel
 Float SkillPointCarry
 ActorValue[] Bonused
 Bool Migrated
+Bool HostMoved
 
 Event OnInit()
+  HostMoved = True
   RegisterForCustomEvent(TES4CharacterEvents, "CharacterMenu")
   RegisterForMenuOpenCloseEvent("SPECIALMenu")
   RegisterForMenuOpenCloseEvent("LevelUpMenu")
@@ -68,9 +70,18 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
   EndIf
 EndEvent
 
-F3NV_LevelUp Function LevelUp()
-  {Our level-up state and menu, on this quest.}
-  Return (Self as Quest) as F3NV_LevelUp
+CRUI_LevelUp Function LevelUp()
+  {Our level-up state and menu, on this quest. First, once on a save from before CRUI_LevelUp (OnInit ran before it,
+  so HostMoved is unset), the state F3NV_LevelUp kept is moved to it. See docs/fork/fo4_level_up_plan.md#crui}
+  CRUI_LevelUp host = (Self as Quest) as CRUI_LevelUp
+  If !HostMoved
+    HostMoved = True
+    F3NV_LevelUp old = (Self as Quest) as F3NV_LevelUp
+    If old
+      old.MoveTo(host)
+    EndIf
+  EndIf
+  Return host
 EndFunction
 
 Function OpenLevelUp()
@@ -86,15 +97,32 @@ Function OpenLevelUp()
 EndFunction
 
 Function ShowOurs(Int aiMode, Int aiCount, Int aiBonus)
-  {Our menu in mode aiMode (F3NV_LevelUp.Open) once no menu is open, LevelUpMenuEx's state moved over first. Its data
+  {Our menu in mode aiMode (CRUI_LevelUp.Open) once no menu is open, LevelUpMenuEx's state moved over first. Its data
   is gathered (Prepare, which registers the menu with F4SE before we listen for it) while the Pip-Boy closes, and it
   opens as soon as no menu is open, without the settling a message box needs.
   See docs/fork/fo4_level_up_plan.md#open-delay}
+  Float asked = Utility.GetCurrentRealTime()
   MovePrkf()
   LevelUp().Prepare(aiMode, aiCount, aiBonus)
+  Float prepared = Utility.GetCurrentRealTime()
   RegisterForMenuOpenCloseEvent(LevelUp().MenuName)
+  String held = MenusHeld()
   WaitOutOfMenus(False)
+  Float free = Utility.GetCurrentRealTime()
   LevelUp().Open(aiMode, aiCount, aiBonus)
+  If TES4Polyfill.Tracing()
+    TES4Polyfill.TraceWrite("levelup", "mode " + aiMode + "|asked " + asked + "|prepared +" + (prepared - asked) \
+        + "|held " + held + "|free +" + (free - asked) + "|opened +" + (Utility.GetCurrentRealTime() - asked))
+  EndIf
+EndFunction
+
+String Function MenusHeld()
+  {When tracing: what WaitOutOfMenus waits on now (menu mode, the Pip-Boy, ours), and whether dialogue is up.}
+  If !TES4Polyfill.Tracing()
+    Return ""
+  EndIf
+  Return "menumode " + Utility.IsInMenuMode() + ", pipboy " + UI.IsMenuOpen("PipboyMenu") + ", ours " \
+      + UI.IsMenuOpen(LevelUp().MenuName) + ", dialogue " + UI.IsMenuOpen("DialogueMenu")
 EndFunction
 
 Function MovePrkf()
@@ -106,7 +134,7 @@ Function MovePrkf()
     Return
   EndIf
   Migrated = True
-  F3NV_LevelUp ours = LevelUp()
+  CRUI_LevelUp ours = LevelUp()
   Int perks = Prkf("GetPP", new Var[0]) as Int
   Int points = Prkf("GetSP", new Var[0]) as Int
   ours.AddPerkPoints(perks)
@@ -240,7 +268,7 @@ Function OpenTraits(Int count)
   ShowOurs(LevelUp().TraitsMode, count, 0)
 EndFunction
 
-Event F3NV_LevelUp.TagsChosen(F3NV_LevelUp akSender, Var[] akArgs)
+Event CRUI_LevelUp.TagsChosen(CRUI_LevelUp akSender, Var[] akArgs)
   {The tag menu's picks are set: each tagged skill without its bonus gets TagBonus, a skill untagged loses it; the
   suggestions are done with.}
   Actor player = Game.GetPlayer()
@@ -379,7 +407,7 @@ Function SetSkillBases()
 EndFunction
 
 Function TopUp()
-  {For the levels gained since the last top-up, to F3NV_LevelUp: SkillPointsBase + Intelligence x
+  {For the levels gained since the last top-up, to CRUI_LevelUp: SkillPointsBase + Intelligence x
   SkillPointsPerIntelligence skill points each (a fraction carries over), a perk point every LevelsPerPerk levels.}
   Actor player = Game.GetPlayer()
   Int level = player.GetLevel()

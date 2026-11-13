@@ -40,7 +40,7 @@ raw F4SE 0.7.9 with no Address Library.
 
 | Release | Contains | For |
 |---|---|---|
-| **Framework DLL** (name to pick) | Item condition API, Pip-Boy and menu CND lines, Pip-Boy tabs API, item-card lines for other mods (`card.cpp`), `ChangeSex`, the Papyrus array library (`F3NV_Array.psc`) | Mod authors. Does nothing on its own |
+| **Framework DLL** (name to pick) | Item condition API, Pip-Boy and menu CND lines, Pip-Boy tabs API, item-card lines for other mods (`card.cpp`), `ChangeSex`, the Papyrus array library (`CRUI_Array.psc`) | Mod authors. Does nothing on its own |
 | **f3ui menu library** | Our own AS3 menu toolkit: input, modal pop-ups, scroll lists, hint bar, images, translations, controller support; compiled with the open Flex SDK ([release](swf_framework.md#release)) | Mod authors who want a menu without decompiling Bethesda's files. No DLL |
 | **Level-up menu** | Our level-up menu on f3ui ([plan](fo4_level_up_plan.md)): skill, perk, tag and trait pages, PRKF.dll's work in Papyrus, opened in place of `LevelUpMenu` without replacing its movie, an API for other mods ([API](fo4_level_up_plan.md#api)) | Players and perk-overhaul authors replacing LevelUpMenuEx ([below](#level-up)) |
 | **Casino games and Caravan** (content mod) | The casino menus on f3ui ([plan](fo4_casino_plan.md)): slots and roulette built, blackjack and Caravan planned | Players who want the games anywhere in FO4, such as a settlement bar ([below](#casino)) |
@@ -200,6 +200,9 @@ Everything else needs F4SE and stays PC (and later VR).
 
 - A new repo per release, or one repo with a folder per DLL and a shared
   `common/`. **Choose one repo**: the shared base would otherwise be copied.
+  It is **Cleanroom UI** (`ThyMrMan/cleanroom-ui`, prefix `CRUI_`, private
+  for now), shared with the menu framework
+  ([release](swf_framework.md#release)).
 - License: **GPL-3.0 with the modding exception**, for every release and
   for our code in both converter repos ([license](#license)). Credit the
   upstream tes4skyrim authors where code came from there (none of F3NV.dll

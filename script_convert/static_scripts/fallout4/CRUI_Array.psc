@@ -1,4 +1,4 @@
-ScriptName F3NV_Array Hidden
+ScriptName CRUI_Array Hidden
 {xNVSE arrays for converted scripts. An array is a Var[] whose element 0 is its kind: 1 Array (a list,
 keys 0..n-1, values from element 1), 2 Map (numeric keys) or 3 StringMap; a map stores key, value pairs
 from element 1, kept in key order as xNVSE iterates them. None is xNVSE's null array.

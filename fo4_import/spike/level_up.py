@@ -1,7 +1,7 @@
-"""FO3/FNV's level-up for our own level-up menu, in place of LevelUpMenuEx's PRKF.dll: F3NV_LevelUp on the character
-rules quest holds the points and tagged skills, opens the menu (Interface/F3NV_LevelUp.swf, fo4_import/level_up),
+"""FO3/FNV's level-up for our own level-up menu, in place of LevelUpMenuEx's PRKF.dll: CRUI_LevelUp on the character
+rules quest holds the points and tagged skills, opens the menu (Interface/CRUI_LevelUp.swf, fo4_import/level_up),
 and gets from the build what the menu shows without asking the engine: each skill's name, description and image,
-and from each plugin's F3NV_LevelUpTable its own listed perks' and traits' names, descriptions, images, levels and
+and from each plugin's CRUI_LevelUpTable its own listed perks' and traits' names, descriptions, images, levels and
 rank chains and its perks' requirements as rows ("Science 50", "Level 8"). Whether a perk can be taken is still the
 engine's own test of its conditions.
 
@@ -14,7 +14,9 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
 from fo4_import.spike.perks import fo4_icon
 
-SCRIPT, TABLE_SCRIPT = 'F3NV_LevelUp', 'F3NV_LevelUpTable'
+SCRIPT, TABLE_SCRIPT = 'CRUI_LevelUp', 'CRUI_LevelUpTable'
+#: DEPRECATED: the level-up script before CRUI_LevelUp, kept on the rules quest so older saves keep its state.
+LEGACY_SCRIPT = 'F3NV_LevelUp'
 #: Requirement kinds by FNV condition function: an actor value, the player's sex, another perk, the level.
 KINDS = {'GetPermanentActorValue': 0, 'GetActorValue': 0, 'GetIsSex': 1, 'HasPerk': 2, 'GetLevel': 3}
 #: A condition's comparison bits, shifted down to 0-5: ==, !=, >, >=, <, <=.
@@ -97,7 +99,7 @@ def rows(builder, names: dict = None, records: list = None) -> list:
 
 
 def properties(table: list, values: list = (), listed: list = ()) -> dict:
-    """F3NV_LevelUpTable's Requirement* properties: `table`'s rows as the SEP texts the menu reads, so an open joins
+    """CRUI_LevelUpTable's Requirement* properties: `table`'s rows as the SEP texts the menu reads, so an open joins
     nothing. A row's owner is its perk's index in `listed` (the table's listed perks); its target the index the menu
     finds the tested value at: in `values` (SPECIAL then skills) for an actor value, in `listed` for a perk; -1 when
     not there. The menu moves both by where the table's perks start. RowTotal counts the rows; UnlistedRows and
@@ -148,7 +150,7 @@ def skill_table(avs: dict, skills: list) -> dict:
 
 
 def table_properties(builder, avs: dict, values: list) -> dict:
-    """F3NV_LevelUpTable's value properties for the build's own listed perks and traits (a DLC's, not its masters'):
+    """CRUI_LevelUpTable's value properties for the build's own listed perks and traits (a DLC's, not its masters'):
     their tables and the perks' requirement rows. The trait menu answers with a bit per trait, so a trait past
     MASK_BITS is counted.
     See: docs/fork/fo4_level_up_plan.md#tables

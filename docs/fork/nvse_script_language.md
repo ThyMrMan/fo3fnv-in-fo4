@@ -1,6 +1,6 @@
 # xNVSE script language on Fallout 4
 
-**Code:** `script_convert/static_scripts/fallout4/F3NV_Array.psc`,
+**Code:** `script_convert/static_scripts/fallout4/CRUI_Array.psc`,
 `script_convert/nvse_falloutnv.py` (expressions and assignments),
 `script_convert/loop_jumps.py`, `script_convert/udf_fallout4.py`, and the
 parser in `script_convert/tes4/`.
@@ -42,7 +42,7 @@ decimal. `sv_Destruct a, b` sets each string to `""`.
 holds the array's kind: 1 Array (a list), 2 Map (numeric keys), 3
 StringMap. A list's values follow from element 1; a map stores key, value
 pairs from element 1, in key order. `None` is xNVSE's null array
-(`ar_Null`). Every operation is a global function on `F3NV_Array`.
+(`ar_Null`). Every operation is a global function on `CRUI_Array`.
 
 Why this shape:
 
@@ -61,10 +61,10 @@ Why this shape:
 
 | xNVSE | Papyrus |
 |---|---|
-| `ar_Construct "StringMap"` | `F3NV_Array.Construct("StringMap")` |
-| `ar_List a, b, c` | `F3NV_Array.List(3, a, b, c)` (at most 20, as xNVSE) |
-| `arr[k]` (read) | `F3NV_Array.Get(arr, k) as <type>` |
-| `let arr[k] := v` | `F3NV_Array.Set(arr, k, v)`; a list grows only by writing one past its end |
+| `ar_Construct "StringMap"` | `CRUI_Array.Construct("StringMap")` |
+| `ar_List a, b, c` | `CRUI_Array.List(3, a, b, c)` (at most 20, as xNVSE) |
+| `arr[k]` (read) | `CRUI_Array.Get(arr, k) as <type>` |
+| `let arr[k] := v` | `CRUI_Array.Set(arr, k, v)`; a list grows only by writing one past its end |
 | `ar_Size` / `ar_HasKey` / `ar_Find` | `Size` (-1 for null) / `HasKey` / `Find` |
 | `ar_BadNumericIndex` | `-99999`, xNVSE's own value (`Commands_Array.cpp`) |
 | `ar_Append` / `ar_Erase` / `ar_Copy` | `Append` / `Erase` / `Copy` |
@@ -76,7 +76,7 @@ Why this shape:
 ignoring case and the rest as numbers, using FO4's `is` operator.
 
 **Limits:** FO4 creates arrays of at most 128 elements with `new`;
-`F3NV_Array` only ever creates one element and grows with `Add`. Maps are
+`CRUI_Array` only ever creates one element and grows with `Add`. Maps are
 searched linearly; the surveyed mods hold a few dozen entries at most.
 
 ## <a id="loops"></a>Loops, `Break` and `Continue`
@@ -84,9 +84,9 @@ searched linearly; the surveyed mods hold a few dozen entries at most.
 `While`/`Loop` is a Papyrus `While`. `ForEach it <- arr` on an array
 becomes an index loop over a copy of the array reference
 (`TES4_Each<n>`, `TES4_EachIndex<n>`); `it` is set to
-`F3NV_Array.Iterator(arr, i)`, a StringMap with `key` and `value` as in
+`CRUI_Array.Iterator(arr, i)`, a StringMap with `key` and `value` as in
 xNVSE. A `ForEach` over anything else (a container, a form list) is kept as
-a comment: those iterate engine objects F3NV_Array does not model.
+a comment: those iterate engine objects CRUI_Array does not model.
 
 Papyrus has no `break` or `continue`, so a loop that uses them gets two
 flags: `TES4_Skip<n>` (cleared at the top of each pass) and `TES4_Break<n>`

@@ -1,8 +1,8 @@
-ScriptName F3NV_LevelUpTable extends Quest Const
+ScriptName CRUI_LevelUpTable extends Quest Const
 {Fallout 4 only. One plugin's part of our level-up menu, as its build wrote it: its own listed perks and traits (names,
 descriptions and images SEP between, levels, rank chains) and its perks' requirement rows. The game's is on the
-character rules quest beside F3NV_LevelUp; a DLC's on a start-game quest of its own, which adds itself to Tables as it
-starts, so plugins stack in any load order. F3NV_LevelUp joins every table each time the menu opens.
+character rules quest beside CRUI_LevelUp; a DLC's on a start-game quest of its own, which adds itself to Tables as it
+starts, so plugins stack in any load order. CRUI_LevelUp joins every table each time the menu opens.
 See docs/fork/fo4_level_up_plan.md#tables}
 
 FormList Property Tables Auto Const

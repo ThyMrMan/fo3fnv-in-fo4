@@ -48,6 +48,8 @@ package f3ui
       // A `width` by `height` box at the origin of `g`, outlined in Theme.color and filled black at `alpha`.
       public static function box(g:Graphics, width:Number, height:Number, alpha:Number) : void
       {
+         // Scaleform strokes a drawRect from where the pen was left: start at the box's own corner.
+         g.moveTo(0, 0);
          g.lineStyle(2, Theme.color);
          g.beginFill(0, alpha);
          g.drawRect(0, 0, width, height);

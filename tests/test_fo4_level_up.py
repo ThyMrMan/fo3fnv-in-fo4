@@ -1,4 +1,4 @@
-"""Our own level-up state in place of PRKF.dll: the perks' requirement rows and F3NV_LevelUp.psc.
+"""Our own level-up state in place of PRKF.dll: the perks' requirement rows and CRUI_LevelUp.psc.
 
 See: docs/fork/fo4_level_up_plan.md#prkf
 """
@@ -118,7 +118,7 @@ def _declared(source: str) -> set:
 
 
 def test_the_scripts_declare_exactly_the_properties_the_build_writes():
-    """F3NV_LevelUp's properties without a default are the lists and the skill table; F3NV_LevelUpTable's the
+    """CRUI_LevelUp's properties without a default are the lists and the skill table; CRUI_LevelUpTable's the
     registry and table_properties' tables; character.build fills both."""
     builder = _builder(_perk(0x01000001))
     source = (STATIC / f'{L.SCRIPT}.psc').read_text(encoding='utf-8')
@@ -195,7 +195,7 @@ def test_the_trait_table_follows_the_traits_list():
 
 @pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
 def test_the_script_compiles(tmp_path):
-    """F3NV_LevelUp.psc compiles against Fallout 4's and F4SE's headers and F3NV_CharacterEvents.psc, which holds
+    """CRUI_LevelUp.psc compiles against Fallout 4's and F4SE's headers and F3NV_CharacterEvents.psc, which holds
     the tags."""
     src, out = tmp_path / 'src', tmp_path / 'out'
     src.mkdir()

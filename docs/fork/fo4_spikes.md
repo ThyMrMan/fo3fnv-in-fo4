@@ -573,7 +573,9 @@ since it is player or actor state:
 The ids live in `script_convert/constants.py` (`FALLOUT4_HELPER_*`) and are
 a save contract: append only. Converted plugins list the helper plugin as a
 master; `helpers_plugin.actor_value_form` and `helper_forms` give the FormIDs
-a plugin writes for them, by its master index.
+a plugin writes for them, by its master index. The same command writes
+Cleanroom UI's `CleanroomUI.esl` beside it
+([level-up plugin](fo4_level_up_plan.md#plugin)).
 
 - `TES4Polyfill.AV(name)` is generated from `target.fallout4_actor_values()`:
   Fallout4.esm's ids read from `Fallout4.esm`, the rest from the helper
