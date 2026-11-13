@@ -61,6 +61,22 @@ def _loose(paths: list):
             yield from pool.map(Path.read_bytes, map(Path, paths[start:start + AHEAD]))
 
 
+def same_bytes(archive: Path, named: dict) -> set:
+    """The names in `named` ({lowercase '/'-separated name: loose path}) whose file holds exactly what the general
+    `archive` stores uncompressed for that name; the archive read once, in offset order.
+    See: docs/fork/fo4_pipeline.md#faces-repack
+    """
+    stored = {name.replace(chr(92), '/'): at for name, at in entries(archive).items()}
+    order = sorted((stored[name][0], name) for name in named if name in stored)
+    same = set()
+    with open(archive, 'rb') as f:
+        for (offset, name), data in zip(order, _loose([named[name] for _, name in order])):
+            f.seek(offset)
+            if len(data) == stored[name][1] and f.read(len(data)) == data:
+                same.add(name)
+    return same
+
+
 def _runs(names: list, sizes: list, old: dict) -> list:
     """`names` (with `sizes`) in order as runs: (offset, length) of consecutive files lying back to back in the old
     archive (`old`: {lowercase name: (offset, size)}), or (None, index) of a file read from disk."""

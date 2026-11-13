@@ -6214,6 +6214,30 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   byte the old one. A profile put 157 of the 162 s in writing the file
   (about 21 MB/s on this drive); reading took about 5 s. The Textures side
   is covered by tests only, not timed on the real archive.
+- <a id="unchanged-bytes"></a>**Main is written only when a byte changed
+  (2026-11-12, not yet built).** A warm build rewrote Main every time (89 s
+  on the 2026-11-12 base build, 118 s on the one before), though no mesh was
+  converted. `elric_cache.write_new` leaves a file whose bytes already match,
+  but touches it so `stale_files` counts it as made by this build, and the
+  animation data step writes its 15,663 files again. Each new date broke the
+  `[size, mtime]` match against Main's pack record, so `pack_main` read
+  69,069 files loose and wrote the 3.3 GB archive again. Now `_held` keeps
+  as packed every loose file whose size and date match the record, and,
+  when only the date differs, every one whose bytes match the archive's
+  copy (`ba2_write.same_bytes`: the archive read once in offset order, the
+  loose files 16 at a time). When nothing changed, the record's state is
+  the same and Main is not written.
+  Measured on a D: copy of the 2026-11-12 Main and its record (79,736
+  entries; the staged non-voice sounds read from the build's staging),
+  running a warm build's archive steps: `restore_packed` 77,355 files in
+  54.0 s, every one touched (8.9 s), `pack_main` 45.5 s with Main not
+  written, `drop_packed` 11.2 s. The 45.5 s is the comparing; before, the
+  same files were read loose and then the whole archive was written as
+  well. Still paid every warm build: the restore and the drop, about 65 s
+  here and more on C:. Ending them means each step that reads the restored
+  files (`stale_files`, object LOD, the Creation Kit's animation list, the
+  script compiler, `write_new`'s own check) reading through the archive
+  instead.
 - **A master folder is read through its archives.** A dependent build reads
   its masters' deployed folders, whose loose copies are gone:
   `ba2_pack.data_file` (the persistent subgraph list,

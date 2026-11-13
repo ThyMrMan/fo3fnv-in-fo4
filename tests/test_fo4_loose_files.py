@@ -158,3 +158,20 @@ def test_a_face_texture_written_again_unchanged_keeps_its_staged_copy(tmp_path, 
     face.write_bytes(b'g')
     BP.pack_textures(data, 'P.esm', prune=False)
     assert staged.read_bytes() == b'g' and len(written) == 2
+
+
+def test_a_build_that_rewrites_the_same_bytes_leaves_main_as_it_is(tmp_path, monkeypatch):
+    """Restored files touched by the build (write_new) but holding the same bytes keep Main unwritten; a file with
+    new bytes of the same size is packed anew."""
+    data = _packed(tmp_path, monkeypatch)
+    main = data / 'P - Main.ba2'
+    BP.drop_packed(data, 'P.esm')
+    BP.restore_packed(data, 'P.esm')
+    for name in FILES:
+        os.utime(data / name)
+    when = main.stat().st_mtime_ns
+    assert BP.pack_main(data, 'P.esm') == len(FILES) and main.stat().st_mtime_ns == when
+    (data / 'Scripts/A.pex').write_bytes(b'PEX')
+    BP.pack_main(data, 'P.esm')
+    assert main.stat().st_mtime_ns != when and Archive(main).read('scripts/a.pex') == b'PEX'
+    assert Archive(main).read('materials/fnv/a.bgsm') == b'm'

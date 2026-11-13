@@ -32,7 +32,7 @@ from pathlib import Path
 from core.build_resources import pool_workers
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import write_textures
-from fo4_import.base.ba2_write import write_general
+from fo4_import.base.ba2_write import same_bytes, write_general
 from fo4_import.base.build_files import moved_in
 from fo4_import.base.install import game_language
 from fo4_import.pipeline.build_inputs import MASTERS
@@ -350,29 +350,31 @@ def archived(archive: Path) -> 'dict | None':
 
 
 def _held(archive: Path, main: dict, replaced: tuple) -> dict:
-    """What `archive` keeps as packed while `main` ({name: loose path}) replaces its `replaced` folders: every
-    other entry not loose, and each loose file there whose bytes `archive` already holds (archived()).
-    See: docs/fork/fo4_pipeline.md#faces-repack
+    """What `archive` keeps as packed ({name as it spells it: [size, mtime]}, archived()): each loose file of
+    `main` ({name: path}) whose size and time, else bytes, match its packed copy; with `replaced` folders, also
+    every entry outside them that is not loose (a stage that rewrites only those folders).
+    See: docs/fork/fo4_pipeline.md#unchanged-bytes
     """
-    record = (archived(archive) if replaced else None) or {}
+    record = archived(archive) or {}
+    spelled = {name.lower(): name for name in record}
     loose = {name.lower(): path for name, path in main.items()}
-    held = {name: value for name, value in record.items()
-            if name.lower() not in loose and not name.lower().startswith(replaced)}
-    packed = Archive(archive) if record else None
-    for name, value in record.items():
-        path = loose.get(name.lower()) if name.lower().startswith(replaced) else None
-        same = path and path.stat().st_size == value[0]
-        if same and packed.read(name.lower().replace('/', chr(92))) == path.read_bytes():
-            held[name] = value
+    held = {spelled[n]: record[spelled[n]] for n in spelled
+            if replaced and n not in loose and not n.startswith(replaced)}
+    stats = {n: loose[n].stat() for n in spelled.keys() & loose.keys()}
+    same = {n for n, st in stats.items() if record[spelled[n]] == [st.st_size, st.st_mtime_ns]}
+    sized = {n: loose[n] for n, st in stats.items() if n not in same and record[spelled[n]][0] == st.st_size}
+    for n in same | (same_bytes(archive, sized) if sized else set()):
+        held[spelled[n]] = record[spelled[n]]
     return held
 
 
 def pack_main(data_dir: Path, plugin: str, replaced: tuple = ()) -> int:
     """Pack archive_files() as `<plugin stem> - Main.ba2` and voices_archive(), each only when its files changed
     since it was packed (_pack_general); another language's voices archive goes; the file count. The loose PACKED
-    files stay until drop_packed(). With `replaced` folders, Main keeps what _held() says as packed, so a stage
-    that rewrites only those folders needs no restore_packed().
+    files stay until drop_packed(). Main keeps what _held() says as packed (`replaced`: folders this stage
+    rewrites, the rest needing no restore_packed()).
     See: docs/fork/fo4_pipeline.md#main-archive
+    See: docs/fork/fo4_pipeline.md#unchanged-bytes
     See: docs/fork/fo4_build_speed.md#voices-archive
     """
     main, voices = archive_files(data_dir)
