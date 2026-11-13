@@ -80,3 +80,18 @@ def test_every_shipped_override_matches_its_shared_block():
     for script in ('TES4Polyfill', 'TES4_StagePackageAlias'):
         with open(f'script_convert/static_scripts/{script}.psc', encoding='utf-8') as src:
             assert H.fallout4_helper(script, src.read())
+
+
+def test_on_furniture_counts_from_the_sit_down():
+    """IsCurrentFurnitureRef holds from the sit-down (state 2): FNV names the
+    furniture before the sit, and Doc's 2.5 s chair timer covers it; waiting
+    for state 3 added the whole sit-down to the psych test's pause. Walking
+    there (state 1) never counts.
+
+    See: docs/fork/fo4_pipeline.md#furniture-seated
+    """
+    with open('script_convert/static_scripts/TES4Polyfill.psc', encoding='utf-8') as src:
+        out = H.fallout4_helper('TES4Polyfill', src.read())
+    body = out.split('Bool Function IsCurrentFurnitureRef(', 1)[1].split('EndFunction', 1)[0]
+    assert 'a.GetSitState() >= 2' in body
+    assert 'a.GetFurnitureReference() == akFurniture' in body

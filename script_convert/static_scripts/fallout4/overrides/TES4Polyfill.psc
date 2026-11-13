@@ -1017,8 +1017,8 @@ EndFunction
 
 ; fallout4: replaces IsCurrentFurnitureRef f6c61f4d708a399215280e4a5d17f085ce1bd1aa
 Bool Function IsCurrentFurnitureRef(Actor a, ObjectReference akFurniture) Global
-  {FO3/FNV IsCurrentFurnitureRef: `a` sits on exactly `akFurniture` (sit state 3, or 4 wanting to stand). Fallout 4 names the furniture as soon as the actor picks it, while still walking there and sitting down (states 1 and 2), and Doc's chair timer then opened the psych test with him standing. See docs/fork/fo4_pipeline.md#furniture-seated}
-  Return akFurniture != None && a.GetSitState() >= 3 && a.GetFurnitureReference() == akFurniture
+  {FO3/FNV IsCurrentFurnitureRef: `a` uses exactly `akFurniture` and is at it: sitting down (sit state 2), seated (3) or wanting to stand (4). Fallout 4 names the furniture while the actor still walks there (state 1), and Doc's chair timer then opened the psych test with him standing. Not seated only: FNV names it before the sit, and its scripts' timers (Doc's chair: 2.5 s) cover the sit-down, so waiting for state 3 added the whole sit-down to the pause. See docs/fork/fo4_pipeline.md#furniture-seated}
+  Return akFurniture != None && a.GetSitState() >= 2 && a.GetFurnitureReference() == akFurniture
 EndFunction
 
 ; fallout4: replaces PlayerIsInDialogue cbc5d6e0cee16f47bd63c10aa645c6790d642178
