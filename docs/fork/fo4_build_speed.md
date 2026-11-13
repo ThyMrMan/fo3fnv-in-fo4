@@ -997,6 +997,27 @@ less disk load.
   stat'ed once, not twice.
 - The archive is unchanged: SHA-1 `e87c5e25…` from both old and new code.
 
+#### <a id="textures-rewrite-2026-11-12"></a>Textures archive: 138 s was loose writers with new dates
+
+**Cause (measured).** The 2026-11-12 base3 build spent 138.3 s in "FaceGen
+and texture archive", writing the whole 4.8 GB `- Textures.ba2` again; base2
+spent 46.7 s, when the archive was smaller. The pack record's dates show
+base3 wrote only six textures: the super mutant tints in `fnv/tinted/`.
+- `creature_tint.tinted_materials` writes its DDS files loose into the Data
+  folder's `Textures` every build, and `own_heads._write_texture` goes
+  through `write_new`, which touches a file with the same bytes.
+- `pack_textures` then moved each loose texture into staging with its new
+  date. The `[size, mtime]` state changed, so all 22,674 textures were
+  written again for six unchanged ones.
+
+**Already fixed** by the same-bytes rule in `_move_loose`
+([faces-repack](fo4_pipeline.md#faces-repack)): a loose texture whose staged
+copy has the same bytes is deleted and the staged copy keeps its date. Base4
+(commit `b60c5931`, which has it) took 8.7 s for the stage. Drawing the
+`sm3d1024_d` super mutant tint twice gave byte-identical DDS and BGSM files,
+so the rule holds for that writer. A real change to any texture still
+writes the whole archive, at this drive's write speed.
+
 #### <a id="voices-archive"></a>Voices in their own archive (built 2026-11-12)
 
 **What changed.** `ba2_pack.pack_main` now packs two archives:
