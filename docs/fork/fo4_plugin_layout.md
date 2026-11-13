@@ -1273,6 +1273,23 @@ decides.
   was "changed" after each build and rebuilt 8 times (about 7.5 min each).
   Each `plan()` now calls `code_identity.rebase()`: the code on disk is the
   code to compare, its identities computed afresh.
+- <a id="plan-guards"></a>**`--run` guards (2026-11-13).** Three ways a run
+  went wrong unseen now stop it, each with its own exit code:
+  - *Scratch masters (exit 5).* A plugin outside `temp/` whose last build
+    read a master inside it, or whose next build would, is refused before
+    anything runs (`scratch_masters`). A rebuilt Caravan Pack against a
+    `temp/` copy is how the loop of 2026-11-12 started.
+  - *Hidden inputs (exit 4).* After each build the plan is made again. A
+    plugin that was current, does not read the one just built as a master
+    (directly or through another), and now needs a build means that build
+    wrote a file the plugin reads but its record misses; the run stops and
+    prints the changed input (`leaked`). Before, only a repeat build of the
+    same plugin stopped it (exit 3), after a wasted build.
+  - *Faces reset by a rebuild.* A rebuilt plugin whose faces stage had run
+    on its previous build gets that stage again, with the recorded
+    arguments, before anything else is planned (`faces_again`,
+    [faces-stamp](fo4_facegen_plan.md#faces-stamp)). Its failure stops the
+    run with the stage's exit code.
 - **Tested** (`tests/test_fo4_build_plan.py`):
   - a DLC stays current after the game gains a record and changes one it did
     not read;

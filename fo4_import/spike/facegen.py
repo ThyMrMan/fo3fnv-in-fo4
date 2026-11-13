@@ -27,9 +27,13 @@ See: docs/fork/fo4_spikes.md#spike-2-facegen
 """
 
 import argparse
+import json
+import os
 import shutil
 import struct
+import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -42,6 +46,7 @@ from fo4_import.face.texture import vanilla_face_texture
 from fo4_import.face.tint import skin_tone_layers
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
+from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.spike import facegen_own, facegen_skin
 from fo4_import.spike.imagespace import LUT_FOLDER
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -55,6 +60,10 @@ FACEGEN_DIRS = (Path('Meshes/Actors/Character/FaceGenData/FaceGeom'),
                 Path('Textures/Actors/Character/FaceCustomization'))
 #: Seconds to wait for the CK at least, and per NPC_ record (the region: 293 in 127 s, 0.43 s each).
 CK_TIMEOUT, CK_FACE_SECONDS = 900, 6.0
+#: The faces stamp beside a plugin's build stamp: which build of the plugin this stage last ran on, and how.
+FACES_SUFFIX = '.faces.json'
+#: How a CK fallback that left NPCs without FaceGen starts its report line (the stage then fails).
+FALLBACK_FAILED = 'CK fallback failed'
 
 
 def npc_count(plugin_path: Path) -> int:
@@ -65,6 +74,92 @@ def npc_count(plugin_path: Path) -> int:
 def ck_timeout(faces: int) -> float:
     """CK seconds for `faces` faces: CK_FACE_SECONDS each, at least CK_TIMEOUT."""
     return max(CK_TIMEOUT, faces * CK_FACE_SECONDS)
+
+
+def faces_path(plugin_path: Path) -> Path:
+    """`plugin_path`'s faces stamp, beside its build stamp."""
+    return stamp_path(plugin_path).with_name(plugin_path.name + FACES_SUFFIX)
+
+
+def base_build(plugin_path: Path) -> 'str | None':
+    """Which build of `plugin_path` is on disk ('<started> to <ended>' of its finished stamp), None without one.
+    See: docs/fork/fo4_facegen_plan.md#faces-stamp
+    """
+    try:
+        kept = json.loads(stamp_path(plugin_path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return f'{kept.get("started")} to {kept.get("ended")}' if kept.get('status') == 'finished' else None
+
+
+def write_faces_stamp(plugin_path: Path, status: str, argv: list, cwd: Path) -> None:
+    """The faces stamp: `status` (running, finished), the plugin build it ran on, and its arguments and folder (so
+    build_plan can run it again after a rebuild)."""
+    path = faces_path(plugin_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = {'status': status, 'base_build': base_build(plugin_path), 'argv': [str(a) for a in argv],
+            'cwd': str(cwd), 'ended': None if status == 'running' else time.strftime('%Y-%m-%d %H:%M:%S')}
+    path.write_text(json.dumps(body, indent=1) + '\n', encoding='utf-8')
+
+
+def faces_stamp(plugin_path: Path) -> 'dict | None':
+    """`plugin_path`'s faces stamp, None when this stage never ran on it."""
+    try:
+        return json.loads(faces_path(plugin_path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+
+
+def faces_stale(plugin_path: Path) -> 'str | None':
+    """Why `plugin_path`'s faces must run again: they did not finish, or ran on another build of the plugin than
+    the one on disk (a rebuild writes the plugin without them). None when they are current, never ran, or the
+    plugin has no finished build to run on.
+    See: docs/fork/fo4_facegen_plan.md#faces-stamp
+    """
+    kept, now = faces_stamp(plugin_path), base_build(plugin_path)
+    if kept is None or now is None:
+        return None
+    if kept.get('status') != 'finished':
+        return f'its faces stage did not finish (stamp {faces_path(plugin_path)})'
+    if kept.get('base_build') != now:
+        return f'its faces ran on build {kept.get("base_build")}, the plugin is now build {now}'
+    return None
+
+
+def expected_faces(plugin: str, data_dir: Path) -> set:
+    """FaceGen stems (8 hex digits) of the NPCs the CK exports FaceGen for in `data_dir`'s `plugin`
+    (facegeom.exported over the NPC_ records the plugin adds)."""
+    plugin_path = data_dir / plugin
+    src = facegen_skin.sources(plugin_path, data_dir)
+    out = set()
+    for form_id in facegen_own.own_npcs(plugin_path):
+        npc = src.record(plugin.lower(), form_id)
+        race = src.get(npc, npc.first(b'RNAM')) if npc is not None and npc.first(b'RNAM') else None
+        if race is not None and facegeom.exported(npc, race):
+            out.add(f'{form_id:08X}')
+    return out
+
+
+def missing_faces(plugin: str, data_dir: Path, expected: set) -> list:
+    """The `expected` stems with no FaceGeom NIF in `data_dir`, sorted."""
+    folder = data_dir / FACEGEN_DIRS[0] / plugin
+    have = {p.stem.upper() for p in folder.glob('*.nif')} if folder.is_dir() else set()
+    return sorted(expected - have)
+
+
+def complete(plugin: str, data_dir: Path, only: set = None) -> int:
+    """How many FaceGeom NIFs the CK export was to write (`only`: of those stems); raise naming the NPCs it left
+    without one (a CK that stalled mid-export is closed after creation_kit.CK_QUIET and exits as if done).
+    See: docs/fork/fo4_facegen_plan.md#ck-exit-hang
+    """
+    want = expected_faces(plugin, data_dir)
+    want = want & only if only is not None else want
+    missing = missing_faces(plugin, data_dir, want)
+    if missing:
+        shown = ', '.join(missing[:20]) + (f' and {len(missing) - 20} more' if len(missing) > 20 else '')
+        raise SystemExit(f'the Creation Kit export of {plugin} is incomplete: {len(missing)} of {len(want)} NPCs '
+                         f'have no FaceGeom NIF ({shown})')
+    return len(want)
 
 
 def run_ck(plugin: str, data_dir: Path = None) -> None:
@@ -160,17 +255,20 @@ def checked(nifs: list) -> int:
 
 def export(plugin: str, data_dir: Path, ck: bool = True) -> int:
     """Clear, run the CK (unless not `ck`: an earlier run's files wait where MO2 put them), collect `plugin`'s
-    FaceGen; NIFs collected."""
+    FaceGen; NIFs collected. Raise when an NPC the CK exports has no FaceGeom NIF (complete)."""
     if ck:
         clear(plugin, data_dir)
         run_ck(plugin, data_dir)
-    return checked(collect(plugin, data_dir))
+    nifs = checked(collect(plugin, data_dir))
+    complete(plugin, data_dir)
+    return nifs
 
 
 def fallback(plugin: str, data_dir: Path, failed: dict) -> list:
     """Give the `failed` NPCs ({FormID: error}) the CK's FaceGen: ours set aside outside MO2's view (so the CK's
     lands in overwrite), the CK run, only those NPCs' files kept (re-encoded at vanilla's formats), ours put back.
-    A CK that fails leaves those NPCs without FaceGen, reported. Report lines.
+    A CK that fails, or leaves one of them without a FaceGeom NIF (complete), leaves those NPCs without FaceGen,
+    reported (FALLBACK_FAILED; the faces stage then fails). Report lines.
     See: docs/fork/fo4_facegen_plan.md#own-stage
     """
     stems = {f'{form_id:08X}' for form_id in failed}
@@ -181,10 +279,11 @@ def fallback(plugin: str, data_dir: Path, failed: dict) -> list:
     try:
         run_ck(plugin, data_dir)
         nifs = checked(collect(plugin, data_dir, stems))
+        complete(plugin, data_dir, stems)
         lines = [f'CK fallback: FaceGen for {nifs} of {len(failed)} failed NPCs, '
                  f'{vanilla_textures(plugin, data_dir, stems)} textures at vanilla size']
     except SystemExit as e:
-        lines = [f'CK fallback failed, {len(failed)} NPCs have no FaceGen: {e}']
+        lines = [f'{FALLBACK_FAILED}, {len(failed)} NPCs have no FaceGen: {e}']
     for folder in FACEGEN_DIRS:
         if (aside / folder.name).is_dir():
             shutil.copytree(aside / folder.name, data_dir / folder / plugin, dirs_exist_ok=True)
@@ -229,24 +328,28 @@ def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
         print('loose files the archives hold, removed:', drop_packed(data_dir, plugin))
 
 
-def heads(job: tuple, own: bool, forms: list = None, ck: bool = True) -> None:
+def heads(job: tuple, own: bool, forms: list = None, ck: bool = True) -> bool:
     """Write the plugin's FaceGen heads: ours (own_export) for every NPC, the old ones cleared first, or only the
     FaceGeom NIFs of refitted `forms` (the refit changes sliders, which no face texture reads); else the CK's
-    export of every NPC (not `ck`: an earlier run's, collected); printed.
+    export of every NPC (not `ck`: an earlier run's, collected); printed. False when a CK fallback left NPCs
+    without FaceGen.
     See: docs/fork/fo4_facegen_plan.md#second-pass
     """
     data_dir, plugin = job[1], job[2]
     if not own:
         print('FaceGeom NIFs:', export(plugin, data_dir, ck))
-        return
+        return True
     if forms is None:
         clear(plugin, data_dir)
-    for line in own_export(job, facegen_own.own_npcs(data_dir / plugin) if forms is None else forms, forms is None):
+    lines = own_export(job, facegen_own.own_npcs(data_dir / plugin) if forms is None else forms, forms is None)
+    for line in lines:
         print(line, flush=True)
+    return not any(line.startswith(FALLBACK_FAILED) for line in lines)
 
 
 def main():
-    """Export, refine, export again, skin and pack; print what was done."""
+    """Export, refine, export again, skin and pack; print what was done. The faces stamp records the plugin build
+    this ran on (faces_stale); exit 2 when a CK fallback left NPCs without FaceGen."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
     ap.add_argument('--data', required=True, help='The mod folder holding the plugin')
@@ -259,19 +362,24 @@ def main():
     ap.add_argument('plugin', help='Plugin file name')
     args = ap.parse_args()
     data_dir, export_dir = Path(args.data), Path(args.export)
+    plugin_path = data_dir / args.plugin
+    write_faces_stamp(plugin_path, 'running', sys.argv[1:], Path(os.getcwd()))
     print('loose files restored from the Main archive:', restore(data_dir, args.plugin))
     job = (export_dir, data_dir, args.plugin, skin_tone_layers(FALLOUT4_ESM.read_bytes()))
-    heads(job, args.own_facegen, ck=not args.collected)
+    whole = heads(job, args.own_facegen, ck=not args.collected)
     faces = facegen_skin.fitted_faces(data_dir, args.plugin)
     for line in facegen_skin.refine(job, faces):
         print(line)
     if faces:
-        heads(job, args.own_facegen, [f.form_id for f in faces])
+        whole = heads(job, args.own_facegen, [f.form_id for f in faces]) and whole
     if not args.own_facegen:
         print('face textures at vanilla size:', vanilla_textures(args.plugin, data_dir))
     for line in facegen_skin.skin(job, faces):
         print(line)
     pack(data_dir, args.plugin, args.keep_loose)
+    if not whole:
+        raise SystemExit(f'faces of {args.plugin}: a CK fallback left NPCs without FaceGen (lines above)')
+    write_faces_stamp(plugin_path, 'finished', sys.argv[1:], Path(os.getcwd()))
 
 
 if __name__ == '__main__':

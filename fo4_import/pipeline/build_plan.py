@@ -5,7 +5,9 @@ masters' builds as they are now.
     py -3.14 -m fo4_import.pipeline.build_plan --run <plugins...>      # build what needs it, masters first
     py -3.14 -m fo4_import.pipeline.build_plan --verify <plugin>       # rebuild a current plugin; same bytes?
 
-A plugin is current, needs a build (with the first changed input), or waits for a master that does.
+A plugin is current, needs a build (with the first changed input), or waits for a master that does. --run also
+runs a plugin's faces stage again after its rebuild (spike/facegen.faces_stale), stops when a build flips a plugin
+that does not depend on it (a hidden input), and refuses a plugin whose master is a scratch copy under temp/.
 
 See: docs/fork/fo4_plugin_layout.md#build-plan
 """
@@ -29,6 +31,10 @@ from fo4_import.pipeline.code_tag import ROOT
 from tes5_import.base.tes5_reader import walk
 
 CURRENT, BUILD, AFTER = 'current', 'build', 'after'
+#: run()'s own exit codes (its docstring): rebuilt plugin still BUILD, hidden input leaked, scratch master.
+STILL_BUILD, LEAKED, SCRATCH_MASTER = 3, 4, 5
+#: Folders holding scratch builds: a plugin outside them must not read a master inside them.
+SCRATCH = (ROOT / 'temp',)
 #: fo4_import.pipeline.run's flags that take one path.
 PATH_FLAGS = frozenset({'--export', '--out', '--data', '--scripts', '--mod-sources', '--replacements'})
 
@@ -263,23 +269,102 @@ def rebuild(plugin: Path, dirs: list = ()) -> int:
     return subprocess.call([sys.executable, '-m', 'fo4_import.pipeline.run', *build_argv(plugin, dirs)], cwd=ROOT)
 
 
+def _scratch(path: Path) -> bool:
+    """Whether `path` lies in a SCRATCH folder."""
+    path = Path(path).resolve()
+    return any(path.is_relative_to(root.resolve()) for root in SCRATCH)
+
+
+def scratch_masters(plugins: list) -> list:
+    """'<plugin>: master <path>' for each of `plugins` outside SCRATCH whose last build read a master inside it, or
+    whose next build would (master_dirs over `plugins`).
+    See: docs/fork/fo4_plugin_layout.md#plan-guards
+    """
+    out = []
+    for plugin in map(Path, plugins):
+        if _scratch(plugin):
+            continue
+        names = {m.lower() for m in file_masters(plugin)} if plugin.is_file() else set()
+        nxt = [Path(p) for p in plugins if Path(p).name.lower() in names]
+        out += [f'{plugin.name}: master {m}' for m in dict.fromkeys([*masters_of(plugin), *nxt]) if _scratch(m)]
+    return out
+
+
+def dependents(plugin: Path, plugins: list) -> set:
+    """`plugin` and every one of `plugins` reading it as a master, directly or through another (resolved paths)."""
+    out, grew = {Path(plugin).resolve()}, True
+    reads = {Path(p).resolve(): {m.resolve() for m in masters_of(Path(p))} for p in plugins}
+    while grew:
+        more = {p for p, masters in reads.items() if p not in out and masters & out}
+        out |= more
+        grew = bool(more)
+    return out
+
+
+def leaked(rows: list, before: dict, built: Path, plugins: list) -> 'tuple | None':
+    """(plugin, reason) of a row now BUILD, CURRENT in `before`, not depending on `built`; None if none.
+    See: docs/fork/fo4_plugin_layout.md#plan-guards
+    """
+    deps = dependents(built, plugins)
+    flipped = [(p, why) for p, verdict, why in rows if verdict == BUILD and before.get(p.resolve()) == CURRENT]
+    return next(((p, why) for p, why in flipped if p.resolve() not in deps), None)
+
+
+def faces_again(plugins: list) -> int:
+    """Run the faces stage again (its recorded arguments) for each of `plugins` whose faces ran on another build
+    of it; the first failing run's exit code, else 0.
+    See: docs/fork/fo4_facegen_plan.md#faces-stamp
+    """
+    from fo4_import.spike import facegen
+    for plugin in map(Path, plugins):
+        reason = facegen.faces_stale(plugin)
+        if reason is None:
+            continue
+        kept = facegen.faces_stamp(plugin)
+        print(f'== faces of {plugin.name} again: {reason}', flush=True)
+        code = subprocess.call([sys.executable, '-m', 'fo4_import.spike.facegen', *kept['argv']],
+                               cwd=kept.get('cwd') or ROOT)
+        if code:
+            return code
+    return 0
+
+
 def run(plugins: list) -> int:
-    """Build every plugin of `plugins` that needs it, masters first, checking the rest again after each; the first
-    failing build's exit code, 3 when a plugin still needs a build after its own, else 0."""
-    built = set()
+    """Build every plugin of `plugins` that needs it, masters first, checking the rest again after each, and run a
+    rebuilt plugin's faces stage again (faces_again); the first failing build's exit code, STILL_BUILD when a
+    plugin still needs a build after its own, LEAKED when a build flips a plugin that does not depend on it,
+    SCRATCH_MASTER when a plugin reads a master from a scratch copy, else 0.
+    See: docs/fork/fo4_plugin_layout.md#plan-guards
+    """
+    scratch = scratch_masters(plugins)
+    if scratch:
+        print('masters from scratch copies under temp/ (build those plugins against the real masters):\n  '
+              + '\n  '.join(scratch), flush=True)
+        return SCRATCH_MASTER
+    built, before, last = set(), None, None
     while True:
-        todo = [(p, reason) for p, verdict, reason in plan(plugins) if verdict == BUILD]
+        code = faces_again(plugins)
+        if code:
+            return code
+        rows = plan(plugins)
+        found = leaked(rows, before, last, plugins) if last is not None else None
+        if found:
+            print(f'{found[0].name} needs a build after building {last.name}, which it does not depend on '
+                  f'({found[1]}): that build changed an input of {found[0].name}; stopped', flush=True)
+            return LEAKED
+        todo = [(p, reason) for p, verdict, reason in rows if verdict == BUILD]
         if not todo:
             return 0
         plugin, reason = todo[0]
         if plugin.resolve() in built:
             print(f'{plugin.name} still needs a build after building it ({reason}); stopped', flush=True)
-            return 3
+            return STILL_BUILD
         print(f'{plugin.name}: {reason}', flush=True)
         code = rebuild(plugin, master_dirs(plugin, plugins))
         if code:
             return code
         built.add(plugin.resolve())
+        before, last = {p.resolve(): verdict for p, verdict, _ in rows}, plugin
 
 
 def verify(plugin: Path) -> int:
