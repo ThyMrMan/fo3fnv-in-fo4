@@ -222,6 +222,8 @@ package
          graphics.endFill();
          if (panel)
          {
+            // Scaleform strokes a drawRect from where the pen was left (the fade's corner): move it first.
+            graphics.moveTo(0, 0);
             graphics.lineStyle(2, Theme.color);
             graphics.beginFill(0, 0.85);
             graphics.drawRect(0, 0, wide, high);

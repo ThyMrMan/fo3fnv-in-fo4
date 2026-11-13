@@ -101,11 +101,28 @@ Function ShowOurs(Int aiMode, Int aiCount, Int aiBonus)
   is gathered (Prepare, which registers the menu with F4SE before we listen for it) while the Pip-Boy closes, and it
   opens as soon as no menu is open, without the settling a message box needs.
   See docs/fork/fo4_level_up_plan.md#open-delay}
+  Float asked = Utility.GetCurrentRealTime()
   MovePrkf()
   LevelUp().Prepare(aiMode, aiCount, aiBonus)
+  Float prepared = Utility.GetCurrentRealTime()
   RegisterForMenuOpenCloseEvent(LevelUp().MenuName)
+  String held = MenusHeld()
   WaitOutOfMenus(False)
+  Float free = Utility.GetCurrentRealTime()
   LevelUp().Open(aiMode, aiCount, aiBonus)
+  If TES4Polyfill.Tracing()
+    TES4Polyfill.TraceWrite("levelup", "mode " + aiMode + "|asked " + asked + "|prepared +" + (prepared - asked) \
+        + "|held " + held + "|free +" + (free - asked) + "|opened +" + (Utility.GetCurrentRealTime() - asked))
+  EndIf
+EndFunction
+
+String Function MenusHeld()
+  {When tracing: what WaitOutOfMenus waits on now (menu mode, the Pip-Boy, ours), and whether dialogue is up.}
+  If !TES4Polyfill.Tracing()
+    Return ""
+  EndIf
+  Return "menumode " + Utility.IsInMenuMode() + ", pipboy " + UI.IsMenuOpen("PipboyMenu") + ", ours " \
+      + UI.IsMenuOpen(LevelUp().MenuName) + ", dialogue " + UI.IsMenuOpen("DialogueMenu")
 EndFunction
 
 Function MovePrkf()

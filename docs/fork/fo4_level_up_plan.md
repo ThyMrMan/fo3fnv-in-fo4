@@ -281,8 +281,21 @@ Now:
   no menu is open, without the 0.5 s settle a message box needs
   (`WaitOutOfMenus(False)`), and `Send` hands the prepared data over.
 
-**Play check:** the Papyrus log's `gathered in` line per open, and the
-time from the level-up button to a filled menu.
+Played again 2026-11-12, in Doc Mitchell's tag and trait menus: the
+gather took 0.85 s and 0.78 s after the quest stage, but the menu filled
+3.4 s and 0.6 s after that, each at the moment the next dialogue line was
+asked. Dialogue doesn't hold menu mode, so the wait is somewhere between
+`Open`, the engine opening the menu, and `Send`. Each open now logs its
+steps against the game's real-time clock: `open asked at`, `menu open
+<n>s after Open, sent in <n>s`, and the movie's own lines with the time
+since `Open`.
+The converter's `ShowOurs` adds a `levelup` trace line (when tracing is
+on) with the time to prepare, which menus `WaitOutOfMenus` found open
+(menu mode, the Pip-Boy, ours, dialogue), and when the menus were free and
+`Open` returned, on the same clock as the quest stage lines.
+
+**Play check:** those lines per open show which step holds the menu, and
+the time from the button (or the stage) to a filled menu.
 
 ## <a id="tags"></a>Tag skills and traits (built 2026-11-12, not played)
 

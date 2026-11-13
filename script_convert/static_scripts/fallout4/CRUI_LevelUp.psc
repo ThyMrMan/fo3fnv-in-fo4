@@ -70,6 +70,7 @@ Perk[] extra
 String[] extraParts
 String unlisted
 Var[] ready
+Float openAsked
 
 ; ---------------------------------------------------------------------------
 ; For other mods (docs/fork/fo4_level_up_plan.md#api)
@@ -315,10 +316,17 @@ EndFunction
 Function Open(Int aiMode = 0, Int aiCount = 0, Int aiBonus = 0)
   {Open our menu in mode aiMode (LevelUpMode, TagsMode for aiCount tags in all with aiBonus each, TraitsMode for up to
   aiCount traits): its data gathered first (Prepare) unless Prepare just did for this open; Send hands it over.}
+  openAsked = Utility.GetCurrentRealTime()
   If !ready || mode != aiMode || wanted != aiCount || bonus != aiBonus
     Prepare(aiMode, aiCount, aiBonus)
   EndIf
   UI.OpenMenu(MenuName)
+  Debug.Trace("CRUI_LevelUp: open asked at " + openAsked + ", menu asked to open " + Since(openAsked) + "s later")
+EndFunction
+
+Float Function Since(Float afStart)
+  {Real seconds since afStart.}
+  Return Utility.GetCurrentRealTime() - afStart
 EndFunction
 
 Function Prepare(Int aiMode, Int aiCount, Int aiBonus)
@@ -379,7 +387,9 @@ Function Send()
   If !args
     args = Built()
   EndIf
+  Float opened = Utility.GetCurrentRealTime()
   UI.Invoke(MenuName, "root1.Open", args)
+  Debug.Trace("CRUI_LevelUp: menu open " + (opened - openAsked) + "s after Open, sent in " + Since(opened) + "s")
 EndFunction
 
 Var[] Function Built()
@@ -792,7 +802,7 @@ Function OnMenuClose()
 EndFunction
 
 Function OnMenuLog(String asText)
-  Debug.Trace("CRUI_LevelUp: " + asText)
+  Debug.Trace("CRUI_LevelUp: " + asText + " (" + Since(openAsked) + "s after Open)")
 EndFunction
 
 Var[] Function FormArgs(Form akForm)
