@@ -591,15 +591,14 @@ def _rebuild_mesh_collision(rb, target_node):
     return 'drop'
 
 
-def repaired_mesh_soup(rb, target_node, materials_of=None, visual=None):
-    """(tris, materials) of `rb`'s mesh collision in Skyrim Havok units, winding repaired.
+def mesh_soup(rb, materials_of=None):
+    """(tris, materials, groups, authored_normals) of `rb`'s finite mesh collision in Skyrim Havok units, as
+    authored (winding unrepaired).
 
-    Materials are Skyrim CRCs, or `materials_of(shape, n)`'s values carried
-    through the repair. `visual` replaces target_node's render triangles.
-    A bhkRigidBodyT's transform is baked in (the body becomes an identity
+    Materials are Skyrim CRCs, or `materials_of(shape, n)`'s values. A
+    bhkRigidBodyT's transform is baked in (the body becomes an identity
     bhkRigidBody; its translation must already be in Skyrim Havok units).
     None when the shape is not a mesh, 'drop' for a sub-viable hull.
-    See: docs/commentary/asset_convert_collision.md#inverted-collision-winding-i-fall
     """
     shape = rb.shape
     inner = shape.shape if isinstance(shape, NifFormat.bhkMoppBvTreeShape) else shape
@@ -613,7 +612,21 @@ def repaired_mesh_soup(rb, target_node, materials_of=None, visual=None):
         _DEGENERATE_HULLS_DROPPED[0] += 1
         return 'drop'
     authored_normals = _normals_in_body_frame(rb, authored_normals)
-    tris = _bake_body_transform_into_tris(rb, tris)
+    return _bake_body_transform_into_tris(rb, tris), materials, groups, authored_normals
+
+
+def repaired_mesh_soup(rb, target_node, materials_of=None, visual=None):
+    """(tris, materials) of `rb`'s mesh collision (mesh_soup), winding repaired.
+
+    Materials are carried through the repair. `visual` replaces
+    target_node's render triangles. None when the shape is not a mesh,
+    'drop' for a sub-viable hull.
+    See: docs/commentary/asset_convert_collision.md#inverted-collision-winding-i-fall
+    """
+    soup = mesh_soup(rb, materials_of)
+    if soup is None or soup == 'drop':
+        return soup
+    tris, materials, groups, authored_normals = soup
     oracle = RenderOracle(_visual_tri_soup(target_node) if visual is None else visual)
     tris, n_flipped = repair_inverted_floors(tris, oracle, groups, authored_normals)
     if is_fallout_source():

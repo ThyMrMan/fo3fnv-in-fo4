@@ -86,7 +86,7 @@ def _edge_steps(corners: np.ndarray, treads: np.ndarray) -> tuple:
     for k, i in enumerate(treads):
         tri = corners[i]
         centre = tri[:, :2].mean(axis=0)
-        for p, q in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+        for p, q in (_ordered(tri[0], tri[1]), _ordered(tri[1], tri[2]), _ordered(tri[2], tri[0])):
             mid, along = (p[:2] + q[:2]) / 2, q[:2] - p[:2]
             out = np.array([along[1], -along[0]]) / (np.linalg.norm(along) or 1.0)
             out = out if np.dot(out, mid - centre) > 0 else -out
@@ -99,6 +99,11 @@ def _edge_steps(corners: np.ndarray, treads: np.ndarray) -> tuple:
                 seen.add(key)
                 risers.append((int(i), p, q, float(tops[below].max()), out))
     return marked, risers
+
+
+def _ordered(p: np.ndarray, q: np.ndarray) -> tuple:
+    """Edge p-q with its ends in coordinate order, so a riser never depends on winding."""
+    return (p, q) if tuple(p) <= tuple(q) else (q, p)
 
 
 def _ground_steps(corners: np.ndarray, nz: np.ndarray, treads: np.ndarray) -> set:
