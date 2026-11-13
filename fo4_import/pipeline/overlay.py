@@ -22,6 +22,7 @@ from fo4_import.base.ba2_pack import pack_main, pack_record, pack_textures, writ
 from fo4_import.base.source_fault import FAULTS, report as fault_report, stamp as fault_stamp, without_fault
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif.convert_static import smoothness, spec_glossiness, texture_source
+from fo4_import.pipeline import build_inputs
 from fo4_import.pipeline.build_steps import write_stamp
 from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.elric_cache import finish
@@ -127,7 +128,10 @@ def arguments() -> argparse.Namespace:
 
 
 def main():
-    """Build the overlay once any other heavy job has finished, its stamp saying running, then finished or failed."""
+    """Build the overlay once any other heavy job has finished, its stamp saying running, then finished or failed;
+    its reads recorded as pipeline.run's are (build_inputs), its --built plugins as its masters.
+    See: docs/fork/fo4_plugin_layout.md#replay
+    """
     args = arguments()
     command = ' '.join(['fo4_import.pipeline.overlay'] + sys.argv[1:])
     hold_heavy_lock(command)
@@ -135,13 +139,18 @@ def main():
     create_pool_job()
     os.environ[OVERLAY_ENV] = os.pathsep.join(str(m) for m in reversed(args.mods))
     started, stamp = time.time(), args.out / f'{args.name}.esl'
-    write_stamp(stamp, 'running', started, {'command': command})
+    extra = {'command': command, 'argv': sys.argv[1:]}
+    write_stamp(stamp, 'running', started, extra)
+    build_inputs.start(build_inputs.record_dir(stamp))
+    for plugin in args.built:
+        build_inputs.MASTERS.cover('plugin', plugin)
     try:
         counts = overlay(args)
+        build_inputs.write(stamp, args.out, sys.argv[1:])
     except BaseException:
-        write_stamp(stamp, 'failed', started, {'command': command})
+        write_stamp(stamp, 'failed', started, extra)
         raise
-    write_stamp(stamp, 'finished', started, {'command': command, **fault_stamp()})
+    write_stamp(stamp, 'finished', started, {**extra, **fault_stamp()})
     for key, n in sorted(counts.items()):
         print(f'{key}: {n}')
     print('\n'.join(fault_report()))

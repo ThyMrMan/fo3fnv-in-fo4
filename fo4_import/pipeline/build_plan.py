@@ -5,7 +5,10 @@ masters' builds as they are now.
     py -3.14 -m fo4_import.pipeline.build_plan --run <plugins...>      # build what needs it, masters first
     py -3.14 -m fo4_import.pipeline.build_plan --verify <plugin>       # rebuild a current plugin; same bytes?
 
-A plugin is current, needs a build (with the first changed input), or waits for a master that does.
+A plugin is current, needs a build (with the first changed input), or waits for a master that does. --run also
+runs a plugin's faces stage again after its rebuild (spike/facegen.faces_stale), stops when a build flips a plugin
+that does not depend on it (a hidden input), and refuses a plugin whose master is a scratch copy under temp/. Each
+plugin is rebuilt by the module its stamp names (pipeline.run, or pipeline.overlay for an asset overlay).
 
 See: docs/fork/fo4_plugin_layout.md#build-plan
 """
@@ -30,8 +33,19 @@ from fo4_import.pipeline.code_tag import ROOT
 from tes5_import.base.tes5_reader import walk
 
 CURRENT, BUILD, AFTER = 'current', 'build', 'after'
-#: fo4_import.pipeline.run's flags that take one path.
-PATH_FLAGS = frozenset({'--export', '--out', '--data', '--scripts', '--mod-sources', '--replacements'})
+#: run()'s own exit codes (its docstring): rebuilt plugin still BUILD, hidden input leaked, scratch master.
+STILL_BUILD, LEAKED, SCRATCH_MASTER = 3, 4, 5
+#: Folders holding scratch builds: a plugin outside them must not read a master inside them.
+SCRATCH = (ROOT / 'temp',)
+#: The build modules a stamp's command can name, each replayed with its own retarget (build_command).
+RUN, OVERLAY = 'fo4_import.pipeline.run', 'fo4_import.pipeline.overlay'
+#: run's and overlay's flags that take one path.
+PATH_FLAGS = frozenset({'--export', '--out', '--data', '--scripts', '--mod-sources', '--replacements',
+                        '--export-root'})
+#: Flags that take several paths (overlay's --built and --mods, run's --plugin-dirs).
+MULTI_PATH_FLAGS = frozenset({'--built', '--mods', '--plugin-dirs'})
+#: Flags whose one value is text that may hold spaces (overlay's --name).
+TEXT_FLAGS = frozenset({'--name'})
 
 
 def record(plugin: Path) -> 'dict | None':
@@ -131,7 +145,7 @@ def _masters(log: dict, plugin: Path) -> 'str | None':
         if not Path(path).is_file() or file_masters(Path(path)) != masters:
             return f'master header {path}'
     own = file_masters(plugin) if plugins else []
-    held = _held(plugins, own) if plugins else frozenset()
+    held = _held(plugins, own) if plugins and (log['held'] or log['ledgers']) else frozenset()
     moved = next((fid for fid, answer in log['held'].items() if (int(fid, 16) in held) != answer), None)
     if moved:
         return f'master holds {moved}'
@@ -212,18 +226,43 @@ def _exists(path: str) -> bool:
     return (Path(path) if Path(path).is_absolute() else ROOT / path).exists()
 
 
+def _longest(words: list, i: int, stop: int) -> int:
+    """End of the longest words[i:end<=stop] naming a path, else i + 1."""
+    return next((e for e in range(stop, i, -1) if _exists(' '.join(words[i:e]))), i + 1)
+
+
 def stamp_argv(command: str) -> list:
-    """The arguments of a stamp's space-joined `command`; a PATH_FLAGS value that held spaces is rejoined (the
-    longest run of words before the next flag that names an existing path, else one word)."""
+    """The arguments of a stamp's space-joined `command`, values that held spaces rejoined: a PATH_FLAGS value is
+    the longest run of words before the next flag naming an existing path (else one word), a MULTI_PATH_FLAGS
+    value that again until the next flag, a TEXT_FLAGS value every word up to it.
+    See: docs/fork/fo4_plugin_layout.md#replay
+    """
     words, out, i = command.split()[1:], [], 0
     while i < len(words):
-        out.append(words[i])
+        flag = words[i]
+        out.append(flag)
         i += 1
-        if out[-1] in PATH_FLAGS and i < len(words):
-            stop = next((j for j in range(i, len(words)) if words[j].startswith('--')), len(words))
-            end = next((e for e in range(stop, i, -1) if _exists(' '.join(words[i:e]))), i + 1)
+        stop = next((j for j in range(i, len(words)) if words[j].startswith('--')), len(words))
+        if flag in TEXT_FLAGS and i < stop:
+            out.append(' '.join(words[i:stop]))
+            i = stop
+        elif flag in PATH_FLAGS and i < len(words):
+            end = _longest(words, i, stop)
             out.append(' '.join(words[i:end]))
             i = end
+        elif flag in MULTI_PATH_FLAGS:
+            out += _paths(words[i:stop])
+            i = stop
+    return out
+
+
+def _paths(words: list) -> list:
+    """`words` split into the longest runs naming existing paths (_longest)."""
+    out, i = [], 0
+    while i < len(words):
+        end = _longest(words, i, len(words))
+        out.append(' '.join(words[i:end]))
+        i = end
     return out
 
 
@@ -245,14 +284,49 @@ def retarget(argv: list, plugin: Path, dirs: list) -> list:
             *rest]
 
 
+def retarget_overlay(argv: list, plugin: Path, masters: list) -> list:
+    """Overlay `argv` writing `plugin` in its own folder (--out, --name its stem) over built `masters` (--built;
+    the recorded ones kept when `masters` is empty)."""
+    rest, i = [], 0
+    while i < len(argv):
+        word = argv[i]
+        i += 1
+        if word in ('--out', '--name'):
+            i += 1
+        elif word == '--built' and masters:
+            while i < len(argv) and not argv[i].startswith('--'):
+                i += 1
+        else:
+            rest.append(word)
+    return ['--out', str(plugin.parent), '--name', plugin.stem, *(['--built', *map(str, masters)] if masters else []),
+            *rest]
+
+
+def header_masters(plugin: Path, dirs: list) -> list:
+    """`plugin`'s masters, each in the first of `dirs`; [] if any is missing."""
+    found = [next((Path(d) / name for d in dirs if (Path(d) / name).is_file()), None) for name in file_masters(plugin)]
+    return found if found and None not in found else []
+
+
+def build_module(plugin: Path) -> str:
+    """The module that built `plugin`: its stamp command's first word, else RUN."""
+    kept = json.loads(stamp_path(plugin).read_text(encoding='utf-8')) if stamp_path(plugin).is_file() else {}
+    return (kept.get('command') or RUN).split()[0]
+
+
 def build_argv(plugin: Path, dirs: list) -> list:
-    """`plugin`'s last build arguments (its inputs record, else its stamp), retargeted to its own folder."""
+    """`plugin`'s last build arguments (its inputs record, else its stamp), retargeted to its own folder and to the
+    masters in `dirs` as its build module (build_module) takes them.
+    See: docs/fork/fo4_plugin_layout.md#replay
+    """
     rec = json.loads(inputs_path(plugin).read_text(encoding='utf-8')) if inputs_path(plugin).is_file() else None
     if rec is None:
         kept = json.loads(stamp_path(plugin).read_text(encoding='utf-8'))
         argv = kept.get('argv') or stamp_argv(kept['command'])
     else:
         argv = rec['argv']
+    if build_module(plugin) == OVERLAY:
+        return retarget_overlay(argv, plugin, header_masters(plugin, dirs))
     return retarget(argv, plugin, dirs)
 
 
@@ -263,28 +337,112 @@ def master_dirs(plugin: Path, plugins: list) -> list:
 
 
 def rebuild(plugin: Path, dirs: list = ()) -> int:
-    """Build `plugin` again in its own folder, masters from `dirs`; the exit code."""
-    print(f'== building {plugin.name}', flush=True)
-    return subprocess.call([sys.executable, '-m', 'fo4_import.pipeline.run', *build_argv(plugin, dirs)], cwd=ROOT)
+    """Build `plugin` again in its own folder with the module that built it, masters from `dirs`; the exit code
+    (2 for a module this cannot replay)."""
+    module = build_module(plugin)
+    if module not in (RUN, OVERLAY):
+        print(f'{plugin.name} was built by {module}, which build_plan cannot replay', flush=True)
+        return 2
+    print(f'== building {plugin.name} ({module})', flush=True)
+    return subprocess.call([sys.executable, '-m', module, *build_argv(plugin, dirs)], cwd=ROOT)
+
+
+def _scratch(path: Path) -> bool:
+    """Whether `path` lies in a SCRATCH folder."""
+    path = Path(path).resolve()
+    return any(path.is_relative_to(root.resolve()) for root in SCRATCH)
+
+
+def scratch_masters(plugins: list) -> list:
+    """'<plugin>: master <path>' for each of `plugins` outside SCRATCH whose last build read a master inside it, or
+    whose next build would (master_dirs over `plugins`).
+    See: docs/fork/fo4_plugin_layout.md#plan-guards
+    """
+    out = []
+    for plugin in map(Path, plugins):
+        if _scratch(plugin):
+            continue
+        names = {m.lower() for m in file_masters(plugin)} if plugin.is_file() else set()
+        nxt = [Path(p) for p in plugins if Path(p).name.lower() in names]
+        out += [f'{plugin.name}: master {m}' for m in dict.fromkeys([*masters_of(plugin), *nxt]) if _scratch(m)]
+    return out
+
+
+def dependents(plugin: Path, plugins: list) -> set:
+    """`plugin` and every one of `plugins` reading it as a master, directly or through another (resolved paths)."""
+    out, grew = {Path(plugin).resolve()}, True
+    reads = {Path(p).resolve(): {m.resolve() for m in masters_of(Path(p))} for p in plugins}
+    while grew:
+        more = {p for p, masters in reads.items() if p not in out and masters & out}
+        out |= more
+        grew = bool(more)
+    return out
+
+
+def leaked(rows: list, before: dict, built: Path, plugins: list) -> 'tuple | None':
+    """(plugin, reason) of a row now BUILD, CURRENT in `before`, not depending on `built`; None if none.
+    See: docs/fork/fo4_plugin_layout.md#plan-guards
+    """
+    deps = dependents(built, plugins)
+    flipped = [(p, why) for p, verdict, why in rows if verdict == BUILD and before.get(p.resolve()) == CURRENT]
+    return next(((p, why) for p, why in flipped if p.resolve() not in deps), None)
+
+
+def faces_again(plugins: list) -> int:
+    """Run the faces stage again (its recorded arguments) for each of `plugins` whose faces ran on another build
+    of it; the first failing run's exit code, else 0.
+    See: docs/fork/fo4_facegen_plan.md#faces-stamp
+    """
+    from fo4_import.spike import facegen
+    for plugin in map(Path, plugins):
+        reason = facegen.faces_stale(plugin)
+        if reason is None:
+            continue
+        kept = facegen.faces_stamp(plugin)
+        print(f'== faces of {plugin.name} again: {reason}', flush=True)
+        code = subprocess.call([sys.executable, '-m', 'fo4_import.spike.facegen', *kept['argv']],
+                               cwd=kept.get('cwd') or ROOT)
+        if code:
+            return code
+    return 0
 
 
 def run(plugins: list) -> int:
-    """Build every plugin of `plugins` that needs it, masters first, checking the rest again after each; the first
-    failing build's exit code, 3 when a plugin still needs a build after its own, else 0."""
-    built = set()
+    """Build every plugin of `plugins` that needs it, masters first, checking the rest again after each, and run a
+    rebuilt plugin's faces stage again (faces_again); the first failing build's exit code, STILL_BUILD when a
+    plugin still needs a build after its own, LEAKED when a build flips a plugin that does not depend on it,
+    SCRATCH_MASTER when a plugin reads a master from a scratch copy, else 0.
+    See: docs/fork/fo4_plugin_layout.md#plan-guards
+    """
+    scratch = scratch_masters(plugins)
+    if scratch:
+        print('masters from scratch copies under temp/ (build those plugins against the real masters):\n  '
+              + '\n  '.join(scratch), flush=True)
+        return SCRATCH_MASTER
+    built, before, last = set(), None, None
     while True:
-        todo = [(p, reason) for p, verdict, reason in plan(plugins) if verdict == BUILD]
+        code = faces_again(plugins)
+        if code:
+            return code
+        rows = plan(plugins)
+        found = leaked(rows, before, last, plugins) if last is not None else None
+        if found:
+            print(f'{found[0].name} needs a build after building {last.name}, which it does not depend on '
+                  f'({found[1]}): that build changed an input of {found[0].name}; stopped', flush=True)
+            return LEAKED
+        todo = [(p, reason) for p, verdict, reason in rows if verdict == BUILD]
         if not todo:
             return 0
         plugin, reason = todo[0]
         if plugin.resolve() in built:
             print(f'{plugin.name} still needs a build after building it ({reason}); stopped', flush=True)
-            return 3
+            return STILL_BUILD
         print(f'{plugin.name}: {reason}', flush=True)
         code = rebuild(plugin, master_dirs(plugin, plugins))
         if code:
             return code
         built.add(plugin.resolve())
+        before, last = {p.resolve(): verdict for p, verdict, _ in rows}, plugin
 
 
 def verify(plugin: Path) -> int:

@@ -1612,6 +1612,26 @@ green gives 2.9; the decoded rule, 0.9.
 - **A CK stuck before its first file** (a load hang or an error dialog) is
   closed after `CK_FIRST` (30 min) and stops the stage. Before, only the
   overall timeout caught it, 6 s per NPC: about 6 hours for FalloutNV.esm.
+- **A CK export that stops early now fails the stage (2026-11-13).** A CK
+  that stalls mid-export is closed after `CK_QUIET` like a finished one, so
+  after every CK export `facegen.complete` compares the FaceGeom NIFs written
+  with the NPCs `facegeom.exported` says the CK exports (the plugin's own
+  `NPC_` records, not taking traits from a template, of a race with a FaceGen
+  head). A missing one stops the stage and names the NPCs. In the CK fallback
+  of `--own-facegen`, only the failed NPCs are expected; a fallback that
+  leaves one without a head is reported as before, and the stage then exits
+  with an error instead of passing.
+- <a id="faces-stamp"></a>**Faces belong to one build of the plugin
+  (2026-11-13).** A rebuild writes the plugin without the faces stage's
+  slider patches, FaceGen or archives, and before this a base rebuild inside
+  `build_plan --run` silently reset them. The stage now writes
+  `<plugin>.faces.json` beside the build stamp: `running` at its start,
+  `finished` at its end, with the build it ran on (the build stamp's start
+  and end times) and its arguments. `facegen.faces_stale` says the faces
+  must run again when the stamp is not finished or names another build.
+  `build_plan --run` runs a stale plugin's faces again with the recorded
+  arguments before planning and right after each rebuild, and
+  `tools/release/fo4_chain.py` does the same for its faces step.
 
 ## <a id="benefits"></a>What it would give
 

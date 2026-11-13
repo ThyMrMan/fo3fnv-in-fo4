@@ -423,3 +423,89 @@ def test_master_scripts_follow_the_names_a_script_uses(tmp_path):
     (own / 'Dlc.psc').write_text('F3NV_Packages Property P Auto', encoding='utf-8')
     found = BI.master_scripts([own / 'Dlc.psc'], (master,))
     assert [p.name for p in found] == ['F3NV_Base.psc', 'F3NV_Packages.psc']
+
+
+def _overlay_setup(tmp_path: Path) -> tuple:
+    """Two built masters in folders with spaces, an old and a new copy of each, two replacer mods, and an overlay ESL
+    whose stamp holds the old space-joined command (no argv, no inputs record): (esl, old masters, new masters,
+    mods)."""
+    old, new = tmp_path / 'old mods', tmp_path / 'mods'
+    olds, news = [], []
+    for mod, name in (('F3NV - Fallout New Vegas', 'FalloutNV.esm'), ('F3NV - Dead Money', 'DeadMoney.esm')):
+        for root, out in ((old, olds), (new, news)):
+            (root / mod).mkdir(parents=True, exist_ok=True)
+            (root / mod / name).write_bytes(b'')
+            out.append(root / mod / name)
+    mods = [tmp_path / 'FNV Texture Upscale Project (NVTUP) 2.0', tmp_path / 'New Vegas Mesh Improvement Mod 1.14 2026']
+    for mod in mods:
+        mod.mkdir()
+    folder = new / 'F3NV - NVTUP and NVMIM'
+    folder.mkdir()
+    (old / 'F3NV - NVTUP and NVMIM').mkdir()
+    esl = folder / 'F3NV - NVTUP and NVMIM.esl'
+    FO4PluginWriter(masters=['FalloutNV.esm', 'DeadMoney.esm'], is_esm=False, is_esl=True).write(str(esl))
+    command = (f'fo4_import.pipeline.overlay --out {old / "F3NV - NVTUP and NVMIM"} --name F3NV - NVTUP and NVMIM '
+               f'--built {" ".join(map(str, olds))} --mods {" ".join(map(str, mods))}')
+    BS.write_stamp(esl, 'finished', time.time(), {'command': command})
+    return esl, olds, news, mods
+
+
+def test_an_overlay_command_splits_back_with_its_spaces(tmp_path):
+    """An overlay's old stamp command: --out one path, --built and --mods several (each the longest existing path),
+    --name every word up to the next flag."""
+    esl, olds, _, mods = _overlay_setup(tmp_path)
+    command = json.loads(BS.stamp_path(esl).read_text(encoding='utf-8'))['command']
+    assert BP.stamp_argv(command) == ['--out', str(tmp_path / 'old mods' / 'F3NV - NVTUP and NVMIM'),
+                                      '--name', 'F3NV - NVTUP and NVMIM', '--built', *map(str, olds),
+                                      '--mods', *map(str, mods)]
+
+
+def test_an_overlay_is_replayed_by_overlay_on_the_planned_masters(tmp_path, monkeypatch):
+    """The NVTUP overlay is rebuilt by pipeline.overlay (not run, which wanted --export), into its own folder, over
+    the planned masters' current copies."""
+    esl, _, news, mods = _overlay_setup(tmp_path)
+    calls = []
+    monkeypatch.setattr(BP.subprocess, 'call', lambda argv, cwd: calls.append(argv) or 0)
+    assert BP.rebuild(esl, [p.parent for p in news]) == 0
+    assert calls[0][1:3] == ['-m', BP.OVERLAY]
+    assert calls[0][3:] == ['--out', str(esl.parent), '--name', 'F3NV - NVTUP and NVMIM', '--built',
+                            *map(str, news), '--mods', *map(str, mods)]
+
+
+def test_an_unknown_build_module_is_not_replayed(tmp_path, monkeypatch):
+    """A stamp naming a module build_plan cannot replay stops with 2, nothing run."""
+    plugin = tmp_path / 'X.esm'
+    plugin.write_bytes(b'')
+    BS.write_stamp(plugin, 'finished', time.time(), {'command': 'fo4_import.other --out x'})
+    monkeypatch.setattr(BP.subprocess, 'call', lambda *a, **k: pytest.fail('ran'))
+    assert BP.rebuild(plugin) == 2
+
+
+def test_an_overlay_records_its_inputs_and_masters(recording, monkeypatch):
+    """overlay.main keeps argv in its stamp and writes an inputs record with its --built plugins as masters: the
+    plan orders it after them, finds it current, and rebuilds it when a replacer file it read changes."""
+    from fo4_import.pipeline import overlay as OV
+    esl, _, news, mods = _overlay_setup(recording)
+    texture = mods[0] / 'textures' / 'rock.dds'
+    BI._STATE['on'] = False
+    texture.parent.mkdir()
+    texture.write_bytes(b'dds')
+    BI._STATE['on'] = True
+    argv = ['--out', str(esl.parent), '--name', esl.stem, '--built', *map(str, news), '--mods', *map(str, mods)]
+    for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
+        monkeypatch.setattr(OV, name, lambda *a: None)
+    monkeypatch.setattr(OV, 'overlay', lambda args: {'read': len(texture.read_bytes())})
+    monkeypatch.setattr(BI, 'start', lambda folder: (folder.mkdir(parents=True, exist_ok=True),
+                                                     monkeypatch.setenv(BI.ENV, str(folder))))
+    monkeypatch.setenv(OV.OVERLAY_ENV, '')
+    monkeypatch.setattr(sys, 'argv', ['overlay', *argv])
+    for master in news:
+        _finished(master)
+    OV.main()
+    assert json.loads(BS.stamp_path(esl).read_text(encoding='utf-8'))['argv'] == argv
+    assert BP.masters_of(esl) == news
+    assert BP.ordered([esl, *news])[-1] == esl
+    assert BP.check(esl) == (BP.CURRENT, '')
+    BI._STATE['on'] = False
+    texture.write_bytes(b'dds2')
+    assert BP.check(esl) == (BP.BUILD, f'file {BI.norm(texture)}')
