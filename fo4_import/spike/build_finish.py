@@ -27,7 +27,7 @@ from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
 from fo4_import.pipeline.light_choice import finish_flag
 from fo4_import.pipeline.stage_timer import timed
 from fo4_import.spike import (ammo_casings, ammo_switch, companion_barks, facegen, level_up_icons, list_adds,
-                               skeleton, voice)
+                               script_overrides, skeleton, voice)
 from fo4_import.spike.combat_feel import write_settings
 from fo4_import.spike.imagespace import LUT_FOLDER
 from fo4_import.spike.karma_page import write_karma_page
@@ -99,6 +99,7 @@ def _write_plugin(builder, out: Path, data_dir: Path) -> None:
     if builder.built:
         adds = {}
         builder.counts.update(drop_unchanged(builder.writer, builder.built, builder.held, adds))
+        script_overrides.apply(builder, data_dir / 'Scripts')
         builder.counts['master form list entries added at run time'] = list_adds.write(builder, adds)
     builder.counts[f'plugin written {finish_flag(builder.writer)}'] = 1
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -251,6 +252,7 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     _object_lod(builder, export_dir, data_dir)
     _assets(builder, export_dir, data_dir, out)
     _closing_records(builder, export_dir, data_dir, out, helper)
+    script_overrides.plan(builder, export_dir, scripts_dir)
     _compile(builder, data_dir, scripts_dir)
     _lists(builder, data_dir)
     _write_plugin(builder, out, data_dir)

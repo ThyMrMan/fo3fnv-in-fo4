@@ -615,6 +615,82 @@ behind the source renumbers it.
   DATA 91 in 57, REFR PDTO 25, PGRE NAME 25, NOTE SNAM 11, NPC_ OBTS 12 in
   6, REGN RDSA 1; none in PACK CNAM/PDTO, SCEN HTID or TERM SNAM.
 
+### <a id="changed-scripts"></a>A mod's changed scripts on the master's records (built 2026-11-12, not played)
+
+A mod that overrides a master's SCPT but not the records attaching it
+ships its conversion under the master's name (`FALLOUTNV_...`), compiled
+into its own folder, so its `.pex` wins in game. The records stay the
+master plugin's, though, and so does their VMAD with the master version's
+property list. A property only the mod's version declares is never
+filled (None), and one it dropped logs "script no longer contains that
+property". Seen in game 2026-11-12: YUP's
+`VCG01RemoveDocCarebearModeTriggerSCRIPT` gates the eye-adjust flash
+outside Doc Mitchell's house on `GameHour`. FalloutNV.esm's VMAD on the
+trigger's base (ACTI 0011E65F) has no GameHour but still has
+CompanionSuite and the VStreet* properties. So OnTriggerEnter stopped at
+"Cannot call GetValue() on a None object" and the flash never played.
+
+`spike.script_overrides` fixes this for every dependent build (any mod
+with masters, DLCs included). Before the compile, `plan` lists the master
+SCPTs the plugin holds whose conversion is in its own scripts folder. It
+then finds every top-level record of the built masters (`--plugin-dirs`,
+in the build's numbering via `built_bytes`) whose VMAD attaches one of
+them (`dangling_scripts.script_spans`: plain scripts, a fragment script,
+a quest's stage script). For each one the plugin does not hold, it
+rebuilds that script's entry:
+
+- a property both versions declare keeps the master's value, matched
+  ignoring case as Papyrus does;
+- a property the mod's version no longer declares goes;
+- a property only it declares is filled by the build
+  (`ObjectScripts.properties(only=)`, so GameHour is Fallout4.esm's).
+
+A record whose entry comes out the same is left alone. Those scripts join
+the compile. After `drop_unchanged`, `apply` writes the entry: in place on
+a master record the build still writes, else on the master plugin's own
+copy of the record, kept on its FormID (no new ids, no drift). Records the
+plugin holds already get the mod's script through the normal build.
+Placed references are not scanned: FNV attaches object scripts to bases.
+
+**Census (2026-11-12, exports in `export/`, built masters in the MO2 mods
+folder).** Master SCPTs each mod overrides; master records attaching them,
+by SCRI in the layered export, with how many the mod does not hold itself:
+
+| Source | SCPT overrides | Attaching records (not held) |
+|---|---|---|
+| YUP - Base Game + All DLC | 890 | 1,255 (1,024): ACTI 349 (346), NPC_ 381 (252), CREA 182 (145), QUST 117 (88), DOOR 73 (72), MISC 64 (52), ARMO 44 (37), CONT 16 (15), WEAP 10 (1), TACT 6 (6), TERM 5 (3), KEYM 3 (3), CHAL 2 (2), ALCH 1 (0), FURN 1 (1), LIGH 1 (1) |
+| JSawyer Ultimate | 16 | 14 (9): QUST 11 (6), ACTI 2 (2), TACT 1 (1) |
+| Agua Fria | 13 | 8 (8): QUST 6, ACTI 2 |
+| Essential DLC Enhancements | 7 | 7 (7): ACTI 5, DOOR 1, WEAP 1 |
+| Dead Money | 5 | 17 (10): CHAL 13 (6), NPC_ 2 (2), ACTI 1 (1), QUST 1 (1) |
+| NVBII | 2 | 7 (6): NPC_ 6 (5), ACTI 1 (1) |
+| Old World Blues | 2 | 1 (1): ACTI |
+| ClassicPack | 2 | 2 (0): QUST |
+| Honest Hearts | 1 | 7 (4): ACTI |
+| Russell, The Living Desert | 1 each | 1 (1) each: NPC_, ACTI |
+| Caravan, Mercenary, Tribal packs; Master Build | 1 each | 1 (0) each: QUST |
+
+The other 15 exported sources override no master SCPT. In FO4 terms the
+scan of YUP's built masters (2.0 s) finds 1,488 records whose VMAD attaches
+one of its 890 scripts: NPC_ 453, MISC 388, ACTI 339, QUST 107, DOOR 95,
+ARMO 42, MGEF 29, CONT 16, TACT 6, TERM 5, WEAP 4, KEYM 3, FURN 1 (a
+creature is an NPC_ there). Those records attach 829 of the 890
+scripts; 474 of them declare a different property list (ignoring case)
+than the master's conversion.
+
+A scratch YUP build (2026-11-12, on the FalloutNV.esm built at b60c5931)
+judged 1,391 attaching records it does not hold. It overrode 885: MISC
+312, NPC_ 260, ACTI 159, DOOR 48, QUST 41, ARMO 36, MGEF 20, TACT 6,
+CONT 1, FURN 1, WEAP 1. It also set the entry in place on 3 master records
+it already wrote. The trigger's ACTI 0211E65F now binds GameHour to
+Fallout4.esm's 00000038, with CompanionSuite and the VStreet* properties
+gone. 12 of its 3,690 scripts did not compile. Two of them,
+GoodspringsRadioScript and NVDLC03StripeWildWastel, are YUP overrides
+this step attaches. Without a compiled `.pex` the master's script still
+runs, so `apply` now leaves a record alone when its script did not
+compile into the build's `Scripts` folder, counted as `changed script left
+to the master (did not compile)`. The scratch build predates that check.
+
 ### <a id="edited-cells"></a>Edited cells outside the region (built 2026-11-10, not played)
 
 A build places only the references of the cells it covers, and a DLC's

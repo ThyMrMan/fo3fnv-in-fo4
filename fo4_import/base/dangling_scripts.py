@@ -98,6 +98,20 @@ def _quest_tail(data: bytes, pos: int, found: list) -> None:
         pos = _scripts(data, pos + 8, found)
 
 
+def script_spans(sig: bytes, vmad: bytes) -> list:
+    """[(script name, start, end)] of `vmad`'s (a record of type `sig`) script entries: the plain ones, then the
+    fragment script of a fragmented record or a quest's stage script; aliases' scripts are not listed."""
+    starts, pos = [], 6
+    for _ in range(struct.unpack_from('<H', vmad, 4)[0]):
+        starts.append(pos)
+        pos = _entry(vmad, pos, [])
+    if pos < len(vmad) and sig in FRAGMENTED:
+        starts.append(pos + (1 if sig in UNFLAGGED else 2))
+    elif pos + 5 <= len(vmad) and sig == b'QUST' and struct.unpack_from('<H', vmad, pos + 3)[0]:
+        starts.append(pos + 3)
+    return [(vmad[at + 2:_wstring(vmad, at)].decode('utf-8'), at, _entry(vmad, at, [])) for at in starts]
+
+
 def object_offsets(sig: bytes, vmad: bytes) -> list:
     """Offsets in `vmad` (a record of type `sig`) of every object's FormID: each object property's and each quest
     alias's own, placed by the VMAD's object format; Unreadable for another format or an object past its end."""
