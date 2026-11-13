@@ -1240,6 +1240,77 @@ Not changed yet: creature bases and outfits in the people stage, and
 `cached_files` in base STAT, which are master content a mod build makes
 again; that is [section 5](#replay)'s work.
 
+### <a id="mesh-pool-profile-2026-11-13"></a>The mesh pool's work, profiled (2026-11-13)
+
+What one pool worker does per mesh (`convert_static.convert`, as
+`cached_convert` calls it, then `mesh_files`), run in one process on a
+seeded sample of 300 of FalloutNV.esm's 7,973 placed and item models
+(scratch `meshprof.py`; no cache read or written). Creatures, outfits and
+heads go through other converters and are not in it.
+
+**Per mesh, unprofiled:** 39.8 s for the 300, none failed. Median 37 ms,
+p90 247 ms, max 5.1 s. The slowest 8 take 45% of the time. At that rate
+the 7,973 meshes are about 18 CPU-minutes, about 70 s on 15 workers.
+
+| Slowest | Time | Vertices |
+|---|---|---|
+| `scol\scolfreesidetrainstation01b.nif` | 5.10 s | 12,292 |
+| `scol\scolcheckpointfreeside01b.nif` | 5.05 s | 12,441 |
+| `architecture\suburban\houseruined01.nif` | 2.36 s | 14,280 |
+| `architecture\hooverdam\nvhooverdamoverpass.nif` | 1.49 s | 19,115 |
+| `architecture\generic\trainyardterminal.nif` | 1.39 s | 29,133 |
+
+**Profiled** (78.5 s under the profiler):
+
+| Part | Cumulative | What it is |
+|---|---|---|
+| Collision triangles (`collision._mesh_soup`, via `_stair_ramps`) | 49.1 s (65%) | |
+| - winding repair (`repair_inverted_floors`) | 27.0 s | a nearest-face search per suspect triangle (20,589 `_nearest_says_inverted`), plain Python: 15 million `math.dist`, 15 million `round` |
+| - the repair's visual triangles (`repair_oracle` → `visual_tri_soup_in`) | 14.0 s | rebuilt for every collision body of a mesh, then moved one vertex at a time |
+| - stairs | 4.3 s | |
+| Shapes (`_shapes`) | 22.5 s (30%) | vertex packing (`emit`, `vertices`) 9.4 s; reading geometry (`_geometry`) 9.5 s, 4.3 s of it 8.9 million per-element numpy-to-Python conversions in the reader (`fnv_schema` row getters); materials 2.6 s; overlay layers 4.7 s |
+| Collision blocks (`collision_object`) | 1.1 s | |
+
+**The two SCOL outliers** each have 55 collision bodies.
+`visual_tri_soup_in(root, node)` calls `_visual_tri_soup(root)` per body,
+so the whole mesh's visual triangles are gathered 55 times (7.3 of the
+mesh's 11.3 profiled seconds). The soup depends only on the root.
+
+**What this says about a native converter.** Two thirds of the time is the
+collision repair, not NIF reading or writing, and much of it is avoidable
+work before any language change:
+1. Gather the visual triangles once per mesh, not once per body.
+2. Do the nearest-face search on arrays (or a spatial index) instead of
+   per-triangle Python. It must stay bit-exact: the soup is compared
+   against a trust radius, so a different rounding flips different
+   triangles (`_transform_verts`' docstring). Elementwise numpy in the same
+   operation order as the Python sums gives the same doubles.
+3. Hand geometry to the converter as arrays from the reader instead of
+   per-element Python values.
+4. Pack vertices per shape as arrays (`vertices`, `emit`).
+
+Each changes code in the mesh cache's code records, so each makes the
+mesh cache rebuild once; landing them together, with the export-layer
+index, costs one rebuild. The collision repair is shared with the Skyrim
+converter (`asset_convert/collision`), whose tests would cover it too.
+Native code is worth sizing again only after these.
+
+<a id="still-bodies-skip-repair"></a>**Done first: no repair for still
+bodies.** A fixed or keyframed body's mesh gets both sides
+(`collision.both_sides`), so the repair's winding choice never reaches
+the game ([two-sided collision](fo4_pipeline.md#two-sided-collision)).
+`_mesh_soup` now takes the authored soup (`asset_convert`'s `mesh_soup`)
+for those bodies and repairs only dynamic ones.
+- `convert` over 200 sampled placed meshes: 24.3 s → 11.3 s, single process.
+- The stair pass took each riser's diagonal from its tread's winding;
+  `stairs._ordered` now orders each edge's ends by coordinate.
+- Over 500 sampled meshes (seeds 1 and 2, 435 collision meshes) every
+  written collision mesh holds the same triangles, both windings, as with
+  the repair. Up to 28 entries per mesh differ only in material: a riser
+  the stair pass adds over an authored riser face. Before, each side kept
+  both faces, one with the base material and one with the stairs material.
+  Now the added riser's front faces out and the authored face backs it.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh

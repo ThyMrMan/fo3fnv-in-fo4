@@ -3074,6 +3074,14 @@ but a collision-only box has none.
   keep one side, so their mass is not changed.
 - Elric accepts the doubled meshes; the wall's physics bounds are
   unchanged.
+- With both sides present the winding repair decides nothing, so these
+  bodies skip it ([still bodies](fo4_build_speed.md#still-bodies-skip-repair)).
+  Dynamic bodies keep one side and the repair.
+- FO4 has no two-sided switch to use instead, as far as vanilla shows.
+  All 701 vanilla compressed meshes WWE compared carry shape flags 516
+  ([shape](fo4_hknp_writer.md)). `triangleIsInterior` is a welding hint on
+  creased, fully shared triangles, not a side. Doubling is still the
+  method.
 
 <a id="ragdolls"></a>**Joints** (skeletons standing up in Bison Steve).
 The `XRGD` pose was copied, but FO4 has nothing to pose: the bodies
