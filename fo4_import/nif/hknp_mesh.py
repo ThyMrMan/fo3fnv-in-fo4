@@ -27,6 +27,8 @@ SECTION_PRIMITIVES, SECTION_VERTICES = 128, 255
 INNER = 0x8000
 #: A quad is flat when its fourth corner lies within this of the first three's plane (Elric's build tolerance).
 FLAT = 0.01
+#: A quad corner turning back by at most this share of its quad's squared normal still counts as straight.
+STRAIGHT = 1e-6
 #: Shape constants on every Elric compressed mesh: flags, dispatch type, the material-table property key.
 SHAPE_FLAGS, DISPATCH_COMPOSITE, MATERIALS_KEY = 516, 2, 0xF601
 #: hkReal's largest value as Havok writes an empty box.
@@ -91,15 +93,30 @@ def _normal(points: np.ndarray, tri) -> np.ndarray:
     return n / length if length > 0 else n
 
 
+def _convex(points: np.ndarray, prim: list) -> bool:
+    """Whether flat quad `prim` (a, b, c, d) is convex: no corner turns against its first triangle's facing (a
+    straight corner allowed)."""
+    corners = points[prim]
+    normal = np.cross(corners[1] - corners[0], corners[2] - corners[0])
+    turns = np.cross(np.roll(corners, -1, 0) - corners, np.roll(corners, -2, 0) - np.roll(corners, -1, 0))
+    return bool(np.all(turns @ normal >= -STRAIGHT * (normal @ normal)))
+
+
 def _partner(mesh: Mesh, i: int, edges: dict, used: list) -> 'tuple | None':
     """(score, -other triangle, edge of i, edge of other) of the flattest unused same-strip triangle sharing an
-    edge with triangle i in the opposite direction; None when there is none."""
+    edge with triangle i in the opposite direction whose quad is flat and convex; None when there is none.
+    The game collides a quad as the convex hull of its corners, so any other pair is a solid it must not be.
+    See: docs/fork/fo4_hknp_writer.md#mesh-writer
+    """
     tri, best = mesh.tris[i], None
     normal = _normal(mesh.points, tri)
     for e in range(3):
         for other, slot in edges.get((tri[(e + 1) % 3], tri[e]), ()):
             far = mesh.tris[other][(slot + 2) % 3]
             if used[other] or mesh.strip[other] != mesh.strip[i] or far == tri[(e + 2) % 3]:
+                continue
+            prim = [tri[(e + 1) % 3], tri[(e + 2) % 3], tri[e], far]
+            if not (flat(mesh.points, prim) and _convex(mesh.points, prim)):
                 continue
             score = (float(normal @ _normal(mesh.points, mesh.tris[other])), -other, e, slot)
             best = max(best, score) if best else score

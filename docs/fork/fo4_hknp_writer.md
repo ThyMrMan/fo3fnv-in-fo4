@@ -402,10 +402,16 @@ census reads them:
   CRC), the shape's `userData` the first strip's CRC.
 - **Quads:** in triangle order, each unused triangle takes the unused
   triangle of its own strip across a shared edge (opposite direction,
-  different third corner) whose normal is closest to its own; stored
-  `(a, b, c, d)` read back as `(a, b, c)` and `(a, c, d)`; a lone triangle
-  repeats `c`. A quad is flat when `d` is within 0.01 of the first three's
-  plane (Elric's rule, [above](#mesh)).
+  different third corner) whose normal is closest to its own, when the
+  quad they make is flat and convex; stored `(a, b, c, d)` read back as
+  `(a, b, c)` and `(a, c, d)`; a lone triangle repeats `c`. A quad is flat
+  when `d` is within 0.01 of the first three's plane (Elric's rule,
+  [above](#mesh)). The game collides a quad as the hull of its four
+  corners, so any other pair is a solid the mesh does not have: WWE's
+  pairing (any neighbour) closed the doorways of the craftsman and
+  Goodsprings room kits and lidded `offrmmidstairsdown01`'s stairwell
+  (play test 2026-11-13); Elric's output for those meshes has no such quad
+  but 1-unit slivers.
 - **Sections:** primitives sorted along the mesh's longest axis by their
   first three corners, cut at 128 primitives or 255 vertices; each
   section's own vertices (none shared), quantized as Elric does

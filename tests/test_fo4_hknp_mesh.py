@@ -87,6 +87,15 @@ def test_two_triangles_on_an_edge_make_one_flat_quad():
     assert lone == [1, 4, 2, 2]
 
 
+def test_a_quad_the_game_would_fill_in_stays_two_triangles():
+    """The game collides a quad as its corners' hull: two coplanar triangles making a dart (a doorway's jamb and
+    lintel) and two meeting at a fold (a wall and its floor) each stay single, so no hull covers an opening."""
+    points = np.array([[0.0, 0, 0], [2, 0, 0], [0.8, 0.8, 0], [0, 2, 0], [-0.5, 0.5, 1]])
+    for far in (3, 4):
+        mesh = hknp_mesh.Mesh(points, np.array([(0, 1, 2), (0, 2, far)]), np.array([0, 0]), [(1, 2)])
+        assert [prim for prim, _ in hknp_mesh.quads(mesh)] == [[0, 1, 2, 2], [0, 2, far, far]]
+
+
 def test_a_coded_box_holds_the_box_it_codes():
     """Square-root insets round toward the parent, so the decoded box always contains the original."""
     rng = np.random.default_rng(3)
