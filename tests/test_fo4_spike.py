@@ -4,6 +4,7 @@ See: docs/fork/fo4_spikes.md#spike-1b
 """
 
 import math
+import pickle
 import struct
 import wave
 from collections import Counter
@@ -859,6 +860,32 @@ def test_a_quadrant_keeps_its_four_heaviest_textures_and_shared_vertices_still_m
     assert [t for t, _ in limited[0]] == ['a', 'b', 'c', 'd'] and np.allclose(sum(left.values()), 1.0)
     border = LL.SIDE - 1
     assert all(abs(left.get(t, np.zeros(1))[border] - right.get(t, np.zeros(1))[0]) < 1e-9 for t in 'abcd')
+
+
+def _land(base: str, painted: str, opacity: float) -> dict:
+    """An FNV LAND record: quadrant 0 on `base` with `painted` at `opacity` on its first 20 vertices."""
+    rec = {'LayerCount': '2', 'Layer[0].Type': 'BASE', 'Layer[0].BTXT.Quadrant': '0', 'Layer[0].BTXT.Texture': base,
+           'Layer[1].Type': 'ALPHA', 'Layer[1].ATXT.Quadrant': '0', 'Layer[1].ATXT.Layer': '0',
+           'Layer[1].ATXT.Texture': painted, 'Layer[1].VTXTCount': '20', 'VHGT.Offset': '0'}
+    rec.update({f'Layer[1].VT[{v}].Pos': str(v) for v in range(20)})
+    rec.update({f'Layer[1].VT[{v}].Opacity': str(opacity) for v in range(20)})
+    return rec
+
+
+def test_the_land_texture_step_is_kept_in_the_work_cache(tmp_path, monkeypatch):
+    """land_textures gives limit_textures(blend_borders()) of the quadrant mixes; a height change reuses the kept
+    value, a layer change makes it again."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path)
+    lands = {(0, 0): _land('00000A01', '00000A02', 0.5), (1, 0): _land('00000A03', '00000A02', 0.25), (2, 0): None}
+    direct = LL.limit_textures(LL.blend_borders({g: LL.quadrant_mix(r) for g, r in lands.items() if r}))
+    assert pickle.dumps(LL.land_textures(lands)) == pickle.dumps(direct)
+    made = []
+    monkeypatch.setattr(LL, 'blend_borders', lambda mixes: made.append(1) or mixes)
+    lands[(0, 0)]['VHGT.Offset'] = '8'
+    assert pickle.dumps(LL.land_textures(lands)) == pickle.dumps(direct) and not made
+    lands[(0, 0)]['Layer[1].VT[3].Opacity'] = '0.75'
+    LL.land_textures(lands)
+    assert made == [1]
 
 
 def test_only_references_written_as_themselves_are_linked_to():
