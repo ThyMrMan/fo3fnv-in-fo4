@@ -1,16 +1,18 @@
 ScriptName F3NV_LevelUp extends Quest
-{Fallout 4 only. FO3/FNV's level-up in place of LevelUpMenuEx's PRKF.dll: the perk and skill points to spend (saved
-with the game as this script's variables), taking a perk and raising a skill, the perk list, each perk's rank and
-eligibility, and our level-up menu (Interface/F3NV_LevelUp.swf, registered with F4SE), which
-F3NV_CharacterRules opens in place of LevelUpMenu, and as the tag skill and trait menus. The tagged skills are
-F3NV_CharacterEvents'. The build writes what the menu shows as tables (the skills' here, each plugin's perks and
-traits on its F3NV_LevelUpTable), so opening it asks the engine only for the ranks and traits held and the player's
-values. TagsChosen is sent once the tag menu's picks are set. On the character rules quest.
+{Fallout 4 only. A level-up in place of the game's: the perk and skill points to spend (saved with the game as this
+script's variables), taking a perk and raising a skill, the perk list, each perk's rank and eligibility, and our
+level-up menu (Interface/F3NV_LevelUp.swf, registered with F4SE), also the tag skill and trait menus. Its partner
+F3NV_LevelUpHolder (Holder) keeps the tagged skills, is where Get() finds it, and decides what opening each menu does.
+What the menu shows is written as tables (the skills' here, each plugin's perks and traits on its
+F3NV_LevelUpTable), so opening it asks the engine only for the ranks and traits held and the player's values.
+TagsChosen is sent once the tag menu's picks are set.
 See docs/fork/fo4_level_up_plan.md#prkf}
 
 CustomEvent PerkTaken
 CustomEvent TagsChosen
 CustomEvent SkillRaised
+CustomEvent SkillTagged
+CustomEvent SkillUntagged
 CustomEvent MenuClosed
 
 String Property MenuName = "F3NV_LevelUp" AutoReadOnly Hidden
@@ -26,8 +28,8 @@ Int Property LevelUpMode = 0 AutoReadOnly Hidden
 Int Property TagsMode = 1 AutoReadOnly Hidden
 Int Property TraitsMode = 2 AutoReadOnly Hidden
 
-F3NV_CharacterEvents Property Events Auto Const
-{The helper quest's character events, which hold the tagged skills.}
+F3NV_LevelUpHolder Property Events Auto Const
+{The holder (Holder); None: the F3NV_LevelUpHolder on this quest.}
 FormList Property Perks Auto Const
 {The level-up list's perks, first ranks only (FNV_Perks).}
 FormList Property Skills Auto Const
@@ -74,25 +76,41 @@ Var[] ready
 ; ---------------------------------------------------------------------------
 
 F3NV_LevelUp Function Get() Global
-  {The running game's level-up, for other mods: F3NV_LevelUp.Get().AddPerkPoints(1). FalloutHelpers.esl's character
-  events (0x901) hold it, set as the character rules start and each time our menu opens; None before that.}
-  F3NV_CharacterEvents holder = Game.GetFormFromFile(0x901, "FalloutHelpers.esl") as F3NV_CharacterEvents
+  {The running game's level-up, for other mods: F3NV_LevelUp.Get().AddPerkPoints(1). Cleanroom UI's shared holder
+  (F3NV_LevelUpHolder.Shared) holds it, set as its owner starts and each time our menu opens; without that plugin,
+  the FO3/FNV conversion's holder (FalloutHelpers.esl 0x901); None before either is set.
+  See docs/fork/fo4_level_up_plan.md#plugin}
+  F3NV_LevelUpHolder holder = F3NV_LevelUpHolder.Shared()
+  If holder && holder.Running()
+    Return holder.Running()
+  ElseIf !Game.IsPluginInstalled("FalloutHelpers.esl")
+    Return None
+  EndIf
+  holder = Game.GetFormFromFile(0x901, "FalloutHelpers.esl") as F3NV_LevelUpHolder
   If !holder
     Return None
   EndIf
-  Return holder.LevelUp as F3NV_LevelUp
+  Return holder.Running()
+EndFunction
+
+F3NV_LevelUpHolder Function Holder()
+  {Events, else the holder on this quest.}
+  If Events
+    Return Events
+  EndIf
+  Return (Self as Quest) as F3NV_LevelUpHolder
 EndFunction
 
 Function Announce()
-  {Be the level-up Get() finds.}
-  If Events
-    Events.LevelUp = Self
+  {Be the level-up Get() finds: held by this host's holder and by Cleanroom UI's shared one.}
+  F3NV_LevelUpHolder holder = Holder()
+  If holder
+    holder.Hold(Self)
   EndIf
-EndFunction
-
-F3NV_CharacterRules Function Rules()
-  {The character rules, on this quest.}
-  Return (Self as Quest) as F3NV_CharacterRules
+  F3NV_LevelUpHolder shared = F3NV_LevelUpHolder.Shared()
+  If shared && shared != holder
+    shared.Hold(Self)
+  EndIf
 EndFunction
 
 Bool Function AddPerk(Perk akPerk)
@@ -118,20 +136,24 @@ Bool Function RemovePerk(Perk akPerk)
 EndFunction
 
 Function OpenLevelUpMenu()
-  {Open the level-up menu (skills, perks, taken) once no menu is open, the levels gained since the last time given
-  their points first, as the Pip-Boy's level-up button does. MenuClosed is sent when it closes.}
-  Rules().OpenLevelUp()
+  {Open the level-up menu (skills, perks, taken) once no menu is open, as the holder's OpenLevelUp decides (the
+  FO3/FNV conversion gives the levels gained since the last time their points first). MenuClosed is sent when it
+  closes.}
+  Announce()
+  Holder().OpenLevelUp()
 EndFunction
 
 Function OpenTagMenu(Int aiTags)
   {Open the tag skill menu for aiTags skills tagged in all (FNV: 3 at Doc Mitchell's; the tags held plus one for
-  Tag!). Tags chosen before stay, each new one gets the tag bonus; TagsChosen is sent once the picks are set.}
-  Rules().OpenTags(aiTags)
+  Tag!). Tags chosen before stay; TagsChosen is sent once the picks are set.}
+  Announce()
+  Holder().OpenTags(aiTags)
 EndFunction
 
 Function OpenTraitMenu(Int aiTraits = 0)
-  {Open the trait menu for up to aiTraits traits (0: the game's own count, F3NV_CharacterRules.TraitCount).}
-  Rules().OpenTraits(aiTraits)
+  {Open the trait menu for up to aiTraits traits (0: the holder's own count).}
+  Announce()
+  Holder().OpenTraits(aiTraits)
 EndFunction
 
 Int Function GetPerkPoints()
@@ -165,17 +187,26 @@ EndFunction
 ; ---------------------------------------------------------------------------
 
 Bool Function IsTagged(ActorValue akSkill)
-  Return Events.IsTagged(akSkill)
+  Return Holder().IsTagged(akSkill)
 EndFunction
 
 Bool Function Tag(ActorValue akSkill)
-  {Tags akSkill (F3NV_CharacterEvents sends SkillTagged); False when it already was. The rules give the bonus.}
-  Return Events.Tag(akSkill)
+  {Tags akSkill (Holder) and sends SkillTagged; False when it already was. A tag bonus is the holder's owner's to
+  give.}
+  If !Holder().Tag(akSkill)
+    Return False
+  EndIf
+  SendCustomEvent("SkillTagged", FormArgs(akSkill))
+  Return True
 EndFunction
 
 Bool Function Untag(ActorValue akSkill)
-  {Untags akSkill (F3NV_CharacterEvents sends SkillUntagged); False when it was not tagged.}
-  Return Events.Untag(akSkill)
+  {Untags akSkill (Holder) and sends SkillUntagged; False when it was not tagged.}
+  If !Holder().Untag(akSkill)
+    Return False
+  EndIf
+  SendCustomEvent("SkillUntagged", FormArgs(akSkill))
+  Return True
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -276,6 +307,17 @@ EndFunction
 ; The menu
 ; ---------------------------------------------------------------------------
 
+Function Show(Int aiMode, Int aiCount, Int aiBonus)
+  {Our menu in mode aiMode (Open) as soon as no menu is open: its data gathered first (Prepare), so the gathering
+  overlaps the wait, without the settling a message box needs.
+  See docs/fork/fo4_level_up_plan.md#open-delay}
+  Prepare(aiMode, aiCount, aiBonus)
+  While Utility.IsInMenuMode() || UI.IsMenuOpen("PipboyMenu") || UI.IsMenuOpen(MenuName)
+    Utility.WaitMenuMode(0.25)
+  EndWhile
+  Open(aiMode, aiCount, aiBonus)
+EndFunction
+
 Function Open(Int aiMode = 0, Int aiCount = 0, Int aiBonus = 0)
   {Open our menu in mode aiMode (LevelUpMode, TagsMode for aiCount tags in all with aiBonus each, TraitsMode for up to
   aiCount traits): its data gathered first (Prepare) unless Prepare just did for this open; Send hands it over.}
@@ -286,8 +328,8 @@ Function Open(Int aiMode = 0, Int aiCount = 0, Int aiBonus = 0)
 EndFunction
 
 Function Prepare(Int aiMode, Int aiCount, Int aiBonus)
-  {Gather what our menu shows in mode aiMode (Built) ahead of opening it, registered first. The character rules call
-  it while the Pip-Boy closes, so the gathering overlaps that wait. See docs/fork/fo4_level_up_plan.md#open-delay}
+  {Gather what our menu shows in mode aiMode (Built) ahead of opening it, registered first. Show (or a holder's own
+  opener) calls it while the Pip-Boy closes, so the gathering overlaps that wait. See docs/fork/fo4_level_up_plan.md#open-delay}
   mode = aiMode
   wanted = aiCount
   bonus = aiBonus
@@ -653,9 +695,10 @@ EndFunction
 
 Int Function TagState(ActorValue akValue)
   {0 untagged, 1 tagged as SetPlayerTagSkill's suggestion (the tag menu may change it), 2 tagged.}
-  If !Events.IsTagged(akValue)
+  F3NV_LevelUpHolder holder = Holder()
+  If !holder.IsTagged(akValue)
     Return 0
-  ElseIf Events.IsSuggested(akValue)
+  ElseIf holder.IsSuggested(akValue)
     Return 1
   EndIf
   Return 2
@@ -726,9 +769,9 @@ Function OnMenuTags(Int aiMask)
   While i < Skills.GetSize()
     ActorValue skill = Skills.GetAt(i) as ActorValue
     If Math.LogicalAnd(aiMask, Math.LeftShift(1, i)) != 0
-      Events.Tag(skill)
+      Tag(skill)
     Else
-      Events.Untag(skill)
+      Untag(skill)
     EndIf
     i += 1
   EndWhile

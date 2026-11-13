@@ -19,6 +19,7 @@ from script_convert.constants import FALLOUT4_HELPER_PLUGIN, FALLOUT4_HELPER_QUE
 STATIC = Path(__file__).resolve().parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
 SCRIPT = (STATIC / 'F3NV_LevelUp.psc').read_text(encoding='utf-8')
 RULES = (STATIC / 'F3NV_CharacterRules.psc').read_text(encoding='utf-8')
+EVENTS = (STATIC / 'F3NV_CharacterEvents.psc').read_text(encoding='utf-8')
 MOVIE = (M.SOURCES / 'F3NV_LevelUp.as').read_text(encoding='utf-8')
 CHARACTER = (M.SOURCES / 'f3nv' / 'levelup' / 'Character.as').read_text(encoding='utf-8')
 #: The polyfill functions the rules call, for compiling them without the assembled TES4Polyfill.
@@ -102,7 +103,7 @@ def test_level_up_menu_ex_is_reached_only_by_name_and_only_while_loaded():
     moved = re.search(r'Function MovePrkf\(.*?EndFunction', RULES, re.S).span()
     assert callers and all(moved[0] < at < moved[1] for at in callers)
     assert 'If Migrated || F4SE.GetPluginVersion("PRKF") < 0' in _function(RULES, 'MovePrkf')
-    for name in ('F3NV_LevelUp', 'F3NV_LevelUpTable', 'F3NV_CharacterEvents'):
+    for name in ('F3NV_LevelUp', 'F3NV_LevelUpTable', 'F3NV_LevelUpHolder', 'F3NV_CharacterEvents'):
         assert 'PRKF:' not in (STATIC / f'{name}.psc').read_text(encoding='utf-8'), name
     assert 'LevelUpMenuEx' not in header_dirs()
 
@@ -118,20 +119,37 @@ def test_each_tag_gets_its_bonus_once_and_keeps_it():
 
 
 def test_other_mods_reach_the_level_up_through_the_helper_plugin():
-    """Get() reads the character events quest of FalloutHelpers.esl, which the level-up announces itself to as the
-    rules start and as our menu registers."""
+    """Get() falls back to the character events quest of FalloutHelpers.esl (a holder), which the level-up announces
+    itself to as the rules start and as our menu registers; the holder's Running() is its LevelUp, as before."""
     get = _function(SCRIPT, 'Get')
     quest = FALLOUT4_HELPER_QUESTS['F3NV_CharacterEvents']
-    assert f'Game.GetFormFromFile(0x{quest:X}, "{FALLOUT4_HELPER_PLUGIN}") as F3NV_CharacterEvents' in get
+    assert f'Game.GetFormFromFile(0x{quest:X}, "{FALLOUT4_HELPER_PLUGIN}") as F3NV_LevelUpHolder' in get
     assert 'Announce()' in _function(SCRIPT, 'Register') and 'LevelUp().Announce()' in RULES
+    assert 'ScriptName F3NV_CharacterEvents extends F3NV_LevelUpHolder' in EVENTS
+    assert 'Return LevelUp as F3NV_LevelUp' in _function(EVENTS, 'Running') and 'LevelUp = ' in _function(EVENTS, 'Hold')
 
 
-def test_the_api_opens_each_menu_through_the_rules():
-    """OpenLevelUpMenu, OpenTagMenu and OpenTraitMenu call the rules' openers, which exist."""
-    for api, rules in (('OpenLevelUpMenu', 'OpenLevelUp()'), ('OpenTagMenu', 'OpenTags(aiTags)'),
-                       ('OpenTraitMenu', 'OpenTraits(aiTraits)')):
-        assert f'Rules().{rules}' in _function(SCRIPT, api)
-        assert f'Function {rules.split("(")[0]}(' in RULES
+def test_the_api_opens_each_menu_through_the_holder_and_the_rules():
+    """OpenLevelUpMenu, OpenTagMenu and OpenTraitMenu call the holder's openers; F3NV_CharacterEvents overrides each
+    with the rules' opener of the same name, which exists."""
+    for api, opener in (('OpenLevelUpMenu', 'OpenLevelUp()'), ('OpenTagMenu', 'OpenTags(aiTags)'),
+                        ('OpenTraitMenu', 'OpenTraits(aiTraits)')):
+        name = opener.split('(')[0]
+        assert f'Holder().{opener}' in _function(SCRIPT, api)
+        assert f'Rules().{name}(' in _function(EVENTS, name) and f'Function {name}(' in RULES
+
+
+def test_character_events_overrides_the_holder_with_matching_signatures():
+    """Every function F3NV_CharacterEvents shares with F3NV_LevelUpHolder has the holder's exact signature, so it
+    replaces the holder's own (its tags stay in its saved Tagged and Suggested)."""
+    holder = (STATIC / 'F3NV_LevelUpHolder.psc').read_text(encoding='utf-8')
+    signature = re.compile(r'^((?:\w+[ \t]+)?Function (\w+)\([^)\n]*\))', re.M)
+    theirs = {name: line for line, name in signature.findall(holder)}
+    ours = {name: line for line, name in signature.findall(EVENTS)}
+    shared = set(theirs) & set(ours)
+    assert shared == {'Running', 'Hold', 'IsTagged', 'IsSuggested', 'Tag', 'Untag', 'SuggestTag', 'OpenLevelUp',
+                      'OpenTags', 'OpenTraits'}
+    assert all(ours[name] == theirs[name] for name in shared), {n for n in shared if ours[n] != theirs[n]}
 
 
 def test_the_api_sends_its_events():
@@ -155,13 +173,13 @@ def test_an_added_perk_is_described_and_tested_by_the_game():
 
 @pytest.mark.skipif(not FO4_COMPILER.is_file(), reason='the FO4 Papyrus compiler is not installed')
 def test_the_character_scripts_compile_together(tmp_path):
-    """F3NV_CharacterRules.psc, F3NV_LevelUp.psc, F3NV_LevelUpTable.psc and F3NV_CharacterEvents.psc (which holds
-    the tags) compile against FO4's and F4SE's headers alone."""
+    """F3NV_CharacterRules.psc, F3NV_LevelUp.psc, F3NV_LevelUpTable.psc, F3NV_LevelUpHolder.psc and
+    F3NV_CharacterEvents.psc (the holder holding the tags) compile against FO4's and F4SE's headers alone."""
     src, stub, out = tmp_path / 'src', tmp_path / 'stub', tmp_path / 'out'
     for folder in (src, stub, out):
         folder.mkdir()
     (stub / 'TES4Polyfill.psc').write_text(POLYFILL_STUB, encoding='utf-8')
-    names = ('F3NV_LevelUp', 'F3NV_LevelUpTable', 'F3NV_CharacterRules', 'F3NV_CharacterEvents')
+    names = ('F3NV_LevelUp', 'F3NV_LevelUpTable', 'F3NV_LevelUpHolder', 'F3NV_CharacterRules', 'F3NV_CharacterEvents')
     for name in names:
         shutil.copy(STATIC / f'{name}.psc', src)
     log = compile_folder(src, out, f'{src};{stub};{STATIC};{header_dirs()}')

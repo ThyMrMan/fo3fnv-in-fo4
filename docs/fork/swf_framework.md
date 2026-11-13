@@ -1241,10 +1241,16 @@ Then:
   and INI format documented.
 - The dialogue menu and the converter use both.
 
+**Decided 2026-11-12:** the library, the menus and the framework DLL live in
+one repo, **Cleanroom UI** (`ThyMrMan/cleanroom-ui`, private until the
+first release), with the prefix `CRUI_`. It was split out of this repo with
+history; its README lists what moved and the steps left before the
+converter can use it as a submodule. Until then the copies here stay the
+ones the build uses.
+
 ## <a id="decisions"></a>Open decisions
 
 - Where built movies live: release assets only, or an exempt folder in git.
-- Library and Papyrus prefix names.
 - Whether the Pip-Boy framework reads PipboyTabs' INI files.
 - Whether to contact HUDFramework's author (license, the F4SE fast path),
   together with the XDI question.

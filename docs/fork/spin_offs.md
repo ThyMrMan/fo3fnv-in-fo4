@@ -193,6 +193,9 @@ Everything else needs F4SE and stays PC (and later VR).
 
 - A new repo per release, or one repo with a folder per DLL and a shared
   `common/`. **Choose one repo**: the shared base would otherwise be copied.
+  It is **Cleanroom UI** (`ThyMrMan/cleanroom-ui`, prefix `CRUI_`, private
+  for now), shared with the menu framework
+  ([release](swf_framework.md#release)).
 - License: **GPL-3.0 with the modding exception**, for every release and
   for our code in both converter repos ([license](#license)). Credit the
   upstream tes4skyrim authors where code came from there (none of F3NV.dll

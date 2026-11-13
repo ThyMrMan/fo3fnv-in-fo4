@@ -1,10 +1,13 @@
-ScriptName F3NV_CharacterEvents extends Quest
+ScriptName F3NV_CharacterEvents extends F3NV_LevelUpHolder
 {Fallout 4 only. FO3/FNV's character menus (SPECIAL, tag skills, traits) as one
 custom event, CharacterMenu(kind, value), for the character rules to answer, and
 the player's tagged skills, which converted scripts (IsPlayerTagSkill,
 SetPlayerTagSkill), the rules and our level-up menu share. Skyrim sends the
 TESCharacterMenu mod event instead. A custom event can only be sent by the script
-declaring it, so converted scripts call Menu(). See docs/fork/fo4_level_up_plan.md#tags}
+declaring it, so converted scripts call Menu(). As the level-up's holder, its tag
+functions and these overrides replace the holder's own: the running level-up is
+LevelUp, and the menus open through the character rules on its quest.
+See docs/fork/fo4_level_up_plan.md#tags, docs/fork/fo4_level_up_plan.md#holder}
 
 CustomEvent CharacterMenu
 CustomEvent SkillTagged
@@ -74,6 +77,35 @@ Bool Function Untag(ActorValue akSkill)
   Tagged.Remove(Tagged.Find(akSkill))
   SendCustomEvent("SkillUntagged", SkillArgs(akSkill))
   Return True
+EndFunction
+
+F3NV_LevelUp Function Running()
+  {The running level-up: LevelUp, kept from before the holder so Get() works on older saves.}
+  Return LevelUp as F3NV_LevelUp
+EndFunction
+
+Function Hold(F3NV_LevelUp akHost)
+  LevelUp = akHost as Quest
+EndFunction
+
+F3NV_CharacterRules Function Rules()
+  {The character rules, on the running level-up's quest.}
+  Return LevelUp as F3NV_CharacterRules
+EndFunction
+
+Function OpenLevelUp()
+  {The rules' opener: this level-up's points topped up, then our menu.}
+  Rules().OpenLevelUp()
+EndFunction
+
+Function OpenTags(Int aiCount)
+  {The rules' opener: TagBonus given once the picks are set.}
+  Rules().OpenTags(aiCount)
+EndFunction
+
+Function OpenTraits(Int aiCount)
+  {The rules' opener: 0 is the game's TraitCount.}
+  Rules().OpenTraits(aiCount)
 EndFunction
 
 Var[] Function SkillArgs(ActorValue akSkill)

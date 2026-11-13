@@ -342,7 +342,9 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
 **Built 2026-11-12 (not played),** all on `F3NV_LevelUp`:
 - **Reaching it:** `F3NV_LevelUp.Get()` (global), so a mod needs no master
   but `FalloutHelpers.esl`, which every converted plugin masters. It reads
-  `F3NV_CharacterEvents.LevelUp` (helper quest `0x901`), which the level-up
+  Cleanroom UI's shared holder when `CleanroomUI.esl` is loaded
+  ([plugin](#plugin)), else `F3NV_CharacterEvents.LevelUp` (helper quest
+  `0x901`, [holder](#holder)), which the level-up
   sets as the rules quest starts (`OnInit`) and each time our menu registers
   (`Register`, `Announce`); on a save from before, `Get()` is None until
   the menu first opens. With two games loaded, the one whose rules ran last.
@@ -352,14 +354,47 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
 - **Menus:** `OpenLevelUpMenu()` (as the Pip-Boy's button: points topped
   up, then ours), `OpenTagMenu(aiTags)` (tags in all; tags held stay
   locked, so Tag! is `OpenTagMenu(held + 1)`), `OpenTraitMenu(aiTraits = 0)`
-  (0: the game's `TraitCount`). Each goes through the rules' openers
-  (`OpenLevelUp`, `OpenTags`, `OpenTraits`), which wait until no menu is
-  open.
+  (0: the game's `TraitCount`). Each goes through the holder's openers,
+  which `F3NV_CharacterEvents` hands to the rules' (`OpenLevelUp`,
+  `OpenTags`, `OpenTraits`); they wait until no menu is open.
 - **Tags:** `Tag`, `Untag`, `IsTagged` (`F3NV_CharacterEvents` holds them).
 - **Events:** `PerkTaken` (the rank), `SkillRaised` (skill, points spent,
   new base), `TagsChosen`, `MenuClosed` (mode, perk and skill points left:
-  a level-up finished when the mode is 0); `F3NV_CharacterEvents`'
-  `SkillTagged` and `SkillUntagged`.
+  a level-up finished when the mode is 0), `SkillTagged` and
+  `SkillUntagged` (the host's, for tags set through it or our menu);
+  `F3NV_CharacterEvents`' own `SkillTagged` and `SkillUntagged` for every
+  tag.
+
+## <a id="holder"></a>The level-up holder (Cleanroom UI's, built 2026-11-12, not played)
+
+`F3NV_LevelUp` and `F3NV_LevelUpHolder` are Cleanroom UI's
+(`ThyMrMan/cleanroom-ui`, its `docs/level_up_plan.md#holder`), copied here
+until the converter takes that repo as a submodule. The host names no
+converter script: it asks its holder (its `Events` property) for the tags,
+for where `Get()` finds it, and for what opening each menu does.
+
+**`F3NV_CharacterEvents` is our holder** (`extends F3NV_LevelUpHolder`):
+- Its `IsTagged`, `IsSuggested`, `Tag`, `Untag` and `SuggestTag` have the
+  holder's signatures, so they replace the holder's own as they were; the
+  tags stay in its saved `Tagged` and `Suggested`.
+- `Running()` and `Hold()` use its `LevelUp` property, as `Get()` did
+  before, so older saves keep the running level-up.
+- `OpenLevelUp`, `OpenTags` and `OpenTraits` call the rules' openers of
+  the same names (`Rules()`: `LevelUp as F3NV_CharacterRules`), which top
+  up points, give the tag bonus and move LevelUpMenuEx's state.
+
+`F3NV_LevelUpHolder.psc` ships with the masterless build like every
+static script; without it `F3NV_CharacterEvents` would not bind. On a save
+from before, `F3NV_CharacterEvents` gains its parent's variables; **check
+in game** that an older save keeps its tags.
+
+## <a id="plugin"></a>`CleanroomUI.esl` (not shipped yet)
+
+`Get()` first reads Cleanroom UI's shared holder (`CleanroomUI.esl`
+`0x800`), which every level-up host announces itself to, and falls back to
+ours above. The converter doesn't ship `CleanroomUI.esl` yet, so today
+`Get()` takes the fallback; `Game.IsPluginInstalled` keeps the missing
+plugin out of the log.
 - **Perks of other mods:** `AddPerk(akFirstRank)` and `RemovePerk`, kept by
   the save. An added perk no plugin's table lists comes after them, read
   from the perk itself as the menu opens (`DescribeAdded`: `GetName`,
