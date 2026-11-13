@@ -11,7 +11,11 @@ See: docs/fork/fo4_spikes.md#spike-2-nif
 
 import struct
 
+import numpy as np
+
 NONE = -1
+#: numpy type of each struct code a BSVertexData field or triangle packs with.
+NP_TYPES = {'f': '<f4', 'e': '<f2', 'I': '<u4', 'H': '<u2', 'B': 'u1'}
 #: The largest half float: a BSVertexData UV past it does not fit and is clamped.
 HALF_MAX = 65504.0
 #: How many vertices pack_vertex has clamped a UV of, this process ('uv').
@@ -326,8 +330,76 @@ def pack_tri_shape(b: dict) -> bytes:
     out = pack_av(b) + struct.pack('<4f3iQIHI', *b['bound'], b['skin'], b['shader'], b['alpha_property'],
                                    desc, n_tris, n_verts, size)
     attrs = desc >> 44
-    out += b''.join(pack_vertex(v, attrs) for v in verts)
-    return out + b''.join(struct.pack('<3H', *t) for t in tris)
+    out += _vertex_array(verts, attrs) or b''.join(pack_vertex(v, attrs) for v in verts)
+    packed = _column(tris, 'H') if tris else None
+    return out + (packed.tobytes() if packed is not None and packed.shape == (len(tris), 3)
+                  else b''.join(struct.pack('<3H', *t) for t in tris))
+
+
+def _vertex_fields(attrs: int) -> list:
+    """(key, count, struct code) of each BSVertexData field pack_vertex writes, in its order (no skin or eye)."""
+    full = attrs & VA_FULL_PRECISION
+    out = []
+    if attrs & VA_VERTEX:
+        out += [('position', 3, 'f' if full else 'e'),
+                ('bitangent_x', 1, ('f' if full else 'e') if attrs & VA_TANGENT else ('I' if full else 'H'))]
+    if attrs & VA_UV:
+        out.append(('uv', 2, 'e'))
+    if attrs & VA_NORMAL:
+        out += [('normal', 3, 'B'), ('bitangent_y', 1, 'B')]
+        if attrs & VA_TANGENT:
+            out += [('tangent', 3, 'B'), ('bitangent_z', 1, 'B')]
+    if attrs & VA_COLOR:
+        out.append(('color', 4, 'B'))
+    return out
+
+
+def _column(values: list, code: str) -> 'np.ndarray | None':
+    """`values` as struct code `code`'s numpy type; None where struct.pack could differ or refuse (NaN, out of
+    range, a float for an integer)."""
+    a = np.array(values)
+    if code in 'fe':
+        if a.dtype.kind not in 'iuf' or not np.isfinite(a).all():
+            return None
+        out = a.astype(NP_TYPES[code])
+        return out if np.isfinite(out).all() else None
+    info = np.iinfo(NP_TYPES[code])
+    if a.dtype.kind not in 'iu' or (a.size and (a.min() < info.min or a.max() > info.max)):
+        return None
+    return a.astype(NP_TYPES[code])
+
+
+def _held_uvs(values: list) -> tuple:
+    """(UVs held in ±HALF_MAX as half_uv holds them, how many vertices that clamped); (None, 0) on a NaN."""
+    a = np.array(values, dtype=np.float64)
+    if np.isnan(a).any():
+        return None, 0
+    held = np.minimum(np.maximum(a, -HALF_MAX), HALF_MAX)
+    return held, int((held != a).any(axis=1).sum())
+
+
+def _vertex_array(verts: list, attrs: int) -> 'bytes | None':
+    """BSVertexData bytes of all `verts` at once, as pack_vertex packs each (UV clamps counted the same); None
+    when only pack_vertex can: skin, eye data, or a value _column refuses."""
+    if attrs & (VA_SKINNED | VA_EYE_DATA) or not verts:
+        return None
+    fields, columns, clamped = _vertex_fields(attrs), [], 0
+    try:
+        for key, count, code in fields:
+            values = [v[key] for v in verts]
+            if key == 'uv':
+                values, clamped = _held_uvs(values)
+            column = None if values is None else _column(values, code)
+            if column is None:
+                return None
+            columns.append(column.reshape(len(verts), count))
+    except (KeyError, TypeError, ValueError):
+        return None
+    out = np.empty(len(verts), dtype=[(key, NP_TYPES[code], (count,)) for key, count, code in fields])
+    for (key, _, _), column in zip(fields, columns):
+        out[key] = column
+    CLAMPED['uv'] += clamped
+    return out.tobytes()
 
 
 #: Block type -> (reader, packer). NiNode subclasses that add nothing share NiNode's.

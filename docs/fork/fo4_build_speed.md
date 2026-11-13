@@ -1311,6 +1311,28 @@ for those bodies and repairs only dynamic ones.
   both faces, one with the base material and one with the stairs material.
   Now the added riser's front faces out and the authored face backs it.
 
+<a id="mesh-pool-arrays"></a>**Then: arrays and once-per-mesh work.**
+Same sample code (`convert`, then `mesh_files`, single process). Every
+`MeshFiles` field hashed against a baseline from the code before these
+changes, on 300 (seed 1) and 600 (seed 2) meshes: none differ.
+
+| Change | Where |
+|---|---|
+| Positions, normals, UVs, colors taken from the reader's columns, not one row object per vertex | `convert_static._fields` |
+| Normal, tangent and color bytes rounded in numpy (`rint` is `round`'s half to even; NaN held as `min`/`max` hold it) | `convert_static.vertices` |
+| Vertices and triangles packed as one structured array; a value `struct` would refuse or pack differently (NaN, out of range, a float for an integer, skin, eye data) falls back to `pack_vertex` | `blocks._vertex_array` |
+| NIFs with an `NiTransformData` read with our reader: an empty key group's default looked up nif.xml's `Float`, pyffi's `float`, so 12 of 300 files fell back to pyffi | `fnv_schema.pyffi_type` |
+| A normal map's spec-mask verdict kept per file, size and time (804 checks, 367 maps in the sample) | `convert_static._spec_masked` |
+| The stair cover test's per-face terms worked out once per body; three reaches per edge tested together | `stairs.cover_frame` |
+| Authored collision normals read only for the repair | `mesh_soup(normals=)` |
+| One parent map per mesh, not one per shape (four copies folded into one) | `fnv_file.parent_map` |
+
+- 300 meshes: 16.7 s → about 6 s (5.6 to 6.2 s across runs).
+- 600 meshes: 41.0 s → 12.1 s.
+- Profiled, 300 meshes: 31.2 s → 9.2 s. No single stage now passes 1.2 s:
+  collision about 3 s in all (the stair pass 1.2, the collision soup 0.9),
+  the specular scans 0.9, `_geometry` 1.1, `emit` 1.1.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh

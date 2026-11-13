@@ -15,6 +15,7 @@ See: docs/fork/fo4_pipeline.md#particles
 import numpy as np
 
 from fo4_import.nif.blocks import NONE
+from fo4_import.nif.fnv_file import parent_map
 from fo4_import.nif.particle_blocks import EMITTER_BASE, SPECS
 from fo4_import.nif.shader_anim import interpolator, timing
 
@@ -72,7 +73,7 @@ def systems(root) -> list:
 
 def wanted_nodes(root, found: list) -> set:
     """ids of the FNV nodes the particle systems hang under or name (emitter, gravity and drag objects)."""
-    parents = {id(c): n for n in root.tree() if hasattr(n, 'children') for c in n.children if c is not None}
+    parents = parent_map(root)
     out = {id(parents[id(s)]) for s in found if id(s) in parents}
     for mod in (m for system in found for m in system.modifiers):
         out |= {id(parents[id(m)]) for m in getattr(mod, 'emitter_meshes', []) if m is not None and id(m) in parents}

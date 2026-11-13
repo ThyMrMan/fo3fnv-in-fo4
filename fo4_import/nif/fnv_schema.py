@@ -397,7 +397,12 @@ def copy_row(row, value) -> None:
 @functools.cache
 def _pyffi_default(cls, template: 'str | None'):
     """A default pyffi `cls` of `template` (a type name), once per process."""
-    return cls(template=getattr(NifFormat, template) if template else None)
+    return cls(template=pyffi_type(template) if template else None)
+
+
+def pyffi_type(name: str):
+    """pyffi's type `name`; nif.xml basic types are lower case there (float)."""
+    return getattr(NifFormat, name, None) or getattr(NifFormat, name.lower())
 
 
 def ours(value):
