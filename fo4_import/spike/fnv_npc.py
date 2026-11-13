@@ -126,12 +126,22 @@ def head_parts(export_dir: Path, form_id: int) -> list:
     of them. Sorted, as FNV draws them as a set: PNAM order changes no fit.
     See: docs/fork/fo4_pipeline.md#face-fit-head-parts
     """
+    chain, parts = _head_chain(str(export_dir))
+    owned = next((npcs[form_id] for npcs in chain if form_id in npcs), [])
+    return sorted(parts[p] for p in owned if parts.get(p, ('', ''))[1])
+
+
+@cache
+def _head_chain(export_dir: str) -> tuple:
+    """([{NPC: [PNAM head parts]}] of `export_dir`'s master chain, newest first; {HDPT: (EditorID, model)} of the
+    chain, the newest plugin's winning), once per process.
+    See: docs/fork/fo4_build_speed.md#staged-first
+    """
     chain = [_esm_records(*source) for source in plugin_sources(export_dir)]
-    owned = next((npcs[form_id] for npcs, _ in chain if form_id in npcs), [])
     parts = {}
     for _, held in chain:
         parts = {**held, **parts}
-    return sorted(parts[p] for p in owned if parts.get(p, ('', ''))[1])
+    return [npcs for npcs, _ in chain], parts
 
 
 def eye_mesh(export_dir: Path, race: dict, part: str) -> Path:
