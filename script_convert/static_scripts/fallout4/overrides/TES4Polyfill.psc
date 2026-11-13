@@ -773,7 +773,7 @@ Function SetSex(ObjectReference akActor, String asSex) Global
     target = 1
   EndIf
   If target < 0 || a.GetLeveledActorBase().GetSex() != target
-    F3NV_Sex.ChangeSex(a)
+    CRUI_Sex.ChangeSex(a)
   EndIf
 EndFunction
 

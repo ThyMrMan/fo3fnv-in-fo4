@@ -109,11 +109,14 @@ def test_faces_and_runtime_stages(tmp_path):
 
 
 def test_runtime_dll_is_installed_into_f4se_plugins(tmp_path):
-    """The committed F3NV.dll lands in F4SE/Plugins of the output."""
-    dll = tmp_path / 'F3NV.dll'
-    dll.write_bytes(b'dll')
-    assert runtime_dll.install(tmp_path / 'out', dll).read_bytes() == b'dll'
-    assert (tmp_path / 'out' / 'F4SE' / 'Plugins' / 'F3NV.dll').is_file()
+    """The committed F3NV.dll, CleanroomDialogue.dll and CleanroomUI.dll land in F4SE/Plugins of the output."""
+    assert [dll.name for dll in runtime_dll.DLLS] == ['F3NV.dll', 'CleanroomDialogue.dll', 'CleanroomUI.dll']
+    dlls = tuple(tmp_path / dll.name for dll in runtime_dll.DLLS)
+    for dll in dlls:
+        dll.write_bytes(dll.name.encode())
+    copies = runtime_dll.install(tmp_path / 'out', dlls)
+    assert [copy.read_bytes() for copy in copies] == [b'F3NV.dll', b'CleanroomDialogue.dll', b'CleanroomUI.dll']
+    assert copies[1] == tmp_path / 'out' / 'F4SE' / 'Plugins' / 'CleanroomDialogue.dll'
 
 
 def test_runner_passes_its_environment():

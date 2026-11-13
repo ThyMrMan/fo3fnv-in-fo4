@@ -1,27 +1,19 @@
-"""Our dialogue menu: the demo plugin and its links, the build's links file, and the movie.
+"""The dialogue menu on Cleanroom UI's release: the demo plugin and its links, the test mod, and the build's links
+file. The movie and CleanroomDialogue.dll are tested in Cleanroom UI.
 
 See: docs/fork/fo4_dialogue_menu_plan.md#test-build
 """
 
-import re
 import struct
 from pathlib import Path
 
 import pytest
 
-from asset_convert.ui.swf import Swf
-from fo4_import.base import mxmlc
-from fo4_import.dialogue_menu import movie as M
+from fo4_import import cleanroom
+from fo4_import import dialogue_menu as D
 from fo4_import.dialogue_menu import test_mod as T
 from fo4_import.spike import records as R
 from tools.validate.preflight.plugin_index import every, first, load_plugin, u32
-
-
-#: The menu's ActionScript source and F3NV.dll's dialogue hooks.
-MENU_AS = Path(M.__file__).parent / 'as3' / 'DialogueMenu.as'
-DIALOGUE_CPP = Path(__file__).parents[1] / 'tes_runtime' / 'fo4_condition' / 'dialogue.cpp'
-LIBRARY = Path(__file__).parents[1] / 'fo4_import' / 'base' / 'as3' / 'f3ui'
-LIBRARY_INPUT = LIBRARY / 'Input.as'
 
 
 @pytest.fixture(scope='module')
@@ -35,6 +27,19 @@ def demo(tmp_path_factory):
         _, option, _, answer = line.split('\t')
         links[1 << 24 | int(option, 16)] = 1 << 24 | int(answer, 16)
     return load_plugin(str(out / T.DEMO)), links
+
+
+@pytest.fixture
+def built(tmp_path, monkeypatch):
+    """A stand-in for Cleanroom UI's built files: the dialogue movie, two words files and another movie."""
+    folder = tmp_path / 'crui'
+    words = 'Interface/Translations/'
+    for rel in ('Interface/DialogueMenu.swf', 'Interface/CRUI_Hud.swf', f'{words}CleanroomDialogue_en.txt',
+                f'{words}CleanroomDialogue_de.txt', f'{words}CleanroomUI_en.txt'):
+        (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+        (folder / rel).write_text(rel)
+    monkeypatch.setattr(cleanroom, 'build', lambda: folder)
+    return folder
 
 
 def test_demo_links_name_listed_options_and_answer_topics(demo):
@@ -60,124 +65,32 @@ def test_demo_options_gated_by_the_global(demo):
         assert bool(flags & R.INFO_END_SCENE) != (u32(first(info, 'TSCE')) == menu)
 
 
-def test_movie_draws_only_white_so_the_hud_color_shows():
-    """Every fill is white, never a black backdrop (it would draw opaque): the menu fills nothing itself and leaves
-    Theme.color white, and the library's outline and list fill only in Theme.color.
-
-    See: docs/fork/fo4_dialogue_menu_plan.md#as-built
-    """
-    menu = MENU_AS.read_text(encoding='utf-8')
-    assert 'beginFill' not in menu and 'Theme.color' not in menu
-    assert 'public static var color:uint = WHITE;' in (LIBRARY / 'Theme.as').read_text(encoding='utf-8')
-    for name in ('ScrollList.as', 'Draw.as'):
-        source = (LIBRARY / name).read_text(encoding='utf-8')
-        body = source if name == 'ScrollList.as' else source[source.index('function outline'):source.index('function box')]
-        fills = re.findall(r'beginFill\(([^,]+),', body)
-        assert fills and set(fills) == {'Theme.color'}, name
-
-
-def test_backdrop_is_the_games_shaded_background():
-    """The backdrop is the engine's shaded background, never a fill.
-
-    See: docs/fork/fo4_dialogue_menu_plan.md#as-built
-    """
-    source = DIALOGUE_CPP.read_text(encoding='utf-8')
-    assert 'dll.ShadeList(on)' in MENU_AS.read_text(encoding='utf-8')
-    assert 'EnableShadedBackground(0x1B04350)' in source and 'MENU_QUESTION_TARGET = 0xF8' in source
+def test_test_mod_ships_cleanroom_uis_dialogue_release(tmp_path, built):
+    """The test mod holds the demo plugin, its links in CleanroomDialogue's folder, the DLL given, and only the
+    dialogue movie and words of Cleanroom UI's build."""
+    dll = tmp_path / T.DLL.name
+    dll.write_bytes(b'dll')
+    out = tmp_path / 'mod'
+    T.build(out, dll)
+    shipped = sorted(p.relative_to(out).as_posix() for p in out.rglob('*') if p.is_file())
+    assert shipped == ['F3NV_MenuTest.esp', 'F4SE/Plugins/CleanroomDialogue.dll',
+                       'F4SE/Plugins/CleanroomDialogue/F3NV_MenuTest.txt', 'Interface/DialogueMenu.swf',
+                       'Interface/Translations/CleanroomDialogue_de.txt',
+                       'Interface/Translations/CleanroomDialogue_en.txt']
+    assert T.DLL == cleanroom.DIST / 'CleanroomDialogue.dll'
 
 
-def test_failed_skill_checks_show_fnv_tags_in_the_hard_tint():
-    """FNV's tags ([Speech 25] / [Sneak 17/25], two spaces after), failed rows in the Negative holder's Hard tint.
-
-    See: docs/fork/fo4_dialogue_menu_plan.md#skill-checks
-    """
-    source, menu = DIALOGUE_CPP.read_text(encoding='utf-8'), MENU_AS.read_text(encoding='utf-8')
-    assert '"[%s %d/%u]  "' in source and '"[%s %u]  "' in source
-    assert 'TintChallenge(0x1043EF0)' in source and 'CHALLENGE_HARD = 3' in source
-    assert 'MENU_NEGATIVE_TARGET = 0xE8' in source
-    assert 'FadeHolder_mc.Negative.addChild(this.failedRows)' in menu and 'dll.TintFailed()' in menu
-
-
-def test_movie_shows_escaped_prompts_as_written():
-    """The build's &lt; &gt; &amp; show as < > & in the menu.
-
-    See: docs/fork/fo4_pipeline.md#xdi-html
-    """
-    menu = MENU_AS.read_text(encoding='utf-8')
-    assert 'split("&lt;").join("<").split("&gt;").join(">").split("&amp;").join("&")' in menu
-    assert 'this.unescaped(String(options[i].text))' in menu and 'text = this.unescaped(text);' in menu
-
-
-def test_npc_slot_gets_the_same_answer_on_every_ask():
-    """The engine asks the NPC slot each frame until the NPC can speak; each ask of that action gets the picked line.
-
-    See: docs/fork/fo4_dialogue_menu_plan.md#answer-retries
-    """
-    source = DIALOGUE_CPP.read_text(encoding='utf-8')
-    assert 'if (picked.line) return Again(picked, action, scene);' in source
-    assert 'if (picked.answeredBy != action) return nullptr;' in source and 'return picked.line;' in source
-    assert 'REFR_MODEL_STATE = 0x10A' in source and 'answered = true' not in source
-
-
-def test_prompts_write_out_the_players_macros_and_gray_on_the_answer_line():
-    """&PCName; / &PCRace; (any case, or &amp;-escaped) become the player's; said follows the answer line, not the option.
-
-    See: docs/fork/fo4_dialogue_menu_plan.md#prompt-macros
-    """
-    source = DIALOGUE_CPP.read_text(encoding='utf-8')
-    assert 'if (name == "pcname")' in source and 'if (name == "pcrace")' in source
-    assert 'if (name == "amp") name = MacroName(text, end + 1, &end);' in source
-    assert 'Expanded(own && *own ? own : Prompt(info)), At<UInt8>(line, INFO_SAID) != 0' in source
-
-
-def test_unused_rows_leave_the_holder_so_the_backdrop_fits():
-    """A hidden row still counts in the holder's bounds that size the backdrop.
-
-    See: docs/fork/fo4_dialogue_menu_plan.md#backdrop-rows
-    """
-    rows = (LIBRARY / 'ScrollList.as').read_text(encoding='utf-8')
-    assert 'var layer:Sprite = i < shown ? layerFor(items[first + i]) : null;' in rows
-    assert 'field.parent.removeChild(field);' in rows
-    assert 'scroll.show(this.entries' in MENU_AS.read_text(encoding='utf-8')
-
-
-def test_wheel_scrolls_the_list_and_skips_the_camera():
-    """The movie moves on ZoomIn/ZoomOut (f3ui's Input maps them to up and down, and the menu hands it every control);
-    F3NV.dll refuses them at the first- and third-person cameras' tests."""
-    source = DIALOGUE_CPP.read_text(encoding='utf-8')
-    assert 'ZoomIn: UP' in (LIBRARY_INPUT).read_text(encoding='utf-8')
-    assert 'this.input.control(name, down)' in MENU_AS.read_text(encoding='utf-8')
-    for rva in ('0x25AAB08', '0x10213E0', '0x2522A88', '0x102DFC0'):
-        assert rva in source
-    assert 'CAMERA_ZOOM' not in source
-
-
-def test_movie_sources_use_no_bethesda_classes():
-    """Every import is Flash's or our f3ui's: nothing from the game's movies.
-
-    See: docs/fork/fo4_dialogue_menu_plan.md#own-movie
-    """
-    for path in M.SOURCES.rglob('*.as'):
-        imports = re.findall(r'^\s*import ([\w.]+);', path.read_text(encoding='utf-8'), re.M)
-        assert all(name.startswith(('flash.', 'f3ui.')) for name in imports), (path.name, imports)
-
-
-def test_rows_take_text_only_through_f3ui():
-    """Row text goes in through Text.show, never row.text = (a "$" loses the font).
-
-    See: docs/fork/swf_framework.md#spikes
-    """
-    rows = (LIBRARY / 'ScrollList.as').read_text(encoding='utf-8')
-    assert 'Text.show(text, ' in rows and not re.search(r'\.text\s*=', rows)
-    assert not re.search(r'\.text\s*=', MENU_AS.read_text(encoding='utf-8'))
-
-
-@pytest.mark.skipif(not mxmlc.available(), reason='the Flex SDK is not installed')
-def test_movie_builds_the_same_twice_with_the_menu_at_root_menu_mc(tmp_path):
-    """Two uncompressed, undated builds are identical; Menu_mc registers the holders, calls the DLL, uses f3ui."""
-    raw = M.compile_movie(tmp_path / 'a.swf').read_bytes()
-    assert raw == M.compile_movie(tmp_path / 'b.swf').read_bytes() and raw[:3] == b'FWS'
-    assert not {t.code for t in Swf.parse(raw).tags} & set(mxmlc.DATED)
-    for name in (b'DialogueMenuRoot', b'Menu_mc', b'registerObjects', b'GetDialogueOptions', b'SelectDialogueOption',
-                 b'onF4SEObjCreated', b'QuickkeyUp', b'f3ui'):
-        assert name in raw
+def test_links_move_to_cleanroom_uis_folder(tmp_path):
+    """remove_legacy deletes the hub files and the plugin's own file in the old F3NV_Menus folder (and the folder
+    once empty), never another plugin's."""
+    old = tmp_path / D.OLD_LINKS
+    old.mkdir(parents=True)
+    for name in ('Mod.txt', 'F3NV_MenuHub.txt'):
+        (old / name).write_text('x')
+    (tmp_path / 'F3NV_MenuHub.esp').write_text('x')
+    gone = D.remove_legacy(tmp_path, 'Mod.esp')
+    assert sorted(p.name for p in gone) == ['F3NV_MenuHub.esp', 'F3NV_MenuHub.txt', 'Mod.txt'] and not old.exists()
+    (old / 'Other.txt').parent.mkdir(parents=True)
+    (old / 'Other.txt').write_text('x')
+    assert D.remove_legacy(tmp_path, 'Mod.esp') == [] and (old / 'Other.txt').is_file()
+    assert D.LINKS == Path('F4SE', 'Plugins', 'CleanroomDialogue')

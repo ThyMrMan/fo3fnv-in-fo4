@@ -17,7 +17,10 @@ releases, so there is one copy of each piece.
 
 One F4SE plugin (`tes_runtime/fo4_condition/`, about 3,200 lines). Each
 feature is one file. All features share `condition.h`, and `plugin.cpp`
-installs all of them at load.
+installs all of them at load. Since 2026-11-13 ([move](#move), steps 1 and
+3) only `plugin.cpp` (starting condition, combat sprint), `damage.cpp`,
+`hardcore.cpp` (with its own menu listener), `talk.cpp` and `gfx.cpp` (the
+casino's natives) are left; the rest is Cleanroom UI's.
 
 | File | Feature | Papyrus | Installs |
 |---|---|---|---|
@@ -25,12 +28,12 @@ installs all of them at load.
 | `pipboy.cpp` | CND line, repair list and ammo list on the Pip-Boy item card | `F3NV_Condition.Pipboy*`, `F3NV_PipboyAmmo` | Pip-Boy menu listener |
 | `pages.cpp` | Extra STAT tabs | `F3NV_Pipboy.SetTab` | (through the Pip-Boy listener) |
 | `card.cpp` | Other mods' lines on the Pip-Boy item card, per item or per keyword ([card lines](swf_framework.md#card-lines)) | `F3NV_ItemCard.SetLine` | (drawn by our Pip-Boy movie) |
-| `gfx.cpp` | Flash helpers shared by the hooked menus, and natives any movie of ours may call (`TextureExists`, for f3ui's images) | Scaleform natives `F3NV` | Nothing |
+| `gfx.cpp` | Flash helpers shared by the hooked menus, and natives any movie of ours may call (`Log`, `HudColor`, `TextureExists` for f3ui's images) | Scaleform natives `F3NV` | Nothing |
 | `ammo.cpp` | Ammo choice list for the highlighted gun | `F3NV_PipboyAmmo` | (through the Pip-Boy listener) |
 | `damage.cpp` | Flat Damage Threshold, per pellet | `F3NV_Damage.SetRules` | Four resistance-curve call redirects; off until `SetRules` |
 | `hardcore.cpp` | Ammo weight outside Survival, HUD needs | `F3NV_HardcoreNative.Track` | One call redirect; off until its global is set |
 | `sex.cpp` | Change an actor's sex through the game's own handler | `F3NV_Sex.ChangeSex` | Nothing |
-| `dialogue.cpp` | Dialogue menu with any number of options | Scaleform natives `F3NV` | Three call redirects at PostLoad; stays out when `XDI.dll` is loaded |
+| `dialogue.cpp` | Dialogue menu with any number of options; Cleanroom UI's `CleanroomDialogue.dll` since 2026-11-13 ([move](#move)) | Scaleform natives `F3NV` | Three call redirects at PostLoad; stays out when `XDI.dll` is loaded |
 | `plugin.cpp` | No combat sprinting | none | Turns `bCombatPathSprinting` off for every actor, always |
 
 Hardcoded: about 35 `RelocAddr` addresses for Fallout4.exe 1.11.240, built on
@@ -213,6 +216,71 @@ Everything else needs F4SE and stays PC (and later VR).
 - The FO4 build session owns F3NV.dll builds ([build ownership](../../CLAUDE.md)).
   The split is done on its own branch and handed over as "ready", never
   built into a game folder by the side session.
+
+## <a id="move"></a>The converter on Cleanroom UI (plan 2026-11-13)
+
+Cleanroom UI now holds the framework, the dialogue menu, the level-up host
+and the HUD, and builds all of them on its own (`python -m crui`:
+`CleanroomUI.esl`, the movies, the `CRUI_` scripts, the translations,
+`CleanroomUI.dll` and `CleanroomDialogue.dll`). The converter still builds
+its own copies: F3NV.dll with every feature in the [table above](#today),
+the `F3NV_` native scripts, `F3NV_Pipboy.swf` and `DialogueMenu.swf` on
+`f3ui`, the level-up movie on `f3ui`, and copies of `CRUI_LevelUp`,
+`CRUI_LevelUpHolder`, `CRUI_LevelUpTable`, `CRUI_Array` and
+`CleanroomUI.esl`. Installed beside Cleanroom UI, both DLLs would hook the
+Pip-Boy and the dialogue menu.
+
+**Where the converter finds Cleanroom UI.** One module,
+`fo4_import/cleanroom.py`, finds the checkout (`external/cleanroom_ui`,
+else `CRUI_HOME`), runs `python -m crui <steps> --out <cache>` with the
+converter's own Flex SDK and Fallout 4 paths, caches the result under
+`temp/cleanroom_ui/<commit>`, and installs what a build needs. The DLLs
+can't be built on a user's machine (Visual Studio), so the two built from
+the pinned commit are committed to `tes_runtime/dist/` beside F3NV.dll,
+with that commit in `tes_runtime/dist/cleanroom_ui.txt`, and
+`runtime_dll.py` installs all three. Cleanroom UI is private and this repo
+public, so until it is public (its first release) the checkout is a local
+clone, not a submodule, and a clone of this repo without it cannot build
+the menus. Then it becomes a pinned submodule.
+
+**Steps, in order** (each built, then played, before the next):
+1. **The dialogue menu** (built 2026-11-13, not played). `CleanroomDialogue.dll` and Cleanroom UI's
+   `DialogueMenu.swf` and `CleanroomDialogue_<language>.txt` in place of
+   ours; the links written to `F4SE\Plugins\CleanroomDialogue\` (its DLL
+   still reads `F3NV_Menus\`, logged `DEPRECATED`, and the build deletes
+   the old files); `dialogue.cpp` out of F3NV.dll, which keeps registering
+   its other movie natives under `F3NV` for the casino and the Pip-Boy
+   until steps 3 and 4; our movie, its `dialogue_menu/as3` and the test
+   mod's DLL switch go. First because it
+   stands alone, and because it ships the natives every movie may call
+   (`TextureExists`, `HudColor`), which Cleanroom UI's level-up movie
+   needs.
+2. **The level-up and the shared plugin** (built 2026-11-13, not played). Cleanroom UI's `CRUI_LevelUp`
+   movie, its `CRUI_` scripts (compiled with the converted scripts, which
+   import them) and its `CleanroomUI.esl` and words; our copies
+   (`fo4_import/level_up/as3`, the four `CRUI_` scripts in
+   `static_scripts`, `cleanroom_plugin.py`, the `$CRUI_LU_` keys in
+   `FalloutHelpers_<language>.txt`) are deleted. The `F3NV_LevelUp` stub
+   stays ([crui](fo4_level_up_plan.md#crui)).
+3. **The framework** (built 2026-11-13, not played). `CleanroomUI.dll` and `CRUI_Pipboy.swf` in place of
+   F3NV.dll's condition API, Pip-Boy, tabs, card lines, ammo list,
+   transfer and barter lines and `ChangeSex`; the converter's scripts call
+   `CRUI_Condition`, `CRUI_ItemCard`, `CRUI_Pipboy`, `CRUI_PipboyAmmo` and
+   `CRUI_Sex` and listen for `CRUI_ConditionRepair` and `CRUI_AmmoSwitch`.
+   The five `F3NV_` native scripts hold no saved state, so they are deleted
+   with no stub. F3NV.dll keeps only FNV's rules (Damage Threshold,
+   Hardcore, the spawn condition, combat sprint, `F3NV_Talk`), with its own
+   menu-open listener for the Hardcore HUD; `F3NV_Pipboy.swf` is deleted
+   when the build installs.
+4. **The casino on Cleanroom UI's library.** Its movie imports `crui.*`
+   and builds with Cleanroom UI's `mxmlc` module; `fo4_import/base/as3/f3ui`
+   and our `mxmlc.py` and `swf.py` copies go.
+5. **Hardcore's needs on the HUD** as a `CRUI_Hud.AddStats` widget, in
+   place of F3NV.dll drawing into `HUDMenu`.
+6. **The submodule**, when Cleanroom UI is public.
+
+Each step deletes the old copy in the same change (no two copies), and
+each moved runtime file keeps the [end-user rule](../../CLAUDE.md#end-user-state).
 
 ## <a id="order"></a>Order
 

@@ -6,7 +6,9 @@ See: docs/fork/fo4_spikes.md#spike-3-helper-plugin
 import struct
 from pathlib import Path
 
-from fo4_import import cleanroom_plugin
+import pytest
+
+from fo4_import import cleanroom
 from fo4_import import helpers_plugin as H
 from fo4_import import helpers_races as HR
 from script_convert import target
@@ -16,7 +18,6 @@ from script_convert.constants import (CLEANROOM_HOLDER, CLEANROOM_PLUGIN, FALLOU
 from script_convert.helpers_fallout4 import av_function
 from tes5_import.base.tes5_reader import subrecords, walk
 
-STATIC = Path(H.__file__).parents[1] / 'script_convert' / 'static_scripts' / 'fallout4'
 
 
 def test_ids_are_unique_and_fit_a_light_plugin():
@@ -79,27 +80,27 @@ def test_the_trace_switch_is_an_empty_light_plugin_tracing_names(tmp_path):
     assert f'Game.IsPluginInstalled("{FALLOUT4_TRACE_PLUGIN}")' in polyfill
 
 
-def test_cleanroom_plugin_holds_the_shared_level_up_holder(tmp_path):
-    """CleanroomUI.esl: a light master without masters, one start-game quest at CLEANROOM_HOLDER carrying
-    CRUI_LevelUpHolder, the quest and file CRUI_LevelUpHolder.Shared() reads.
+@pytest.mark.skipif(cleanroom.checkout() is None, reason='no Cleanroom UI checkout')
+def test_cleanroom_uis_holder_is_where_our_constants_say():
+    """CRUI_LevelUpHolder.Shared() reads the quest at CLEANROOM_HOLDER in CLEANROOM_PLUGIN, the file the app ticks.
     See: docs/fork/fo4_level_up_plan.md#plugin
     """
-    raw = cleanroom_plugin.build(tmp_path).read_bytes()
-    assert (tmp_path / CLEANROOM_PLUGIN).is_file() and b'MAST' not in raw
-    assert struct.unpack_from('<I', raw, 8)[0] & 0x201 == 0x201
-    [(rec, subs)] = [(r, r.sub_map()) for r, _ in walk(raw)]
-    assert (rec.sig, rec.form_id) == (b'QUST', CLEANROOM_HOLDER) and struct.unpack_from('<H', subs[b'DNAM'])[0] & 1
-    assert cleanroom_plugin.HOLDER_SCRIPT.encode() in subs[b'VMAD']
-    holder = (STATIC / f'{cleanroom_plugin.HOLDER_SCRIPT}.psc').read_text(encoding='utf-8')
+    holder = cleanroom.scripts()['CRUI_LevelUpHolder.psc'].read_text(encoding='utf-8')
     assert f'Game.GetFormFromFile(0x{CLEANROOM_HOLDER:X}, "{CLEANROOM_PLUGIN}")' in holder
+    assert cleanroom.PLUGIN_FILES == (CLEANROOM_PLUGIN,)
 
 
-def test_the_helpers_command_writes_cleanroom_beside_the_helpers(tmp_path, monkeypatch):
-    """`helpers_plugin --out <dir>/FalloutHelpers.esl` also writes <dir>/CleanroomUI.esl."""
+def test_the_helpers_command_copies_cleanroom_beside_the_helpers(tmp_path, monkeypatch):
+    """`helpers_plugin --out <dir>/FalloutHelpers.esl` also copies Cleanroom UI's built CleanroomUI.esl to <dir>."""
+    built = tmp_path / 'crui'
+    built.mkdir()
+    (built / CLEANROOM_PLUGIN).write_bytes(b'TES4')
+    monkeypatch.setattr(cleanroom, 'build', lambda: built)
     monkeypatch.setattr(H, 'build', lambda out: 0)
-    monkeypatch.setattr('sys.argv', ['helpers_plugin', '--out', str(tmp_path / H.FALLOUT4_HELPER_PLUGIN)])
+    out = tmp_path / 'out'
+    monkeypatch.setattr('sys.argv', ['helpers_plugin', '--out', str(out / H.FALLOUT4_HELPER_PLUGIN)])
     H.main()
-    assert (tmp_path / CLEANROOM_PLUGIN).is_file()
+    assert (out / CLEANROOM_PLUGIN).read_bytes() == b'TES4'
 
 
 def test_actor_values_resolve_in_any_case_and_by_skyrim_alias():

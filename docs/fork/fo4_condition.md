@@ -1,7 +1,11 @@
 # Item condition on Fallout 4
 
 **Status:** built 2026-10-22/23 in the F3NV F4SE plugin
-(`tes_runtime/fo4_condition/`); each part's play state is in its heading. The
+(`tes_runtime/fo4_condition/`); each part's play state is in its heading.
+Since 2026-11-13 the natives, the Pip-Boy, repair, vendor repair, the ammo
+list and the transfer menus' CND line are Cleanroom UI's `CleanroomUI.dll`
+(its `dll/framework/`, the same code) and our scripts call `CRUI_Condition`;
+F3NV.dll keeps the weapons' starting condition ([move](spin_offs.md#move)). The
 decision is in [drift](fo4_drift.md#candidates). Mods read for method: [Armor and Weapon Condition](research/fo4_target.md#awc)
 and [NV Ammo Crafting](research/fo4_target.md#nv-ammo).
 

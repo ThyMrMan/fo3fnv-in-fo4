@@ -76,8 +76,8 @@ def test_our_code_uses_only_keys_the_english_file_has():
                          'key only in another language': []}
 
 
-def test_the_code_scanned_includes_the_dll_and_its_pipboy_keys():
-    """F3NV.dll's sources are scanned: the Pip-Boy's CND and REPAIR keys come from pipboy.cpp."""
-    used = T.used_keys()
-    assert 'pipboy.cpp' in used['$F3NV_CND'] and 'pipboy.cpp' in used['$F3NV_REPAIR']
-    assert 'DialogueMenu.as' in used['$F3NV_LEAVE']
+def test_the_code_scanned_includes_the_dll_and_the_mcm_page():
+    """F3NV.dll's sources and our MCM pages are scanned."""
+    folders = {folder.name for folder, _ in T.CODE}
+    assert 'fo4_condition' in folders
+    assert 'config.json' in T.used_keys()['$F3NV_MCM_LEVEL_UP']

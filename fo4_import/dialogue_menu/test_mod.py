@@ -1,12 +1,13 @@
-"""A test mod for our dialogue menu: F3NV.dll, the menu movie, and a scratch plugin with its option links.
+"""A test mod for the dialogue menu: Cleanroom UI's CleanroomDialogue.dll, movie and words, and a scratch plugin with
+its option links.
 
-    py -3.14 -m fo4_import.dialogue_menu.test_mod [--out DIR] [--dll F3NV.dll]
+    py -3.14 -m fo4_import.dialogue_menu.test_mod [--out DIR] [--dll CleanroomDialogue.dll]
 
 The scratch plugin, F3NV_MenuTest.esp (Fallout4.esm its only master), has
 one menu of DEMO options; each option's answer topic tests one rule. With the
 global F3NVMenuTest at 1 (2: also the alternate lines), any NPC the player
 talks to greets with the menu. A links file names each option's answer
-topic for F3NV.dll (dialogue.cpp).
+topic for CleanroomDialogue.dll (dialogue.cpp).
 
 See: docs/fork/fo4_dialogue_menu_plan.md#test-build
 """
@@ -15,16 +16,18 @@ import argparse
 import shutil
 from pathlib import Path
 
+from fo4_import import cleanroom
 from fo4_import.base.mxmlc import REPO
 from fo4_import.base.support_records import pack_global
 from fo4_import.base.writer import FO4PluginWriter, pack_quest, pack_topic
-from fo4_import.dialogue_menu import movie
 from fo4_import.dialogue_menu import LINKS, write_links
 from fo4_import.spike import records as R
 
 DEMO = 'F3NV_MenuTest.esp'
 MASTERS = ['Fallout4.esm']
-DLL = REPO / 'tes_runtime' / 'dist' / 'F3NV.dll'
+DLL = cleanroom.DIST / cleanroom.DIALOGUE_DLL
+#: Where the test mod is written by default.
+OUTPUT = REPO / 'output' / 'fo4_dialogue_menu'
 #: FO4 condition functions (xEdit wbDefinitionsFO4.pas): GetGlobalValue, GetPlayerActivated.
 GLOBAL_VALUE, PLAYER_ACTIVATED = 74, 483
 #: CTDA compare: equal, greater or equal.
@@ -113,11 +116,11 @@ def demo_plugin(path: Path) -> list:
 
 
 def build(out: Path, dll: Path = DLL) -> list:
-    """The test mod in `out`: demo plugin, its links, the menu movie and `dll`; the files written."""
+    """The test mod in `out`: demo plugin, its links, the menu's movie and words and `dll`; the files written."""
     rows = demo_plugin(out / DEMO)
     written = [out / DEMO, write_links(out / LINKS / f'{Path(DEMO).stem}.txt', rows)]
-    written.append(movie.install(out))
-    target = out / 'F4SE' / 'Plugins' / 'F3NV.dll'
+    written += cleanroom.install(out, cleanroom.DIALOGUE_FILES)
+    target = out / 'F4SE' / 'Plugins' / dll.name
     shutil.copyfile(dll, target)
     return written + [target]
 
@@ -125,8 +128,8 @@ def build(out: Path, dll: Path = DLL) -> list:
 def main():
     """Build the test mod and list its files."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--out', type=Path, default=movie.OUTPUT, help='the mod folder to write')
-    parser.add_argument('--dll', type=Path, default=DLL, help='the F3NV.dll to ship in it')
+    parser.add_argument('--out', type=Path, default=OUTPUT, help='the mod folder to write')
+    parser.add_argument('--dll', type=Path, default=DLL, help='the CleanroomDialogue.dll to ship in it')
     args = parser.parse_args()
     for path in build(args.out, args.dll):
         print(path)

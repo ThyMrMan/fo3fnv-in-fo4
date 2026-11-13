@@ -17,7 +17,7 @@ from script_convert.symbols import needs_actor, type_of_expr
 from script_convert.target import ARRAY_TYPE, is_fallout4
 from script_convert.tes4 import nodes as N
 
-#: The Papyrus script holding the array functions (static_scripts/fallout4/CRUI_Array.psc).
+#: The Papyrus script holding the array functions (Cleanroom UI's papyrus/CRUI_Array.psc, fo4_import.cleanroom).
 ARRAY = 'CRUI_Array'
 #: Arguments CRUI_Array.List takes after its count (xNVSE ar_List takes at most 20); unused ones pass None.
 LIST_SLOTS = 20

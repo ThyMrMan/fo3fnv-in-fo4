@@ -103,3 +103,6 @@ tests/navmesh_fixed/
 # The FO4 app's portable settings and replacement files (fo4_import/app/settings.py)
 /fo4_app.json
 /replacements/
+
+# Cleanroom UI checkout (private until its first release; docs/fork/spin_offs.md#move)
+external/cleanroom_ui/

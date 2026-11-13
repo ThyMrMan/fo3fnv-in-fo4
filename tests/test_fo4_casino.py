@@ -125,9 +125,9 @@ def test_the_menu_draws_in_the_hud_color_from_the_dll():
     theme = (LIBRARY / 'Theme.as').read_text(encoding='utf-8')
     assert 'color = dll != null && dll.HudColor != null ? uint(dll.HudColor()) : WHITE;' in theme
     assert 'Theme.fromHud(dll)' in (AS3 / 'F3NV_Casino.as').read_text(encoding='utf-8')
-    dialogue = (RUNTIME / 'dialogue.cpp').read_text(encoding='utf-8')
-    assert 'RegisterFunction<HudColorNative>(plugin, movie, "HudColor");' in dialogue
-    assert 'args->result->SetUInt(HudColor("iHUDColor"));' in dialogue
+    natives = (RUNTIME / 'gfx.cpp').read_text(encoding='utf-8')
+    assert 'RegisterFunction<HudColorNative>(plugin, movie, "HudColor");' in natives
+    assert 'args->result->SetUInt(HudColor("iHUDColor"));' in natives
     assert 'UInt32 HudColor(const char *prefix);' in (RUNTIME / 'condition.h').read_text(encoding='utf-8')
 
 

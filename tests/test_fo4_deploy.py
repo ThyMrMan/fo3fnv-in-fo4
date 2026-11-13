@@ -99,6 +99,20 @@ def test_the_xdi_era_hub_is_retired_from_the_mods_beside(tmp_path):
     assert (links / 'F3NV_MenuTest.txt').is_file()
 
 
+def test_old_links_files_go_once_cleanroom_uis_folder_has_them(tmp_path):
+    """A links file in the old F3NV_Menus folder is deleted once a mod beside --mod has the same plugin's file in
+    CleanroomDialogue; one with no new file stays."""
+    build, mod = _folders(tmp_path)
+    old, new = (tmp_path / 'Old Mod' / 'F4SE' / 'Plugins' / 'F3NV_Menus',
+                tmp_path / 'New Mod' / 'F4SE' / 'Plugins' / 'CleanroomDialogue')
+    for path in (old / 'FalloutNV.txt', old / 'Other.txt', new / 'FalloutNV.txt'):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('x')
+    assert _run(build, mod) == 0
+    assert not (old / 'FalloutNV.txt').exists() and (old / 'Other.txt').is_file()
+    assert (new / 'FalloutNV.txt').is_file()
+
+
 def test_dry_run_changes_nothing(tmp_path):
     """--dry-run copies and deletes nothing, even with --delete-stale."""
     build, mod = _folders(tmp_path)

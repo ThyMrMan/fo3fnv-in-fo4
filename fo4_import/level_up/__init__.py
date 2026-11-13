@@ -1,34 +1,23 @@
-"""Our level-up menu's movie, Interface/CRUI_LevelUp.swf, built from as3/ with mxmlc and our f3ui library.
+"""Cleanroom UI's level-up menu, installed with the masterless build: its movie, Interface/CRUI_LevelUp.swf, and the
+words of every CleanroomUI movie, CleanroomUI_<language>.txt (fo4_import.cleanroom).
 
-CRUI_LevelUp.psc registers it with F4SE and opens it in place of LevelUpMenu
-(F3NV_CharacterRules); the data it shows comes from the build's tables on that
-script (fo4_import/spike/level_up.py). Cached under temp/ by the sources' hash;
-the masterless build installs it.
+CRUI_LevelUp.psc registers the movie with F4SE and opens it in place of
+LevelUpMenu (F3NV_CharacterRules); the data it shows comes from the build's
+tables on that script (fo4_import/spike/level_up.py). The MCM page for its
+options is ours (mcm/, options.py).
 
 See: docs/fork/fo4_level_up_plan.md#menu
 """
 
 from pathlib import Path
 
-from fo4_import.base import mxmlc
-from fo4_import.base.mxmlc import REPO
+from fo4_import import cleanroom
 
-SOURCES = Path(__file__).resolve().parent / 'as3'
-CACHE = REPO / 'temp' / 'fo4_level_up'
-#: The movie's path in a data folder: the menu name CRUI_LevelUp.psc registers, under Interface.
-MOVIE = 'Interface/CRUI_LevelUp.swf'
-#: The document class: the movie's root.
-DOCUMENT = 'CRUI_LevelUp'
 #: DEPRECATED: the movie's path before CRUI_LevelUp, which install deletes.
 OLD_MOVIE = 'Interface/F3NV_LevelUp.swf'
 
 
-def compile_movie(out: Path, sources: Path = SOURCES) -> Path:
-    """The movie of `sources`, written to `out`."""
-    return mxmlc.compile_movie(out, sources, DOCUMENT)
-
-
 def install(data_dir: Path) -> int:
-    """Copy the movie to <data_dir>/Interface, deleting an older build's OLD_MOVIE; 1 if installed, 0 if not built."""
+    """Copy the movie and words into `data_dir`, deleting an older build's OLD_MOVIE; how many files were copied."""
     (Path(data_dir) / OLD_MOVIE).unlink(missing_ok=True)
-    return int(mxmlc.install(data_dir, MOVIE, SOURCES, DOCUMENT, CACHE) is not None)
+    return len(cleanroom.install(data_dir, cleanroom.LEVEL_UP_FILES))

@@ -1,17 +1,12 @@
-// F3NV: FO3/FNV item condition on Fallout 4 (docs/fork/fo4_condition.md).
-//
-// Condition is the engine's own item health (ExtraHealth, 0 to 1) on an inventory stack, which the save keeps.
-// Fallout 4 gives Papyrus no way to read or write it on an inventory item, so this plugin adds natives to the
-// script F3NV_Condition; the rules (wear, effects, repair) live in Papyrus and records. pipboy.cpp shows the
-// condition on the Pip-Boy's item card and reports the highlighted item.
+// F3NV: FNV's own rules on Fallout 4 (condition.h; docs/fork/spin_offs.md#move): weapons' starting condition and
+// no combat sprint (here), Damage Threshold, Hardcore, a Goodbye ending the talk, and the casino movie's natives.
+// The item condition API and the Pip-Boy are Cleanroom UI's CleanroomUI.dll, which this plugin no longer carries.
 // Built against F4SE 0.7.9 for Fallout4.exe 1.11.240.
 #include "condition.h"
 
 #include "f4se/PluginAPI.h"
-#include "f4se/GameRTTI.h"
+#include "f4se/GameReferences.h"
 #include "f4se/GameSettings.h"
-#include "f4se/PapyrusArgs.h"
-#include "f4se/PapyrusNativeFunctions.h"
 #include "f4se/PapyrusVM.h"
 #include "f4se_common/BranchTrampoline.h"
 #include "f4se_common/f4se_version.h"
@@ -21,76 +16,6 @@
 namespace condition {
 
 std::mutex g_lock;
-std::unordered_set<UInt32> g_tracked;
-Selection g_selection;
-
-BGSInventoryItem::Stack *FindStack(TESObjectREFR *holder, TESForm *item, SInt32 index, SInt32 *at) {
-    if (!holder || !item || !holder->inventoryList) return nullptr;
-    BGSInventoryItem::Stack *first = nullptr, *equipped = nullptr, *indexed = nullptr;
-    SInt32 equippedAt = -1;
-    BGSInventoryList *list = holder->inventoryList;
-    list->inventoryLock.LockForRead();
-    for (UInt32 i = 0; i < list->items.count && !first; i++) {
-        BGSInventoryItem entry;
-        list->items.GetNthItem(i, entry);
-        if (entry.form != item) continue;
-        SInt32 n = 0;
-        for (BGSInventoryItem::Stack *s = entry.stack; s; s = s->next, n++) {
-            if (!first) first = s;
-            if (n == index) indexed = s;
-            if (!equipped && (s->flags & BGSInventoryItem::Stack::kFlagEquipped)) equipped = s, equippedAt = n;
-        }
-    }
-    list->inventoryLock.UnlockRead();
-    if (at) *at = indexed ? index : equipped ? equippedAt : first ? 0 : -1;
-    return indexed ? indexed : equipped ? equipped : first;
-}
-
-float HealthOf(BGSInventoryItem::Stack *stack) {
-    if (!stack || !stack->extraData) return -1.0f;
-    auto *health = static_cast<ExtraHealth *>(stack->extraData->GetByType(kExtraData_Health));
-    return health ? health->health : -1.0f;
-}
-
-namespace {
-
-// The engine's own stack writer (Fallout4.exe 1.11.240; docs/fork/fo4_condition.md#stack-writer):
-// TESObjectREFR::FindAndWriteStackData(object, compare, write, objectCompare, alwaysContinue) visits the
-// stacks of the items objectCompare matches and writes the first the compare functor accepts.
-// BGSInventoryItem::CheckStackIDFunctor accepts the stack its countdown reaches; SetHealthFunctor writes
-// health, splitting one copy off a shared stack and moving the equipped flag to it (both flags set, as the
-// game's own call at 0x98E750 sets them).
-using FindAndWrite = void (*)(TESObjectREFR *, TESForm *, void *, void *, bool (*)(TESForm *, TESForm *), bool);
-RelocAddr<FindAndWrite> FindAndWriteStackData(0x502560);
-RelocAddr<void *> CHECK_STACK_ID_VTABLE(0x247A038), SET_HEALTH_VTABLE(0x252B680);
-
-struct CheckStackID {
-    uintptr_t vtable;
-    UInt32 countdown;
-    UInt32 pad;
-};
-
-struct SetHealthWrite {
-    uintptr_t vtable;
-    UInt8 splitStacks, transferEquipped, pad[6];
-    float health;
-    UInt32 pad2;
-};
-
-bool SameObject(TESForm *a, TESForm *b) {
-    return a == b;
-}
-
-}  // namespace
-
-bool WriteHealth(TESObjectREFR *holder, TESForm *item, SInt32 index, float value) {
-    SInt32 at = -1;
-    if (!FindStack(holder, item, index, &at) || at < 0) return false;
-    CheckStackID compare = {CHECK_STACK_ID_VTABLE.GetUIntPtr(), UInt32(at), 0};
-    SetHealthWrite write = {SET_HEALTH_VTABLE.GetUIntPtr(), 1, 1, {}, value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value, 0};
-    FindAndWriteStackData(holder, item, &compare, &write, SameObject, false);
-    return true;
-}
 
 }  // namespace condition
 
@@ -98,7 +23,6 @@ namespace {
 
 using namespace condition;
 
-const char *SCRIPT = "F3NV_Condition";
 PluginHandle g_handle = kPluginHandle_Invalid;
 void *g_tasks = nullptr;
 
@@ -110,9 +34,8 @@ void *g_tasks = nullptr;
 using MaxHealthFn = UInt32 (*)(TESForm *, TESObjectREFR *);
 RelocAddr<MaxHealthFn> MaxHealth(0x316940);
 RelocAddr<uintptr_t> SPAWN_HEALTH_CALL(0x271611);
-// The spawn-health call, damage.cpp's four calls and two stubs, hardcore.cpp's call, dialogue.cpp's three calls.
+// The spawn-health call, damage.cpp's four calls and two stubs, hardcore.cpp's call.
 const size_t TRAMPOLINE_SIZE = 256;
-bool g_trampoline = false;
 
 UInt32 SpawnMaxHealth(TESForm *form, TESObjectREFR *ref) {
     UInt32 health = MaxHealth(form, ref);
@@ -142,185 +65,19 @@ void NoCombatSprint() {
     _MESSAGE("combat approach sprint %s", found ? "off" : "left on (setting not found)");
 }
 
-// F4SE messages: hook dialogue once every plugin has loaded (so XDI.dll shows), the Pip-Boy once the game has loaded
-// (the UI exists then); forget mods' item-card lines as a save loads or a new game starts.
+// F4SE messages: once the game has loaded (the INI files are read and the UI exists), no combat sprint again and
+// listen for menus for the Hardcore HUD.
 void OnMessage(F4SEMessagingInterface::Message *msg) {
-    if (msg->type == F4SEMessagingInterface::kMessage_PostLoad && g_trampoline) HookDialogue(g_tasks);
-    if (msg->type == F4SEMessagingInterface::kMessage_PreLoadGame || msg->type == F4SEMessagingInterface::kMessage_NewGame)
-        ForgetCardLines();
     if (msg->type != F4SEMessagingInterface::kMessage_GameLoaded) return;
     NoCombatSprint();
-    InstallPipboy(g_tasks);
-}
-
-
-// Papyrus: the health of `item` in `holder` (0 to 1); -1 when it is not held or has none set yet.
-float GetHealth(StaticFunctionTag *, TESObjectREFR *holder, TESForm *item) {
-    return HealthOf(FindStack(holder, item));
-}
-
-// Papyrus: set `item`'s health in `holder`, adding it when it has none; false when it is not held.
-bool SetHealth(StaticFunctionTag *, TESObjectREFR *holder, TESForm *item, float value) {
-    return WriteHealth(holder, item, -1, value);
-}
-
-// Papyrus: GetHealth on stack `stack` of `item` (-1: its equipped, else first; a stack it lacks: the same).
-float GetStackHealth(StaticFunctionTag *, TESObjectREFR *holder, TESForm *item, SInt32 stack) {
-    return HealthOf(FindStack(holder, item, stack));
-}
-
-// Papyrus: SetHealth on stack `stack` of `item`, as GetStackHealth picks it.
-bool SetStackHealth(StaticFunctionTag *, TESObjectREFR *holder, TESForm *item, SInt32 stack, float value) {
-    return WriteHealth(holder, item, stack, value);
-}
-
-// Papyrus: the health of the weapon `actor` has equipped (0 to 1); -1 with none or none set.
-float GetEquippedWeaponHealth(StaticFunctionTag *tag, Actor *actor) {
-    if (!actor || !actor->inventoryList) return -1.0f;
-    BGSInventoryList *list = actor->inventoryList;
-    TESForm *weapon = nullptr;
-    list->inventoryLock.LockForRead();
-    for (UInt32 i = 0; i < list->items.count && !weapon; i++) {
-        BGSInventoryItem entry;
-        list->items.GetNthItem(i, entry);
-        if (entry.form && entry.form->formType == kFormType_WEAP)
-            for (BGSInventoryItem::Stack *s = entry.stack; s; s = s->next)
-                if (s->flags & BGSInventoryItem::Stack::kFlagEquipped) weapon = entry.form;
-    }
-    list->inventoryLock.UnlockRead();
-    return weapon ? GetHealth(tag, actor, weapon) : -1.0f;
-}
-
-// Papyrus: how many of `item` share its stack in `holder` (they share one condition); 0 when not held.
-UInt32 StackCount(StaticFunctionTag *, TESObjectREFR *holder, TESForm *item) {
-    BGSInventoryItem::Stack *stack = FindStack(holder, item);
-    return stack ? stack->count : 0;
-}
-
-// Papyrus: `items` wear, so the Pip-Boy shows their condition; adds to the forms already given.
-void Track(StaticFunctionTag *, VMArray<TESForm *> items) {
-    std::lock_guard<std::mutex> hold(g_lock);
-    for (UInt32 i = 0; i < items.Length(); i++) {
-        TESForm *form = nullptr;
-        items.Get(&form, i);
-        if (form) g_tracked.insert(form->formID);
-    }
-}
-
-// Papyrus: the item highlighted in the Pip-Boy's inventory when it wears; None otherwise.
-TESForm *PipboySelection(StaticFunctionTag *) {
-    std::lock_guard<std::mutex> hold(g_lock);
-    return g_selection.form ? LookupFormByID(g_selection.form) : nullptr;
-}
-
-// Papyrus: the stack index of PipboySelection's item (-1 with none).
-SInt32 PipboyStack(StaticFunctionTag *) {
-    std::lock_guard<std::mutex> hold(g_lock);
-    return g_selection.form ? g_selection.stack : -1;
-}
-
-// Papyrus: show the highlighted item's condition again on the Pip-Boy's item card.
-void PipboyRefresh(StaticFunctionTag *) {
-    RefreshPipboy();
-}
-
-// Papyrus: the FNV repair lists (`lists`: weapons' first, then armors', parallel to the two), the Jury Rigging
-// groups (parallel to `lists`) and the Repair skill.
-void TrackRepairLists(StaticFunctionTag *, VMArray<TESForm *> weapons, VMArray<TESForm *> armors,
-                      VMArray<TESForm *> lists, VMArray<SInt32> groups, ActorValueInfo *skill) {
-    for (UInt32 i = 0; i < weapons.Length() + armors.Length() && i < lists.Length(); i++) {
-        TESForm *item = nullptr, *list = nullptr;
-        SInt32 group = 0;
-        if (i < weapons.Length()) weapons.Get(&item, i);
-        else armors.Get(&item, i - weapons.Length());
-        lists.Get(&list, i);
-        if (i < groups.Length()) groups.Get(&group, i);
-        TrackRepair(item, list ? DYNAMIC_CAST(list, TESForm, BGSListForm) : nullptr, group, skill);
-    }
-    TrackRepair(nullptr, nullptr, 0, skill);
-}
-
-// Papyrus: whether the player has Jury Rigging.
-void SetJuryRiggingNative(StaticFunctionTag *, bool has) {
-    SetJuryRigging(has);
-}
-
-// Papyrus: repair stack `stack` of `item` from one copy of `spare` (its stack `spareStack`; -1: its worst):
-// the new health, or -1 with no such spare.
-float RepairWithNative(StaticFunctionTag *, Actor *holder, TESForm *item, SInt32 stack, TESForm *spare,
-                       SInt32 spareStack) {
-    return RepairWith(holder, item, stack, spare, spareStack);
-}
-
-// Papyrus: how many spare stacks `holder` carries for stack `stack` of `item`.
-UInt32 SpareCount(StaticFunctionTag *, Actor *holder, TESForm *item, SInt32 stack) {
-    SInt32 at = -1;
-    return FindStack(holder, item, stack, &at) ? UInt32(Spares(holder, item, at).size()) : 0;
-}
-
-// Papyrus: carry out the repair chosen in the Pip-Boy's repair list or vendor offer: the new health, -1 with none
-// chosen, -2 short of the vendor's price.
-float PipboyRepair(StaticFunctionTag *, Actor *holder) {
-    Repair chosen;
-    if (!TakePipboyRepair(&chosen)) return -1.0f;
-    if (chosen.health >= 0.0f)
-        return BuyRepair(holder, LookupFormByID(chosen.item), chosen.stack, chosen.cost, chosen.health);
-    return RepairWith(holder, LookupFormByID(chosen.item), chosen.stack, LookupFormByID(chosen.spare),
-                      chosen.spareStack);
-}
-
-// Papyrus: offer `vendor`'s repair services on the Pip-Boy's repair card until it closes (None: stop).
-void SetVendorNative(StaticFunctionTag *, Actor *vendor) {
-    SetVendor(vendor);
-}
-
-// Papyrus: FNV's vendor repair GMSTs (fRepairSkillBase, fRepairSkillMax, fItemRepairCostMult).
-void SetServiceRulesNative(StaticFunctionTag *, float skillBase, float skillMax, float costMult) {
-    SetServiceRules(skillBase, skillMax, costMult);
+    InstallHud(g_tasks);
 }
 
 bool Register(VirtualMachine *vm) {
-    RegisterPages(vm);
-    RegisterAmmo(vm);
-    RegisterItemCard(vm);
-    RegisterSex(vm, g_tasks);
     RegisterTalk(vm, g_tasks);
     RegisterDamage(vm);
     RegisterHardcore(vm);
-    vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, float, TESObjectREFR *, TESForm *>(
-        "GetHealth", SCRIPT, GetHealth, vm));
-    vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, bool, TESObjectREFR *, TESForm *, float>(
-        "SetHealth", SCRIPT, SetHealth, vm));
-    vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, float, TESObjectREFR *, TESForm *, SInt32>(
-        "GetStackHealth", SCRIPT, GetStackHealth, vm));
-    vm->RegisterFunction(new NativeFunction4<StaticFunctionTag, bool, TESObjectREFR *, TESForm *, SInt32, float>(
-        "SetStackHealth", SCRIPT, SetStackHealth, vm));
-    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, float, Actor *>(
-        "GetEquippedWeaponHealth", SCRIPT, GetEquippedWeaponHealth, vm));
-    vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, UInt32, TESObjectREFR *, TESForm *>(
-        "StackCount", SCRIPT, StackCount, vm));
-    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, void, VMArray<TESForm *>>(
-        "Track", SCRIPT, Track, vm));
-    vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, TESForm *>("PipboySelection", SCRIPT,
-                                                                          PipboySelection, vm));
-    vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, SInt32>("PipboyStack", SCRIPT, PipboyStack, vm));
-    vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, void>("PipboyRefresh", SCRIPT, PipboyRefresh, vm));
-    vm->RegisterFunction(new NativeFunction5<StaticFunctionTag, void, VMArray<TESForm *>, VMArray<TESForm *>,
-                                             VMArray<TESForm *>, VMArray<SInt32>, ActorValueInfo *>(
-        "TrackRepair", SCRIPT, TrackRepairLists, vm));
-    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, void, bool>("SetJuryRigging", SCRIPT,
-                                                                            SetJuryRiggingNative, vm));
-    vm->RegisterFunction(new NativeFunction5<StaticFunctionTag, float, Actor *, TESForm *, SInt32, TESForm *, SInt32>(
-        "RepairWith", SCRIPT, RepairWithNative, vm));
-    vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, UInt32, Actor *, TESForm *, SInt32>(
-        "SpareCount", SCRIPT, SpareCount, vm));
-    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, void, Actor *>("SetVendor", SCRIPT,
-                                                                               SetVendorNative, vm));
-    vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, void, float, float, float>(
-        "SetServiceRules", SCRIPT, SetServiceRulesNative, vm));
-    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, float, Actor *>("PipboyRepair", SCRIPT,
-                                                                                PipboyRepair, vm));
-    _MESSAGE("registered %s natives", SCRIPT);
+    _MESSAGE("registered F3NV's natives");
     return true;
 }
 
@@ -330,7 +87,7 @@ extern "C" {
 
 __declspec(dllexport) F4SEPluginVersionData F4SEPlugin_Version = {
     F4SEPluginVersionData::kVersion,
-    2,
+    3,
     "F3NV",
     "fo3fnv-in-fo4",
     0,
@@ -350,15 +107,14 @@ __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se) {
     _MESSAGE("F3NV loaded, runtime %08X", f4se->runtimeVersion);
     g_tasks = f4se->QueryInterface(kInterface_Task);
     auto *messaging = static_cast<F4SEMessagingInterface *>(f4se->QueryInterface(kInterface_Messaging));
-    g_trampoline = HookSpawnHealth(f4se);
-    _MESSAGE("weapon starting condition %s", g_trampoline ? "hooked" : "not hooked");
-    if (g_trampoline) HookDamage(), HookAmmoWeight();
+    bool trampoline = HookSpawnHealth(f4se);
+    _MESSAGE("weapon starting condition %s", trampoline ? "hooked" : "not hooked");
+    if (trampoline) HookDamage(), HookAmmoWeight();
     auto *scaleform = static_cast<F4SEScaleformInterface *>(f4se->QueryInterface(kInterface_Scaleform));
-    if (!scaleform || !scaleform->Register("F3NV", RegisterDialogueMenu)) _MESSAGE("no dialogue menu natives");
-    InstallTransfer();
+    if (!scaleform || !scaleform->Register("F3NV", RegisterMovieNatives)) _MESSAGE("no movie natives");
     NoCombatSprint();
     if (!messaging || !g_tasks || !messaging->RegisterListener(g_handle, "F4SE", OnMessage))
-        _MESSAGE("no Pip-Boy display (messaging %p, task %p)", messaging, g_tasks);
+        _MESSAGE("no Hardcore HUD (messaging %p, task %p)", messaging, g_tasks);
     return papyrus->Register(Register);
 }
 
