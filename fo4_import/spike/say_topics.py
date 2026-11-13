@@ -216,6 +216,14 @@ class SayTopics:
                                   end='Fragment_0' if last else None, scripts=marked)
         return object_scripts(marked) if marked else b''
 
+    def left_out(self, rec: dict, form_map: dict) -> bytes:
+        """Count FNV line `rec` as left out, with the condition blocking it (blocker), for its quest; b''."""
+        why = blocker(rec, form_map, self.script_vars)
+        self.builder.counts[f'line left out (condition: {why})'] += 1
+        self.builder.readiness.add(LINE_LEFT_OUT, rec.get('QSTI.Quest', ''),
+                                   f'{rec["FormID"].upper()} (condition: {why})')
+        return b''
+
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
              target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '', helpers: tuple = (),
              prompt: str = '', forced: 'int | None' = None) -> bytes:
@@ -230,10 +238,7 @@ class SayTopics:
         conditions = conditions_of(rec, form_map, self.script_vars, target=target) if first else b''
         quest = rec.get('QSTI.Quest', '')
         if conditions is None:
-            why = blocker(rec, form_map, self.script_vars)
-            self.builder.counts[f'line left out (condition: {why})'] += 1
-            self.builder.readiness.add(LINE_LEFT_OUT, quest, f'{rec["FormID"].upper()} (condition: {why})')
-            return b''
+            return self.left_out(rec, form_map)
         self.builder.readiness.add(LINE, quest, rec['FormID'].upper())
         line = f'INFO {rec["FormID"]} {rec.get(PART, 1)}' + (f' via {rec[SHARED]}' if rec.get(SHARED) else '')
         fid = self.builder.new_id(line, key=f'{line} at {place}' if place else None)

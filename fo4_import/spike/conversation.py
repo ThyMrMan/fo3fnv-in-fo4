@@ -408,7 +408,8 @@ class Conversations:
         if dial in self.hub.answers:
             return self.hub.answers[dial]
         lines = [rec for rec in self._members(('menu', (dial,)))
-                 if conditions_of(rec, self.form_map, self.say.script_vars) is not None]
+                 if conditions_of(rec, self.form_map, self.say.script_vars) is not None
+                 or self.say.left_out(rec, self.form_map)]
         fid = self.hub.answers[dial] = self.say.builder.new_id(f'DIAL answer {dial}') if lines else 0
         infos = [info for info in (self._answer(rec, dial, lines) for rec in lines) if info]
         edid = f'FNV_Answer_{self.say.dials.get(dial, {}).get("EditorID") or dial}'

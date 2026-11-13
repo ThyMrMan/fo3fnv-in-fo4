@@ -97,8 +97,8 @@ before.
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
 | Conversation menus | Talking opens New Vegas's full list of topics, through Extended Dialogue Interface | Works | | [menus](fo4_spikes.md#spike-1-design) |
-| Dialogue lines | All of New Vegas's NPC lines, with the conditions that decide when each shows | Partial | About 350 lines are left out, mostly ones tied to item counts, casino winnings, NPC class or the player's own barks. | [conditions](fo4_pipeline.md#dialogue-conditions) |
-| Choices with shared answers | Menu options whose reply New Vegas shares between topics | Partial | Most get their reply; 236 choices still have no line. | [shared infos](fo4_pipeline.md#shared-infos) |
+| Dialogue lines | All of New Vegas's NPC lines, with the conditions that decide when each shows | Partial | 83 lines are left out by a condition (2026-11-12 build); about 50 are dead in New Vegas too (actors it never places). Race, class and empty-actor tests are fixed, not yet built. Still out: GetDisposition (14), lines counting items the build does not make, the player's own grunts (Fallout 4 voices its own). | [census](fo4_dialogue_gaps.md#census) |
+| Choices with shared answers | Menu options whose reply New Vegas shares between topics | Partial | 18 choices have no line (2026-11-12 build); 9 belong to actors New Vegas never places, 2 are fixed (not yet built), 5 wait on items the build does not make. | [census](fo4_dialogue_gaps.md#census) |
 | Say Once topics | A topic disappears once heard | Works | | [say once](fo4_pipeline.md#say-once) |
 | Skill checks | `[Speech 50]`-style options that pass or fail on your skill | Works | | [speech tag](fo4_build_next.md#speech-tag) |
 | NPC voices | Every NPC speaks their own New Vegas recordings | Works | | [voice types](fo4_pipeline.md#voice-types) |
