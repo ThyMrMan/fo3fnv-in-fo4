@@ -1192,6 +1192,54 @@ caches (`own_face`, `sculpt_fit`, `tint_fit`, `head_parts`,
   `stored_bytes`, `write_new` onto unchanged files): 1.40 s before, 0.85 s
   after, the same values. A whole-map build replays about 21,600 of them.
 
+### <a id="goodies-profile-2026-11-13"></a>Goodies.esp's stages, profiled (2026-11-13)
+
+Goodies masters every New Vegas DLC, so its build makes much of its
+masters' content again ([replay](#replay)). Profiled stages (the
+profiler slows Python, so shares rather than seconds), from
+`temp/stage_profiles_goodies`:
+
+| Stage | Profiled | Where the time went |
+|---|---|---|
+| people | 206 s | creature bases 88 s (worn items 38 s, own rigs 32 s); `face_fits.fit_key` 57 s, 36 s of it `plugin_sources` rebuilt per NPC; 55 million `deepcopy` calls, 24 s of them `source_registry.load` copying the registry on each of 34,678 reads |
+| item WEAP | 122 s | as the base build ([weap-profile](#weap-profile-2026-11-13)), before that fix |
+| base STAT | 92 s | 1.1 million file-existence checks (47 s): `copy_texture` (33 s, 41,214 calls) and `_source` (11 s) look each texture up through every export layer, even when the run already staged it; `cached_files` 32 s |
+| closing records | 36 s | 40 idle clips written (`human_clip.write`, 23 s) |
+| animation data | 34 s | parsing 3,154 offsets files (18 s) |
+| worlds | 27 s | land records 12 s, placement 9 s |
+| item ARMO | 23 s | headgear and outfit fitting |
+
+<a id="staged-first"></a>**Three fixes (2026-11-13, not yet in a build).**
+- **A texture already staged this run is skipped first.** `copy_texture`,
+  and `stage_files`' textures, specular and glow maps, ask
+  `ba2_pack.staged` before finding their source; `stage_texture` makes the
+  same check, so nothing written changes.
+- **The head-part chain once per export.** `fnv_npc.head_parts` rebuilt
+  `plugin_sources` and merged every plugin's head parts per NPC;
+  `_head_chain` does that once.
+- **Voice folders once per export.** `voice.fnv_folders` keeps each export
+  plugin's voice root (`_voice_roots`).
+
+Left alone because they are in cache code records (any edit rebuilds those
+entries): `Layered.path`, `export_file`, `plugin_sources` and
+`source_registry.load` / `directories` (`mesh_files`, `meshes`, 299 of 300
+sampled). `fnv_npc.head_parts` is only in face-fit entries from before the
+fits were versioned; every entry a build looks up now has an empty record.
+
+**Measured** on Goodies.esp's export (scratch harness, old code against
+new):
+
+| Work | Old | New | Same output |
+|---|---|---|---|
+| `head_parts` for all 4,232 NPCs of the chain | 11.68 s | 0.01 s | yes |
+| `fnv_folders` x 760 | 1.44 s | 0.00 s | yes |
+| `write_assets`, 250 statics, textures new to the run | 4.39 s | 4.62 s | yes: 918 files, bytes, faults |
+| the same again, textures already staged | 1.79 s | 0.94 s | yes |
+
+Not changed yet: creature bases and outfits in the people stage, and
+`cached_files` in base STAT, which are master content a mod build makes
+again; that is [section 5](#replay)'s work.
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh

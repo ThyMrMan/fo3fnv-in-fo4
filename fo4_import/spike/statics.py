@@ -21,7 +21,7 @@ import functools
 import shutil
 from pathlib import Path
 
-from fo4_import.base.ba2_pack import stage_texture
+from fo4_import.base.ba2_pack import stage_texture, staged
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.nif import bgsm, elric
 from fo4_import.nif import file as nif_file
@@ -102,13 +102,15 @@ def stage_files(export_dir: Path, files, data_dir: Path) -> None:
     for path, data in files.materials:
         write_new(_material_file(data_dir, path), data)
     for texture in files.textures:
-        if _source(export_dir, texture).exists():
-            copy_texture(export_dir, data_dir, texture_source(texture))
+        source = texture_source(texture)
+        if not staged(data_dir, fo4_texture(source)) and _source(export_dir, texture).exists():
+            copy_texture(export_dir, data_dir, source)
     for spec_path, (fnv_normal, glossiness) in files.spec_maps.items():
-        stage_derived(data_dir, spec_path, spec_map, (_source(export_dir, fnv_normal),), smoothness(glossiness))
+        if not staged(data_dir, spec_path):
+            stage_derived(data_dir, spec_path, spec_map, (_source(export_dir, fnv_normal),), smoothness(glossiness))
     for glow_path, (*sources, cut) in files.glow_maps.items():
-        paths = tuple(_source(export_dir, t) for t in sources)
-        if all(p.exists() for p in paths):
+        paths = None if staged(data_dir, glow_path) else tuple(_source(export_dir, t) for t in sources)
+        if paths is not None and all(p.exists() for p in paths):
             stage_derived(data_dir, glow_path, glow_map, paths, cut)
 
 
@@ -204,6 +206,8 @@ def _material_file(data_dir: Path, material: str) -> Path:
 def copy_texture(export_dir: Path, data_dir: Path, source: str, later: 'list | None' = None) -> bool:
     """stage_texture() FNV texture `source` (textures\\...) at its FO4 path; False, counting a source fault,
     when no export layer holds it."""
+    if staged(data_dir, fo4_texture(source)):
+        return False
     rel = texture_source(source).replace('\\', '/')
     path = export_file(export_dir, rel)
     if not path.is_file():
