@@ -120,6 +120,17 @@ def test_ragdoll_phantoms_become_trigger_bodies_of_their_own_system():
     assert systems == ['bhkRagdollSystem'] * 2 + ['bhkPhysicsSystem']
 
 
+def test_a_static_meshs_phantom_is_a_trigger_body_after_its_rigid_bodies():
+    """Outside a skeleton a phantom joins the one physics system, after the rigid bodies, on a trigger material."""
+    nif = hknp_write.finish(_hinged(phantom=True))
+    root, named = _objects(nif, 'bhkPhysicsSystem')
+    assert [b['flags'] for b in root['bodyCinfos']][2:] == [16] and len(root['bodyCinfos']) == 3
+    assert [m['triggerType'] for m in root['materials']] == [0, 0, 2]
+    assert named[root['bodyCinfos'][2]['shape']]['class'] == 'hknpCapsuleShape'
+    held = [struct.unpack_from('<iHiI', raw)[3] for k, raw in nif.blocks if k == 'bhkNPCollisionObject']
+    assert sorted(held) == [0, 1, 2] and [k for k, _ in nif.blocks].count('bhkPhysicsSystem') == 1
+
+
 @pytest.mark.parametrize('turn, expected', [(np.eye(3), (0.0, 0.0, 0.0, 1.0)),
                                            (np.diag([-1.0, -1.0, 1.0]), (0.0, 0.0, 1.0, 0.0)),
                                            (np.diag([1.0, -1.0, -1.0]), (1.0, 0.0, 0.0, 0.0))])

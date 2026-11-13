@@ -1,12 +1,15 @@
 """Havok's convex hull simplification as Elric runs it before building a polytope, re-implemented from its
 reading of ElricInterop.dll: the integer grid, the degenerate-hull skip, the quadric vertex pass and the
-plane-merging pass. `simplify(points)` gives the face planes (n, d) and a point inside.
+plane-merging pass. `simplify(points)` gives the face planes (n, d), the points they came from, and whether
+Havok keeps those points' hull as it is.
 
 See: docs/fork/fo4_hknp_writer.md#elric-code
 """
 
+from types import SimpleNamespace
+
 import numpy as np
-from scipy.spatial import ConvexHull
+from scipy.spatial import ConvexHull, QhullError
 
 #: Elric's simplification tolerance (build config +0x00), Havok units.
 TOLERANCE = 0.01
@@ -22,6 +25,8 @@ SAME_FACE = 1e-5
 LEAST_DOT, NEVER = 2.0 ** -23, 2.0 ** 64
 #: Sphericity is SPHERE * V^(2/3) / A.
 SPHERE = (36 * np.pi) ** (1 / 3)
+#: Under this many planes after the plane pass, Havok keeps the hull it had instead of rebuilding from them.
+KEPT_UNDER = 4
 #: Most vertices a polytope keeps, and the tolerance of the pass that enforces it.
 MAX_VERTICES, CAP_TOLERANCE = 252, float(np.float32(2.0 ** -23))
 
@@ -30,16 +35,55 @@ MAX_VERTICES, CAP_TOLERANCE = 252, float(np.float32(2.0 ** -23))
 # Grid and checks
 # ---------------------------------------------------------------------------
 
-def grid(points: np.ndarray) -> np.ndarray:
-    """`points` snapped to Havok's hull grid: per axis, its box's centre and half size (at least
-    GRID_LEAST_HALF) split into GRID_STEPS each way, rounded half away from zero, read back in float32."""
+def _steps(points: np.ndarray) -> tuple:
+    """(grid steps, axis centres, axis half sizes) of `points` on Havok's hull grid: per axis, its box's centre
+    and half size (at least GRID_LEAST_HALF) split into GRID_STEPS each way, rounded half away from zero."""
     p = np.asarray(points, np.float32)
     low = p.min(0)
     half = np.maximum(p.max(0) - low, GRID_LEAST_HALF * 2) * np.float32(0.5)
     centre = low + half
     x = (p - centre) * (GRID_STEPS / half)
-    steps = np.trunc(np.where(x < 0, x - np.float32(0.5), x + np.float32(0.5)))
+    return np.trunc(np.where(x < 0, x - np.float32(0.5), x + np.float32(0.5))), centre, half
+
+
+def grid(points: np.ndarray) -> np.ndarray:
+    """`points` snapped to Havok's hull grid, read back in float32."""
+    steps, centre, half = _steps(points)
     return (steps * (half / GRID_STEPS) + centre).astype(np.float32).astype(float)
+
+
+def planar(points: np.ndarray) -> bool:
+    """Whether `points` lie in one plane on Havok's hull grid (exact integer test): its hull is 2-D.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
+    rel = _steps(points)[0].astype(np.int64)
+    rel = rel - rel[0]
+    edge = next((r for r in rel if r.any()), np.zeros(3, np.int64))
+    normal = next((n for n in np.cross(edge, rel) if n.any()), None)
+    return normal is None or not (rel @ normal).any()
+
+
+def convex_hull(points: np.ndarray):
+    """The hull of `points`; for a hull too thin for Qhull's float test, its triangles found on Havok's integer
+    grid (as Havok builds it) with their planes and measures taken from `points`.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
+    try:
+        return ConvexHull(points)
+    except QhullError:
+        steps = ConvexHull(_steps(points)[0])
+    points = np.asarray(points, float)
+    a, b, c = (points[steps.simplices[:, k]] for k in range(3))
+    normals = np.cross(b - a, c - a)
+    normals /= np.linalg.norm(normals, axis=1)[:, None]
+    normals *= np.where(np.einsum('ij,ij->i', normals, points.mean(0) - a) > 0, -1, 1)[:, None]
+    equations = np.column_stack([normals, -np.einsum('ij,ij->i', normals, a)])
+    area = float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2)
+    volume = float(abs(np.einsum('ij,ij->i', np.cross(b - a, c - a), a - points.mean(0))).sum() / 6)
+    return SimpleNamespace(points=points, simplices=steps.simplices, neighbors=steps.neighbors,
+                           vertices=steps.vertices, equations=equations, area=area, volume=volume)
 
 
 def snap(points: np.ndarray) -> np.ndarray:
@@ -52,7 +96,7 @@ def degenerate(points: np.ndarray) -> bool:
     """Whether a hull triangle of `points` is degenerate as Havok tests it in float32: a squared cross product
     under DEGENERATE at either of two corners, or |u|²|v|² - (u·v)² exactly 0."""
     p = np.asarray(points, np.float32)
-    a, b, c = (p[ConvexHull(points).simplices[:, k]] for k in range(3))
+    a, b, c = (p[convex_hull(points).simplices[:, k]] for k in range(3))
     first = (np.cross(a - c, a - b) ** 2).sum(1, dtype=np.float32)
     second = (np.cross(b - a, b - c) ** 2).sum(1, dtype=np.float32)
     u, v = a - b, a - c
@@ -109,7 +153,8 @@ def _feature_edges(hull: ConvexHull, ids: list) -> list:
 
 def _candidate(quadric: np.ndarray, ends: np.ndarray, planes: np.ndarray, tolerance: float) -> tuple:
     """(new point, error) for collapsing an edge with summed `quadric` and end points `ends`: the quadric's optimum
-    when it inverts cleanly and lies within `tolerance` of every face plane, else the midpoint."""
+    when it inverts cleanly and lies within `tolerance` of every face plane, else the midpoint; the error in
+    float32, as Havok's."""
     system = quadric.copy()
     system[3] = (0, 0, 0, 1)
     point = (ends[0] + ends[1]) / 2
@@ -119,15 +164,15 @@ def _candidate(quadric: np.ndarray, ends: np.ndarray, planes: np.ndarray, tolera
         clean = np.abs(system @ inverse - np.eye(4)).max() < QUADRIC_SAME
         if clean and np.all(planes[:, :3] @ optimum + planes[:, 3] <= tolerance):
             point = optimum
-    h = np.append(point, 1.0)
-    return point, max(0.0, float(h @ quadric @ h))
+    h = np.append(point, 1.0).astype(np.float32)
+    return point, max(0.0, float(h @ quadric.astype(np.float32) @ h))
 
 
 def collapse(points: np.ndarray, tolerance: float, cap: int = 0xFFFF) -> np.ndarray:
     """Havok's vertex pass (0x10396c40): collapse the cheapest feature edge (the larger index goes, the smaller
     moves to the new point, quadrics add) while more than `cap` points live, or while the cost is under
     tolerance² and more than 6 edges remain. Tolerance is capped at half the least half width."""
-    hull = ConvexHull(points)
+    hull = convex_hull(points)
     pos = np.array(points, dtype=float)
     ids, planes = face_planes(hull)
     tolerance = min(tolerance, 0.5 * least_half(hull, planes))
@@ -221,7 +266,7 @@ def merge(points: np.ndarray, tolerance: float) -> np.ndarray:
     """Havok's plane pass (0x10398870) on the hull of `points`: merge the lowest-scoring face pair (first on a
     tie) until that score reaches min(2 × tolerance, size), size being sphericity × least half width; the
     surviving planes."""
-    hull = ConvexHull(points)
+    hull = convex_hull(points)
     ids, planes = face_planes(hull)
     corners = hull.points[hull.vertices]
     size = SPHERE * hull.volume ** (2 / 3) / hull.area * least_half(hull, planes)
@@ -251,16 +296,18 @@ def merge(points: np.ndarray, tolerance: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 def simplify(points: np.ndarray) -> tuple:
-    """(face planes (n, d), a point inside) of `points` as Havok simplifies them before a polytope: snapped to the
-    grid; then, unless the hull is degenerate, the vertex pass, the grid again and the plane pass."""
+    """(face planes (n, d), the points they were taken from, whether Havok keeps those points' hull as it is) of
+    `points` as Havok simplifies them before a polytope: snapped to the grid; then, unless the hull is
+    degenerate (kept), the vertex pass, the grid again and the plane pass (under 4 planes left: kept)."""
     pts = snap(points)
-    if not degenerate(pts):
-        pts = snap(collapse(pts, TOLERANCE))
-        return merge(pts, TOLERANCE), pts.mean(0)
-    return face_planes(ConvexHull(pts))[1], pts.mean(0)
+    if degenerate(pts):
+        return face_planes(convex_hull(pts))[1], pts, True
+    pts = snap(collapse(pts, TOLERANCE))
+    planes = merge(pts, TOLERANCE)
+    return planes, pts, len(planes) < KEPT_UNDER
 
 
 def capped(points: np.ndarray) -> tuple:
-    """(planes, a point inside) of `points` cut to MAX_VERTICES by the vertex pass."""
+    """(planes, their points, False) of `points` cut to MAX_VERTICES by a vertex pass."""
     pts = snap(collapse(points, CAP_TOLERANCE, MAX_VERTICES))
-    return face_planes(ConvexHull(pts))[1], pts.mean(0)
+    return face_planes(convex_hull(pts))[1], pts, False
