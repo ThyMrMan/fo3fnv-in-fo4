@@ -21,7 +21,7 @@ from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.plugin_index import every, first, u32, zstring
 
 #: The unpacked build the user plays, whose RTTI decides which blocks load.
-DEFAULT_EXE = r'C:\Coding\tes4skyrim\SkyrimSE.exe.unpacked.exe'
+DEFAULT_EXE = str(Path(__file__).resolve().parents[4] / 'SkyrimSE.exe.unpacked.exe')
 
 #: Subrecords that may hold a model path.
 _MODEL_SUBS = ('MODL', 'MOD2', 'MOD3', 'MOD4', 'MOD5')

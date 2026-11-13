@@ -34,10 +34,11 @@ from fo4_import import dialogue_menu as menu_links
 from fo4_import.pipeline import stale_files
 from fo4_import.pipeline.build_inputs import RECORD_SUFFIX, SUFFIX
 from fo4_import.pipeline.build_steps import STAMP_SUFFIX, stamp_path
+from fo4_import.pipeline.creation_kit import MO2
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / 'temp' / 'profile_data'
-MOD = Path(r'C:\Modlists\fo3fnv-in-fo4\mods\F3NV - Fallout New Vegas')
+MOD = MO2 / 'mods' / 'F3NV - Fallout New Vegas'
 #: Mod-folder files no build makes but that belong there (lowercase, relative).
 KEEP = frozenset({'meta.ini'})
 #: The MO2 mod fo4_hotfix ships changed scripts into, ahead of a build; it must sit last in MO2's order.
