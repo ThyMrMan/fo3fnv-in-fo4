@@ -399,7 +399,15 @@ census reads them:
 
 - **Input:** each `NiTriStripsData` strip's points over Elric's 69.99125
   game units per Havok unit; one material-table entry per strip (filter,
-  CRC), the shape's `userData` the first strip's CRC.
+  CRC), the shape's `userData` the first strip's CRC. A triangle naming a
+  point twice is dropped: as a lone triangle it would be stored
+  `(a, b, b, b)`, and the game reads a primitive whose last three indices
+  match as a custom shape. `getLeafShapes` (`Fallout4.exe+12C7F7B`) then
+  reads the section's shared-vertex table, which we never fill, through
+  a pointer below null. NVMIM's `subendtabledirty01` had 108 such
+  primitives of 565 and crashed the game when Doc Mitchell walked past it
+  (play test 2026-11-14, fixed). Elric drops them too: 288 triangles
+  against our 293.
 - **Quads:** in triangle order, each unused triangle takes the unused
   triangle of its own strip across a shared edge (opposite direction,
   different third corner) whose normal is closest to its own, when the
@@ -413,9 +421,17 @@ census reads them:
   (play test 2026-11-13); Elric's output for those meshes has no such quad
   but 1-unit slivers.
 - **Sections:** primitives sorted along the mesh's longest axis by their
-  first three corners, cut at 128 primitives or 255 vertices; each
+  first three corners, cut at 127 primitives or 255 vertices; each
   section's own vertices (none shared), quantized as Elric does
   (`trunc(t × N + 0.5)` on the section box).
+- **Keys:** a mesh with several sections keys a triangle as
+  `section << 8 | primitive << 1 | triangle`, as Elric does (all 3,231 of
+  its multi-section meshes), and as `getLeafShapes` decodes it
+  (`key >> 8`, `key >> 1 & 0x7F`). So a section holds at most 127
+  primitives, Elric's own maximum over 9,819 sections. Sizing the
+  primitive field from the largest section gave 9 bits at 128 primitives.
+  A single-section mesh's key is `primitive << 1 | triangle`, sized to its
+  count, again as Elric does.
 - **Trees:** both split at the median along the widest axis; each node's
   box coded as square-root insets of its parent's decoded box, rounded so
   the decoded box always holds its geometry (WWE adds 1e-6 instead). A

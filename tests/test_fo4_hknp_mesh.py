@@ -58,7 +58,7 @@ def test_a_grid_round_trips_through_several_sections():
 
 
 def test_sections_keep_their_limits_and_name_their_tree_leaf():
-    """Each section holds at most 128 primitives and 255 vertices and points back at its own leaf."""
+    """Each section holds at most 127 primitives and 255 vertices and points back at its own leaf."""
     tree = _written(_grid(20))['hknpCompressedMeshShapeData']['meshTree']
     for index, section in enumerate(tree['sections']):
         assert section['primitives']['data'] & 0xFF <= hknp_mesh.SECTION_PRIMITIVES
@@ -76,6 +76,28 @@ def test_keys_and_bit_fields_are_sized_as_elric_sizes_them():
     flat = shape['quadIsFlat']['storage']
     assert flat['numBits'] == (tree['maxKeyValue'] + 2) // 2
     assert flat['words'][-1] >> (flat['numBits'] - 32 * (len(flat['words']) - 1)) == 0
+
+
+def test_a_key_keeps_its_section_above_eight_primitive_bits():
+    """The game reads a key's section as key >> 8 when a mesh has several sections, however few each holds."""
+    tree = _written(_grid(20))['hknpCompressedMeshShapeData']['meshTree']
+    sections = len(tree['sections'])
+    assert sections > 1
+    assert tree['bitsPerKey'] == (sections - 1).bit_length() + 8
+    assert tree['maxKeyValue'] >> 8 == sections - 1
+
+
+def test_a_triangle_naming_a_point_twice_is_dropped():
+    """(a, b, b) would be written (a, b, b, b), a custom primitive to the game; the other triangles stay."""
+    square = [(0.0, 0.0, 0.0), (70.0, 0.0, 0.0), (70.0, 70.0, 0.0), (0.0, 70.0, 0.0)]
+    shape = struct.pack('<If20xI4fI', CRCS[0], 0.01, 1, 1.0, 1.0, 1.0, 0.0, 2)
+    shape += struct.pack('<2iI', 1, 2, 2) + struct.pack('<2I', *FILTERS)
+    blocks = [('bhkNiTriStripsShape', shape),
+              ('NiTriStripsData', tri_strips_data(square, [(0, 1, 2), (0, 2, 2), (1, 1, 3)], CRCS[0])),
+              ('NiTriStripsData', tri_strips_data(square, [(0, 2, 3), (3, 0, 3)], CRCS[1]))]
+    mesh = hknp_mesh.read(blocks, 0)
+    assert mesh.tris.tolist() == [[0, 1, 2], [4, 6, 7]] and mesh.strip.tolist() == [0, 1]
+    assert not any(p[1] == p[2] == p[3] for p, _ in hknp_mesh.quads(mesh))
 
 
 def test_two_triangles_on_an_edge_make_one_flat_quad():
