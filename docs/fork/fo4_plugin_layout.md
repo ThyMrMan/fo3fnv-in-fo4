@@ -1408,15 +1408,35 @@ their SHA-1 (`made_reads`): records depend on them.
 **The plan.** A changed code key is reported with the parts it ran in
 (`code <key> (parts: archives)`; `unknown` for a record from before parts).
 A plugin built by `pipeline.run` whose only change is code that ran in
-`archives` alone is replayed (`build_plan.replayable`, `rebuild`), not
-built: `archive_replay` restores the loose files, runs the FaceGen prune and
-the texture pack (`faces_and_textures`, without the texture prune: a replay
-stages no texture, and the prune would empty the archive) and the Main pack,
-drops the loose files, and gives the inputs record the code as it is now.
-When a `made_reads` file changed it drops the record and exits
-`NEEDS_BUILD`, and `rebuild` builds the plugin whole. The chain runs it on
-the base first (`base archives`), so a replayed base is current and
-**base** is skipped ([steps](fo4_chain.md#steps)).
+`meshes` or `archives` alone is replayed (`build_plan.replay_parts`,
+`rebuild`), not built: `part_replay` restores the loose files, runs the
+meshes part when it changed (below), the FaceGen prune and the texture pack
+(`faces_and_textures`, without the texture prune: a replay stages no
+texture, and the prune would empty the archive) and the Main pack, drops
+the loose files, and gives the inputs record the code as it is now. When a
+`made_reads` file changed it drops the record and exits `NEEDS_BUILD`, and
+`rebuild` builds the plugin whole. The chain runs it on the base first
+(`base replay`), so a replayed base is current and **base** is skipped
+([steps](fo4_chain.md#steps)).
+
+<a id="meshes-replay"></a>**The meshes part.** Elric (and our writer,
+[hknp_write](fo4_hknp_writer.md#seam)) reads each mesh as the records part
+wrote it, with its pre-Elric Havok blocks; after a build only the finished
+NIF is on disk. The finished NIF is a function of those pre-Elric bytes
+alone (the graft keeps our render blocks), so `elric_cache.finish` keeps
+each one it takes in `output/fo4_cache/pre_elric`, zlib-compressed and
+named by its SHA-1 (`keep_input`), pruned with the other caches. The store
+dedupes across plugins and builds: the finished-NIF cache it mirrors held
+24,268 entries in 1.57 GB on 2026-11-14 (the 33 plugins' loose `Meshes`
+folders: 70 GB, most of them no Havok input). Each build writes a replay
+manifest beside the plugin (`replay_manifest`): every path `finish` took
+with its pre-Elric SHA-1, the master's finished-alike marks, the weapons,
+the object LOD worlds, the finished list and the export. A meshes replay
+holds each path's pre-Elric bytes again (`write_mesh`) and runs `finish`,
+the weapon dressing and object LOD as the build does, then the copies a
+master holds alike are dropped and the finished-mesh record rewritten,
+then the archives as above. A pre-Elric file gone from the store makes the
+plugin need a whole build.
 
 **Proof** on a scratch copy of the Tribal Pack folder and its texture
 staging, code unchanged: 11 s (the whole build: 62–80 s); Main 12,138
@@ -1424,11 +1444,11 @@ entries and Textures 1,752, the same names and sizes before and after.
 
 **Order.** (1) record parts and name them in the plan: built.
 (2) replay the archives: built, proven as above. (3) replay `meshes`
-(collision, object LOD): Elric reads each mesh as the records part wrote it,
-and after a build only the finished mesh is on disk, so a replay needs the
-pre-Elric meshes kept. (4) the mesh writers, which need the record stages'
-mesh copies. Parts are recorded from the next build on; until then every
-plan says `parts: unknown` and builds whole.
+(collision, object LOD) from the pre-Elric store and the replay manifest:
+built. (4) the mesh writers, which need the record stages' mesh copies
+(phase 6, record-level builds). Parts, the store and the manifest are
+written from the next build on; until then every plan says
+`parts: unknown` and builds whole.
 
 ## <a id="phases"></a>Phases
 

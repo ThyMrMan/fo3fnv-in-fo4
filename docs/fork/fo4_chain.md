@@ -29,10 +29,11 @@ py -3.14 -m tools.release.fo4_chain --fresh --kit <file.esl> --kit-mod "<MO2 mod
 
 In order, as the scratch chain ran them:
 
-0. **base archives**: `fo4_import.pipeline.archive_replay` on FalloutNV.esm.
-   When only code its archives part ran changed, it repacks the archives
-   and the base is then current, so **base** is skipped; otherwise it does
-   nothing ([build-parts](fo4_plugin_layout.md#build-parts)).
+0. **base replay**: `fo4_import.pipeline.part_replay` on FalloutNV.esm.
+   When only code its meshes or archives parts ran changed, it runs those
+   parts again and the base is then current, so **base** is skipped;
+   otherwise it does nothing
+   ([build-parts](fo4_plugin_layout.md#build-parts)).
 1. **base**: `fo4_import.pipeline.run` builds FalloutNV.esm whole into its
    mod folder (the folder `fo4_app.json` names for `falloutnv`), with
    `F3NV_PROFILE_STAGES=worlds,item WEAP` (`--profile-stages ''` turns it
