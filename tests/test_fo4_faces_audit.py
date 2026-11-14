@@ -26,6 +26,7 @@ from fo4_import.face import texture as TX
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, head
 from fo4_import.nif import file as nif_file
+from fo4_import.pipeline import stage_timer
 from fo4_import.pipeline.export_index import asset_root
 from fo4_import.spike import facegen as FG
 from fo4_import.spike import npcs as N
@@ -246,11 +247,31 @@ def test_export_refuses_facegen_with_32_bit_cloth_physics(monkeypatch, tmp_path)
     face = tmp_path / '00000801.NIF'
     monkeypatch.setattr(FG, 'run_ck', lambda *_: None)
     monkeypatch.setattr(FG, 'collect', lambda *_: [face])
+    monkeypatch.setattr(FG, 'complete', lambda *_: 1)
     face.write_bytes(vanilla)
     assert FG.export('Spike.esp', tmp_path) == 1
     face.write_bytes(nif_file.write(nif))
     with pytest.raises(SystemExit, match='00000801.NIF'):
         FG.export('Spike.esp', tmp_path)
+
+
+def test_each_faces_step_is_charged_to_its_stage(tmp_path, monkeypatch):
+    """steps() runs heads, refit, the refitted heads, skin and pack, each timed under its own stage name."""
+    esm = tmp_path / 'Fallout4.esm'
+    esm.write_bytes(b'')
+    monkeypatch.setattr(FG, 'FALLOUT4_ESM', esm)
+    monkeypatch.setattr(FG, 'skin_tone_layers', lambda data: [])
+    monkeypatch.setattr(FG, 'restore', lambda *_: 0)
+    monkeypatch.setattr(FG, 'heads', lambda *_: True)
+    monkeypatch.setattr(FG, 'pack', lambda *_: None)
+    face = SimpleNamespace(form_id=0x801)
+    monkeypatch.setattr(FG.facegen_skin, 'fitted_faces', lambda *_: [face])
+    monkeypatch.setattr(FG.facegen_skin, 'refine', lambda *_: ['refit'])
+    monkeypatch.setattr(FG.facegen_skin, 'skin', lambda *_: ['skinned'])
+    args = SimpleNamespace(plugin='Spike.esp', own_facegen=True, collected=False, keep_loose=False)
+    assert FG.steps(args, tmp_path, tmp_path)
+    timed = set(stage_timer.records())
+    assert {'faces restore', 'faces heads', 'faces refit', 'faces heads refitted', 'faces skin', 'faces pack'} <= timed
 
 
 def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_path, monkeypatch):

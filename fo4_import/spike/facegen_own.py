@@ -6,6 +6,7 @@ instead of stopping the run; the stage gives those NPCs the CK's export (facegen
 See: docs/fork/fo4_facegen_plan.md#own-stage
 """
 
+import collections
 import functools
 import hashlib
 import pickle
@@ -105,46 +106,68 @@ def texconv() -> str:
 
 
 def cached_files(src: facegeom.Sources, plugin: str, form_id: int, textures: bool = True) -> tuple:
-    """(face_files(), whether it came from the work cache): kept by the NPC record, the plugins' masters and texconv,
-    and used while every other record and file it read (reads) and the code that made it are unchanged.
+    """(face_files(), why the work cache could not give it: '' when it did, else miss_reason()): kept by the NPC
+    record, the plugins' masters and texconv, and used while every other record and file it read (reads) and the
+    code that made it are unchanged.
     See: docs/fork/fo4_facegen_plan.md#own-cache
     """
     npc = src.records.get((plugin.lower(), form_id & 0xFFFFFF))
     inputs = (plugin.lower(), form_id, held(npc), sorted(src.masters.items()), texconv(), textures)
     kept = work_cache.lookup(SITE, __name__, inputs)
     if kept is not None and unchanged(src, kept[0]):
-        return kept[1], True
+        return kept[1], ''
+    why = miss_reason(src, inputs, kept)
     make = functools.partial(face_files, src, plugin, form_id, textures)
     (files, ran), read = reading(src, functools.partial(ran_while, make))
     work_cache.store(SITE, __name__, inputs, (read, files), ran)
-    return files, False
+    return files, why
 
 
-def write_face(src: facegeom.Sources, plugin: str, form_id: int, data_dir: Path, textures: bool = True) -> str:
+def miss_reason(src: facegeom.Sources, inputs: tuple, kept) -> str:
+    """Why the work cache had no face for `inputs`: no entry (its key: the NPC record, masters or texconv), its
+    code changed, or the first record (by signature) or file it read that changed.
+    See: docs/fork/fo4_facegen_plan.md#stage-times
+    """
+    if kept is None:
+        return 'code changed' if work_cache.present(SITE, inputs) else 'no entry (NPC record, masters or texconv)'
+    item = next((item for item, was in kept[0].items() if digest(src, item) != was), None)
+    if isinstance(item, tuple):
+        return f'read {getattr(src.records.get(item), "sig", b"gone").decode()} record changed'
+    return 'read file changed' if item else 'unknown'
+
+
+def write_face(src: facegeom.Sources, plugin: str, form_id: int, data_dir: Path, textures: bool = True,
+               misses: list = None) -> str:
     """Write NPC `form_id`'s FaceGeom NIF and (`textures`) face textures (cached_files) under `data_dir`; WRITTEN,
-    KEPT (from the cache) or SKIPPED (none exported)."""
-    files, kept = cached_files(src, plugin, form_id, textures)
+    KEPT (from the cache) or SKIPPED (none exported). A face the cache could not give adds why to `misses`."""
+    files, miss = cached_files(src, plugin, form_id, textures)
     for rel, data in (files or {}).items():
         (data_dir / rel).parent.mkdir(parents=True, exist_ok=True)
         (data_dir / rel).write_bytes(data)
-    return SKIPPED if files is None else KEPT if kept else WRITTEN
+    if miss and misses is not None:
+        misses.append(miss)
+    return SKIPPED if files is None else WRITTEN if miss else KEPT
 
 
 def own_face(form_id: int, textures: bool = True) -> tuple:
-    """(FormID, WRITTEN, SKIPPED or the error) of write_face in a facegen_skin worker; never raises."""
-    worker = facegen_skin.shared()
+    """(FormID, WRITTEN, SKIPPED or the error, why the work cache missed or '') of write_face in a facegen_skin
+    worker; never raises."""
+    worker, misses = facegen_skin.shared(), []
     try:
-        return form_id, write_face(worker['src'], worker['plugin'], form_id, worker['data'], textures)
+        status = write_face(worker['src'], worker['plugin'], form_id, worker['data'], textures, misses)
     except Exception as e:
-        return form_id, f'{type(e).__name__}: {e}'
+        status = f'{type(e).__name__}: {e}'
+    return form_id, status, misses[0] if misses else ''
 
 
 def export_own(job: tuple, forms: list, textures: bool = True) -> tuple:
-    """(written, kept, skipped, {FormID: error}) of own_face over `forms` (with `textures` or not) in facegen_skin's
-    pool sharing `job` (kept: written from the work cache); a pool that breaks (a worker killed) fails every face."""
+    """(written, kept, skipped, {FormID: error}, Counter of why the work cache missed) of own_face over `forms`
+    (with `textures` or not) in facegen_skin's pool sharing `job` (kept: written from the work cache); a pool that
+    breaks (a worker killed) fails every face."""
     try:
         results = facegen_skin.pool(job, functools.partial(own_face, textures=textures), forms)
     except BrokenProcessPool as e:
-        results = [(form_id, f'worker pool broke: {e}') for form_id in forms]
-    failed = {form_id: status for form_id, status in results if status not in (WRITTEN, KEPT, SKIPPED)}
-    return tuple(sum(s == want for _, s in results) for want in (WRITTEN, KEPT, SKIPPED)) + (failed,)
+        results = [(form_id, f'worker pool broke: {e}', '') for form_id in forms]
+    failed = {form_id: status for form_id, status, _ in results if status not in (WRITTEN, KEPT, SKIPPED)}
+    counts = tuple(sum(s == want for _, s, _ in results) for want in (WRITTEN, KEPT, SKIPPED))
+    return counts + (failed, collections.Counter(miss for *_, miss in results if miss))
