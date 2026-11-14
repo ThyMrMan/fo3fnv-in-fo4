@@ -572,6 +572,23 @@ which has a Papyrus spelling. Highest-frequency, with their real equivalents:
 Making the fallthrough inert is what lets those rows land incrementally: the
 corpus compiles at every step instead of only once the last row is written.
 
+### <a id="ownership-owner"></a>The owner an ownership call takes
+
+**Code:** `script_convert/commands.py:_owner_base`
+
+`SetOwnership X` and `IsOwner X` name an NPC (or a faction, handled
+apart). Papyrus's `SetActorOwner` takes an `ActorBase`, so the argument is
+converted by its type: an `ActorBase` as is, a `Form` (a variable holding
+`GetBaseObject`'s result) cast to `ActorBase`, an `Actor` through
+`GetActorBase()`, anything else cast to `Actor` first. Better Brotherhood's
+`BBSelfDestructQuestScript` keeps the elder's base in a `ref` variable
+(`rElder = NolanMcNamaraREF.GetBaseObject`); `rElder.GetActorBase()` on a
+`Form` failed to compile.
+
+A function xNVSE, JIP LN or FOSE declares as returning a form
+(`data/extender_functions.json`) counts as a reference in a comparison, so
+`(Ref.GetEquippedObject 0) == 0` becomes `== None` (`emit/expr.is_ref_typed`).
+
 ### <a id="bare-self-reads"></a>Bare self-reads: what `Self` is, disabled against destroyed
 
 **Code:** `_fixed_reading` in `script_convert/resolve_name.py`
@@ -5021,7 +5038,14 @@ Adding `ObjectReference` to `MISMATCH_TYPES` instead would have pre-empted the
 null tests, because `_mismatch` runs before them.
 
 Census (2026-11-03): 15 sites, all in that one Old World Blues script; none in
-FalloutNV, Fallout 3, the other DLCs or Oblivion. The same pass converts
+FalloutNV, Fallout 3, the other DLCs or Oblivion.
+
+<a id="form-in-arithmetic"></a>A form named in arithmetic reads the same
+way: NVBIII's Frosthill hotel result script writes
+`set aaFrosthillDialogue.TownTrust to aaFrosthillDialogue + 1` (the quest,
+not its variable). Papyrus refuses a quest plus an Int, so the script failed
+to compile; the name now reads `aaFrosthillDialogue.GetFormID()`
+(`emit/expr._as_number`), the value FNV computed. The same pass converts
 `GetInCharGen` to 0 (four Old World Blues scripts), matching `SetInCharGen`,
 which converts to nothing.
 
@@ -7017,3 +7041,16 @@ Blast radius on the rebuild: Oblivion 6 scripts (the three artifact spells,
 SE13Ally, SE13KnightOfOrder, SE14VoiceofSheogorathSpell), no CharacterGen or
 MQ script; Nehrim's arena fighters, the beggar and the IsPlayable2 line in
 AAGeneralUpdateQuest; Morrowind_ob 2 OnKnockout scripts. Everything compiles.
+
+### <a id="dangling-operator"></a>An operator with no right operand is dropped
+
+**Code:** `script_convert/tes4/parser.py:_operand_missing`
+
+A binary operator followed by nothing is authored damage the source engine
+ignored. At a line end (`if x <= 256 && `, Morroblivion's
+`fbmwMalexaScript`), parsing on would swallow the next line's statement into
+the condition. Before a `)` (NVBIII's `aaNVB3EvolutionQuestSCRIPT`:
+`elseif (Bombsent == ) && (aaNVB3Master.GodwinFate != 0)`), the operator was
+kept and `(Bombsent == )` failed to compile, losing the whole script. FNV's
+compiler kept it too (postfix `BombSent ==` with one operand); in both cases
+the operator is dropped and the condition ends at its left operand.

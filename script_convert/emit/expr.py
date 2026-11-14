@@ -73,7 +73,7 @@ def is_ref_typed(conv, node: N.Expr) -> bool:
         t = (conv.type_of(node.name) or conv._property_type_ci(node.name) or _record_type(conv, node.name)).lower()
         return bool(t) and t not in _VALUE_TYPES_LOW
     if isinstance(node, N.Call):
-        return node.name.lower() in _REF_RETURNING
+        return node.name.lower() in _REF_RETURNING or _resolve.EXTENDER_FUNCTIONS.get(node.name.lower()) == 'form'
     if isinstance(node, N.Member):
         return _member_is_ref(conv, node)
     return False
@@ -384,7 +384,7 @@ def _base_object(conv, ref, base, node, extends):
              or conv._base_record_type(base.name))
     if btype not in BASE_FORM_TYPES or not is_ref_typed(conv, ref):
         return None
-    if isinstance(ref, N.Ident) and ref.name.lower() in conv.sc.udf_params:
+    if isinstance(ref, N.Ident) and (ref.name.lower() in conv.sc.udf_params or conv.type_of(ref.name) == 'Form'):
         return None
     return (f'{emit(conv, ref, extends)}.GetBaseObject()',
             emit(conv, base, extends))
@@ -604,14 +604,23 @@ def _binop(conv, node: N.BinOp, extends: str) -> str:
 
 def _plain_binop(conv, left, right, op: str, node: N.BinOp, extends: str) -> str:
     """`left op right`; Bool arithmetic and a Float `%` operand are cast to Int, as Papyrus rejects both."""
-    lhs = _operand(conv, left, node, extends)
-    rhs = _operand(conv, right, node, extends, right=True)
+    lhs = _as_number(conv, left, _operand(conv, left, node, extends), op)
+    rhs = _as_number(conv, right, _operand(conv, right, node, extends, right=True), op)
     if op in _ARITH and _is_bool_valued(conv, left) and _is_bool_valued(conv, right):
         return f'({lhs} as Int) {op} ({rhs} as Int)'
     if op == '%':
         lhs, rhs = (f'({text} as Int)' if _symbols.type_of_expr(side, conv.type_of) == 'Float' else text
                     for side, text in ((left, lhs), (right, rhs)))
     return f'{lhs} {op} {rhs}'
+
+
+def _as_number(conv, side: N.Expr, text: str, op: str) -> str:
+    """`text`, or its FormID when `side` names a form used in arithmetic, as FNV reads one.
+    See: docs/commentary/script_convert.md#form-in-arithmetic
+    """
+    if op in _ARITH and isinstance(side, N.Ident) and is_ref_typed(conv, side):
+        return f'{text}.GetFormID()'
+    return text
 
 
 #: `a op b` reversed, so a literal-first comparison folds on the same path.

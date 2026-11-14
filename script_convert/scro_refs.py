@@ -27,6 +27,11 @@ _SCRO_WALK_SKIP_KEYWORDS = frozenset({
 })
 
 
+#: A name the script itself declares (a local) or a block it begins: never a form.
+_OWN_NAME = re.compile(r'^[ \t]*(?:short|long|float|ref|reference|int|string_var|array_var|begin)[ \t]+(\w+)',
+                       re.I | re.M)
+
+
 def _scro_body_tokens(body: str) -> list:
     """Return the candidate form-reference names in a TES4 script body.
 
@@ -41,12 +46,13 @@ def _scro_body_tokens(body: str) -> list:
     for raw in body.replace('\r\n', '\n').replace('\r', '\n').split('\n'):
         lines.append(raw.split(';', 1)[0])
     text = re.sub(r'"([^"]*)"', r' \1 ', '\n'.join(lines))
+    own = {name.lower() for name in _OWN_NAME.findall(text)}
     out = []
     for m in re.finditer(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?',
                          text):
         head = m.group(0).split('.', 1)[0]
         low = head.lower()
-        if low in _SCRO_WALK_SKIP_KEYWORDS or low in KNOWN_COMMANDS:
+        if low in _SCRO_WALK_SKIP_KEYWORDS or low in KNOWN_COMMANDS or low in own:
             continue
         out.append(head)
     return out

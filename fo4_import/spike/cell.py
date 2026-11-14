@@ -606,8 +606,9 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
             builder.counts['rooms and portals left out (a portal to no room)'] += 1
             continue
         fnv_ref = int(ref['FormID'], 16)
-        keep, card = _persistent(ref) or ref['FormID'] in teleports, fnv_ref in glow_cards(builder.export_dir)
+        card = fnv_ref in glow_cards(builder.export_dir)
         gated = card and builder.imposter_gate.gated(fnv_ref)
+        keep = _persistent(ref) or ref['FormID'] in teleports or builder.radio.keeps(ref) or gated
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_placed_at(builder, ref), float(ref.get('XSCL.Scale', 1.0)), radius,

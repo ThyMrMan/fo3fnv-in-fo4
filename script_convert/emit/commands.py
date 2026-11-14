@@ -107,7 +107,7 @@ def _ref(conv, row, ref_name, extends):
     if row.subj == OBJREF:
         ref = conv._resolve_objref_ref(ref_name, extends)
         if conv.type_of(ref) == 'Form':
-            return conv._cast(ref, 'ObjectReference')
+            return f'({conv._cast(ref, "ObjectReference")})'
         return ref
     if row.subj == RAW:
         if ref_name:

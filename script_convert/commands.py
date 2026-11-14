@@ -1206,6 +1206,18 @@ def set_essential(ctx, call) -> str:
     return f'{target}.SetEssential({value})'
 
 
+def _owner_base(ctx, arg: str) -> str:
+    """`arg` as the ActorBase an ownership call takes, by its type: itself, a held base cast, or its actor's base.
+    See: docs/commentary/script_convert.md#ownership-owner
+    """
+    kind = (ctx.type_of(arg) or ctx._property_type_ci(arg) or '').lower()
+    if kind == 'actorbase':
+        return arg
+    if kind == 'form':
+        return f'({arg} as ActorBase)'
+    return f'{arg}.GetActorBase()' if kind == 'actor' else f'({arg} as Actor).GetActorBase()'
+
+
 @command('setownership')
 def set_ownership(ctx, call) -> str:
     """SetOwnership -- Skyrim splits ownership into ACTOR and FACTION owners.
@@ -1219,7 +1231,7 @@ def set_ownership(ctx, call) -> str:
     arg = call.arg(0)
     if _is_faction(ctx, call, arg):
         return f'{ref}.SetFactionOwner({arg})'
-    return f'{ref}.SetActorOwner({arg}.GetActorBase())'
+    return f'{ref}.SetActorOwner({_owner_base(ctx, arg)})'
 
 
 @command('isowner')
@@ -1235,7 +1247,7 @@ def is_owner(ctx, call) -> str:
     arg = call.arg(0)
     if _is_faction(ctx, call, arg):
         return f'({ref}.GetFactionOwner() == {arg})'
-    return f'({ref}.GetActorOwner() == {arg}.GetActorBase())'
+    return f'({ref}.GetActorOwner() == {_owner_base(ctx, arg)})'
 
 
 @command('activate')

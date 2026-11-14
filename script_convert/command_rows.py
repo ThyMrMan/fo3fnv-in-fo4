@@ -553,6 +553,11 @@ COMMAND_ROWS = {
     #: --- Movement / Position ---
     'getdistance': Cmd('GetDistance', MAP, flags='actor_only objref_shared'),
     'getparentcell': Cmd('GetParentCell', MAP, flags='objref_self'),
+    #: FNV's PlaceLeveledActorAtMe <actor base> [level 0-3]: PlaceActorAtMe's own scale; omitted is its 4 (none).
+    'placeleveledactoratme': Cmd('{ref}.PlaceActorAtMe({p0}, {i1})', OBJREF, types={0: 'ActorBase'},
+                                 defaults={1: '4'}, flags='objref_self'),
+    #: xNVSE's GetBaseObject is ObjectReference's own native in both games.
+    'getbaseobject': Cmd('{ref}.GetBaseObject()', OBJREF, flags='objref_self'),
     'setposition': Cmd('SetPosition', MAP),
     'getlinkedref': Cmd('GetLinkedRef', MAP, flags='objref_self'),
     'getheadingangle': Cmd('GetHeadingAngle', MAP),

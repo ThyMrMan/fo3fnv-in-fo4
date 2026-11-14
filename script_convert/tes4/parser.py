@@ -217,16 +217,17 @@ class Parser:
                     and self.cur.text in PRECEDENCE[level]):
                 break
             op = self.advance()
-            # A DANGLING operator -- `if x <= 256 && ` with nothing after it.
-            # Authored damage (Morroblivion's fbmwMalexaScript), which
-            # Oblivion ignored.  Consuming the next line as the right operand
-            # swallows a whole statement into the condition, so the operator
-            # is dropped and the condition ends where it stands.
-            if self.cur.kind in (T.NEWLINE, T.EOF, T.COMMENT):
+            if self._operand_missing():
                 break
             right = self._parse_binary(level + 1)
             left = BinOp(op.text, left, right, line=op.line)
         return left
+
+    def _operand_missing(self) -> bool:
+        """Whether the operator just read has no right operand (it is dropped).
+        See: docs/commentary/script_convert.md#dangling-operator
+        """
+        return self.cur.kind in (T.NEWLINE, T.EOF, T.COMMENT) or self.cur.is_op(')')
 
     def _skip_continuation(self, level: int) -> None:
         """Consume NEWLINEs when the next real token continues the expression."""
@@ -595,8 +596,11 @@ class Parser:
                       comment=self.take_line_end())
 
     def _parse_let(self, line: int, start: int) -> Stmt:
-        """OBSE `let <target> := <value>` / `let x += 1`."""
+        """OBSE `let <target> := <value>` / `let x += 1`; xNVSE's `let array_var x := <value>` declares x too."""
         self.advance()
+        low = self.cur.text.lower() if self.cur.kind is T.IDENT else ''
+        if low in VAR_TYPES and self.toks[self.i + 1].kind is T.IDENT:
+            return self._declaration(low, line)
         target = self._parse_postfix()
         if self.cur.kind is T.OP and self.cur.text in ASSIGN_OPS:
             return self._assignment(target, line)

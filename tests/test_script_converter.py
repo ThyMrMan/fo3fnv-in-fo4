@@ -3258,10 +3258,10 @@ class TestEnumActorValues:
     def test_confidence_read_and_mod_round_trip(self, converter):
         """GetAV reads the 0-100 value back; ModAV adds to it (the ULC fish script)."""
         read = conv_line(converter, 'set baseConf to GetAV Confidence', 'Actor')
-        mod = conv_line(converter, 'ModAV Confidence fMod', 'Actor')
+        mod = conv_line(converter, 'ModAV Confidence fDelta', 'Actor')
         current = 'TES4Polyfill.GetConfidence(Self, TES4ConfidenceFaction)'
         assert read == f'baseConf = {current}'
-        assert mod == (f'TES4Polyfill.SetConfidence(Self, {current} + (fMod), '
+        assert mod == (f'TES4Polyfill.SetConfidence(Self, {current} + (fDelta), '
                        'TES4ConfidenceFaction, TES4FleeMarginFaction, TES4ConfidenceFlee, '
                        'TES4FleeHealthScale)')
 
