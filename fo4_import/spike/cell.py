@@ -1144,10 +1144,13 @@ def _cell_names(builder: CellBuilder, export_dir: Path, interiors: list, worlds:
 
 
 def _master_places(builder: CellBuilder, export_dir: Path) -> dict:
-    """{EditorID: FO4 form} of the masters' named cells and worldspaces their built plugins hold; none without."""
+    """{EditorID: FO4 form} of the masters' named cells, worldspaces and references their built plugins hold;
+    none without.
+    See: docs/fork/fo4_pipeline.md#master-references
+    """
     if builder.in_masters is None:
         return {}
-    found = ((r['EditorID'], builder.ids.fo4(int(r['FormID'], 16))) for sig in ('CELL', 'WRLD')
+    found = ((r['EditorID'], builder.ids.fo4(int(r['FormID'], 16))) for sig in ('CELL', 'WRLD', 'REFR')
              for r in export_records(export_dir, sig) if r.get('EditorID') and not builder.ids.is_own(int(r['FormID'], 16)))
     return {edid: fid for edid, fid in found if fid in builder.in_masters}
 

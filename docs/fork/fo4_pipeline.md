@@ -6121,6 +6121,17 @@ fill too. Scripts with a worldspace property: FalloutNV 43, Dead Money 5, Honest
 Lonesome Road 4, Old World Blues 7. No FormIDs moved; confirmed in game on Old
 World Blues.
 
+<a id="master-references"></a>**Master references in a mod's script properties
+(2026-11-14).** A mod build filled an ObjectReference property only from the
+references it places, so a master reference in a cell the mod does not edit was
+left None. JSawyer Ultimate's `NVJSawyerSetupQuestSCRIPT` moves four vendor
+chests out of its holding cell to master markers and stops once Mick's chest has
+left; `SecretSalesMarkerREF` (Mick and Ralph's) and `NellisJanetMarker3` were
+None, the `MoveTo` failed, and the setup ran every 5 seconds, showing "JSawyer
+Ultimate Edition Loaded" each time. `_master_places` now also holds the masters'
+named references their built plugins hold. A reference this build places still
+wins. No FormIDs move: only property values change.
+
 <a id="reached-worlds"></a>**`--world reached` (2026-10-25).** A whole build from the app passed
 only `--world WastelandNV`. When it ran into the MO2 folder, it replaced
 the 12-world deploy with WastelandNV alone (285 MB against 383), and

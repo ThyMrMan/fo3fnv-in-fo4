@@ -58,3 +58,15 @@ def test_a_dlcs_own_built_place_wins_over_a_masters_of_the_same_name(monkeypatch
     builder = _builder(frozenset({0x03000A00}))
     names = CB._cell_names(builder, 'LonesomeRoad', [], [_world('Lucky38World', '01000800')])
     assert names['Lucky38World'] == builder.fnv_id('01000800') != 0x03000A00
+
+
+def test_a_mod_names_the_masters_references_its_built_master_holds(monkeypatch):
+    """A master reference in a cell the mod does not build (JSawyer's SecretSalesMarkerREF) is named under the
+    master's FO4 FormID; one the built master left out is not.
+    See: docs/fork/fo4_pipeline.md#master-references
+    """
+    refs = {'REFR': [{'FormID': '0016CCA1', 'EditorID': 'SecretSalesMarkerREF'},
+                     {'FormID': '0016CCA2', 'EditorID': 'LeftOut'}]}
+    monkeypatch.setattr(CB, 'export_records', lambda export_dir, sig: refs.get(sig, ()))
+    names = CB._master_places(_builder(frozenset({0x0316CCA1})), 'JSawyer Ultimate Edition')
+    assert names == {'SecretSalesMarkerREF': 0x0316CCA1}
