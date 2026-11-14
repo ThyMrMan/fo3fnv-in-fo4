@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from core.process_memory import job_commits, own_commit
+from fo4_import.pipeline.ran_code import enter_part
 
 #: Seconds between memory samples.
 SAMPLE_SECONDS = 0.5
@@ -49,8 +50,11 @@ _profiling: list = []
 _dumped: set = set()
 
 
-def timed(name: str):
-    """Decorate a build stage: its calls add their own seconds to `name`."""
+def timed(name: str, part: 'str | None' = None):
+    """Decorate a build stage: its calls add their own seconds to `name`, run in build `part` (ran_code.enter_part;
+    None: the part of the stage around it).
+    See: docs/fork/fo4_plugin_layout.md#build-parts
+    """
     def wrap(fn):
         """`fn`, timed under `name`."""
         @functools.wraps(fn)
@@ -58,10 +62,11 @@ def timed(name: str):
             """Call `fn`, charging its time less its nested stages' to `name`."""
             _stack.append([name, 0.0])
             profiler = _profiler(name)
-            started = time.perf_counter()
+            started, was = time.perf_counter(), enter_part(part)
             try:
                 return profiler.runcall(fn, *args, **kwargs) if profiler else fn(*args, **kwargs)
             finally:
+                enter_part(was if part else None)
                 _dump(name, profiler)
                 took = time.perf_counter() - started
                 nested = _stack.pop()[1]
@@ -104,9 +109,9 @@ def _dump(name: str, profiler: 'cProfile.Profile | None') -> None:
     stem.with_suffix('.txt').write_text(out.getvalue(), encoding='utf-8')
 
 
-def charged(name: str, fn, *args):
-    """`fn(*args)`, its time charged to stage `name`."""
-    return timed(name)(fn)(*args)
+def charged(name: str, fn, *args, part: 'str | None' = None):
+    """`fn(*args)`, its time charged to stage `name` (in build `part`: timed)."""
+    return timed(name, part)(fn)(*args)
 
 
 def clocked(fn, *args) -> tuple:

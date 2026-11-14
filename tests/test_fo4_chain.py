@@ -430,15 +430,18 @@ def test_a_failed_step_runs_again_and_fresh_forgets(tmp_path):
 
 
 def test_the_chain_keeps_the_scratch_chains_order(tmp_path, monkeypatch):
-    """base, faces, helpers, dll, plan, others (The Frontier left out), faces check, preflight, then the kit."""
+    """base archives, base, faces, helpers, dll, plan, others (The Frontier left out), faces check, preflight,
+    then the kit."""
     cfg = _config(tmp_path)
     for mod, name in (('F3NV - Dead Money', 'DeadMoney.esm'), ('F3NV - The Frontier', 'TheFrontier.esm')):
         _built(cfg.nv.parent / mod / name, 'one')
     monkeypatch.setattr(FC, '_ck_output', lambda: [])
     args = argparse.Namespace(profile_stages=FC.PROFILE_STAGES, kit=tmp_path / 'kit.esl', kit_mod=tmp_path / 'kit')
     steps = FC.chain_steps(cfg, args)
-    assert [s.name for s in steps] == ['base', 'faces', 'helpers', 'dll', 'plan', 'others', 'faces check',
-                                       'preflight', 'test plugin']
+    assert [s.name for s in steps] == ['base archives', 'base', 'faces', 'helpers', 'dll', 'plan', 'others',
+                                       'faces check', 'preflight', 'test plugin']
+    assert [str(a) for a in steps[0].argv[-2:]] == [FC.build_plan.REPLAY, str(cfg.base)]
+    steps = steps[1:]
     others = [str(a) for a in steps[5].argv]
     assert others[-1] == '--run' and str(cfg.nv.parent / 'F3NV - Dead Money' / 'DeadMoney.esm') in others
     assert not any('Frontier' in a for a in others)
