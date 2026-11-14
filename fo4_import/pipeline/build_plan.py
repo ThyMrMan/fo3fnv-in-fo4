@@ -410,7 +410,7 @@ def faces_again(plugins: list) -> int:
 def run(plugins: list) -> int:
     """Build every plugin of `plugins` that needs it, masters first, checking the rest again after each, and run a
     rebuilt plugin's faces stage again (faces_again); the first failing build's exit code, STILL_BUILD when a
-    plugin still needs a build after its own, LEAKED when a build flips a plugin that does not depend on it,
+    plugin still needs a build after its own with none of its masters built since, LEAKED when a build flips a plugin that does not depend on it,
     SCRATCH_MASTER when a plugin reads a master from a scratch copy, else 0.
     See: docs/fork/fo4_plugin_layout.md#plan-guards
     """
@@ -441,7 +441,7 @@ def run(plugins: list) -> int:
         code = rebuild(plugin, master_dirs(plugin, plugins))
         if code:
             return code
-        built.add(plugin.resolve())
+        built = (built - dependents(plugin, plugins)) | {plugin.resolve()}
         before, last = {p.resolve(): verdict for p, verdict, _ in rows}, plugin
 
 

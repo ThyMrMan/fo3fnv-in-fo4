@@ -1293,7 +1293,10 @@ decides.
     (directly or through another), and now needs a build means that build
     wrote a file the plugin reads but its record misses; the run stops and
     prints the changed input (`leaked`). Before, only a repeat build of the
-    same plugin stopped it (exit 3), after a wasted build.
+    same plugin stopped it (exit 3), after a wasted build. A repeat build
+    is still allowed after one of the plugin's masters was built: a plugin
+    with no record yet (the NVTUP overlay on 2026-11-13) sorts first, and
+    only its first build's record names the masters that later move it.
   - <a id="replay"></a>*Each plugin replayed by its own module.* A stamp's
     command names the module that built it; `--run` rebuilds with that
     module, not always `pipeline.run`. An asset overlay

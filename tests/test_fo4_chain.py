@@ -357,6 +357,20 @@ def test_a_plugin_reading_the_one_built_may_flip(tmp_path, monkeypatch):
     assert BP.run([a, c, b]) == 0 and built == ['A.esm', 'B.esm']
 
 
+def test_a_plugin_built_before_its_masters_builds_again_after_them(tmp_path, monkeypatch):
+    """O had no record, so it built first; its record then names M, and M's build makes O build again."""
+    o, m, built = tmp_path / 'O.esl', tmp_path / 'M.esp', []
+    plans = iter([[(o, BP.BUILD, 'no record'), (m, BP.BUILD, 'code x')],
+                  [(m, BP.BUILD, 'code x'), (o, BP.AFTER, 'M.esp')],
+                  [(m, BP.CURRENT, ''), (o, BP.BUILD, 'file m.json')],
+                  [(m, BP.CURRENT, ''), (o, BP.CURRENT, '')]])
+    monkeypatch.setattr(BP, 'plan', lambda plugins: next(plans))
+    monkeypatch.setattr(BP, 'masters_of', lambda p: [m] if p == o and built else [])
+    monkeypatch.setattr(BP, 'master_dirs', lambda *_: [])
+    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs: built.append(p.name) or 0)
+    assert BP.run([o, m]) == 0 and built == ['O.esl', 'M.esp', 'O.esl']
+
+
 def test_a_step_past_twice_its_estimate_warns_once(tmp_path):
     """Estimate 100 s, still running at 201 s: one SLOW line and one notification; the step still passes."""
     fake = FakeRun(lines_at=[(t, 'x\n') for t in range(5, 400, 20)], exit_at=400)
