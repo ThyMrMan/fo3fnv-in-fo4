@@ -1405,6 +1405,20 @@ and its archives without the FaceGen
 pack the faces again, so the gain has to come from each step reusing its
 own work.
 
+Planned once the step times and miss reasons are in (not built):
+
+1. **FaceGen in its own plugin's archives.** An empty `F3NV - Faces.esl`
+   with its own `- Main.ba2` and `- Textures.ba2`: the game finds a face
+   by its NPC's origin plugin and FormID, whatever archive holds it, and
+   loads only plugin-named archives ([main-archive](fo4_pipeline.md#main-archive)).
+   A base rebuild then leaves the faces packed; they repack only when a
+   face changes.
+2. **Refit and skin results kept per NPC**, applied to each new base
+   build in seconds. The patches stay in the main plugin: an override
+   plugin would copy whole `NPC_` records, go stale on every other NPC
+   change, and lose to a mod's later override.
+3. **The heads' cache key**, fixed by what the miss reasons show.
+
 ### <a id="ck-face-shader"></a>The CK's face bake, read from its shader (2026-11-12)
 
 The two rules the sections above left out (the lips and the island) and
