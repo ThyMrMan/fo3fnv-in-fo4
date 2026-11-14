@@ -29,6 +29,8 @@ from core.worldspace_names import converted_worldspace_edid, renames_for
 # be referenced from a script, and together they are ~85% of the export bytes
 # (LAND.txt alone is ~1.4 GB).
 _SCAN_SKIP_SIGS = {'LAND', 'PGRD', 'ROAD'}
+#: FNV NOTE DATA.Type of a voice note (an audio log).
+VOICE_NOTE = '3'
 
 # Byte size of one scan job; big files split across workers at this grain.
 _SCAN_CHUNK_BYTES = 16 * 1024 * 1024
@@ -76,6 +78,7 @@ def _new_scan_out() -> dict:
         # BOOK FormIDs carrying an ENAM: the importer writes these as SCRL, not
         # BOOK, so a property typed from the source signature would not bind.
         'enchanted_books': set(),
+        'voice_notes': set(),
         'trigger_blocks': {},
     }
 
@@ -122,7 +125,7 @@ def _rekey_scan(out: dict, remap: dict) -> dict:
         out[name] = {fid(key): value for key, value in out[name].items()}
     for name in ('edid_to_formid', 'record_scri', 'record_base'):
         out[name] = {key: fid(value) for key, value in out[name].items()}
-    for name in ('npc_formids', 'enchanted_books'):
+    for name in ('npc_formids', 'enchanted_books', 'voice_notes'):
         out[name] = {fid(value) for value in out[name]}
     out['actor_packages'] = {key: [fid(p) for p in packs] for key, packs in out['actor_packages'].items()}
     out['cell_geom'] = {key: (geom[0], fid(geom[1]), *geom[2:]) for key, geom in out['cell_geom'].items()}
@@ -158,9 +161,19 @@ def _spell_effect_list(rec: dict) -> list:
     return effects
 
 
+def _index_global(tables: dict, low: str, rec: dict) -> None:
+    """A GLOB's type and value into `tables`."""
+    if rec.get('FNAM.Type'):
+        tables['global_types'][low] = rec['FNAM.Type'].strip()
+    try:
+        tables['global_values'][low] = float(rec.get('FLTV.Value'))
+    except (TypeError, ValueError):
+        pass
+
+
 def index_record_details(tables: dict, sig: str, formid: str, edid: str,
                          rec: dict, rekey=lambda v: v) -> None:
-    """Fill the tables a record's own fields feed: model, MGEF shader, SPEL effects, GLOB, enchanted BOOK.
+    """Fill the tables a record's own fields feed: model, MGEF shader, SPEL effects, GLOB, enchanted BOOK, voice NOTE.
 
     `tables` maps table name -> dict/set (a scan result, or a graph's `vars()`), so the
     CLI scan and the importer's hand-built graph index these identically; `rekey`
@@ -181,15 +194,17 @@ def index_record_details(tables: dict, sig: str, formid: str, edid: str,
         if effects:
             tables['spell_effects'][low] = effects
     elif sig == 'GLOB' and low:
-        if rec.get('FNAM.Type'):
-            tables['global_types'][low] = rec['FNAM.Type'].strip()
-        try:
-            tables['global_values'][low] = float(rec.get('FLTV.Value'))
-        except (TypeError, ValueError):
-            pass
-    elif sig == 'BOOK' and (rec.get('ENAM') or '').strip().strip('0'):
-        tables['enchanted_books'].add(formid)
+        _index_global(tables, low, rec)
+    _index_retyped(tables, sig, formid, rec)
     _index_move_speed(tables, sig, formid, low, rec)
+
+
+def _index_retyped(tables: dict, sig: str, formid: str, rec: dict) -> None:
+    """An enchanted BOOK (built as a SCRL) or a voice NOTE (an FO4 holotape) into `tables`."""
+    if sig == 'BOOK' and (rec.get('ENAM') or '').strip().strip('0'):
+        tables['enchanted_books'].add(formid)
+    if sig == 'NOTE' and (rec.get('DATA.Type') or '').strip() == VOICE_NOTE:
+        tables['voice_notes'].add(formid)
 
 
 #: The GMSTs of TES4's walk-speed formula: walk = Min + (Max - Min) * Speed / 100.
@@ -390,6 +405,8 @@ class CrossRefGraph:
         self.cell_geom: dict[str, tuple] = {}
         # BOOK records with an ENAM: written as SCRL, so `Book` would not bind.
         self.enchanted_books: set[str] = set()
+        #: NOTE FormIDs of voice notes, which Fallout 4 builds as holotapes.
+        self.voice_notes: set[str] = set()
         #: script EditorID (lower) -> the trigger blocks it authors ('ontriggerenter', 'ontrigger').
         self.trigger_blocks: dict[str, frozenset] = {}
         self.record_base: dict[str, str] = {}  # placed ref FormID -> base record FormID (NAME)
@@ -514,6 +531,7 @@ class CrossRefGraph:
         self.record_model.update(out['record_model'])
         self.cell_geom.update(out['cell_geom'])
         self.enchanted_books.update(out['enchanted_books'])
+        self.voice_notes.update(out['voice_notes'])
         self.trigger_blocks.update(out['trigger_blocks'])
         self.quest_edids.update(out['quest_edids'])
         self.npc_formids.update(out['npc_formids'])
@@ -876,6 +894,15 @@ class CrossRefGraph:
         return any(_model_is_held(self.record_model.get(rec_fid, ''))
                    for rec_fid, scri in self.record_scri.items()
                    if scri == script_fid)
+
+    def unnamed_ref(self, text: str) -> str:
+        """The FormID of the placed reference with no EditorID that raw FormID `text` ("15F316") names; ''.
+        See: docs/fork/fo4_pipeline.md#formid-properties
+        """
+        if not re.fullmatch(r'[0-9A-Fa-f]{6,8}', text) or text.isdigit() and not text.startswith('0'):
+            return ''
+        fid = text.upper().zfill(8)
+        return fid if self.record_type.get(fid) in PLACED_REF_SIGS and fid not in self.formid_to_edid else ''
 
     def record_script_edid(self, name: str) -> str:
         """EditorID of the script on record `name` (a placed ref falls back to its base's); '' for none.

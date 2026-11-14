@@ -31,7 +31,7 @@ from fo4_import.spike.say_topics import blocker, conditions_of, conditions_under
 from script_convert.quest_var_mirrors import PREFIX as QVAR_PREFIX
 from fo4_import.spike.script import base_forms, declared_properties, fill, prefix
 from fo4_import.spike.script_effects import ScriptEffects
-from fo4_import.spike.type_tests import CREATURE_TYPE_PREFIX
+from fo4_import.spike.type_tests import BIPED_SLOT_PREFIX, CREATURE_TYPE_PREFIX
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_string_subrecord
 from tes5_import.record_types.crime_falloutnv import ENEMY_LIST_EDID
@@ -69,7 +69,7 @@ NAMED_MAKERS = {'ImageSpaceModifier': ('imods', 'modifier'), 'Package': ('packag
 #: (Papyrus type, name prefix) -> the ObjectScripts method making such a property's form.
 PREFIXED_MAKERS = {('MatSwap', FALLOUT4_SWAP_PREFIX): '_swap', ('Armor', FALLOUT4_SCREEN_PREFIX): '_screen',
                    ('ObjectReference', FALLOUT4_POSE_PREFIX): '_pose', ('Keyword', FAMILY_PREFIX): '_family',
-                   ('Keyword', CREATURE_TYPE_PREFIX): '_type_keyword'}
+                   ('Keyword', CREATURE_TYPE_PREFIX): '_type_keyword', ('Keyword', BIPED_SLOT_PREFIX): '_type_keyword'}
 #: Papyrus type -> the ObjectScripts method making a property of that type by its name.
 TYPED_MAKERS = {'GlobalVariable': '_global_form', 'FormList': '_list_form', 'Spell': '_spell_form',
                 'ActorBase': 'actor_base'}
@@ -101,6 +101,13 @@ class NameMap(dict):
             self[key] = value
 
 
+def _is_reference_type(kind: str) -> bool:
+    """Whether a `kind` property holds a placed reference.
+    See: docs/fork/fo4_pipeline.md#unique-actors
+    """
+    return kind in ('Actor', 'ObjectReference') or kind.lower().startswith(prefix().lower())
+
+
 def _kept(_cond: dict) -> None:
     """No test settled up front: each converts or blocks."""
     return None
@@ -122,7 +129,7 @@ class ObjectScripts:
         self.named, self.talks = NameMap([PLAYER]), {}
         self.quest_ids = {r['EditorID'].lower(): r['FormID'] for r in export_records(export_dir, 'QUST')
                           if r.get('EditorID')}
-        self.export_dir, self.actor_bases, self.base_names = export_dir, None, None
+        self.export_dir, self.actor_bases, self.base_names, self.unique_actors = export_dir, None, None, {}
 
     def name(self, scpt: int) -> 'str | None':
         """The converted script of FNV script `scpt`; None when it was not converted."""
@@ -143,8 +150,10 @@ class ObjectScripts:
         talks = {prop: self.talk(prop) for kind, prop in declared
                  if kind == 'Scene' and prop.startswith((FALLOUT4_TALK_PREFIX, FALLOUT4_CHAT_PREFIX))}
         made, named = {prop: self._made(kind, prop) for kind, prop in declared}, self.named_lower()
+        placed = {prop: self.unique_actors[prop.lower()] for kind, prop in declared
+                  if prop.lower() in self.unique_actors and _is_reference_type(kind)}
         return {**props, **talks, **{p: f for p, f in made.items() if f},
-                **{prop: named[prop.lower()] for _, prop in declared if prop.lower() in named}}
+                **{prop: named[prop.lower()] for _, prop in declared if prop.lower() in named}, **placed}
 
     def named_lower(self) -> dict:
         """`named` keyed by lower-case name (NameMap.lower; read only)."""
@@ -193,7 +202,7 @@ class ObjectScripts:
         return self.effects.family_named(prop)
 
     def _type_keyword(self, prop: str) -> int:
-        """An `FNV_CreatureType<type>` keyword (type_tests.TypeKeywords)."""
+        """A creature type or biped slot keyword (type_tests.TypeKeywords)."""
         return self.builder.type_keywords.keyword(prop)
 
     def _global_form(self, prop: str) -> 'int | None':

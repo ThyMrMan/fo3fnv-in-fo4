@@ -33,6 +33,8 @@ from script_convert.tes4 import nodes as N
 from dataclasses import dataclass, field
 
 from fo4_import.cleanroom import SCRIPTS as CLEANROOM_SCRIPTS
+from fo4_import.spike.type_tests import WEAPON_SLOT, equipped_slot
+from script_convert.target import is_fallout4
 
 from script_convert.constants import (
     AXIS_COMMANDS, KNOWN_GLOBALS, NUMERIC_RANK, RETURN_TYPES,
@@ -110,13 +112,22 @@ def _call_type(node) -> str:
     """A call's return type: command_return_type, the axis folded in (`GetAngle Z` is Papyrus `GetAngleZ`),
     or Float for a global's read (`GetGlobalValue <g>` is `<g>.GetValue()`)."""
     low = node.name.lower()
-    hit = command_return_type(low)
+    hit = _equipped_type(node) or command_return_type(low)
     axis = _bare(node.args[0]).strip().lower() if not hit and low in AXIS_COMMANDS and node.args else ''
     if axis in ('x', 'y', 'z'):
         return RETURN_TYPES.get(AXIS_COMMANDS[low] + axis, '')
     if not hit and low in ('getglobalvalue', 'getglobal'):
         return 'Float'
     return hit or ''
+
+
+def _equipped_type(node) -> str:
+    """Armor for FNV GetEquippedObject of a non-weapon slot on Fallout 4.
+    See: docs/fork/fo4_perks.md#biped-slots
+    """
+    named = node.args and node.name.lower() == 'getequippedobject' and isinstance(node.args[0], N.Literal)
+    slot = equipped_slot(node.args[0].text) if named else None
+    return 'Armor' if is_fallout4() and slot not in (None, WEAPON_SLOT) else ''
 
 
 def _binop_type(node, lookup) -> str:
@@ -339,8 +350,8 @@ def resolve_ref_types(stmts, ref_vars, lookup, record_type_of):
     holding only the variables whose type actually changes.
     """
 
-    out = {}
-    for low, use in scan_var_usage(stmts, ref_vars, lookup).items():
+    out, usage = {}, scan_var_usage(stmts, ref_vars, lookup)
+    for low, use in usage.items():
         # A `ref` only ever assigned integers and never used as a reference is
         # the TES4 flag idiom, not a reference at all.
         if use.is_int_flag:
@@ -417,6 +428,22 @@ def resolve_ref_types(stmts, ref_vars, lookup, record_type_of):
             out[low] = 'Form'
         elif use.form_type:
             out[low] = use.form_type
+    return _copied_types(usage, out)
+
+
+def _copied_types(usage: dict, out: dict) -> dict:
+    """`out` with each undecided variable assigned only other variables (or None) taking their one decided type.
+    See: docs/commentary/script_convert.md#ref-copied-type
+    """
+    changed = True
+    while changed:
+        changed = False
+        for low, use in usage.items():
+            names = {v.name.lower() for v in use.assigned if isinstance(v, N.Ident)} - {'none'}
+            whole = all(isinstance(v, N.Ident) for v in use.assigned)
+            types = {out[n] for n in names if n in out}
+            if low not in out and whole and names and names <= out.keys() and len(types) == 1:
+                out[low], changed = types.pop(), True
     return out
 
 

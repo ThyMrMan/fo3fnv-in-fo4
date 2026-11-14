@@ -38,7 +38,7 @@ from script_convert.anim_playing_falloutnv import played
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
 from script_convert.emit import expr as _expr
-from script_convert.constants import typed_already
+from script_convert.constants import PLAYER_BASE_FORMID, typed_already
 from script_convert.constants_falloutnv import (FALLOUT_COMMAND_ALIASES,
                                                 FALLOUT_UNMAPPED_ACTOR_VALUES)
 from tes5_import.dialogue.say_topics import PLAYER_TOKENS
@@ -281,9 +281,9 @@ def udf_call(ctx, call) -> str:
     target = call.source(0).strip().rstrip(',')
     if not target:
         return None
-    if not re.fullmatch(r'\w+', target):
-        return ctx.note(f'Call {target} - a function chosen at run time')
     fid = ctx.xref.edid_to_formid.get(target.lower(), '') if ctx.xref else ''
+    if not re.fullmatch(r'\w+', target) or (not fid and target.lower() in ctx.sc.var_types):
+        return ctx.note(f'Call {target} - a function chosen at run time')
     canon = ctx.xref.formid_to_edid.get(fid, target) if fid else target
     prop = papyrus_script_name(canon) if is_fallout4() else safe_property_name(canon)
     if not is_fallout4():
@@ -1206,6 +1206,18 @@ def set_essential(ctx, call) -> str:
     return f'{target}.SetEssential({value})'
 
 
+def _owner_base(ctx, arg: str) -> str:
+    """`arg` as the ActorBase an ownership call takes, by its type: itself, a held base cast, or its actor's base.
+    See: docs/commentary/script_convert.md#ownership-owner
+    """
+    kind = (ctx.type_of(arg) or ctx._property_type_ci(arg) or '').lower()
+    if kind == 'actorbase':
+        return arg
+    if kind == 'form':
+        return f'({arg} as ActorBase)'
+    return f'{arg}.GetActorBase()' if kind == 'actor' else f'({arg} as Actor).GetActorBase()'
+
+
 @command('setownership')
 def set_ownership(ctx, call) -> str:
     """SetOwnership -- Skyrim splits ownership into ACTOR and FACTION owners.
@@ -1219,7 +1231,7 @@ def set_ownership(ctx, call) -> str:
     arg = call.arg(0)
     if _is_faction(ctx, call, arg):
         return f'{ref}.SetFactionOwner({arg})'
-    return f'{ref}.SetActorOwner({arg}.GetActorBase())'
+    return f'{ref}.SetActorOwner({_owner_base(ctx, arg)})'
 
 
 @command('isowner')
@@ -1235,7 +1247,7 @@ def is_owner(ctx, call) -> str:
     arg = call.arg(0)
     if _is_faction(ctx, call, arg):
         return f'({ref}.GetFactionOwner() == {arg})'
-    return f'({ref}.GetActorOwner() == {arg}.GetActorBase())'
+    return f'({ref}.GetActorOwner() == {_owner_base(ctx, arg)})'
 
 
 @command('activate')
@@ -1357,8 +1369,8 @@ def place_at_me(ctx, call) -> str:
     argument is a BASE form, so its property is typed as one.
     See: docs/commentary/script_convert.md#property-type-merge
     """
-    base = call.arg(0, 'None')
-    rtype = _record_type(ctx, call.source(0))
+    base, src = _placed_form(ctx, call)
+    rtype = _record_type(ctx, src)
     if rtype and rtype not in PLACED_REF_SIGS:
         ctx.sc.property_refs[base] = _base_form_type(rtype)
     count = call.source(1, '1')
@@ -1369,6 +1381,19 @@ def place_at_me(ctx, call) -> str:
         elif call.extends == 'TopicInfo':
             ref = 'akSpeakerRef'
     return f'{ref}.PlaceAtMe({base}, {count})'
+
+
+def _placed_form(ctx, call) -> tuple:
+    """(Papyrus form, source name) of PlaceAtMe's form; a number is a raw FormID (`PlaceAtMe 7`: the player's base).
+    See: docs/commentary/script_convert.md#placeatme-formid
+    """
+    src = call.source(0).strip()
+    edid = ctx._form_operand_edid(src) if src.isdigit() else ''
+    if not edid:
+        return call.arg(0, 'None'), src
+    if src.zfill(8) == PLAYER_BASE_FORMID:
+        return 'Game.GetPlayer().GetActorBase()', ''
+    return _resolve_name.resolve(ctx, edid, call.extends), edid
 
 
 @command('sin', 'cos', 'tan')

@@ -109,7 +109,7 @@ from fo4_import.pipeline.light_choice import Choice
 from fo4_import.pipeline.converters import PLACED, placed_types
 from fo4_import.pipeline.export_index import (Layered, asset_root, export_file, export_records, held_types,
                                               own_records, plugin_sources)
-from script_convert.constants import FALLOUT4_HELPER_PLUGIN
+from script_convert.constants import FALLOUT4_HELPER_PLUGIN, PLACED_REF_SIGS, formid_property_name
 from script_convert.context_setup import load_records
 from tes5_import.base.tes5_reader import first_sub, records, sub_map, walk
 from tes5_import.base.writer import pack_subrecord
@@ -606,8 +606,9 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
             builder.counts['rooms and portals left out (a portal to no room)'] += 1
             continue
         fnv_ref = int(ref['FormID'], 16)
-        keep, card = _persistent(ref) or ref['FormID'] in teleports, fnv_ref in glow_cards(builder.export_dir)
+        card = fnv_ref in glow_cards(builder.export_dir)
         gated = card and builder.imposter_gate.gated(fnv_ref)
+        keep = _persistent(ref) or ref['FormID'] in teleports or builder.radio.keeps(ref) or gated
         radius = float(ref['XRDS.Radius']) if 'XRDS.Radius' in ref and builder.bases.get(
             int(ref['NAME'], 16), ('',))[0] == 'LIGH' else None
         record = R.pack_refr(ids[ref['FormID']], base, *_placed_at(builder, ref), float(ref.get('XSCL.Scale', 1.0)), radius,
@@ -913,23 +914,27 @@ def _cell_quests(builder: CellBuilder, export_dir: Path, refs: list, cell_of, ce
     `cells`."""
     placed_actors = [r for sig in ('ACHR', 'ACRE') for r in export_records(export_dir, sig) if cell_of(r)]
     held = {int(r['FormID'], 16) for r in own_records(export_dir, 'QUST')} if builder.built else set()
-    quest_recs = QuestScope(export_dir, builder.scripts.dir).included(builder.bases, refs, placed_actors, held)
+    contents = {int(r['FormID'], 16) for sig in held_types(export_dir) if builder.built
+                for r in own_records(export_dir, sig)}
+    quest_recs = QuestScope(export_dir, builder.scripts.dir).included(builder.bases, refs, placed_actors, held,
+                                                                      contents)
     builder.counts['QUST in the build'] = len(quest_recs)
     quests = {r['EditorID']: builder.fnv_id(r['FormID']) for r in quest_recs}
     converts = builder.bases.keys() | {int(r['FormID'], 16) for sig in placed_types('item')
                                        for r in export_records(export_dir, sig)}
-    placed = {r['EditorID']: builder.fnv_id(r['FormID']) for r in refs if r.get('EditorID')
-              and int(r['NAME'], 16) in converts and int(r['NAME'], 16) not in builder.parts.parts}
+    placed = {_ref_name(r): builder.fnv_id(r['FormID']) for r in refs
+              if int(r['NAME'], 16) in converts and int(r['NAME'], 16) not in builder.parts.parts}
     builder.actor_refs = {int(r['FormID'], 16): builder.first_id(ACHR_KEY.format(r['FormID'])) for r in placed_actors}
     builder.actor_refs.update({int(r['NAME'], 16): builder.first_id(NPC_KEY.format(int(r['NAME'], 16)))
                                for r in placed_actors if r['Signature'] == 'ACHR'})
-    actors = {r['EditorID']: builder.actor_refs[int(r['FormID'], 16)] for r in placed_actors if r.get('EditorID')}
+    actors = {_ref_name(r): builder.actor_refs[int(r['FormID'], 16)] for r in placed_actors}
     actors.update({r['EditorID']: builder.actor_refs[int(r['FormID'], 16)] for r in export_records(export_dir, 'NPC_')
                    if r.get('EditorID') and int(r['FormID'], 16) in builder.actor_refs})
     say = builder.say = SayTopics(builder, export_dir)
     topics = {say.dials[d]['EditorID']: builder.first_id(f'DIAL {r["FormID"]} {d}') for r in quest_recs
               for d in say.topics(r)}
     builder.scripts.named.update({**cells, **placed, **actors, **builder.faction_names, **topics, **quests})
+    builder.scripts.unique_actors = _unique_actors(builder, export_dir)
     builder.objectives = objective_globals(builder, quest_recs)
     builder.quest_vars = quest_var_globals(builder, export_dir, quest_recs)
     return quest_recs, quests
@@ -1150,9 +1155,46 @@ def _master_places(builder: CellBuilder, export_dir: Path) -> dict:
     """
     if builder.in_masters is None:
         return {}
-    found = ((r['EditorID'], builder.ids.fo4(int(r['FormID'], 16))) for sig in ('CELL', 'WRLD', 'REFR')
-             for r in export_records(export_dir, sig) if r.get('EditorID') and not builder.ids.is_own(int(r['FormID'], 16)))
+    found = ((_ref_name(r), _master_form(builder, sig, r)) for sig in ('CELL', 'WRLD', *PLACED_REF_SIGS)
+             for r in export_records(export_dir, sig) if (r.get('EditorID') or sig in PLACED_REF_SIGS)
+             and not builder.ids.is_own(int(r['FormID'], 16)))
     return {edid: fid for edid, fid in found if fid in builder.in_masters}
+
+
+def _master_form(builder: CellBuilder, sig: str, rec: dict) -> 'int | None':
+    """The FO4 form a master's build gave `rec` (an actor's from its ledger).
+    See: docs/fork/fo4_pipeline.md#formid-properties
+    """
+    if sig in ('ACHR', 'ACRE'):
+        return builder.writer.from_master(MADE_SITE, ACHR_KEY.format(rec['FormID']))
+    return builder.ids.fo4(int(rec['FormID'], 16))
+
+
+def _unique_actors(builder: CellBuilder, export_dir: Path) -> dict:
+    """{NPC/creature base EditorID (lower): FO4 actor} of each base placed exactly once, ours or a built master's.
+    See: docs/fork/fo4_pipeline.md#unique-actors
+    """
+    refs = export_records(export_dir, 'ACHR') + export_records(export_dir, 'ACRE')
+    counts = collections.Counter(int(r['NAME'], 16) for r in refs)
+    names = {int(r['FormID'], 16): r['EditorID'].lower() for sig in ('NPC_', 'CREA')
+             for r in export_records(export_dir, sig) if r.get('EditorID')}
+    found = ((names.get(int(r['NAME'], 16)), _actor_form(builder, r)) for r in refs if counts[int(r['NAME'], 16)] == 1)
+    return {name: form for name, form in found if name and form}
+
+
+def _actor_form(builder: CellBuilder, rec: dict) -> 'int | None':
+    """The FO4 actor placed for FNV `rec`: this build's, else its built master's."""
+    fid = int(rec['FormID'], 16)
+    if builder.in_masters is None or builder.ids.is_own(fid):
+        return builder.actor_refs.get(fid)
+    return _master_form(builder, rec['Signature'], rec)
+
+
+def _ref_name(rec: dict) -> str:
+    """The script property naming `rec`: its EditorID, else TES4Form_<FormID>.
+    See: docs/fork/fo4_pipeline.md#formid-properties
+    """
+    return rec.get('EditorID') or formid_property_name(rec['FormID'])
 
 
 def _cells(builder: CellBuilder, interiors: list, worlds: list) -> dict:

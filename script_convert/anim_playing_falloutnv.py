@@ -74,17 +74,14 @@ def anim_playing(ctx, call):
     return f'{READ}({ctx._resolve_objref_ref(call.ref, call.extends)}, "{group}")'
 
 
-def declare(conv) -> list:
-    """The record's variables and TES4_AnimPlaying for a script reading IsAnimPlaying; [] otherwise."""
-    if not conv.sc.uses_anim_playing:
-        return []
-    return ['ObjectReference TES4_AnimRef', 'String TES4_AnimGroup', 'Float TES4_AnimStart', 'Float TES4_AnimEnd',
-            '', f'Int Function {READ}(ObjectReference akRef, String asGroup)',
-            '  {FNV IsAnimPlaying: 1 while the sequence this script last played on akRef runs (asGroup "" any).}',
-            '  Float now = Utility.GetCurrentRealTime()',
-            '  If akRef && akRef == TES4_AnimRef && (asGroup == "" || asGroup == TES4_AnimGroup) '
-            '&& now >= TES4_AnimStart && now < TES4_AnimEnd && akRef.Is3DLoaded()',
-            '    Return 1',
-            '  EndIf',
-            '  Return 0',
-            'EndFunction', '']
+#: The variables and TES4_AnimPlaying a script reading IsAnimPlaying carries (script_helpers adds them).
+DECLARE = ['ObjectReference TES4_AnimRef', 'String TES4_AnimGroup', 'Float TES4_AnimStart', 'Float TES4_AnimEnd',
+           '', f'Int Function {READ}(ObjectReference akRef, String asGroup)',
+           '  {FNV IsAnimPlaying: 1 while the sequence this script last played on akRef runs (asGroup "" any).}',
+           '  Float now = Utility.GetCurrentRealTime()',
+           '  If akRef && akRef == TES4_AnimRef && (asGroup == "" || asGroup == TES4_AnimGroup) '
+           '&& now >= TES4_AnimStart && now < TES4_AnimEnd && akRef.Is3DLoaded()',
+           '    Return 1',
+           '  EndIf',
+           '  Return 0',
+           'EndFunction', '']

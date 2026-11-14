@@ -47,6 +47,7 @@ from fo4_import.face.tint import skin_tone_layers
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
 from fo4_import.pipeline.build_steps import stamp_path
+from fo4_import.pipeline.stage_timer import charged, report, sample
 from fo4_import.spike import facegen_own, facegen_skin
 from fo4_import.spike.imagespace import LUT_FOLDER
 from tes5_import.base.tes5_reader import walk
@@ -295,9 +296,10 @@ def own_export(job: tuple, forms: list, textures: bool = True) -> list:
     """Write our own FaceGen for `forms` (facegen_own.export_own; face textures only with `textures`), the failed
     ones from the CK (fallback); report lines, each failure with its error."""
     data_dir, plugin = job[1], job[2]
-    written, kept, skipped, failed = facegen_own.export_own(job, forms, textures)
+    written, kept, skipped, failed, misses = facegen_own.export_own(job, forms, textures)
     lines = [f'own FaceGen written: {written + kept} ({kept} from the work cache), not exported (as the CK): '
              f'{skipped}, failed: {len(failed)}']
+    lines += [f'  work cache missed {count}: {why}' for why, count in misses.most_common()]
     lines += [f'  {form_id:08X} {error}' for form_id, error in sorted(failed.items())]
     return lines + (fallback(plugin, data_dir, failed) if failed else [])
 
@@ -322,10 +324,12 @@ def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
     See: docs/fork/fo4_pipeline.md#main-archive
     See: docs/fork/fo4_pipeline.md#faces-repack
     """
-    print('textures packed:', pack_textures(data_dir, plugin, (LUT_FOLDER, CLASSIC_FOLDER), prune=False))
-    print('files packed into the Main and voices archives:', pack_main(data_dir, plugin, geometry(plugin)))
+    print('textures packed:', charged('faces pack textures', pack_textures, data_dir, plugin,
+                                      (LUT_FOLDER, CLASSIC_FOLDER), False))
+    print('files packed into the Main and voices archives:',
+          charged('faces pack main', pack_main, data_dir, plugin, geometry(plugin)))
     if not keep_loose:
-        print('loose files the archives hold, removed:', drop_packed(data_dir, plugin))
+        print('loose files the archives hold, removed:', charged('faces drop loose', drop_packed, data_dir, plugin))
 
 
 def heads(job: tuple, own: bool, forms: list = None, ck: bool = True) -> bool:
@@ -347,6 +351,28 @@ def heads(job: tuple, own: bool, forms: list = None, ck: bool = True) -> bool:
     return not any(line.startswith(FALLBACK_FAILED) for line in lines)
 
 
+def steps(args, data_dir: Path, export_dir: Path) -> bool:
+    """Restore, heads, refit, heads of the refitted, skin and pack, each charged to its stage (stage_timer);
+    False when a CK fallback left NPCs without FaceGen.
+    See: docs/fork/fo4_facegen_plan.md#stage-times
+    """
+    print('loose files restored from the Main archive:', charged('faces restore', restore, data_dir, args.plugin))
+    job = (export_dir, data_dir, args.plugin, skin_tone_layers(FALLOUT4_ESM.read_bytes()))
+    whole = charged('faces heads', heads, job, args.own_facegen, None, not args.collected)
+    faces = charged('faces fitted list', facegen_skin.fitted_faces, data_dir, args.plugin, export_dir)
+    for line in charged('faces refit', facegen_skin.refine, job, faces):
+        print(line)
+    if faces:
+        whole = charged('faces heads refitted', heads, job, args.own_facegen, [f.form_id for f in faces]) and whole
+    if not args.own_facegen:
+        print('face textures at vanilla size:', charged('faces vanilla textures', vanilla_textures, args.plugin,
+                                                         data_dir))
+    for line in charged('faces skin', facegen_skin.skin, job, faces):
+        print(line)
+    charged('faces pack', pack, data_dir, args.plugin, args.keep_loose)
+    return whole
+
+
 def main():
     """Export, refine, export again, skin and pack; print what was done. The faces stamp records the plugin build
     this ran on (faces_stale); exit 2 when a CK fallback left NPCs without FaceGen."""
@@ -364,19 +390,11 @@ def main():
     data_dir, export_dir = Path(args.data), Path(args.export)
     plugin_path = data_dir / args.plugin
     write_faces_stamp(plugin_path, 'running', sys.argv[1:], Path(os.getcwd()))
-    print('loose files restored from the Main archive:', restore(data_dir, args.plugin))
-    job = (export_dir, data_dir, args.plugin, skin_tone_layers(FALLOUT4_ESM.read_bytes()))
-    whole = heads(job, args.own_facegen, ck=not args.collected)
-    faces = facegen_skin.fitted_faces(data_dir, args.plugin, export_dir)
-    for line in facegen_skin.refine(job, faces):
+    stop = sample()
+    whole = steps(args, data_dir, export_dir)
+    stop()
+    for line in report():
         print(line)
-    if faces:
-        whole = heads(job, args.own_facegen, [f.form_id for f in faces]) and whole
-    if not args.own_facegen:
-        print('face textures at vanilla size:', vanilla_textures(args.plugin, data_dir))
-    for line in facegen_skin.skin(job, faces):
-        print(line)
-    pack(data_dir, args.plugin, args.keep_loose)
     if not whole:
         raise SystemExit(f'faces of {args.plugin}: a CK fallback left NPCs without FaceGen (lines above)')
     write_faces_stamp(plugin_path, 'finished', sys.argv[1:], Path(os.getcwd()))

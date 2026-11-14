@@ -373,7 +373,10 @@ Mountain at `RadioBMDontTakeMyRaul`. The converter left every call a `TODO`.
   (`NextStep` 0) instead of returning to RadioHello. Starting it switches
   its receivers on (`Receivers`, `SetRadioOn`), since an FO4 transmitter is
   heard only through one: the acts' stage markers, Hanlon's Camp Golf
-  loudspeaker.
+  loudspeaker. Those receivers are written persistent (`Radio.keeps`): FNV
+  does not flag them, and a temporary reference in the `Receivers` array
+  bound as `<nullptr form>` (the Papyrus log of the 2026-11-14 play test,
+  all four on-demand playlists).
 - <a id="npc-radio"></a>**An NPC as the radio (built 2026-11-08, not played).** Lily's recording has
   no placed radio: after the player rests with her, `LilyMedicineTimerSCRIPT`
   starts it and `LilyREF.SetNPCRadio 1 VLilyGrandkidsRecordingREF` plays it

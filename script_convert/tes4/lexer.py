@@ -138,6 +138,17 @@ def _number_or_ident(out: list, text: str, i: int, n: int,
     out.append(Token(T.NUMBER, m.group(), line, col))
     return j
 
+def _slash_banner(text: str, line_start: int, i: int) -> bool:
+    """Whether the line at `i` is only slashes from there on, with nothing before them (a `////` banner).
+    See: docs/commentary/script_convert.md#slash-banner
+    """
+    if text[i] != '/' or text[line_start:i].strip():
+        return False
+    end = text.find('\n', i)
+    rest = text[i:end if end >= 0 else None].strip()
+    return len(rest) > 1 and not rest.strip('/')
+
+
 def tokenize(source: str) -> list[Token]:
     """Tokenise one script body into a flat token list ending in EOF.
 
@@ -171,11 +182,11 @@ def tokenize(source: str) -> list[Token]:
 
         col = i - line_start + 1
 
-        if ch == ';':
+        if ch == ';' or _slash_banner(text, line_start, i):
             j = text.find('\n', i)
             if j < 0:
                 j = n
-            out.append(Token(T.COMMENT, text[i:j], line, col))
+            out.append(Token(T.COMMENT, text[i:j] if ch == ';' else ';' + text[i:j], line, col))
             i = j
             continue
 

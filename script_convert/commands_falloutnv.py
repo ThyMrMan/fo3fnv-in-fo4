@@ -12,11 +12,12 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
 from fo4_import.base.bink import movie_key
-from fo4_import.spike.type_tests import CREATURE_TYPES, creature_keyword
+from fo4_import.spike.type_tests import BIPED_SLOT_PREFIX, CREATURE_TYPES, WEAPON_SLOT, creature_keyword, equipped_slot
 from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_screen_property, fallout4_swap_property,
                                       papyrus_script_name, safe_property_name, typed_already)
 from script_convert.anim_action_falloutnv import anim_action
 from script_convert.anim_playing_falloutnv import anim_playing
+from script_convert.script_helpers import PC_MOVED_CELL
 from script_convert.command_rows import ACTOR, OBJREF, Cmd
 from script_convert.constants_falloutnv import ITEM_TYPE_LISTS
 from script_convert.emit.commands import emit_row
@@ -243,7 +244,8 @@ def weapon_anim_type(ctx, call) -> str:
     differently (a converted rifle is a crossbow).
     See: docs/commentary/script_convert.md#fallout-weapon-anim-type
     """
-    ref = ctx._convert_ref(call.ref, call.extends, as_receiver=True) if call.ref else 'Self'
+    ref = ctx._convert_ref(call.ref, call.extends, as_receiver=True) if call.ref else \
+        ctx._self_reference(call.extends)
     weapon = f'({ref} as Actor).GetEquippedWeapon()'
     for name in WEAPON_ANIM_LISTS.values():
         ctx.sc.property_refs[name] = 'FormList'
@@ -276,6 +278,13 @@ def force_sneak(ctx, call):
     return emit_row(ctx, START_SNEAKING, call.ref, call.raw_name, '', call.extends)
 
 
+def pc_moved_cell(ctx, call):
+    """JIP GetPCMovedCell on Fallout 4: the script's TES4_PCMovedCell().
+    See: docs/fork/nvse_script_language.md#script-helpers
+    """
+    return f'{PC_MOVED_CELL}()' if is_fallout4() else None
+
+
 def set_open_state(ctx, call):
     """FO3/FNV SetOpenState, two-state activators included; declines elsewhere."""
     if not (ctx.xref and ctx.xref.is_fallout()):
@@ -296,6 +305,23 @@ def creature_type(ctx, call):
     keyword = creature_keyword(int(kind))
     row = Cmd(f'{{ref}}.HasKeyword({keyword})', ACTOR, self_type=(keyword, 'Keyword'),
               flags='actor_only cmp_bool', max_args=0)
+    return emit_row(ctx, row, call.ref, call.raw_name, '', call.extends)
+
+
+def equipped_object(ctx, call):
+    """FNV `GetEquippedObject <slot>` on Fallout 4: the weapon slot's GetEquippedWeapon, another biped slot's
+    F3NV_Items.EquippedIn (the armor the build marks with that slot's keyword); declines elsewhere.
+    See: docs/fork/fo4_perks.md#biped-slots
+    """
+    if not is_fallout4():
+        return None
+    slot = equipped_slot(call.arg(0))
+    if slot is None:
+        return ctx.note(f'NE: GetEquippedObject {call.arg(0).strip()} - the slot must be a number', 'None')
+    keyword = f'{BIPED_SLOT_PREFIX}{slot}'
+    row = (Cmd('{ref}.GetEquippedWeapon()', ACTOR, flags='actor_only', max_args=0) if slot == WEAPON_SLOT else
+           Cmd(f'F3NV_Items.EquippedIn({{ref}}, {keyword})', ACTOR, self_type=(keyword, 'Keyword'),
+               flags='actor_only', max_args=0))
     return emit_row(ctx, row, call.ref, call.raw_name, '', call.extends)
 
 
@@ -521,6 +547,7 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'entertrigger': enter_trigger,
                     'getanimaction': anim_action,
                     'isanimplaying': anim_playing,
+                    'getpcmovedcell': pc_moved_cell,
                     'setforcesneak': force_sneak,
                     'playbink': play_bink,
                     'isplayertagskill': tag_skill,
@@ -536,6 +563,7 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'isactorrefessential': is_essential,
                     'getiscreaturetype': creature_type,
                     'isdlcinstalled': dlc_installed,
+                    'getequippedobject': equipped_object,
                     'setbroadcaststate': broadcast_state,
                     'startradioconversation': start_radio_conversation,
                     'setnpcradio': npc_radio,

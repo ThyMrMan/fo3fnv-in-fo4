@@ -1375,6 +1375,50 @@ workers, held down by memory, with 15 GB free): 2,382 written, 1,220
 skipped, 0 errors in 680 s (0.29 s a written face, 11 minutes). All 9,528
 files are byte-identical to the previous code's.
 
+#### <a id="stage-times"></a>Step times in the log (2026-11-14)
+
+The 2026-11-14 chain's faces stage took 2,157 s, and its log said only
+what each step did, not how long. `facegen.steps` now charges each step
+to a `stage_timer` stage, and the stage ends with the build's usual
+`stage <name>: <s>s` lines and peak memory: `faces restore`, `faces heads`,
+`faces fitted list`, `faces refit`, `faces heads refitted`, `faces skin`,
+`faces pack` (inside it `faces pack textures`, `faces pack main`,
+`faces drop loose`). `F3NV_PROFILE_STAGES` profiles any of them, as in a
+build.
+
+That run's heads wrote all 2,382 faces with none from the work cache
+([own-cache](#own-cache)). The cache holds a full set from every build
+since 2026-11-12 (51,630 entries), and every entry since 2026-11-13 13h is
+still current by its code record. So the misses come from the key or the
+read check: each NPC's whole `NPC_` record, and every record a face read,
+as the base build wrote them. Not yet confirmed which, so the heads step
+now says why each face missed (`facegen_own.miss_reason`), one line per
+cause under its `own FaceGen written` line: `no entry` (its key: the NPC
+record, masters or texconv), `code changed`, `read <SIG> record changed`
+(the first record it read that differs) or `read file changed`.
+
+Why the stage cannot simply be skipped when no face input changed: a base
+rebuild writes the plugin without the refit's slider patches and the
+skin's tone patches (`facegen_skin.refine` and `skin` patch the plugin),
+and its archives without the FaceGen
+([faces-stamp](#faces-stamp)). Every rebuild must apply those again and
+pack the faces again, so the gain has to come from each step reusing its
+own work.
+
+Planned once the step times and miss reasons are in (not built):
+
+1. **FaceGen in its own plugin's archives.** An empty `F3NV - Faces.esl`
+   with its own `- Main.ba2` and `- Textures.ba2`: the game finds a face
+   by its NPC's origin plugin and FormID, whatever archive holds it, and
+   loads only plugin-named archives ([main-archive](fo4_pipeline.md#main-archive)).
+   A base rebuild then leaves the faces packed; they repack only when a
+   face changes.
+2. **Refit and skin results kept per NPC**, applied to each new base
+   build in seconds. The patches stay in the main plugin: an override
+   plugin would copy whole `NPC_` records, go stale on every other NPC
+   change, and lose to a mod's later override.
+3. **The heads' cache key**, fixed by what the miss reasons show.
+
 ### <a id="ck-face-shader"></a>The CK's face bake, read from its shader (2026-11-12)
 
 The two rules the sections above left out (the lips and the island) and

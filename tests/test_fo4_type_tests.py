@@ -77,6 +77,21 @@ def test_with_keywords_adds_to_ksiz_and_kwda():
     assert out[b'KSIZ'] == struct.pack('<I', 3) and out[b'KWDA'] == struct.pack('<3I', 7, 8, 9)
 
 
+def test_with_keywords_adds_kwda_after_the_given_tag():
+    """An armor without keywords gains KSIZ/KWDA right after RNAM."""
+    subs = [(b'EDID', b'x'), (b'RNAM', b'r'), (b'DATA', b'd')]
+    out = T.with_keywords(subs, [7], T.ARMO_KEYWORDS_AFTER)
+    assert [t for t, _ in out] == [b'EDID', b'RNAM', b'KSIZ', b'KWDA', b'DATA'] and out[3][1] == struct.pack('<I', 7)
+
+
+def test_biped_slots_mark_each_set_flag():
+    """Biped flags 0x401 (Head, Hat) give FNV_BipedSlot0 and FNV_BipedSlot10."""
+    kw = _Keywords()
+    T.TypeKeywords.slots(kw, 0x401)
+    assert sorted(kw.ids) == ['FNV_BipedSlot0', 'FNV_BipedSlot10']
+    assert (T.equipped_slot(' 10'), T.equipped_slot('iSlot'), T.equipped_slot('20')) == (10, None, None)
+
+
 def test_weapon_fields_name_animation_and_skill():
     """An FNV DNAM with animation type 5 and skill Guns names RifleBallistic and Guns."""
     dnam = bytearray(140)

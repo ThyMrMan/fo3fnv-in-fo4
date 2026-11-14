@@ -33,6 +33,7 @@ from script_convert.command_rows import (
     ACTOR_VALUE_MAP_LOW, BARE_NO_EQUIV_COMMANDS
 )
 from script_convert.resolve import digit_stripped_formid
+from script_convert.target import is_fallout4
 
 #: A raw FormID operand: TES4 scripts name a form by id as readily as by
 #: EditorID (`additem 0000000f 500` is how Morrowind_ob hands out gold).  The
@@ -61,6 +62,18 @@ def _engine_functions() -> frozenset:
 
 #: Script function names of the engines; a bare one is a call, never a variable.
 ENGINE_FUNCTIONS = _engine_functions()
+#: {xNVSE, JIP LN or FOSE function: the kind of value it returns} (tools/generators/gen_extender_functions.py).
+EXTENDER_FUNCTIONS = json.loads((Path(__file__).resolve().parent / 'data' / 'extender_functions.json')
+                                .read_text(encoding='utf-8'))
+#: The inert Papyrus value of each kind an extender function returns.
+INERT_VALUES = {'number': '0', 'form': 'None', 'array': 'None', 'string': '""'}
+
+
+def inert_value(name: str) -> str:
+    """An unconverted function's inert read: typed by its extender return, else 0.
+    See: docs/fork/nvse_script_language.md#unknown-functions
+    """
+    return INERT_VALUES[EXTENDER_FUNCTIONS.get(name.lower(), 'number')]
 
 #: Bare names whose reading NEVER depends on the script.  Each was an `if low
 #: ==` arm returning one constant expression.
@@ -102,7 +115,7 @@ BARE_COMMANDS = frozenset({
     'isspelltarget', 'isguard', 'getnextref', 'isowner', 'getbaseobject',
     'isonground', 'isthirdperson', 'isplayerinjail', 'getpcinfamy',
     'getrestrained', 'ispcamurderer', 'getcrimegold', 'getpcfame',
-    'gettalkedtopc', 'payfine', 'getdayofweek', 'getdayoftheweek',
+    'gettalkedtopc', 'payfine', 'getdayofweek', 'getdayoftheweek', 'getpcmovedcell',
 })
 
 
@@ -169,14 +182,16 @@ def resolve(conv, expr: str, extends: str) -> str:
         return f'{canonical}.GetValue()'
     if low in ACTOR_VALUE_MAP_LOW:
         return ACTOR_VALUE_MAP_LOW[low]
-    if (low in ENGINE_FUNCTIONS and low not in sc.var_renames
+    if ((low in ENGINE_FUNCTIONS or low in EXTENDER_FUNCTIONS) and low not in sc.var_renames
             and not conv._is_known_command(low)):
-        return conv.note(f'TODO: {expr}')
+        return conv.note(f'TODO: {expr}', inert_value(low))
     return sc.var_renames.get(low, expr)
 
 
 def _fixed_reading(conv, low: str, extends: str):
-    """A bare name with one fixed answer, or None."""
+    """A bare name with one fixed answer, or None; a self-read acts on the script's own reference.
+    See: docs/commentary/script_convert.md#bare-self-reads
+    """
     if low in BARE_READINGS:
         return BARE_READINGS[low]
     if low in BARE_INERT:
@@ -212,26 +227,15 @@ def _fixed_reading(conv, low: str, extends: str):
         return ('TES4_PCSleeping' if conv.sc.in_sleep_menumode
                 else 'Game.GetPlayer().GetSleepState()')
     if low == 'isininterior':
-        return f'{_self_ref(extends)}.GetParentCell().IsInterior()'
+        return f'{conv._self_reference(extends)}.GetParentCell().IsInterior()'
     if low in ('getdisabled', 'isdisabled'):
-        # Through the polyfill, not the bare native: a DESTROYED reference must
-        # not report as disabled.  Oblivion keeps the two as independent bits
-        # and closing a gate sets only destroyed, so its poll preambles were
-        # never meant to fire for a closed gate.
-        return (f'TES4Polyfill.GetDisabled({_self_ref(extends)}, '
+        return (f'TES4Polyfill.GetDisabled({conv._self_reference(extends)}, '
                 f'{conv._destroyed_formlist()})')
     if low == 'getdestroyed':
-        # NOT IsDisabled() and NOT GetCurrentDestructionStage(): destroyed,
-        # disabled and destruction-STAGE are three different engine states.
-        # Skyrim exposes no reader for the destroyed flag, and this conversion
-        # writes no DEST subrecord, so GetCurrentDestructionStage() is 0 for
-        # every converted record -- a read that can never become true.  That
-        # broke every quest advancing off its own destruction: MS48's Kvatch
-        # gate has the ONLY setstage 50 in its chain, so it pinned at stage 10.
-        return (f'TES4Polyfill.GetDestroyed({_self_ref(extends)}, '
+        return (f'TES4Polyfill.GetDestroyed({conv._self_reference(extends)}, '
                 f'{conv._destroyed_formlist()})')
     if low == 'reset':
-        return f'{_self_ref(extends, topic="akSpeakerRef")}.Reset()'
+        return f'{conv._self_reference(extends)}.Reset()'
     if low == 'getbuttonpressed':
         # A script that shows a button MessageBox of its own reads the clicked
         # index back through the consume-on-read helper (TES4 returns it once,
@@ -256,15 +260,6 @@ def _fixed_reading(conv, low: str, extends: str):
         return conv.note('GetContainer has no Papyrus equivalent',
                          value='None')
     return None
-
-
-def _self_ref(extends: str, topic: str = 'Self') -> str:
-    """The reference a bare self-read acts on, by script type."""
-    if extends == 'ActiveMagicEffect':
-        return 'GetTargetActor()'
-    if extends == 'TopicInfo':
-        return topic
-    return 'Self'
 
 
 def _is_bare_command(low: str) -> bool:
@@ -314,13 +309,16 @@ def papyrus_type_for(xref, fid: str, rtype: str) -> str:
     """Papyrus property type for a record, as the IMPORTER writes it.
 
     A BOOK carrying an ENAM leaves the importer as a SCRL, so a `Book`
-    property naming one cannot bind and reads None in-game.
+    property naming one cannot bind and reads None in-game; on Fallout 4 a
+    voice NOTE is a holotape.
     See: docs/commentary/script_convert.md#script-type-property-binding
     """
     ptype = record_type_to_papyrus(rtype)
     if (ptype == 'Book' and xref
             and fid in getattr(xref, 'enchanted_books', ())):
         return 'Scroll'
+    if ptype == 'Book' and is_fallout4() and xref and fid in getattr(xref, 'voice_notes', ()):
+        return 'Holotape'
     return ptype
 
 
@@ -372,6 +370,9 @@ def _record(conv, expr: str):
     xref = conv.xref
     if xref is None:
         return None
+    unnamed = conv.unnamed_ref_property(expr)
+    if unnamed:
+        return unnamed
 
     if _FORMID_RE.fullmatch(expr) and (not expr.isdigit()
                                        or expr.startswith('0')):

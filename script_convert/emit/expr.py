@@ -31,6 +31,7 @@ from script_convert import resolve_name as _resolve
 from script_convert import symbols as _symbols
 from script_convert.target import is_fallout4, self_as_actor
 from script_convert.tes4 import lexer as L, nodes as N
+from script_convert.tes4.parser import LAMBDA_TEXT
 
 # Papyrus binds `as` tighter than the arithmetic operators, so a cast applied
 # to one operand does not type the whole expression.  These are the operators
@@ -72,7 +73,7 @@ def is_ref_typed(conv, node: N.Expr) -> bool:
         t = (conv.type_of(node.name) or conv._property_type_ci(node.name) or _record_type(conv, node.name)).lower()
         return bool(t) and t not in _VALUE_TYPES_LOW
     if isinstance(node, N.Call):
-        return node.name.lower() in _REF_RETURNING
+        return node.name.lower() in _REF_RETURNING or _resolve.EXTENDER_FUNCTIONS.get(node.name.lower()) == 'form'
     if isinstance(node, N.Member):
         return _member_is_ref(conv, node)
     return False
@@ -236,6 +237,8 @@ def emit(conv, node: N.Expr, extends: str) -> str:
         # OBSE `$x` is a string cast, not an operator Papyrus knows.
         if node.op == '$':
             return f'({inner} as String)'
+        if node.op == '+':
+            return inner
         if isinstance(node.operand, N.BinOp) and (node.operand.op in _ARITH or node.op == '!'):
             inner = f'({inner})'
         return f'{node.op}{inner}'
@@ -259,7 +262,7 @@ def emit(conv, node: N.Expr, extends: str) -> str:
         return _binop(conv, node, extends)
 
     if isinstance(node, N.Raw):
-        return node.text
+        return conv.note(f'{LAMBDA_TEXT} - not converted', 'None') if node.text == LAMBDA_TEXT else node.text
 
     return ''
 
@@ -383,7 +386,8 @@ def _base_object(conv, ref, base, node, extends):
              or conv._base_record_type(base.name))
     if btype not in BASE_FORM_TYPES or not is_ref_typed(conv, ref):
         return None
-    if isinstance(ref, N.Ident) and ref.name.lower() in conv.sc.udf_params:
+    already_base = _symbols.type_of_expr(ref, conv.type_of) in BASE_FORM_TYPES | {'Form'}
+    if already_base or isinstance(ref, N.Ident) and ref.name.lower() in conv.sc.udf_params:
         return None
     return (f'{emit(conv, ref, extends)}.GetBaseObject()',
             emit(conv, base, extends))
@@ -603,14 +607,23 @@ def _binop(conv, node: N.BinOp, extends: str) -> str:
 
 def _plain_binop(conv, left, right, op: str, node: N.BinOp, extends: str) -> str:
     """`left op right`; Bool arithmetic and a Float `%` operand are cast to Int, as Papyrus rejects both."""
-    lhs = _operand(conv, left, node, extends)
-    rhs = _operand(conv, right, node, extends, right=True)
+    lhs = _as_number(conv, left, _operand(conv, left, node, extends), op)
+    rhs = _as_number(conv, right, _operand(conv, right, node, extends, right=True), op)
     if op in _ARITH and _is_bool_valued(conv, left) and _is_bool_valued(conv, right):
         return f'({lhs} as Int) {op} ({rhs} as Int)'
     if op == '%':
         lhs, rhs = (f'({text} as Int)' if _symbols.type_of_expr(side, conv.type_of) == 'Float' else text
                     for side, text in ((left, lhs), (right, rhs)))
     return f'{lhs} {op} {rhs}'
+
+
+def _as_number(conv, side: N.Expr, text: str, op: str) -> str:
+    """`text`, or its FormID when `side` names a form used in arithmetic, as FNV reads one.
+    See: docs/commentary/script_convert.md#form-in-arithmetic
+    """
+    if op in _ARITH and isinstance(side, N.Ident) and is_ref_typed(conv, side):
+        return f'{text}.GetFormID()'
+    return text
 
 
 #: `a op b` reversed, so a literal-first comparison folds on the same path.

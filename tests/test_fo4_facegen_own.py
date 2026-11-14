@@ -96,16 +96,17 @@ def test_a_failing_npc_is_reported_not_raised(monkeypatch):
         """A write that fails."""
         raise ValueError('bad head part')
     monkeypatch.setattr(facegen_own, 'write_face', boom)
-    assert facegen_own.own_face(0x800) == (0x800, 'ValueError: bad head part')
-    monkeypatch.setattr(facegen_skin, 'pool', lambda job, work, forms: [(0x800, 'written'), (0x801, 'skipped'),
-                                                                        (0x802, 'KeyError: x'), (0x803, 'kept')])
-    assert facegen_own.export_own(None, [0x800, 0x801, 0x802, 0x803]) == (1, 1, 1, {0x802: 'KeyError: x'})
+    assert facegen_own.own_face(0x800) == (0x800, 'ValueError: bad head part', '')
+    monkeypatch.setattr(facegen_skin, 'pool', lambda job, work, forms: [
+        (0x800, 'written', 'code changed'), (0x801, 'skipped', ''), (0x802, 'KeyError: x', ''), (0x803, 'kept', '')])
+    assert facegen_own.export_own(None, [0x800, 0x801, 0x802, 0x803]) == (
+        1, 1, 1, {0x802: 'KeyError: x'}, {'code changed': 1})
 
     def broken(*_):
         """A pool whose worker died."""
         raise BrokenProcessPool('killed')
     monkeypatch.setattr(facegen_skin, 'pool', broken)
-    written, kept, skipped, failed = facegen_own.export_own(None, [0x800, 0x801])
+    written, kept, skipped, failed, _ = facegen_own.export_own(None, [0x800, 0x801])
     assert (written, kept, skipped, sorted(failed)) == (0, 0, 0, [0x800, 0x801])
 
 
@@ -136,14 +137,15 @@ def _kept_face(tmp_path, monkeypatch) -> tuple:
         return {'meshes/x.nif': texture} if texture else None
     monkeypatch.setattr(facegen_own, 'face_files', make)
 
-    def run(acbs: bytes, race: bytes, texture: bytes, other: bytes = b'o') -> tuple:
-        """One build's write of face 801 (ACBS `other`), then face 800; face 800's."""
+    def run(acbs: bytes, race: bytes, texture: bytes, other: bytes = b'o', misses: list = None) -> tuple:
+        """One build's write of face 801 (ACBS `other`), then face 800 (its cache miss, if any, added to
+        `misses`); face 800's."""
         records = {('p.esp', 0x800): Rec('p.esp', b'NPC_', [(b'ACBS', acbs)]),
                    ('p.esp', 0x801): Rec('p.esp', b'NPC_', [(b'ACBS', other)]),
                    ('p.esp', 0x900): Rec('p.esp', b'RACE', [(b'DATA', race)])}
         src, out = _Src({'textures\\x.dds': texture}, records), tmp_path / f'mod{len(made)}'
         facegen_own.write_face(src, 'p.esp', 0x801, out)
-        status = facegen_own.write_face(src, 'p.esp', 0x800, out)
+        status = facegen_own.write_face(src, 'p.esp', 0x800, out, misses=misses)
         return status, (out / 'meshes/x.nif').read_bytes() if (out / 'meshes/x.nif').exists() else None
     return run, made
 
@@ -155,6 +157,17 @@ def test_a_face_is_kept_until_what_it_read_changes(tmp_path, monkeypatch):
     assert run(b'a', b'r', b'new') == ('written', b'new') and run(b'a', b'r2', b'new') == ('written', b'new')
     assert run(b'b', b'r2', b'new') == ('written', b'new') and run(b'a', b'r2', b'new') == ('kept', b'new')
     assert made.count(0x800) == 4
+
+
+def test_a_cache_miss_says_why(tmp_path, monkeypatch):
+    """A face made again names the cause: no entry for a new NPC record, else the record or file that changed."""
+    run, _ = _kept_face(tmp_path, monkeypatch)
+    misses = []
+    for build in ((b'a', b'r', b'tex'), (b'a', b'r', b'tex'), (b'a', b'r2', b'tex'), (b'a', b'r2', b'new'),
+                  (b'b', b'r2', b'new')):
+        run(*build, misses=misses)
+    assert misses == ['no entry (NPC record, masters or texconv)', 'read RACE record changed', 'read file changed',
+                      'no entry (NPC record, masters or texconv)']
 
 
 def test_a_face_not_exported_is_kept_too(tmp_path, monkeypatch):

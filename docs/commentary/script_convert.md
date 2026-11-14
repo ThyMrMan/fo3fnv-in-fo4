@@ -572,6 +572,48 @@ which has a Papyrus spelling. Highest-frequency, with their real equivalents:
 Making the fallthrough inert is what lets those rows land incrementally: the
 corpus compiles at every step instead of only once the last row is written.
 
+### <a id="ownership-owner"></a>The owner an ownership call takes
+
+**Code:** `script_convert/commands.py:_owner_base`
+
+`SetOwnership X` and `IsOwner X` name an NPC (or a faction, handled
+apart). Papyrus's `SetActorOwner` takes an `ActorBase`, so the argument is
+converted by its type: an `ActorBase` as is, a `Form` (a variable holding
+`GetBaseObject`'s result) cast to `ActorBase`, an `Actor` through
+`GetActorBase()`, anything else cast to `Actor` first. Better Brotherhood's
+`BBSelfDestructQuestScript` keeps the elder's base in a `ref` variable
+(`rElder = NolanMcNamaraREF.GetBaseObject`); `rElder.GetActorBase()` on a
+`Form` failed to compile.
+
+A function xNVSE, JIP LN or FOSE declares as returning a form
+(`data/extender_functions.json`) counts as a reference in a comparison, so
+`(Ref.GetEquippedObject 0) == 0` becomes `== None` (`emit/expr.is_ref_typed`).
+
+### <a id="bare-self-reads"></a>Bare self-reads: what `Self` is, disabled against destroyed
+
+**Code:** `_fixed_reading` in `script_convert/resolve_name.py`
+
+A bare `IsInInterior`, `GetDisabled`, `GetDestroyed` or `Reset` acts on the
+script's own reference, which `ScriptConverter._self_reference` names by
+script type: `GetTargetActor()` in an effect, `akSpeakerRef` in a dialogue
+fragment, `Self` on a reference. A second copy (`_self_ref`) answered `Self`
+in a dialogue fragment, where `Self` is the TopicInfo; YUP's
+`FALLOUTNV_PM__00177BD8` (`Self.GetParentCell()`) failed to compile
+(2026-11-14).
+
+`GetDisabled` goes through `TES4Polyfill.GetDisabled`, not the bare native:
+a destroyed reference must not report as disabled. Oblivion keeps the two as
+independent bits, and closing a gate sets only destroyed, so its poll
+preambles were never meant to fire for a closed gate.
+
+`GetDestroyed` is neither `IsDisabled()` nor `GetCurrentDestructionStage()`:
+destroyed, disabled and destruction stage are three different engine states.
+Skyrim exposes no reader for the destroyed flag, and the conversion writes no
+DEST subrecord, so `GetCurrentDestructionStage()` is 0 for every converted
+record, a read that can never become true. That broke every quest advancing
+off its own destruction: MS48's Kvatch gate has the only `setstage 50` in
+its chain, so it stuck at stage 10.
+
 ## Silent mis-conversion — the unmarked loss
 <a id="silent-mis-conversion-unmarked-loss"></a>
 
@@ -4996,9 +5038,67 @@ Adding `ObjectReference` to `MISMATCH_TYPES` instead would have pre-empted the
 null tests, because `_mismatch` runs before them.
 
 Census (2026-11-03): 15 sites, all in that one Old World Blues script; none in
-FalloutNV, Fallout 3, the other DLCs or Oblivion. The same pass converts
+FalloutNV, Fallout 3, the other DLCs or Oblivion.
+
+<a id="form-in-arithmetic"></a>A form named in arithmetic reads the same
+way: NVBIII's Frosthill hotel result script writes
+`set aaFrosthillDialogue.TownTrust to aaFrosthillDialogue + 1` (the quest,
+not its variable). Papyrus refuses a quest plus an Int, so the script failed
+to compile; the name now reads `aaFrosthillDialogue.GetFormID()`
+(`emit/expr._as_number`), the value FNV computed. The same pass converts
 `GetInCharGen` to 0 (four Old World Blues scripts), matching `SetInCharGen`,
 which converts to nothing.
+
+<a id="ref-copied-type"></a>A `ref` assigned only from other variables
+takes their type once theirs is decided (`symbols._copied_types`, repeated
+until nothing changes). The Frontier's `TFJacketSCR` sets `CurrentArmor` from
+`GetEquippedObject 2` (Armor) and `LastArmor` from `CurrentArmor`; the
+assignment pass reads each variable's declared type, still ObjectReference,
+so `LastArmor` stayed ObjectReference and the Armor would not go into it.
+
+A comparison of an expression that already names a base form (an Armor, a
+Weapon, a Form) with a base record compares the forms directly:
+`_base_object` added `.GetBaseObject()` to
+`Player.GetEquippedObject 0 == aaTFHELMRobby` as if the left side were a
+placed reference, and Armor has no GetBaseObject.
+
+<a id="placeatme-formid"></a>`PlaceAtMe 7` names a form by its raw
+FormID, as `GetIsID 7` does ([above](#raw-formid-form-argument-slot)): the GECK
+compiles the `7` into the script's SCRO list as `00000007`, the player's
+base NPC_ (The Frontier's `TFNukeWeaverSceneTrigger` clones the player that
+way). The converter wrote `PlaceAtMe(7, 1)`, an Int where a Form goes. A
+number there now resolves through `_form_operand_edid`; the player's base
+becomes `Game.GetPlayer().GetActorBase()`, since the name `Player` converts
+to the player reference.
+
+<a id="slash-banner"></a>A line of nothing but slashes (The Frontier's
+`TFChapter4Quest01Script` and `TFSSArchimedesQuestSCRIPT` divide their
+sections with `////...` banners, 10 lines in Master Build) is a comment. The
+lexer read each `/` as division, and the parser joined the banner onto the
+statement above (`arena = 9 / / / ...`), so neither script compiled. xNVSE's
+preprocessor strips only `;` comments and `/* */` blocks
+(`ScriptUtils.cpp`, `Preprocessor`); the compiled scripts carry nothing for
+these lines. A `/` anywhere else is still division.
+
+`GetHeadingAngle combattarget +90` (`TFCrVertibirdBoSScript` and two
+other vertibird scripts) adds 90 to the heading: GetHeadingAngle takes one
+argument, so it joins `_FIXED_ARITY` and the `+90` is an operator on the
+result, as `GetPos Z +15` is. A unary `+` that is left (`set
+GhostCounter to +1`) is dropped: Papyrus has no unary plus.
+
+<a id="string-backslash"></a>A backslash in a string literal is
+doubled. TES4 and xNVSE strings have no escapes, so `"TheFrontier\TFDC\"`
+(The Frontier's `TFDCController`, an ini path) is a path ending in a
+backslash; Papyrus reads `\"` as an escaped quote, the string never closed,
+and the script failed to compile. Master Build's scripts hold 305 such
+strings (UI paths like `"HudMainMenu\vehReticle\visible"`, model paths),
+FalloutNV.esm's 8.
+
+A user function's `ref` parameter nothing narrows is `Form`; a call through
+it is cast on every path (`_resolve_objref_ref` for the handlers and
+reference rows, `dispatch._receiver` for the mapped rows), not only on the
+reference rows: `TFMoveToDumpCellFUNCTION`'s `rRef.MoveTo` and
+`rRef.Disable` skipped it.
 
 ### A declaration can nest at ANY depth
 <a id="declarations-nest-at-any-depth"></a>
@@ -6992,3 +7092,16 @@ Blast radius on the rebuild: Oblivion 6 scripts (the three artifact spells,
 SE13Ally, SE13KnightOfOrder, SE14VoiceofSheogorathSpell), no CharacterGen or
 MQ script; Nehrim's arena fighters, the beggar and the IsPlayable2 line in
 AAGeneralUpdateQuest; Morrowind_ob 2 OnKnockout scripts. Everything compiles.
+
+### <a id="dangling-operator"></a>An operator with no right operand is dropped
+
+**Code:** `script_convert/tes4/parser.py:_operand_missing`
+
+A binary operator followed by nothing is authored damage the source engine
+ignored. At a line end (`if x <= 256 && `, Morroblivion's
+`fbmwMalexaScript`), parsing on would swallow the next line's statement into
+the condition. Before a `)` (NVBIII's `aaNVB3EvolutionQuestSCRIPT`:
+`elseif (Bombsent == ) && (aaNVB3Master.GodwinFate != 0)`), the operator was
+kept and `(Bombsent == )` failed to compile, losing the whole script. FNV's
+compiler kept it too (postfix `BombSent ==` with one operand); in both cases
+the operator is dropped and the condition ends at its left operand.

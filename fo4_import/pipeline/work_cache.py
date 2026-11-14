@@ -55,6 +55,11 @@ def _entry(site: str, inputs: tuple) -> Path:
     return CACHE / site / name[:2] / name
 
 
+def present(site: str, inputs: tuple) -> bool:
+    """Whether `site` keeps an entry for `inputs`, current or not."""
+    return _entry(site, inputs).is_file()
+
+
 def ran_path(entry: Path) -> Path:
     """The record of the code that made cache file `entry`."""
     return entry.with_name(entry.name + RAN_SUFFIX)

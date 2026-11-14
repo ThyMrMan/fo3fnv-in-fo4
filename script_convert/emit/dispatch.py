@@ -180,7 +180,10 @@ def _receiver(conv, call, ref_name, papyrus_func: str, extends: str) -> str:
         return 'GetTargetActor()'
     if ref == 'Self' and extends == 'TopicInfo' and is_actor_func:
         ref = 'akSpeakerRef'
-    if not is_actor_func or call.name in OBJREF_SHARED_FUNCTIONS:
+    shared = not is_actor_func or call.name in OBJREF_SHARED_FUNCTIONS
+    if conv.type_of(ref) == 'Form':
+        return f'({conv._cast(ref, "ObjectReference" if shared else "Actor")})'
+    if shared:
         return ref
     # akSpeakerRef is a fixed ObjectReference parameter in TopicInfo scripts.
     if ref == 'akSpeakerRef':
@@ -253,7 +256,14 @@ def _bare(conv, call, papyrus_func: str, args: str, needs_self: bool,
         # compile at exactly this point).
         return (f'{conv._resolve_objref_ref(None, extends)}'
                 f'.{papyrus_func}({args})')
-    return f'{papyrus_func}({args})'
+    return _udf_self(conv, needs_self) + f'{papyrus_func}({args})'
+
+
+def _udf_self(conv, needs_self: bool) -> str:
+    """`Self.` for an implicit-reference call in a UDF (its calling ref), else ''.
+    See: docs/fork/nvse_script_language.md#functions
+    """
+    return 'Self.' if needs_self and conv.sc.in_udf else ''
 
 
 def as_statement(conv, result: str) -> str:

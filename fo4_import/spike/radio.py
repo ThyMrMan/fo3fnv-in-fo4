@@ -191,6 +191,12 @@ class Radio:
                                           if m.lower() in named} for call in (START_CALL, NPC_RADIO_CALL))
         self.sounds = {int(r['FormID'], 16): r.get('FNAM.Filename', '') for r in export_records(export_dir, 'SOUN')}
 
+    def keeps(self, ref: dict) -> bool:
+        """Whether FNV `ref` receives a script-started station (kept persistent).
+        See: docs/fork/fo4_radio.md#start-radio-conversation
+        """
+        return any(ref['FormID'] in self.receivers.get(station, ()) for station in self.started)
+
     def frequency(self, station: int) -> 'float | None':
         """A placed station's frequency: Pip-Boy slot, or a lounge one off the band."""
         kind = pipboy(self.stations[station])

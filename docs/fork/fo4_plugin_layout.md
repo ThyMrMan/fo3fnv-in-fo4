@@ -496,6 +496,13 @@ loose music, 522 MB, which a pack does not need.)
   pack reaches) compiles into the pack's (`script.adopted_scripts`); before,
   the pack's quest named a script that existed nowhere and its `GameMode`
   check would never give the items.
+  <a id="adopted-types"></a>The scripts an adopted script names as types are
+  adopted too (`script.with_types` walks the masters' folders from every
+  attached script, not the build's own alone). YUP and Better Brotherhood
+  hold FNV's unplaced bobbleheads (through `TestQAMisc`), so they shipped
+  the 20 `FALLOUTNV_Bobblehead*Script` but not `FALLOUTNV_BH01QuestScript`,
+  the quest whose variables they count: FalloutNV.esm's build reaches no
+  bobblehead, so no master holds it compiled.
 - **Meshes FNV never shipped.** Classic Pack's 10mm pistol names seven
   mod-variant statics whose meshes are in no archive; a base whose model no
   export layer holds is left out, counted (`CellBuilder.record`), not a crash.

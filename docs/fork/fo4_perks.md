@@ -158,6 +158,29 @@ left out. Our own keywords rather than FO4's `WeaponType*`: they carry
 FNV's authored type exactly (an FNV rifle on an FO4 template keeps FNV's
 skill), where FO4's keywords describe the template.
 
+### <a id="biped-slots"></a>Biped slots (GetEquippedObject)
+
+FNV's `GetEquippedObject <slot>` names one of FNV's 20 biped slots (0
+Head, 2 UpperBody, 5 Weapon, 10 Hat, ...). FO4 has no FNV slot numbers:
+a converted armor takes its FO4 template's slots, so there is no fixed
+table from one to the other. The converter wrote every slot as
+`GetEquippedWeapon`, so `GetEquippedObject 0` (the head) read the gun.
+
+The build stamps `FNV_BipedSlot<n>` on every converted armor, one per bit
+of its authored `BMDT` biped flags (KSIZ/KWDA after RNAM when the template
+has none, as all 456 Fallout4.esm armors with keywords place them). The
+converter writes slot 5 as `GetEquippedWeapon()` and any other slot as
+`F3NV_Items.EquippedIn(actor, FNV_BipedSlot<n>)`: the first item F4SE's
+`GetWornItem` reports in FO4 slots 30-61 that carries the keyword, typed
+Armor. The binder makes the keyword on demand for the property, as it
+does `FNV_CreatureType*`. Every authored call (FalloutNV.esm, Master
+Build, NVWillow, Better Brotherhood) passes a literal slot; a variable
+slot is a `;NE:` note reading None.
+
+Limit: an armor the replacements table maps to a vanilla FO4 item
+(`"as": "item"`, 2 of 28 armor entries) is FO4's own record and carries
+no slot keyword, so a slot test never finds it.
+
 ## <a id="skill-gates"></a>Lock and terminal gates (built 2026-10-21, not yet played)
 
 FNV opens a lock or terminal of level L (0 to 100) only at Lockpick or

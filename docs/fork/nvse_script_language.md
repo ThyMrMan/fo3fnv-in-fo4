@@ -24,6 +24,11 @@ Oblivion.esm (2,393) before and after: the output is byte-identical.
 `+= -= *= /= ^=` all become one assignment; a compound one is spelled out
 (`x = x + e`), and `^=` becomes `Math.Pow`. `int a, b` and `int i = 5`
 declare every name and keep the value as an assignment where it was.
+A compound one is cast to its target's type as a `set` is: Extra Goodies'
+`NVDLC02FollowersBanterSCRIPT` writes `fTimer -= GetSecondsPassed` into a
+`short`, and `fTimer = fTimer - TES4_SecondsPassed` (Float into Int) failed
+to compile. `let array_var x := e` also declares `x` (Better Brotherhood's
+self-destruct terminal handler).
 `if eval e` and `while eval e` drop the `eval`; Papyrus evaluates the whole
 expression anyway. A script that declares its own variable `Eval`
 (Oblivion's `Dark17FollowingScript`) keeps reading it as that variable.
@@ -103,9 +108,21 @@ no properties, so every form the body names becomes an extra parameter after
 the declared ones. Each caller declares the same forms as `Auto Const`
 properties under the same names, which the importer fills by name, and
 passes them on: `Call Fn x` becomes `TES4_Fn.TES4Call(Self, x, SomeForm)`.
+A caller whose every call sits in a kept-as-comment block (JSawyer
+Ultimate's `NVJSawyerPreLoadQuestSCRIPT`, a `begin MenuMode 4` script)
+declares none of them: about 100 unused NPC properties there bound NPC
+bases to Actor types and filled the Papyrus log with wrong-type errors.
 A function calling another passes the callee's forms too, so
 `udf_fallout4.finish_calls` closes the set over the call graph after every
 script has converted and rewrites the calls and declarations once.
+A caller that declares a passed form as another type casts it to the
+function's: The Frontier's `TFGenericScript` declares its own quest
+`TFGenericQuest` as `Quest`, and `TFLoadMapMarkersFunction` takes it as
+`FALLOUTNV_TFGenericScript`, which Papyrus will not convert implicitly.
+
+A command with an implicit reference (`GetItemCount X`, `RemoveItem X`)
+acts on the calling reference, `akCallingRef`; written bare in a Global
+function it named nothing (Goodies' `GoodiesSecuritronUpgradeUDF`).
 
 `SetFunctionValue v` sets the result variable; `Return` returns it.
 Typed parameters (`Begin Function {ref rItem, int iCount}`) are declared
@@ -118,12 +135,37 @@ statically; the surveyed mods have none.
 ## <a id="not-converted"></a>Not converted
 
 Left as `;NE:` notes, as the brief scoped them out: lambdas
-(`(Begin Function {...} ... End)` as an argument), `Label`/`Goto`,
+(`(Begin Function {...} ... End)` as an argument; the lambda reads `None`
+and a `Call` through the variable holding it is a note), `Label`/`Goto`,
 `SetEventHandler` and the other event-handler commands, the new C-like
 syntax, and JIP/MCM/UI commands. An array the converter cannot prove is an
 xNVSE array (a cross-script one when the other script was not exported, or
 an engine list such as `GetActorsByProcessingLevel`) reads as `None` with a
 note.
+
+## <a id="unknown-functions"></a>Functions the converter has no row for
+
+`script_convert/data/extender_functions.json` lists every xNVSE, JIP LN and
+FOSE script function with what it returns, read from their command tables
+in `references/` by `tools/generators/gen_extender_functions.py` (1,988
+functions: 1,575 numbers, 191 forms, 131 arrays, 91 strings). A bare read
+(`GetDebugMode`), a read on a reference (`Ref.GetMapMarkerRep`) or a call
+with arguments of one the converter does not convert is a `;NE: TODO` note
+whose value has the function's own type: `0`, `None` or `""`. Before, a bare
+or dotted one stayed a raw name and the whole script failed to compile:
+TLD's `TLDQuestscript` (`GetMapMarkerRep`) and JSawyer Ultimate's
+`NVJSawyer0ApparelPatcher` (`GetDebugMode`), with every script naming them.
+
+## <a id="script-helpers"></a>Helpers a script carries
+
+A conversion that needs state of the script's own calls a helper function
+the script declares: `TES4_AnimPlaying` (IsAnimPlaying) and
+`TES4_PCMovedCell` (JIP's GetPCMovedCell: 1 when the player's cell differs
+from the one this script saw at its last call). `script_helpers.with_helpers`
+appends each helper a script calls but does not define as `write_psc`
+writes it, so a fragment script (terminal, dialogue, package, quest) gets
+it as a record script does. Fifteen terminal fragments that read
+IsAnimPlaying failed to compile without it (the 2026-11-13 builds).
 
 ## <a id="operators"></a>Operators
 

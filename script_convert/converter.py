@@ -10,8 +10,8 @@ from script_convert.constants import (
     COMBAT_APPROACH_QUEST, FALL_DAMAGE_SPELL, KNOWN_GLOBALS, LAST_ACTIVATOR_VAR, LOOSE_OPS, UDF_RESULT_VAR, PAPYRUS_BOOL_FUNCTIONS, PLACED_REF_SIGS,
     PLAYER_ALIAS_EXTENDS, RETURN_TYPES, SELF_NAMES, _REF_TYPES,
     _canonical_global, digit_stripped_formid, _record_type_to_base_papyrus,
-    generated_script_stem, is_generated_script_type, safe_property_name, papyrus_script_name,
-    resolve_property_formid,
+    formid_property_name, papyrus_quoted, generated_script_stem, is_generated_script_type, safe_property_name,
+    papyrus_script_name, resolve_property_formid,
 )
 from script_convert.command_rows import (
     COMMAND_ROWS, DISPATCH_EVENTS, ENUM_ACTOR_VALUES, ENUM_AV_LADDERS,
@@ -601,6 +601,8 @@ class ScriptConverter:
         if self.xref.is_quest_ref(owner) and prop_low not in _QUEST_METHODS \
                 and prop_low not in KNOWN_COMMANDS:
             return f'{self._convert_ref(owner, extends)}.{safe}'
+        if prop_low in _resolve_name.EXTENDER_FUNCTIONS and not self._is_known_command(prop_low):
+            return self.note(f'TODO: {owner}.{name}', _resolve_name.inert_value(prop_low))
         # Not a command anywhere: a cross-script variable read.
         if (prop_low not in KNOWN_COMMANDS
                 and prop_low not in BARE_BOOL_FUNCTIONS
@@ -660,7 +662,7 @@ class ScriptConverter:
 
         See: docs/commentary/script_convert.md#comparing-an-inert-operand
         """
-        return self.note(f'TODO: {_expr.emit_source(node)}')
+        return self.note(f'TODO: {_expr.emit_source(node)}', _resolve_name.inert_value(node.name))
 
     # ---- hooks for emit/stmt.py ------------------------------------------
     # The tree owns which statement KIND a line is; these own what each kind
@@ -793,7 +795,7 @@ class ScriptConverter:
         if stmt.op:
             if self._is_global_target(target):
                 return f'{target}.SetValue({self._global_read(target)} {stmt.op} {value})'
-            return f'{target} = {target} {stmt.op} {value}'
+            return self._typed_assign(target, f'{target} {stmt.op} {value}', stmt.value, extends)
         say, delay = _split_say(self, stmt.value, extends)
         if say is not None:
             return self._emit_say_line(target, say, delay)
@@ -902,11 +904,11 @@ class ScriptConverter:
     def emit_set_function_value(self, stmt, extends: str) -> str:
         """OBSE `SetFunctionValue <expr>` -- set a user function's result and keep running.
 
-        The first value's type becomes the function's return type.
+        The first value's type other than a bare 0 (FNV's "no form" as much as zero) becomes the return type.
         See: docs/commentary/script_convert.md#set-function-value
         """
         value = _expr.emit(self, stmt.value, extends) if stmt.value else '0'
-        if not self.sc.udf_returns:
+        if not self.sc.udf_return_type and value != '0':
             self.sc.udf_return_type = self.type_of(value) or 'Int'
         self.sc.udf_returns = True
         return f'{UDF_RESULT_VAR} = {value}'
@@ -988,18 +990,11 @@ class ScriptConverter:
         return None
 
     def emit_string(self, text: str, extends: str) -> str:
-        """A quoted literal: a TES4 EditorID reference, or a real string.
-
-        TES4 let a form name be quoted wherever a form was wanted, so the
-        quotes have to come off when the name resolves to a record, a local,
-        or the player -- otherwise Papyrus is handed a String where a Form is
-        declared.  Delegates to the resolver, which owns that lookup and
-        registers the property it creates.
-
-        A string that resolves to nothing comes back QUOTED, so a genuine
-        string literal is returned unchanged.
+        """A quoted name's record, local or player (resolver), else the string as a Papyrus literal.
+        See: docs/commentary/script_convert.md#string-backslash
         """
-        return _resolve_name.resolve(self, text, extends)
+        out = _resolve_name.resolve(self, text, extends)
+        return papyrus_quoted(out[1:-1]) if out.startswith('"') and out.endswith('"') else out
 
     def emit_array_read(self, owner: str, extends: str) -> str:
         """OBSE array element read: emit the base variable, drop the subscript.
@@ -1552,6 +1547,9 @@ class ScriptConverter:
             return 'Game.GetPlayer()'
         if low in SELF_NAMES:
             return self._self_reference(extends)
+        unnamed = self.unnamed_ref_property(name)
+        if unnamed:
+            return unnamed
 
         # Known TES4 globals -> property
         if low in KNOWN_GLOBALS:
@@ -1574,6 +1572,19 @@ class ScriptConverter:
             return safe
 
         return _resolve_name.record_property(self, name) or safe_property_name(name)
+
+    def unnamed_ref_property(self, text: str) -> str:
+        """The TES4Form_ property, registered with its type, of the unnamed placed reference raw FormID `text`
+        names; '' for any other text.
+        See: docs/fork/fo4_pipeline.md#formid-properties
+        """
+        fid = self.xref.unnamed_ref(text) if self.xref else ''
+        if not fid:
+            return ''
+        prop = formid_property_name(fid)
+        self.xref.edid_to_formid.setdefault(prop.lower(), fid)
+        self.sc.property_refs[prop] = self._record_property_type(fid, prop)
+        return prop
 
     def _record_property_type(self, fid: str, canon_edid: str) -> str:
         """Property type for record `fid`: its attached script class when that binds, else its record type.
@@ -2057,15 +2068,9 @@ class ScriptConverter:
             target, self.sc.property_refs.get(tgt_low, '')) == 'GlobalVariable'
 
     def _resolve_objref_ref(self, ref_name, extends) -> str:
-        """Resolve the reference for an ObjectReference-typed function call.
-
-        Like `_resolve_self_ref(actor_func=True)` this redirects the implicit
-        `Self` of ActiveMagicEffect/TopicInfo scripts (whose Self is NOT a
-        reference) onto the reference they act on — but it does not add the
-        `as Actor` cast, because the callee is declared on ObjectReference and
-        works for actors and objects alike. A bare call in a Quest script
-        (outside an OBSE user function, whose Self is its caller) has no
-        reference at all, in the source game as here: its subject is None.
+        """The receiver of an ObjectReference call: an ActiveMagicEffect or TopicInfo script's implicit Self is
+        the reference it acts on (no `as Actor` cast), a bare call in a Quest script outside a user function is
+        None, and a Form-typed handle (a user function's unnarrowed `ref` parameter) is cast to ObjectReference.
         See: docs/commentary/script_convert.md#quest-script-has-no-reference
         """
         if not ref_name:
@@ -2076,7 +2081,8 @@ class ScriptConverter:
                 and extends in ('ActiveMagicEffect', 'TopicInfo',
                                 PLAYER_ALIAS_EXTENDS)):
             return self._self_reference(extends)
-        return self._convert_ref(ref_name, extends, as_receiver=True)
+        ref = self._convert_ref(ref_name, extends, as_receiver=True)
+        return f'({self._cast(ref, "ObjectReference")})' if self.type_of(ref) == 'Form' else ref
 
     def set_scro_aliases(self, aliases: dict) -> None:
         """Install the stale-name -> canonical-EditorID map for this fragment.

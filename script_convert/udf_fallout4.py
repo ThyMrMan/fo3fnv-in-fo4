@@ -19,6 +19,8 @@ from script_convert.target import is_fallout4
 _INITIAL = {'Float': '0.0', 'Int': '0', 'Bool': 'False', 'String': '""'}
 #: The `{Converted from ...}` line every converted script carries under its ScriptName.
 _DOC_LINE = re.compile(r'^\{Converted from[^\n]*\}$', re.M)
+#: A property declaration: (type, name).
+_PROPERTY = re.compile(r'^[ \t]*([\w\[\]]+)[ \t]+Property[ \t]+(\w+)', re.M | re.I)
 
 
 # ---------------------------------------------------------------------------
@@ -79,9 +81,25 @@ def _append_args(text: str, callee: str, names: list) -> str:
     return ''.join(out) + text[start:]
 
 
+def passed(text: str, forms: list) -> list:
+    """Arguments for `forms` [(form, type)], cast where `text` declares another type.
+    See: docs/fork/nvse_script_language.md#functions
+    """
+    declared = {name.lower(): kind.lower() for kind, name in _PROPERTY.findall(text)}
+    return [f'{p} as {t}' if declared.get(p.lower(), t.lower()) != t.lower() else p for p, t in forms]
+
+
+def _called_live(text: str, callee: str) -> bool:
+    """Whether `text` calls `callee` outside a comment line.
+    See: docs/fork/nvse_script_language.md#functions
+    """
+    return bool(re.search(rf'^[ \t]*(?!;).*?\b{re.escape(callee)}\.TES4Call\(', text, re.I | re.M))
+
+
 def _declare(text: str, forms: list, is_function: bool) -> str:
     """`text` declaring `forms` it does not: a function's TES4Call gains parameters, any other script properties."""
-    missing = [(p, t) for p, t in forms if not re.search(rf'\b\w+(?:\[\])?\s+(?:Property\s+)?{p}\b', text, re.I)]
+    code = re.sub(r';[^\n]*', '', text)
+    missing = [(p, t) for p, t in forms if not re.search(rf'\b\w+(?:\[\])?\s+(?:Property\s+)?{p}\b', code, re.I)]
     if not missing:
         return text
     if is_function:
@@ -107,8 +125,8 @@ def finish_calls(output_dir: str, forms: dict, callers: dict) -> int:
             text = fh.read()
         calls = callers.get(script, ((), {}))[0]
         new = _declare(text, need.get(script.lower(), []), script.lower() in need)
-        for callee in sorted({c for c, _a in calls if need.get(c.lower())}):
-            new = _declare(_append_args(new, callee, [p for p, _t in need[callee.lower()]]),
+        for callee in sorted({c for c, _a in calls if need.get(c.lower()) and _called_live(text, c)}):
+            new = _declare(_append_args(new, callee, passed(new, need[callee.lower()])),
                            need[callee.lower()], script.lower() in need)
         if new != text:
             with open(path, 'w', encoding='utf-8', newline='\n') as fh:

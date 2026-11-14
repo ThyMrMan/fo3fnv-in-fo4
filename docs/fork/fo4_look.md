@@ -217,7 +217,9 @@ materials are read when a cell loads.
      it while all are 0, so a save made with the cards on corrects itself.
      The globals are [the region watch's](fo4_regions.md#built), polled
      from FNV's polygons; the 11 regions add 89 points. A start-game
-     quest's player alias gives the abilities (ALSP). FNV's own cell region
+     quest's player alias gives the abilities (ALSP). A gated card is
+     written persistent: as a temporary reference its effect's `Cards`
+     array bound `<nullptr form>` (the 2026-11-14 Papyrus log). FNV's own cell region
      lists name the same regions, but the region watch is the build's one
      region mechanism. Also open, the user's call:
      FNV hid the distant view in fog at a shorter view distance; ours shows

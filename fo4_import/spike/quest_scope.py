@@ -88,14 +88,19 @@ class QuestScope:
                     todo.append(fid)
         return seen
 
-    def included(self, bases: dict, refs: list, actors: list, held: set = frozenset()) -> list:
+    def included(self, bases: dict, refs: list, actors: list, held: set = frozenset(),
+                 contents: set = frozenset()) -> list:
         """FNV QUST records of a build placing `bases` {FormID: (type, record)}, references `refs` and actors
-        `actors` (ACHR/ACRE records), with quests `held` (a DLC's own) always in; in FormID order."""
+        `actors` (ACHR/ACRE records), with quests `held` (a DLC's own) always in and the scripts of the records
+        it holds (`contents`, made later: _held_content) read; in FormID order.
+        See: docs/fork/fo4_plugin_layout.md#adopted-types
+        """
         actor_bases = {int(a['NAME'], 16) for a in actors}
         where = {GET_IS_ID: actor_bases | bases.keys(), GET_IS_REFERENCE: {int(r['FormID'], 16) for r in refs + actors},
                  GET_IN_CELL: {int(r['ParentCELL'], 16) for r in refs + actors if r.get('ParentCELL')}}
         scripts = [rec.get('SCRI') for _, rec in bases.values()]
-        scripts += [self.items[fid] for fid in self._held(bases.keys() | actor_bases) if fid in self.items]
+        reached = self._held(bases.keys() | actor_bases | contents) | contents
+        scripts += [self.items[fid] for fid in reached if fid in self.items]
         named = set().union(*(self._script(scri)[0] for scri in scripts))
         for fid in actor_bases & self.actors.keys():
             named |= self._actor(self.actors[fid])
